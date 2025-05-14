@@ -26,7 +26,7 @@ export interface UnifiedBalanceResponse {
 
 export interface AllowanceParams {
   tokens: string[];
-  amount: string;
+  amount: number;
   chainId: (typeof SUPPORTED_CHAINS)[keyof typeof SUPPORTED_CHAINS];
 }
 
@@ -38,13 +38,13 @@ export interface AllowanceResponse {
 
 export interface BridgeParams {
   token: (typeof SUPPORTED_TOKENS)[keyof typeof SUPPORTED_TOKENS];
-  amount: string;
+  amount: number | string;
   chainId: (typeof SUPPORTED_CHAINS)[keyof typeof SUPPORTED_CHAINS];
 }
 
 export interface TransferParams {
   token: (typeof SUPPORTED_TOKENS)[keyof typeof SUPPORTED_TOKENS];
-  amount: string;
+  amount: number | string;
   chainId: (typeof SUPPORTED_CHAINS)[keyof typeof SUPPORTED_CHAINS];
   recipient: `0x${string}`;
 }

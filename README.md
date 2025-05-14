@@ -32,14 +32,14 @@ const balances = await sdk.getUnifiedBalances();
 // Bridge tokens
 await sdk.bridge({
   token: 'USDC',
-  amount: '1000000', // 1 USDC (6 decimals)
+  amount: 1, // number or string
   chainId: 137, // to Polygon
 });
 
 // Transfer tokens
 await sdk.transfer({
   token: 'ETH',
-  amount: '1000000000000000000', // 1 ETH
+  amount: 1, // 1 ETH in number or string
   chainId: 1,
   recipient: '0x...',
 });
@@ -120,7 +120,7 @@ removeAllListeners(): void
 ```typescript
 {
   token: 'ETH' | 'USDC' | 'USDT';
-  amount: string;
+  amount: number;
   chainId: number;
 }
 ```
@@ -130,7 +130,7 @@ removeAllListeners(): void
 ```typescript
 {
   token: 'ETH' | 'USDC' | 'USDT';
-  amount: string;
+  amount: number;
   chainId: number;
   recipient: `0x${string}`;
 }
