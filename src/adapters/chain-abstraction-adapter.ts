@@ -89,7 +89,7 @@ export interface TransferParams {
 }
 
 /**
- * Adapter class that wraps Arcana CA SDK and provides a unified interface for chain abstraction operations.
+ * Adapter class that wraps CA SDK and provides a unified interface for chain abstraction operations.
  */
 export class ChainAbstractionAdapter {
   private readonly ca: CA;
@@ -289,7 +289,7 @@ export class ChainAbstractionAdapter {
   }
 
   /**
-   * Get the list of supported chains from the Arcana SDK.
+   * Get the list of supported chains from the CA SDK.
    */
   public getSupportedChains(env?: Network): Array<{ id: number; name: string; logo: string }> {
     return CA.getSupportedChains(env);
