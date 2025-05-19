@@ -3,7 +3,6 @@ import { SUPPORTED_CHAINS, SUPPORTED_TOKENS } from '../constants';
 import { ChainAbstractionAdapter } from '../adapters/chain-abstraction-adapter';
 import type {
   UnifiedBalanceResponse,
-  TransactionResponse,
   BridgeParams,
   TransferParams,
   AllowanceParams,
@@ -11,6 +10,9 @@ import type {
   OnIntentHook,
   OnAllowanceHook,
   EthereumProvider,
+  RequestArguments,
+  PreSendTxParams,
+  PreProcessOptions,
 } from '../adapters/chain-abstraction-adapter';
 
 export class NexusSDK {
@@ -44,14 +46,14 @@ export class NexusSDK {
   /**
    * Bridge tokens between chains
    */
-  public async bridge(params: BridgeParams): Promise<TransactionResponse> {
+  public async bridge(params: BridgeParams): Promise<unknown> {
     return this.nexusAdapter.bridge(params);
   }
 
   /**
    * Transfer tokens
    */
-  public async transfer(params: TransferParams): Promise<TransactionResponse> {
+  public async transfer(params: TransferParams): Promise<unknown> {
     return this.nexusAdapter.transfer(params);
   }
 
@@ -132,8 +134,8 @@ export class NexusSDK {
   /**
    * Get supported chains
    */
-  public getSupportedChains(): typeof SUPPORTED_CHAINS {
-    return SUPPORTED_CHAINS;
+  public getSupportedChains(): Array<{ id: number; name: string; logo: string }> {
+    return this.nexusAdapter.getSupportedChains();
   }
 
   /**
@@ -142,11 +144,34 @@ export class NexusSDK {
   public getSupportedTokens(): typeof SUPPORTED_TOKENS {
     return SUPPORTED_TOKENS;
   }
+
+  public async deinit(): Promise<void> {
+    await this.nexusAdapter.deinit();
+  }
+
+  public async request(args: RequestArguments): Promise<unknown> {
+    return this.nexusAdapter.request(args);
+  }
+
+  public async preprocess(args: PreSendTxParams, options?: PreProcessOptions): Promise<void> {
+    return this.nexusAdapter.preprocess(args, options);
+  }
+
+  public on(eventName: string, listener: (...args: any[]) => void): void {
+    this.nexusAdapter.on(eventName, listener);
+  }
+
+  public removeListener(eventName: string, listener: (...args: any[]) => void): void {
+    this.nexusAdapter.removeListener(eventName, listener);
+  }
+
+  public removeAllCaEventListeners(eventName?: string): void {
+    this.nexusAdapter.removeAllCaEventListeners(eventName);
+  }
 }
 
 export type {
   UnifiedBalanceResponse,
-  TransactionResponse,
   BridgeParams,
   TransferParams,
   AllowanceParams,
@@ -154,4 +179,7 @@ export type {
   OnIntentHook,
   OnAllowanceHook,
   EthereumProvider,
+  RequestArguments,
+  PreSendTxParams,
+  PreProcessOptions,
 };
