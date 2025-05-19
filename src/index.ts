@@ -1,2 +1,3 @@
-export { NexusSDK } from './sdk';
+export * from './sdk';
 export * from './constants';
+export * from './types';

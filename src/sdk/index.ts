@@ -13,7 +13,7 @@ import type {
   RequestArguments,
   PreSendTxParams,
   PreProcessOptions,
-} from '../adapters/chain-abstraction-adapter';
+} from '../types';
 
 export class NexusSDK {
   public readonly nexusAdapter: ChainAbstractionAdapter;
