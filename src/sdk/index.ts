@@ -14,12 +14,13 @@ import type {
   PreSendTxParams,
   PreProcessOptions,
 } from '../types';
-
 export class NexusSDK {
   public readonly nexusAdapter: ChainAbstractionAdapter;
+  public readonly nexusEvents;
 
   constructor() {
     this.nexusAdapter = new ChainAbstractionAdapter();
+    this.nexusEvents = this.nexusAdapter.caEvents;
   }
 
   /**
@@ -169,17 +170,3 @@ export class NexusSDK {
     this.nexusAdapter.removeAllCaEventListeners(eventName);
   }
 }
-
-export type {
-  UnifiedBalanceResponse,
-  BridgeParams,
-  TransferParams,
-  AllowanceParams,
-  AllowanceResponse,
-  OnIntentHook,
-  OnAllowanceHook,
-  EthereumProvider,
-  RequestArguments,
-  PreSendTxParams,
-  PreProcessOptions,
-};
