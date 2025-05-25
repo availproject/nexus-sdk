@@ -1,5 +1,5 @@
 // src/sdk/index.ts
-import { SUPPORTED_CHAINS, SUPPORTED_TOKENS } from '../constants';
+import { SUPPORTED_CHAINS } from '../constants';
 import { ChainAbstractionAdapter } from '../adapters/chain-abstraction-adapter';
 import type {
   UnifiedBalanceResponse,
@@ -13,10 +13,12 @@ import type {
   RequestArguments,
   PreSendTxParams,
   PreProcessOptions,
+  EventListener,
 } from '../types';
+import SafeEventEmitter from '@metamask/safe-event-emitter';
 export class NexusSDK {
   public readonly nexusAdapter: ChainAbstractionAdapter;
-  public readonly nexusEvents;
+  public readonly nexusEvents: SafeEventEmitter;
 
   constructor() {
     this.nexusAdapter = new ChainAbstractionAdapter();
@@ -68,15 +70,15 @@ export class NexusSDK {
   /**
    * Set allowance for a token on a specific chain
    */
-  public async setAllowance(chainId: number, token: string, amount: string): Promise<void> {
-    return this.nexusAdapter.setAllowance(chainId, token, amount);
+  public async setAllowance(chainId: number, tokens: string[], amount: bigint): Promise<void> {
+    return this.nexusAdapter.setAllowance(chainId, tokens, amount);
   }
 
   /**
    * Revoke allowance for a token on a specific chain
    */
-  public async revokeAllowance(chainId: number, token: string): Promise<void> {
-    return this.nexusAdapter.revokeAllowance(chainId, token);
+  public async revokeAllowance(chainId: number, tokens: string[]): Promise<void> {
+    return this.nexusAdapter.revokeAllowance(chainId, tokens);
   }
 
   /**
@@ -126,9 +128,7 @@ export class NexusSDK {
   /**
    * Check if a token is supported
    */
-  public isSupportedToken(
-    token: (typeof SUPPORTED_TOKENS)[keyof typeof SUPPORTED_TOKENS],
-  ): boolean {
+  public isSupportedToken(token: string): boolean {
     return this.nexusAdapter.isSupportedToken(token);
   }
 
@@ -137,13 +137,6 @@ export class NexusSDK {
    */
   public getSupportedChains(): Array<{ id: number; name: string; logo: string }> {
     return this.nexusAdapter.getSupportedChains();
-  }
-
-  /**
-   * Get supported tokens
-   */
-  public getSupportedTokens(): typeof SUPPORTED_TOKENS {
-    return SUPPORTED_TOKENS;
   }
 
   public async deinit(): Promise<void> {
@@ -158,11 +151,11 @@ export class NexusSDK {
     return this.nexusAdapter.preprocess(args, options);
   }
 
-  public on(eventName: string, listener: (...args: any[]) => void): void {
+  public on(eventName: string, listener: EventListener): void {
     this.nexusAdapter.on(eventName, listener);
   }
 
-  public removeListener(eventName: string, listener: (...args: any[]) => void): void {
+  public removeListener(eventName: string, listener: EventListener): void {
     this.nexusAdapter.removeListener(eventName, listener);
   }
 

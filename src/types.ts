@@ -1,4 +1,4 @@
-import { SUPPORTED_CHAINS, SUPPORTED_TOKENS } from './constants';
+import { SUPPORTED_CHAINS } from './constants';
 import type {
   OnIntentHook,
   OnAllowanceHook,
@@ -7,6 +7,11 @@ import type {
   ProgressStep,
   ProgressSteps,
 } from '@arcana/ca-sdk';
+
+/**
+ * Generic event listener type for CA SDK events
+ */
+export type EventListener = (...args: unknown[]) => void;
 
 /**
  * Parameters for sending a transaction.
@@ -63,18 +68,21 @@ export interface AllowanceParams {
  * Response structure for token allowance.
  */
 export interface AllowanceResponse {
-  chainId: number;
-  allowance: string;
+  chainID: number;
+  allowance: bigint;
   token: string;
 }
+
+export type SUPPORTED_TOKENS = 'ETH' | 'USDC' | 'USDT';
+export type SUPPORTED_CHAINS_IDS = (typeof SUPPORTED_CHAINS)[keyof typeof SUPPORTED_CHAINS];
 
 /**
  * Parameters for bridging tokens between chains.
  */
 export interface BridgeParams {
-  token: (typeof SUPPORTED_TOKENS)[keyof typeof SUPPORTED_TOKENS];
+  token: SUPPORTED_TOKENS;
   amount: number | string;
-  chainId: (typeof SUPPORTED_CHAINS)[keyof typeof SUPPORTED_CHAINS];
+  chainId: SUPPORTED_CHAINS_IDS;
   gas?: string | number | bigint;
 }
 
@@ -82,9 +90,9 @@ export interface BridgeParams {
  * Parameters for transferring tokens.
  */
 export interface TransferParams {
-  token: (typeof SUPPORTED_TOKENS)[keyof typeof SUPPORTED_TOKENS];
+  token: SUPPORTED_TOKENS;
   amount: number | string;
-  chainId: (typeof SUPPORTED_CHAINS)[keyof typeof SUPPORTED_CHAINS];
+  chainId: SUPPORTED_CHAINS_IDS;
   recipient: `0x${string}`;
 }
 

@@ -1,5 +1,6 @@
 import { CA, Network } from '@arcana/ca-sdk';
-import { SUPPORTED_CHAINS, SUPPORTED_TOKENS } from '../constants';
+import SafeEventEmitter from '@metamask/safe-event-emitter';
+import { SUPPORTED_CHAINS, AVAILABLE_TOKENS } from '../constants';
 import type {
   EthereumProvider,
   OnIntentHook,
@@ -12,6 +13,7 @@ import type {
   TransferParams,
   AllowanceParams,
   AllowanceResponse,
+  EventListener,
 } from '../types';
 
 /**
@@ -19,7 +21,7 @@ import type {
  */
 export class ChainAbstractionAdapter {
   private readonly ca: CA;
-  public readonly caEvents;
+  public readonly caEvents: SafeEventEmitter;
   private initialized = false;
 
   constructor() {
@@ -69,10 +71,10 @@ export class ChainAbstractionAdapter {
   /**
    * Check the current allowance for a token on a specific chain.
    */
-  public async checkAllowance(chainId: number, token: string): Promise<string> {
+  public async checkAllowance(chainId: number, tokens: string[]): Promise<AllowanceResponse[]> {
     try {
-      const allowances = await this.ca.allowance().tokens([token]).chain(chainId).get();
-      return allowances[0]?.allowance.toString() || '0';
+      const allowances = await this.ca.allowance().tokens(tokens).chain(chainId).get();
+      return allowances;
     } catch (error) {
       throw new Error(`Failed to check allowance: ${error}`);
     }
@@ -81,9 +83,9 @@ export class ChainAbstractionAdapter {
   /**
    * Set the allowance for a token on a specific chain.
    */
-  public async setAllowance(chainId: number, token: string, amount: string): Promise<void> {
+  public async setAllowance(chainId: number, tokens: string[], amount: bigint): Promise<void> {
     try {
-      await this.ca.allowance().tokens([token]).amount(BigInt(amount)).chain(chainId).set();
+      await this.ca.allowance().tokens(tokens).amount(amount).chain(chainId).set();
     } catch (error) {
       throw new Error(`Failed to set allowance: ${error}`);
     }
@@ -92,9 +94,9 @@ export class ChainAbstractionAdapter {
   /**
    * Revoke the allowance for a token on a specific chain.
    */
-  public async revokeAllowance(chainId: number, token: string): Promise<void> {
+  public async revokeAllowance(chainId: number, tokens: string[]): Promise<void> {
     try {
-      await this.ca.allowance().tokens([token]).chain(chainId).revoke();
+      await this.ca.allowance().tokens(tokens).chain(chainId).revoke();
     } catch (error) {
       throw new Error(`Failed to revoke allowance: ${error}`);
     }
@@ -171,11 +173,7 @@ export class ChainAbstractionAdapter {
         .tokens(params.tokens)
         .chain(params.chainId)
         .get();
-      return allowances.map((allowance) => ({
-        chainId: allowance.chainID,
-        allowance: allowance.allowance.toString(),
-        token: allowance.token,
-      }));
+      return allowances;
     } catch (error) {
       throw new Error(`Failed to fetch allowance: ${error}`);
     }
@@ -185,18 +183,20 @@ export class ChainAbstractionAdapter {
    * Subscribe to account change events.
    */
   public onAccountChanged(callback: (account: string) => void): void {
-    this.on('accountsChanged', (accounts: string[]) => {
+    this.on('accountsChanged', ((...args: unknown[]) => {
+      const accounts = args[0] as string[];
       callback(accounts[0] || '');
-    });
+    }) as EventListener);
   }
 
   /**
    * Subscribe to chain change events.
    */
   public onChainChanged(callback: (chainId: number) => void): void {
-    this.on('chainChanged', (chainId: string) => {
+    this.on('chainChanged', ((...args: unknown[]) => {
+      const chainId = args[0] as string;
       callback(parseInt(chainId, 16));
-    });
+    }) as EventListener);
   }
 
   /**
@@ -233,10 +233,8 @@ export class ChainAbstractionAdapter {
   /**
    * Check if a token is supported by the adapter.
    */
-  public isSupportedToken(
-    token: (typeof SUPPORTED_TOKENS)[keyof typeof SUPPORTED_TOKENS],
-  ): boolean {
-    return Object.values(SUPPORTED_TOKENS).includes(token);
+  public isSupportedToken(token: string): boolean {
+    return AVAILABLE_TOKENS.some((availableToken) => availableToken.symbol === token);
   }
 
   /**
@@ -279,14 +277,14 @@ export class ChainAbstractionAdapter {
   /**
    * Subscribe to any event emitted by the CA SDK.
    */
-  public on(eventName: string, listener: (...args: any[]) => void): void {
+  public on(eventName: string, listener: EventListener): void {
     this.ca.on(eventName, listener);
   }
 
   /**
    * Remove a specific event listener.
    */
-  public removeListener(eventName: string, listener: (...args: any[]) => void): void {
+  public removeListener(eventName: string, listener: EventListener): void {
     this.ca.removeListener(eventName, listener);
   }
 
