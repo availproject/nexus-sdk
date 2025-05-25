@@ -35,14 +35,14 @@ export interface TokenMetadata {
   isNative?: boolean;
 }
 
-export type OnIntentHookData = {
+type OnIntentHookData = {
   intent: Intent;
   allow: () => void;
   deny: () => void;
   refresh: () => Promise<Intent>;
 };
 
-export type OnAllowanceHookData = {
+type OnAllowanceHookData = {
   allow: (s: Array<'min' | 'max' | bigint | string>) => void;
   deny: () => void;
   sources: Array<onAllowanceHookSource>;
@@ -157,4 +157,6 @@ export type {
   ProgressStep,
   ProgressSteps,
   Intent,
+  OnIntentHookData,
+  OnAllowanceHookData,
 };
