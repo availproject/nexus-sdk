@@ -1,6 +1,25 @@
 import { CA, Network } from '@arcana/ca-sdk';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
-import { SUPPORTED_CHAINS, AVAILABLE_TOKENS } from '../constants';
+import {
+  SUPPORTED_CHAINS,
+  AVAILABLE_TOKENS,
+  TOKEN_METADATA,
+  CHAIN_METADATA,
+  NEXUS_EVENTS,
+} from '../constants';
+import {
+  formatBalance,
+  formatTokenAmount,
+  getChainMetadata,
+  getSupportedTokenSymbols,
+  getSupportedChainIds,
+  isValidAddress,
+  parseUnits,
+  formatUnits,
+  truncateAddress,
+  chainIdToHex,
+  hexToChainId,
+} from '../utils';
 import type {
   EthereumProvider,
   OnIntentHook,
@@ -14,6 +33,9 @@ import type {
   AllowanceParams,
   AllowanceResponse,
   EventListener,
+  TokenMetadata,
+  ChainMetadata,
+  TokenBalance,
 } from '../types';
 
 /**
@@ -180,10 +202,91 @@ export class ChainAbstractionAdapter {
   }
 
   /**
+   * Get supported tokens with metadata.
+   */
+  public getSupportedTokens(): TokenMetadata[] {
+    return Object.values(TOKEN_METADATA);
+  }
+
+  /**
+   * Get detailed chain metadata by chain ID.
+   */
+  public getChainMetadata(chainId: number): ChainMetadata | undefined {
+    return getChainMetadata(chainId);
+  }
+
+  /**
+   * Get token balance for a specific token on a specific chain from unified balance.
+   */
+  public async getTokenBalance(
+    symbol: string,
+    chainId?: number,
+  ): Promise<TokenBalance | undefined> {
+    try {
+      const unifiedBalance = await this.ca.getUnifiedBalance(symbol);
+      if (!unifiedBalance) return undefined;
+
+      if (chainId) {
+        const chainBalance = unifiedBalance.breakdown.find((b) => b.chain.id === chainId);
+        if (!chainBalance) return undefined;
+
+        return {
+          symbol: unifiedBalance.symbol,
+          balance: chainBalance.balance,
+          formattedBalance: formatTokenAmount(chainBalance.balance, symbol),
+          balanceInFiat: chainBalance.balanceInFiat,
+          chainId: chainBalance.chain.id,
+          contractAddress: chainBalance.contractAddress,
+          isNative: chainBalance.isNative,
+        };
+      }
+
+      // Return total balance across all chains
+      return {
+        symbol: unifiedBalance.symbol,
+        balance: unifiedBalance.balance,
+        formattedBalance: formatTokenAmount(unifiedBalance.balance, symbol),
+        balanceInFiat: unifiedBalance.balanceInFiat,
+        chainId: 0, // 0 indicates cross-chain total
+      };
+    } catch (error) {
+      throw new Error(`Failed to get token balance: ${error}`);
+    }
+  }
+
+  /**
+   * Format balance with proper decimals and precision.
+   */
+  public formatBalance(balance: string, decimals: number, precision?: number): string {
+    return formatBalance(balance, decimals, precision);
+  }
+
+  /**
+   * Parse units from human-readable string to smallest unit.
+   */
+  public parseUnits(value: string, decimals: number): bigint {
+    return parseUnits(value, decimals);
+  }
+
+  /**
+   * Format units from smallest unit to human-readable string.
+   */
+  public formatUnits(value: bigint, decimals: number): string {
+    return formatUnits(value, decimals);
+  }
+
+  /**
+   * Validate if an address is valid.
+   */
+  public isValidAddress(address: string): boolean {
+    return isValidAddress(address);
+  }
+
+  /**
    * Subscribe to account change events.
    */
   public onAccountChanged(callback: (account: string) => void): void {
-    this.on('accountsChanged', ((...args: unknown[]) => {
+    this.on(NEXUS_EVENTS.ACCOUNTS_CHANGED, ((...args: unknown[]) => {
       const accounts = args[0] as string[];
       callback(accounts[0] || '');
     }) as EventListener);
@@ -193,7 +296,7 @@ export class ChainAbstractionAdapter {
    * Subscribe to chain change events.
    */
   public onChainChanged(callback: (chainId: number) => void): void {
-    this.on('chainChanged', ((...args: unknown[]) => {
+    this.on(NEXUS_EVENTS.CHAIN_CHANGED, ((...args: unknown[]) => {
       const chainId = args[0] as string;
       callback(parseInt(chainId, 16));
     }) as EventListener);
@@ -209,9 +312,6 @@ export class ChainAbstractionAdapter {
         this.ca.caEvents.removeAllListeners(event);
       }
     }
-    // Remove known listeners from CA instance
-    this.ca.removeListener('accountsChanged', () => {});
-    this.ca.removeListener('chainChanged', () => {});
   }
 
   /**
@@ -219,6 +319,13 @@ export class ChainAbstractionAdapter {
    */
   public getSupportedChains(env?: Network): Array<{ id: number; name: string; logo: string }> {
     return CA.getSupportedChains(env);
+  }
+
+  /**
+   * Get enhanced chain metadata for all supported chains.
+   */
+  public getSupportedChainsWithMetadata(): ChainMetadata[] {
+    return Object.values(CHAIN_METADATA);
   }
 
   /**
@@ -235,6 +342,41 @@ export class ChainAbstractionAdapter {
    */
   public isSupportedToken(token: string): boolean {
     return AVAILABLE_TOKENS.some((availableToken) => availableToken.symbol === token);
+  }
+
+  /**
+   * Get all supported token symbols.
+   */
+  public getSupportedTokenSymbols(): string[] {
+    return getSupportedTokenSymbols();
+  }
+
+  /**
+   * Get all supported chain IDs.
+   */
+  public getSupportedChainIds(): number[] {
+    return getSupportedChainIds();
+  }
+
+  /**
+   * Truncate address for display.
+   */
+  public truncateAddress(address: string, startLength?: number, endLength?: number): string {
+    return truncateAddress(address, startLength, endLength);
+  }
+
+  /**
+   * Convert chain ID to hex format.
+   */
+  public chainIdToHex(chainId: number): string {
+    return chainIdToHex(chainId);
+  }
+
+  /**
+   * Convert hex chain ID to number.
+   */
+  public hexToChainId(hex: string): number {
+    return hexToChainId(hex);
   }
 
   /**

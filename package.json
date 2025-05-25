@@ -25,7 +25,7 @@
     "bridge",
     "swap"
   ],
-  "author": "Avail",
+  "author": "decocereus<amartya@availproject.co>",
   "license": "MIT",
   "devDependencies": {
     "@rollup/plugin-commonjs": "^25.0.0",

@@ -16,6 +16,10 @@ npm install @avail/nexus-sdk
 - 🌉 Token transfers across chains
 - 🔌 Event hooks for transaction status
 - ⚡ Support for multiple EVM chains
+- 🛠️ Comprehensive utility functions
+- 📊 Enhanced metadata for chains and tokens
+- 🎯 Advanced balance formatting and parsing
+- ✅ Address validation and formatting
 
 ## Quick Start
 
@@ -47,23 +51,25 @@ await sdk.transfer({
 
 ## Supported Networks
 
-| Network   | Chain ID |
-| --------- | -------- |
-| Ethereum  | 1        |
-| Optimism  | 10       |
-| Polygon   | 137      |
-| Fuel      | 122      |
-| Arbitrum  | 42161    |
-| Avalanche | 43114    |
-| Base      | 8453     |
-| Linea     | 59144    |
-| Scroll    | 534351   |
+| Network   | Chain ID | Native Currency | Block Time |
+| --------- | -------- | --------------- | ---------- |
+| Ethereum  | 1        | ETH             | 12s        |
+| Optimism  | 10       | ETH             | 2s         |
+| Polygon   | 137      | MATIC           | 2s         |
+| Fuel      | 122      | ETH             | -          |
+| Arbitrum  | 42161    | ETH             | 1s         |
+| Avalanche | 43114    | AVAX            | 2s         |
+| Base      | 8453     | ETH             | 2s         |
+| Linea     | 59144    | ETH             | 12s        |
+| Scroll    | 534351   | ETH             | 3s         |
 
 ## Supported Tokens
 
-- ETH
-- USDC
-- USDT
+| Token | Name       | Decimals | Type   |
+| ----- | ---------- | -------- | ------ |
+| ETH   | Ethereum   | 18       | Native |
+| USDC  | USD Coin   | 6        | ERC-20 |
+| USDT  | Tether USD | 6        | ERC-20 |
 
 ## API Reference
 
@@ -103,6 +109,18 @@ Retrieves the unified balance for a specific token symbol (e.g., 'USDC').
 
 ```typescript
 const usdcBalance = await sdk.getUnifiedBalance('USDC');
+```
+
+#### `getTokenBalance(symbol: string, chainId?: number): Promise<TokenBalance | undefined>` 🆕
+
+Get token balance for a specific token, optionally on a specific chain.
+
+```typescript
+// Get USDC balance on Polygon
+const polygonUSDC = await sdk.getTokenBalance('USDC', 137);
+
+// Get total USDC balance across all chains
+const totalUSDC = await sdk.getTokenBalance('USDC');
 ```
 
 ---
@@ -150,20 +168,127 @@ const allowances = await sdk.getAllowance({
 });
 ```
 
-#### `setAllowance(chainId: number, token: string, amount: string): Promise<void>`
+#### `setAllowance(chainId: number, tokens: string[], amount: bigint): Promise<void>`
 
-Sets the allowance for a token on a specific chain.
+Sets the allowance for tokens on a specific chain.
 
 ```typescript
-await sdk.setAllowance(42161, 'USDC', '100000000000'); // Set allowance for USDC on Arbitrum
+await sdk.setAllowance(42161, ['USDC'], BigInt('100000000000')); // Set allowance for USDC on Arbitrum
 ```
 
-#### `revokeAllowance(chainId: number, token: string): Promise<void>`
+#### `revokeAllowance(chainId: number, tokens: string[]): Promise<void>`
 
-Revokes the allowance for a token on a specific chain.
+Revokes the allowance for tokens on a specific chain.
 
 ```typescript
-await sdk.revokeAllowance(42161, 'USDC');
+await sdk.revokeAllowance(42161, ['USDC']);
+```
+
+---
+
+### Metadata & Information 🆕
+
+#### `getSupportedTokens(): TokenMetadata[]`
+
+Get comprehensive metadata for all supported tokens.
+
+```typescript
+const tokens = sdk.getSupportedTokens();
+// Returns: [{ symbol: 'ETH', name: 'Ethereum', decimals: 18, icon: '...', coingeckoId: 'ethereum', isNative: true }, ...]
+```
+
+#### `getChainMetadata(chainId: number): ChainMetadata | undefined`
+
+Get detailed metadata for a specific chain.
+
+```typescript
+const ethMetadata = sdk.getChainMetadata(1);
+// Returns: { id: 1, name: 'Ethereum Mainnet', shortName: 'eth', logo: '...', nativeCurrency: {...}, rpcUrls: [...], ... }
+```
+
+#### `getSupportedChainsWithMetadata(): ChainMetadata[]`
+
+Get enhanced metadata for all supported chains.
+
+```typescript
+const chains = sdk.getSupportedChainsWithMetadata();
+```
+
+#### `getSupportedTokenSymbols(): string[]`
+
+Get array of supported token symbols.
+
+```typescript
+const symbols = sdk.getSupportedTokenSymbols(); // ['ETH', 'USDC', 'USDT']
+```
+
+```typescript
+const chainIds = sdk.getSupportedChainIds(); // [1, 10, 137, 42161, ...]
+```
+
+#### `getSupportedChainIds(): number[]`
+
+Get array of supported chain IDs.
+
+```typescript
+const chainIds = sdk.getSupportedChainIds(); // [1, 10, 137, 42161, ...]
+```
+
+---
+
+### Utility Functions 🆕
+
+#### `formatBalance(balance: string, decimals: number, precision?: number): string`
+
+Format a balance string to human-readable format.
+
+```typescript
+const formatted = sdk.formatBalance('1000000000000000000', 18, 4); // '1'
+const formatted2 = sdk.formatBalance('1500000', 6, 2); // '1.5'
+```
+
+#### `parseUnits(value: string, decimals: number): bigint`
+
+Parse human-readable value to smallest unit.
+
+```typescript
+const wei = sdk.parseUnits('1.5', 18); // 1500000000000000000n
+const usdc = sdk.parseUnits('100', 6); // 100000000n
+```
+
+#### `formatUnits(value: bigint, decimals: number): string`
+
+Format smallest unit to human-readable string.
+
+```typescript
+const formatted = sdk.formatUnits(1500000000000000000n, 18); // '1.5'
+```
+
+#### `isValidAddress(address: string): boolean`
+
+Validate if a string is a valid Ethereum address.
+
+```typescript
+const isValid = sdk.isValidAddress('0x742d35Cc6634C0532925a3b8D4C9db96c4b4Db45'); // true
+const isInvalid = sdk.isValidAddress('invalid'); // false
+```
+
+#### `truncateAddress(address: string, startLength?: number, endLength?: number): string`
+
+Truncate an address for display purposes.
+
+```typescript
+const short = sdk.truncateAddress('0x742d35Cc6634C0532925a3b8D4C9db96c4b4Db45'); // '0x742d...4Db45'
+const custom = sdk.truncateAddress('0x742d35Cc6634C0532925a3b8D4C9db96c4b4Db45', 8, 6); // '0x742d35...4b4Db45'
+```
+
+#### `chainIdToHex(chainId: number): string` / `hexToChainId(hex: string): number`
+
+Convert between chain ID formats.
+
+```typescript
+const hex = sdk.chainIdToHex(137); // '0x89'
+const decimal = sdk.hexToChainId('0x89'); // 137
 ```
 
 ---
@@ -272,102 +397,69 @@ if (sdk.isSupportedToken('USDC')) {
 
 #### `getSupportedChains(): Array<{ id: number; name: string; logo: string }>`
 
-Returns a list of supported chains.
+Returns a list of supported chains from the CA SDK.
 
 ```typescript
 const chains = sdk.getSupportedChains();
 ```
 
-#### `getSupportedTokens(): typeof SUPPORTED_TOKENS`
-
-Returns a list of supported tokens.
-
-```typescript
-const tokens = sdk.getSupportedTokens();
-```
-
 #### `request(args: RequestArguments): Promise<unknown>`
 
-Makes a generic EIP-1193 request to the provider (advanced usage).
+Make a generic EIP-1193 request to the provider.
 
 ```typescript
 const result = await sdk.request({
-  method: 'eth_sendTransaction',
-  params: [
-    /* ... */
-  ],
+  method: 'eth_getBalance',
+  params: ['0x...', 'latest'],
 });
 ```
 
 #### `preprocess(args: PreSendTxParams, options?: PreProcessOptions): Promise<void>`
 
-Preprocesses a transaction (e.g., for gas estimation or validation) before sending.
+Preprocess a transaction for validation or gas estimation.
 
 ```typescript
-await sdk.preprocess(
-  {
-    // transaction params
-  },
-  { bridge: true, extraGas: 100000n },
-);
+await sdk.preprocess({
+  to: '0x...',
+  value: '0x1',
+});
 ```
 
 ---
 
-## Type Definitions
+## Constants & Types
 
-### BridgeParams
+### Available Constants
 
 ```typescript
-{
-  token: 'ETH' | 'USDC' | 'USDT';
-  amount: number;
-  chainId: number;
-}
+import { SUPPORTED_CHAINS, TOKEN_METADATA, CHAIN_METADATA, NEXUS_EVENTS } from '@avail/nexus-sdk';
+
+// Chain IDs
+console.log(SUPPORTED_CHAINS.ETHEREUM); // 1
+console.log(SUPPORTED_CHAINS.POLYGON); // 137
+
+// Token metadata
+console.log(TOKEN_METADATA.USDC); // { symbol: 'USDC', name: 'USD Coin', decimals: 6, ... }
+
+// Chain metadata
+console.log(CHAIN_METADATA[1]); // { id: 1, name: 'Ethereum Mainnet', ... }
+
+// Event names
+console.log(NEXUS_EVENTS.EXPECTED_STEPS); // 'expected_steps'
 ```
 
-### TransferParams
+### Available Utility Functions
 
 ```typescript
-{
-  token: 'ETH' | 'USDC' | 'USDT';
-  amount: number;
-  chainId: number;
-  recipient: `0x${string}`;
-}
-```
-
-### AllowanceParams
-
-```typescript
-{
-  chainId: number;
-  tokens: string[];
-}
-```
-
-### UnifiedBalanceResponse
-
-```typescript
-{
-  symbol: string;
-  balance: string;
-  balanceInFiat: number;
-  decimals: number;
-  icon?: string;
-  breakdown: {
-    chain: {
-      id: number;
-      name: string;
-      logo: string;
-    };
-    network: 'evm';
-    contractAddress: `0x${string}`;
-    isNative?: boolean;
-    balance: string;
-    balanceInFiat: number;
-  }[];
-}
+import {
+  formatBalance,
+  parseUnits,
+  formatUnits,
+  isValidAddress,
+  truncateAddress,
+  chainIdToHex,
+  hexToChainId,
+} from '@avail/nexus-sdk';
 ```
 
 ---
@@ -376,19 +468,114 @@ await sdk.preprocess(
 
 The SDK throws descriptive errors for various scenarios:
 
-- Invalid provider
-- Unsupported chains or tokens
-- Failed transactions
-- Insufficient allowances
-- Network errors
+```typescript
+try {
+  await sdk.bridge({
+    token: 'INVALID_TOKEN',
+    amount: 10,
+    chainId: 137,
+  });
+} catch (error) {
+  console.error(error.message); // "Unsupported token"
+}
+```
 
-## Best Practices
+Common error scenarios:
 
-1. Always initialize the SDK with a valid provider before making any calls
-2. Check token allowances before bridging or transferring
-3. Subscribe to relevant events for tracking transaction status
-4. Handle errors appropriately in your application
-5. Clean up event listeners when they're no longer needed
+- `"CA SDK not initialized. Call initialize() first."` - SDK not initialized
+- `"Unsupported chain"` - Chain ID not supported
+- `"Unsupported token"` - Token symbol not supported
+- `"Provider is required"` - No provider passed to initialize
+- `"Failed to initialize CA SDK"` - Provider initialization failed
+
+---
+
+## TypeScript Support
+
+The SDK is fully typed with comprehensive TypeScript definitions:
+
+```typescript
+import type {
+  TokenMetadata,
+  ChainMetadata,
+  TokenBalance,
+  BridgeParams,
+  TransferParams,
+} from '@avail/nexus-sdk';
+```
+
+---
+
+## Examples
+
+### Complete Bridge Example
+
+```typescript
+import { NexusSDK, SUPPORTED_CHAINS } from '@avail/nexus-sdk';
+
+const sdk = new NexusSDK();
+
+// Initialize
+await sdk.initialize(window.ethereum);
+
+// Set up hooks
+sdk.setOnIntentHook(({ intent, allow, deny }) => {
+  // Show user the intent details and fees
+  console.log('Intent:', intent);
+  allow(); // User approves
+});
+
+sdk.setOnAllowanceHook(async ({ sources, allow, deny }) => {
+  // Show user allowance requirements
+  console.log('Allowances needed:', sources);
+  allow(['min']); // Set min,max or custom allowances
+});
+
+// Bridge USDC from Ethereum to Polygon
+await sdk.bridge({
+  token: 'USDC',
+  amount: 100,
+  chainId: SUPPORTED_CHAINS.POLYGON,
+});
+```
+
+### Balance Management Example
+
+```typescript
+// Get all balances
+const allBalances = await sdk.getUnifiedBalances();
+
+// Get specific token balance
+const usdcBalance = await sdk.getTokenBalance('USDC');
+console.log(`Total USDC: ${usdcBalance?.formattedBalance}`);
+
+// Get token balance on specific chain
+const polygonUSDC = await sdk.getTokenBalance('USDC', 137);
+console.log(`Polygon USDC: ${polygonUSDC?.formattedBalance}`);
+
+// Format balances manually
+const formatted = sdk.formatBalance('1500000', 6, 2); // '1.5'
+```
+
+### Utility Functions Example
+
+```typescript
+// Address validation and formatting
+const address = '0x742d35Cc6634C0532925a3b8D4C9db96c4b4Db45';
+if (sdk.isValidAddress(address)) {
+  const short = sdk.truncateAddress(address); // '0x742d...4Db45'
+}
+
+// Unit conversion
+const wei = sdk.parseUnits('1.5', 18); // 1500000000000000000n
+const eth = sdk.formatUnits(wei, 18); // '1.5'
+
+// Chain utilities
+const hex = sdk.chainIdToHex(137); // '0x89'
+const decimal = sdk.hexToChainId('0x89'); // 137
+```
+
+---
 
 ## License
 

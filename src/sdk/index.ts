@@ -14,8 +14,12 @@ import type {
   PreSendTxParams,
   PreProcessOptions,
   EventListener,
+  TokenMetadata,
+  ChainMetadata,
+  TokenBalance,
 } from '../types';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
+
 export class NexusSDK {
   public readonly nexusAdapter: ChainAbstractionAdapter;
   public readonly nexusEvents: SafeEventEmitter;
@@ -137,6 +141,100 @@ export class NexusSDK {
    */
   public getSupportedChains(): Array<{ id: number; name: string; logo: string }> {
     return this.nexusAdapter.getSupportedChains();
+  }
+
+  /**
+   * Get supported tokens with comprehensive metadata
+   */
+  public getSupportedTokens(): TokenMetadata[] {
+    return this.nexusAdapter.getSupportedTokens();
+  }
+
+  /**
+   * Get detailed chain metadata by chain ID
+   */
+  public getChainMetadata(chainId: number): ChainMetadata | undefined {
+    return this.nexusAdapter.getChainMetadata(chainId);
+  }
+
+  /**
+   * Get enhanced chain metadata for all supported chains
+   */
+  public getSupportedChainsWithMetadata(): ChainMetadata[] {
+    return this.nexusAdapter.getSupportedChainsWithMetadata();
+  }
+
+  /**
+   * Get token balance for a specific token on a specific chain
+   */
+  public async getTokenBalance(
+    symbol: string,
+    chainId?: number,
+  ): Promise<TokenBalance | undefined> {
+    return this.nexusAdapter.getTokenBalance(symbol, chainId);
+  }
+
+  /**
+   * Format balance with proper decimals and precision
+   */
+  public formatBalance(balance: string, decimals: number, precision?: number): string {
+    return this.nexusAdapter.formatBalance(balance, decimals, precision);
+  }
+
+  /**
+   * Parse units from human-readable string to smallest unit
+   */
+  public parseUnits(value: string, decimals: number): bigint {
+    return this.nexusAdapter.parseUnits(value, decimals);
+  }
+
+  /**
+   * Format units from smallest unit to human-readable string
+   */
+  public formatUnits(value: bigint, decimals: number): string {
+    return this.nexusAdapter.formatUnits(value, decimals);
+  }
+
+  /**
+   * Validate if an address is valid
+   */
+  public isValidAddress(address: string): boolean {
+    return this.nexusAdapter.isValidAddress(address);
+  }
+
+  /**
+   * Get all supported token symbols
+   */
+  public getSupportedTokenSymbols(): string[] {
+    return this.nexusAdapter.getSupportedTokenSymbols();
+  }
+
+  /**
+   * Get all supported chain IDs
+   */
+  public getSupportedChainIds(): number[] {
+    return this.nexusAdapter.getSupportedChainIds();
+  }
+
+  /**
+   * Truncate address for display
+   */
+  public truncateAddress(address: string, startLength?: number, endLength?: number): string {
+    return this.nexusAdapter.truncateAddress(address, startLength, endLength);
+  }
+
+  /**
+   * Convert chain ID to hex format
+   */
+  public chainIdToHex(chainId: number): string {
+    return this.nexusAdapter.chainIdToHex(chainId);
+  }
+
+  /**
+   * Convert hex chain ID to number
+   */
+  public hexToChainId(hex: string): number {
+    return this.nexusAdapter.hexToChainId(hex);
   }
 
   public async deinit(): Promise<void> {

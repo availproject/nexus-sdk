@@ -8,6 +8,31 @@ import type {
   ProgressSteps,
 } from '@arcana/ca-sdk';
 
+// Enhanced chain metadata with comprehensive information
+export interface ChainMetadata {
+  id: number;
+  name: string;
+  shortName: string;
+  logo: string;
+  nativeCurrency: {
+    name: string;
+    symbol: string;
+    decimals: number;
+  };
+  rpcUrls: string[];
+  blockExplorerUrls: string[];
+}
+
+// Enhanced token metadata with comprehensive information
+export interface TokenMetadata {
+  symbol: string;
+  name: string;
+  decimals: number;
+  icon: string;
+  coingeckoId: string;
+  isNative?: boolean;
+}
+
 /**
  * Generic event listener type for CA SDK events
  */
@@ -94,6 +119,19 @@ export interface TransferParams {
   amount: number | string;
   chainId: SUPPORTED_CHAINS_IDS;
   recipient: `0x${string}`;
+}
+
+/**
+ * Enhanced token balance information
+ */
+export interface TokenBalance {
+  symbol: string;
+  balance: string;
+  formattedBalance: string;
+  balanceInFiat?: number;
+  chainId: number;
+  contractAddress?: `0x${string}`;
+  isNative?: boolean;
 }
 
 export type {
