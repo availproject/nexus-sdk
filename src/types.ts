@@ -6,6 +6,8 @@ import type {
   RequestArguments,
   ProgressStep,
   ProgressSteps,
+  Intent,
+  onAllowanceHookSource,
 } from '@arcana/ca-sdk';
 
 // Enhanced chain metadata with comprehensive information
@@ -32,6 +34,19 @@ export interface TokenMetadata {
   coingeckoId: string;
   isNative?: boolean;
 }
+
+export type OnIntentHookData = {
+  intent: Intent;
+  allow: () => void;
+  deny: () => void;
+  refresh: () => Promise<Intent>;
+};
+
+export type OnAllowanceHookData = {
+  allow: (s: Array<'min' | 'max' | bigint | string>) => void;
+  deny: () => void;
+  sources: Array<onAllowanceHookSource>;
+};
 
 /**
  * Generic event listener type for CA SDK events
@@ -141,4 +156,5 @@ export type {
   RequestArguments,
   ProgressStep,
   ProgressSteps,
+  Intent,
 };
