@@ -159,4 +159,5 @@ export type {
   Intent,
   OnIntentHookData,
   OnAllowanceHookData,
+  onAllowanceHookSource as AllowanceHookSource,
 };
