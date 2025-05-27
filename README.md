@@ -111,16 +111,16 @@ Retrieves the unified balance for a specific token symbol (e.g., 'USDC').
 const usdcBalance = await sdk.getUnifiedBalance('USDC');
 ```
 
-#### `getTokenBalance(symbol: string, chainId?: number): Promise<TokenBalance | undefined>` 🆕
+#### `getFormattedTokenBalance(symbol: string, chainId?: number): Promise<TokenBalance | undefined>` 🆕
 
 Get token balance for a specific token, optionally on a specific chain.
 
 ```typescript
 // Get USDC balance on Polygon
-const polygonUSDC = await sdk.getTokenBalance('USDC', 137);
+const polygonUSDC = await sdk.getFormattedTokenBalance('USDC', 137);
 
 // Get total USDC balance across all chains
-const totalUSDC = await sdk.getTokenBalance('USDC');
+const totalUSDC = await sdk.getFormattedTokenBalance('USDC');
 ```
 
 ---
@@ -157,15 +157,22 @@ await sdk.transfer({
 
 ### Allowance Management
 
-#### `getAllowance(params: AllowanceParams): Promise<AllowanceResponse[]>`
+#### `getAllowance(chainId?: number, tokens?: string[]): Promise<AllowanceResponse[]>`
 
 Gets the allowance for specified tokens on a given chain.
 
 ```typescript
-const allowances = await sdk.getAllowance({
-  chainId: 137,
-  tokens: ['USDC', 'USDT'],
-});
+// Get allowances for specific tokens on specific chain
+const allowances = await sdk.getAllowance(137, ['USDC', 'USDT']);
+
+// Get all allowances for specific chain
+const chainAllowances = await sdk.getAllowance(137);
+
+// Get allowances for specific tokens across all chains
+const tokenAllowances = await sdk.getAllowance(undefined, ['USDC']);
+
+// Get all allowances across all chains
+const allAllowances = await sdk.getAllowance();
 ```
 
 #### `setAllowance(chainId: number, tokens: string[], amount: bigint): Promise<void>`
@@ -188,13 +195,13 @@ await sdk.revokeAllowance(42161, ['USDC']);
 
 ### Metadata & Information 🆕
 
-#### `getSupportedTokens(): TokenMetadata[]`
+#### `getTokenMetadata(symbol: string): TokenMetadata`
 
-Get comprehensive metadata for all supported tokens.
+Get comprehensive metadata for a specific supported token.
 
 ```typescript
-const tokens = sdk.getSupportedTokens();
-// Returns: [{ symbol: 'ETH', name: 'Ethereum', decimals: 18, icon: '...', coingeckoId: 'ethereum', isNative: true }, ...]
+const ethMetadata = sdk.getTokenMetadata('ETH');
+// Returns: { symbol: 'ETH', name: 'Ethereum', decimals: 18, icon: '...', coingeckoId: 'ethereum', isNative: true }
 ```
 
 #### `getChainMetadata(chainId: number): ChainMetadata | undefined`
@@ -203,7 +210,7 @@ Get detailed metadata for a specific chain.
 
 ```typescript
 const ethMetadata = sdk.getChainMetadata(1);
-// Returns: { id: 1, name: 'Ethereum Mainnet', shortName: 'eth', logo: '...', nativeCurrency: {...}, rpcUrls: [...], ... }
+// Returns: { id: 1, name: 'Ethereum', shortName: 'eth', logo: '...', nativeCurrency: {...}, rpcUrls: [...], ... }
 ```
 
 #### `getSupportedChainsWithMetadata(): ChainMetadata[]`
@@ -212,26 +219,6 @@ Get enhanced metadata for all supported chains.
 
 ```typescript
 const chains = sdk.getSupportedChainsWithMetadata();
-```
-
-#### `getSupportedTokenSymbols(): string[]`
-
-Get array of supported token symbols.
-
-```typescript
-const symbols = sdk.getSupportedTokenSymbols(); // ['ETH', 'USDC', 'USDT']
-```
-
-```typescript
-const chainIds = sdk.getSupportedChainIds(); // [1, 10, 137, 42161, ...]
-```
-
-#### `getSupportedChainIds(): number[]`
-
-Get array of supported chain IDs.
-
-```typescript
-const chainIds = sdk.getSupportedChainIds(); // [1, 10, 137, 42161, ...]
 ```
 
 ---
@@ -442,7 +429,7 @@ console.log(SUPPORTED_CHAINS.POLYGON); // 137
 console.log(TOKEN_METADATA.USDC); // { symbol: 'USDC', name: 'USD Coin', decimals: 6, ... }
 
 // Chain metadata
-console.log(CHAIN_METADATA[1]); // { id: 1, name: 'Ethereum Mainnet', ... }
+console.log(CHAIN_METADATA[1]); // { id: 1, name: 'Ethereum', ... }
 
 // Event names
 console.log(NEXUS_EVENTS.EXPECTED_STEPS); // 'expected_steps'
@@ -459,6 +446,9 @@ import {
   truncateAddress,
   chainIdToHex,
   hexToChainId,
+  getTokenMetadata,
+  getChainMetadata,
+  formatTokenAmount,
 } from '@avail/nexus-sdk';
 ```
 
@@ -546,11 +536,11 @@ await sdk.bridge({
 const allBalances = await sdk.getUnifiedBalances();
 
 // Get specific token balance
-const usdcBalance = await sdk.getTokenBalance('USDC');
+const usdcBalance = await sdk.getFormattedTokenBalance('USDC');
 console.log(`Total USDC: ${usdcBalance?.formattedBalance}`);
 
 // Get token balance on specific chain
-const polygonUSDC = await sdk.getTokenBalance('USDC', 137);
+const polygonUSDC = await sdk.getFormattedTokenBalance('USDC', 137);
 console.log(`Polygon USDC: ${polygonUSDC?.formattedBalance}`);
 
 // Format balances manually

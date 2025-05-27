@@ -1,6 +1,6 @@
 {
-  "name": "@avail/nexus-sdk",
-  "version": "0.1.0",
+  "name": "avail-nexus-sdk",
+  "version": "0.0.1",
   "description": "Nexus SDK for cross-chain bridging and swaps",
   "main": "dist/index.js",
   "module": "dist/index.esm.js",

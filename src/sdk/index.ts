@@ -5,7 +5,6 @@ import type {
   UnifiedBalanceResponse,
   BridgeParams,
   TransferParams,
-  AllowanceParams,
   AllowanceResponse,
   OnIntentHook,
   OnAllowanceHook,
@@ -17,6 +16,8 @@ import type {
   TokenMetadata,
   ChainMetadata,
   TokenBalance,
+  SUPPORTED_TOKENS,
+  SUPPORTED_CHAINS_IDS,
 } from '../types';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
 
@@ -67,8 +68,8 @@ export class NexusSDK {
   /**
    * Check allowance for tokens on a specific chain
    */
-  public async getAllowance(params: AllowanceParams): Promise<AllowanceResponse[]> {
-    return this.nexusAdapter.getAllowance(params);
+  public async getAllowance(chainId?: number, tokens?: string[]): Promise<AllowanceResponse[]> {
+    return this.nexusAdapter.getAllowance(chainId, tokens);
   }
 
   /**
@@ -146,14 +147,14 @@ export class NexusSDK {
   /**
    * Get supported tokens with comprehensive metadata
    */
-  public getSupportedTokens(): TokenMetadata[] {
-    return this.nexusAdapter.getSupportedTokens();
+  public getTokenMetadata(symbol: SUPPORTED_TOKENS): TokenMetadata {
+    return this.nexusAdapter.getTokenMetadata(symbol);
   }
 
   /**
    * Get detailed chain metadata by chain ID
    */
-  public getChainMetadata(chainId: number): ChainMetadata | undefined {
+  public getChainMetadata(chainId: SUPPORTED_CHAINS_IDS): ChainMetadata | undefined {
     return this.nexusAdapter.getChainMetadata(chainId);
   }
 
@@ -167,11 +168,11 @@ export class NexusSDK {
   /**
    * Get token balance for a specific token on a specific chain
    */
-  public async getTokenBalance(
-    symbol: string,
+  public async getFormattedTokenBalance(
+    symbol: SUPPORTED_TOKENS,
     chainId?: number,
   ): Promise<TokenBalance | undefined> {
-    return this.nexusAdapter.getTokenBalance(symbol, chainId);
+    return this.nexusAdapter.getFormattedTokenBalance(symbol, chainId);
   }
 
   /**
@@ -200,20 +201,6 @@ export class NexusSDK {
    */
   public isValidAddress(address: string): boolean {
     return this.nexusAdapter.isValidAddress(address);
-  }
-
-  /**
-   * Get all supported token symbols
-   */
-  public getSupportedTokenSymbols(): string[] {
-    return this.nexusAdapter.getSupportedTokenSymbols();
-  }
-
-  /**
-   * Get all supported chain IDs
-   */
-  public getSupportedChainIds(): number[] {
-    return this.nexusAdapter.getSupportedChainIds();
   }
 
   /**

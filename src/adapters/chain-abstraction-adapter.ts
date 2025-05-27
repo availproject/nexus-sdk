@@ -1,24 +1,17 @@
 import { CA, Network } from '@arcana/ca-sdk';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
-import {
-  SUPPORTED_CHAINS,
-  AVAILABLE_TOKENS,
-  TOKEN_METADATA,
-  CHAIN_METADATA,
-  NEXUS_EVENTS,
-} from '../constants';
+import { SUPPORTED_CHAINS, AVAILABLE_TOKENS, CHAIN_METADATA, NEXUS_EVENTS } from '../constants';
 import {
   formatBalance,
   formatTokenAmount,
   getChainMetadata,
-  getSupportedTokenSymbols,
-  getSupportedChainIds,
   isValidAddress,
   parseUnits,
   formatUnits,
   truncateAddress,
   chainIdToHex,
   hexToChainId,
+  getTokenMetadata,
 } from '../utils';
 import type {
   EthereumProvider,
@@ -30,12 +23,13 @@ import type {
   UnifiedBalanceResponse,
   BridgeParams,
   TransferParams,
-  AllowanceParams,
   AllowanceResponse,
   EventListener,
   TokenMetadata,
   ChainMetadata,
   TokenBalance,
+  SUPPORTED_TOKENS,
+  SUPPORTED_CHAINS_IDS,
 } from '../types';
 
 /**
@@ -93,9 +87,24 @@ export class ChainAbstractionAdapter {
   /**
    * Check the current allowance for a token on a specific chain.
    */
-  public async checkAllowance(chainId: number, tokens: string[]): Promise<AllowanceResponse[]> {
+  public async getAllowance(chainId?: number, tokens?: string[]): Promise<AllowanceResponse[]> {
     try {
-      const allowances = await this.ca.allowance().tokens(tokens).chain(chainId).get();
+      let allowances: AllowanceResponse[];
+
+      if (chainId && tokens) {
+        // Get specific tokens allowance for specific chain
+        allowances = await this.ca.allowance().tokens(tokens).chain(chainId).get();
+      } else if (chainId) {
+        // Get all tokens allowance for specific chain
+        allowances = await this.ca.allowance().chain(chainId).get();
+      } else if (tokens) {
+        // Get specific tokens allowance for all chains
+        allowances = await this.ca.allowance().tokens(tokens).get();
+      } else {
+        // Get all tokens allowance for all chains
+        allowances = await this.ca.allowance().get();
+      }
+
       return allowances;
     } catch (error) {
       throw new Error(`Failed to check allowance: ${error}`);
@@ -162,64 +171,47 @@ export class ChainAbstractionAdapter {
   /**
    * Transfer tokens to a recipient using the intent system.
    */
-  public async transfer(params: TransferParams): Promise<unknown> {
+  public async transfer(params: TransferParams): Promise<`0x${string}`> {
     if (!this.isSupportedChain(params.chainId)) {
       throw new Error('Unsupported chain');
     }
     if (!this.isSupportedToken(params.token)) {
       throw new Error('Unsupported token');
     }
+    if (!this.initialized) throw new Error('CA SDK not initialized. Call initialize() first.');
     try {
-      return await this.ca
+      const transferBuilder = this.ca
         .transfer()
         .to(params.recipient)
         .amount(params.amount)
         .chain(params.chainId)
-        .token(params.token)
-        .exec();
+        .token(params.token);
+      const result = await transferBuilder.exec();
+      return result;
     } catch (error) {
       throw new Error(`Transfer transaction failed: ${error}`);
     }
   }
 
   /**
-   * Get token allowances for specified tokens on a chain.
-   */
-  public async getAllowance(params: AllowanceParams): Promise<AllowanceResponse[]> {
-    if (!this.isSupportedChain(params.chainId)) {
-      throw new Error('Unsupported chain');
-    }
-    try {
-      const allowances = await this.ca
-        .allowance()
-        .tokens(params.tokens)
-        .chain(params.chainId)
-        .get();
-      return allowances;
-    } catch (error) {
-      throw new Error(`Failed to fetch allowance: ${error}`);
-    }
-  }
-
-  /**
    * Get supported tokens with metadata.
    */
-  public getSupportedTokens(): TokenMetadata[] {
-    return Object.values(TOKEN_METADATA);
+  public getTokenMetadata(symbol: SUPPORTED_TOKENS): TokenMetadata {
+    return getTokenMetadata(symbol);
   }
 
   /**
    * Get detailed chain metadata by chain ID.
    */
-  public getChainMetadata(chainId: number): ChainMetadata | undefined {
+  public getChainMetadata(chainId: SUPPORTED_CHAINS_IDS): ChainMetadata | undefined {
     return getChainMetadata(chainId);
   }
 
   /**
    * Get token balance for a specific token on a specific chain from unified balance.
    */
-  public async getTokenBalance(
-    symbol: string,
+  public async getFormattedTokenBalance(
+    symbol: SUPPORTED_TOKENS,
     chainId?: number,
   ): Promise<TokenBalance | undefined> {
     try {
@@ -342,20 +334,6 @@ export class ChainAbstractionAdapter {
    */
   public isSupportedToken(token: string): boolean {
     return AVAILABLE_TOKENS.some((availableToken) => availableToken.symbol === token);
-  }
-
-  /**
-   * Get all supported token symbols.
-   */
-  public getSupportedTokenSymbols(): string[] {
-    return getSupportedTokenSymbols();
-  }
-
-  /**
-   * Get all supported chain IDs.
-   */
-  public getSupportedChainIds(): number[] {
-    return getSupportedChainIds();
   }
 
   /**

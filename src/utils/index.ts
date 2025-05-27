@@ -1,6 +1,6 @@
 import { TOKEN_METADATA, CHAIN_METADATA } from '../constants';
 import Decimal from 'decimal.js';
-import { ChainMetadata, TokenMetadata } from '../types';
+import { ChainMetadata, SUPPORTED_CHAINS_IDS, SUPPORTED_TOKENS, TokenMetadata } from '../types';
 
 /**
  * Format a balance string to a human-readable format using Decimal.js
@@ -52,29 +52,15 @@ export function isValidAddress(address: string): boolean {
 /**
  * Get token metadata by symbol
  */
-export function getTokenMetadata(symbol: string): TokenMetadata {
+export function getTokenMetadata(symbol: SUPPORTED_TOKENS): TokenMetadata {
   return TOKEN_METADATA[symbol.toUpperCase()];
 }
 
 /**
  * Get chain metadata by chain ID
  */
-export function getChainMetadata(chainId: number): ChainMetadata {
+export function getChainMetadata(chainId: SUPPORTED_CHAINS_IDS): ChainMetadata {
   return CHAIN_METADATA[chainId];
-}
-
-/**
- * Get all supported token symbols
- */
-export function getSupportedTokenSymbols(): string[] {
-  return Object.keys(TOKEN_METADATA);
-}
-
-/**
- * Get all supported chain IDs
- */
-export function getSupportedChainIds(): number[] {
-  return Object.keys(CHAIN_METADATA).map(Number);
 }
 
 /**
@@ -82,7 +68,7 @@ export function getSupportedChainIds(): number[] {
  */
 export function formatTokenAmount(
   amount: string | bigint,
-  tokenSymbol: string,
+  tokenSymbol: SUPPORTED_TOKENS,
   precision: number = 4,
 ): string {
   const metadata = getTokenMetadata(tokenSymbol);
