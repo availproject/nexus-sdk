@@ -56,7 +56,6 @@ await sdk.transfer({
 | Ethereum  | 1        | ETH             | 12s        |
 | Optimism  | 10       | ETH             | 2s         |
 | Polygon   | 137      | MATIC           | 2s         |
-| Fuel      | 122      | ETH             | -          |
 | Arbitrum  | 42161    | ETH             | 1s         |
 | Avalanche | 43114    | AVAX            | 2s         |
 | Base      | 8453     | ETH             | 2s         |
