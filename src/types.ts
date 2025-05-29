@@ -8,6 +8,7 @@ import type {
   ProgressSteps,
   Intent,
   onAllowanceHookSource,
+  Network,
 } from '@arcana/ca-sdk';
 
 // Enhanced chain metadata with comprehensive information
@@ -160,4 +161,5 @@ export type {
   OnIntentHookData,
   OnAllowanceHookData,
   onAllowanceHookSource as AllowanceHookSource,
+  Network,
 };
