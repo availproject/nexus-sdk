@@ -9,3 +9,5 @@ export * from './constants';
 
 // Utilities
 export * from './utils';
+
+export { Network } from '@arcana/ca-sdk';
