@@ -1,4 +1,10 @@
-import { TOKEN_METADATA, CHAIN_METADATA } from '../constants';
+import {
+  TOKEN_METADATA,
+  CHAIN_METADATA,
+  MAINNET_CHAINS,
+  TESTNET_CHAINS,
+  TESTNET_TOKEN_METADATA,
+} from '../constants';
 import Decimal from 'decimal.js';
 import { ChainMetadata, SUPPORTED_CHAINS_IDS, SUPPORTED_TOKENS, TokenMetadata } from '../types';
 
@@ -50,11 +56,25 @@ export function isValidAddress(address: string): boolean {
 }
 
 /**
- * Get token metadata by symbol
+ * Get mainnet token metadata by symbol
  */
-export function getTokenMetadata(symbol: SUPPORTED_TOKENS): TokenMetadata {
-  return TOKEN_METADATA[symbol.toUpperCase()];
-}
+export const getMainnetTokenMetadata = (symbol: SUPPORTED_TOKENS): TokenMetadata | undefined => {
+  return TOKEN_METADATA[symbol];
+};
+
+/**
+ * Get testnet token metadata by symbol
+ */
+export const getTestnetTokenMetadata = (symbol: SUPPORTED_TOKENS): TokenMetadata | undefined => {
+  return TESTNET_TOKEN_METADATA[symbol];
+};
+
+/**
+ * Get token metadata by symbol (defaults to mainnet, kept for backward compatibility)
+ */
+export const getTokenMetadata = (symbol: SUPPORTED_TOKENS): TokenMetadata | undefined => {
+  return TOKEN_METADATA[symbol];
+};
 
 /**
  * Get chain metadata by chain ID
@@ -64,14 +84,31 @@ export function getChainMetadata(chainId: SUPPORTED_CHAINS_IDS): ChainMetadata {
 }
 
 /**
- * Format a token amount with proper decimals and symbol
+ * Format a mainnet token amount with proper decimals and symbol
  */
 export function formatTokenAmount(
   amount: string | bigint,
   tokenSymbol: SUPPORTED_TOKENS,
   precision: number = 4,
 ): string {
-  const metadata = getTokenMetadata(tokenSymbol);
+  const metadata = getMainnetTokenMetadata(tokenSymbol);
+  if (!metadata) return `${amount} ${tokenSymbol}`;
+
+  const amountStr = typeof amount === 'bigint' ? amount.toString() : amount;
+  const formatted = formatBalance(amountStr, metadata.decimals, precision);
+
+  return `${formatted} ${metadata.symbol}`;
+}
+
+/**
+ * Format a testnet token amount with proper decimals and symbol
+ */
+export function formatTestnetTokenAmount(
+  amount: string | bigint,
+  tokenSymbol: SUPPORTED_TOKENS,
+  precision: number = 4,
+): string {
+  const metadata = getTestnetTokenMetadata(tokenSymbol);
   if (!metadata) return `${amount} ${tokenSymbol}`;
 
   const amountStr = typeof amount === 'bigint' ? amount.toString() : amount;
@@ -108,3 +145,11 @@ export function chainIdToHex(chainId: number): string {
 export function hexToChainId(hex: string): number {
   return parseInt(hex, 16);
 }
+
+export const isMainnetChain = (chainId: SUPPORTED_CHAINS_IDS): boolean => {
+  return MAINNET_CHAINS.includes(chainId as any);
+};
+
+export const isTestnetChain = (chainId: SUPPORTED_CHAINS_IDS): boolean => {
+  return TESTNET_CHAINS.includes(chainId as any);
+};

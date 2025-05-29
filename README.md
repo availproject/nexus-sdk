@@ -1,12 +1,96 @@
-# Nexus SDK
+# Avail Nexus SDK
 
-A TypeScript SDK for seamless cross-chain token operations and unified balance management.
+Nexus SDK for cross-chain bridging and swaps
 
 ## Installation
 
+### Production Version (Stable)
+
 ```bash
-npm install @avail/nexus-sdk
+npm install avail-nexus-sdk
 ```
+
+### Development Version (Latest Features)
+
+```bash
+npm install avail-nexus-sdk@dev
+```
+
+## Development Workflow
+
+This SDK maintains two distribution channels:
+
+### Production SDK (`latest` tag)
+
+- **Branch**: `main`
+- **Installation**: `npm install avail-nexus-sdk`
+- **Purpose**: Stable, thoroughly tested releases
+- **Release Process**: Manual releases from main branch
+
+### Development SDK (`dev` tag)
+
+- **Branch**: `develop` or feature branches
+- **Installation**: `npm install avail-nexus-sdk@dev`
+- **Purpose**: Latest features and fixes for testing
+- **Release Process**: Automated releases from development branches
+
+## Scripts
+
+### Building
+
+```bash
+npm run build          # Standard build
+npm run build:prod     # Production build (optimized)
+npm run build:dev      # Development build (with source maps)
+```
+
+### Releasing
+
+```bash
+# Development release
+npm run release:dev
+# or
+./scripts/release.sh dev
+
+# Production release
+npm run release:prod
+# or
+./scripts/release.sh prod
+```
+
+### Version Management
+
+```bash
+npm run version:dev    # Bump development version
+npm run version:prod   # Bump production version
+```
+
+## Usage
+
+```typescript
+import { formatBalance, getChainMetadata, getFullVersion, IS_DEVELOPMENT } from 'avail-nexus-sdk';
+
+// Use SDK functions
+const balance = formatBalance('1000000000000000000', 18);
+console.log('Formatted balance:', balance);
+```
+
+## Development Setup
+
+1. Clone the repository
+2. Install dependencies: `npm install`
+3. Run tests: `npm test`
+4. Build: `npm run build`
+5. Lint: `npm run lint`
+
+## Contributing
+
+1. Create a feature branch from `main`
+2. Make your changes
+3. Test thoroughly
+4. Create a development release: `./scripts/release.sh dev`
+5. Create a pull request to `main`
+6. After merge, create a production release: `./scripts/release.sh prod`
 
 ## Features
 
@@ -15,7 +99,8 @@ npm install @avail/nexus-sdk
 - 🔐 Token allowance management
 - 🌉 Token transfers across chains
 - 🔌 Event hooks for transaction status
-- ⚡ Support for multiple EVM chains
+- ⚡ Support for multiple EVM chains (mainnet & testnet)
+- 🧪 Complete testnet support with dedicated metadata
 - 🛠️ Comprehensive utility functions
 - 📊 Enhanced metadata for chains and tokens
 - 🎯 Advanced balance formatting and parsing
@@ -24,11 +109,17 @@ npm install @avail/nexus-sdk
 ## Quick Start
 
 ```typescript
-import { NexusSDK } from '@avail/nexus-sdk';
+import { NexusSDK, Network } from '@avail/nexus-sdk';
 
-// Initialize SDK
+// Initialize SDK with default settings
 const sdk = new NexusSDK();
 await sdk.initialize(provider); // Your Web3 provider
+
+// Or initialize with specific network environment
+const nexusSdk = new NexusSDK({
+  network: Network.CERISE, // Dev with mainnet tokens
+});
+await nexusSdk.initialize(provider);
 
 // Get unified balances
 const balances = await sdk.getUnifiedBalances();
@@ -37,7 +128,7 @@ const balances = await sdk.getUnifiedBalances();
 await sdk.bridge({
   token: 'USDC',
   amount: 1, // number or string
-  chainId: 137, // to Polygon
+  chainId: 137, // to Polygon mainnet
 });
 
 // Transfer tokens
@@ -51,24 +142,49 @@ await sdk.transfer({
 
 ## Supported Networks
 
-| Network   | Chain ID | Native Currency | Block Time |
-| --------- | -------- | --------------- | ---------- |
-| Ethereum  | 1        | ETH             | 12s        |
-| Optimism  | 10       | ETH             | 2s         |
-| Polygon   | 137      | MATIC           | 2s         |
-| Arbitrum  | 42161    | ETH             | 1s         |
-| Avalanche | 43114    | AVAX            | 2s         |
-| Base      | 8453     | ETH             | 2s         |
-| Linea     | 59144    | ETH             | 12s        |
-| Scroll    | 534351   | ETH             | 3s         |
+### Mainnet Chains
+
+| Network   | Chain ID | Native Currency | Block Time | Status |
+| --------- | -------- | --------------- | ---------- | ------ |
+| Ethereum  | 1        | ETH             | 12s        | ✅     |
+| Optimism  | 10       | ETH             | 2s         | ✅     |
+| Polygon   | 137      | MATIC           | 2s         | ✅     |
+| Arbitrum  | 42161    | ETH             | 1s         | ✅     |
+| Avalanche | 43114    | AVAX            | 2s         | ✅     |
+| Base      | 8453     | ETH             | 2s         | ✅     |
+| Linea     | 59144    | ETH             | 12s        | ✅     |
+| Scroll    | 534351   | ETH             | 3s         | ✅     |
+
+### Testnet Chains 🧪
+
+| Network          | Chain ID | Native Currency | Block Time | Status |
+| ---------------- | -------- | --------------- | ---------- | ------ |
+| Ethereum Sepolia | 11155111 | ETH             | 12s        | ✅     |
+| Optimism Sepolia | 11155420 | ETH             | 2s         | ✅     |
+| Polygon Amoy     | 80002    | MATIC           | 2s         | ✅     |
+| Arbitrum Sepolia | 421614   | ETH             | 1s         | ✅     |
+| Avalanche Fuji   | 43113    | AVAX            | 2s         | ✅     |
+| Base Sepolia     | 84532    | ETH             | 2s         | ✅     |
+| Linea Sepolia    | 59141    | ETH             | 12s        | ✅     |
+| Scroll Sepolia   | 534352   | ETH             | 3s         | ✅     |
 
 ## Supported Tokens
+
+### Mainnet Tokens
 
 | Token | Name       | Decimals | Type   |
 | ----- | ---------- | -------- | ------ |
 | ETH   | Ethereum   | 18       | Native |
 | USDC  | USD Coin   | 6        | ERC-20 |
 | USDT  | Tether USD | 6        | ERC-20 |
+
+### Testnet Tokens 🧪
+
+| Token | Name          | Decimals | Type   | Note        |
+| ----- | ------------- | -------- | ------ | ----------- |
+| ETH   | Test Ethereum | 18       | Native | Faucet ETH  |
+| USDC  | Test USD Coin | 6        | ERC-20 | Test tokens |
+| USDT  | Test Tether   | 6        | ERC-20 | Test tokens |
 
 ## API Reference
 
@@ -79,6 +195,13 @@ await sdk.transfer({
 Initializes the SDK with a Web3/EVM provider. Must be called before any other method.
 
 ```typescript
+// Basic initialization
+await sdk.initialize(window.ethereum);
+
+// With network configuration
+const sdk = new NexusSDK({
+  network: Network.CERISE, // Choose based on your needs
+});
 await sdk.initialize(window.ethereum);
 ```
 
@@ -88,6 +211,69 @@ Deinitializes the SDK and cleans up resources.
 
 ```typescript
 await sdk.deinit();
+```
+
+---
+
+### Network Configuration 🔧
+
+The SDK can be configured to work with different network environments based on your development needs.
+
+#### **Available Network Environments**
+
+```typescript
+import { Network } from '@avail/nexus-sdk';
+
+// Available environments:
+Network.FOLLY; // Dev with testnet tokens
+Network.CERISE; // Dev with mainnet tokens
+Network.CORAL; // Testnet with mainnet tokens
+```
+
+#### **Configuration Examples**
+
+```typescript
+import { NexusSDK, Network } from '@avail/nexus-sdk';
+
+// For development with mainnet tokens (recommended for most dev work)
+const mainnetDevSdk = new NexusSDK({
+  network: Network.CERISE,
+});
+
+// For development with testnet tokens (for testing with test funds)
+const testnetDevSdk = new NexusSDK({
+  network: Network.FOLLY,
+});
+
+// For testnet with mainnet tokens (advanced use case)
+const testnetMainnetSdk = new NexusSDK({
+  network: Network.CORAL,
+});
+
+// For production
+const prodSdk = new NexusSDK();
+
+await mainnetDevSdk.initialize(provider);
+```
+
+#### **Environment Selection Guide**
+
+| Environment | Use Case    | Tokens  | Chains  | Best For                                        |
+| ----------- | ----------- | ------- | ------- | ----------------------------------------------- |
+| `FOLLY`     | Development | Testnet | Testnet | Early development, testing with free tokens     |
+| `CERISE`    | Development | Mainnet | Mainnet | Development with real token prices/metadata     |
+| `CORAL`     | Testing     | Mainnet | Testnet | Testing mainnet logic on testnet infrastructure |
+
+#### **Default Behavior**
+
+```typescript
+// Without specifying network, SDK uses default configuration
+const sdk = new NexusSDK(); // Uses default environment
+
+// Same as explicitly setting CERISE (most common for development)
+const sdk = new NexusSDK({
+  network: Network.CERISE,
+});
 ```
 
 ---
@@ -196,11 +382,32 @@ await sdk.revokeAllowance(42161, ['USDC']);
 
 #### `getTokenMetadata(symbol: string): TokenMetadata`
 
-Get comprehensive metadata for a specific supported token.
+Get comprehensive metadata for a specific supported token (defaults to mainnet).
 
 ```typescript
 const ethMetadata = sdk.getTokenMetadata('ETH');
 // Returns: { symbol: 'ETH', name: 'Ethereum', decimals: 18, icon: '...', coingeckoId: 'ethereum', isNative: true }
+```
+
+#### `getMainnetTokenMetadata(symbol: string): TokenMetadata` 🧪
+
+Get comprehensive metadata for a specific mainnet token.
+
+```typescript
+const usdcMetadata = sdk.getMainnetTokenMetadata('USDC');
+// Returns: { symbol: 'USDC', name: 'USD Coin', decimals: 6, icon: '...', coingeckoId: 'usd-coin' }
+```
+
+#### `getTestnetTokenMetadata(symbol: string): TokenMetadata` 🧪
+
+Get comprehensive metadata for a specific testnet token.
+
+```typescript
+const testUsdcMetadata = sdk.getTestnetTokenMetadata('USDC');
+// Returns: { symbol: 'USDC', name: 'Test USD Coin', decimals: 6, icon: '...', coingeckoId: 'usd-coin' }
+
+const testMaticMetadata = sdk.getTestnetTokenMetadata('MATIC');
+// Returns: { symbol: 'MATIC', name: 'Test Polygon', decimals: 18, icon: '...', coingeckoId: 'matic-network', isNative: true }
 ```
 
 #### `getChainMetadata(chainId: number): ChainMetadata | undefined`
@@ -418,17 +625,50 @@ await sdk.preprocess({
 ### Available Constants
 
 ```typescript
-import { SUPPORTED_CHAINS, TOKEN_METADATA, CHAIN_METADATA, NEXUS_EVENTS } from '@avail/nexus-sdk';
+import {
+  SUPPORTED_CHAINS,
+  TOKEN_METADATA,
+  TESTNET_TOKEN_METADATA,
+  CHAIN_METADATA,
+  NEXUS_EVENTS,
+  MAINNET_CHAINS,
+  TESTNET_CHAINS,
+  isMainnetChain,
+  isTestnetChain,
+  Network,
+} from '@avail/nexus-sdk';
 
-// Chain IDs
+// Mainnet Chain IDs
 console.log(SUPPORTED_CHAINS.ETHEREUM); // 1
 console.log(SUPPORTED_CHAINS.POLYGON); // 137
 
-// Token metadata
+// Testnet Chain IDs 🧪 NEW
+console.log(SUPPORTED_CHAINS.ETHEREUM_SEPOLIA); // 11155111
+console.log(SUPPORTED_CHAINS.POLYGON_AMOY); // 80002
+
+// Mainnet token metadata
 console.log(TOKEN_METADATA.USDC); // { symbol: 'USDC', name: 'USD Coin', decimals: 6, ... }
 
-// Chain metadata
+// Testnet token metadata 🧪 NEW
+console.log(TESTNET_TOKEN_METADATA.USDC); // { symbol: 'USDC', name: 'Test USD Coin', decimals: 6, ... }
+
+// Chain metadata (works for both mainnet and testnet)
 console.log(CHAIN_METADATA[1]); // { id: 1, name: 'Ethereum', ... }
+console.log(CHAIN_METADATA[11155111]); // { id: 11155111, name: 'Ethereum Sepolia', ... }
+
+// Helper arrays 🧪 NEW
+console.log(MAINNET_CHAINS); // [1, 10, 137, 42161, 43114, 8453, 59144, 534351]
+console.log(TESTNET_CHAINS); // [11155111, 11155420, 80002, 421614, 43113, 84532, 59141, 534352]
+
+// Helper functions 🧪 NEW
+console.log(isMainnetChain(1)); // true
+console.log(isTestnetChain(11155111)); // true
+console.log(isMainnetChain(11155111)); // false
+
+// Network environments 🧪 NEW
+console.log(Network.FOLLY); // 0 - Dev with testnet tokens
+console.log(Network.CERISE); // 1 - Dev with mainnet tokens
+console.log(Network.CORAL); // 2 - Testnet with mainnet tokens
 
 // Event names
 console.log(NEXUS_EVENTS.EXPECTED_STEPS); // 'expected_steps'
@@ -445,9 +685,14 @@ import {
   truncateAddress,
   chainIdToHex,
   hexToChainId,
-  getTokenMetadata,
+  getTokenMetadata, // Defaults to mainnet
+  getMainnetTokenMetadata,
+  getTestnetTokenMetadata,
   getChainMetadata,
   formatTokenAmount,
+  formatTestnetTokenAmount,
+  isMainnetChain,
+  isTestnetChain,
 } from '@avail/nexus-sdk';
 ```
 
@@ -491,6 +736,84 @@ import type {
   BridgeParams,
   TransferParams,
 } from '@avail/nexus-sdk';
+```
+
+---
+
+## Testnet Usage 🧪
+
+The SDK now provides comprehensive testnet support with dedicated metadata and helper functions.
+
+### Working with Testnets
+
+```typescript
+import { NexusSDK, SUPPORTED_CHAINS, isTestnetChain, isMainnetChain } from '@avail/nexus-sdk';
+
+const sdk = new NexusSDK();
+await sdk.initialize(provider);
+
+// Check if current chain is testnet
+const currentChainId = 11155111; // Ethereum Sepolia
+console.log(isTestnetChain(currentChainId)); // true
+console.log(isMainnetChain(currentChainId)); // false
+
+// Get testnet token metadata
+const testUSDC = sdk.getTestnetTokenMetadata('USDC');
+console.log(testUSDC.name); // "Test USD Coin"
+
+// Bridge on testnet (same API as mainnet)
+await sdk.bridge({
+  token: 'USDC',
+  amount: 10,
+  chainId: SUPPORTED_CHAINS.POLYGON_AMOY, // Polygon testnet
+});
+
+// Transfer on testnet
+await sdk.transfer({
+  token: 'ETH',
+  amount: 0.1,
+  chainId: SUPPORTED_CHAINS.ETHEREUM_SEPOLIA,
+  recipient: '0x...',
+});
+```
+
+### Testnet Chain Examples
+
+```typescript
+// All supported testnet chains
+const testnetChains = [
+  SUPPORTED_CHAINS.ETHEREUM_SEPOLIA, // 11155111
+  SUPPORTED_CHAINS.BASE_SEPOLIA, // 84532
+  SUPPORTED_CHAINS.ARBITRUM_SEPOLIA, // 421614
+  SUPPORTED_CHAINS.OPTIMISM_SEPOLIA, // 11155420
+  SUPPORTED_CHAINS.POLYGON_AMOY, // 80002
+  SUPPORTED_CHAINS.AVALANCHE_FUJI, // 43113
+  SUPPORTED_CHAINS.LINEA_SEPOLIA, // 59141
+  SUPPORTED_CHAINS.SCROLL_SEPOLIA, // 534352
+];
+
+// Get metadata for any testnet chain
+const sepoliaMetadata = sdk.getChainMetadata(SUPPORTED_CHAINS.ETHEREUM_SEPOLIA);
+console.log(sepoliaMetadata.name); // "Ethereum Sepolia"
+console.log(sepoliaMetadata.rpcUrls[0]); // "https://rpc.sepolia.org"
+```
+
+### Testnet vs Mainnet Token Formatting
+
+```typescript
+// Format mainnet tokens
+const mainnetFormatted = sdk.formatTokenAmount('1000000', 'USDC'); // Uses mainnet decimals
+console.log(mainnetFormatted); // "1 USDC"
+
+// Format testnet tokens
+const testnetFormatted = sdk.formatTestnetTokenAmount('1000000', 'USDC'); // Uses testnet decimals
+console.log(testnetFormatted); // "1 USDC" (same result, but uses testnet metadata)
+
+// Compare metadata
+const mainnetUSDC = sdk.getMainnetTokenMetadata('USDC');
+const testnetUSDC = sdk.getTestnetTokenMetadata('USDC');
+console.log(mainnetUSDC.name); // "USD Coin"
+console.log(testnetUSDC.name); // "Test USD Coin"
 ```
 
 ---

@@ -10,13 +10,21 @@
   ],
   "scripts": {
     "build": "rollup -c",
+    "build:prod": "NODE_ENV=production rollup -c",
+    "build:dev": "NODE_ENV=development rollup -c",
     "dev": "rollup -c -w",
     "test": "jest",
     "lint": "eslint src --ext .ts,.tsx",
     "lint:fix": "eslint src --ext .ts,.tsx --fix",
     "format": "prettier --write \"src/**/*.{ts,tsx}\"",
     "prepare": "husky install",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "version:dev": "npm version prerelease --preid=dev",
+    "version:prod": "npm version patch",
+    "publish:dev": "npm run build:dev && npm publish --tag dev",
+    "publish:prod": "npm run build:prod && npm publish --tag latest",
+    "release:dev": "npm run version:dev && npm run publish:dev",
+    "release:prod": "npm run version:prod && npm run publish:prod"
   },
   "keywords": [
     "nexus",
@@ -47,7 +55,7 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
-    "@arcana/ca-sdk": "0.0.7"
+    "@arcana/ca-sdk": "0.0.8-beta.2"
   },
   "peerDependencies": {
     "react": ">=16.8.0",

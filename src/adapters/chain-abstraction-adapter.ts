@@ -1,6 +1,6 @@
-import { CA, Network } from '@arcana/ca-sdk';
+import { CA, Network, SDKConfig } from '@arcana/ca-sdk';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
-import { SUPPORTED_CHAINS, AVAILABLE_TOKENS, CHAIN_METADATA, NEXUS_EVENTS } from '../constants';
+import { SUPPORTED_CHAINS, TOKEN_METADATA, CHAIN_METADATA, NEXUS_EVENTS } from '../constants';
 import {
   formatBalance,
   formatTokenAmount,
@@ -11,7 +11,8 @@ import {
   truncateAddress,
   chainIdToHex,
   hexToChainId,
-  getTokenMetadata,
+  getMainnetTokenMetadata,
+  getTestnetTokenMetadata,
 } from '../utils';
 import type {
   EthereumProvider,
@@ -40,8 +41,8 @@ export class ChainAbstractionAdapter {
   public readonly caEvents: SafeEventEmitter;
   private initialized = false;
 
-  constructor() {
-    this.ca = new CA();
+  constructor(config?: SDKConfig) {
+    this.ca = new CA(config);
     this.caEvents = this.ca.caEvents;
   }
 
@@ -194,10 +195,24 @@ export class ChainAbstractionAdapter {
   }
 
   /**
-   * Get supported tokens with metadata.
+   * Get mainnet token metadata by symbol.
    */
-  public getTokenMetadata(symbol: SUPPORTED_TOKENS): TokenMetadata {
-    return getTokenMetadata(symbol);
+  public getMainnetTokenMetadata(symbol: SUPPORTED_TOKENS): TokenMetadata | undefined {
+    return getMainnetTokenMetadata(symbol);
+  }
+
+  /**
+   * Get testnet token metadata by symbol.
+   */
+  public getTestnetTokenMetadata(symbol: SUPPORTED_TOKENS): TokenMetadata | undefined {
+    return getTestnetTokenMetadata(symbol);
+  }
+
+  /**
+   * Get token metadata by symbol (defaults to mainnet, kept for backward compatibility).
+   */
+  public getTokenMetadata(symbol: SUPPORTED_TOKENS): TokenMetadata | undefined {
+    return getMainnetTokenMetadata(symbol);
   }
 
   /**
@@ -333,7 +348,7 @@ export class ChainAbstractionAdapter {
    * Check if a token is supported by the adapter.
    */
   public isSupportedToken(token: string): boolean {
-    return AVAILABLE_TOKENS.some((availableToken) => availableToken.symbol === token);
+    return Object.keys(TOKEN_METADATA).includes(token);
   }
 
   /**

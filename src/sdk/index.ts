@@ -20,13 +20,14 @@ import type {
   SUPPORTED_CHAINS_IDS,
 } from '../types';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
+import { SDKConfig } from '@arcana/ca-sdk';
 
 export class NexusSDK {
   public readonly nexusAdapter: ChainAbstractionAdapter;
   public readonly nexusEvents: SafeEventEmitter;
 
-  constructor() {
-    this.nexusAdapter = new ChainAbstractionAdapter();
+  constructor(config?: SDKConfig) {
+    this.nexusAdapter = new ChainAbstractionAdapter(config);
     this.nexusEvents = this.nexusAdapter.caEvents;
   }
 
@@ -145,9 +146,23 @@ export class NexusSDK {
   }
 
   /**
-   * Get supported tokens with comprehensive metadata
+   * Get mainnet token metadata by symbol
    */
-  public getTokenMetadata(symbol: SUPPORTED_TOKENS): TokenMetadata {
+  public getMainnetTokenMetadata(symbol: SUPPORTED_TOKENS): TokenMetadata | undefined {
+    return this.nexusAdapter.getMainnetTokenMetadata(symbol);
+  }
+
+  /**
+   * Get testnet token metadata by symbol
+   */
+  public getTestnetTokenMetadata(symbol: SUPPORTED_TOKENS): TokenMetadata | undefined {
+    return this.nexusAdapter.getTestnetTokenMetadata(symbol);
+  }
+
+  /**
+   * Get token metadata by symbol (defaults to mainnet, kept for backward compatibility)
+   */
+  public getTokenMetadata(symbol: SUPPORTED_TOKENS): TokenMetadata | undefined {
     return this.nexusAdapter.getTokenMetadata(symbol);
   }
 
