@@ -55,7 +55,7 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
-    "@arcana/ca-sdk": "0.0.8-beta.2"
+    "@arcana/ca-sdk": "0.0.7"
   },
   "peerDependencies": {
     "react": ">=16.8.0",
