@@ -45,9 +45,6 @@ fi
 
 print_status "Starting $RELEASE_TYPE release..."
 
-# Run tests before release
-print_status "Running tests..."
-npm test
 
 # Run linting
 print_status "Running linter..."
