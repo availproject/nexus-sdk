@@ -54,9 +54,6 @@
     "ts-jest": "^29.0.0",
     "typescript": "^5.0.0"
   },
-  "dependencies": {
-    "@arcana/ca-sdk": "0.0.7"
-  },
   "peerDependencies": {
     "react": ">=16.8.0",
     "react-dom": ">=16.8.0"
@@ -68,5 +65,9 @@
     "react-dom": {
       "optional": true
     }
+  },
+  "dependencies": {
+    "@arcana/ca-sdk": "1.0.0-beta.9",
+    "viem": "^2.0.0"
   }
 }

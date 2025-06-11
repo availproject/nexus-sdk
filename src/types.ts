@@ -9,7 +9,21 @@ import type {
   Intent,
   onAllowanceHookSource,
   Network,
+  RequestForFunds,
+  SDKConfig,
+  UserAsset,
 } from '@arcana/ca-sdk';
+
+type TokenInfo = {
+  contractAddress: `0x${string}`;
+  decimals: number;
+  logo?: string;
+  name: string;
+  platform?: string;
+  symbol: string;
+};
+
+type NexusNetwork = 'mainnet' | 'testnet';
 
 // Enhanced chain metadata with comprehensive information
 export interface ChainMetadata {
@@ -55,48 +69,6 @@ type OnAllowanceHookData = {
 export type EventListener = (...args: unknown[]) => void;
 
 /**
- * Parameters for sending a transaction.
- */
-export type PreSendTxParams = {
-  to?: `0x${string}`;
-  from?: `0x${string}`;
-  value?: `0x${string}`;
-  data?: `0x${string}`;
-};
-
-/**
- * Options for preprocessing a transaction.
- */
-export interface PreProcessOptions {
-  bridge: boolean;
-  extraGas: bigint;
-}
-
-/**
- * Unified balance response structure for a token across chains.
- */
-export interface UnifiedBalanceResponse {
-  symbol: string;
-  balance: string;
-  balanceInFiat: number;
-  decimals: number;
-  icon?: string;
-  breakdown: {
-    chain: {
-      id: number;
-      name: string;
-      logo: string;
-    };
-    network: 'evm';
-    contractAddress: `0x${string}`;
-    isNative?: boolean;
-    balance: string;
-    balanceInFiat: number;
-  }[];
-  abstracted?: boolean;
-}
-
-/**
  * Parameters for checking or setting token allowance.
  */
 export interface AllowanceParams {
@@ -124,7 +96,12 @@ export interface BridgeParams {
   token: SUPPORTED_TOKENS;
   amount: number | string;
   chainId: SUPPORTED_CHAINS_IDS;
-  gas?: string | number | bigint;
+  gas?: bigint;
+}
+
+export interface SimulationResult {
+  intent: Intent;
+  token: TokenInfo;
 }
 
 /**
@@ -162,4 +139,9 @@ export type {
   OnAllowanceHookData,
   onAllowanceHookSource as AllowanceHookSource,
   Network,
+  UserAsset,
+  TokenInfo,
+  RequestForFunds,
+  SDKConfig,
+  NexusNetwork,
 };

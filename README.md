@@ -1,6 +1,6 @@
 # Avail Nexus SDK
 
-Nexus SDK for cross-chain bridging and swaps
+A powerful TypeScript SDK for cross-chain operations, token bridging, and unified balance management across multiple EVM chains. It provides a simplified interface for complex cross-chain interactions.
 
 ## Installation
 
@@ -16,100 +16,10 @@ npm install avail-nexus-sdk
 npm install avail-nexus-sdk@dev
 ```
 
-## Development Workflow
-
-This SDK maintains two distribution channels:
-
-### Production SDK (`latest` tag)
-
-- **Branch**: `main`
-- **Installation**: `npm install avail-nexus-sdk`
-- **Purpose**: Stable, thoroughly tested releases
-- **Release Process**: Manual releases from main branch
-
-### Development SDK (`dev` tag)
-
-- **Branch**: `develop` or feature branches
-- **Installation**: `npm install avail-nexus-sdk@dev`
-- **Purpose**: Latest features and fixes for testing
-- **Release Process**: Automated releases from development branches
-
-## Scripts
-
-### Building
-
-```bash
-npm run build          # Standard build
-npm run build:prod     # Production build (optimized)
-npm run build:dev      # Development build (with source maps)
-```
-
-### Releasing
-
-```bash
-# Development release
-npm run release:dev
-# or
-./scripts/release.sh dev
-
-# Production release
-npm run release:prod
-# or
-./scripts/release.sh prod
-```
-
-### Version Management
-
-```bash
-npm run version:dev    # Bump development version
-npm run version:prod   # Bump production version
-```
-
-## Usage
-
-```typescript
-import { formatBalance, getChainMetadata, getFullVersion, IS_DEVELOPMENT } from 'avail-nexus-sdk';
-
-// Use SDK functions
-const balance = formatBalance('1000000000000000000', 18);
-console.log('Formatted balance:', balance);
-```
-
-## Development Setup
-
-1. Clone the repository
-2. Install dependencies: `npm install`
-3. Run tests: `npm test`
-4. Build: `npm run build`
-5. Lint: `npm run lint`
-
-## Contributing
-
-1. Create a feature branch from `main`
-2. Make your changes
-3. Test thoroughly
-4. Create a development release: `./scripts/release.sh dev`
-5. Create a pull request to `main`
-6. After merge, create a production release: `./scripts/release.sh prod`
-
-## Features
-
-- 🔄 Cross-chain token bridging
-- 💰 Unified balance across chains
-- 🔐 Token allowance management
-- 🌉 Token transfers across chains
-- 🔌 Event hooks for transaction status
-- ⚡ Support for multiple EVM chains (mainnet & testnet)
-- 🧪 Complete testnet support with dedicated metadata
-- 🛠️ Comprehensive utility functions
-- 📊 Enhanced metadata for chains and tokens
-- 🎯 Advanced balance formatting and parsing
-- ✅ Address validation and formatting
-
 ## Quick Start
 
 ```typescript
-import { NexusSDK, Network } from '@avail/nexus-sdk';
+import { NexusSDK, Network } from 'avail-nexus-sdk';
 
 // Initialize SDK with default settings
 const sdk = new NexusSDK();
@@ -117,14 +27,15 @@ await sdk.initialize(provider); // Your Web3 provider
 
 // Or initialize with specific network environment
 const nexusSdk = new NexusSDK({
-  network: Network.CERISE, // Dev with mainnet tokens
+  network: 'testnet', // Testnet
 });
 await nexusSdk.initialize(provider);
 
 // Get unified balances
 const balances = await sdk.getUnifiedBalances();
+console.log('All balances:', balances);
 
-// Bridge tokens
+// Bridge USDC to Polygon
 await sdk.bridge({
   token: 'USDC',
   amount: 1, // number or string
@@ -140,755 +51,614 @@ await sdk.transfer({
 });
 ```
 
+## Features
+
+- 🔄 **Cross-chain token bridging** - Bridge tokens seamlessly between supported chains
+- 💰 **Unified balance management** - Get aggregated balances across all chains
+- 🔐 **Token allowance management** - Manage token approvals efficiently
+- 🌉 **Direct token transfers** - Transfer tokens to specific recipients
+- 🔌 **Event hooks** - React to transaction status and approval flows
+- ⚡ **Multi-chain support** - Works with 8 mainnet and 8 testnet chains
+- 🧪 **Complete testnet support** - Full development and testing capabilities
+- 🛠️ **Comprehensive utilities** - Balance formatting, address validation, and more
+- 📊 **Enhanced metadata** - Rich chain and token information
+- 🎯 **Transaction simulation** - Preview costs and fees before execution
+
 ## Supported Networks
 
 ### Mainnet Chains
 
-| Network   | Chain ID | Native Currency | Block Time | Status |
-| --------- | -------- | --------------- | ---------- | ------ |
-| Ethereum  | 1        | ETH             | 12s        | ✅     |
-| Optimism  | 10       | ETH             | 2s         | ✅     |
-| Polygon   | 137      | MATIC           | 2s         | ✅     |
-| Arbitrum  | 42161    | ETH             | 1s         | ✅     |
-| Avalanche | 43114    | AVAX            | 2s         | ✅     |
-| Base      | 8453     | ETH             | 2s         | ✅     |
-| Linea     | 59144    | ETH             | 12s        | ✅     |
-| Scroll    | 534351   | ETH             | 3s         | ✅     |
+| Network   | Chain ID | Native Currency | Status |
+| --------- | -------- | --------------- | ------ |
+| Ethereum  | 1        | ETH             | ✅     |
+| Optimism  | 10       | ETH             | ✅     |
+| Polygon   | 137      | MATIC           | ✅     |
+| Arbitrum  | 42161    | ETH             | ✅     |
+| Avalanche | 43114    | AVAX            | ✅     |
+| Base      | 8453     | ETH             | ✅     |
+| Linea     | 59144    | ETH             | ✅     |
+| Scroll    | 534351   | ETH             | ✅     |
 
-### Testnet Chains 🧪
+### Testnet Chains
 
-| Network          | Chain ID | Native Currency | Block Time | Status |
-| ---------------- | -------- | --------------- | ---------- | ------ |
-| Ethereum Sepolia | 11155111 | ETH             | 12s        | ✅     |
-| Optimism Sepolia | 11155420 | ETH             | 2s         | ✅     |
-| Polygon Amoy     | 80002    | MATIC           | 2s         | ✅     |
-| Arbitrum Sepolia | 421614   | ETH             | 1s         | ✅     |
-| Avalanche Fuji   | 43113    | AVAX            | 2s         | ✅     |
-| Base Sepolia     | 84532    | ETH             | 2s         | ✅     |
-| Linea Sepolia    | 59141    | ETH             | 12s        | ✅     |
-| Scroll Sepolia   | 534352   | ETH             | 3s         | ✅     |
+| Network          | Chain ID | Native Currency | Status |
+| ---------------- | -------- | --------------- | ------ |
+| Ethereum Sepolia | 11155111 | ETH             | ✅     |
+| Optimism Sepolia | 11155420 | ETH             | ✅     |
+| Polygon Amoy     | 80002    | MATIC           | ✅     |
+| Arbitrum Sepolia | 421614   | ETH             | ✅     |
+| Avalanche Fuji   | 43113    | AVAX            | ✅     |
+| Base Sepolia     | 84532    | ETH             | ✅     |
+| Linea Sepolia    | 59141    | ETH             | ✅     |
+| Scroll Sepolia   | 534352   | ETH             | ✅     |
 
-## Supported Tokens
+### Supported Tokens
 
-### Mainnet Tokens
+| Token | Name       | Decimals | Networks       |
+| ----- | ---------- | -------- | -------------- |
+| ETH   | Ethereum   | 18       | All EVM chains |
+| USDC  | USD Coin   | 6        | All supported  |
+| USDT  | Tether USD | 6        | All supported  |
 
-| Token | Name       | Decimals | Type   |
-| ----- | ---------- | -------- | ------ |
-| ETH   | Ethereum   | 18       | Native |
-| USDC  | USD Coin   | 6        | ERC-20 |
-| USDT  | Tether USD | 6        | ERC-20 |
-
-### Testnet Tokens 🧪
-
-| Token | Name          | Decimals | Type   | Note        |
-| ----- | ------------- | -------- | ------ | ----------- |
-| ETH   | Test Ethereum | 18       | Native | Faucet ETH  |
-| USDC  | Test USD Coin | 6        | ERC-20 | Test tokens |
-| USDT  | Test Tether   | 6        | ERC-20 | Test tokens |
-
-## API Reference
+## Core API Reference
 
 ### Initialization
 
-#### `initialize(provider: EthereumProvider): Promise<void>`
-
-Initializes the SDK with a Web3/EVM provider. Must be called before any other method.
-
 ```typescript
-// Basic initialization
-await sdk.initialize(window.ethereum);
+import { NexusSDK, Network } from 'avail-nexus-sdk';
 
-// With network configuration
+// Basic initialization (defaults to mainnet)
+const sdk = new NexusSDK();
+
+// With specific network configuration
 const sdk = new NexusSDK({
-  network: Network.CERISE, // Choose based on your needs
+  network: 'testnet', // Use testnet environment
 });
+
+// Initialize with Web3 provider (required before use)
 await sdk.initialize(window.ethereum);
 ```
 
-#### `deinit(): Promise<void>`
+### Balance Management
 
-Deinitializes the SDK and cleans up resources.
-
-```typescript
-await sdk.deinit();
-```
-
----
-
-### Network Configuration 🔧
-
-The SDK can be configured to work with different network environments based on your development needs.
-
-#### **Available Network Environments**
+#### Get Unified Balances
 
 ```typescript
-import { Network } from '@avail/nexus-sdk';
-
-// Available environments:
-Network.FOLLY; // Dev with testnet tokens
-Network.CERISE; // Dev with mainnet tokens
-Network.CORAL; // Testnet with mainnet tokens
-```
-
-#### **Configuration Examples**
-
-```typescript
-import { NexusSDK, Network } from '@avail/nexus-sdk';
-
-// For development with mainnet tokens (recommended for most dev work)
-const mainnetDevSdk = new NexusSDK({
-  network: Network.CERISE,
-});
-
-// For development with testnet tokens (for testing with test funds)
-const testnetDevSdk = new NexusSDK({
-  network: Network.FOLLY,
-});
-
-// For testnet with mainnet tokens (advanced use case)
-const testnetMainnetSdk = new NexusSDK({
-  network: Network.CORAL,
-});
-
-// For production
-const prodSdk = new NexusSDK();
-
-await mainnetDevSdk.initialize(provider);
-```
-
-#### **Environment Selection Guide**
-
-| Environment | Use Case    | Tokens  | Chains  | Best For                                        |
-| ----------- | ----------- | ------- | ------- | ----------------------------------------------- |
-| `FOLLY`     | Development | Testnet | Testnet | Early development, testing with free tokens     |
-| `CERISE`    | Development | Mainnet | Mainnet | Development with real token prices/metadata     |
-| `CORAL`     | Testing     | Mainnet | Testnet | Testing mainnet logic on testnet infrastructure |
-
-#### **Default Behavior**
-
-```typescript
-// Without specifying network, SDK uses default configuration
-const sdk = new NexusSDK(); // Uses default environment
-
-// Same as explicitly setting CERISE (most common for development)
-const sdk = new NexusSDK({
-  network: Network.CERISE,
-});
-```
-
----
-
-### Unified Balance
-
-#### `getUnifiedBalances(): Promise<UnifiedBalanceResponse[]>`
-
-Retrieves unified balances for all supported tokens across all chains.
-
-```typescript
+// Get all token balances across all chains
 const balances = await sdk.getUnifiedBalances();
-```
+console.log('Total portfolio:', balances);
 
-#### `getUnifiedBalance(symbol: string): Promise<UnifiedBalanceResponse | undefined>`
-
-Retrieves the unified balance for a specific token symbol (e.g., 'USDC').
-
-```typescript
+// Get balance for specific token
 const usdcBalance = await sdk.getUnifiedBalance('USDC');
-```
+console.log('Total USDC:', usdcBalance);
 
-#### `getFormattedTokenBalance(symbol: string, chainId?: number): Promise<TokenBalance | undefined>` 🆕
-
-Get token balance for a specific token, optionally on a specific chain.
-
-```typescript
-// Get USDC balance on Polygon
+// Get formatted balance for specific token on specific chain
 const polygonUSDC = await sdk.getFormattedTokenBalance('USDC', 137);
-
-// Get total USDC balance across all chains
-const totalUSDC = await sdk.getFormattedTokenBalance('USDC');
+console.log('Polygon USDC:', polygonUSDC?.formattedBalance);
 ```
 
----
+### Cross-Chain Operations
 
-### Bridging & Transfers
-
-#### `bridge(params: BridgeParams): Promise<unknown>`
-
-Bridges tokens between chains using Nexus's intent system.
+#### Bridge Tokens
 
 ```typescript
+// Simple bridge operation
 await sdk.bridge({
   token: 'USDC',
-  amount: 10,
-  chainId: 137, // Destination chain ID
-  gas: 100000, // optional gas limit
+  amount: 100, // 100 USDC
+  chainId: 137, // to Polygon
+});
+
+// Bridge with custom gas limit
+await sdk.bridge({
+  token: 'ETH',
+  amount: '0.5', // 0.5 ETH as string
+  chainId: 42161, // to Arbitrum
+  gas: 100000n, // custom gas limit
+});
+
+// Bridge from string amounts
+await sdk.bridge({
+  token: 'USDT',
+  amount: '1000.50', // precise amount as string
+  chainId: 10, // to Optimism
 });
 ```
 
-#### `transfer(params: TransferParams): Promise<unknown>`
-
-Transfers tokens to a recipient on a specified chain.
+#### Transfer Tokens
 
 ```typescript
+// Transfer to specific recipient
 await sdk.transfer({
   token: 'ETH',
   amount: 1,
-  chainId: 1, // Destination chain ID
+  chainId: 1, // on Ethereum
+  recipient: '0x742d35Cc6634C0532925a3b8D4C9db96c4b4Db45',
+});
+
+// Transfer USDC on Polygon
+await sdk.transfer({
+  token: 'USDC',
+  amount: '250.75',
+  chainId: 137,
   recipient: '0xRecipientAddress',
 });
 ```
 
----
+#### Transaction Simulation
+
+```typescript
+// Simulate bridge to preview costs
+const bridgeSimulation = await sdk.simulateBridge({
+  token: 'USDC',
+  amount: 100,
+  chainId: 137,
+});
+console.log('Bridge simulation:', bridgeSimulation);
+
+// Simulate transfer to preview costs
+const transferSimulation = await sdk.simulateTransfer({
+  token: 'ETH',
+  amount: 0.5,
+  chainId: 42161,
+  recipient: '0xRecipientAddress',
+});
+console.log('Transfer simulation:', transferSimulation);
+```
 
 ### Allowance Management
 
-#### `getAllowance(chainId?: number, tokens?: string[]): Promise<AllowanceResponse[]>`
-
-Gets the allowance for specified tokens on a given chain.
-
 ```typescript
-// Get allowances for specific tokens on specific chain
+// Check allowances for specific tokens on specific chain
 const allowances = await sdk.getAllowance(137, ['USDC', 'USDT']);
+console.log('Polygon allowances:', allowances);
 
-// Get all allowances for specific chain
-const chainAllowances = await sdk.getAllowance(137);
+// Check all allowances on a chain
+const chainAllowances = await sdk.getAllowance(1);
 
-// Get allowances for specific tokens across all chains
+// Check allowances for specific tokens across all chains
 const tokenAllowances = await sdk.getAllowance(undefined, ['USDC']);
 
-// Get all allowances across all chains
-const allAllowances = await sdk.getAllowance();
+// Set allowance for tokens
+await sdk.setAllowance(137, ['USDC'], 1000000n); // 1M USDC units
+
+// Revoke allowances
+await sdk.revokeAllowance(137, ['USDC', 'USDT']);
 ```
 
-#### `setAllowance(chainId: number, tokens: string[], amount: bigint): Promise<void>`
+### Event Handling
 
-Sets the allowance for tokens on a specific chain.
-
-```typescript
-await sdk.setAllowance(42161, ['USDC'], BigInt('100000000000')); // Set allowance for USDC on Arbitrum
-```
-
-#### `revokeAllowance(chainId: number, tokens: string[]): Promise<void>`
-
-Revokes the allowance for tokens on a specific chain.
+#### Intent Hooks
 
 ```typescript
-await sdk.revokeAllowance(42161, ['USDC']);
-```
-
----
-
-### Metadata & Information 🆕
-
-#### `getTokenMetadata(symbol: string): TokenMetadata`
-
-Get comprehensive metadata for a specific supported token (defaults to mainnet).
-
-```typescript
-const ethMetadata = sdk.getTokenMetadata('ETH');
-// Returns: { symbol: 'ETH', name: 'Ethereum', decimals: 18, icon: '...', coingeckoId: 'ethereum', isNative: true }
-```
-
-#### `getMainnetTokenMetadata(symbol: string): TokenMetadata` 🧪
-
-Get comprehensive metadata for a specific mainnet token.
-
-```typescript
-const usdcMetadata = sdk.getMainnetTokenMetadata('USDC');
-// Returns: { symbol: 'USDC', name: 'USD Coin', decimals: 6, icon: '...', coingeckoId: 'usd-coin' }
-```
-
-#### `getTestnetTokenMetadata(symbol: string): TokenMetadata` 🧪
-
-Get comprehensive metadata for a specific testnet token.
-
-```typescript
-const testUsdcMetadata = sdk.getTestnetTokenMetadata('USDC');
-// Returns: { symbol: 'USDC', name: 'Test USD Coin', decimals: 6, icon: '...', coingeckoId: 'usd-coin' }
-
-const testMaticMetadata = sdk.getTestnetTokenMetadata('MATIC');
-// Returns: { symbol: 'MATIC', name: 'Test Polygon', decimals: 18, icon: '...', coingeckoId: 'matic-network', isNative: true }
-```
-
-#### `getChainMetadata(chainId: number): ChainMetadata | undefined`
-
-Get detailed metadata for a specific chain.
-
-```typescript
-const ethMetadata = sdk.getChainMetadata(1);
-// Returns: { id: 1, name: 'Ethereum', shortName: 'eth', logo: '...', nativeCurrency: {...}, rpcUrls: [...], ... }
-```
-
-#### `getSupportedChainsWithMetadata(): ChainMetadata[]`
-
-Get enhanced metadata for all supported chains.
-
-```typescript
-const chains = sdk.getSupportedChainsWithMetadata();
-```
-
----
-
-### Utility Functions 🆕
-
-#### `formatBalance(balance: string, decimals: number, precision?: number): string`
-
-Format a balance string to human-readable format.
-
-```typescript
-const formatted = sdk.formatBalance('1000000000000000000', 18, 4); // '1'
-const formatted2 = sdk.formatBalance('1500000', 6, 2); // '1.5'
-```
-
-#### `parseUnits(value: string, decimals: number): bigint`
-
-Parse human-readable value to smallest unit.
-
-```typescript
-const wei = sdk.parseUnits('1.5', 18); // 1500000000000000000n
-const usdc = sdk.parseUnits('100', 6); // 100000000n
-```
-
-#### `formatUnits(value: bigint, decimals: number): string`
-
-Format smallest unit to human-readable string.
-
-```typescript
-const formatted = sdk.formatUnits(1500000000000000000n, 18); // '1.5'
-```
-
-#### `isValidAddress(address: string): boolean`
-
-Validate if a string is a valid Ethereum address.
-
-```typescript
-const isValid = sdk.isValidAddress('0x742d35Cc6634C0532925a3b8D4C9db96c4b4Db45'); // true
-const isInvalid = sdk.isValidAddress('invalid'); // false
-```
-
-#### `truncateAddress(address: string, startLength?: number, endLength?: number): string`
-
-Truncate an address for display purposes.
-
-```typescript
-const short = sdk.truncateAddress('0x742d35Cc6634C0532925a3b8D4C9db96c4b4Db45'); // '0x742d...4Db45'
-const custom = sdk.truncateAddress('0x742d35Cc6634C0532925a3b8D4C9db96c4b4Db45', 8, 6); // '0x742d35...4b4Db45'
-```
-
-#### `chainIdToHex(chainId: number): string` / `hexToChainId(hex: string): number`
-
-Convert between chain ID formats.
-
-```typescript
-const hex = sdk.chainIdToHex(137); // '0x89'
-const decimal = sdk.hexToChainId('0x89'); // 137
-```
-
----
-
-### Event Hooks & Listeners
-
-#### `setOnIntentHook(callback: OnIntentHook): void`
-
-Sets a callback to handle intent approval flows (e.g., user confirmation for bridging/transfer intent).
-
-```typescript
+// Handle bridge/transfer approval flows
 sdk.setOnIntentHook(({ intent, allow, deny, refresh }) => {
-  // Show intent details to user
-  // Call allow(), deny(), or refresh() as needed
+  console.log('Transaction intent:', intent);
+
+  // Show user the transaction details
+  // Then allow or deny based on user input
+  if (userApproves) {
+    allow();
+  } else {
+    deny();
+  }
 });
 ```
 
-#### `setOnAllowanceHook(callback: OnAllowanceHook): void`
-
-Sets a callback to handle allowance approval flows (e.g., user confirmation for setting allowances).
+#### Allowance Hooks
 
 ```typescript
-sdk.setOnAllowanceHook(async ({ allow, deny, sources }) => {
-  // Show allowance requirements to user
-  // Call allow([...]), or deny() as needed
+// Handle token allowance approvals
+sdk.setOnAllowanceHook(({ sources, allow, deny }) => {
+  console.log('Allowance required for:', sources);
+
+  // Show user allowance requirements
+  // Set minimum allowances for the transaction
+  allow(['min']);
+
+  // Or set maximum allowances
+  // allow(['max']);
+
+  // Or set custom amounts
+  // allow(['1000000', '2000000']); // Custom amounts as strings
 });
 ```
 
-#### `onAccountChanged(callback: (account: string) => void): void`
-
-Subscribes to account change events from the provider.
+#### Account and Chain Events
 
 ```typescript
-sdk.onAccountChanged((account) => {
-  // Handle account change
+// Listen for account changes
+sdk.onAccountChanged((newAccount) => {
+  console.log('Account changed to:', newAccount);
+  // Update UI or reload balances
 });
-```
 
-#### `onChainChanged(callback: (chainId: number) => void): void`
-
-Subscribes to chain/network change events from the provider.
-
-```typescript
-sdk.onChainChanged((chainId) => {
-  // Handle chain change
+// Listen for chain changes
+sdk.onChainChanged((newChainId) => {
+  console.log('Chain changed to:', newChainId);
+  // Update UI for new chain
 });
-```
 
-#### `on(eventName: string, listener: (...args: any[]) => void): void`
-
-Subscribes to any event emitted by the underlying CA SDK.
-
-```typescript
-sdk.on('expected_steps', (data) => {
-  // Handle custom event
-});
-```
-
-#### `removeListener(eventName: string, listener: (...args: any[]) => void): void`
-
-Removes a specific event listener.
-
-```typescript
-sdk.removeListener('expected_steps', myListener);
-```
-
-#### `removeAllListeners(): void`
-
-Removes all event listeners from the SDK.
-
-```typescript
+// Remove all listeners when component unmounts
 sdk.removeAllListeners();
 ```
 
-#### `removeAllCaEventListeners(eventName?: string): void`
-
-Removes all listeners for a specific CA event, or all if no event is specified.
+### Intent Management
 
 ```typescript
-sdk.removeAllCaEventListeners('expected_steps');
+// Get user's transaction intents with pagination
+const page1Intents = await sdk.getMyIntents(1);
+const page2Intents = await sdk.getMyIntents(2);
+console.log('My intents:', page1Intents);
 ```
 
----
+## Utility Functions
 
-### Utility & Advanced Methods
-
-#### `isSupportedChain(chainId: number): boolean`
-
-Checks if a chain is supported by the SDK.
+### Token and Chain Information
 
 ```typescript
-if (sdk.isSupportedChain(137)) {
-  // Supported
-}
-```
+// Check if chain is supported
+const isSupported = sdk.isSupportedChain(137); // true for Polygon
 
-#### `isSupportedToken(token: string): boolean`
+// Check if token is supported
+const tokenSupported = sdk.isSupportedToken('USDC'); // true
 
-Checks if a token is supported by the SDK.
-
-```typescript
-if (sdk.isSupportedToken('USDC')) {
-  // Supported
-}
-```
-
-#### `getSupportedChains(): Array<{ id: number; name: string; logo: string }>`
-
-Returns a list of supported chains from the CA SDK.
-
-```typescript
+// Get supported chains list
 const chains = sdk.getSupportedChains();
+console.log('Supported chains:', chains);
+
+// Get detailed chain metadata
+const polygonMetadata = sdk.getChainMetadata(137);
+console.log('Polygon info:', polygonMetadata);
+
+// Get all chains with metadata
+const allChains = sdk.getSupportedChainsWithMetadata();
+
+// Get token metadata
+const usdcInfo = sdk.getTokenMetadata('USDC');
+const testnetUsdcInfo = sdk.getTestnetTokenMetadata('USDC');
 ```
 
-#### `request(args: RequestArguments): Promise<unknown>`
-
-Make a generic EIP-1193 request to the provider.
+### Balance and Number Formatting
 
 ```typescript
-const result = await sdk.request({
-  method: 'eth_getBalance',
-  params: ['0x...', 'latest'],
-});
+// Format balance with proper decimals
+const formatted = sdk.formatBalance('1500000', 6, 2); // '1.50' (USDC)
+const ethFormatted = sdk.formatBalance('1500000000000000000', 18); // '1.5' (ETH)
+
+// Parse human-readable amounts to smallest units
+const usdcUnits = sdk.parseUnits('100.50', 6); // 100500000n
+const ethUnits = sdk.parseUnits('1.5', 18); // 1500000000000000000n
+
+// Format smallest units to human-readable
+const usdcAmount = sdk.formatUnits(100500000n, 6); // '100.5'
+const ethAmount = sdk.formatUnits(1500000000000000000n, 18); // '1.5'
 ```
 
-#### `preprocess(args: PreSendTxParams, options?: PreProcessOptions): Promise<void>`
-
-Preprocess a transaction for validation or gas estimation.
+### Address Utilities
 
 ```typescript
-await sdk.preprocess({
-  to: '0x...',
-  value: '0x1',
-});
-```
+// Validate Ethereum addresses
+const isValid = sdk.isValidAddress('0x742d35Cc6634C0532925a3b8D4C9db96c4b4Db45'); // true
+const isInvalid = sdk.isValidAddress('invalid-address'); // false
 
----
-
-## Constants & Types
-
-### Available Constants
-
-```typescript
-import {
-  SUPPORTED_CHAINS,
-  TOKEN_METADATA,
-  TESTNET_TOKEN_METADATA,
-  CHAIN_METADATA,
-  NEXUS_EVENTS,
-  MAINNET_CHAINS,
-  TESTNET_CHAINS,
-  isMainnetChain,
-  isTestnetChain,
-  Network,
-} from '@avail/nexus-sdk';
-
-// Mainnet Chain IDs
-console.log(SUPPORTED_CHAINS.ETHEREUM); // 1
-console.log(SUPPORTED_CHAINS.POLYGON); // 137
-
-// Testnet Chain IDs 🧪 NEW
-console.log(SUPPORTED_CHAINS.ETHEREUM_SEPOLIA); // 11155111
-console.log(SUPPORTED_CHAINS.POLYGON_AMOY); // 80002
-
-// Mainnet token metadata
-console.log(TOKEN_METADATA.USDC); // { symbol: 'USDC', name: 'USD Coin', decimals: 6, ... }
-
-// Testnet token metadata 🧪 NEW
-console.log(TESTNET_TOKEN_METADATA.USDC); // { symbol: 'USDC', name: 'Test USD Coin', decimals: 6, ... }
-
-// Chain metadata (works for both mainnet and testnet)
-console.log(CHAIN_METADATA[1]); // { id: 1, name: 'Ethereum', ... }
-console.log(CHAIN_METADATA[11155111]); // { id: 11155111, name: 'Ethereum Sepolia', ... }
-
-// Helper arrays 🧪 NEW
-console.log(MAINNET_CHAINS); // [1, 10, 137, 42161, 43114, 8453, 59144, 534351]
-console.log(TESTNET_CHAINS); // [11155111, 11155420, 80002, 421614, 43113, 84532, 59141, 534352]
-
-// Helper functions 🧪 NEW
-console.log(isMainnetChain(1)); // true
-console.log(isTestnetChain(11155111)); // true
-console.log(isMainnetChain(11155111)); // false
-
-// Network environments 🧪 NEW
-console.log(Network.FOLLY); // 0 - Dev with testnet tokens
-console.log(Network.CERISE); // 1 - Dev with mainnet tokens
-console.log(Network.CORAL); // 2 - Testnet with mainnet tokens
-
-// Event names
-console.log(NEXUS_EVENTS.EXPECTED_STEPS); // 'expected_steps'
-```
-
-### Available Utility Functions
-
-```typescript
-import {
-  formatBalance,
-  parseUnits,
-  formatUnits,
-  isValidAddress,
-  truncateAddress,
-  chainIdToHex,
-  hexToChainId,
-  getTokenMetadata, // Defaults to mainnet
-  getMainnetTokenMetadata,
-  getTestnetTokenMetadata,
-  getChainMetadata,
-  formatTokenAmount,
-  formatTestnetTokenAmount,
-  isMainnetChain,
-  isTestnetChain,
-} from '@avail/nexus-sdk';
-```
-
----
-
-## Error Handling
-
-The SDK throws descriptive errors for various scenarios:
-
-```typescript
-try {
-  await sdk.bridge({
-    token: 'INVALID_TOKEN',
-    amount: 10,
-    chainId: 137,
-  });
-} catch (error) {
-  console.error(error.message); // "Unsupported token"
-}
-```
-
-Common error scenarios:
-
-- `"CA SDK not initialized. Call initialize() first."` - SDK not initialized
-- `"Unsupported chain"` - Chain ID not supported
-- `"Unsupported token"` - Token symbol not supported
-- `"Provider is required"` - No provider passed to initialize
-- `"Failed to initialize CA SDK"` - Provider initialization failed
-
----
-
-## TypeScript Support
-
-The SDK is fully typed with comprehensive TypeScript definitions:
-
-```typescript
-import type {
-  TokenMetadata,
-  ChainMetadata,
-  TokenBalance,
-  BridgeParams,
-  TransferParams,
-} from '@avail/nexus-sdk';
-```
-
----
-
-## Testnet Usage 🧪
-
-The SDK now provides comprehensive testnet support with dedicated metadata and helper functions.
-
-### Working with Testnets
-
-```typescript
-import { NexusSDK, SUPPORTED_CHAINS, isTestnetChain, isMainnetChain } from '@avail/nexus-sdk';
-
-const sdk = new NexusSDK();
-await sdk.initialize(provider);
-
-// Check if current chain is testnet
-const currentChainId = 11155111; // Ethereum Sepolia
-console.log(isTestnetChain(currentChainId)); // true
-console.log(isMainnetChain(currentChainId)); // false
-
-// Get testnet token metadata
-const testUSDC = sdk.getTestnetTokenMetadata('USDC');
-console.log(testUSDC.name); // "Test USD Coin"
-
-// Bridge on testnet (same API as mainnet)
-await sdk.bridge({
-  token: 'USDC',
-  amount: 10,
-  chainId: SUPPORTED_CHAINS.POLYGON_AMOY, // Polygon testnet
-});
-
-// Transfer on testnet
-await sdk.transfer({
-  token: 'ETH',
-  amount: 0.1,
-  chainId: SUPPORTED_CHAINS.ETHEREUM_SEPOLIA,
-  recipient: '0x...',
-});
-```
-
-### Testnet Chain Examples
-
-```typescript
-// All supported testnet chains
-const testnetChains = [
-  SUPPORTED_CHAINS.ETHEREUM_SEPOLIA, // 11155111
-  SUPPORTED_CHAINS.BASE_SEPOLIA, // 84532
-  SUPPORTED_CHAINS.ARBITRUM_SEPOLIA, // 421614
-  SUPPORTED_CHAINS.OPTIMISM_SEPOLIA, // 11155420
-  SUPPORTED_CHAINS.POLYGON_AMOY, // 80002
-  SUPPORTED_CHAINS.AVALANCHE_FUJI, // 43113
-  SUPPORTED_CHAINS.LINEA_SEPOLIA, // 59141
-  SUPPORTED_CHAINS.SCROLL_SEPOLIA, // 534352
-];
-
-// Get metadata for any testnet chain
-const sepoliaMetadata = sdk.getChainMetadata(SUPPORTED_CHAINS.ETHEREUM_SEPOLIA);
-console.log(sepoliaMetadata.name); // "Ethereum Sepolia"
-console.log(sepoliaMetadata.rpcUrls[0]); // "https://rpc.sepolia.org"
-```
-
-### Testnet vs Mainnet Token Formatting
-
-```typescript
-// Format mainnet tokens
-const mainnetFormatted = sdk.formatTokenAmount('1000000', 'USDC'); // Uses mainnet decimals
-console.log(mainnetFormatted); // "1 USDC"
-
-// Format testnet tokens
-const testnetFormatted = sdk.formatTestnetTokenAmount('1000000', 'USDC'); // Uses testnet decimals
-console.log(testnetFormatted); // "1 USDC" (same result, but uses testnet metadata)
-
-// Compare metadata
-const mainnetUSDC = sdk.getMainnetTokenMetadata('USDC');
-const testnetUSDC = sdk.getTestnetTokenMetadata('USDC');
-console.log(mainnetUSDC.name); // "USD Coin"
-console.log(testnetUSDC.name); // "Test USD Coin"
-```
-
----
-
-## Examples
-
-### Complete Bridge Example
-
-```typescript
-import { NexusSDK, SUPPORTED_CHAINS } from '@avail/nexus-sdk';
-
-const sdk = new NexusSDK();
-
-// Initialize
-await sdk.initialize(window.ethereum);
-
-// Set up hooks
-sdk.setOnIntentHook(({ intent, allow, deny }) => {
-  // Show user the intent details and fees
-  console.log('Intent:', intent);
-  allow(); // User approves
-});
-
-sdk.setOnAllowanceHook(async ({ sources, allow, deny }) => {
-  // Show user allowance requirements
-  console.log('Allowances needed:', sources);
-  allow(['min']); // Set min,max or custom allowances
-});
-
-// Bridge USDC from Ethereum to Polygon
-await sdk.bridge({
-  token: 'USDC',
-  amount: 100,
-  chainId: SUPPORTED_CHAINS.POLYGON,
-});
-```
-
-### Balance Management Example
-
-```typescript
-// Get all balances
-const allBalances = await sdk.getUnifiedBalances();
-
-// Get specific token balance
-const usdcBalance = await sdk.getFormattedTokenBalance('USDC');
-console.log(`Total USDC: ${usdcBalance?.formattedBalance}`);
-
-// Get token balance on specific chain
-const polygonUSDC = await sdk.getFormattedTokenBalance('USDC', 137);
-console.log(`Polygon USDC: ${polygonUSDC?.formattedBalance}`);
-
-// Format balances manually
-const formatted = sdk.formatBalance('1500000', 6, 2); // '1.5'
-```
-
-### Utility Functions Example
-
-```typescript
-// Address validation and formatting
+// Truncate addresses for display
 const address = '0x742d35Cc6634C0532925a3b8D4C9db96c4b4Db45';
-if (sdk.isValidAddress(address)) {
-  const short = sdk.truncateAddress(address); // '0x742d...4Db45'
-}
-
-// Unit conversion
-const wei = sdk.parseUnits('1.5', 18); // 1500000000000000000n
-const eth = sdk.formatUnits(wei, 18); // '1.5'
-
-// Chain utilities
-const hex = sdk.chainIdToHex(137); // '0x89'
-const decimal = sdk.hexToChainId('0x89'); // 137
+const short = sdk.truncateAddress(address); // '0x742d...4Db45'
+const custom = sdk.truncateAddress(address, 8, 6); // '0x742d35...4b4Db45'
 ```
 
----
+### Chain ID Conversion
+
+```typescript
+// Convert chain ID to hex format (for wallet switching)
+const hexChainId = sdk.chainIdToHex(137); // '0x89'
+
+// Convert hex back to decimal
+const decimalChainId = sdk.hexToChainId('0x89'); // 137
+```
+
+## Advanced Usage Examples
+
+### Complete Bridge Flow with Error Handling
+
+```typescript
+import { NexusSDK, Network } from 'avail-nexus-sdk';
+
+async function bridgeTokensWithHandling() {
+  const sdk = new NexusSDK();
+
+  try {
+    // Initialize SDK
+    await sdk.initialize(window.ethereum);
+
+    // Set up event handlers
+    sdk.setOnIntentHook(({ intent, allow, deny }) => {
+      console.log('Bridge intent:', intent);
+      // Show user confirmation dialog
+      if (confirm(`Bridge ${intent.amount} ${intent.token} to chain ${intent.chainId}?`)) {
+        allow();
+      } else {
+        deny();
+      }
+    });
+
+    sdk.setOnAllowanceHook(({ sources, allow }) => {
+      console.log('Setting allowances for:', sources);
+      allow(['min']); // Use minimum required allowances
+    });
+
+    // Check if we have sufficient balance
+    const usdcBalance = await sdk.getUnifiedBalance('USDC');
+    if (!usdcBalance || parseFloat(usdcBalance.balance) < 100) {
+      throw new Error('Insufficient USDC balance');
+    }
+
+    // Simulate bridge to check costs
+    const simulation = await sdk.simulateBridge({
+      token: 'USDC',
+      amount: 100,
+      chainId: 137,
+    });
+
+    console.log('Bridge costs:', simulation);
+
+    // Execute bridge
+    const result = await sdk.bridge({
+      token: 'USDC',
+      amount: 100,
+      chainId: 137,
+    });
+
+    console.log('Bridge successful:', result);
+  } catch (error) {
+    console.error('Bridge failed:', error);
+  }
+}
+```
+
+### Portfolio Management
+
+```typescript
+async function managePortfolio() {
+  const sdk = new NexusSDK();
+  await sdk.initialize(window.ethereum);
+
+  // Get complete portfolio overview
+  const allBalances = await sdk.getUnifiedBalances();
+
+  // Calculate total portfolio value (you'll need price data)
+  let totalValue = 0;
+  for (const asset of allBalances) {
+    console.log(`${asset.symbol}: ${asset.balance} across ${asset.chains?.length || 0} chains`);
+    // totalValue += asset.balance * priceData[asset.symbol];
+  }
+
+  // Get detailed breakdown by chain
+  for (const chainId of [1, 137, 42161, 10]) {
+    const chainMeta = sdk.getChainMetadata(chainId);
+    console.log(`\n${chainMeta?.name} balances:`);
+
+    for (const token of ['ETH', 'USDC', 'USDT']) {
+      const balance = await sdk.getFormattedTokenBalance(token, chainId);
+      if (balance && parseFloat(balance.balance) > 0) {
+        console.log(`  ${token}: ${balance.formattedBalance}`);
+      }
+    }
+  }
+}
+```
+
+### Multi-Chain Allowance Management
+
+```typescript
+async function manageAllowances() {
+  const sdk = new NexusSDK();
+  await sdk.initialize(window.ethereum);
+
+  const targetChains = [1, 137, 42161, 10]; // Ethereum, Polygon, Arbitrum, Optimism
+  const tokens = ['USDC', 'USDT'];
+
+  // Check allowances across all target chains
+  for (const chainId of targetChains) {
+    const allowances = await sdk.getAllowance(chainId, tokens);
+    const chainName = sdk.getChainMetadata(chainId)?.name;
+
+    console.log(`\n${chainName} allowances:`);
+    for (const allowance of allowances) {
+      console.log(`  ${allowance.token}: ${allowance.allowance.toString()}`);
+
+      // Set allowance if it's too low
+      if (allowance.allowance < 1000000n) {
+        console.log(`Setting allowance for ${allowance.token} on ${chainName}`);
+        await sdk.setAllowance(chainId, [allowance.token], 1000000000n);
+      }
+    }
+  }
+}
+```
+
+## Provider Integration
+
+### With MetaMask
+
+```typescript
+import { NexusSDK } from 'avail-nexus-sdk';
+
+async function initializeWithMetaMask() {
+  if (!window.ethereum) {
+    throw new Error('MetaMask not installed');
+  }
+
+  // Request account access
+  await window.ethereum.request({ method: 'eth_requestAccounts' });
+
+  const sdk = new NexusSDK();
+  await sdk.initialize(window.ethereum);
+
+  return sdk;
+}
+```
+
+### With WalletConnect
+
+```typescript
+import { WalletConnectProvider } from '@walletconnect/ethereum-provider';
+import { NexusSDK } from 'avail-nexus-sdk';
+
+async function initializeWithWalletConnect() {
+  const provider = await WalletConnectProvider.init({
+    projectId: 'your-project-id',
+    chains: [1, 137, 42161], // Supported chains
+    showQrModal: true,
+  });
+
+  await provider.connect();
+
+  const sdk = new NexusSDK();
+  await sdk.initialize(provider);
+
+  return sdk;
+}
+```
+
+## Error Handling Best Practices
+
+```typescript
+import { NexusSDK } from 'avail-nexus-sdk';
+
+async function robustBridgeOperation() {
+  const sdk = new NexusSDK();
+
+  try {
+    await sdk.initialize(window.ethereum);
+
+    // Validate inputs
+    if (!sdk.isSupportedToken('USDC')) {
+      throw new Error('Token not supported');
+    }
+
+    if (!sdk.isSupportedChain(137)) {
+      throw new Error('Chain not supported');
+    }
+
+    // Check balance before operation
+    const balance = await sdk.getUnifiedBalance('USDC');
+    const requiredAmount = 100;
+
+    if (!balance || parseFloat(balance.balance) < requiredAmount) {
+      throw new Error(
+        `Insufficient balance. Required: ${requiredAmount}, Available: ${balance?.balance || 0}`,
+      );
+    }
+
+    // Simulate first to check for issues
+    const simulation = await sdk.simulateBridge({
+      token: 'USDC',
+      amount: requiredAmount,
+      chainId: 137,
+    });
+
+    console.log('Simulation successful, proceeding with bridge');
+
+    // Execute the actual bridge
+    const result = await sdk.bridge({
+      token: 'USDC',
+      amount: requiredAmount,
+      chainId: 137,
+    });
+
+    return result;
+  } catch (error) {
+    if (error.message.includes('User denied')) {
+      console.log('User cancelled the transaction');
+    } else if (error.message.includes('Insufficient')) {
+      console.error('Balance error:', error.message);
+    } else if (error.message.includes('Network')) {
+      console.error('Network error:', error.message);
+    } else {
+      console.error('Unknown error:', error);
+    }
+
+    throw error;
+  }
+}
+```
+
+## Development Workflow
+
+### Building
+
+```bash
+npm run build          # Standard build
+npm run build:prod     # Production build (optimized)
+npm run build:dev      # Development build (with source maps)
+```
+
+### Testing
+
+```bash
+npm test              # Run tests
+npm run lint          # Lint code
+npm run typecheck     # Type checking
+```
+
+### Releasing
+
+```bash
+# Development release
+npm run release:dev
+
+# Production release
+npm run release:prod
+```
+
+## Clean Up
+
+Always clean up resources when your application unmounts:
+
+```typescript
+// Remove all event listeners
+sdk.removeAllListeners();
+
+// Deinitialize the SDK
+await sdk.deinit();
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **SDK not initialized**: Always call `await sdk.initialize(provider)` before using other methods
+2. **Unsupported chain/token**: Check supported chains and tokens using `sdk.isSupportedChain()` and `sdk.isSupportedToken()`
+3. **Insufficient allowance**: Use allowance management methods to check and set appropriate allowances
+4. **Provider issues**: Ensure your Web3 provider is properly connected and on a supported network
+
+### Debug Mode
+
+Enable debug logs by setting the appropriate network configuration:
+
+```typescript
+const sdk = new NexusSDK({
+  network: 'testnet', // Use testnet for debugging
+});
+```
 
 ## License
 
-MIT
+MIT - see LICENSE file for details
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch: `git checkout -b feature/amazing-feature`
+3. Commit your changes: `git commit -m 'Add amazing feature'`
+4. Push to the branch: `git push origin feature/amazing-feature`
+5. Open a Pull Request
+
+## Support
+
+For issues and questions:
+
+- GitHub Issues: [Create an issue](https://github.com/availproject/nexus-sdk/issues)
+- Documentation: [API Reference](https://docs.availproject.org/nexus-sdk)
