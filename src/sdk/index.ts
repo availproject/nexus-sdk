@@ -30,7 +30,7 @@ export class NexusSDK {
   constructor(
     config?: SDKConfig & Omit<SDKConfig, 'siweStatement' | 'network'> & { network?: NexusNetwork },
   ) {
-    let nexusConfig: SDKConfig &
+    const nexusConfig: SDKConfig &
       Omit<SDKConfig, 'siweStatement' | 'network'> & { network?: Network } = {
       ...config,
       siweStatement: 'Sign in to enable Nexus',
