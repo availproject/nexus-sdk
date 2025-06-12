@@ -167,8 +167,8 @@ export interface DepositResult {
 }
 
 export interface DepositSimulation {
-  gasLimit: string;
-  gasPrice: string;
+  gasLimit?: bigint | string;
+  maxGasPrice?: bigint | string;
   estimatedCost: string;
   estimatedCostEth: string;
   success: boolean;

@@ -332,7 +332,7 @@ export class NexusSDK {
    * Simulate bridge and deposit operation to preview costs and validate parameters
    */
   public async simulateBridgeAndDeposit(params: BridgeAndDepositParams): Promise<{
-    bridgeSimulation: any; // Would use proper bridge simulation type from CA SDK
+    bridgeSimulation: SimulationResult | null;
     depositSimulation?: DepositSimulation;
     success: boolean;
     error?: string;

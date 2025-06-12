@@ -1485,6 +1485,8 @@ Enable debug logs by setting the appropriate network configuration:
 ```typescript
 const sdk = new NexusSDK({
   network: 'testnet', // Use testnet for debugging
+  debug: true,
+  //...
 });
 ```
 
@@ -1506,14 +1508,3 @@ For issues and questions:
 
 - GitHub Issues: [Create an issue](https://github.com/availproject/nexus-sdk/issues)
 - Documentation: [API Reference](https://docs.availproject.org/nexus-sdk)
-
-### Utility Functions
-
-The SDK also exports utility functions for advanced use cases:
-
-```typescript
-import { getBlockExplorerUrl } from 'avail-nexus-sdk';
-
-// Generate block explorer URLs
-const explorerUrl = getBlockExplorerUrl(137, '0x1234...abcd');
-```

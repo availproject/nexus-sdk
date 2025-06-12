@@ -791,7 +791,7 @@ export class ChainAbstractionAdapter {
 
       return {
         gasLimit: costs.gasLimitDecimal,
-        gasPrice: gasPriceResult.gasPrice!,
+        maxGasPrice: gasPriceResult.gasPrice!,
         estimatedCost: costs.totalCostWei,
         estimatedCostEth: costs.totalCostEth,
         success: true,
