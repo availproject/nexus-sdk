@@ -1,4 +1,5 @@
 import { SUPPORTED_CHAINS } from './constants';
+import { Abi } from 'viem';
 import type {
   OnIntentHook,
   OnAllowanceHook,
@@ -24,6 +25,15 @@ type TokenInfo = {
 };
 
 type NexusNetwork = 'mainnet' | 'testnet';
+
+export interface BlockTransaction {
+  hash?: string;
+  from?: string;
+}
+
+export interface Block {
+  transactions?: BlockTransaction[];
+}
 
 // Enhanced chain metadata with comprehensive information
 export interface ChainMetadata {
@@ -125,6 +135,120 @@ export interface TokenBalance {
   chainId: number;
   contractAddress?: `0x${string}`;
   isNative?: boolean;
+}
+
+// Enhanced modular parameters for standalone deposit functionality
+export interface DepositParams {
+  toChainId: number;
+  contractAddress: string;
+  contractAbi: Abi;
+  functionName: string;
+  functionParams: readonly unknown[];
+  value?: string;
+  gasLimit?: string;
+  maxGasPrice?: string;
+  enableTransactionPolling?: boolean;
+  transactionTimeout?: number;
+  // Transaction receipt confirmation options
+  waitForReceipt?: boolean;
+  receiptTimeout?: number;
+  requiredConfirmations?: number;
+}
+
+export interface DepositResult {
+  transactionHash: string;
+  explorerUrl: string;
+  chainId: number;
+  // Receipt information
+  receipt?: TransactionReceipt;
+  confirmations?: number;
+  gasUsed?: string;
+  effectiveGasPrice?: string;
+}
+
+export interface DepositSimulation {
+  gasLimit: string;
+  gasPrice: string;
+  estimatedCost: string;
+  estimatedCostEth: string;
+  success: boolean;
+  error?: string;
+}
+
+export interface BridgeAndDepositParams {
+  toChainId: SUPPORTED_CHAINS_IDS;
+  token: SUPPORTED_TOKENS;
+  amount: string;
+  recipient?: `0x${string}`;
+  deposit?: Omit<DepositParams, 'toChainId'>;
+  enableTransactionPolling?: boolean;
+  transactionTimeout?: number;
+  // Global options for transaction confirmation
+  waitForReceipt?: boolean;
+  receiptTimeout?: number;
+  requiredConfirmations?: number;
+}
+
+export interface BridgeAndDepositResult {
+  depositTransactionHash?: string;
+  depositExplorerUrl?: string;
+  toChainId: number;
+}
+
+export interface DepositEvents {
+  'deposit:started': (params: { chainId: number; contractAddress: string }) => void;
+  'deposit:completed': (result: DepositResult) => void;
+  'deposit:failed': (error: { message: string; code?: string }) => void;
+}
+
+export interface BridgeEvents {
+  'bridge:started': (params: { toChainId: number; tokenAddress: string; amount: string }) => void;
+  'bridge:completed': (result: { result: unknown }) => void;
+  'bridge:failed': (error: { message: string; code?: string }) => void;
+}
+
+export interface BridgeAndDepositEvents extends BridgeEvents, DepositEvents {
+  'operation:started': (params: { toChainId: number; hasDeposit: boolean }) => void;
+  'operation:completed': (result: BridgeAndDepositResult) => void;
+  'operation:failed': (error: {
+    message: string;
+    stage: 'bridge' | 'deposit';
+    code?: string;
+  }) => void;
+}
+
+/**
+ * Smart contract call parameters
+ */
+export interface ContractCallParams {
+  to: `0x${string}`;
+  data: `0x${string}`;
+  value?: bigint;
+  gas?: bigint;
+  gasPrice?: bigint;
+}
+
+// New transaction receipt interface
+export interface TransactionReceipt {
+  blockHash: string;
+  blockNumber: string;
+  transactionHash: string;
+  transactionIndex: string;
+  from: string;
+  to: string;
+  gasUsed: string;
+  effectiveGasPrice: string;
+  status: string;
+  logs: Array<{
+    address: string;
+    topics: string[];
+    data: string;
+    blockNumber: string;
+    transactionHash: string;
+    transactionIndex: string;
+    blockHash: string;
+    logIndex: string;
+  }>;
 }
 
 export type {

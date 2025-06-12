@@ -199,9 +199,9 @@ console.log('Bridge simulation:', bridgeSimulation);
 // Simulate transfer to preview costs
 const transferSimulation = await sdk.simulateTransfer({
   token: 'ETH',
-  amount: 0.5,
+  amount: '0.1',
   chainId: 42161,
-  recipient: '0xRecipientAddress',
+  recipient: '0x742d35Cc6634C0532925a3b8D4C9db96c4b4Db45',
 });
 console.log('Transfer simulation:', transferSimulation);
 ```
@@ -585,6 +585,850 @@ async function robustBridgeOperation() {
 }
 ```
 
+## Smart Contract Deposit Operations
+
+The Nexus SDK provides powerful functionality for depositing funds into smart contracts after bridging tokens to the target chain. This enables seamless integration with DeFi protocols, staking contracts, and other dApps.
+
+### Core Deposit Functions
+
+#### `deposit(params)` - Direct Contract Deposit
+
+Execute a smart contract function call with enhanced transaction tracking and receipt confirmation.
+
+**Parameters:**
+
+```typescript
+interface DepositParams {
+  toChainId: number; // Target chain ID
+  contractAddress: string; // Contract address to interact with
+  contractAbi: Abi; // Contract ABI (viem format)
+  functionName: string; // Function to call
+  functionParams: readonly unknown[]; // Function parameters
+  value?: string; // ETH value to send (hex string)
+  gasLimit?: string; // Custom gas limit (hex string)
+  maxGasPrice?: string; // Maximum gas price (hex string)
+  enableTransactionPolling?: boolean; // Legacy polling (default: false)
+  transactionTimeout?: number; // Legacy timeout (default: 30000ms)
+
+  // Enhanced Receipt Confirmation
+  waitForReceipt?: boolean; // Wait for transaction receipt (default: false)
+  receiptTimeout?: number; // Receipt timeout (default: 300000ms)
+  requiredConfirmations?: number; // Block confirmations required (default: 1)
+}
+```
+
+**Returns:**
+
+```typescript
+interface DepositResult {
+  transactionHash: string; // Transaction hash
+  explorerUrl: string; // Block explorer URL
+  chainId: number; // Chain ID where deposit occurred
+
+  // Receipt Information (when waitForReceipt: true)
+  receipt?: TransactionReceipt; // Full transaction receipt
+  confirmations?: number; // Number of confirmations
+  gasUsed?: string; // Actual gas used
+  effectiveGasPrice?: string; // Effective gas price paid
+}
+```
+
+#### `simulateDeposit(params)` - Preview Deposit Costs
+
+Simulate a deposit operation to estimate gas costs and validate parameters without executing the transaction.
+
+**Parameters:** Same as `deposit()` but only requires core contract parameters
+
+**Returns:**
+
+```typescript
+interface DepositSimulation {
+  gasLimit: string; // Estimated gas limit
+  gasPrice: string; // Current gas price
+  estimatedCost: string; // Total cost in wei
+  estimatedCostEth: string; // Total cost in ETH
+  success: boolean; // Simulation success
+  error?: string; // Error message if failed
+}
+```
+
+#### `bridgeAndDeposit(params)` - Combined Bridge + Deposit
+
+Bridge tokens to a target chain and then deposit them into a smart contract in a single operation.
+
+**Parameters:**
+
+```typescript
+interface BridgeAndDepositParams {
+  toChainId: SUPPORTED_CHAINS_IDS; // Target chain ID
+  token: SUPPORTED_TOKENS; // Token to bridge
+  amount: string; // Amount to bridge
+  recipient?: `0x${string}`; // Bridge recipient (optional)
+
+  // Optional deposit configuration
+  deposit?: Omit<DepositParams, 'toChainId'>; // Deposit params (excluding toChainId)
+
+  // Transaction options
+  enableTransactionPolling?: boolean; // Legacy polling
+  transactionTimeout?: number; // Legacy timeout
+
+  // Global receipt confirmation options
+  waitForReceipt?: boolean; // Wait for deposit receipt
+  receiptTimeout?: number; // Receipt timeout
+  requiredConfirmations?: number; // Required confirmations
+}
+```
+
+**Returns:**
+
+```typescript
+interface BridgeAndDepositResult {
+  depositTransactionHash?: string; // Deposit transaction hash
+  depositExplorerUrl?: string; // Deposit explorer URL
+  toChainId: number; // Target chain ID
+}
+```
+
+#### `simulateBridgeAndDeposit(params)` - Preview Combined Operation
+
+Simulate both bridge and deposit operations to get comprehensive cost estimates.
+
+**Returns:**
+
+```typescript
+{
+  bridgeSimulation: SimulationResult | null;    // Bridge simulation result
+  depositSimulation?: DepositSimulation;        // Deposit simulation result
+  success: boolean;                             // Overall success
+  error?: string;                               // Error message if failed
+}
+```
+
+## Deposit Usage Examples
+
+### Basic Smart Contract Deposit
+
+```typescript
+async function basicDeposit() {
+  const sdk = new NexusSDK();
+  await sdk.initialize(window.ethereum);
+
+  const result = await sdk.deposit({
+    toChainId: 1, // Ethereum mainnet
+    contractAddress: '0x8dFf5E27EA6b7AC08EbFdf9eB090F32ee9a30fcf',
+    contractAbi: [
+      {
+        type: 'function',
+        name: 'deposit',
+        inputs: [
+          { name: 'amount', type: 'uint256' },
+          { name: 'onBehalfOf', type: 'address' },
+        ],
+        outputs: [],
+        stateMutability: 'nonpayable',
+      },
+    ],
+    functionName: 'deposit',
+    functionParams: ['1000000000', '0xUserAddress'], // 1000 USDC, user address
+  });
+
+  console.log('Deposit successful:', result.transactionHash);
+  console.log('View on explorer:', result.explorerUrl);
+}
+```
+
+### Deposit with Enhanced Receipt Confirmation
+
+```typescript
+async function depositWithReceiptConfirmation() {
+  const sdk = new NexusSDK();
+  await sdk.initialize(window.ethereum);
+
+  // Set up enhanced event listeners
+  sdk.on('transaction:sent', (data) => {
+    console.log(`📤 Transaction sent: ${data.hash}`);
+  });
+
+  sdk.on('receipt:received', (data) => {
+    console.log(`📄 Receipt received for ${data.hash}`);
+    console.log(`⛽ Gas used: ${data.receipt.gasUsed}`);
+    console.log(`💰 Effective gas price: ${data.receipt.effectiveGasPrice}`);
+  });
+
+  sdk.on('transaction:confirmed', (data) => {
+    console.log(`✅ Transaction confirmed with ${data.confirmations} confirmations`);
+  });
+
+  try {
+    const result = await sdk.deposit({
+      toChainId: 1, // Ethereum mainnet
+      contractAddress: '0x8dFf5E27EA6b7AC08EbFdf9eB090F32ee9a30fcf',
+      contractAbi: [
+        {
+          type: 'function',
+          name: 'deposit',
+          inputs: [
+            { name: 'amount', type: 'uint256' },
+            { name: 'onBehalfOf', type: 'address' },
+          ],
+          outputs: [],
+          stateMutability: 'payable',
+        },
+      ],
+      functionName: 'deposit',
+      functionParams: ['1000000000', '0xUserAddress'],
+      value: '0x1bc16d674ec80000', // 2 ETH
+      // Enhanced transaction confirmation options
+      waitForReceipt: true,
+      receiptTimeout: 600000, // 10 minutes
+      requiredConfirmations: 3,
+    });
+
+    console.log('✅ Deposit completed successfully!');
+    console.log(`Transaction: ${result.transactionHash}`);
+    console.log(`Confirmations: ${result.confirmations}`);
+    console.log(`Gas used: ${result.gasUsed}`);
+
+    if (result.receipt) {
+      console.log('📄 Full receipt:', result.receipt);
+    }
+
+    return result;
+  } catch (error) {
+    console.error('❌ Deposit failed:', error);
+    throw error;
+  }
+}
+```
+
+### Simulate Deposit Before Execution
+
+```typescript
+async function simulateAndDeposit() {
+  const sdk = new NexusSDK();
+  await sdk.initialize(window.ethereum);
+
+  // First simulate to check costs and validate
+  const simulation = await sdk.simulateDeposit({
+    toChainId: 1,
+    contractAddress: '0x8dFf5E27EA6b7AC08EbFdf9eB090F32ee9a30fcf',
+    contractAbi: [
+      {
+        type: 'function',
+        name: 'stake',
+        inputs: [{ name: 'amount', type: 'uint256' }],
+        outputs: [],
+        stateMutability: 'nonpayable',
+      },
+    ],
+    functionName: 'stake',
+    functionParams: ['5000000000'], // 5000 USDC
+  });
+
+  if (!simulation.success) {
+    throw new Error(`Simulation failed: ${simulation.error}`);
+  }
+
+  console.log('💰 Estimated gas cost:', simulation.estimatedCostEth, 'ETH');
+  console.log('⛽ Gas limit needed:', simulation.gasLimit);
+
+  // Ask user for confirmation
+  const confirmed = confirm(
+    `This will cost approximately ${simulation.estimatedCostEth} ETH in gas. Continue?`,
+  );
+
+  if (!confirmed) {
+    console.log('User cancelled transaction');
+    return;
+  }
+
+  // Execute the deposit
+  const result = await sdk.deposit({
+    toChainId: 1,
+    contractAddress: '0x8dFf5E27EA6b7AC08EbFdf9eB090F32ee9a30fcf',
+    contractAbi: [
+      {
+        type: 'function',
+        name: 'stake',
+        inputs: [{ name: 'amount', type: 'uint256' }],
+        outputs: [],
+        stateMutability: 'nonpayable',
+      },
+    ],
+    functionName: 'stake',
+    functionParams: ['5000000000'],
+    gasLimit: simulation.gasLimit, // Use simulated gas limit
+    waitForReceipt: true,
+  });
+
+  console.log('🎉 Staking completed!', result.transactionHash);
+}
+```
+
+### Bridge and Deposit to DeFi Protocol
+
+```typescript
+async function bridgeAndDepositToDeFi() {
+  const sdk = new NexusSDK();
+  await sdk.initialize(window.ethereum);
+
+  // Aave lending pool deposit example
+  const aaveV3PoolAddress = '0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2';
+  const aaveV3PoolAbi = [
+    {
+      type: 'function',
+      name: 'supply',
+      inputs: [
+        { name: 'asset', type: 'address' },
+        { name: 'amount', type: 'uint256' },
+        { name: 'onBehalfOf', type: 'address' },
+        { name: 'referralCode', type: 'uint16' },
+      ],
+      outputs: [],
+      stateMutability: 'nonpayable',
+    },
+  ];
+
+  try {
+    const result = await sdk.bridgeAndDeposit({
+      token: 'USDC',
+      amount: '1000', // Bridge 1000 USDC
+      toChainId: 1, // to Ethereum mainnet
+      deposit: {
+        contractAddress: aaveV3PoolAddress,
+        contractAbi: aaveV3PoolAbi,
+        functionName: 'supply',
+        functionParams: [
+          '0xA0b86a33E6411e3Ab02b73D2F75bDaCfDCeA51c8', // USDC address on mainnet
+          '1000000000', // 1000 USDC (6 decimals)
+          '0xUserAddress', // Supply on behalf of user
+          0, // No referral code
+        ],
+      },
+      waitForReceipt: true,
+      requiredConfirmations: 2,
+    });
+
+    console.log('✅ Bridge and deposit to Aave completed!');
+    console.log('Deposit transaction:', result.depositTransactionHash);
+    console.log('View on explorer:', result.depositExplorerUrl);
+
+    return result;
+  } catch (error) {
+    console.error('❌ Bridge and deposit failed:', error);
+    throw error;
+  }
+}
+```
+
+### Bridge and Deposit with Advanced Options
+
+```typescript
+async function bridgeAndDepositWithAdvancedOptions() {
+  const sdk = new NexusSDK();
+  await sdk.initialize(window.ethereum);
+
+  try {
+    // First simulate to check costs
+    const simulation = await sdk.simulateBridgeAndDeposit({
+      token: 'USDC',
+      amount: '5000',
+      toChainId: 1, // Ethereum mainnet
+      deposit: {
+        contractAddress: '0x8dFf5E27EA6b7AC08EbFdf9eB090F32ee9a30fcf',
+        contractAbi: [
+          {
+            type: 'function',
+            name: 'deposit',
+            inputs: [
+              { name: 'amount', type: 'uint256' },
+              { name: 'onBehalfOf', type: 'address' },
+            ],
+            outputs: [],
+            stateMutability: 'nonpayable',
+          },
+        ],
+        functionName: 'deposit',
+        functionParams: ['5000000000', '0xUserAddress'],
+      },
+    });
+
+    console.log('Bridge simulation:', simulation.bridgeSimulation);
+    console.log('Deposit simulation:', simulation.depositSimulation);
+
+    if (!simulation.success) {
+      throw new Error(`Simulation failed: ${simulation.error}`);
+    }
+
+    // Execute with advanced options
+    const result = await sdk.bridgeAndDeposit({
+      token: 'USDC',
+      amount: '5000',
+      toChainId: 1,
+      deposit: {
+        contractAddress: '0x8dFf5E27EA6b7AC08EbFdf9eB090F32ee9a30fcf',
+        contractAbi: [
+          {
+            type: 'function',
+            name: 'deposit',
+            inputs: [
+              { name: 'amount', type: 'uint256' },
+              { name: 'onBehalfOf', type: 'address' },
+            ],
+            outputs: [],
+            stateMutability: 'nonpayable',
+          },
+        ],
+        functionName: 'deposit',
+        functionParams: ['5000000000', '0xUserAddress'],
+        // Individual deposit options
+        gasLimit: '0x30d40', // 200k gas
+        maxGasPrice: '0x174876e800', // 100 gwei max
+      },
+      // Global transaction options
+      waitForReceipt: true,
+      receiptTimeout: 900000, // 15 minutes
+      requiredConfirmations: 5, // Extra safety for high-value tx
+    });
+
+    console.log('🎉 Bridge and deposit completed!');
+    console.log(`Deposit transaction: ${result.depositTransactionHash}`);
+    console.log(`Explorer: ${result.depositExplorerUrl}`);
+
+    return result;
+  } catch (error) {
+    console.error('❌ Bridge and deposit failed:', error);
+    throw error;
+  }
+}
+```
+
+### Multiple DeFi Protocol Deposits
+
+```typescript
+async function multiProtocolDeposit() {
+  const sdk = new NexusSDK();
+  await sdk.initialize(window.ethereum);
+
+  const protocols = [
+    {
+      name: 'Aave V3',
+      contractAddress: '0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2',
+      functionName: 'supply',
+      amount: '2000',
+      abi: [
+        {
+          type: 'function',
+          name: 'supply',
+          inputs: [
+            { name: 'asset', type: 'address' },
+            { name: 'amount', type: 'uint256' },
+            { name: 'onBehalfOf', type: 'address' },
+            { name: 'referralCode', type: 'uint16' },
+          ],
+          outputs: [],
+          stateMutability: 'nonpayable',
+        },
+      ],
+      params: [
+        '0xA0b86a33E6411e3Ab02b73D2F75bDaCfDCeA51c8', // USDC
+        '2000000000', // 2000 USDC
+        '0xUserAddress',
+        0,
+      ],
+    },
+    {
+      name: 'Compound V3',
+      contractAddress: '0xc3d688B66703497DAA19211EEdff47f25384cdc3',
+      functionName: 'supply',
+      amount: '1500',
+      abi: [
+        {
+          type: 'function',
+          name: 'supply',
+          inputs: [
+            { name: 'asset', type: 'address' },
+            { name: 'amount', type: 'uint256' },
+          ],
+          outputs: [],
+          stateMutability: 'nonpayable',
+        },
+      ],
+      params: ['0xA0b86a33E6411e3Ab02b73D2F75bDaCfDCeA51c8', '1500000000'],
+    },
+  ];
+
+  const results = [];
+
+  for (const protocol of protocols) {
+    console.log(`🏦 Processing ${protocol.name}...`);
+
+    try {
+      // Simulate first
+      const simulation = await sdk.simulateBridgeAndDeposit({
+        token: 'USDC',
+        amount: protocol.amount,
+        toChainId: 1,
+        deposit: {
+          contractAddress: protocol.contractAddress,
+          contractAbi: protocol.abi,
+          functionName: protocol.functionName,
+          functionParams: protocol.params,
+        },
+      });
+
+      if (!simulation.success) {
+        console.error(`❌ ${protocol.name} simulation failed:`, simulation.error);
+        continue;
+      }
+
+      console.log(
+        `💰 ${protocol.name} estimated cost: ${simulation.depositSimulation?.estimatedCostEth} ETH`,
+      );
+
+      // Execute deposit
+      const result = await sdk.bridgeAndDeposit({
+        token: 'USDC',
+        amount: protocol.amount,
+        toChainId: 1,
+        deposit: {
+          contractAddress: protocol.contractAddress,
+          contractAbi: protocol.abi,
+          functionName: protocol.functionName,
+          functionParams: protocol.params,
+        },
+        waitForReceipt: true,
+        requiredConfirmations: 2,
+      });
+
+      console.log(`✅ ${protocol.name} deposit completed:`, result.depositTransactionHash);
+      results.push({ protocol: protocol.name, result });
+    } catch (error) {
+      console.error(`❌ ${protocol.name} deposit failed:`, error);
+    }
+  }
+
+  return results;
+}
+```
+
+### Transaction Confirmation Strategies
+
+```typescript
+async function depositWithCustomConfirmationStrategy() {
+  const sdk = new NexusSDK();
+  await sdk.initialize(window.ethereum);
+
+  // Strategy 1: High-value transaction with maximum confirmations
+  const highValueDeposit = async () => {
+    return sdk.deposit({
+      toChainId: 1,
+      contractAddress: '0x8dFf5E27EA6b7AC08EbFdf9eB090F32ee9a30fcf',
+      contractAbi: [
+        /*...*/
+      ],
+      functionName: 'deposit',
+      functionParams: ['10000000000'], // Large amount
+      waitForReceipt: true,
+      requiredConfirmations: 10, // Extra confirmations for large transactions
+      receiptTimeout: 1800000, // 30 minutes for high-value tx
+    });
+  };
+
+  // Strategy 2: Time-sensitive transaction with fast confirmation
+  const timeSensitiveDeposit = async () => {
+    return sdk.deposit({
+      toChainId: 137, // Polygon for faster confirmation
+      contractAddress: '0x8dFf5E27EA6b7AC08EbFdf9eB090F32ee9a30fcf',
+      contractAbi: [
+        /*...*/
+      ],
+      functionName: 'deposit',
+      functionParams: ['1000000'],
+      waitForReceipt: true,
+      requiredConfirmations: 1, // Fast confirmation
+      receiptTimeout: 120000, // 2 minutes max wait
+    });
+  };
+
+  // Strategy 3: Standard transaction with balanced settings
+  const standardDeposit = async () => {
+    return sdk.deposit({
+      toChainId: 42161, // Arbitrum
+      contractAddress: '0x8dFf5E27EA6b7AC08EbFdf9eB090F32ee9a30fcf',
+      contractAbi: [
+        /*...*/
+      ],
+      functionName: 'deposit',
+      functionParams: ['500000'],
+      waitForReceipt: true,
+      requiredConfirmations: 3, // Standard safety
+      receiptTimeout: 300000, // 5 minutes
+    });
+  };
+
+  // Execute based on transaction characteristics
+  const transactionValue = 5000; // USD
+  const isTimeSensitive = false;
+
+  let result;
+  if (transactionValue > 10000) {
+    result = await highValueDeposit();
+  } else if (isTimeSensitive) {
+    result = await timeSensitiveDeposit();
+  } else {
+    result = await standardDeposit();
+  }
+
+  console.log('Deposit result:', result);
+  return result;
+}
+```
+
+### Error Handling and Retry Logic
+
+```typescript
+async function robustDepositWithRetry() {
+  const sdk = new NexusSDK();
+  await sdk.initialize(window.ethereum);
+
+  const maxRetries = 3;
+  let attempt = 0;
+
+  while (attempt < maxRetries) {
+    try {
+      // Validate contract first
+      const simulation = await sdk.simulateDeposit({
+        toChainId: 1,
+        contractAddress: '0x8dFf5E27EA6b7AC08EbFdf9eB090F32ee9a30fcf',
+        contractAbi: [
+          {
+            type: 'function',
+            name: 'deposit',
+            inputs: [{ name: 'amount', type: 'uint256' }],
+            outputs: [],
+            stateMutability: 'nonpayable',
+          },
+        ],
+        functionName: 'deposit',
+        functionParams: ['1000000000'],
+      });
+
+      if (!simulation.success) {
+        throw new Error(`Simulation failed: ${simulation.error}`);
+      }
+
+      console.log(`Attempt ${attempt + 1}/${maxRetries}`);
+      console.log(`Estimated cost: ${simulation.estimatedCostEth} ETH`);
+
+      const result = await sdk.deposit({
+        toChainId: 1,
+        contractAddress: '0x8dFf5E27EA6b7AC08EbFdf9eB090F32ee9a30fcf',
+        contractAbi: [
+          {
+            type: 'function',
+            name: 'deposit',
+            inputs: [{ name: 'amount', type: 'uint256' }],
+            outputs: [],
+            stateMutability: 'nonpayable',
+          },
+        ],
+        functionName: 'deposit',
+        functionParams: ['1000000000'],
+        gasLimit: simulation.gasLimit,
+        waitForReceipt: true,
+        requiredConfirmations: 2,
+        receiptTimeout: 600000, // 10 minutes
+      });
+
+      console.log('🎉 Deposit successful!');
+      return result;
+    } catch (error) {
+      attempt++;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+      console.error(`Attempt ${attempt}/${maxRetries} failed:`, errorMessage);
+
+      if (attempt >= maxRetries) {
+        throw new Error(`Deposit failed after ${maxRetries} attempts: ${errorMessage}`);
+      }
+
+      // Don't retry user rejections
+      if (errorMessage.includes('User denied') || errorMessage.includes('rejected')) {
+        throw error;
+      }
+
+      // Exponential backoff
+      const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
+      console.log(`Retrying in ${delay}ms...`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+```
+
+### Event-Driven Deposit Monitoring
+
+```typescript
+async function depositWithEventMonitoring() {
+  const sdk = new NexusSDK();
+  await sdk.initialize(window.ethereum);
+
+  // Set up comprehensive event monitoring
+  const events = [];
+
+  sdk.on('deposit:started', (data) => {
+    console.log(`🏦 Deposit started on chain ${data.chainId}`);
+    console.log(`Contract: ${data.contractAddress}`);
+    events.push({ type: 'deposit_started', timestamp: Date.now(), data });
+  });
+
+  sdk.on('transaction:sent', (data) => {
+    console.log(`📤 Transaction sent: ${data.hash}`);
+    events.push({ type: 'transaction_sent', timestamp: Date.now(), data });
+  });
+
+  sdk.on('receipt:received', (data) => {
+    console.log(`📄 Receipt received: ${data.hash}`);
+    console.log(`⛽ Gas used: ${data.receipt.gasUsed}`);
+    console.log(`💰 Gas price: ${data.receipt.effectiveGasPrice}`);
+    events.push({ type: 'receipt_received', timestamp: Date.now(), data });
+  });
+
+  sdk.on('confirmation:update', (data) => {
+    console.log(`🔄 Confirmations: ${data.confirmations}`);
+    events.push({ type: 'confirmation_update', timestamp: Date.now(), data });
+  });
+
+  sdk.on('transaction:confirmed', (data) => {
+    console.log(`✅ Transaction confirmed: ${data.confirmations} confirmations`);
+    events.push({ type: 'transaction_confirmed', timestamp: Date.now(), data });
+  });
+
+  sdk.on('deposit:completed', (data) => {
+    console.log(`🎉 Deposit completed successfully!`);
+    console.log(`Transaction: ${data.transactionHash}`);
+    console.log(`Explorer: ${data.explorerUrl}`);
+    events.push({ type: 'deposit_completed', timestamp: Date.now(), data });
+  });
+
+  sdk.on('deposit:failed', (data) => {
+    console.error(`❌ Deposit failed: ${data.message}`);
+    events.push({ type: 'deposit_failed', timestamp: Date.now(), data });
+  });
+
+  try {
+    const result = await sdk.deposit({
+      toChainId: 1,
+      contractAddress: '0x8dFf5E27EA6b7AC08EbFdf9eB090F32ee9a30fcf',
+      contractAbi: [
+        {
+          type: 'function',
+          name: 'stake',
+          inputs: [{ name: 'amount', type: 'uint256' }],
+          outputs: [],
+          stateMutability: 'nonpayable',
+        },
+      ],
+      functionName: 'stake',
+      functionParams: ['1000000000'],
+      waitForReceipt: true,
+      requiredConfirmations: 3,
+    });
+
+    // Log complete event timeline
+    console.log('\n📊 Complete Event Timeline:');
+    events.forEach((event, index) => {
+      const elapsed = index > 0 ? event.timestamp - events[0].timestamp : 0;
+      console.log(`${index + 1}. [+${elapsed}ms] ${event.type}`);
+    });
+
+    return { result, events };
+  } catch (error) {
+    console.error('Deposit failed:', error);
+    return { error, events };
+  } finally {
+    // Clean up event listeners
+    sdk.removeAllListeners();
+  }
+}
+```
+
+## Best Practices for Deposit Operations
+
+### 1. Always Simulate First
+
+```typescript
+// ✅ Good: Simulate before executing
+const simulation = await sdk.simulateDeposit(params);
+if (simulation.success) {
+  const result = await sdk.deposit(params);
+}
+
+// ❌ Bad: Execute without simulation
+const result = await sdk.deposit(params);
+```
+
+### 2. Use Appropriate Confirmation Levels
+
+```typescript
+// High-value transactions (>$10,000)
+requiredConfirmations: 10,
+receiptTimeout: 1800000, // 30 minutes
+
+// Standard transactions ($100-$10,000)
+requiredConfirmations: 3,
+receiptTimeout: 600000, // 10 minutes
+
+// Small transactions (<$100)
+requiredConfirmations: 1,
+receiptTimeout: 300000, // 5 minutes
+```
+
+### 3. Handle Errors Gracefully
+
+```typescript
+try {
+  const result = await sdk.deposit(params);
+  return result;
+} catch (error) {
+  if (error.message.includes('User denied')) {
+    // Handle user rejection
+    console.log('Transaction was cancelled by user');
+    return null;
+  } else if (error.message.includes('insufficient funds')) {
+    // Handle insufficient balance
+    console.error('Insufficient balance for transaction');
+    throw new Error('Please ensure you have enough balance');
+  } else {
+    // Handle other errors
+    console.error('Deposit failed:', error);
+    throw error;
+  }
+}
+```
+
+### 4. Monitor Events for Better UX
+
+```typescript
+// Set up progress indicators
+sdk.on('transaction:sent', () => updateUI('Transaction sent...'));
+sdk.on('receipt:received', () => updateUI('Processing...'));
+sdk.on('transaction:confirmed', () => updateUI('Confirmed!'));
+```
+
+### 5. Use Gas Optimization
+
+```typescript
+// For non-urgent transactions, use lower gas prices
+const simulation = await sdk.simulateDeposit(params);
+const result = await sdk.deposit({
+  ...params,
+  gasLimit: simulation.gasLimit,
+  maxGasPrice: '0x12a05f200', // 5 gwei maximum
+});
+```
+
 ## Development Workflow
 
 ### Building
@@ -662,3 +1506,14 @@ For issues and questions:
 
 - GitHub Issues: [Create an issue](https://github.com/availproject/nexus-sdk/issues)
 - Documentation: [API Reference](https://docs.availproject.org/nexus-sdk)
+
+### Utility Functions
+
+The SDK also exports utility functions for advanced use cases:
+
+```typescript
+import { getBlockExplorerUrl } from 'avail-nexus-sdk';
+
+// Generate block explorer URLs
+const explorerUrl = getBlockExplorerUrl(137, '0x1234...abcd');
+```

@@ -19,6 +19,11 @@ import type {
   SimulationResult,
   RequestForFunds,
   NexusNetwork,
+  BridgeAndDepositParams,
+  BridgeAndDepositResult,
+  DepositParams,
+  DepositResult,
+  DepositSimulation,
 } from '../types';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
 import { Network, SDKConfig } from '@arcana/ca-sdk';
@@ -294,5 +299,44 @@ export class NexusSDK {
 
   public removeAllCaEventListeners(eventName?: string): void {
     this.nexusAdapter.removeAllCaEventListeners(eventName);
+  }
+
+  /**
+   * Standalone function to deposit funds into a smart contract
+   * @param params Deposit parameters including contract details and transaction settings
+   * @returns Promise resolving to deposit result with transaction hash and explorer URL
+   */
+  public async deposit(params: DepositParams): Promise<DepositResult> {
+    return this.nexusAdapter.deposit(params);
+  }
+
+  /**
+   * Simulate a standalone deposit to estimate gas costs and validate parameters
+   * @param params Deposit parameters for simulation
+   * @returns Promise resolving to simulation result with gas estimates
+   */
+  public async simulateDeposit(params: DepositParams): Promise<DepositSimulation> {
+    return this.nexusAdapter.simulateDeposit(params);
+  }
+
+  /**
+   * Enhanced bridge and deposit function with optional deposit step and improved error handling
+   * @param params Enhanced bridge and deposit parameters
+   * @returns Promise resolving to comprehensive operation result
+   */
+  public async bridgeAndDeposit(params: BridgeAndDepositParams): Promise<BridgeAndDepositResult> {
+    return this.nexusAdapter.bridgeAndDeposit(params);
+  }
+
+  /**
+   * Simulate bridge and deposit operation to preview costs and validate parameters
+   */
+  public async simulateBridgeAndDeposit(params: BridgeAndDepositParams): Promise<{
+    bridgeSimulation: any; // Would use proper bridge simulation type from CA SDK
+    depositSimulation?: DepositSimulation;
+    success: boolean;
+    error?: string;
+  }> {
+    return this.nexusAdapter.simulateBridgeAndDeposit(params);
   }
 }
