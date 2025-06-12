@@ -177,8 +177,8 @@ export function validateContractParams(params: {
     return { isValid: false, error: 'Contract address is required and must be a string' };
   }
 
-  if (!contractAddress.startsWith('0x') || contractAddress.length !== 42) {
-    return { isValid: false, error: 'Contract address must be a valid Ethereum address (0x...)' };
+  if (!isAddress(contractAddress)) {
+    return { isValid: false, error: 'Contract address must be a checksummed Ethereum address' };
   }
 
   // Validate ABI
@@ -389,7 +389,8 @@ export async function estimateGasWithValidation(
     }
 
     // Add 20% buffer to gas estimate
-    const gasLimit = `0x${(parseInt(gasEstimate as string, 16) * 1.2).toString(16)}`;
+    const buffered = (BigInt(gasEstimate as string) * 120n) / 100n; // +20 %
+    const gasLimit = `0x${buffered.toString(16)}`;
 
     return { success: true, gasLimit };
   } catch (error) {
@@ -495,7 +496,7 @@ export async function waitForTransactionReceipt(
       }
 
       // Check if transaction failed
-      if (receipt.status === '0x0') {
+      if (receipt.status === 'reverted') {
         return {
           success: false,
           error: 'Transaction failed (reverted)',
@@ -510,7 +511,7 @@ export async function waitForTransactionReceipt(
       })) as string;
 
       const confirmations =
-        parseInt(currentBlockNumber, 16) - parseInt(receipt.blockNumber, 16) + 1;
+        parseInt(currentBlockNumber, 16) - parseInt(receipt.blockNumber.toString(), 16) + 1;
 
       // Check if we have enough confirmations
       if (confirmations >= requiredConfirmations) {

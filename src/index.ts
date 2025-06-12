@@ -27,6 +27,7 @@ export {
   validateTransactionHash,
   getBlockExplorerUrl,
   formatGasCost,
+  waitForTransactionReceipt,
 } from './utils';
 
 // Re-export Network enum from CA SDK for convenience

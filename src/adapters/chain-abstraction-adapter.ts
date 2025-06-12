@@ -613,8 +613,8 @@ export class ChainAbstractionAdapter {
         contractAddress,
         encoding.data!,
         value,
-        gasLimit,
-        maxGasPrice,
+        gasLimit?.toString(),
+        maxGasPrice?.toString(),
       );
 
       // Send transaction
@@ -691,8 +691,8 @@ export class ChainAbstractionAdapter {
         chainId: toChainId,
         receipt,
         confirmations,
-        gasUsed,
-        effectiveGasPrice,
+        gasUsed: gasUsed?.toString(),
+        effectiveGasPrice: effectiveGasPrice?.toString(),
       };
 
       this.caEvents.emit(NEXUS_EVENTS.DEPOSIT_COMPLETED, result);

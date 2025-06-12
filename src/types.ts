@@ -1,5 +1,5 @@
 import { SUPPORTED_CHAINS } from './constants';
-import { Abi } from 'viem';
+import { Abi, TransactionReceipt } from 'viem';
 import type {
   OnIntentHook,
   OnAllowanceHook,
@@ -145,8 +145,8 @@ export interface DepositParams {
   functionName: string;
   functionParams: readonly unknown[];
   value?: string;
-  gasLimit?: string;
-  maxGasPrice?: string;
+  gasLimit?: bigint; // or `Hex`
+  maxGasPrice?: bigint;
   enableTransactionPolling?: boolean;
   transactionTimeout?: number;
   // Transaction receipt confirmation options
@@ -229,27 +229,6 @@ export interface ContractCallParams {
 }
 
 // New transaction receipt interface
-export interface TransactionReceipt {
-  blockHash: string;
-  blockNumber: string;
-  transactionHash: string;
-  transactionIndex: string;
-  from: string;
-  to: string;
-  gasUsed: string;
-  effectiveGasPrice: string;
-  status: string;
-  logs: Array<{
-    address: string;
-    topics: string[];
-    data: string;
-    blockNumber: string;
-    transactionHash: string;
-    transactionIndex: string;
-    blockHash: string;
-    logIndex: string;
-  }>;
-}
 
 export type {
   OnIntentHook,
@@ -268,4 +247,5 @@ export type {
   RequestForFunds,
   SDKConfig,
   NexusNetwork,
+  TransactionReceipt,
 };
