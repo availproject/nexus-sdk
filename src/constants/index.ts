@@ -264,6 +264,21 @@ export const NEXUS_EVENTS = {
   STEP_COMPLETE: 'step_complete',
   ACCOUNTS_CHANGED: 'accountsChanged',
   CHAIN_CHANGED: 'chainChanged',
+  // Modular event names
+  BRIDGE_STARTED: 'bridge:started',
+  BRIDGE_COMPLETED: 'bridge:completed',
+  BRIDGE_FAILED: 'bridge:failed',
+  DEPOSIT_STARTED: 'deposit:started',
+  DEPOSIT_COMPLETED: 'deposit:completed',
+  DEPOSIT_FAILED: 'deposit:failed',
+  OPERATION_STARTED: 'operation:started',
+  OPERATION_COMPLETED: 'operation:completed',
+  OPERATION_FAILED: 'operation:failed',
+  // Transaction confirmation events
+  TRANSACTION_SENT: 'transaction:sent',
+  TRANSACTION_CONFIRMED: 'transaction:confirmed',
+  RECEIPT_RECEIVED: 'receipt:received',
+  CONFIRMATION_UPDATE: 'confirmation:update',
 } as const;
 
 // Helper constants for mainnet and testnet chain categorization

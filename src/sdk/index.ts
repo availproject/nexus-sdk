@@ -2,7 +2,6 @@
 import { SUPPORTED_CHAINS } from '../constants';
 import { ChainAbstractionAdapter } from '../adapters/chain-abstraction-adapter';
 import type {
-  UnifiedBalanceResponse,
   BridgeParams,
   TransferParams,
   AllowanceResponse,
@@ -10,24 +9,42 @@ import type {
   OnAllowanceHook,
   EthereumProvider,
   RequestArguments,
-  PreSendTxParams,
-  PreProcessOptions,
   EventListener,
   TokenMetadata,
   ChainMetadata,
   TokenBalance,
   SUPPORTED_TOKENS,
   SUPPORTED_CHAINS_IDS,
+  UserAsset,
+  SimulationResult,
+  RequestForFunds,
+  NexusNetwork,
+  BridgeAndDepositParams,
+  BridgeAndDepositResult,
+  DepositParams,
+  DepositResult,
+  DepositSimulation,
 } from '../types';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
-import { SDKConfig } from '@arcana/ca-sdk';
+import { Network, SDKConfig } from '@arcana/ca-sdk';
 
 export class NexusSDK {
   public readonly nexusAdapter: ChainAbstractionAdapter;
   public readonly nexusEvents: SafeEventEmitter;
 
-  constructor(config?: SDKConfig) {
-    this.nexusAdapter = new ChainAbstractionAdapter(config);
+  constructor(
+    config?: SDKConfig & Omit<SDKConfig, 'siweStatement' | 'network'> & { network?: NexusNetwork },
+  ) {
+    const nexusConfig: SDKConfig &
+      Omit<SDKConfig, 'siweStatement' | 'network'> & { network?: Network } = {
+      ...config,
+      siweStatement: 'Sign in to enable Nexus',
+    };
+    if (config?.network) {
+      nexusConfig.network = config?.network === 'testnet' ? Network.FOLLY : undefined;
+    }
+
+    this.nexusAdapter = new ChainAbstractionAdapter(nexusConfig);
     this.nexusEvents = this.nexusAdapter.caEvents;
   }
 
@@ -41,14 +58,14 @@ export class NexusSDK {
   /**
    * Get unified balances across all chains
    */
-  public async getUnifiedBalances(): Promise<UnifiedBalanceResponse[]> {
+  public async getUnifiedBalances(): Promise<UserAsset[]> {
     return this.nexusAdapter.getUnifiedBalances();
   }
 
   /**
    * Get unified balance for a specific token
    */
-  public async getUnifiedBalance(symbol: string): Promise<UnifiedBalanceResponse | undefined> {
+  public async getUnifiedBalance(symbol: string): Promise<UserAsset | undefined> {
     return this.nexusAdapter.getUnifiedBalance(symbol);
   }
 
@@ -64,6 +81,31 @@ export class NexusSDK {
    */
   public async transfer(params: TransferParams): Promise<unknown> {
     return this.nexusAdapter.transfer(params);
+  }
+
+  public getEVMProviderWithCA(): EthereumProvider {
+    return this.nexusAdapter.getEVMProviderWithCA();
+  }
+
+  /**
+   * Simulate bridge transaction to get costs and fees
+   */
+  public async simulateBridge(params: BridgeParams): Promise<SimulationResult> {
+    return this.nexusAdapter.simulateBridge(params);
+  }
+
+  /**
+   * Simulate transfer transaction to get costs and fees
+   */
+  public async simulateTransfer(params: TransferParams): Promise<SimulationResult> {
+    return this.nexusAdapter.simulateTransfer(params);
+  }
+
+  /**
+   * Get user's intents with pagination
+   */
+  public async getMyIntents(page: number = 1): Promise<RequestForFunds[]> {
+    return this.nexusAdapter.getMyIntents(page);
   }
 
   /**
@@ -247,10 +289,6 @@ export class NexusSDK {
     return this.nexusAdapter.request(args);
   }
 
-  public async preprocess(args: PreSendTxParams, options?: PreProcessOptions): Promise<void> {
-    return this.nexusAdapter.preprocess(args, options);
-  }
-
   public on(eventName: string, listener: EventListener): void {
     this.nexusAdapter.on(eventName, listener);
   }
@@ -261,5 +299,44 @@ export class NexusSDK {
 
   public removeAllCaEventListeners(eventName?: string): void {
     this.nexusAdapter.removeAllCaEventListeners(eventName);
+  }
+
+  /**
+   * Standalone function to deposit funds into a smart contract
+   * @param params Deposit parameters including contract details and transaction settings
+   * @returns Promise resolving to deposit result with transaction hash and explorer URL
+   */
+  public async deposit(params: DepositParams): Promise<DepositResult> {
+    return this.nexusAdapter.deposit(params);
+  }
+
+  /**
+   * Simulate a standalone deposit to estimate gas costs and validate parameters
+   * @param params Deposit parameters for simulation
+   * @returns Promise resolving to simulation result with gas estimates
+   */
+  public async simulateDeposit(params: DepositParams): Promise<DepositSimulation> {
+    return this.nexusAdapter.simulateDeposit(params);
+  }
+
+  /**
+   * Enhanced bridge and deposit function with optional deposit step and improved error handling
+   * @param params Enhanced bridge and deposit parameters
+   * @returns Promise resolving to comprehensive operation result
+   */
+  public async bridgeAndDeposit(params: BridgeAndDepositParams): Promise<BridgeAndDepositResult> {
+    return this.nexusAdapter.bridgeAndDeposit(params);
+  }
+
+  /**
+   * Simulate bridge and deposit operation to preview costs and validate parameters
+   */
+  public async simulateBridgeAndDeposit(params: BridgeAndDepositParams): Promise<{
+    bridgeSimulation: SimulationResult | null;
+    depositSimulation?: DepositSimulation;
+    success: boolean;
+    error?: string;
+  }> {
+    return this.nexusAdapter.simulateBridgeAndDeposit(params);
   }
 }

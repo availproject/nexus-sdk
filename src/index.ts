@@ -8,6 +8,27 @@ export type * from './types';
 export * from './constants';
 
 // Utilities
-export * from './utils';
+export {
+  formatBalance,
+  parseUnits,
+  formatUnits,
+  isMainnetChain,
+  isTestnetChain,
+  isValidAddress,
+  getMainnetTokenMetadata,
+  getTestnetTokenMetadata,
+  getTokenMetadata,
+  getChainMetadata,
+  formatTokenAmount,
+  formatTestnetTokenAmount,
+  truncateAddress,
+  chainIdToHex,
+  hexToChainId,
+  validateTransactionHash,
+  getBlockExplorerUrl,
+  formatGasCost,
+  waitForTransactionReceipt,
+} from './utils';
 
+// Re-export Network enum from CA SDK for convenience
 export { Network } from '@arcana/ca-sdk';
