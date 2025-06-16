@@ -1,10 +1,10 @@
 import resolve from '@rollup/plugin-node-resolve';
 import commonjs from '@rollup/plugin-commonjs';
 import typescript from '@rollup/plugin-typescript';
+import json from '@rollup/plugin-json';
 import dts from 'rollup-plugin-dts';
 import { defineConfig } from 'rollup';
 import { createRequire } from 'module';
-import nodePolyfills from 'rollup-plugin-polyfill-node';
 
 const require = createRequire(import.meta.url);
 const packageJson = require('./package.json');
@@ -16,26 +16,20 @@ const isDevelopment = process.env.NODE_ENV === 'development';
 const baseConfig = {
   input: 'src/index.ts',
   plugins: [
-    nodePolyfills({
-      include: ['buffer', 'process', 'util', 'stream', 'events', 'crypto'],
-      globals: {
-        Buffer: true,
-        global: true,
-        process: true,
-      },
-    }),
+    json(),
     resolve({
       browser: true,
       preferBuiltins: false,
-      exportConditions: ['browser']
+      exportConditions: ['browser', 'module', 'import'],
+      dedupe: ['react', 'react-dom'],
     }),
     commonjs({
       include: /node_modules/,
-      transformMixedEsModules: true
+      transformMixedEsModules: true,
+      ignoreTryCatch: false,
     }),
     typescript({ 
       tsconfig: './tsconfig.json',
-      // Add development-specific options
       ...(isDevelopment && {
         sourceMap: true,
         inlineSources: true
@@ -43,6 +37,11 @@ const baseConfig = {
     }),
   ],
   external: [...Object.keys(packageJson.dependencies || {}), ...Object.keys(packageJson.peerDependencies || {})],
+  treeshake: {
+    moduleSideEffects: false,
+    propertyReadSideEffects: false,
+    tryCatchDeoptimization: false,
+  }
 };
 
 // Output configurations
@@ -52,7 +51,7 @@ const outputs = [
     format: 'cjs',
     sourcemap: !isProduction,
     exports: 'named',
-    // Add banner for development builds
+    interop: 'auto',
     ...(isDevelopment && {
       banner: '/* Avail Nexus SDK - Development Build */'
     })
@@ -77,5 +76,6 @@ export default defineConfig([
     input: 'src/index.ts',
     output: [{ file: 'dist/index.d.ts', format: 'esm' }],
     plugins: [dts()],
+    external: [...Object.keys(packageJson.dependencies || {}), ...Object.keys(packageJson.peerDependencies || {})],
   },
 ]); 
