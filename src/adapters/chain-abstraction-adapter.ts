@@ -38,7 +38,7 @@ import type {
   SUPPORTED_TOKENS,
   SUPPORTED_CHAINS_IDS,
   SimulationResult,
-  RequestForFunds,
+  RFF,
   BridgeAndDepositParams,
   BridgeAndDepositResult,
   DepositParams,
@@ -280,7 +280,7 @@ export class ChainAbstractionAdapter {
   /**
    * Get user's intents with pagination.
    */
-  public async getMyIntents(page: number = 1): Promise<RequestForFunds[]> {
+  public async getMyIntents(page: number = 1): Promise<RFF[]> {
     if (!this.initialized) throw new Error('CA SDK not initialized. Call initialize() first.');
 
     try {
