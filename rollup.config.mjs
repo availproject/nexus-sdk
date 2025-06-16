@@ -30,10 +30,8 @@ const baseConfig = {
     }),
     typescript({ 
       tsconfig: './tsconfig.json',
-      ...(isDevelopment && {
-        sourceMap: true,
-        inlineSources: true
-      })
+      sourceMap: !isProduction,
+      inlineSources: !isProduction
     }),
   ],
   external: [...Object.keys(packageJson.dependencies || {}), ...Object.keys(packageJson.peerDependencies || {})],
