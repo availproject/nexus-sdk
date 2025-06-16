@@ -13,6 +13,7 @@ import type {
   RequestForFunds,
   SDKConfig,
   UserAsset,
+  RFF,
 } from '@arcana/ca-sdk';
 
 type TokenInfo = {
@@ -248,4 +249,5 @@ export type {
   SDKConfig,
   NexusNetwork,
   TransactionReceipt,
+  RFF,
 };
