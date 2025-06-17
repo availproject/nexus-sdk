@@ -1,29 +1,26 @@
 // src/sdk/index.ts
-import { SUPPORTED_CHAINS } from '../constants';
 import { ChainAbstractionAdapter } from '../adapters/chain-abstraction-adapter';
+import { NexusUtils } from './utils';
 import type {
   BridgeParams,
+  BridgeResult,
   TransferParams,
+  TransferResult,
   AllowanceResponse,
   OnIntentHook,
   OnAllowanceHook,
   EthereumProvider,
   RequestArguments,
   EventListener,
-  TokenMetadata,
-  ChainMetadata,
-  TokenBalance,
-  SUPPORTED_TOKENS,
-  SUPPORTED_CHAINS_IDS,
   UserAsset,
   SimulationResult,
   RequestForFunds,
   NexusNetwork,
-  BridgeAndDepositParams,
-  BridgeAndDepositResult,
-  DepositParams,
-  DepositResult,
-  DepositSimulation,
+  BridgeAndExecuteParams,
+  BridgeAndExecuteResult,
+  ExecuteParams,
+  ExecuteResult,
+  ExecuteSimulation,
 } from '../types';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
 import { Network, SDKConfig } from '@arcana/ca-sdk';
@@ -31,6 +28,7 @@ import { Network, SDKConfig } from '@arcana/ca-sdk';
 export class NexusSDK {
   public readonly nexusAdapter: ChainAbstractionAdapter;
   public readonly nexusEvents: SafeEventEmitter;
+  public readonly utils: NexusUtils;
 
   constructor(config?: Omit<SDKConfig, 'siweStatement' | 'network'> & { network?: NexusNetwork }) {
     const nexusConfig: SDKConfig &
@@ -44,6 +42,7 @@ export class NexusSDK {
 
     this.nexusAdapter = new ChainAbstractionAdapter(nexusConfig);
     this.nexusEvents = this.nexusAdapter.caEvents;
+    this.utils = new NexusUtils(this.nexusAdapter, () => this.nexusAdapter.isInitialized());
   }
 
   /**
@@ -70,14 +69,14 @@ export class NexusSDK {
   /**
    * Bridge tokens between chains
    */
-  public async bridge(params: BridgeParams): Promise<unknown> {
+  public async bridge(params: BridgeParams): Promise<BridgeResult> {
     return this.nexusAdapter.bridge(params);
   }
 
   /**
    * Transfer tokens
    */
-  public async transfer(params: TransferParams): Promise<unknown> {
+  public async transfer(params: TransferParams): Promise<TransferResult> {
     return this.nexusAdapter.transfer(params);
   }
 
@@ -162,123 +161,6 @@ export class NexusSDK {
     this.nexusAdapter.removeAllListeners();
   }
 
-  /**
-   * Check if a chain is supported
-   */
-  public isSupportedChain(
-    chainId: (typeof SUPPORTED_CHAINS)[keyof typeof SUPPORTED_CHAINS],
-  ): boolean {
-    return this.nexusAdapter.isSupportedChain(chainId);
-  }
-
-  /**
-   * Check if a token is supported
-   */
-  public isSupportedToken(token: string): boolean {
-    return this.nexusAdapter.isSupportedToken(token);
-  }
-
-  /**
-   * Get supported chains
-   */
-  public getSupportedChains(): Array<{ id: number; name: string; logo: string }> {
-    return this.nexusAdapter.getSupportedChains();
-  }
-
-  /**
-   * Get mainnet token metadata by symbol
-   */
-  public getMainnetTokenMetadata(symbol: SUPPORTED_TOKENS): TokenMetadata | undefined {
-    return this.nexusAdapter.getMainnetTokenMetadata(symbol);
-  }
-
-  /**
-   * Get testnet token metadata by symbol
-   */
-  public getTestnetTokenMetadata(symbol: SUPPORTED_TOKENS): TokenMetadata | undefined {
-    return this.nexusAdapter.getTestnetTokenMetadata(symbol);
-  }
-
-  /**
-   * Get token metadata by symbol (defaults to mainnet, kept for backward compatibility)
-   */
-  public getTokenMetadata(symbol: SUPPORTED_TOKENS): TokenMetadata | undefined {
-    return this.nexusAdapter.getTokenMetadata(symbol);
-  }
-
-  /**
-   * Get detailed chain metadata by chain ID
-   */
-  public getChainMetadata(chainId: SUPPORTED_CHAINS_IDS): ChainMetadata | undefined {
-    return this.nexusAdapter.getChainMetadata(chainId);
-  }
-
-  /**
-   * Get enhanced chain metadata for all supported chains
-   */
-  public getSupportedChainsWithMetadata(): ChainMetadata[] {
-    return this.nexusAdapter.getSupportedChainsWithMetadata();
-  }
-
-  /**
-   * Get token balance for a specific token on a specific chain
-   */
-  public async getFormattedTokenBalance(
-    symbol: SUPPORTED_TOKENS,
-    chainId?: number,
-  ): Promise<TokenBalance | undefined> {
-    return this.nexusAdapter.getFormattedTokenBalance(symbol, chainId);
-  }
-
-  /**
-   * Format balance with proper decimals and precision
-   */
-  public formatBalance(balance: string, decimals: number, precision?: number): string {
-    return this.nexusAdapter.formatBalance(balance, decimals, precision);
-  }
-
-  /**
-   * Parse units from human-readable string to smallest unit
-   */
-  public parseUnits(value: string, decimals: number): bigint {
-    return this.nexusAdapter.parseUnits(value, decimals);
-  }
-
-  /**
-   * Format units from smallest unit to human-readable string
-   */
-  public formatUnits(value: bigint, decimals: number): string {
-    return this.nexusAdapter.formatUnits(value, decimals);
-  }
-
-  /**
-   * Validate if an address is valid
-   */
-  public isValidAddress(address: string): boolean {
-    return this.nexusAdapter.isValidAddress(address);
-  }
-
-  /**
-   * Truncate address for display
-   */
-  public truncateAddress(address: string, startLength?: number, endLength?: number): string {
-    return this.nexusAdapter.truncateAddress(address, startLength, endLength);
-  }
-
-  /**
-   * Convert chain ID to hex format
-   */
-  public chainIdToHex(chainId: number): string {
-    return this.nexusAdapter.chainIdToHex(chainId);
-  }
-
-  /**
-   * Convert hex chain ID to number
-   */
-  public hexToChainId(hex: string): number {
-    return this.nexusAdapter.hexToChainId(hex);
-  }
-
   public async deinit(): Promise<void> {
     await this.nexusAdapter.deinit();
   }
@@ -300,41 +182,41 @@ export class NexusSDK {
   }
 
   /**
-   * Standalone function to deposit funds into a smart contract
-   * @param params Deposit parameters including contract details and transaction settings
-   * @returns Promise resolving to deposit result with transaction hash and explorer URL
+   * Standalone function to execute funds into a smart contract
+   * @param params execute parameters including contract details and transaction settings
+   * @returns Promise resolving to execute result with transaction hash and explorer URL
    */
-  public async deposit(params: DepositParams): Promise<DepositResult> {
-    return this.nexusAdapter.deposit(params);
+  public async execute(params: ExecuteParams): Promise<ExecuteResult> {
+    return this.nexusAdapter.execute(params);
   }
 
   /**
-   * Simulate a standalone deposit to estimate gas costs and validate parameters
-   * @param params Deposit parameters for simulation
+   * Simulate a standalone execute to estimate gas costs and validate parameters
+   * @param params execute parameters for simulation
    * @returns Promise resolving to simulation result with gas estimates
    */
-  public async simulateDeposit(params: DepositParams): Promise<DepositSimulation> {
-    return this.nexusAdapter.simulateDeposit(params);
+  public async simulateExecute(params: ExecuteParams): Promise<ExecuteSimulation> {
+    return this.nexusAdapter.simulateExecute(params);
   }
 
   /**
-   * Enhanced bridge and deposit function with optional deposit step and improved error handling
-   * @param params Enhanced bridge and deposit parameters
+   * Enhanced bridge and execute function with optional execute step and improved error handling
+   * @param params Enhanced bridge and execute parameters
    * @returns Promise resolving to comprehensive operation result
    */
-  public async bridgeAndDeposit(params: BridgeAndDepositParams): Promise<BridgeAndDepositResult> {
-    return this.nexusAdapter.bridgeAndDeposit(params);
+  public async bridgeAndExecute(params: BridgeAndExecuteParams): Promise<BridgeAndExecuteResult> {
+    return this.nexusAdapter.bridgeAndExecute(params);
   }
 
   /**
-   * Simulate bridge and deposit operation to preview costs and validate parameters
+   * Simulate bridge and execute operation to preview costs and validate parameters
    */
-  public async simulateBridgeAndDeposit(params: BridgeAndDepositParams): Promise<{
+  public async simulateBridgeAndExecute(params: BridgeAndExecuteParams): Promise<{
     bridgeSimulation: SimulationResult | null;
-    depositSimulation?: DepositSimulation;
+    executeSimulation?: ExecuteSimulation;
     success: boolean;
     error?: string;
   }> {
-    return this.nexusAdapter.simulateBridgeAndDeposit(params);
+    return this.nexusAdapter.simulateBridgeAndExecute(params);
   }
 }

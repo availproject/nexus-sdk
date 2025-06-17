@@ -1,18 +1,8 @@
-import { CA, Network, SDKConfig } from '@arcana/ca-sdk';
+import { CA, Network, SDKConfig, ProgressStep } from '@arcana/ca-sdk';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
 import { SUPPORTED_CHAINS, TOKEN_METADATA, CHAIN_METADATA, NEXUS_EVENTS } from '../constants';
 import {
-  formatBalance,
   formatTokenAmount,
-  getChainMetadata,
-  isValidAddress,
-  parseUnits,
-  formatUnits,
-  truncateAddress,
-  chainIdToHex,
-  hexToChainId,
-  getMainnetTokenMetadata,
-  getTestnetTokenMetadata,
   validateContractParams,
   encodeContractCall,
   getBlockExplorerUrl,
@@ -29,21 +19,21 @@ import type {
   OnAllowanceHook,
   RequestArguments,
   BridgeParams,
+  BridgeResult,
   TransferParams,
+  TransferResult,
   AllowanceResponse,
   EventListener,
-  TokenMetadata,
   ChainMetadata,
   TokenBalance,
   SUPPORTED_TOKENS,
-  SUPPORTED_CHAINS_IDS,
   SimulationResult,
   RFF,
-  BridgeAndDepositParams,
-  BridgeAndDepositResult,
-  DepositParams,
-  DepositResult,
-  DepositSimulation,
+  BridgeAndExecuteParams,
+  BridgeAndExecuteResult,
+  ExecuteParams,
+  ExecuteResult,
+  ExecuteSimulation,
 } from '../types';
 
 /**
@@ -78,6 +68,13 @@ export class ChainAbstractionAdapter {
     } catch (error) {
       throw new Error(`Failed to initialize CA SDK: ${error}`);
     }
+  }
+
+  /**
+   * Check if the adapter has been initialized
+   */
+  public isInitialized(): boolean {
+    return this.initialized;
   }
 
   /**
@@ -174,14 +171,90 @@ export class ChainAbstractionAdapter {
   }
 
   /**
+   * Generic transaction listener for CA SDK operations
+   * @private
+   */
+  private async waitForTransactionCompletion<T extends BridgeResult | TransferResult>(
+    executionFn: () => Promise<void>,
+    timeout: number = 300000,
+  ): Promise<T> {
+    return new Promise((resolve) => {
+      let explorerUrl: string | undefined;
+      let hasCompleted = false;
+
+      // Set up event listeners to capture transaction data
+      const handleStepComplete = (step: ProgressStep) => {
+        try {
+          if (step.typeID === 'IS' && step.data) {
+            // Intent Submitted - capture explorer URL
+            if ('explorerURL' in step.data) {
+              explorerUrl = step.data.explorerURL;
+            }
+          } else if (step.typeID === 'IF') {
+            // Intent Fulfilled - transaction completed successfully
+            if (!hasCompleted) {
+              hasCompleted = true;
+              cleanup();
+              resolve({
+                success: true,
+                explorerUrl: explorerUrl,
+              } as T);
+            }
+          }
+        } catch (error) {
+          console.error('Error processing step completion:', error);
+        }
+      };
+
+      const cleanup = () => {
+        this.caEvents.off(NEXUS_EVENTS.STEP_COMPLETE, handleStepComplete);
+        clearTimeout(timeoutId);
+      };
+
+      // Add event listeners - only using known events
+      this.caEvents.on(NEXUS_EVENTS.STEP_COMPLETE, handleStepComplete);
+
+      // Set a timeout to prevent hanging
+      const timeoutId = setTimeout(() => {
+        if (!hasCompleted) {
+          hasCompleted = true;
+          cleanup();
+          resolve({
+            success: false,
+            error: 'Transaction timeout',
+          } as T);
+        }
+      }, timeout);
+
+      // Execute the transaction
+      executionFn().catch((error) => {
+        if (!hasCompleted) {
+          hasCompleted = true;
+          cleanup();
+          resolve({
+            success: false,
+            error: error?.message ?? 'Transaction execution failed',
+          } as T);
+        }
+      });
+    });
+  }
+
+  /**
    * Bridge tokens between chains using the new API structure.
    */
-  public async bridge(params: BridgeParams): Promise<unknown> {
-    if (!this.isSupportedChain(params.chainId)) throw new Error('Unsupported chain');
-    if (!this.isSupportedToken(params.token)) throw new Error('Unsupported token');
-    if (!this.initialized) throw new Error('CA SDK not initialized. Call initialize() first.');
+  public async bridge(params: BridgeParams): Promise<BridgeResult> {
+    if (!this.isSupportedChain(params.chainId)) {
+      return { success: false, error: 'Unsupported chain' };
+    }
+    if (!this.isSupportedToken(params.token)) {
+      return { success: false, error: 'Unsupported token' };
+    }
+    if (!this.initialized) {
+      return { success: false, error: 'CA SDK not initialized. Call initialize() first.' };
+    }
 
-    try {
+    return await this.waitForTransactionCompletion<BridgeResult>(async () => {
       const bridgeQuery = await this.ca.bridge({
         token: params.token,
         amount: params.amount,
@@ -189,12 +262,8 @@ export class ChainAbstractionAdapter {
         gas: params.gas ? BigInt(params.gas) : undefined,
       });
 
-      // Execute the bridge transaction
-      const result = await bridgeQuery.exec();
-      return result;
-    } catch (error) {
-      throw new Error(`Bridge transaction failed: ${error}`);
-    }
+      await bridgeQuery.exec();
+    });
   }
 
   /**
@@ -224,16 +293,18 @@ export class ChainAbstractionAdapter {
   /**
    * Transfer tokens to a recipient using the new API structure.
    */
-  public async transfer(params: TransferParams): Promise<unknown> {
+  public async transfer(params: TransferParams): Promise<TransferResult> {
     if (!this.isSupportedChain(params.chainId)) {
-      throw new Error('Unsupported chain');
+      return { success: false, error: 'Unsupported chain' };
     }
     if (!this.isSupportedToken(params.token)) {
-      throw new Error('Unsupported token');
+      return { success: false, error: 'Unsupported token' };
     }
-    if (!this.initialized) throw new Error('CA SDK not initialized. Call initialize() first.');
+    if (!this.initialized) {
+      return { success: false, error: 'CA SDK not initialized. Call initialize() first.' };
+    }
 
-    try {
+    return await this.waitForTransactionCompletion<TransferResult>(async () => {
       const transferQuery = await this.ca.transfer({
         to: params.recipient,
         token: params.token,
@@ -241,12 +312,8 @@ export class ChainAbstractionAdapter {
         chainID: params.chainId,
       });
 
-      // Execute the transfer transaction
-      const result = await transferQuery.exec();
-      return result;
-    } catch (error) {
-      throw new Error(`Transfer transaction failed: ${error}`);
-    }
+      await transferQuery.exec();
+    });
   }
 
   /**
@@ -292,34 +359,6 @@ export class ChainAbstractionAdapter {
   }
 
   /**
-   * Get mainnet token metadata by symbol.
-   */
-  public getMainnetTokenMetadata(symbol: SUPPORTED_TOKENS): TokenMetadata | undefined {
-    return getMainnetTokenMetadata(symbol);
-  }
-
-  /**
-   * Get testnet token metadata by symbol.
-   */
-  public getTestnetTokenMetadata(symbol: SUPPORTED_TOKENS): TokenMetadata | undefined {
-    return getTestnetTokenMetadata(symbol);
-  }
-
-  /**
-   * Get token metadata by symbol (defaults to mainnet, kept for backward compatibility).
-   */
-  public getTokenMetadata(symbol: SUPPORTED_TOKENS): TokenMetadata | undefined {
-    return getMainnetTokenMetadata(symbol);
-  }
-
-  /**
-   * Get detailed chain metadata by chain ID.
-   */
-  public getChainMetadata(chainId: SUPPORTED_CHAINS_IDS): ChainMetadata | undefined {
-    return getChainMetadata(chainId);
-  }
-
-  /**
    * Get token balance for a specific token on a specific chain from unified balance.
    */
   public async getFormattedTokenBalance(
@@ -356,34 +395,6 @@ export class ChainAbstractionAdapter {
     } catch (error) {
       throw new Error(`Failed to get token balance: ${error}`);
     }
-  }
-
-  /**
-   * Format balance with proper decimals and precision.
-   */
-  public formatBalance(balance: string, decimals: number, precision?: number): string {
-    return formatBalance(balance, decimals, precision);
-  }
-
-  /**
-   * Parse units from human-readable string to smallest unit.
-   */
-  public parseUnits(value: string, decimals: number): bigint {
-    return parseUnits(value, decimals);
-  }
-
-  /**
-   * Format units from smallest unit to human-readable string.
-   */
-  public formatUnits(value: bigint, decimals: number): string {
-    return formatUnits(value, decimals);
-  }
-
-  /**
-   * Validate if an address is valid.
-   */
-  public isValidAddress(address: string): boolean {
-    return isValidAddress(address);
   }
 
   /**
@@ -447,27 +458,6 @@ export class ChainAbstractionAdapter {
   }
 
   /**
-   * Truncate address for display.
-   */
-  public truncateAddress(address: string, startLength?: number, endLength?: number): string {
-    return truncateAddress(address, startLength, endLength);
-  }
-
-  /**
-   * Convert chain ID to hex format.
-   */
-  public chainIdToHex(chainId: number): string {
-    return chainIdToHex(chainId);
-  }
-
-  /**
-   * Convert hex chain ID to number.
-   */
-  public hexToChainId(hex: string): number {
-    return hexToChainId(hex);
-  }
-
-  /**
    * Deinitialize the CA SDK and clean up resources.
    */
   public async deinit(): Promise<void> {
@@ -517,7 +507,7 @@ export class ChainAbstractionAdapter {
   }
 
   /**
-   * Prepare gas parameters for deposit transaction
+   * Prepare gas parameters for execute transaction
    */
   private async prepareGasParams(
     provider: EthereumProvider,
@@ -556,11 +546,11 @@ export class ChainAbstractionAdapter {
   }
 
   /**
-   * Standalone deposit function for depositing funds into smart contracts
-   * @param params Deposit parameters including contract details and transaction settings
-   * @returns Promise resolving to deposit result with transaction hash and explorer URL
+   * Standalone execute function for executeing funds into smart contracts
+   * @param params execute parameters including contract details and transaction settings
+   * @returns Promise resolving to execute result with transaction hash and explorer URL
    */
-  public async deposit(params: DepositParams): Promise<DepositResult> {
+  public async execute(params: ExecuteParams): Promise<ExecuteResult> {
     const {
       toChainId,
       contractAddress,
@@ -578,7 +568,7 @@ export class ChainAbstractionAdapter {
     } = params;
 
     try {
-      this.caEvents.emit(NEXUS_EVENTS.DEPOSIT_STARTED, { chainId: toChainId, contractAddress });
+      this.caEvents.emit(NEXUS_EVENTS.EXECUTE_STARTED, { chainId: toChainId, contractAddress });
 
       const validation = validateContractParams({
         contractAddress,
@@ -685,7 +675,7 @@ export class ChainAbstractionAdapter {
         }
       }
 
-      const result: DepositResult = {
+      const result: ExecuteResult = {
         transactionHash,
         explorerUrl: getBlockExplorerUrl(toChainId, transactionHash),
         chainId: toChainId,
@@ -695,24 +685,24 @@ export class ChainAbstractionAdapter {
         effectiveGasPrice: effectiveGasPrice?.toString(),
       };
 
-      this.caEvents.emit(NEXUS_EVENTS.DEPOSIT_COMPLETED, result);
+      this.caEvents.emit(NEXUS_EVENTS.EXECUTE_COMPLETED, result);
       return result;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown deposit error';
-      this.caEvents.emit(NEXUS_EVENTS.DEPOSIT_FAILED, {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown execute error';
+      this.caEvents.emit(NEXUS_EVENTS.EXECUTE_FAILED, {
         message: errorMessage,
         code: error instanceof Error ? error.name : 'UNKNOWN_ERROR',
       });
-      throw new Error(`Deposit failed: ${errorMessage}`);
+      throw new Error(`Execute failed: ${errorMessage}`);
     }
   }
 
   /**
-   * Simulate a deposit to estimate gas costs and validate parameters
-   * @param params Deposit parameters for simulation
+   * Simulate a execute to estimate gas costs and validate parameters
+   * @param params Execute parameters for simulation
    * @returns Promise resolving to simulation result with gas estimates
    */
-  public async simulateDeposit(params: DepositParams): Promise<DepositSimulation> {
+  public async simulateExecute(params: ExecuteParams): Promise<ExecuteSimulation> {
     const {
       toChainId,
       contractAddress,
@@ -803,22 +793,22 @@ export class ChainAbstractionAdapter {
   }
 
   /**
-   * Handle deposit phase of bridge and deposit operation
+   * Handle execute phase of bridge and execute operation
    */
-  private async handleDepositPhase(
-    deposit: Omit<DepositParams, 'toChainId'> | undefined,
+  private async handleExecutePhase(
+    execute: Omit<ExecuteParams, 'toChainId'> | undefined,
     toChainId: number,
     enableTransactionPolling: boolean,
     transactionTimeout: number,
     waitForReceipt?: boolean,
     receiptTimeout?: number,
     requiredConfirmations?: number,
-  ): Promise<{ depositTransactionHash?: string; depositExplorerUrl?: string }> {
-    if (!deposit) return {};
+  ): Promise<{ executeTransactionHash?: string; executeExplorerUrl?: string }> {
+    if (!execute) return {};
 
     try {
-      const depositResult = await this.deposit({
-        ...deposit,
+      const executeResult = await this.execute({
+        ...execute,
         toChainId,
         enableTransactionPolling,
         transactionTimeout,
@@ -828,34 +818,34 @@ export class ChainAbstractionAdapter {
       });
 
       return {
-        depositTransactionHash: depositResult.transactionHash,
-        depositExplorerUrl: depositResult.explorerUrl,
+        executeTransactionHash: executeResult.transactionHash,
+        executeExplorerUrl: executeResult.explorerUrl,
       };
-    } catch (depositError) {
+    } catch (executeError) {
       const errorMessage =
-        depositError instanceof Error ? depositError.message : 'Unknown deposit error';
+        executeError instanceof Error ? executeError.message : 'Unknown execute error';
 
       this.caEvents.emit(NEXUS_EVENTS.OPERATION_FAILED, {
         message: errorMessage,
-        stage: 'deposit' as const,
-        code: depositError instanceof Error ? depositError.name : 'UNKNOWN_ERROR',
+        stage: 'execute' as const,
+        code: executeError instanceof Error ? executeError.name : 'UNKNOWN_ERROR',
       });
 
-      throw new Error(`Deposit phase failed: ${errorMessage}`);
+      throw new Error(`Execute phase failed: ${errorMessage}`);
     }
   }
 
   /**
-   * Enhanced bridge and deposit function with optional deposit step and improved error handling
-   * @param params Enhanced bridge and deposit parameters
+   * Enhanced bridge and execute function with optional execute step and improved error handling
+   * @param params Enhanced bridge and execute parameters
    * @returns Promise resolving to comprehensive operation result
    */
-  public async bridgeAndDeposit(params: BridgeAndDepositParams): Promise<BridgeAndDepositResult> {
+  public async bridgeAndExecute(params: BridgeAndExecuteParams): Promise<BridgeAndExecuteResult> {
     const {
       toChainId,
       token,
       amount,
-      deposit,
+      execute,
       enableTransactionPolling = false,
       transactionTimeout = 30000,
       waitForReceipt = false,
@@ -864,15 +854,26 @@ export class ChainAbstractionAdapter {
     } = params;
 
     try {
-      this.caEvents.emit(NEXUS_EVENTS.OPERATION_STARTED, { toChainId, hasDeposit: !!deposit });
+      this.caEvents.emit(NEXUS_EVENTS.OPERATION_STARTED, { toChainId, hasExecute: !!execute });
       this.caEvents.emit(NEXUS_EVENTS.BRIDGE_STARTED, { toChainId, token, amount });
 
-      await this.bridge({ token, amount, chainId: toChainId });
+      const bridgeResult = await this.bridge({ token, amount, chainId: toChainId });
 
-      this.caEvents.emit(NEXUS_EVENTS.BRIDGE_COMPLETED, { success: true, toChainId });
+      if (!bridgeResult.success) {
+        this.caEvents.emit(NEXUS_EVENTS.BRIDGE_FAILED, {
+          message: bridgeResult.error ?? 'Bridge failed',
+          code: 'BRIDGE_ERROR',
+        });
+        throw new Error(`Bridge failed: ${bridgeResult.error}`);
+      }
 
-      const { depositTransactionHash, depositExplorerUrl } = await this.handleDepositPhase(
-        deposit,
+      this.caEvents.emit(NEXUS_EVENTS.BRIDGE_COMPLETED, {
+        success: true,
+        toChainId,
+      });
+
+      const { executeTransactionHash, executeExplorerUrl } = await this.handleExecutePhase(
+        execute,
         toChainId,
         enableTransactionPolling,
         transactionTimeout,
@@ -881,9 +882,9 @@ export class ChainAbstractionAdapter {
         requiredConfirmations,
       );
 
-      const result: BridgeAndDepositResult = {
-        depositTransactionHash,
-        depositExplorerUrl,
+      const result: BridgeAndExecuteResult = {
+        executeTransactionHash,
+        executeExplorerUrl,
         toChainId,
       };
 
@@ -891,8 +892,8 @@ export class ChainAbstractionAdapter {
       return result;
     } catch (error) {
       const errorMessage =
-        error instanceof Error ? error.message : 'Unknown bridge and deposit error';
-      const stage = errorMessage.includes('Deposit phase failed') ? 'deposit' : 'bridge';
+        error instanceof Error ? error.message : 'Unknown bridge and execute error';
+      const stage = errorMessage.includes('Execute phase failed') ? 'execute' : 'bridge';
 
       this.caEvents.emit(NEXUS_EVENTS.OPERATION_FAILED, {
         message: errorMessage,
@@ -900,23 +901,23 @@ export class ChainAbstractionAdapter {
         code: error instanceof Error ? error.name : 'UNKNOWN_ERROR',
       });
 
-      throw new Error(`Bridge and deposit operation failed: ${errorMessage}`);
+      throw new Error(`Bridge and execute operation failed: ${errorMessage}`);
     }
   }
 
   /**
-   * Simulate bridge and deposit operation to estimate total costs
-   * @param params Bridge and deposit parameters for simulation
+   * Simulate bridge and execute operation to estimate total costs
+   * @param params Bridge and execute parameters for simulation
    * @returns Promise resolving to simulation result with combined cost estimates
    */
-  public async simulateBridgeAndDeposit(params: BridgeAndDepositParams): Promise<{
+  public async simulateBridgeAndExecute(params: BridgeAndExecuteParams): Promise<{
     bridgeSimulation: SimulationResult | null;
-    depositSimulation?: DepositSimulation;
+    executeSimulation?: ExecuteSimulation;
     success: boolean;
     error?: string;
   }> {
     try {
-      const { deposit } = params;
+      const { execute } = params;
 
       const bridgeSimulation = await this.simulateBridge({
         token: params.token,
@@ -924,34 +925,34 @@ export class ChainAbstractionAdapter {
         chainId: params.toChainId,
       });
 
-      let depositSimulation: DepositSimulation | undefined;
+      let executeSimulation: ExecuteSimulation | undefined;
 
-      if (deposit) {
-        depositSimulation = await this.simulateDeposit({
-          ...deposit,
+      if (execute) {
+        executeSimulation = await this.simulateExecute({
+          ...execute,
           toChainId: params.toChainId,
         });
 
-        if (!depositSimulation.success) {
+        if (!executeSimulation.success) {
           return {
             bridgeSimulation,
-            depositSimulation,
+            executeSimulation,
             success: false,
-            error: depositSimulation.error,
+            error: executeSimulation.error,
           };
         }
       }
 
       return {
         bridgeSimulation,
-        depositSimulation,
+        executeSimulation,
         success: true,
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown simulation error';
       return {
         bridgeSimulation: null,
-        depositSimulation: undefined,
+        executeSimulation: undefined,
         success: false,
         error: `Simulation failed: ${errorMessage}`,
       };

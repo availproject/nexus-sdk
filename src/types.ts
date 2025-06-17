@@ -110,6 +110,24 @@ export interface BridgeParams {
   gas?: bigint;
 }
 
+/**
+ * Result structure for bridge transactions.
+ */
+export interface BridgeResult {
+  success: boolean;
+  error?: string;
+  explorerUrl?: string;
+}
+
+/**
+ * Result structure for transfer transactions.
+ */
+export interface TransferResult {
+  success: boolean;
+  error?: string;
+  explorerUrl?: string;
+}
+
 export interface SimulationResult {
   intent: Intent;
   token: TokenInfo;
@@ -138,8 +156,8 @@ export interface TokenBalance {
   isNative?: boolean;
 }
 
-// Enhanced modular parameters for standalone deposit functionality
-export interface DepositParams {
+// Enhanced modular parameters for standalone execute functionality
+export interface ExecuteParams {
   toChainId: number;
   contractAddress: string;
   contractAbi: Abi;
@@ -156,7 +174,7 @@ export interface DepositParams {
   requiredConfirmations?: number;
 }
 
-export interface DepositResult {
+export interface ExecuteResult {
   transactionHash: string;
   explorerUrl: string;
   chainId: number;
@@ -167,7 +185,7 @@ export interface DepositResult {
   effectiveGasPrice?: string;
 }
 
-export interface DepositSimulation {
+export interface ExecuteSimulation {
   gasLimit?: bigint | string;
   maxGasPrice?: bigint | string;
   estimatedCost: string;
@@ -176,12 +194,12 @@ export interface DepositSimulation {
   error?: string;
 }
 
-export interface BridgeAndDepositParams {
+export interface BridgeAndExecuteParams {
   toChainId: SUPPORTED_CHAINS_IDS;
   token: SUPPORTED_TOKENS;
   amount: string;
   recipient?: `0x${string}`;
-  deposit?: Omit<DepositParams, 'toChainId'>;
+  execute?: Omit<ExecuteParams, 'toChainId'>;
   enableTransactionPolling?: boolean;
   transactionTimeout?: number;
   // Global options for transaction confirmation
@@ -190,16 +208,16 @@ export interface BridgeAndDepositParams {
   requiredConfirmations?: number;
 }
 
-export interface BridgeAndDepositResult {
-  depositTransactionHash?: string;
-  depositExplorerUrl?: string;
+export interface BridgeAndExecuteResult {
+  executeTransactionHash?: string;
+  executeExplorerUrl?: string;
   toChainId: number;
 }
 
-export interface DepositEvents {
-  'deposit:started': (params: { chainId: number; contractAddress: string }) => void;
-  'deposit:completed': (result: DepositResult) => void;
-  'deposit:failed': (error: { message: string; code?: string }) => void;
+export interface ExecuteEvents {
+  'execute:started': (params: { chainId: number; contractAddress: string }) => void;
+  'execute:completed': (result: ExecuteResult) => void;
+  'execute:failed': (error: { message: string; code?: string }) => void;
 }
 
 export interface BridgeEvents {
@@ -208,12 +226,12 @@ export interface BridgeEvents {
   'bridge:failed': (error: { message: string; code?: string }) => void;
 }
 
-export interface BridgeAndDepositEvents extends BridgeEvents, DepositEvents {
-  'operation:started': (params: { toChainId: number; hasDeposit: boolean }) => void;
-  'operation:completed': (result: BridgeAndDepositResult) => void;
+export interface BridgeAndExecuteEvents extends BridgeEvents, ExecuteEvents {
+  'operation:started': (params: { toChainId: number; hasExecute: boolean }) => void;
+  'operation:completed': (result: BridgeAndExecuteResult) => void;
   'operation:failed': (error: {
     message: string;
-    stage: 'bridge' | 'deposit';
+    stage: 'bridge' | 'execute';
     code?: string;
   }) => void;
 }
