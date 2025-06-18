@@ -75,21 +75,16 @@ const executeResult = await sdk.execute({
 | Arbitrum  | 42161    | ETH             | ✅     |
 | Avalanche | 43114    | AVAX            | ✅     |
 | Base      | 8453     | ETH             | ✅     |
-| Linea     | 59144    | ETH             | ✅     |
 | Scroll    | 534351   | ETH             | ✅     |
 
 ### Testnet Chains
 
 | Network          | Chain ID | Native Currency | Status |
 | ---------------- | -------- | --------------- | ------ |
-| Ethereum Sepolia | 11155111 | ETH             | ✅     |
 | Optimism Sepolia | 11155420 | ETH             | ✅     |
 | Polygon Amoy     | 80002    | MATIC           | ✅     |
 | Arbitrum Sepolia | 421614   | ETH             | ✅     |
-| Avalanche Fuji   | 43113    | AVAX            | ✅     |
 | Base Sepolia     | 84532    | ETH             | ✅     |
-| Linea Sepolia    | 59141    | ETH             | ✅     |
-| Scroll Sepolia   | 534352   | ETH             | ✅     |
 
 ### Supported Tokens
 
@@ -233,10 +228,10 @@ await sdk.revokeAllowance(137, ['USDC']);
 ### Intent Management
 
 ```typescript
-import type { RFF } from 'avail-nexus-sdk';
+import type { RequestForFunds } from 'avail-nexus-sdk';
 
 // Get user's transaction intents
-const intents: RFF[] = await sdk.getMyIntents(1);
+const intents: RequestForFunds[] = await sdk.getMyIntents(1);
 ```
 
 ### Utilities

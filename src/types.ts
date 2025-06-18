@@ -13,8 +13,26 @@ import type {
   RequestForFunds,
   SDKConfig,
   UserAsset,
-  RFF,
 } from '@arcana/ca-sdk';
+
+// Gas pricing types
+export type GasPriceStrategy = 'slow' | 'standard' | 'fast' | 'fastest';
+
+export interface FeeData {
+  maxFeePerGas?: string;
+  maxPriorityFeePerGas?: string;
+  gasPrice?: string;
+  type: 'eip1559' | 'legacy';
+}
+
+export interface GasPricingConfig {
+  strategy?: GasPriceStrategy;
+  maxGasPrice?: string;
+  priorityFeeMultiplier?: number;
+  baseFeeMultiplier?: number;
+  retryAttempts?: number;
+  fallbackToLegacy?: boolean;
+}
 
 type TokenInfo = {
   contractAddress: `0x${string}`;
@@ -164,8 +182,11 @@ export interface ExecuteParams {
   functionName: string;
   functionParams: readonly unknown[];
   value?: string;
-  gasLimit?: bigint; // or `Hex`
-  maxGasPrice?: bigint;
+  gasLimit?: bigint;
+  maxGasPrice?: string;
+  // Enhanced gas pricing options
+  gasPriceStrategy?: GasPriceStrategy;
+  gasPricingConfig?: GasPricingConfig;
   enableTransactionPolling?: boolean;
   transactionTimeout?: number;
   // Transaction receipt confirmation options
@@ -267,5 +288,4 @@ export type {
   SDKConfig,
   NexusNetwork,
   TransactionReceipt,
-  RFF,
 };

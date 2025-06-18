@@ -45,15 +45,17 @@ export class NexusUtils {
   getChainMetadata = utilGetChainMetadata;
   formatTokenAmount = utilFormatTokenAmount;
   formatTestnetTokenAmount = utilFormatTestnetTokenAmount;
-
-  // Methods that need adapter access
   getSupportedChains(): Array<{ id: number; name: string; logo: string }> {
+    this.ensureInitialized();
     return this.adapter.getSupportedChains();
   }
 
   getSupportedChainsWithMetadata(): ChainMetadata[] {
+    this.ensureInitialized();
     return this.adapter.getSupportedChainsWithMetadata();
   }
+
+  /* Same for isSupportedChain / isSupportedToken */
 
   isSupportedChain(chainId: (typeof SUPPORTED_CHAINS)[keyof typeof SUPPORTED_CHAINS]): boolean {
     return this.adapter.isSupportedChain(chainId);

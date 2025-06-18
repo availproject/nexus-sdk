@@ -8,4 +8,4 @@ export type * from './types';
 export * from './constants';
 
 // Re-export Network enum from CA SDK for convenience
-export { Network } from '@arcana/ca-sdk';
+export { Network, RequestForFunds } from '@arcana/ca-sdk';

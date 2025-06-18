@@ -8,18 +8,13 @@ export const SUPPORTED_CHAINS = {
   OPTIMISM: 10,
   POLYGON: 137,
   AVALANCHE: 43114,
-  LINEA: 59144,
   SCROLL: 534351,
 
   // Testnet chains
-  ETHEREUM_SEPOLIA: 11155111,
   BASE_SEPOLIA: 84532,
   ARBITRUM_SEPOLIA: 421614,
   OPTIMISM_SEPOLIA: 11155420,
   POLYGON_AMOY: 80002,
-  AVALANCHE_FUJI: 43113,
-  LINEA_SEPOLIA: 59141,
-  SCROLL_SEPOLIA: 534352,
 } as const;
 
 export const chainIcons: Record<number, string> = {
@@ -33,14 +28,11 @@ export const chainIcons: Record<number, string> = {
   [SUPPORTED_CHAINS.POLYGON]: 'https://assets.coingecko.com/coins/images/4713/small/polygon.png',
   [SUPPORTED_CHAINS.AVALANCHE]:
     'https://assets.coingecko.com/coins/images/12559/small/Avalanche_Circle_RedWhite_Trans.png',
-  [SUPPORTED_CHAINS.LINEA]:
-    'https://assets.coingecko.com/asset_platforms/images/135/small/linea.jpeg?1706606705',
   [SUPPORTED_CHAINS.SCROLL]:
     'https://assets.coingecko.com/coins/images/50571/standard/scroll.jpg?1728376125',
 
   // Testnet chain icons (reuse mainnet icons)
-  [SUPPORTED_CHAINS.ETHEREUM_SEPOLIA]:
-    'https://assets.coingecko.com/coins/images/279/small/ethereum.png',
+
   [SUPPORTED_CHAINS.BASE_SEPOLIA]:
     'https://raw.githubusercontent.com/base/brand-kit/main/logo/symbol/Base_Symbol_Blue.svg',
   [SUPPORTED_CHAINS.ARBITRUM_SEPOLIA]:
@@ -49,12 +41,6 @@ export const chainIcons: Record<number, string> = {
     'https://assets.coingecko.com/coins/images/25244/small/Optimism.png',
   [SUPPORTED_CHAINS.POLYGON_AMOY]:
     'https://assets.coingecko.com/coins/images/4713/small/polygon.png',
-  [SUPPORTED_CHAINS.AVALANCHE_FUJI]:
-    'https://assets.coingecko.com/coins/images/12559/small/Avalanche_Circle_RedWhite_Trans.png',
-  [SUPPORTED_CHAINS.LINEA_SEPOLIA]:
-    'https://assets.coingecko.com/asset_platforms/images/135/small/linea.jpeg?1706606705',
-  [SUPPORTED_CHAINS.SCROLL_SEPOLIA]:
-    'https://assets.coingecko.com/coins/images/50571/standard/scroll.jpg?1728376125',
 } as const;
 
 export const TOKEN_METADATA: Record<string, TokenMetadata> = {
@@ -164,15 +150,6 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
     rpcUrls: ['https://api.avax.network/ext/bc/C/rpc'],
     blockExplorerUrls: ['https://snowtrace.io'],
   },
-  [SUPPORTED_CHAINS.LINEA]: {
-    id: 59144,
-    name: 'Linea',
-    shortName: 'linea',
-    logo: chainIcons[SUPPORTED_CHAINS.LINEA],
-    nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-    rpcUrls: ['https://rpc.linea.build'],
-    blockExplorerUrls: ['https://lineascan.build'],
-  },
   [SUPPORTED_CHAINS.SCROLL]: {
     id: 534351,
     name: 'Scroll',
@@ -184,15 +161,6 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
   },
 
   // Testnet chains
-  [SUPPORTED_CHAINS.ETHEREUM_SEPOLIA]: {
-    id: 11155111,
-    name: 'Ethereum Sepolia',
-    shortName: 'sepolia',
-    logo: chainIcons[SUPPORTED_CHAINS.ETHEREUM_SEPOLIA],
-    nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
-    rpcUrls: ['https://rpc.sepolia.org', 'https://ethereum-sepolia.publicnode.com'],
-    blockExplorerUrls: ['https://sepolia.etherscan.io'],
-  },
   [SUPPORTED_CHAINS.BASE_SEPOLIA]: {
     id: 84532,
     name: 'Base Sepolia',
@@ -229,33 +197,6 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
     rpcUrls: ['https://rpc-amoy.polygon.technology'],
     blockExplorerUrls: ['https://amoy.polygonscan.com'],
   },
-  [SUPPORTED_CHAINS.AVALANCHE_FUJI]: {
-    id: 43113,
-    name: 'Avalanche Fuji',
-    shortName: 'fuji',
-    logo: chainIcons[SUPPORTED_CHAINS.AVALANCHE_FUJI],
-    nativeCurrency: { name: 'Avalanche', symbol: 'AVAX', decimals: 18 },
-    rpcUrls: ['https://api.avax-test.network/ext/bc/C/rpc'],
-    blockExplorerUrls: ['https://testnet.snowtrace.io'],
-  },
-  [SUPPORTED_CHAINS.LINEA_SEPOLIA]: {
-    id: 59141,
-    name: 'Linea Sepolia',
-    shortName: 'linea-sepolia',
-    logo: chainIcons[SUPPORTED_CHAINS.LINEA_SEPOLIA],
-    nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
-    rpcUrls: ['https://rpc.sepolia.linea.build'],
-    blockExplorerUrls: ['https://sepolia.lineascan.build'],
-  },
-  [SUPPORTED_CHAINS.SCROLL_SEPOLIA]: {
-    id: 534352,
-    name: 'Scroll Sepolia',
-    shortName: 'scroll-sepolia',
-    logo: chainIcons[SUPPORTED_CHAINS.SCROLL_SEPOLIA],
-    nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
-    rpcUrls: ['https://sepolia-rpc.scroll.io'],
-    blockExplorerUrls: ['https://sepolia.scrollscan.com'],
-  },
 } as const;
 
 // Event name constants to prevent typos
@@ -289,17 +230,12 @@ export const MAINNET_CHAINS = [
   SUPPORTED_CHAINS.OPTIMISM,
   SUPPORTED_CHAINS.POLYGON,
   SUPPORTED_CHAINS.AVALANCHE,
-  SUPPORTED_CHAINS.LINEA,
   SUPPORTED_CHAINS.SCROLL,
 ] as const;
 
 export const TESTNET_CHAINS = [
-  SUPPORTED_CHAINS.ETHEREUM_SEPOLIA,
   SUPPORTED_CHAINS.BASE_SEPOLIA,
   SUPPORTED_CHAINS.ARBITRUM_SEPOLIA,
   SUPPORTED_CHAINS.OPTIMISM_SEPOLIA,
   SUPPORTED_CHAINS.POLYGON_AMOY,
-  SUPPORTED_CHAINS.AVALANCHE_FUJI,
-  SUPPORTED_CHAINS.LINEA_SEPOLIA,
-  SUPPORTED_CHAINS.SCROLL_SEPOLIA,
 ] as const;

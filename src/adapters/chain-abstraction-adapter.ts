@@ -7,10 +7,10 @@ import {
   encodeContractCall,
   getBlockExplorerUrl,
   getTransactionHashWithFallback,
-  estimateGasWithValidation,
-  getGasPriceWithValidation,
-  formatGasCost,
   waitForTransactionReceipt,
+  estimateGasWithValidation,
+  formatGasCost,
+  getEnhancedGasPrice,
 } from '../utils';
 import type {
   EthereumProvider,
@@ -28,12 +28,15 @@ import type {
   TokenBalance,
   SUPPORTED_TOKENS,
   SimulationResult,
-  RFF,
   BridgeAndExecuteParams,
   BridgeAndExecuteResult,
   ExecuteParams,
   ExecuteResult,
   ExecuteSimulation,
+  FeeData,
+  GasPricingConfig,
+  TransactionReceipt,
+  RequestForFunds,
 } from '../types';
 
 /**
@@ -347,7 +350,7 @@ export class ChainAbstractionAdapter {
   /**
    * Get user's intents with pagination.
    */
-  public async getMyIntents(page: number = 1): Promise<RFF[]> {
+  public async getMyIntents(page: number = 1): Promise<RequestForFunds[]> {
     if (!this.initialized) throw new Error('CA SDK not initialized. Call initialize() first.');
 
     try {
@@ -507,59 +510,324 @@ export class ChainAbstractionAdapter {
   }
 
   /**
-   * Prepare gas parameters for execute transaction
+   * Enhanced gas parameter preparation with EIP-1559 support
    */
-  private async prepareGasParams(
+  private async prepareEnhancedGasParams(
     provider: EthereumProvider,
     fromAddress: string,
     contractAddress: string,
     encodedData: `0x${string}`,
     value: string,
-    gasLimit?: string,
-    maxGasPrice?: string,
-  ): Promise<{ gas: string; gasPrice: string }> {
-    let finalGasLimit = gasLimit;
+    params: {
+      gasLimit?: bigint;
+      maxGasPrice?: string;
+      gasPricingConfig?: GasPricingConfig;
+    },
+    chainId: number,
+  ): Promise<{
+    gasLimit: string;
+    feeData: FeeData;
+    totalCost: string;
+  }> {
+    // Estimate gas limit if not provided
+    let finalGasLimit = params.gasLimit?.toString();
     if (!finalGasLimit) {
-      const gasEstimation = await estimateGasWithValidation(provider, {
-        from: fromAddress,
-        to: contractAddress,
-        data: encodedData,
-        value,
-      });
+      const gasEstimation = await estimateGasWithValidation(
+        provider,
+        {
+          from: fromAddress,
+          to: contractAddress,
+          data: encodedData,
+          value,
+        },
+        chainId,
+      );
       if (!gasEstimation.success) {
         throw new Error(gasEstimation.error);
       }
       finalGasLimit = gasEstimation.gasLimit!;
     }
 
-    const gasPriceResult = await getGasPriceWithValidation(provider);
-    if (!gasPriceResult.success) {
-      throw new Error(gasPriceResult.error);
+    // Get enhanced gas pricing
+    const gasPricingConfig: GasPricingConfig = {
+      strategy: 'standard',
+      maxGasPrice: params.maxGasPrice,
+      fallbackToLegacy: true,
+      retryAttempts: 2,
+      ...params.gasPricingConfig,
+    };
+
+    const gasPriceResult = await getEnhancedGasPrice(provider, gasPricingConfig, chainId);
+    if (!gasPriceResult.success || !gasPriceResult.feeData) {
+      throw new Error(gasPriceResult.error || 'Failed to get gas price');
     }
 
-    let finalGasPrice = gasPriceResult.gasPrice!;
-    if (maxGasPrice && BigInt(finalGasPrice) > BigInt(maxGasPrice)) {
-      finalGasPrice = maxGasPrice;
+    // Calculate total cost estimate
+    const gasLimitBigInt = BigInt(finalGasLimit);
+    let totalCost: string;
+
+    if (gasPriceResult.feeData.type === 'eip1559') {
+      // Use maxFeePerGas for cost calculation
+      const maxFee = BigInt(gasPriceResult.feeData.maxFeePerGas!);
+      totalCost = (gasLimitBigInt * maxFee).toString();
+    } else {
+      // Use legacy gas price
+      const gasPrice = BigInt(gasPriceResult.feeData.gasPrice!);
+      totalCost = (gasLimitBigInt * gasPrice).toString();
     }
 
-    return { gas: finalGasLimit, gasPrice: finalGasPrice };
+    return {
+      gasLimit: finalGasLimit,
+      feeData: gasPriceResult.feeData,
+      totalCost,
+    };
   }
 
   /**
-   * Standalone execute function for executeing funds into smart contracts
-   * @param params execute parameters including contract details and transaction settings
-   * @returns Promise resolving to execute result with transaction hash and explorer URL
+   * Prepare and validate execution parameters
+   */
+  private async prepareExecution(params: ExecuteParams): Promise<{
+    provider: EthereumProvider;
+    fromAddress: string;
+    encodedData: `0x${string}`;
+    gasParams: { gasLimit: string; feeData: FeeData; totalCost: string };
+  }> {
+    // Emit start event
+    this.caEvents.emit(NEXUS_EVENTS.EXECUTE_STARTED, {
+      chainId: params.toChainId,
+      contractAddress: params.contractAddress,
+    });
+
+    // Validate contract parameters
+    const validation = validateContractParams({
+      contractAddress: params.contractAddress,
+      contractAbi: params.contractAbi,
+      functionName: params.functionName,
+      functionParams: params.functionParams,
+      chainId: params.toChainId,
+    });
+    if (!validation.isValid) {
+      throw new Error(validation.error);
+    }
+
+    // Get provider
+    const provider = this.evmProvider;
+    if (!provider) {
+      throw new Error(`No provider available for chain ${params.toChainId}`);
+    }
+
+    // Get user account
+    const accounts = (await provider.request({ method: 'eth_accounts' })) as string[];
+    if (!accounts || accounts.length === 0) {
+      throw new Error('No wallet account connected');
+    }
+    const fromAddress = accounts[0];
+
+    // Encode contract call
+    const encoding = encodeContractCall({
+      contractAbi: params.contractAbi,
+      functionName: params.functionName,
+      functionParams: params.functionParams,
+    });
+    if (!encoding.success) {
+      throw new Error(encoding.error);
+    }
+
+    // Prepare gas parameters with enhanced pricing
+    const gasParams = await this.prepareEnhancedGasParams(
+      provider,
+      fromAddress,
+      params.contractAddress,
+      encoding.data!,
+      params.value || '0x0',
+      {
+        gasLimit: params.gasLimit,
+        maxGasPrice: params.maxGasPrice,
+        gasPricingConfig: params.gasPricingConfig,
+      },
+      params.toChainId,
+    );
+
+    return {
+      provider,
+      fromAddress,
+      encodedData: encoding.data!,
+      gasParams,
+    };
+  }
+
+  /**
+   * Send transaction with appropriate gas settings
+   */
+  private async sendTransaction(
+    provider: EthereumProvider,
+    fromAddress: string,
+    contractAddress: string,
+    encodedData: `0x${string}`,
+    value: string,
+    gasParams: { gasLimit: string; feeData: FeeData },
+    options: {
+      enableTransactionPolling?: boolean;
+      transactionTimeout?: number;
+    },
+  ): Promise<`0x${string}`> {
+    // Build transaction parameters based on fee type
+    const baseTxParams = {
+      from: fromAddress,
+      to: contractAddress,
+      data: encodedData,
+      value,
+      gas: gasParams.gasLimit,
+    };
+
+    interface TransactionParams {
+      from: string;
+      to: string;
+      data: `0x${string}`;
+      value: string;
+      gas: string;
+      maxFeePerGas?: string;
+      maxPriorityFeePerGas?: string;
+      gasPrice?: string;
+    }
+
+    let txParams: TransactionParams;
+    if (gasParams.feeData.type === 'eip1559') {
+      // EIP-1559 transaction
+      txParams = {
+        ...baseTxParams,
+        maxFeePerGas: gasParams.feeData.maxFeePerGas,
+        maxPriorityFeePerGas: gasParams.feeData.maxPriorityFeePerGas,
+      };
+    } else {
+      // Legacy transaction
+      txParams = {
+        ...baseTxParams,
+        gasPrice: gasParams.feeData.gasPrice,
+      };
+    }
+
+    // Send transaction
+    const response = await provider.request({
+      method: 'eth_sendTransaction',
+      params: [txParams],
+    });
+
+    // Get transaction hash with fallback strategies
+    const hashResult = await getTransactionHashWithFallback(provider, response, {
+      enablePolling: options.enableTransactionPolling,
+      timeout: options.transactionTimeout,
+      fromAddress,
+    });
+
+    if (!hashResult.success || !hashResult.hash) {
+      throw new Error(hashResult.error ?? 'Transaction submission failed');
+    }
+
+    return hashResult.hash;
+  }
+
+  /**
+   * Handle transaction confirmation and receipt waiting
+   */
+  private async handleTransactionConfirmation(
+    provider: EthereumProvider,
+    transactionHash: `0x${string}`,
+    options: {
+      waitForReceipt?: boolean;
+      receiptTimeout?: number;
+      requiredConfirmations?: number;
+    },
+    chainId: number,
+  ): Promise<{
+    receipt?: TransactionReceipt;
+    confirmations?: number;
+    gasUsed?: string;
+    effectiveGasPrice?: string;
+  }> {
+    // Emit transaction sent event
+    this.caEvents.emit(NEXUS_EVENTS.TRANSACTION_SENT, {
+      hash: transactionHash,
+    });
+
+    if (!options.waitForReceipt) {
+      return {};
+    }
+
+    const receiptResult = await waitForTransactionReceipt(
+      provider,
+      transactionHash,
+      {
+        timeout: options.receiptTimeout,
+        requiredConfirmations: options.requiredConfirmations,
+      },
+      chainId,
+    );
+
+    if (!receiptResult.success) {
+      // Transaction was sent but receipt failed - log warning but don't fail
+      console.warn(`Receipt waiting failed: ${receiptResult.error}`);
+      return {};
+    }
+
+    const { receipt, confirmations } = receiptResult;
+
+    // Emit receipt events
+    this.caEvents.emit(NEXUS_EVENTS.RECEIPT_RECEIVED, {
+      hash: transactionHash,
+      receipt,
+      confirmations,
+    });
+
+    if (
+      confirmations &&
+      options.requiredConfirmations &&
+      confirmations >= options.requiredConfirmations
+    ) {
+      this.caEvents.emit(NEXUS_EVENTS.TRANSACTION_CONFIRMED, {
+        hash: transactionHash,
+        confirmations,
+      });
+    }
+
+    return {
+      receipt,
+      confirmations,
+      gasUsed: receipt?.gasUsed?.toString(),
+      effectiveGasPrice: receipt?.effectiveGasPrice?.toString(),
+    };
+  }
+
+  /**
+   * Build the final execute result
+   */
+  private buildExecuteResult(
+    transactionHash: string,
+    chainId: number,
+    receiptInfo: {
+      receipt?: TransactionReceipt;
+      confirmations?: number;
+      gasUsed?: string;
+      effectiveGasPrice?: string;
+    },
+  ): ExecuteResult {
+    return {
+      transactionHash,
+      explorerUrl: getBlockExplorerUrl(chainId, transactionHash),
+      chainId,
+      receipt: receiptInfo.receipt,
+      confirmations: receiptInfo.confirmations,
+      gasUsed: receiptInfo.gasUsed,
+      effectiveGasPrice: receiptInfo.effectiveGasPrice,
+    };
+  }
+
+  /**
+   * Refactored execute function with improved structure and enhanced gas pricing
    */
   public async execute(params: ExecuteParams): Promise<ExecuteResult> {
     const {
       toChainId,
-      contractAddress,
-      contractAbi,
-      functionName,
-      functionParams,
-      value = '0x0',
-      gasLimit,
-      maxGasPrice,
       enableTransactionPolling = false,
       transactionTimeout = 30000,
       waitForReceipt = false,
@@ -568,122 +836,34 @@ export class ChainAbstractionAdapter {
     } = params;
 
     try {
-      this.caEvents.emit(NEXUS_EVENTS.EXECUTE_STARTED, { chainId: toChainId, contractAddress });
+      // 1. Prepare and validate execution parameters
+      const { provider, fromAddress, encodedData, gasParams } = await this.prepareExecution(params);
 
-      const validation = validateContractParams({
-        contractAddress,
-        contractAbi,
-        functionName,
-        functionParams,
-        chainId: toChainId,
-      });
-      if (!validation.isValid) {
-        throw new Error(validation.error);
-      }
-
-      const provider = this.evmProvider;
-      if (!provider) {
-        throw new Error(`No provider available for chain ${toChainId}`);
-      }
-
-      const accounts = (await provider.request({ method: 'eth_accounts' })) as string[];
-      if (!accounts || accounts.length === 0) {
-        throw new Error('No wallet account connected');
-      }
-      const fromAddress = accounts[0];
-
-      const encoding = encodeContractCall({ contractAbi, functionName, functionParams });
-      if (!encoding.success) {
-        throw new Error(encoding.error);
-      }
-
-      const gasParams = await this.prepareGasParams(
+      // 2. Send transaction
+      const transactionHash = await this.sendTransaction(
         provider,
         fromAddress,
-        contractAddress,
-        encoding.data!,
-        value,
-        gasLimit?.toString(),
-        maxGasPrice?.toString(),
+        params.contractAddress,
+        encodedData,
+        params.value || '0x0',
+        gasParams,
+        { enableTransactionPolling, transactionTimeout },
       );
 
-      // Send transaction
-      const txParams = {
-        from: fromAddress,
-        to: contractAddress,
-        data: encoding.data!,
-        value,
-        gas: gasParams.gas,
-        gasPrice: gasParams.gasPrice,
-      };
-
-      const response = await provider.request({
-        method: 'eth_sendTransaction',
-        params: [txParams],
-      });
-
-      const hashResult = await getTransactionHashWithFallback(provider, response, {
-        enablePolling: enableTransactionPolling,
-        timeout: transactionTimeout,
-        fromAddress,
-      });
-
-      if (!hashResult.success || !hashResult.hash) {
-        throw new Error(hashResult.error ?? 'Transaction submission failed');
-      }
-
-      const transactionHash = hashResult.hash;
-
-      // Emit transaction sent event
-      this.caEvents.emit(NEXUS_EVENTS.TRANSACTION_SENT, {
-        hash: transactionHash,
-      });
-
-      let receipt;
-      let confirmations;
-      let gasUsed;
-      let effectiveGasPrice;
-
-      // Wait for transaction receipt if requested
-      if (waitForReceipt) {
-        const receiptResult = await waitForTransactionReceipt(provider, transactionHash, {
-          timeout: receiptTimeout,
-          requiredConfirmations,
-        });
-
-        if (!receiptResult.success) {
-          // Transaction was sent but receipt failed - still return partial success
-          console.warn(`Receipt waiting failed: ${receiptResult.error}`);
-        } else {
-          receipt = receiptResult.receipt;
-          confirmations = receiptResult.confirmations;
-          gasUsed = receipt?.gasUsed;
-          effectiveGasPrice = receipt?.effectiveGasPrice;
-
-          this.caEvents.emit(NEXUS_EVENTS.RECEIPT_RECEIVED, {
-            hash: transactionHash,
-            receipt,
-            confirmations,
-          });
-
-          if (confirmations && confirmations >= requiredConfirmations) {
-            this.caEvents.emit(NEXUS_EVENTS.TRANSACTION_CONFIRMED, {
-              hash: transactionHash,
-              confirmations,
-            });
-          }
-        }
-      }
-
-      const result: ExecuteResult = {
+      // 3. Handle confirmation if requested
+      const receiptInfo = await this.handleTransactionConfirmation(
+        provider,
         transactionHash,
-        explorerUrl: getBlockExplorerUrl(toChainId, transactionHash),
-        chainId: toChainId,
-        receipt,
-        confirmations,
-        gasUsed: gasUsed?.toString(),
-        effectiveGasPrice: effectiveGasPrice?.toString(),
-      };
+        {
+          waitForReceipt,
+          receiptTimeout,
+          requiredConfirmations,
+        },
+        toChainId,
+      );
+
+      // 4. Build and return result
+      const result = this.buildExecuteResult(transactionHash, toChainId, receiptInfo);
 
       this.caEvents.emit(NEXUS_EVENTS.EXECUTE_COMPLETED, result);
       return result;
@@ -759,29 +939,48 @@ export class ChainAbstractionAdapter {
       }
 
       // Estimate gas
-      const gasEstimation = await estimateGasWithValidation(provider, {
-        from: fromAddress,
-        to: contractAddress,
-        data: encoding.data!,
-        value,
-      });
+      const gasEstimation = await estimateGasWithValidation(
+        provider,
+        {
+          from: fromAddress,
+          to: contractAddress,
+          data: encoding.data!,
+          value,
+        },
+        toChainId,
+      );
 
       if (!gasEstimation.success) {
         return { ...baseError, error: gasEstimation.error };
       }
 
       // Get gas price
-      const gasPriceResult = await getGasPriceWithValidation(provider);
-      if (!gasPriceResult.success) {
-        return { ...baseError, error: gasPriceResult.error };
+      const gasPriceResult = await getEnhancedGasPrice(
+        provider,
+        {
+          strategy: 'standard',
+          fallbackToLegacy: true,
+          retryAttempts: 2,
+        },
+        toChainId,
+      );
+
+      if (!gasPriceResult.success || !gasPriceResult.feeData) {
+        return { ...baseError, error: gasPriceResult.error || 'Failed to get gas price' };
       }
 
+      // Get appropriate gas price for cost calculation
+      const effectiveGasPrice =
+        gasPriceResult.feeData.type === 'eip1559'
+          ? gasPriceResult.feeData.maxFeePerGas!
+          : gasPriceResult.feeData.gasPrice!;
+
       // Format costs
-      const costs = formatGasCost(gasEstimation.gasLimit!, gasPriceResult.gasPrice!);
+      const costs = formatGasCost(gasEstimation.gasLimit!, effectiveGasPrice);
 
       return {
-        gasLimit: costs.gasLimitDecimal,
-        maxGasPrice: gasPriceResult.gasPrice!,
+        gasLimit: gasEstimation.gasLimit!, // Keep as hex string
+        maxGasPrice: effectiveGasPrice,
         estimatedCost: costs.totalCostWei,
         estimatedCostEth: costs.totalCostEth,
         success: true,
