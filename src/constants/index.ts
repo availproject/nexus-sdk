@@ -270,18 +270,16 @@ export const TOKEN_CONTRACT_ADDRESSES: Record<string, Record<number, string>> = 
  */
 export const TESTNET_TOKEN_CONTRACT_ADDRESSES: Record<string, Record<number, string>> = {
   USDC: {
-    // Add testnet USDC addresses as they become available
-    [SUPPORTED_CHAINS.BASE_SEPOLIA]: '', // To be filled when available
-    [SUPPORTED_CHAINS.ARBITRUM_SEPOLIA]: '', // To be filled when available
-    [SUPPORTED_CHAINS.OPTIMISM_SEPOLIA]: '', // To be filled when available
-    [SUPPORTED_CHAINS.POLYGON_AMOY]: '', // To be filled when available
+    [SUPPORTED_CHAINS.BASE_SEPOLIA]: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+    [SUPPORTED_CHAINS.ARBITRUM_SEPOLIA]: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d',
+    [SUPPORTED_CHAINS.OPTIMISM_SEPOLIA]: '0x5fd84259d66Cd46123540766Be93DFE6D43130D7',
+    [SUPPORTED_CHAINS.POLYGON_AMOY]: '0x41E94Eb019C0762f9Bfcf9Fb1E58725BfB0e7582',
   },
   USDT: {
-    // Add testnet USDT addresses as they become available
-    [SUPPORTED_CHAINS.BASE_SEPOLIA]: '', // To be filled when available
-    [SUPPORTED_CHAINS.ARBITRUM_SEPOLIA]: '', // To be filled when available
-    [SUPPORTED_CHAINS.OPTIMISM_SEPOLIA]: '', // To be filled when available
-    [SUPPORTED_CHAINS.POLYGON_AMOY]: '', // To be filled when available
+    [SUPPORTED_CHAINS.BASE_SEPOLIA]: '0xf7e53b20f39a5f8c35005fEf37eef03A7b0d0B5a',
+    [SUPPORTED_CHAINS.ARBITRUM_SEPOLIA]: '0xb9a4873d8d2C22e56b8574e8605644d08E047434',
+    [SUPPORTED_CHAINS.OPTIMISM_SEPOLIA]: '0x7F5c764cBc14f9669B88837ca1490cCa17c31607',
+    [SUPPORTED_CHAINS.POLYGON_AMOY]: '0x2c852e740B62308c46DD29B982FBb650D063Bd07',
   },
   // ETH is native on all supported chains, no contract address needed
 } as const;
