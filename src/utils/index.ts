@@ -4,6 +4,8 @@ import {
   MAINNET_CHAINS,
   TESTNET_CHAINS,
   TESTNET_TOKEN_METADATA,
+  TESTNET_TOKEN_CONTRACT_ADDRESSES,
+  TOKEN_CONTRACT_ADDRESSES,
 } from '../constants';
 import Decimal from 'decimal.js';
 import {
@@ -26,6 +28,13 @@ import {
   custom,
 } from 'viem';
 import { mainnet, polygon, arbitrum, optimism, base } from 'viem/chains';
+
+/**
+ * Shared utility for standardized error message extraction
+ */
+export function extractErrorMessage(error: unknown, fallbackContext: string): string {
+  return error instanceof Error ? error.message : `Unknown ${fallbackContext} error`;
+}
 
 export function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -280,8 +289,10 @@ export function encodeContractCall(params: {
 
     return { success: true, data };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown encoding error';
-    return { success: false, error: `Failed to encode contract call: ${errorMessage}` };
+    return {
+      success: false,
+      error: `Failed to encode contract call: ${extractErrorMessage(error, 'encoding')}`,
+    };
   }
 }
 
@@ -396,8 +407,10 @@ export async function getTransactionHashWithFallback(
     try {
       return await pollForTransactionHash(provider, fromAddress, timeout);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown polling error';
-      return { success: false, error: `Transaction polling failed: ${errorMessage}` };
+      return {
+        success: false,
+        error: `Transaction polling failed: ${extractErrorMessage(error, 'polling')}`,
+      };
     }
   }
 
@@ -505,4 +518,21 @@ export async function waitForTransactionReceipt(
       error: errorMessage,
     };
   }
+}
+
+/**
+ * Utility function to get token contract address for a specific token and chain
+ * @param token Token symbol (e.g., 'USDC', 'USDT')
+ * @param chainId Chain ID
+ * @param isTestnet Whether to use testnet addresses
+ * @returns Contract address or undefined if not found
+ */
+export function getTokenContractAddress(
+  token: string,
+  chainId: number,
+  isTestnet: boolean = false,
+): string | undefined {
+  const registry = isTestnet ? TESTNET_TOKEN_CONTRACT_ADDRESSES : TOKEN_CONTRACT_ADDRESSES;
+  const address = registry[token]?.[chainId];
+  return address || undefined;
 }

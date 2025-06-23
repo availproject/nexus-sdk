@@ -357,9 +357,7 @@ export async function initializeSimulationClient(
   baseUrl: string = 'http://localhost:8080',
 ): Promise<{
   success: boolean;
-  client?: BackendSimulationClient;
   error?: string;
-  serviceInfo?: any;
 }> {
   try {
     const client = new BackendSimulationClient({ baseUrl });
@@ -373,16 +371,11 @@ export async function initializeSimulationClient(
       };
     }
 
-    // Get service info
-    const serviceInfo = await client.getServiceInfo();
-
     // Configure as default client
     defaultSimulationClient = client;
 
     return {
       success: true,
-      client,
-      serviceInfo,
     };
   } catch (error) {
     return {

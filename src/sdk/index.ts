@@ -1,5 +1,4 @@
 // src/sdk/index.ts
-import { ChainAbstractionAdapter } from '../adapters/chain-abstraction-adapter';
 import { NexusUtils } from './utils';
 import { initializeSimulationClient } from '../integrations/tenderly';
 import type {
@@ -26,6 +25,7 @@ import type {
 } from '../types';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
 import { Network, SDKConfig } from '@arcana/ca-sdk';
+import { ChainAbstractionAdapter } from '../adapters/chain-abstraction-adapter';
 
 export class NexusSDK {
   public readonly nexusAdapter: ChainAbstractionAdapter;

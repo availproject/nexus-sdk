@@ -1,4 +1,3 @@
-import type { ChainAbstractionAdapter } from '../adapters/chain-abstraction-adapter';
 import {
   formatBalance as utilFormatBalance,
   parseUnits as utilParseUnits,
@@ -14,8 +13,8 @@ import {
   formatTokenAmount as utilFormatTokenAmount,
   formatTestnetTokenAmount as utilFormatTestnetTokenAmount,
 } from '../utils';
-import type { SUPPORTED_TOKENS, ChainMetadata, TokenBalance } from '../types';
 import { SUPPORTED_CHAINS } from '../constants';
+import { ChainAbstractionAdapter } from '../adapters/chain-abstraction-adapter';
 
 export class NexusUtils {
   constructor(
@@ -50,11 +49,6 @@ export class NexusUtils {
     return this.adapter.getSupportedChains();
   }
 
-  getSupportedChainsWithMetadata(): ChainMetadata[] {
-    this.ensureInitialized();
-    return this.adapter.getSupportedChainsWithMetadata();
-  }
-
   /* Same for isSupportedChain / isSupportedToken */
 
   isSupportedChain(chainId: (typeof SUPPORTED_CHAINS)[keyof typeof SUPPORTED_CHAINS]): boolean {
@@ -63,13 +57,5 @@ export class NexusUtils {
 
   isSupportedToken(token: string): boolean {
     return this.adapter.isSupportedToken(token);
-  }
-
-  async getFormattedTokenBalance(
-    symbol: SUPPORTED_TOKENS,
-    chainId?: number,
-  ): Promise<TokenBalance | undefined> {
-    this.ensureInitialized();
-    return this.adapter.getFormattedTokenBalance(symbol, chainId);
   }
 }

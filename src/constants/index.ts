@@ -243,3 +243,45 @@ export const TESTNET_CHAINS = [
   SUPPORTED_CHAINS.OPTIMISM_SEPOLIA,
   SUPPORTED_CHAINS.POLYGON_AMOY,
 ] as const;
+
+/**
+ * Token contract addresses per chain
+ * This registry contains the contract addresses for supported tokens across different chains
+ */
+export const TOKEN_CONTRACT_ADDRESSES: Record<string, Record<number, string>> = {
+  USDC: {
+    [SUPPORTED_CHAINS.ETHEREUM]: '0xA0b86a33E6441B4c8B0e91BE5C55F49F4D55c76F',
+    [SUPPORTED_CHAINS.BASE]: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+    [SUPPORTED_CHAINS.POLYGON]: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
+    [SUPPORTED_CHAINS.ARBITRUM]: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
+    [SUPPORTED_CHAINS.OPTIMISM]: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85',
+  },
+  USDT: {
+    [SUPPORTED_CHAINS.ETHEREUM]: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+    [SUPPORTED_CHAINS.POLYGON]: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F',
+    [SUPPORTED_CHAINS.ARBITRUM]: '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9',
+  },
+  // ETH is native on all supported chains, no contract address needed
+} as const;
+
+/**
+ * Testnet token contract addresses per chain
+ * Note: Most testnets use different contract addresses than mainnet
+ */
+export const TESTNET_TOKEN_CONTRACT_ADDRESSES: Record<string, Record<number, string>> = {
+  USDC: {
+    // Add testnet USDC addresses as they become available
+    [SUPPORTED_CHAINS.BASE_SEPOLIA]: '', // To be filled when available
+    [SUPPORTED_CHAINS.ARBITRUM_SEPOLIA]: '', // To be filled when available
+    [SUPPORTED_CHAINS.OPTIMISM_SEPOLIA]: '', // To be filled when available
+    [SUPPORTED_CHAINS.POLYGON_AMOY]: '', // To be filled when available
+  },
+  USDT: {
+    // Add testnet USDT addresses as they become available
+    [SUPPORTED_CHAINS.BASE_SEPOLIA]: '', // To be filled when available
+    [SUPPORTED_CHAINS.ARBITRUM_SEPOLIA]: '', // To be filled when available
+    [SUPPORTED_CHAINS.OPTIMISM_SEPOLIA]: '', // To be filled when available
+    [SUPPORTED_CHAINS.POLYGON_AMOY]: '', // To be filled when available
+  },
+  // ETH is native on all supported chains, no contract address needed
+} as const;

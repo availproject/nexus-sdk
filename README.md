@@ -514,10 +514,11 @@ try {
 ## Best Practices
 
 1. **Always simulate first** for gas estimation and validation
-2. **Check return values** - operations return result objects with success/error info
-3. **Handle user rejections** gracefully
-4. **Use appropriate confirmation levels** based on transaction value
-5. **Clean up resources** when component unmounts
+2. **Always check for allowances** for tokens
+3. **Check return values** - operations return result objects with success/error info
+4. **Handle user rejections** gracefully
+5. **Use appropriate confirmation levels** based on transaction value
+6. **Clean up resources** when component unmounts
 
 ```typescript
 import type { ExecuteSimulation, ExecuteResult } from 'avail-nexus-sdk';

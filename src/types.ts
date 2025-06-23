@@ -191,11 +191,7 @@ export interface ExecuteSimulation {
   gasPrice: string;
   maxFeePerGas?: string;
   maxPriorityFeePerGas?: string;
-  estimatedCost: {
-    wei: string;
-    eth: string;
-    gwei: string;
-  };
+  totalFee: string;
   success: boolean;
   error?: string;
 }
@@ -215,11 +211,7 @@ export interface ApprovalInfo {
 export interface ApprovalSimulation {
   gasUsed: string;
   gasPrice: string;
-  estimatedCost: {
-    wei: string;
-    eth: string;
-    gwei: string;
-  };
+  totalFee: string;
   success: boolean;
   error?: string;
 }
@@ -234,23 +226,20 @@ export interface SimulationStep {
 export interface BridgeAndExecuteSimulationResult {
   steps: SimulationStep[];
   bridgeSimulation: SimulationResult | null;
-  approvalSimulation?: ApprovalSimulation;
   executeSimulation?: ExecuteSimulation;
   totalEstimatedCost?: {
-    eth: string;
+    total: string;
     breakdown: {
       bridge: string;
-      approval: string;
       execute: string;
     };
   };
   success: boolean;
   error?: string;
-  warnings?: string[];
   metadata?: {
-    bridgeReceiveAmount: string;
-    bridgeFee: string;
-    inputAmount: string;
+    bridgeReceiveAmount: string; // just like 0.01 no need for token symbols
+    bridgeFee: string; // just like 0.001
+    inputAmount: string; // just like 0.01
     targetChain: number;
     approvalRequired: boolean;
   };

@@ -1,4 +1,4 @@
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
@@ -59,23 +59,6 @@ export interface HealthCheckResponse {
   uptime: number; // Uptime in seconds
   environment: string; // Environment
   version: string; // Version
-}
-
-/**
- * Legacy simulation result interface for backward compatibility
- */
-export interface SimulationResult {
-  gasUsed: string;
-  gasPrice: string;
-  maxFeePerGas?: string;
-  maxPriorityFeePerGas?: string;
-  success: boolean;
-  errorMessage?: string;
-  estimatedCost: {
-    wei: string;
-    eth: string;
-    gwei: string;
-  };
 }
 
 /**
