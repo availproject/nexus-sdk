@@ -72,7 +72,7 @@
     }
   },
   "dependencies": {
-    "@arcana/ca-sdk": "1.0.0",
+    "@arcana/ca-sdk": "1.0.1-beta.3",
     "viem": "^2.0.0"
   }
 }

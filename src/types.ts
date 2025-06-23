@@ -15,25 +15,6 @@ import type {
   UserAsset,
 } from '@arcana/ca-sdk';
 
-// Gas pricing types
-export type GasPriceStrategy = 'slow' | 'standard' | 'fast' | 'fastest';
-
-export interface FeeData {
-  maxFeePerGas?: string;
-  maxPriorityFeePerGas?: string;
-  gasPrice?: string;
-  type: 'eip1559' | 'legacy';
-}
-
-export interface GasPricingConfig {
-  strategy?: GasPriceStrategy;
-  maxGasPrice?: string;
-  priorityFeeMultiplier?: number;
-  baseFeeMultiplier?: number;
-  retryAttempts?: number;
-  fallbackToLegacy?: boolean;
-}
-
 type TokenInfo = {
   contractAddress: `0x${string}`;
   decimals: number;
@@ -182,17 +163,16 @@ export interface ExecuteParams {
   functionName: string;
   functionParams: readonly unknown[];
   value?: string;
-  gasLimit?: bigint;
-  maxGasPrice?: string;
-  // Enhanced gas pricing options
-  gasPriceStrategy?: GasPriceStrategy;
-  gasPricingConfig?: GasPricingConfig;
   enableTransactionPolling?: boolean;
   transactionTimeout?: number;
   // Transaction receipt confirmation options
   waitForReceipt?: boolean;
   receiptTimeout?: number;
   requiredConfirmations?: number;
+  tokenApproval: {
+    token: SUPPORTED_TOKENS;
+    amount: string;
+  };
 }
 
 export interface ExecuteResult {
@@ -207,18 +187,79 @@ export interface ExecuteResult {
 }
 
 export interface ExecuteSimulation {
-  gasLimit?: bigint | string;
-  maxGasPrice?: bigint | string;
-  estimatedCost: string;
-  estimatedCostEth: string;
+  gasUsed: string;
+  gasPrice: string;
+  maxFeePerGas?: string;
+  maxPriorityFeePerGas?: string;
+  estimatedCost: {
+    wei: string;
+    eth: string;
+    gwei: string;
+  };
   success: boolean;
   error?: string;
+}
+
+// New types for improved approval simulation
+export interface ApprovalInfo {
+  needsApproval: boolean;
+  currentAllowance: bigint;
+  requiredAmount: bigint;
+  tokenAddress?: string;
+  spenderAddress: string;
+  token: SUPPORTED_TOKENS;
+  chainId: number;
+  hasPendingApproval?: boolean;
+}
+
+export interface ApprovalSimulation {
+  gasUsed: string;
+  gasPrice: string;
+  estimatedCost: {
+    wei: string;
+    eth: string;
+    gwei: string;
+  };
+  success: boolean;
+  error?: string;
+}
+
+export interface SimulationStep {
+  type: 'bridge' | 'approval' | 'execute';
+  required: boolean;
+  simulation: SimulationResult | ApprovalSimulation | ExecuteSimulation;
+  description: string;
+}
+
+export interface BridgeAndExecuteSimulationResult {
+  steps: SimulationStep[];
+  bridgeSimulation: SimulationResult | null;
+  approvalSimulation?: ApprovalSimulation;
+  executeSimulation?: ExecuteSimulation;
+  totalEstimatedCost?: {
+    eth: string;
+    breakdown: {
+      bridge: string;
+      approval: string;
+      execute: string;
+    };
+  };
+  success: boolean;
+  error?: string;
+  warnings?: string[];
+  metadata?: {
+    bridgeReceiveAmount: string;
+    bridgeFee: string;
+    inputAmount: string;
+    targetChain: number;
+    approvalRequired: boolean;
+  };
 }
 
 export interface BridgeAndExecuteParams {
   toChainId: SUPPORTED_CHAINS_IDS;
   token: SUPPORTED_TOKENS;
-  amount: string;
+  amount: number | string;
   recipient?: `0x${string}`;
   execute?: Omit<ExecuteParams, 'toChainId'>;
   enableTransactionPolling?: boolean;
@@ -227,11 +268,14 @@ export interface BridgeAndExecuteParams {
   waitForReceipt?: boolean;
   receiptTimeout?: number;
   requiredConfirmations?: number;
+  // Optional recent approval transaction hash to consider in simulation
+  recentApprovalTxHash?: string;
 }
 
 export interface BridgeAndExecuteResult {
   executeTransactionHash?: string;
   executeExplorerUrl?: string;
+  approvalTransactionHash?: string;
   toChainId: number;
 }
 
@@ -267,8 +311,6 @@ export interface ContractCallParams {
   gas?: bigint;
   gasPrice?: bigint;
 }
-
-// New transaction receipt interface
 
 export type {
   OnIntentHook,

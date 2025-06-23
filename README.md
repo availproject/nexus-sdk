@@ -172,6 +172,7 @@ import type {
   ExecuteSimulation,
   BridgeAndExecuteParams,
   BridgeAndExecuteResult,
+  BridgeAndExecuteSimulationResult,
 } from 'avail-nexus-sdk';
 
 // Execute contract functions
@@ -183,31 +184,62 @@ const result: ExecuteResult = await sdk.execute({
   functionParams: [amount],
   waitForReceipt: true,
   requiredConfirmations: 3,
+  tokenApproval: {
+    token: 'USDC',
+    amount: '1000000', // Amount in token units
+  },
 } as ExecuteParams);
 
-// Simulate execute to preview costs
+// Simulate execute to preview costs and check for approval requirements
 const simulation: ExecuteSimulation = await sdk.simulateExecute(executeParams);
+if (!simulation.success) {
+  console.log('Simulation failed:', simulation.error);
+  // Error might indicate missing token approval
+}
 
-// Bridge and execute in one operation
-const result: BridgeAndExecuteResult = await sdk.bridgeAndExecute({
+// Bridge tokens and execute contract function
+const bridgeAndExecuteResult: BridgeAndExecuteResult = await sdk.bridgeAndExecute({
+  fromChainId: 137, // Polygon
+  toChainId: 1, // Ethereum
   token: 'USDC',
-  amount: '1000',
-  toChainId: 1,
+  amount: '100000000', // 100 USDC (6 decimals)
+  recipient: userAddress,
   execute: {
-    contractAddress: '0x...',
-    contractAbi: abi,
-    functionName: 'deposit',
-    functionParams: [amount, userAddress],
+    contractAddress: '0xAavePoolAddress',
+    contractAbi: aavePoolAbi,
+    functionName: 'supply',
+    functionParams: [usdcTokenAddress, '100000000', userAddress, 0],
+    tokenApproval: {
+      token: 'USDC',
+      amount: '100000000',
+    },
   },
   waitForReceipt: true,
 } as BridgeAndExecuteParams);
 
-const simulation: {
-  bridgeSimulation: SimulationResult | null;
-  executeSimulation?: ExecuteSimulation;
-  success: boolean;
-  error?: string;
-} = await sdk.simulateBridgeAndExecute(params);
+// Comprehensive simulation with detailed step analysis and approval handling
+const simulation: BridgeAndExecuteSimulationResult = await sdk.simulateBridgeAndExecute(params);
+
+// The simulation provides detailed step analysis:
+console.log('Steps:', simulation.steps);
+// [
+//   { type: 'bridge', gasUsed: '150000', success: true },
+//   { type: 'approval', gasUsed: '45000', success: true },
+//   { type: 'execute', gasUsed: '200000', success: true }
+// ]
+
+console.log('Total estimated cost:', simulation.totalEstimatedCost);
+// {
+//   eth: "0.012",
+//   breakdown: {
+//     bridge: "0.005",
+//     approval: "0.002",
+//     execute: "0.005"
+//   }
+// }
+
+console.log('Approval required:', simulation.metadata?.approvalRequired);
+console.log('Bridge receive amount:', simulation.metadata?.bridgeReceiveAmount);
 ```
 
 ### Allowance Management

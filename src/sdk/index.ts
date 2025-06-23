@@ -1,6 +1,7 @@
 // src/sdk/index.ts
 import { ChainAbstractionAdapter } from '../adapters/chain-abstraction-adapter';
 import { NexusUtils } from './utils';
+import { initializeSimulationClient } from '../integrations/tenderly';
 import type {
   BridgeParams,
   BridgeResult,
@@ -21,6 +22,7 @@ import type {
   ExecuteParams,
   ExecuteResult,
   ExecuteSimulation,
+  BridgeAndExecuteSimulationResult,
 } from '../types';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
 import { Network, SDKConfig } from '@arcana/ca-sdk';
@@ -49,7 +51,20 @@ export class NexusSDK {
    * Initialize the SDK with a provider
    */
   public async initialize(provider: EthereumProvider): Promise<void> {
+    // Initialize the core adapter first
     await this.nexusAdapter.initialize(provider);
+
+    const BACKEND_URL = 'http://localhost:8080';
+    if (BACKEND_URL) {
+      try {
+        const initResult = await initializeSimulationClient(BACKEND_URL);
+        if (!initResult.success) {
+          throw new Error('Backend initialization failed');
+        }
+      } catch (error) {
+        throw new Error('Backend initialization failed');
+      }
+    }
   }
 
   /**
@@ -209,14 +224,14 @@ export class NexusSDK {
   }
 
   /**
-   * Simulate bridge and execute operation to preview costs and validate parameters
+   * Simulate bridge and execute operation using bridge output amounts for realistic execute cost estimation
+   * This method provides more accurate gas estimates by using the actual amount that will be
+   * received on the destination chain after bridging (accounting for fees, slippage, etc.)
+   * Includes detailed step-by-step breakdown with approval handling.
    */
-  public async simulateBridgeAndExecute(params: BridgeAndExecuteParams): Promise<{
-    bridgeSimulation: SimulationResult | null;
-    executeSimulation?: ExecuteSimulation;
-    success: boolean;
-    error?: string;
-  }> {
+  public async simulateBridgeAndExecute(
+    params: BridgeAndExecuteParams,
+  ): Promise<BridgeAndExecuteSimulationResult> {
     return this.nexusAdapter.simulateBridgeAndExecute(params);
   }
 }

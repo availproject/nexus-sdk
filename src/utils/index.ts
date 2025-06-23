@@ -19,12 +19,46 @@ import {
   encodeFunctionData,
   type Abi,
   type Address,
+  type Chain,
   isAddress,
   isHash,
   createPublicClient,
   custom,
 } from 'viem';
-import { getViemChain, wait } from './gas';
+import { mainnet, polygon, arbitrum, optimism, base } from 'viem/chains';
+
+export function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Get Viem chain configuration for supported chains
+ */
+export function getViemChain(chainId: number): Chain {
+  switch (chainId) {
+    case 1:
+      return mainnet;
+    case 137:
+      return polygon;
+    case 42161:
+      return arbitrum;
+    case 10:
+      return optimism;
+    case 8453:
+      return base;
+    default:
+      // Return a basic chain config for unsupported chains
+      return {
+        id: chainId,
+        name: `Chain ${chainId}`,
+        nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+        rpcUrls: {
+          default: { http: [] },
+          public: { http: [] },
+        },
+      };
+  }
+}
 
 /**
  * Format a balance string to a human-readable format using Decimal.js
@@ -472,15 +506,3 @@ export async function waitForTransactionReceipt(
     };
   }
 }
-
-// Re-export gas utilities from the gas module
-export {
-  estimateGasWithValidation,
-  getEnhancedGasPrice,
-  getGasPriceWithValidation,
-  formatGasCost,
-  createViemPublicClient,
-  detectNetworkCongestion,
-  getEIP1559FeeDataWithViem,
-  getLegacyGasPriceWithViem,
-} from './gas';
