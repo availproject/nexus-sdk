@@ -27,6 +27,8 @@ import SafeEventEmitter from '@metamask/safe-event-emitter';
 import { Network, SDKConfig } from '@arcana/ca-sdk';
 import { ChainAbstractionAdapter } from '../adapters/chain-abstraction-adapter';
 
+export const BACKEND_URL = 'https://sample-nexus-backend.onrender.com';
+
 export class NexusSDK {
   public readonly nexusAdapter: ChainAbstractionAdapter;
   public readonly nexusEvents: SafeEventEmitter;
@@ -54,7 +56,6 @@ export class NexusSDK {
     // Initialize the core adapter first
     await this.nexusAdapter.initialize(provider);
 
-    const BACKEND_URL = 'http://localhost:8080';
     if (BACKEND_URL) {
       try {
         const initResult = await initializeSimulationClient(BACKEND_URL);

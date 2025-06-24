@@ -1,3 +1,4 @@
+import { BACKEND_URL } from '../sdk';
 import {
   ApiResponse,
   BackendConfig,
@@ -26,6 +27,7 @@ export interface BackendSimulationResult {
 /**
  * Backend client for gas estimation using new API
  */
+
 export class BackendSimulationClient {
   private readonly baseUrl: string;
 
@@ -319,9 +321,7 @@ export function isSimulationConfigured(): boolean {
 /**
  * Initialize simulation client with health check
  */
-export async function initializeSimulationClient(
-  baseUrl: string = 'http://localhost:8080',
-): Promise<{
+export async function initializeSimulationClient(baseUrl: string = BACKEND_URL): Promise<{
   success: boolean;
   error?: string;
 }> {
@@ -351,5 +351,5 @@ export async function initializeSimulationClient(
   }
 }
 
-// Initialize with localhost:8080 by default
-configureSimulationBackend({ baseUrl: 'http://localhost:8080' });
+// Initialize with BACKEND_URL by default
+configureSimulationBackend({ baseUrl: BACKEND_URL });
