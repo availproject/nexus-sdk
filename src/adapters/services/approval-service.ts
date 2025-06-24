@@ -1,5 +1,5 @@
 import { BaseService } from '../core/base-service';
-import { getTokenContractAddress, extractErrorMessage } from '../../utils';
+import { getTokenContractAddress, extractErrorMessage, logger } from '../../utils';
 import { TOKEN_METADATA } from '../../constants';
 import { parseUnits, formatUnits } from 'viem';
 import type { SUPPORTED_TOKENS, ApprovalInfo } from '../../types';
@@ -169,11 +169,10 @@ export class ApprovalService extends BaseService {
       // Convert to human-readable format first, then back to wei for better MetaMask display
       // This ensures MetaMask shows "0.01001" instead of "10100"
       const humanReadableAmount = formatUnits(requiredAmountWithBuffer, tokenDecimals);
-      console.log(
-        'DEBUG approval - Human readable amount for MetaMask:',
+      logger.info('DEBUG approval - Human readable amount for MetaMask:', {
         humanReadableAmount,
-        tokenApproval.token,
-      );
+        token: tokenApproval.token,
+      });
 
       // Convert back to wei for the transaction
       const finalApprovalAmount = parseUnits(humanReadableAmount, tokenDecimals);
@@ -189,7 +188,7 @@ export class ApprovalService extends BaseService {
         value: '0x0',
       };
 
-      console.log('DEBUG approval - Sending approval transaction:', {
+      logger.info('DEBUG approval - Sending approval transaction:', {
         token: tokenApproval.token,
         humanAmount: humanReadableAmount,
         spender: spenderAddress,
@@ -214,7 +213,7 @@ export class ApprovalService extends BaseService {
         };
       }
 
-      console.log('DEBUG approval - Transaction sent:', transactionHash);
+      logger.info('DEBUG approval - Transaction sent:', transactionHash);
 
       // Wait for confirmation if requested
       let confirmed = false;
@@ -239,10 +238,10 @@ export class ApprovalService extends BaseService {
                 // Check if transaction was successful (status: "0x1") or failed (status: "0x0")
                 if (receiptStatus === '0x1') {
                   confirmed = true;
-                  console.log('DEBUG approval - Transaction confirmed successfully');
+                  logger.info('DEBUG approval - Transaction confirmed successfully');
                   break;
                 } else if (receiptStatus === '0x0') {
-                  console.log('DEBUG approval - Transaction failed on chain');
+                  logger.info('DEBUG approval - Transaction failed on chain');
                   return {
                     transactionHash,
                     wasNeeded: true,
@@ -260,7 +259,7 @@ export class ApprovalService extends BaseService {
           }
 
           if (!confirmed && attempts >= maxAttempts) {
-            console.log('DEBUG approval - Transaction timeout');
+            logger.info('DEBUG approval - Transaction timeout');
             return {
               transactionHash,
               wasNeeded: true,
@@ -269,7 +268,7 @@ export class ApprovalService extends BaseService {
             };
           }
         } catch (confirmationError) {
-          console.warn('DEBUG approval - Confirmation failed:', confirmationError);
+          logger.warn('DEBUG approval - Confirmation failed:', confirmationError);
           return {
             transactionHash,
             wasNeeded: true,
@@ -285,7 +284,7 @@ export class ApprovalService extends BaseService {
         confirmed,
       };
     } catch (error) {
-      console.error('DEBUG approval - Error:', error);
+      logger.error('DEBUG approval - Error:', error as Error);
       return {
         wasNeeded: true,
         error: extractErrorMessage(error, 'contract approval'),

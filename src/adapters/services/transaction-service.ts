@@ -6,6 +6,7 @@ import {
   getTransactionHashWithFallback,
   waitForTransactionReceipt,
   extractErrorMessage,
+  logger,
 } from '../../utils';
 import type { EthereumProvider, ExecuteParams } from '../../types';
 import type {
@@ -15,10 +16,142 @@ import type {
   ChainSwitchResult,
 } from '../types/service-types';
 
+// Interface for gas estimation result
+interface GasEstimationResult {
+  success: boolean;
+  gasEstimate?: string;
+  gasEstimateDecimal?: number;
+  gasPriceGwei?: string;
+  estimatedCostEth?: string;
+  error?: string;
+  revertReason?: string;
+}
+
 /**
  * Service responsible for transaction handling and preparation
  */
 export class TransactionService extends BaseService {
+  // Flag to enable/disable gas estimation (can be set via constructor or method)
+  private enableGasEstimation: boolean = true;
+
+  /**
+   * Enable or disable gas estimation before transaction execution
+   */
+  setGasEstimationEnabled(enabled: boolean): void {
+    this.enableGasEstimation = enabled;
+  }
+
+  /**
+   * Estimate gas for a transaction before execution
+   */
+  async estimateTransactionGas(
+    provider: EthereumProvider,
+    transactionParams: {
+      from: string;
+      to: string;
+      data: string;
+      value: string;
+    },
+  ): Promise<GasEstimationResult> {
+    logger.info('DEBUG TransactionService - Starting gas estimation...');
+    logger.info('DEBUG TransactionService - Transaction params:', {
+      from: transactionParams.from,
+      to: transactionParams.to,
+      data: transactionParams.data.slice(0, 50) + '...', // Truncate for logging
+      value: transactionParams.value,
+    });
+
+    try {
+      // Step 1: Estimate gas
+      const gasEstimate = (await provider.request({
+        method: 'eth_estimateGas',
+        params: [transactionParams],
+      })) as string;
+
+      const gasEstimateDecimal = parseInt(gasEstimate, 16);
+
+      logger.info('DEBUG TransactionService - Gas estimation successful:', {
+        gasEstimateHex: gasEstimate,
+        gasEstimateDecimal: gasEstimateDecimal,
+        gasEstimateFormatted: gasEstimateDecimal.toLocaleString(),
+      });
+
+      // Step 2: Get current gas price for cost calculation
+      let gasPriceGwei: string | undefined;
+      let estimatedCostEth: string | undefined;
+
+      try {
+        const gasPrice = (await provider.request({
+          method: 'eth_gasPrice',
+        })) as string;
+
+        const gasPriceDecimal = parseInt(gasPrice, 16);
+        const estimatedCostWei = gasEstimateDecimal * gasPriceDecimal;
+        const estimatedCostEthNum = estimatedCostWei / 1e18;
+
+        gasPriceGwei = (gasPriceDecimal / 1e9).toFixed(4) + ' gwei';
+        estimatedCostEth = estimatedCostEthNum.toFixed(8) + ' ETH';
+
+        logger.info('DEBUG TransactionService - Gas cost estimation:', {
+          gasPriceHex: gasPrice,
+          gasPriceGwei: gasPriceGwei,
+          estimatedCostWei: estimatedCostWei.toString(),
+          estimatedCostEth: estimatedCostEth,
+        });
+      } catch (gasPriceError) {
+        logger.warn('DEBUG TransactionService - Failed to get gas price:', gasPriceError);
+      }
+
+      return {
+        success: true,
+        gasEstimate,
+        gasEstimateDecimal,
+        gasPriceGwei,
+        estimatedCostEth,
+      };
+    } catch (gasEstimateError) {
+      logger.error('DEBUG TransactionService - Gas estimation failed:', gasEstimateError as Error);
+
+      // Extract revert reason if available
+      let revertReason: string | undefined;
+      let errorMessage = 'Gas estimation failed';
+
+      if (gasEstimateError && typeof gasEstimateError === 'object') {
+        if ('data' in gasEstimateError && gasEstimateError.data) {
+          logger.error(
+            'DEBUG TransactionService - Gas estimation revert data:',
+            gasEstimateError.data as string,
+          );
+          revertReason = JSON.stringify(gasEstimateError.data);
+        }
+        if ('message' in gasEstimateError && gasEstimateError.message) {
+          errorMessage = gasEstimateError.message as string;
+          logger.error('DEBUG TransactionService - Gas estimation error message:', errorMessage);
+
+          // Extract common revert patterns
+          if (errorMessage.includes('execution reverted')) {
+            const revertMatch = errorMessage.match(/execution reverted:?\s*(.+)/i);
+            if (revertMatch && revertMatch[1]) {
+              revertReason = revertMatch[1].trim();
+            } else {
+              revertReason = 'Transaction would revert (no reason provided)';
+            }
+          } else if (errorMessage.includes('insufficient funds')) {
+            revertReason = 'Insufficient funds for gas * price + value';
+          } else if (errorMessage.includes('out of gas')) {
+            revertReason = 'Transaction would run out of gas';
+          }
+        }
+      }
+
+      return {
+        success: false,
+        error: errorMessage,
+        revertReason,
+      };
+    }
+  }
+
   /**
    * Ensure we're on the correct chain, switch if needed
    */
@@ -128,6 +261,38 @@ export class TransactionService extends BaseService {
     };
 
     try {
+      // Perform gas estimation if enabled
+      if (this.enableGasEstimation) {
+        logger.info('DEBUG TransactionService - Performing pre-execution gas estimation...');
+        const gasEstimation = await this.estimateTransactionGas(provider, transactionParams);
+
+        if (!gasEstimation.success) {
+          logger.error(
+            'DEBUG TransactionService - Pre-execution gas estimation failed:',
+            gasEstimation.error,
+          );
+
+          // Optionally throw here if gas estimation failure should prevent execution
+          // For now, we'll log and continue to get actual execution error
+          if (gasEstimation.revertReason) {
+            logger.warn(
+              `DEBUG TransactionService - Transaction will likely fail: ${gasEstimation.revertReason}`,
+            );
+          }
+        } else {
+          logger.info('DEBUG TransactionService - Gas estimation completed successfully:', {
+            gasEstimate: gasEstimation.gasEstimate,
+            estimatedCost: gasEstimation.estimatedCostEth,
+            gasPrice: gasEstimation.gasPriceGwei,
+          });
+        }
+      } else {
+        logger.info(
+          'DEBUG TransactionService - Gas estimation disabled, proceeding with transaction',
+        );
+      }
+
+      logger.info('DEBUG TransactionService - Sending transaction...');
       const response = await provider.request({
         method: 'eth_sendTransaction',
         params: [transactionParams],
@@ -145,6 +310,10 @@ export class TransactionService extends BaseService {
           hashResult.error || 'Failed to retrieve transaction hash from provider response',
         );
       }
+
+      logger.info('DEBUG TransactionService - Transaction sent successfully:', {
+        transactionHash: hashResult.hash,
+      });
 
       return hashResult.hash;
     } catch (error) {
@@ -188,7 +357,7 @@ export class TransactionService extends BaseService {
       );
 
       if (!receiptResult.success) {
-        console.warn(`Failed to get transaction receipt: ${receiptResult.error}`);
+        logger.warn(`Failed to get transaction receipt: ${receiptResult.error}`);
         return {};
       }
 
@@ -199,7 +368,7 @@ export class TransactionService extends BaseService {
         effectiveGasPrice: receiptResult.receipt?.effectiveGasPrice?.toString(),
       };
     } catch (error) {
-      console.warn(`Receipt retrieval failed: ${extractErrorMessage(error, 'receipt retrieval')}`);
+      logger.warn(`Receipt retrieval failed: ${extractErrorMessage(error, 'receipt retrieval')}`);
       return {};
     }
   }

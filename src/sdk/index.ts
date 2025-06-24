@@ -1,6 +1,7 @@
 // src/sdk/index.ts
 import { NexusUtils } from './utils';
 import { initializeSimulationClient } from '../integrations/tenderly';
+import { setLogLevel, LOG_LEVEL, logger } from '../utils/logger';
 import type {
   BridgeParams,
   BridgeResult,
@@ -32,7 +33,12 @@ export class NexusSDK {
   public readonly nexusEvents: SafeEventEmitter;
   public readonly utils: NexusUtils;
 
-  constructor(config?: Omit<SDKConfig, 'siweStatement' | 'network'> & { network?: NexusNetwork }) {
+  constructor(
+    config?: Omit<SDKConfig, 'siweStatement' | 'network'> & {
+      network?: NexusNetwork;
+      debug?: boolean;
+    },
+  ) {
     const nexusConfig: SDKConfig &
       Omit<SDKConfig, 'siweStatement' | 'network'> & { network?: Network } = {
       ...config,
@@ -42,9 +48,26 @@ export class NexusSDK {
       nexusConfig.network = config?.network === 'testnet' ? Network.FOLLY : undefined;
     }
 
+    // Initialize logger based on debug flag
+    this.initializeLogger(config?.debug);
+
     this.nexusAdapter = new ChainAbstractionAdapter(nexusConfig);
     this.nexusEvents = this.nexusAdapter.caEvents;
     this.utils = new NexusUtils(this.nexusAdapter, () => this.nexusAdapter.isInitialized());
+  }
+
+  /**
+   * Initialize logger based on debug configuration
+   * @private
+   */
+  private initializeLogger(debug?: boolean): void {
+    if (debug) {
+      setLogLevel(LOG_LEVEL.DEBUG);
+      logger.info('Nexus SDK Logger initialized in DEBUG mode');
+    } else {
+      // Default to NOLOGS to suppress all logging in production
+      setLogLevel(LOG_LEVEL.NOLOGS);
+    }
   }
 
   /**
@@ -53,7 +76,7 @@ export class NexusSDK {
   public async initialize(provider: EthereumProvider): Promise<void> {
     // Initialize the core adapter first
     await this.nexusAdapter.initialize(provider);
-    const BACKEND_URL = 'https://sample-nexus-backend.onrender.com';
+    const BACKEND_URL = 'http://localhost:8080';
     if (BACKEND_URL) {
       try {
         const initResult = await initializeSimulationClient(BACKEND_URL);

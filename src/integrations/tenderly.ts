@@ -1,3 +1,4 @@
+import { formatEther, hexToBigInt } from 'viem';
 import {
   ApiResponse,
   BackendConfig,
@@ -6,7 +7,12 @@ import {
   GasEstimationResponse,
   HealthCheckResponse,
   ServiceStatusResponse,
+  BundleSimulationRequest,
+  BundleSimulationResponse,
+  BackendBundleResponse,
 } from './types';
+import { CHAIN_METADATA } from '../constants';
+import { logger } from '../utils';
 
 /**
  * Backend simulation result interface
@@ -23,7 +29,7 @@ export interface BackendSimulationResult {
   };
 }
 
-const BACKEND_URL = 'https://sample-nexus-backend.onrender.com';
+const BACKEND_URL = 'http://localhost:8080';
 
 /**
  * Backend client for gas estimation using new API
@@ -47,7 +53,7 @@ export class BackendSimulationClient {
       const result: ApiResponse<ChainSupportResponse> = await response.json();
       return result.success && result.data?.supported === true;
     } catch (error) {
-      console.warn(`Error checking chain support for ${chainId}:`, error);
+      logger.warn(`Error checking chain support for ${chainId}:`, error);
       return false;
     }
   }
@@ -63,7 +69,7 @@ export class BackendSimulationClient {
       const result: ApiResponse<Record<string, string>> = await response.json();
       return result.success ? result.data || null : null;
     } catch (error) {
-      console.warn('Error fetching supported chains:', error);
+      logger.warn('Error fetching supported chains:', error);
       return null;
     }
   }
@@ -79,7 +85,7 @@ export class BackendSimulationClient {
       const result: ApiResponse<ServiceStatusResponse> = await response.json();
       return result.success ? result.data || null : null;
     } catch (error) {
-      console.warn('Error fetching service status:', error);
+      logger.warn('Error fetching service status:', error);
       return null;
     }
   }
@@ -95,99 +101,8 @@ export class BackendSimulationClient {
       const result: ApiResponse<HealthCheckResponse> = await response.json();
       return result.success ? result.data || null : null;
     } catch (error) {
-      console.warn('Error performing health check:', error);
+      logger.warn('Error performing health check:', error);
       return null;
-    }
-  }
-
-  /**
-   * Estimate gas using the new API endpoint
-   */
-  async estimateGas(request: GasEstimationRequest): Promise<BackendSimulationResult> {
-    try {
-      const response = await fetch(`${this.baseUrl}/api/gas-estimation/estimate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(request),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Gas estimation API error: ${response.status} - ${errorText}`);
-      }
-
-      const result: ApiResponse<GasEstimationResponse> = await response.json();
-
-      if (!result.success || !result.data) {
-        throw new Error(result.error || result.message || 'Gas estimation failed');
-      }
-
-      const gasData = result.data;
-
-      return {
-        gasUsed: gasData.gasUsed,
-        gasPrice: gasData.gasPrice || '0x0',
-        maxFeePerGas: gasData.maxFeePerGas,
-        maxPriorityFeePerGas: gasData.maxPriorityFeePerGas,
-        success: true,
-        estimatedCost: {
-          totalFee: gasData?.gasUsed || '0',
-        },
-      };
-    } catch (error) {
-      console.error('Gas estimation API error:', error);
-      return {
-        gasUsed: '0x0',
-        gasPrice: '0x0',
-        success: false,
-        errorMessage: error instanceof Error ? error.message : 'Unknown error',
-        estimatedCost: {
-          totalFee: '0',
-        },
-      };
-    }
-  }
-
-  /**
-   * Batch simulate multiple transactions
-   */
-  async batchSimulate(
-    chainId: number,
-    transactions: Array<{
-      from: string;
-      to: string;
-      input: string;
-      value?: string;
-    }>,
-  ): Promise<BackendSimulationResult[]> {
-    try {
-      // Since the new API doesn't have batch endpoint, run individual simulations in parallel
-      const results = await Promise.all(
-        transactions.map((tx) =>
-          this.estimateGas({
-            chainId: chainId.toString(),
-            from: tx.from,
-            to: tx.to,
-            data: tx.input,
-            value: tx.value,
-          }),
-        ),
-      );
-      return results;
-    } catch (error) {
-      console.warn('Batch simulation failed:', error);
-      // Return empty results on error
-      return transactions.map(() => ({
-        gasUsed: '0x0',
-        gasPrice: '0x0',
-        success: false,
-        errorMessage: 'Batch simulation failed',
-        estimatedCost: {
-          totalFee: '0',
-        },
-      }));
     }
   }
 
@@ -199,7 +114,7 @@ export class BackendSimulationClient {
       const health = await this.healthCheck();
       return health?.status === 'ok';
     } catch (error) {
-      console.warn('Connection test failed:', error);
+      logger.warn('Connection test failed:', error);
       return false;
     }
   }
@@ -225,7 +140,7 @@ export class BackendSimulationClient {
         uptime: health?.uptime,
       };
     } catch (error) {
-      console.warn('Error getting service info:', error);
+      logger.warn('Error getting service info:', error);
       return {
         healthy: false,
         configured: false,
@@ -272,7 +187,7 @@ export class BackendSimulationClient {
         },
       };
     } catch (error) {
-      console.error('Simulation API error:', error);
+      logger.error('Simulation API error:', error as Error);
       return {
         gasUsed: '0x0',
         gasPrice: '0x0',
@@ -281,6 +196,141 @@ export class BackendSimulationClient {
         estimatedCost: {
           totalFee: '0',
         },
+      };
+    }
+  }
+
+  /**
+   * Fetch current gas price via RPC
+   */
+  private async getCurrentGasPrice(chainId: string): Promise<bigint> {
+    try {
+      const rpcUrl = this.getRpcUrl(chainId);
+
+      const response = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'eth_gasPrice',
+          params: [],
+          id: 1,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`RPC request failed: ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      if (result.error) {
+        throw new Error(`RPC error: ${result.error.message}`);
+      }
+
+      // Convert hex gas price to bigint
+      return hexToBigInt(result.result);
+    } catch (error) {
+      logger.warn('Failed to fetch current gas price, using fallback:', error);
+      // Fallback to 20 gwei if RPC call fails
+      return BigInt('20000000000'); // 20 gwei in wei
+    }
+  }
+
+  /**
+   * Get RPC URL for a given chain ID using CHAIN_METADATA
+   */
+  private getRpcUrl(chainId: string): string {
+    const chainIdNum = parseInt(chainId, 10);
+    const chainMetadata = CHAIN_METADATA[chainIdNum];
+
+    if (!chainMetadata || !chainMetadata.rpcUrls || chainMetadata.rpcUrls.length === 0) {
+      throw new Error(`No RPC URL available for chain ${chainId}`);
+    }
+
+    // Use the first RPC URL from the metadata
+    return chainMetadata.rpcUrls[0];
+  }
+
+  async simulateBundle(request: BundleSimulationRequest): Promise<BundleSimulationResponse> {
+    try {
+      logger.info('DEBUG simulateBundle - request:', JSON.stringify(request, null, 2));
+
+      const response = await fetch(`${this.baseUrl}/api/gas-estimation/bundle`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(request),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Bundle simulation API error: ${response.status} - ${errorText}`);
+      }
+
+      const result: BackendBundleResponse = await response.json();
+
+      if (!result.success || !result.data) {
+        throw new Error(result.message || 'Bundle simulation failed');
+      }
+
+      logger.info('DEBUG simulateBundle - backend response:', result);
+
+      // Fetch current gas price via RPC
+      const currentGasPrice = await this.getCurrentGasPrice(request.chainId);
+      logger.info('DEBUG - Raw gas price from RPC (wei):', currentGasPrice.toString());
+      logger.info('DEBUG - Gas price in gwei:', (Number(currentGasPrice) / 1e9).toFixed(2));
+      logger.info('DEBUG - Chain ID:', request.chainId);
+
+      // Transform backend response to human-readable format
+      const transformedResults = result.data.map((item, index) => {
+        const gasUsed = hexToBigInt(item.gasUsed);
+        logger.info('DEBUG - Gas used (units):', gasUsed.toString());
+        const gasCostWei = gasUsed * currentGasPrice;
+        logger.info('DEBUG - Gas cost (wei):', gasCostWei.toString());
+        const gasCostEther = formatEther(gasCostWei);
+
+        return {
+          stepId: request.simulations[index]?.stepId || `step-${index}`,
+          gasUsed: gasCostEther, // Human-readable cost like "0.004205"
+          success: true,
+          error: undefined,
+        };
+      });
+
+      // Calculate total cost
+      const totalGasCostWei = result.data.reduce((sum, item) => {
+        const gasUsed = hexToBigInt(item.gasUsed);
+        return sum + gasUsed * currentGasPrice;
+      }, BigInt(0));
+
+      const totalGasCostEther = formatEther(totalGasCostWei);
+
+      logger.info('DEBUG simulateBundle - transformed response:', {
+        results: transformedResults,
+        totalGasUsed: totalGasCostEther,
+        gasPriceUsed: formatEther(currentGasPrice * BigInt(1000000000)) + ' gwei',
+      });
+
+      return {
+        success: true,
+        results: transformedResults,
+        totalGasUsed: totalGasCostEther,
+      };
+    } catch (error) {
+      logger.error('Bundle simulation API error:', error as Error);
+      return {
+        success: false,
+        results: request.simulations.map((sim) => ({
+          stepId: sim.stepId,
+          gasUsed: '0.0',
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        })),
+        totalGasUsed: '0.0',
       };
     }
   }

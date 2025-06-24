@@ -188,10 +188,6 @@ export interface ExecuteResult {
 
 export interface ExecuteSimulation {
   gasUsed: string;
-  gasPrice: string;
-  maxFeePerGas?: string;
-  maxPriorityFeePerGas?: string;
-  totalFee: string;
   success: boolean;
   error?: string;
 }

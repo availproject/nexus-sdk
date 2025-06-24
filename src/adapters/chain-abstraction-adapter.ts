@@ -62,6 +62,7 @@ export class ChainAbstractionAdapter {
     this.executeService = new ExecuteService(this);
     this.approvalService = new ApprovalService(this);
     this.bridgeExecuteService = new BridgeExecuteService(this);
+    this.setGasEstimationEnabled(true);
   }
 
   /**
@@ -385,5 +386,15 @@ export class ChainAbstractionAdapter {
     if (!this.initialized) {
       throw new Error('CA SDK not initialized. Call initialize() first.');
     }
+  }
+
+  /**
+   * Enable or disable gas estimation for transactions
+   * When enabled, gas estimation will run before each transaction execution
+   * This helps identify potential failures early and provides cost estimates
+   */
+  private setGasEstimationEnabled(enabled: boolean): void {
+    this.bridgeExecuteService.setGasEstimationEnabled(enabled);
+    this.executeService.setGasEstimationEnabled(enabled);
   }
 }

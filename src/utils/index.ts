@@ -28,6 +28,7 @@ import {
   custom,
 } from 'viem';
 import { mainnet, polygon, arbitrum, optimism, base } from 'viem/chains';
+import { logger } from './logger';
 
 /**
  * Shared utility for standardized error message extraction
@@ -329,7 +330,7 @@ export function getBlockExplorerUrl(chainId: number, txHash: string): string {
   const chainMetadata = CHAIN_METADATA[chainId];
 
   if (!chainMetadata?.blockExplorerUrls?.[0]) {
-    console.warn(`No block explorer URL found for chain ${chainId}`);
+    logger.warn(`No block explorer URL found for chain ${chainId}`);
     return '';
   }
 
@@ -536,3 +537,14 @@ export function getTokenContractAddress(
   const address = registry[token]?.[chainId];
   return address || undefined;
 }
+
+// Export logger utilities
+export {
+  LOG_LEVEL,
+  setExceptionReporter,
+  setLogLevel,
+  getLogger,
+  logger,
+  type LogLevel,
+  type ExceptionReporter,
+} from './logger';

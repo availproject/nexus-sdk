@@ -1042,14 +1042,6 @@ export class LegacyChainAbstractionAdapter {
 
           return {
             gasUsed: formattedGas.gasUsed,
-            gasPrice: formattedGas.gasPrice,
-            maxFeePerGas: simulationResult.maxFeePerGas?.startsWith('0x')
-              ? hexToNumber(simulationResult.maxFeePerGas as `0x${string}`).toString()
-              : simulationResult.maxFeePerGas,
-            maxPriorityFeePerGas: simulationResult.maxPriorityFeePerGas?.startsWith('0x')
-              ? hexToNumber(simulationResult.maxPriorityFeePerGas as `0x${string}`).toString()
-              : simulationResult.maxPriorityFeePerGas,
-            totalFee: formattedGas.totalFee,
             success: true,
           };
         } else {
@@ -1491,8 +1483,6 @@ export class LegacyChainAbstractionAdapter {
           console.warn(`Execute simulation error: ${simulationError}`);
           executeSimulation = {
             gasUsed: '0',
-            gasPrice: '0',
-            totalFee: '0',
             success: false,
             error: `Simulation failed: ${simulationError}`,
           };
@@ -1511,12 +1501,12 @@ export class LegacyChainAbstractionAdapter {
         | { total: string; breakdown: { bridge: string; execute: string } }
         | undefined;
 
-      if (totalBridgeFee !== '0' || executeSimulation?.totalFee) {
+      if (totalBridgeFee !== '0' || executeSimulation?.gasUsed) {
         try {
           const bridgeFeeEth = totalBridgeFee ? parseFloat(totalBridgeFee.replace(' ETH', '')) : 0;
 
           const executeFeeEth = executeSimulation?.success
-            ? parseFloat(executeSimulation.totalFee)
+            ? parseFloat(executeSimulation.gasUsed)
             : 0;
           const totalFee = bridgeFeeEth + executeFeeEth;
 
@@ -1524,7 +1514,7 @@ export class LegacyChainAbstractionAdapter {
             total: totalFee.toFixed(6),
             breakdown: {
               bridge: totalBridgeFee,
-              execute: parseFloat(executeSimulation?.totalFee || '0').toFixed(6),
+              execute: parseFloat(executeSimulation?.gasUsed || '0').toFixed(6),
             },
           };
         } catch (error) {

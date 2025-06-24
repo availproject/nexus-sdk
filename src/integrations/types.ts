@@ -1,9 +1,60 @@
+import { Hex } from 'viem';
+
 export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
   message?: string;
   timestamp?: string;
+}
+
+/**
+ * State override for simulation - allows modifying blockchain state during simulation
+ */
+export interface StateOverride {
+  [address: string]: {
+    balance?: string; // Override ETH balance (hex)
+    storage?: Record<string, string>; // Override storage slots (slot -> value)
+    code?: string; // Override contract code (hex)
+    nonce?: string; // Override account nonce (hex)
+  };
+}
+
+/**
+ * Enhanced simulation step for multi-step operations
+ */
+export interface EnhancedSimulationStep {
+  type: 'funding' | 'approval' | 'execute' | 'bridge' | 'transfer';
+  required: boolean;
+  description: string;
+  params: GasEstimationRequest;
+  stateOverride?: StateOverride;
+  expectedGas?: string;
+  dependsOn?: string[]; // IDs of steps this depends on
+  stepId?: string; // Unique identifier for this step
+}
+
+/**
+ * Enhanced simulation result with detailed step breakdown
+ */
+export interface EnhancedSimulationResult {
+  totalGasUsed: string;
+  success: boolean;
+  error?: string;
+  steps: Array<{
+    stepId: string;
+    type: string;
+    gasUsed: string;
+    success: boolean;
+    error?: string;
+    stateChanges?: Record<string, any>;
+  }>;
+  stateOverrides?: StateOverride;
+  simulationMetadata?: {
+    blockNumber: string;
+    timestamp: string;
+    chainId: string;
+  };
 }
 
 /**
@@ -23,6 +74,59 @@ export interface GasEstimationRequest {
 }
 
 /**
+ * Enhanced gas estimation request with state override support
+ */
+export interface EnhancedGasEstimationRequest extends GasEstimationRequest {
+  stateOverride?: StateOverride;
+  simulationSteps?: EnhancedSimulationStep[];
+  enableStateOverride?: boolean;
+}
+
+/**
+ * Bundle simulation request for multiple steps
+ */
+export interface BundleSimulationRequest {
+  chainId: string;
+  simulations: Array<{
+    stepId: string;
+    type: string;
+    from: string;
+    to: string;
+    data?: string;
+    value?: string;
+    stateOverride?: StateOverride;
+  }>;
+}
+
+/**
+ * Backend bundle simulation response (raw format)
+ */
+export interface BackendBundleResponse {
+  success: boolean;
+  data: Array<{
+    gasLimit: Hex;
+    gasUsed: Hex;
+  }>;
+  chainId: string;
+  requestId: string;
+  message: string;
+}
+
+/**
+ * Bundle simulation response (processed format)
+ */
+export interface BundleSimulationResponse {
+  success: boolean;
+  results: Array<{
+    stepId: string;
+    gasUsed: string;
+    success: boolean;
+    error?: string;
+  }>;
+  totalGasUsed: string;
+}
+
+/**
  * Gas estimation response from backend API
  */
 export interface GasEstimationResponse {
@@ -31,6 +135,16 @@ export interface GasEstimationResponse {
   gasPrice?: string; // Gas price (hex)
   maxFeePerGas?: string; // Max fee per gas (hex)
   maxPriorityFeePerGas?: string; // Max priority fee per gas (hex)
+}
+
+/**
+ * Enhanced gas estimation response with state change details
+ */
+export interface EnhancedGasEstimationResponse extends GasEstimationResponse {
+  stateChanges?: Record<string, any>;
+  simulationTrace?: any;
+  revertReason?: string;
+  success: boolean;
 }
 
 /**

@@ -1,6 +1,6 @@
 import { BaseService } from '../core/base-service';
 import { validateBridgeTransferParams, validateForResultReturn } from '../core/validation';
-import { extractErrorMessage } from '../../utils';
+import { extractErrorMessage, logger } from '../../utils';
 import { NEXUS_EVENTS } from '../../constants';
 import type { ProgressStep } from '@arcana/ca-sdk';
 import type { TransferParams, TransferResult, SimulationResult } from '../../types';
@@ -123,7 +123,7 @@ export class TransferService extends BaseService {
             }
           }
         } catch (error) {
-          console.error('Error processing step completion:', error);
+          logger.error('Error processing step completion:', error as Error);
         }
       };
 

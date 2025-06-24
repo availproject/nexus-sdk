@@ -2,10 +2,11 @@ import { BaseService } from '../core/base-service';
 import { TransactionService } from './transaction-service';
 import { ApprovalService } from './approval-service';
 import { getSimulationClient } from '../../integrations/tenderly';
-import { extractErrorMessage } from '../../utils';
+import { extractErrorMessage, logger } from '../../utils';
 import type { ExecuteParams, ExecuteResult, ExecuteSimulation } from '../../types';
 import { ChainAbstractionAdapter } from '../chain-abstraction-adapter';
-import { Hex, hexToNumber, formatEther, formatGwei } from 'viem';
+import { Hex, hexToNumber } from 'viem';
+import { SimulationEngine } from './simulation-engine';
 
 /**
  * Service responsible for handling execution operations
@@ -18,6 +19,13 @@ export class ExecuteService extends BaseService {
     super(adapter);
     this.transactionService = new TransactionService(adapter);
     this.approvalService = new ApprovalService(adapter);
+  }
+
+  /**
+   * Enable or disable gas estimation for transactions
+   */
+  public setGasEstimationEnabled(enabled: boolean): void {
+    this.transactionService.setGasEstimationEnabled(enabled);
   }
 
   /**
@@ -115,8 +123,6 @@ export class ExecuteService extends BaseService {
       if (!simulationClient) {
         return {
           gasUsed: '0',
-          gasPrice: '0',
-          totalFee: '0',
           success: false,
           error: 'Simulation client not configured',
         };
@@ -140,8 +146,6 @@ export class ExecuteService extends BaseService {
       if (!simulationResult.success) {
         return {
           gasUsed: '0',
-          gasPrice: '0',
-          totalFee: '0',
           success: false,
           error: simulationResult.errorMessage || 'Simulation failed',
         };
@@ -149,23 +153,142 @@ export class ExecuteService extends BaseService {
 
       return {
         gasUsed: hexToNumber(simulationResult.gasUsed as Hex).toString(),
-        gasPrice:
-          simulationResult.gasPrice === '0x0' || simulationResult.gasPrice === '0'
-            ? '0'
-            : formatGwei(BigInt(simulationResult.gasPrice)),
-        maxFeePerGas: simulationResult.maxFeePerGas,
-        maxPriorityFeePerGas: simulationResult.maxPriorityFeePerGas,
-        totalFee: formatEther(BigInt(simulationResult.estimatedCost.totalFee)),
         success: true,
       };
     } catch (error) {
       return {
         gasUsed: '0',
-        gasPrice: '0',
-        totalFee: '0',
         success: false,
         error: extractErrorMessage(error, 'execution simulation'),
       };
+    }
+  }
+
+  /**
+   * Enhanced simulation with automatic state setup
+   */
+  async simulateExecuteEnhanced(params: ExecuteParams): Promise<ExecuteSimulation> {
+    this.ensureInitialized();
+
+    try {
+      // Check if we should use enhanced simulation
+      logger.info('DEBUG ExecuteService - tokenApproval:', params.tokenApproval);
+      logger.info('DEBUG ExecuteService - functionName:', params.functionName);
+      logger.info(
+        'DEBUG ExecuteService - isComplexContractCall:',
+        this.isComplexContractCall(params),
+      );
+
+      const shouldUseEnhancedSimulation =
+        params.tokenApproval && this.shouldUseEnhancedSimulation(params);
+      logger.info(
+        'DEBUG ExecuteService - shouldUseEnhancedSimulation:',
+        shouldUseEnhancedSimulation,
+      );
+
+      if (shouldUseEnhancedSimulation) {
+        return await this.runEnhancedSimulation(params);
+      }
+
+      // Fallback to standard simulation
+      return await this.simulateExecute(params);
+    } catch (error) {
+      return {
+        gasUsed: '0',
+        success: false,
+        error: extractErrorMessage(error, 'enhanced simulation'),
+      };
+    }
+  }
+
+  /**
+   * Determine if enhanced simulation should be used
+   */
+  private shouldUseEnhancedSimulation(params: ExecuteParams): boolean {
+    // Use enhanced simulation if:
+    // 1. Token approval is required (indicates ERC20 interaction)
+    // 2. Function is likely to fail without proper balance setup
+    return (
+      params.tokenApproval !== undefined &&
+      params.tokenApproval.token !== 'ETH' &&
+      this.isComplexContractCall(params)
+    );
+  }
+
+  /**
+   * Check if this is a complex contract call that benefits from enhanced simulation
+   */
+  private isComplexContractCall(params: ExecuteParams): boolean {
+    const complexFunctions = [
+      'deposit',
+      'withdraw',
+      'swap',
+      'trade',
+      'stake',
+      'unstake',
+      'mint',
+      'burn',
+      'transfer',
+      'transferFrom',
+      'approve',
+      'supply',
+      'borrow',
+      'repay',
+      'redeem',
+      'lend',
+    ];
+
+    return complexFunctions.some((func) =>
+      params.functionName.toLowerCase().includes(func.toLowerCase()),
+    );
+  }
+
+  /**
+   * Run enhanced simulation with automatic state setup
+   */
+  private async runEnhancedSimulation(params: ExecuteParams): Promise<ExecuteSimulation> {
+    try {
+      const simulationEngine = new SimulationEngine(this.adapter, this.transactionService);
+
+      // Get user address
+      const preparation = await this.transactionService.prepareExecution(params);
+
+      // Convert tokenApproval amount to proper format if needed
+      const tokenAmount = params.tokenApproval?.amount || '0';
+
+      logger.info('DEBUG ExecuteService - Running enhanced simulation:', {
+        user: preparation.fromAddress,
+        token: params.tokenApproval?.token,
+        amount: tokenAmount,
+        function: params.functionName,
+      });
+
+      // Run enhanced simulation
+      const enhancedResult = await simulationEngine.simulateWithStateSetup({
+        user: preparation.fromAddress,
+        tokenRequired: params.tokenApproval!.token,
+        amountRequired: tokenAmount,
+        contractCall: params,
+      });
+
+      // Convert enhanced result to ExecuteSimulation format
+      if (!enhancedResult.success) {
+        return {
+          gasUsed: '0',
+          success: false,
+          error: enhancedResult.error || 'Enhanced simulation failed',
+        };
+      }
+
+      return {
+        gasUsed: enhancedResult.totalGasUsed,
+        success: true,
+      } as ExecuteSimulation;
+    } catch (error) {
+      logger.error('Enhanced simulation failed, falling back to standard:', error as Error);
+
+      // Fallback to standard simulation
+      return await this.simulateExecute(params);
     }
   }
 }

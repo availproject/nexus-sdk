@@ -3,7 +3,7 @@ import { NEXUS_EVENTS, TOKEN_METADATA } from '../../constants';
 import { BridgeService } from './bridge-service';
 import { ExecuteService } from './execute-service';
 import { ApprovalService } from './approval-service';
-import { extractErrorMessage } from '../../utils';
+import { extractErrorMessage, logger } from '../../utils';
 import { parseUnits } from 'viem';
 import type { ChainAbstractionAdapter } from '../chain-abstraction-adapter';
 
@@ -56,6 +56,15 @@ export class BridgeExecuteService extends BaseService {
     this.bridgeService = new BridgeService(adapter);
     this.executeService = new ExecuteService(adapter);
     this.approvalService = new ApprovalService(adapter);
+  }
+
+  /**
+   * Enable or disable gas estimation for execute transactions
+   * This provides easy control over whether gas estimation runs before execution
+   */
+  public setGasEstimationEnabled(enabled: boolean): void {
+    // Access the transaction service through the execute service's public method
+    this.executeService.setGasEstimationEnabled(enabled);
   }
 
   /**
@@ -214,7 +223,7 @@ export class BridgeExecuteService extends BaseService {
             params.token,
           );
 
-          executeSimulation = await this.executeService.simulateExecute({
+          executeSimulation = await this.executeService.simulateExecuteEnhanced({
             ...modifiedExecuteParams,
             toChainId: params.toChainId,
             tokenApproval: {
@@ -232,11 +241,9 @@ export class BridgeExecuteService extends BaseService {
 
           // Execute analysis details are available in the simulation result
         } catch (simulationError) {
-          console.warn(`Execute simulation error: ${simulationError}`);
+          logger.warn(`Execute simulation error: ${simulationError}`);
           executeSimulation = {
             gasUsed: '0',
-            gasPrice: '0',
-            totalFee: '0',
             success: false,
             error: `Simulation failed: ${simulationError}`,
           };
@@ -255,24 +262,30 @@ export class BridgeExecuteService extends BaseService {
         | { total: string; breakdown: { bridge: string; execute: string } }
         | undefined;
 
-      if (totalBridgeFee !== '0' || executeSimulation?.totalFee) {
-        try {
-          const bridgeFeeEth = totalBridgeFee ? parseFloat(totalBridgeFee.replace(' ETH', '')) : 0;
+      if (totalBridgeFee !== '0' || executeSimulation?.gasUsed) {
+        logger.info('DEBUG bridge-execute-service - totalBridgeFee (ETH):', totalBridgeFee);
+        logger.info(
+          'DEBUG bridge-execute-service - executeSimulation?.gasUsed:',
+          executeSimulation?.gasUsed,
+        );
 
-          const executeFeeEth = executeSimulation?.success
-            ? parseFloat(executeSimulation.totalFee)
-            : 0;
-          const totalFee = bridgeFeeEth + executeFeeEth;
+        try {
+          const executeFee = executeSimulation?.gasUsed || '0';
+          logger.info('DEBUG bridge-execute-service - executeFee:', executeFee);
+
+          // Both values are already in human-readable ETH format, just add them
+          const totalFeeEth = (parseFloat(totalBridgeFee) + parseFloat(executeFee)).toString();
+          logger.info('DEBUG bridge-execute-service - totalFeeEth:', totalFeeEth);
 
           totalEstimatedCost = {
-            total: totalFee.toFixed(6),
+            total: totalFeeEth,
             breakdown: {
               bridge: totalBridgeFee,
-              execute: parseFloat(executeSimulation?.totalFee || '0').toFixed(6),
+              execute: executeFee,
             },
           };
         } catch (error) {
-          console.warn('Could not calculate total cost - cost breakdown may be incomplete');
+          logger.warn('Could not calculate total cost - cost breakdown may be incomplete:', error);
         }
       }
 
@@ -323,10 +336,10 @@ export class BridgeExecuteService extends BaseService {
 
     try {
       // Debug logging to understand amount handling
-      console.log('DEBUG handleExecutePhase - Bridge amount:', bridgeAmount);
-      console.log('DEBUG handleExecutePhase - Bridge token:', bridgeToken);
-      console.log('DEBUG handleExecutePhase - Original execute params:', execute.functionParams);
-      console.log(
+      logger.info('DEBUG handleExecutePhase - Bridge amount:', bridgeAmount);
+      logger.info('DEBUG handleExecutePhase - Bridge token:', bridgeToken);
+      logger.info('DEBUG handleExecutePhase - Original execute params:', execute.functionParams);
+      logger.info(
         'DEBUG handleExecutePhase - Token approval amount:',
         execute.tokenApproval?.amount,
       );
@@ -341,7 +354,7 @@ export class BridgeExecuteService extends BaseService {
           chainId: toChainId,
         });
 
-        console.log('DEBUG handleExecutePhase - Requesting approval for:', {
+        logger.info('DEBUG handleExecutePhase - Requesting approval for:', {
           token: bridgeToken,
           amount: bridgeAmount,
           spender: execute.contractAddress,
@@ -379,7 +392,7 @@ export class BridgeExecuteService extends BaseService {
       }
 
       // Step 2: Execute the target contract call
-      console.log('DEBUG handleExecutePhase - Executing contract call with params:', {
+      logger.info('DEBUG handleExecutePhase - Executing contract call with params:', {
         ...execute,
         toChainId,
         tokenApproval: {
@@ -404,7 +417,7 @@ export class BridgeExecuteService extends BaseService {
 
       // Check if we should verify transaction success
       if (waitForReceipt && executeResult.transactionHash) {
-        console.log(
+        logger.info(
           'DEBUG handleExecutePhase - Checking transaction success for:',
           executeResult.transactionHash,
         );
@@ -415,11 +428,11 @@ export class BridgeExecuteService extends BaseService {
         );
 
         if (!transactionCheck.success) {
-          console.error('DEBUG handleExecutePhase - Transaction failed:', transactionCheck.error);
+          logger.error('DEBUG handleExecutePhase - Transaction failed:', transactionCheck.error);
           throw new Error(`Execute transaction failed: ${transactionCheck.error}`);
         }
 
-        console.log(
+        logger.info(
           'DEBUG handleExecutePhase - Transaction succeeded with gas used:',
           transactionCheck.gasUsed,
         );
@@ -431,7 +444,7 @@ export class BridgeExecuteService extends BaseService {
         approvalTransactionHash,
       };
     } catch (executeError) {
-      console.error('DEBUG handleExecutePhase - Execute error:', executeError);
+      logger.error('DEBUG handleExecutePhase - Execute error:', executeError as Error);
       this.emitOperationEvents.failed('OPERATION', executeError, 'execute phase', 'execute');
       throw new Error(
         `Execute phase failed: ${extractErrorMessage(executeError, 'execute phase')}`,
@@ -448,7 +461,7 @@ export class BridgeExecuteService extends BaseService {
       // Convert to string if it's a number
       const amountStr = amount.toString();
 
-      console.log('DEBUG normalizeAmountToWei - Input:', { amount: amountStr, token });
+      logger.info('DEBUG normalizeAmountToWei - Input:', { amount: amountStr, token });
 
       // Handle edge cases
       if (!amountStr || amountStr === '0') {
@@ -460,7 +473,7 @@ export class BridgeExecuteService extends BaseService {
       const tokenMetadata = TOKEN_METADATA[tokenUpper];
       const decimals = tokenMetadata?.decimals || ADAPTER_CONSTANTS?.DEFAULT_DECIMALS || 18;
 
-      console.log('DEBUG normalizeAmountToWei - Token info:', {
+      logger.info('DEBUG normalizeAmountToWei - Token info:', {
         tokenUpper,
         decimals,
         tokenMetadata,
@@ -469,21 +482,21 @@ export class BridgeExecuteService extends BaseService {
       // If it's already in wei format (no decimals, large number), return as-is
       // Check length to avoid converting small integers to wei incorrectly
       if (!amountStr.includes('.') && amountStr.length > 10) {
-        console.log('DEBUG normalizeAmountToWei - Already in wei format');
+        logger.info('DEBUG normalizeAmountToWei - Already in wei format');
         return amountStr;
       }
 
       // Handle hex values
       if (amountStr.startsWith('0x')) {
         const result = BigInt(amountStr).toString();
-        console.log('DEBUG normalizeAmountToWei - Hex conversion:', result);
+        logger.info(`DEBUG normalizeAmountToWei - Hex conversion: ${result}`);
         return result;
       }
 
       // Handle decimal amounts (need conversion to wei)
       if (amountStr.includes('.')) {
         const result = parseUnits(amountStr, decimals).toString();
-        console.log('DEBUG normalizeAmountToWei - Decimal conversion:', amountStr, '->', result);
+        logger.info(`DEBUG normalizeAmountToWei - Decimal conversion: ${amountStr} -> ${result}`);
         return result;
       }
 
@@ -495,16 +508,13 @@ export class BridgeExecuteService extends BaseService {
         // For USDC, small numbers (< 1000000) are likely user amounts that need conversion
         if (numValue < 1000000) {
           const result = parseUnits(amountStr, 6).toString();
-          console.log(
-            'DEBUG normalizeAmountToWei - USDC user amount conversion:',
-            amountStr,
-            '->',
-            result,
+          logger.info(
+            `DEBUG normalizeAmountToWei - USDC user amount conversion: ${amountStr} -> ${result}`,
           );
           return result;
         } else {
           // Larger numbers are likely already in micro-USDC
-          console.log('DEBUG normalizeAmountToWei - USDC already in micro format');
+          logger.info('DEBUG normalizeAmountToWei - USDC already in micro format');
           return amountStr;
         }
       }
@@ -514,21 +524,18 @@ export class BridgeExecuteService extends BaseService {
       if (numValue < 1000 || (tokenMetadata?.decimals === 6 && numValue < 1000000)) {
         // Convert small numbers as user-friendly amounts
         const result = parseUnits(amountStr, decimals).toString();
-        console.log(
-          'DEBUG normalizeAmountToWei - User amount conversion:',
-          amountStr,
-          '->',
-          result,
+        logger.info(
+          `DEBUG normalizeAmountToWei - User amount conversion: ${amountStr} -> ${result}`,
         );
         return result;
       } else {
         // Assume larger numbers are already in the correct format
-        console.log('DEBUG normalizeAmountToWei - Already in correct format');
+        logger.info('DEBUG normalizeAmountToWei - Already in correct format');
         return amountStr;
       }
     } catch (error) {
       // If conversion fails, return original
-      console.warn(`Failed to normalize amount ${amount} for token ${token}:`, error);
+      logger.warn(`Failed to normalize amount ${amount} for token ${token}:`, error);
       return amount.toString();
     }
   }
@@ -549,7 +556,7 @@ export class BridgeExecuteService extends BaseService {
     const normalizedOriginal = this.normalizeAmountToWei(originalAmount, token);
     const normalizedReceived = this.normalizeAmountToWei(bridgeReceivedAmount, token);
 
-    console.log('DEBUG replaceAmountInExecuteParams:', {
+    logger.info('DEBUG replaceAmountInExecuteParams:', {
       originalAmount,
       bridgeReceivedAmount,
       normalizedOriginal,
@@ -560,17 +567,14 @@ export class BridgeExecuteService extends BaseService {
 
     // If the amounts are the same, no replacement needed
     if (normalizedOriginal === normalizedReceived) {
-      console.log('DEBUG replaceAmountInExecuteParams - Amounts are equal, no replacement needed');
+      logger.info('DEBUG replaceAmountInExecuteParams - Amounts are equal, no replacement needed');
       return { modifiedParams: modifiedExecuteParams, parameterReplaced: false };
     }
 
     // Handle payable functions (replace value field)
     if (execute.value && execute.value !== '0x0' && execute.value !== '0') {
-      console.log(
-        'DEBUG replaceAmountInExecuteParams - Replacing value field:',
-        execute.value,
-        '->',
-        normalizedReceived,
+      logger.info(
+        `DEBUG replaceAmountInExecuteParams - Replacing value field: ${execute.value} -> ${normalizedReceived}`,
       );
       modifiedExecuteParams.value = normalizedReceived;
       parameterReplaced = true;
@@ -593,7 +597,7 @@ export class BridgeExecuteService extends BaseService {
           const isNumericSimilar = this.isAmountSimilar(paramStr, normalizedOriginal, 0.001);
           const isLikelyAmount = this.isLikelyAmountParameter(paramStr, i);
 
-          console.log(`DEBUG replaceAmountInExecuteParams - Param ${i}:`, {
+          logger.info(`DEBUG replaceAmountInExecuteParams - Param ${i}:`, {
             param: paramStr,
             isExactMatch,
             isNumericSimilar,
@@ -601,11 +605,8 @@ export class BridgeExecuteService extends BaseService {
           });
 
           if (isExactMatch || isNumericSimilar || isLikelyAmount) {
-            console.log(
-              `DEBUG replaceAmountInExecuteParams - Replacing param ${i}:`,
-              paramStr,
-              '->',
-              normalizedReceived,
+            logger.info(
+              `DEBUG replaceAmountInExecuteParams - Replacing param ${i}: ${paramStr} -> ${normalizedReceived}`,
             );
             modifiedParams[i] = normalizedReceived;
             parameterReplaced = true;
@@ -617,7 +618,7 @@ export class BridgeExecuteService extends BaseService {
       modifiedExecuteParams.functionParams = modifiedParams;
     }
 
-    console.log('DEBUG replaceAmountInExecuteParams - Result:', {
+    logger.info('DEBUG replaceAmountInExecuteParams - Result:', {
       parameterReplaced,
       originalParams: execute.functionParams,
       modifiedParams: modifiedExecuteParams.functionParams,
@@ -693,7 +694,7 @@ export class BridgeExecuteService extends BaseService {
           await new Promise((resolve) => setTimeout(resolve, 2000));
         }
       } catch (error) {
-        console.warn(`Attempt ${i + 1} to get receipt failed:`, error);
+        logger.warn(`Attempt ${i + 1} to get receipt failed:`, error);
         if (i === maxRetries - 1) {
           throw error;
         }
@@ -749,7 +750,7 @@ export class BridgeExecuteService extends BaseService {
         simulationBlock = transaction.blockNumber;
       }
 
-      console.log(`DEBUG simulateFailedTransaction - Simulating at block: ${simulationBlock}`);
+      logger.info(`DEBUG simulateFailedTransaction - Simulating at block: ${simulationBlock}`);
 
       // Simulate the transaction call to get revert reason
       await this.adapter.evmProvider?.request({
@@ -768,12 +769,12 @@ export class BridgeExecuteService extends BaseService {
 
       // If eth_call succeeds when we expected it to fail, this is suspicious
       // The original transaction failed but the simulation passes
-      console.warn(
+      logger.warn(
         'DEBUG simulateFailedTransaction - eth_call succeeded but original transaction failed. This might indicate a state-dependent failure.',
       );
       return 'Transaction failed due to state changes or gas issues';
     } catch (error: unknown) {
-      console.log(
+      logger.info(
         'DEBUG simulateFailedTransaction - eth_call failed as expected, extracting revert reason',
       );
 
@@ -832,7 +833,7 @@ export class BridgeExecuteService extends BaseService {
   }> {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        console.log(
+        logger.info(
           `DEBUG checkTransactionSuccess - Attempt ${attempt}/${maxRetries}: Checking transaction: ${txHash} on chain: ${chainId}`,
         );
 
@@ -843,7 +844,7 @@ export class BridgeExecuteService extends BaseService {
         const currentChainIdDecimal = parseInt(currentChainId, 16);
 
         if (currentChainIdDecimal !== chainId) {
-          console.log(
+          logger.info(
             `DEBUG checkTransactionSuccess - Switching from chain ${currentChainIdDecimal} to ${chainId}`,
           );
           try {
@@ -854,9 +855,9 @@ export class BridgeExecuteService extends BaseService {
             // Wait a bit after chain switch
             await new Promise((resolve) => setTimeout(resolve, 1000));
           } catch (switchError) {
-            console.error(
+            logger.error(
               `DEBUG checkTransactionSuccess - Failed to switch to chain ${chainId}:`,
-              switchError,
+              switchError as Error,
             );
             return {
               success: false,
@@ -870,7 +871,7 @@ export class BridgeExecuteService extends BaseService {
 
         if (!receipt) {
           if (attempt < maxRetries) {
-            console.log(
+            logger.info(
               `DEBUG checkTransactionSuccess - Receipt not found, retrying in ${retryDelay}ms...`,
             );
             await new Promise((resolve) => setTimeout(resolve, retryDelay));
@@ -883,7 +884,7 @@ export class BridgeExecuteService extends BaseService {
           };
         }
 
-        console.log(`DEBUG checkTransactionSuccess - Receipt status: ${receipt.status}`);
+        logger.info(`DEBUG checkTransactionSuccess - Receipt status: ${receipt.status}`);
 
         // Check if transaction succeeded
         if (receipt.status === '0x1') {
@@ -907,12 +908,12 @@ export class BridgeExecuteService extends BaseService {
               errorMessage = simulationError;
             }
           } catch (simError) {
-            console.warn('DEBUG checkTransactionSuccess - Simulation failed:', simError);
+            logger.warn('DEBUG checkTransactionSuccess - Simulation failed:', simError);
             // Keep generic error message if simulation fails
           }
         }
 
-        console.log(`DEBUG checkTransactionSuccess - Final error: ${errorMessage}`);
+        logger.info(`DEBUG checkTransactionSuccess - Final error: ${errorMessage}`);
 
         return {
           success: false,
@@ -920,10 +921,10 @@ export class BridgeExecuteService extends BaseService {
           gasUsed: receipt.gasUsed,
         };
       } catch (error) {
-        console.error(`DEBUG checkTransactionSuccess - Attempt ${attempt} failed:`, error);
+        logger.error(`DEBUG checkTransactionSuccess - Attempt ${attempt} failed:`, error as Error);
 
         if (attempt < maxRetries) {
-          console.log(`DEBUG checkTransactionSuccess - Retrying in ${retryDelay}ms...`);
+          logger.info(`DEBUG checkTransactionSuccess - Retrying in ${retryDelay}ms...`);
           await new Promise((resolve) => setTimeout(resolve, retryDelay));
           continue; // Retry
         }
