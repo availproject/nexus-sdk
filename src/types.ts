@@ -266,6 +266,8 @@ export interface BridgeAndExecuteResult {
   executeExplorerUrl?: string;
   approvalTransactionHash?: string;
   toChainId: number;
+  success: boolean;
+  error?: string;
 }
 
 export interface ExecuteEvents {

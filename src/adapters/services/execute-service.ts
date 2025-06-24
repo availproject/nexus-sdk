@@ -5,6 +5,7 @@ import { getSimulationClient } from '../../integrations/tenderly';
 import { extractErrorMessage } from '../../utils';
 import type { ExecuteParams, ExecuteResult, ExecuteSimulation } from '../../types';
 import { ChainAbstractionAdapter } from '../chain-abstraction-adapter';
+import { Hex, hexToNumber, formatEther, formatGwei } from 'viem';
 
 /**
  * Service responsible for handling execution operations
@@ -147,11 +148,14 @@ export class ExecuteService extends BaseService {
       }
 
       return {
-        gasUsed: simulationResult.gasUsed || '0',
-        gasPrice: simulationResult.gasPrice || '0',
+        gasUsed: hexToNumber(simulationResult.gasUsed as Hex).toString(),
+        gasPrice:
+          simulationResult.gasPrice === '0x0' || simulationResult.gasPrice === '0'
+            ? '0'
+            : formatGwei(BigInt(simulationResult.gasPrice)),
         maxFeePerGas: simulationResult.maxFeePerGas,
         maxPriorityFeePerGas: simulationResult.maxPriorityFeePerGas,
-        totalFee: simulationResult.estimatedCost?.wei || '0',
+        totalFee: formatEther(BigInt(simulationResult.estimatedCost.totalFee)),
         success: true,
       };
     } catch (error) {

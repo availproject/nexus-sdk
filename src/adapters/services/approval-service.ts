@@ -1,6 +1,7 @@
 import { BaseService } from '../core/base-service';
 import { getTokenContractAddress, extractErrorMessage } from '../../utils';
-import { parseUnits } from 'viem';
+import { TOKEN_METADATA } from '../../constants';
+import { parseUnits, formatUnits } from 'viem';
 import type { SUPPORTED_TOKENS, ApprovalInfo } from '../../types';
 import type { ApprovalResult } from '../types/service-types';
 
@@ -53,17 +54,27 @@ export class ApprovalService extends BaseService {
     }
 
     try {
-      // Convert amount to proper units based on token decimals
+      // Convert amount to proper token units - handle both decimal and integer formats
       let amountInWei: bigint;
-      if (tokenApproval.token === 'ETH') {
-        amountInWei = parseUnits(tokenApproval.amount, 18);
-      } else if (tokenApproval.token === 'USDC') {
-        amountInWei = parseUnits(tokenApproval.amount, 6);
-      } else if (tokenApproval.token === 'USDT') {
-        amountInWei = parseUnits(tokenApproval.amount, 6);
-      } else {
-        // Default to 18 decimals for unknown tokens
-        amountInWei = parseUnits(tokenApproval.amount, ADAPTER_CONSTANTS.DEFAULT_DECIMALS);
+
+      // Get token metadata for decimal handling
+      const tokenMetadata = TOKEN_METADATA[tokenApproval.token.toUpperCase()];
+      const decimals = tokenMetadata?.decimals || ADAPTER_CONSTANTS.DEFAULT_DECIMALS;
+
+      try {
+        // Handle both decimal strings (user-friendly) and integer strings (already converted)
+        // This matches the logic from the legacy adapter
+        if (tokenApproval.amount.includes('.')) {
+          // Decimal amount - user-friendly format like "0.01"
+          amountInWei = parseUnits(tokenApproval.amount, decimals);
+        } else {
+          // Integer amount - likely already in wei/micro format like "10000"
+          amountInWei = BigInt(tokenApproval.amount);
+        }
+      } catch (error) {
+        throw new Error(
+          `Failed to parse amount ${tokenApproval.amount} for ${tokenApproval.token}: ${extractErrorMessage(error, 'amount parsing')}`,
+        );
       }
 
       // Prepare the allowance call data
@@ -142,11 +153,34 @@ export class ApprovalService extends BaseService {
 
       const fromAddress = accounts[0];
 
-      // Use maximum uint256 for approval to avoid repeated approvals
-      const maxApprovalAmount = ADAPTER_CONSTANTS.MAX_APPROVAL_AMOUNT;
+      // Calculate buffer amount with proper decimal handling for MetaMask display
+      const requiredAmountWithBuffer =
+        approvalInfo.requiredAmount +
+        (approvalInfo.requiredAmount * ADAPTER_CONSTANTS.APPROVAL_BUFFER_PERCENTAGE) / 10000n;
+
+      // Get token decimals for proper formatting
+      let tokenDecimals: number = ADAPTER_CONSTANTS.DEFAULT_DECIMALS;
+      if (tokenApproval.token === 'USDC' || tokenApproval.token === 'USDT') {
+        tokenDecimals = 6;
+      } else if (tokenApproval.token === 'ETH') {
+        tokenDecimals = 18;
+      }
+
+      // Convert to human-readable format first, then back to wei for better MetaMask display
+      // This ensures MetaMask shows "0.01001" instead of "10100"
+      const humanReadableAmount = formatUnits(requiredAmountWithBuffer, tokenDecimals);
+      console.log(
+        'DEBUG approval - Human readable amount for MetaMask:',
+        humanReadableAmount,
+        tokenApproval.token,
+      );
+
+      // Convert back to wei for the transaction
+      const finalApprovalAmount = parseUnits(humanReadableAmount, tokenDecimals);
+      const approvalAmount = finalApprovalAmount.toString(16).padStart(64, '0');
 
       // Prepare approval transaction data
-      const approvalCallData = `${FUNCTION_SELECTORS.APPROVE}${spenderAddress.slice(2).padStart(64, '0')}${maxApprovalAmount.slice(2)}`;
+      const approvalCallData = `${FUNCTION_SELECTORS.APPROVE}${spenderAddress.slice(2).padStart(64, '0')}${approvalAmount}`;
 
       const approvalTxParams = {
         from: fromAddress,
@@ -154,6 +188,13 @@ export class ApprovalService extends BaseService {
         data: approvalCallData,
         value: '0x0',
       };
+
+      console.log('DEBUG approval - Sending approval transaction:', {
+        token: tokenApproval.token,
+        humanAmount: humanReadableAmount,
+        spender: spenderAddress,
+        chainId,
+      });
 
       // Send approval transaction
       const txResponse = await this.evmProvider.request({
@@ -173,13 +214,16 @@ export class ApprovalService extends BaseService {
         };
       }
 
+      console.log('DEBUG approval - Transaction sent:', transactionHash);
+
       // Wait for confirmation if requested
       let confirmed = false;
+      let receiptStatus: string | undefined;
+
       if (waitForConfirmation) {
         try {
-          // Simple confirmation check - wait for transaction to be mined
           let attempts = 0;
-          const maxAttempts = 30; // 30 seconds timeout
+          const maxAttempts = 60; // 60 seconds timeout for approval
 
           while (attempts < maxAttempts) {
             try {
@@ -188,9 +232,24 @@ export class ApprovalService extends BaseService {
                 params: [transactionHash],
               });
 
-              if (receipt) {
-                confirmed = true;
-                break;
+              if (receipt && typeof receipt === 'object') {
+                const receiptObj = receipt as any;
+                receiptStatus = receiptObj.status;
+
+                // Check if transaction was successful (status: "0x1") or failed (status: "0x0")
+                if (receiptStatus === '0x1') {
+                  confirmed = true;
+                  console.log('DEBUG approval - Transaction confirmed successfully');
+                  break;
+                } else if (receiptStatus === '0x0') {
+                  console.log('DEBUG approval - Transaction failed on chain');
+                  return {
+                    transactionHash,
+                    wasNeeded: true,
+                    confirmed: false,
+                    error: 'Approval transaction failed on blockchain',
+                  };
+                }
               }
             } catch (receiptError) {
               // Receipt not available yet, continue waiting
@@ -199,9 +258,24 @@ export class ApprovalService extends BaseService {
             await new Promise((resolve) => setTimeout(resolve, 1000));
             attempts++;
           }
+
+          if (!confirmed && attempts >= maxAttempts) {
+            console.log('DEBUG approval - Transaction timeout');
+            return {
+              transactionHash,
+              wasNeeded: true,
+              confirmed: false,
+              error: 'Approval transaction confirmation timeout',
+            };
+          }
         } catch (confirmationError) {
-          // Confirmation failed, but approval transaction was sent
-          console.warn('Approval confirmation failed:', confirmationError);
+          console.warn('DEBUG approval - Confirmation failed:', confirmationError);
+          return {
+            transactionHash,
+            wasNeeded: true,
+            confirmed: false,
+            error: `Approval confirmation failed: ${extractErrorMessage(confirmationError, 'approval confirmation')}`,
+          };
         }
       }
 
@@ -211,6 +285,7 @@ export class ApprovalService extends BaseService {
         confirmed,
       };
     } catch (error) {
+      console.error('DEBUG approval - Error:', error);
       return {
         wasNeeded: true,
         error: extractErrorMessage(error, 'contract approval'),

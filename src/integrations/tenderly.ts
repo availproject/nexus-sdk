@@ -19,9 +19,7 @@ export interface BackendSimulationResult {
   success: boolean;
   errorMessage?: string;
   estimatedCost: {
-    wei: string;
-    eth: string;
-    gwei: string;
+    totalFee: string;
   };
 }
 
@@ -125,17 +123,6 @@ export class BackendSimulationClient {
 
       const gasData = result.data;
 
-      // Convert hex values to decimal for calculations
-      const gasUsedDecimal = parseInt(gasData.gasUsed, 16);
-      const gasPriceDecimal = gasData.gasPrice ? parseInt(gasData.gasPrice, 16) : 0;
-      const maxFeePerGasDecimal = gasData.maxFeePerGas ? parseInt(gasData.maxFeePerGas, 16) : 0;
-
-      // Calculate cost using the higher of gasPrice or maxFeePerGas
-      const effectiveGasPrice = Math.max(gasPriceDecimal, maxFeePerGasDecimal);
-      const gasCostWei = BigInt(gasUsedDecimal) * BigInt(effectiveGasPrice);
-      const gasCostEth = Number(gasCostWei) / 1e18;
-      const gasCostGwei = Number(gasCostWei) / 1e9;
-
       return {
         gasUsed: gasData.gasUsed,
         gasPrice: gasData.gasPrice || '0x0',
@@ -143,9 +130,7 @@ export class BackendSimulationClient {
         maxPriorityFeePerGas: gasData.maxPriorityFeePerGas,
         success: true,
         estimatedCost: {
-          wei: gasCostWei.toString(),
-          eth: gasCostEth.toFixed(6),
-          gwei: gasCostGwei.toFixed(2),
+          totalFee: gasData?.gasUsed || '0',
         },
       };
     } catch (error) {
@@ -156,9 +141,7 @@ export class BackendSimulationClient {
         success: false,
         errorMessage: error instanceof Error ? error.message : 'Unknown error',
         estimatedCost: {
-          wei: '0',
-          eth: '0',
-          gwei: '0',
+          totalFee: '0',
         },
       };
     }
@@ -199,9 +182,7 @@ export class BackendSimulationClient {
         success: false,
         errorMessage: 'Batch simulation failed',
         estimatedCost: {
-          wei: '0',
-          eth: '0',
-          gwei: '0',
+          totalFee: '0',
         },
       }));
     }
@@ -277,17 +258,6 @@ export class BackendSimulationClient {
 
       const gasData = result.data;
 
-      // Convert hex values to decimal for calculations
-      const gasUsedDecimal = parseInt(gasData.gasUsed, 16);
-      const gasPriceDecimal = gasData.gasPrice ? parseInt(gasData.gasPrice, 16) : 0;
-      const maxFeePerGasDecimal = gasData.maxFeePerGas ? parseInt(gasData.maxFeePerGas, 16) : 0;
-
-      // Calculate cost using the higher of gasPrice or maxFeePerGas
-      const effectiveGasPrice = Math.max(gasPriceDecimal, maxFeePerGasDecimal);
-      const gasCostWei = BigInt(gasUsedDecimal) * BigInt(effectiveGasPrice);
-      const gasCostEth = Number(gasCostWei) / 1e18;
-      const gasCostGwei = Number(gasCostWei) / 1e9;
-
       return {
         gasUsed: gasData.gasUsed,
         gasPrice: gasData.gasPrice || '0x0',
@@ -295,9 +265,7 @@ export class BackendSimulationClient {
         maxPriorityFeePerGas: gasData.maxPriorityFeePerGas,
         success: true,
         estimatedCost: {
-          wei: gasCostWei.toString(),
-          eth: gasCostEth.toFixed(6),
-          gwei: gasCostGwei.toFixed(2),
+          totalFee: gasData?.gasUsed || '0',
         },
       };
     } catch (error) {
@@ -308,9 +276,7 @@ export class BackendSimulationClient {
         success: false,
         errorMessage: error instanceof Error ? error.message : 'Unknown error',
         estimatedCost: {
-          wei: '0',
-          eth: '0',
-          gwei: '0',
+          totalFee: '0',
         },
       };
     }

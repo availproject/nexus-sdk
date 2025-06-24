@@ -1202,10 +1202,6 @@ export class LegacyChainAbstractionAdapter {
       // Get the actual bridge output amount for token approval
       let bridgeOutputAmount = this.normalizeAmountToWei(amount, token);
 
-      // Try to get the actual received amount from bridge result
-      // In a real implementation, we'd get this from the bridge transaction result
-      // For now, use the original amount as fallback
-
       const { executeTransactionHash, executeExplorerUrl, approvalTransactionHash } =
         await this.handleExecutePhase(
           execute,
@@ -1220,6 +1216,7 @@ export class LegacyChainAbstractionAdapter {
         );
 
       const result: BridgeAndExecuteResult = {
+        success: true,
         executeTransactionHash,
         executeExplorerUrl,
         approvalTransactionHash,

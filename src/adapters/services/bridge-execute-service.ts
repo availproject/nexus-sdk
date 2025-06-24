@@ -23,6 +23,29 @@ const ADAPTER_CONSTANTS = {
   APPROVAL_BUFFER_PERCENTAGE: 10000n, // 100%
 };
 
+// Type definitions for transaction-related objects
+interface TransactionReceipt {
+  status: string;
+  gasUsed: string;
+  blockNumber?: string;
+  revertReason?: string;
+}
+
+interface Transaction {
+  to: string;
+  input: string;
+  value?: string;
+  from?: string;
+  gas?: string;
+  blockNumber?: string;
+}
+
+interface ProviderError extends Error {
+  data?: {
+    message?: string;
+  };
+}
+
 export class BridgeExecuteService extends BaseService {
   private bridgeService: BridgeService;
   private executeService: ExecuteService;
@@ -46,7 +69,7 @@ export class BridgeExecuteService extends BaseService {
       execute,
       enableTransactionPolling = false,
       transactionTimeout = 30000,
-      waitForReceipt = false,
+      waitForReceipt = true,
       receiptTimeout = 300000,
       requiredConfirmations = 1,
     } = params;
@@ -78,10 +101,6 @@ export class BridgeExecuteService extends BaseService {
       // Get the actual bridge output amount for token approval
       let bridgeOutputAmount = this.normalizeAmountToWei(amount, token);
 
-      // Try to get the actual received amount from bridge result
-      // In a real implementation, we'd get this from the bridge transaction result
-      // For now, use the original amount as fallback
-
       const { executeTransactionHash, executeExplorerUrl, approvalTransactionHash } =
         await this.handleExecutePhase(
           execute,
@@ -100,6 +119,7 @@ export class BridgeExecuteService extends BaseService {
         executeExplorerUrl,
         approvalTransactionHash,
         toChainId,
+        success: true,
       };
 
       this.emitOperationEvents.completed('OPERATION', {
@@ -114,7 +134,12 @@ export class BridgeExecuteService extends BaseService {
       // Emit error with stage information using the helper
       this.emitOperationEvents.failed('OPERATION', error, 'bridge and execute', stage);
 
-      throw new Error(`Bridge and execute operation failed: ${errorMessage}`);
+      // Return failed result instead of throwing
+      return {
+        toChainId,
+        success: false,
+        error: `Bridge and execute operation failed: ${errorMessage}`,
+      };
     }
   }
 
@@ -297,12 +322,28 @@ export class BridgeExecuteService extends BaseService {
     if (!execute) return {};
 
     try {
+      // Debug logging to understand amount handling
+      console.log('DEBUG handleExecutePhase - Bridge amount:', bridgeAmount);
+      console.log('DEBUG handleExecutePhase - Bridge token:', bridgeToken);
+      console.log('DEBUG handleExecutePhase - Original execute params:', execute.functionParams);
+      console.log(
+        'DEBUG handleExecutePhase - Token approval amount:',
+        execute.tokenApproval?.amount,
+      );
+
       let approvalTransactionHash: string | undefined;
 
       // Step 1: Automatically handle contract approval if needed
       if (execute.tokenApproval) {
         this.emitOperationEvents.started('APPROVAL', {
           token: execute.tokenApproval.token,
+          spender: execute.contractAddress,
+          chainId: toChainId,
+        });
+
+        console.log('DEBUG handleExecutePhase - Requesting approval for:', {
+          token: bridgeToken,
+          amount: bridgeAmount,
           spender: execute.contractAddress,
           chainId: toChainId,
         });
@@ -338,6 +379,15 @@ export class BridgeExecuteService extends BaseService {
       }
 
       // Step 2: Execute the target contract call
+      console.log('DEBUG handleExecutePhase - Executing contract call with params:', {
+        ...execute,
+        toChainId,
+        tokenApproval: {
+          token: bridgeToken,
+          amount: bridgeAmount,
+        },
+      });
+
       const executeResult = await this.executeService.execute({
         ...execute,
         toChainId,
@@ -352,12 +402,36 @@ export class BridgeExecuteService extends BaseService {
         },
       });
 
+      // Check if we should verify transaction success
+      if (waitForReceipt && executeResult.transactionHash) {
+        console.log(
+          'DEBUG handleExecutePhase - Checking transaction success for:',
+          executeResult.transactionHash,
+        );
+
+        const transactionCheck = await this.checkTransactionSuccess(
+          executeResult.transactionHash,
+          toChainId,
+        );
+
+        if (!transactionCheck.success) {
+          console.error('DEBUG handleExecutePhase - Transaction failed:', transactionCheck.error);
+          throw new Error(`Execute transaction failed: ${transactionCheck.error}`);
+        }
+
+        console.log(
+          'DEBUG handleExecutePhase - Transaction succeeded with gas used:',
+          transactionCheck.gasUsed,
+        );
+      }
+
       return {
         executeTransactionHash: executeResult.transactionHash,
         executeExplorerUrl: executeResult.explorerUrl,
         approvalTransactionHash,
       };
     } catch (executeError) {
+      console.error('DEBUG handleExecutePhase - Execute error:', executeError);
       this.emitOperationEvents.failed('OPERATION', executeError, 'execute phase', 'execute');
       throw new Error(
         `Execute phase failed: ${extractErrorMessage(executeError, 'execute phase')}`,
@@ -374,6 +448,8 @@ export class BridgeExecuteService extends BaseService {
       // Convert to string if it's a number
       const amountStr = amount.toString();
 
+      console.log('DEBUG normalizeAmountToWei - Input:', { amount: amountStr, token });
+
       // Handle edge cases
       if (!amountStr || amountStr === '0') {
         return '0';
@@ -384,32 +460,70 @@ export class BridgeExecuteService extends BaseService {
       const tokenMetadata = TOKEN_METADATA[tokenUpper];
       const decimals = tokenMetadata?.decimals || ADAPTER_CONSTANTS?.DEFAULT_DECIMALS || 18;
 
+      console.log('DEBUG normalizeAmountToWei - Token info:', {
+        tokenUpper,
+        decimals,
+        tokenMetadata,
+      });
+
       // If it's already in wei format (no decimals, large number), return as-is
       // Check length to avoid converting small integers to wei incorrectly
       if (!amountStr.includes('.') && amountStr.length > 10) {
+        console.log('DEBUG normalizeAmountToWei - Already in wei format');
         return amountStr;
       }
 
       // Handle hex values
       if (amountStr.startsWith('0x')) {
-        return BigInt(amountStr).toString();
+        const result = BigInt(amountStr).toString();
+        console.log('DEBUG normalizeAmountToWei - Hex conversion:', result);
+        return result;
       }
 
       // Handle decimal amounts (need conversion to wei)
       if (amountStr.includes('.')) {
-        return parseUnits(amountStr, decimals).toString();
+        const result = parseUnits(amountStr, decimals).toString();
+        console.log('DEBUG normalizeAmountToWei - Decimal conversion:', amountStr, '->', result);
+        return result;
       }
 
       // Handle whole number inputs
       const numValue = parseFloat(amountStr);
 
+      // For USDC specifically, be more careful with the conversion
+      if (tokenUpper === 'USDC') {
+        // For USDC, small numbers (< 1000000) are likely user amounts that need conversion
+        if (numValue < 1000000) {
+          const result = parseUnits(amountStr, 6).toString();
+          console.log(
+            'DEBUG normalizeAmountToWei - USDC user amount conversion:',
+            amountStr,
+            '->',
+            result,
+          );
+          return result;
+        } else {
+          // Larger numbers are likely already in micro-USDC
+          console.log('DEBUG normalizeAmountToWei - USDC already in micro format');
+          return amountStr;
+        }
+      }
+
       // For small whole numbers, likely represent user-friendly amounts (e.g., "1" ETH)
       // For larger numbers, likely already in wei format
       if (numValue < 1000 || (tokenMetadata?.decimals === 6 && numValue < 1000000)) {
         // Convert small numbers as user-friendly amounts
-        return parseUnits(amountStr, decimals).toString();
+        const result = parseUnits(amountStr, decimals).toString();
+        console.log(
+          'DEBUG normalizeAmountToWei - User amount conversion:',
+          amountStr,
+          '->',
+          result,
+        );
+        return result;
       } else {
         // Assume larger numbers are already in the correct format
+        console.log('DEBUG normalizeAmountToWei - Already in correct format');
         return amountStr;
       }
     } catch (error) {
@@ -435,8 +549,29 @@ export class BridgeExecuteService extends BaseService {
     const normalizedOriginal = this.normalizeAmountToWei(originalAmount, token);
     const normalizedReceived = this.normalizeAmountToWei(bridgeReceivedAmount, token);
 
+    console.log('DEBUG replaceAmountInExecuteParams:', {
+      originalAmount,
+      bridgeReceivedAmount,
+      normalizedOriginal,
+      normalizedReceived,
+      token,
+      functionParams: execute.functionParams,
+    });
+
+    // If the amounts are the same, no replacement needed
+    if (normalizedOriginal === normalizedReceived) {
+      console.log('DEBUG replaceAmountInExecuteParams - Amounts are equal, no replacement needed');
+      return { modifiedParams: modifiedExecuteParams, parameterReplaced: false };
+    }
+
     // Handle payable functions (replace value field)
     if (execute.value && execute.value !== '0x0' && execute.value !== '0') {
+      console.log(
+        'DEBUG replaceAmountInExecuteParams - Replacing value field:',
+        execute.value,
+        '->',
+        normalizedReceived,
+      );
       modifiedExecuteParams.value = normalizedReceived;
       parameterReplaced = true;
     }
@@ -458,7 +593,20 @@ export class BridgeExecuteService extends BaseService {
           const isNumericSimilar = this.isAmountSimilar(paramStr, normalizedOriginal, 0.001);
           const isLikelyAmount = this.isLikelyAmountParameter(paramStr, i);
 
+          console.log(`DEBUG replaceAmountInExecuteParams - Param ${i}:`, {
+            param: paramStr,
+            isExactMatch,
+            isNumericSimilar,
+            isLikelyAmount,
+          });
+
           if (isExactMatch || isNumericSimilar || isLikelyAmount) {
+            console.log(
+              `DEBUG replaceAmountInExecuteParams - Replacing param ${i}:`,
+              paramStr,
+              '->',
+              normalizedReceived,
+            );
             modifiedParams[i] = normalizedReceived;
             parameterReplaced = true;
             break;
@@ -468,6 +616,12 @@ export class BridgeExecuteService extends BaseService {
 
       modifiedExecuteParams.functionParams = modifiedParams;
     }
+
+    console.log('DEBUG replaceAmountInExecuteParams - Result:', {
+      parameterReplaced,
+      originalParams: execute.functionParams,
+      modifiedParams: modifiedExecuteParams.functionParams,
+    });
 
     return { modifiedParams: modifiedExecuteParams, parameterReplaced };
   }
@@ -498,28 +652,294 @@ export class BridgeExecuteService extends BaseService {
   }
 
   /**
-   * Determine if a parameter is likely an amount based on its value and position
+   * Check if amount parameter is likely to be an amount-related parameter
    */
   private isLikelyAmountParameter(paramStr: string, index: number): boolean {
-    try {
-      const value = BigInt(paramStr);
+    // Check if it's a numeric string that could represent an amount
+    if (!/^\d+$/.test(paramStr)) return false;
 
-      // Must be positive
-      if (value <= 0n) return false;
+    // If it's the first or second parameter, it's more likely to be an amount
+    if (index <= 1) return true;
 
-      // Amount parameters are often at index 1 (after address) or index 0
-      const isLikelyPosition = index <= 2;
+    // Check if the value is reasonably sized (not too small, not too large)
+    const numValue = BigInt(paramStr);
+    return numValue > 0n && numValue < BigInt('1000000000000000000000000'); // Less than 1M tokens with 18 decimals
+  }
 
-      // Should be a reasonable number (not too small, not an address-like number)
-      const valueStr = value.toString();
-      const isReasonableSize = valueStr.length >= 4 && valueStr.length <= 30;
+  /**
+   * Get transaction receipt with retry logic
+   * Note: Assumes we're already on the correct chain (handled by checkTransactionSuccess)
+   */
+  private async getTransactionReceipt(
+    txHash: string,
+    maxRetries: number = 3,
+  ): Promise<TransactionReceipt> {
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        const receipt = (await this.adapter.evmProvider?.request({
+          method: 'eth_getTransactionReceipt',
+          params: [txHash],
+        })) as unknown;
 
-      // Not a small enum-like value
-      const notEnum = value > 100n;
+        if (receipt && receipt !== null) {
+          // Type guard to ensure receipt has the expected structure
+          if (typeof receipt === 'object' && receipt !== null && 'status' in receipt) {
+            return receipt as TransactionReceipt;
+          }
+        }
 
-      return isLikelyPosition && isReasonableSize && notEnum;
-    } catch (e) {
-      return false;
+        // If no receipt yet, wait a bit before retrying
+        if (i < maxRetries - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        }
+      } catch (error) {
+        console.warn(`Attempt ${i + 1} to get receipt failed:`, error);
+        if (i === maxRetries - 1) {
+          throw error;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
     }
+
+    throw new Error(`Failed to get transaction receipt after ${maxRetries} attempts`);
+  }
+
+  /**
+   * Simulate a failed transaction to get the revert reason
+   * Note: Assumes we're already on the correct chain (handled by checkTransactionSuccess)
+   */
+  private async simulateFailedTransaction(txHash: string): Promise<string | null> {
+    try {
+      // Get the original transaction details
+      const tx = (await this.adapter.evmProvider?.request({
+        method: 'eth_getTransactionByHash',
+        params: [txHash],
+      })) as unknown;
+
+      if (!tx || tx === null) {
+        return null;
+      }
+
+      // Type guard to ensure transaction has required properties
+      if (typeof tx !== 'object' || tx === null) {
+        return 'Invalid transaction data';
+      }
+
+      const transaction = tx as Transaction;
+      if (!transaction.to || !transaction.input) {
+        return 'Invalid transaction data';
+      }
+
+      // Get the transaction receipt to find the block number where it failed
+      const receipt = (await this.adapter.evmProvider?.request({
+        method: 'eth_getTransactionReceipt',
+        params: [txHash],
+      })) as unknown;
+
+      // Use the block number where the transaction was mined, or the previous block
+      // This ensures we simulate the exact state when the transaction failed
+      let simulationBlock = 'latest';
+
+      if (receipt && typeof receipt === 'object' && receipt !== null && 'blockNumber' in receipt) {
+        const receiptTyped = receipt as TransactionReceipt;
+        if (receiptTyped.blockNumber) {
+          simulationBlock = `0x${(parseInt(receiptTyped.blockNumber, 16) - 1).toString(16)}`;
+        }
+      } else if (transaction.blockNumber) {
+        simulationBlock = transaction.blockNumber;
+      }
+
+      console.log(`DEBUG simulateFailedTransaction - Simulating at block: ${simulationBlock}`);
+
+      // Simulate the transaction call to get revert reason
+      await this.adapter.evmProvider?.request({
+        method: 'eth_call',
+        params: [
+          {
+            to: transaction.to,
+            data: transaction.input,
+            value: transaction.value || '0x0',
+            from: transaction.from,
+            gas: transaction.gas,
+          },
+          simulationBlock,
+        ],
+      });
+
+      // If eth_call succeeds when we expected it to fail, this is suspicious
+      // The original transaction failed but the simulation passes
+      console.warn(
+        'DEBUG simulateFailedTransaction - eth_call succeeded but original transaction failed. This might indicate a state-dependent failure.',
+      );
+      return 'Transaction failed due to state changes or gas issues';
+    } catch (error: unknown) {
+      console.log(
+        'DEBUG simulateFailedTransaction - eth_call failed as expected, extracting revert reason',
+      );
+
+      // This is the expected path - eth_call should fail and give us the revert reason
+      // Extract revert reason from error
+      if (error && typeof error === 'object' && 'data' in error) {
+        const providerError = error as ProviderError;
+        if (providerError.data?.message) {
+          return providerError.data.message;
+        }
+      }
+
+      if (error && typeof error === 'object' && 'message' in error) {
+        const errorWithMessage = error as { message: string };
+
+        // Parse common revert reason patterns
+        const revertMatch = errorWithMessage.message.match(/revert (.+?)(?:\s|$)/i);
+        if (revertMatch) {
+          return revertMatch[1];
+        }
+
+        // Check for execution reverted patterns
+        if (errorWithMessage.message.includes('execution reverted')) {
+          const cleanMessage = errorWithMessage.message.replace('execution reverted: ', '').trim();
+          return cleanMessage || 'Transaction reverted without reason';
+        }
+
+        // Handle other common error patterns
+        if (errorWithMessage.message.includes('insufficient funds')) {
+          return 'Insufficient funds for gas * price + value';
+        }
+
+        if (errorWithMessage.message.includes('gas required exceeds allowance')) {
+          return 'Out of gas';
+        }
+
+        return errorWithMessage.message;
+      }
+
+      return 'Transaction simulation failed';
+    }
+  }
+
+  /**
+   * Check transaction success and get detailed error information
+   */
+  private async checkTransactionSuccess(
+    txHash: string,
+    chainId: number,
+    maxRetries: number = 5,
+    retryDelay: number = 3000,
+  ): Promise<{
+    success: boolean;
+    error?: string;
+    gasUsed?: string;
+  }> {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(
+          `DEBUG checkTransactionSuccess - Attempt ${attempt}/${maxRetries}: Checking transaction: ${txHash} on chain: ${chainId}`,
+        );
+
+        // Ensure we're on the correct chain before checking transaction
+        const currentChainId = (await this.adapter.evmProvider?.request({
+          method: 'eth_chainId',
+        })) as string;
+        const currentChainIdDecimal = parseInt(currentChainId, 16);
+
+        if (currentChainIdDecimal !== chainId) {
+          console.log(
+            `DEBUG checkTransactionSuccess - Switching from chain ${currentChainIdDecimal} to ${chainId}`,
+          );
+          try {
+            await this.adapter.evmProvider?.request({
+              method: 'wallet_switchEthereumChain',
+              params: [{ chainId: `0x${chainId.toString(16)}` }],
+            });
+            // Wait a bit after chain switch
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+          } catch (switchError) {
+            console.error(
+              `DEBUG checkTransactionSuccess - Failed to switch to chain ${chainId}:`,
+              switchError,
+            );
+            return {
+              success: false,
+              error: `Failed to switch to chain ${chainId} for transaction verification`,
+            };
+          }
+        }
+
+        // 1. Get transaction receipt - basic success/failure
+        const receipt = await this.getTransactionReceipt(txHash);
+
+        if (!receipt) {
+          if (attempt < maxRetries) {
+            console.log(
+              `DEBUG checkTransactionSuccess - Receipt not found, retrying in ${retryDelay}ms...`,
+            );
+            await new Promise((resolve) => setTimeout(resolve, retryDelay));
+            continue; // Retry
+          }
+
+          return {
+            success: false,
+            error: 'Transaction receipt not found after multiple attempts',
+          };
+        }
+
+        console.log(`DEBUG checkTransactionSuccess - Receipt status: ${receipt.status}`);
+
+        // Check if transaction succeeded
+        if (receipt.status === '0x1') {
+          return {
+            success: true,
+            gasUsed: receipt.gasUsed,
+          };
+        }
+
+        // Transaction failed - now get the error reason
+        let errorMessage = 'Transaction failed';
+
+        // 2. Try to get revert reason from receipt (some providers include this)
+        if (receipt.revertReason) {
+          errorMessage = receipt.revertReason;
+        } else {
+          // 3. Simulate the transaction to get detailed error
+          try {
+            const simulationError = await this.simulateFailedTransaction(txHash);
+            if (simulationError) {
+              errorMessage = simulationError;
+            }
+          } catch (simError) {
+            console.warn('DEBUG checkTransactionSuccess - Simulation failed:', simError);
+            // Keep generic error message if simulation fails
+          }
+        }
+
+        console.log(`DEBUG checkTransactionSuccess - Final error: ${errorMessage}`);
+
+        return {
+          success: false,
+          error: errorMessage,
+          gasUsed: receipt.gasUsed,
+        };
+      } catch (error) {
+        console.error(`DEBUG checkTransactionSuccess - Attempt ${attempt} failed:`, error);
+
+        if (attempt < maxRetries) {
+          console.log(`DEBUG checkTransactionSuccess - Retrying in ${retryDelay}ms...`);
+          await new Promise((resolve) => setTimeout(resolve, retryDelay));
+          continue; // Retry
+        }
+
+        // Final attempt failed
+        return {
+          success: false,
+          error: `Failed to check transaction status after ${maxRetries} attempts: ${extractErrorMessage(error, 'transaction check')}`,
+        };
+      }
+    }
+
+    // This should never be reached, but just in case
+    return {
+      success: false,
+      error: `Transaction check failed after ${maxRetries} attempts`,
+    };
   }
 }
