@@ -1,4 +1,3 @@
-import { BACKEND_URL } from '../sdk';
 import {
   ApiResponse,
   BackendConfig,
@@ -23,6 +22,8 @@ export interface BackendSimulationResult {
     totalFee: string;
   };
 }
+
+const BACKEND_URL = 'https://sample-nexus-backend.onrender.com';
 
 /**
  * Backend client for gas estimation using new API
