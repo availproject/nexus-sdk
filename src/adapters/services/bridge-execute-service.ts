@@ -263,19 +263,19 @@ export class BridgeExecuteService extends BaseService {
         | undefined;
 
       if (totalBridgeFee !== '0' || executeSimulation?.gasUsed) {
-        logger.info('DEBUG bridge-execute-service - totalBridgeFee (ETH):', totalBridgeFee);
-        logger.info(
+        logger.debug('DEBUG bridge-execute-service - totalBridgeFee (ETH):', totalBridgeFee);
+        logger.debug(
           'DEBUG bridge-execute-service - executeSimulation?.gasUsed:',
           executeSimulation?.gasUsed,
         );
 
         try {
           const executeFee = executeSimulation?.gasUsed || '0';
-          logger.info('DEBUG bridge-execute-service - executeFee:', executeFee);
+          logger.debug('DEBUG bridge-execute-service - executeFee:', executeFee);
 
           // Both values are already in human-readable ETH format, just add them
           const totalFeeEth = (parseFloat(totalBridgeFee) + parseFloat(executeFee)).toString();
-          logger.info('DEBUG bridge-execute-service - totalFeeEth:', totalFeeEth);
+          logger.debug('DEBUG bridge-execute-service - totalFeeEth:', totalFeeEth);
 
           totalEstimatedCost = {
             total: totalFeeEth,
@@ -504,9 +504,12 @@ export class BridgeExecuteService extends BaseService {
       const numValue = parseFloat(amountStr);
 
       // For USDC specifically, be more careful with the conversion
+      // USDC typically has 6 decimals, so 1 USDC = 1,000,000 micro-USDC
+      const USDC_MICRO_UNITS_THRESHOLD = 1_000_000; // 1 USDC
+
       if (tokenUpper === 'USDC') {
-        // For USDC, small numbers (< 1000000) are likely user amounts that need conversion
-        if (numValue < 1000000) {
+        // For USDC, small numbers (< 1,000,000) are likely user amounts that need conversion
+        if (numValue < USDC_MICRO_UNITS_THRESHOLD) {
           const result = parseUnits(amountStr, 6).toString();
           logger.info(
             `DEBUG normalizeAmountToWei - USDC user amount conversion: ${amountStr} -> ${result}`,

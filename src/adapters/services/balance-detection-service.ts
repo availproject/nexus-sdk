@@ -82,7 +82,7 @@ export class BalanceDetectionService {
     this.ensureInitialized();
 
     try {
-      logger.info('DEBUG BalanceDetectionService - Checking balance:', {
+      logger.debug('DEBUG BalanceDetectionService - Checking balance:', {
         userAddress,
         token,
         chainId,

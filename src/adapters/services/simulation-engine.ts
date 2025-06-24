@@ -81,7 +81,12 @@ export class SimulationEngine {
       });
 
       // Step 1: Check user's current token balance
-      const balanceCheck = await this.checkUserBalance(user, tokenRequired, chainId);
+      const balanceCheck = await this.checkUserBalance(
+        user,
+        tokenRequired,
+        chainId,
+        amountRequired,
+      );
       logger.info('DEBUG SimulationEngine - Balance check result:', balanceCheck);
 
       // Step 2: Generate simulation steps
@@ -120,6 +125,7 @@ export class SimulationEngine {
     user: string,
     token: SUPPORTED_TOKENS,
     chainId: number,
+    requiredAmount?: string,
   ): Promise<BalanceCheckResult> {
     try {
       const tokenAddress = getTokenContractAddress(token, chainId);
@@ -134,10 +140,15 @@ export class SimulationEngine {
           params: [user, 'latest'],
         })) as string;
 
+        const balanceBigInt = BigInt(balance);
+        const requiredBigInt = requiredAmount ? BigInt(requiredAmount) : BigInt(0);
+        const sufficient = balanceBigInt >= requiredBigInt;
+        const shortfall = sufficient ? '0' : (requiredBigInt - balanceBigInt).toString();
+
         return {
           balance,
-          sufficient: true, // We'll handle ETH differently
-          shortfall: '0',
+          sufficient,
+          shortfall,
           tokenAddress,
         };
       }
@@ -158,9 +169,23 @@ export class SimulationEngine {
 
       const balance = BigInt(balanceResponse || '0x0').toString();
 
+      if (requiredAmount) {
+        const balanceBigInt = BigInt(balance);
+        const requiredBigInt = BigInt(requiredAmount);
+        const sufficient = balanceBigInt >= requiredBigInt;
+        const shortfall = sufficient ? '0' : (requiredBigInt - balanceBigInt).toString();
+
+        return {
+          balance,
+          sufficient,
+          shortfall,
+          tokenAddress,
+        };
+      }
+
       return {
         balance,
-        sufficient: false, // We'll set this properly in the calling function
+        sufficient: false, // Cannot determine without required amount
         shortfall: '0',
         tokenAddress,
       };
@@ -169,7 +194,7 @@ export class SimulationEngine {
       return {
         balance: '0',
         sufficient: false,
-        shortfall: '0',
+        shortfall: requiredAmount || '0',
         tokenAddress: getTokenContractAddress(token, chainId) || '',
       };
     }

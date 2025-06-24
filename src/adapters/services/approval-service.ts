@@ -159,13 +159,8 @@ export class ApprovalService extends BaseService {
         (approvalInfo.requiredAmount * ADAPTER_CONSTANTS.APPROVAL_BUFFER_PERCENTAGE) / 10000n;
 
       // Get token decimals for proper formatting
-      let tokenDecimals: number = ADAPTER_CONSTANTS.DEFAULT_DECIMALS;
-      if (tokenApproval.token === 'USDC' || tokenApproval.token === 'USDT') {
-        tokenDecimals = 6;
-      } else if (tokenApproval.token === 'ETH') {
-        tokenDecimals = 18;
-      }
-
+      const tokenMetadata = TOKEN_METADATA[tokenApproval.token.toUpperCase()];
+      const tokenDecimals = tokenMetadata?.decimals || ADAPTER_CONSTANTS.DEFAULT_DECIMALS;
       // Convert to human-readable format first, then back to wei for better MetaMask display
       // This ensures MetaMask shows "0.01001" instead of "10100"
       const humanReadableAmount = formatUnits(requiredAmountWithBuffer, tokenDecimals);

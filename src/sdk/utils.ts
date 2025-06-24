@@ -52,10 +52,12 @@ export class NexusUtils {
   /* Same for isSupportedChain / isSupportedToken */
 
   isSupportedChain(chainId: (typeof SUPPORTED_CHAINS)[keyof typeof SUPPORTED_CHAINS]): boolean {
+    this.ensureInitialized();
     return this.adapter.isSupportedChain(chainId);
   }
 
   isSupportedToken(token: string): boolean {
+    this.ensureInitialized();
     return this.adapter.isSupportedToken(token);
   }
 }

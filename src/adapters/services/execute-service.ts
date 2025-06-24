@@ -51,12 +51,7 @@ export class ExecuteService extends BaseService {
         );
 
         if (approvalResult.error) {
-          this.emitOperationEvents.failed(
-            'EXECUTE',
-            new Error(approvalResult.error),
-            'approval',
-            'approval',
-          );
+          this.emitOperationEvents.failed('EXECUTE', new Error(approvalResult.error), 'approval');
           throw new Error(`Approval failed: ${approvalResult.error}`);
         }
       }
@@ -172,16 +167,16 @@ export class ExecuteService extends BaseService {
 
     try {
       // Check if we should use enhanced simulation
-      logger.info('DEBUG ExecuteService - tokenApproval:', params.tokenApproval);
-      logger.info('DEBUG ExecuteService - functionName:', params.functionName);
-      logger.info(
+      logger.debug('DEBUG ExecuteService - tokenApproval:', params.tokenApproval);
+      logger.debug('DEBUG ExecuteService - functionName:', params.functionName);
+      logger.debug(
         'DEBUG ExecuteService - isComplexContractCall:',
         this.isComplexContractCall(params),
       );
 
       const shouldUseEnhancedSimulation =
         params.tokenApproval && this.shouldUseEnhancedSimulation(params);
-      logger.info(
+      logger.debug(
         'DEBUG ExecuteService - shouldUseEnhancedSimulation:',
         shouldUseEnhancedSimulation,
       );

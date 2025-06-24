@@ -272,12 +272,11 @@ export class TransactionService extends BaseService {
             gasEstimation.error,
           );
 
-          // Optionally throw here if gas estimation failure should prevent execution
-          // For now, we'll log and continue to get actual execution error
           if (gasEstimation.revertReason) {
             logger.warn(
               `DEBUG TransactionService - Transaction will likely fail: ${gasEstimation.revertReason}`,
             );
+            throw new Error(`Transaction simulation failed: ${gasEstimation.revertReason}`);
           }
         } else {
           logger.info('DEBUG TransactionService - Gas estimation completed successfully:', {

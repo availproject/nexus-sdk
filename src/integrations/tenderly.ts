@@ -29,7 +29,7 @@ export interface BackendSimulationResult {
   };
 }
 
-const BACKEND_URL = 'http://localhost:8080';
+const BACKEND_URL = 'https://sample-nexus-backend.onrender.com';
 
 /**
  * Backend client for gas estimation using new API
