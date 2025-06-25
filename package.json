@@ -1,11 +1,18 @@
 {
   "name": "avail-nexus-sdk",
   "version": "0.0.4-dev.6",
-  "description": "Nexus SDK for cross-chain bridging and swaps",
+  "description": "Nexus SDK enables cross-chain transactions with minimal friction",
   "main": "dist/index.js",
   "module": "dist/index.esm.js",
   "browser": "dist/index.esm.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.esm.js",
+      "require": "./dist/index.js"
+    }
+  },
   "sideEffects": false,
   "files": [
     "dist",
