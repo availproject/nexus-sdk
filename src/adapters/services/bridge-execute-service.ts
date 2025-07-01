@@ -108,7 +108,7 @@ export class BridgeExecuteService extends BaseService {
       });
 
       // Get the actual bridge output amount for token approval
-      let bridgeOutputAmount = this.normalizeAmountToWei(amount, token);
+      const bridgeOutputAmount = this.normalizeAmountToWei(amount, token);
 
       const { executeTransactionHash, executeExplorerUrl, approvalTransactionHash } =
         await this.handleExecutePhase(
@@ -197,7 +197,7 @@ export class BridgeExecuteService extends BaseService {
       }
 
       let executeSimulation: ExecuteSimulation | undefined;
-      let approvalRequired = false;
+      const approvalRequired = false;
 
       if (execute) {
         try {

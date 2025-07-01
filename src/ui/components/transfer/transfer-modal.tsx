@@ -1,0 +1,224 @@
+import React from 'react';
+import { BaseModal } from '../shared/base-modal';
+import { useNexus } from '../../providers/NexusProvider';
+import { BridgeAndExecuteSimulationResult, SimulationResult } from '../../../types';
+import { getButtonText } from '../../utils/utils';
+import { BridgeSimulation } from '../bridge/bridge-simulation';
+import { InfoMessage, ActionButtons } from '../shared';
+import TransactionProcessor from '../processing/transaction-processor';
+import { TransferFormSection } from './transfer-form-section';
+
+export function TransferModal() {
+  const {
+    activeTransaction,
+    activeController,
+    updateInput,
+    confirmAndProceed,
+    cancelTransaction,
+    initializeSdk,
+    triggerSimulation,
+    retrySimulation,
+    unifiedBalance,
+    isSdkInitialized,
+    isSimulating,
+    insufficientBalance,
+    isTransactionCollapsed,
+  } = useNexus();
+
+  const { status, reviewStatus, inputData, simulationResult, type } = activeTransaction;
+
+  if (type !== 'transfer') {
+    return null;
+  }
+
+  const isOpen = status !== 'idle' && !isTransactionCollapsed;
+  const isBusy = status === 'processing' || reviewStatus === 'simulating';
+
+  const handleButtonClick = () => {
+    if (status === 'initializing') {
+      initializeSdk();
+    } else if (status === 'simulation_error') {
+      // Reset to review state and trigger simulation again
+      retrySimulation();
+    } else if (
+      status === 'review' &&
+      reviewStatus === 'gathering_input' &&
+      activeController?.hasSufficientInput(inputData || {})
+    ) {
+      triggerSimulation();
+    } else {
+      confirmAndProceed();
+    }
+  };
+
+  const renderReviewContent = () => {
+    if (!activeController) return null;
+
+    const hasSufficientInput = activeController.hasSufficientInput(inputData || {});
+    const tokenBalance = unifiedBalance.find((asset) => asset.symbol === inputData?.token)?.balance;
+
+    // Show simulation section only after SDK is initialized and all inputs are complete
+    const shouldShowSimulation = isSdkInitialized && hasSufficientInput;
+
+    return (
+      <div className="h-full pb-6 w-full">
+        <TransferFormSection
+          inputData={inputData || {}}
+          onUpdate={updateInput}
+          disabled={!isSdkInitialized}
+          tokenBalance={tokenBalance}
+        />
+
+        {!isSdkInitialized && (
+          <InfoMessage variant="success" className="mt-4">
+            You need to sign a message in your wallet to allow transfers using Nexus.
+          </InfoMessage>
+        )}
+
+        {isSdkInitialized && insufficientBalance && (
+          <InfoMessage variant="error" className="mt-4">
+            Insufficient balance. You don't have enough {inputData?.token} to complete this
+            transfer.
+          </InfoMessage>
+        )}
+
+        {activeTransaction.error && status === 'simulation_error' && (
+          <InfoMessage variant="error" className="mt-4">
+            {activeTransaction.error.message}
+          </InfoMessage>
+        )}
+
+        {shouldShowSimulation && !insufficientBalance && status !== 'simulation_error' && (
+          <div className="px-6 mt-4">
+            <BridgeSimulation
+              isLoading={isSimulating}
+              simulationResult={simulationResult || undefined}
+            />
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderProcessingContent = () => {
+    // Safety checks - don't render transaction processor if we have invalid state
+    if (insufficientBalance || !simulationResult || !inputData) {
+      console.warn('Attempted to render transaction processor with invalid state:', {
+        insufficientBalance,
+        hasSimulationResult: !!simulationResult,
+        hasInputData: !!inputData,
+        status,
+      });
+      return renderReviewContent(); // Fall back to review content
+    }
+
+    try {
+      const sources =
+        type === 'transfer'
+          ? (simulationResult as SimulationResult)?.intent?.sources?.map((s) => s.chainID) || []
+          : (
+              simulationResult as BridgeAndExecuteSimulationResult
+            )?.bridgeSimulation?.intent?.sources?.map((s: any) => s.chainID) || [];
+
+      const token = inputData?.token || '';
+
+      const destination =
+        type === 'transfer'
+          ? (simulationResult as SimulationResult)?.intent?.destination?.chainID || 0
+          : (simulationResult as BridgeAndExecuteSimulationResult)?.bridgeSimulation?.intent
+              ?.destination?.chainID || 0;
+
+      const transactionType = type || 'transfer';
+
+      // Additional validation - ensure we have valid data
+      if (!sources.length || !token || !destination) {
+        console.warn('Invalid transaction data for processor:', {
+          sources,
+          token,
+          destination,
+        });
+        return renderReviewContent(); // Fall back to review content
+      }
+
+      return (
+        <TransactionProcessor
+          sources={sources}
+          token={token}
+          destination={destination}
+          transactionType={transactionType}
+          onClose={cancelTransaction}
+        />
+      );
+    } catch (error) {
+      console.error('❌ Error rendering TransactionProcessor:', error);
+      return (
+        <div className="text-center py-12">
+          <div className="text-red-600">Error loading processing view</div>
+          <pre className="text-xs mt-2">{String(error)}</pre>
+          <button
+            onClick={cancelTransaction}
+            className="mt-4 px-4 py-2 bg-blue-500 text-white rounded"
+          >
+            Back to Review
+          </button>
+        </div>
+      );
+    }
+  };
+
+  const renderContent = () => {
+    switch (status) {
+      case 'initializing':
+      case 'review':
+      case 'simulation_error':
+        return renderReviewContent();
+      case 'processing':
+      case 'success':
+      case 'error':
+        return renderProcessingContent();
+      default:
+        return null;
+    }
+  };
+
+  const showFooterButtons = status !== 'processing' && status !== 'success' && status !== 'error';
+  const preventClose = status === 'processing';
+
+  return (
+    <BaseModal
+      isOpen={isOpen}
+      onClose={preventClose ? () => {} : cancelTransaction}
+      title="Review Information"
+    >
+      {renderContent()}
+
+      {showFooterButtons && (
+        <ActionButtons
+          onCancel={cancelTransaction}
+          onPrimary={handleButtonClick}
+          primaryText={
+            reviewStatus === 'needs_allowance'
+              ? 'Set Allowance'
+              : getButtonText(status, reviewStatus)
+          }
+          primaryLoading={isBusy}
+          primaryDisabled={
+            isBusy ||
+            insufficientBalance ||
+            isSimulating ||
+            (status === 'review' &&
+              reviewStatus === 'gathering_input' &&
+              !activeController?.hasSufficientInput(inputData || {})) ||
+            (status === 'review' &&
+              reviewStatus !== 'ready' &&
+              reviewStatus !== 'needs_allowance' &&
+              reviewStatus !== 'gathering_input') ||
+            (status === 'simulation_error' &&
+              !activeController?.hasSufficientInput(inputData || {}))
+          }
+          className="border-t border-zinc-400/40 bg-gray-100"
+        />
+      )}
+    </BaseModal>
+  );
+}

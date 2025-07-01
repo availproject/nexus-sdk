@@ -5,7 +5,7 @@ import type {
   StateOverride,
 } from '../../integrations/types';
 import { encodePacked, keccak256 } from 'viem';
-import type { SUPPORTED_TOKENS, ExecuteParams } from '../../types';
+import type { SUPPORTED_TOKENS, ExecuteParams, EthereumProvider } from '../../types';
 import { getSimulationClient } from '../../integrations/tenderly';
 import { extractErrorMessage, getTokenContractAddress } from '../../utils';
 
@@ -14,7 +14,7 @@ import { extractErrorMessage, getTokenContractAddress } from '../../utils';
  */
 interface SimulationEngineAdapter {
   isInitialized(): boolean;
-  evmProvider: any;
+  evmProvider: EthereumProvider;
 }
 
 /**

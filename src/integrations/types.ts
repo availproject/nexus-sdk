@@ -47,7 +47,7 @@ export interface EnhancedSimulationResult {
     gasUsed: string;
     success: boolean;
     error?: string;
-    stateChanges?: Record<string, any>;
+    stateChanges?: Record<string, unknown>;
   }>;
   stateOverrides?: StateOverride;
   simulationMetadata?: {
@@ -141,8 +141,8 @@ export interface GasEstimationResponse {
  * Enhanced gas estimation response with state change details
  */
 export interface EnhancedGasEstimationResponse extends GasEstimationResponse {
-  stateChanges?: Record<string, any>;
-  simulationTrace?: any;
+  stateChanges?: Record<string, unknown>;
+  simulationTrace?: unknown;
   revertReason?: string;
   success: boolean;
 }

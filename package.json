@@ -13,7 +13,9 @@
       "require": "./dist/index.js"
     }
   },
-  "sideEffects": false,
+  "sideEffects": [
+    "**/*.css"
+  ],
   "files": [
     "dist",
     "README.md"
@@ -46,23 +48,43 @@
   "author": "decocereus<amartya@availproject.co>",
   "license": "MIT",
   "devDependencies": {
+    "@lottiefiles/dotlottie-react": "0.14.2",
+    "@radix-ui/react-dialog": "1.1.14",
+    "@radix-ui/react-label": "2.1.7",
+    "@radix-ui/react-select": "2.2.5",
+    "@radix-ui/react-separator": "1.1.7",
+    "@radix-ui/react-slot": "1.2.3",
     "@rollup/plugin-commonjs": "^25.0.0",
     "@rollup/plugin-json": "6.1.0",
     "@rollup/plugin-node-resolve": "^15.0.0",
     "@rollup/plugin-typescript": "^11.0.0",
+    "@tailwindcss/postcss": "4.1.10",
+    "@tailwindcss/typography": "0.5.16",
     "@types/jest": "^29.0.0",
     "@types/node": "^20.0.0",
+    "@types/react": "19.1.8",
+    "@types/react-dom": "19.1.6",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
+    "autoprefixer": "10.4.21",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
     "eslint": "^8.0.0",
     "eslint-config-prettier": "^9.0.0",
     "eslint-plugin-prettier": "^5.0.0",
     "husky": "^8.0.0",
     "jest": "^29.0.0",
+    "lucide-react": "0.523.0",
+    "postcss": "8.5.6",
+    "postcss-import": "16.1.1",
+    "postcss-nesting": "13.0.2",
     "prettier": "^3.0.0",
     "rollup": "^4.0.0",
     "rollup-plugin-dts": "^6.0.0",
     "rollup-plugin-polyfill-node": "0.13.0",
+    "rollup-plugin-postcss": "4.0.2",
+    "tailwind-merge": "3.3.1",
+    "tailwindcss": "4.1.10",
     "ts-jest": "^29.0.0",
     "typescript": "^5.0.0"
   },
@@ -79,7 +101,8 @@
     }
   },
   "dependencies": {
-    "@arcana/ca-sdk": "1.0.1-beta.3",
+    "@arcana/ca-sdk": "1.0.2",
+    "@radix-ui/react-progress": "1.1.7",
     "viem": "^2.0.0"
   }
 }

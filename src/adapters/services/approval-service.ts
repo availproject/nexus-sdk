@@ -227,7 +227,7 @@ export class ApprovalService extends BaseService {
               });
 
               if (receipt && typeof receipt === 'object') {
-                const receiptObj = receipt as any;
+                const receiptObj = receipt as unknown as { status: string };
                 receiptStatus = receiptObj.status;
 
                 // Check if transaction was successful (status: "0x1") or failed (status: "0x0")

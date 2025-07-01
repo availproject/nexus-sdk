@@ -243,7 +243,18 @@ export class ExecuteService extends BaseService {
    */
   private async runEnhancedSimulation(params: ExecuteParams): Promise<ExecuteSimulation> {
     try {
-      const simulationEngine = new SimulationEngine(this.adapter, this.transactionService);
+      // Check if evmProvider is available
+      if (!this.adapter.evmProvider) {
+        throw new Error('EVM provider not available for enhanced simulation');
+      }
+
+      // Create a proper adapter for SimulationEngine
+      const simulationAdapter = {
+        isInitialized: () => this.adapter.isInitialized(),
+        evmProvider: this.adapter.evmProvider,
+      };
+
+      const simulationEngine = new SimulationEngine(simulationAdapter, this.transactionService);
 
       // Get user address
       const preparation = await this.transactionService.prepareExecution(params);

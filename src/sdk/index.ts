@@ -76,7 +76,7 @@ export class NexusSDK {
   public async initialize(provider: EthereumProvider): Promise<void> {
     // Initialize the core adapter first
     await this.nexusAdapter.initialize(provider);
-    const BACKEND_URL = 'https://sample-nexus-backend.onrender.com';
+    const BACKEND_URL = 'https://nexus-backend.avail.so';
     if (BACKEND_URL) {
       try {
         const initResult = await initializeSimulationClient(BACKEND_URL);

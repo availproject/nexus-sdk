@@ -36,7 +36,7 @@ export const getLogger = () => {
 class Logger {
   private prefix: string = 'NEXUS_SDK';
 
-  consoleLog(level: LogLevel, message: string, params?: any) {
+  consoleLog(level: LogLevel, message: string, params?: unknown) {
     if (level < state.logLevel) {
       return;
     }
@@ -59,7 +59,7 @@ class Logger {
     }
   }
 
-  debug(message: string, params: any = {}) {
+  debug(message: string, params: unknown = {}) {
     this.internalLog(LOG_LEVEL.DEBUG, message, params);
   }
 
@@ -82,12 +82,12 @@ class Logger {
     this.internalLog(LOG_LEVEL.INFO, message, params);
   }
 
-  internalLog(level: LogLevel, message: string, params?: any) {
+  internalLog(level: LogLevel, message: string, params?: unknown) {
     const logMessage = `[${this.prefix}] Msg: ${message}\n`;
     this.consoleLog(level, logMessage, params);
   }
 
-  warn(message: string, params: any = {}) {
+  warn(message: string, params: unknown = {}) {
     this.internalLog(LOG_LEVEL.WARNING, message, params);
   }
 }

@@ -1,6 +1,6 @@
 import { getTokenContractAddress } from '../../utils';
 import { TOKEN_METADATA } from '../../constants';
-import type { SUPPORTED_TOKENS } from '../../types';
+import type { EthereumProvider, SUPPORTED_TOKENS } from '../../types';
 import { logger } from '../../utils/logger';
 
 /**
@@ -8,7 +8,7 @@ import { logger } from '../../utils/logger';
  */
 interface BalanceDetectionAdapter {
   isInitialized(): boolean;
-  evmProvider: any;
+  evmProvider: EthereumProvider;
 }
 
 /**
