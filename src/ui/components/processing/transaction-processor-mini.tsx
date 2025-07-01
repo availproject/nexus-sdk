@@ -1,7 +1,8 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { ExternalLink, Maximize } from 'lucide-react';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
-import { CHAIN_METADATA, TOKEN_METADATA, TransactionType } from '../../..';
+import { CHAIN_METADATA, TOKEN_METADATA } from '../../../constants';
+import { TransactionType } from '../../types';
 
 import { getOperationText } from '../../utils/utils';
 import { Button, ThreeStageProgress, EnhancedInfoMessage } from '../shared';

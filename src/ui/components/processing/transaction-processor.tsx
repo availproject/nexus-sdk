@@ -3,12 +3,10 @@ import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import {
   BridgeAndExecuteResult,
   BridgeAndExecuteSimulationResult,
-  CHAIN_METADATA,
   SimulationResult,
-  TOKEN_METADATA,
-  TransactionType,
-} from '../../..';
-
+} from '../../../types';
+import { TransactionType } from '../../types';
+import { CHAIN_METADATA, TOKEN_METADATA } from '../../../constants';
 import { SmallAvailLogo } from '../shared/icons/SmallAvailLogo';
 import { CircleX, ExternalLink, Minimize } from 'lucide-react';
 import { Button, ThreeStageProgress, EnhancedInfoMessage } from '../shared';
