@@ -1,25 +1,16 @@
 import React from 'react';
 import type { TransferButtonProps } from '../../types';
-import { useNexus } from '../../providers/NexusProvider';
+import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { TransferModal } from './transfer-modal';
 
-export function TransferButton({
-  prefill,
-  onSuccess,
-  onError,
-  children,
-  className,
-}: TransferButtonProps) {
-  const { startTransaction, activeTransaction } = useNexus();
+export function TransferButton({ prefill, children, className }: TransferButtonProps) {
+  const { startTransaction, activeTransaction } = useInternalNexus();
   const isLoading =
     activeTransaction.status === 'processing' || activeTransaction.reviewStatus === 'simulating';
 
   const handleClick = () => {
     startTransaction('transfer', prefill);
   };
-
-  // TODO: Refactor onSuccess and onError to be handled by the orchestrator
-  // For now, we can leave them be, but they will likely be deprecated.
 
   return (
     <>

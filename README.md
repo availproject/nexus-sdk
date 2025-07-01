@@ -94,6 +94,162 @@ const executeResult = await sdk.execute({
 | USDC  | USD Coin   | 6        | All supported  |
 | USDT  | Tether USD | 6        | All supported  |
 
+## React UI Components (Widget Library) 🚀
+
+The SDK ships with a React widget suite that lets you embed complete cross-chain flows in **three simple steps**.
+
+### 1️⃣ Wrap your app with `NexusProvider`
+
+```tsx
+import { NexusProvider } from 'avail-nexus-sdk';
+
+export default function Root() {
+  return (
+    <NexusProvider
+      config={{
+        network: 'testnet', // "mainnet" (default) or "testnet"
+      }}
+    >
+      <App />
+    </NexusProvider>
+  );
+}
+```
+
+### 2️⃣ Forward the user's wallet provider
+
+```tsx
+import { useEffect } from 'react';
+import { useAccount } from '@wagmi/react'; // any wallet lib works
+import { useNexus } from 'avail-nexus-sdk';
+
+export function WalletBridge() {
+  const { connector, isConnected } = useAccount();
+  const { setProvider } = useNexus();
+
+  useEffect(() => {
+    if (isConnected && connector?.getProvider) {
+      connector.getProvider().then(setProvider);
+    }
+  }, [isConnected, connector, setProvider]);
+
+  return null;
+}
+```
+
+### 3️⃣ Drop a widget into your UI
+
+```tsx
+import {
+  BridgeButton,
+  TransferButton,
+  BridgeAndExecuteButton,
+} from 'avail-nexus-sdk';
+
+/*  Bridge ----------------------------------------------------------- */
+<BridgeButton prefill={{ chainId: 137, token: 'USDC', amount: '100' }}>
+  {({ onClick, isLoading }) => (
+    <button onClick={onClick} disabled={isLoading}>
+      {isLoading ? 'Bridging…' : 'Bridge 100 USDC → Polygon'}
+    </button>
+  )}
+</BridgeButton>
+
+/*  Transfer --------------------------------------------------------- */
+<TransferButton>
+  {({ onClick }) => <YourStyledBtn onClick={onClick}>Send Funds</YourStyledBtn>}
+</TransferButton>
+
+/*  Bridge + Execute ------------------------------------------------- */
+import aavePoolAbi from './abi/aavePool.json';
+
+const buildParams = (token, amount, chainId, userAddress) => ({
+  functionParams: [token, amount, userAddress, 0],
+  value: '0',
+});
+
+<BridgeAndExecuteButton
+  contractAddress="0x8dFf5E27EA6b7AC08EbFdf9eB090F32ee9a30fcf"
+  contractAbi={aavePoolAbi}
+  functionName="supply"
+  buildFunctionParams={buildParams}
+  prefill={{ toChainId: 1, token: 'USDC' }}
+>
+  {({ onClick, isLoading }) => (
+    <button onClick={onClick} disabled={isLoading}>
+      {isLoading ? 'Working…' : 'Bridge & Supply'}
+    </button>
+  )}
+</BridgeAndExecuteButton>
+```
+
+---
+
+### Public widget APIs
+
+#### `BridgeButton`
+
+```ts
+interface BridgeButtonProps {
+  prefill?: Partial<BridgeParams>; // chainId, token, amount
+  className?: string;
+  children(props: { onClick(): void; isLoading: boolean }): React.ReactNode;
+}
+```
+
+#### `TransferButton`
+
+```ts
+interface TransferButtonProps {
+  prefill?: Partial<TransferParams>; // chainId, token, amount, recipient
+  className?: string;
+  children(props: { onClick(): void; isLoading: boolean }): React.ReactNode;
+}
+```
+
+#### `BridgeAndExecuteButton`
+
+```ts
+type DynamicParamBuilder = (
+  token: SUPPORTED_TOKENS,
+  amount: string,
+  chainId: SUPPORTED_CHAINS_IDS,
+  userAddress: `0x${string}`,
+) => {
+  functionParams: readonly unknown[];
+  value?: string; // wei; defaults to "0"
+};
+
+interface BridgeAndExecuteButtonProps {
+  contractAddress: `0x${string}`; // REQUIRED
+  contractAbi: Abi; // REQUIRED
+  functionName: string; // REQUIRED
+  buildFunctionParams: DynamicParamBuilder; // REQUIRED
+  prefill?: { toChainId?: number; token?: SUPPORTED_TOKENS; amount?: string };
+  className?: string;
+  children(props: { onClick(): void; isLoading: boolean; disabled: boolean }): React.ReactNode;
+}
+```
+
+`buildFunctionParams` receives the validated UX input (token, amount, destination chainId) plus the **connected wallet address** and must return the encoded `functionParams` (and optional ETH `value`) used in the destination call.  
+The library then:
+
+1. Bridges the asset to `toChainId`.
+2. Sets ERC-20 allowance if required.
+3. Executes `contractAddress.functionName(functionParams, { value })`.
+
+##### Prefill behaviour
+
+| Widget                   | Supported keys                            | Locked in UI |
+| ------------------------ | ----------------------------------------- | ------------ |
+| `BridgeButton`           | `chainId`, `token`, `amount`              | ✅           |
+| `TransferButton`         | `chainId`, `token`, `amount`, `recipient` | ✅           |
+| `BridgeAndExecuteButton` | `toChainId`, `token`, `amount`            | ✅           |
+
+Values passed in `prefill` appear as **read-only** fields, enforcing your desired flow.
+
+---
+
 ## API Reference
 
 ### Initialization
@@ -121,9 +277,6 @@ const balances: UserAsset[] = await sdk.getUnifiedBalances();
 
 // Get balance for specific token
 const usdcBalance: UserAsset | undefined = await sdk.getUnifiedBalance('USDC');
-
-// Get formatted balance for specific token on specific chain
-const balance: TokenBalance | undefined = await sdk.utils.getFormattedTokenBalance('USDC', 137);
 ```
 
 ### Bridge Operations
@@ -296,9 +449,8 @@ const testnetTokenMeta: TokenMetadata | undefined = sdk.utils.getTestnetTokenMet
 const isSupported: boolean = sdk.utils.isSupportedChain(137);
 const isSupportedToken: boolean = sdk.utils.isSupportedToken('USDC');
 
-// Get supported chains/tokens
+// Get supported chains
 const chains: Array<{ id: number; name: string; logo: string }> = sdk.utils.getSupportedChains();
-const chainsWithMeta: ChainMetadata[] = sdk.utils.getSupportedChainsWithMetadata();
 
 // Chain ID conversion
 const hexChainId: string = sdk.utils.chainIdToHex(137);
@@ -345,6 +497,61 @@ sdk.setOnAllowanceHook(({ allow, deny, sources }: Parameters<OnAllowanceHook>[0]
 sdk.onAccountChanged((account) => console.log('Account:', account));
 sdk.onChainChanged((chainId) => console.log('Chain:', chainId));
 ```
+
+#### Bridge & Execute Progress Stream (new in vNEXT)
+
+```typescript
+import { NEXUS_EVENTS } from 'avail-nexus-sdk';
+import type { ProgressStep } from '@arcana/ca-sdk';
+
+// 1️⃣  Listen once for all expected steps (array) – call this before bridgeAndExecute()
+const unsubscribeExpected = sdk.on(
+  NEXUS_EVENTS.BRIDGE_EXECUTE_EXPECTED_STEPS,
+  (steps: ProgressStep[]) => {
+    // Render your progress bar skeleton here (total steps = steps.length)
+    console.log(
+      'Expected steps →',
+      steps.map((s) => s.typeID),
+    );
+  },
+);
+
+// 2️⃣  Listen for every completed step (single object)
+const unsubscribeCompleted = sdk.on(
+  NEXUS_EVENTS.BRIDGE_EXECUTE_COMPLETED_STEPS,
+  (step: ProgressStep) => {
+    // Tick UI when each step finishes or handle errors via step.data.error
+    console.log('Completed step →', step.typeID, step.type, step.data);
+
+    if (step.typeID === 'ER') {
+      // The operation has failed – display step.data.error
+    }
+  },
+);
+
+// Don't forget to clean up if your component unmounts
+return () => {
+  unsubscribeExpected();
+  unsubscribeCompleted();
+};
+```
+
+> **Step IDs**
+> | ID | Meaning |
+> |----|---------------------------------|
+> | BR | CA-SDK bridge steps (multiple) |
+> | AP | Token approval (virtual) |
+> | TS | Execute tx sent (virtual) |
+> | RR | Receipt received _(optional)_ |
+> | CN | Tx confirmed _(optional)_ |
+> | ER | Operation failed (virtual) |
+
+The SDK now emits **exactly two event names** around `bridgeAndExecute()`:
+
+1. `bridge_execute_expected_steps` – _once_ with a full ordered array of `ProgressStep`s.
+2. `bridge_execute_completed_steps` – _many_; one per finished step (or error), containing the same `typeID` as in the expected list plus runtime `data` such as `txHash`, `confirmations`, `error`, etc.
+
+This replaces the legacy `BRIDGE_*`, `APPROVAL_*`, `EXECUTE_*`, `OPERATION_*`, and `TRANSFER_*` events.
 
 ### Provider Methods
 

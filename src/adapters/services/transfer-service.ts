@@ -18,14 +18,6 @@ export class TransferService extends BaseService {
       validateBridgeTransferParams(params);
       this.ensureInitialized();
 
-      // Emit started event
-      this.emitOperationEvents.started('TRANSFER', {
-        toChainId: params.chainId,
-        tokenAddress: params.token,
-        amount: params.amount.toString(),
-        recipient: params.recipient,
-      });
-
       // Execute transfer operation using CA SDK
       const result = await this.waitForTransactionCompletion<TransferResult>(async () => {
         const transferQuery = await this.ca.transfer({
@@ -38,14 +30,8 @@ export class TransferService extends BaseService {
         await transferQuery.exec();
       });
 
-      // Emit completion event
-      this.emitOperationEvents.completed('TRANSFER', { result });
-
       return result;
     } catch (error) {
-      // Emit failure event
-      this.emitOperationEvents.failed('TRANSFER', error, 'transfer operation');
-
       // Validate parameters for error return format
       const validation = validateForResultReturn({
         chainId: params.chainId,

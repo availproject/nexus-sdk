@@ -35,12 +35,6 @@ export class ExecuteService extends BaseService {
     this.ensureInitialized();
 
     try {
-      // Emit started event
-      this.emitOperationEvents.started('EXECUTE', {
-        chainId: params.toChainId,
-        contractAddress: params.contractAddress,
-      });
-
       // Handle approval if needed
       if (params.tokenApproval) {
         const approvalResult = await this.approvalService.ensureContractApproval(
@@ -51,7 +45,6 @@ export class ExecuteService extends BaseService {
         );
 
         if (approvalResult.error) {
-          this.emitOperationEvents.failed('EXECUTE', new Error(approvalResult.error), 'approval');
           throw new Error(`Approval failed: ${approvalResult.error}`);
         }
       }
@@ -94,13 +87,8 @@ export class ExecuteService extends BaseService {
         receiptInfo,
       );
 
-      // Emit completion event
-      this.emitOperationEvents.completed('EXECUTE', result);
-
       return result;
     } catch (error) {
-      // Emit failure event
-      this.emitOperationEvents.failed('EXECUTE', error, 'contract execution');
       throw error;
     }
   }
@@ -143,13 +131,27 @@ export class ExecuteService extends BaseService {
           gasUsed: '0',
           success: false,
           error: simulationResult.errorMessage || 'Simulation failed',
-        };
+        } as ExecuteSimulation;
+      }
+
+      const gasUsedDecimal = hexToNumber(simulationResult.gasUsed as Hex);
+      let gasCostEth: string | undefined;
+      try {
+        const gasPriceHex = (await this.adapter.evmProvider!.request({
+          method: 'eth_gasPrice',
+        })) as string;
+        const gasPriceWei = parseInt(gasPriceHex, 16);
+        const costEthNum = (gasUsedDecimal * gasPriceWei) / 1e18;
+        gasCostEth = costEthNum.toFixed(8);
+      } catch (gpErr) {
+        logger.warn('Failed to fetch gas price during simulation cost calc:', gpErr);
       }
 
       return {
-        gasUsed: hexToNumber(simulationResult.gasUsed as Hex).toString(),
+        gasUsed: gasUsedDecimal.toString(),
         success: true,
-      };
+        ...(gasCostEth ? { gasCostEth } : {}),
+      } as ExecuteSimulation;
     } catch (error) {
       return {
         gasUsed: '0',
@@ -286,9 +288,11 @@ export class ExecuteService extends BaseService {
         };
       }
 
+      // enhancedResult.totalGasUsed is already an ETH-denominated string (SimulationEngine converts)
       return {
         gasUsed: enhancedResult.totalGasUsed,
         success: true,
+        gasCostEth: enhancedResult.totalGasUsed,
       } as ExecuteSimulation;
     } catch (error) {
       logger.error('Enhanced simulation failed, falling back to standard:', error as Error);

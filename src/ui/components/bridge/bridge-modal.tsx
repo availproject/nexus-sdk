@@ -1,12 +1,13 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { BaseModal } from '../shared/base-modal';
-import { useNexus } from '../../providers/NexusProvider';
+import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { BridgeAndExecuteSimulationResult, SimulationResult } from '../../../types';
 import { getButtonText } from '../../utils/utils';
 import { BridgeFormSection } from './bridge-form-section';
 import { InfoMessage, ActionButtons, AllowanceForm, EnhancedInfoMessage } from '../shared';
 import TransactionProcessor from '../processing/transaction-processor';
 import { TransactionSimulation } from '../processing/transaction-simulation';
+import { logger } from '../../../utils';
 
 export function BridgeModal() {
   const {
@@ -28,9 +29,12 @@ export function BridgeModal() {
     approveAllowance,
     denyAllowance,
     startAllowanceFlow,
-  } = useNexus();
+  } = useInternalNexus();
 
-  const { status, reviewStatus, inputData, simulationResult, type } = activeTransaction;
+  const { status, reviewStatus, inputData, simulationResult, type, prefillFields } =
+    activeTransaction;
+
+  const [isInitializing, setIsInitializing] = useState(false);
 
   if (type !== 'bridge') {
     return null;
@@ -41,7 +45,9 @@ export function BridgeModal() {
 
   const handleButtonClick = () => {
     if (status === 'initializing') {
+      setIsInitializing(true);
       initializeSdk();
+      setIsInitializing(false);
     } else if (status === 'simulation_error') {
       // Reset to review state and trigger simulation again
       retrySimulation();
@@ -74,6 +80,7 @@ export function BridgeModal() {
           onUpdate={updateInput}
           disabled={!isSdkInitialized}
           tokenBalance={tokenBalance}
+          prefillFields={prefillFields}
         />
 
         {!isSdkInitialized && (
@@ -135,15 +142,8 @@ export function BridgeModal() {
   };
 
   const renderProcessingContent = () => {
-    // Safety checks - don't render transaction processor if we have invalid state
     if (insufficientBalance || !simulationResult || !inputData) {
-      console.warn('Attempted to render transaction processor with invalid state:', {
-        insufficientBalance,
-        hasSimulationResult: !!simulationResult,
-        hasInputData: !!inputData,
-        status,
-      });
-      return renderReviewContent(); // Fall back to review content
+      return renderReviewContent();
     }
 
     try {
@@ -166,7 +166,7 @@ export function BridgeModal() {
 
       // Additional validation - ensure we have valid data
       if (!sources.length || !token || !destination) {
-        console.warn('Invalid transaction data for processor:', {
+        logger.warn('Invalid transaction data for processor:', {
           sources,
           token,
           destination,
@@ -184,7 +184,7 @@ export function BridgeModal() {
         />
       );
     } catch (error) {
-      console.error('❌ Error rendering TransactionProcessor:', error);
+      logger.error('❌ Error rendering TransactionProcessor:', error as Error);
       return (
         <div className="text-center py-12">
           <div className="text-red-600">Error loading processing view</div>
@@ -246,12 +246,15 @@ export function BridgeModal() {
           onCancel={cancelTransaction}
           onPrimary={handleButtonClick}
           primaryText={
-            reviewStatus === 'needs_allowance'
-              ? 'Set Allowance'
-              : getButtonText(status, reviewStatus)
+            isInitializing
+              ? 'Signing...'
+              : reviewStatus === 'needs_allowance'
+                ? 'Set Allowance'
+                : getButtonText(status, reviewStatus)
           }
-          primaryLoading={isBusy}
+          primaryLoading={isBusy || isInitializing}
           primaryDisabled={
+            isInitializing ||
             isBusy ||
             insufficientBalance ||
             isSimulating ||

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNexus } from '../../providers/NexusProvider';
+import { useInternalNexus } from '../../providers/InternalNexusProvider';
 
 interface SuccessRippleProps {
   children: React.ReactNode;
@@ -7,7 +7,7 @@ interface SuccessRippleProps {
 }
 
 const SuccessRipple: React.FC<SuccessRippleProps> = ({ children, size = 'md' }) => {
-  const { activeTransaction } = useNexus();
+  const { activeTransaction } = useInternalNexus();
   const [showRipple, setShowRipple] = useState(false);
   const [animationKey, setAnimationKey] = useState(0);
 

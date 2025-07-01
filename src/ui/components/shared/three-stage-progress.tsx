@@ -39,7 +39,7 @@ export const ThreeStageProgress: React.FC<ThreeStageProgressProps> = ({
               : progress > 0
                 ? 'active'
                 : 'empty',
-        showToken: progress > 0 && progress <= 33.33,
+        showToken: progress <= 33.33,
       },
       // Second bar (33-66%)
       {
@@ -52,7 +52,7 @@ export const ThreeStageProgress: React.FC<ThreeStageProgressProps> = ({
               : progress > 33.33
                 ? 'active'
                 : 'empty',
-        showToken: progress > 33.33 && progress <= 66.66,
+        showToken: progress >= 33.33 && progress <= 66.66,
       },
       // Third bar (66-100%)
       {
@@ -65,7 +65,7 @@ export const ThreeStageProgress: React.FC<ThreeStageProgressProps> = ({
                 ? 'completed'
                 : 'active'
               : 'empty',
-        showToken: progress > 66.66,
+        showToken: progress >= 66.66,
       },
     ];
   };

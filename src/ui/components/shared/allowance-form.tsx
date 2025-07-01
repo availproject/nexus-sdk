@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { FormField } from './form-field';
 import { Input } from './input';
 import { cn } from '../../utils/utils';
 import { EnhancedInfoMessage } from './enhanced-info-message';
-import { CHAIN_METADATA, TOKEN_METADATA } from '../../..';
+import { AllowanceResponse, CHAIN_METADATA, TOKEN_METADATA } from '../../..';
 import { ActionButtons } from './action-buttons';
+import { useInternalNexus } from '../../providers/InternalNexusProvider';
 
 export interface AllowanceFormProps {
   token: string;
@@ -27,8 +28,10 @@ export function AllowanceForm({
   isLoading = false,
   error = null,
 }: AllowanceFormProps) {
+  const [currentAllowance, setCurrentAllowance] = useState<AllowanceResponse | null>(null);
   const [selectedType, setSelectedType] = useState<'minimum' | 'custom'>('minimum');
   const [customAmount, setCustomAmount] = useState('');
+  const { sdk } = useInternalNexus();
 
   const tokenMetadata = TOKEN_METADATA[token as keyof typeof TOKEN_METADATA];
 
@@ -46,6 +49,16 @@ export function AllowanceForm({
     const numInputAmount = parseFloat(inputAmount);
     return !isNaN(numAmount) && numAmount > 0 && numAmount >= numInputAmount;
   };
+  const getCurrentAllowance = async () => {
+    const allowance = await sdk.getAllowance(sourceChains[0].chainId, [token]);
+    setCurrentAllowance(allowance[0]);
+  };
+
+  useEffect(() => {
+    if (!currentAllowance) {
+      getCurrentAllowance();
+    }
+  }, [sourceChains, token]);
 
   const isCustomValid = selectedType === 'custom' ? validateCustomAmount(customAmount) : true;
   const isFormValid = selectedType === 'minimum' || isCustomValid;
@@ -91,7 +104,7 @@ export function AllowanceForm({
         <div className="mt-3 pt-3 border-t border-gray-200">
           <div className="flex items-center justify-between text-sm">
             <span className="text-gray-600">Current Allowance</span>
-            <span className="font-mono">0.000000</span>
+            <span className="font-mono">{currentAllowance?.allowance}</span>
           </div>
         </div>
       </div>

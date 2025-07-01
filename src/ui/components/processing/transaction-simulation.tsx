@@ -42,9 +42,18 @@ interface SimulationData {
 
 export function TransactionSimulation({ isLoading, simulationResult }: TransactionSimulationProps) {
   const getSimulationData = (): SimulationData | null => {
-    if (!simulationResult || !('intent' in simulationResult)) return null;
+    if (!simulationResult) return null;
 
-    const { intent } = simulationResult;
+    // Handle bridge & execute result where intent is nested
+    let intent: any;
+    if ('intent' in simulationResult) {
+      intent = (simulationResult as SimulationResult).intent;
+    } else if ('bridgeSimulation' in simulationResult && simulationResult.bridgeSimulation) {
+      intent = (simulationResult.bridgeSimulation as SimulationResult).intent;
+    }
+
+    if (!intent) return null;
+
     return {
       destination: intent.destination as ChainInfo,
       sources: (intent.sources || []) as ChainInfo[],
@@ -55,6 +64,12 @@ export function TransactionSimulation({ isLoading, simulationResult }: Transacti
   };
 
   const data = getSimulationData();
+
+  // Determine execute gas if present in simulation result (Bridge & Execute)
+  let executeGas: string | undefined;
+  if (simulationResult && 'totalEstimatedCost' in simulationResult) {
+    executeGas = simulationResult.totalEstimatedCost?.breakdown?.execute;
+  }
 
   if (isLoading || !data) {
     return <LoadingState />;
@@ -69,7 +84,7 @@ export function TransactionSimulation({ isLoading, simulationResult }: Transacti
       )}
       <RouteSection data={data} />
       <hr className="border-zinc-400/40" />
-      <FeeBreakdown fees={data.fees} tokenSymbol={data.token.symbol} />
+      <FeeBreakdown fees={data.fees} tokenSymbol={data.token.symbol} executeGas={executeGas} />
     </div>
   );
 }
@@ -133,11 +148,25 @@ function RouteSection({ data }: { data: SimulationData }) {
 }
 
 // Fee breakdown component
-function FeeBreakdown({ fees, tokenSymbol }: { fees: FeesInfo; tokenSymbol: string }) {
+function FeeBreakdown({
+  fees,
+  tokenSymbol,
+  executeGas,
+}: {
+  fees: FeesInfo;
+  tokenSymbol: string;
+  executeGas?: string;
+}) {
   return (
     <div className="space-y-3">
-      <FeeRow label="Gas fees" value={fees.total} tokenSymbol={tokenSymbol} />
+      <FeeRow label="Bridge gas" value={fees.total} tokenSymbol={tokenSymbol} />
       <hr className="border-zinc-400/40" />
+      {executeGas && (
+        <>
+          <FeeRow label="Execute gas" value={executeGas} tokenSymbol={tokenSymbol} />
+          <hr className="border-zinc-400/40" />
+        </>
+      )}
       <FeeRow label="Solver fees" value={fees.solver} tokenSymbol={tokenSymbol} />
     </div>
   );
@@ -170,7 +199,7 @@ function FeeRow({
         <span
           className={`text-sm font-semibold font-primary ${isTotal ? 'text-black' : 'text-black'}`}
         >
-          {value || '0'} {tokenSymbol}
+          {parseFloat(value ?? '0').toFixed(6)} {tokenSymbol}
         </span>
       )}
     </div>

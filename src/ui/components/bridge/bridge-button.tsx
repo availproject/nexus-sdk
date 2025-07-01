@@ -1,25 +1,16 @@
 import React from 'react';
 import type { BridgeButtonProps } from '../../types';
-import { useNexus } from '../../providers/NexusProvider';
+import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { BridgeModal } from './bridge-modal';
 
-export function BridgeButton({
-  prefill,
-  onSuccess,
-  onError,
-  children,
-  className,
-}: BridgeButtonProps) {
-  const { startTransaction, activeTransaction } = useNexus();
+export function BridgeButton({ prefill, children, className }: BridgeButtonProps) {
+  const { startTransaction, activeTransaction } = useInternalNexus();
   const isLoading =
     activeTransaction.status === 'processing' || activeTransaction.reviewStatus === 'simulating';
 
   const handleClick = () => {
     startTransaction('bridge', prefill);
   };
-
-  // TODO: Refactor onSuccess and onError to be handled by the orchestrator
-  // For now, we can leave them be, but they will likely be deprecated.
 
   return (
     <>

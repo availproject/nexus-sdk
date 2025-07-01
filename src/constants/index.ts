@@ -201,29 +201,13 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
 
 // Event name constants to prevent typos
 export const NEXUS_EVENTS = {
-  EXPECTED_STEPS: 'expected_steps',
   STEP_COMPLETE: 'step_complete',
+  EXPECTED_STEPS: 'expected_steps',
   ACCOUNTS_CHANGED: 'accountsChanged',
   CHAIN_CHANGED: 'chainChanged',
   // Modular event names
-  BRIDGE_STARTED: 'bridge:started',
-  BRIDGE_COMPLETED: 'bridge:completed',
-  BRIDGE_FAILED: 'bridge:failed',
-  APPROVAL_STARTED: 'approval:started',
-  APPROVAL_COMPLETED: 'approval:completed',
-  APPROVAL_FAILED: 'approval:failed',
-  APPROVAL_SKIPPED: 'approval:skipped',
-  EXECUTE_STARTED: 'execute:started',
-  EXECUTE_COMPLETED: 'execute:completed',
-  EXECUTE_FAILED: 'execute:failed',
-  OPERATION_STARTED: 'operation:started',
-  OPERATION_COMPLETED: 'operation:completed',
-  OPERATION_FAILED: 'operation:failed',
-  // Transaction confirmation events
-  TRANSACTION_SENT: 'transaction:sent',
-  TRANSACTION_CONFIRMED: 'transaction:confirmed',
-  RECEIPT_RECEIVED: 'receipt:received',
-  CONFIRMATION_UPDATE: 'confirmation:update',
+  BRIDGE_EXECUTE_EXPECTED_STEPS: 'bridge_execute_expected_steps',
+  BRIDGE_EXECUTE_COMPLETED_STEPS: 'bridge_execute_completed_steps',
 } as const;
 
 // Helper constants for mainnet and testnet chain categorization

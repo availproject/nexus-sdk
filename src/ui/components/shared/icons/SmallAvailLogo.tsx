@@ -248,9 +248,9 @@ export const SmallAvailLogo: React.FC<SmallAvailLogoProps> = ({
         width="55.6728"
         height="57.4696"
         filterUnits="userSpaceOnUse"
-        color-interpolation-filters="sRGB"
+        colorInterpolationFilters="sRGB"
       >
-        <feFlood flood-opacity="0" result="BackgroundImageFix" />
+        <feFlood floodOpacity="0" result="BackgroundImageFix" />
         <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
         <feGaussianBlur stdDeviation="11.2583" result="effect1_foregroundBlur_2725_30131" />
       </filter>
@@ -261,9 +261,9 @@ export const SmallAvailLogo: React.FC<SmallAvailLogoProps> = ({
         width="9.55433"
         height="15.8844"
         filterUnits="userSpaceOnUse"
-        color-interpolation-filters="sRGB"
+        colorInterpolationFilters="sRGB"
       >
-        <feFlood flood-opacity="0" result="BackgroundImageFix" />
+        <feFlood floodOpacity="0" result="BackgroundImageFix" />
         <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
         <feGaussianBlur stdDeviation="0.375276" result="effect1_foregroundBlur_2725_30131" />
       </filter>
@@ -274,9 +274,9 @@ export const SmallAvailLogo: React.FC<SmallAvailLogoProps> = ({
         width="48.5851"
         height="47.8996"
         filterUnits="userSpaceOnUse"
-        color-interpolation-filters="sRGB"
+        colorInterpolationFilters="sRGB"
       >
-        <feFlood flood-opacity="0" result="BackgroundImageFix" />
+        <feFlood floodOpacity="0" result="BackgroundImageFix" />
         <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
         <feGaussianBlur stdDeviation="10.5077" result="effect1_foregroundBlur_2725_30131" />
       </filter>
@@ -287,9 +287,9 @@ export const SmallAvailLogo: React.FC<SmallAvailLogoProps> = ({
         width="11.3057"
         height="15.2798"
         filterUnits="userSpaceOnUse"
-        color-interpolation-filters="sRGB"
+        colorInterpolationFilters="sRGB"
       >
-        <feFlood flood-opacity="0" result="BackgroundImageFix" />
+        <feFlood floodOpacity="0" result="BackgroundImageFix" />
         <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
         <feGaussianBlur stdDeviation="1.5011" result="effect1_foregroundBlur_2725_30131" />
       </filter>
@@ -300,9 +300,9 @@ export const SmallAvailLogo: React.FC<SmallAvailLogoProps> = ({
         width="41.7047"
         height="42.358"
         filterUnits="userSpaceOnUse"
-        color-interpolation-filters="sRGB"
+        colorInterpolationFilters="sRGB"
       >
-        <feFlood flood-opacity="0" result="BackgroundImageFix" />
+        <feFlood floodOpacity="0" result="BackgroundImageFix" />
         <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
         <feGaussianBlur stdDeviation="7.50552" result="effect1_foregroundBlur_2725_30131" />
       </filter>
@@ -313,9 +313,9 @@ export const SmallAvailLogo: React.FC<SmallAvailLogoProps> = ({
         width="13.6431"
         height="14.5669"
         filterUnits="userSpaceOnUse"
-        color-interpolation-filters="sRGB"
+        colorInterpolationFilters="sRGB"
       >
-        <feFlood flood-opacity="0" result="BackgroundImageFix" />
+        <feFlood floodOpacity="0" result="BackgroundImageFix" />
         <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
         <feGaussianBlur stdDeviation="1.5011" result="effect1_foregroundBlur_2725_30131" />
       </filter>
@@ -326,9 +326,9 @@ export const SmallAvailLogo: React.FC<SmallAvailLogoProps> = ({
         width="10.7408"
         height="10.6403"
         filterUnits="userSpaceOnUse"
-        color-interpolation-filters="sRGB"
+        colorInterpolationFilters="sRGB"
       >
-        <feFlood flood-opacity="0" result="BackgroundImageFix" />
+        <feFlood floodOpacity="0" result="BackgroundImageFix" />
         <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
         <feGaussianBlur stdDeviation="0.375276" result="effect1_foregroundBlur_2725_30131" />
       </filter>
@@ -339,9 +339,9 @@ export const SmallAvailLogo: React.FC<SmallAvailLogoProps> = ({
         width="70.3058"
         height="67.5973"
         filterUnits="userSpaceOnUse"
-        color-interpolation-filters="sRGB"
+        colorInterpolationFilters="sRGB"
       >
-        <feFlood flood-opacity="0" result="BackgroundImageFix" />
+        <feFlood floodOpacity="0" result="BackgroundImageFix" />
         <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
         <feGaussianBlur stdDeviation="12.0088" result="effect1_foregroundBlur_2725_30131" />
       </filter>
@@ -352,9 +352,9 @@ export const SmallAvailLogo: React.FC<SmallAvailLogoProps> = ({
         width="16.7119"
         height="19.9014"
         filterUnits="userSpaceOnUse"
-        color-interpolation-filters="sRGB"
+        colorInterpolationFilters="sRGB"
       >
-        <feFlood flood-opacity="0" result="BackgroundImageFix" />
+        <feFlood floodOpacity="0" result="BackgroundImageFix" />
         <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
         <feGaussianBlur stdDeviation="1.5011" result="effect1_foregroundBlur_2725_30131" />
       </filter>
@@ -365,9 +365,9 @@ export const SmallAvailLogo: React.FC<SmallAvailLogoProps> = ({
         width="14.7603"
         height="14.9839"
         filterUnits="userSpaceOnUse"
-        color-interpolation-filters="sRGB"
+        colorInterpolationFilters="sRGB"
       >
-        <feFlood flood-opacity="0" result="BackgroundImageFix" />
+        <feFlood floodOpacity="0" result="BackgroundImageFix" />
         <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
         <feGaussianBlur stdDeviation="1.5011" result="effect1_foregroundBlur_2725_30131" />
       </filter>
@@ -378,9 +378,9 @@ export const SmallAvailLogo: React.FC<SmallAvailLogoProps> = ({
         width="19.627"
         height="12.0889"
         filterUnits="userSpaceOnUse"
-        color-interpolation-filters="sRGB"
+        colorInterpolationFilters="sRGB"
       >
-        <feFlood flood-opacity="0" result="BackgroundImageFix" />
+        <feFlood floodOpacity="0" result="BackgroundImageFix" />
         <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
         <feGaussianBlur stdDeviation="1.5011" result="effect1_foregroundBlur_2725_30131" />
       </filter>
@@ -391,9 +391,9 @@ export const SmallAvailLogo: React.FC<SmallAvailLogoProps> = ({
         width="14.8121"
         height="16.7242"
         filterUnits="userSpaceOnUse"
-        color-interpolation-filters="sRGB"
+        colorInterpolationFilters="sRGB"
       >
-        <feFlood flood-opacity="0" result="BackgroundImageFix" />
+        <feFlood floodOpacity="0" result="BackgroundImageFix" />
         <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
         <feGaussianBlur stdDeviation="0.375276" result="effect1_foregroundBlur_2725_30131" />
       </filter>
@@ -405,8 +405,8 @@ export const SmallAvailLogo: React.FC<SmallAvailLogoProps> = ({
         y2="13.8373"
         gradientUnits="userSpaceOnUse"
       >
-        <stop stop-color="#13497E" />
-        <stop offset="0.640419" stop-color="#2B80D7" />
+        <stop stopColor="#13497E" />
+        <stop offset="0.640419" stopColor="#2B80D7" />
       </linearGradient>
       <linearGradient
         id="paint1_linear_2725_30131"
@@ -416,8 +416,8 @@ export const SmallAvailLogo: React.FC<SmallAvailLogoProps> = ({
         y2="15.0075"
         gradientUnits="userSpaceOnUse"
       >
-        <stop stop-color="#E2C7FE" />
-        <stop offset="0.450702" stop-color="#77B8FD" />
+        <stop stopColor="#E2C7FE" />
+        <stop offset="0.450702" stopColor="#77B8FD" />
       </linearGradient>
       <linearGradient
         id="paint2_linear_2725_30131"
@@ -427,8 +427,8 @@ export const SmallAvailLogo: React.FC<SmallAvailLogoProps> = ({
         y2="16.3594"
         gradientUnits="userSpaceOnUse"
       >
-        <stop stop-color="#269EBF" />
-        <stop offset="1" stop-color="#3EBADD" />
+        <stop stopColor="#269EBF" />
+        <stop offset="1" stopColor="#3EBADD" />
       </linearGradient>
       <radialGradient
         id="paint3_radial_2725_30131"
@@ -438,8 +438,8 @@ export const SmallAvailLogo: React.FC<SmallAvailLogoProps> = ({
         gradientUnits="userSpaceOnUse"
         gradientTransform="translate(12.264 10.1111) rotate(139.704) scale(11.8373 8.72265)"
       >
-        <stop offset="0.411461" stop-color="#FF7360" />
-        <stop offset="1" stop-color="#630513" />
+        <stop offset="0.411461" stopColor="#FF7360" />
+        <stop offset="1" stopColor="#630513" />
       </radialGradient>
       <linearGradient
         id="paint4_linear_2725_30131"
@@ -449,9 +449,9 @@ export const SmallAvailLogo: React.FC<SmallAvailLogoProps> = ({
         y2="15.9578"
         gradientUnits="userSpaceOnUse"
       >
-        <stop stop-color="#33B6D2" />
-        <stop offset="0.142991" stop-color="#5BD8FF" />
-        <stop offset="1" stop-color="#228AA7" />
+        <stop stopColor="#33B6D2" />
+        <stop offset="0.142991" stopColor="#5BD8FF" />
+        <stop offset="1" stopColor="#228AA7" />
       </linearGradient>
       <linearGradient
         id="paint5_linear_2725_30131"
@@ -461,8 +461,8 @@ export const SmallAvailLogo: React.FC<SmallAvailLogoProps> = ({
         y2="16.6789"
         gradientUnits="userSpaceOnUse"
       >
-        <stop offset="0.635417" stop-color="#68DEFF" />
-        <stop offset="1" stop-color="#F3C8CB" />
+        <stop offset="0.635417" stopColor="#68DEFF" />
+        <stop offset="1" stopColor="#F3C8CB" />
       </linearGradient>
       <linearGradient
         id="paint6_linear_2725_30131"
@@ -472,8 +472,8 @@ export const SmallAvailLogo: React.FC<SmallAvailLogoProps> = ({
         y2="16.441"
         gradientUnits="userSpaceOnUse"
       >
-        <stop offset="0.661495" stop-color="#88FFF8" />
-        <stop offset="1" stop-color="#176781" />
+        <stop offset="0.661495" stopColor="#88FFF8" />
+        <stop offset="1" stopColor="#176781" />
       </linearGradient>
       <linearGradient
         id="paint7_linear_2725_30131"
@@ -483,8 +483,8 @@ export const SmallAvailLogo: React.FC<SmallAvailLogoProps> = ({
         y2="1.37403"
         gradientUnits="userSpaceOnUse"
       >
-        <stop offset="0.731633" stop-color="#4D89FD" />
-        <stop offset="1" stop-color="#033883" />
+        <stop offset="0.731633" stopColor="#4D89FD" />
+        <stop offset="1" stopColor="#033883" />
       </linearGradient>
       <linearGradient
         id="paint8_linear_2725_30131"
@@ -494,8 +494,8 @@ export const SmallAvailLogo: React.FC<SmallAvailLogoProps> = ({
         y2="2.96609"
         gradientUnits="userSpaceOnUse"
       >
-        <stop stop-color="#D9D9D9" />
-        <stop offset="0.658857" stop-color="#D9D9D9" stop-opacity="0" />
+        <stop stopColor="#D9D9D9" />
+        <stop offset="0.658857" stopColor="#D9D9D9" stopOpacity="0" />
       </linearGradient>
       <linearGradient
         id="paint9_linear_2725_30131"
@@ -505,8 +505,8 @@ export const SmallAvailLogo: React.FC<SmallAvailLogoProps> = ({
         y2="0.455441"
         gradientUnits="userSpaceOnUse"
       >
-        <stop stop-color="#D9D9D9" />
-        <stop offset="1" stop-color="#D9D9D9" stop-opacity="0" />
+        <stop stopColor="#D9D9D9" />
+        <stop offset="1" stopColor="#D9D9D9" stopOpacity="0" />
       </linearGradient>
       <linearGradient
         id="paint10_linear_2725_30131"
@@ -516,10 +516,10 @@ export const SmallAvailLogo: React.FC<SmallAvailLogoProps> = ({
         y2="16.6037"
         gradientUnits="userSpaceOnUse"
       >
-        <stop stop-color="#EFC7FE" />
-        <stop offset="0.286458" stop-color="#2CBBF9" />
-        <stop offset="0.65625" stop-color="#2CBBF9" />
-        <stop offset="1" stop-color="#FDC8C8" />
+        <stop stopColor="#EFC7FE" />
+        <stop offset="0.286458" stopColor="#2CBBF9" />
+        <stop offset="0.65625" stopColor="#2CBBF9" />
+        <stop offset="1" stopColor="#FDC8C8" />
       </linearGradient>
       <linearGradient
         id="paint11_linear_2725_30131"
@@ -529,8 +529,8 @@ export const SmallAvailLogo: React.FC<SmallAvailLogoProps> = ({
         y2="7.71684"
         gradientUnits="userSpaceOnUse"
       >
-        <stop stop-color="#D9D9D9" />
-        <stop offset="0.659264" stop-color="#D9D9D9" stop-opacity="0" />
+        <stop stopColor="#D9D9D9" />
+        <stop offset="0.659264" stopColor="#D9D9D9" stopOpacity="0" />
       </linearGradient>
       <linearGradient
         id="paint12_linear_2725_30131"
@@ -540,10 +540,10 @@ export const SmallAvailLogo: React.FC<SmallAvailLogoProps> = ({
         y2="16.6037"
         gradientUnits="userSpaceOnUse"
       >
-        <stop stop-color="#EFC7FE" />
-        <stop offset="0.317708" stop-color="#2CBBF9" />
-        <stop offset="0.661458" stop-color="#2CBBF9" />
-        <stop offset="1" stop-color="#FDC8C8" />
+        <stop stopColor="#EFC7FE" />
+        <stop offset="0.317708" stopColor="#2CBBF9" />
+        <stop offset="0.661458" stopColor="#2CBBF9" />
+        <stop offset="1" stopColor="#FDC8C8" />
       </linearGradient>
     </defs>
   </svg>

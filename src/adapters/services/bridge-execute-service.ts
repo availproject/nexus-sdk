@@ -1,5 +1,5 @@
 import { BaseService } from '../core/base-service';
-import { NEXUS_EVENTS, TOKEN_METADATA } from '../../constants';
+import { NEXUS_EVENTS, TOKEN_METADATA, CHAIN_METADATA } from '../../constants';
 import { BridgeService } from './bridge-service';
 import { ExecuteService } from './execute-service';
 import { ApprovalService } from './approval-service';
@@ -16,6 +16,7 @@ import type {
   SimulationStep,
   SUPPORTED_TOKENS,
 } from '../../types';
+import type { ProgressStep } from '@arcana/ca-sdk';
 
 // Local constants for the service
 const ADAPTER_CONSTANTS = {
@@ -83,10 +84,28 @@ export class BridgeExecuteService extends BaseService {
       requiredConfirmations = 1,
     } = params;
 
-    try {
-      this.emitOperationEvents.started('OPERATION', { toChainId, hasExecute: !!execute });
-      this.emitOperationEvents.started('BRIDGE', { toChainId, token, amount });
+    // Declare here so accessible in catch/finally
+    let stepForwarder: (step: ProgressStep) => void = () => {};
 
+    try {
+      // Set up listeners to capture Arcana bridge steps and forward step completions
+      const bridgeStepsPromise: Promise<ProgressStep[]> = new Promise((resolve) => {
+        const expectedHandler = (steps: ProgressStep[]) => {
+          this.caEvents.off(NEXUS_EVENTS.EXPECTED_STEPS, expectedHandler);
+          resolve(steps);
+        };
+        this.caEvents.on(NEXUS_EVENTS.EXPECTED_STEPS, expectedHandler);
+      });
+
+      stepForwarder = (step: ProgressStep) => {
+        this.caEvents.emit(NEXUS_EVENTS.BRIDGE_EXECUTE_COMPLETED_STEPS, step);
+      };
+      this.caEvents.on(NEXUS_EVENTS.STEP_COMPLETE, stepForwarder);
+
+      // Normalize the input amount to ensure consistent processing
+      const normalizedAmount = this.normalizeAmountToWei(amount, token);
+
+      // Perform the actual bridge transaction
       const bridgeResult = await this.bridgeService.bridge({
         token,
         amount,
@@ -94,33 +113,63 @@ export class BridgeExecuteService extends BaseService {
       });
 
       if (!bridgeResult.success) {
-        this.emitOperationEvents.failed(
-          'BRIDGE',
-          new Error(bridgeResult.error ?? 'Bridge failed'),
-          'bridge',
-        );
         throw new Error(`Bridge failed: ${bridgeResult.error}`);
       }
 
-      this.emitOperationEvents.completed('BRIDGE', {
-        success: true,
-        toChainId,
+      // Wait for captured bridge steps
+      const bridgeSteps = await bridgeStepsPromise;
+
+      // Prepare extra steps for approval/execute/receipt/confirmation
+      const extraSteps: ProgressStep[] = [];
+
+      const makeStep = (
+        typeID: string,
+        type: string,
+        data: Record<string, unknown> = {},
+      ): ProgressStep => ({
+        typeID,
+        type,
+        data: {
+          chainID: toChainId,
+          chainName: CHAIN_METADATA[toChainId]?.name || toChainId.toString(),
+          ...data,
+        },
       });
 
-      // Get the actual bridge output amount for token approval
-      const bridgeOutputAmount = this.normalizeAmountToWei(amount, token);
+      if (execute?.tokenApproval) {
+        extraSteps.push(makeStep('AP', 'APPROVAL'));
+      }
+
+      if (execute) {
+        extraSteps.push(makeStep('TS', 'TRANSACTION_SENT'));
+        if (waitForReceipt) {
+          extraSteps.push(makeStep('RR', 'RECEIPT_RECEIVED'));
+        }
+        if ((requiredConfirmations ?? 0) > 0) {
+          extraSteps.push(makeStep('CN', 'TRANSACTION_CONFIRMED'));
+        }
+      }
+
+      // Emit consolidated expected steps for the whole operation
+      this.caEvents.emit(NEXUS_EVENTS.BRIDGE_EXECUTE_EXPECTED_STEPS, [
+        ...bridgeSteps,
+        ...extraSteps,
+      ]);
 
       const { executeTransactionHash, executeExplorerUrl, approvalTransactionHash } =
         await this.handleExecutePhase(
           execute,
           toChainId,
           token,
-          bridgeOutputAmount,
+          normalizedAmount,
           enableTransactionPolling,
           transactionTimeout,
           waitForReceipt,
           receiptTimeout,
           requiredConfirmations,
+          // pass helper to emit steps
+          (step) => this.caEvents.emit(NEXUS_EVENTS.BRIDGE_EXECUTE_COMPLETED_STEPS, step),
+          makeStep,
         );
 
       const result: BridgeAndExecuteResult = {
@@ -131,19 +180,26 @@ export class BridgeExecuteService extends BaseService {
         success: true,
       };
 
-      this.emitOperationEvents.completed('OPERATION', {
-        ...result,
-        success: true,
-      });
+      // Clean up listener
+      this.caEvents.off(NEXUS_EVENTS.STEP_COMPLETE, stepForwarder);
+
       return result;
     } catch (error) {
       const errorMessage = extractErrorMessage(error, 'bridge and execute');
-      const stage = errorMessage.includes('Execute phase failed') ? 'execute' : 'bridge';
 
-      // Emit error with stage information using the helper
-      this.emitOperationEvents.failed('OPERATION', error, 'bridge and execute', stage);
+      // Forward error step (generic) for UI consumers
+      this.caEvents.emit(NEXUS_EVENTS.BRIDGE_EXECUTE_COMPLETED_STEPS, {
+        typeID: 'ER',
+        type: 'operation.failed',
+        data: {
+          error: errorMessage,
+          stage: errorMessage.includes('Execute phase failed') ? 'execute' : 'bridge',
+        },
+      });
 
-      // Return failed result instead of throwing
+      // Clean listener
+      this.caEvents.off(NEXUS_EVENTS.STEP_COMPLETE, stepForwarder);
+
       return {
         toChainId,
         success: false,
@@ -165,6 +221,7 @@ export class BridgeExecuteService extends BaseService {
       // Normalize the input amount to ensure consistent processing
       const normalizedAmount = this.normalizeAmountToWei(params.amount, params.token);
 
+      // Perform bridge simulation only
       const bridgeSimulation = await this.bridgeService.simulateBridge({
         token: params.token,
         amount: params.amount,
@@ -270,18 +327,42 @@ export class BridgeExecuteService extends BaseService {
         );
 
         try {
-          const executeFee = executeSimulation?.gasUsed || '0';
-          logger.debug('DEBUG bridge-execute-service - executeFee:', executeFee);
+          const executeFee =
+            (executeSimulation as any)?.gasCostEth || executeSimulation?.gasUsed || '0';
+          logger.debug('DEBUG bridge-execute-service - executeFee source value:', executeFee);
 
-          // Both values are already in human-readable ETH format, just add them
-          const totalFeeEth = (parseFloat(totalBridgeFee) + parseFloat(executeFee)).toString();
+          let executeFeeEth = executeFee;
+
+          // If gasCostEth wasn't available, executeFee will be gas units – convert.
+          if ((executeSimulation as any)?.gasCostEth === undefined) {
+            logger.debug('DEBUG bridge-execute-service - executeFee (gas units):', executeFee);
+
+            try {
+              // Get the current gas price from the connected provider (wei, hex string)
+              const gasPriceHex = (await this.evmProvider.request({
+                method: 'eth_gasPrice',
+              })) as string;
+              const gasPriceWei = parseInt(gasPriceHex, 16);
+
+              // gasUsed (string) * gasPriceWei (number) => wei, then convert to ETH
+              const gasUsedNum = parseFloat(executeFee);
+              const costEthNum = (gasUsedNum * gasPriceWei) / 1e18; // 1e18 wei per ETH
+              executeFeeEth = costEthNum.toFixed(8); // keep reasonable precision
+            } catch (gpErr) {
+              logger.warn('Failed to fetch gas price for execute fee conversion:', gpErr);
+            }
+          }
+          logger.debug('DEBUG bridge-execute-service - executeFee (ETH):', executeFeeEth);
+
+          // Add bridge fee (already an ETH figure) with converted execute fee
+          const totalFeeEth = (parseFloat(totalBridgeFee) + parseFloat(executeFeeEth)).toString();
           logger.debug('DEBUG bridge-execute-service - totalFeeEth:', totalFeeEth);
 
           totalEstimatedCost = {
             total: totalFeeEth,
             breakdown: {
               bridge: totalBridgeFee,
-              execute: executeFee,
+              execute: executeFeeEth,
             },
           };
         } catch (error) {
@@ -327,12 +408,14 @@ export class BridgeExecuteService extends BaseService {
     waitForReceipt?: boolean,
     receiptTimeout?: number,
     requiredConfirmations?: number,
+    emitStep?: (step: ProgressStep) => void,
+    makeStep?: (typeID: string, type: string, data?: Record<string, unknown>) => ProgressStep,
   ): Promise<{
     executeTransactionHash?: string;
     executeExplorerUrl?: string;
     approvalTransactionHash?: string;
   }> {
-    if (!execute) return {};
+    if (!execute || !emitStep || !makeStep) return {};
 
     try {
       // Debug logging to understand amount handling
@@ -348,12 +431,6 @@ export class BridgeExecuteService extends BaseService {
 
       // Step 1: Automatically handle contract approval if needed
       if (execute.tokenApproval) {
-        this.emitOperationEvents.started('APPROVAL', {
-          token: execute.tokenApproval.token,
-          spender: execute.contractAddress,
-          chainId: toChainId,
-        });
-
         logger.info('DEBUG handleExecutePhase - Requesting approval for:', {
           token: bridgeToken,
           amount: bridgeAmount,
@@ -371,23 +448,27 @@ export class BridgeExecuteService extends BaseService {
         );
 
         if (approvalResult.error) {
-          this.emitOperationEvents.failed('APPROVAL', new Error(approvalResult.error), 'approval');
+          emitStep(
+            makeStep('AP', 'approval', {
+              error: approvalResult.error,
+            }),
+          );
           throw new Error(`Approval failed: ${approvalResult.error}`);
         }
 
         if (approvalResult.wasNeeded && approvalResult.transactionHash) {
           approvalTransactionHash = approvalResult.transactionHash;
-          this.emitOperationEvents.completed('APPROVAL', {
-            transactionHash: approvalResult.transactionHash,
-            token: execute.tokenApproval.token,
-            spender: execute.contractAddress,
-          });
+          emitStep(
+            makeStep('AP', 'approval', {
+              txHash: approvalTransactionHash,
+            }),
+          );
         } else {
-          this.caEvents.emit(NEXUS_EVENTS.APPROVAL_SKIPPED, {
-            token: execute.tokenApproval.token,
-            spender: execute.contractAddress,
-            reason: 'Approval already exists',
-          });
+          emitStep(
+            makeStep('AP', 'approval', {
+              skipped: true,
+            }),
+          );
         }
       }
 
@@ -416,6 +497,15 @@ export class BridgeExecuteService extends BaseService {
       });
 
       // Check if we should verify transaction success
+      if (executeResult.transactionHash) {
+        // Transaction sent step
+        emitStep(
+          makeStep('TS', 'transaction.sent', {
+            txHash: executeResult.transactionHash,
+          }),
+        );
+      }
+
       if (waitForReceipt && executeResult.transactionHash) {
         logger.info(
           'DEBUG handleExecutePhase - Checking transaction success for:',
@@ -429,6 +519,11 @@ export class BridgeExecuteService extends BaseService {
 
         if (!transactionCheck.success) {
           logger.error('DEBUG handleExecutePhase - Transaction failed:', transactionCheck.error);
+          emitStep(
+            makeStep('EX', 'execute', {
+              error: transactionCheck.error,
+            }),
+          );
           throw new Error(`Execute transaction failed: ${transactionCheck.error}`);
         }
 
@@ -436,6 +531,22 @@ export class BridgeExecuteService extends BaseService {
           'DEBUG handleExecutePhase - Transaction succeeded with gas used:',
           transactionCheck.gasUsed,
         );
+
+        // Emit receipt received step
+        emitStep(
+          makeStep('RR', 'receipt.received', {
+            txHash: executeResult.transactionHash,
+          }),
+        );
+
+        // Emit confirmation step if requiredConfirmations met
+        if ((requiredConfirmations ?? 0) > 0) {
+          emitStep(
+            makeStep('CN', 'transaction.confirmed', {
+              confirmations: requiredConfirmations,
+            }),
+          );
+        }
       }
 
       return {
@@ -445,7 +556,7 @@ export class BridgeExecuteService extends BaseService {
       };
     } catch (executeError) {
       logger.error('DEBUG handleExecutePhase - Execute error:', executeError as Error);
-      this.emitOperationEvents.failed('OPERATION', executeError, 'execute phase', 'execute');
+      emitStep(makeStep('EX', 'execute', { error: (executeError as Error).message }));
       throw new Error(
         `Execute phase failed: ${extractErrorMessage(executeError, 'execute phase')}`,
       );

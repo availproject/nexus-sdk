@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { CircleX, Maximize } from 'lucide-react';
-import { useNexus } from '../../providers/NexusProvider';
+import { ExternalLink, Maximize } from 'lucide-react';
+import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { CHAIN_METADATA, TOKEN_METADATA, TransactionType } from '../../..';
 
 import { getOperationText } from '../../utils/utils';
@@ -20,13 +20,8 @@ export const TransactionProcessorMini: React.FC<TransactionProcessorMiniProps> =
   destination,
   transactionType,
 }) => {
-  const {
-    toggleTransactionCollapse,
-    activeTransaction,
-    processing,
-    cancelTransaction,
-    explorerURL,
-  } = useNexus();
+  const { toggleTransactionCollapse, activeTransaction, processing, explorerURL } =
+    useInternalNexus();
 
   const dragRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -90,17 +85,13 @@ export const TransactionProcessorMini: React.FC<TransactionProcessorMiniProps> =
   };
 
   const handleExpand = () => {
-    if (activeTransaction?.status === 'error' || activeTransaction?.status === 'success') {
-      cancelTransaction();
-      return;
-    }
     toggleTransactionCollapse();
   };
 
   return (
     <div
       ref={dragRef}
-      className="fixed z-50 bg-white rounded-2xl shadow-lg border border-gray-200 p-3 min-w-[280px] cursor-move"
+      className="fixed z-50 bg-white rounded-2xl shadow-lg border border-gray-200 p-3 min-w-[280px] max-w-[400px] cursor-move"
       style={{
         left: position.x,
         top: position.y,
@@ -166,28 +157,27 @@ export const TransactionProcessorMini: React.FC<TransactionProcessorMiniProps> =
           className="p-1 hover:bg-gray-100 rounded-md transition-colors"
           variant={'link'}
         >
-          {activeTransaction?.status === 'error' || activeTransaction?.status === 'success' ? (
-            <CircleX className="w-6 h-6 text-black" />
-          ) : (
-            <Maximize className="w-6 h-6 text-gray-600" />
-          )}
+          <Maximize className="w-6 h-6 text-gray-600" />
         </Button>
       </div>
       {activeTransaction?.status === 'error' ? (
-        <div className="text-left flex flex-col items-start gap-y-0.5">
+        <div className="text-left flex flex-col items-start gap-y-0.5 text-ellipsis overflow-hidden">
           <EnhancedInfoMessage error={activeTransaction.error} context="transaction" />
         </div>
       ) : (
         <div className="text-left flex flex-col items-start gap-y-0.5">
           <div className="text-base font-semibold text-black mb-1">{processing.statusText}</div>
-          {activeTransaction?.status === 'success' ? (
+          {activeTransaction?.type !== 'bridgeAndExecute' &&
+          activeTransaction?.status === 'success' ? (
             <Button
               className="text-xs"
+              size={'sm'}
+              variant={'link'}
               onClick={() => {
                 window.open(explorerURL ?? '', '_blank');
               }}
             >
-              View on Explorer
+              View on Explorer <ExternalLink className="w-4 h-4 ml-2 text-[#666666]" />
             </Button>
           ) : (
             <p className="font-primary text-sm text-grey-600">{`${getOperationText(transactionType)} ${

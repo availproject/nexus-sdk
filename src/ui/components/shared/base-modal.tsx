@@ -3,10 +3,10 @@ import { cn } from '../../utils/utils';
 import type { ModalProps } from '../../types';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './dialog';
 import { AvailLogo } from './icons/AvailLogo';
-import { useNexus } from '../../providers/NexusProvider';
+import { useInternalNexus } from '../../providers/InternalNexusProvider';
 
 export function BaseModal({ isOpen, onClose, children, title, className }: ModalProps) {
-  const { activeTransaction } = useNexus();
+  const { activeTransaction } = useInternalNexus();
   const showHeader =
     activeTransaction?.status !== 'processing' &&
     activeTransaction?.status !== 'success' &&

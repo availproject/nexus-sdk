@@ -9,7 +9,8 @@ import {
 } from '../../utils/utils';
 import { CHAIN_METADATA } from '../../..';
 import { Plus } from 'lucide-react';
-import { useNexus } from '../../providers/NexusProvider';
+import { useInternalNexus } from '../../providers/InternalNexusProvider';
+import { logger } from '../../../utils';
 
 interface EnhancedInfoMessageProps {
   error: unknown;
@@ -20,7 +21,7 @@ interface EnhancedInfoMessageProps {
 export function EnhancedInfoMessage({ error, context, className }: EnhancedInfoMessageProps) {
   const [isAddingChain, setIsAddingChain] = useState(false);
   const [chainAdded, setChainAdded] = useState(false);
-  const { sdk } = useNexus();
+  const { sdk } = useInternalNexus();
 
   const isChainRelatedError = isChainError(error);
   const chainId = isChainRelatedError ? extractChainIdFromError(error) : null;
@@ -37,7 +38,7 @@ export function EnhancedInfoMessage({ error, context, className }: EnhancedInfoM
         setChainAdded(true);
       }
     } catch (err) {
-      console.error('Failed to add chain:', err);
+      logger.error('Failed to add chain:', err as Error);
     } finally {
       setIsAddingChain(false);
     }

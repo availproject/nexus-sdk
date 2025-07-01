@@ -1,15 +1,15 @@
 import React, { useState } from 'react';
 import { BaseModal } from '../shared/base-modal';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
-import { BridgeAndExecuteSimulationResult, SimulationResult } from '../../../types';
+import { BridgeAndExecuteSimulationResult } from '../../../types';
 import { getButtonText } from '../../utils/utils';
-import { TransactionSimulation } from '../processing/transaction-simulation';
+
 import { InfoMessage, ActionButtons, AllowanceForm, EnhancedInfoMessage } from '../shared';
 import TransactionProcessor from '../processing/transaction-processor';
-import { TransferFormSection } from './transfer-form-section';
+import { TransactionSimulation } from '../processing/transaction-simulation';
 import { logger } from '../../../utils';
 
-export function TransferModal() {
+export function BridgeAndExecuteModal() {
   const {
     activeTransaction,
     activeController,
@@ -36,7 +36,7 @@ export function TransferModal() {
 
   const [isInitializing, setIsInitializing] = useState(false);
 
-  if (type !== 'transfer') {
+  if (type !== 'bridgeAndExecute') {
     return null;
   }
 
@@ -49,7 +49,6 @@ export function TransferModal() {
       initializeSdk();
       setIsInitializing(false);
     } else if (status === 'simulation_error') {
-      // Reset to review state and trigger simulation again
       retrySimulation();
     } else if (
       status === 'review' &&
@@ -67,32 +66,57 @@ export function TransferModal() {
   const renderReviewContent = () => {
     if (!activeController) return null;
 
-    const hasSufficientInput = activeController.hasSufficientInput(inputData || {});
+    const inputDataForValidation = inputData
+      ? {
+          ...inputData,
+          toChainId: (inputData as any).chainId,
+        }
+      : {};
+
+    const hasSufficientInput = activeController.hasSufficientInput(inputDataForValidation);
     const tokenBalance = unifiedBalance.find((asset) => asset.symbol === inputData?.token)?.balance;
 
-    // Show simulation section only after SDK is initialized and all inputs are complete
     const shouldShowSimulation = isSdkInitialized && hasSufficientInput;
+
+    // Convert chainId to toChainId for bridge-and-execute
+    const convertedInputData = inputData
+      ? {
+          ...inputData,
+          toChainId: (inputData as any).chainId,
+        }
+      : {};
+
+    // Convert field updates from chainId to toChainId for bridge-and-execute
+    const handleUpdate = (data: any) => {
+      if (data.toChainId !== undefined) {
+        // Convert toChainId back to chainId for storage
+        const updateData = { ...data, chainId: data.toChainId };
+        updateInput(updateData);
+      } else {
+        updateInput(data);
+      }
+    };
 
     return (
       <div className="h-full pb-6 w-full">
-        <TransferFormSection
-          inputData={inputData || {}}
-          onUpdate={updateInput}
-          disabled={!isSdkInitialized}
+        <activeController.InputForm
+          prefill={convertedInputData}
+          onUpdate={handleUpdate}
+          isBusy={!isSdkInitialized}
           tokenBalance={tokenBalance}
           prefillFields={prefillFields}
         />
 
         {!isSdkInitialized && (
           <InfoMessage variant="success" className="mt-4">
-            You need to sign a message in your wallet to allow transfers using Nexus.
+            You need to sign a message in your wallet to allow cross chain transactions using Nexus.
           </InfoMessage>
         )}
 
         {isSdkInitialized && insufficientBalance && (
           <InfoMessage variant="error" className="mt-4">
             Insufficient balance. You don't have enough {inputData?.token} to complete this
-            transfer.
+            transaction.
           </InfoMessage>
         )}
 
@@ -119,13 +143,10 @@ export function TransferModal() {
   const renderAllowanceContent = () => {
     if (!simulationResult || !inputData) return null;
 
-    // Get minimum amount and input amount for allowance
-    const minimumAmount = (simulationResult as SimulationResult)?.intent?.sourcesTotal || '0';
+    const bridgeSim = (simulationResult as BridgeAndExecuteSimulationResult)?.bridgeSimulation;
+    const minimumAmount = bridgeSim?.intent?.sourcesTotal || '0';
     const sourceChains: { chainId: number; amount: string }[] =
-      (simulationResult as SimulationResult)?.intent?.sources?.map((source) => ({
-        chainId: source.chainID,
-        amount: source.amount,
-      })) || [];
+      bridgeSim?.intent?.sources?.map((s) => ({ chainId: s.chainID, amount: s.amount })) || [];
 
     return (
       <AllowanceForm
@@ -142,43 +163,19 @@ export function TransferModal() {
   };
 
   const renderProcessingContent = () => {
-    // Safety checks - don't render transaction processor if we have invalid state
     if (insufficientBalance || !simulationResult || !inputData) {
-      logger.warn('Attempted to render transaction processor with invalid state:', {
-        insufficientBalance,
-        hasSimulationResult: !!simulationResult,
-        hasInputData: !!inputData,
-        status,
-      });
-      return renderReviewContent(); // Fall back to review content
+      return renderReviewContent();
     }
 
     try {
-      const sources =
-        type === 'transfer'
-          ? (simulationResult as SimulationResult)?.intent?.sources?.map((s) => s.chainID) || []
-          : (
-              simulationResult as BridgeAndExecuteSimulationResult
-            )?.bridgeSimulation?.intent?.sources?.map((s: any) => s.chainID) || [];
-
+      const bridgeSim = (simulationResult as BridgeAndExecuteSimulationResult)?.bridgeSimulation;
+      const sources = bridgeSim?.intent?.sources?.map((s) => s.chainID) || [];
       const token = inputData?.token || '';
+      const destination = bridgeSim?.intent?.destination?.chainID || 0;
+      const transactionType = type;
 
-      const destination =
-        type === 'transfer'
-          ? (simulationResult as SimulationResult)?.intent?.destination?.chainID || 0
-          : (simulationResult as BridgeAndExecuteSimulationResult)?.bridgeSimulation?.intent
-              ?.destination?.chainID || 0;
-
-      const transactionType = type || 'transfer';
-
-      // Additional validation - ensure we have valid data
       if (!sources.length || !token || !destination) {
-        logger.warn('Invalid transaction data for processor:', {
-          sources,
-          token,
-          destination,
-        });
-        return renderReviewContent(); // Fall back to review content
+        return renderReviewContent();
       }
 
       return (
@@ -191,7 +188,7 @@ export function TransferModal() {
         />
       );
     } catch (error) {
-      logger.error('❌ Error rendering TransactionProcessor:', error as Error);
+      logger.error('Error rendering TransactionProcessor:', error as Error);
       return (
         <div className="text-center py-12">
           <div className="text-red-600">Error loading processing view</div>

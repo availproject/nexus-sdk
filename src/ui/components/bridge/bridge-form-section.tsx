@@ -4,7 +4,7 @@ import { ChainSelect } from '../shared/chain-select';
 import { TokenSelect } from '../shared/token-select';
 import { AmountInput } from '../shared/amount-input';
 import { cn } from '../../utils/utils';
-import { useNexus } from '../../providers/NexusProvider';
+import { useInternalNexus } from '../../providers/InternalNexusProvider';
 
 interface BridgeFormSectionProps {
   inputData: {
@@ -16,6 +16,11 @@ interface BridgeFormSectionProps {
   disabled?: boolean;
   tokenBalance?: string;
   className?: string;
+  prefillFields?: {
+    chainId?: boolean;
+    token?: boolean;
+    amount?: boolean;
+  };
 }
 
 export function BridgeFormSection({
@@ -24,9 +29,11 @@ export function BridgeFormSection({
   disabled = false,
   tokenBalance,
   className,
+  prefillFields = {},
 }: BridgeFormSectionProps) {
-  const { config, isSdkInitialized, isSimulating } = useNexus();
+  const { config, isSdkInitialized, isSimulating } = useInternalNexus();
   const isInputDisabled = disabled || isSimulating;
+
   return (
     <div className={cn('px-6 flex flex-col gap-y-4 w-full', className)}>
       <div className="flex gap-x-4 w-full">
@@ -34,9 +41,10 @@ export function BridgeFormSection({
           <ChainSelect
             value={inputData.chainId?.toString() || ''}
             onValueChange={(chainId) =>
-              !isInputDisabled && onUpdate({ chainId: parseInt(chainId, 10) })
+              !(isInputDisabled || prefillFields.chainId) &&
+              onUpdate({ chainId: parseInt(chainId, 10) })
             }
-            disabled={isInputDisabled}
+            disabled={isInputDisabled || prefillFields.chainId}
             network={config.network}
           />
         </FormField>
@@ -44,8 +52,10 @@ export function BridgeFormSection({
         <FormField label="Token to be transferred" className="flex-1">
           <TokenSelect
             value={inputData.token}
-            onValueChange={(token) => !isInputDisabled && onUpdate({ token })}
-            disabled={isInputDisabled}
+            onValueChange={(token) =>
+              !(isInputDisabled || prefillFields.token) && onUpdate({ token })
+            }
+            disabled={isInputDisabled || prefillFields.token}
             network={config.network}
           />
         </FormField>
@@ -56,7 +66,7 @@ export function BridgeFormSection({
           label="Amount"
           helperText={
             isSdkInitialized
-              ? `Balance:- ${tokenBalance ?? ''} ${inputData?.token ?? ''}`
+              ? `Balance:- ${parseFloat(tokenBalance ?? '0').toFixed(6)} ${inputData?.token ?? ''}`
               : undefined
           }
           className="flex-1"
@@ -64,8 +74,12 @@ export function BridgeFormSection({
           <AmountInput
             value={inputData?.amount ? inputData.amount?.toString() : ''}
             suffix={inputData.token || ''}
-            disabled={isInputDisabled}
-            onChange={isInputDisabled ? undefined : (value) => onUpdate({ amount: value })}
+            disabled={isInputDisabled || prefillFields.amount}
+            onChange={
+              isInputDisabled || prefillFields.amount
+                ? undefined
+                : (value) => onUpdate({ amount: value })
+            }
           />
         </FormField>
 

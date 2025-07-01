@@ -5,7 +5,7 @@ import { TokenSelect } from '../shared/token-select';
 import { AmountInput } from '../shared/amount-input';
 import { Input } from '../shared/input';
 import { cn } from '../../utils/utils';
-import { useNexus } from '../../providers/NexusProvider';
+import { useInternalNexus } from '../../providers/InternalNexusProvider';
 
 interface TransferFormSectionProps {
   inputData: {
@@ -18,6 +18,12 @@ interface TransferFormSectionProps {
   disabled?: boolean;
   tokenBalance?: string;
   className?: string;
+  prefillFields?: {
+    chainId?: boolean;
+    token?: boolean;
+    amount?: boolean;
+    recipient?: boolean;
+  };
 }
 
 export function TransferFormSection({
@@ -26,8 +32,9 @@ export function TransferFormSection({
   disabled = false,
   tokenBalance,
   className,
+  prefillFields = {},
 }: TransferFormSectionProps) {
-  const { config, isSdkInitialized, isSimulating } = useNexus();
+  const { config, isSdkInitialized, isSimulating } = useInternalNexus();
   const isInputDisabled = disabled || isSimulating;
 
   // Address validation
@@ -45,9 +52,10 @@ export function TransferFormSection({
           <ChainSelect
             value={inputData.chainId?.toString() || ''}
             onValueChange={(chainId) =>
-              !isInputDisabled && onUpdate({ chainId: parseInt(chainId, 10) })
+              !(isInputDisabled || prefillFields.chainId) &&
+              onUpdate({ chainId: parseInt(chainId, 10) })
             }
-            disabled={isInputDisabled}
+            disabled={isInputDisabled || prefillFields.chainId}
             network={config.network}
           />
         </FormField>
@@ -55,8 +63,10 @@ export function TransferFormSection({
         <FormField label="Token to transfer" className="flex-1">
           <TokenSelect
             value={inputData.token}
-            onValueChange={(token) => !isInputDisabled && onUpdate({ token })}
-            disabled={isInputDisabled}
+            onValueChange={(token) =>
+              !(isInputDisabled || prefillFields.token) && onUpdate({ token })
+            }
+            disabled={isInputDisabled || prefillFields.token}
             network={config.network}
           />
         </FormField>
@@ -67,7 +77,7 @@ export function TransferFormSection({
           label="Amount"
           helperText={
             isSdkInitialized
-              ? `Balance:- ${tokenBalance ?? ''} ${inputData?.token ?? ''}`
+              ? `Balance:- ${parseFloat(tokenBalance ?? '0').toFixed(6) ?? ''} ${inputData?.token ?? ''}`
               : undefined
           }
           className="flex-1"
@@ -75,8 +85,12 @@ export function TransferFormSection({
           <AmountInput
             value={inputData?.amount ? inputData.amount?.toString() : ''}
             suffix={inputData.token || ''}
-            disabled={isInputDisabled}
-            onChange={isInputDisabled ? undefined : (value) => onUpdate({ amount: value })}
+            disabled={isInputDisabled || prefillFields.amount}
+            onChange={
+              isInputDisabled || prefillFields.amount
+                ? undefined
+                : (value) => onUpdate({ amount: value })
+            }
           />
         </FormField>
 
@@ -90,7 +104,7 @@ export function TransferFormSection({
               'px-4 py-2 rounded-lg border border-zinc-400 flex justify-between items-center',
               'bg-transparent h-12',
               'focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]',
-              disabled && 'opacity-50 cursor-not-allowed',
+              (isInputDisabled || prefillFields.recipient) && 'opacity-50 cursor-not-allowed',
               className,
             )}
           >
@@ -98,8 +112,11 @@ export function TransferFormSection({
               <Input
                 placeholder="0x..."
                 value={inputData.recipient || ''}
-                onChange={(e) => !isInputDisabled && onUpdate({ recipient: e.target.value })}
-                disabled={isInputDisabled}
+                onChange={(e) =>
+                  !(isInputDisabled || prefillFields.recipient) &&
+                  onUpdate({ recipient: e.target.value })
+                }
+                disabled={isInputDisabled || prefillFields.recipient}
                 className={cn(
                   '!bg-transparent !focus:ring-0 !focus:border-none !focus:outline-none px-0',
                   hasValidationError ? 'border-red-500 focus:border-red-500' : '',

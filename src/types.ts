@@ -190,6 +190,7 @@ export interface ExecuteSimulation {
   gasUsed: string;
   success: boolean;
   error?: string;
+  gasCostEth?: string;
 }
 
 // New types for improved approval simulation
@@ -264,28 +265,6 @@ export interface BridgeAndExecuteResult {
   toChainId: number;
   success: boolean;
   error?: string;
-}
-
-export interface ExecuteEvents {
-  'execute:started': (params: { chainId: number; contractAddress: string }) => void;
-  'execute:completed': (result: ExecuteResult) => void;
-  'execute:failed': (error: { message: string; code?: string }) => void;
-}
-
-export interface BridgeEvents {
-  'bridge:started': (params: { toChainId: number; tokenAddress: string; amount: string }) => void;
-  'bridge:completed': (result: { result: unknown }) => void;
-  'bridge:failed': (error: { message: string; code?: string }) => void;
-}
-
-export interface BridgeAndExecuteEvents extends BridgeEvents, ExecuteEvents {
-  'operation:started': (params: { toChainId: number; hasExecute: boolean }) => void;
-  'operation:completed': (result: BridgeAndExecuteResult) => void;
-  'operation:failed': (error: {
-    message: string;
-    stage: 'bridge' | 'execute';
-    code?: string;
-  }) => void;
 }
 
 /**

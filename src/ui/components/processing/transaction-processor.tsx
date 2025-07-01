@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo } from 'react';
-import { useNexus } from '../../providers/NexusProvider';
+import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import {
+  BridgeAndExecuteResult,
   BridgeAndExecuteSimulationResult,
   CHAIN_METADATA,
   SimulationResult,
@@ -35,7 +36,7 @@ const TransactionProcessor = ({
     processing,
     explorerURL,
     cancelTransaction,
-  } = useNexus();
+  } = useInternalNexus();
   const { simulationResult } = activeTransaction;
 
   const sourceChainMetaData = useMemo(() => {
@@ -63,8 +64,6 @@ const TransactionProcessor = ({
     }
     toggleTransactionCollapse();
   }, [toggleTransactionCollapse, activeTransaction?.status, cancelTransaction]);
-
-  const isCompleted = processing.steps.every((step) => step.completed);
 
   return (
     <div className="w-full h-full bg-white  flex flex-col items-center justify-between rounded-2xl relative overflow-hidden">
@@ -204,19 +203,50 @@ const TransactionProcessor = ({
                 )}
               </>
             )}
-
-            {explorerURL && (
-              <Button
-                variant={'link'}
-                className=" text-accent underline text-base font-bold"
-                onClick={() => {
-                  window.open(explorerURL, '_blank');
-                }}
-              >
-                View on Explorer <ExternalLink className="w-6 h-6 ml-2 text-[#666666]" />
-              </Button>
+            {transactionType === 'bridgeAndExecute' ? (
+              <div className="flex items-center gap-x-2">
+                {explorerURL && (
+                  <Button
+                    variant={'link'}
+                    className=" text-accent underline text-base font-bold"
+                    onClick={() => {
+                      window.open(explorerURL, '_blank');
+                    }}
+                  >
+                    Bridge Transaction <ExternalLink className="w-6 h-6 ml-2 text-[#666666]" />
+                  </Button>
+                )}
+                {(activeTransaction?.executionResult as BridgeAndExecuteResult)
+                  ?.executeExplorerUrl && (
+                  <Button
+                    variant={'link'}
+                    className=" text-accent underline text-base font-bold"
+                    onClick={() => {
+                      window.open(
+                        (activeTransaction?.executionResult as BridgeAndExecuteResult)
+                          ?.executeExplorerUrl,
+                        '_blank',
+                      );
+                    }}
+                  >
+                    Execute Transaction <ExternalLink className="w-6 h-6 ml-2 text-[#666666]" />
+                  </Button>
+                )}
+              </div>
+            ) : (
+              explorerURL && (
+                <Button
+                  variant={'link'}
+                  className=" text-accent underline text-base font-bold"
+                  onClick={() => {
+                    window.open(explorerURL, '_blank');
+                  }}
+                >
+                  View on Explorer <ExternalLink className="w-6 h-6 ml-2 text-[#666666]" />
+                </Button>
+              )
             )}
-            {isCompleted && (
+            {activeTransaction?.status === 'success' && (
               <Button onClick={onClose} className="w-full">
                 Close
               </Button>

@@ -1,6 +1,8 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { OrchestratorStatus, ReviewStatus } from '../types';
+import { Abi } from 'viem';
+import type { ExecuteParams } from '../../types';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -46,6 +48,13 @@ export const getStatusText = (stepData: any, operationType: string) => {
       return 'Collecting Confirmations';
     case 'INTENT_COLLECTION_COMPLETE':
       return 'Confirmations Complete';
+    case 'APPROVAL':
+      return 'Approving';
+    case 'TRANSACTION_SENT':
+      return 'Sending Transaction';
+    case 'RECEIPT_RECEIVED':
+      return 'Receipt Received';
+    case 'TRANSACTION_CONFIRMED':
     case 'INTENT_FULFILLED':
       return `${opText} Complete`;
     default:
@@ -288,5 +297,79 @@ export async function addChainToWallet(
   } catch (error) {
     console.error('Failed to add chain to wallet:', error);
     return false;
+  }
+}
+
+// ---- Bridge & Execute Helpers ----
+
+/**
+ * Find ABI fragment for given function name (optionally matching parameter count)
+ */
+export function findAbiFragment(abi: Abi, functionName: string, paramCount?: number) {
+  return (abi as any[]).find(
+    (item) =>
+      item.type === 'function' &&
+      item.name === functionName &&
+      (paramCount === undefined || (item.inputs || []).length === paramCount),
+  );
+}
+
+/**
+ * Validate execute configuration against ABI and token/value rules
+ */
+export function validateExecuteConfig(execute: Omit<ExecuteParams, 'toChainId'>, abi: Abi): void {
+  const fragment = findAbiFragment(abi, execute.functionName, execute.functionParams.length);
+
+  if (!fragment || !Array.isArray(fragment.inputs)) {
+    throw new Error(`Function ${execute.functionName} not found in ABI or missing inputs.`);
+  }
+
+  // 1. Parameter count check (redundant after findAbiFragment but kept for safety)
+  if (fragment.inputs.length !== execute.functionParams.length) {
+    throw new Error(
+      `Function parameter count mismatch. Expected ${fragment.inputs.length}, received ${execute.functionParams.length}.`,
+    );
+  }
+
+  // 2. Payable value check
+  const isPayable = (fragment.stateMutability || '').toLowerCase() === 'payable';
+  if (execute.value && execute.value !== '0' && !isPayable) {
+    throw new Error('Contract function is not payable but a non-zero ETH value was supplied.');
+  }
+
+  // 3. Basic type validation for common Solidity types
+  fragment.inputs.forEach((input: any, idx: number) => {
+    const expected = (input.type as string).toLowerCase();
+    const param = execute.functionParams[idx];
+
+    const isValid = (() => {
+      if (expected.startsWith('address')) {
+        return typeof param === 'string' && /^0x[a-fA-F0-9]{40}$/.test(param);
+      }
+      if (expected.startsWith('uint') || expected.startsWith('int')) {
+        return (
+          typeof param === 'bigint' ||
+          typeof param === 'number' ||
+          (typeof param === 'string' && /^\d+$/.test(param))
+        );
+      }
+      if (expected === 'bool') {
+        return typeof param === 'boolean';
+      }
+      if (expected.startsWith('bytes') || expected === 'string') {
+        return typeof param === 'string';
+      }
+      // Fallback for complex types (tuple, array, etc.) – skip strict validation
+      return true;
+    })();
+
+    if (!isValid) {
+      throw new Error(`Type mismatch at param[${idx}]. Expected ${expected}.`);
+    }
+  });
+
+  // 4. ERC-20 specific rule – value must be 0 / undefined when tokenApproval present
+  if (execute.tokenApproval && execute.value && execute.value !== '0') {
+    throw new Error('ERC-20 contract calls must not send ETH value.');
   }
 }

@@ -6,7 +6,7 @@ import { Label } from '../components/shared/label';
 import { Input } from '../components/shared/input';
 import { ChainSelect } from '../components/shared/chain-select';
 import { TokenSelect } from '../components/shared/token-select';
-import { useNexus } from '../providers/NexusProvider';
+import { useInternalNexus } from '../providers/InternalNexusProvider';
 import { logger } from '../../utils';
 
 const BridgeInputForm: React.FC<{
@@ -14,8 +14,15 @@ const BridgeInputForm: React.FC<{
   onUpdate: (data: Partial<BridgeConfig>) => void;
   isBusy: boolean;
   tokenBalance?: string;
-}> = ({ prefill, onUpdate, isBusy, tokenBalance }) => {
-  const { config } = useNexus();
+  prefillFields?: {
+    chainId?: boolean;
+    toChainId?: boolean;
+    token?: boolean;
+    amount?: boolean;
+    recipient?: boolean;
+  };
+}> = ({ prefill, onUpdate, isBusy, tokenBalance, prefillFields = {} }) => {
+  const { config } = useInternalNexus();
 
   const handleUpdate = (field: keyof BridgeConfig, value: string | number) => {
     onUpdate({ [field]: value });
@@ -28,8 +35,10 @@ const BridgeInputForm: React.FC<{
           <Label htmlFor="toChain">Destination Network</Label>
           <ChainSelect
             value={prefill.chainId?.toString() || ''}
-            onValueChange={(chainId: string) => handleUpdate('chainId', parseInt(chainId, 10))}
-            disabled={isBusy}
+            onValueChange={(chainId: string) =>
+              !(isBusy || prefillFields.chainId) && handleUpdate('chainId', parseInt(chainId, 10))
+            }
+            disabled={isBusy || prefillFields.chainId}
             network={config.network}
           />
         </div>
@@ -38,8 +47,10 @@ const BridgeInputForm: React.FC<{
           <Label htmlFor="token">Token to be transferred</Label>
           <TokenSelect
             value={prefill.token || ''}
-            onValueChange={(token: string) => handleUpdate('token', token)}
-            disabled={isBusy}
+            onValueChange={(token: string) =>
+              !(isBusy || prefillFields.token) && handleUpdate('token', token)
+            }
+            disabled={isBusy || prefillFields.token}
             network={config.network}
           />
         </div>
@@ -51,8 +62,10 @@ const BridgeInputForm: React.FC<{
           id="amount"
           placeholder="0.01"
           value={prefill.amount || ''}
-          onChange={(e) => handleUpdate('amount', e.target.value)}
-          disabled={isBusy}
+          onChange={(e) =>
+            !(isBusy || prefillFields.amount) && handleUpdate('amount', e.target.value)
+          }
+          disabled={isBusy || prefillFields.amount}
         />
         <Label htmlFor="balance">
           Balance: - {tokenBalance ?? '0'} {prefill.token || ''}
@@ -86,6 +99,7 @@ export class BridgeController implements ITransactionController {
     let needsApproval = false;
     // Check allowance on all source chains
     for (const source of sourcesData) {
+      if (inputData?.token === 'ETH') break;
       const requiredAmount = sdk.utils.parseUnits(
         simulationResult?.intent?.sourcesTotal,
         sdk.utils.getTokenMetadata(inputData.token)?.decimals ?? 18,

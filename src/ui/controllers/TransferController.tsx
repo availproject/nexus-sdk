@@ -7,7 +7,7 @@ import { Input } from '../components/shared/input';
 import { ChainSelect } from '../components/shared/chain-select';
 import { TokenSelect } from '../components/shared/token-select';
 import { AmountInput } from '../components/shared/amount-input';
-import { useNexus } from '../providers/NexusProvider';
+import { useInternalNexus } from '../providers/InternalNexusProvider';
 import { cn } from '../utils/utils';
 import { logger } from '../../utils';
 
@@ -19,8 +19,15 @@ const TransferInputForm: React.FC<{
   onUpdate: (data: Partial<TransferConfig>) => void;
   isBusy: boolean;
   tokenBalance?: string;
-}> = ({ prefill, onUpdate, isBusy, tokenBalance }) => {
-  const { config, isSdkInitialized, isSimulating } = useNexus();
+  prefillFields?: {
+    chainId?: boolean;
+    toChainId?: boolean;
+    token?: boolean;
+    amount?: boolean;
+    recipient?: boolean;
+  };
+}> = ({ prefill, onUpdate, isBusy, tokenBalance, prefillFields = {} }) => {
+  const { config, isSdkInitialized, isSimulating } = useInternalNexus();
   const isInputDisabled = isBusy || isSimulating;
 
   const handleUpdate = (field: keyof TransferConfig, value: string | number) => {
@@ -43,9 +50,10 @@ const TransferInputForm: React.FC<{
           <ChainSelect
             value={prefill.chainId?.toString() || ''}
             onValueChange={(chainId) =>
-              !isInputDisabled && handleUpdate('chainId', parseInt(chainId, 10))
+              !(isInputDisabled || prefillFields.chainId) &&
+              handleUpdate('chainId', parseInt(chainId, 10))
             }
-            disabled={isInputDisabled}
+            disabled={isInputDisabled || prefillFields.chainId}
             network={config.network}
           />
         </FormField>
@@ -53,8 +61,10 @@ const TransferInputForm: React.FC<{
         <FormField label="Token to transfer" className="flex-1">
           <TokenSelect
             value={prefill.token || ''}
-            onValueChange={(token) => !isInputDisabled && handleUpdate('token', token)}
-            disabled={isInputDisabled}
+            onValueChange={(token) =>
+              !(isInputDisabled || prefillFields.token) && handleUpdate('token', token)
+            }
+            disabled={isInputDisabled || prefillFields.token}
             network={config.network}
           />
         </FormField>
@@ -71,8 +81,12 @@ const TransferInputForm: React.FC<{
           <AmountInput
             value={prefill?.amount ? prefill.amount?.toString() : ''}
             suffix={prefill.token || ''}
-            disabled={isInputDisabled}
-            onChange={isInputDisabled ? undefined : (value) => handleUpdate('amount', value)}
+            disabled={isInputDisabled || prefillFields.amount}
+            onChange={
+              isInputDisabled || prefillFields.amount
+                ? undefined
+                : (value) => handleUpdate('amount', value)
+            }
           />
         </FormField>
 
@@ -90,8 +104,11 @@ const TransferInputForm: React.FC<{
           <Input
             placeholder="0x..."
             value={prefill.recipient || ''}
-            onChange={(e) => !isInputDisabled && handleUpdate('recipient', e.target.value)}
-            disabled={isInputDisabled}
+            onChange={(e) =>
+              !(isInputDisabled || prefillFields.recipient) &&
+              handleUpdate('recipient', e.target.value)
+            }
+            disabled={isInputDisabled || prefillFields.recipient}
             className={
               prefill.recipient && !validateAddress(prefill.recipient)
                 ? 'border-red-500 focus:border-red-500'
@@ -137,6 +154,7 @@ export class TransferController implements ITransactionController {
 
     // Check allowance on all source chains
     for (const source of sourcesData) {
+      if (inputData?.token === 'ETH') break;
       const requiredAmount = sdk.utils.parseUnits(
         simulationResult?.intent?.sourcesTotal,
         sdk.utils.getTokenMetadata(inputData.token)?.decimals ?? 18,

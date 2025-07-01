@@ -18,13 +18,6 @@ export class BridgeService extends BaseService {
       validateBridgeTransferParams(params);
       this.ensureInitialized();
 
-      // Emit started event
-      this.emitOperationEvents.started('BRIDGE', {
-        toChainId: params.chainId,
-        tokenAddress: params.token,
-        amount: params.amount.toString(),
-      });
-
       // Execute bridge operation using CA SDK
       const result = await this.waitForTransactionCompletion<BridgeResult>(async () => {
         const bridgeQuery = await this.ca.bridge({
@@ -37,14 +30,8 @@ export class BridgeService extends BaseService {
         await bridgeQuery.exec();
       });
 
-      // Emit completion event
-      this.emitOperationEvents.completed('BRIDGE', { result });
-
       return result;
     } catch (error) {
-      // Emit failure event
-      this.emitOperationEvents.failed('BRIDGE', error, 'bridge operation');
-
       // Validate parameters for error return format
       const validation = validateForResultReturn({
         chainId: params.chainId,

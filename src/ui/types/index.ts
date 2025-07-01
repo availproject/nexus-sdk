@@ -1,5 +1,6 @@
 import { ReactNode } from 'react';
 import {
+  BridgeAndExecuteParams,
   BridgeAndExecuteResult,
   BridgeAndExecuteSimulationResult,
   BridgeParams,
@@ -9,8 +10,13 @@ import {
   TransferParams,
   TransferResult,
   UserAsset,
+  SUPPORTED_TOKENS,
+  SUPPORTED_CHAINS_IDS,
+  SDKConfig,
 } from '../../types';
 import { NexusSDK } from '../..';
+
+import { Abi } from 'viem';
 
 // # 1. High-Level State Machines
 
@@ -34,7 +40,18 @@ export interface ActiveTransaction {
   type: TransactionType | null;
   status: OrchestratorStatus;
   reviewStatus: ReviewStatus;
-  inputData: Partial<BridgeParams> | Partial<TransferParams> | null;
+  inputData:
+    | Partial<BridgeParams>
+    | Partial<TransferParams>
+    | Partial<BridgeAndExecuteParams>
+    | null;
+  prefillFields?: {
+    chainId?: boolean;
+    toChainId?: boolean;
+    token?: boolean;
+    amount?: boolean;
+    recipient?: boolean;
+  };
   simulationResult:
     | ((SimulationResult | BridgeAndExecuteSimulationResult) & {
         allowance?: {
@@ -53,6 +70,13 @@ export interface ITransactionController {
     onUpdate: (data: any) => void;
     isBusy: boolean;
     tokenBalance?: string;
+    prefillFields?: {
+      chainId?: boolean;
+      toChainId?: boolean;
+      token?: boolean;
+      amount?: boolean;
+      recipient?: boolean;
+    };
   }>;
 
   // The main action function that drives the review, simulation, and execution
@@ -93,7 +117,7 @@ export interface NexusContextValue {
   activeTransaction: ActiveTransaction;
   isSdkInitialized: boolean;
   activeController: ITransactionController | null;
-  config: NexusConfig;
+  config: SDKConfig;
   provider: EthereumProvider | null;
   unifiedBalance: UserAsset[];
   isSimulating: boolean;
@@ -112,9 +136,11 @@ export interface NexusContextValue {
   initializeSdk: () => Promise<boolean>;
   startTransaction: (
     type: TransactionType,
-    prefillData?: Partial<BridgeParams> | Partial<TransferParams>, // Support both Bridge and Transfer
+    prefillData?: Partial<BridgeParams> | Partial<TransferParams> | Partial<BridgeAndExecuteParams>,
   ) => void;
-  updateInput: (data: Partial<BridgeParams> | Partial<TransferParams>) => void;
+  updateInput: (
+    data: Partial<BridgeParams> | Partial<TransferParams> | Partial<BridgeAndExecuteParams>,
+  ) => void;
   confirmAndProceed: () => void;
   cancelTransaction: () => void;
   triggerSimulation: () => Promise<void>;
@@ -131,19 +157,10 @@ export interface BaseComponentProps {
   className?: string;
 }
 
-export interface NexusConfig {
-  network: 'mainnet' | 'testnet';
-  apiKey?: string;
-  theme?: 'light' | 'dark';
-  debug?: boolean;
-}
-
 export interface BridgeConfig extends Partial<BridgeParams> {}
 
 export interface BridgeButtonProps extends BaseComponentProps {
   prefill?: BridgeConfig;
-  onSuccess?: (txHash: string) => void;
-  onError?: (error: Error) => void;
   children: (props: { onClick: () => void; isLoading: boolean }) => ReactNode;
 }
 
@@ -152,8 +169,6 @@ export interface TransferConfig extends Partial<TransferParams> {}
 
 export interface TransferButtonProps extends BaseComponentProps {
   prefill?: TransferConfig;
-  onSuccess?: (txHash: string) => void;
-  onError?: (error: Error) => void;
   children: (props: { onClick: () => void; isLoading: boolean }) => ReactNode;
 }
 
@@ -211,4 +226,28 @@ export interface TransactionProgressProps extends BaseComponentProps {
   steps: TransactionStep[];
   currentStep: string;
   collapsible?: boolean;
+}
+
+export type DynamicParamBuilder = (
+  token: SUPPORTED_TOKENS,
+  amount: string,
+  chainId: SUPPORTED_CHAINS_IDS,
+  userAddress: `0x${string}`,
+) => {
+  functionParams: readonly unknown[];
+  /** ETH value in wei (string). Omit or '0' for ERC-20 calls */
+  value?: string;
+};
+
+export interface BridgeAndExecuteButtonProps extends BaseComponentProps {
+  contractAddress: `0x${string}`;
+  contractAbi: Abi;
+  functionName: string;
+  buildFunctionParams: DynamicParamBuilder;
+  prefill?: {
+    toChainId?: SUPPORTED_CHAINS_IDS;
+    token?: SUPPORTED_TOKENS;
+    amount?: string;
+  };
+  children: (props: { onClick: () => void; isLoading: boolean; disabled: boolean }) => ReactNode;
 }
