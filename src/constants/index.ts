@@ -8,7 +8,7 @@ export const SUPPORTED_CHAINS = {
   OPTIMISM: 10,
   POLYGON: 137,
   AVALANCHE: 43114,
-  SCROLL: 534351,
+  SCROLL: 534352,
 
   // Testnet chains
   BASE_SEPOLIA: 84532,
@@ -151,7 +151,7 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
     blockExplorerUrls: ['https://snowtrace.io'],
   },
   [SUPPORTED_CHAINS.SCROLL]: {
-    id: 534351,
+    id: 534352,
     name: 'Scroll',
     shortName: 'scroll',
     logo: chainIcons[SUPPORTED_CHAINS.SCROLL],

@@ -1,10 +1,10 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { CircleX, Maximize, TriangleAlert } from 'lucide-react';
+import { CircleX, Maximize } from 'lucide-react';
 import { useNexus } from '../../providers/NexusProvider';
 import { CHAIN_METADATA, TOKEN_METADATA, TransactionType } from '../../..';
 
 import { getOperationText } from '../../utils/utils';
-import { Button, InfoMessage, ThreeStageProgress } from '../shared';
+import { Button, ThreeStageProgress, EnhancedInfoMessage } from '../shared';
 import SuccessRipple from '../shared/success-ripple';
 
 interface TransactionProcessorMiniProps {
@@ -175,12 +175,7 @@ export const TransactionProcessorMini: React.FC<TransactionProcessorMiniProps> =
       </div>
       {activeTransaction?.status === 'error' ? (
         <div className="text-left flex flex-col items-start gap-y-0.5">
-          <InfoMessage variant={'error'}>
-            <p className="text-sm font-primary text-destructive-base font-bold flex items-center gap-x-2">
-              <TriangleAlert className="w-4 h-4 text-destructive-base ml-1" />
-              {activeTransaction?.error?.message}
-            </p>
-          </InfoMessage>
+          <EnhancedInfoMessage error={activeTransaction.error} context="transaction" />
         </div>
       ) : (
         <div className="text-left flex flex-col items-start gap-y-0.5">

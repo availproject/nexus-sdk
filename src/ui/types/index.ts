@@ -23,7 +23,8 @@ export type OrchestratorStatus =
   | 'processing'
   | 'success'
   | 'error'
-  | 'simulation_error';
+  | 'simulation_error'
+  | 'set_allowance';
 
 export type ReviewStatus = 'gathering_input' | 'simulating' | 'needs_allowance' | 'ready';
 
@@ -34,21 +35,16 @@ export interface ActiveTransaction {
   status: OrchestratorStatus;
   reviewStatus: ReviewStatus;
   inputData: Partial<BridgeParams> | Partial<TransferParams> | null;
-  // Generic holder for simulation data to be displayed in the review screen
   simulationResult:
     | ((SimulationResult | BridgeAndExecuteSimulationResult) & {
         allowance?: {
           needsApproval: boolean;
-          // Add other allowance details here later
         };
       })
     | null;
-  // Generic holder for the final transaction result
   executionResult: BridgeResult | BridgeAndExecuteResult | TransferResult | null;
   error: Error | null;
 }
-
-// # 3. Controller Interface
 
 export interface ITransactionController {
   // The UI component for gathering inputs for this transaction type
@@ -104,6 +100,8 @@ export interface NexusContextValue {
   insufficientBalance: boolean;
   isTransactionCollapsed: boolean;
   timer: number;
+  allowanceError: string | null;
+  isSettingAllowance: boolean;
 
   // Transaction processing state (from useListenTransaction)
   processing: ProcessingState;
@@ -122,6 +120,9 @@ export interface NexusContextValue {
   triggerSimulation: () => Promise<void>;
   retrySimulation: () => void;
   toggleTransactionCollapse: () => void;
+  approveAllowance: (amount: string, isMinimum: boolean) => Promise<void>;
+  denyAllowance: () => void;
+  startAllowanceFlow: () => void;
 }
 
 // # 5. Existing Widget Configuration Types (with minor updates)

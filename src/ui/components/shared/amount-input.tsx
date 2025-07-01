@@ -84,7 +84,7 @@ export function AmountInput({
             value={value || ''}
             onChange={handleInputChange}
             disabled={disabled}
-            className="!bg-transparent text-black text-base font-semibold font-primary leading-normal border-none !outline-none flex-1 disabled:cursor-not-allowed px-0 !focus-visible:outline-none !focus-within:outline-none"
+            className="!bg-transparent text-black text-base font-semibold font-primary leading-normal border-none !outline-none flex-1 disabled:cursor-not-allowed px-0 !focus:ring-0 !focus:border-none !focus:outline-none"
             placeholder="0.0"
             inputMode="decimal"
             pattern="[0-9]*\.?[0-9]*"

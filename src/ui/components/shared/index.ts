@@ -13,7 +13,20 @@ export { ThreeStageProgress } from './three-stage-progress';
 export { ChainIcon, TokenIcon } from './icons';
 
 // New atomic components for Figma designs
+export { AllowanceForm } from './allowance-form';
 export { FormField } from './form-field';
 export { AmountInput } from './amount-input';
 export { InfoMessage } from './info-message';
 export { ActionButtons } from './action-buttons';
+
+// Error formatting utilities
+export {
+  formatErrorForUI,
+  isUserRejectionError,
+  isChainError,
+  extractChainIdFromError,
+  addChainToWallet,
+} from '../../utils/utils';
+
+// Enhanced components
+export { EnhancedInfoMessage } from './enhanced-info-message';

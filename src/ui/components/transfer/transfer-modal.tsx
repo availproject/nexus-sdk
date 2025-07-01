@@ -3,8 +3,8 @@ import { BaseModal } from '../shared/base-modal';
 import { useNexus } from '../../providers/NexusProvider';
 import { BridgeAndExecuteSimulationResult, SimulationResult } from '../../../types';
 import { getButtonText } from '../../utils/utils';
-import { BridgeSimulation } from '../bridge/bridge-simulation';
-import { InfoMessage, ActionButtons } from '../shared';
+import { TransactionSimulation } from '../processing/transaction-simulation';
+import { InfoMessage, ActionButtons, AllowanceForm, EnhancedInfoMessage } from '../shared';
 import TransactionProcessor from '../processing/transaction-processor';
 import { TransferFormSection } from './transfer-form-section';
 
@@ -23,6 +23,11 @@ export function TransferModal() {
     isSimulating,
     insufficientBalance,
     isTransactionCollapsed,
+    allowanceError,
+    isSettingAllowance,
+    approveAllowance,
+    denyAllowance,
+    startAllowanceFlow,
   } = useNexus();
 
   const { status, reviewStatus, inputData, simulationResult, type } = activeTransaction;
@@ -46,6 +51,8 @@ export function TransferModal() {
       activeController?.hasSufficientInput(inputData || {})
     ) {
       triggerSimulation();
+    } else if (status === 'review' && reviewStatus === 'needs_allowance') {
+      startAllowanceFlow();
     } else {
       confirmAndProceed();
     }
@@ -83,20 +90,47 @@ export function TransferModal() {
         )}
 
         {activeTransaction.error && status === 'simulation_error' && (
-          <InfoMessage variant="error" className="mt-4">
-            {activeTransaction.error.message}
-          </InfoMessage>
+          <EnhancedInfoMessage
+            error={activeTransaction.error}
+            context="simulation"
+            className="mt-4"
+          />
         )}
 
         {shouldShowSimulation && !insufficientBalance && status !== 'simulation_error' && (
           <div className="px-6 mt-4">
-            <BridgeSimulation
+            <TransactionSimulation
               isLoading={isSimulating}
               simulationResult={simulationResult || undefined}
             />
           </div>
         )}
       </div>
+    );
+  };
+
+  const renderAllowanceContent = () => {
+    if (!simulationResult || !inputData) return null;
+
+    // Get minimum amount and input amount for allowance
+    const minimumAmount = (simulationResult as SimulationResult)?.intent?.sourcesTotal || '0';
+    const sourceChains: { chainId: number; amount: string }[] =
+      (simulationResult as SimulationResult)?.intent?.sources?.map((source) => ({
+        chainId: source.chainID,
+        amount: source.amount,
+      })) || [];
+
+    return (
+      <AllowanceForm
+        token={inputData.token || ''}
+        minimumAmount={minimumAmount}
+        inputAmount={inputData.amount?.toString() || '0'}
+        sourceChains={sourceChains}
+        onApprove={approveAllowance}
+        onCancel={denyAllowance}
+        isLoading={isSettingAllowance}
+        error={allowanceError}
+      />
     );
   };
 
@@ -172,6 +206,8 @@ export function TransferModal() {
       case 'review':
       case 'simulation_error':
         return renderReviewContent();
+      case 'set_allowance':
+        return renderAllowanceContent();
       case 'processing':
       case 'success':
       case 'error':
@@ -181,14 +217,27 @@ export function TransferModal() {
     }
   };
 
-  const showFooterButtons = status !== 'processing' && status !== 'success' && status !== 'error';
+  const showFooterButtons =
+    status !== 'processing' &&
+    status !== 'success' &&
+    status !== 'error' &&
+    status !== 'set_allowance';
   const preventClose = status === 'processing';
+
+  const getModalTitle = () => {
+    switch (status) {
+      case 'set_allowance':
+        return 'Approve Allowance';
+      default:
+        return 'Review Information';
+    }
+  };
 
   return (
     <BaseModal
       isOpen={isOpen}
       onClose={preventClose ? () => {} : cancelTransaction}
-      title="Review Information"
+      title={getModalTitle()}
     >
       {renderContent()}
 

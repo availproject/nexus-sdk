@@ -100,7 +100,10 @@ export function TransferFormSection({
                 value={inputData.recipient || ''}
                 onChange={(e) => !isInputDisabled && onUpdate({ recipient: e.target.value })}
                 disabled={isInputDisabled}
-                className={hasValidationError ? 'border-red-500 focus:border-red-500' : ''}
+                className={cn(
+                  '!bg-transparent !focus:ring-0 !focus:border-none !focus:outline-none px-0',
+                  hasValidationError ? 'border-red-500 focus:border-red-500' : '',
+                )}
               />
             </div>
           </div>

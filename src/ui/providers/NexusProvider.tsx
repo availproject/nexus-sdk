@@ -58,6 +58,8 @@ export function NexusProvider({ config, children }: { config: NexusConfig; child
   const [insufficientBalance, setInsufficientBalance] = useState(false);
   const [isTransactionCollapsed, setIsTransactionCollapsed] = useState(false);
   const [timer, setTimer] = useState(0);
+  const [allowanceError, setAllowanceError] = useState<string | null>(null);
+  const [isSettingAllowance, setIsSettingAllowance] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const activeController = activeTransaction.type ? controllers[activeTransaction.type] : null;
@@ -296,7 +298,6 @@ export function NexusProvider({ config, children }: { config: NexusConfig; child
 
     setActiveTransaction((prev) => ({ ...prev, status: 'processing' }));
     try {
-      console.log('called confirmAndProceed', activeTransaction.inputData);
       const executionResult = await activeController.confirmAndProceed(
         sdk,
         activeTransaction.inputData,
@@ -323,6 +324,109 @@ export function NexusProvider({ config, children }: { config: NexusConfig; child
     activeTransaction.status,
     activeTransaction.reviewStatus,
   ]);
+
+  const approveAllowance = useCallback(
+    async (amount: string, isMinimum: boolean) => {
+      if (
+        !activeController ||
+        !activeTransaction.inputData ||
+        !activeTransaction.simulationResult
+      ) {
+        return;
+      }
+
+      if (activeTransaction.status !== 'set_allowance') {
+        logger.warn(
+          'Attempted to approve allowance from invalid status:',
+          activeTransaction.status,
+        );
+        return;
+      }
+
+      setIsSettingAllowance(true);
+      setAllowanceError(null);
+
+      try {
+        // For each source chain that needs allowance, set it
+        const { inputData, simulationResult } = activeTransaction;
+
+        // Handle different simulation result types
+        let sourcesData: Array<{ chainID: number; amount: string }> =
+          (simulationResult as SimulationResult)?.intent?.sources || [];
+
+        for (const source of sourcesData) {
+          const tokenMeta = sdk.utils.getTokenMetadata(inputData.token!);
+          const amountToApprove = isMinimum
+            ? sdk.utils.parseUnits(amount, tokenMeta?.decimals ?? 18)
+            : sdk.utils.parseUnits(amount, tokenMeta?.decimals ?? 18);
+
+          await sdk.setAllowance(source.chainID, [inputData.token!], amountToApprove);
+        }
+
+        // After successful allowance setting, proceed directly to transaction
+        setActiveTransaction((prev) => ({ ...prev, status: 'processing' }));
+
+        try {
+          const executionResult = await activeController.confirmAndProceed(
+            sdk,
+            inputData,
+            simulationResult,
+          );
+          setActiveTransaction((prev) => ({
+            ...prev,
+            status: executionResult?.success ? 'success' : 'error',
+            error: executionResult?.error ? new Error(executionResult.error) : null,
+            executionResult,
+          }));
+        } catch (execErr) {
+          logger.error('Transaction failed after allowance approval.', execErr as Error);
+          const error = execErr instanceof Error ? execErr : new Error('Transaction failed.');
+          setActiveTransaction((prev) => ({ ...prev, status: 'error', error }));
+        }
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error('Failed to set allowance.');
+        setAllowanceError(error.message);
+        logger.error('Allowance setting failed:', error);
+      } finally {
+        setIsSettingAllowance(false);
+      }
+    },
+    [
+      activeController,
+      sdk,
+      activeTransaction.inputData,
+      activeTransaction.simulationResult,
+      activeTransaction.status,
+    ],
+  );
+
+  const denyAllowance = useCallback(() => {
+    setActiveTransaction((prev) => ({
+      ...prev,
+      status: 'review',
+      reviewStatus: 'ready',
+    }));
+    setAllowanceError(null);
+  }, []);
+
+  const startAllowanceFlow = useCallback(() => {
+    if (
+      activeTransaction.status !== 'review' ||
+      activeTransaction.reviewStatus !== 'needs_allowance'
+    ) {
+      logger.warn('Attempted to start allowance flow from invalid state:', {
+        status: activeTransaction.status,
+        reviewStatus: activeTransaction.reviewStatus,
+      });
+      return;
+    }
+
+    setActiveTransaction((prev) => ({
+      ...prev,
+      status: 'set_allowance',
+    }));
+    setAllowanceError(null);
+  }, [activeTransaction.status, activeTransaction.reviewStatus]);
 
   useEffect(() => {
     if (
@@ -379,6 +483,8 @@ export function NexusProvider({ config, children }: { config: NexusConfig; child
       insufficientBalance,
       isTransactionCollapsed,
       timer,
+      allowanceError,
+      isSettingAllowance,
 
       // Transaction processing state
       processing,
@@ -394,6 +500,9 @@ export function NexusProvider({ config, children }: { config: NexusConfig; child
       triggerSimulation,
       retrySimulation,
       toggleTransactionCollapse,
+      approveAllowance,
+      denyAllowance,
+      startAllowanceFlow,
     }),
     [
       sdk,
@@ -416,8 +525,13 @@ export function NexusProvider({ config, children }: { config: NexusConfig; child
       isTransactionCollapsed,
       toggleTransactionCollapse,
       timer,
+      allowanceError,
+      isSettingAllowance,
       processing,
       explorerURL,
+      approveAllowance,
+      denyAllowance,
+      startAllowanceFlow,
     ],
   );
 

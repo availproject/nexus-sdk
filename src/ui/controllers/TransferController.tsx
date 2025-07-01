@@ -9,6 +9,7 @@ import { TokenSelect } from '../components/shared/token-select';
 import { AmountInput } from '../components/shared/amount-input';
 import { useNexus } from '../providers/NexusProvider';
 import { cn } from '../utils/utils';
+import { logger } from '../../utils';
 
 // Transfer-specific config interface
 export interface TransferConfig extends Partial<TransferParams> {}
@@ -33,13 +34,6 @@ const TransferInputForm: React.FC<{
       return false;
     }
     return true;
-  };
-
-  // Check if address is the user's own address (prevent self-transfers)
-  const isSelfTransfer = (address: string): boolean => {
-    // For now, we'll skip self-transfer validation since we need async call
-    // This can be enhanced later when we have access to current account
-    return false;
   };
 
   return (
@@ -88,7 +82,7 @@ const TransferInputForm: React.FC<{
           helperText={
             prefill.recipient && !validateAddress(prefill.recipient)
               ? 'Invalid address format'
-              : prefill.recipient && isSelfTransfer(prefill.recipient)
+              : prefill.recipient
                 ? 'Cannot transfer to your own address'
                 : undefined
           }
@@ -99,8 +93,7 @@ const TransferInputForm: React.FC<{
             onChange={(e) => !isInputDisabled && handleUpdate('recipient', e.target.value)}
             disabled={isInputDisabled}
             className={
-              prefill.recipient &&
-              (!validateAddress(prefill.recipient) || isSelfTransfer(prefill.recipient))
+              prefill.recipient && !validateAddress(prefill.recipient)
                 ? 'border-red-500 focus:border-red-500'
                 : ''
             }
@@ -138,17 +131,29 @@ export class TransferController implements ITransactionController {
     inputData: TransferParams,
   ): Promise<ActiveTransaction['simulationResult']> {
     const simulationResult = await sdk.simulateTransfer(inputData);
-    console.log('transfer simulationResult', simulationResult);
+    logger.info('transfer simulationResult', simulationResult);
+    const sourcesData = simulationResult?.intent?.sources || [];
+    let needsApproval = false;
 
-    const tokenMeta = sdk.utils.getTokenMetadata(inputData.token);
-    const requiredAmount = sdk.utils.parseUnits(
-      inputData.amount.toString(),
-      tokenMeta?.decimals ?? 18,
-    );
+    // Check allowance on all source chains
+    for (const source of sourcesData) {
+      const requiredAmount = sdk.utils.parseUnits(
+        simulationResult?.intent?.sourcesTotal,
+        sdk.utils.getTokenMetadata(inputData.token)?.decimals ?? 18,
+      );
+      const allowances = await sdk.getAllowance(source.chainID, [inputData.token]);
+      logger.info(`transfer allowances for chain ${source.chainID}:`, allowances);
 
-    const allowances = await sdk.getAllowance(inputData.chainId, [inputData.token]);
-    const currentAllowance = allowances[0]?.allowance ?? 0n;
-    const needsApproval = currentAllowance < requiredAmount;
+      const currentAllowance = allowances[0]?.allowance ?? 0n;
+
+      if (currentAllowance < requiredAmount) {
+        needsApproval = true;
+        logger.info(
+          `Transfer allowance needed on chain ${source.chainID}: required=${requiredAmount}, current=${currentAllowance}`,
+        );
+        break;
+      }
+    }
 
     return {
       ...simulationResult,
@@ -158,19 +163,7 @@ export class TransferController implements ITransactionController {
     };
   }
 
-  async confirmAndProceed(
-    sdk: NexusSDK,
-    inputData: TransferParams,
-    simulationResult: ActiveTransaction['simulationResult'],
-  ): Promise<TransferResult> {
-    if (simulationResult?.allowance?.needsApproval) {
-      const tokenMeta = await sdk.utils.getTokenMetadata(inputData.token);
-      const amountToApprove = sdk.utils.parseUnits(
-        inputData.amount.toString(),
-        tokenMeta?.decimals ?? 18,
-      );
-      await sdk.setAllowance(inputData.chainId, [inputData.token], amountToApprove);
-    }
+  async confirmAndProceed(sdk: NexusSDK, inputData: TransferParams): Promise<TransferResult> {
     const result = await sdk.transfer(inputData);
     return result;
   }

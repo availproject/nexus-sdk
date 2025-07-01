@@ -2,7 +2,7 @@ import React from 'react';
 import { SimulationResult, BridgeAndExecuteSimulationResult } from '../../../types';
 import { InfoMessage, Shimmer } from '../shared';
 
-interface BridgeSimulationProps {
+interface TransactionSimulationProps {
   isLoading: boolean;
   simulationResult?: (SimulationResult | BridgeAndExecuteSimulationResult) & {
     allowance?: { needsApproval: boolean };
@@ -40,7 +40,7 @@ interface SimulationData {
   sourcesTotal: string;
 }
 
-export function BridgeSimulation({ isLoading, simulationResult }: BridgeSimulationProps) {
+export function TransactionSimulation({ isLoading, simulationResult }: TransactionSimulationProps) {
   const getSimulationData = (): SimulationData | null => {
     if (!simulationResult || !('intent' in simulationResult)) return null;
 

@@ -9,8 +9,8 @@ import {
 } from '../../..';
 
 import { SmallAvailLogo } from '../shared/icons/SmallAvailLogo';
-import { CircleX, ExternalLink, Minimize, TriangleAlert } from 'lucide-react';
-import { Button, InfoMessage, ThreeStageProgress } from '../shared';
+import { CircleX, ExternalLink, Minimize } from 'lucide-react';
+import { Button, ThreeStageProgress, EnhancedInfoMessage } from '../shared';
 import { getOperationText } from '../../utils/utils';
 import { DotLottieReact } from '@lottiefiles/dotlottie-react';
 import SuccessRipple from '../shared/success-ripple';
@@ -184,12 +184,7 @@ const TransactionProcessor = ({
           </div>
           <div className="flex flex-col items-center gap-y-4 w-full">
             {activeTransaction?.error ? (
-              <InfoMessage variant="error">
-                <p className="text-sm font-primary text-destructive-base font-bold flex items-center gap-x-2">
-                  <TriangleAlert className="w-4 h-4 text-destructive-base ml-1" />
-                  {activeTransaction?.error?.message}
-                </p>
-              </InfoMessage>
+              <EnhancedInfoMessage error={activeTransaction.error} context="transaction" />
             ) : (
               <>
                 <div className="flex items-center justify-center w-full">

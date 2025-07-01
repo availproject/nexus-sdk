@@ -75,7 +75,7 @@ const executeResult = await sdk.execute({
 | Arbitrum  | 42161    | ETH             | ✅     |
 | Avalanche | 43114    | AVAX            | ✅     |
 | Base      | 8453     | ETH             | ✅     |
-| Scroll    | 534351   | ETH             | ✅     |
+| Scroll    | 534352   | ETH             | ✅     |
 
 ### Testnet Chains
 

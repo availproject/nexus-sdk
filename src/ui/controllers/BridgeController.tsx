@@ -7,6 +7,7 @@ import { Input } from '../components/shared/input';
 import { ChainSelect } from '../components/shared/chain-select';
 import { TokenSelect } from '../components/shared/token-select';
 import { useNexus } from '../providers/NexusProvider';
+import { logger } from '../../utils';
 
 const BridgeInputForm: React.FC<{
   prefill: Partial<BridgeConfig>;
@@ -79,17 +80,30 @@ export class BridgeController implements ITransactionController {
     inputData: BridgeParams,
   ): Promise<ActiveTransaction['simulationResult']> {
     const simulationResult = await sdk.simulateBridge(inputData);
-    console.log('simulationResult', simulationResult);
+    logger.info('bridge simulationResult', simulationResult);
 
-    const tokenMeta = sdk.utils.getTokenMetadata(inputData.token);
-    const requiredAmount = sdk.utils.parseUnits(
-      inputData.amount.toString(),
-      tokenMeta?.decimals ?? 18,
-    );
+    const sourcesData = simulationResult?.intent?.sources || [];
+    let needsApproval = false;
+    // Check allowance on all source chains
+    for (const source of sourcesData) {
+      const requiredAmount = sdk.utils.parseUnits(
+        simulationResult?.intent?.sourcesTotal,
+        sdk.utils.getTokenMetadata(inputData.token)?.decimals ?? 18,
+      );
 
-    const allowances = await sdk.getAllowance(inputData.chainId, [inputData.token]);
-    const currentAllowance = allowances[0]?.allowance ?? 0n;
-    const needsApproval = currentAllowance < requiredAmount;
+      const allowances = await sdk.getAllowance(source.chainID, [inputData.token]);
+      logger.info(`allowances for chain ${source.chainID}:`, allowances);
+
+      const currentAllowance = allowances[0]?.allowance ?? 0n;
+
+      if (currentAllowance < requiredAmount) {
+        needsApproval = true;
+        logger.info(
+          `Allowance needed on chain ${source.chainID}: required=${requiredAmount}, current=${currentAllowance}`,
+        );
+        break;
+      }
+    }
 
     return {
       ...simulationResult,
@@ -99,20 +113,7 @@ export class BridgeController implements ITransactionController {
     };
   }
 
-  async confirmAndProceed(
-    sdk: NexusSDK,
-    inputData: BridgeParams,
-    simulationResult: ActiveTransaction['simulationResult'],
-  ): Promise<BridgeResult> {
-    if (simulationResult?.allowance?.needsApproval) {
-      const tokenMeta = sdk.utils.getTokenMetadata(inputData.token);
-      const amountToApprove = sdk.utils.parseUnits(
-        inputData.amount.toString(),
-        tokenMeta?.decimals ?? 18,
-      );
-      await sdk.setAllowance(inputData.chainId, [inputData.token], amountToApprove);
-    }
-    console.log('called bridge', inputData);
+  async confirmAndProceed(sdk: NexusSDK, inputData: BridgeParams): Promise<BridgeResult> {
     const result = await sdk.bridge(inputData);
     return result;
   }
