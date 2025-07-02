@@ -1,6 +1,6 @@
 {
   "name": "avail-nexus-sdk",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Nexus SDK enables cross-chain transactions with minimal friction",
   "main": "dist/index.js",
   "module": "dist/index.esm.js",
