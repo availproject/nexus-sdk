@@ -1,0 +1,204 @@
+@import 'tailwindcss';
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@theme {
+  /* ========================================================================
+   * DESIGN TOKENS (From Figma)
+   * ======================================================================== */
+
+  /* BASE PALETTE (Light Theme) */
+  --color-white: rgb(255 255 255);
+  --color-black: rgb(0 0 0);
+
+  /* Neutrals */
+  --color-neutral-50: rgb(244 246 248); /* Page background */
+  --color-neutral-100: rgb(232 234 240); /* Card background */
+  --color-neutral-200: rgb(229 231 233); /* Border */
+  --color-neutral-400: rgb(179 179 179); /* Muted border */
+  --color-neutral-500: rgb(128 128 128); /* Muted text */
+  --color-neutral-600: rgb(102 102 102);
+  --color-neutral-700: rgb(86 90 96); /* Secondary text */
+  --color-neutral-800: rgb(76 76 76);
+  --color-neutral-900: rgb(27 27 27); /* Primary text */
+
+  /* Brand / Primary */
+  --color-brand-blue-primary: rgb(3 117 216);
+  --color-brand-blue-secondary: rgb(43 128 215);
+  --color-brand-footer-bg: rgb(190 216 238);
+  --color-brand-footer-text: rgb(84 107 138);
+
+  /* Icons */
+  --color-icon-arbitrum-bg: rgb(66 92 114);
+  --color-icon-avail-bg: rgb(44 187 249);
+
+  /* Status Colors */
+  --color-success-base: rgb(120 196 123);
+  --color-warning-base: rgb(240 185 11);
+  --color-destructive-base: rgb(239 68 68); /* Not in figma, but good to have */
+
+  /* SEMANTIC MAPPING (Light Theme) */
+  --color-background: var(--color-neutral-50);
+  --color-foreground: var(--color-neutral-900);
+
+  --color-primary: var(--color-neutral-900);
+  --color-primary-hover: rgb(43 43 43);
+  --color-primary-foreground: var(--color-white);
+
+  --color-secondary: var(--color-neutral-700);
+  --color-secondary-foreground: var(--color-white);
+
+  --color-muted: var(--color-neutral-500);
+  --color-muted-foreground: var(--color-neutral-700);
+
+  --color-accent: var(--color-brand-blue-primary);
+  --color-accent-foreground: var(--color-white);
+
+  --color-border: var(--color-neutral-200);
+  --color-input: var(--color-neutral-400);
+  --color-ring: var(--color-brand-blue-secondary);
+
+  --color-destructive: var(--color-destructive-base);
+  --color-destructive-foreground: var(--color-white);
+
+  --color-card: var(--color-white);
+  --color-card-foreground: var(--color-neutral-900);
+
+  --color-alert-bg: var(--color-success-base);
+  --color-alert-text: var(--color-black);
+
+  /* TYPOGRAPHY, SPACING, SHADOWS, etc. */
+  --font-family-primary:
+    'PP Mori', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-family-secondary:
+    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+
+  /* Tailwind Font Family Classes */
+  --font-family-sans: var(--font-family-primary);
+  --font-family-primary-class: var(--font-family-primary);
+  --font-family-secondary-class: var(--font-family-secondary);
+
+  /* Font Sizes */
+  --font-size-xs: 12px;
+  --font-size-sm: 14px;
+  --font-size-base: 16px;
+  --font-size-lg: 20px;
+  --font-size-xl: 24px;
+
+  /* Font Weights */
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* Border Radius */
+  --radius: 16px;
+  --radius-md: 8px;
+  --radius-full: 36px;
+
+  /* Shadows */
+  --shadow-card: 0 4px 24px rgb(0 0 0 / 0.1);
+  --shadow-dropdown: 0 6px 6px rgb(0 0 0 / 0.25);
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+
+  /* Animation */
+  --animate-fade-in: fade-in 0.2s ease-in-out;
+  --animate-slide-up: slide-up 0.3s ease-out;
+  --animate-slide-down: slide-down 0.3s ease-out;
+}
+
+/* ========================================================================
+ * THEME SCOPING & BASE STYLES
+ * ======================================================================== */
+@layer base {
+  /*
+   * Apply all the design tokens to our specific theme class.
+   * This creates a "CSS namespace" to prevent conflicts with a host app.
+   */
+  .nexus-sdk-theme {
+    --color-background: var(--color-background);
+    --color-foreground: var(--color-foreground);
+    --color-primary: var(--color-primary);
+    --color-primary-hover: var(--color-primary-hover);
+    --color-primary-foreground: var(--color-primary-foreground);
+    --color-secondary: var(--color-secondary);
+    --color-secondary-foreground: var(--color-secondary-foreground);
+    --color-muted: var(--color-muted);
+    --color-muted-foreground: var(--color-muted-foreground);
+    --color-accent: var(--color-accent);
+    --color-accent-foreground: var(--color-accent-foreground);
+    --color-border: var(--color-border);
+    --color-input: var(--color-input);
+    --color-ring: var(--color-ring);
+    --color-destructive: var(--color-destructive);
+    --color-destructive-foreground: var(--color-destructive-foreground);
+    --color-card: var(--color-card);
+    --color-card-foreground: var(--color-card-foreground);
+    --radius: var(--radius);
+  }
+
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-family-primary);
+    font-feature-settings:
+      'rlig' 1,
+      'calt' 1;
+  }
+
+  /* Font Family Utility Classes */
+  .font-primary {
+    font-family: var(--font-family-primary);
+  }
+
+  .font-secondary {
+    font-family: var(--font-family-secondary);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-up {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slide-down {
+  from {
+    transform: translateY(-10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fade-out-scale {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 0.4;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}

@@ -3,6 +3,7 @@ import commonjs from '@rollup/plugin-commonjs';
 import typescript from '@rollup/plugin-typescript';
 import json from '@rollup/plugin-json';
 import dts from 'rollup-plugin-dts';
+import postcss from 'rollup-plugin-postcss';
 import { defineConfig } from 'rollup';
 import { createRequire } from 'module';
 
@@ -28,10 +29,22 @@ const baseConfig = {
       transformMixedEsModules: true,
       ignoreTryCatch: false,
     }),
+    // PostCSS plugin for handling CSS and Tailwind v4
+    postcss({
+      inject: true,
+      extract: false,
+      minimize: isProduction,
+      sourceMap: !isProduction,
+      config: {
+        path: './postcss.config.js',
+      },
+    }),
     typescript({ 
       tsconfig: './tsconfig.json',
-      sourceMap: !isProduction,
-      inlineSources: !isProduction
+      ...(isDevelopment && {
+        sourceMap: true,
+        inlineSources: true
+      })
     }),
   ],
   external: [...Object.keys(packageJson.dependencies || {}), ...Object.keys(packageJson.peerDependencies || {})],
@@ -73,7 +86,9 @@ export default defineConfig([
   {
     input: 'src/index.ts',
     output: [{ file: 'dist/index.d.ts', format: 'esm' }],
-    plugins: [dts()],
-    external: [...Object.keys(packageJson.dependencies || {}), ...Object.keys(packageJson.peerDependencies || {})],
+    plugins: [dts({
+      exclude: ['**/*.css']
+    })],
+    external: [...Object.keys(packageJson.dependencies || {}), ...Object.keys(packageJson.peerDependencies || {}), /\.css$/],
   },
 ]); 

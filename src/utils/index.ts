@@ -4,6 +4,8 @@ import {
   MAINNET_CHAINS,
   TESTNET_CHAINS,
   TESTNET_TOKEN_METADATA,
+  TESTNET_TOKEN_CONTRACT_ADDRESSES,
+  TOKEN_CONTRACT_ADDRESSES,
 } from '../constants';
 import Decimal from 'decimal.js';
 import {
@@ -15,8 +17,58 @@ import {
   Block,
   TransactionReceipt,
 } from '../types';
-import { encodeFunctionData, type Abi, type Address, isAddress, isHash } from 'viem';
-import { formatEther } from 'viem';
+import {
+  encodeFunctionData,
+  type Abi,
+  type Address,
+  type Chain,
+  isAddress,
+  isHash,
+  createPublicClient,
+  custom,
+} from 'viem';
+import { mainnet, polygon, arbitrum, optimism, base } from 'viem/chains';
+import { logger } from './logger';
+
+/**
+ * Shared utility for standardized error message extraction
+ */
+export function extractErrorMessage(error: unknown, fallbackContext: string): string {
+  return error instanceof Error ? error.message : `Unknown ${fallbackContext} error`;
+}
+
+export function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Get Viem chain configuration for supported chains
+ */
+export function getViemChain(chainId: number): Chain {
+  switch (chainId) {
+    case 1:
+      return mainnet;
+    case 137:
+      return polygon;
+    case 42161:
+      return arbitrum;
+    case 10:
+      return optimism;
+    case 8453:
+      return base;
+    default:
+      // Return a basic chain config for unsupported chains
+      return {
+        id: chainId,
+        name: `Chain ${chainId}`,
+        nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+        rpcUrls: {
+          default: { http: [] },
+          public: { http: [] },
+        },
+      };
+  }
+}
 
 /**
  * Format a balance string to a human-readable format using Decimal.js
@@ -238,8 +290,10 @@ export function encodeContractCall(params: {
 
     return { success: true, data };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown encoding error';
-    return { success: false, error: `Failed to encode contract call: ${errorMessage}` };
+    return {
+      success: false,
+      error: `Failed to encode contract call: ${extractErrorMessage(error, 'encoding')}`,
+    };
   }
 }
 
@@ -276,7 +330,7 @@ export function getBlockExplorerUrl(chainId: number, txHash: string): string {
   const chainMetadata = CHAIN_METADATA[chainId];
 
   if (!chainMetadata?.blockExplorerUrls?.[0]) {
-    console.warn(`No block explorer URL found for chain ${chainId}`);
+    logger.warn(`No block explorer URL found for chain ${chainId}`);
     return '';
   }
 
@@ -354,8 +408,10 @@ export async function getTransactionHashWithFallback(
     try {
       return await pollForTransactionHash(provider, fromAddress, timeout);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown polling error';
-      return { success: false, error: `Transaction polling failed: ${errorMessage}` };
+      return {
+        success: false,
+        error: `Transaction polling failed: ${extractErrorMessage(error, 'polling')}`,
+      };
     }
   }
 
@@ -366,99 +422,7 @@ export async function getTransactionHashWithFallback(
 }
 
 /**
- * Enhanced gas estimation with validation
- */
-export async function estimateGasWithValidation(
-  provider: EthereumProvider,
-  params: {
-    to: string;
-    data: string;
-    value?: string;
-    from?: string;
-  },
-): Promise<{ success: boolean; gasLimit?: string; error?: string }> {
-  try {
-    const gasEstimate = await provider.request({
-      method: 'eth_estimateGas',
-      params: [params],
-    });
-
-    const validation = validateHexResponse(gasEstimate, 'Gas estimate');
-    if (!validation.isValid) {
-      return { success: false, error: validation.error };
-    }
-
-    // Add 20% buffer to gas estimate
-    const buffered = (BigInt(gasEstimate as string) * 120n) / 100n; // +20 %
-    const gasLimit = `0x${buffered.toString(16)}`;
-
-    return { success: true, gasLimit };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown gas estimation error';
-    return { success: false, error: `Gas estimation failed: ${errorMessage}` };
-  }
-}
-
-/**
- * Enhanced gas price fetching with validation
- */
-export async function getGasPriceWithValidation(
-  provider: EthereumProvider,
-): Promise<{ success: boolean; gasPrice?: string; error?: string }> {
-  try {
-    const gasPrice = await provider.request({
-      method: 'eth_gasPrice',
-      params: [],
-    });
-
-    const validation = validateHexResponse(gasPrice, 'Gas price');
-    if (!validation.isValid) {
-      return { success: false, error: validation.error };
-    }
-
-    return { success: true, gasPrice: gasPrice as string };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown gas price error';
-    return { success: false, error: `Gas price fetch failed: ${errorMessage}` };
-  }
-}
-
-/**
- * Format gas cost for user display
- */
-export function formatGasCost(
-  gasLimit: string,
-  gasPrice: string,
-): {
-  totalCostWei: string;
-  totalCostEth: string;
-  gasLimitDecimal: string;
-  gasPriceGwei: string;
-} {
-  const gasLimitBigInt = BigInt(gasLimit);
-  const gasPriceBigInt = BigInt(gasPrice);
-  const totalCostWei = (gasLimitBigInt * gasPriceBigInt).toString();
-  const totalCostEth = formatEther(BigInt(totalCostWei));
-  const gasLimitDecimal = gasLimitBigInt.toString();
-  const gasPriceGwei = formatEther(gasPriceBigInt * BigInt(1000000000)); // Convert to Gwei
-
-  return {
-    totalCostWei,
-    totalCostEth,
-    gasLimitDecimal,
-    gasPriceGwei,
-  };
-}
-
-/**
- * Simple wait utility
- */
-export function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Wait for transaction receipt with confirmation tracking
+ * Enhanced transaction receipt waiting using Viem
  */
 export async function waitForTransactionReceipt(
   provider: EthereumProvider,
@@ -468,6 +432,7 @@ export async function waitForTransactionReceipt(
     requiredConfirmations?: number;
     pollingInterval?: number;
   } = {},
+  chainId: number = 1,
 ): Promise<{
   success: boolean;
   receipt?: TransactionReceipt;
@@ -480,58 +445,106 @@ export async function waitForTransactionReceipt(
     pollingInterval = 2000,
   } = options;
 
-  const startTime = Date.now();
+  try {
+    const client = createPublicClient({
+      chain: getViemChain(chainId),
+      transport: custom(provider),
+    });
 
-  while (Date.now() - startTime < timeout) {
-    try {
-      // Get transaction receipt
-      const receipt = (await provider.request({
-        method: 'eth_getTransactionReceipt',
-        params: [txHash],
-      })) as TransactionReceipt | null;
+    // Use Viem's waitForTransactionReceipt with timeout
+    const receipt = await client.waitForTransactionReceipt({
+      hash: txHash,
+      timeout,
+      pollingInterval,
+    });
 
-      if (!receipt) {
-        await wait(pollingInterval);
-        continue;
-      }
+    // Check transaction status
+    if (receipt.status === 'reverted') {
+      return {
+        success: false,
+        error: 'Transaction failed (reverted)',
+        receipt,
+      };
+    }
 
-      // Check if transaction failed
-      if (receipt.status === 'reverted') {
+    // Get current block number for confirmation count
+    const currentBlock = await client.getBlockNumber();
+    const confirmations = Number(currentBlock - receipt.blockNumber) + 1;
+
+    // Check if we have enough confirmations
+    if (confirmations >= requiredConfirmations) {
+      return {
+        success: true,
+        receipt,
+        confirmations,
+      };
+    }
+
+    const confirmationStartTime = Date.now();
+    const confirmationTimeout = timeout || 300000;
+
+    // Wait for additional confirmations if needed
+    while (true) {
+      await wait(pollingInterval);
+
+      if (Date.now() - confirmationStartTime > confirmationTimeout) {
         return {
           success: false,
-          error: 'Transaction failed (reverted)',
-          receipt,
-        };
-      }
-
-      // Get current block number for confirmation count
-      const currentBlockNumber = (await provider.request({
-        method: 'eth_blockNumber',
-        params: [],
-      })) as string;
-
-      const confirmations =
-        parseInt(currentBlockNumber, 16) - parseInt(receipt.blockNumber.toString(), 16) + 1;
-
-      // Check if we have enough confirmations
-      if (confirmations >= requiredConfirmations) {
-        return {
-          success: true,
+          error: `Confirmation timeout: only ${confirmations} of ${requiredConfirmations} confirmations received`,
           receipt,
           confirmations,
         };
       }
 
-      await wait(pollingInterval);
-    } catch (error) {
-      // Continue polling if there's a temporary error
-      console.warn('Error waiting for transaction receipt', error);
-      await wait(pollingInterval);
-    }
-  }
+      const latestBlock = await client.getBlockNumber();
+      const currentConfirmations = Number(latestBlock - receipt.blockNumber) + 1;
 
-  return {
-    success: false,
-    error: 'Transaction receipt timeout',
-  };
+      if (currentConfirmations >= requiredConfirmations) {
+        return {
+          success: true,
+          receipt,
+          confirmations: currentConfirmations,
+        };
+      }
+    }
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error
+        ? error.message
+        : (error as { shortMessage?: string; message?: string })?.shortMessage ||
+          (error as { shortMessage?: string; message?: string })?.message ||
+          'Transaction receipt timeout';
+    return {
+      success: false,
+      error: errorMessage,
+    };
+  }
 }
+
+/**
+ * Utility function to get token contract address for a specific token and chain
+ * @param token Token symbol (e.g., 'USDC', 'USDT')
+ * @param chainId Chain ID
+ * @param isTestnet Whether to use testnet addresses
+ * @returns Contract address or undefined if not found
+ */
+export function getTokenContractAddress(
+  token: string,
+  chainId: number,
+  isTestnet: boolean = false,
+): string | undefined {
+  const registry = isTestnet ? TESTNET_TOKEN_CONTRACT_ADDRESSES : TOKEN_CONTRACT_ADDRESSES;
+  const address = registry[token]?.[chainId];
+  return address || undefined;
+}
+
+// Export logger utilities
+export {
+  LOG_LEVEL,
+  setExceptionReporter,
+  setLogLevel,
+  getLogger,
+  logger,
+  type LogLevel,
+  type ExceptionReporter,
+} from './logger';

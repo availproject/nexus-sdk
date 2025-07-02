@@ -1,27 +1,16 @@
 import { CA, Network, SDKConfig } from '@arcana/ca-sdk';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
-import { SUPPORTED_CHAINS, TOKEN_METADATA, CHAIN_METADATA, NEXUS_EVENTS } from '../constants';
-import {
-  formatBalance,
-  formatTokenAmount,
-  getChainMetadata,
-  isValidAddress,
-  parseUnits,
-  formatUnits,
-  truncateAddress,
-  chainIdToHex,
-  hexToChainId,
-  getMainnetTokenMetadata,
-  getTestnetTokenMetadata,
-  validateContractParams,
-  encodeContractCall,
-  getBlockExplorerUrl,
-  getTransactionHashWithFallback,
-  estimateGasWithValidation,
-  getGasPriceWithValidation,
-  formatGasCost,
-  waitForTransactionReceipt,
-} from '../utils';
+import { NEXUS_EVENTS } from '../constants';
+import { isSupportedChain, isSupportedToken } from './core/validation';
+import { extractErrorMessage } from '../utils';
+
+// Services
+import { BridgeService } from './services/bridge-service';
+import { TransferService } from './services/transfer-service';
+import { ExecuteService } from './services/execute-service';
+import { ApprovalService } from './services/approval-service';
+import { BridgeExecuteService } from './services/bridge-execute-service';
+
 import type {
   EthereumProvider,
   OnIntentHook,
@@ -29,35 +18,51 @@ import type {
   OnAllowanceHook,
   RequestArguments,
   BridgeParams,
+  BridgeResult,
   TransferParams,
+  TransferResult,
   AllowanceResponse,
   EventListener,
-  TokenMetadata,
-  ChainMetadata,
-  TokenBalance,
-  SUPPORTED_TOKENS,
-  SUPPORTED_CHAINS_IDS,
   SimulationResult,
-  RFF,
-  BridgeAndDepositParams,
-  BridgeAndDepositResult,
-  DepositParams,
-  DepositResult,
-  DepositSimulation,
+  BridgeAndExecuteParams,
+  BridgeAndExecuteResult,
+  ExecuteParams,
+  ExecuteResult,
+  ExecuteSimulation,
+  RequestForFunds,
+  BridgeAndExecuteSimulationResult,
+  SUPPORTED_CHAINS_IDS,
+  SUPPORTED_TOKENS,
 } from '../types';
 
 /**
- * Adapter class that wraps CA SDK and provides a unified interface for chain abstraction operations.
+ * Refactored Adapter class that wraps CA SDK and provides a unified interface for chain abstraction operations.
+ * Now uses a service-based architecture for better organization and maintainability.
  */
 export class ChainAbstractionAdapter {
-  private readonly ca: CA;
-  private evmProvider: EthereumProvider | null = null;
+  public readonly ca: CA;
+  public evmProvider: EthereumProvider | null = null;
   public readonly caEvents: SafeEventEmitter;
   private initialized = false;
+
+  // Services
+  private bridgeService: BridgeService;
+  private transferService: TransferService;
+  private executeService: ExecuteService;
+  private approvalService: ApprovalService;
+  private bridgeExecuteService: BridgeExecuteService;
 
   constructor(config?: SDKConfig) {
     this.ca = new CA(config);
     this.caEvents = this.ca.caEvents;
+
+    // Initialize services
+    this.bridgeService = new BridgeService(this);
+    this.transferService = new TransferService(this);
+    this.executeService = new ExecuteService(this);
+    this.approvalService = new ApprovalService(this);
+    this.bridgeExecuteService = new BridgeExecuteService(this);
+    this.setGasEstimationEnabled(true);
   }
 
   /**
@@ -76,8 +81,17 @@ export class ChainAbstractionAdapter {
       this.evmProvider = this.ca.getEVMProviderWithCA();
       this.initialized = true;
     } catch (error) {
-      throw new Error(`Failed to initialize CA SDK: ${error}`);
+      throw new Error(
+        `Failed to initialize CA SDK: ${extractErrorMessage(error, 'initialization')}`,
+      );
     }
+  }
+
+  /**
+   * Check if the adapter has been initialized
+   */
+  public isInitialized(): boolean {
+    return this.initialized;
   }
 
   /**
@@ -97,7 +111,9 @@ export class ChainAbstractionAdapter {
     try {
       return await this.ca.getUnifiedBalances();
     } catch (error) {
-      throw new Error(`Failed to fetch unified balances: ${error}`);
+      throw new Error(
+        `Failed to fetch unified balances: ${extractErrorMessage(error, 'unified balances fetch')}`,
+      );
     }
   }
 
@@ -108,282 +124,139 @@ export class ChainAbstractionAdapter {
     try {
       return await this.ca.getUnifiedBalance(symbol);
     } catch (error) {
-      throw new Error(`Failed to fetch unified balance for ${symbol}: ${error}`);
+      throw new Error(
+        `Failed to fetch unified balance for ${symbol}: ${extractErrorMessage(error, 'balance fetch')}`,
+      );
     }
   }
 
   /**
-   * Check the current allowance for tokens on a specific chain.
+   * Get allowance information for tokens.
    */
   public async getAllowance(chainId?: number, tokens?: string[]): Promise<AllowanceResponse[]> {
+    this.ensureInitialized();
     try {
-      const input: { chainID?: number; tokens?: string[] } = {};
-
-      if (chainId) input.chainID = chainId;
-      if (tokens) input.tokens = tokens;
-
-      const allowances = await this.ca.allowance().get(input);
-
-      return allowances;
+      return await this.ca.allowance().get({ chainID: chainId, tokens });
     } catch (error) {
-      throw new Error(`Failed to check allowance: ${error}`);
+      throw new Error(
+        `Failed to get allowance: ${extractErrorMessage(error, 'allowance retrieval')}`,
+      );
     }
   }
 
   /**
-   * Set the allowance for tokens on a specific chain.
+   * Set allowance for tokens.
    */
   public async setAllowance(chainId: number, tokens: string[], amount: bigint): Promise<void> {
+    this.ensureInitialized();
     try {
-      await this.ca.allowance().set({
-        chainID: chainId,
-        tokens,
-        amount,
-      });
+      await this.ca.allowance().set({ chainID: chainId, tokens, amount });
     } catch (error) {
-      throw new Error(`Failed to set allowance: ${error}`);
+      throw new Error(
+        `Failed to set allowance: ${extractErrorMessage(error, 'allowance setting')}`,
+      );
     }
   }
 
   /**
-   * Revoke the allowance for tokens on a specific chain.
+   * Revoke allowance for tokens.
    */
   public async revokeAllowance(chainId: number, tokens: string[]): Promise<void> {
+    this.ensureInitialized();
     try {
-      await this.ca.allowance().revoke({
-        chainID: chainId,
-        tokens,
-      });
+      await this.ca.allowance().revoke({ chainID: chainId, tokens });
     } catch (error) {
-      throw new Error(`Failed to revoke allowance: ${error}`);
+      throw new Error(
+        `Failed to revoke allowance: ${extractErrorMessage(error, 'allowance revocation')}`,
+      );
     }
   }
 
   /**
-   * Set a callback for intent status updates.
+   * Set intent hook callback.
    */
   public setOnIntentHook(callback: OnIntentHook): void {
     this.ca.setOnIntentHook(callback);
   }
 
   /**
-   * Set a callback for allowance approval events.
+   * Set allowance hook callback.
    */
   public setOnAllowanceHook(callback: OnAllowanceHook): void {
     this.ca.setOnAllowanceHook(callback);
   }
 
   /**
-   * Bridge tokens between chains using the new API structure.
+   * Bridge tokens between chains using the bridge service.
    */
-  public async bridge(params: BridgeParams): Promise<unknown> {
-    if (!this.isSupportedChain(params.chainId)) throw new Error('Unsupported chain');
-    if (!this.isSupportedToken(params.token)) throw new Error('Unsupported token');
-    if (!this.initialized) throw new Error('CA SDK not initialized. Call initialize() first.');
-
-    try {
-      const bridgeQuery = await this.ca.bridge({
-        token: params.token,
-        amount: params.amount,
-        chainID: params.chainId,
-        gas: params.gas ? BigInt(params.gas) : undefined,
-      });
-
-      // Execute the bridge transaction
-      const result = await bridgeQuery.exec();
-      return result;
-    } catch (error) {
-      throw new Error(`Bridge transaction failed: ${error}`);
-    }
+  public async bridge(params: BridgeParams): Promise<BridgeResult> {
+    return this.bridgeService.bridge(params);
   }
 
   /**
-   * Simulate bridge transaction to get costs and fees.
+   * Simulate bridge transaction using the bridge service.
    */
   public async simulateBridge(params: BridgeParams): Promise<SimulationResult> {
-    if (!this.isSupportedChain(params.chainId)) throw new Error('Unsupported chain');
-    if (!this.isSupportedToken(params.token)) throw new Error('Unsupported token');
-    if (!this.initialized) throw new Error('CA SDK not initialized. Call initialize() first.');
-
-    try {
-      const bridgeQuery = await this.ca.bridge({
-        token: params.token,
-        amount: params.amount,
-        chainID: params.chainId,
-        gas: params.gas ? BigInt(params.gas) : undefined,
-      });
-
-      // Simulate the bridge transaction
-      const result = await bridgeQuery.simulate();
-      return result;
-    } catch (error) {
-      throw new Error(`Bridge simulation failed: ${error}`);
-    }
+    return this.bridgeService.simulateBridge(params);
   }
 
   /**
-   * Transfer tokens to a recipient using the new API structure.
+   * Transfer tokens to a recipient using the transfer service.
    */
-  public async transfer(params: TransferParams): Promise<unknown> {
-    if (!this.isSupportedChain(params.chainId)) {
-      throw new Error('Unsupported chain');
-    }
-    if (!this.isSupportedToken(params.token)) {
-      throw new Error('Unsupported token');
-    }
-    if (!this.initialized) throw new Error('CA SDK not initialized. Call initialize() first.');
-
-    try {
-      const transferQuery = await this.ca.transfer({
-        to: params.recipient,
-        token: params.token,
-        amount: params.amount,
-        chainID: params.chainId,
-      });
-
-      // Execute the transfer transaction
-      const result = await transferQuery.exec();
-      return result;
-    } catch (error) {
-      throw new Error(`Transfer transaction failed: ${error}`);
-    }
+  public async transfer(params: TransferParams): Promise<TransferResult> {
+    return this.transferService.transfer(params);
   }
 
   /**
-   * Simulate transfer transaction to get costs and fees.
+   * Simulate transfer transaction using the transfer service.
    */
   public async simulateTransfer(params: TransferParams): Promise<SimulationResult> {
-    if (!this.isSupportedChain(params.chainId)) {
-      throw new Error('Unsupported chain');
-    }
-    if (!this.isSupportedToken(params.token)) {
-      throw new Error('Unsupported token');
-    }
-    if (!this.initialized) throw new Error('CA SDK not initialized. Call initialize() first.');
+    return this.transferService.simulateTransfer(params);
+  }
 
-    try {
-      const transferQuery = await this.ca.transfer({
-        to: params.recipient,
-        token: params.token,
-        amount: params.amount,
-        chainID: params.chainId,
-      });
+  /**
+   * Execute a contract call using the execute service.
+   */
+  public async execute(params: ExecuteParams): Promise<ExecuteResult> {
+    return this.executeService.execute(params);
+  }
 
-      // Simulate the transfer transaction
-      const result = await transferQuery.simulate();
-      return result;
-    } catch (error) {
-      throw new Error(`Transfer simulation failed: ${error}`);
-    }
+  /**
+   * Simulate contract execution using the execute service.
+   */
+  public async simulateExecute(params: ExecuteParams): Promise<ExecuteSimulation> {
+    return this.executeService.simulateExecute(params);
+  }
+
+  /**
+   * Ensure contract approval using the approval service.
+   */
+  public async ensureContractApproval(
+    tokenApproval: { token: SUPPORTED_TOKENS; amount: string },
+    spenderAddress: string,
+    chainId: number,
+    waitForConfirmation: boolean = false,
+  ) {
+    return this.approvalService.ensureContractApproval(
+      tokenApproval,
+      spenderAddress,
+      chainId,
+      waitForConfirmation,
+    );
   }
 
   /**
    * Get user's intents with pagination.
    */
-  public async getMyIntents(page: number = 1): Promise<RFF[]> {
-    if (!this.initialized) throw new Error('CA SDK not initialized. Call initialize() first.');
+  public async getMyIntents(page: number = 1): Promise<RequestForFunds[]> {
+    this.ensureInitialized();
 
     try {
       const intents = await this.ca.getMyIntents(page);
       return intents;
     } catch (error) {
-      throw new Error(`Failed to fetch intents: ${error}`);
+      throw new Error(`Failed to fetch intents: ${extractErrorMessage(error, 'intent fetch')}`);
     }
-  }
-
-  /**
-   * Get mainnet token metadata by symbol.
-   */
-  public getMainnetTokenMetadata(symbol: SUPPORTED_TOKENS): TokenMetadata | undefined {
-    return getMainnetTokenMetadata(symbol);
-  }
-
-  /**
-   * Get testnet token metadata by symbol.
-   */
-  public getTestnetTokenMetadata(symbol: SUPPORTED_TOKENS): TokenMetadata | undefined {
-    return getTestnetTokenMetadata(symbol);
-  }
-
-  /**
-   * Get token metadata by symbol (defaults to mainnet, kept for backward compatibility).
-   */
-  public getTokenMetadata(symbol: SUPPORTED_TOKENS): TokenMetadata | undefined {
-    return getMainnetTokenMetadata(symbol);
-  }
-
-  /**
-   * Get detailed chain metadata by chain ID.
-   */
-  public getChainMetadata(chainId: SUPPORTED_CHAINS_IDS): ChainMetadata | undefined {
-    return getChainMetadata(chainId);
-  }
-
-  /**
-   * Get token balance for a specific token on a specific chain from unified balance.
-   */
-  public async getFormattedTokenBalance(
-    symbol: SUPPORTED_TOKENS,
-    chainId?: number,
-  ): Promise<TokenBalance | undefined> {
-    try {
-      const unifiedBalance = await this.ca.getUnifiedBalance(symbol);
-      if (!unifiedBalance) return undefined;
-
-      if (chainId) {
-        const chainBalance = unifiedBalance.breakdown.find((b) => b.chain.id === chainId);
-        if (!chainBalance) return undefined;
-
-        return {
-          symbol: unifiedBalance.symbol,
-          balance: chainBalance.balance,
-          formattedBalance: formatTokenAmount(chainBalance.balance, symbol),
-          balanceInFiat: chainBalance.balanceInFiat,
-          chainId: chainBalance.chain.id,
-          contractAddress: chainBalance.contractAddress,
-          isNative: chainBalance.isNative,
-        };
-      }
-
-      // Return total balance across all chains
-      return {
-        symbol: unifiedBalance.symbol,
-        balance: unifiedBalance.balance,
-        formattedBalance: formatTokenAmount(unifiedBalance.balance, symbol),
-        balanceInFiat: unifiedBalance.balanceInFiat,
-        chainId: 0, // 0 indicates cross-chain total
-      };
-    } catch (error) {
-      throw new Error(`Failed to get token balance: ${error}`);
-    }
-  }
-
-  /**
-   * Format balance with proper decimals and precision.
-   */
-  public formatBalance(balance: string, decimals: number, precision?: number): string {
-    return formatBalance(balance, decimals, precision);
-  }
-
-  /**
-   * Parse units from human-readable string to smallest unit.
-   */
-  public parseUnits(value: string, decimals: number): bigint {
-    return parseUnits(value, decimals);
-  }
-
-  /**
-   * Format units from smallest unit to human-readable string.
-   */
-  public formatUnits(value: bigint, decimals: number): string {
-    return formatUnits(value, decimals);
-  }
-
-  /**
-   * Validate if an address is valid.
-   */
-  public isValidAddress(address: string): boolean {
-    return isValidAddress(address);
   }
 
   /**
@@ -405,10 +278,9 @@ export class ChainAbstractionAdapter {
   }
 
   /**
-   * Remove all listeners for all events from ca.caEvents and the main CA instance.
+   * Remove all listeners for all events.
    */
   public removeAllListeners(): void {
-    // Remove all listeners from ca.caEvents (SafeEventEmitter)
     if (this.ca.caEvents && typeof this.ca.caEvents.eventNames === 'function') {
       for (const event of this.ca.caEvents.eventNames()) {
         this.ca.caEvents.removeAllListeners(event);
@@ -424,47 +296,17 @@ export class ChainAbstractionAdapter {
   }
 
   /**
-   * Get enhanced chain metadata for all supported chains.
-   */
-  public getSupportedChainsWithMetadata(): ChainMetadata[] {
-    return Object.values(CHAIN_METADATA);
-  }
-
-  /**
    * Check if a chain is supported by the adapter.
    */
-  public isSupportedChain(
-    chainId: (typeof SUPPORTED_CHAINS)[keyof typeof SUPPORTED_CHAINS],
-  ): boolean {
-    return Object.values(SUPPORTED_CHAINS).includes(chainId);
+  public isSupportedChain(chainId: SUPPORTED_CHAINS_IDS): boolean {
+    return isSupportedChain(chainId);
   }
 
   /**
    * Check if a token is supported by the adapter.
    */
   public isSupportedToken(token: string): boolean {
-    return Object.keys(TOKEN_METADATA).includes(token);
-  }
-
-  /**
-   * Truncate address for display.
-   */
-  public truncateAddress(address: string, startLength?: number, endLength?: number): string {
-    return truncateAddress(address, startLength, endLength);
-  }
-
-  /**
-   * Convert chain ID to hex format.
-   */
-  public chainIdToHex(chainId: number): string {
-    return chainIdToHex(chainId);
-  }
-
-  /**
-   * Convert hex chain ID to number.
-   */
-  public hexToChainId(hex: string): number {
-    return hexToChainId(hex);
+    return isSupportedToken(token);
   }
 
   /**
@@ -476,7 +318,9 @@ export class ChainAbstractionAdapter {
       this.ca.deinit();
       this.initialized = false;
     } catch (error) {
-      throw new Error(`Failed to deinitialize CA SDK: ${error}`);
+      throw new Error(
+        `Failed to deinitialize CA SDK: ${extractErrorMessage(error, 'deinitialize')}`,
+      );
     }
   }
 
@@ -484,14 +328,13 @@ export class ChainAbstractionAdapter {
    * Make a generic EIP-1193 request using the enhanced provider.
    */
   public async request(args: RequestArguments): Promise<unknown> {
-    if (!this.initialized) throw new Error('CA SDK not initialized. Call initialize() first.');
+    this.ensureInitialized();
     if (!this.evmProvider) throw new Error('Enhanced provider not available');
 
     try {
-      // Use the enhanced provider instead of direct ca.request
       return await this.evmProvider.request(args);
     } catch (error) {
-      throw new Error(`EIP-1193 request failed: ${error}`);
+      throw new Error(`EIP-1193 request failed: ${extractErrorMessage(error, 'EIP-1193 request')}`);
     }
   }
 
@@ -510,451 +353,48 @@ export class ChainAbstractionAdapter {
   }
 
   /**
-   * Remove all listeners for a specific event from ca.caEvents, or all if eventName is undefined.
+   * Remove all CA event listeners.
    */
   public removeAllCaEventListeners(eventName?: string): void {
-    if (this.ca.caEvents) this.ca.caEvents.removeAllListeners(eventName);
-  }
-
-  /**
-   * Prepare gas parameters for deposit transaction
-   */
-  private async prepareGasParams(
-    provider: EthereumProvider,
-    fromAddress: string,
-    contractAddress: string,
-    encodedData: `0x${string}`,
-    value: string,
-    gasLimit?: string,
-    maxGasPrice?: string,
-  ): Promise<{ gas: string; gasPrice: string }> {
-    let finalGasLimit = gasLimit;
-    if (!finalGasLimit) {
-      const gasEstimation = await estimateGasWithValidation(provider, {
-        from: fromAddress,
-        to: contractAddress,
-        data: encodedData,
-        value,
-      });
-      if (!gasEstimation.success) {
-        throw new Error(gasEstimation.error);
-      }
-      finalGasLimit = gasEstimation.gasLimit!;
-    }
-
-    const gasPriceResult = await getGasPriceWithValidation(provider);
-    if (!gasPriceResult.success) {
-      throw new Error(gasPriceResult.error);
-    }
-
-    let finalGasPrice = gasPriceResult.gasPrice!;
-    if (maxGasPrice && BigInt(finalGasPrice) > BigInt(maxGasPrice)) {
-      finalGasPrice = maxGasPrice;
-    }
-
-    return { gas: finalGasLimit, gasPrice: finalGasPrice };
-  }
-
-  /**
-   * Standalone deposit function for depositing funds into smart contracts
-   * @param params Deposit parameters including contract details and transaction settings
-   * @returns Promise resolving to deposit result with transaction hash and explorer URL
-   */
-  public async deposit(params: DepositParams): Promise<DepositResult> {
-    const {
-      toChainId,
-      contractAddress,
-      contractAbi,
-      functionName,
-      functionParams,
-      value = '0x0',
-      gasLimit,
-      maxGasPrice,
-      enableTransactionPolling = false,
-      transactionTimeout = 30000,
-      waitForReceipt = false,
-      receiptTimeout = 300000,
-      requiredConfirmations = 1,
-    } = params;
-
-    try {
-      this.caEvents.emit(NEXUS_EVENTS.DEPOSIT_STARTED, { chainId: toChainId, contractAddress });
-
-      const validation = validateContractParams({
-        contractAddress,
-        contractAbi,
-        functionName,
-        functionParams,
-        chainId: toChainId,
-      });
-      if (!validation.isValid) {
-        throw new Error(validation.error);
-      }
-
-      const provider = this.evmProvider;
-      if (!provider) {
-        throw new Error(`No provider available for chain ${toChainId}`);
-      }
-
-      const accounts = (await provider.request({ method: 'eth_accounts' })) as string[];
-      if (!accounts || accounts.length === 0) {
-        throw new Error('No wallet account connected');
-      }
-      const fromAddress = accounts[0];
-
-      const encoding = encodeContractCall({ contractAbi, functionName, functionParams });
-      if (!encoding.success) {
-        throw new Error(encoding.error);
-      }
-
-      const gasParams = await this.prepareGasParams(
-        provider,
-        fromAddress,
-        contractAddress,
-        encoding.data!,
-        value,
-        gasLimit?.toString(),
-        maxGasPrice?.toString(),
-      );
-
-      // Send transaction
-      const txParams = {
-        from: fromAddress,
-        to: contractAddress,
-        data: encoding.data!,
-        value,
-        gas: gasParams.gas,
-        gasPrice: gasParams.gasPrice,
-      };
-
-      const response = await provider.request({
-        method: 'eth_sendTransaction',
-        params: [txParams],
-      });
-
-      const hashResult = await getTransactionHashWithFallback(provider, response, {
-        enablePolling: enableTransactionPolling,
-        timeout: transactionTimeout,
-        fromAddress,
-      });
-
-      if (!hashResult.success || !hashResult.hash) {
-        throw new Error(hashResult.error ?? 'Transaction submission failed');
-      }
-
-      const transactionHash = hashResult.hash;
-
-      // Emit transaction sent event
-      this.caEvents.emit(NEXUS_EVENTS.TRANSACTION_SENT, {
-        hash: transactionHash,
-      });
-
-      let receipt;
-      let confirmations;
-      let gasUsed;
-      let effectiveGasPrice;
-
-      // Wait for transaction receipt if requested
-      if (waitForReceipt) {
-        const receiptResult = await waitForTransactionReceipt(provider, transactionHash, {
-          timeout: receiptTimeout,
-          requiredConfirmations,
-        });
-
-        if (!receiptResult.success) {
-          // Transaction was sent but receipt failed - still return partial success
-          console.warn(`Receipt waiting failed: ${receiptResult.error}`);
-        } else {
-          receipt = receiptResult.receipt;
-          confirmations = receiptResult.confirmations;
-          gasUsed = receipt?.gasUsed;
-          effectiveGasPrice = receipt?.effectiveGasPrice;
-
-          this.caEvents.emit(NEXUS_EVENTS.RECEIPT_RECEIVED, {
-            hash: transactionHash,
-            receipt,
-            confirmations,
-          });
-
-          if (confirmations && confirmations >= requiredConfirmations) {
-            this.caEvents.emit(NEXUS_EVENTS.TRANSACTION_CONFIRMED, {
-              hash: transactionHash,
-              confirmations,
-            });
-          }
-        }
-      }
-
-      const result: DepositResult = {
-        transactionHash,
-        explorerUrl: getBlockExplorerUrl(toChainId, transactionHash),
-        chainId: toChainId,
-        receipt,
-        confirmations,
-        gasUsed: gasUsed?.toString(),
-        effectiveGasPrice: effectiveGasPrice?.toString(),
-      };
-
-      this.caEvents.emit(NEXUS_EVENTS.DEPOSIT_COMPLETED, result);
-      return result;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown deposit error';
-      this.caEvents.emit(NEXUS_EVENTS.DEPOSIT_FAILED, {
-        message: errorMessage,
-        code: error instanceof Error ? error.name : 'UNKNOWN_ERROR',
-      });
-      throw new Error(`Deposit failed: ${errorMessage}`);
+    if (eventName) {
+      this.ca.caEvents.removeAllListeners(eventName);
+    } else {
+      this.removeAllListeners();
     }
   }
 
   /**
-   * Simulate a deposit to estimate gas costs and validate parameters
-   * @param params Deposit parameters for simulation
-   * @returns Promise resolving to simulation result with gas estimates
+   * Bridge and execute operation - uses the BridgeExecuteService
    */
-  public async simulateDeposit(params: DepositParams): Promise<DepositSimulation> {
-    const {
-      toChainId,
-      contractAddress,
-      contractAbi,
-      functionName,
-      functionParams,
-      value = '0x0',
-    } = params;
+  public async bridgeAndExecute(params: BridgeAndExecuteParams): Promise<BridgeAndExecuteResult> {
+    return this.bridgeExecuteService.bridgeAndExecute(params);
+  }
 
-    const baseError = {
-      gasLimit: '0',
-      gasPrice: '0',
-      estimatedCost: '0',
-      estimatedCostEth: '0',
-      success: false,
-    };
+  /**
+   * Simulate bridge and execute operation
+   */
+  public async simulateBridgeAndExecute(
+    params: BridgeAndExecuteParams,
+  ): Promise<BridgeAndExecuteSimulationResult> {
+    return this.bridgeExecuteService.simulateBridgeAndExecute(params);
+  }
 
-    try {
-      // Validate contract parameters
-      const validation = validateContractParams({
-        contractAddress,
-        contractAbi,
-        functionName,
-        functionParams,
-        chainId: toChainId,
-      });
-
-      if (!validation.isValid) {
-        return { ...baseError, error: validation.error };
-      }
-
-      // Get provider for the target chain
-      const provider = this.evmProvider;
-      if (!provider) {
-        return { ...baseError, error: `No provider available for chain ${toChainId}` };
-      }
-
-      // Get current account
-      const accounts = (await provider.request({ method: 'eth_accounts' })) as string[];
-      if (!accounts || accounts.length === 0) {
-        return { ...baseError, error: 'No wallet account connected' };
-      }
-      const fromAddress = accounts[0];
-
-      // Encode contract call
-      const encoding = encodeContractCall({
-        contractAbi,
-        functionName,
-        functionParams,
-      });
-
-      if (!encoding.success) {
-        return { ...baseError, error: encoding.error };
-      }
-
-      // Estimate gas
-      const gasEstimation = await estimateGasWithValidation(provider, {
-        from: fromAddress,
-        to: contractAddress,
-        data: encoding.data!,
-        value,
-      });
-
-      if (!gasEstimation.success) {
-        return { ...baseError, error: gasEstimation.error };
-      }
-
-      // Get gas price
-      const gasPriceResult = await getGasPriceWithValidation(provider);
-      if (!gasPriceResult.success) {
-        return { ...baseError, error: gasPriceResult.error };
-      }
-
-      // Format costs
-      const costs = formatGasCost(gasEstimation.gasLimit!, gasPriceResult.gasPrice!);
-
-      return {
-        gasLimit: costs.gasLimitDecimal,
-        maxGasPrice: gasPriceResult.gasPrice!,
-        estimatedCost: costs.totalCostWei,
-        estimatedCostEth: costs.totalCostEth,
-        success: true,
-      };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown simulation error';
-      return { ...baseError, error: `Simulation failed: ${errorMessage}` };
+  /**
+   * Helper method for common initialization validation
+   */
+  private ensureInitialized(): void {
+    if (!this.initialized) {
+      throw new Error('CA SDK not initialized. Call initialize() first.');
     }
   }
 
   /**
-   * Handle deposit phase of bridge and deposit operation
+   * Enable or disable gas estimation for transactions
+   * When enabled, gas estimation will run before each transaction execution
+   * This helps identify potential failures early and provides cost estimates
    */
-  private async handleDepositPhase(
-    deposit: Omit<DepositParams, 'toChainId'> | undefined,
-    toChainId: number,
-    enableTransactionPolling: boolean,
-    transactionTimeout: number,
-    waitForReceipt?: boolean,
-    receiptTimeout?: number,
-    requiredConfirmations?: number,
-  ): Promise<{ depositTransactionHash?: string; depositExplorerUrl?: string }> {
-    if (!deposit) return {};
-
-    try {
-      const depositResult = await this.deposit({
-        ...deposit,
-        toChainId,
-        enableTransactionPolling,
-        transactionTimeout,
-        waitForReceipt,
-        receiptTimeout,
-        requiredConfirmations,
-      });
-
-      return {
-        depositTransactionHash: depositResult.transactionHash,
-        depositExplorerUrl: depositResult.explorerUrl,
-      };
-    } catch (depositError) {
-      const errorMessage =
-        depositError instanceof Error ? depositError.message : 'Unknown deposit error';
-
-      this.caEvents.emit(NEXUS_EVENTS.OPERATION_FAILED, {
-        message: errorMessage,
-        stage: 'deposit' as const,
-        code: depositError instanceof Error ? depositError.name : 'UNKNOWN_ERROR',
-      });
-
-      throw new Error(`Deposit phase failed: ${errorMessage}`);
-    }
-  }
-
-  /**
-   * Enhanced bridge and deposit function with optional deposit step and improved error handling
-   * @param params Enhanced bridge and deposit parameters
-   * @returns Promise resolving to comprehensive operation result
-   */
-  public async bridgeAndDeposit(params: BridgeAndDepositParams): Promise<BridgeAndDepositResult> {
-    const {
-      toChainId,
-      token,
-      amount,
-      deposit,
-      enableTransactionPolling = false,
-      transactionTimeout = 30000,
-      waitForReceipt = false,
-      receiptTimeout = 300000,
-      requiredConfirmations = 1,
-    } = params;
-
-    try {
-      this.caEvents.emit(NEXUS_EVENTS.OPERATION_STARTED, { toChainId, hasDeposit: !!deposit });
-      this.caEvents.emit(NEXUS_EVENTS.BRIDGE_STARTED, { toChainId, token, amount });
-
-      await this.bridge({ token, amount, chainId: toChainId });
-
-      this.caEvents.emit(NEXUS_EVENTS.BRIDGE_COMPLETED, { success: true, toChainId });
-
-      const { depositTransactionHash, depositExplorerUrl } = await this.handleDepositPhase(
-        deposit,
-        toChainId,
-        enableTransactionPolling,
-        transactionTimeout,
-        waitForReceipt,
-        receiptTimeout,
-        requiredConfirmations,
-      );
-
-      const result: BridgeAndDepositResult = {
-        depositTransactionHash,
-        depositExplorerUrl,
-        toChainId,
-      };
-
-      this.caEvents.emit(NEXUS_EVENTS.OPERATION_COMPLETED, result);
-      return result;
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown bridge and deposit error';
-      const stage = errorMessage.includes('Deposit phase failed') ? 'deposit' : 'bridge';
-
-      this.caEvents.emit(NEXUS_EVENTS.OPERATION_FAILED, {
-        message: errorMessage,
-        stage,
-        code: error instanceof Error ? error.name : 'UNKNOWN_ERROR',
-      });
-
-      throw new Error(`Bridge and deposit operation failed: ${errorMessage}`);
-    }
-  }
-
-  /**
-   * Simulate bridge and deposit operation to estimate total costs
-   * @param params Bridge and deposit parameters for simulation
-   * @returns Promise resolving to simulation result with combined cost estimates
-   */
-  public async simulateBridgeAndDeposit(params: BridgeAndDepositParams): Promise<{
-    bridgeSimulation: SimulationResult | null;
-    depositSimulation?: DepositSimulation;
-    success: boolean;
-    error?: string;
-  }> {
-    try {
-      const { deposit } = params;
-
-      const bridgeSimulation = await this.simulateBridge({
-        token: params.token,
-        amount: params.amount,
-        chainId: params.toChainId,
-      });
-
-      let depositSimulation: DepositSimulation | undefined;
-
-      if (deposit) {
-        depositSimulation = await this.simulateDeposit({
-          ...deposit,
-          toChainId: params.toChainId,
-        });
-
-        if (!depositSimulation.success) {
-          return {
-            bridgeSimulation,
-            depositSimulation,
-            success: false,
-            error: depositSimulation.error,
-          };
-        }
-      }
-
-      return {
-        bridgeSimulation,
-        depositSimulation,
-        success: true,
-      };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown simulation error';
-      return {
-        bridgeSimulation: null,
-        depositSimulation: undefined,
-        success: false,
-        error: `Simulation failed: ${errorMessage}`,
-      };
-    }
+  private setGasEstimationEnabled(enabled: boolean): void {
+    this.bridgeExecuteService.setGasEstimationEnabled(enabled);
+    this.executeService.setGasEstimationEnabled(enabled);
   }
 }
