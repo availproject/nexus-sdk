@@ -46,7 +46,7 @@ export function ActionButtons({
 
         <Button
           className={cn(
-            'flex-1 px-4 py-3 h-auto',
+            'flex-1 items-center justify-center px-4 py-3 h-auto',
             'bg-zinc-800 text-white',
             'rounded-[8px]',
             'text-base font-semibold nexus-font-primary leading-normal',
@@ -56,7 +56,7 @@ export function ActionButtons({
           onClick={onPrimary}
           disabled={primaryDisabled || primaryLoading}
         >
-          {primaryLoading ? <LoadingDots /> : primaryText}
+          {primaryLoading ? <LoadingDots className="translate-x-1/3" /> : primaryText}
         </Button>
       </div>
       <div className="flex items-center justify-center gap-x-1.5 text-xs h-8 bg-[#BED8EE66] w-full rounded-b-xl">

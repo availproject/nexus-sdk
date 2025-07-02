@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { BaseModal } from '../shared/base-modal';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
-import { BridgeAndExecuteSimulationResult, SimulationResult } from '../../../types';
+import { SimulationResult } from '../../../types';
 import { cn, getButtonText } from '../../utils/utils';
 import { TransactionSimulation } from '../processing/transaction-simulation';
 import {
@@ -14,10 +14,9 @@ import {
   SlideTransition,
   useContentKey,
 } from '../shared';
-import TransactionProcessor from '../processing/transaction-processor';
 import { TransferFormSection } from './transfer-form-section';
-import { logger } from '../../../utils';
 import { AvailLogo } from '../shared/icons/AvailLogo';
+import { motion } from 'motion/react';
 
 export function TransferModal() {
   const {
@@ -33,7 +32,6 @@ export function TransferModal() {
     isSdkInitialized,
     isSimulating,
     insufficientBalance,
-    isTransactionCollapsed,
     allowanceError,
     isSettingAllowance,
     approveAllowance,
@@ -50,7 +48,8 @@ export function TransferModal() {
     return null;
   }
 
-  const isOpen = status !== 'idle' && !isTransactionCollapsed;
+  const isOpen =
+    status !== 'idle' && status !== 'processing' && status !== 'success' && status !== 'error';
   const isBusy = status === 'processing' || reviewStatus === 'simulating';
 
   const handleButtonClick = () => {
@@ -154,72 +153,6 @@ export function TransferModal() {
     );
   };
 
-  const renderProcessingContent = () => {
-    // Safety checks - don't render transaction processor if we have invalid state
-    if (insufficientBalance || !simulationResult || !inputData) {
-      logger.warn('Attempted to render transaction processor with invalid state:', {
-        insufficientBalance,
-        hasSimulationResult: !!simulationResult,
-        hasInputData: !!inputData,
-        status,
-      });
-      return renderReviewContent(); // Fall back to review content
-    }
-
-    try {
-      const sources =
-        type === 'transfer'
-          ? (simulationResult as SimulationResult)?.intent?.sources?.map((s) => s.chainID) || []
-          : (
-              simulationResult as BridgeAndExecuteSimulationResult
-            )?.bridgeSimulation?.intent?.sources?.map((s: any) => s.chainID) || [];
-
-      const token = inputData?.token || '';
-
-      const destination =
-        type === 'transfer'
-          ? (simulationResult as SimulationResult)?.intent?.destination?.chainID || 0
-          : (simulationResult as BridgeAndExecuteSimulationResult)?.bridgeSimulation?.intent
-              ?.destination?.chainID || 0;
-
-      const transactionType = type || 'transfer';
-
-      // Additional validation - ensure we have valid data
-      if (!sources.length || !token || !destination) {
-        logger.warn('Invalid transaction data for processor:', {
-          sources,
-          token,
-          destination,
-        });
-        return renderReviewContent(); // Fall back to review content
-      }
-
-      return (
-        <TransactionProcessor
-          sources={sources}
-          token={token}
-          destination={destination}
-          transactionType={transactionType}
-          onClose={cancelTransaction}
-        />
-      );
-    } catch (error) {
-      logger.error('❌ Error rendering TransactionProcessor:', error as Error);
-      return (
-        <div className="text-center py-12">
-          <div className="text-red-600">Error loading processing view</div>
-          <pre className="text-xs mt-2">{String(error)}</pre>
-          <button
-            onClick={cancelTransaction}
-            className="mt-4 px-4 py-2 bg-blue-500 text-white rounded"
-          >
-            Back to Review
-          </button>
-        </div>
-      );
-    }
-  };
-
   const renderContent = () => {
     switch (status) {
       case 'initializing':
@@ -231,7 +164,6 @@ export function TransferModal() {
       case 'processing':
       case 'success':
       case 'error':
-        return renderProcessingContent();
       default:
         return null;
     }
@@ -260,10 +192,13 @@ export function TransferModal() {
 
   return (
     <BaseModal isOpen={isOpen} onClose={preventClose ? () => {} : cancelTransaction}>
-      <div
+      <motion.div
+        layoutId="tx-processor"
+        layout="position"
         className={cn(
           'w-full h-full relative',
-          status === 'set_allowance' && 'flex flex-col justify-between h-full w-full gap-y-6',
+          status === 'set_allowance' &&
+            'flex flex-col justify-between min-h-[600px] w-full gap-y-6',
         )}
       >
         {showHeader && (
@@ -273,7 +208,7 @@ export function TransferModal() {
           </DialogHeader>
         )}
         <SlideTransition contentKey={contentKey}>{renderContent()}</SlideTransition>
-      </div>
+      </motion.div>
 
       {showFooterButtons && (
         <ActionButtons

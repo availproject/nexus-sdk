@@ -207,7 +207,10 @@ const useListenTransaction = ({
   useEffect(() => {
     if (!sdk) return;
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (activeTransaction.status === 'processing') {
+      if (
+        activeTransaction.status === 'processing' ||
+        activeTransaction.status === 'set_allowance'
+      ) {
         e.preventDefault();
         e.returnValue = 'A transaction is currently in progress. Are you sure you want to leave?';
       }

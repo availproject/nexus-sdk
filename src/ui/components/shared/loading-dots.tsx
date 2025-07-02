@@ -1,8 +1,15 @@
 import React from 'react';
 import { motion } from 'motion/react';
+import { cn } from '../../utils/utils';
 
-const LoadingDots = () => (
-  <div className="relative flex items-center w-full justify-center">
+const LoadingDots = ({ className, removeWidth }: { className?: string; removeWidth?: boolean }) => (
+  <div
+    className={cn(
+      'relative flex items-center  justify-center',
+      className,
+      !removeWidth && 'w-full',
+    )}
+  >
     <motion.span
       initial={{ scale: 0 }}
       animate={{ scale: 1 }}

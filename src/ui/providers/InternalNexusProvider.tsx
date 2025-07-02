@@ -15,7 +15,6 @@ import {
   BridgeParams,
   TransferParams,
   BridgeAndExecuteParams,
-  BridgeAndExecuteSimulationResult,
   SimulationResult,
   SDKConfig,
 } from '../../types';
@@ -30,7 +29,7 @@ import type { TransferConfig } from '../controllers/TransferController';
 import { BridgeController } from '../controllers/BridgeController';
 import { TransferController } from '../controllers/TransferController';
 import { BridgeAndExecuteController } from '../controllers/BridgeAndExecuteController';
-import { TransactionProcessorMini } from '../components/processing/transaction-processor-mini';
+import { TransactionProcessorShell } from '../components/processing/transaction-processor-shell';
 import { DragConstraintsProvider } from '../components/shared';
 import { LayoutGroup } from 'motion/react';
 import useListenTransaction from '../hooks/useListenTransaction';
@@ -684,48 +683,12 @@ export function InternalNexusProvider({
     ],
   );
 
-  const displayMiniProcessor = useMemo(() => {
-    return (
-      isTransactionCollapsed &&
-      activeTransaction.status !== 'review' &&
-      activeTransaction.status !== 'simulation_error' &&
-      activeTransaction.status !== 'idle' &&
-      activeTransaction.status !== 'initializing' &&
-      activeTransaction.type &&
-      activeTransaction.simulationResult &&
-      !insufficientBalance &&
-      !isSimulating
-    );
-  }, [isTransactionCollapsed, activeTransaction, isSimulating, insufficientBalance]);
-
   return (
     <NexusContext.Provider value={value}>
       <DragConstraintsProvider>
         <LayoutGroup id="tx-processor-layout-group">
           {children}
-          {displayMiniProcessor && activeTransaction.type && (
-            <TransactionProcessorMini
-              sources={
-                activeTransaction.type === 'bridge' || activeTransaction.type === 'transfer'
-                  ? (activeTransaction.simulationResult as SimulationResult)?.intent?.sources?.map(
-                      (s: { chainID: number }) => s.chainID,
-                    ) || []
-                  : (
-                      activeTransaction.simulationResult as BridgeAndExecuteSimulationResult
-                    )?.bridgeSimulation?.intent?.sources?.map(
-                      (s: { chainID: number }) => s.chainID,
-                    ) || []
-              }
-              token={activeTransaction.inputData?.token || ''}
-              destination={
-                activeTransaction.type === 'bridge' || activeTransaction.type === 'transfer'
-                  ? (activeTransaction.simulationResult as any)?.intent?.destination?.chainID || 0
-                  : (activeTransaction.simulationResult as any)?.bridgeSimulation?.intent
-                      ?.destination?.chainID || 0
-              }
-              transactionType={activeTransaction.type}
-            />
-          )}
+          <TransactionProcessorShell />
         </LayoutGroup>
       </DragConstraintsProvider>
     </NexusContext.Provider>
