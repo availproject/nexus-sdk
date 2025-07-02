@@ -13,6 +13,8 @@ import {
   SUPPORTED_TOKENS,
   SUPPORTED_CHAINS_IDS,
   SDKConfig,
+  ChainMetadata,
+  TokenMetadata,
 } from '../../types';
 import { NexusSDK } from '../..';
 
@@ -183,7 +185,6 @@ export interface BalanceWidgetProps extends BaseComponentProps {
 export interface ModalProps extends BaseComponentProps {
   isOpen: boolean;
   onClose: () => void;
-  title?: string;
   description?: string;
   size?: 'sm' | 'md' | 'lg';
   children: ReactNode;
@@ -250,4 +251,21 @@ export interface BridgeAndExecuteButtonProps extends BaseComponentProps {
     amount?: string;
   };
   children: (props: { onClick: () => void; isLoading: boolean; disabled: boolean }) => ReactNode;
+}
+
+export interface ProcessorCardProps {
+  status: OrchestratorStatus;
+  cancelTransaction: () => void;
+  toggleTransactionCollapse: () => void;
+  sourceChainMeta: ChainMetadata[];
+  destChainMeta: ChainMetadata | null;
+  tokenMeta: TokenMetadata | null;
+  transactionType: TransactionType;
+  simulationResult: SimulationResult | BridgeAndExecuteSimulationResult;
+  processing: ProcessingState;
+  explorerURL: string | null;
+  timer: number;
+  description: string;
+  error: Error | null;
+  executionResult: BridgeResult | TransferResult | BridgeAndExecuteResult | null;
 }

@@ -1,6 +1,6 @@
 {
   "name": "avail-nexus-sdk",
-  "version": "0.0.7",
+  "version": "0.0.8-dev.0",
   "description": "Nexus SDK enables cross-chain transactions with minimal friction",
   "main": "dist/index.js",
   "module": "dist/index.esm.js",
@@ -103,6 +103,7 @@
   "dependencies": {
     "@arcana/ca-sdk": "1.0.2",
     "@radix-ui/react-progress": "1.1.7",
+    "motion": "12.23.0",
     "viem": "^2.0.0"
   }
 }
