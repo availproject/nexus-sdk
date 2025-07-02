@@ -1,8 +1,8 @@
 import * as React from 'react';
 import { Button } from './button';
-import { Loader2 } from 'lucide-react';
 import { cn } from '../../utils/utils';
 import { SmallAvailLogo } from './icons/SmallAvailLogo';
+import LoadingDots from './loading-dots';
 
 interface ActionButtonsProps {
   onCancel: () => void;
@@ -22,14 +22,19 @@ export function ActionButtons({
   className,
 }: ActionButtonsProps) {
   return (
-    <div className={cn('flex flex-col items-center gap-y-2 w-full pt-2 rounded-b-xl', className)}>
-      <div className="flex w-full gap-x-4 px-6">
+    <div
+      className={cn(
+        'flex flex-col items-center gap-y-2 w-full pt-2 rounded-b-xl bg-white !shadow-[0px_4.37px_24px_-17.479px_rgba(0,0,0,0.10)]',
+        className,
+      )}
+    >
+      <div className="flex w-full gap-x-4 px-6 ">
         <Button
           variant="outline"
           className={cn(
             'flex-1 px-4 py-3 h-auto',
-            'rounded-lg',
-            'text-base font-semibold font-primary leading-normal',
+            'rounded-[8px]',
+            'text-base font-semibold nexus-font-primary leading-normal !bg-transparent',
             'border-zinc-400',
             'text-black',
             'hover:bg-gray-50',
@@ -41,22 +46,21 @@ export function ActionButtons({
 
         <Button
           className={cn(
-            'flex-1 px-4 py-3 h-auto',
+            'flex-1 items-center justify-center px-4 py-3 h-auto',
             'bg-zinc-800 text-white',
-            'rounded-lg',
-            'text-base font-semibold font-primary leading-normal',
+            'rounded-[8px]',
+            'text-base font-semibold nexus-font-primary leading-normal',
             'hover:bg-zinc-700',
             'disabled:opacity-50',
           )}
           onClick={onPrimary}
           disabled={primaryDisabled || primaryLoading}
         >
-          {primaryLoading && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-          {primaryText}
+          {primaryLoading ? <LoadingDots className="translate-x-1/3" /> : primaryText}
         </Button>
       </div>
       <div className="flex items-center justify-center gap-x-1.5 text-xs h-8 bg-[#BED8EE66] w-full rounded-b-xl">
-        <span className="text-[#4C4C4C] font-primary">Powered By</span>
+        <span className="text-[#4C4C4C] nexus-font-primary">Powered By</span>
         <SmallAvailLogo />
       </div>
     </div>

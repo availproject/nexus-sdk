@@ -79,6 +79,7 @@ const BridgeAndExecuteInputForm: React.FC<{
           value={prefill?.amount ? prefill.amount?.toString() : ''}
           suffix={prefill.token || ''}
           disabled={isInputDisabled || prefillFields.amount}
+          className="nexus-font-primary"
           onChange={
             isInputDisabled || prefillFields.amount
               ? undefined

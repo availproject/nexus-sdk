@@ -11,6 +11,7 @@ import { CHAIN_METADATA } from '../../..';
 import { Plus } from 'lucide-react';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { logger } from '../../../utils';
+import LoadingDots from './loading-dots';
 
 interface EnhancedInfoMessageProps {
   error: unknown;
@@ -51,9 +52,11 @@ export function EnhancedInfoMessage({ error, context, className }: EnhancedInfoM
       <div className={className}>
         <InfoMessage variant="error">
           <div className="space-y-3">
-            <p className="text-sm font-primary text-destructive-base font-bold">{formattedError}</p>
+            <p className="text-sm nexus-font-primary text-destructive-base font-bold">
+              {formattedError}
+            </p>
 
-            <div className="flex items-center gap-2 p-3 bg-destructive-base/5 rounded-lg border border-destructive-base/20">
+            <div className="flex items-center gap-2 p-3 bg-destructive-base/5 rounded-[8px] border border-destructive-base/20">
               <img
                 src={chainMetadata.logo}
                 alt={chainMetadata.name}
@@ -71,7 +74,7 @@ export function EnhancedInfoMessage({ error, context, className }: EnhancedInfoM
               >
                 {isAddingChain ? (
                   <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                    <LoadingDots />
                     Adding...
                   </>
                 ) : (
@@ -123,7 +126,9 @@ export function EnhancedInfoMessage({ error, context, className }: EnhancedInfoM
   return (
     <div className={className}>
       <InfoMessage variant="error">
-        <p className="text-sm font-primary text-destructive-base font-bold">{formattedError}</p>
+        <p className="text-sm nexus-font-primary text-destructive-base font-bold">
+          {formattedError}
+        </p>
       </InfoMessage>
     </div>
   );

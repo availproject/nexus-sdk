@@ -4,7 +4,7 @@
 
 @theme {
   /* ========================================================================
-   * DESIGN TOKENS (From Figma)
+   * DESIGN TOKENS (From Figma) - Now using namespaced variables
    * ======================================================================== */
 
   /* BASE PALETTE (Light Theme) */
@@ -37,32 +37,32 @@
   --color-warning-base: rgb(240 185 11);
   --color-destructive-base: rgb(239 68 68); /* Not in figma, but good to have */
 
-  /* SEMANTIC MAPPING (Light Theme) */
-  --color-background: var(--color-neutral-50);
-  --color-foreground: var(--color-neutral-900);
+  /* SEMANTIC MAPPING - Now references namespaced variables when available */
+  --color-background: var(--nexus-color-background, var(--color-neutral-50));
+  --color-foreground: var(--nexus-color-foreground, var(--color-neutral-900));
 
-  --color-primary: var(--color-neutral-900);
-  --color-primary-hover: rgb(43 43 43);
-  --color-primary-foreground: var(--color-white);
+  --color-primary: var(--nexus-color-primary, var(--color-neutral-900));
+  --color-primary-hover: var(--nexus-color-primary-hover, rgb(43 43 43));
+  --color-primary-foreground: var(--nexus-color-primary-foreground, var(--color-white));
 
-  --color-secondary: var(--color-neutral-700);
-  --color-secondary-foreground: var(--color-white);
+  --color-secondary: var(--nexus-color-secondary, var(--color-neutral-700));
+  --color-secondary-foreground: var(--nexus-color-secondary-foreground, var(--color-white));
 
-  --color-muted: var(--color-neutral-500);
-  --color-muted-foreground: var(--color-neutral-700);
+  --color-muted: var(--nexus-color-muted, var(--color-neutral-500));
+  --color-muted-foreground: var(--nexus-color-muted-foreground, var(--color-neutral-700));
 
-  --color-accent: var(--color-brand-blue-primary);
-  --color-accent-foreground: var(--color-white);
+  --color-accent: var(--nexus-color-accent, var(--color-brand-blue-primary));
+  --color-accent-foreground: var(--nexus-color-accent-foreground, var(--color-white));
 
-  --color-border: var(--color-neutral-200);
-  --color-input: var(--color-neutral-400);
-  --color-ring: var(--color-brand-blue-secondary);
+  --color-border: var(--nexus-color-border, var(--color-neutral-200));
+  --color-input: var(--nexus-color-input, var(--color-neutral-400));
+  --color-ring: var(--nexus-color-ring, var(--color-brand-blue-secondary));
 
-  --color-destructive: var(--color-destructive-base);
-  --color-destructive-foreground: var(--color-white);
+  --color-destructive: var(--nexus-color-destructive, var(--color-destructive-base));
+  --color-destructive-foreground: var(--nexus-color-destructive-foreground, var(--color-white));
 
-  --color-card: var(--color-white);
-  --color-card-foreground: var(--color-neutral-900);
+  --color-card: var(--nexus-color-card, var(--color-white));
+  --color-card-foreground: var(--nexus-color-card-foreground, var(--color-neutral-900));
 
   --color-alert-bg: var(--color-success-base);
   --color-alert-text: var(--color-black);
@@ -91,7 +91,7 @@
   --font-weight-bold: 700;
 
   /* Border Radius */
-  --radius: 16px;
+  --radius: var(--nexus-radius, 16px);
   --radius-md: 8px;
   --radius-full: 36px;
 
@@ -115,25 +115,47 @@
    * This creates a "CSS namespace" to prevent conflicts with a host app.
    */
   .nexus-sdk-theme {
-    --color-background: var(--color-background);
-    --color-foreground: var(--color-foreground);
-    --color-primary: var(--color-primary);
-    --color-primary-hover: var(--color-primary-hover);
-    --color-primary-foreground: var(--color-primary-foreground);
-    --color-secondary: var(--color-secondary);
-    --color-secondary-foreground: var(--color-secondary-foreground);
-    --color-muted: var(--color-muted);
-    --color-muted-foreground: var(--color-muted-foreground);
-    --color-accent: var(--color-accent);
-    --color-accent-foreground: var(--color-accent-foreground);
-    --color-border: var(--color-border);
-    --color-input: var(--color-input);
-    --color-ring: var(--color-ring);
-    --color-destructive: var(--color-destructive);
-    --color-destructive-foreground: var(--color-destructive-foreground);
-    --color-card: var(--color-card);
-    --color-card-foreground: var(--color-card-foreground);
-    --radius: var(--radius);
+    /* Define default values for all variables - Using actual design token values */
+    --nexus-color-background: rgb(244 246 248); /* --color-neutral-50 */
+    --nexus-color-foreground: rgb(27 27 27); /* --color-neutral-900 */
+    --nexus-color-primary: rgb(27 27 27); /* --color-neutral-900 */
+    --nexus-color-primary-hover: rgb(43 43 43);
+    --nexus-color-primary-foreground: rgb(255 255 255); /* --color-white */
+    --nexus-color-secondary: rgb(86 90 96); /* --color-neutral-700 */
+    --nexus-color-secondary-foreground: rgb(255 255 255); /* --color-white */
+    --nexus-color-muted: rgb(128 128 128); /* --color-neutral-500 */
+    --nexus-color-muted-foreground: rgb(86 90 96); /* --color-neutral-700 */
+    --nexus-color-accent: rgb(3 117 216); /* --color-brand-blue-primary */
+    --nexus-color-accent-foreground: rgb(255 255 255); /* --color-white */
+    --nexus-color-border: rgb(229 231 233); /* --color-neutral-200 */
+    --nexus-color-input: rgb(179 179 179); /* --color-neutral-400 */
+    --nexus-color-ring: rgb(43 128 215); /* --color-brand-blue-secondary */
+    --nexus-color-destructive: rgb(239 68 68); /* --color-destructive-base */
+    --nexus-color-destructive-foreground: rgb(255 255 255); /* --color-white */
+    --nexus-color-card: rgb(255 255 255); /* --color-white */
+    --nexus-color-card-foreground: rgb(27 27 27); /* --color-neutral-900 */
+    --nexus-radius: 16px;
+
+    /* Map the namespaced variables to the generic ones */
+    --color-background: var(--nexus-color-background);
+    --color-foreground: var(--nexus-color-foreground);
+    --color-primary: var(--nexus-color-primary);
+    --color-primary-hover: var(--nexus-color-primary-hover);
+    --color-primary-foreground: var(--nexus-color-primary-foreground);
+    --color-secondary: var(--nexus-color-secondary);
+    --color-secondary-foreground: var(--nexus-color-secondary-foreground);
+    --color-muted: var(--nexus-color-muted);
+    --color-muted-foreground: var(--nexus-color-muted-foreground);
+    --color-accent: var(--nexus-color-accent);
+    --color-accent-foreground: var(--nexus-color-accent-foreground);
+    --color-border: var(--nexus-color-border);
+    --color-input: var(--nexus-color-input);
+    --color-ring: var(--nexus-color-ring);
+    --color-destructive: var(--nexus-color-destructive);
+    --color-destructive-foreground: var(--nexus-color-destructive-foreground);
+    --color-card: var(--nexus-color-card);
+    --color-card-foreground: var(--nexus-color-card-foreground);
+    --radius: var(--nexus-radius);
   }
 
   * {
@@ -148,11 +170,11 @@
   }
 
   /* Font Family Utility Classes */
-  .font-primary {
+  .nexus-font-primary {
     font-family: var(--font-family-primary);
   }
 
-  .font-secondary {
+  .nexus-font-secondary {
     font-family: var(--font-family-secondary);
   }
 }

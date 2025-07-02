@@ -35,7 +35,7 @@ export function ChainSelect({
     <Select value={value || ''} onValueChange={onValueChange} disabled={disabled}>
       <SelectTrigger
         className={cn(
-          'px-4 py-2 min-h-12 rounded-lg border border-zinc-400 w-full cursor-pointer',
+          'px-4 py-2 min-h-12 rounded-[8px] border border-zinc-400 w-full cursor-pointer',
           '!bg-transparent flex justify-between items-center',
           'focus:border-ring focus:ring-ring/50 focus:ring-[3px]',
           disabled && 'opacity-40',
@@ -46,7 +46,7 @@ export function ChainSelect({
           {value && (
             <div className="h-8 flex items-center gap-1.5">
               <ChainIcon chainId={value} />
-              <span className="text-black text-base font-semibold font-primary leading-normal">
+              <span className="text-black text-base font-semibold nexus-font-primary leading-normal">
                 {chainOptions.find((option) => option.value === value)?.label}
               </span>
             </div>

@@ -15,7 +15,6 @@ import {
   BridgeParams,
   TransferParams,
   BridgeAndExecuteParams,
-  BridgeAndExecuteSimulationResult,
   SimulationResult,
   SDKConfig,
 } from '../../types';
@@ -30,7 +29,9 @@ import type { TransferConfig } from '../controllers/TransferController';
 import { BridgeController } from '../controllers/BridgeController';
 import { TransferController } from '../controllers/TransferController';
 import { BridgeAndExecuteController } from '../controllers/BridgeAndExecuteController';
-import { TransactionProcessorMini } from '../components/processing/transaction-processor-mini';
+import { TransactionProcessorShell } from '../components/processing/transaction-processor-shell';
+import { DragConstraintsProvider } from '../components/shared';
+import { LayoutGroup } from 'motion/react';
 import useListenTransaction from '../hooks/useListenTransaction';
 import { logger } from '../../utils';
 
@@ -352,6 +353,30 @@ export function InternalNexusProvider({
             return;
           }
 
+          // Check if simulation failed
+          if (
+            simulationResult &&
+            // For BridgeAndExecuteSimulationResult
+            (('success' in simulationResult && !simulationResult.success) ||
+              ('error' in simulationResult && simulationResult.error) ||
+              // For bridge simulation within BridgeAndExecuteSimulationResult
+              ('bridgeSimulation' in simulationResult &&
+                simulationResult.bridgeSimulation === null))
+          ) {
+            setActiveTransaction((prev) => ({
+              ...prev,
+              simulationResult,
+              status: 'simulation_error',
+              error: new Error(
+                'error' in simulationResult
+                  ? simulationResult.error || 'Simulation failed'
+                  : 'Simulation failed',
+              ),
+              reviewStatus: 'gathering_input',
+            }));
+            return;
+          }
+
           setActiveTransaction((prev) => ({
             ...prev,
             simulationResult,
@@ -527,7 +552,7 @@ export function InternalNexusProvider({
     setActiveTransaction((prev) => ({
       ...prev,
       status: 'review',
-      reviewStatus: 'ready',
+      reviewStatus: 'needs_allowance',
     }));
     setAllowanceError(null);
   }, []);
@@ -658,45 +683,14 @@ export function InternalNexusProvider({
     ],
   );
 
-  const displayMiniProcessor = useMemo(() => {
-    return (
-      isTransactionCollapsed &&
-      activeTransaction.status !== 'review' &&
-      activeTransaction.status !== 'simulation_error' &&
-      activeTransaction.status !== 'idle' &&
-      activeTransaction.status !== 'initializing' &&
-      activeTransaction.type &&
-      activeTransaction.simulationResult &&
-      !insufficientBalance &&
-      !isSimulating
-    );
-  }, [isTransactionCollapsed, activeTransaction, isSimulating, insufficientBalance]);
-
   return (
     <NexusContext.Provider value={value}>
-      {children}
-      {displayMiniProcessor && activeTransaction.type && (
-        <TransactionProcessorMini
-          sources={
-            activeTransaction.type === 'bridge' || activeTransaction.type === 'transfer'
-              ? (activeTransaction.simulationResult as SimulationResult)?.intent?.sources?.map(
-                  (s: { chainID: number }) => s.chainID,
-                ) || []
-              : (
-                  activeTransaction.simulationResult as BridgeAndExecuteSimulationResult
-                )?.bridgeSimulation?.intent?.sources?.map((s: { chainID: number }) => s.chainID) ||
-                []
-          }
-          token={activeTransaction.inputData?.token || ''}
-          destination={
-            activeTransaction.type === 'bridge' || activeTransaction.type === 'transfer'
-              ? (activeTransaction.simulationResult as any)?.intent?.destination?.chainID || 0
-              : (activeTransaction.simulationResult as any)?.bridgeSimulation?.intent?.destination
-                  ?.chainID || 0
-          }
-          transactionType={activeTransaction.type}
-        />
-      )}
+      <DragConstraintsProvider>
+        <LayoutGroup id="tx-processor-layout-group">
+          {children}
+          <TransactionProcessorShell />
+        </LayoutGroup>
+      </DragConstraintsProvider>
     </NexusContext.Provider>
   );
 }
