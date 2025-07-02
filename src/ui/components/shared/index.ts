@@ -30,3 +30,6 @@ export {
 
 // Enhanced components
 export { EnhancedInfoMessage } from './enhanced-info-message';
+
+// Animation components
+export { SlideTransition, useContentKey } from './slide-transition';

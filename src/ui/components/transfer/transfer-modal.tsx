@@ -2,12 +2,22 @@ import React, { useState } from 'react';
 import { BaseModal } from '../shared/base-modal';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { BridgeAndExecuteSimulationResult, SimulationResult } from '../../../types';
-import { getButtonText } from '../../utils/utils';
+import { cn, getButtonText } from '../../utils/utils';
 import { TransactionSimulation } from '../processing/transaction-simulation';
-import { InfoMessage, ActionButtons, AllowanceForm, EnhancedInfoMessage } from '../shared';
+import {
+  InfoMessage,
+  ActionButtons,
+  AllowanceForm,
+  EnhancedInfoMessage,
+  DialogHeader,
+  DialogTitle,
+  SlideTransition,
+  useContentKey,
+} from '../shared';
 import TransactionProcessor from '../processing/transaction-processor';
 import { TransferFormSection } from './transfer-form-section';
 import { logger } from '../../../utils';
+import { AvailLogo } from '../shared/icons/AvailLogo';
 
 export function TransferModal() {
   const {
@@ -239,14 +249,28 @@ export function TransferModal() {
         return 'Review Information';
     }
   };
+  const contentKey = useContentKey(status);
+  const showHeader =
+    activeTransaction?.status !== 'processing' &&
+    activeTransaction?.status !== 'success' &&
+    activeTransaction?.status !== 'error';
 
   return (
-    <BaseModal
-      isOpen={isOpen}
-      onClose={preventClose ? () => {} : cancelTransaction}
-      title={getModalTitle()}
-    >
-      {renderContent()}
+    <BaseModal isOpen={isOpen} onClose={preventClose ? () => {} : cancelTransaction}>
+      <div
+        className={cn(
+          'w-full h-full relative',
+          status === 'set_allowance' && 'flex flex-col justify-between h-full w-full gap-y-6',
+        )}
+      >
+        {showHeader && (
+          <DialogHeader className="flex flex-row items-center justify-between relative px-6 py-5 h-[88px] w-full">
+            <AvailLogo className="absolute top-0 left-1/2 -translate-x-1/2 opacity-10" />
+            <DialogTitle className="font-semibold">{getModalTitle()}</DialogTitle>
+          </DialogHeader>
+        )}
+        <SlideTransition contentKey={contentKey}>{renderContent()}</SlideTransition>
+      </div>
 
       {showFooterButtons && (
         <ActionButtons

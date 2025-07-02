@@ -77,7 +77,7 @@ export function TransferFormSection({
           label="Amount"
           helperText={
             isSdkInitialized
-              ? `Balance:- ${parseFloat(tokenBalance ?? '0').toFixed(6) ?? ''} ${inputData?.token ?? ''}`
+              ? `Balance: ${parseFloat(tokenBalance ?? '0').toFixed(6) ?? ''} ${inputData?.token ?? ''}`
               : undefined
           }
           className="flex-1"
@@ -101,7 +101,7 @@ export function TransferFormSection({
         >
           <div
             className={cn(
-              'px-4 py-2 rounded-lg border border-zinc-400 flex justify-between items-center',
+              'px-4 py-2 rounded-[8px] border border-zinc-400 flex justify-between items-center',
               'bg-transparent h-12',
               'focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]',
               (isInputDisabled || prefillFields.recipient) && 'opacity-50 cursor-not-allowed',
@@ -118,7 +118,7 @@ export function TransferFormSection({
                 }
                 disabled={isInputDisabled || prefillFields.recipient}
                 className={cn(
-                  '!bg-transparent !focus:ring-0 !focus:border-none !focus:outline-none px-0',
+                  '!bg-transparent !focus:ring-0 !focus:border-none !focus:outline-none px-0 nexus-font-primary placeholder:nexus-font-primary',
                   hasValidationError ? 'border-red-500 focus:border-red-500' : '',
                 )}
               />

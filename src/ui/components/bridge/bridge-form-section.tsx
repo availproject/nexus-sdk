@@ -66,7 +66,7 @@ export function BridgeFormSection({
           label="Amount"
           helperText={
             isSdkInitialized
-              ? `Balance:- ${parseFloat(tokenBalance ?? '0').toFixed(6)} ${inputData?.token ?? ''}`
+              ? `Balance: ${parseFloat(tokenBalance ?? '0').toFixed(6)} ${inputData?.token ?? ''}`
               : undefined
           }
           className="flex-1"

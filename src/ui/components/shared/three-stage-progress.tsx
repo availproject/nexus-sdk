@@ -79,18 +79,21 @@ export const ThreeStageProgress: React.FC<ThreeStageProgressProps> = ({
       gap: 'gap-1',
       tokenSize: 'w-4 h-4',
       tokenOffset: '-top-1.5',
+      startOffset: 0,
     },
     md: {
       height: 'h-2',
       gap: 'gap-2',
       tokenSize: 'w-6 h-6',
       tokenOffset: '-top-2',
+      startOffset: 0,
     },
     lg: {
-      height: 'h-3',
+      height: 'h-2',
       gap: 'gap-3',
-      tokenSize: 'w-8 h-8',
-      tokenOffset: '-top-2.5',
+      tokenSize: 'w-10 h-10',
+      tokenOffset: '-top-4',
+      startOffset: 5,
     },
   };
 
@@ -110,7 +113,7 @@ export const ThreeStageProgress: React.FC<ThreeStageProgressProps> = ({
   };
 
   return (
-    <div className={`w-full flex ${config.gap} ${className}`}>
+    <div className={`w-full flex !nexus-font-primary ${config.gap} ${className}`}>
       {barStates.map((barState, index) => (
         <div key={index} className="relative w-full">
           <Progress
@@ -123,7 +126,7 @@ export const ThreeStageProgress: React.FC<ThreeStageProgressProps> = ({
             <div
               className={`absolute ${config.tokenOffset} ${config.tokenSize} transition-all duration-500 ease-out`}
               style={{
-                left: `${barState.value}%`,
+                left: `${barState.value + config.startOffset}%`,
                 transform: 'translateX(-50%)',
               }}
             >

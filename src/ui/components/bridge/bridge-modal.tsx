@@ -2,12 +2,22 @@ import React, { useState } from 'react';
 import { BaseModal } from '../shared/base-modal';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { BridgeAndExecuteSimulationResult, SimulationResult } from '../../../types';
-import { getButtonText } from '../../utils/utils';
+import { cn, getButtonText } from '../../utils/utils';
 import { BridgeFormSection } from './bridge-form-section';
-import { InfoMessage, ActionButtons, AllowanceForm, EnhancedInfoMessage } from '../shared';
+import {
+  InfoMessage,
+  ActionButtons,
+  AllowanceForm,
+  EnhancedInfoMessage,
+  DialogHeader,
+  DialogTitle,
+  SlideTransition,
+  useContentKey,
+} from '../shared';
 import TransactionProcessor from '../processing/transaction-processor';
 import { TransactionSimulation } from '../processing/transaction-simulation';
 import { logger } from '../../../utils';
+import { AvailLogo } from '../shared/icons/AvailLogo';
 
 export function BridgeModal() {
   const {
@@ -74,7 +84,7 @@ export function BridgeModal() {
     const shouldShowSimulation = isSdkInitialized && hasSufficientInput;
 
     return (
-      <div className="h-full pb-6 w-full">
+      <div className="h-full py-6 w-full">
         <BridgeFormSection
           inputData={inputData || {}}
           onUpdate={updateInput}
@@ -200,6 +210,8 @@ export function BridgeModal() {
     }
   };
 
+  const contentKey = useContentKey(status);
+
   const renderContent = () => {
     switch (status) {
       case 'initializing':
@@ -222,6 +234,7 @@ export function BridgeModal() {
     status !== 'success' &&
     status !== 'error' &&
     status !== 'set_allowance';
+
   const preventClose = status === 'processing';
 
   const getModalTitle = () => {
@@ -232,14 +245,28 @@ export function BridgeModal() {
         return 'Review Information';
     }
   };
+  const showHeader =
+    activeTransaction?.status !== 'processing' &&
+    activeTransaction?.status !== 'success' &&
+    activeTransaction?.status !== 'error';
 
   return (
-    <BaseModal
-      isOpen={isOpen}
-      onClose={preventClose ? () => {} : cancelTransaction}
-      title={getModalTitle()}
-    >
-      {renderContent()}
+    <BaseModal isOpen={isOpen} onClose={preventClose ? () => {} : cancelTransaction}>
+      {/* Header */}
+      <div
+        className={cn(
+          'w-full h-full relative',
+          status === 'set_allowance' && 'flex flex-col justify-between h-full w-full gap-y-6',
+        )}
+      >
+        {showHeader && (
+          <DialogHeader className="flex flex-row items-center justify-between relative px-6 py-5 h-[88px] w-full">
+            <AvailLogo className="absolute top-0 left-1/2 -translate-x-1/2 opacity-10" />
+            <DialogTitle className="font-semibold">{getModalTitle()}</DialogTitle>
+          </DialogHeader>
+        )}
+        <SlideTransition contentKey={contentKey}>{renderContent()}</SlideTransition>
+      </div>
 
       {showFooterButtons && (
         <ActionButtons

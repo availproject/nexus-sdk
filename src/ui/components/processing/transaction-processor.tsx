@@ -1,14 +1,13 @@
 import React, { useCallback, useMemo } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import {
   BridgeAndExecuteResult,
   BridgeAndExecuteSimulationResult,
-  CHAIN_METADATA,
   SimulationResult,
-  TOKEN_METADATA,
-  TransactionType,
-} from '../../..';
-
+} from '../../../types';
+import { TransactionType } from '../../types';
+import { CHAIN_METADATA, TOKEN_METADATA } from '../../../constants';
 import { SmallAvailLogo } from '../shared/icons/SmallAvailLogo';
 import { CircleX, ExternalLink, Minimize } from 'lucide-react';
 import { Button, ThreeStageProgress, EnhancedInfoMessage } from '../shared';
@@ -43,7 +42,7 @@ const TransactionProcessor = ({
     const chainMetas = sources
       .filter((source): source is number => source != null && !isNaN(source))
       .map((source: number) => CHAIN_METADATA[source as keyof typeof CHAIN_METADATA])
-      .filter(Boolean); // Remove any undefined chain metadata
+      .filter(Boolean);
     return chainMetas;
   }, [sources]);
 
@@ -65,8 +64,17 @@ const TransactionProcessor = ({
     toggleTransactionCollapse();
   }, [toggleTransactionCollapse, activeTransaction?.status, cancelTransaction]);
 
+  const getDescriptionText = () => {
+    if (activeTransaction?.executionResult?.success) {
+      return 'Transaction Complete';
+    }
+    return `${getOperationText(transactionType)} ${
+      tokenMetaData?.symbol || 'token'
+    } from ${sourceChainMetaData.length > 1 ? 'multiple chains' : sourceChainMetaData[0]?.name + ' chain' || 'source chain'}  to ${destinationChainMetaData?.name || 'destination chain'}`;
+  };
+
   return (
-    <div className="w-full h-full bg-white  flex flex-col items-center justify-between rounded-2xl relative overflow-hidden">
+    <div className="w-full min-h-[600px] bg-white  flex flex-col items-center justify-between rounded-2xl relative overflow-hidden !nexus-font-primary">
       <div className="absolute top-16 flex items-center justify-center pointer-events-none">
         <div className="w-[380px] h-[380px] opacity-20">
           <DotLottieReact
@@ -79,7 +87,7 @@ const TransactionProcessor = ({
       </div>
       <Button
         variant={'link'}
-        className="w-full flex items-end justify-end text-grey-600"
+        className="w-full flex items-end justify-end text-grey-600 mt-6 px-6"
         onClick={handleCollapse}
       >
         {activeTransaction?.status === 'error' || activeTransaction?.status === 'success' ? (
@@ -106,19 +114,16 @@ const TransactionProcessor = ({
               </div>
 
               <div className="flex flex-col gap-y-1 items-center">
-                <p className="text-lg font-primary text-primary font-bold">
+                <p className="text-lg nexus-font-primary text-black font-bold">
                   {transactionType === 'bridge' || transactionType === 'transfer'
                     ? (simulationResult as SimulationResult)?.intent?.sourcesTotal
                     : (simulationResult as BridgeAndExecuteSimulationResult)?.bridgeSimulation
                         ?.intent?.sourcesTotal}
                 </p>
-                <p className="text-sm font-primary text-primary-hover font-medium">
-                  {`From ${
-                    transactionType === 'bridge' || transactionType === 'transfer'
-                      ? (simulationResult as SimulationResult)?.intent?.sources.length
-                      : (simulationResult as BridgeAndExecuteSimulationResult)?.bridgeSimulation
-                          ?.intent?.sources.length
-                  } chains`}
+                <p className="text-sm nexus-font-primary text-[#666666] font-medium">
+                  {`From ${sourceChainMetaData?.length} chain${
+                    sourceChainMetaData?.length > 1 ? 's' : ''
+                  }`}
                 </p>
               </div>
             </div>
@@ -165,13 +170,13 @@ const TransactionProcessor = ({
                   </SuccessRipple>
 
                   <div className="flex flex-col gap-y-1 items-center">
-                    <p className="text-lg font-primary text-primary font-bold">
+                    <p className="text-lg nexus-font-primary text-black font-bold">
                       {transactionType === 'bridge' || transactionType === 'transfer'
                         ? (simulationResult as SimulationResult)?.intent?.destination?.amount
                         : (simulationResult as BridgeAndExecuteSimulationResult)?.bridgeSimulation
                             ?.intent?.destination?.amount}
                     </p>
-                    <p className="text-sm font-primary text-primary-hover font-medium">
+                    <p className="text-sm nexus-font-primary text-[#666666] font-medium">
                       To {destinationChainMetaData.name}
                     </p>
                   </div>
@@ -187,40 +192,58 @@ const TransactionProcessor = ({
             ) : (
               <>
                 <div className="flex items-center justify-center w-full">
-                  <span className="text-2xl font-semibold text-black">{Math.floor(timer)}</span>
-                  <span className="text-base font-semibold text-black">.</span>
-                  <span className="text-base font-semibold text-gray-600">
+                  <span className="text-2xl font-semibold nexus-font-primary text-black">
+                    {Math.floor(timer)}
+                  </span>
+                  <span className="text-base font-semibold nexus-font-primary text-black">.</span>
+                  <span className="text-base font-semibold nexus-font-primary text-gray-600">
                     {String(Math.floor((timer % 1) * 1000)).padStart(3, '0')}s
                   </span>
                 </div>
-                <p className="w-full text-center text-black font-primary font-bold text-2xl">
-                  {processing?.statusText}
-                </p>
+                <div className="relative overflow-hidden">
+                  <AnimatePresence mode="wait">
+                    <motion.p
+                      key={processing?.statusText} // This ensures animation triggers when statusText changes
+                      initial={{ y: 30, opacity: 0 }}
+                      animate={{ y: 0, opacity: 1 }}
+                      exit={{ y: -30, opacity: 0 }}
+                      transition={{
+                        type: 'spring',
+                        stiffness: 300,
+                        damping: 30,
+                        duration: 0.3,
+                      }}
+                      className="w-full text-center text-black nexus-font-primary font-bold text-2xl"
+                    >
+                      {processing?.statusText}
+                    </motion.p>
+                  </AnimatePresence>
+                </div>
                 {transactionType && (
-                  <p className="w-full text-center font-primary text-base  text-grey-600">{`${getOperationText(transactionType)} ${
-                    tokenMetaData?.symbol || 'token'
-                  } from ${sourceChainMetaData.length > 1 ? 'multiple chains' : sourceChainMetaData[0]?.name + ' chain' || 'source chain'}  to ${destinationChainMetaData?.name || 'destination chain'}`}</p>
+                  <p className="w-full text-center nexus-font-primary text-base  text-grey-600">
+                    {getDescriptionText()}
+                  </p>
                 )}
               </>
             )}
             {transactionType === 'bridgeAndExecute' ? (
-              <div className="flex items-center gap-x-2">
+              <div className="flex flex-col items-center gap-y-2">
                 {explorerURL && (
                   <Button
                     variant={'link'}
-                    className=" text-accent underline text-base font-bold"
+                    className=" text-[#0375D8] underline text-base font-semibold nexus-font-primary"
                     onClick={() => {
                       window.open(explorerURL, '_blank');
                     }}
                   >
-                    Bridge Transaction <ExternalLink className="w-6 h-6 ml-2 text-[#666666]" />
+                    View Bridge Transaction <ExternalLink className="w-6 h-6 ml-2 text-[#666666]" />
                   </Button>
                 )}
                 {(activeTransaction?.executionResult as BridgeAndExecuteResult)
                   ?.executeExplorerUrl && (
                   <Button
                     variant={'link'}
-                    className=" text-accent underline text-base font-bold"
+                    className=" text-[#0375D8] underline text-base font-semibold nexus-font-primary"
                     onClick={() => {
                       window.open(
                         (activeTransaction?.executionResult as BridgeAndExecuteResult)
@@ -229,7 +252,8 @@ const TransactionProcessor = ({
                       );
                     }}
                   >
-                    Execute Transaction <ExternalLink className="w-6 h-6 ml-2 text-[#666666]" />
+                    View Execute Transaction{' '}
+                    <ExternalLink className="w-6 h-6 ml-2 text-[#666666]" />
                   </Button>
                 )}
               </div>
@@ -237,7 +261,7 @@ const TransactionProcessor = ({
               explorerURL && (
                 <Button
                   variant={'link'}
-                  className=" text-accent underline text-base font-bold"
+                  className=" text-[#0375D8] underline text-base font-semibold nexus-font-primary"
                   onClick={() => {
                     window.open(explorerURL, '_blank');
                   }}
@@ -246,17 +270,34 @@ const TransactionProcessor = ({
                 </Button>
               )
             )}
-            {activeTransaction?.status === 'success' && (
-              <Button onClick={onClose} className="w-full">
-                Close
-              </Button>
-            )}
           </div>
         </div>
       </div>
-      <div className="flex items-center justify-center gap-x-1.5 text-xs h-8 bg-[#BED8EE66] w-full rounded-b-xl">
-        <span className="text-[#4C4C4C] font-primary">Powered By</span>
-        <SmallAvailLogo />
+      <div className="w-full flex flex-col items-center gap-y-6">
+        {activeTransaction?.status === 'success' && (
+          <motion.div
+            className="w-full px-6"
+            initial={{ y: 20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{
+              type: 'spring',
+              stiffness: 400,
+              damping: 25,
+              delay: 0.5,
+            }}
+          >
+            <Button
+              onClick={onClose}
+              className="w-full bg-[#2B2B2B] nexus-font-primary text-[16px] font-semibold h-12 hover:not-even:bg-gray-700 rounded-[8px]"
+            >
+              Close
+            </Button>
+          </motion.div>
+        )}
+        <div className="flex items-center justify-center gap-x-1.5 text-xs h-8 bg-[#BED8EE66] w-full rounded-b-xl">
+          <span className="text-[#4C4C4C] nexus-font-primary">Powered By</span>
+          <SmallAvailLogo />
+        </div>
       </div>
     </div>
   );

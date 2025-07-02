@@ -183,7 +183,6 @@ export interface BalanceWidgetProps extends BaseComponentProps {
 export interface ModalProps extends BaseComponentProps {
   isOpen: boolean;
   onClose: () => void;
-  title?: string;
   description?: string;
   size?: 'sm' | 'md' | 'lg';
   children: ReactNode;

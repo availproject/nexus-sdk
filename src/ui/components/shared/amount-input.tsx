@@ -70,7 +70,7 @@ export function AmountInput({
   return (
     <div
       className={cn(
-        'px-4 py-2 rounded-lg border border-zinc-400 flex justify-between items-center',
+        'px-4 py-2 rounded-[8px] border border-zinc-400 flex justify-between items-center',
         'bg-transparent h-12',
         'focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]',
         disabled && 'opacity-50 cursor-not-allowed',
@@ -84,20 +84,20 @@ export function AmountInput({
             value={value || ''}
             onChange={handleInputChange}
             disabled={disabled}
-            className="!bg-transparent text-black text-base font-semibold font-primary leading-normal border-none !outline-none flex-1 disabled:cursor-not-allowed px-0 !focus:ring-0 !focus:border-none !focus:outline-none"
+            className="!bg-transparent text-black text-base font-semibold nexus-font-primary leading-normal border-none !outline-none flex-1 disabled:cursor-not-allowed px-0 !focus:ring-0 !focus:border-none !focus:outline-none"
             placeholder="0.0"
             inputMode="decimal"
             pattern="[0-9]*\.?[0-9]*"
           />
         ) : (
-          <div className="text-black text-base font-semibold font-primary leading-normal">
+          <div className="text-black text-base font-semibold nexus-font-primary leading-normal">
             {value ?? '0.0'}
           </div>
         )}
       </div>
       {suffix && (
         <div className="flex items-center gap-2">
-          <div className="text-zinc-500 text-base font-semibold font-primary leading-normal">
+          <div className="text-zinc-500 text-base font-semibold nexus-font-primary leading-normal">
             {suffix}
           </div>
         </div>

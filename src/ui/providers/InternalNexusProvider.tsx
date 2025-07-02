@@ -527,7 +527,7 @@ export function InternalNexusProvider({
     setActiveTransaction((prev) => ({
       ...prev,
       status: 'review',
-      reviewStatus: 'ready',
+      reviewStatus: 'needs_allowance',
     }));
     setAllowanceError(null);
   }, []);

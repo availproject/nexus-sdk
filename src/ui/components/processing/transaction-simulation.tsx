@@ -76,7 +76,7 @@ export function TransactionSimulation({ isLoading, simulationResult }: Transacti
   }
 
   return (
-    <div className="flex flex-col gap-y-4 w-full">
+    <div className="flex flex-col gap-y-4 w-full mt-6">
       {simulationResult?.allowance?.needsApproval && (
         <InfoMessage variant="success" className="px-0">
           You need to set allowance in your wallet first to continue.
@@ -94,19 +94,18 @@ function LoadingState() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold text-zinc-500 font-primary">Depositing from</span>
+        <span className="text-sm font-semibold text-zinc-500 nexus-font-primary">
+          Depositing from
+        </span>
         <div className="flex items-center gap-2">
           <Shimmer className="w-6 h-6 rounded-full" />
           <Shimmer className="w-16 h-4 rounded-full" />
         </div>
       </div>
       <hr className="border-zinc-400/40" />
-      {/* Fee section loading */}
-      <div className="space-y-1">
-        <FeeRow label="Gas fees" loading />
-        <hr className="border-zinc-400/40" />
-        <FeeRow label="Solver fees" loading />
-      </div>
+      <FeeRow label="Gas fees" loading />
+      <hr className="border-zinc-400/40" />
+      <FeeRow label="Solver fees" loading />
     </div>
   );
 }
@@ -117,7 +116,9 @@ function RouteSection({ data }: { data: SimulationData }) {
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold text-zinc-500 font-primary">Depositing from</span>
+        <span className="text-sm font-semibold text-zinc-500 nexus-font-primary">
+          Depositing from
+        </span>
         <div className="flex items-center gap-2">
           {/* Source chains */}
           {sources.slice(0, 3).map((source, index) =>
@@ -138,7 +139,7 @@ function RouteSection({ data }: { data: SimulationData }) {
               </div>
             ),
           )}
-          <span className="text-sm font-semibold text-black font-primary">
+          <span className="text-sm font-semibold text-black nexus-font-primary">
             {sources.length} Chain{sources.length > 1 ? 's' : ''}
           </span>
         </div>
@@ -189,15 +190,15 @@ function FeeRow({
   return (
     <div className="flex items-center justify-between py-1.5">
       <span
-        className={`text-sm font-semibold font-primary ${isTotal ? 'text-black' : 'text-zinc-500'}`}
+        className={`text-sm font-semibold nexus-font-primary ${isTotal ? 'text-black' : 'text-zinc-500'}`}
       >
         {label}
       </span>
       {loading ? (
-        <div className="w-16 h-4 bg-gradient-to-r from-gray-200 to-gray-300 rounded animate-pulse" />
+        <Shimmer className="w-16 h-4 rounded-full" />
       ) : (
         <span
-          className={`text-sm font-semibold font-primary ${isTotal ? 'text-black' : 'text-black'}`}
+          className={`text-sm font-semibold nexus-font-primary ${isTotal ? 'text-black' : 'text-black'}`}
         >
           {parseFloat(value ?? '0').toFixed(6)} {tokenSymbol}
         </span>

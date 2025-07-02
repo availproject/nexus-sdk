@@ -1,11 +1,12 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { ExternalLink, Maximize } from 'lucide-react';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
-import { CHAIN_METADATA, TOKEN_METADATA, TransactionType } from '../../..';
+import { CHAIN_METADATA, TOKEN_METADATA } from '../../../constants';
 
 import { getOperationText } from '../../utils/utils';
 import { Button, ThreeStageProgress, EnhancedInfoMessage } from '../shared';
 import SuccessRipple from '../shared/success-ripple';
+import { TransactionType } from '../../types';
 
 interface TransactionProcessorMiniProps {
   sources: number[];
@@ -166,7 +167,9 @@ export const TransactionProcessorMini: React.FC<TransactionProcessorMiniProps> =
         </div>
       ) : (
         <div className="text-left flex flex-col items-start gap-y-0.5">
-          <div className="text-base font-semibold text-black mb-1">{processing.statusText}</div>
+          <div className="text-base nexus-font-primary font-semibold text-black mb-1">
+            {processing.statusText}
+          </div>
           {activeTransaction?.type !== 'bridgeAndExecute' &&
           activeTransaction?.status === 'success' ? (
             <Button
@@ -180,7 +183,7 @@ export const TransactionProcessorMini: React.FC<TransactionProcessorMiniProps> =
               View on Explorer <ExternalLink className="w-4 h-4 ml-2 text-[#666666]" />
             </Button>
           ) : (
-            <p className="font-primary text-sm text-grey-600">{`${getOperationText(transactionType)} ${
+            <p className="nexus-font-primary text-sm text-grey-600">{`${getOperationText(transactionType)} ${
               tokenMetaData?.symbol || 'token'
             } from ${sourceChainMetaData.length > 1 ? 'multiple chains' : sourceChainMetaData[0]?.name + ' chain' || 'source chain'}  to ${destinationChainMetaData?.name || 'destination chain'}`}</p>
           )}
