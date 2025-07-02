@@ -106,21 +106,26 @@ export function BridgeModal() {
           </InfoMessage>
         )}
 
-        {activeTransaction.error && status === 'simulation_error' && (
+        {(activeTransaction.error && status === 'simulation_error') ||
+        (simulationResult &&
+          'bridgeSimulation' in simulationResult &&
+          !simulationResult.bridgeSimulation) ? (
           <EnhancedInfoMessage
-            error={activeTransaction.error}
+            error={activeTransaction.error || new Error('Bridge simulation failed')}
             context="simulation"
             className="mt-4"
           />
-        )}
-
-        {shouldShowSimulation && !insufficientBalance && status !== 'simulation_error' && (
-          <div className="px-6 mt-4">
-            <TransactionSimulation
-              isLoading={isSimulating}
-              simulationResult={simulationResult || undefined}
-            />
-          </div>
+        ) : (
+          shouldShowSimulation &&
+          !insufficientBalance &&
+          status !== 'simulation_error' && (
+            <div className="px-6 mt-4">
+              <TransactionSimulation
+                isLoading={isSimulating}
+                simulationResult={simulationResult || undefined}
+              />
+            </div>
+          )
         )}
       </div>
     );

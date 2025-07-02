@@ -10,8 +10,12 @@ export interface SlideTransitionProps {
   distance?: number;
   /** Animation timing configuration */
   timing?: {
+    /** Spring stiffness – lower is softer */
     stiffness?: number;
+    /** Spring damping – higher is slower to stop */
     damping?: number;
+    /** Spring mass – affects overall weight */
+    mass?: number;
   };
   /** Content to render */
   children: React.ReactNode;
@@ -29,7 +33,7 @@ export const SlideTransition: React.FC<SlideTransitionProps> = ({
   contentKey,
   direction = 'horizontal',
   distance = 50,
-  timing = { stiffness: 500, damping: 35 },
+  timing = { stiffness: 350, damping: 40, mass: 1 },
   children,
   className = '',
 }) => {
@@ -64,6 +68,7 @@ export const SlideTransition: React.FC<SlideTransitionProps> = ({
             type: 'spring',
             stiffness: timing.stiffness,
             damping: timing.damping,
+            mass: timing.mass,
           }}
           className="w-full h-full"
         >

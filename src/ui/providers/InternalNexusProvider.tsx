@@ -31,6 +31,8 @@ import { BridgeController } from '../controllers/BridgeController';
 import { TransferController } from '../controllers/TransferController';
 import { BridgeAndExecuteController } from '../controllers/BridgeAndExecuteController';
 import { TransactionProcessorMini } from '../components/processing/transaction-processor-mini';
+import { DragConstraintsProvider } from '../components/shared';
+import { LayoutGroup } from 'motion/react';
 import useListenTransaction from '../hooks/useListenTransaction';
 import { logger } from '../../utils';
 
@@ -349,6 +351,30 @@ export function InternalNexusProvider({
             getInputChainId(finalInputData) !== getInputChainId(inputData)
           ) {
             setIsSimulating(false);
+            return;
+          }
+
+          // Check if simulation failed
+          if (
+            simulationResult &&
+            // For BridgeAndExecuteSimulationResult
+            (('success' in simulationResult && !simulationResult.success) ||
+              ('error' in simulationResult && simulationResult.error) ||
+              // For bridge simulation within BridgeAndExecuteSimulationResult
+              ('bridgeSimulation' in simulationResult &&
+                simulationResult.bridgeSimulation === null))
+          ) {
+            setActiveTransaction((prev) => ({
+              ...prev,
+              simulationResult,
+              status: 'simulation_error',
+              error: new Error(
+                'error' in simulationResult
+                  ? simulationResult.error || 'Simulation failed'
+                  : 'Simulation failed',
+              ),
+              reviewStatus: 'gathering_input',
+            }));
             return;
           }
 
@@ -674,29 +700,34 @@ export function InternalNexusProvider({
 
   return (
     <NexusContext.Provider value={value}>
-      {children}
-      {displayMiniProcessor && activeTransaction.type && (
-        <TransactionProcessorMini
-          sources={
-            activeTransaction.type === 'bridge' || activeTransaction.type === 'transfer'
-              ? (activeTransaction.simulationResult as SimulationResult)?.intent?.sources?.map(
-                  (s: { chainID: number }) => s.chainID,
-                ) || []
-              : (
-                  activeTransaction.simulationResult as BridgeAndExecuteSimulationResult
-                )?.bridgeSimulation?.intent?.sources?.map((s: { chainID: number }) => s.chainID) ||
-                []
-          }
-          token={activeTransaction.inputData?.token || ''}
-          destination={
-            activeTransaction.type === 'bridge' || activeTransaction.type === 'transfer'
-              ? (activeTransaction.simulationResult as any)?.intent?.destination?.chainID || 0
-              : (activeTransaction.simulationResult as any)?.bridgeSimulation?.intent?.destination
-                  ?.chainID || 0
-          }
-          transactionType={activeTransaction.type}
-        />
-      )}
+      <DragConstraintsProvider>
+        <LayoutGroup id="tx-processor-layout-group">
+          {children}
+          {displayMiniProcessor && activeTransaction.type && (
+            <TransactionProcessorMini
+              sources={
+                activeTransaction.type === 'bridge' || activeTransaction.type === 'transfer'
+                  ? (activeTransaction.simulationResult as SimulationResult)?.intent?.sources?.map(
+                      (s: { chainID: number }) => s.chainID,
+                    ) || []
+                  : (
+                      activeTransaction.simulationResult as BridgeAndExecuteSimulationResult
+                    )?.bridgeSimulation?.intent?.sources?.map(
+                      (s: { chainID: number }) => s.chainID,
+                    ) || []
+              }
+              token={activeTransaction.inputData?.token || ''}
+              destination={
+                activeTransaction.type === 'bridge' || activeTransaction.type === 'transfer'
+                  ? (activeTransaction.simulationResult as any)?.intent?.destination?.chainID || 0
+                  : (activeTransaction.simulationResult as any)?.bridgeSimulation?.intent
+                      ?.destination?.chainID || 0
+              }
+              transactionType={activeTransaction.type}
+            />
+          )}
+        </LayoutGroup>
+      </DragConstraintsProvider>
     </NexusContext.Provider>
   );
 }

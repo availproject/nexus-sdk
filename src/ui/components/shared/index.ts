@@ -33,3 +33,4 @@ export { EnhancedInfoMessage } from './enhanced-info-message';
 
 // Animation components
 export { SlideTransition, useContentKey } from './slide-transition';
+export { DragConstraintsProvider, useDragConstraints } from './drag-constraints';

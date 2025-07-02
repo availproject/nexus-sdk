@@ -14,6 +14,7 @@ import { Button, ThreeStageProgress, EnhancedInfoMessage } from '../shared';
 import { getOperationText } from '../../utils/utils';
 import { DotLottieReact } from '@lottiefiles/dotlottie-react';
 import SuccessRipple from '../shared/success-ripple';
+import { WordsPullUp } from '../shared/pull-up-words';
 
 const TransactionProcessor = ({
   sources,
@@ -74,8 +75,16 @@ const TransactionProcessor = ({
   };
 
   return (
-    <div className="w-full min-h-[600px] bg-white  flex flex-col items-center justify-between rounded-2xl relative overflow-hidden !nexus-font-primary">
-      <div className="absolute top-16 flex items-center justify-center pointer-events-none">
+    <motion.div
+      layoutId="tx-processor"
+      layout="position"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.25, layout: { type: 'spring', stiffness: 220, damping: 30 } }}
+      className="z-50 w-full min-h-[600px] bg-white flex flex-col items-center justify-between rounded-2xl shadow-card overflow-hidden !nexus-font-primary"
+    >
+      <motion.div layout className="absolute top-16 left-1/2 -translate-x-1/2 pointer-events-none">
         <div className="w-[380px] h-[380px] opacity-20">
           <DotLottieReact
             src="https://lottie.host/17486479-f319-4b3c-8c10-7bf10fcc534b/gRY7aNOi5G.lottie"
@@ -84,7 +93,7 @@ const TransactionProcessor = ({
             className="w-full h-full object-cover opacity-10 !mix-blend-screen"
           />
         </div>
-      </div>
+      </motion.div>
       <Button
         variant={'link'}
         className="w-full flex items-end justify-end text-grey-600 mt-6 px-6"
@@ -201,7 +210,8 @@ const TransactionProcessor = ({
                   </span>
                 </div>
                 <div className="relative overflow-hidden">
-                  <AnimatePresence mode="wait">
+                  <WordsPullUp text={processing?.statusText} />
+                  {/* <AnimatePresence mode="wait">
                     <motion.p
                       key={processing?.statusText} // This ensures animation triggers when statusText changes
                       initial={{ y: 30, opacity: 0 }}
@@ -213,11 +223,11 @@ const TransactionProcessor = ({
                         damping: 30,
                         duration: 0.3,
                       }}
-                      className="w-full text-center text-black nexus-font-primary font-bold text-2xl"
+                      className=""
                     >
                       {processing?.statusText}
                     </motion.p>
-                  </AnimatePresence>
+                  </AnimatePresence> */}
                 </div>
                 {transactionType && (
                   <p className="w-full text-center nexus-font-primary text-base  text-grey-600">
@@ -299,7 +309,7 @@ const TransactionProcessor = ({
           <SmallAvailLogo />
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 };
 

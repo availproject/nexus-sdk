@@ -1,8 +1,8 @@
 import * as React from 'react';
 import { Button } from './button';
-import { Loader2 } from 'lucide-react';
 import { cn } from '../../utils/utils';
 import { SmallAvailLogo } from './icons/SmallAvailLogo';
+import LoadingDots from './loading-dots';
 
 interface ActionButtonsProps {
   onCancel: () => void;
@@ -56,8 +56,7 @@ export function ActionButtons({
           onClick={onPrimary}
           disabled={primaryDisabled || primaryLoading}
         >
-          {primaryLoading && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-          {primaryText}
+          {primaryLoading ? <LoadingDots /> : primaryText}
         </Button>
       </div>
       <div className="flex items-center justify-center gap-x-1.5 text-xs h-8 bg-[#BED8EE66] w-full rounded-b-xl">

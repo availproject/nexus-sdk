@@ -11,6 +11,7 @@ import { CHAIN_METADATA } from '../../..';
 import { Plus } from 'lucide-react';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { logger } from '../../../utils';
+import LoadingDots from './loading-dots';
 
 interface EnhancedInfoMessageProps {
   error: unknown;
@@ -73,7 +74,7 @@ export function EnhancedInfoMessage({ error, context, className }: EnhancedInfoM
               >
                 {isAddingChain ? (
                   <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                    <LoadingDots />
                     Adding...
                   </>
                 ) : (
