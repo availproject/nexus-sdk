@@ -1,6 +1,6 @@
 {
   "name": "@avail-project/nexus",
-  "version": "0.0.2-dev.0",
+  "version": "0.0.2-dev.1",
   "description": "Nexus SDK enables cross-chain transactions with minimal friction",
   "main": "dist/index.js",
   "module": "dist/index.esm.js",
