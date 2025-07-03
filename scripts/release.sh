@@ -72,7 +72,7 @@ if [[ "$RELEASE_TYPE" == "prod" ]]; then
     git push origin main --tags
     
     print_status "Production release completed! 🚀"
-    print_status "Users can install with: npm install avail-nexus-sdk"
+    print_status "Users can install with: npm install @avail-project/nexus"
     
 else
     print_status "Creating development release..."
@@ -84,7 +84,7 @@ else
     git push origin $(git branch --show-current) --tags
     
     print_status "Development release completed! 🚀"
-    print_status "Users can install with: npm install avail-nexus-sdk@dev"
+    print_status "Users can install with: npm install @avail-project/nexus@dev"
 fi
 
 print_status "Release process completed successfully!" 
