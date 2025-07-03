@@ -5,7 +5,7 @@ A powerful TypeScript SDK for cross-chain operations, token bridging, and unifie
 ## Installation
 
 ```bash
-npm install @avail-project/nexus@dev
+npm install @avail-project/nexus
 ```
 
 ## Quick Start
