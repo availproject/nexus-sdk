@@ -5,13 +5,13 @@ A powerful TypeScript SDK for cross-chain operations, token bridging, and unifie
 ## Installation
 
 ```bash
-npm install avail-nexus-sdk
+npm install @avail-project/nexus@dev
 ```
 
 ## Quick Start
 
 ```typescript
-import { NexusSDK } from 'avail-nexus-sdk';
+import { NexusSDK } from '@avail-project/nexus';
 
 // Initialize SDK
 const sdk = new NexusSDK();
@@ -101,7 +101,7 @@ The SDK ships with a React widget suite that lets you embed complete cross-chain
 ### 1️⃣ Wrap your app with `NexusProvider`
 
 ```tsx
-import { NexusProvider } from 'avail-nexus-sdk';
+import { NexusProvider } from '@avail-project/nexus';
 
 export default function Root() {
   return (
@@ -121,7 +121,7 @@ export default function Root() {
 ```tsx
 import { useEffect } from 'react';
 import { useAccount } from '@wagmi/react'; // any wallet lib works
-import { useNexus } from 'avail-nexus-sdk';
+import { useNexus } from '@avail-project/nexus';
 
 export function WalletBridge() {
   const { connector, isConnected } = useAccount();
@@ -144,7 +144,7 @@ import {
   BridgeButton,
   TransferButton,
   BridgeAndExecuteButton,
-} from 'avail-nexus-sdk';
+} from '@avail-project/nexus';
 
 /*  Bridge ----------------------------------------------------------- */
 <BridgeButton prefill={{ chainId: 137, token: 'USDC', amount: '100' }}>
@@ -255,7 +255,7 @@ Values passed in `prefill` appear as **read-only** fields, enforcing your desire
 ### Initialization
 
 ```typescript
-import type { NexusNetwork } from 'avail-nexus-sdk';
+import type { NexusNetwork } from '@avail-project/nexus';
 
 // Mainnet (default)
 const sdk = new NexusSDK();
@@ -270,7 +270,7 @@ await sdk.initialize(window.ethereum); // Returns: Promise<void>
 ### Balance Operations
 
 ```typescript
-import type { UserAsset, TokenBalance } from 'avail-nexus-sdk';
+import type { UserAsset, TokenBalance } from '@avail-project/nexus';
 
 // Get all balances across chains
 const balances: UserAsset[] = await sdk.getUnifiedBalances();
@@ -282,7 +282,7 @@ const usdcBalance: UserAsset | undefined = await sdk.getUnifiedBalance('USDC');
 ### Bridge Operations
 
 ```typescript
-import type { BridgeParams, BridgeResult, SimulationResult } from 'avail-nexus-sdk';
+import type { BridgeParams, BridgeResult, SimulationResult } from '@avail-project/nexus';
 
 // Bridge tokens between chains
 const result: BridgeResult = await sdk.bridge({
@@ -302,7 +302,7 @@ const simulation: SimulationResult = await sdk.simulateBridge({
 ### Transfer Operations
 
 ```typescript
-import type { TransferParams, TransferResult } from 'avail-nexus-sdk';
+import type { TransferParams, TransferResult } from '@avail-project/nexus';
 
 // Transfer to specific recipient
 const result: TransferResult = await sdk.transfer({
@@ -326,7 +326,7 @@ import type {
   BridgeAndExecuteParams,
   BridgeAndExecuteResult,
   BridgeAndExecuteSimulationResult,
-} from 'avail-nexus-sdk';
+} from '@avail-project/nexus';
 
 // Execute contract functions
 const result: ExecuteResult = await sdk.execute({
@@ -398,7 +398,7 @@ console.log('Bridge receive amount:', simulation.metadata?.bridgeReceiveAmount);
 ### Allowance Management
 
 ```typescript
-import type { AllowanceResponse } from 'avail-nexus-sdk';
+import type { AllowanceResponse } from '@avail-project/nexus';
 
 // Check allowances
 const allowances: AllowanceResponse[] = await sdk.getAllowance(137, ['USDC', 'USDT']);
@@ -413,7 +413,7 @@ await sdk.revokeAllowance(137, ['USDC']);
 ### Intent Management
 
 ```typescript
-import type { RequestForFunds } from 'avail-nexus-sdk';
+import type { RequestForFunds } from '@avail-project/nexus';
 
 // Get user's transaction intents
 const intents: RequestForFunds[] = await sdk.getMyIntents(1);
@@ -424,7 +424,7 @@ const intents: RequestForFunds[] = await sdk.getMyIntents(1);
 All utility functions are available under `sdk.utils`:
 
 ```typescript
-import type { ChainMetadata, TokenMetadata, SUPPORTED_TOKENS } from 'avail-nexus-sdk';
+import type { ChainMetadata, TokenMetadata, SUPPORTED_TOKENS } from '@avail-project/nexus';
 
 // Address utilities
 const isValid: boolean = sdk.utils.isValidAddress('0x...');
@@ -460,7 +460,7 @@ const decimalChainId: number = sdk.utils.hexToChainId('0x89');
 ### Event Handling
 
 ```typescript
-import type { OnIntentHook, OnAllowanceHook, EventListener } from 'avail-nexus-sdk';
+import type { OnIntentHook, OnAllowanceHook, EventListener } from '@avail-project/nexus';
 
 // Intent approval flows
 sdk.setOnIntentHook(({ intent, allow, deny, refresh }: Parameters<OnIntentHook>[0]) => {
@@ -501,7 +501,7 @@ sdk.onChainChanged((chainId) => console.log('Chain:', chainId));
 #### Bridge & Execute Progress Stream (new in vNEXT)
 
 ```typescript
-import { NEXUS_EVENTS } from 'avail-nexus-sdk';
+import { NEXUS_EVENTS } from '@avail-project/nexus';
 import type { ProgressStep } from '@arcana/ca-sdk';
 
 // 1️⃣  Listen once for all expected steps (array) – call this before bridgeAndExecute()
@@ -556,7 +556,7 @@ This replaces the legacy `BRIDGE_*`, `APPROVAL_*`, `EXECUTE_*`, `OPERATION_*`, a
 ### Provider Methods
 
 ```typescript
-import type { EthereumProvider, RequestArguments } from 'avail-nexus-sdk';
+import type { EthereumProvider, RequestArguments } from '@avail-project/nexus';
 
 // Get enhanced provider
 const provider: EthereumProvider = sdk.getEVMProviderWithCA();
@@ -576,7 +576,7 @@ await sdk.deinit();
 ### Basic Bridge with Result Handling
 
 ```typescript
-import { NexusSDK, type BridgeResult } from 'avail-nexus-sdk';
+import { NexusSDK, type BridgeResult } from '@avail-project/nexus';
 
 const sdk = new NexusSDK();
 await sdk.initialize(window.ethereum);
@@ -604,7 +604,7 @@ try {
 ### Execute with Receipt Confirmation
 
 ```typescript
-import type { ExecuteResult } from 'avail-nexus-sdk';
+import type { ExecuteResult } from '@avail-project/nexus';
 
 const result: ExecuteResult = await sdk.execute({
   toChainId: 1,
@@ -636,7 +636,7 @@ console.log('Confirmations:', result.confirmations);
 ### Bridge and Execute with Error Handling
 
 ```typescript
-import type { BridgeAndExecuteResult } from 'avail-nexus-sdk';
+import type { BridgeAndExecuteResult } from '@avail-project/nexus';
 
 try {
   const result: BridgeAndExecuteResult = await sdk.bridgeAndExecute({
@@ -673,7 +673,7 @@ try {
 ### Complete Portfolio Management
 
 ```typescript
-import type { UserAsset, ChainMetadata } from 'avail-nexus-sdk';
+import type { UserAsset, ChainMetadata } from '@avail-project/nexus';
 
 // Get complete balance overview
 const balances: UserAsset[] = await sdk.getUnifiedBalances();
@@ -695,7 +695,7 @@ for (const asset of balances) {
 ## Error Handling
 
 ```typescript
-import type { BridgeResult } from 'avail-nexus-sdk';
+import type { BridgeResult } from '@avail-project/nexus';
 
 try {
   const result: BridgeResult = await sdk.bridge({ token: 'USDC', amount: 100, chainId: 137 });
@@ -728,7 +728,7 @@ try {
 6. **Clean up resources** when component unmounts
 
 ```typescript
-import type { ExecuteSimulation, ExecuteResult } from 'avail-nexus-sdk';
+import type { ExecuteSimulation, ExecuteResult } from '@avail-project/nexus';
 
 // Simulate before executing
 const simulation: ExecuteSimulation = await sdk.simulateExecute(params);
@@ -768,7 +768,7 @@ import type {
   RequestArguments,
   EventListener,
   NexusNetwork,
-} from 'avail-nexus-sdk';
+} from '@avail-project/nexus';
 ```
 
 ## Development
