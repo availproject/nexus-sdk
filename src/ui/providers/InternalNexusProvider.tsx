@@ -74,10 +74,11 @@ export function InternalNexusProvider({
   config,
   children,
 }: {
-  config: NexusNetwork;
+  config: { network: NexusNetwork; debug?: boolean };
   children: ReactNode;
 }) {
-  const [sdk] = useState(() => new NexusSDK({ network: config }));
+  logger.debug('InternalNexusProvider', { config });
+  const [sdk] = useState(() => new NexusSDK({ network: config.network, debug: config.debug }));
   const [provider, setProvider] = useState<EthereumProvider | null>(null);
   const [isSdkInitialized, setIsSdkInitialized] = useState(false);
   const [activeTransaction, setActiveTransaction] = useState<ActiveTransaction>(initialState);
@@ -110,6 +111,7 @@ export function InternalNexusProvider({
       setActiveTransaction((prev) => ({ ...prev, status: 'initializing' }));
       await sdk.initialize(provider);
       const unifiedBalance = await sdk.getUnifiedBalances();
+      logger.debug('Unified balance', { unifiedBalance });
       setUnifiedBalance(unifiedBalance);
       setIsSdkInitialized(true);
       setActiveTransaction((prev) => ({ ...prev, status: 'review' }));

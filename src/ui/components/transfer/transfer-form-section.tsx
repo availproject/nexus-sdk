@@ -56,7 +56,7 @@ export function TransferFormSection({
               onUpdate({ chainId: parseInt(chainId, 10) })
             }
             disabled={isInputDisabled || prefillFields.chainId}
-            network={config}
+            network={config.network}
           />
         </FormField>
 
@@ -67,7 +67,7 @@ export function TransferFormSection({
               !(isInputDisabled || prefillFields.token) && onUpdate({ token })
             }
             disabled={isInputDisabled || prefillFields.token}
-            network={config}
+            network={config.network}
           />
         </FormField>
       </div>
@@ -80,7 +80,7 @@ export function TransferFormSection({
               ? `Balance: ${parseFloat(tokenBalance ?? '0').toFixed(6) ?? ''} ${inputData?.token ?? ''}`
               : undefined
           }
-          className="flex-1"
+          className="flex-1 nexus-font-primary"
         >
           <AmountInput
             value={inputData?.amount ? inputData.amount?.toString() : ''}

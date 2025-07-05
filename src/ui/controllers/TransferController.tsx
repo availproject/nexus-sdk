@@ -54,7 +54,7 @@ const TransferInputForm: React.FC<{
               handleUpdate('chainId', parseInt(chainId, 10))
             }
             disabled={isInputDisabled || prefillFields.chainId}
-            network={config}
+            network={config.network}
           />
         </FormField>
 
@@ -65,7 +65,7 @@ const TransferInputForm: React.FC<{
               !(isInputDisabled || prefillFields.token) && handleUpdate('token', token)
             }
             disabled={isInputDisabled || prefillFields.token}
-            network={config}
+            network={config.network}
           />
         </FormField>
       </div>
@@ -74,9 +74,9 @@ const TransferInputForm: React.FC<{
         <FormField
           label="Amount"
           helperText={
-            isSdkInitialized ? `Balance:- ${tokenBalance ?? ''} ${prefill?.token ?? ''}` : undefined
+            isSdkInitialized ? `Balance: ${tokenBalance ?? ''} ${prefill?.token ?? ''}` : undefined
           }
-          className="flex-1"
+          className="flex-1 nexus-font-primary"
         >
           <AmountInput
             value={prefill?.amount ? prefill.amount?.toString() : ''}

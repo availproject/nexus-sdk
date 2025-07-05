@@ -53,7 +53,7 @@ const BridgeAndExecuteInputForm: React.FC<{
               handleUpdate('toChainId', id as number);
             }}
             disabled={isInputDisabled || prefillFields.toChainId}
-            network={config}
+            network={config.network}
           />
         </FormField>
 
@@ -64,7 +64,7 @@ const BridgeAndExecuteInputForm: React.FC<{
               !(isInputDisabled || prefillFields.token) && handleUpdate('token', token)
             }
             disabled={isInputDisabled || prefillFields.token}
-            network={config}
+            network={config.network}
           />
         </FormField>
       </div>
@@ -72,8 +72,9 @@ const BridgeAndExecuteInputForm: React.FC<{
       <FormField
         label="Amount"
         helperText={
-          isSdkInitialized ? `Balance:- ${tokenBalance ?? ''} ${prefill.token ?? ''}` : undefined
+          isSdkInitialized ? `Balance: ${tokenBalance ?? ''} ${prefill.token ?? ''}` : undefined
         }
+        className="nexus-font-primary"
       >
         <AmountInput
           value={prefill?.amount ? prefill.amount?.toString() : ''}
