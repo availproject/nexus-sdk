@@ -1,8 +1,8 @@
 import { BaseService } from '../core/base-service';
-import { getTokenContractAddress, extractErrorMessage, logger } from '../../utils';
+import { getTokenContractAddress, extractErrorMessage, logger, isTestnetChain } from '../../utils';
 import { TOKEN_METADATA } from '../../constants';
 import { parseUnits, formatUnits } from 'viem';
-import type { SUPPORTED_TOKENS, ApprovalInfo } from '../../types';
+import type { SUPPORTED_TOKENS, ApprovalInfo, SUPPORTED_CHAINS_IDS } from '../../types';
 import type { ApprovalResult } from '../types/service-types';
 
 /**
@@ -45,7 +45,11 @@ export class ApprovalService extends BaseService {
     }
 
     const ownerAddress = accounts[0];
-    const tokenContractAddress = getTokenContractAddress(tokenApproval.token, chainId);
+    const tokenContractAddress = getTokenContractAddress(
+      tokenApproval.token,
+      chainId as SUPPORTED_CHAINS_IDS,
+      isTestnetChain(chainId as SUPPORTED_CHAINS_IDS),
+    );
 
     if (!tokenContractAddress) {
       throw new Error(

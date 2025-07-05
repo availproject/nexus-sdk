@@ -529,8 +529,8 @@ export async function waitForTransactionReceipt(
  * @returns Contract address or undefined if not found
  */
 export function getTokenContractAddress(
-  token: string,
-  chainId: number,
+  token: SUPPORTED_TOKENS,
+  chainId: SUPPORTED_CHAINS_IDS,
   isTestnet: boolean = false,
 ): string | undefined {
   const registry = isTestnet ? TESTNET_TOKEN_CONTRACT_ADDRESSES : TOKEN_CONTRACT_ADDRESSES;
