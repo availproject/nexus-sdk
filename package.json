@@ -101,7 +101,7 @@
     }
   },
   "dependencies": {
-    "@arcana/ca-sdk": "1.0.2",
+    "@arcana/ca-sdk": "1.0.3-beta.8",
     "@radix-ui/react-progress": "1.1.7",
     "motion": "12.23.0",
     "viem": "^2.0.0"
