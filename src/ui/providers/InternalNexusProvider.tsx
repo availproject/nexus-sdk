@@ -16,7 +16,7 @@ import {
   TransferParams,
   BridgeAndExecuteParams,
   SimulationResult,
-  SDKConfig,
+  NexusNetwork,
 } from '../../types';
 import type {
   ActiveTransaction,
@@ -74,10 +74,10 @@ export function InternalNexusProvider({
   config,
   children,
 }: {
-  config: SDKConfig;
+  config: NexusNetwork;
   children: ReactNode;
 }) {
-  const [sdk] = useState(() => new NexusSDK(config));
+  const [sdk] = useState(() => new NexusSDK({ network: config }));
   const [provider, setProvider] = useState<EthereumProvider | null>(null);
   const [isSdkInitialized, setIsSdkInitialized] = useState(false);
   const [activeTransaction, setActiveTransaction] = useState<ActiveTransaction>(initialState);

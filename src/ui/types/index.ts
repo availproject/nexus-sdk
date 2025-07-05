@@ -12,9 +12,9 @@ import {
   UserAsset,
   SUPPORTED_TOKENS,
   SUPPORTED_CHAINS_IDS,
-  SDKConfig,
   ChainMetadata,
   TokenMetadata,
+  NexusNetwork,
 } from '../../types';
 import { NexusSDK } from '../..';
 
@@ -119,7 +119,7 @@ export interface NexusContextValue {
   activeTransaction: ActiveTransaction;
   isSdkInitialized: boolean;
   activeController: ITransactionController | null;
-  config: SDKConfig;
+  config: NexusNetwork;
   provider: EthereumProvider | null;
   unifiedBalance: UserAsset[];
   isSimulating: boolean;

@@ -39,7 +39,7 @@ const BridgeInputForm: React.FC<{
               !(isBusy || prefillFields.chainId) && handleUpdate('chainId', parseInt(chainId, 10))
             }
             disabled={isBusy || prefillFields.chainId}
-            network={config.network}
+            network={config}
           />
         </div>
 
@@ -51,7 +51,7 @@ const BridgeInputForm: React.FC<{
               !(isBusy || prefillFields.token) && handleUpdate('token', token)
             }
             disabled={isBusy || prefillFields.token}
-            network={config.network}
+            network={config}
           />
         </div>
       </div>

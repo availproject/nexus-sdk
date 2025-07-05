@@ -45,7 +45,7 @@ export function BridgeFormSection({
               onUpdate({ chainId: parseInt(chainId, 10) })
             }
             disabled={isInputDisabled || prefillFields.chainId}
-            network={config.network}
+            network={config}
           />
         </FormField>
 
@@ -56,7 +56,7 @@ export function BridgeFormSection({
               !(isInputDisabled || prefillFields.token) && onUpdate({ token })
             }
             disabled={isInputDisabled || prefillFields.token}
-            network={config.network}
+            network={config}
           />
         </FormField>
       </div>

@@ -54,7 +54,7 @@ const TransferInputForm: React.FC<{
               handleUpdate('chainId', parseInt(chainId, 10))
             }
             disabled={isInputDisabled || prefillFields.chainId}
-            network={config.network}
+            network={config}
           />
         </FormField>
 
@@ -65,7 +65,7 @@ const TransferInputForm: React.FC<{
               !(isInputDisabled || prefillFields.token) && handleUpdate('token', token)
             }
             disabled={isInputDisabled || prefillFields.token}
-            network={config.network}
+            network={config}
           />
         </FormField>
       </div>

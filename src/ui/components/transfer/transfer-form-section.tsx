@@ -56,7 +56,7 @@ export function TransferFormSection({
               onUpdate({ chainId: parseInt(chainId, 10) })
             }
             disabled={isInputDisabled || prefillFields.chainId}
-            network={config.network}
+            network={config}
           />
         </FormField>
 
@@ -67,7 +67,7 @@ export function TransferFormSection({
               !(isInputDisabled || prefillFields.token) && onUpdate({ token })
             }
             disabled={isInputDisabled || prefillFields.token}
-            network={config.network}
+            network={config}
           />
         </FormField>
       </div>

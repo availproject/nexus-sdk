@@ -53,7 +53,7 @@ const BridgeAndExecuteInputForm: React.FC<{
               handleUpdate('toChainId', id as number);
             }}
             disabled={isInputDisabled || prefillFields.toChainId}
-            network={config.network}
+            network={config}
           />
         </FormField>
 
@@ -64,7 +64,7 @@ const BridgeAndExecuteInputForm: React.FC<{
               !(isInputDisabled || prefillFields.token) && handleUpdate('token', token)
             }
             disabled={isInputDisabled || prefillFields.token}
-            network={config.network}
+            network={config}
           />
         </FormField>
       </div>
