@@ -25,7 +25,7 @@ import type {
   BridgeAndExecuteSimulationResult,
 } from '../types';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
-import { Network, SDKConfig } from '@arcana/ca-sdk';
+import { Network, NetworkConfig, SDKConfig } from '@arcana/ca-sdk';
 import { ChainAbstractionAdapter } from '../adapters/chain-abstraction-adapter';
 
 export class NexusSDK {
@@ -44,13 +44,23 @@ export class NexusSDK {
       ...config,
       siweStatement: 'Sign in to enable Nexus',
     };
-    if (config?.network) {
-      nexusConfig.network = config?.network === 'testnet' ? Network.FOLLY : undefined;
+    if (config?.network === 'testnet') {
+      logger.info('Using Folly network');
+      const FOLLY_CONFIG: NetworkConfig = {
+        COSMOS_URL: 'https://grpcweb.afcn1.dedyn.io/',
+        EXPLORER_URL: 'https://explorer.folly.arcana.network',
+        FAUCET_URL: 'https://gateway-dev.arcana.network/api/v1/faucet',
+        GRPC_URL: 'https://grpc-folly.arcana.network',
+        NETWORK_HINT: Network.FOLLY,
+        SIMULATION_URL: 'https://ca-sim-dev.arcana.network',
+        VSC_DOMAIN: 'vsc1-folly.arcana.network',
+      };
+      nexusConfig.network = FOLLY_CONFIG;
     }
 
     // Initialize logger based on debug flag
     this.initializeLogger(config?.debug);
-
+    logger.debug('Nexus SDK initialized with config:', nexusConfig);
     this.nexusAdapter = new ChainAbstractionAdapter(nexusConfig);
     this.nexusEvents = this.nexusAdapter.caEvents;
     this.utils = new NexusUtils(this.nexusAdapter, () => this.nexusAdapter.isInitialized());

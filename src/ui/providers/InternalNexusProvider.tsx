@@ -77,7 +77,6 @@ export function InternalNexusProvider({
   config: { network: NexusNetwork; debug?: boolean };
   children: ReactNode;
 }) {
-  logger.debug('InternalNexusProvider', { config });
   const [sdk] = useState(() => new NexusSDK({ network: config.network, debug: config.debug }));
   const [provider, setProvider] = useState<EthereumProvider | null>(null);
   const [isSdkInitialized, setIsSdkInitialized] = useState(false);
