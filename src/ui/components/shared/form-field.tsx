@@ -17,9 +17,9 @@ export function FormField({ label, children, helperText, className }: FormFieldP
       </Label>
       {children}
       {helperText && (
-        <div className="text-black text-sm font-normal !nexus-font-primary leading-none">
+        <p className="text-black text-sm font-normal nexus-font-primary leading-none">
           {helperText}
-        </div>
+        </p>
       )}
     </div>
   );

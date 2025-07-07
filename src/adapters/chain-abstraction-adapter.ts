@@ -2,7 +2,7 @@ import { CA, Network, SDKConfig } from '@arcana/ca-sdk';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
 import { NEXUS_EVENTS } from '../constants';
 import { isSupportedChain, isSupportedToken } from './core/validation';
-import { extractErrorMessage } from '../utils';
+import { extractErrorMessage, logger } from '../utils';
 
 // Services
 import { BridgeService } from './services/bridge-service';
@@ -53,6 +53,7 @@ export class ChainAbstractionAdapter {
   private bridgeExecuteService: BridgeExecuteService;
 
   constructor(config?: SDKConfig) {
+    logger.debug('ChainAbstractionAdapter', { config });
     this.ca = new CA(config);
     this.caEvents = this.ca.caEvents;
 

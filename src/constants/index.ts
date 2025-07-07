@@ -11,6 +11,7 @@ export const SUPPORTED_CHAINS = {
   SCROLL: 534352,
 
   // Testnet chains
+  SEPOLIA: 11155111,
   BASE_SEPOLIA: 84532,
   ARBITRUM_SEPOLIA: 421614,
   OPTIMISM_SEPOLIA: 11155420,
@@ -32,7 +33,7 @@ export const chainIcons: Record<number, string> = {
     'https://assets.coingecko.com/coins/images/50571/standard/scroll.jpg?1728376125',
 
   // Testnet chain icons (reuse mainnet icons)
-
+  [SUPPORTED_CHAINS.SEPOLIA]: 'https://assets.coingecko.com/coins/images/279/small/ethereum.png',
   [SUPPORTED_CHAINS.BASE_SEPOLIA]:
     'https://raw.githubusercontent.com/base/brand-kit/main/logo/symbol/Base_Symbol_Blue.svg',
   [SUPPORTED_CHAINS.ARBITRUM_SEPOLIA]:
@@ -161,6 +162,15 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
   },
 
   // Testnet chains
+  [SUPPORTED_CHAINS.SEPOLIA]: {
+    id: 11155111,
+    name: 'Sepolia',
+    shortName: 'eth-sepolia',
+    logo: chainIcons[SUPPORTED_CHAINS.SEPOLIA],
+    nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
+    rpcUrls: ['https://api-sepolia.etherscan.io/api'],
+    blockExplorerUrls: ['https://sepolia.etherscan.io'],
+  },
   [SUPPORTED_CHAINS.BASE_SEPOLIA]: {
     id: 84532,
     name: 'Base Sepolia',
@@ -222,6 +232,7 @@ export const MAINNET_CHAINS = [
 ] as const;
 
 export const TESTNET_CHAINS = [
+  SUPPORTED_CHAINS.SEPOLIA,
   SUPPORTED_CHAINS.BASE_SEPOLIA,
   SUPPORTED_CHAINS.ARBITRUM_SEPOLIA,
   SUPPORTED_CHAINS.OPTIMISM_SEPOLIA,
@@ -254,12 +265,14 @@ export const TOKEN_CONTRACT_ADDRESSES: Record<string, Record<number, string>> = 
  */
 export const TESTNET_TOKEN_CONTRACT_ADDRESSES: Record<string, Record<number, string>> = {
   USDC: {
+    [SUPPORTED_CHAINS.SEPOLIA]: '0x94a9D9AC8a22534E3FaCa9F4e7F2E2cf85d5E4C8',
     [SUPPORTED_CHAINS.BASE_SEPOLIA]: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
     [SUPPORTED_CHAINS.ARBITRUM_SEPOLIA]: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d',
     [SUPPORTED_CHAINS.OPTIMISM_SEPOLIA]: '0x5fd84259d66Cd46123540766Be93DFE6D43130D7',
     [SUPPORTED_CHAINS.POLYGON_AMOY]: '0x41E94Eb019C0762f9Bfcf9Fb1E58725BfB0e7582',
   },
   USDT: {
+    [SUPPORTED_CHAINS.SEPOLIA]: '0xaA8E23Fb1079EA71e0a56F48a2aA51851D8433D0',
     [SUPPORTED_CHAINS.BASE_SEPOLIA]: '0xf7e53b20f39a5f8c35005fEf37eef03A7b0d0B5a',
     [SUPPORTED_CHAINS.ARBITRUM_SEPOLIA]: '0xb9a4873d8d2C22e56b8574e8605644d08E047434',
     [SUPPORTED_CHAINS.OPTIMISM_SEPOLIA]: '0x7F5c764cBc14f9669B88837ca1490cCa17c31607',

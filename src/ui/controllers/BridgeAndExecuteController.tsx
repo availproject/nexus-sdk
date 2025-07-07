@@ -72,8 +72,9 @@ const BridgeAndExecuteInputForm: React.FC<{
       <FormField
         label="Amount"
         helperText={
-          isSdkInitialized ? `Balance:- ${tokenBalance ?? ''} ${prefill.token ?? ''}` : undefined
+          isSdkInitialized ? `Balance: ${tokenBalance ?? ''} ${prefill.token ?? ''}` : undefined
         }
+        className="nexus-font-primary"
       >
         <AmountInput
           value={prefill?.amount ? prefill.amount?.toString() : ''}

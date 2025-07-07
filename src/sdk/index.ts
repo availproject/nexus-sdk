@@ -50,7 +50,7 @@ export class NexusSDK {
 
     // Initialize logger based on debug flag
     this.initializeLogger(config?.debug);
-
+    logger.debug('Nexus SDK initialized with config:', nexusConfig);
     this.nexusAdapter = new ChainAbstractionAdapter(nexusConfig);
     this.nexusEvents = this.nexusAdapter.caEvents;
     this.utils = new NexusUtils(this.nexusAdapter, () => this.nexusAdapter.isInitialized());

@@ -81,6 +81,7 @@ const executeResult = await sdk.execute({
 
 | Network          | Chain ID | Native Currency | Status |
 | ---------------- | -------- | --------------- | ------ |
+| Ethereum Sepolia | 11155111 | ETH             | ✅     |
 | Optimism Sepolia | 11155420 | ETH             | ✅     |
 | Polygon Amoy     | 80002    | MATIC           | ✅     |
 | Arbitrum Sepolia | 421614   | ETH             | ✅     |

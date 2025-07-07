@@ -74,9 +74,9 @@ const TransferInputForm: React.FC<{
         <FormField
           label="Amount"
           helperText={
-            isSdkInitialized ? `Balance:- ${tokenBalance ?? ''} ${prefill?.token ?? ''}` : undefined
+            isSdkInitialized ? `Balance: ${tokenBalance ?? ''} ${prefill?.token ?? ''}` : undefined
           }
-          className="flex-1"
+          className="flex-1 nexus-font-primary"
         >
           <AmountInput
             value={prefill?.amount ? prefill.amount?.toString() : ''}

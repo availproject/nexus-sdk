@@ -5,9 +5,14 @@ import type {
   StateOverride,
 } from '../../integrations/types';
 import { encodePacked, keccak256 } from 'viem';
-import type { SUPPORTED_TOKENS, ExecuteParams, EthereumProvider } from '../../types';
+import type {
+  SUPPORTED_TOKENS,
+  ExecuteParams,
+  EthereumProvider,
+  SUPPORTED_CHAINS_IDS,
+} from '../../types';
 import { getSimulationClient } from '../../integrations/tenderly';
-import { extractErrorMessage, getTokenContractAddress } from '../../utils';
+import { extractErrorMessage, getTokenContractAddress, isTestnetChain } from '../../utils';
 
 /**
  * Minimal interface for what SimulationEngine needs from the adapter
@@ -128,7 +133,11 @@ export class SimulationEngine {
     requiredAmount?: string,
   ): Promise<BalanceCheckResult> {
     try {
-      const tokenAddress = getTokenContractAddress(token, chainId);
+      const tokenAddress = getTokenContractAddress(
+        token,
+        chainId as SUPPORTED_CHAINS_IDS,
+        isTestnetChain(chainId as SUPPORTED_CHAINS_IDS),
+      );
       if (!tokenAddress) {
         throw new Error(`Token ${token} not supported on chain ${chainId}`);
       }
@@ -195,7 +204,12 @@ export class SimulationEngine {
         balance: '0',
         sufficient: false,
         shortfall: requiredAmount || '0',
-        tokenAddress: getTokenContractAddress(token, chainId) || '',
+        tokenAddress:
+          getTokenContractAddress(
+            token,
+            chainId as SUPPORTED_CHAINS_IDS,
+            isTestnetChain(chainId as SUPPORTED_CHAINS_IDS),
+          ) || '',
       };
     }
   }
@@ -311,7 +325,11 @@ export class SimulationEngine {
     chainId: number,
   ): Promise<StateOverride> {
     try {
-      const tokenAddress = getTokenContractAddress(token, chainId);
+      const tokenAddress = getTokenContractAddress(
+        token,
+        chainId as SUPPORTED_CHAINS_IDS,
+        isTestnetChain(chainId as SUPPORTED_CHAINS_IDS),
+      );
       if (!tokenAddress) {
         throw new Error(`Token ${token} not supported on chain ${chainId}`);
       }

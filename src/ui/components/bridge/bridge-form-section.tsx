@@ -69,7 +69,7 @@ export function BridgeFormSection({
               ? `Balance: ${parseFloat(tokenBalance ?? '0').toFixed(6)} ${inputData?.token ?? ''}`
               : undefined
           }
-          className="flex-1"
+          className="flex-1 nexus-font-primary"
         >
           <AmountInput
             value={inputData?.amount ? inputData.amount?.toString() : ''}
