@@ -1,6 +1,7 @@
 import React from 'react';
 import { SimulationResult, BridgeAndExecuteSimulationResult } from '../../../types';
 import { InfoMessage, Shimmer } from '../shared';
+import { CHAIN_METADATA } from '../../../constants';
 
 interface TransactionSimulationProps {
   isLoading: boolean;
@@ -122,10 +123,10 @@ function RouteSection({ data }: { data: SimulationData }) {
         <div className="flex items-center gap-2">
           {/* Source chains */}
           {sources.slice(0, 3).map((source, index) =>
-            source.chainLogo ? (
+            source.chainID ? (
               <img
                 key={index}
-                src={source.chainLogo}
+                src={CHAIN_METADATA[source.chainID].logo}
                 alt={source.chainName}
                 className={`w-6 h-6 rounded-full ${index > 0 ? '-ml-5' : ''}`}
                 style={{ zIndex: sources.length - index }}
