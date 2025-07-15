@@ -1,5 +1,5 @@
 import React from 'react';
-import { SimulationResult, BridgeAndExecuteSimulationResult } from '../../../types';
+import { SimulationResult, BridgeAndExecuteSimulationResult, Intent } from '../../../types';
 import { InfoMessage, Shimmer } from '../shared';
 import { CHAIN_METADATA } from '../../../constants';
 
@@ -46,7 +46,7 @@ export function TransactionSimulation({ isLoading, simulationResult }: Transacti
     if (!simulationResult) return null;
 
     // Handle bridge & execute result where intent is nested
-    let intent: any;
+    let intent: Intent | undefined = undefined;
     if ('intent' in simulationResult) {
       intent = (simulationResult as SimulationResult).intent;
     } else if ('bridgeSimulation' in simulationResult && simulationResult.bridgeSimulation) {

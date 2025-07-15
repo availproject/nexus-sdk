@@ -1,5 +1,5 @@
 import type { TransactionReceipt } from 'viem';
-import type { SUPPORTED_TOKENS, EthereumProvider } from '../../types';
+import type { SUPPORTED_TOKENS, EthereumProvider } from '../../../types';
 
 /**
  * Service-specific types for the adapter architecture

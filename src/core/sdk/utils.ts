@@ -13,7 +13,7 @@ import {
   formatTokenAmount as utilFormatTokenAmount,
   formatTestnetTokenAmount as utilFormatTestnetTokenAmount,
 } from '../utils';
-import { SUPPORTED_CHAINS } from '../constants';
+import { SUPPORTED_CHAINS } from '../../constants';
 import { ChainAbstractionAdapter } from '../adapters/chain-abstraction-adapter';
 
 export class NexusUtils {

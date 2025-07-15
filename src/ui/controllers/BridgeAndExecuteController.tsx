@@ -12,7 +12,7 @@ import { ChainSelect } from '../components/shared/chain-select';
 import { TokenSelect } from '../components/shared/token-select';
 import { useInternalNexus } from '../providers/InternalNexusProvider';
 import { cn, validateExecuteConfig, findAbiFragment } from '../utils/utils';
-import { logger } from '../../utils';
+import { logger } from '../../core/utils';
 import type { DynamicParamBuilder } from '../types';
 import type { ExecuteParams, SUPPORTED_TOKENS, SUPPORTED_CHAINS_IDS } from '../../types';
 import { Abi } from 'viem';
@@ -140,9 +140,9 @@ export class BridgeAndExecuteController implements ITransactionController {
     try {
       const accounts = (await provider.request({ method: 'eth_accounts' })) as string[];
       userAddress = (accounts && accounts[0]) as `0x${string}` | undefined;
-    } catch (_) {
-      // Fallback to selectedAddress used by some providers (e.g. MetaMask)
-      userAddress = (provider as any).selectedAddress as `0x${string}` | undefined;
+    } catch (error) {
+      logger.error('User address not found', error as Error);
+      userAddress = undefined;
     }
 
     if (!userAddress) {
@@ -173,7 +173,7 @@ export class BridgeAndExecuteController implements ITransactionController {
         const decimals = tokenMeta?.decimals ?? 18;
 
         functionParams = rawParams.map((param, idx) => {
-          const input = fragment.inputs[idx] as any;
+          const input = fragment.inputs[idx];
           if (!input || typeof input.type !== 'string') return param;
 
           const expected = input.type.toLowerCase();

@@ -1,6 +1,6 @@
 import { CA } from '@arcana/ca-sdk';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
-import { EthereumProvider } from '../../types';
+import { EthereumProvider } from '../../../types';
 import { extractErrorMessage } from '../../utils';
 
 /**

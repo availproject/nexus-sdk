@@ -1,7 +1,7 @@
 import React from 'react';
 import { InternalNexusProvider } from './InternalNexusProvider';
 import { NexusNetwork } from '../../types';
-import { logger } from '../../utils';
+import { logger } from '../../core/utils';
 
 const NexusProvider = ({
   config,

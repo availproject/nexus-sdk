@@ -10,7 +10,7 @@ import {
 import { CHAIN_METADATA } from '../../..';
 import { Plus } from 'lucide-react';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
-import { logger } from '../../../utils';
+import { logger } from '../../../core/utils';
 import LoadingDots from './loading-dots';
 
 interface EnhancedInfoMessageProps {

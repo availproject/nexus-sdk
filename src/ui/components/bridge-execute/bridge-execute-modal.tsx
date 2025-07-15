@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { BaseModal } from '../shared/base-modal';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
-import { BridgeAndExecuteSimulationResult } from '../../../types';
-import { cn, getButtonText } from '../../utils/utils';
+import { BridgeAndExecuteParams, BridgeAndExecuteSimulationResult } from '../../../types';
+import { cn, getButtonText, getContentKey } from '../../utils/utils';
 import { motion } from 'motion/react';
 
 import {
@@ -13,7 +13,6 @@ import {
   DialogHeader,
   DialogTitle,
   SlideTransition,
-  useContentKey,
 } from '../shared';
 import { TransactionSimulation } from '../processing/transaction-simulation';
 import { AvailLogo } from '../shared/icons/AvailLogo';
@@ -78,7 +77,7 @@ export function BridgeAndExecuteModal() {
     const inputDataForValidation = inputData
       ? {
           ...inputData,
-          toChainId: (inputData as any).chainId,
+          toChainId: (inputData as BridgeAndExecuteParams).toChainId,
         }
       : {};
 
@@ -91,7 +90,7 @@ export function BridgeAndExecuteModal() {
     const convertedInputData = inputData
       ? {
           ...inputData,
-          toChainId: (inputData as any).chainId,
+          toChainId: (inputData as BridgeAndExecuteParams).toChainId,
         }
       : {};
 
@@ -202,7 +201,7 @@ export function BridgeAndExecuteModal() {
         return 'Review Information';
     }
   };
-  const contentKey = useContentKey(status);
+  const contentKey = getContentKey(status);
   const showHeader =
     activeTransaction?.status !== 'processing' &&
     activeTransaction?.status !== 'success' &&

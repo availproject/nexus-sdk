@@ -1,5 +1,5 @@
 // Main SDK export
-export * from './sdk';
+export * from './core/sdk';
 
 // Types
 export type * from './types';

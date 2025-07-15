@@ -8,7 +8,7 @@ import {
   extractErrorMessage,
   logger,
 } from '../../utils';
-import type { EthereumProvider, ExecuteParams } from '../../types';
+import type { EthereumProvider, ExecuteParams } from '../../../types';
 import type {
   TransactionOptions,
   TransactionResult,

@@ -6,7 +6,7 @@ import {
   TESTNET_TOKEN_METADATA,
   TESTNET_TOKEN_CONTRACT_ADDRESSES,
   TOKEN_CONTRACT_ADDRESSES,
-} from '../constants';
+} from '../../constants';
 import Decimal from 'decimal.js';
 import {
   ChainMetadata,
@@ -16,7 +16,7 @@ import {
   EthereumProvider,
   Block,
   TransactionReceipt,
-} from '../types';
+} from '../../types';
 import {
   encodeFunctionData,
   type Abi,

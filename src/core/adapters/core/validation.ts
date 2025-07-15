@@ -1,5 +1,5 @@
-import { SUPPORTED_CHAINS } from '../../constants';
-import type { SUPPORTED_CHAINS_IDS } from '../../types';
+import { SUPPORTED_CHAINS } from '../../../constants';
+import type { SUPPORTED_CHAINS_IDS } from '../../../types';
 
 /**
  * Common validation helpers for adapter services

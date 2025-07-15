@@ -10,7 +10,7 @@ import type {
   ExecuteParams,
   EthereumProvider,
   SUPPORTED_CHAINS_IDS,
-} from '../../types';
+} from '../../../types';
 import { getSimulationClient } from '../../integrations/tenderly';
 import { extractErrorMessage, getTokenContractAddress, isTestnetChain } from '../../utils';
 

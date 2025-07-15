@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { BaseModal } from '../shared/base-modal';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { SimulationResult } from '../../../types';
-import { cn, getButtonText } from '../../utils/utils';
+import { cn, getButtonText, getContentKey } from '../../utils/utils';
 import { TransactionSimulation } from '../processing/transaction-simulation';
 import {
   InfoMessage,
@@ -12,7 +12,6 @@ import {
   DialogHeader,
   DialogTitle,
   SlideTransition,
-  useContentKey,
 } from '../shared';
 import { TransferFormSection } from './transfer-form-section';
 import { AvailLogo } from '../shared/icons/AvailLogo';
@@ -184,7 +183,7 @@ export function TransferModal() {
         return 'Review Information';
     }
   };
-  const contentKey = useContentKey(status);
+  const contentKey = getContentKey(status);
   const showHeader =
     activeTransaction?.status !== 'processing' &&
     activeTransaction?.status !== 'success' &&

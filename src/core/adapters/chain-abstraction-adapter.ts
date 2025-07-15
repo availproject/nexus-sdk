@@ -1,6 +1,6 @@
 import { CA, Network, SDKConfig } from '@arcana/ca-sdk';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
-import { NEXUS_EVENTS } from '../constants';
+import { NEXUS_EVENTS } from '../../constants';
 import { isSupportedChain, isSupportedToken } from './core/validation';
 import { extractErrorMessage, logger } from '../utils';
 
@@ -33,7 +33,7 @@ import type {
   BridgeAndExecuteSimulationResult,
   SUPPORTED_CHAINS_IDS,
   SUPPORTED_TOKENS,
-} from '../types';
+} from '../../types';
 
 /**
  * Refactored Adapter class that wraps CA SDK and provides a unified interface for chain abstraction operations.

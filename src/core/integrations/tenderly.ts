@@ -11,7 +11,7 @@ import {
   BundleSimulationResponse,
   BackendBundleResponse,
 } from './types';
-import { CHAIN_METADATA } from '../constants';
+import { CHAIN_METADATA } from '../../constants';
 import { logger } from '../utils';
 
 /**

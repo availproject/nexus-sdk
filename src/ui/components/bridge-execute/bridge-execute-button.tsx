@@ -2,7 +2,7 @@ import React from 'react';
 import type { BridgeAndExecuteButtonProps } from '../../types';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { BridgeAndExecuteModal } from './bridge-execute-modal';
-import { logger } from '../../../utils';
+import { logger } from '../../../core/utils';
 
 export function BridgeAndExecuteButton({
   contractAddress,
@@ -33,7 +33,7 @@ export function BridgeAndExecuteButton({
       buildFunctionParams,
     };
 
-    startTransaction('bridgeAndExecute', transactionData as any);
+    startTransaction('bridgeAndExecute', transactionData);
   };
 
   return (

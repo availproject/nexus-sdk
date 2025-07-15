@@ -7,7 +7,7 @@ import { Input } from '../components/shared/input';
 import { ChainSelect } from '../components/shared/chain-select';
 import { TokenSelect } from '../components/shared/token-select';
 import { useInternalNexus } from '../providers/InternalNexusProvider';
-import { logger } from '../../utils';
+import { logger } from '../../core/utils';
 
 const BridgeInputForm: React.FC<{
   prefill: Partial<BridgeConfig>;

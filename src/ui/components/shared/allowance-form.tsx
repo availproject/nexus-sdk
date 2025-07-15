@@ -6,7 +6,7 @@ import { EnhancedInfoMessage } from './enhanced-info-message';
 import { CHAIN_METADATA, TOKEN_METADATA } from '../../..';
 import { ActionButtons } from './action-buttons';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
-import { formatUnits } from '../../../utils';
+import { formatUnits } from '../../../core/utils';
 
 export interface AllowanceFormProps {
   token: string;

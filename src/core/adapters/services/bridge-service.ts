@@ -1,33 +1,33 @@
 import { BaseService } from '../core/base-service';
 import { validateBridgeTransferParams, validateForResultReturn } from '../core/validation';
 import { extractErrorMessage, logger } from '../../utils';
-import { NEXUS_EVENTS } from '../../constants';
+import { NEXUS_EVENTS } from '../../../constants';
 import type { ProgressStep } from '@arcana/ca-sdk';
-import type { TransferParams, TransferResult, SimulationResult } from '../../types';
+import type { BridgeParams, BridgeResult, SimulationResult } from '../../../types';
 
 /**
- * Service responsible for handling transfer operations
+ * Service responsible for handling bridge operations
  */
-export class TransferService extends BaseService {
+export class BridgeService extends BaseService {
   /**
-   * Transfer tokens to a recipient
+   * Bridge tokens between chains
    */
-  async transfer(params: TransferParams): Promise<TransferResult> {
+  async bridge(params: BridgeParams): Promise<BridgeResult> {
     try {
       // Validate parameters
       validateBridgeTransferParams(params);
       this.ensureInitialized();
 
-      // Execute transfer operation using CA SDK
-      const result = await this.waitForTransactionCompletion<TransferResult>(async () => {
-        const transferQuery = await this.ca.transfer({
-          to: params.recipient,
+      // Execute bridge operation using CA SDK
+      const result = await this.waitForTransactionCompletion<BridgeResult>(async () => {
+        const bridgeQuery = await this.ca.bridge({
           token: params.token,
           amount: params.amount,
           chainID: params.chainId,
+          gas: params.gas ? BigInt(params.gas) : undefined,
         });
 
-        await transferQuery.exec();
+        await bridgeQuery.exec();
       });
 
       return result;
@@ -48,32 +48,32 @@ export class TransferService extends BaseService {
 
       return {
         success: false,
-        error: extractErrorMessage(error, 'transfer operation'),
+        error: extractErrorMessage(error, 'bridge operation'),
       };
     }
   }
 
   /**
-   * Simulate transfer operation
+   * Simulate bridge operation
    */
-  async simulateTransfer(params: TransferParams): Promise<SimulationResult> {
+  async simulateBridge(params: BridgeParams): Promise<SimulationResult> {
     try {
       // Validate parameters
       validateBridgeTransferParams(params);
       this.ensureInitialized();
 
-      // Execute transfer simulation using CA SDK
-      const transferQuery = await this.ca.transfer({
-        to: params.recipient,
+      // Execute bridge simulation using CA SDK
+      const bridgeQuery = await this.ca.bridge({
         token: params.token,
         amount: params.amount,
         chainID: params.chainId,
+        gas: params.gas ? BigInt(params.gas) : undefined,
       });
 
-      return await transferQuery.simulate();
+      return await bridgeQuery.simulate();
     } catch (error) {
       throw new Error(
-        `Transfer simulation failed: ${extractErrorMessage(error, 'transfer simulation')}`,
+        `Bridge simulation failed: ${extractErrorMessage(error, 'bridge simulation')}`,
       );
     }
   }
@@ -81,7 +81,7 @@ export class TransferService extends BaseService {
   /**
    * Wait for transaction completion with progress tracking
    */
-  private async waitForTransactionCompletion<T extends TransferResult>(
+  private async waitForTransactionCompletion<T extends BridgeResult>(
     executionFn: () => Promise<void>,
     timeout: number = 300000,
   ): Promise<T> {

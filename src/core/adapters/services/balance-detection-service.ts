@@ -1,6 +1,6 @@
 import { getTokenContractAddress, isTestnetChain } from '../../utils';
-import { TOKEN_METADATA } from '../../constants';
-import type { EthereumProvider, SUPPORTED_CHAINS_IDS, SUPPORTED_TOKENS } from '../../types';
+import { TOKEN_METADATA } from '../../../constants';
+import type { EthereumProvider, SUPPORTED_CHAINS_IDS, SUPPORTED_TOKENS } from '../../../types';
 import { logger } from '../../utils/logger';
 
 /**

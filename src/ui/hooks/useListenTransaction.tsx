@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { NEXUS_EVENTS } from '../../constants';
 import { getStatusText } from '../utils/utils';
-import { NexusSDK } from '../../sdk';
+import { NexusSDK } from '../../core/sdk';
 import { ActiveTransaction } from '../types';
 import { ProgressStep, ProgressSteps } from '@arcana/ca-sdk';
 
@@ -84,7 +84,7 @@ const useListenTransaction = ({
       setProcessing((prev: ProcessingState) => {
         const completedTypeIDs = prev.steps
           .filter((s) => s.completed)
-          .map((s) => (s.stepData as any)?.typeID) as string[];
+          .map((s) => (s.stepData as ProgressStep)?.typeID) as string[];
 
         const mergedSteps = initialSteps.map((step) => {
           const typeID = (step.stepData as any)?.typeID as string | undefined;

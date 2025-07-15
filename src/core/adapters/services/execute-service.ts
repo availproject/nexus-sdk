@@ -3,7 +3,7 @@ import { TransactionService } from './transaction-service';
 import { ApprovalService } from './approval-service';
 import { getSimulationClient } from '../../integrations/tenderly';
 import { extractErrorMessage, logger } from '../../utils';
-import type { ExecuteParams, ExecuteResult, ExecuteSimulation } from '../../types';
+import type { ExecuteParams, ExecuteResult, ExecuteSimulation } from '../../../types';
 import { ChainAbstractionAdapter } from '../chain-abstraction-adapter';
 import { Hex, hexToNumber } from 'viem';
 import { SimulationEngine } from './simulation-engine';

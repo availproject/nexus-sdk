@@ -9,7 +9,7 @@ import { TokenSelect } from '../components/shared/token-select';
 import { AmountInput } from '../components/shared/amount-input';
 import { useInternalNexus } from '../providers/InternalNexusProvider';
 import { cn } from '../utils/utils';
-import { logger } from '../../utils';
+import { logger } from '../../core/utils';
 
 // Transfer-specific config interface
 export interface TransferConfig extends Partial<TransferParams> {}

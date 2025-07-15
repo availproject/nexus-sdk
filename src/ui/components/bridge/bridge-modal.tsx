@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { BaseModal } from '../shared/base-modal';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { SimulationResult } from '../../../types';
-import { cn, getButtonText } from '../../utils/utils';
+import { cn, getButtonText, getContentKey } from '../../utils/utils';
 import { BridgeFormSection } from './bridge-form-section';
 import {
   InfoMessage,
@@ -12,7 +12,6 @@ import {
   DialogHeader,
   DialogTitle,
   SlideTransition,
-  useContentKey,
 } from '../shared';
 import { TransactionSimulation } from '../processing/transaction-simulation';
 import { AvailLogo } from '../shared/icons/AvailLogo';
@@ -155,7 +154,7 @@ export function BridgeModal() {
     );
   };
 
-  const contentKey = useContentKey(status);
+  const contentKey = getContentKey(status);
 
   const renderContent = () => {
     switch (status) {

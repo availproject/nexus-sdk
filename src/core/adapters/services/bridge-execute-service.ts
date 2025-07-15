@@ -1,5 +1,5 @@
 import { BaseService } from '../core/base-service';
-import { NEXUS_EVENTS, TOKEN_METADATA, CHAIN_METADATA } from '../../constants';
+import { NEXUS_EVENTS, TOKEN_METADATA, CHAIN_METADATA } from '../../../constants';
 import { BridgeService } from './bridge-service';
 import { ExecuteService } from './execute-service';
 import { ApprovalService } from './approval-service';
@@ -15,7 +15,7 @@ import type {
   ExecuteSimulation,
   SimulationStep,
   SUPPORTED_TOKENS,
-} from '../../types';
+} from '../../../types';
 import type { ProgressStep } from '@arcana/ca-sdk';
 
 // Local constants for the service
@@ -288,13 +288,14 @@ export class BridgeExecuteService extends BaseService {
               amount: receivedAmountForContract,
             },
           });
-
-          steps.push({
-            type: 'execute',
-            required: true,
-            simulation: executeSimulation,
-            description: `Execute ${execute.functionName} on contract ${execute.contractAddress}`,
-          });
+          if (executeSimulation) {
+            steps.push({
+              type: 'execute',
+              required: true,
+              simulation: executeSimulation,
+              description: `Execute ${execute.functionName} on contract ${execute.contractAddress}`,
+            });
+          }
 
           // Execute analysis details are available in the simulation result
         } catch (simulationError) {
@@ -327,14 +328,13 @@ export class BridgeExecuteService extends BaseService {
         );
 
         try {
-          const executeFee =
-            (executeSimulation as any)?.gasCostEth || executeSimulation?.gasUsed || '0';
+          const executeFee = executeSimulation?.gasCostEth || executeSimulation?.gasUsed || '0';
           logger.debug('DEBUG bridge-execute-service - executeFee source value:', executeFee);
 
           let executeFeeEth = executeFee;
 
           // If gasCostEth wasn't available, executeFee will be gas units – convert.
-          if ((executeSimulation as any)?.gasCostEth === undefined) {
+          if (executeSimulation?.gasCostEth === undefined) {
             logger.debug('DEBUG bridge-execute-service - executeFee (gas units):', executeFee);
 
             try {

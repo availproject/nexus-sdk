@@ -29,7 +29,7 @@ export const TransactionProcessorShell: React.FC = () => {
     }
     return (
       (simulationResult as BridgeAndExecuteSimulationResult).bridgeSimulation?.intent?.sources?.map(
-        (s: any) => s.chainID,
+        (s) => s.chainID,
       ) || []
     );
   }, [simulationResult, transactionType]);

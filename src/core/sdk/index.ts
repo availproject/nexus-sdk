@@ -23,7 +23,7 @@ import type {
   ExecuteResult,
   ExecuteSimulation,
   BridgeAndExecuteSimulationResult,
-} from '../types';
+} from '../../types';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
 import { Network, SDKConfig } from '@arcana/ca-sdk';
 import { ChainAbstractionAdapter } from '../adapters/chain-abstraction-adapter';

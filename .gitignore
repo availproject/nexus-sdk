@@ -31,3 +31,6 @@ yarn-error.log*
 # OS
 .DS_Store
 Thumbs.db 
+
+/OPTIMIZATION.md
+/IMPLEMENTATION_GUIDELINES.md

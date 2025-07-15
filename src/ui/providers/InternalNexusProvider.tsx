@@ -33,7 +33,7 @@ import { TransactionProcessorShell } from '../components/processing/transaction-
 import { DragConstraintsProvider } from '../components/shared';
 import { LayoutGroup } from 'motion/react';
 import useListenTransaction from '../hooks/useListenTransaction';
-import { logger } from '../../utils';
+import { logger } from '../../core/utils';
 
 const controllers: Record<TransactionType, ITransactionController> = {
   bridge: new BridgeController(),
