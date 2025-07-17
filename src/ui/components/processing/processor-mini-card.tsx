@@ -2,7 +2,7 @@ import React from 'react';
 import { motion } from 'motion/react';
 import { ThreeStageProgress, EnhancedInfoMessage, Button } from '../shared';
 import SuccessRipple from '../shared/success-ripple';
-import { Maximize, ExternalLink } from 'lucide-react';
+import { Maximize, ExternalLink } from '../icons';
 import { ProcessorCardProps } from '../../types';
 import { WordsPullUp } from '../shared/pull-up-words';
 
@@ -32,13 +32,13 @@ export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
         <div className="flex items-center justify-between w-full gap-x-3">
           {/* Sources */}
           <div className="flex -space-x-1 mb-1">
-            {sourceChainMeta.slice(0, 3).map((chain, index) => (
+            {sourceChainMeta?.slice(0, 3).map((chain, index) => (
               <img
-                key={chain.id}
-                src={chain.logo ?? ''}
-                alt={chain.name ?? ''}
+                key={chain?.id}
+                src={chain?.logo ?? ''}
+                alt={chain?.name ?? ''}
                 className={`w-8 h-8 rounded-full ${index > 0 ? '-ml-3' : ''}`}
-                style={{ zIndex: sourceChainMeta.length - index }}
+                style={{ zIndex: sourceChainMeta?.length - index }}
               />
             ))}
           </div>
@@ -52,14 +52,14 @@ export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
             transition={{ type: 'spring', stiffness: 260, damping: 20 }}
           >
             <ThreeStageProgress
-              progress={processing.animationProgress}
+              progress={processing?.animationProgress}
               hasError={!!error}
-              errorProgress={processing.animationProgress}
+              errorProgress={processing?.animationProgress}
               tokenIcon={
                 tokenMeta?.icon ? (
                   <img
-                    src={tokenMeta.icon}
-                    alt={tokenMeta.symbol}
+                    src={tokenMeta?.icon}
+                    alt={tokenMeta?.symbol}
                     className="w-6 h-6 rounded-full border border-white shadow-sm"
                   />
                 ) : (
@@ -78,8 +78,8 @@ export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
           {destChainMeta ? (
             <SuccessRipple size="sm">
               <img
-                src={destChainMeta.logo}
-                alt={destChainMeta.name}
+                src={destChainMeta?.logo}
+                alt={destChainMeta?.name}
                 className="w-8 h-8 rounded-full mb-1"
               />
             </SuccessRipple>
@@ -110,7 +110,7 @@ export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
             transition={{ duration: 0.25 }}
           >
             <WordsPullUp
-              text={processing.statusText}
+              text={processing?.statusText}
               className="text-[16px] nexus-font-primary font-semibold text-black"
             />
           </motion.div>

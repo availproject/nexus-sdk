@@ -6,21 +6,13 @@ import {
   BridgeAndExecuteResult,
   BridgeAndExecuteSimulationResult,
 } from '../../types';
-import { FormField } from '../components/shared/form-field';
-import { AmountInput } from '../components/shared/amount-input';
-import { ChainSelect } from '../components/shared/chain-select';
-import { TokenSelect } from '../components/shared/token-select';
-import { useInternalNexus } from '../providers/InternalNexusProvider';
-import { cn, validateExecuteConfig, findAbiFragment } from '../utils/utils';
+import { UnifiedTransactionForm } from '../components/shared/unified-transaction-form';
+import { validateExecuteConfig, findAbiFragment } from '../utils/utils';
 import { logger } from '../../core/utils';
 import type { DynamicParamBuilder } from '../types';
 import type { ExecuteParams, SUPPORTED_TOKENS, SUPPORTED_CHAINS_IDS } from '../../types';
 import { Abi } from 'viem';
 
-/**
- * Configuration interface for Bridge & Execute transactions.
- * Only bridge inputs are collected from user; execute parameters are supplied via button props.
- */
 export interface BridgeAndExecuteConfig extends Partial<BridgeAndExecuteParams> {}
 
 const BridgeAndExecuteInputForm: React.FC<{
@@ -34,69 +26,18 @@ const BridgeAndExecuteInputForm: React.FC<{
     amount?: boolean;
   };
 }> = ({ prefill, onUpdate, isBusy, tokenBalance, prefillFields = {} }) => {
-  const { config, isSdkInitialized, isSimulating } = useInternalNexus();
-  const isInputDisabled = isBusy || isSimulating;
-
-  const handleUpdate = (field: keyof BridgeAndExecuteConfig, value: string | number) => {
-    onUpdate({ [field]: value });
-  };
-
   return (
-    <div className={cn('px-6 flex flex-col gap-y-4 w-full')}>
-      <div className="flex gap-x-4 w-full">
-        <FormField label="Destination Network" className="flex-1">
-          <ChainSelect
-            value={prefill.toChainId?.toString() || ''}
-            onValueChange={(chainId) => {
-              if (isInputDisabled || prefillFields.toChainId) return;
-              const id = parseInt(chainId, 10);
-              handleUpdate('toChainId', id as number);
-            }}
-            disabled={isInputDisabled || prefillFields.toChainId}
-            network={config.network}
-          />
-        </FormField>
-
-        <FormField label="Token to be deposited" className="flex-1">
-          <TokenSelect
-            value={prefill.token || ''}
-            onValueChange={(token) =>
-              !(isInputDisabled || prefillFields.token) && handleUpdate('token', token)
-            }
-            disabled={isInputDisabled || prefillFields.token}
-            network={config.network}
-          />
-        </FormField>
-      </div>
-
-      <FormField
-        label="Amount"
-        helperText={
-          isSdkInitialized ? `Balance: ${tokenBalance ?? ''} ${prefill.token ?? ''}` : undefined
-        }
-        className="nexus-font-primary"
-      >
-        <AmountInput
-          value={prefill?.amount ? prefill.amount?.toString() : ''}
-          suffix={prefill.token || ''}
-          disabled={isInputDisabled || prefillFields.amount}
-          className="nexus-font-primary"
-          onChange={
-            isInputDisabled || prefillFields.amount
-              ? undefined
-              : (value) => handleUpdate('amount', value)
-          }
-        />
-      </FormField>
-    </div>
+    <UnifiedTransactionForm
+      type="bridgeAndExecute"
+      inputData={prefill}
+      onUpdate={onUpdate}
+      disabled={isBusy}
+      tokenBalance={tokenBalance}
+      prefillFields={prefillFields}
+    />
   );
 };
 
-/**
- * Controller for Bridge & Execute transactions.
- * Handles validation of bridge inputs combined with execute configuration,
- * orchestrates simulation and execution via the NexusSDK.
- */
 export class BridgeAndExecuteController implements ITransactionController {
   InputForm = BridgeAndExecuteInputForm;
 
@@ -118,10 +59,6 @@ export class BridgeAndExecuteController implements ITransactionController {
     return !isNaN(amt) && amt > 0;
   }
 
-  /**
-   * Build the Execute object from current input.
-   * Fetches the active wallet address via the CA-enhanced provider (eth_accounts).
-   */
   private async buildExecute(
     sdk: NexusSDK,
     inputData: {
@@ -158,7 +95,6 @@ export class BridgeAndExecuteController implements ITransactionController {
       userAddress,
     );
 
-    // Normalize numeric parameters (e.g., amount) to integer strings / BigInt where required
     let functionParams: readonly unknown[] = rawParams;
 
     try {
@@ -178,8 +114,6 @@ export class BridgeAndExecuteController implements ITransactionController {
 
           const expected = input.type.toLowerCase();
 
-          // If the parameter expects uint/int and the provided value is a string with a decimal,
-          // convert it to smallest unit using parseUnits
           if (
             (expected.startsWith('uint') || expected.startsWith('int')) &&
             typeof param === 'string' &&
@@ -189,7 +123,7 @@ export class BridgeAndExecuteController implements ITransactionController {
               const parsed = sdk.utils.parseUnits(param, decimals);
               return parsed;
             } catch (_) {
-              return param; // fallback to original if parsing fails
+              return param;
             }
           }
 
@@ -197,20 +131,16 @@ export class BridgeAndExecuteController implements ITransactionController {
         });
       }
     } catch (err) {
-      // If any issues during normalization, fallback to raw parameters
       functionParams = rawParams;
     }
 
-    // If tokenApproval is needed, ensure amount is integer string (no decimals)
     let tokenApprovalAmount = amountStrRaw;
     if (amountStrRaw.includes('.')) {
       try {
         const tokenMeta = sdk.utils.getTokenMetadata(inputData.token);
         const decimals = tokenMeta?.decimals ?? 18;
         tokenApprovalAmount = sdk.utils.parseUnits(amountStrRaw, decimals).toString();
-      } catch (_) {
-        // keep original if parse fails
-      }
+      } catch (_) {}
     }
 
     const execute: {
@@ -238,7 +168,6 @@ export class BridgeAndExecuteController implements ITransactionController {
       };
     }
 
-    // Validate input vs ABI
     validateExecuteConfig(execute as Omit<ExecuteParams, 'toChainId'>, inputData.contractAbi);
 
     if (execute.value === undefined || execute.value === null) {
@@ -251,7 +180,6 @@ export class BridgeAndExecuteController implements ITransactionController {
         execute.value = '0x0';
       } else if (!execute.value.startsWith('0x')) {
         try {
-          // Convert decimal string to hex Wei string
           const bn = BigInt(execute.value);
           execute.value = '0x' + bn.toString(16);
         } catch (_) {}

@@ -2,7 +2,6 @@ import React, { useRef } from 'react';
 import { motion } from 'motion/react';
 import { Button, ThreeStageProgress, EnhancedInfoMessage } from '../shared';
 import SuccessRipple from '../shared/success-ripple';
-import { Minimize, CircleX, ExternalLink } from 'lucide-react';
 import { WordsPullUp } from '../shared/pull-up-words';
 import { ProcessorCardProps } from '../../types';
 import {
@@ -11,8 +10,9 @@ import {
   SimulationResult,
 } from '../../../types';
 import { DotLottieReact } from '@lottiefiles/dotlottie-react';
-import { SmallAvailLogo } from '../shared/icons/SmallAvailLogo';
-import type { DotLottie } from '@lottiefiles/dotlottie-web';
+import { SmallAvailLogo } from '../icons/SmallAvailLogo';
+import type { DotLottie } from '@lottiefiles/dotlottie-react';
+import { CircleX, ExternalLink, Minimize } from '../icons';
 
 export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
   status,
@@ -30,9 +30,6 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
   error,
   executionResult,
 }: ProcessorCardProps) => {
-  // Hold a reference to the underlying DotLottie player so we can
-  // manually call `resize()` when the card finishes a FLIP layout
-  // transition (prevents the "buffer size mismatch" console warning).
   const lottieRef = useRef<DotLottie | null>(null);
 
   return (
@@ -95,20 +92,21 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
                 <div className="flex items-center">
                   {sourceChainMeta.slice(0, 3).map((chain, index) => (
                     <img
-                      key={chain.id}
-                      src={chain.logo ?? ''}
-                      alt={chain.name ?? ''}
+                      key={chain?.id}
+                      src={chain?.logo ?? ''}
+                      alt={chain?.name ?? ''}
                       className={`w-12 h-12 rounded-full ${index > 0 ? '-ml-5' : ''}`}
-                      style={{ zIndex: sourceChainMeta.length - index }}
+                      style={{ zIndex: sourceChainMeta?.length - index }}
                     />
                   ))}
                 </div>
                 <div className="flex flex-col gap-y-1 items-center">
                   <p className="text-lg nexus-font-primary text-black font-bold">
                     {transactionType === 'bridge' || transactionType === 'transfer'
-                      ? (simulationResult as SimulationResult)?.intent?.sourcesTotal
-                      : (simulationResult as BridgeAndExecuteSimulationResult)?.bridgeSimulation
-                          ?.intent?.sourcesTotal}
+                      ? (simulationResult as SimulationResult)?.intent?.sourcesTotal?.slice(0, 6)
+                      : (
+                          simulationResult as BridgeAndExecuteSimulationResult
+                        )?.bridgeSimulation?.intent?.sourcesTotal?.slice(0, 6)}
                   </p>
                   <p className="text-sm nexus-font-primary text-[#666666] font-medium">
                     From {sourceChainMeta.length} chain{sourceChainMeta.length > 1 ? 's' : ''}
@@ -126,15 +124,15 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
                 <div className="relative w-full flex items-center justify-center">
                   <div className="w-full max-w-[300px] relative">
                     <ThreeStageProgress
-                      progress={processing.animationProgress}
+                      progress={processing?.animationProgress}
                       hasError={!!error}
-                      errorProgress={processing.animationProgress}
+                      errorProgress={processing?.animationProgress}
                       tokenIcon={
                         <div className="w-10 h-10 bg-white rounded-full border-2 border-gray-200 flex items-center justify-center shadow-md">
                           {tokenMeta?.icon ? (
                             <img
-                              src={tokenMeta.icon}
-                              alt={tokenMeta.symbol}
+                              src={tokenMeta?.icon}
+                              alt={tokenMeta?.symbol}
                               className="w-8 h-8 rounded-full"
                             />
                           ) : (
@@ -157,20 +155,23 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
                   <>
                     <SuccessRipple size="md">
                       <img
-                        src={destChainMeta.logo ?? ''}
-                        alt={destChainMeta.name ?? ''}
+                        src={destChainMeta?.logo ?? ''}
+                        alt={destChainMeta?.name ?? ''}
                         className="w-12 h-12 rounded-full"
                       />
                     </SuccessRipple>
                     <div className="flex flex-col gap-y-1 items-center">
                       <p className="text-lg nexus-font-primary text-black font-bold">
                         {transactionType === 'bridge' || transactionType === 'transfer'
-                          ? (simulationResult as SimulationResult)?.intent?.destination?.amount
-                          : (simulationResult as BridgeAndExecuteSimulationResult)?.bridgeSimulation
-                              ?.intent?.destination?.amount}
+                          ? (
+                              simulationResult as SimulationResult
+                            )?.intent?.destination?.amount.slice(0, 6)
+                          : (
+                              simulationResult as BridgeAndExecuteSimulationResult
+                            )?.bridgeSimulation?.intent?.destination?.amount.slice(0, 6)}
                       </p>
                       <p className="text-sm nexus-font-primary text-[#666666] font-medium">
-                        To {destChainMeta.name}
+                        To {destChainMeta?.name ?? ''}
                       </p>
                     </div>
                   </>
@@ -188,7 +189,7 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
               transition={{ duration: 0.35, delay: 0.05 }}
             >
               {error ? (
-                <EnhancedInfoMessage error={error} context="transaction" />
+                <EnhancedInfoMessage error={error} context="transaction" className="px-0" />
               ) : (
                 <>
                   <div className="flex items-center justify-center w-full">
@@ -201,7 +202,7 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
                     </span>
                   </div>
                   <div className="relative overflow-hidden">
-                    <WordsPullUp text={processing.statusText} />
+                    <WordsPullUp text={processing?.statusText} />
                   </div>
                   <p className="w-full text-center nexus-font-primary text-base text-grey-600">
                     {description}
@@ -214,7 +215,7 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
                   {explorerURL && (
                     <Button
                       variant="link"
-                      className=" text-[#0375D8] underline text-base font-semibold nexus-font-primary"
+                      className=" text-[#0375D8] underline text-base font-semibold nexus-font-primary cursor-pointer"
                       onClick={() => window.open(explorerURL, '_blank')}
                     >
                       View Bridge Transaction{' '}
@@ -224,10 +225,10 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
                   {(executionResult as BridgeAndExecuteResult)?.executeExplorerUrl && (
                     <Button
                       variant="link"
-                      className=" text-[#0375D8] underline text-base font-semibold nexus-font-primary"
+                      className=" text-[#0375D8] underline text-base font-semibold nexus-font-primary cursor-pointer"
                       onClick={() =>
                         window.open(
-                          (executionResult as BridgeAndExecuteResult).executeExplorerUrl,
+                          (executionResult as BridgeAndExecuteResult)?.executeExplorerUrl,
                           '_blank',
                         )
                       }
@@ -241,7 +242,7 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
                 explorerURL && (
                   <Button
                     variant="link"
-                    className=" text-[#0375D8] underline text-base font-semibold nexus-font-primary"
+                    className=" text-[#0375D8] underline text-base font-semibold nexus-font-primary cursor-pointer"
                     onClick={() => window.open(explorerURL, '_blank')}
                   >
                     View on Explorer <ExternalLink className="w-6 h-6 ml-2 text-[#666666]" />

@@ -1,8 +1,8 @@
 import React from 'react';
 import type { BridgeAndExecuteButtonProps } from '../../types';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
-import { BridgeAndExecuteModal } from './bridge-execute-modal';
 import { logger } from '../../../core/utils';
+import BridgeAndExecuteModal from './bridge-execute-modal';
 
 export function BridgeAndExecuteButton({
   contractAddress,
@@ -16,7 +16,7 @@ export function BridgeAndExecuteButton({
   const { startTransaction, activeTransaction } = useInternalNexus();
 
   const isLoading =
-    activeTransaction.status === 'processing' || activeTransaction.reviewStatus === 'simulating';
+    activeTransaction?.status === 'processing' || activeTransaction?.reviewStatus === 'simulating';
 
   // Ensure required static props
   if (!contractAddress || !contractAbi || !functionName || !buildFunctionParams) {

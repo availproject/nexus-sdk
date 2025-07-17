@@ -102,7 +102,8 @@ export class ChainAbstractionAdapter {
     if (!this.evmProvider) {
       throw new Error('CA SDK not initialized. Call initialize() first.');
     }
-    return this.evmProvider;
+    const caEvmProvider = this.ca.getEVMProviderWithCA();
+    return caEvmProvider;
   }
 
   /**

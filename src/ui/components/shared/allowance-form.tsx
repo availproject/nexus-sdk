@@ -72,8 +72,8 @@ export function AllowanceForm({
         {/* Header */}
         <div className="mb-6 text-left px-6 font-semibold nexus-font-primary">
           <p className="text-sm text-gray-600">
-            To continue, please let this app use at least [{minimumAmount}] {token} from your
-            wallet.
+            To continue, please let this app use at least [{minimumAmount.slice(0, 7)}] {token} from
+            your wallet.
           </p>
           <p className="text-sm text-gray-500 mt-1">
             (This lets the smart contract complete the transaction.)
@@ -143,7 +143,7 @@ export function AllowanceForm({
                 Current Allowance
               </span>
               <span className="nexus-font-secondary text-black font-semibold">
-                {currentAllowance}
+                {currentAllowance?.slice(0, 7)}
               </span>
             </div>
           </div>
@@ -173,7 +173,9 @@ export function AllowanceForm({
                   />
                   <div className="nexus-font-primary">
                     <span className="text-sm font-bold text-gray-900">Minimum</span>
-                    <span className="text-base font-bold text-gray-900 ml-2">{minimumAmount}</span>
+                    <span className="text-base font-bold text-gray-900 ml-2">
+                      {minimumAmount.slice(0, 7)}
+                    </span>
                   </div>
                 </div>
                 <span className="bg-[#0375D8] nexus-font-primary text-white text-xs px-2 py-1 font-medium absolute top-0 right-0 rounded-tr-[6px]">
@@ -248,7 +250,7 @@ export function AllowanceForm({
         primaryText="Approve & Continue"
         primaryLoading={isLoading}
         primaryDisabled={!isFormValid || isLoading}
-        className="border-t border-zinc-400/40 bg-gray-100 nexus-font-primary mt-8"
+        className="border-t border-zinc-400/40 bg-gray-100 nexus-font-primary mt-12"
       />
     </>
   );

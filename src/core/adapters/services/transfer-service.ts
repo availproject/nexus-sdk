@@ -70,8 +70,11 @@ export class TransferService extends BaseService {
         chainID: params.chainId,
       });
 
+      logger.info('Transfer query', transferQuery);
+
       return await transferQuery.simulate();
     } catch (error) {
+      logger.error('Error transfer simulation:', error as Error);
       throw new Error(
         `Transfer simulation failed: ${extractErrorMessage(error, 'transfer simulation')}`,
       );

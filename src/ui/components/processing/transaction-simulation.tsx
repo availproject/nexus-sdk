@@ -48,19 +48,19 @@ export function TransactionSimulation({ isLoading, simulationResult }: Transacti
     // Handle bridge & execute result where intent is nested
     let intent: Intent | undefined = undefined;
     if ('intent' in simulationResult) {
-      intent = (simulationResult as SimulationResult).intent;
-    } else if ('bridgeSimulation' in simulationResult && simulationResult.bridgeSimulation) {
-      intent = (simulationResult.bridgeSimulation as SimulationResult).intent;
+      intent = (simulationResult as SimulationResult)?.intent;
+    } else if ('bridgeSimulation' in simulationResult && simulationResult?.bridgeSimulation) {
+      intent = (simulationResult?.bridgeSimulation as SimulationResult)?.intent;
     }
 
     if (!intent) return null;
 
     return {
-      destination: intent.destination as ChainInfo,
-      sources: (intent.sources || []) as ChainInfo[],
-      fees: intent.fees as FeesInfo,
-      token: intent.token as TokenInfo,
-      sourcesTotal: intent.sourcesTotal as string,
+      destination: intent?.destination as ChainInfo,
+      sources: (intent?.sources || []) as ChainInfo[],
+      fees: intent?.fees as FeesInfo,
+      token: intent?.token as TokenInfo,
+      sourcesTotal: intent?.sourcesTotal as string,
     };
   };
 
@@ -85,7 +85,7 @@ export function TransactionSimulation({ isLoading, simulationResult }: Transacti
       )}
       <RouteSection data={data} />
       <hr className="border-zinc-400/40" />
-      <FeeBreakdown fees={data.fees} tokenSymbol={data.token.symbol} executeGas={executeGas} />
+      <FeeBreakdown fees={data?.fees} tokenSymbol={data?.token?.symbol} executeGas={executeGas} />
     </div>
   );
 }
@@ -126,7 +126,7 @@ function RouteSection({ data }: { data: SimulationData }) {
             source.chainID ? (
               <img
                 key={index}
-                src={CHAIN_METADATA[source.chainID].logo}
+                src={CHAIN_METADATA[source?.chainID]?.logo}
                 alt={source.chainName}
                 className={`w-6 h-6 rounded-full ${index > 0 ? '-ml-5' : ''}`}
                 style={{ zIndex: sources.length - index }}
@@ -136,12 +136,12 @@ function RouteSection({ data }: { data: SimulationData }) {
                 key={index}
                 className="w-6 h-6 rounded-full bg-gray-300 flex items-center justify-center text-xs"
               >
-                {source.chainName[0]}
+                {source?.chainName[0]}
               </div>
             ),
           )}
           <span className="text-sm font-semibold text-black nexus-font-primary">
-            {sources.length} Chain{sources.length > 1 ? 's' : ''}
+            {sources?.length} Chain{sources?.length > 1 ? 's' : ''}
           </span>
         </div>
       </div>

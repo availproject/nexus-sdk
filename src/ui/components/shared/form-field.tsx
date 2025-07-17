@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { cn } from '../../utils/utils';
-import { Label } from './label';
+import { Label } from './label-motion';
 
 interface FormFieldProps {
   label: string;
@@ -11,8 +11,8 @@ interface FormFieldProps {
 
 export function FormField({ label, children, helperText, className }: FormFieldProps) {
   return (
-    <div className={cn('flex flex-col gap-1.5', className)}>
-      <Label className="text-stone-500 text-sm font-normal !nexus-font-primary leading-none">
+    <div className={cn('flex flex-col gap-1.5 relative', className)}>
+      <Label className="text-stone-500 text-sm font-normal nexus-font-primary leading-none">
         {label}
       </Label>
       {children}

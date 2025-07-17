@@ -74,10 +74,12 @@ export function InternalNexusProvider({
   config,
   children,
 }: {
-  config: { network: NexusNetwork; debug?: boolean };
+  config?: { network?: NexusNetwork; debug?: boolean };
   children: ReactNode;
 }) {
-  const [sdk] = useState(() => new NexusSDK({ network: config.network, debug: config.debug }));
+  const [sdk] = useState(
+    () => new NexusSDK({ network: config?.network ?? 'mainnet', debug: config?.debug ?? false }),
+  );
   const [provider, setProvider] = useState<EthereumProvider | null>(null);
   const [isSdkInitialized, setIsSdkInitialized] = useState(false);
   const [activeTransaction, setActiveTransaction] = useState<ActiveTransaction>(initialState);
@@ -90,11 +92,15 @@ export function InternalNexusProvider({
   const [isSettingAllowance, setIsSettingAllowance] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const activeController = activeTransaction.type ? controllers[activeTransaction.type] : null;
   const { processing, explorerURL, resetProcessingState } = useListenTransaction({
     sdk,
     activeTransaction,
   });
+
+  const activeController = useMemo(
+    () => (activeTransaction.type ? controllers[activeTransaction.type] : null),
+    [activeTransaction.type],
+  );
 
   const initializeSdk = useCallback(async () => {
     if (isSdkInitialized) return true;
@@ -142,12 +148,10 @@ export function InternalNexusProvider({
       if (prefillData) {
         if ('chainId' in prefillData && prefillData.chainId !== undefined) {
           prefillFields.chainId = true;
-          // For bridge-and-execute, chainId maps to toChainId in the controller
           if (type === 'bridgeAndExecute') {
             prefillFields.toChainId = true;
           }
         }
-        // Explicitly handle toChainId provided for bridge-and-execute transactions
         if (
           type === 'bridgeAndExecute' &&
           'toChainId' in prefillData &&
@@ -165,11 +169,6 @@ export function InternalNexusProvider({
           prefillFields.recipient = true;
         }
       }
-
-      // For bridge-and-execute we internally store the destination chain in `chainId` for
-      // consistency with the rest of the codebase. If the caller supplied `toChainId`,
-      // make sure we mirror that value into `chainId` so that subsequent helpers (that
-      // convert between the two) behave correctly and the UI shows the pre-filled value.
       const normalizedPrefillData =
         type === 'bridgeAndExecute' &&
         'toChainId' in prefillData &&
@@ -217,7 +216,6 @@ export function InternalNexusProvider({
         reviewStatus: 'gathering_input',
         status: prev.status === 'simulation_error' ? 'review' : prev.status,
         error: prev.status === 'simulation_error' ? null : prev.error,
-        // Preserve prefillFields - they should not change when user updates input
       }));
 
       setIsSimulating(false);

@@ -46,10 +46,12 @@ export const TransactionProcessorShell: React.FC = () => {
   }, [simulationResult, transactionType]);
 
   const token = activeTransaction.inputData?.token || '';
+
   const sourceChainMeta = sources
     .filter((s): s is number => s != null && !isNaN(s))
     .map((s) => CHAIN_METADATA[s as keyof typeof CHAIN_METADATA])
     .filter(Boolean);
+
   const destChainMeta = destination
     ? CHAIN_METADATA[destination as keyof typeof CHAIN_METADATA]
     : null;
@@ -101,7 +103,7 @@ export const TransactionProcessorShell: React.FC = () => {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.25 }}
-            className="fixed inset-0 bg-[#0E0E0E66] backdrop-blur-[4px] z-40"
+            className="fixed inset-0 bg-[#0E0E0E66] backdrop-blur-[4px] z-40 nexus-sdk-theme"
           />
         )}
 
@@ -120,11 +122,11 @@ export const TransactionProcessorShell: React.FC = () => {
           }}
           initial={false}
           animate={{
-            width: isTransactionCollapsed ? COLLAPSED.width : EXPANDED.width,
-            height: isTransactionCollapsed ? COLLAPSED.height : EXPANDED.height,
-            x: isTransactionCollapsed ? collapsedPos.x : expandedPos.x,
-            y: isTransactionCollapsed ? collapsedPos.y : expandedPos.y,
-            borderRadius: isTransactionCollapsed ? COLLAPSED.radius : EXPANDED.radius,
+            width: isTransactionCollapsed ? COLLAPSED?.width : EXPANDED?.width,
+            height: isTransactionCollapsed ? COLLAPSED?.height : EXPANDED?.height,
+            x: isTransactionCollapsed ? collapsedPos?.x : expandedPos?.x,
+            y: isTransactionCollapsed ? collapsedPos?.y : expandedPos?.y,
+            borderRadius: isTransactionCollapsed ? COLLAPSED?.radius : EXPANDED?.radius,
             boxShadow: isTransactionCollapsed
               ? '0 10px 25px -5px rgba(0,0,0,0.2)'
               : '0 25px 50px -12px rgba(0,0,0,0.25)',
@@ -132,7 +134,7 @@ export const TransactionProcessorShell: React.FC = () => {
           }}
           exit={{ opacity: 0 }}
           transition={{ type: 'spring', damping: 22, stiffness: 320, mass: 0.6 }}
-          className={`fixed top-0 left-0 bg-white overflow-hidden z-50 pointer-events-auto rounded-2xl ${
+          className={`nexus-sdk-theme fixed top-0 left-0 bg-white overflow-hidden z-50 pointer-events-auto rounded-2xl ${
             isTransactionCollapsed
               ? 'cursor-move px-4 py-2 border border-gray-200'
               : 'shadow-card !nexus-font-primary flex flex-col items-center justify-between w-full'
@@ -140,7 +142,7 @@ export const TransactionProcessorShell: React.FC = () => {
         >
           {isTransactionCollapsed ? (
             <ProcessorMiniCard
-              status={activeTransaction.status}
+              status={activeTransaction?.status}
               cancelTransaction={cancelTransaction}
               toggleTransactionCollapse={toggleTransactionCollapse}
               sourceChainMeta={sourceChainMeta}
@@ -152,12 +154,12 @@ export const TransactionProcessorShell: React.FC = () => {
               explorerURL={explorerURL}
               timer={timer}
               description={getDescription()}
-              error={activeTransaction.error}
-              executionResult={activeTransaction.executionResult}
+              error={activeTransaction?.error}
+              executionResult={activeTransaction?.executionResult}
             />
           ) : (
             <ProcessorFullCard
-              status={activeTransaction.status}
+              status={activeTransaction?.status}
               cancelTransaction={cancelTransaction}
               toggleTransactionCollapse={toggleTransactionCollapse}
               sourceChainMeta={sourceChainMeta}
@@ -169,8 +171,8 @@ export const TransactionProcessorShell: React.FC = () => {
               explorerURL={explorerURL}
               timer={timer}
               description={getDescription()}
-              error={activeTransaction.error}
-              executionResult={activeTransaction.executionResult}
+              error={activeTransaction?.error}
+              executionResult={activeTransaction?.executionResult}
             />
           )}
         </motion.div>

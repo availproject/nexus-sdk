@@ -51,6 +51,7 @@ const baseConfig = {
   treeshake: {
     moduleSideEffects: false,
     propertyReadSideEffects: false,
+    unknownGlobalSideEffects: false,
     tryCatchDeoptimization: false,
   }
 };
@@ -63,6 +64,7 @@ const outputs = [
     sourcemap: !isProduction,
     exports: 'named',
     interop: 'auto',
+    inlineDynamicImports: true,
     ...(isDevelopment && {
       banner: '/* Avail Nexus SDK - Development Build */'
     })
@@ -72,6 +74,7 @@ const outputs = [
     format: 'esm',
     sourcemap: !isProduction,
     exports: 'named',
+    inlineDynamicImports: true,
     ...(isDevelopment && {
       banner: '/* Avail Nexus SDK - Development Build */'
     })

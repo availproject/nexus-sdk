@@ -119,7 +119,7 @@ export interface NexusContextValue {
   activeTransaction: ActiveTransaction;
   isSdkInitialized: boolean;
   activeController: ITransactionController | null;
-  config: { network: NexusNetwork; debug?: boolean };
+  config?: { network?: NexusNetwork; debug?: boolean };
   provider: EthereumProvider | null;
   unifiedBalance: UserAsset[];
   isSimulating: boolean;

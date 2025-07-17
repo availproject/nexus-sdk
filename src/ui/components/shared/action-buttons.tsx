@@ -1,7 +1,7 @@
 import * as React from 'react';
-import { Button } from './button';
+import { Button } from './button-motion';
 import { cn } from '../../utils/utils';
-import { SmallAvailLogo } from './icons/SmallAvailLogo';
+import { SmallAvailLogo } from '../icons/SmallAvailLogo';
 import LoadingDots from './loading-dots';
 
 interface ActionButtonsProps {
@@ -37,7 +37,7 @@ export function ActionButtons({
             'text-base font-semibold nexus-font-primary leading-normal !bg-transparent',
             'border-zinc-400',
             'text-black',
-            'hover:bg-gray-50',
+            'hover:bg-zinc-500',
           )}
           onClick={onCancel}
         >

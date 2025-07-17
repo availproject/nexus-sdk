@@ -76,6 +76,8 @@ const executeResult = await sdk.execute({
 | Avalanche | 43114    | AVAX            | ✅     |
 | Base      | 8453     | ETH             | ✅     |
 | Scroll    | 534352   | ETH             | ✅     |
+| Sophon    | 50104    | SOPH            | ✅     |
+| Kaia      | 8217     | KAIA            | ✅     |
 
 ### Testnet Chains
 

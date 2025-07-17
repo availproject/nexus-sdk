@@ -1,7 +1,7 @@
 import React from 'react';
 import { cn } from '../../utils/utils';
 import type { ModalProps } from '../../types';
-import { Dialog, DialogContent } from './dialog';
+import { Dialog, DialogContent } from './dialog-motion';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 
 export function BaseModal({ isOpen, onClose, children, className }: ModalProps) {

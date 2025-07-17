@@ -33,12 +33,7 @@ export class NexusSDK {
   public readonly nexusEvents: SafeEventEmitter;
   public readonly utils: NexusUtils;
 
-  constructor(
-    config?: Omit<SDKConfig, 'siweStatement' | 'network'> & {
-      network?: NexusNetwork;
-      debug?: boolean;
-    },
-  ) {
+  constructor(config?: { network?: NexusNetwork; debug?: boolean }) {
     const nexusConfig: SDKConfig &
       Omit<SDKConfig, 'siweStatement' | 'network'> & { network?: Network } = {
       ...config,

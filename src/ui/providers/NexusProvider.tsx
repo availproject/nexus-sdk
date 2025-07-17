@@ -7,15 +7,11 @@ const NexusProvider = ({
   config,
   children,
 }: {
-  config?: { network: NexusNetwork; debug?: boolean };
+  config?: { network?: NexusNetwork; debug?: boolean };
   children: React.ReactNode;
 }) => {
   logger.debug('NexusProvider', { config });
-  return (
-    <InternalNexusProvider config={config ?? { network: 'mainnet' }}>
-      {children}
-    </InternalNexusProvider>
-  );
+  return <InternalNexusProvider config={config}>{children}</InternalNexusProvider>;
 };
 
 export default NexusProvider;

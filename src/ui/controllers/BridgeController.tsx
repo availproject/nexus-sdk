@@ -2,11 +2,7 @@ import React from 'react';
 import type { ITransactionController, BridgeConfig, ActiveTransaction } from '../types';
 import { NexusSDK } from '../..';
 import { BridgeParams, BridgeResult } from '../../types';
-import { Label } from '../components/shared/label';
-import { Input } from '../components/shared/input';
-import { ChainSelect } from '../components/shared/chain-select';
-import { TokenSelect } from '../components/shared/token-select';
-import { useInternalNexus } from '../providers/InternalNexusProvider';
+import { UnifiedTransactionForm } from '../components/shared/unified-transaction-form';
 import { logger } from '../../core/utils';
 
 const BridgeInputForm: React.FC<{
@@ -22,56 +18,15 @@ const BridgeInputForm: React.FC<{
     recipient?: boolean;
   };
 }> = ({ prefill, onUpdate, isBusy, tokenBalance, prefillFields = {} }) => {
-  const { config } = useInternalNexus();
-
-  const handleUpdate = (field: keyof BridgeConfig, value: string | number) => {
-    onUpdate({ [field]: value });
-  };
-
   return (
-    <div className="flex flex-col gap-y-4 w-full items-start">
-      <div className="flex items-start justify-between w-full">
-        <div className="flex flex-col gap-y-1.5 items-start">
-          <Label htmlFor="toChain">Destination Network</Label>
-          <ChainSelect
-            value={prefill.chainId?.toString() || ''}
-            onValueChange={(chainId: string) =>
-              !(isBusy || prefillFields.chainId) && handleUpdate('chainId', parseInt(chainId, 10))
-            }
-            disabled={isBusy || prefillFields.chainId}
-            network={config.network}
-          />
-        </div>
-
-        <div className="flex flex-col gap-y-1.5 items-start">
-          <Label htmlFor="token">Token to be transferred</Label>
-          <TokenSelect
-            value={prefill.token || ''}
-            onValueChange={(token: string) =>
-              !(isBusy || prefillFields.token) && handleUpdate('token', token)
-            }
-            disabled={isBusy || prefillFields.token}
-            network={config.network}
-          />
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-y-1.5 items-start">
-        <Label htmlFor="amount">Amount</Label>
-        <Input
-          id="amount"
-          placeholder="0.01"
-          value={prefill.amount || ''}
-          onChange={(e) =>
-            !(isBusy || prefillFields.amount) && handleUpdate('amount', e.target.value)
-          }
-          disabled={isBusy || prefillFields.amount}
-        />
-        <Label htmlFor="balance">
-          Balance: - {tokenBalance ?? '0'} {prefill.token || ''}
-        </Label>
-      </div>
-    </div>
+    <UnifiedTransactionForm
+      type="bridge"
+      inputData={prefill}
+      onUpdate={onUpdate}
+      disabled={isBusy}
+      tokenBalance={tokenBalance}
+      prefillFields={prefillFields}
+    />
   );
 };
 
@@ -83,7 +38,6 @@ export class BridgeController implements ITransactionController {
       return false;
     }
 
-    // Validate amount is a valid positive number
     const amount = parseFloat(inputData.amount.toString());
     return !isNaN(amount) && amount > 0;
   }
@@ -97,7 +51,6 @@ export class BridgeController implements ITransactionController {
 
     const sourcesData = simulationResult?.intent?.sources || [];
     let needsApproval = false;
-    // Check allowance on all source chains
     for (const source of sourcesData) {
       if (inputData?.token === 'ETH') break;
       const requiredAmount = sdk.utils.parseUnits(

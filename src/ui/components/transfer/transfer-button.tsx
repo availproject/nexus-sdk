@@ -1,7 +1,7 @@
 import React from 'react';
 import type { TransferButtonProps } from '../../types';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
-import { TransferModal } from './transfer-modal';
+import TransferModal from './transfer-modal';
 
 export function TransferButton({ prefill, children, className }: TransferButtonProps) {
   const { startTransaction, activeTransaction } = useInternalNexus();
