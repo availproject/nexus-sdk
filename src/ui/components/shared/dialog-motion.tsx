@@ -99,7 +99,7 @@ const DialogOverlay = React.forwardRef<HTMLDivElement, DialogOverlayProps>(
         exit={{ opacity: 0 }}
         transition={{ duration: 0.2 }}
         className={cn(
-          'fixed inset-0 z-50 bg-[#0E0E0E66] backdrop-blur-[4px] overflow-y-hidden',
+          'fixed inset-0 z-50 bg-nexus-backdrop backdrop-blur-[4px] overflow-y-hidden',
           className,
         )}
         onClick={() => onOpenChange(false)}
@@ -154,7 +154,6 @@ const DialogContent = React.forwardRef<HTMLDivElement, DialogContentProps>(
                 'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
                 'data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%]',
                 'data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]',
-                'sm:rounded-[8px]',
                 className,
               )}
               tabIndex={-1}
@@ -215,7 +214,7 @@ const DialogTitle = React.forwardRef<HTMLHeadingElement, React.HTMLAttributes<HT
     <h2
       ref={ref}
       className={cn(
-        'text-2xl font-semibold leading-none tracking-tight nexus-font-primary',
+        'text-2xl font-semibold leading-none tracking-tight font-nexus-primary',
         className,
       )}
       {...props}
@@ -228,7 +227,7 @@ const DialogDescription = React.forwardRef<
   HTMLParagraphElement,
   React.HTMLAttributes<HTMLParagraphElement>
 >(({ className, ...props }, ref) => (
-  <p ref={ref} className={cn('text-sm text-muted-foreground', className)} {...props} />
+  <p ref={ref} className={cn('text-sm text-nexus-muted-foreground', className)} {...props} />
 ));
 DialogDescription.displayName = 'DialogDescription';
 

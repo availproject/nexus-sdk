@@ -3,65 +3,38 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 @theme {
-  /* BASE PALETTE (Light Theme) */
-  --color-white: rgb(255 255 255);
-  --color-black: rgb(0 0 0);
+  --color-nexus-backdrop: var(--nexus-backdrop);
+  --color-nexus-blue: var(--nexus-blue);
+  --color-nexus-success: var(--nexus-success);
+  --color-nexus-footer: var(--nexus-footer);
+  --color-nexus-footer-text: var(--nexus-footer-text);
 
-  /* Neutrals */
-  --color-neutral-50: rgb(244 246 248); /* Page background */
-  --color-neutral-100: rgb(232 234 240); /* Card background */
-  --color-neutral-200: rgb(229 231 233); /* Border */
-  --color-neutral-400: rgb(179 179 179); /* Muted border */
-  --color-neutral-500: rgb(128 128 128); /* Muted text */
-  --color-neutral-600: rgb(102 102 102);
-  --color-neutral-700: rgb(86 90 96); /* Secondary text */
-  --color-neutral-800: rgb(76 76 76);
-  --color-neutral-900: rgb(27 27 27); /* Primary text */
+  /* Core color system */
+  --color-nexus-background: var(--nexus-color-background);
+  --color-nexus-foreground: var(--nexus-color-foreground);
+  --color-nexus-primary: var(--nexus-color-primary);
+  --color-nexus-primary-foreground: var(--nexus-color-primary-foreground);
+  --color-nexus-primary-hover: var(--nexus-color-primary-hover);
+  --color-nexus-secondary: var(--nexus-color-secondary);
+  --color-nexus-secondary-foreground: var(--nexus-color-secondary-foreground);
+  --color-nexus-secondary-background: var(--nexus-color-secondary-background);
+  --color-nexus-muted: var(--nexus-color-muted);
+  --color-nexus-muted-foreground: var(--nexus-color-muted-foreground);
+  --color-nexus-muted-secondary: var(--nexus-color-muted-secondary);
+  --color-nexus-accent: var(--nexus-color-accent);
+  --color-nexus-accent-foreground: var(--nexus-color-accent-foreground);
+  --color-nexus-border: var(--nexus-color-border);
+  --color-nexus-input: var(--nexus-color-input);
+  --color-nexus-ring: var(--nexus-color-ring);
+  --color-nexus-ring-offset: var(--nexus-color-background);
+  --color-nexus-destructive: var(--nexus-color-destructive);
+  --color-nexus-destructive-foreground: var(--nexus-color-destructive-foreground);
+  --color-nexus-color-destructive-secondary: var(--nexus-color-destructive-secondary);
+  --color-nexus-card: var(--nexus-color-card);
+  --color-nexus-card-foreground: var(--nexus-color-card-foreground);
 
-  /* Brand / Primary */
-  --color-brand-blue-primary: rgb(3 117 216);
-  --color-brand-blue-secondary: rgb(43 128 215);
-  --color-brand-footer-bg: rgb(190 216 238);
-  --color-brand-footer-text: rgb(84 107 138);
-
-  /* Icons */
-  --color-icon-arbitrum-bg: rgb(66 92 114);
-  --color-icon-avail-bg: rgb(44 187 249);
-
-  /* Status Colors */
-  --color-success-base: rgb(120 196 123);
-  --color-warning-base: rgb(240 185 11);
-  --color-destructive-base: rgb(239 68 68);
-
-  /* SEMANTIC MAPPING */
-  --color-background: var(--nexus-color-background, var(--color-neutral-50));
-  --color-foreground: var(--nexus-color-foreground, var(--color-neutral-900));
-  --color-primary: var(--nexus-color-primary, var(--color-neutral-900));
-  --color-primary-hover: var(--nexus-color-primary-hover, rgb(43 43 43));
-  --color-primary-foreground: var(--nexus-color-primary-foreground, var(--color-white));
-  --color-secondary: var(--nexus-color-secondary, var(--color-neutral-700));
-  --color-secondary-foreground: var(--nexus-color-secondary-foreground, var(--color-white));
-  --color-muted: var(--nexus-color-muted, var(--color-neutral-500));
-  --color-muted-foreground: var(--nexus-color-muted-foreground, var(--color-neutral-700));
-  --color-accent: var(--nexus-color-accent, var(--color-brand-blue-primary));
-  --color-accent-foreground: var(--nexus-color-accent-foreground, var(--color-white));
-  --color-border: var(--nexus-color-border, var(--color-neutral-200));
-  --color-input: var(--nexus-color-input, var(--color-neutral-400));
-  --color-ring: var(--nexus-color-ring, var(--color-brand-blue-secondary));
-  --color-destructive: var(--nexus-color-destructive, var(--color-destructive-base));
-  --color-destructive-foreground: var(--nexus-color-destructive-foreground, var(--color-white));
-  --color-card: var(--nexus-color-card, var(--color-white));
-  --color-card-foreground: var(--nexus-color-card-foreground, var(--color-neutral-900));
-  --color-alert-bg: var(--color-success-base);
-  --color-alert-text: var(--color-black);
-
-  /* TYPOGRAPHY, SPACING, SHADOWS, etc. */
-  --font-family-sans:
-    'PP Mori', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  --font-family-primary:
-    'PP Mori', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  --font-family-secondary:
-    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-nexus-primary: var(--font-nexus-primary);
+  --font-nexus-secondary: var(--nexus-font-secondary);
 
   /* Font Sizes */
   --font-size-xs: 12px;
@@ -77,9 +50,11 @@
   --font-weight-bold: 700;
 
   /* Border Radius */
-  --radius: var(--nexus-radius, 16px);
-  --border-radius-md: 8px;
-  --border-radius-full: 36px;
+  --radius-nexus-sm: var(--nexus-radius-sm);
+  --radius-nexus-md: var(--nexus-radius-md);
+  --radius-nexus-lg: var(--nexus-radius-lg);
+  --radius-nexus-xl: var(--nexus-radius-xl);
+  --radius-nexus-full: var(--nexus-radius-full);
 
   /* Shadows */
   --shadow-card: 0 4px 24px rgb(0 0 0 / 0.1);
@@ -92,62 +67,61 @@
   --animation-slide-down: slide-down 0.3s ease-out;
 }
 
-@layer base {
-  .nexus-sdk-theme {
-    /* Define default values for namespaced variables */
-    --nexus-color-background: rgb(244 246 248);
-    --nexus-color-foreground: rgb(27 27 27);
-    --nexus-color-primary: rgb(27 27 27);
-    --nexus-color-primary-hover: rgb(43 43 43);
-    --nexus-color-primary-foreground: rgb(255 255 255);
-    --nexus-color-secondary: rgb(86 90 96);
-    --nexus-color-secondary-foreground: rgb(255 255 255);
-    --nexus-color-muted: rgb(128 128 128);
-    --nexus-color-muted-foreground: rgb(86 90 96);
-    --nexus-color-accent: rgb(3 117 216);
-    --nexus-color-accent-foreground: rgb(255 255 255);
-    --nexus-color-border: rgb(229 231 233);
-    --nexus-color-input: rgb(179 179 179);
-    --nexus-color-ring: rgb(43 128 215);
-    --nexus-color-destructive: rgb(239 68 68);
-    --nexus-color-destructive-foreground: rgb(255 255 255);
-    --nexus-color-card: rgb(255 255 255);
-    --nexus-color-card-foreground: rgb(27 27 27);
-    --nexus-radius: 16px;
+:root {
+  --nexus-color-white: #ffffff;
+  --nexus-color-black: #000000;
+  --nexus-color-background: #f4f6f8;
+  --nexus-color-foreground: #1b1b1b;
+  --nexus-color-primary: #1b1b1b;
+  --nexus-color-primary-hover: #2b2b2b;
+  --nexus-color-primary-foreground: #ffffff;
+  --nexus-color-secondary: #565a60;
+  --nexus-color-secondary-foreground: #ffffff;
+  --nexus-color-secondary-background: #bed8ee66;
+  --nexus-color-muted: #808080;
+  --nexus-color-muted-secondary: #666666;
+  --nexus-color-muted-foreground: #565a60;
+  --nexus-color-accent: #0375d8;
+  --nexus-color-accent-foreground: #ffffff;
+  --nexus-color-border: #e5e7e9;
+  --nexus-color-input: #b3b3b3;
+  --nexus-color-ring: #2b80d7;
+  --nexus-color-destructive: #ef4444;
+  --nexus-color-destructive-secondary: #c03c54;
+  --nexus-color-destructive-foreground: #ffffff;
+  --nexus-color-card: #ffffff;
+  --nexus-color-card-foreground: #1b1b1b;
+  --nexus-color-success-base: #78c47b;
+  --nexus-color-neutral-50: #f4f6f8;
+  --nexus-color-neutral-100: #e8eaf0;
+  --nexus-color-neutral-200: #e5e7e9;
+  --nexus-color-brand-footer: #bed8ee;
+  --nexus-color-brand-footer-text: #4c4c4c;
+  --nexus-backdrop: #0e0e0e66;
+  --nexus-blue: #0375d8;
+  --nexus-success: #78c47b;
+  --nexus-footer: rgb(190 216 238 / 0.4);
+  --nexus-footer-text: rgb(76 76 76);
 
-    /* Map to generic vars for utilities */
-    --color-background: var(--nexus-color-background);
-    --color-foreground: var(--nexus-color-foreground);
-    --color-primary: var(--nexus-color-primary);
-    --color-primary-hover: var(--nexus-color-primary-hover);
-    --color-primary-foreground: var(--nexus-color-primary-foreground);
-    --color-secondary: var(--nexus-color-secondary);
-    --color-secondary-foreground: var(--nexus-color-secondary-foreground);
-    --color-muted: var(--nexus-color-muted);
-    --color-muted-foreground: var(--nexus-color-muted-foreground);
-    --color-accent: var(--nexus-color-accent);
-    --color-accent-foreground: var(--nexus-color-accent-foreground);
-    --color-border: var(--nexus-color-border);
-    --color-input: var(--nexus-color-input);
-    --color-ring: var(--nexus-color-ring);
-    --color-destructive: var(--nexus-color-destructive);
-    --color-destructive-foreground: var(--nexus-color-destructive-foreground);
-    --color-card: var(--nexus-color-card);
-    --color-card-foreground: var(--nexus-color-card-foreground);
-    --border-radius: var(--nexus-radius); /* For nexus:rounded */
-  }
+  --font-nexus-primary:
+    'PP Mori', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --nexus-font-secondary:
+    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
 
-  /* Scoped font utility classes */
-  .nexus-sdk-theme .nexus-font-primary {
-    font-family: var(--font-family-primary);
-  }
+  /* Nexus SDK Border Radius */
+  --nexus-radius-sm: 4px;
+  --nexus-radius-md: 8px;
+  --nexus-radius-lg: 12px;
+  --nexus-radius-xl: 16px;
+  --nexus-radius-full: 9999px;
 
-  .nexus-sdk-theme .nexus-font-secondary {
-    font-family: var(--font-family-secondary);
-  }
+  /* Nexus SDK Fonts */
+  --nexus-font-family-primary:
+    'PP Mori', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --nexus-font-family-secondary:
+    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
 }
 
-/* Keyframes (global unless scoped needed) */
 @keyframes fade-in {
   from {
     opacity: 0;

@@ -68,9 +68,9 @@ export function AllowanceForm({
 
   return (
     <>
-      <div className="w-full !nexus-font-primary">
+      <div className="w-full !font-nexus-primary">
         {/* Header */}
-        <div className="mb-6 text-left px-6 font-semibold nexus-font-primary">
+        <div className="mb-6 text-left px-6 font-semibold font-nexus-primary">
           <p className="text-sm text-gray-600">
             To continue, please let this app use at least [{minimumAmount.slice(0, 7)}] {token} from
             your wallet.
@@ -83,52 +83,53 @@ export function AllowanceForm({
         {/* Token Information */}
         <div className="mb-6 py-4 px-6">
           <div className="flex items-center justify-between border-b border-[#B3B3B3] py-2">
-            <span className="text-sm font-medium text-gray-700 nexus-font-primary">Token</span>
+            <span className="text-sm font-medium text-gray-700 font-nexus-primary">Token</span>
             <div className="flex items-center gap-2">
               {tokenMetadata?.icon && (
                 <img
-                  key={tokenMetadata.name}
-                  src={tokenMetadata.icon}
+                  key={tokenMetadata?.name}
+                  src={tokenMetadata?.icon}
                   alt={token}
-                  className="w-6 h-6 rounded-full"
+                  className="w-6 h-6 rounded-nexus-full"
                 />
               )}
-              <span className="font-semibold nexus-font-primary">{token} on</span>
+              <span className="font-semibold font-nexus-primary">{token} on</span>
               <div className="flex items-center gap-1">
                 {sourceChains.length >= 3 ? (
                   <>
                     {sourceChains.map((source, index) => {
                       const chainMeta =
-                        CHAIN_METADATA[source.chainId as keyof typeof CHAIN_METADATA];
+                        CHAIN_METADATA[source?.chainId as keyof typeof CHAIN_METADATA];
                       return (
-                        <Fragment key={source.chainId}>
+                        <Fragment key={source?.chainId}>
                           <img
-                            src={chainMeta?.logo}
+                            src={chainMeta?.logo ?? ''}
                             alt={chainMeta?.name}
-                            className={`w-6 h-6 rounded-full ${index > 0 ? '-ml-5' : ''}`}
+                            className={`w-6 h-6 rounded-nexus-full ${index > 0 ? '-ml-5' : ''}`}
                             style={{ zIndex: sourceChains.length - index }}
                             title={chainMeta?.name}
                           />
                         </Fragment>
                       );
                     })}
-                    <span className="font-semibold nexus-font-primary">
+                    <span className="font-semibold font-nexus-primary">
                       +{sourceChains.length} chains
                     </span>
                   </>
                 ) : (
                   sourceChains.slice(0, 3).map((source, index) => {
-                    const chainMeta = CHAIN_METADATA[source.chainId as keyof typeof CHAIN_METADATA];
+                    const chainMeta =
+                      CHAIN_METADATA[source?.chainId as keyof typeof CHAIN_METADATA];
                     return (
-                      <Fragment key={source.chainId}>
+                      <Fragment key={source?.chainId}>
                         <img
-                          src={chainMeta?.logo}
+                          src={chainMeta?.logo ?? ''}
                           alt={chainMeta?.name}
                           title={chainMeta?.name}
-                          className={`w-6 h-6 rounded-full ${index > 0 ? '-ml-5' : ''}`}
+                          className={`w-6 h-6 rounded-nexus-full ${index > 0 ? '-ml-5' : ''}`}
                           style={{ zIndex: sourceChains.length - index }}
                         />
-                        <span className="font-semibold nexus-font-primary">{chainMeta?.name}</span>
+                        <span className="font-semibold font-nexus-primary">{chainMeta?.name}</span>
                       </Fragment>
                     );
                   })
@@ -138,11 +139,11 @@ export function AllowanceForm({
           </div>
 
           <div className="mt-3 py-2 border-b border-[#B3B3B3]">
-            <div className="flex items-center justify-between text-sm nexus-font-primary">
-              <span className="text-sm font-medium text-gray-700 nexus-font-primary">
+            <div className="flex items-center justify-between text-sm font-nexus-primary">
+              <span className="text-sm font-medium text-gray-700 font-nexus-primary">
                 Current Allowance
               </span>
-              <span className="nexus-font-secondary text-black font-semibold">
+              <span className="font-nexus-secondary text-black font-semibold">
                 {currentAllowance?.slice(0, 7)}
               </span>
             </div>
@@ -156,29 +157,29 @@ export function AllowanceForm({
             {/* Minimum Option */}
             <div
               className={cn(
-                'p-4  rounded-[8px] border-2 cursor-pointer transition-all relative',
+                'p-4 rounded-nexus-md border-2 cursor-pointer transition-all relative',
                 selectedType === 'minimum'
-                  ? 'border-[#0375D8] bg-blue-50'
+                  ? 'border-nexus-blue bg-blue-50'
                   : 'border-gray-200 hover:border-gray-300',
               )}
               onClick={() => setSelectedType('minimum')}
             >
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3 nexus-font-primary">
+                <div className="flex items-center gap-3 font-nexus-primary">
                   <input
                     type="radio"
                     checked={selectedType === 'minimum'}
                     onChange={() => setSelectedType('minimum')}
                     className="text-blue-600"
                   />
-                  <div className="nexus-font-primary">
+                  <div className="font-nexus-primary">
                     <span className="text-sm font-bold text-gray-900">Minimum</span>
                     <span className="text-base font-bold text-gray-900 ml-2">
                       {minimumAmount.slice(0, 7)}
                     </span>
                   </div>
                 </div>
-                <span className="bg-[#0375D8] nexus-font-primary text-white text-xs px-2 py-1 font-medium absolute top-0 right-0 rounded-tr-[6px]">
+                <span className="bg-nexus-blue font-nexus-primary text-white text-xs px-2 py-1 font-medium absolute top-0 right-0 rounded-tr-nexus-md">
                   RECOMMENDED
                 </span>
               </div>
@@ -187,9 +188,9 @@ export function AllowanceForm({
             {/* Custom Option */}
             <div
               className={cn(
-                'p-4 rounded-[8px] border-2 cursor-pointer transition-all nexus-font-primary',
+                'p-4 rounded-nexus-md border-2 cursor-pointer transition-all font-nexus-primary',
                 selectedType === 'custom'
-                  ? 'border-[#0375D8] bg-blue-50'
+                  ? 'border-nexus-blue bg-blue-50'
                   : 'border-gray-200 hover:border-gray-300',
               )}
             >
@@ -210,11 +211,11 @@ export function AllowanceForm({
                   helperText={
                     customAmount && !isCustomValid ? `Amount must be ≥ ${inputAmount}` : undefined
                   }
-                  className="nexus-font-primary"
+                  className="font-nexus-primary"
                 >
                   <div
                     className={cn(
-                      'px-4 py-2 nexus-font-primary rounded-[8px] border border-zinc-400 flex justify-between items-center',
+                      'px-4 py-2 font-nexus-primary rounded-nexus-md border border-gray-400 flex justify-between items-center',
                       'bg-transparent h-12',
                       'focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]',
                       isLoading && 'opacity-50 cursor-not-allowed',
@@ -231,7 +232,7 @@ export function AllowanceForm({
                           customAmount && !isCustomValid
                             ? 'border-red-500 focus:border-red-500'
                             : '',
-                          'text-black text-base font-semibold nexus-font-primary leading-normal',
+                          'text-black text-base font-semibold font-nexus-primary leading-normal',
                         )}
                       />
                     </div>
@@ -250,7 +251,7 @@ export function AllowanceForm({
         primaryText="Approve & Continue"
         primaryLoading={isLoading}
         primaryDisabled={!isFormValid || isLoading}
-        className="border-t border-zinc-400/40 bg-gray-100 nexus-font-primary mt-12"
+        className="border-t border-gray-300/40 bg-gray-100 font-nexus-primary mt-12"
       />
     </>
   );

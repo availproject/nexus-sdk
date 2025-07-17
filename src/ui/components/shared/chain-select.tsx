@@ -34,7 +34,7 @@ export function ChainSelect({
   const renderSelectedValue = (option: ChainSelectOption) => (
     <div className="h-8 flex items-center gap-1.5">
       <ChainIcon chainId={option.value} />
-      <span className="text-black text-base font-semibold nexus-font-primary leading-normal">
+      <span className="text-black text-base font-semibold font-nexus-primary leading-normal">
         {option.label}
       </span>
     </div>

@@ -103,7 +103,7 @@ export const TransactionProcessorShell: React.FC = () => {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.25 }}
-            className="fixed inset-0 bg-[#0E0E0E66] backdrop-blur-[4px] z-40 nexus-sdk-theme"
+            className="fixed inset-0 bg-nexus-backdrop backdrop-blur-[4px] z-40"
           />
         )}
 
@@ -134,10 +134,10 @@ export const TransactionProcessorShell: React.FC = () => {
           }}
           exit={{ opacity: 0 }}
           transition={{ type: 'spring', damping: 22, stiffness: 320, mass: 0.6 }}
-          className={`nexus-sdk-theme fixed top-0 left-0 bg-white overflow-hidden z-50 pointer-events-auto rounded-2xl ${
+          className={`fixed top-0 left-0 bg-white font-nexus-primary overflow-hidden z-50 pointer-events-auto rounded-nexus-xl ${
             isTransactionCollapsed
               ? 'cursor-move px-4 py-2 border border-gray-200'
-              : 'shadow-card !nexus-font-primary flex flex-col items-center justify-between w-full'
+              : 'shadow-card  flex flex-col items-center justify-between w-full'
           }`}
         >
           {isTransactionCollapsed ? (

@@ -33,7 +33,7 @@ export function TokenSelect({
   const renderSelectedValue = (option: TokenSelectOption) => (
     <div className="h-8 flex items-center gap-1.5">
       <TokenIcon tokenSymbol={option.symbol} />
-      <span className="text-black text-base font-semibold nexus-font-primary leading-normal">
+      <span className="text-black text-base font-semibold font-nexus-primary leading-normal">
         {option.symbol}
       </span>
     </div>

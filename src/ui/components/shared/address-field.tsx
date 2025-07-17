@@ -35,9 +35,9 @@ export function AddressField({
     >
       <div
         className={cn(
-          'px-4 py-2 rounded-[8px] border border-zinc-400 font-semibold flex justify-between items-center',
+          'px-4 py-2 rounded-nexus-md border border-zinc-400 font-semibold flex justify-between items-center',
           'bg-transparent h-12',
-          'focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]',
+          'focus-within:border-ring focus-within:ring-nexus-ring/50 focus-within:ring-[3px]',
           disabled && 'opacity-50 cursor-not-allowed',
           className,
         )}
@@ -49,7 +49,7 @@ export function AddressField({
             onChange={(e) => onChange?.(e.target.value)}
             disabled={disabled}
             className={cn(
-              'px-0 placeholder:nexus-font-primary',
+              'px-0 placeholder:font-nexus-primary',
               hasValidationError ? 'border-red-500 focus:border-red-500' : '',
             )}
           />

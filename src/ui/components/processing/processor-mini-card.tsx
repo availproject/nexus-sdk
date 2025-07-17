@@ -37,7 +37,7 @@ export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
                 key={chain?.id}
                 src={chain?.logo ?? ''}
                 alt={chain?.name ?? ''}
-                className={`w-8 h-8 rounded-full ${index > 0 ? '-ml-3' : ''}`}
+                className={`w-8 h-8 rounded-nexus-full ${index > 0 ? '-ml-3' : ''}`}
                 style={{ zIndex: sourceChainMeta?.length - index }}
               />
             ))}
@@ -60,10 +60,10 @@ export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
                   <img
                     src={tokenMeta?.icon}
                     alt={tokenMeta?.symbol}
-                    className="w-6 h-6 rounded-full border border-white shadow-sm"
+                    className="w-6 h-6 rounded-nexus-full border border-white shadow-sm"
                   />
                 ) : (
-                  <div className="w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center">
+                  <div className="w-4 h-4 bg-blue-500 rounded-nexus-full flex items-center justify-center">
                     <span className="text-white text-[8px] font-bold">
                       {tokenMeta?.symbol?.[0] || 'T'}
                     </span>
@@ -80,16 +80,16 @@ export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
               <img
                 src={destChainMeta?.logo}
                 alt={destChainMeta?.name}
-                className="w-8 h-8 rounded-full mb-1"
+                className="w-8 h-8 rounded-nexus-full mb-1"
               />
             </SuccessRipple>
           ) : (
-            <div className="w-8 h-8 bg-gray-200 rounded-full animate-pulse mb-1" />
+            <div className="w-8 h-8 bg-gray-200 rounded-nexus-full animate-pulse mb-1" />
           )}
         </div>
         <Button
           onClick={toggleTransactionCollapse}
-          className="p-1 hover:bg-gray-100 rounded-md transition-colors"
+          className="p-1 hover:bg-gray-100 rounded-nexus-md transition-colors"
           variant="link"
         >
           <Maximize className="w-6 h-6 text-gray-600" />
@@ -111,20 +111,20 @@ export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
           >
             <WordsPullUp
               text={processing?.statusText}
-              className="text-[16px] nexus-font-primary font-semibold text-black"
+              className="text-[16px] font-nexus-primary font-semibold text-black"
             />
           </motion.div>
           {transactionType !== 'bridgeAndExecute' && status === 'success' ? (
             <Button
-              className="h-fit text-xs text-[#0375D8] underline font-semibold nexus-font-primary px-0"
+              className="h-fit text-xs text-nexus-accent underline font-semibold font-nexus-primary px-0"
               size="sm"
               variant="link"
               onClick={() => window.open(explorerURL ?? '', '_blank')}
             >
-              View on Explorer <ExternalLink className="w-4 h-4 ml-2 text-[#666666]" />
+              View on Explorer <ExternalLink className="w-4 h-4 ml-2 text-nexus-muted-secondary" />
             </Button>
           ) : (
-            <p className="nexus-font-primary text-sm text-grey-600 text-ellipsis overflow-hidden">
+            <p className="font-nexus-primary text-sm text-grey-600 text-ellipsis overflow-hidden">
               {description}
             </p>
           )}

@@ -59,19 +59,19 @@ const SuccessRipple: React.FC<SuccessRippleProps> = ({ children, size = 'md' }) 
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div key={`ripple-${animationKey}`} className="absolute">
             <div
-              className={`${config.ripple1} rounded-full bg-[#78C47B] opacity-10`}
+              className={`${config.ripple1} rounded-nexus-full bg-nexus-success opacity-10`}
               style={rippleAnimation1}
             />
           </div>
           <div key={`ripple-2-${animationKey}`} className="absolute">
             <div
-              className={`${config.ripple2} rounded-full bg-[#78C47B] opacity-10`}
+              className={`${config.ripple2} rounded-nexus-full bg-nexus-success opacity-10`}
               style={rippleAnimation2}
             />
           </div>
           <div key={`ripple-3-${animationKey}`} className="absolute">
             <div
-              className={`${config.ripple3} rounded-full bg-[#78C47B] opacity-10`}
+              className={`${config.ripple3} rounded-nexus-full bg-nexus-success opacity-10`}
               style={rippleAnimation3}
             />
           </div>

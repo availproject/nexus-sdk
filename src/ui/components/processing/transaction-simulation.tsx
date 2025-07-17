@@ -95,12 +95,12 @@ function LoadingState() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold text-zinc-500 nexus-font-primary">
+        <span className="text-sm font-semibold text-zinc-500 font-nexus-primary">
           Depositing from
         </span>
         <div className="flex items-center gap-2">
-          <Shimmer className="w-6 h-6 rounded-full" />
-          <Shimmer className="w-16 h-4 rounded-full" />
+          <Shimmer className="w-6 h-6 rounded-nexus-full" />
+          <Shimmer className="w-16 h-4 rounded-nexus-full" />
         </div>
       </div>
       <hr className="border-zinc-400/40" />
@@ -117,7 +117,7 @@ function RouteSection({ data }: { data: SimulationData }) {
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold text-zinc-500 nexus-font-primary">
+        <span className="text-sm font-semibold text-zinc-500 font-nexus-primary">
           Depositing from
         </span>
         <div className="flex items-center gap-2">
@@ -128,19 +128,19 @@ function RouteSection({ data }: { data: SimulationData }) {
                 key={index}
                 src={CHAIN_METADATA[source?.chainID]?.logo}
                 alt={source.chainName}
-                className={`w-6 h-6 rounded-full ${index > 0 ? '-ml-5' : ''}`}
+                className={`w-6 h-6 rounded-nexus-full ${index > 0 ? '-ml-5' : ''}`}
                 style={{ zIndex: sources.length - index }}
               />
             ) : (
               <div
                 key={index}
-                className="w-6 h-6 rounded-full bg-gray-300 flex items-center justify-center text-xs"
+                className="w-6 h-6 rounded-nexus-full bg-gray-300 flex items-center justify-center text-xs"
               >
                 {source?.chainName[0]}
               </div>
             ),
           )}
-          <span className="text-sm font-semibold text-black nexus-font-primary">
+          <span className="text-sm font-semibold text-black font-nexus-primary">
             {sources?.length} Chain{sources?.length > 1 ? 's' : ''}
           </span>
         </div>
@@ -191,15 +191,15 @@ function FeeRow({
   return (
     <div className="flex items-center justify-between py-1.5">
       <span
-        className={`text-sm font-semibold nexus-font-primary ${isTotal ? 'text-black' : 'text-zinc-500'}`}
+        className={`text-sm font-semibold font-nexus-primary ${isTotal ? 'text-black' : 'text-zinc-500'}`}
       >
         {label}
       </span>
       {loading ? (
-        <Shimmer className="w-16 h-4 rounded-full" />
+        <Shimmer className="w-16 h-4 rounded-nexus-full" />
       ) : (
         <span
-          className={`text-sm font-semibold nexus-font-primary ${isTotal ? 'text-black' : 'text-black'}`}
+          className={`text-sm font-semibold font-nexus-primary ${isTotal ? 'text-black' : 'text-black'}`}
         >
           {parseFloat(value ?? '0').toFixed(6)} {tokenSymbol}
         </span>

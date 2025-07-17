@@ -18,7 +18,6 @@ export function BridgeAndExecuteButton({
   const isLoading =
     activeTransaction?.status === 'processing' || activeTransaction?.reviewStatus === 'simulating';
 
-  // Ensure required static props
   if (!contractAddress || !contractAbi || !functionName || !buildFunctionParams) {
     logger.warn('BridgeAndExecuteButton: Missing required contract props or builder');
     return null;

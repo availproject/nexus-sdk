@@ -9,10 +9,10 @@ export const ChainIcon = ({ chainId }: { chainId: string }) => {
   const iconUrl = chain?.logo;
 
   if (!iconUrl) {
-    return <div className="w-6 h-6 bg-gray-300 rounded-full" />;
+    return <div className="w-6 h-6 bg-gray-300 rounded-nexus-full" />;
   }
 
-  return <img src={iconUrl} alt={chainId} className="w-6 h-6 rounded-full" />;
+  return <img src={iconUrl} alt={chainId} className="w-6 h-6 rounded-nexus-full" />;
 };
 
 export const TokenIcon = ({ tokenSymbol }: { tokenSymbol: string }) => {
@@ -20,8 +20,8 @@ export const TokenIcon = ({ tokenSymbol }: { tokenSymbol: string }) => {
   const iconUrl = token?.icon;
 
   if (!iconUrl) {
-    return <div className="w-6 h-6 bg-gray-300 rounded-full" />;
+    return <div className="w-6 h-6 bg-gray-300 rounded-nexus-full" />;
   }
 
-  return <img src={iconUrl} alt={tokenSymbol} className="w-6 h-6 rounded-full" />;
+  return <img src={iconUrl} alt={tokenSymbol} className="w-6 h-6 rounded-nexus-full" />;
 };

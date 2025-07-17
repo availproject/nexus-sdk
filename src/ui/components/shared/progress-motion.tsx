@@ -21,7 +21,7 @@ function Progress({
     <div
       data-slot="progress"
       className={cn(
-        'bg-[#E8EAF0] relative h-2 w-full overflow-hidden rounded-full border border-[#C8C8C8]',
+        'bg-[#E8EAF0] relative h-2 w-full overflow-hidden rounded-nexus-full border border-[#C8C8C8]',
         className,
       )}
       {...props}
@@ -31,13 +31,13 @@ function Progress({
         className={cn(indicatorColor, 'h-full origin-left')}
         initial={{ scaleX: 0 }}
         animate={{ scaleX: percentage / 100 }}
-        transition={{ 
+        transition={{
           duration: 0.3,
-          ease: [0.4, 0.0, 0.2, 1]
+          ease: [0.4, 0.0, 0.2, 1],
         }}
-        style={{ 
+        style={{
           transformOrigin: 'left',
-          width: '100%'
+          width: '100%',
         }}
       />
     </div>

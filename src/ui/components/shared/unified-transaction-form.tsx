@@ -88,7 +88,7 @@ export function UnifiedTransactionForm({
         <FormField
           label={formConfig.chainLabel}
           className={cn(
-            'flex-1 nexus-font-primary',
+            'flex-1 font-nexus-primary',
             type === 'bridge' ? 'w-full max-w-[208px]' : '',
           )}
         >
@@ -117,7 +117,7 @@ export function UnifiedTransactionForm({
 
         <FormField
           label={formConfig.tokenLabel}
-          className={cn('flex-1 nexus-font-primary', type === 'bridge' ? 'min-w-max' : '')}
+          className={cn('flex-1 font-nexus-primary', type === 'bridge' ? 'min-w-max' : '')}
         >
           <TokenSelect
             value={inputData.token}
@@ -132,7 +132,7 @@ export function UnifiedTransactionForm({
       </div>
 
       <div
-        className={cn('flex gap-x-4 w-full', type !== 'bridgeAndExecute' && 'nexus-font-primary')}
+        className={cn('flex gap-x-4 w-full', type !== 'bridgeAndExecute' && 'font-nexus-primary')}
       >
         <FormField
           label="Amount"
@@ -141,7 +141,7 @@ export function UnifiedTransactionForm({
               ? `Balance: ${parseFloat(tokenBalance ?? '0').toFixed(6)} ${inputData?.token ?? ''}`
               : undefined
           }
-          className="flex-1 nexus-font-primary"
+          className="flex-1 font-nexus-primary"
         >
           <AmountInput
             value={inputData?.amount ? inputData.amount?.toString() : ''}

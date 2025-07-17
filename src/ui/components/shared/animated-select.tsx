@@ -157,7 +157,7 @@ const AnimatedSelect = <T extends SelectOption = SelectOption>({
         onKeyDown={handleKeyDown}
         disabled={disabled}
         className={cn(
-          'data-[placeholder]:text-muted-foreground [&_svg:not([class*="text-"])]:text-muted-foreground  focus-visible:outline-none placeholder:font-medium aria-invalid:ring-destructive/20  aria-invalid:border-destructive gap-2 text-base placeholder:text-base whitespace-nowrap shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 data-[size=default]:h-9 data-[size=sm]:h-8 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*="size-"])]:size-4 nexus-font-primary px-4 py-2 min-h-12 rounded-[8px] border border-zinc-400 w-full cursor-pointer bg-transparent flex justify-between items-center',
+          'data-[placeholder]:text-nexus-muted-foreground [&_svg:not([class*="text-"])]:text-nexus-muted-foreground  focus-visible:outline-none placeholder:font-medium aria-invalid:ring-nexus-destructive/20  aria-invalid:border-nexus-destructive gap-2 text-base placeholder:text-base whitespace-nowrap shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 data-[size=default]:h-9 data-[size=sm]:h-8 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*="size-"])]:size-4 font-nexus-primary px-4 py-2 min-h-12 rounded-nexus-md border border-zinc-400 w-full cursor-pointer bg-transparent flex justify-between items-center',
           {
             'opacity-50': disabled,
           },
@@ -175,7 +175,7 @@ const AnimatedSelect = <T extends SelectOption = SelectOption>({
         <span
           data-slot="select-value"
           className={cn(
-            'text-black text-base font-semibold nexus-font-primary leading-normal truncate line-clamp-1 flex items-center gap-2',
+            'text-black text-base font-semibold font-nexus-primary leading-normal truncate line-clamp-1 flex items-center gap-2',
             {
               'text-zinc-500': !selectedOption,
             },
@@ -235,7 +235,7 @@ const AnimatedSelect = <T extends SelectOption = SelectOption>({
               transformOrigin: position.transformOrigin,
               zIndex: 50,
             }}
-            className="nexus-font-primary w-full text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 relative z-50 max-h-max  overflow-x-hidden overflow-y-auto rounded-[8px] shadow-md data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1 bg-[#FAFAFA]"
+            className="font-nexus-primary w-full text-nexus-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 relative z-50 max-h-max  overflow-x-hidden overflow-y-auto rounded-nexus-md shadow-md data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1 bg-[#FAFAFA]"
             role="listbox"
             data-state={isOpen ? 'open' : 'closed'}
             data-slot="select-content"
@@ -252,9 +252,9 @@ const AnimatedSelect = <T extends SelectOption = SelectOption>({
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.05, duration: 0.2 }}
                   className={cn(
-                    ' focus:text-accent-foreground cursor-pointer [&_svg:not([class*="text-"])]:text-muted-foreground relative hover:bg-zinc-400 flex w-full items-center gap-2 rounded-sm py-1.5 pr-8 pl-2 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*="size-"])]:size-4',
+                    ' focus:text-nexus-accent-foreground cursor-pointer [&_svg:not([class*="text-"])]:text-nexus-muted-foreground relative hover:bg-nexus-accent/10 flex w-full items-center gap-2 rounded-nexus-sm py-1.5 pr-8 pl-2 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*="size-"])]:size-4',
                     {
-                      'bg-accent text-accent-foreground': selectedOption?.value === option.value,
+                      'bg-nexus-accent text-nexus-accent-foreground': selectedOption?.value === option.value,
                     },
                   )}
                   role="option"

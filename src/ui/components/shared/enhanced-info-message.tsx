@@ -51,25 +51,23 @@ export function EnhancedInfoMessage({ error, context, className }: EnhancedInfoM
     return (
       <InfoMessage variant="error" className={className}>
         <div className="space-y-3">
-          <p className="text-sm nexus-font-primary text-destructive-base font-bold">
-            {formattedError}
-          </p>
+          <p className="text-sm font-nexus-primary text-red-600 font-bold">{formattedError}</p>
 
-          <div className="flex items-center gap-2 p-3 bg-destructive-base/5 rounded-[8px] border border-destructive-base/20">
+          <div className="flex items-center gap-2 p-3 bg-red-50 rounded-nexus-md border border-red-200">
             <img
               src={chainMetadata.logo}
               alt={chainMetadata.name}
-              className="w-8 h-8 rounded-full"
+              className="w-8 h-8 rounded-nexus-full"
             />
             <div className="flex-1">
-              <p className="text-sm font-semibold text-gray-900">{chainMetadata.name}</p>
-              <p className="text-xs text-gray-600">Chain ID: {chainId}</p>
+              <p className="text-sm font-semibold font-nexus-primary text-gray-900">{chainMetadata.name}</p>
+              <p className="text-xs font-nexus-primary text-gray-600">Chain ID: {chainId}</p>
             </div>
             <Button
               onClick={handleAddChain}
               disabled={isAddingChain}
               size="sm"
-              className="bg-blue-600 hover:bg-blue-700 text-white"
+              className="bg-nexus-blue hover:bg-nexus-blue/90 text-white"
             >
               {isAddingChain ? (
                 <>
@@ -85,7 +83,7 @@ export function EnhancedInfoMessage({ error, context, className }: EnhancedInfoM
             </Button>
           </div>
 
-          <p className="text-xs text-gray-500">
+          <p className="text-xs font-nexus-primary text-gray-500">
             This will add {chainMetadata.name} network to your wallet so you can use it for
             transactions.
           </p>
@@ -98,7 +96,7 @@ export function EnhancedInfoMessage({ error, context, className }: EnhancedInfoM
     return (
       <InfoMessage variant="success" className={className}>
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 bg-green-100 rounded-full flex items-center justify-center">
+          <div className="w-6 h-6 bg-green-100 rounded-nexus-full flex items-center justify-center">
             <svg className="w-4 h-4 text-green-600" fill="currentColor" viewBox="0 0 20 20">
               <path
                 fillRule="evenodd"
@@ -108,10 +106,10 @@ export function EnhancedInfoMessage({ error, context, className }: EnhancedInfoM
             </svg>
           </div>
           <div className="flex-1">
-            <p className="text-sm font-semibold text-green-800">
+            <p className="text-sm font-semibold font-nexus-primary text-green-800">
               {chainMetadata?.name} network added successfully!
             </p>
-            <p className="text-xs text-green-600 mt-1">You can now retry your transaction.</p>
+            <p className="text-xs font-nexus-primary text-green-600 mt-1">You can now retry your transaction.</p>
           </div>
         </div>
       </InfoMessage>
@@ -121,7 +119,7 @@ export function EnhancedInfoMessage({ error, context, className }: EnhancedInfoM
   // Fallback to regular formatted error message
   return (
     <InfoMessage variant="error" className={className}>
-      <p className="text-sm nexus-font-primary text-destructive-base font-bold">{formattedError}</p>
+      <p className="text-sm font-nexus-primary text-red-600 font-bold">{formattedError}</p>
     </InfoMessage>
   );
 }
