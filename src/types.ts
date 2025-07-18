@@ -281,14 +281,14 @@ export interface ContractCallParams {
 
 export type {
   OnIntentHook,
+  OnAllowanceHookData,
+  OnIntentHookData,
   OnAllowanceHook,
   EthereumProvider,
   RequestArguments,
   ProgressStep,
   ProgressSteps,
   Intent,
-  OnIntentHookData,
-  OnAllowanceHookData,
   onAllowanceHookSource as AllowanceHookSource,
   Network,
   UserAsset,

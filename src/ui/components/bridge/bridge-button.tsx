@@ -1,3 +1,4 @@
+'use client';
 import React from 'react';
 import type { BridgeButtonProps } from '../../types';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';

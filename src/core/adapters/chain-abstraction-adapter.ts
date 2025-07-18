@@ -36,8 +36,7 @@ import type {
 } from '../../types';
 
 /**
- * Refactored Adapter class that wraps CA SDK and provides a unified interface for chain abstraction operations.
- * Now uses a service-based architecture for better organization and maintainability.
+ * Provides a unified interface for chain abstraction operations.
  */
 export class ChainAbstractionAdapter {
   public readonly ca: CA;

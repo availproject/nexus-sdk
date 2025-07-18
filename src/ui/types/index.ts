@@ -1,24 +1,79 @@
 import { ReactNode } from 'react';
-import {
+import { EthereumProvider, UserAsset } from '@arcana/ca-sdk';
+import { NexusSDK } from '../../core/sdk';
+
+// Only import essential parameter types, not all from root types
+import type { 
+  BridgeParams, 
+  TransferParams, 
   BridgeAndExecuteParams,
-  BridgeAndExecuteResult,
-  BridgeAndExecuteSimulationResult,
-  BridgeParams,
-  BridgeResult,
-  EthereumProvider,
-  SimulationResult,
-  TransferParams,
-  TransferResult,
-  UserAsset,
   SUPPORTED_TOKENS,
-  SUPPORTED_CHAINS_IDS,
-  ChainMetadata,
-  TokenMetadata,
-  NexusNetwork,
+  SUPPORTED_CHAINS_IDS 
 } from '../../types';
-import { NexusSDK } from '../..';
 
 import { Abi } from 'viem';
+
+// Local result types for UI (to avoid importing all types)
+interface BridgeResult {
+  success: boolean;
+  error?: string;
+  explorerUrl?: string;
+}
+
+interface TransferResult {
+  success: boolean;
+  error?: string;
+  explorerUrl?: string;
+}
+
+interface BridgeAndExecuteResult {
+  success: boolean;
+  error?: string;
+  executeTransactionHash?: string;
+  executeExplorerUrl?: string;
+  approvalTransactionHash?: string;
+  toChainId: number;
+}
+
+interface SimulationResult {
+  intent: any;
+  token: any;
+}
+
+interface BridgeAndExecuteSimulationResult {
+  success: boolean;
+  error?: string;
+  steps: any[];
+  bridgeSimulation: SimulationResult | null;
+  executeSimulation?: any;
+}
+
+// Local metadata types for UI
+interface ChainMetadata {
+  id: number;
+  name: string;
+  shortName: string;
+  logo: string;
+  nativeCurrency: {
+    name: string;
+    symbol: string;
+    decimals: number;
+  };
+  rpcUrls: string[];
+  blockExplorerUrls: string[];
+}
+
+interface TokenMetadata {
+  symbol: string;
+  name: string;
+  decimals: number;
+  icon: string;
+  coingeckoId: string;
+  isNative?: boolean;
+}
+
+// Local network type for UI
+type NexusNetwork = 'mainnet' | 'testnet';
 
 // # 1. High-Level State Machines
 

@@ -7,11 +7,11 @@ import {
   addChainToWallet,
   formatErrorForUI,
 } from '../../utils/utils';
-import { CHAIN_METADATA } from '../../..';
 import { Plus } from '../icons';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { logger } from '../../../core/utils';
 import LoadingDots from './loading-dots';
+import { CHAIN_METADATA } from '../../../constants';
 
 interface EnhancedInfoMessageProps {
   error: unknown;
@@ -60,7 +60,9 @@ export function EnhancedInfoMessage({ error, context, className }: EnhancedInfoM
               className="w-8 h-8 rounded-nexus-full"
             />
             <div className="flex-1">
-              <p className="text-sm font-semibold font-nexus-primary text-gray-900">{chainMetadata.name}</p>
+              <p className="text-sm font-semibold font-nexus-primary text-gray-900">
+                {chainMetadata.name}
+              </p>
               <p className="text-xs font-nexus-primary text-gray-600">Chain ID: {chainId}</p>
             </div>
             <Button
@@ -109,7 +111,9 @@ export function EnhancedInfoMessage({ error, context, className }: EnhancedInfoM
             <p className="text-sm font-semibold font-nexus-primary text-green-800">
               {chainMetadata?.name} network added successfully!
             </p>
-            <p className="text-xs font-nexus-primary text-green-600 mt-1">You can now retry your transaction.</p>
+            <p className="text-xs font-nexus-primary text-green-600 mt-1">
+              You can now retry your transaction.
+            </p>
           </div>
         </div>
       </InfoMessage>

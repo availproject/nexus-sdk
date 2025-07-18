@@ -3,10 +3,10 @@ import { FormField } from './form-field';
 import { Input } from './input';
 import { cn } from '../../utils/utils';
 import { EnhancedInfoMessage } from './enhanced-info-message';
-import { CHAIN_METADATA, TOKEN_METADATA } from '../../..';
 import { ActionButtons } from './action-buttons';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { formatUnits } from '../../../core/utils';
+import { CHAIN_METADATA, TOKEN_METADATA } from '../../../constants';
 
 export interface AllowanceFormProps {
   token: string;

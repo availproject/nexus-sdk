@@ -1,6 +1,6 @@
 import React from 'react';
 import type { ITransactionController, ActiveTransaction } from '../types';
-import { NexusSDK } from '../..';
+import { NexusSDK } from '../../core/sdk';
 import {
   BridgeAndExecuteParams,
   BridgeAndExecuteResult,

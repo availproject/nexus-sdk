@@ -1,3 +1,4 @@
+'use client';
 import React from 'react';
 import { InternalNexusProvider } from './InternalNexusProvider';
 import { NexusNetwork } from '../../types';

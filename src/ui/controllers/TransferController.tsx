@@ -1,6 +1,6 @@
 import React from 'react';
 import type { ITransactionController, ActiveTransaction } from '../types';
-import { NexusSDK } from '../..';
+import { NexusSDK } from '../../core/sdk';
 import { TransferParams, TransferResult } from '../../types';
 import { UnifiedTransactionForm } from '../components/shared/unified-transaction-form';
 import { logger } from '../../core/utils';

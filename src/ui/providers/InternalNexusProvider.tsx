@@ -1,3 +1,4 @@
+'use client';
 import React, {
   createContext,
   useContext,
@@ -8,7 +9,7 @@ import React, {
   useEffect,
   useRef,
 } from 'react';
-import { NexusSDK } from '../..';
+import { NexusSDK } from '../../core/sdk';
 import {
   EthereumProvider,
   UserAsset,

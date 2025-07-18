@@ -1,6 +1,6 @@
 import React from 'react';
 import type { ITransactionController, BridgeConfig, ActiveTransaction } from '../types';
-import { NexusSDK } from '../..';
+import { NexusSDK } from '../../core/sdk';
 import { BridgeParams, BridgeResult } from '../../types';
 import { UnifiedTransactionForm } from '../components/shared/unified-transaction-form';
 import { logger } from '../../core/utils';
