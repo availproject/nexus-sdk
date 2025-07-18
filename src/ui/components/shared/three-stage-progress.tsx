@@ -103,7 +103,7 @@ export const ThreeStageProgress: React.FC<ThreeStageProgressProps> = ({
   const getIndicatorColor = (state: ProgressBarState['state']) => {
     switch (state) {
       case 'error':
-        return 'bg-nexus-color-destructive-secondary';
+        return 'bg-nexus-destructive-secondary';
       case 'completed':
       case 'active':
         return undefined;
