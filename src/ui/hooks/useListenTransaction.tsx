@@ -65,6 +65,10 @@ const useListenTransaction = ({
     let expectedReceived = false;
     // Queue to store stepComplete events that arrive before expected steps
     const pendingSteps: ProgressStep[] = [];
+    const eventType =
+      type === 'bridgeAndExecute'
+        ? NEXUS_EVENTS.BRIDGE_EXECUTE_EXPECTED_STEPS
+        : NEXUS_EVENTS.EXPECTED_STEPS;
 
     const handleExpectedSteps = (expectedSteps: ProgressSteps[]) => {
       expectedReceived = true;
@@ -175,32 +179,12 @@ const useListenTransaction = ({
       }
     };
 
-    sdk.nexusEvents?.on(
-      type === 'bridgeAndExecute'
-        ? NEXUS_EVENTS.BRIDGE_EXECUTE_EXPECTED_STEPS
-        : NEXUS_EVENTS.EXPECTED_STEPS,
-      handleExpectedSteps,
-    );
-    sdk.nexusEvents?.on(
-      type === 'bridgeAndExecute'
-        ? NEXUS_EVENTS.BRIDGE_EXECUTE_COMPLETED_STEPS
-        : NEXUS_EVENTS.STEP_COMPLETE,
-      handleStepComplete,
-    );
+    sdk?.nexusEvents?.on(eventType, handleExpectedSteps);
+    sdk?.nexusEvents?.on(eventType, handleStepComplete);
 
     return () => {
-      sdk.nexusEvents?.off(
-        type === 'bridgeAndExecute'
-          ? NEXUS_EVENTS.BRIDGE_EXECUTE_EXPECTED_STEPS
-          : NEXUS_EVENTS.EXPECTED_STEPS,
-        handleExpectedSteps,
-      );
-      sdk.nexusEvents?.off(
-        type === 'bridgeAndExecute'
-          ? NEXUS_EVENTS.BRIDGE_EXECUTE_COMPLETED_STEPS
-          : NEXUS_EVENTS.STEP_COMPLETE,
-        handleStepComplete,
-      );
+      sdk.nexusEvents?.off(eventType, handleExpectedSteps);
+      sdk.nexusEvents?.off(eventType, handleStepComplete);
     };
   }, [sdk, type]);
 

@@ -32,6 +32,4 @@ yarn-error.log*
 .DS_Store
 Thumbs.db 
 
-/OPTIMIZATION.md
-/IMPLEMENTATION_GUIDELINES.md
-/ENTRY_POINTS.md
+/CLAUDE.md

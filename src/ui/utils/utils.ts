@@ -345,3 +345,10 @@ export const getContentKey = (status: string, additionalStates?: string[]): stri
 
   return 'review';
 };
+
+export const formatCost = (cost: string) => {
+  const numCost = parseFloat(cost);
+  if (numCost === 0) return 'Free';
+  if (numCost < 0.001) return '< 0.001';
+  return numCost.toFixed(6);
+};

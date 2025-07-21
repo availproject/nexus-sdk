@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useCallback, useRef } from 'react';
 import { motion } from 'motion/react';
 import { Button, ThreeStageProgress, EnhancedInfoMessage } from '../shared';
 import SuccessRipple from '../shared/success-ripple';
@@ -13,6 +13,7 @@ import { DotLottieReact } from '@lottiefiles/dotlottie-react';
 import { SmallAvailLogo } from '../icons/SmallAvailLogo';
 import type { DotLottie } from '@lottiefiles/dotlottie-react';
 import { CircleX, ExternalLink, Minimize } from '../icons';
+import { formatCost } from '../../utils/utils';
 
 export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
   status,
@@ -31,6 +32,28 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
   executionResult,
 }: ProcessorCardProps) => {
   const lottieRef = useRef<DotLottie | null>(null);
+
+  const sourceAmount = useCallback(() => {
+    if (transactionType === 'bridge' || transactionType === 'transfer') {
+      return formatCost((simulationResult as SimulationResult)?.intent?.sourcesTotal);
+    } else {
+      return formatCost(
+        (simulationResult as BridgeAndExecuteSimulationResult)?.bridgeSimulation?.intent
+          ?.sourcesTotal ?? '',
+      );
+    }
+  }, [transactionType, simulationResult]);
+
+  const destinationAmount = useCallback(() => {
+    if (transactionType === 'bridge' || transactionType === 'transfer') {
+      return formatCost((simulationResult as SimulationResult)?.intent?.destination?.amount);
+    } else {
+      return formatCost(
+        (simulationResult as BridgeAndExecuteSimulationResult)?.bridgeSimulation?.intent
+          ?.destination?.amount ?? '',
+      );
+    }
+  }, [transactionType, simulationResult]);
 
   return (
     <>
@@ -102,11 +125,7 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
                 </div>
                 <div className="flex flex-col gap-y-1 items-center">
                   <p className="text-lg font-nexus-primary text-black font-bold">
-                    {transactionType === 'bridge' || transactionType === 'transfer'
-                      ? (simulationResult as SimulationResult)?.intent?.sourcesTotal?.slice(0, 6)
-                      : (
-                          simulationResult as BridgeAndExecuteSimulationResult
-                        )?.bridgeSimulation?.intent?.sourcesTotal?.slice(0, 6)}
+                    {sourceAmount()}
                   </p>
                   <p className="text-sm font-nexus-primary text-nexus-muted-secondary font-medium">
                     From {sourceChainMeta.length} chain{sourceChainMeta.length > 1 ? 's' : ''}
@@ -162,13 +181,7 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
                     </SuccessRipple>
                     <div className="flex flex-col gap-y-1 items-center">
                       <p className="text-lg font-nexus-primary text-black font-bold">
-                        {transactionType === 'bridge' || transactionType === 'transfer'
-                          ? (
-                              simulationResult as SimulationResult
-                            )?.intent?.destination?.amount.slice(0, 6)
-                          : (
-                              simulationResult as BridgeAndExecuteSimulationResult
-                            )?.bridgeSimulation?.intent?.destination?.amount.slice(0, 6)}
+                        {destinationAmount()}
                       </p>
                       <p className="text-sm font-nexus-primary text-nexus-muted-secondary font-medium">
                         To {destChainMeta?.name ?? ''}

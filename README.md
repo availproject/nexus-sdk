@@ -18,12 +18,10 @@ The SDK now provides **two optimized entry points** for better tree shaking and 
 
 ### **Core SDK (Headless)** - `@avail-project/nexus/core`
 
-- **Bundle Size**: ~300KB
 - **Dependencies**: No React dependencies
 
 ### **UI Components** - `@avail-project/nexus/ui`
 
-- **Bundle Size**: ~400KB
 - **Dependencies**: React required
 
 ## Quick Start

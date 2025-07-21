@@ -1,7 +1,7 @@
 import React, { Fragment, useEffect, useState } from 'react';
 import { FormField } from './form-field';
 import { Input } from './input';
-import { cn } from '../../utils/utils';
+import { cn, formatCost } from '../../utils/utils';
 import { EnhancedInfoMessage } from './enhanced-info-message';
 import { ActionButtons } from './action-buttons';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
@@ -72,7 +72,7 @@ export function AllowanceForm({
         {/* Header */}
         <div className="mb-6 text-left px-6 font-semibold font-nexus-primary">
           <p className="text-sm text-gray-600">
-            To continue, please let this app use at least [{minimumAmount.slice(0, 7)}] {token} from
+            To continue, please let this app use at least [{formatCost(minimumAmount)}] {token} from
             your wallet.
           </p>
           <p className="text-sm text-gray-500 mt-1">
@@ -137,17 +137,18 @@ export function AllowanceForm({
               </div>
             </div>
           </div>
-
-          <div className="mt-3 py-2 border-b border-[#B3B3B3]">
-            <div className="flex items-center justify-between text-sm font-nexus-primary">
-              <span className="text-sm font-medium text-gray-700 font-nexus-primary">
-                Current Allowance
-              </span>
-              <span className="font-nexus-secondary text-black font-semibold">
-                {currentAllowance?.slice(0, 7)}
-              </span>
+          {currentAllowance && (
+            <div className="mt-3 py-2 border-b border-[#B3B3B3]">
+              <div className="flex items-center justify-between text-sm font-nexus-primary">
+                <span className="text-sm font-medium text-gray-700 font-nexus-primary">
+                  Current Allowance
+                </span>
+                <span className="font-nexus-secondary text-black font-semibold">
+                  {formatCost(currentAllowance)}
+                </span>
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {error ? (
@@ -175,7 +176,7 @@ export function AllowanceForm({
                   <div className="font-nexus-primary">
                     <span className="text-sm font-bold text-gray-900">Minimum</span>
                     <span className="text-base font-bold text-gray-900 ml-2">
-                      {minimumAmount.slice(0, 7)}
+                      {formatCost(minimumAmount)}
                     </span>
                   </div>
                 </div>

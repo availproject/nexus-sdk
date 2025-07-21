@@ -12,7 +12,6 @@ import type {
   OnAllowanceHook,
   EthereumProvider,
   RequestArguments,
-  EventListener,
   UserAsset,
   SimulationResult,
   RequestForFunds,
@@ -29,7 +28,7 @@ import { Network, SDKConfig } from '@arcana/ca-sdk';
 import { ChainAbstractionAdapter } from '../adapters/chain-abstraction-adapter';
 
 export class NexusSDK {
-  public readonly nexusAdapter: ChainAbstractionAdapter;
+  private readonly nexusAdapter: ChainAbstractionAdapter;
   public readonly nexusEvents: SafeEventEmitter;
   public readonly utils: NexusUtils;
 
@@ -99,18 +98,23 @@ export class NexusSDK {
   }
 
   /**
-   * Bridge tokens between chains
+   * Cross chain token transfer
    */
   public async bridge(params: BridgeParams): Promise<BridgeResult> {
     return this.nexusAdapter.bridge(params);
   }
 
   /**
-   * Transfer tokens
+   * Cross chain token transfer to EOA
    */
   public async transfer(params: TransferParams): Promise<TransferResult> {
     return this.nexusAdapter.transfer(params);
   }
+
+  /**
+   * Get chain abstracted provider allowing use of chain asbtraction
+   * @returns EthereumProvider
+   */
 
   public getEVMProviderWithCA(): EthereumProvider {
     return this.nexusAdapter.getEVMProviderWithCA();
@@ -172,45 +176,12 @@ export class NexusSDK {
     this.nexusAdapter.setOnAllowanceHook(callback);
   }
 
-  /**
-   * Subscribe to account changes
-   */
-  public onAccountChanged(callback: (account: string) => void): void {
-    this.nexusAdapter.onAccountChanged(callback);
-  }
-
-  /**
-   * Subscribe to chain changes
-   */
-  public onChainChanged(callback: (chainId: number) => void): void {
-    this.nexusAdapter.onChainChanged(callback);
-  }
-
-  /**
-   * Remove all event listeners
-   */
-  public removeAllListeners(): void {
-    this.nexusAdapter.removeAllListeners();
-  }
-
   public async deinit(): Promise<void> {
     await this.nexusAdapter.deinit();
   }
 
   public async request(args: RequestArguments): Promise<unknown> {
     return this.nexusAdapter.request(args);
-  }
-
-  public on(eventName: string, listener: EventListener): void {
-    this.nexusAdapter.on(eventName, listener);
-  }
-
-  public removeListener(eventName: string, listener: EventListener): void {
-    this.nexusAdapter.removeListener(eventName, listener);
-  }
-
-  public removeAllCaEventListeners(eventName?: string): void {
-    this.nexusAdapter.removeAllCaEventListeners(eventName);
   }
 
   /**
