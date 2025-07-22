@@ -3,5 +3,5 @@
 
 throw new Error(
   'Importing from @avail-project/nexus root is not supported. ' +
-  'Use @avail-project/nexus/core for headless SDK or @avail-project/nexus/ui for React components.'
+    'Use @avail-project/nexus/core for headless SDK or @avail-project/nexus/ui for React components.',
 );

@@ -38,15 +38,13 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
       return formatCost((simulationResult as SimulationResult)?.intent?.sourcesTotal);
     } else {
       const bridgeExecuteResult = simulationResult as BridgeAndExecuteSimulationResult;
-      
+
       // If bridge was skipped, use input amount from metadata
       if (bridgeExecuteResult?.metadata?.bridgeSkipped) {
         return formatCost(bridgeExecuteResult.metadata.inputAmount ?? '');
       }
-      
-      return formatCost(
-        bridgeExecuteResult?.bridgeSimulation?.intent?.sourcesTotal ?? '',
-      );
+
+      return formatCost(bridgeExecuteResult?.bridgeSimulation?.intent?.sourcesTotal ?? '');
     }
   }, [transactionType, simulationResult]);
 
@@ -55,15 +53,13 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
       return formatCost((simulationResult as SimulationResult)?.intent?.destination?.amount);
     } else {
       const bridgeExecuteResult = simulationResult as BridgeAndExecuteSimulationResult;
-      
+
       // If bridge was skipped, use input amount from metadata (same as source since no bridge)
       if (bridgeExecuteResult?.metadata?.bridgeSkipped) {
         return formatCost(bridgeExecuteResult.metadata.inputAmount ?? '');
       }
-      
-      return formatCost(
-        bridgeExecuteResult?.bridgeSimulation?.intent?.destination?.amount ?? '',
-      );
+
+      return formatCost(bridgeExecuteResult?.bridgeSimulation?.intent?.destination?.amount ?? '');
     }
   }, [transactionType, simulationResult]);
 
@@ -259,8 +255,8 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
                         )
                       }
                     >
-                      {(executionResult as BridgeAndExecuteResult)?.bridgeSkipped 
-                        ? 'View Transaction' 
+                      {(executionResult as BridgeAndExecuteResult)?.bridgeSkipped
+                        ? 'View Transaction'
                         : 'View Execute Transaction'}{' '}
                       <ExternalLink className="w-6 h-6 ml-2 text-nexus-muted-secondary" />
                     </Button>
