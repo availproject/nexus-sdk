@@ -5,6 +5,7 @@ import SuccessRipple from '../shared/success-ripple';
 import { Maximize, ExternalLink } from '../icons';
 import { ProcessorCardProps } from '../../types';
 import { WordsPullUp } from '../shared/pull-up-words';
+import { BridgeAndExecuteResult } from '../../../types';
 
 export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
   status,
@@ -17,6 +18,7 @@ export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
   explorerURL,
   description,
   error,
+  executionResult,
 }: ProcessorCardProps) => {
   return (
     <motion.div
@@ -114,16 +116,31 @@ export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
               className="text-[16px] font-nexus-primary font-semibold text-black"
             />
           </motion.div>
-          {transactionType !== 'bridgeAndExecute' && status === 'success' ? (
-            <Button
-              className="h-fit text-xs text-nexus-accent underline font-semibold font-nexus-primary px-0"
-              size="sm"
-              variant="link"
-              onClick={() => window.open(explorerURL ?? '', '_blank')}
-            >
-              View on Explorer <ExternalLink className="w-4 h-4 ml-2 text-nexus-muted-secondary" />
-            </Button>
-          ) : (
+          {status === 'success' && (
+            transactionType !== 'bridgeAndExecute' ? (
+              <Button
+                className="h-fit text-xs text-nexus-accent underline font-semibold font-nexus-primary px-0"
+                size="sm"
+                variant="link"
+                onClick={() => window.open(explorerURL ?? '', '_blank')}
+              >
+                View on Explorer <ExternalLink className="w-4 h-4 ml-2 text-nexus-muted-secondary" />
+              </Button>
+            ) : (
+              // For bridgeAndExecute, show execute transaction link (bridge link handled in full card)
+              (executionResult as BridgeAndExecuteResult)?.executeExplorerUrl && (
+                <Button
+                  className="h-fit text-xs text-nexus-accent underline font-semibold font-nexus-primary px-0"
+                  size="sm"
+                  variant="link"
+                  onClick={() => window.open((executionResult as BridgeAndExecuteResult)?.executeExplorerUrl ?? '', '_blank')}
+                >
+                  View Transaction <ExternalLink className="w-4 h-4 ml-2 text-nexus-muted-secondary" />
+                </Button>
+              )
+            )
+          )}
+          {status !== 'success' && (
             <p className="font-nexus-primary text-sm text-grey-600 text-ellipsis overflow-hidden">
               {description}
             </p>

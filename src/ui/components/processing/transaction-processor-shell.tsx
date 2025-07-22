@@ -27,11 +27,15 @@ export const TransactionProcessorShell: React.FC = () => {
     if (transactionType === 'bridge' || transactionType === 'transfer') {
       return (simulationResult as SimulationResult)?.intent?.sources?.map((s) => s.chainID) || [];
     }
-    return (
-      (simulationResult as BridgeAndExecuteSimulationResult).bridgeSimulation?.intent?.sources?.map(
-        (s) => s.chainID,
-      ) || []
-    );
+
+    const bridgeExecuteResult = simulationResult as BridgeAndExecuteSimulationResult;
+
+    // If bridge was skipped, use the target chain as the source since we're executing directly
+    if (bridgeExecuteResult?.metadata?.bridgeSkipped) {
+      return [bridgeExecuteResult.metadata.targetChain];
+    }
+
+    return bridgeExecuteResult.bridgeSimulation?.intent?.sources?.map((s) => s.chainID) || [];
   }, [simulationResult, transactionType]);
 
   const destination = useMemo(() => {
@@ -39,10 +43,15 @@ export const TransactionProcessorShell: React.FC = () => {
     if (transactionType === 'bridge' || transactionType === 'transfer') {
       return (simulationResult as SimulationResult)?.intent?.destination?.chainID || 0;
     }
-    return (
-      (simulationResult as BridgeAndExecuteSimulationResult).bridgeSimulation?.intent?.destination
-        ?.chainID || 0
-    );
+
+    const bridgeExecuteResult = simulationResult as BridgeAndExecuteSimulationResult;
+
+    // If bridge was skipped, use the target chain as the destination
+    if (bridgeExecuteResult?.metadata?.bridgeSkipped) {
+      return bridgeExecuteResult.metadata.targetChain;
+    }
+
+    return bridgeExecuteResult.bridgeSimulation?.intent?.destination?.chainID || 0;
   }, [simulationResult, transactionType]);
 
   const token = activeTransaction.inputData?.token || '';
@@ -59,7 +68,7 @@ export const TransactionProcessorShell: React.FC = () => {
 
   const getDescription = () => {
     if (activeTransaction?.executionResult?.success) return 'Transaction Completed Successfully';
-    return `${getOperationText(transactionType as TransactionType)} ${tokenMeta?.symbol || 'token'} from ${sourceChainMeta.length > 1 ? 'multiple chains' : sourceChainMeta[0]?.name + ' chain'} to ${destChainMeta?.name || 'destination chain'}`;
+    return `${getOperationText(transactionType as TransactionType)} ${tokenMeta?.symbol || 'token'} from ${sourceChainMeta.length > 1 ? 'multiple chains' : sourceChainMeta[0]?.name} to ${destChainMeta?.name || 'destination chain'}`;
   };
 
   const shellActive = ['processing', 'success', 'error'].includes(activeTransaction.status);

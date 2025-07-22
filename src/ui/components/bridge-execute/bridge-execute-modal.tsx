@@ -46,11 +46,21 @@ export default function BridgeAndExecuteModal() {
   };
 
   const getMinimumAmount = (simulationResult: BridgeAndExecuteSimulationResult) => {
+    // If bridge was skipped, use the input amount instead of bridge simulation data
+    if (simulationResult?.metadata?.bridgeSkipped) {
+      return simulationResult.metadata.inputAmount || '0';
+    }
+    
     const bridgeSim = simulationResult?.bridgeSimulation;
     return bridgeSim?.intent?.sourcesTotal || '0';
   };
 
   const getSourceChains = (simulationResult: BridgeAndExecuteSimulationResult) => {
+    // If bridge was skipped, return empty array since there's no bridge routing
+    if (simulationResult?.metadata?.bridgeSkipped) {
+      return [];
+    }
+    
     const bridgeSim = simulationResult?.bridgeSimulation;
     return bridgeSim?.intent?.sources?.map((s) => ({ chainId: s.chainID, amount: s.amount })) || [];
   };

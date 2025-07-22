@@ -6,7 +6,7 @@ const useOutsideClick = (
 ) => {
   useEffect(() => {
     const listener = (event: MouseEvent | TouchEvent) => {
-      if (!ref.current || ref.current.contains((event?.target as Node) || null)) {
+      if (!ref.current || !event.target || ref.current.contains(event.target as Node)) {
         return;
       }
       callback(event);
@@ -19,7 +19,7 @@ const useOutsideClick = (
       document.removeEventListener('mousedown', listener);
       document.removeEventListener('touchstart', listener);
     };
-  }, [ref, callback]);
+  }, [ref]);
 };
 
 export default useOutsideClick;

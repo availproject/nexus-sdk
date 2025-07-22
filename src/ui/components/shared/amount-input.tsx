@@ -8,6 +8,7 @@ interface AmountInputProps {
   disabled?: boolean;
   onChange?: (value: string) => void;
   className?: string;
+  placeholder?: string;
 }
 
 export function AmountInput({
@@ -16,6 +17,7 @@ export function AmountInput({
   disabled = false,
   onChange,
   className,
+  placeholder = '0.0',
 }: AmountInputProps) {
   const validateNumberInput = (input: string): string => {
     if (input === '') return '';
@@ -70,7 +72,7 @@ export function AmountInput({
             onChange={handleInputChange}
             disabled={disabled}
             className=" text-black text-base font-semibold font-nexus-primary leading-normal outline-none px-0"
-            placeholder="0.0"
+            placeholder={placeholder}
             inputMode="decimal"
             pattern="[0-9]*\.?[0-9]*"
           />

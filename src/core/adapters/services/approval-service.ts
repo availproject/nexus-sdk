@@ -137,7 +137,7 @@ export class ApprovalService extends BaseService {
       const approvalInfo = await this.checkApprovalNeeded(tokenApproval, spenderAddress, chainId);
 
       // Skip approval if sufficient allowance exists
-      if (approvalInfo.hasPendingApproval) {
+      if (!approvalInfo.needsApproval) {
         return {
           wasNeeded: false,
           confirmed: true,

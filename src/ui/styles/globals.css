@@ -34,7 +34,7 @@
   --color-nexus-card: var(--nexus-color-card);
   --color-nexus-card-foreground: var(--nexus-color-card-foreground);
 
-  --font-nexus-primary: var(--font-nexus-primary);
+  --font-nexus-primary: var(--nexus-font-primary);
   --font-nexus-secondary: var(--nexus-font-secondary);
 
   /* Font Sizes */
@@ -111,7 +111,7 @@
   --nexus-footer: rgb(190 216 238 / 0.4);
   --nexus-footer-text: rgb(76 76 76);
 
-  --font-nexus-primary:
+  --nexus-font-primary:
     'PP Mori', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   --nexus-font-secondary:
     'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
@@ -122,12 +122,6 @@
   --nexus-radius-lg: 12px;
   --nexus-radius-xl: 16px;
   --nexus-radius-full: 9999px;
-
-  /* Nexus SDK Fonts */
-  --nexus-font-family-primary:
-    'PP Mori', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  --nexus-font-family-secondary:
-    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
 }
 
 @keyframes fade-in {

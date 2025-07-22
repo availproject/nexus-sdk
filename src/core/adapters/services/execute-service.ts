@@ -58,7 +58,7 @@ export class ExecuteService extends BaseService {
         preparation.fromAddress,
         params.contractAddress,
         preparation.encodedData,
-        params.value || '0x0',
+        preparation.value || params.value || '0x0',
         {
           enableTransactionPolling: params.enableTransactionPolling,
           transactionTimeout: params.transactionTimeout,
@@ -111,7 +111,16 @@ export class ExecuteService extends BaseService {
         };
       }
 
-      // Prepare execution to get encoded data
+      // Get user address for callback
+      const fromAddress = (await this.adapter.evmProvider!.request({
+        method: 'eth_accounts',
+      })) as string[];
+
+      if (!fromAddress || fromAddress.length === 0) {
+        throw new Error('No accounts available');
+      }
+
+      // Prepare execution to get encoded data and value (calls buildFunctionParams internally)
       const preparation = await this.transactionService.prepareExecution(params);
 
       // Create simulation parameters
@@ -119,7 +128,7 @@ export class ExecuteService extends BaseService {
         from: preparation.fromAddress,
         to: params.contractAddress,
         data: preparation.encodedData,
-        value: params.value || '0x0',
+        value: preparation.value || params.value || '0x0',
         chainId: params.toChainId.toString(),
       };
 
@@ -169,17 +178,17 @@ export class ExecuteService extends BaseService {
 
     try {
       // Check if we should use enhanced simulation
-      logger.debug('DEBUG ExecuteService - tokenApproval:', params.tokenApproval);
-      logger.debug('DEBUG ExecuteService - functionName:', params.functionName);
-      logger.debug(
-        'DEBUG ExecuteService - isComplexContractCall:',
-        this.isComplexContractCall(params),
-      );
+      logger.debug('DEBUG ExecuteService - Full params received:', {
+        functionName: params.functionName,
+        contractAddress: params.contractAddress,
+        tokenApproval: params.tokenApproval,
+        buildFunctionParams: typeof params.buildFunctionParams,
+        toChainId: params.toChainId,
+      });
 
-      const shouldUseEnhancedSimulation =
-        params.tokenApproval && this.shouldUseEnhancedSimulation(params);
+      const shouldUseEnhancedSimulation = this.shouldUseEnhancedSimulation(params);
       logger.debug(
-        'DEBUG ExecuteService - shouldUseEnhancedSimulation:',
+        'DEBUG ExecuteService - Final enhanced simulation decision:',
         shouldUseEnhancedSimulation,
       );
 
@@ -187,7 +196,6 @@ export class ExecuteService extends BaseService {
         return await this.runEnhancedSimulation(params);
       }
 
-      // Fallback to standard simulation
       return await this.simulateExecute(params);
     } catch (error) {
       return {
@@ -205,6 +213,16 @@ export class ExecuteService extends BaseService {
     // Use enhanced simulation if:
     // 1. Token approval is required (indicates ERC20 interaction)
     // 2. Function is likely to fail without proper balance setup
+    const shouldUse =
+      params.tokenApproval !== undefined &&
+      params.tokenApproval.token !== 'ETH' &&
+      this.isComplexContractCall(params);
+    logger.debug('DEBUG shouldUseEnhancedSimulation - Decision:', {
+      hasTokenApproval: !!params.tokenApproval,
+      isComplex: this.isComplexContractCall(params),
+      functionName: params.functionName,
+      finalDecision: shouldUse,
+    });
     return (
       params.tokenApproval !== undefined &&
       params.tokenApproval.token !== 'ETH' &&
@@ -256,7 +274,7 @@ export class ExecuteService extends BaseService {
         evmProvider: this.adapter.evmProvider,
       };
 
-      const simulationEngine = new SimulationEngine(simulationAdapter, this.transactionService);
+      const simulationEngine = new SimulationEngine(simulationAdapter);
 
       // Get user address
       const preparation = await this.transactionService.prepareExecution(params);
@@ -271,10 +289,14 @@ export class ExecuteService extends BaseService {
         function: params.functionName,
       });
 
-      // Run enhanced simulation
+      // Run enhanced simulation (tokenApproval is guaranteed to exist here due to shouldUseEnhancedSimulation check)
+      if (!params.tokenApproval) {
+        throw new Error('Enhanced simulation requires token approval information');
+      }
+
       const enhancedResult = await simulationEngine.simulateWithStateSetup({
         user: preparation.fromAddress,
-        tokenRequired: params.tokenApproval!.token,
+        tokenRequired: params.tokenApproval.token,
         amountRequired: tokenAmount,
         contractCall: params,
       });

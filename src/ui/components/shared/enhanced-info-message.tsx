@@ -109,7 +109,9 @@ export function EnhancedInfoMessage({ error, context, className }: EnhancedInfoM
           </div>
           <div className="flex-1">
             <p className="text-sm font-semibold font-nexus-primary text-green-800">
-              {chainMetadata?.name} network added successfully!
+              {chainMetadata
+                ? `${chainMetadata.name} network added successfully!`
+                : 'Network added successfully!'}
             </p>
             <p className="text-xs font-nexus-primary text-green-600 mt-1">
               You can now retry your transaction.

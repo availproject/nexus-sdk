@@ -1,12 +1,12 @@
 import React, { Fragment, useEffect, useState } from 'react';
 import { FormField } from './form-field';
-import { Input } from './input';
 import { cn, formatCost } from '../../utils/utils';
 import { EnhancedInfoMessage } from './enhanced-info-message';
 import { ActionButtons } from './action-buttons';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { formatUnits } from '../../../core/utils';
 import { CHAIN_METADATA, TOKEN_METADATA } from '../../../constants';
+import { AmountInput } from './amount-input';
 
 export interface AllowanceFormProps {
   token: string;
@@ -84,7 +84,7 @@ export function AllowanceForm({
         <div className="mb-6 py-4 px-6">
           <div className="flex items-center justify-between border-b border-[#B3B3B3] py-2">
             <span className="text-sm font-medium text-gray-700 font-nexus-primary">Token</span>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-x-2 w-fit">
               {tokenMetadata?.icon && (
                 <img
                   key={tokenMetadata?.name}
@@ -94,45 +94,25 @@ export function AllowanceForm({
                 />
               )}
               <span className="font-semibold font-nexus-primary">{token} on</span>
-              <div className="flex items-center gap-1">
-                {sourceChains.length >= 3 ? (
-                  <>
-                    {sourceChains.map((source, index) => {
-                      const chainMeta =
-                        CHAIN_METADATA[source?.chainId as keyof typeof CHAIN_METADATA];
-                      return (
-                        <Fragment key={source?.chainId}>
-                          <img
-                            src={chainMeta?.logo ?? ''}
-                            alt={chainMeta?.name}
-                            className={`w-6 h-6 rounded-nexus-full ${index > 0 ? '-ml-5' : ''}`}
-                            style={{ zIndex: sourceChains.length - index }}
-                            title={chainMeta?.name}
-                          />
-                        </Fragment>
-                      );
-                    })}
-                    <span className="font-semibold font-nexus-primary">
-                      +{sourceChains.length} chains
-                    </span>
-                  </>
-                ) : (
-                  sourceChains.slice(0, 3).map((source, index) => {
-                    const chainMeta =
-                      CHAIN_METADATA[source?.chainId as keyof typeof CHAIN_METADATA];
-                    return (
-                      <Fragment key={source?.chainId}>
-                        <img
-                          src={chainMeta?.logo ?? ''}
-                          alt={chainMeta?.name}
-                          title={chainMeta?.name}
-                          className={`w-6 h-6 rounded-nexus-full ${index > 0 ? '-ml-5' : ''}`}
-                          style={{ zIndex: sourceChains.length - index }}
-                        />
-                        <span className="font-semibold font-nexus-primary">{chainMeta?.name}</span>
-                      </Fragment>
-                    );
-                  })
+              <div className="flex items-center gap-x-1">
+                {sourceChains.map((source, index) => {
+                  const chainMeta = CHAIN_METADATA[source?.chainId as keyof typeof CHAIN_METADATA];
+                  return (
+                    <Fragment key={source?.chainId}>
+                      <img
+                        src={chainMeta?.logo ?? ''}
+                        alt={chainMeta?.name}
+                        className={`w-6 h-6 rounded-nexus-full ${index > 0 ? '-ml-5' : ''}`}
+                        style={{ zIndex: sourceChains.length - index }}
+                        title={chainMeta?.name}
+                      />
+                    </Fragment>
+                  );
+                })}
+                {sourceChains?.length > 1 && (
+                  <span className="font-semibold font-nexus-primary">
+                    +{sourceChains.length} chains
+                  </span>
                 )}
               </div>
             </div>
@@ -165,7 +145,7 @@ export function AllowanceForm({
               )}
               onClick={() => setSelectedType('minimum')}
             >
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between overflow-clip">
                 <div className="flex items-center gap-3 font-nexus-primary">
                   <input
                     type="radio"
@@ -180,7 +160,7 @@ export function AllowanceForm({
                     </span>
                   </div>
                 </div>
-                <span className="bg-nexus-blue font-nexus-primary text-white text-xs px-2 py-1 font-medium absolute top-0 right-0 rounded-tr-nexus-md">
+                <span className="bg-nexus-blue font-nexus-primary text-white text-xs px-2 py-1 font-medium absolute top-0 right-0">
                   RECOMMENDED
                 </span>
               </div>
@@ -214,30 +194,16 @@ export function AllowanceForm({
                   }
                   className="font-nexus-primary"
                 >
-                  <div
+                  <AmountInput
+                    placeholder={`Enter amount ≥ ${inputAmount}`}
+                    value={customAmount}
+                    disabled={isLoading}
+                    onChange={(value) => setCustomAmount(value)}
                     className={cn(
-                      'px-4 py-2 font-nexus-primary rounded-nexus-md border border-gray-400 flex justify-between items-center',
-                      'bg-transparent h-12',
-                      'focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]',
-                      isLoading && 'opacity-50 cursor-not-allowed',
+                      'text-black text-base font-semibold font-nexus-primary leading-normal',
+                      customAmount && !isCustomValid ? 'border-red-500 focus:border-red-500' : '',
                     )}
-                  >
-                    <div className="flex items-center gap-x-1.5 flex-1">
-                      <Input
-                        placeholder={`Enter amount ≥ ${inputAmount}`}
-                        value={customAmount}
-                        onChange={(e) => setCustomAmount(e.target.value)}
-                        disabled={isLoading}
-                        className={cn(
-                          '!bg-transparent !focus:ring-0 !focus:border-none !focus:outline-none px-0',
-                          customAmount && !isCustomValid
-                            ? 'border-red-500 focus:border-red-500'
-                            : '',
-                          'text-black text-base font-semibold font-nexus-primary leading-normal',
-                        )}
-                      />
-                    </div>
-                  </div>
+                  />
                 </FormField>
               </div>
             )}

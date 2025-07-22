@@ -3,12 +3,14 @@ import { EthereumProvider, UserAsset } from '@arcana/ca-sdk';
 import { NexusSDK } from '../../core/sdk';
 
 // Only import essential parameter types, not all from root types
-import type { 
-  BridgeParams, 
-  TransferParams, 
+import type {
+  BridgeParams,
+  TransferParams,
   BridgeAndExecuteParams,
   SUPPORTED_TOKENS,
-  SUPPORTED_CHAINS_IDS 
+  SUPPORTED_CHAINS_IDS,
+  DynamicParamBuilder,
+  SimulationResult,
 } from '../../types';
 
 import { Abi } from 'viem';
@@ -33,11 +35,6 @@ interface BridgeAndExecuteResult {
   executeExplorerUrl?: string;
   approvalTransactionHash?: string;
   toChainId: number;
-}
-
-interface SimulationResult {
-  intent: any;
-  token: any;
 }
 
 interface BridgeAndExecuteSimulationResult {
@@ -284,17 +281,6 @@ export interface TransactionProgressProps extends BaseComponentProps {
   collapsible?: boolean;
 }
 
-export type DynamicParamBuilder = (
-  token: SUPPORTED_TOKENS,
-  amount: string,
-  chainId: SUPPORTED_CHAINS_IDS,
-  userAddress: `0x${string}`,
-) => {
-  functionParams: readonly unknown[];
-  /** ETH value in wei (string). Omit or '0' for ERC-20 calls */
-  value?: string;
-};
-
 export interface BridgeAndExecuteButtonProps extends BaseComponentProps {
   contractAddress: `0x${string}`;
   contractAbi: Abi;
@@ -307,6 +293,9 @@ export interface BridgeAndExecuteButtonProps extends BaseComponentProps {
   };
   children: (props: { onClick: () => void; isLoading: boolean; disabled: boolean }) => ReactNode;
 }
+
+// Re-export DynamicParamBuilder for convenience
+export type { DynamicParamBuilder };
 
 export interface ProcessorCardProps {
   status: OrchestratorStatus;

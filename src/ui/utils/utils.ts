@@ -2,7 +2,6 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { OrchestratorStatus, ReviewStatus } from '../types';
 import { Abi } from 'viem';
-import type { ExecuteParams } from '../../types';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -276,60 +275,6 @@ export function findAbiFragment(abi: Abi, functionName: string, paramCount?: num
   );
 }
 
-/**
- * Validate execute configuration against ABI and token/value rules
- */
-export function validateExecuteConfig(execute: Omit<ExecuteParams, 'toChainId'>, abi: Abi): void {
-  const fragment = findAbiFragment(abi, execute.functionName, execute.functionParams.length);
-
-  if (!fragment || !Array.isArray(fragment.inputs)) {
-    throw new Error(`Function ${execute.functionName} not found in ABI or missing inputs.`);
-  }
-
-  if (fragment.inputs.length !== execute.functionParams.length) {
-    throw new Error(
-      `Function parameter count mismatch. Expected ${fragment.inputs.length}, received ${execute.functionParams.length}.`,
-    );
-  }
-
-  const isPayable = (fragment.stateMutability || '').toLowerCase() === 'payable';
-  if (execute.value && execute.value !== '0' && !isPayable) {
-    throw new Error('Contract function is not payable but a non-zero ETH value was supplied.');
-  }
-
-  fragment.inputs.forEach((input: any, idx: number) => {
-    const expected = (input.type as string).toLowerCase();
-    const param = execute.functionParams[idx];
-
-    const isValid = (() => {
-      if (expected.startsWith('address')) {
-        return typeof param === 'string' && /^0x[a-fA-F0-9]{40}$/.test(param);
-      }
-      if (expected.startsWith('uint') || expected.startsWith('int')) {
-        return (
-          typeof param === 'bigint' ||
-          typeof param === 'number' ||
-          (typeof param === 'string' && /^\d+$/.test(param))
-        );
-      }
-      if (expected === 'bool') {
-        return typeof param === 'boolean';
-      }
-      if (expected.startsWith('bytes') || expected === 'string') {
-        return typeof param === 'string';
-      }
-      return true;
-    })();
-
-    if (!isValid) {
-      throw new Error(`Type mismatch at param[${idx}]. Expected ${expected}.`);
-    }
-  });
-  if (execute.tokenApproval && execute.value && execute.value !== '0') {
-    throw new Error('ERC-20 contract calls must not send ETH value.');
-  }
-}
-
 export const getContentKey = (status: string, additionalStates?: string[]): string => {
   if (['processing', 'success', 'error'].includes(status)) {
     return 'processor';
@@ -348,6 +293,8 @@ export const getContentKey = (status: string, additionalStates?: string[]): stri
 
 export const formatCost = (cost: string) => {
   const numCost = parseFloat(cost);
+  if (isNaN(numCost)) return 'Invalid';
+  if (numCost < 0) return 'Invalid';
   if (numCost === 0) return 'Free';
   if (numCost < 0.001) return '< 0.001';
   return numCost.toFixed(6);

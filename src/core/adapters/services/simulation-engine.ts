@@ -11,6 +11,7 @@ import type {
   EthereumProvider,
   SUPPORTED_CHAINS_IDS,
 } from '../../../types';
+
 import { getSimulationClient } from '../../integrations/tenderly';
 import { extractErrorMessage, getTokenContractAddress, isTestnetChain } from '../../utils';
 
@@ -20,13 +21,6 @@ import { extractErrorMessage, getTokenContractAddress, isTestnetChain } from '..
 interface SimulationEngineAdapter {
   isInitialized(): boolean;
   evmProvider: EthereumProvider;
-}
-
-/**
- * Transaction service interface needed by SimulationEngine
- */
-interface TransactionServiceInterface {
-  prepareExecution(params: ExecuteParams): Promise<{ encodedData: string; fromAddress: string }>;
 }
 
 /**
@@ -44,11 +38,9 @@ export interface BalanceCheckResult {
  */
 export class SimulationEngine {
   private adapter: SimulationEngineAdapter;
-  private transactionService: TransactionServiceInterface;
 
-  constructor(adapter: SimulationEngineAdapter, transactionService: TransactionServiceInterface) {
+  constructor(adapter: SimulationEngineAdapter) {
     this.adapter = adapter;
-    this.transactionService = transactionService;
   }
 
   private ensureInitialized() {
@@ -76,13 +68,17 @@ export class SimulationEngine {
       const { user, tokenRequired, amountRequired, contractCall } = params;
       const chainId = contractCall.toChainId;
 
-      logger.info('DEBUG SimulationEngine - Starting enhanced simulation:', {
+      logger.info('DEBUG SimulationEngine - Starting enhanced simulation with full context:', {
         user,
         tokenRequired,
         amountRequired,
         chainId,
         contract: contractCall.contractAddress,
         function: contractCall.functionName,
+        contractCallParams: {
+          tokenApproval: contractCall.tokenApproval,
+          buildFunctionParams: typeof contractCall.buildFunctionParams,
+        },
       });
 
       // Step 1: Check user's current token balance
@@ -393,6 +389,14 @@ export class SimulationEngine {
       required: requiredAmountBigInt.toString(),
       current: currentBalanceBigInt.toString(),
       needsFunding,
+      tokenRequired,
+      user,
+      contractCall: {
+        functionName: contractCall.functionName,
+        contractAddress: contractCall.contractAddress,
+        tokenApproval: contractCall.tokenApproval,
+        buildFunctionParamsType: typeof contractCall.buildFunctionParams,
+      },
     });
 
     // Step 1: Funding step (if needed)
@@ -419,11 +423,61 @@ export class SimulationEngine {
       });
     }
 
+    // First, convert amountRequired from micro-units to user-friendly format for the callback
+    // The callback expects amount in user-friendly format (e.g., "0.01" for 0.01 USDC)
+    // but amountRequired comes in micro-units (e.g., "10000" for 0.01 USDC)
+    const { formatUnits } = await import('viem');
+    const { TOKEN_METADATA } = await import('../../../constants');
+
+    const decimals = TOKEN_METADATA[tokenRequired]?.decimals || 18;
+    const userFriendlyAmount = formatUnits(BigInt(amountRequired), decimals);
+
+    logger.info('DEBUG SimulationEngine - Amount conversion:', {
+      microUnits: amountRequired,
+      decimals,
+      userFriendly: userFriendlyAmount,
+    });
+
+    // Call the buildFunctionParams with user-friendly amount
+    logger.info('DEBUG SimulationEngine - Calling buildFunctionParams with:', {
+      tokenRequired,
+      userFriendlyAmount,
+      chainId: contractCall.toChainId,
+      user,
+    });
+
+    const { functionParams, value } = contractCall.buildFunctionParams(
+      tokenRequired,
+      userFriendlyAmount,
+      contractCall.toChainId,
+      user as `0x${string}`,
+    );
+
+    logger.info('DEBUG SimulationEngine - buildFunctionParams result:', {
+      functionParams,
+      value,
+      functionParamsLength: functionParams?.length,
+      functionParamsTypes: functionParams?.map((p) => typeof p),
+    });
+
     // Step 2: Approval step (if needed for ERC20)
     if (tokenRequired !== 'ETH' && contractCall.tokenApproval) {
+      // Extract the actual amount from the function parameters to ensure approval matches execution
+      // For most DeFi functions, the amount is typically the second parameter after the token address
+      const actualAmountToApprove = (functionParams[1] as string) || amountRequired;
+
+      logger.info('DEBUG SimulationEngine - Approval step preparation:', {
+        tokenRequired,
+        amountRequired,
+        actualAmountToApprove,
+        functionParams1: functionParams[1],
+        contractToApprove: contractCall.contractAddress,
+        tokenAddress: balanceCheck.tokenAddress,
+      });
+
       const approvalCallData = await this.buildApprovalCallData(
         contractCall.contractAddress,
-        amountRequired,
+        actualAmountToApprove.toString(),
       );
 
       steps.push({
@@ -443,7 +497,28 @@ export class SimulationEngine {
     }
 
     // Step 3: Execute step
-    const preparation = await this.prepareExecutionCall(contractCall);
+
+    // Encode the function call with the built parameters
+    const { encodeContractCall } = await import('../../utils');
+    const encodingResult = encodeContractCall({
+      contractAbi: contractCall.contractAbi,
+      functionName: contractCall.functionName,
+      functionParams,
+    });
+
+    if (!encodingResult.success) {
+      throw new Error(`Failed to encode contract call: ${encodingResult.error}`);
+    }
+
+    logger.info('DEBUG SimulationEngine - Execute step preparation:', {
+      encodedData: encodingResult.data,
+      contractCallValue: contractCall.value,
+      callbackValue: value,
+      finalValue: value || contractCall.value || '0x0',
+      dependsOn:
+        tokenRequired !== 'ETH' ? ['approval-step'] : needsFunding ? ['funding-step'] : undefined,
+    });
+
     steps.push({
       type: 'execute',
       required: true,
@@ -455,9 +530,15 @@ export class SimulationEngine {
         chainId: contractCall.toChainId.toString(),
         from: user,
         to: contractCall.contractAddress,
-        data: preparation.encodedData,
-        value: contractCall.value || '0x0',
+        data: encodingResult.data!,
+        value: value || contractCall.value || '0x0',
       },
+    });
+
+    logger.info('DEBUG SimulationEngine - Final steps generated:', {
+      totalSteps: steps.length,
+      stepTypes: steps.map((s) => s.type),
+      stepIds: steps.map((s) => s.stepId),
     });
 
     return steps;
@@ -473,13 +554,6 @@ export class SimulationEngine {
     const paddedAmount = BigInt(amount).toString(16).padStart(64, '0');
 
     return `${approveSelector}${paddedSpender}${paddedAmount}`;
-  }
-
-  /**
-   * Prepare execution call data
-   */
-  private async prepareExecutionCall(params: ExecuteParams) {
-    return await this.transactionService.prepareExecution(params);
   }
 
   /**

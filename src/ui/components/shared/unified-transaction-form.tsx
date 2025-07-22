@@ -167,7 +167,7 @@ export function UnifiedTransactionForm({
         )}
 
         {formConfig.showSecondAmountField && (
-          <div className="flex-1 opacity-0 invisible aria-hidden select-none">
+          <div className="flex-1 opacity-0 invisible aria-hidden select-none aria-hidden='true">
             <FormField label="Amount">
               <AmountInput value="0.1" suffix="ETH" disabled />
             </FormField>

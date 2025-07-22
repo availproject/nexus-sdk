@@ -54,3 +54,52 @@ export function isSupportedToken(token: string): boolean {
   const supportedTokens = ['ETH', 'USDC', 'USDT'];
   return supportedTokens.includes(token.toUpperCase());
 }
+
+/**
+ * Validate ExecuteParams with callback pattern
+ */
+export function validateExecuteParams(params: {
+  toChainId: SUPPORTED_CHAINS_IDS;
+  contractAddress: string;
+  contractAbi: any;
+  functionName: string;
+  buildFunctionParams: Function;
+  tokenApproval?: { token: string };
+}): { success: boolean; error?: string } {
+  // Validate chain
+  if (!isSupportedChain(params.toChainId)) {
+    return { success: false, error: `Unsupported chain: ${params.toChainId}` };
+  }
+
+  // Validate contract address
+  if (!params.contractAddress || !params.contractAddress.startsWith('0x')) {
+    return { success: false, error: 'Invalid contract address' };
+  }
+
+  // Validate contract ABI
+  if (!params.contractAbi || !Array.isArray(params.contractAbi)) {
+    return { success: false, error: 'Invalid contract ABI' };
+  }
+
+  // Validate function name
+  if (!params.functionName || typeof params.functionName !== 'string') {
+    return { success: false, error: 'Invalid function name' };
+  }
+
+  // Validate callback function
+  if (!params.buildFunctionParams || typeof params.buildFunctionParams !== 'function') {
+    return { success: false, error: 'buildFunctionParams must be a valid function' };
+  }
+
+  // Validate token approval if present
+  if (params.tokenApproval) {
+    if (!params.tokenApproval.token || !isSupportedToken(params.tokenApproval.token)) {
+      return {
+        success: false,
+        error: `Unsupported token for approval: ${params.tokenApproval.token}`,
+      };
+    }
+  }
+
+  return { success: true };
+}

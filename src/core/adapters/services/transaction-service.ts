@@ -196,26 +196,7 @@ export class TransactionService extends BaseService {
   async prepareExecution(params: ExecuteParams): Promise<ExecutePreparation> {
     this.ensureInitialized();
 
-    // Validate contract parameters
-    const validation = validateContractParams({
-      contractAddress: params.contractAddress,
-      contractAbi: params.contractAbi,
-      functionName: params.functionName,
-      functionParams: params.functionParams,
-      chainId: params.toChainId,
-    });
-
-    if (!validation.isValid) {
-      throw new Error(`Invalid contract parameters: ${validation.error}`);
-    }
-
-    // Ensure we're on the correct chain
-    const chainResult = await this.ensureCorrectChain(params.toChainId);
-    if (!chainResult.success) {
-      throw new Error(`Failed to switch to chain ${params.toChainId}: ${chainResult.error}`);
-    }
-
-    // Get the from address
+    // Get the from address first (needed for callback)
     const fromAddress = (await this.evmProvider.request({
       method: 'eth_accounts',
     })) as string[];
@@ -224,11 +205,42 @@ export class TransactionService extends BaseService {
       throw new Error('No accounts available');
     }
 
+    // Ensure we're on the correct chain
+    const chainResult = await this.ensureCorrectChain(params.toChainId);
+    if (!chainResult.success) {
+      throw new Error(`Failed to switch to chain ${params.toChainId}: ${chainResult.error}`);
+    }
+
+    // Call buildFunctionParams callback to get the actual function parameters
+    // For ETH transactions, provide ETH as token and 0 as amount if tokenApproval is undefined
+    const token = params.tokenApproval?.token || 'ETH';
+    const amount = params.tokenApproval?.amount || '0';
+    
+    const { functionParams, value: callbackValue } = params.buildFunctionParams(
+      token,
+      amount,
+      params.toChainId,
+      fromAddress[0] as `0x${string}`,
+    );
+
+    // Validate contract parameters with built function params
+    const validation = validateContractParams({
+      contractAddress: params.contractAddress,
+      contractAbi: params.contractAbi,
+      functionName: params.functionName,
+      functionParams,
+      chainId: params.toChainId,
+    });
+
+    if (!validation.isValid) {
+      throw new Error(`Invalid contract parameters: ${validation.error}`);
+    }
+
     // Encode the function call
     const encodingResult = encodeContractCall({
       contractAbi: params.contractAbi,
       functionName: params.functionName,
-      functionParams: params.functionParams,
+      functionParams,
     });
 
     if (!encodingResult.success) {
@@ -239,6 +251,7 @@ export class TransactionService extends BaseService {
       provider: this.evmProvider,
       fromAddress: fromAddress[0],
       encodedData: encodingResult.data!,
+      value: callbackValue,
     };
   }
 

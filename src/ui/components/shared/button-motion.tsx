@@ -33,34 +33,31 @@ const buttonSizes = {
   custom: '',
 };
 
-function Button({
-  className,
-  variant = 'default',
-  size = 'default',
-  asChild = false,
-  ref,
-  ...props
-}: ButtonProps) {
-  return (
-    <motion.button
-      ref={ref}
-      data-slot="button"
-      className={cn(
-        'inline-flex cursor-pointer items-center justify-center whitespace-nowrap rounded-nexus-md text-sm font-nexus-primary font-medium ring-offset-nexus-ring-offset transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nexus-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50',
-        buttonVariants[variant],
-        buttonSizes[size],
-        className,
-      )}
-      whileHover={{ scale: 1.02 }}
-      whileTap={{ scale: 0.98 }}
-      transition={{
-        type: 'spring',
-        stiffness: 400,
-        damping: 17,
-      }}
-      {...props}
-    />
-  );
-}
+const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+  ({ className, variant = 'default', size = 'default', asChild = false, ...props }, ref) => {
+    return (
+      <motion.button
+        ref={ref}
+        data-slot="button"
+        className={cn(
+          'inline-flex cursor-pointer items-center justify-center whitespace-nowrap rounded-nexus-md text-sm font-nexus-primary font-medium ring-offset-nexus-ring-offset transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nexus-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50',
+          buttonVariants[variant],
+          buttonSizes[size],
+          className,
+        )}
+        whileHover={{ scale: 1.02 }}
+        whileTap={{ scale: 0.98 }}
+        transition={{
+          type: 'spring',
+          stiffness: 400,
+          damping: 17,
+        }}
+        {...props}
+      />
+    );
+  },
+);
+
+Button.displayName = 'Button';
 
 export { Button };

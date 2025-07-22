@@ -124,7 +124,7 @@ const AnimatedSelect = <T extends SelectOption = SelectOption>({
         onKeyDown={handleKeyDown}
         disabled={disabled}
         className={cn(
-          'data-[placeholder]:text-nexus-muted-foreground [&_svg:not([class*="text-"])]:text-nexus-muted-foreground  focus-visible:outline-none placeholder:font-medium aria-invalid:ring-nexus-destructive/20  aria-invalid:border-nexus-destructive gap-2 text-base placeholder:text-base whitespace-nowrap shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*="size-"])]:size-4 font-nexus-primary px-4 py-2 rounded-nexus-md border border-zinc-400 w-full cursor-pointer bg-transparent flex justify-between items-center',
+          'h-12 data-[placeholder]:text-nexus-muted-foreground [&_svg:not([class*="text-"])]:text-nexus-muted-foreground  focus-visible:outline-none placeholder:font-medium aria-invalid:ring-nexus-destructive/20  aria-invalid:border-nexus-destructive gap-2 text-base placeholder:text-base whitespace-nowrap shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*="size-"])]:size-4 font-nexus-primary px-4 py-2 rounded-nexus-md border border-zinc-400 w-full cursor-pointer bg-transparent flex justify-between items-center',
           {
             'opacity-50': disabled,
           },

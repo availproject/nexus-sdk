@@ -18,6 +18,7 @@ import {
   BridgeAndExecuteParams,
   SimulationResult,
   NexusNetwork,
+  BridgeAndExecuteSimulationResult,
 } from '../../types';
 import type {
   ActiveTransaction,
@@ -356,12 +357,13 @@ export function InternalNexusProvider({
           // Check if simulation failed
           if (
             simulationResult &&
-            // For BridgeAndExecuteSimulationResult
             (('success' in simulationResult && !simulationResult.success) ||
               ('error' in simulationResult && simulationResult.error) ||
               // For bridge simulation within BridgeAndExecuteSimulationResult
+              // Only consider null bridgeSimulation a failure if bridge wasn't intentionally skipped
               ('bridgeSimulation' in simulationResult &&
-                simulationResult.bridgeSimulation === null))
+                simulationResult.bridgeSimulation === null &&
+                !(simulationResult as BridgeAndExecuteSimulationResult)?.metadata?.bridgeSkipped))
           ) {
             setActiveTransaction((prev) => ({
               ...prev,

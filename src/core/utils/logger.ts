@@ -20,8 +20,11 @@ export const setExceptionReporter = (reporter: ExceptionReporter) => {
 };
 
 const sendException = (msg: string) => {
-  if (state.exceptionReporter) {
+  if (!state.exceptionReporter) return;
+  try {
     state.exceptionReporter(msg);
+  } catch (reportErr) {
+    console.error('[LOGGER] Exception reporter threw:', reportErr);
   }
 };
 

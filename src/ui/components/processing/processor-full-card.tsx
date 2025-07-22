@@ -37,9 +37,15 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
     if (transactionType === 'bridge' || transactionType === 'transfer') {
       return formatCost((simulationResult as SimulationResult)?.intent?.sourcesTotal);
     } else {
+      const bridgeExecuteResult = simulationResult as BridgeAndExecuteSimulationResult;
+      
+      // If bridge was skipped, use input amount from metadata
+      if (bridgeExecuteResult?.metadata?.bridgeSkipped) {
+        return formatCost(bridgeExecuteResult.metadata.inputAmount ?? '');
+      }
+      
       return formatCost(
-        (simulationResult as BridgeAndExecuteSimulationResult)?.bridgeSimulation?.intent
-          ?.sourcesTotal ?? '',
+        bridgeExecuteResult?.bridgeSimulation?.intent?.sourcesTotal ?? '',
       );
     }
   }, [transactionType, simulationResult]);
@@ -48,9 +54,15 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
     if (transactionType === 'bridge' || transactionType === 'transfer') {
       return formatCost((simulationResult as SimulationResult)?.intent?.destination?.amount);
     } else {
+      const bridgeExecuteResult = simulationResult as BridgeAndExecuteSimulationResult;
+      
+      // If bridge was skipped, use input amount from metadata (same as source since no bridge)
+      if (bridgeExecuteResult?.metadata?.bridgeSkipped) {
+        return formatCost(bridgeExecuteResult.metadata.inputAmount ?? '');
+      }
+      
       return formatCost(
-        (simulationResult as BridgeAndExecuteSimulationResult)?.bridgeSimulation?.intent
-          ?.destination?.amount ?? '',
+        bridgeExecuteResult?.bridgeSimulation?.intent?.destination?.amount ?? '',
       );
     }
   }, [transactionType, simulationResult]);
@@ -225,7 +237,8 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
               {/* Explorer links */}
               {transactionType === 'bridgeAndExecute' ? (
                 <div className="flex flex-col items-center gap-y-2">
-                  {explorerURL && (
+                  {/* Only show bridge transaction link if bridge wasn't skipped */}
+                  {explorerURL && !(executionResult as BridgeAndExecuteResult)?.bridgeSkipped && (
                     <Button
                       variant="link"
                       className="text-nexus-accent underline text-base font-semibold font-nexus-primary cursor-pointer"
@@ -246,7 +259,9 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
                         )
                       }
                     >
-                      View Execute Transaction{' '}
+                      {(executionResult as BridgeAndExecuteResult)?.bridgeSkipped 
+                        ? 'View Transaction' 
+                        : 'View Execute Transaction'}{' '}
                       <ExternalLink className="w-6 h-6 ml-2 text-nexus-muted-secondary" />
                     </Button>
                   )}

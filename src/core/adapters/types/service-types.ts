@@ -33,6 +33,7 @@ export interface ExecutePreparation {
   provider: EthereumProvider;
   fromAddress: string;
   encodedData: `0x${string}`;
+  value?: string;
 }
 
 /**

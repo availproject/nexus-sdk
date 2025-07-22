@@ -2,6 +2,7 @@ import React from 'react';
 import { SimulationResult, BridgeAndExecuteSimulationResult, Intent } from '../../../types';
 import { InfoMessage, Shimmer } from '../shared';
 import { CHAIN_METADATA } from '../../../constants';
+import { formatCost } from '../../utils/utils';
 
 interface TransactionSimulationProps {
   isLoading: boolean;
@@ -45,6 +46,43 @@ export function TransactionSimulation({ isLoading, simulationResult }: Transacti
   const getSimulationData = (): SimulationData | null => {
     if (!simulationResult) return null;
 
+    // Check if bridge was skipped in bridge & execute flow
+    if (
+      'metadata' in simulationResult &&
+      (simulationResult as BridgeAndExecuteSimulationResult)?.metadata?.bridgeSkipped
+    ) {
+      const metadata = (simulationResult as BridgeAndExecuteSimulationResult)?.metadata;
+
+      if (!metadata) return null;
+
+      return {
+        destination: {
+          chainID: metadata?.targetChain,
+          chainName: CHAIN_METADATA[metadata?.targetChain]?.name || 'Unknown',
+          chainLogo: CHAIN_METADATA[metadata?.targetChain]?.logo,
+          amount: metadata?.inputAmount,
+        } as ChainInfo,
+        sources: [
+          {
+            chainName: CHAIN_METADATA[metadata?.targetChain]?.name,
+            chainID: metadata?.targetChain,
+            chainLogo: CHAIN_METADATA[metadata?.targetChain]?.logo,
+            amount: metadata?.inputAmount,
+          },
+        ],
+        fees: {
+          total: '0',
+          bridge: '0',
+          caGas: '0',
+          gasSupplied: '0',
+          protocol: '0',
+          solver: '0',
+        } as FeesInfo,
+        token: { name: simulationResult?.metadata?.token || 'Unknown' } as TokenInfo,
+        sourcesTotal: metadata?.inputAmount || '0',
+      };
+    }
+
     // Handle bridge & execute result where intent is nested
     let intent: Intent | undefined = undefined;
     if ('intent' in simulationResult) {
@@ -66,7 +104,6 @@ export function TransactionSimulation({ isLoading, simulationResult }: Transacti
 
   const data = getSimulationData();
 
-  // Determine execute gas if present in simulation result (Bridge & Execute)
   let executeGas: string | undefined;
   if (simulationResult && 'totalEstimatedCost' in simulationResult) {
     executeGas = simulationResult.totalEstimatedCost?.breakdown?.execute;
@@ -161,15 +198,21 @@ function FeeBreakdown({
 }) {
   return (
     <div className="space-y-3">
-      <FeeRow label="Bridge gas" value={fees.total} tokenSymbol={tokenSymbol} />
-      <hr className="border-zinc-400/40" />
-      {executeGas && (
+      {parseFloat(fees.total) > 0 && (
         <>
-          <FeeRow label="Execute gas" value={executeGas} tokenSymbol={tokenSymbol} />
+          <FeeRow label="Bridge gas" value={fees.total} tokenSymbol={tokenSymbol} />
           <hr className="border-zinc-400/40" />
         </>
       )}
-      <FeeRow label="Solver fees" value={fees.solver} tokenSymbol={tokenSymbol} />
+
+      {executeGas && <FeeRow label="Execute gas" value={executeGas} tokenSymbol={tokenSymbol} />}
+      {parseFloat(fees.solver) > 0 && (
+        <>
+          {executeGas && <hr className="border-zinc-400/40" />}
+
+          <FeeRow label="Solver fees" value={fees.solver} tokenSymbol={tokenSymbol} />
+        </>
+      )}
     </div>
   );
 }
@@ -201,7 +244,7 @@ function FeeRow({
         <span
           className={`text-sm font-semibold font-nexus-primary ${isTotal ? 'text-black' : 'text-black'}`}
         >
-          {parseFloat(value ?? '0').toFixed(6)} {tokenSymbol}
+          {formatCost(value ?? '')} {tokenSymbol}
         </span>
       )}
     </div>

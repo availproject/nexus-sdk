@@ -8,6 +8,7 @@ export type {
   TransferParams,
   TransferResult,
   ExecuteParams,
+  DynamicParamBuilder,
   ExecuteResult,
   ExecuteSimulation,
   BridgeAndExecuteParams,
