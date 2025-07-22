@@ -19,36 +19,8 @@ export const SUPPORTED_CHAINS = {
   POLYGON_AMOY: 80002,
 } as const;
 
-export const chainIcons: Record<number, string> = {
-  // Mainnet chain icons
-  [SUPPORTED_CHAINS.ETHEREUM]: 'https://assets.coingecko.com/coins/images/279/small/ethereum.png',
-  [SUPPORTED_CHAINS.BASE]:
-    'https://raw.githubusercontent.com/base/brand-kit/main/logo/symbol/Base_Symbol_Blue.svg',
-  [SUPPORTED_CHAINS.ARBITRUM]:
-    'https://assets.coingecko.com/coins/images/16547/small/photo_2023-03-29_21.47.00.jpeg',
-  [SUPPORTED_CHAINS.OPTIMISM]: 'https://assets.coingecko.com/coins/images/25244/small/Optimism.png',
-  [SUPPORTED_CHAINS.POLYGON]: 'https://assets.coingecko.com/coins/images/4713/small/polygon.png',
-  [SUPPORTED_CHAINS.AVALANCHE]:
-    'https://assets.coingecko.com/coins/images/12559/small/Avalanche_Circle_RedWhite_Trans.png',
-  [SUPPORTED_CHAINS.SCROLL]:
-    'https://assets.coingecko.com/coins/images/50571/standard/scroll.jpg?1728376125',
-  [SUPPORTED_CHAINS.SOPHON]:
-    'https://assets.coingecko.com/coins/images/38680/large/sophon_logo_200.png',
-  [SUPPORTED_CHAINS.KAIA]:
-    'https://assets.coingecko.com/asset_platforms/images/9672/large/kaia.png',
 
-  // Testnet chain icons (reuse mainnet icons)
-  [SUPPORTED_CHAINS.BASE_SEPOLIA]:
-    'https://raw.githubusercontent.com/base/brand-kit/main/logo/symbol/Base_Symbol_Blue.svg',
-  [SUPPORTED_CHAINS.ARBITRUM_SEPOLIA]:
-    'https://assets.coingecko.com/coins/images/16547/small/photo_2023-03-29_21.47.00.jpeg',
-  [SUPPORTED_CHAINS.OPTIMISM_SEPOLIA]:
-    'https://assets.coingecko.com/coins/images/25244/small/Optimism.png',
-  [SUPPORTED_CHAINS.POLYGON_AMOY]:
-    'https://assets.coingecko.com/coins/images/4713/small/polygon.png',
-} as const;
-
-export const TOKEN_METADATA: Record<string, TokenMetadata> = {
+const BASE_TOKEN_METADATA = {
   ETH: {
     symbol: 'ETH',
     name: 'Ethereum',
@@ -73,30 +45,12 @@ export const TOKEN_METADATA: Record<string, TokenMetadata> = {
   },
 } as const;
 
-// Testnet token metadata
+export const TOKEN_METADATA: Record<string, TokenMetadata> = BASE_TOKEN_METADATA;
+
 export const TESTNET_TOKEN_METADATA: Record<string, TokenMetadata> = {
-  ETH: {
-    symbol: 'ETH',
-    name: 'Test Ethereum',
-    decimals: 18,
-    icon: 'https://coin-images.coingecko.com/coins/images/279/large/ethereum.png?1696501628',
-    coingeckoId: 'ethereum',
-    isNative: true,
-  },
-  USDT: {
-    symbol: 'USDT',
-    name: 'Test Tether USD',
-    decimals: 6,
-    icon: 'https://coin-images.coingecko.com/coins/images/35023/large/USDT.png',
-    coingeckoId: 'tether',
-  },
-  USDC: {
-    symbol: 'USDC',
-    name: 'Test USD Coin',
-    decimals: 6,
-    icon: 'https://coin-images.coingecko.com/coins/images/6319/large/usdc.png?1696506694',
-    coingeckoId: 'usd-coin',
-  },
+  ETH: { ...BASE_TOKEN_METADATA.ETH, name: 'Test Ethereum' },
+  USDT: { ...BASE_TOKEN_METADATA.USDT, name: 'Test Tether USD' },
+  USDC: { ...BASE_TOKEN_METADATA.USDC, name: 'Test USD Coin' },
 } as const;
 
 export const CHAIN_METADATA: Record<number, ChainMetadata> = {
@@ -105,7 +59,7 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
     id: 1,
     name: 'Ethereum',
     shortName: 'eth',
-    logo: chainIcons[SUPPORTED_CHAINS.ETHEREUM],
+    logo: 'https://assets.coingecko.com/coins/images/279/small/ethereum.png',
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
     rpcUrls: ['https://eth.merkle.io'],
     blockExplorerUrls: ['https://etherscan.io'],
@@ -114,7 +68,7 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
     id: 8453,
     name: 'Base',
     shortName: 'base',
-    logo: chainIcons[SUPPORTED_CHAINS.BASE],
+    logo: 'https://raw.githubusercontent.com/base/brand-kit/main/logo/symbol/Base_Symbol_Blue.svg',
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
     rpcUrls: ['https://mainnet.base.org'],
     blockExplorerUrls: ['https://basescan.org'],
@@ -123,7 +77,7 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
     id: 42161,
     name: 'Arbitrum One',
     shortName: 'arb1',
-    logo: chainIcons[SUPPORTED_CHAINS.ARBITRUM],
+    logo: 'https://assets.coingecko.com/coins/images/16547/small/photo_2023-03-29_21.47.00.jpeg',
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
     rpcUrls: ['https://arb1.arbitrum.io/rpc'],
     blockExplorerUrls: ['https://arbiscan.io'],
@@ -132,7 +86,7 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
     id: 10,
     name: 'Optimism',
     shortName: 'oeth',
-    logo: chainIcons[SUPPORTED_CHAINS.OPTIMISM],
+    logo: 'https://assets.coingecko.com/coins/images/25244/small/Optimism.png',
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
     rpcUrls: ['https://mainnet.optimism.io'],
     blockExplorerUrls: ['https://optimistic.etherscan.io'],
@@ -141,7 +95,7 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
     id: 137,
     name: 'Polygon',
     shortName: 'matic',
-    logo: chainIcons[SUPPORTED_CHAINS.POLYGON],
+    logo: 'https://assets.coingecko.com/coins/images/4713/small/polygon.png',
     nativeCurrency: { name: 'MATIC', symbol: 'MATIC', decimals: 18 },
     rpcUrls: ['https://polygon-rpc.com'],
     blockExplorerUrls: ['https://polygonscan.com'],
@@ -150,7 +104,7 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
     id: 43114,
     name: 'Avalanche',
     shortName: 'avax',
-    logo: chainIcons[SUPPORTED_CHAINS.AVALANCHE],
+    logo: 'https://assets.coingecko.com/coins/images/12559/small/Avalanche_Circle_RedWhite_Trans.png',
     nativeCurrency: { name: 'Avalanche', symbol: 'AVAX', decimals: 18 },
     rpcUrls: ['https://api.avax.network/ext/bc/C/rpc'],
     blockExplorerUrls: ['https://snowtrace.io'],
@@ -159,7 +113,7 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
     id: 534352,
     name: 'Scroll',
     shortName: 'scroll',
-    logo: chainIcons[SUPPORTED_CHAINS.SCROLL],
+    logo: 'https://assets.coingecko.com/coins/images/50571/standard/scroll.jpg?1728376125',
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
     rpcUrls: ['https://rpc.scroll.io'],
     blockExplorerUrls: ['https://scrollscan.com'],
@@ -168,7 +122,7 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
     id: 50104,
     name: 'Sophon',
     shortName: 'sophon',
-    logo: chainIcons[SUPPORTED_CHAINS.SOPHON],
+    logo: 'https://assets.coingecko.com/coins/images/38680/large/sophon_logo_200.png',
     nativeCurrency: { name: 'Sophon', symbol: 'SOPH', decimals: 18 },
     rpcUrls: ['https://rpc.sophon.xyz'],
     blockExplorerUrls: ['https://explorer.sophon.xyz'],
@@ -177,7 +131,7 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
     id: 8217,
     name: 'Kaia Mainnet',
     shortName: 'kaia',
-    logo: chainIcons[SUPPORTED_CHAINS.KAIA],
+    logo: 'https://assets.coingecko.com/asset_platforms/images/9672/large/kaia.png',
     nativeCurrency: { name: 'Kaia', symbol: 'KAIA', decimals: 18 },
     rpcUrls: ['https://public-en.node.kaia.io'],
     blockExplorerUrls: ['https://kaiascan.io'],
@@ -188,7 +142,7 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
     id: 84532,
     name: 'Base Sepolia',
     shortName: 'base-sepolia',
-    logo: chainIcons[SUPPORTED_CHAINS.BASE_SEPOLIA],
+    logo: 'https://raw.githubusercontent.com/base/brand-kit/main/logo/symbol/Base_Symbol_Blue.svg',
     nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
     rpcUrls: ['https://sepolia.base.org'],
     blockExplorerUrls: ['https://sepolia.basescan.org'],
@@ -197,7 +151,7 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
     id: 421614,
     name: 'Arbitrum Sepolia',
     shortName: 'arb-sepolia',
-    logo: chainIcons[SUPPORTED_CHAINS.ARBITRUM_SEPOLIA],
+    logo: 'https://assets.coingecko.com/coins/images/16547/small/photo_2023-03-29_21.47.00.jpeg',
     nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
     rpcUrls: ['https://sepolia-rollup.arbitrum.io/rpc'],
     blockExplorerUrls: ['https://sepolia.arbiscan.io'],
@@ -206,7 +160,7 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
     id: 11155420,
     name: 'Optimism Sepolia',
     shortName: 'op-sepolia',
-    logo: chainIcons[SUPPORTED_CHAINS.OPTIMISM_SEPOLIA],
+    logo: 'https://assets.coingecko.com/coins/images/25244/small/Optimism.png',
     nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
     rpcUrls: ['https://sepolia.optimism.io'],
     blockExplorerUrls: ['https://sepolia-optimism.etherscan.io'],
@@ -215,7 +169,7 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
     id: 80002,
     name: 'Polygon Amoy',
     shortName: 'amoy',
-    logo: chainIcons[SUPPORTED_CHAINS.POLYGON_AMOY],
+    logo: 'https://assets.coingecko.com/coins/images/4713/small/polygon.png',
     nativeCurrency: { name: 'MATIC', symbol: 'MATIC', decimals: 18 },
     rpcUrls: ['https://rpc-amoy.polygon.technology'],
     blockExplorerUrls: ['https://amoy.polygonscan.com'],

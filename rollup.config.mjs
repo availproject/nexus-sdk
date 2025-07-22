@@ -12,6 +12,7 @@ const packageJson = require('./package.json');
 
 const isProduction = process.env.NODE_ENV === 'production';
 const isDevelopment = process.env.NODE_ENV === 'development';
+const shouldGenerateSourceMaps = false;
 
 // Entry points configuration
 const entries = [
@@ -40,7 +41,7 @@ const createBaseConfig = (entry, withCSS = false) => ({
       inject: true,
       extract: false,
       minimize: isProduction,
-      sourceMap: !isProduction,
+      sourceMap: shouldGenerateSourceMaps,
       modules: false,
       config: {
         path: './postcss.config.js',
@@ -48,13 +49,27 @@ const createBaseConfig = (entry, withCSS = false) => ({
     })] : []),
     typescript({ 
       tsconfig: './tsconfig.json',
-      ...(isDevelopment && {
-        sourceMap: true,
+      sourceMap: shouldGenerateSourceMaps,
+      ...(shouldGenerateSourceMaps && {
         inlineSources: true
       })
     }),
   ],
-  external: [...Object.keys(packageJson.dependencies || {}), ...Object.keys(packageJson.peerDependencies || {})],
+  external: [
+    ...Object.keys(packageJson.dependencies || {}), 
+    ...Object.keys(packageJson.peerDependencies || {}),
+    ...Object.keys(packageJson.optionalDependencies || {}),
+    // Ensure all major deps and their sub-dependencies stay external
+    /^@arcana\/ca-sdk/,
+    /^decimal\.js/,
+    /^motion/,
+    /^framer-motion/,
+    /^@lottiefiles/,
+    /^@metamask/,
+    /^viem/,
+    /^react/,
+    /^react-dom/
+  ],
   treeshake: {
     moduleSideEffects: false,
     propertyReadSideEffects: false,
@@ -68,8 +83,8 @@ const createOutputs = (name) => [
   {
     file: `dist/${name}.js`,
     format: 'cjs',
-    sourcemap: !isProduction,
-    exports: 'named',
+    sourcemap: shouldGenerateSourceMaps,
+    exports: 'named', 
     interop: 'auto',
     inlineDynamicImports: true,
     ...(isDevelopment && {
@@ -79,7 +94,7 @@ const createOutputs = (name) => [
   {
     file: `dist/${name}.esm.js`,
     format: 'esm',
-    sourcemap: !isProduction,
+    sourcemap: shouldGenerateSourceMaps,
     exports: 'named',
     inlineDynamicImports: true,
     ...(isDevelopment && {
