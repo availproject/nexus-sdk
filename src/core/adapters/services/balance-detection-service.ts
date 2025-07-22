@@ -1,4 +1,4 @@
-import { getTokenContractAddress, isTestnetChain } from '../../utils';
+import { getTokenContractAddress } from '../../utils';
 import { TOKEN_METADATA } from '../../../constants';
 import type { EthereumProvider, SUPPORTED_CHAINS_IDS, SUPPORTED_TOKENS } from '../../../types';
 import { logger } from '../../utils/logger';
@@ -89,11 +89,7 @@ export class BalanceDetectionService {
         requiredAmount,
       });
 
-      const tokenAddress = getTokenContractAddress(
-        token,
-        chainId as SUPPORTED_CHAINS_IDS,
-        isTestnetChain(chainId as SUPPORTED_CHAINS_IDS),
-      );
+      const tokenAddress = getTokenContractAddress(token, chainId as SUPPORTED_CHAINS_IDS);
       if (!tokenAddress) {
         throw new Error(`Token ${token} not supported on chain ${chainId}`);
       }
@@ -167,12 +163,7 @@ export class BalanceDetectionService {
         token,
         chainId,
         userAddress,
-        tokenAddress:
-          getTokenContractAddress(
-            token,
-            chainId as SUPPORTED_CHAINS_IDS,
-            isTestnetChain(chainId as SUPPORTED_CHAINS_IDS),
-          ) || '',
+        tokenAddress: getTokenContractAddress(token, chainId as SUPPORTED_CHAINS_IDS) || '',
         balance: '0',
         balanceFormatted: '0',
         sufficient: false,

@@ -4,7 +4,6 @@ import {
   MAINNET_CHAINS,
   TESTNET_CHAINS,
   TESTNET_TOKEN_METADATA,
-  TESTNET_TOKEN_CONTRACT_ADDRESSES,
   TOKEN_CONTRACT_ADDRESSES,
 } from '../../constants';
 import Decimal from 'decimal.js';
@@ -531,9 +530,8 @@ export async function waitForTransactionReceipt(
 export function getTokenContractAddress(
   token: SUPPORTED_TOKENS,
   chainId: SUPPORTED_CHAINS_IDS,
-  isTestnet: boolean = false,
 ): string | undefined {
-  const registry = isTestnet ? TESTNET_TOKEN_CONTRACT_ADDRESSES : TOKEN_CONTRACT_ADDRESSES;
+  const registry = TOKEN_CONTRACT_ADDRESSES;
   const address = registry[token]?.[chainId];
   return address || undefined;
 }

@@ -234,7 +234,7 @@ export class TransferService extends BaseService {
       const expectedSteps: ProgressStep[] = [
         makeStep('CS', 'CHAIN_SWITCH', { message: 'Switching to target chain' }),
         makeStep('TS', 'TRANSACTION_SENT', { message: 'Sending transaction' }),
-        makeStep('IS', 'INTENT_SUBMITTED', { message: 'Transaction submitted' }),
+        makeStep('TC', 'TRANSACTION_COMPLETE', { message: 'Transaction completed' }),
       ];
 
       // Emit expected steps
@@ -325,7 +325,7 @@ export class TransferService extends BaseService {
       // Step 3: Transaction submitted with hash and explorer URL (matches CA flow)
       this.caEvents.emit(
         NEXUS_EVENTS.STEP_COMPLETE,
-        makeStep('IS', 'INTENT_SUBMITTED', {
+        makeStep('TC', 'TRANSACTION_COMPLETED', {
           transactionHash: transactionResult.hash,
           explorerURL: explorerUrl,
         }),

@@ -53,8 +53,8 @@ export class TransactionService extends BaseService {
       value: string;
     },
   ): Promise<GasEstimationResult> {
-    logger.info('DEBUG TransactionService - Starting gas estimation...');
-    logger.info('DEBUG TransactionService - Transaction params:', {
+    logger.info('TransactionService - Starting gas estimation...');
+    logger.info('TransactionService - Transaction params:', {
       from: transactionParams.from,
       to: transactionParams.to,
       data: transactionParams.data.slice(0, 50) + '...', // Truncate for logging
@@ -70,7 +70,7 @@ export class TransactionService extends BaseService {
 
       const gasEstimateDecimal = parseInt(gasEstimate, 16);
 
-      logger.info('DEBUG TransactionService - Gas estimation successful:', {
+      logger.info('TransactionService - Gas estimation successful:', {
         gasEstimateHex: gasEstimate,
         gasEstimateDecimal: gasEstimateDecimal,
         gasEstimateFormatted: gasEstimateDecimal.toLocaleString(),
@@ -92,14 +92,14 @@ export class TransactionService extends BaseService {
         gasPriceGwei = (gasPriceDecimal / 1e9).toFixed(4) + ' gwei';
         estimatedCostEth = estimatedCostEthNum.toFixed(8) + ' ETH';
 
-        logger.info('DEBUG TransactionService - Gas cost estimation:', {
+        logger.info('TransactionService - Gas cost estimation:', {
           gasPriceHex: gasPrice,
           gasPriceGwei: gasPriceGwei,
           estimatedCostWei: estimatedCostWei.toString(),
           estimatedCostEth: estimatedCostEth,
         });
       } catch (gasPriceError) {
-        logger.warn('DEBUG TransactionService - Failed to get gas price:', gasPriceError);
+        logger.warn('TransactionService - Failed to get gas price:', gasPriceError);
       }
 
       return {
@@ -110,7 +110,7 @@ export class TransactionService extends BaseService {
         estimatedCostEth,
       };
     } catch (gasEstimateError) {
-      logger.error('DEBUG TransactionService - Gas estimation failed:', gasEstimateError as Error);
+      logger.error('TransactionService - Gas estimation failed:', gasEstimateError as Error);
 
       // Extract revert reason if available
       let revertReason: string | undefined;
@@ -119,14 +119,14 @@ export class TransactionService extends BaseService {
       if (gasEstimateError && typeof gasEstimateError === 'object') {
         if ('data' in gasEstimateError && gasEstimateError.data) {
           logger.error(
-            'DEBUG TransactionService - Gas estimation revert data:',
+            'TransactionService - Gas estimation revert data:',
             gasEstimateError.data as string,
           );
           revertReason = JSON.stringify(gasEstimateError.data);
         }
         if ('message' in gasEstimateError && gasEstimateError.message) {
           errorMessage = gasEstimateError.message as string;
-          logger.error('DEBUG TransactionService - Gas estimation error message:', errorMessage);
+          logger.error('TransactionService - Gas estimation error message:', errorMessage);
 
           // Extract common revert patterns
           if (errorMessage.includes('execution reverted')) {
@@ -276,35 +276,33 @@ export class TransactionService extends BaseService {
     try {
       // Perform gas estimation if enabled
       if (this.enableGasEstimation) {
-        logger.info('DEBUG TransactionService - Performing pre-execution gas estimation...');
+        logger.info('TransactionService - Performing pre-execution gas estimation...');
         const gasEstimation = await this.estimateTransactionGas(provider, transactionParams);
 
         if (!gasEstimation.success) {
           logger.error(
-            'DEBUG TransactionService - Pre-execution gas estimation failed:',
+            'TransactionService - Pre-execution gas estimation failed:',
             gasEstimation.error,
           );
 
           if (gasEstimation.revertReason) {
             logger.warn(
-              `DEBUG TransactionService - Transaction will likely fail: ${gasEstimation.revertReason}`,
+              `TransactionService - Transaction will likely fail: ${gasEstimation.revertReason}`,
             );
             throw new Error(`Transaction simulation failed: ${gasEstimation.revertReason}`);
           }
         } else {
-          logger.info('DEBUG TransactionService - Gas estimation completed successfully:', {
+          logger.info('TransactionService - Gas estimation completed successfully:', {
             gasEstimate: gasEstimation.gasEstimate,
             estimatedCost: gasEstimation.estimatedCostEth,
             gasPrice: gasEstimation.gasPriceGwei,
           });
         }
       } else {
-        logger.info(
-          'DEBUG TransactionService - Gas estimation disabled, proceeding with transaction',
-        );
+        logger.info('TransactionService - Gas estimation disabled, proceeding with transaction');
       }
 
-      logger.info('DEBUG TransactionService - Sending transaction...');
+      logger.info('TransactionService - Sending transaction...');
       const response = await provider.request({
         method: 'eth_sendTransaction',
         params: [transactionParams],
@@ -323,7 +321,7 @@ export class TransactionService extends BaseService {
         );
       }
 
-      logger.info('DEBUG TransactionService - Transaction sent successfully:', {
+      logger.info('TransactionService - Transaction sent successfully:', {
         transactionHash: hashResult.hash,
       });
 
@@ -424,39 +422,34 @@ export class TransactionService extends BaseService {
     try {
       // Perform gas estimation if enabled
       if (this.enableGasEstimation) {
-        logger.info(
-          'DEBUG TransactionService - Performing gas estimation for native token transfer...',
-        );
+        logger.info('TransactionService - Performing gas estimation for native token transfer...');
         const gasEstimation = await this.estimateTransactionGas(provider, transactionParams);
 
         if (!gasEstimation.success) {
           logger.error(
-            'DEBUG TransactionService - Gas estimation failed for native token transfer:',
+            'TransactionService - Gas estimation failed for native token transfer:',
             gasEstimation.error,
           );
           throw new Error(`Native token transfer gas estimation failed: ${gasEstimation.error}`);
         }
 
-        logger.info('DEBUG TransactionService - Native token transfer gas estimation successful:', {
+        logger.info('TransactionService - Native token transfer gas estimation successful:', {
           gasEstimate: gasEstimation.gasEstimate,
           estimatedCost: gasEstimation.estimatedCostEth,
         });
       }
 
-      logger.info('DEBUG TransactionService - Sending native token transfer...');
+      logger.info('TransactionService - Sending native token transfer...');
       const response = await provider.request({
         method: 'eth_sendTransaction',
         params: [transactionParams],
       });
 
       const transactionHash = getTransactionHashWithFallback(provider, response);
-      logger.info(
-        'DEBUG TransactionService - Native token transfer sent successfully:',
-        transactionHash,
-      );
+      logger.info('TransactionService - Native token transfer sent successfully:', transactionHash);
       return transactionHash;
     } catch (error) {
-      logger.error('DEBUG TransactionService - Native token transfer failed:', error as Error);
+      logger.error('TransactionService - Native token transfer failed:', error as Error);
       throw new Error(
         `Native token transfer failed: ${extractErrorMessage(error, 'native transfer')}`,
       );
@@ -498,12 +491,12 @@ export class TransactionService extends BaseService {
 
       // Perform gas estimation if enabled
       if (this.enableGasEstimation) {
-        logger.info('DEBUG TransactionService - Performing gas estimation for ERC20 transfer...');
+        logger.info('TransactionService - Performing gas estimation for ERC20 transfer...');
         const gasEstimation = await this.estimateTransactionGas(provider, transactionParams);
 
         if (!gasEstimation.success) {
           logger.error(
-            'DEBUG TransactionService - Gas estimation failed for ERC20 transfer:',
+            'TransactionService - Gas estimation failed for ERC20 transfer:',
             gasEstimation.error,
           );
 
@@ -513,23 +506,23 @@ export class TransactionService extends BaseService {
           throw new Error(`ERC20 transfer gas estimation failed: ${gasEstimation.error}`);
         }
 
-        logger.info('DEBUG TransactionService - ERC20 transfer gas estimation successful:', {
+        logger.info('TransactionService - ERC20 transfer gas estimation successful:', {
           gasEstimate: gasEstimation.gasEstimate,
           estimatedCost: gasEstimation.estimatedCostEth,
         });
       }
 
-      logger.info('DEBUG TransactionService - Sending ERC20 transfer...');
+      logger.info('TransactionService - Sending ERC20 transfer...');
       const response = await provider.request({
         method: 'eth_sendTransaction',
         params: [transactionParams],
       });
 
       const transactionHash = getTransactionHashWithFallback(provider, response);
-      logger.info('DEBUG TransactionService - ERC20 transfer sent successfully:', transactionHash);
+      logger.info('TransactionService - ERC20 transfer sent successfully:', transactionHash);
       return transactionHash;
     } catch (error) {
-      logger.error('DEBUG TransactionService - ERC20 transfer failed:', error as Error);
+      logger.error('TransactionService - ERC20 transfer failed:', error as Error);
       throw new Error(`ERC20 transfer failed: ${extractErrorMessage(error, 'ERC20 transfer')}`);
     }
   }
