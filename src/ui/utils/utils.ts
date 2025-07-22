@@ -2,7 +2,6 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { OrchestratorStatus, ReviewStatus } from '../types';
 import { Abi } from 'viem';
-import type { ExecuteParams } from '../../types';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -66,7 +65,6 @@ export const getStatusText = (stepData: any, operationType: string) => {
  * Common error patterns and their user-friendly messages
  */
 const ERROR_PATTERNS = {
-  // User rejection patterns
   USER_REJECTED: [
     /user rejected/i,
     /user denied/i,
@@ -75,8 +73,6 @@ const ERROR_PATTERNS = {
     /action_rejected/i,
     /userRejectedRequest/i,
   ],
-
-  // Network/connection issues
   NETWORK_ERROR: [
     /network error/i,
     /connection failed/i,
@@ -85,38 +81,26 @@ const ERROR_PATTERNS = {
     /rpc error/i,
     /timeout/i,
   ],
-
-  // Insufficient funds/gas
   INSUFFICIENT_FUNDS: [
     /insufficient funds/i,
     /insufficient balance/i,
     /not enough/i,
     /exceeds balance/i,
   ],
-
-  // Gas related errors
   GAS_ERROR: [
     /gas required exceeds allowance/i,
     /out of gas/i,
     /gas estimation failed/i,
     /gas limit/i,
   ],
-
-  // Transaction failures
   TRANSACTION_FAILED: [
     /transaction failed/i,
     /transaction reverted/i,
     /execution reverted/i,
     /transaction underpriced/i,
   ],
-
-  // Allowance/approval errors
   ALLOWANCE_ERROR: [/allowance/i, /approval/i, /approve/i],
-
-  // Contract/smart contract errors
   CONTRACT_ERROR: [/contract/i, /invalid address/i, /abi/i],
-
-  // Chain-related errors
   CHAIN_ERROR: [
     /unrecognized chain id/i,
     /unsupported chain/i,
@@ -145,14 +129,9 @@ const USER_FRIENDLY_MESSAGES = {
  * Extract meaningful information from error messages while removing technical details
  */
 function cleanErrorMessage(message: string): string {
-  // Remove version information
   message = message.replace(/Version: [^\s]+/gi, '');
-
-  // Remove SDK/library references
   message = message.replace(/viem@[^\s]+/gi, '');
   message = message.replace(/arcana@[^\s]+/gi, '');
-
-  // Remove duplicate text (like "Details: User rejected the request." when already in main message)
   const lines = message.split(/[.\n]/).filter((line) => line.trim());
   const uniqueLines = [...new Set(lines.map((line) => line.trim()))];
 
@@ -183,8 +162,6 @@ function categorizeError(errorMessage: string): keyof typeof USER_FRIENDLY_MESSA
  */
 export function formatErrorForUI(error: unknown, context?: string): string {
   let errorMessage = '';
-
-  // Extract error message from different error types
   if (error instanceof Error) {
     errorMessage = error.message;
   } else if (typeof error === 'string') {
@@ -196,21 +173,12 @@ export function formatErrorForUI(error: unknown, context?: string): string {
   } else {
     errorMessage = String(error);
   }
-
-  // Clean the error message first
   const cleanedMessage = cleanErrorMessage(errorMessage);
-
-  // Categorize and get user-friendly message
   const category = categorizeError(cleanedMessage);
   const userFriendlyMessage = USER_FRIENDLY_MESSAGES[category];
-
-  // For certain categories, we might want to include some context
   if (category === 'UNKNOWN' && cleanedMessage && cleanedMessage.length < 100) {
-    // If it's a short, clean message that we don't recognize, show it as-is
     return cleanedMessage;
   }
-
-  // Add context if provided and relevant
   if (context && category !== 'USER_REJECTED') {
     return `${userFriendlyMessage} (${context})`;
   }
@@ -240,15 +208,11 @@ export function isChainError(error: unknown): boolean {
  */
 export function extractChainIdFromError(error: unknown): number | null {
   const errorMessage = error instanceof Error ? error.message : String(error);
-
-  // Look for hex chain ID patterns like "0x8274f"
   const hexMatch = errorMessage.match(/(?:chain id|chainid)\s*["']?(0x[a-f0-9]+)["']?/i);
   if (hexMatch) {
     const chainId = parseInt(hexMatch[1], 16);
     return isNaN(chainId) ? null : chainId;
   }
-
-  // Look for decimal chain ID patterns
   const decimalMatch = errorMessage.match(/(?:chain id|chainid)\s*["']?(\d+)["']?/i);
   if (decimalMatch) {
     const chainId = parseInt(decimalMatch[1], 10);
@@ -265,7 +229,6 @@ export async function addChainToWallet(
   chainId: number,
   provider: { request: (args: { method: string; params?: any[] }) => Promise<any> },
 ): Promise<boolean> {
-  // Import here to avoid circular dependency
   const { CHAIN_METADATA } = await import('../../constants');
 
   const chainMetadata = CHAIN_METADATA[chainId];
@@ -300,8 +263,6 @@ export async function addChainToWallet(
   }
 }
 
-// ---- Bridge & Execute Helpers ----
-
 /**
  * Find ABI fragment for given function name (optionally matching parameter count)
  */
@@ -314,62 +275,27 @@ export function findAbiFragment(abi: Abi, functionName: string, paramCount?: num
   );
 }
 
-/**
- * Validate execute configuration against ABI and token/value rules
- */
-export function validateExecuteConfig(execute: Omit<ExecuteParams, 'toChainId'>, abi: Abi): void {
-  const fragment = findAbiFragment(abi, execute.functionName, execute.functionParams.length);
-
-  if (!fragment || !Array.isArray(fragment.inputs)) {
-    throw new Error(`Function ${execute.functionName} not found in ABI or missing inputs.`);
+export const getContentKey = (status: string, additionalStates?: string[]): string => {
+  if (['processing', 'success', 'error'].includes(status)) {
+    return 'processor';
   }
 
-  // 1. Parameter count check (redundant after findAbiFragment but kept for safety)
-  if (fragment.inputs.length !== execute.functionParams.length) {
-    throw new Error(
-      `Function parameter count mismatch. Expected ${fragment.inputs.length}, received ${execute.functionParams.length}.`,
-    );
+  if (status === 'set_allowance') {
+    return 'allowance';
   }
 
-  // 2. Payable value check
-  const isPayable = (fragment.stateMutability || '').toLowerCase() === 'payable';
-  if (execute.value && execute.value !== '0' && !isPayable) {
-    throw new Error('Contract function is not payable but a non-zero ETH value was supplied.');
+  if (additionalStates?.includes(status)) {
+    return status;
   }
 
-  // 3. Basic type validation for common Solidity types
-  fragment.inputs.forEach((input: any, idx: number) => {
-    const expected = (input.type as string).toLowerCase();
-    const param = execute.functionParams[idx];
+  return 'review';
+};
 
-    const isValid = (() => {
-      if (expected.startsWith('address')) {
-        return typeof param === 'string' && /^0x[a-fA-F0-9]{40}$/.test(param);
-      }
-      if (expected.startsWith('uint') || expected.startsWith('int')) {
-        return (
-          typeof param === 'bigint' ||
-          typeof param === 'number' ||
-          (typeof param === 'string' && /^\d+$/.test(param))
-        );
-      }
-      if (expected === 'bool') {
-        return typeof param === 'boolean';
-      }
-      if (expected.startsWith('bytes') || expected === 'string') {
-        return typeof param === 'string';
-      }
-      // Fallback for complex types (tuple, array, etc.) – skip strict validation
-      return true;
-    })();
-
-    if (!isValid) {
-      throw new Error(`Type mismatch at param[${idx}]. Expected ${expected}.`);
-    }
-  });
-
-  // 4. ERC-20 specific rule – value must be 0 / undefined when tokenApproval present
-  if (execute.tokenApproval && execute.value && execute.value !== '0') {
-    throw new Error('ERC-20 contract calls must not send ETH value.');
-  }
-}
+export const formatCost = (cost: string) => {
+  const numCost = parseFloat(cost);
+  if (isNaN(numCost)) return 'Invalid';
+  if (numCost < 0) return 'Invalid';
+  if (numCost === 0) return 'Free';
+  if (numCost < 0.001) return '< 0.001';
+  return numCost.toFixed(6);
+};

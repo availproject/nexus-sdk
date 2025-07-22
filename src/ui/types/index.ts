@@ -1,24 +1,76 @@
 import { ReactNode } from 'react';
-import {
-  BridgeAndExecuteParams,
-  BridgeAndExecuteResult,
-  BridgeAndExecuteSimulationResult,
+import { EthereumProvider, UserAsset } from '@arcana/ca-sdk';
+import { NexusSDK } from '../../core/sdk';
+
+// Only import essential parameter types, not all from root types
+import type {
   BridgeParams,
-  BridgeResult,
-  EthereumProvider,
-  SimulationResult,
   TransferParams,
-  TransferResult,
-  UserAsset,
+  BridgeAndExecuteParams,
   SUPPORTED_TOKENS,
   SUPPORTED_CHAINS_IDS,
-  ChainMetadata,
-  TokenMetadata,
-  NexusNetwork,
+  DynamicParamBuilder,
+  SimulationResult,
 } from '../../types';
-import { NexusSDK } from '../..';
 
 import { Abi } from 'viem';
+
+// Local result types for UI (to avoid importing all types)
+interface BridgeResult {
+  success: boolean;
+  error?: string;
+  explorerUrl?: string;
+}
+
+interface TransferResult {
+  success: boolean;
+  error?: string;
+  explorerUrl?: string;
+}
+
+interface BridgeAndExecuteResult {
+  success: boolean;
+  error?: string;
+  executeTransactionHash?: string;
+  executeExplorerUrl?: string;
+  approvalTransactionHash?: string;
+  toChainId: number;
+}
+
+interface BridgeAndExecuteSimulationResult {
+  success: boolean;
+  error?: string;
+  steps: any[];
+  bridgeSimulation: SimulationResult | null;
+  executeSimulation?: any;
+}
+
+// Local metadata types for UI
+interface ChainMetadata {
+  id: number;
+  name: string;
+  shortName: string;
+  logo: string;
+  nativeCurrency: {
+    name: string;
+    symbol: string;
+    decimals: number;
+  };
+  rpcUrls: string[];
+  blockExplorerUrls: string[];
+}
+
+interface TokenMetadata {
+  symbol: string;
+  name: string;
+  decimals: number;
+  icon: string;
+  coingeckoId: string;
+  isNative?: boolean;
+}
+
+// Local network type for UI
+type NexusNetwork = 'mainnet' | 'testnet';
 
 // # 1. High-Level State Machines
 
@@ -119,7 +171,7 @@ export interface NexusContextValue {
   activeTransaction: ActiveTransaction;
   isSdkInitialized: boolean;
   activeController: ITransactionController | null;
-  config: { network: NexusNetwork; debug?: boolean };
+  config?: { network?: NexusNetwork; debug?: boolean };
   provider: EthereumProvider | null;
   unifiedBalance: UserAsset[];
   isSimulating: boolean;
@@ -229,17 +281,6 @@ export interface TransactionProgressProps extends BaseComponentProps {
   collapsible?: boolean;
 }
 
-export type DynamicParamBuilder = (
-  token: SUPPORTED_TOKENS,
-  amount: string,
-  chainId: SUPPORTED_CHAINS_IDS,
-  userAddress: `0x${string}`,
-) => {
-  functionParams: readonly unknown[];
-  /** ETH value in wei (string). Omit or '0' for ERC-20 calls */
-  value?: string;
-};
-
 export interface BridgeAndExecuteButtonProps extends BaseComponentProps {
   contractAddress: `0x${string}`;
   contractAbi: Abi;
@@ -252,6 +293,9 @@ export interface BridgeAndExecuteButtonProps extends BaseComponentProps {
   };
   children: (props: { onClick: () => void; isLoading: boolean; disabled: boolean }) => ReactNode;
 }
+
+// Re-export DynamicParamBuilder for convenience
+export type { DynamicParamBuilder };
 
 export interface ProcessorCardProps {
   status: OrchestratorStatus;

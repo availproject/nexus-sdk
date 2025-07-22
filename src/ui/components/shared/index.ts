@@ -1,14 +1,16 @@
-// Existing components
-export { Button, buttonVariants } from './button';
+// Motion.js components (replacing Radix UI)
+export { Button } from './button-motion';
 export { Input } from './input';
-export { Label } from './label';
-export { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './select';
-export { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './dialog';
+export { Label } from './label-motion';
+export { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './dialog-motion';
+export { Progress } from './progress-motion';
+export { default as AnimatedSelect } from './animated-select';
+
+// Existing components
 export { BaseModal } from './base-modal';
 export { ChainSelect } from './chain-select';
 export { TokenSelect } from './token-select';
 export { Shimmer } from './shimmer';
-export { Progress } from './progress';
 export { ThreeStageProgress } from './three-stage-progress';
 export { ChainIcon, TokenIcon } from './icons';
 
@@ -32,5 +34,5 @@ export {
 export { EnhancedInfoMessage } from './enhanced-info-message';
 
 // Animation components
-export { SlideTransition, useContentKey } from './slide-transition';
+export { SlideTransition } from './slide-transition';
 export { DragConstraintsProvider, useDragConstraints } from './drag-constraints';

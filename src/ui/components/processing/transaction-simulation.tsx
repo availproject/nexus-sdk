@@ -1,6 +1,8 @@
 import React from 'react';
-import { SimulationResult, BridgeAndExecuteSimulationResult } from '../../../types';
+import { SimulationResult, BridgeAndExecuteSimulationResult, Intent } from '../../../types';
 import { InfoMessage, Shimmer } from '../shared';
+import { CHAIN_METADATA } from '../../../constants';
+import { formatCost } from '../../utils/utils';
 
 interface TransactionSimulationProps {
   isLoading: boolean;
@@ -44,28 +46,64 @@ export function TransactionSimulation({ isLoading, simulationResult }: Transacti
   const getSimulationData = (): SimulationData | null => {
     if (!simulationResult) return null;
 
+    // Check if bridge was skipped in bridge & execute flow
+    if (
+      'metadata' in simulationResult &&
+      (simulationResult as BridgeAndExecuteSimulationResult)?.metadata?.bridgeSkipped
+    ) {
+      const metadata = (simulationResult as BridgeAndExecuteSimulationResult)?.metadata;
+
+      if (!metadata) return null;
+
+      return {
+        destination: {
+          chainID: metadata?.targetChain,
+          chainName: CHAIN_METADATA[metadata?.targetChain]?.name || 'Unknown',
+          chainLogo: CHAIN_METADATA[metadata?.targetChain]?.logo,
+          amount: metadata?.inputAmount,
+        } as ChainInfo,
+        sources: [
+          {
+            chainName: CHAIN_METADATA[metadata?.targetChain]?.name,
+            chainID: metadata?.targetChain,
+            chainLogo: CHAIN_METADATA[metadata?.targetChain]?.logo,
+            amount: metadata?.inputAmount,
+          },
+        ],
+        fees: {
+          total: '0',
+          bridge: '0',
+          caGas: '0',
+          gasSupplied: '0',
+          protocol: '0',
+          solver: '0',
+        } as FeesInfo,
+        token: { name: simulationResult?.metadata?.token || 'Unknown' } as TokenInfo,
+        sourcesTotal: metadata?.inputAmount || '0',
+      };
+    }
+
     // Handle bridge & execute result where intent is nested
-    let intent: any;
+    let intent: Intent | undefined = undefined;
     if ('intent' in simulationResult) {
-      intent = (simulationResult as SimulationResult).intent;
-    } else if ('bridgeSimulation' in simulationResult && simulationResult.bridgeSimulation) {
-      intent = (simulationResult.bridgeSimulation as SimulationResult).intent;
+      intent = (simulationResult as SimulationResult)?.intent;
+    } else if ('bridgeSimulation' in simulationResult && simulationResult?.bridgeSimulation) {
+      intent = (simulationResult?.bridgeSimulation as SimulationResult)?.intent;
     }
 
     if (!intent) return null;
 
     return {
-      destination: intent.destination as ChainInfo,
-      sources: (intent.sources || []) as ChainInfo[],
-      fees: intent.fees as FeesInfo,
-      token: intent.token as TokenInfo,
-      sourcesTotal: intent.sourcesTotal as string,
+      destination: intent?.destination as ChainInfo,
+      sources: (intent?.sources || []) as ChainInfo[],
+      fees: intent?.fees as FeesInfo,
+      token: intent?.token as TokenInfo,
+      sourcesTotal: intent?.sourcesTotal as string,
     };
   };
 
   const data = getSimulationData();
 
-  // Determine execute gas if present in simulation result (Bridge & Execute)
   let executeGas: string | undefined;
   if (simulationResult && 'totalEstimatedCost' in simulationResult) {
     executeGas = simulationResult.totalEstimatedCost?.breakdown?.execute;
@@ -84,7 +122,7 @@ export function TransactionSimulation({ isLoading, simulationResult }: Transacti
       )}
       <RouteSection data={data} />
       <hr className="border-zinc-400/40" />
-      <FeeBreakdown fees={data.fees} tokenSymbol={data.token.symbol} executeGas={executeGas} />
+      <FeeBreakdown fees={data?.fees} tokenSymbol={data?.token?.symbol} executeGas={executeGas} />
     </div>
   );
 }
@@ -94,12 +132,12 @@ function LoadingState() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold text-zinc-500 nexus-font-primary">
+        <span className="text-sm font-semibold text-zinc-500 font-nexus-primary">
           Depositing from
         </span>
         <div className="flex items-center gap-2">
-          <Shimmer className="w-6 h-6 rounded-full" />
-          <Shimmer className="w-16 h-4 rounded-full" />
+          <Shimmer className="w-6 h-6 rounded-nexus-full" />
+          <Shimmer className="w-16 h-4 rounded-nexus-full" />
         </div>
       </div>
       <hr className="border-zinc-400/40" />
@@ -116,31 +154,31 @@ function RouteSection({ data }: { data: SimulationData }) {
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold text-zinc-500 nexus-font-primary">
+        <span className="text-sm font-semibold text-zinc-500 font-nexus-primary">
           Depositing from
         </span>
         <div className="flex items-center gap-2">
           {/* Source chains */}
           {sources.slice(0, 3).map((source, index) =>
-            source.chainLogo ? (
+            source.chainID ? (
               <img
                 key={index}
-                src={source.chainLogo}
+                src={CHAIN_METADATA[source?.chainID]?.logo}
                 alt={source.chainName}
-                className={`w-6 h-6 rounded-full ${index > 0 ? '-ml-5' : ''}`}
+                className={`w-6 h-6 rounded-nexus-full ${index > 0 ? '-ml-5' : ''}`}
                 style={{ zIndex: sources.length - index }}
               />
             ) : (
               <div
                 key={index}
-                className="w-6 h-6 rounded-full bg-gray-300 flex items-center justify-center text-xs"
+                className="w-6 h-6 rounded-nexus-full bg-gray-300 flex items-center justify-center text-xs"
               >
-                {source.chainName[0]}
+                {source?.chainName[0]}
               </div>
             ),
           )}
-          <span className="text-sm font-semibold text-black nexus-font-primary">
-            {sources.length} Chain{sources.length > 1 ? 's' : ''}
+          <span className="text-sm font-semibold text-black font-nexus-primary">
+            {sources?.length} Chain{sources?.length > 1 ? 's' : ''}
           </span>
         </div>
       </div>
@@ -160,15 +198,21 @@ function FeeBreakdown({
 }) {
   return (
     <div className="space-y-3">
-      <FeeRow label="Bridge gas" value={fees.total} tokenSymbol={tokenSymbol} />
-      <hr className="border-zinc-400/40" />
-      {executeGas && (
+      {parseFloat(fees.total) > 0 && (
         <>
-          <FeeRow label="Execute gas" value={executeGas} tokenSymbol={tokenSymbol} />
+          <FeeRow label="Transaction gas" value={fees.total} tokenSymbol={tokenSymbol} />
           <hr className="border-zinc-400/40" />
         </>
       )}
-      <FeeRow label="Solver fees" value={fees.solver} tokenSymbol={tokenSymbol} />
+
+      {executeGas && <FeeRow label="Execute gas" value={executeGas} tokenSymbol={tokenSymbol} />}
+      {parseFloat(fees.solver) > 0 && (
+        <>
+          {executeGas && <hr className="border-zinc-400/40" />}
+
+          <FeeRow label="Solver fees" value={fees.solver} tokenSymbol={tokenSymbol} />
+        </>
+      )}
     </div>
   );
 }
@@ -190,17 +234,17 @@ function FeeRow({
   return (
     <div className="flex items-center justify-between py-1.5">
       <span
-        className={`text-sm font-semibold nexus-font-primary ${isTotal ? 'text-black' : 'text-zinc-500'}`}
+        className={`text-sm font-semibold font-nexus-primary ${isTotal ? 'text-black' : 'text-zinc-500'}`}
       >
         {label}
       </span>
       {loading ? (
-        <Shimmer className="w-16 h-4 rounded-full" />
+        <Shimmer className="w-16 h-4 rounded-nexus-full" />
       ) : (
         <span
-          className={`text-sm font-semibold nexus-font-primary ${isTotal ? 'text-black' : 'text-black'}`}
+          className={`text-sm font-semibold font-nexus-primary ${isTotal ? 'text-black' : 'text-black'}`}
         >
-          {parseFloat(value ?? '0').toFixed(6)} {tokenSymbol}
+          {formatCost(value ?? '')} {tokenSymbol}
         </span>
       )}
     </div>

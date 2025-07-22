@@ -2,24 +2,15 @@ import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export interface SlideTransitionProps {
-  /** Unique key that triggers transitions when changed */
   contentKey: string;
-  /** Direction for the slide animation */
   direction?: 'horizontal' | 'vertical';
-  /** Custom slide distance in pixels */
   distance?: number;
-  /** Animation timing configuration */
   timing?: {
-    /** Spring stiffness – lower is softer */
     stiffness?: number;
-    /** Spring damping – higher is slower to stop */
     damping?: number;
-    /** Spring mass – affects overall weight */
     mass?: number;
   };
-  /** Content to render */
   children: React.ReactNode;
-  /** Additional CSS classes */
   className?: string;
 }
 
@@ -46,7 +37,6 @@ export const SlideTransition: React.FC<SlideTransitionProps> = ({
       };
     }
 
-    // Horizontal (default)
     return {
       initial: { x: distance, opacity: 0 },
       animate: { x: 0, opacity: 1 },
@@ -77,29 +67,4 @@ export const SlideTransition: React.FC<SlideTransitionProps> = ({
       </AnimatePresence>
     </div>
   );
-};
-
-// Hook for common content key mapping patterns
-export const useContentKey = (status: string, additionalStates?: string[]) => {
-  const getContentKey = (): string => {
-    // Common processing states
-    if (['processing', 'success', 'error'].includes(status)) {
-      return 'processor';
-    }
-
-    // Common allowance state
-    if (status === 'set_allowance') {
-      return 'allowance';
-    }
-
-    // Check additional custom states
-    if (additionalStates?.includes(status)) {
-      return status;
-    }
-
-    // Default review states
-    return 'review';
-  };
-
-  return getContentKey();
 };

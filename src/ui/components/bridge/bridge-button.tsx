@@ -1,7 +1,8 @@
+'use client';
 import React from 'react';
 import type { BridgeButtonProps } from '../../types';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
-import { BridgeModal } from './bridge-modal';
+import BridgeModal from './bridge-modal';
 
 export function BridgeButton({ prefill, children, className }: BridgeButtonProps) {
   const { startTransaction, activeTransaction } = useInternalNexus();

@@ -1,8 +1,7 @@
-import React, { useRef } from 'react';
+import React, { useCallback, useRef } from 'react';
 import { motion } from 'motion/react';
 import { Button, ThreeStageProgress, EnhancedInfoMessage } from '../shared';
 import SuccessRipple from '../shared/success-ripple';
-import { Minimize, CircleX, ExternalLink } from 'lucide-react';
 import { WordsPullUp } from '../shared/pull-up-words';
 import { ProcessorCardProps } from '../../types';
 import {
@@ -11,8 +10,10 @@ import {
   SimulationResult,
 } from '../../../types';
 import { DotLottieReact } from '@lottiefiles/dotlottie-react';
-import { SmallAvailLogo } from '../shared/icons/SmallAvailLogo';
-import type { DotLottie } from '@lottiefiles/dotlottie-web';
+import { SmallAvailLogo } from '../icons/SmallAvailLogo';
+import type { DotLottie } from '@lottiefiles/dotlottie-react';
+import { CircleX, ExternalLink, Minimize } from '../icons';
+import { formatCost } from '../../utils/utils';
 
 export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
   status,
@@ -30,10 +31,41 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
   error,
   executionResult,
 }: ProcessorCardProps) => {
-  // Hold a reference to the underlying DotLottie player so we can
-  // manually call `resize()` when the card finishes a FLIP layout
-  // transition (prevents the "buffer size mismatch" console warning).
   const lottieRef = useRef<DotLottie | null>(null);
+
+  const sourceAmount = useCallback(() => {
+    if (transactionType === 'bridge' || transactionType === 'transfer') {
+      return formatCost((simulationResult as SimulationResult)?.intent?.sourcesTotal);
+    } else {
+      const bridgeExecuteResult = simulationResult as BridgeAndExecuteSimulationResult;
+      
+      // If bridge was skipped, use input amount from metadata
+      if (bridgeExecuteResult?.metadata?.bridgeSkipped) {
+        return formatCost(bridgeExecuteResult.metadata.inputAmount ?? '');
+      }
+      
+      return formatCost(
+        bridgeExecuteResult?.bridgeSimulation?.intent?.sourcesTotal ?? '',
+      );
+    }
+  }, [transactionType, simulationResult]);
+
+  const destinationAmount = useCallback(() => {
+    if (transactionType === 'bridge' || transactionType === 'transfer') {
+      return formatCost((simulationResult as SimulationResult)?.intent?.destination?.amount);
+    } else {
+      const bridgeExecuteResult = simulationResult as BridgeAndExecuteSimulationResult;
+      
+      // If bridge was skipped, use input amount from metadata (same as source since no bridge)
+      if (bridgeExecuteResult?.metadata?.bridgeSkipped) {
+        return formatCost(bridgeExecuteResult.metadata.inputAmount ?? '');
+      }
+      
+      return formatCost(
+        bridgeExecuteResult?.bridgeSimulation?.intent?.destination?.amount ?? '',
+      );
+    }
+  }, [transactionType, simulationResult]);
 
   return (
     <>
@@ -95,22 +127,19 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
                 <div className="flex items-center">
                   {sourceChainMeta.slice(0, 3).map((chain, index) => (
                     <img
-                      key={chain.id}
-                      src={chain.logo ?? ''}
-                      alt={chain.name ?? ''}
-                      className={`w-12 h-12 rounded-full ${index > 0 ? '-ml-5' : ''}`}
-                      style={{ zIndex: sourceChainMeta.length - index }}
+                      key={chain?.id}
+                      src={chain?.logo ?? ''}
+                      alt={chain?.name ?? ''}
+                      className={`w-12 h-12 rounded-nexus-full ${index > 0 ? '-ml-5' : ''}`}
+                      style={{ zIndex: sourceChainMeta?.length - index }}
                     />
                   ))}
                 </div>
                 <div className="flex flex-col gap-y-1 items-center">
-                  <p className="text-lg nexus-font-primary text-black font-bold">
-                    {transactionType === 'bridge' || transactionType === 'transfer'
-                      ? (simulationResult as SimulationResult)?.intent?.sourcesTotal
-                      : (simulationResult as BridgeAndExecuteSimulationResult)?.bridgeSimulation
-                          ?.intent?.sourcesTotal}
+                  <p className="text-lg font-nexus-primary text-black font-bold">
+                    {sourceAmount()}
                   </p>
-                  <p className="text-sm nexus-font-primary text-[#666666] font-medium">
+                  <p className="text-sm font-nexus-primary text-nexus-muted-secondary font-medium">
                     From {sourceChainMeta.length} chain{sourceChainMeta.length > 1 ? 's' : ''}
                   </p>
                 </div>
@@ -126,19 +155,19 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
                 <div className="relative w-full flex items-center justify-center">
                   <div className="w-full max-w-[300px] relative">
                     <ThreeStageProgress
-                      progress={processing.animationProgress}
+                      progress={processing?.animationProgress}
                       hasError={!!error}
-                      errorProgress={processing.animationProgress}
+                      errorProgress={processing?.animationProgress}
                       tokenIcon={
-                        <div className="w-10 h-10 bg-white rounded-full border-2 border-gray-200 flex items-center justify-center shadow-md">
+                        <div className="w-10 h-10 bg-white rounded-nexus-full border-2 border-gray-200 flex items-center justify-center shadow-md">
                           {tokenMeta?.icon ? (
                             <img
-                              src={tokenMeta.icon}
-                              alt={tokenMeta.symbol}
-                              className="w-8 h-8 rounded-full"
+                              src={tokenMeta?.icon}
+                              alt={tokenMeta?.symbol}
+                              className="w-8 h-8 rounded-nexus-full"
                             />
                           ) : (
-                            <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center">
+                            <div className="w-5 h-5 bg-blue-500 rounded-nexus-full flex items-center justify-center">
                               <span className="text-white text-xs font-bold">
                                 {tokenMeta?.symbol?.[0] || 'T'}
                               </span>
@@ -157,25 +186,22 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
                   <>
                     <SuccessRipple size="md">
                       <img
-                        src={destChainMeta.logo ?? ''}
-                        alt={destChainMeta.name ?? ''}
-                        className="w-12 h-12 rounded-full"
+                        src={destChainMeta?.logo ?? ''}
+                        alt={destChainMeta?.name ?? ''}
+                        className="w-12 h-12 rounded-nexus-full"
                       />
                     </SuccessRipple>
                     <div className="flex flex-col gap-y-1 items-center">
-                      <p className="text-lg nexus-font-primary text-black font-bold">
-                        {transactionType === 'bridge' || transactionType === 'transfer'
-                          ? (simulationResult as SimulationResult)?.intent?.destination?.amount
-                          : (simulationResult as BridgeAndExecuteSimulationResult)?.bridgeSimulation
-                              ?.intent?.destination?.amount}
+                      <p className="text-lg font-nexus-primary text-black font-bold">
+                        {destinationAmount()}
                       </p>
-                      <p className="text-sm nexus-font-primary text-[#666666] font-medium">
-                        To {destChainMeta.name}
+                      <p className="text-sm font-nexus-primary text-nexus-muted-secondary font-medium">
+                        To {destChainMeta?.name ?? ''}
                       </p>
                     </div>
                   </>
                 ) : (
-                  <div className="w-12 h-12 bg-gray-200 rounded-full animate-pulse" />
+                  <div className="w-12 h-12 bg-gray-200 rounded-nexus-full animate-pulse" />
                 )}
               </div>
             </motion.div>
@@ -188,22 +214,22 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
               transition={{ duration: 0.35, delay: 0.05 }}
             >
               {error ? (
-                <EnhancedInfoMessage error={error} context="transaction" />
+                <EnhancedInfoMessage error={error} context="transaction" className="px-0" />
               ) : (
                 <>
                   <div className="flex items-center justify-center w-full">
-                    <span className="text-2xl font-semibold nexus-font-primary text-black">
+                    <span className="text-2xl font-semibold font-nexus-primary text-black">
                       {Math.floor(timer)}
                     </span>
-                    <span className="text-base font-semibold nexus-font-primary text-black">.</span>
-                    <span className="text-base font-semibold nexus-font-primary text-gray-600">
+                    <span className="text-base font-semibold font-nexus-primary text-black">.</span>
+                    <span className="text-base font-semibold font-nexus-primary text-gray-600">
                       {String(Math.floor((timer % 1) * 1000)).padStart(3, '0')}s
                     </span>
                   </div>
                   <div className="relative overflow-hidden">
-                    <WordsPullUp text={processing.statusText} />
+                    <WordsPullUp text={processing?.statusText} />
                   </div>
-                  <p className="w-full text-center nexus-font-primary text-base text-grey-600">
+                  <p className="w-full text-center font-nexus-primary text-base text-grey-600">
                     {description}
                   </p>
                 </>
@@ -211,29 +237,32 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
               {/* Explorer links */}
               {transactionType === 'bridgeAndExecute' ? (
                 <div className="flex flex-col items-center gap-y-2">
-                  {explorerURL && (
+                  {/* Only show bridge transaction link if bridge wasn't skipped */}
+                  {explorerURL && !(executionResult as BridgeAndExecuteResult)?.bridgeSkipped && (
                     <Button
                       variant="link"
-                      className=" text-[#0375D8] underline text-base font-semibold nexus-font-primary"
+                      className="text-nexus-accent underline text-base font-semibold font-nexus-primary cursor-pointer"
                       onClick={() => window.open(explorerURL, '_blank')}
                     >
                       View Bridge Transaction{' '}
-                      <ExternalLink className="w-6 h-6 ml-2 text-[#666666]" />
+                      <ExternalLink className="w-6 h-6 ml-2 text-nexus-muted-secondary" />
                     </Button>
                   )}
                   {(executionResult as BridgeAndExecuteResult)?.executeExplorerUrl && (
                     <Button
                       variant="link"
-                      className=" text-[#0375D8] underline text-base font-semibold nexus-font-primary"
+                      className=" text-nexus-accent underline text-base font-semibold font-nexus-primary cursor-pointer"
                       onClick={() =>
                         window.open(
-                          (executionResult as BridgeAndExecuteResult).executeExplorerUrl,
+                          (executionResult as BridgeAndExecuteResult)?.executeExplorerUrl,
                           '_blank',
                         )
                       }
                     >
-                      View Execute Transaction{' '}
-                      <ExternalLink className="w-6 h-6 ml-2 text-[#666666]" />
+                      {(executionResult as BridgeAndExecuteResult)?.bridgeSkipped 
+                        ? 'View Transaction' 
+                        : 'View Execute Transaction'}{' '}
+                      <ExternalLink className="w-6 h-6 ml-2 text-nexus-muted-secondary" />
                     </Button>
                   )}
                 </div>
@@ -241,10 +270,11 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
                 explorerURL && (
                   <Button
                     variant="link"
-                    className=" text-[#0375D8] underline text-base font-semibold nexus-font-primary"
+                    className=" text-nexus-accent underline text-base font-semibold font-nexus-primary cursor-pointer"
                     onClick={() => window.open(explorerURL, '_blank')}
                   >
-                    View on Explorer <ExternalLink className="w-6 h-6 ml-2 text-[#666666]" />
+                    View on Explorer{' '}
+                    <ExternalLink className="w-6 h-6 ml-2 text-nexus-muted-secondary" />
                   </Button>
                 )
               )}
@@ -263,14 +293,14 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
           >
             <Button
               onClick={cancelTransaction}
-              className="w-full bg-[#2B2B2B] nexus-font-primary text-[16px] font-semibold h-12 hover:not-even:bg-gray-700 rounded-[8px]"
+              className="w-full bg-nexus-primary-hover font-nexus-primary text-[16px] font-semibold h-12 hover:not-even:bg-gray-700 rounded-nexus-md"
             >
               Close
             </Button>
           </motion.div>
         )}
-        <div className="flex items-center justify-center gap-x-1.5 text-xs h-8 bg-[#BED8EE66] w-full rounded-b-xl">
-          <span className="text-[#4C4C4C] nexus-font-primary">Powered By</span>
+        <div className="flex items-center justify-center gap-x-1.5 text-xs h-8 bg-nexus-secondary-background w-full rounded-b-nexus-xl">
+          <span className="text-[#4C4C4C] font-nexus-primary">Powered By</span>
           <SmallAvailLogo />
         </div>
       </div>

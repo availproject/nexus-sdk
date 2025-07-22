@@ -27,11 +27,15 @@ export const TransactionProcessorShell: React.FC = () => {
     if (transactionType === 'bridge' || transactionType === 'transfer') {
       return (simulationResult as SimulationResult)?.intent?.sources?.map((s) => s.chainID) || [];
     }
-    return (
-      (simulationResult as BridgeAndExecuteSimulationResult).bridgeSimulation?.intent?.sources?.map(
-        (s: any) => s.chainID,
-      ) || []
-    );
+
+    const bridgeExecuteResult = simulationResult as BridgeAndExecuteSimulationResult;
+
+    // If bridge was skipped, use the target chain as the source since we're executing directly
+    if (bridgeExecuteResult?.metadata?.bridgeSkipped) {
+      return [bridgeExecuteResult.metadata.targetChain];
+    }
+
+    return bridgeExecuteResult.bridgeSimulation?.intent?.sources?.map((s) => s.chainID) || [];
   }, [simulationResult, transactionType]);
 
   const destination = useMemo(() => {
@@ -39,17 +43,24 @@ export const TransactionProcessorShell: React.FC = () => {
     if (transactionType === 'bridge' || transactionType === 'transfer') {
       return (simulationResult as SimulationResult)?.intent?.destination?.chainID || 0;
     }
-    return (
-      (simulationResult as BridgeAndExecuteSimulationResult).bridgeSimulation?.intent?.destination
-        ?.chainID || 0
-    );
+
+    const bridgeExecuteResult = simulationResult as BridgeAndExecuteSimulationResult;
+
+    // If bridge was skipped, use the target chain as the destination
+    if (bridgeExecuteResult?.metadata?.bridgeSkipped) {
+      return bridgeExecuteResult.metadata.targetChain;
+    }
+
+    return bridgeExecuteResult.bridgeSimulation?.intent?.destination?.chainID || 0;
   }, [simulationResult, transactionType]);
 
   const token = activeTransaction.inputData?.token || '';
+
   const sourceChainMeta = sources
     .filter((s): s is number => s != null && !isNaN(s))
     .map((s) => CHAIN_METADATA[s as keyof typeof CHAIN_METADATA])
     .filter(Boolean);
+
   const destChainMeta = destination
     ? CHAIN_METADATA[destination as keyof typeof CHAIN_METADATA]
     : null;
@@ -57,7 +68,7 @@ export const TransactionProcessorShell: React.FC = () => {
 
   const getDescription = () => {
     if (activeTransaction?.executionResult?.success) return 'Transaction Completed Successfully';
-    return `${getOperationText(transactionType as TransactionType)} ${tokenMeta?.symbol || 'token'} from ${sourceChainMeta.length > 1 ? 'multiple chains' : sourceChainMeta[0]?.name + ' chain'} to ${destChainMeta?.name || 'destination chain'}`;
+    return `${getOperationText(transactionType as TransactionType)} ${tokenMeta?.symbol || 'token'} from ${sourceChainMeta.length > 1 ? 'multiple chains' : sourceChainMeta[0]?.name} to ${destChainMeta?.name || 'destination chain'}`;
   };
 
   const shellActive = ['processing', 'success', 'error'].includes(activeTransaction.status);
@@ -101,7 +112,7 @@ export const TransactionProcessorShell: React.FC = () => {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.25 }}
-            className="fixed inset-0 bg-[#0E0E0E66] backdrop-blur-[4px] z-40"
+            className="fixed inset-0 bg-nexus-backdrop backdrop-blur-[4px] z-40"
           />
         )}
 
@@ -120,11 +131,11 @@ export const TransactionProcessorShell: React.FC = () => {
           }}
           initial={false}
           animate={{
-            width: isTransactionCollapsed ? COLLAPSED.width : EXPANDED.width,
-            height: isTransactionCollapsed ? COLLAPSED.height : EXPANDED.height,
-            x: isTransactionCollapsed ? collapsedPos.x : expandedPos.x,
-            y: isTransactionCollapsed ? collapsedPos.y : expandedPos.y,
-            borderRadius: isTransactionCollapsed ? COLLAPSED.radius : EXPANDED.radius,
+            width: isTransactionCollapsed ? COLLAPSED?.width : EXPANDED?.width,
+            height: isTransactionCollapsed ? COLLAPSED?.height : EXPANDED?.height,
+            x: isTransactionCollapsed ? collapsedPos?.x : expandedPos?.x,
+            y: isTransactionCollapsed ? collapsedPos?.y : expandedPos?.y,
+            borderRadius: isTransactionCollapsed ? COLLAPSED?.radius : EXPANDED?.radius,
             boxShadow: isTransactionCollapsed
               ? '0 10px 25px -5px rgba(0,0,0,0.2)'
               : '0 25px 50px -12px rgba(0,0,0,0.25)',
@@ -132,15 +143,15 @@ export const TransactionProcessorShell: React.FC = () => {
           }}
           exit={{ opacity: 0 }}
           transition={{ type: 'spring', damping: 22, stiffness: 320, mass: 0.6 }}
-          className={`fixed top-0 left-0 bg-white overflow-hidden z-50 pointer-events-auto rounded-2xl ${
+          className={`fixed top-0 left-0 bg-white font-nexus-primary overflow-hidden z-50 pointer-events-auto rounded-nexus-xl ${
             isTransactionCollapsed
               ? 'cursor-move px-4 py-2 border border-gray-200'
-              : 'shadow-card !nexus-font-primary flex flex-col items-center justify-between w-full'
+              : 'shadow-card  flex flex-col items-center justify-between w-full'
           }`}
         >
           {isTransactionCollapsed ? (
             <ProcessorMiniCard
-              status={activeTransaction.status}
+              status={activeTransaction?.status}
               cancelTransaction={cancelTransaction}
               toggleTransactionCollapse={toggleTransactionCollapse}
               sourceChainMeta={sourceChainMeta}
@@ -152,12 +163,12 @@ export const TransactionProcessorShell: React.FC = () => {
               explorerURL={explorerURL}
               timer={timer}
               description={getDescription()}
-              error={activeTransaction.error}
-              executionResult={activeTransaction.executionResult}
+              error={activeTransaction?.error}
+              executionResult={activeTransaction?.executionResult}
             />
           ) : (
             <ProcessorFullCard
-              status={activeTransaction.status}
+              status={activeTransaction?.status}
               cancelTransaction={cancelTransaction}
               toggleTransactionCollapse={toggleTransactionCollapse}
               sourceChainMeta={sourceChainMeta}
@@ -169,8 +180,8 @@ export const TransactionProcessorShell: React.FC = () => {
               explorerURL={explorerURL}
               timer={timer}
               description={getDescription()}
-              error={activeTransaction.error}
-              executionResult={activeTransaction.executionResult}
+              error={activeTransaction?.error}
+              executionResult={activeTransaction?.executionResult}
             />
           )}
         </motion.div>

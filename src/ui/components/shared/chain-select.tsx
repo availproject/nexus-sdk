@@ -2,7 +2,7 @@ import React from 'react';
 import { ChainSelectProps } from '../../types';
 import { CHAIN_METADATA, MAINNET_CHAINS, TESTNET_CHAINS } from '../../../constants';
 import { ChainIcon } from './icons';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './select';
+import AnimatedSelect from './animated-select';
 import { cn } from '../../utils/utils';
 
 interface ChainSelectOption {
@@ -31,38 +31,32 @@ export function ChainSelect({
     };
   });
 
+  const renderSelectedValue = (option: ChainSelectOption) => (
+    <div className="h-8 flex items-center gap-1.5">
+      <ChainIcon chainId={option.value} />
+      <span className="text-black text-base font-semibold font-nexus-primary leading-normal">
+        {option.label}
+      </span>
+    </div>
+  );
+
+  const renderOption = (option: ChainSelectOption) => (
+    <div className="flex items-center gap-2">
+      <ChainIcon chainId={option.value} />
+      <span>{option.label}</span>
+    </div>
+  );
+
   return (
-    <Select value={value || ''} onValueChange={onValueChange} disabled={disabled}>
-      <SelectTrigger
-        className={cn(
-          'px-4 py-2 min-h-12 rounded-[8px] border border-zinc-400 w-full cursor-pointer',
-          '!bg-transparent flex justify-between items-center',
-          'focus:border-ring focus:ring-ring/50 focus:ring-[3px]',
-          disabled && 'opacity-40',
-          className,
-        )}
-      >
-        <SelectValue placeholder="Select destination chain...">
-          {value && (
-            <div className="h-8 flex items-center gap-1.5">
-              <ChainIcon chainId={value} />
-              <span className="text-black text-base font-semibold nexus-font-primary leading-normal">
-                {chainOptions.find((option) => option.value === value)?.label}
-              </span>
-            </div>
-          )}
-        </SelectValue>
-      </SelectTrigger>
-      <SelectContent className="bg-white">
-        {chainOptions.map((option) => (
-          <SelectItem key={option.value} value={option.value}>
-            <div className="flex items-center gap-2">
-              <ChainIcon chainId={option.value} />
-              <span>{option.label}</span>
-            </div>
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <AnimatedSelect<ChainSelectOption>
+      value={value || ''}
+      onSelect={onValueChange}
+      disabled={disabled}
+      placeholder="Select destination"
+      options={chainOptions}
+      renderSelectedValue={renderSelectedValue}
+      renderOption={renderOption}
+      className={cn(disabled && 'opacity-40', className)}
+    />
   );
 }

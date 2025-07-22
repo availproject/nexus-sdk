@@ -2,9 +2,10 @@ import React from 'react';
 import { motion } from 'motion/react';
 import { ThreeStageProgress, EnhancedInfoMessage, Button } from '../shared';
 import SuccessRipple from '../shared/success-ripple';
-import { Maximize, ExternalLink } from 'lucide-react';
+import { Maximize, ExternalLink } from '../icons';
 import { ProcessorCardProps } from '../../types';
 import { WordsPullUp } from '../shared/pull-up-words';
+import { BridgeAndExecuteResult } from '../../../types';
 
 export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
   status,
@@ -17,6 +18,7 @@ export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
   explorerURL,
   description,
   error,
+  executionResult,
 }: ProcessorCardProps) => {
   return (
     <motion.div
@@ -32,13 +34,13 @@ export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
         <div className="flex items-center justify-between w-full gap-x-3">
           {/* Sources */}
           <div className="flex -space-x-1 mb-1">
-            {sourceChainMeta.slice(0, 3).map((chain, index) => (
+            {sourceChainMeta?.slice(0, 3).map((chain, index) => (
               <img
-                key={chain.id}
-                src={chain.logo ?? ''}
-                alt={chain.name ?? ''}
-                className={`w-8 h-8 rounded-full ${index > 0 ? '-ml-3' : ''}`}
-                style={{ zIndex: sourceChainMeta.length - index }}
+                key={chain?.id}
+                src={chain?.logo ?? ''}
+                alt={chain?.name ?? ''}
+                className={`w-8 h-8 rounded-nexus-full ${index > 0 ? '-ml-3' : ''}`}
+                style={{ zIndex: sourceChainMeta?.length - index }}
               />
             ))}
           </div>
@@ -52,18 +54,18 @@ export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
             transition={{ type: 'spring', stiffness: 260, damping: 20 }}
           >
             <ThreeStageProgress
-              progress={processing.animationProgress}
+              progress={processing?.animationProgress}
               hasError={!!error}
-              errorProgress={processing.animationProgress}
+              errorProgress={processing?.animationProgress}
               tokenIcon={
                 tokenMeta?.icon ? (
                   <img
-                    src={tokenMeta.icon}
-                    alt={tokenMeta.symbol}
-                    className="w-6 h-6 rounded-full border border-white shadow-sm"
+                    src={tokenMeta?.icon}
+                    alt={tokenMeta?.symbol}
+                    className="w-6 h-6 rounded-nexus-full border border-white shadow-sm"
                   />
                 ) : (
-                  <div className="w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center">
+                  <div className="w-4 h-4 bg-blue-500 rounded-nexus-full flex items-center justify-center">
                     <span className="text-white text-[8px] font-bold">
                       {tokenMeta?.symbol?.[0] || 'T'}
                     </span>
@@ -78,18 +80,18 @@ export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
           {destChainMeta ? (
             <SuccessRipple size="sm">
               <img
-                src={destChainMeta.logo}
-                alt={destChainMeta.name}
-                className="w-8 h-8 rounded-full mb-1"
+                src={destChainMeta?.logo}
+                alt={destChainMeta?.name}
+                className="w-8 h-8 rounded-nexus-full mb-1"
               />
             </SuccessRipple>
           ) : (
-            <div className="w-8 h-8 bg-gray-200 rounded-full animate-pulse mb-1" />
+            <div className="w-8 h-8 bg-gray-200 rounded-nexus-full animate-pulse mb-1" />
           )}
         </div>
         <Button
           onClick={toggleTransactionCollapse}
-          className="p-1 hover:bg-gray-100 rounded-md transition-colors"
+          className="p-1 hover:bg-gray-100 rounded-nexus-md transition-colors"
           variant="link"
         >
           <Maximize className="w-6 h-6 text-gray-600" />
@@ -110,21 +112,36 @@ export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
             transition={{ duration: 0.25 }}
           >
             <WordsPullUp
-              text={processing.statusText}
-              className="text-[16px] nexus-font-primary font-semibold text-black"
+              text={processing?.statusText}
+              className="text-[16px] font-nexus-primary font-semibold text-black"
             />
           </motion.div>
-          {transactionType !== 'bridgeAndExecute' && status === 'success' ? (
-            <Button
-              className="h-fit text-xs text-[#0375D8] underline font-semibold nexus-font-primary px-0"
-              size="sm"
-              variant="link"
-              onClick={() => window.open(explorerURL ?? '', '_blank')}
-            >
-              View on Explorer <ExternalLink className="w-4 h-4 ml-2 text-[#666666]" />
-            </Button>
-          ) : (
-            <p className="nexus-font-primary text-sm text-grey-600 text-ellipsis overflow-hidden">
+          {status === 'success' && (
+            transactionType !== 'bridgeAndExecute' ? (
+              <Button
+                className="h-fit text-xs text-nexus-accent underline font-semibold font-nexus-primary px-0"
+                size="sm"
+                variant="link"
+                onClick={() => window.open(explorerURL ?? '', '_blank')}
+              >
+                View on Explorer <ExternalLink className="w-4 h-4 ml-2 text-nexus-muted-secondary" />
+              </Button>
+            ) : (
+              // For bridgeAndExecute, show execute transaction link (bridge link handled in full card)
+              (executionResult as BridgeAndExecuteResult)?.executeExplorerUrl && (
+                <Button
+                  className="h-fit text-xs text-nexus-accent underline font-semibold font-nexus-primary px-0"
+                  size="sm"
+                  variant="link"
+                  onClick={() => window.open((executionResult as BridgeAndExecuteResult)?.executeExplorerUrl ?? '', '_blank')}
+                >
+                  View Transaction <ExternalLink className="w-4 h-4 ml-2 text-nexus-muted-secondary" />
+                </Button>
+              )
+            )
+          )}
+          {status !== 'success' && (
+            <p className="font-nexus-primary text-sm text-grey-600 text-ellipsis overflow-hidden">
               {description}
             </p>
           )}
