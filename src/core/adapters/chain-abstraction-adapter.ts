@@ -1,6 +1,5 @@
 import { CA, Network, SDKConfig } from '@arcana/ca-sdk';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
-import { NEXUS_EVENTS } from '../../constants';
 import { isSupportedChain, isSupportedToken } from './core/validation';
 import { extractErrorMessage, logger } from '../utils';
 
@@ -258,24 +257,6 @@ export class ChainAbstractionAdapter {
     } catch (error) {
       throw new Error(`Failed to fetch intents: ${extractErrorMessage(error, 'intent fetch')}`);
     }
-  }
-
-  /**
-   * Subscribe to account change events.
-   */
-  public onAccountChanged(callback: (account: string) => void): void {
-    this.ca.caEvents.on(NEXUS_EVENTS.ACCOUNTS_CHANGED, ((accounts: string[]) => {
-      callback(accounts[0] || '');
-    }) as EventListener);
-  }
-
-  /**
-   * Subscribe to chain change events.
-   */
-  public onChainChanged(callback: (chainId: number) => void): void {
-    this.ca.caEvents.on(NEXUS_EVENTS.CHAIN_CHANGED, ((chainId: string) => {
-      callback(parseInt(chainId, 16));
-    }) as EventListener);
   }
 
   /**

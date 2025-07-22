@@ -215,7 +215,7 @@ export class TransactionService extends BaseService {
     // For ETH transactions, provide ETH as token and 0 as amount if tokenApproval is undefined
     const token = params.tokenApproval?.token || 'ETH';
     const amount = params.tokenApproval?.amount || '0';
-    
+
     const { functionParams, value: callbackValue } = params.buildFunctionParams(
       token,
       amount,
@@ -395,5 +395,142 @@ export class TransactionService extends BaseService {
       chainId,
       ...receiptInfo,
     };
+  }
+
+  /**
+   * Direct native token transfer (ETH, MATIC, AVAX, etc.)
+   */
+  async transferNativeToken(
+    provider: EthereumProvider,
+    fromAddress: string,
+    toAddress: string,
+    amount: string, // Amount in human-readable format (e.g., "0.1")
+    decimals: number = 18,
+  ): Promise<{
+    success: boolean;
+    hash?: `0x${string}`;
+    error?: string;
+  }> {
+    const { parseUnits } = await import('viem');
+
+    const valueInWei = parseUnits(amount, decimals);
+    const transactionParams = {
+      from: fromAddress,
+      to: toAddress,
+      data: '0x',
+      value: `0x${valueInWei.toString(16)}`,
+    };
+
+    try {
+      // Perform gas estimation if enabled
+      if (this.enableGasEstimation) {
+        logger.info(
+          'DEBUG TransactionService - Performing gas estimation for native token transfer...',
+        );
+        const gasEstimation = await this.estimateTransactionGas(provider, transactionParams);
+
+        if (!gasEstimation.success) {
+          logger.error(
+            'DEBUG TransactionService - Gas estimation failed for native token transfer:',
+            gasEstimation.error,
+          );
+          throw new Error(`Native token transfer gas estimation failed: ${gasEstimation.error}`);
+        }
+
+        logger.info('DEBUG TransactionService - Native token transfer gas estimation successful:', {
+          gasEstimate: gasEstimation.gasEstimate,
+          estimatedCost: gasEstimation.estimatedCostEth,
+        });
+      }
+
+      logger.info('DEBUG TransactionService - Sending native token transfer...');
+      const response = await provider.request({
+        method: 'eth_sendTransaction',
+        params: [transactionParams],
+      });
+
+      const transactionHash = getTransactionHashWithFallback(provider, response);
+      logger.info(
+        'DEBUG TransactionService - Native token transfer sent successfully:',
+        transactionHash,
+      );
+      return transactionHash;
+    } catch (error) {
+      logger.error('DEBUG TransactionService - Native token transfer failed:', error as Error);
+      throw new Error(
+        `Native token transfer failed: ${extractErrorMessage(error, 'native transfer')}`,
+      );
+    }
+  }
+
+  /**
+   * Direct ERC20 token transfer
+   */
+  async transferERC20Token(
+    provider: EthereumProvider,
+    fromAddress: string,
+    tokenAddress: string,
+    toAddress: string,
+    amount: string, // Amount in human-readable format (e.g., "100")
+    decimals: number = 18,
+  ): Promise<{
+    success: boolean;
+    hash?: `0x${string}`;
+    error?: string;
+  }> {
+    const { parseUnits } = await import('viem');
+
+    try {
+      const amountInWei = parseUnits(amount, decimals);
+
+      // ERC20 transfer function selector: transfer(address,uint256)
+      const transferSelector = '0xa9059cbb';
+      const paddedRecipient = toAddress.slice(2).padStart(64, '0');
+      const paddedAmount = amountInWei.toString(16).padStart(64, '0');
+      const transferData = `${transferSelector}${paddedRecipient}${paddedAmount}`;
+
+      const transactionParams = {
+        from: fromAddress,
+        to: tokenAddress,
+        data: transferData,
+        value: '0x0',
+      };
+
+      // Perform gas estimation if enabled
+      if (this.enableGasEstimation) {
+        logger.info('DEBUG TransactionService - Performing gas estimation for ERC20 transfer...');
+        const gasEstimation = await this.estimateTransactionGas(provider, transactionParams);
+
+        if (!gasEstimation.success) {
+          logger.error(
+            'DEBUG TransactionService - Gas estimation failed for ERC20 transfer:',
+            gasEstimation.error,
+          );
+
+          if (gasEstimation.revertReason) {
+            throw new Error(`ERC20 transfer will fail: ${gasEstimation.revertReason}`);
+          }
+          throw new Error(`ERC20 transfer gas estimation failed: ${gasEstimation.error}`);
+        }
+
+        logger.info('DEBUG TransactionService - ERC20 transfer gas estimation successful:', {
+          gasEstimate: gasEstimation.gasEstimate,
+          estimatedCost: gasEstimation.estimatedCostEth,
+        });
+      }
+
+      logger.info('DEBUG TransactionService - Sending ERC20 transfer...');
+      const response = await provider.request({
+        method: 'eth_sendTransaction',
+        params: [transactionParams],
+      });
+
+      const transactionHash = getTransactionHashWithFallback(provider, response);
+      logger.info('DEBUG TransactionService - ERC20 transfer sent successfully:', transactionHash);
+      return transactionHash;
+    } catch (error) {
+      logger.error('DEBUG TransactionService - ERC20 transfer failed:', error as Error);
+      throw new Error(`ERC20 transfer failed: ${extractErrorMessage(error, 'ERC20 transfer')}`);
+    }
   }
 }

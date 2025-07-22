@@ -124,7 +124,7 @@ export function AllowanceForm({
                   Current Allowance
                 </span>
                 <span className="font-nexus-secondary text-black font-semibold">
-                  {formatCost(currentAllowance)}
+                  {currentAllowance}
                 </span>
               </div>
             </div>

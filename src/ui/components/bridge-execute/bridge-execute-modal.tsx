@@ -41,7 +41,24 @@ function BridgeExecuteForm({
 }
 
 export default function BridgeAndExecuteModal() {
-  const getSimulationError = (_simulationResult: BridgeAndExecuteSimulationResult) => {
+  const getSimulationError = (simulationResult: BridgeAndExecuteSimulationResult) => {
+    if (!simulationResult) return true;
+
+    // Check if the overall simulation failed
+    if (simulationResult.success === false || simulationResult.error) {
+      return true;
+    }
+    const isBridgeSkipped = simulationResult.metadata?.bridgeSkipped;
+
+    if (!isBridgeSkipped) {
+      if (!simulationResult.bridgeSimulation || !simulationResult.bridgeSimulation.intent) {
+        return true;
+      }
+    }
+    if (simulationResult.executeSimulation && !simulationResult.executeSimulation.success) {
+      return true;
+    }
+
     return false;
   };
 
@@ -50,7 +67,7 @@ export default function BridgeAndExecuteModal() {
     if (simulationResult?.metadata?.bridgeSkipped) {
       return simulationResult.metadata.inputAmount || '0';
     }
-    
+
     const bridgeSim = simulationResult?.bridgeSimulation;
     return bridgeSim?.intent?.sourcesTotal || '0';
   };
@@ -60,7 +77,7 @@ export default function BridgeAndExecuteModal() {
     if (simulationResult?.metadata?.bridgeSkipped) {
       return [];
     }
-    
+
     const bridgeSim = simulationResult?.bridgeSimulation;
     return bridgeSim?.intent?.sources?.map((s) => ({ chainId: s.chainID, amount: s.amount })) || [];
   };

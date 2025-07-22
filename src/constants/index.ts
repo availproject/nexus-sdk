@@ -226,8 +226,6 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
 export const NEXUS_EVENTS = {
   STEP_COMPLETE: 'step_complete',
   EXPECTED_STEPS: 'expected_steps',
-  ACCOUNTS_CHANGED: 'accountsChanged',
-  CHAIN_CHANGED: 'chainChanged',
   // Modular event names
   BRIDGE_EXECUTE_EXPECTED_STEPS: 'bridge_execute_expected_steps',
   BRIDGE_EXECUTE_COMPLETED_STEPS: 'bridge_execute_completed_steps',
@@ -257,7 +255,7 @@ export const TESTNET_CHAINS = [
  * Token contract addresses per chain
  * This registry contains the contract addresses for supported tokens across different chains
  */
-export const TOKEN_CONTRACT_ADDRESSES: Record<string, Record<number, string>> = {
+export const TOKEN_CONTRACT_ADDRESSES: Record<string, Record<number, `0x${string}`>> = {
   USDC: {
     [SUPPORTED_CHAINS.ETHEREUM]: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
     [SUPPORTED_CHAINS.BASE]: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',

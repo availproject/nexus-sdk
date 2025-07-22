@@ -200,7 +200,7 @@ function FeeBreakdown({
     <div className="space-y-3">
       {parseFloat(fees.total) > 0 && (
         <>
-          <FeeRow label="Bridge gas" value={fees.total} tokenSymbol={tokenSymbol} />
+          <FeeRow label="Transaction gas" value={fees.total} tokenSymbol={tokenSymbol} />
           <hr className="border-zinc-400/40" />
         </>
       )}
