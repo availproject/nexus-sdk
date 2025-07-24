@@ -172,7 +172,7 @@ export interface NexusContextValue {
   isSdkInitialized: boolean;
   activeController: ITransactionController | null;
   config?: { network?: NexusNetwork; debug?: boolean };
-  provider: EthereumProvider | null;
+  provider: EthereumProvider | undefined;
   unifiedBalance: UserAsset[];
   isSimulating: boolean;
   insufficientBalance: boolean;
@@ -187,7 +187,7 @@ export interface NexusContextValue {
 
   // Actions
   setProvider: (provider: EthereumProvider) => void;
-  initializeSdk: () => Promise<boolean>;
+  initializeSdk: (ethProvider?: EthereumProvider) => Promise<boolean>;
   startTransaction: (
     type: TransactionType,
     prefillData?: Partial<BridgeParams> | Partial<TransferParams> | Partial<BridgeAndExecuteParams>,

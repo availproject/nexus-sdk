@@ -72,6 +72,9 @@ const ERROR_PATTERNS = {
     /user refused/i,
     /action_rejected/i,
     /userRejectedRequest/i,
+    /transaction rejected by user/i,
+    /user rejected transaction/i,
+    /user canceled/i,
   ],
   NETWORK_ERROR: [
     /network error/i,
@@ -80,33 +83,72 @@ const ERROR_PATTERNS = {
     /network request failed/i,
     /rpc error/i,
     /timeout/i,
+    /backend initialization failed/i,
+    /simulation client error/i,
   ],
   INSUFFICIENT_FUNDS: [
     /insufficient funds/i,
     /insufficient balance/i,
     /not enough/i,
     /exceeds balance/i,
+    /balance too low/i,
   ],
   GAS_ERROR: [
     /gas required exceeds allowance/i,
     /out of gas/i,
     /gas estimation failed/i,
     /gas limit/i,
+    /intrinsic gas too low/i,
   ],
   TRANSACTION_FAILED: [
     /transaction failed/i,
     /transaction reverted/i,
     /execution reverted/i,
     /transaction underpriced/i,
+    /nonce too low/i,
+    /replacement transaction underpriced/i,
   ],
-  ALLOWANCE_ERROR: [/allowance/i, /approval/i, /approve/i],
-  CONTRACT_ERROR: [/contract/i, /invalid address/i, /abi/i],
+  ALLOWANCE_ERROR: [
+    /allowance/i,
+    /approval/i,
+    /approve/i,
+    /token approval failed/i,
+    /insufficient allowance/i,
+  ],
+  CONTRACT_ERROR: [
+    /contract/i,
+    /invalid address/i,
+    /abi/i,
+    /function not found/i,
+    /contract execution failed/i,
+  ],
   CHAIN_ERROR: [
     /unrecognized chain id/i,
     /unsupported chain/i,
     /chain not found/i,
     /invalid chain/i,
     /try adding the chain using wallet_addEthereumChain/i,
+    /wrong network/i,
+    /switch to correct network/i,
+  ],
+  INIT_ERROR: [
+    /initialization failed/i,
+    /sdk not initialized/i,
+    /provider not connected/i,
+    /wallet provider not connected/i,
+    /setup failed/i,
+  ],
+  BRIDGE_ERROR: [
+    /bridge failed/i,
+    /bridging error/i,
+    /cross-chain error/i,
+    /bridge transaction failed/i,
+  ],
+  EXECUTE_ERROR: [
+    /execute failed/i,
+    /execution error/i,
+    /execute phase failed/i,
+    /contract execution error/i,
   ],
 } as const;
 
@@ -122,6 +164,9 @@ const USER_FRIENDLY_MESSAGES = {
   ALLOWANCE_ERROR: 'Token approval failed. Please try approving the token again.',
   CONTRACT_ERROR: 'Smart contract interaction failed. Please try again.',
   CHAIN_ERROR: 'This network is not added to your wallet. Please add it to continue.',
+  INIT_ERROR: 'Wallet connection issue. Please make sure your wallet is connected and try again.',
+  BRIDGE_ERROR: 'Cross-chain transfer failed. Please try again.',
+  EXECUTE_ERROR: 'Smart contract execution failed. Please try again.',
   UNKNOWN: 'An unexpected error occurred. Please try again.',
 } as const;
 
@@ -129,13 +174,46 @@ const USER_FRIENDLY_MESSAGES = {
  * Extract meaningful information from error messages while removing technical details
  */
 function cleanErrorMessage(message: string): string {
+  // Remove version and package information
   message = message.replace(/Version: [^\s]+/gi, '');
   message = message.replace(/viem@[^\s]+/gi, '');
   message = message.replace(/arcana@[^\s]+/gi, '');
+
+  // Remove common error prefixes that create noise
+  message = message.replace(/^Error: /gi, '');
+  message = message.replace(/^RPC Error: /gi, '');
+
+  // Handle chained error messages - extract the most meaningful part
+  // Pattern: "Operation failed: Phase failed: Actual error"
+  const chainedErrorMatch = message.match(
+    /([^:]+operation failed|[^:]+phase failed|[^:]+error):\s*(.+)/i,
+  );
+  if (chainedErrorMatch) {
+    const [, , actualError] = chainedErrorMatch;
+    // If the actual error is meaningful, use it; otherwise keep the chain
+    if (actualError && actualError.length > 10 && !actualError.includes('failed')) {
+      message = actualError.trim();
+    }
+  }
+
+  // Remove redundant "failed" phrases that pile up
+  message = message.replace(/\b(operation|phase|transaction|execution)\s+failed:\s*/gi, '');
+  message = message.replace(/\bfailed:\s*/gi, '');
+
+  // Split by common delimiters and clean up
   const lines = message.split(/[.\n]/).filter((line) => line.trim());
   const uniqueLines = [...new Set(lines.map((line) => line.trim()))];
 
-  return uniqueLines.join('. ').trim();
+  // Take the first meaningful line if we have multiple
+  const meaningfulLine =
+    uniqueLines.find(
+      (line) =>
+        line.length > 5 &&
+        !line.toLowerCase().includes('operation failed') &&
+        !line.toLowerCase().includes('phase failed'),
+    ) || uniqueLines[0];
+
+  return meaningfulLine?.trim() || message.trim();
 }
 
 /**
@@ -157,7 +235,7 @@ function categorizeError(errorMessage: string): keyof typeof USER_FRIENDLY_MESSA
  * Format error messages to be user-friendly for display in UI components
  *
  * @param error - The error object or string from various sources (viem, Arcana SDK, etc.)
- * @param context - Optional context about where the error occurred (e.g., 'transaction', 'allowance')
+ * @param context - Optional context about where the error occurred (e.g., 'simulation', 'bridge', 'execute')
  * @returns A user-friendly error message
  */
 export function formatErrorForUI(error: unknown, context?: string): string {
@@ -173,17 +251,70 @@ export function formatErrorForUI(error: unknown, context?: string): string {
   } else {
     errorMessage = String(error);
   }
+
   const cleanedMessage = cleanErrorMessage(errorMessage);
   const category = categorizeError(cleanedMessage);
-  const userFriendlyMessage = USER_FRIENDLY_MESSAGES[category];
+  let userFriendlyMessage = USER_FRIENDLY_MESSAGES[category];
+
+  // For unknown errors with short, clean messages, show the actual message
   if (category === 'UNKNOWN' && cleanedMessage && cleanedMessage.length < 100) {
     return cleanedMessage;
   }
+
+  // Add context-specific messaging
   if (context && category !== 'USER_REJECTED') {
-    return `${userFriendlyMessage} (${context})`;
+    const contextualMessage = getContextualErrorMessage(category, context);
+    if (contextualMessage) {
+      return contextualMessage;
+    }
+    return userFriendlyMessage;
   }
 
   return userFriendlyMessage;
+}
+
+/**
+ * Get context-specific error messages for better user experience
+ */
+function getContextualErrorMessage(
+  category: keyof typeof USER_FRIENDLY_MESSAGES,
+  context: string,
+): string | null {
+  const contextMap: Record<string, Partial<Record<keyof typeof USER_FRIENDLY_MESSAGES, string>>> = {
+    simulation: {
+      NETWORK_ERROR: 'Unable to simulate transaction. Please check your connection and try again.',
+      INSUFFICIENT_FUNDS: 'Simulation shows insufficient balance for this transaction.',
+      GAS_ERROR: 'Unable to estimate transaction fees. Please try again.',
+      CONTRACT_ERROR: 'Contract simulation failed. Please verify the contract details.',
+      CHAIN_ERROR: 'Simulation failed due to network issues. Please add the required network.',
+      INIT_ERROR: 'Please connect your wallet to simulate transactions.',
+    },
+    bridge: {
+      NETWORK_ERROR: 'Bridge service is temporarily unavailable. Please try again.',
+      INSUFFICIENT_FUNDS: 'Insufficient balance for cross-chain transfer.',
+      BRIDGE_ERROR: 'Cross-chain transfer failed. Please try again.',
+      CHAIN_ERROR: 'Source or destination network not supported in your wallet.',
+    },
+    execute: {
+      CONTRACT_ERROR: 'Smart contract execution failed. Please verify the contract is correct.',
+      GAS_ERROR: 'Execution failed due to gas issues. Please try again.',
+      EXECUTE_ERROR: 'Contract interaction failed. Please try again.',
+      ALLOWANCE_ERROR: 'Token approval required before execution.',
+    },
+    allowance: {
+      ALLOWANCE_ERROR: 'Token approval transaction failed. Please try again.',
+      GAS_ERROR: 'Approval failed due to insufficient gas. Please try again.',
+      CONTRACT_ERROR: 'Token contract approval failed. Please verify the token.',
+    },
+    initialization: {
+      INIT_ERROR: 'Wallet setup failed. Please reconnect your wallet and try again.',
+      NETWORK_ERROR: 'Unable to connect to Nexus services. Please try again.',
+      CHAIN_ERROR: 'Unsupported network. Please switch to a supported network.',
+    },
+  };
+
+  const contextMessages = contextMap[context];
+  return contextMessages?.[category] || null;
 }
 
 /**

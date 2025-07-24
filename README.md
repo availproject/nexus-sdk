@@ -221,6 +221,42 @@ export function WalletBridge() {
 }
 ```
 
+### 2️⃣ Or Manually Initialize the SDK
+
+For developers who need to use SDK methods directly (like `getUnifiedBalances`) before using UI components, you can manually initialize the SDK:
+
+```tsx
+import { useNexus } from '@avail-project/nexus/ui';
+
+function MyComponent() {
+  const { initializeSdk, sdk, isSdkInitialized } = useNexus();
+
+  const handleInitialize = async () => {
+    const provider = await window.ethereum; // or get from your wallet library
+    await initializeSdk(provider); // Initializes both SDK and UI state
+
+    // Now you can use SDK methods directly
+    const balances = await sdk.getUnifiedBalances();
+    console.log('Balances:', balances);
+
+    // UI components will already be initialized when used
+  };
+
+  return (
+    <button onClick={handleInitialize} disabled={isSdkInitialized}>
+      {isSdkInitialized ? 'SDK Ready' : 'Initialize SDK'}
+    </button>
+  );
+}
+```
+
+**Benefits of manual initialization:**
+
+- Use SDK methods immediately after initialization
+- No duplicate initialization when UI components are used
+- Full control over initialization timing
+- Access to unified balances and other SDK features before transactions
+
 ### 3️⃣ Drop a widget into your UI
 
 ```tsx

@@ -82,7 +82,7 @@ export function InternalNexusProvider({
   const [sdk] = useState(
     () => new NexusSDK({ network: config?.network ?? 'mainnet', debug: config?.debug ?? false }),
   );
-  const [provider, setProvider] = useState<EthereumProvider | null>(null);
+  const [provider, setProvider] = useState<EthereumProvider | undefined>(undefined);
   const [isSdkInitialized, setIsSdkInitialized] = useState(false);
   const [activeTransaction, setActiveTransaction] = useState<ActiveTransaction>(initialState);
   const [unifiedBalance, setUnifiedBalance] = useState<UserAsset[]>([]);
@@ -104,9 +104,10 @@ export function InternalNexusProvider({
     [activeTransaction.type],
   );
 
-  const initializeSdk = useCallback(async () => {
+  const initializeSdk = async (ethProvider?: EthereumProvider) => {
     if (isSdkInitialized) return true;
-    if (!provider) {
+    const eipProvider = ethProvider ?? provider;
+    if (!eipProvider) {
       setActiveTransaction((prev) => ({
         ...prev,
         status: 'simulation_error',
@@ -114,9 +115,14 @@ export function InternalNexusProvider({
       }));
       return false;
     }
+
+    if (!provider && eipProvider) {
+      setProvider(ethProvider);
+    }
+
     try {
       setActiveTransaction((prev) => ({ ...prev, status: 'initializing' }));
-      await sdk.initialize(provider);
+      await sdk.initialize(eipProvider);
       const unifiedBalance = await sdk.getUnifiedBalances();
       logger.debug('Unified balance', { unifiedBalance });
       setUnifiedBalance(unifiedBalance);
@@ -128,7 +134,7 @@ export function InternalNexusProvider({
       setActiveTransaction((prev) => ({ ...prev, status: 'simulation_error', error }));
       return false;
     }
-  }, [provider, sdk, isSdkInitialized]);
+  };
 
   const startTransaction = useCallback(
     (
