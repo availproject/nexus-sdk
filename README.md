@@ -80,7 +80,8 @@ const executeResult = await sdk.execute({
 ### ⚛️ **React UI Components Usage**
 
 ```typescript
-import NexusProvider, {
+import {
+  NexusProvider,
   useNexus,
   BridgeButton,
   TransferButton,
@@ -184,7 +185,7 @@ The SDK ships with a React widget suite that lets you embed complete cross-chain
 ### 1️⃣ Wrap your app with `NexusProvider`
 
 ```tsx
-import { NexusProvider } from '@avail-project/nexus';
+import { NexusProvider } from '@avail-project/nexus/ui';
 
 export default function Root() {
   return (
@@ -204,7 +205,7 @@ export default function Root() {
 ```tsx
 import { useEffect } from 'react';
 import { useAccount } from '@wagmi/react'; // any wallet lib works
-import { useNexus } from '@avail-project/nexus';
+import { useNexus } from '@avail-project/nexus/ui';
 
 export function WalletBridge() {
   const { connector, isConnected } = useAccount();
@@ -227,7 +228,9 @@ import {
   BridgeButton,
   TransferButton,
   BridgeAndExecuteButton,
+  TOKEN_CONTRACT_ADDRESSES, TOKEN_METADATA, SUPPORTED_CHAINS, type SUPPORTED_TOKENS, type SUPPORTED_CHAIN_IDS
 } from '@avail-project/nexus/ui';
+import { parseUnits } from 'viem';
 
 /*  Bridge ----------------------------------------------------------- */
 <BridgeButton prefill={{ chainId: 137, token: 'USDC', amount: '100' }}>
@@ -244,16 +247,10 @@ import {
 </TransferButton>
 
 /*  Bridge + Execute ------------------------------------------------- */
-import { TOKEN_CONTRACT_ADDRESSES, TOKEN_METADATA, SUPPORTED_CHAINS, type SUPPORTED_TOKENS, type SUPPORTED_CHAIN_IDS } from '@avail-project/nexus/core';
-import { parseUnits } from 'viem';
 
-<div className="bg-white rounded-lg border p-6 shadow-sm text-center w-3/4">
-  <h3 className="text-lg font-semibold mb-4">
-    Bridge & Stake USDT on AAVE
-  </h3>
-  <BridgeAndExecuteButton
-    contractAddress={'0x794a61358D6845594F94dc1DB02A252b5b4814aD'}
-    contractAbi={
+<BridgeAndExecuteButton
+  contractAddress={'0x794a61358D6845594F94dc1DB02A252b5b4814aD'}
+  contractAbi={
       [
         {
           name: 'supply',
@@ -269,29 +266,28 @@ import { parseUnits } from 'viem';
         },
       ] as const
     }
-    functionName="supply"
-    buildFunctionParams={(token, amount, _chainId, user) => {
+  functionName="supply"
+  buildFunctionParams={(token, amount, _chainId, user) => {
           const decimals = TOKEN_METADATA[token].decimals
           const amountWei = parseUnits(amount, decimals)
           const tokenAddr = TOKEN_CONTRACT_ADDRESSES[token][_chainId]
           return { functionParams: [tokenAddr, amountWei, user, 0] }
         }}
-    prefill={{
+  prefill={{
         toChainId: 42161,
         token: 'USDT',
-    }}
-    >
-      {({ onClick, isLoading }) => (
-        <Button
-          onClick={onClick}
-          disabled={isLoading}
-          className="w-full"
-        >
-          {isLoading ? 'Processing…' : 'Bridge & Stake'}
-        </Button>
+  }}
+  >
+    {({ onClick, isLoading }) => (
+      <Button
+        onClick={onClick}
+        disabled={isLoading}
+        className="w-full"
+      >
+        {isLoading ? 'Processing…' : 'Bridge & Stake'}
+      </Button>
       )}
-  </BridgeAndExecuteButton>
-</div>
+</BridgeAndExecuteButton>
 ```
 
 ---
