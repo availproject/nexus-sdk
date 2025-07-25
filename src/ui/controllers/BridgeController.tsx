@@ -9,7 +9,6 @@ const BridgeInputForm: React.FC<{
   prefill: Partial<BridgeConfig>;
   onUpdate: (data: Partial<BridgeConfig>) => void;
   isBusy: boolean;
-  tokenBalance?: string;
   prefillFields?: {
     chainId?: boolean;
     toChainId?: boolean;
@@ -17,14 +16,13 @@ const BridgeInputForm: React.FC<{
     amount?: boolean;
     recipient?: boolean;
   };
-}> = ({ prefill, onUpdate, isBusy, tokenBalance, prefillFields = {} }) => {
+}> = ({ prefill, onUpdate, isBusy, prefillFields = {} }) => {
   return (
     <UnifiedTransactionForm
       type="bridge"
       inputData={prefill}
       onUpdate={onUpdate}
       disabled={isBusy}
-      tokenBalance={tokenBalance}
       prefillFields={prefillFields}
     />
   );

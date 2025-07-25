@@ -91,7 +91,7 @@
     }
   },
   "dependencies": {
-    "@arcana/ca-sdk": "1.1.0",
+    "@arcana/ca-sdk": "1.1.1",
     "@lottiefiles/dotlottie-react": "0.14.2",
     "@metamask/safe-event-emitter": "3.1.2",
     "decimal.js": "10.4.3",

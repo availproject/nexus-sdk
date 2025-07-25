@@ -11,7 +11,6 @@ const TransferInputForm: React.FC<{
   prefill: Partial<TransferConfig>;
   onUpdate: (data: Partial<TransferConfig>) => void;
   isBusy: boolean;
-  tokenBalance?: string;
   prefillFields?: {
     chainId?: boolean;
     toChainId?: boolean;
@@ -19,14 +18,13 @@ const TransferInputForm: React.FC<{
     amount?: boolean;
     recipient?: boolean;
   };
-}> = ({ prefill, onUpdate, isBusy, tokenBalance, prefillFields = {} }) => {
+}> = ({ prefill, onUpdate, isBusy, prefillFields = {} }) => {
   return (
     <UnifiedTransactionForm
       type="transfer"
       inputData={prefill}
       onUpdate={onUpdate}
       disabled={isBusy}
-      tokenBalance={tokenBalance}
       prefillFields={prefillFields}
     />
   );

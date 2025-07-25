@@ -14,7 +14,6 @@ interface TransferFormSectionProps {
   };
   onUpdate: (data: Partial<TransferConfig>) => void;
   disabled?: boolean;
-  tokenBalance?: string;
   className?: string;
   prefillFields?: {
     chainId?: boolean;
@@ -28,7 +27,6 @@ export function TransferFormSection({
   inputData,
   onUpdate,
   disabled = false,
-  tokenBalance,
   className,
   prefillFields = {},
 }: TransferFormSectionProps) {
@@ -41,7 +39,6 @@ export function TransferFormSection({
       inputData={inputData}
       onUpdate={onUpdate}
       disabled={disabled}
-      tokenBalance={tokenBalance}
       className={className}
       prefillFields={prefillFields}
     />

@@ -12,7 +12,6 @@ interface BridgeFormSectionProps {
   };
   onUpdate: (data: Partial<BridgeConfig>) => void;
   disabled?: boolean;
-  tokenBalance?: string;
   className?: string;
   prefillFields?: {
     chainId?: boolean;
@@ -25,7 +24,6 @@ function BridgeFormSection({
   inputData,
   onUpdate,
   disabled = false,
-  tokenBalance,
   className,
   prefillFields = {},
 }: BridgeFormSectionProps) {
@@ -35,7 +33,6 @@ function BridgeFormSection({
       inputData={inputData}
       onUpdate={onUpdate}
       disabled={disabled}
-      tokenBalance={tokenBalance}
       className={className}
       prefillFields={prefillFields}
     />

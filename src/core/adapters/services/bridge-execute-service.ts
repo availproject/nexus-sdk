@@ -2,13 +2,11 @@ import { BaseService } from '../core/base-service';
 import { NEXUS_EVENTS, TOKEN_METADATA, CHAIN_METADATA } from '../../../constants';
 import { BridgeService } from './bridge-service';
 import { ExecuteService } from './execute-service';
-import { ApprovalService } from './approval-service';
 import { extractErrorMessage, logger } from '../../utils';
 import { parseUnits } from 'viem';
 import type { ChainAbstractionAdapter } from '../chain-abstraction-adapter';
 
 import type {
-  ApprovalSimulation,
   BridgeAndExecuteParams,
   BridgeAndExecuteResult,
   BridgeAndExecuteSimulationResult,
@@ -53,14 +51,13 @@ interface ProviderError extends Error {
 export class BridgeExecuteService extends BaseService {
   private bridgeService: BridgeService;
   private executeService: ExecuteService;
-  private approvalService: ApprovalService;
   private skipBridge: boolean = false;
+  private optimalBridgeAmount: string = '0';
 
   constructor(adapter: ChainAbstractionAdapter) {
     super(adapter);
     this.bridgeService = new BridgeService(adapter);
     this.executeService = new ExecuteService(adapter);
-    this.approvalService = new ApprovalService(adapter);
   }
 
   /**
@@ -95,6 +92,18 @@ export class BridgeExecuteService extends BaseService {
     try {
       // Normalize the input amount to ensure consistent processing
       const normalizedAmount = this.normalizeAmountToWei(amount, token);
+
+      // Check if simulation was run - if not, calculate optimal bridge amount
+      if (this.optimalBridgeAmount === '0' && !this.skipBridge) {
+        logger.info('Simulation was not run, calculating optimal bridge amount...');
+        const bridgeOptimization = await this.calculateOptimalBridgeAmount(
+          toChainId,
+          token,
+          normalizedAmount,
+        );
+        this.skipBridge = bridgeOptimization.skipBridge;
+        this.optimalBridgeAmount = bridgeOptimization.optimalAmount;
+      }
 
       // Use the skipBridge flag set during simulation to determine execution path
       if (this.skipBridge && execute) {
@@ -135,10 +144,23 @@ export class BridgeExecuteService extends BaseService {
       };
       this.caEvents.on(NEXUS_EVENTS.STEP_COMPLETE, stepForwarder);
 
-      // Perform the actual bridge transaction
+      // Perform the actual bridge transaction using optimal amount
+      // Convert optimal bridge amount from wei to user-friendly format for bridge service
+      const tokenMetadata = TOKEN_METADATA[token.toUpperCase()];
+      const decimals = tokenMetadata?.decimals || 18;
+      const { formatUnits } = await import('viem');
+      const userFriendlyBridgeAmount = formatUnits(BigInt(this.optimalBridgeAmount), decimals);
+      
+      logger.info('Bridge amount conversion for execution:', {
+        optimalBridgeAmountWei: this.optimalBridgeAmount,
+        userFriendlyBridgeAmount,
+        decimals,
+        token,
+      });
+      
       const bridgeResult = await this.bridgeService.bridge({
         token,
-        amount,
+        amount: userFriendlyBridgeAmount,
         chainId: toChainId,
       });
 
@@ -148,6 +170,11 @@ export class BridgeExecuteService extends BaseService {
 
       // Wait for captured bridge steps
       const bridgeSteps = await bridgeStepsPromise;
+
+      // Add a small delay to ensure bridge settlement is complete
+      logger.info('DEBUG bridgeAndExecute - Waiting for bridge settlement...');
+      await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
+      logger.info('DEBUG bridgeAndExecute - Bridge settlement delay complete');
 
       // Prepare extra steps for approval/execute/receipt/confirmation
       const extraSteps: ProgressStep[] = [];
@@ -256,37 +283,61 @@ export class BridgeExecuteService extends BaseService {
       // Normalize the input amount to ensure consistent processing
       const normalizedAmount = this.normalizeAmountToWei(params.amount, params.token);
 
-      // Always run both simulations first - we'll decide later whether to skip bridge
-      let bridgeSimulation: SimulationResult | ApprovalSimulation | ExecuteSimulation | null = null;
+      // First, calculate optimal bridge amount based on destination balance
+      const bridgeOptimization = await this.calculateOptimalBridgeAmount(
+        params.toChainId,
+        params.token,
+        normalizedAmount,
+      );
+
+      this.skipBridge = bridgeOptimization.skipBridge;
+      this.optimalBridgeAmount = bridgeOptimization.optimalAmount;
+
+      // Run simulations with optimal amounts
+      let bridgeSimulation: SimulationResult | ExecuteSimulation | null = null;
       let bridgeReceiveAmount = '0';
       let totalBridgeFee = '0';
 
-      // Perform bridge simulation
-      bridgeSimulation = await this.bridgeService.simulateBridge({
-        token: params.token,
-        amount: params.amount,
-        chainId: params.toChainId,
-      });
+      // Only add bridge step if we're not skipping it
+      if (!this.skipBridge) {
+        // Convert optimal bridge amount from wei to user-friendly format for bridge service
+        const tokenMetadata = TOKEN_METADATA[params.token.toUpperCase()];
+        const decimals = tokenMetadata?.decimals || 18;
+        const { formatUnits } = await import('viem');
+        const userFriendlyBridgeAmount = formatUnits(BigInt(this.optimalBridgeAmount), decimals);
+        
+        logger.info('Bridge amount conversion for simulation:', {
+          optimalBridgeAmountWei: this.optimalBridgeAmount,
+          userFriendlyBridgeAmount,
+          decimals,
+          token: params.token,
+        });
+        
+        bridgeSimulation = await this.bridgeService.simulateBridge({
+          token: params.token,
+          amount: userFriendlyBridgeAmount,
+          chainId: params.toChainId,
+        });
+        steps.push({
+          type: 'bridge',
+          required: true,
+          simulation: bridgeSimulation!,
+          description: `Bridge ${userFriendlyBridgeAmount} ${params.token} to chain ${params.toChainId}`,
+        });
 
-      steps.push({
-        type: 'bridge',
-        required: true,
-        simulation: bridgeSimulation,
-        description: `Bridge ${params.amount} ${params.token} to chain ${params.toChainId}`,
-      });
+        // Enhanced bridge analysis
+        if (bridgeSimulation?.intent) {
+          const intent = bridgeSimulation.intent;
 
-      // Enhanced bridge analysis
-      if (bridgeSimulation?.intent) {
-        const intent = bridgeSimulation.intent;
+          // Extract destination amount (received amount after bridging)
+          if (intent.destination?.amount && intent.destination.amount !== '0') {
+            bridgeReceiveAmount = intent.destination.amount;
+          }
 
-        // Extract destination amount (received amount after bridging)
-        if (intent.destination?.amount && intent.destination.amount !== '0') {
-          bridgeReceiveAmount = intent.destination.amount;
-        }
-
-        // Format bridge fees properly
-        if (intent.fees?.total) {
-          totalBridgeFee = `${intent.fees.total}`;
+          // Format bridge fees properly
+          if (intent.fees?.total) {
+            totalBridgeFee = `${intent.fees.total}`;
+          }
         }
       }
 
@@ -404,14 +455,23 @@ export class BridgeExecuteService extends BaseService {
       }
 
       // Enhanced balance check after simulations are complete
-      // Use actual gas estimates to determine if bridge can be skipped
-      this.skipBridge = await this.canSkipBridge(
-        params.toChainId,
-        params.token,
-        normalizedAmount,
-        executeSimulation?.gasUsed,
-        executeSimulation?.gasCostEth,
-      );
+      // Re-validate the skip bridge decision with actual gas estimates
+      if (!this.skipBridge && executeSimulation?.gasUsed) {
+        const finalOptimization = await this.calculateOptimalBridgeAmount(
+          params.toChainId,
+          params.token,
+          normalizedAmount,
+          executeSimulation?.gasUsed,
+          executeSimulation?.gasCostEth,
+        );
+
+        // Update skip bridge decision if gas check reveals we can skip
+        if (finalOptimization.skipBridge && !this.skipBridge) {
+          this.skipBridge = true;
+          this.optimalBridgeAmount = '0';
+          logger.info('Updated bridge decision after gas validation: bridge can be skipped');
+        }
+      }
 
       logger.info(
         `Enhanced balance check result: skipBridge = ${this.skipBridge} for chain ${params.toChainId}`,
@@ -438,9 +498,10 @@ export class BridgeExecuteService extends BaseService {
               ? params.amount.toString()
               : bridgeReceiveAmount !== '0'
                 ? bridgeReceiveAmount
-                : '0',
+                : this.optimalBridgeAmount,
             bridgeFee: this.skipBridge ? '0' : totalBridgeFee.replace(' ETH', '') || '0',
             inputAmount: params.amount.toString(),
+            optimalBridgeAmount: this.optimalBridgeAmount,
             targetChain: params.toChainId,
             approvalRequired,
             bridgeSkipped: this.skipBridge,
@@ -522,57 +583,54 @@ export class BridgeExecuteService extends BaseService {
         userFriendlyAmount,
       );
 
-      let approvalTransactionHash: string | undefined;
-
-      // Step 1: Automatically handle contract approval if needed
-      if (finalExecuteParams.tokenApproval) {
-        logger.info('DEBUG handleExecutePhase - Requesting approval for:', {
-          token: finalExecuteParams.tokenApproval.token,
-          amount: finalExecuteParams.tokenApproval.amount,
-          spender: finalExecuteParams.contractAddress,
+      // Check user balance on destination chain before executing
+      try {
+        const destinationBalance = await this.getDestinationChainBalance(toChainId, bridgeToken);
+        logger.info('DEBUG handleExecutePhase - User balance on destination chain:', {
           chainId: toChainId,
-          note: 'Amount is in user-friendly format for callback compatibility',
+          token: bridgeToken,
+          balance: destinationBalance,
+          requiredAmount: bridgeAmount,
         });
-
-        const approvalResult = await this.approvalService.ensureContractApproval(
-          finalExecuteParams.tokenApproval,
-          finalExecuteParams.contractAddress,
-          toChainId,
-        );
-
-        if (approvalResult.error) {
-          emitStep(
-            makeStep('AP', 'approval', {
-              error: approvalResult.error,
-            }),
-          );
-          throw new Error(`Approval failed: ${approvalResult.error}`);
-        }
-
-        if (approvalResult.wasNeeded && approvalResult.transactionHash) {
-          approvalTransactionHash = approvalResult.transactionHash;
-          emitStep(
-            makeStep('AP', 'approval', {
-              txHash: approvalTransactionHash,
-            }),
-          );
-        } else {
-          emitStep(
-            makeStep('AP', 'approval', {
-              skipped: true,
-            }),
-          );
-        }
+      } catch (balanceError) {
+        logger.warn('DEBUG handleExecutePhase - Could not check destination balance:', balanceError);
       }
 
-      // Step 2: Execute the target contract call
+      // Ensure we're on the correct chain before executing
+      logger.info('DEBUG handleExecutePhase - Ensuring wallet is on correct chain:', toChainId);
+      try {
+        const currentChainId = (await this.evmProvider.request({
+          method: 'eth_chainId',
+        })) as string;
+        const currentChainIdDecimal = parseInt(currentChainId, 16);
+        
+        logger.info('DEBUG handleExecutePhase - Chain status:', {
+          currentChain: currentChainIdDecimal,
+          targetChain: toChainId,
+        });
+        
+        if (currentChainIdDecimal !== toChainId) {
+          logger.info('DEBUG handleExecutePhase - Switching to target chain:', toChainId);
+          await this.evmProvider.request({
+            method: 'wallet_switchEthereumChain',
+            params: [{ chainId: `0x${toChainId.toString(16)}` }],
+          });
+          
+          // Wait a bit after chain switch
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          logger.info('DEBUG handleExecutePhase - Chain switch completed');
+        } else {
+          logger.info('DEBUG handleExecutePhase - Already on correct chain');
+        }
+      } catch (chainSwitchError) {
+        logger.error('DEBUG handleExecutePhase - Chain switch failed:', chainSwitchError as Error);
+        throw new Error(`Failed to switch to chain ${toChainId}: ${chainSwitchError}`);
+      }
+
+      // Execute the target contract call - let execute service handle approval
       logger.info('DEBUG handleExecutePhase - Executing contract call with params:', {
         ...finalExecuteParams,
         toChainId,
-        tokenApproval: {
-          token: bridgeToken,
-          amount: bridgeAmount,
-        },
       });
 
       const executeResult = await this.executeService.execute({
@@ -640,7 +698,7 @@ export class BridgeExecuteService extends BaseService {
       return {
         executeTransactionHash: executeResult.transactionHash,
         executeExplorerUrl: executeResult.explorerUrl,
-        approvalTransactionHash,
+        approvalTransactionHash: undefined, // Execute service handles approval internally
       };
     } catch (executeError) {
       logger.error('DEBUG handleExecutePhase - Execute error:', executeError as Error);
@@ -1020,51 +1078,75 @@ export class BridgeExecuteService extends BaseService {
   }
 
   /**
-   * Enhanced balance check that validates both token and gas requirements
-   * Uses actual gas estimation from execute simulation
+   * Calculate optimal bridge amount based on destination chain balance
+   * Returns the exact amount needed to bridge, or indicates if bridge can be skipped entirely
    */
-  private async canSkipBridge(
+  private async calculateOptimalBridgeAmount(
     chainId: SUPPORTED_CHAINS_IDS,
     token: SUPPORTED_TOKENS,
     requiredAmount: string,
     gasEstimate?: string,
     gasCostEth?: string,
-  ): Promise<boolean> {
+  ): Promise<{ skipBridge: boolean; optimalAmount: string }> {
     try {
-      // 1. Check token balance (existing logic)
-      const hasTokenBalance = await this.checkTokenBalance(chainId, token, requiredAmount);
-      if (!hasTokenBalance) {
-        logger.info(`Insufficient ${token} balance on chain ${chainId}, cannot skip bridge`);
-        return false;
+      // Get destination chain balance
+      const destinationBalance = await this.getDestinationChainBalance(chainId, token);
+
+      if (destinationBalance === null) {
+        // If we can't get balance info, bridge the full amount
+        return { skipBridge: false, optimalAmount: requiredAmount };
       }
 
-      // 2. Check native token balance for gas if we have gas estimate
-      if (gasEstimate || gasCostEth) {
-        const hasGasBalance = await this.checkGasBalance(chainId, gasEstimate, gasCostEth);
-        if (!hasGasBalance) {
-          logger.info(`Insufficient gas balance on chain ${chainId}, cannot skip bridge`);
-          return false;
+      const requiredAmountBigInt = BigInt(requiredAmount);
+      const destinationBalanceBigInt = BigInt(destinationBalance);
+
+      // Check if we have sufficient balance on destination to skip bridge entirely
+      if (destinationBalanceBigInt >= requiredAmountBigInt) {
+        // Check gas balance if we have gas estimate
+        if (gasEstimate || gasCostEth) {
+          const hasGasBalance = await this.checkGasBalance(chainId, gasEstimate, gasCostEth);
+          if (!hasGasBalance) {
+            logger.info(`Insufficient gas balance on chain ${chainId}, cannot skip bridge`);
+            return { skipBridge: false, optimalAmount: requiredAmount };
+          }
         }
+
+        logger.info(
+          `Sufficient ${token} and gas balance on chain ${chainId}, bridge can be skipped`,
+        );
+        return { skipBridge: true, optimalAmount: '0' };
       }
 
-      logger.info(`All balance checks passed for chain ${chainId}, bridge can be skipped`);
-      return true;
+      // Calculate how much we need to bridge (required - what's already on destination)
+      const optimalBridgeAmountBigInt = requiredAmountBigInt - destinationBalanceBigInt;
+      const optimalAmount = Math.max(0, Number(optimalBridgeAmountBigInt)).toString();
+
+      logger.info(`Optimal bridge calculation:`, {
+        token,
+        chainId,
+        requiredAmount,
+        destinationBalance,
+        optimalBridgeAmount: optimalAmount,
+      });
+
+      return { skipBridge: false, optimalAmount };
     } catch (error) {
-      logger.warn(`Enhanced balance check failed: ${error}`);
-      return false; // Default to bridging on error
+      logger.warn(`Failed to calculate optimal bridge amount: ${error}`);
+      // Default to bridging full amount on error
+      return { skipBridge: false, optimalAmount: requiredAmount };
     }
   }
 
   /**
-   * Check token balance on destination chain (extracted from existing method)
+   * Get destination chain balance for a specific token
+   * Returns balance in wei as string, or null if not found
    */
-  private async checkTokenBalance(
+  private async getDestinationChainBalance(
     chainId: SUPPORTED_CHAINS_IDS,
     token: SUPPORTED_TOKENS,
-    requiredAmount: string,
-  ): Promise<boolean> {
+  ): Promise<string | null> {
     try {
-      logger.info(`Checking ${token} balance on chain ${chainId} for amount: ${requiredAmount}`);
+      logger.info(`Getting ${token} balance on chain ${chainId}`);
 
       // Get user's unified balances
       const balances = await this.adapter.ca.getUnifiedBalances();
@@ -1074,7 +1156,7 @@ export class BridgeExecuteService extends BaseService {
 
       if (!tokenBalance || !tokenBalance.breakdown) {
         logger.info(`No ${token} balance found`);
-        return false;
+        return null;
       }
 
       // Find balance on the specific chain
@@ -1082,33 +1164,27 @@ export class BridgeExecuteService extends BaseService {
 
       if (!chainBalance) {
         logger.info(`No ${token} balance found on chain ${chainId}`);
-        return false;
+        return '0'; // Return 0 if no balance on this chain
       }
 
       // Get token metadata for decimal conversion
       const tokenMetadata = TOKEN_METADATA[token.toUpperCase()];
       const decimals = tokenMetadata?.decimals || 18;
 
-      // Convert the balance to wei for comparison
+      // Convert the balance to wei for calculation
       const balanceInWei = parseUnits(chainBalance.balance, decimals);
-      const requiredAmountBigInt = BigInt(requiredAmount);
 
-      const hasSufficientBalance = balanceInWei >= requiredAmountBigInt;
-
-      logger.info(`Balance check result:`, {
+      logger.info(`Balance found:`, {
         token,
         chainId,
         balance: chainBalance.balance,
         balanceInWei: balanceInWei.toString(),
-        requiredAmount,
-        hasSufficientBalance,
       });
 
-      return hasSufficientBalance;
+      return balanceInWei.toString();
     } catch (error) {
-      logger.warn(`Failed to check destination chain balance: ${error}`);
-      // On error, default to false to proceed with bridging
-      return false;
+      logger.warn(`Failed to get destination chain balance: ${error}`);
+      return null;
     }
   }
 

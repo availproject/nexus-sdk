@@ -22,20 +22,18 @@ const BridgeAndExecuteInputForm: React.FC<{
   prefill: Partial<BridgeAndExecuteConfig>;
   onUpdate: (data: Partial<BridgeAndExecuteConfig>) => void;
   isBusy: boolean;
-  tokenBalance?: string;
   prefillFields?: {
     toChainId?: boolean;
     token?: boolean;
     amount?: boolean;
   };
-}> = ({ prefill, onUpdate, isBusy, tokenBalance, prefillFields = {} }) => {
+}> = ({ prefill, onUpdate, isBusy, prefillFields = {} }) => {
   return (
     <UnifiedTransactionForm
       type="bridgeAndExecute"
       inputData={prefill}
       onUpdate={onUpdate}
       disabled={isBusy}
-      tokenBalance={tokenBalance}
       prefillFields={prefillFields}
     />
   );

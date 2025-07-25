@@ -7,13 +7,11 @@ function BridgeExecuteForm({
   inputData,
   onUpdate,
   disabled,
-  tokenBalance,
   prefillFields,
 }: {
   inputData: any;
   onUpdate: (data: BridgeAndExecuteParams) => void;
   disabled: boolean;
-  tokenBalance?: string;
   prefillFields?: any;
 }) {
   const { activeController } = useInternalNexus();
@@ -34,7 +32,6 @@ function BridgeExecuteForm({
       prefill={inputData}
       onUpdate={handleUpdate}
       isBusy={disabled}
-      tokenBalance={tokenBalance}
       prefillFields={prefillFields}
     />
   );

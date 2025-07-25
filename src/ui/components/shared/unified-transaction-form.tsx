@@ -6,8 +6,8 @@ import { AmountInput } from './amount-input';
 import { AddressField } from './address-field';
 import { cn } from '../../utils/utils';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
-
-type TransactionType = 'bridge' | 'transfer' | 'bridgeAndExecute';
+import { calculateEffectiveBalance, type TransactionType } from '../../utils/balance-utils';
+import { SUPPORTED_CHAINS_IDS, SUPPORTED_TOKENS } from '../../../types';
 
 interface UnifiedTransactionFormProps {
   type: TransactionType;
@@ -20,7 +20,6 @@ interface UnifiedTransactionFormProps {
   };
   onUpdate: (data: any) => void;
   disabled?: boolean;
-  tokenBalance?: string;
   className?: string;
   prefillFields?: {
     chainId?: boolean;
@@ -31,56 +30,59 @@ interface UnifiedTransactionFormProps {
   };
 }
 
+const FORM_CONFIG = {
+  bridge: {
+    chainLabel: 'Destination Network',
+    tokenLabel: 'Token to be transferred',
+    chainField: 'chainId',
+    showRecipient: false,
+    showSecondAmountField: true,
+  },
+  bridgeAndExecute: {
+    chainLabel: 'Destination Network',
+    tokenLabel: 'Token to be deposited',
+    chainField: 'toChainId',
+    showRecipient: false,
+    showSecondAmountField: false,
+  },
+  transfer: {
+    chainLabel: 'Source Network',
+    tokenLabel: 'Token to transfer',
+    chainField: 'chainId',
+    showRecipient: true,
+    showSecondAmountField: false,
+  },
+};
+
 export function UnifiedTransactionForm({
   type,
   inputData,
   onUpdate,
   disabled = false,
-  tokenBalance,
   className,
   prefillFields = {},
 }: UnifiedTransactionFormProps) {
-  const { config, isSdkInitialized, isSimulating } = useInternalNexus();
+  const { config, isSdkInitialized, isSimulating, unifiedBalance } = useInternalNexus();
   const isInputDisabled = disabled || isSimulating;
 
-  const getFormConfig = () => {
-    switch (type) {
-      case 'bridge':
-        return {
-          chainLabel: 'Destination Network',
-          tokenLabel: 'Token to be transferred',
-          chainField: 'chainId',
-          showRecipient: false,
-          showSecondAmountField: true, // For the invisible spacer
-        };
-      case 'transfer':
-        return {
-          chainLabel: 'Source Network',
-          tokenLabel: 'Token to transfer',
-          chainField: 'chainId',
-          showRecipient: true,
-          showSecondAmountField: false,
-        };
-      case 'bridgeAndExecute':
-        return {
-          chainLabel: 'Destination Network',
-          tokenLabel: 'Token to be deposited',
-          chainField: 'toChainId',
-          showRecipient: false,
-          showSecondAmountField: false,
-        };
-      default:
-        return {
-          chainLabel: 'Network',
-          tokenLabel: 'Token',
-          chainField: 'chainId',
-          showRecipient: false,
-          showSecondAmountField: false,
-        };
-    }
+  const getEffectiveBalanceText = () => {
+    if (!isSdkInitialized) return undefined;
+    const destinationChainId =
+      type === 'bridgeAndExecute'
+        ? (inputData?.toChainId as SUPPORTED_CHAINS_IDS)
+        : (inputData?.chainId as SUPPORTED_CHAINS_IDS);
+
+    const { contextualMessage } = calculateEffectiveBalance({
+      unifiedBalance,
+      token: inputData?.token as SUPPORTED_TOKENS,
+      destinationChainId,
+      type,
+    });
+
+    return contextualMessage;
   };
 
-  const formConfig = getFormConfig();
+  const formConfig = FORM_CONFIG[type];
 
   return (
     <div className={cn('px-6 flex flex-col gap-y-4 w-full relative', className)}>
@@ -136,11 +138,7 @@ export function UnifiedTransactionForm({
       >
         <FormField
           label="Amount"
-          helperText={
-            isSdkInitialized
-              ? `Balance: ${parseFloat(tokenBalance ?? '0').toFixed(6)} ${inputData?.token ?? ''}`
-              : undefined
-          }
+          helperText={getEffectiveBalanceText()}
           className="flex-1 font-nexus-primary"
         >
           <AmountInput

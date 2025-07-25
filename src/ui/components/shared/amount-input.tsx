@@ -9,6 +9,7 @@ interface AmountInputProps {
   onChange?: (value: string) => void;
   className?: string;
   placeholder?: string;
+  debounceMs?: number;
 }
 
 export function AmountInput({
@@ -18,7 +19,15 @@ export function AmountInput({
   onChange,
   className,
   placeholder = '0.0',
+  debounceMs = 500,
 }: AmountInputProps) {
+  const [localValue, setLocalValue] = React.useState(value || '');
+  const timeoutRef = React.useRef<NodeJS.Timeout | undefined>(undefined);
+
+  React.useEffect(() => {
+    setLocalValue(value || '');
+  }, [value]);
+
   const validateNumberInput = (input: string): string => {
     if (input === '') return '';
     if (input === '.') return '0.';
@@ -45,15 +54,31 @@ export function AmountInput({
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!onChange) return;
-
     const rawValue = e.target.value;
     const validatedValue = validateNumberInput(rawValue);
+    
+    setLocalValue(validatedValue);
 
-    if (validatedValue !== value) {
-      onChange(validatedValue);
+    if (!onChange) return;
+
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
     }
+
+    timeoutRef.current = setTimeout(() => {
+      if (validatedValue !== value) {
+        onChange(validatedValue);
+      }
+    }, debounceMs);
   };
+
+  React.useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
 
   return (
     <div
@@ -68,7 +93,7 @@ export function AmountInput({
         {onChange ? (
           <Input
             type="text"
-            value={value || ''}
+            value={localValue}
             onChange={handleInputChange}
             disabled={disabled}
             className=" text-black text-base font-semibold font-nexus-primary leading-normal outline-none px-0"

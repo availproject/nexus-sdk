@@ -240,6 +240,7 @@ interface SimulationMetadata {
   bridgeReceiveAmount: string;
   bridgeFee: string;
   inputAmount: string;
+  optimalBridgeAmount?: string;
   targetChain: number;
   approvalRequired: boolean;
   bridgeSkipped?: boolean;

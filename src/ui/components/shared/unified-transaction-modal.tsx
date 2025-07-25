@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { BaseModal } from './base-modal';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { cn, getButtonText, getContentKey } from '../../utils/utils';
+import { type TransactionType } from '../../utils/balance-utils';
 import {
   InfoMessage,
   ActionButtons,
@@ -18,7 +19,7 @@ import { BridgeConfig, TransferConfig } from '../../types';
 import { BridgeAndExecuteParams } from '../../../types';
 
 interface UnifiedTransactionModalProps {
-  transactionType: 'bridge' | 'transfer' | 'bridgeAndExecute';
+  transactionType: TransactionType;
   modalTitle: string;
   FormComponent: React.ComponentType<{
     inputData: any;
@@ -26,7 +27,6 @@ interface UnifiedTransactionModalProps {
       data: Partial<BridgeConfig> | Partial<TransferConfig> | Partial<BridgeAndExecuteParams>,
     ) => void;
     disabled: boolean;
-    tokenBalance?: string;
     prefillFields?: any;
   }>;
   getSimulationError?: (simulationResult: any) => boolean;
@@ -55,7 +55,6 @@ export function UnifiedTransactionModal({
     initializeSdk,
     triggerSimulation,
     retrySimulation,
-    unifiedBalance,
     isSdkInitialized,
     isSimulating,
     insufficientBalance,
@@ -102,9 +101,6 @@ export function UnifiedTransactionModal({
 
   const renderReviewContent = () => {
     const hasSufficientInput = activeController?.hasSufficientInput(inputData || {});
-    const tokenBalance = unifiedBalance?.find(
-      (asset) => asset?.symbol === inputData?.token,
-    )?.balance;
 
     // Show simulation section only after SDK is initialized and all inputs are complete
     const shouldShowSimulation = isSdkInitialized && hasSufficientInput;
@@ -118,7 +114,6 @@ export function UnifiedTransactionModal({
           inputData={transformedInputData || {}}
           onUpdate={updateInput}
           disabled={!isSdkInitialized}
-          tokenBalance={tokenBalance}
           prefillFields={prefillFields}
         />
 
