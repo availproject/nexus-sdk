@@ -35,7 +35,10 @@ export class ExecuteService extends BaseService {
     this.ensureInitialized();
 
     try {
-      // Handle approval if needed
+      // Prepare execution (includes chain switching)
+      const preparation = await this.transactionService.prepareExecution(params);
+
+      // Handle approval if needed (after chain switching)
       if (params.tokenApproval) {
         const approvalResult = await this.approvalService.ensureContractApproval(
           params.tokenApproval,
@@ -48,9 +51,6 @@ export class ExecuteService extends BaseService {
           throw new Error(`Approval failed: ${approvalResult.error}`);
         }
       }
-
-      // Prepare execution
-      const preparation = await this.transactionService.prepareExecution(params);
 
       // Send transaction
       const transactionHash = await this.transactionService.sendTransaction(

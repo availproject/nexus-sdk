@@ -150,14 +150,14 @@ export class BridgeExecuteService extends BaseService {
       const decimals = tokenMetadata?.decimals || 18;
       const { formatUnits } = await import('viem');
       const userFriendlyBridgeAmount = formatUnits(BigInt(this.optimalBridgeAmount), decimals);
-      
+
       logger.info('Bridge amount conversion for execution:', {
         optimalBridgeAmountWei: this.optimalBridgeAmount,
         userFriendlyBridgeAmount,
         decimals,
         token,
       });
-      
+
       const bridgeResult = await this.bridgeService.bridge({
         token,
         amount: userFriendlyBridgeAmount,
@@ -173,7 +173,7 @@ export class BridgeExecuteService extends BaseService {
 
       // Add a small delay to ensure bridge settlement is complete
       logger.info('DEBUG bridgeAndExecute - Waiting for bridge settlement...');
-      await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
+      await new Promise((resolve) => setTimeout(resolve, 2000)); // 2 second delay
       logger.info('DEBUG bridgeAndExecute - Bridge settlement delay complete');
 
       // Prepare extra steps for approval/execute/receipt/confirmation
@@ -305,14 +305,14 @@ export class BridgeExecuteService extends BaseService {
         const decimals = tokenMetadata?.decimals || 18;
         const { formatUnits } = await import('viem');
         const userFriendlyBridgeAmount = formatUnits(BigInt(this.optimalBridgeAmount), decimals);
-        
+
         logger.info('Bridge amount conversion for simulation:', {
           optimalBridgeAmountWei: this.optimalBridgeAmount,
           userFriendlyBridgeAmount,
           decimals,
           token: params.token,
         });
-        
+
         bridgeSimulation = await this.bridgeService.simulateBridge({
           token: params.token,
           amount: userFriendlyBridgeAmount,
@@ -593,38 +593,10 @@ export class BridgeExecuteService extends BaseService {
           requiredAmount: bridgeAmount,
         });
       } catch (balanceError) {
-        logger.warn('DEBUG handleExecutePhase - Could not check destination balance:', balanceError);
-      }
-
-      // Ensure we're on the correct chain before executing
-      logger.info('DEBUG handleExecutePhase - Ensuring wallet is on correct chain:', toChainId);
-      try {
-        const currentChainId = (await this.evmProvider.request({
-          method: 'eth_chainId',
-        })) as string;
-        const currentChainIdDecimal = parseInt(currentChainId, 16);
-        
-        logger.info('DEBUG handleExecutePhase - Chain status:', {
-          currentChain: currentChainIdDecimal,
-          targetChain: toChainId,
-        });
-        
-        if (currentChainIdDecimal !== toChainId) {
-          logger.info('DEBUG handleExecutePhase - Switching to target chain:', toChainId);
-          await this.evmProvider.request({
-            method: 'wallet_switchEthereumChain',
-            params: [{ chainId: `0x${toChainId.toString(16)}` }],
-          });
-          
-          // Wait a bit after chain switch
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-          logger.info('DEBUG handleExecutePhase - Chain switch completed');
-        } else {
-          logger.info('DEBUG handleExecutePhase - Already on correct chain');
-        }
-      } catch (chainSwitchError) {
-        logger.error('DEBUG handleExecutePhase - Chain switch failed:', chainSwitchError as Error);
-        throw new Error(`Failed to switch to chain ${toChainId}: ${chainSwitchError}`);
+        logger.warn(
+          'DEBUG handleExecutePhase - Could not check destination balance:',
+          balanceError,
+        );
       }
 
       // Execute the target contract call - let execute service handle approval
