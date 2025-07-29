@@ -5,7 +5,7 @@ import { EnhancedInfoMessage } from './enhanced-info-message';
 import { ActionButtons } from './action-buttons';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { formatUnits } from '../../../core/utils';
-import { CHAIN_METADATA, TOKEN_METADATA } from '../../../constants';
+import { CHAIN_METADATA, SUPPORTED_CHAINS, TOKEN_METADATA } from '../../../constants';
 import { AmountInput } from './amount-input';
 
 export interface AllowanceFormProps {
@@ -102,7 +102,14 @@ export function AllowanceForm({
                       <img
                         src={chainMeta?.logo ?? ''}
                         alt={chainMeta?.name}
-                        className={`w-6 h-6 rounded-nexus-full ${index > 0 ? '-ml-5' : ''}`}
+                        className={cn(
+                          'w-6 h-6',
+                          index > 0 ? '-ml-5' : '',
+                          chainMeta?.id !== SUPPORTED_CHAINS.BASE &&
+                            chainMeta?.id !== SUPPORTED_CHAINS.BASE_SEPOLIA
+                            ? 'rounded-nexus-full'
+                            : '',
+                        )}
                         style={{ zIndex: sourceChains.length - index }}
                         title={chainMeta?.name}
                       />

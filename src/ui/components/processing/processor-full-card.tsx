@@ -13,7 +13,8 @@ import { DotLottieReact } from '@lottiefiles/dotlottie-react';
 import { SmallAvailLogo } from '../icons/SmallAvailLogo';
 import type { DotLottie } from '@lottiefiles/dotlottie-react';
 import { CircleX, ExternalLink, Minimize } from '../icons';
-import { formatCost } from '../../utils/utils';
+import { cn, formatCost } from '../../utils/utils';
+import { SUPPORTED_CHAINS } from '../../../constants';
 
 export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
   status,
@@ -126,7 +127,14 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
                       key={chain?.id}
                       src={chain?.logo ?? ''}
                       alt={chain?.name ?? ''}
-                      className={`w-12 h-12 rounded-nexus-full ${index > 0 ? '-ml-5' : ''}`}
+                      className={cn(
+                        'w-12 h-12',
+                        index > 0 ? '-ml-5' : '',
+                        chain?.id !== SUPPORTED_CHAINS.BASE &&
+                          chain?.id !== SUPPORTED_CHAINS.BASE_SEPOLIA
+                          ? 'rounded-nexus-full'
+                          : '',
+                      )}
                       style={{ zIndex: sourceChainMeta?.length - index }}
                     />
                   ))}
@@ -184,7 +192,13 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
                       <img
                         src={destChainMeta?.logo ?? ''}
                         alt={destChainMeta?.name ?? ''}
-                        className="w-12 h-12 rounded-nexus-full"
+                        className={cn(
+                          'w-12 h-12',
+                          destChainMeta?.id !== SUPPORTED_CHAINS.BASE &&
+                            destChainMeta?.id !== SUPPORTED_CHAINS.BASE_SEPOLIA
+                            ? 'rounded-nexus-full'
+                            : '',
+                        )}
                       />
                     </SuccessRipple>
                     <div className="flex flex-col gap-y-1 items-center">

@@ -6,6 +6,8 @@ import { Maximize, ExternalLink } from '../icons';
 import { ProcessorCardProps } from '../../types';
 import { WordsPullUp } from '../shared/pull-up-words';
 import { BridgeAndExecuteResult } from '../../../types';
+import { cn } from '../../utils/utils';
+import { SUPPORTED_CHAINS } from '../../../constants';
 
 export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
   status,
@@ -39,7 +41,13 @@ export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
                 key={chain?.id}
                 src={chain?.logo ?? ''}
                 alt={chain?.name ?? ''}
-                className={`w-8 h-8 rounded-nexus-full ${index > 0 ? '-ml-3' : ''}`}
+                className={cn(
+                  'w-8 h-8',
+                  index > 0 ? '-ml-3' : '',
+                  chain?.id !== SUPPORTED_CHAINS.BASE && chain?.id !== SUPPORTED_CHAINS.BASE_SEPOLIA
+                    ? 'rounded-nexus-full'
+                    : '',
+                )}
                 style={{ zIndex: sourceChainMeta?.length - index }}
               />
             ))}
@@ -82,7 +90,13 @@ export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
               <img
                 src={destChainMeta?.logo}
                 alt={destChainMeta?.name}
-                className="w-8 h-8 rounded-nexus-full mb-1"
+                className={cn(
+                  'w-8 h-8 mb-1',
+                  destChainMeta?.id !== SUPPORTED_CHAINS.BASE &&
+                    destChainMeta?.id !== SUPPORTED_CHAINS.BASE_SEPOLIA
+                    ? 'rounded-nexus-full'
+                    : '',
+                )}
               />
             </SuccessRipple>
           ) : (

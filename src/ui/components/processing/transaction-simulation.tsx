@@ -1,8 +1,8 @@
 import React from 'react';
 import { SimulationResult, BridgeAndExecuteSimulationResult, Intent } from '../../../types';
 import { InfoMessage, Shimmer } from '../shared';
-import { CHAIN_METADATA } from '../../../constants';
-import { formatCost } from '../../utils/utils';
+import { CHAIN_METADATA, SUPPORTED_CHAINS } from '../../../constants';
+import { cn, formatCost } from '../../utils/utils';
 
 interface TransactionSimulationProps {
   isLoading: boolean;
@@ -165,7 +165,14 @@ function RouteSection({ data }: { data: SimulationData }) {
                 key={index}
                 src={CHAIN_METADATA[source?.chainID]?.logo}
                 alt={source.chainName}
-                className={`w-6 h-6 rounded-nexus-full ${index > 0 ? '-ml-5' : ''}`}
+                className={cn(
+                  'w-6 h-6',
+                  index > 0 ? '-ml-5' : '',
+                  source?.chainID !== SUPPORTED_CHAINS.BASE &&
+                    source?.chainID !== SUPPORTED_CHAINS.BASE_SEPOLIA
+                    ? 'rounded-nexus-full'
+                    : '',
+                )}
                 style={{ zIndex: sources.length - index }}
               />
             ) : (

@@ -19,7 +19,6 @@ export const SUPPORTED_CHAINS = {
   POLYGON_AMOY: 80002,
 } as const;
 
-
 const BASE_TOKEN_METADATA = {
   ETH: {
     symbol: 'ETH',
@@ -68,7 +67,7 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
     id: 8453,
     name: 'Base',
     shortName: 'base',
-    logo: 'https://raw.githubusercontent.com/base/brand-kit/main/logo/symbol/Base_Symbol_Blue.svg',
+    logo: 'https://raw.githubusercontent.com/base/brand-kit/main/logo/TheSquare/Digital/Base_square_blue.svg',
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
     rpcUrls: ['https://mainnet.base.org'],
     blockExplorerUrls: ['https://basescan.org'],
@@ -142,7 +141,7 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
     id: 84532,
     name: 'Base Sepolia',
     shortName: 'base-sepolia',
-    logo: 'https://raw.githubusercontent.com/base/brand-kit/main/logo/symbol/Base_Symbol_Blue.svg',
+    logo: 'https://raw.githubusercontent.com/base/brand-kit/main/logo/TheSquare/Digital/Base_square_blue.svg',
     nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
     rpcUrls: ['https://sepolia.base.org'],
     blockExplorerUrls: ['https://sepolia.basescan.org'],

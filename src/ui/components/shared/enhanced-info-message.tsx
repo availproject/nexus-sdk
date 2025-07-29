@@ -6,12 +6,13 @@ import {
   extractChainIdFromError,
   addChainToWallet,
   formatErrorForUI,
+  cn,
 } from '../../utils/utils';
 import { Plus } from '../icons';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { logger } from '../../../core/utils';
 import LoadingDots from './loading-dots';
-import { CHAIN_METADATA } from '../../../constants';
+import { CHAIN_METADATA, SUPPORTED_CHAINS } from '../../../constants';
 
 interface EnhancedInfoMessageProps {
   error: unknown;
@@ -57,7 +58,13 @@ export function EnhancedInfoMessage({ error, context, className }: EnhancedInfoM
             <img
               src={chainMetadata.logo}
               alt={chainMetadata.name}
-              className="w-8 h-8 rounded-nexus-full"
+              className={cn(
+                'w-8 h-8',
+                chainMetadata?.id !== SUPPORTED_CHAINS.BASE &&
+                  chainMetadata?.id !== SUPPORTED_CHAINS.BASE_SEPOLIA
+                  ? 'rounded-nexus-full'
+                  : '',
+              )}
             />
             <div className="flex-1">
               <p className="text-sm font-semibold font-nexus-primary text-gray-900">

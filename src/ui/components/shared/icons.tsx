@@ -1,6 +1,7 @@
 import React from 'react';
-import { CHAIN_METADATA, TOKEN_METADATA } from '../../../constants';
+import { CHAIN_METADATA, SUPPORTED_CHAINS, TOKEN_METADATA } from '../../../constants';
 import { ChainMetadata, TokenMetadata } from '../../../types';
+import { cn } from '../../utils/utils';
 
 export const ChainIcon = ({ chainId }: { chainId: string }) => {
   const chain = Object.values(CHAIN_METADATA).find(
@@ -12,7 +13,18 @@ export const ChainIcon = ({ chainId }: { chainId: string }) => {
     return <div className="w-6 h-6 bg-gray-300 rounded-nexus-full" />;
   }
 
-  return <img src={iconUrl} alt={chainId} className="w-6 h-6 rounded-nexus-full" />;
+  return (
+    <img
+      src={iconUrl}
+      alt={chainId}
+      className={cn(
+        'w-6 h-6',
+        chain?.id !== SUPPORTED_CHAINS.BASE && chain?.id !== SUPPORTED_CHAINS.BASE_SEPOLIA
+          ? 'rounded-nexus-full'
+          : '',
+      )}
+    />
+  );
 };
 
 export const TokenIcon = ({ tokenSymbol }: { tokenSymbol: string }) => {
