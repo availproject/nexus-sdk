@@ -31,7 +31,7 @@ interface UnifiedTransactionModalProps {
   }>;
   getSimulationError?: (simulationResult: any) => boolean;
   getMinimumAmount?: (simulationResult: any) => string;
-  getSourceChains?: (simulationResult: any) => { chainId: number; amount: string }[];
+  getSourceChains?: (simulationResult: any) => { chainId: number; amount: string; needsApproval?: boolean }[];
   transformInputData?: (inputData: any) => any;
   containerClassName?: string;
 }
@@ -125,8 +125,18 @@ export function UnifiedTransactionModal({
 
         {isSdkInitialized && insufficientBalance && (
           <InfoMessage variant="error" className="mt-4">
-            Insufficient balance. You don't have enough {inputData?.token} to complete this
-            transaction.
+            <div className="space-y-2">
+              <p className="font-semibold">
+                Insufficient {inputData?.token} balance
+              </p>
+              <p className="text-sm">
+                You don't have enough {inputData?.token} to complete this transaction. 
+                {transactionType === 'bridgeAndExecute' ? 
+                  ' Consider using a smaller amount or add more funds to your wallet.' :
+                  ' Please add more funds to your wallet or reduce the transaction amount.'
+                }
+              </p>
+            </div>
           </InfoMessage>
         )}
 

@@ -92,6 +92,11 @@ const ERROR_PATTERNS = {
     /not enough/i,
     /exceeds balance/i,
     /balance too low/i,
+    /you don't have enough/i,
+    /sender doesn't have enough/i,
+    /transfer amount exceeds balance/i,
+    /erc20: transfer amount exceeds balance/i,
+    /erc20.*insufficient/i,
   ],
   GAS_ERROR: [
     /gas required exceeds allowance/i,
@@ -106,7 +111,13 @@ const ERROR_PATTERNS = {
     /execution reverted/i,
     /transaction underpriced/i,
     /nonce too low/i,
+    /call exception/i,
+    /transaction was reverted/i,
     /replacement transaction underpriced/i,
+    /already known/i,
+    /reverted with reason/i,
+    /transaction rejected/i,
+    /transaction not mined within/i,
   ],
   ALLOWANCE_ERROR: [
     /allowance/i,
@@ -252,13 +263,36 @@ export function formatErrorForUI(error: unknown, context?: string): string {
     errorMessage = String(error);
   }
 
+  // Log the original error for developers
+  console.error('Error being formatted for UI:', { error, errorMessage, context });
+
   const cleanedMessage = cleanErrorMessage(errorMessage);
   const category = categorizeError(cleanedMessage);
   let userFriendlyMessage = USER_FRIENDLY_MESSAGES[category];
 
-  // For unknown errors with short, clean messages, show the actual message
-  if (category === 'UNKNOWN' && cleanedMessage && cleanedMessage.length < 100) {
-    return cleanedMessage;
+  // For unknown errors, try to provide more meaningful messages
+  if (category === 'UNKNOWN') {
+    // If we have a clean, short message that's readable, use it
+    if (cleanedMessage && cleanedMessage.length < 100 && cleanedMessage.length > 5) {
+      // Check if it looks like a user-friendly error already
+      if (!cleanedMessage.includes('0x') && !cleanedMessage.includes('viem@') && !cleanedMessage.includes('Error:')) {
+        return cleanedMessage;
+      }
+    }
+    
+    // Provide context-specific fallback for unknown errors
+    if (context === 'simulation') {
+      return 'Unable to simulate this transaction. Please verify your inputs and try again.';
+    } else if (context === 'transaction') {
+      return 'Transaction could not be completed. Please check your wallet and try again.';
+    } else if (context === 'bridge') {
+      return 'Cross-chain transfer failed. Please check network connectivity and try again.';
+    } else if (context === 'execute') {
+      return 'Smart contract execution failed. Please verify the transaction details.';
+    }
+    
+    // Log unknown errors for debugging
+    console.warn('Unknown error category detected:', { cleanedMessage, originalError: error, context });
   }
 
   // Add context-specific messaging

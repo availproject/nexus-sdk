@@ -110,6 +110,11 @@ export interface ActiveTransaction {
     | ((SimulationResult | BridgeAndExecuteSimulationResult) & {
         allowance?: {
           needsApproval: boolean;
+          chainDetails?: Array<{
+            chainId: number;
+            amount: string;
+            needsApproval: boolean;
+          }>;
         };
       })
     | null;

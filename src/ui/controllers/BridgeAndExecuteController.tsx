@@ -97,15 +97,66 @@ export class BridgeAndExecuteController implements ITransactionController {
     const simulationResult = await sdk.simulateBridgeAndExecute(params);
     logger.info('bridgeAndExecute simulationResult', simulationResult);
 
-    const needsApproval = !!simulationResult?.metadata?.approvalRequired;
+    let needsApproval = false;
+    const chainDetails: Array<{
+      chainId: number;
+      amount: string;
+      needsApproval: boolean;
+    }> = [];
+
+    // Check if bridge part needs allowance (when bridge is NOT skipped)
+    if (simulationResult?.bridgeSimulation?.intent?.sources && inputData.token !== 'ETH') {
+      const sourcesData = simulationResult.bridgeSimulation.intent.sources;
+      
+      for (const source of sourcesData) {
+        const requiredAmount = sdk.utils.parseUnits(
+          source.amount,
+          sdk.utils.getTokenMetadata(inputData.token!)?.decimals ?? 18,
+        );
+
+        const allowances = await sdk.getAllowance(source.chainID, [inputData.token!]);
+        logger.info(`bridgeAndExecute bridge allowances for chain ${source.chainID}:`, allowances);
+
+        const currentAllowance = allowances[0]?.allowance ?? 0n;
+        const chainNeedsApproval = currentAllowance < requiredAmount;
+
+        if (chainNeedsApproval) {
+          needsApproval = true;
+          logger.info(
+            `BridgeAndExecute bridge allowance needed on chain ${source.chainID}: required=${requiredAmount.toString()}, current=${currentAllowance.toString()}`,
+          );
+        }
+
+        chainDetails.push({
+          chainId: source.chainID,
+          amount: requiredAmount.toString(),
+          needsApproval: chainNeedsApproval,
+        });
+      }
+    }
+
+    // Also check if contract execution needs approval (when bridge is skipped)
+    // This is handled by the execute service internally, but we can inform the UI
+    const contractApprovalNeeded = !!simulationResult?.metadata?.approvalRequired;
+    if (contractApprovalNeeded) {
+      needsApproval = true;
+    }
 
     return {
       ...simulationResult,
       allowance: {
         needsApproval,
+        chainDetails: chainDetails.length > 0 ? chainDetails : undefined,
       },
     } as BridgeAndExecuteSimulationResult & {
-      allowance: { needsApproval: boolean };
+      allowance: { 
+        needsApproval: boolean;
+        chainDetails?: Array<{
+          chainId: number;
+          amount: string;
+          needsApproval: boolean;
+        }>;
+      };
     };
   }
 

@@ -54,7 +54,13 @@ export default function TransferModal() {
     return simulationResult?.intent?.sourcesTotal || '0';
   };
 
-  const getSourceChains = (simulationResult: SimulationResult) => {
+  const getSourceChains = (simulationResult: SimulationResult & { allowance?: { chainDetails?: Array<{ chainId: number; amount: string; needsApproval: boolean }> } }) => {
+    // Use chainDetails from allowance if available (provides needsApproval info)
+    if (simulationResult?.allowance?.chainDetails) {
+      return simulationResult.allowance.chainDetails;
+    }
+    
+    // Fallback to original sources mapping
     return (
       simulationResult?.intent?.sources?.map((source) => ({
         chainId: source.chainID,

@@ -12,7 +12,7 @@ export interface AllowanceFormProps {
   token: string;
   minimumAmount: string;
   inputAmount: string;
-  sourceChains: { chainId: number; amount: string }[];
+  sourceChains: { chainId: number; amount: string; needsApproval?: boolean }[];
   onApprove: (amount: string, isMinimum: boolean) => void;
   onCancel: () => void;
   isLoading?: boolean;
@@ -50,8 +50,27 @@ export function AllowanceForm({
     const numInputAmount = parseFloat(inputAmount);
     return !isNaN(numAmount) && numAmount > 0 && numAmount >= numInputAmount;
   };
+
   const getCurrentAllowance = async () => {
-    const allowance = await sdk.getAllowance(sourceChains[0].chainId, [token]);
+    // Find the first chain that actually needs allowance
+    const chainThatNeedsAllowance = sourceChains.find(chain => chain.needsApproval === true);
+
+    if (!chainThatNeedsAllowance) {
+      // If no chain needs approval, show allowance from first chain or 0
+      const firstChain = sourceChains[0];
+      if (firstChain) {
+        const allowance = await sdk.getAllowance(firstChain.chainId, [token]);
+        const decimals = Number(TOKEN_METADATA[token as keyof typeof TOKEN_METADATA].decimals);
+        const formattedAllowance = formatUnits(allowance[0]?.allowance ?? 0n, decimals);
+        setCurrentAllowance(formattedAllowance);
+      } else {
+        setCurrentAllowance('0');
+      }
+      return;
+    }
+
+    // Get allowance from the chain that needs approval
+    const allowance = await sdk.getAllowance(chainThatNeedsAllowance.chainId, [token]);
     const decimals = Number(TOKEN_METADATA[token as keyof typeof TOKEN_METADATA].decimals);
     const formattedAllowance = formatUnits(allowance[0]?.allowance ?? 0n, decimals);
     setCurrentAllowance(formattedAllowance);
@@ -95,30 +114,32 @@ export function AllowanceForm({
               )}
               <span className="font-semibold font-nexus-primary">{token} on</span>
               <div className="flex items-center gap-x-1">
-                {sourceChains.map((source, index) => {
-                  const chainMeta = CHAIN_METADATA[source?.chainId as keyof typeof CHAIN_METADATA];
-                  return (
-                    <Fragment key={source?.chainId}>
-                      <img
-                        src={chainMeta?.logo ?? ''}
-                        alt={chainMeta?.name}
-                        className={cn(
-                          'w-6 h-6',
-                          index > 0 ? '-ml-5' : '',
-                          chainMeta?.id !== SUPPORTED_CHAINS.BASE &&
-                            chainMeta?.id !== SUPPORTED_CHAINS.BASE_SEPOLIA
-                            ? 'rounded-nexus-full'
-                            : '',
-                        )}
-                        style={{ zIndex: sourceChains.length - index }}
-                        title={chainMeta?.name}
-                      />
-                    </Fragment>
-                  );
-                })}
-                {sourceChains?.length > 1 && (
+                {sourceChains
+                  .filter(chain => chain.needsApproval !== false) // Show chains that need approval or are undefined
+                  .map((source, index, filteredChains) => {
+                    const chainMeta = CHAIN_METADATA[source?.chainId as keyof typeof CHAIN_METADATA];
+                    return (
+                      <Fragment key={source?.chainId}>
+                        <img
+                          src={chainMeta?.logo ?? ''}
+                          alt={chainMeta?.name}
+                          className={cn(
+                            'w-6 h-6',
+                            index > 0 ? '-ml-5' : '',
+                            chainMeta?.id !== SUPPORTED_CHAINS.BASE &&
+                              chainMeta?.id !== SUPPORTED_CHAINS.BASE_SEPOLIA
+                              ? 'rounded-nexus-full'
+                              : '',
+                          )}
+                          style={{ zIndex: filteredChains.length - index }}
+                          title={chainMeta?.name}
+                        />
+                      </Fragment>
+                    );
+                  })}
+                {sourceChains.filter(chain => chain.needsApproval !== false).length > 1 && (
                   <span className="font-semibold font-nexus-primary">
-                    +{sourceChains.length} chains
+                    +{sourceChains.filter(chain => chain.needsApproval !== false).length} chains
                   </span>
                 )}
               </div>

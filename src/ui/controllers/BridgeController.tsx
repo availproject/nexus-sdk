@@ -49,10 +49,24 @@ export class BridgeController implements ITransactionController {
 
     const sourcesData = simulationResult?.intent?.sources || [];
     let needsApproval = false;
+    const chainDetails: Array<{
+      chainId: number;
+      amount: string;
+      needsApproval: boolean;
+    }> = [];
+
     for (const source of sourcesData) {
-      if (inputData?.token === 'ETH') break;
+      if (inputData?.token === 'ETH') {
+        chainDetails.push({
+          chainId: source.chainID,
+          amount: source.amount,
+          needsApproval: false,
+        });
+        continue;
+      }
+
       const requiredAmount = sdk.utils.parseUnits(
-        simulationResult?.intent?.sourcesTotal,
+        source.amount,
         sdk.utils.getTokenMetadata(inputData.token)?.decimals ?? 18,
       );
 
@@ -60,20 +74,27 @@ export class BridgeController implements ITransactionController {
       logger.info(`allowances for chain ${source.chainID}:`, allowances);
 
       const currentAllowance = allowances[0]?.allowance ?? 0n;
+      const chainNeedsApproval = currentAllowance < requiredAmount;
 
-      if (currentAllowance < requiredAmount) {
+      if (chainNeedsApproval) {
         needsApproval = true;
         logger.info(
           `Allowance needed on chain ${source.chainID}: required=${requiredAmount}, current=${currentAllowance}`,
         );
-        break;
       }
+
+      chainDetails.push({
+        chainId: source.chainID,
+        amount: requiredAmount.toString(),
+        needsApproval: chainNeedsApproval,
+      });
     }
 
     return {
       ...simulationResult,
       allowance: {
         needsApproval,
+        chainDetails,
       },
     };
   }
