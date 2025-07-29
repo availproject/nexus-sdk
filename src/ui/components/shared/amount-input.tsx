@@ -56,7 +56,7 @@ export function AmountInput({
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const rawValue = e.target.value;
     const validatedValue = validateNumberInput(rawValue);
-    
+
     setLocalValue(validatedValue);
 
     if (!onChange) return;
