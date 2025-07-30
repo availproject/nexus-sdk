@@ -7,6 +7,9 @@ export type * from './types';
 // Constants
 export * from './constants';
 
+// Telemetry system
+export * from './telemetry';
+
 // UI Components and Styles
 import './ui/styles/globals.css';
 export * from './ui';
