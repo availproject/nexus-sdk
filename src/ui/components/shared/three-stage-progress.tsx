@@ -1,5 +1,5 @@
 import React from 'react';
-import { Progress } from './progress';
+import { Progress } from './progress-motion';
 
 interface ThreeStageProgressProps {
   progress: number;
@@ -103,7 +103,7 @@ export const ThreeStageProgress: React.FC<ThreeStageProgressProps> = ({
   const getIndicatorColor = (state: ProgressBarState['state']) => {
     switch (state) {
       case 'error':
-        return 'bg-[#C03C54]';
+        return 'bg-nexus-destructive-secondary';
       case 'completed':
       case 'active':
         return undefined;
@@ -113,7 +113,7 @@ export const ThreeStageProgress: React.FC<ThreeStageProgressProps> = ({
   };
 
   return (
-    <div className={`w-full flex !nexus-font-primary ${config.gap} ${className}`}>
+    <div className={`w-full flex !font-nexus-primary ${config.gap} ${className}`}>
       {barStates.map((barState, index) => (
         <div key={index} className="relative w-full">
           <Progress

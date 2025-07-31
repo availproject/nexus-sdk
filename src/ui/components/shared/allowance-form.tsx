@@ -1,18 +1,18 @@
 import React, { Fragment, useEffect, useState } from 'react';
 import { FormField } from './form-field';
-import { Input } from './input';
-import { cn } from '../../utils/utils';
+import { cn, formatCost } from '../../utils/utils';
 import { EnhancedInfoMessage } from './enhanced-info-message';
-import { CHAIN_METADATA, TOKEN_METADATA } from '../../..';
 import { ActionButtons } from './action-buttons';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
-import { formatUnits } from '../../../utils';
+import { formatUnits } from '../../../core/utils';
+import { CHAIN_METADATA, SUPPORTED_CHAINS, TOKEN_METADATA } from '../../../constants';
+import { AmountInput } from './amount-input';
 
 export interface AllowanceFormProps {
   token: string;
   minimumAmount: string;
   inputAmount: string;
-  sourceChains: { chainId: number; amount: string }[];
+  sourceChains: { chainId: number; amount: string; needsApproval?: boolean }[];
   onApprove: (amount: string, isMinimum: boolean) => void;
   onCancel: () => void;
   isLoading?: boolean;
@@ -50,8 +50,27 @@ export function AllowanceForm({
     const numInputAmount = parseFloat(inputAmount);
     return !isNaN(numAmount) && numAmount > 0 && numAmount >= numInputAmount;
   };
+
   const getCurrentAllowance = async () => {
-    const allowance = await sdk.getAllowance(sourceChains[0].chainId, [token]);
+    // Find the first chain that actually needs allowance
+    const chainThatNeedsAllowance = sourceChains.find(chain => chain.needsApproval === true);
+
+    if (!chainThatNeedsAllowance) {
+      // If no chain needs approval, show allowance from first chain or 0
+      const firstChain = sourceChains[0];
+      if (firstChain) {
+        const allowance = await sdk.getAllowance(firstChain.chainId, [token]);
+        const decimals = Number(TOKEN_METADATA[token as keyof typeof TOKEN_METADATA].decimals);
+        const formattedAllowance = formatUnits(allowance[0]?.allowance ?? 0n, decimals);
+        setCurrentAllowance(formattedAllowance);
+      } else {
+        setCurrentAllowance('0');
+      }
+      return;
+    }
+
+    // Get allowance from the chain that needs approval
+    const allowance = await sdk.getAllowance(chainThatNeedsAllowance.chainId, [token]);
     const decimals = Number(TOKEN_METADATA[token as keyof typeof TOKEN_METADATA].decimals);
     const formattedAllowance = formatUnits(allowance[0]?.allowance ?? 0n, decimals);
     setCurrentAllowance(formattedAllowance);
@@ -68,12 +87,12 @@ export function AllowanceForm({
 
   return (
     <>
-      <div className="w-full !nexus-font-primary">
+      <div className="w-full !font-nexus-primary">
         {/* Header */}
-        <div className="mb-6 text-left px-6 font-semibold nexus-font-primary">
+        <div className="mb-6 text-left px-6 font-semibold font-nexus-primary">
           <p className="text-sm text-gray-600">
-            To continue, please let this app use at least [{minimumAmount}] {token} from your
-            wallet.
+            To continue, please let this app use at least [{formatCost(minimumAmount)}] {token} from
+            your wallet.
           </p>
           <p className="text-sm text-gray-500 mt-1">
             (This lets the smart contract complete the transaction.)
@@ -83,70 +102,61 @@ export function AllowanceForm({
         {/* Token Information */}
         <div className="mb-6 py-4 px-6">
           <div className="flex items-center justify-between border-b border-[#B3B3B3] py-2">
-            <span className="text-sm font-medium text-gray-700 nexus-font-primary">Token</span>
-            <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-gray-700 font-nexus-primary">Token</span>
+            <div className="flex items-center gap-x-2 w-fit">
               {tokenMetadata?.icon && (
                 <img
-                  key={tokenMetadata.name}
-                  src={tokenMetadata.icon}
+                  key={tokenMetadata?.name}
+                  src={tokenMetadata?.icon}
                   alt={token}
-                  className="w-6 h-6 rounded-full"
+                  className="w-6 h-6 rounded-nexus-full"
                 />
               )}
-              <span className="font-semibold nexus-font-primary">{token} on</span>
-              <div className="flex items-center gap-1">
-                {sourceChains.length >= 3 ? (
-                  <>
-                    {sourceChains.map((source, index) => {
-                      const chainMeta =
-                        CHAIN_METADATA[source.chainId as keyof typeof CHAIN_METADATA];
-                      return (
-                        <Fragment key={source.chainId}>
-                          <img
-                            src={chainMeta?.logo}
-                            alt={chainMeta?.name}
-                            className={`w-6 h-6 rounded-full ${index > 0 ? '-ml-5' : ''}`}
-                            style={{ zIndex: sourceChains.length - index }}
-                            title={chainMeta?.name}
-                          />
-                        </Fragment>
-                      );
-                    })}
-                    <span className="font-semibold nexus-font-primary">
-                      +{sourceChains.length} chains
-                    </span>
-                  </>
-                ) : (
-                  sourceChains.slice(0, 3).map((source, index) => {
-                    const chainMeta = CHAIN_METADATA[source.chainId as keyof typeof CHAIN_METADATA];
+              <span className="font-semibold font-nexus-primary">{token} on</span>
+              <div className="flex items-center gap-x-1">
+                {sourceChains
+                  .filter(chain => chain.needsApproval !== false) // Show chains that need approval or are undefined
+                  .map((source, index, filteredChains) => {
+                    const chainMeta = CHAIN_METADATA[source?.chainId as keyof typeof CHAIN_METADATA];
                     return (
-                      <Fragment key={source.chainId}>
+                      <Fragment key={source?.chainId}>
                         <img
-                          src={chainMeta?.logo}
+                          src={chainMeta?.logo ?? ''}
                           alt={chainMeta?.name}
+                          className={cn(
+                            'w-6 h-6',
+                            index > 0 ? '-ml-5' : '',
+                            chainMeta?.id !== SUPPORTED_CHAINS.BASE &&
+                              chainMeta?.id !== SUPPORTED_CHAINS.BASE_SEPOLIA
+                              ? 'rounded-nexus-full'
+                              : '',
+                          )}
+                          style={{ zIndex: filteredChains.length - index }}
                           title={chainMeta?.name}
-                          className={`w-6 h-6 rounded-full ${index > 0 ? '-ml-5' : ''}`}
-                          style={{ zIndex: sourceChains.length - index }}
                         />
-                        <span className="font-semibold nexus-font-primary">{chainMeta?.name}</span>
                       </Fragment>
                     );
-                  })
+                  })}
+                {sourceChains.filter(chain => chain.needsApproval !== false).length > 1 && (
+                  <span className="font-semibold font-nexus-primary">
+                    +{sourceChains.filter(chain => chain.needsApproval !== false).length} chains
+                  </span>
                 )}
               </div>
             </div>
           </div>
-
-          <div className="mt-3 py-2 border-b border-[#B3B3B3]">
-            <div className="flex items-center justify-between text-sm nexus-font-primary">
-              <span className="text-sm font-medium text-gray-700 nexus-font-primary">
-                Current Allowance
-              </span>
-              <span className="nexus-font-secondary text-black font-semibold">
-                {currentAllowance}
-              </span>
+          {currentAllowance && (
+            <div className="mt-3 py-2 border-b border-[#B3B3B3]">
+              <div className="flex items-center justify-between text-sm font-nexus-primary">
+                <span className="text-sm font-medium text-gray-700 font-nexus-primary">
+                  Current Allowance
+                </span>
+                <span className="font-nexus-secondary text-black font-semibold">
+                  {currentAllowance}
+                </span>
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {error ? (
@@ -156,27 +166,29 @@ export function AllowanceForm({
             {/* Minimum Option */}
             <div
               className={cn(
-                'p-4  rounded-[8px] border-2 cursor-pointer transition-all relative',
+                'p-4 rounded-nexus-md border-2 cursor-pointer transition-all relative',
                 selectedType === 'minimum'
-                  ? 'border-[#0375D8] bg-blue-50'
+                  ? 'border-nexus-blue bg-blue-50'
                   : 'border-gray-200 hover:border-gray-300',
               )}
               onClick={() => setSelectedType('minimum')}
             >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3 nexus-font-primary">
+              <div className="flex items-center justify-between overflow-clip">
+                <div className="flex items-center gap-3 font-nexus-primary">
                   <input
                     type="radio"
                     checked={selectedType === 'minimum'}
                     onChange={() => setSelectedType('minimum')}
                     className="text-blue-600"
                   />
-                  <div className="nexus-font-primary">
+                  <div className="font-nexus-primary">
                     <span className="text-sm font-bold text-gray-900">Minimum</span>
-                    <span className="text-base font-bold text-gray-900 ml-2">{minimumAmount}</span>
+                    <span className="text-base font-bold text-gray-900 ml-2">
+                      {formatCost(minimumAmount)}
+                    </span>
                   </div>
                 </div>
-                <span className="bg-[#0375D8] nexus-font-primary text-white text-xs px-2 py-1 font-medium absolute top-0 right-0 rounded-tr-[6px]">
+                <span className="bg-nexus-blue font-nexus-primary text-white text-xs px-2 py-1 font-medium absolute top-0 right-0">
                   RECOMMENDED
                 </span>
               </div>
@@ -185,9 +197,9 @@ export function AllowanceForm({
             {/* Custom Option */}
             <div
               className={cn(
-                'p-4 rounded-[8px] border-2 cursor-pointer transition-all nexus-font-primary',
+                'p-4 rounded-nexus-md border-2 cursor-pointer transition-all font-nexus-primary',
                 selectedType === 'custom'
-                  ? 'border-[#0375D8] bg-blue-50'
+                  ? 'border-nexus-blue bg-blue-50'
                   : 'border-gray-200 hover:border-gray-300',
               )}
             >
@@ -208,32 +220,18 @@ export function AllowanceForm({
                   helperText={
                     customAmount && !isCustomValid ? `Amount must be ≥ ${inputAmount}` : undefined
                   }
-                  className="nexus-font-primary"
+                  className="font-nexus-primary"
                 >
-                  <div
+                  <AmountInput
+                    placeholder={`Enter amount ≥ ${inputAmount}`}
+                    value={customAmount}
+                    disabled={isLoading}
+                    onChange={(value) => setCustomAmount(value)}
                     className={cn(
-                      'px-4 py-2 nexus-font-primary rounded-[8px] border border-zinc-400 flex justify-between items-center',
-                      'bg-transparent h-12',
-                      'focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]',
-                      isLoading && 'opacity-50 cursor-not-allowed',
+                      'text-black text-base font-semibold font-nexus-primary leading-normal',
+                      customAmount && !isCustomValid ? 'border-red-500 focus:border-red-500' : '',
                     )}
-                  >
-                    <div className="flex items-center gap-x-1.5 flex-1">
-                      <Input
-                        placeholder={`Enter amount ≥ ${inputAmount}`}
-                        value={customAmount}
-                        onChange={(e) => setCustomAmount(e.target.value)}
-                        disabled={isLoading}
-                        className={cn(
-                          '!bg-transparent !focus:ring-0 !focus:border-none !focus:outline-none px-0',
-                          customAmount && !isCustomValid
-                            ? 'border-red-500 focus:border-red-500'
-                            : '',
-                          'text-black text-base font-semibold nexus-font-primary leading-normal',
-                        )}
-                      />
-                    </div>
-                  </div>
+                  />
                 </FormField>
               </div>
             )}
@@ -248,7 +246,7 @@ export function AllowanceForm({
         primaryText="Approve & Continue"
         primaryLoading={isLoading}
         primaryDisabled={!isFormValid || isLoading}
-        className="border-t border-zinc-400/40 bg-gray-100 nexus-font-primary mt-8"
+        className="border-t border-gray-300/40 bg-gray-100 font-nexus-primary mt-12"
       />
     </>
   );

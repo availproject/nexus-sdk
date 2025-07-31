@@ -13,7 +13,6 @@ import type {
   RequestForFunds,
   SDKConfig,
   UserAsset,
-  RFF,
 } from '@arcana/ca-sdk';
 
 type TokenInfo = {
@@ -101,6 +100,21 @@ export type SUPPORTED_TOKENS = 'ETH' | 'USDC' | 'USDT';
 export type SUPPORTED_CHAINS_IDS = (typeof SUPPORTED_CHAINS)[keyof typeof SUPPORTED_CHAINS];
 
 /**
+ * Dynamic parameter builder function for building function parameters at execution time
+ * This allows for dynamic parameter generation based on actual bridged amounts and user context
+ */
+export type DynamicParamBuilder = (
+  token: SUPPORTED_TOKENS,
+  amount: string,
+  chainId: SUPPORTED_CHAINS_IDS,
+  userAddress: `0x${string}`,
+) => {
+  functionParams: readonly unknown[];
+  /** ETH value in wei (string). Omit or '0' for ERC-20 calls */
+  value?: string;
+};
+
+/**
  * Parameters for bridging tokens between chains.
  */
 export interface BridgeParams {
@@ -117,6 +131,7 @@ export interface BridgeResult {
   success: boolean;
   error?: string;
   explorerUrl?: string;
+  transactionHash?: string; // Add transaction hash property
 }
 
 /**
@@ -156,21 +171,21 @@ export interface TokenBalance {
   isNative?: boolean;
 }
 
-// Enhanced modular parameters for standalone execute functionality
+// Enhanced modular parameters for execute functionality with dynamic parameter building
 export interface ExecuteParams {
-  toChainId: number;
+  toChainId: SUPPORTED_CHAINS_IDS;
   contractAddress: string;
   contractAbi: Abi;
   functionName: string;
-  functionParams: readonly unknown[];
-  value?: string;
+  buildFunctionParams: DynamicParamBuilder;
+  value?: string; // Can be overridden by callback
   enableTransactionPolling?: boolean;
   transactionTimeout?: number;
   // Transaction receipt confirmation options
   waitForReceipt?: boolean;
   receiptTimeout?: number;
   requiredConfirmations?: number;
-  tokenApproval: {
+  tokenApproval?: {
     token: SUPPORTED_TOKENS;
     amount: string;
   };
@@ -221,6 +236,17 @@ export interface SimulationStep {
   description: string;
 }
 
+interface SimulationMetadata {
+  bridgeReceiveAmount: string;
+  bridgeFee: string;
+  inputAmount: string;
+  optimalBridgeAmount?: string;
+  targetChain: number;
+  approvalRequired: boolean;
+  bridgeSkipped?: boolean;
+  token?: SUPPORTED_TOKENS;
+}
+
 export interface BridgeAndExecuteSimulationResult {
   steps: SimulationStep[];
   bridgeSimulation: SimulationResult | null;
@@ -234,13 +260,7 @@ export interface BridgeAndExecuteSimulationResult {
   };
   success: boolean;
   error?: string;
-  metadata?: {
-    bridgeReceiveAmount: string; // just like 0.01 no need for token symbols
-    bridgeFee: string; // just like 0.001
-    inputAmount: string; // just like 0.01
-    targetChain: number;
-    approvalRequired: boolean;
-  };
+  metadata?: SimulationMetadata;
 }
 
 export interface BridgeAndExecuteParams {
@@ -263,9 +283,12 @@ export interface BridgeAndExecuteResult {
   executeTransactionHash?: string;
   executeExplorerUrl?: string;
   approvalTransactionHash?: string;
+  bridgeTransactionHash?: string; // undefined when bridge is skipped
+  bridgeExplorerUrl?: string; // undefined when bridge is skipped
   toChainId: number;
   success: boolean;
   error?: string;
+  bridgeSkipped: boolean; // indicates if bridge was skipped due to sufficient funds
 }
 
 /**
@@ -281,14 +304,14 @@ export interface ContractCallParams {
 
 export type {
   OnIntentHook,
+  OnAllowanceHookData,
+  OnIntentHookData,
   OnAllowanceHook,
   EthereumProvider,
   RequestArguments,
   ProgressStep,
   ProgressSteps,
   Intent,
-  OnIntentHookData,
-  OnAllowanceHookData,
   onAllowanceHookSource as AllowanceHookSource,
   Network,
   UserAsset,
@@ -297,5 +320,4 @@ export type {
   SDKConfig,
   NexusNetwork,
   TransactionReceipt,
-  RFF,
 };

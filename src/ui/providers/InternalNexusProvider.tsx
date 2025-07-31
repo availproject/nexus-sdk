@@ -1,3 +1,4 @@
+'use client';
 import React, {
   createContext,
   useContext,
@@ -8,7 +9,7 @@ import React, {
   useEffect,
   useRef,
 } from 'react';
-import { NexusSDK } from '../..';
+import { NexusSDK } from '../../core/sdk';
 import {
   EthereumProvider,
   UserAsset,
@@ -17,6 +18,7 @@ import {
   BridgeAndExecuteParams,
   SimulationResult,
   NexusNetwork,
+  BridgeAndExecuteSimulationResult,
 } from '../../types';
 import type {
   ActiveTransaction,
@@ -33,7 +35,7 @@ import { TransactionProcessorShell } from '../components/processing/transaction-
 import { DragConstraintsProvider } from '../components/shared';
 import { LayoutGroup } from 'motion/react';
 import useListenTransaction from '../hooks/useListenTransaction';
-import { logger } from '../../utils';
+import { logger } from '../../core/utils';
 
 const controllers: Record<TransactionType, ITransactionController> = {
   bridge: new BridgeController(),
@@ -74,11 +76,13 @@ export function InternalNexusProvider({
   config,
   children,
 }: {
-  config: { network: NexusNetwork; debug?: boolean };
+  config?: { network?: NexusNetwork; debug?: boolean };
   children: ReactNode;
 }) {
-  const [sdk] = useState(() => new NexusSDK({ network: config.network, debug: config.debug }));
-  const [provider, setProvider] = useState<EthereumProvider | null>(null);
+  const [sdk] = useState(
+    () => new NexusSDK({ network: config?.network ?? 'mainnet', debug: config?.debug ?? false }),
+  );
+  const [provider, setProvider] = useState<EthereumProvider | undefined>(undefined);
   const [isSdkInitialized, setIsSdkInitialized] = useState(false);
   const [activeTransaction, setActiveTransaction] = useState<ActiveTransaction>(initialState);
   const [unifiedBalance, setUnifiedBalance] = useState<UserAsset[]>([]);
@@ -90,15 +94,20 @@ export function InternalNexusProvider({
   const [isSettingAllowance, setIsSettingAllowance] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const activeController = activeTransaction.type ? controllers[activeTransaction.type] : null;
   const { processing, explorerURL, resetProcessingState } = useListenTransaction({
     sdk,
     activeTransaction,
   });
 
-  const initializeSdk = useCallback(async () => {
+  const activeController = useMemo(
+    () => (activeTransaction.type ? controllers[activeTransaction.type] : null),
+    [activeTransaction.type],
+  );
+
+  const initializeSdk = async (ethProvider?: EthereumProvider) => {
     if (isSdkInitialized) return true;
-    if (!provider) {
+    const eipProvider = ethProvider ?? provider;
+    if (!eipProvider) {
       setActiveTransaction((prev) => ({
         ...prev,
         status: 'simulation_error',
@@ -106,9 +115,14 @@ export function InternalNexusProvider({
       }));
       return false;
     }
+
+    if (!provider && eipProvider) {
+      setProvider(ethProvider);
+    }
+
     try {
       setActiveTransaction((prev) => ({ ...prev, status: 'initializing' }));
-      await sdk.initialize(provider);
+      await sdk.initialize(eipProvider);
       const unifiedBalance = await sdk.getUnifiedBalances();
       logger.debug('Unified balance', { unifiedBalance });
       setUnifiedBalance(unifiedBalance);
@@ -116,11 +130,12 @@ export function InternalNexusProvider({
       setActiveTransaction((prev) => ({ ...prev, status: 'review' }));
       return true;
     } catch (err) {
+      logger.error('SDK initialization failed:', err as Error);
       const error = err instanceof Error ? err : new Error('SDK Initialization failed.');
       setActiveTransaction((prev) => ({ ...prev, status: 'simulation_error', error }));
       return false;
     }
-  }, [provider, sdk, isSdkInitialized]);
+  };
 
   const startTransaction = useCallback(
     (
@@ -142,12 +157,10 @@ export function InternalNexusProvider({
       if (prefillData) {
         if ('chainId' in prefillData && prefillData.chainId !== undefined) {
           prefillFields.chainId = true;
-          // For bridge-and-execute, chainId maps to toChainId in the controller
           if (type === 'bridgeAndExecute') {
             prefillFields.toChainId = true;
           }
         }
-        // Explicitly handle toChainId provided for bridge-and-execute transactions
         if (
           type === 'bridgeAndExecute' &&
           'toChainId' in prefillData &&
@@ -165,11 +178,6 @@ export function InternalNexusProvider({
           prefillFields.recipient = true;
         }
       }
-
-      // For bridge-and-execute we internally store the destination chain in `chainId` for
-      // consistency with the rest of the codebase. If the caller supplied `toChainId`,
-      // make sure we mirror that value into `chainId` so that subsequent helpers (that
-      // convert between the two) behave correctly and the UI shows the pre-filled value.
       const normalizedPrefillData =
         type === 'bridgeAndExecute' &&
         'toChainId' in prefillData &&
@@ -217,7 +225,6 @@ export function InternalNexusProvider({
         reviewStatus: 'gathering_input',
         status: prev.status === 'simulation_error' ? 'review' : prev.status,
         error: prev.status === 'simulation_error' ? null : prev.error,
-        // Preserve prefillFields - they should not change when user updates input
       }));
 
       setIsSimulating(false);
@@ -233,12 +240,29 @@ export function InternalNexusProvider({
       }
 
       const tokenBalance = unifiedBalance.find((asset) => asset.symbol === inputData.token);
-      if (!tokenBalance) return false;
+      if (!tokenBalance) {
+        logger.warn('Token not found in unified balance:', {
+          requestedToken: inputData.token,
+          availableTokens: unifiedBalance.map(asset => asset.symbol)
+        });
+        return true; // Consider it insufficient if token not found
+      }
 
       const requestedAmount = parseFloat(inputData.amount.toString());
       const availableBalance = parseFloat(tokenBalance.balance);
 
-      return requestedAmount > availableBalance;
+      const isInsufficient = requestedAmount > availableBalance;
+      
+      if (isInsufficient) {
+        logger.warn('Insufficient balance detected:', {
+          token: inputData.token,
+          requested: requestedAmount,
+          available: availableBalance,
+          deficit: requestedAmount - availableBalance
+        });
+      }
+
+      return isInsufficient;
     },
     [unifiedBalance],
   );
@@ -357,12 +381,13 @@ export function InternalNexusProvider({
           // Check if simulation failed
           if (
             simulationResult &&
-            // For BridgeAndExecuteSimulationResult
             (('success' in simulationResult && !simulationResult.success) ||
               ('error' in simulationResult && simulationResult.error) ||
               // For bridge simulation within BridgeAndExecuteSimulationResult
+              // Only consider null bridgeSimulation a failure if bridge wasn't intentionally skipped
               ('bridgeSimulation' in simulationResult &&
-                simulationResult.bridgeSimulation === null))
+                simulationResult.bridgeSimulation === null &&
+                !(simulationResult as BridgeAndExecuteSimulationResult)?.metadata?.bridgeSkipped))
           ) {
             setActiveTransaction((prev) => ({
               ...prev,
@@ -385,6 +410,7 @@ export function InternalNexusProvider({
             status: 'review',
           }));
         } catch (err) {
+          logger.error('Simulation failed:', err as Error);
           const error = err instanceof Error ? err : new Error('Simulation failed.');
           setActiveTransaction((prev) => ({
             ...prev,
@@ -494,22 +520,39 @@ export function InternalNexusProvider({
         // For each source chain that needs allowance, set it
         const { inputData, simulationResult } = activeTransaction;
 
-        let sourcesData: Array<{ chainID: number; amount: string }> =
-          (simulationResult as SimulationResult)?.intent?.sources || [];
+        // Use chain-specific allowance details if available
+        const chainDetails = simulationResult?.allowance?.chainDetails;
+        if (chainDetails && chainDetails.length > 0) {
+          // Use the new chain-specific approach
+          for (const chainDetail of chainDetails) {
+            if (chainDetail.needsApproval) {
+              const tokenMeta = sdk.utils.getTokenMetadata(inputData.token!);
+              const amountToApprove = isMinimum
+                ? sdk.utils.parseUnits(amount, tokenMeta?.decimals ?? 18)
+                : sdk.utils.parseUnits(amount, tokenMeta?.decimals ?? 18);
 
-        // If bridge & execute simulation, sources are inside bridgeSimulation
-        if (sourcesData.length === 0 && 'bridgeSimulation' in (simulationResult as any)) {
-          const bridgeSim = (simulationResult as any).bridgeSimulation as SimulationResult;
-          sourcesData = bridgeSim?.intent?.sources || [];
-        }
+              await sdk.setAllowance(chainDetail.chainId, [inputData.token!], amountToApprove);
+            }
+          }
+        } else {
+          // Fallback to original approach for backward compatibility
+          let sourcesData: Array<{ chainID: number; amount: string }> =
+            (simulationResult as SimulationResult)?.intent?.sources || [];
 
-        for (const source of sourcesData) {
-          const tokenMeta = sdk.utils.getTokenMetadata(inputData.token!);
-          const amountToApprove = isMinimum
-            ? sdk.utils.parseUnits(amount, tokenMeta?.decimals ?? 18)
-            : sdk.utils.parseUnits(amount, tokenMeta?.decimals ?? 18);
+          // If bridge & execute simulation, sources are inside bridgeSimulation
+          if (sourcesData.length === 0 && 'bridgeSimulation' in (simulationResult as any)) {
+            const bridgeSim = (simulationResult as any).bridgeSimulation as SimulationResult;
+            sourcesData = bridgeSim?.intent?.sources || [];
+          }
 
-          await sdk.setAllowance(source.chainID, [inputData.token!], amountToApprove);
+          for (const source of sourcesData) {
+            const tokenMeta = sdk.utils.getTokenMetadata(inputData.token!);
+            const amountToApprove = isMinimum
+              ? sdk.utils.parseUnits(amount, tokenMeta?.decimals ?? 18)
+              : sdk.utils.parseUnits(amount, tokenMeta?.decimals ?? 18);
+
+            await sdk.setAllowance(source.chainID, [inputData.token!], amountToApprove);
+          }
         }
 
         // After successful allowance setting, proceed directly to transaction
@@ -533,9 +576,9 @@ export function InternalNexusProvider({
           setActiveTransaction((prev) => ({ ...prev, status: 'error', error }));
         }
       } catch (err) {
+        logger.error('Allowance setting failed:', err as Error);
         const error = err instanceof Error ? err : new Error('Failed to set allowance.');
         setAllowanceError(error.message);
-        logger.error('Allowance setting failed:', error);
       } finally {
         setIsSettingAllowance(false);
       }

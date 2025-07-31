@@ -2,7 +2,6 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { OrchestratorStatus, ReviewStatus } from '../types';
 import { Abi } from 'viem';
-import type { ExecuteParams } from '../../types';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -66,7 +65,6 @@ export const getStatusText = (stepData: any, operationType: string) => {
  * Common error patterns and their user-friendly messages
  */
 const ERROR_PATTERNS = {
-  // User rejection patterns
   USER_REJECTED: [
     /user rejected/i,
     /user denied/i,
@@ -74,9 +72,10 @@ const ERROR_PATTERNS = {
     /user refused/i,
     /action_rejected/i,
     /userRejectedRequest/i,
+    /transaction rejected by user/i,
+    /user rejected transaction/i,
+    /user canceled/i,
   ],
-
-  // Network/connection issues
   NETWORK_ERROR: [
     /network error/i,
     /connection failed/i,
@@ -84,45 +83,83 @@ const ERROR_PATTERNS = {
     /network request failed/i,
     /rpc error/i,
     /timeout/i,
+    /backend initialization failed/i,
+    /simulation client error/i,
   ],
-
-  // Insufficient funds/gas
   INSUFFICIENT_FUNDS: [
     /insufficient funds/i,
     /insufficient balance/i,
     /not enough/i,
     /exceeds balance/i,
+    /balance too low/i,
+    /you don't have enough/i,
+    /sender doesn't have enough/i,
+    /transfer amount exceeds balance/i,
+    /erc20: transfer amount exceeds balance/i,
+    /erc20.*insufficient/i,
   ],
-
-  // Gas related errors
   GAS_ERROR: [
     /gas required exceeds allowance/i,
     /out of gas/i,
     /gas estimation failed/i,
     /gas limit/i,
+    /intrinsic gas too low/i,
   ],
-
-  // Transaction failures
   TRANSACTION_FAILED: [
     /transaction failed/i,
     /transaction reverted/i,
     /execution reverted/i,
     /transaction underpriced/i,
+    /nonce too low/i,
+    /call exception/i,
+    /transaction was reverted/i,
+    /replacement transaction underpriced/i,
+    /already known/i,
+    /reverted with reason/i,
+    /transaction rejected/i,
+    /transaction not mined within/i,
   ],
-
-  // Allowance/approval errors
-  ALLOWANCE_ERROR: [/allowance/i, /approval/i, /approve/i],
-
-  // Contract/smart contract errors
-  CONTRACT_ERROR: [/contract/i, /invalid address/i, /abi/i],
-
-  // Chain-related errors
+  ALLOWANCE_ERROR: [
+    /allowance/i,
+    /approval/i,
+    /approve/i,
+    /token approval failed/i,
+    /insufficient allowance/i,
+  ],
+  CONTRACT_ERROR: [
+    /contract/i,
+    /invalid address/i,
+    /abi/i,
+    /function not found/i,
+    /contract execution failed/i,
+  ],
   CHAIN_ERROR: [
     /unrecognized chain id/i,
     /unsupported chain/i,
     /chain not found/i,
     /invalid chain/i,
     /try adding the chain using wallet_addEthereumChain/i,
+    /wrong network/i,
+    /switch to correct network/i,
+  ],
+  INIT_ERROR: [
+    /initialization failed/i,
+    /sdk not initialized/i,
+    /provider not connected/i,
+    /wallet provider not connected/i,
+    /setup failed/i,
+  ],
+  BRIDGE_ERROR: [
+    /bridge failed/i,
+    /bridging error/i,
+    /cross-chain error/i,
+    /bridge transaction failed/i,
+  ],
+  EXECUTE_ERROR: [
+    /execute failed/i,
+    /execution error/i,
+    /execute phase failed/i,
+    /contract execution error/i,
   ],
 } as const;
 
@@ -138,6 +175,9 @@ const USER_FRIENDLY_MESSAGES = {
   ALLOWANCE_ERROR: 'Token approval failed. Please try approving the token again.',
   CONTRACT_ERROR: 'Smart contract interaction failed. Please try again.',
   CHAIN_ERROR: 'This network is not added to your wallet. Please add it to continue.',
+  INIT_ERROR: 'Wallet connection issue. Please make sure your wallet is connected and try again.',
+  BRIDGE_ERROR: 'Cross-chain transfer failed. Please try again.',
+  EXECUTE_ERROR: 'Smart contract execution failed. Please try again.',
   UNKNOWN: 'An unexpected error occurred. Please try again.',
 } as const;
 
@@ -145,18 +185,46 @@ const USER_FRIENDLY_MESSAGES = {
  * Extract meaningful information from error messages while removing technical details
  */
 function cleanErrorMessage(message: string): string {
-  // Remove version information
+  // Remove version and package information
   message = message.replace(/Version: [^\s]+/gi, '');
-
-  // Remove SDK/library references
   message = message.replace(/viem@[^\s]+/gi, '');
   message = message.replace(/arcana@[^\s]+/gi, '');
 
-  // Remove duplicate text (like "Details: User rejected the request." when already in main message)
+  // Remove common error prefixes that create noise
+  message = message.replace(/^Error: /gi, '');
+  message = message.replace(/^RPC Error: /gi, '');
+
+  // Handle chained error messages - extract the most meaningful part
+  // Pattern: "Operation failed: Phase failed: Actual error"
+  const chainedErrorMatch = message.match(
+    /([^:]+operation failed|[^:]+phase failed|[^:]+error):\s*(.+)/i,
+  );
+  if (chainedErrorMatch) {
+    const [, , actualError] = chainedErrorMatch;
+    // If the actual error is meaningful, use it; otherwise keep the chain
+    if (actualError && actualError.length > 10 && !actualError.includes('failed')) {
+      message = actualError.trim();
+    }
+  }
+
+  // Remove redundant "failed" phrases that pile up
+  message = message.replace(/\b(operation|phase|transaction|execution)\s+failed:\s*/gi, '');
+  message = message.replace(/\bfailed:\s*/gi, '');
+
+  // Split by common delimiters and clean up
   const lines = message.split(/[.\n]/).filter((line) => line.trim());
   const uniqueLines = [...new Set(lines.map((line) => line.trim()))];
 
-  return uniqueLines.join('. ').trim();
+  // Take the first meaningful line if we have multiple
+  const meaningfulLine =
+    uniqueLines.find(
+      (line) =>
+        line.length > 5 &&
+        !line.toLowerCase().includes('operation failed') &&
+        !line.toLowerCase().includes('phase failed'),
+    ) || uniqueLines[0];
+
+  return meaningfulLine?.trim() || message.trim();
 }
 
 /**
@@ -178,13 +246,11 @@ function categorizeError(errorMessage: string): keyof typeof USER_FRIENDLY_MESSA
  * Format error messages to be user-friendly for display in UI components
  *
  * @param error - The error object or string from various sources (viem, Arcana SDK, etc.)
- * @param context - Optional context about where the error occurred (e.g., 'transaction', 'allowance')
+ * @param context - Optional context about where the error occurred (e.g., 'simulation', 'bridge', 'execute')
  * @returns A user-friendly error message
  */
 export function formatErrorForUI(error: unknown, context?: string): string {
   let errorMessage = '';
-
-  // Extract error message from different error types
   if (error instanceof Error) {
     errorMessage = error.message;
   } else if (typeof error === 'string') {
@@ -197,25 +263,92 @@ export function formatErrorForUI(error: unknown, context?: string): string {
     errorMessage = String(error);
   }
 
-  // Clean the error message first
+  // Log the original error for developers
+  console.error('Error being formatted for UI:', { error, errorMessage, context });
+
   const cleanedMessage = cleanErrorMessage(errorMessage);
-
-  // Categorize and get user-friendly message
   const category = categorizeError(cleanedMessage);
-  const userFriendlyMessage = USER_FRIENDLY_MESSAGES[category];
+  let userFriendlyMessage = USER_FRIENDLY_MESSAGES[category];
 
-  // For certain categories, we might want to include some context
-  if (category === 'UNKNOWN' && cleanedMessage && cleanedMessage.length < 100) {
-    // If it's a short, clean message that we don't recognize, show it as-is
-    return cleanedMessage;
+  // For unknown errors, try to provide more meaningful messages
+  if (category === 'UNKNOWN') {
+    // If we have a clean, short message that's readable, use it
+    if (cleanedMessage && cleanedMessage.length < 100 && cleanedMessage.length > 5) {
+      // Check if it looks like a user-friendly error already
+      if (!cleanedMessage.includes('0x') && !cleanedMessage.includes('viem@') && !cleanedMessage.includes('Error:')) {
+        return cleanedMessage;
+      }
+    }
+    
+    // Provide context-specific fallback for unknown errors
+    if (context === 'simulation') {
+      return 'Unable to simulate this transaction. Please verify your inputs and try again.';
+    } else if (context === 'transaction') {
+      return 'Transaction could not be completed. Please check your wallet and try again.';
+    } else if (context === 'bridge') {
+      return 'Cross-chain transfer failed. Please check network connectivity and try again.';
+    } else if (context === 'execute') {
+      return 'Smart contract execution failed. Please verify the transaction details.';
+    }
+    
+    // Log unknown errors for debugging
+    console.warn('Unknown error category detected:', { cleanedMessage, originalError: error, context });
   }
 
-  // Add context if provided and relevant
+  // Add context-specific messaging
   if (context && category !== 'USER_REJECTED') {
-    return `${userFriendlyMessage} (${context})`;
+    const contextualMessage = getContextualErrorMessage(category, context);
+    if (contextualMessage) {
+      return contextualMessage;
+    }
+    return userFriendlyMessage;
   }
 
   return userFriendlyMessage;
+}
+
+/**
+ * Get context-specific error messages for better user experience
+ */
+function getContextualErrorMessage(
+  category: keyof typeof USER_FRIENDLY_MESSAGES,
+  context: string,
+): string | null {
+  const contextMap: Record<string, Partial<Record<keyof typeof USER_FRIENDLY_MESSAGES, string>>> = {
+    simulation: {
+      NETWORK_ERROR: 'Unable to simulate transaction. Please check your connection and try again.',
+      INSUFFICIENT_FUNDS: 'Simulation shows insufficient balance for this transaction.',
+      GAS_ERROR: 'Unable to estimate transaction fees. Please try again.',
+      CONTRACT_ERROR: 'Contract simulation failed. Please verify the contract details.',
+      CHAIN_ERROR: 'Simulation failed due to network issues. Please add the required network.',
+      INIT_ERROR: 'Please connect your wallet to simulate transactions.',
+    },
+    bridge: {
+      NETWORK_ERROR: 'Bridge service is temporarily unavailable. Please try again.',
+      INSUFFICIENT_FUNDS: 'Insufficient balance for cross-chain transfer.',
+      BRIDGE_ERROR: 'Cross-chain transfer failed. Please try again.',
+      CHAIN_ERROR: 'Source or destination network not supported in your wallet.',
+    },
+    execute: {
+      CONTRACT_ERROR: 'Smart contract execution failed. Please verify the contract is correct.',
+      GAS_ERROR: 'Execution failed due to gas issues. Please try again.',
+      EXECUTE_ERROR: 'Contract interaction failed. Please try again.',
+      ALLOWANCE_ERROR: 'Token approval required before execution.',
+    },
+    allowance: {
+      ALLOWANCE_ERROR: 'Token approval transaction failed. Please try again.',
+      GAS_ERROR: 'Approval failed due to insufficient gas. Please try again.',
+      CONTRACT_ERROR: 'Token contract approval failed. Please verify the token.',
+    },
+    initialization: {
+      INIT_ERROR: 'Wallet setup failed. Please reconnect your wallet and try again.',
+      NETWORK_ERROR: 'Unable to connect to Nexus services. Please try again.',
+      CHAIN_ERROR: 'Unsupported network. Please switch to a supported network.',
+    },
+  };
+
+  const contextMessages = contextMap[context];
+  return contextMessages?.[category] || null;
 }
 
 /**
@@ -240,15 +373,11 @@ export function isChainError(error: unknown): boolean {
  */
 export function extractChainIdFromError(error: unknown): number | null {
   const errorMessage = error instanceof Error ? error.message : String(error);
-
-  // Look for hex chain ID patterns like "0x8274f"
   const hexMatch = errorMessage.match(/(?:chain id|chainid)\s*["']?(0x[a-f0-9]+)["']?/i);
   if (hexMatch) {
     const chainId = parseInt(hexMatch[1], 16);
     return isNaN(chainId) ? null : chainId;
   }
-
-  // Look for decimal chain ID patterns
   const decimalMatch = errorMessage.match(/(?:chain id|chainid)\s*["']?(\d+)["']?/i);
   if (decimalMatch) {
     const chainId = parseInt(decimalMatch[1], 10);
@@ -265,7 +394,6 @@ export async function addChainToWallet(
   chainId: number,
   provider: { request: (args: { method: string; params?: any[] }) => Promise<any> },
 ): Promise<boolean> {
-  // Import here to avoid circular dependency
   const { CHAIN_METADATA } = await import('../../constants');
 
   const chainMetadata = CHAIN_METADATA[chainId];
@@ -300,8 +428,6 @@ export async function addChainToWallet(
   }
 }
 
-// ---- Bridge & Execute Helpers ----
-
 /**
  * Find ABI fragment for given function name (optionally matching parameter count)
  */
@@ -314,62 +440,27 @@ export function findAbiFragment(abi: Abi, functionName: string, paramCount?: num
   );
 }
 
-/**
- * Validate execute configuration against ABI and token/value rules
- */
-export function validateExecuteConfig(execute: Omit<ExecuteParams, 'toChainId'>, abi: Abi): void {
-  const fragment = findAbiFragment(abi, execute.functionName, execute.functionParams.length);
-
-  if (!fragment || !Array.isArray(fragment.inputs)) {
-    throw new Error(`Function ${execute.functionName} not found in ABI or missing inputs.`);
+export const getContentKey = (status: string, additionalStates?: string[]): string => {
+  if (['processing', 'success', 'error'].includes(status)) {
+    return 'processor';
   }
 
-  // 1. Parameter count check (redundant after findAbiFragment but kept for safety)
-  if (fragment.inputs.length !== execute.functionParams.length) {
-    throw new Error(
-      `Function parameter count mismatch. Expected ${fragment.inputs.length}, received ${execute.functionParams.length}.`,
-    );
+  if (status === 'set_allowance') {
+    return 'allowance';
   }
 
-  // 2. Payable value check
-  const isPayable = (fragment.stateMutability || '').toLowerCase() === 'payable';
-  if (execute.value && execute.value !== '0' && !isPayable) {
-    throw new Error('Contract function is not payable but a non-zero ETH value was supplied.');
+  if (additionalStates?.includes(status)) {
+    return status;
   }
 
-  // 3. Basic type validation for common Solidity types
-  fragment.inputs.forEach((input: any, idx: number) => {
-    const expected = (input.type as string).toLowerCase();
-    const param = execute.functionParams[idx];
+  return 'review';
+};
 
-    const isValid = (() => {
-      if (expected.startsWith('address')) {
-        return typeof param === 'string' && /^0x[a-fA-F0-9]{40}$/.test(param);
-      }
-      if (expected.startsWith('uint') || expected.startsWith('int')) {
-        return (
-          typeof param === 'bigint' ||
-          typeof param === 'number' ||
-          (typeof param === 'string' && /^\d+$/.test(param))
-        );
-      }
-      if (expected === 'bool') {
-        return typeof param === 'boolean';
-      }
-      if (expected.startsWith('bytes') || expected === 'string') {
-        return typeof param === 'string';
-      }
-      // Fallback for complex types (tuple, array, etc.) – skip strict validation
-      return true;
-    })();
-
-    if (!isValid) {
-      throw new Error(`Type mismatch at param[${idx}]. Expected ${expected}.`);
-    }
-  });
-
-  // 4. ERC-20 specific rule – value must be 0 / undefined when tokenApproval present
-  if (execute.tokenApproval && execute.value && execute.value !== '0') {
-    throw new Error('ERC-20 contract calls must not send ETH value.');
-  }
-}
+export const formatCost = (cost: string) => {
+  const numCost = parseFloat(cost);
+  if (isNaN(numCost)) return 'Invalid';
+  if (numCost < 0) return 'Invalid';
+  if (numCost === 0) return 'Free';
+  if (numCost < 0.001) return '< 0.001';
+  return numCost.toFixed(6);
+};

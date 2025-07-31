@@ -1,15 +1,7 @@
-// Main SDK export
-export * from './sdk';
+// This file is deprecated - use either '@avail-project/nexus/core' or '@avail-project/nexus/ui'
+// This file should not be used and will be removed in future versions
 
-// Types
-export type * from './types';
-
-// Constants
-export * from './constants';
-
-// UI Components and Styles
-import './ui/styles/globals.css';
-export * from './ui';
-
-// Re-export Network enum from CA SDK for convenience
-export { Network, RequestForFunds } from '@arcana/ca-sdk';
+throw new Error(
+  'Importing from @avail-project/nexus root is not supported. ' +
+    'Use @avail-project/nexus/core for headless SDK or @avail-project/nexus/ui for React components.',
+);
