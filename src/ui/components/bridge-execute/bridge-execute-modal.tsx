@@ -69,7 +69,13 @@ export default function BridgeAndExecuteModal() {
     return bridgeSim?.intent?.sourcesTotal || '0';
   };
 
-  const getSourceChains = (simulationResult: BridgeAndExecuteSimulationResult & { allowance?: { chainDetails?: Array<{ chainId: number; amount: string; needsApproval: boolean }> } }) => {
+  const getSourceChains = (
+    simulationResult: BridgeAndExecuteSimulationResult & {
+      allowance?: {
+        chainDetails?: Array<{ chainId: number; amount: string; needsApproval: boolean }>;
+      };
+    },
+  ) => {
     // Use chainDetails from allowance if available (provides needsApproval info)
     if (simulationResult?.allowance?.chainDetails) {
       return simulationResult.allowance.chainDetails;

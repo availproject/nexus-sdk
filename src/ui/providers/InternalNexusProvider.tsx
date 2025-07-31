@@ -243,7 +243,7 @@ export function InternalNexusProvider({
       if (!tokenBalance) {
         logger.warn('Token not found in unified balance:', {
           requestedToken: inputData.token,
-          availableTokens: unifiedBalance.map(asset => asset.symbol)
+          availableTokens: unifiedBalance.map((asset) => asset.symbol),
         });
         return true; // Consider it insufficient if token not found
       }
@@ -252,13 +252,13 @@ export function InternalNexusProvider({
       const availableBalance = parseFloat(tokenBalance.balance);
 
       const isInsufficient = requestedAmount > availableBalance;
-      
+
       if (isInsufficient) {
         logger.warn('Insufficient balance detected:', {
           token: inputData.token,
           requested: requestedAmount,
           available: availableBalance,
-          deficit: requestedAmount - availableBalance
+          deficit: requestedAmount - availableBalance,
         });
       }
 

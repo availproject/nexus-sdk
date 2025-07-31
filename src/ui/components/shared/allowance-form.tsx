@@ -53,7 +53,7 @@ export function AllowanceForm({
 
   const getCurrentAllowance = async () => {
     // Find the first chain that actually needs allowance
-    const chainThatNeedsAllowance = sourceChains.find(chain => chain.needsApproval === true);
+    const chainThatNeedsAllowance = sourceChains.find((chain) => chain.needsApproval === true);
 
     if (!chainThatNeedsAllowance) {
       // If no chain needs approval, show allowance from first chain or 0
@@ -115,9 +115,10 @@ export function AllowanceForm({
               <span className="font-semibold font-nexus-primary">{token} on</span>
               <div className="flex items-center gap-x-1">
                 {sourceChains
-                  .filter(chain => chain.needsApproval !== false) // Show chains that need approval or are undefined
+                  .filter((chain) => chain.needsApproval !== false) // Show chains that need approval or are undefined
                   .map((source, index, filteredChains) => {
-                    const chainMeta = CHAIN_METADATA[source?.chainId as keyof typeof CHAIN_METADATA];
+                    const chainMeta =
+                      CHAIN_METADATA[source?.chainId as keyof typeof CHAIN_METADATA];
                     return (
                       <Fragment key={source?.chainId}>
                         <img
@@ -137,9 +138,9 @@ export function AllowanceForm({
                       </Fragment>
                     );
                   })}
-                {sourceChains.filter(chain => chain.needsApproval !== false).length > 1 && (
+                {sourceChains.filter((chain) => chain.needsApproval !== false).length > 1 && (
                   <span className="font-semibold font-nexus-primary">
-                    +{sourceChains.filter(chain => chain.needsApproval !== false).length} chains
+                    +{sourceChains.filter((chain) => chain.needsApproval !== false).length} chains
                   </span>
                 )}
               </div>
