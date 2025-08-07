@@ -1,13 +1,12 @@
-import * as React from 'react';
-import { FormField } from './form-field';
-import { ChainSelect } from './chain-select';
-import { TokenSelect } from './token-select';
 import { AmountInput } from './amount-input';
 import { AddressField } from './address-field';
 import { cn } from '../../utils/utils';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
-import { calculateEffectiveBalance, type TransactionType } from '../../utils/balance-utils';
-import { SUPPORTED_CHAINS_IDS, SUPPORTED_TOKENS } from '../../../types';
+import { type TransactionType } from '../../utils/balance-utils';
+import React, { useMemo } from 'react';
+import { CHAIN_METADATA } from '../../../constants';
+import { FormField } from '../motion/form-field';
+import { DestinationDrawer } from './destination-drawer';
 
 interface UnifiedTransactionFormProps {
   type: TransactionType;
@@ -62,114 +61,77 @@ export function UnifiedTransactionForm({
   className,
   prefillFields = {},
 }: UnifiedTransactionFormProps) {
-  const { config, isSdkInitialized, isSimulating, unifiedBalance } = useInternalNexus();
-  const isInputDisabled = disabled || isSimulating;
-
-  const getEffectiveBalanceText = () => {
-    if (!isSdkInitialized) return undefined;
-    const destinationChainId =
-      type === 'bridgeAndExecute'
-        ? (inputData?.toChainId as SUPPORTED_CHAINS_IDS)
-        : (inputData?.chainId as SUPPORTED_CHAINS_IDS);
-
-    const { contextualMessage } = calculateEffectiveBalance({
-      unifiedBalance,
-      token: inputData?.token as SUPPORTED_TOKENS,
-      destinationChainId,
-      type,
-    });
-
-    return contextualMessage;
-  };
+  const { config, isSimulating } = useInternalNexus();
 
   const formConfig = FORM_CONFIG[type];
+  const isInputDisabled = disabled || isSimulating;
+  const isChainSelectDisabled =
+    isInputDisabled || prefillFields[formConfig.chainField as keyof typeof prefillFields];
+  const isTokenSelectDisabled = isInputDisabled || prefillFields.token;
+  const isAmountDisabled = isInputDisabled || prefillFields.amount;
+  const isReceipientDisabled = isInputDisabled || prefillFields.recipient;
+
+  const title = useMemo(() => {
+    const chainId = inputData?.chainId || inputData?.toChainId;
+    if (chainId && inputData?.token)
+      return `Sending (${inputData?.token} to ${CHAIN_METADATA[chainId]?.name})`;
+    return 'Sending';
+  }, [inputData]);
+
+  const validateAddress = (address: string): boolean => {
+    if (!address) return true;
+    return /^0x[a-fA-F0-9]{40}$/.test(address);
+  };
+
+  const hasValidationError = inputData?.recipient && !validateAddress(inputData?.recipient);
 
   return (
-    <div className={cn('px-6 flex flex-col gap-y-4 w-full relative', className)}>
-      <div className="flex gap-x-4 justify-between items-center w-full">
-        <FormField
-          label={formConfig.chainLabel}
-          className={cn(
-            'flex-1 font-nexus-primary',
-            type === 'bridge' ? 'w-full max-w-[208px]' : '',
-          )}
-        >
-          <ChainSelect
-            value={
+    <div className={cn('px-6 flex flex-col gap-y-4 w-full', className)}>
+      <div
+        className={cn(
+          'flex flex-col gap-y-4 w-full',
+          type !== 'bridgeAndExecute' && 'font-nexus-primary',
+        )}
+      >
+        <div className="flex gap-x-4 justify-between items-center w-full">
+          <FormField label={title} className="flex-1 font-nexus-primary gap-y-2 w-full">
+            <AmountInput
+              value={inputData?.amount ? inputData.amount?.toString() : '00'}
+              disabled={isAmountDisabled}
+              onChange={isAmountDisabled ? undefined : (value) => onUpdate({ amount: value })}
+            />
+          </FormField>
+          <DestinationDrawer
+            chainValue={
               formConfig.chainField === 'toChainId'
-                ? inputData.toChainId?.toString() || ''
-                : inputData.chainId?.toString() || ''
+                ? (inputData.toChainId?.toString() ?? '')
+                : (inputData.chainId?.toString() ?? '')
             }
-            onValueChange={(chainId) => {
-              if (
-                isInputDisabled ||
-                prefillFields[formConfig.chainField as keyof typeof prefillFields]
-              )
-                return;
+            tokenValue={inputData.token}
+            onChainValueChange={(chainId) => {
+              if (isChainSelectDisabled) return;
               const fieldName = formConfig.chainField;
               onUpdate({ [fieldName]: parseInt(chainId, 10) });
             }}
-            disabled={
-              isInputDisabled || prefillFields[formConfig.chainField as keyof typeof prefillFields]
-            }
+            onTokenValueChange={(token) => !isTokenSelectDisabled && onUpdate({ token })}
+            isTokenSelectDisabled={isTokenSelectDisabled}
+            isChainSelectDisabled={isChainSelectDisabled}
             network={config?.network ?? 'mainnet'}
-            className="w-full"
           />
-        </FormField>
-
-        <FormField
-          label={formConfig.tokenLabel}
-          className={cn('flex-1 font-nexus-primary', type === 'bridge' ? 'min-w-max' : '')}
-        >
-          <TokenSelect
-            value={inputData.token}
-            onValueChange={(token) =>
-              !(isInputDisabled || prefillFields.token) && onUpdate({ token })
-            }
-            disabled={isInputDisabled || prefillFields.token}
-            network={config?.network ?? 'mainnet'}
-            className="w-full"
-          />
-        </FormField>
-      </div>
-
-      <div
-        className={cn('flex gap-x-4 w-full', type !== 'bridgeAndExecute' && 'font-nexus-primary')}
-      >
-        <FormField
-          label="Amount"
-          helperText={getEffectiveBalanceText()}
-          className="flex-1 font-nexus-primary"
-        >
-          <AmountInput
-            value={inputData?.amount ? inputData.amount?.toString() : ''}
-            suffix={inputData.token || ''}
-            disabled={isInputDisabled || prefillFields.amount}
-            onChange={
-              isInputDisabled || prefillFields.amount
-                ? undefined
-                : (value) => onUpdate({ amount: value })
-            }
-          />
-        </FormField>
+        </div>
 
         {formConfig.showRecipient && (
-          <AddressField
-            label="Recipient Address"
-            value={inputData?.recipient ?? ''}
-            onChange={(value) =>
-              !(isInputDisabled || prefillFields.recipient) && onUpdate({ recipient: value })
-            }
-            disabled={isInputDisabled || prefillFields.recipient}
-          />
-        )}
-
-        {formConfig.showSecondAmountField && (
-          <div className="flex-1 opacity-0 invisible aria-hidden select-none aria-hidden='true">
-            <FormField label="Amount">
-              <AmountInput value="0.1" suffix="ETH" disabled />
-            </FormField>
-          </div>
+          <FormField
+            label="Receivers Address"
+            className="flex-1"
+            helperText={hasValidationError ? 'Invalid address format (must be 0x...)' : undefined}
+          >
+            <AddressField
+              value={inputData?.recipient ?? ''}
+              onChange={(value) => !isReceipientDisabled && onUpdate({ recipient: value })}
+              disabled={isReceipientDisabled}
+            />
+          </FormField>
         )}
       </div>
     </div>

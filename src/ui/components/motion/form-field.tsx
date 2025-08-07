@@ -12,7 +12,10 @@ interface FormFieldProps {
 export function FormField({ label, children, helperText, className }: FormFieldProps) {
   return (
     <div className={cn('flex flex-col gap-1.5 relative', className)}>
-      <Label className="text-stone-500 text-sm font-normal font-nexus-primary leading-none">
+      <Label
+        className="text-stone-500 text-sm font-normal font-nexus-primary leading-none"
+        htmlFor={label}
+      >
         {label}
       </Label>
       {children}

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { InfoMessage } from './info-message';
-import { Button } from './button-motion';
+import { Button } from '../motion/button-motion';
 import {
   isChainError,
   extractChainIdFromError,
@@ -11,7 +11,7 @@ import {
 import { Plus } from '../icons';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { logger } from '../../../core/utils';
-import LoadingDots from './loading-dots';
+import LoadingDots from '../motion/loading-dots';
 import { CHAIN_METADATA, SUPPORTED_CHAINS } from '../../../constants';
 
 interface EnhancedInfoMessageProps {

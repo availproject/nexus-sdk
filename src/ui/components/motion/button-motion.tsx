@@ -14,7 +14,7 @@ interface ButtonProps
 }
 
 const buttonVariants = {
-  default: 'bg-nexus-primary text-nexus-primary-foreground hover:bg-nexus-primary/90',
+  default: 'bg-nexus-primary-gray text-nexus-primary-foreground hover:bg-nexus-primary/90',
   destructive:
     'bg-nexus-destructive text-nexus-destructive-foreground hover:bg-nexus-destructive/90',
   outline:

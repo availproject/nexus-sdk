@@ -1,13 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
-import { useDragConstraints } from '../shared';
 import { ProcessorMiniCard } from './processor-mini-card';
 import { ProcessorFullCard } from './processor-full-card';
 import { BridgeAndExecuteSimulationResult, SimulationResult } from '../../../types';
 import { CHAIN_METADATA, TOKEN_METADATA } from '../../../constants';
 import { getOperationText } from '../../utils/utils';
 import { TransactionType } from '../../types';
+import { useDragConstraints } from '../motion/drag-constraints';
 
 export const TransactionProcessorShell: React.FC = () => {
   const {

@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { motion } from 'motion/react';
 import useOutsideClick from '../../hooks/useOutsideClick';
 import { cn } from '../../utils/utils';
-import { Button } from './button-motion';
+import { Button } from '../motion/button-motion';
 
 interface SelectOption {
   label: string;

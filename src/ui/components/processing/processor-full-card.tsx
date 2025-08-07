@@ -1,8 +1,7 @@
 import React, { useCallback, useRef } from 'react';
 import { motion } from 'motion/react';
-import { Button, ThreeStageProgress, EnhancedInfoMessage } from '../shared';
-import SuccessRipple from '../shared/success-ripple';
-import { WordsPullUp } from '../shared/pull-up-words';
+import SuccessRipple from '../motion/success-ripple';
+import { WordsPullUp } from '../motion/pull-up-words';
 import { ProcessorCardProps } from '../../types';
 import {
   BridgeAndExecuteSimulationResult,
@@ -15,6 +14,9 @@ import type { DotLottie } from '@lottiefiles/dotlottie-react';
 import { CircleX, ExternalLink, Minimize } from '../icons';
 import { cn, formatCost } from '../../utils/utils';
 import { SUPPORTED_CHAINS } from '../../../constants';
+import { Button } from '../motion/button-motion';
+import { ThreeStageProgress } from '../motion/three-stage-progress';
+import { EnhancedInfoMessage } from '../shared/enhanced-info-message';
 
 export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
   status,

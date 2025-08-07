@@ -2,8 +2,8 @@ import React from 'react';
 import { ChainSelectProps } from '../../types';
 import { CHAIN_METADATA, MAINNET_CHAINS, TESTNET_CHAINS } from '../../../constants';
 import { ChainIcon } from './icons';
-import AnimatedSelect from './animated-select';
 import { cn } from '../../utils/utils';
+import AnimatedSelect from '../motion/animated-select';
 
 interface ChainSelectOption {
   value: string;

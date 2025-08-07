@@ -1,22 +1,19 @@
 import React, { useState } from 'react';
-import { BaseModal } from './base-modal';
+import { BaseModal } from '../motion/base-modal';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
-import { cn, getButtonText, getContentKey } from '../../utils/utils';
+import { getButtonText, getContentKey } from '../../utils/utils';
 import { type TransactionType } from '../../utils/balance-utils';
-import {
-  InfoMessage,
-  ActionButtons,
-  AllowanceForm,
-  EnhancedInfoMessage,
-  DialogHeader,
-  DialogTitle,
-  SlideTransition,
-} from './';
 import { TransactionSimulation } from '../processing/transaction-simulation';
 import { AvailLogo } from '../icons/AvailLogo';
-import { motion } from 'motion/react';
 import { BridgeConfig, TransferConfig } from '../../types';
 import { BridgeAndExecuteParams } from '../../../types';
+import UnifiedBalance from './unified-balance';
+import { InfoMessage } from './info-message';
+import { AllowanceForm } from './allowance-form';
+import { DialogFooter, DialogHeader, DialogTitle } from '../motion/dialog-motion';
+import { SlideTransition } from '../motion/slide-transition';
+import { EnhancedInfoMessage } from './enhanced-info-message';
+import { ActionButtons } from './action-buttons';
 
 interface UnifiedTransactionModalProps {
   transactionType: TransactionType;
@@ -35,7 +32,6 @@ interface UnifiedTransactionModalProps {
     simulationResult: any,
   ) => { chainId: number; amount: string; needsApproval?: boolean }[];
   transformInputData?: (inputData: any) => any;
-  containerClassName?: string;
 }
 
 export function UnifiedTransactionModal({
@@ -46,7 +42,6 @@ export function UnifiedTransactionModal({
   getMinimumAmount,
   getSourceChains,
   transformInputData,
-  containerClassName = 'pb-6',
 }: UnifiedTransactionModalProps) {
   const {
     activeTransaction,
@@ -70,6 +65,8 @@ export function UnifiedTransactionModal({
   const { status, reviewStatus, inputData, simulationResult, type, prefillFields } =
     activeTransaction;
   const [isInitializing, setIsInitializing] = useState(false);
+  const [allowanceFormValid, setAllowanceFormValid] = useState(false);
+  const [allowanceApproveHandler, setAllowanceApproveHandler] = useState<(() => void) | null>(null);
 
   // Type guard - return null if wrong transaction type
   if (type !== transactionType) {
@@ -96,71 +93,20 @@ export function UnifiedTransactionModal({
       triggerSimulation();
     } else if (status === 'review' && reviewStatus === 'needs_allowance') {
       startAllowanceFlow();
+    } else if (status === 'set_allowance' && allowanceApproveHandler) {
+      allowanceApproveHandler();
     } else {
       confirmAndProceed();
     }
   };
 
-  const renderReviewContent = () => {
-    const hasSufficientInput = activeController?.hasSufficientInput(inputData || {});
-
-    // Show simulation section only after SDK is initialized and all inputs are complete
-    const shouldShowSimulation = isSdkInitialized && hasSufficientInput;
-
-    // Transform input data if needed (for bridge_execute)
-    const transformedInputData = transformInputData ? transformInputData(inputData) : inputData;
-
-    return (
-      <div className={cn('h-full w-full', containerClassName)}>
-        <FormComponent
-          inputData={transformedInputData || {}}
-          onUpdate={updateInput}
-          disabled={!isSdkInitialized}
-          prefillFields={prefillFields}
-        />
-
-        {!isSdkInitialized && (
-          <InfoMessage variant="success" className="mt-4">
-            You need to sign a message in your wallet to allow cross chain transactions using Nexus.
-          </InfoMessage>
-        )}
-
-        {isSdkInitialized && insufficientBalance && (
-          <InfoMessage variant="error" className="mt-4">
-            <div className="space-y-2">
-              <p className="font-semibold">Insufficient {inputData?.token} balance</p>
-              <p className="text-sm">
-                You don't have enough {inputData?.token} to complete this transaction.
-                {transactionType === 'bridgeAndExecute'
-                  ? ' Consider using a smaller amount or add more funds to your wallet.'
-                  : ' Please add more funds to your wallet or reduce the transaction amount.'}
-              </p>
-            </div>
-          </InfoMessage>
-        )}
-
-        {(activeTransaction?.error && status === 'simulation_error') ||
-        (simulationResult && getSimulationError && getSimulationError(simulationResult)) ? (
-          <EnhancedInfoMessage
-            error={activeTransaction?.error || new Error('Simulation failed')}
-            context="simulation"
-            className="mt-4"
-          />
-        ) : (
-          shouldShowSimulation &&
-          !insufficientBalance &&
-          status !== 'simulation_error' && (
-            <div className="px-6 mt-4">
-              <TransactionSimulation
-                isLoading={isSimulating}
-                simulationResult={simulationResult || undefined}
-              />
-            </div>
-          )
-        )}
-      </div>
-    );
+  const debouncedClick = () => {
+    setTimeout(handleButtonClick, 500);
   };
+
+  const hasSufficientInput = activeController?.hasSufficientInput(inputData || {});
+  const shouldShowSimulation = isSdkInitialized && hasSufficientInput;
+  const transformedInputData = transformInputData ? transformInputData(inputData) : inputData;
 
   const renderAllowanceContent = () => {
     if (!simulationResult || !inputData) return null;
@@ -179,25 +125,12 @@ export function UnifiedTransactionModal({
         onCancel={denyAllowance}
         isLoading={isSettingAllowance}
         error={allowanceError}
+        onFormStateChange={(isValid, handler) => {
+          setAllowanceFormValid(isValid);
+          setAllowanceApproveHandler(() => handler);
+        }}
       />
     );
-  };
-
-  const renderContent = () => {
-    switch (status) {
-      case 'initializing':
-      case 'review':
-      case 'simulation_error':
-        return renderReviewContent();
-      case 'set_allowance':
-        return renderAllowanceContent();
-      case 'processing':
-      case 'success':
-      case 'error':
-        return null;
-      default:
-        return null;
-    }
   };
 
   const getModalTitle = () => {
@@ -206,11 +139,12 @@ export function UnifiedTransactionModal({
     return modalTitle;
   };
 
-  const showFooterButtons =
-    status !== 'processing' &&
-    status !== 'success' &&
-    status !== 'error' &&
-    status !== 'set_allowance';
+  const getPrimaryButtonText = () => {
+    if (status === 'set_allowance') return 'Approve & Continue';
+    return getButtonText(status, reviewStatus);
+  };
+
+  const showFooterButtons = status !== 'processing' && status !== 'success' && status !== 'error';
 
   const preventClose = status === 'processing' || reviewStatus === 'simulating';
 
@@ -225,40 +159,101 @@ export function UnifiedTransactionModal({
       onClose={preventClose ? () => {} : cancelTransaction}
       hideCloseButton={true}
     >
-      <motion.div layoutId="tx-processor" layout="position" className="w-full h-full relative">
-        {showHeader && (
-          <DialogHeader className="flex flex-row items-center justify-between relative px-6 py-5 h-[88px] w-full">
-            <AvailLogo className="absolute top-0 left-1/2 -translate-x-1/2 opacity-10" />
-            <DialogTitle className="font-semibold">{getModalTitle()}</DialogTitle>
-          </DialogHeader>
-        )}
+      {/* Header - Fixed at top */}
+      {showHeader && (
+        <DialogHeader className="flex-shrink-0 flex flex-row items-center justify-between relative px-6 py-4 h-16 overflow-hidden w-full">
+          <AvailLogo className="absolute top-0 left-1/2 -translate-x-1/2 opacity-10" />
+          <DialogTitle className="font-semibold">{getModalTitle()}</DialogTitle>
+        </DialogHeader>
+      )}
+
+      {/* Content - Flexible middle area */}
+      <div className="flex-1 flex flex-col overflow-hidden w-full">
         <SlideTransition contentKey={getContentKey(status, [reviewStatus])}>
-          {renderContent()}
+          {(status === 'initializing' || status === 'review' || status === 'simulation_error') && (
+            <>
+              {inputData?.token && <UnifiedBalance />}
+
+              <FormComponent
+                inputData={transformedInputData || {}}
+                onUpdate={updateInput}
+                disabled={!isSdkInitialized}
+                prefillFields={prefillFields}
+              />
+              <div className="flex-1 flex flex-col py-4 w-full overflow-y-auto">
+                {!isSdkInitialized && (
+                  <InfoMessage variant="success" className="mt-4">
+                    Sign a quick message to turn on cross-chain transfers. Don&apos;t worry
+                    it&apos;s gasless & no funds will move yet.
+                  </InfoMessage>
+                )}
+
+                {isSdkInitialized && insufficientBalance && (
+                  <InfoMessage variant="error" className="mt-4">
+                    <div className="space-y-2">
+                      <p className="font-semibold">Insufficient {inputData?.token} balance</p>
+                      <p className="text-sm">
+                        You don't have enough {inputData?.token} to complete this transaction.
+                        {transactionType === 'bridgeAndExecute'
+                          ? ' Consider using a smaller amount or add more funds to your wallet.'
+                          : ' Please add more funds to your wallet or reduce the transaction amount.'}
+                      </p>
+                    </div>
+                  </InfoMessage>
+                )}
+                {(activeTransaction?.error && status === 'simulation_error') ||
+                (simulationResult && getSimulationError && getSimulationError(simulationResult)) ? (
+                  <EnhancedInfoMessage
+                    error={activeTransaction?.error || new Error('Simulation failed')}
+                    context="simulation"
+                    className="mt-4 w-full"
+                  />
+                ) : (
+                  shouldShowSimulation &&
+                  !insufficientBalance &&
+                  status !== 'simulation_error' && (
+                    <TransactionSimulation
+                      isLoading={isSimulating}
+                      simulationResult={simulationResult || undefined}
+                      inputData={transformedInputData}
+                      callback={debouncedClick}
+                    />
+                  )
+                )}
+              </div>
+            </>
+          )}
+          {status === 'set_allowance' && <>{renderAllowanceContent()}</>}
         </SlideTransition>
-      </motion.div>
+      </div>
+
+      {/* Footer - Fixed at bottom */}
       {showFooterButtons && (
-        <ActionButtons
-          primaryText={getButtonText(status, reviewStatus)}
-          onPrimary={handleButtonClick}
-          onCancel={cancelTransaction}
-          primaryLoading={isBusy || isInitializing}
-          primaryDisabled={
-            isInitializing ||
-            isBusy ||
-            insufficientBalance ||
-            isSimulating ||
-            (status === 'review' &&
-              reviewStatus === 'gathering_input' &&
-              !activeController?.hasSufficientInput(inputData || {})) ||
-            (status === 'review' &&
-              reviewStatus !== 'ready' &&
-              reviewStatus !== 'needs_allowance' &&
-              reviewStatus !== 'gathering_input') ||
-            (status === 'simulation_error' &&
-              !activeController?.hasSufficientInput(inputData || {}))
-          }
-          className="border-t border-zinc-400/40 bg-gray-100"
-        />
+        <DialogFooter className="flex-shrink-0 w-full mt-auto">
+          <ActionButtons
+            primaryText={getPrimaryButtonText()}
+            onPrimary={handleButtonClick}
+            onCancel={cancelTransaction}
+            primaryLoading={isBusy || isInitializing}
+            primaryDisabled={
+              isInitializing ||
+              isBusy ||
+              insufficientBalance ||
+              isSimulating ||
+              (status === 'set_allowance' && !allowanceFormValid) ||
+              (status === 'review' &&
+                reviewStatus === 'gathering_input' &&
+                !activeController?.hasSufficientInput(inputData || {})) ||
+              (status === 'review' &&
+                reviewStatus !== 'ready' &&
+                reviewStatus !== 'needs_allowance' &&
+                reviewStatus !== 'gathering_input') ||
+              (status === 'simulation_error' &&
+                !activeController?.hasSufficientInput(inputData || {}))
+            }
+            className="border-t border-zinc-400/40 bg-gray-100"
+          />
+        </DialogFooter>
       )}
     </BaseModal>
   );

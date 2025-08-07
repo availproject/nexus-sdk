@@ -1,12 +1,11 @@
 import React, { Fragment, useEffect, useState } from 'react';
-import { FormField } from './form-field';
 import { cn, formatCost } from '../../utils/utils';
 import { EnhancedInfoMessage } from './enhanced-info-message';
-import { ActionButtons } from './action-buttons';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { formatUnits } from '../../../core/utils';
 import { CHAIN_METADATA, SUPPORTED_CHAINS, TOKEN_METADATA } from '../../../constants';
 import { AmountInput } from './amount-input';
+import { FormField } from '../motion/form-field';
 
 export interface AllowanceFormProps {
   token: string;
@@ -17,6 +16,8 @@ export interface AllowanceFormProps {
   onCancel: () => void;
   isLoading?: boolean;
   error?: string | null;
+  // Expose form state for external button handling
+  onFormStateChange?: (isValid: boolean, approveHandler: () => void) => void;
 }
 
 export function AllowanceForm({
@@ -25,9 +26,10 @@ export function AllowanceForm({
   inputAmount,
   sourceChains,
   onApprove,
-  onCancel,
+  onCancel: _onCancel,
   isLoading = false,
   error = null,
+  onFormStateChange,
 }: AllowanceFormProps) {
   const [currentAllowance, setCurrentAllowance] = useState<string | null>(null);
   const [selectedType, setSelectedType] = useState<'minimum' | 'custom'>('minimum');
@@ -85,9 +87,16 @@ export function AllowanceForm({
   const isCustomValid = selectedType === 'custom' ? validateCustomAmount(customAmount) : true;
   const isFormValid = selectedType === 'minimum' || isCustomValid;
 
+  // Notify parent of form state changes
+  useEffect(() => {
+    if (onFormStateChange) {
+      onFormStateChange(isFormValid, handleApprove);
+    }
+  }, [isFormValid, selectedType, customAmount, minimumAmount, onFormStateChange]);
+
   return (
-    <>
-      <div className="w-full !font-nexus-primary">
+    <div className="flex flex-col h-full w-full overflow-y-auto">
+      <div className="flex-1 w-full !font-nexus-primary">
         {/* Header */}
         <div className="mb-6 text-left px-6 font-semibold font-nexus-primary">
           <p className="text-sm text-gray-600">
@@ -238,17 +247,7 @@ export function AllowanceForm({
             )}
           </div>
         )}
-
-        {/* Action Buttons */}
       </div>
-      <ActionButtons
-        onCancel={onCancel}
-        onPrimary={handleApprove}
-        primaryText="Approve & Continue"
-        primaryLoading={isLoading}
-        primaryDisabled={!isFormValid || isLoading}
-        className="border-t border-gray-300/40 bg-gray-100 font-nexus-primary mt-12"
-      />
-    </>
+    </div>
   );
 }

@@ -32,10 +32,10 @@ import { BridgeController } from '../controllers/BridgeController';
 import { TransferController } from '../controllers/TransferController';
 import { BridgeAndExecuteController } from '../controllers/BridgeAndExecuteController';
 import { TransactionProcessorShell } from '../components/processing/transaction-processor-shell';
-import { DragConstraintsProvider } from '../components/shared';
 import { LayoutGroup } from 'motion/react';
 import useListenTransaction from '../hooks/useListenTransaction';
 import { logger } from '../../core/utils';
+import { DragConstraintsProvider } from '../components/motion/drag-constraints';
 
 const controllers: Record<TransactionType, ITransactionController> = {
   bridge: new BridgeController(),
@@ -88,7 +88,7 @@ export function InternalNexusProvider({
   const [unifiedBalance, setUnifiedBalance] = useState<UserAsset[]>([]);
   const [isSimulating, setIsSimulating] = useState(false);
   const [insufficientBalance, setInsufficientBalance] = useState(false);
-  const [isTransactionCollapsed, setIsTransactionCollapsed] = useState(false);
+  const [isTransactionCollapsed, setIsTransactionCollapsed] = useState(true);
   const [timer, setTimer] = useState(0);
   const [allowanceError, setAllowanceError] = useState<string | null>(null);
   const [isSettingAllowance, setIsSettingAllowance] = useState(false);
@@ -135,6 +135,29 @@ export function InternalNexusProvider({
       setActiveTransaction((prev) => ({ ...prev, status: 'simulation_error', error }));
       return false;
     }
+  };
+
+  const deinitializeSdk = async () => {
+    if (!isSdkInitialized) return;
+    try {
+      await sdk?.deinit();
+      reset();
+    } catch (e) {
+      logger.error('Error deinitializing SDK', e as Error);
+    }
+  };
+
+  const reset = () => {
+    setProvider(undefined);
+    setIsSdkInitialized(false);
+    setActiveTransaction(initialState);
+    setUnifiedBalance([]);
+    setIsSimulating(false);
+    setInsufficientBalance(false);
+    setIsTransactionCollapsed(false);
+    setTimer(0);
+    setAllowanceError(null);
+    setIsSettingAllowance(false);
   };
 
   const startTransaction = useCallback(
@@ -689,6 +712,7 @@ export function InternalNexusProvider({
       confirmAndProceed,
       cancelTransaction,
       initializeSdk,
+      deinitializeSdk,
       triggerSimulation,
       retrySimulation,
       toggleTransactionCollapse,
@@ -709,6 +733,7 @@ export function InternalNexusProvider({
       confirmAndProceed,
       cancelTransaction,
       initializeSdk,
+      deinitializeSdk,
       triggerSimulation,
       retrySimulation,
       unifiedBalance,

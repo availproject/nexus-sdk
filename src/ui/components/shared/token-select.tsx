@@ -2,8 +2,8 @@ import React from 'react';
 import { TokenSelectProps } from '../../types';
 import { TOKEN_METADATA, TESTNET_TOKEN_METADATA } from '../../../constants';
 import { TokenIcon } from './icons';
-import AnimatedSelect from './animated-select';
 import { cn } from '../../utils/utils';
+import AnimatedSelect from '../motion/animated-select';
 
 interface TokenSelectOption {
   value: string;
