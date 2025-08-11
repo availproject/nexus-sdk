@@ -62,7 +62,7 @@ export function TransferFormSection({
   );
 }
 
-export default function TransferModal() {
+export default function TransferModal({ title = 'Nexus Widget' }: { title?: string }) {
   const getSimulationError = (simulationResult: SimulationResult) => {
     return simulationResult && !simulationResult.intent;
   };
@@ -95,7 +95,7 @@ export default function TransferModal() {
   return (
     <UnifiedTransactionModal
       transactionType="transfer"
-      modalTitle="Transfer Tokens"
+      modalTitle={title}
       FormComponent={TransferFormSection}
       getSimulationError={getSimulationError}
       getMinimumAmount={getMinimumAmount}

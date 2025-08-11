@@ -57,7 +57,7 @@ function BridgeExecuteForm({
   );
 }
 
-export default function BridgeAndExecuteModal() {
+export default function BridgeAndExecuteModal({ title = 'Nexus Widget' }: { title?: string }) {
   const getSimulationError = (simulationResult: BridgeAndExecuteSimulationResult) => {
     if (!simulationResult) return true;
 
@@ -121,7 +121,7 @@ export default function BridgeAndExecuteModal() {
   return (
     <UnifiedTransactionModal
       transactionType="bridgeAndExecute"
-      modalTitle="Bridge and Execute"
+      modalTitle={title}
       FormComponent={BridgeExecuteForm}
       getSimulationError={getSimulationError}
       getMinimumAmount={getMinimumAmount}
