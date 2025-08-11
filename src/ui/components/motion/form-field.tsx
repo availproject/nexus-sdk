@@ -13,7 +13,7 @@ export function FormField({ label, children, helperText, className }: FormFieldP
   return (
     <div className={cn('flex flex-col gap-1.5 relative', className)}>
       <Label
-        className="text-stone-500 text-sm font-normal font-nexus-primary leading-none"
+        className="text-stone-500 text-sm font-normal font-nexus-primary leading-none text-balance"
         htmlFor={label}
       >
         {label}

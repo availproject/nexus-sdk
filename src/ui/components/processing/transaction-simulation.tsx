@@ -2,6 +2,8 @@ import React from 'react';
 import { SimulationResult, BridgeAndExecuteSimulationResult } from '../../../types';
 import { InfoMessage } from '../shared/info-message';
 import { TransactionDetailsDrawer } from '../shared/transaction-details-drawer';
+import { TransactionType } from '../../types';
+import TextLoader from '../motion/text-loader';
 
 interface TransactionSimulationProps {
   isLoading: boolean;
@@ -14,6 +16,7 @@ interface TransactionSimulationProps {
     chainId?: number;
     toChainId?: number;
   };
+  type?: TransactionType;
   callback: () => void;
 }
 
@@ -21,12 +24,13 @@ export function TransactionSimulation({
   isLoading,
   simulationResult,
   inputData,
+  type,
   callback,
 }: TransactionSimulationProps) {
   if (isLoading) {
     return (
-      <div className="flex items-start w-full py-6 px-4">
-        <div className="text-sm text-zinc-500">Loading transaction details...</div>
+      <div className="flex items-start w-full py-3 px-6">
+        <TextLoader text="Loading transaction details..." />
       </div>
     );
   }
@@ -48,7 +52,8 @@ export function TransactionSimulation({
           simulationResult={simulationResult}
           inputData={inputData}
           callback={callback}
-          triggerClassname="px-4"
+          triggerClassname="px-6"
+          type={type}
         />
       </div>
     </div>

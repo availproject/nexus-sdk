@@ -1,7 +1,7 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { OrchestratorStatus, ReviewStatus } from '../types';
-import { Abi } from 'viem';
+import { Abi, isAddress } from 'viem';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -472,3 +472,15 @@ export const formatCost = (cost: string) => {
   if (numCost < 0.001) return '< 0.001';
   return numCost.toFixed(6);
 };
+
+export function truncateAddress(
+  address: string,
+  startLength: number = 6,
+  endLength: number = 4,
+): string {
+  if (!isAddress(address)) return address;
+
+  if (address.length <= startLength + endLength + 2) return address;
+
+  return `${address.slice(0, startLength)}...${address.slice(-endLength)}`;
+}

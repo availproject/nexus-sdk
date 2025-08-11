@@ -1,7 +1,7 @@
 import React from 'react';
 import { SimulationResult, BridgeAndExecuteSimulationResult, Intent } from '../../../types';
 import { CHAIN_METADATA, SUPPORTED_CHAINS } from '../../../constants';
-import { cn, formatCost } from '../../utils/utils';
+import { cn, formatCost, truncateAddress } from '../../utils/utils';
 import {
   Drawer,
   DrawerTrigger,
@@ -16,6 +16,9 @@ import Clock from '../icons/Clock';
 import TwoCircles from '../icons/TwoCircles';
 import MoneyCircles from '../icons/MoneyCircles';
 import { Button } from '../motion/button-motion';
+import { useInternalNexus } from '../../providers/InternalNexusProvider';
+import { TransactionType } from '../../types';
+import { getFiatValue } from '../../utils/balance-utils';
 
 interface TransactionDetailsDrawerProps {
   simulationResult?: (SimulationResult | BridgeAndExecuteSimulationResult) & {
@@ -29,6 +32,7 @@ interface TransactionDetailsDrawerProps {
   };
   callback: () => void;
   triggerClassname?: string;
+  type?: TransactionType;
 }
 
 interface ChainInfo {
@@ -55,6 +59,8 @@ interface TokenInfo {
 }
 
 interface SimulationData {
+  contractAddress?: string;
+  functionName?: string;
   destination: ChainInfo;
   sources: ChainInfo[];
   fees: FeesInfo;
@@ -67,7 +73,9 @@ export function TransactionDetailsDrawer({
   inputData,
   callback,
   triggerClassname = '',
+  type,
 }: TransactionDetailsDrawerProps) {
+  const { exchangeRates } = useInternalNexus();
   const getSimulationData = (): SimulationData | null => {
     if (!simulationResult) return null;
 
@@ -76,11 +84,14 @@ export function TransactionDetailsDrawer({
       'metadata' in simulationResult &&
       (simulationResult as BridgeAndExecuteSimulationResult)?.metadata?.bridgeSkipped
     ) {
-      const metadata = (simulationResult as BridgeAndExecuteSimulationResult)?.metadata;
+      const simulation = simulationResult as BridgeAndExecuteSimulationResult;
+      const metadata = simulation?.metadata;
 
       if (!metadata) return null;
 
       return {
+        contractAddress: metadata?.contractAddress ?? '',
+        functionName: metadata?.functionName ?? '',
         destination: {
           chainID: metadata?.targetChain,
           chainName: CHAIN_METADATA[metadata?.targetChain]?.name || 'Unknown',
@@ -96,7 +107,7 @@ export function TransactionDetailsDrawer({
           },
         ],
         fees: {
-          total: '0',
+          total: simulation?.executeSimulation?.gasUsed ?? '0',
           bridge: '0',
           caGas: '0',
           gasSupplied: '0',
@@ -113,7 +124,22 @@ export function TransactionDetailsDrawer({
     if ('intent' in simulationResult) {
       intent = (simulationResult as SimulationResult)?.intent;
     } else if ('bridgeSimulation' in simulationResult && simulationResult?.bridgeSimulation) {
-      intent = (simulationResult?.bridgeSimulation as SimulationResult)?.intent;
+      const simulation = simulationResult as BridgeAndExecuteSimulationResult;
+      intent = simulation?.bridgeSimulation?.intent;
+      const fees = {
+        total: simulation?.totalEstimatedCost?.total ?? '0',
+        ...simulation?.bridgeSimulation?.intent?.fees,
+      } as FeesInfo;
+
+      return {
+        contractAddress: simulation?.executeSimulation?.contractAddress ?? '',
+        functionName: simulation?.executeSimulation?.functionName ?? '',
+        destination: intent?.destination as ChainInfo,
+        sources: (intent?.sources || []) as ChainInfo[],
+        fees: fees,
+        token: intent?.token as TokenInfo,
+        sourcesTotal: intent?.sourcesTotal as string,
+      };
     }
 
     if (!intent) return null;
@@ -159,17 +185,17 @@ export function TransactionDetailsDrawer({
           </DrawerClose>
         </DrawerHeader>
 
-        <div className="space-y-2.5 px-4">
+        <div className="space-y-2 px-4">
           {/* Estimated Time */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-x-1">
               <Clock />
               <p className="text-nexus-muted-secondary text-sm font-semibold font-nexus-primary">
-                Estimated Swap time
+                Estimated Transaction time
               </p>
             </div>
             <span className="text-nexus-black text-sm font-semibold font-nexus-primary">
-              ~2 min
+              ~{type === 'bridgeAndExecute' ? '1.5 mins' : '30 seconds'}
             </span>
           </div>
 
@@ -186,47 +212,59 @@ export function TransactionDetailsDrawer({
             </span>
           </div>
 
+          {/* Contract Address */}
+          {data?.contractAddress && data?.functionName && (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-x-1">
+                <TwoCircles />
+                <p className="text-nexus-muted-secondary text-sm font-semibold font-nexus-primary capitalize">
+                  {data?.functionName} to
+                </p>
+              </div>
+              <span className="text-nexus-black text-sm font-semibold font-nexus-primary">
+                {truncateAddress(data?.contractAddress, 4, 4)}
+              </span>
+            </div>
+          )}
+
           {/* Sending */}
-          <div className="flex items-center justify-between pb-4 border-b border-nexus-muted-secondary/20">
+          <div className="flex items-center justify-between pb-1 border-b border-nexus-muted-secondary/20">
             <div className="flex items-center gap-x-1">
               <MoneyCircles />
               <p className="text-nexus-muted-secondary text-sm font-semibold font-nexus-primary">
                 Sending
               </p>
             </div>
-            <div className="text-right">
-              <div className="flex items-center gap-x-2">
-                <div className="flex flex-col items-end gap-y-2">
-                  <p className="text-base font-semibold text-nexus-foreground font-nexus-primary">
-                    {inputData?.amount || data.sourcesTotal} {inputData?.token || data.token.symbol}
+            <div className="flex items-center gap-x-2">
+              <div className="flex flex-col items-end">
+                <p className="text-base font-semibold text-nexus-foreground font-nexus-primary">
+                  {inputData?.amount || data.sourcesTotal} {inputData?.token || data.token.symbol}
+                </p>
+                {inputData?.token && (
+                  <p className="text-nexus-accent-green font-semibold font-nexus-primary text-xs">
+                    {getFiatValue(data.sourcesTotal, inputData?.token, exchangeRates)}
                   </p>
-                  <p className="text-nexus-accent-green font-semibold font-nexus-primary text-xs leading-0">
-                    ≈ $
-                    {(
-                      parseFloat(inputData?.amount?.toString() || data.sourcesTotal) * 2948
-                    ).toFixed(0)}
-                  </p>
-                </div>
-                {destinationChain && (
-                  <>
-                    <p className="text-nexus-muted-secondary font-semibold text-sm">on</p>
-                    <img
-                      src={destinationChain.logo}
-                      alt={destinationChain.name}
-                      className={cn(
-                        'w-5 h-5',
-                        destinationChainId !== SUPPORTED_CHAINS.BASE &&
-                          destinationChainId !== SUPPORTED_CHAINS.BASE_SEPOLIA
-                          ? 'rounded-full'
-                          : '',
-                      )}
-                    />
-                    <span className="text-nexus-foreground font-semibold text-sm uppercase">
-                      {destinationChain.name}
-                    </span>
-                  </>
                 )}
               </div>
+              {destinationChain && (
+                <>
+                  <p className="text-nexus-muted-secondary font-semibold text-sm">on</p>
+                  <img
+                    src={destinationChain.logo}
+                    alt={destinationChain.name}
+                    className={cn(
+                      'w-5 h-5',
+                      destinationChainId !== SUPPORTED_CHAINS.BASE &&
+                        destinationChainId !== SUPPORTED_CHAINS.BASE_SEPOLIA
+                        ? 'rounded-full'
+                        : '',
+                    )}
+                  />
+                  <span className="text-nexus-foreground font-semibold text-sm uppercase">
+                    {destinationChain.name}
+                  </span>
+                </>
+              )}
             </div>
           </div>
 
@@ -265,7 +303,8 @@ export function TransactionDetailsDrawer({
                           {source.amount}
                         </div>
                         <div className="text-xs font-semibold text-nexus-muted-secondary text-right">
-                          ≈ ${(parseFloat(source.amount) * 2948).toFixed(0)}
+                          {inputData?.token &&
+                            getFiatValue(source.amount, inputData?.token, exchangeRates)}
                         </div>
                       </div>
                     </div>

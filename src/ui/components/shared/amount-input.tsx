@@ -1,6 +1,8 @@
 import * as React from 'react';
 import { cn } from '../../utils/utils';
 import { Input } from '../motion/input';
+import { useInternalNexus } from '../../providers/InternalNexusProvider';
+import { getFiatValue } from '../../utils/balance-utils';
 
 interface AmountInputProps {
   value?: string;
@@ -9,6 +11,7 @@ interface AmountInputProps {
   className?: string;
   placeholder?: string;
   debounceMs?: number;
+  token?: string;
 }
 
 export function AmountInput({
@@ -18,9 +21,11 @@ export function AmountInput({
   className,
   placeholder = '0.0',
   debounceMs = 500,
+  token,
 }: AmountInputProps) {
   const [localValue, setLocalValue] = React.useState(value || '');
   const timeoutRef = React.useRef<NodeJS.Timeout | undefined>(undefined);
+  const { exchangeRates } = useInternalNexus();
 
   React.useEffect(() => {
     setLocalValue(value || '');
@@ -104,9 +109,11 @@ export function AmountInput({
           </p>
         )}
       </div>
-      <p className="text-nexus-accent-green font-semibold leading-6 text-lg font-nexus-primary">
-        ≈ $2905.67
-      </p>
+      {token && value && (
+        <p className="text-nexus-accent-green font-semibold leading-6 text-lg font-nexus-primary">
+          {getFiatValue(value, token, exchangeRates)}
+        </p>
+      )}
     </div>
   );
 }

@@ -86,6 +86,7 @@ export function InternalNexusProvider({
   const [isSdkInitialized, setIsSdkInitialized] = useState(false);
   const [activeTransaction, setActiveTransaction] = useState<ActiveTransaction>(initialState);
   const [unifiedBalance, setUnifiedBalance] = useState<UserAsset[]>([]);
+  const [exchangeRates, setExchangeRates] = useState<Record<string, number>>({});
   const [isSimulating, setIsSimulating] = useState(false);
   const [insufficientBalance, setInsufficientBalance] = useState(false);
   const [isTransactionCollapsed, setIsTransactionCollapsed] = useState(true);
@@ -103,6 +104,32 @@ export function InternalNexusProvider({
     () => (activeTransaction.type ? controllers[activeTransaction.type] : null),
     [activeTransaction.type],
   );
+
+  const fetchExchangeRates = useCallback(async () => {
+    try {
+      const response = await fetch('https://api.coinbase.com/v2/exchange-rates?currency=USD');
+      const data = await response.json();
+      const rates = (data?.data?.rates ?? {}) as Record<string, string>;
+
+      // Convert from "units per USD" to "USD per unit" for easier UI multiplication
+      const usdPerUnit: Record<string, number> = {};
+      for (const [symbol, value] of Object.entries(rates)) {
+        const unitsPerUsd = parseFloat(value);
+        if (Number.isFinite(unitsPerUsd) && unitsPerUsd > 0) {
+          usdPerUnit[symbol] = 1 / unitsPerUsd;
+        }
+      }
+
+      // Ensure common stablecoins have a sane fallback
+      ['USD', 'USDC', 'USDT'].forEach((stable) => {
+        if (usdPerUnit[stable] === undefined) usdPerUnit[stable] = 1;
+      });
+
+      setExchangeRates(usdPerUnit);
+    } catch (error) {
+      logger.error('Error fetching exchange rates:', error as Error);
+    }
+  }, []);
 
   const initializeSdk = async (ethProvider?: EthereumProvider) => {
     if (isSdkInitialized) return true;
@@ -123,6 +150,7 @@ export function InternalNexusProvider({
     try {
       setActiveTransaction((prev) => ({ ...prev, status: 'initializing' }));
       await sdk.initialize(eipProvider);
+      await fetchExchangeRates();
       const unifiedBalance = await sdk.getUnifiedBalances();
       logger.debug('Unified balance', { unifiedBalance });
       setUnifiedBalance(unifiedBalance);
@@ -154,7 +182,7 @@ export function InternalNexusProvider({
     setUnifiedBalance([]);
     setIsSimulating(false);
     setInsufficientBalance(false);
-    setIsTransactionCollapsed(false);
+    setIsTransactionCollapsed(true);
     setTimer(0);
     setAllowanceError(null);
     setIsSettingAllowance(false);
@@ -222,7 +250,7 @@ export function InternalNexusProvider({
   const cancelTransaction = useCallback(async () => {
     setIsSimulating(false);
     setInsufficientBalance(false);
-    setIsTransactionCollapsed(false);
+    setIsTransactionCollapsed(true);
     setTimer(0);
     setActiveTransaction(initialState);
     resetProcessingState();
@@ -694,6 +722,7 @@ export function InternalNexusProvider({
       config,
       provider,
       unifiedBalance,
+      exchangeRates,
       isSimulating,
       insufficientBalance,
       isTransactionCollapsed,
@@ -737,6 +766,7 @@ export function InternalNexusProvider({
       triggerSimulation,
       retrySimulation,
       unifiedBalance,
+      exchangeRates,
       isSimulating,
       insufficientBalance,
       isTransactionCollapsed,

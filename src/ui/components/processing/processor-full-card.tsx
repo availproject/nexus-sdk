@@ -111,7 +111,7 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
             <Minimize className="w-6 h-6" />
           )}
         </Button>
-        <div className="w-full p-4 relative z-10 mt-12">
+        <div className="w-full p-4 relative z-10 mt-6">
           <div className="w-full flex flex-col items-center gap-y-6">
             {/* Chains Row */}
             <motion.div

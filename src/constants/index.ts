@@ -11,6 +11,7 @@ export const SUPPORTED_CHAINS = {
   SCROLL: 534352,
   SOPHON: 50104,
   KAIA: 8217,
+  BNB: 56,
 
   // Testnet chains
   BASE_SEPOLIA: 84532,
@@ -135,6 +136,15 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
     rpcUrls: ['https://public-en.node.kaia.io'],
     blockExplorerUrls: ['https://kaiascan.io'],
   },
+  [SUPPORTED_CHAINS.BNB]: {
+    id: 56,
+    name: 'BNB Smart Chain',
+    shortName: 'bnb',
+    logo: 'https://assets.coingecko.com/asset_platforms/images/1/large/bnb_smart_chain.png',
+    nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
+    rpcUrls: ['https://bsc-pokt.nodies.app'],
+    blockExplorerUrls: ['https://bscscan.com'],
+  },
 
   // Testnet chains
   [SUPPORTED_CHAINS.BASE_SEPOLIA]: {
@@ -195,6 +205,7 @@ export const MAINNET_CHAINS = [
   SUPPORTED_CHAINS.SCROLL,
   SUPPORTED_CHAINS.SOPHON,
   SUPPORTED_CHAINS.KAIA,
+  SUPPORTED_CHAINS.BNB,
 ] as const;
 
 export const TESTNET_CHAINS = [
@@ -222,6 +233,7 @@ export const TOKEN_CONTRACT_ADDRESSES: Record<string, Record<number, `0x${string
     [SUPPORTED_CHAINS.ARBITRUM_SEPOLIA]: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d',
     [SUPPORTED_CHAINS.OPTIMISM_SEPOLIA]: '0x5fd84259d66Cd46123540766Be93DFE6D43130D7',
     [SUPPORTED_CHAINS.POLYGON_AMOY]: '0x41E94Eb019C0762f9Bfcf9Fb1E58725BfB0e7582',
+    [SUPPORTED_CHAINS.BNB]: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d',
   },
   USDT: {
     [SUPPORTED_CHAINS.ETHEREUM]: '0xdac17f958d2ee523a2206206994597c13d831ec7',
@@ -236,6 +248,7 @@ export const TOKEN_CONTRACT_ADDRESSES: Record<string, Record<number, `0x${string
     [SUPPORTED_CHAINS.ARBITRUM_SEPOLIA]: '0xb9a4873d8d2C22e56b8574e8605644d08E047434',
     [SUPPORTED_CHAINS.OPTIMISM_SEPOLIA]: '0x7F5c764cBc14f9669B88837ca1490cCa17c31607',
     [SUPPORTED_CHAINS.POLYGON_AMOY]: '0x2c852e740B62308c46DD29B982FBb650D063Bd07',
+    [SUPPORTED_CHAINS.BNB]: '0x55d398326f99059fF775485246999027B3197955',
   },
   // ETH is native on all supported chains, no contract address needed
 } as const;

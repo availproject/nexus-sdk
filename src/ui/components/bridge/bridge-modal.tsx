@@ -4,6 +4,7 @@ import { SimulationResult } from '../../../types';
 import { UnifiedTransactionForm } from '../shared/unified-transaction-form';
 import { BridgeConfig } from '../../types';
 import PrefilledInputs from '../shared/prefilled-inputs';
+import { useInternalNexus } from '../../providers/InternalNexusProvider';
 
 type InputData = {
   chainId?: number;
@@ -30,8 +31,13 @@ function BridgeFormSection({
   className,
   prefillFields = {},
 }: BridgeFormSectionProps) {
+  const { activeController } = useInternalNexus();
+
+  if (!activeController) return null;
   const requiredPrefillFields: (keyof InputData)[] = ['chainId', 'token', 'amount'];
-  const hasEnoughInputs = requiredPrefillFields.every((field) => inputData[field] !== undefined);
+  const hasEnoughInputs = requiredPrefillFields.every(
+    (field) => prefillFields[field] !== undefined,
+  );
 
   if (hasEnoughInputs) {
     return <PrefilledInputs inputData={inputData} />;

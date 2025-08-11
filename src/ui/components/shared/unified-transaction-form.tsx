@@ -6,7 +6,8 @@ import { type TransactionType } from '../../utils/balance-utils';
 import React, { useMemo } from 'react';
 import { CHAIN_METADATA } from '../../../constants';
 import { FormField } from '../motion/form-field';
-import { DestinationDrawer } from './destination-drawer';
+import DestinationDrawer from './destination-drawer';
+import { isAddress } from 'viem';
 
 interface UnifiedTransactionFormProps {
   type: TransactionType;
@@ -78,12 +79,10 @@ export function UnifiedTransactionForm({
     return 'Sending';
   }, [inputData]);
 
-  const validateAddress = (address: string): boolean => {
-    if (!address) return true;
-    return /^0x[a-fA-F0-9]{40}$/.test(address);
-  };
-
-  const hasValidationError = inputData?.recipient && !validateAddress(inputData?.recipient);
+  const hasValidationError = useMemo(
+    () => inputData?.recipient && !isAddress(inputData?.recipient ?? ''),
+    [inputData?.recipient],
+  );
 
   return (
     <div className={cn('px-6 flex flex-col gap-y-4 w-full', className)}>
@@ -94,11 +93,12 @@ export function UnifiedTransactionForm({
         )}
       >
         <div className="flex gap-x-4 justify-between items-center w-full">
-          <FormField label={title} className="flex-1 font-nexus-primary gap-y-2 w-full">
+          <FormField label={title} className="flex-1 font-nexus-primary gap-y-2 w-full max-w-max">
             <AmountInput
               value={inputData?.amount ? inputData.amount?.toString() : '00'}
               disabled={isAmountDisabled}
               onChange={isAmountDisabled ? undefined : (value) => onUpdate({ amount: value })}
+              token={inputData?.token}
             />
           </FormField>
           <DestinationDrawer

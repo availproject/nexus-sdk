@@ -3,6 +3,7 @@ import { UnifiedTransactionModal } from '../shared/unified-transaction-modal';
 import { SimulationResult } from '../../../types';
 import { UnifiedTransactionForm } from '../shared/unified-transaction-form';
 import { TransferConfig } from '../../types';
+import PrefilledInputs from '../shared/prefilled-inputs';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 
 interface TransferFormSectionProps {
@@ -23,6 +24,13 @@ interface TransferFormSectionProps {
   };
 }
 
+type InputData = {
+  chainId?: number;
+  token?: string;
+  amount?: string | number;
+  recipient?: string;
+};
+
 export function TransferFormSection({
   inputData,
   onUpdate,
@@ -33,6 +41,15 @@ export function TransferFormSection({
   const { activeController } = useInternalNexus();
 
   if (!activeController) return null;
+  const requiredPrefillFields: (keyof InputData)[] = ['chainId', 'token', 'amount', 'recipient'];
+  const hasEnoughInputs = requiredPrefillFields.every(
+    (field) => prefillFields[field] !== undefined,
+  );
+
+  if (hasEnoughInputs) {
+    return <PrefilledInputs inputData={inputData} />;
+  }
+
   return (
     <UnifiedTransactionForm
       type="transfer"

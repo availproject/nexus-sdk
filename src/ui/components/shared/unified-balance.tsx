@@ -34,7 +34,7 @@ const BalanceTrigger = ({ balance, token }: { balance?: UserAsset; token?: SUPPO
         <div className="flex items-center justify-start gap-x-2 ">
           <div className="flex flex-col items-start">
             <p className="text-base font-semibold font-nexus-primary text-nexus-black">
-              {balance?.balance} {token}
+              {parseFloat(balance?.balance).toFixed(6)} {token}
             </p>
             <p className="text-nexus-accent-green font-semibold text-xs font-nexus-primary w-full text-right">
               ≈ ${balance?.balanceInFiat}
@@ -90,7 +90,7 @@ const ChainBalance = ({
       </div>
       <div className="flex flex-col items-end">
         <p className="text-sm font-semibold text-nexus-black font-nexus-primary">
-          {balance.balance}
+          {parseFloat(balance.balance).toFixed(6)}
         </p>
         <p className="text-sm text-nexus-muted-foreground font-nexus-primary">
           ≈ ${balance.balanceInFiat}
@@ -103,16 +103,25 @@ const ChainBalance = ({
 const UnifiedBalance = () => {
   const { unifiedBalance, activeTransaction } = useInternalNexus();
   const { inputData } = activeTransaction;
+  const tokenSymbol = inputData?.token;
+
+  // Hooks must not be conditional. Compute memoized values before any early returns.
+  const relevantBalance = useMemo(() => {
+    if (!unifiedBalance || !tokenSymbol) return [] as UserAsset[];
+    return unifiedBalance.filter((balance) => balance?.symbol === tokenSymbol);
+  }, [tokenSymbol, unifiedBalance]);
+
+  const tokenBalance = relevantBalance[0];
 
   if (!unifiedBalance) return null;
 
-  if (!inputData?.token) return <BalanceTrigger />;
+  if (!tokenSymbol)
+    return (
+      <div className="px-6 font-nexus-primary w-full my-6">
+        <BalanceTrigger />
+      </div>
+    );
 
-  const relevantBalance = useMemo(() => {
-    return unifiedBalance.filter((balance) => balance?.symbol === inputData?.token);
-  }, [inputData, unifiedBalance]);
-
-  const tokenBalance = relevantBalance[0];
   if (!tokenBalance) return null;
 
   return (
@@ -135,17 +144,17 @@ const UnifiedBalance = () => {
           <div className="py-4 mb-0.5 w-full flex items-center justify-between border-b border-gray-200">
             <div className="flex items-center gap-x-3">
               <img
-                src={TOKEN_METADATA[inputData.token]?.icon}
-                alt={TOKEN_METADATA[inputData.token]?.name}
+                src={TOKEN_METADATA[tokenSymbol]?.icon}
+                alt={TOKEN_METADATA[tokenSymbol]?.name}
                 className="w-6 h-6 border border-nexus-border-secondary rounded-full"
               />
               <p className="text-sm font-semibold text-nexus-muted-secondary leading-[18px] font-nexus-primary">
-                Total {inputData.token}
+                Total {tokenSymbol}
               </p>
             </div>
             <div className="flex flex-col items-end gap-y-2">
               <p className="text-base font-semibold text-nexus-foreground font-nexus-primary">
-                {tokenBalance.balance} {inputData.token}
+                {parseFloat(tokenBalance.balance).toFixed(6)} {tokenSymbol}
               </p>
               <p className="text-nexus-accent-green font-semibold font-nexus-primary text-xs leading-0">
                 ≈ ${tokenBalance.balanceInFiat}
@@ -159,7 +168,7 @@ const UnifiedBalance = () => {
               <ChainBalance
                 key={`${breakdownBalance.chain?.id}-${index}`}
                 balance={breakdownBalance}
-                symbol={inputData.token || ''}
+                symbol={tokenSymbol || ''}
               />
             ))}
           </div>

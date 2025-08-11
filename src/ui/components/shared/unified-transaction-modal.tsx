@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { BaseModal } from '../motion/base-modal';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
-import { getButtonText, getContentKey } from '../../utils/utils';
+import { cn, getButtonText, getContentKey } from '../../utils/utils';
 import { type TransactionType } from '../../utils/balance-utils';
 import { TransactionSimulation } from '../processing/transaction-simulation';
 import { AvailLogo } from '../icons/AvailLogo';
@@ -168,11 +168,16 @@ export function UnifiedTransactionModal({
       )}
 
       {/* Content - Flexible middle area */}
-      <div className="flex-1 flex flex-col overflow-hidden w-full">
+      <div
+        className={cn(
+          'flex-1 flex flex-col overflow-hidden w-full',
+          status !== 'set_allowance' && transactionType !== 'transfer' ? 'mt-14' : '',
+        )}
+      >
         <SlideTransition contentKey={getContentKey(status, [reviewStatus])}>
           {(status === 'initializing' || status === 'review' || status === 'simulation_error') && (
             <>
-              {inputData?.token && <UnifiedBalance />}
+              <UnifiedBalance />
 
               <FormComponent
                 inputData={transformedInputData || {}}
@@ -217,6 +222,7 @@ export function UnifiedTransactionModal({
                       simulationResult={simulationResult || undefined}
                       inputData={transformedInputData}
                       callback={debouncedClick}
+                      type={transactionType}
                     />
                   )
                 )}

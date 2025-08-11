@@ -106,7 +106,24 @@ export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
           )}
         </div>
         <Button
-          onClick={toggleTransactionCollapse}
+          type="button"
+          onPointerDownCapture={(e) => {
+            e.stopPropagation();
+          }}
+          onPointerDown={(e) => {
+            e.stopPropagation();
+          }}
+          onMouseDownCapture={(e) => {
+            e.stopPropagation();
+          }}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+          }}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            toggleTransactionCollapse();
+          }}
           className="p-1 hover:bg-gray-100 rounded-nexus-md transition-colors"
           variant="link"
         >

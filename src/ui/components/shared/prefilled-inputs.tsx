@@ -1,6 +1,8 @@
 import React from 'react';
 import { CHAIN_METADATA, SUPPORTED_CHAINS, TOKEN_METADATA } from '../../../constants';
-import { cn } from '../../utils/utils';
+import { cn, truncateAddress } from '../../utils/utils';
+import { useInternalNexus } from '../../providers/InternalNexusProvider';
+import { getFiatValue } from '../../utils/balance-utils';
 
 interface PrefilledInputsProps {
   inputData: {
@@ -14,6 +16,7 @@ interface PrefilledInputsProps {
 }
 
 const PrefilledInputs = ({ inputData, className = '' }: PrefilledInputsProps) => {
+  const { exchangeRates } = useInternalNexus();
   const destinationChain =
     CHAIN_METADATA[inputData?.chainId ?? inputData?.toChainId ?? SUPPORTED_CHAINS.ETHEREUM];
   const destinationToken = TOKEN_METADATA[inputData?.token ?? 'ETH'];
@@ -28,7 +31,7 @@ const PrefilledInputs = ({ inputData, className = '' }: PrefilledInputsProps) =>
               alt={destinationToken?.name}
               className="w-6 h-6 border border-nexus-border-secondary rounded-full"
             />
-            <p className="text-nexus-black text-[32px] font-semibold leading-0 uppercase font-nexus-primary">
+            <p className="text-nexus-black text-[32px] font-semibold leading-0 uppercase font-nexus-primary text-ellipsis">
               {inputData?.amount} {inputData?.token}
             </p>
           </div>
@@ -51,9 +54,19 @@ const PrefilledInputs = ({ inputData, className = '' }: PrefilledInputsProps) =>
           </div>
         </div>
       </div>
-      <p className="text-nexus-accent-green font-semibold leading-6 text-lg font-nexus-primary">
-        ≈ $2905.67
-      </p>
+      {inputData?.amount && inputData?.token && (
+        <p className="text-nexus-accent-green font-semibold leading-6 text-lg font-nexus-primary">
+          {getFiatValue(inputData?.amount, inputData?.token, exchangeRates)}
+        </p>
+      )}
+      {inputData?.recipient && (
+        <div className="flex items-start flex-col gap-y-2">
+          <p className="text-nexus-muted-secondary text-sm font-semibold font-nexus-primary">To</p>
+          <p className="text-nexus-foreground text-xl font-semibold font-nexus-primary">
+            {truncateAddress(inputData?.recipient, 4, 4)}
+          </p>
+        </div>
+      )}
     </div>
   );
 };

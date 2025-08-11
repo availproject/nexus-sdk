@@ -185,7 +185,7 @@ export interface NexusContextValue {
   timer: number;
   allowanceError: string | null;
   isSettingAllowance: boolean;
-
+  exchangeRates: Record<string, number>;
   // Transaction processing state (from useListenTransaction)
   processing: ProcessingState;
   explorerURL: string | null;
@@ -216,6 +216,7 @@ export interface NexusContextValue {
 export interface BaseComponentProps {
   title?: string;
   className?: string;
+  hasValues?: boolean;
 }
 
 export interface BridgeConfig extends Partial<BridgeParams> {}

@@ -21,14 +21,25 @@ function Drawer({ children }: DrawerProps) {
   return <DrawerContext.Provider value={{ isOpen, setIsOpen }}>{children}</DrawerContext.Provider>;
 }
 
-function DrawerTrigger({ children, className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+function DrawerTrigger({
+  children,
+  className,
+  disabled,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement> & { disabled?: boolean }) {
   const context = React.useContext(DrawerContext);
   if (!context) throw new Error('DrawerTrigger must be used within a Drawer');
 
   const { setIsOpen } = context;
 
   return (
-    <div className={cn('cursor-pointer', className)} onClick={() => setIsOpen(true)} {...props}>
+    <div
+      className={cn('cursor-pointer', className)}
+      onClick={() => {
+        if (!disabled) setIsOpen(true);
+      }}
+      {...props}
+    >
       {children}
     </div>
   );
@@ -50,7 +61,7 @@ function DrawerContent({ children, className }: { children: React.ReactNode; cla
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="absolute inset-0 bg-nexus-backdrop backdrop-blur-[4px] z-40"
+            className="absolute inset-0 bg-nexus-backdrop backdrop-blur-[4px] z-40 rounded-t-nexus-md"
             onClick={() => setIsOpen(false)}
           />
 
@@ -95,6 +106,12 @@ function DrawerClose({ children, className, ...props }: React.HTMLAttributes<HTM
   );
 }
 
+function useDrawerControls(): DrawerContextType {
+  const context = React.useContext(DrawerContext);
+  if (!context) throw new Error('useDrawerControls must be used within a Drawer');
+  return context;
+}
+
 function DrawerHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return <div className={cn('flex flex-col gap-0.5 text-center', className)} {...props} />;
 }
@@ -125,4 +142,30 @@ export {
   DrawerFooter,
   DrawerTitle,
   DrawerDescription,
+  useDrawerControls,
 };
+
+// Helper wrapper: closes the drawer when enabled is true
+export function DrawerAutoClose({
+  children,
+  enabled,
+  className,
+}: {
+  children: React.ReactNode;
+  enabled?: boolean;
+  className?: string;
+}) {
+  const { setIsOpen } = useDrawerControls();
+  if (!enabled) return <>{children}</>;
+  return (
+    <div
+      className={cn('cursor-pointer w-full', className)}
+      onClick={(e) => {
+        e.stopPropagation();
+        setIsOpen(false);
+      }}
+    >
+      {children}
+    </div>
+  );
+}

@@ -22,9 +22,8 @@ export function AddressField({
   return (
     <div
       className={cn(
-        'px-4 py-2 rounded-nexus-md border border-zinc-400 font-semibold flex justify-between items-center',
+        'px-4 py-2 rounded-nexus-md border border-nexus-muted-secondary/20 font-semibold flex justify-between items-center',
         'bg-transparent h-12',
-        'focus-within:border-ring focus-within:ring-nexus-ring/50 focus-within:ring-[3px]',
         disabled && 'opacity-50 cursor-not-allowed',
         className,
       )}
@@ -32,11 +31,11 @@ export function AddressField({
       <div className="flex items-center gap-x-1.5 flex-1">
         <Input
           placeholder={placeholder}
-          value={value || ''}
+          value={value}
           onChange={(e) => onChange?.(e.target.value)}
           disabled={disabled}
           className={cn(
-            'px-0 placeholder:font-nexus-primary',
+            'px-0 placeholder:font-nexus-primary text-nexus-black font-semibold text-base',
             hasValidationError ? 'border-red-500 focus:border-red-500' : '',
           )}
         />

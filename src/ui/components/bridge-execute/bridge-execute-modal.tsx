@@ -2,6 +2,13 @@ import React from 'react';
 import { UnifiedTransactionModal } from '../shared/unified-transaction-modal';
 import { BridgeAndExecuteParams, BridgeAndExecuteSimulationResult } from '../../../types';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
+import PrefilledInputs from '../shared/prefilled-inputs';
+
+type InputData = {
+  toChainId?: number;
+  token?: string;
+  amount?: string | number;
+};
 
 function BridgeExecuteForm({
   inputData,
@@ -9,14 +16,27 @@ function BridgeExecuteForm({
   disabled,
   prefillFields,
 }: {
-  inputData: any;
+  inputData: InputData;
   onUpdate: (data: BridgeAndExecuteParams) => void;
   disabled: boolean;
-  prefillFields?: any;
+  prefillFields?: {
+    toChainId?: boolean;
+    token?: boolean;
+    amount?: boolean;
+  };
 }) {
   const { activeController } = useInternalNexus();
 
   if (!activeController) return null;
+
+  const requiredPrefillFields: (keyof InputData)[] = ['toChainId', 'token', 'amount'];
+  const hasEnoughInputs = requiredPrefillFields.every(
+    (field) => prefillFields?.[field] !== undefined,
+  );
+
+  if (hasEnoughInputs) {
+    return <PrefilledInputs inputData={inputData} />;
+  }
 
   const handleUpdate = (data: any) => {
     if (data.toChainId !== undefined) {
