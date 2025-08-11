@@ -32,10 +32,10 @@ import { BridgeController } from '../controllers/BridgeController';
 import { TransferController } from '../controllers/TransferController';
 import { BridgeAndExecuteController } from '../controllers/BridgeAndExecuteController';
 import { TransactionProcessorShell } from '../components/processing/transaction-processor-shell';
-import { DragConstraintsProvider } from '../components/shared';
 import { LayoutGroup } from 'motion/react';
 import useListenTransaction from '../hooks/useListenTransaction';
 import { logger } from '../../core/utils';
+import { DragConstraintsProvider } from '../components/motion/drag-constraints';
 
 const controllers: Record<TransactionType, ITransactionController> = {
   bridge: new BridgeController(),
@@ -86,9 +86,10 @@ export function InternalNexusProvider({
   const [isSdkInitialized, setIsSdkInitialized] = useState(false);
   const [activeTransaction, setActiveTransaction] = useState<ActiveTransaction>(initialState);
   const [unifiedBalance, setUnifiedBalance] = useState<UserAsset[]>([]);
+  const [exchangeRates, setExchangeRates] = useState<Record<string, number>>({});
   const [isSimulating, setIsSimulating] = useState(false);
   const [insufficientBalance, setInsufficientBalance] = useState(false);
-  const [isTransactionCollapsed, setIsTransactionCollapsed] = useState(false);
+  const [isTransactionCollapsed, setIsTransactionCollapsed] = useState(true);
   const [timer, setTimer] = useState(0);
   const [allowanceError, setAllowanceError] = useState<string | null>(null);
   const [isSettingAllowance, setIsSettingAllowance] = useState(false);
@@ -103,6 +104,32 @@ export function InternalNexusProvider({
     () => (activeTransaction.type ? controllers[activeTransaction.type] : null),
     [activeTransaction.type],
   );
+
+  const fetchExchangeRates = useCallback(async () => {
+    try {
+      const response = await fetch('https://api.coinbase.com/v2/exchange-rates?currency=USD');
+      const data = await response.json();
+      const rates = (data?.data?.rates ?? {}) as Record<string, string>;
+
+      // Convert from "units per USD" to "USD per unit" for easier UI multiplication
+      const usdPerUnit: Record<string, number> = {};
+      for (const [symbol, value] of Object.entries(rates)) {
+        const unitsPerUsd = parseFloat(value);
+        if (Number.isFinite(unitsPerUsd) && unitsPerUsd > 0) {
+          usdPerUnit[symbol] = 1 / unitsPerUsd;
+        }
+      }
+
+      // Ensure common stablecoins have a sane fallback
+      ['USD', 'USDC', 'USDT'].forEach((stable) => {
+        if (usdPerUnit[stable] === undefined) usdPerUnit[stable] = 1;
+      });
+
+      setExchangeRates(usdPerUnit);
+    } catch (error) {
+      logger.error('Error fetching exchange rates:', error as Error);
+    }
+  }, []);
 
   const initializeSdk = async (ethProvider?: EthereumProvider) => {
     if (isSdkInitialized) return true;
@@ -123,6 +150,7 @@ export function InternalNexusProvider({
     try {
       setActiveTransaction((prev) => ({ ...prev, status: 'initializing' }));
       await sdk.initialize(eipProvider);
+      await fetchExchangeRates();
       const unifiedBalance = await sdk.getUnifiedBalances();
       logger.debug('Unified balance', { unifiedBalance });
       setUnifiedBalance(unifiedBalance);
@@ -135,6 +163,29 @@ export function InternalNexusProvider({
       setActiveTransaction((prev) => ({ ...prev, status: 'simulation_error', error }));
       return false;
     }
+  };
+
+  const deinitializeSdk = async () => {
+    if (!isSdkInitialized) return;
+    try {
+      await sdk?.deinit();
+      reset();
+    } catch (e) {
+      logger.error('Error deinitializing SDK', e as Error);
+    }
+  };
+
+  const reset = () => {
+    setProvider(undefined);
+    setIsSdkInitialized(false);
+    setActiveTransaction(initialState);
+    setUnifiedBalance([]);
+    setIsSimulating(false);
+    setInsufficientBalance(false);
+    setIsTransactionCollapsed(true);
+    setTimer(0);
+    setAllowanceError(null);
+    setIsSettingAllowance(false);
   };
 
   const startTransaction = useCallback(
@@ -199,7 +250,7 @@ export function InternalNexusProvider({
   const cancelTransaction = useCallback(async () => {
     setIsSimulating(false);
     setInsufficientBalance(false);
-    setIsTransactionCollapsed(false);
+    setIsTransactionCollapsed(true);
     setTimer(0);
     setActiveTransaction(initialState);
     resetProcessingState();
@@ -243,7 +294,7 @@ export function InternalNexusProvider({
       if (!tokenBalance) {
         logger.warn('Token not found in unified balance:', {
           requestedToken: inputData.token,
-          availableTokens: unifiedBalance.map(asset => asset.symbol)
+          availableTokens: unifiedBalance.map((asset) => asset.symbol),
         });
         return true; // Consider it insufficient if token not found
       }
@@ -252,13 +303,13 @@ export function InternalNexusProvider({
       const availableBalance = parseFloat(tokenBalance.balance);
 
       const isInsufficient = requestedAmount > availableBalance;
-      
+
       if (isInsufficient) {
         logger.warn('Insufficient balance detected:', {
           token: inputData.token,
           requested: requestedAmount,
           available: availableBalance,
-          deficit: requestedAmount - availableBalance
+          deficit: requestedAmount - availableBalance,
         });
       }
 
@@ -671,6 +722,7 @@ export function InternalNexusProvider({
       config,
       provider,
       unifiedBalance,
+      exchangeRates,
       isSimulating,
       insufficientBalance,
       isTransactionCollapsed,
@@ -689,6 +741,7 @@ export function InternalNexusProvider({
       confirmAndProceed,
       cancelTransaction,
       initializeSdk,
+      deinitializeSdk,
       triggerSimulation,
       retrySimulation,
       toggleTransactionCollapse,
@@ -709,9 +762,11 @@ export function InternalNexusProvider({
       confirmAndProceed,
       cancelTransaction,
       initializeSdk,
+      deinitializeSdk,
       triggerSimulation,
       retrySimulation,
       unifiedBalance,
+      exchangeRates,
       isSimulating,
       insufficientBalance,
       isTransactionCollapsed,

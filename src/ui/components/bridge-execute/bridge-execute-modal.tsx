@@ -2,6 +2,13 @@ import React from 'react';
 import { UnifiedTransactionModal } from '../shared/unified-transaction-modal';
 import { BridgeAndExecuteParams, BridgeAndExecuteSimulationResult } from '../../../types';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
+import PrefilledInputs from '../shared/prefilled-inputs';
+
+type InputData = {
+  toChainId?: number;
+  token?: string;
+  amount?: string | number;
+};
 
 function BridgeExecuteForm({
   inputData,
@@ -9,14 +16,27 @@ function BridgeExecuteForm({
   disabled,
   prefillFields,
 }: {
-  inputData: any;
+  inputData: InputData;
   onUpdate: (data: BridgeAndExecuteParams) => void;
   disabled: boolean;
-  prefillFields?: any;
+  prefillFields?: {
+    toChainId?: boolean;
+    token?: boolean;
+    amount?: boolean;
+  };
 }) {
   const { activeController } = useInternalNexus();
 
   if (!activeController) return null;
+
+  const requiredPrefillFields: (keyof InputData)[] = ['toChainId', 'token', 'amount'];
+  const hasEnoughInputs = requiredPrefillFields.every(
+    (field) => prefillFields?.[field] !== undefined,
+  );
+
+  if (hasEnoughInputs) {
+    return <PrefilledInputs inputData={inputData} />;
+  }
 
   const handleUpdate = (data: any) => {
     if (data.toChainId !== undefined) {
@@ -37,7 +57,7 @@ function BridgeExecuteForm({
   );
 }
 
-export default function BridgeAndExecuteModal() {
+export default function BridgeAndExecuteModal({ title = 'Nexus Widget' }: { title?: string }) {
   const getSimulationError = (simulationResult: BridgeAndExecuteSimulationResult) => {
     if (!simulationResult) return true;
 
@@ -69,7 +89,13 @@ export default function BridgeAndExecuteModal() {
     return bridgeSim?.intent?.sourcesTotal || '0';
   };
 
-  const getSourceChains = (simulationResult: BridgeAndExecuteSimulationResult & { allowance?: { chainDetails?: Array<{ chainId: number; amount: string; needsApproval: boolean }> } }) => {
+  const getSourceChains = (
+    simulationResult: BridgeAndExecuteSimulationResult & {
+      allowance?: {
+        chainDetails?: Array<{ chainId: number; amount: string; needsApproval: boolean }>;
+      };
+    },
+  ) => {
     // Use chainDetails from allowance if available (provides needsApproval info)
     if (simulationResult?.allowance?.chainDetails) {
       return simulationResult.allowance.chainDetails;
@@ -95,7 +121,7 @@ export default function BridgeAndExecuteModal() {
   return (
     <UnifiedTransactionModal
       transactionType="bridgeAndExecute"
-      modalTitle="Bridge and Execute"
+      modalTitle={title}
       FormComponent={BridgeExecuteForm}
       getSimulationError={getSimulationError}
       getMinimumAmount={getMinimumAmount}

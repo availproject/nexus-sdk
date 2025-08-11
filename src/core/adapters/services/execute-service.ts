@@ -105,6 +105,8 @@ export class ExecuteService extends BaseService {
 
       if (!simulationClient) {
         return {
+          contractAddress: params.contractAddress,
+          functionName: params.functionName,
           gasUsed: '0',
           success: false,
           error: 'Simulation client not configured',
@@ -137,6 +139,8 @@ export class ExecuteService extends BaseService {
 
       if (!simulationResult.success) {
         return {
+          contractAddress: params.contractAddress,
+          functionName: params.functionName,
           gasUsed: '0',
           success: false,
           error: simulationResult.errorMessage || 'Simulation failed',
@@ -163,6 +167,8 @@ export class ExecuteService extends BaseService {
       } as ExecuteSimulation;
     } catch (error) {
       return {
+        contractAddress: params.contractAddress,
+        functionName: params.functionName,
         gasUsed: '0',
         success: false,
         error: extractErrorMessage(error, 'execution simulation'),
@@ -199,6 +205,8 @@ export class ExecuteService extends BaseService {
       return await this.simulateExecute(params);
     } catch (error) {
       return {
+        contractAddress: params.contractAddress,
+        functionName: params.functionName,
         gasUsed: '0',
         success: false,
         error: extractErrorMessage(error, 'enhanced simulation'),
@@ -304,6 +312,8 @@ export class ExecuteService extends BaseService {
       // Convert enhanced result to ExecuteSimulation format
       if (!enhancedResult.success) {
         return {
+          contractAddress: params.contractAddress,
+          functionName: params.functionName,
           gasUsed: '0',
           success: false,
           error: enhancedResult.error || 'Enhanced simulation failed',
@@ -312,6 +322,8 @@ export class ExecuteService extends BaseService {
 
       // enhancedResult.totalGasUsed is already an ETH-denominated string (SimulationEngine converts)
       return {
+        contractAddress: params.contractAddress,
+        functionName: params.functionName,
         gasUsed: enhancedResult.totalGasUsed,
         success: true,
         gasCostEth: enhancedResult.totalGasUsed,

@@ -111,6 +111,15 @@ function YourComponent() {
 }
 ```
 
+## Best Practices
+
+1. **Always simulate first** for gas estimation and validation
+2. **Always check for allowances** for tokens
+3. **Check return values** - operations return result objects with success/error info
+4. **Handle user rejections** gracefully
+5. **Use appropriate confirmation levels** based on transaction value
+6. **Clean up resources** when component unmounts
+
 ## Core Features
 
 - **Cross-chain bridging** - Seamless token bridging between 16 chains
@@ -165,7 +174,7 @@ The Nexus SDK includes intelligent optimizations that automatically improve tran
 When executing bridge-and-execute operations, the SDK checks if sufficient funds already exist on the target chain:
 
 - **Smart balance detection** - Validates token balance + gas requirements on destination
-- **Automatic bypass** - Skips bridging when funds are available locally
+- **Automatic bypass** - Skips bridging when funds are available locally or only bridges the required amount
 - **Cost reduction** - Eliminates unnecessary bridge fees and delays
 - **Seamless fallback** - Uses chain abstraction when local funds are insufficient
 
@@ -410,6 +419,122 @@ const sdk = new NexusSDK({ network: 'testnet' as NexusNetwork });
 await sdk.initialize(window.ethereum); // Returns: Promise<void>
 ```
 
+### Event Handling
+
+```typescript
+import type { OnIntentHook, OnAllowanceHook, EventListener } from '@avail-project/nexus/core';
+
+// Intent approval flows
+sdk.setOnIntentHook(({ intent, allow, deny, refresh }: Parameters<OnIntentHook>[0]) => {
+  // This is a hook for the dev to show user the intent, the sources and associated fees
+
+  // intent: Intent data containing sources and fees for display purpose
+
+  // allow(): accept the current intent and continue the flow
+
+  // deny(): deny the intent and stop the flow
+
+  // refresh(): should be on a timer of 5s to refresh the intent
+  // (old intents might fail due to fee changes if not refreshed)
+  if (userConfirms) allow();
+  else deny();
+});
+
+// Allowance approvals
+sdk.setOnAllowanceHook(({ allow, deny, sources }: Parameters<OnAllowanceHook>[0]) => {
+  // This is a hook for the dev to show user the allowances that need to be setup
+  // for the current tx to happen.
+
+  // sources: an array of objects with minAllowance, chainID, token symbol, etc.
+
+  // allow(allowances): continues the transaction flow with `allowances` array
+  // allowances.length === sources.length;
+  // valid values are "max" | "min" | string | bigint
+
+  // deny(): stops the flow
+  allow(['min']); // or ['max'] or custom amounts
+});
+
+// Account/chain changes
+sdk.onAccountChanged((account) => console.log('Account:', account));
+sdk.onChainChanged((chainId) => console.log('Chain:', chainId));
+```
+
+#### Progress Events for All Operations
+
+```typescript
+import { NEXUS_EVENTS, ProgressStep } from '@avail-project/nexus/core';
+
+// Bridge & Execute Progress
+const unsubscribeBridgeExecuteExpected = sdk.nexusEvents.on(
+  NEXUS_EVENTS.BRIDGE_EXECUTE_EXPECTED_STEPS,
+  (steps: ProgressStep[]) => {
+    console.log(
+      'Bridge & Execute steps →',
+      steps.map((s) => s.typeID),
+    );
+  },
+);
+
+const unsubscribeBridgeExecuteCompleted = sdk.nexusEvents.on(
+  NEXUS_EVENTS.BRIDGE_EXECUTE_COMPLETED_STEPS,
+  (step: ProgressStep) => {
+    console.log('Bridge & Execute completed →', step.typeID, step.data);
+
+    if (step.typeID === 'IS' && step.data.explorerURL) {
+      console.log('View transaction:', step.data.explorerURL);
+    }
+  },
+);
+
+// Transfer & Bridge Progress (optimized operations)
+const unsubscribeTransferExpected = sdk.nexusEvents.on(
+  NEXUS_EVENTS.EXPECTED_STEPS,
+  (steps: ProgressStep[]) => {
+    console.log(
+      'Transfer/Bridge steps →',
+      steps.map((s) => s.typeID),
+    );
+    // For direct transfers: ['CS', 'TS', 'IS'] (3 steps, ~5-15s)
+  },
+);
+
+const unsubscribeTransferCompleted = sdk.nexusEvents.on(
+  NEXUS_EVENTS.STEP_COMPLETE,
+  (step: ProgressStep) => {
+    console.log('Transfer/Bridge completed →', step.typeID, step.data);
+
+    if (step.typeID === 'IS' && step.data.explorerURL) {
+      // Transaction submitted with hash - works for both direct and CA
+      console.log('Transaction hash:', step.data.transactionHash);
+      console.log('Explorer URL:', step.data.explorerURL);
+    }
+  },
+);
+
+// Cleanup
+return () => {
+  unsubscribeBridgeExecuteExpected();
+  unsubscribeBridgeExecuteCompleted();
+  unsubscribeTransferExpected();
+  unsubscribeTransferCompleted();
+};
+```
+
+The SDK emits **consistent event patterns** for all operations:
+
+**Bridge & Execute Operations:**
+
+1. `bridge_execute_expected_steps` – _once_ with full ordered array of `ProgressStep`s
+2. `bridge_execute_completed_steps` – _many_; one per finished step with runtime data
+
+**Transfer & Bridge Operations:**
+
+1. `expected_steps` – _once_ with full ordered array of `ProgressStep`s
+2. `step_complete` – _many_; one per finished step with runtime data
+
+All events include the same `typeID` structure and runtime `data` such as `transactionHash`, `explorerURL`, `confirmations`, `error`, etc. This provides consistent progress tracking whether using optimized direct operations or chain abstraction.
+
 ### Balance Operations
 
 ```typescript
@@ -645,128 +770,12 @@ const hexChainId: string = sdk.utils.chainIdToHex(137);
 const decimalChainId: number = sdk.utils.hexToChainId('0x89');
 ```
 
-### Event Handling
-
-```typescript
-import type { OnIntentHook, OnAllowanceHook, EventListener } from '@avail-project/nexus/core';
-
-// Intent approval flows
-sdk.setOnIntentHook(({ intent, allow, deny, refresh }: Parameters<OnIntentHook>[0]) => {
-  // This is a hook for the dev to show user the intent, the sources and associated fees
-
-  // intent: Intent data containing sources and fees for display purpose
-
-  // allow(): accept the current intent and continue the flow
-
-  // deny(): deny the intent and stop the flow
-
-  // refresh(): should be on a timer of 5s to refresh the intent
-  // (old intents might fail due to fee changes if not refreshed)
-  if (userConfirms) allow();
-  else deny();
-});
-
-// Allowance approvals
-sdk.setOnAllowanceHook(({ allow, deny, sources }: Parameters<OnAllowanceHook>[0]) => {
-  // This is a hook for the dev to show user the allowances that need to be setup
-  // for the current tx to happen.
-
-  // sources: an array of objects with minAllowance, chainID, token symbol, etc.
-
-  // allow(allowances): continues the transaction flow with `allowances` array
-  // allowances.length === sources.length;
-  // valid values are "max" | "min" | string | bigint
-
-  // deny(): stops the flow
-  allow(['min']); // or ['max'] or custom amounts
-});
-
-// Account/chain changes
-sdk.onAccountChanged((account) => console.log('Account:', account));
-sdk.onChainChanged((chainId) => console.log('Chain:', chainId));
-```
-
-#### Progress Events for All Operations
-
-```typescript
-import { NEXUS_EVENTS, ProgressStep } from '@avail-project/nexus/core';
-
-// Bridge & Execute Progress
-const unsubscribeBridgeExecuteExpected = sdk.nexusEvents.on(
-  NEXUS_EVENTS.BRIDGE_EXECUTE_EXPECTED_STEPS,
-  (steps: ProgressStep[]) => {
-    console.log(
-      'Bridge & Execute steps →',
-      steps.map((s) => s.typeID),
-    );
-  },
-);
-
-const unsubscribeBridgeExecuteCompleted = sdk.nexusEvents.on(
-  NEXUS_EVENTS.BRIDGE_EXECUTE_COMPLETED_STEPS,
-  (step: ProgressStep) => {
-    console.log('Bridge & Execute completed →', step.typeID, step.data);
-
-    if (step.typeID === 'IS' && step.data.explorerURL) {
-      console.log('View transaction:', step.data.explorerURL);
-    }
-  },
-);
-
-// Transfer & Bridge Progress (optimized operations)
-const unsubscribeTransferExpected = sdk.nexusEvents.on(
-  NEXUS_EVENTS.EXPECTED_STEPS,
-  (steps: ProgressStep[]) => {
-    console.log(
-      'Transfer/Bridge steps →',
-      steps.map((s) => s.typeID),
-    );
-    // For direct transfers: ['CS', 'TS', 'IS'] (3 steps, ~5-15s)
-  },
-);
-
-const unsubscribeTransferCompleted = sdk.nexusEvents.on(
-  NEXUS_EVENTS.STEP_COMPLETE,
-  (step: ProgressStep) => {
-    console.log('Transfer/Bridge completed →', step.typeID, step.data);
-
-    if (step.typeID === 'IS' && step.data.explorerURL) {
-      // Transaction submitted with hash - works for both direct and CA
-      console.log('Transaction hash:', step.data.transactionHash);
-      console.log('Explorer URL:', step.data.explorerURL);
-    }
-  },
-);
-
-// Cleanup
-return () => {
-  unsubscribeBridgeExecuteExpected();
-  unsubscribeBridgeExecuteCompleted();
-  unsubscribeTransferExpected();
-  unsubscribeTransferCompleted();
-};
-```
-
-The SDK emits **consistent event patterns** for all operations:
-
-**Bridge & Execute Operations:**
-
-1. `bridge_execute_expected_steps` – _once_ with full ordered array of `ProgressStep`s
-2. `bridge_execute_completed_steps` – _many_; one per finished step with runtime data
-
-**Transfer & Bridge Operations:**
-
-1. `expected_steps` – _once_ with full ordered array of `ProgressStep`s
-2. `step_complete` – _many_; one per finished step with runtime data
-
-All events include the same `typeID` structure and runtime `data` such as `transactionHash`, `explorerURL`, `confirmations`, `error`, etc. This provides consistent progress tracking whether using optimized direct operations or chain abstraction.
-
 ### Provider Methods
 
 ```typescript
 import type { EthereumProvider, RequestArguments } from '@avail-project/nexus/core';
 
-// Get enhanced provider
+// Get chain abstracted provider
 const provider: EthereumProvider = sdk.getEVMProviderWithCA();
 
 // Make EIP-1193 requests
@@ -966,15 +975,6 @@ try {
 }
 ```
 
-## Best Practices
-
-1. **Always simulate first** for gas estimation and validation
-2. **Always check for allowances** for tokens
-3. **Check return values** - operations return result objects with success/error info
-4. **Handle user rejections** gracefully
-5. **Use appropriate confirmation levels** based on transaction value
-6. **Clean up resources** when component unmounts
-
 ```typescript
 import type { ExecuteSimulation, ExecuteResult } from '@avail-project/nexus/core';
 
@@ -1019,19 +1019,7 @@ import type {
 } from '@avail-project/nexus/core';
 ```
 
-## Development
-
-```bash
-npm run build       # Build package
-npm test           # Run tests
-npm run lint       # Lint code
-```
-
 ## Support
 
 - [GitHub Issues](https://github.com/availproject/nexus-sdk/issues)
 - [API Documentation](https://docs.availproject.org/api-reference/avail-nexus-sdk/api-reference)
-
-## License
-
-MIT

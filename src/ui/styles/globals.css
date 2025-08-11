@@ -5,6 +5,9 @@
 @theme {
   --color-nexus-backdrop: var(--nexus-backdrop);
   --color-nexus-blue: var(--nexus-blue);
+  --color-nexus-gray: var(--nexus-color-gray);
+  --color-nexus-black: var(--nexus-color-black);
+  --color-nexus-primary-gray: var(--nexus-color-primary-hover);
   --color-nexus-snow-white: var(--nexus-color-snow-white);
   --color-nexus-success: var(--nexus-success);
   --color-nexus-footer: var(--nexus-footer);
@@ -23,8 +26,10 @@
   --color-nexus-muted-foreground: var(--nexus-color-muted-foreground);
   --color-nexus-muted-secondary: var(--nexus-color-muted-secondary);
   --color-nexus-accent: var(--nexus-color-accent);
+  --color-nexus-accent-green: var(--nexus-color-accent-green);
   --color-nexus-accent-foreground: var(--nexus-color-accent-foreground);
   --color-nexus-border: var(--nexus-color-border);
+  --color-nexus-border-secondary: var(--nexus-color-border-secondary);
   --color-nexus-input: var(--nexus-color-input);
   --color-nexus-ring: var(--nexus-color-ring);
   --color-nexus-ring-offset: var(--nexus-color-background);
@@ -76,6 +81,7 @@
 
 :root {
   --nexus-color-white: #ffffff;
+  --nexus-color-gray: #eff0f2;
   --nexus-color-snow-white: #fafafa;
   --nexus-color-black: #000000;
   --nexus-color-background: #f4f6f8;
@@ -90,8 +96,10 @@
   --nexus-color-muted-secondary: #666666;
   --nexus-color-muted-foreground: #565a60;
   --nexus-color-accent: #0375d8;
+  --nexus-color-accent-green: #6b9826;
   --nexus-color-accent-foreground: #ffffff;
   --nexus-color-border: #e5e7e9;
+  --nexus-color-border-secondary: #425c72;
   --nexus-color-input: #b3b3b3;
   --nexus-color-ring: #2b80d7;
   --nexus-color-destructive: #ef4444;
@@ -226,4 +234,15 @@
   to {
     transform: scale(0.95);
   }
+}
+
+.no-scrollbar {
+  overflow-y: scroll;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* Internet Explorer 10+ */
+}
+.no-scrollbar::-webkit-scrollbar {
+  /* WebKit */
+  width: 0;
+  height: 0;
 }

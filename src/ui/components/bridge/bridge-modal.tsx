@@ -3,13 +3,17 @@ import { UnifiedTransactionModal } from '../shared/unified-transaction-modal';
 import { SimulationResult } from '../../../types';
 import { UnifiedTransactionForm } from '../shared/unified-transaction-form';
 import { BridgeConfig } from '../../types';
+import PrefilledInputs from '../shared/prefilled-inputs';
+import { useInternalNexus } from '../../providers/InternalNexusProvider';
+
+type InputData = {
+  chainId?: number;
+  token?: string;
+  amount?: string | number;
+};
 
 interface BridgeFormSectionProps {
-  inputData: {
-    chainId?: number;
-    token?: string;
-    amount?: string | number;
-  };
+  inputData: InputData;
   onUpdate: (data: Partial<BridgeConfig>) => void;
   disabled?: boolean;
   className?: string;
@@ -27,6 +31,18 @@ function BridgeFormSection({
   className,
   prefillFields = {},
 }: BridgeFormSectionProps) {
+  const { activeController } = useInternalNexus();
+
+  if (!activeController) return null;
+  const requiredPrefillFields: (keyof InputData)[] = ['chainId', 'token', 'amount'];
+  const hasEnoughInputs = requiredPrefillFields.every(
+    (field) => prefillFields[field] !== undefined,
+  );
+
+  if (hasEnoughInputs) {
+    return <PrefilledInputs inputData={inputData} />;
+  }
+
   return (
     <UnifiedTransactionForm
       type="bridge"
@@ -39,7 +55,7 @@ function BridgeFormSection({
   );
 }
 
-export default function BridgeModal() {
+export default function BridgeModal({ title = 'Nexus Widget' }: { title?: string }) {
   const getSimulationError = (simulationResult: SimulationResult) => {
     return (
       simulationResult &&
@@ -52,12 +68,18 @@ export default function BridgeModal() {
     return simulationResult?.intent?.sourcesTotal || '0';
   };
 
-  const getSourceChains = (simulationResult: SimulationResult & { allowance?: { chainDetails?: Array<{ chainId: number; amount: string; needsApproval: boolean }> } }) => {
+  const getSourceChains = (
+    simulationResult: SimulationResult & {
+      allowance?: {
+        chainDetails?: Array<{ chainId: number; amount: string; needsApproval: boolean }>;
+      };
+    },
+  ) => {
     // Use chainDetails from allowance if available (provides needsApproval info)
     if (simulationResult?.allowance?.chainDetails) {
       return simulationResult.allowance.chainDetails;
     }
-    
+
     // Fallback to original sources mapping
     return (
       simulationResult?.intent?.sources?.map((source) => ({
@@ -70,12 +92,11 @@ export default function BridgeModal() {
   return (
     <UnifiedTransactionModal
       transactionType="bridge"
-      modalTitle="Bridge Tokens"
+      modalTitle={title}
       FormComponent={BridgeFormSection}
       getSimulationError={getSimulationError}
       getMinimumAmount={getMinimumAmount}
       getSourceChains={getSourceChains}
-      containerClassName="py-6"
     />
   );
 }

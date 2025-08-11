@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { ChainSelectProps } from '../../types';
 import { CHAIN_METADATA, MAINNET_CHAINS, TESTNET_CHAINS } from '../../../constants';
 import { ChainIcon } from './icons';
-import AnimatedSelect from './animated-select';
 import { cn } from '../../utils/utils';
+import { Button } from '../motion/button-motion';
+import { DrawerAutoClose } from '../motion/drawer';
 
 interface ChainSelectOption {
   value: string;
@@ -18,6 +19,7 @@ export function ChainSelect({
   disabled = false,
   network = 'mainnet',
   className,
+  hasValues,
 }: ChainSelectProps & { network?: 'mainnet' | 'testnet' }) {
   const availableChainIds = network === 'testnet' ? TESTNET_CHAINS : MAINNET_CHAINS;
 
@@ -31,32 +33,42 @@ export function ChainSelect({
     };
   });
 
-  const renderSelectedValue = (option: ChainSelectOption) => (
-    <div className="h-8 flex items-center gap-1.5">
-      <ChainIcon chainId={option.value} />
-      <span className="text-black text-base font-semibold font-nexus-primary leading-normal">
-        {option.label}
-      </span>
-    </div>
+  const selectedOption = useMemo(
+    () => chainOptions.find((opt) => opt.value === (value ?? '')),
+    [value],
   );
 
-  const renderOption = (option: ChainSelectOption) => (
-    <div className="flex items-center gap-2">
-      <ChainIcon chainId={option.value} />
-      <span>{option.label}</span>
-    </div>
-  );
+  const handleSelect = (chainId: string) => {
+    if (disabled) return;
+    onValueChange(chainId);
+  };
 
   return (
-    <AnimatedSelect<ChainSelectOption>
-      value={value || ''}
-      onSelect={onValueChange}
-      disabled={disabled}
-      placeholder="Select destination"
-      options={chainOptions}
-      renderSelectedValue={renderSelectedValue}
-      renderOption={renderOption}
-      className={cn(disabled && 'opacity-40', className)}
-    />
+    <div
+      className={cn(
+        'flex flex-col items-start gap-y-4 py-5 border-r border-nexus-muted-secondary/20 max-w-max pr-4',
+        className,
+      )}
+    >
+      <p className="text-nexus-foreground text-lg font-semibold ">Destination Chain</p>
+      {chainOptions.map((chain) => (
+        <DrawerAutoClose key={chain?.chainId} enabled={hasValues}>
+          <Button
+            variant="custom"
+            size="custom"
+            onClick={() => handleSelect(chain?.chainId.toString())}
+            className={cn(
+              'p-3 flex items-center justify-start gap-x-2 rounded-nexus-md border border-nexus-border w-full hover:bg-nexus-accent-green/10',
+              disabled &&
+                'pointer-events-none cursor-not-allowed opacity-50 text-nexus-foreground ',
+              selectedOption?.chainId === chain?.chainId ? 'bg-nexus-accent-green/10' : '',
+            )}
+          >
+            <ChainIcon chainId={chain?.chainId.toString()} />
+            <p className=" font-semibold font-nexus-primary text-sm">{chain?.label}</p>
+          </Button>
+        </DrawerAutoClose>
+      ))}
+    </div>
   );
 }

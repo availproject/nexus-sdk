@@ -13,6 +13,7 @@ export function BridgeAndExecuteButton({
   prefill,
   children,
   className,
+  title,
 }: BridgeAndExecuteButtonProps) {
   const { startTransaction, activeTransaction } = useInternalNexus();
 
@@ -41,7 +42,7 @@ export function BridgeAndExecuteButton({
       <div className={className}>
         {children({ onClick: handleClick, isLoading, disabled: false })}
       </div>
-      <BridgeAndExecuteModal />
+      <BridgeAndExecuteModal title={title} />
     </>
   );
 }

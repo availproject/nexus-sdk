@@ -1,13 +1,15 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { ThreeStageProgress, EnhancedInfoMessage, Button } from '../shared';
-import SuccessRipple from '../shared/success-ripple';
+import SuccessRipple from '../motion/success-ripple';
 import { Maximize, ExternalLink } from '../icons';
 import { ProcessorCardProps } from '../../types';
-import { WordsPullUp } from '../shared/pull-up-words';
+import { WordsPullUp } from '../motion/pull-up-words';
 import { BridgeAndExecuteResult } from '../../../types';
 import { cn } from '../../utils/utils';
 import { SUPPORTED_CHAINS } from '../../../constants';
+import { ThreeStageProgress } from '../motion/three-stage-progress';
+import { Button } from '../motion/button-motion';
+import { EnhancedInfoMessage } from '../shared/enhanced-info-message';
 
 export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
   status,
@@ -104,7 +106,24 @@ export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
           )}
         </div>
         <Button
-          onClick={toggleTransactionCollapse}
+          type="button"
+          onPointerDownCapture={(e) => {
+            e.stopPropagation();
+          }}
+          onPointerDown={(e) => {
+            e.stopPropagation();
+          }}
+          onMouseDownCapture={(e) => {
+            e.stopPropagation();
+          }}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+          }}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            toggleTransactionCollapse();
+          }}
           className="p-1 hover:bg-gray-100 rounded-nexus-md transition-colors"
           variant="link"
         >

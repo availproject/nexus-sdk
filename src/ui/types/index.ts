@@ -185,7 +185,7 @@ export interface NexusContextValue {
   timer: number;
   allowanceError: string | null;
   isSettingAllowance: boolean;
-
+  exchangeRates: Record<string, number>;
   // Transaction processing state (from useListenTransaction)
   processing: ProcessingState;
   explorerURL: string | null;
@@ -193,6 +193,7 @@ export interface NexusContextValue {
   // Actions
   setProvider: (provider: EthereumProvider) => void;
   initializeSdk: (ethProvider?: EthereumProvider) => Promise<boolean>;
+  deinitializeSdk: () => Promise<void>;
   startTransaction: (
     type: TransactionType,
     prefillData?: Partial<BridgeParams> | Partial<TransferParams> | Partial<BridgeAndExecuteParams>,
@@ -213,7 +214,9 @@ export interface NexusContextValue {
 // # 5. Existing Widget Configuration Types (with minor updates)
 
 export interface BaseComponentProps {
+  title?: string;
   className?: string;
+  hasValues?: boolean;
 }
 
 export interface BridgeConfig extends Partial<BridgeParams> {}

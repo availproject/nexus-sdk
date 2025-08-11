@@ -3,6 +3,7 @@ import { UnifiedTransactionModal } from '../shared/unified-transaction-modal';
 import { SimulationResult } from '../../../types';
 import { UnifiedTransactionForm } from '../shared/unified-transaction-form';
 import { TransferConfig } from '../../types';
+import PrefilledInputs from '../shared/prefilled-inputs';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 
 interface TransferFormSectionProps {
@@ -23,6 +24,13 @@ interface TransferFormSectionProps {
   };
 }
 
+type InputData = {
+  chainId?: number;
+  token?: string;
+  amount?: string | number;
+  recipient?: string;
+};
+
 export function TransferFormSection({
   inputData,
   onUpdate,
@@ -33,6 +41,15 @@ export function TransferFormSection({
   const { activeController } = useInternalNexus();
 
   if (!activeController) return null;
+  const requiredPrefillFields: (keyof InputData)[] = ['chainId', 'token', 'amount', 'recipient'];
+  const hasEnoughInputs = requiredPrefillFields.every(
+    (field) => prefillFields[field] !== undefined,
+  );
+
+  if (hasEnoughInputs) {
+    return <PrefilledInputs inputData={inputData} />;
+  }
+
   return (
     <UnifiedTransactionForm
       type="transfer"
@@ -45,7 +62,7 @@ export function TransferFormSection({
   );
 }
 
-export default function TransferModal() {
+export default function TransferModal({ title = 'Nexus Widget' }: { title?: string }) {
   const getSimulationError = (simulationResult: SimulationResult) => {
     return simulationResult && !simulationResult.intent;
   };
@@ -54,12 +71,18 @@ export default function TransferModal() {
     return simulationResult?.intent?.sourcesTotal || '0';
   };
 
-  const getSourceChains = (simulationResult: SimulationResult & { allowance?: { chainDetails?: Array<{ chainId: number; amount: string; needsApproval: boolean }> } }) => {
+  const getSourceChains = (
+    simulationResult: SimulationResult & {
+      allowance?: {
+        chainDetails?: Array<{ chainId: number; amount: string; needsApproval: boolean }>;
+      };
+    },
+  ) => {
     // Use chainDetails from allowance if available (provides needsApproval info)
     if (simulationResult?.allowance?.chainDetails) {
       return simulationResult.allowance.chainDetails;
     }
-    
+
     // Fallback to original sources mapping
     return (
       simulationResult?.intent?.sources?.map((source) => ({
@@ -72,7 +95,7 @@ export default function TransferModal() {
   return (
     <UnifiedTransactionModal
       transactionType="transfer"
-      modalTitle="Transfer Tokens"
+      modalTitle={title}
       FormComponent={TransferFormSection}
       getSimulationError={getSimulationError}
       getMinimumAmount={getMinimumAmount}

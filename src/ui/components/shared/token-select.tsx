@@ -1,14 +1,15 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { TokenSelectProps } from '../../types';
 import { TOKEN_METADATA, TESTNET_TOKEN_METADATA } from '../../../constants';
 import { TokenIcon } from './icons';
-import AnimatedSelect from './animated-select';
 import { cn } from '../../utils/utils';
+import { Button } from '../motion/button-motion';
+import { useInternalNexus } from '../../providers/InternalNexusProvider';
+import { DrawerAutoClose } from '../motion/drawer';
 
 interface TokenSelectOption {
   value: string;
   label: string;
-  symbol: string;
   icon: string;
 }
 
@@ -18,44 +19,71 @@ export function TokenSelect({
   disabled = false,
   network = 'mainnet',
   className,
+  hasValues,
 }: TokenSelectProps & { network?: 'mainnet' | 'testnet' }) {
-  // Get appropriate tokens based on network
+  const { unifiedBalance } = useInternalNexus();
   const tokenMetadata = network === 'testnet' ? TESTNET_TOKEN_METADATA : TOKEN_METADATA;
 
-  // Build options from token metadata
   const tokenOptions: TokenSelectOption[] = Object.values(tokenMetadata).map((token) => ({
     value: token.symbol,
     label: `${token.symbol}`,
-    symbol: token.symbol,
     icon: token.icon,
   }));
 
-  const renderSelectedValue = (option: TokenSelectOption) => (
-    <div className="h-8 flex items-center gap-1.5">
-      <TokenIcon tokenSymbol={option.symbol} />
-      <span className="text-black text-base font-semibold font-nexus-primary leading-normal">
-        {option.symbol}
-      </span>
-    </div>
+  const tokenBalanceBreakdown = useMemo(() => {
+    let breakdown: Record<string, { bal: string; chains: string }> = {};
+    unifiedBalance?.map((balance) => {
+      const key = balance?.symbol;
+      breakdown[key] = {
+        bal: parseFloat(balance?.balance) > 0 ? balance?.balance : '00',
+        chains: `${balance?.breakdown?.length > 1 ? balance?.breakdown?.length + ' chains' : balance?.breakdown?.length > 0 ? balance?.breakdown?.length + ' chain' : '-'}`,
+      };
+    });
+    return breakdown;
+  }, [unifiedBalance]);
+
+  const selectedOption = useMemo(
+    () => tokenOptions.find((opt) => opt.value === (value ?? '')),
+    [value],
   );
 
-  const renderOption = (option: TokenSelectOption) => (
-    <div className="flex items-center gap-2">
-      <TokenIcon tokenSymbol={option.symbol} />
-      <span>{option.label}</span>
-    </div>
-  );
+  const handleSelect = (chainId: string) => {
+    if (disabled) return;
+    onValueChange(chainId);
+  };
 
   return (
-    <AnimatedSelect<TokenSelectOption>
-      value={value || ''}
-      onSelect={onValueChange}
-      disabled={disabled}
-      placeholder="Select token..."
-      options={tokenOptions}
-      renderSelectedValue={renderSelectedValue}
-      renderOption={renderOption}
-      className={cn(disabled && 'opacity-40', className)}
-    />
+    <div className={cn('flex flex-col items-start gap-y-4 py-5 pl-4 w-full', className)}>
+      <p className="text-nexus-foreground text-lg font-semibold ">Destination Token</p>
+      {tokenOptions.map((token) => (
+        <DrawerAutoClose key={token?.label} enabled={hasValues}>
+          <Button
+            variant="custom"
+            size="custom"
+            onClick={() => handleSelect(token?.value)}
+            className={cn(
+              'w-full  p-3 rounded-nexus-md hover:bg-nexus-accent-green/10',
+              disabled && 'pointer-events-none cursor-not-allowed opacity-50 text-nexus-foreground',
+              selectedOption?.value === token?.value ? 'bg-nexus-accent-green/10' : '',
+            )}
+          >
+            <div className="flex items-center justify-between w-full">
+              <div className="flex items-start gap-x-2">
+                <TokenIcon tokenSymbol={token?.value} />
+                <p className="font-semibold font-nexus-primary text-sm">{token?.label}</p>
+              </div>
+              <div className="flex flex-col items-end gap-y-2">
+                <p className="font-semibold font-nexus-primary text-sm text-nexus-foreground">
+                  {parseFloat(tokenBalanceBreakdown[token?.value]?.bal ?? '0').toFixed(6)}
+                </p>
+                <p className="font-semibold font-nexus-primary text-sm text-nexus-secondary ">
+                  {tokenBalanceBreakdown[token?.value]?.chains}
+                </p>
+              </div>
+            </div>
+          </Button>
+        </DrawerAutoClose>
+      ))}
+    </div>
   );
 }

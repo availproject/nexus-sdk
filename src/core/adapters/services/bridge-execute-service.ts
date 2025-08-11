@@ -385,6 +385,8 @@ export class BridgeExecuteService extends BaseService {
         } catch (simulationError) {
           logger.warn(`Execute simulation error: ${simulationError}`);
           executeSimulation = {
+            contractAddress: execute.contractAddress,
+            functionName: execute.functionName,
             gasUsed: '0',
             success: false,
             error: `Simulation failed: ${simulationError}`,
@@ -494,6 +496,8 @@ export class BridgeExecuteService extends BaseService {
           totalEstimatedCost,
           success: true,
           metadata: {
+            contractAddress: executeSimulation?.contractAddress ?? '',
+            functionName: executeSimulation?.functionName ?? '',
             bridgeReceiveAmount: this.skipBridge
               ? params.amount.toString()
               : bridgeReceiveAmount !== '0'

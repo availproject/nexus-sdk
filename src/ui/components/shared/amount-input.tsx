@@ -1,28 +1,31 @@
 import * as React from 'react';
 import { cn } from '../../utils/utils';
-import { Input } from './input';
+import { Input } from '../motion/input';
+import { useInternalNexus } from '../../providers/InternalNexusProvider';
+import { getFiatValue } from '../../utils/balance-utils';
 
 interface AmountInputProps {
   value?: string;
-  suffix?: string;
   disabled?: boolean;
   onChange?: (value: string) => void;
   className?: string;
   placeholder?: string;
   debounceMs?: number;
+  token?: string;
 }
 
 export function AmountInput({
   value,
-  suffix,
   disabled = false,
   onChange,
   className,
   placeholder = '0.0',
   debounceMs = 500,
+  token,
 }: AmountInputProps) {
   const [localValue, setLocalValue] = React.useState(value || '');
   const timeoutRef = React.useRef<NodeJS.Timeout | undefined>(undefined);
+  const { exchangeRates } = useInternalNexus();
 
   React.useEffect(() => {
     setLocalValue(value || '');
@@ -83,36 +86,33 @@ export function AmountInput({
   return (
     <div
       className={cn(
-        'px-4 py-2 rounded-nexus-md border border-zinc-400 flex justify-between items-center focus-within:border-ring focus-within:ring-nexus-ring/50 focus-within:ring-[3px]',
-        'bg-transparent h-12',
-        disabled && 'opacity-50 cursor-not-allowed',
+        'flex items-start flex-col gap-y-1 text-left mt-1 w-full',
+        disabled && 'pointer-events-none cursor-not-allowed',
         className,
       )}
     >
-      <div className="flex items-center gap-x-1.5 flex-1">
+      <div className="flex items-center gap-x-1">
         {onChange ? (
           <Input
             type="text"
             value={localValue}
             onChange={handleInputChange}
             disabled={disabled}
-            className=" text-black text-base font-semibold font-nexus-primary leading-normal outline-none px-0"
+            className="text-nexus-black text-[32px] font-semibold font-nexus-primary leading-[22px] h-7  outline-none px-0 placeholder:text-nexus-muted-secondary"
             placeholder={placeholder}
             inputMode="decimal"
             pattern="[0-9]*\.?[0-9]*"
           />
         ) : (
-          <div className="text-black text-base font-semibold font-nexus-primary leading-normal">
-            {value ?? '0.0'}
-          </div>
+          <p className="text-nexus-black/40 text-[32px] font-semibold leading-[22px] font-nexus-primary">
+            {value ?? 0}
+          </p>
         )}
       </div>
-      {suffix && (
-        <div className="flex items-center gap-2">
-          <div className="text-zinc-500 text-base font-semibold font-nexus-primary leading-normal">
-            {suffix}
-          </div>
-        </div>
+      {token && value && (
+        <p className="text-nexus-accent-green font-semibold leading-6 text-lg font-nexus-primary">
+          {getFiatValue(value, token, exchangeRates)}
+        </p>
       )}
     </div>
   );

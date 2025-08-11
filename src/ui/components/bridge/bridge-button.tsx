@@ -4,7 +4,7 @@ import type { BridgeButtonProps } from '../../types';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import BridgeModal from './bridge-modal';
 
-export function BridgeButton({ prefill, children, className }: BridgeButtonProps) {
+export function BridgeButton({ prefill, children, className, title }: BridgeButtonProps) {
   const { startTransaction, activeTransaction } = useInternalNexus();
   const isLoading =
     activeTransaction.status === 'processing' || activeTransaction.reviewStatus === 'simulating';
@@ -16,7 +16,7 @@ export function BridgeButton({ prefill, children, className }: BridgeButtonProps
   return (
     <>
       <div className={className}>{children({ onClick: handleClick, isLoading })}</div>
-      <BridgeModal />
+      <BridgeModal title={title} />
     </>
   );
 }

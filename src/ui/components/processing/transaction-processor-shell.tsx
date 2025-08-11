@@ -1,13 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
-import { useDragConstraints } from '../shared';
 import { ProcessorMiniCard } from './processor-mini-card';
 import { ProcessorFullCard } from './processor-full-card';
 import { BridgeAndExecuteSimulationResult, SimulationResult } from '../../../types';
 import { CHAIN_METADATA, TOKEN_METADATA } from '../../../constants';
 import { getOperationText } from '../../utils/utils';
 import { TransactionType } from '../../types';
+import { useDragConstraints } from '../motion/drag-constraints';
+
+const COLLAPSED = { width: 400, height: 120, radius: 16 } as const;
+const EXPANDED = { width: 480, height: 500, radius: 16 } as const;
 
 export const TransactionProcessorShell: React.FC = () => {
   const {
@@ -83,9 +86,6 @@ export const TransactionProcessorShell: React.FC = () => {
     window.addEventListener('resize', update);
     return () => window.removeEventListener('resize', update);
   }, []);
-
-  const COLLAPSED = { width: 400, height: 120, radius: 16 } as const;
-  const EXPANDED = { width: 480, height: 600, radius: 16 } as const;
 
   const collapsedPos = {
     x: Math.max(16, windowSize.width - COLLAPSED.width - 16),

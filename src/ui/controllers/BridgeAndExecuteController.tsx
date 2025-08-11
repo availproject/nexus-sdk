@@ -107,7 +107,7 @@ export class BridgeAndExecuteController implements ITransactionController {
     // Check if bridge part needs allowance (when bridge is NOT skipped)
     if (simulationResult?.bridgeSimulation?.intent?.sources && inputData.token !== 'ETH') {
       const sourcesData = simulationResult.bridgeSimulation.intent.sources;
-      
+
       for (const source of sourcesData) {
         const requiredAmount = sdk.utils.parseUnits(
           source.amount,
@@ -149,7 +149,7 @@ export class BridgeAndExecuteController implements ITransactionController {
         chainDetails: chainDetails.length > 0 ? chainDetails : undefined,
       },
     } as BridgeAndExecuteSimulationResult & {
-      allowance: { 
+      allowance: {
         needsApproval: boolean;
         chainDetails?: Array<{
           chainId: number;

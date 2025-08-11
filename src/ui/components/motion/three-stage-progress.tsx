@@ -1,5 +1,5 @@
 import React from 'react';
-import { Progress } from './progress-motion';
+import { Progress } from '../motion/progress-motion';
 
 interface ThreeStageProgressProps {
   progress: number;

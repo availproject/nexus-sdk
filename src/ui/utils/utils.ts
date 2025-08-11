@@ -1,7 +1,7 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { OrchestratorStatus, ReviewStatus } from '../types';
-import { Abi } from 'viem';
+import { Abi, isAddress } from 'viem';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -275,11 +275,15 @@ export function formatErrorForUI(error: unknown, context?: string): string {
     // If we have a clean, short message that's readable, use it
     if (cleanedMessage && cleanedMessage.length < 100 && cleanedMessage.length > 5) {
       // Check if it looks like a user-friendly error already
-      if (!cleanedMessage.includes('0x') && !cleanedMessage.includes('viem@') && !cleanedMessage.includes('Error:')) {
+      if (
+        !cleanedMessage.includes('0x') &&
+        !cleanedMessage.includes('viem@') &&
+        !cleanedMessage.includes('Error:')
+      ) {
         return cleanedMessage;
       }
     }
-    
+
     // Provide context-specific fallback for unknown errors
     if (context === 'simulation') {
       return 'Unable to simulate this transaction. Please verify your inputs and try again.';
@@ -290,9 +294,13 @@ export function formatErrorForUI(error: unknown, context?: string): string {
     } else if (context === 'execute') {
       return 'Smart contract execution failed. Please verify the transaction details.';
     }
-    
+
     // Log unknown errors for debugging
-    console.warn('Unknown error category detected:', { cleanedMessage, originalError: error, context });
+    console.warn('Unknown error category detected:', {
+      cleanedMessage,
+      originalError: error,
+      context,
+    });
   }
 
   // Add context-specific messaging
@@ -464,3 +472,15 @@ export const formatCost = (cost: string) => {
   if (numCost < 0.001) return '< 0.001';
   return numCost.toFixed(6);
 };
+
+export function truncateAddress(
+  address: string,
+  startLength: number = 6,
+  endLength: number = 4,
+): string {
+  if (!isAddress(address)) return address;
+
+  if (address.length <= startLength + endLength + 2) return address;
+
+  return `${address.slice(0, startLength)}...${address.slice(-endLength)}`;
+}

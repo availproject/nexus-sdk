@@ -203,6 +203,8 @@ export interface ExecuteResult {
 }
 
 export interface ExecuteSimulation {
+  contractAddress: string;
+  functionName: string;
   gasUsed: string;
   success: boolean;
   error?: string;
@@ -237,6 +239,8 @@ export interface SimulationStep {
 }
 
 interface SimulationMetadata {
+  contractAddress: string;
+  functionName: string;
   bridgeReceiveAmount: string;
   bridgeFee: string;
   inputAmount: string;

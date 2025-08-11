@@ -1,8 +1,8 @@
 import * as React from 'react';
-import { Button } from './button-motion';
+import { Button } from '../motion/button-motion';
 import { cn } from '../../utils/utils';
 import { SmallAvailLogo } from '../icons/SmallAvailLogo';
-import LoadingDots from './loading-dots';
+import LoadingDots from '../motion/loading-dots';
 
 interface ActionButtonsProps {
   onCancel: () => void;
