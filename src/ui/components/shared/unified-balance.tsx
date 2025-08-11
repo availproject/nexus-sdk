@@ -100,7 +100,7 @@ const ChainBalance = ({
   );
 };
 
-const UnifiedBalance = () => {
+const UnifiedBalance = ({ isBusy }: { isBusy: boolean }) => {
   const { unifiedBalance, activeTransaction } = useInternalNexus();
   const { inputData } = activeTransaction;
   const tokenSymbol = inputData?.token;
@@ -126,7 +126,7 @@ const UnifiedBalance = () => {
 
   return (
     <Drawer>
-      <DrawerTrigger className="px-6 font-nexus-primary w-full my-6">
+      <DrawerTrigger className="px-6 font-nexus-primary w-full my-6" disabled={isBusy}>
         <BalanceTrigger balance={tokenBalance} token={inputData?.token} />
       </DrawerTrigger>
       <DrawerContent className="font-nexus-primary">

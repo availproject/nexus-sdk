@@ -177,7 +177,7 @@ export function UnifiedTransactionModal({
         <SlideTransition contentKey={getContentKey(status, [reviewStatus])}>
           {(status === 'initializing' || status === 'review' || status === 'simulation_error') && (
             <>
-              <UnifiedBalance />
+              <UnifiedBalance isBusy={isBusy} />
 
               <FormComponent
                 inputData={transformedInputData || {}}

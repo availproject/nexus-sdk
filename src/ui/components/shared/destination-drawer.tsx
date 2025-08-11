@@ -96,7 +96,7 @@ const DestinationDrawer = ({
 }: DestinationDrawerProps) => {
   return (
     <Drawer>
-      <DrawerTrigger disabled={isChainSelectDisabled || isTokenSelectDisabled}>
+      <DrawerTrigger disabled={isChainSelectDisabled && isTokenSelectDisabled}>
         <DestinationTrigger chainValue={chainValue} tokenValue={tokenValue} />
       </DrawerTrigger>
       <DrawerContent className="font-nexus-primary">
