@@ -95,7 +95,7 @@ export function UnifiedTransactionForm({
         <div className="flex gap-x-4 justify-between items-center w-full">
           <FormField label={title} className="flex-1 font-nexus-primary gap-y-2 w-full max-w-max">
             <AmountInput
-              value={inputData?.amount ? inputData.amount?.toString() : '00'}
+              value={inputData?.amount ? inputData.amount?.toString() : '0'}
               disabled={isAmountDisabled}
               onChange={isAmountDisabled ? undefined : (value) => onUpdate({ amount: value })}
               token={inputData?.token}

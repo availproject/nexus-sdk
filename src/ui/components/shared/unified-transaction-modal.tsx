@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { BaseModal } from '../motion/base-modal';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { cn, getButtonText, getContentKey } from '../../utils/utils';
@@ -68,6 +68,14 @@ export function UnifiedTransactionModal({
   const [allowanceFormValid, setAllowanceFormValid] = useState(false);
   const [allowanceApproveHandler, setAllowanceApproveHandler] = useState<(() => void) | null>(null);
 
+  const handleAllowanceFormStateChange = useCallback(
+    (isValid: boolean, handler: () => void) => {
+      setAllowanceFormValid(isValid);
+      setAllowanceApproveHandler(() => handler);
+    },
+    [setAllowanceFormValid, setAllowanceApproveHandler],
+  );
+
   // Type guard - return null if wrong transaction type
   if (type !== transactionType) {
     return null;
@@ -77,11 +85,14 @@ export function UnifiedTransactionModal({
     status !== 'idle' && status !== 'processing' && status !== 'success' && status !== 'error';
   const isBusy = status === 'processing' || reviewStatus === 'simulating';
 
-  const handleButtonClick = () => {
+  const handleButtonClick = async () => {
     if (status === 'initializing') {
-      setIsInitializing(true);
-      initializeSdk();
-      setIsInitializing(false);
+      try {
+        setIsInitializing(true);
+        await initializeSdk();
+      } finally {
+        setIsInitializing(false);
+      }
     } else if (status === 'simulation_error') {
       // Reset to review state and trigger simulation again
       retrySimulation();
@@ -125,10 +136,7 @@ export function UnifiedTransactionModal({
         onCancel={denyAllowance}
         isLoading={isSettingAllowance}
         error={allowanceError}
-        onFormStateChange={(isValid, handler) => {
-          setAllowanceFormValid(isValid);
-          setAllowanceApproveHandler(() => handler);
-        }}
+        onFormStateChange={handleAllowanceFormStateChange}
       />
     );
   };
@@ -152,6 +160,9 @@ export function UnifiedTransactionModal({
     activeTransaction?.status !== 'processing' &&
     activeTransaction?.status !== 'success' &&
     activeTransaction?.status !== 'error';
+
+  const isPrimaryLoading =
+    isBusy || isInitializing || (status === 'set_allowance' && isSettingAllowance);
 
   return (
     <BaseModal
@@ -240,10 +251,9 @@ export function UnifiedTransactionModal({
             primaryText={getPrimaryButtonText()}
             onPrimary={handleButtonClick}
             onCancel={cancelTransaction}
-            primaryLoading={isBusy || isInitializing}
+            primaryLoading={isPrimaryLoading}
             primaryDisabled={
-              isInitializing ||
-              isBusy ||
+              isPrimaryLoading ||
               insufficientBalance ||
               isSimulating ||
               (status === 'set_allowance' && !allowanceFormValid) ||

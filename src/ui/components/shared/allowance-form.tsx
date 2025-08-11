@@ -1,4 +1,4 @@
-import React, { Fragment, useEffect, useState } from 'react';
+import React, { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { cn, formatCost } from '../../utils/utils';
 import { EnhancedInfoMessage } from './enhanced-info-message';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
@@ -36,15 +36,23 @@ export function AllowanceForm({
   const [customAmount, setCustomAmount] = useState('');
   const { sdk } = useInternalNexus();
 
+  // Keep latest form values in refs to avoid stale closures when parent stores handler
+  const latestValuesRef = useRef({ selectedType, customAmount, minimumAmount });
+  latestValuesRef.current.selectedType = selectedType;
+  latestValuesRef.current.customAmount = customAmount;
+  latestValuesRef.current.minimumAmount = minimumAmount;
+
   const tokenMetadata = TOKEN_METADATA[token as keyof typeof TOKEN_METADATA];
 
-  const handleApprove = () => {
+  // Stable handler that reads latest values from refs, so parent always has a fresh handler
+  const stableApproveHandler = useCallback(() => {
+    const { selectedType, customAmount, minimumAmount } = latestValuesRef.current;
     if (selectedType === 'minimum') {
       onApprove(minimumAmount, true);
     } else {
       onApprove(customAmount, false);
     }
-  };
+  }, [onApprove]);
 
   const validateCustomAmount = (amount: string): boolean => {
     if (!amount) return false;
@@ -87,12 +95,12 @@ export function AllowanceForm({
   const isCustomValid = selectedType === 'custom' ? validateCustomAmount(customAmount) : true;
   const isFormValid = selectedType === 'minimum' || isCustomValid;
 
-  // Notify parent of form state changes
+  // Notify parent of form state changes; avoid depending on onFormStateChange to prevent loops
   useEffect(() => {
     if (onFormStateChange) {
-      onFormStateChange(isFormValid, handleApprove);
+      onFormStateChange(isFormValid, stableApproveHandler);
     }
-  }, [isFormValid, selectedType, customAmount, minimumAmount, onFormStateChange]);
+  }, [isFormValid]);
 
   return (
     <div className="flex flex-col h-full w-full overflow-y-auto">

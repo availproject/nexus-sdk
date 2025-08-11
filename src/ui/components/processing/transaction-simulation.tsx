@@ -42,8 +42,8 @@ export function TransactionSimulation({
   return (
     <div className="flex flex-col gap-y-4 w-full items-start">
       {simulationResult?.allowance?.needsApproval && (
-        <div className="flex items-center w-full justify-center">
-          <InfoMessage variant="warning" className="px-0 ">
+        <div className="flex items-center w-full justify-center px-6">
+          <InfoMessage variant="warning" className="px-0 w-full">
             You need to set allowance in your wallet first to continue.
           </InfoMessage>
         </div>
