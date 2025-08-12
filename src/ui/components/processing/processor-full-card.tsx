@@ -33,6 +33,7 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
   description,
   error,
   executionResult,
+  disableCollapse,
 }: ProcessorCardProps) => {
   const lottieRef = useRef<DotLottie | null>(null);
 
@@ -101,11 +102,11 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
             if (status === 'error' || status === 'success') {
               cancelTransaction();
             } else {
-              toggleTransactionCollapse();
+              disableCollapse ? cancelTransaction() : toggleTransactionCollapse();
             }
           }}
         >
-          {status === 'error' || status === 'success' ? (
+          {status === 'error' || status === 'success' || disableCollapse ? (
             <CircleX className="w-6 h-6" />
           ) : (
             <Minimize className="w-6 h-6" />

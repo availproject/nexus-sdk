@@ -75,13 +75,16 @@ function getInputChainId(
 export function InternalNexusProvider({
   config,
   children,
+  disableCollapse,
 }: {
   config?: { network?: NexusNetwork; debug?: boolean };
   children: ReactNode;
+  disableCollapse?: boolean;
 }) {
   const [sdk] = useState(
     () => new NexusSDK({ network: config?.network ?? 'mainnet', debug: config?.debug ?? false }),
   );
+
   const [provider, setProvider] = useState<EthereumProvider | undefined>(undefined);
   const [isSdkInitialized, setIsSdkInitialized] = useState(false);
   const [activeTransaction, setActiveTransaction] = useState<ActiveTransaction>(initialState);
@@ -89,7 +92,7 @@ export function InternalNexusProvider({
   const [exchangeRates, setExchangeRates] = useState<Record<string, number>>({});
   const [isSimulating, setIsSimulating] = useState(false);
   const [insufficientBalance, setInsufficientBalance] = useState(false);
-  const [isTransactionCollapsed, setIsTransactionCollapsed] = useState(true);
+  const [isTransactionCollapsed, setIsTransactionCollapsed] = useState(false);
   const [timer, setTimer] = useState(0);
   const [allowanceError, setAllowanceError] = useState<string | null>(null);
   const [isSettingAllowance, setIsSettingAllowance] = useState(false);
@@ -719,6 +722,7 @@ export function InternalNexusProvider({
       activeTransaction,
       isSdkInitialized,
       activeController,
+      disableCollapse,
       config,
       provider,
       unifiedBalance,
@@ -787,7 +791,7 @@ export function InternalNexusProvider({
       <DragConstraintsProvider>
         <LayoutGroup id="tx-processor-layout-group">
           {children}
-          <TransactionProcessorShell />
+          <TransactionProcessorShell disableCollapse={disableCollapse} />
         </LayoutGroup>
       </DragConstraintsProvider>
     </NexusContext.Provider>

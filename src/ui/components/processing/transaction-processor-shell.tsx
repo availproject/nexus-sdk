@@ -12,7 +12,9 @@ import { useDragConstraints } from '../motion/drag-constraints';
 const COLLAPSED = { width: 400, height: 120, radius: 16 } as const;
 const EXPANDED = { width: 480, height: 500, radius: 16 } as const;
 
-export const TransactionProcessorShell: React.FC = () => {
+export const TransactionProcessorShell: React.FC<{ disableCollapse?: boolean }> = ({
+  disableCollapse = false,
+}) => {
   const {
     activeTransaction,
     processing,
@@ -182,6 +184,7 @@ export const TransactionProcessorShell: React.FC = () => {
               description={getDescription()}
               error={activeTransaction?.error}
               executionResult={activeTransaction?.executionResult}
+              disableCollapse={disableCollapse}
             />
           )}
         </motion.div>

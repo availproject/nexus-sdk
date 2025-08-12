@@ -18,10 +18,10 @@ export const ChainIcon = ({ chainId }: { chainId: string }) => {
       src={iconUrl}
       alt={chainId}
       className={cn(
-        'w-6 h-6',
+        '',
         chain?.id !== SUPPORTED_CHAINS.BASE && chain?.id !== SUPPORTED_CHAINS.BASE_SEPOLIA
-          ? 'rounded-nexus-full'
-          : '',
+          ? 'rounded-nexus-full w-6 h-6'
+          : 'w-5 h-5',
       )}
     />
   );

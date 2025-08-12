@@ -1,7 +1,7 @@
 import React from 'react';
 import { SimulationResult, BridgeAndExecuteSimulationResult, Intent } from '../../../types';
 import { CHAIN_METADATA, SUPPORTED_CHAINS } from '../../../constants';
-import { cn, formatCost, truncateAddress } from '../../utils/utils';
+import { cn, formatCost, getPrimaryButtonText, truncateAddress } from '../../utils/utils';
 import {
   Drawer,
   DrawerTrigger,
@@ -17,7 +17,7 @@ import TwoCircles from '../icons/TwoCircles';
 import MoneyCircles from '../icons/MoneyCircles';
 import { Button } from '../motion/button-motion';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
-import { TransactionType } from '../../types';
+import { OrchestratorStatus, ReviewStatus, TransactionType } from '../../types';
 import { getFiatValue } from '../../utils/balance-utils';
 
 interface TransactionDetailsDrawerProps {
@@ -33,6 +33,8 @@ interface TransactionDetailsDrawerProps {
   callback: () => void;
   triggerClassname?: string;
   type?: TransactionType;
+  status: OrchestratorStatus;
+  reviewStatus: ReviewStatus;
 }
 
 interface ChainInfo {
@@ -74,6 +76,8 @@ export function TransactionDetailsDrawer({
   callback,
   triggerClassname = '',
   type,
+  status,
+  reviewStatus,
 }: TransactionDetailsDrawerProps) {
   const { exchangeRates } = useInternalNexus();
   const getSimulationData = (): SimulationData | null => {
@@ -282,11 +286,11 @@ export function TransactionDetailsDrawer({
                           src={chainMeta?.logo}
                           alt={chainMeta?.name || 'Chain'}
                           className={cn(
-                            'w-8 h-8',
+                            '',
                             source.chainID !== SUPPORTED_CHAINS.BASE &&
                               source.chainID !== SUPPORTED_CHAINS.BASE_SEPOLIA
-                              ? 'rounded-full'
-                              : '',
+                              ? 'rounded-full w-8 h-8'
+                              : 'w-6 h-6',
                           )}
                         />
                         <div className="flex flex-col items-start gap-y-1">
@@ -317,7 +321,7 @@ export function TransactionDetailsDrawer({
         <DrawerFooter className="border-t border-nexus-muted-secondary/20 px-4 py-2 mt-6">
           <DrawerClose className="w-full">
             <Button onClick={callback} className="px-4 w-full font-nexus-primary min-h-12">
-              Start Transaction
+              {getPrimaryButtonText(status, reviewStatus)}
             </Button>
           </DrawerClose>
         </DrawerFooter>

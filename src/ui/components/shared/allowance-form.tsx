@@ -144,7 +144,7 @@ export function AllowanceForm({
                             index > 0 ? '-ml-5' : '',
                             chainMeta?.id !== SUPPORTED_CHAINS.BASE &&
                               chainMeta?.id !== SUPPORTED_CHAINS.BASE_SEPOLIA
-                              ? 'rounded-nexus-full'
+                              ? 'rounded-nexus-full '
                               : '',
                           )}
                           style={{ zIndex: filteredChains.length - index }}

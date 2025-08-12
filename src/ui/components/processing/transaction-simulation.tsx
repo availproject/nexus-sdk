@@ -2,7 +2,7 @@ import React from 'react';
 import { SimulationResult, BridgeAndExecuteSimulationResult } from '../../../types';
 import { InfoMessage } from '../shared/info-message';
 import { TransactionDetailsDrawer } from '../shared/transaction-details-drawer';
-import { TransactionType } from '../../types';
+import { OrchestratorStatus, ReviewStatus, TransactionType } from '../../types';
 import TextLoader from '../motion/text-loader';
 
 interface TransactionSimulationProps {
@@ -18,6 +18,8 @@ interface TransactionSimulationProps {
   };
   type?: TransactionType;
   callback: () => void;
+  status: OrchestratorStatus;
+  reviewStatus: ReviewStatus;
 }
 
 export function TransactionSimulation({
@@ -26,6 +28,8 @@ export function TransactionSimulation({
   inputData,
   type,
   callback,
+  status,
+  reviewStatus,
 }: TransactionSimulationProps) {
   if (isLoading) {
     return (
@@ -56,6 +60,8 @@ export function TransactionSimulation({
           callback={callback}
           triggerClassname="px-6"
           type={type}
+          status={status}
+          reviewStatus={reviewStatus}
         />
       </div>
     </div>

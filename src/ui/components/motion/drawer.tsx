@@ -45,7 +45,15 @@ function DrawerTrigger({
   );
 }
 
-function DrawerContent({ children, className }: { children: React.ReactNode; className?: string }) {
+function DrawerContent({
+  children,
+  className,
+  contentClassName,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  contentClassName?: string;
+}) {
   const context = React.useContext(DrawerContext);
   if (!context) throw new Error('DrawerContent must be used within a Drawer');
 
@@ -85,7 +93,7 @@ function DrawerContent({ children, className }: { children: React.ReactNode; cla
             }}
           >
             {/* Content */}
-            <div className="flex-1 overflow-y-auto">{children}</div>
+            <div className={cn('flex-1 overflow-y-auto', contentClassName)}>{children}</div>
           </motion.div>
         </>
       )}

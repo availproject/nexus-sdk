@@ -320,4 +320,5 @@ export interface ProcessorCardProps {
   description: string;
   error: Error | null;
   executionResult: BridgeResult | TransferResult | BridgeAndExecuteResult | null;
+  disableCollapse?: boolean;
 }

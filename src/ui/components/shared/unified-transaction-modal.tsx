@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { BaseModal } from '../motion/base-modal';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
-import { cn, getButtonText, getContentKey } from '../../utils/utils';
+import { cn, getContentKey, getModalTitle, getPrimaryButtonText } from '../../utils/utils';
 import { type TransactionType } from '../../utils/balance-utils';
 import { TransactionSimulation } from '../processing/transaction-simulation';
 import { AvailLogo } from '../icons/AvailLogo';
@@ -141,17 +141,6 @@ export function UnifiedTransactionModal({
     );
   };
 
-  const getModalTitle = () => {
-    if (status === 'initializing') return 'Initialize Nexus';
-    if (status === 'set_allowance') return 'Approve Token Allowance';
-    return modalTitle;
-  };
-
-  const getPrimaryButtonText = () => {
-    if (status === 'set_allowance') return 'Approve & Continue';
-    return getButtonText(status, reviewStatus);
-  };
-
   const showFooterButtons = status !== 'processing' && status !== 'success' && status !== 'error';
 
   const preventClose = status === 'processing' || reviewStatus === 'simulating';
@@ -174,7 +163,9 @@ export function UnifiedTransactionModal({
       {showHeader && (
         <DialogHeader className="flex-shrink-0 flex flex-row items-center justify-between relative px-6 py-4 h-16 overflow-hidden w-full">
           <AvailLogo className="absolute top-0 left-1/2 -translate-x-1/2 opacity-10" />
-          <DialogTitle className="font-semibold">{getModalTitle()}</DialogTitle>
+          <DialogTitle className="font-semibold text-nexus-black">
+            {getModalTitle(status, modalTitle)}
+          </DialogTitle>
         </DialogHeader>
       )}
 
@@ -188,7 +179,7 @@ export function UnifiedTransactionModal({
         <SlideTransition contentKey={getContentKey(status, [reviewStatus])}>
           {(status === 'initializing' || status === 'review' || status === 'simulation_error') && (
             <>
-              <UnifiedBalance isBusy={isBusy} />
+              <UnifiedBalance />
 
               <FormComponent
                 inputData={transformedInputData || {}}
@@ -234,6 +225,8 @@ export function UnifiedTransactionModal({
                       inputData={transformedInputData}
                       callback={debouncedClick}
                       type={transactionType}
+                      status={status}
+                      reviewStatus={reviewStatus}
                     />
                   )
                 )}
@@ -248,7 +241,7 @@ export function UnifiedTransactionModal({
       {showFooterButtons && (
         <DialogFooter className="flex-shrink-0 w-full mt-auto">
           <ActionButtons
-            primaryText={getPrimaryButtonText()}
+            primaryText={getPrimaryButtonText(status, reviewStatus)}
             onPrimary={handleButtonClick}
             onCancel={cancelTransaction}
             primaryLoading={isPrimaryLoading}

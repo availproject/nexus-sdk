@@ -86,3 +86,14 @@ export function getFiatValue(
   const approx = Number.isFinite(rate) && Number.isFinite(amountNum) ? rate * amountNum : 0;
   return `≈ $${approx.toFixed(2)}`;
 }
+
+export const TOKEN_IMAGE_MAP: Record<string, string> = {
+  BNB: 'https://assets.coingecko.com/asset_platforms/images/1/large/bnb_smart_chain.png',
+  KAIA: 'https://assets.coingecko.com/asset_platforms/images/9672/large/kaia.png',
+  ETH: 'https://assets.coingecko.com/asset_platforms/images/279/large/ethereum.png?1706606803',
+  USDT: 'https://coin-images.coingecko.com/coins/images/35023/large/USDT.png',
+  POL: 'https://coin-images.coingecko.com/coins/images/32440/standard/polygon.png',
+  USDC: 'https://coin-images.coingecko.com/coins/images/6319/large/usdc.png',
+  AVAX: 'https://assets.coingecko.com/coins/images/12559/standard/Avalanche_Circle_RedWhite_Trans.png',
+  SOPH: 'https://assets.coingecko.com/coins/images/38680/large/sophon_logo_200.png',
+};

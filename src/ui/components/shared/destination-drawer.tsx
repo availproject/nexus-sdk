@@ -38,7 +38,7 @@ const DestinationTrigger = ({
   return (
     <FormField label={'Destination'} className="flex-1 font-nexus-primary gap-y-2 w-full">
       <div
-        className="flex items-center justify-between py-1 px-4 gap-x-2 rounded-nexus-md border border-nexus-muted-secondary/20 bg-nexus-background w-full"
+        className="flex items-center justify-between py-2 px-4 gap-x-2 rounded-nexus-full border border-nexus-muted-secondary/20 bg-nexus-background w-full"
         style={{
           boxShadow:
             '0 4px 21.1px 0 rgba(0, 0, 0, 0.05), 0 7px 11px 0 rgba(255, 255, 255, 0.40) inset',
@@ -50,7 +50,7 @@ const DestinationTrigger = ({
               <img
                 src={TOKEN_METADATA[tokenValue]?.icon}
                 alt={TOKEN_METADATA[tokenValue]?.name}
-                className="rounded-full size-10 border border-nexus-border-secondary"
+                className="rounded-full size-10 border border-nexus-border-secondary/10"
               />
             ) : (
               <div className="size-10 rounded-full bg-nexus-secondary-background"></div>
@@ -60,21 +60,21 @@ const DestinationTrigger = ({
                 src={CHAIN_METADATA[chainId]?.logo}
                 alt={CHAIN_METADATA[chainId]?.name}
                 className={cn(
-                  'size-6 absolute bottom-0 -right-1',
+                  ' absolute bottom-0 -right-1',
                   chainId !== SUPPORTED_CHAINS?.BASE && chainId !== SUPPORTED_CHAINS?.BASE_SEPOLIA
-                    ? 'rounded-full'
-                    : '',
+                    ? 'rounded-full size-6'
+                    : 'size-5',
                 )}
               />
             ) : (
               <div className="size-6 absolute bottom-0 right-0 rounded-full bg-nexus-black/20" />
             )}
           </div>
-          <div className="flex flex-col items-end gap-y-1">
-            <p className="text-nexus-black font-semibold font-nexus-primary text-base text-right">
+          <div className="flex flex-col items-start gap-y-1">
+            <p className="text-nexus-black font-semibold font-nexus-primary text-base text-left">
               {tokenValue ? tokenValue : 'Token'}
             </p>
-            <p className="text-nexus-muted text-xs font-semibold font-nexus-primary text-right">
+            <p className="text-nexus-muted text-xs font-semibold font-nexus-primary text-left">
               {chainId ? CHAIN_METADATA[chainId]?.name : 'Chain'}
             </p>
           </div>
@@ -99,7 +99,7 @@ const DestinationDrawer = ({
       <DrawerTrigger disabled={isChainSelectDisabled && isTokenSelectDisabled}>
         <DestinationTrigger chainValue={chainValue} tokenValue={tokenValue} />
       </DrawerTrigger>
-      <DrawerContent className="font-nexus-primary">
+      <DrawerContent className="font-nexus-primary" contentClassName="overflow-hidden">
         <DrawerHeader className="px-4 pt-4 pb-0">
           <div className="flex items-center justify-between mb-4">
             <DrawerTitle className="font-nexus-primary">

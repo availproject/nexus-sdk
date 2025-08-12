@@ -484,3 +484,13 @@ export function truncateAddress(
 
   return `${address.slice(0, startLength)}...${address.slice(-endLength)}`;
 }
+
+export const getModalTitle = (status: OrchestratorStatus, modalTitle: string) => {
+  if (status === 'set_allowance') return 'Approve Token Allowance';
+  return modalTitle;
+};
+
+export const getPrimaryButtonText = (status: OrchestratorStatus, reviewStatus: ReviewStatus) => {
+  if (status === 'set_allowance') return 'Approve & Continue';
+  return getButtonText(status, reviewStatus);
+};
