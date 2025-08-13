@@ -7,7 +7,6 @@ import { extractErrorMessage, logger } from '../utils';
 import { BridgeService } from './services/bridge-service';
 import { TransferService } from './services/transfer-service';
 import { ExecuteService } from './services/execute-service';
-import { ApprovalService } from './services/approval-service';
 import { BridgeExecuteService } from './services/bridge-execute-service';
 
 import type {
@@ -31,7 +30,6 @@ import type {
   RequestForFunds,
   BridgeAndExecuteSimulationResult,
   SUPPORTED_CHAINS_IDS,
-  SUPPORTED_TOKENS,
 } from '../../types';
 
 /**
@@ -47,7 +45,6 @@ export class ChainAbstractionAdapter {
   private bridgeService: BridgeService;
   private transferService: TransferService;
   private executeService: ExecuteService;
-  private approvalService: ApprovalService;
   private bridgeExecuteService: BridgeExecuteService;
 
   constructor(config?: SDKConfig) {
@@ -59,7 +56,6 @@ export class ChainAbstractionAdapter {
     this.bridgeService = new BridgeService(this);
     this.transferService = new TransferService(this);
     this.executeService = new ExecuteService(this);
-    this.approvalService = new ApprovalService(this);
     this.bridgeExecuteService = new BridgeExecuteService(this);
     this.setGasEstimationEnabled(true);
   }
@@ -226,23 +222,6 @@ export class ChainAbstractionAdapter {
    */
   public async simulateExecute(params: ExecuteParams): Promise<ExecuteSimulation> {
     return this.executeService.simulateExecute(params);
-  }
-
-  /**
-   * Ensure contract approval using the approval service.
-   */
-  public async ensureContractApproval(
-    tokenApproval: { token: SUPPORTED_TOKENS; amount: string },
-    spenderAddress: string,
-    chainId: number,
-    waitForConfirmation: boolean = false,
-  ) {
-    return this.approvalService.ensureContractApproval(
-      tokenApproval,
-      spenderAddress,
-      chainId,
-      waitForConfirmation,
-    );
   }
 
   /**

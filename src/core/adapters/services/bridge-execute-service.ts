@@ -22,7 +22,6 @@ import type { ProgressStep } from '@arcana/ca-sdk';
 // Local constants for the service
 const ADAPTER_CONSTANTS = {
   DEFAULT_DECIMALS: 18,
-  APPROVAL_BUFFER_PERCENTAGE: 10000n, // 100%
 };
 
 // Type definitions for transaction-related objects
@@ -227,6 +226,7 @@ export class BridgeExecuteService extends BaseService {
           // pass helper to emit steps
           (step) => this.caEvents.emit(NEXUS_EVENTS.BRIDGE_EXECUTE_COMPLETED_STEPS, step),
           makeStep,
+          0, // disable approval buffer for bridge+execute
         );
 
       const result: BridgeAndExecuteResult = {
@@ -548,6 +548,7 @@ export class BridgeExecuteService extends BaseService {
     requiredConfirmations?: number,
     emitStep?: (step: ProgressStep) => void,
     makeStep?: (typeID: string, type: string, data?: Record<string, unknown>) => ProgressStep,
+    approvalBufferBpsOverride?: number,
   ): Promise<{
     executeTransactionHash?: string;
     executeExplorerUrl?: string;
@@ -580,6 +581,9 @@ export class BridgeExecuteService extends BaseService {
           token: bridgeToken,
           amount: userFriendlyAmount,
         },
+        ...(approvalBufferBpsOverride !== undefined
+          ? { approvalBufferBps: approvalBufferBpsOverride }
+          : {}),
       };
 
       logger.info(
@@ -674,7 +678,7 @@ export class BridgeExecuteService extends BaseService {
       return {
         executeTransactionHash: executeResult.transactionHash,
         executeExplorerUrl: executeResult.explorerUrl,
-        approvalTransactionHash: undefined, // Execute service handles approval internally
+        approvalTransactionHash: executeResult.approvalTransactionHash,
       };
     } catch (executeError) {
       logger.error('DEBUG handleExecutePhase - Execute error:', executeError as Error);
@@ -1095,7 +1099,9 @@ export class BridgeExecuteService extends BaseService {
 
       // Calculate how much we need to bridge (required - what's already on destination)
       const optimalBridgeAmountBigInt = requiredAmountBigInt - destinationBalanceBigInt;
-      const optimalAmount = Math.max(0, Number(optimalBridgeAmountBigInt)).toString();
+      const optimalAmount = (
+        optimalBridgeAmountBigInt > 0n ? optimalBridgeAmountBigInt : 0n
+      ).toString();
 
       logger.info(`Optimal bridge calculation:`, {
         token,

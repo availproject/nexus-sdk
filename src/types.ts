@@ -189,6 +189,11 @@ export interface ExecuteParams {
     token: SUPPORTED_TOKENS;
     amount: string;
   };
+  /**
+   * Optional approval buffer in basis points (bps). Defaults to 100 (1%).
+   * Use 0 to disable buffer (e.g., for bridge+execute flows where exact balances are used).
+   */
+  approvalBufferBps?: number;
 }
 
 export interface ExecuteResult {
@@ -200,6 +205,7 @@ export interface ExecuteResult {
   confirmations?: number;
   gasUsed?: string;
   effectiveGasPrice?: string;
+  approvalTransactionHash?: string;
 }
 
 export interface ExecuteSimulation {

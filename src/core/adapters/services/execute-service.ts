@@ -39,17 +39,21 @@ export class ExecuteService extends BaseService {
       const preparation = await this.transactionService.prepareExecution(params);
 
       // Handle approval if needed (after chain switching)
+      let approvalTxHash: string | undefined;
       if (params.tokenApproval) {
         const approvalResult = await this.approvalService.ensureContractApproval(
           params.tokenApproval,
           params.contractAddress,
           params.toChainId,
           false,
+          params.approvalBufferBps,
         );
 
         if (approvalResult.error) {
           throw new Error(`Approval failed: ${approvalResult.error}`);
         }
+
+        approvalTxHash = approvalResult.transactionHash;
       }
 
       // Send transaction
@@ -86,6 +90,16 @@ export class ExecuteService extends BaseService {
         params.toChainId,
         receiptInfo,
       );
+
+      // If approval happened, attach approval tx hash if available
+      if (params.tokenApproval && approvalTxHash) {
+        // Augment the typed result by casting to the extended type locally before returning
+        const extendedResult: ExecuteResult = {
+          ...result,
+          approvalTransactionHash: approvalTxHash,
+        };
+        return extendedResult;
+      }
 
       return result;
     } catch (error) {

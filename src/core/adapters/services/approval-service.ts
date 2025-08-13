@@ -17,8 +17,9 @@ const FUNCTION_SELECTORS = {
  * Internal constants for adapter behavior
  */
 const ADAPTER_CONSTANTS = {
-  APPROVAL_BUFFER_PERCENTAGE: 100n, // 1% buffer to avoid unnecessary re-approvals (represented as 1/100)
-  DEFAULT_DECIMALS: 18, // Default token decimals when metadata is not available
+  // Default 1% buffer (100 bps). Can be overridden per-call via ExecuteParams.approvalBufferBps
+  APPROVAL_BUFFER_BPS_DEFAULT: 100n,
+  DEFAULT_DECIMALS: 18,
   MAX_APPROVAL_AMOUNT: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
 } as const;
 
@@ -33,6 +34,7 @@ export class ApprovalService extends BaseService {
     tokenApproval: { token: SUPPORTED_TOKENS; amount: string },
     spenderAddress: string,
     chainId: number,
+    approvalBufferBps?: number,
   ): Promise<ApprovalInfo> {
     this.ensureInitialized();
 
@@ -98,8 +100,11 @@ export class ApprovalService extends BaseService {
       const currentAllowance = BigInt(allowanceResponse as string);
 
       // Add a small buffer to avoid repeated approvals due to minor amount differences
-      const requiredAmountWithBuffer =
-        amountInWei + (amountInWei * ADAPTER_CONSTANTS.APPROVAL_BUFFER_PERCENTAGE) / 10000n;
+      const bufferBps =
+        approvalBufferBps !== undefined && approvalBufferBps >= 0
+          ? BigInt(approvalBufferBps)
+          : ADAPTER_CONSTANTS.APPROVAL_BUFFER_BPS_DEFAULT;
+      const requiredAmountWithBuffer = amountInWei + (amountInWei * bufferBps) / 10000n;
 
       const needsApproval = currentAllowance < requiredAmountWithBuffer;
 
@@ -128,12 +133,18 @@ export class ApprovalService extends BaseService {
     spenderAddress: string,
     chainId: number,
     waitForConfirmation: boolean = false,
+    approvalBufferBps?: number,
   ): Promise<ApprovalResult> {
     this.ensureInitialized();
 
     try {
       // Check if approval is needed
-      const approvalInfo = await this.checkApprovalNeeded(tokenApproval, spenderAddress, chainId);
+      const approvalInfo = await this.checkApprovalNeeded(
+        tokenApproval,
+        spenderAddress,
+        chainId,
+        approvalBufferBps,
+      );
 
       // Skip approval if sufficient allowance exists
       if (!approvalInfo.needsApproval) {
@@ -157,9 +168,12 @@ export class ApprovalService extends BaseService {
       const fromAddress = accounts[0];
 
       // Calculate buffer amount with proper decimal handling for MetaMask display
+      const bufferBps =
+        approvalBufferBps !== undefined && approvalBufferBps >= 0
+          ? BigInt(approvalBufferBps)
+          : ADAPTER_CONSTANTS.APPROVAL_BUFFER_BPS_DEFAULT;
       const requiredAmountWithBuffer =
-        approvalInfo.requiredAmount +
-        (approvalInfo.requiredAmount * ADAPTER_CONSTANTS.APPROVAL_BUFFER_PERCENTAGE) / 10000n;
+        approvalInfo.requiredAmount + (approvalInfo.requiredAmount * bufferBps) / 10000n;
 
       // Get token decimals for proper formatting
       const tokenMetadata = TOKEN_METADATA[tokenApproval.token.toUpperCase()];
