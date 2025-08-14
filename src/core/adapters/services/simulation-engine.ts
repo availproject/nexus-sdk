@@ -449,22 +449,19 @@ export class SimulationEngine {
 
     // Step 2: Approval step (if needed for ERC20)
     if (tokenRequired !== 'ETH' && contractCall.tokenApproval) {
-      // Extract the actual amount from the function parameters to ensure approval matches execution
-      // For most DeFi functions, the amount is typically the second parameter after the token address
-      const actualAmountToApprove = (functionParams[1] as string) || amountRequired;
+      const actualAmountToApprove = amountRequired;
 
       logger.info('DEBUG SimulationEngine - Approval step preparation:', {
         tokenRequired,
         amountRequired,
         actualAmountToApprove,
-        functionParams1: functionParams[1],
         contractToApprove: contractCall.contractAddress,
         tokenAddress: balanceCheck.tokenAddress,
       });
 
       const approvalCallData = await this.buildApprovalCallData(
         contractCall.contractAddress,
-        actualAmountToApprove.toString(),
+        actualAmountToApprove,
       );
 
       steps.push({
