@@ -152,22 +152,15 @@ if [[ "$RELEASE_TYPE" == "prod" ]]; then
 else
     print_header "Creating development release..."
     
-    # Version bump with dev suffix
-    print_status "Bumping dev version ($VERSION_TYPE)..."
+    # Version bump (let npm manage prerelease numbers)
+    print_status "Bumping dev version (pre$VERSION_TYPE with preid=dev)..."
     cd packages/core
-    
-    # Get current version and increment
-    CURRENT_VERSION=$(node -p "require('./package.json').version")
-    npm version $VERSION_TYPE --no-git-tag-version
-    NEW_VERSION=$(node -p "require('./package.json').version")
-    DEV_VERSION="$NEW_VERSION-dev"
-    
-    # Set dev version
-    npm version $DEV_VERSION --no-git-tag-version
+    npm version pre$VERSION_TYPE --preid=dev --no-git-tag-version
+    DEV_VERSION=$(node -p "require('./package.json').version")
     cd ../..
     
-    # Update root package.json
-    npm version $DEV_VERSION --no-git-tag-version
+    # Update root package.json to match
+    npm version "$DEV_VERSION" --no-git-tag-version
     
     # Commit version changes
     git add packages/core/package.json package.json
