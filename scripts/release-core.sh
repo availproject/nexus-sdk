@@ -124,6 +124,14 @@ if [[ "$RELEASE_TYPE" == "prod" ]]; then
     # Remove workspace-only dependencies that should be bundled (e.g., @nexus/commons)
     node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));if(p.dependencies&&p.dependencies['@nexus/commons']){delete p.dependencies['@nexus/commons'];}fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
     
+    # Bundle internal commons into dist and rewrite imports
+    print_status "Bundling internal @nexus/commons into dist..."
+    mkdir -p dist/commons
+    cp -R ../commons/dist/* dist/commons/
+    # Rewrite any references to @nexus/commons to local ./commons
+    find dist -type f \( -name "*.js" -o -name "*.mjs" -o -name "*.esm.js" -o -name "*.d.ts" \) -exec sed -i.tmp $'s/@nexus\\/commons\\/constants/.\/commons\/constants/g; s/@nexus\\/commons/.\/commons/g' {} +
+    find dist -name "*.tmp" -delete 2>/dev/null || true
+
     # Publish to npm
     print_status "Publishing @avail-project/nexus@$CORE_VERSION to npm..."
     npm publish --access public
@@ -182,6 +190,14 @@ else
     # Remove workspace-only dependencies that should be bundled (e.g., @nexus/commons)
     node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));if(p.dependencies&&p.dependencies['@nexus/commons']){delete p.dependencies['@nexus/commons'];}fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
     
+    # Bundle internal commons into dist and rewrite imports
+    print_status "Bundling internal @nexus/commons into dist..."
+    mkdir -p dist/commons
+    cp -R ../commons/dist/* dist/commons/
+    # Rewrite any references to @nexus/commons to local ./commons
+    find dist -type f \( -name "*.js" -o -name "*.mjs" -o -name "*.esm.js" -o -name "*.d.ts" \) -exec sed -i.tmp $'s/@nexus\\/commons\\/constants/.\/commons\/constants/g; s/@nexus\\/commons/.\/commons/g' {} +
+    find dist -name "*.tmp" -delete 2>/dev/null || true
+
     # Publish to npm with dev tag
     print_status "Publishing @avail-project/nexus@$DEV_VERSION to npm (dev tag)..."
     npm publish --access public --tag dev
