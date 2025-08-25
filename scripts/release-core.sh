@@ -152,7 +152,7 @@ else
     CURRENT_VERSION=$(node -p "require('./package.json').version")
     npm version $VERSION_TYPE --no-git-tag-version
     NEW_VERSION=$(node -p "require('./package.json').version")
-    DEV_VERSION="$NEW_VERSION-dev.$(date +%s)"
+    DEV_VERSION="$NEW_VERSION-dev"
     
     # Set dev version
     npm version $DEV_VERSION --no-git-tag-version
