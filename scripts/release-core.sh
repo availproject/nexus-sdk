@@ -121,6 +121,9 @@ if [[ "$RELEASE_TYPE" == "prod" ]]; then
     sed -i.tmp 's/"name": "@nexus\/core"/"name": "@avail-project\/nexus"/' package.json
     rm package.json.tmp 2>/dev/null || true
     
+    # Remove workspace-only dependencies that should be bundled (e.g., @nexus/commons)
+    node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));if(p.dependencies&&p.dependencies['@nexus/commons']){delete p.dependencies['@nexus/commons'];}fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+    
     # Publish to npm
     print_status "Publishing @avail-project/nexus@$CORE_VERSION to npm..."
     npm publish --access public
@@ -175,6 +178,9 @@ else
     # Update package name for publishing
     sed -i.tmp 's/"name": "@nexus\/core"/"name": "@avail-project\/nexus"/' package.json
     rm package.json.tmp 2>/dev/null || true
+    
+    # Remove workspace-only dependencies that should be bundled (e.g., @nexus/commons)
+    node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));if(p.dependencies&&p.dependencies['@nexus/commons']){delete p.dependencies['@nexus/commons'];}fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
     
     # Publish to npm with dev tag
     print_status "Publishing @avail-project/nexus@$DEV_VERSION to npm (dev tag)..."

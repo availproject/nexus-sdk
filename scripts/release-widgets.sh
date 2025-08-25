@@ -112,17 +112,29 @@ if [[ "$RELEASE_TYPE" == "prod" ]]; then
     # Create tag
     git tag "widgets-v$WIDGETS_VERSION"
     
-    # Temporarily rename package for publishing
+     # Temporarily rewrite package for publishing
     print_status "Preparing package for publishing as @avail-project/nexus-widgets..."
     cd packages/widgets
-    
+
     # Backup original package.json
     cp package.json package.json.backup
-    
-    # Update package name for publishing
-    sed -i.tmp 's/"name": "@nexus\/widgets"/"name": "@avail-project\/nexus-widgets"/' package.json
-    rm package.json.tmp 2>/dev/null || true
-    
+
+    # Resolve published core version (prod)
+    CORE_PUBLISHED_VERSION=$(npm view @avail-project/nexus version 2>/dev/null || true)
+    export CORE_PUBLISHED_VERSION
+    if [[ -z "$CORE_PUBLISHED_VERSION" ]]; then
+        print_error "@avail-project/nexus is not published or version could not be resolved. Release core first."
+        exit 1
+    fi
+
+    # Rewrite package.json: name -> @avail-project/nexus-widgets, deps: @nexus/core -> @avail-project/nexus@<version>, remove @nexus/commons
+    node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.name='@avail-project/nexus-widgets';p.dependencies=p.dependencies||{};if(p.dependencies['@nexus/core']){delete p.dependencies['@nexus/core'];p.dependencies['@avail-project/nexus']=process.env.CORE_PUBLISHED_VERSION;}if(p.dependencies['@nexus/commons']){delete p.dependencies['@nexus/commons'];}fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+
+    # Rewrite built imports in dist from internal packages to published core (CJS/ESM/types)
+    sed -i.tmp 's/@nexus\/core/@avail-project\/nexus/g' dist/index.js dist/index.esm.js dist/index.d.ts 2>/dev/null || true
+    sed -i.tmp 's/@nexus\/commons/@avail-project\/nexus/g' dist/index.js dist/index.esm.js dist/index.d.ts 2>/dev/null || true
+    rm dist/*.tmp 2>/dev/null || true
+
     # Publish to npm
     print_status "Publishing @avail-project/nexus-widgets@$WIDGETS_VERSION to npm..."
     npm publish --access public
@@ -165,17 +177,29 @@ else
     # Create tag
     git tag "widgets-v$DEV_VERSION"
     
-    # Temporarily rename package for publishing
+    # Temporarily rewrite package for publishing
     print_status "Preparing package for publishing as @avail-project/nexus-widgets..."
     cd packages/widgets
-    
+
     # Backup original package.json
     cp package.json package.json.backup
-    
-    # Update package name for publishing
-    sed -i.tmp 's/"name": "@nexus\/widgets"/"name": "@avail-project\/nexus-widgets"/' package.json
-    rm package.json.tmp 2>/dev/null || true
-    
+
+    # Resolve latest published dev core version
+    CORE_PUBLISHED_VERSION=$(npm view @avail-project/nexus@dev version 2>/dev/null || true)
+    export CORE_PUBLISHED_VERSION
+    if [[ -z "$CORE_PUBLISHED_VERSION" ]]; then
+        print_error "@avail-project/nexus@dev is not published. Please release core dev first (./scripts/release-core.sh dev)."
+        exit 1
+    fi
+
+    # Rewrite package.json: name -> @avail-project/nexus-widgets, deps: @nexus/core -> @avail-project/nexus@<dev-version>, remove @nexus/commons
+    node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.name='@avail-project/nexus-widgets';p.dependencies=p.dependencies||{};if(p.dependencies['@nexus/core']){delete p.dependencies['@nexus/core'];p.dependencies['@avail-project/nexus']=process.env.CORE_PUBLISHED_VERSION;}if(p.dependencies['@nexus/commons']){delete p.dependencies['@nexus/commons'];}fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+
+    # Rewrite built imports in dist from internal packages to published core (CJS/ESM/types)
+    sed -i.tmp 's/@nexus\/core/@avail-project\/nexus/g' dist/index.js dist/index.esm.js dist/index.d.ts 2>/dev/null || true
+    sed -i.tmp 's/@nexus\/commons/@avail-project\/nexus/g' dist/index.js dist/index.esm.js dist/index.d.ts 2>/dev/null || true
+    rm dist/*.tmp 2>/dev/null || true
+
     # Publish to npm with dev tag
     print_status "Publishing @avail-project/nexus-widgets@$DEV_VERSION to npm (dev tag)..."
     npm publish --access public --tag dev

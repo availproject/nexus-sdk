@@ -40,7 +40,7 @@
     "sdk"
   ],
   "author": "decocereus<amartya@availproject.co>",
-  "license": "Apache v2",
+  "license": "MIT",
   "devDependencies": {
     "@types/node": "^20.0.0",
     "husky": "^8.0.0",

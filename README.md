@@ -116,4 +116,4 @@ pnpm test
 
 ## License
 
-Apache v2
+MIT

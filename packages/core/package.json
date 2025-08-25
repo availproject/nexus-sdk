@@ -26,7 +26,7 @@
     "headless"
   ],
   "author": "decocereus<amartya@availproject.org>",
-  "license": "Apache v2",
+  "license": "MIT",
   "dependencies": {
     "@nexus/commons": "workspace:*",
     "@arcana/ca-sdk": "1.1.1",
