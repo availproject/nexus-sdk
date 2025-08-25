@@ -130,9 +130,13 @@ if [[ "$RELEASE_TYPE" == "prod" ]]; then
     # Rewrite package.json: name -> @avail-project/nexus-widgets, deps: @nexus/core -> @avail-project/nexus@<version>, remove @nexus/commons
     node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.name='@avail-project/nexus-widgets';p.dependencies=p.dependencies||{};if(p.dependencies['@nexus/core']){delete p.dependencies['@nexus/core'];p.dependencies['@avail-project/nexus']=process.env.CORE_PUBLISHED_VERSION;}if(p.dependencies['@nexus/commons']){delete p.dependencies['@nexus/commons'];}fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
 
-    # Rewrite built imports in dist from internal packages to published core (CJS/ESM/types)
+    # Bundle internal commons into dist and rewrite references to local ./commons
+    print_status "Bundling internal @nexus/commons into widgets dist..."
+    mkdir -p dist/commons
+    cp -R ../../commons/dist/* dist/commons/
+    # Rewrite imports to reference local commons and published core
     sed -i.tmp 's/@nexus\/core/@avail-project\/nexus/g' dist/index.js dist/index.esm.js dist/index.d.ts 2>/dev/null || true
-    sed -i.tmp 's/@nexus\/commons/@avail-project\/nexus/g' dist/index.js dist/index.esm.js dist/index.d.ts 2>/dev/null || true
+    sed -i.tmp 's/@nexus\/commons\\/constants/.\/commons\/constants/g; s/@nexus\/commons/.\/commons/g' dist/index.js dist/index.esm.js dist/index.d.ts 2>/dev/null || true
     rm dist/*.tmp 2>/dev/null || true
 
     # Publish to npm
@@ -195,9 +199,13 @@ else
     # Rewrite package.json: name -> @avail-project/nexus-widgets, deps: @nexus/core -> @avail-project/nexus@<dev-version>, remove @nexus/commons
     node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.name='@avail-project/nexus-widgets';p.dependencies=p.dependencies||{};if(p.dependencies['@nexus/core']){delete p.dependencies['@nexus/core'];p.dependencies['@avail-project/nexus']=process.env.CORE_PUBLISHED_VERSION;}if(p.dependencies['@nexus/commons']){delete p.dependencies['@nexus/commons'];}fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
 
-    # Rewrite built imports in dist from internal packages to published core (CJS/ESM/types)
+    # Bundle internal commons into dist and rewrite references to local ./commons
+    print_status "Bundling internal @nexus/commons into widgets dist..."
+    mkdir -p dist/commons
+    cp -R ../../commons/dist/* dist/commons/
+    # Rewrite imports to reference local commons and published core
     sed -i.tmp 's/@nexus\/core/@avail-project\/nexus/g' dist/index.js dist/index.esm.js dist/index.d.ts 2>/dev/null || true
-    sed -i.tmp 's/@nexus\/commons/@avail-project\/nexus/g' dist/index.js dist/index.esm.js dist/index.d.ts 2>/dev/null || true
+    sed -i.tmp 's/@nexus\/commons\\/constants/.\/commons\/constants/g; s/@nexus\/commons/.\/commons/g' dist/index.js dist/index.esm.js dist/index.d.ts 2>/dev/null || true
     rm dist/*.tmp 2>/dev/null || true
 
     # Publish to npm with dev tag

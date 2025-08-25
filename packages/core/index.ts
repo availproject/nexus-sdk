@@ -33,7 +33,7 @@ export type {
   TokenMetadata,
   ProgressStep,
   ProgressSteps,
-} from '../commons';
+} from '@nexus/commons';
 
 // Re-export everything from commons (includes constants, etc.)
-export * from '../commons/constants';
+export * from '@nexus/commons/constants';

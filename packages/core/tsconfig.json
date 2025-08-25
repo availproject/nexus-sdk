@@ -3,11 +3,7 @@
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": ".",
-    "baseUrl": ".",
-    "paths": {
-      "@nexus/commons": ["../commons/index.ts"],
-      "@nexus/commons/*": ["../commons/*"]
-    }
+    "baseUrl": "."
   },
   "include": ["**/*.ts", "**/*.d.ts"],
   "exclude": ["dist", "node_modules"]
