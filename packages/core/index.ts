@@ -35,5 +35,5 @@ export type {
   ProgressSteps,
 } from '@nexus/commons';
 
-// Re-export everything from commons (includes constants, etc.)
-export * from '@nexus/commons/constants';
+// Re-export everything from commons (includes constants, utils, and types)
+export * from '@nexus/commons';
