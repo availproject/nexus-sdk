@@ -133,7 +133,7 @@ if [[ "$RELEASE_TYPE" == "prod" ]]; then
     # Bundle internal commons into dist and rewrite references to local ./commons
     print_status "Bundling internal @nexus/commons into widgets dist..."
     mkdir -p dist/commons
-    cp -R ../../commons/dist/* dist/commons/
+    cp -R ../commons/dist/* dist/commons/
     # Rewrite imports to reference local commons and published core
     sed -i.tmp 's/@nexus\/core/@avail-project\/nexus/g' dist/index.js dist/index.esm.js dist/index.d.ts 2>/dev/null || true
     sed -i.tmp 's/@nexus\/commons\\/constants/.\/commons\/constants/g; s/@nexus\/commons/.\/commons/g' dist/index.js dist/index.esm.js dist/index.d.ts 2>/dev/null || true
@@ -195,7 +195,7 @@ else
     # Bundle internal commons into dist and rewrite references to local ./commons
     print_status "Bundling internal @nexus/commons into widgets dist..."
     mkdir -p dist/commons
-    cp -R ../../commons/dist/* dist/commons/
+    cp -R ../commons/dist/* dist/commons/
     # Rewrite imports to reference local commons and published core
     sed -i.tmp 's/@nexus\/core/@avail-project\/nexus/g' dist/index.js dist/index.esm.js dist/index.d.ts 2>/dev/null || true
     sed -i.tmp 's/@nexus\/commons\\/constants/.\/commons\/constants/g; s/@nexus\/commons/.\/commons/g' dist/index.js dist/index.esm.js dist/index.d.ts 2>/dev/null || true
