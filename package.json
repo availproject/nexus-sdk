@@ -14,7 +14,7 @@
     "format": "prettier --write \"packages/**/*.{ts,tsx}\"",
     "prepare": "husky install",
     "typecheck": "pnpm -r typecheck",
-    "clean": "cd packages/widgets && rimraf dist && cd packages/core && rimraf dist && cd packages/commons && rimraf dist",
+    "clean": "rimraf packages/widgets/dist packages/core/dist packages/commons/dist",
     "release:core": "./scripts/release-core.sh",
     "release:core:dev": "./scripts/release-core.sh dev",
     "release:core:prod": "./scripts/release-core.sh prod",
