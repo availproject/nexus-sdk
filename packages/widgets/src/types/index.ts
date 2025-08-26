@@ -1,5 +1,5 @@
 import { ReactNode } from 'react';
-import { EthereumProvider, UserAsset } from '@arcana/ca-sdk';
+import { EthereumProvider, UserAsset } from '@nexus/commons';
 import { NexusSDK } from '@nexus/core';
 
 // Only import essential parameter types, not all from root types

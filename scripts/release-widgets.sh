@@ -134,10 +134,9 @@ if [[ "$RELEASE_TYPE" == "prod" ]]; then
     print_status "Bundling internal @nexus/commons into widgets dist..."
     mkdir -p dist/commons
     cp -R ../commons/dist/* dist/commons/
-    # Rewrite imports to reference local commons and published core
-    sed -i.tmp 's/@nexus\/core/@avail-project\/nexus/g' dist/index.js dist/index.esm.js dist/index.d.ts 2>/dev/null || true
-    sed -i.tmp 's/@nexus\/commons\\/constants/.\/commons\/constants/g; s/@nexus\/commons/.\/commons/g' dist/index.js dist/index.esm.js dist/index.d.ts 2>/dev/null || true
-    rm dist/*.tmp 2>/dev/null || true
+    # Rewrite imports across the entire dist to reference local commons and published core
+    find dist -type f \( -name "*.js" -o -name "*.mjs" -o -name "*.esm.js" -o -name "*.d.ts" \) -exec sed -i.tmp $'s/@nexus\\/core/@avail-project\\/nexus/g; s/@nexus\\/commons\\/constants/.\\/commons\\/constants/g; s/@nexus\\/commons/.\\/commons/g' {} +
+    find dist -name "*.tmp" -delete 2>/dev/null || true
 
     # Publish to npm
     print_status "Publishing @avail-project/nexus-widgets@$WIDGETS_VERSION to npm..."
@@ -196,10 +195,9 @@ else
     print_status "Bundling internal @nexus/commons into widgets dist..."
     mkdir -p dist/commons
     cp -R ../commons/dist/* dist/commons/
-    # Rewrite imports to reference local commons and published core
-    sed -i.tmp 's/@nexus\/core/@avail-project\/nexus/g' dist/index.js dist/index.esm.js dist/index.d.ts 2>/dev/null || true
-    sed -i.tmp 's/@nexus\/commons\\/constants/.\/commons\/constants/g; s/@nexus\/commons/.\/commons/g' dist/index.js dist/index.esm.js dist/index.d.ts 2>/dev/null || true
-    rm dist/*.tmp 2>/dev/null || true
+    # Rewrite imports across the entire dist to reference local commons and published core
+    find dist -type f \( -name "*.js" -o -name "*.mjs" -o -name "*.esm.js" -o -name "*.d.ts" \) -exec sed -i.tmp $'s/@nexus\\/core/@avail-project\\/nexus/g; s/@nexus\\/commons\\/constants/.\\/commons\\/constants/g; s/@nexus\\/commons/.\\/commons/g' {} +
+    find dist -name "*.tmp" -delete 2>/dev/null || true
 
     # Publish to npm with dev tag
     print_status "Publishing @avail-project/nexus-widgets@$DEV_VERSION to npm (dev tag)..."

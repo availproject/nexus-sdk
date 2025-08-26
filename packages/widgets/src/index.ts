@@ -9,4 +9,4 @@ export { BridgeButton } from './components/bridge/bridge-button';
 export { TransferButton } from './components/transfer/transfer-button';
 export { BridgeAndExecuteButton } from './components/bridge-execute/bridge-execute-button';
 
-export * as types from '@nexus/commons/types';
+export * from '@nexus/commons';
