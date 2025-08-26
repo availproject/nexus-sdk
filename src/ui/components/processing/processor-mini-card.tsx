@@ -127,7 +127,7 @@ export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
           className="p-1 hover:bg-gray-100 rounded-nexus-md transition-colors text-nexus-foreground"
           variant="link"
         >
-          <Maximize className="w-6 h-6 text-gray-600" />
+          <Maximize className="w-6 h-6 text-nexus-muted-secondary" />
         </Button>
       </div>
 
@@ -146,7 +146,7 @@ export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
           >
             <WordsPullUp
               text={processing?.statusText}
-              className="text-[16px] font-nexus-primary font-semibold text-black"
+              className="text-[16px] font-nexus-primary font-semibold text-nexus-black"
             />
           </motion.div>
           {status === 'success' &&

@@ -36,7 +36,7 @@ export function ActionButtons({
             'rounded-nexus-md',
             'text-base font-semibold font-nexus-primary leading-normal !bg-transparent',
             'border-zinc-400',
-            'text-black hover:text-black',
+            'text-nexus-black hover:text-nexus-muted-foreground',
             'hover:bg-zinc-200',
           )}
           onClick={onCancel}

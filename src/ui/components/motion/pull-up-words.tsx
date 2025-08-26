@@ -14,7 +14,7 @@ export function WordsPullUp({ text, className = '' }: { text: string; className?
           animate={{ y: 0, opacity: 1 }}
           transition={{ delay: i * 0.1 }}
           className={cn(
-            'text-center text-black font-nexus-primary font-semibold text-xl tracking-tighter',
+            'text-center text-nexus-black font-nexus-primary font-semibold text-xl tracking-tighter',
             'pr-2', // spacing between words
             className,
           )}

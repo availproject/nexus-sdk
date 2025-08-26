@@ -67,10 +67,12 @@ export function EnhancedInfoMessage({ error, context, className }: EnhancedInfoM
               )}
             />
             <div className="flex-1">
-              <p className="text-sm font-semibold font-nexus-primary text-gray-900">
+              <p className="text-sm font-semibold font-nexus-primary text-nexus-muted-secondary">
                 {chainMetadata.name}
               </p>
-              <p className="text-xs font-nexus-primary text-gray-600">Chain ID: {chainId}</p>
+              <p className="text-xs font-nexus-primary text-nexus-muted-secondary">
+                Chain ID: {chainId}
+              </p>
             </div>
             <Button
               onClick={handleAddChain}
@@ -92,7 +94,7 @@ export function EnhancedInfoMessage({ error, context, className }: EnhancedInfoM
             </Button>
           </div>
 
-          <p className="text-xs font-nexus-primary text-gray-500">
+          <p className="text-xs font-nexus-primary text-nexus-muted-secondary">
             This will add {chainMetadata.name} network to your wallet so you can use it for
             transactions.
           </p>
