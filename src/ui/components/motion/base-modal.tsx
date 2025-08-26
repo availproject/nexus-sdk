@@ -16,7 +16,7 @@ export function BaseModal({ isOpen, onClose, children, className }: ModalProps) 
         <motion.div
           layoutId="tx-processor"
           layout="position"
-          className="relative flex flex-col h-full w-full min-h-[500px] overflow-hidden"
+          className="relative flex flex-col h-full w-full min-h-[500px] overflow-hidden text-nexus-foreground"
         >
           {children}
         </motion.div>

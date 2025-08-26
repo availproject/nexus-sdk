@@ -72,7 +72,9 @@ export function ChainSelect({
               )}
             >
               <ChainIcon chainId={chain?.chainId.toString()} />
-              <p className=" font-semibold font-nexus-primary text-sm">{chain?.label}</p>
+              <p className="text-nexus-foreground font-semibold font-nexus-primary text-sm">
+                {chain?.label}
+              </p>
             </Button>
           </DrawerAutoClose>
         ))}

@@ -124,7 +124,7 @@ export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
             e.stopPropagation();
             toggleTransactionCollapse();
           }}
-          className="p-1 hover:bg-gray-100 rounded-nexus-md transition-colors"
+          className="p-1 hover:bg-gray-100 rounded-nexus-md transition-colors text-nexus-foreground"
           variant="link"
         >
           <Maximize className="w-6 h-6 text-gray-600" />
@@ -180,7 +180,7 @@ export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
               )
             ))}
           {status !== 'success' && (
-            <p className="font-nexus-primary text-sm text-grey-600 text-ellipsis overflow-hidden">
+            <p className="font-nexus-primary text-sm text-nexus-foreground text-ellipsis overflow-hidden">
               {description}
             </p>
           )}

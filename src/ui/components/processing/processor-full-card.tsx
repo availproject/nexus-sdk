@@ -107,9 +107,9 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
           }}
         >
           {status === 'error' || status === 'success' || disableCollapse ? (
-            <CircleX className="w-6 h-6" />
+            <CircleX className="w-6 h-6 text-nexus-foreground" />
           ) : (
-            <Minimize className="w-6 h-6" />
+            <Minimize className="w-6 h-6 text-nexus-foreground" />
           )}
         </Button>
         <div className="w-full p-4 relative z-10 mt-6">
@@ -306,7 +306,7 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
           >
             <Button
               onClick={cancelTransaction}
-              className="w-full bg-nexus-primary-hover font-nexus-primary text-[16px] font-semibold h-12 hover:not-even:bg-gray-700 rounded-nexus-md"
+              className="w-full bg-nexus-primary-hover font-nexus-primary text-[16px] text-nexus-snow-white font-semibold h-12 hover:not-even:bg-gray-700 rounded-nexus-md"
             >
               Close
             </Button>

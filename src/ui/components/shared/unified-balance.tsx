@@ -41,7 +41,7 @@ const BalanceTrigger = ({ balance, token }: { balance?: UserAsset; token?: SUPPO
               ≈ ${balance?.balanceInFiat}
             </p>
           </div>
-          <ChevronDownIcon size={24} />
+          <ChevronDownIcon size={24} className="text-nexus-foreground" />
         </div>
       )}
     </div>
@@ -80,7 +80,7 @@ const AllBalancesTrigger = ({ balances }: { balances: UserAsset[] }) => {
             ≈ ${totalFiat.toFixed(2)}
           </p>
         </div>
-        <ChevronDownIcon size={24} />
+        <ChevronDownIcon size={24} className="text-nexus-foreground" />
       </div>
     </div>
   );
@@ -156,7 +156,7 @@ const UnifiedBalance = () => {
   if (!tokenSymbol)
     return (
       <Drawer>
-        <DrawerTrigger className="px-6 font-nexus-primary w-full my-6">
+        <DrawerTrigger className="px-6 font-nexus-primary text-nexus-foreground w-full my-6">
           <AllBalancesTrigger balances={unifiedBalance} />
         </DrawerTrigger>
         <DrawerContent className="font-nexus-primary">
