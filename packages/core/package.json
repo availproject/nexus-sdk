@@ -1,5 +1,5 @@
 {
-  "name": "@nexus/core",
+  "name": "@avail-project/nexus",
   "version": "1.0.3-dev.0",
   "description": "Nexus headless SDK for cross-chain transactions",
   "main": "./dist/index.js",
@@ -37,7 +37,6 @@
   "author": "decocereus<amartya@availproject.org>",
   "license": "MIT",
   "dependencies": {
-    "@nexus/commons": "workspace:*",
     "@arcana/ca-sdk": "1.1.1",
     "@metamask/safe-event-emitter": "3.1.2",
     "decimal.js": "10.4.3"
