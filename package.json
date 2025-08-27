@@ -42,6 +42,7 @@
   "author": "decocereus<amartya@availproject.co>",
   "license": "MIT",
   "devDependencies": {
+    "@rollup/plugin-alias": "^5.1.1",
     "@types/node": "^20.0.0",
     "husky": "^8.0.0",
     "prettier": "^3.0.0",

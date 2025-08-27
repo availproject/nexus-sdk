@@ -2,6 +2,7 @@ import resolve from '@rollup/plugin-node-resolve';
 import commonjs from '@rollup/plugin-commonjs';
 import typescript from '@rollup/plugin-typescript';
 import json from '@rollup/plugin-json';
+import alias from '@rollup/plugin-alias';
 import dts from 'rollup-plugin-dts';
 import postcss from 'rollup-plugin-postcss';
 import { defineConfig } from 'rollup';
@@ -17,6 +18,10 @@ const shouldGenerateSourceMaps = false;
 const baseConfig = {
   input: 'src/index.ts',
   plugins: [
+    alias({
+      // Alias is not used for externals but kept for future non-externalized builds
+      entries: [{ find: '@nexus/commons', replacement: './dist/commons' }],
+    }),
     json(),
     resolve({
       browser: true,
@@ -43,6 +48,8 @@ const baseConfig = {
     typescript({
       tsconfig: './tsconfig.json',
       sourceMap: shouldGenerateSourceMaps,
+      declaration: false,
+      emitDeclarationOnly: false,
     }),
   ],
   external: [
@@ -56,6 +63,7 @@ const baseConfig = {
     /^motion/,
     'decimal.js',
     '@nexus/core',
+    '@nexus/commons',
     // @nexus/commons will be bundled since it's not published
   ],
   treeshake: {
@@ -77,6 +85,10 @@ export default defineConfig([
         exports: 'named',
         interop: 'auto',
         inlineDynamicImports: true,
+        paths: {
+          '@nexus/commons': './commons/index.js',
+          '@nexus/core': '@avail-project/nexus',
+        },
       },
       {
         file: 'dist/index.esm.js',
@@ -84,6 +96,10 @@ export default defineConfig([
         sourcemap: shouldGenerateSourceMaps,
         exports: 'named',
         inlineDynamicImports: true,
+        paths: {
+          '@nexus/commons': './commons/index.esm.js',
+          '@nexus/core': '@avail-project/nexus',
+        },
       },
     ],
   },
@@ -97,9 +113,17 @@ export default defineConfig([
         browser: true,
         preferBuiltins: false,
       }),
-      dts({
-        exclude: ['**/*.css'],
-      }),
+      dts({ exclude: ['**/*.css'] }),
+      // Rewrite import specifiers in generated d.ts
+      {
+        name: 'rewrite-commons-and-core-imports-dts',
+        renderChunk(code) {
+          return code
+            .replace(/@nexus\/commons\/constants/g, './commons/constants')
+            .replace(/@nexus\/commons/g, './commons')
+            .replace(/@nexus\/core/g, '@avail-project/nexus');
+        },
+      },
     ],
     external: [
       ...Object.keys(packageJson.peerDependencies || {}),
@@ -109,6 +133,7 @@ export default defineConfig([
       /^motion/,
       'decimal.js',
       '@nexus/core',
+      '@nexus/commons',
       /\.css$/,
     ],
   },

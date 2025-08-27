@@ -1,12 +1,13 @@
 {
   "name": "@nexus/commons",
   "version": "0.0.1",
-  "private": false,
   "description": "Shared types, constants, and utilities for Nexus SDK",
   "main": "./dist/index.js",
   "module": "./dist/index.esm.js",
   "types": "./dist/index.d.ts",
   "author": "decocereus<amartya@availproject.org>",
+  "private": true,
+  "sideEffects": false,
   "scripts": {
     "build": "rollup -c",
     "dev": "rollup -c -w",

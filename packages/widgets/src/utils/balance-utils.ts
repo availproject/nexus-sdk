@@ -1,4 +1,4 @@
-import type { UserAsset } from '@arcana/ca-sdk';
+import type { UserAsset } from '@nexus/core';
 import { SUPPORTED_CHAINS_IDS, SUPPORTED_TOKENS } from '@nexus/commons';
 
 export type TransactionType = 'bridge' | 'transfer' | 'bridgeAndExecute';

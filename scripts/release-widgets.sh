@@ -112,7 +112,7 @@ if [[ "$RELEASE_TYPE" == "prod" ]]; then
     # Create tag
     git tag "widgets-v$WIDGETS_VERSION"
     
-     # Temporarily rewrite package for publishing
+    # Temporarily rewrite package for publishing
     print_status "Preparing package for publishing as @avail-project/nexus-widgets..."
     cd packages/widgets
 
@@ -130,13 +130,10 @@ if [[ "$RELEASE_TYPE" == "prod" ]]; then
     # Rewrite package.json: name -> @avail-project/nexus-widgets, deps: @nexus/core -> @avail-project/nexus@<version>, remove @nexus/commons
     node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.name='@avail-project/nexus-widgets';p.dependencies=p.dependencies||{};if(p.dependencies['@nexus/core']){delete p.dependencies['@nexus/core'];p.dependencies['@avail-project/nexus']=process.env.CORE_PUBLISHED_VERSION;}if(p.dependencies['@nexus/commons']){delete p.dependencies['@nexus/commons'];}fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
 
-    # Bundle internal commons into dist and rewrite references to local ./commons
+    # Bundle internal commons into dist (imports already aliased by Rollup)
     print_status "Bundling internal @nexus/commons into widgets dist..."
     mkdir -p dist/commons
     cp -R ../commons/dist/* dist/commons/
-    # Rewrite imports across the entire dist to reference local commons and published core
-    find dist -type f \( -name "*.js" -o -name "*.mjs" -o -name "*.esm.js" -o -name "*.d.ts" \) -exec sed -i.tmp $'s/@nexus\\/core/@avail-project\\/nexus/g; s/@nexus\\/commons\\/constants/.\\/commons\\/constants/g; s/@nexus\\/commons/.\\/commons/g' {} +
-    find dist -name "*.tmp" -delete 2>/dev/null || true
 
     # Publish to npm
     print_status "Publishing @avail-project/nexus-widgets@$WIDGETS_VERSION to npm..."
@@ -164,6 +161,7 @@ else
     cd packages/widgets
     npm version pre$VERSION_TYPE --preid=dev --no-git-tag-version
     DEV_VERSION=$(node -p "require('./package.json').version")
+    export DEV_VERSION
     cd ../..
     
     # Commit version changes
@@ -191,17 +189,20 @@ else
     # Rewrite package.json: name -> @avail-project/nexus-widgets, deps: @nexus/core -> @avail-project/nexus@<dev-version>, remove @nexus/commons
     node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.name='@avail-project/nexus-widgets';p.dependencies=p.dependencies||{};if(p.dependencies['@nexus/core']){delete p.dependencies['@nexus/core'];p.dependencies['@avail-project/nexus']=process.env.CORE_PUBLISHED_VERSION;}if(p.dependencies['@nexus/commons']){delete p.dependencies['@nexus/commons'];}fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
 
-    # Bundle internal commons into dist and rewrite references to local ./commons
+    # Bundle internal commons into dist (imports already aliased by Rollup)
     print_status "Bundling internal @nexus/commons into widgets dist..."
     mkdir -p dist/commons
     cp -R ../commons/dist/* dist/commons/
-    # Rewrite imports across the entire dist to reference local commons and published core
-    find dist -type f \( -name "*.js" -o -name "*.mjs" -o -name "*.esm.js" -o -name "*.d.ts" \) -exec sed -i.tmp $'s/@nexus\\/core/@avail-project\\/nexus/g; s/@nexus\\/commons\\/constants/.\\/commons\\/constants/g; s/@nexus\\/commons/.\\/commons/g' {} +
-    find dist -name "*.tmp" -delete 2>/dev/null || true
 
     # Publish to npm with dev tag
     print_status "Publishing @avail-project/nexus-widgets@$DEV_VERSION to npm (dev tag)..."
     npm publish --access public --tag dev
+    # Add incremental dev-N tag (e.g., dev-1, dev-2) matching pre-release number
+    DEV_TAG=$(node -e "const v=process.env.DEV_VERSION||'';const m=v.match(/dev\\.(\\d+)/);console.log(m?`dev-${m[1]}`:'dev')")
+    if [ -n "$DEV_TAG" ] && [ "$DEV_TAG" != "dev" ]; then
+      print_status "Adding dist-tag $DEV_TAG for @avail-project/nexus-widgets@$DEV_VERSION..."
+      npm dist-tag add @avail-project/nexus-widgets@$DEV_VERSION $DEV_TAG || true
+    fi
     
     # Restore original package.json
     mv package.json.backup package.json

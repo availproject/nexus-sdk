@@ -35,7 +35,7 @@ export function ActionButtons({
             'rounded-nexus-md',
             'text-base font-semibold font-nexus-primary leading-normal !bg-transparent',
             'border-zinc-400',
-            'text-nexus-black hover:text-nexus-black',
+            'text-nexus-black hover:text-nexus-muted-secondary',
             'hover:bg-zinc-200',
           )}
           onClick={onCancel}
@@ -46,10 +46,9 @@ export function ActionButtons({
         <Button
           className={cn(
             'flex-1 items-center justify-center px-4 py-3 h-auto',
-            'bg-zinc-800 text-white',
+            'bg-zinc-800 text-nexus-snow-white',
             'rounded-nexus-md',
             'text-base font-semibold font-nexus-primary leading-normal',
-            'text-nexus-black hover:text-nexus-muted-foreground',
             'hover:bg-zinc-700',
             'disabled:opacity-50',
           )}

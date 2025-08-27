@@ -124,13 +124,10 @@ if [[ "$RELEASE_TYPE" == "prod" ]]; then
     # Remove workspace-only dependencies that should be bundled (e.g., @nexus/commons)
     node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));if(p.dependencies&&p.dependencies['@nexus/commons']){delete p.dependencies['@nexus/commons'];}fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
     
-    # Bundle internal commons into dist and rewrite imports
+    # Bundle internal commons into dist (imports already aliased by Rollup)
     print_status "Bundling internal @nexus/commons into dist..."
     mkdir -p dist/commons
     cp -R ../commons/dist/* dist/commons/
-    # Rewrite any references to @nexus/commons to local ./commons
-    find dist -type f \( -name "*.js" -o -name "*.mjs" -o -name "*.esm.js" -o -name "*.d.ts" \) -exec sed -i.tmp $'s/@nexus\\/commons\\/constants/.\/commons\/constants/g; s/@nexus\\/commons/.\/commons/g' {} +
-    find dist -name "*.tmp" -delete 2>/dev/null || true
 
     # Publish to npm
     print_status "Publishing @avail-project/nexus@$CORE_VERSION to npm..."
@@ -157,6 +154,7 @@ else
     cd packages/core
     npm version pre$VERSION_TYPE --preid=dev --no-git-tag-version
     DEV_VERSION=$(node -p "require('./package.json').version")
+    export DEV_VERSION
     cd ../..
     
     # Update root package.json to match
@@ -183,17 +181,20 @@ else
     # Remove workspace-only dependencies that should be bundled (e.g., @nexus/commons)
     node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));if(p.dependencies&&p.dependencies['@nexus/commons']){delete p.dependencies['@nexus/commons'];}fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
     
-    # Bundle internal commons into dist and rewrite imports
+    # Bundle internal commons into dist (imports already aliased by Rollup)
     print_status "Bundling internal @nexus/commons into dist..."
     mkdir -p dist/commons
     cp -R ../commons/dist/* dist/commons/
-    # Rewrite any references to @nexus/commons to local ./commons
-    find dist -type f \( -name "*.js" -o -name "*.mjs" -o -name "*.esm.js" -o -name "*.d.ts" \) -exec sed -i.tmp $'s/@nexus\\/commons\\/constants/.\/commons\/constants/g; s/@nexus\\/commons/.\/commons/g' {} +
-    find dist -name "*.tmp" -delete 2>/dev/null || true
 
     # Publish to npm with dev tag
     print_status "Publishing @avail-project/nexus@$DEV_VERSION to npm (dev tag)..."
     npm publish --access public --tag dev
+    # Add incremental dev-N tag (e.g., dev-1, dev-2) matching pre-release number
+    DEV_TAG=$(node -e "const v=process.env.DEV_VERSION||'';const m=v.match(/dev\\.(\\d+)/);console.log(m?`dev-${m[1]}`:'dev')")
+    if [ -n "$DEV_TAG" ] && [ "$DEV_TAG" != "dev" ]; then
+      print_status "Adding dist-tag $DEV_TAG for @avail-project/nexus@$DEV_VERSION..."
+      npm dist-tag add @avail-project/nexus@$DEV_VERSION $DEV_TAG || true
+    fi
     
     # Restore original package.json
     mv package.json.backup package.json

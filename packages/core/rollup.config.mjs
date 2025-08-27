@@ -2,6 +2,7 @@ import resolve from '@rollup/plugin-node-resolve';
 import commonjs from '@rollup/plugin-commonjs';
 import typescript from '@rollup/plugin-typescript';
 import json from '@rollup/plugin-json';
+import alias from '@rollup/plugin-alias';
 import dts from 'rollup-plugin-dts';
 import { defineConfig } from 'rollup';
 import { createRequire } from 'module';
@@ -16,6 +17,10 @@ const shouldGenerateSourceMaps = false;
 const baseConfig = {
   input: 'index.ts',
   plugins: [
+    alias({
+      // Alias is not used for externals but kept for future non-externalized builds
+      entries: [{ find: '@nexus/commons', replacement: './commons' }],
+    }),
     json(),
     resolve({
       browser: true,
@@ -27,9 +32,11 @@ const baseConfig = {
       transformMixedEsModules: true,
       ignoreTryCatch: false,
     }),
-    typescript({ 
+    typescript({
       tsconfig: './tsconfig.json',
       sourceMap: shouldGenerateSourceMaps,
+      declaration: false,
+      emitDeclarationOnly: false,
     }),
   ],
   external: [
@@ -40,13 +47,14 @@ const baseConfig = {
     '@arcana/ca-sdk',
     '@metamask/safe-event-emitter',
     'decimal.js',
-    // @nexus/commons will be bundled since it's not published
+    '@nexus/commons',
+    './commons',
   ],
   treeshake: {
     moduleSideEffects: false,
     propertyReadSideEffects: false,
     unknownGlobalSideEffects: false,
-  }
+  },
 };
 
 export default defineConfig([
@@ -60,21 +68,48 @@ export default defineConfig([
         sourcemap: shouldGenerateSourceMaps,
         exports: 'named',
         interop: 'auto',
+        paths: {
+          '@nexus/commons': './commons',
+          '@nexus/commons/constants': './commons/constants',
+        },
       },
       {
         file: 'dist/index.esm.js',
         format: 'esm',
         sourcemap: shouldGenerateSourceMaps,
         exports: 'named',
+        paths: {
+          '@nexus/commons': './commons',
+          '@nexus/commons/constants': './commons/constants',
+        },
       },
     ],
   },
-  
+
   // TypeScript declarations
   {
     input: 'index.ts',
     output: [{ file: 'dist/index.d.ts', format: 'esm' }],
-    plugins: [dts()],
-    external: [...Object.keys(packageJson.peerDependencies || {}), /^viem/, /^@arcana/, '@metamask/safe-event-emitter', 'decimal.js'],
-  }
+    plugins: [
+      dts(),
+      // Rewrite import specifiers in generated d.ts
+      {
+        name: 'rewrite-commons-imports-dts',
+        renderChunk(code) {
+          return code
+            .replace(/@nexus\/commons\/constants/g, './commons/constants')
+            .replace(/@nexus\/commons/g, './commons');
+        },
+      },
+    ],
+    external: [
+      ...Object.keys(packageJson.peerDependencies || {}),
+      /^viem/,
+      /^@arcana/,
+      '@metamask/safe-event-emitter',
+      'decimal.js',
+      '@nexus/commons',
+      './commons',
+    ],
+  },
 ]);

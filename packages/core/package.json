@@ -15,6 +15,14 @@
     "dev": "rollup -c -w",
     "typecheck": "tsc --noEmit"
   },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.esm.js",
+      "require": "./dist/index.js"
+    }
+  },
   "keywords": [
     "nexus",
     "sdk",
@@ -45,5 +53,8 @@
   },
   "peerDependencies": {
     "viem": "^2.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

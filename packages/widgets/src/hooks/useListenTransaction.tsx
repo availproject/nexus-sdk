@@ -3,7 +3,7 @@ import { NEXUS_EVENTS } from '@nexus/commons';
 import { getStatusText } from '../utils/utils';
 import { NexusSDK } from '@nexus/core';
 import { ActiveTransaction } from '../types';
-import { ProgressStep, ProgressSteps } from '@arcana/ca-sdk';
+import { ProgressStep, ProgressSteps } from '@nexus/core';
 
 interface ProcessingStep {
   id: number;
