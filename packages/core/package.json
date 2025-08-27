@@ -1,0 +1,59 @@
+{
+  "name": "@nexus/core",
+  "version": "1.0.5-dev.0",
+  "description": "Nexus headless SDK for cross-chain transactions",
+  "main": "./dist/index.js",
+  "module": "./dist/index.esm.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "rollup -c && pnpm run copy:commons",
+    "copy:commons": "mkdir -p dist/commons && cp -R ../commons/dist/* dist/commons/ || true",
+    "dev": "rollup -c -w",
+    "typecheck": "tsc --noEmit"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.esm.js",
+      "require": "./dist/index.js"
+    }
+  },
+  "keywords": [
+    "nexus",
+    "sdk",
+    "blockchain",
+    "bridge",
+    "swap",
+    "web3",
+    "chain",
+    "abstraction",
+    "headless"
+  ],
+  "author": "decocereus<amartya@availproject.org>",
+  "license": "MIT",
+  "dependencies": {
+    "@arcana/ca-sdk": "1.1.1",
+    "@metamask/safe-event-emitter": "3.1.2",
+    "decimal.js": "10.4.3"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^25.0.0",
+    "@rollup/plugin-json": "6.1.0",
+    "@rollup/plugin-node-resolve": "^15.0.0",
+    "@rollup/plugin-typescript": "^11.0.0",
+    "rollup": "^4.0.0",
+    "rollup-plugin-dts": "^6.0.0",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "viem": "^2.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

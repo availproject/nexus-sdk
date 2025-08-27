@@ -1,0 +1,85 @@
+{
+  "name": "@nexus/widgets",
+  "version": "0.0.6-dev.0",
+  "description": "Nexus React components for cross-chain transactions",
+  "main": "./dist/index.js",
+  "module": "./dist/index.esm.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "rollup -c && pnpm run copy:commons",
+    "copy:commons": "mkdir -p dist/commons && cp -R ../commons/dist/* dist/commons/ || true",
+    "dev": "rollup -c -w",
+    "typecheck": "tsc --noEmit"
+  },
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.esm.js",
+      "require": "./dist/index.js"
+    }
+  },
+  "keywords": [
+    "nexus",
+    "react",
+    "components",
+    "widgets",
+    "blockchain",
+    "bridge",
+    "web3",
+    "ui"
+  ],
+  "author": "decocereus<amartya@availproject.org>",
+  "license": "MIT",
+  "dependencies": {
+    "@nexus/core": "workspace:*",
+    "@nexus/commons": "workspace:*",
+    "@lottiefiles/dotlottie-react": "0.14.2",
+    "motion": "12.23.0",
+    "decimal.js": "10.4.3",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "tailwind-merge": "3.3.1"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^25.0.0",
+    "@rollup/plugin-json": "6.1.0",
+    "@rollup/plugin-node-resolve": "^15.0.0",
+    "@rollup/plugin-typescript": "^11.0.0",
+    "rollup": "^4.0.0",
+    "rollup-plugin-dts": "^6.0.0",
+    "rollup-plugin-postcss": "4.0.2",
+    "@tailwindcss/postcss": "4.1.10",
+    "postcss": "8.5.6",
+    "postcss-import": "16.1.1",
+    "postcss-nesting": "13.0.2",
+    "autoprefixer": "10.4.21",
+    "tailwindcss": "4.1.10",
+    "typescript": "^5.0.0",
+    "@types/react": "19.1.8",
+    "@types/react-dom": "19.1.6",
+    "@arcana/ca-sdk": "1.1.1"
+  },
+  "peerDependencies": {
+    "react": ">=16.8.0",
+    "react-dom": ">=16.8.0",
+    "viem": "^2.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": false
+    },
+    "react-dom": {
+      "optional": false
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -1,41 +1,29 @@
 {
-  "name": "@avail-project/nexus",
-  "version": "0.1.2",
-  "description": "Nexus SDK enables cross-chain transactions with minimal friction",
-  "exports": {
-    "./core": {
-      "types": "./dist/core.d.ts",
-      "import": "./dist/core.esm.js",
-      "require": "./dist/core.js"
-    },
-    "./ui": {
-      "types": "./dist/ui.d.ts",
-      "import": "./dist/ui.esm.js",
-      "require": "./dist/ui.js"
-    }
-  },
-  "sideEffects": [
-    "**/*.css"
-  ],
-  "files": [
-    "dist",
-    "README.md"
-  ],
+  "name": "nexus-sdk-monorepo",
+  "version": "1.0.5-dev.0",
+  "private": true,
+  "description": "Nexus SDK monorepo - cross-chain transactions with minimal friction",
   "scripts": {
-    "build": "rollup -c",
-    "build:prod": "NODE_ENV=production rollup -c",
-    "build:dev": "NODE_ENV=development rollup -c",
-    "dev": "rollup -c -w",
-    "test": "jest",
-    "format": "prettier --write \"src/**/*.{ts,tsx}\"",
+    "build:commons": "pnpm -F @nexus/commons build",
+    "build:core": "pnpm -F @nexus/commons build && pnpm -F @nexus/core build",
+    "build:widgets": "pnpm -F @nexus/commons build && pnpm -F @nexus/widgets build",
+    "build": "pnpm run build:core && pnpm run build:widgets",
+    "dev:core": "pnpm -F @nexus/core dev",
+    "dev:widgets": "pnpm -F @nexus/widgets dev",
+    "dev": "pnpm run dev:core & pnpm run dev:widgets",
+    "format": "prettier --write \"packages/**/*.{ts,tsx}\"",
     "prepare": "husky install",
-    "typecheck": "tsc --noEmit",
-    "version:dev": "npm version prerelease --preid=dev",
-    "version:prod": "npm version patch",
-    "publish:dev": "npm run build:dev && npm publish --tag dev",
-    "publish:prod": "npm run build:prod && npm publish --tag latest",
-    "release:dev": "npm run version:dev && npm run publish:dev",
-    "release:prod": "npm run version:prod && npm run publish:prod"
+    "typecheck": "pnpm -r typecheck",
+    "clean": "rimraf packages/widgets/dist packages/core/dist packages/commons/dist",
+    "release:core": "./scripts/release-core.sh",
+    "release:core:dev": "./scripts/release-core.sh dev",
+    "release:core:prod": "./scripts/release-core.sh prod",
+    "release:widgets": "./scripts/release-widgets.sh",
+    "release:widgets:dev": "./scripts/release-widgets.sh dev",
+    "release:widgets:prod": "./scripts/release-widgets.sh prod",
+    "release": "./scripts/release-all.sh",
+    "release:dev": "./scripts/release-all.sh dev",
+    "release:prod": "./scripts/release-all.sh prod"
   },
   "keywords": [
     "nexus",
@@ -54,50 +42,11 @@
   "author": "decocereus<amartya@availproject.co>",
   "license": "MIT",
   "devDependencies": {
-    "@rollup/plugin-commonjs": "^25.0.0",
-    "@rollup/plugin-json": "6.1.0",
-    "@rollup/plugin-node-resolve": "^15.0.0",
-    "@rollup/plugin-typescript": "^11.0.0",
-    "@tailwindcss/postcss": "4.1.10",
+    "@rollup/plugin-alias": "^5.1.1",
     "@types/node": "^20.0.0",
-    "@types/react": "19.1.8",
-    "@types/react-dom": "19.1.6",
-    "autoprefixer": "10.4.21",
-    "class-variance-authority": "0.7.1",
-    "clsx": "2.1.1",
     "husky": "^8.0.0",
-    "postcss": "8.5.6",
-    "postcss-import": "16.1.1",
-    "postcss-nesting": "13.0.2",
     "prettier": "^3.0.0",
-    "rollup": "^4.0.0",
-    "rollup-plugin-dts": "^6.0.0",
-    "rollup-plugin-polyfill-node": "0.13.0",
-    "rollup-plugin-postcss": "4.0.2",
-    "tailwind-merge": "3.3.1",
-    "tailwindcss": "4.1.10",
+    "rimraf": "^5.0.0",
     "typescript": "^5.0.0"
-  },
-  "peerDependencies": {
-    "react": ">=16.8.0",
-    "react-dom": ">=16.8.0"
-  },
-  "peerDependenciesMeta": {
-    "react": {
-      "optional": true
-    },
-    "react-dom": {
-      "optional": true
-    }
-  },
-  "dependencies": {
-    "@arcana/ca-sdk": "1.1.1",
-    "@lottiefiles/dotlottie-react": "0.14.2",
-    "@metamask/safe-event-emitter": "3.1.2",
-    "decimal.js": "10.4.3",
-    "motion": "12.23.0"
-  },
-  "optionalDependencies": {
-    "viem": "^2.0.0"
   }
 }
