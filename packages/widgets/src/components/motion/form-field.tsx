@@ -20,7 +20,7 @@ export function FormField({ label, children, helperText, className }: FormFieldP
       </Label>
       {children}
       {helperText && (
-        <p className="text-black text-sm font-normal font-nexus-primary leading-none">
+        <p className="text-nexus-black text-sm font-normal font-nexus-primary leading-none">
           {helperText}
         </p>
       )}

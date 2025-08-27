@@ -124,7 +124,7 @@ export function AllowanceForm({
                   className="w-6 h-6 rounded-nexus-full"
                 />
               )}
-              <span className="font-semibold font-nexus-primary font-nexus-black text-base">
+              <span className="font-semibold font-nexus-primary text-nexus-black text-base">
                 {token} on
               </span>
               <div className="flex items-center gap-x-1">
@@ -166,7 +166,7 @@ export function AllowanceForm({
                 <span className="text-xs font-semibold text-nexus-muted font-nexus-primary">
                   Current Allowance
                 </span>
-                <span className="font-semibold font-nexus-primary font-nexus-black text-base">
+                <span className="font-semibold font-nexus-primary text-nexus-black text-base">
                   {currentAllowance}
                 </span>
               </div>

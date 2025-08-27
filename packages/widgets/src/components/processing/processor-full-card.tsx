@@ -97,7 +97,7 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
         </motion.div>
         <Button
           variant="link"
-          className="w-full flex items-end justify-end text-grey-600 mt-6 px-6"
+          className="w-full flex items-end justify-end text-nexus-foreground mt-6 px-6"
           onClick={() => {
             if (status === 'error' || status === 'success') {
               cancelTransaction();
@@ -107,9 +107,9 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
           }}
         >
           {status === 'error' || status === 'success' || disableCollapse ? (
-            <CircleX className="w-6 h-6" />
+            <CircleX className="w-6 h-6 text-nexus-foreground" />
           ) : (
-            <Minimize className="w-6 h-6" />
+            <Minimize className="w-6 h-6 text-nexus-foreground" />
           )}
         </Button>
         <div className="w-full p-4 relative z-10 mt-6">
@@ -143,7 +143,7 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
                   ))}
                 </div>
                 <div className="flex flex-col gap-y-1 items-center">
-                  <p className="text-lg font-nexus-primary text-black font-bold">
+                  <p className="text-lg font-nexus-primary text-nexus-black font-bold">
                     {sourceAmount()}
                   </p>
                   <p className="text-sm font-nexus-primary text-nexus-muted-secondary font-medium">
@@ -205,7 +205,7 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
                       />
                     </SuccessRipple>
                     <div className="flex flex-col gap-y-1 items-center">
-                      <p className="text-lg font-nexus-primary text-black font-bold">
+                      <p className="text-lg font-nexus-primary text-nexus-black font-bold">
                         {destinationAmount()}
                       </p>
                       <p className="text-sm font-nexus-primary text-nexus-muted-secondary font-medium">
@@ -231,18 +231,20 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
               ) : (
                 <>
                   <div className="flex items-center justify-center w-full">
-                    <span className="text-2xl font-semibold font-nexus-primary text-black">
+                    <span className="text-2xl font-semibold font-nexus-primary text-nexus-black">
                       {Math.floor(timer)}
                     </span>
-                    <span className="text-base font-semibold font-nexus-primary text-black">.</span>
-                    <span className="text-base font-semibold font-nexus-primary text-gray-600">
+                    <span className="text-base font-semibold font-nexus-primary text-nexus-black">
+                      .
+                    </span>
+                    <span className="text-base font-semibold font-nexus-primary text-nexus-muted-secondary">
                       {String(Math.floor((timer % 1) * 1000)).padStart(3, '0')}s
                     </span>
                   </div>
                   <div className="relative overflow-hidden">
                     <WordsPullUp text={processing?.statusText} />
                   </div>
-                  <p className="w-full text-center font-nexus-primary text-base text-grey-600">
+                  <p className="w-full text-center font-nexus-primary text-base text-nexus-foreground">
                     {description}
                   </p>
                 </>
@@ -306,7 +308,7 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
           >
             <Button
               onClick={cancelTransaction}
-              className="w-full bg-nexus-primary-hover font-nexus-primary text-[16px] font-semibold h-12 hover:not-even:bg-gray-700 rounded-nexus-md"
+              className="w-full bg-nexus-primary-hover font-nexus-primary text-[16px] text-nexus-snow-white font-semibold h-12 hover:not-even:bg-gray-700 rounded-nexus-md"
             >
               Close
             </Button>

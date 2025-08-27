@@ -70,7 +70,9 @@ export function TokenSelect({
             <div className="flex items-center justify-between w-full">
               <div className="flex items-start gap-x-2">
                 <TokenIcon tokenSymbol={token?.value} />
-                <p className="font-semibold font-nexus-primary text-sm">{token?.label}</p>
+                <p className="text-nexus-foreground font-semibold font-nexus-primary text-sm">
+                  {token?.label}
+                </p>
               </div>
               <div className="flex flex-col items-end gap-y-2">
                 <p className="font-semibold font-nexus-primary text-sm text-nexus-foreground">

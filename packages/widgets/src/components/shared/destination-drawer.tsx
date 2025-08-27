@@ -101,7 +101,7 @@ const DestinationDrawer = ({
       <DrawerContent className="font-nexus-primary" contentClassName="overflow-hidden">
         <DrawerHeader className="px-4 pt-4 pb-0">
           <div className="flex items-center justify-between mb-4">
-            <DrawerTitle className="font-nexus-primary">
+            <DrawerTitle className="font-nexus-primary text-nexus-foreground">
               Select Destination Chain & Token
             </DrawerTitle>
             <DrawerClose>

@@ -35,7 +35,7 @@ export function ActionButtons({
             'rounded-nexus-md',
             'text-base font-semibold font-nexus-primary leading-normal !bg-transparent',
             'border-zinc-400',
-            'text-black hover:text-black',
+            'text-nexus-black hover:text-nexus-black',
             'hover:bg-zinc-200',
           )}
           onClick={onCancel}
@@ -49,6 +49,7 @@ export function ActionButtons({
             'bg-zinc-800 text-white',
             'rounded-nexus-md',
             'text-base font-semibold font-nexus-primary leading-normal',
+            'text-nexus-black hover:text-nexus-muted-foreground',
             'hover:bg-zinc-700',
             'disabled:opacity-50',
           )}

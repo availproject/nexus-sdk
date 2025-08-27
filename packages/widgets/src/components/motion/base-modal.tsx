@@ -8,7 +8,7 @@ export function BaseModal({ isOpen, onClose, children, className }: ModalProps) 
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent
         className={cn(
-          'p-0 bg-nexus-ring-offset text-foreground rounded-nexus-xl shadow-card w-[480px] min-h-[500px]',
+          'p-0 bg-nexus-ring-offset text-foreground rounded-nexus-xl shadow-card w-[480px] min-h-[500px] text-nexus-foreground',
           className,
         )}
       >
