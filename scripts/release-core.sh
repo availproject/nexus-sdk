@@ -190,7 +190,7 @@ else
     print_status "Publishing @avail-project/nexus@$DEV_VERSION to npm (dev tag)..."
     npm publish --access public --tag dev
     # Add incremental dev-N tag (e.g., dev-1, dev-2) matching pre-release number
-    DEV_TAG=$(node -e "const v=process.env.DEV_VERSION||'';const m=v.match(/dev\\.(\\d+)/);console.log(m?`dev-${m[1]}`:'dev')")
+    DEV_TAG=$(node -e "const v=process.env.DEV_VERSION||'';const m=v.match(/dev\\.(\\d+)/);console.log(m ? ('dev-' + m[1]) : 'dev')")
     if [ -n "$DEV_TAG" ] && [ "$DEV_TAG" != "dev" ]; then
       print_status "Adding dist-tag $DEV_TAG for @avail-project/nexus@$DEV_VERSION..."
       npm dist-tag add @avail-project/nexus@$DEV_VERSION $DEV_TAG || true
