@@ -1,0 +1,10 @@
+# Enable workspace linking
+link-workspace-packages=true
+
+# Hoist build tools to avoid duplication
+hoist-pattern[]=*rollup*
+hoist-pattern[]=*typescript*
+hoist-pattern[]=prettier
+
+# Prefer workspace versions for internal packages
+prefer-workspace-packages=true
