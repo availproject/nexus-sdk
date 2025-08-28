@@ -12,6 +12,7 @@ export const SUPPORTED_CHAINS = {
   SOPHON: 50104,
   KAIA: 8217,
   BNB: 56,
+  HYPEREVM: 999,
 
   // Testnet chains
   BASE_SEPOLIA: 84532,
@@ -148,6 +149,15 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
     rpcUrls: ['https://bsc-pokt.nodies.app'],
     blockExplorerUrls: ['https://bscscan.com'],
   },
+  [SUPPORTED_CHAINS.HYPEREVM]: {
+    id: 999,
+    name: 'Hyperliquid EVM',
+    shortName: 'hyperliquid',
+    logo: 'https://assets.coingecko.com/asset_platforms/images/243/large/hyperliquid.png',
+    nativeCurrency: { name: 'HYPE', symbol: 'HYPE', decimals: 18 },
+    rpcUrls: ['https://rpc.hyperliquid.xyz/evm'],
+    blockExplorerUrls: ['https://hyperevmscan.io/'],
+  },
 
   // Testnet chains
   [SUPPORTED_CHAINS.BASE_SEPOLIA]: {
@@ -209,6 +219,7 @@ export const MAINNET_CHAINS = [
   SUPPORTED_CHAINS.SOPHON,
   SUPPORTED_CHAINS.KAIA,
   SUPPORTED_CHAINS.BNB,
+  SUPPORTED_CHAINS.HYPEREVM,
 ] as const;
 
 export const TESTNET_CHAINS = [
@@ -252,6 +263,7 @@ export const TOKEN_CONTRACT_ADDRESSES: Record<string, Record<number, `0x${string
     [SUPPORTED_CHAINS.OPTIMISM_SEPOLIA]: '0x7F5c764cBc14f9669B88837ca1490cCa17c31607',
     [SUPPORTED_CHAINS.POLYGON_AMOY]: '0x2c852e740B62308c46DD29B982FBb650D063Bd07',
     [SUPPORTED_CHAINS.BNB]: '0x55d398326f99059fF775485246999027B3197955',
+    [SUPPORTED_CHAINS.HYPEREVM]: '0xB8CE59FC3717ada4C02eaDF9682A9e934F625ebb',
   },
   // ETH is native on all supported chains, no contract address needed
 } as const;
