@@ -16,7 +16,7 @@
   "dependencies": {
     "viem": "^2.0.0",
     "decimal.js": "10.4.3",
-    "@arcana/ca-sdk": "1.1.1"
+    "@arcana/ca-sdk": "1.1.2-beta.2"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^25.0.0",
