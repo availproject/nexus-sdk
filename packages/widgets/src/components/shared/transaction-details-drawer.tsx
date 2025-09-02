@@ -22,7 +22,7 @@ import MoneyCircles from '../icons/MoneyCircles';
 import { Button } from '../motion/button-motion';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { getFiatValue } from '../../utils/balance-utils';
-import type { OrchestratorStatus, ReviewStatus, TransactionType } from 'types';
+import type { OrchestratorStatus, ReviewStatus, TransactionType } from '../../types';
 
 interface TransactionDetailsDrawerProps {
   simulationResult?: (SimulationResult | BridgeAndExecuteSimulationResult) & {

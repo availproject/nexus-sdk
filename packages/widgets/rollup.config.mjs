@@ -1,6 +1,6 @@
 import resolve from '@rollup/plugin-node-resolve';
 import commonjs from '@rollup/plugin-commonjs';
-import typescript from '@rollup/plugin-typescript';
+import typescript from 'rollup-plugin-typescript2';
 import json from '@rollup/plugin-json';
 import alias from '@rollup/plugin-alias';
 import dts from 'rollup-plugin-dts';
@@ -19,8 +19,7 @@ const baseConfig = {
   input: 'src/index.ts',
   plugins: [
     alias({
-      // Alias is not used for externals but kept for future non-externalized builds
-      entries: [{ find: '@nexus/commons', replacement: './dist/commons' }],
+      entries: [{ find: '@nexus/commons', replacement: '../commons/dist/index.esm.js' }],
     }),
     json(),
     resolve({
@@ -47,9 +46,7 @@ const baseConfig = {
     }),
     typescript({
       tsconfig: './tsconfig.json',
-      sourceMap: shouldGenerateSourceMaps,
-      declaration: false,
-      emitDeclarationOnly: false,
+      useTsconfigDeclarationDir: true,
     }),
   ],
   external: [
@@ -63,8 +60,6 @@ const baseConfig = {
     /^motion/,
     'decimal.js',
     '@nexus/core',
-    '@nexus/commons',
-    // @nexus/commons will be bundled since it's not published
   ],
   treeshake: {
     moduleSideEffects: false,
@@ -86,7 +81,6 @@ export default defineConfig([
         interop: 'auto',
         inlineDynamicImports: true,
         paths: {
-          '@nexus/commons': './commons/index.js',
           '@nexus/core': '@avail-project/nexus',
         },
       },
@@ -97,7 +91,6 @@ export default defineConfig([
         exports: 'named',
         inlineDynamicImports: true,
         paths: {
-          '@nexus/commons': './commons/index.esm.js',
           '@nexus/core': '@avail-project/nexus',
         },
       },
@@ -133,7 +126,6 @@ export default defineConfig([
       /^motion/,
       'decimal.js',
       '@nexus/core',
-      '@nexus/commons',
       /\.css$/,
     ],
   },
