@@ -109,7 +109,11 @@ if [[ "$RELEASE_TYPE" == "prod" ]]; then
     git add packages/widgets/package.json
     git commit -m "chore(widgets): release v$WIDGETS_VERSION"
     
-    # Create tag
+    # Create tag (remove existing if present, then create new)
+    if git tag -l | grep -q "^widgets-v$WIDGETS_VERSION$"; then
+        print_warning "Tag widgets-v$WIDGETS_VERSION already exists, removing it..."
+        git tag -d "widgets-v$WIDGETS_VERSION"
+    fi
     git tag "widgets-v$WIDGETS_VERSION"
     
     # Temporarily rewrite package for publishing
@@ -168,7 +172,11 @@ else
     git add packages/widgets/package.json
     git commit -m "chore(widgets): dev release v$DEV_VERSION"
     
-    # Create tag
+    # Create tag (remove existing if present, then create new)
+    if git tag -l | grep -q "^widgets-v$DEV_VERSION$"; then
+        print_warning "Tag widgets-v$DEV_VERSION already exists, removing it..."
+        git tag -d "widgets-v$DEV_VERSION"
+    fi
     git tag "widgets-v$DEV_VERSION"
     
     # Temporarily rewrite package for publishing
