@@ -39,7 +39,7 @@
     "balance",
     "sdk"
   ],
-  "author": "decocereus<amartya@availproject.co>",
+  "author": "decocereus<amartya@availproject.org>",
   "license": "MIT",
   "devDependencies": {
     "@rollup/plugin-alias": "^5.1.1",

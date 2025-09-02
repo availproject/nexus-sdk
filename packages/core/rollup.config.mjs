@@ -1,6 +1,6 @@
 import resolve from '@rollup/plugin-node-resolve';
 import commonjs from '@rollup/plugin-commonjs';
-import typescript from '@rollup/plugin-typescript';
+import typescript from 'rollup-plugin-typescript2';
 import json from '@rollup/plugin-json';
 import alias from '@rollup/plugin-alias';
 import dts from 'rollup-plugin-dts';
@@ -34,9 +34,7 @@ const baseConfig = {
     }),
     typescript({
       tsconfig: './tsconfig.json',
-      sourceMap: shouldGenerateSourceMaps,
-      declaration: false,
-      emitDeclarationOnly: false,
+      useTsconfigDeclarationDir: true,
     }),
   ],
   external: [

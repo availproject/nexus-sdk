@@ -562,6 +562,7 @@ function MyComponent() {
 | Sophon    | 50104    | SOPH            | ✅     |
 | Kaia      | 8217     | KAIA            | ✅     |
 | BNB       | 56       | BNB             | ✅     |
+| HyperEVM  | 999      | HYPE            | ✅     |
 
 ### Testnet Chains
 
@@ -571,6 +572,8 @@ function MyComponent() {
 | Polygon Amoy     | 80002    | MATIC           | ✅     |
 | Arbitrum Sepolia | 421614   | ETH             | ✅     |
 | Base Sepolia     | 84532    | ETH             | ✅     |
+| Sepolia          | 11155111 | ETH             | ✅     |
+| Monad Testnet    | 10143    | MON             | ✅     |
 
 ### Supported Tokens
 

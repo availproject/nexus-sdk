@@ -12,12 +12,15 @@ export const SUPPORTED_CHAINS = {
   SOPHON: 50104,
   KAIA: 8217,
   BNB: 56,
+  HYPEREVM: 999,
 
   // Testnet chains
+  SEPOLIA: 11155111,
   BASE_SEPOLIA: 84532,
   ARBITRUM_SEPOLIA: 421614,
   OPTIMISM_SEPOLIA: 11155420,
   POLYGON_AMOY: 80002,
+  MONAD_TESTNET: 10143,
 } as const;
 
 const BASE_TOKEN_METADATA = {
@@ -148,8 +151,26 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
     rpcUrls: ['https://bsc-pokt.nodies.app'],
     blockExplorerUrls: ['https://bscscan.com'],
   },
+  [SUPPORTED_CHAINS.HYPEREVM]: {
+    id: 999,
+    name: 'Hyperliquid EVM',
+    shortName: 'hyperliquid',
+    logo: 'https://assets.coingecko.com/asset_platforms/images/243/large/hyperliquid.png',
+    nativeCurrency: { name: 'HYPE', symbol: 'HYPE', decimals: 18 },
+    rpcUrls: ['https://rpc.hyperliquid.xyz/evm'],
+    blockExplorerUrls: ['https://hyperevmscan.io/'],
+  },
 
   // Testnet chains
+  [SUPPORTED_CHAINS.SEPOLIA]: {
+    id: 11155111,
+    name: 'Sepolia',
+    shortName: 'sepolia',
+    logo: 'https://assets.coingecko.com/coins/images/13383/large/ethereum.png',
+    nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
+    rpcUrls: ['https://sepolia.drpc.org'],
+    blockExplorerUrls: ['https://sepolia.etherscan.io'],
+  },
   [SUPPORTED_CHAINS.BASE_SEPOLIA]: {
     id: 84532,
     name: 'Base Sepolia',
@@ -158,6 +179,15 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
     nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
     rpcUrls: ['https://sepolia.base.org'],
     blockExplorerUrls: ['https://sepolia.basescan.org'],
+  },
+  [SUPPORTED_CHAINS.MONAD_TESTNET]: {
+    id: 10143,
+    name: 'Monad Testnet',
+    shortName: 'monad-testnet',
+    logo: 'https://assets.coingecko.com/coins/images/38927/standard/monad.jpg',
+    nativeCurrency: { name: 'Testnet MON Token', symbol: 'MON', decimals: 18 },
+    rpcUrls: ['https://testnet-rpc.monad.xyz/'],
+    blockExplorerUrls: ['https://testnet.monadexplorer.com/'],
   },
   [SUPPORTED_CHAINS.ARBITRUM_SEPOLIA]: {
     id: 421614,
@@ -209,13 +239,16 @@ export const MAINNET_CHAINS = [
   SUPPORTED_CHAINS.SOPHON,
   SUPPORTED_CHAINS.KAIA,
   SUPPORTED_CHAINS.BNB,
+  SUPPORTED_CHAINS.HYPEREVM,
 ] as const;
 
 export const TESTNET_CHAINS = [
+  SUPPORTED_CHAINS.SEPOLIA,
   SUPPORTED_CHAINS.BASE_SEPOLIA,
   SUPPORTED_CHAINS.ARBITRUM_SEPOLIA,
   SUPPORTED_CHAINS.OPTIMISM_SEPOLIA,
   SUPPORTED_CHAINS.POLYGON_AMOY,
+  SUPPORTED_CHAINS.MONAD_TESTNET,
 ] as const;
 
 /**
@@ -232,11 +265,14 @@ export const TOKEN_CONTRACT_ADDRESSES: Record<string, Record<number, `0x${string
     [SUPPORTED_CHAINS.OPTIMISM]: '0x0b2c639c533813f4aa9d7837caf62653d097ff85',
     [SUPPORTED_CHAINS.SCROLL]: '0x06efdbff2a14a7c8e15944d1f4a48f9f95f663a4',
     [SUPPORTED_CHAINS.AVALANCHE]: '0xb97ef9ef8734c71904d8002f8b6bc66dd9c48a6e',
+    [SUPPORTED_CHAINS.BNB]: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d',
+    // testnet chains
+    [SUPPORTED_CHAINS.SEPOLIA]: '0xf08A50178dfcDe18524640EA6618a1f965821715',
     [SUPPORTED_CHAINS.BASE_SEPOLIA]: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
     [SUPPORTED_CHAINS.ARBITRUM_SEPOLIA]: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d',
     [SUPPORTED_CHAINS.OPTIMISM_SEPOLIA]: '0x5fd84259d66Cd46123540766Be93DFE6D43130D7',
     [SUPPORTED_CHAINS.POLYGON_AMOY]: '0x41E94Eb019C0762f9Bfcf9Fb1E58725BfB0e7582',
-    [SUPPORTED_CHAINS.BNB]: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d',
+    [SUPPORTED_CHAINS.MONAD_TESTNET]: '0xf817257fed379853cDe0fa4F97AB987181B1E5Ea',
   },
   USDT: {
     [SUPPORTED_CHAINS.ETHEREUM]: '0xdac17f958d2ee523a2206206994597c13d831ec7',
@@ -247,11 +283,15 @@ export const TOKEN_CONTRACT_ADDRESSES: Record<string, Record<number, `0x${string
     [SUPPORTED_CHAINS.OPTIMISM]: '0x94b008aa00579c1307b0ef2c499ad98a8ce58e58',
     [SUPPORTED_CHAINS.SCROLL]: '0xf55bec9cafdbe8730f096aa55dad6d22d44099df',
     [SUPPORTED_CHAINS.AVALANCHE]: '0x9702230a8ea53601f5cd2dc00fdbc13d4df4a8c7',
+    [SUPPORTED_CHAINS.BNB]: '0x55d398326f99059fF775485246999027B3197955',
+    [SUPPORTED_CHAINS.HYPEREVM]: '0xB8CE59FC3717ada4C02eaDF9682A9e934F625ebb',
+    // testnet chains
+    [SUPPORTED_CHAINS.SEPOLIA]: '0xaA8E23Fb1079EA71e0a56F48a2aA51851D8433D0',
     [SUPPORTED_CHAINS.BASE_SEPOLIA]: '0xf7e53b20f39a5f8c35005fEf37eef03A7b0d0B5a',
     [SUPPORTED_CHAINS.ARBITRUM_SEPOLIA]: '0xb9a4873d8d2C22e56b8574e8605644d08E047434',
     [SUPPORTED_CHAINS.OPTIMISM_SEPOLIA]: '0x7F5c764cBc14f9669B88837ca1490cCa17c31607',
     [SUPPORTED_CHAINS.POLYGON_AMOY]: '0x2c852e740B62308c46DD29B982FBb650D063Bd07',
-    [SUPPORTED_CHAINS.BNB]: '0x55d398326f99059fF775485246999027B3197955',
+    [SUPPORTED_CHAINS.MONAD_TESTNET]: '0x88b8E2161DEDC77EF4ab7585569D2415a1C1055D',
   },
   // ETH is native on all supported chains, no contract address needed
 } as const;

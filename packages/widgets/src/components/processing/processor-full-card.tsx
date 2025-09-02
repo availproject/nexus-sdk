@@ -220,7 +220,7 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
             </motion.div>
             {/* Text & timer */}
             <motion.div
-              className="flex flex-col items-center gap-y-4 w-full"
+              className="flex flex-col items-center gap-y-2 w-full"
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 12 }}
@@ -251,7 +251,7 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
               )}
               {/* Explorer links */}
               {transactionType === 'bridgeAndExecute' ? (
-                <div className="flex flex-col items-center gap-y-2">
+                <div className="flex flex-col items-center gap-y-1">
                   {/* Only show bridge transaction link if bridge wasn't skipped */}
                   {explorerURL && !(executionResult as BridgeAndExecuteResult)?.bridgeSkipped && (
                     <Button
