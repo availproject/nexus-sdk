@@ -21,10 +21,7 @@
     "release:core:prod": "./scripts/release-core.sh prod",
     "release:widgets": "./scripts/release-widgets.sh",
     "release:widgets:dev": "./scripts/release-widgets.sh dev",
-    "release:widgets:prod": "./scripts/release-widgets.sh prod",
-    "release": "./scripts/release-all.sh",
-    "release:dev": "./scripts/release-all.sh dev",
-    "release:prod": "./scripts/release-all.sh prod"
+    "release:widgets:prod": "./scripts/release-widgets.sh prod"
   },
   "keywords": [
     "nexus",

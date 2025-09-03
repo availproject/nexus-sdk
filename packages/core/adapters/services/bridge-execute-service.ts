@@ -19,7 +19,7 @@ import {
   extractErrorMessage,
   logger,
 } from '@nexus/commons';
-import type { ProgressStep } from '@arcana/ca-sdk';
+import type { ProgressStep, UserAsset } from '@arcana/ca-sdk';
 
 // Local constants for the service
 const ADAPTER_CONSTANTS = {
@@ -1144,7 +1144,7 @@ export class BridgeExecuteService extends BaseService {
       logger.info(`Getting ${token} balance on chain ${chainId}`);
 
       // Get user's unified balances
-      const balances = await this.adapter.ca.getUnifiedBalances();
+      const balances = (await this.adapter.ca.getUnifiedBalances()) as UserAsset[];
 
       // Find the balance for the specific token
       const tokenBalance = balances.find((asset) => asset.symbol === token);
@@ -1203,7 +1203,7 @@ export class BridgeExecuteService extends BaseService {
       logger.info(`Checking ${nativeTokenSymbol} balance on chain ${chainId} for gas`);
 
       // Get user's unified balances
-      const balances = await this.adapter.ca.getUnifiedBalances();
+      const balances = (await this.adapter.ca.getUnifiedBalances()) as UserAsset[];
 
       // Find the native token balance
       const nativeTokenBalance = balances.find((asset) => asset.symbol === nativeTokenSymbol);

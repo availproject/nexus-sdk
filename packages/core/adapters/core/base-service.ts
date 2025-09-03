@@ -6,7 +6,7 @@ import { type EthereumProvider, extractErrorMessage } from '@nexus/commons';
  * Base service class that provides common functionality for all adapter services
  */
 export abstract class BaseService {
-  constructor(protected adapter: ChainAbstractionAdapter) {}
+  constructor(protected adapter: any) {}
 
   /**
    * Get the CA SDK instance

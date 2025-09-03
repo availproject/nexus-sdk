@@ -7,9 +7,9 @@ import {
   extractErrorMessage,
   logger,
 } from '@nexus/commons';
-import { BaseService } from 'adapters/core/base-service';
+import { BaseService } from '../core/base-service';
 
-class SwapService extends BaseService {
+export class SwapService extends BaseService {
   public async swap(
     inputs: SwapInput,
     options?: Omit<SwapOptionalParams, 'emit'>,
