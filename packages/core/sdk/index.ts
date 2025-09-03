@@ -21,12 +21,11 @@ import type {
   ExecuteResult,
   ExecuteSimulation,
   BridgeAndExecuteSimulationResult,
+  SwapInput,
+  SwapOptionalParams,
+  SwapResult,
 } from '@nexus/commons';
-import {
-  setLogLevel,
-  LOG_LEVEL,
-  logger,
-} from '@nexus/commons';
+import { setLogLevel, LOG_LEVEL, logger } from '@nexus/commons';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
 import { Network, SDKConfig } from '@arcana/ca-sdk';
 import { ChainAbstractionAdapter } from '../adapters/chain-abstraction-adapter';
@@ -113,6 +112,16 @@ export class NexusSDK {
    */
   public async transfer(params: TransferParams): Promise<TransferResult> {
     return this.nexusAdapter.transfer(params);
+  }
+
+  /**
+   * Swaps
+   */
+  public async swap(
+    inputs: SwapInput,
+    options?: Omit<SwapOptionalParams, 'emit'>,
+  ): Promise<SwapResult> {
+    return this.nexusAdapter.swap(inputs, options);
   }
 
   /**

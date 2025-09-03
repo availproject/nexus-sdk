@@ -27,9 +27,13 @@ import {
   type RequestForFunds,
   type BridgeAndExecuteSimulationResult,
   type SUPPORTED_CHAINS_IDS,
+  type SwapInput,
+  type SwapOptionalParams,
   extractErrorMessage,
   logger,
+  SwapResult,
 } from '@nexus/commons';
+import SwapService from './services/swap-service';
 
 /**
  * Provides a unified interface for chain abstraction operations.
@@ -45,6 +49,7 @@ export class ChainAbstractionAdapter {
   private transferService: TransferService;
   private executeService: ExecuteService;
   private bridgeExecuteService: BridgeExecuteService;
+  private swapService: SwapService;
 
   constructor(config?: SDKConfig) {
     logger.debug('ChainAbstractionAdapter', { config });
@@ -56,6 +61,7 @@ export class ChainAbstractionAdapter {
     this.transferService = new TransferService(this);
     this.executeService = new ExecuteService(this);
     this.bridgeExecuteService = new BridgeExecuteService(this);
+    this.swapService = new SwapService(this);
     this.setGasEstimationEnabled(true);
   }
 
@@ -207,6 +213,16 @@ export class ChainAbstractionAdapter {
    */
   public async simulateTransfer(params: TransferParams): Promise<SimulationResult> {
     return this.transferService.simulateTransfer(params);
+  }
+
+  /**
+   * Swap tokens using the swap service.
+   */
+  public async swap(
+    input: SwapInput,
+    options?: Omit<SwapOptionalParams, 'emit'>,
+  ): Promise<SwapResult> {
+    return this.swapService.swap(input, options);
   }
 
   /**

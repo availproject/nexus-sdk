@@ -13,7 +13,11 @@ import type {
   RequestForFunds,
   SDKConfig,
   UserAsset,
+  SwapIntent,
+  SwapStep,
 } from '@arcana/ca-sdk';
+import { SwapInput } from '@arcana/ca-sdk/dist/types/typings';
+import { SwapOptionalParams } from '@arcana/ca-sdk/dist/types/swap/typings';
 import * as ServiceTypes from './service-types';
 
 type TokenInfo = {
@@ -129,6 +133,16 @@ export interface BridgeParams {
  * Result structure for bridge transactions.
  */
 export interface BridgeResult {
+  success: boolean;
+  error?: string;
+  explorerUrl?: string;
+  transactionHash?: string; // Add transaction hash property
+}
+
+/**
+ * Result structure for swap transactions.
+ */
+export interface SwapResult {
   success: boolean;
   error?: string;
   explorerUrl?: string;
@@ -332,4 +346,8 @@ export type {
   SDKConfig,
   NexusNetwork,
   TransactionReceipt,
+  SwapInput,
+  SwapIntent,
+  SwapOptionalParams,
+  SwapStep,
 };
