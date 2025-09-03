@@ -1,6 +1,6 @@
 {
   "name": "@nexus/widgets",
-  "version": "0.0.7-dev.0",
+  "version": "0.0.8-dev.0",
   "description": "Nexus React components for cross-chain transactions",
   "main": "./dist/index.js",
   "module": "./dist/index.esm.js",
