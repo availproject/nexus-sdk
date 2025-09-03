@@ -1,5 +1,5 @@
 import { SUPPORTED_CHAINS } from '../constants';
-import { Abi, TransactionReceipt } from 'viem';
+import { Abi, Hex, TransactionReceipt } from 'viem';
 import type {
   OnIntentHook,
   OnAllowanceHook,
@@ -16,9 +16,35 @@ import type {
   SwapIntent,
   SwapStep,
 } from '@arcana/ca-sdk';
-import { SwapInput } from '@arcana/ca-sdk/dist/types/typings';
-import { SwapOptionalParams } from '@arcana/ca-sdk/dist/types/swap/typings';
 import * as ServiceTypes from './service-types';
+
+interface SwapOptionalParams {
+  emit: (stepID: string, step: SwapStep) => void;
+  swapIntentHook?: (data: SwapIntentHook) => unknown;
+}
+
+interface SwapIntentHook {
+  allow: () => void;
+  deny: () => void;
+  intent: SwapIntent;
+  refresh: () => Promise<SwapIntent>;
+}
+
+type BaseSwapInput = {
+  toChainID: number;
+  toTokenAddress: Hex;
+};
+
+type SwapInput =
+  | BaseSwapInput
+  | ({
+      fromAmount: bigint;
+      fromChainID: number;
+      fromTokenAddress: Hex;
+    } & BaseSwapInput)
+  | ({
+      toAmount: bigint;
+    } & BaseSwapInput);
 
 type TokenInfo = {
   contractAddress: `0x${string}`;
@@ -350,4 +376,5 @@ export type {
   SwapIntent,
   SwapOptionalParams,
   SwapStep,
+  SwapIntentHook,
 };
