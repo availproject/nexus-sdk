@@ -1,7 +1,8 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { OrchestratorStatus, ReviewStatus } from '../types';
+import { OrchestratorStatus, ReviewStatus, SwapInputData } from '../types';
 import { Abi, isAddress } from 'viem';
+import type { BridgeParams, TransferParams, BridgeAndExecuteParams } from '@nexus/commons';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -25,6 +26,8 @@ export const getOperationText = (type: string) => {
       return 'Transferring';
     case 'bridgeAndExecute':
       return 'Bridge & Execute';
+    case 'swap':
+      return 'Swapping';
     default:
       return 'Processing';
   }
@@ -494,3 +497,76 @@ export const getPrimaryButtonText = (status: OrchestratorStatus, reviewStatus: R
   if (status === 'set_allowance') return 'Approve & Continue';
   return getButtonText(status, reviewStatus);
 };
+
+// Union type utility functions for handling different transaction input structures
+type TransactionInputData =
+  | Partial<BridgeParams>
+  | Partial<TransferParams>
+  | Partial<BridgeAndExecuteParams>
+  | Partial<SwapInputData>
+  | null
+  | undefined;
+
+/**
+ * Safely extract token field from union transaction input data
+ */
+export function getTokenFromInputData(data: TransactionInputData): string | undefined {
+  if (!data) return undefined;
+
+  // For SwapConfig, check nested inputs structure
+  if ('inputs' in data && data.inputs) {
+    const inputs = data.inputs as any;
+    return inputs.inputToken || inputs.fromToken || inputs.token;
+  }
+
+  // For other transaction types, access directly
+  if ('token' in data && typeof data.token === 'string') {
+    return data.token;
+  }
+
+  return undefined;
+}
+
+/**
+ * Safely extract amount field from union transaction input data
+ */
+export function getAmountFromInputData(data: TransactionInputData): string | number | undefined {
+  if (!data) return undefined;
+
+  // For SwapConfig, check nested inputs structure
+  if ('inputs' in data && data.inputs) {
+    const inputs = data.inputs as any;
+    return inputs.amount;
+  }
+
+  // For other transaction types, access directly
+  if ('amount' in data) {
+    return data.amount;
+  }
+
+  return undefined;
+}
+
+/**
+ * Safely extract chainId from union transaction input data
+ */
+export function getChainIdFromInputData(data: TransactionInputData): number | undefined {
+  if (!data) return undefined;
+
+  // For SwapConfig, check nested inputs structure first
+  if ('inputs' in data && data.inputs) {
+    const inputs = data.inputs as any;
+    return inputs.chainId || inputs.toChainID;
+  }
+
+  // For other transaction types, access directly
+  if ('chainId' in data && typeof data.chainId === 'number') {
+    return data.chainId;
+  }
+
+  if ('toChainId' in data && typeof data.toChainId === 'number') {
+    return data.toChainId;
+  }
+
+  return undefined;
+}

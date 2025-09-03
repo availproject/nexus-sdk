@@ -9,9 +9,9 @@ import {
   CHAIN_METADATA,
   TOKEN_METADATA,
 } from '@nexus/commons';
-import { getOperationText } from '../../utils/utils';
+import { getOperationText, getTokenFromInputData } from '../../utils/utils';
 import { useDragConstraints } from '../motion/drag-constraints';
-import { TransactionType } from '../../types';
+import { TransactionType, SwapSimulationResult } from '../../types';
 
 const COLLAPSED = { width: 400, height: 120, radius: 16 } as const;
 const EXPANDED = { width: 480, height: 500, radius: 16 } as const;
@@ -33,8 +33,16 @@ export const TransactionProcessorShell: React.FC<{ disableCollapse?: boolean }> 
 
   const sources = useMemo(() => {
     if (!simulationResult) return [] as number[];
+
     if (transactionType === 'bridge' || transactionType === 'transfer') {
       return (simulationResult as SimulationResult)?.intent?.sources?.map((s) => s.chainID) || [];
+    }
+
+    if (transactionType === 'swap') {
+      const swapResult = simulationResult as SwapSimulationResult;
+      // For swap, use the chainId from metadata or intent
+      const chainIds = swapResult?.intent?.sources?.map((source) => source?.chain?.id);
+      return chainIds ? chainIds : [];
     }
 
     const bridgeExecuteResult = simulationResult as BridgeAndExecuteSimulationResult;
@@ -49,8 +57,15 @@ export const TransactionProcessorShell: React.FC<{ disableCollapse?: boolean }> 
 
   const destination = useMemo(() => {
     if (!simulationResult) return 0;
+
     if (transactionType === 'bridge' || transactionType === 'transfer') {
       return (simulationResult as SimulationResult)?.intent?.destination?.chainID || 0;
+    }
+
+    if (transactionType === 'swap') {
+      const swapResult = simulationResult as SwapSimulationResult;
+      // For swap, destination is the same as source (single chain)
+      return swapResult?.intent?.destination?.chain;
     }
 
     const bridgeExecuteResult = simulationResult as BridgeAndExecuteSimulationResult;
@@ -63,7 +78,7 @@ export const TransactionProcessorShell: React.FC<{ disableCollapse?: boolean }> 
     return bridgeExecuteResult.bridgeSimulation?.intent?.destination?.chainID || 0;
   }, [simulationResult, transactionType]);
 
-  const token = activeTransaction.inputData?.token || '';
+  const token = getTokenFromInputData(activeTransaction.inputData) || '';
 
   const sourceChainMeta = sources
     .filter((s): s is number => s != null && !isNaN(s))

@@ -1,15 +1,43 @@
 import { useEffect, useState, useCallback } from 'react';
-import { NEXUS_EVENTS } from '@nexus/commons';
+import { NEXUS_EVENTS, SwapStep } from '@nexus/commons';
 import { getStatusText } from '../utils/utils';
 import { NexusSDK } from '@nexus/core';
 import { ActiveTransaction } from '../types';
 import { ProgressStep, ProgressSteps } from '@nexus/core';
 
+// Swap-specific step handling
+export const getTextFromSwapStep = (step: SwapStep): string => {
+  switch (step.type) {
+    case 'CREATE_PERMIT_EOA_TO_EPHEMERAL':
+      return `Creating permit for eoa to ephemeral for ${step.symbol} on ${step.chain?.name || 'chain'}`;
+    case 'CREATE_PERMIT_FOR_SOURCE_SWAP':
+      return `Creating permit for source swap for ${step.symbol} on ${step.chain?.name || 'chain'}`;
+    case 'DESTINATION_SWAP_BATCH_TX':
+      return `Creating destination swap transaction`;
+    case 'DESTINATION_SWAP_HASH':
+      return `Hash for destination swap on ${step.chain?.name || 'chain'}`;
+    case 'DETERMINING_SWAP':
+      return `Generating routes for XCS`;
+    case 'RFF_ID':
+      return `CA Intent:`;
+    case 'SOURCE_SWAP_BATCH_TX':
+      return 'Creating source swap batch transactions';
+    case 'SOURCE_SWAP_HASH':
+      return `Hash for source swap on ${step.chain?.name || 'chain'}`;
+    case 'SWAP_COMPLETE':
+      return `Swap is completed`;
+    case 'SWAP_START':
+      return 'Swap starting';
+    default:
+      return 'Processing swap';
+  }
+};
+
 interface ProcessingStep {
   id: number;
   completed: boolean;
   progress: number; // 0-100
-  stepData?: ProgressStep | ProgressSteps;
+  stepData?: ProgressStep | ProgressSteps | SwapStep;
 }
 
 interface ProcessingState {
@@ -61,6 +89,90 @@ const useListenTransaction = ({
   useEffect(() => {
     if (!sdk) return;
 
+    // Special handling for swap transactions
+    if (type === 'swap') {
+      // For swap, we create our own progress steps since no expected_steps are emitted
+      const swapSteps = [
+        { id: 0, type: 'SWAP_START', typeID: 'SWAP_START', name: 'Starting Swap' },
+        { id: 1, type: 'DETERMINING_SWAP', typeID: 'DETERMINING_SWAP', name: 'Finding Best Route' },
+        { id: 2, type: 'SOURCE_SWAP_HASH', typeID: 'SOURCE_SWAP_HASH', name: 'Source Transaction' },
+        { id: 3, type: 'DESTINATION_SWAP_HASH', typeID: 'DESTINATION_SWAP_HASH', name: 'Destination Transaction' },
+        { id: 4, type: 'SWAP_COMPLETE', typeID: 'SWAP_COMPLETE', name: 'Swap Complete' },
+      ];
+
+      const initialSteps = swapSteps.map((step, index) => ({
+        id: index,
+        completed: false,
+        progress: 0,
+        stepData: step as any, // Step structure for swap mock data
+      }));
+
+      setProcessing({
+        currentStep: 0,
+        totalSteps: swapSteps.length,
+        steps: initialSteps,
+        statusText: 'Preparing Swap',
+        animationProgress: 0,
+      });
+
+      const handleSwapStepComplete = (stepData: SwapStep) => {
+        console.log('Swap step completed:', stepData);
+
+        setProcessing((prev) => {
+          // Find matching step by type
+          const stepIndex = swapSteps.findIndex((s) => s.typeID === stepData.type);
+
+          if (stepIndex === -1) {
+            // Unknown step, just advance progress
+            const nextStep = Math.min(prev.currentStep + 1, prev.totalSteps);
+            return {
+              ...prev,
+              currentStep: nextStep,
+              animationProgress: (nextStep / prev.totalSteps) * 100,
+              statusText: getTextFromSwapStep(stepData),
+            };
+          }
+
+          const newSteps = [...prev.steps];
+
+          // Mark all steps up to and including current as completed
+          for (let i = 0; i <= stepIndex && i < newSteps.length; i++) {
+            newSteps[i] = {
+              ...newSteps[i],
+              completed: true,
+              progress: 100,
+              stepData: i === stepIndex ? stepData : newSteps[i].stepData,
+            };
+          }
+
+          const nextStep = Math.min(stepIndex + 1, prev.totalSteps);
+          const animationProgress = ((stepIndex + 1) / prev.totalSteps) * 100;
+
+          return {
+            ...prev,
+            currentStep: nextStep,
+            steps: newSteps,
+            animationProgress: Math.min(animationProgress, 100),
+            statusText: getTextFromSwapStep(stepData),
+          };
+        });
+
+        // Handle explorer URL extraction for swap
+        if (stepData.type === 'SOURCE_SWAP_HASH' && 'explorerURL' in stepData) {
+          setExplorerURL(stepData.explorerURL);
+        } else if (stepData.type === 'DESTINATION_SWAP_HASH' && 'explorerURL' in stepData) {
+          setExplorerURL(stepData.explorerURL);
+        }
+      };
+
+      sdk?.nexusEvents?.on(NEXUS_EVENTS.STEP_COMPLETE, handleSwapStepComplete);
+
+      return () => {
+        sdk.nexusEvents?.off(NEXUS_EVENTS.STEP_COMPLETE, handleSwapStepComplete);
+      };
+    }
+
+    // Regular handling for non-swap transactions
     // Flag to know when we have received the complete expected-steps list
     let expectedReceived = false;
     // Queue to store stepComplete events that arrive before expected steps

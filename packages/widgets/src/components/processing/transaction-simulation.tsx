@@ -2,11 +2,11 @@ import { type SimulationResult, type BridgeAndExecuteSimulationResult } from '@n
 import { InfoMessage } from '../shared/info-message';
 import { TransactionDetailsDrawer } from '../shared/transaction-details-drawer';
 import TextLoader from '../motion/text-loader';
-import { OrchestratorStatus, ReviewStatus, TransactionType } from '../../types';
+import { OrchestratorStatus, ReviewStatus, TransactionType, SwapSimulationResult } from '../../types';
 
 interface TransactionSimulationProps {
   isLoading: boolean;
-  simulationResult?: (SimulationResult | BridgeAndExecuteSimulationResult) & {
+  simulationResult?: (SimulationResult | BridgeAndExecuteSimulationResult | SwapSimulationResult) & {
     allowance?: { needsApproval: boolean };
   };
   inputData?: {

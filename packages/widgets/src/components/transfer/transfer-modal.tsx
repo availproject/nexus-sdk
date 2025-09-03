@@ -1,17 +1,12 @@
 import { UnifiedTransactionModal } from '../shared/unified-transaction-modal';
 import { SimulationResult } from '@nexus/commons';
-import { UnifiedTransactionForm } from '../shared/unified-transaction-form';
+import { UnifiedInputData, UnifiedTransactionForm } from '../shared/unified-transaction-form';
 import { TransferConfig } from '../../types';
 import PrefilledInputs from '../shared/prefilled-inputs';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 
 interface TransferFormSectionProps {
-  inputData: {
-    chainId?: number;
-    token?: string;
-    amount?: string | number;
-    recipient?: string;
-  };
+  inputData: UnifiedInputData;
   onUpdate: (data: Partial<TransferConfig>) => void;
   disabled?: boolean;
   className?: string;
@@ -53,7 +48,7 @@ export function TransferFormSection({
     <UnifiedTransactionForm
       type="transfer"
       inputData={inputData}
-      onUpdate={onUpdate}
+      onUpdate={onUpdate as any}
       disabled={disabled}
       className={className}
       prefillFields={prefillFields}

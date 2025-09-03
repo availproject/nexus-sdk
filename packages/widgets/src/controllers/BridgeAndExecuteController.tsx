@@ -1,7 +1,7 @@
 import React from 'react';
 import type { ITransactionController, ActiveTransaction } from '../types';
 import { NexusSDK } from '@nexus/core';
-import { UnifiedTransactionForm } from '../components/shared/unified-transaction-form';
+import { UnifiedTransactionForm, UnifiedInputData } from '../components/shared/unified-transaction-form';
 
 import {
   type DynamicParamBuilder,
@@ -27,11 +27,27 @@ const BridgeAndExecuteInputForm: React.FC<{
     amount?: boolean;
   };
 }> = ({ prefill, onUpdate, isBusy, prefillFields = {} }) => {
+  // Transform BridgeAndExecuteConfig to UnifiedInputData
+  const unifiedInputData: UnifiedInputData = {
+    toChainId: prefill?.toChainId,
+    token: prefill?.token,
+    amount: prefill?.amount,
+  };
+
+  // Transform UnifiedInputData back to BridgeAndExecuteConfig
+  const handleUpdate = (data: UnifiedInputData) => {
+    onUpdate({
+      toChainId: data.toChainId as any,
+      token: data.token as any,
+      amount: data.amount,
+    });
+  };
+
   return (
     <UnifiedTransactionForm
       type="bridgeAndExecute"
-      inputData={prefill}
-      onUpdate={onUpdate}
+      inputData={unifiedInputData}
+      onUpdate={handleUpdate}
       disabled={isBusy}
       prefillFields={prefillFields}
     />

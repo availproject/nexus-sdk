@@ -23,19 +23,23 @@ interface DestinationDrawerProps {
   onTokenValueChange: (token: string) => void;
   isOpen?: boolean;
   onOpenChange?: (open: boolean) => void;
+  fieldLabel?: string;
+  drawerTitle?: string;
 }
 
 const DestinationTrigger = ({
   chainValue,
   tokenValue,
+  fieldLabel = 'Destination',
 }: {
   chainValue?: string;
   tokenValue?: string;
+  fieldLabel?: string;
 }) => {
   const chainId = chainValue ? parseInt(chainValue) : undefined;
 
   return (
-    <FormField label={'Destination'} className="flex-1 font-nexus-primary gap-y-2 w-full">
+    <FormField label={fieldLabel} className="flex-1 font-nexus-primary gap-y-2 w-full">
       <div
         className="flex items-center justify-between py-2 px-4 gap-x-2 rounded-nexus-full border border-nexus-muted-secondary/20 bg-nexus-background w-full"
         style={{
@@ -92,17 +96,23 @@ const DestinationDrawer = ({
   network,
   onChainValueChange,
   onTokenValueChange,
+  fieldLabel,
+  drawerTitle = 'Select Destination Chain & Token',
 }: DestinationDrawerProps) => {
   return (
     <Drawer>
       <DrawerTrigger disabled={isChainSelectDisabled && isTokenSelectDisabled}>
-        <DestinationTrigger chainValue={chainValue} tokenValue={tokenValue} />
+        <DestinationTrigger
+          chainValue={chainValue}
+          tokenValue={tokenValue}
+          fieldLabel={fieldLabel}
+        />
       </DrawerTrigger>
       <DrawerContent className="font-nexus-primary" contentClassName="overflow-hidden">
         <DrawerHeader className="px-4 pt-4 pb-0">
           <div className="flex items-center justify-between mb-4">
             <DrawerTitle className="font-nexus-primary text-nexus-foreground">
-              Select Destination Chain & Token
+              {drawerTitle}
             </DrawerTitle>
             <DrawerClose>
               <CircleX className="w-6 h-6 text-nexus-black hover:text-zinc-700 transition-colors" />

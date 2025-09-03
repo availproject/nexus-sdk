@@ -26,6 +26,7 @@ import type {
   NexusContextValue,
   TransactionType,
   ITransactionController,
+  SwapInputData,
 } from '../types';
 import type { TransferConfig } from '../controllers/TransferController';
 import { BridgeController } from '../controllers/BridgeController';
@@ -36,11 +37,24 @@ import { LayoutGroup } from 'motion/react';
 import useListenTransaction from '../hooks/useListenTransaction';
 import { logger } from '@nexus/commons';
 import { DragConstraintsProvider } from '../components/motion/drag-constraints';
+import { SwapController } from 'src/controllers/SwapController';
+import { getTokenFromInputData, getAmountFromInputData } from '../utils/utils';
 
-const controllers: Record<TransactionType, ITransactionController> = {
+const controllers: Record<Exclude<TransactionType, 'swap'>, ITransactionController> = {
   bridge: new BridgeController(),
   transfer: new TransferController(),
   bridgeAndExecute: new BridgeAndExecuteController(),
+};
+
+const swapController = new SwapController();
+
+// Type guards
+const isSwapController = (controller: any): controller is SwapController => {
+  return controller === swapController;
+};
+
+const isTransactionController = (controller: any): controller is ITransactionController => {
+  return controller !== swapController;
 };
 
 const NexusContext = createContext<NexusContextValue | null>(null);
@@ -62,6 +76,7 @@ function getInputChainId(
     | Partial<BridgeParams>
     | Partial<TransferParams>
     | Partial<BridgeAndExecuteParams>
+    | Partial<SwapInputData>
     | null
     | undefined,
 ): number | undefined {
@@ -103,10 +118,11 @@ export function InternalNexusProvider({
     activeTransaction,
   });
 
-  const activeController = useMemo(
-    () => (activeTransaction.type ? controllers[activeTransaction.type] : null),
-    [activeTransaction.type],
-  );
+  const activeController = useMemo(() => {
+    if (!activeTransaction.type) return null;
+    if (activeTransaction.type === 'swap') return swapController;
+    return controllers[activeTransaction.type];
+  }, [activeTransaction.type]);
 
   const fetchExchangeRates = useCallback(async () => {
     try {
@@ -197,6 +213,7 @@ export function InternalNexusProvider({
       prefillData:
         | Partial<BridgeConfig>
         | Partial<TransferConfig>
+        | Partial<SwapInputData>
         | Partial<BridgeAndExecuteParams> = {},
     ) => {
       // Track which fields were prefilled
@@ -206,6 +223,12 @@ export function InternalNexusProvider({
         token?: boolean;
         amount?: boolean;
         recipient?: boolean;
+        fromChainID?: boolean;
+        toChainID?: boolean;
+        fromTokenAddress?: boolean;
+        toTokenAddress?: boolean;
+        fromAmount?: boolean;
+        toAmount?: boolean;
       } = {};
 
       if (prefillData) {
@@ -231,6 +254,25 @@ export function InternalNexusProvider({
         if ('recipient' in prefillData && prefillData.recipient !== undefined) {
           prefillFields.recipient = true;
         }
+        // Handle swap-specific fields
+        if ('fromChainID' in prefillData && prefillData.fromChainID !== undefined) {
+          prefillFields.fromChainID = true;
+        }
+        if ('toChainID' in prefillData && prefillData.toChainID !== undefined) {
+          prefillFields.toChainID = true;
+        }
+        if ('fromTokenAddress' in prefillData && prefillData.fromTokenAddress !== undefined) {
+          prefillFields.fromTokenAddress = true;
+        }
+        if ('toTokenAddress' in prefillData && prefillData.toTokenAddress !== undefined) {
+          prefillFields.toTokenAddress = true;
+        }
+        if ('fromAmount' in prefillData && prefillData.fromAmount !== undefined) {
+          prefillFields.fromAmount = true;
+        }
+        if ('toAmount' in prefillData && prefillData.toAmount !== undefined) {
+          prefillFields.toAmount = true;
+        }
       }
       const normalizedPrefillData =
         type === 'bridgeAndExecute' &&
@@ -243,7 +285,7 @@ export function InternalNexusProvider({
         ...initialState,
         type,
         status: isSdkInitialized ? 'review' : 'initializing',
-        inputData: normalizedPrefillData,
+        inputData: normalizedPrefillData as any,
         prefillFields,
       });
     },
@@ -272,10 +314,16 @@ export function InternalNexusProvider({
   }, []);
 
   const updateInput = useCallback(
-    (data: Partial<BridgeConfig> | Partial<TransferConfig> | Partial<BridgeAndExecuteParams>) => {
+    (
+      data:
+        | Partial<BridgeParams>
+        | Partial<TransferParams>
+        | Partial<BridgeAndExecuteParams>
+        | Partial<SwapInputData>,
+    ) => {
       setActiveTransaction((prev) => ({
         ...prev,
-        inputData: { ...prev.inputData, ...data },
+        inputData: { ...prev.inputData, ...data } as any,
         reviewStatus: 'gathering_input',
         status: prev.status === 'simulation_error' ? 'review' : prev.status,
         error: prev.status === 'simulation_error' ? null : prev.error,
@@ -288,28 +336,31 @@ export function InternalNexusProvider({
   );
 
   const checkInsufficientBalance = useCallback(
-    (inputData: Partial<BridgeConfig> | Partial<TransferConfig>) => {
-      if (!inputData.token || !inputData.amount || !unifiedBalance.length) {
+    (inputData: Partial<BridgeConfig> | Partial<TransferConfig> | Partial<SwapInputData>) => {
+      const token = getTokenFromInputData(inputData);
+      const amount = getAmountFromInputData(inputData);
+
+      if (!token || !amount || !unifiedBalance.length) {
         return false;
       }
 
-      const tokenBalance = unifiedBalance.find((asset) => asset.symbol === inputData.token);
+      const tokenBalance = unifiedBalance.find((asset) => asset.symbol === token);
       if (!tokenBalance) {
         logger.warn('Token not found in unified balance:', {
-          requestedToken: inputData.token,
+          requestedToken: token,
           availableTokens: unifiedBalance.map((asset) => asset.symbol),
         });
         return true; // Consider it insufficient if token not found
       }
 
-      const requestedAmount = parseFloat(inputData.amount.toString());
+      const requestedAmount = parseFloat(amount.toString());
       const availableBalance = parseFloat(tokenBalance.balance);
 
       const isInsufficient = requestedAmount > availableBalance;
 
       if (isInsufficient) {
         logger.warn('Insufficient balance detected:', {
-          token: inputData.token,
+          token: token,
           requested: requestedAmount,
           available: availableBalance,
           deficit: requestedAmount - availableBalance,
@@ -347,14 +398,21 @@ export function InternalNexusProvider({
       hasSufficientInput:
         activeController && activeTransaction.inputData
           ? (() => {
-              let inputDataForValidation = activeTransaction.inputData;
-              if (activeTransaction.type === 'bridgeAndExecute') {
-                inputDataForValidation = {
-                  ...activeTransaction.inputData,
-                  toChainId: (activeTransaction.inputData as any).chainId,
-                };
+              if (isSwapController(activeController)) {
+                return activeController.hasSufficientInput(
+                  activeTransaction.inputData as Partial<SwapInputData>,
+                );
+              } else if (isTransactionController(activeController)) {
+                let inputDataForValidation = activeTransaction.inputData;
+                if (activeTransaction.type === 'bridgeAndExecute') {
+                  inputDataForValidation = {
+                    ...activeTransaction.inputData,
+                    toChainId: (activeTransaction.inputData as any).chainId,
+                  };
+                }
+                return activeController.hasSufficientInput(inputDataForValidation as any);
               }
-              return activeController.hasSufficientInput(inputDataForValidation as any);
+              return false;
             })()
           : false,
       notSimulating: !isSimulating,
@@ -372,7 +430,7 @@ export function InternalNexusProvider({
     ) {
       const { inputData } = activeTransaction;
 
-      const hasInsufficientBalance = checkInsufficientBalance(inputData);
+      const hasInsufficientBalance = checkInsufficientBalance(inputData as any);
       setInsufficientBalance(hasInsufficientBalance);
 
       if (hasInsufficientBalance) {
@@ -393,9 +451,11 @@ export function InternalNexusProvider({
         // Check if input has changed since this timeout was set (simple cancellation)
         const currentInputData = activeTransaction.inputData;
         if (
-          currentInputData?.amount !== inputData.amount ||
-          currentInputData?.token !== inputData.token ||
-          getInputChainId(currentInputData) !== getInputChainId(inputData)
+          getAmountFromInputData(currentInputData as any) !==
+            getAmountFromInputData(inputData as any) ||
+          getTokenFromInputData(currentInputData as any) !==
+            getTokenFromInputData(inputData as any) ||
+          getInputChainId(currentInputData as any) !== getInputChainId(inputData as any)
         ) {
           setIsSimulating(false); // Reset simulation state
           return;
@@ -410,23 +470,36 @@ export function InternalNexusProvider({
         }));
 
         try {
-          // Convert chainId to toChainId for bridge-and-execute before simulation
-          let inputDataForSimulation = inputData;
-          if (activeTransaction.type === 'bridgeAndExecute') {
-            inputDataForSimulation = {
-              ...inputData,
-              toChainId: (inputData as any).chainId,
-            };
-          }
+          let simulationResult;
 
-          const simulationResult = await activeController.runReview(sdk, inputDataForSimulation);
+          if (isSwapController(activeController)) {
+            // Handle swap controller
+            simulationResult = await activeController.runReview(
+              sdk,
+              inputData as Partial<SwapInputData>,
+            );
+          } else if (isTransactionController(activeController)) {
+            // Handle regular transaction controllers
+            let inputDataForSimulation = inputData;
+            if (activeTransaction.type === 'bridgeAndExecute') {
+              inputDataForSimulation = {
+                ...inputData,
+                toChainId: (inputData as any).chainId,
+              };
+            }
+            simulationResult = await activeController.runReview(sdk, inputDataForSimulation);
+          } else {
+            throw new Error('Unknown controller type');
+          }
 
           // Final check before applying results - ensure input hasn't changed
           const finalInputData = activeTransaction.inputData;
           if (
-            finalInputData?.amount !== inputData.amount ||
-            finalInputData?.token !== inputData.token ||
-            getInputChainId(finalInputData) !== getInputChainId(inputData)
+            getAmountFromInputData(finalInputData as any) !==
+              getAmountFromInputData(inputData as any) ||
+            getTokenFromInputData(finalInputData as any) !==
+              getTokenFromInputData(inputData as any) ||
+            getInputChainId(finalInputData as any) !== getInputChainId(inputData as any)
           ) {
             setIsSimulating(false);
             return;
@@ -522,11 +595,25 @@ export function InternalNexusProvider({
 
     setActiveTransaction((prev) => ({ ...prev, status: 'processing' }));
     try {
-      const executionResult = await activeController.confirmAndProceed(
-        sdk,
-        activeTransaction.inputData,
-        activeTransaction.simulationResult,
-      );
+      let executionResult;
+
+      if (isSwapController(activeController)) {
+        // Handle swap controller
+        executionResult = await activeController.confirmAndProceed(
+          sdk,
+          activeTransaction.inputData as Partial<SwapInputData>,
+          activeTransaction.simulationResult,
+        );
+      } else if (isTransactionController(activeController)) {
+        // Handle regular transaction controllers
+        executionResult = await activeController.confirmAndProceed(
+          sdk,
+          activeTransaction.inputData,
+          activeTransaction.simulationResult,
+        );
+      } else {
+        throw new Error('Unknown controller type');
+      }
       setActiveTransaction((prev) => ({
         ...prev,
         status: executionResult?.success ? 'success' : 'error',
@@ -580,12 +667,15 @@ export function InternalNexusProvider({
           // Use the new chain-specific approach
           for (const chainDetail of chainDetails) {
             if (chainDetail.needsApproval) {
-              const tokenMeta = sdk.utils.getTokenMetadata(inputData.token!);
+              const token = getTokenFromInputData(inputData);
+              if (!token) continue;
+
+              const tokenMeta = sdk.utils.getTokenMetadata(token as any);
               const amountToApprove = isMinimum
                 ? sdk.utils.parseUnits(amount, tokenMeta?.decimals ?? 18)
                 : sdk.utils.parseUnits(amount, tokenMeta?.decimals ?? 18);
 
-              await sdk.setAllowance(chainDetail.chainId, [inputData.token!], amountToApprove);
+              await sdk.setAllowance(chainDetail.chainId, [token as any], amountToApprove);
             }
           }
         } else {
@@ -600,12 +690,15 @@ export function InternalNexusProvider({
           }
 
           for (const source of sourcesData) {
-            const tokenMeta = sdk.utils.getTokenMetadata(inputData.token!);
+            const token = getTokenFromInputData(inputData);
+            if (!token) continue;
+
+            const tokenMeta = sdk.utils.getTokenMetadata(token as any);
             const amountToApprove = isMinimum
               ? sdk.utils.parseUnits(amount, tokenMeta?.decimals ?? 18)
               : sdk.utils.parseUnits(amount, tokenMeta?.decimals ?? 18);
 
-            await sdk.setAllowance(source.chainID, [inputData.token!], amountToApprove);
+            await sdk.setAllowance(source.chainID, [token as any], amountToApprove);
           }
         }
 
@@ -683,8 +776,8 @@ export function InternalNexusProvider({
       triggerSimulation();
     }
   }, [
-    activeTransaction.inputData?.amount,
-    activeTransaction.inputData?.token,
+    getAmountFromInputData(activeTransaction.inputData),
+    getTokenFromInputData(activeTransaction.inputData),
     getInputChainId(activeTransaction.inputData),
     activeTransaction.status,
     activeTransaction.reviewStatus,

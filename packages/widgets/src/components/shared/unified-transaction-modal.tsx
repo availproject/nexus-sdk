@@ -1,11 +1,17 @@
 import React, { useState, useCallback } from 'react';
 import { BaseModal } from '../motion/base-modal';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
-import { cn, getContentKey, getModalTitle, getPrimaryButtonText } from '../../utils/utils';
+import {
+  cn,
+  getContentKey,
+  getModalTitle,
+  getPrimaryButtonText,
+  getTokenFromInputData,
+  getAmountFromInputData,
+} from '../../utils/utils';
 import { type TransactionType } from '../../utils/balance-utils';
 import { TransactionSimulation } from '../processing/transaction-simulation';
 import { AvailLogo } from '../icons/AvailLogo';
-import { type BridgeAndExecuteParams } from '@nexus/commons';
 import UnifiedBalance from './unified-balance';
 import { InfoMessage } from './info-message';
 import { AllowanceForm } from './allowance-form';
@@ -13,16 +19,14 @@ import { DialogFooter, DialogHeader, DialogTitle } from '../motion/dialog-motion
 import { SlideTransition } from '../motion/slide-transition';
 import { EnhancedInfoMessage } from './enhanced-info-message';
 import { ActionButtons } from './action-buttons';
-import type { BridgeConfig, TransferConfig } from '../../types';
+import type { UnifiedInputData, SwapInputData } from '../../types';
 
 interface UnifiedTransactionModalProps {
   transactionType: TransactionType;
   modalTitle: string;
   FormComponent: React.ComponentType<{
-    inputData: any;
-    onUpdate: (
-      data: Partial<BridgeConfig> | Partial<TransferConfig> | Partial<BridgeAndExecuteParams>,
-    ) => void;
+    inputData: UnifiedInputData | SwapInputData;
+    onUpdate: (data: UnifiedInputData | SwapInputData) => void;
     disabled: boolean;
     prefillFields?: any;
   }>;
@@ -128,9 +132,9 @@ export function UnifiedTransactionModal({
 
     return (
       <AllowanceForm
-        token={inputData?.token || ''}
+        token={getTokenFromInputData(inputData) || ''}
         minimumAmount={minimumAmount}
-        inputAmount={inputData?.amount?.toString() || '0'}
+        inputAmount={getAmountFromInputData(inputData)?.toString() || '0'}
         sourceChains={sourceChains}
         onApprove={approveAllowance}
         onCancel={denyAllowance}
@@ -183,7 +187,7 @@ export function UnifiedTransactionModal({
 
               <FormComponent
                 inputData={transformedInputData || {}}
-                onUpdate={updateInput}
+                onUpdate={updateInput as any}
                 disabled={!isSdkInitialized}
                 prefillFields={prefillFields}
               />
@@ -198,9 +202,12 @@ export function UnifiedTransactionModal({
                 {isSdkInitialized && insufficientBalance && (
                   <InfoMessage variant="error" className="mt-4">
                     <div className="space-y-2">
-                      <p className="font-semibold">Insufficient {inputData?.token} balance</p>
+                      <p className="font-semibold">
+                        Insufficient {getTokenFromInputData(inputData)} balance
+                      </p>
                       <p className="text-sm">
-                        You don't have enough {inputData?.token} to complete this transaction.
+                        You don't have enough {getTokenFromInputData(inputData)} to complete this
+                        transaction.
                         {transactionType === 'bridgeAndExecute'
                           ? ' Consider using a smaller amount or add more funds to your wallet.'
                           : ' Please add more funds to your wallet or reduce the transaction amount.'}

@@ -5,6 +5,7 @@ import {
   CHAIN_METADATA,
   SUPPORTED_CHAINS,
 } from '@nexus/commons';
+import { SwapSimulationResult } from '../../types';
 import { cn, formatCost, getPrimaryButtonText, truncateAddress } from '../../utils/utils';
 import {
   Drawer,
@@ -25,7 +26,7 @@ import { getFiatValue } from '../../utils/balance-utils';
 import type { OrchestratorStatus, ReviewStatus, TransactionType } from '../../types';
 
 interface TransactionDetailsDrawerProps {
-  simulationResult?: (SimulationResult | BridgeAndExecuteSimulationResult) & {
+  simulationResult?: (SimulationResult | BridgeAndExecuteSimulationResult | SwapSimulationResult) & {
     allowance?: { needsApproval: boolean };
   };
   inputData?: {
