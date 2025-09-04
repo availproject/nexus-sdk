@@ -50,7 +50,7 @@ npm install @avail-project/nexus-widgets
 | BNB       | 56       | BNB             | ✅     |
 | HyperEVM  | 999      | HYPE            | ✅     |
 
-### Testnet Chains
+**Testnet Chains:**
 
 | Network          | Chain ID | Native Currency | Status |
 | ---------------- | -------- | --------------- | ------ |
