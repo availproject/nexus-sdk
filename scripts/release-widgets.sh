@@ -103,10 +103,19 @@ if [[ "$RELEASE_TYPE" == "prod" ]]; then
         exit 1
     fi
 
+    # Fetch latest version from npm to ensure proper increment
+    print_status "Fetching latest version from npm..."
+    LATEST_WIDGETS_VERSION=$(npm view @avail-project/nexus-widgets version 2>/dev/null || echo "0.0.0")
+    print_status "Latest widgets version: $LATEST_WIDGETS_VERSION"
+
     # Version bump
     print_status "Bumping version ($VERSION_TYPE)..."
     cd packages/widgets
+
+    # Set current version to latest version to ensure proper increment
+    npm version "$LATEST_WIDGETS_VERSION" --no-git-tag-version --allow-same-version
     npm version $VERSION_TYPE --no-git-tag-version
+
     WIDGETS_VERSION=$(node -p "require('./package.json').version")
     cd ../..
 
