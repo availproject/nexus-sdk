@@ -564,7 +564,6 @@ export class BridgeExecuteService extends BaseService {
       logger.info('DEBUG handleExecutePhase - Bridge token:', bridgeToken);
 
       const { formatUnits } = await import('viem');
-      const { TOKEN_METADATA } = await import('@nexus/commons');
 
       const decimals = TOKEN_METADATA[bridgeToken]?.decimals || 18;
       const userFriendlyAmount = formatUnits(BigInt(bridgeAmount), decimals);

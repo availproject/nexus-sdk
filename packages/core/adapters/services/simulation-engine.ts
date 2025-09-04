@@ -3,7 +3,7 @@ import type {
   EnhancedSimulationStep,
   StateOverride,
 } from '../../integrations/types';
-import { encodePacked, keccak256 } from 'viem';
+import { encodePacked, keccak256, formatUnits } from 'viem';
 import {
   type SUPPORTED_TOKENS,
   type ExecuteParams,
@@ -12,6 +12,8 @@ import {
   extractErrorMessage,
   getTokenContractAddress,
   logger,
+  encodeContractCall,
+  TOKEN_METADATA,
 } from '@nexus/commons';
 
 import { getSimulationClient } from '../../integrations/tenderly';
@@ -414,10 +416,9 @@ export class SimulationEngine {
     // First, convert amountRequired from micro-units to user-friendly format for the callback
     // The callback expects amount in user-friendly format (e.g., "0.01" for 0.01 USDC)
     // but amountRequired comes in micro-units (e.g., "10000" for 0.01 USDC)
-    const { formatUnits } = await import('viem');
-    const { TOKEN_METADATA } = await import('@nexus/commons');
-
-    const decimals = TOKEN_METADATA[tokenRequired]?.decimals || 18;
+    console.log('DEBUG TOKEN_METADATA check:', { TOKEN_METADATA, tokenRequired });
+    logger.info('Token metadata:', { meta: TOKEN_METADATA, tokenRequired });
+    const decimals = TOKEN_METADATA[tokenRequired]?.decimals ?? 6;
     const userFriendlyAmount = formatUnits(BigInt(amountRequired), decimals);
 
     logger.info('DEBUG SimulationEngine - Amount conversion:', {
@@ -484,7 +485,6 @@ export class SimulationEngine {
     // Step 3: Execute step
 
     // Encode the function call with the built parameters
-    const { encodeContractCall } = await import('@nexus/commons');
     const encodingResult = encodeContractCall({
       contractAbi: contractCall.contractAbi,
       functionName: contractCall.functionName,

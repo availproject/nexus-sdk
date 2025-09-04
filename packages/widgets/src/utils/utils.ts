@@ -2,6 +2,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { OrchestratorStatus, ReviewStatus } from '../types';
 import { Abi, isAddress } from 'viem';
+import { CHAIN_METADATA } from '@nexus/commons';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -402,8 +403,6 @@ export async function addChainToWallet(
   chainId: number,
   provider: { request: (args: { method: string; params?: any[] }) => Promise<any> },
 ): Promise<boolean> {
-  const { CHAIN_METADATA } = await import('@nexus/commons');
-
   const chainMetadata = CHAIN_METADATA[chainId];
   if (!chainMetadata) {
     console.error(`Chain metadata not found for chain ID: ${chainId}`);
