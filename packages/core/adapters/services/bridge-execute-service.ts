@@ -19,7 +19,7 @@ import {
   extractErrorMessage,
   logger,
 } from '@nexus/commons';
-import type { ProgressStep } from '@arcana/ca-sdk';
+import type { ProgressStep, UserAsset } from '@arcana/ca-sdk';
 
 // Local constants for the service
 const ADAPTER_CONSTANTS = {
@@ -361,22 +361,14 @@ export class BridgeExecuteService extends BaseService {
             }
           }
 
-          // Create execute parameters for simulation - use consistent wei format
-          // Convert receivedAmountForContract to user-friendly format for consistency with execution
-          const tokenMetadata = TOKEN_METADATA[params.token.toUpperCase()];
-          const decimals = tokenMetadata?.decimals || 18;
-          const { formatUnits } = await import('viem');
-          const simulationUserFriendlyAmount = formatUnits(
-            BigInt(receivedAmountForContract),
-            decimals,
-          );
-
+          // Create execute parameters for simulation - use wei format for SimulationEngine
+          // SimulationEngine expects amounts in wei format, not user-friendly format
           const modifiedExecuteParams: ExecuteParams = {
             ...execute,
             toChainId: params.toChainId,
             tokenApproval: {
               token: params.token,
-              amount: simulationUserFriendlyAmount, // Use same format as execution
+              amount: receivedAmountForContract, // Keep in wei format for SimulationEngine
             },
           };
 
@@ -1144,7 +1136,7 @@ export class BridgeExecuteService extends BaseService {
       logger.info(`Getting ${token} balance on chain ${chainId}`);
 
       // Get user's unified balances
-      const balances = await this.adapter.ca.getUnifiedBalances();
+      const balances = (await this.adapter.ca.getUnifiedBalances()) as UserAsset[];
 
       // Find the balance for the specific token
       const tokenBalance = balances.find((asset) => asset.symbol === token);
@@ -1203,7 +1195,7 @@ export class BridgeExecuteService extends BaseService {
       logger.info(`Checking ${nativeTokenSymbol} balance on chain ${chainId} for gas`);
 
       // Get user's unified balances
-      const balances = await this.adapter.ca.getUnifiedBalances();
+      const balances = (await this.adapter.ca.getUnifiedBalances()) as UserAsset[];
 
       // Find the native token balance
       const nativeTokenBalance = balances.find((asset) => asset.symbol === nativeTokenSymbol);

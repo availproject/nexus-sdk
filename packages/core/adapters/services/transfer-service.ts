@@ -2,7 +2,7 @@ import { BaseService } from '../core/base-service';
 import { validateBridgeTransferParams, validateForResultReturn } from '../core/validation';
 import { parseUnits } from 'viem';
 import { TransactionService } from './transaction-service';
-import type { ProgressStep } from '@arcana/ca-sdk';
+import type { ProgressStep, UserAsset } from '@arcana/ca-sdk';
 import {
   type TransferParams,
   type TransferResult,
@@ -495,7 +495,7 @@ export class TransferService extends BaseService {
   ): Promise<boolean> {
     try {
       // Get user's unified balances
-      const balances = await this.adapter.ca.getUnifiedBalances();
+      const balances = (await this.adapter.ca.getUnifiedBalances()) as UserAsset[];
 
       // Find the balance for the specific token
       const tokenBalance = balances.find((asset) => asset.symbol === token);
@@ -559,7 +559,7 @@ export class TransferService extends BaseService {
       const nativeTokenSymbol = chainMetadata.nativeCurrency.symbol;
 
       // Get user's unified balances
-      const balances = await this.adapter.ca.getUnifiedBalances();
+      const balances = (await this.adapter.ca.getUnifiedBalances()) as UserAsset[];
 
       // Find the native token balance
       const nativeTokenBalance = balances.find((asset) => asset.symbol === nativeTokenSymbol);
