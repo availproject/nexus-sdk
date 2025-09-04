@@ -13,7 +13,7 @@ import { DialogFooter, DialogHeader, DialogTitle } from '../motion/dialog-motion
 import { SlideTransition } from '../motion/slide-transition';
 import { EnhancedInfoMessage } from './enhanced-info-message';
 import { ActionButtons } from './action-buttons';
-import type { BridgeConfig, TransferConfig } from 'types';
+import type { BridgeConfig, TransferConfig } from '../../types';
 
 interface UnifiedTransactionModalProps {
   transactionType: TransactionType;

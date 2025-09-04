@@ -1,6 +1,6 @@
 {
   "name": "nexus-sdk-monorepo",
-  "version": "1.0.5",
+  "version": "1.0.8-dev.0",
   "private": true,
   "description": "Nexus SDK monorepo - cross-chain transactions with minimal friction",
   "scripts": {
@@ -39,7 +39,7 @@
     "balance",
     "sdk"
   ],
-  "author": "decocereus<amartya@availproject.co>",
+  "author": "decocereus<amartya@availproject.org>",
   "license": "MIT",
   "devDependencies": {
     "@rollup/plugin-alias": "^5.1.1",

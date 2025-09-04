@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { ChainSelectProps } from '../../types';
-import { CHAIN_METADATA, MAINNET_CHAINS, SUPPORTED_CHAINS, TESTNET_CHAINS } from '@nexus/commons';
+import { CHAIN_METADATA, MAINNET_CHAINS, TESTNET_CHAINS } from '@nexus/commons';
 import { ChainIcon } from './icons';
 import { cn } from '../../utils/utils';
 import { Button } from '../motion/button-motion';
@@ -51,7 +51,7 @@ export function ChainSelect({
       )}
     >
       <p className="text-nexus-foreground text-lg font-semibold ">Destination Chain</p>
-      <div className="flex flex-col items-start w-full h-full max-h-[332px] overflow-y-scroll gap-y-4">
+      <div className="flex flex-col items-start w-full h-full max-h-[332px] overflow-y-scroll gap-y-4 last:mb-20">
         {chainOptions.map((chain) => (
           <DrawerAutoClose key={chain?.chainId} enabled={hasValues}>
             <Button
@@ -63,7 +63,6 @@ export function ChainSelect({
                 disabled &&
                   'pointer-events-none cursor-not-allowed opacity-50 text-nexus-foreground ',
                 selectedOption?.chainId === chain?.chainId ? 'bg-nexus-accent-green/10' : '',
-                chain?.chainId === SUPPORTED_CHAINS.BNB && 'mb-20',
               )}
             >
               <ChainIcon chainId={chain?.chainId.toString()} />

@@ -23,8 +23,8 @@ const FUNCTION_SELECTORS = {
  * Internal constants for adapter behavior
  */
 const ADAPTER_CONSTANTS = {
-  // Default 1% buffer (100 bps). Can be overridden per-call via ExecuteParams.approvalBufferBps
-  APPROVAL_BUFFER_BPS_DEFAULT: 100n,
+  // Default 2% buffer (200 bps) to handle precision issues. Can be overridden per-call via ExecuteParams.approvalBufferBps
+  APPROVAL_BUFFER_BPS_DEFAULT: 200n,
   DEFAULT_DECIMALS: 18,
   MAX_APPROVAL_AMOUNT: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
 } as const;
@@ -80,7 +80,20 @@ export class ApprovalService extends BaseService {
           amountInWei = parseUnits(tokenApproval.amount, decimals);
         } else {
           // Integer amount - likely already in wei/micro format like "10000"
-          amountInWei = BigInt(tokenApproval.amount);
+          // For USDC and other 6-decimal tokens, check if this is already in micro-units
+          const amountNum = BigInt(tokenApproval.amount);
+          const USDC_THRESHOLD = 1_000_000n; // 1 USDC in micro-units
+
+          if (decimals === 6 && amountNum > USDC_THRESHOLD) {
+            // For USDC, large numbers are likely already in micro-units
+            amountInWei = amountNum;
+          } else if (decimals === 18 && amountNum > 1_000_000_000_000_000_000n) {
+            // For ETH, large numbers are likely already in wei
+            amountInWei = amountNum;
+          } else {
+            // Small numbers are likely user amounts that need conversion
+            amountInWei = parseUnits(tokenApproval.amount, decimals);
+          }
         }
       } catch (error) {
         throw new Error(

@@ -5,7 +5,7 @@ import { cn } from '../../utils/utils';
 import { Button } from '../motion/button-motion';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { DrawerAutoClose } from '../motion/drawer';
-import type { TokenSelectProps } from 'types';
+import type { TokenSelectProps } from '../../types';
 
 interface TokenSelectOption {
   value: string;

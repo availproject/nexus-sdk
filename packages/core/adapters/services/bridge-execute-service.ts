@@ -228,7 +228,6 @@ export class BridgeExecuteService extends BaseService {
           // pass helper to emit steps
           (step) => this.caEvents.emit(NEXUS_EVENTS.BRIDGE_EXECUTE_COMPLETED_STEPS, step),
           makeStep,
-          0, // disable approval buffer for bridge+execute
         );
 
       const result: BridgeAndExecuteResult = {
@@ -362,13 +361,22 @@ export class BridgeExecuteService extends BaseService {
             }
           }
 
-          // Create execute parameters for simulation
+          // Create execute parameters for simulation - use consistent wei format
+          // Convert receivedAmountForContract to user-friendly format for consistency with execution
+          const tokenMetadata = TOKEN_METADATA[params.token.toUpperCase()];
+          const decimals = tokenMetadata?.decimals || 18;
+          const { formatUnits } = await import('viem');
+          const simulationUserFriendlyAmount = formatUnits(
+            BigInt(receivedAmountForContract),
+            decimals,
+          );
+
           const modifiedExecuteParams: ExecuteParams = {
             ...execute,
             toChainId: params.toChainId,
             tokenApproval: {
               token: params.token,
-              amount: receivedAmountForContract,
+              amount: simulationUserFriendlyAmount, // Use same format as execution
             },
           };
 
@@ -573,6 +581,7 @@ export class BridgeExecuteService extends BaseService {
         microUnits: bridgeAmount,
         decimals,
         userFriendly: userFriendlyAmount,
+        bridgeToken,
       });
 
       // Create execute parameters with user-friendly amount for the callback
@@ -585,13 +594,15 @@ export class BridgeExecuteService extends BaseService {
         },
         ...(approvalBufferBpsOverride !== undefined
           ? { approvalBufferBps: approvalBufferBpsOverride }
-          : {}),
+          : undefined),
       };
 
-      logger.info(
-        'DEBUG handleExecutePhase - Execute params created with user-friendly amount:',
+      logger.info('DEBUG handleExecutePhase - Execute params created with user-friendly amount:', {
         userFriendlyAmount,
-      );
+        originalBridgeAmount: bridgeAmount,
+        token: bridgeToken,
+        decimals,
+      });
 
       // Check user balance on destination chain before executing
       try {

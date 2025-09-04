@@ -34,6 +34,8 @@ npm install @avail-project/nexus-widgets
 
 ## Supported Networks
 
+### Mainnet Chains
+
 | Network   | Chain ID | Native Currency | Status |
 | --------- | -------- | --------------- | ------ |
 | Ethereum  | 1        | ETH             | ✅     |
@@ -46,8 +48,18 @@ npm install @avail-project/nexus-widgets
 | Sophon    | 50104    | SOPH            | ✅     |
 | Kaia      | 8217     | KAIA            | ✅     |
 | BNB       | 56       | BNB             | ✅     |
+| HyperEVM  | 999      | HYPE            | ✅     |
 
-**Testnet Support:** Optimism Sepolia, Polygon Amoy, Arbitrum Sepolia, Base Sepolia
+**Testnet Chains:**
+
+| Network          | Chain ID | Native Currency | Status |
+| ---------------- | -------- | --------------- | ------ |
+| Optimism Sepolia | 11155420 | ETH             | ✅     |
+| Polygon Amoy     | 80002    | MATIC           | ✅     |
+| Arbitrum Sepolia | 421614   | ETH             | ✅     |
+| Base Sepolia     | 84532    | ETH             | ✅     |
+| Sepolia          | 11155111 | ETH             | ✅     |
+| Monad Testnet    | 10143    | MON             | ✅     |
 
 ## Supported Tokens
 
