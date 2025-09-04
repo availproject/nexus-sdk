@@ -16,6 +16,9 @@ export class SwapService extends BaseService {
   ): Promise<SwapResult> {
     try {
       this.ensureInitialized();
+      logger.info('SwapService.swap inputs', inputs);
+      logger.info('SwapService.swap options', options);
+
       const result = await this.waitForTransactionCompletion(async () => {
         await this.ca.swap(inputs, options);
       });

@@ -16,10 +16,8 @@
     "typecheck": "pnpm -r typecheck",
     "clean": "rimraf packages/widgets/dist packages/core/dist packages/commons/dist",
     "clean:modules": "rimraf node_modules packages/widgets/node_modules packages/core/node_modules packages/commons/node_modules",
-    "release:core": "./scripts/release-core.sh",
     "release:core:dev": "./scripts/release-core.sh dev",
     "release:core:prod": "./scripts/release-core.sh prod",
-    "release:widgets": "./scripts/release-widgets.sh",
     "release:widgets:dev": "./scripts/release-widgets.sh dev",
     "release:widgets:prod": "./scripts/release-widgets.sh prod"
   },

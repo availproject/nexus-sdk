@@ -78,6 +78,7 @@ export class SwapController implements ISwapController {
       return false;
     }
 
+    // Get the amount from the correct field - check inputData.amount as well for form compatibility
     const amount = inputData.fromAmount || inputData.amount;
     const amountNum = parseFloat(amount?.toString() || '0');
     const isValidAmount = !isNaN(amountNum) && amountNum > 0;
@@ -107,7 +108,9 @@ export class SwapController implements ISwapController {
       }
 
       if (typeof sdk.swap !== 'function') {
-        throw new Error('sdk.swap is not available. Please ensure you are using a version of @nexus/core that includes swap functionality.');
+        throw new Error(
+          'sdk.swap is not available. Please ensure you are using a version of @nexus/core that includes swap functionality.',
+        );
       }
 
       this.capturedIntent = null;
@@ -115,7 +118,15 @@ export class SwapController implements ISwapController {
       logger.info('SwapController: Swap input data', inputData);
 
       // Convert SwapInputData to SwapInput format for SDK
-      const fromAmount = inputData.fromAmount ?? '0';
+      // Get amount from correct field - prioritize fromAmount, fall back to amount
+      const fromAmountStr = inputData.fromAmount || inputData.amount || '0';
+      const fromAmountNumber = parseFloat(fromAmountStr.toString());
+
+      // Validate amount before proceeding
+      if (isNaN(fromAmountNumber) || fromAmountNumber <= 0) {
+        throw new Error('Invalid amount provided for swap');
+      }
+
       const actualFromTokenAddress =
         TOKEN_CONTRACT_ADDRESSES[inputData?.fromTokenAddress][inputData.fromChainID];
       const actualToTokenAddress =
@@ -125,7 +136,10 @@ export class SwapController implements ISwapController {
         toChainID: inputData.toChainID,
         fromTokenAddress: actualFromTokenAddress as `0x${string}`,
         toTokenAddress: actualToTokenAddress as `0x${string}`,
-        fromAmount: parseUnits(fromAmount, TOKEN_METADATA[inputData?.fromTokenAddress]?.decimals),
+        fromAmount: parseUnits(
+          fromAmountStr.toString(),
+          TOKEN_METADATA[inputData?.fromTokenAddress]?.decimals,
+        ),
       };
 
       logger.info('SwapController: Prepared Swap input data', swapInput);
@@ -133,7 +147,12 @@ export class SwapController implements ISwapController {
       // Prepare intent capture callback
       const intentPromise = new Promise<SwapIntent>((resolve, reject) => {
         const timeoutId = setTimeout(() => {
-          reject(new Error('Intent capture timed out after 30 seconds'));
+          logger.error('SwapController: Intent capture timed out after 30 seconds');
+          reject(
+            new Error(
+              'Swap quote request timed out. Please try again with different tokens or amounts.',
+            ),
+          );
         }, 30000);
 
         // Create options with intent capture callback
@@ -163,7 +182,26 @@ export class SwapController implements ISwapController {
         // Call swap to capture intent (this should not execute)
         sdk.swap(swapInput, options).catch((error) => {
           clearTimeout(timeoutId);
-          reject(error);
+          logger.error('SwapController: SDK swap call failed:', error as Error);
+
+          // Check if it's an API-related error and provide better message
+          if (error instanceof Error) {
+            if (error.message.includes('400') || error.message.includes('Bad Request')) {
+              reject(
+                new Error(
+                  'Unable to get swap quote. Please verify your token selection and amount.',
+                ),
+              );
+            } else if (error.message.includes('network') || error.message.includes('fetch')) {
+              reject(
+                new Error('Network error occurred while fetching swap quote. Please try again.'),
+              );
+            } else {
+              reject(error);
+            }
+          } else {
+            reject(error);
+          }
         });
       });
 
@@ -189,9 +227,26 @@ export class SwapController implements ISwapController {
       };
     } catch (error) {
       logger.error('SwapController: Intent capture failed', error as Error);
+
+      // Provide more specific error messages based on the error type
+      let errorMessage = 'Failed to capture swap intent';
+      if (error instanceof Error) {
+        if (error.message.includes('timeout') || error.message.includes('timed out')) {
+          errorMessage = 'Swap quote request timed out. Please try again.';
+        } else if (error.message.includes('quote') || error.message.includes('400')) {
+          errorMessage = 'Unable to get swap quote. Please verify your token selection and amount.';
+        } else if (error.message.includes('network') || error.message.includes('fetch')) {
+          errorMessage = 'Network error occurred. Please check your connection and try again.';
+        } else if (error.message.includes('Invalid amount')) {
+          errorMessage = 'Please enter a valid amount greater than 0.';
+        } else {
+          errorMessage = error.message;
+        }
+      }
+
       return {
         success: false,
-        error: (error as Error).message || 'Failed to capture swap intent',
+        error: errorMessage,
         allowance: {
           needsApproval: false,
           chainDetails: [],

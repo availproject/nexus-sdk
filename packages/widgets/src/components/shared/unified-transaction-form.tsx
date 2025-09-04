@@ -118,9 +118,19 @@ const SwapForm = ({
       <div className="flex gap-x-4 justify-between items-start w-full">
         <FormField label={title} className="flex-1 font-nexus-primary gap-y-2 w-full max-w-max">
           <AmountInput
-            value={inputData?.amount ? inputData.amount?.toString() : '0'}
+            value={
+              inputData?.fromAmount
+                ? inputData.fromAmount?.toString()
+                : inputData?.amount
+                  ? inputData.amount?.toString()
+                  : '0'
+            }
             disabled={isAmountDisabled}
-            onChange={isAmountDisabled ? undefined : (value) => handleUpdate({ fromAmount: value })}
+            onChange={
+              isAmountDisabled
+                ? undefined
+                : (value) => handleUpdate({ fromAmount: value, amount: value })
+            }
             token={inputData?.fromTokenAddress}
             debounceMs={1000}
           />

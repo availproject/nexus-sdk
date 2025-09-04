@@ -513,10 +513,15 @@ type TransactionInputData =
 export function getTokenFromInputData(data: TransactionInputData): string | undefined {
   if (!data) return undefined;
 
+  // For SwapInputData, check fromTokenAddress first, then other fields
+  if ('fromTokenAddress' in data && typeof data.fromTokenAddress === 'string') {
+    return data.fromTokenAddress;
+  }
+
   // For SwapConfig, check nested inputs structure
   if ('inputs' in data && data.inputs) {
     const inputs = data.inputs as any;
-    return inputs.inputToken || inputs.fromToken || inputs.token;
+    return inputs.inputToken || inputs.fromToken || inputs.token || inputs.fromTokenAddress;
   }
 
   // For other transaction types, access directly
@@ -533,10 +538,15 @@ export function getTokenFromInputData(data: TransactionInputData): string | unde
 export function getAmountFromInputData(data: TransactionInputData): string | number | undefined {
   if (!data) return undefined;
 
+  // For SwapInputData, check fromAmount first, then amount
+  if ('fromAmount' in data && data.fromAmount !== undefined) {
+    return data.fromAmount;
+  }
+
   // For SwapConfig, check nested inputs structure
   if ('inputs' in data && data.inputs) {
     const inputs = data.inputs as any;
-    return inputs.amount;
+    return inputs.amount || inputs.fromAmount;
   }
 
   // For other transaction types, access directly
