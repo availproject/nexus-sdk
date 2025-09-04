@@ -405,8 +405,6 @@ export async function addChainToWallet(
   chainId: number,
   provider: { request: (args: { method: string; params?: any[] }) => Promise<any> },
 ): Promise<boolean> {
-  const { CHAIN_METADATA } = await import('@nexus/commons');
-
   const chainMetadata = CHAIN_METADATA[chainId];
   if (!chainMetadata) {
     console.error(`Chain metadata not found for chain ID: ${chainId}`);

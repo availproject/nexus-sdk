@@ -361,22 +361,14 @@ export class BridgeExecuteService extends BaseService {
             }
           }
 
-          // Create execute parameters for simulation - use consistent wei format
-          // Convert receivedAmountForContract to user-friendly format for consistency with execution
-          const tokenMetadata = TOKEN_METADATA[params.token.toUpperCase()];
-          const decimals = tokenMetadata?.decimals || 18;
-          const { formatUnits } = await import('viem');
-          const simulationUserFriendlyAmount = formatUnits(
-            BigInt(receivedAmountForContract),
-            decimals,
-          );
-
+          // Create execute parameters for simulation - use wei format for SimulationEngine
+          // SimulationEngine expects amounts in wei format, not user-friendly format
           const modifiedExecuteParams: ExecuteParams = {
             ...execute,
             toChainId: params.toChainId,
             tokenApproval: {
               token: params.token,
-              amount: simulationUserFriendlyAmount, // Use same format as execution
+              amount: receivedAmountForContract, // Keep in wei format for SimulationEngine
             },
           };
 
@@ -572,7 +564,6 @@ export class BridgeExecuteService extends BaseService {
       logger.info('DEBUG handleExecutePhase - Bridge token:', bridgeToken);
 
       const { formatUnits } = await import('viem');
-      const { TOKEN_METADATA } = await import('@nexus/commons');
 
       const decimals = TOKEN_METADATA[bridgeToken]?.decimals || 18;
       const userFriendlyAmount = formatUnits(BigInt(bridgeAmount), decimals);

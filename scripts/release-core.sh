@@ -48,16 +48,21 @@ fi
 # Get the release type from command line argument
 RELEASE_TYPE=${1:-"dev"}
 VERSION_TYPE=${2:-"patch"}
+PRERELEASE_ID=${3:-"dev"}
 
 if [[ "$RELEASE_TYPE" != "dev" && "$RELEASE_TYPE" != "prod" ]]; then
     print_error "Invalid release type. Use 'dev' or 'prod'"
-    echo "Usage: $0 [dev|prod] [patch|minor|major]"
+    echo "Usage: $0 [dev|prod] [patch|minor|major] [prerelease-id]"
+    echo "Examples:"
+    echo "  $0 dev patch alpha    # Creates 1.0.1-alpha.0"
+    echo "  $0 dev minor beta     # Creates 1.1.0-beta.0"
+    echo "  $0 dev patch          # Creates 1.0.1-dev.0 (default)"
     exit 1
 fi
 
 if [[ "$VERSION_TYPE" != "patch" && "$VERSION_TYPE" != "minor" && "$VERSION_TYPE" != "major" ]]; then
     print_error "Invalid version type. Use 'patch', 'minor', or 'major'"
-    echo "Usage: $0 [dev|prod] [patch|minor|major]"
+    echo "Usage: $0 [dev|prod] [patch|minor|major] [prerelease-id]"
     exit 1
 fi
 
@@ -81,7 +86,7 @@ pnpm run build:core
 
 if [[ "$RELEASE_TYPE" == "prod" ]]; then
     print_header "Creating production release..."
-    
+
     # Ensure we're on main branch for production releases
     CURRENT_BRANCH=$(git branch --show-current)
     if [[ "$CURRENT_BRANCH" != "main" ]]; then
@@ -92,38 +97,42 @@ if [[ "$RELEASE_TYPE" == "prod" ]]; then
             exit 1
         fi
     fi
-    
+
     # Version bump
     print_status "Bumping version ($VERSION_TYPE)..."
     cd packages/core
     npm version $VERSION_TYPE --no-git-tag-version
     CORE_VERSION=$(node -p "require('./package.json').version")
     cd ../..
-    
+
     # Update root package.json version to match
     npm version $CORE_VERSION --no-git-tag-version
-    
+
     # Commit version changes
     git add packages/core/package.json package.json
     git commit -m "chore(core): release v$CORE_VERSION"
-    
-    # Create tag
-    git tag "core-v$CORE_VERSION"
-    
+
+    # Create tag (only if it doesn't exist)
+    if git tag --list | grep -q "^core-v$CORE_VERSION$"; then
+        print_warning "Tag core-v$CORE_VERSION already exists, skipping tag creation"
+    else
+        git tag "core-v$CORE_VERSION"
+    fi
+
     # Temporarily rename package for publishing
     print_status "Preparing package for publishing as @avail-project/nexus..."
     cd packages/core
-    
+
     # Backup original package.json
     cp package.json package.json.backup
-    
+
     # Update package name for publishing
     sed -i.tmp 's/"name": "@nexus\/core"/"name": "@avail-project\/nexus"/' package.json
     rm package.json.tmp 2>/dev/null || true
-    
+
     # Remove workspace-only dependencies that should be bundled (e.g., @nexus/commons)
     node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));if(p.dependencies&&p.dependencies['@nexus/commons']){delete p.dependencies['@nexus/commons'];}fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
-    
+
     # Bundle internal commons into dist (imports already aliased by Rollup)
     print_status "Bundling internal @nexus/commons into dist..."
     mkdir -p dist/commons
@@ -132,82 +141,99 @@ if [[ "$RELEASE_TYPE" == "prod" ]]; then
     # Publish to npm
     print_status "Publishing @avail-project/nexus@$CORE_VERSION to npm..."
     npm publish --access public
-    
+
     # Restore original package.json
     mv package.json.backup package.json
     cd ../..
-    
+
     # Push changes and tags
     print_status "Pushing changes to git..."
     git push origin $CURRENT_BRANCH
     git push origin "core-v$CORE_VERSION"
-    
+
     print_header "✅ Production release completed!"
     print_status "🚀 @avail-project/nexus@$CORE_VERSION published successfully!"
     print_status "📦 Install with: npm install @avail-project/nexus"
-    
+
 else
     print_header "Creating development release..."
-    
-    # Version bump (let npm manage prerelease numbers)
-    print_status "Bumping dev version (pre$VERSION_TYPE with preid=dev)..."
+
+    # Fetch latest version from npm to avoid conflicts
+    print_status "Fetching latest version from npm..."
+    LATEST_NPM_VERSION=$(npm view @avail-project/nexus version 2>/dev/null || echo "0.0.0")
+    # Try to get latest version for the specific prerelease tag, fall back to latest stable
+    LATEST_PRERELEASE_VERSION=$(npm view @avail-project/nexus@$PRERELEASE_ID version 2>/dev/null || echo "$LATEST_NPM_VERSION")
+
+    print_status "Latest npm version: $LATEST_NPM_VERSION"
+    print_status "Latest $PRERELEASE_ID version: $LATEST_PRERELEASE_VERSION"
+
+    # Version bump (let npm manage prerelease numbers based on latest)
+    print_status "Bumping $PRERELEASE_ID version (pre$VERSION_TYPE with preid=$PRERELEASE_ID)..."
     cd packages/core
-    npm version pre$VERSION_TYPE --preid=dev --no-git-tag-version
-    DEV_VERSION=$(node -p "require('./package.json').version")
-    export DEV_VERSION
+
+    # Set current version to latest prerelease version to ensure proper increment
+    npm version "$LATEST_PRERELEASE_VERSION" --no-git-tag-version --allow-same-version
+    npm version pre$VERSION_TYPE --preid=$PRERELEASE_ID --no-git-tag-version
+
+    PRERELEASE_VERSION=$(node -p "require('./package.json').version")
+    export PRERELEASE_VERSION
     cd ../..
-    
+
     # Update root package.json to match
-    npm version "$DEV_VERSION" --no-git-tag-version
-    
+    npm version "$PRERELEASE_VERSION" --no-git-tag-version
+
     # Commit version changes
     git add packages/core/package.json package.json
-    git commit -m "chore(core): dev release v$DEV_VERSION"
-    
-    # Create tag
-    git tag "core-v$DEV_VERSION"
-    
+    git commit -m "chore(core): $PRERELEASE_ID release v$PRERELEASE_VERSION"
+
+    # Create tag (only if it doesn't exist)
+    if git tag --list | grep -q "^core-v$PRERELEASE_VERSION$"; then
+        print_warning "Tag core-v$PRERELEASE_VERSION already exists, skipping tag creation"
+    else
+        git tag "core-v$PRERELEASE_VERSION"
+    fi
+
     # Temporarily rename package for publishing
     print_status "Preparing package for publishing as @avail-project/nexus..."
     cd packages/core
-    
+
     # Backup original package.json
     cp package.json package.json.backup
-    
+
     # Update package name for publishing
     sed -i.tmp 's/"name": "@nexus\/core"/"name": "@avail-project\/nexus"/' package.json
     rm package.json.tmp 2>/dev/null || true
-    
+
     # Remove workspace-only dependencies that should be bundled (e.g., @nexus/commons)
     node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));if(p.dependencies&&p.dependencies['@nexus/commons']){delete p.dependencies['@nexus/commons'];}fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
-    
+
     # Bundle internal commons into dist (imports already aliased by Rollup)
     print_status "Bundling internal @nexus/commons into dist..."
     mkdir -p dist/commons
     cp -R ../commons/dist/* dist/commons/
 
-    # Publish to npm with dev tag
-    print_status "Publishing @avail-project/nexus@$DEV_VERSION to npm (dev tag)..."
-    npm publish --access public --tag dev
-    # Add incremental dev-N tag (e.g., dev-1, dev-2) matching pre-release number
-    DEV_TAG=$(node -e "const v=process.env.DEV_VERSION||'';const m=v.match(/dev\\.(\\d+)/);console.log(m ? ('dev-' + m[1]) : 'dev')")
-    if [ -n "$DEV_TAG" ] && [ "$DEV_TAG" != "dev" ]; then
-      print_status "Adding dist-tag $DEV_TAG for @avail-project/nexus@$DEV_VERSION..."
-      npm dist-tag add @avail-project/nexus@$DEV_VERSION $DEV_TAG || true
+    # Publish to npm with prerelease tag
+    print_status "Publishing @avail-project/nexus@$PRERELEASE_VERSION to npm ($PRERELEASE_ID tag)..."
+    npm publish --access public --tag $PRERELEASE_ID
+    # Add incremental tag (e.g., alpha-1, beta-2) matching pre-release number
+    INCREMENTAL_TAG=$(node -e "const v=process.env.PRERELEASE_VERSION||'';const m=v.match(/$PRERELEASE_ID\\.(\\d+)/);console.log(m ? ('$PRERELEASE_ID-' + m[1]) : '$PRERELEASE_ID')")
+    if [ -n "$INCREMENTAL_TAG" ] && [ "$INCREMENTAL_TAG" != "$PRERELEASE_ID" ]; then
+      print_status "Adding dist-tag $INCREMENTAL_TAG for @avail-project/nexus@$PRERELEASE_VERSION..."
+      npm dist-tag add @avail-project/nexus@$PRERELEASE_VERSION $INCREMENTAL_TAG || true
     fi
-    
+
     # Restore original package.json
     mv package.json.backup package.json
     cd ../..
-    
+
     # Push changes and tags
     print_status "Pushing changes to git..."
     git push origin $(git branch --show-current)
-    git push origin "core-v$DEV_VERSION"
-    
+    git push origin "core-v$PRERELEASE_VERSION"
+
     print_header "✅ Development release completed!"
-    print_status "🚀 @avail-project/nexus@$DEV_VERSION published successfully!"
-    print_status "📦 Install with: npm install @avail-project/nexus@dev"
+    print_status "🚀 @avail-project/nexus@$PRERELEASE_VERSION published successfully!"
+    print_status "📦 Install with: npm install @avail-project/nexus@$PRERELEASE_ID"
 fi
 
 print_header "🎉 @avail-project/nexus release process completed successfully!"
