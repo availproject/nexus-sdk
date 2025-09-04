@@ -2,7 +2,12 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { OrchestratorStatus, ReviewStatus, SwapInputData } from '../types';
 import { Abi, isAddress } from 'viem';
-import type { BridgeParams, TransferParams, BridgeAndExecuteParams } from '@nexus/commons';
+import {
+  type BridgeParams,
+  type TransferParams,
+  type BridgeAndExecuteParams,
+  CHAIN_METADATA,
+} from '@nexus/commons';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
