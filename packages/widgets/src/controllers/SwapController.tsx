@@ -11,11 +11,11 @@ import {
   type SwapInput,
   logger,
   type SwapIntent,
-  TOKEN_CONTRACT_ADDRESSES,
   parseUnits,
   TOKEN_METADATA,
   SwapIntentHook,
 } from '@nexus/commons';
+import { getTokenAddress } from '../utils/token-utils';
 import { SwapTransactionForm } from '../components/shared/unified-transaction-form';
 
 const SwapInputForm: React.FC<{
@@ -138,10 +138,17 @@ export class SwapController implements ISwapController {
         throw new Error('Invalid amount provided for swap');
       }
 
-      const actualFromTokenAddress =
-        TOKEN_CONTRACT_ADDRESSES[inputData?.fromTokenAddress][inputData.fromChainID];
-      const actualToTokenAddress =
-        TOKEN_CONTRACT_ADDRESSES[inputData?.toTokenAddress][inputData.toChainID];
+      // Use enhanced token address resolution that supports destination swap tokens
+      const actualFromTokenAddress = getTokenAddress(
+        inputData.fromTokenAddress,
+        inputData.fromChainID,
+        'swap',
+      );
+      const actualToTokenAddress = getTokenAddress(
+        inputData.toTokenAddress,
+        inputData.toChainID,
+        'swap',
+      );
       const swapInput: SwapInput = {
         fromChainID: inputData.fromChainID,
         toChainID: inputData.toChainID,

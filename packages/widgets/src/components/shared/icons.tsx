@@ -2,6 +2,7 @@ import {
   CHAIN_METADATA,
   SUPPORTED_CHAINS,
   TOKEN_METADATA,
+  DESTINATION_SWAP_TOKENS,
   type ChainMetadata,
   type TokenMetadata,
 } from '@nexus/commons';
@@ -31,13 +32,27 @@ export const ChainIcon = ({ chainId }: { chainId: string }) => {
   );
 };
 
-export const TokenIcon = ({ tokenSymbol }: { tokenSymbol: string }) => {
-  const token = TOKEN_METADATA[tokenSymbol as keyof typeof TOKEN_METADATA] as TokenMetadata;
-  const iconUrl = token?.icon;
+export const TokenIcon = ({
+  tokenSymbol,
+  className = 'w-6 h-6 rounded-nexus-full',
+}: {
+  tokenSymbol: string;
+  className?: string;
+}) => {
+  // First try standard TOKEN_METADATA
+  const standardToken = TOKEN_METADATA[tokenSymbol as keyof typeof TOKEN_METADATA] as TokenMetadata;
+  let iconUrl: string | undefined = standardToken?.icon;
+
+  // If not found in standard tokens, search destination swap tokens
+  if (!iconUrl) {
+    const allDestinationTokens = Array.from(DESTINATION_SWAP_TOKENS.values()).flat();
+    const destinationToken = allDestinationTokens.find((token) => token.symbol === tokenSymbol);
+    iconUrl = destinationToken?.logo;
+  }
 
   if (!iconUrl) {
     return <div className="w-6 h-6 bg-gray-300 rounded-nexus-full" />;
   }
 
-  return <img src={iconUrl} alt={tokenSymbol} className="w-6 h-6 rounded-nexus-full" />;
+  return <img src={iconUrl} alt={tokenSymbol} className={className} />;
 };

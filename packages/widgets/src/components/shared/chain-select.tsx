@@ -20,7 +20,6 @@ export function ChainSelect({
   network = 'mainnet',
   className,
   hasValues,
-  type,
 }: ChainSelectProps & { network?: 'mainnet' | 'testnet' }) {
   const availableChainIds = network === 'testnet' ? TESTNET_CHAINS : MAINNET_CHAINS;
 

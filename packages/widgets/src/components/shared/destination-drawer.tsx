@@ -10,9 +10,10 @@ import {
 } from '../motion/drawer';
 import { ChevronDownIcon, CircleX } from '../icons';
 import { FormField } from '../motion/form-field';
-import { CHAIN_METADATA, SUPPORTED_CHAINS, TOKEN_METADATA } from '@nexus/commons';
+import { CHAIN_METADATA, SUPPORTED_CHAINS } from '@nexus/commons';
 import { cn } from '../../utils/utils';
 import { TransactionType } from 'src/types';
+import { TokenIcon } from './icons';
 
 interface DestinationDrawerProps {
   chainValue?: string;
@@ -27,6 +28,7 @@ interface DestinationDrawerProps {
   fieldLabel?: string;
   drawerTitle?: string;
   type?: TransactionType;
+  isDestination?: boolean;
 }
 
 const DestinationTrigger = ({
@@ -52,9 +54,8 @@ const DestinationTrigger = ({
         <div className="flex items-center gap-x-3">
           <div className="relative">
             {tokenValue ? (
-              <img
-                src={TOKEN_METADATA[tokenValue]?.icon}
-                alt={TOKEN_METADATA[tokenValue]?.name}
+              <TokenIcon
+                tokenSymbol={tokenValue}
                 className="rounded-full size-10 border border-nexus-border-secondary/10"
               />
             ) : (
@@ -101,6 +102,7 @@ const DestinationDrawer = ({
   fieldLabel,
   drawerTitle = 'Select Destination Chain & Token',
   type,
+  isDestination = false,
 }: DestinationDrawerProps) => {
   return (
     <Drawer>
@@ -131,7 +133,6 @@ const DestinationDrawer = ({
             network={network}
             className="w-full"
             hasValues={!!tokenValue}
-            type={type}
           />
           <TokenSelect
             value={tokenValue}
@@ -141,6 +142,8 @@ const DestinationDrawer = ({
             className="w-full"
             hasValues={!!chainValue}
             type={type}
+            chainId={chainValue ? parseInt(chainValue) : undefined}
+            isDestination={isDestination}
           />
         </div>
       </DrawerContent>

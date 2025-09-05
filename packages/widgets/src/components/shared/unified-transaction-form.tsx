@@ -183,6 +183,7 @@ const SwapForm = ({
           drawerTitle="Select Destination Chain & Token"
           fieldLabel="Destination"
           type="swap"
+          isDestination={true}
         />
       </div>
     </div>
@@ -217,6 +218,14 @@ export function SwapTransactionForm({
     onUpdate({ ...inputData, ...data });
   };
 
+  const destinationAmount = useMemo(() => {
+    const intent = (activeTransaction?.simulationResult as SwapSimulationResult)?.intent;
+    if (intent?.destination?.amount) {
+      return parseFloat(intent.destination.amount).toFixed(6);
+    }
+    return '0';
+  }, [activeTransaction?.simulationResult]);
+
   return (
     <div className={cn('px-6 flex flex-col gap-y-4 w-full', className)}>
       <SwapForm
@@ -226,9 +235,7 @@ export function SwapTransactionForm({
         isOutputTokenSelectDisabled={isOutputTokenSelectDisabled}
         isTokenSelectDisabled={isTokenSelectDisabled}
         inputData={inputData}
-        destinationAmount={
-          (activeTransaction?.simulationResult as SwapSimulationResult)?.intent?.destination?.amount
-        }
+        destinationAmount={destinationAmount}
         handleUpdate={handleUpdate}
         network={config?.network}
       />

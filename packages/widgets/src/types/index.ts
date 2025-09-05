@@ -368,6 +368,8 @@ export interface TokenSelectProps extends BaseComponentProps {
   disabled?: boolean;
   network?: 'mainnet' | 'testnet';
   type?: TransactionType;
+  chainId?: number;
+  isDestination?: boolean;
 }
 
 export interface ChainSelectProps extends BaseComponentProps {
@@ -375,7 +377,6 @@ export interface ChainSelectProps extends BaseComponentProps {
   onValueChange: (chain: string) => void;
   disabled?: boolean;
   network?: 'mainnet' | 'testnet';
-  type?: TransactionType;
 }
 
 export interface AmountInputProps extends BaseComponentProps {

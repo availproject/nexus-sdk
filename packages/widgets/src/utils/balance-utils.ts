@@ -82,8 +82,10 @@ export function getFiatValue(
   exchangeRates: Record<string, number>,
 ) {
   const rate = exchangeRates?.[token] ?? 0;
+
   const amountNum = Number(amount ?? 0);
   const approx = Number.isFinite(rate) && Number.isFinite(amountNum) ? rate * amountNum : 0;
+
   return `≈ $${approx.toFixed(2)}`;
 }
 

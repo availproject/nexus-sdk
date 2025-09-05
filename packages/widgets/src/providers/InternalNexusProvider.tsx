@@ -144,7 +144,7 @@ export function InternalNexusProvider({
       const response = await fetch('https://api.coinbase.com/v2/exchange-rates?currency=USD');
       const data = await response.json();
       const rates = (data?.data?.rates ?? {}) as Record<string, string>;
-
+      logger.info('all rates', rates);
       // Convert from "units per USD" to "USD per unit" for easier UI multiplication
       const usdPerUnit: Record<string, number> = {};
       for (const [symbol, value] of Object.entries(rates)) {
@@ -158,7 +158,7 @@ export function InternalNexusProvider({
       ['USD', 'USDC', 'USDT'].forEach((stable) => {
         if (usdPerUnit[stable] === undefined) usdPerUnit[stable] = 1;
       });
-
+      logger.info('exchange rates', usdPerUnit);
       setExchangeRates(usdPerUnit);
     } catch (error) {
       logger.error('Error fetching exchange rates:', error as Error);
