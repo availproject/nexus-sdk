@@ -257,7 +257,7 @@ export interface ISwapController {
     simulationResult?: ActiveTransaction['simulationResult'],
   ): Promise<SwapResult>;
   hasValidIntent(): boolean;
-  getCapturedIntent(): SwapIntent | null;
+  getCapturedIntent(): SwapIntent | undefined;
   clearCapturedIntent(): void;
 }
 

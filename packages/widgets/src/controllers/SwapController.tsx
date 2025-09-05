@@ -10,7 +10,6 @@ import {
   type SwapResult,
   type SwapInput,
   logger,
-  type SwapOptionalParams,
   type SwapIntent,
   TOKEN_CONTRACT_ADDRESSES,
   parseUnits,
@@ -54,7 +53,7 @@ const SwapInputForm: React.FC<{
 export class SwapController implements ISwapController {
   InputForm = SwapInputForm;
 
-  private capturedIntent: SwapIntent | null = null;
+  private capturedIntent: SwapIntent | undefined = undefined;
   private intentAllowCallback: (() => void) | null = null;
   private intentRefreshCallback: (() => Promise<SwapIntent>) | null = null;
   private refreshInterval: NodeJS.Timeout | null = null;
@@ -113,7 +112,7 @@ export class SwapController implements ISwapController {
         );
       }
 
-      this.capturedIntent = null;
+      this.capturedIntent = undefined;
 
       logger.info('SwapController: Swap input data', inputData);
 
@@ -144,73 +143,31 @@ export class SwapController implements ISwapController {
 
       logger.info('SwapController: Prepared Swap input data', swapInput);
 
-      // Prepare intent capture callback
-      const intentPromise = new Promise<SwapIntent>((resolve, reject) => {
-        const timeoutId = setTimeout(() => {
-          logger.error('SwapController: Intent capture timed out after 30 seconds');
-          reject(
-            new Error(
-              'Swap quote request timed out. Please try again with different tokens or amounts.',
-            ),
-          );
-        }, 30000);
+      const result = await sdk.swap(swapInput, {
+        swapIntentHook: async (data: {
+          allow: () => void;
+          deny: () => void;
+          intent: SwapIntent;
+          refresh: () => Promise<SwapIntent>;
+        }) => {
+          logger.info('SwapController: Intent captured successfully', data.intent);
 
-        // Create options with intent capture callback
-        const options: Omit<SwapOptionalParams, 'emit'> = {
-          swapIntentHook: (data: {
-            allow: () => void;
-            deny: () => void;
-            intent: SwapIntent;
-            refresh: () => Promise<SwapIntent>;
-          }) => {
-            clearTimeout(timeoutId);
-            logger.info('SwapController: Intent captured successfully', data.intent);
+          // Store intent and callbacks for later execution
+          this.capturedIntent = data.intent;
+          this.intentAllowCallback = data.allow;
+          this.intentRefreshCallback = data.refresh;
 
-            // Store intent and callbacks for later execution
-            this.capturedIntent = data.intent;
-            this.intentAllowCallback = data.allow;
-            this.intentRefreshCallback = data.refresh;
-
-            // Start refresh interval for intent
-            this.startIntentRefresh();
-
-            resolve(data.intent);
-            // Don't call allow() here - wait for user confirmation
-          },
-        };
-
-        // Call swap to capture intent (this should not execute)
-        sdk.swap(swapInput, options).catch((error) => {
-          clearTimeout(timeoutId);
-          logger.error('SwapController: SDK swap call failed:', error as Error);
-
-          // Check if it's an API-related error and provide better message
-          if (error instanceof Error) {
-            if (error.message.includes('400') || error.message.includes('Bad Request')) {
-              reject(
-                new Error(
-                  'Unable to get swap quote. Please verify your token selection and amount.',
-                ),
-              );
-            } else if (error.message.includes('network') || error.message.includes('fetch')) {
-              reject(
-                new Error('Network error occurred while fetching swap quote. Please try again.'),
-              );
-            } else {
-              reject(error);
-            }
-          } else {
-            reject(error);
-          }
-        });
+          // Start refresh interval for intent
+          this.startIntentRefresh();
+        },
       });
 
-      const intent = await intentPromise;
+      logger.info('SwapController: Swap result', result);
 
       // Return swap simulation result with captured intent
       return {
         success: true,
-        intent: intent,
+        intent: this.capturedIntent,
         swapMetadata: {
           type: 'swap' as const,
           inputToken: swapInput.fromTokenAddress,
@@ -218,7 +175,8 @@ export class SwapController implements ISwapController {
           fromChainId: swapInput.fromChainID,
           toChainId: swapInput.toChainID,
           inputAmount: swapInput.fromAmount.toString(),
-          outputAmount: intent.destination.amount,
+          outputAmount:
+            (this.capturedIntent as unknown as SwapIntent).destination?.amount.toString() ?? '0',
         },
         allowance: {
           needsApproval: false,
@@ -296,12 +254,12 @@ export class SwapController implements ISwapController {
   }
 
   // Helper methods
-  getCapturedIntent(): SwapIntent | null {
+  getCapturedIntent(): SwapIntent | undefined {
     return this.capturedIntent;
   }
 
   clearCapturedIntent(): void {
-    this.capturedIntent = null;
+    this.capturedIntent = undefined;
     this.intentAllowCallback = null;
     this.intentRefreshCallback = null;
     this.stopIntentRefresh();
