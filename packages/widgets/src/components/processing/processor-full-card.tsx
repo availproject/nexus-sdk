@@ -16,7 +16,7 @@ import { cn, formatCost } from '../../utils/utils';
 import { Button } from '../motion/button-motion';
 import { ThreeStageProgress } from '../motion/three-stage-progress';
 import { EnhancedInfoMessage } from '../shared/enhanced-info-message';
-import { ProcessorCardProps } from '../../types';
+import { ProcessorCardProps, SwapSimulationResult } from '../../types';
 
 export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
   status,
@@ -29,6 +29,7 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
   simulationResult,
   processing,
   explorerURL,
+  explorerURLs,
   timer,
   description,
   error,
@@ -40,6 +41,9 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
   const sourceAmount = useCallback(() => {
     if (transactionType === 'bridge' || transactionType === 'transfer') {
       return formatCost((simulationResult as SimulationResult)?.intent?.sourcesTotal);
+    } else if (transactionType === 'swap') {
+      const swapResult = simulationResult as SwapSimulationResult;
+      return formatCost(swapResult?.intent?.sources?.[0]?.amount ?? '0');
     } else {
       const bridgeExecuteResult = simulationResult as BridgeAndExecuteSimulationResult;
 
@@ -55,6 +59,9 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
   const destinationAmount = useCallback(() => {
     if (transactionType === 'bridge' || transactionType === 'transfer') {
       return formatCost((simulationResult as SimulationResult)?.intent?.destination?.amount);
+    } else if (transactionType === 'swap') {
+      const swapResult = simulationResult as SwapSimulationResult;
+      return formatCost(swapResult?.intent?.destination?.amount ?? '0');
     } else {
       const bridgeExecuteResult = simulationResult as BridgeAndExecuteSimulationResult;
 
@@ -97,7 +104,8 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
         </motion.div>
         <Button
           variant="link"
-          className="w-full flex items-end justify-end text-nexus-foreground mt-6 px-6"
+          size="icon"
+          className="w-full flex items-end justify-end text-nexus-foreground mt-3 px-6 py-0"
           onClick={() => {
             if (status === 'error' || status === 'success') {
               cancelTransaction();
@@ -112,7 +120,7 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
             <Minimize className="w-6 h-6 text-nexus-foreground" />
           )}
         </Button>
-        <div className="w-full p-4 relative z-10 mt-6">
+        <div className="w-full p-4 relative z-10">
           <div className="w-full flex flex-col items-center gap-y-6">
             {/* Chains Row */}
             <motion.div
@@ -281,6 +289,29 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
                     </Button>
                   )}
                 </div>
+              ) : transactionType === 'swap' ? (
+                <div className="flex flex-col items-center gap-y-1">
+                  {explorerURLs?.source && (
+                    <Button
+                      variant="link"
+                      className="text-nexus-accent underline text-base font-semibold font-nexus-primary cursor-pointer p-0"
+                      onClick={() => window.open(explorerURLs.source!, '_blank')}
+                    >
+                      View Source Transaction{' '}
+                      <ExternalLink className="w-6 h-6 ml-2 text-nexus-muted-secondary" />
+                    </Button>
+                  )}
+                  {explorerURLs?.destination && (
+                    <Button
+                      variant="link"
+                      className="text-nexus-accent underline text-base font-semibold font-nexus-primary cursor-pointer p-0"
+                      onClick={() => window.open(explorerURLs.destination!, '_blank')}
+                    >
+                      View Destination Transaction{' '}
+                      <ExternalLink className="w-6 h-6 ml-2 text-nexus-muted-secondary" />
+                    </Button>
+                  )}
+                </div>
               ) : (
                 explorerURL && (
                   <Button
@@ -298,7 +329,7 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
         </div>
         {/* Footer */}
       </motion.div>
-      <div className="w-full flex flex-col items-center gap-y-6">
+      <div className="w-full flex flex-col items-center gap-y-3">
         {status === 'success' && (
           <motion.div
             className="w-full px-6"

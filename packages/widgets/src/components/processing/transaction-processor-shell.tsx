@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef, memo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { ProcessorMiniCard } from './processor-mini-card';
@@ -16,13 +16,13 @@ import { TransactionType, SwapSimulationResult } from '../../types';
 const COLLAPSED = { width: 400, height: 120, radius: 16 } as const;
 const EXPANDED = { width: 480, height: 500, radius: 16 } as const;
 
-export const TransactionProcessorShell: React.FC<{ disableCollapse?: boolean }> = ({
-  disableCollapse = false,
-}) => {
+const TransactionProcessorShell = ({ disableCollapse = false }: { disableCollapse?: boolean }) => {
+  const lastLoggedProcessingState = useRef<string>('');
   const {
     activeTransaction,
     processing,
     explorerURL,
+    explorerURLs,
     timer,
     toggleTransactionCollapse,
     isTransactionCollapsed,
@@ -40,9 +40,8 @@ export const TransactionProcessorShell: React.FC<{ disableCollapse?: boolean }> 
 
     if (transactionType === 'swap') {
       const swapResult = simulationResult as SwapSimulationResult;
-      // For swap, use the chainId from metadata or intent
-      const chainIds = swapResult?.intent?.sources?.map((source) => source?.chain?.id);
-      return chainIds ? chainIds : [];
+      // For swap, extract chain IDs from sources
+      return swapResult?.intent?.sources?.map((source) => source?.chain?.id) || [];
     }
 
     const bridgeExecuteResult = simulationResult as BridgeAndExecuteSimulationResult;
@@ -64,8 +63,8 @@ export const TransactionProcessorShell: React.FC<{ disableCollapse?: boolean }> 
 
     if (transactionType === 'swap') {
       const swapResult = simulationResult as SwapSimulationResult;
-      // For swap, destination is the same as source (single chain)
-      return swapResult?.intent?.destination?.chain;
+      // For swap, extract destination chain ID
+      return swapResult?.intent?.destination?.chain?.id ?? 0;
     }
 
     const bridgeExecuteResult = simulationResult as BridgeAndExecuteSimulationResult;
@@ -91,6 +90,11 @@ export const TransactionProcessorShell: React.FC<{ disableCollapse?: boolean }> 
   const tokenMeta = token ? TOKEN_METADATA[token as keyof typeof TOKEN_METADATA] : null;
 
   const getDescription = () => {
+    if (activeTransaction?.type === 'swap') {
+      if (processing?.statusText === 'Swap is completed')
+        return 'Transaction Completed Successfully';
+      return `${getOperationText(transactionType as TransactionType)} ${tokenMeta?.symbol || 'token'} from ${sourceChainMeta.length > 1 ? 'multiple chains' : sourceChainMeta[0]?.name} to ${destChainMeta?.name || 'destination chain'}`;
+    }
     if (activeTransaction?.executionResult?.success) return 'Transaction Completed Successfully';
     return `${getOperationText(transactionType as TransactionType)} ${tokenMeta?.symbol || 'token'} from ${sourceChainMeta.length > 1 ? 'multiple chains' : sourceChainMeta[0]?.name} to ${destChainMeta?.name || 'destination chain'}`;
   };
@@ -120,6 +124,13 @@ export const TransactionProcessorShell: React.FC<{ disableCollapse?: boolean }> 
 
   if (!shellActive || !transactionType || !simulationResult) {
     return null;
+  }
+
+  // Only log processing changes when state actually changes to reduce noise
+  const processingStateKey = `${processing?.currentStep}-${processing?.totalSteps}-${processing?.statusText}-${processing?.animationProgress}`;
+  if (lastLoggedProcessingState.current !== processingStateKey && processing) {
+    console.log('processing from hook', processing);
+    lastLoggedProcessingState.current = processingStateKey;
   }
 
   return (
@@ -182,6 +193,7 @@ export const TransactionProcessorShell: React.FC<{ disableCollapse?: boolean }> 
               simulationResult={simulationResult}
               processing={processing}
               explorerURL={explorerURL}
+              explorerURLs={explorerURLs}
               timer={timer}
               description={getDescription()}
               error={activeTransaction?.error}
@@ -199,6 +211,7 @@ export const TransactionProcessorShell: React.FC<{ disableCollapse?: boolean }> 
               simulationResult={simulationResult}
               processing={processing}
               explorerURL={explorerURL}
+              explorerURLs={explorerURLs}
               timer={timer}
               description={getDescription()}
               error={activeTransaction?.error}
@@ -211,3 +224,6 @@ export const TransactionProcessorShell: React.FC<{ disableCollapse?: boolean }> 
     </AnimatePresence>
   );
 };
+TransactionProcessorShell.displayName = 'TransactionProcessorShell';
+
+export default memo(TransactionProcessorShell);

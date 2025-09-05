@@ -177,7 +177,9 @@ export function UnifiedTransactionModal({
       <div
         className={cn(
           'flex-1 flex flex-col overflow-hidden w-full',
-          status !== 'set_allowance' && transactionType !== 'transfer' ? 'mt-14' : '',
+          status !== 'set_allowance' && transactionType !== 'transfer' && transactionType !== 'swap'
+            ? 'mt-14'
+            : '',
         )}
       >
         <SlideTransition contentKey={getContentKey(status, [reviewStatus])}>

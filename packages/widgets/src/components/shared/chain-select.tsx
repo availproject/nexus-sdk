@@ -20,6 +20,7 @@ export function ChainSelect({
   network = 'mainnet',
   className,
   hasValues,
+  type,
 }: ChainSelectProps & { network?: 'mainnet' | 'testnet' }) {
   const availableChainIds = network === 'testnet' ? TESTNET_CHAINS : MAINNET_CHAINS;
 
@@ -51,8 +52,8 @@ export function ChainSelect({
       )}
     >
       <p className="text-nexus-foreground text-lg font-semibold ">Destination Chain</p>
-      <div className="flex flex-col items-start w-full h-full max-h-[332px] overflow-y-scroll gap-y-4 last:mb-20">
-        {chainOptions.map((chain) => (
+      <div className="flex flex-col items-start w-full h-full max-h-[332px] overflow-y-scroll gap-y-4">
+        {chainOptions.map((chain, index) => (
           <DrawerAutoClose key={chain?.chainId} enabled={hasValues}>
             <Button
               variant="custom"
@@ -63,6 +64,7 @@ export function ChainSelect({
                 disabled &&
                   'pointer-events-none cursor-not-allowed opacity-50 text-nexus-foreground ',
                 selectedOption?.chainId === chain?.chainId ? 'bg-nexus-accent-green/10' : '',
+                index === chainOptions.length - 1 ? 'mb-20' : '',
               )}
             >
               <ChainIcon chainId={chain?.chainId.toString()} />

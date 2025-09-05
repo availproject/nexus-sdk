@@ -222,6 +222,7 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
 export const NEXUS_EVENTS = {
   STEP_COMPLETE: 'step_complete',
   EXPECTED_STEPS: 'expected_steps',
+  SWAP_STEPS: 'swap_step',
   // Modular event names
   BRIDGE_EXECUTE_EXPECTED_STEPS: 'bridge_execute_expected_steps',
   BRIDGE_EXECUTE_COMPLETED_STEPS: 'bridge_execute_completed_steps',

@@ -152,6 +152,8 @@ const SwapForm = ({
           isChainSelectDisabled={isChainSelectDisabled}
           network={network}
           drawerTitle="Select Source Chain & Token"
+          fieldLabel="Source"
+          type="swap"
         />
       </div>
       <div className="flex gap-x-4 justify-between items-start w-full">
@@ -179,6 +181,8 @@ const SwapForm = ({
           isChainSelectDisabled={isChainSelectDisabled} // Allow destination chain selection
           network={network}
           drawerTitle="Select Destination Chain & Token"
+          fieldLabel="Destination"
+          type="swap"
         />
       </div>
     </div>
@@ -206,7 +210,7 @@ export function SwapTransactionForm({
     if (fromToken && toToken) {
       return `Swapping (${fromToken} → ${toToken})`;
     }
-    return 'Swapping';
+    return 'Swap';
   }, [inputData?.fromTokenAddress, inputData?.toTokenAddress]);
 
   const handleUpdate = (data: Partial<SwapInputData>) => {

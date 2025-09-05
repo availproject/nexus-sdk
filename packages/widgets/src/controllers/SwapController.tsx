@@ -14,6 +14,7 @@ import {
   TOKEN_CONTRACT_ADDRESSES,
   parseUnits,
   TOKEN_METADATA,
+  SwapIntentHook,
 } from '@nexus/commons';
 import { SwapTransactionForm } from '../components/shared/unified-transaction-form';
 
@@ -58,6 +59,8 @@ export class SwapController implements ISwapController {
   private intentRefreshCallback: (() => Promise<SwapIntent>) | null = null;
   private refreshInterval: NodeJS.Timeout | null = null;
 
+  private lastLoggedValidationState = '';
+
   hasSufficientInput(inputData: Partial<SwapInputData>): boolean {
     if (!inputData) {
       logger.warn('SwapController: No input data provided');
@@ -73,7 +76,11 @@ export class SwapController implements ISwapController {
       (inputData.fromAmount || inputData.amount);
 
     if (!hasRequiredFields) {
-      logger.warn('SwapController: Missing required fields', inputData);
+      const currentState = 'missing-fields';
+      if (this.lastLoggedValidationState !== currentState) {
+        logger.warn('SwapController: Missing required fields', inputData);
+        this.lastLoggedValidationState = currentState;
+      }
       return false;
     }
 
@@ -82,11 +89,16 @@ export class SwapController implements ISwapController {
     const amountNum = parseFloat(amount?.toString() || '0');
     const isValidAmount = !isNaN(amountNum) && amountNum > 0;
 
-    logger.debug('SwapController: Input validation', {
-      hasRequiredFields,
-      isValidAmount,
-      inputData,
-    });
+    // Only log when validation state changes to reduce noise
+    const currentState = `${hasRequiredFields ? 'fields-ok' : 'missing-fields'}-${isValidAmount ? 'amount-ok' : 'amount-invalid'}-${amount}`;
+    if (this.lastLoggedValidationState !== currentState) {
+      logger.debug('SwapController: Input validation', {
+        hasRequiredFields,
+        isValidAmount,
+        amount,
+      });
+      this.lastLoggedValidationState = currentState;
+    }
 
     return isValidAmount;
   }
@@ -143,46 +155,86 @@ export class SwapController implements ISwapController {
 
       logger.info('SwapController: Prepared Swap input data', swapInput);
 
-      const result = await sdk.swap(swapInput, {
-        swapIntentHook: async (data: {
-          allow: () => void;
-          deny: () => void;
-          intent: SwapIntent;
-          refresh: () => Promise<SwapIntent>;
-        }) => {
-          logger.info('SwapController: Intent captured successfully', data.intent);
+      return new Promise<SwapSimulationResult>((resolve) => {
+        sdk
+          .swap(swapInput, {
+            swapIntentHook: async (data: SwapIntentHook) => {
+              logger.info('SwapController: Intent captured successfully', data.intent);
+              console.log('SwapController: Intent captured successfully', data.intent);
 
-          // Store intent and callbacks for later execution
-          this.capturedIntent = data.intent;
-          this.intentAllowCallback = data.allow;
-          this.intentRefreshCallback = data.refresh;
+              // Store intent and callbacks for later execution
+              this.capturedIntent = data.intent;
+              this.intentAllowCallback = data.allow;
+              this.intentRefreshCallback = data.refresh;
 
-          // Start refresh interval for intent
-          this.startIntentRefresh();
-        },
+              // Start refresh interval for intent
+              setTimeout(() => {
+                this.startIntentRefresh();
+              }, 5000);
+
+              // Resolve immediately with simulation result once intent is captured
+              resolve({
+                success: true,
+                intent: this.capturedIntent,
+                swapMetadata: {
+                  type: 'swap' as const,
+                  inputToken: swapInput.fromTokenAddress,
+                  outputToken: swapInput.toTokenAddress,
+                  fromChainId: swapInput.fromChainID,
+                  toChainId: swapInput.toChainID,
+                  inputAmount: swapInput.fromAmount.toString(),
+                  outputAmount:
+                    (this.capturedIntent as unknown as SwapIntent).destination?.amount.toString() ??
+                    '0',
+                },
+                allowance: {
+                  needsApproval: false,
+                  chainDetails: [],
+                },
+              });
+            },
+          })
+          .then((result) => {
+            logger.info('SwapController: Swap result', result);
+            console.log('SwapController: Swap result', result);
+
+            if (!result?.success) {
+              throw new Error(`Swap failed: ${result?.error || 'Unknown error'}`);
+            }
+
+            return result;
+          })
+          .catch((error) => {
+            logger.error('SwapController: Intent capture failed', error as Error);
+
+            // Provide more specific error messages based on the error type
+            let errorMessage = 'Failed to capture swap intent';
+            if (error instanceof Error) {
+              if (error.message.includes('timeout') || error.message.includes('timed out')) {
+                errorMessage = 'Swap quote request timed out. Please try again.';
+              } else if (error.message.includes('quote') || error.message.includes('400')) {
+                errorMessage =
+                  'Unable to get swap quote. Please verify your token selection and amount.';
+              } else if (error.message.includes('network') || error.message.includes('fetch')) {
+                errorMessage =
+                  'Network error occurred. Please check your connection and try again.';
+              } else if (error.message.includes('Invalid amount')) {
+                errorMessage = 'Please enter a valid amount greater than 0.';
+              } else {
+                errorMessage = error.message;
+              }
+            }
+
+            resolve({
+              success: false,
+              error: errorMessage,
+              allowance: {
+                needsApproval: false,
+                chainDetails: [],
+              },
+            });
+          });
       });
-
-      logger.info('SwapController: Swap result', result);
-
-      // Return swap simulation result with captured intent
-      return {
-        success: true,
-        intent: this.capturedIntent,
-        swapMetadata: {
-          type: 'swap' as const,
-          inputToken: swapInput.fromTokenAddress,
-          outputToken: swapInput.toTokenAddress,
-          fromChainId: swapInput.fromChainID,
-          toChainId: swapInput.toChainID,
-          inputAmount: swapInput.fromAmount.toString(),
-          outputAmount:
-            (this.capturedIntent as unknown as SwapIntent).destination?.amount.toString() ?? '0',
-        },
-        allowance: {
-          needsApproval: false,
-          chainDetails: [],
-        },
-      };
     } catch (error) {
       logger.error('SwapController: Intent capture failed', error as Error);
 

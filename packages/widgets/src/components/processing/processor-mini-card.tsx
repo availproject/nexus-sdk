@@ -19,6 +19,7 @@ export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
   transactionType,
   processing,
   explorerURL,
+  explorerURLs,
   description,
   error,
   executionResult,
@@ -149,7 +150,30 @@ export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
             />
           </motion.div>
           {status === 'success' &&
-            (transactionType !== 'bridgeAndExecute' ? (
+            (transactionType === 'swap' ? (
+              // For swap, prioritize showing destination transaction link
+              explorerURLs?.destination ? (
+                <Button
+                  className="h-fit text-xs text-nexus-accent underline font-semibold font-nexus-primary px-0"
+                  size="sm"
+                  variant="link"
+                  onClick={() => window.open(explorerURLs.destination!, '_blank')}
+                >
+                  View Transaction{' '}
+                  <ExternalLink className="w-4 h-4 ml-2 text-nexus-muted-secondary" />
+                </Button>
+              ) : explorerURLs?.source ? (
+                <Button
+                  className="h-fit text-xs text-nexus-accent underline font-semibold font-nexus-primary px-0"
+                  size="sm"
+                  variant="link"
+                  onClick={() => window.open(explorerURLs.source!, '_blank')}
+                >
+                  View Transaction{' '}
+                  <ExternalLink className="w-4 h-4 ml-2 text-nexus-muted-secondary" />
+                </Button>
+              ) : null
+            ) : transactionType !== 'bridgeAndExecute' ? (
               <Button
                 className="h-fit text-xs text-nexus-accent underline font-semibold font-nexus-primary px-0"
                 size="sm"

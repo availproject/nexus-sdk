@@ -32,13 +32,13 @@ import type { TransferConfig } from '../controllers/TransferController';
 import { BridgeController } from '../controllers/BridgeController';
 import { TransferController } from '../controllers/TransferController';
 import { BridgeAndExecuteController } from '../controllers/BridgeAndExecuteController';
-import { TransactionProcessorShell } from '../components/processing/transaction-processor-shell';
+import TransactionProcessorShell from '../components/processing/transaction-processor-shell';
 import { LayoutGroup } from 'motion/react';
 import useListenTransaction from '../hooks/useListenTransaction';
 import { logger } from '@nexus/commons';
 import { DragConstraintsProvider } from '../components/motion/drag-constraints';
 import { SwapController } from 'src/controllers/SwapController';
-import { getTokenFromInputData, getAmountFromInputData } from '../utils/utils';
+import { getTokenFromInputData, getAmountFromInputData, formatSwapError } from '../utils/utils';
 
 const controllers: Record<Exclude<TransactionType, 'swap'>, ITransactionController> = {
   bridge: new BridgeController(),
@@ -113,16 +113,31 @@ export function InternalNexusProvider({
   const [isSettingAllowance, setIsSettingAllowance] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const { processing, explorerURL, resetProcessingState } = useListenTransaction({
-    sdk,
-    activeTransaction,
-  });
 
   const activeController = useMemo(() => {
     if (!activeTransaction.type) return null;
     if (activeTransaction.type === 'swap') return swapController;
     return controllers[activeTransaction.type];
   }, [activeTransaction.type]);
+
+  const handleSwapComplete = useCallback(() => {
+    console.log('Swap completed, updating transaction status to success');
+    setActiveTransaction((prev) => ({
+      ...prev,
+      status: 'success',
+    }));
+
+    // Clear the swap controller's captured intent now that swap is complete
+    if (isSwapController(activeController)) {
+      activeController.clearCapturedIntent();
+    }
+  }, [activeController]);
+
+  const { processing, explorerURL, explorerURLs, resetProcessingState } = useListenTransaction({
+    sdk,
+    activeTransaction,
+    onSwapComplete: activeTransaction.type === 'swap' ? handleSwapComplete : undefined,
+  });
 
   const fetchExchangeRates = useCallback(async () => {
     try {
@@ -478,6 +493,7 @@ export function InternalNexusProvider({
               sdk,
               inputData as Partial<SwapInputData>,
             );
+            console.log('Swap Simulation result:', simulationResult);
           } else if (isTransactionController(activeController)) {
             // Handle regular transaction controllers
             let inputDataForSimulation = inputData;
@@ -595,15 +611,55 @@ export function InternalNexusProvider({
 
     setActiveTransaction((prev) => ({ ...prev, status: 'processing' }));
     try {
-      let executionResult;
+      let executionResult: any;
 
       if (isSwapController(activeController)) {
-        // Handle swap controller
-        executionResult = await activeController.confirmAndProceed(
-          sdk,
-          activeTransaction.inputData as Partial<SwapInputData>,
-          activeTransaction.simulationResult,
-        );
+        // Handle swap controller - special case for swaps
+        try {
+          executionResult = await activeController.confirmAndProceed(
+            sdk,
+            activeTransaction.inputData as Partial<SwapInputData>,
+            activeTransaction.simulationResult,
+          );
+
+          console.log('SwapController executionResult:', executionResult);
+          logger.info('SwapController executionResult:', executionResult);
+
+          // For swaps, don't immediately set success/error based on executionResult
+          // The actual status will be determined by listening to swap_step events
+          // If there was an error starting the swap, handle it
+          if (!executionResult?.success) {
+            const errorMessage = formatSwapError(executionResult?.error);
+            logger.error('Swap execution failed:', errorMessage);
+
+            setActiveTransaction((prev) => ({
+              ...prev,
+              status: 'error',
+              error: new Error(errorMessage),
+              executionResult,
+            }));
+            return;
+          }
+
+          // If swap started successfully, stay in processing state
+          // and let useListenTransaction handle the final success state
+          setActiveTransaction((prev) => ({
+            ...prev,
+            executionResult,
+          }));
+          return;
+        } catch (swapError) {
+          logger.error('Swap controller threw an error:', swapError as Error);
+          const errorMessage = formatSwapError(swapError);
+
+          setActiveTransaction((prev) => ({
+            ...prev,
+            status: 'error',
+            error: new Error(errorMessage),
+            executionResult: { success: false, error: errorMessage },
+          }));
+          return;
+        }
       } else if (isTransactionController(activeController)) {
         // Handle regular transaction controllers
         executionResult = await activeController.confirmAndProceed(
@@ -614,6 +670,8 @@ export function InternalNexusProvider({
       } else {
         throw new Error('Unknown controller type');
       }
+
+      // For non-swap transactions, use the traditional success/error handling
       setActiveTransaction((prev) => ({
         ...prev,
         status: executionResult?.success ? 'success' : 'error',
@@ -830,6 +888,7 @@ export function InternalNexusProvider({
       // Transaction processing state
       processing,
       explorerURL,
+      explorerURLs,
 
       // Actions
       setProvider,
@@ -873,6 +932,7 @@ export function InternalNexusProvider({
       isSettingAllowance,
       processing,
       explorerURL,
+      explorerURLs,
       approveAllowance,
       denyAllowance,
       startAllowanceFlow,

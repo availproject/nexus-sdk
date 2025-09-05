@@ -12,6 +12,7 @@ import { ChevronDownIcon, CircleX } from '../icons';
 import { FormField } from '../motion/form-field';
 import { CHAIN_METADATA, SUPPORTED_CHAINS, TOKEN_METADATA } from '@nexus/commons';
 import { cn } from '../../utils/utils';
+import { TransactionType } from 'src/types';
 
 interface DestinationDrawerProps {
   chainValue?: string;
@@ -25,6 +26,7 @@ interface DestinationDrawerProps {
   onOpenChange?: (open: boolean) => void;
   fieldLabel?: string;
   drawerTitle?: string;
+  type?: TransactionType;
 }
 
 const DestinationTrigger = ({
@@ -98,6 +100,7 @@ const DestinationDrawer = ({
   onTokenValueChange,
   fieldLabel,
   drawerTitle = 'Select Destination Chain & Token',
+  type,
 }: DestinationDrawerProps) => {
   return (
     <Drawer>
@@ -128,6 +131,7 @@ const DestinationDrawer = ({
             network={network}
             className="w-full"
             hasValues={!!tokenValue}
+            type={type}
           />
           <TokenSelect
             value={tokenValue}
@@ -136,6 +140,7 @@ const DestinationDrawer = ({
             network={network}
             className="w-full"
             hasValues={!!chainValue}
+            type={type}
           />
         </div>
       </DrawerContent>

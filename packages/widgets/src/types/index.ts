@@ -280,6 +280,7 @@ export interface NexusContextValue {
   // Transaction processing state (from useListenTransaction)
   processing: ProcessingState;
   explorerURL: string | null;
+  explorerURLs?: { source?: string; destination?: string };
 
   // Actions
   setProvider: (provider: EthereumProvider) => void;
@@ -366,6 +367,7 @@ export interface TokenSelectProps extends BaseComponentProps {
   onValueChange: (token: string) => void;
   disabled?: boolean;
   network?: 'mainnet' | 'testnet';
+  type?: TransactionType;
 }
 
 export interface ChainSelectProps extends BaseComponentProps {
@@ -373,6 +375,7 @@ export interface ChainSelectProps extends BaseComponentProps {
   onValueChange: (chain: string) => void;
   disabled?: boolean;
   network?: 'mainnet' | 'testnet';
+  type?: TransactionType;
 }
 
 export interface AmountInputProps extends BaseComponentProps {
@@ -425,6 +428,7 @@ export interface ProcessorCardProps {
   simulationResult: SimulationResult | BridgeAndExecuteSimulationResult | SwapSimulationResult;
   processing: ProcessingState;
   explorerURL: string | null;
+  explorerURLs?: { source?: string; destination?: string };
   timer: number;
   description: string;
   error: Error | null;

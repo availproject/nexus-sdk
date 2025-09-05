@@ -2,11 +2,20 @@ import { type SimulationResult, type BridgeAndExecuteSimulationResult } from '@n
 import { InfoMessage } from '../shared/info-message';
 import { TransactionDetailsDrawer } from '../shared/transaction-details-drawer';
 import TextLoader from '../motion/text-loader';
-import { OrchestratorStatus, ReviewStatus, TransactionType, SwapSimulationResult } from '../../types';
+import {
+  OrchestratorStatus,
+  ReviewStatus,
+  TransactionType,
+  SwapSimulationResult,
+} from '../../types';
 
 interface TransactionSimulationProps {
   isLoading: boolean;
-  simulationResult?: (SimulationResult | BridgeAndExecuteSimulationResult | SwapSimulationResult) & {
+  simulationResult?: (
+    | SimulationResult
+    | BridgeAndExecuteSimulationResult
+    | SwapSimulationResult
+  ) & {
     allowance?: { needsApproval: boolean };
   };
   inputData?: {
@@ -52,17 +61,19 @@ export function TransactionSimulation({
         </div>
       )}
 
-      <div className="flex justify-center py-2">
-        <TransactionDetailsDrawer
-          simulationResult={simulationResult}
-          inputData={inputData}
-          callback={callback}
-          triggerClassname="px-6"
-          type={type}
-          status={status}
-          reviewStatus={reviewStatus}
-        />
-      </div>
+      {type !== 'swap' && (
+        <div className="flex justify-center py-2">
+          <TransactionDetailsDrawer
+            simulationResult={simulationResult}
+            inputData={inputData}
+            callback={callback}
+            triggerClassname="px-6"
+            type={type}
+            status={status}
+            reviewStatus={reviewStatus}
+          />
+        </div>
+      )}
     </div>
   );
 }

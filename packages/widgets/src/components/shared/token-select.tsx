@@ -20,6 +20,7 @@ export function TokenSelect({
   network = 'mainnet',
   className,
   hasValues,
+  type,
 }: TokenSelectProps & { network?: 'mainnet' | 'testnet' }) {
   const { unifiedBalance } = useInternalNexus();
   const tokenMetadata = network === 'testnet' ? TESTNET_TOKEN_METADATA : TOKEN_METADATA;

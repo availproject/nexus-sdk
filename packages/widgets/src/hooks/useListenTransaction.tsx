@@ -19,7 +19,7 @@ export const getTextFromSwapStep = (step: SwapStep): string => {
     case 'DETERMINING_SWAP':
       return `Generating routes for XCS`;
     case 'RFF_ID':
-      return `CA Intent:`;
+      return `Chain abstracted intent`;
     case 'SOURCE_SWAP_BATCH_TX':
       return 'Creating source swap batch transactions';
     case 'SOURCE_SWAP_HASH':
@@ -32,6 +32,45 @@ export const getTextFromSwapStep = (step: SwapStep): string => {
       return 'Processing swap';
   }
 };
+
+const swapSteps = [
+  { id: 0, type: 'SWAP_START', typeID: 'SWAP_START', name: 'Starting Swap' },
+  { id: 1, type: 'DETERMINING_SWAP', typeID: 'DETERMINING_SWAP', name: 'Finding Best Route' },
+  {
+    id: 2,
+    type: 'SOURCE_SWAP_BATCH_TX',
+    typeID: 'SOURCE_SWAP_BATCH_TX',
+    name: 'Source Transaction',
+  },
+  { id: 3, type: 'SOURCE_SWAP_HASH', typeID: 'SOURCE_SWAP_HASH', name: 'Source Transaction hash' },
+  { id: 4, type: 'RFF_ID', typeID: 'RFF_ID', name: 'Source Transaction hash' },
+  {
+    id: 5,
+    type: 'DESTINATION_SWAP_BATCH_TX',
+    typeID: 'DESTINATION_SWAP_BATCH_TX',
+    name: 'Destination Transaction',
+  },
+  {
+    id: 6,
+    type: 'DESTINATION_SWAP_HASH',
+    typeID: 'DESTINATION_SWAP_HASH',
+    name: 'Destination Transaction hash',
+  },
+  {
+    id: 7,
+    type: 'CREATE_PERMIT_FOR_SOURCE_SWAP',
+    typeID: 'CREATE_PERMIT_FOR_SOURCE_SWAP',
+    name: 'Permit',
+  },
+
+  {
+    id: 8,
+    type: 'CREATE_PERMIT_EOA_TO_EPHEMERAL',
+    typeID: 'CREATE_PERMIT_EOA_TO_EPHEMERAL',
+    name: 'Permit Ephemeral',
+  },
+  { id: 9, type: 'SWAP_COMPLETE', typeID: 'SWAP_COMPLETE', name: 'Swap Complete' },
+];
 
 interface ProcessingStep {
   id: number;
@@ -51,9 +90,11 @@ interface ProcessingState {
 const useListenTransaction = ({
   sdk,
   activeTransaction,
+  onSwapComplete,
 }: {
   sdk: NexusSDK;
   activeTransaction: ActiveTransaction;
+  onSwapComplete?: () => void;
 }) => {
   const { type } = activeTransaction;
   const DEFAULT_INITIAL_STEPS = 10;
@@ -70,6 +111,7 @@ const useListenTransaction = ({
     animationProgress: 0,
   }));
   const [explorerURL, setExplorerURL] = useState<string | null>(null);
+  const [explorerURLs, setExplorerURLs] = useState<{ source?: string; destination?: string }>({});
 
   const resetProcessingState = useCallback(() => {
     setProcessing({
@@ -84,6 +126,7 @@ const useListenTransaction = ({
       animationProgress: 0,
     });
     setExplorerURL(null);
+    setExplorerURLs({});
   }, []);
 
   useEffect(() => {
@@ -92,13 +135,6 @@ const useListenTransaction = ({
     // Special handling for swap transactions
     if (type === 'swap') {
       // For swap, we create our own progress steps since no expected_steps are emitted
-      const swapSteps = [
-        { id: 0, type: 'SWAP_START', typeID: 'SWAP_START', name: 'Starting Swap' },
-        { id: 1, type: 'DETERMINING_SWAP', typeID: 'DETERMINING_SWAP', name: 'Finding Best Route' },
-        { id: 2, type: 'SOURCE_SWAP_HASH', typeID: 'SOURCE_SWAP_HASH', name: 'Source Transaction' },
-        { id: 3, type: 'DESTINATION_SWAP_HASH', typeID: 'DESTINATION_SWAP_HASH', name: 'Destination Transaction' },
-        { id: 4, type: 'SWAP_COMPLETE', typeID: 'SWAP_COMPLETE', name: 'Swap Complete' },
-      ];
 
       const initialSteps = swapSteps.map((step, index) => ({
         id: index,
@@ -157,18 +193,26 @@ const useListenTransaction = ({
           };
         });
 
+        // Check if swap is complete and call the completion callback
+        if (stepData.type === 'SWAP_COMPLETE' && onSwapComplete) {
+          console.log('Swap completed, calling onSwapComplete callback');
+          onSwapComplete();
+        }
+
         // Handle explorer URL extraction for swap
         if (stepData.type === 'SOURCE_SWAP_HASH' && 'explorerURL' in stepData) {
-          setExplorerURL(stepData.explorerURL);
+          setExplorerURLs((prev) => ({ ...prev, source: stepData.explorerURL }));
+          setExplorerURL(stepData.explorerURL); // Keep for backward compatibility
         } else if (stepData.type === 'DESTINATION_SWAP_HASH' && 'explorerURL' in stepData) {
-          setExplorerURL(stepData.explorerURL);
+          setExplorerURLs((prev) => ({ ...prev, destination: stepData.explorerURL }));
+          setExplorerURL(stepData.explorerURL); // Update to show latest
         }
       };
 
-      sdk?.nexusEvents?.on(NEXUS_EVENTS.STEP_COMPLETE, handleSwapStepComplete);
+      sdk?.nexusEvents?.on(NEXUS_EVENTS.SWAP_STEPS, handleSwapStepComplete);
 
       return () => {
-        sdk.nexusEvents?.off(NEXUS_EVENTS.STEP_COMPLETE, handleSwapStepComplete);
+        sdk.nexusEvents?.off(NEXUS_EVENTS.SWAP_STEPS, handleSwapStepComplete);
       };
     }
 
@@ -325,7 +369,7 @@ const useListenTransaction = ({
     };
   }, [activeTransaction.status]);
 
-  return { processing, explorerURL, resetProcessingState };
+  return { processing, explorerURL, explorerURLs, resetProcessingState };
 };
 
 export default useListenTransaction;

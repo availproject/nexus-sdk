@@ -169,6 +169,16 @@ const ERROR_PATTERNS = {
     /execute phase failed/i,
     /contract execution error/i,
   ],
+  SWAP_ERROR: [
+    /swap failed/i,
+    /swap error/i,
+    /vsc sbc tx/i,
+    /swap transaction failed/i,
+    /slippage/i,
+    /price impact/i,
+    /swap intent failed/i,
+    /swap execution failed/i,
+  ],
 } as const;
 
 /**
@@ -186,6 +196,7 @@ const USER_FRIENDLY_MESSAGES = {
   INIT_ERROR: 'Wallet connection issue. Please make sure your wallet is connected and try again.',
   BRIDGE_ERROR: 'Cross-chain transfer failed. Please try again.',
   EXECUTE_ERROR: 'Smart contract execution failed. Please try again.',
+  SWAP_ERROR: 'Swap transaction failed. Please check your balance and try again.',
   UNKNOWN: 'An unexpected error occurred. Please try again.',
 } as const;
 
@@ -351,6 +362,14 @@ function getContextualErrorMessage(
       EXECUTE_ERROR: 'Contract interaction failed. Please try again.',
       ALLOWANCE_ERROR: 'Token approval required before execution.',
     },
+    swap: {
+      NETWORK_ERROR: 'Swap service is temporarily unavailable. Please try again.',
+      INSUFFICIENT_FUNDS: 'Insufficient balance to complete the swap.',
+      SWAP_ERROR: 'Swap failed. Please verify your token selection and amount.',
+      GAS_ERROR: 'Swap failed due to gas issues. Please try again.',
+      CONTRACT_ERROR: 'Swap contract interaction failed. Please try again.',
+      ALLOWANCE_ERROR: 'Token approval required for swap.',
+    },
     allowance: {
       ALLOWANCE_ERROR: 'Token approval transaction failed. Please try again.',
       GAS_ERROR: 'Approval failed due to insufficient gas. Please try again.',
@@ -381,6 +400,25 @@ export function isUserRejectionError(error: unknown): boolean {
 export function isChainError(error: unknown): boolean {
   const errorMessage = error instanceof Error ? error.message : String(error);
   return ERROR_PATTERNS.CHAIN_ERROR.some((pattern) => pattern.test(errorMessage));
+}
+
+/**
+ * Format swap-specific error messages for better user experience
+ *
+ * @param error - The error object or string from swap operations
+ * @returns A user-friendly error message specific to swap operations
+ */
+export function formatSwapError(error: unknown): string {
+  // Use the general error formatter with swap context
+  return formatErrorForUI(error, 'swap');
+}
+
+/**
+ * Check if an error is swap-related
+ */
+export function isSwapError(error: unknown): boolean {
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  return ERROR_PATTERNS.SWAP_ERROR.some((pattern) => pattern.test(errorMessage));
 }
 
 /**
