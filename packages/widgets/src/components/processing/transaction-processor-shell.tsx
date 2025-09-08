@@ -79,7 +79,6 @@ const TransactionProcessorShell = ({ disableCollapse = false }: { disableCollaps
   }, [simulationResult, transactionType]);
 
   const token = getTokenFromInputData(activeTransaction.inputData) || '';
-
   const sourceChainMeta = sources
     .filter((s): s is number => s != null && !isNaN(s))
     .map((s) => CHAIN_METADATA[s as keyof typeof CHAIN_METADATA])
@@ -92,9 +91,16 @@ const TransactionProcessorShell = ({ disableCollapse = false }: { disableCollaps
 
   const getDescription = () => {
     if (activeTransaction?.type === 'swap') {
-      if (processing?.statusText === 'Swap is completed')
+      if (processing?.statusText === 'Swap is completed') {
         return 'Transaction Completed Successfully';
-      return `${getOperationText(transactionType as TransactionType)} ${tokenMeta?.symbol || 'token'} to ${(activeTransaction?.simulationResult as SwapSimulationResult)?.intent?.destination?.token} on ${destChainMeta?.name || 'destination chain'}`;
+      }
+      const destinationToken = (activeTransaction?.simulationResult as SwapSimulationResult)?.intent
+        ?.destination?.token;
+      const destinationTokenSymbol = destinationToken
+        ? destinationToken.symbol.toUpperCase()
+        : 'token';
+
+      return `${getOperationText(transactionType as TransactionType)} ${tokenMeta?.symbol || 'token'} to ${destinationTokenSymbol} on ${destChainMeta?.name || 'destination chain'}`;
     }
     if (activeTransaction?.executionResult?.success) return 'Transaction Completed Successfully';
     return `${getOperationText(transactionType as TransactionType)} ${tokenMeta?.symbol || 'token'} from ${sourceChainMeta.length > 1 ? 'multiple chains' : sourceChainMeta[0]?.name} to ${destChainMeta?.name || 'destination chain'}`;
