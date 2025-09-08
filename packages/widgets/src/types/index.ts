@@ -377,6 +377,7 @@ export interface ChainSelectProps extends BaseComponentProps {
   onValueChange: (chain: string) => void;
   disabled?: boolean;
   network?: 'mainnet' | 'testnet';
+  isSource?: boolean;
 }
 
 export interface AmountInputProps extends BaseComponentProps {

@@ -77,7 +77,7 @@ export function TokenSelect({
   return (
     <div className={cn('flex flex-col items-start gap-y-4 py-5 pl-4 w-full', className)}>
       <p className="text-nexus-foreground text-lg font-semibold ">
-        {isDestination ? 'Destination Token' : 'Token'}
+        {isDestination ? 'Destination Token' : 'Source Token'}
       </p>
       <div className="flex flex-col items-start w-full h-full max-h-[332px] overflow-y-scroll gap-y-4">
         {finalTokenOptions.map((token, index) => (
@@ -101,14 +101,17 @@ export function TokenSelect({
                     {token?.label}
                   </p>
                 </div>
-                <div className="flex flex-col items-end gap-y-1">
-                  <p className="font-semibold font-nexus-primary text-sm text-nexus-foreground">
-                    {parseFloat(tokenBalanceBreakdown[token?.value]?.bal ?? '0').toFixed(6)}
-                  </p>
-                  <p className="font-semibold font-nexus-primary text-sm text-nexus-secondary ">
-                    {tokenBalanceBreakdown[token?.value]?.chains}
-                  </p>
-                </div>
+                {tokenBalanceBreakdown[token?.value]?.bal &&
+                  tokenBalanceBreakdown[token?.value]?.chains && (
+                    <div className="flex flex-col items-end gap-y-1">
+                      <p className="font-semibold font-nexus-primary text-sm text-nexus-foreground">
+                        {parseFloat(tokenBalanceBreakdown[token?.value]?.bal).toFixed(6)}
+                      </p>
+                      <p className="font-semibold font-nexus-primary text-sm text-nexus-secondary ">
+                        {tokenBalanceBreakdown[token?.value]?.chains}
+                      </p>
+                    </div>
+                  )}
               </div>
             </Button>
           </DrawerAutoClose>

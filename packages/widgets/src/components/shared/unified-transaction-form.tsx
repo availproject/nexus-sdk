@@ -154,6 +154,7 @@ const SwapForm = ({
           drawerTitle="Select Source Chain & Token"
           fieldLabel="Source"
           type="swap"
+          isSourceChain={true}
         />
       </div>
       <div className="flex gap-x-4 justify-between items-start w-full">
@@ -178,12 +179,13 @@ const SwapForm = ({
             }
           }}
           isTokenSelectDisabled={isOutputTokenSelectDisabled}
-          isChainSelectDisabled={isChainSelectDisabled} // Allow destination chain selection
+          isChainSelectDisabled={isChainSelectDisabled}
           network={network}
           drawerTitle="Select Destination Chain & Token"
           fieldLabel="Destination"
           type="swap"
           isDestination={true}
+          isSourceChain={false}
         />
       </div>
     </div>

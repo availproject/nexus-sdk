@@ -20,6 +20,7 @@ export function ChainSelect({
   network = 'mainnet',
   className,
   hasValues,
+  isSource,
 }: ChainSelectProps & { network?: 'mainnet' | 'testnet' }) {
   const availableChainIds = network === 'testnet' ? TESTNET_CHAINS : MAINNET_CHAINS;
 
@@ -50,7 +51,9 @@ export function ChainSelect({
         className,
       )}
     >
-      <p className="text-nexus-foreground text-lg font-semibold ">Destination Chain</p>
+      <p className="text-nexus-foreground text-lg font-semibold ">
+        {isSource ? 'Source' : 'Destination'} Chain
+      </p>
       <div className="flex flex-col items-start w-full h-full max-h-[332px] overflow-y-scroll gap-y-4">
         {chainOptions.map((chain, index) => (
           <DrawerAutoClose key={chain?.chainId} enabled={hasValues}>

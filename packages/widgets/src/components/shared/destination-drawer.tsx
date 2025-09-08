@@ -29,6 +29,7 @@ interface DestinationDrawerProps {
   drawerTitle?: string;
   type?: TransactionType;
   isDestination?: boolean;
+  isSourceChain?: boolean;
 }
 
 const DestinationTrigger = ({
@@ -103,6 +104,7 @@ const DestinationDrawer = ({
   drawerTitle = 'Select Destination Chain & Token',
   type,
   isDestination = false,
+  isSourceChain = false,
 }: DestinationDrawerProps) => {
   return (
     <Drawer>
@@ -133,6 +135,7 @@ const DestinationDrawer = ({
             network={network}
             className="w-full"
             hasValues={!!tokenValue}
+            isSource={isSourceChain}
           />
           <TokenSelect
             value={tokenValue}
