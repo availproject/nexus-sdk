@@ -94,7 +94,7 @@ const TransactionProcessorShell = ({ disableCollapse = false }: { disableCollaps
     if (activeTransaction?.type === 'swap') {
       if (processing?.statusText === 'Swap is completed')
         return 'Transaction Completed Successfully';
-      return `${getOperationText(transactionType as TransactionType)} ${tokenMeta?.symbol || 'token'} from ${sourceChainMeta.length > 1 ? 'multiple chains' : sourceChainMeta[0]?.name} to ${destChainMeta?.name || 'destination chain'}`;
+      return `${getOperationText(transactionType as TransactionType)} ${tokenMeta?.symbol || 'token'} to ${(activeTransaction?.simulationResult as SwapSimulationResult)?.intent?.destination?.token} on ${destChainMeta?.name || 'destination chain'}`;
     }
     if (activeTransaction?.executionResult?.success) return 'Transaction Completed Successfully';
     return `${getOperationText(transactionType as TransactionType)} ${tokenMeta?.symbol || 'token'} from ${sourceChainMeta.length > 1 ? 'multiple chains' : sourceChainMeta[0]?.name} to ${destChainMeta?.name || 'destination chain'}`;
