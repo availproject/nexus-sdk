@@ -121,7 +121,6 @@ export function InternalNexusProvider({
   }, [activeTransaction.type]);
 
   const handleSwapComplete = useCallback(() => {
-    console.log('Swap completed, updating transaction status to success');
     setActiveTransaction((prev) => ({
       ...prev,
       status: 'success',

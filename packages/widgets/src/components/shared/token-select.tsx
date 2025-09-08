@@ -52,8 +52,6 @@ export function TokenSelect({
 
   const finalTokenOptions = type ? tokenOptions : legacyTokenOptions;
 
-  console.log('finalTokenOptions', finalTokenOptions);
-
   const tokenBalanceBreakdown = useMemo(() => {
     let breakdown: Record<string, { bal: string; chains: string }> = {};
     unifiedBalance?.map((balance) => {

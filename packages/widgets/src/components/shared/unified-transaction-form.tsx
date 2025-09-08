@@ -157,7 +157,7 @@ const SwapForm = ({
         />
       </div>
       <div className="flex gap-x-4 justify-between items-start w-full">
-        <FormField label={'Recevie'} className="flex-1 font-nexus-primary gap-y-2 w-full max-w-max">
+        <FormField label={'Receive'} className="flex-1 font-nexus-primary gap-y-2 w-full max-w-max">
           <AmountInput
             value={destinationAmount}
             disabled={true}

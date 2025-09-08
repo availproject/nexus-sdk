@@ -7,6 +7,7 @@ import {
   type BridgeAndExecuteSimulationResult,
   type SimulationResult,
   CHAIN_METADATA,
+  logger,
   TOKEN_METADATA,
 } from '@nexus/commons';
 import { getOperationText, getTokenFromInputData } from '../../utils/utils';
@@ -129,7 +130,7 @@ const TransactionProcessorShell = ({ disableCollapse = false }: { disableCollaps
   // Only log processing changes when state actually changes to reduce noise
   const processingStateKey = `${processing?.currentStep}-${processing?.totalSteps}-${processing?.statusText}-${processing?.animationProgress}`;
   if (lastLoggedProcessingState.current !== processingStateKey && processing) {
-    console.log('processing from hook', processing);
+    logger.info('processing from hook', processing);
     lastLoggedProcessingState.current = processingStateKey;
   }
 

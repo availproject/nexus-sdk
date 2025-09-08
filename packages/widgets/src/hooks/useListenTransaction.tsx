@@ -152,8 +152,6 @@ const useListenTransaction = ({
       });
 
       const handleSwapStepComplete = (stepData: SwapStep) => {
-        console.log('Swap step completed:', stepData);
-
         setProcessing((prev) => {
           // Find matching step by type
           const stepIndex = swapSteps.findIndex((s) => s.typeID === stepData.type);
