@@ -17,6 +17,7 @@ import type {
   SwapStep,
 } from '@arcana/ca-sdk';
 import * as ServiceTypes from './service-types';
+import { FeeUniverse } from '@arcana/ca-sdk/dist/types/typings';
 
 interface SwapOptionalParams {
   emit: (stepID: string, step: SwapStep) => void;
@@ -53,6 +54,19 @@ type TokenInfo = {
   name: string;
   platform?: string;
   symbol: string;
+};
+
+type SwapBalances = {
+  assets: UserAsset[];
+  balances: {
+    amount: string;
+    chain_id: number;
+    decimals: number;
+    priceUSD: string;
+    token_address: `0x${string}`;
+    universe: FeeUniverse;
+    value: number;
+  }[];
 };
 
 type NexusNetwork = 'mainnet' | 'testnet';
@@ -377,4 +391,5 @@ export type {
   SwapOptionalParams,
   SwapStep,
   SwapIntentHook,
+  SwapBalances,
 };

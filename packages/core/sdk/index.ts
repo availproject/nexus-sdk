@@ -24,6 +24,7 @@ import type {
   SwapInput,
   SwapOptionalParams,
   SwapResult,
+  SwapBalances,
 } from '@nexus/commons';
 import { setLogLevel, LOG_LEVEL, logger } from '@nexus/commons';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
@@ -91,6 +92,13 @@ export class NexusSDK {
    */
   public async getUnifiedBalances(): Promise<UserAsset[]> {
     return this.nexusAdapter.getUnifiedBalances();
+  }
+
+  /**
+   * Get swap balances
+   */
+  public async getSwapBalances(): Promise<SwapBalances> {
+    return this.nexusAdapter.getSwapBalances();
   }
 
   /**

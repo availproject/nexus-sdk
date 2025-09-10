@@ -32,6 +32,7 @@ import {
   extractErrorMessage,
   logger,
   SwapResult,
+  SwapBalances,
 } from '@nexus/commons';
 import SwapService from './services/swap-service';
 
@@ -76,7 +77,6 @@ export class ChainAbstractionAdapter {
     try {
       this.ca.setEVMProvider(provider);
       await this.ca.init();
-
       // Get the enhanced provider with CA functionality
       this.evmProvider = this.ca.getEVMProviderWithCA();
       this.initialized = true;
@@ -127,6 +127,19 @@ export class ChainAbstractionAdapter {
     } catch (error) {
       throw new Error(
         `Failed to fetch unified balance for ${symbol}: ${extractErrorMessage(error, 'balance fetch')}`,
+      );
+    }
+  }
+
+  /**
+   * Get swap balances
+   */
+  public async getSwapBalances(): Promise<SwapBalances> {
+    try {
+      return await this.ca.getSwapBalances();
+    } catch (error) {
+      throw new Error(
+        `Failed to fetch swap balances: ${extractErrorMessage(error, 'swap balances fetch')}`,
       );
     }
   }

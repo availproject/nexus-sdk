@@ -227,7 +227,8 @@ export function UnifiedTransactionModal({
                 ) : (
                   shouldShowSimulation &&
                   !insufficientBalance &&
-                  status !== 'simulation_error' && (
+                  status !== 'simulation_error' &&
+                  type !== 'swap' && (
                     <TransactionSimulation
                       isLoading={isSimulating}
                       simulationResult={simulationResult || undefined}

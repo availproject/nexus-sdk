@@ -61,19 +61,17 @@ export function TransactionSimulation({
         </div>
       )}
 
-      {type !== 'swap' && (
-        <div className="flex justify-center py-2">
-          <TransactionDetailsDrawer
-            simulationResult={simulationResult}
-            inputData={inputData}
-            callback={callback}
-            triggerClassname="px-6"
-            type={type}
-            status={status}
-            reviewStatus={reviewStatus}
-          />
-        </div>
-      )}
+      <div className="flex justify-center py-2">
+        <TransactionDetailsDrawer
+          simulationResult={simulationResult}
+          inputData={inputData}
+          callback={callback}
+          triggerClassname="px-6"
+          type={type}
+          status={status}
+          reviewStatus={reviewStatus}
+        />
+      </div>
     </div>
   );
 }

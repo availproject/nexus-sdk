@@ -44,13 +44,11 @@ export class SwapService extends BaseService {
       // Set up event listeners to capture transaction data
       const handleStepComplete = (step: SwapStep) => {
         try {
-          if (step.type === 'SOURCE_SWAP_HASH' && step.explorerURL) {
-            // Source Swap Completed - capture explorer URL
+          // Handle explorer URL extraction for swap
+          if (step.type === 'SOURCE_SWAP_HASH' && 'explorerURL' in step) {
             sourceExplorerUrl = step.explorerURL;
-          }
-          if (step.type === 'DESTINATION_SWAP_HASH' && step.explorerURL) {
-            // Destination Swap Completed - transaction completed successfully
-            sourceExplorerUrl = step.explorerURL;
+          } else if (step.type === 'DESTINATION_SWAP_HASH' && 'explorerURL' in step) {
+            destinationExplorerUrl = step.explorerURL;
           }
           if (step.type === 'SWAP_COMPLETE' && step.completed) {
             // Swap Completed - transaction completed successfully
@@ -70,12 +68,12 @@ export class SwapService extends BaseService {
       };
 
       const cleanup = () => {
-        this.caEvents.off(NEXUS_EVENTS.STEP_COMPLETE, handleStepComplete);
+        this.caEvents.off(NEXUS_EVENTS.SWAP_STEPS, handleStepComplete);
         clearTimeout(timeoutId);
       };
 
       // Add event listeners - only using known events
-      this.caEvents.on(NEXUS_EVENTS.STEP_COMPLETE, handleStepComplete);
+      this.caEvents.on(NEXUS_EVENTS.SWAP_STEPS, handleStepComplete);
 
       // Set a timeout to prevent hanging
       const timeoutId = setTimeout(() => {
