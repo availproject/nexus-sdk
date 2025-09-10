@@ -19,7 +19,7 @@ export type {
   EthereumProvider,
   RequestArguments,
   EventListener,
-  UserAsset,
+  UserAssetDatum as UserAsset,
   SimulationResult,
   RequestForFunds,
   NexusNetwork,

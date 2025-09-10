@@ -11,7 +11,6 @@ import type {
   OnAllowanceHook,
   EthereumProvider,
   RequestArguments,
-  UserAsset,
   SimulationResult,
   RequestForFunds,
   NexusNetwork,
@@ -24,33 +23,28 @@ import type {
   SwapInput,
   SwapOptionalParams,
   SwapResult,
+  UserAssetDatum,
+  SDKConfig,
 } from '@nexus/commons';
 import { setLogLevel, LOG_LEVEL, logger } from '@nexus/commons';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
-import { Network, SDKConfig } from '@arcana/ca-sdk';
+import { Environment } from '@arcana/ca-common';
 import { ChainAbstractionAdapter } from '../adapters/chain-abstraction-adapter';
+import { CA } from './ca-base';
 
-export class NexusSDK {
+export class NexusSDK extends CA {
   private readonly nexusAdapter: ChainAbstractionAdapter;
   public readonly nexusEvents: SafeEventEmitter;
   public readonly utils: NexusUtils;
 
   constructor(config?: { network?: NexusNetwork; debug?: boolean }) {
-    const nexusConfig: SDKConfig &
-      Omit<SDKConfig, 'siweStatement' | 'network'> & { network?: Network } = {
-      ...config,
-      siweStatement: 'Sign in to enable Nexus',
-    };
-    if (config?.network) {
-      nexusConfig.network = config?.network === 'testnet' ? Network.FOLLY : undefined;
-    }
-
+    super(config);
     // Initialize logger based on debug flag
     this.initializeLogger(config?.debug);
-    logger.debug('Nexus SDK initialized with config:', nexusConfig);
-    this.nexusAdapter = new ChainAbstractionAdapter(nexusConfig);
-    this.nexusEvents = this.nexusAdapter.caEvents;
-    this.utils = new NexusUtils(this.nexusAdapter, () => this.nexusAdapter.isInitialized());
+    logger.debug('Nexus SDK initialized with config:', config);
+    this.nexusAdapter = new ChainAbstractionAdapter(this);
+    this.nexusEvents = this._caEvents;
+    this.utils = new NexusUtils(this.nexusAdapter, () => this._isInitialized());
   }
 
   /**
@@ -72,7 +66,8 @@ export class NexusSDK {
    */
   public async initialize(provider: EthereumProvider): Promise<void> {
     // Initialize the core adapter first
-    await this.nexusAdapter.initialize(provider);
+    this._setEVMProvider(provider);
+    await this._init();
     const BACKEND_URL = 'https://nexus-backend.avail.so';
     if (BACKEND_URL) {
       try {
@@ -89,29 +84,50 @@ export class NexusSDK {
   /**
    * Get unified balances across all chains
    */
-  public async getUnifiedBalances(): Promise<UserAsset[]> {
-    return this.nexusAdapter.getUnifiedBalances();
+  public async getUnifiedBalances(): Promise<UserAssetDatum[]> {
+    return this._getUnifiedBalances();
   }
 
   /**
    * Get unified balance for a specific token
    */
-  public async getUnifiedBalance(symbol: string): Promise<UserAsset | undefined> {
-    return this.nexusAdapter.getUnifiedBalance(symbol);
+  public async getUnifiedBalance(symbol: string): Promise<UserAssetDatum | undefined> {
+    return this._getUnifiedBalance(symbol);
   }
 
   /**
    * Cross chain token transfer
    */
   public async bridge(params: BridgeParams): Promise<BridgeResult> {
-    return this.nexusAdapter.bridge(params);
+    const result: BridgeResult = {
+      success: true,
+      explorerUrl: '',
+    };
+    try {
+      await this._bridge({ ...params, chainID: params.chainId });
+      // Add explorer URL
+    } catch (e) {
+      result.success = false;
+    } finally {
+      return result;
+    }
   }
 
   /**
    * Cross chain token transfer to EOA
    */
   public async transfer(params: TransferParams): Promise<TransferResult> {
-    return this.nexusAdapter.transfer(params);
+    const result: TransferResult = {
+      success: true,
+      explorerUrl: '',
+    };
+    try {
+      await this._transfer({ ...params, to: params.recipient, chainID: params.chainId });
+    } catch (error) {
+      result.success = false;
+    } finally {
+      return result;
+    }
   }
 
   /**
@@ -121,7 +137,16 @@ export class NexusSDK {
     inputs: SwapInput,
     options?: Omit<SwapOptionalParams, 'emit'>,
   ): Promise<SwapResult> {
-    return this.nexusAdapter.swap(inputs, options);
+    const result: SwapResult = {
+      success: true,
+    };
+    try {
+      await this._swap(inputs, options);
+    } catch (error) {
+      result.success = false;
+    } finally {
+      return result;
+    }
   }
 
   /**
@@ -130,71 +155,73 @@ export class NexusSDK {
    */
 
   public getEVMProviderWithCA(): EthereumProvider {
-    return this.nexusAdapter.getEVMProviderWithCA();
+    return this._getEVMProviderWithCA();
   }
 
   /**
    * Simulate bridge transaction to get costs and fees
    */
   public async simulateBridge(params: BridgeParams): Promise<SimulationResult> {
-    return this.nexusAdapter.simulateBridge(params);
+    return (await this._bridge({ ...params, chainID: params.chainId })).simulate();
   }
 
   /**
    * Simulate transfer transaction to get costs and fees
    */
   public async simulateTransfer(params: TransferParams): Promise<SimulationResult> {
-    return this.nexusAdapter.simulateTransfer(params);
+    return (
+      await this._transfer({ ...params, to: params.recipient, chainID: params.chainId })
+    ).simulate();
   }
 
   /**
    * Get user's intents with pagination
    */
   public async getMyIntents(page: number = 1): Promise<RequestForFunds[]> {
-    return this.nexusAdapter.getMyIntents(page);
+    return this._getMyIntents(page);
   }
 
   /**
    * Check allowance for tokens on a specific chain
    */
   public async getAllowance(chainId?: number, tokens?: string[]): Promise<AllowanceResponse[]> {
-    return this.nexusAdapter.getAllowance(chainId, tokens);
+    return this._allowance().get({ chainID: chainId, tokens });
   }
 
   /**
    * Set allowance for a token on a specific chain
    */
   public async setAllowance(chainId: number, tokens: string[], amount: bigint): Promise<void> {
-    return this.nexusAdapter.setAllowance(chainId, tokens, amount);
+    return this._allowance().set({ chainID: chainId, tokens, amount });
   }
 
   /**
    * Revoke allowance for a token on a specific chain
    */
   public async revokeAllowance(chainId: number, tokens: string[]): Promise<void> {
-    return this.nexusAdapter.revokeAllowance(chainId, tokens);
+    return this._allowance().revoke({ chainID: chainId, tokens });
   }
 
   /**
    * Set callback for intent status updates
    */
   public setOnIntentHook(callback: OnIntentHook): void {
-    this.nexusAdapter.setOnIntentHook(callback);
+    this._setOnIntentHook(callback);
   }
 
   /**
    * Set callback for allowance approval events
    */
   public setOnAllowanceHook(callback: OnAllowanceHook): void {
-    this.nexusAdapter.setOnAllowanceHook(callback);
+    this._setOnAllowanceHook(callback);
   }
 
   public async deinit(): Promise<void> {
-    await this.nexusAdapter.deinit();
+    await this._deinit();
   }
 
   public async request(args: RequestArguments): Promise<unknown> {
-    return this.nexusAdapter.request(args);
+    return this._handleEVMTx(args);
   }
 
   /**

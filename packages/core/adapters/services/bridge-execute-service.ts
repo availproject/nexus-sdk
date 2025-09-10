@@ -18,8 +18,9 @@ import {
   CHAIN_METADATA,
   extractErrorMessage,
   logger,
+  ProgressStep,
+  UserAssetDatum as UserAsset,
 } from '@nexus/commons';
-import type { ProgressStep, UserAsset } from '@arcana/ca-sdk';
 
 // Local constants for the service
 const ADAPTER_CONSTANTS = {
