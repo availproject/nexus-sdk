@@ -285,13 +285,7 @@ export class ExecuteService {
         throw new Error('EVM provider not available for enhanced simulation');
       }
 
-      // Create a proper adapter for SimulationEngine
-      const simulationAdapter = {
-        isInitialized: () => this.adapter.nexusSDK.isInitialized(),
-        evmProvider: this.adapter.nexusSDK.getEVMProviderWithCA(),
-      };
-
-      const simulationEngine = new SimulationEngine(simulationAdapter);
+      const simulationEngine = new SimulationEngine(this.adapter);
 
       // Get user address
       const preparation = await this.transactionService.prepareExecution(params);

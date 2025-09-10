@@ -78,7 +78,7 @@ export class CA {
   protected _caEvents = new SafeEventEmitter();
   #cosmosWallet?: DirectSecp256k1Wallet;
   #ephemeralWallet?: PrivateKeyAccount;
-  protected _chainList: ChainList;
+  public chainList: ChainList;
   protected _config: Required<SDKConfig>;
   protected _evm?: {
     client: Client<
@@ -116,7 +116,7 @@ export class CA {
   ) {
     this._config = getSDKConfig(config);
     this._networkConfig = getNetworkConfig(this._config.network);
-    this._chainList = new ChainList(this._networkConfig.NETWORK_HINT);
+    this.chainList = new ChainList(this._networkConfig.NETWORK_HINT);
     if (this._config.debug) {
       setLogLevel(LOG_LEVEL.DEBUG);
     }
@@ -127,7 +127,7 @@ export class CA {
       throw new Error('EVM provider is not set');
     }
 
-    return new AllowanceQuery(this._evm.client, this._networkConfig, this._chainList);
+    return new AllowanceQuery(this._evm.client, this._networkConfig, this.chainList);
   }
 
   protected async _bridge(input: BridgeQueryInput) {
@@ -139,7 +139,7 @@ export class CA {
       this._createFuelHandler.bind(this),
       await this._getEVMAddress(),
       this._networkConfig.VSC_DOMAIN,
-      this._chainList,
+      this.chainList,
       this._fuel?.account,
     );
 
@@ -196,7 +196,7 @@ export class CA {
     const balances = await fetchBalances(
       this._networkConfig.VSC_DOMAIN,
       await this._getEVMAddress(),
-      this._chainList,
+      this.chainList,
       this._fuel?.address,
     );
     return balances.assets.data;
@@ -213,7 +213,7 @@ export class CA {
 
     const input: Parameters<typeof swap>[0] = {
       actualWallet: this._evm.client,
-      chainList: this._chainList,
+      chainList: this.chainList,
       cosmos: {
         address: (await this.#cosmosWallet!.getAccounts())[0].address,
         wallet: this.#cosmosWallet!,
@@ -340,7 +340,7 @@ export class CA {
     const modProvider = getFuelProvider(
       this._getUnifiedBalances.bind(this),
       address,
-      this._chainList.getChainByID(CHAIN_IDS.fuel.mainnet)!,
+      this.chainList.getChainByID(CHAIN_IDS.fuel.mainnet)!,
     );
 
     const provider = new Provider(FUEL_NETWORK_URL, {
@@ -407,7 +407,7 @@ export class CA {
       this._createEVMHandler.bind(this),
       this._createFuelHandler.bind(this),
       await this._getEVMAddress(),
-      this._chainList,
+      this.chainList,
       this._fuel?.account,
     );
     await tq.initHandler();
@@ -418,7 +418,7 @@ export class CA {
     if (!this._evm) {
       throw new Error('EVM provider is not set');
     }
-    const chain = this._chainList.getChainByID(chainID);
+    const chain = this.chainList.getChainByID(chainID);
     if (!chain) {
       throw new Error('chain not supported');
     }
@@ -463,7 +463,7 @@ export class CA {
     const opt = getTxOptions(options);
 
     const chainId = await this._getChainID();
-    const chain = this._chainList.getChainByID(chainId);
+    const chain = this.chainList.getChainByID(chainId);
     if (!chain) {
       logger.info('chain not supported, returning', {
         chainId,
@@ -473,7 +473,7 @@ export class CA {
 
     return createHandler({
       chain,
-      chainList: this._chainList,
+      chainList: this.chainList,
       cosmosWallet: await this._getCosmosWallet(),
       evm: {
         address: await this._getEVMAddress(),
@@ -498,7 +498,7 @@ export class CA {
   }
 
   protected async _createFuelHandler(tx: TransactionRequestLike, options: Partial<TxOptions> = {}) {
-    const chain = this._chainList.getChainByID(CHAIN_IDS.fuel.mainnet);
+    const chain = this.chainList.getChainByID(CHAIN_IDS.fuel.mainnet);
     if (!chain) {
       throw new Error(`chain not found: ${CHAIN_IDS.fuel.mainnet}`);
     }
@@ -516,7 +516,7 @@ export class CA {
 
     return createHandler({
       chain,
-      chainList: this._chainList,
+      chainList: this.chainList,
       cosmosWallet: await this._getCosmosWallet(),
       evm: {
         address: await this._getEVMAddress(),

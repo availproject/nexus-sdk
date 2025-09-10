@@ -11,7 +11,6 @@ import {
 import { ChainAbstractionAdapter } from 'adapters/chain-abstraction-adapter';
 import { parseUnits, formatUnits, encodeFunctionData, erc20Abi, Hex } from 'viem';
 
-
 /**
  * Internal constants for adapter behavior
  */
@@ -183,12 +182,17 @@ export class ApprovalService {
       // Convert back to wei for the transaction
       const finalApprovalAmount = parseUnits(humanReadableAmount, tokenDecimals);
 
+      const chain = this.adapter.nexusSDK.chainList.getChainByID(chainId);
+      if (!chain) {
+        throw new Error('chain not supported');
+      }
       const transactionHash = await this.adapter.nexusSDK.getEVMClient().writeContract({
         functionName: 'approve',
         abi: erc20Abi,
         address: approvalInfo.tokenAddress as Hex,
         args: [spenderAddress as Hex, finalApprovalAmount],
-        chain: chainId,
+        chain,
+        account: accounts[0],
       });
 
       if (waitForConfirmation) {
