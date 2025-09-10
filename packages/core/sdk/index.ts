@@ -29,7 +29,6 @@ import type {
 } from '@nexus/commons';
 import { setLogLevel, LOG_LEVEL, logger } from '@nexus/commons';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
-import { Environment } from '@arcana/ca-common';
 import { ChainAbstractionAdapter } from '../adapters/chain-abstraction-adapter';
 import { CA } from './ca-base';
 
@@ -43,7 +42,7 @@ export class NexusSDK extends CA {
     logger.debug('Nexus SDK initialized with config:', config);
     this.nexusAdapter = new ChainAbstractionAdapter(this);
     this.nexusEvents = this._caEvents;
-    this.utils = new NexusUtils(this.nexusAdapter, () => this._isInitialized());
+    this.utils = new NexusUtils(this.nexusAdapter, () => this.isInitialized());
   }
 
   /**
@@ -246,5 +245,9 @@ export class NexusSDK extends CA {
     params: BridgeAndExecuteParams,
   ): Promise<BridgeAndExecuteSimulationResult> {
     return this.nexusAdapter.simulateBridgeAndExecute(params);
+  }
+
+  public isInitialized() {
+    return this._isInitialized();
   }
 }

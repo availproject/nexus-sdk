@@ -1,4 +1,3 @@
-import { BaseService } from '../core/base-service';
 import {
   getTokenContractAddress,
   extractErrorMessage,
@@ -9,6 +8,7 @@ import {
   type SUPPORTED_TOKENS,
   type SUPPORTED_CHAINS_IDS,
 } from '@nexus/commons';
+import { ChainAbstractionAdapter } from 'adapters/chain-abstraction-adapter';
 import { parseUnits, formatUnits } from 'viem';
 
 /**
@@ -32,7 +32,9 @@ const ADAPTER_CONSTANTS = {
 /**
  * Service responsible for handling contract approvals
  */
-export class ApprovalService extends BaseService {
+export class ApprovalService {
+  constructor(private adapter: ChainAbstractionAdapter) {}
+
   /**
    * Check if approval is needed for a token spending operation
    */
@@ -42,9 +44,7 @@ export class ApprovalService extends BaseService {
     chainId: number,
     approvalBufferBps?: number,
   ): Promise<ApprovalInfo> {
-    this.ensureInitialized();
-
-    const accounts = (await this.evmProvider.request({
+    const accounts = (await this.adapter.nexusSDK.request({
       method: 'eth_accounts',
     })) as string[];
 
@@ -105,7 +105,7 @@ export class ApprovalService extends BaseService {
       const allowanceCallData = `${FUNCTION_SELECTORS.ALLOWANCE}${ownerAddress.slice(2).padStart(64, '0')}${spenderAddress.slice(2).padStart(64, '0')}`;
 
       // Call the contract to get current allowance
-      const allowanceResponse = await this.evmProvider.request({
+      const allowanceResponse = await this.adapter.nexusSDK.request({
         method: 'eth_call',
         params: [
           {
@@ -154,8 +154,6 @@ export class ApprovalService extends BaseService {
     waitForConfirmation: boolean = false,
     approvalBufferBps?: number,
   ): Promise<ApprovalResult> {
-    this.ensureInitialized();
-
     try {
       // Check if approval is needed
       const approvalInfo = await this.checkApprovalNeeded(
@@ -173,7 +171,7 @@ export class ApprovalService extends BaseService {
         };
       }
 
-      const accounts = (await this.evmProvider.request({
+      const accounts = (await this.adapter.nexusSDK.request({
         method: 'eth_accounts',
       })) as string[];
 
@@ -227,7 +225,7 @@ export class ApprovalService extends BaseService {
       });
 
       // Send approval transaction
-      const txResponse = await this.evmProvider.request({
+      const txResponse = await this.adapter.nexusSDK.request({
         method: 'eth_sendTransaction',
         params: [approvalTxParams],
       });
@@ -257,7 +255,7 @@ export class ApprovalService extends BaseService {
 
           while (attempts < maxAttempts) {
             try {
-              const receipt = await this.evmProvider.request({
+              const receipt = await this.adapter.nexusSDK.request({
                 method: 'eth_getTransactionReceipt',
                 params: [transactionHash],
               });
