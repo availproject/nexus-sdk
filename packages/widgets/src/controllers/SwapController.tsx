@@ -167,7 +167,7 @@ export class SwapController implements ISwapController {
           .swap(swapInput, {
             swapIntentHook: async (data: SwapIntentHook) => {
               logger.info('SwapController: Intent captured successfully', data.intent);
-              console.log('SwapController: Intent captured successfully', data.intent);
+              console.log('SwapController: Intent captured successfully 2', data.intent);
 
               // Store intent and callbacks for later execution
               this.capturedIntent = data.intent;

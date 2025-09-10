@@ -64,6 +64,8 @@ export function UnifiedTransactionModal({
     approveAllowance,
     denyAllowance,
     startAllowanceFlow,
+    initiateSwap,
+    proceedWithSwap,
   } = useInternalNexus();
 
   const { status, reviewStatus, inputData, simulationResult, type, prefillFields } =
@@ -78,6 +80,30 @@ export function UnifiedTransactionModal({
       setAllowanceApproveHandler(() => handler);
     },
     [setAllowanceFormValid, setAllowanceApproveHandler],
+  );
+
+  // Helper function to check sufficient input for both regular transactions and swaps
+  const checkHasSufficientInput = useCallback(
+    (inputData: any) => {
+      if (!inputData) return false;
+
+      if (transactionType === 'swap') {
+        // For swaps, check input directly (since activeController is null)
+        const data = inputData as Partial<SwapInputData>;
+        return !!(
+          (data.fromChainID || data.chainId) &&
+          (data.toChainID || data.toChainId) &&
+          (data.fromTokenAddress || data.inputToken || data.token) &&
+          (data.toTokenAddress || data.outputToken) &&
+          (data.fromAmount || data.amount) &&
+          parseFloat((data.fromAmount || data.amount)?.toString() || '0') > 0
+        );
+      } else {
+        // For regular transactions, use activeController
+        return activeController?.hasSufficientInput(inputData || {}) || false;
+      }
+    },
+    [transactionType, activeController],
   );
 
   // Type guard - return null if wrong transaction type
@@ -103,14 +129,27 @@ export function UnifiedTransactionModal({
     } else if (
       status === 'review' &&
       reviewStatus === 'gathering_input' &&
-      activeController?.hasSufficientInput(inputData || {})
+      checkHasSufficientInput(inputData)
     ) {
-      triggerSimulation();
+      if (transactionType === 'swap') {
+        // For swaps, initiateSwap should be called automatically by useEffect
+        // But allow manual fallback in case of timing issues
+        await initiateSwap(inputData as SwapInputData);
+      } else {
+        triggerSimulation();
+      }
+    } else if (status === 'review' && reviewStatus === 'ready') {
+      if (transactionType === 'swap') {
+        proceedWithSwap();
+      } else {
+        confirmAndProceed();
+      }
     } else if (status === 'review' && reviewStatus === 'needs_allowance') {
       startAllowanceFlow();
     } else if (status === 'set_allowance' && allowanceApproveHandler) {
       allowanceApproveHandler();
     } else {
+      console.log('🔄 Fallback: calling confirmAndProceed');
       confirmAndProceed();
     }
   };
@@ -119,7 +158,7 @@ export function UnifiedTransactionModal({
     setTimeout(handleButtonClick, 500);
   };
 
-  const hasSufficientInput = activeController?.hasSufficientInput(inputData || {});
+  const hasSufficientInput = checkHasSufficientInput(inputData);
   const shouldShowSimulation = isSdkInitialized && hasSufficientInput;
   const transformedInputData = transformInputData ? transformInputData(inputData) : inputData;
 
@@ -262,13 +301,12 @@ export function UnifiedTransactionModal({
               (status === 'set_allowance' && !allowanceFormValid) ||
               (status === 'review' &&
                 reviewStatus === 'gathering_input' &&
-                !activeController?.hasSufficientInput(inputData || {})) ||
+                !checkHasSufficientInput(inputData)) ||
               (status === 'review' &&
                 reviewStatus !== 'ready' &&
                 reviewStatus !== 'needs_allowance' &&
                 reviewStatus !== 'gathering_input') ||
-              (status === 'simulation_error' &&
-                !activeController?.hasSufficientInput(inputData || {}))
+              (status === 'simulation_error' && !checkHasSufficientInput(inputData))
             }
             className="border-t border-zinc-400/40 bg-gray-100"
           />

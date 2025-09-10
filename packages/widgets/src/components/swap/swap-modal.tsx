@@ -1,7 +1,6 @@
 import { UnifiedTransactionModal } from '../shared/unified-transaction-modal';
 import { SwapTransactionForm } from '../shared/unified-transaction-form';
 import PrefilledInputs from '../shared/prefilled-inputs';
-import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { SwapSimulationResult, SwapInputData } from '../../types';
 
 interface SwapFormSectionProps {
@@ -26,11 +25,13 @@ function SwapFormSection({
   className,
   prefillFields = {},
 }: SwapFormSectionProps) {
-  const { activeController } = useInternalNexus();
-
-  if (!activeController) return null;
-
-  const requiredPrefillFields = ['fromChainID', 'toChainID', 'fromTokenAddress', 'toTokenAddress', 'fromAmount'];
+  const requiredPrefillFields = [
+    'fromChainID',
+    'toChainID',
+    'fromTokenAddress',
+    'toTokenAddress',
+    'fromAmount',
+  ];
   const hasEnoughInputs = requiredPrefillFields.every(
     (field) => (prefillFields as any)[field] !== undefined,
   );

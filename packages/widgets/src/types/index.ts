@@ -309,6 +309,10 @@ export interface NexusContextValue {
   approveAllowance: (amount: string, isMinimum: boolean) => Promise<void>;
   denyAllowance: () => void;
   startAllowanceFlow: () => void;
+
+  // Swap-specific functions
+  initiateSwap: (inputData: SwapInputData) => Promise<void>;
+  proceedWithSwap: () => void;
 }
 
 // # 5. Existing Widget Configuration Types (with minor updates)
