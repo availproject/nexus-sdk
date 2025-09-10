@@ -10,7 +10,7 @@ import {
   OmniversalChainID,
   swapWithExactIn,
   Universe,
-  ZeroExAggregator,
+  // ZeroExAggregator,
 } from '@arcana/ca-common';
 import Decimal from 'decimal.js';
 import { Hex, toBytes, toHex } from 'viem';
@@ -64,7 +64,7 @@ export const getBalances = async (
 
 const LIFI_API_KEY = 'bcb7981d-ea26-4adf-8926-95d3adf4c001.23bcc0d7-7df7-4c86-bb37-ae9ffc25bb95';
 const BEBOP_API_KEY = 'ae262dbf-e4d0-4b66-aaec-57a1b4581440';
-const ZERO_X_API_KEY = '';
+// const ZERO_X_API_KEY = '';
 
 export type SwapRouteInput = ExactInInput | ExactOutInput;
 

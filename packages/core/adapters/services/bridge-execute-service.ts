@@ -25,15 +25,6 @@ const ADAPTER_CONSTANTS = {
   DEFAULT_DECIMALS: 18,
 };
 
-interface Transaction {
-  to: string;
-  input: string;
-  value?: string;
-  from?: string;
-  gas?: string;
-  blockNumber?: string;
-}
-
 interface ProviderError extends Error {
   data?: {
     message?: string;

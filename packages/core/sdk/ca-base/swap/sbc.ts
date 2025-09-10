@@ -14,7 +14,7 @@ import {
 } from 'viem';
 
 import { getLogger } from '../logger';
-import { waitForTxReceipt, ChainList } from '../utils';
+import { waitForTxReceipt } from '../utils';
 import CaliburABI from './calibur.abi';
 import { CALIBUR_ADDRESS, CALIBUR_EIP712, ZERO_BYTES_20, ZERO_BYTES_32 } from './constants';
 import { CaliburSBCTypes, ChainListType, SBCTx, Tx } from '@nexus/commons';

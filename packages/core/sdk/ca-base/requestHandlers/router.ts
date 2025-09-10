@@ -47,6 +47,7 @@ const createHandler = (input: RequestHandlerInput): CreateHandlerResponse => {
           params: [tx],
         });
       }
+      return;
     };
   } else if (input.fuel?.tx) {
     if (isFuelNativeTransfer(input.fuel.tx)) {
@@ -70,6 +71,7 @@ const createHandler = (input: RequestHandlerInput): CreateHandlerResponse => {
           },
         });
       }
+      return;
     };
   } else {
     throw Error('Unknown handler');

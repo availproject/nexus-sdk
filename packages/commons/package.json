@@ -14,9 +14,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@cosmjs/proto-signing": "^0.34.0",
+    "fuels": "0.101.1",
     "@arcana/ca-common": "1.0.1-alpha.4",
     "decimal.js": "^10.6.0",
-    "viem": "^2.0.0"
+    "viem": "^2.31.7"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^25.0.0",
@@ -25,6 +27,6 @@
     "@rollup/plugin-typescript": "^11.0.0",
     "rollup": "^4.0.0",
     "rollup-plugin-dts": "^6.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.8.3"
   }
 }

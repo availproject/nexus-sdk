@@ -10,7 +10,7 @@ import {
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import {
   type SUPPORTED_TOKENS,
-  type UserAsset,
+  type UserAssetDatum as UserAsset,
   CHAIN_METADATA,
   SUPPORTED_CHAINS,
   TOKEN_METADATA,
@@ -233,7 +233,10 @@ const UnifiedBalance = () => {
   return (
     <Drawer>
       <DrawerTrigger className="px-6 font-nexus-primary w-full my-6">
-        <BalanceTrigger balance={tokenBalance} token={getTokenFromInputData(inputData) as SUPPORTED_TOKENS} />
+        <BalanceTrigger
+          balance={tokenBalance}
+          token={getTokenFromInputData(inputData) as SUPPORTED_TOKENS}
+        />
       </DrawerTrigger>
       <DrawerContent className="font-nexus-primary">
         <DrawerHeader className="px-4 pt-4 pb-0">

@@ -6,7 +6,6 @@ import Long from 'long';
 import { pack, unpack } from 'msgpackr';
 import { bytesToBigInt, bytesToNumber, toHex } from 'viem';
 
-import { ChainList } from './common.utils';
 import { getLogger } from '../logger';
 import { ALLOWANCE_APPROVAL_MINED, INTENT_COLLECTION, INTENT_COLLECTION_COMPLETE } from '../steps';
 import {

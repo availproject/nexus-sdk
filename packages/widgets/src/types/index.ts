@@ -1,5 +1,5 @@
 import { ReactNode } from 'react';
-import { EthereumProvider, UserAsset } from '@nexus/commons';
+import { EthereumProvider, UserAssetDatum as UserAsset, NexusNetwork } from '@nexus/commons';
 import { NexusSDK } from '@nexus/core';
 
 // Only import essential parameter types, not all from root types
@@ -125,7 +125,6 @@ interface TokenMetadata {
 }
 
 // Local network type for UI
-type NexusNetwork = 'mainnet' | 'testnet';
 
 // # 1. High-Level State Machines
 

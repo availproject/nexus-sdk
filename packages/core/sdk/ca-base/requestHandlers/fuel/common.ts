@@ -13,7 +13,8 @@ import { Hex } from 'viem';
 
 import { FUEL_BASE_ASSET_ID } from '../../constants';
 import { getLogger } from '../../logger';
-import { ChainList, divDecimals } from '../../utils';
+import { divDecimals } from '../../utils';
+import { ChainListType } from '@nexus/commons';
 
 const logger = getLogger();
 
@@ -21,7 +22,7 @@ const simulate = async (
   tx: TransactionRequestLike,
   address: string,
   provider: Provider,
-  chainList: ChainList,
+  chainList: ChainListType,
 ) => {
   const outputs = tx.outputs?.filter((o) => o.type === OutputType.Coin) ?? [];
   const tokens = outputs

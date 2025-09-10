@@ -64,12 +64,12 @@
     "rollup-plugin-postcss": "4.0.2",
     "rollup-plugin-typescript2": "0.36.0",
     "tailwindcss": "4.1.10",
-    "typescript": "^5.0.0"
+    "typescript": "^5.8.3"
   },
   "peerDependencies": {
     "react": ">=16.8.0",
     "react-dom": ">=16.8.0",
-    "viem": "^2.0.0"
+    "viem": "^2.31.7"
   },
   "peerDependenciesMeta": {
     "react": {

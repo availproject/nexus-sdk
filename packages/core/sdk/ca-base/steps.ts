@@ -1,4 +1,3 @@
-import { ChainList } from './utils';
 import { isNativeAddress } from './constants';
 import { ChainListType, Intent, onAllowanceHookSource, Step } from '@nexus/commons';
 

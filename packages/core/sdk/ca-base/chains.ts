@@ -1,10 +1,4 @@
-import {
-  ChainIDKeyedMap,
-  Environment,
-  getVaultContractMap,
-  OmniversalChainID,
-  Universe,
-} from '@arcana/ca-common';
+import { Universe } from '@arcana/ca-common';
 import { CHAIN_IDS } from 'fuels';
 
 import {
@@ -17,7 +11,6 @@ import {
   SOPHON_CHAIN_ID,
 } from './constants';
 import { Chain } from '@nexus/commons';
-import { convertToHexAddressByUniverse, equalFold } from './utils';
 
 const TESTNET_CHAINS: Chain[] = [
   {

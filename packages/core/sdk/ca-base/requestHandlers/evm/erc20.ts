@@ -51,13 +51,13 @@ class ERC20Transfer extends RequestBase {
     });
   }
 
-  async simulateTx(): Promise<null | SimulateReturnType> {
+  async simulateTx(): Promise<undefined | SimulateReturnType> {
     const { data, to } = this.input.evm.tx!;
     const from = this.input.evm.address;
     const token = this.chainList.getTokenByAddress(this.input.chain.id, to);
     const nativeToken = this.chainList.getNativeToken(this.input.chain.id);
     if (!token) {
-      return null;
+      return;
     }
 
     const { args } = decodeFunctionData({

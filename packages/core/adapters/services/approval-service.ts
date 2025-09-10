@@ -9,7 +9,7 @@ import {
   type SUPPORTED_CHAINS_IDS,
 } from '@nexus/commons';
 import { ChainAbstractionAdapter } from 'adapters/chain-abstraction-adapter';
-import { parseUnits, formatUnits, encodeFunctionData, erc20Abi, Hex } from 'viem';
+import { parseUnits, formatUnits, erc20Abi, Hex } from 'viem';
 
 /**
  * Internal constants for adapter behavior

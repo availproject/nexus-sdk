@@ -20,14 +20,12 @@ import type {
   ExecuteResult,
   ExecuteSimulation,
   BridgeAndExecuteSimulationResult,
-  SwapInput,
   SwapOptionalParams,
   SwapResult,
   UserAssetDatum,
-  SDKConfig,
   SwapParams,
 } from '@nexus/commons';
-import { setLogLevel, LOG_LEVEL, logger } from '@nexus/commons';
+import { logger } from '@nexus/commons';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
 import { ChainAbstractionAdapter } from '../adapters/chain-abstraction-adapter';
 import { CA } from './ca-base';

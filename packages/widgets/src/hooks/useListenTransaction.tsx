@@ -1,9 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
-import { NEXUS_EVENTS, SwapStep } from '@nexus/commons';
+import { NEXUS_EVENTS } from '@nexus/commons';
 import { getStatusText } from '../utils/utils';
 import { NexusSDK } from '@nexus/core';
 import { ActiveTransaction } from '../types';
-import { ProgressStep, ProgressSteps } from '@nexus/core';
+import { ProgressStep, ProgressSteps, SwapStep } from '@nexus/core';
 
 // Swap-specific step handling
 export const getTextFromSwapStep = (step: SwapStep): string => {

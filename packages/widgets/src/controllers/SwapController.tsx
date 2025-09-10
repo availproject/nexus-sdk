@@ -5,10 +5,9 @@ import type {
   ActiveTransaction,
   SwapSimulationResult,
 } from '../types';
-import { NexusSDK } from '@nexus/core';
+import { NexusSDK, SwapParams } from '@nexus/core';
 import {
   type SwapResult,
-  type SwapInput,
   logger,
   type SwapIntent,
   parseUnits,
@@ -149,7 +148,7 @@ export class SwapController implements ISwapController {
         inputData.toChainID,
         'swap',
       );
-      const swapInput: SwapInput = {
+      const swapInput: SwapParams = {
         fromChainID: inputData.fromChainID,
         toChainID: inputData.toChainID,
         fromTokenAddress: actualFromTokenAddress as `0x${string}`,

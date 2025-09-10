@@ -1,7 +1,7 @@
 import {
   type SimulationResult,
   type BridgeAndExecuteSimulationResult,
-  type Intent,
+  type ReadableIntent as Intent,
   CHAIN_METADATA,
   SUPPORTED_CHAINS,
 } from '@nexus/commons';

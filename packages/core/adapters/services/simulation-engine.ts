@@ -7,7 +7,6 @@ import { encodePacked, keccak256, formatUnits, Hex, erc20Abi } from 'viem';
 import {
   type SUPPORTED_TOKENS,
   type ExecuteParams,
-  type EthereumProvider,
   type SUPPORTED_CHAINS_IDS,
   extractErrorMessage,
   getTokenContractAddress,
@@ -18,14 +17,6 @@ import {
 
 import { getSimulationClient } from '../../integrations/tenderly';
 import { ChainAbstractionAdapter } from 'adapters/chain-abstraction-adapter';
-
-/**
- * Minimal interface for what SimulationEngine needs from the adapter
- */
-interface SimulationEngineAdapter {
-  isInitialized(): boolean;
-  evmProvider: EthereumProvider;
-}
 
 /**
  * Balance check result interface

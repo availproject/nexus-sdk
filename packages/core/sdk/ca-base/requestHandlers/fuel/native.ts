@@ -32,6 +32,7 @@ class FuelNativeTransfer extends RequestBase {
     this.tx = this.input.fuel.tx;
     this.fuelAddress = this.input.fuel.address;
   }
+  
   parseSimulation(input: { assets: UserAssets; simulation: SimulateReturnType }) {
     return nativeRequestParseSimulation({
       ...input,

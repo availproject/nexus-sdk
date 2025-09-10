@@ -6,7 +6,7 @@ import { FuelConnector, Provider, TransactionRequestLike } from 'fuels';
 import { Abi, TransactionReceipt, ByteArray, Hex, WalletClient } from 'viem';
 import * as ServiceTypes from './service-types';
 
-type NexusNetwork = 'mainnet' | 'testnet' | 'devnet';
+type NexusNetwork = 'mainnet' | 'testnet';
 
 export interface BlockTransaction {
   hash?: string;

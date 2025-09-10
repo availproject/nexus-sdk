@@ -600,10 +600,6 @@ const getSDKConfig = (c: { network?: NexusNetwork; debug?: boolean }): Required<
   };
 
   switch (c.network) {
-    case 'devnet': {
-      config.network = Environment.CERISE;
-      break;
-    }
     case 'testnet': {
       config.network = Environment.FOLLY;
       break;

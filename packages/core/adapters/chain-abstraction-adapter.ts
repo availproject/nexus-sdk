@@ -1,10 +1,9 @@
-import { Network, SDKConfig } from '@nexus/commons';
+import { Network } from '@nexus/commons';
 import { isSupportedChain, isSupportedToken } from './core/validation';
 // Services
 import { ExecuteService } from './services/execute-service';
 import { BridgeExecuteService } from './services/bridge-execute-service';
 import {
-  type EthereumProvider,
   type BridgeAndExecuteParams,
   type BridgeAndExecuteResult,
   type ExecuteParams,

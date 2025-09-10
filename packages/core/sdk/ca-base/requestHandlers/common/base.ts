@@ -12,7 +12,6 @@ import { Account, BN, CHAIN_IDS, hexlify } from 'fuels';
 import Long from 'long';
 import { hexToBytes, JsonRpcAccount, maxUint256, parseSignature, toHex } from 'viem';
 
-import { ChainList } from '../../utils';
 import { isNativeAddress } from '../../constants';
 import {
   ErrorInsufficientBalance,
@@ -590,7 +589,7 @@ abstract class BaseRequest implements IRequestHandler {
     }
   }
 
-  abstract simulateTx(): Promise<null | SimulateReturnType>;
+  abstract simulateTx(): Promise<undefined | SimulateReturnType>;
 
   abstract waitForFill(
     requestHash: `0x${string}`,

@@ -6,7 +6,6 @@ import { FuelConnector, Provider } from 'fuels';
 import Long from 'long';
 import { Hex, PrivateKeyAccount, toBytes, WalletClient } from 'viem';
 
-import { ChainList } from './common.utils';
 import { FUEL_BASE_ASSET_ID, INTENT_EXPIRY, isNativeAddress, ZERO_ADDRESS } from '../constants';
 import { getLogger } from '../logger';
 import { ChainListType, Intent } from '@nexus/commons';

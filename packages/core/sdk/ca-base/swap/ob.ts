@@ -842,20 +842,20 @@ class Swap {
     return this.txs;
   }
 }
-class SwapGroup {
-  requoted = true;
-  constructor(
-    public swaps: Swap[],
-    public chainID: number,
-  ) {}
+// class SwapGroup {
+//   requoted = true;
+//   constructor(
+//     public swaps: Swap[],
+//     public chainID: number,
+//   ) {}
 
-  execute() {
-    // Requote
-    // Execute
-  }
+//   execute() {
+//     // Requote
+//     // Execute
+//   }
 
-  requote() {}
-}
+//   requote() {}
+// }
 
 const wrap = async (chainID: number, promise: Promise<unknown>) => {
   await promise;

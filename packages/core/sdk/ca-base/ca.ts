@@ -1,4 +1,4 @@
-import { createCosmosWallet, Environment } from '@arcana/ca-common';
+import { createCosmosWallet } from '@arcana/ca-common';
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
 import { keyDerivation } from '@starkware-industries/starkware-crypto-utils';
@@ -19,7 +19,6 @@ import {
   type PublicActions,
   Client,
   CustomTransport,
-  WalletRpcSchema,
 } from 'viem';
 import { privateKeyToAccount, PrivateKeyAccount } from 'viem/accounts';
 import { createSiweMessage } from 'viem/siwe';
@@ -59,7 +58,7 @@ import {
   refundExpiredIntents,
   switchChain,
 } from './utils';
-import { SwapInput, SwapOptionalParams } from '@nexus/commons';
+import { SwapOptionalParams } from '@nexus/commons';
 import { swap } from './swap/swap';
 
 setLogLevel(LOG_LEVEL.NOLOGS);
@@ -81,13 +80,7 @@ export class CA {
   public chainList: ChainList;
   protected _config: Required<SDKConfig>;
   protected _evm?: {
-    client: Client<
-      CustomTransport,
-      undefined,
-      undefined,
-      WalletRpcSchema,
-      WalletActions & PublicActions
-    >;
+    client: Client<CustomTransport, undefined, undefined, undefined, WalletActions & PublicActions>;
     modProvider: EthereumProvider;
     provider: EthereumProvider;
   };
@@ -256,6 +249,7 @@ export class CA {
       await response.handler?.process();
       return response.processTx();
     }
+    return;
   }
 
   protected _init = async () => {
@@ -444,10 +438,11 @@ export class CA {
     const sig = await this._signatureForLogin();
     const pvtKey = keyDerivation.getPrivateKeyFromEthSignature(sig);
 
-    this.#cosmosWallet = await createCosmosWallet(`0x${pvtKey.padStart(64, '0')}`);
+    const cosmosWallet = await createCosmosWallet(`0x${pvtKey.padStart(64, '0')}`);
     this.#ephemeralWallet = privateKeyToAccount(`0x${pvtKey.padStart(64, '0')}`);
-    const address = (await this.#cosmosWallet.getAccounts())[0].address;
+    const address = (await cosmosWallet.getAccounts())[0].address;
     await cosmosFeeGrant(this._networkConfig.COSMOS_URL, this._networkConfig.VSC_DOMAIN, address);
+    return cosmosWallet;
   }
 
   protected async _createEVMHandler(tx: EVMTransaction, options: Partial<TxOptions> = {}) {
@@ -550,9 +545,9 @@ export class CA {
 
   protected async _getCosmosWallet() {
     if (!this.#cosmosWallet) {
-      await this._createCosmosWallet();
+      this.#cosmosWallet = await this._createCosmosWallet();
     }
-    return this.#cosmosWallet!;
+    return this.#cosmosWallet;
   }
 
   protected async _getEVMAddress() {
