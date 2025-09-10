@@ -1,6 +1,6 @@
 {
   "name": "@nexus/core",
-  "version": "1.3.1-beta.0",
+  "version": "1.3.2-beta.0",
   "description": "Nexus headless SDK for cross-chain transactions",
   "main": "./dist/index.js",
   "module": "./dist/index.esm.js",
