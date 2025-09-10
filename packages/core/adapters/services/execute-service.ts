@@ -127,9 +127,7 @@ export class ExecuteService {
       }
 
       // Get user address for callback
-      const fromAddress = (await this.adapter.nexusSDK.request({
-        method: 'eth_accounts',
-      })) as string[];
+      const fromAddress = await this.adapter.nexusSDK.getEVMClient().getAddresses();
 
       if (!fromAddress || fromAddress.length === 0) {
         throw new Error('No accounts available');

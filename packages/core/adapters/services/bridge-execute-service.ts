@@ -1,5 +1,5 @@
 import { ExecuteService } from './execute-service';
-import { parseUnits } from 'viem';
+import { parseUnits, Hex, toHex, TransactionReceipt } from 'viem';
 import type { ChainAbstractionAdapter } from '../chain-abstraction-adapter';
 import {
   type BridgeAndExecuteParams,
@@ -25,14 +25,6 @@ const ADAPTER_CONSTANTS = {
   DEFAULT_DECIMALS: 18,
 };
 
-// Type definitions for transaction-related objects
-interface TransactionReceipt {
-  status: string;
-  gasUsed: string;
-  blockNumber?: string;
-  revertReason?: string;
-}
-
 interface Transaction {
   to: string;
   input: string;
@@ -54,7 +46,6 @@ export class BridgeExecuteService {
   private optimalBridgeAmount: string = '0';
 
   constructor(private adapter: ChainAbstractionAdapter) {
-    // super(adapter);
     this.executeService = new ExecuteService(adapter);
   }
 
@@ -793,34 +784,10 @@ export class BridgeExecuteService {
     txHash: string,
     maxRetries: number = 3,
   ): Promise<TransactionReceipt> {
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        const receipt = (await this.adapter.nexusSDK.request({
-          method: 'eth_getTransactionReceipt',
-          params: [txHash],
-        })) as unknown;
-
-        if (receipt && receipt !== null) {
-          // Type guard to ensure receipt has the expected structure
-          if (typeof receipt === 'object' && receipt !== null && 'status' in receipt) {
-            return receipt as TransactionReceipt;
-          }
-        }
-
-        // If no receipt yet, wait a bit before retrying
-        if (i < maxRetries - 1) {
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-        }
-      } catch (error) {
-        logger.warn(`Attempt ${i + 1} to get receipt failed:`, error);
-        if (i === maxRetries - 1) {
-          throw error;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      }
-    }
-
-    throw new Error(`Failed to get transaction receipt after ${maxRetries} attempts`);
+    return this.adapter.nexusSDK.getEVMClient().waitForTransactionReceipt({
+      hash: txHash as Hex,
+      retryCount: maxRetries,
+    });
   }
 
   /**
@@ -830,10 +797,9 @@ export class BridgeExecuteService {
   private async simulateFailedTransaction(txHash: string): Promise<string | null> {
     try {
       // Get the original transaction details
-      const tx = (await this.adapter.nexusSDK.request({
-        method: 'eth_getTransactionByHash',
-        params: [txHash],
-      })) as unknown;
+      const tx = await this.adapter.nexusSDK.getEVMClient().getTransaction({
+        hash: txHash as Hex,
+      });
 
       if (!tx || tx === null) {
         return null;
@@ -844,45 +810,36 @@ export class BridgeExecuteService {
         return 'Invalid transaction data';
       }
 
-      const transaction = tx as Transaction;
-      if (!transaction.to || !transaction.input) {
+      if (!tx.to || !tx.input) {
         return 'Invalid transaction data';
       }
 
       // Get the transaction receipt to find the block number where it failed
-      const receipt = (await this.adapter.nexusSDK.request({
-        method: 'eth_getTransactionReceipt',
-        params: [txHash],
-      })) as unknown;
+      const receipt = await this.adapter.nexusSDK.getEVMClient().getTransactionReceipt({
+        hash: txHash as Hex,
+      });
 
       // Use the block number where the transaction was mined, or the previous block
       // This ensures we simulate the exact state when the transaction failed
-      let simulationBlock = 'latest';
+      let simulationBlock = 0n;
 
-      if (receipt && typeof receipt === 'object' && receipt !== null && 'blockNumber' in receipt) {
-        const receiptTyped = receipt as TransactionReceipt;
-        if (receiptTyped.blockNumber) {
-          simulationBlock = `0x${(parseInt(receiptTyped.blockNumber, 16) - 1).toString(16)}`;
+      if (receipt) {
+        if (receipt.blockNumber) {
+          simulationBlock = receipt.blockNumber;
         }
-      } else if (transaction.blockNumber) {
-        simulationBlock = transaction.blockNumber;
+      } else if (tx.blockNumber) {
+        simulationBlock = tx.blockNumber;
       }
 
       logger.info(`DEBUG simulateFailedTransaction - Simulating at block: ${simulationBlock}`);
 
       // Simulate the transaction call to get revert reason
-      await this.adapter.nexusSDK.request({
-        method: 'eth_call',
-        params: [
-          {
-            to: transaction.to,
-            data: transaction.input,
-            value: transaction.value || '0x0',
-            from: transaction.from,
-            gas: transaction.gas,
-          },
-          simulationBlock,
-        ],
+      await this.adapter.nexusSDK.getEVMClient().call({
+        to: tx.to,
+        data: tx.input,
+        value: tx.value,
+        gas: tx.gas,
+        blockNumber: simulationBlock,
       });
 
       // If eth_call succeeds when we expected it to fail, this is suspicious
@@ -956,20 +913,14 @@ export class BridgeExecuteService {
         );
 
         // Ensure we're on the correct chain before checking transaction
-        const currentChainId = (await this.adapter.nexusSDK.request({
-          method: 'eth_chainId',
-        })) as string;
-        const currentChainIdDecimal = parseInt(currentChainId, 16);
+        const currentChainId = await this.adapter.nexusSDK.getEVMClient().getChainId();
 
-        if (currentChainIdDecimal !== chainId) {
+        if (currentChainId !== chainId) {
           logger.info(
-            `DEBUG checkTransactionSuccess - Switching from chain ${currentChainIdDecimal} to ${chainId}`,
+            `DEBUG checkTransactionSuccess - Switching from chain ${currentChainId} to ${chainId}`,
           );
           try {
-            await this.adapter.nexusSDK.request({
-              method: 'wallet_switchEthereumChain',
-              params: [{ chainId: `0x${chainId.toString(16)}` }],
-            });
+            await this.adapter.nexusSDK.getEVMClient().switchChain({ id: chainId });
             // Wait a bit after chain switch
             await new Promise((resolve) => setTimeout(resolve, 1000));
           } catch (switchError) {
@@ -1005,20 +956,14 @@ export class BridgeExecuteService {
         logger.info(`DEBUG checkTransactionSuccess - Receipt status: ${receipt.status}`);
 
         // Check if transaction succeeded
-        if (receipt.status === '0x1') {
+        if (receipt.status === 'success') {
           return {
             success: true,
-            gasUsed: receipt.gasUsed,
+            gasUsed: toHex(receipt.gasUsed),
           };
-        }
-
-        // Transaction failed - now get the error reason
-        let errorMessage = 'Transaction failed';
-
-        // 2. Try to get revert reason from receipt (some providers include this)
-        if (receipt.revertReason) {
-          errorMessage = receipt.revertReason;
         } else {
+          let errorMessage = 'Transaction failed';
+
           // 3. Simulate the transaction to get detailed error
           try {
             const simulationError = await this.simulateFailedTransaction(txHash);
@@ -1029,15 +974,17 @@ export class BridgeExecuteService {
             logger.warn('DEBUG checkTransactionSuccess - Simulation failed:', simError);
             // Keep generic error message if simulation fails
           }
+
+          logger.info(`DEBUG checkTransactionSuccess - Final error: ${errorMessage}`);
+
+          return {
+            success: false,
+            error: errorMessage,
+            gasUsed: toHex(receipt.gasUsed),
+          };
         }
 
-        logger.info(`DEBUG checkTransactionSuccess - Final error: ${errorMessage}`);
-
-        return {
-          success: false,
-          error: errorMessage,
-          gasUsed: receipt.gasUsed,
-        };
+        // Transaction failed - now get the error reason
       } catch (error) {
         logger.error(`DEBUG checkTransactionSuccess - Attempt ${attempt} failed:`, error as Error);
 

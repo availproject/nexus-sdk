@@ -11,7 +11,16 @@ import {
   TransactionRequestLike,
   TransactionResponse,
 } from 'fuels';
-import { createWalletClient, custom, WalletClient } from 'viem';
+import {
+  createWalletClient,
+  custom,
+  WalletActions,
+  publicActions,
+  type PublicActions,
+  Client,
+  CustomTransport,
+  WalletRpcSchema,
+} from 'viem';
 import { privateKeyToAccount, PrivateKeyAccount } from 'viem/accounts';
 import { createSiweMessage } from 'viem/siwe';
 import { ChainList } from './utils';
@@ -72,7 +81,13 @@ export class CA {
   protected _chainList: ChainList;
   protected _config: Required<SDKConfig>;
   protected _evm?: {
-    client: WalletClient;
+    client: Client<
+      CustomTransport,
+      undefined,
+      undefined,
+      WalletRpcSchema,
+      WalletActions & PublicActions
+    >;
     modProvider: EthereumProvider;
     provider: EthereumProvider;
   };
@@ -286,7 +301,7 @@ export class CA {
     this._evm = {
       client: createWalletClient({
         transport: custom(provider),
-      }),
+      }).extend(publicActions),
       modProvider: Object.assign({}, provider, {
         request: async (args: RequestArguments): Promise<unknown> => {
           if (args.method === 'eth_sendTransaction') {
@@ -473,6 +488,13 @@ export class CA {
         ...opt,
       },
     });
+  }
+
+  public getEVMClient() {
+    if (!this._evm) {
+      throw new Error('EVM provider is not set');
+    }
+    return this._evm.client;
   }
 
   protected async _createFuelHandler(tx: TransactionRequestLike, options: Partial<TxOptions> = {}) {

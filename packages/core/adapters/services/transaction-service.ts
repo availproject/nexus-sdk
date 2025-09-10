@@ -158,15 +158,11 @@ export class TransactionService {
    */
   async ensureCorrectChain(targetChainId: number): Promise<ChainSwitchResult> {
     try {
-      const currentChainId = await this.adapter.nexusSDK.request({ method: 'eth_chainId' });
-      const currentChainIdDecimal = parseInt(currentChainId as string, 16);
+      const currentChainId = await this.adapter.nexusSDK.getEVMClient().getChainId();
 
-      if (currentChainIdDecimal !== targetChainId) {
+      if (currentChainId !== targetChainId) {
         try {
-          await this.adapter.nexusSDK.request({
-            method: 'wallet_switchEthereumChain',
-            params: [{ chainId: `0x${targetChainId.toString(16)}` }],
-          });
+          await this.adapter.nexusSDK.getEVMClient().switchChain({ id: targetChainId });
           return { success: true };
         } catch (switchError) {
           if (
@@ -196,9 +192,7 @@ export class TransactionService {
    */
   async prepareExecution(params: ExecuteParams): Promise<ExecutePreparation> {
     // Get the from address first (needed for callback)
-    const fromAddress = (await this.adapter.nexusSDK.request({
-      method: 'eth_accounts',
-    })) as string[];
+    const fromAddress = await this.adapter.nexusSDK.getEVMClient().getAddresses();
 
     if (!fromAddress || fromAddress.length === 0) {
       throw new Error('No accounts available');

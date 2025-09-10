@@ -33,6 +33,10 @@ export class ChainAbstractionAdapter {
     this.setGasEstimationEnabled(true);
   }
 
+  public async getEVMClient() {
+    return this.nexusSDK.getEVMClient();
+  }
+
   /**
    * Execute a contract call using the execute service.
    */
