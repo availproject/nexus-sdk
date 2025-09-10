@@ -6,7 +6,7 @@ import { FuelConnector, Provider, TransactionRequestLike } from 'fuels';
 import { Abi, TransactionReceipt, ByteArray, Hex, WalletClient } from 'viem';
 import * as ServiceTypes from './service-types';
 
-type NexusNetwork = 'mainnet' | 'testnet';
+type NexusNetwork = 'mainnet' | 'testnet' | 'devnet';
 
 export interface BlockTransaction {
   hash?: string;
@@ -649,7 +649,6 @@ export type RFF = {
 type SDKConfig = {
   debug?: boolean;
   network?: Network | NetworkConfig;
-  siweStatement?: string;
 };
 
 type SetAllowanceInput = {

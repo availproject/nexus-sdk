@@ -25,6 +25,7 @@ import type {
   SwapResult,
   UserAssetDatum,
   SDKConfig,
+  SwapParams,
 } from '@nexus/commons';
 import { setLogLevel, LOG_LEVEL, logger } from '@nexus/commons';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
@@ -39,26 +40,10 @@ export class NexusSDK extends CA {
 
   constructor(config?: { network?: NexusNetwork; debug?: boolean }) {
     super(config);
-    // Initialize logger based on debug flag
-    this.initializeLogger(config?.debug);
     logger.debug('Nexus SDK initialized with config:', config);
     this.nexusAdapter = new ChainAbstractionAdapter(this);
     this.nexusEvents = this._caEvents;
     this.utils = new NexusUtils(this.nexusAdapter, () => this._isInitialized());
-  }
-
-  /**
-   * Initialize logger based on debug configuration
-   * @private
-   */
-  private initializeLogger(debug?: boolean): void {
-    if (debug) {
-      setLogLevel(LOG_LEVEL.DEBUG);
-      logger.info('Nexus SDK Logger initialized in DEBUG mode');
-    } else {
-      // Default to NOLOGS to suppress all logging in production
-      setLogLevel(LOG_LEVEL.NOLOGS);
-    }
   }
 
   /**
@@ -134,7 +119,7 @@ export class NexusSDK extends CA {
    * Swaps
    */
   public async swap(
-    inputs: SwapInput,
+    inputs: SwapParams,
     options?: Omit<SwapOptionalParams, 'emit'>,
   ): Promise<SwapResult> {
     const result: SwapResult = {
@@ -217,7 +202,7 @@ export class NexusSDK extends CA {
   }
 
   public async deinit(): Promise<void> {
-    await this._deinit();
+    return this._deinit();
   }
 
   public async request(args: RequestArguments): Promise<unknown> {

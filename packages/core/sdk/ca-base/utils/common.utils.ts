@@ -41,6 +41,7 @@ import {
   Intent,
   Network,
   NetworkConfig,
+  NexusNetwork,
   OraclePriceResponse,
   ReadableIntent,
   SDKConfig,
@@ -592,12 +593,28 @@ const createDepositDoubleCheckTx = (
   };
 };
 
-const getSDKConfig = (c: SDKConfig): Required<SDKConfig> => {
-  return {
+const getSDKConfig = (c: { network?: NexusNetwork; debug?: boolean }): Required<SDKConfig> => {
+  const config = {
     debug: c.debug ?? false,
-    network: c.network ?? (Environment.CORAL as Network),
-    siweStatement: c.siweStatement ?? 'Sign in to enable Arcana chain abstraction',
+    network: Environment.CORAL as Network,
   };
+
+  switch (c.network) {
+    case 'devnet': {
+      config.network = Environment.CERISE;
+      break;
+    }
+    case 'testnet': {
+      config.network = Environment.FOLLY;
+      break;
+    }
+    case 'mainnet': {
+      config.network = Environment.CORAL;
+      break;
+    }
+  }
+
+  return config;
 };
 
 const getTxOptions = (options?: Partial<TxOptions>) => {

@@ -27,6 +27,7 @@ import {
   EthereumProvider,
   EVMTransaction,
   NetworkConfig,
+  NexusNetwork,
   OnAllowanceHook,
   OnIntentHook,
   RequestArguments,
@@ -61,6 +62,8 @@ enum INIT_STATUS {
   DONE,
 }
 
+const SIWE_STATEMENT = 'Sign in to enable Nexus';
+
 export class CA {
   static getSupportedChains = getSupportedChains;
   protected _caEvents = new SafeEventEmitter();
@@ -93,7 +96,9 @@ export class CA {
   protected _isArcanaProvider = false;
   protected _networkConfig: NetworkConfig;
   protected _refundInterval: number | undefined;
-  protected constructor(config: SDKConfig = { debug: false, network: Environment.CORAL }) {
+  protected constructor(
+    config: { network?: NexusNetwork; debug?: boolean } = { debug: false, network: 'testnet' },
+  ) {
     this._config = getSDKConfig(config);
     this._networkConfig = getNetworkConfig(this._config.network);
     this._chainList = new ChainList(this._networkConfig.NETWORK_HINT);
@@ -568,7 +573,7 @@ export class CA {
       issuedAt: new Date('2024-12-16T12:17:43.182Z'), // this remains same to arrive at same pvt key
       nonce: 'iLjYWC6s8frYt4l8w', // maybe this can be shortened hash of address
       scheme,
-      statement: this._config.siweStatement,
+      statement: SIWE_STATEMENT,
       uri: origin,
       version: '1',
     });
