@@ -155,6 +155,21 @@ export function InternalNexusProvider({
     }
   }, []);
 
+  const fetchBalances = async () => {
+    const unifiedBalance = await sdk.getUnifiedBalances();
+    const swapBalance = await sdk?.getSwapBalances();
+    const unifiedTokenSymbols = unifiedBalance.map((bal) => bal.symbol);
+    swapBalance.assets.forEach((asset) => {
+      const assetSymbol = asset?.symbol;
+      if (!unifiedTokenSymbols.includes(assetSymbol)) {
+        unifiedBalance.push(asset);
+      }
+    });
+
+    logger.debug('Unified balance', { unifiedBalance });
+    setUnifiedBalance(unifiedBalance);
+  };
+
   const initializeSdk = async (ethProvider?: EthereumProvider) => {
     if (isSdkInitialized) return true;
     const eipProvider = ethProvider ?? provider;
@@ -175,9 +190,7 @@ export function InternalNexusProvider({
       setActiveTransaction((prev) => ({ ...prev, status: 'initializing' }));
       await sdk.initialize(eipProvider);
       await fetchExchangeRates();
-      const unifiedBalance = await sdk.getUnifiedBalances();
-      logger.debug('Unified balance', { unifiedBalance });
-      setUnifiedBalance(unifiedBalance);
+      await fetchBalances();
       setIsSdkInitialized(true);
       setActiveTransaction((prev) => ({ ...prev, status: 'review' }));
       return true;
@@ -932,27 +945,6 @@ export function InternalNexusProvider({
       activeTransaction.reviewStatus === 'gathering_input' &&
       activeTransaction.inputData
     ) {
-      // if (activeTransaction.type === 'swap') {
-      //   // For swaps, automatically call initiateSwap to capture intent
-      //   const inputData = activeTransaction.inputData as SwapInputData;
-      //   // Check if we have sufficient input before calling initiateSwap
-      //   const hasSufficientInput = !!(
-      //     (inputData.fromChainID || inputData.chainId) &&
-      //     (inputData.toChainID || inputData.toChainId) &&
-      //     (inputData.fromTokenAddress || inputData.inputToken || inputData.token) &&
-      //     (inputData.toTokenAddress || inputData.outputToken) &&
-      //     (inputData.fromAmount || inputData.amount) &&
-      //     parseFloat((inputData.fromAmount || inputData.amount)?.toString() || '0') > 0
-      //   );
-
-      //   if (hasSufficientInput) {
-      //     console.log('🔄 Auto-triggering initiateSwap from useEffect');
-      //     initiateSwap(inputData);
-      //   }
-      // } else {
-      //   // For other transactions, use normal simulation
-
-      // }
       triggerSimulation();
     }
   }, [

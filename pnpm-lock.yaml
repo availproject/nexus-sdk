@@ -30,8 +30,8 @@ importers:
   packages/commons:
     dependencies:
       '@arcana/ca-sdk':
-        specifier: 1.1.3-alpha.4
-        version: 1.1.3-alpha.4(google-protobuf@3.21.4)(typescript@5.9.2)(vitest@3.0.9(@types/node@20.19.13)(jiti@2.5.1)(lightningcss@1.30.1))
+        specifier: 1.1.3-alpha.8
+        version: 1.1.3-alpha.8(google-protobuf@3.21.4)(typescript@5.9.2)(vitest@3.0.9(@types/node@20.19.13)(jiti@2.5.1)(lightningcss@1.30.1))
       decimal.js:
         specifier: 10.4.3
         version: 10.4.3
@@ -64,8 +64,8 @@ importers:
   packages/core:
     dependencies:
       '@arcana/ca-sdk':
-        specifier: 1.1.3-alpha.4
-        version: 1.1.3-alpha.4(google-protobuf@3.21.4)(typescript@5.9.2)(vitest@3.0.9(@types/node@20.19.13)(jiti@2.5.1)(lightningcss@1.30.1))
+        specifier: 1.1.3-alpha.8
+        version: 1.1.3-alpha.8(google-protobuf@3.21.4)(typescript@5.9.2)(vitest@3.0.9(@types/node@20.19.13)(jiti@2.5.1)(lightningcss@1.30.1))
       '@metamask/safe-event-emitter':
         specifier: 3.1.2
         version: 3.1.2
@@ -138,8 +138,8 @@ importers:
         version: 2.37.3(typescript@5.9.2)
     devDependencies:
       '@arcana/ca-sdk':
-        specifier: ' 1.1.3-alpha.4'
-        version: 1.1.3-alpha.4(google-protobuf@3.21.4)(typescript@5.9.2)(vitest@3.0.9(@types/node@20.19.13)(jiti@2.5.1)(lightningcss@1.30.1))
+        specifier: 1.1.3-alpha.8
+        version: 1.1.3-alpha.8(google-protobuf@3.21.4)(typescript@5.9.2)(vitest@3.0.9(@types/node@20.19.13)(jiti@2.5.1)(lightningcss@1.30.1))
       '@rollup/plugin-commonjs':
         specifier: ^25.0.0
         version: 25.0.8(rollup@4.50.0)
@@ -205,20 +205,20 @@ packages:
     resolution: {integrity: sha512-30iZtAPgz+LTIYoeivqYo853f02jBYSd5uGnGpkFV0M3xOt9aN73erkgYAmZU43x4VfqcnLxW9Kpg3R5LC4YYw==}
     engines: {node: '>=6.0.0'}
 
-  '@arcana/ca-common@1.0.1-alpha.3':
-    resolution: {integrity: sha512-BP69xt25d7Hw4y0dXWkyx/nPe99W/Eye99UTrU/dS63P0bP9toLeT113V5QWzWd14kENdx2rgC3EOJczCvVrvw==}
+  '@arcana/ca-common@1.0.1-alpha.4':
+    resolution: {integrity: sha512-r0/sWNYxh0NQgVh3df3E8uLJ0tX+cbrQwP/bdFVuBEHRJA9dtrY+oQPrvGrhxRg8P/F3DvCFasvBZXssEtLB1w==}
     peerDependencies:
       '@cosmjs/proto-signing': ^0.34.0
       '@cosmjs/stargate': ^0.34.0
       axios: ^1.10.0
       decimal.js: ^10.6.0
-      fuels: ^0.101.1
+      fuels: 0.101.1
       long: ^5.3.2
       msgpackr: ^1.11.4
       viem: ^2.31.7
 
-  '@arcana/ca-sdk@1.1.3-alpha.4':
-    resolution: {integrity: sha512-QIm+oTso3Q2NZW1iusbDHYAyeSx3L2MpF8SoL0RRD1H4ynYsAWz/BG104D1RxSuXEpJAig8SufsYfGrPhPtdOg==}
+  '@arcana/ca-sdk@1.1.3-alpha.8':
+    resolution: {integrity: sha512-U7tQrq1TWUMuG6mupLFLXm3817Ol17354RE9/UPXgp079Ax4M+I4Bm0GAYmcLZfAW3rkVovfZORD04/1pcfnTg==}
 
   '@babel/code-frame@7.27.1':
     resolution: {integrity: sha512-cjQ7ZlQ0Mv3b47hABuTevyTuYN4i+loJKGeV9flcCgIK37cCXRh+L1bd3iBHlynerhQ7BhCkn2BPbQUL+rGqFg==}
@@ -2996,7 +2996,7 @@ snapshots:
       '@jridgewell/gen-mapping': 0.3.13
       '@jridgewell/trace-mapping': 0.3.30
 
-  '@arcana/ca-common@1.0.1-alpha.3(@cosmjs/proto-signing@0.34.0)(@cosmjs/stargate@0.34.0)(axios@1.11.0)(decimal.js@10.6.0)(fuels@0.101.1(vitest@3.0.9(@types/node@20.19.13)(jiti@2.5.1)(lightningcss@1.30.1)))(google-protobuf@3.21.4)(long@5.3.2)(msgpackr@1.11.5)(viem@2.37.3(typescript@5.9.2))':
+  '@arcana/ca-common@1.0.1-alpha.4(@cosmjs/proto-signing@0.34.0)(@cosmjs/stargate@0.34.0)(axios@1.11.0)(decimal.js@10.6.0)(fuels@0.101.1(vitest@3.0.9(@types/node@20.19.13)(jiti@2.5.1)(lightningcss@1.30.1)))(google-protobuf@3.21.4)(long@5.3.2)(msgpackr@1.11.5)(viem@2.37.3(typescript@5.9.2))':
     dependencies:
       '@bufbuild/protobuf': 2.7.0
       '@cosmjs/proto-signing': 0.34.0
@@ -3014,9 +3014,9 @@ snapshots:
     transitivePeerDependencies:
       - google-protobuf
 
-  '@arcana/ca-sdk@1.1.3-alpha.4(google-protobuf@3.21.4)(typescript@5.9.2)(vitest@3.0.9(@types/node@20.19.13)(jiti@2.5.1)(lightningcss@1.30.1))':
+  '@arcana/ca-sdk@1.1.3-alpha.8(google-protobuf@3.21.4)(typescript@5.9.2)(vitest@3.0.9(@types/node@20.19.13)(jiti@2.5.1)(lightningcss@1.30.1))':
     dependencies:
-      '@arcana/ca-common': 1.0.1-alpha.3(@cosmjs/proto-signing@0.34.0)(@cosmjs/stargate@0.34.0)(axios@1.11.0)(decimal.js@10.6.0)(fuels@0.101.1(vitest@3.0.9(@types/node@20.19.13)(jiti@2.5.1)(lightningcss@1.30.1)))(google-protobuf@3.21.4)(long@5.3.2)(msgpackr@1.11.5)(viem@2.37.3(typescript@5.9.2))
+      '@arcana/ca-common': 1.0.1-alpha.4(@cosmjs/proto-signing@0.34.0)(@cosmjs/stargate@0.34.0)(axios@1.11.0)(decimal.js@10.6.0)(fuels@0.101.1(vitest@3.0.9(@types/node@20.19.13)(jiti@2.5.1)(lightningcss@1.30.1)))(google-protobuf@3.21.4)(long@5.3.2)(msgpackr@1.11.5)(viem@2.37.3(typescript@5.9.2))
       '@cosmjs/proto-signing': 0.34.0
       '@cosmjs/stargate': 0.34.0
       '@metamask/safe-event-emitter': 3.1.2
@@ -4146,7 +4146,7 @@ snapshots:
     dependencies:
       cipher-base: 1.0.6
       inherits: 2.0.4
-      ripemd160: 2.0.1
+      ripemd160: 2.0.2
       sha.js: 2.4.12
 
   create-hash@1.2.0:

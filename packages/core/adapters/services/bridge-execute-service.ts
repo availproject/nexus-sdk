@@ -363,13 +363,19 @@ export class BridgeExecuteService extends BaseService {
 
           // Create execute parameters for simulation - use wei format for SimulationEngine
           // SimulationEngine expects amounts in wei format, not user-friendly format
+          const tokenMetadata = TOKEN_METADATA[params.token.toUpperCase()];
           const modifiedExecuteParams: ExecuteParams = {
             ...execute,
             toChainId: params.toChainId,
-            tokenApproval: {
-              token: params.token,
-              amount: receivedAmountForContract, // Keep in wei format for SimulationEngine
-            },
+            // Only create tokenApproval for non-native tokens
+            ...(tokenMetadata?.isNative
+              ? {}
+              : {
+                  tokenApproval: {
+                    token: params.token,
+                    amount: receivedAmountForContract, // Keep in wei format for SimulationEngine
+                  },
+                }),
           };
 
           executeSimulation =
@@ -576,13 +582,19 @@ export class BridgeExecuteService extends BaseService {
       });
 
       // Create execute parameters with user-friendly amount for the callback
+      const bridgeTokenMetadata = TOKEN_METADATA[bridgeToken.toUpperCase()];
       const finalExecuteParams: ExecuteParams = {
         ...execute,
         toChainId,
-        tokenApproval: {
-          token: bridgeToken,
-          amount: userFriendlyAmount,
-        },
+        // Only create tokenApproval for non-native tokens
+        ...(bridgeTokenMetadata?.isNative
+          ? {}
+          : {
+              tokenApproval: {
+                token: bridgeToken,
+                amount: userFriendlyAmount,
+              },
+            }),
         ...(approvalBufferBpsOverride !== undefined
           ? { approvalBufferBps: approvalBufferBpsOverride }
           : undefined),

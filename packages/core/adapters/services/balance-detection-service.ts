@@ -98,8 +98,8 @@ export class BalanceDetectionService {
         throw new Error(`Token ${token} not supported on chain ${chainId}`);
       }
 
-      const isNative = token === 'ETH';
       const tokenMetadata = TOKEN_METADATA[token.toUpperCase()];
+      const isNative = tokenMetadata?.isNative;
       const decimals = tokenMetadata?.decimals || 18;
 
       let balance: string;
@@ -144,7 +144,7 @@ export class BalanceDetectionService {
         shortfall,
         shortfallFormatted,
         decimals,
-        isNative,
+        isNative: isNative || false,
         lastChecked: new Date().toISOString(),
       };
 
@@ -174,7 +174,7 @@ export class BalanceDetectionService {
         shortfall: requiredAmount || '0',
         shortfallFormatted: '0',
         decimals: TOKEN_METADATA[token.toUpperCase()]?.decimals || 18,
-        isNative: token === 'ETH',
+        isNative: TOKEN_METADATA[token.toUpperCase()]?.isNative || false,
         lastChecked: new Date().toISOString(),
       };
     }
@@ -376,8 +376,9 @@ export class BalanceDetectionService {
    */
   private suggestFundingMethod(token: SUPPORTED_TOKENS): 'bridge' | 'swap' | 'acquire' {
     // For now, simple logic - can be enhanced with actual bridge/swap availability
-    if (token === 'ETH') {
-      return 'acquire'; // Need to buy ETH
+    const tokenMetadata = TOKEN_METADATA[token.toUpperCase()];
+    if (tokenMetadata?.isNative) {
+      return 'acquire'; // Need to buy native token (ETH, MATIC, etc.)
     }
 
     // For stablecoins, bridging is usually preferred

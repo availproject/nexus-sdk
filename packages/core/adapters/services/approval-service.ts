@@ -53,6 +53,22 @@ export class ApprovalService extends BaseService {
     }
 
     const ownerAddress = accounts[0];
+
+    // Check if this is a native token (ETH) - native tokens don't need approval
+    const tokenMetadata = TOKEN_METADATA[tokenApproval.token.toUpperCase()];
+    if (tokenMetadata?.isNative) {
+      return {
+        needsApproval: false,
+        currentAllowance: 0n,
+        requiredAmount: 0n,
+        tokenAddress: '', // Native tokens don't have contract addresses
+        spenderAddress,
+        token: tokenApproval.token,
+        chainId,
+        hasPendingApproval: true, // No approval needed = already "approved"
+      };
+    }
+
     const tokenContractAddress = getTokenContractAddress(
       tokenApproval.token,
       chainId as SUPPORTED_CHAINS_IDS,
@@ -157,6 +173,15 @@ export class ApprovalService extends BaseService {
     this.ensureInitialized();
 
     try {
+      // Check if this is a native token (ETH) - native tokens don't need approval
+      const tokenMetadata = TOKEN_METADATA[tokenApproval.token.toUpperCase()];
+      if (tokenMetadata?.isNative) {
+        return {
+          wasNeeded: false,
+          confirmed: true,
+        };
+      }
+
       // Check if approval is needed
       const approvalInfo = await this.checkApprovalNeeded(
         tokenApproval,
@@ -195,8 +220,8 @@ export class ApprovalService extends BaseService {
         approvalInfo.requiredAmount + (approvalInfo.requiredAmount * bufferBps) / 10000n;
 
       // Get token decimals for proper formatting
-      const tokenMetadata = TOKEN_METADATA[tokenApproval.token.toUpperCase()];
-      const tokenDecimals = tokenMetadata?.decimals || ADAPTER_CONSTANTS.DEFAULT_DECIMALS;
+      const tokenInfo = TOKEN_METADATA[tokenApproval.token.toUpperCase()];
+      const tokenDecimals = tokenInfo?.decimals || ADAPTER_CONSTANTS.DEFAULT_DECIMALS;
       // Convert to human-readable format first, then back to wei for better MetaMask display
       // This ensures MetaMask shows "0.01001" instead of "10100"
       const humanReadableAmount = formatUnits(requiredAmountWithBuffer, tokenDecimals);

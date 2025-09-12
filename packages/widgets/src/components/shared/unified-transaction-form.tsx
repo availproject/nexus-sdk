@@ -3,12 +3,13 @@ import { AddressField } from './address-field';
 import { cn } from '../../utils/utils';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { type TransactionType } from '../../utils/balance-utils';
-import { useMemo } from 'react';
+import { useMemo, useEffect } from 'react';
 import { CHAIN_METADATA, NexusNetwork } from '@nexus/commons';
 import { FormField } from '../motion/form-field';
 import DestinationDrawer from './destination-drawer';
 import { isAddress } from 'viem';
 import { SwapSimulationResult, SwapInputData } from 'src/types';
+import { isTokenChainCombinationValid } from '../../utils/token-utils';
 
 export interface UnifiedInputData {
   chainId?: number;
@@ -220,6 +221,25 @@ export function SwapTransactionForm({
     onUpdate({ ...inputData, ...data });
   };
 
+  // Reset token when chain changes to invalid combination
+  useEffect(() => {
+    if (inputData.fromChainID && inputData.fromTokenAddress) {
+      if (
+        !isTokenChainCombinationValid(inputData.fromTokenAddress, inputData.fromChainID, 'swap')
+      ) {
+        handleUpdate({ fromTokenAddress: undefined });
+      }
+    }
+  }, [inputData.fromChainID]);
+
+  useEffect(() => {
+    if (inputData.toChainID && inputData.toTokenAddress) {
+      if (!isTokenChainCombinationValid(inputData.toTokenAddress, inputData.toChainID, 'swap')) {
+        handleUpdate({ toTokenAddress: undefined });
+      }
+    }
+  }, [inputData.toChainID]);
+
   const destinationAmount = useMemo(() => {
     const intent = (activeTransaction?.simulationResult as SwapSimulationResult)?.intent;
     if (intent?.destination?.amount) {
@@ -281,6 +301,18 @@ export function UnifiedTransactionForm({
   const handleUpdate = (data: UnifiedInputData) => {
     onUpdate(data);
   };
+
+  // Reset token when chain changes to invalid combination for bridge/bridgeAndExecute
+  useEffect(() => {
+    if (type === 'bridge' || type === 'bridgeAndExecute') {
+      const chainId = type === 'bridgeAndExecute' ? inputData.toChainId : inputData.chainId;
+      if (chainId && inputData.token) {
+        if (!isTokenChainCombinationValid(inputData.token, chainId, type)) {
+          handleUpdate({ token: undefined });
+        }
+      }
+    }
+  }, [inputData.chainId, inputData.toChainId, type]);
 
   return (
     <div className={cn('px-6 flex flex-col gap-y-4 w-full', className)}>

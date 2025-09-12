@@ -14,6 +14,7 @@ import { CHAIN_METADATA, SUPPORTED_CHAINS } from '@nexus/commons';
 import { cn } from '../../utils/utils';
 import { TransactionType } from 'src/types';
 import { TokenIcon } from './icons';
+import type { TransactionType as BalanceTransactionType } from '../../utils/balance-utils';
 
 interface DestinationDrawerProps {
   chainValue?: string;
@@ -136,6 +137,8 @@ const DestinationDrawer = ({
             className="w-full"
             hasValues={!!tokenValue}
             isSource={isSourceChain}
+            selectedToken={tokenValue}
+            transactionType={type as BalanceTransactionType}
           />
           <TokenSelect
             value={tokenValue}

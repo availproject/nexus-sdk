@@ -57,6 +57,14 @@ export class SimulationEngine {
   }
 
   /**
+   * Check if a token is a native token (ETH, MATIC, AVAX, etc.)
+   */
+  private isNativeToken(token: SUPPORTED_TOKENS): boolean {
+    const tokenMetadata = TOKEN_METADATA[token.toUpperCase()];
+    return tokenMetadata?.isNative === true;
+  }
+
+  /**
    * Main entry point for enhanced simulation with automatic state setup
    */
   async simulateWithStateSetup(params: {
@@ -137,8 +145,8 @@ export class SimulationEngine {
         throw new Error(`Token ${token} not supported on chain ${chainId}`);
       }
 
-      // For native ETH, use eth_getBalance
-      if (token === 'ETH') {
+      // For native tokens, use eth_getBalance
+      if (this.isNativeToken(token)) {
         const balance = (await this.evmProvider.request({
           method: 'eth_getBalance',
           params: [user, 'latest'],
@@ -320,8 +328,8 @@ export class SimulationEngine {
         throw new Error(`Token ${token} not supported on chain ${chainId}`);
       }
 
-      // For native ETH
-      if (token === 'ETH') {
+      // For native tokens
+      if (this.isNativeToken(token)) {
         return {
           [user]: {
             balance: `0x${BigInt(requiredAmount).toString(16)}`,
@@ -450,7 +458,7 @@ export class SimulationEngine {
     });
 
     // Step 2: Approval step (if needed for ERC20)
-    if (tokenRequired !== 'ETH' && contractCall.tokenApproval) {
+    if (!this.isNativeToken(tokenRequired) && contractCall.tokenApproval) {
       const actualAmountToApprove = amountRequired;
 
       logger.info('DEBUG SimulationEngine - Approval step preparation:', {
@@ -500,8 +508,11 @@ export class SimulationEngine {
       contractCallValue: contractCall.value,
       callbackValue: value,
       finalValue: value || contractCall.value || '0x0',
-      dependsOn:
-        tokenRequired !== 'ETH' ? ['approval-step'] : needsFunding ? ['funding-step'] : undefined,
+      dependsOn: !this.isNativeToken(tokenRequired)
+        ? ['approval-step']
+        : needsFunding
+          ? ['funding-step']
+          : undefined,
     });
 
     steps.push({
@@ -509,8 +520,11 @@ export class SimulationEngine {
       required: true,
       description: `Execute ${contractCall.functionName} on ${contractCall.contractAddress}`,
       stepId: 'execute-step',
-      dependsOn:
-        tokenRequired !== 'ETH' ? ['approval-step'] : needsFunding ? ['funding-step'] : undefined,
+      dependsOn: !this.isNativeToken(tokenRequired)
+        ? ['approval-step']
+        : needsFunding
+          ? ['funding-step']
+          : undefined,
       params: {
         chainId: contractCall.toChainId.toString(),
         from: user,
