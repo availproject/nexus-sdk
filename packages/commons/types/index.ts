@@ -15,6 +15,7 @@ import type {
   UserAsset,
   SwapIntent,
   SwapStep,
+  SwapSupportedChainsResult,
 } from '@arcana/ca-sdk';
 import * as ServiceTypes from './service-types';
 import { FeeUniverse } from '@arcana/ca-sdk/dist/types/typings';
@@ -392,4 +393,5 @@ export type {
   SwapStep,
   SwapIntentHook,
   SwapBalances,
+  SwapSupportedChainsResult,
 };

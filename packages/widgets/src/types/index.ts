@@ -234,39 +234,12 @@ export interface ProcessingState {
   animationProgress: number;
 }
 
-// Swap Controller interface for separate handling
-export interface ISwapController {
-  InputForm: React.FC<{
-    prefill: Partial<SwapInputData>;
-    onUpdate: (data: SwapInputData) => void;
-    isBusy: boolean;
-    prefillFields?: {
-      fromChainID?: boolean;
-      toChainID?: boolean;
-      fromTokenAddress?: boolean;
-      toTokenAddress?: boolean;
-      fromAmount?: boolean;
-      toAmount?: boolean;
-    };
-  }>;
-  hasSufficientInput(inputData: Partial<SwapInputData>): boolean;
-  runReview(sdk: NexusSDK, inputData: Partial<SwapInputData>): Promise<SwapSimulationResult>;
-  confirmAndProceed(
-    sdk: NexusSDK,
-    inputData: Partial<SwapInputData>,
-    simulationResult?: ActiveTransaction['simulationResult'],
-  ): Promise<SwapResult>;
-  hasValidIntent(): boolean;
-  getCapturedIntent(): SwapIntent | undefined;
-  clearCapturedIntent(): void;
-}
-
 export interface NexusContextValue {
   // State
   sdk: NexusSDK;
   activeTransaction: ActiveTransaction;
   isSdkInitialized: boolean;
-  activeController: ITransactionController | ISwapController | null;
+  activeController: ITransactionController | null;
   config?: { network?: NexusNetwork; debug?: boolean };
   provider: EthereumProvider | undefined;
   unifiedBalance: UserAsset[];

@@ -116,17 +116,9 @@ export function InternalNexusProvider({
     return controllers[activeTransaction.type];
   }, [activeTransaction.type]);
 
-  const handleSwapComplete = useCallback(() => {
-    setActiveTransaction((prev) => ({
-      ...prev,
-      status: 'success',
-    }));
-  }, []);
-
   const { processing, explorerURL, explorerURLs, resetProcessingState } = useListenTransaction({
     sdk,
     activeTransaction,
-    onSwapComplete: activeTransaction.type === 'swap' ? handleSwapComplete : undefined,
   });
 
   const fetchExchangeRates = useCallback(async () => {
@@ -749,15 +741,25 @@ export function InternalNexusProvider({
             if (result.success) {
               // Swap succeeded - let useListenTransaction handle the success state
               logger.info('Swap Provider: Swap execution succeeded');
+              setActiveTransaction((prev) => ({
+                ...prev,
+                status: 'success',
+              }));
             } else {
               // Swap failed - this captures your error!
               logger.error('Swap Provider: Swap execution failed:', result.error);
+
+              // Set a flag to prevent success callbacks from overriding this error
               setActiveTransaction((prev) => ({
                 ...prev,
-                status: 'error',
-                error: new Error(result.error || 'Swap execution failed'),
+                status: 'simulation_error',
+                reviewStatus: 'gathering_input', // Reset reviewStatus to stop loading state
+                error: new Error(result?.error ?? 'Swap execution failed'),
                 executionResult: result,
               }));
+
+              // Clear the allow callback to prevent further execution
+              swapAllowCallbackRef.current = null;
             }
           })
           .catch((error) => {
@@ -766,7 +768,8 @@ export function InternalNexusProvider({
             const errorMessage = formatSwapError(error);
             setActiveTransaction((prev) => ({
               ...prev,
-              status: 'error',
+              status: 'simulation_error',
+              reviewStatus: 'gathering_input', // Reset reviewStatus to stop loading state
               error: new Error(errorMessage),
             }));
           })

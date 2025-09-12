@@ -178,6 +178,8 @@ const ERROR_PATTERNS = {
     /price impact/i,
     /swap intent failed/i,
     /swap execution failed/i,
+    /cot not present/i,
+    /chain of trust not present/i,
   ],
 } as const;
 
@@ -196,7 +198,8 @@ const USER_FRIENDLY_MESSAGES = {
   INIT_ERROR: 'Wallet connection issue. Please make sure your wallet is connected and try again.',
   BRIDGE_ERROR: 'Cross-chain transfer failed. Please try again.',
   EXECUTE_ERROR: 'Smart contract execution failed. Please try again.',
-  SWAP_ERROR: 'Swap transaction failed. Please check your balance and try again.',
+  SWAP_ERROR:
+    'Swap transaction failed. The destination chain may not support this token pair. Please try a different route.',
   UNKNOWN: 'An unexpected error occurred. Please try again.',
 } as const;
 
@@ -284,6 +287,11 @@ export function formatErrorForUI(error: unknown, context?: string): string {
 
   // Log the original error for developers
   console.error('Error being formatted for UI:', { error, errorMessage, context });
+
+  // Handle specific error cases before general categorization
+  if (errorMessage.includes('COT not present') || errorMessage.includes('COT not available')) {
+    return 'This token pair is not supported on the selected destination chain. Please try a different token or destination chain.';
+  }
 
   const cleanedMessage = cleanErrorMessage(errorMessage);
   const category = categorizeError(cleanedMessage);

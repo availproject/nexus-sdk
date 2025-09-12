@@ -424,7 +424,6 @@ export class SimulationEngine {
     // First, convert amountRequired from micro-units to user-friendly format for the callback
     // The callback expects amount in user-friendly format (e.g., "0.01" for 0.01 USDC)
     // but amountRequired comes in micro-units (e.g., "10000" for 0.01 USDC)
-    console.log('DEBUG TOKEN_METADATA check:', { TOKEN_METADATA, tokenRequired });
     logger.info('Token metadata:', { meta: TOKEN_METADATA, tokenRequired });
     const decimals = TOKEN_METADATA[tokenRequired]?.decimals ?? 6;
     const userFriendlyAmount = formatUnits(BigInt(amountRequired), decimals);

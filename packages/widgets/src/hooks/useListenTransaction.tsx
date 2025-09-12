@@ -90,11 +90,9 @@ interface ProcessingState {
 const useListenTransaction = ({
   sdk,
   activeTransaction,
-  onSwapComplete,
 }: {
   sdk: NexusSDK;
   activeTransaction: ActiveTransaction;
-  onSwapComplete?: () => void;
 }) => {
   const { type } = activeTransaction;
   const DEFAULT_INITIAL_STEPS = 10;
@@ -190,12 +188,6 @@ const useListenTransaction = ({
             statusText: getTextFromSwapStep(stepData),
           };
         });
-
-        // Check if swap is complete and call the completion callback
-        if (stepData.type === 'SWAP_COMPLETE' && onSwapComplete) {
-          console.log('Swap completed, calling onSwapComplete callback');
-          onSwapComplete();
-        }
 
         // Handle explorer URL extraction for swap
         if (stepData.type === 'SOURCE_SWAP_HASH' && 'explorerURL' in stepData) {

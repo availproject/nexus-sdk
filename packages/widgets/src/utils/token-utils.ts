@@ -236,8 +236,8 @@ export function getSupportedChainsForToken(
   type: TransactionType = 'transfer',
   network: 'mainnet' | 'testnet' = 'mainnet',
 ): number[] {
+  console.log('l', network);
   const supportedChains: number[] = [];
-  console.log('network', network);
   // Check standard token contract addresses
   const tokenContracts = TOKEN_CONTRACT_ADDRESSES[tokenSymbol];
   if (tokenContracts) {
