@@ -91,12 +91,12 @@ export function UnifiedTransactionModal({
         // For swaps, check input directly (since activeController is null)
         const data = inputData as Partial<SwapInputData>;
         return !!(
-          (data.fromChainID || data.chainId) &&
-          (data.toChainID || data.toChainId) &&
-          (data.fromTokenAddress || data.inputToken || data.token) &&
-          (data.toTokenAddress || data.outputToken) &&
-          (data.fromAmount || data.amount) &&
-          parseFloat((data.fromAmount || data.amount)?.toString() || '0') > 0
+          data.fromChainID &&
+          data.toChainID &&
+          data.fromTokenAddress &&
+          data.toTokenAddress &&
+          data.fromAmount &&
+          parseFloat(data.fromAmount?.toString() || '0') > 0
         );
       } else {
         // For regular transactions, use activeController

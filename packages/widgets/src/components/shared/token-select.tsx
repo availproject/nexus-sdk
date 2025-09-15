@@ -76,7 +76,11 @@ export function TokenSelect({
   return (
     <div className={cn('flex flex-col items-start gap-y-4 py-5 pl-4 w-full', className)}>
       <p className="text-nexus-foreground text-lg font-semibold ">
-        {isDestination ? 'Destination Token' : 'Source Token'}
+        {type !== 'swap'
+          ? 'Destination Token'
+          : isDestination
+            ? 'Destination Token'
+            : 'Source Token'}
       </p>
       <div className="flex flex-col items-start w-full h-full max-h-[332px] overflow-y-scroll gap-y-4">
         {finalTokenOptions.map((token, index) => (

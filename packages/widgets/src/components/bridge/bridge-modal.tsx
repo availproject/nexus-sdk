@@ -33,9 +33,10 @@ function BridgeFormSection({
   const { activeController } = useInternalNexus();
 
   if (!activeController) return null;
-  const requiredPrefillFields: (keyof InputData)[] = ['chainId', 'token', 'amount'];
-  const hasEnoughInputs = requiredPrefillFields.every(
-    (field) => prefillFields[field] !== undefined,
+  const requiredFields: (keyof InputData)[] = ['chainId', 'token', 'amount'];
+  const hasEnoughInputs = requiredFields.every(
+    (field) =>
+      inputData[field] !== undefined && inputData[field] !== null && inputData[field] !== '',
   );
 
   if (hasEnoughInputs) {

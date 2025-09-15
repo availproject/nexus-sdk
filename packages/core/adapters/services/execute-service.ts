@@ -50,7 +50,7 @@ export class ExecuteService extends BaseService {
           params.tokenApproval,
           params.contractAddress,
           params.toChainId,
-          false,
+          true, // Wait for approval confirmation before proceeding
           params.approvalBufferBps,
         );
 

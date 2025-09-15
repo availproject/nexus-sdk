@@ -1,51 +1,42 @@
 import { UnifiedTransactionModal } from '../shared/unified-transaction-modal';
-import { SwapTransactionForm } from '../shared/unified-transaction-form';
-import PrefilledInputs from '../shared/prefilled-inputs';
+import { SwapTransactionForm, UnifiedInputData } from '../shared/unified-transaction-form';
 import { SwapSimulationResult, SwapInputData } from '../../types';
+import SwapPrefilledInputs from '../shared/swap-prefilled-inputs';
 
 interface SwapFormSectionProps {
-  inputData: SwapInputData;
-  onUpdate: (data: SwapInputData) => void;
-  disabled?: boolean;
-  className?: string;
-  prefillFields?: {
-    fromChainID?: boolean;
-    toChainID?: boolean;
-    fromTokenAddress?: boolean;
-    toTokenAddress?: boolean;
-    fromAmount?: boolean;
-    toAmount?: boolean;
-  };
+  inputData: SwapInputData | UnifiedInputData;
+  onUpdate: (data: SwapInputData | UnifiedInputData) => void;
+  disabled: boolean;
+  prefillFields?: any;
 }
 
 function SwapFormSection({
   inputData,
   onUpdate,
   disabled = false,
-  className,
   prefillFields = {},
 }: SwapFormSectionProps) {
-  const requiredPrefillFields = [
+  // Cast to SwapInputData since swap operations only use this type
+  const swapInputData = inputData as SwapInputData;
+  const requiredFields = [
     'fromChainID',
     'toChainID',
     'fromTokenAddress',
     'toTokenAddress',
     'fromAmount',
   ];
-  const hasEnoughInputs = requiredPrefillFields.every(
-    (field) => (prefillFields as any)[field] !== undefined,
-  );
+  // Check if fields are actually prefilled (boolean values in prefillFields indicate prefilled fields)
+  const hasPrefilledInputs = requiredFields.every((field) => prefillFields[field] === true);
 
-  if (hasEnoughInputs) {
-    return <PrefilledInputs inputData={inputData} />;
+  if (hasPrefilledInputs) {
+    return <SwapPrefilledInputs inputData={inputData as SwapInputData} />;
   }
 
   return (
     <SwapTransactionForm
-      inputData={inputData}
-      onUpdate={onUpdate}
+      inputData={swapInputData}
+      onUpdate={onUpdate as (data: SwapInputData) => void}
       disabled={disabled}
-      className={className}
       prefillFields={prefillFields}
     />
   );
@@ -53,7 +44,6 @@ function SwapFormSection({
 
 export default function SwapModal({ title = 'Nexus Widget' }: { title?: string }) {
   const getSimulationError = (simulationResult: SwapSimulationResult): boolean => {
-    // For swap, simulation error means intent capture failed
     if (!simulationResult) return true;
     return (
       simulationResult.success === false ||
@@ -63,7 +53,6 @@ export default function SwapModal({ title = 'Nexus Widget' }: { title?: string }
   };
   const transformInputData = (inputData: SwapInputData | null | undefined) => {
     if (!inputData) return {};
-    // SwapInputData is already in the correct format, no transformation needed
     return inputData;
   };
 

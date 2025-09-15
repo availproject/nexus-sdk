@@ -12,23 +12,23 @@ import { ChevronDownIcon, CircleX } from '../icons';
 import { FormField } from '../motion/form-field';
 import { CHAIN_METADATA, SUPPORTED_CHAINS } from '@nexus/commons';
 import { cn } from '../../utils/utils';
-import { TransactionType } from 'src/types';
 import { TokenIcon } from './icons';
 import type { TransactionType as BalanceTransactionType } from '../../utils/balance-utils';
 
 interface DestinationDrawerProps {
   chainValue?: string;
   tokenValue?: string;
+
   isChainSelectDisabled?: boolean;
   isTokenSelectDisabled?: boolean;
   network?: 'mainnet' | 'testnet';
   onChainValueChange: (chain: string) => void;
-  onTokenValueChange: (token: string) => void;
+  onTokenValueChange: (token: string, iconUrl?: string) => void;
   isOpen?: boolean;
   onOpenChange?: (open: boolean) => void;
   fieldLabel?: string;
   drawerTitle?: string;
-  type?: TransactionType;
+  type?: BalanceTransactionType;
   isDestination?: boolean;
   isSourceChain?: boolean;
 }
@@ -36,10 +36,12 @@ interface DestinationDrawerProps {
 const DestinationTrigger = ({
   chainValue,
   tokenValue,
+
   fieldLabel = 'Destination',
 }: {
   chainValue?: string;
   tokenValue?: string;
+
   fieldLabel?: string;
 }) => {
   const chainId = chainValue ? parseInt(chainValue) : undefined;
@@ -96,6 +98,7 @@ const DestinationTrigger = ({
 const DestinationDrawer = ({
   chainValue,
   tokenValue,
+
   isChainSelectDisabled,
   isTokenSelectDisabled,
   network,
@@ -142,7 +145,7 @@ const DestinationDrawer = ({
           />
           <TokenSelect
             value={tokenValue}
-            onValueChange={onTokenValueChange}
+            onValueChange={(token, iconUrl) => onTokenValueChange(token, iconUrl)}
             disabled={isTokenSelectDisabled}
             network={network}
             className="w-full"

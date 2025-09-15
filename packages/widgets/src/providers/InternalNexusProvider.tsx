@@ -157,7 +157,7 @@ export function InternalNexusProvider({
         unifiedBalance.push(asset);
       }
     });
-
+    console.log('unified balance', unifiedBalance);
     logger.debug('Unified balance', { unifiedBalance });
     setUnifiedBalance(unifiedBalance);
   };
@@ -411,22 +411,15 @@ export function InternalNexusProvider({
               // For swaps, check if we have sufficient input directly
               const data = activeTransaction.inputData as Partial<SwapInputData>;
               return !!(
-                (data.fromChainID || data.chainId) &&
-                (data.toChainID || data.toChainId) &&
-                (data.fromTokenAddress || data.inputToken || data.token) &&
-                (data.toTokenAddress || data.outputToken) &&
-                (data.fromAmount || data.amount) &&
-                parseFloat((data.fromAmount || data.amount)?.toString() || '0') > 0
+                data.fromChainID &&
+                data.toChainID &&
+                data.fromTokenAddress &&
+                data.toTokenAddress &&
+                data.fromAmount &&
+                parseFloat(data.fromAmount?.toString() || '0') > 0
               );
             } else if (activeController) {
-              let inputDataForValidation = activeTransaction.inputData;
-              if (activeTransaction.type === 'bridgeAndExecute') {
-                inputDataForValidation = {
-                  ...activeTransaction.inputData,
-                  toChainId: (activeTransaction.inputData as any).chainId,
-                };
-              }
-              return activeController.hasSufficientInput(inputDataForValidation as any);
+              return activeController.hasSufficientInput(activeTransaction.inputData as any);
             }
             return false;
           })()
@@ -490,18 +483,11 @@ export function InternalNexusProvider({
           if (activeTransaction.type === 'swap') {
             // For swaps, we skip simulation here since it's handled by initiateSwap
             // This code path should not be reached for swaps anymore
-            await initiateSwap(inputData);
+            await initiateSwap(inputData as SwapInputData);
             return;
           } else if (activeController) {
             // Handle regular transaction controllers
-            let inputDataForSimulation = inputData;
-            if (activeTransaction.type === 'bridgeAndExecute') {
-              inputDataForSimulation = {
-                ...inputData,
-                toChainId: (inputData as any).chainId,
-              };
-            }
-            simulationResult = await activeController.runReview(sdk, inputDataForSimulation);
+            simulationResult = await activeController.runReview(sdk, inputData);
           } else {
             throw new Error('No controller available for transaction type');
           }
@@ -736,7 +722,6 @@ export function InternalNexusProvider({
           .then((result) => {
             // This is where your "Error in VSC SBC Tx" gets caught!
             logger.info('Swap Provider: Final swap execution result:', result);
-            console.log('Swap Provider: Final swap execution result:', result);
 
             if (result.success) {
               // Swap succeeded - let useListenTransaction handle the success state
@@ -801,10 +786,6 @@ export function InternalNexusProvider({
       swapAllowCallbackRef.current();
     } else {
       logger.warn('Swap Provider: No allow callback available or already executing', {
-        hasCallback: !!swapAllowCallbackRef.current,
-        isExecuting: isSwapExecuting,
-      });
-      console.log('❌ Cannot proceed with swap:', {
         hasCallback: !!swapAllowCallbackRef.current,
         isExecuting: isSwapExecuting,
       });

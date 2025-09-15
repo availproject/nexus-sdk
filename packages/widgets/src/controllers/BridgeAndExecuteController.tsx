@@ -1,7 +1,10 @@
 import React from 'react';
 import type { ITransactionController, ActiveTransaction } from '../types';
 import { NexusSDK } from '@nexus/core';
-import { UnifiedTransactionForm, UnifiedInputData } from '../components/shared/unified-transaction-form';
+import {
+  UnifiedTransactionForm,
+  UnifiedInputData,
+} from '../components/shared/unified-transaction-form';
 
 import {
   type DynamicParamBuilder,
@@ -36,11 +39,13 @@ const BridgeAndExecuteInputForm: React.FC<{
 
   // Transform UnifiedInputData back to BridgeAndExecuteConfig
   const handleUpdate = (data: UnifiedInputData) => {
-    onUpdate({
-      toChainId: data.toChainId as any,
-      token: data.token as any,
-      amount: data.amount,
-    });
+    // Only include defined values to avoid overwriting existing data
+    const transformedData: any = {};
+    if (data.toChainId !== undefined) transformedData.toChainId = data.toChainId;
+    if (data.token !== undefined) transformedData.token = data.token;
+    if (data.amount !== undefined) transformedData.amount = data.amount;
+
+    onUpdate(transformedData);
   };
 
   return (

@@ -223,7 +223,6 @@ const useListenTransaction = ({
 
     const handleExpectedSteps = (expectedSteps: ProgressSteps[]) => {
       expectedReceived = true;
-      console.log('expectedSteps', expectedSteps);
       const stepCount = Array.isArray(expectedSteps) ? expectedSteps.length : expectedSteps;
       const steps = Array.isArray(expectedSteps) ? expectedSteps : [];
 
@@ -314,7 +313,6 @@ const useListenTransaction = ({
     };
 
     const handleStepComplete = (stepData: ProgressStep) => {
-      console.log('stepData', stepData);
       const { typeID, data } = stepData;
 
       // Always advance progress for better UX

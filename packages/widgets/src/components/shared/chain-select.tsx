@@ -87,7 +87,7 @@ export function ChainSelect({
   return (
     <div
       className={cn(
-        'flex flex-col items-start gap-y-4 py-5 border-r border-nexus-muted-secondary/20 max-w-max pr-4 ',
+        'flex flex-1 flex-col items-start gap-y-4 py-5 border-r border-nexus-muted-secondary/20 max-w-max min-w-[192px] h-full pr-4 ',
         className,
       )}
     >

@@ -56,10 +56,27 @@ export interface TransactionSupportData {
 
 const LOGO_URLS: Record<string, string> = {
   WETH: 'https://assets.coingecko.com/coins/images/279/large/ethereum.png?1595348880',
-  USDS: 'https://static.debank.com/image/token/logo_url/base_usds/820c137fa70c8691f0e44dc420a5e53c168921dc.png',
+  USDS: 'https://assets.coingecko.com/coins/images/39926/standard/usds.webp?1726666683',
   SOPH: 'https://assets.coingecko.com/coins/images/38680/large/sophon_logo_200.png',
   KAIA: 'https://assets.coingecko.com/asset_platforms/images/9672/large/kaia.png',
   BNB: 'https://assets.coingecko.com/coins/images/825/large/bnb-icon2_2x.png',
+  // Add ETH as fallback for any ETH-related tokens
+  ETH: 'https://coin-images.coingecko.com/coins/images/279/large/ethereum.png?1696501628',
+  // Add common token fallbacks
+  POL: 'https://coin-images.coingecko.com/coins/images/32440/standard/polygon.png',
+  AVAX: 'https://assets.coingecko.com/coins/images/12559/standard/Avalanche_Circle_RedWhite_Trans.png',
+  FUEL: 'https://coin-images.coingecko.com/coins/images/279/large/ethereum.png',
+  HYPE: 'https://assets.coingecko.com/asset_platforms/images/243/large/hyperliquid.png',
+  // Popular swap tokens
+  DAI: 'https://coin-images.coingecko.com/coins/images/9956/large/Badge_Dai.png?1696509996',
+  UNI: 'https://coin-images.coingecko.com/coins/images/12504/large/uni.jpg?1696512319',
+  AAVE: 'https://coin-images.coingecko.com/coins/images/12645/large/AAVE.png?1696512452',
+  LDO: 'https://coin-images.coingecko.com/coins/images/13573/large/Lido_DAO.png?1696513326',
+  PEPE: 'https://coin-images.coingecko.com/coins/images/29850/large/pepe-token.jpeg?1696528776',
+  OP: 'https://coin-images.coingecko.com/coins/images/25244/large/Optimism.png?1696524385',
+  ZRO: 'https://coin-images.coingecko.com/coins/images/28206/large/ftxG9_TJ_400x400.jpeg?1696527208',
+  OM: 'https://assets.coingecko.com/coins/images/12151/standard/OM_Token.png?1696511991',
+  KAITO: 'https://assets.coingecko.com/coins/images/54411/standard/Qm4DW488_400x400.jpg',
 };
 
 function _processSdkData(sdkData: SwapSupportedChainsResult | null): TransactionSupportData | null {
@@ -81,8 +98,20 @@ function _processSdkData(sdkData: SwapSupportedChainsResult | null): Transaction
     for (const token of chain.tokens || []) {
       // Enhanced logo fallback logic
       let finalLogo = token.logo;
-      if (!finalLogo && LOGO_URLS[token.symbol]) {
+      if (!finalLogo) {
+        // First try direct lookup
         finalLogo = LOGO_URLS[token.symbol];
+
+        // Handle wrapped tokens
+        if (!finalLogo && token.symbol.startsWith('W') && token.symbol.length > 1) {
+          const baseSymbol = token.symbol.substring(1);
+          finalLogo = LOGO_URLS[baseSymbol];
+        }
+
+        // ETH fallback for ethereum-related tokens
+        if (!finalLogo && (token.symbol.includes('ETH') || token.symbol === 'WETH')) {
+          finalLogo = LOGO_URLS['ETH'];
+        }
       }
 
       // For native tokens (zero address), ensure they have proper logos
@@ -231,77 +260,50 @@ export function getAvailableTokens(params: TokenResolutionParams): EnhancedToken
       ...token,
       contractAddress: TOKEN_CONTRACT_ADDRESSES[token.symbol]?.[chainId || 0],
     }));
-    return [...enhancedBaseTokens, ...allDestinationTokens];
+    const result = [...enhancedBaseTokens, ...allDestinationTokens];
+    return result;
   }
 
-  // For swap source tokens, combine data from both getSupportedChains and getSwapSupportedChainsAndTokens
-  // to include both native tokens and swappable ERC20 tokens
+  // For swap source tokens, use only getSwapSupportedChainsAndTokens (ERC20 tokens only, no native tokens)
   if (type === 'swap' && !isDestination && sdk) {
-    const allTokens = new Map<string, any>();
-
-    // First get native tokens from getSupportedChains
-    try {
-      const supportedChainsData = sdk?.utils?.getSupportedChains?.() as SwapSupportedChainsResult;
-      if (supportedChainsData && Array.isArray(supportedChainsData)) {
-        const processedSupportedChainsData = _processSdkData(supportedChainsData);
-        if (processedSupportedChainsData) {
-          let supportedChainsTokens = processedSupportedChainsData.tokens;
-
-          if (chainId) {
-            const supportedSymbols = processedSupportedChainsData.chainTokenMap.get(chainId) || [];
-            supportedChainsTokens = supportedChainsTokens.filter((t) =>
-              supportedSymbols.includes(t.symbol),
-            );
-          }
-
-          // Only include native tokens (zero address) from getSupportedChains
-          supportedChainsTokens
-            .filter((token) => token.address === '0x0000000000000000000000000000000000000000')
-            .forEach((token) => {
-              if (!allTokens.has(token.symbol)) {
-                allTokens.set(token.symbol, {
-                  symbol: token.symbol,
-                  name: token.name || token.symbol,
-                  decimals: token.decimals,
-                  icon: token.logo || '',
-                  coingeckoId: '',
-                  contractAddress: token.address as `0x${string}`,
-                });
-              }
-            });
-        }
-      }
-    } catch (error) {
-      console.warn('Failed to fetch supported chains data for swap source:', error);
-    }
-
-    // Then get swappable ERC20 tokens from getSwapSupportedChainsAndTokens
-    const swapSupportData = getTransactionSupportData(sdk, type);
-    if (swapSupportData) {
-      let swapTokensToDisplay = swapSupportData.tokens;
+    const supportData = getTransactionSupportData(sdk, type);
+    if (supportData) {
+      let tokensToDisplay = supportData.tokens;
 
       if (chainId) {
-        const supportedSymbols = swapSupportData.chainTokenMap.get(chainId) || [];
-        swapTokensToDisplay = swapTokensToDisplay.filter((t) =>
-          supportedSymbols.includes(t.symbol),
-        );
+        const supportedSymbols = supportData.chainTokenMap.get(chainId) || [];
+        tokensToDisplay = tokensToDisplay.filter((t) => supportedSymbols.includes(t.symbol));
       }
 
-      swapTokensToDisplay.forEach((token) => {
-        if (!allTokens.has(token.symbol)) {
-          allTokens.set(token.symbol, {
-            symbol: token.symbol,
-            name: token.name || token.symbol,
-            decimals: token.decimals,
-            icon: token.logo || '',
-            coingeckoId: '',
-            contractAddress: token.address as `0x${string}`,
-          });
-        }
-      });
-    }
+      const result = tokensToDisplay.map((token) => {
+        // Enhanced icon resolution for token options
+        let finalIcon = token.logo;
+        if (!finalIcon) {
+          finalIcon = LOGO_URLS[token.symbol];
 
-    return Array.from(allTokens.values());
+          // Handle wrapped tokens
+          if (!finalIcon && token.symbol.startsWith('W') && token.symbol.length > 1) {
+            const baseSymbol = token.symbol.substring(1);
+            finalIcon = LOGO_URLS[baseSymbol];
+          }
+
+          // ETH fallback for ethereum-related tokens
+          if (!finalIcon && (token.symbol.includes('ETH') || token.symbol === 'WETH')) {
+            finalIcon = LOGO_URLS['ETH'];
+          }
+        }
+
+        return {
+          symbol: token.symbol,
+          name: token.name || token.symbol,
+          decimals: token.decimals,
+          icon: finalIcon || '',
+          coingeckoId: '',
+          contractAddress: token.address as `0x${string}`,
+        };
+      });
+      return result;
+    }
   }
 
   // For all other cases (transfer, bridge, bridgeAndExecute), use the SDK data.
@@ -315,25 +317,154 @@ export function getAvailableTokens(params: TokenResolutionParams): EnhancedToken
         tokensToDisplay = tokensToDisplay.filter((t) => supportedSymbols.includes(t.symbol));
       }
 
-      return tokensToDisplay.map((token) => {
+      const result = tokensToDisplay.map((token) => {
+        // Enhanced icon resolution for token options
+        let finalIcon = token.logo;
+        if (!finalIcon) {
+          finalIcon = LOGO_URLS[token.symbol];
+
+          // Handle wrapped tokens
+          if (!finalIcon && token.symbol.startsWith('W') && token.symbol.length > 1) {
+            const baseSymbol = token.symbol.substring(1);
+            finalIcon = LOGO_URLS[baseSymbol];
+          }
+
+          // ETH fallback for ethereum-related tokens
+          if (!finalIcon && (token.symbol.includes('ETH') || token.symbol === 'WETH')) {
+            finalIcon = LOGO_URLS['ETH'];
+          }
+        }
+
         return {
           symbol: token.symbol,
           name: token.name || token.symbol,
           decimals: token.decimals,
-          icon: token.logo || '',
+          icon: finalIcon || '',
           coingeckoId: '', // Not provided by SDK
           contractAddress: token.address as `0x${string}`,
         };
       });
+      return result;
+    } else {
     }
   }
 
   // Fallback for non-SDK or failed SDK calls.
   const baseTokens = Object.values(getBaseTokenMetadata(network));
-  return baseTokens.map((token) => ({
-    ...token,
-    contractAddress: TOKEN_CONTRACT_ADDRESSES[token.symbol]?.[chainId || 0],
-  }));
+  // For non-swap transactions, include native tokens
+  if (type !== 'swap') {
+    const allNativeTokens: Array<{
+      symbol: string;
+      name: string;
+      decimals: number;
+      icon: string;
+      coingeckoId: string;
+    }> = [
+      {
+        symbol: 'ETH',
+        name: 'Ether',
+        decimals: 18,
+        icon: 'https://coin-images.coingecko.com/coins/images/279/large/ethereum.png',
+        coingeckoId: 'ethereum',
+      },
+      {
+        symbol: 'POL',
+        name: 'POL',
+        decimals: 18,
+        icon: 'https://coin-images.coingecko.com/coins/images/32440/standard/polygon.png',
+        coingeckoId: 'polygon-ecosystem-token',
+      },
+      {
+        symbol: 'AVAX',
+        name: 'Avalanche',
+        decimals: 18,
+        icon: 'https://assets.coingecko.com/coins/images/12559/standard/Avalanche_Circle_RedWhite_Trans.png',
+        coingeckoId: 'avalanche-2',
+      },
+      {
+        symbol: 'BNB',
+        name: 'BNB',
+        decimals: 18,
+        icon: 'https://assets.coingecko.com/coins/images/825/large/bnb-icon2_2x.png',
+        coingeckoId: 'binancecoin',
+      },
+      {
+        symbol: 'KAIA',
+        name: 'Kaia',
+        decimals: 18,
+        icon: 'https://assets.coingecko.com/asset_platforms/images/9672/large/kaia.png',
+        coingeckoId: 'kaia',
+      },
+      {
+        symbol: 'SOPH',
+        name: 'Sophon',
+        decimals: 18,
+        icon: 'https://assets.coingecko.com/coins/images/38680/large/sophon_logo_200.png',
+        coingeckoId: 'sophon',
+      },
+      {
+        symbol: 'FUEL',
+        name: 'Fuel',
+        decimals: 9,
+        icon: 'https://coin-images.coingecko.com/coins/images/279/large/ethereum.png',
+        coingeckoId: 'ethereum',
+      },
+    ];
+
+    // If a specific chain is selected, only include native token for that chain
+    if (chainId) {
+      const chainNativeTokens: Record<number, string> = {
+        1: 'ETH', // Ethereum
+        10: 'ETH', // Optimism
+        137: 'POL', // Polygon
+        8453: 'ETH', // Base
+        42161: 'ETH', // Arbitrum
+        534352: 'ETH', // Scroll
+        43114: 'AVAX', // Avalanche
+        56: 'BNB', // BNB Chain
+        8217: 'KAIA', // Kaia
+        50104: 'SOPH', // Sophon
+        9889: 'FUEL', // Fuel
+      };
+
+      const nativeSymbol = chainNativeTokens[chainId];
+      if (nativeSymbol) {
+        const nativeToken = allNativeTokens.find((t) => t.symbol === nativeSymbol);
+        if (nativeToken) {
+          baseTokens.push(nativeToken);
+        }
+      }
+    } else {
+      // No chain selected, include all native tokens
+      baseTokens.push(...allNativeTokens);
+    }
+  }
+
+  const result = baseTokens.map((token) => {
+    // Enhanced icon resolution for base tokens
+    let finalIcon = token.icon;
+    if (!finalIcon) {
+      finalIcon = LOGO_URLS[token.symbol];
+
+      // Handle wrapped tokens
+      if (!finalIcon && token.symbol.startsWith('W') && token.symbol.length > 1) {
+        const baseSymbol = token.symbol.substring(1);
+        finalIcon = LOGO_URLS[baseSymbol];
+      }
+
+      // ETH fallback for ethereum-related tokens
+      if (!finalIcon && (token.symbol.includes('ETH') || token.symbol === 'WETH')) {
+        finalIcon = LOGO_URLS['ETH'];
+      }
+    }
+
+    return {
+      ...token,
+      icon: finalIcon || token.icon,
+      contractAddress: TOKEN_CONTRACT_ADDRESSES[token.symbol]?.[chainId || 0],
+    };
+  });
+  return result;
 }
 
 /**
@@ -397,6 +528,23 @@ export function isTokenAvailableOnChain(
   chainId: number,
   type: TransactionType = 'transfer',
 ): boolean {
+  // For swaps, be more permissive to avoid aggressive token resets
+  if (type === 'swap') {
+    // Check if token exists in either base tokens or destination swap tokens
+    const baseTokens = TOKEN_CONTRACT_ADDRESSES[tokenSymbol];
+    if (baseTokens && baseTokens[chainId]) {
+      return true;
+    }
+
+    const chainTokens = DESTINATION_SWAP_TOKENS.get(chainId);
+    if (chainTokens?.some((t) => t.symbol === tokenSymbol)) {
+      return true;
+    }
+
+    // For swap source tokens, be even more permissive since SDK data might be loading
+    return true;
+  }
+
   try {
     getTokenAddress(tokenSymbol, chainId, type);
     return true;
@@ -481,32 +629,12 @@ export function getSupportedChainsForToken(
     return Array.from(supportedChains).sort((a, b) => a - b);
   }
 
-  // For swap source, combine chains from both getSupportedChains and getSwapSupportedChainsAndTokens
+  // For swap source, use only getSwapSupportedChainsAndTokens
   if (type === 'swap' && !isDestination && sdk) {
-    const supportedChains = new Set<number>();
-
-    // Get chains from getSupportedChains (for native tokens)
-    try {
-      const supportedChainsData = sdk?.utils?.getSupportedChains?.() as SwapSupportedChainsResult;
-      if (supportedChainsData && Array.isArray(supportedChainsData)) {
-        const processedData = _processSdkData(supportedChainsData);
-        if (processedData) {
-          const chains = processedData.tokenChainMap.get(tokenSymbol) || [];
-          chains.forEach((chainId) => supportedChains.add(chainId));
-        }
-      }
-    } catch (error) {
-      console.warn('Failed to fetch supported chains for token:', error);
+    const supportData = getTransactionSupportData(sdk, type);
+    if (supportData) {
+      return (supportData.tokenChainMap.get(tokenSymbol) || []).sort((a, b) => a - b);
     }
-
-    // Get chains from getSwapSupportedChainsAndTokens (for ERC20 tokens)
-    const swapSupportData = getTransactionSupportData(sdk, type);
-    if (swapSupportData) {
-      const chains = swapSupportData.tokenChainMap.get(tokenSymbol) || [];
-      chains.forEach((chainId) => supportedChains.add(chainId));
-    }
-
-    return Array.from(supportedChains).sort((a, b) => a - b);
   }
 
   // For all other cases (transfer, bridge, bridgeAndExecute), use the SDK data.
@@ -518,14 +646,32 @@ export function getSupportedChainsForToken(
   }
 
   // Fallback for non-SDK or failed SDK calls.
+  // For non-swap transactions, include both ERC20 contracts and native tokens on supported chains
+  const supportedChains = new Set<number>();
+
+  // Add chains from TOKEN_CONTRACT_ADDRESSES (ERC20 tokens)
   const tokenContracts = TOKEN_CONTRACT_ADDRESSES[tokenSymbol];
   if (tokenContracts) {
-    return Object.keys(tokenContracts)
-      .map(Number)
-      .sort((a, b) => a - b);
+    Object.keys(tokenContracts).forEach((chainId) => supportedChains.add(Number(chainId)));
   }
 
-  return [];
+  // Include native token chains if the token symbol matches a known native token
+  const nativeTokens: Record<string, number[]> = {
+    ETH: [1, 10, 8453, 42161, 534352, 11155111, 84532, 421614, 11155420, 534351], // Ethereum networks
+    POL: [137, 80002], // Polygon
+    AVAX: [43114, 43113], // Avalanche
+    BNB: [56, 97], // BNB Chain
+    KAIA: [8217, 82170], // Kaia
+    SOPH: [50104], // Sophon
+    FUEL: [9889, 10143], // Fuel
+  };
+
+  const nativeChains = nativeTokens[tokenSymbol];
+  if (nativeChains) {
+    nativeChains.forEach((chainId) => supportedChains.add(chainId));
+  }
+
+  return Array.from(supportedChains).sort((a, b) => a - b);
 }
 
 /**
@@ -538,6 +684,12 @@ export function isTokenChainCombinationValid(
   type: TransactionType = 'transfer',
 ): boolean {
   if (!tokenSymbol || !chainId) return true; // Allow empty selections
+
+  // For swaps, be more lenient with validation to avoid aggressive resets
+  // Let the user make selections and validate at execution time
+  if (type === 'swap') {
+    return true;
+  }
 
   return isTokenAvailableOnChain(tokenSymbol, chainId, type);
 }

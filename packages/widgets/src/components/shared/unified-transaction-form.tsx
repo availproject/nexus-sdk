@@ -119,18 +119,12 @@ const SwapForm = ({
       <div className="flex gap-x-4 justify-between items-start w-full">
         <FormField label={title} className="flex-1 font-nexus-primary gap-y-2 w-full max-w-max">
           <AmountInput
-            value={
-              inputData?.fromAmount
-                ? inputData.fromAmount?.toString()
-                : inputData?.amount
-                  ? inputData.amount?.toString()
-                  : '0'
-            }
+            value={inputData?.fromAmount ? inputData.fromAmount?.toString() : '0'}
             disabled={isAmountDisabled}
             onChange={
               isAmountDisabled
                 ? undefined
-                : (value) => handleUpdate({ fromAmount: value, amount: value })
+                : (value) => handleUpdate({ fromAmount: value, toAmount: value })
             }
             token={inputData?.fromTokenAddress}
             debounceMs={1000}
@@ -142,11 +136,11 @@ const SwapForm = ({
           tokenValue={inputData.fromTokenAddress}
           onChainValueChange={(chainId) => {
             if (isChainSelectDisabled) return;
-            handleUpdate({ fromChainID: parseInt(chainId, 10) });
+            handleUpdate({ fromChainID: parseInt(chainId, 10) as any });
           }}
           onTokenValueChange={(token) => {
             if (!isTokenSelectDisabled) {
-              handleUpdate({ fromTokenAddress: token });
+              handleUpdate({ fromTokenAddress: token as any });
             }
           }}
           isTokenSelectDisabled={isTokenSelectDisabled}
@@ -172,11 +166,11 @@ const SwapForm = ({
           tokenValue={inputData.toTokenAddress}
           onChainValueChange={(chainId) => {
             if (isChainSelectDisabled) return;
-            handleUpdate({ toChainID: parseInt(chainId, 10) });
+            handleUpdate({ toChainID: parseInt(chainId, 10) as any });
           }}
           onTokenValueChange={(token) => {
             if (!isOutputTokenSelectDisabled) {
-              handleUpdate({ toTokenAddress: token });
+              handleUpdate({ toTokenAddress: token as any });
             }
           }}
           isTokenSelectDisabled={isOutputTokenSelectDisabled}
@@ -221,20 +215,25 @@ export function SwapTransactionForm({
     onUpdate({ ...inputData, ...data });
   };
 
-  // Reset token when chain changes to invalid combination
+  // Reset token when chain changes to invalid combination (disabled for swaps to prevent aggressive resets)
   useEffect(() => {
+    // For swaps, we allow users to make selections and validate at execution time
+    // This prevents tokens from being reset when switching between valid chains
     if (inputData.fromChainID && inputData.fromTokenAddress) {
-      if (
-        !isTokenChainCombinationValid(inputData.fromTokenAddress, inputData.fromChainID, 'swap')
-      ) {
+      // Skip validation for swaps to maintain user selections
+      const shouldReset = false;
+      if (shouldReset) {
         handleUpdate({ fromTokenAddress: undefined });
       }
     }
   }, [inputData.fromChainID]);
 
   useEffect(() => {
+    // For swaps, we allow users to make selections and validate at execution time
     if (inputData.toChainID && inputData.toTokenAddress) {
-      if (!isTokenChainCombinationValid(inputData.toTokenAddress, inputData.toChainID, 'swap')) {
+      // Skip validation for swaps to maintain user selections
+      const shouldReset = false;
+      if (shouldReset) {
         handleUpdate({ toTokenAddress: undefined });
       }
     }

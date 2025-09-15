@@ -1,5 +1,4 @@
 import { ReactNode } from 'react';
-import { EthereumProvider, UserAsset } from '@nexus/commons';
 import { NexusSDK } from '@nexus/core';
 
 // Only import essential parameter types, not all from root types
@@ -14,6 +13,8 @@ import type {
   SwapInput,
   SwapOptionalParams,
   SwapIntent,
+  UserAsset,
+  EthereumProvider,
 } from '@nexus/commons';
 
 import { Abi } from 'viem';
@@ -49,19 +50,24 @@ interface BridgeAndExecuteSimulationResult {
 }
 
 export interface SwapInputData {
-  fromChainID?: number;
-  toChainID?: number;
-  fromTokenAddress?: string;
-  toTokenAddress?: string;
+  fromChainID?: 10 | 137 | 42161 | 534352 | 8453;
+  toChainID?: SUPPORTED_CHAINS_IDS;
+  fromTokenAddress?: 'USDC' | 'WETH' | 'DAI' | 'USDT' | 'USDS';
+  toTokenAddress?:
+    | 'USDC'
+    | 'LDO'
+    | 'DAI'
+    | 'USDT'
+    | 'KAITO'
+    | 'ZRO'
+    | 'PEPE'
+    | 'ETH'
+    | 'OP'
+    | 'AAVE'
+    | 'UNI'
+    | 'OM';
   fromAmount?: string;
   toAmount?: string;
-  // Form compatibility fields
-  chainId?: number; // Maps to fromChainID for backward compatibility
-  toChainId?: number; // Maps to toChainID for backward compatibility
-  inputToken?: string; // Maps to fromTokenAddress
-  outputToken?: string; // Maps to toTokenAddress
-  amount?: string | number; // Maps to fromAmount
-  token?: string; // For form compatibility
 }
 
 export interface UnifiedInputData {
@@ -309,7 +315,7 @@ export interface SwapConfig {
 }
 
 export interface SwapButtonProps extends BaseComponentProps {
-  prefill?: SwapInputData;
+  prefill?: Omit<SwapInputData, 'toAmount'>;
   children: (props: { onClick: () => void; isLoading: boolean }) => ReactNode;
 }
 
@@ -341,7 +347,7 @@ export interface ModalProps extends BaseComponentProps {
 // Form Types
 export interface TokenSelectProps extends BaseComponentProps {
   value?: string;
-  onValueChange: (token: string) => void;
+  onValueChange: (token: string, iconUrl?: string) => void;
   disabled?: boolean;
   network?: 'mainnet' | 'testnet';
   type?: TransactionType;
