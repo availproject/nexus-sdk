@@ -5,7 +5,7 @@ import { ChainIcon } from './icons';
 import { cn } from '../../utils/utils';
 import { Button } from '../motion/button-motion';
 import { DrawerAutoClose } from '../motion/drawer';
-import { getFilteredChainsForToken, getFilteredSwapChainsForToken } from '../../utils/token-utils';
+import { getFilteredChainsForToken } from '../../utils/token-utils';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import type { TransactionType } from '../../utils/balance-utils';
 
@@ -31,24 +31,23 @@ export function ChainSelect({
   selectedToken?: string;
   transactionType?: TransactionType;
 }) {
-  const { sdk, isSdkInitialized } = useInternalNexus();
+  const { sdk } = useInternalNexus();
   const [filteredChainIds, setFilteredChainIds] = useState<number[]>([]);
 
   const availableChainIds = network === 'testnet' ? TESTNET_CHAINS : MAINNET_CHAINS;
 
   // Determine if we should use async filtering (swap source chains with SDK)
-  const shouldUseSwaps =
-    transactionType === 'swap' && isSource && isSdkInitialized && sdk && selectedToken;
 
   // Effect to handle chain filtering
   useEffect(() => {
     const filterChains = () => {
-      if (selectedToken && transactionType === 'swap') {
-        const filtered = getFilteredSwapChainsForToken(
+      if (selectedToken && transactionType) {
+        const filtered = getFilteredChainsForToken(
           selectedToken,
           [...availableChainIds],
           transactionType,
-          shouldUseSwaps ? sdk : undefined,
+          sdk,
+          !isSource,
         );
         setFilteredChainIds(filtered);
       } else {
@@ -57,7 +56,7 @@ export function ChainSelect({
     };
 
     filterChains();
-  }, [selectedToken, transactionType, availableChainIds, shouldUseSwaps, sdk]);
+  }, [selectedToken, transactionType, availableChainIds, sdk, isSource]);
 
   const chainOptions: ChainSelectOption[] = filteredChainIds.map((chainId) => {
     const metadata = CHAIN_METADATA[chainId];
@@ -96,7 +95,7 @@ export function ChainSelect({
         <p className="text-nexus-foreground text-lg font-semibold ">
           {isSource ? 'Source' : 'Destination'} Chain
         </p>
-        {selectedToken && transactionType === 'swap' && !isCurrentSelectionValid && (
+        {selectedToken && transactionType && !isCurrentSelectionValid && (
           <p className="text-nexus-accent-red text-xs font-medium">
             Current chain doesn't support {selectedToken}
           </p>

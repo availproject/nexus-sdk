@@ -6,11 +6,7 @@ import { Button } from '../motion/button-motion';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { DrawerAutoClose } from '../motion/drawer';
 import type { TokenSelectProps } from '../../types';
-import {
-  useAvailableTokens,
-  useAvailableSwapTokens,
-  type TokenSelectOption,
-} from '../../utils/token-utils';
+import { useAvailableTokens, type TokenSelectOption } from '../../utils/token-utils';
 
 export function TokenSelect({
   value,
@@ -29,24 +25,13 @@ export function TokenSelect({
 }) {
   const { unifiedBalance, sdk, isSdkInitialized } = useInternalNexus();
 
-  // Determine if we should use async version (swap source tokens with SDK)
-  const shouldUseSwaps = type === 'swap' && !isDestination && isSdkInitialized && sdk;
-  const swapTokenResult = useAvailableSwapTokens({
-    chainId,
-    type: type ?? 'swap',
-    network,
-    isDestination,
-    sdk: shouldUseSwaps ? sdk : undefined,
-  });
-
-  const syncTokenOptions = useAvailableTokens({
+  const tokenOptions = useAvailableTokens({
     chainId,
     type: type ?? 'bridge',
     network,
     isDestination,
+    sdk: isSdkInitialized ? sdk : undefined,
   });
-
-  const tokenOptions = shouldUseSwaps ? swapTokenResult.tokens : syncTokenOptions;
 
   // Fallback to legacy logic if no type provided (backward compatibility)
   const legacyTokenOptions: TokenSelectOption[] = useMemo(() => {
@@ -110,7 +95,7 @@ export function TokenSelect({
             >
               <div className="flex items-center justify-between w-full">
                 <div className="flex items-start gap-x-2">
-                  <TokenIcon tokenSymbol={token?.value} />
+                  <TokenIcon tokenSymbol={token?.value} iconUrl={token?.icon} />
                   <p className="text-nexus-foreground font-semibold font-nexus-primary text-sm">
                     {token?.label}
                   </p>

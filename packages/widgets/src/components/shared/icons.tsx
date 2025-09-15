@@ -34,25 +34,32 @@ export const ChainIcon = ({ chainId }: { chainId: string }) => {
 
 export const TokenIcon = ({
   tokenSymbol,
+  iconUrl,
   className = 'w-6 h-6 rounded-nexus-full',
 }: {
   tokenSymbol: string;
+  iconUrl?: string;
   className?: string;
 }) => {
-  // First try standard TOKEN_METADATA
-  const standardToken = TOKEN_METADATA[tokenSymbol as keyof typeof TOKEN_METADATA] as TokenMetadata;
-  let iconUrl: string | undefined = standardToken?.icon;
+  let finalIconUrl = iconUrl;
 
-  // If not found in standard tokens, search destination swap tokens
-  if (!iconUrl) {
-    const allDestinationTokens = Array.from(DESTINATION_SWAP_TOKENS.values()).flat();
-    const destinationToken = allDestinationTokens.find((token) => token.symbol === tokenSymbol);
-    iconUrl = destinationToken?.logo;
+  // If no URL is provided, fall back to the old lookup logic
+  if (!finalIconUrl) {
+    const standardToken = TOKEN_METADATA[
+      tokenSymbol as keyof typeof TOKEN_METADATA
+    ] as TokenMetadata;
+    finalIconUrl = standardToken?.icon;
+
+    if (!finalIconUrl) {
+      const allDestinationTokens = Array.from(DESTINATION_SWAP_TOKENS.values()).flat();
+      const destinationToken = allDestinationTokens.find((token) => token.symbol === tokenSymbol);
+      finalIconUrl = destinationToken?.logo;
+    }
   }
 
-  if (!iconUrl) {
+  if (!finalIconUrl) {
     return <div className="w-6 h-6 bg-gray-300 rounded-nexus-full" />;
   }
 
-  return <img src={iconUrl} alt={tokenSymbol} className={className} />;
+  return <img src={finalIconUrl} alt={tokenSymbol} className={className} />;
 };

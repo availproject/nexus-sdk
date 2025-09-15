@@ -41,7 +41,7 @@ export interface TokenResolutionParams {
 /**
  * SDK-provided swap support data structure (normalized from SwapSupportedChainsResult)
  */
-export interface SwapSupportData {
+export interface TransactionSupportData {
   chains: { id: number; name: string; logo: string }[];
   tokens: {
     symbol: string;
@@ -54,9 +54,80 @@ export interface SwapSupportData {
   tokenChainMap: Map<string, number[]>;
 }
 
-const WETH_LOGO_URL = 'https://assets.coingecko.com/coins/images/279/large/ethereum.png?1595348880';
-const USDS_LOGO_URL =
-  'https://static.debank.com/image/token/logo_url/base_usds/820c137fa70c8691f0e44dc420a5e53c168921dc.png';
+const LOGO_URLS: Record<string, string> = {
+  WETH: 'https://assets.coingecko.com/coins/images/279/large/ethereum.png?1595348880',
+  USDS: 'https://static.debank.com/image/token/logo_url/base_usds/820c137fa70c8691f0e44dc420a5e53c168921dc.png',
+  SOPH: 'https://assets.coingecko.com/coins/images/38680/large/sophon_logo_200.png',
+  KAIA: 'https://assets.coingecko.com/asset_platforms/images/9672/large/kaia.png',
+  BNB: 'https://assets.coingecko.com/coins/images/825/large/bnb-icon2_2x.png',
+};
+
+function _processSdkData(sdkData: SwapSupportedChainsResult | null): TransactionSupportData | null {
+  if (!sdkData || !Array.isArray(sdkData)) return null;
+
+  const chains = sdkData.map((chain) => ({
+    id: chain.id,
+    name: chain.name,
+    logo: chain.logo,
+  }));
+
+  const chainTokenMap = new Map<number, string[]>();
+  const tokenChainMap = new Map<string, number[]>();
+  const allTokens = new Map<string, any>();
+
+  for (const chain of sdkData) {
+    const tokenSymbols: string[] = [];
+    // Guard against chains that might not have a tokens array
+    for (const token of chain.tokens || []) {
+      // Enhanced logo fallback logic
+      let finalLogo = token.logo;
+      if (!finalLogo && LOGO_URLS[token.symbol]) {
+        finalLogo = LOGO_URLS[token.symbol];
+      }
+
+      // For native tokens (zero address), ensure they have proper logos
+      if (token.contractAddress === '0x0000000000000000000000000000000000000000') {
+        if (!finalLogo) {
+          // Use chain-specific native token logos
+          const nativeTokenLogos: Record<number, string> = {
+            137: 'https://coin-images.coingecko.com/coins/images/32440/standard/polygon.png', // POL
+            43114:
+              'https://assets.coingecko.com/coins/images/12559/standard/Avalanche_Circle_RedWhite_Trans.png', // AVAX
+            56: 'https://assets.coingecko.com/coins/images/825/large/bnb-icon2_2x.png', // BNB
+            8217: 'https://assets.coingecko.com/asset_platforms/images/9672/large/kaia.png', // KAIA
+            50104: 'https://assets.coingecko.com/coins/images/38680/large/sophon_logo_200.png', // SOPH
+          };
+          finalLogo = nativeTokenLogos[chain.id] || '';
+        }
+      }
+
+      tokenSymbols.push(token.symbol);
+
+      if (!tokenChainMap.has(token.symbol)) {
+        tokenChainMap.set(token.symbol, []);
+      }
+      tokenChainMap.get(token.symbol)!.push(chain.id);
+
+      if (!allTokens.has(token.symbol)) {
+        allTokens.set(token.symbol, {
+          symbol: token.symbol,
+          address: token.contractAddress,
+          decimals: token.decimals,
+          name: token.name || token.symbol,
+          logo: finalLogo,
+        });
+      }
+    }
+    chainTokenMap.set(chain.id, tokenSymbols);
+  }
+
+  return {
+    chains,
+    tokens: Array.from(allTokens.values()),
+    chainTokenMap,
+    tokenChainMap,
+  };
+}
 
 /**
  * Get base token metadata based on network
@@ -67,66 +138,42 @@ function getBaseTokenMetadata(
   return _network === 'testnet' ? TESTNET_TOKEN_METADATA : TOKEN_METADATA;
 }
 
+const transactionSupportDataCache = new Map<TransactionType, TransactionSupportData | null>();
+
 /**
- * Get swap supported chains and tokens from SDK
- * Only for source side (as per SDK function behavior)
+ * Gets and processes support data for a given transaction type from the SDK.
+ * This function caches the processed data to avoid redundant calls and processing.
+ * @param sdk The NexusSDK instance.
+ * @param type The type of transaction.
+ * @returns Processed transaction support data or null.
  */
-export function getSwapSupportDataFromSDK(sdk: NexusSDK): SwapSupportData | null {
+function getTransactionSupportData(
+  sdk: NexusSDK,
+  type: TransactionType,
+): TransactionSupportData | null {
+  if (transactionSupportDataCache.has(type)) {
+    return transactionSupportDataCache.get(type)!;
+  }
+
+  let rawData: SwapSupportedChainsResult | null = null;
   try {
-    const swapSupport: SwapSupportedChainsResult = sdk?.utils?.getSwapSupportedChainsAndTokens?.();
-    if (!swapSupport || !Array.isArray(swapSupport)) return null;
-
-    const chains = swapSupport.map((chain) => ({
-      id: chain.id,
-      name: chain.name,
-      logo: chain.logo,
-    }));
-
-    const chainTokenMap = new Map<number, string[]>();
-    const tokenChainMap = new Map<string, number[]>();
-    const allTokens = new Map<string, any>();
-
-    for (const chain of swapSupport) {
-      const tokenSymbols: string[] = [];
-      for (const token of chain.tokens) {
-        // Add logo if missing
-        if (token.symbol === 'WETH' && !token.logo) {
-          token.logo = WETH_LOGO_URL;
-        }
-        if (token.symbol === 'USDS' && !token.logo) {
-          token.logo = USDS_LOGO_URL;
-        }
-
-        tokenSymbols.push(token.symbol);
-
-        if (!tokenChainMap.has(token.symbol)) {
-          tokenChainMap.set(token.symbol, []);
-        }
-        tokenChainMap.get(token.symbol)!.push(chain.id);
-
-        if (!allTokens.has(token.symbol)) {
-          allTokens.set(token.symbol, {
-            symbol: token.symbol,
-            address: token.contractAddress,
-            decimals: token.decimals,
-            name: token.name,
-            logo: token.logo,
-          });
-        }
-      }
-      chainTokenMap.set(chain.id, tokenSymbols);
+    if (type === 'swap') {
+      rawData = sdk?.utils?.getSwapSupportedChainsAndTokens?.();
+    } else {
+      // getSupportedChains actually returns the same structure as getSwapSupportedChainsAndTokens
+      // despite what the TypeScript types say
+      rawData = sdk?.utils?.getSupportedChains?.() as SwapSupportedChainsResult;
     }
-
-    return {
-      chains,
-      tokens: Array.from(allTokens.values()),
-      chainTokenMap,
-      tokenChainMap,
-    };
   } catch (error) {
-    console.warn('Failed to fetch swap support data from SDK:', error);
+    console.warn(`Failed to fetch support data for ${type} from SDK:`, error);
+    transactionSupportDataCache.set(type, null);
     return null;
   }
+
+  const processedData = _processSdkData(rawData);
+  transactionSupportDataCache.set(type, processedData);
+
+  return processedData;
 }
 
 /**
@@ -146,102 +193,147 @@ function convertDestinationTokenToMetadata(
 }
 
 /**
- * Get available tokens for a specific chain and transaction type
+ * Get available tokens for a specific chain and transaction type.
+ * This function is the single source of truth for token resolution.
+ * It handles all transaction types and uses a caching mechanism for performance.
  */
 export function getAvailableTokens(params: TokenResolutionParams): EnhancedTokenMetadata[] {
-  const { chainId, type, network = 'mainnet', isDestination = false } = params;
+  const { chainId, type, network = 'mainnet', isDestination = false, sdk } = params;
 
-  const baseTokens = Object.values(getBaseTokenMetadata(network));
+  // Handle swap destination tokens separately as they come from a different source (static list).
+  if (type === 'swap' && isDestination) {
+    const baseTokens = Object.values(getBaseTokenMetadata(network));
+    let allDestinationTokens: ReturnType<typeof convertDestinationTokenToMetadata>[] = [];
 
-  // For non-swap transactions, return base tokens only
-  if (type !== 'swap') {
-    return baseTokens.map((token) => ({
+    if (chainId) {
+      const destinationTokens = DESTINATION_SWAP_TOKENS.get(chainId) || [];
+      allDestinationTokens = destinationTokens
+        .filter(
+          (destToken) => !baseTokens.some((baseToken) => baseToken.symbol === destToken.symbol),
+        )
+        .map(convertDestinationTokenToMetadata);
+    } else {
+      const allChainTokens = Array.from(DESTINATION_SWAP_TOKENS.values()).flat();
+      const uniqueTokens = new Map<string, (typeof allChainTokens)[0]>();
+      allChainTokens.forEach((token) => {
+        if (
+          !uniqueTokens.has(token.symbol) &&
+          !baseTokens.some((baseToken) => baseToken.symbol === token.symbol)
+        ) {
+          uniqueTokens.set(token.symbol, token);
+        }
+      });
+      allDestinationTokens = Array.from(uniqueTokens.values()).map(
+        convertDestinationTokenToMetadata,
+      );
+    }
+    const enhancedBaseTokens = baseTokens.map((token) => ({
       ...token,
       contractAddress: TOKEN_CONTRACT_ADDRESSES[token.symbol]?.[chainId || 0],
     }));
+    return [...enhancedBaseTokens, ...allDestinationTokens];
   }
 
-  // For swap source selection, fallback to base tokens (async version should be used with SDK)
-  if (!isDestination) {
-    return baseTokens.map((token) => ({
-      ...token,
-      contractAddress: TOKEN_CONTRACT_ADDRESSES[token.symbol]?.[chainId || 0],
-    }));
-  }
+  // For swap source tokens, combine data from both getSupportedChains and getSwapSupportedChainsAndTokens
+  // to include both native tokens and swappable ERC20 tokens
+  if (type === 'swap' && !isDestination && sdk) {
+    const allTokens = new Map<string, any>();
 
-  // For swap destination selection, merge base tokens with destination tokens
-  let allDestinationTokens: ReturnType<typeof convertDestinationTokenToMetadata>[] = [];
+    // First get native tokens from getSupportedChains
+    try {
+      const supportedChainsData = sdk?.utils?.getSupportedChains?.() as SwapSupportedChainsResult;
+      if (supportedChainsData && Array.isArray(supportedChainsData)) {
+        const processedSupportedChainsData = _processSdkData(supportedChainsData);
+        if (processedSupportedChainsData) {
+          let supportedChainsTokens = processedSupportedChainsData.tokens;
 
-  if (chainId) {
-    // If chain is selected, show tokens for that specific chain
-    const destinationTokens = DESTINATION_SWAP_TOKENS.get(chainId) || [];
-    allDestinationTokens = destinationTokens
-      .filter((destToken) => !baseTokens.some((baseToken) => baseToken.symbol === destToken.symbol))
-      .map(convertDestinationTokenToMetadata);
-  } else {
-    // If no chain selected, show ALL destination tokens from all chains (deduplicated)
-    const allChainTokens = Array.from(DESTINATION_SWAP_TOKENS.values()).flat();
-    const uniqueTokens = new Map<string, (typeof allChainTokens)[0]>();
+          if (chainId) {
+            const supportedSymbols = processedSupportedChainsData.chainTokenMap.get(chainId) || [];
+            supportedChainsTokens = supportedChainsTokens.filter((t) =>
+              supportedSymbols.includes(t.symbol),
+            );
+          }
 
-    // Deduplicate tokens by symbol, keeping the first occurrence
-    allChainTokens.forEach((token) => {
-      if (
-        !uniqueTokens.has(token.symbol) &&
-        !baseTokens.some((baseToken) => baseToken.symbol === token.symbol)
-      ) {
-        uniqueTokens.set(token.symbol, token);
+          // Only include native tokens (zero address) from getSupportedChains
+          supportedChainsTokens
+            .filter((token) => token.address === '0x0000000000000000000000000000000000000000')
+            .forEach((token) => {
+              if (!allTokens.has(token.symbol)) {
+                allTokens.set(token.symbol, {
+                  symbol: token.symbol,
+                  name: token.name || token.symbol,
+                  decimals: token.decimals,
+                  icon: token.logo || '',
+                  coingeckoId: '',
+                  contractAddress: token.address as `0x${string}`,
+                });
+              }
+            });
+        }
       }
-    });
+    } catch (error) {
+      console.warn('Failed to fetch supported chains data for swap source:', error);
+    }
 
-    allDestinationTokens = Array.from(uniqueTokens.values()).map(convertDestinationTokenToMetadata);
-  }
-
-  // Merge base tokens with destination tokens
-  const enhancedBaseTokens = baseTokens.map((token) => ({
-    ...token,
-    contractAddress: TOKEN_CONTRACT_ADDRESSES[token.symbol]?.[chainId || 0],
-  }));
-
-  return [...enhancedBaseTokens, ...allDestinationTokens];
-}
-
-/**
- * For swap source tokens, uses SDK's getSwapSupportedChainsAndTokens()
- */
-export function getAvailableSwapTokens(params: TokenResolutionParams): EnhancedTokenMetadata[] {
-  const { chainId, type, isDestination = false, sdk } = params;
-
-  // For non-swap transactions, use synchronous version
-  if (type !== 'swap') {
-    return getAvailableTokens(params);
-  }
-
-  // For swap source selection with SDK, use SDK data
-  if (!isDestination && sdk) {
-    const swapSupportData = getSwapSupportDataFromSDK(sdk);
+    // Then get swappable ERC20 tokens from getSwapSupportedChainsAndTokens
+    const swapSupportData = getTransactionSupportData(sdk, type);
     if (swapSupportData) {
-      let sdkTokens = swapSupportData.tokens;
+      let swapTokensToDisplay = swapSupportData.tokens;
 
-      // Filter by chain if specified
       if (chainId) {
-        const supportedTokenSymbols = swapSupportData.chainTokenMap.get(chainId) || [];
-        sdkTokens = sdkTokens.filter((token) => supportedTokenSymbols.includes(token.symbol));
+        const supportedSymbols = swapSupportData.chainTokenMap.get(chainId) || [];
+        swapTokensToDisplay = swapTokensToDisplay.filter((t) =>
+          supportedSymbols.includes(t.symbol),
+        );
       }
 
-      // Convert SDK tokens to enhanced metadata format
-      return sdkTokens.map((token) => ({
-        symbol: token.symbol,
-        name: token.name || token.symbol,
-        decimals: token.decimals,
-        icon: token.logo || '',
-        coingeckoId: '', // Not provided by SDK
-        contractAddress: token.address as `0x${string}`,
-      }));
+      swapTokensToDisplay.forEach((token) => {
+        if (!allTokens.has(token.symbol)) {
+          allTokens.set(token.symbol, {
+            symbol: token.symbol,
+            name: token.name || token.symbol,
+            decimals: token.decimals,
+            icon: token.logo || '',
+            coingeckoId: '',
+            contractAddress: token.address as `0x${string}`,
+          });
+        }
+      });
+    }
+
+    return Array.from(allTokens.values());
+  }
+
+  // For all other cases (transfer, bridge, bridgeAndExecute), use the SDK data.
+  if (sdk) {
+    const supportData = getTransactionSupportData(sdk, type);
+    if (supportData) {
+      let tokensToDisplay = supportData.tokens;
+
+      if (chainId) {
+        const supportedSymbols = supportData.chainTokenMap.get(chainId) || [];
+        tokensToDisplay = tokensToDisplay.filter((t) => supportedSymbols.includes(t.symbol));
+      }
+
+      return tokensToDisplay.map((token) => {
+        return {
+          symbol: token.symbol,
+          name: token.name || token.symbol,
+          decimals: token.decimals,
+          icon: token.logo || '',
+          coingeckoId: '', // Not provided by SDK
+          contractAddress: token.address as `0x${string}`,
+        };
+      });
     }
   }
 
-  // Fallback to synchronous version
-  return getAvailableTokens(params);
+  // Fallback for non-SDK or failed SDK calls.
+  const baseTokens = Object.values(getBaseTokenMetadata(network));
+  return baseTokens.map((token) => ({
+    ...token,
+    contractAddress: TOKEN_CONTRACT_ADDRESSES[token.symbol]?.[chainId || 0],
+  }));
 }
 
 /**
@@ -258,35 +350,15 @@ export function convertTokensToSelectOptions(tokens: EnhancedTokenMetadata[]): T
 }
 
 /**
- * React hook for token resolution with memoization
- * Note: For swap source tokens with SDK, use useAvailableTokensAsync
+ * React hook for token resolution with memoization.
+ * This is the single hook for fetching available tokens for all transaction types.
  */
 export function useAvailableTokens(params: TokenResolutionParams): TokenSelectOption[] {
+  // The useMemo hook is crucial for performance, preventing re-computation on every render.
   return useMemo(() => {
     const tokens = getAvailableTokens(params);
     return convertTokensToSelectOptions(tokens);
   }, [params.chainId, params.type, params.network, params.isDestination, params.sdk]);
-}
-
-/**
- * Async React hook for token resolution that supports SDK data for swap source tokens
- * Returns { tokens, loading, error } for better UX during async operations
- */
-export function useAvailableSwapTokens(params: TokenResolutionParams): {
-  tokens: TokenSelectOption[];
-} {
-  let tokens: TokenSelectOption[];
-
-  const fetchedTokens = getAvailableSwapTokens(params);
-  if (fetchedTokens) {
-    const tokenOptions = convertTokensToSelectOptions(fetchedTokens);
-    tokens = tokenOptions;
-  } else {
-    const fallbackTokens = getAvailableTokens(params);
-    tokens = convertTokensToSelectOptions(fallbackTokens);
-  }
-
-  return { tokens };
 }
 
 /**
@@ -380,58 +452,80 @@ export function filterTokensByChainAvailability(
 }
 
 /**
- * Get supported chain IDs for a specific token in swap context
- * Returns all chains where the token is available
+ * Get supported chain IDs for a specific token and transaction type.
+ * This is the single source of truth for chain resolution.
  */
 export function getSupportedChainsForToken(
   tokenSymbol: string,
-  type: TransactionType = 'transfer',
-  _network: 'mainnet' | 'testnet' = 'mainnet',
+  type: TransactionType,
+  sdk?: NexusSDK,
+  isDestination?: boolean,
 ): number[] {
-  const supportedChains: number[] = [];
-  // Check standard token contract addresses
-  const tokenContracts = TOKEN_CONTRACT_ADDRESSES[tokenSymbol];
-  if (tokenContracts) {
-    supportedChains.push(...Object.keys(tokenContracts).map(Number));
-  }
+  // For swap destination, use the static list + base tokens.
+  if (type === 'swap' && isDestination) {
+    const supportedChains = new Set<number>();
 
-  // For swaps, also check destination swap tokens
-  if (type === 'swap') {
+    // Check DESTINATION_SWAP_TOKENS
     for (const [chainId, tokens] of DESTINATION_SWAP_TOKENS.entries()) {
-      const hasToken = tokens.some((token) => token.symbol === tokenSymbol);
-      if (hasToken && !supportedChains.includes(chainId)) {
-        supportedChains.push(chainId);
+      if (tokens.some((token) => token.symbol === tokenSymbol)) {
+        supportedChains.add(chainId);
       }
     }
+
+    // Check base tokens (TOKEN_CONTRACT_ADDRESSES)
+    const tokenContracts = TOKEN_CONTRACT_ADDRESSES[tokenSymbol];
+    if (tokenContracts) {
+      Object.keys(tokenContracts).forEach((chainId) => supportedChains.add(Number(chainId)));
+    }
+
+    return Array.from(supportedChains).sort((a, b) => a - b);
   }
 
-  return supportedChains.sort((a, b) => a - b);
-}
+  // For swap source, combine chains from both getSupportedChains and getSwapSupportedChainsAndTokens
+  if (type === 'swap' && !isDestination && sdk) {
+    const supportedChains = new Set<number>();
 
-/**
- * Async version that uses SDK data for swap source tokens
- */
-export function getSupportedSwapChainsForToken(
-  tokenSymbol: string,
-  type: TransactionType = 'transfer',
-  _network: 'mainnet' | 'testnet' = 'mainnet',
-  sdk?: NexusSDK,
-): number[] {
-  // For non-swap transactions, use synchronous version
-  if (type !== 'swap') {
-    return getSupportedChainsForToken(tokenSymbol, type, _network);
+    // Get chains from getSupportedChains (for native tokens)
+    try {
+      const supportedChainsData = sdk?.utils?.getSupportedChains?.() as SwapSupportedChainsResult;
+      if (supportedChainsData && Array.isArray(supportedChainsData)) {
+        const processedData = _processSdkData(supportedChainsData);
+        if (processedData) {
+          const chains = processedData.tokenChainMap.get(tokenSymbol) || [];
+          chains.forEach((chainId) => supportedChains.add(chainId));
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to fetch supported chains for token:', error);
+    }
+
+    // Get chains from getSwapSupportedChainsAndTokens (for ERC20 tokens)
+    const swapSupportData = getTransactionSupportData(sdk, type);
+    if (swapSupportData) {
+      const chains = swapSupportData.tokenChainMap.get(tokenSymbol) || [];
+      chains.forEach((chainId) => supportedChains.add(chainId));
+    }
+
+    return Array.from(supportedChains).sort((a, b) => a - b);
   }
 
-  // For swap source tokens with SDK, check SDK data first
+  // For all other cases (transfer, bridge, bridgeAndExecute), use the SDK data.
   if (sdk) {
-    const swapSupportData = getSwapSupportDataFromSDK(sdk);
-    if (swapSupportData && swapSupportData.tokenChainMap.has(tokenSymbol)) {
-      return (swapSupportData.tokenChainMap.get(tokenSymbol) || []).sort((a, b) => a - b);
+    const supportData = getTransactionSupportData(sdk, type);
+    if (supportData) {
+      return (supportData.tokenChainMap.get(tokenSymbol) || []).sort((a, b) => a - b);
     }
   }
 
-  // Fallback to synchronous version
-  return getSupportedChainsForToken(tokenSymbol, type, _network);
+  // Fallback for non-SDK or failed SDK calls.
+  const tokenContracts = TOKEN_CONTRACT_ADDRESSES[tokenSymbol];
+  if (tokenContracts) {
+    return Object.keys(tokenContracts)
+      .map(Number)
+      .sort((a, b) => a - b);
+  }
+
+  return [];
 }
 
 /**
@@ -449,40 +543,20 @@ export function isTokenChainCombinationValid(
 }
 
 /**
- * Get chains that should be available based on selected token for swaps
- * Filters out chains that don't support the selected token
+ * Get chains that should be available based on a selected token.
+ * Filters a list of available chains against chains that support the token.
  */
 export function getFilteredChainsForToken(
   tokenSymbol: string | undefined,
   availableChains: number[],
-  type: TransactionType = 'transfer',
-): number[] {
-  // For non-swap transactions or no token selected, return all chains
-  if (type !== 'swap' || !tokenSymbol) {
-    return availableChains;
-  }
-
-  // Get chains that support this token
-  const supportedChains = getSupportedChainsForToken(tokenSymbol, type);
-
-  // Return intersection of available chains and supported chains
-  return availableChains.filter((chainId) => supportedChains.includes(chainId));
-}
-
-export function getFilteredSwapChainsForToken(
-  tokenSymbol: string | undefined,
-  availableChains: number[],
-  type: TransactionType = 'transfer',
+  type: TransactionType,
   sdk?: NexusSDK,
+  isDestination?: boolean,
 ): number[] {
-  // For non-swap transactions or no token selected, return all chains
-  if (type !== 'swap' || !tokenSymbol) {
+  if (!tokenSymbol) {
     return availableChains;
   }
 
-  // Get chains that support this token (with SDK data for swaps)
-  const supportedChains = getSupportedSwapChainsForToken(tokenSymbol, type, 'mainnet', sdk);
-
-  // Return intersection of available chains and supported chains
+  const supportedChains = getSupportedChainsForToken(tokenSymbol, type, sdk, isDestination);
   return availableChains.filter((chainId) => supportedChains.includes(chainId));
 }
