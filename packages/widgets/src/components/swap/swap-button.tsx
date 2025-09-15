@@ -5,7 +5,12 @@ import { SwapButtonProps } from '../../types';
 import SwapModal from './swap-modal';
 
 export const SwapButton: FC<SwapButtonProps> = ({ prefill, children, className, title }) => {
-  const { startTransaction, activeTransaction } = useInternalNexus();
+  const { startTransaction, activeTransaction, config } = useInternalNexus();
+
+  if (config?.network === 'testnet') {
+    throw new Error('Testnet is not supported');
+  }
+
   const isLoading =
     activeTransaction.status === 'processing' || activeTransaction.reviewStatus === 'simulating';
 

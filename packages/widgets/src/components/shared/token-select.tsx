@@ -6,8 +6,11 @@ import { Button } from '../motion/button-motion';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { DrawerAutoClose } from '../motion/drawer';
 import type { TokenSelectProps } from '../../types';
-import { useAvailableTokens, type TokenSelectOption } from '../../utils/token-utils';
-import type { TransactionType } from '../../utils/balance-utils';
+import {
+  useAvailableTokens,
+  useAvailableSwapTokens,
+  type TokenSelectOption,
+} from '../../utils/token-utils';
 
 export function TokenSelect({
   value,
@@ -24,15 +27,26 @@ export function TokenSelect({
   chainId?: number;
   isDestination?: boolean;
 }) {
-  const { unifiedBalance } = useInternalNexus();
+  const { unifiedBalance, sdk, isSdkInitialized } = useInternalNexus();
 
-  // Use enhanced token resolution for swap destinations, fallback to standard for other cases
-  const tokenOptions = useAvailableTokens({
+  // Determine if we should use async version (swap source tokens with SDK)
+  const shouldUseSwaps = type === 'swap' && !isDestination && isSdkInitialized && sdk;
+  const swapTokenResult = useAvailableSwapTokens({
     chainId,
-    type: (type as TransactionType) || 'transfer',
+    type: type ?? 'swap',
+    network,
+    isDestination,
+    sdk: shouldUseSwaps ? sdk : undefined,
+  });
+
+  const syncTokenOptions = useAvailableTokens({
+    chainId,
+    type: type ?? 'bridge',
     network,
     isDestination,
   });
+
+  const tokenOptions = shouldUseSwaps ? swapTokenResult.tokens : syncTokenOptions;
 
   // Fallback to legacy logic if no type provided (backward compatibility)
   const legacyTokenOptions: TokenSelectOption[] = useMemo(() => {
@@ -116,6 +130,13 @@ export function TokenSelect({
             </Button>
           </DrawerAutoClose>
         ))}
+
+        {/* Empty state */}
+        {finalTokenOptions.length === 0 && (
+          <div className="flex items-center justify-center w-full py-8">
+            <p className="text-nexus-muted text-sm">No tokens available</p>
+          </div>
+        )}
       </div>
     </div>
   );

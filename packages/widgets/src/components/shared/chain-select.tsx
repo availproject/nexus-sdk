@@ -1,11 +1,12 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { ChainSelectProps } from '../../types';
 import { CHAIN_METADATA, MAINNET_CHAINS, TESTNET_CHAINS } from '@nexus/commons';
 import { ChainIcon } from './icons';
 import { cn } from '../../utils/utils';
 import { Button } from '../motion/button-motion';
 import { DrawerAutoClose } from '../motion/drawer';
-import { getFilteredChainsForToken } from '../../utils/token-utils';
+import { getFilteredChainsForToken, getFilteredSwapChainsForToken } from '../../utils/token-utils';
+import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import type { TransactionType } from '../../utils/balance-utils';
 
 interface ChainSelectOption {
@@ -30,15 +31,33 @@ export function ChainSelect({
   selectedToken?: string;
   transactionType?: TransactionType;
 }) {
+  const { sdk, isSdkInitialized } = useInternalNexus();
+  const [filteredChainIds, setFilteredChainIds] = useState<number[]>([]);
+
   const availableChainIds = network === 'testnet' ? TESTNET_CHAINS : MAINNET_CHAINS;
 
-  // Filter chains based on selected token for swaps
-  const filteredChainIds = useMemo(() => {
-    if (selectedToken && transactionType === 'swap') {
-      return getFilteredChainsForToken(selectedToken, [...availableChainIds], transactionType);
-    }
-    return [...availableChainIds];
-  }, [selectedToken, transactionType, availableChainIds]);
+  // Determine if we should use async filtering (swap source chains with SDK)
+  const shouldUseSwaps =
+    transactionType === 'swap' && isSource && isSdkInitialized && sdk && selectedToken;
+
+  // Effect to handle chain filtering
+  useEffect(() => {
+    const filterChains = () => {
+      if (selectedToken && transactionType === 'swap') {
+        const filtered = getFilteredSwapChainsForToken(
+          selectedToken,
+          [...availableChainIds],
+          transactionType,
+          shouldUseSwaps ? sdk : undefined,
+        );
+        setFilteredChainIds(filtered);
+      } else {
+        setFilteredChainIds([...availableChainIds]);
+      }
+    };
+
+    filterChains();
+  }, [selectedToken, transactionType, availableChainIds, shouldUseSwaps, sdk]);
 
   const chainOptions: ChainSelectOption[] = filteredChainIds.map((chainId) => {
     const metadata = CHAIN_METADATA[chainId];
@@ -105,6 +124,13 @@ export function ChainSelect({
             </Button>
           </DrawerAutoClose>
         ))}
+
+        {/* Empty state */}
+        {chainOptions.length === 0 && (
+          <div className="flex items-center justify-center w-full py-8">
+            <p className="text-nexus-muted text-sm">No chains available for selected token</p>
+          </div>
+        )}
       </div>
     </div>
   );
