@@ -52,7 +52,7 @@ export class NexusUtils {
 
   getSwapSupportedChainsAndTokens(): SwapSupportedChainsResult {
     this.ensureInitialized();
-    return this.adapter.ca.getSwapSupportedChainsAndTokens();
+    return this.adapter.nexusSDK.getSwapSupportedChainsAndTokens();
   }
 
   /* Same for isSupportedChain / isSupportedToken */

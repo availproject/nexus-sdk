@@ -1,7 +1,5 @@
-import { BaseService } from '../core/base-service';
-import { BridgeService } from './bridge-service';
 import { ExecuteService } from './execute-service';
-import { parseUnits } from 'viem';
+import { parseUnits, Hex, toHex, TransactionReceipt } from 'viem';
 import type { ChainAbstractionAdapter } from '../chain-abstraction-adapter';
 import {
   type BridgeAndExecuteParams,
@@ -18,30 +16,14 @@ import {
   CHAIN_METADATA,
   extractErrorMessage,
   logger,
+  ProgressStep,
+  UserAssetDatum as UserAsset,
 } from '@nexus/commons';
-import type { ProgressStep, UserAsset } from '@arcana/ca-sdk';
 
 // Local constants for the service
 const ADAPTER_CONSTANTS = {
   DEFAULT_DECIMALS: 18,
 };
-
-// Type definitions for transaction-related objects
-interface TransactionReceipt {
-  status: string;
-  gasUsed: string;
-  blockNumber?: string;
-  revertReason?: string;
-}
-
-interface Transaction {
-  to: string;
-  input: string;
-  value?: string;
-  from?: string;
-  gas?: string;
-  blockNumber?: string;
-}
 
 interface ProviderError extends Error {
   data?: {
@@ -49,15 +31,12 @@ interface ProviderError extends Error {
   };
 }
 
-export class BridgeExecuteService extends BaseService {
-  private bridgeService: BridgeService;
+export class BridgeExecuteService {
   private executeService: ExecuteService;
   private skipBridge: boolean = false;
   private optimalBridgeAmount: string = '0';
 
-  constructor(adapter: ChainAbstractionAdapter) {
-    super(adapter);
-    this.bridgeService = new BridgeService(adapter);
+  constructor(private adapter: ChainAbstractionAdapter) {
     this.executeService = new ExecuteService(adapter);
   }
 
@@ -134,16 +113,16 @@ export class BridgeExecuteService extends BaseService {
       // Set up listeners to capture Arcana bridge steps and forward step completions
       const bridgeStepsPromise: Promise<ProgressStep[]> = new Promise((resolve) => {
         const expectedHandler = (steps: ProgressStep[]) => {
-          this.caEvents.off(NEXUS_EVENTS.EXPECTED_STEPS, expectedHandler);
+          this.adapter.nexusSDK.nexusEvents.off(NEXUS_EVENTS.EXPECTED_STEPS, expectedHandler);
           resolve(steps);
         };
-        this.caEvents.on(NEXUS_EVENTS.EXPECTED_STEPS, expectedHandler);
+        this.adapter.nexusSDK.nexusEvents.on(NEXUS_EVENTS.EXPECTED_STEPS, expectedHandler);
       });
 
       stepForwarder = (step: ProgressStep) => {
-        this.caEvents.emit(NEXUS_EVENTS.BRIDGE_EXECUTE_COMPLETED_STEPS, step);
+        this.adapter.nexusSDK.nexusEvents.emit(NEXUS_EVENTS.BRIDGE_EXECUTE_COMPLETED_STEPS, step);
       };
-      this.caEvents.on(NEXUS_EVENTS.STEP_COMPLETE, stepForwarder);
+      this.adapter.nexusSDK.nexusEvents.on(NEXUS_EVENTS.STEP_COMPLETE, stepForwarder);
 
       // Perform the actual bridge transaction using optimal amount
       // Convert optimal bridge amount from wei to user-friendly format for bridge service
@@ -159,7 +138,7 @@ export class BridgeExecuteService extends BaseService {
         token,
       });
 
-      const bridgeResult = await this.bridgeService.bridge({
+      const bridgeResult = await this.adapter.nexusSDK.bridge({
         token,
         amount: userFriendlyBridgeAmount,
         chainId: toChainId,
@@ -209,7 +188,7 @@ export class BridgeExecuteService extends BaseService {
       }
 
       // Emit consolidated expected steps for the whole operation
-      this.caEvents.emit(NEXUS_EVENTS.BRIDGE_EXECUTE_EXPECTED_STEPS, [
+      this.adapter.nexusSDK.nexusEvents.emit(NEXUS_EVENTS.BRIDGE_EXECUTE_EXPECTED_STEPS, [
         ...bridgeSteps,
         ...extraSteps,
       ]);
@@ -226,7 +205,11 @@ export class BridgeExecuteService extends BaseService {
           receiptTimeout,
           requiredConfirmations,
           // pass helper to emit steps
-          (step) => this.caEvents.emit(NEXUS_EVENTS.BRIDGE_EXECUTE_COMPLETED_STEPS, step),
+          (step) =>
+            this.adapter.nexusSDK.nexusEvents.emit(
+              NEXUS_EVENTS.BRIDGE_EXECUTE_COMPLETED_STEPS,
+              step,
+            ),
           makeStep,
         );
 
@@ -242,14 +225,14 @@ export class BridgeExecuteService extends BaseService {
       };
 
       // Clean up listener
-      this.caEvents.off(NEXUS_EVENTS.STEP_COMPLETE, stepForwarder);
+      this.adapter.nexusSDK.nexusEvents.off(NEXUS_EVENTS.STEP_COMPLETE, stepForwarder);
 
       return result;
     } catch (error) {
       const errorMessage = extractErrorMessage(error, 'bridge and execute');
 
       // Forward error step (generic) for UI consumers
-      this.caEvents.emit(NEXUS_EVENTS.BRIDGE_EXECUTE_COMPLETED_STEPS, {
+      this.adapter.nexusSDK.nexusEvents.emit(NEXUS_EVENTS.BRIDGE_EXECUTE_COMPLETED_STEPS, {
         typeID: 'ER',
         type: 'operation.failed',
         data: {
@@ -259,7 +242,7 @@ export class BridgeExecuteService extends BaseService {
       });
 
       // Clean listener
-      this.caEvents.off(NEXUS_EVENTS.STEP_COMPLETE, stepForwarder);
+      this.adapter.nexusSDK.nexusEvents.off(NEXUS_EVENTS.STEP_COMPLETE, stepForwarder);
 
       return {
         toChainId,
@@ -314,7 +297,7 @@ export class BridgeExecuteService extends BaseService {
           token: params.token,
         });
 
-        bridgeSimulation = await this.bridgeService.simulateBridge({
+        bridgeSimulation = await this.adapter.nexusSDK.simulateBridge({
           token: params.token,
           amount: userFriendlyBridgeAmount,
           chainId: params.toChainId,
@@ -363,19 +346,13 @@ export class BridgeExecuteService extends BaseService {
 
           // Create execute parameters for simulation - use wei format for SimulationEngine
           // SimulationEngine expects amounts in wei format, not user-friendly format
-          const tokenMetadata = TOKEN_METADATA[params.token.toUpperCase()];
           const modifiedExecuteParams: ExecuteParams = {
             ...execute,
             toChainId: params.toChainId,
-            // Only create tokenApproval for non-native tokens
-            ...(tokenMetadata?.isNative
-              ? {}
-              : {
-                  tokenApproval: {
-                    token: params.token,
-                    amount: receivedAmountForContract, // Keep in wei format for SimulationEngine
-                  },
-                }),
+            tokenApproval: {
+              token: params.token,
+              amount: receivedAmountForContract, // Keep in wei format for SimulationEngine
+            },
           };
 
           executeSimulation =
@@ -433,7 +410,7 @@ export class BridgeExecuteService extends BaseService {
 
             try {
               // Get the current gas price from the connected provider (wei, hex string)
-              const gasPriceHex = (await this.evmProvider.request({
+              const gasPriceHex = (await this.adapter.nexusSDK.request({
                 method: 'eth_gasPrice',
               })) as string;
               const gasPriceWei = parseInt(gasPriceHex, 16);
@@ -582,19 +559,13 @@ export class BridgeExecuteService extends BaseService {
       });
 
       // Create execute parameters with user-friendly amount for the callback
-      const bridgeTokenMetadata = TOKEN_METADATA[bridgeToken.toUpperCase()];
       const finalExecuteParams: ExecuteParams = {
         ...execute,
         toChainId,
-        // Only create tokenApproval for non-native tokens
-        ...(bridgeTokenMetadata?.isNative
-          ? {}
-          : {
-              tokenApproval: {
-                token: bridgeToken,
-                amount: userFriendlyAmount,
-              },
-            }),
+        tokenApproval: {
+          token: bridgeToken,
+          amount: userFriendlyAmount,
+        },
         ...(approvalBufferBpsOverride !== undefined
           ? { approvalBufferBps: approvalBufferBpsOverride }
           : undefined),
@@ -804,34 +775,10 @@ export class BridgeExecuteService extends BaseService {
     txHash: string,
     maxRetries: number = 3,
   ): Promise<TransactionReceipt> {
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        const receipt = (await this.adapter.evmProvider?.request({
-          method: 'eth_getTransactionReceipt',
-          params: [txHash],
-        })) as unknown;
-
-        if (receipt && receipt !== null) {
-          // Type guard to ensure receipt has the expected structure
-          if (typeof receipt === 'object' && receipt !== null && 'status' in receipt) {
-            return receipt as TransactionReceipt;
-          }
-        }
-
-        // If no receipt yet, wait a bit before retrying
-        if (i < maxRetries - 1) {
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-        }
-      } catch (error) {
-        logger.warn(`Attempt ${i + 1} to get receipt failed:`, error);
-        if (i === maxRetries - 1) {
-          throw error;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      }
-    }
-
-    throw new Error(`Failed to get transaction receipt after ${maxRetries} attempts`);
+    return this.adapter.nexusSDK.getEVMClient().waitForTransactionReceipt({
+      hash: txHash as Hex,
+      retryCount: maxRetries,
+    });
   }
 
   /**
@@ -841,10 +788,9 @@ export class BridgeExecuteService extends BaseService {
   private async simulateFailedTransaction(txHash: string): Promise<string | null> {
     try {
       // Get the original transaction details
-      const tx = (await this.adapter.evmProvider?.request({
-        method: 'eth_getTransactionByHash',
-        params: [txHash],
-      })) as unknown;
+      const tx = await this.adapter.nexusSDK.getEVMClient().getTransaction({
+        hash: txHash as Hex,
+      });
 
       if (!tx || tx === null) {
         return null;
@@ -855,45 +801,36 @@ export class BridgeExecuteService extends BaseService {
         return 'Invalid transaction data';
       }
 
-      const transaction = tx as Transaction;
-      if (!transaction.to || !transaction.input) {
+      if (!tx.to || !tx.input) {
         return 'Invalid transaction data';
       }
 
       // Get the transaction receipt to find the block number where it failed
-      const receipt = (await this.adapter.evmProvider?.request({
-        method: 'eth_getTransactionReceipt',
-        params: [txHash],
-      })) as unknown;
+      const receipt = await this.adapter.nexusSDK.getEVMClient().getTransactionReceipt({
+        hash: txHash as Hex,
+      });
 
       // Use the block number where the transaction was mined, or the previous block
       // This ensures we simulate the exact state when the transaction failed
-      let simulationBlock = 'latest';
+      let simulationBlock = 0n;
 
-      if (receipt && typeof receipt === 'object' && receipt !== null && 'blockNumber' in receipt) {
-        const receiptTyped = receipt as TransactionReceipt;
-        if (receiptTyped.blockNumber) {
-          simulationBlock = `0x${(parseInt(receiptTyped.blockNumber, 16) - 1).toString(16)}`;
+      if (receipt) {
+        if (receipt.blockNumber) {
+          simulationBlock = receipt.blockNumber;
         }
-      } else if (transaction.blockNumber) {
-        simulationBlock = transaction.blockNumber;
+      } else if (tx.blockNumber) {
+        simulationBlock = tx.blockNumber;
       }
 
       logger.info(`DEBUG simulateFailedTransaction - Simulating at block: ${simulationBlock}`);
 
       // Simulate the transaction call to get revert reason
-      await this.adapter.evmProvider?.request({
-        method: 'eth_call',
-        params: [
-          {
-            to: transaction.to,
-            data: transaction.input,
-            value: transaction.value || '0x0',
-            from: transaction.from,
-            gas: transaction.gas,
-          },
-          simulationBlock,
-        ],
+      await this.adapter.nexusSDK.getEVMClient().call({
+        to: tx.to,
+        data: tx.input,
+        value: tx.value,
+        gas: tx.gas,
+        blockNumber: simulationBlock,
       });
 
       // If eth_call succeeds when we expected it to fail, this is suspicious
@@ -967,20 +904,14 @@ export class BridgeExecuteService extends BaseService {
         );
 
         // Ensure we're on the correct chain before checking transaction
-        const currentChainId = (await this.adapter.evmProvider?.request({
-          method: 'eth_chainId',
-        })) as string;
-        const currentChainIdDecimal = parseInt(currentChainId, 16);
+        const currentChainId = await this.adapter.nexusSDK.getEVMClient().getChainId();
 
-        if (currentChainIdDecimal !== chainId) {
+        if (currentChainId !== chainId) {
           logger.info(
-            `DEBUG checkTransactionSuccess - Switching from chain ${currentChainIdDecimal} to ${chainId}`,
+            `DEBUG checkTransactionSuccess - Switching from chain ${currentChainId} to ${chainId}`,
           );
           try {
-            await this.adapter.evmProvider?.request({
-              method: 'wallet_switchEthereumChain',
-              params: [{ chainId: `0x${chainId.toString(16)}` }],
-            });
+            await this.adapter.nexusSDK.getEVMClient().switchChain({ id: chainId });
             // Wait a bit after chain switch
             await new Promise((resolve) => setTimeout(resolve, 1000));
           } catch (switchError) {
@@ -1016,20 +947,14 @@ export class BridgeExecuteService extends BaseService {
         logger.info(`DEBUG checkTransactionSuccess - Receipt status: ${receipt.status}`);
 
         // Check if transaction succeeded
-        if (receipt.status === '0x1') {
+        if (receipt.status === 'success') {
           return {
             success: true,
-            gasUsed: receipt.gasUsed,
+            gasUsed: toHex(receipt.gasUsed),
           };
-        }
-
-        // Transaction failed - now get the error reason
-        let errorMessage = 'Transaction failed';
-
-        // 2. Try to get revert reason from receipt (some providers include this)
-        if (receipt.revertReason) {
-          errorMessage = receipt.revertReason;
         } else {
+          let errorMessage = 'Transaction failed';
+
           // 3. Simulate the transaction to get detailed error
           try {
             const simulationError = await this.simulateFailedTransaction(txHash);
@@ -1040,15 +965,17 @@ export class BridgeExecuteService extends BaseService {
             logger.warn('DEBUG checkTransactionSuccess - Simulation failed:', simError);
             // Keep generic error message if simulation fails
           }
+
+          logger.info(`DEBUG checkTransactionSuccess - Final error: ${errorMessage}`);
+
+          return {
+            success: false,
+            error: errorMessage,
+            gasUsed: toHex(receipt.gasUsed),
+          };
         }
 
-        logger.info(`DEBUG checkTransactionSuccess - Final error: ${errorMessage}`);
-
-        return {
-          success: false,
-          error: errorMessage,
-          gasUsed: receipt.gasUsed,
-        };
+        // Transaction failed - now get the error reason
       } catch (error) {
         logger.error(`DEBUG checkTransactionSuccess - Attempt ${attempt} failed:`, error as Error);
 
@@ -1147,7 +1074,7 @@ export class BridgeExecuteService extends BaseService {
       logger.info(`Getting ${token} balance on chain ${chainId}`);
 
       // Get user's unified balances
-      const balances = (await this.adapter.ca.getUnifiedBalances()) as UserAsset[];
+      const balances = (await this.adapter.nexusSDK.getUnifiedBalances()) as UserAsset[];
 
       // Find the balance for the specific token
       const tokenBalance = balances.find((asset) => asset.symbol === token);
@@ -1206,7 +1133,7 @@ export class BridgeExecuteService extends BaseService {
       logger.info(`Checking ${nativeTokenSymbol} balance on chain ${chainId} for gas`);
 
       // Get user's unified balances
-      const balances = (await this.adapter.ca.getUnifiedBalances()) as UserAsset[];
+      const balances = (await this.adapter.nexusSDK.getUnifiedBalances()) as UserAsset[];
 
       // Find the native token balance
       const nativeTokenBalance = balances.find((asset) => asset.symbol === nativeTokenSymbol);
@@ -1235,7 +1162,7 @@ export class BridgeExecuteService extends BaseService {
       } else if (gasEstimate) {
         // Convert gas estimate to ETH using current gas price
         try {
-          const gasPriceHex = (await this.evmProvider.request({
+          const gasPriceHex = (await this.adapter.nexusSDK.request({
             method: 'eth_gasPrice',
           })) as string;
           const gasPriceWei = parseInt(gasPriceHex, 16);
@@ -1320,7 +1247,10 @@ export class BridgeExecuteService extends BaseService {
       }
 
       // Emit expected steps for execute-only flow
-      this.caEvents.emit(NEXUS_EVENTS.BRIDGE_EXECUTE_EXPECTED_STEPS, executeSteps);
+      this.adapter.nexusSDK.nexusEvents.emit(
+        NEXUS_EVENTS.BRIDGE_EXECUTE_EXPECTED_STEPS,
+        executeSteps,
+      );
 
       // Execute directly using existing funds
       const { executeTransactionHash, executeExplorerUrl, approvalTransactionHash } =
@@ -1334,7 +1264,11 @@ export class BridgeExecuteService extends BaseService {
           waitForReceipt,
           receiptTimeout,
           requiredConfirmations,
-          (step) => this.caEvents.emit(NEXUS_EVENTS.BRIDGE_EXECUTE_COMPLETED_STEPS, step),
+          (step) =>
+            this.adapter.nexusSDK.nexusEvents.emit(
+              NEXUS_EVENTS.BRIDGE_EXECUTE_COMPLETED_STEPS,
+              step,
+            ),
           makeStep,
         );
 
@@ -1352,7 +1286,7 @@ export class BridgeExecuteService extends BaseService {
       const errorMessage = extractErrorMessage(error, 'execute directly');
 
       // Emit error step
-      this.caEvents.emit(NEXUS_EVENTS.BRIDGE_EXECUTE_COMPLETED_STEPS, {
+      this.adapter.nexusSDK.nexusEvents.emit(NEXUS_EVENTS.BRIDGE_EXECUTE_COMPLETED_STEPS, {
         typeID: 'ER',
         type: 'operation.failed',
         data: {

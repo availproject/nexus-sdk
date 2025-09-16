@@ -1,4 +1,3 @@
-import { BaseService } from '../core/base-service';
 import { TransactionService } from './transaction-service';
 import { ApprovalService } from './approval-service';
 import { getSimulationClient } from '../../integrations/tenderly';
@@ -16,12 +15,11 @@ import { SimulationEngine } from './simulation-engine';
 /**
  * Service responsible for handling execution operations
  */
-export class ExecuteService extends BaseService {
+export class ExecuteService {
   private transactionService: TransactionService;
   private approvalService: ApprovalService;
 
-  constructor(adapter: ChainAbstractionAdapter) {
-    super(adapter);
+  constructor(private adapter: ChainAbstractionAdapter) {
     this.transactionService = new TransactionService(adapter);
     this.approvalService = new ApprovalService(adapter);
   }
@@ -37,8 +35,6 @@ export class ExecuteService extends BaseService {
    * Execute a contract call with approval handling
    */
   async execute(params: ExecuteParams): Promise<ExecuteResult> {
-    this.ensureInitialized();
-
     try {
       // Prepare execution (includes chain switching)
       const preparation = await this.transactionService.prepareExecution(params);
@@ -50,7 +46,7 @@ export class ExecuteService extends BaseService {
           params.tokenApproval,
           params.contractAddress,
           params.toChainId,
-          true, // Wait for approval confirmation before proceeding
+          false,
           params.approvalBufferBps,
         );
 
@@ -116,8 +112,6 @@ export class ExecuteService extends BaseService {
    * Simulate contract execution
    */
   async simulateExecute(params: ExecuteParams): Promise<ExecuteSimulation> {
-    this.ensureInitialized();
-
     try {
       // Get simulation client
       const simulationClient = getSimulationClient();
@@ -133,9 +127,7 @@ export class ExecuteService extends BaseService {
       }
 
       // Get user address for callback
-      const fromAddress = (await this.adapter.evmProvider!.request({
-        method: 'eth_accounts',
-      })) as string[];
+      const fromAddress = await this.adapter.nexusSDK.getEVMClient().getAddresses();
 
       if (!fromAddress || fromAddress.length === 0) {
         throw new Error('No accounts available');
@@ -169,7 +161,7 @@ export class ExecuteService extends BaseService {
       const gasUsedDecimal = hexToNumber(simulationResult.gasUsed as Hex);
       let gasCostEth: string | undefined;
       try {
-        const gasPriceHex = (await this.adapter.evmProvider!.request({
+        const gasPriceHex = (await this.adapter.nexusSDK.request({
           method: 'eth_gasPrice',
         })) as string;
         const gasPriceWei = parseInt(gasPriceHex, 16);
@@ -199,8 +191,6 @@ export class ExecuteService extends BaseService {
    * Enhanced simulation with automatic state setup
    */
   async simulateExecuteEnhanced(params: ExecuteParams): Promise<ExecuteSimulation> {
-    this.ensureInitialized();
-
     try {
       // Check if we should use enhanced simulation
       logger.debug('DEBUG ExecuteService - Full params received:', {
@@ -291,17 +281,11 @@ export class ExecuteService extends BaseService {
   private async runEnhancedSimulation(params: ExecuteParams): Promise<ExecuteSimulation> {
     try {
       // Check if evmProvider is available
-      if (!this.adapter.evmProvider) {
+      if (!this.adapter.nexusSDK.getEVMProviderWithCA()) {
         throw new Error('EVM provider not available for enhanced simulation');
       }
 
-      // Create a proper adapter for SimulationEngine
-      const simulationAdapter = {
-        isInitialized: () => this.adapter.isInitialized(),
-        evmProvider: this.adapter.evmProvider,
-      };
-
-      const simulationEngine = new SimulationEngine(simulationAdapter);
+      const simulationEngine = new SimulationEngine(this.adapter);
 
       // Get user address
       const preparation = await this.transactionService.prepareExecution(params);

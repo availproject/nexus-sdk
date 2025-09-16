@@ -2,18 +2,11 @@ import {
   getTokenContractAddress,
   TOKEN_METADATA,
   logger,
-  type EthereumProvider,
   type SUPPORTED_CHAINS_IDS,
   type SUPPORTED_TOKENS,
 } from '@nexus/commons';
-
-/**
- * Minimal interface for what BalanceDetectionService needs
- */
-interface BalanceDetectionAdapter {
-  isInitialized(): boolean;
-  evmProvider: EthereumProvider;
-}
+import { ChainAbstractionAdapter } from 'adapters/chain-abstraction-adapter';
+import { Hex, erc20Abi } from 'viem';
 
 /**
  * Detailed balance information for a user
@@ -58,20 +51,16 @@ export interface BalanceRequirement {
  * Smart balance detection and analysis service
  */
 export class BalanceDetectionService {
-  private adapter: BalanceDetectionAdapter;
+  private adapter: ChainAbstractionAdapter;
 
-  constructor(adapter: BalanceDetectionAdapter) {
+  constructor(adapter: ChainAbstractionAdapter) {
     this.adapter = adapter;
   }
 
   private ensureInitialized() {
-    if (!this.adapter.isInitialized()) {
+    if (!this.adapter.nexusSDK.isInitialized()) {
       throw new Error('Adapter not initialized');
     }
-  }
-
-  private get evmProvider() {
-    return this.adapter.evmProvider;
   }
 
   /**
@@ -98,25 +87,25 @@ export class BalanceDetectionService {
         throw new Error(`Token ${token} not supported on chain ${chainId}`);
       }
 
+      const isNative = token === 'ETH';
       const tokenMetadata = TOKEN_METADATA[token.toUpperCase()];
-      const isNative = tokenMetadata?.isNative;
       const decimals = tokenMetadata?.decimals || 18;
 
-      let balance: string;
+      let balance: bigint;
 
       if (isNative) {
         // Get ETH balance
-        balance = (await this.evmProvider.request({
-          method: 'eth_getBalance',
-          params: [userAddress, 'latest'],
-        })) as string;
+        balance = await this.adapter.nexusSDK.getEVMClient().getBalance({
+          address: userAddress as Hex,
+          blockTag: 'latest',
+        });
       } else {
         // Get ERC20 token balance using balanceOf
         balance = await this.getERC20Balance(userAddress, tokenAddress);
       }
 
       const balanceBigInt = BigInt(balance);
-      const balanceFormatted = this.formatTokenAmount(balance, decimals);
+      const balanceFormatted = this.formatTokenAmount(balance.toString(), decimals);
 
       // Calculate sufficiency and shortfall
       let sufficient = true;
@@ -138,13 +127,13 @@ export class BalanceDetectionService {
         chainId,
         userAddress,
         tokenAddress,
-        balance,
+        balance: balance.toString(),
         balanceFormatted,
         sufficient,
         shortfall,
         shortfallFormatted,
         decimals,
-        isNative: isNative || false,
+        isNative,
         lastChecked: new Date().toISOString(),
       };
 
@@ -174,7 +163,7 @@ export class BalanceDetectionService {
         shortfall: requiredAmount || '0',
         shortfallFormatted: '0',
         decimals: TOKEN_METADATA[token.toUpperCase()]?.decimals || 18,
-        isNative: TOKEN_METADATA[token.toUpperCase()]?.isNative || false,
+        isNative: token === 'ETH',
         lastChecked: new Date().toISOString(),
       };
     }
@@ -247,31 +236,22 @@ export class BalanceDetectionService {
   /**
    * Get ERC20 token balance using balanceOf call
    */
-  private async getERC20Balance(userAddress: string, tokenAddress: string): Promise<string> {
+  private async getERC20Balance(userAddress: string, tokenAddress: string): Promise<bigint> {
     try {
-      // balanceOf(address) function selector: 0x70a08231
-      const balanceOfSelector = '0x70a08231';
-      const paddedAddress = userAddress.slice(2).padStart(64, '0');
-      const callData = balanceOfSelector + paddedAddress;
+      const balance = await this.adapter.nexusSDK.getEVMClient().readContract({
+        abi: erc20Abi,
+        functionName: 'balanceOf',
+        address: tokenAddress as Hex,
+        args: [userAddress as Hex],
+      });
 
-      const result = (await this.evmProvider.request({
-        method: 'eth_call',
-        params: [
-          {
-            to: tokenAddress,
-            data: callData,
-          },
-          'latest',
-        ],
-      })) as string;
-
-      return BigInt(result || '0x0').toString();
+      return balance;
     } catch (error) {
       logger.error(
         `Failed to get ERC20 balance for ${tokenAddress}:`,
         error instanceof Error ? error : String(error),
       );
-      return '0';
+      return 0n;
     }
   }
 
@@ -376,9 +356,8 @@ export class BalanceDetectionService {
    */
   private suggestFundingMethod(token: SUPPORTED_TOKENS): 'bridge' | 'swap' | 'acquire' {
     // For now, simple logic - can be enhanced with actual bridge/swap availability
-    const tokenMetadata = TOKEN_METADATA[token.toUpperCase()];
-    if (tokenMetadata?.isNative) {
-      return 'acquire'; // Need to buy native token (ETH, MATIC, etc.)
+    if (token === 'ETH') {
+      return 'acquire'; // Need to buy ETH
     }
 
     // For stablecoins, bridging is usually preferred

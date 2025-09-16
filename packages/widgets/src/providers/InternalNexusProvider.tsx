@@ -691,7 +691,7 @@ export function InternalNexusProvider({
         // Start the swap process
         sdk
           .swap(swapInput, {
-            swapIntentHook: async (data: SwapIntentHook) => {
+            swapIntentHook: async (data: Parameters<SwapIntentHook>[0]) => {
               logger.info('Swap Provider: Intent captured successfully', data.intent);
               swapAllowCallbackRef.current = data.allow;
               // Update UI with captured intent (simulation result)
