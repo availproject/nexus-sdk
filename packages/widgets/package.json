@@ -48,7 +48,7 @@
     "tailwind-merge": "3.3.1"
   },
   "devDependencies": {
-    "@arcana/ca-sdk": "1.1.3-dev.0",
+    "@arcana/ca-sdk": "1.1.3-dev.2",
     "@rollup/plugin-commonjs": "^25.0.0",
     "@rollup/plugin-json": "6.1.0",
     "@rollup/plugin-node-resolve": "^15.0.0",
