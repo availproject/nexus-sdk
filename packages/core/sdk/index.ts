@@ -22,11 +22,7 @@ import type {
   ExecuteSimulation,
   BridgeAndExecuteSimulationResult,
 } from '@nexus/commons';
-import {
-  setLogLevel,
-  LOG_LEVEL,
-  logger,
-} from '@nexus/commons';
+import { setLogLevel, LOG_LEVEL, logger } from '@nexus/commons';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
 import { Network, SDKConfig } from '@arcana/ca-sdk';
 import { ChainAbstractionAdapter } from '../adapters/chain-abstraction-adapter';
@@ -42,8 +38,11 @@ export class NexusSDK {
       ...config,
       siweStatement: 'Sign in to enable Nexus',
     };
+
     if (config?.network) {
-      nexusConfig.network = config?.network === 'testnet' ? Network.FOLLY : undefined;
+      nexusConfig.network = config?.network === 'testnet' ? Network.FOLLY : Network.CERISE;
+    } else {
+      nexusConfig.network = Network.CERISE;
     }
 
     // Initialize logger based on debug flag
