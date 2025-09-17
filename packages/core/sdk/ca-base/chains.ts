@@ -967,6 +967,13 @@ const MAINNET_CHAINS: Chain[] = [
           name: 'Tether USD',
           symbol: 'USDT',
         },
+        {
+          contractAddress: '0xb88339CB7199b77E23DB6E890353E22632Ba630f',
+          decimals: 6,
+          logo: getLogoFromSymbol('USDC'),
+          name: 'USD Coin',
+          symbol: 'USDC',
+        },
       ],
     },
     id: HYPEREVM_CHAIN_ID,
