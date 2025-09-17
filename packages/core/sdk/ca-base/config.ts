@@ -5,7 +5,7 @@ import { NetworkConfig } from '@nexus/commons';
 // Testnet with mainnet tokens
 const CORAL_CONFIG: NetworkConfig = {
   COSMOS_URL: 'https://cosmos01-testnet.arcana.network',
-  EXPLORER_URL: 'https://explorer.arcana.network',
+  EXPLORER_URL: 'https://explorer.nexus.availproject.org',
   FAUCET_URL: 'https://gateway001-testnet.arcana.network/api/v1/faucet',
   GRPC_URL: 'https://grpcproxy-testnet.arcana.network',
   NETWORK_HINT: Environment.CORAL,
@@ -16,7 +16,7 @@ const CORAL_CONFIG: NetworkConfig = {
 // Dev with mainnet tokens
 const CERISE_CONFIG: NetworkConfig = {
   COSMOS_URL: 'https://cosmos01-dev.arcana.network',
-  EXPLORER_URL: 'https://explorer.dev.arcana.network',
+  EXPLORER_URL: 'https://explorer.nexus-cerise.availproject.org',
   FAUCET_URL: 'https://gateway-dev.arcana.network/api/v1/faucet',
   GRPC_URL: 'https://mimosa-dash-grpc.arcana.network',
   NETWORK_HINT: Environment.CERISE,
@@ -27,7 +27,7 @@ const CERISE_CONFIG: NetworkConfig = {
 // Dev with testnet tokens
 const FOLLY_CONFIG: NetworkConfig = {
   COSMOS_URL: 'https://cosmos04-dev.arcana.network',
-  EXPLORER_URL: 'https://explorer.folly.arcana.network',
+  EXPLORER_URL: 'https://explorer.nexus-folly.availproject.org',
   FAUCET_URL: 'https://gateway-dev.arcana.network/api/v1/faucet',
   GRPC_URL: 'https://grpc-folly.arcana.network',
   NETWORK_HINT: Environment.FOLLY,
