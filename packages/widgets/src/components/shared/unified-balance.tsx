@@ -17,7 +17,7 @@ import {
 } from '@nexus/commons';
 import SolarWallet from '../icons/SolarWallet';
 import { ChevronDownIcon, CircleX } from '../icons';
-import { cn } from '../../utils/utils';
+import { cn, getTokenFromInputData } from '../../utils/utils';
 import { TOKEN_IMAGE_MAP } from '../../utils/balance-utils';
 
 const BalanceTrigger = ({ balance, token }: { balance?: UserAsset; token?: SUPPORTED_TOKENS }) => {
@@ -147,7 +147,7 @@ const ChainBalance = ({
 const UnifiedBalance = () => {
   const { unifiedBalance, activeTransaction } = useInternalNexus();
   const { inputData } = activeTransaction;
-  const tokenSymbol = inputData?.token;
+  const tokenSymbol = getTokenFromInputData(inputData);
 
   const relevantBalance = useMemo(() => {
     if (!unifiedBalance || !tokenSymbol) return [] as UserAsset[];
@@ -233,7 +233,7 @@ const UnifiedBalance = () => {
   return (
     <Drawer>
       <DrawerTrigger className="px-6 font-nexus-primary w-full my-6">
-        <BalanceTrigger balance={tokenBalance} token={inputData?.token} />
+        <BalanceTrigger balance={tokenBalance} token={getTokenFromInputData(inputData) as SUPPORTED_TOKENS} />
       </DrawerTrigger>
       <DrawerContent className="font-nexus-primary">
         <DrawerHeader className="px-4 pt-4 pb-0">

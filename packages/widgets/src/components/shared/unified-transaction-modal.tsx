@@ -1,11 +1,17 @@
 import React, { useState, useCallback } from 'react';
 import { BaseModal } from '../motion/base-modal';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
-import { cn, getContentKey, getModalTitle, getPrimaryButtonText } from '../../utils/utils';
+import {
+  cn,
+  getContentKey,
+  getModalTitle,
+  getPrimaryButtonText,
+  getTokenFromInputData,
+  getAmountFromInputData,
+} from '../../utils/utils';
 import { type TransactionType } from '../../utils/balance-utils';
 import { TransactionSimulation } from '../processing/transaction-simulation';
 import { AvailLogo } from '../icons/AvailLogo';
-import { type BridgeAndExecuteParams } from '@nexus/commons';
 import UnifiedBalance from './unified-balance';
 import { InfoMessage } from './info-message';
 import { AllowanceForm } from './allowance-form';
@@ -13,16 +19,14 @@ import { DialogFooter, DialogHeader, DialogTitle } from '../motion/dialog-motion
 import { SlideTransition } from '../motion/slide-transition';
 import { EnhancedInfoMessage } from './enhanced-info-message';
 import { ActionButtons } from './action-buttons';
-import type { BridgeConfig, TransferConfig } from '../../types';
+import type { UnifiedInputData, SwapInputData } from '../../types';
 
 interface UnifiedTransactionModalProps {
   transactionType: TransactionType;
   modalTitle: string;
   FormComponent: React.ComponentType<{
-    inputData: any;
-    onUpdate: (
-      data: Partial<BridgeConfig> | Partial<TransferConfig> | Partial<BridgeAndExecuteParams>,
-    ) => void;
+    inputData: UnifiedInputData | SwapInputData;
+    onUpdate: (data: UnifiedInputData | SwapInputData) => void;
     disabled: boolean;
     prefillFields?: any;
   }>;
@@ -60,6 +64,8 @@ export function UnifiedTransactionModal({
     approveAllowance,
     denyAllowance,
     startAllowanceFlow,
+    initiateSwap,
+    proceedWithSwap,
   } = useInternalNexus();
 
   const { status, reviewStatus, inputData, simulationResult, type, prefillFields } =
@@ -74,6 +80,30 @@ export function UnifiedTransactionModal({
       setAllowanceApproveHandler(() => handler);
     },
     [setAllowanceFormValid, setAllowanceApproveHandler],
+  );
+
+  // Helper function to check sufficient input for both regular transactions and swaps
+  const checkHasSufficientInput = useCallback(
+    (inputData: any) => {
+      if (!inputData) return false;
+
+      if (transactionType === 'swap') {
+        // For swaps, check input directly (since activeController is null)
+        const data = inputData as Partial<SwapInputData>;
+        return !!(
+          data.fromChainID &&
+          data.toChainID &&
+          data.fromTokenAddress &&
+          data.toTokenAddress &&
+          data.fromAmount &&
+          parseFloat(data.fromAmount?.toString() || '0') > 0
+        );
+      } else {
+        // For regular transactions, use activeController
+        return activeController?.hasSufficientInput(inputData || {}) || false;
+      }
+    },
+    [transactionType, activeController],
   );
 
   // Type guard - return null if wrong transaction type
@@ -99,14 +129,27 @@ export function UnifiedTransactionModal({
     } else if (
       status === 'review' &&
       reviewStatus === 'gathering_input' &&
-      activeController?.hasSufficientInput(inputData || {})
+      checkHasSufficientInput(inputData)
     ) {
-      triggerSimulation();
+      if (transactionType === 'swap') {
+        // For swaps, initiateSwap should be called automatically by useEffect
+        // But allow manual fallback in case of timing issues
+        await initiateSwap(inputData as SwapInputData);
+      } else {
+        triggerSimulation();
+      }
+    } else if (status === 'review' && reviewStatus === 'ready') {
+      if (transactionType === 'swap') {
+        proceedWithSwap();
+      } else {
+        confirmAndProceed();
+      }
     } else if (status === 'review' && reviewStatus === 'needs_allowance') {
       startAllowanceFlow();
     } else if (status === 'set_allowance' && allowanceApproveHandler) {
       allowanceApproveHandler();
     } else {
+      console.log('🔄 Fallback: calling confirmAndProceed');
       confirmAndProceed();
     }
   };
@@ -115,7 +158,7 @@ export function UnifiedTransactionModal({
     setTimeout(handleButtonClick, 500);
   };
 
-  const hasSufficientInput = activeController?.hasSufficientInput(inputData || {});
+  const hasSufficientInput = checkHasSufficientInput(inputData);
   const shouldShowSimulation = isSdkInitialized && hasSufficientInput;
   const transformedInputData = transformInputData ? transformInputData(inputData) : inputData;
 
@@ -128,9 +171,9 @@ export function UnifiedTransactionModal({
 
     return (
       <AllowanceForm
-        token={inputData?.token || ''}
+        token={getTokenFromInputData(inputData) || ''}
         minimumAmount={minimumAmount}
-        inputAmount={inputData?.amount?.toString() || '0'}
+        inputAmount={getAmountFromInputData(inputData)?.toString() || '0'}
         sourceChains={sourceChains}
         onApprove={approveAllowance}
         onCancel={denyAllowance}
@@ -173,7 +216,9 @@ export function UnifiedTransactionModal({
       <div
         className={cn(
           'flex-1 flex flex-col overflow-hidden w-full',
-          status !== 'set_allowance' && transactionType !== 'transfer' ? 'mt-14' : '',
+          status !== 'set_allowance' && transactionType !== 'transfer' && transactionType !== 'swap'
+            ? 'mt-14'
+            : '',
         )}
       >
         <SlideTransition contentKey={getContentKey(status, [reviewStatus])}>
@@ -183,7 +228,7 @@ export function UnifiedTransactionModal({
 
               <FormComponent
                 inputData={transformedInputData || {}}
-                onUpdate={updateInput}
+                onUpdate={updateInput as any}
                 disabled={!isSdkInitialized}
                 prefillFields={prefillFields}
               />
@@ -198,9 +243,12 @@ export function UnifiedTransactionModal({
                 {isSdkInitialized && insufficientBalance && (
                   <InfoMessage variant="error" className="mt-4">
                     <div className="space-y-2">
-                      <p className="font-semibold">Insufficient {inputData?.token} balance</p>
+                      <p className="font-semibold">
+                        Insufficient {getTokenFromInputData(inputData)} balance
+                      </p>
                       <p className="text-sm">
-                        You don't have enough {inputData?.token} to complete this transaction.
+                        You don't have enough {getTokenFromInputData(inputData)} to complete this
+                        transaction.
                         {transactionType === 'bridgeAndExecute'
                           ? ' Consider using a smaller amount or add more funds to your wallet.'
                           : ' Please add more funds to your wallet or reduce the transaction amount.'}
@@ -218,7 +266,8 @@ export function UnifiedTransactionModal({
                 ) : (
                   shouldShowSimulation &&
                   !insufficientBalance &&
-                  status !== 'simulation_error' && (
+                  status !== 'simulation_error' &&
+                  type !== 'swap' && (
                     <TransactionSimulation
                       isLoading={isSimulating}
                       simulationResult={simulationResult || undefined}
@@ -252,13 +301,12 @@ export function UnifiedTransactionModal({
               (status === 'set_allowance' && !allowanceFormValid) ||
               (status === 'review' &&
                 reviewStatus === 'gathering_input' &&
-                !activeController?.hasSufficientInput(inputData || {})) ||
+                !checkHasSufficientInput(inputData)) ||
               (status === 'review' &&
                 reviewStatus !== 'ready' &&
                 reviewStatus !== 'needs_allowance' &&
                 reviewStatus !== 'gathering_input') ||
-              (status === 'simulation_error' &&
-                !activeController?.hasSufficientInput(inputData || {}))
+              (status === 'simulation_error' && !checkHasSufficientInput(inputData))
             }
             className="border-t border-zinc-400/40 bg-gray-100"
           />

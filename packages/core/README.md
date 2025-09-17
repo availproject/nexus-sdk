@@ -21,6 +21,19 @@ await sdk.initialize(provider); // Your wallet provider
 const balances = await sdk.getUnifiedBalances();
 console.log('All balances:', balances);
 
+// Get swap-specific balances
+const swapBalances = await sdk.getSwapBalances();
+console.log('Swap balances:', swapBalances);
+
+// Swap tokens (EXACT_IN - specify input amount)
+const swapResult = await sdk.swap({
+  fromAmount: parseUnits('100', 6), // 100 USDC
+  fromChainID: 137, // Polygon
+  fromTokenAddress: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174', // USDC on Polygon
+  toChainID: 1, // Ethereum
+  toTokenAddress: '0xA0b86a33E6441E02ad58c70b70fa3c2b3c3e74C9', // ETH on Ethereum
+});
+
 // Bridge tokens
 const bridgeResult = await sdk.bridge({
   token: 'USDC',
@@ -62,6 +75,7 @@ const executeResult = await sdk.execute({
 ## Core Features
 
 - **Cross-chain bridging** - Seamless token bridging between 16 chains
+- **Cross-chain swaps** - Token swapping between chains with EXACT_IN and EXACT_OUT modes
 - **Unified balances** - Aggregated portfolio view across all chains
 - **Allowance management** - Efficient token approval handling
 - **Smart direct transfers** - Send tokens to any address with automatic optimization
@@ -232,6 +246,9 @@ const balances: UserAsset[] = await sdk.getUnifiedBalances();
 
 // Get balance for specific token
 const usdcBalance: UserAsset | undefined = await sdk.getUnifiedBalance('USDC');
+
+// Get swap balances
+const swapBalances: SwapBalances = await sdk.getSwapBalances();
 ```
 
 ## Bridge Operations
@@ -395,6 +412,168 @@ console.log('Approval required:', simulation.metadata?.approvalRequired);
 console.log('Bridge receive amount:', simulation.metadata?.bridgeReceiveAmount);
 ```
 
+## Swap Operations
+
+```typescript
+import type { SwapInput, SwapResult, SwapBalances } from '@avail-project/nexus';
+
+// EXACT_IN Swap - Specify exact input amount, variable output
+const exactInSwap: SwapResult = await sdk.swap({
+  fromAmount: parseUnits('100', 6), // Exactly 100 USDC
+  fromChainID: 137, // Polygon
+  fromTokenAddress: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174', // USDC on Polygon
+  toChainID: 1, // Ethereum
+  toTokenAddress: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', // WETH on Ethereum
+});
+
+// EXACT_OUT Swap - Specify exact output amount, variable input
+const exactOutSwap: SwapResult = await sdk.swap({
+  toAmount: parseUnits('1', 18), // Exactly 1 ETH output
+  toChainID: 1, // Ethereum
+  toTokenAddress: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', // WETH on Ethereum
+  // fromAmount, fromChainID, fromTokenAddress determined automatically
+},   {
+  swapIntentHook: async (data: SwapIntentHook) => {
+    // use this to capture the intent allow, reject and refresh functions
+    const {intent, allow, reject, refresh} = data;
+    // Use it to handle user interaction
+    //
+    // setSwapIntent(intent);
+    // setAllowCallback(allow);
+    // setRejectCallback(reject);
+    // setRefreshCallback(refresh);
+
+    // or directly approve or reject the intent
+    allow()
+  },);
+
+// Cross-chain swap with custom options
+const crossChainSwap: SwapResult = await sdk.swap(
+  {
+    fromAmount: parseUnits('50', 6), // 50 USDC
+    fromChainID: 42161, // Arbitrum
+    fromTokenAddress: '0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8', // USDC on Arbitrum
+    toChainID: 10, // Optimism
+    toTokenAddress: '0x4200000000000000000000000000000000000006', // WETH on Optimism
+  },
+  {
+    swapIntentHook: async (data: SwapIntentHook) => {
+      // use this to capture the intent allow, reject and refresh functions
+      const {intent, allow, reject, refresh} = data;
+      // Use it to handle user interaction or display transaction details
+
+      // setSwapIntent(intent);
+      // setAllowCallback(allow);
+      // setRejectCallback(reject);
+      // setRefreshCallback(refresh);
+
+      // or directly approve or reject the intent
+      // calling allow processes the txn
+      allow()
+    },
+  }
+);
+
+// Handle swap results
+if (exactInSwap.success) {
+  console.log('✅ Swap successful!');
+  console.log('Source transaction:', exactInSwap.sourceExplorerUrl);
+  console.log('Destination transaction:', exactInSwap.destinationExplorerUrl);
+} else {
+  console.error('❌ Swap failed:', exactInSwap.error);
+}
+
+// Get swap-specific balances for better UX
+const swapBalances: SwapBalances = await sdk.getSwapBalances();
+console.log('Available for swapping:', swapBalances);
+```
+
+### Discovering Available Swap Options
+
+```typescript
+import type { SwapSupportedChainsResult } from '@avail-project/nexus';
+import { DESTINATION_SWAP_TOKENS } from '@avail-project/nexus';
+
+
+// Get supported source chains and tokens for swaps
+const supportedOptions: SwapSupportedChainsResult = sdk.utils.getSwapSupportedChainsAndTokens();
+console.log('Supported source chains and tokens:', supportedOptions);
+
+// Example: Build a source token selector
+supportedOptions.forEach(chain => {
+  console.log(`Chain: ${chain.name} (${chain.id})`);
+  chain.tokens.forEach(token => {
+    console.log(`  - ${token.symbol}: ${token.tokenAddress}`);
+  });
+});
+
+// Get suggested destination tokens (optional - destination can be any token or chain)
+const optimismDestinations = DESTINATION_SWAP_TOKENS.get(10); // Optimism
+const arbitrumDestinations = DESTINATION_SWAP_TOKENS.get(42161); // Arbitrum
+const baseDestinations = DESTINATION_SWAP_TOKENS.get(8453); // Base
+
+console.log('Popular Optimism destinations:', optimismDestinations);
+console.log('Popular Arbitrum destinations:', arbitrumDestinations);
+console.log('Popular Base destinations:', baseDestinations);
+
+// Example: Build destination token options for UI
+const buildDestinationOptions = (chainId: number) => {
+  const popularTokens = DESTINATION_SWAP_TOKENS.get(chainId) || [];
+  return popularTokens.map(token => ({
+    label: `${token.symbol} - ${token.name}`,
+    value: token.tokenAddress,
+    icon: token.logo,
+    decimals: token.decimals,
+  }));
+};
+```
+
+**Note:**
+- **Source chains/tokens** are restricted to what `getSwapSupportedChainsAndTokens()` returns
+- **Destination chains/tokens** can be any supported chain and token address
+- `DESTINATION_SWAP_TOKENS` provides popular destination options but is not exhaustive
+
+### Swap Types
+
+**EXACT_IN Swaps:**
+- You specify exactly how much you want to spend (`fromAmount`)
+- Output amount varies based on market conditions and fees
+- Use case: "I want to swap all my 100 USDC"
+
+**EXACT_OUT Swaps:**
+- You specify exactly how much you want to receive (`toAmount`)
+- Input amount varies based on market conditions and fees
+- Use case: "I need exactly 1 ETH for a specific purpose"
+
+### Swap Progress Events
+
+```typescript
+import { NEXUS_EVENTS } from '@avail-project/nexus';
+
+// Listen for swap progress updates
+const unsubscribeSwapSteps = sdk.nexusEvents.on(
+  NEXUS_EVENTS.SWAP_STEPS,
+  (step) => {
+    console.log('Swap step:', step.type);
+
+    if (step.type === 'SOURCE_SWAP_HASH' && step.explorerURL) {
+      console.log('Source transaction:', step.explorerURL);
+    }
+
+    if (step.type === 'DESTINATION_SWAP_HASH' && step.explorerURL) {
+      console.log('Destination transaction:', step.explorerURL);
+    }
+
+    if (step.type === 'SWAP_COMPLETE' && step.completed) {
+      console.log('✅ Swap completed successfully!');
+    }
+  },
+);
+
+// Cleanup
+unsubscribeSwapSteps();
+```
+
 ## Allowance Management
 
 ```typescript
@@ -451,6 +630,9 @@ const isSupportedToken: boolean = sdk.utils.isSupportedToken('USDC');
 
 // Get supported chains
 const chains: Array<{ id: number; name: string; logo: string }> = sdk.utils.getSupportedChains();
+
+// Swap discovery utilities
+const swapOptions: SwapSupportedChainsResult = sdk.utils.getSwapSupportedChainsAndTokens();
 
 // Chain ID conversion
 const hexChainId: string = sdk.utils.chainIdToHex(137);
@@ -631,6 +813,11 @@ import type {
   BridgeAndExecuteParams,
   BridgeAndExecuteResult,
   SimulationResult,
+  SwapInput,
+  SwapResult,
+  SwapBalances,
+  SwapSupportedChainsResult,
+  DESTINATION_SWAP_TOKENS,
   UserAsset,
   TokenBalance,
   AllowanceResponse,

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef, memo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { ProcessorMiniCard } from './processor-mini-card';
@@ -7,22 +7,23 @@ import {
   type BridgeAndExecuteSimulationResult,
   type SimulationResult,
   CHAIN_METADATA,
+  logger,
   TOKEN_METADATA,
 } from '@nexus/commons';
-import { getOperationText } from '../../utils/utils';
+import { getOperationText, getTokenFromInputData } from '../../utils/utils';
 import { useDragConstraints } from '../motion/drag-constraints';
-import { TransactionType } from '../../types';
+import { TransactionType, SwapSimulationResult } from '../../types';
 
 const COLLAPSED = { width: 400, height: 120, radius: 16 } as const;
 const EXPANDED = { width: 480, height: 500, radius: 16 } as const;
 
-export const TransactionProcessorShell: React.FC<{ disableCollapse?: boolean }> = ({
-  disableCollapse = false,
-}) => {
+const TransactionProcessorShell = ({ disableCollapse = false }: { disableCollapse?: boolean }) => {
+  const lastLoggedProcessingState = useRef<string>('');
   const {
     activeTransaction,
     processing,
     explorerURL,
+    explorerURLs,
     timer,
     toggleTransactionCollapse,
     isTransactionCollapsed,
@@ -33,8 +34,15 @@ export const TransactionProcessorShell: React.FC<{ disableCollapse?: boolean }> 
 
   const sources = useMemo(() => {
     if (!simulationResult) return [] as number[];
+
     if (transactionType === 'bridge' || transactionType === 'transfer') {
       return (simulationResult as SimulationResult)?.intent?.sources?.map((s) => s.chainID) || [];
+    }
+
+    if (transactionType === 'swap') {
+      const swapResult = simulationResult as SwapSimulationResult;
+      // For swap, extract chain IDs from sources
+      return swapResult?.intent?.sources?.map((source) => source?.chain?.id) || [];
     }
 
     const bridgeExecuteResult = simulationResult as BridgeAndExecuteSimulationResult;
@@ -49,8 +57,15 @@ export const TransactionProcessorShell: React.FC<{ disableCollapse?: boolean }> 
 
   const destination = useMemo(() => {
     if (!simulationResult) return 0;
+
     if (transactionType === 'bridge' || transactionType === 'transfer') {
       return (simulationResult as SimulationResult)?.intent?.destination?.chainID || 0;
+    }
+
+    if (transactionType === 'swap') {
+      const swapResult = simulationResult as SwapSimulationResult;
+      // For swap, extract destination chain ID
+      return swapResult?.intent?.destination?.chain?.id ?? 0;
     }
 
     const bridgeExecuteResult = simulationResult as BridgeAndExecuteSimulationResult;
@@ -63,8 +78,7 @@ export const TransactionProcessorShell: React.FC<{ disableCollapse?: boolean }> 
     return bridgeExecuteResult.bridgeSimulation?.intent?.destination?.chainID || 0;
   }, [simulationResult, transactionType]);
 
-  const token = activeTransaction.inputData?.token || '';
-
+  const token = getTokenFromInputData(activeTransaction.inputData) || '';
   const sourceChainMeta = sources
     .filter((s): s is number => s != null && !isNaN(s))
     .map((s) => CHAIN_METADATA[s as keyof typeof CHAIN_METADATA])
@@ -76,6 +90,18 @@ export const TransactionProcessorShell: React.FC<{ disableCollapse?: boolean }> 
   const tokenMeta = token ? TOKEN_METADATA[token as keyof typeof TOKEN_METADATA] : null;
 
   const getDescription = () => {
+    if (activeTransaction?.type === 'swap') {
+      if (processing?.statusText === 'Swap is completed') {
+        return 'Transaction Completed Successfully';
+      }
+      const destinationToken = (activeTransaction?.simulationResult as SwapSimulationResult)?.intent
+        ?.destination?.token;
+      const destinationTokenSymbol = destinationToken
+        ? destinationToken.symbol.toUpperCase()
+        : 'token';
+
+      return `${getOperationText(transactionType as TransactionType)} ${tokenMeta?.symbol || 'token'} to ${destinationTokenSymbol} on ${destChainMeta?.name || 'destination chain'}`;
+    }
     if (activeTransaction?.executionResult?.success) return 'Transaction Completed Successfully';
     return `${getOperationText(transactionType as TransactionType)} ${tokenMeta?.symbol || 'token'} from ${sourceChainMeta.length > 1 ? 'multiple chains' : sourceChainMeta[0]?.name} to ${destChainMeta?.name || 'destination chain'}`;
   };
@@ -105,6 +131,13 @@ export const TransactionProcessorShell: React.FC<{ disableCollapse?: boolean }> 
 
   if (!shellActive || !transactionType || !simulationResult) {
     return null;
+  }
+
+  // Only log processing changes when state actually changes to reduce noise
+  const processingStateKey = `${processing?.currentStep}-${processing?.totalSteps}-${processing?.statusText}-${processing?.animationProgress}`;
+  if (lastLoggedProcessingState.current !== processingStateKey && processing) {
+    logger.info('processing from hook', processing);
+    lastLoggedProcessingState.current = processingStateKey;
   }
 
   return (
@@ -167,6 +200,7 @@ export const TransactionProcessorShell: React.FC<{ disableCollapse?: boolean }> 
               simulationResult={simulationResult}
               processing={processing}
               explorerURL={explorerURL}
+              explorerURLs={explorerURLs}
               timer={timer}
               description={getDescription()}
               error={activeTransaction?.error}
@@ -184,6 +218,7 @@ export const TransactionProcessorShell: React.FC<{ disableCollapse?: boolean }> 
               simulationResult={simulationResult}
               processing={processing}
               explorerURL={explorerURL}
+              explorerURLs={explorerURLs}
               timer={timer}
               description={getDescription()}
               error={activeTransaction?.error}
@@ -196,3 +231,6 @@ export const TransactionProcessorShell: React.FC<{ disableCollapse?: boolean }> 
     </AnimatePresence>
   );
 };
+TransactionProcessorShell.displayName = 'TransactionProcessorShell';
+
+export default memo(TransactionProcessorShell);

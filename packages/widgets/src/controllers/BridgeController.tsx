@@ -2,7 +2,7 @@ import React from 'react';
 import type { ITransactionController, BridgeConfig, ActiveTransaction } from '../types';
 import { NexusSDK } from '@nexus/core';
 import { type BridgeParams, type BridgeResult, logger } from '@nexus/commons';
-import { UnifiedTransactionForm } from '../components/shared/unified-transaction-form';
+import { UnifiedTransactionForm, UnifiedInputData } from '../components/shared/unified-transaction-form';
 
 const BridgeInputForm: React.FC<{
   prefill: Partial<BridgeConfig>;
@@ -16,11 +16,28 @@ const BridgeInputForm: React.FC<{
     recipient?: boolean;
   };
 }> = ({ prefill, onUpdate, isBusy, prefillFields = {} }) => {
+  // Transform BridgeConfig to UnifiedInputData
+  const unifiedInputData: UnifiedInputData = {
+    chainId: prefill?.chainId,
+    toChainId: prefill?.chainId, // Bridge uses same source chain
+    token: prefill?.token,
+    amount: prefill?.amount,
+  };
+
+  // Transform UnifiedInputData back to BridgeConfig
+  const handleUpdate = (data: UnifiedInputData) => {
+    onUpdate({
+      chainId: data.chainId as any,
+      token: data.token as any,
+      amount: data.amount,
+    });
+  };
+
   return (
     <UnifiedTransactionForm
       type="bridge"
-      inputData={prefill}
-      onUpdate={onUpdate}
+      inputData={unifiedInputData}
+      onUpdate={handleUpdate}
       disabled={isBusy}
       prefillFields={prefillFields}
     />

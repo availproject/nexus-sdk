@@ -1,7 +1,7 @@
 import type { UserAsset } from '@nexus/core';
 import { SUPPORTED_CHAINS_IDS, SUPPORTED_TOKENS } from '@nexus/commons';
 
-export type TransactionType = 'bridge' | 'transfer' | 'bridgeAndExecute';
+export type TransactionType = 'bridge' | 'transfer' | 'bridgeAndExecute' | 'swap';
 
 export interface EffectiveBalanceParams {
   unifiedBalance: UserAsset[] | null;
@@ -50,7 +50,7 @@ export function calculateEffectiveBalance({
   let effectiveBalance = totalBalance;
   let contextualMessage = `Balance: ${parseFloat(totalBalance).toFixed(6)} ${token}`;
 
-  if (type === 'bridgeAndExecute')
+  if (type === 'bridgeAndExecute' || type === 'swap')
     return {
       effectiveBalance,
       totalBalance,
@@ -82,8 +82,10 @@ export function getFiatValue(
   exchangeRates: Record<string, number>,
 ) {
   const rate = exchangeRates?.[token] ?? 0;
+
   const amountNum = Number(amount ?? 0);
   const approx = Number.isFinite(rate) && Number.isFinite(amountNum) ? rate * amountNum : 0;
+
   return `≈ $${approx.toFixed(2)}`;
 }
 

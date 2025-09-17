@@ -1,20 +1,11 @@
 import { SUPPORTED_CHAINS } from '../constants';
-import { Abi, TransactionReceipt } from 'viem';
-import type {
-  OnIntentHook,
-  OnAllowanceHook,
-  EthereumProvider,
-  RequestArguments,
-  ProgressStep,
-  ProgressSteps,
-  Intent,
-  onAllowanceHookSource,
-  Network,
-  RequestForFunds,
-  SDKConfig,
-  UserAsset,
-} from '@arcana/ca-sdk';
+import { Abi, TransactionReceipt, ByteArray, Hex, WalletClient } from 'viem';
+import { ChainDatum, Environment, PermitVariant, Universe } from '@arcana/ca-common';
 import * as ServiceTypes from './service-types';
+import Decimal from 'decimal.js';
+import { SwapIntent } from './swap-types';
+import { FuelConnector, Provider, TransactionRequestLike } from 'fuels';
+import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 
 type TokenInfo = {
   contractAddress: `0x${string}`;
@@ -23,6 +14,19 @@ type TokenInfo = {
   name: string;
   platform?: string;
   symbol: string;
+};
+
+type SwapBalances = {
+  assets: UserAssetDatum[];
+  balances: {
+    amount: string;
+    chainID: number;
+    decimals: number;
+    priceUSD: string;
+    tokenAddress: `0x${string}`;
+    universe: Universe;
+    value: number;
+  }[];
 };
 
 type NexusNetwork = 'mainnet' | 'testnet';
@@ -136,6 +140,16 @@ export interface BridgeResult {
 }
 
 /**
+ * Result structure for swap transactions.
+ */
+export interface SwapResult {
+  success: boolean;
+  error?: string;
+  explorerUrl?: string;
+  transactionHash?: string; // Add transaction hash property
+}
+
+/**
  * Result structure for transfer transactions.
  */
 export interface TransferResult {
@@ -145,7 +159,7 @@ export interface TransferResult {
 }
 
 export interface SimulationResult {
-  intent: Intent;
+  intent: ReadableIntent;
   token: TokenInfo;
 }
 
@@ -313,6 +327,448 @@ export interface ContractCallParams {
   gasPrice?: bigint;
 }
 
+export type BridgeQueryInput = {
+  amount: number | string;
+  chainId: number;
+  gas?: bigint;
+  sourceChains?: number[];
+  token: string;
+};
+
+export interface CA {
+  createEVMHandler(
+    tx: EVMTransaction,
+    options: Partial<TxOptions>,
+  ): Promise<CreateHandlerResponse | null>;
+
+  createFuelHandler(
+    tx: TransactionRequestLike,
+    options: Partial<TxOptions>,
+  ): Promise<CreateHandlerResponse | null>;
+
+  getChainID(): Promise<number>;
+
+  init(): Promise<void>;
+
+  switchChain(chainID: number): Promise<void>;
+}
+
+export type Chain = {
+  blockExplorers?: {
+    default: {
+      name: string;
+      url: string;
+    };
+  };
+  custom: {
+    icon: string;
+    knownTokens: TokenInfo[];
+  };
+  id: number;
+  name: string;
+  nativeCurrency: {
+    decimals: number;
+    name: string;
+    symbol: string;
+  };
+  rpcUrls: {
+    default: {
+      http: string[];
+      publicHttp?: string[];
+      webSocket: string[];
+    };
+  };
+  universe: Universe;
+};
+
+export interface CreateHandlerResponse {
+  handler: IRequestHandler | null;
+  processTx: () => Promise<unknown>;
+}
+
+interface EthereumProvider {
+  on(eventName: string | symbol, listener: (...args: any[]) => void): this;
+
+  removeListener(
+    eventName: string | symbol,
+    /* eslint-disable @typescript-eslint/no-explicit-any */
+    listener: (...args: any[]) => void,
+  ): this;
+
+  request(args: RequestArguments): Promise<unknown>;
+}
+
+export type EVMTransaction = {
+  data?: `0x${string}`;
+  from: `0x${string}`;
+  to: `0x${string}`;
+  value?: `0x${string}`;
+};
+export type FeeStoreData = {
+  fee: {
+    collection: {
+      chainID: number;
+      fee: number;
+      tokenAddress: string;
+      universe: Universe;
+    }[];
+    fulfilment: {
+      chainID: number;
+      fee: number;
+      tokenAddress: string;
+      universe: Universe;
+    }[];
+    protocol: {
+      feeBP: string;
+    };
+  };
+  solverRoutes: {
+    destinationChainID: number;
+    destinationTokenAddress: string;
+    destinationUniverse: Universe;
+    feeBP: number;
+    sourceChainID: number;
+    sourceTokenAddress: string;
+    sourceUniverse: Universe;
+  }[];
+};
+
+export type FeeUniverse = 'ETHEREUM' | 'FUEL';
+
+export type Intent = {
+  allSources: IntentSource[];
+  destination: IntentDestination;
+  fees: {
+    caGas: string;
+    collection: string;
+    fulfilment: string;
+    gasSupplied: string;
+    protocol: string;
+    solver: string;
+  };
+  isAvailableBalanceInsufficient: boolean;
+  sources: IntentSource[];
+};
+export type IntentDestination = {
+  amount: Decimal;
+  chainID: number;
+  decimals: number;
+  gas: bigint;
+  tokenContract: `0x${string}`;
+  universe: Universe;
+};
+
+export type IntentSource = {
+  amount: Decimal;
+  chainID: number;
+  tokenContract: `0x${string}`;
+  universe: Universe;
+};
+
+export type IntentSourceForAllowance = {
+  chainID: number;
+  currentAllowance: bigint;
+  requiredAllowance: bigint;
+  token: TokenInfo;
+};
+
+export interface IRequestHandler {
+  buildIntent(sourceChains: number[]): Promise<
+    | {
+        intent: Intent;
+        token: TokenInfo;
+      }
+    | undefined
+  >;
+  process(): Promise<unknown>;
+}
+
+type Network = Extract<Environment, Environment.CERISE | Environment.CORAL | Environment.FOLLY>;
+
+export type NetworkConfig = {
+  COSMOS_URL: string;
+  EXPLORER_URL: string;
+  FAUCET_URL: string;
+  GRPC_URL: string;
+  NETWORK_HINT: Environment;
+  SIMULATION_URL: string;
+  VSC_DOMAIN: string;
+};
+
+export type AllowanceHookSources = onAllowanceHookSource[];
+
+type OnAllowanceHook = (data: {
+  allow: (s: Array<'max' | 'min' | bigint | string>) => void;
+  deny: () => void;
+  sources: AllowanceHookSources;
+}) => void;
+
+export type onAllowanceHookSource = {
+  allowance: {
+    current: string;
+    minimum: string;
+  };
+  chain: {
+    id: number;
+    logo: string;
+    name: string;
+  };
+  token: {
+    contractAddress: `0x${string}`;
+    decimals: number;
+    logo: string;
+    name: string;
+    symbol: string;
+  };
+};
+
+type OnIntentHook = (data: {
+  allow: () => void;
+  deny: () => void;
+  intent: ReadableIntent;
+  refresh: (selectedSources: number[]) => Promise<ReadableIntent>;
+}) => void;
+
+export type OraclePriceResponse = {
+  chainId: number;
+  priceUsd: Decimal;
+  tokenAddress: `0x${string}`;
+  tokensPerUsd: Decimal;
+}[];
+
+export type ReadableIntent = {
+  allSources: {
+    amount: string;
+    chainID: number;
+    chainLogo: string | undefined;
+    chainName: string;
+    contractAddress: `0x${string}`;
+  }[];
+  destination: {
+    amount: string;
+    chainID: number;
+    chainLogo: string | undefined;
+    chainName: string;
+  };
+  fees: {
+    caGas: string;
+    gasSupplied: string;
+    protocol: string;
+    solver: string;
+    total: string;
+  };
+  sources: {
+    amount: string;
+    chainID: number;
+    chainLogo: string | undefined;
+    chainName: string;
+    contractAddress: `0x${string}`;
+  }[];
+  sourcesTotal: string;
+  token: {
+    decimals: number;
+    logo: string | undefined;
+    name: string;
+    symbol: string;
+  };
+};
+
+type RequestArguments = {
+  readonly method: string;
+  readonly params?: object | readonly unknown[];
+};
+
+export type RequestHandler = new (i: RequestHandlerInput) => IRequestHandler;
+
+export type ChainListType = {
+  chains: Chain[];
+  getVaultContractAddress(chainID: number): `0x${string}`;
+  getTokenInfoBySymbol(chainID: number, symbol: string): TokenInfo | undefined;
+  getTokenByAddress(chainID: number, address: `0x${string}`): TokenInfo | undefined;
+  getNativeToken(chainID: number): TokenInfo;
+  getChainByID(id: number): Chain | undefined;
+};
+
+export type RequestHandlerInput = {
+  chain: Chain;
+  chainList: ChainListType;
+  cosmosWallet: DirectSecp256k1Wallet;
+  evm: {
+    address: `0x${string}`;
+    client: WalletClient;
+    tx?: EVMTransaction;
+  };
+  fuel?: {
+    address: string;
+    connector: FuelConnector;
+    provider: Provider;
+    tx?: TransactionRequestLike;
+  };
+  hooks: {
+    onAllowance: OnAllowanceHook;
+    onIntent: OnIntentHook;
+  };
+  options: {
+    emit: (eventName: string, ...args: any[]) => void;
+    networkConfig: NetworkConfig;
+  } & TxOptions;
+};
+
+export type RequestHandlerResponse = {
+  buildIntent(): Promise<
+    | {
+        intent: Intent;
+        token: TokenInfo;
+      }
+    | undefined
+  >;
+  input: RequestHandlerInput;
+  process(): Promise<unknown>;
+} | null;
+
+export type RFF = {
+  deposited: boolean;
+  destinationChainID: number;
+  destinations: { tokenAddress: Hex; value: bigint }[];
+  destinationUniverse: string;
+  expiry: number;
+  fulfilled: boolean;
+  id: number;
+  refunded: boolean;
+  sources: {
+    chainID: number;
+    tokenAddress: Hex;
+    universe: string;
+    value: bigint;
+  }[];
+};
+
+type SDKConfig = {
+  debug?: boolean;
+  network?: Network | NetworkConfig;
+};
+
+type SetAllowanceInput = {
+  amount: bigint;
+  chainID: number;
+  tokenContract: `0x${string}`;
+};
+
+export type SimulateReturnType = {
+  amount: Decimal;
+  gas: bigint;
+  gasFee: Decimal;
+  token: {
+    contractAddress: `0x${string}`;
+    decimals: number;
+    name: string;
+    symbol: string;
+  };
+};
+
+export type SimulationResultData = {
+  amount: number;
+  gasBreakdown: {
+    feeData: {
+      maxFeePerGas: string;
+      maxPriorityFeePerGas: string;
+    };
+    limit: string;
+  };
+  gasUsed: string;
+  tokenContract: `0x${string}`;
+};
+export type SponsoredApprovalData = {
+  address: ByteArray;
+  chain_id: ChainDatum['ChainID32'];
+  operations: {
+    sig_r: ByteArray;
+    sig_s: ByteArray;
+    sig_v: number;
+    token_address: ByteArray;
+    value: ByteArray;
+    variant: PermitVariant;
+  }[];
+  universe: Universe;
+};
+
+export type SponsoredApprovalDataArray = SponsoredApprovalData[];
+
+export type Step = {
+  data?:
+    | {
+        amount: string;
+        chainName: string;
+        symbol: string;
+      }
+    | {
+        chainID: number;
+        chainName: string;
+      }
+    | { confirmed: number; total: number }
+    | { explorerURL: string; intentID: number };
+} & StepInfo;
+
+export type StepInfo = {
+  type: string;
+  typeID: string;
+};
+
+export type Steps = Step[];
+
+export type Token = {
+  contractAddress: `0x${string}`;
+  decimals: number;
+  name: string;
+  symbol: string;
+};
+
+export type TransferQueryInput = {
+  to: Hex;
+} & Omit<BridgeQueryInput, 'gas'>;
+
+export type TxOptions = {
+  bridge: boolean;
+  gas: bigint;
+  skipTx: boolean;
+  sourceChains: number[];
+};
+
+export type UnifiedBalanceResponseData = {
+  chain_id: Uint8Array;
+  currencies: {
+    balance: string;
+    token_address: Uint8Array;
+    value: string;
+  }[];
+  total_usd: string;
+  universe: Universe;
+};
+
+export type UserAssetDatum = {
+  abstracted?: boolean;
+  balance: string;
+  balanceInFiat: number;
+  breakdown: {
+    balance: string;
+    balanceInFiat: number;
+    chain: {
+      id: number;
+      logo: string;
+      name: string;
+    };
+    contractAddress: `0x${string}`;
+    decimals: number;
+    isNative?: boolean;
+    priceUSD?: string;
+    universe: Universe;
+  }[];
+  decimals: number;
+  icon?: string;
+  priceInUsd?: string;
+  symbol: string;
+};
+
 export type {
   ServiceTypes,
   OnIntentHook,
@@ -321,15 +777,17 @@ export type {
   OnAllowanceHook,
   EthereumProvider,
   RequestArguments,
-  ProgressStep,
-  ProgressSteps,
-  Intent,
+  Step as ProgressStep,
+  Steps as ProgressSteps,
   onAllowanceHookSource as AllowanceHookSource,
   Network,
-  UserAsset,
+  UserAssetDatum as UserAsset,
   TokenInfo,
-  RequestForFunds,
+  RFF as RequestForFunds,
   SDKConfig,
   NexusNetwork,
   TransactionReceipt,
+  SwapIntent,
+  SwapBalances,
+  SetAllowanceInput,
 };

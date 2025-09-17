@@ -2,7 +2,7 @@ import React from 'react';
 import type { ITransactionController, ActiveTransaction } from '../types';
 import { NexusSDK } from '@nexus/core';
 import { type TransferParams, type TransferResult, logger } from '@nexus/commons';
-import { UnifiedTransactionForm } from '../components/shared/unified-transaction-form';
+import { UnifiedTransactionForm, UnifiedInputData } from '../components/shared/unified-transaction-form';
 
 export interface TransferConfig extends Partial<TransferParams> {}
 
@@ -18,11 +18,30 @@ const TransferInputForm: React.FC<{
     recipient?: boolean;
   };
 }> = ({ prefill, onUpdate, isBusy, prefillFields = {} }) => {
+  // Transform TransferConfig to UnifiedInputData
+  const unifiedInputData: UnifiedInputData = {
+    chainId: prefill?.chainId,
+    toChainId: prefill?.chainId, // Transfer uses same chain
+    token: prefill?.token,
+    amount: prefill?.amount,
+    recipient: prefill?.recipient,
+  };
+
+  // Transform UnifiedInputData back to TransferConfig
+  const handleUpdate = (data: UnifiedInputData) => {
+    onUpdate({
+      chainId: data.chainId as any,
+      token: data.token as any,
+      amount: data.amount,
+      recipient: data.recipient as any, // Cast to proper hex string type
+    });
+  };
+
   return (
     <UnifiedTransactionForm
       type="transfer"
-      inputData={prefill}
-      onUpdate={onUpdate}
+      inputData={unifiedInputData}
+      onUpdate={handleUpdate}
       disabled={isBusy}
       prefillFields={prefillFields}
     />

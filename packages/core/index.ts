@@ -35,5 +35,7 @@ export type {
   ProgressSteps,
 } from '@nexus/commons';
 
+export type { SwapStep } from './sdk/ca-base';
+
 // Re-export everything from commons (includes constants, utils, and types)
 export * from '@nexus/commons';

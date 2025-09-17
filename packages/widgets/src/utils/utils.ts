@@ -1,8 +1,13 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { OrchestratorStatus, ReviewStatus } from '../types';
+import { OrchestratorStatus, ReviewStatus, SwapInputData } from '../types';
 import { Abi, isAddress } from 'viem';
-import { CHAIN_METADATA } from '@nexus/commons';
+import {
+  type BridgeParams,
+  type TransferParams,
+  type BridgeAndExecuteParams,
+  CHAIN_METADATA,
+} from '@nexus/commons';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -26,6 +31,8 @@ export const getOperationText = (type: string) => {
       return 'Transferring';
     case 'bridgeAndExecute':
       return 'Bridge & Execute';
+    case 'swap':
+      return 'Swapping';
     default:
       return 'Processing';
   }
@@ -162,6 +169,18 @@ const ERROR_PATTERNS = {
     /execute phase failed/i,
     /contract execution error/i,
   ],
+  SWAP_ERROR: [
+    /swap failed/i,
+    /swap error/i,
+    /vsc sbc tx/i,
+    /swap transaction failed/i,
+    /slippage/i,
+    /price impact/i,
+    /swap intent failed/i,
+    /swap execution failed/i,
+    /cot not present/i,
+    /chain of trust not present/i,
+  ],
 } as const;
 
 /**
@@ -179,6 +198,8 @@ const USER_FRIENDLY_MESSAGES = {
   INIT_ERROR: 'Wallet connection issue. Please make sure your wallet is connected and try again.',
   BRIDGE_ERROR: 'Cross-chain transfer failed. Please try again.',
   EXECUTE_ERROR: 'Smart contract execution failed. Please try again.',
+  SWAP_ERROR:
+    'Swap transaction failed. The destination chain may not support this token pair. Please try a different route.',
   UNKNOWN: 'An unexpected error occurred. Please try again.',
 } as const;
 
@@ -267,6 +288,11 @@ export function formatErrorForUI(error: unknown, context?: string): string {
   // Log the original error for developers
   console.error('Error being formatted for UI:', { error, errorMessage, context });
 
+  // Handle specific error cases before general categorization
+  if (errorMessage.includes('COT not present') || errorMessage.includes('COT not available')) {
+    return 'This token pair is not supported on the selected destination chain. Please try a different token or destination chain.';
+  }
+
   const cleanedMessage = cleanErrorMessage(errorMessage);
   const category = categorizeError(cleanedMessage);
   let userFriendlyMessage = USER_FRIENDLY_MESSAGES[category];
@@ -344,6 +370,14 @@ function getContextualErrorMessage(
       EXECUTE_ERROR: 'Contract interaction failed. Please try again.',
       ALLOWANCE_ERROR: 'Token approval required before execution.',
     },
+    swap: {
+      NETWORK_ERROR: 'Swap service is temporarily unavailable. Please try again.',
+      INSUFFICIENT_FUNDS: 'Insufficient balance to complete the swap.',
+      SWAP_ERROR: 'Swap failed. Please verify your token selection and amount.',
+      GAS_ERROR: 'Swap failed due to gas issues. Please try again.',
+      CONTRACT_ERROR: 'Swap contract interaction failed. Please try again.',
+      ALLOWANCE_ERROR: 'Token approval required for swap.',
+    },
     allowance: {
       ALLOWANCE_ERROR: 'Token approval transaction failed. Please try again.',
       GAS_ERROR: 'Approval failed due to insufficient gas. Please try again.',
@@ -374,6 +408,25 @@ export function isUserRejectionError(error: unknown): boolean {
 export function isChainError(error: unknown): boolean {
   const errorMessage = error instanceof Error ? error.message : String(error);
   return ERROR_PATTERNS.CHAIN_ERROR.some((pattern) => pattern.test(errorMessage));
+}
+
+/**
+ * Format swap-specific error messages for better user experience
+ *
+ * @param error - The error object or string from swap operations
+ * @returns A user-friendly error message specific to swap operations
+ */
+export function formatSwapError(error: unknown): string {
+  // Use the general error formatter with swap context
+  return formatErrorForUI(error, 'swap');
+}
+
+/**
+ * Check if an error is swap-related
+ */
+export function isSwapError(error: unknown): boolean {
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  return ERROR_PATTERNS.SWAP_ERROR.some((pattern) => pattern.test(errorMessage));
 }
 
 /**
@@ -493,3 +546,86 @@ export const getPrimaryButtonText = (status: OrchestratorStatus, reviewStatus: R
   if (status === 'set_allowance') return 'Approve & Continue';
   return getButtonText(status, reviewStatus);
 };
+
+// Union type utility functions for handling different transaction input structures
+type TransactionInputData =
+  | Partial<BridgeParams>
+  | Partial<TransferParams>
+  | Partial<BridgeAndExecuteParams>
+  | Partial<SwapInputData>
+  | null
+  | undefined;
+
+/**
+ * Safely extract token field from union transaction input data
+ */
+export function getTokenFromInputData(data: TransactionInputData): string | undefined {
+  if (!data) return undefined;
+
+  // For SwapInputData, check fromTokenAddress first, then other fields
+  if ('fromTokenAddress' in data && typeof data.fromTokenAddress === 'string') {
+    return data.fromTokenAddress;
+  }
+
+  // For SwapConfig, check nested inputs structure
+  if ('inputs' in data && data.inputs) {
+    const inputs = data.inputs as any;
+    return inputs.inputToken || inputs.fromToken || inputs.token || inputs.fromTokenAddress;
+  }
+
+  // For other transaction types, access directly
+  if ('token' in data && typeof data.token === 'string') {
+    return data.token;
+  }
+
+  return undefined;
+}
+
+/**
+ * Safely extract amount field from union transaction input data
+ */
+export function getAmountFromInputData(data: TransactionInputData): string | number | undefined {
+  if (!data) return undefined;
+
+  // For SwapInputData, check fromAmount first, then amount
+  if ('fromAmount' in data && data.fromAmount !== undefined) {
+    return data.fromAmount;
+  }
+
+  // For SwapConfig, check nested inputs structure
+  if ('inputs' in data && data.inputs) {
+    const inputs = data.inputs as any;
+    return inputs.amount || inputs.fromAmount;
+  }
+
+  // For other transaction types, access directly
+  if ('amount' in data) {
+    return data.amount;
+  }
+
+  return undefined;
+}
+
+/**
+ * Safely extract chainId from union transaction input data
+ */
+export function getChainIdFromInputData(data: TransactionInputData): number | undefined {
+  if (!data) return undefined;
+
+  // For SwapConfig, check nested inputs structure first
+  if ('inputs' in data && data.inputs) {
+    const inputs = data.inputs as any;
+    return inputs.chainId || inputs.toChainID;
+  }
+
+  // For other transaction types, access directly
+  if ('chainId' in data && typeof data.chainId === 'number') {
+    return data.chainId;
+  }
+
+  if ('toChainId' in data && typeof data.toChainId === 'number') {
+    return data.toChainId;
+  }
+
+  return undefined;
+}
