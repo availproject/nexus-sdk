@@ -141,16 +141,6 @@ export type BridgeResult =
     };
 
 /**
- * Result structure for swap transactions.
- */
-export interface SwapResult {
-  success: boolean;
-  error?: string;
-  explorerUrl?: string;
-  transactionHash?: string; // Add transaction hash property
-}
-
-/**
  * Result structure for transfer transactions.
  */
 export type TransferResult =

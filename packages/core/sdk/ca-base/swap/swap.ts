@@ -6,7 +6,7 @@ import {
   Universe,
 } from '@arcana/ca-common';
 
-import { SwapMode, type SwapData, type SwapParams } from '@nexus/commons';
+import { SwapMode, type SwapData, type SwapParams, SuccessfulSwapResult } from '@nexus/commons';
 
 import { getLogger } from '../logger';
 import { divDecimals } from '../utils';
@@ -16,6 +16,7 @@ import { determineSwapRoute } from './route';
 import { DETERMINING_SWAP, SWAP_START, SwapStep } from './steps';
 import {
   Cache,
+  convertMetadataToSwapResult,
   convertTo32Bytes,
   createSwapIntent,
   getERC20TokenInfo,
@@ -32,7 +33,7 @@ export const swap = async (
   input: SwapData,
   options: SwapParams,
   COT = CurrencyID.USDC,
-): Promise<void> => {
+): Promise<SuccessfulSwapResult> => {
   performance.clearMarks();
   performance.clearMeasures();
 
@@ -221,6 +222,8 @@ export const swap = async (
   }
 
   calculatePerformance();
+
+  return convertMetadataToSwapResult(metadata);
 };
 
 const calculatePerformance = () => {

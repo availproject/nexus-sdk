@@ -303,3 +303,31 @@ export type Tx = {
 //   priceInUsd?: string;
 //   symbol: string;
 // };
+
+export type Swap = {
+  inputAmount: bigint;
+  inputContract: Hex;
+  inputDecimals: number;
+  outputAmount: bigint;
+  outputContract: Hex;
+  outputDecimals: number;
+};
+
+export type ChainSwap = {
+  chainId: number;
+  swaps: Swap[];
+  txHash: Hex;
+};
+
+export type SuccessfulSwapResult = {
+  sourceSwaps: ChainSwap[];
+  intentId: bigint;
+  destinationSwap: ChainSwap | null;
+};
+
+export type SwapResult =
+  | {
+      success: true;
+      result: SuccessfulSwapResult;
+    }
+  | { success: false; error: Error };

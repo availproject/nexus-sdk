@@ -711,6 +711,13 @@ class SourceSwapsHandler {
           }
 
           await this.options.wallet.eoa.switchChain({ id: Number(chainID) });
+          /*
+           * EOA creates & sends tx {
+             to: ephemeralAddress (we check above it its delegated to calibur), 
+             value: sbcCalls.value,
+             data: SignUsingEphemeral(AggregatorTx(approval(iff non native is involved) and swap))
+           }
+           */
           const hash = await caliburExecute({
             actualAddress: this.options.address.eoa,
             actualWallet: this.options.wallet.eoa,
