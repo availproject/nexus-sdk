@@ -34,10 +34,7 @@ function BridgeFormSection({
 
   if (!activeController) return null;
   const requiredFields: (keyof InputData)[] = ['chainId', 'token', 'amount'];
-  const hasEnoughInputs = requiredFields.every(
-    (field) =>
-      inputData[field] !== undefined && inputData[field] !== null && inputData[field] !== '',
-  );
+  const hasEnoughInputs = requiredFields.every((field) => prefillFields[field] === true);
 
   if (hasEnoughInputs) {
     return <PrefilledInputs inputData={inputData} />;

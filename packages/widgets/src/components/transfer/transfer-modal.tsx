@@ -33,12 +33,7 @@ function TransferFormSection({
   const transferInputData = inputData as UnifiedInputData;
 
   const requiredFields: (keyof InputData)[] = ['chainId', 'token', 'amount', 'recipient'];
-  const hasEnoughInputs = requiredFields.every(
-    (field) =>
-      transferInputData[field] !== undefined &&
-      transferInputData[field] !== null &&
-      transferInputData[field] !== '',
-  );
+  const hasEnoughInputs = requiredFields.every((field) => prefillFields[field] === true);
 
   if (hasEnoughInputs) {
     return <PrefilledInputs inputData={transferInputData} />;
