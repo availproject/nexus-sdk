@@ -149,7 +149,6 @@ export function UnifiedTransactionModal({
     } else if (status === 'set_allowance' && allowanceApproveHandler) {
       allowanceApproveHandler();
     } else {
-      console.log('🔄 Fallback: calling confirmAndProceed');
       confirmAndProceed();
     }
   };

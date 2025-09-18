@@ -163,7 +163,6 @@ export function InternalNexusProvider({
         unifiedBalance.push(asset);
       }
     });
-    console.log('unified balance', unifiedBalance);
     logger.debug('Unified balance', { unifiedBalance });
     setUnifiedBalance(unifiedBalance);
   };
@@ -702,7 +701,6 @@ export function InternalNexusProvider({
         sdk
           .swapWithExactIn(swapInput, {
             swapIntentHook: async (data: Parameters<SwapIntentHook>[0]) => {
-              console.log('Swap Provider: Intent captured successfully', data.intent);
               swapAllowCallbackRef.current = data.allow;
               // Update UI with captured intent (simulation result)
               setActiveTransaction((prev) => ({
@@ -730,8 +728,6 @@ export function InternalNexusProvider({
             },
           })
           .then((result) => {
-            console.log('Swap Provider: Final swap execution result:', result);
-
             if (result.success) {
               // Swap succeeded - let useListenTransaction handle the success state
               logger.info('Swap Provider: Swap execution succeeded');
