@@ -95,12 +95,12 @@ export class NexusSDK extends CA {
       const result = await (await this._bridge(params)).exec();
       return {
         success: true,
-        explorerURL: result?.explorerURL ?? '',
+        explorerUrl: result?.explorerURL ?? '',
       };
     } catch (e) {
       return {
         success: false,
-        error: e instanceof Error ? e : new Error(String(e)),
+        error: e instanceof Error ? e.message : String(e),
       };
     }
   }
@@ -114,12 +114,12 @@ export class NexusSDK extends CA {
       return {
         success: true,
         transactionHash: result.hash,
-        explorerURL: result.explorerURL,
+        explorerUrl: result.explorerURL,
       };
     } catch (e) {
       return {
         success: false,
-        error: e instanceof Error ? e : new Error(String(e)),
+        error: e instanceof Error ? e.message : String(e),
       };
     }
   }

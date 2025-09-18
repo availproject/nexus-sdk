@@ -133,10 +133,11 @@ export interface BridgeParams {
  * Result structure for bridge transactions.
  */
 export type BridgeResult =
-  | { success: false; error: Error | string }
+  | { success: false; error: string }
   | {
       success: true;
-      explorerURL: string;
+      explorerUrl: string;
+      transactionHash?: string;
     };
 
 /**
@@ -156,11 +157,11 @@ export type TransferResult =
   | {
       success: true;
       transactionHash: string;
-      explorerURL: string;
+      explorerUrl: string;
     }
   | {
       success: false;
-      error: Error;
+      error: string;
     };
 
 export interface SimulationResult {
