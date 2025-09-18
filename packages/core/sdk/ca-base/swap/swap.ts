@@ -210,6 +210,8 @@ export const swap = async (
   // 3: Destination swap
   await dstSwapHandler.process(metadata);
 
+  const result = convertMetadataToSwapResult(metadata, options.networkConfig.EXPLORER_URL);
+
   performance.mark('swap-end');
   try {
     const id = await postSwap({
@@ -223,7 +225,7 @@ export const swap = async (
 
   calculatePerformance();
 
-  return convertMetadataToSwapResult(metadata);
+  return result;
 };
 
 const calculatePerformance = () => {

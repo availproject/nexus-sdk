@@ -62,6 +62,7 @@ import {
   divDecimals,
   equalFold,
   getCosmosURL,
+  getExplorerURL,
   getVSCURL,
   waitForTxReceipt,
 } from '../utils';
@@ -71,6 +72,7 @@ import { chainData, getTokenVersion } from './data';
 import { createSBCTxFromCalls, waitForSBCTxReceipt } from './sbc';
 import { DESTINATION_SWAP_HASH, SwapStep } from './steps';
 import { AnkrAsset, AnkrBalances, SBCTx, SwapIntent, Tx, ChainListType } from '@nexus/commons';
+import Long from 'long';
 
 const logger = getLogger();
 
@@ -1610,10 +1612,13 @@ const convertSwapMetaToSwap = (src: SwapMetadataTx) => {
   };
 };
 
-export const convertMetadataToSwapResult = (metadata: SwapMetadata): SuccessfulSwapResult => {
+export const convertMetadataToSwapResult = (
+  metadata: SwapMetadata,
+  baseURL: string,
+): SuccessfulSwapResult => {
   return {
     sourceSwaps: metadata.src.map(convertSwapMetaToSwap),
-    intentId: metadata.rff_id,
+    explorerURL: getExplorerURL(baseURL, Long.fromBigInt(metadata.rff_id)),
     destinationSwap: convertSwapMetaToSwap(metadata.dst),
   };
 };

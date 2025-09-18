@@ -321,7 +321,7 @@ export type ChainSwap = {
 
 export type SuccessfulSwapResult = {
   sourceSwaps: ChainSwap[];
-  intentId: bigint;
+  explorerURL: string;
   destinationSwap: ChainSwap | null;
 };
 

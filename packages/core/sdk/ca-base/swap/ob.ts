@@ -16,7 +16,7 @@ import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import Decimal from 'decimal.js';
 import { orderBy, retry } from 'es-toolkit';
 import Long from 'long';
-import { ByteArray, Hex, PrivateKeyAccount, WalletClient } from 'viem';
+import { ByteArray, Hex, PrivateKeyAccount, toBytes, WalletClient } from 'viem';
 import { getLogger } from '../logger';
 import { divDecimals, equalFold, minutesToMs, waitForTxReceipt } from '../utils';
 import { EADDRESS, SWEEPER_ADDRESS } from './constants';
@@ -395,7 +395,7 @@ class DestinationSwapHandler {
 
       metadata.dst.swaps.push({
         agg: 0,
-        input_amt: txs.inputToken,
+        input_amt: toBytes(txs.amount),
         input_contract: this.dstSwap.req.inputToken,
         input_decimals: this.dstSwap.dstChainCOT.decimals,
         output_amt: convertTo32Bytes(this.dst.amount ?? 0),
@@ -498,11 +498,27 @@ class SourceSwapsHandler {
     private options: Options,
   ) {
     this.swaps = this.groupAndOrder(quotes);
-    for (const [chain] of this.swaps) {
+    for (const [chainID, swapQuotes] of this.iterate(this.swaps)) {
       this.options.cache.addSetCodeQuery({
         address: this.options.address.ephemeral,
-        chainID: Number(chain),
+        chainID: Number(chainID),
       });
+
+      for (const sQuote of swapQuotes) {
+        this.options.cache.addAllowanceQuery({
+          chainID: Number(chainID),
+          contractAddress: convertToEVMAddress(sQuote.input.req.inputToken),
+          owner: this.options.address.eoa,
+          spender: this.options.address.ephemeral,
+        });
+
+        this.options.cache.addAllowanceQuery({
+          chainID: Number(chainID),
+          contractAddress: convertToEVMAddress(sQuote.input.req.inputToken),
+          owner: this.options.address.ephemeral,
+          spender: SWEEPER_ADDRESS,
+        });
+      }
     }
   }
 
@@ -538,42 +554,6 @@ class SourceSwapsHandler {
       yield [chainID, d] as const;
     }
   }
-
-  // setEOAToEphCalls(eoaToEphCalls: EoaToEphemeralCallMap) {
-  //   this.eoaToEphCalls = eoaToEphCalls;
-  //   for (const [chainID, swapQuotes] of this.iterate(this.swaps)) {
-  //     const e2e = eoaToEphCalls[Number(chainID)];
-  //     if (e2e) {
-  //       this.options.cache.addAllowanceQuery({
-  //         chainID: Number(chainID),
-  //         contractAddress: e2e.tokenAddress,
-  //         owner: this.options.address.eoa,
-  //         spender: this.options.address.ephemeral,
-  //       });
-  //     }
-
-  //     this.options.cache.addSetCodeQuery({
-  //       address: this.options.address.ephemeral,
-  //       chainID: Number(chainID),
-  //     });
-
-  //     for (const sQuote of swapQuotes) {
-  //       this.options.cache.addAllowanceQuery({
-  //         chainID: Number(chainID),
-  //         contractAddress: convertToEVMAddress(sQuote.input.req.inputToken),
-  //         owner: this.options.address.eoa,
-  //         spender: this.options.address.ephemeral,
-  //       });
-
-  //       this.options.cache.addAllowanceQuery({
-  //         chainID: Number(chainID),
-  //         contractAddress: convertToEVMAddress(sQuote.input.req.inputToken),
-  //         owner: this.options.address.ephemeral,
-  //         spender: SWEEPER_ADDRESS,
-  //       });
-  //     }
-  //   }
-  // }
 
   async process(
     metadata: SwapMetadata,
@@ -614,6 +594,7 @@ class SourceSwapsHandler {
 
       logger.debug('srcSwapHandler:process', {
         swaps,
+        mtd,
       });
 
       metadataTx.swaps = metadataTx.swaps.concat(mtd);
