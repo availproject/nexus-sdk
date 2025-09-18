@@ -91,17 +91,17 @@ export class NexusSDK extends CA {
    * Cross chain token transfer
    */
   public async bridge(params: BridgeParams): Promise<BridgeResult> {
-    const result: BridgeResult = {
-      success: true,
-      explorerUrl: '',
-    };
     try {
-      await (await this._bridge(params)).exec();
-      // Add explorer URL
+      const result = await (await this._bridge(params)).exec();
+      return {
+        success: true,
+        explorerURL: result?.explorerURL ?? '',
+      };
     } catch (e) {
-      result.success = false;
-    } finally {
-      return result;
+      return {
+        success: false,
+        error: e instanceof Error ? e : new Error(String(e)),
+      };
     }
   }
 
@@ -109,16 +109,18 @@ export class NexusSDK extends CA {
    * Cross chain token transfer to EOA
    */
   public async transfer(params: TransferParams): Promise<TransferResult> {
-    const result: TransferResult = {
-      success: true,
-      explorerUrl: '',
-    };
     try {
-      await (await this._transfer({ ...params, to: params.recipient })).exec();
-    } catch (error) {
-      result.success = false;
-    } finally {
-      return result;
+      const result = await (await this._transfer({ ...params, to: params.recipient })).exec();
+      return {
+        success: true,
+        transactionHash: result.hash,
+        explorerURL: result.explorerURL,
+      };
+    } catch (e) {
+      return {
+        success: false,
+        error: e instanceof Error ? e : new Error(String(e)),
+      };
     }
   }
 

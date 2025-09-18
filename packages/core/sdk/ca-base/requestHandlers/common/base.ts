@@ -294,19 +294,20 @@ abstract class BaseRequest implements IRequestHandler {
 
     // FIXME: Add showing intent again if prices change?
     // Step 6: process intent
-    await this.processIntent(intent);
+    return await this.processIntent(intent);
   };
 
   async processIntent(intent: Intent) {
     logger.debug('intent', { intent });
 
-    const { id, requestHash, waitForDoubleCheckTx } = await this.processRFF(intent);
+    const { explorerURL, id, requestHash, waitForDoubleCheckTx } = await this.processRFF(intent);
 
     storeIntentHashToStore(this.input.evm.address, id.toNumber());
     await this.waitForFill(requestHash, id, waitForDoubleCheckTx);
     removeIntentHashFromStore(this.input.evm.address, id);
 
     this.markStepDone(INTENT_FULFILLED);
+    return { explorerURL };
   }
 
   async processRFF(intent: Intent) {
@@ -443,8 +444,9 @@ abstract class BaseRequest implements IRequestHandler {
       wallet: this.input.cosmosWallet,
     });
 
+    const explorerURL = getExplorerURL(this.input.options.networkConfig.EXPLORER_URL, intentID);
     this.markStepDone(INTENT_SUBMITTED, {
-      explorerURL: getExplorerURL(this.input.options.networkConfig.EXPLORER_URL, intentID),
+      explorerURL,
       intentID: intentID.toNumber(),
     });
 
@@ -592,6 +594,7 @@ abstract class BaseRequest implements IRequestHandler {
     }
 
     return {
+      explorerURL,
       id: intentID,
       requestHash: destinationSigData.requestHash,
       waitForDoubleCheckTx: waitForDoubleCheckTx(doubleCheckTxs),
