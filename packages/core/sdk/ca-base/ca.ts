@@ -35,13 +35,17 @@ import {
   ChainListType,
   EthereumProvider,
   EVMTransaction,
+  ExactInSwapInput,
+  ExactOutSwapInput,
   NetworkConfig,
   NexusNetwork,
   OnAllowanceHook,
   OnIntentHook,
   RequestArguments,
   SDKConfig,
-  SwapInput,
+  SwapInputOptionalParams,
+  SwapMode,
+  SwapParams,
   SwapSupportedChainsResult,
   TransferQueryInput,
   TxOptions,
@@ -60,7 +64,6 @@ import {
   refundExpiredIntents,
   switchChain,
 } from './utils';
-import { SwapOptionalParams } from '@nexus/commons';
 import { swap } from './swap/swap';
 import { getBalances } from './swap/route';
 import { getSwapSupportedChains } from './swap/utils';
@@ -203,44 +206,42 @@ export class CA {
     return this._initStatus === INIT_STATUS.DONE;
   }
 
-  protected async _swap(swapInput: SwapInput, options?: Omit<SwapOptionalParams, 'emit'>) {
-    if (!this._evm) {
-      throw new Error('evm provider not set');
-    }
-
-    const input: Parameters<typeof swap>[0] = {
-      eoaWallet: this._evm.client,
-      chainList: this.chainList,
-      cosmos: {
-        address: (await this.#cosmosWallet!.getAccounts())[0].address,
-        wallet: this.#cosmosWallet!,
+  protected async _swapWithExactIn(input: ExactInSwapInput, options?: SwapInputOptionalParams) {
+    return swap(
+      {
+        mode: SwapMode.EXACT_IN,
+        data: input,
       },
-      destination: {
-        chainID: swapInput.toChainID,
-        token: swapInput.toTokenAddress,
+      await this.getCommonSwapParams(options),
+    );
+  }
+  protected async _swapWithExactOut(input: ExactOutSwapInput, options?: SwapInputOptionalParams) {
+    return swap(
+      {
+        mode: SwapMode.EXACT_OUT,
+        data: input,
       },
-      ephemeralWallet: this.#ephemeralWallet!,
-      networkConfig: this._networkConfig,
-    };
+      await this.getCommonSwapParams(options),
+    );
+  }
 
-    if (
-      'fromTokenAddress' in swapInput &&
-      'fromChainID' in swapInput &&
-      'fromAmount' in swapInput
-    ) {
-      input.source = {
-        amount: swapInput.fromAmount,
-        chainID: swapInput.fromChainID,
-        token: swapInput.fromTokenAddress,
-      };
-    } else if ('toAmount' in swapInput) {
-      input.destination.amount = swapInput.toAmount;
-    }
-
-    await swap(input, {
-      ...options,
+  private async getCommonSwapParams(options?: SwapInputOptionalParams): Promise<SwapParams> {
+    return {
       emit: this._caEvents.emit.bind(this._caEvents),
-    });
+      chainList: this.chainList,
+      address: {
+        cosmos: (await this.#cosmosWallet!.getAccounts())[0].address,
+        eoa: (await this._evm!.client.getAddresses())[0],
+        ephemeral: this.#ephemeralWallet!.address,
+      },
+      wallet: {
+        cosmos: this.#cosmosWallet!,
+        ephemeral: this.#ephemeralWallet!,
+        eoa: this._evm!.client,
+      },
+      networkConfig: this._networkConfig,
+      ...options,
+    };
   }
 
   protected async _handleEVMTx(args: RequestArguments, options: Partial<TxOptions> = {}) {
@@ -267,7 +268,7 @@ export class CA {
         this._setProviderHooks();
 
         if (!this._isArcanaProvider) {
-          await this._createCosmosWallet();
+          this.#cosmosWallet = await this._createCosmosWallet();
           this._checkPendingRefunds();
         }
 

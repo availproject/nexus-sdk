@@ -117,10 +117,53 @@ export type SwapIntentHook = (data: {
   refresh: () => Promise<SwapIntent>;
 }) => unknown;
 
-export type SwapOptionalParams = {
+export type SwapParams = {
   emit: (stepID: string, step: unknown) => void;
+  chainList: ChainListType;
+  address: {
+    cosmos: string;
+    eoa: Hex;
+    ephemeral: Hex;
+  };
+  wallet: {
+    cosmos: DirectSecp256k1Wallet;
+    ephemeral: PrivateKeyAccount;
+    eoa: WalletClient;
+  };
+  networkConfig: NetworkConfig;
+} & SwapInputOptionalParams;
+
+export type SwapInputOptionalParams = {
   swapIntentHook?: SwapIntentHook;
 };
+
+export interface ExactInSwapInput {
+  from?: {
+    chainId: number;
+    amount: bigint;
+    tokenAddress: Hex;
+  }[];
+  toChainId: number;
+  toTokenAddress: Hex;
+}
+
+export interface ExactOutSwapInput {
+  toChainId: number;
+  toTokenAddress: Hex;
+  toAmount: bigint;
+}
+
+export enum SwapMode {
+  EXACT_IN,
+  EXACT_OUT,
+}
+
+export type SwapData =
+  | {
+      mode: SwapMode.EXACT_IN;
+      data: ExactInSwapInput;
+    }
+  | { mode: SwapMode.EXACT_OUT; data: ExactOutSwapInput };
 
 export const CaliburSBCTypes = {
   BatchedCall: [

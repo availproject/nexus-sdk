@@ -22,16 +22,17 @@ yarn-error.log*
 .env.test.local
 .env.production.local
 
+# OS
+.DS_Store
+Thumbs.db
+
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
 
-# OS
-.DS_Store
-Thumbs.db 
-
+/dist-tarballs
 /CLAUDE.md
 /RESTRUCTURE.md
 /DOCS.md

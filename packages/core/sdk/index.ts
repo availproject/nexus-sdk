@@ -21,11 +21,12 @@ import type {
   ExecuteResult,
   ExecuteSimulation,
   BridgeAndExecuteSimulationResult,
-  SwapInput,
-  SwapOptionalParams,
   SwapResult,
   SwapBalances,
   SwapSupportedChainsResult,
+  ExactInSwapInput,
+  SwapInputOptionalParams,
+  ExactOutSwapInput,
 } from '@nexus/commons';
 import { logger } from '@nexus/commons';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
@@ -95,7 +96,7 @@ export class NexusSDK extends CA {
       explorerUrl: '',
     };
     try {
-      await this._bridge(params);
+      await (await this._bridge(params)).exec();
       // Add explorer URL
     } catch (e) {
       result.success = false;
@@ -113,7 +114,7 @@ export class NexusSDK extends CA {
       explorerUrl: '',
     };
     try {
-      await this._transfer({ ...params, to: params.recipient });
+      await (await this._transfer({ ...params, to: params.recipient })).exec();
     } catch (error) {
       result.success = false;
     } finally {
@@ -121,19 +122,30 @@ export class NexusSDK extends CA {
     }
   }
 
-  /**
-   * Swaps
-   */
-  public async swap(
-    inputs: SwapInput,
-    options?: Omit<SwapOptionalParams, 'emit'>,
-  ): Promise<SwapResult> {
+  public async swapWithExactIn(input: ExactInSwapInput, options?: SwapInputOptionalParams) {
     const result: SwapResult = {
       success: true,
     };
     try {
-      await this._swap(inputs, options);
+      console.log('Executing swap with exact in', input, options);
+      await this._swapWithExactIn(input, options);
     } catch (error) {
+      console.error('Error in swap with exact in', error);
+      result.success = false;
+    } finally {
+      return result;
+    }
+  }
+
+  public async swapWithExactOut(input: ExactOutSwapInput, options?: SwapInputOptionalParams) {
+    const result: SwapResult = {
+      success: true,
+    };
+    try {
+      console.log('Executing swap with exact out', input, options);
+      await this._swapWithExactOut(input, options);
+    } catch (error) {
+      console.error('Error in swap with exact out', error);
       result.success = false;
     } finally {
       return result;
