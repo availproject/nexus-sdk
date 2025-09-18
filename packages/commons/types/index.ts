@@ -132,12 +132,13 @@ export interface BridgeParams {
 /**
  * Result structure for bridge transactions.
  */
-export interface BridgeResult {
-  success: boolean;
-  error?: string;
-  explorerUrl?: string;
-  transactionHash?: string; // Add transaction hash property
-}
+export type BridgeResult =
+  | { success: false; error: string }
+  | {
+      success: true;
+      explorerUrl: string;
+      transactionHash?: string;
+    };
 
 /**
  * Result structure for swap transactions.
@@ -152,11 +153,16 @@ export interface SwapResult {
 /**
  * Result structure for transfer transactions.
  */
-export interface TransferResult {
-  success: boolean;
-  error?: string;
-  explorerUrl?: string;
-}
+export type TransferResult =
+  | {
+      success: true;
+      transactionHash: string;
+      explorerUrl: string;
+    }
+  | {
+      success: false;
+      error: string;
+    };
 
 export interface SimulationResult {
   intent: ReadableIntent;
@@ -480,7 +486,7 @@ export interface IRequestHandler {
       }
     | undefined
   >;
-  process(): Promise<unknown>;
+  process(): Promise<{ explorerURL: string } | undefined>;
 }
 
 type Network = Extract<Environment, Environment.CERISE | Environment.CORAL | Environment.FOLLY>;

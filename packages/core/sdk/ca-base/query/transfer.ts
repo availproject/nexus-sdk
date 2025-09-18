@@ -33,11 +33,19 @@ class TransferQuery {
       throw new Error('ca not applicable');
     }
 
-    await this.handlerResponse.handler.process();
+    let explorerURL = '';
+    const result = await this.handlerResponse.handler.process();
+    if (result) {
+      explorerURL = result.explorerURL;
+    }
     logger.debug('TransferQuery:Exec', {
       state: 'processing completed, going to processTx()',
     });
-    return this.handlerResponse.processTx();
+    const hash = (await this.handlerResponse.processTx()) as Hex;
+    return {
+      hash,
+      explorerURL,
+    };
   };
 
   public async initHandler() {
