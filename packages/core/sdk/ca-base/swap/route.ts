@@ -152,6 +152,7 @@ const _exactOutRoute = async (
     if (!equalFold(input.toTokenAddress, dstChainCOTAddress)) {
       dds = await determineDestinationSwaps(
         userAddressInBytes,
+        null,
         dstOmniversalChainID,
         {
           amount: BigInt(input.toAmount),
