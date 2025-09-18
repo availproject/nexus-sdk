@@ -33,10 +33,7 @@ export function ChainSelect({
 }) {
   const { sdk } = useInternalNexus();
   const [filteredChainIds, setFilteredChainIds] = useState<number[]>([]);
-
   const availableChainIds = network === 'testnet' ? TESTNET_CHAINS : MAINNET_CHAINS;
-
-  // Determine if we should use async filtering (swap source chains with SDK)
 
   // Effect to handle chain filtering
   useEffect(() => {
@@ -67,7 +64,6 @@ export function ChainSelect({
       logo: metadata.logo,
     };
   });
-
   const selectedOption = useMemo(
     () => chainOptions.find((opt) => opt.value === (value ?? '')),
     [value],
@@ -101,7 +97,7 @@ export function ChainSelect({
           </p>
         )}
       </div>
-      <div className="flex flex-col items-start w-full h-full max-h-[332px] overflow-y-scroll gap-y-4">
+      <div className="flex flex-col items-start w-full h-full max-h-[332px] no-scrollbar gap-y-4">
         {chainOptions.map((chain, index) => (
           <DrawerAutoClose key={chain?.chainId} enabled={hasValues}>
             <Button

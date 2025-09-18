@@ -24,16 +24,12 @@ const baseConfig = {
     commonjs({
       include: /node_modules/,
     }),
-    typescript({ 
+    typescript({
       tsconfig: './tsconfig.json',
       sourceMap: shouldGenerateSourceMaps,
     }),
   ],
-  external: [
-    ...Object.keys(packageJson.dependencies || {}), 
-    /^viem/,
-    /^@arcana\/ca-sdk/,
-  ],
+  external: [...Object.keys(packageJson.dependencies || {}), /^viem/],
 };
 
 export default defineConfig([
@@ -55,12 +51,12 @@ export default defineConfig([
       },
     ],
   },
-  
+
   // TypeScript declarations
   {
     input: 'index.ts',
     output: [{ file: 'dist/index.d.ts', format: 'esm' }],
     plugins: [dts()],
     external: [...Object.keys(packageJson.dependencies || {}), /^viem/],
-  }
+  },
 ]);

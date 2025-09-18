@@ -5,7 +5,7 @@ import { cn } from '../../utils/utils';
 import { Button } from '../motion/button-motion';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { DrawerAutoClose } from '../motion/drawer';
-import type { TokenSelectProps } from '../../types';
+import type { SwapInputData, TokenSelectProps } from '../../types';
 import { useAvailableTokens, type TokenSelectOption } from '../../utils/token-utils';
 
 export function TokenSelect({
@@ -23,7 +23,7 @@ export function TokenSelect({
   chainId?: number;
   isDestination?: boolean;
 }) {
-  const { unifiedBalance, sdk, isSdkInitialized } = useInternalNexus();
+  const { unifiedBalance, sdk, isSdkInitialized, activeTransaction } = useInternalNexus();
 
   const tokenOptions = useAvailableTokens({
     chainId,
@@ -44,12 +44,19 @@ export function TokenSelect({
       icon: token.icon,
       metadata: {
         ...token,
-        contractAddress: undefined, // Legacy mode doesn't have contract addresses
+        contractAddress: undefined,
       },
     }));
   }, [network, type]);
 
-  const finalTokenOptions = type ? tokenOptions : legacyTokenOptions;
+  const finalTokenOptions = useMemo(() => {
+    const tokens = type ? tokenOptions : legacyTokenOptions;
+    const inputData = activeTransaction?.inputData as SwapInputData;
+    if (inputData && inputData?.fromTokenAddress) {
+      return tokens.filter((token) => token?.value !== inputData?.fromTokenAddress);
+    }
+    return tokens;
+  }, [type, tokenOptions, legacyTokenOptions]);
 
   const tokenBalanceBreakdown = useMemo(() => {
     let breakdown: Record<string, { bal: string; chains: string }> = {};
@@ -82,7 +89,7 @@ export function TokenSelect({
             ? 'Destination Token'
             : 'Source Token'}
       </p>
-      <div className="flex flex-col items-start w-full h-full max-h-[332px] overflow-y-scroll gap-y-4">
+      <div className="flex flex-col items-start w-full h-full max-h-[332px] no-scrollbar overflow-x-hidden gap-y-4">
         {finalTokenOptions.map((token, index) => (
           <DrawerAutoClose key={token?.label} enabled={hasValues}>
             <Button

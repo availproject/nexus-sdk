@@ -54,6 +54,8 @@ const baseConfig = {
     'msgpackr',
     'tslib',
     'it-ws',
+    'axios',
+    'es-toolkit',
     './commons',
   ],
   treeshake: {
@@ -122,6 +124,8 @@ export default defineConfig([
       'tslib',
       'it-ws',
       '@nexus/commons',
+      'axios',
+      'es-toolkit',
       './commons',
     ],
   },
