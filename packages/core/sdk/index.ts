@@ -124,33 +124,41 @@ export class NexusSDK extends CA {
     }
   }
 
-  public async swapWithExactIn(input: ExactInSwapInput, options?: SwapInputOptionalParams) {
-    const result: SwapResult = {
-      success: true,
-    };
+  public async swapWithExactIn(
+    input: ExactInSwapInput,
+    options?: SwapInputOptionalParams,
+  ): Promise<SwapResult> {
     try {
-      console.log('Executing swap with exact in', input, options);
-      await this._swapWithExactIn(input, options);
+      const result = await this._swapWithExactIn(input, options);
+      return {
+        success: true,
+        result,
+      };
     } catch (error) {
-      console.error('Error in swap with exact in', error);
-      result.success = false;
-    } finally {
-      return result;
+      console.error('Error in swap with exact out', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error : new Error(String(error)),
+      };
     }
   }
 
-  public async swapWithExactOut(input: ExactOutSwapInput, options?: SwapInputOptionalParams) {
-    const result: SwapResult = {
-      success: true,
-    };
+  public async swapWithExactOut(
+    input: ExactOutSwapInput,
+    options?: SwapInputOptionalParams,
+  ): Promise<SwapResult> {
     try {
-      console.log('Executing swap with exact out', input, options);
-      await this._swapWithExactOut(input, options);
+      const result = await this._swapWithExactOut(input, options);
+      return {
+        success: true,
+        result,
+      };
     } catch (error) {
       console.error('Error in swap with exact out', error);
-      result.success = false;
-    } finally {
-      return result;
+      return {
+        success: false,
+        error: error instanceof Error ? error : new Error(String(error)),
+      };
     }
   }
 

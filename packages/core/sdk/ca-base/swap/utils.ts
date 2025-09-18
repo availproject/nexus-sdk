@@ -30,6 +30,7 @@ import { pack, unpack } from 'msgpackr';
 import {
   ByteArray,
   bytesToBigInt,
+  bytesToNumber,
   concat,
   createPublicClient,
   encodeAbiParameters,
@@ -55,12 +56,13 @@ import { ERC20PermitABI, ERC20PermitEIP2612PolygonType, ERC20PermitEIP712Type } 
 import { FillEvent } from '../abi/vault';
 import { ZERO_ADDRESS } from '../constants';
 import { getLogger } from '../logger';
-import { Chain, TokenInfo, UserAssetDatum } from '@nexus/commons';
+import { Chain, SuccessfulSwapResult, TokenInfo, UserAssetDatum } from '@nexus/commons';
 import {
   convertTo32BytesHex,
   divDecimals,
   equalFold,
   getCosmosURL,
+  getExplorerURL,
   getVSCURL,
   waitForTxReceipt,
 } from '../utils';
@@ -70,6 +72,7 @@ import { chainData, getTokenVersion } from './data';
 import { createSBCTxFromCalls, waitForSBCTxReceipt } from './sbc';
 import { DESTINATION_SWAP_HASH, SwapStep } from './steps';
 import { AnkrAsset, AnkrBalances, SBCTx, SwapIntent, Tx, ChainListType } from '@nexus/commons';
+import Long from 'long';
 
 const logger = getLogger();
 
@@ -1589,6 +1592,35 @@ export type SwapMetadataTx = {
   }[];
   tx_hash: Bytes;
   univ: number;
+};
+
+const convertSwapMetaToSwap = (src: SwapMetadataTx) => {
+  const swaps = src.swaps.map((s) => {
+    return {
+      inputAmount: bytesToBigInt(s.input_amt),
+      inputContract: convertToEVMAddress(s.input_contract),
+      inputDecimals: s.input_decimals,
+      outputAmount: bytesToBigInt(s.output_amt),
+      outputContract: convertToEVMAddress(s.output_contract),
+      outputDecimals: s.output_decimals,
+    };
+  });
+  return {
+    chainId: bytesToNumber(src.chid),
+    swaps,
+    txHash: toHex(src.tx_hash),
+  };
+};
+
+export const convertMetadataToSwapResult = (
+  metadata: SwapMetadata,
+  baseURL: string,
+): SuccessfulSwapResult => {
+  return {
+    sourceSwaps: metadata.src.map(convertSwapMetaToSwap),
+    explorerURL: getExplorerURL(baseURL, Long.fromBigInt(metadata.rff_id)),
+    destinationSwap: convertSwapMetaToSwap(metadata.dst),
+  };
 };
 
 function mswap2eip712swap(input: SwapMetadataTx['swaps'][0]) {
