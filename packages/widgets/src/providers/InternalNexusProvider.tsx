@@ -702,7 +702,7 @@ export function InternalNexusProvider({
         sdk
           .swapWithExactIn(swapInput, {
             swapIntentHook: async (data: Parameters<SwapIntentHook>[0]) => {
-              logger.info('Swap Provider: Intent captured successfully', data.intent);
+              console.log('Swap Provider: Intent captured successfully', data.intent);
               swapAllowCallbackRef.current = data.allow;
               // Update UI with captured intent (simulation result)
               setActiveTransaction((prev) => ({
@@ -730,8 +730,7 @@ export function InternalNexusProvider({
             },
           })
           .then((result) => {
-            // This is where your "Error in VSC SBC Tx" gets caught!
-            logger.info('Swap Provider: Final swap execution result:', result);
+            console.log('Swap Provider: Final swap execution result:', result);
 
             if (result.success) {
               // Swap succeeded - let useListenTransaction handle the success state

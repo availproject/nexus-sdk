@@ -268,7 +268,7 @@ export class CA {
         this._setProviderHooks();
 
         if (!this._isArcanaProvider) {
-          await this._createCosmosWallet();
+          this.#cosmosWallet = await this._createCosmosWallet();
           this._checkPendingRefunds();
         }
 

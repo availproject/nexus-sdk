@@ -127,8 +127,10 @@ export class NexusSDK extends CA {
       success: true,
     };
     try {
+      console.log('Executing swap with exact in', input, options);
       await this._swapWithExactIn(input, options);
     } catch (error) {
+      console.error('Error in swap with exact in', error);
       result.success = false;
     } finally {
       return result;
@@ -140,8 +142,10 @@ export class NexusSDK extends CA {
       success: true,
     };
     try {
+      console.log('Executing swap with exact out', input, options);
       await this._swapWithExactOut(input, options);
     } catch (error) {
+      console.error('Error in swap with exact out', error);
       result.success = false;
     } finally {
       return result;
