@@ -35,7 +35,13 @@ import { BridgeAndExecuteController } from '../controllers/BridgeAndExecuteContr
 import TransactionProcessorShell from '../components/processing/transaction-processor-shell';
 import { LayoutGroup } from 'motion/react';
 import useListenTransaction from '../hooks/useListenTransaction';
-import { logger, type SwapInput, SwapIntentHook, parseUnits, TOKEN_METADATA } from '@nexus/commons';
+import {
+  logger,
+  SwapIntentHook,
+  parseUnits,
+  TOKEN_METADATA,
+  ExactInSwapInput,
+} from '@nexus/commons';
 import { DragConstraintsProvider } from '../components/motion/drag-constraints';
 import { getTokenFromInputData, getAmountFromInputData, formatSwapError } from '../utils/utils';
 import { getTokenAddress } from '../utils/token-utils';
@@ -675,22 +681,26 @@ export function InternalNexusProvider({
           'swap',
         );
 
-        const swapInput: SwapInput = {
-          fromChainID: inputData.fromChainID,
-          toChainID: inputData.toChainID,
-          fromTokenAddress: actualFromTokenAddress as `0x${string}`,
+        const swapInput: ExactInSwapInput = {
+          from: [
+            {
+              chainId: inputData.fromChainID,
+              amount: parseUnits(
+                fromAmountStr.toString(),
+                TOKEN_METADATA[inputData?.fromTokenAddress]?.decimals,
+              ),
+              tokenAddress: actualFromTokenAddress as `0x${string}`,
+            },
+          ],
+          toChainId: inputData.toChainID,
           toTokenAddress: actualToTokenAddress as `0x${string}`,
-          fromAmount: parseUnits(
-            fromAmountStr.toString(),
-            TOKEN_METADATA[inputData?.fromTokenAddress]?.decimals,
-          ),
         };
 
         logger.info('Swap Provider: Prepared swap input', swapInput);
 
         // Start the swap process
         sdk
-          .swap(swapInput, {
+          .swapWithExactIn(swapInput, {
             swapIntentHook: async (data: Parameters<SwapIntentHook>[0]) => {
               logger.info('Swap Provider: Intent captured successfully', data.intent);
               swapAllowCallbackRef.current = data.allow;
@@ -702,11 +712,11 @@ export function InternalNexusProvider({
                   intent: data.intent,
                   swapMetadata: {
                     type: 'swap' as const,
-                    inputToken: swapInput.fromTokenAddress,
+                    inputToken: actualFromTokenAddress as `0x${string}`,
                     outputToken: swapInput.toTokenAddress,
-                    fromChainId: swapInput.fromChainID,
-                    toChainId: swapInput.toChainID,
-                    inputAmount: swapInput.fromAmount.toString(),
+                    fromChainId: inputData?.fromChainID,
+                    toChainId: inputData.toChainID,
+                    inputAmount: inputData?.fromAmount ?? '',
                     outputAmount: data.intent.destination?.amount?.toString() ?? '0',
                   },
                   allowance: {

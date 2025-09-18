@@ -10,11 +10,11 @@ import type {
   SUPPORTED_CHAINS_IDS,
   DynamicParamBuilder,
   SimulationResult,
-  SwapInput,
-  SwapOptionalParams,
+  SwapInputOptionalParams,
   SwapIntent,
   UserAsset,
   EthereumProvider,
+  ExactInSwapInput,
 } from '@nexus/commons';
 
 import { Abi } from 'viem';
@@ -310,8 +310,8 @@ export interface BridgeButtonProps extends BaseComponentProps {
 }
 
 export interface SwapConfig {
-  inputs: SwapInput;
-  options?: Omit<SwapOptionalParams, 'emit'>;
+  inputs: ExactInSwapInput;
+  options?: SwapInputOptionalParams;
 }
 
 export interface SwapButtonProps extends BaseComponentProps {
