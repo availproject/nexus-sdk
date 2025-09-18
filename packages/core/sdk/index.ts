@@ -96,7 +96,7 @@ export class NexusSDK extends CA {
       explorerUrl: '',
     };
     try {
-      await this._bridge(params);
+      (await this._bridge(params)).exec();
       // Add explorer URL
     } catch (e) {
       result.success = false;
@@ -114,7 +114,7 @@ export class NexusSDK extends CA {
       explorerUrl: '',
     };
     try {
-      await this._transfer({ ...params, to: params.recipient });
+      (await this._transfer({ ...params, to: params.recipient })).exec();
     } catch (error) {
       result.success = false;
     } finally {
