@@ -701,6 +701,10 @@ const _exactInRoute = async (
   input: ExactInSwapInput,
   options: SwapParams & { aggregators: Aggregator[] },
 ) => {
+  logger.debug('exactInRoute', {
+    input,
+    options,
+  });
   throw new Error('Not implemented yet!');
   // const [feeStore, balanceResponse, oraclePrices] = await Promise.all([
   //   getFeeStore(input.networkConfig.GRPC_URL),
