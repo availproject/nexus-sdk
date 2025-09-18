@@ -21,11 +21,12 @@ import type {
   ExecuteResult,
   ExecuteSimulation,
   BridgeAndExecuteSimulationResult,
-  SwapInput,
-  SwapOptionalParams,
   SwapResult,
   SwapBalances,
   SwapSupportedChainsResult,
+  ExactInSwapInput,
+  SwapInputOptionalParams,
+  ExactOutSwapInput,
 } from '@nexus/commons';
 import { logger } from '@nexus/commons';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
@@ -121,18 +122,25 @@ export class NexusSDK extends CA {
     }
   }
 
-  /**
-   * Swaps
-   */
-  public async swap(
-    inputs: SwapInput,
-    options?: Omit<SwapOptionalParams, 'emit'>,
-  ): Promise<SwapResult> {
+  public async swapWithExactIn(input: ExactInSwapInput, options?: SwapInputOptionalParams) {
     const result: SwapResult = {
       success: true,
     };
     try {
-      await this._swap(inputs, options);
+      await this._swapWithExactIn(input, options);
+    } catch (error) {
+      result.success = false;
+    } finally {
+      return result;
+    }
+  }
+
+  public async swapWithExactOut(input: ExactOutSwapInput, options?: SwapInputOptionalParams) {
+    const result: SwapResult = {
+      success: true,
+    };
+    try {
+      await this._swapWithExactOut(input, options);
     } catch (error) {
       result.success = false;
     } finally {

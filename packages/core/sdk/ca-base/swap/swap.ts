@@ -6,7 +6,7 @@ import {
   Universe,
 } from '@arcana/ca-common';
 
-import type { InternalSwapInput, SwapOptionalParams } from '@nexus/commons';
+import { SwapMode, type SwapData, type SwapParams } from '@nexus/commons';
 
 import { getLogger } from '../logger';
 import { divDecimals } from '../utils';
@@ -29,25 +29,21 @@ const logger = getLogger();
 const ErrorUserDeniedIntent = new Error('User denied swap');
 
 export const swap = async (
-  input: InternalSwapInput,
-  options: SwapOptionalParams,
+  input: SwapData,
+  options: SwapParams,
   COT = CurrencyID.USDC,
 ): Promise<void> => {
   performance.clearMarks();
   performance.clearMeasures();
 
-  const publicClientList = new PublicClientList(input.chainList);
+  const publicClientList = new PublicClientList(options.chainList);
   const cache = new Cache(publicClientList);
-  const dstChain = input.chainList.getChainByID(input.destination.chainID);
+  const dstChain = options.chainList.getChainByID(input.data.toChainId);
 
   if (!dstChain) {
     throw new Error('destination chain not supported');
   }
-
   performance.mark('swap-start');
-
-  const ephemeralAddress = input.ephemeralWallet.address;
-  const eoaAddress = (await input.eoaWallet.getAddresses())[0];
   const emitter = {
     emit: (step: SwapStep) => {
       options.emit('swap_step', step);
@@ -56,22 +52,11 @@ export const swap = async (
 
   emitter.emit(SWAP_START);
 
-  logger.debug('swapBegin', { eoaAddress, ephemeralAddress, input });
+  logger.debug('swapBegin', { options, input });
 
   performance.mark('determine-swaps-start');
 
   emitter.emit(DETERMINING_SWAP());
-
-  const params = {
-    chainList: input.chainList,
-    COT,
-    dstChainID: input.destination.chainID,
-    eoaAddress: eoaAddress,
-    ephemeralAddress: ephemeralAddress,
-    networkConfig: input.networkConfig,
-    outputTokenAddress: input.destination.token,
-    universe: Universe.ETHEREUM,
-  };
 
   const aggregators: Aggregator[] = [
     new LiFiAggregator(LIFI_API_KEY),
@@ -79,18 +64,11 @@ export const swap = async (
     // new ZeroExAggregator(ZERO_X_API_KEY),
   ];
 
+  const swapRouteParams = { ...options, aggregators, cotCurrencyID: COT };
+
   const [swapRoute, dstTokenInfo] = await Promise.all([
-    determineSwapRoute(
-      input.destination.amount == undefined
-        ? { ...params, mode: 'EXACT_IN', source: input.source }
-        : {
-            ...params,
-            mode: 'EXACT_OUT',
-            outputAmount: input.destination.amount,
-          },
-      aggregators,
-    ),
-    getERC20TokenInfo(input.destination.token, publicClientList.get(input.destination.chainID)),
+    determineSwapRoute(input, swapRouteParams),
+    getERC20TokenInfo(input.data.toTokenAddress, publicClientList.get(input.data.toChainId)),
   ]);
 
   logger.debug('initial-swap-route', {
@@ -121,11 +99,11 @@ export const swap = async (
 
       const destination = {
         amount: divDecimals(
-          input.destination.amount ?? destinationSwap.outputAmount,
+          input.mode === SwapMode.EXACT_OUT ? input.data.toAmount : destinationSwap.outputAmount,
           dstTokenInfo.decimals,
         ).toFixed(),
-        chainID: input.destination.chainID,
-        contractAddress: input.destination.token,
+        chainID: input.data.toChainId,
+        contractAddress: input.data.toTokenAddress,
         decimals: dstTokenInfo.decimals,
         symbol: dstTokenInfo.symbol,
       };
@@ -135,19 +113,10 @@ export const swap = async (
       const refresh = async () => {
         if (accepted) {
           logger.warn('Swap Intent refresh called after acceptance');
-          return createSwapIntent(assetsUsed, destination, input.chainList);
+          return createSwapIntent(assetsUsed, destination, options.chainList);
         }
 
-        const swapRouteResponse = await determineSwapRoute(
-          input.destination.amount == undefined
-            ? { ...params, mode: 'EXACT_IN' }
-            : {
-                ...params,
-                mode: 'EXACT_OUT',
-                outputAmount: input.destination.amount,
-              },
-          aggregators,
-        );
+        const swapRouteResponse = await determineSwapRoute(input, swapRouteParams);
 
         sourceSwaps = swapRouteResponse.sourceSwaps;
         assetsUsed = swapRouteResponse.assetsUsed;
@@ -157,7 +126,7 @@ export const swap = async (
           dstTokenInfo,
           swapRoute: swapRouteResponse,
         });
-        return createSwapIntent(assetsUsed, destination, input.chainList);
+        return createSwapIntent(assetsUsed, destination, options.chainList);
       };
       // wait for intent acceptance hook
       await new Promise((resolve, reject) => {
@@ -173,7 +142,7 @@ export const swap = async (
         hook({
           allow,
           deny,
-          intent: createSwapIntent(assetsUsed, destination, input.chainList),
+          intent: createSwapIntent(assetsUsed, destination, options.chainList),
           refresh,
         });
       });
@@ -182,7 +151,7 @@ export const swap = async (
 
   const metadata: SwapMetadata = {
     dst: {
-      chid: convertTo32Bytes(input.destination.chainID),
+      chid: convertTo32Bytes(input.data.toChainId),
       swaps: [],
       tx_hash: ZERO_BYTES_32,
       univ: Universe.ETHEREUM,
@@ -193,28 +162,20 @@ export const swap = async (
   };
 
   const opt = {
-    address: {
-      cosmos: input.cosmos.address,
-      eoa: eoaAddress,
-      ephemeral: ephemeralAddress,
-    },
+    address: options.address,
     aggregators,
     cache,
-    chainList: input.chainList,
+    chainList: options.chainList,
     cot: {
       currencyID: COT,
       symbol: CurrencyID[COT],
     },
-    destinationChainID: input.destination.chainID,
+    destinationChainID: input.data.toChainId,
     emitter,
-    networkConfig: input.networkConfig,
+    networkConfig: options.networkConfig,
     publicClientList,
     slippage: 0.005,
-    wallet: {
-      cosmos: input.cosmos.wallet,
-      eoa: input.eoaWallet,
-      ephemeral: input.ephemeralWallet,
-    },
+    wallet: options.wallet,
   };
 
   const srcSwapsHandler = new SourceSwapsHandler(sourceSwaps, opt);
@@ -222,7 +183,12 @@ export const swap = async (
   const dstSwapHandler = new DestinationSwapHandler(
     { ...destinationSwap, getDDS: swapRoute.getDDS },
     dstTokenInfo,
-    input.destination,
+    {
+      chainID: input.data.toChainId,
+      token: input.data.toTokenAddress,
+      amount:
+        input.mode === SwapMode.EXACT_OUT ? input.data.toAmount : destinationSwap.outputAmount,
+    },
     opt,
   );
 
@@ -247,7 +213,7 @@ export const swap = async (
   try {
     const id = await postSwap({
       metadata,
-      wallet: input.ephemeralWallet,
+      wallet: options.wallet.ephemeral,
     });
     logger.debug('SwapID', { id });
   } catch (e) {
