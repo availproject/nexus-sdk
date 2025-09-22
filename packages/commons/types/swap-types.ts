@@ -330,4 +330,4 @@ export type SwapResult =
       success: true;
       result: SuccessfulSwapResult;
     }
-  | { success: false; error: Error };
+  | { success: false; error: string };

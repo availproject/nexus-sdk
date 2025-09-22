@@ -138,7 +138,7 @@ export class NexusSDK extends CA {
       console.error('Error in swap with exact out', error);
       return {
         success: false,
-        error: error instanceof Error ? error : new Error(String(error)),
+        error: error instanceof Error ? error.message : String(error),
       };
     }
   }
@@ -157,7 +157,7 @@ export class NexusSDK extends CA {
       console.error('Error in swap with exact out', error);
       return {
         success: false,
-        error: error instanceof Error ? error : new Error(String(error)),
+        error: error instanceof Error ? error.message : String(error),
       };
     }
   }
