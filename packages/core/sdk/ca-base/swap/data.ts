@@ -318,7 +318,7 @@ const getSwapSupportedChains = (chainList: ChainList) => {
   return chains;
 };
 
-type FlatBalance = {
+export type FlatBalance = {
   amount: string;
   chainID: number;
   decimals: number;
