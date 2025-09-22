@@ -194,7 +194,15 @@ class BridgeHandler {
         sbcTx.push(
           await createSBCTxFromCalls({
             cache: this.options.cache,
-            calls: calls.concat(this.depositCalls[c].tx),
+            calls: calls.concat(this.depositCalls[c].tx).concat(
+              createSweeperTxs({
+                cache: this.options.cache,
+                chainID: chain.id,
+                COTCurrencyID: this.options.cot.currencyID,
+                receiver: this.options.address.eoa,
+                sender: this.options.address.ephemeral,
+              }),
+            ),
             chainID: chain.id,
             ephemeralAddress: this.options.address.ephemeral,
             ephemeralWallet: this.options.wallet.ephemeral,
