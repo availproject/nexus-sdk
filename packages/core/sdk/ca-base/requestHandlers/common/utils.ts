@@ -28,7 +28,7 @@ const tokenRequestParseSimulation = ({
     assets,
     tokenContract,
   });
-  const { asset, chainsWithBalance, destinationAssetBalance, destinationGasBalance } =
+  const { chainsWithBalance, destinationAssetBalance, destinationGasBalance } =
     assets.getAssetDetails(chain, tokenContract);
 
   const gasMultiple = simulation.gasFee
@@ -53,12 +53,11 @@ const tokenRequestParseSimulation = ({
   let gas = new Decimal(0);
 
   logger.debug('ERC20RequestBase:parseSimulation:1', {
-    abstracted: asset?.abstracted,
     chainsWithBalance,
     destinationAssetBalance,
     isGasRequiredToBeBorrowed,
   });
-  if (chainsWithBalance && asset?.abstracted) {
+  if (chainsWithBalance) {
     if (amount.greaterThan(destinationAssetBalance)) {
       isIntentRequired = true;
     }
@@ -87,7 +86,7 @@ const nativeRequestParseSimulation = ({
   chain: Chain;
   simulation: SimulateReturnType;
 }) => {
-  const { asset, chainsWithBalance, destinationGasBalance } = assets.getAssetDetails(
+  const { chainsWithBalance, destinationGasBalance } = assets.getAssetDetails(
     chain,
     simulation.token.contractAddress,
   );
@@ -100,7 +99,7 @@ const nativeRequestParseSimulation = ({
     isIntentRequired = true;
   }
 
-  if (chainsWithBalance && asset?.abstracted) {
+  if (chainsWithBalance) {
     if (simulation.amount.add(gasMultiple).greaterThan(destinationGasBalance)) {
       isIntentRequired = true;
     }

@@ -16,14 +16,12 @@ import {
   UnifiedBalanceResponseData,
 } from '@nexus/commons';
 import {
-  balancesToAssets,
   convertAddressByUniverse,
   convertToHexAddressByUniverse,
   divDecimals,
   equalFold,
   minutesToMs,
 } from './common.utils';
-import { ChainListType } from '@nexus/commons';
 
 const logger = getLogger();
 
@@ -140,37 +138,6 @@ const getCoinbasePrices = async () => {
     }
   }
   return coinbasePrices.rates;
-};
-
-const fetchBalances = async (
-  vscDomain: string,
-  evmAddress: `0x${string}`,
-  chainList: ChainListType,
-  fuelAddress?: null | string,
-) => {
-  const [evmBalances, fuelBalances, rates] = await Promise.allSettled([
-    getEVMBalancesForAddress(vscDomain, evmAddress),
-    fuelAddress
-      ? getFuelBalancesForAddress(vscDomain, fuelAddress as `0x${string}`)
-      : Promise.resolve([]),
-    getCoinbasePrices(),
-  ]);
-  logger.debug('unified balances', { evmBalances, fuelBalances });
-
-  let balances: UnifiedBalanceResponseData[] = [];
-
-  if (evmBalances.status === 'fulfilled') {
-    balances = evmBalances.value.filter((b) => b.universe === Universe.ETHEREUM);
-  }
-
-  if (fuelBalances.status === 'fulfilled') {
-    balances = [...balances, ...fuelBalances.value.filter((b) => b.universe === Universe.FUEL)];
-  }
-
-  return {
-    ...balancesToAssets(balances, chainList),
-    rates: rates.status === 'fulfilled' ? rates.value : {},
-  };
 };
 
 export class FeeStore {
@@ -343,16 +310,7 @@ const getVscReq = (vscDomain: string) => {
   return vscReq;
 };
 
-const getEVMBalancesForAddress = async (vscDomain: string, address: `0x${string}`) => {
-  const response = await getVscReq(vscDomain).get<{
-    balances: UnifiedBalanceResponseData[];
-  }>(`/get-balance/ETHEREUM/${address}`);
-
-  logger.debug('getEVMBalancesForAddress', { response });
-  return response.data.balances;
-};
-
-const getFuelBalancesForAddress = async (vscDomain: string, address: `0x${string}`) => {
+export const getFuelBalancesForAddress = async (vscDomain: string, address: `0x${string}`) => {
   const response = await getVscReq(vscDomain).get<{
     balances: UnifiedBalanceResponseData[];
   }>(`/get-balance/FUEL/${address}`);
@@ -511,7 +469,6 @@ const checkIntentFilled = async (intentID: Long, grpcURL: string) => {
 
 export {
   checkIntentFilled,
-  fetchBalances,
   fetchMyIntents,
   fetchPriceOracle,
   fetchProtocolFees,

@@ -57,7 +57,6 @@ import {
   createRequestFuelSignature,
   equalFold,
   FeeStore,
-  fetchBalances,
   fetchPriceOracle,
   getAllowances,
   getExplorerURL,
@@ -74,6 +73,7 @@ import {
   waitForTxReceipt,
   UserAssets,
 } from '../../utils';
+import { getBalances } from 'sdk/ca-base/swap/route';
 
 const logger = getLogger();
 
@@ -93,11 +93,12 @@ abstract class BaseRequest implements IRequestHandler {
     const [simulation, [balances, oraclePrices, feeStore]] = await Promise.all([
       this.simulateTx(),
       Promise.all([
-        fetchBalances(
-          this.input.options.networkConfig.VSC_DOMAIN,
-          this.input.evm.address,
-          this.chainList,
-        ),
+        getBalances({
+          vscDomain: this.input.options.networkConfig.VSC_DOMAIN,
+          evmAddress: this.input.evm.address,
+          chainList: this.chainList,
+          fuelAddress: this.input.fuel?.address,
+        }),
         fetchPriceOracle(this.input.options.networkConfig.GRPC_URL),
         getFeeStore(this.input.options.networkConfig.GRPC_URL),
       ]),
@@ -120,8 +121,10 @@ abstract class BaseRequest implements IRequestHandler {
 
     const { assets } = balances;
     // Step 2: parse simulation results
+
+    const userAssets = new UserAssets(assets);
     const { amount, gas, isIntentRequired } = this.parseSimulation({
-      assets,
+      assets: userAssets,
       simulation,
     });
 
@@ -149,7 +152,7 @@ abstract class BaseRequest implements IRequestHandler {
     console.time('preIntentSteps: CreateIntent');
     const intent = this.createIntent({
       amount,
-      assets,
+      assets: userAssets,
       feeStore,
       gas,
       gasInToken,

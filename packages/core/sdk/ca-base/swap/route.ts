@@ -28,6 +28,7 @@ import {
   FeeStore,
   fetchPriceOracle,
   getFeeStore,
+  getFuelBalancesForAddress,
   mulDecimals,
 } from '../utils';
 import { EADDRESS } from './constants';
@@ -53,16 +54,23 @@ import { ChainListType, BridgeAsset } from '@nexus/commons';
 
 const logger = getLogger();
 
-export const getBalances = async (
-  address: `0x${string}`,
-  chainList: ChainListType,
-  removeTransferFee = false,
-  filter = true,
-) => {
-  const assets = balancesToAssets(
-    await getAnkrBalances(address, chainList, removeTransferFee),
-    chainList,
-  );
+export const getBalances = async (input: {
+  evmAddress: Hex;
+  chainList: ChainListType;
+  removeTransferFee?: boolean;
+  filter?: boolean;
+  fuelAddress?: string;
+  vscDomain: string;
+}) => {
+  const removeTransferFee = input.removeTransferFee ?? false;
+  const filter = input.filter ?? true;
+  const [ankrBalances, fuelBalances] = await Promise.all([
+    getAnkrBalances(input.evmAddress, input.chainList, removeTransferFee),
+    input.fuelAddress
+      ? getFuelBalancesForAddress(input.vscDomain, input.fuelAddress as `0x${string}`)
+      : Promise.resolve([]),
+  ]);
+  const assets = balancesToAssets(ankrBalances, fuelBalances, input.chainList);
   let balances = toFlatBalance(assets);
   if (filter) {
     balances = filterSupportedTokens(balances);
@@ -98,7 +106,13 @@ const _exactOutRoute = async (
 ) => {
   const [feeStore, { assets, balances }, oraclePrices] = await Promise.all([
     getFeeStore(params.networkConfig.GRPC_URL),
-    getBalances(params.address.eoa, params.chainList, true),
+    getBalances({
+      evmAddress: params.address.eoa,
+      chainList: params.chainList,
+      removeTransferFee: true,
+      filter: true,
+      vscDomain: params.networkConfig.VSC_DOMAIN,
+    }),
     fetchPriceOracle(params.networkConfig.GRPC_URL),
   ]);
 
@@ -491,7 +505,12 @@ const _exactInRoute = async (
   });
   const [feeStore, balanceResponse, oraclePrices] = await Promise.all([
     getFeeStore(params.networkConfig.GRPC_URL),
-    getBalances(params.address.eoa, params.chainList, true),
+    getBalances({
+      evmAddress: params.address.eoa,
+      chainList: params.chainList,
+      removeTransferFee: true,
+      vscDomain: params.networkConfig.VSC_DOMAIN,
+    }),
     fetchPriceOracle(params.networkConfig.GRPC_URL),
   ]);
 
@@ -580,7 +599,10 @@ const _exactInRoute = async (
     const cot = ChaindataMap.get(
       new OmniversalChainID(Universe.ETHEREUM, source.chainID),
     )?.Currencies.find((c) => c.currencyID === params.cotCurrencyID);
-    if (cot && equalFold(source.tokenAddress, convertToEVMAddress(cot.tokenAddress))) {
+    if (
+      cot &&
+      equalFold(convertToEVMAddress(source.tokenAddress), convertToEVMAddress(cot.tokenAddress))
+    ) {
       cotSources.push(source);
       cotCombinedBalance = cotCombinedBalance.add(source.amount);
       bridgeAssets.push({

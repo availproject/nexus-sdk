@@ -1,12 +1,9 @@
-import Decimal from 'decimal.js';
 import { Account, bn, CHAIN_IDS } from 'fuels';
-import { encodeFunctionData } from 'viem';
+import { encodeFunctionData, toHex } from 'viem';
 
 import ERC20ABI from '../abi/erc20';
 import { ZERO_ADDRESS } from '../constants';
-import { getLogger } from '../logger';
 import { convertIntent, equalFold, mulDecimals } from '../utils';
-import { fetchBalances } from '../utils';
 import {
   BridgeQueryInput,
   CA,
@@ -14,8 +11,6 @@ import {
   IRequestHandler,
   ChainListType,
 } from '@nexus/commons';
-
-const logger = getLogger();
 
 class BridgeQuery {
   private handler?: IRequestHandler | null = null;
@@ -26,7 +21,6 @@ class BridgeQuery {
     private createEVMHandler: CA['createEVMHandler'],
     private createFuelHandler: CA['createFuelHandler'],
     private address: `0x${string}`,
-    private vscDomain: string,
     private chainList: ChainListType,
     private fuelAccount?: Account,
   ) {}
@@ -51,30 +45,6 @@ class BridgeQuery {
         }
 
         const bridgeAmount = mulDecimals(input.amount, token.decimals);
-
-        const balances = await fetchBalances(this.vscDomain, this.address, this.chainList);
-
-        const asset = balances.assets.find(token.symbol);
-        const currentChainBalance = asset.getBalanceOnChain(input.chainId);
-        const assetBalance = asset.balance ?? 0;
-
-        const availableBalance = mulDecimals(
-          new Decimal(assetBalance).minus(currentChainBalance),
-          token.decimals,
-        );
-
-        logger.debug('bridge', {
-          asset,
-          assetBalance: assetBalance.toString(),
-          availableBalance: availableBalance.toString(),
-          balances,
-          currentChainBalance: currentChainBalance.toString(),
-          requiredBalance: bridgeAmount.toString(),
-        });
-
-        if (availableBalance < bridgeAmount) {
-          throw new Error('Insufficient balance');
-        }
 
         if (input.chainId === CHAIN_IDS.fuel.mainnet) {
           if (this.fuelAccount) {
@@ -105,7 +75,7 @@ class BridgeQuery {
           const isNative = equalFold(token.contractAddress, ZERO_ADDRESS);
 
           if (isNative) {
-            p.value = `0x${bridgeAmount.toString(16)}` as `0x${string}`;
+            p.value = toHex(bridgeAmount);
             input.gas = 0n;
           } else {
             p.to = token.contractAddress;
