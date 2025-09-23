@@ -65,19 +65,6 @@ export interface TokenMetadata {
   isNative?: boolean;
 }
 
-type OnIntentHookData = {
-  intent: Intent;
-  allow: () => void;
-  deny: () => void;
-  refresh: () => Promise<Intent>;
-};
-
-type OnAllowanceHookData = {
-  allow: (s: Array<'min' | 'max' | bigint | string>) => void;
-  deny: () => void;
-  sources: Array<onAllowanceHookSource>;
-};
-
 /**
  * Generic event listener type for CA SDK events
  */
@@ -491,13 +478,22 @@ export type NetworkConfig = {
   VSC_DOMAIN: string;
 };
 
-export type AllowanceHookSources = onAllowanceHookSource[];
+type OnIntentHookData = {
+  allow: () => void;
+  deny: () => void;
+  intent: ReadableIntent;
+  refresh: (selectedSources: number[]) => Promise<ReadableIntent>;
+};
 
-type OnAllowanceHook = (data: {
+type OnAllowanceHookData = {
   allow: (s: Array<'max' | 'min' | bigint | string>) => void;
   deny: () => void;
   sources: AllowanceHookSources;
-}) => void;
+};
+
+export type AllowanceHookSources = onAllowanceHookSource[];
+
+type OnAllowanceHook = (data: OnAllowanceHookData) => void;
 
 export type onAllowanceHookSource = {
   allowance: {
@@ -518,12 +514,7 @@ export type onAllowanceHookSource = {
   };
 };
 
-type OnIntentHook = (data: {
-  allow: () => void;
-  deny: () => void;
-  intent: ReadableIntent;
-  refresh: (selectedSources: number[]) => Promise<ReadableIntent>;
-}) => void;
+type OnIntentHook = (data: OnIntentHookData) => void;
 
 export type OraclePriceResponse = {
   chainId: number;
