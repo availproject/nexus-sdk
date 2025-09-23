@@ -54,10 +54,17 @@ import {
 
 import { ERC20PermitABI, ERC20PermitEIP2612PolygonType, ERC20PermitEIP712Type } from '../abi/erc20';
 import { FillEvent } from '../abi/vault';
-import { ZERO_ADDRESS } from '../constants';
+import { getLogoFromSymbol, ZERO_ADDRESS } from '../constants';
 import { getLogger } from '../logger';
-import { Chain, SuccessfulSwapResult, TokenInfo, UserAssetDatum } from '@nexus/commons';
 import {
+  Chain,
+  SuccessfulSwapResult,
+  TokenInfo,
+  UnifiedBalanceResponseData,
+  UserAssetDatum,
+} from '@nexus/commons';
+import {
+  convertAddressByUniverse,
   convertTo32BytesHex,
   divDecimals,
   equalFold,
@@ -744,7 +751,11 @@ export const toFlatBalance = (
     );
 };
 
-export const balancesToAssets = (ankrBalances: AnkrBalances, chainList: ChainListType) => {
+export const balancesToAssets = (
+  ankrBalances: AnkrBalances,
+  fuelBalances: UnifiedBalanceResponseData[],
+  chainList: ChainListType,
+) => {
   const assets: UserAssetDatum[] = [];
   for (const asset of ankrBalances.assets) {
     if (new Decimal(asset.balance).equals(0)) {
@@ -755,16 +766,6 @@ export const balancesToAssets = (ankrBalances: AnkrBalances, chainList: ChainLis
     if (!d) {
       continue;
     }
-    // const token = d.find((dt) => {
-    //   return equalFold(
-    //     dt.TokenContractAddress,
-    //     convertTo32BytesHex(asset.tokenAddress),
-    //   );
-    // });
-
-    // if (token && token.PermitVariant === PermitVariant.Unsupported) {
-    //   continue;
-    // }
 
     const chain = chainList.getChainByID(asset.chainID);
     if (!chain) {
@@ -816,6 +817,67 @@ export const balancesToAssets = (ankrBalances: AnkrBalances, chainList: ChainLis
         priceInUsd: asset.priceUSD,
         symbol: asset.tokenData.symbol as string,
       });
+    }
+  }
+
+  for (const balance of fuelBalances) {
+    for (const currency of balance.currencies) {
+      const chain = chainList.getChainByID(bytesToNumber(balance.chain_id));
+      if (!chain) {
+        continue;
+      }
+      const tokenAddress = convertAddressByUniverse(
+        toHex(currency.token_address),
+        balance.universe,
+      );
+      const token = chainList.getTokenByAddress(chain.id, tokenAddress);
+      const decimals = token ? token.decimals : chain.nativeCurrency.decimals;
+
+      if (token) {
+        const asset = assets.find((s) => s.symbol === token.symbol);
+        if (asset) {
+          asset.balance = new Decimal(asset.balance).add(currency.balance).toFixed();
+          asset.balanceInFiat = new Decimal(asset.balanceInFiat)
+            .add(currency.value)
+            .toDecimalPlaces(2)
+            .toNumber();
+          asset.breakdown.push({
+            balance: currency.balance,
+            balanceInFiat: new Decimal(currency.value).toDecimalPlaces(2).toNumber(),
+            chain: {
+              id: bytesToNumber(balance.chain_id),
+              logo: chain.custom.icon,
+              name: chain.name,
+            },
+            contractAddress: tokenAddress,
+            decimals,
+            universe: balance.universe,
+          });
+        } else {
+          assets.push({
+            abstracted: true,
+            balance: currency.balance,
+            balanceInFiat: new Decimal(currency.value).toDecimalPlaces(2).toNumber(),
+            breakdown: [
+              {
+                balance: currency.balance,
+                balanceInFiat: new Decimal(currency.value).toDecimalPlaces(2).toNumber(),
+                chain: {
+                  id: bytesToNumber(balance.chain_id),
+                  logo: chain.custom.icon as string,
+                  name: chain.name as string,
+                },
+                contractAddress: tokenAddress,
+                decimals,
+                universe: balance.universe,
+              },
+            ],
+            decimals: token.decimals,
+            icon: getLogoFromSymbol(token.symbol),
+            symbol: token.symbol,
+          });
+        }
+      }
     }
   }
   assets.forEach((asset) => {

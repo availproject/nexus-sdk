@@ -22,7 +22,6 @@ import type {
   ExecuteSimulation,
   BridgeAndExecuteSimulationResult,
   SwapResult,
-  SwapBalances,
   SwapSupportedChainsResult,
   ExactInSwapInput,
   SwapInputOptionalParams,
@@ -78,13 +77,6 @@ export class NexusSDK extends CA {
    */
   public async getUnifiedBalance(symbol: string): Promise<UserAsset | undefined> {
     return this._getUnifiedBalance(symbol);
-  }
-
-  /**
-   * Get swap balances
-   */
-  public async getSwapBalances(): Promise<SwapBalances> {
-    return this._getSwapBalances();
   }
 
   /**

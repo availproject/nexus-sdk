@@ -53,7 +53,6 @@ import {
 import {
   cosmosFeeGrant,
   equalFold,
-  fetchBalances,
   fetchMyIntents,
   getSDKConfig,
   getSupportedChains,
@@ -138,7 +137,6 @@ export class CA {
       this._createEVMHandler.bind(this),
       this._createFuelHandler.bind(this),
       await this._getEVMAddress(),
-      this._networkConfig.VSC_DOMAIN,
       this.chainList,
       this._fuel?.account,
     );
@@ -186,20 +184,23 @@ export class CA {
 
   protected async _getUnifiedBalance(symbol: string) {
     const balances = await this._getUnifiedBalances();
+
     return balances.find((s) => equalFold(s.symbol, symbol));
   }
 
   protected async _getUnifiedBalances() {
-    if (this._initStatus !== INIT_STATUS.DONE) {
+    if (!this._evm) {
       throw new Error('CA not initialized');
     }
-    const balances = await fetchBalances(
-      this._networkConfig.VSC_DOMAIN,
-      await this._getEVMAddress(),
-      this.chainList,
-      this._fuel?.address,
-    );
-    return balances.assets.data;
+    const { assets } = await getBalances({
+      evmAddress: (await this._evm.client.requestAddresses())[0],
+      chainList: this.chainList,
+      filter: false,
+      removeTransferFee: false,
+      vscDomain: this._networkConfig.VSC_DOMAIN,
+      fuelAddress: this._fuel?.address,
+    });
+    return assets;
   }
 
   protected _isInitialized() {
@@ -560,13 +561,6 @@ export class CA {
       throw new Error('EVM provider is not set');
     }
     return (await this._evm.client.requestAddresses())[0];
-  }
-
-  protected async _getSwapBalances() {
-    if (!this._evm) {
-      throw new Error('evm provider not set');
-    }
-    return getBalances((await this._evm.client.requestAddresses())[0], this.chainList);
   }
 
   protected _resolveInitPromises() {

@@ -14,7 +14,6 @@ import Long from 'long';
 import {
   ByteArray,
   bytesToHex,
-  bytesToNumber,
   encodeAbiParameters,
   getAbiItem,
   hashMessage,
@@ -30,7 +29,7 @@ import {
 } from 'viem';
 
 import { ChainList } from '../chains';
-import { FUEL_BASE_ASSET_ID, getLogoFromSymbol, isNativeAddress, ZERO_ADDRESS } from '../constants';
+import { FUEL_BASE_ASSET_ID, isNativeAddress, ZERO_ADDRESS } from '../constants';
 import { getLogger } from '../logger';
 import {
   EthereumProvider,
@@ -42,16 +41,14 @@ import {
   SDKConfig,
   TokenInfo,
   TxOptions,
-  UnifiedBalanceResponseData,
   ChainListType,
   NexusNetwork,
   UserAssetDatum,
   Chain,
 } from '@nexus/commons';
-import { FeeStore, fetchBalances } from './api.utils';
+import { FeeStore } from './api.utils';
 import { requestTimeout, waitForIntentFulfilment } from './contract.utils';
 import { cosmosCreateDoubleCheckTx, cosmosFillCheck, cosmosRefundIntent } from './cosmos.utils';
-import {} from '@nexus/commons';
 
 const logger = getLogger();
 
@@ -92,77 +89,6 @@ function convertAddressByUniverse(input: ByteArray | Hex, universe: Universe) {
 }
 
 const minutesToMs = (min: number) => min * 60 * 1000;
-
-const balancesToAssets = (balances: UnifiedBalanceResponseData[], chainList: ChainListType) => {
-  const assets: UserAssets = new UserAssets([]);
-  for (const balance of balances) {
-    for (const currency of balance.currencies) {
-      const chain = chainList.getChainByID(bytesToNumber(balance.chain_id));
-      if (!chain) {
-        continue;
-      }
-      const tokenAddress = convertAddressByUniverse(
-        toHex(currency.token_address),
-        balance.universe,
-      );
-      const token = chainList.getTokenByAddress(chain.id, tokenAddress);
-      const decimals = token ? token.decimals : chain.nativeCurrency.decimals;
-
-      if (token) {
-        const asset = assets.data.find((s) => s.symbol === token.symbol);
-        if (asset) {
-          asset.balance = new Decimal(asset.balance).add(currency.balance).toFixed();
-          asset.balanceInFiat = new Decimal(asset.balanceInFiat)
-            .add(currency.value)
-            .toDecimalPlaces(2)
-            .toNumber();
-          asset.breakdown.push({
-            balance: currency.balance,
-            balanceInFiat: new Decimal(currency.value).toDecimalPlaces(2).toNumber(),
-            chain: {
-              id: bytesToNumber(balance.chain_id),
-              logo: chain.custom.icon,
-              name: chain.name,
-            },
-            contractAddress: tokenAddress,
-            decimals,
-            universe: balance.universe,
-          });
-        } else {
-          assets.add({
-            abstracted: true,
-            balance: currency.balance,
-            balanceInFiat: new Decimal(currency.value).toDecimalPlaces(2).toNumber(),
-            breakdown: [
-              {
-                balance: currency.balance,
-                balanceInFiat: new Decimal(currency.value).toDecimalPlaces(2).toNumber(),
-                chain: {
-                  id: bytesToNumber(balance.chain_id),
-                  logo: chain.custom.icon as string,
-                  name: chain.name as string,
-                },
-                contractAddress: tokenAddress,
-                decimals,
-                universe: balance.universe,
-              },
-            ],
-            decimals: token.decimals,
-            icon: getLogoFromSymbol(token.symbol),
-            symbol: token.symbol,
-          });
-        }
-      }
-    }
-  }
-
-  assets.sort();
-
-  return {
-    assets,
-    balanceInFiat: assets.getBalanceInFiat(),
-  };
-};
 
 const INTENT_KEY = 'xar-sdk-intents';
 const getIntentKey = (address: string) => {
@@ -480,41 +406,6 @@ const evmWaitForFill = async (
   ]);
 };
 
-const convertBalance = (balances: Awaited<ReturnType<typeof fetchBalances>>) => {
-  const parsedBreakdown = balances.assets.data.map((asset) => {
-    return {
-      ...asset,
-      breakdown: Array.from({
-        ...asset.breakdown,
-        length: Object.keys(asset.breakdown).length,
-      }),
-    };
-  });
-  return parsedBreakdown.map((asset) => {
-    return {
-      abstracted: asset.abstracted,
-      balance: asset.balance,
-      balanceInFiat: asset.balanceInFiat,
-      breakdown: asset.breakdown.map((breakdown) => {
-        return {
-          balance: breakdown.balance,
-          balanceInFiat: breakdown.balanceInFiat,
-          chain: {
-            id: breakdown.chain.id,
-            logo: breakdown.chain.logo,
-            name: breakdown.chain.name,
-          },
-          contractAddress: breakdown.contractAddress,
-          decimals: breakdown.decimals,
-          isNative: breakdown.isNative,
-        };
-      }),
-      icon: asset.icon,
-      symbol: asset.symbol,
-    };
-  });
-};
-
 const convertTo32Bytes = (value: bigint | Hex | number) => {
   if (typeof value == 'bigint' || typeof value === 'number') {
     return toBytes(value, {
@@ -742,10 +633,7 @@ class UserAssets {
   }
 
   getAssetDetails(chain: Chain, address: `0x${string}`) {
-    const asset = this.findOnChain(chain.id, address);
-    if (!asset) {
-      throw new Error('Asset is not supported.');
-    }
+    let asset = this.findOnChain(chain.id, address);
 
     getLogger().debug('getAssetDetails', {
       asset,
@@ -755,9 +643,8 @@ class UserAssets {
     const destinationGasBalance = this.getNativeBalance(chain);
     const chainsWithBalance = this.getChainCountWithBalance(asset);
     const destinationAssetBalance =
-      asset.breakdown.find((b) => b.chain.id === chain.id)?.balance ?? '0';
+      asset?.breakdown.find((b) => b.chain.id === chain.id)?.balance ?? '0';
     return {
-      asset,
       chainsWithBalance,
       destinationAssetBalance,
       destinationGasBalance,
@@ -801,9 +688,7 @@ class UserAssets {
 export {
   UserAsset,
   UserAssets,
-  balancesToAssets,
   convertAddressByUniverse,
-  convertBalance,
   convertGasToToken,
   convertIntent,
   convertTo32Bytes,
