@@ -155,14 +155,6 @@ export function InternalNexusProvider({
 
   const fetchBalances = async () => {
     const unifiedBalance = await sdk.getUnifiedBalances();
-    const swapBalance = await sdk?.getSwapBalances();
-    const unifiedTokenSymbols = unifiedBalance.map((bal) => bal.symbol);
-    swapBalance.assets.forEach((asset) => {
-      const assetSymbol = asset?.symbol;
-      if (!unifiedTokenSymbols.includes(assetSymbol)) {
-        unifiedBalance.push(asset);
-      }
-    });
     logger.debug('Unified balance', { unifiedBalance });
     setUnifiedBalance(unifiedBalance);
   };
