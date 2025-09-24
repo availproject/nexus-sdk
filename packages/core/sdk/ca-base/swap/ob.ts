@@ -346,6 +346,18 @@ class DestinationSwapHandler {
       chainID: dst.chainID,
     });
 
+    logger.debug('dstSwapHandler:constructor', {
+      isNativeAddress: isNativeAddress(dst.token),
+    });
+    if (isNativeAddress(dst.token)) {
+      options.cache.addNativeAllowanceQuery({
+        chainID: dst.chainID,
+        contractAddress: options.address.ephemeral,
+        owner: SWEEPER_ADDRESS,
+        spender: SWEEPER_ADDRESS,
+      });
+    }
+
     options.cache.addAllowanceQuery({
       chainID: dst.chainID,
       contractAddress: convertToEVMAddress(dstSwap.req.inputToken),
