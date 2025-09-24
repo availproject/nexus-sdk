@@ -20,6 +20,7 @@ import {
   Quote,
   Universe,
 } from '@arcana/ca-common';
+import CaliburABI from './calibur.abi';
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import { isDeliverTxFailure } from '@cosmjs/stargate';
 import axios from 'axios';
@@ -421,7 +422,8 @@ export const isAuthorizationCodeSet = async (
   return code != '0x' && equalFold(code, EXPECTED_CALIBUR_CODE);
 };
 
-export const isNativeAddress = (contractAddress: Hex) => equalFold(contractAddress, EADDRESS);
+export const isNativeAddress = (contractAddress: Hex) =>
+  equalFold(contractAddress, ZERO_ADDRESS) || equalFold(contractAddress, EADDRESS);
 
 /**
  * Creates EIP2612 signature or executes non sponsored approval and transferFrom Tx
@@ -939,6 +941,7 @@ export class Cache {
   public allowanceValues: Map<string, bigint> = new Map();
   public setCodeValues: Map<string, Hex | undefined> = new Map();
   private allowanceQueries: Set<AllowanceInput> = new Set();
+  private nativeAllowanceQueries: Set<AllowanceInput> = new Set();
   private setCodeQueries: Set<SetCodeInput> = new Set();
 
   constructor(private publicClientList: PublicClientList) {}
@@ -949,6 +952,10 @@ export class Cache {
 
   addAllowanceValue(input: AllowanceInput, value: bigint) {
     this.allowanceValues.set(getAllowanceCacheKey(input), value);
+  }
+
+  addNativeAllowanceQuery(input: AllowanceInput) {
+    this.nativeAllowanceQueries.add(input);
   }
 
   addSetCodeQuery(input: SetCodeInput) {
@@ -968,7 +975,32 @@ export class Cache {
   }
 
   async process() {
-    await Promise.all([this.processAllowanceRequests(), this.processGetCodeRequests()]);
+    await Promise.all([
+      this.processNativeAllowanceRequests(),
+      this.processAllowanceRequests(),
+      this.processGetCodeRequests(),
+    ]);
+  }
+
+  private async processNativeAllowanceRequests() {
+    const requests = [];
+
+    for (const input of this.nativeAllowanceQueries) {
+      const publicClient = this.publicClientList.get(input.chainID);
+      requests.push(
+        publicClient
+          .readContract({
+            address: input.contractAddress,
+            abi: CaliburABI,
+            functionName: 'nativeAllowance',
+            args: [input.spender],
+          })
+          .then((code) => {
+            this.allowanceValues.set(getAllowanceCacheKey(input), code);
+          }),
+      );
+    }
+    await Promise.all(requests);
   }
 
   private async processAllowanceRequests() {
@@ -1589,21 +1621,33 @@ export const createSwapIntent = (
   return intent;
 };
 
-export const getERC20TokenInfo = async (contractAddress: Hex, publicClient: PublicClient) => {
-  const [decimals, symbol] = await Promise.all([
-    publicClient.readContract({
-      abi: ERC20ABI,
-      address: contractAddress,
-      functionName: 'decimals',
-    }),
-    publicClient.readContract({
-      abi: ERC20ABI,
-      address: contractAddress,
-      functionName: 'symbol',
-    }),
-  ]);
+export const getTokenInfo = async (
+  contractAddress: Hex,
+  publicClient: PublicClient,
+  chain: Chain,
+) => {
+  if (isNativeAddress(contractAddress)) {
+    return {
+      contractAddress: ZERO_ADDRESS,
+      decimals: chain.nativeCurrency.decimals,
+      symbol: chain.nativeCurrency.symbol,
+    };
+  } else {
+    const [decimals, symbol] = await Promise.all([
+      publicClient.readContract({
+        abi: ERC20ABI,
+        address: contractAddress,
+        functionName: 'decimals',
+      }),
+      publicClient.readContract({
+        abi: ERC20ABI,
+        address: contractAddress,
+        functionName: 'symbol',
+      }),
+    ]);
 
-  return { contractAddress, decimals, symbol };
+    return { contractAddress, decimals, symbol };
+  }
 };
 
 const metadataAxios = msgpackableAxios.create({
@@ -1798,29 +1842,63 @@ export const createSweeperTxs = ({
     tokenAddress = convertToEVMAddress(currency.tokenAddress);
   }
 
-  const sweeperAllowance = cache.getAllowance({
-    chainID: Number(chainID),
-    contractAddress: convertToEVMAddress(tokenAddress),
-    owner: sender,
-    spender: SWEEPER_ADDRESS,
-  });
+  if (isNativeAddress(tokenAddress)) {
+    const nativeAllowance = cache.getAllowance({
+      chainID: Number(chainID),
+      contractAddress: sender,
+      owner: SWEEPER_ADDRESS,
+      spender: SWEEPER_ADDRESS,
+    });
+    logger.debug('createSweeperTxs', {
+      nativeAllowance,
+    });
 
-  if (!sweeperAllowance || sweeperAllowance === 0n) {
+    if (!nativeAllowance || nativeAllowance === 0n) {
+      txs.push({
+        to: sender,
+        data: encodeFunctionData({
+          abi: CaliburABI,
+          functionName: 'approveNative',
+          args: [SWEEPER_ADDRESS, maxUint256],
+        }),
+        value: 0n,
+      });
+    }
+
     txs.push({
-      data: packERC20Approve(SWEEPER_ADDRESS),
-      to: convertToEVMAddress(tokenAddress),
+      data: encodeFunctionData({
+        abi: SWEEP_ABI,
+        args: [receiver],
+        functionName: 'sweepERC7914',
+      }),
+      to: SWEEPER_ADDRESS,
+      value: 0n,
+    });
+  } else {
+    const sweeperAllowance = cache.getAllowance({
+      chainID: Number(chainID),
+      contractAddress: convertToEVMAddress(tokenAddress),
+      owner: sender,
+      spender: SWEEPER_ADDRESS,
+    });
+
+    if (!sweeperAllowance || sweeperAllowance === 0n) {
+      txs.push({
+        data: packERC20Approve(SWEEPER_ADDRESS),
+        to: convertToEVMAddress(tokenAddress),
+        value: 0n,
+      });
+    }
+    txs.push({
+      data: encodeFunctionData({
+        abi: SWEEP_ABI,
+        args: [convertToEVMAddress(tokenAddress), receiver],
+        functionName: 'sweepERC20',
+      }),
+      to: SWEEPER_ADDRESS,
       value: 0n,
     });
   }
-  txs.push({
-    data: encodeFunctionData({
-      abi: SWEEP_ABI,
-      args: [convertToEVMAddress(tokenAddress), receiver],
-      functionName: 'sweepERC20',
-    }),
-    to: SWEEPER_ADDRESS,
-    value: 0n,
-  });
 
   return txs;
 };

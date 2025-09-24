@@ -19,7 +19,7 @@ import {
   convertMetadataToSwapResult,
   convertTo32Bytes,
   createSwapIntent,
-  getERC20TokenInfo,
+  getTokenInfo,
   postSwap,
   PublicClientList,
   SwapMetadata,
@@ -69,7 +69,7 @@ export const swap = async (
 
   const [swapRoute, dstTokenInfo] = await Promise.all([
     determineSwapRoute(input, swapRouteParams),
-    getERC20TokenInfo(input.data.toTokenAddress, publicClientList.get(input.data.toChainId)),
+    getTokenInfo(input.data.toTokenAddress, publicClientList.get(input.data.toChainId), dstChain),
   ]);
 
   logger.debug('initial-swap-route', {
