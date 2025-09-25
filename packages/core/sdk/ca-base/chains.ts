@@ -481,7 +481,7 @@ const MAINNET_CHAINS: Chain[] = [
         {
           contractAddress: '0xd077a400968890eacc75cdc901f0356c943e4fdb',
           decimals: 6,
-          logo: '/images/logos/usdt.svg',
+          logo: 'https://coin-images.coingecko.com/coins/images/35023/large/USDT.png',
           name: 'Tether USD',
           symbol: 'USDT',
         },
