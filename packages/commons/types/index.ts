@@ -482,7 +482,7 @@ type OnIntentHookData = {
   allow: () => void;
   deny: () => void;
   intent: ReadableIntent;
-  refresh: (selectedSources: number[]) => Promise<ReadableIntent>;
+  refresh: (selectedSources?: number[]) => Promise<ReadableIntent>;
 };
 
 type OnAllowanceHookData = {
