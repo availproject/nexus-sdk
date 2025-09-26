@@ -106,7 +106,7 @@ if [[ "$RELEASE_TYPE" == "prod" ]]; then
     cd ../..
 
     # Update root package.json version to match
-    npm version $CORE_VERSION --no-git-tag-version
+    npm version $CORE_VERSION --no-git-tag-version --allow-same-version
 
     # Commit version changes
     git add packages/core/package.json package.json
@@ -180,7 +180,7 @@ else
     cd ../..
 
     # Update root package.json to match
-    npm version "$PRERELEASE_VERSION" --no-git-tag-version
+    npm version "$PRERELEASE_VERSION" --no-git-tag-version --allow-same-version
 
     # Commit version changes
     git add packages/core/package.json package.json
