@@ -60,6 +60,7 @@ const baseConfig = {
     /^motion/,
     'decimal.js',
     '@nexus/core',
+    '@avail-project/nexus-core',
   ],
   treeshake: {
     moduleSideEffects: false,
@@ -81,7 +82,7 @@ export default defineConfig([
         interop: 'auto',
         inlineDynamicImports: true,
         paths: {
-          '@nexus/core': '@avail-project/nexus',
+          '@nexus/core': '@avail-project/nexus-core',
         },
       },
       {
@@ -91,7 +92,7 @@ export default defineConfig([
         exports: 'named',
         inlineDynamicImports: true,
         paths: {
-          '@nexus/core': '@avail-project/nexus',
+          '@nexus/core': '@avail-project/nexus-core',
         },
       },
     ],
@@ -114,7 +115,7 @@ export default defineConfig([
           return code
             .replace(/@nexus\/commons\/constants/g, './commons/constants')
             .replace(/@nexus\/commons/g, './commons')
-            .replace(/@nexus\/core/g, '@avail-project/nexus');
+            .replace(/@nexus\/core/g, '@avail-project/nexus-core');
         },
       },
     ],
@@ -126,6 +127,7 @@ export default defineConfig([
       /^motion/,
       'decimal.js',
       '@nexus/core',
+      '@avail-project/nexus-core',
       /\.css$/,
     ],
   },

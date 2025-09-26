@@ -5,13 +5,13 @@ A powerful headless TypeScript SDK for cross-chain operations, token bridging, a
 ## Installation
 
 ```bash
-npm install @avail-project/nexus
+npm install @avail-project/nexus-core
 ```
 
 ## 🚀 Quick Start
 
 ```typescript
-import { NexusSDK } from '@avail-project/nexus';
+import { NexusSDK } from '@avail-project/nexus-core';
 
 // Initialize SDK
 const sdk = new NexusSDK({ network: 'mainnet' });
@@ -38,17 +38,21 @@ const swapWithExactInInput: ExactInSwapInput = {
   toTokenAddress: actualToTokenAddress as `0x${string}`,
 };
 
-const swapWithExactInResult = await sdk.swapWithExactIn(swapWithExactInInput, {swapIntentHook : async (data: Parameters<SwapIntentHook>[0]) => {}});
+const swapWithExactInResult = await sdk.swapWithExactIn(swapWithExactInInput, {
+  swapIntentHook: async (data: Parameters<SwapIntentHook>[0]) => {},
+});
 
 // Swap tokens (EXACT_OUT - only specify destination chain, token and amount)
 
 const swapWithExactOutInput: ExactOutSwapInput = {
   toChainId: inputData.toChainID,
   toTokenAddress: actualToTokenAddress as `0x${string}`,
-  toAmount: 0n // bigint
+  toAmount: 0n, // bigint
 };
 
-const swapWithExactOutResult = await sdk.swapWithExactOut(swapWithExactOutInput, {swapIntentHook : async (data: Parameters<SwapIntentHook>[0]) => {}});
+const swapWithExactOutResult = await sdk.swapWithExactOut(swapWithExactOutInput, {
+  swapIntentHook: async (data: Parameters<SwapIntentHook>[0]) => {},
+});
 
 // Bridge tokens
 const bridgeResult = await sdk.bridge({
@@ -124,7 +128,7 @@ For transfer operations, the SDK intelligently chooses the most efficient path:
 ## Initialization
 
 ```typescript
-import type { NexusNetwork } from '@avail-project/nexus';
+import type { NexusNetwork } from '@avail-project/nexus-core';
 
 // Mainnet (default)
 const sdk = new NexusSDK();
@@ -139,7 +143,7 @@ await sdk.initialize(window.ethereum); // Returns: Promise<void>
 ## 📡 Event Handling
 
 ```typescript
-import type { OnIntentHook, OnAllowanceHook, EventListener } from '@avail-project/nexus';
+import type { OnIntentHook, OnAllowanceHook, EventListener } from '@avail-project/nexus-core';
 
 // Intent approval flows
 sdk.setOnIntentHook(({ intent, allow, deny, refresh }: Parameters<OnIntentHook>[0]) => {
@@ -180,7 +184,7 @@ sdk.onChainChanged((chainId) => console.log('Chain:', chainId));
 ### Progress Events for All Operations
 
 ```typescript
-import { NEXUS_EVENTS, ProgressStep } from '@avail-project/nexus';
+import { NEXUS_EVENTS, ProgressStep } from '@avail-project/nexus-core';
 
 // Bridge & Execute Progress
 const unsubscribeBridgeExecuteExpected = sdk.nexusEvents.on(
@@ -255,7 +259,7 @@ All events include the same `typeID` structure and runtime `data` such as `trans
 ## Balance Operations
 
 ```typescript
-import type { UserAsset, TokenBalance } from '@avail-project/nexus';
+import type { UserAsset, TokenBalance } from '@avail-project/nexus-core';
 
 // Get all balances across chains
 const balances: UserAsset[] = await sdk.getUnifiedBalances();
@@ -267,7 +271,7 @@ const usdcBalance: UserAsset | undefined = await sdk.getUnifiedBalance('USDC');
 ## Bridge Operations
 
 ```typescript
-import type { BridgeParams, BridgeResult, SimulationResult } from '@avail-project/nexus';
+import type { BridgeParams, BridgeResult, SimulationResult } from '@avail-project/nexus-core';
 
 // Bridge tokens between chains
 const result: BridgeResult = await sdk.bridge({
@@ -287,7 +291,7 @@ const simulation: SimulationResult = await sdk.simulateBridge({
 ## Transfer Operations
 
 ```typescript
-import type { TransferParams, TransferResult } from '@avail-project/nexus';
+import type { TransferParams, TransferResult } from '@avail-project/nexus-core';
 
 // Smart transfer with automatic optimization
 const result: TransferResult = await sdk.transfer({
@@ -326,7 +330,7 @@ import type {
   BridgeAndExecuteParams,
   BridgeAndExecuteResult,
   BridgeAndExecuteSimulationResult,
-} from '@avail-project/nexus';
+} from '@avail-project/nexus-core';
 
 // Execute contract functions with dynamic parameter builder - Compound V3 Supply
 const result: ExecuteResult = await sdk.execute({
@@ -428,7 +432,7 @@ console.log('Bridge receive amount:', simulation.metadata?.bridgeReceiveAmount);
 ## Swap Operations
 
 ```typescript
-import type { ExactInSwapInput, SwapIntentHook, ExactOutSwapInput  SwapResult } from '@avail-project/nexus';
+import type { ExactInSwapInput, SwapIntentHook, ExactOutSwapInput  SwapResult } from '@avail-project/nexus-core';
 
 
 // Swap tokens (EXACT_IN - specify input amount)
@@ -501,18 +505,17 @@ if (swapWithExactInResult.success) {
 ### Discovering Available Swap Options
 
 ```typescript
-import type { SupportedChainsResult } from '@avail-project/nexus';
-import { DESTINATION_SWAP_TOKENS } from '@avail-project/nexus';
-
+import type { SupportedChainsResult } from '@avail-project/nexus-core';
+import { DESTINATION_SWAP_TOKENS } from '@avail-project/nexus-core';
 
 // Get supported source chains and tokens for swaps
 const supportedOptions: SupportedChainsResult = sdk.utils.getSwapSupportedChainsAndTokens();
 console.log('Supported source chains and tokens:', supportedOptions);
 
 // Example: Build a source token selector
-supportedOptions.forEach(chain => {
+supportedOptions.forEach((chain) => {
   console.log(`Chain: ${chain.name} (${chain.id})`);
-  chain.tokens.forEach(token => {
+  chain.tokens.forEach((token) => {
     console.log(`  - ${token.symbol}: ${token.tokenAddress}`);
   });
 });
@@ -529,7 +532,7 @@ console.log('Popular Base destinations:', baseDestinations);
 // Example: Build destination token options for UI
 const buildDestinationOptions = (chainId: number) => {
   const popularTokens = DESTINATION_SWAP_TOKENS.get(chainId) || [];
-  return popularTokens.map(token => ({
+  return popularTokens.map((token) => ({
     label: `${token.symbol} - ${token.name}`,
     value: token.tokenAddress,
     icon: token.logo,
@@ -539,6 +542,7 @@ const buildDestinationOptions = (chainId: number) => {
 ```
 
 **Note:**
+
 - **Source chains/tokens** are restricted to what `getSwapSupportedChainsAndTokens()` returns
 - **Destination chains/tokens** can be any supported chain and token address
 - `DESTINATION_SWAP_TOKENS` provides popular destination options but is not exhaustive
@@ -546,11 +550,13 @@ const buildDestinationOptions = (chainId: number) => {
 ### Swap Types
 
 **EXACT_IN Swaps:**
+
 - You specify exactly how much you want to spend (`fromAmount`)
 - Output amount varies based on market conditions and fees
 - Use case: "I want to swap all my 100 USDC"
 
 **EXACT_OUT Swaps:**
+
 - You specify exactly how much you want to receive (`toAmount`)
 - Input amount varies based on market conditions and fees
 - Use case: "I need exactly 1 ETH for a specific purpose"
@@ -558,27 +564,24 @@ const buildDestinationOptions = (chainId: number) => {
 ### Swap Progress Events
 
 ```typescript
-import { NEXUS_EVENTS } from '@avail-project/nexus';
+import { NEXUS_EVENTS } from '@avail-project/nexus-core';
 
 // Listen for swap progress updates
-const unsubscribeSwapSteps = sdk.nexusEvents.on(
-  NEXUS_EVENTS.SWAP_STEPS,
-  (step) => {
-    console.log('Swap step:', step.type);
+const unsubscribeSwapSteps = sdk.nexusEvents.on(NEXUS_EVENTS.SWAP_STEPS, (step) => {
+  console.log('Swap step:', step.type);
 
-    if (step.type === 'SOURCE_SWAP_HASH' && step.explorerURL) {
-      console.log('Source transaction:', step.explorerURL);
-    }
+  if (step.type === 'SOURCE_SWAP_HASH' && step.explorerURL) {
+    console.log('Source transaction:', step.explorerURL);
+  }
 
-    if (step.type === 'DESTINATION_SWAP_HASH' && step.explorerURL) {
-      console.log('Destination transaction:', step.explorerURL);
-    }
+  if (step.type === 'DESTINATION_SWAP_HASH' && step.explorerURL) {
+    console.log('Destination transaction:', step.explorerURL);
+  }
 
-    if (step.type === 'SWAP_COMPLETE' && step.completed) {
-      console.log('✅ Swap completed successfully!');
-    }
-  },
-);
+  if (step.type === 'SWAP_COMPLETE' && step.completed) {
+    console.log('✅ Swap completed successfully!');
+  }
+});
 
 // Cleanup
 unsubscribeSwapSteps();
@@ -587,7 +590,7 @@ unsubscribeSwapSteps();
 ## Allowance Management
 
 ```typescript
-import type { AllowanceResponse } from '@avail-project/nexus';
+import type { AllowanceResponse } from '@avail-project/nexus-core';
 
 // Check allowances
 const allowances: AllowanceResponse[] = await sdk.getAllowance(137, ['USDC', 'USDT']);
@@ -602,7 +605,7 @@ await sdk.revokeAllowance(137, ['USDC']);
 ## Intent Management
 
 ```typescript
-import type { RequestForFunds } from '@avail-project/nexus';
+import type { RequestForFunds } from '@avail-project/nexus-core';
 
 // Get user's transaction intents
 const intents: RequestForFunds[] = await sdk.getMyIntents(1);
@@ -613,7 +616,7 @@ const intents: RequestForFunds[] = await sdk.getMyIntents(1);
 All utility functions are available under `sdk.utils`:
 
 ```typescript
-import type { ChainMetadata, TokenMetadata, SUPPORTED_TOKENS } from '@avail-project/nexus';
+import type { ChainMetadata, TokenMetadata, SUPPORTED_TOKENS } from '@avail-project/nexus-core';
 
 // Address utilities
 const isValid: boolean = sdk.utils.isValidAddress('0x...');
@@ -652,7 +655,7 @@ const decimalChainId: number = sdk.utils.hexToChainId('0x89');
 ## Provider Methods
 
 ```typescript
-import type { EthereumProvider, RequestArguments } from '@avail-project/nexus';
+import type { EthereumProvider, RequestArguments } from '@avail-project/nexus-core';
 
 // Get chain abstracted provider
 const provider: EthereumProvider = sdk.getEVMProviderWithCA();
@@ -672,7 +675,7 @@ await sdk.deinit();
 ### Basic Bridge with Result Handling
 
 ```typescript
-import { NexusSDK, type BridgeResult } from '@avail-project/nexus';
+import { NexusSDK, type BridgeResult } from '@avail-project/nexus-core';
 
 const sdk = new NexusSDK();
 await sdk.initialize(window.ethereum);
@@ -700,7 +703,7 @@ try {
 ### Execute with Receipt Confirmation
 
 ```typescript
-import type { ExecuteResult } from '@avail-project/nexus';
+import type { ExecuteResult } from '@avail-project/nexus-core';
 
 // MakerDAO DSR (Dai Savings Rate) Deposit
 const result: ExecuteResult = await sdk.execute({
@@ -748,7 +751,7 @@ console.log('Confirmations:', result.confirmations);
 ### Complete Portfolio Management
 
 ```typescript
-import type { UserAsset, ChainMetadata } from '@avail-project/nexus';
+import type { UserAsset, ChainMetadata } from '@avail-project/nexus-core';
 
 // Get complete balance overview
 const balances: UserAsset[] = await sdk.getUnifiedBalances();
@@ -770,7 +773,7 @@ for (const asset of balances) {
 ## Error Handling
 
 ```typescript
-import type { BridgeResult } from '@avail-project/nexus';
+import type { BridgeResult } from '@avail-project/nexus-core';
 
 try {
   const result: BridgeResult = await sdk.bridge({ token: 'USDC', amount: 100, chainId: 137 });
@@ -794,7 +797,7 @@ try {
 ```
 
 ```typescript
-import type { ExecuteSimulation, ExecuteResult } from '@avail-project/nexus';
+import type { ExecuteSimulation, ExecuteResult } from '@avail-project/nexus-core';
 
 // Simulate before executing
 const simulation: ExecuteSimulation = await sdk.simulateExecute(params);
@@ -839,7 +842,7 @@ import type {
   RequestArguments,
   EventListener,
   NexusNetwork,
-} from '@avail-project/nexus';
+} from '@avail-project/nexus-core';
 ```
 
 ## Supported Networks & Tokens
