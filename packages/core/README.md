@@ -262,9 +262,6 @@ const balances: UserAsset[] = await sdk.getUnifiedBalances();
 
 // Get balance for specific token
 const usdcBalance: UserAsset | undefined = await sdk.getUnifiedBalance('USDC');
-
-// Get swap balances
-const swapBalances: SwapBalances = await sdk.getSwapBalances();
 ```
 
 ## Bridge Operations

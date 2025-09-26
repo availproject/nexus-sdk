@@ -170,6 +170,8 @@ const ERROR_PATTERNS = {
     /contract execution error/i,
   ],
   SWAP_ERROR: [
+    /insufficient funds/i,
+    /insufficient balance/i,
     /swap failed/i,
     /swap error/i,
     /vsc sbc tx/i,
