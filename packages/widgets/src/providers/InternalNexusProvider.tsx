@@ -79,8 +79,7 @@ function getInputChainId(
 ): number | undefined {
   if (!data) return undefined;
   if ('chainId' in data && data.chainId !== undefined) return data.chainId as number;
-  if ('toChainId' in data && (data as Partial<BridgeAndExecuteParams>).toChainId !== undefined)
-    return (data as Partial<BridgeAndExecuteParams>).toChainId;
+  if ('toChainId' in data && data.toChainId !== undefined) return data.toChainId;
   return undefined;
 }
 
