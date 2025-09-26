@@ -8,7 +8,7 @@ import {
 } from '@nexus/commons';
 import type { TransactionType } from './balance-utils';
 import type { NexusSDK } from '@nexus/core';
-import type { SwapSupportedChainsResult } from '@nexus/commons';
+import type { SupportedChainsResult } from '@nexus/commons';
 
 /**
  * Enhanced token metadata for UI components
@@ -39,7 +39,7 @@ export interface TokenResolutionParams {
 }
 
 /**
- * SDK-provided swap support data structure (normalized from SwapSupportedChainsResult)
+ * SDK-provided swap support data structure (normalized from SupportedChainsResult)
  */
 export interface TransactionSupportData {
   chains: { id: number; name: string; logo: string }[];
@@ -79,7 +79,7 @@ const LOGO_URLS: Record<string, string> = {
   KAITO: 'https://assets.coingecko.com/coins/images/54411/standard/Qm4DW488_400x400.jpg',
 };
 
-function _processSdkData(sdkData: SwapSupportedChainsResult | null): TransactionSupportData | null {
+function _processSdkData(sdkData: SupportedChainsResult | null): TransactionSupportData | null {
   if (!sdkData || !Array.isArray(sdkData)) return null;
 
   const chains = sdkData.map((chain) => ({
@@ -184,14 +184,14 @@ function getTransactionSupportData(
     return transactionSupportDataCache.get(type)!;
   }
 
-  let rawData: SwapSupportedChainsResult | null = null;
+  let rawData: SupportedChainsResult | null = null;
   try {
     if (type === 'swap') {
       rawData = sdk?.utils?.getSwapSupportedChainsAndTokens?.();
     } else {
       // getSupportedChains actually returns the same structure as getSwapSupportedChainsAndTokens
       // despite what the TypeScript types say
-      rawData = sdk?.utils?.getSupportedChains?.() as SwapSupportedChainsResult;
+      rawData = sdk?.utils?.getSupportedChains?.() as SupportedChainsResult;
     }
   } catch (error) {
     console.warn(`Failed to fetch support data for ${type} from SDK:`, error);

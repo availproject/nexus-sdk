@@ -21,18 +21,34 @@ await sdk.initialize(provider); // Your wallet provider
 const balances = await sdk.getUnifiedBalances();
 console.log('All balances:', balances);
 
-// Get swap-specific balances
-const swapBalances = await sdk.getSwapBalances();
-console.log('Swap balances:', swapBalances);
-
 // Swap tokens (EXACT_IN - specify input amount)
-const swapResult = await sdk.swap({
-  fromAmount: parseUnits('100', 6), // 100 USDC
-  fromChainID: 137, // Polygon
-  fromTokenAddress: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174', // USDC on Polygon
-  toChainID: 1, // Ethereum
-  toTokenAddress: '0xA0b86a33E6441E02ad58c70b70fa3c2b3c3e74C9', // ETH on Ethereum
-});
+
+const swapWithExactInInput: ExactInSwapInput = {
+  from: [
+    {
+      chainId: inputData.fromChainID,
+      amount: parseUnits(
+        fromAmountStr.toString(),
+        TOKEN_METADATA[inputData?.fromTokenAddress]?.decimals,
+      ),
+      tokenAddress: actualFromTokenAddress as `0x${string}`,
+    },
+  ],
+  toChainId: inputData.toChainID,
+  toTokenAddress: actualToTokenAddress as `0x${string}`,
+};
+
+const swapWithExactInResult = await sdk.swapWithExactIn(swapWithExactInInput, {swapIntentHook : async (data: Parameters<SwapIntentHook>[0]) => {}});
+
+// Swap tokens (EXACT_OUT - only specify destination chain, token and amount)
+
+const swapWithExactOutInput: ExactOutSwapInput = {
+  toChainId: inputData.toChainID,
+  toTokenAddress: actualToTokenAddress as `0x${string}`,
+  toAmount: 0n // bigint
+};
+
+const swapWithExactOutResult = await sdk.swapWithExactOut(swapWithExactOutInput, {swapIntentHook : async (data: Parameters<SwapIntentHook>[0]) => {}});
 
 // Bridge tokens
 const bridgeResult = await sdk.bridge({
@@ -415,88 +431,85 @@ console.log('Bridge receive amount:', simulation.metadata?.bridgeReceiveAmount);
 ## Swap Operations
 
 ```typescript
-import type { SwapInput, SwapResult, SwapBalances } from '@avail-project/nexus';
+import type { ExactInSwapInput, SwapIntentHook, ExactOutSwapInput  SwapResult } from '@avail-project/nexus';
 
-// EXACT_IN Swap - Specify exact input amount, variable output
-const exactInSwap: SwapResult = await sdk.swap({
-  fromAmount: parseUnits('100', 6), // Exactly 100 USDC
-  fromChainID: 137, // Polygon
-  fromTokenAddress: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174', // USDC on Polygon
-  toChainID: 1, // Ethereum
-  toTokenAddress: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', // WETH on Ethereum
-});
 
-// EXACT_OUT Swap - Specify exact output amount, variable input
-const exactOutSwap: SwapResult = await sdk.swap({
-  toAmount: parseUnits('1', 18), // Exactly 1 ETH output
-  toChainID: 1, // Ethereum
-  toTokenAddress: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', // WETH on Ethereum
-  // fromAmount, fromChainID, fromTokenAddress determined automatically
-},   {
-  swapIntentHook: async (data: SwapIntentHook) => {
-    // use this to capture the intent allow, reject and refresh functions
-    const {intent, allow, reject, refresh} = data;
-    // Use it to handle user interaction
-    //
-    // setSwapIntent(intent);
-    // setAllowCallback(allow);
-    // setRejectCallback(reject);
-    // setRefreshCallback(refresh);
+// Swap tokens (EXACT_IN - specify input amount)
 
-    // or directly approve or reject the intent
-    allow()
-  },);
-
-// Cross-chain swap with custom options
-const crossChainSwap: SwapResult = await sdk.swap(
-  {
-    fromAmount: parseUnits('50', 6), // 50 USDC
-    fromChainID: 42161, // Arbitrum
-    fromTokenAddress: '0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8', // USDC on Arbitrum
-    toChainID: 10, // Optimism
-    toTokenAddress: '0x4200000000000000000000000000000000000006', // WETH on Optimism
-  },
-  {
-    swapIntentHook: async (data: SwapIntentHook) => {
-      // use this to capture the intent allow, reject and refresh functions
-      const {intent, allow, reject, refresh} = data;
-      // Use it to handle user interaction or display transaction details
-
-      // setSwapIntent(intent);
-      // setAllowCallback(allow);
-      // setRejectCallback(reject);
-      // setRefreshCallback(refresh);
-
-      // or directly approve or reject the intent
-      // calling allow processes the txn
-      allow()
+const swapWithExactInInput: ExactInSwapInput = {
+  from: [
+    {
+      chainId: inputData.fromChainID,
+      amount: parseUnits(
+        fromAmountStr.toString(),
+        TOKEN_METADATA[inputData?.fromTokenAddress]?.decimals,
+      ),
+      tokenAddress: actualFromTokenAddress as `0x${string}`,
     },
-  }
-);
+  ],
+  toChainId: inputData.toChainID,
+  toTokenAddress: actualToTokenAddress as `0x${string}`,
+};
+
+const swapWithExactInResult = await sdk.swapWithExactIn(swapWithExactInInput, {swapIntentHook : async (data: Parameters<SwapIntentHook>[0]) => {
+  // use this to capture the intent allow, reject and refresh functions
+  const {intent, allow, reject, refresh} = data;
+  // Use it to handle user interaction or display transaction details
+
+  // setSwapIntent(intent);
+  // setAllowCallback(allow);
+  // setRejectCallback(reject);
+  // setRefreshCallback(refresh);
+
+  // or directly approve or reject the intent
+  // calling allow processes the txn
+  allow()
+}});
+
+// Swap tokens (EXACT_OUT - only specify destination chain, token and amount)
+
+const swapWithExactOutInput: ExactOutSwapInput = {
+  toChainId: inputData.toChainID,
+  toTokenAddress: actualToTokenAddress as `0x${string}`,
+  toAmount: 0n // bigint
+};
+
+const swapWithExactOutResult = await sdk.swapWithExactOut(swapWithExactOutInput, {swapIntentHook : async (data: Parameters<SwapIntentHook>[0]) => {
+  // use this to capture the intent allow, reject and refresh functions
+  const {intent, allow, reject, refresh} = data;
+  // Use it to handle user interaction or display transaction details
+
+  // setSwapIntent(intent);
+  // setAllowCallback(allow);
+  // setRejectCallback(reject);
+  // setRefreshCallback(refresh);
+
+  // or directly approve or reject the intent
+  // calling allow processes the txn
+  allow()
+}});
+
 
 // Handle swap results
-if (exactInSwap.success) {
+if (swapWithExactInResult.success) {
   console.log('✅ Swap successful!');
-  console.log('Source transaction:', exactInSwap.sourceExplorerUrl);
-  console.log('Destination transaction:', exactInSwap.destinationExplorerUrl);
+  console.log('Source transaction:', exactInSwap.result.sourceSwaps);
+  console.log('Destination transaction:', exactInSwap.result.destinationSwap);
+  console.log('Explorer URL:', exactInSwap.result.explorerURL);
 } else {
   console.error('❌ Swap failed:', exactInSwap.error);
 }
-
-// Get swap-specific balances for better UX
-const swapBalances: SwapBalances = await sdk.getSwapBalances();
-console.log('Available for swapping:', swapBalances);
 ```
 
 ### Discovering Available Swap Options
 
 ```typescript
-import type { SwapSupportedChainsResult } from '@avail-project/nexus';
+import type { SupportedChainsResult } from '@avail-project/nexus';
 import { DESTINATION_SWAP_TOKENS } from '@avail-project/nexus';
 
 
 // Get supported source chains and tokens for swaps
-const supportedOptions: SwapSupportedChainsResult = sdk.utils.getSwapSupportedChainsAndTokens();
+const supportedOptions: SupportedChainsResult = sdk.utils.getSwapSupportedChainsAndTokens();
 console.log('Supported source chains and tokens:', supportedOptions);
 
 // Example: Build a source token selector
@@ -632,7 +645,7 @@ const isSupportedToken: boolean = sdk.utils.isSupportedToken('USDC');
 const chains: Array<{ id: number; name: string; logo: string }> = sdk.utils.getSupportedChains();
 
 // Swap discovery utilities
-const swapOptions: SwapSupportedChainsResult = sdk.utils.getSwapSupportedChainsAndTokens();
+const swapOptions: SupportedChainsResult = sdk.utils.getSwapSupportedChainsAndTokens();
 
 // Chain ID conversion
 const hexChainId: string = sdk.utils.chainIdToHex(137);
@@ -816,7 +829,7 @@ import type {
   SwapInput,
   SwapResult,
   SwapBalances,
-  SwapSupportedChainsResult,
+  SupportedChainsResult,
   DESTINATION_SWAP_TOKENS,
   UserAsset,
   TokenBalance,

@@ -265,7 +265,7 @@ export type RFFIntent = {
   }[];
 };
 
-export type SwapSupportedChainsResult = {
+export type SupportedChainsResult = {
   id: number;
   logo: string;
   name: string;

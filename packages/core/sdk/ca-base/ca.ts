@@ -46,7 +46,7 @@ import {
   SwapInputOptionalParams,
   SwapMode,
   SwapParams,
-  SwapSupportedChainsResult,
+  SupportedChainsResult,
   TransferQueryInput,
   TxOptions,
 } from '@nexus/commons';
@@ -620,7 +620,7 @@ export class CA {
     return await promise;
   }
 
-  protected _getSwapSupportedChainsAndTokens(): SwapSupportedChainsResult {
+  protected _getSwapSupportedChainsAndTokens(): SupportedChainsResult {
     return getSwapSupportedChains(this.chainList);
   }
 }
