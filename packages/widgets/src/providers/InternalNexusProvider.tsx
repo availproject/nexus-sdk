@@ -87,11 +87,11 @@ export function InternalNexusProvider({
   config,
   children,
   disableCollapse,
-}: {
+}: Readonly<{
   config?: { network?: NexusNetwork; debug?: boolean };
   children: ReactNode;
   disableCollapse?: boolean;
-}) {
+}>) {
   const [sdk] = useState(
     () => new NexusSDK({ network: config?.network ?? 'mainnet', debug: config?.debug ?? false }),
   );
@@ -114,6 +114,12 @@ export function InternalNexusProvider({
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Keep a live ref of SDK initialized state to avoid stale closures in callbacks
+  const isSdkInitializedRef = useRef<boolean>(false);
+  useEffect(() => {
+    isSdkInitializedRef.current = isSdkInitialized;
+  }, [isSdkInitialized]);
 
   const activeController = useMemo(() => {
     if (!activeTransaction.type) return null;
@@ -179,7 +185,8 @@ export function InternalNexusProvider({
       await sdk.initialize(eipProvider);
       await fetchExchangeRates();
       await fetchBalances();
-      setIsSdkInitialized(true);
+      setIsSdkInitialized(sdk.isInitialized());
+      isSdkInitializedRef.current = sdk.isInitialized();
       setActiveTransaction((prev) => ({ ...prev, status: 'review' }));
       return true;
     } catch (err) {
@@ -203,6 +210,7 @@ export function InternalNexusProvider({
   const reset = () => {
     setProvider(undefined);
     setIsSdkInitialized(false);
+    isSdkInitializedRef.current = false;
     setActiveTransaction(initialState);
     setUnifiedBalance([]);
     setIsSimulating(false);
@@ -290,7 +298,7 @@ export function InternalNexusProvider({
       setActiveTransaction({
         ...initialState,
         type,
-        status: isSdkInitialized ? 'review' : 'initializing',
+        status: isSdkInitializedRef.current ? 'review' : 'initializing',
         inputData: normalizedPrefillData as any,
         prefillFields,
       });
