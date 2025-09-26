@@ -22,7 +22,7 @@ import type {
   ExecuteSimulation,
   BridgeAndExecuteSimulationResult,
   SwapResult,
-  SwapSupportedChainsResult,
+  SupportedChainsResult,
   ExactInSwapInput,
   SwapInputOptionalParams,
   ExactOutSwapInput,
@@ -266,7 +266,7 @@ export class NexusSDK extends CA {
     return this.nexusAdapter.simulateBridgeAndExecute(params);
   }
 
-  public getSwapSupportedChainsAndTokens(): SwapSupportedChainsResult {
+  public getSwapSupportedChainsAndTokens(): SupportedChainsResult {
     return this._getSwapSupportedChainsAndTokens();
   }
 
