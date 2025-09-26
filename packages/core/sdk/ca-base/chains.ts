@@ -111,6 +111,10 @@ class ChainList {
 
     return convertToHexAddressByUniverse(vc, chain.universe);
   }
+
+  getAnkrNameList() {
+    return this.chains.map((c) => c.ankrName).filter((n) => n !== '');
+  }
 }
 
 const TESTNET_CHAINS: Chain[] = [
@@ -142,6 +146,7 @@ const TESTNET_CHAINS: Chain[] = [
     },
     id: 421614,
     name: 'Arbitrum Sepolia',
+    ankrName: '',
     nativeCurrency: {
       decimals: 18,
       name: 'Ether',
@@ -189,6 +194,7 @@ const TESTNET_CHAINS: Chain[] = [
     },
     id: 11155420,
     name: 'OP Sepolia',
+    ankrName: '',
     nativeCurrency: {
       decimals: 18,
       name: 'Ether',
@@ -229,6 +235,7 @@ const TESTNET_CHAINS: Chain[] = [
     },
     id: 80002,
     name: 'Amoy',
+    ankrName: '',
     nativeCurrency: {
       decimals: 18,
       name: 'POL',
@@ -269,6 +276,7 @@ const TESTNET_CHAINS: Chain[] = [
     },
     id: 84532,
     name: 'Base Sepolia',
+    ankrName: '',
     nativeCurrency: {
       decimals: 18,
       name: 'Ether',
@@ -316,6 +324,7 @@ const TESTNET_CHAINS: Chain[] = [
     },
     id: MONAD_TESTNET_CHAIN_ID,
     name: 'Monad Testnet',
+    ankrName: '',
     nativeCurrency: {
       decimals: 18,
       name: 'Monad',
@@ -351,6 +360,7 @@ const TESTNET_CHAINS: Chain[] = [
     },
     id: 11155111,
     name: 'Ethereum Sepolia',
+    ankrName: '',
     nativeCurrency: {
       decimals: 18,
       name: 'Ether',
@@ -406,6 +416,7 @@ const MAINNET_CHAINS: Chain[] = [
     },
     id: CHAIN_IDS.fuel.mainnet,
     name: 'Fuel Network',
+    ankrName: '',
     nativeCurrency: {
       decimals: 9,
       name: 'Ether',
@@ -454,6 +465,7 @@ const MAINNET_CHAINS: Chain[] = [
     },
     id: SOPHON_CHAIN_ID,
     name: 'Sophon',
+    ankrName: '',
     nativeCurrency: {
       decimals: 18,
       name: 'Sophon',
@@ -489,6 +501,7 @@ const MAINNET_CHAINS: Chain[] = [
     },
     id: KAIA_CHAIN_ID,
     name: 'Kaia Mainnet',
+    ankrName: '',
     nativeCurrency: {
       decimals: 18,
       name: 'Kaia',
@@ -537,6 +550,7 @@ const MAINNET_CHAINS: Chain[] = [
     },
     id: 1,
     name: 'Ethereum Mainnet',
+    ankrName: 'eth',
     nativeCurrency: {
       decimals: 18,
       name: 'Ether',
@@ -593,6 +607,7 @@ const MAINNET_CHAINS: Chain[] = [
     },
     id: 10,
     name: 'OP Mainnet',
+    ankrName: 'optimism',
     nativeCurrency: {
       decimals: 18,
       name: 'Ether',
@@ -648,6 +663,7 @@ const MAINNET_CHAINS: Chain[] = [
     },
     id: 137,
     name: 'Polygon PoS',
+    ankrName: 'polygon',
     nativeCurrency: {
       decimals: 18,
       name: 'POL',
@@ -697,6 +713,7 @@ const MAINNET_CHAINS: Chain[] = [
     },
     id: 8453,
     name: 'Base',
+    ankrName: 'base',
     nativeCurrency: {
       decimals: 18,
       name: 'Ether',
@@ -753,6 +770,7 @@ const MAINNET_CHAINS: Chain[] = [
     },
     id: 42161,
     name: 'Arbitrum One',
+    ankrName: 'arbitrum',
     nativeCurrency: {
       decimals: 18,
       name: 'ETH',
@@ -808,6 +826,7 @@ const MAINNET_CHAINS: Chain[] = [
     },
     id: 534352,
     name: 'Scroll',
+    ankrName: 'scroll',
     nativeCurrency: {
       decimals: 18,
       name: 'Ether',
@@ -862,6 +881,7 @@ const MAINNET_CHAINS: Chain[] = [
       ],
     },
     id: 43114,
+    ankrName: 'avalanche',
     name: 'Avalanche C-Chain',
     nativeCurrency: {
       decimals: 18,
@@ -924,6 +944,7 @@ const MAINNET_CHAINS: Chain[] = [
     },
     id: 0x38,
     name: 'BNB Smart Chain',
+    ankrName: 'bsc',
     nativeCurrency: {
       decimals: 18,
       name: 'BNB',
@@ -977,6 +998,7 @@ const MAINNET_CHAINS: Chain[] = [
       ],
     },
     id: HYPEREVM_CHAIN_ID,
+    ankrName: '',
     name: 'HyperEVM',
     nativeCurrency: {
       decimals: 18,

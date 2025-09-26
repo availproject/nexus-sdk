@@ -619,7 +619,7 @@ export const getAnkrBalances = async (
       jsonrpc: '2.0',
       method: 'ankr_getAccountBalance',
       params: {
-        blockchain: ['base', 'optimism', 'scroll', 'arbitrum', 'bsc', 'polygon'],
+        blockchain: chainList.getAnkrNameList(),
         onlyWhitelisted: true,
         pageSize: 500,
         walletAddress: walletAddress,
@@ -627,14 +627,13 @@ export const getAnkrBalances = async (
     },
   );
   if (!res.data?.result) throw new Error('balances cannot be retrieved');
-  const totalBalanceInUSD: AnkrBalances['totalBalanceInUSD'] = res.data.result.totalBalanceUsd;
 
   const filteredAssets = res.data.result.assets.filter(
     (asset) =>
       AnkrChainIdMapping.has(asset.blockchain) &&
       !new Decimal(asset.tokenPrice?.trim() || 0).equals(0),
   );
-  const assets: AnkrBalances['assets'] = [];
+  const assets: AnkrBalances = [];
   const promises = [];
   for (const asset of filteredAssets) {
     promises.push(
@@ -682,7 +681,6 @@ export const getAnkrBalances = async (
           balance,
           balanceUSD: asset.balanceUsd,
           chainID: AnkrChainIdMapping.get(asset.blockchain)!,
-          priceUSD: asset.tokenPrice,
           tokenAddress:
             asset.tokenType === 'ERC20' ? asset.contractAddress : (ZERO_ADDRESS as `0x${string}`),
           tokenData: {
@@ -697,10 +695,7 @@ export const getAnkrBalances = async (
     );
   }
   await Promise.all(promises);
-  return {
-    assets,
-    totalBalanceInUSD,
-  } as AnkrBalances;
+  return assets;
 };
 
 export function getTokenSymbol(symbol: string) {
@@ -721,23 +716,16 @@ export const toFlatBalance = (
   return assets
     .map((a) =>
       a.breakdown.map((b) => {
-        const ethAmountInFiat =
-          b.contractAddress === ZERO_ADDRESS && NativeSlippage[b.chain.id]
-            ? new Decimal(b.balanceInFiat).minus(
-                Decimal.mul(NativeSlippage[b.chain.id], Decimal.div(1, a.priceInUsd!)),
-              )
-            : new Decimal(b.balanceInFiat);
         return {
           amount: b.balance,
           chainID: b.chain.id,
           decimals: a.decimals,
-          priceUSD: b.priceUSD!,
           symbol: a.symbol,
           tokenAddress: convertTo32BytesHex(
             b.contractAddress === ZERO_ADDRESS ? EADDRESS : b.contractAddress,
           ),
           universe: b.universe,
-          value: ethAmountInFiat.toNumber(),
+          value: b.balanceInFiat,
         };
       }),
     )
@@ -755,74 +743,19 @@ export const toFlatBalance = (
 
 export const balancesToAssets = (
   ankrBalances: AnkrBalances,
+  evmBalances: UnifiedBalanceResponseData[],
   fuelBalances: UnifiedBalanceResponseData[],
   chainList: ChainListType,
 ) => {
   const assets: UserAssetDatum[] = [];
-  for (const asset of ankrBalances.assets) {
-    if (new Decimal(asset.balance).equals(0)) {
-      continue;
-    }
+  const vscBalances = evmBalances.concat(fuelBalances);
 
-    const d = chainData.get(asset.chainID);
-    if (!d) {
-      continue;
-    }
-
-    const chain = chainList.getChainByID(asset.chainID);
-    if (!chain) {
-      continue;
-    }
-    const existingAsset = assets.find((a) => equalFold(a.symbol, asset.tokenData.symbol));
-    if (existingAsset) {
-      existingAsset.balance = Decimal.add(existingAsset.balance, asset.balance).toFixed();
-
-      existingAsset.balanceInFiat = Decimal.add(existingAsset.balanceInFiat, asset.balanceUSD)
-        .toDecimalPlaces(2)
-        .toNumber();
-
-      existingAsset.breakdown.push({
-        balance: asset.balance,
-        balanceInFiat: new Decimal(asset.balanceUSD).toDecimalPlaces(2).toNumber(),
-        chain: {
-          id: chain.id,
-          logo: chain.custom.icon,
-          name: chain.name,
-        },
-        contractAddress: asset.tokenAddress,
-        decimals: asset.tokenData.decimals,
-        priceUSD: asset.priceUSD,
-        universe: asset.universe,
-      });
-    } else {
-      assets.push({
-        abstracted: true,
-        balance: asset.balance,
-        balanceInFiat: new Decimal(asset.balanceUSD).toDecimalPlaces(2).toNumber(),
-        breakdown: [
-          {
-            balance: asset.balance,
-            balanceInFiat: new Decimal(asset.balanceUSD).toDecimalPlaces(2).toNumber(),
-            chain: {
-              id: chain.id,
-              logo: chain.custom.icon as string,
-              name: chain.name as string,
-            },
-            contractAddress: asset.tokenAddress,
-            decimals: asset.tokenData.decimals,
-            priceUSD: asset.priceUSD,
-            universe: asset.universe,
-          },
-        ],
-        decimals: asset.tokenData.decimals,
-        icon: asset.tokenData.icon,
-        priceInUsd: asset.priceUSD,
-        symbol: asset.tokenData.symbol as string,
-      });
-    }
-  }
-
-  for (const balance of fuelBalances) {
+  logger.debug('balanceToAssets', {
+    ankrBalances,
+    evmBalances,
+    fuelBalances,
+  });
+  for (const balance of vscBalances) {
     for (const currency of balance.currencies) {
       const chain = chainList.getChainByID(bytesToNumber(balance.chain_id));
       if (!chain) {
@@ -882,6 +815,71 @@ export const balancesToAssets = (
       }
     }
   }
+  for (const asset of ankrBalances) {
+    if (new Decimal(asset.balance).equals(0)) {
+      continue;
+    }
+
+    const d = chainData.get(asset.chainID);
+    if (!d) {
+      continue;
+    }
+
+    const chain = chainList.getChainByID(asset.chainID);
+    if (!chain) {
+      continue;
+    }
+    const existingAsset = assets.find((a) => equalFold(a.symbol, asset.tokenData.symbol));
+    if (existingAsset) {
+      if (
+        !existingAsset.breakdown.find(
+          (t) => t.chain.id === chain.id && equalFold(t.contractAddress, asset.tokenAddress),
+        )
+      ) {
+        existingAsset.balance = Decimal.add(existingAsset.balance, asset.balance).toFixed();
+        existingAsset.balanceInFiat = Decimal.add(existingAsset.balanceInFiat, asset.balanceUSD)
+          .toDecimalPlaces(2)
+          .toNumber();
+
+        existingAsset.breakdown.push({
+          balance: asset.balance,
+          balanceInFiat: new Decimal(asset.balanceUSD).toDecimalPlaces(2).toNumber(),
+          chain: {
+            id: chain.id,
+            logo: chain.custom.icon,
+            name: chain.name,
+          },
+          contractAddress: asset.tokenAddress,
+          decimals: asset.tokenData.decimals,
+          universe: asset.universe,
+        });
+      }
+    } else {
+      assets.push({
+        abstracted: true,
+        balance: asset.balance,
+        balanceInFiat: new Decimal(asset.balanceUSD).toDecimalPlaces(2).toNumber(),
+        breakdown: [
+          {
+            balance: asset.balance,
+            balanceInFiat: new Decimal(asset.balanceUSD).toDecimalPlaces(2).toNumber(),
+            chain: {
+              id: chain.id,
+              logo: chain.custom.icon as string,
+              name: chain.name as string,
+            },
+            contractAddress: asset.tokenAddress,
+            decimals: asset.tokenData.decimals,
+            universe: asset.universe,
+          },
+        ],
+        decimals: asset.tokenData.decimals,
+        icon: asset.tokenData.icon,
+        symbol: asset.tokenData.symbol as string,
+      });
+    }
+  }
+
   assets.forEach((asset) => {
     asset.breakdown.sort((a, b) => b.balanceInFiat - a.balanceInFiat);
   });

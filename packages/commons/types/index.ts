@@ -16,19 +16,6 @@ type TokenInfo = {
   symbol: string;
 };
 
-type SwapBalances = {
-  assets: UserAssetDatum[];
-  balances: {
-    amount: string;
-    chainID: number;
-    decimals: number;
-    priceUSD: string;
-    tokenAddress: `0x${string}`;
-    universe: Universe;
-    value: number;
-  }[];
-};
-
 type NexusNetwork = 'mainnet' | 'testnet';
 
 export interface BlockTransaction {
@@ -349,6 +336,7 @@ export type Chain = {
   };
   id: number;
   name: string;
+  ankrName: string;
   nativeCurrency: {
     decimals: number;
     name: string;
@@ -574,6 +562,7 @@ export type ChainListType = {
   getTokenByAddress(chainID: number, address: `0x${string}`): TokenInfo | undefined;
   getNativeToken(chainID: number): TokenInfo;
   getChainByID(id: number): Chain | undefined;
+  getAnkrNameList(): string[];
 };
 
 export type RequestHandlerInput = {
@@ -747,12 +736,10 @@ export type UserAssetDatum = {
     contractAddress: `0x${string}`;
     decimals: number;
     isNative?: boolean;
-    priceUSD?: string;
     universe: Universe;
   }[];
   decimals: number;
   icon?: string;
-  priceInUsd?: string;
   symbol: string;
 };
 
@@ -775,6 +762,5 @@ export type {
   NexusNetwork,
   TransactionReceipt,
   SwapIntent,
-  SwapBalances,
   SetAllowanceInput,
 };
