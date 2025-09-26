@@ -108,9 +108,13 @@ if [[ "$RELEASE_TYPE" == "prod" ]]; then
     # Update root package.json version to match
     npm version $CORE_VERSION --no-git-tag-version --allow-same-version
 
-    # Commit version changes
+    # Commit version changes (skip if no changes)
     git add packages/core/package.json package.json
-    git commit -m "chore(core): release v$CORE_VERSION"
+    if git diff --cached --quiet; then
+        print_status "No version changes to commit (prod)."
+    else
+        git commit -m "chore(core): release v$CORE_VERSION"
+    fi
 
     # Create tag (only if it doesn't exist)
     if git tag --list | grep -q "^core-v$CORE_VERSION$"; then
@@ -182,9 +186,13 @@ else
     # Update root package.json to match
     npm version "$PRERELEASE_VERSION" --no-git-tag-version --allow-same-version
 
-    # Commit version changes
+    # Commit version changes (skip if no changes)
     git add packages/core/package.json package.json
-    git commit -m "chore(core): $PRERELEASE_ID release v$PRERELEASE_VERSION"
+    if git diff --cached --quiet; then
+        print_status "No version changes to commit (dev)."
+    else
+        git commit -m "chore(core): $PRERELEASE_ID release v$PRERELEASE_VERSION"
+    fi
 
     # Create tag (only if it doesn't exist)
     if git tag --list | grep -q "^core-v$PRERELEASE_VERSION$"; then
