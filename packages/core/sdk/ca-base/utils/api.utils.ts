@@ -310,11 +310,23 @@ const getVscReq = (vscDomain: string) => {
   return vscReq;
 };
 
-export const getFuelBalancesForAddress = async (vscDomain: string, address: `0x${string}`) => {
+export const getBalancesFromVSC = async (
+  vscDomain: string,
+  address: `0x${string}`,
+  namespace: 'ETHEREUM' | 'FUEL' = 'ETHEREUM',
+) => {
   const response = await getVscReq(vscDomain).get<{
     balances: UnifiedBalanceResponseData[];
-  }>(`/get-balance/FUEL/${address}`);
+  }>(`/get-balance/${namespace}/${address}`);
   return response.data.balances;
+};
+
+export const getEVMBalancesForAddress = async (vscDomain: string, address: `0x${string}`) => {
+  return getBalancesFromVSC(vscDomain, address);
+};
+
+export const getFuelBalancesForAddress = async (vscDomain: string, address: `0x${string}`) => {
+  return getBalancesFromVSC(vscDomain, address, 'FUEL');
 };
 
 const vscCreateFeeGrant = async (vscDomain: string, address: string) => {

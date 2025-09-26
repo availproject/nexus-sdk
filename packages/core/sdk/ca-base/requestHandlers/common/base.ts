@@ -94,6 +94,7 @@ abstract class BaseRequest implements IRequestHandler {
       this.simulateTx(),
       Promise.all([
         getBalances({
+          networkHint: this.input.options.networkConfig.NETWORK_HINT,
           vscDomain: this.input.options.networkConfig.VSC_DOMAIN,
           evmAddress: this.input.evm.address,
           chainList: this.chainList,

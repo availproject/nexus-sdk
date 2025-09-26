@@ -322,7 +322,6 @@ export type FlatBalance = {
   amount: string;
   chainID: number;
   decimals: number;
-  priceUSD: string;
   symbol: string;
   tokenAddress: `0x${string}`;
   universe: Universe;

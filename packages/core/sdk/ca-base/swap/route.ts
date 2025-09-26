@@ -5,6 +5,7 @@ import {
   CurrencyID,
   destinationSwapWithExactIn,
   determineDestinationSwaps,
+  Environment,
   liquidateInputHoldings,
   OmniversalChainID,
   Universe,
@@ -27,6 +28,7 @@ import {
   equalFold,
   FeeStore,
   fetchPriceOracle,
+  getEVMBalancesForAddress,
   getFeeStore,
   getFuelBalancesForAddress,
   mulDecimals,
@@ -61,16 +63,20 @@ export const getBalances = async (input: {
   filter?: boolean;
   fuelAddress?: string;
   vscDomain: string;
+  networkHint: Environment;
 }) => {
   const removeTransferFee = input.removeTransferFee ?? false;
   const filter = input.filter ?? true;
-  const [ankrBalances, fuelBalances] = await Promise.all([
-    getAnkrBalances(input.evmAddress, input.chainList, removeTransferFee),
+  const [ankrBalances, evmBalances, fuelBalances] = await Promise.all([
+    input.networkHint === Environment.FOLLY
+      ? Promise.resolve([])
+      : getAnkrBalances(input.evmAddress, input.chainList, removeTransferFee),
+    getEVMBalancesForAddress(input.vscDomain, input.evmAddress),
     input.fuelAddress
       ? getFuelBalancesForAddress(input.vscDomain, input.fuelAddress as `0x${string}`)
       : Promise.resolve([]),
   ]);
-  const assets = balancesToAssets(ankrBalances, fuelBalances, input.chainList);
+  const assets = balancesToAssets(ankrBalances, evmBalances, fuelBalances, input.chainList);
   let balances = toFlatBalance(assets);
   if (filter) {
     balances = filterSupportedTokens(balances);
@@ -107,6 +113,7 @@ const _exactOutRoute = async (
   const [feeStore, { assets, balances }, oraclePrices] = await Promise.all([
     getFeeStore(params.networkConfig.GRPC_URL),
     getBalances({
+      networkHint: params.networkConfig.NETWORK_HINT,
       evmAddress: params.address.eoa,
       chainList: params.chainList,
       removeTransferFee: true,
@@ -506,6 +513,7 @@ const _exactInRoute = async (
   const [feeStore, balanceResponse, oraclePrices] = await Promise.all([
     getFeeStore(params.networkConfig.GRPC_URL),
     getBalances({
+      networkHint: params.networkConfig.NETWORK_HINT,
       evmAddress: params.address.eoa,
       chainList: params.chainList,
       removeTransferFee: true,

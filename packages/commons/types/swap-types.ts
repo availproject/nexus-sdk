@@ -199,29 +199,26 @@ export type AnkrAsset = {
   tokenType: 'ERC20' | 'NATIVE';
 };
 
-export type AnkrBalances = {
-  assets: {
-    balance: string;
-    balanceUSD: string;
-    chainID: number;
-    priceUSD: string;
-    tokenAddress: `0x${string}`;
-    tokenData: {
-      decimals: number;
-      icon: string;
-      name: string;
-      symbol: string;
-    };
-    universe: Universe;
-  }[];
-  totalBalanceInUSD: string;
+export type AnkrBalance = {
+  balance: string;
+  balanceUSD: string;
+  chainID: number;
+  tokenAddress: `0x${string}`;
+  tokenData: {
+    decimals: number;
+    icon: string;
+    name: string;
+    symbol: string;
+  };
+  universe: Universe;
 };
+
+export type AnkrBalances = AnkrBalance[];
 
 export type Balances = {
   amount: string;
   chain_id: number;
   decimals: number;
-  priceUSD: string;
   token_address: `0x${string}`;
   universe: Universe;
   value: number;

@@ -193,10 +193,10 @@ export class CA {
       throw new Error('CA not initialized');
     }
     const { assets } = await getBalances({
+      networkHint: this._networkConfig.NETWORK_HINT,
       evmAddress: (await this._evm.client.requestAddresses())[0],
       chainList: this.chainList,
       filter: false,
-      removeTransferFee: false,
       vscDomain: this._networkConfig.VSC_DOMAIN,
       fuelAddress: this._fuel?.address,
     });
