@@ -201,7 +201,7 @@ else
     cp package.json package.json.backup
 
     # Update package name for publishing
-    sed -i.tmp 's/"name": "@nexus\/core"/"name": "@avail-project\/nexus"/' package.json
+    sed -i.tmp 's/"name": "@nexus\/core"/"name": "@avail-project\/nexus-core"/' package.json
     rm package.json.tmp 2>/dev/null || true
 
     # Remove workspace-only dependencies that should be bundled (e.g., @nexus/commons)
