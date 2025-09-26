@@ -488,6 +488,7 @@ export const createPermitAndTransferFromTx = async ({
     const { variant, version } = getTokenVersion(contractAddress);
     if (variant === PermitVariant.Unsupported) {
       const { request } = await publicClient.simulateContract({
+        chain,
         abi: ERC20ABI,
         account: owner,
         address: contractAddress,
