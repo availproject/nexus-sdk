@@ -6,7 +6,7 @@ A powerful TypeScript SDK for cross-chain operations, token bridging, and unifie
 
 This monorepo contains two main packages:
 
-### [@avail-project/nexus](./packages/core/)
+### [@avail-project/nexus-core](./packages/core/)
 
 **Headless SDK for cross-chain operations**
 
@@ -14,7 +14,7 @@ This monorepo contains two main packages:
 - Direct chain abstraction integration
 
 ```bash
-npm install @avail-project/nexus
+npm install @avail-project/nexus-core
 ```
 
 [📖 Core Documentation](./packages/core/README.md)
@@ -74,7 +74,7 @@ npm install @avail-project/nexus-widgets
 ### Headless SDK
 
 ```typescript
-import { NexusSDK } from '@avail-project/nexus';
+import { NexusSDK } from '@avail-project/nexus-core';
 
 const sdk = new NexusSDK({ network: 'mainnet' });
 await sdk.initialize(provider);
