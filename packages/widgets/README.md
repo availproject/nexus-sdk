@@ -165,7 +165,7 @@ import { parseUnits } from 'viem';
       )}
 </BridgeAndExecuteButton>
 
-/*  Swap | EXACT_IN ------------------------------------------------------------- */
+/*  Swap | EXACT_IN only ------------------------------------------------------------- */
 <SwapButton
   prefill={{
     fromChainID: 137,

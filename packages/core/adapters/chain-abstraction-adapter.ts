@@ -1,4 +1,4 @@
-import { Network } from '@nexus/commons';
+import { Network, SupportedChainsResult } from '@nexus/commons';
 import { isSupportedChain, isSupportedToken } from './core/validation';
 // Services
 import { ExecuteService } from './services/execute-service';
@@ -53,7 +53,7 @@ export class ChainAbstractionAdapter {
   /**
    * Get the list of supported chains from the CA SDK.
    */
-  public getSupportedChains(env?: Network): Array<{ id: number; name: string; logo: string }> {
+  public getSupportedChains(env?: Network): SupportedChainsResult {
     return getSupportedChains(env);
   }
 

@@ -13,7 +13,7 @@ import {
   getChainMetadata as utilGetChainMetadata,
   formatTokenAmount as utilFormatTokenAmount,
   formatTestnetTokenAmount as utilFormatTestnetTokenAmount,
-  SwapSupportedChainsResult,
+  SupportedChainsResult,
 } from '@nexus/commons';
 import { ChainAbstractionAdapter } from '../adapters/chain-abstraction-adapter';
 
@@ -45,12 +45,12 @@ export class NexusUtils {
   getChainMetadata = utilGetChainMetadata;
   formatTokenAmount = utilFormatTokenAmount;
   formatTestnetTokenAmount = utilFormatTestnetTokenAmount;
-  getSupportedChains(): Array<{ id: number; name: string; logo: string }> {
+  getSupportedChains(): SupportedChainsResult {
     this.ensureInitialized();
     return this.adapter.getSupportedChains();
   }
 
-  getSwapSupportedChainsAndTokens(): SwapSupportedChainsResult {
+  getSwapSupportedChainsAndTokens(): SupportedChainsResult {
     this.ensureInitialized();
     return this.adapter.nexusSDK.getSwapSupportedChainsAndTokens();
   }
