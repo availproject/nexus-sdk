@@ -101,6 +101,7 @@ export interface BridgeParams {
   amount: number | string;
   chainId: SUPPORTED_CHAINS_IDS;
   gas?: bigint;
+  sourceChains?: number[];
 }
 
 /**
@@ -141,6 +142,7 @@ export interface TransferParams {
   amount: number | string;
   chainId: SUPPORTED_CHAINS_IDS;
   recipient: `0x${string}`;
+  sourceChains?: number[];
 }
 
 /**
@@ -263,6 +265,7 @@ export interface BridgeAndExecuteParams {
   token: SUPPORTED_TOKENS;
   amount: number | string;
   recipient?: `0x${string}`;
+  sourceChains?: number[];
   execute?: Omit<ExecuteParams, 'toChainId'>;
   enableTransactionPolling?: boolean;
   transactionTimeout?: number;

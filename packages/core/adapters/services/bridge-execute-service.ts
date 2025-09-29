@@ -142,6 +142,7 @@ export class BridgeExecuteService {
         token,
         amount: userFriendlyBridgeAmount,
         chainId: toChainId,
+        sourceChains: params.sourceChains,
       });
 
       if (!bridgeResult.success) {
@@ -301,6 +302,7 @@ export class BridgeExecuteService {
           token: params.token,
           amount: userFriendlyBridgeAmount,
           chainId: params.toChainId,
+          sourceChains: params.sourceChains,
         });
         steps.push({
           type: 'bridge',
