@@ -59,6 +59,7 @@ const bridgeResult = await sdk.bridge({
   token: 'USDC',
   amount: 100,
   chainId: 137, // to Polygon
+  sourceChains: [10, 42161], // Only use USDC from optimism and arbitrum as source for bridge
 });
 
 // Transfer tokens (automatically optimized)
@@ -67,6 +68,7 @@ const transferResult = await sdk.transfer({
   amount: 0.1,
   chainId: 1, // Uses direct transfer if ETH + gas available on Ethereum
   recipient: '0x742d35Cc6634C0532925a3b8D4C9db96c4b4Db45',
+  sourceChains: [8453], // Only use ETH from base as source for bridge
 });
 
 const executeResult = await sdk.execute({
@@ -382,6 +384,7 @@ const bridgeAndExecuteResult: BridgeAndExecuteResult = await sdk.bridgeAndExecut
   token: 'USDC',
   amount: '100000000', // 100 USDC (6 decimals)
   toChainId: 1, // Ethereum
+  sourceChains: [8453], // Only use `Base` as source for bridge
   execute: {
     contractAddress: '0xa354F35829Ae975e850e23e9615b11Da1B3dC4DE', // Yearn USDC Vault
     contractAbi: [

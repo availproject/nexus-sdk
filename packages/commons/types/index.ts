@@ -265,6 +265,7 @@ export interface BridgeAndExecuteParams {
   token: SUPPORTED_TOKENS;
   amount: number | string;
   recipient?: `0x${string}`;
+  sourceChains?: number[];
   execute?: Omit<ExecuteParams, 'toChainId'>;
   enableTransactionPolling?: boolean;
   transactionTimeout?: number;
