@@ -166,7 +166,7 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
     id: 11155111,
     name: 'Sepolia',
     shortName: 'sepolia',
-    logo: 'https://assets.coingecko.com/coins/images/13383/large/ethereum.png',
+    logo: 'https://assets.coingecko.com/asset_platforms/images/279/large/ethereum.png?1706606803',
     nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
     rpcUrls: ['https://sepolia.drpc.org'],
     blockExplorerUrls: ['https://sepolia.etherscan.io'],

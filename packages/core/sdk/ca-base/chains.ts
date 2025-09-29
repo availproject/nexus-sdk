@@ -126,7 +126,7 @@ const TESTNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: '/images/logos/arbitrum.svg',
+      icon: 'https://assets.coingecko.com/coins/images/16547/large/arb.jpg?1721358242',
       knownTokens: [
         {
           contractAddress: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d',
@@ -174,7 +174,7 @@ const TESTNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: '/images/logos/optimism.svg',
+      icon: 'https://assets.coingecko.com/coins/images/25244/large/Optimism.png?1696524385',
       knownTokens: [
         {
           contractAddress: '0x5fd84259d66Cd46123540766Be93DFE6D43130D7',
@@ -222,7 +222,7 @@ const TESTNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: '/images/logos/polygon.svg',
+      icon: 'https://assets.coingecko.com/asset_platforms/images/15/large/polygon_pos.png?1706606645',
       knownTokens: [
         {
           contractAddress: '0x41E94Eb019C0762f9Bfcf9Fb1E58725BfB0e7582',
@@ -263,7 +263,7 @@ const TESTNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: '/images/logos/base.svg',
+      icon: 'https://assets.coingecko.com/asset_platforms/images/131/large/base-network.png?1720533039',
       knownTokens: [
         {
           contractAddress: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
@@ -304,7 +304,7 @@ const TESTNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: '/images/logos/base.svg',
+      icon: 'https://assets.coingecko.com/coins/images/38927/standard/monad.jpg',
       knownTokens: [
         {
           contractAddress: '0xf817257fed379853cDe0fa4F97AB987181B1E5Ea',
@@ -347,7 +347,7 @@ const TESTNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: '/images/logos/base.svg',
+      icon: 'https://assets.coingecko.com/asset_platforms/images/279/large/ethereum.png?1706606803',
       knownTokens: [
         {
           contractAddress: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
