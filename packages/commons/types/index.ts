@@ -101,6 +101,7 @@ export interface BridgeParams {
   amount: number | string;
   chainId: SUPPORTED_CHAINS_IDS;
   gas?: bigint;
+  sourceChains?: number[];
 }
 
 /**
@@ -141,6 +142,7 @@ export interface TransferParams {
   amount: number | string;
   chainId: SUPPORTED_CHAINS_IDS;
   recipient: `0x${string}`;
+  sourceChains?: number[];
 }
 
 /**
