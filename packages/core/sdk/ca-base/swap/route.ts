@@ -764,7 +764,7 @@ const _exactInRoute = async (
     } | null = null;
 
     const hasDstChainCOTInInput = cotSources.find((c) =>
-      equalFold(c.tokenAddress, dstChainCOTAddress),
+      equalFold(convertToEVMAddress(c.tokenAddress), dstChainCOTAddress),
     );
     if (hasDstChainCOTInInput) {
       dstEOAToEphTx = {

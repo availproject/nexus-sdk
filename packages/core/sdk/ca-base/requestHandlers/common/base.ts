@@ -946,7 +946,7 @@ abstract class BaseRequest implements IRequestHandler {
 
     intent.destination.amount = borrow;
 
-    if (accountedAmount < borrowWithFee) {
+    if (accountedAmount.lt(borrowWithFee)) {
       intent.isAvailableBalanceInsufficient = true;
     }
 
