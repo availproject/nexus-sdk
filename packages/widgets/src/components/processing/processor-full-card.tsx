@@ -7,6 +7,7 @@ import {
   type BridgeAndExecuteSimulationResult,
   type SimulationResult,
   SUPPORTED_CHAINS,
+  TOKEN_METADATA,
 } from '@nexus/commons';
 import { DotLottieReact } from '@lottiefiles/dotlottie-react';
 import { SmallAvailLogo } from '../icons/SmallAvailLogo';
@@ -17,6 +18,7 @@ import { Button } from '../motion/button-motion';
 import { ThreeStageProgress } from '../motion/three-stage-progress';
 import { EnhancedInfoMessage } from '../shared/enhanced-info-message';
 import { ProcessorCardProps, SwapSimulationResult } from '../../types';
+import { TokenIcon } from '../shared/icons';
 
 export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
   status,
@@ -37,6 +39,67 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
   disableCollapse,
 }: ProcessorCardProps) => {
   const lottieRef = useRef<DotLottie | DotLottieWorker | null>(null);
+
+  // Render token icon (swap-only crossfade from source to destination)
+  const renderTokenIcon = useCallback(() => {
+    const progress = processing?.animationProgress ?? 0;
+
+    // Non-swap: keep existing single token icon
+    if (transactionType !== 'swap') {
+      return (
+        <div className="w-10 h-10 bg-white rounded-nexus-full border-2 border-gray-200 flex items-center justify-center shadow-md">
+          <TokenIcon
+            tokenSymbol={tokenMeta?.symbol || 'T'}
+            iconUrl={tokenMeta?.icon}
+            className="w-8 h-8 rounded-nexus-full"
+          />
+        </div>
+      );
+    }
+
+    // Swap: crossfade from source token to destination token around 50%
+    const swapResult = simulationResult as SwapSimulationResult;
+    const destSymbol = swapResult?.intent?.destination?.token?.symbol?.toUpperCase();
+    const destIcon = destSymbol ? TOKEN_METADATA[destSymbol]?.icon : undefined;
+    const sourceIcon = tokenMeta?.icon;
+
+    return (
+      <div className="w-10 h-10 bg-white rounded-nexus-full border-2 border-gray-200 flex items-center justify-center shadow-md relative overflow-hidden">
+        {/* Source token */}
+        <motion.div
+          className="absolute inset-0 flex items-center justify-center"
+          initial={false}
+          animate={{ opacity: progress < 50 ? 1 : 0, scale: progress < 50 ? 1 : 0.95 }}
+          transition={{ duration: 0.25 }}
+        >
+          <TokenIcon
+            tokenSymbol={tokenMeta?.symbol || 'T'}
+            iconUrl={sourceIcon}
+            className="w-8 h-8 rounded-nexus-full"
+          />
+        </motion.div>
+        {/* Destination token */}
+        <motion.div
+          className="absolute inset-0 flex items-center justify-center"
+          initial={false}
+          animate={{ opacity: progress >= 50 ? 1 : 0, scale: progress >= 50 ? 1 : 1.05 }}
+          transition={{ duration: 0.25 }}
+        >
+          <TokenIcon
+            tokenSymbol={destSymbol || 'T'}
+            iconUrl={destIcon}
+            className="w-8 h-8 rounded-nexus-full"
+          />
+        </motion.div>
+      </div>
+    );
+  }, [
+    processing?.animationProgress,
+    tokenMeta?.icon,
+    tokenMeta?.symbol,
+    transactionType,
+    simulationResult,
+  ]);
 
   const sourceAmount = useCallback(() => {
     if (transactionType === 'bridge' || transactionType === 'transfer') {
@@ -173,23 +236,7 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
                       progress={processing?.animationProgress}
                       hasError={!!error}
                       errorProgress={processing?.animationProgress}
-                      tokenIcon={
-                        <div className="w-10 h-10 bg-white rounded-nexus-full border-2 border-gray-200 flex items-center justify-center shadow-md">
-                          {tokenMeta?.icon ? (
-                            <img
-                              src={tokenMeta?.icon}
-                              alt={tokenMeta?.symbol}
-                              className="w-8 h-8 rounded-nexus-full"
-                            />
-                          ) : (
-                            <div className="w-5 h-5 bg-blue-500 rounded-nexus-full flex items-center justify-center">
-                              <span className="text-white text-xs font-bold">
-                                {tokenMeta?.symbol?.[0] || 'T'}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      }
+                      tokenIcon={renderTokenIcon()}
                       size="lg"
                     />
                   </div>

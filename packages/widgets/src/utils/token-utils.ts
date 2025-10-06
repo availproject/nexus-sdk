@@ -1,15 +1,15 @@
 import { useMemo } from 'react';
 import {
+  CHAIN_METADATA,
   TOKEN_METADATA,
   TESTNET_TOKEN_METADATA,
   TOKEN_CONTRACT_ADDRESSES,
   DESTINATION_SWAP_TOKENS,
+  type SupportedChainsResult,
   type TokenMetadata,
 } from '@nexus/commons';
 import type { TransactionType } from './balance-utils';
 import type { NexusSDK } from '@nexus/core';
-import type { SupportedChainsResult } from '@nexus/commons';
-import { CHAIN_METADATA } from '@nexus/core/dist';
 
 /**
  * Enhanced token metadata for UI components
