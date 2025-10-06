@@ -15,6 +15,7 @@ import {
   KAIA_CHAIN_ID,
   MONAD_TESTNET_CHAIN_ID,
   SOPHON_CHAIN_ID,
+  TRON_CHAIN_ID,
   ZERO_ADDRESS,
 } from './constants';
 import { Chain, TokenInfo } from '@nexus/commons';
@@ -891,6 +892,42 @@ const MAINNET_CHAINS: Chain[] = [
         http: ['https://rpcs.avail.so/hyperevm'],
         publicHttp: ['https://hyperliquid-json-rpc.stakely.io', 'https://rpc.hyperlend.finance'],
         webSocket: ['wss://rpcs.avail.so/hyperevm'],
+      },
+    },
+    universe: Universe.ETHEREUM,
+  },
+  {
+    blockExplorers: {
+      default: {
+        name: 'TronScan',
+        url: 'https://tronscan.org',
+      },
+    },
+    custom: {
+      icon: 'https://assets.coingecko.com/asset_platforms/images/1094/large/TRON_LOGO.png',
+      knownTokens: [
+        {
+          contractAddress: '0xa614f803B6FD780986A42c78Ec9c7f77e6DeD13C',
+          decimals: 6,
+          logo: getLogoFromSymbol('USDT'),
+          name: 'Tether USD',
+          symbol: 'USDT',
+        },
+      ],
+    },
+    id: TRON_CHAIN_ID,
+    ankrName: '',
+    name: 'Tron mainnet',
+    nativeCurrency: {
+      decimals: 6,
+      name: 'TRX',
+      symbol: 'TRX',
+    },
+    rpcUrls: {
+      default: {
+        http: ['https://api.trongrid.io/jsonrpc'],
+        publicHttp: ['https://api.trongrid.io/jsonrpc', 'https://tron.therpc.io/jsonrpc'],
+        webSocket: ['wss://tron.drpc.org'],
       },
     },
     universe: Universe.ETHEREUM,

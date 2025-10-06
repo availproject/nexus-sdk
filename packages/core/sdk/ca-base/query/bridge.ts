@@ -1,28 +1,24 @@
-import { Account, bn, CHAIN_IDS } from 'fuels';
-import { encodeFunctionData, toHex } from 'viem';
-
-import ERC20ABI from '../abi/erc20';
-import { ZERO_ADDRESS } from '../constants';
-import { convertIntent, equalFold, mulDecimals } from '../utils';
+import { Hex } from 'viem';
+import { TRON_CHAIN_ID } from '../constants';
+import { convertIntent, mulDecimals } from '../utils';
 import {
   BridgeQueryInput,
   CA,
-  EVMTransaction,
   IRequestHandler,
   ChainListType,
+  SupportedUniverse,
 } from '@nexus/commons';
+import { Universe } from '@arcana/ca-common';
+import { CHAIN_IDS } from 'fuels';
 
 class BridgeQuery {
   private handler?: IRequestHandler | null = null;
   constructor(
     private input: BridgeQueryInput,
     private init: CA['init'],
-    private switchChain: CA['switchChain'],
-    private createEVMHandler: CA['createEVMHandler'],
-    private createFuelHandler: CA['createFuelHandler'],
+    private createHandler: CA['createHandler'],
     private address: `0x${string}`,
     private chainList: ChainListType,
-    private fuelAccount?: Account,
   ) {}
 
   exec = () => {
@@ -45,56 +41,28 @@ class BridgeQuery {
         }
 
         const bridgeAmount = mulDecimals(input.amount, token.decimals);
+        const params = {
+          amount: bridgeAmount,
+          receiver: this.address,
+          tokenAddress: token.contractAddress,
+          universe: Universe.ETHEREUM as SupportedUniverse,
+        };
 
         if (input.chainId === CHAIN_IDS.fuel.mainnet) {
-          if (this.fuelAccount) {
-            const tx = await this.fuelAccount.createTransfer(
-              // Random address, since bridge won't call the final tx
-              '0xE78655DfAd552fc3658c01bfb427b9EAb0c628F54e60b54fDA16c95aaAdE797A',
-              bn(bridgeAmount.toString()),
-              token.contractAddress,
-            );
-
-            const handlerResponse = await this.createFuelHandler(tx, {
-              bridge: true,
-              gas: input.gas ?? 0n,
-              skipTx: true,
-            });
-
-            this.handler = handlerResponse?.handler;
-          } else {
-            throw new Error('Fuel connector is not set');
-          }
-        } else {
-          await this.switchChain(input.chainId);
-          const p: EVMTransaction = {
-            from: this.address,
-            to: this.address,
-          };
-
-          const isNative = equalFold(token.contractAddress, ZERO_ADDRESS);
-
-          if (isNative) {
-            p.value = toHex(bridgeAmount);
-            input.gas = 0n;
-          } else {
-            p.to = token.contractAddress;
-            p.data = encodeFunctionData({
-              abi: ERC20ABI,
-              args: [this.address, BigInt(bridgeAmount.toString())],
-              functionName: 'transfer',
-            });
-          }
-
-          const handlerResponse = await this.createEVMHandler(p, {
-            bridge: true,
-            gas: input.gas ?? 0n,
-            skipTx: true,
-            sourceChains: input.sourceChains,
-          });
-
-          this.handler = handlerResponse?.handler;
+          params.receiver =
+            '0xE78655DfAd552fc3658c01bfb427b9EAb0c628F54e60b54fDA16c95aaAdE797A' as Hex;
+        } else if (input.chainId === TRON_CHAIN_ID) {
+          params.universe = Universe.UNRECOGNIZED;
+          params.receiver = this.address;
         }
+
+        const response = await this.createHandler(params, {
+          bridge: true,
+          gas: input.gas ?? 0n,
+          skipTx: true,
+          sourceChains: input.sourceChains,
+        });
+        this.handler = response?.handler;
 
         return;
       }

@@ -2,7 +2,7 @@ import { Account, bn, CHAIN_IDS } from 'fuels';
 import { encodeFunctionData, Hex } from 'viem';
 
 import ERC20ABI from '../abi/erc20';
-import { ZERO_ADDRESS } from '../constants';
+import { TRON_CHAIN_ID, ZERO_ADDRESS } from '../constants';
 import { getLogger } from '../logger';
 import { convertIntent, equalFold, mulDecimals } from '../utils';
 import {
@@ -11,7 +11,9 @@ import {
   EVMTransaction,
   TransferQueryInput,
   ChainListType,
+  SupportedUniverse,
 } from '@nexus/commons';
+import { Universe } from '@arcana/ca-common';
 
 const logger = getLogger();
 
@@ -20,12 +22,8 @@ class TransferQuery {
   constructor(
     private input: TransferQueryInput,
     private init: CA['init'],
-    private switchChain: CA['switchChain'],
-    private createEVMHandler: CA['createEVMHandler'],
-    private createFuelHandler: CA['createFuelHandler'],
-    private evmAddress: Hex,
+    private createHandler: CA['createHandler'],
     private chainList: ChainListType,
-    private fuelAccount?: Account,
   ) {}
 
   exec = async () => {
@@ -58,56 +56,33 @@ class TransferQuery {
         p: input,
       });
       if (input.to && input.amount !== undefined && input.token && input.chainId) {
-        const tokenInfo = this.chainList.getTokenInfoBySymbol(input.chainId, input.token);
-        if (!tokenInfo) {
+        const token = this.chainList.getTokenInfoBySymbol(input.chainId, input.token);
+        if (!token) {
           throw new Error('Token not supported on this chain.');
         }
 
-        const amount = mulDecimals(input.amount, tokenInfo.decimals);
+        const amount = mulDecimals(input.amount, token.decimals);
 
-        logger.debug('transfer:2', { amount, tokenInfo });
+        const params = {
+          amount: amount,
+          receiver: input.to,
+          tokenAddress: token.contractAddress,
+          universe: Universe.ETHEREUM as SupportedUniverse,
+        };
+
+        logger.debug('transfer:2', { amount, token });
 
         if (input.chainId === CHAIN_IDS.fuel.mainnet) {
-          if (this.fuelAccount) {
-            const tx = await this.fuelAccount.createTransfer(
-              input.to,
-              bn(amount.toString()),
-              tokenInfo.contractAddress,
-            );
-            this.handlerResponse = await this.createFuelHandler(tx, {
-              bridge: false,
-              gas: 0n,
-              skipTx: false,
-            });
-          } else {
-            throw new Error('Fuel connector is not set');
-          }
-        } else {
-          await this.switchChain(input.chainId);
-          const isNative = equalFold(tokenInfo.contractAddress, ZERO_ADDRESS);
-
-          const p: EVMTransaction = {
-            from: this.evmAddress,
-            to: input.to,
-          };
-          if (isNative) {
-            p.value = `0x${amount.toString(16)}`;
-          } else {
-            p.to = tokenInfo.contractAddress;
-            p.data = encodeFunctionData({
-              abi: ERC20ABI,
-              args: [input.to, amount],
-              functionName: 'transfer',
-            });
-          }
-
-          this.handlerResponse = await this.createEVMHandler(p, {
-            bridge: false,
-            gas: 0n,
-            skipTx: false,
-            sourceChains: input.sourceChains,
-          });
+        } else if (input.chainId === TRON_CHAIN_ID) {
+          params.universe = Universe.UNRECOGNIZED;
         }
+
+        this.handlerResponse = await this.createHandler(params, {
+          bridge: false,
+          gas: 0n,
+          skipTx: false,
+          sourceChains: input.sourceChains,
+        });
 
         return;
       }

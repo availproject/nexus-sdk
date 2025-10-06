@@ -6,6 +6,7 @@ const KAIA_CHAIN_ID = 8217;
 const SOPHON_CHAIN_ID = 50104;
 const HYPEREVM_CHAIN_ID = 0x3e7;
 const MONAD_TESTNET_CHAIN_ID = 10143;
+const TRON_CHAIN_ID = 728126428;
 
 const FUEL_NETWORK_URL = 'https://mainnet.fuel.network/v1/graphql';
 
@@ -157,4 +158,5 @@ export {
   TOKEN_MINTER_CONTRACTS,
   TOP_OWNER,
   ZERO_ADDRESS,
+  TRON_CHAIN_ID,
 };

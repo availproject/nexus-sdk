@@ -5,6 +5,8 @@ import { switchChain } from '../utils';
 import { isERC20TokenTransfer, isNativeTokenTransfer } from './evm/common';
 import ERC20Transfer from './evm/erc20';
 import NativeTransfer from './evm/native';
+import TRC20Transfer from './tron/trc20';
+import TRXTransfer from './tron/native';
 import { fixTx, isFuelNativeTransfer } from './fuel/common';
 import FuelNativeTransfer from './fuel/native';
 import FuelTokenTransfer from './fuel/token';
@@ -14,6 +16,8 @@ const logger = getLogger();
 enum TxType {
   EVMERC20Transfer,
   EVMNativeTransfer,
+  TronTRXTransfer,
+  TronTRC20Transfer,
   FuelTokenTransfer,
   FuelNativeTransfer,
 }
@@ -21,6 +25,8 @@ enum TxType {
 const handlers: Record<TxType, RequestHandler> = {
   [TxType.EVMERC20Transfer]: ERC20Transfer,
   [TxType.EVMNativeTransfer]: NativeTransfer,
+  [TxType.TronTRXTransfer]: TRXTransfer,
+  [TxType.TronTRC20Transfer]: TRC20Transfer,
   [TxType.FuelNativeTransfer]: FuelNativeTransfer,
   [TxType.FuelTokenTransfer]: FuelTokenTransfer,
 };
@@ -73,6 +79,8 @@ const createHandler = (input: RequestHandlerInput): CreateHandlerResponse => {
       }
       return;
     };
+  } else if (input.tron?.tx) {
+    
   } else {
     throw Error('Unknown handler');
   }

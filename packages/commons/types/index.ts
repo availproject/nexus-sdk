@@ -6,6 +6,8 @@ import Decimal from 'decimal.js';
 import { SwapIntent } from './swap-types';
 import { FuelConnector, Provider, TransactionRequestLike } from 'fuels';
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
+import { AdapterProps, Transaction } from '@tronweb3/tronwallet-abstract-adapter';
+import { TronWeb, Types } from 'tronweb';
 
 type TokenInfo = {
   contractAddress: `0x${string}`;
@@ -308,14 +310,16 @@ export type BridgeQueryInput = {
   token: string;
 };
 
-export interface CA {
-  createEVMHandler(
-    tx: EVMTransaction,
-    options: Partial<TxOptions>,
-  ): Promise<CreateHandlerResponse | null>;
+export type SupportedUniverse = Universe.ETHEREUM | Universe.FUEL | Universe.UNRECOGNIZED;
 
-  createFuelHandler(
-    tx: TransactionRequestLike,
+export interface CA {
+  createHandler<T extends SupportedUniverse>(
+    params: {
+      receiver: Hex;
+      amount: bigint;
+      tokenAddress: Hex;
+      universe: T;
+    },
     options: Partial<TxOptions>,
   ): Promise<CreateHandlerResponse | null>;
 
@@ -582,6 +586,12 @@ export type RequestHandlerInput = {
     connector: FuelConnector;
     provider: Provider;
     tx?: TransactionRequestLike;
+  };
+  tron?: {
+    address: string;
+    adapter: AdapterProps;
+    provider: TronWeb;
+    tx?: Types.Transaction<Types.TransferContract> | Types.Transaction<Types.TriggerSmartContract>;
   };
   hooks: {
     onAllowance: OnAllowanceHook;

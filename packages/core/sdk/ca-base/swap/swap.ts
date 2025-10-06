@@ -40,10 +40,10 @@ export const swap = async (
   const publicClientList = new PublicClientList(options.chainList);
   const cache = new Cache(publicClientList);
   const dstChain = options.chainList.getChainByID(input.data.toChainId);
-
   if (!dstChain) {
     throw new Error('destination chain not supported');
   }
+  
   performance.mark('swap-start');
   const emitter = {
     emit: (step: SwapStep) => {

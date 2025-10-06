@@ -18,7 +18,9 @@
     "fuels": "0.101.1",
     "@arcana/ca-common": "1.0.1-alpha.6",
     "decimal.js": "^10.6.0",
-    "viem": "^2.31.7"
+    "viem": "^2.31.7",
+    "tronweb": "^6.0.4",
+    "@tronweb3/tronwallet-abstract-adapter": "^1.1.9"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^25.0.0",
