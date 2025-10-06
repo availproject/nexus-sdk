@@ -9,6 +9,7 @@ import {
 import type { TransactionType } from './balance-utils';
 import type { NexusSDK } from '@nexus/core';
 import type { SupportedChainsResult } from '@nexus/commons';
+import { CHAIN_METADATA } from '@nexus/core/dist';
 
 /**
  * Enhanced token metadata for UI components
@@ -516,7 +517,7 @@ export function getTokenAddress(
     }
   }
 
-  throw new Error(`Token ${tokenSymbol} not supported on chain ${chainId}`);
+  throw new Error(`Token ${tokenSymbol} not supported on chain ${CHAIN_METADATA[chainId]?.name}`);
 }
 
 /**
