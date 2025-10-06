@@ -1,14 +1,15 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { motion } from 'motion/react';
 import SuccessRipple from '../motion/success-ripple';
 import { Maximize, ExternalLink } from '../icons';
-import { type BridgeAndExecuteResult, SUPPORTED_CHAINS } from '@nexus/commons';
+import { type BridgeAndExecuteResult, SUPPORTED_CHAINS, TOKEN_METADATA } from '@nexus/commons';
 import { WordsPullUp } from '../motion/pull-up-words';
 import { cn } from '../../utils/utils';
 import { ThreeStageProgress } from '../motion/three-stage-progress';
 import { Button } from '../motion/button-motion';
 import { EnhancedInfoMessage } from '../shared/enhanced-info-message';
-import { ProcessorCardProps } from '../../types';
+import { ProcessorCardProps, SwapSimulationResult } from '../../types';
+import { TokenIcon } from '../shared/icons';
 
 export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
   status,
@@ -17,6 +18,7 @@ export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
   destChainMeta,
   tokenMeta,
   transactionType,
+  simulationResult,
   processing,
   explorerURL,
   explorerURLs,
@@ -24,6 +26,60 @@ export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
   error,
   executionResult,
 }: ProcessorCardProps) => {
+  const renderTokenIcon = useCallback(() => {
+    const progress = processing?.animationProgress ?? 0;
+
+    if (transactionType !== 'swap') {
+      return (
+        <TokenIcon
+          tokenSymbol={tokenMeta?.symbol || 'T'}
+          iconUrl={tokenMeta?.icon}
+          className="w-6 h-6 rounded-nexus-full border border-white shadow-sm"
+        />
+      );
+    }
+
+    const swapResult = simulationResult as SwapSimulationResult;
+    const destSymbol = swapResult?.intent?.destination?.token?.symbol?.toUpperCase();
+    const destIcon = destSymbol ? TOKEN_METADATA[destSymbol]?.icon : undefined;
+    const sourceIcon = tokenMeta?.icon;
+
+    return (
+      <div className="w-6 h-6 rounded-nexus-full border border-white shadow-sm relative overflow-hidden">
+        <motion.div
+          className="absolute inset-0 flex items-center justify-center"
+          initial={false}
+          animate={{ opacity: progress < 50 ? 1 : 0, scale: progress < 50 ? 1 : 0.95 }}
+          transition={{ duration: 0.25 }}
+        >
+          <TokenIcon
+            tokenSymbol={tokenMeta?.symbol || 'T'}
+            iconUrl={sourceIcon}
+            className="w-6 h-6 rounded-nexus-full"
+          />
+        </motion.div>
+        <motion.div
+          className="absolute inset-0 flex items-center justify-center"
+          initial={false}
+          animate={{ opacity: progress >= 50 ? 1 : 0, scale: progress >= 50 ? 1 : 1.05 }}
+          transition={{ duration: 0.25 }}
+        >
+          <TokenIcon
+            tokenSymbol={destSymbol || 'T'}
+            iconUrl={destIcon}
+            className="w-6 h-6 rounded-nexus-full"
+          />
+        </motion.div>
+      </div>
+    );
+  }, [
+    processing?.animationProgress,
+    tokenMeta?.icon,
+    tokenMeta?.symbol,
+    transactionType,
+    simulationResult,
+  ]);
+
   return (
     <motion.div
       layout
@@ -67,21 +123,7 @@ export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
               progress={processing?.animationProgress}
               hasError={!!error}
               errorProgress={processing?.animationProgress}
-              tokenIcon={
-                tokenMeta?.icon ? (
-                  <img
-                    src={tokenMeta?.icon}
-                    alt={tokenMeta?.symbol}
-                    className="w-6 h-6 rounded-nexus-full border border-white shadow-sm"
-                  />
-                ) : (
-                  <div className="w-4 h-4 bg-blue-500 rounded-nexus-full flex items-center justify-center">
-                    <span className="text-white text-[8px] font-bold">
-                      {tokenMeta?.symbol?.[0] || 'T'}
-                    </span>
-                  </div>
-                )
-              }
+              tokenIcon={renderTokenIcon()}
               size="md"
             />
           </motion.div>
@@ -150,58 +192,66 @@ export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
             />
           </motion.div>
           {status === 'success' &&
-            (transactionType === 'swap' ? (
-              // For swap, prioritize showing destination transaction link
-              explorerURLs?.destination ? (
-                <Button
-                  className="h-fit text-xs text-nexus-accent underline font-semibold font-nexus-primary px-0"
-                  size="sm"
-                  variant="link"
-                  onClick={() => window.open(explorerURLs.destination!, '_blank')}
-                >
-                  View Transaction{' '}
-                  <ExternalLink className="w-4 h-4 ml-2 text-nexus-muted-secondary" />
-                </Button>
-              ) : explorerURLs?.source ? (
-                <Button
-                  className="h-fit text-xs text-nexus-accent underline font-semibold font-nexus-primary px-0"
-                  size="sm"
-                  variant="link"
-                  onClick={() => window.open(explorerURLs.source!, '_blank')}
-                >
-                  View Transaction{' '}
-                  <ExternalLink className="w-4 h-4 ml-2 text-nexus-muted-secondary" />
-                </Button>
-              ) : null
-            ) : transactionType !== 'bridgeAndExecute' ? (
-              <Button
-                className="h-fit text-xs text-nexus-accent underline font-semibold font-nexus-primary px-0"
-                size="sm"
-                variant="link"
-                onClick={() => window.open(explorerURL ?? '', '_blank')}
-              >
-                View on Explorer{' '}
-                <ExternalLink className="w-4 h-4 ml-2 text-nexus-muted-secondary" />
-              </Button>
-            ) : (
-              // For bridgeAndExecute, show execute transaction link (bridge link handled in full card)
-              (executionResult as BridgeAndExecuteResult)?.executeExplorerUrl && (
-                <Button
-                  className="h-fit text-xs text-nexus-accent underline font-semibold font-nexus-primary px-0"
-                  size="sm"
-                  variant="link"
-                  onClick={() =>
-                    window.open(
-                      (executionResult as BridgeAndExecuteResult)?.executeExplorerUrl ?? '',
-                      '_blank',
-                    )
-                  }
-                >
-                  View Transaction{' '}
-                  <ExternalLink className="w-4 h-4 ml-2 text-nexus-muted-secondary" />
-                </Button>
-              )
-            ))}
+            (() => {
+              if (transactionType === 'swap') {
+                if (explorerURLs?.destination) {
+                  return (
+                    <Button
+                      className="h-fit text-xs text-nexus-accent underline font-semibold font-nexus-primary px-0"
+                      size="sm"
+                      variant="link"
+                      onClick={() => window.open(explorerURLs.destination as string, '_blank')}
+                    >
+                      View Transaction{' '}
+                      <ExternalLink className="w-4 h-4 ml-2 text-nexus-muted-secondary" />
+                    </Button>
+                  );
+                }
+                if (explorerURLs?.source) {
+                  return (
+                    <Button
+                      className="h-fit text-xs text-nexus-accent underline font-semibold font-nexus-primary px-0"
+                      size="sm"
+                      variant="link"
+                      onClick={() => window.open(explorerURLs.source as string, '_blank')}
+                    >
+                      View Transaction{' '}
+                      <ExternalLink className="w-4 h-4 ml-2 text-nexus-muted-secondary" />
+                    </Button>
+                  );
+                }
+                return null;
+              }
+              if (transactionType !== 'bridgeAndExecute') {
+                if (!explorerURL) return null;
+                return (
+                  <Button
+                    className="h-fit text-xs text-nexus-accent underline font-semibold font-nexus-primary px-0"
+                    size="sm"
+                    variant="link"
+                    onClick={() => window.open(explorerURL, '_blank')}
+                  >
+                    View on Explorer{' '}
+                    <ExternalLink className="w-4 h-4 ml-2 text-nexus-muted-secondary" />
+                  </Button>
+                );
+              }
+              const executeUrl = (executionResult as BridgeAndExecuteResult)?.executeExplorerUrl;
+              if (executeUrl) {
+                return (
+                  <Button
+                    className="h-fit text-xs text-nexus-accent underline font-semibold font-nexus-primary px-0"
+                    size="sm"
+                    variant="link"
+                    onClick={() => window.open(executeUrl, '_blank')}
+                  >
+                    View Transaction{' '}
+                    <ExternalLink className="w-4 h-4 ml-2 text-nexus-muted-secondary" />
+                  </Button>
+                );
+              }
+              return null;
+            })()}
           {status !== 'success' && (
             <p className="font-nexus-primary text-sm text-nexus-foreground text-ellipsis overflow-hidden">
               {description}

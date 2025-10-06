@@ -1,14 +1,15 @@
 import { useMemo } from 'react';
 import {
+  CHAIN_METADATA,
   TOKEN_METADATA,
   TESTNET_TOKEN_METADATA,
   TOKEN_CONTRACT_ADDRESSES,
   DESTINATION_SWAP_TOKENS,
+  type SupportedChainsResult,
   type TokenMetadata,
 } from '@nexus/commons';
 import type { TransactionType } from './balance-utils';
 import type { NexusSDK } from '@nexus/core';
-import type { SupportedChainsResult } from '@nexus/commons';
 
 /**
  * Enhanced token metadata for UI components
@@ -516,7 +517,7 @@ export function getTokenAddress(
     }
   }
 
-  throw new Error(`Token ${tokenSymbol} not supported on chain ${chainId}`);
+  throw new Error(`Token ${tokenSymbol} not supported on chain ${CHAIN_METADATA[chainId]?.name}`);
 }
 
 /**

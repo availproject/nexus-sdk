@@ -4,6 +4,7 @@ import {
   logger,
   type SUPPORTED_CHAINS_IDS,
   type SUPPORTED_TOKENS,
+  CHAIN_METADATA,
 } from '@nexus/commons';
 import { ChainAbstractionAdapter } from 'adapters/chain-abstraction-adapter';
 import { Hex, erc20Abi } from 'viem';
@@ -84,7 +85,7 @@ export class BalanceDetectionService {
 
       const tokenAddress = getTokenContractAddress(token, chainId as SUPPORTED_CHAINS_IDS);
       if (!tokenAddress) {
-        throw new Error(`Token ${token} not supported on chain ${chainId}`);
+        throw new Error(`Token ${token} not supported on chain ${CHAIN_METADATA[chainId]?.name}`);
       }
 
       const isNative = token === 'ETH';

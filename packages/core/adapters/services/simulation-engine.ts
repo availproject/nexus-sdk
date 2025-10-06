@@ -13,6 +13,7 @@ import {
   logger,
   encodeContractCall,
   TOKEN_METADATA,
+  CHAIN_METADATA,
 } from '@nexus/commons';
 
 import { getSimulationClient } from '../../integrations/tenderly';
@@ -122,7 +123,7 @@ export class SimulationEngine {
     try {
       const tokenAddress = getTokenContractAddress(token, chainId as SUPPORTED_CHAINS_IDS);
       if (!tokenAddress) {
-        throw new Error(`Token ${token} not supported on chain ${chainId}`);
+        throw new Error(`Token ${token} not supported on chain ${CHAIN_METADATA[chainId]?.name}`);
       }
 
       // For native ETH, use eth_getBalance
@@ -275,7 +276,9 @@ export class SimulationEngine {
 
     const slot = chainMapping[token];
     if (slot === undefined) {
-      logger.warn(`Token ${token} not supported on chain ${chainId}, falling back to defaults`);
+      logger.warn(
+        `Token ${token} not supported on chain ${CHAIN_METADATA[chainId]?.name}, falling back to defaults`,
+      );
       return token === 'USDC' ? 9 : token === 'USDT' ? 2 : 0;
     }
 
@@ -295,7 +298,7 @@ export class SimulationEngine {
     try {
       const tokenAddress = getTokenContractAddress(token, chainId as SUPPORTED_CHAINS_IDS);
       if (!tokenAddress) {
-        throw new Error(`Token ${token} not supported on chain ${chainId}`);
+        throw new Error(`Token ${token} not supported on chain ${CHAIN_METADATA[chainId]?.name}`);
       }
 
       // For native ETH
