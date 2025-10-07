@@ -769,7 +769,7 @@ const _exactInRoute = async (
     if (hasDstChainCOTInInput) {
       dstEOAToEphTx = {
         amount: mulDecimals(hasDstChainCOTInInput.amount, hasDstChainCOTInInput.decimals),
-        contractAddress: hasDstChainCOTInInput.tokenAddress,
+        contractAddress: dstChainCOTAddress,
       };
     }
 
