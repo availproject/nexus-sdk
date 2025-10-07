@@ -163,6 +163,10 @@ abstract class BaseRequest implements IRequestHandler {
     console.timeEnd('preIntentSteps: CreateIntent');
     console.timeEnd('process:preIntentSteps');
 
+    if (intent.isAvailableBalanceInsufficient) {
+      throw ErrorInsufficientBalance;
+    }
+
     return { intent, token: simulation.token };
   };
 
