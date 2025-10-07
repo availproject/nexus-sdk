@@ -65,6 +65,15 @@ class ERC20Transfer extends RequestBase {
       data: data ?? '0x00',
     });
 
+    if (this.input.options.bridge) {
+      return {
+        amount: divDecimals(args[1], token.decimals),
+        gas: 0n,
+        gasFee: new Decimal(0),
+        token,
+      };
+    }
+
     if ([HYPEREVM_CHAIN_ID, KAIA_CHAIN_ID, MONAD_TESTNET_CHAIN_ID].includes(this.input.chain.id)) {
       this.simulateTxRes = {
         amount: divDecimals(args[1], token.decimals),

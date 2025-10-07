@@ -16,6 +16,7 @@ import { RequestHandlerInput, SimulateReturnType } from '@nexus/commons';
 import { divDecimals, evmWaitForFill, getL1Fee, UserAssets } from '../../utils';
 import RequestBase from '../common/base';
 import { nativeRequestParseSimulation } from '../common/utils';
+import Decimal from 'decimal.js';
 
 const logger = getLogger();
 
@@ -48,6 +49,16 @@ class NativeTransfer extends RequestBase {
   async simulateTx() {
     const { data, to, value } = this.input.evm.tx!;
     const nativeToken = this.input.chainList.getNativeToken(this.input.chain.id);
+
+    if (this.input.options.bridge) {
+      return {
+        amount: divDecimals(hexToBigInt((value as `0x${string}`) ?? `0x00`), nativeToken.decimals),
+        gas: 0n,
+        gasFee: new Decimal(0),
+        token: nativeToken,
+      };
+    }
+
     if (this.simulateTxRes) {
       let gasFee = 0n;
 
