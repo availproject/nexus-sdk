@@ -720,7 +720,7 @@ export const toFlatBalance = (
         return {
           amount: b.balance,
           chainID: b.chain.id,
-          decimals: a.decimals,
+          decimals: b.decimals,
           symbol: a.symbol,
           tokenAddress: convertTo32BytesHex(
             b.contractAddress === ZERO_ADDRESS ? EADDRESS : b.contractAddress,
