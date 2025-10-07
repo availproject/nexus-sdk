@@ -85,7 +85,7 @@ function convertAddressByUniverse(input: ByteArray | Hex, universe: Universe) {
     throw new Error('invalid length of input');
   }
 
-  throw new Error('universe is not supported');
+  return toHex(input);
 }
 
 const minutesToMs = (min: number) => min * 60 * 1000;
