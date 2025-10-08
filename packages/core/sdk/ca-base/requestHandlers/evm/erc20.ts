@@ -9,9 +9,7 @@ import {
   webSocket,
   WebSocketTransport,
 } from 'viem';
-
 import type { RequestHandlerInput, SimulateReturnType } from '@nexus/commons';
-
 import { ERC20TransferABI } from '../../abi/erc20';
 import { KAIA_CHAIN_ID, SOPHON_CHAIN_ID } from '../../chains';
 import {
@@ -65,18 +63,21 @@ class ERC20Transfer extends RequestBase {
       data: data ?? '0x00',
     });
 
+    const amount = args[1];
+    const amountInDecimal = divDecimals(amount, token.decimals);
+
     if (this.input.options.bridge) {
-      return {
-        amount: divDecimals(args[1], token.decimals),
-        gas: 0n,
+      this.simulateTxRes = {
+        amount: amountInDecimal,
+        gas: this.input.options.gas,
         gasFee: new Decimal(0),
         token,
       };
-    }
-
-    if ([HYPEREVM_CHAIN_ID, KAIA_CHAIN_ID, MONAD_TESTNET_CHAIN_ID].includes(this.input.chain.id)) {
+    } else if (
+      [HYPEREVM_CHAIN_ID, KAIA_CHAIN_ID, MONAD_TESTNET_CHAIN_ID].includes(this.input.chain.id)
+    ) {
       this.simulateTxRes = {
-        amount: divDecimals(args[1], token.decimals),
+        amount: amountInDecimal,
         gas: 100_000n,
         gasFee: new Decimal(0),
         token,
@@ -85,25 +86,31 @@ class ERC20Transfer extends RequestBase {
 
     if (this.simulateTxRes) {
       let gasFee = 0n;
-      if (!this.input.options.bridge) {
+
+      if (this.simulateTxRes.gas > 0n) {
         const [{ gasPrice, maxFeePerGas }, l1Fee] = await Promise.all([
           this.publicClient.estimateFeesPerGas(),
-          getL1Fee(
-            this.input.chain,
-            serializeTransaction({
-              chainId: this.input.chain.id,
-              data: data ?? '0x00',
-              to: to,
-              type: 'eip1559',
-            }),
-          ),
+          this.input.options.bridge
+            ? Promise.resolve(0n)
+            : getL1Fee(
+                this.input.chain,
+                serializeTransaction({
+                  chainId: this.input.chain.id,
+                  data: data ?? '0x00',
+                  to: to,
+                  type: 'eip1559',
+                }),
+              ),
         ]);
+
         const gasUnitPrice = maxFeePerGas ?? gasPrice ?? 0n;
         if (gasUnitPrice === 0n) {
           throw new Error('could not get maxFeePerGas or gasPrice from RPC');
         }
+
         gasFee = this.simulateTxRes.gas * gasUnitPrice + l1Fee;
       }
+
       return {
         ...this.simulateTxRes,
         gasFee: divDecimals(gasFee, nativeToken.decimals),
@@ -195,8 +202,6 @@ class ERC20Transfer extends RequestBase {
     if (this.input.options.bridge) {
       gasFee = 0n;
     }
-
-    const amount = simulation.data.amount === '' ? args[1].toString() : simulation.data.amount;
 
     this.simulateTxRes = {
       amount: divDecimals(amount, token.decimals),
