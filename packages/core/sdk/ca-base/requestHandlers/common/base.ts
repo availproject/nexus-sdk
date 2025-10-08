@@ -616,6 +616,7 @@ abstract class BaseRequest implements IRequestHandler {
     const sponsoredApprovalParams: SponsoredApprovalDataArray = [];
     try {
       for (const source of input) {
+        logger.debug('setAllowances', { originalChain });
         const chain = this.chainList.getChainByID(source.chainID);
         if (!chain) {
           throw new Error('chain not supported');
@@ -692,6 +693,9 @@ abstract class BaseRequest implements IRequestHandler {
       }
 
       if (sponsoredApprovalParams.length) {
+        logger.debug('setAllowances:sponsoredApprovals', {
+          sponsoredApprovalParams,
+        });
         await vscCreateSponsoredApprovals(
           this.input.options.networkConfig.VSC_DOMAIN,
           sponsoredApprovalParams,
@@ -731,6 +735,11 @@ abstract class BaseRequest implements IRequestHandler {
             ),
           );
         }
+
+        logger.debug('CA:BaseRequest:Allowances', {
+          allowances,
+          sources,
+        });
         const val: Array<SetAllowanceInput> = [];
         for (let i = 0; i < sources.length; i++) {
           const source = sources[i];
@@ -739,7 +748,7 @@ abstract class BaseRequest implements IRequestHandler {
           if (typeof allowance === 'string' && equalFold(allowance, 'max')) {
             amount = maxUint256;
           } else if (typeof allowance === 'string' && equalFold(allowance, 'min')) {
-            amount = mulDecimals(source.allowance.minimum, source.token.decimals);
+            amount = BigInt(source.allowance.minimum);
           } else if (typeof allowance === 'string') {
             amount = mulDecimals(allowance, source.token.decimals);
           } else {

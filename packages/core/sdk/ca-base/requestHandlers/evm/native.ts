@@ -151,18 +151,16 @@ class NativeTransfer extends RequestBase {
     intentID: Long,
     waitForDoubleCheckTx: () => Promise<void>,
   ) {
+    waitForDoubleCheckTx();
     try {
-      await Promise.all([
-        waitForDoubleCheckTx(),
-        evmWaitForFill(
-          this.input.chainList.getVaultContractAddress(this.input.chain.id),
-          this.publicClient,
-          requestHash,
-          intentID,
-          this.input.options.networkConfig.GRPC_URL,
-          this.input.options.networkConfig.COSMOS_URL,
-        ),
-      ]);
+      await evmWaitForFill(
+        this.input.chainList.getVaultContractAddress(this.input.chain.id),
+        this.publicClient,
+        requestHash,
+        intentID,
+        this.input.options.networkConfig.GRPC_URL,
+        this.input.options.networkConfig.COSMOS_URL,
+      );
     } finally {
       (await this.publicClient.transport.getRpcClient()).close();
     }
