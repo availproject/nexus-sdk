@@ -193,7 +193,7 @@ export function SwapTransactionForm({
   disabled = false,
   className,
   prefillFields = {},
-}: SwapTransactionFormProps) {
+}: Readonly<SwapTransactionFormProps>) {
   const { config, isSimulating, activeTransaction } = useInternalNexus();
 
   const isInputDisabled = disabled || isSimulating;
@@ -271,7 +271,7 @@ export function UnifiedTransactionForm({
   disabled = false,
   className,
   prefillFields = {},
-}: UnifiedTransactionFormProps) {
+}: Readonly<UnifiedTransactionFormProps>) {
   const { config, isSimulating } = useInternalNexus();
 
   const formConfig = FORM_CONFIG[type];

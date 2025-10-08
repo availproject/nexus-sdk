@@ -1,6 +1,6 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo } from 'react';
 import { ChainSelectProps } from '../../types';
-import { CHAIN_METADATA, MAINNET_CHAINS, TESTNET_CHAINS } from '@nexus/commons';
+import { CHAIN_METADATA, DESTINATION_SWAP_TOKENS } from '@nexus/commons';
 import { ChainIcon } from './icons';
 import { cn } from '../../utils/utils';
 import { Button } from '../motion/button-motion';
@@ -32,28 +32,32 @@ export function ChainSelect({
   transactionType?: TransactionType;
 }) {
   const { sdk } = useInternalNexus();
-  const [filteredChainIds, setFilteredChainIds] = useState<number[]>([]);
-  const availableChainIds = network === 'testnet' ? TESTNET_CHAINS : MAINNET_CHAINS;
+  const availableChainIds = useMemo(() => {
+    if (!sdk) return [] as number[];
+    if (network === 'testnet') {
+      return sdk?.utils?.getSupportedChains(0)?.map((chain) => chain?.id) ?? [];
+    }
+    if (transactionType === 'swap') {
+      return isSource
+        ? (sdk?.utils?.getSwapSupportedChainsAndTokens()?.map((chain) => chain?.id) ?? [])
+        : Array.from(DESTINATION_SWAP_TOKENS.keys());
+    }
+    return sdk?.utils?.getSupportedChains()?.map((chain) => chain?.id) ?? [];
+  }, [sdk, network, transactionType]);
 
-  // Effect to handle chain filtering
-  useEffect(() => {
-    const filterChains = () => {
-      if (selectedToken && transactionType) {
-        const filtered = getFilteredChainsForToken(
-          selectedToken,
-          [...availableChainIds],
-          transactionType,
-          sdk,
-          !isSource,
-        );
-        setFilteredChainIds(filtered);
-      } else {
-        setFilteredChainIds([...availableChainIds]);
-      }
-    };
-
-    filterChains();
-  }, [selectedToken, transactionType, availableChainIds, sdk, isSource]);
+  const filteredChainIds = useMemo(() => {
+    if (!availableChainIds?.length) return [] as number[];
+    if (selectedToken && transactionType) {
+      return getFilteredChainsForToken(
+        selectedToken,
+        [...availableChainIds],
+        transactionType,
+        sdk,
+        !isSource,
+      );
+    }
+    return [...availableChainIds];
+  }, [availableChainIds, selectedToken, transactionType, sdk, isSource]);
 
   const chainOptions: ChainSelectOption[] = filteredChainIds.map((chainId) => {
     const metadata = CHAIN_METADATA[chainId];
@@ -66,7 +70,7 @@ export function ChainSelect({
   });
   const selectedOption = useMemo(
     () => chainOptions.find((opt) => opt.value === (value ?? '')),
-    [value],
+    [value, chainOptions],
   );
 
   const handleSelect = (chainId: string) => {
@@ -79,6 +83,10 @@ export function ChainSelect({
     if (!value) return true;
     return chainOptions.some((option) => option.value === value);
   }, [value, chainOptions]);
+
+  if (network === 'testnet' && transactionType === 'swap') {
+    throw new Error('Swap not supported on testnet');
+  }
 
   return (
     <div

@@ -18,14 +18,11 @@ import type { TransactionType as BalanceTransactionType } from '../../utils/bala
 interface DestinationDrawerProps {
   chainValue?: string;
   tokenValue?: string;
-
   isChainSelectDisabled?: boolean;
   isTokenSelectDisabled?: boolean;
   network?: 'mainnet' | 'testnet';
   onChainValueChange: (chain: string) => void;
   onTokenValueChange: (token: string, iconUrl?: string) => void;
-  isOpen?: boolean;
-  onOpenChange?: (open: boolean) => void;
   fieldLabel?: string;
   drawerTitle?: string;
   type?: BalanceTransactionType;
@@ -36,12 +33,10 @@ interface DestinationDrawerProps {
 const DestinationTrigger = ({
   chainValue,
   tokenValue,
-
   fieldLabel = 'Destination',
 }: {
   chainValue?: string;
   tokenValue?: string;
-
   fieldLabel?: string;
 }) => {
   const chainId = chainValue ? parseInt(chainValue) : undefined;
@@ -82,7 +77,7 @@ const DestinationTrigger = ({
           </div>
           <div className="flex flex-col items-start gap-y-1">
             <p className="text-nexus-black font-semibold font-nexus-primary text-base text-left">
-              {tokenValue ? tokenValue : 'Token'}
+              {tokenValue ?? 'Token'}
             </p>
             <p className="text-nexus-muted text-xs font-semibold font-nexus-primary text-left">
               {chainId ? CHAIN_METADATA[chainId]?.name : 'Chain'}
@@ -98,7 +93,6 @@ const DestinationTrigger = ({
 const DestinationDrawer = ({
   chainValue,
   tokenValue,
-
   isChainSelectDisabled,
   isTokenSelectDisabled,
   network,
