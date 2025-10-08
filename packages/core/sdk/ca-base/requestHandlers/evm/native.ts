@@ -50,10 +50,13 @@ class NativeTransfer extends RequestBase {
     const { data, to, value } = this.input.evm.tx!;
     const nativeToken = this.input.chainList.getNativeToken(this.input.chain.id);
 
+    const amount = hexToBigInt((value as `0x${string}`) ?? `0x00`);
+    const amountInDecimal = divDecimals(amount, nativeToken.decimals);
+
     if (this.input.options.bridge) {
-      return {
-        amount: divDecimals(hexToBigInt((value as `0x${string}`) ?? `0x00`), nativeToken.decimals),
-        gas: 0n,
+      this.simulateTxRes = {
+        amount: amountInDecimal,
+        gas: this.input.options.gas,
         gasFee: new Decimal(0),
         token: nativeToken,
       };
@@ -62,28 +65,37 @@ class NativeTransfer extends RequestBase {
     if (this.simulateTxRes) {
       let gasFee = 0n;
 
-      if (!this.input.options.bridge) {
+      if (this.simulateTxRes.gas > 0n) {
         const [{ gasPrice, maxFeePerGas }, l1Fee] = await Promise.all([
           this.publicClient.estimateFeesPerGas(),
-          getL1Fee(
-            this.input.chain,
-            serializeTransaction({
-              chainId: this.input.chain.id,
-              data: data ?? '0x00',
-              to: to,
-              type: 'eip1559',
-              value: hexToBigInt((value as `0x${string}`) ?? `0x00`),
-            }),
-          ),
+          this.input.options.bridge
+            ? Promise.resolve(0n)
+            : getL1Fee(
+                this.input.chain,
+                serializeTransaction({
+                  chainId: this.input.chain.id,
+                  data: data ?? '0x00',
+                  to: to,
+                  type: 'eip1559',
+                  value: amount,
+                }),
+              ),
         ]);
-        const gasUnitPrice = maxFeePerGas ?? gasPrice!;
+
+        const gasUnitPrice = maxFeePerGas ?? gasPrice ?? 0n;
+        if (gasUnitPrice === 0n) {
+          throw new Error('could not get maxFeePerGas or gasPrice from RPC');
+        }
+
         gasFee = this.simulateTxRes.gas * gasUnitPrice + l1Fee;
       }
+
       return {
         ...this.simulateTxRes,
         gasFee: divDecimals(gasFee, nativeToken.decimals),
       };
     }
+
     const txsToSimulate: SimulationRequest[] = [
       {
         from: ZERO_ADDRESS,
@@ -128,12 +140,8 @@ class NativeTransfer extends RequestBase {
       totalGasInDecimal: divDecimals(gasFee, nativeToken.decimals),
     });
 
-    if (this.input.options.bridge) {
-      gasFee = 0n;
-    }
-
     this.simulateTxRes = {
-      amount: divDecimals(value ?? '0', nativeToken.decimals),
+      amount: amountInDecimal,
       gas: BigInt(simulation.data.gas_used),
       gasFee: divDecimals(gasFee, nativeToken.decimals),
       token: {
