@@ -982,21 +982,25 @@ export class Cache {
   }
 
   private async processNativeAllowanceRequests() {
-    const requests = [];
-
+    const requests: Promise<void>[] = [];
     for (const input of this.nativeAllowanceQueries) {
       const publicClient = this.publicClientList.get(input.chainID);
       requests.push(
-        publicClient
-          .readContract({
-            address: input.contractAddress,
-            abi: CaliburABI,
-            functionName: 'nativeAllowance',
-            args: [input.spender],
-          })
-          .then((code) => {
-            this.allowanceValues.set(getAllowanceCacheKey(input), code);
-          }),
+        (async (inp: AllowanceInput, publicClient: PublicClient) => {
+          let allowance = 0n;
+          const code = await publicClient.getCode({
+            address: inp.contractAddress,
+          });
+          if (equalFold(code, EXPECTED_CALIBUR_CODE)) {
+            allowance = await publicClient.readContract({
+              address: inp.contractAddress,
+              abi: CaliburABI,
+              functionName: 'nativeAllowance',
+              args: [inp.spender],
+            });
+          }
+          this.allowanceValues.set(getAllowanceCacheKey(inp), allowance);
+        })(input, publicClient),
       );
     }
     await Promise.all(requests);
@@ -1067,6 +1071,9 @@ export class PublicClientList {
       }
       client = createPublicClient({
         transport: http(chain.rpcUrls.default.http[0]),
+        batch: {
+          multicall: true,
+        },
       });
       this.list[Number(chainID)] = client;
     }
