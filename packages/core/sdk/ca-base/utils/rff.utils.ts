@@ -1,6 +1,4 @@
 import { MsgCreateRequestForFunds, OmniversalRFF, Universe } from '@arcana/ca-common';
-import Decimal from 'decimal.js';
-
 import { FUEL_BASE_ASSET_ID, INTENT_EXPIRY, isNativeAddress, ZERO_ADDRESS } from '../constants';
 import { getLogger } from '../logger';
 import { ChainListType, Intent } from '@nexus/commons';
@@ -38,12 +36,6 @@ const getSourcesAndDestinationsForRFF = (
 ) => {
   const sources: Source[] = [];
   const universes = new Set<Universe>();
-  const sourceCounts = {
-    [Universe.ETHEREUM]: 0,
-    [Universe.FUEL]: 0,
-    [Universe.SOLANA]: 0,
-    [Universe.UNRECOGNIZED]: 0,
-  };
 
   for (const source of intent.sources) {
     if (source.chainID == intent.destination.chainID) {
@@ -56,7 +48,6 @@ const getSourcesAndDestinationsForRFF = (
       throw new Error('token not found');
     }
 
-    sourceCounts[source.universe] += 1;
     universes.add(source.universe);
 
     sources.push({
@@ -73,11 +64,7 @@ const getSourcesAndDestinationsForRFF = (
     {
       tokenAddress: convertTo32BytesHex(intent.destination.tokenContract),
       universe: intent.destination.universe,
-      value: BigInt(
-        intent.destination.amount
-          .mul(Decimal.pow(10, intent.destination.decimals))
-          .toFixed(0, Decimal.ROUND_FLOOR),
-      ),
+      value: mulDecimals(intent.destination.amount, intent.destination.decimals),
     },
   ];
 
@@ -95,7 +82,7 @@ const getSourcesAndDestinationsForRFF = (
     }
   }
 
-  return { destinations, sourceCounts, sources, universes };
+  return { destinations, sources, universes };
 };
 
 const createRFFromIntent = async (

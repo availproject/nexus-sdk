@@ -45,12 +45,18 @@ import {
 
 const logger = getLogger();
 
-const createEmptyIntent = ({ chainID }: { chainID: number }): Intent => ({
+const createEmptyIntent = ({
+  chainID,
+  decimals,
+}: {
+  decimals: number;
+  chainID: number;
+}): Intent => ({
   allSources: [],
   destination: {
     amount: new Decimal(0),
     chainID,
-    decimals: 6,
+    decimals,
     gas: 0n,
     tokenContract: '0x',
     universe: Universe.ETHEREUM,
@@ -82,7 +88,7 @@ export const createIntent = ({
   };
 }) => {
   const eoaToEphemeralCalls: EoaToEphemeralCallMap = {};
-  const intent = createEmptyIntent({ chainID: output.chainID });
+  const intent = createEmptyIntent({ chainID: output.chainID, decimals: output.decimals });
 
   let borrow = output.amount;
   intent.destination.amount = borrow;
