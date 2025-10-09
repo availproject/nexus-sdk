@@ -135,11 +135,15 @@ export function InternalNexusProvider({
   const fetchExchangeRates = useCallback(async () => {
     try {
       const response = await fetch('https://api.coinbase.com/v2/exchange-rates?currency=USD');
+      const bnbExchangeRate = await fetch(
+        'https://api.coingecko.com/api/v3/simple/price?ids=binancecoin&vs_currencies=usd',
+      );
+      const bnbData = await bnbExchangeRate.json();
       const data = await response.json();
       const rates = (data?.data?.rates ?? {}) as Record<string, string>;
       logger.info('all rates', rates);
       // Convert from "units per USD" to "USD per unit" for easier UI multiplication
-      const usdPerUnit: Record<string, number> = {};
+      const usdPerUnit: Record<string, number> = { BNB: bnbData.binancecoin.usd };
       for (const [symbol, value] of Object.entries(rates)) {
         const unitsPerUsd = parseFloat(value);
         if (Number.isFinite(unitsPerUsd) && unitsPerUsd > 0) {
@@ -151,7 +155,6 @@ export function InternalNexusProvider({
       ['USD', 'USDC', 'USDT'].forEach((stable) => {
         if (usdPerUnit[stable] === undefined) usdPerUnit[stable] = 1;
       });
-      logger.info('exchange rates', usdPerUnit);
       setExchangeRates(usdPerUnit);
     } catch (error) {
       logger.error('Error fetching exchange rates:', error as Error);
