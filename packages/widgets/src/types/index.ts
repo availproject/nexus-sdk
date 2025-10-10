@@ -1,5 +1,4 @@
 import { ReactNode } from 'react';
-import { EthereumProvider, UserAsset } from '@nexus/commons';
 import { NexusSDK } from '@nexus/core';
 
 // Only import essential parameter types, not all from root types
@@ -11,6 +10,11 @@ import type {
   SUPPORTED_CHAINS_IDS,
   DynamicParamBuilder,
   SimulationResult,
+  SwapInputOptionalParams,
+  SwapIntent,
+  UserAsset,
+  EthereumProvider,
+  ExactInSwapInput,
 } from '@nexus/commons';
 
 import { Abi } from 'viem';
@@ -45,6 +49,63 @@ interface BridgeAndExecuteSimulationResult {
   executeSimulation?: any;
 }
 
+export interface SwapInputData {
+  fromChainID?: 10 | 137 | 42161 | 534352 | 8453;
+  toChainID?: SUPPORTED_CHAINS_IDS;
+  fromTokenAddress?: 'USDC' | 'WETH' | 'DAI' | 'USDT' | 'USDS';
+  toTokenAddress?:
+    | 'USDC'
+    | 'LDO'
+    | 'DAI'
+    | 'USDT'
+    | 'KAITO'
+    | 'ZRO'
+    | 'PEPE'
+    | 'ETH'
+    | 'OP'
+    | 'AAVE'
+    | 'UNI'
+    | 'OM';
+  fromAmount?: string;
+  toAmount?: string;
+}
+
+export interface UnifiedInputData {
+  chainId?: number;
+  toChainId?: number;
+  token?: string;
+  inputToken?: string;
+  outputToken?: string;
+  amount?: string | number;
+  recipient?: string;
+}
+
+interface SwapResult {
+  success: boolean;
+  error?: string;
+  sourceExplorerUrl?: string;
+  destinationExplorerUrl?: string;
+}
+
+export interface SwapSimulationResult {
+  success: boolean;
+  error?: string;
+  intent?: SwapIntent;
+  swapMetadata?: {
+    type: 'swap';
+    inputToken: string;
+    outputToken: string;
+    fromChainId?: number;
+    toChainId?: number;
+    inputAmount: string;
+    outputAmount: string;
+  };
+  allowance: {
+    needsApproval: false;
+    chainDetails: [];
+  };
+}
+
 // Local metadata types for UI
 interface ChainMetadata {
   id: number;
@@ -74,7 +135,7 @@ type NexusNetwork = 'mainnet' | 'testnet';
 
 // # 1. High-Level State Machines
 
-export type TransactionType = 'bridge' | 'transfer' | 'bridgeAndExecute';
+export type TransactionType = 'bridge' | 'transfer' | 'bridgeAndExecute' | 'swap';
 
 export type OrchestratorStatus =
   | 'idle'
@@ -98,16 +159,25 @@ export interface ActiveTransaction {
     | Partial<BridgeParams>
     | Partial<TransferParams>
     | Partial<BridgeAndExecuteParams>
+    | Partial<SwapInputData>
     | null;
   prefillFields?: {
     chainId?: boolean;
     toChainId?: boolean;
     token?: boolean;
+    inputToken?: boolean;
+    outputToken?: boolean;
     amount?: boolean;
     recipient?: boolean;
+    fromChainID?: boolean;
+    toChainID?: boolean;
+    fromTokenAddress?: boolean;
+    toTokenAddress?: boolean;
+    fromAmount?: boolean;
+    toAmount?: boolean;
   };
   simulationResult:
-    | ((SimulationResult | BridgeAndExecuteSimulationResult) & {
+    | ((SimulationResult | BridgeAndExecuteSimulationResult | SwapSimulationResult) & {
         allowance?: {
           needsApproval: boolean;
           chainDetails?: Array<{
@@ -118,7 +188,7 @@ export interface ActiveTransaction {
         };
       })
     | null;
-  executionResult: BridgeResult | BridgeAndExecuteResult | TransferResult | null;
+  executionResult: BridgeResult | BridgeAndExecuteResult | TransferResult | SwapResult | null;
   error: Error | null;
 }
 
@@ -143,7 +213,7 @@ export interface ITransactionController {
     sdk: NexusSDK,
     inputData: any,
     simulationResult: ActiveTransaction['simulationResult'],
-  ): Promise<BridgeResult | BridgeAndExecuteResult>;
+  ): Promise<BridgeResult | BridgeAndExecuteResult | TransferResult | SwapResult>;
 
   // A helper to start the simulation and allowance check
   runReview(sdk: NexusSDK, inputData: any): Promise<ActiveTransaction['simulationResult']>;
@@ -159,7 +229,7 @@ export interface ProcessingStep {
   id: number;
   completed: boolean;
   progress: number; // 0-100
-  stepData?: any;
+  stepData?: any; // Can be ProgressStep, ProgressSteps, SwapStep, etc.
 }
 
 export interface ProcessingState {
@@ -189,6 +259,7 @@ export interface NexusContextValue {
   // Transaction processing state (from useListenTransaction)
   processing: ProcessingState;
   explorerURL: string | null;
+  explorerURLs?: { source?: string; destination?: string };
 
   // Actions
   setProvider: (provider: EthereumProvider) => void;
@@ -196,10 +267,18 @@ export interface NexusContextValue {
   deinitializeSdk: () => Promise<void>;
   startTransaction: (
     type: TransactionType,
-    prefillData?: Partial<BridgeParams> | Partial<TransferParams> | Partial<BridgeAndExecuteParams>,
+    prefillData?:
+      | Partial<BridgeParams>
+      | Partial<TransferParams>
+      | Partial<BridgeAndExecuteParams>
+      | Partial<SwapInputData>,
   ) => void;
   updateInput: (
-    data: Partial<BridgeParams> | Partial<TransferParams> | Partial<BridgeAndExecuteParams>,
+    data:
+      | Partial<BridgeParams>
+      | Partial<TransferParams>
+      | Partial<BridgeAndExecuteParams>
+      | Partial<SwapInputData>,
   ) => void;
   confirmAndProceed: () => void;
   cancelTransaction: () => void;
@@ -209,6 +288,10 @@ export interface NexusContextValue {
   approveAllowance: (amount: string, isMinimum: boolean) => Promise<void>;
   denyAllowance: () => void;
   startAllowanceFlow: () => void;
+
+  // Swap-specific functions
+  initiateSwap: (inputData: SwapInputData) => Promise<void>;
+  proceedWithSwap: () => void;
 }
 
 // # 5. Existing Widget Configuration Types (with minor updates)
@@ -223,6 +306,16 @@ export interface BridgeConfig extends Partial<BridgeParams> {}
 
 export interface BridgeButtonProps extends BaseComponentProps {
   prefill?: BridgeConfig;
+  children: (props: { onClick: () => void; isLoading: boolean }) => ReactNode;
+}
+
+export interface SwapConfig {
+  inputs: ExactInSwapInput;
+  options?: SwapInputOptionalParams;
+}
+
+export interface SwapButtonProps extends BaseComponentProps {
+  prefill?: Omit<SwapInputData, 'toAmount'>;
   children: (props: { onClick: () => void; isLoading: boolean }) => ReactNode;
 }
 
@@ -254,9 +347,12 @@ export interface ModalProps extends BaseComponentProps {
 // Form Types
 export interface TokenSelectProps extends BaseComponentProps {
   value?: string;
-  onValueChange: (token: string) => void;
+  onValueChange: (token: string, iconUrl?: string) => void;
   disabled?: boolean;
   network?: 'mainnet' | 'testnet';
+  type?: TransactionType;
+  chainId?: number;
+  isDestination?: boolean;
 }
 
 export interface ChainSelectProps extends BaseComponentProps {
@@ -264,6 +360,7 @@ export interface ChainSelectProps extends BaseComponentProps {
   onValueChange: (chain: string) => void;
   disabled?: boolean;
   network?: 'mainnet' | 'testnet';
+  isSource?: boolean;
 }
 
 export interface AmountInputProps extends BaseComponentProps {
@@ -313,12 +410,13 @@ export interface ProcessorCardProps {
   destChainMeta: ChainMetadata | null;
   tokenMeta: TokenMetadata | null;
   transactionType: TransactionType;
-  simulationResult: SimulationResult | BridgeAndExecuteSimulationResult;
+  simulationResult: SimulationResult | BridgeAndExecuteSimulationResult | SwapSimulationResult;
   processing: ProcessingState;
   explorerURL: string | null;
+  explorerURLs?: { source?: string; destination?: string };
   timer: number;
   description: string;
   error: Error | null;
-  executionResult: BridgeResult | TransferResult | BridgeAndExecuteResult | null;
+  executionResult: BridgeResult | TransferResult | BridgeAndExecuteResult | SwapResult | null;
   disableCollapse?: boolean;
 }

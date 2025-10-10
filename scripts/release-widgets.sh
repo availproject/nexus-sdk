@@ -95,10 +95,10 @@ if [[ "$RELEASE_TYPE" == "prod" ]]; then
         fi
     fi
 
-    # Check if @avail-project/nexus is published and available
-    print_status "Checking @avail-project/nexus dependency..."
-    if ! npm view @avail-project/nexus > /dev/null 2>&1; then
-        print_error "@avail-project/nexus is not published. Please release core package first."
+    # Check if @avail-project/nexus-core is published and available
+    print_status "Checking @avail-project/nexus-core dependency..."
+    if ! npm view @avail-project/nexus-core > /dev/null 2>&1; then
+        print_error "@avail-project/nexus-core is not published. Please release core package first."
         print_status "Run: ./scripts/release-core.sh prod"
         exit 1
     fi
@@ -138,15 +138,15 @@ if [[ "$RELEASE_TYPE" == "prod" ]]; then
     cp package.json package.json.backup
 
     # Resolve published core version (prod)
-    CORE_PUBLISHED_VERSION=$(npm view @avail-project/nexus version 2>/dev/null || true)
+    CORE_PUBLISHED_VERSION=$(npm view @avail-project/nexus-core version 2>/dev/null || true)
     export CORE_PUBLISHED_VERSION
     if [[ -z "$CORE_PUBLISHED_VERSION" ]]; then
-        print_error "@avail-project/nexus is not published or version could not be resolved. Release core first."
+        print_error "@avail-project/nexus-core is not published or version could not be resolved. Release core first."
         exit 1
     fi
 
-    # Rewrite package.json: name -> @avail-project/nexus-widgets, deps: @nexus/core -> @avail-project/nexus@<version>, remove @nexus/commons
-    node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.name='@avail-project/nexus-widgets';p.dependencies=p.dependencies||{};if(p.dependencies['@nexus/core']){delete p.dependencies['@nexus/core'];p.dependencies['@avail-project/nexus']=process.env.CORE_PUBLISHED_VERSION;}if(p.dependencies['@nexus/commons']){delete p.dependencies['@nexus/commons'];}fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+    # Rewrite package.json: name -> @avail-project/nexus-widgets, deps: @nexus/core -> @avail-project/nexus-core@<version>, remove @nexus/commons
+    node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.name='@avail-project/nexus-widgets';p.dependencies=p.dependencies||{};if(p.dependencies['@nexus/core']){delete p.dependencies['@nexus/core'];p.dependencies['@avail-project/nexus-core']=process.env.CORE_PUBLISHED_VERSION;}if(p.dependencies['@nexus/commons']){delete p.dependencies['@nexus/commons'];}fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
 
     # Bundle internal commons into dist (imports already aliased by Rollup)
     print_status "Bundling internal @nexus/commons into widgets dist..."
@@ -215,15 +215,15 @@ else
     cp package.json package.json.backup
 
     # Resolve latest published core version for the same prerelease tag
-    CORE_PUBLISHED_VERSION=$(npm view @avail-project/nexus@$PRERELEASE_ID version 2>/dev/null || true)
+    CORE_PUBLISHED_VERSION=$(npm view @avail-project/nexus-core@$PRERELEASE_ID version 2>/dev/null || true)
     export CORE_PUBLISHED_VERSION
     if [[ -z "$CORE_PUBLISHED_VERSION" ]]; then
-        print_error "@avail-project/nexus@$PRERELEASE_ID is not published. Please release core $PRERELEASE_ID first (./scripts/release-core.sh dev patch $PRERELEASE_ID)."
+        print_error "@avail-project/nexus-core@$PRERELEASE_ID is not published. Please release core $PRERELEASE_ID first (./scripts/release-core.sh dev patch $PRERELEASE_ID)."
         exit 1
     fi
 
-    # Rewrite package.json: name -> @avail-project/nexus-widgets, deps: @nexus/core -> @avail-project/nexus@<dev-version>, remove @nexus/commons
-    node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.name='@avail-project/nexus-widgets';p.dependencies=p.dependencies||{};if(p.dependencies['@nexus/core']){delete p.dependencies['@nexus/core'];p.dependencies['@avail-project/nexus']=process.env.CORE_PUBLISHED_VERSION;}if(p.dependencies['@nexus/commons']){delete p.dependencies['@nexus/commons'];}fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+    # Rewrite package.json: name -> @avail-project/nexus-widgets, deps: @nexus/core -> @avail-project/nexus-core@<dev-version>, remove @nexus/commons
+    node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.name='@avail-project/nexus-widgets';p.dependencies=p.dependencies||{};if(p.dependencies['@nexus/core']){delete p.dependencies['@nexus/core'];p.dependencies['@avail-project/nexus-core']=process.env.CORE_PUBLISHED_VERSION;}if(p.dependencies['@nexus/commons']){delete p.dependencies['@nexus/commons'];}fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
 
     # Bundle internal commons into dist (imports already aliased by Rollup)
     print_status "Bundling internal @nexus/commons into widgets dist..."

@@ -35,5 +35,19 @@ export type {
   ProgressSteps,
 } from '@nexus/commons';
 
+export {
+  CHAIN_METADATA,
+  SUPPORTED_CHAINS,
+  TESTNET_CHAINS,
+  TESTNET_TOKEN_METADATA,
+  TOKEN_METADATA,
+  NEXUS_EVENTS,
+  MAINNET_CHAINS,
+  TOKEN_CONTRACT_ADDRESSES,
+  DESTINATION_SWAP_TOKENS,
+} from '@nexus/commons';
+
+export type { SwapStep } from './sdk/ca-base';
+
 // Re-export everything from commons (includes constants, utils, and types)
 export * from '@nexus/commons';

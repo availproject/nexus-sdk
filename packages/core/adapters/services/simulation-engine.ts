@@ -3,28 +3,21 @@ import type {
   EnhancedSimulationStep,
   StateOverride,
 } from '../../integrations/types';
-import { encodePacked, keccak256, formatUnits } from 'viem';
+import { encodePacked, keccak256, formatUnits, Hex, erc20Abi } from 'viem';
 import {
   type SUPPORTED_TOKENS,
   type ExecuteParams,
-  type EthereumProvider,
   type SUPPORTED_CHAINS_IDS,
   extractErrorMessage,
   getTokenContractAddress,
   logger,
   encodeContractCall,
   TOKEN_METADATA,
+  CHAIN_METADATA,
 } from '@nexus/commons';
 
 import { getSimulationClient } from '../../integrations/tenderly';
-
-/**
- * Minimal interface for what SimulationEngine needs from the adapter
- */
-interface SimulationEngineAdapter {
-  isInitialized(): boolean;
-  evmProvider: EthereumProvider;
-}
+import { ChainAbstractionAdapter } from 'adapters/chain-abstraction-adapter';
 
 /**
  * Balance check result interface
@@ -40,20 +33,16 @@ export interface BalanceCheckResult {
  * Multi-step simulation engine with state override capabilities
  */
 export class SimulationEngine {
-  private adapter: SimulationEngineAdapter;
+  private adapter: ChainAbstractionAdapter;
 
-  constructor(adapter: SimulationEngineAdapter) {
+  constructor(adapter: ChainAbstractionAdapter) {
     this.adapter = adapter;
   }
 
   private ensureInitialized() {
-    if (!this.adapter.isInitialized()) {
+    if (!this.adapter.nexusSDK.isInitialized()) {
       throw new Error('Adapter not initialized');
     }
-  }
-
-  private get evmProvider() {
-    return this.adapter.evmProvider;
   }
 
   /**
@@ -134,15 +123,15 @@ export class SimulationEngine {
     try {
       const tokenAddress = getTokenContractAddress(token, chainId as SUPPORTED_CHAINS_IDS);
       if (!tokenAddress) {
-        throw new Error(`Token ${token} not supported on chain ${chainId}`);
+        throw new Error(`Token ${token} not supported on chain ${CHAIN_METADATA[chainId]?.name}`);
       }
 
       // For native ETH, use eth_getBalance
       if (token === 'ETH') {
-        const balance = (await this.evmProvider.request({
-          method: 'eth_getBalance',
-          params: [user, 'latest'],
-        })) as string;
+        const balance = await this.adapter.nexusSDK.getEVMClient().getBalance({
+          address: user as Hex,
+          blockTag: 'latest',
+        });
 
         const balanceBigInt = BigInt(balance);
         const requiredBigInt = requiredAmount ? BigInt(requiredAmount) : BigInt(0);
@@ -150,37 +139,27 @@ export class SimulationEngine {
         const shortfall = sufficient ? '0' : (requiredBigInt - balanceBigInt).toString();
 
         return {
-          balance,
+          balance: balance.toString(),
           sufficient,
           shortfall,
           tokenAddress,
         };
       }
 
-      // For ERC20 tokens, use balanceOf call
-      const balanceCallData = `0x70a08231${user.slice(2).padStart(64, '0')}`;
-
-      const balanceResponse = (await this.evmProvider.request({
-        method: 'eth_call',
-        params: [
-          {
-            to: tokenAddress,
-            data: balanceCallData,
-          },
-          'latest',
-        ],
-      })) as string;
-
-      const balance = BigInt(balanceResponse || '0x0').toString();
+      const balance = await this.adapter.nexusSDK.getEVMClient().readContract({
+        abi: erc20Abi,
+        functionName: 'balanceOf',
+        args: [user as Hex],
+        address: tokenAddress as Hex,
+      });
 
       if (requiredAmount) {
-        const balanceBigInt = BigInt(balance);
         const requiredBigInt = BigInt(requiredAmount);
-        const sufficient = balanceBigInt >= requiredBigInt;
-        const shortfall = sufficient ? '0' : (requiredBigInt - balanceBigInt).toString();
+        const sufficient = balance >= requiredBigInt;
+        const shortfall = sufficient ? '0' : (requiredBigInt - balance).toString();
 
         return {
-          balance,
+          balance: balance.toString(),
           sufficient,
           shortfall,
           tokenAddress,
@@ -188,7 +167,7 @@ export class SimulationEngine {
       }
 
       return {
-        balance,
+        balance: balance.toString(),
         sufficient: false, // Cannot determine without required amount
         shortfall: '0',
         tokenAddress,
@@ -297,7 +276,9 @@ export class SimulationEngine {
 
     const slot = chainMapping[token];
     if (slot === undefined) {
-      logger.warn(`Token ${token} not supported on chain ${chainId}, falling back to defaults`);
+      logger.warn(
+        `Token ${token} not supported on chain ${CHAIN_METADATA[chainId]?.name}, falling back to defaults`,
+      );
       return token === 'USDC' ? 9 : token === 'USDT' ? 2 : 0;
     }
 
@@ -317,7 +298,7 @@ export class SimulationEngine {
     try {
       const tokenAddress = getTokenContractAddress(token, chainId as SUPPORTED_CHAINS_IDS);
       if (!tokenAddress) {
-        throw new Error(`Token ${token} not supported on chain ${chainId}`);
+        throw new Error(`Token ${token} not supported on chain ${CHAIN_METADATA[chainId]?.name}`);
       }
 
       // For native ETH
@@ -416,7 +397,6 @@ export class SimulationEngine {
     // First, convert amountRequired from micro-units to user-friendly format for the callback
     // The callback expects amount in user-friendly format (e.g., "0.01" for 0.01 USDC)
     // but amountRequired comes in micro-units (e.g., "10000" for 0.01 USDC)
-    console.log('DEBUG TOKEN_METADATA check:', { TOKEN_METADATA, tokenRequired });
     logger.info('Token metadata:', { meta: TOKEN_METADATA, tokenRequired });
     const decimals = TOKEN_METADATA[tokenRequired]?.decimals ?? 6;
     const userFriendlyAmount = formatUnits(BigInt(amountRequired), decimals);

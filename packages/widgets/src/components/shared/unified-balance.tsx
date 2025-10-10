@@ -13,12 +13,11 @@ import {
   type UserAsset,
   CHAIN_METADATA,
   SUPPORTED_CHAINS,
-  TOKEN_METADATA,
 } from '@nexus/commons';
 import SolarWallet from '../icons/SolarWallet';
 import { ChevronDownIcon, CircleX } from '../icons';
-import { cn } from '../../utils/utils';
-import { TOKEN_IMAGE_MAP } from '../../utils/balance-utils';
+import { cn, getTokenFromInputData } from '../../utils/utils';
+import { TokenIcon } from './icons';
 
 const BalanceTrigger = ({ balance, token }: { balance?: UserAsset; token?: SUPPORTED_TOKENS }) => {
   return (
@@ -147,7 +146,7 @@ const ChainBalance = ({
 const UnifiedBalance = () => {
   const { unifiedBalance, activeTransaction } = useInternalNexus();
   const { inputData } = activeTransaction;
-  const tokenSymbol = inputData?.token;
+  const tokenSymbol = getTokenFromInputData(inputData);
 
   const relevantBalance = useMemo(() => {
     if (!unifiedBalance || !tokenSymbol) return [] as UserAsset[];
@@ -176,24 +175,21 @@ const UnifiedBalance = () => {
 
           <div className="px-4 pb-4 no-scrollbar space-y-4">
             {unifiedBalance.map((asset) => {
-              const symbol = asset.symbol;
-              const icon = TOKEN_IMAGE_MAP[symbol] || (asset as any)?.icon;
               return (
                 <div
-                  key={symbol}
+                  key={asset.symbol}
                   className="border-b border-gray-200 pb-3 last:border-none last:pb-0"
                 >
                   <div className="py-4 w-full flex items-center justify-between">
                     <div className="flex items-center gap-x-3">
-                      {icon ? (
-                        <img
-                          src={icon}
-                          alt={symbol}
+                      {asset.symbol ? (
+                        <TokenIcon
+                          tokenSymbol={asset.symbol}
                           className="w-6 h-6 border border-nexus-border-secondary/10 rounded-full"
                         />
                       ) : null}
                       <p className="text-sm font-semibold text-nexus-muted-secondary leading-[18px] font-nexus-primary">
-                        Total {symbol}
+                        Total {asset.symbol}
                       </p>
                     </div>
                     <div className="flex flex-col items-end gap-y-2">
@@ -201,7 +197,7 @@ const UnifiedBalance = () => {
                         {parseFloat(asset.balance) > 0
                           ? parseFloat(asset.balance).toFixed(2)
                           : '0.00'}{' '}
-                        {symbol}
+                        {asset.symbol}
                       </p>
                       <p className="text-nexus-accent-green font-semibold font-nexus-primary text-sm leading-0">
                         ≈ ${asset.balanceInFiat}
@@ -213,9 +209,9 @@ const UnifiedBalance = () => {
                     <div className="space-y-2.5 mt-2.5">
                       {asset.breakdown?.map((breakdownBalance, index: number) => (
                         <ChainBalance
-                          key={`${breakdownBalance.chain?.id}-${index}-${symbol}`}
+                          key={`${breakdownBalance.chain?.id}-${index}-${asset.symbol}`}
                           balance={breakdownBalance}
-                          symbol={symbol || ''}
+                          symbol={asset.symbol ?? ''}
                         />
                       ))}
                     </div>
@@ -233,7 +229,10 @@ const UnifiedBalance = () => {
   return (
     <Drawer>
       <DrawerTrigger className="px-6 font-nexus-primary w-full my-6">
-        <BalanceTrigger balance={tokenBalance} token={inputData?.token} />
+        <BalanceTrigger
+          balance={tokenBalance}
+          token={getTokenFromInputData(inputData) as SUPPORTED_TOKENS}
+        />
       </DrawerTrigger>
       <DrawerContent className="font-nexus-primary">
         <DrawerHeader className="px-4 pt-4 pb-0">
@@ -249,9 +248,8 @@ const UnifiedBalance = () => {
           {/* Total Balance */}
           <div className="py-4 mb-0.5 w-full flex items-center justify-between border-b border-gray-200">
             <div className="flex items-center gap-x-3">
-              <img
-                src={TOKEN_IMAGE_MAP[tokenSymbol]}
-                alt={TOKEN_METADATA[tokenSymbol]?.name}
+              <TokenIcon
+                tokenSymbol={tokenSymbol}
                 className="w-6 h-6 border border-nexus-border-secondary/10 rounded-full"
               />
               <p className="text-sm font-semibold text-nexus-muted-secondary leading-[18px] font-nexus-primary">

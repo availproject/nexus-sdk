@@ -10,8 +10,10 @@ import {
 } from '../motion/drawer';
 import { ChevronDownIcon, CircleX } from '../icons';
 import { FormField } from '../motion/form-field';
-import { CHAIN_METADATA, SUPPORTED_CHAINS, TOKEN_METADATA } from '@nexus/commons';
+import { CHAIN_METADATA, SUPPORTED_CHAINS } from '@nexus/commons';
 import { cn } from '../../utils/utils';
+import { TokenIcon } from './icons';
+import type { TransactionType as BalanceTransactionType } from '../../utils/balance-utils';
 
 interface DestinationDrawerProps {
   chainValue?: string;
@@ -20,22 +22,27 @@ interface DestinationDrawerProps {
   isTokenSelectDisabled?: boolean;
   network?: 'mainnet' | 'testnet';
   onChainValueChange: (chain: string) => void;
-  onTokenValueChange: (token: string) => void;
-  isOpen?: boolean;
-  onOpenChange?: (open: boolean) => void;
+  onTokenValueChange: (token: string, iconUrl?: string) => void;
+  fieldLabel?: string;
+  drawerTitle?: string;
+  type?: BalanceTransactionType;
+  isDestination?: boolean;
+  isSourceChain?: boolean;
 }
 
 const DestinationTrigger = ({
   chainValue,
   tokenValue,
+  fieldLabel = 'Destination',
 }: {
   chainValue?: string;
   tokenValue?: string;
+  fieldLabel?: string;
 }) => {
   const chainId = chainValue ? parseInt(chainValue) : undefined;
 
   return (
-    <FormField label={'Destination'} className="flex-1 font-nexus-primary gap-y-2 w-full">
+    <FormField label={fieldLabel} className="flex-1 font-nexus-primary gap-y-2 w-full">
       <div
         className="flex items-center justify-between py-2 px-4 gap-x-2 rounded-nexus-full border border-nexus-muted-secondary/20 bg-nexus-background w-full"
         style={{
@@ -46,9 +53,8 @@ const DestinationTrigger = ({
         <div className="flex items-center gap-x-3">
           <div className="relative">
             {tokenValue ? (
-              <img
-                src={TOKEN_METADATA[tokenValue]?.icon}
-                alt={TOKEN_METADATA[tokenValue]?.name}
+              <TokenIcon
+                tokenSymbol={tokenValue}
                 className="rounded-full size-10 border border-nexus-border-secondary/10"
               />
             ) : (
@@ -71,7 +77,7 @@ const DestinationTrigger = ({
           </div>
           <div className="flex flex-col items-start gap-y-1">
             <p className="text-nexus-black font-semibold font-nexus-primary text-base text-left">
-              {tokenValue ? tokenValue : 'Token'}
+              {tokenValue ?? 'Token'}
             </p>
             <p className="text-nexus-muted text-xs font-semibold font-nexus-primary text-left">
               {chainId ? CHAIN_METADATA[chainId]?.name : 'Chain'}
@@ -92,17 +98,26 @@ const DestinationDrawer = ({
   network,
   onChainValueChange,
   onTokenValueChange,
+  fieldLabel,
+  drawerTitle = 'Select Destination Chain & Token',
+  type,
+  isDestination = false,
+  isSourceChain = false,
 }: DestinationDrawerProps) => {
   return (
     <Drawer>
       <DrawerTrigger disabled={isChainSelectDisabled && isTokenSelectDisabled}>
-        <DestinationTrigger chainValue={chainValue} tokenValue={tokenValue} />
+        <DestinationTrigger
+          chainValue={chainValue}
+          tokenValue={tokenValue}
+          fieldLabel={fieldLabel}
+        />
       </DrawerTrigger>
       <DrawerContent className="font-nexus-primary" contentClassName="overflow-hidden">
         <DrawerHeader className="px-4 pt-4 pb-0">
           <div className="flex items-center justify-between mb-4">
             <DrawerTitle className="font-nexus-primary text-nexus-foreground">
-              Select Destination Chain & Token
+              {drawerTitle}
             </DrawerTitle>
             <DrawerClose>
               <CircleX className="w-6 h-6 text-nexus-black hover:text-zinc-700 transition-colors" />
@@ -118,14 +133,20 @@ const DestinationDrawer = ({
             network={network}
             className="w-full"
             hasValues={!!tokenValue}
+            isSource={isSourceChain}
+            selectedToken={tokenValue}
+            transactionType={type as BalanceTransactionType}
           />
           <TokenSelect
             value={tokenValue}
-            onValueChange={onTokenValueChange}
+            onValueChange={(token, iconUrl) => onTokenValueChange(token, iconUrl)}
             disabled={isTokenSelectDisabled}
             network={network}
             className="w-full"
             hasValues={!!chainValue}
+            type={type}
+            chainId={chainValue ? parseInt(chainValue) : undefined}
+            isDestination={isDestination}
           />
         </div>
       </DrawerContent>

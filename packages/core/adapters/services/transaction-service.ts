@@ -1,4 +1,4 @@
-import { BaseService } from '../core/base-service';
+import { ChainAbstractionAdapter } from 'adapters/chain-abstraction-adapter';
 
 import {
   type EthereumProvider,
@@ -30,7 +30,8 @@ interface GasEstimationResult {
 /**
  * Service responsible for transaction handling and preparation
  */
-export class TransactionService extends BaseService {
+export class TransactionService {
+  constructor(private adapter: ChainAbstractionAdapter) {}
   // Flag to enable/disable gas estimation (can be set via constructor or method)
   private enableGasEstimation: boolean = true;
 
@@ -157,15 +158,11 @@ export class TransactionService extends BaseService {
    */
   async ensureCorrectChain(targetChainId: number): Promise<ChainSwitchResult> {
     try {
-      const currentChainId = await this.evmProvider.request({ method: 'eth_chainId' });
-      const currentChainIdDecimal = parseInt(currentChainId as string, 16);
+      const currentChainId = await this.adapter.nexusSDK.getEVMClient().getChainId();
 
-      if (currentChainIdDecimal !== targetChainId) {
+      if (currentChainId !== targetChainId) {
         try {
-          await this.evmProvider.request({
-            method: 'wallet_switchEthereumChain',
-            params: [{ chainId: `0x${targetChainId.toString(16)}` }],
-          });
+          await this.adapter.nexusSDK.getEVMClient().switchChain({ id: targetChainId });
           return { success: true };
         } catch (switchError) {
           if (
@@ -194,12 +191,8 @@ export class TransactionService extends BaseService {
    * Prepare execution by validating parameters and encoding function call
    */
   async prepareExecution(params: ExecuteParams): Promise<ExecutePreparation> {
-    this.ensureInitialized();
-
     // Get the from address first (needed for callback)
-    const fromAddress = (await this.evmProvider.request({
-      method: 'eth_accounts',
-    })) as string[];
+    const fromAddress = await this.adapter.nexusSDK.getEVMClient().getAddresses();
 
     if (!fromAddress || fromAddress.length === 0) {
       throw new Error('No accounts available');
@@ -248,7 +241,7 @@ export class TransactionService extends BaseService {
     }
 
     return {
-      provider: this.evmProvider,
+      provider: this.adapter.nexusSDK.getEVMProviderWithCA(),
       fromAddress: fromAddress[0],
       encodedData: encodingResult.data!,
       value: callbackValue,

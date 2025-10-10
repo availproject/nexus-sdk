@@ -1,6 +1,6 @@
 {
   "name": "nexus-sdk-monorepo",
-  "version": "1.1.0",
+  "version": "0.0.7-beta.0",
   "private": true,
   "description": "Nexus SDK monorepo - cross-chain transactions with minimal friction",
   "scripts": {
@@ -15,15 +15,11 @@
     "prepare": "husky install",
     "typecheck": "pnpm -r typecheck",
     "clean": "rimraf packages/widgets/dist packages/core/dist packages/commons/dist",
-    "release:core": "./scripts/release-core.sh",
+    "clean:modules": "rimraf node_modules packages/widgets/node_modules packages/core/node_modules packages/commons/node_modules",
     "release:core:dev": "./scripts/release-core.sh dev",
     "release:core:prod": "./scripts/release-core.sh prod",
-    "release:widgets": "./scripts/release-widgets.sh",
     "release:widgets:dev": "./scripts/release-widgets.sh dev",
-    "release:widgets:prod": "./scripts/release-widgets.sh prod",
-    "release": "./scripts/release-all.sh",
-    "release:dev": "./scripts/release-all.sh dev",
-    "release:prod": "./scripts/release-all.sh prod"
+    "release:widgets:prod": "./scripts/release-widgets.sh prod"
   },
   "keywords": [
     "nexus",

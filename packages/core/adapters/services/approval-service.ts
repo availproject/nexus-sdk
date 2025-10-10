@@ -1,4 +1,3 @@
-import { BaseService } from '../core/base-service';
 import {
   getTokenContractAddress,
   extractErrorMessage,
@@ -9,15 +8,8 @@ import {
   type SUPPORTED_TOKENS,
   type SUPPORTED_CHAINS_IDS,
 } from '@nexus/commons';
-import { parseUnits, formatUnits } from 'viem';
-
-/**
- * Internal constants for ERC20 function selectors
- */
-const FUNCTION_SELECTORS = {
-  ALLOWANCE: '0xdd62ed3e', // allowance(address,address)
-  APPROVE: '0x095ea7b3', // approve(address,uint256)
-} as const;
+import { ChainAbstractionAdapter } from 'adapters/chain-abstraction-adapter';
+import { parseUnits, formatUnits, erc20Abi, Hex } from 'viem';
 
 /**
  * Internal constants for adapter behavior
@@ -32,7 +24,9 @@ const ADAPTER_CONSTANTS = {
 /**
  * Service responsible for handling contract approvals
  */
-export class ApprovalService extends BaseService {
+export class ApprovalService {
+  constructor(private adapter: ChainAbstractionAdapter) {}
+
   /**
    * Check if approval is needed for a token spending operation
    */
@@ -42,11 +36,7 @@ export class ApprovalService extends BaseService {
     chainId: number,
     approvalBufferBps?: number,
   ): Promise<ApprovalInfo> {
-    this.ensureInitialized();
-
-    const accounts = (await this.evmProvider.request({
-      method: 'eth_accounts',
-    })) as string[];
+    const accounts = await this.adapter.nexusSDK.getEVMClient().getAddresses();
 
     if (!accounts || accounts.length === 0) {
       throw new Error('No accounts available');
@@ -101,22 +91,12 @@ export class ApprovalService extends BaseService {
         );
       }
 
-      // Prepare the allowance call data
-      const allowanceCallData = `${FUNCTION_SELECTORS.ALLOWANCE}${ownerAddress.slice(2).padStart(64, '0')}${spenderAddress.slice(2).padStart(64, '0')}`;
-
-      // Call the contract to get current allowance
-      const allowanceResponse = await this.evmProvider.request({
-        method: 'eth_call',
-        params: [
-          {
-            to: tokenContractAddress,
-            data: allowanceCallData,
-          },
-          'latest',
-        ],
+      const currentAllowance = await this.adapter.nexusSDK.getEVMClient().readContract({
+        address: tokenContractAddress as Hex,
+        abi: erc20Abi,
+        functionName: 'allowance',
+        args: [ownerAddress as Hex, spenderAddress as Hex],
       });
-
-      const currentAllowance = BigInt(allowanceResponse as string);
 
       // Add a small buffer to avoid repeated approvals due to minor amount differences
       const bufferBps =
@@ -154,8 +134,6 @@ export class ApprovalService extends BaseService {
     waitForConfirmation: boolean = false,
     approvalBufferBps?: number,
   ): Promise<ApprovalResult> {
-    this.ensureInitialized();
-
     try {
       // Check if approval is needed
       const approvalInfo = await this.checkApprovalNeeded(
@@ -173,9 +151,7 @@ export class ApprovalService extends BaseService {
         };
       }
 
-      const accounts = (await this.evmProvider.request({
-        method: 'eth_accounts',
-      })) as string[];
+      const accounts = await this.adapter.nexusSDK.getEVMClient().getAddresses();
 
       if (!accounts || accounts.length === 0) {
         return {
@@ -183,8 +159,6 @@ export class ApprovalService extends BaseService {
           error: 'No accounts available',
         };
       }
-
-      const fromAddress = accounts[0];
 
       // Calculate buffer amount with proper decimal handling for MetaMask display
       const bufferBps =
@@ -207,97 +181,26 @@ export class ApprovalService extends BaseService {
 
       // Convert back to wei for the transaction
       const finalApprovalAmount = parseUnits(humanReadableAmount, tokenDecimals);
-      const approvalAmount = finalApprovalAmount.toString(16).padStart(64, '0');
 
-      // Prepare approval transaction data
-      const approvalCallData = `${FUNCTION_SELECTORS.APPROVE}${spenderAddress.slice(2).padStart(64, '0')}${approvalAmount}`;
-
-      const approvalTxParams = {
-        from: fromAddress,
-        to: approvalInfo.tokenAddress,
-        data: approvalCallData,
-        value: '0x0',
-      };
-
-      logger.info('DEBUG approval - Sending approval transaction:', {
-        token: tokenApproval.token,
-        humanAmount: humanReadableAmount,
-        spender: spenderAddress,
-        chainId,
-      });
-
-      // Send approval transaction
-      const txResponse = await this.evmProvider.request({
-        method: 'eth_sendTransaction',
-        params: [approvalTxParams],
-      });
-
-      let transactionHash: string;
-      if (typeof txResponse === 'string') {
-        transactionHash = txResponse;
-      } else if (txResponse && typeof txResponse === 'object' && 'hash' in txResponse) {
-        transactionHash = txResponse.hash as string;
-      } else {
-        return {
-          wasNeeded: true,
-          error: 'Invalid transaction response format',
-        };
+      const chain = this.adapter.nexusSDK.chainList.getChainByID(chainId);
+      if (!chain) {
+        throw new Error('chain not supported');
       }
-
-      logger.info('DEBUG approval - Transaction sent:', transactionHash);
-
-      // Wait for confirmation if requested
-      let confirmed = false;
-      let receiptStatus: string | undefined;
+      const transactionHash = await this.adapter.nexusSDK.getEVMClient().writeContract({
+        functionName: 'approve',
+        abi: erc20Abi,
+        address: approvalInfo.tokenAddress as Hex,
+        args: [spenderAddress as Hex, finalApprovalAmount],
+        chain,
+        account: accounts[0],
+      });
 
       if (waitForConfirmation) {
         try {
-          let attempts = 0;
-          const maxAttempts = 60; // 60 seconds timeout for approval
-
-          while (attempts < maxAttempts) {
-            try {
-              const receipt = await this.evmProvider.request({
-                method: 'eth_getTransactionReceipt',
-                params: [transactionHash],
-              });
-
-              if (receipt && typeof receipt === 'object') {
-                const receiptObj = receipt as unknown as { status: string };
-                receiptStatus = receiptObj.status;
-
-                // Check if transaction was successful (status: "0x1") or failed (status: "0x0")
-                if (receiptStatus === '0x1') {
-                  confirmed = true;
-                  logger.info('DEBUG approval - Transaction confirmed successfully');
-                  break;
-                } else if (receiptStatus === '0x0') {
-                  logger.info('DEBUG approval - Transaction failed on chain');
-                  return {
-                    transactionHash,
-                    wasNeeded: true,
-                    confirmed: false,
-                    error: 'Approval transaction failed on blockchain',
-                  };
-                }
-              }
-            } catch (receiptError) {
-              // Receipt not available yet, continue waiting
-            }
-
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-            attempts++;
-          }
-
-          if (!confirmed && attempts >= maxAttempts) {
-            logger.info('DEBUG approval - Transaction timeout');
-            return {
-              transactionHash,
-              wasNeeded: true,
-              confirmed: false,
-              error: 'Approval transaction confirmation timeout',
-            };
-          }
+          await this.adapter.nexusSDK.getEVMClient().waitForTransactionReceipt({
+            hash: transactionHash,
+            retryCount: 10,
+          });
         } catch (confirmationError) {
           logger.warn('DEBUG approval - Confirmation failed:', confirmationError);
           return {
@@ -307,12 +210,17 @@ export class ApprovalService extends BaseService {
             error: `Approval confirmation failed: ${extractErrorMessage(confirmationError, 'approval confirmation')}`,
           };
         }
-      }
 
+        return {
+          transactionHash,
+          wasNeeded: true,
+          confirmed: true,
+        };
+      }
       return {
         transactionHash,
-        wasNeeded: true,
-        confirmed,
+        wasNeeded: false,
+        confirmed: false,
       };
     } catch (error) {
       logger.error('DEBUG approval - Error:', error as Error);

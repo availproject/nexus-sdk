@@ -34,7 +34,15 @@ export function AmountInput({
   const validateNumberInput = (input: string): string => {
     if (input === '') return '';
     if (input === '.') return '0.';
+    // Remove non-numeric characters except dots
     let cleaned = input.replace(/[^0-9.]/g, '');
+
+    // Handle case where input starts with decimal point
+    if (cleaned.startsWith('.')) {
+      cleaned = '0' + cleaned;
+    }
+
+    // Handle multiple decimal points - keep only the first one
     const decimalCount = (cleaned.match(/\./g) || []).length;
     if (decimalCount > 1) {
       const firstDecimalIndex = cleaned.indexOf('.');
@@ -42,12 +50,21 @@ export function AmountInput({
         cleaned.substring(0, firstDecimalIndex + 1) +
         cleaned.substring(firstDecimalIndex + 1).replace(/\./g, '');
     }
-    if (cleaned.length > 1 && cleaned[0] === '0' && cleaned[1] !== '.') {
-      cleaned = cleaned.replace(/^0+/, '0');
-      if (cleaned === '0' && input.length > 1 && input[1] !== '.') {
-        cleaned = cleaned.substring(1) || '0';
+
+    if (cleaned.length > 1 && cleaned.startsWith('0')) {
+      const decimalIndex = cleaned.indexOf('.');
+      if (decimalIndex === -1 || decimalIndex > 1) {
+        cleaned = cleaned.replace(/^0+/, '');
+        if (cleaned === '' || cleaned.startsWith('.')) {
+          cleaned = '0' + cleaned;
+        }
+      } else if (decimalIndex === 1) {
+        if (cleaned.length > 2 && cleaned.substring(0, 2) === '00') {
+          cleaned = cleaned.replace(/^0+/, '0');
+        }
       }
     }
+
     const decimalIndex = cleaned.indexOf('.');
     if (decimalIndex !== -1 && cleaned.length - decimalIndex > 19) {
       cleaned = cleaned.substring(0, decimalIndex + 19);

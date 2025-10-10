@@ -7,6 +7,7 @@ import {
   type BridgeAndExecuteSimulationResult,
   type SimulationResult,
   SUPPORTED_CHAINS,
+  TOKEN_METADATA,
 } from '@nexus/commons';
 import { DotLottieReact } from '@lottiefiles/dotlottie-react';
 import { SmallAvailLogo } from '../icons/SmallAvailLogo';
@@ -16,7 +17,8 @@ import { cn, formatCost } from '../../utils/utils';
 import { Button } from '../motion/button-motion';
 import { ThreeStageProgress } from '../motion/three-stage-progress';
 import { EnhancedInfoMessage } from '../shared/enhanced-info-message';
-import { ProcessorCardProps } from '../../types';
+import { ProcessorCardProps, SwapSimulationResult } from '../../types';
+import { TokenIcon } from '../shared/icons';
 
 export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
   status,
@@ -29,6 +31,7 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
   simulationResult,
   processing,
   explorerURL,
+  explorerURLs,
   timer,
   description,
   error,
@@ -37,9 +40,73 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
 }: ProcessorCardProps) => {
   const lottieRef = useRef<DotLottie | DotLottieWorker | null>(null);
 
+  // Render token icon (swap-only crossfade from source to destination)
+  const renderTokenIcon = useCallback(() => {
+    const progress = processing?.animationProgress ?? 0;
+
+    // Non-swap: keep existing single token icon
+    if (transactionType !== 'swap') {
+      return (
+        <div className="w-10 h-10 bg-white rounded-nexus-full border-2 border-gray-200 flex items-center justify-center shadow-md">
+          <TokenIcon
+            tokenSymbol={tokenMeta?.symbol || 'T'}
+            iconUrl={tokenMeta?.icon}
+            className="w-8 h-8 rounded-nexus-full"
+          />
+        </div>
+      );
+    }
+
+    // Swap: crossfade from source token to destination token around 50%
+    const swapResult = simulationResult as SwapSimulationResult;
+    const destSymbol = swapResult?.intent?.destination?.token?.symbol?.toUpperCase();
+    const destIcon = destSymbol ? TOKEN_METADATA[destSymbol]?.icon : undefined;
+    const sourceIcon = tokenMeta?.icon;
+
+    return (
+      <div className="w-10 h-10 bg-white rounded-nexus-full border-2 border-gray-200 flex items-center justify-center shadow-md relative overflow-hidden">
+        {/* Source token */}
+        <motion.div
+          className="absolute inset-0 flex items-center justify-center"
+          initial={false}
+          animate={{ opacity: progress < 50 ? 1 : 0, scale: progress < 50 ? 1 : 0.95 }}
+          transition={{ duration: 0.25 }}
+        >
+          <TokenIcon
+            tokenSymbol={tokenMeta?.symbol || 'T'}
+            iconUrl={sourceIcon}
+            className="w-8 h-8 rounded-nexus-full"
+          />
+        </motion.div>
+        {/* Destination token */}
+        <motion.div
+          className="absolute inset-0 flex items-center justify-center"
+          initial={false}
+          animate={{ opacity: progress >= 50 ? 1 : 0, scale: progress >= 50 ? 1 : 1.05 }}
+          transition={{ duration: 0.25 }}
+        >
+          <TokenIcon
+            tokenSymbol={destSymbol || 'T'}
+            iconUrl={destIcon}
+            className="w-8 h-8 rounded-nexus-full"
+          />
+        </motion.div>
+      </div>
+    );
+  }, [
+    processing?.animationProgress,
+    tokenMeta?.icon,
+    tokenMeta?.symbol,
+    transactionType,
+    simulationResult,
+  ]);
+
   const sourceAmount = useCallback(() => {
     if (transactionType === 'bridge' || transactionType === 'transfer') {
       return formatCost((simulationResult as SimulationResult)?.intent?.sourcesTotal);
+    } else if (transactionType === 'swap') {
+      const swapResult = simulationResult as SwapSimulationResult;
+      return formatCost(swapResult?.intent?.sources?.[0]?.amount ?? '0');
     } else {
       const bridgeExecuteResult = simulationResult as BridgeAndExecuteSimulationResult;
 
@@ -55,6 +122,9 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
   const destinationAmount = useCallback(() => {
     if (transactionType === 'bridge' || transactionType === 'transfer') {
       return formatCost((simulationResult as SimulationResult)?.intent?.destination?.amount);
+    } else if (transactionType === 'swap') {
+      const swapResult = simulationResult as SwapSimulationResult;
+      return formatCost(swapResult?.intent?.destination?.amount ?? '0');
     } else {
       const bridgeExecuteResult = simulationResult as BridgeAndExecuteSimulationResult;
 
@@ -97,7 +167,8 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
         </motion.div>
         <Button
           variant="link"
-          className="w-full flex items-end justify-end text-nexus-foreground mt-6 px-6"
+          size="icon"
+          className="w-full flex items-end justify-end text-nexus-foreground mt-3 px-6 py-0"
           onClick={() => {
             if (status === 'error' || status === 'success') {
               cancelTransaction();
@@ -112,7 +183,7 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
             <Minimize className="w-6 h-6 text-nexus-foreground" />
           )}
         </Button>
-        <div className="w-full p-4 relative z-10 mt-6">
+        <div className="w-full p-4 relative z-10">
           <div className="w-full flex flex-col items-center gap-y-6">
             {/* Chains Row */}
             <motion.div
@@ -165,23 +236,7 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
                       progress={processing?.animationProgress}
                       hasError={!!error}
                       errorProgress={processing?.animationProgress}
-                      tokenIcon={
-                        <div className="w-10 h-10 bg-white rounded-nexus-full border-2 border-gray-200 flex items-center justify-center shadow-md">
-                          {tokenMeta?.icon ? (
-                            <img
-                              src={tokenMeta?.icon}
-                              alt={tokenMeta?.symbol}
-                              className="w-8 h-8 rounded-nexus-full"
-                            />
-                          ) : (
-                            <div className="w-5 h-5 bg-blue-500 rounded-nexus-full flex items-center justify-center">
-                              <span className="text-white text-xs font-bold">
-                                {tokenMeta?.symbol?.[0] || 'T'}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      }
+                      tokenIcon={renderTokenIcon()}
                       size="lg"
                     />
                   </div>
@@ -281,6 +336,29 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
                     </Button>
                   )}
                 </div>
+              ) : transactionType === 'swap' ? (
+                <div className="flex flex-col items-center gap-y-1">
+                  {explorerURLs?.source && (
+                    <Button
+                      variant="link"
+                      className="text-nexus-accent underline text-base font-semibold font-nexus-primary cursor-pointer p-0"
+                      onClick={() => window.open(explorerURLs.source!, '_blank')}
+                    >
+                      View Source Transaction{' '}
+                      <ExternalLink className="w-6 h-6 ml-2 text-nexus-muted-secondary" />
+                    </Button>
+                  )}
+                  {explorerURLs?.destination && (
+                    <Button
+                      variant="link"
+                      className="text-nexus-accent underline text-base font-semibold font-nexus-primary cursor-pointer p-0"
+                      onClick={() => window.open(explorerURLs.destination!, '_blank')}
+                    >
+                      View Destination Transaction{' '}
+                      <ExternalLink className="w-6 h-6 ml-2 text-nexus-muted-secondary" />
+                    </Button>
+                  )}
+                </div>
               ) : (
                 explorerURL && (
                   <Button
@@ -298,7 +376,7 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
         </div>
         {/* Footer */}
       </motion.div>
-      <div className="w-full flex flex-col items-center gap-y-6">
+      <div className="w-full flex flex-col items-center gap-y-3">
         {status === 'success' && (
           <motion.div
             className="w-full px-6"

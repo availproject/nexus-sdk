@@ -13,9 +13,9 @@ function BridgeExecuteForm({
   inputData,
   onUpdate,
   disabled,
-  prefillFields,
+  prefillFields = {},
 }: {
-  inputData: InputData;
+  inputData: any;
   onUpdate: (data: BridgeAndExecuteParams) => void;
   disabled: boolean;
   prefillFields?: {
@@ -28,10 +28,8 @@ function BridgeExecuteForm({
 
   if (!activeController) return null;
 
-  const requiredPrefillFields: (keyof InputData)[] = ['toChainId', 'token', 'amount'];
-  const hasEnoughInputs = requiredPrefillFields.every(
-    (field) => prefillFields?.[field] !== undefined,
-  );
+  const requiredFields: (keyof InputData)[] = ['toChainId', 'token', 'amount'];
+  const hasEnoughInputs = requiredFields.every((field) => prefillFields[field] === true);
 
   if (hasEnoughInputs) {
     return <PrefilledInputs inputData={inputData} />;

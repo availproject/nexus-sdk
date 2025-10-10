@@ -1,9 +1,9 @@
 import { UnifiedTransactionModal } from '../shared/unified-transaction-modal';
 import { type SimulationResult } from '@nexus/commons';
-import { UnifiedTransactionForm } from '../shared/unified-transaction-form';
+import { UnifiedTransactionForm, UnifiedInputData } from '../shared/unified-transaction-form';
 import PrefilledInputs from '../shared/prefilled-inputs';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
-import { BridgeConfig } from '../../types';
+// BridgeConfig removed - using type casting
 
 type InputData = {
   chainId?: number;
@@ -13,7 +13,7 @@ type InputData = {
 
 interface BridgeFormSectionProps {
   inputData: InputData;
-  onUpdate: (data: Partial<BridgeConfig>) => void;
+  onUpdate: (data: UnifiedInputData) => void;
   disabled?: boolean;
   className?: string;
   prefillFields?: {
@@ -33,10 +33,8 @@ function BridgeFormSection({
   const { activeController } = useInternalNexus();
 
   if (!activeController) return null;
-  const requiredPrefillFields: (keyof InputData)[] = ['chainId', 'token', 'amount'];
-  const hasEnoughInputs = requiredPrefillFields.every(
-    (field) => prefillFields[field] !== undefined,
-  );
+  const requiredFields: (keyof InputData)[] = ['chainId', 'token', 'amount'];
+  const hasEnoughInputs = requiredFields.every((field) => prefillFields[field] === true);
 
   if (hasEnoughInputs) {
     return <PrefilledInputs inputData={inputData} />;
@@ -92,7 +90,7 @@ export default function BridgeModal({ title = 'Nexus Widget' }: { title?: string
     <UnifiedTransactionModal
       transactionType="bridge"
       modalTitle={title}
-      FormComponent={BridgeFormSection}
+      FormComponent={BridgeFormSection as any}
       getSimulationError={getSimulationError}
       getMinimumAmount={getMinimumAmount}
       getSourceChains={getSourceChains}

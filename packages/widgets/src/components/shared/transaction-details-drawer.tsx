@@ -1,10 +1,11 @@
 import {
   type SimulationResult,
   type BridgeAndExecuteSimulationResult,
-  type Intent,
+  type ReadableIntent as Intent,
   CHAIN_METADATA,
   SUPPORTED_CHAINS,
 } from '@nexus/commons';
+import { SwapSimulationResult } from '../../types';
 import { cn, formatCost, getPrimaryButtonText, truncateAddress } from '../../utils/utils';
 import {
   Drawer,
@@ -25,7 +26,11 @@ import { getFiatValue } from '../../utils/balance-utils';
 import type { OrchestratorStatus, ReviewStatus, TransactionType } from '../../types';
 
 interface TransactionDetailsDrawerProps {
-  simulationResult?: (SimulationResult | BridgeAndExecuteSimulationResult) & {
+  simulationResult?: (
+    | SimulationResult
+    | BridgeAndExecuteSimulationResult
+    | SwapSimulationResult
+  ) & {
     allowance?: { needsApproval: boolean };
   };
   inputData?: {
@@ -86,6 +91,46 @@ export function TransactionDetailsDrawer({
   const { exchangeRates } = useInternalNexus();
   const getSimulationData = (): SimulationData | null => {
     if (!simulationResult) return null;
+
+    // Handle swap simulation result
+    if ('swapMetadata' in simulationResult) {
+      const swapSim = simulationResult as SwapSimulationResult;
+      const intent = swapSim.intent;
+      if (!intent) return null;
+      const destinationChain = CHAIN_METADATA[intent?.destination?.chain.id];
+      const sources = intent.sources.map((source) => {
+        const sourceChain = CHAIN_METADATA[source.chain.id];
+        return {
+          chainID: sourceChain?.id,
+          chainName: sourceChain?.name || 'Unknown',
+          chainLogo: sourceChain?.logo,
+          amount: source.amount,
+        } as ChainInfo;
+      });
+
+      return {
+        destination: {
+          chainID: destinationChain?.id,
+          chainName: destinationChain?.name || 'Unknown',
+          chainLogo: destinationChain?.logo,
+          amount: swapSim?.intent?.destination?.amount,
+        } as ChainInfo,
+        sources,
+        fees: {
+          total: '0', // Swap fees are typically handled differently
+          caGas: '0',
+          gasSupplied: '0',
+          protocol: '0',
+          solver: '0',
+        } as FeesInfo,
+        token: {
+          symbol: intent?.sources?.[0]?.token?.symbol || 'Unknown',
+          name: intent?.sources?.[0]?.token?.symbol,
+          decimals: intent?.sources?.[0]?.token?.decimals,
+        } as TokenInfo,
+        sourcesTotal: intent.sources?.[0]?.amount || '0',
+      };
+    }
 
     // Check if bridge was skipped in bridge & execute flow
     if (

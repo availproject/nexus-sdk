@@ -34,18 +34,18 @@ pnpm -F @nexus/core build
 pnpm -F @nexus/widgets build
 
 # Pack core (keep @nexus/core name; remove workspace-only deps)
-info "Packing core as @avail-project/nexus (local tarball)..."
+info "Packing core as @avail-project/nexus-core (local tarball)..."
 pushd packages/core >/dev/null
 cp package.json package.json.backup
 
 # Remove @nexus/commons (bundled into dist) and rename to published name
-node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.name='@avail-project/nexus';if(p.dependencies){delete p.dependencies['@nexus/commons'];}fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.name='@avail-project/nexus-core';if(p.dependencies){delete p.dependencies['@nexus/commons'];}fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
 
 CORE_TARBALL=$(npm pack --pack-destination "$DEST_DIR" --silent)
 mv package.json.backup package.json
 popd >/dev/null
 
-info "Created core tarball: $DEST_DIR/$CORE_TARBALL (name: @avail-project/nexus)"
+info "Created core tarball: $DEST_DIR/$CORE_TARBALL (name: @avail-project/nexus-core)"
 
 # Pack widgets (keep @nexus/widgets name; remove workspace-only deps; pin @nexus/core to current version)
 info "Packing widgets as @avail-project/nexus-widgets (local tarball)..."
@@ -55,7 +55,7 @@ cp package.json package.json.backup
 CORE_VERSION=$(node -p "require('../core/package.json').version")
 export CORE_VERSION
 
-node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.name='@avail-project/nexus-widgets';p.dependencies=p.dependencies||{};if(p.dependencies['@nexus/commons']){delete p.dependencies['@nexus/commons'];}if(p.dependencies['@nexus/core']){delete p.dependencies['@nexus/core'];p.dependencies['@avail-project/nexus']=process.env.CORE_VERSION;}fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.name='@avail-project/nexus-widgets';p.dependencies=p.dependencies||{};if(p.dependencies['@nexus/commons']){delete p.dependencies['@nexus/commons'];}if(p.dependencies['@nexus/core']){delete p.dependencies['@nexus/core'];p.dependencies['@avail-project/nexus-core']=process.env.CORE_VERSION;}fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
 
 WIDGETS_TARBALL=$(npm pack --pack-destination "$DEST_DIR" --silent)
 mv package.json.backup package.json
