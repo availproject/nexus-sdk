@@ -107,6 +107,7 @@ export interface BridgeParams {
 /**
  * Result structure for bridge transactions.
  */
+<<<<<<< Updated upstream
 export type BridgeResult =
   | { success: false; error: string }
   | {
@@ -114,6 +115,24 @@ export type BridgeResult =
       explorerUrl: string;
       transactionHash?: string;
     };
+=======
+export interface BridgeResult {
+  success: boolean;
+  error?: string;
+  explorerUrl?: string;
+  transactionHash?: string;
+}
+
+/**
+ * Result structure for swap transactions.
+ */
+export interface SwapResult {
+  success: boolean;
+  error?: string;
+  explorerUrl?: string;
+  transactionHash?: string;
+}
+>>>>>>> Stashed changes
 
 /**
  * Result structure for transfer transactions.
