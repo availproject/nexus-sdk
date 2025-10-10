@@ -34,40 +34,45 @@ export function ChainSelect({
   const { sdk } = useInternalNexus();
   const availableChainIds = useMemo(() => {
     if (!sdk) return [] as number[];
-    if (network === 'testnet') {
-      return sdk?.utils?.getSupportedChains(0)?.map((chain) => chain?.id) ?? [];
-    }
-    if (transactionType === 'swap') {
-      return isSource
+    let ids: number[] = [];
+    if (network === 'testnet' && transactionType !== 'swap') {
+      ids = sdk?.utils?.getSupportedChains(0)?.map((chain) => chain?.id) ?? [];
+    } else if (transactionType === 'swap' && network !== 'testnet') {
+      ids = isSource
         ? (sdk?.utils?.getSwapSupportedChainsAndTokens()?.map((chain) => chain?.id) ?? [])
         : Array.from(DESTINATION_SWAP_TOKENS.keys());
+    } else {
+      ids = sdk?.utils?.getSupportedChains()?.map((chain) => chain?.id) ?? [];
     }
-    return sdk?.utils?.getSupportedChains()?.map((chain) => chain?.id) ?? [];
-  }, [sdk, network, transactionType]);
+    // Exclude Fuel (9889) and any chains without known metadata to avoid runtime errors
+    return ids.filter((id) => id !== 9889 && !!CHAIN_METADATA[id]);
+  }, [sdk, network, transactionType, isSource]);
 
   const filteredChainIds = useMemo(() => {
     if (!availableChainIds?.length) return [] as number[];
     if (selectedToken && transactionType) {
       return getFilteredChainsForToken(
         selectedToken,
-        [...availableChainIds],
+        availableChainIds,
         transactionType,
         sdk,
         !isSource,
       );
     }
-    return [...availableChainIds];
+    return availableChainIds;
   }, [availableChainIds, selectedToken, transactionType, sdk, isSource]);
 
-  const chainOptions: ChainSelectOption[] = filteredChainIds.map((chainId) => {
-    const metadata = CHAIN_METADATA[chainId];
-    return {
-      value: chainId.toString(),
-      label: metadata.name,
-      chainId,
-      logo: metadata.logo,
-    };
-  });
+  const chainOptions: ChainSelectOption[] = filteredChainIds
+    .filter((chainId) => !!CHAIN_METADATA[chainId])
+    .map((chainId) => {
+      const metadata = CHAIN_METADATA[chainId];
+      return {
+        value: chainId.toString(),
+        label: metadata?.name ?? `Chain ${chainId}`,
+        chainId,
+        logo: metadata?.logo ?? '',
+      };
+    });
   const selectedOption = useMemo(
     () => chainOptions.find((opt) => opt.value === (value ?? '')),
     [value, chainOptions],
