@@ -99,11 +99,9 @@ import {
   BridgeButton,
   TransferButton,
   BridgeAndExecuteButton,
-  SwapButton,
   TOKEN_CONTRACT_ADDRESSES,
   TOKEN_METADATA,
   SUPPORTED_CHAINS,
-  DESTINATION_SWAP_TOKENS,
   type SUPPORTED_TOKENS,
   type SUPPORTED_CHAIN_IDS
 } from '@avail-project/nexus-widgets';
@@ -164,23 +162,6 @@ import { parseUnits } from 'viem';
       </Button>
       )}
 </BridgeAndExecuteButton>
-
-/*  Swap | EXACT_IN only ------------------------------------------------------------- */
-<SwapButton
-  prefill={{
-    fromChainID: 137,
-    fromTokenAddress: 'USDC',
-    toChainID: 1,
-    toTokenAddress: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
-    fromAmount: '100'
-  }}
->
-  {({ onClick, isLoading }) => (
-    <button onClick={onClick} disabled={isLoading}>
-      {isLoading ? 'Swapping…' : 'Swap USDC to ETH'}
-    </button>
-  )}
-</SwapButton>
 ```
 
 ## Component APIs
@@ -317,104 +298,6 @@ Nexus then:
 2. Sets ERC-20 allowance if required
 3. Executes `contractAddress.functionName(functionParams, { value })`
 
-### `SwapButton`
-
-Cross-chain token swapping with support for both EXACT_IN and EXACT_OUT modes.
-
-```tsx
-interface SwapButtonProps {
-  title?: string; // Will appear once initialization is completed
-  prefill?: Omit<SwapInputData, 'toAmount'>; // fromChainID, toChainID, fromTokenAddress, toTokenAddress, fromAmount
-  className?: string;
-  children(props: { onClick(): void; isLoading: boolean }): React.ReactNode;
-}
-
-interface SwapInputData {
-  fromChainID?: number;
-  toChainID?: number;
-  fromTokenAddress?: string;
-  toTokenAddress?: string;
-  fromAmount?: string | number;
-  toAmount?: string | number;
-}
-```
-
-**EXACT_IN Swap Example:**
-
-```tsx
-// Swap exactly 100 USDC from Polygon to LDO on Arbitrum
-<SwapButton
-  prefill={{
-    fromChainID: 137, // Polygon
-    fromTokenAddress: 'USDC',
-    toChainID: 42161, // Arbitrum
-    toTokenAddress: 'LDO', // LDO
-    fromAmount: '100', // Exact input amount
-  }}
->
-  {({ onClick, isLoading }) => (
-    <button onClick={onClick} disabled={isLoading}>
-      {isLoading ? 'Swapping...' : 'Swap 100 USDC → ETH'}
-    </button>
-  )}
-</SwapButton>
-```
-
-## Swap Utilities
-
-### Discovering Available Swap Options
-
-```tsx
-import { useNexus, DESTINATION_SWAP_TOKENS } from '@avail-project/nexus-widgets';
-
-function SwapOptionsExample() {
-  const { sdk, isSdkInitialized } = useNexus();
-  const [swapOptions, setSwapOptions] = useState(null);
-
-  useEffect(() => {
-    if (isSdkInitialized) {
-      // Get supported source chains and tokens for swaps
-      const supportedOptions = sdk.utils.getSwapSupportedChainsAndTokens();
-      setSwapOptions(supportedOptions);
-    }
-  }, [sdk, isSdkInitialized]);
-
-  return (
-    <div>
-      {/* Source chains and tokens */}
-      {swapOptions?.map(chain => (
-        <div key={chain.id}>
-          <h3>{chain.name} (Chain ID: {chain.id})</h3>
-          {chain.tokens.map(token => (
-            <div key={token.tokenAddress}>
-              {token.symbol}: {token.tokenAddress}
-            </div>
-          ))}
-        </div>
-      ))}
-
-      {/* Popular destination options */}
-      <h3>Popular Destinations:</h3>
-      {Array.from(DESTINATION_SWAP_TOKENS.entries()).map(([chainId, tokens]) => (
-        <div key={chainId}>
-          <h4>Chain {chainId}</h4>
-          {tokens.map(token => (
-            <div key={token.tokenAddress}>
-              {token.symbol} - {token.name}
-            </div>
-          ))}
-        </div>
-      ))}
-    </div>
-  );
-}
-```
-
-**Key Points:**
-- **Source restrictions**: Source chains/tokens are limited to what `getSwapSupportedChainsAndTokens()` returns
-- **Destination flexibility**: Destination can be any supported chain and token address
-- **DESTINATION_SWAP_TOKENS**: Provides popular destination options for UI building, but is not exhaustive
-
 ## Prefill Behavior
 
 | Widget                   | Supported keys                                                     | Locked in UI |
@@ -422,60 +305,10 @@ function SwapOptionsExample() {
 | `BridgeButton`           | `chainId`, `token`, `amount`                                       | ✅           |
 | `TransferButton`         | `chainId`, `token`, `amount`, `recipient`                          | ✅           |
 | `BridgeAndExecuteButton` | `toChainId`, `token`, `amount`                                     | ✅           |
-| `SwapButton`             | `fromChainID`, `toChainID`, `fromTokenAddress`, `toTokenAddress`, `fromAmount`, `toAmount` | ✅           |
 
 Values passed in `prefill` appear as **read-only** fields, enforcing your desired flow.
 
 ## 📱 Widget Examples
-
-### Cross-Chain Swapping
-
-```tsx
-// Multi-step cross-chain swap with destination selection
-<SwapButton>
-  {({ onClick, isLoading }) => (
-    <div className="swap-card bg-gradient-to-r from-purple-500 to-blue-600 p-6 rounded-lg text-white">
-      <h3 className="text-xl font-bold mb-2">Cross-Chain Swap</h3>
-      <p className="mb-4">Swap tokens across any supported chains</p>
-      <button
-        onClick={onClick}
-        disabled={isLoading}
-        className="bg-white text-purple-600 px-6 py-2 rounded-full font-semibold hover:bg-gray-100"
-      >
-        {isLoading ? (
-          <div className="flex items-center">
-            <Spinner className="mr-2" />
-            Processing Swap...
-          </div>
-        ) : (
-          'Start Swap'
-        )}
-      </button>
-    </div>
-  )}
-</SwapButton>
-
-// Fixed-route swap for arbitrage or specific pairs
-<SwapButton
-  prefill={{
-    fromChainID: 42161, // Arbitrum
-    fromTokenAddress: 'USDC',
-    toChainID: 10, // Optimism
-    toTokenAddress: '0x4200000000000000000000000000000000000006', // WETH
-    fromAmount: '1000',
-  }}
->
-  {({ onClick, isLoading }) => (
-    <div className="arbitrage-card">
-      <h3>Arbitrage Opportunity</h3>
-      <p>Better WETH rates on Optimism</p>
-      <button onClick={onClick} disabled={isLoading}>
-        {isLoading ? 'Executing...' : 'Swap 1000 USDC → WETH'}
-      </button>
-    </div>
-  )}
-</SwapButton>
-```
 
 ### DeFi Protocol Integration
 
