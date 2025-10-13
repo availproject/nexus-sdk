@@ -182,13 +182,13 @@ export class CA {
     return fetchMyIntents(address, this._networkConfig.GRPC_URL, page);
   }
 
-  protected async _getUnifiedBalance(symbol: string) {
-    const balances = await this._getUnifiedBalances();
+  protected async _getUnifiedBalance(symbol: string, includeSwappableBalances = false) {
+    const balances = await this._getUnifiedBalances(includeSwappableBalances);
 
     return balances.find((s) => equalFold(s.symbol, symbol));
   }
 
-  protected async _getUnifiedBalances() {
+  protected async _getUnifiedBalances(includeSwappableBalances = false) {
     if (!this._evm) {
       throw new Error('CA not initialized');
     }
@@ -197,6 +197,7 @@ export class CA {
       evmAddress: (await this._evm.client.requestAddresses())[0],
       chainList: this.chainList,
       filter: false,
+      isCA: includeSwappableBalances === false,
       vscDomain: this._networkConfig.VSC_DOMAIN,
       fuelAddress: this._fuel?.address,
     });

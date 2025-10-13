@@ -68,15 +68,18 @@ export class NexusSDK extends CA {
   /**
    * Get unified balances across all chains
    */
-  public async getUnifiedBalances(): Promise<UserAsset[]> {
-    return this._getUnifiedBalances();
+  public async getUnifiedBalances(includeSwappableBalances = false): Promise<UserAsset[]> {
+    return this._getUnifiedBalances(includeSwappableBalances);
   }
 
   /**
    * Get unified balance for a specific token
    */
-  public async getUnifiedBalance(symbol: string): Promise<UserAsset | undefined> {
-    return this._getUnifiedBalance(symbol);
+  public async getUnifiedBalance(
+    symbol: string,
+    includeSwappableBalances = false,
+  ): Promise<UserAsset | undefined> {
+    return this._getUnifiedBalance(symbol, includeSwappableBalances);
   }
 
   /**
