@@ -747,6 +747,7 @@ export const balancesToAssets = (
   evmBalances: UnifiedBalanceResponseData[],
   fuelBalances: UnifiedBalanceResponseData[],
   chainList: ChainListType,
+  isCA: boolean,
 ) => {
   const assets: UserAssetDatum[] = [];
   const vscBalances = evmBalances.concat(fuelBalances);
@@ -816,9 +817,17 @@ export const balancesToAssets = (
       }
     }
   }
+
   for (const asset of ankrBalances) {
     if (new Decimal(asset.balance).equals(0)) {
       continue;
+    }
+
+    if (isCA) {
+      // Checking if a particular token is supported for CA
+      if (!chainList.getTokenByAddress(asset.chainID, asset.tokenAddress)) {
+        continue;
+      }
     }
 
     const d = chainData.get(asset.chainID);

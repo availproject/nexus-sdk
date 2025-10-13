@@ -62,9 +62,11 @@ export const getBalances = async (input: {
   removeTransferFee?: boolean;
   filter?: boolean;
   fuelAddress?: string;
+  isCA?: boolean;
   vscDomain: string;
   networkHint: Environment;
 }) => {
+  const isCA = input.isCA ?? false;
   const removeTransferFee = input.removeTransferFee ?? false;
   const filter = input.filter ?? true;
   const [ankrBalances, evmBalances, fuelBalances] = await Promise.all([
@@ -76,7 +78,7 @@ export const getBalances = async (input: {
       ? getFuelBalancesForAddress(input.vscDomain, input.fuelAddress as `0x${string}`)
       : Promise.resolve([]),
   ]);
-  const assets = balancesToAssets(ankrBalances, evmBalances, fuelBalances, input.chainList);
+  const assets = balancesToAssets(ankrBalances, evmBalances, fuelBalances, input.chainList, isCA);
   let balances = toFlatBalance(assets);
   if (filter) {
     balances = filterSupportedTokens(balances);

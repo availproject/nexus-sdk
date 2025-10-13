@@ -99,6 +99,7 @@ abstract class BaseRequest implements IRequestHandler {
           evmAddress: this.input.evm.address,
           chainList: this.chainList,
           fuelAddress: this.input.fuel?.address,
+          isCA: true,
         }),
         fetchPriceOracle(this.input.options.networkConfig.GRPC_URL),
         getFeeStore(this.input.options.networkConfig.GRPC_URL),
