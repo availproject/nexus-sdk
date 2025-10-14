@@ -1,5 +1,5 @@
 import { CHAIN_METADATA, SUPPORTED_CHAINS, TOKEN_METADATA } from '@nexus/commons';
-import { cn, truncateAddress } from '../../utils/utils';
+import { cn, formatCost, truncateAddress } from '../../utils/utils';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { getFiatValue } from '../../utils/balance-utils';
 
@@ -21,20 +21,25 @@ const PrefilledInputs = ({ inputData, className = '' }: PrefilledInputsProps) =>
   const destinationToken = TOKEN_METADATA[inputData?.token ?? 'ETH'];
   return (
     <div className={cn('flex items-start flex-col gap-y-4 px-6', className)}>
-      <div className="flex flex-col items-start gap-y-2">
+      <div className="flex flex-col items-start gap-y-2 w-full">
         <p className="text-nexus-muted-secondary font-semibold text-sm leading-[18px]">Sending</p>
-        <div className="flex items-center gap-x-2">
-          <div className="flex items-center gap-x-1">
+        <div className="flex items-center gap-x-3 w-full justify-between">
+          <div className="flex items-center gap-x-3 w-full max-w-max">
             <img
               src={destinationToken?.icon}
               alt={destinationToken?.name}
               className="w-6 h-6 border border-nexus-border-secondary rounded-full"
             />
-            <p className="text-nexus-black text-[32px] font-semibold leading-0 uppercase font-nexus-primary text-ellipsis">
-              {inputData?.amount} {inputData?.token}
-            </p>
+            <div className="flex flex-col items-start w-full">
+              <p className="text-nexus-black text-[32px] font-semibold uppercase font-nexus-primary text-ellipsis leading-tight">
+                {formatCost(inputData?.amount as string)}
+              </p>
+              <p className="text-nexus-black text-[32px] font-semibold uppercase font-nexus-primary text-ellipsis leading-tight">
+                {inputData?.token}
+              </p>
+            </div>
           </div>
-          <div className="flex items-center gap-x-2">
+          <div className="flex items-center gap-x-2 min-w-max">
             <p className="text-nexus-foreground text-base font-semibold font-nexus-primary">To</p>
             <img
               src={destinationChain?.logo}

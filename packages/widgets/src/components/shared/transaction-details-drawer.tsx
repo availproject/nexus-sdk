@@ -91,6 +91,7 @@ export function TransactionDetailsDrawer({
   const { exchangeRates } = useInternalNexus();
   const getSimulationData = (): SimulationData | null => {
     if (!simulationResult) return null;
+    console.log('Original simulationResult', simulationResult);
 
     // Handle swap simulation result
     if ('swapMetadata' in simulationResult) {
@@ -208,6 +209,8 @@ export function TransactionDetailsDrawer({
 
   const data = getSimulationData();
 
+  console.log('Simulation data', data);
+
   const getDestinationChain = () => {
     if (inputData?.toChainId) return inputData.toChainId;
     if (inputData?.chainId) return inputData.chainId;
@@ -260,9 +263,16 @@ export function TransactionDetailsDrawer({
                 Total Fees
               </p>
             </div>
-            <span className="text-nexus-black text-sm font-semibold font-nexus-primary">
-              {formatCost(data.fees.total)} {inputData?.token || data.token.symbol}
-            </span>
+            <div className="flex items-center gap-x-2">
+              <span className="text-nexus-black text-sm font-semibold font-nexus-primary">
+                {formatCost(data.fees.total)} {inputData?.token || data.token.symbol}
+              </span>
+              {inputData?.token && (
+                <p className="text-nexus-accent-green font-semibold font-nexus-primary text-xs">
+                  {getFiatValue(data.fees.total, inputData?.token, exchangeRates)}
+                </p>
+              )}
+            </div>
           </div>
 
           {/* Contract Address */}
