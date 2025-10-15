@@ -18,7 +18,9 @@ const sdk = new NexusSDK({ network: 'mainnet' });
 await sdk.initialize(provider); // Your wallet provider
 
 // Get unified balances
-const balances = await sdk.getUnifiedBalances();
+// false by default to get CA applicable token balances
+// true to get all the balances including the swappable tokens
+const balances = await sdk.getUnifiedBalances(false);
 console.log('All balances:', balances);
 
 // Swap tokens (EXACT_IN - specify input amount)
@@ -264,10 +266,14 @@ All events include the same `typeID` structure and runtime `data` such as `trans
 import type { UserAsset, TokenBalance } from '@avail-project/nexus-core';
 
 // Get all balances across chains
+// false by default to get CA applicable token balances
+// true to get all the balances including the swappable tokens
 const balances: UserAsset[] = await sdk.getUnifiedBalances();
 
 // Get balance for specific token
-const usdcBalance: UserAsset | undefined = await sdk.getUnifiedBalance('USDC');
+// false by default to get CA applicable token balances
+// true to get all the balances including the swappable tokens
+const usdcBalance: UserAsset | undefined = await sdk.getUnifiedBalance('USDC', false);
 ```
 
 ## Bridge Operations
@@ -611,6 +617,7 @@ await sdk.revokeAllowance(137, ['USDC']);
 import type { RequestForFunds } from '@avail-project/nexus-core';
 
 // Get user's transaction intents
+// Bound by web domain and user's wallet address
 const intents: RequestForFunds[] = await sdk.getMyIntents(1);
 ```
 
@@ -757,6 +764,8 @@ console.log('Confirmations:', result.confirmations);
 import type { UserAsset, ChainMetadata } from '@avail-project/nexus-core';
 
 // Get complete balance overview
+// false by default to get CA applicable token balances
+// true to get all the balances including the swappable tokens
 const balances: UserAsset[] = await sdk.getUnifiedBalances();
 
 for (const asset of balances) {
