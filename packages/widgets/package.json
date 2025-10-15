@@ -1,5 +1,5 @@
 {
-  "name": "@nexus/widgets",
+  "name": "@avail-project/nexus-widgets",
   "version": "0.1.17-beta.0",
   "description": "Nexus React components for cross-chain transactions",
   "main": "./dist/index.js",
@@ -40,7 +40,7 @@
   "dependencies": {
     "@lottiefiles/dotlottie-react": "0.14.2",
     "@nexus/commons": "workspace:*",
-    "@nexus/core": "workspace:*",
+    "@avail-project/nexus-core": "workspace:*",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "decimal.js": "10.4.3",

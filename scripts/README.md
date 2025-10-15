@@ -6,7 +6,8 @@ This directory contains release scripts for the Nexus SDK monorepo packages.
 
 ### Individual Package Releases
 
-#### Core Package (`@nexus/core`)
+#### Core Package (`@avail-project/nexus-core`)
+
 ```bash
 # Development release (default)
 ./scripts/release-core.sh dev [patch|minor|major]
@@ -17,9 +18,10 @@ pnpm run release:core:dev
 pnpm run release:core:prod
 ```
 
-#### Widgets Package (`@nexus/widgets`)
+#### Widgets Package (`@avail-project/nexus-widgets`)
+
 ```bash
-# Development release (default)  
+# Development release (default)
 ./scripts/release-widgets.sh dev [patch|minor|major]
 pnpm run release:widgets:dev
 
@@ -43,13 +45,15 @@ pnpm run release:prod
 ## Release Types
 
 ### Development Releases (`dev`)
+
 - Publishes packages with `-dev.timestamp` suffix
 - Tagged with `dev` on npm
-- Can be installed with `npm install @nexus/core@dev`
+- Can be installed with `npm install @avail-project/nexus-core@dev`
 - Useful for testing and pre-release versions
 - No branch restrictions
 
 ### Production Releases (`prod`)
+
 - Publishes clean version numbers (e.g., `1.2.3`)
 - Tagged with `latest` on npm (default install)
 - Checks for main branch (with override option)
@@ -59,7 +63,7 @@ pnpm run release:prod
 ## Version Bump Types
 
 - **patch**: Bug fixes (1.0.0 → 1.0.1)
-- **minor**: New features (1.0.0 → 1.1.0)  
+- **minor**: New features (1.0.0 → 1.1.0)
 - **major**: Breaking changes (1.0.0 → 2.0.0)
 
 ## Examples
@@ -97,6 +101,7 @@ pnpm run release:widgets:dev dev patch
 ## Dependency Order
 
 The widgets package depends on the core package, so:
+
 - For production releases, core must be published before widgets
 - The unified script (`release-all.sh`) handles this dependency order automatically
 - Individual scripts can be run independently for development releases
@@ -104,6 +109,7 @@ The widgets package depends on the core package, so:
 ## Output
 
 All scripts provide colored, detailed output showing:
+
 - Current operation status
 - Build results and warnings
 - Publication confirmation
@@ -113,6 +119,7 @@ All scripts provide colored, detailed output showing:
 ## Error Handling
 
 Scripts will exit with error codes if:
+
 - Git repository has uncommitted changes
 - Type checking fails
 - Build process fails

@@ -8,8 +8,8 @@
     "paths": {
       "@nexus/commons": ["../commons/index.ts"],
       "@nexus/commons/*": ["../commons/*"],
-      "@nexus/core": ["../core/index.ts"],
-      "@nexus/core/*": ["../core/*"],
+      "@avail-project/nexus-core": ["../core/index.ts"],
+      "@avail-project/nexus-core/*": ["../core/*"],
       "sdk": ["../core/sdk/index.ts"],
       "sdk/*": ["../core/sdk/*"],
       "adapters/*": ["../core/adapters/*"],

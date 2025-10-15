@@ -193,8 +193,8 @@ if [[ "$RELEASE_TYPE" == "prod" ]]; then
         exit 1
     fi
 
-    # Rewrite package.json: name -> @avail-project/nexus-widgets, deps: @nexus/core -> @avail-project/nexus-core@<version>, remove @nexus/commons
-    node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.name='@avail-project/nexus-widgets';p.dependencies=p.dependencies||{};if(p.dependencies['@nexus/core']){delete p.dependencies['@nexus/core'];p.dependencies['@avail-project/nexus-core']=process.env.CORE_PUBLISHED_VERSION;}if(p.dependencies['@nexus/commons']){delete p.dependencies['@nexus/commons'];}fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+    # Ensure deps pin @avail-project/nexus-core to published version; remove internal commons from deps
+    node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.dependencies=p.dependencies||{};if(p.dependencies['@nexus/commons']){delete p.dependencies['@nexus/commons'];}p.dependencies['@avail-project/nexus-core']=process.env.CORE_PUBLISHED_VERSION;fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
 
     # Bundle internal commons into dist (imports already aliased by Rollup)
     print_status "Bundling internal @nexus/commons into widgets dist..."
@@ -309,8 +309,8 @@ process.stdout.write(latest);
         exit 1
     fi
 
-    # Rewrite package.json: name -> @avail-project/nexus-widgets, deps: @nexus/core -> @avail-project/nexus-core@<dev-version>, remove @nexus/commons
-    node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.name='@avail-project/nexus-widgets';p.dependencies=p.dependencies||{};if(p.dependencies['@nexus/core']){delete p.dependencies['@nexus/core'];p.dependencies['@avail-project/nexus-core']=process.env.CORE_PUBLISHED_VERSION;}if(p.dependencies['@nexus/commons']){delete p.dependencies['@nexus/commons'];}fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+    # Ensure deps pin @avail-project/nexus-core to published dev version; remove internal commons from deps
+    node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.dependencies=p.dependencies||{};if(p.dependencies['@nexus/commons']){delete p.dependencies['@nexus/commons'];}p.dependencies['@avail-project/nexus-core']=process.env.CORE_PUBLISHED_VERSION;fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
 
     # Bundle internal commons into dist (imports already aliased by Rollup)
     print_status "Bundling internal @nexus/commons into widgets dist..."

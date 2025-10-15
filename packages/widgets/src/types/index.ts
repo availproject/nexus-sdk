@@ -1,5 +1,5 @@
 import { ReactNode } from 'react';
-import { NexusSDK } from '@nexus/core';
+import { NexusSDK } from '@avail-project/nexus-core';
 
 // Only import essential parameter types, not all from root types
 import type {

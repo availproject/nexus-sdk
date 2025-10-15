@@ -1,8 +1,11 @@
 import React from 'react';
 import type { ITransactionController, BridgeConfig, ActiveTransaction } from '../types';
-import { NexusSDK } from '@nexus/core';
+import { NexusSDK } from '@avail-project/nexus-core';
 import { type BridgeParams, type BridgeResult, logger } from '@nexus/commons';
-import { UnifiedTransactionForm, UnifiedInputData } from '../components/shared/unified-transaction-form';
+import {
+  UnifiedTransactionForm,
+  UnifiedInputData,
+} from '../components/shared/unified-transaction-form';
 
 const BridgeInputForm: React.FC<{
   prefill: Partial<BridgeConfig>;

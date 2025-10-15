@@ -181,9 +181,7 @@ if [[ "$RELEASE_TYPE" == "prod" ]]; then
     # Backup original package.json
     cp package.json package.json.backup
 
-    # Update package name for publishing
-    sed -i.tmp 's/"name": "@nexus\/core"/"name": "@avail-project\/nexus-core"/' package.json
-    rm package.json.tmp 2>/dev/null || true
+    # Package already named @avail-project/nexus-core; no rename needed
 
     # Remove workspace-only dependencies that should be bundled (e.g., @nexus/commons)
     node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));if(p.dependencies&&p.dependencies['@nexus/commons']){delete p.dependencies['@nexus/commons'];}fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
