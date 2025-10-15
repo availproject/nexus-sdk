@@ -9,7 +9,7 @@ import {
   type TokenMetadata,
 } from '@nexus/commons';
 import type { TransactionType } from './balance-utils';
-import type { NexusSDK } from '@nexus/core';
+import type { NexusSDK } from '@avail-project/nexus-core';
 
 /**
  * Enhanced token metadata for UI components

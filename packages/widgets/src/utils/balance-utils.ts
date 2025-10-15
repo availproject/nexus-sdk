@@ -1,4 +1,4 @@
-import type { UserAsset } from '@nexus/core';
+import type { UserAsset } from '@avail-project/nexus-core';
 import { SUPPORTED_CHAINS_IDS, SUPPORTED_TOKENS } from '@nexus/commons';
 
 export type TransactionType = 'bridge' | 'transfer' | 'bridgeAndExecute' | 'swap';

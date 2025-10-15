@@ -16,7 +16,14 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "allowSyntheticDefaultImports": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@avail-project/nexus-core": ["packages/core/index.ts"],
+      "@avail-project/nexus-core/*": ["packages/core/*"],
+      "@nexus/commons": ["packages/commons/index.ts"],
+      "@nexus/commons/*": ["packages/commons/*"]
+    }
   },
   "include": ["packages/**/*"],
   "exclude": ["node_modules", "**/dist", "**/node_modules"]

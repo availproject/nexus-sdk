@@ -1,5 +1,5 @@
 {
-  "name": "@nexus/core",
+  "name": "@avail-project/nexus-core",
   "version": "0.0.7-beta.0",
   "description": "Nexus headless SDK for cross-chain transactions",
   "main": "./dist/index.js",

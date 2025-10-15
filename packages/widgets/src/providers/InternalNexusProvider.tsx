@@ -19,7 +19,7 @@ import {
   SimulationResult,
   NexusNetwork,
   BridgeAndExecuteSimulationResult,
-} from '@nexus/core';
+} from '@avail-project/nexus-core';
 import type {
   ActiveTransaction,
   BridgeConfig,

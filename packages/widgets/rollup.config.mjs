@@ -59,7 +59,6 @@ const baseConfig = {
     '@lottiefiles/dotlottie-react',
     /^motion/,
     'decimal.js',
-    '@nexus/core',
     '@avail-project/nexus-core',
   ],
   treeshake: {
@@ -81,9 +80,7 @@ export default defineConfig([
         exports: 'named',
         interop: 'auto',
         inlineDynamicImports: true,
-        paths: {
-          '@nexus/core': '@avail-project/nexus-core',
-        },
+        // no path rewrite needed when source imports already use @avail-project/nexus-core
       },
       {
         file: 'dist/index.esm.js',
@@ -91,9 +88,7 @@ export default defineConfig([
         sourcemap: shouldGenerateSourceMaps,
         exports: 'named',
         inlineDynamicImports: true,
-        paths: {
-          '@nexus/core': '@avail-project/nexus-core',
-        },
+        // no path rewrite needed when source imports already use @avail-project/nexus-core
       },
     ],
   },
@@ -114,8 +109,7 @@ export default defineConfig([
         renderChunk(code) {
           return code
             .replace(/@nexus\/commons\/constants/g, './commons/constants')
-            .replace(/@nexus\/commons/g, './commons')
-            .replace(/@nexus\/core/g, '@avail-project/nexus-core');
+            .replace(/@nexus\/commons/g, './commons');
         },
       },
     ],
@@ -126,7 +120,6 @@ export default defineConfig([
       '@lottiefiles/dotlottie-react',
       /^motion/,
       'decimal.js',
-      '@nexus/core',
       '@avail-project/nexus-core',
       /\.css$/,
     ],
