@@ -126,6 +126,87 @@ pnpm build
 pnpm test
 ```
 
+## Monorepo & Workspace
+
+- Packages live under `packages/` and are linked via pnpm workspaces.
+- Internal shared code stays in `@nexus/commons` (private). It is imported in source during development and bundled into `dist/commons` at build so consumers never install it directly.
+- Published package names used everywhere (dev and build):
+  - `@avail-project/nexus-core`
+  - `@avail-project/nexus-widgets`
+
+### TS path mapping for local DX
+
+- Dev imports use published names while resolving locally:
+  - Root `tsconfig.json` maps `@avail-project/nexus-core` → `packages/core/*`
+  - Widgets `tsconfig.json` also maps `@avail-project/nexus-core` → `../core/*`
+- Keep importing `@nexus/commons` in source; build rewrites it to `./commons` inside the dist.
+
+### Workspace versions and overrides
+
+- Root `package.json` defines pnpm overrides to pin shared versions:
+  - `typescript`, `rollup`, `decimal.js`, `viem`
+- Update once for all packages:
+
+```bash
+pnpm -r up typescript rollup decimal.js viem
+```
+
+## Releases & Scripts
+
+- Scripts live in `scripts/`. Both core and widgets have an interactive wizard and CI-friendly flags.
+- Commons is always bundled; it is removed from published dependencies.
+
+### Dev (pre-release) policy
+
+- Pre-release numbers progress `0..9` and roll over to the next patch:
+  - `0.0.2-beta.0 → 0.0.2-beta.1 … → 0.0.2-beta.9 → 0.0.3-beta.0`
+- Widgets depends on the most recently published core prerelease by publish time (not by semver magnitude).
+
+### Flags
+
+- `--yes` or `--ci`: skip interactive prompts (useful in CI)
+- `--dry-run` or `-n`: simulate publish (runs `npm pack`, skips git push/tag)
+
+### Core examples
+
+```bash
+# Interactive dev prerelease (choose tag like beta/alpha/dev)
+./scripts/release-core.sh
+
+# Non-interactive dev prerelease (beta), dry-run
+./scripts/release-core.sh dev patch beta --yes --dry-run
+
+# Non-interactive dev prerelease (beta), publish for real
+./scripts/release-core.sh dev patch beta --yes
+
+# Production release (patch)
+./scripts/release-core.sh prod patch --yes
+```
+
+### Widgets examples
+
+```bash
+# Interactive dev prerelease (requires a matching core prerelease on npm)
+./scripts/release-widgets.sh
+
+# Non-interactive dev prerelease (beta), resolves latest core beta by timestamp, dry-run
+./scripts/release-widgets.sh dev patch beta --yes --dry-run
+
+# Production release (patch) – ensure core is published first
+./scripts/release-widgets.sh prod patch --yes
+```
+
+### Local tarballs (no publish)
+
+```bash
+# Build and create .tgz files for local install
+./scripts/local-pack.sh
+
+# In another project
+pnpm add /absolute/path/to/dist-tarballs/avail-project-nexus-core-*.tgz \
+         /absolute/path/to/dist-tarballs/avail-project-nexus-widgets-*.tgz
+```
+
 ## License
 
 MIT
