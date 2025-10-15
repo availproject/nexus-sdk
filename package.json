@@ -37,6 +37,14 @@
   ],
   "author": "decocereus<amartya@availproject.org>",
   "license": "MIT",
+  "pnpm": {
+    "overrides": {
+      "typescript": "^5.0.0",
+      "rollup": "^4.0.0",
+      "decimal.js": "10.6.0",
+      "viem": "^2.0.0"
+    }
+  },
   "devDependencies": {
     "@rollup/plugin-alias": "^5.1.1",
     "@types/node": "^20.0.0",
