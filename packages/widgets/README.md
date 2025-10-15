@@ -71,6 +71,8 @@ function MyComponent() {
     await initializeSdk(provider); // Initializes both SDK and UI state
 
     // Now you can use SDK methods directly
+    // false by default to get CA applicable token balances
+    // true to get all the balances including the swappable tokens
     const balances = await sdk.getUnifiedBalances();
     console.log('Balances:', balances);
 
