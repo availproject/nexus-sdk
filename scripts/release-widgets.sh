@@ -85,10 +85,8 @@ if [[ $NON_INTERACTIVE -eq 0 ]]; then
         read -p "Pre-release tag (e.g. beta, alpha, dev) (default: $PRERELEASE_ID): " _pre
         if [[ -n "$_pre" ]]; then PRERELEASE_ID="$_pre"; fi
         echo ""
-        echo "Base bump is applied ONLY when starting a new $PRERELEASE_ID series."
-        echo "Examples: start at 0.0.2-$PRERELEASE_ID.0 (patch), or 0.1.0-$PRERELEASE_ID.0 (minor)."
-        read -p "Base bump for new series [patch|minor|major] (default: $VERSION_TYPE): " _vt
-        if [[ -n "$_vt" ]]; then VERSION_TYPE="$_vt"; fi
+        echo "Dev prereleases are ANCHORED to the latest stable version."
+        echo "New series begin at <stable>-$PRERELEASE_ID.0 and increment 0..9, then roll to next patch."
     else
         read -p "Version bump [patch|minor|major] (default: $VERSION_TYPE): " _vtp
         if [[ -n "$_vtp" ]]; then VERSION_TYPE="$_vtp"; fi
@@ -226,37 +224,35 @@ else
     print_status "Computing next $PRERELEASE_ID version with rollover logic..."
     cd packages/widgets
     export PRERELEASE_ID
-    export VERSION_TYPE
     export PKG='@avail-project/nexus-widgets'
     PRERELEASE_VERSION=$(node -e '
 const cp=require("child_process");
 const fs=require("fs");
 const pkg=process.env.PKG;
 const pre=process.env.PRERELEASE_ID||"dev";
-const bump=process.env.VERSION_TYPE||"patch";
 const current=JSON.parse(fs.readFileSync("package.json","utf8")).version;
 function exec(cmd){try{return cp.execSync(cmd,{stdio:["pipe","pipe","ignore"]}).toString().trim();}catch(e){return "";}}
 function parse(v){const m=v&&v.match(/^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+)\.(\d+))?$/);if(!m) return null;return {M:+m[1],m:+m[2],p:+m[3],pre:m[4],n:m[5]?+m[5]:null};}
-function cmpBase(a,b){if(a.M!==b.M) return a.M-b.M; if(a.m!==b.m) return a.m-b.m; return a.p-b.p;}
-function bumpBase(base,t){if(t==="major") return {M:base.M+1,m:0,p:0}; if(t==="minor") return {M:base.M,m:base.m+1,p:0}; return {M:base.M,m:base.m,p:base.p+1};}
 function toStr(b,preid,idx){return `${b.M}.${b.m}.${b.p}-${preid}.${idx}`}
 let timesJSON = exec(`npm view ${pkg} time --json`);
 let times={};try{times=JSON.parse(timesJSON||"{}");}catch(_){times={};}
-let preEntries=Object.entries(times).filter(([v])=>new RegExp(`^\\d+\\.\\d+\\.\\d+-${pre}\\.\\d+$`).test(v));
-preEntries.sort((a,b)=>new Date(a[1]) - new Date(b[1]));
-let latestPre = preEntries.length? preEntries[preEntries.length-1][0] : "";
+// Anchor to latest stable base
 let latestStable = exec(`npm view ${pkg} version 2>/dev/null`) || "";
+let stable = parse(latestStable) || parse(current) || {M:0,m:0,p:0};
+// Find prereleases for THIS stable base only
+let preEntries = Object.entries(times).filter(([v])=> new RegExp(`^${stable.M}\\.${stable.m}\\.${stable.p}-${pre}\\.\\d+$`).test(v));
+preEntries.sort((a,b)=>new Date(a[1]) - new Date(b[1]));
 let next;
-if(latestPre){
-  const lp=parse(latestPre);
-  if(lp.n<9){ next=toStr({M:lp.M,m:lp.m,p:lp.p},pre,lp.n+1); }
-  else { next=toStr({M:lp.M,m:lp.m,p:lp.p+1},pre,0); }
+if(preEntries.length){
+  const lp = parse(preEntries[preEntries.length-1][0]);
+  if(lp && typeof lp.n === 'number' && lp.n < 9){
+    next = toStr({M:stable.M,m:stable.m,p:stable.p}, pre, lp.n + 1);
+  }else{
+    // rollover to next patch from stable base
+    next = toStr({M:stable.M,m:stable.m,p:stable.p + 1}, pre, 0);
+  }
 }else{
-  const curr=parse(current);
-  const stable=parse(latestStable)||curr;
-  let base = cmpBase(stable,curr) >= 0 ? stable : curr;
-  base = bumpBase(base,bump);
-  next = toStr(base,pre,0);
+  next = toStr(stable, pre, 0);
 }
 console.log(next);
 ')
