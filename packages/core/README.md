@@ -19,7 +19,7 @@ await sdk.initialize(provider); // Your wallet provider
 
 // Optionally add tron adapter
 const tronLinkAdapter = new TronLinkAdapter();
-sdk.addTron(tronLinkAdapter)
+sdk.addTron(tronLinkAdapter);
 
 // Get unified balances
 // false by default to get CA applicable token balances
@@ -865,30 +865,32 @@ import type {
 
 ### Mainnet Chains
 
-| Network   | Chain ID | Native Currency | Status |
-| --------- | -------- | --------------- | ------ |
-| Ethereum  | 1        | ETH             | ✅     |
-| Optimism  | 10       | ETH             | ✅     |
-| Polygon   | 137      | MATIC           | ✅     |
-| Arbitrum  | 42161    | ETH             | ✅     |
-| Avalanche | 43114    | AVAX            | ✅     |
-| Base      | 8453     | ETH             | ✅     |
-| Scroll    | 534352   | ETH             | ✅     |
-| Sophon    | 50104    | SOPH            | ✅     |
-| Kaia      | 8217     | KAIA            | ✅     |
-| BNB       | 56       | BNB             | ✅     |
-| HyperEVM  | 999      | HYPE            | ✅     |
+| Network   | Chain ID  | Native Currency | Status |
+| --------- | --------- | --------------- | ------ |
+| Ethereum  | 1         | ETH             | ✅     |
+| Optimism  | 10        | ETH             | ✅     |
+| Polygon   | 137       | MATIC           | ✅     |
+| Arbitrum  | 42161     | ETH             | ✅     |
+| Avalanche | 43114     | AVAX            | ✅     |
+| Base      | 8453      | ETH             | ✅     |
+| Scroll    | 534352    | ETH             | ✅     |
+| Sophon    | 50104     | SOPH            | ✅     |
+| Kaia      | 8217      | KAIA            | ✅     |
+| BNB       | 56        | BNB             | ✅     |
+| HyperEVM  | 999       | HYPE            | ✅     |
+| TRON      | 728126428 | TRX             | ✅     |
 
 ### Testnet Chains
 
-| Network          | Chain ID | Native Currency | Status |
-| ---------------- | -------- | --------------- | ------ |
-| Optimism Sepolia | 11155420 | ETH             | ✅     |
-| Polygon Amoy     | 80002    | MATIC           | ✅     |
-| Arbitrum Sepolia | 421614   | ETH             | ✅     |
-| Base Sepolia     | 84532    | ETH             | ✅     |
-| Sepolia          | 11155111 | ETH             | ✅     |
-| Monad Testnet    | 10143    | MON             | ✅     |
+| Network          | Chain ID   | Native Currency | Status |
+| ---------------- | ---------- | --------------- | ------ |
+| Optimism Sepolia | 11155420   | ETH             | ✅     |
+| Polygon Amoy     | 80002      | MATIC           | ✅     |
+| Arbitrum Sepolia | 421614     | ETH             | ✅     |
+| Base Sepolia     | 84532      | ETH             | ✅     |
+| Sepolia          | 11155111   | ETH             | ✅     |
+| Monad Testnet    | 10143      | MON             | ✅     |
+| Tron Shasta      | 2494104990 | TRX             | ✅     |
 
 ### Supported Tokens
 
