@@ -1,4 +1,4 @@
-import { Universe } from '@arcana/ca-common';
+import { Universe } from '@avail-project/ca-common';
 import {
   Account,
   Address,

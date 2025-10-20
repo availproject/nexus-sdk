@@ -17,6 +17,10 @@ import { NexusSDK } from '@avail-project/nexus-core';
 const sdk = new NexusSDK({ network: 'mainnet' });
 await sdk.initialize(provider); // Your wallet provider
 
+// Optionally add tron adapter
+const tronLinkAdapter = new TronLinkAdapter();
+sdk.addTron(tronLinkAdapter)
+
 // Get unified balances
 // false by default to get CA applicable token balances
 // true to get all the balances including the swappable tokens

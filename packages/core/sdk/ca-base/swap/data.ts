@@ -1,4 +1,4 @@
-import { Bytes, PermitVariant, Universe } from '@arcana/ca-common';
+import { Bytes, PermitVariant, Universe } from '@avail-project/ca-common';
 import { Hex } from 'viem';
 import { toHex } from 'viem/utils';
 

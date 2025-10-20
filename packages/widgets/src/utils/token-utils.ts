@@ -7,6 +7,7 @@ import {
   DESTINATION_SWAP_TOKENS,
   type SupportedChainsResult,
   type TokenMetadata,
+  NexusNetwork,
 } from '@nexus/commons';
 import type { TransactionType } from './balance-utils';
 import type { NexusSDK } from '@avail-project/nexus-core';
@@ -34,7 +35,7 @@ export interface TokenSelectOption {
 export interface TokenResolutionParams {
   chainId?: number;
   type: TransactionType;
-  network?: 'mainnet' | 'testnet';
+  network?: NexusNetwork;
   isDestination?: boolean;
   sdk?: NexusSDK;
 }
@@ -162,9 +163,7 @@ function _processSdkData(sdkData: SupportedChainsResult | null): TransactionSupp
 /**
  * Get base token metadata based on network
  */
-function getBaseTokenMetadata(
-  _network: 'mainnet' | 'testnet' = 'mainnet',
-): Record<string, TokenMetadata> {
+function getBaseTokenMetadata(_network: NexusNetwork = 'mainnet'): Record<string, TokenMetadata> {
   return _network === 'testnet' ? TESTNET_TOKEN_METADATA : TOKEN_METADATA;
 }
 
@@ -562,7 +561,7 @@ export function getTokenMetadata(
   tokenSymbol: string,
   chainId?: number,
   type: TransactionType = 'transfer',
-  network: 'mainnet' | 'testnet' = 'mainnet',
+  network: NexusNetwork = 'mainnet',
 ): EnhancedTokenMetadata | null {
   // Try base tokens first
   const baseTokens = getBaseTokenMetadata(network);

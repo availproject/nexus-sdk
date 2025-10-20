@@ -1,13 +1,13 @@
 import { SUPPORTED_CHAINS } from '../constants';
 import { Abi, TransactionReceipt, ByteArray, Hex, WalletClient } from 'viem';
-import { ChainDatum, Environment, PermitVariant, Universe } from '@arcana/ca-common';
+import { ChainDatum, Environment, PermitVariant, Universe } from '@avail-project/ca-common';
 import * as ServiceTypes from './service-types';
 import Decimal from 'decimal.js';
 import { SwapIntent } from './swap-types';
 import { FuelConnector, Provider, TransactionRequestLike } from 'fuels';
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
-import { AdapterProps, Transaction } from '@tronweb3/tronwallet-abstract-adapter';
-import { TronWeb, Types } from 'tronweb';
+import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
+import { Types } from 'tronweb';
 
 type TokenInfo = {
   contractAddress: `0x${string}`;
@@ -18,7 +18,7 @@ type TokenInfo = {
   symbol: string;
 };
 
-type NexusNetwork = 'mainnet' | 'testnet';
+type NexusNetwork = 'mainnet' | 'testnet' | 'devnet';
 
 export interface BlockTransaction {
   hash?: string;
@@ -310,7 +310,7 @@ export type BridgeQueryInput = {
   token: string;
 };
 
-export type SupportedUniverse = Universe.ETHEREUM | Universe.FUEL | Universe.UNRECOGNIZED;
+export type SupportedUniverse = Universe.ETHEREUM | Universe.FUEL | Universe.TRON;
 
 export interface CA {
   createHandler<T extends SupportedUniverse>(
@@ -319,6 +319,7 @@ export interface CA {
       amount: bigint;
       tokenAddress: Hex;
       universe: T;
+      chainId: number;
     },
     options: Partial<TxOptions>,
   ): Promise<CreateHandlerResponse | null>;
@@ -351,6 +352,7 @@ export type Chain = {
   };
   rpcUrls: {
     default: {
+      grpc?: string[];
       http: string[];
       publicHttp?: string[];
       webSocket: string[];
@@ -441,6 +443,7 @@ export type IntentSource = {
   chainID: number;
   tokenContract: `0x${string}`;
   universe: Universe;
+  holderAddress: Hex;
 };
 
 export type IntentSourceForAllowance = {
@@ -566,6 +569,13 @@ export type ChainListType = {
   chains: Chain[];
   getVaultContractAddress(chainID: number): `0x${string}`;
   getTokenInfoBySymbol(chainID: number, symbol: string): TokenInfo | undefined;
+  getChainAndTokenFromSymbol(
+    chainID: number,
+    tokenSymbol: string,
+  ): {
+    chain: Chain;
+    token: TokenInfo | undefined;
+  };
   getTokenByAddress(chainID: number, address: `0x${string}`): TokenInfo | undefined;
   getNativeToken(chainID: number): TokenInfo;
   getChainByID(id: number): Chain | undefined;
@@ -590,7 +600,6 @@ export type RequestHandlerInput = {
   tron?: {
     address: string;
     adapter: AdapterProps;
-    provider: TronWeb;
     tx?: Types.Transaction<Types.TransferContract> | Types.Transaction<Types.TriggerSmartContract>;
   };
   hooks: {

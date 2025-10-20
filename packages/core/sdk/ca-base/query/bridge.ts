@@ -1,5 +1,4 @@
 import { Hex } from 'viem';
-import { TRON_CHAIN_ID } from '../constants';
 import { convertIntent, mulDecimals } from '../utils';
 import {
   BridgeQueryInput,
@@ -8,8 +7,7 @@ import {
   ChainListType,
   SupportedUniverse,
 } from '@nexus/commons';
-import { Universe } from '@arcana/ca-common';
-import { CHAIN_IDS } from 'fuels';
+import { Universe } from '@avail-project/ca-common';
 
 class BridgeQuery {
   private handler?: IRequestHandler | null = null;
@@ -35,7 +33,10 @@ class BridgeQuery {
       await this.init();
 
       if (input.token && input.amount && input.chainId) {
-        const token = this.chainList.getTokenInfoBySymbol(input.chainId, input.token);
+        const { chain, token } = this.chainList.getChainAndTokenFromSymbol(
+          input.chainId,
+          input.token,
+        );
         if (!token) {
           throw new Error('Token not supported on this chain.');
         }
@@ -45,15 +46,13 @@ class BridgeQuery {
           amount: bridgeAmount,
           receiver: this.address,
           tokenAddress: token.contractAddress,
-          universe: Universe.ETHEREUM as SupportedUniverse,
+          universe: chain.universe as SupportedUniverse,
+          chainId: chain.id,
         };
 
-        if (input.chainId === CHAIN_IDS.fuel.mainnet) {
+        if (chain.universe === Universe.FUEL) {
           params.receiver =
             '0xE78655DfAd552fc3658c01bfb427b9EAb0c628F54e60b54fDA16c95aaAdE797A' as Hex;
-        } else if (input.chainId === TRON_CHAIN_ID) {
-          params.universe = Universe.UNRECOGNIZED;
-          params.receiver = this.address;
         }
 
         const response = await this.createHandler(params, {

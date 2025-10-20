@@ -1,12 +1,7 @@
-import { Universe } from '@arcana/ca-common';
+import { Universe } from '@avail-project/ca-common';
 
 import { convertTo32BytesHex } from './utils';
-
-const KAIA_CHAIN_ID = 8217;
-const SOPHON_CHAIN_ID = 50104;
-const HYPEREVM_CHAIN_ID = 0x3e7;
-const MONAD_TESTNET_CHAIN_ID = 10143;
-const TRON_CHAIN_ID = 728126428;
+import { MAINNET_CHAIN_IDS } from '@nexus/commons';
 
 const FUEL_NETWORK_URL = 'https://mainnet.fuel.network/v1/graphql';
 
@@ -37,7 +32,7 @@ const getLogoFromSymbol = (symbol: string) => {
 };
 
 const isNativeAddress = (universe: Universe, address: `0x${string}`) => {
-  if (universe === Universe.ETHEREUM) {
+  if (universe === Universe.ETHEREUM || universe === Universe.TRON) {
     return address === ZERO_ADDRESS || address === ZERO_ADDRESS_FUEL;
   }
 
@@ -133,7 +128,7 @@ const TOP_OWNER: {
     [symbol: string]: `0x${string}`;
   };
 } = {
-  [SOPHON_CHAIN_ID]: {
+  [MAINNET_CHAIN_IDS.SOPHON]: {
     ETH: '0x353B35a3362Dff8174cd9679BC4a46365CcD4dA7',
     USDC: '0x61a87fa6Dd89a23c78F0754EF3372d35ccde5935',
     USDT: '0x61a87fa6Dd89a23c78F0754EF3372d35ccde5935',
@@ -149,14 +144,9 @@ export {
   FUEL_BASE_ASSET_ID,
   FUEL_NETWORK_URL,
   getLogoFromSymbol,
-  HYPEREVM_CHAIN_ID,
   INTENT_EXPIRY,
   isNativeAddress,
-  KAIA_CHAIN_ID,
-  MONAD_TESTNET_CHAIN_ID,
-  SOPHON_CHAIN_ID,
   TOKEN_MINTER_CONTRACTS,
   TOP_OWNER,
   ZERO_ADDRESS,
-  TRON_CHAIN_ID,
 };

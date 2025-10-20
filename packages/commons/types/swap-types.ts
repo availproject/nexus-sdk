@@ -1,4 +1,4 @@
-import { Universe } from '@arcana/ca-common';
+import { Universe } from '@avail-project/ca-common';
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import Decimal from 'decimal.js';
 import { type Hex, PrivateKeyAccount, WalletClient } from 'viem';

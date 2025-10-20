@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { TOKEN_METADATA, TESTNET_TOKEN_METADATA } from '@nexus/commons';
+import { TOKEN_METADATA, TESTNET_TOKEN_METADATA, NexusNetwork } from '@nexus/commons';
 import { TokenIcon } from './icons';
 import { cn } from '../../utils/utils';
 import { Button } from '../motion/button-motion';
@@ -19,7 +19,7 @@ export function TokenSelect({
   chainId,
   isDestination = false,
 }: TokenSelectProps & {
-  network?: 'mainnet' | 'testnet';
+  network?: NexusNetwork;
   chainId?: number;
   isDestination?: boolean;
 }) {

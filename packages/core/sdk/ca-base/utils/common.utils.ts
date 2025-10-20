@@ -2,19 +2,23 @@ import {
   ArcanaVault,
   DepositVEPacket,
   Environment,
+  ERC20ABI,
   EVMRFF,
   EVMVaultABI,
   MsgDoubleCheckTx,
   Universe,
-} from '@arcana/ca-common';
+} from '@avail-project/ca-common';
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import Decimal from 'decimal.js';
 import { arrayify, CHAIN_IDS, FuelConnector, hexlify, Provider } from 'fuels';
 import Long from 'long';
 import {
   ByteArray,
+  bytesToBigInt,
   bytesToHex,
+  bytesToNumber,
   encodeAbiParameters,
+  encodeFunctionData,
   getAbiItem,
   hashMessage,
   Hex,
@@ -27,7 +31,7 @@ import {
   WalletClient,
   WebSocketTransport,
 } from 'viem';
-
+import { TronWeb } from 'tronweb';
 import { ChainList } from '../chains';
 import { FUEL_BASE_ASSET_ID, isNativeAddress, ZERO_ADDRESS } from '../constants';
 import { getLogger } from '../logger';
@@ -49,6 +53,8 @@ import {
 import { FeeStore } from './api.utils';
 import { requestTimeout, waitForIntentFulfilment } from './contract.utils';
 import { cosmosCreateDoubleCheckTx, cosmosFillCheck, cosmosRefundIntent } from './cosmos.utils';
+import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
+import { Types, utils } from 'tronweb';
 
 const logger = getLogger();
 
@@ -59,7 +65,7 @@ function convertAddressByUniverse(input: ByteArray | Hex, universe: Universe) {
   const inputIsString = typeof input === 'string';
   const bytes = inputIsString ? toBytes(input) : input;
 
-  if (universe === Universe.ETHEREUM) {
+  if (universe === Universe.ETHEREUM || universe === Universe.TRON) {
     if (bytes.length === 20) {
       return inputIsString ? input : bytes;
     }
@@ -323,6 +329,7 @@ const isArcanaWallet = (p: EthereumProvider) => {
   if ('isArcana' in p && p.isArcana) {
     return true;
   }
+
   return false;
 };
 
@@ -337,11 +344,13 @@ const createRequestEVMSignature = async (
     evmRFF.sources,
     evmRFF.destinationUniverse,
     evmRFF.destinationChainID,
+    evmRFF.recipientAddress,
     evmRFF.destinations,
     evmRFF.nonce,
     evmRFF.expiry,
     evmRFF.parties,
   ]);
+
   const hash = keccak256(msg, 'bytes');
   const signature = toBytes(
     await client.signMessage({
@@ -353,6 +362,34 @@ const createRequestEVMSignature = async (
   return { requestHash: hashMessage({ raw: hash }), signature };
 };
 
+const createRequestTronSignature = async (evmRFF: EVMRFF, client: AdapterProps) => {
+  logger.debug('createReqEVMSignature', { evmRFF });
+  const abi = getAbiItem({ abi: EVMVaultABI, name: 'deposit' });
+  const msg = encodeAbiParameters(abi.inputs[0].components, [
+    evmRFF.sources,
+    evmRFF.destinationUniverse,
+    evmRFF.destinationChainID,
+    evmRFF.recipientAddress,
+    evmRFF.destinations,
+    evmRFF.nonce,
+    evmRFF.expiry,
+    evmRFF.parties,
+  ]);
+  const hash = keccak256(msg, 'bytes');
+
+  // FIXME: Hack - since tron doesn't supports binary decode of hex before signing
+  const uppercaseHash = convertToUpperCaseHash(toHex(hash));
+  const sig = await client.signMessage(uppercaseHash);
+  return {
+    requestHash: utils.message.hashMessage(uppercaseHash) as Hex,
+    signature: toBytes(sig),
+  };
+};
+
+const convertToUpperCaseHash = (input: Hex) => {
+  return `0x${input.substring(2).toUpperCase()}`;
+};
+
 const convertGasToToken = (
   token: TokenInfo,
   oraclePrices: OraclePriceResponse,
@@ -360,6 +397,9 @@ const convertGasToToken = (
   destinationUniverse: Universe,
   gas: Decimal,
 ) => {
+  if (gas.isZero()) {
+    return gas;
+  }
   if (isNativeAddress(destinationUniverse, token.contractAddress)) {
     return gas;
   }
@@ -435,7 +475,7 @@ const convertToHexAddressByUniverse = (address: Uint8Array, universe: Universe) 
     } else {
       throw new Error('fuel: invalid address length');
     }
-  } else if (universe === Universe.ETHEREUM) {
+  } else if (universe === Universe.ETHEREUM || universe === Universe.TRON) {
     if (address.length === 20) {
       return bytesToHex(address);
     } else if (address.length === 32) {
@@ -497,6 +537,9 @@ const getSDKConfig = (c: { network?: NexusNetwork; debug?: boolean }): Required<
     case 'mainnet': {
       config.network = Environment.CORAL;
       break;
+    }
+    case 'devnet': {
+      config.network = Environment.CERISE;
     }
   }
 
@@ -685,7 +728,162 @@ class UserAssets {
   }
 }
 
+// CHATGPT function below
+async function waitForTronTxConfirmation(
+  txid: string,
+  tronWeb: TronWeb,
+  options: { timeout?: number; interval?: number } = {},
+): Promise<Types.TransactionInfo> {
+  const { timeout = 120000, interval = 3000 } = options;
+
+  const startTime = Date.now();
+
+  logger.debug(`📡 Waiting for confirmation of tron tx`);
+
+  while (Date.now() - startTime < timeout) {
+    try {
+      const txInfo = await tronWeb.trx.getTransactionInfo(txid);
+
+      logger.debug(`tx info:`, {
+        txInfo,
+      });
+
+      if (txInfo && txInfo.receipt) {
+        const result = txInfo.receipt.result;
+        if (result === 'FAILED') {
+          throw new Error(`❌ Transaction reverted: ${txid}`);
+        } else {
+          return txInfo;
+        }
+      }
+    } catch (err) {
+      logger.error(`⚠️ Error while checking transaction:`, err);
+      // Don’t throw yet; continue polling
+    }
+
+    logger.debug('⏳ Still waiting...');
+    await new Promise((resolve) => setTimeout(resolve, interval));
+  }
+
+  throw new Error(`⏰ Timeout: Transaction not confirmed within ${timeout / 1000}s`);
+}
+
+async function waitForTronDepositTxConfirmation(
+  hash: Hex,
+  vaultContractAddress: Hex,
+  tronWeb: TronWeb,
+  owner: Hex,
+  options: { timeout?: number; interval?: number } = {},
+): Promise<void> {
+  const { timeout = 120000, interval = 3000 } = options;
+
+  const startTime = Date.now();
+
+  logger.debug(`📡 Waiting for confirmation of tron tx`);
+
+  const input = encodeFunctionData({
+    abi: EVMVaultABI,
+    functionName: 'requestState',
+    args: [hash],
+  });
+  while (Date.now() - startTime < timeout) {
+    try {
+      const result = await tronWeb.transactionBuilder.triggerConstantContract(
+        tronWeb.utils.address.fromHex(vaultContractAddress),
+        '',
+        {
+          input,
+        },
+        [],
+        tronWeb.utils.address.fromHex(owner),
+      );
+
+      logger.debug('requestHashWitnessedOnTron', {
+        result,
+      });
+      if (result.Error) {
+        throw new Error(result.Error);
+      }
+
+      const requestState = bytesToNumber(result.constant_result[0]);
+      if (requestState === 0) {
+        throw new Error('Request not witnessed yet.');
+      }
+
+      return;
+    } catch (err) {
+      logger.error(`⚠️ Error while checking transaction:`, err);
+      // Don’t throw yet; continue polling
+    }
+
+    logger.debug('⏳ Still waiting...');
+    await new Promise((resolve) => setTimeout(resolve, interval));
+  }
+
+  throw new Error(`⏰ Timeout: Transaction not confirmed within ${timeout / 1000}s`);
+}
+
+async function waitForTronApprovalTxConfirmation(
+  amount: bigint,
+  owner: Hex,
+  spender: Hex,
+  contractAddress: Hex,
+  tronWeb: TronWeb,
+  options: { timeout?: number; interval?: number } = {},
+): Promise<void> {
+  const { timeout = 120000, interval = 3000 } = options;
+
+  const startTime = Date.now();
+
+  logger.debug(`📡 Waiting for confirmation of tron approval tx`);
+
+  const input = encodeFunctionData({
+    abi: ERC20ABI,
+    functionName: 'allowance',
+    args: [owner, spender],
+  });
+
+  while (Date.now() - startTime < timeout) {
+    try {
+      const result = await tronWeb.transactionBuilder.triggerConstantContract(
+        tronWeb.utils.address.fromHex(contractAddress),
+        '',
+        {
+          input,
+        },
+        [],
+        tronWeb.utils.address.fromHex(owner),
+      );
+
+      logger.debug('waitForTronApprovalTxConfirmation', {
+        result,
+      });
+
+      if (result.Error) {
+        throw new Error(result.Error);
+      }
+
+      const allowance = bytesToBigInt(result.constant_result[0]);
+      if (allowance < amount) {
+        throw new Error('Allowance not set yet.');
+      }
+
+      return;
+    } catch (err) {
+      logger.error(`⚠️ Error while checking transaction:`, err);
+      // Don’t throw yet; continue polling
+    }
+
+    logger.debug('⏳ Still waiting...');
+    await new Promise((resolve) => setTimeout(resolve, interval));
+  }
+
+  throw new Error(`⏰ Timeout: Transaction not confirmed within ${timeout / 1000}s`);
+}
+
 export {
+  waitForTronApprovalTxConfirmation,
+  waitForTronDepositTxConfirmation,
   UserAsset,
   UserAssets,
   convertAddressByUniverse,
@@ -712,4 +910,6 @@ export {
   refundExpiredIntents,
   removeIntentHashFromStore,
   storeIntentHashToStore,
+  createRequestTronSignature,
+  waitForTronTxConfirmation,
 };

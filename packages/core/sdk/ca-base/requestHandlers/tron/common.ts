@@ -1,35 +1,33 @@
-import { RequestHandlerInput } from '@nexus/commons';
-import { getTokenTxFunction } from '../../utils';
+import { Hex } from 'viem';
+import { Types as TronTypes } from 'tronweb';
 
-const isERC20TokenTransfer = (input: RequestHandlerInput) => {
-  if (input.evm.tx) {
-    const { data, to } = input.evm.tx;
-    if (!data) {
-      return false;
-    }
-    const token = input.chainList.getTokenByAddress(input.chain.id, to);
-    const isTokenSupported = !!token;
-    if (isTokenSupported && data) {
-      const { functionName } = getTokenTxFunction(data as `0x${string}`);
-      if (functionName === 'transfer') {
-        return true;
-      }
-    }
-  }
-  return false;
+const isTRC20TokenTransfer = (
+  tx:
+    | TronTypes.Transaction<TronTypes.TransferContract>
+    | TronTypes.Transaction<TronTypes.TriggerSmartContract>,
+) => {
+  const contractCall = tx.raw_data.contract[0];
+  return contractCall && contractCall.type === TronTypes.ContractType.TriggerSmartContract;
 };
 
-const isNativeTokenTransfer = (input: RequestHandlerInput) => {
-  if (input.evm.tx) {
-    const { value } = input.evm.tx;
-    if (!value) return false;
-    try {
-      return BigInt(value) > 0n;
-    } catch {
-      return false;
-    }
-  }
-  return false;
+const isTRXTransfer = (
+  tx:
+    | TronTypes.Transaction<TronTypes.TransferContract>
+    | TronTypes.Transaction<TronTypes.TriggerSmartContract>,
+) => {
+  const contractCall = tx.raw_data.contract[0];
+  return contractCall && contractCall.type === TronTypes.ContractType.TransferContract;
 };
 
-export { isERC20TokenTransfer, isNativeTokenTransfer };
+function tronHexToEvmAddress(tronHex: string): Hex {
+  const normalized = tronHex.toLowerCase().replace(/^0x/, '');
+
+  // Validate length and prefix
+  if (!/^41[a-f0-9]{40}$/.test(normalized)) {
+    throw new Error(`Invalid TRON hex address: ${tronHex}`);
+  }
+
+  // Extract last 20 bytes (40 hex chars) and return as EVM address
+  return `0x${normalized.slice(2)}`;
+}
+export { isTRC20TokenTransfer, isTRXTransfer, tronHexToEvmAddress };

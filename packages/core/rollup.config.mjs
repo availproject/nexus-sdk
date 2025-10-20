@@ -42,7 +42,7 @@ const baseConfig = {
     ...Object.keys(packageJson.peerDependencies || {}),
     /^viem/,
     // External dependencies that consumers should install
-    '@arcana/ca-common',
+    '@avail-project/ca-common',
     '@cosmjs/proto-signing',
     '@cosmjs/stargate',
     '@starkware-industries/starkware-crypto-utils',

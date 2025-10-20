@@ -4,7 +4,7 @@ import {
   EVMVaultABI,
   MsgDoubleCheckTx,
   Universe,
-} from '@arcana/ca-common';
+} from '@avail-project/ca-common';
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import Decimal from 'decimal.js';
 import Long from 'long';
@@ -201,6 +201,8 @@ export const createIntent = ({
       chainID: asset.chainID,
       tokenContract: asset.contractAddress,
       universe: Universe.ETHEREUM,
+      // FIXME:
+      holderAddress: '0x',
     });
     accountedBalance = accountedBalance.add(borrowFromThisChain);
   }
@@ -315,8 +317,8 @@ export const createBridgeRFF = async ({
     intent.sources.map((s) => ({
       chainID: s.chainID,
       tokenContract: s.tokenContract,
+      holderAddress: config.evm.address,
     })),
-    config.evm.address,
     config.chainList,
   );
 
@@ -425,6 +427,7 @@ export const createRequestEVMSignature = async (evmRFF: EVMRFF, account: Private
     evmRFF.sources,
     evmRFF.destinationUniverse,
     evmRFF.destinationChainID,
+    evmRFF.recipientAddress,
     evmRFF.destinations,
     evmRFF.nonce,
     evmRFF.expiry,

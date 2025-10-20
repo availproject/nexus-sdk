@@ -1,8 +1,6 @@
 import Decimal from 'decimal.js';
-
-import { SOPHON_CHAIN_ID } from '../../constants';
 import { getLogger } from '../../logger';
-import { Chain, SimulateReturnType } from '@nexus/commons';
+import { Chain, MAINNET_CHAIN_IDS, SimulateReturnType } from '@nexus/commons';
 import { divDecimals, UserAssets } from '../../utils';
 
 const logger = getLogger();
@@ -32,7 +30,7 @@ const tokenRequestParseSimulation = ({
     assets.getAssetDetails(chain, tokenContract);
 
   const gasMultiple = simulation.gasFee
-    .mul(chain.id === SOPHON_CHAIN_ID ? 3 : 2)
+    .mul(chain.id === MAINNET_CHAIN_IDS.SOPHON ? 3 : 2)
     .add(divDecimals(iGas, nativeToken.decimals));
 
   logger.debug('ERC20RequestBase:ParseSimulation:0', {
@@ -94,7 +92,6 @@ const nativeRequestParseSimulation = ({
   const gasMultiple = simulation.gasFee.mul(2);
 
   let isIntentRequired = false;
-
   if (bridge) {
     isIntentRequired = true;
   }

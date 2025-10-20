@@ -21,4 +21,4 @@ export type {
   UserAssetDatum as UserAsset,
 } from '@nexus/commons';
 
-export { Environment as Network, RequestForFunds } from '@arcana/ca-common';
+export { Environment as Network, RequestForFunds } from '@avail-project/ca-common';

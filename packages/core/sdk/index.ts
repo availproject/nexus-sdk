@@ -31,6 +31,7 @@ import { logger } from '@nexus/commons';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
 import { CA } from './ca-base';
 import { ChainAbstractionAdapter } from '../adapters/chain-abstraction-adapter';
+import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 
 export class NexusSDK extends CA {
   private readonly nexusAdapter: ChainAbstractionAdapter;
@@ -93,6 +94,7 @@ export class NexusSDK extends CA {
         explorerUrl: result?.explorerURL ?? '',
       };
     } catch (e) {
+      logger.debug('BridgeError: ', e);
       return {
         success: false,
         error: e instanceof Error ? e.message : String(e),
@@ -213,6 +215,10 @@ export class NexusSDK extends CA {
    */
   public setOnIntentHook(callback: OnIntentHook): void {
     this._setOnIntentHook(callback);
+  }
+
+  public addTron(adapter: AdapterProps) {
+    this.setTronAdapter(adapter);
   }
 
   /**

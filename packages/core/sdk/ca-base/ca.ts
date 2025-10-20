@@ -1,4 +1,4 @@
-import { createCosmosWallet, ERC20ABI, Universe } from '@arcana/ca-common';
+import { createCosmosWallet, ERC20ABI, Universe } from '@avail-project/ca-common';
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import SafeEventEmitter from '@metamask/safe-event-emitter';
 import { keyDerivation } from '@starkware-industries/starkware-crypto-utils';
@@ -73,7 +73,8 @@ import { swap } from './swap/swap';
 import { getBalances } from './swap/route';
 import { getSwapSupportedChains } from './swap/utils';
 import { AdapterProps, Transaction } from '@tronweb3/tronwallet-abstract-adapter';
-import { TronWeb, Types } from 'tronweb';
+import { TronWeb, Types, utils } from 'tronweb';
+import { tronHexToEvmAddress } from './requestHandlers/tron/common';
 
 setLogLevel(LOG_LEVEL.NOLOGS);
 const logger = getLogger();
@@ -109,7 +110,6 @@ export class CA {
   protected _tron?: {
     address: string;
     adapter: AdapterProps;
-    provider: TronWeb;
   };
   protected _hooks: {
     onAllowance: OnAllowanceHook;
@@ -143,7 +143,6 @@ export class CA {
   }
 
   protected async _bridge(input: BridgeQueryInput) {
-    await this._changeChain(input.chainId);
     const bq = new BridgeQuery(
       input,
       this._init,
@@ -211,6 +210,7 @@ export class CA {
       isCA: includeSwappableBalances === false,
       vscDomain: this._networkConfig.VSC_DOMAIN,
       fuelAddress: this._fuel?.address,
+      tronAddress: this._tron?.address,
     });
     return assets;
   }
@@ -260,6 +260,7 @@ export class CA {
   protected async _handleEVMTx(args: RequestArguments, options: Partial<TxOptions> = {}) {
     const response = await this._createEVMHandler(
       (args.params as EVMTransaction[])[0],
+      await this._getChainID(),
       getTxOptions(options),
     );
 
@@ -331,15 +332,26 @@ export class CA {
   }
 
   public async setTronAdapter(adapter: AdapterProps) {
+    if (this._tron) {
+      logger.debug('Already has tron adapter, so skip', {
+        adapter,
+        classVal: this._tron,
+      });
+      return;
+    }
+
     if (!adapter.connected) {
       await adapter.connect();
     }
+
+    logger.debug('setTronAdapter', {
+      address: adapter.address,
+      classVal: this._tron,
+    });
+
     this._tron = {
       adapter,
-      provider: new TronWeb({}),
-      // FIXME: we are doing connect if not connected
-      // that means address should be present :: Confirm!!
-      address: adapter.address as string,
+      address: tronHexToEvmAddress(utils.address.toHex(adapter.address as string)),
     };
   }
 
@@ -383,7 +395,7 @@ export class CA {
         _params,
         _transaction,
       });
-      const handlerResponse = await this._createFuelHandler(_transaction, {
+      const handlerResponse = await this._createFuelHandler(_transaction, CHAIN_IDS.fuel.mainnet, {
         bridge: false,
         gas: 0n,
       });
@@ -425,7 +437,6 @@ export class CA {
   }
 
   protected async _transfer(input: TransferQueryInput) {
-    await this._changeChain(input.chainId);
     const tq = new TransferQuery(input, this._init, this.createHandler.bind(this), this.chainList);
     await tq.initHandler();
     return { exec: tq.exec, simulate: tq.simulate };
@@ -468,7 +479,11 @@ export class CA {
     return cosmosWallet;
   }
 
-  protected async _createEVMHandler(tx: EVMTransaction, options: Partial<TxOptions> = {}) {
+  protected async _createEVMHandler(
+    tx: EVMTransaction,
+    chainId: number,
+    options: Partial<TxOptions> = {},
+  ) {
     if (!this._evm) {
       throw new Error('EVM provider is not set');
     }
@@ -480,7 +495,6 @@ export class CA {
 
     const opt = getTxOptions(options);
 
-    const chainId = await this._getChainID();
     const chain = this.chainList.getChainByID(chainId);
     if (!chain) {
       logger.info('chain not supported, returning', {
@@ -488,6 +502,8 @@ export class CA {
       });
       return null;
     }
+
+    await this._changeChain(chainId);
 
     return createHandler({
       chain,
@@ -498,6 +514,7 @@ export class CA {
         client: this._evm.client,
         tx,
       },
+      tron: this._tron,
       fuel: this._fuel,
       hooks: this._hooks,
       options: {
@@ -510,6 +527,7 @@ export class CA {
 
   protected async _createTronHandler(
     tx: Transaction<Types.TransferContract> | Transaction<Types.TriggerSmartContract>,
+    chainId: number,
     options: Partial<TxOptions> = {},
   ) {
     if (!this._evm) {
@@ -521,7 +539,6 @@ export class CA {
 
     const opt = getTxOptions(options);
 
-    const chainId = await this._getChainID();
     const chain = this.chainList.getChainByID(chainId);
     if (!chain) {
       logger.info('chain not supported, returning', {
@@ -559,7 +576,11 @@ export class CA {
     return this._evm.client;
   }
 
-  protected async _createFuelHandler(tx: TransactionRequestLike, options: Partial<TxOptions> = {}) {
+  protected async _createFuelHandler(
+    tx: TransactionRequestLike,
+    _: number,
+    options: Partial<TxOptions> = {},
+  ) {
     const chain = this.chainList.getChainByID(CHAIN_IDS.fuel.mainnet);
     if (!chain) {
       throw new Error(`chain not found: ${CHAIN_IDS.fuel.mainnet}`);
@@ -691,26 +712,34 @@ export class CA {
       amount: bigint;
       tokenAddress: Hex;
       universe: T;
+      chainId: number;
     },
     options: Partial<TxOptions>,
   ) {
-    const tx = await this.createTx(params);
+    logger.debug('createHandler', {
+      params,
+      options,
+    });
+    const tx = await this.createTx(params, params.chainId);
     switch (params.universe) {
       case Universe.ETHEREUM:
-        return this._createEVMHandler(tx, options);
+        return this._createEVMHandler(tx, params.chainId, options);
       case Universe.FUEL:
-        return this._createFuelHandler(tx, options);
-      case Universe.UNRECOGNIZED:
-        return this._createTronHandler(tx, options);
+        return this._createFuelHandler(tx, params.chainId, options);
+      case Universe.TRON:
+        return this._createTronHandler(tx, params.chainId, options);
     }
   }
 
-  private async createTx<T extends SupportedUniverse>(params: {
-    receiver: Hex;
-    amount: bigint;
-    tokenAddress: Hex;
-    universe: T;
-  }): Promise<TxTypeMap[T]> {
+  private async createTx<T extends SupportedUniverse>(
+    params: {
+      receiver: Hex;
+      amount: bigint;
+      tokenAddress: Hex;
+      universe: T;
+    },
+    chainId: number,
+  ): Promise<TxTypeMap[T]> {
     switch (params.universe) {
       case Universe.ETHEREUM: {
         const p: EVMTransaction = {
@@ -744,26 +773,30 @@ export class CA {
         );
         return tx;
       }
-      // Lets say this is tron for now
-      case Universe.UNRECOGNIZED: {
+      case Universe.TRON: {
         if (!this._tron) {
           throw new Error('tron provider is not set!');
         }
+        const chain = this.chainList.getChainByID(chainId);
+        logger.debug('tron', {
+          chain,
+        });
+        const provider = new TronWeb({ fullHost: chain!.rpcUrls.default.grpc![0] });
         if (isNativeAddress(Universe.UNRECOGNIZED, params.tokenAddress)) {
-          const tx = await this._tron.provider.transactionBuilder.sendTrx(
+          const tx = await provider.transactionBuilder.sendTrx(
             params.receiver,
             Number(params.amount),
           );
           return tx;
         } else {
-          const txWrap = await this._tron.provider.transactionBuilder.triggerSmartContract(
-            params.tokenAddress,
+          const txWrap = await provider.transactionBuilder.triggerSmartContract(
+            TronWeb.address.fromHex(params.tokenAddress),
             'transfer(address,uint256)',
             {
               txLocal: true,
             },
             [
-              { type: 'address', value: params.receiver },
+              { type: 'address', value: TronWeb.address.fromHex(params.receiver) },
               { type: 'uint256', value: params.amount },
             ],
           );
@@ -783,7 +816,5 @@ export class CA {
 type TxTypeMap = {
   [Universe.ETHEREUM]: EVMTransaction;
   [Universe.FUEL]: ScriptTransactionRequest;
-  [Universe.UNRECOGNIZED]:
-    | Transaction<Types.TransferContract>
-    | Transaction<Types.TriggerSmartContract>;
+  [Universe.TRON]: Transaction<Types.TransferContract> | Transaction<Types.TriggerSmartContract>;
 };

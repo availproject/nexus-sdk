@@ -109,7 +109,7 @@ const fixTx = async (address: string, tx: TransactionRequestLike, provider: Prov
     accountCoinQuantities: outputQuantities,
     estimatePredicates: true,
     feePayerAccount: new Account(address),
-    // @ts-ignore
+    // @ts-expect-error
     request: tx,
   });
 

@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { ChainSelectProps } from '../../types';
-import { CHAIN_METADATA, DESTINATION_SWAP_TOKENS } from '@nexus/commons';
+import { CHAIN_METADATA, DESTINATION_SWAP_TOKENS, NexusNetwork } from '@nexus/commons';
 import { ChainIcon } from './icons';
 import { cn } from '../../utils/utils';
 import { Button } from '../motion/button-motion';
@@ -27,7 +27,7 @@ export function ChainSelect({
   selectedToken,
   transactionType,
 }: ChainSelectProps & {
-  network?: 'mainnet' | 'testnet';
+  network?: NexusNetwork;
   selectedToken?: string;
   transactionType?: TransactionType;
 }) {

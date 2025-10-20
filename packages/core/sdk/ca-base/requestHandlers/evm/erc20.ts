@@ -1,4 +1,4 @@
-import { Universe } from '@arcana/ca-common';
+import { Universe } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
 import Long from 'long';
 import {
@@ -9,16 +9,14 @@ import {
   webSocket,
   WebSocketTransport,
 } from 'viem';
-import type { RequestHandlerInput, SimulateReturnType } from '@nexus/commons';
-import { ERC20TransferABI } from '../../abi/erc20';
-import { KAIA_CHAIN_ID, SOPHON_CHAIN_ID } from '../../chains';
 import {
-  AaveTokenContracts,
-  HYPEREVM_CHAIN_ID,
-  MONAD_TESTNET_CHAIN_ID,
-  TOKEN_MINTER_CONTRACTS,
-  TOP_OWNER,
-} from '../../constants';
+  MAINNET_CHAIN_IDS,
+  TESTNET_CHAIN_IDS,
+  type RequestHandlerInput,
+  type SimulateReturnType,
+} from '@nexus/commons';
+import { ERC20TransferABI } from '../../abi/erc20';
+import { AaveTokenContracts, TOKEN_MINTER_CONTRACTS, TOP_OWNER } from '../../constants';
 import { getLogger } from '../../logger';
 import { simulateTransaction, SimulationRequest } from '../../simulate';
 import { divDecimals, evmWaitForFill, getL1Fee, UserAssets } from '../../utils';
@@ -74,7 +72,12 @@ class ERC20Transfer extends RequestBase {
         token,
       };
     } else if (
-      [HYPEREVM_CHAIN_ID, KAIA_CHAIN_ID, MONAD_TESTNET_CHAIN_ID].includes(this.input.chain.id)
+      [
+        MAINNET_CHAIN_IDS.HYPEREVM,
+        MAINNET_CHAIN_IDS.KAIA,
+        TESTNET_CHAIN_IDS.MONAD_TESTNET,
+        // @ts-expect-error
+      ].includes(this.input.chain.id)
     ) {
       this.simulateTxRes = {
         amount: amountInDecimal,
@@ -183,7 +186,7 @@ class ERC20Transfer extends RequestBase {
     }
 
     let gasFee =
-      (this.input.chain.id === SOPHON_CHAIN_ID
+      (this.input.chain.id === MAINNET_CHAIN_IDS.SOPHON
         ? BigInt(simulation.data.gas)
         : BigInt(simulation.data.gas_used)) *
         gasUnitPrice +
@@ -206,7 +209,7 @@ class ERC20Transfer extends RequestBase {
     this.simulateTxRes = {
       amount: divDecimals(amount, token.decimals),
       gas:
-        this.input.chain.id === SOPHON_CHAIN_ID
+        this.input.chain.id === MAINNET_CHAIN_IDS.SOPHON
           ? BigInt(simulation.data.gas)
           : BigInt(simulation.data.gas_used),
       gasFee: divDecimals(gasFee, nativeToken.decimals),

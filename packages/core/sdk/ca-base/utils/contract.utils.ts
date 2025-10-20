@@ -5,8 +5,8 @@ import {
   PermitCreationError,
   PermitVariant,
   Universe,
-} from '@arcana/ca-common';
-import { ERC20ABI as ERC20ABIC } from '@arcana/ca-common';
+} from '@avail-project/ca-common';
+import { ERC20ABI as ERC20ABIC } from '@avail-project/ca-common';
 import { CHAIN_IDS } from 'fuels';
 import {
   Account,
@@ -66,7 +66,7 @@ const isEVMTx = (tx: unknown): tx is EVMTransaction => {
   return true;
 };
 
-const getAllowance = (
+const getAllowance = async (
   chain: Chain,
   address: `0x${string}`,
   tokenContract: `0x${string}`,
@@ -75,6 +75,8 @@ const getAllowance = (
   logger.debug('getAllowance', {
     tokenContract,
     ZERO_ADDRESS,
+    chain,
+    address,
   });
 
   if (equalFold(ZERO_ADDRESS, tokenContract)) {
@@ -83,20 +85,25 @@ const getAllowance = (
 
   const publicClient = createPublicClientWithFallback(chain);
 
-  return publicClient.readContract({
-    abi: ERC20ABI,
-    address: tokenContract,
-    args: [address, chainList.getVaultContractAddress(chain.id)],
-    functionName: 'allowance',
-  });
+  try {
+    const allowance = await publicClient.readContract({
+      abi: ERC20ABI,
+      address: tokenContract,
+      args: [address, chainList.getVaultContractAddress(chain.id)],
+      functionName: 'allowance',
+    });
+    return allowance;
+  } catch {
+    return 0n;
+  }
 };
 
 const getAllowances = async (
   input: {
     chainID: number;
     tokenContract: `0x${string}`;
+    holderAddress: `0x${string}`;
   }[],
-  address: `0x${string}`,
   chainList: ChainListType,
 ) => {
   const values: { [k: number]: bigint } = {};
@@ -109,7 +116,7 @@ const getAllowances = async (
       if (!chain) {
         throw new Error('chain not found');
       }
-      promises.push(getAllowance(chain, address, i.tokenContract, chainList));
+      promises.push(getAllowance(chain, i.holderAddress, i.tokenContract, chainList));
     }
   }
   const result = await Promise.all(promises);
@@ -131,7 +138,7 @@ const waitForIntentFulfilment = async (
       abi: [FillEvent] as const,
       address: vaultContractAddr,
       args: { requestHash },
-      eventName: 'Fill',
+      eventName: 'Fulfilment',
       onLogs: (logs) => {
         logger.debug('waitForIntentFulfilment', { logs });
         ac.abort();

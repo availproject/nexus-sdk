@@ -1,4 +1,4 @@
-import { Universe } from '@arcana/ca-common';
+import { Universe } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
 import { Account, TransactionRequest, TransactionRequestLike } from 'fuels';
 import Long from 'long';

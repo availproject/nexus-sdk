@@ -8,11 +8,23 @@ import {
   OmniversalRFF,
   PermitVariant,
   Universe,
-} from '@arcana/ca-common';
+} from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
 import { Account, BN, CHAIN_IDS, hexlify } from 'fuels';
 import Long from 'long';
-import { Hex, hexToBytes, JsonRpcAccount, maxUint256, parseSignature, toBytes, toHex } from 'viem';
+import {
+  encodeFunctionData,
+  // createPublicClient,
+  // encodeFunctionData,
+  Hex,
+  hexToBytes,
+  // http,
+  JsonRpcAccount,
+  maxUint256,
+  parseSignature,
+  toBytes,
+  toHex,
+} from 'viem';
 import { INTENT_EXPIRY, isNativeAddress } from '../../constants';
 import {
   ErrorInsufficientBalance,
@@ -72,8 +84,13 @@ import {
   vscPublishRFF,
   waitForTxReceipt,
   UserAssets,
+  createRequestTronSignature,
+  waitForTronDepositTxConfirmation,
+  waitForTronApprovalTxConfirmation,
 } from '../../utils';
 import { getBalances } from 'sdk/ca-base/swap/route';
+import { TronWeb } from 'tronweb';
+import { tronHexToEvmAddress } from '../tron/common';
 
 const logger = getLogger();
 
@@ -99,12 +116,20 @@ abstract class BaseRequest implements IRequestHandler {
           evmAddress: this.input.evm.address,
           chainList: this.chainList,
           fuelAddress: this.input.fuel?.address,
+          tronAddress: this.input.tron?.address,
           isCA: true,
         }),
         fetchPriceOracle(this.input.options.networkConfig.GRPC_URL),
         getFeeStore(this.input.options.networkConfig.GRPC_URL),
       ]),
     ]);
+
+    logger.debug('Step 0: BuildIntent', {
+      simulation,
+      balances,
+      oraclePrices,
+      feeStore,
+    });
 
     // if simulation is null, then the transaction is not a supported token transfer, so skip
     if (!simulation) {
@@ -244,11 +269,7 @@ abstract class BaseRequest implements IRequestHandler {
     }
 
     // Create steps like a crazy person to create another one again
-    const allowances = await getAllowances(
-      intent.allSources,
-      this.input.evm.address,
-      this.input.chainList,
-    );
+    const allowances = await getAllowances(intent.allSources, this.input.chainList);
 
     let unallowedSources = this.getUnallowedSources(intent, allowances);
     this.createExpectedSteps(intent, unallowedSources);
@@ -346,6 +367,16 @@ abstract class BaseRequest implements IRequestHandler {
           universe,
         });
       }
+
+      if (universe === Universe.TRON) {
+        console.log({ tronAddress: TronWeb.address.toHex(this.input.tron!.address) });
+        parties.push({
+          address: convertTo32BytesHex(
+            tronHexToEvmAddress(TronWeb.address.toHex(this.input.tron!.address)),
+          ),
+          universe,
+        });
+      }
     }
 
     logger.debug('processRFF:1', {
@@ -355,27 +386,38 @@ abstract class BaseRequest implements IRequestHandler {
       universes,
     });
 
+    let recipientAddress = this.input.evm.address;
+    if (this.destinationUniverse === Universe.TRON) {
+      recipientAddress = this.input.tron!.address as Hex;
+    }
+
     const omniversalRff = new OmniversalRFF({
       destinationChainID: convertTo32Bytes(intent.destination.chainID),
       destinations: destinations.map((dest) => ({
-        tokenAddress: toBytes(dest.tokenAddress),
+        contractAddress: toBytes(dest.tokenAddress),
         value: toBytes(dest.value),
       })),
+      recipientAddress: convertTo32Bytes(recipientAddress),
       destinationUniverse: intent.destination.universe,
       expiry: Long.fromString((BigInt(Date.now() + INTENT_EXPIRY) / 1000n).toString()),
       nonce: window.crypto.getRandomValues(new Uint8Array(32)),
-      // @ts-ignore
+      // @ts-expect-error
       signatureData: parties.map((p) => ({
         address: toBytes(p.address),
         universe: p.universe,
       })),
-      // @ts-ignore
+      // @ts-expect-error
       sources: sources.map((source) => ({
         chainID: convertTo32Bytes(source.chainID),
-        tokenAddress: convertTo32Bytes(source.tokenAddress),
+        contractAddress: convertTo32Bytes(source.tokenAddress),
         universe: source.universe,
         value: toBytes(source.value),
       })),
+    });
+
+    logger.debug('BaseRequest', {
+      omniversalRff,
+      recipientAddress,
     });
 
     const signatureData: {
@@ -397,7 +439,7 @@ abstract class BaseRequest implements IRequestHandler {
           address: convertTo32Bytes(this.input.evm.address),
           requestHash,
           signature,
-          universe: Universe.ETHEREUM,
+          universe,
         });
       }
 
@@ -423,7 +465,29 @@ abstract class BaseRequest implements IRequestHandler {
           address: toBytes(this.input.fuel.address),
           requestHash,
           signature,
-          universe: Universe.FUEL,
+          universe,
+        });
+      }
+
+      if (universe === Universe.TRON) {
+        if (!this.input.tron) {
+          logger.error('universe has tron but not expected input', {
+            tronInput: this.input.tron,
+          });
+          throw new Error('universe has tron but not expected input');
+        }
+        const { requestHash, signature } = await createRequestTronSignature(
+          omniversalRff.asEVMRFF(),
+          this.input.tron.adapter,
+        );
+
+        signatureData.push({
+          address: convertTo32Bytes(
+            tronHexToEvmAddress(TronWeb.address.toHex(this.input.tron.address)),
+          ),
+          requestHash,
+          signature,
+          universe,
         });
       }
     }
@@ -438,6 +502,7 @@ abstract class BaseRequest implements IRequestHandler {
       destinationChainID: omniversalRff.protobufRFF.destinationChainID,
       destinations: omniversalRff.protobufRFF.destinations,
       destinationUniverse: omniversalRff.protobufRFF.destinationUniverse,
+      recipientAddress: omniversalRff.protobufRFF.recipientAddress,
       expiry: omniversalRff.protobufRFF.expiry,
       nonce: omniversalRff.protobufRFF.nonce,
       signatureData: signatureData.map((s) => ({
@@ -466,13 +531,14 @@ abstract class BaseRequest implements IRequestHandler {
 
     const tokenCollections = [];
     for (const [i, s] of sources.entries()) {
-      if (!isNativeAddress(s.universe, s.tokenAddress)) {
+      if (!isDeposit(s.universe, s.tokenAddress)) {
         tokenCollections.push(i);
       }
     }
 
     const evmDeposits: Promise<void>[] = [];
     const fuelDeposits: Promise<void>[] = [];
+    const tronDeposits: Promise<void>[] = [];
 
     const evmSignatureData = signatureData.find((d) => d.universe === Universe.ETHEREUM);
 
@@ -484,6 +550,12 @@ abstract class BaseRequest implements IRequestHandler {
 
     if (!fuelSignatureData && universes.has(Universe.FUEL)) {
       throw new Error('fuel in universe list but no signature data present');
+    }
+
+    const tronSignatureData = signatureData.find((d) => d.universe === Universe.TRON);
+
+    if (!tronSignatureData && universes.has(Universe.TRON)) {
+      throw new Error('tron in universe list but no signature data present');
     }
 
     const doubleCheckTxs = [];
@@ -535,11 +607,6 @@ abstract class BaseRequest implements IRequestHandler {
           })(),
         );
       } else if (s.universe === Universe.ETHEREUM && isNativeAddress(s.universe, s.tokenAddress)) {
-        const chain = this.input.chainList.getChainByID(Number(s.chainID));
-        if (!chain) {
-          throw new Error('chain not found');
-        }
-
         await switchChain(this.input.evm.client, chain);
 
         const publicClient = createPublicClientWithFallback(chain);
@@ -557,6 +624,52 @@ abstract class BaseRequest implements IRequestHandler {
         this.markStepDone(INTENT_DEPOSIT_REQ(i + 1));
 
         evmDeposits.push(waitForTxReceipt(hash, publicClient));
+      } else if (s.universe === Universe.TRON) {
+        const provider = new TronWeb({
+          fullHost: chain.rpcUrls.default.grpc![0],
+        });
+        const vaultContractAddress = this.chainList.getVaultContractAddress(Number(s.chainID));
+        const txWrap = await provider.transactionBuilder.triggerSmartContract(
+          TronWeb.address.fromHex(vaultContractAddress),
+          '',
+          {
+            txLocal: true,
+            input: encodeFunctionData({
+              abi: EVMVaultABI,
+              functionName: 'deposit',
+              args: [omniversalRff.asEVMRFF(), toHex(tronSignatureData!.signature), BigInt(i)],
+            }),
+          },
+          [],
+          TronWeb.address.fromHex(this.input.tron!.address),
+        );
+
+        const txResult = await provider.trx.sendRawTransaction(
+          await this.input.tron!.adapter.signTransaction(txWrap.transaction),
+        );
+
+        logger.debug('tron tx result', {
+          txResult,
+        });
+        if (!txResult.result) {
+          throw new Error('Tron tx failed', {
+            cause: txResult,
+          });
+        }
+
+        logger.debug('tronDeposit', {
+          txResult,
+        });
+        tronDeposits.push(
+          (async () => {
+            await waitForTronDepositTxConfirmation(
+              tronSignatureData!.requestHash,
+              vaultContractAddress,
+              provider,
+              this.input.tron!.address as Hex,
+            );
+          })(),
+        );
       }
       doubleCheckTxs.push(
         createDepositDoubleCheckTx(
@@ -571,8 +684,12 @@ abstract class BaseRequest implements IRequestHandler {
       );
     }
 
-    if (evmDeposits.length || fuelDeposits.length) {
-      await Promise.all([Promise.all(evmDeposits), Promise.all(fuelDeposits)]);
+    if (evmDeposits.length || fuelDeposits.length || tronDeposits.length) {
+      await Promise.all([
+        Promise.all(evmDeposits),
+        Promise.all(tronDeposits),
+        Promise.all(fuelDeposits),
+      ]);
       this.markStepDone(INTENT_DEPOSITS_CONFIRMED);
     }
 
@@ -632,7 +749,7 @@ abstract class BaseRequest implements IRequestHandler {
 
         const vc = this.input.chainList.getVaultContractAddress(chain.id);
 
-        const chainId = new OmniversalChainID(Universe.ETHEREUM, source.chainID);
+        const chainId = new OmniversalChainID(chain.universe, source.chainID);
         const chainDatum = ChaindataMap.get(chainId);
         if (!chainDatum) {
           throw new Error('Chain data not found');
@@ -649,22 +766,61 @@ abstract class BaseRequest implements IRequestHandler {
           chain,
         });
 
-        // FIXME: should be fixed on refactor
         if (currency.permitVariant === PermitVariant.Unsupported || chain.id === 1) {
-          const h = await this.input.evm.client.writeContract({
-            abi: ERC20ABI,
-            account: this.input.evm.address,
-            address: source.tokenContract,
-            args: [vc, BigInt(source.amount)],
-            chain,
-            functionName: 'approve',
-          });
+          if (chain.universe === Universe.ETHEREUM) {
+            await switchChain(this.input.evm.client, chain);
+            const h = await this.input.evm.client.writeContract({
+              abi: ERC20ABI,
+              account: this.input.evm.address,
+              address: source.tokenContract,
+              args: [vc, BigInt(source.amount)],
+              chain,
+              functionName: 'approve',
+            });
 
-          this.markStepDone(ALLOWANCE_APPROVAL_REQ(source.chainID));
+            this.markStepDone(ALLOWANCE_APPROVAL_REQ(source.chainID));
 
-          await publicClient.waitForTransactionReceipt({
-            hash: h,
-          });
+            await publicClient.waitForTransactionReceipt({
+              hash: h,
+            });
+          } else if (chain.universe === Universe.TRON) {
+            if (!this.input.tron) {
+              // This should never happen - we only fetch tron assets if tron adapter is set
+              throw new Error('Tron is available in sources but has no adapter/provider');
+            }
+            const provider = new TronWeb({
+              fullHost: chain.rpcUrls.default.grpc![0],
+            });
+            const tx = await provider.transactionBuilder.triggerSmartContract(
+              TronWeb.address.fromHex(source.tokenContract),
+              'approve(address,uint256)',
+              {},
+              [
+                { type: 'address', value: TronWeb.address.fromHex(vc) },
+                { type: 'uint256', value: source.amount.toString() },
+              ],
+              TronWeb.address.fromHex(this.input.tron?.address),
+            );
+            const signedTx = await this.input.tron.adapter.signTransaction(tx.transaction);
+            const txResult = await provider.trx.sendRawTransaction(signedTx);
+
+            logger.debug('tron tx result', {
+              txResult,
+            });
+            if (!txResult.result) {
+              throw new Error('Tron tx failed', {
+                cause: txResult,
+              });
+            }
+
+            await waitForTronApprovalTxConfirmation(
+              source.amount,
+              this.input.tron.address as Hex,
+              vc,
+              source.tokenContract,
+              provider,
+            );
+          }
 
           this.markStepDone(ALLOWANCE_APPROVAL_MINED(source.chainID));
         } else {
@@ -832,7 +988,14 @@ abstract class BaseRequest implements IRequestHandler {
       throw new Error(`Asset ${token.symbol} not found in UserAssets`);
     }
 
-    const allSources = asset.iterate(feeStore).map((v) => ({ ...v, amount: v.balance }));
+    const allSources = asset.iterate(feeStore).map((v) => {
+      const chain = this.input.chainList.getChainByID(v.chainID);
+      if (!chain) {
+        throw new Error('source has no chain.');
+      }
+
+      return { ...v, amount: v.balance, holderAddress: retrieveAddress(v.universe, this.input) };
+    });
 
     intent.allSources = allSources;
 
@@ -851,6 +1014,7 @@ abstract class BaseRequest implements IRequestHandler {
           chainID: this.input.chain.id,
           tokenContract: token.contractAddress,
           universe: this.destinationUniverse,
+          holderAddress: retrieveAddress(this.input.chain.universe, this.input),
         });
       }
     }
@@ -964,6 +1128,7 @@ abstract class BaseRequest implements IRequestHandler {
         chainID: assetC.chainID,
         tokenContract: assetC.tokenContract,
         universe: assetC.universe,
+        holderAddress: assetC.holderAddress,
       });
 
       accountedAmount = accountedAmount.add(borrowFromThisChain);
@@ -995,6 +1160,32 @@ abstract class BaseRequest implements IRequestHandler {
   };
 }
 
+const retrieveAddress = (universe: Universe, input: RequestHandlerInput): Hex => {
+  if (universe === Universe.ETHEREUM) {
+    return input.evm.address;
+  } else if (universe === Universe.FUEL) {
+    if (!input.fuel) {
+      throw new Error('fuel source but no fuel input');
+    }
+    return input.fuel.address as Hex;
+  } else if (universe === Universe.TRON) {
+    if (!input.tron) {
+      throw new Error('tron source but no tron input');
+    }
+
+    return input.tron.address as Hex;
+  }
+
+  throw new Error('unknown universe');
+};
+
+const isDeposit = (universe: Universe, tokenAddress: Hex) => {
+  if (universe === Universe.ETHEREUM) {
+    return isNativeAddress(universe, tokenAddress);
+  }
+
+  return true;
+};
 const waitForDoubleCheckTx = (input: Array<() => Promise<void>>) => {
   return async () => {
     await Promise.allSettled(input.map((i) => i()));

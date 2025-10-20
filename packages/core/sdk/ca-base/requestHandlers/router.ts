@@ -10,6 +10,7 @@ import TRXTransfer from './tron/native';
 import { fixTx, isFuelNativeTransfer } from './fuel/common';
 import FuelNativeTransfer from './fuel/native';
 import FuelTokenTransfer from './fuel/token';
+import { isTRC20TokenTransfer, isTRXTransfer } from './tron/common';
 
 const logger = getLogger();
 
@@ -55,7 +56,9 @@ const createHandler = (input: RequestHandlerInput): CreateHandlerResponse => {
       }
       return;
     };
-  } else if (input.fuel?.tx) {
+  } else if (input.fuel && input.fuel.tx) {
+    const fuelInput = input.fuel;
+    const tx = input.fuel.tx;
     if (isFuelNativeTransfer(input.fuel.tx)) {
       handler = handlers[TxType.FuelNativeTransfer];
     } else {
@@ -65,13 +68,12 @@ const createHandler = (input: RequestHandlerInput): CreateHandlerResponse => {
     processTx = async () => {
       if (!input.options.bridge && !input.options.skipTx) {
         logger.debug('in processTx', {
-          address: input.fuel!.address,
-          provider: input.fuel!.provider,
+          address: fuelInput.address,
+          provider: fuelInput.provider,
           tx: input.fuel?.tx,
         });
-        const tx = await fixTx(input.fuel!.address, input.fuel!.tx!, input.fuel!.provider);
-
-        return input.fuel!.connector.sendTransaction(input.fuel!.address, tx, {
+        const fixedTx = await fixTx(fuelInput.address, tx, fuelInput.provider);
+        return fuelInput.connector.sendTransaction(fuelInput.address, fixedTx, {
           provider: {
             url: FUEL_NETWORK_URL,
           },
@@ -79,8 +81,17 @@ const createHandler = (input: RequestHandlerInput): CreateHandlerResponse => {
       }
       return;
     };
-  } else if (input.tron?.tx) {
-    
+  } else if (input.tron && input.tron?.tx) {
+    if (isTRXTransfer(input.tron.tx)) {
+      handler = handlers[TxType.TronTRXTransfer];
+    } else if (isTRC20TokenTransfer(input.tron.tx)) {
+      handler = handlers[TxType.TronTRC20Transfer];
+    }
+    processTx = async () => {
+      if (!input.options.bridge && !input.options.skipTx) {
+        // Send tron tx
+      }
+    };
   } else {
     throw Error('Unknown handler');
   }

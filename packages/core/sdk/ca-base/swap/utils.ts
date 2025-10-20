@@ -19,7 +19,7 @@ import {
   PermitVariant,
   Quote,
   Universe,
-} from '@arcana/ca-common';
+} from '@avail-project/ca-common';
 import CaliburABI from './calibur.abi';
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import { isDeliverTxFailure } from '@cosmjs/stargate';
@@ -312,6 +312,7 @@ export const createRequestEVMSignature = async (evmRFF: EVMRFF, client: WalletCl
     evmRFF.sources,
     evmRFF.destinationUniverse,
     evmRFF.destinationChainID,
+    evmRFF.recipientAddress,
     evmRFF.destinations,
     evmRFF.nonce,
     evmRFF.expiry,
@@ -746,16 +747,18 @@ export const balancesToAssets = (
   ankrBalances: AnkrBalances,
   evmBalances: UnifiedBalanceResponseData[],
   fuelBalances: UnifiedBalanceResponseData[],
+  tronBalances: UnifiedBalanceResponseData[],
   chainList: ChainListType,
   isCA: boolean,
 ) => {
   const assets: UserAssetDatum[] = [];
-  const vscBalances = evmBalances.concat(fuelBalances);
+  const vscBalances = evmBalances.concat(fuelBalances).concat(tronBalances);
 
   logger.debug('balanceToAssets', {
     ankrBalances,
     evmBalances,
     fuelBalances,
+    tronBalances,
   });
   for (const balance of vscBalances) {
     for (const currency of balance.currencies) {
@@ -763,6 +766,9 @@ export const balancesToAssets = (
       if (!chain) {
         continue;
       }
+      logger.debug('balanceToAssets', {
+        chain,
+      });
       const tokenAddress = convertAddressByUniverse(
         toHex(currency.token_address),
         balance.universe,
@@ -908,7 +914,7 @@ export const waitForIntentFulfilment = async (
       abi: [FillEvent] as const,
       address: vaultContractAddr,
       args: { requestHash },
-      eventName: 'Fill',
+      eventName: 'Fulfilment',
       onLogs: (logs) => {
         logger.debug('waitForIntentFulfilment', { logs });
         publicClient.transport.getRpcClient().then((c) => c.close());
@@ -1101,295 +1107,6 @@ export const getAllowanceCacheKey = ({
 export const getSetCodeKey = (input: SetCodeInput) =>
   ('a' + input.chainID + input.address).toLowerCase();
 
-// const APPROVE_GAS_LIMIT = 63_000n;
-
-// export const swapToGasIfPossible = async ({
-//   actualAddress,
-//   aggregators,
-//   assetsUsed,
-//   balances,
-//   chainList,
-//   ephemeralAddress,
-//   oraclePrices,
-// }: {
-//   actualAddress: Bytes;
-//   aggregators: Aggregator[];
-//   assetsUsed: {
-//     amount: string;
-//     chainID: number;
-//     contractAddress: `0x${string}`;
-//   }[];
-//   balances: Balances;
-//   chainList: ChainList;
-//   ephemeralAddress: Bytes;
-//   grpcURL: string;
-//   oraclePrices: OraclePriceResponse;
-// }) => {
-//   const aci: CreateAllowanceCacheInput = new Set();
-//   const blacklist: Hex[] = [];
-//   const data: {
-//     [k: number]: {
-//       amount: bigint;
-//       contractAddress: Hex;
-//       txs: Tx[];
-//       unsupportedTokens: Hex[];
-//     };
-//   } = {};
-
-//   let requote = false;
-//   const chainToUnsupportedTokens: Record<number, Hex[]> = {};
-
-//   const assetsGroupedByChain = Map.groupBy(
-//     assetsUsed,
-//     (asset) => asset.chainID,
-//   );
-
-//   for (const [chainID, swapQuotes] of assetsGroupedByChain) {
-//     for (const sQuote of swapQuotes) {
-//       if (!isEIP2612Supported(sQuote.contractAddress, BigInt(chainID))) {
-//         if (!chainToUnsupportedTokens[Number(chainID)]) {
-//           chainToUnsupportedTokens[Number(chainID)] = [];
-//         }
-//         aci.add({
-//           chainID: Number(chainID),
-//           contractAddress: sQuote.contractAddress,
-//           owner: convertToEVMAddress(actualAddress),
-//           spender: convertToEVMAddress(ephemeralAddress),
-//         });
-//         chainToUnsupportedTokens[Number(chainID)].push(sQuote.contractAddress);
-//       }
-//     }
-//   }
-//   logger.debug("checkAndSupplyGasForApproval:1", {
-//     assetsGroupedByChain,
-//     chainToUnsupportedTokens,
-//   });
-
-//   const allowanceCache = await createAllowanceCache(aci, chainList);
-
-//   if (Object.keys(chainToUnsupportedTokens).length === 0) {
-//     return { blacklist, data, requote: false };
-//   }
-
-//   for (const chainID in chainToUnsupportedTokens) {
-//     const tokens: Hex[] = [];
-//     for (const token of chainToUnsupportedTokens[chainID]) {
-//       const allowance = allowanceCache.gget({
-//         chainID: Number(chainID),
-//         owner: convertToEVMAddress(actualAddress),
-//         spender: convertToEVMAddress(ephemeralAddress),
-//         tokenAddress: token,
-//       });
-//       if (!allowance || allowance < 100000000n) {
-//         tokens.push(token);
-//       }
-//     }
-//     if (tokens.length) {
-//       chainToUnsupportedTokens[chainID] = tokens;
-//     } else {
-//       delete chainToUnsupportedTokens[chainID];
-//     }
-
-//     const quotes = assetsGroupedByChain.get(Number(chainID));
-//     const balancesOnChain = balances.filter(
-//       (b) =>
-//         b.chain_id === Number(chainID) &&
-//         isEIP2612Supported(b.token_address, BigInt(chainID)),
-//     );
-
-//     const chain = chainList.getChainByID(Number(chainID));
-//     if (!chain) {
-//       throw new Error(`chain not found: ${chainID}`);
-//     }
-
-//     const publicClient = createPublicClient({
-//       transport: http(chain.rpcUrls.default.http[0]),
-//     });
-
-//     const gasPrice = await publicClient.estimateFeesPerGas();
-
-//     const gas =
-//       APPROVE_GAS_LIMIT *
-//       gasPrice.maxFeePerGas *
-//       BigInt(chainToUnsupportedTokens[chainID].length) *
-//       3n;
-
-//     const nativeBalance = balances.find(
-//       (b) =>
-//         b.chain_id === Number(chainID) && equalFold(b.token_address, EADDRESS),
-//     );
-
-//     logger.debug("checkAndSupplyGasForApproval:2", {
-//       gas,
-//       gasPrice,
-//       nativeBalance,
-//     });
-
-//     if (new Decimal(nativeBalance?.amount ?? 0).gte(gas)) {
-//       data[Number(chainID)] = {
-//         // Since txs.length == 0, amount and contractAddress should not get used, only unsupported token
-//         amount: 0n,
-//         contractAddress: "0x",
-//         txs: [],
-//         unsupportedTokens: chainToUnsupportedTokens[chainID],
-//       };
-//       continue;
-//     }
-
-//     let done = false;
-
-//     // Split between sources included and excluded in source swaps
-//     const split = splitBalanceByQuotes(balancesOnChain, quotes!);
-//     logger.debug("checkAndSupplyGasForApproval:3", {
-//       chainID,
-//       split,
-//     });
-//     for (const s of split.excluded) {
-//       const gasInToken = convertGasToToken(
-//         {
-//           contractAddress: s.token_address,
-//           decimals: s.decimals,
-//           priceUSD: s.priceUSD,
-//         },
-//         oraclePrices,
-//         chain.id,
-//         divDecimals(gas, chain.nativeCurrency.decimals),
-//       );
-
-//       logger.debug("checkAndSupplyGasForApproval:3:excluded", {
-//         amount: s.amount,
-//         gasInToken: gasInToken.toFixed(),
-//         token: s,
-//       });
-
-//       if (gasInToken.lt(s.amount)) {
-//         const res = await swapToGasQuote(
-//           ephemeralAddress,
-//           actualAddress,
-//           new OmniversalChainID(Universe.ETHEREUM, chainID),
-//           {
-//             tokenAddress: EADDRESS_32_BYTES,
-//           },
-//           aggregators,
-//           {
-//             amount: mulDecimals(gasInToken, s.decimals),
-//             decimals: s.decimals,
-//             tokenAddress: convertTo32Bytes(s.token_address),
-//           },
-//         );
-//         if (res.quote) {
-//           const txs = getTxsFromQuote(
-//             res.aggregator,
-//             res.quote,
-//             convertTo32Bytes(s.token_address),
-//           );
-//           data[Number(chainID)] = {
-//             amount: mulDecimals(gasInToken, s.decimals),
-//             contractAddress: s.token_address,
-//             txs: [txs.approval!, txs.swap],
-//             unsupportedTokens: chainToUnsupportedTokens[chainID],
-//           };
-//           done = true;
-//           break;
-//         }
-//       }
-//     }
-
-//     if (!done) {
-//       for (const s of split.included) {
-//         const gasInToken = convertGasToToken(
-//           {
-//             contractAddress: s.token_address,
-//             decimals: s.decimals,
-//             priceUSD: s.priceUSD,
-//           },
-//           oraclePrices,
-//           chain.id,
-//           divDecimals(gas, chain.nativeCurrency.decimals),
-//         );
-
-//         logger.debug("checkAndSupplyGasForApproval:3:included", {
-//           amount: s.amount,
-//           gasInToken: gasInToken.toFixed(),
-//         });
-
-//         if (gasInToken.gte(s.amount)) {
-//           const res = await swapToGasQuote(
-//             ephemeralAddress,
-//             actualAddress,
-//             new OmniversalChainID(Universe.ETHEREUM, chainID),
-//             {
-//               tokenAddress: EADDRESS_32_BYTES,
-//             },
-//             aggregators,
-//             {
-//               amount: mulDecimals(gasInToken, s.decimals),
-//               decimals: s.decimals,
-//               tokenAddress: convertTo32Bytes(s.token_address),
-//             },
-//           );
-//           if (res.quote) {
-//             const txs = getTxsFromQuote(
-//               res.aggregator,
-//               res.quote,
-//               convertTo32Bytes(s.token_address),
-//             );
-//             data[Number(chainID)] = {
-//               amount: mulDecimals(gasInToken, s.decimals),
-//               contractAddress: s.token_address,
-//               txs: [txs.approval!, txs.swap],
-//               unsupportedTokens: chainToUnsupportedTokens[chainID],
-//             };
-//             // since we had to use source swap token for gas
-//             // TODO: Check if we have enough if we swap for gas otherwise throw error
-//             done = true;
-//             requote = true;
-//             break;
-//           }
-//         }
-//       }
-//     }
-
-//     if (!done) {
-//       throw new Error(`could not swap token for gas on chain: ${chainID}`);
-//     }
-//   }
-
-//   return {
-//     blacklist,
-//     data,
-//     requote,
-//   };
-// };
-
-// const convertGasToToken = (
-//   token: { contractAddress: Hex; decimals: number; priceUSD: string },
-//   oraclePrices: OraclePriceResponse,
-//   destinationChainID: number,
-//   gas: Decimal,
-// ) => {
-//   const gasTokenPerUSD =
-//     oraclePrices
-//       .find(
-//         (rate) =>
-//           rate.chainId === destinationChainID &&
-//           equalFold(rate.tokenAddress, ZERO_ADDRESS),
-//       )
-//       ?.tokensPerUsd.toString() ?? "0";
-//   const transferTokenPerUSD = Decimal.div(1, token.priceUSD);
-
-//   logger.debug("convertGasToToken", {
-//     gas: gas.toFixed(),
-//     gasTokenPerUSD,
-//     transferTokenPerUSD,
-//   });
-
-//   const gasInUSD = new Decimal(1).div(gasTokenPerUSD).mul(gas);
-//   const totalRequired = new Decimal(gasInUSD).div(transferTokenPerUSD);
-
-//   return totalRequired.toDP(token.decimals, Decimal.ROUND_CEIL);
-// };
-
 export const getTxsFromQuote = (
   aggregator: Aggregator,
   quote: Quote,
@@ -1468,75 +1185,6 @@ export const getTxsFromQuote = (
 
   throw new Error('Unknown aggregator');
 };
-
-// const splitBalanceByQuotes = (
-//   balances: Balances,
-//   quotes: {
-//     amount: string;
-//     chainID: number;
-//     contractAddress: `0x${string}`;
-//   }[],
-// ) => {
-//   const [included, excluded] = partition(balances, (b) => {
-//     return !!quotes.find((q) => equalFold(q.contractAddress, b.token_address));
-//   });
-
-//   return {
-//     excluded,
-//     included,
-//   };
-// };
-
-// export async function swapToGasQuote(
-//   userAddress: Bytes,
-//   receiverAddress: Bytes | null,
-//   chainID: OmniversalChainID,
-//   requirement: {
-//     tokenAddress: Bytes;
-//   },
-//   aggregators: Aggregator[],
-//   cur: {
-//     amount: bigint;
-//     decimals: number;
-//     tokenAddress: Bytes;
-//   },
-// ): Promise<{
-//   aggregator: Aggregator;
-//   inputAmount: Decimal;
-//   quote: null | Quote;
-// }> {
-//   // We spray and pray
-//   const buyQuoteResult = await aggregateAggregators(
-//     [
-//       {
-//         chain: chainID,
-//         inputAmount: cur.amount,
-//         inputToken: cur.tokenAddress,
-//         outputToken: requirement.tokenAddress,
-//         receiverAddress,
-//         type: QuoteType.ExactIn,
-//         userAddress,
-//       },
-//     ],
-//     aggregators,
-//     0,
-//   );
-//   if (buyQuoteResult.length !== 1) {
-//     throw new AutoSelectionError("???");
-//   }
-
-//   const buyQuote = buyQuoteResult[0];
-//   if (buyQuote.quote == null) {
-//     throw new AutoSelectionError("Couldn't get buy quote");
-//   }
-
-//   return {
-//     ...buyQuote,
-//     inputAmount: convertBigIntToDecimal(buyQuote.quote.inputAmount).div(
-//       Decimal.pow(10, cur.decimals),
-//     ),
-//   };
-// }
 
 /**
  * Creates Tx object depending on contractAddress being native or ERC20
@@ -1813,7 +1461,7 @@ export const postSwap = async ({
   });
 
   const rffIDN = Number(metadata.rff_id);
-  // @ts-ignore
+  // @ts-expect-error
   delete metadata.rff_id;
 
   const res = await metadataAxios<{ value: number }>({

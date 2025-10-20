@@ -15,6 +15,7 @@ import type {
   UserAsset,
   EthereumProvider,
   ExactInSwapInput,
+  NexusNetwork,
 } from '@nexus/commons';
 
 import { Abi } from 'viem';
@@ -129,9 +130,6 @@ interface TokenMetadata {
   coingeckoId: string;
   isNative?: boolean;
 }
-
-// Local network type for UI
-type NexusNetwork = 'mainnet' | 'testnet';
 
 // # 1. High-Level State Machines
 
@@ -349,7 +347,7 @@ export interface TokenSelectProps extends BaseComponentProps {
   value?: string;
   onValueChange: (token: string, iconUrl?: string) => void;
   disabled?: boolean;
-  network?: 'mainnet' | 'testnet';
+  network?: NexusNetwork;
   type?: TransactionType;
   chainId?: number;
   isDestination?: boolean;
@@ -359,7 +357,7 @@ export interface ChainSelectProps extends BaseComponentProps {
   value?: string;
   onValueChange: (chain: string) => void;
   disabled?: boolean;
-  network?: 'mainnet' | 'testnet';
+  network?: NexusNetwork;
   isSource?: boolean;
 }
 

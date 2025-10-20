@@ -10,7 +10,7 @@ import {
   OmniversalChainID,
   Universe,
   // ZeroExAggregator,
-} from '@arcana/ca-common';
+} from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
 import { Hex, toBytes } from 'viem';
 import { ZERO_ADDRESS } from '../constants';
@@ -31,6 +31,7 @@ import {
   getEVMBalancesForAddress,
   getFeeStore,
   getFuelBalancesForAddress,
+  getTronBalancesForAddress,
   mulDecimals,
 } from '../utils';
 import { EADDRESS } from './constants';
@@ -62,6 +63,7 @@ export const getBalances = async (input: {
   removeTransferFee?: boolean;
   filter?: boolean;
   fuelAddress?: string;
+  tronAddress?: string;
   isCA?: boolean;
   vscDomain: string;
   networkHint: Environment;
@@ -69,7 +71,7 @@ export const getBalances = async (input: {
   const isCA = input.isCA ?? false;
   const removeTransferFee = input.removeTransferFee ?? false;
   const filter = input.filter ?? true;
-  const [ankrBalances, evmBalances, fuelBalances] = await Promise.all([
+  const [ankrBalances, evmBalances, fuelBalances, tronBalances] = await Promise.all([
     input.networkHint === Environment.FOLLY
       ? Promise.resolve([])
       : getAnkrBalances(input.evmAddress, input.chainList, removeTransferFee),
@@ -77,8 +79,19 @@ export const getBalances = async (input: {
     input.fuelAddress
       ? getFuelBalancesForAddress(input.vscDomain, input.fuelAddress as `0x${string}`)
       : Promise.resolve([]),
+    input.tronAddress
+      ? getTronBalancesForAddress(input.vscDomain, input.tronAddress as Hex)
+      : Promise.resolve([]),
   ]);
-  const assets = balancesToAssets(ankrBalances, evmBalances, fuelBalances, input.chainList, isCA);
+
+  const assets = balancesToAssets(
+    ankrBalances,
+    evmBalances,
+    fuelBalances,
+    tronBalances,
+    input.chainList,
+    isCA,
+  );
   let balances = toFlatBalance(assets);
   if (filter) {
     balances = filterSupportedTokens(balances);
@@ -175,7 +188,6 @@ const _exactOutRoute = async (
     if (!equalFold(input.toTokenAddress, dstChainCOTAddress)) {
       dds = await determineDestinationSwaps(
         userAddressInBytes,
-        null,
         dstOmniversalChainID,
         {
           amount: BigInt(input.toAmount),

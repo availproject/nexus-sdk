@@ -532,6 +532,7 @@ export function getTokenContractAddress(
   chainId: SUPPORTED_CHAINS_IDS,
 ): string | undefined {
   const registry = TOKEN_CONTRACT_ADDRESSES;
+  // @ts-expect-error
   const address = registry[token]?.[chainId];
   return address || undefined;
 }

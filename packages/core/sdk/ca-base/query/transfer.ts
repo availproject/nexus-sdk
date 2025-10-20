@@ -1,19 +1,13 @@
-import { Account, bn, CHAIN_IDS } from 'fuels';
-import { encodeFunctionData, Hex } from 'viem';
-
-import ERC20ABI from '../abi/erc20';
-import { TRON_CHAIN_ID, ZERO_ADDRESS } from '../constants';
+import { Hex } from 'viem';
 import { getLogger } from '../logger';
-import { convertIntent, equalFold, mulDecimals } from '../utils';
+import { convertIntent, mulDecimals } from '../utils';
 import {
   CA,
   CreateHandlerResponse,
-  EVMTransaction,
   TransferQueryInput,
   ChainListType,
   SupportedUniverse,
 } from '@nexus/commons';
-import { Universe } from '@arcana/ca-common';
 
 const logger = getLogger();
 
@@ -56,33 +50,31 @@ class TransferQuery {
         p: input,
       });
       if (input.to && input.amount !== undefined && input.token && input.chainId) {
-        const token = this.chainList.getTokenInfoBySymbol(input.chainId, input.token);
+        const { chain, token } = this.chainList.getChainAndTokenFromSymbol(
+          input.chainId,
+          input.token,
+        );
         if (!token) {
           throw new Error('Token not supported on this chain.');
         }
 
         const amount = mulDecimals(input.amount, token.decimals);
 
-        const params = {
-          amount: amount,
-          receiver: input.to,
-          tokenAddress: token.contractAddress,
-          universe: Universe.ETHEREUM as SupportedUniverse,
-        };
-
-        logger.debug('transfer:2', { amount, token });
-
-        if (input.chainId === CHAIN_IDS.fuel.mainnet) {
-        } else if (input.chainId === TRON_CHAIN_ID) {
-          params.universe = Universe.UNRECOGNIZED;
-        }
-
-        this.handlerResponse = await this.createHandler(params, {
-          bridge: false,
-          gas: 0n,
-          skipTx: false,
-          sourceChains: input.sourceChains,
-        });
+        this.handlerResponse = await this.createHandler(
+          {
+            amount: amount,
+            receiver: input.to,
+            tokenAddress: token.contractAddress,
+            universe: chain.universe as SupportedUniverse,
+            chainId: chain.id,
+          },
+          {
+            bridge: false,
+            gas: 0n,
+            skipTx: false,
+            sourceChains: input.sourceChains,
+          },
+        );
 
         return;
       }

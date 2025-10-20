@@ -11,7 +11,7 @@ import {
   Quote,
   QuoteRequestExactInput,
   Universe,
-} from '@arcana/ca-common';
+} from '@avail-project/ca-common';
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import Decimal from 'decimal.js';
 import { orderBy, retry } from 'es-toolkit';

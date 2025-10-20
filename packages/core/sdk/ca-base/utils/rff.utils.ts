@@ -1,4 +1,4 @@
-import { MsgCreateRequestForFunds, OmniversalRFF, Universe } from '@arcana/ca-common';
+import { MsgCreateRequestForFunds, OmniversalRFF, Universe } from '@avail-project/ca-common';
 import { FUEL_BASE_ASSET_ID, INTENT_EXPIRY, isNativeAddress, ZERO_ADDRESS } from '../constants';
 import { getLogger } from '../logger';
 import { ChainListType, Intent } from '@nexus/commons';
@@ -128,21 +128,21 @@ const createRFFromIntent = async (
   const omniversalRFF = new OmniversalRFF({
     destinationChainID: convertTo32Bytes(intent.destination.chainID),
     destinations: destinations.map((dest) => ({
-      tokenAddress: toBytes(dest.tokenAddress),
+      contractAddress: toBytes(dest.tokenAddress),
       value: toBytes(dest.value),
     })),
     destinationUniverse: intent.destination.universe,
     expiry: Long.fromString((BigInt(Date.now() + INTENT_EXPIRY) / 1000n).toString()),
     nonce: window.crypto.getRandomValues(new Uint8Array(32)),
-    // @ts-ignore
+    // @ts-expect-error
     signatureData: parties.map((p) => ({
       address: toBytes(p.address),
       universe: p.universe,
     })),
-    // @ts-ignore
+    // @ts-expect-error
     sources: sources.map((source) => ({
       chainID: convertTo32Bytes(source.chainID),
-      tokenAddress: convertTo32Bytes(source.tokenAddress),
+      contractAddress: convertTo32Bytes(source.tokenAddress),
       universe: source.universe,
       value: toBytes(source.value),
     })),

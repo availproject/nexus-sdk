@@ -1,4 +1,10 @@
-import { Bytes, GrpcWebImpl, QueryClientImpl, RequestForFunds, Universe } from '@arcana/ca-common';
+import {
+  Bytes,
+  GrpcWebImpl,
+  QueryClientImpl,
+  RequestForFunds,
+  Universe,
+} from '@avail-project/ca-common';
 import axios, { AxiosInstance } from 'axios';
 import Decimal from 'decimal.js';
 import { connect } from 'it-ws/client';
@@ -59,7 +65,7 @@ const intentTransform = (input: RequestForFunds[]): RFF[] => {
     deposited: rff.deposited,
     destinationChainID: bytesToNumber(rff.destinationChainID),
     destinations: rff.destinations.map((d) => ({
-      tokenAddress: convertToHexAddressByUniverse(d.tokenAddress, rff.destinationUniverse),
+      tokenAddress: convertToHexAddressByUniverse(d.contractAddress, rff.destinationUniverse),
       value: bytesToBigInt(d.value),
     })),
     destinationUniverse: Universe[rff.destinationUniverse],
@@ -69,7 +75,7 @@ const intentTransform = (input: RequestForFunds[]): RFF[] => {
     refunded: rff.refunded,
     sources: rff.sources.map((s) => ({
       chainID: bytesToNumber(s.chainID),
-      tokenAddress: convertToHexAddressByUniverse(s.tokenAddress, s.universe),
+      tokenAddress: convertToHexAddressByUniverse(s.contractAddress, s.universe),
       universe: Universe[s.universe],
       value: bytesToBigInt(s.value),
     })),
@@ -313,7 +319,7 @@ const getVscReq = (vscDomain: string) => {
 export const getBalancesFromVSC = async (
   vscDomain: string,
   address: `0x${string}`,
-  namespace: 'ETHEREUM' | 'FUEL' = 'ETHEREUM',
+  namespace: 'ETHEREUM' | 'FUEL' | 'TRON' = 'ETHEREUM',
 ) => {
   const response = await getVscReq(vscDomain).get<{
     balances: UnifiedBalanceResponseData[];
@@ -327,6 +333,10 @@ export const getEVMBalancesForAddress = async (vscDomain: string, address: `0x${
 
 export const getFuelBalancesForAddress = async (vscDomain: string, address: `0x${string}`) => {
   return getBalancesFromVSC(vscDomain, address, 'FUEL');
+};
+
+export const getTronBalancesForAddress = async (vscDomain: string, address: `0x${string}`) => {
+  return getBalancesFromVSC(vscDomain, address, 'TRON');
 };
 
 const vscCreateFeeGrant = async (vscDomain: string, address: string) => {
@@ -473,6 +483,7 @@ const checkIntentFilled = async (intentID: Long, grpcURL: string) => {
     id: intentID,
   });
   if (response.requestForFunds?.fulfilled) {
+    logger.debug('intent already filled', { response });
     return 'ok';
   }
 

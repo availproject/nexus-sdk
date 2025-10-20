@@ -5,7 +5,7 @@ import {
   MsgDoubleCheckTx,
   MsgRefundReq,
   MsgRefundReqResponse,
-} from '@arcana/ca-common';
+} from '@avail-project/ca-common';
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import { isDeliverTxFailure, isDeliverTxSuccess } from '@cosmjs/stargate';
 import axios from 'axios';
@@ -219,6 +219,9 @@ const waitForCosmosFillEvent = async (intentID: Long, cosmosURL: string, ac: Abo
     );
 
     for await (const resp of connection.source) {
+      logger.debug('waitForCosmosFillEvent', {
+        resp,
+      });
       const decodedResponse = JSON.parse(decoder.decode(resp));
       if (
         decodedResponse.result.events &&

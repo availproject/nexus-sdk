@@ -4,7 +4,7 @@ import {
   CurrencyID,
   LiFiAggregator,
   Universe,
-} from '@arcana/ca-common';
+} from '@avail-project/ca-common';
 
 import { SwapMode, type SwapData, type SwapParams, SuccessfulSwapResult } from '@nexus/commons';
 
@@ -43,7 +43,7 @@ export const swap = async (
   if (!dstChain) {
     throw new Error('destination chain not supported');
   }
-  
+
   performance.mark('swap-start');
   const emitter = {
     emit: (step: SwapStep) => {
