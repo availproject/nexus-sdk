@@ -316,6 +316,11 @@ abstract class BaseRequest implements IRequestHandler {
     removeIntentHashFromStore(this.input.evm.address, id);
 
     this.markStepDone(INTENT_FULFILLED);
+
+    if (this.input.chain.universe === Universe.ETHEREUM) {
+      await this.input.evm.client.switchChain({ id: this.input.chain.id });
+    }
+
     return { explorerURL };
   }
 
