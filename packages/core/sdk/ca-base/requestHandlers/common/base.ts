@@ -648,7 +648,9 @@ abstract class BaseRequest implements IRequestHandler {
           switchedTo: await this.input.evm.client?.getChainId(),
           chain,
         });
-        if (currency.permitVariant === PermitVariant.Unsupported) {
+
+        // FIXME: should be fixed on refactor
+        if (currency.permitVariant === PermitVariant.Unsupported || chain.id === 1) {
           const h = await this.input.evm.client.writeContract({
             abi: ERC20ABI,
             account: this.input.evm.address,
