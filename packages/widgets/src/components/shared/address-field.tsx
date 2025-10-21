@@ -17,7 +17,7 @@ export function AddressField({
   placeholder = '0x...',
   className,
   hasValidationError = false,
-}: AddressFieldProps) {
+}: Readonly<AddressFieldProps>) {
   return (
     <div
       className={cn(

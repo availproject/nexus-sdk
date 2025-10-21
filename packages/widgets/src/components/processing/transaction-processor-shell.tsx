@@ -81,13 +81,11 @@ const TransactionProcessorShell = ({ disableCollapse = false }: { disableCollaps
   const token = getTokenFromInputData(activeTransaction.inputData) || '';
   const sourceChainMeta = sources
     .filter((s): s is number => s != null && !isNaN(s))
-    .map((s) => CHAIN_METADATA[s as keyof typeof CHAIN_METADATA])
+    .map((s) => CHAIN_METADATA[s])
     .filter(Boolean);
 
-  const destChainMeta = destination
-    ? CHAIN_METADATA[destination as keyof typeof CHAIN_METADATA]
-    : null;
-  const tokenMeta = token ? TOKEN_METADATA[token as keyof typeof TOKEN_METADATA] : null;
+  const destChainMeta = destination ? CHAIN_METADATA[destination] : null;
+  const tokenMeta = token ? TOKEN_METADATA[token] : null;
 
   const getDescription = () => {
     if (activeTransaction?.type === 'swap') {

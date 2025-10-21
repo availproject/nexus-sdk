@@ -6,11 +6,17 @@ interface DragConstraintsContextType {
 
 const DragConstraintsContext = createContext<DragConstraintsContextType | null>(null);
 
-export const DragConstraintsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const DragConstraintsProvider: React.FC<Readonly<{ children: React.ReactNode }>> = ({
+  children,
+}) => {
   const dragConstraintsRef = useRef<HTMLDivElement>(null);
+  const value = React.useMemo(
+    () => ({ dragConstraints: dragConstraintsRef }),
+    [dragConstraintsRef],
+  );
 
   return (
-    <DragConstraintsContext.Provider value={{ dragConstraints: dragConstraintsRef }}>
+    <DragConstraintsContext.Provider value={value}>
       {children}
       {/* Invisible element taking the whole viewport to bound dragging */}
       <div ref={dragConstraintsRef} className="fixed inset-0 pointer-events-none z-50" />

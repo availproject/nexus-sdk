@@ -19,7 +19,11 @@ interface EnhancedInfoMessageProps {
   className?: string;
 }
 
-export function EnhancedInfoMessage({ error, context, className }: EnhancedInfoMessageProps) {
+export function EnhancedInfoMessage({
+  error,
+  context,
+  className,
+}: Readonly<EnhancedInfoMessageProps>) {
   const [isAddingChain, setIsAddingChain] = useState(false);
   const [chainAdded, setChainAdded] = useState(false);
   const { sdk } = useInternalNexus();

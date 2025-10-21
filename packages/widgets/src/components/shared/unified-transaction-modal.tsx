@@ -46,7 +46,7 @@ export function UnifiedTransactionModal({
   getMinimumAmount,
   getSourceChains,
   transformInputData,
-}: UnifiedTransactionModalProps) {
+}: Readonly<UnifiedTransactionModalProps>) {
   const {
     activeTransaction,
     activeController,

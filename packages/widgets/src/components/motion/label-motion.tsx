@@ -5,7 +5,7 @@ interface LabelProps extends React.LabelHTMLAttributes<HTMLLabelElement> {
   htmlFor?: string;
 }
 
-function Label({ className, htmlFor, ...props }: LabelProps) {
+function Label({ className, htmlFor, ...props }: Readonly<LabelProps>) {
   return (
     <label
       data-slot="label"

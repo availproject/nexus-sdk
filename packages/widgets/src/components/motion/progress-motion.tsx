@@ -14,7 +14,7 @@ function Progress({
   max = 100,
   indicatorColor = 'bg-[#56C45B]',
   ...props
-}: ProgressProps) {
+}: Readonly<ProgressProps>) {
   const percentage = Math.min(Math.max((value / max) * 100, 0), 100);
 
   return (

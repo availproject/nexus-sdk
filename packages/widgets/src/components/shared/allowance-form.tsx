@@ -29,7 +29,7 @@ export function AllowanceForm({
   isLoading = false,
   error = null,
   onFormStateChange,
-}: AllowanceFormProps) {
+}: Readonly<AllowanceFormProps>) {
   const [currentAllowance, setCurrentAllowance] = useState<string | null>(null);
   const [selectedType, setSelectedType] = useState<'minimum' | 'custom'>('minimum');
   const [customAmount, setCustomAmount] = useState('');
@@ -41,7 +41,7 @@ export function AllowanceForm({
   latestValuesRef.current.customAmount = customAmount;
   latestValuesRef.current.minimumAmount = minimumAmount;
 
-  const tokenMetadata = TOKEN_METADATA[token as keyof typeof TOKEN_METADATA];
+  const tokenMetadata = TOKEN_METADATA[token];
 
   // Stable handler that reads latest values from refs, so parent always has a fresh handler
   const stableApproveHandler = useCallback(() => {
@@ -69,7 +69,7 @@ export function AllowanceForm({
       const firstChain = sourceChains[0];
       if (firstChain) {
         const allowance = await sdk.getAllowance(firstChain.chainId, [token]);
-        const decimals = Number(TOKEN_METADATA[token as keyof typeof TOKEN_METADATA].decimals);
+        const decimals = Number(TOKEN_METADATA[token].decimals);
         const formattedAllowance = formatUnits(allowance[0]?.allowance ?? 0n, decimals);
         setCurrentAllowance(formattedAllowance);
       } else {
@@ -80,7 +80,7 @@ export function AllowanceForm({
 
     // Get allowance from the chain that needs approval
     const allowance = await sdk.getAllowance(chainThatNeedsAllowance.chainId, [token]);
-    const decimals = Number(TOKEN_METADATA[token as keyof typeof TOKEN_METADATA].decimals);
+    const decimals = Number(TOKEN_METADATA[token].decimals);
     const formattedAllowance = formatUnits(allowance[0]?.allowance ?? 0n, decimals);
     setCurrentAllowance(formattedAllowance);
   };
@@ -131,8 +131,7 @@ export function AllowanceForm({
                 {sourceChains
                   .filter((chain) => chain.needsApproval !== false) // Show chains that need approval or are undefined
                   .map((source, index, filteredChains) => {
-                    const chainMeta =
-                      CHAIN_METADATA[source?.chainId as keyof typeof CHAIN_METADATA];
+                    const chainMeta = CHAIN_METADATA[source?.chainId];
                     return (
                       <Fragment key={source?.chainId}>
                         <img

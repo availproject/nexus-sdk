@@ -518,8 +518,9 @@ export const getContentKey = (status: string, additionalStates?: string[]): stri
   return 'review';
 };
 
-export const formatCost = (cost: string) => {
-  const numCost = parseFloat(cost);
+export const formatCost = (cost: string | number | bigint) => {
+  const costStr = typeof cost === 'bigint' ? cost.toString() : String(cost);
+  const numCost = parseFloat(costStr);
   if (isNaN(numCost)) return 'Invalid';
   if (numCost < 0) return 'Invalid';
   if (numCost === 0) return 'Free';

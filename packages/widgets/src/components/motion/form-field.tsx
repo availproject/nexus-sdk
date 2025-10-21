@@ -9,7 +9,7 @@ interface FormFieldProps {
   className?: string;
 }
 
-export function FormField({ label, children, helperText, className }: FormFieldProps) {
+export function FormField({ label, children, helperText, className }: Readonly<FormFieldProps>) {
   return (
     <div className={cn('flex flex-col gap-1.5 relative', className)}>
       {label && (

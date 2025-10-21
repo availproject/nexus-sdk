@@ -3,7 +3,12 @@ import type { TransferButtonProps } from '../../types';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import TransferModal from './transfer-modal';
 
-export function TransferButton({ prefill, children, className, title }: TransferButtonProps) {
+export function TransferButton({
+  prefill,
+  children,
+  className,
+  title,
+}: Readonly<TransferButtonProps>) {
   const { startTransaction, activeTransaction } = useInternalNexus();
   const isLoading =
     activeTransaction.status === 'processing' || activeTransaction.reviewStatus === 'simulating';

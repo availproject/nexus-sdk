@@ -24,7 +24,7 @@ interface InfoMessageProps extends VariantProps<typeof infoMessageVariants> {
   className?: string;
 }
 
-export function InfoMessage({ variant, children, className }: InfoMessageProps) {
+export function InfoMessage({ variant, children, className }: Readonly<InfoMessageProps>) {
   return (
     <div className={cn('px-6', className)}>
       <div className={cn(infoMessageVariants({ variant }))}>

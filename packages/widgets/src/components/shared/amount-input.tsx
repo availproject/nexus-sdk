@@ -22,7 +22,7 @@ export function AmountInput({
   placeholder = '0.0',
   debounceMs = 500,
   token,
-}: AmountInputProps) {
+}: Readonly<AmountInputProps>) {
   const [localValue, setLocalValue] = React.useState(value || '');
   const timeoutRef = React.useRef<NodeJS.Timeout | undefined>(undefined);
   const { exchangeRates } = useInternalNexus();
