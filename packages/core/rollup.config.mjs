@@ -23,9 +23,9 @@ const baseConfig = {
     }),
     json(),
     resolve({
-      browser: false,
-      preferBuiltins: true,
-      exportConditions: ['node', 'import'],
+      browser: true,
+      preferBuiltins: false,
+      exportConditions: ['browser', 'module', 'import'],
     }),
     commonjs({
       include: /node_modules/,
