@@ -23,9 +23,9 @@ const baseConfig = {
     }),
     json(),
     resolve({
-      browser: true,
-      preferBuiltins: false,
-      exportConditions: ['browser', 'module', 'import'],
+      browser: false,
+      preferBuiltins: true,
+      exportConditions: ['node', 'import'],
     }),
     commonjs({
       include: /node_modules/,
@@ -53,7 +53,6 @@ const baseConfig = {
     'long',
     'msgpackr',
     'tslib',
-    'it-ws',
     'axios',
     'es-toolkit',
     './commons',
@@ -122,7 +121,6 @@ export default defineConfig([
       'long',
       'msgpackr',
       'tslib',
-      'it-ws',
       '@nexus/commons',
       'axios',
       'es-toolkit',
