@@ -641,9 +641,13 @@ abstract class BaseRequest implements IRequestHandler {
         if (!currency) {
           throw new Error('Currency not found');
         }
-
+        logger.debug('setAllowances chain switching to ', { chain });
         await switchChain(this.input.evm.client, chain);
-
+        logger.debug('setAllowances chain switched to ', {
+          originalChain,
+          switchedTo: await this.input.evm.client?.getChainId(),
+          chain,
+        });
         if (currency.permitVariant === PermitVariant.Unsupported) {
           const h = await this.input.evm.client.writeContract({
             abi: ERC20ABI,

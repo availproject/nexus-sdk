@@ -1,7 +1,7 @@
 import { Bytes, GrpcWebImpl, QueryClientImpl, RequestForFunds, Universe } from '@arcana/ca-common';
 import axios, { AxiosInstance } from 'axios';
 import Decimal from 'decimal.js';
-import { connect } from 'it-ws';
+import { connect } from 'it-ws/client';
 import Long from 'long';
 import { pack, unpack } from 'msgpackr';
 import { bytesToBigInt, bytesToNumber, toHex } from 'viem';

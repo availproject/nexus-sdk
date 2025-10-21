@@ -26,7 +26,7 @@ import { isDeliverTxFailure } from '@cosmjs/stargate';
 import axios from 'axios';
 import Decimal from 'decimal.js';
 import { retry } from 'es-toolkit';
-import { connect } from 'it-ws';
+import { connect } from 'it-ws/client';
 import { pack, unpack } from 'msgpackr';
 import {
   ByteArray,
