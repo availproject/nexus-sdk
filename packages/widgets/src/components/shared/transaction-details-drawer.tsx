@@ -332,7 +332,7 @@ export function TransactionDetailsDrawer({
           </div>
 
           {/* From Section */}
-          {data.sources.length > 0 && (
+          {Array.isArray(data.sources) && data.sources.length > 0 && (
             <div>
               <h3 className="text-sm font-semibold text-nexus-black mb-2.5">From</h3>
               <div className="space-y-2.5">

@@ -94,21 +94,25 @@ export const ProcessorMiniCard: React.FC<ProcessorCardProps> = ({
         <div className="flex items-center justify-between w-full gap-x-3">
           {/* Sources */}
           <div className="flex -space-x-1 mb-1">
-            {sourceChainMeta?.slice(0, 3).map((chain, index) => (
-              <img
-                key={chain?.id}
-                src={chain?.logo ?? ''}
-                alt={chain?.name ?? ''}
-                className={cn(
-                  'w-8 h-8',
-                  index > 0 ? '-ml-3' : '',
-                  chain?.id !== SUPPORTED_CHAINS.BASE && chain?.id !== SUPPORTED_CHAINS.BASE_SEPOLIA
-                    ? 'rounded-nexus-full'
-                    : '',
-                )}
-                style={{ zIndex: sourceChainMeta?.length - index }}
-              />
-            ))}
+            {Array.isArray(sourceChainMeta) &&
+              sourceChainMeta
+                .slice(0, 3)
+                .map((chain, index) => (
+                  <img
+                    key={chain?.id}
+                    src={chain?.logo ?? ''}
+                    alt={chain?.name ?? ''}
+                    className={cn(
+                      'w-8 h-8',
+                      index > 0 ? '-ml-3' : '',
+                      chain?.id !== SUPPORTED_CHAINS.BASE &&
+                        chain?.id !== SUPPORTED_CHAINS.BASE_SEPOLIA
+                        ? 'rounded-nexus-full'
+                        : '',
+                    )}
+                    style={{ zIndex: (sourceChainMeta?.length || 0) - index }}
+                  />
+                ))}
           </div>
 
           {/* Progress */}
