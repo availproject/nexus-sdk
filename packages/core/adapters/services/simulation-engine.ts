@@ -484,6 +484,18 @@ export class SimulationEngine {
         tokenRequired !== 'ETH' ? ['approval-step'] : needsFunding ? ['funding-step'] : undefined,
     });
 
+    // Normalize ETH value to 0x-hex if provided
+    const normalizedValue = (() => {
+      const v = value || contractCall.value;
+      if (!v) return '0x0';
+      if (typeof v === 'string' && v.startsWith('0x')) return v;
+      try {
+        return `0x${BigInt(v).toString(16)}`;
+      } catch {
+        return '0x0';
+      }
+    })();
+
     steps.push({
       type: 'execute',
       required: true,
@@ -496,7 +508,7 @@ export class SimulationEngine {
         from: user,
         to: contractCall.contractAddress,
         data: encodingResult.data!,
-        value: value || contractCall.value || '0x0',
+        value: normalizedValue,
       },
     });
 
