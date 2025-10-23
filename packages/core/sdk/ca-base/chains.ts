@@ -154,14 +154,12 @@ const TESTNET_CHAINS: Chain[] = [
     },
     rpcUrls: {
       default: {
-        http: ['https://arb-sepolia.g.alchemy.com/v2/PfaswrKq0rjOrfYWHfE9uLQKhiD4JCdq'],
+        http: ['https://rpcs.avail.so/arbitrumsepolia'],
         publicHttp: [
           'https://public.stackup.sh/api/v1/node/arbitrum-sepolia',
-          'https://endpoints.omniatech.io/v1/arbitrum/sepolia/public',
           'https://arbitrum-sepolia.gateway.tenderly.co',
-          'https://api.zan.top/arb-sepolia',
         ],
-        webSocket: ['wss://arb-sepolia.g.alchemy.com/v2/PfaswrKq0rjOrfYWHfE9uLQKhiD4JCdq'],
+        webSocket: ['wss://rpcs.avail.so/arbitrumsepolia'],
       },
     },
     universe: Universe.ETHEREUM,
@@ -202,14 +200,12 @@ const TESTNET_CHAINS: Chain[] = [
     },
     rpcUrls: {
       default: {
-        http: ['https://opt-sepolia.g.alchemy.com/v2/PfaswrKq0rjOrfYWHfE9uLQKhiD4JCdq'],
+        http: ['https://rpcs.avail.so/optimismsepolia'],
         publicHttp: [
-          'https://api.zan.top/opt-sepolia',
           'https://endpoints.omniatech.io/v1/op/sepolia/public',
           'https://optimism-sepolia.gateway.tenderly.co',
-          'https://optimism-sepolia.api.onfinality.io/public',
         ],
-        webSocket: ['wss://opt-sepolia.g.alchemy.com/v2/PfaswrKq0rjOrfYWHfE9uLQKhiD4JCdq'],
+        webSocket: ['wss://rpcs.avail.so/optimismsepolia'],
       },
     },
     universe: Universe.ETHEREUM,
@@ -243,14 +239,12 @@ const TESTNET_CHAINS: Chain[] = [
     },
     rpcUrls: {
       default: {
-        http: ['https://polygon-amoy.g.alchemy.com/v2/PfaswrKq0rjOrfYWHfE9uLQKhiD4JCdq'],
+        http: ['https://rpcs.avail.so/polygonamoy'],
         publicHttp: [
           'https://polygon-amoy-bor-rpc.publicnode.com',
           'https://rpc-amoy.polygon.technology',
-          'https://polygon-amoy.gateway.tenderly.co',
-          'https://polygon-amoy.drpc.org',
         ],
-        webSocket: ['wss://polygon-amoy.g.alchemy.com/v2/PfaswrKq0rjOrfYWHfE9uLQKhiD4JCdq'],
+        webSocket: ['wss://rpcs.avail.so/polygonamoy'],
       },
     },
     universe: Universe.ETHEREUM,
@@ -258,7 +252,7 @@ const TESTNET_CHAINS: Chain[] = [
   {
     blockExplorers: {
       default: {
-        name: 'Basescan',
+        name: 'Base Sepolia Scan',
         url: 'https://sepolia.basescan.org/',
       },
     },
@@ -284,14 +278,12 @@ const TESTNET_CHAINS: Chain[] = [
     },
     rpcUrls: {
       default: {
-        http: ['https://base-sepolia.g.alchemy.com/v2/PfaswrKq0rjOrfYWHfE9uLQKhiD4JCdq'],
+        http: ['https://rpcs.avail.so/basesepolia'],
         publicHttp: [
           'https://rpc.notadegen.com/base/sepolia',
           'https://public.stackup.sh/api/v1/node/base-sepolia',
-          'https://base-sepolia.gateway.tenderly.co',
-          'https://base-sepolia.drpc.org',
         ],
-        webSocket: ['wss://base-sepolia.g.alchemy.com/v2/PfaswrKq0rjOrfYWHfE9uLQKhiD4JCdq'],
+        webSocket: ['wss://rpcs.avail.so/basesepolia'],
       },
     },
     universe: Universe.ETHEREUM,
@@ -332,9 +324,9 @@ const TESTNET_CHAINS: Chain[] = [
     },
     rpcUrls: {
       default: {
-        http: ['https://lb.drpc.org/monad-testnet/Am5nENoJmEuovqui8_LMxzp4ChJzW7kR8JfPrqRhf0fE'],
+        http: ['https://rpcs.avail.so/monadtestnet'],
         publicHttp: ['https://monad-testnet.drpc.org', 'https://rpc.ankr.com/monad_testnet'],
-        webSocket: ['wss://lb.drpc.org/monad-testnet/Am5nENoJmEuovqui8_LMxzp4ChJzW7kR8JfPrqRhf0fE'],
+        webSocket: ['wss://rpcs.avail.so/monadtestnet'],
       },
     },
     universe: Universe.ETHEREUM,
@@ -368,12 +360,12 @@ const TESTNET_CHAINS: Chain[] = [
     },
     rpcUrls: {
       default: {
-        http: ['https://sepolia.drpc.org'],
+        http: ['https://rpcs.avail.so/sepolia'],
         publicHttp: [
           'https://api.zan.top/eth-sepolia',
           'https://ethereum-sepolia-public.nodies.app',
         ],
-        webSocket: ['wss://sepolia.drpc.org'],
+        webSocket: ['wss://rpcs.avail.so/sepolia'],
       },
     },
     universe: Universe.ETHEREUM,
@@ -381,55 +373,55 @@ const TESTNET_CHAINS: Chain[] = [
 ];
 
 const MAINNET_CHAINS: Chain[] = [
-  {
-    blockExplorers: {
-      default: {
-        name: 'Fuel Network Explorer',
-        url: 'https://app.fuel.network/',
-      },
-    },
-    custom: {
-      icon: 'https://avatars.githubusercontent.com/u/55993183',
-      knownTokens: [
-        {
-          contractAddress: FUEL_BASE_ASSET_ID,
-          decimals: 9,
-          logo: getLogoFromSymbol('ETH'),
-          name: 'Ether',
-          symbol: 'ETH',
-        },
-        {
-          contractAddress: '0x286c479da40dc953bddc3bb4c453b608bba2e0ac483b077bd475174115395e6b',
-          decimals: 6,
-          logo: getLogoFromSymbol('USDC'),
-          name: 'USD Coin',
-          symbol: 'USDC',
-        },
-        {
-          contractAddress: '0xa0265fb5c32f6e8db3197af3c7eb05c48ae373605b8165b6f4a51c5b0ba4812e',
-          decimals: 6,
-          logo: getLogoFromSymbol('USDT'),
-          name: 'Tether USD',
-          symbol: 'USDT',
-        },
-      ],
-    },
-    id: CHAIN_IDS.fuel.mainnet,
-    name: 'Fuel Network',
-    ankrName: '',
-    nativeCurrency: {
-      decimals: 9,
-      name: 'Ether',
-      symbol: 'ETH',
-    },
-    rpcUrls: {
-      default: {
-        http: [FUEL_NETWORK_URL],
-        webSocket: [],
-      },
-    },
-    universe: Universe.FUEL,
-  },
+  // {
+  //   blockExplorers: {
+  //     default: {
+  //       name: 'Fuel Network Explorer',
+  //       url: 'https://app.fuel.network/',
+  //     },
+  //   },
+  //   custom: {
+  //     icon: 'https://avatars.githubusercontent.com/u/55993183',
+  //     knownTokens: [
+  //       {
+  //         contractAddress: FUEL_BASE_ASSET_ID,
+  //         decimals: 9,
+  //         logo: getLogoFromSymbol('ETH'),
+  //         name: 'Ether',
+  //         symbol: 'ETH',
+  //       },
+  //       {
+  //         contractAddress: '0x286c479da40dc953bddc3bb4c453b608bba2e0ac483b077bd475174115395e6b',
+  //         decimals: 6,
+  //         logo: getLogoFromSymbol('USDC'),
+  //         name: 'USD Coin',
+  //         symbol: 'USDC',
+  //       },
+  //       {
+  //         contractAddress: '0xa0265fb5c32f6e8db3197af3c7eb05c48ae373605b8165b6f4a51c5b0ba4812e',
+  //         decimals: 6,
+  //         logo: getLogoFromSymbol('USDT'),
+  //         name: 'Tether USD',
+  //         symbol: 'USDT',
+  //       },
+  //     ],
+  //   },
+  //   id: CHAIN_IDS.fuel.mainnet,
+  //   name: 'Fuel Network',
+  //   ankrName: '',
+  //   nativeCurrency: {
+  //     decimals: 9,
+  //     name: 'Ether',
+  //     symbol: 'ETH',
+  //   },
+  //   rpcUrls: {
+  //     default: {
+  //       http: [FUEL_NETWORK_URL],
+  //       webSocket: [],
+  //     },
+  //   },
+  //   universe: Universe.FUEL,
+  // },
   {
     blockExplorers: {
       default: {
@@ -509,15 +501,9 @@ const MAINNET_CHAINS: Chain[] = [
     },
     rpcUrls: {
       default: {
-        http: [
-          'https://lb.drpc.org/klaytn/Am5nENoJmEuovqui8_LMxzp4ChJzW7kR8JfPrqRhf0fE',
-          'https://go.getblock.io/d7094dbd80ab474ba7042603fe912332',
-        ],
+        http: ['https://rpcs.avail.so/kaia'],
         publicHttp: ['https://go.getblock.io/d7094dbd80ab474ba7042603fe912332'],
-        webSocket: [
-          'wss://lb.drpc.org/klaytn/Am5nENoJmEuovqui8_LMxzp4ChJzW7kR8JfPrqRhf0fE',
-          'wss://go.getblock.io/92d6e31d6a47427d9337753b3d48b93e',
-        ],
+        webSocket: ['wss://rpcs.avail.so/kaia'],
       },
     },
     universe: Universe.ETHEREUM,
@@ -558,23 +544,9 @@ const MAINNET_CHAINS: Chain[] = [
     },
     rpcUrls: {
       default: {
-        http: [
-          'https://lb.drpc.org/ethereum/Am5nENoJmEuovqui8_LMxzp4ChJzW7kR8JfPrqRhf0fE',
-          'https://ethereum.blockpi.network/v1/rpc/743f126e1720d79033ba70a92c9ea3724380d6bd',
-        ],
-        publicHttp: [
-          'https://cloudflare-eth.com',
-          'https://1rpc.io/eth',
-          'https://ethereum-rpc.publicnode.com',
-          'https://rpc.ankr.com/eth',
-          'https://ethereum.blockpi.network/v1/rpc/public',
-          'https://rpc.mevblocker.io',
-          'https://rpc.mevblocker.io/fast',
-        ],
-        webSocket: [
-          'wss://lb.drpc.org/ethereum/Am5nENoJmEuovqui8_LMxzp4ChJzW7kR8JfPrqRhf0fE',
-          'wss://eth.llamarpc.com',
-        ],
+        http: ['https://rpcs.avail.so/eth'],
+        publicHttp: ['https://cloudflare-eth.com', 'https://1rpc.io/eth'],
+        webSocket: ['wss://rpcs.avail.so/eth'],
       },
     },
     universe: Universe.ETHEREUM,
@@ -615,22 +587,9 @@ const MAINNET_CHAINS: Chain[] = [
     },
     rpcUrls: {
       default: {
-        http: [
-          'https://lb.drpc.org/optimism/Am5nENoJmEuovqui8_LMxzp4ChJzW7kR8JfPrqRhf0fE',
-          'https://opt-mainnet.g.alchemy.com/v2/PfaswrKq0rjOrfYWHfE9uLQKhiD4JCdq',
-        ],
-        publicHttp: [
-          'https://mainnet.optimism.io',
-          'https://1rpc.io/op',
-          'https://optimism-rpc.publicnode.com',
-          'https://rpc.ankr.com/optimism',
-          'https://optimism.blockpi.network/v1/rpc/public',
-          'https://optimism.llamarpc.com',
-        ],
-        webSocket: [
-          'wss://lb.drpc.org/optimism/Am5nENoJmEuovqui8_LMxzp4ChJzW7kR8JfPrqRhf0fE',
-          'wss://opt-mainnet.g.alchemy.com/v2/PfaswrKq0rjOrfYWHfE9uLQKhiD4JCdq',
-        ],
+        http: ['https://rpcs.avail.so/optimism'],
+        publicHttp: ['https://mainnet.optimism.io', 'https://1rpc.io/op'],
+        webSocket: ['wss://rpcs.avail.so/optimism'],
       },
     },
     universe: Universe.ETHEREUM,
@@ -671,23 +630,9 @@ const MAINNET_CHAINS: Chain[] = [
     },
     rpcUrls: {
       default: {
-        http: [
-          'https://lb.drpc.org/polygon/Am5nENoJmEuovqui8_LMxzp4ChJzW7kR8JfPrqRhf0fE',
-          'https://polygon-mainnet.g.alchemy.com/v2/PfaswrKq0rjOrfYWHfE9uLQKhiD4JCdq',
-          'https://polygon.blockpi.network/v1/rpc/07fef5146d885cc0fe07ae6760d486b31e45dcc7',
-        ],
-        publicHttp: [
-          'https://polygon-rpc.com',
-          'https://1rpc.io/matic',
-          'https://polygon-bor-rpc.publicnode.com',
-          'https://rpc.ankr.com/polygon',
-          'https://polygon.blockpi.network/v1/rpc/public',
-          'https://polygon.llamarpc.com',
-        ],
-        webSocket: [
-          'wss://lb.drpc.org/polygon/Am5nENoJmEuovqui8_LMxzp4ChJzW7kR8JfPrqRhf0fE',
-          'wss://polygon-mainnet.g.alchemy.com/v2/PfaswrKq0rjOrfYWHfE9uLQKhiD4JCdq',
-        ],
+        http: ['https://rpcs.avail.so/polygon'],
+        publicHttp: ['https://polygon-rpc.com', 'https://1rpc.io/matic'],
+        webSocket: ['wss://rpcs.avail.so/polygon'],
       },
     },
     universe: Universe.ETHEREUM,
@@ -721,23 +666,9 @@ const MAINNET_CHAINS: Chain[] = [
     },
     rpcUrls: {
       default: {
-        http: [
-          'https://lb.drpc.org/base/Am5nENoJmEuovqui8_LMxzp4ChJzW7kR8JfPrqRhf0fE',
-          'https://base-mainnet.g.alchemy.com/v2/PfaswrKq0rjOrfYWHfE9uLQKhiD4JCdq',
-          'https://base.blockpi.network/v1/rpc/dec2a84b57c7779c8b092a7ca9817e6855aa08c6',
-        ],
-        publicHttp: [
-          'https://mainnet.base.org',
-          'https://1rpc.io/base',
-          'https://base-rpc.publicnode.com',
-          'https://rpc.ankr.com/base',
-          'https://base.blockpi.network/v1/rpc/public',
-          'https://base.llamarpc.com',
-        ],
-        webSocket: [
-          'wss://lb.drpc.org/base/Am5nENoJmEuovqui8_LMxzp4ChJzW7kR8JfPrqRhf0fE',
-          'wss://base-mainnet.g.alchemy.com/v2/PfaswrKq0rjOrfYWHfE9uLQKhiD4JCdq',
-        ],
+        http: ['https://rpcs.avail.so/base'],
+        publicHttp: ['https://mainnet.base.org', 'https://1rpc.io/base'],
+        webSocket: ['wss://rpcs.avail.so/base'],
       },
     },
     universe: Universe.ETHEREUM,
@@ -778,22 +709,9 @@ const MAINNET_CHAINS: Chain[] = [
     },
     rpcUrls: {
       default: {
-        http: [
-          'https://lb.drpc.org/arbitrum/Am5nENoJmEuovqui8_LMxzp4ChJzW7kR8JfPrqRhf0fE',
-          'https://arb-mainnet.g.alchemy.com/v2/PfaswrKq0rjOrfYWHfE9uLQKhiD4JCdq',
-          'https://arbitrum.blockpi.network/v1/rpc/a8ccd43cdc840c2b2d20c24a058514a21302376d',
-        ],
-        publicHttp: [
-          'https://arb1.arbitrum.io/rpc',
-          'https://1rpc.io/arb',
-          'https://arbitrum-one-rpc.publicnode.com',
-          'https://rpc.ankr.com/arbitrum',
-          'https://arbitrum.blockpi.network/v1/rpc/public',
-        ],
-        webSocket: [
-          'wss://lb.drpc.org/arbitrum/Am5nENoJmEuovqui8_LMxzp4ChJzW7kR8JfPrqRhf0fE',
-          'wss://arb-mainnet.g.alchemy.com/v2/PfaswrKq0rjOrfYWHfE9uLQKhiD4JCdq',
-        ],
+        http: ['https://rpcs.avail.so/arbitrum'],
+        publicHttp: ['https://arb1.arbitrum.io/rpc', 'https://1rpc.io/arb'],
+        webSocket: ['wss://rpcs.avail.so/arbitrum'],
       },
     },
     universe: Universe.ETHEREUM,
@@ -834,22 +752,9 @@ const MAINNET_CHAINS: Chain[] = [
     },
     rpcUrls: {
       default: {
-        http: [
-          'https://lb.drpc.org/scroll/Am5nENoJmEuovqui8_LMxzp4ChJzW7kR8JfPrqRhf0fE',
-          'https://scroll-mainnet.g.alchemy.com/v2/PfaswrKq0rjOrfYWHfE9uLQKhiD4JCdq',
-        ],
-        publicHttp: [
-          'https://rpc.scroll.io',
-          'https://1rpc.io/scroll',
-          'https://rpc.ankr.com/scroll',
-          'https://scroll-mainnet.public.blastapi.io',
-          // "https://scroll.blockpi.network/v1/rpc/public",
-          'https://scroll-rpc.publicnode.com',
-        ],
-        webSocket: [
-          'wss://lb.drpc.org/scroll/Am5nENoJmEuovqui8_LMxzp4ChJzW7kR8JfPrqRhf0fE',
-          'wss://scroll-mainnet.g.alchemy.com/v2/PfaswrKq0rjOrfYWHfE9uLQKhiD4JCdq',
-        ],
+        http: ['https://rpcs.avail.so/scroll'],
+        publicHttp: ['https://rpc.scroll.io', 'https://1rpc.io/scroll'],
+        webSocket: ['wss://rpcs.avail.so/scroll'],
       },
     },
     universe: Universe.ETHEREUM,
@@ -890,21 +795,9 @@ const MAINNET_CHAINS: Chain[] = [
     },
     rpcUrls: {
       default: {
-        http: [
-          'https://lb.drpc.org/avalanche/Am5nENoJmEuovqui8_LMxzp4ChJzW7kR8JfPrqRhf0fE',
-          'https://avax-mainnet.g.alchemy.com/v2/PfaswrKq0rjOrfYWHfE9uLQKhiD4JCdq',
-        ],
-        publicHttp: [
-          'https://1rpc.io/avax/c',
-          'https://avalanche-c-chain-rpc.publicnode.com',
-          'https://ava-mainnet.public.blastapi.io/ext/bc/C/rpc',
-          'https://rpc.ankr.com/avalanche',
-          'https://avalanche-mainnet.gateway.tenderly.co',
-        ],
-        webSocket: [
-          'wss://lb.drpc.org/avalanche/Am5nENoJmEuovqui8_LMxzp4ChJzW7kR8JfPrqRhf0fE',
-          'wss://avax-mainnet.g.alchemy.com/v2/PfaswrKq0rjOrfYWHfE9uLQKhiD4JCdq',
-        ],
+        http: ['https://rpcs.avail.so/avalanche'],
+        publicHttp: ['https://1rpc.io/avax/c', 'https://avalanche-c-chain-rpc.publicnode.com'],
+        webSocket: ['wss://rpcs.avail.so/avalanche'],
       },
     },
     universe: Universe.ETHEREUM,
@@ -952,21 +845,9 @@ const MAINNET_CHAINS: Chain[] = [
     },
     rpcUrls: {
       default: {
-        http: [
-          'https://lb.drpc.org/bsc/Am5nENoJmEuovqui8_LMxzp4ChJzW7kR8JfPrqRhf0fE',
-          'https://bnb-mainnet.g.alchemy.com/v2/PfaswrKq0rjOrfYWHfE9uLQKhiD4JCdq',
-        ],
-        publicHttp: [
-          'https://1rpc.io/bnb',
-          'https://bsc-rpc.publicnode.com',
-          'https://bsc-mainnet.public.blastapi.io',
-          'https://bsc.drpc.org',
-          'https://bsc.blockrazor.xyz',
-        ],
-        webSocket: [
-          'wss://lb.drpc.org/bsc/Am5nENoJmEuovqui8_LMxzp4ChJzW7kR8JfPrqRhf0fE',
-          'wss://bnb-mainnet.g.alchemy.com/v2/PfaswrKq0rjOrfYWHfE9uLQKhiD4JCdq',
-        ],
+        http: ['https://rpcs.avail.so/bsc'],
+        publicHttp: ['https://1rpc.io/bnb', 'https://bsc-rpc.publicnode.com'],
+        webSocket: ['wss://rpcs.avail.so/bsc'],
       },
     },
     universe: Universe.ETHEREUM,
@@ -1007,17 +888,9 @@ const MAINNET_CHAINS: Chain[] = [
     },
     rpcUrls: {
       default: {
-        http: [
-          // Not supported by Alchemy
-          'https://hyperliquid.drpc.org',
-          'https://lb.drpc.org/hyperliquid/Am5nENoJmEuovqui8_LMxzp4ChJzW7kR8JfPrqRhf0fE',
-        ],
-        publicHttp: [
-          'https://hyperliquid-json-rpc.stakely.io',
-          'https://rpc.hyperlend.finance',
-          'https://rpc.hypurrscan.io',
-        ],
-        webSocket: ['wss://hyperliquid.drpc.org'],
+        http: ['https://rpcs.avail.so/hyperevm'],
+        publicHttp: ['https://hyperliquid-json-rpc.stakely.io', 'https://rpc.hyperlend.finance'],
+        webSocket: ['wss://rpcs.avail.so/hyperevm'],
       },
     },
     universe: Universe.ETHEREUM,
