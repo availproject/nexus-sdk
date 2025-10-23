@@ -153,7 +153,7 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
   },
   [SUPPORTED_CHAINS.HYPEREVM]: {
     id: 999,
-    name: 'Hyperliquid EVM',
+    name: 'Hyper EVM',
     shortName: 'hyperliquid',
     logo: 'https://assets.coingecko.com/asset_platforms/images/243/large/hyperliquid.png',
     nativeCurrency: { name: 'HYPE', symbol: 'HYPE', decimals: 18 },
