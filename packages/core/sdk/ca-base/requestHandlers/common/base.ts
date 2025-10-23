@@ -794,7 +794,9 @@ abstract class BaseRequest implements IRequestHandler {
             const tx = await provider.transactionBuilder.triggerSmartContract(
               TronWeb.address.fromHex(source.tokenContract),
               'approve(address,uint256)',
-              {},
+              {
+                txLocal: true,
+              },
               [
                 { type: 'address', value: TronWeb.address.fromHex(vc) },
                 { type: 'uint256', value: source.amount.toString() },

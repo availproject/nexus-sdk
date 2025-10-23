@@ -273,7 +273,7 @@ const TESTNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/asset_platforms/images/15/large/polygon_pos.png?1706606645',
       knownTokens: [
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.POLYGON_AMOY],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.POLYGON_AMOY],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
@@ -312,7 +312,7 @@ const TESTNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/asset_platforms/images/131/large/base-network.png?1720533039',
       knownTokens: [
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.BASE_SEPOLIA],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.BASE_SEPOLIA],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
@@ -394,7 +394,7 @@ const TESTNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/asset_platforms/images/279/large/ethereum.png?1706606803',
       knownTokens: [
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.SEPOLIA],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.SEPOLIA],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
