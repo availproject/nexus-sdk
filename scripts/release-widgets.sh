@@ -199,9 +199,9 @@ if [[ "$RELEASE_TYPE" == "prod" ]]; then
     mkdir -p dist/commons
     cp -R ../commons/dist/* dist/commons/
 
-    # Publish to npm
-    print_status "Publishing @avail-project/nexus-widgets@$WIDGETS_VERSION to npm..."
-    npm publish --access public
+    # Publish to npm (explicitly avoid marking as latest)
+    print_status "Publishing @avail-project/nexus-widgets@$WIDGETS_VERSION to npm (tag: legacy)..."
+    npm publish --access public --tag latest
 
     # Restore original package.json
     mv package.json.backup package.json
