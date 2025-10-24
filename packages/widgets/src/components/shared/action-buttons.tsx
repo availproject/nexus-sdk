@@ -19,7 +19,7 @@ export function ActionButtons({
   primaryLoading = false,
   primaryDisabled = false,
   className,
-}: ActionButtonsProps) {
+}: Readonly<ActionButtonsProps>) {
   return (
     <div
       className={cn(

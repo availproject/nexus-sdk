@@ -15,8 +15,7 @@ function SwapFormSection({
   onUpdate,
   disabled = false,
   prefillFields = {},
-}: SwapFormSectionProps) {
-  // Cast to SwapInputData since swap operations only use this type
+}: Readonly<SwapFormSectionProps>) {
   const swapInputData = inputData as SwapInputData;
   const requiredFields = [
     'fromChainID',
@@ -42,7 +41,7 @@ function SwapFormSection({
   );
 }
 
-export default function SwapModal({ title = 'Nexus Widget' }: { title?: string }) {
+export default function SwapModal({ title = 'Nexus Widget' }: Readonly<{ title?: string }>) {
   const getSimulationError = (simulationResult: SwapSimulationResult): boolean => {
     if (!simulationResult) return true;
     return (

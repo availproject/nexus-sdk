@@ -1,7 +1,10 @@
 import { motion } from 'motion/react';
 import { cn } from '../../utils/utils';
 
-export function WordsPullUp({ text, className = '' }: { text: string; className?: string }) {
+export function WordsPullUp({
+  text,
+  className = '',
+}: Readonly<{ text: string; className?: string }>) {
   const words = (text || '').split(' ');
 
   return (

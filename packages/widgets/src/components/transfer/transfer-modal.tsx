@@ -24,7 +24,7 @@ function TransferFormSection({
   onUpdate,
   disabled = false,
   prefillFields = {},
-}: TransferFormSectionProps) {
+}: Readonly<TransferFormSectionProps>) {
   const { activeController } = useInternalNexus();
 
   if (!activeController) return null;
@@ -50,7 +50,7 @@ function TransferFormSection({
   );
 }
 
-export default function TransferModal({ title = 'Nexus Widget' }: { title?: string }) {
+export default function TransferModal({ title = 'Nexus Widget' }: Readonly<{ title?: string }>) {
   const getSimulationError = (simulationResult: SimulationResult) => {
     return simulationResult && !simulationResult.intent;
   };

@@ -77,13 +77,16 @@ export function calculateEffectiveBalance({
 }
 
 export function getFiatValue(
-  amount: string | number,
+  amount: string | number | bigint,
   token: string,
   exchangeRates: Record<string, number>,
 ) {
   const key = (token || '').toUpperCase();
   const rate = exchangeRates?.[key];
-  const amountNum = typeof amount === 'number' ? amount : parseFloat(amount || '0');
+  const amountNum =
+    typeof amount === 'number'
+      ? amount
+      : parseFloat((typeof amount === 'bigint' ? amount.toString() : amount) || '0');
 
   const isValid = Number.isFinite(amountNum) && Number.isFinite(rate);
   const approx = isValid ? rate * amountNum : 0;

@@ -38,7 +38,7 @@ export function TransactionSimulation({
   callback,
   status,
   reviewStatus,
-}: TransactionSimulationProps) {
+}: Readonly<TransactionSimulationProps>) {
   if (isLoading) {
     return (
       <div className="flex items-start w-full py-3 px-6">

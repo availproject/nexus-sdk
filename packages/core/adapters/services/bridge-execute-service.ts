@@ -351,10 +351,14 @@ export class BridgeExecuteService {
           const modifiedExecuteParams: ExecuteParams = {
             ...execute,
             toChainId: params.toChainId,
-            tokenApproval: {
-              token: params.token,
-              amount: receivedAmountForContract, // Keep in wei format for SimulationEngine
-            },
+            ...(params.token !== 'ETH' && execute.tokenApproval
+              ? {
+                  tokenApproval: {
+                    token: params.token,
+                    amount: receivedAmountForContract, // Keep in wei format for SimulationEngine
+                  },
+                }
+              : {}),
           };
 
           executeSimulation =
@@ -561,13 +565,18 @@ export class BridgeExecuteService {
       });
 
       // Create execute parameters with user-friendly amount for the callback
+      // Only include token approval for ERC-20 tokens. Native ETH should never attempt approval.
       const finalExecuteParams: ExecuteParams = {
         ...execute,
         toChainId,
-        tokenApproval: {
-          token: bridgeToken,
-          amount: userFriendlyAmount,
-        },
+        ...(bridgeToken !== 'ETH' && execute.tokenApproval
+          ? {
+              tokenApproval: {
+                token: bridgeToken,
+                amount: userFriendlyAmount,
+              },
+            }
+          : {}),
         ...(approvalBufferBpsOverride !== undefined
           ? { approvalBufferBps: approvalBufferBpsOverride }
           : undefined),

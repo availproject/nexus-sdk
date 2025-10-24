@@ -137,6 +137,85 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
     }
   }, [transactionType, simulationResult]);
 
+  // Avoid nested ternaries by isolating explorer links rendering
+  const renderExplorerLinks = useCallback((): React.ReactNode => {
+    if (transactionType === 'bridgeAndExecute') {
+      return (
+        <div className="flex flex-col items-center gap-y-1">
+          {/* Only show bridge transaction link if bridge wasn't skipped */}
+          {explorerURL && !(executionResult as BridgeAndExecuteResult)?.bridgeSkipped && (
+            <Button
+              variant="link"
+              className="text-nexus-accent underline text-base font-semibold font-nexus-primary cursor-pointer"
+              onClick={() => window.open(explorerURL, '_blank')}
+            >
+              View Bridge Transaction{' '}
+              <ExternalLink className="w-6 h-6 ml-2 text-nexus-muted-secondary" />
+            </Button>
+          )}
+          {(executionResult as BridgeAndExecuteResult)?.executeExplorerUrl && (
+            <Button
+              variant="link"
+              className=" text-nexus-accent underline text-base font-semibold font-nexus-primary cursor-pointer"
+              onClick={() =>
+                window.open(
+                  (executionResult as BridgeAndExecuteResult)?.executeExplorerUrl,
+                  '_blank',
+                )
+              }
+            >
+              {(executionResult as BridgeAndExecuteResult)?.bridgeSkipped
+                ? 'View Transaction'
+                : 'View Execute Transaction'}{' '}
+              <ExternalLink className="w-6 h-6 ml-2 text-nexus-muted-secondary" />
+            </Button>
+          )}
+        </div>
+      );
+    }
+
+    if (transactionType === 'swap') {
+      return (
+        <div className="flex flex-col items-center gap-y-1">
+          {explorerURLs?.source && (
+            <Button
+              variant="link"
+              className="text-nexus-accent underline text-base font-semibold font-nexus-primary cursor-pointer p-0"
+              onClick={() => window.open(explorerURLs.source, '_blank')}
+            >
+              View Source Transaction{' '}
+              <ExternalLink className="w-6 h-6 ml-2 text-nexus-muted-secondary" />
+            </Button>
+          )}
+          {explorerURLs?.destination && (
+            <Button
+              variant="link"
+              className="text-nexus-accent underline text-base font-semibold font-nexus-primary cursor-pointer p-0"
+              onClick={() => window.open(explorerURLs.destination, '_blank')}
+            >
+              View Destination Transaction{' '}
+              <ExternalLink className="w-6 h-6 ml-2 text-nexus-muted-secondary" />
+            </Button>
+          )}
+        </div>
+      );
+    }
+
+    if (explorerURL) {
+      return (
+        <Button
+          variant="link"
+          className=" text-nexus-accent underline text-base font-semibold font-nexus-primary cursor-pointer"
+          onClick={() => window.open(explorerURL, '_blank')}
+        >
+          View on Explorer <ExternalLink className="w-6 h-6 ml-2 text-nexus-muted-secondary" />
+        </Button>
+      );
+    }
+
+    return null;
+  }, [transactionType, explorerURL, explorerURLs, executionResult]);
+
   return (
     <>
       <motion.div
@@ -196,29 +275,33 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
               {/* Sources */}
               <div className="flex flex-col items-center gap-y-2">
                 <div className="flex items-center">
-                  {sourceChainMeta.slice(0, 3).map((chain, index) => (
-                    <img
-                      key={chain?.id}
-                      src={chain?.logo ?? ''}
-                      alt={chain?.name ?? ''}
-                      className={cn(
-                        'w-12 h-12',
-                        index > 0 ? '-ml-5' : '',
-                        chain?.id !== SUPPORTED_CHAINS.BASE &&
-                          chain?.id !== SUPPORTED_CHAINS.BASE_SEPOLIA
-                          ? 'rounded-nexus-full'
-                          : '',
-                      )}
-                      style={{ zIndex: sourceChainMeta?.length - index }}
-                    />
-                  ))}
+                  {Array.isArray(sourceChainMeta) &&
+                    sourceChainMeta
+                      .slice(0, 3)
+                      .map((chain, index) => (
+                        <img
+                          key={chain?.id}
+                          src={chain?.logo ?? ''}
+                          alt={chain?.name ?? ''}
+                          className={cn(
+                            'w-12 h-12',
+                            index > 0 ? '-ml-5' : '',
+                            chain?.id !== SUPPORTED_CHAINS.BASE &&
+                              chain?.id !== SUPPORTED_CHAINS.BASE_SEPOLIA
+                              ? 'rounded-nexus-full'
+                              : '',
+                          )}
+                          style={{ zIndex: (sourceChainMeta?.length || 0) - index }}
+                        />
+                      ))}
                 </div>
                 <div className="flex flex-col gap-y-1 items-center">
                   <p className="text-lg font-nexus-primary text-nexus-black font-bold">
                     {sourceAmount()}
                   </p>
                   <p className="text-sm font-nexus-primary text-nexus-muted-secondary font-medium">
-                    From {sourceChainMeta.length} chain{sourceChainMeta.length > 1 ? 's' : ''}
+                    From {sourceChainMeta?.length ?? 0} chain
+                    {(sourceChainMeta?.length ?? 0) > 1 ? 's' : ''}
                   </p>
                 </div>
               </div>
@@ -305,72 +388,7 @@ export const ProcessorFullCard: React.FC<ProcessorCardProps> = ({
                 </>
               )}
               {/* Explorer links */}
-              {transactionType === 'bridgeAndExecute' ? (
-                <div className="flex flex-col items-center gap-y-1">
-                  {/* Only show bridge transaction link if bridge wasn't skipped */}
-                  {explorerURL && !(executionResult as BridgeAndExecuteResult)?.bridgeSkipped && (
-                    <Button
-                      variant="link"
-                      className="text-nexus-accent underline text-base font-semibold font-nexus-primary cursor-pointer"
-                      onClick={() => window.open(explorerURL, '_blank')}
-                    >
-                      View Bridge Transaction{' '}
-                      <ExternalLink className="w-6 h-6 ml-2 text-nexus-muted-secondary" />
-                    </Button>
-                  )}
-                  {(executionResult as BridgeAndExecuteResult)?.executeExplorerUrl && (
-                    <Button
-                      variant="link"
-                      className=" text-nexus-accent underline text-base font-semibold font-nexus-primary cursor-pointer"
-                      onClick={() =>
-                        window.open(
-                          (executionResult as BridgeAndExecuteResult)?.executeExplorerUrl,
-                          '_blank',
-                        )
-                      }
-                    >
-                      {(executionResult as BridgeAndExecuteResult)?.bridgeSkipped
-                        ? 'View Transaction'
-                        : 'View Execute Transaction'}{' '}
-                      <ExternalLink className="w-6 h-6 ml-2 text-nexus-muted-secondary" />
-                    </Button>
-                  )}
-                </div>
-              ) : transactionType === 'swap' ? (
-                <div className="flex flex-col items-center gap-y-1">
-                  {explorerURLs?.source && (
-                    <Button
-                      variant="link"
-                      className="text-nexus-accent underline text-base font-semibold font-nexus-primary cursor-pointer p-0"
-                      onClick={() => window.open(explorerURLs.source!, '_blank')}
-                    >
-                      View Source Transaction{' '}
-                      <ExternalLink className="w-6 h-6 ml-2 text-nexus-muted-secondary" />
-                    </Button>
-                  )}
-                  {explorerURLs?.destination && (
-                    <Button
-                      variant="link"
-                      className="text-nexus-accent underline text-base font-semibold font-nexus-primary cursor-pointer p-0"
-                      onClick={() => window.open(explorerURLs.destination!, '_blank')}
-                    >
-                      View Destination Transaction{' '}
-                      <ExternalLink className="w-6 h-6 ml-2 text-nexus-muted-secondary" />
-                    </Button>
-                  )}
-                </div>
-              ) : (
-                explorerURL && (
-                  <Button
-                    variant="link"
-                    className=" text-nexus-accent underline text-base font-semibold font-nexus-primary cursor-pointer"
-                    onClick={() => window.open(explorerURL, '_blank')}
-                  >
-                    View on Explorer{' '}
-                    <ExternalLink className="w-6 h-6 ml-2 text-nexus-muted-secondary" />
-                  </Button>
-                )
-              )}
+              {renderExplorerLinks()}
             </motion.div>
           </div>
         </div>

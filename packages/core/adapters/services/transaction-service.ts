@@ -259,11 +259,23 @@ export class TransactionService {
     value: string,
     options: TransactionOptions,
   ): Promise<`0x${string}`> {
+    // Normalize value to 0x-hex string in wei
+    const normalizedValue = (() => {
+      if (!value) return '0x0';
+      if (typeof value === 'string' && value.startsWith('0x')) return value;
+      try {
+        return `0x${BigInt(value).toString(16)}`;
+      } catch {
+        // If parsing fails, default to 0x0 to avoid provider rejection; gas estimation will catch issues
+        return '0x0';
+      }
+    })();
+
     const transactionParams = {
       from: fromAddress,
       to: contractAddress,
       data: encodedData,
-      value: value || '0x0',
+      value: normalizedValue || '0x0',
     };
 
     try {

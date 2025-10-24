@@ -46,7 +46,7 @@ export function UnifiedTransactionModal({
   getMinimumAmount,
   getSourceChains,
   transformInputData,
-}: UnifiedTransactionModalProps) {
+}: Readonly<UnifiedTransactionModalProps>) {
   const {
     activeTransaction,
     activeController,
@@ -115,42 +115,50 @@ export function UnifiedTransactionModal({
     status !== 'idle' && status !== 'processing' && status !== 'success' && status !== 'error';
   const isBusy = status === 'processing' || reviewStatus === 'simulating';
 
-  const handleButtonClick = async () => {
-    if (status === 'initializing') {
-      try {
-        setIsInitializing(true);
-        await initializeSdk();
-      } finally {
-        setIsInitializing(false);
-      }
-    } else if (status === 'simulation_error') {
-      // Reset to review state and trigger simulation again
-      retrySimulation();
-    } else if (
-      status === 'review' &&
-      reviewStatus === 'gathering_input' &&
-      checkHasSufficientInput(inputData)
-    ) {
-      if (transactionType === 'swap') {
-        // For swaps, initiateSwap should be called automatically by useEffect
-        // But allow manual fallback in case of timing issues
-        await initiateSwap(inputData as SwapInputData);
-      } else {
-        triggerSimulation();
-      }
-    } else if (status === 'review' && reviewStatus === 'ready') {
-      if (transactionType === 'swap') {
-        proceedWithSwap();
-      } else {
-        confirmAndProceed();
-      }
-    } else if (status === 'review' && reviewStatus === 'needs_allowance') {
-      startAllowanceFlow();
-    } else if (status === 'set_allowance' && allowanceApproveHandler) {
-      allowanceApproveHandler();
-    } else {
-      confirmAndProceed();
+  const handleInitialize = async () => {
+    try {
+      setIsInitializing(true);
+      await initializeSdk();
+    } finally {
+      setIsInitializing(false);
     }
+  };
+
+  const handleReviewGatheringInput = async () => {
+    if (!checkHasSufficientInput(inputData)) return;
+    if (transactionType === 'swap') {
+      await initiateSwap(inputData as SwapInputData);
+      return;
+    }
+    triggerSimulation();
+  };
+
+  const handleReviewReady = () => {
+    if (transactionType === 'swap') {
+      proceedWithSwap();
+      return;
+    }
+    confirmAndProceed();
+  };
+
+  const handleSetAllowance = () => {
+    if (allowanceApproveHandler) allowanceApproveHandler();
+  };
+
+  const handleButtonClick = async () => {
+    // Early-return guards to keep complexity low
+    if (status === 'initializing') return handleInitialize();
+    if (status === 'simulation_error') return retrySimulation();
+
+    if (status === 'review') {
+      if (reviewStatus === 'gathering_input') return handleReviewGatheringInput();
+      if (reviewStatus === 'ready') return handleReviewReady();
+      if (reviewStatus === 'needs_allowance') return startAllowanceFlow();
+    }
+
+    if (status === 'set_allowance') return handleSetAllowance();
+
+    return confirmAndProceed();
   };
 
   const debouncedClick = () => {

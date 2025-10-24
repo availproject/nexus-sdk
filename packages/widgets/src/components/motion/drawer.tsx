@@ -15,10 +15,11 @@ interface DrawerContextType {
 
 const DrawerContext = React.createContext<DrawerContextType | null>(null);
 
-function Drawer({ children }: DrawerProps) {
+function Drawer({ children }: Readonly<DrawerProps>) {
   const [isOpen, setIsOpen] = React.useState(false);
+  const value = React.useMemo(() => ({ isOpen, setIsOpen }), [isOpen, setIsOpen]);
 
-  return <DrawerContext.Provider value={{ isOpen, setIsOpen }}>{children}</DrawerContext.Provider>;
+  return <DrawerContext.Provider value={value}>{children}</DrawerContext.Provider>;
 }
 
 function DrawerTrigger({
@@ -49,11 +50,11 @@ function DrawerContent({
   children,
   className,
   contentClassName,
-}: {
+}: Readonly<{
   children: React.ReactNode;
   className?: string;
   contentClassName?: string;
-}) {
+}>) {
   const context = React.useContext(DrawerContext);
   if (!context) throw new Error('DrawerContent must be used within a Drawer');
 
@@ -101,7 +102,11 @@ function DrawerContent({
   );
 }
 
-function DrawerClose({ children, className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+function DrawerClose({
+  children,
+  className,
+  ...props
+}: Readonly<React.HTMLAttributes<HTMLDivElement>>) {
   const context = React.useContext(DrawerContext);
   if (!context) throw new Error('DrawerClose must be used within a Drawer');
 
@@ -120,15 +125,15 @@ function useDrawerControls(): DrawerContextType {
   return context;
 }
 
-function DrawerHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+function DrawerHeader({ className, ...props }: Readonly<React.HTMLAttributes<HTMLDivElement>>) {
   return <div className={cn('flex flex-col gap-0.5 text-center', className)} {...props} />;
 }
 
-function DrawerFooter({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+function DrawerFooter({ className, ...props }: Readonly<React.HTMLAttributes<HTMLDivElement>>) {
   return <div className={cn('mt-auto flex flex-col gap-2 p-4', className)} {...props} />;
 }
 
-function DrawerTitle({ className, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
+function DrawerTitle({ className, ...props }: Readonly<React.HTMLAttributes<HTMLHeadingElement>>) {
   return (
     <h2
       className={cn('text-nexus-foreground font-semibold font-nexus-primary text-lg', className)}
@@ -137,7 +142,10 @@ function DrawerTitle({ className, ...props }: React.HTMLAttributes<HTMLHeadingEl
   );
 }
 
-function DrawerDescription({ className, ...props }: React.HTMLAttributes<HTMLParagraphElement>) {
+function DrawerDescription({
+  className,
+  ...props
+}: Readonly<React.HTMLAttributes<HTMLParagraphElement>>) {
   return <p className={cn('text-nexus-muted-foreground text-sm', className)} {...props} />;
 }
 
@@ -158,11 +166,11 @@ export function DrawerAutoClose({
   children,
   enabled,
   className,
-}: {
+}: Readonly<{
   children: React.ReactNode;
   enabled?: boolean;
   className?: string;
-}) {
+}>) {
   const { setIsOpen } = useDrawerControls();
   if (!enabled) return <>{children}</>;
   return (

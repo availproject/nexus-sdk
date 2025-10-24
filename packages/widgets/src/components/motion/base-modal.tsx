@@ -3,7 +3,7 @@ import type { ModalProps } from '../../types';
 import { Dialog, DialogContent } from './dialog-motion';
 import { motion } from 'motion/react';
 
-export function BaseModal({ isOpen, onClose, children, className }: ModalProps) {
+export function BaseModal({ isOpen, onClose, children, className }: Readonly<ModalProps>) {
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent

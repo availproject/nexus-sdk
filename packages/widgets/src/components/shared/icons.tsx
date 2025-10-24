@@ -4,7 +4,6 @@ import {
   TOKEN_METADATA,
   DESTINATION_SWAP_TOKENS,
   type ChainMetadata,
-  type TokenMetadata,
 } from '@nexus/commons';
 import { cn } from '../../utils/utils';
 
@@ -76,9 +75,7 @@ export const TokenIcon = ({
 
     // 2. Then check standard TOKEN_METADATA
     if (!finalIconUrl) {
-      const standardToken = TOKEN_METADATA[
-        tokenSymbol as keyof typeof TOKEN_METADATA
-      ] as TokenMetadata;
+      const standardToken = TOKEN_METADATA[tokenSymbol];
       finalIconUrl = standardToken?.icon;
     }
 

@@ -87,7 +87,7 @@ export function TransactionDetailsDrawer({
   type,
   status,
   reviewStatus,
-}: TransactionDetailsDrawerProps) {
+}: Readonly<TransactionDetailsDrawerProps>) {
   const { exchangeRates } = useInternalNexus();
   const getSimulationData = (): SimulationData | null => {
     if (!simulationResult) return null;
@@ -203,7 +203,7 @@ export function TransactionDetailsDrawer({
       sources: (intent?.sources || []) as ChainInfo[],
       fees: intent?.fees as FeesInfo,
       token: intent?.token as TokenInfo,
-      sourcesTotal: intent?.sourcesTotal as string,
+      sourcesTotal: intent?.sourcesTotal ?? '0',
     };
   };
 
@@ -332,14 +332,14 @@ export function TransactionDetailsDrawer({
           </div>
 
           {/* From Section */}
-          {data.sources.length > 0 && (
+          {Array.isArray(data.sources) && data.sources.length > 0 && (
             <div>
               <h3 className="text-sm font-semibold text-nexus-black mb-2.5">From</h3>
               <div className="space-y-2.5">
-                {data.sources.map((source, index) => {
+                {data.sources.map((source) => {
                   const chainMeta = CHAIN_METADATA[source.chainID];
                   return (
-                    <div key={index} className="flex items-center justify-between">
+                    <div key={source.chainID} className="flex items-center justify-between">
                       <div className="flex items-center gap-x-2">
                         <img
                           src={chainMeta?.logo}

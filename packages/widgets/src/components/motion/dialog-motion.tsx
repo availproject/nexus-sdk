@@ -24,7 +24,7 @@ interface DialogProps {
   children: React.ReactNode;
 }
 
-function Dialog({ open = false, onOpenChange, children }: DialogProps) {
+function Dialog({ open = false, onOpenChange, children }: Readonly<DialogProps>) {
   const handleOpenChange = React.useCallback(
     (newOpen: boolean) => {
       onOpenChange?.(newOpen);
@@ -32,18 +32,19 @@ function Dialog({ open = false, onOpenChange, children }: DialogProps) {
     [onOpenChange],
   );
 
-  return (
-    <DialogContext.Provider value={{ open, onOpenChange: handleOpenChange }}>
-      {children}
-    </DialogContext.Provider>
+  const value = React.useMemo(
+    () => ({ open, onOpenChange: handleOpenChange }),
+    [open, handleOpenChange],
   );
+
+  return <DialogContext.Provider value={value}>{children}</DialogContext.Provider>;
 }
 
 interface DialogTriggerProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   asChild?: boolean;
 }
 
-function DialogTrigger({ asChild = false, onClick, ...props }: DialogTriggerProps) {
+function DialogTrigger({ asChild = false, onClick, ...props }: Readonly<DialogTriggerProps>) {
   const { onOpenChange } = useDialog();
 
   const handleClick = React.useCallback(
@@ -69,7 +70,7 @@ interface DialogPortalProps {
   container?: HTMLElement;
 }
 
-function DialogPortal({ children, container }: DialogPortalProps) {
+function DialogPortal({ children, container }: Readonly<DialogPortalProps>) {
   const [mounted, setMounted] = React.useState(false);
 
   React.useEffect(() => {
@@ -175,7 +176,7 @@ interface DialogCloseProps extends React.ButtonHTMLAttributes<HTMLButtonElement>
   asChild?: boolean;
 }
 
-function DialogClose({ asChild = false, onClick, ...props }: DialogCloseProps) {
+function DialogClose({ asChild = false, onClick, ...props }: Readonly<DialogCloseProps>) {
   const { onOpenChange } = useDialog();
 
   const handleClick = React.useCallback(

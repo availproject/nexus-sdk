@@ -273,58 +273,54 @@ function categorizeError(errorMessage: string): keyof typeof USER_FRIENDLY_MESSA
  * @param context - Optional context about where the error occurred (e.g., 'simulation', 'bridge', 'execute')
  * @returns A user-friendly error message
  */
-export function formatErrorForUI(error: unknown, context?: string): string {
-  let errorMessage = '';
-  if (error instanceof Error) {
-    errorMessage = error.message;
-  } else if (typeof error === 'string') {
-    errorMessage = error;
-  } else if (error && typeof error === 'object') {
-    // Handle structured error objects
-    const errorObj = error as any;
-    errorMessage = errorObj.message || errorObj.error || errorObj.details || String(error);
-  } else {
-    errorMessage = String(error);
+function getRawErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  if (error && typeof error === 'object') {
+    const e = error as any;
+    return e.message || e.error || e.details || String(error);
   }
+  return String(error);
+}
 
-  // Log the original error for developers
+function handleUnknownCategory(cleanedMessage: string, context?: string): string | null {
+  if (cleanedMessage && cleanedMessage.length < 100 && cleanedMessage.length > 5) {
+    if (
+      !cleanedMessage.includes('0x') &&
+      !cleanedMessage.includes('viem@') &&
+      !cleanedMessage.includes('Error:')
+    ) {
+      return cleanedMessage;
+    }
+  }
+  if (context === 'simulation')
+    return 'Unable to simulate this transaction. Please verify your inputs and try again.';
+  if (context === 'transaction')
+    return 'Transaction could not be completed. Please check your wallet and try again.';
+  if (context === 'bridge')
+    return 'Cross-chain transfer failed. Please check network connectivity and try again.';
+  if (context === 'execute')
+    return 'Smart contract execution failed. Please verify the transaction details.';
+  return null;
+}
+
+export function formatErrorForUI(error: unknown, context?: string): string {
+  const errorMessage = getRawErrorMessage(error);
+
   console.error('Error being formatted for UI:', { error, errorMessage, context });
 
-  // Handle specific error cases before general categorization
   if (errorMessage.includes('COT not present') || errorMessage.includes('COT not available')) {
     return 'This token pair is not supported on the selected destination chain. Please try a different token or destination chain.';
   }
 
   const cleanedMessage = cleanErrorMessage(errorMessage);
   const category = categorizeError(cleanedMessage);
-  let userFriendlyMessage = USER_FRIENDLY_MESSAGES[category];
+  const userFriendlyMessage = USER_FRIENDLY_MESSAGES[category];
 
-  // For unknown errors, try to provide more meaningful messages
   if (category === 'UNKNOWN') {
-    // If we have a clean, short message that's readable, use it
-    if (cleanedMessage && cleanedMessage.length < 100 && cleanedMessage.length > 5) {
-      // Check if it looks like a user-friendly error already
-      if (
-        !cleanedMessage.includes('0x') &&
-        !cleanedMessage.includes('viem@') &&
-        !cleanedMessage.includes('Error:')
-      ) {
-        return cleanedMessage;
-      }
-    }
+    const alt = handleUnknownCategory(cleanedMessage, context);
+    if (alt) return alt;
 
-    // Provide context-specific fallback for unknown errors
-    if (context === 'simulation') {
-      return 'Unable to simulate this transaction. Please verify your inputs and try again.';
-    } else if (context === 'transaction') {
-      return 'Transaction could not be completed. Please check your wallet and try again.';
-    } else if (context === 'bridge') {
-      return 'Cross-chain transfer failed. Please check network connectivity and try again.';
-    } else if (context === 'execute') {
-      return 'Smart contract execution failed. Please verify the transaction details.';
-    }
-
-    // Log unknown errors for debugging
     console.warn('Unknown error category detected:', {
       cleanedMessage,
       originalError: error,
@@ -332,13 +328,9 @@ export function formatErrorForUI(error: unknown, context?: string): string {
     });
   }
 
-  // Add context-specific messaging
   if (context && category !== 'USER_REJECTED') {
-    const contextualMessage = getContextualErrorMessage(category, context);
-    if (contextualMessage) {
-      return contextualMessage;
-    }
-    return userFriendlyMessage;
+    const contextual = getContextualErrorMessage(category, context);
+    if (contextual) return contextual;
   }
 
   return userFriendlyMessage;
@@ -518,8 +510,9 @@ export const getContentKey = (status: string, additionalStates?: string[]): stri
   return 'review';
 };
 
-export const formatCost = (cost: string) => {
-  const numCost = parseFloat(cost);
+export const formatCost = (cost: string | number | bigint) => {
+  const costStr = typeof cost === 'bigint' ? cost.toString() : String(cost);
+  const numCost = parseFloat(costStr);
   if (isNaN(numCost)) return 'Invalid';
   if (numCost < 0) return 'Invalid';
   if (numCost === 0) return 'Free';

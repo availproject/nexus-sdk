@@ -236,23 +236,34 @@ function parse(v){const m=v&&v.match(/^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+)\.(
 function toStr(b,preid,idx){return `${b.M}.${b.m}.${b.p}-${preid}.${idx}`}
 let timesJSON = exec(`npm view ${pkg} time --json`);
 let times={};try{times=JSON.parse(timesJSON||"{}");}catch(_){times={};}
-// Anchor to latest stable base
+// Determine base: prefer current prerelease channel if matching, otherwise use latest stable
 let latestStable = exec(`npm view ${pkg} version 2>/dev/null`) || "";
-let stable = parse(latestStable) || parse(current) || {M:0,m:0,p:0};
-// Find prereleases for THIS stable base only
-let preEntries = Object.entries(times).filter(([v])=> new RegExp(`^${stable.M}\\.${stable.m}\\.${stable.p}-${pre}\\.\\d+$`).test(v));
-preEntries.sort((a,b)=>new Date(a[1]) - new Date(b[1]));
+const parsedCurrent = parse(current);
+let base = parse(latestStable) || (parsedCurrent ? {M:parsedCurrent.M,m:parsedCurrent.m,p:parsedCurrent.p} : {M:0,m:0,p:0});
 let next;
-if(preEntries.length){
-  const lp = parse(preEntries[preEntries.length-1][0]);
-  if(lp && typeof lp.n === 'number' && lp.n < 9){
-    next = toStr({M:stable.M,m:stable.m,p:stable.p}, pre, lp.n + 1);
+// Continue from current package version if already on requested prerelease channel
+if(parsedCurrent && parsedCurrent.pre === pre){
+  if(typeof parsedCurrent.n === "number" && parsedCurrent.n < 9){
+    next = toStr({M:parsedCurrent.M,m:parsedCurrent.m,p:parsedCurrent.p}, pre, parsedCurrent.n + 1);
   }else{
-    // rollover to next patch from stable base
-    next = toStr({M:stable.M,m:stable.m,p:stable.p + 1}, pre, 0);
+    // rollover to next patch from current base
+    next = toStr({M:parsedCurrent.M,m:parsedCurrent.m,p:parsedCurrent.p + 1}, pre, 0);
   }
 }else{
-  next = toStr(stable, pre, 0);
+  // Find prereleases for THIS base only
+  let preEntries = Object.entries(times).filter(([v])=> new RegExp(`^${base.M}\\.${base.m}\\.${base.p}-${pre}\\.\\d+$`).test(v));
+  preEntries.sort((a,b)=>new Date(a[1]) - new Date(b[1]));
+  if(preEntries.length){
+    const lp = parse(preEntries[preEntries.length-1][0]);
+    if(lp && typeof lp.n === "number" && lp.n < 9){
+      next = toStr({M:base.M,m:base.m,p:base.p}, pre, lp.n + 1);
+    }else{
+      // rollover to next patch from base
+      next = toStr({M:base.M,m:base.m,p:base.p + 1}, pre, 0);
+    }
+  }else{
+    next = toStr(base, pre, 0);
+  }
 }
 console.log(next);
 ')
