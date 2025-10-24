@@ -162,8 +162,8 @@ const TESTNET_CHAINS: Chain[] = [
     },
     rpcUrls: {
       default: {
-        http: ['https://api.shasta.trongrid.io'],
-        grpc: ['https://api.shasta.trongrid.io/jsonrpc'],
+        http: ['https://api.shasta.trongrid.io/jsonrpc'],
+        grpc: ['https://api.shasta.trongrid.io'],
         publicHttp: ['https://api.shasta.trongrid.io/jsonrpc'],
         webSocket: [],
       },
