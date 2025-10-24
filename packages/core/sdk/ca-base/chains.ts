@@ -5,11 +5,11 @@ import {
   OmniversalChainID,
   Universe,
 } from '@arcana/ca-common';
-import { CHAIN_IDS } from 'fuels';
+// import { CHAIN_IDS } from 'fuels';
 
 import {
-  FUEL_BASE_ASSET_ID,
-  FUEL_NETWORK_URL,
+  // FUEL_BASE_ASSET_ID,
+  // FUEL_NETWORK_URL,
   getLogoFromSymbol,
   HYPEREVM_CHAIN_ID,
   KAIA_CHAIN_ID,
