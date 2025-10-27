@@ -85,9 +85,9 @@ export type SUPPORTED_CHAINS_IDS = (typeof SUPPORTED_CHAINS)[keyof typeof SUPPOR
  * This allows for dynamic parameter generation based on actual bridged amounts and user context
  */
 export type DynamicParamBuilder = (
-  token: SUPPORTED_TOKENS,
+  token: string,
   amount: string,
-  chainId: SUPPORTED_CHAINS_IDS,
+  chainId: number,
   userAddress: `0x${string}`,
 ) => {
   functionParams: readonly unknown[];
@@ -99,9 +99,9 @@ export type DynamicParamBuilder = (
  * Parameters for bridging tokens between chains.
  */
 export interface BridgeParams {
-  token: SUPPORTED_TOKENS;
+  token: string;
   amount: number | string;
-  chainId: SUPPORTED_CHAINS_IDS;
+  chainId: number;
   gas?: bigint;
   sourceChains?: number[];
 }
@@ -162,8 +162,8 @@ export interface TokenBalance {
 
 // Enhanced modular parameters for execute functionality with dynamic parameter building
 export interface ExecuteParams {
-  toChainId: SUPPORTED_CHAINS_IDS;
-  contractAddress: string;
+  toChainId: number;
+  contractAddress: Hex;
   contractAbi: Abi;
   functionName: string;
   buildFunctionParams: DynamicParamBuilder;
@@ -177,12 +177,8 @@ export interface ExecuteParams {
   tokenApproval?: {
     token: SUPPORTED_TOKENS;
     amount: string;
+    spender?: Hex;
   };
-  /**
-   * Optional approval buffer in basis points (bps). Defaults to 100 (1%).
-   * Use 0 to disable buffer (e.g., for bridge+execute flows where exact balances are used).
-   */
-  approvalBufferBps?: number;
 }
 
 export interface ExecuteResult {
@@ -197,14 +193,16 @@ export interface ExecuteResult {
   approvalTransactionHash?: string;
 }
 
-export interface ExecuteSimulation {
-  contractAddress: string;
-  functionName: string;
-  gasUsed: string;
-  success: boolean;
-  error?: string;
-  gasCostEth?: string;
-}
+export type ExecuteSimulation =
+  | {
+      gasUsed: bigint;
+      gasFee: bigint;
+      success: true;
+    }
+  | {
+      success: false;
+      error: string;
+    };
 
 // New types for improved approval simulation
 export interface ApprovalInfo {
@@ -233,6 +231,10 @@ export interface SimulationStep {
   description: string;
 }
 
+export type EventListenerType = {
+  onEvent: (eventName: string, ...args: any[]) => void;
+};
+
 interface SimulationMetadata {
   contractAddress: string;
   functionName: string;
@@ -246,29 +248,24 @@ interface SimulationMetadata {
   token?: SUPPORTED_TOKENS;
 }
 
-export interface BridgeAndExecuteSimulationResult {
-  steps: SimulationStep[];
-  bridgeSimulation: SimulationResult | null;
-  executeSimulation?: ExecuteSimulation;
-  totalEstimatedCost?: {
-    total: string;
-    breakdown: {
-      bridge: string;
-      execute: string;
+export type BridgeAndExecuteSimulationResult =
+  | {
+      bridgeSimulation: SimulationResult | null;
+      executeSimulation?: ExecuteSimulation;
+      success: true;
+    }
+  | {
+      success: false;
+      error: string;
     };
-  };
-  success: boolean;
-  error?: string;
-  metadata?: SimulationMetadata;
-}
 
 export interface BridgeAndExecuteParams {
-  toChainId: SUPPORTED_CHAINS_IDS;
-  token: SUPPORTED_TOKENS;
-  amount: number | string;
-  recipient?: `0x${string}`;
+  toChainId: number;
+  token: string;
+  amount: bigint;
+  recipient?: Hex;
   sourceChains?: number[];
-  execute?: Omit<ExecuteParams, 'toChainId'>;
+  execute: Omit<ExecuteParams, 'toChainId'>;
   enableTransactionPolling?: boolean;
   transactionTimeout?: number;
   // Global options for transaction confirmation
@@ -279,17 +276,21 @@ export interface BridgeAndExecuteParams {
   recentApprovalTxHash?: string;
 }
 
-export interface BridgeAndExecuteResult {
-  executeTransactionHash?: string;
-  executeExplorerUrl?: string;
-  approvalTransactionHash?: string;
-  bridgeTransactionHash?: string; // undefined when bridge is skipped
-  bridgeExplorerUrl?: string; // undefined when bridge is skipped
-  toChainId: number;
-  success: boolean;
-  error?: string;
-  bridgeSkipped: boolean; // indicates if bridge was skipped due to sufficient funds
-}
+export type BridgeAndExecuteResult =
+  | {
+      success: false;
+      error: string;
+    }
+  | {
+      executeTransactionHash: string;
+      executeExplorerUrl: string;
+      approvalTransactionHash?: string;
+      bridgeTransactionHash?: string; // undefined when bridge is skipped
+      bridgeExplorerUrl?: string; // undefined when bridge is skipped
+      toChainId: number;
+      success: true;
+      bridgeSkipped: boolean; // indicates if bridge was skipped due to sufficient funds
+    };
 
 /**
  * Smart contract call parameters
@@ -304,6 +305,7 @@ export interface ContractCallParams {
 
 export type BridgeQueryInput = {
   amount: number | string;
+  recipientAddress?: Hex;
   chainId: number;
   gas?: bigint;
   sourceChains?: number[];
@@ -454,13 +456,7 @@ export type IntentSourceForAllowance = {
 };
 
 export interface IRequestHandler {
-  buildIntent(sourceChains: number[]): Promise<
-    | {
-        intent: Intent;
-        token: TokenInfo;
-      }
-    | undefined
-  >;
+  buildIntent(sourceChains: number[]): Promise<Intent>;
   process(): Promise<{ explorerURL: string } | undefined>;
 }
 
@@ -610,6 +606,10 @@ export type RequestHandlerInput = {
     emit: (eventName: string, ...args: any[]) => void;
     networkConfig: NetworkConfig;
   } & TxOptions;
+};
+
+export type OnEventParam = {
+  onEvent?: (eventName: string, ...args: any[]) => void;
 };
 
 export type RequestHandlerResponse = {

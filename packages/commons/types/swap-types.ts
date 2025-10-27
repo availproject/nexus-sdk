@@ -3,7 +3,7 @@ import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import Decimal from 'decimal.js';
 import { type Hex, PrivateKeyAccount, WalletClient } from 'viem';
 
-import { NetworkConfig, TokenInfo, ChainListType } from '../index';
+import { NetworkConfig, TokenInfo, ChainListType, OnEventParam } from '../index';
 
 export type AuthorizationList = {
   address: Uint8Array;
@@ -118,7 +118,7 @@ export type SwapIntentHook = (data: {
 }) => unknown;
 
 export type SwapParams = {
-  emit: (stepID: string, step: unknown) => void;
+  onSwapIntent: SwapIntentHook;
   chainList: ChainListType;
   address: {
     cosmos: string;
@@ -131,11 +131,7 @@ export type SwapParams = {
     eoa: WalletClient;
   };
   networkConfig: NetworkConfig;
-} & SwapInputOptionalParams;
-
-export type SwapInputOptionalParams = {
-  swapIntentHook?: SwapIntentHook;
-};
+} & OnEventParam;
 
 export interface ExactInSwapInput {
   from?: {

@@ -43,6 +43,8 @@ import {
   EVMTransaction,
   NetworkConfig,
   SponsoredApprovalData,
+  GetAllowanceParams,
+  SetAllowanceParams,
 } from '@nexus/commons';
 import { vscCreateSponsoredApprovals } from './api.utils';
 import { convertTo32Bytes, equalFold, minutesToMs } from './common.utils';
@@ -86,16 +88,38 @@ const getAllowance = async (
   const publicClient = createPublicClientWithFallback(chain);
 
   try {
-    const allowance = await publicClient.readContract({
-      abi: ERC20ABI,
-      address: tokenContract,
-      args: [address, chainList.getVaultContractAddress(chain.id)],
-      functionName: 'allowance',
-    });
+    const allowance = erc20GetAllowance(
+      {
+        contractAddress: tokenContract,
+        spender: chainList.getVaultContractAddress(chain.id),
+        owner: address,
+      },
+      publicClient,
+    );
     return allowance;
   } catch {
     return 0n;
   }
+};
+
+const erc20GetAllowance = (params: GetAllowanceParams, client: PublicClient) => {
+  return client.readContract({
+    address: params.contractAddress,
+    abi: ERC20ABI,
+    functionName: 'allowance',
+    args: [params.owner, params.spender],
+  });
+};
+
+const erc20SetAllowance = (params: SetAllowanceParams & { chain: Chain }, client: WalletClient) => {
+  return client.writeContract({
+    address: params.contractAddress,
+    abi: ERC20ABI,
+    functionName: 'approve',
+    args: [params.spender, params.amount],
+    chain: params.chain,
+    account: params.owner,
+  });
 };
 
 const getAllowances = async (
@@ -229,14 +253,16 @@ const setAllowances = async (
     }
 
     if (currency.permitVariant === PermitVariant.Unsupported) {
-      const hash = await client.writeContract({
-        abi: ERC20ABI,
-        account: address,
-        address: addr,
-        args: [vaultAddr, amount],
-        chain,
-        functionName: 'approve',
-      });
+      const hash = await erc20SetAllowance(
+        {
+          amount,
+          chain,
+          contractAddress: addr,
+          owner: address,
+          spender: vaultAddr,
+        },
+        client,
+      );
       p.push(
         (async function () {
           const result = await publicClient.waitForTransactionReceipt({
@@ -317,14 +343,18 @@ const waitForTxReceipt = async (
   hash: `0x${string}`,
   publicClient: PublicClient,
   confirmations = 1,
+  timeout = 60000,
 ) => {
   const r = await publicClient.waitForTransactionReceipt({
     confirmations,
     hash,
+    timeout,
   });
   if (r.status === 'reverted') {
     throw new Error(`Transaction reverted: ${hash}`);
   }
+
+  return r;
 };
 
 const switchChain = async (client: WalletClient, chain: Chain) => {
@@ -544,6 +574,8 @@ const createPublicClientWithFallback = (chain: Chain): PublicClient => {
 };
 
 export {
+  erc20GetAllowance,
+  erc20SetAllowance,
   createPublicClientWithFallback,
   getAllowance,
   getAllowances,

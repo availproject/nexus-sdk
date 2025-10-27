@@ -44,6 +44,9 @@ importers:
       '@tronweb3/tronwallet-abstract-adapter':
         specifier: ^1.1.9
         version: 1.1.9
+      abitype:
+        specifier: 1.1.1
+        version: 1.1.1(typescript@5.9.3)
       decimal.js:
         specifier: 10.6.0
         version: 10.6.0
@@ -1184,6 +1187,17 @@ packages:
 
   abitype@1.1.0:
     resolution: {integrity: sha512-6Vh4HcRxNMLA0puzPjM5GBgT4aAcFGKZzSgAXvuZ27shJP6NEpielTuqbBmZILR5/xd0PizkBGy5hReKz9jl5A==}
+    peerDependencies:
+      typescript: ^5.0.0
+      zod: ^3.22.0 || ^4.0.0
+    peerDependenciesMeta:
+      typescript:
+        optional: true
+      zod:
+        optional: true
+
+  abitype@1.1.1:
+    resolution: {integrity: sha512-Loe5/6tAgsBukY95eGaPSDmQHIjRZYQq8PB1MpsNccDIK8WiV+Uw6WzaIXipvaxTEL2yEB0OpEaQv3gs8pkS9Q==}
     peerDependencies:
       typescript: ^5.0.0
       zod: ^3.22.0 || ^4.0.0
@@ -4039,6 +4053,10 @@ snapshots:
     optionalDependencies:
       typescript: 5.9.3
 
+  abitype@1.1.1(typescript@5.9.3):
+    optionalDependencies:
+      typescript: 5.9.3
+
   aes-js@3.1.2: {}
 
   aes-js@4.0.0-beta.5: {}
@@ -5280,7 +5298,7 @@ snapshots:
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
-      abitype: 1.1.0(typescript@5.9.3)
+      abitype: 1.1.1(typescript@5.9.3)
       eventemitter3: 5.0.1
     optionalDependencies:
       typescript: 5.9.3

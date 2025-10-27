@@ -6,11 +6,9 @@ import type {
   BridgeResult,
   TransferParams,
   TransferResult,
-  AllowanceResponse,
   OnIntentHook,
   OnAllowanceHook,
   EthereumProvider,
-  RequestArguments,
   UserAsset,
   SimulationResult,
   RequestForFunds,
@@ -24,33 +22,26 @@ import type {
   SwapResult,
   SupportedChainsResult,
   ExactInSwapInput,
-  SwapInputOptionalParams,
   ExactOutSwapInput,
+  OnEventParam,
 } from '@nexus/commons';
 import { logger } from '@nexus/commons';
-import SafeEventEmitter from '@metamask/safe-event-emitter';
 import { CA } from './ca-base';
-import { ChainAbstractionAdapter } from '../adapters/chain-abstraction-adapter';
 import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 
 export class NexusSDK extends CA {
-  private readonly nexusAdapter: ChainAbstractionAdapter;
-  public readonly nexusEvents: SafeEventEmitter;
   public readonly utils: NexusUtils;
 
   constructor(config?: { network?: NexusNetwork; debug?: boolean }) {
     super(config);
     logger.debug('Nexus SDK initialized with config:', config);
-    this.nexusAdapter = new ChainAbstractionAdapter(this);
-    this.nexusEvents = this._caEvents;
-    this.utils = new NexusUtils(this.nexusAdapter, () => this.isInitialized());
+    this.utils = new NexusUtils(this.chainList);
   }
 
   /**
    * Initialize the SDK with a provider
    */
   public async initialize(provider: EthereumProvider): Promise<void> {
-    // Initialize the core adapter first
     this._setEVMProvider(provider);
     await this._init();
     const BACKEND_URL = 'https://nexus-backend.avail.so';
@@ -74,24 +65,15 @@ export class NexusSDK extends CA {
   }
 
   /**
-   * Get unified balance for a specific token
-   */
-  public async getUnifiedBalance(
-    symbol: string,
-    includeSwappableBalances = false,
-  ): Promise<UserAsset | undefined> {
-    return this._getUnifiedBalance(symbol, includeSwappableBalances);
-  }
-
-  /**
-   * Cross chain token transfer
+   * Bridge to destination chain from auto-selected or provided source chains
    */
   public async bridge(params: BridgeParams): Promise<BridgeResult> {
     try {
-      const result = await (await this._bridge(params)).exec();
+      const bridgeHandler = await this.createBridgeHandler(params);
+      const result = await bridgeHandler.execute();
       return {
         success: true,
-        explorerUrl: result?.explorerURL ?? '',
+        explorerUrl: result.explorerURL ?? '',
       };
     } catch (e) {
       logger.debug('BridgeError: ', e);
@@ -103,16 +85,20 @@ export class NexusSDK extends CA {
   }
 
   /**
-   * Cross chain token transfer to EOA
+   * Bridge & transfer to an address (Attribution)
    */
-  public async transfer(params: TransferParams): Promise<TransferResult> {
+  public async bridgeAndTransfer(params: TransferParams): Promise<TransferResult> {
     try {
-      const result = await (await this._transfer({ ...params, to: params.recipient })).exec();
-      return {
-        success: true,
-        transactionHash: result.hash,
-        explorerUrl: result.explorerURL,
-      };
+      const result = await this._bridgeAndTransfer({ ...params, to: params.recipient });
+      if (result.success) {
+        return {
+          success: result.success,
+          transactionHash: result.executeTransactionHash,
+          explorerUrl: result.executeExplorerUrl,
+        };
+      }
+
+      return result;
     } catch (e) {
       return {
         success: false,
@@ -123,7 +109,7 @@ export class NexusSDK extends CA {
 
   public async swapWithExactIn(
     input: ExactInSwapInput,
-    options?: SwapInputOptionalParams,
+    options?: OnEventParam,
   ): Promise<SwapResult> {
     try {
       const result = await this._swapWithExactIn(input, options);
@@ -142,7 +128,7 @@ export class NexusSDK extends CA {
 
   public async swapWithExactOut(
     input: ExactOutSwapInput,
-    options?: SwapInputOptionalParams,
+    options?: OnEventParam,
   ): Promise<SwapResult> {
     try {
       const result = await this._swapWithExactOut(input, options);
@@ -160,26 +146,17 @@ export class NexusSDK extends CA {
   }
 
   /**
-   * Get chain abstracted provider allowing use of chain asbtraction
-   * @returns EthereumProvider
-   */
-
-  public getEVMProviderWithCA(): EthereumProvider {
-    return this._getEVMProviderWithCA();
-  }
-
-  /**
    * Simulate bridge transaction to get costs and fees
    */
   public async simulateBridge(params: BridgeParams): Promise<SimulationResult> {
-    return (await this._bridge(params)).simulate();
+    return (await this.createBridgeHandler(params)).simulate();
   }
 
   /**
    * Simulate transfer transaction to get costs and fees
    */
-  public async simulateTransfer(params: TransferParams): Promise<SimulationResult> {
-    return (await this._transfer({ ...params, to: params.recipient })).simulate();
+  public async simulateTransfer(params: TransferParams): Promise<BridgeAndExecuteSimulationResult> {
+    return this._simulateBridgeAndTransfer({ ...params, to: params.recipient });
   }
 
   /**
@@ -190,35 +167,21 @@ export class NexusSDK extends CA {
   }
 
   /**
-   * Check allowance for tokens on a specific chain
-   */
-  public async getAllowance(chainId?: number, tokens?: string[]): Promise<AllowanceResponse[]> {
-    return this._allowance().get({ chainID: chainId, tokens });
-  }
-
-  /**
-   * Set allowance for a token on a specific chain
-   */
-  public async setAllowance(chainId: number, tokens: string[], amount: bigint): Promise<void> {
-    return this._allowance().set({ chainID: chainId, tokens, amount });
-  }
-
-  /**
-   * Revoke allowance for a token on a specific chain
-   */
-  public async revokeAllowance(chainId: number, tokens: string[]): Promise<void> {
-    return this._allowance().revoke({ chainID: chainId, tokens });
-  }
-
-  /**
    * Set callback for intent status updates
    */
   public setOnIntentHook(callback: OnIntentHook): void {
     this._setOnIntentHook(callback);
   }
 
+  /**
+   * Set callback for swap intent details
+   */
+  public setOnSwapIntentHook(callback: OnIntentHook): void {
+    this._setOnIntentHook(callback);
+  }
+
   public addTron(adapter: AdapterProps) {
-    this.setTronAdapter(adapter);
+    this._setTronAdapter(adapter);
   }
 
   /**
@@ -232,17 +195,13 @@ export class NexusSDK extends CA {
     return this._deinit();
   }
 
-  public async request(args: RequestArguments): Promise<unknown> {
-    return this._handleEVMTx(args);
-  }
-
   /**
    * Standalone function to execute funds into a smart contract
    * @param params execute parameters including contract details and transaction settings
    * @returns Promise resolving to execute result with transaction hash and explorer URL
    */
   public async execute(params: ExecuteParams): Promise<ExecuteResult> {
-    return this.nexusAdapter.execute(params);
+    return this._execute(params);
   }
 
   /**
@@ -251,7 +210,7 @@ export class NexusSDK extends CA {
    * @returns Promise resolving to simulation result with gas estimates
    */
   public async simulateExecute(params: ExecuteParams): Promise<ExecuteSimulation> {
-    return this.nexusAdapter.simulateExecute(params);
+    return this._simulateExecute(params);
   }
 
   /**
@@ -260,7 +219,7 @@ export class NexusSDK extends CA {
    * @returns Promise resolving to comprehensive operation result
    */
   public async bridgeAndExecute(params: BridgeAndExecuteParams): Promise<BridgeAndExecuteResult> {
-    return this.nexusAdapter.bridgeAndExecute(params);
+    return this.bridgeAndExecute(params);
   }
 
   /**
@@ -272,7 +231,7 @@ export class NexusSDK extends CA {
   public async simulateBridgeAndExecute(
     params: BridgeAndExecuteParams,
   ): Promise<BridgeAndExecuteSimulationResult> {
-    return this.nexusAdapter.simulateBridgeAndExecute(params);
+    return this._simulateBridgeAndExecute(params);
   }
 
   public getSwapSupportedChainsAndTokens(): SupportedChainsResult {

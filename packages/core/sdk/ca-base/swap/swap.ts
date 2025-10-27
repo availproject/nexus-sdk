@@ -47,7 +47,9 @@ export const swap = async (
   performance.mark('swap-start');
   const emitter = {
     emit: (step: SwapStep) => {
-      options.emit('swap_step', step);
+      if (options.onEvent) {
+        options.onEvent('swap_step', step);
+      }
     },
   };
 
@@ -95,59 +97,55 @@ export const swap = async (
 
   // Swap Intent hook handling
   {
-    if (options?.swapIntentHook) {
-      const hook = options?.swapIntentHook;
+    const destination = {
+      amount: divDecimals(
+        input.mode === SwapMode.EXACT_OUT ? input.data.toAmount : destinationSwap.outputAmount,
+        dstTokenInfo.decimals,
+      ).toFixed(),
+      chainID: input.data.toChainId,
+      contractAddress: input.data.toTokenAddress,
+      decimals: dstTokenInfo.decimals,
+      symbol: dstTokenInfo.symbol,
+    };
 
-      const destination = {
-        amount: divDecimals(
-          input.mode === SwapMode.EXACT_OUT ? input.data.toAmount : destinationSwap.outputAmount,
-          dstTokenInfo.decimals,
-        ).toFixed(),
-        chainID: input.data.toChainId,
-        contractAddress: input.data.toTokenAddress,
-        decimals: dstTokenInfo.decimals,
-        symbol: dstTokenInfo.symbol,
-      };
+    let accepted = false;
 
-      let accepted = false;
-
-      const refresh = async () => {
-        if (accepted) {
-          logger.warn('Swap Intent refresh called after acceptance');
-          return createSwapIntent(assetsUsed, destination, options.chainList);
-        }
-
-        const swapRouteResponse = await determineSwapRoute(input, swapRouteParams);
-
-        sourceSwaps = swapRouteResponse.sourceSwaps;
-        assetsUsed = swapRouteResponse.assetsUsed;
-        destinationSwap = swapRouteResponse.destinationSwap;
-        bridgeInput = swapRouteResponse.bridgeInput;
-        logger.debug('refresh-swap-route', {
-          dstTokenInfo,
-          swapRoute: swapRouteResponse,
-        });
+    const refresh = async () => {
+      if (accepted) {
+        logger.warn('Swap Intent refresh called after acceptance');
         return createSwapIntent(assetsUsed, destination, options.chainList);
-      };
-      // wait for intent acceptance hook
-      await new Promise((resolve, reject) => {
-        const allow = () => {
-          accepted = true;
-          return resolve('User allowed intent');
-        };
+      }
 
-        const deny = () => {
-          return reject(ErrorUserDeniedIntent);
-        };
+      const swapRouteResponse = await determineSwapRoute(input, swapRouteParams);
 
-        hook({
-          allow,
-          deny,
-          intent: createSwapIntent(assetsUsed, destination, options.chainList),
-          refresh,
-        });
+      sourceSwaps = swapRouteResponse.sourceSwaps;
+      assetsUsed = swapRouteResponse.assetsUsed;
+      destinationSwap = swapRouteResponse.destinationSwap;
+      bridgeInput = swapRouteResponse.bridgeInput;
+      logger.debug('refresh-swap-route', {
+        dstTokenInfo,
+        swapRoute: swapRouteResponse,
       });
-    }
+      return createSwapIntent(assetsUsed, destination, options.chainList);
+    };
+    // wait for intent acceptance hook
+    await new Promise((resolve, reject) => {
+      const allow = () => {
+        accepted = true;
+        return resolve('User allowed intent');
+      };
+
+      const deny = () => {
+        return reject(ErrorUserDeniedIntent);
+      };
+
+      options.onSwapIntent({
+        allow,
+        deny,
+        intent: createSwapIntent(assetsUsed, destination, options.chainList),
+        refresh,
+      });
+    });
   }
 
   const metadata: SwapMetadata = {

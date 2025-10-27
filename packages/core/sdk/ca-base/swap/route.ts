@@ -121,6 +121,12 @@ export const determineSwapRoute = async (
   }
 };
 
+// COT = currency of transfer
+// DEF: The common currency which is supported by bridge on every supported chain and acts as a transient currency for swaps.
+// FLOW: Source tokens get converted to COT, COT is bridged across chains to a destination chain, 
+// COT is then changed to desired destination token
+// Currently COT is USDC.
+
 const _exactOutRoute = async (
   input: ExactOutSwapInput,
   params: SwapParams & { aggregators: Aggregator[]; cotCurrencyID: CurrencyID },
@@ -545,6 +551,7 @@ const _exactInRoute = async (
   const assetsUsed: AssetUsed = [];
   let srcBalances: FlatBalance[] = [];
   if (input.from) {
+    // Filter out sources user requested to be used
     for (const f of input.from) {
       const srcBalance = balances.find((b) => {
         logger.debug('ExactIN:2:input.src', {
@@ -583,9 +590,6 @@ const _exactInRoute = async (
         symbol: srcBalance.symbol,
       });
     }
-    // } else {
-    //   throw new Error('should have gone to single source swap route');
-    // }
   } else {
     srcBalances = balances;
   }
@@ -604,7 +608,6 @@ const _exactInRoute = async (
   }
 
   const cotSymbol = CurrencyID[params.cotCurrencyID];
-
   const dstChainCOT = dstChainDataMap.Currencies.find((c) => c.currencyID === params.cotCurrencyID);
   if (!dstChainCOT) {
     throw ErrorCOTNotFound(input.toChainId);
@@ -627,6 +630,7 @@ const _exactInRoute = async (
     ) {
       cotSources.push(source);
       cotCombinedBalance = cotCombinedBalance.add(source.amount);
+
       bridgeAssets.push({
         chainID: source.chainID,
         contractAddress: convertToEVMAddress(source.tokenAddress),

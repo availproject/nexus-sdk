@@ -881,7 +881,12 @@ async function waitForTronApprovalTxConfirmation(
   throw new Error(`⏰ Timeout: Transaction not confirmed within ${timeout / 1000}s`);
 }
 
+const createExplorerTxURL = (txHash: Hex, explorerURL: string) => {
+  return new URL(`/tx/${txHash}`, explorerURL).href;
+};
+
 export {
+  createExplorerTxURL,
   waitForTronApprovalTxConfirmation,
   waitForTronDepositTxConfirmation,
   UserAsset,

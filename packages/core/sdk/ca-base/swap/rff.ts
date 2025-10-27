@@ -1,22 +1,12 @@
-import {
-  DepositVEPacket,
-  EVMRFF,
-  EVMVaultABI,
-  MsgDoubleCheckTx,
-  Universe,
-} from '@avail-project/ca-common';
+import { DepositVEPacket, EVMVaultABI, MsgDoubleCheckTx, Universe } from '@avail-project/ca-common';
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import Decimal from 'decimal.js';
 import Long from 'long';
 import {
   bytesToNumber,
   createPublicClient,
-  encodeAbiParameters,
   encodeFunctionData,
-  getAbiItem,
-  keccak256,
   PrivateKeyAccount,
-  toBytes,
   toHex,
   webSocket,
 } from 'viem';
@@ -33,8 +23,10 @@ import {
   mulDecimals,
   removeIntentHashFromStore,
   storeIntentHashToStore,
+  cosmosCreateDoubleCheckTx,
+  cosmosCreateRFF,
 } from '../utils';
-import { cosmosCreateDoubleCheckTx, cosmosCreateRFF, packERC20Approve } from './utils';
+import { packERC20Approve } from './utils';
 import {
   BridgeAsset,
   EoaToEphemeralCallMap,
@@ -419,28 +411,6 @@ export const createBridgeRFF = async ({
     intent,
     waitForFill,
   };
-};
-
-export const createRequestEVMSignature = async (evmRFF: EVMRFF, account: PrivateKeyAccount) => {
-  const abi = getAbiItem({ abi: EVMVaultABI, name: 'deposit' });
-  const msg = encodeAbiParameters(abi.inputs[0].components, [
-    evmRFF.sources,
-    evmRFF.destinationUniverse,
-    evmRFF.destinationChainID,
-    evmRFF.recipientAddress,
-    evmRFF.destinations,
-    evmRFF.nonce,
-    evmRFF.expiry,
-    evmRFF.parties,
-  ]);
-  const hash = keccak256(msg, 'bytes');
-  const signature = toBytes(
-    await account.signMessage({
-      message: { raw: hash },
-    }),
-  );
-
-  return { requestHash: hash, signature };
 };
 
 export const createDoubleCheckTx = (

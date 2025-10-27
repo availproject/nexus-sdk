@@ -12,6 +12,7 @@ import {
   type BackendBundleResponse,
 } from './types';
 import { CHAIN_METADATA, logger } from '@nexus/commons';
+import axios from 'axios';
 
 /**
  * Backend simulation result interface
@@ -251,6 +252,29 @@ export class BackendSimulationClient {
 
     // Use the first RPC URL from the metadata
     return chainMetadata.rpcUrls[0];
+  }
+
+  async simulateBundleV2(request: BundleSimulationRequest) {
+    logger.info('DEBUG simulateBundle - request:', JSON.stringify(request, null, 2));
+
+    const { data } = await axios.post<BackendBundleResponse>(
+      new URL(`/api/gas-estimation/bundle`, this.baseUrl).href,
+      request,
+    );
+
+    if (!data.success || !data.data) {
+      throw new Error(data.message || 'Bundle simulation failed');
+    }
+
+    const gasUsed = data.data.reduce((acc, d) => {
+      return acc + BigInt(d.gasUsed);
+    }, 0n);
+
+    const gasLimit = data.data.reduce((acc, d) => {
+      return acc + BigInt(d.gasLimit);
+    }, 0n);
+
+    return { gasUsed, gasLimit };
   }
 
   async simulateBundle(request: BundleSimulationRequest): Promise<BundleSimulationResponse> {

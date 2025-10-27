@@ -1,0 +1,655 @@
+import {
+  BridgeAndExecuteParams,
+  BridgeAndExecuteResult,
+  BridgeResult,
+  DynamicParamBuilder,
+  logger,
+  Tx,
+  Chain,
+  ChainListType,
+  extractErrorMessage,
+  BridgeParams,
+  UserAssetDatum,
+  ExecuteParams,
+  ExecuteResult,
+  ExecuteSimulation,
+  BridgeQueryInput,
+  OnEventParam,
+  BridgeAndExecuteSimulationResult,
+} from '@nexus/commons';
+import {
+  Abi,
+  createPublicClient,
+  encodeFunctionData,
+  Hex,
+  http,
+  PublicClient,
+  toHex,
+  WalletClient,
+} from 'viem';
+import {
+  createExplorerTxURL,
+  divDecimals,
+  erc20GetAllowance,
+  mulDecimals,
+  UserAssets,
+  waitForTxReceipt,
+  generateStateOverride,
+} from '../utils';
+import { packERC20Approve } from '../swap/utils';
+import { BackendSimulationClient } from 'integrations/tenderly';
+import BridgeHandler from '../requestHandlers/bridge';
+
+class BridgeAndExecuteQuery {
+  constructor(
+    private chainList: ChainListType,
+    private evmClient: WalletClient,
+    private bridge: (input: BridgeQueryInput, options?: OnEventParam) => Promise<BridgeHandler>,
+    private getUnifiedBalances: () => Promise<UserAssetDatum[]>,
+    private simulationClient: BackendSimulationClient,
+  ) {}
+
+  public async simulateBridgeAndExecute(
+    params: BridgeAndExecuteParams,
+  ): Promise<BridgeAndExecuteSimulationResult> {
+    const { toChainId, token: tokenSymbol, amount, execute } = params;
+    try {
+      // 1. Check if dst chain data is available
+      // 2. Check if token is supported
+      const { token, chain: dstChain } = this.chainList.getChainAndTokenFromSymbol(
+        params.toChainId,
+        tokenSymbol,
+      );
+      if (!token) {
+        throw new Error(`Token ${tokenSymbol} not supported on chain ${toChainId}.`);
+      }
+
+      let bridgeResult = null;
+
+      logger.debug('BridgeAndExecute:1', {
+        token,
+        dstChain,
+      });
+
+      const address = (await this.evmClient.getAddresses())[0];
+      let txs: Tx[] = [];
+
+      const { tx, approvalTx, dstPublicClient } = await this.createTxsForExecute(
+        { ...execute, toChainId: params.toChainId },
+        address,
+      );
+
+      logger.debug('BridgeAndExecute:2', {
+        tx,
+        approvalTx,
+      });
+
+      if (approvalTx) {
+        txs.push(approvalTx);
+      }
+
+      txs.push(tx);
+
+      // 5. simulate approval(?) and execution + fetch gasPrice + fetch unified balance
+      const [{ gasUsed }, gasEstimate, balances] = await Promise.all([
+        this.simulateBundle({
+          txs,
+          amount: BigInt(execute.tokenApproval?.amount ?? '0'),
+          userAddress: address,
+          chainId: dstChain.id,
+          tokenAddress: token.contractAddress,
+          tokenSymbol: execute.tokenApproval?.token ?? 'ETH',
+        }),
+        dstPublicClient.estimateFeesPerGas(),
+        this.getUnifiedBalances(),
+      ]);
+
+      const gasUnitPrice = gasEstimate.maxFeePerGas ?? gasEstimate.gasPrice ?? 0n;
+      if (gasUnitPrice === 0n) {
+        throw new Error('Gas price could not be fetched from RPC URL.');
+      }
+
+      const gasRequired = gasUsed * gasUnitPrice;
+
+      logger.debug('BridgeAndExecute:3', {
+        gasUsed,
+        gasEstimate,
+        gasUnitPrice,
+        balances,
+      });
+
+      // 6. Determine gas + token required for approval(?) + tx
+      const { skipBridge, tokenAmount, gasAmount } = await this.calculateOptimalBridgeAmount(
+        dstChain,
+        token.contractAddress,
+        token.decimals,
+        amount,
+        gasRequired,
+        balances,
+      );
+
+      logger.debug('BridgeAndExecute:4:CalculateOptimalBridgeAmount', {
+        skipBridge,
+        tokenAmount,
+        gasAmount,
+      });
+
+      // 7. If bridge is required then simulate bridge
+      if (!skipBridge) {
+        bridgeResult = await this.simulateBridgeWrapper({
+          token: tokenSymbol,
+          amount: divDecimals(BigInt(tokenAmount), token.decimals).toFixed(),
+          chainId: toChainId,
+          sourceChains: params.sourceChains,
+          gas: gasAmount,
+        });
+      }
+
+      // 8. Return result
+      const result: BridgeAndExecuteSimulationResult = {
+        success: true,
+        bridgeSimulation: bridgeResult,
+        executeSimulation: {
+          success: true,
+          gasUsed,
+          gasFee: gasRequired,
+        },
+      };
+
+      return result;
+    } catch (error) {
+      const errorMessage = extractErrorMessage(error, 'simulate bridge and execute');
+
+      logger.debug('Simulate BridgeAndExecute:5:ERROR', {
+        error,
+      });
+      return {
+        success: false,
+        error: `Simulate Bridge and execute operation failed: ${errorMessage}`,
+      };
+    }
+  }
+
+  /**
+   * Bridge and execute operation - combines bridge and execute with proper sequencing
+   * Now includes smart balance checking to skip bridging when sufficient funds exist
+   */
+  public async bridgeAndExecute(
+    params: BridgeAndExecuteParams,
+    options?: OnEventParam,
+  ): Promise<BridgeAndExecuteResult> {
+    const { toChainId, token: tokenSymbol, amount, execute } = params;
+    try {
+      // 1. Check if dst chain data is available
+      // 2. Check if token is supported
+      const { token, chain: dstChain } = this.chainList.getChainAndTokenFromSymbol(
+        params.toChainId,
+        tokenSymbol,
+      );
+      if (!token) {
+        throw new Error(`Token ${tokenSymbol} not supported on chain ${toChainId}.`);
+      }
+
+      let bridgeResult: BridgeResult = {
+        success: true,
+        explorerUrl: '',
+      };
+
+      logger.debug('BridgeAndExecute:1', {
+        token,
+        dstChain,
+      });
+
+      const address = (await this.evmClient.getAddresses())[0];
+      let txs: Tx[] = [];
+
+      const { tx, approvalTx, dstPublicClient } = await this.createTxsForExecute(
+        { ...execute, toChainId: params.toChainId },
+        address,
+      );
+
+      logger.debug('BridgeAndExecute:2', {
+        tx,
+        approvalTx,
+      });
+
+      if (approvalTx) {
+        txs.push(approvalTx);
+      }
+
+      txs.push(tx);
+
+      // 5. simulate approval(?) and execution + fetch gasPrice + fetch unified balance
+      const [{ gasUsed }, gasEstimate, balances] = await Promise.all([
+        this.simulateBundle({
+          txs,
+          amount: BigInt(execute.tokenApproval?.amount ?? '0'),
+          userAddress: address,
+          chainId: dstChain.id,
+          tokenAddress: token.contractAddress,
+          tokenSymbol: execute.tokenApproval?.token ?? 'ETH',
+        }),
+        dstPublicClient.estimateFeesPerGas(),
+        this.getUnifiedBalances(),
+      ]);
+
+      const gasUnitPrice = gasEstimate.maxFeePerGas ?? gasEstimate.gasPrice ?? 0n;
+      if (gasUnitPrice === 0n) {
+        throw new Error('Gas price could not be fetched from RPC URL.');
+      }
+
+      const gasRequired = gasUsed * gasUnitPrice;
+
+      logger.debug('BridgeAndExecute:3', {
+        gasUsed,
+        gasEstimate,
+        gasUnitPrice,
+        balances,
+      });
+
+      // 6. Determine gas or token needed via bridge
+      const { skipBridge, tokenAmount, gasAmount } = await this.calculateOptimalBridgeAmount(
+        dstChain,
+        token.contractAddress,
+        token.decimals,
+        amount,
+        gasRequired,
+        balances,
+      );
+
+      // Create and emit steps
+
+      logger.debug('BridgeAndExecute:4:CalculateOptimalBridgeAmount', {
+        skipBridge,
+        tokenAmount,
+        gasAmount,
+      });
+
+      // 7. If bridge is required then bridge
+      if (!skipBridge) {
+        bridgeResult = await this.bridgeWrapper({
+          token: tokenSymbol,
+          amount: divDecimals(BigInt(tokenAmount), token.decimals).toFixed(),
+          chainId: toChainId,
+          sourceChains: params.sourceChains,
+          gas: gasAmount,
+        });
+        if (!bridgeResult.success) {
+          throw new Error(`Bridge failed: ${bridgeResult.error}`);
+        }
+      }
+
+      // 8. Execute the transaction
+      const executeResponse = await this.sendTx(
+        {
+          approvalTx,
+          tx,
+        },
+        {
+          chain: dstChain,
+          dstPublicClient,
+          address,
+          receiptTimeout: params.receiptTimeout,
+          requiredConfirmations: params.requiredConfirmations,
+          waitForReceipt: params.waitForReceipt,
+          client: this.evmClient,
+        },
+      );
+
+      logger.debug('BridgeAndExecute:5', {
+        executeResponse,
+      });
+
+      // 9. Return result
+      const result: BridgeAndExecuteResult = {
+        executeTransactionHash: executeResponse.txHash,
+        executeExplorerUrl: createExplorerTxURL(
+          executeResponse.txHash,
+          dstChain.blockExplorers!.default.url,
+        ),
+        approvalTransactionHash: executeResponse.approvalHash,
+        bridgeTransactionHash: bridgeResult.transactionHash,
+        bridgeExplorerUrl: bridgeResult.explorerUrl,
+        toChainId,
+        success: true,
+        bridgeSkipped: skipBridge,
+      };
+
+      return result;
+    } catch (error) {
+      const errorMessage = extractErrorMessage(error, 'bridge and execute');
+
+      logger.debug('BridgeAndExecute:5:ERROR', {
+        error,
+      });
+      return {
+        success: false,
+        error: `Bridge and execute operation failed: ${errorMessage}`,
+      };
+    }
+  }
+
+  private async createTxsForExecute(params: ExecuteParams, address: Hex) {
+    // 1. Check if dst chain data is available
+    const dstChain = this.chainList.getChainByID(params.toChainId);
+    if (!dstChain) {
+      throw new Error(`Chain not supported: ${params.toChainId}`);
+    }
+
+    const dstPublicClient = createPublicClient({
+      transport: http(dstChain.rpcUrls.default.http[0]),
+    });
+
+    // 2. Check if token is supported
+    let approvalTx: Tx | null = null;
+    if (params.tokenApproval) {
+      const token = this.chainList.getTokenInfoBySymbol(
+        params.toChainId,
+        params.tokenApproval.token,
+      );
+      if (!token) {
+        throw new Error(
+          `Token ${params.tokenApproval.token} not supported on chain ${params.toChainId}.`,
+        );
+      }
+      if (params.tokenApproval) {
+        const spender = params.tokenApproval.spender ?? params.contractAddress;
+        const currentAllowance = await erc20GetAllowance(
+          {
+            contractAddress: token.contractAddress,
+            spender: params.tokenApproval.spender ?? params.contractAddress,
+            owner: address,
+          },
+          dstPublicClient,
+        );
+
+        const requiredAllowance = BigInt(params.tokenApproval.amount);
+        if (currentAllowance < requiredAllowance) {
+          approvalTx = {
+            to: token.contractAddress,
+            data: packERC20Approve(spender, requiredAllowance),
+            value: 0n,
+          };
+        }
+      }
+    }
+
+    // 4. Encode execute tx
+    const tx = this.createExecuteTx({
+      ...params,
+      amount: params.tokenApproval?.amount ?? '0',
+      tokenSymbol: params.tokenApproval?.token ?? 'ETH',
+      address,
+      chainId: dstChain.id,
+    });
+
+    return { tx, approvalTx, dstChain, dstPublicClient };
+  }
+
+  public async execute(params: ExecuteParams, address: Hex) {
+    const { dstPublicClient, dstChain, approvalTx, tx } = await this.createTxsForExecute(
+      params,
+      address,
+    );
+
+    // 1. Execute the transaction
+    const executeResponse = await this.sendTx(
+      {
+        approvalTx,
+        tx,
+      },
+      {
+        chain: dstChain,
+        dstPublicClient,
+        address,
+        receiptTimeout: params.receiptTimeout,
+        requiredConfirmations: params.requiredConfirmations,
+        waitForReceipt: params.waitForReceipt,
+        client: this.evmClient,
+      },
+    );
+
+    const result: ExecuteResult = {
+      chainId: params.toChainId,
+      explorerUrl: createExplorerTxURL(
+        executeResponse.txHash,
+        dstChain.blockExplorers!.default.url,
+      ),
+      transactionHash: executeResponse.txHash,
+      approvalTransactionHash: executeResponse.approvalHash,
+      receipt: executeResponse.receipt,
+      confirmations: params.requiredConfirmations,
+      effectiveGasPrice: String(0),
+      gasUsed: String(executeResponse.receipt?.gasUsed ?? 0n),
+    };
+
+    return result;
+  }
+
+  public async simulateExecute(params: ExecuteParams, address: Hex): Promise<ExecuteSimulation> {
+    try {
+      const { dstPublicClient, dstChain, tx } = await this.createTxsForExecute(params, address);
+
+      const [gasUsed, gasPrice] = await Promise.all([
+        dstPublicClient.estimateGas({
+          to: tx.to,
+          data: tx.data,
+          value: tx.value,
+          account: address,
+        }),
+        dstPublicClient.estimateFeesPerGas(),
+      ]);
+
+      const gasUnitPrice = gasPrice.maxFeePerGas ?? gasPrice.gasPrice ?? 0n;
+      if (gasUnitPrice === 0n) {
+        throw new Error('could not get gas price from rpc.');
+      }
+
+      return {
+        gasUsed: gasUsed,
+        gasFee: gasUsed * gasUnitPrice,
+        success: true,
+      };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  /**
+   * Calculate optimal bridge amount based on destination chain balance
+   * Returns the exact amount needed to bridge, or indicates if bridge can be skipped entirely
+   */
+  private async calculateOptimalBridgeAmount(
+    chain: Chain,
+    tokenAddress: Hex,
+    tokenDecimals: number,
+    requiredTokenAmount: bigint,
+    requiredGasAmount: bigint,
+    assets: UserAssetDatum[],
+  ): Promise<{ skipBridge: boolean; tokenAmount: bigint; gasAmount: bigint }> {
+    try {
+      let skipBridge = true;
+      let tokenAmount = requiredTokenAmount;
+      let gasAmount = requiredGasAmount;
+      const assetList = new UserAssets(assets);
+      const { destinationAssetBalance, destinationGasBalance } = assetList.getAssetDetails(
+        chain,
+        tokenAddress,
+      );
+
+      const destinationTokenAmount = mulDecimals(destinationAssetBalance, tokenDecimals);
+      const destinationGasAmount = mulDecimals(
+        destinationGasBalance,
+        chain.nativeCurrency.decimals,
+      );
+
+      logger.debug('calculateOptimalBridgeAmount', {
+        destinationTokenAmount,
+        requiredTokenAmount,
+        destinationGasAmount,
+        requiredGasAmount,
+      });
+
+      const isGasBridgeRequired = destinationGasAmount < requiredGasAmount;
+      const isTokenBridgeRequired = destinationTokenAmount < requiredTokenAmount;
+
+      if (isGasBridgeRequired || isTokenBridgeRequired) {
+        skipBridge = false;
+
+        tokenAmount =
+          destinationTokenAmount < requiredTokenAmount
+            ? requiredTokenAmount - destinationTokenAmount
+            : 0n;
+
+        gasAmount =
+          destinationGasAmount < requiredGasAmount ? requiredGasAmount - destinationGasAmount : 0n;
+      }
+
+      return {
+        skipBridge,
+        tokenAmount,
+        gasAmount,
+      };
+    } catch (error) {
+      logger.warn(`Failed to calculate optimal bridge amount: ${error}`);
+      // Default to bridging full amount on error
+      return { skipBridge: false, tokenAmount: requiredTokenAmount, gasAmount: requiredGasAmount };
+    }
+  }
+
+  private async simulateBundle(input: {
+    tokenSymbol: string;
+    tokenAddress: Hex;
+    amount: bigint;
+    txs: Tx[];
+    chainId: number;
+    userAddress: Hex;
+  }) {
+    const overrides = generateStateOverride(input);
+    return this.simulationClient.simulateBundleV2({
+      chainId: String(input.chainId),
+      simulations: input.txs.map((tx, i) => ({
+        type: 'something',
+        from: input.userAddress,
+        to: tx.to,
+        data: tx.data,
+        value: toHex(tx.value),
+        stepId: `sim_${i}`,
+        stateOverride: overrides,
+      })),
+    });
+  }
+
+  private createExecuteTx(executeParams: {
+    contractAddress: Hex;
+    contractAbi: Abi;
+    functionName: string;
+    chainId: number;
+    address: Hex;
+    buildFunctionParams: DynamicParamBuilder;
+    tokenSymbol: string;
+    amount: string;
+  }): Tx {
+    const { functionParams, value } = executeParams.buildFunctionParams(
+      executeParams.tokenSymbol,
+      executeParams.amount,
+      executeParams.chainId,
+      executeParams.address,
+    );
+
+    const data = encodeFunctionData({
+      abi: executeParams.contractAbi,
+      args: functionParams,
+      functionName: executeParams.functionName,
+    });
+
+    return {
+      to: executeParams.contractAddress,
+      data,
+      value: BigInt(value ?? 0),
+    };
+  }
+
+  private async sendTx(
+    params: {
+      tx: Tx;
+      approvalTx: Tx | null;
+    },
+    options: {
+      chain: Chain;
+      dstPublicClient: PublicClient;
+      address: Hex;
+      client: WalletClient;
+      waitForReceipt?: boolean;
+      receiptTimeout?: number;
+      requiredConfirmations?: number;
+    },
+  ) {
+    const { waitForReceipt = true, receiptTimeout = 300000, requiredConfirmations = 1 } = options;
+
+    let approvalHash;
+    if (params.approvalTx) {
+      approvalHash = await options.client.sendTransaction({
+        ...params.approvalTx,
+        account: options.address,
+        chain: options.chain,
+      });
+
+      await waitForTxReceipt(approvalHash, options.dstPublicClient, 1);
+    }
+
+    const txHash = await options.client.sendTransaction({
+      ...params.tx,
+      account: options.address,
+      chain: options.chain,
+    });
+
+    let receipt;
+    if (waitForReceipt) {
+      receipt = await waitForTxReceipt(
+        txHash,
+        options.dstPublicClient,
+        requiredConfirmations,
+        receiptTimeout,
+      );
+    }
+
+    return {
+      txHash,
+      receipt,
+      approvalHash,
+    };
+  }
+
+  private bridgeWrapper = async (params: BridgeParams): Promise<BridgeResult> => {
+    try {
+      const handler = await this.bridge(params);
+      const result = await handler.execute();
+      return {
+        success: true,
+        explorerUrl: result?.explorerURL ?? '',
+      };
+    } catch (e) {
+      return {
+        success: false,
+        error: e instanceof Error ? e.message : String(e),
+      };
+    }
+  };
+
+  private simulateBridgeWrapper = async (params: BridgeParams) => {
+    try {
+      const handler = await this.bridge(params);
+      const result = await handler.simulate();
+      return result;
+    } catch (e) {
+      logger.debug('simulateBridgeError', { e });
+      return null;
+    }
+  };
+}
+
+export { BridgeAndExecuteQuery };

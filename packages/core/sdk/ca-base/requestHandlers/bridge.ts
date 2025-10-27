@@ -10,9 +10,10 @@ import {
   Universe,
 } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
-import { Account, BN, CHAIN_IDS, hexlify } from 'fuels';
+import { Account, BN, CHAIN_IDS, FuelConnector, hexlify, Provider } from 'fuels';
 import Long from 'long';
 import {
+  createPublicClient,
   encodeFunctionData,
   // createPublicClient,
   // encodeFunctionData,
@@ -24,14 +25,16 @@ import {
   parseSignature,
   toBytes,
   toHex,
+  WalletClient,
+  webSocket,
 } from 'viem';
-import { INTENT_EXPIRY, isNativeAddress } from '../../constants';
+import { INTENT_EXPIRY, isNativeAddress } from '../constants';
 import {
   ErrorInsufficientBalance,
   ErrorUserDeniedAllowance,
   ErrorUserDeniedIntent,
-} from '../../errors';
-import { getLogger } from '../../logger';
+} from '../errors';
+import { getLogger } from '../logger';
 import {
   ALLOWANCE_APPROVAL_MINED,
   ALLOWANCE_APPROVAL_REQ,
@@ -43,11 +46,12 @@ import {
   INTENT_FULFILLED,
   INTENT_HASH_SIGNED,
   INTENT_SUBMITTED,
-} from '../../steps';
+} from '../steps';
 import {
   ChainListType,
   Intent,
   IRequestHandler,
+  NetworkConfig,
   onAllowanceHookSource,
   RequestHandlerInput,
   SetAllowanceInput,
@@ -55,7 +59,10 @@ import {
   SponsoredApprovalDataArray,
   Step,
   StepInfo,
+  Chain,
   TokenInfo,
+  OnAllowanceHook,
+  OnIntentHook,
 } from '@nexus/commons';
 import {
   convertGasToToken,
@@ -87,61 +94,100 @@ import {
   createRequestTronSignature,
   waitForTronDepositTxConfirmation,
   waitForTronApprovalTxConfirmation,
-} from '../../utils';
+  tronHexToEvmAddress,
+  divDecimals,
+  requestTimeout,
+  cosmosFillCheck,
+  waitForIntentFulfilment,
+} from '../utils';
 import { getBalances } from 'sdk/ca-base/swap/route';
 import { TronWeb } from 'tronweb';
-import { tronHexToEvmAddress } from '../tron/common';
+import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
+import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
+
+type Options = {
+  cosmos: {
+    wallet: DirectSecp256k1Wallet;
+    address: string;
+  };
+  evm: {
+    address: `0x${string}`;
+    client: WalletClient;
+  };
+  fuel?: {
+    address: string;
+    connector: FuelConnector;
+    provider: Provider;
+  };
+  tron?: {
+    address: string;
+    adapter: AdapterProps;
+  };
+  hooks: {
+    onAllowance: OnAllowanceHook;
+    onIntent: OnIntentHook;
+  };
+  emit?: (eventName: string, ...args: any[]) => void;
+  networkConfig: NetworkConfig;
+  chainList: ChainListType;
+};
+
+type Params = {
+  recipientAddress: Hex;
+  dstChain: Chain;
+  dstToken: TokenInfo;
+  tokenAmount: bigint;
+  nativeAmount: bigint;
+  sourceChains: number[];
+};
 
 const logger = getLogger();
 
-abstract class BaseRequest implements IRequestHandler {
-  abstract destinationUniverse: Universe;
-  protected chainList: ChainListType;
+class BridgeHandler {
   protected steps: Step[] = [];
 
-  constructor(readonly input: RequestHandlerInput) {
-    this.chainList = this.input.chainList;
+  constructor(
+    readonly params: Params,
+    readonly options: Options,
+  ) {}
+
+  public async simulate() {
+    const intent = await this.buildIntent(this.params.sourceChains);
+    return {
+      intent: convertIntent(intent, this.params.dstToken, this.options.chainList),
+      token: this.params.dstToken,
+    };
   }
 
-  buildIntent = async (sourceChains: number[] = []) => {
+  private buildIntent = async (sourceChains: number[] = []) => {
     console.time('process:preIntentSteps');
 
     console.time('preIntentSteps:API');
-    const [simulation, [balances, oraclePrices, feeStore]] = await Promise.all([
-      this.simulateTx(),
-      Promise.all([
-        getBalances({
-          networkHint: this.input.options.networkConfig.NETWORK_HINT,
-          vscDomain: this.input.options.networkConfig.VSC_DOMAIN,
-          evmAddress: this.input.evm.address,
-          chainList: this.chainList,
-          fuelAddress: this.input.fuel?.address,
-          tronAddress: this.input.tron?.address,
-          isCA: true,
-        }),
-        fetchPriceOracle(this.input.options.networkConfig.GRPC_URL),
-        getFeeStore(this.input.options.networkConfig.GRPC_URL),
-      ]),
+    const [balances, oraclePrices, feeStore] = await Promise.all([
+      getBalances({
+        networkHint: this.options.networkConfig.NETWORK_HINT,
+        vscDomain: this.options.networkConfig.VSC_DOMAIN,
+        evmAddress: this.options.evm.address,
+        chainList: this.options.chainList,
+        fuelAddress: this.options.fuel?.address,
+        tronAddress: this.options.tron?.address,
+        isCA: true,
+      }),
+      fetchPriceOracle(this.options.networkConfig.GRPC_URL),
+      getFeeStore(this.options.networkConfig.GRPC_URL),
     ]);
 
     logger.debug('Step 0: BuildIntent', {
-      simulation,
       balances,
       oraclePrices,
       feeStore,
     });
-
-    // if simulation is null, then the transaction is not a supported token transfer, so skip
-    if (!simulation) {
-      return;
-    }
 
     console.timeEnd('preIntentSteps:API');
     logger.debug('Step 1:', {
       balances,
       feeStore,
       oraclePrices,
-      simulation,
     });
 
     console.time('preIntentSteps: Parse');
@@ -150,41 +196,44 @@ abstract class BaseRequest implements IRequestHandler {
     // Step 2: parse simulation results
 
     const userAssets = new UserAssets(assets);
-    const { amount, gas, isIntentRequired } = this.parseSimulation({
-      assets: userAssets,
-      simulation,
-    });
 
-    console.timeEnd('preIntentSteps: Parse');
-    if (!isIntentRequired) {
-      return;
-    }
     console.time('preIntentSteps: CalculateGas');
 
-    const gasInToken = convertGasToToken(
-      simulation.token,
-      oraclePrices,
-      this.input.chain.id,
-      this.input.chain.universe,
-      gas,
+    const nativeAmountInDecimal = divDecimals(
+      this.params.nativeAmount,
+      this.params.dstChain.nativeCurrency.decimals,
     );
+
+    const tokenAmountInDecimal = divDecimals(
+      this.params.tokenAmount,
+      this.params.dstToken.decimals,
+    );
+
+    const gasInToken = convertGasToToken(
+      this.params.dstToken,
+      oraclePrices,
+      this.params.dstChain.id,
+      this.params.dstChain.universe,
+      nativeAmountInDecimal,
+    );
+
     console.timeEnd('preIntentSteps: CalculateGas');
 
     logger.debug('preIntent:1', {
-      gasInNative: gas.toFixed(),
+      gasInNative: nativeAmountInDecimal.toFixed(),
       gasInToken: gasInToken.toFixed(),
     });
 
     // Step 4: create intent
     console.time('preIntentSteps: CreateIntent');
     const intent = this.createIntent({
-      amount,
+      amount: tokenAmountInDecimal,
       assets: userAssets,
       feeStore,
-      gas,
+      gas: nativeAmountInDecimal,
       gasInToken,
       sourceChains,
-      token: simulation.token,
+      token: this.params.dstToken,
     });
     console.timeEnd('preIntentSteps: CreateIntent');
     console.timeEnd('process:preIntentSteps');
@@ -193,10 +242,13 @@ abstract class BaseRequest implements IRequestHandler {
       throw ErrorInsufficientBalance;
     }
 
-    return { intent, token: simulation.token };
+    return intent;
   };
 
-  getUnallowedSources(intent: Intent, allowances: Awaited<ReturnType<typeof getAllowances>>) {
+  private filterInsufficientAllowanceSources(
+    intent: Intent,
+    allowances: Awaited<ReturnType<typeof getAllowances>>,
+  ) {
     const sources: onAllowanceHookSource[] = [];
     for (const s of intent.sources) {
       if (
@@ -206,12 +258,12 @@ abstract class BaseRequest implements IRequestHandler {
         continue;
       }
 
-      const chain = this.chainList.getChainByID(s.chainID);
+      const chain = this.options.chainList.getChainByID(s.chainID);
       if (!chain) {
         throw new Error('chain is not supported');
       }
 
-      const token = this.chainList.getTokenByAddress(s.chainID, s.tokenContract);
+      const token = this.options.chainList.getTokenByAddress(s.chainID, s.tokenContract);
       if (!token) {
         throw new Error('token is not supported');
       }
@@ -250,49 +302,29 @@ abstract class BaseRequest implements IRequestHandler {
     return sources;
   }
 
-  abstract parseSimulation(input: { assets: UserAssets; simulation: SimulateReturnType }): {
-    amount: Decimal;
-    gas: Decimal;
-    isIntentRequired: boolean;
-  };
+  public execute = async () => {
+    let intent = await this.buildIntent(this.params.sourceChains);
 
-  process = async () => {
-    const i = await this.buildIntent(this.input.options.sourceChains);
-    if (!i) {
-      return;
-    }
-    let intent = i.intent;
-    const token = i.token;
+    const allowances = await getAllowances(intent.allSources, this.options.chainList);
 
-    if (intent.isAvailableBalanceInsufficient) {
-      throw ErrorInsufficientBalance;
-    }
-
-    // Create steps like a crazy person to create another one again
-    const allowances = await getAllowances(intent.allSources, this.input.chainList);
-
-    let unallowedSources = this.getUnallowedSources(intent, allowances);
-    this.createExpectedSteps(intent, unallowedSources);
+    let insufficientAllowanceSources = this.filterInsufficientAllowanceSources(intent, allowances);
+    this.createExpectedSteps(intent, insufficientAllowanceSources);
 
     let accepted = false;
     const refresh = async (sourceChains?: number[]) => {
       if (accepted) {
         logger.warn('Intent refresh called after acceptance');
-        return convertIntent(intent, token, this.chainList);
+        return convertIntent(intent, this.params.dstToken, this.options.chainList);
       }
-      const i = await this.buildIntent(sourceChains);
-      intent = i!.intent;
-      logger.debug('in refresh', {
-        i,
-        intent,
-      });
+
+      intent = await this.buildIntent(sourceChains);
       if (intent.isAvailableBalanceInsufficient) {
         throw ErrorInsufficientBalance;
       }
-      unallowedSources = this.getUnallowedSources(intent, allowances);
-      this.createExpectedSteps(intent, unallowedSources);
+      insufficientAllowanceSources = this.filterInsufficientAllowanceSources(intent, allowances);
+      this.createExpectedSteps(intent, insufficientAllowanceSources);
 
-      return convertIntent(intent, token, this.chainList);
+      return convertIntent(intent, this.params.dstToken, this.options.chainList);
     };
 
     // wait for intent acceptance hook
@@ -306,10 +338,10 @@ abstract class BaseRequest implements IRequestHandler {
         return reject(ErrorUserDeniedIntent);
       };
 
-      this.input.hooks.onIntent({
+      this.options.hooks.onIntent({
         allow,
         deny,
-        intent: convertIntent(intent, token, this.chainList),
+        intent: convertIntent(intent, this.params.dstToken, this.options.chainList),
         refresh,
       });
     });
@@ -319,60 +351,95 @@ abstract class BaseRequest implements IRequestHandler {
     console.time('process:AllowanceHook');
 
     // Step 5: set allowance if not set
-    await this.waitForOnAllowanceHook(unallowedSources);
+    await this.waitForOnAllowanceHook(insufficientAllowanceSources);
     console.timeEnd('process:AllowanceHook');
 
     // FIXME: Add showing intent again if prices change?
     // Step 6: process intent
-    return await this.processIntent(intent);
+    return this.processIntent(intent);
   };
 
-  async processIntent(intent: Intent) {
+  private async waitForFill(
+    requestHash: `0x${string}`,
+    intentID: Long,
+    waitForDoubleCheckTx: () => Promise<void>,
+  ) {
+    waitForDoubleCheckTx();
+
+    const ac = new AbortController();
+    let promisesToRace = [
+      requestTimeout(3, ac),
+      cosmosFillCheck(
+        intentID,
+        this.options.networkConfig.GRPC_URL,
+        this.options.networkConfig.COSMOS_URL,
+        ac,
+      ),
+    ];
+
+    // Use eth_subscribe to read fill events if destination is EVM - usually the fastest
+    if (this.params.dstChain.universe === Universe.ETHEREUM) {
+      promisesToRace.push(
+        waitForIntentFulfilment(
+          createPublicClient({
+            transport: webSocket(this.params.dstChain.rpcUrls.default.webSocket[0]),
+          }),
+          this.options.chainList.getVaultContractAddress(this.params.dstChain.id),
+          requestHash,
+          ac,
+        ),
+      );
+    }
+    await Promise.race(promisesToRace);
+  }
+
+  private async processIntent(intent: Intent) {
     logger.debug('intent', { intent });
 
-    const { explorerURL, id, requestHash, waitForDoubleCheckTx } = await this.processRFF(intent);
+    const { explorerURL, intentID, requestHash, waitForDoubleCheckTx } =
+      await this.processRFF(intent);
 
-    storeIntentHashToStore(this.input.evm.address, id.toNumber());
-    await this.waitForFill(requestHash, id, waitForDoubleCheckTx);
-    removeIntentHashFromStore(this.input.evm.address, id);
+    storeIntentHashToStore(this.options.evm.address, intentID.toNumber());
+    await this.waitForFill(requestHash, intentID, waitForDoubleCheckTx);
+    removeIntentHashFromStore(this.options.evm.address, intentID);
 
     this.markStepDone(INTENT_FULFILLED);
 
-    if (this.input.chain.universe === Universe.ETHEREUM) {
-      await this.input.evm.client.switchChain({ id: this.input.chain.id });
+    if (this.params.dstChain.universe === Universe.ETHEREUM) {
+      await this.options.evm.client.switchChain({ id: this.params.dstChain.id });
     }
 
-    return { explorerURL };
+    return { explorerURL, intentID };
   }
 
-  async processRFF(intent: Intent) {
+  private async processRFF(intent: Intent) {
     const { destinations, sources, universes } = getSourcesAndDestinationsForRFF(
       intent,
-      this.input.chainList,
-      this.destinationUniverse,
+      this.options.chainList,
+      this.params.dstChain.universe,
     );
 
     const parties: Array<{ address: string; universe: Universe }> = [];
     for (const universe of universes) {
       if (universe === Universe.ETHEREUM) {
         parties.push({
-          address: convertTo32BytesHex(this.input.evm.address),
+          address: convertTo32BytesHex(this.options.evm.address),
           universe: universe,
         });
       }
 
       if (universe === Universe.FUEL) {
         parties.push({
-          address: convertTo32BytesHex(this.input.fuel!.address as Hex),
+          address: convertTo32BytesHex(this.options.fuel!.address as Hex),
           universe,
         });
       }
 
       if (universe === Universe.TRON) {
-        console.log({ tronAddress: TronWeb.address.toHex(this.input.tron!.address) });
+        console.log({ tronAddress: TronWeb.address.toHex(this.options.tron!.address) });
         parties.push({
           address: convertTo32BytesHex(
-            tronHexToEvmAddress(TronWeb.address.toHex(this.input.tron!.address)),
+            tronHexToEvmAddress(TronWeb.address.toHex(this.options.tron!.address)),
           ),
           universe,
         });
@@ -386,18 +453,13 @@ abstract class BaseRequest implements IRequestHandler {
       universes,
     });
 
-    let recipientAddress = this.input.evm.address;
-    if (this.destinationUniverse === Universe.TRON) {
-      recipientAddress = this.input.tron!.address as Hex;
-    }
-
     const omniversalRff = new OmniversalRFF({
       destinationChainID: convertTo32Bytes(intent.destination.chainID),
       destinations: destinations.map((dest) => ({
         contractAddress: toBytes(dest.tokenAddress),
         value: toBytes(dest.value),
       })),
-      recipientAddress: convertTo32Bytes(recipientAddress),
+      recipientAddress: convertTo32Bytes(this.params.recipientAddress),
       destinationUniverse: intent.destination.universe,
       expiry: Long.fromString((BigInt(Date.now() + INTENT_EXPIRY) / 1000n).toString()),
       nonce: window.crypto.getRandomValues(new Uint8Array(32)),
@@ -417,7 +479,7 @@ abstract class BaseRequest implements IRequestHandler {
 
     logger.debug('BaseRequest', {
       omniversalRff,
-      recipientAddress,
+      recipientAddress: this.params.recipientAddress,
     });
 
     const signatureData: {
@@ -431,12 +493,12 @@ abstract class BaseRequest implements IRequestHandler {
       if (universe === Universe.ETHEREUM) {
         const { requestHash, signature } = await createRequestEVMSignature(
           omniversalRff.asEVMRFF(),
-          this.input.evm.address,
-          this.input.evm.client,
+          this.options.evm.address,
+          this.options.evm.client,
         );
 
         signatureData.push({
-          address: convertTo32Bytes(this.input.evm.address),
+          address: convertTo32Bytes(this.options.evm.address),
           requestHash,
           signature,
           universe,
@@ -445,24 +507,24 @@ abstract class BaseRequest implements IRequestHandler {
 
       if (universe === Universe.FUEL) {
         if (
-          !this.input.fuel?.address ||
-          !this.input.fuel?.provider ||
-          !this.input.fuel?.connector
+          !this.options.fuel?.address ||
+          !this.options.fuel?.provider ||
+          !this.options.fuel?.connector
         ) {
           logger.error('universe has fuel but not expected input', {
-            fuelInput: this.input.fuel,
+            fuelInput: this.options.fuel,
           });
           throw new Error('universe has fuel but not expected input');
         }
 
         const { requestHash, signature } = await createRequestFuelSignature(
-          this.input.chainList.getVaultContractAddress(CHAIN_IDS.fuel.mainnet),
-          this.input.fuel.provider,
-          this.input.fuel.connector,
+          this.options.chainList.getVaultContractAddress(CHAIN_IDS.fuel.mainnet),
+          this.options.fuel.provider,
+          this.options.fuel.connector,
           omniversalRff.asFuelRFF(),
         );
         signatureData.push({
-          address: toBytes(this.input.fuel.address),
+          address: toBytes(this.options.fuel.address),
           requestHash,
           signature,
           universe,
@@ -470,20 +532,20 @@ abstract class BaseRequest implements IRequestHandler {
       }
 
       if (universe === Universe.TRON) {
-        if (!this.input.tron) {
+        if (!this.options.tron) {
           logger.error('universe has tron but not expected input', {
-            tronInput: this.input.tron,
+            tronInput: this.options.tron,
           });
           throw new Error('universe has tron but not expected input');
         }
         const { requestHash, signature } = await createRequestTronSignature(
           omniversalRff.asEVMRFF(),
-          this.input.tron.adapter,
+          this.options.tron.adapter,
         );
 
         signatureData.push({
           address: convertTo32Bytes(
-            tronHexToEvmAddress(TronWeb.address.toHex(this.input.tron.address)),
+            tronHexToEvmAddress(TronWeb.address.toHex(this.options.tron.address)),
           ),
           requestHash,
           signature,
@@ -495,8 +557,6 @@ abstract class BaseRequest implements IRequestHandler {
     logger.debug('processRFF:2', { omniversalRff, signatureData });
 
     this.markStepDone(INTENT_HASH_SIGNED);
-
-    const cosmosWalletAddress = (await this.input.cosmosWallet.getAccounts())[0].address;
 
     const msgBasicCosmos = MsgCreateRequestForFunds.create({
       destinationChainID: omniversalRff.protobufRFF.destinationChainID,
@@ -511,19 +571,19 @@ abstract class BaseRequest implements IRequestHandler {
         universe: s.universe,
       })),
       sources: omniversalRff.protobufRFF.sources,
-      user: cosmosWalletAddress,
+      user: this.options.cosmos.address,
     });
 
     logger.debug('processRFF:3', { msgBasicCosmos });
 
     const intentID = await cosmosCreateRFF({
-      address: cosmosWalletAddress,
-      cosmosURL: this.input.options.networkConfig.COSMOS_URL,
+      address: this.options.cosmos.address,
+      cosmosURL: this.options.networkConfig.COSMOS_URL,
       msg: msgBasicCosmos,
-      wallet: this.input.cosmosWallet,
+      wallet: this.options.cosmos.wallet,
     });
 
-    const explorerURL = getExplorerURL(this.input.options.networkConfig.EXPLORER_URL, intentID);
+    const explorerURL = getExplorerURL(this.options.networkConfig.EXPLORER_URL, intentID);
     this.markStepDone(INTENT_SUBMITTED, {
       explorerURL,
       intentID: intentID.toNumber(),
@@ -536,9 +596,9 @@ abstract class BaseRequest implements IRequestHandler {
       }
     }
 
-    const evmDeposits: Promise<void>[] = [];
-    const fuelDeposits: Promise<void>[] = [];
-    const tronDeposits: Promise<void>[] = [];
+    const evmDeposits: Promise<unknown>[] = [];
+    const fuelDeposits: Promise<unknown>[] = [];
+    const tronDeposits: Promise<unknown>[] = [];
 
     const evmSignatureData = signatureData.find((d) => d.universe === Universe.ETHEREUM);
 
@@ -561,24 +621,24 @@ abstract class BaseRequest implements IRequestHandler {
     const doubleCheckTxs = [];
 
     for (const [i, s] of sources.entries()) {
-      const chain = this.input.chainList.getChainByID(Number(s.chainID));
+      const chain = this.options.chainList.getChainByID(Number(s.chainID));
       if (!chain) {
         throw new Error('chain not found');
       }
 
       if (s.universe === Universe.FUEL) {
-        if (!this.input.fuel) {
+        if (!this.options.fuel) {
           throw new Error('fuel is involved but no associated data');
         }
 
         const account = new Account(
-          this.input.fuel.address,
-          this.input.fuel.provider,
-          this.input.fuel.connector,
+          this.options.fuel.address,
+          this.options.fuel.provider,
+          this.options.fuel.connector,
         );
 
         const vault = new ArcanaVault(
-          this.chainList.getVaultContractAddress(CHAIN_IDS.fuel.mainnet),
+          this.options.chainList.getVaultContractAddress(CHAIN_IDS.fuel.mainnet),
           account,
         );
 
@@ -607,20 +667,20 @@ abstract class BaseRequest implements IRequestHandler {
           })(),
         );
       } else if (s.universe === Universe.ETHEREUM && isNativeAddress(s.universe, s.tokenAddress)) {
-        await switchChain(this.input.evm.client, chain);
+        await switchChain(this.options.evm.client, chain);
 
         const publicClient = createPublicClientWithFallback(chain);
 
         const { request } = await publicClient.simulateContract({
           abi: EVMVaultABI,
-          account: this.input.evm.address,
-          address: this.input.chainList.getVaultContractAddress(chain.id),
+          account: this.options.evm.address,
+          address: this.options.chainList.getVaultContractAddress(chain.id),
           args: [omniversalRff.asEVMRFF(), toHex(evmSignatureData!.signature), BigInt(i)],
           chain: chain,
           functionName: 'deposit',
           value: s.value,
         });
-        const hash = await this.input.evm.client.writeContract(request);
+        const hash = await this.options.evm.client.writeContract(request);
         this.markStepDone(INTENT_DEPOSIT_REQ(i + 1));
 
         evmDeposits.push(waitForTxReceipt(hash, publicClient));
@@ -628,7 +688,9 @@ abstract class BaseRequest implements IRequestHandler {
         const provider = new TronWeb({
           fullHost: chain.rpcUrls.default.grpc![0],
         });
-        const vaultContractAddress = this.chainList.getVaultContractAddress(Number(s.chainID));
+        const vaultContractAddress = this.options.chainList.getVaultContractAddress(
+          Number(s.chainID),
+        );
         const txWrap = await provider.transactionBuilder.triggerSmartContract(
           TronWeb.address.fromHex(vaultContractAddress),
           '',
@@ -641,11 +703,11 @@ abstract class BaseRequest implements IRequestHandler {
             }),
           },
           [],
-          TronWeb.address.fromHex(this.input.tron!.address),
+          TronWeb.address.fromHex(this.options.tron!.address),
         );
 
         const txResult = await provider.trx.sendRawTransaction(
-          await this.input.tron!.adapter.signTransaction(txWrap.transaction),
+          await this.options.tron!.adapter.signTransaction(txWrap.transaction),
         );
 
         logger.debug('tron tx result', {
@@ -666,7 +728,7 @@ abstract class BaseRequest implements IRequestHandler {
               tronSignatureData!.requestHash,
               vaultContractAddress,
               provider,
-              this.input.tron!.address as Hex,
+              this.options.tron!.address as Hex,
             );
           })(),
         );
@@ -674,12 +736,9 @@ abstract class BaseRequest implements IRequestHandler {
       doubleCheckTxs.push(
         createDepositDoubleCheckTx(
           convertTo32Bytes(chain.id),
-          {
-            address: cosmosWalletAddress,
-            wallet: this.input.cosmosWallet,
-          },
+          this.options.cosmos,
           intentID,
-          this.input.options.networkConfig,
+          this.options.networkConfig,
         ),
       );
     }
@@ -704,7 +763,7 @@ abstract class BaseRequest implements IRequestHandler {
         tokenCollections,
       });
       await vscCreateRFF(
-        this.input.options.networkConfig.VSC_DOMAIN,
+        this.options.networkConfig.VSC_DOMAIN,
         intentID,
         this.markStepDone,
         tokenCollections,
@@ -713,7 +772,7 @@ abstract class BaseRequest implements IRequestHandler {
       logger.debug('processRFF', {
         message: 'going to publish RFF',
       });
-      await vscPublishRFF(this.input.options.networkConfig.VSC_DOMAIN, intentID);
+      await vscPublishRFF(this.options.networkConfig.VSC_DOMAIN, intentID);
     }
 
     const destinationSigData = signatureData.find(
@@ -726,28 +785,28 @@ abstract class BaseRequest implements IRequestHandler {
 
     return {
       explorerURL,
-      id: intentID,
+      intentID,
       requestHash: destinationSigData.requestHash,
       waitForDoubleCheckTx: waitForDoubleCheckTx(doubleCheckTxs),
     };
   }
 
-  async setAllowances(input: Array<SetAllowanceInput>) {
-    const originalChain = this.input.chain.id;
+  private async setAllowances(input: Array<SetAllowanceInput>) {
+    const originalChain = this.params.dstChain.id;
     logger.debug('setAllowances', { originalChain });
 
     const sponsoredApprovalParams: SponsoredApprovalDataArray = [];
     try {
       for (const source of input) {
         logger.debug('setAllowances', { originalChain });
-        const chain = this.chainList.getChainByID(source.chainID);
+        const chain = this.options.chainList.getChainByID(source.chainID);
         if (!chain) {
           throw new Error('chain not supported');
         }
 
         const publicClient = createPublicClientWithFallback(chain);
 
-        const vc = this.input.chainList.getVaultContractAddress(chain.id);
+        const vc = this.options.chainList.getVaultContractAddress(chain.id);
 
         const chainId = new OmniversalChainID(chain.universe, source.chainID);
         const chainDatum = ChaindataMap.get(chainId);
@@ -759,19 +818,19 @@ abstract class BaseRequest implements IRequestHandler {
           throw new Error('Currency not found');
         }
         logger.debug('setAllowances chain switching to ', { chain });
-        await switchChain(this.input.evm.client, chain);
+        await switchChain(this.options.evm.client, chain);
         logger.debug('setAllowances chain switched to ', {
           originalChain,
-          switchedTo: await this.input.evm.client?.getChainId(),
+          switchedTo: await this.options.evm.client?.getChainId(),
           chain,
         });
 
         if (currency.permitVariant === PermitVariant.Unsupported || chain.id === 1) {
           if (chain.universe === Universe.ETHEREUM) {
-            await switchChain(this.input.evm.client, chain);
-            const h = await this.input.evm.client.writeContract({
+            await switchChain(this.options.evm.client, chain);
+            const h = await this.options.evm.client.writeContract({
               abi: ERC20ABI,
-              account: this.input.evm.address,
+              account: this.options.evm.address,
               address: source.tokenContract,
               args: [vc, BigInt(source.amount)],
               chain,
@@ -784,7 +843,7 @@ abstract class BaseRequest implements IRequestHandler {
               hash: h,
             });
           } else if (chain.universe === Universe.TRON) {
-            if (!this.input.tron) {
+            if (!this.options.tron) {
               // This should never happen - we only fetch tron assets if tron adapter is set
               throw new Error('Tron is available in sources but has no adapter/provider');
             }
@@ -801,9 +860,9 @@ abstract class BaseRequest implements IRequestHandler {
                 { type: 'address', value: TronWeb.address.fromHex(vc) },
                 { type: 'uint256', value: source.amount.toString() },
               ],
-              TronWeb.address.fromHex(this.input.tron?.address),
+              TronWeb.address.fromHex(this.options.tron?.address),
             );
-            const signedTx = await this.input.tron.adapter.signTransaction(tx.transaction);
+            const signedTx = await this.options.tron.adapter.signTransaction(tx.transaction);
             const txResult = await provider.trx.sendRawTransaction(signedTx);
 
             logger.debug('tron tx result', {
@@ -817,7 +876,7 @@ abstract class BaseRequest implements IRequestHandler {
 
             await waitForTronApprovalTxConfirmation(
               source.amount,
-              this.input.tron.address as Hex,
+              this.options.tron.address as Hex,
               vc,
               source.tokenContract,
               provider,
@@ -827,14 +886,14 @@ abstract class BaseRequest implements IRequestHandler {
           this.markStepDone(ALLOWANCE_APPROVAL_MINED(source.chainID));
         } else {
           const account: JsonRpcAccount = {
-            address: this.input.evm.address,
+            address: this.options.evm.address,
             type: 'json-rpc',
           };
 
           const signed = parseSignature(
             await signPermitForAddressAndValue(
               currency,
-              this.input.evm.client,
+              this.options.evm.client,
               publicClient,
               account,
               vc,
@@ -867,7 +926,7 @@ abstract class BaseRequest implements IRequestHandler {
           sponsoredApprovalParams,
         });
         await vscCreateSponsoredApprovals(
-          this.input.options.networkConfig.VSC_DOMAIN,
+          this.options.networkConfig.VSC_DOMAIN,
           sponsoredApprovalParams,
           this.markStepDone,
         );
@@ -876,22 +935,14 @@ abstract class BaseRequest implements IRequestHandler {
       console.error('Error setting allowances', e);
       throw ErrorUserDeniedAllowance;
     } finally {
-      if (this.input.chain.universe === Universe.ETHEREUM) {
-        await switchChain(this.input.evm.client, this.input.chain);
+      if (this.params.dstChain.universe === Universe.ETHEREUM) {
+        await switchChain(this.options.evm.client, this.params.dstChain);
       }
       this.markStepDone(ALLOWANCE_COMPLETE);
     }
   }
 
-  abstract simulateTx(): Promise<undefined | SimulateReturnType>;
-
-  abstract waitForFill(
-    requestHash: `0x${string}`,
-    intentID: Long,
-    waitForDoubleCheckTx: () => Promise<void>,
-  ): Promise<void>;
-
-  async waitForOnAllowanceHook(sources: onAllowanceHookSource[]): Promise<boolean> {
+  private async waitForOnAllowanceHook(sources: onAllowanceHookSource[]): Promise<boolean> {
     if (sources.length === 0) {
       return false;
     }
@@ -937,7 +988,7 @@ abstract class BaseRequest implements IRequestHandler {
         return reject(ErrorUserDeniedAllowance);
       };
 
-      this.input.hooks.onAllowance({
+      this.options.hooks.onAllowance({
         allow,
         deny,
         sources,
@@ -946,14 +997,18 @@ abstract class BaseRequest implements IRequestHandler {
     return true;
   }
 
-  protected createExpectedSteps(intent: Intent, unallowedSources?: onAllowanceHookSource[]) {
-    this.steps = createSteps(intent, this.chainList, unallowedSources);
-
-    this.input.options.emit('expected_steps', this.steps);
-    logger.debug('ExpectedSteps', this.steps);
+  private createExpectedSteps(
+    intent: Intent,
+    insufficientAllowanceSources?: onAllowanceHookSource[],
+  ) {
+    this.steps = createSteps(intent, this.options.chainList, insufficientAllowanceSources);
+    if (this.options.emit) {
+      this.options.emit('BRIDGE_STEP_LIST', this.steps);
+    }
+    logger.debug('BridgeSteps', this.steps);
   }
 
-  protected createIntent(input: {
+  private createIntent(input: {
     amount: Decimal;
     assets: UserAssets;
     feeStore: FeeStore;
@@ -967,11 +1022,11 @@ abstract class BaseRequest implements IRequestHandler {
       allSources: [],
       destination: {
         amount: new Decimal('0'),
-        chainID: this.input.chain.id,
+        chainID: this.params.dstChain.id,
         decimals: token.decimals,
         gas: 0n,
         tokenContract: token.contractAddress,
-        universe: this.destinationUniverse,
+        universe: this.params.dstChain.universe,
       },
       fees: {
         caGas: '0',
@@ -991,35 +1046,22 @@ abstract class BaseRequest implements IRequestHandler {
     }
 
     const allSources = asset.iterate(feeStore).map((v) => {
-      const chain = this.input.chainList.getChainByID(v.chainID);
+      const chain = this.options.chainList.getChainByID(v.chainID);
       if (!chain) {
         throw new Error('source has no chain.');
       }
 
-      return { ...v, amount: v.balance, holderAddress: retrieveAddress(v.universe, this.input) };
+      return { ...v, amount: v.balance, holderAddress: retrieveAddress(v.universe, this.options) };
     });
 
     intent.allSources = allSources;
 
-    const destinationBalance = asset.getBalanceOnChain(this.input.chain.id, token.contractAddress);
+    const destinationBalance = asset.getBalanceOnChain(
+      this.params.dstChain.id,
+      token.contractAddress,
+    );
 
-    let borrow = new Decimal(0);
-    if (this.input.options.bridge) {
-      borrow = amount;
-    } else {
-      if (amount.greaterThan(destinationBalance)) {
-        borrow = amount.minus(destinationBalance);
-      }
-      if (destinationBalance !== '0') {
-        intent.sources.push({
-          amount: amount.greaterThan(destinationBalance) ? new Decimal(destinationBalance) : amount,
-          chainID: this.input.chain.id,
-          tokenContract: token.contractAddress,
-          universe: this.destinationUniverse,
-          holderAddress: retrieveAddress(this.input.chain.universe, this.input),
-        });
-      }
-    }
+    const borrow = amount;
 
     const protocolFee = feeStore.calculateProtocolFee(borrow);
     intent.fees.protocol = protocolFee.toFixed();
@@ -1036,7 +1078,7 @@ abstract class BaseRequest implements IRequestHandler {
 
     const fulfilmentFee = feeStore.calculateFulfilmentFee({
       decimals: token.decimals,
-      destinationChainID: this.input.chain.id,
+      destinationChainID: this.params.dstChain.id,
       destinationTokenAddress: token.contractAddress,
     });
     logger.debug('createIntent:1', { fulfilmentFee });
@@ -1061,12 +1103,12 @@ abstract class BaseRequest implements IRequestHandler {
         break;
       }
 
-      if (assetC.chainID === this.input.chain.id) {
+      if (assetC.chainID === this.params.dstChain.id) {
         continue;
       }
 
       if (assetC.chainID === CHAIN_IDS.fuel.mainnet) {
-        const fuelChain = this.chainList.getChainByID(CHAIN_IDS.fuel.mainnet);
+        const fuelChain = this.options.chainList.getChainByID(CHAIN_IDS.fuel.mainnet);
         const baseAssetBalanceOnFuel = assets.getNativeBalance(fuelChain!);
         if (new Decimal(baseAssetBalanceOnFuel).lessThan('0.000_003')) {
           logger.debug('fuel base asset balance is lesser than min expected deposit fee, so skip', {
@@ -1108,7 +1150,7 @@ abstract class BaseRequest implements IRequestHandler {
       const solverFee = feeStore.calculateSolverFee({
         borrowAmount: borrowFromThisChain,
         decimals: assetC.decimals,
-        destinationChainID: this.input.chain.id,
+        destinationChainID: this.params.dstChain.id,
         destinationTokenAddress: token.contractAddress,
         sourceChainID: assetC.chainID,
         sourceTokenAddress: assetC.tokenContract,
@@ -1143,7 +1185,7 @@ abstract class BaseRequest implements IRequestHandler {
     }
 
     if (!gas.equals(0)) {
-      intent.destination.gas = mulDecimals(gas, this.input.chain.nativeCurrency.decimals);
+      intent.destination.gas = mulDecimals(gas, this.params.dstChain.nativeCurrency.decimals);
     }
 
     logger.debug('createIntent:4', { intent });
@@ -1151,18 +1193,20 @@ abstract class BaseRequest implements IRequestHandler {
     return intent;
   }
 
-  protected markStepDone = (step: StepInfo, data?: { [k: string]: unknown }) => {
-    const s = this.steps.find((s) => s.typeID === step.typeID);
-    if (s) {
-      this.input.options.emit('step_complete', {
-        ...s,
-        ...(data ? { data } : {}),
-      });
+  private markStepDone = (step: StepInfo, data?: { [k: string]: unknown }) => {
+    if (this.options.emit) {
+      const s = this.steps.find((s) => s.typeID === step.typeID);
+      if (s) {
+        this.options.emit('BRIDGE_STEP_DONE', {
+          ...s,
+          ...(data ? { data } : {}),
+        });
+      }
     }
   };
 }
 
-const retrieveAddress = (universe: Universe, input: RequestHandlerInput): Hex => {
+const retrieveAddress = (universe: Universe, input: Options): Hex => {
   if (universe === Universe.ETHEREUM) {
     return input.evm.address;
   } else if (universe === Universe.FUEL) {
@@ -1194,4 +1238,4 @@ const waitForDoubleCheckTx = (input: Array<() => Promise<void>>) => {
   };
 };
 
-export default BaseRequest;
+export default BridgeHandler;

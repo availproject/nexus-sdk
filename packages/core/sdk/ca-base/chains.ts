@@ -5,7 +5,6 @@ import {
   OmniversalChainID,
   Universe,
 } from '@avail-project/ca-common';
-
 import { getLogoFromSymbol, ZERO_ADDRESS } from './constants';
 import { Chain, SUPPORTED_CHAINS, TOKEN_CONTRACT_ADDRESSES, TokenInfo } from '@nexus/commons';
 import { convertToHexAddressByUniverse, equalFold } from './utils';
