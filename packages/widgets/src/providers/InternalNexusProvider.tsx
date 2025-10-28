@@ -45,6 +45,7 @@ import {
 import { DragConstraintsProvider } from '../components/motion/drag-constraints';
 import { getTokenFromInputData, getAmountFromInputData, formatSwapError } from '../utils/utils';
 import { getTokenAddress } from '../utils/token-utils';
+import { trackSdkHealth, trackError } from '../utils/analytics';
 
 const controllers: Record<Exclude<TransactionType, 'swap'>, ITransactionController> = {
   bridge: new BridgeController(),
@@ -190,10 +191,25 @@ export function InternalNexusProvider({
       await fetchBalances();
       setIsSdkInitialized(sdk.isInitialized());
       isSdkInitializedRef.current = sdk.isInitialized();
+      
+      // Track SDK health after successful initialization
+      trackSdkHealth({
+        sdkInitialized: true,
+        providerConnected: !!eipProvider,
+        chainsAvailable: [],
+        apiEndpointsReachable: true
+      });
+      
       setActiveTransaction((prev) => ({ ...prev, status: 'review' }));
       return true;
     } catch (err) {
       logger.error('SDK initialization failed:', err as Error);
+      
+      // Track initialization failure
+      trackError(err as Error, {
+        function: 'initialize'
+      });
+      
       const error = err instanceof Error ? err : new Error('SDK Initialization failed.');
       setActiveTransaction((prev) => ({ ...prev, status: 'simulation_error', error }));
       return false;
