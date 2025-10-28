@@ -1,6 +1,5 @@
 import { createCosmosWallet } from '@avail-project/ca-common';
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
-import SafeEventEmitter from '@metamask/safe-event-emitter';
 import { keyDerivation } from '@starkware-industries/starkware-crypto-utils';
 import { Account, FuelConnector, Provider } from 'fuels';
 import {
@@ -18,7 +17,7 @@ import { createSiweMessage } from 'viem/siwe';
 import { ChainList } from './chains';
 import { getNetworkConfig } from './config';
 import { FUEL_NETWORK_URL } from './constants';
-import { getLogger, LOG_LEVEL, setLogLevel } from './logger';
+import { getLogger, LOG_LEVEL, setLogLevel } from '@nexus/commons';
 import { createBridgeParams } from './requestHandlers/helpers';
 import {
   BridgeQueryInput,
@@ -42,7 +41,6 @@ import {
 } from '@nexus/commons';
 import {
   cosmosFeeGrant,
-  equalFold,
   fetchMyIntents,
   getSDKConfig,
   getSupportedChains,

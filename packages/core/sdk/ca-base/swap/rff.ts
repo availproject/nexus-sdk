@@ -11,9 +11,8 @@ import {
   webSocket,
 } from 'viem';
 import { Errors } from '../errors';
-import { getLogger } from '../logger';
 import { createRFFromIntent } from '../utils';
-import { Intent, NetworkConfig } from '@nexus/commons';
+import { getLogger, Intent, NetworkConfig } from '@nexus/commons';
 import {
   convertAddressByUniverse,
   evmWaitForFill,

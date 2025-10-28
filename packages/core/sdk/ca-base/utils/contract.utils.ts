@@ -35,7 +35,7 @@ import gasOracleABI from '../abi/gasOracle';
 import { FillEvent } from '../abi/vault';
 import { ZERO_ADDRESS } from '../constants';
 import { Errors } from '../errors';
-import { getLogger } from '../logger';
+import { getLogger } from '@nexus/commons';
 import {
   ChainListType,
   Chain,

@@ -8,7 +8,7 @@ import {
 
 import { SwapMode, type SwapData, type SwapParams, SuccessfulSwapResult } from '@nexus/commons';
 
-import { getLogger } from '../logger';
+import { getLogger } from '@nexus/commons';
 import { divDecimals } from '../utils';
 import { BEBOP_API_KEY, LIFI_API_KEY, ZERO_BYTES_32 } from './constants';
 import { BridgeHandler, DestinationSwapHandler, SourceSwapsHandler } from './ob';

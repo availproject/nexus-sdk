@@ -15,11 +15,8 @@ import Long from 'long';
 import {
   createPublicClient,
   encodeFunctionData,
-  // createPublicClient,
-  // encodeFunctionData,
   Hex,
   hexToBytes,
-  // http,
   JsonRpcAccount,
   maxUint256,
   parseSignature,
@@ -29,7 +26,6 @@ import {
   webSocket,
 } from 'viem';
 import { INTENT_EXPIRY, isNativeAddress } from '../constants';
-import { getLogger } from '../logger';
 import {
   ALLOWANCE_APPROVAL_MINED,
   ALLOWANCE_APPROVAL_REQ,
@@ -55,6 +51,7 @@ import {
   OnAllowanceHook,
   OnIntentHook,
   NetworkConfig,
+  getLogger,
 } from '@nexus/commons';
 import {
   convertGasToToken,

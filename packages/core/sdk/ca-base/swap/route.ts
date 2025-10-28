@@ -14,7 +14,7 @@ import {
 import Decimal from 'decimal.js';
 import { Hex, toBytes } from 'viem';
 import { ZERO_ADDRESS } from '../constants';
-import { getLogger } from '../logger';
+import { getLogger } from '@nexus/commons';
 import {
   ExactInSwapInput,
   ExactOutSwapInput,
@@ -123,7 +123,7 @@ export const determineSwapRoute = async (
 
 // COT = currency of transfer
 // DEF: The common currency which is supported by bridge on every supported chain and acts as a transient currency for swaps.
-// FLOW: Source tokens get converted to COT, COT is bridged across chains to a destination chain, 
+// FLOW: Source tokens get converted to COT, COT is bridged across chains to a destination chain,
 // COT is then changed to desired destination token
 // Currently COT is USDC.
 

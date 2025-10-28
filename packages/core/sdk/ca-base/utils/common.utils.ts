@@ -34,7 +34,7 @@ import {
 import { TronWeb } from 'tronweb';
 import { ChainList } from '../chains';
 import { FUEL_BASE_ASSET_ID, isNativeAddress, ZERO_ADDRESS } from '../constants';
-import { getLogger } from '../logger';
+import { getLogger } from '@nexus/commons';
 import {
   EthereumProvider,
   Intent,

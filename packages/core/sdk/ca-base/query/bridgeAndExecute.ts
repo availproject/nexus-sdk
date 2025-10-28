@@ -428,7 +428,7 @@ class BridgeAndExecuteQuery {
 
   public async simulateExecute(params: ExecuteParams, address: Hex): Promise<ExecuteSimulation> {
     try {
-      const { dstPublicClient, dstChain, tx } = await this.createTxsForExecute(params, address);
+      const { dstPublicClient, tx } = await this.createTxsForExecute(params, address);
 
       const [gasUsed, gasPrice] = await Promise.all([
         dstPublicClient.estimateGas({

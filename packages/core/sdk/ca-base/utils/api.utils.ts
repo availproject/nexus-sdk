@@ -11,7 +11,7 @@ import { connect } from 'it-ws/client';
 import Long from 'long';
 import { pack, unpack } from 'msgpackr';
 import { bytesToBigInt, bytesToNumber, toHex } from 'viem';
-import { getLogger } from '../logger';
+import { getLogger } from '@nexus/commons';
 import { ALLOWANCE_APPROVAL_MINED, INTENT_COLLECTION, INTENT_COLLECTION_COMPLETE } from '../steps';
 import {
   FeeStoreData,

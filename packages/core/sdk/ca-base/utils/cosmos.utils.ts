@@ -11,8 +11,7 @@ import { isDeliverTxFailure, isDeliverTxSuccess } from '@cosmjs/stargate';
 import axios from 'axios';
 import { connect } from 'it-ws/client';
 import Long from 'long';
-
-import { getLogger } from '../logger';
+import { getLogger } from '@nexus/commons';
 import { checkIntentFilled, vscCreateFeeGrant } from './api.utils';
 
 const logger = getLogger();
@@ -20,7 +19,6 @@ const logger = getLogger();
 const getCosmosURL = (cosmosURL: string, kind: 'rest' | 'rpc') => {
   const u = new URL(cosmosURL);
   if (kind === 'rpc') {
-    // FIXME: don't hardcode port here
     u.port = '26650';
   }
   return u.toString();
