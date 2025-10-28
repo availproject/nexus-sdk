@@ -1,19 +1,58 @@
-import { InternalRpcError, UserRejectedRequestError } from 'viem';
+import { ERROR_CODES, createError } from './nexusError';
 
-const ErrorUserDeniedIntent = new UserRejectedRequestError(new Error('User denied intent.'));
+export const Errors = {
+  invalidAllowance: (expected: number, got: number) =>
+    createError(
+      ERROR_CODES.INVALID_VALUES_ALLOWANCE_HOOK,
+      'Invalid allowance values passed. The length of allowances should equal input lengths.',
+      {
+        context: 'onAllowance:allow()',
+        details: { expectedLength: expected, receivedLength: got },
+      },
+    ),
 
-const ErrorUserDeniedAllowance = new UserRejectedRequestError(new Error('User denied allowance.'));
+  chainNotFound: (chainId: number | bigint) =>
+    createError(ERROR_CODES.CHAIN_NOT_FOUND, `Chain not found: ${chainId}`, {
+      details: { chainId },
+    }),
 
-const ErrorInsufficientBalance = new InternalRpcError(new Error('Insufficient balance.'));
+  internal: (msg: string, details?: Record<string, unknown>) =>
+    createError(ERROR_CODES.INTERNAL_ERROR, `Internal error: ${msg}`, {
+      details,
+    }),
 
-const ErrorBuildingIntent = new InternalRpcError(new Error('Error while building intent.'));
+  tokenNotSupported: (address: string, chainId: number) =>
+    createError(
+      ERROR_CODES.TOKEN_NOT_SUPPORTED,
+      `Token with address ${address} is not supported on chain ${chainId}`,
+      {
+        details: { address, chainId },
+      },
+    ),
 
-const ErrorLiquidityTimeout = new InternalRpcError(new Error('Timed out waiting for liquidity.'));
+  tronDepositFailed: (result: unknown) =>
+    createError(ERROR_CODES.TRON_DEPOSIT_FAIL, 'Tron deposit transaction failed.', {
+      details: { result },
+    }),
 
-export {
-  ErrorBuildingIntent,
-  ErrorInsufficientBalance,
-  ErrorLiquidityTimeout,
-  ErrorUserDeniedAllowance,
-  ErrorUserDeniedIntent,
+  tronApprovalFailed: (result: unknown) =>
+    createError(ERROR_CODES.TRON_APPROVAL_FAIL, 'Tron approval transaction failed.', {
+      details: { result },
+    }),
+
+  fuelDepositFailed: (result: unknown) =>
+    createError(ERROR_CODES.FUEL_DEPOSIT_FAIL, 'Fuel deposit transaction failed.', {
+      details: { result },
+    }),
+
+  liquidityTimeout: () =>
+    createError(ERROR_CODES.LIQUIDITY_TIMEOUT, 'Timed out waiting for fulfilment.'),
+
+  userDeniedIntent: () => createError(ERROR_CODES.USER_DENIED_INTENT, 'User rejected the intent.'),
+
+  userDeniedAllowance: () =>
+    createError(ERROR_CODES.USER_DENIED_ALLOWANCE, 'User rejected the allowance.'),
+
+  insufficientBalance: () =>
+    createError(ERROR_CODES.INSUFFICIENT_BALANCE, 'Insufficient balance to proceed.'),
 };

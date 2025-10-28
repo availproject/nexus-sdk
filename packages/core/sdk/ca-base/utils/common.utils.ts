@@ -397,10 +397,7 @@ const convertGasToToken = (
   destinationUniverse: Universe,
   gas: Decimal,
 ) => {
-  if (gas.isZero()) {
-    return gas;
-  }
-  if (isNativeAddress(destinationUniverse, token.contractAddress)) {
+  if (gas.isZero() || isNativeAddress(destinationUniverse, token.contractAddress)) {
     return gas;
   }
 
@@ -420,6 +417,7 @@ const convertGasToToken = (
         rate.chainId === destinationChainID && equalFold(rate.tokenAddress, token.contractAddress),
     )
     ?.priceUsd.toFixed();
+
   if (!transferTokenInUSD) {
     throw new Error('could not find token in price oracle');
   }

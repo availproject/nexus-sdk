@@ -10,7 +10,7 @@ import {
   toHex,
   webSocket,
 } from 'viem';
-import { ErrorInsufficientBalance } from '../errors';
+import { Errors } from '../errors';
 import { getLogger } from '../logger';
 import { createRFFromIntent } from '../utils';
 import { Intent, NetworkConfig } from '@nexus/commons';
@@ -246,7 +246,7 @@ export const createBridgeRFF = async ({
   });
 
   if (intent.isAvailableBalanceInsufficient) {
-    throw ErrorInsufficientBalance;
+    throw Errors.insufficientBalance();
   }
 
   const { msgBasicCosmos, omniversalRFF, signatureData, sources } = await createRFFromIntent(

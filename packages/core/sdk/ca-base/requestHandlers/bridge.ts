@@ -29,11 +29,6 @@ import {
   webSocket,
 } from 'viem';
 import { INTENT_EXPIRY, isNativeAddress } from '../constants';
-import {
-  ErrorInsufficientBalance,
-  ErrorUserDeniedAllowance,
-  ErrorUserDeniedIntent,
-} from '../errors';
 import { getLogger } from '../logger';
 import {
   ALLOWANCE_APPROVAL_MINED,
@@ -50,12 +45,8 @@ import {
 import {
   ChainListType,
   Intent,
-  IRequestHandler,
-  NetworkConfig,
   onAllowanceHookSource,
-  RequestHandlerInput,
   SetAllowanceInput,
-  SimulateReturnType,
   SponsoredApprovalDataArray,
   Step,
   StepInfo,
@@ -63,6 +54,7 @@ import {
   TokenInfo,
   OnAllowanceHook,
   OnIntentHook,
+  NetworkConfig,
 } from '@nexus/commons';
 import {
   convertGasToToken,
@@ -104,6 +96,7 @@ import { getBalances } from 'sdk/ca-base/swap/route';
 import { TronWeb } from 'tronweb';
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
+import { Errors } from '../errors';
 
 type Options = {
   cosmos: {
@@ -239,7 +232,7 @@ class BridgeHandler {
     console.timeEnd('process:preIntentSteps');
 
     if (intent.isAvailableBalanceInsufficient) {
-      throw ErrorInsufficientBalance;
+      throw Errors.insufficientBalance();
     }
 
     return intent;
@@ -260,12 +253,12 @@ class BridgeHandler {
 
       const chain = this.options.chainList.getChainByID(s.chainID);
       if (!chain) {
-        throw new Error('chain is not supported');
+        throw Errors.chainNotFound(s.chainID);
       }
 
       const token = this.options.chainList.getTokenByAddress(s.chainID, s.tokenContract);
       if (!token) {
-        throw new Error('token is not supported');
+        throw Errors.tokenNotSupported(s.tokenContract, s.chainID);
       }
 
       const requiredAllowance = mulDecimals(s.amount, token.decimals);
@@ -319,7 +312,7 @@ class BridgeHandler {
 
       intent = await this.buildIntent(sourceChains);
       if (intent.isAvailableBalanceInsufficient) {
-        throw ErrorInsufficientBalance;
+        throw Errors.insufficientBalance();
       }
       insufficientAllowanceSources = this.filterInsufficientAllowanceSources(intent, allowances);
       this.createExpectedSteps(intent, insufficientAllowanceSources);
@@ -335,7 +328,7 @@ class BridgeHandler {
       };
 
       const deny = () => {
-        return reject(ErrorUserDeniedIntent);
+        return reject(Errors.userDeniedIntent());
       };
 
       this.options.hooks.onIntent({
@@ -514,7 +507,7 @@ class BridgeHandler {
           logger.error('universe has fuel but not expected input', {
             fuelInput: this.options.fuel,
           });
-          throw new Error('universe has fuel but not expected input');
+          throw Errors.internal('universe has fuel but not expected input');
         }
 
         const { requestHash, signature } = await createRequestFuelSignature(
@@ -536,7 +529,7 @@ class BridgeHandler {
           logger.error('universe has tron but not expected input', {
             tronInput: this.options.tron,
           });
-          throw new Error('universe has tron but not expected input');
+          throw Errors.internal('universe has tron but not expected input');
         }
         const { requestHash, signature } = await createRequestTronSignature(
           omniversalRff.asEVMRFF(),
@@ -603,19 +596,19 @@ class BridgeHandler {
     const evmSignatureData = signatureData.find((d) => d.universe === Universe.ETHEREUM);
 
     if (!evmSignatureData && universes.has(Universe.ETHEREUM)) {
-      throw new Error('ethereum in universe list but no signature data present');
+      throw Errors.internal('ethereum in universe list but no signature data present');
     }
 
     const fuelSignatureData = signatureData.find((d) => d.universe === Universe.FUEL);
 
     if (!fuelSignatureData && universes.has(Universe.FUEL)) {
-      throw new Error('fuel in universe list but no signature data present');
+      throw Errors.internal('fuel in universe list but no signature data present');
     }
 
     const tronSignatureData = signatureData.find((d) => d.universe === Universe.TRON);
 
     if (!tronSignatureData && universes.has(Universe.TRON)) {
-      throw new Error('tron in universe list but no signature data present');
+      throw Errors.internal('tron in universe list but no signature data present');
     }
 
     const doubleCheckTxs = [];
@@ -623,12 +616,12 @@ class BridgeHandler {
     for (const [i, s] of sources.entries()) {
       const chain = this.options.chainList.getChainByID(Number(s.chainID));
       if (!chain) {
-        throw new Error('chain not found');
+        throw Errors.chainNotFound(s.chainID);
       }
 
       if (s.universe === Universe.FUEL) {
         if (!this.options.fuel) {
-          throw new Error('fuel is involved but no associated data');
+          throw Errors.internal('fuel is involved but no associated data');
         }
 
         const account = new Account(
@@ -656,13 +649,13 @@ class BridgeHandler {
 
         fuelDeposits.push(
           (async function () {
-            const txResult = await tx.waitForResult();
+            const result = await tx.waitForResult();
             logger.debug('PostIntentSubmission: Fuel deposit result', {
-              txResult,
+              result,
             });
 
-            if (txResult.transactionResult.isStatusFailure) {
-              throw new Error('fuel deposit failed');
+            if (result.transactionResult.isStatusFailure) {
+              throw Errors.fuelDepositFailed(result.transactionResult);
             }
           })(),
         );
@@ -710,18 +703,14 @@ class BridgeHandler {
           await this.options.tron!.adapter.signTransaction(txWrap.transaction),
         );
 
-        logger.debug('tron tx result', {
+        logger.debug('tron deposit tx result', {
           txResult,
         });
+
         if (!txResult.result) {
-          throw new Error('Tron tx failed', {
-            cause: txResult,
-          });
+          throw Errors.tronDepositFailed(txResult);
         }
 
-        logger.debug('tronDeposit', {
-          txResult,
-        });
         tronDeposits.push(
           (async () => {
             await waitForTronDepositTxConfirmation(
@@ -801,7 +790,7 @@ class BridgeHandler {
         logger.debug('setAllowances', { originalChain });
         const chain = this.options.chainList.getChainByID(source.chainID);
         if (!chain) {
-          throw new Error('chain not supported');
+          throw Errors.chainNotFound(source.chainID);
         }
 
         const publicClient = createPublicClientWithFallback(chain);
@@ -811,12 +800,20 @@ class BridgeHandler {
         const chainId = new OmniversalChainID(chain.universe, source.chainID);
         const chainDatum = ChaindataMap.get(chainId);
         if (!chainDatum) {
-          throw new Error('Chain data not found');
+          throw Errors.internal('Chain data not found', {
+            chainId: source.chainID,
+            universe: chain.universe,
+          });
         }
+
         const currency = chainDatum.CurrencyMap.get(convertTo32Bytes(source.tokenContract));
         if (!currency) {
-          throw new Error('Currency not found');
+          throw Errors.internal('currency not found', {
+            chainId: source.chainID,
+            tokenContractAddress: source.tokenContract,
+          });
         }
+
         logger.debug('setAllowances chain switching to ', { chain });
         await switchChain(this.options.evm.client, chain);
         logger.debug('setAllowances chain switched to ', {
@@ -844,9 +841,9 @@ class BridgeHandler {
             });
           } else if (chain.universe === Universe.TRON) {
             if (!this.options.tron) {
-              // This should never happen - we only fetch tron assets if tron adapter is set
-              throw new Error('Tron is available in sources but has no adapter/provider');
+              throw Errors.internal('Tron is available in sources but has no adapter/provider');
             }
+
             const provider = new TronWeb({
               fullHost: chain.rpcUrls.default.grpc![0],
             });
@@ -869,9 +866,7 @@ class BridgeHandler {
               txResult,
             });
             if (!txResult.result) {
-              throw new Error('Tron tx failed', {
-                cause: txResult,
-              });
+              throw Errors.tronApprovalFailed(txResult);
             }
 
             await waitForTronApprovalTxConfirmation(
@@ -933,7 +928,7 @@ class BridgeHandler {
       }
     } catch (e) {
       console.error('Error setting allowances', e);
-      throw ErrorUserDeniedAllowance;
+      throw Errors.userDeniedAllowance;
     } finally {
       if (this.params.dstChain.universe === Universe.ETHEREUM) {
         await switchChain(this.options.evm.client, this.params.dstChain);
@@ -950,11 +945,7 @@ class BridgeHandler {
     await new Promise((resolve, reject) => {
       const allow = (allowances: Array<'max' | 'min' | bigint | string>) => {
         if (sources.length !== allowances.length) {
-          return reject(
-            new Error(
-              `invalid input length for allow(). expected: ${sources.length} got: ${allowances.length}`,
-            ),
-          );
+          return reject(Errors.invalidAllowance(sources.length, allowances.length));
         }
 
         logger.debug('CA:BaseRequest:Allowances', {
@@ -985,7 +976,7 @@ class BridgeHandler {
       };
 
       const deny = () => {
-        return reject(ErrorUserDeniedAllowance);
+        return reject(Errors.userDeniedAllowance);
       };
 
       this.options.hooks.onAllowance({
@@ -1048,7 +1039,7 @@ class BridgeHandler {
     const allSources = asset.iterate(feeStore).map((v) => {
       const chain = this.options.chainList.getChainByID(v.chainID);
       if (!chain) {
-        throw new Error('source has no chain.');
+        throw Errors.chainNotFound(v.chainID);
       }
 
       return { ...v, amount: v.balance, holderAddress: retrieveAddress(v.universe, this.options) };
@@ -1119,19 +1110,17 @@ class BridgeHandler {
         }
       }
 
-      if (!isNativeAddress(assetC.universe, assetC.tokenContract)) {
-        const collectionFee = feeStore.calculateCollectionFee({
-          decimals: assetC.decimals,
-          sourceChainID: assetC.chainID,
-          sourceTokenAddress: assetC.tokenContract,
-        });
+      // Now collectionFee is a fixed amount - applicable to all
+      const collectionFee = feeStore.calculateCollectionFee({
+        decimals: assetC.decimals,
+        sourceChainID: assetC.chainID,
+        sourceTokenAddress: assetC.tokenContract,
+      });
 
-        intent.fees.collection = collectionFee.add(intent.fees.collection).toFixed();
+      intent.fees.collection = collectionFee.add(intent.fees.collection).toFixed();
+      borrowWithFee = borrowWithFee.add(collectionFee);
 
-        borrowWithFee = borrowWithFee.add(collectionFee);
-
-        logger.debug('createIntent:2', { collectionFee });
-      }
+      logger.debug('createIntent:2', { collectionFee });
 
       const unaccountedAmount = borrowWithFee.minus(accountedAmount);
 
@@ -1211,18 +1200,18 @@ const retrieveAddress = (universe: Universe, input: Options): Hex => {
     return input.evm.address;
   } else if (universe === Universe.FUEL) {
     if (!input.fuel) {
-      throw new Error('fuel source but no fuel input');
+      throw Errors.internal('fuel source but no fuel input');
     }
     return input.fuel.address as Hex;
   } else if (universe === Universe.TRON) {
     if (!input.tron) {
-      throw new Error('tron source but no tron input');
+      throw Errors.internal('tron source but no tron input');
     }
 
     return input.tron.address as Hex;
   }
 
-  throw new Error('unknown universe');
+  throw Errors.internal('unknown universe');
 };
 
 const isDeposit = (universe: Universe, tokenAddress: Hex) => {
@@ -1232,6 +1221,7 @@ const isDeposit = (universe: Universe, tokenAddress: Hex) => {
 
   return true;
 };
+
 const waitForDoubleCheckTx = (input: Array<() => Promise<void>>) => {
   return async () => {
     await Promise.allSettled(input.map((i) => i()));

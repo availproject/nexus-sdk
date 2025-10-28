@@ -30,12 +30,11 @@ import {
   WalletClient,
   WebSocketTransport,
 } from 'viem';
-
 import ERC20ABI from '../abi/erc20';
 import gasOracleABI from '../abi/gasOracle';
 import { FillEvent } from '../abi/vault';
 import { ZERO_ADDRESS } from '../constants';
-import { ErrorLiquidityTimeout } from '../errors';
+import { Errors } from '../errors';
 import { getLogger } from '../logger';
 import {
   ChainListType,
@@ -185,7 +184,7 @@ const requestTimeout = (timeout: number, ac: AbortController) => {
   return new Promise((_, reject) => {
     const t = window.setTimeout(() => {
       ac.abort();
-      return reject(ErrorLiquidityTimeout);
+      return reject(Errors.liquidityTimeout());
     }, minutesToMs(timeout));
     ac.signal.addEventListener(
       'abort',

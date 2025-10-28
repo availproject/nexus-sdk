@@ -235,19 +235,6 @@ export type EventListenerType = {
   onEvent: (eventName: string, ...args: any[]) => void;
 };
 
-interface SimulationMetadata {
-  contractAddress: string;
-  functionName: string;
-  bridgeReceiveAmount: string;
-  bridgeFee: string;
-  inputAmount: string;
-  optimalBridgeAmount?: string;
-  targetChain: number;
-  approvalRequired: boolean;
-  bridgeSkipped?: boolean;
-  token?: SUPPORTED_TOKENS;
-}
-
 export type BridgeAndExecuteSimulationResult =
   | {
       bridgeSimulation: SimulationResult | null;
@@ -312,27 +299,6 @@ export type BridgeQueryInput = {
   token: string;
 };
 
-export type SupportedUniverse = Universe.ETHEREUM | Universe.FUEL | Universe.TRON;
-
-export interface CA {
-  createHandler<T extends SupportedUniverse>(
-    params: {
-      receiver: Hex;
-      amount: bigint;
-      tokenAddress: Hex;
-      universe: T;
-      chainId: number;
-    },
-    options: Partial<TxOptions>,
-  ): Promise<CreateHandlerResponse | null>;
-
-  getChainID(): Promise<number>;
-
-  init(): Promise<void>;
-
-  switchChain(chainID: number): Promise<void>;
-}
-
 export type Chain = {
   blockExplorers?: {
     default: {
@@ -362,11 +328,6 @@ export type Chain = {
   };
   universe: Universe;
 };
-
-export interface CreateHandlerResponse {
-  handler: IRequestHandler | null;
-  processTx: () => Promise<unknown>;
-}
 
 interface EthereumProvider {
   on(eventName: string | symbol, listener: (...args: any[]) => void): this;
@@ -454,11 +415,6 @@ export type IntentSourceForAllowance = {
   requiredAllowance: bigint;
   token: TokenInfo;
 };
-
-export interface IRequestHandler {
-  buildIntent(sourceChains: number[]): Promise<Intent>;
-  process(): Promise<{ explorerURL: string } | undefined>;
-}
 
 type Network = Extract<Environment, Environment.CERISE | Environment.CORAL | Environment.FOLLY>;
 
@@ -558,8 +514,6 @@ type RequestArguments = {
   readonly method: string;
   readonly params?: object | readonly unknown[];
 };
-
-export type RequestHandler = new (i: RequestHandlerInput) => IRequestHandler;
 
 export type ChainListType = {
   chains: Chain[];
