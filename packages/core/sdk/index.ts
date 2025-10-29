@@ -42,7 +42,7 @@ export class NexusSDK extends CA {
    * Initialize the SDK with a provider
    */
   public async initialize(provider: EthereumProvider): Promise<void> {
-    this._setEVMProvider(provider);
+    await this._setEVMProvider(provider);
     await this._init();
     const BACKEND_URL = 'https://nexus-backend.avail.so';
     if (BACKEND_URL) {

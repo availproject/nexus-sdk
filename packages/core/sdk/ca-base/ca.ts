@@ -129,19 +129,16 @@ export class CA {
   protected async createBridgeHandler(input: BridgeQueryInput, options?: OnEventParam) {
     const params = createBridgeParams(input, this.chainList);
 
-    const bridgeHandler = new BridgeHandler(
-      { ...params, recipientAddress: '0x' },
-      {
-        chainList: this.chainList,
-        cosmos: this.#cosmos!,
-        fuel: this._fuel,
-        evm: { client: this._evm!.client, address: this._evm!.address },
-        hooks: this._hooks,
-        tron: this._tron,
-        networkConfig: this._networkConfig,
-        emit: options?.onEvent,
-      },
-    );
+    const bridgeHandler = new BridgeHandler(params, {
+      chainList: this.chainList,
+      cosmos: this.#cosmos!,
+      fuel: this._fuel,
+      evm: this._evm!,
+      hooks: this._hooks,
+      tron: this._tron,
+      networkConfig: this._networkConfig,
+      emit: options?.onEvent,
+    });
 
     return bridgeHandler;
   }

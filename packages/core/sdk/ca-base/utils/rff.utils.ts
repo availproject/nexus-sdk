@@ -1,18 +1,20 @@
 import { MsgCreateRequestForFunds, OmniversalRFF, Universe } from '@avail-project/ca-common';
 import { FUEL_BASE_ASSET_ID, INTENT_EXPIRY, isNativeAddress, ZERO_ADDRESS } from '../constants';
-import { getLogger } from '../logger';
-import { ChainListType, Intent } from '@nexus/commons';
+import { getLogger, ChainListType, Intent, IBridgeOptions } from '@nexus/commons';
 import {
   convertTo32Bytes,
   convertTo32BytesHex,
   createRequestEVMSignature,
   createRequestFuelSignature,
+  createRequestTronSignature,
   mulDecimals,
 } from './common.utils';
-import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import { Hex, PrivateKeyAccount, toBytes, WalletClient } from 'viem';
-import { CHAIN_IDS, FuelConnector, Provider } from 'fuels';
+import { CHAIN_IDS } from 'fuels';
 import Long from 'long';
+import { TronWeb } from 'tronweb';
+import { tronHexToEvmAddress } from './tron.utils';
+import { Errors } from '../errors';
 
 type Destination = {
   tokenAddress: `0x${string}`;
@@ -87,11 +89,11 @@ const getSourcesAndDestinationsForRFF = (
 
 const createRFFromIntent = async (
   intent: Intent,
-  options: {
-    chainList: ChainListType;
-    cosmos: { address: string; client: DirectSecp256k1Wallet };
-    evm: { address: Hex; client: PrivateKeyAccount | WalletClient };
-    fuel?: { address: string; connector: FuelConnector; provider: Provider };
+  options: Pick<IBridgeOptions, 'chainList' | 'cosmos' | 'fuel' | 'tron'> & {
+    evm: {
+      address: `0x${string}`;
+      client: WalletClient | PrivateKeyAccount;
+    };
   },
   destinationUniverse: Universe,
 ) => {
@@ -116,6 +118,16 @@ const createRFFromIntent = async (
         universe,
       });
     }
+
+    if (universe === Universe.TRON) {
+      console.log({ tronAddress: TronWeb.address.toHex(options.tron!.address) });
+      parties.push({
+        address: convertTo32BytesHex(
+          tronHexToEvmAddress(TronWeb.address.toHex(options.tron!.address)),
+        ),
+        universe,
+      });
+    }
   }
 
   logger.debug('processRFF:1', {
@@ -131,6 +143,7 @@ const createRFFromIntent = async (
       contractAddress: toBytes(dest.tokenAddress),
       value: toBytes(dest.value),
     })),
+    recipientAddress: convertTo32Bytes(intent.recipientAddress),
     destinationUniverse: intent.destination.universe,
     expiry: Long.fromString((BigInt(Date.now() + INTENT_EXPIRY) / 1000n).toString()),
     nonce: window.crypto.getRandomValues(new Uint8Array(32)),
@@ -192,12 +205,33 @@ const createRFFromIntent = async (
         universe: Universe.FUEL,
       });
     }
+
+    if (universe === Universe.TRON) {
+      if (!options.tron) {
+        logger.error('universe has tron but not expected input', {
+          tronInput: options.tron,
+        });
+        throw Errors.internal('universe has tron but not expected input');
+      }
+      const { requestHash, signature } = await createRequestTronSignature(
+        omniversalRFF.asEVMRFF(),
+        options.tron.adapter,
+      );
+
+      signatureData.push({
+        address: convertTo32Bytes(tronHexToEvmAddress(TronWeb.address.toHex(options.tron.address))),
+        requestHash,
+        signature,
+        universe,
+      });
+    }
   }
 
   const msgBasicCosmos = MsgCreateRequestForFunds.create({
     destinationChainID: omniversalRFF.protobufRFF.destinationChainID,
     destinations: omniversalRFF.protobufRFF.destinations,
     destinationUniverse: omniversalRFF.protobufRFF.destinationUniverse,
+    recipientAddress: omniversalRFF.protobufRFF.recipientAddress,
     expiry: omniversalRFF.protobufRFF.expiry,
     nonce: omniversalRFF.protobufRFF.nonce,
     signatureData: signatureData.map((s) => ({

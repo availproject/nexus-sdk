@@ -3,16 +3,15 @@ import {
   ChaindataMap,
   ERC20ABI,
   EVMVaultABI,
-  MsgCreateRequestForFunds,
   OmniversalChainID,
-  OmniversalRFF,
   PermitVariant,
   Universe,
 } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
-import { Account, BN, CHAIN_IDS, FuelConnector, hexlify, Provider } from 'fuels';
+import { Account, BN, CHAIN_IDS, hexlify } from 'fuels';
 import Long from 'long';
 import {
+  ContractFunctionExecutionError,
   createPublicClient,
   encodeFunctionData,
   Hex,
@@ -20,12 +19,11 @@ import {
   JsonRpcAccount,
   maxUint256,
   parseSignature,
-  toBytes,
   toHex,
-  WalletClient,
+  UserRejectedRequestError,
   webSocket,
 } from 'viem';
-import { INTENT_EXPIRY, isNativeAddress } from '../constants';
+import { isNativeAddress } from '../constants';
 import {
   ALLOWANCE_APPROVAL_MINED,
   ALLOWANCE_APPROVAL_REQ,
@@ -39,7 +37,6 @@ import {
   INTENT_SUBMITTED,
 } from '../steps';
 import {
-  ChainListType,
   Intent,
   onAllowanceHookSource,
   SetAllowanceInput,
@@ -48,28 +45,22 @@ import {
   StepInfo,
   Chain,
   TokenInfo,
-  OnAllowanceHook,
-  OnIntentHook,
-  NetworkConfig,
   getLogger,
+  IBridgeOptions,
 } from '@nexus/commons';
 import {
   convertGasToToken,
   convertIntent,
   convertTo32Bytes,
-  convertTo32BytesHex,
   cosmosCreateRFF,
   createDepositDoubleCheckTx,
   createPublicClientWithFallback,
-  createRequestEVMSignature,
-  createRequestFuelSignature,
   equalFold,
   FeeStore,
   fetchPriceOracle,
   getAllowances,
   getExplorerURL,
   getFeeStore,
-  getSourcesAndDestinationsForRFF,
   mulDecimals,
   removeIntentHashFromStore,
   signPermitForAddressAndValue,
@@ -80,50 +71,21 @@ import {
   vscPublishRFF,
   waitForTxReceipt,
   UserAssets,
-  createRequestTronSignature,
   waitForTronDepositTxConfirmation,
   waitForTronApprovalTxConfirmation,
-  tronHexToEvmAddress,
   divDecimals,
   requestTimeout,
   cosmosFillCheck,
   waitForIntentFulfilment,
+  createRFFromIntent,
+  retrieveAddress,
 } from '../utils';
 import { getBalances } from 'sdk/ca-base/swap/route';
 import { TronWeb } from 'tronweb';
-import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
-import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 import { Errors } from '../errors';
 
-type Options = {
-  cosmos: {
-    wallet: DirectSecp256k1Wallet;
-    address: string;
-  };
-  evm: {
-    address: `0x${string}`;
-    client: WalletClient;
-  };
-  fuel?: {
-    address: string;
-    connector: FuelConnector;
-    provider: Provider;
-  };
-  tron?: {
-    address: string;
-    adapter: AdapterProps;
-  };
-  hooks: {
-    onAllowance: OnAllowanceHook;
-    onIntent: OnIntentHook;
-  };
-  emit?: (eventName: string, ...args: any[]) => void;
-  networkConfig: NetworkConfig;
-  chainList: ChainListType;
-};
-
 type Params = {
-  recipientAddress: Hex;
+  recipientAddress?: Hex;
   dstChain: Chain;
   dstToken: TokenInfo;
   tokenAmount: bigint;
@@ -135,11 +97,17 @@ const logger = getLogger();
 
 class BridgeHandler {
   protected steps: Step[] = [];
-
+  protected params: Required<Params>;
   constructor(
-    readonly params: Params,
-    readonly options: Options,
-  ) {}
+    params: Params,
+    readonly options: IBridgeOptions,
+  ) {
+    this.params = {
+      ...params,
+      recipientAddress: retrieveAddress(params.dstChain.universe, options),
+    };
+    console.log({ params: this.params, options });
+  }
 
   public async simulate() {
     const intent = await this.buildIntent(this.params.sourceChains);
@@ -344,9 +312,8 @@ class BridgeHandler {
     await this.waitForOnAllowanceHook(insufficientAllowanceSources);
     console.timeEnd('process:AllowanceHook');
 
-    // FIXME: Add showing intent again if prices change?
     // Step 6: process intent
-    return this.processIntent(intent);
+    return this.executeIntent(intent);
   };
 
   private async waitForFill(
@@ -383,7 +350,7 @@ class BridgeHandler {
     await Promise.race(promisesToRace);
   }
 
-  private async processIntent(intent: Intent) {
+  private async executeIntent(intent: Intent) {
     logger.debug('intent', { intent });
 
     const { explorerURL, intentID, requestHash, waitForDoubleCheckTx } =
@@ -403,166 +370,10 @@ class BridgeHandler {
   }
 
   private async processRFF(intent: Intent) {
-    const { destinations, sources, universes } = getSourcesAndDestinationsForRFF(
-      intent,
-      this.options.chainList,
-      this.params.dstChain.universe,
-    );
-
-    const parties: Array<{ address: string; universe: Universe }> = [];
-    for (const universe of universes) {
-      if (universe === Universe.ETHEREUM) {
-        parties.push({
-          address: convertTo32BytesHex(this.options.evm.address),
-          universe: universe,
-        });
-      }
-
-      if (universe === Universe.FUEL) {
-        parties.push({
-          address: convertTo32BytesHex(this.options.fuel!.address as Hex),
-          universe,
-        });
-      }
-
-      if (universe === Universe.TRON) {
-        console.log({ tronAddress: TronWeb.address.toHex(this.options.tron!.address) });
-        parties.push({
-          address: convertTo32BytesHex(
-            tronHexToEvmAddress(TronWeb.address.toHex(this.options.tron!.address)),
-          ),
-          universe,
-        });
-      }
-    }
-
-    logger.debug('processRFF:1', {
-      destinations,
-      parties,
-      sources,
-      universes,
-    });
-
-    const omniversalRff = new OmniversalRFF({
-      destinationChainID: convertTo32Bytes(intent.destination.chainID),
-      destinations: destinations.map((dest) => ({
-        contractAddress: toBytes(dest.tokenAddress),
-        value: toBytes(dest.value),
-      })),
-      recipientAddress: convertTo32Bytes(this.params.recipientAddress),
-      destinationUniverse: intent.destination.universe,
-      expiry: Long.fromString((BigInt(Date.now() + INTENT_EXPIRY) / 1000n).toString()),
-      nonce: window.crypto.getRandomValues(new Uint8Array(32)),
-      // @ts-expect-error
-      signatureData: parties.map((p) => ({
-        address: toBytes(p.address),
-        universe: p.universe,
-      })),
-      // @ts-expect-error
-      sources: sources.map((source) => ({
-        chainID: convertTo32Bytes(source.chainID),
-        contractAddress: convertTo32Bytes(source.tokenAddress),
-        universe: source.universe,
-        value: toBytes(source.value),
-      })),
-    });
-
-    logger.debug('BaseRequest', {
-      omniversalRff,
-      recipientAddress: this.params.recipientAddress,
-    });
-
-    const signatureData: {
-      address: Uint8Array;
-      requestHash: `0x${string}`;
-      signature: Uint8Array;
-      universe: Universe;
-    }[] = [];
-
-    for (const universe of universes) {
-      if (universe === Universe.ETHEREUM) {
-        const { requestHash, signature } = await createRequestEVMSignature(
-          omniversalRff.asEVMRFF(),
-          this.options.evm.address,
-          this.options.evm.client,
-        );
-
-        signatureData.push({
-          address: convertTo32Bytes(this.options.evm.address),
-          requestHash,
-          signature,
-          universe,
-        });
-      }
-
-      if (universe === Universe.FUEL) {
-        if (
-          !this.options.fuel?.address ||
-          !this.options.fuel?.provider ||
-          !this.options.fuel?.connector
-        ) {
-          logger.error('universe has fuel but not expected input', {
-            fuelInput: this.options.fuel,
-          });
-          throw Errors.internal('universe has fuel but not expected input');
-        }
-
-        const { requestHash, signature } = await createRequestFuelSignature(
-          this.options.chainList.getVaultContractAddress(CHAIN_IDS.fuel.mainnet),
-          this.options.fuel.provider,
-          this.options.fuel.connector,
-          omniversalRff.asFuelRFF(),
-        );
-        signatureData.push({
-          address: toBytes(this.options.fuel.address),
-          requestHash,
-          signature,
-          universe,
-        });
-      }
-
-      if (universe === Universe.TRON) {
-        if (!this.options.tron) {
-          logger.error('universe has tron but not expected input', {
-            tronInput: this.options.tron,
-          });
-          throw Errors.internal('universe has tron but not expected input');
-        }
-        const { requestHash, signature } = await createRequestTronSignature(
-          omniversalRff.asEVMRFF(),
-          this.options.tron.adapter,
-        );
-
-        signatureData.push({
-          address: convertTo32Bytes(
-            tronHexToEvmAddress(TronWeb.address.toHex(this.options.tron.address)),
-          ),
-          requestHash,
-          signature,
-          universe,
-        });
-      }
-    }
-
-    logger.debug('processRFF:2', { omniversalRff, signatureData });
+    const { msgBasicCosmos, omniversalRFF, signatureData, sources, universes } =
+      await createRFFromIntent(intent, this.options, this.params.dstChain.universe);
 
     this.markStepDone(INTENT_HASH_SIGNED);
-
-    const msgBasicCosmos = MsgCreateRequestForFunds.create({
-      destinationChainID: omniversalRff.protobufRFF.destinationChainID,
-      destinations: omniversalRff.protobufRFF.destinations,
-      destinationUniverse: omniversalRff.protobufRFF.destinationUniverse,
-      recipientAddress: omniversalRff.protobufRFF.recipientAddress,
-      expiry: omniversalRff.protobufRFF.expiry,
-      nonce: omniversalRff.protobufRFF.nonce,
-      signatureData: signatureData.map((s) => ({
-        address: s.address,
-        signature: s.signature,
-        universe: s.universe,
-      })),
-      sources: omniversalRff.protobufRFF.sources,
-      user: this.options.cosmos.address,
-    });
 
     logger.debug('processRFF:3', { msgBasicCosmos });
 
@@ -633,7 +444,7 @@ class BridgeHandler {
         );
 
         const tx = await vault.functions
-          .deposit(omniversalRff.asFuelRFF(), hexlify(fuelSignatureData!.signature), i)
+          .deposit(omniversalRFF.asFuelRFF(), hexlify(fuelSignatureData!.signature), i)
           .callParams({
             forward: {
               amount: new BN(s.value.toString()),
@@ -665,7 +476,7 @@ class BridgeHandler {
           abi: EVMVaultABI,
           account: this.options.evm.address,
           address: this.options.chainList.getVaultContractAddress(chain.id),
-          args: [omniversalRff.asEVMRFF(), toHex(evmSignatureData!.signature), BigInt(i)],
+          args: [omniversalRFF.asEVMRFF(), toHex(evmSignatureData!.signature), BigInt(i)],
           chain: chain,
           functionName: 'deposit',
           value: s.value,
@@ -689,7 +500,7 @@ class BridgeHandler {
             input: encodeFunctionData({
               abi: EVMVaultABI,
               functionName: 'deposit',
-              args: [omniversalRff.asEVMRFF(), toHex(tronSignatureData!.signature), BigInt(i)],
+              args: [omniversalRFF.asEVMRFF(), toHex(tronSignatureData!.signature), BigInt(i)],
             }),
           },
           [],
@@ -811,31 +622,34 @@ class BridgeHandler {
           });
         }
 
-        logger.debug('setAllowances chain switching to ', { chain });
-        await switchChain(this.options.evm.client, chain);
-        logger.debug('setAllowances chain switched to ', {
-          originalChain,
-          switchedTo: await this.options.evm.client?.getChainId(),
-          chain,
-        });
-
         if (currency.permitVariant === PermitVariant.Unsupported || chain.id === 1) {
           if (chain.universe === Universe.ETHEREUM) {
             await switchChain(this.options.evm.client, chain);
-            const h = await this.options.evm.client.writeContract({
-              abi: ERC20ABI,
-              account: this.options.evm.address,
-              address: source.tokenContract,
-              args: [vc, BigInt(source.amount)],
-              chain,
-              functionName: 'approve',
-            });
+
+            const h = await this.options.evm.client
+              .writeContract({
+                abi: ERC20ABI,
+                account: this.options.evm.address,
+                address: source.tokenContract,
+                args: [vc, BigInt(source.amount)],
+                chain,
+                functionName: 'approve',
+              })
+              .catch((e) => {
+                if (e instanceof ContractFunctionExecutionError) {
+                  const isUserRejectedRequestError =
+                    e.walk((e) => e instanceof UserRejectedRequestError) instanceof
+                    UserRejectedRequestError;
+                  if (isUserRejectedRequestError) {
+                    throw Errors.userDeniedAllowance();
+                  }
+                }
+                throw e;
+              });
 
             this.markStepDone(ALLOWANCE_APPROVAL_REQ(source.chainID));
 
-            await publicClient.waitForTransactionReceipt({
-              hash: h,
-            });
+            await waitForTxReceipt(h, publicClient);
           } else if (chain.universe === Universe.TRON) {
             if (!this.options.tron) {
               throw Errors.internal('Tron is available in sources but has no adapter/provider');
@@ -890,7 +704,17 @@ class BridgeHandler {
               account,
               vc,
               source.amount,
-            ),
+            ).catch((e) => {
+              if (e instanceof ContractFunctionExecutionError) {
+                const isUserRejectedRequestError =
+                  e.walk((e) => e instanceof UserRejectedRequestError) instanceof
+                  UserRejectedRequestError;
+                if (isUserRejectedRequestError) {
+                  throw Errors.userDeniedAllowance();
+                }
+              }
+              throw e;
+            }),
           );
 
           this.markStepDone(ALLOWANCE_APPROVAL_REQ(source.chainID));
@@ -924,8 +748,8 @@ class BridgeHandler {
         );
       }
     } catch (e) {
-      console.error('Error setting allowances', e);
-      throw Errors.userDeniedAllowance;
+      logger.error('Error setting allowances', e);
+      throw e;
     } finally {
       if (this.params.dstChain.universe === Universe.ETHEREUM) {
         await switchChain(this.options.evm.client, this.params.dstChain);
@@ -1026,6 +850,7 @@ class BridgeHandler {
       },
       isAvailableBalanceInsufficient: false,
       sources: [],
+      recipientAddress: this.params.recipientAddress,
     };
 
     const asset = assets.find(token.symbol);
@@ -1191,25 +1016,6 @@ class BridgeHandler {
     }
   };
 }
-
-const retrieveAddress = (universe: Universe, input: Options): Hex => {
-  if (universe === Universe.ETHEREUM) {
-    return input.evm.address;
-  } else if (universe === Universe.FUEL) {
-    if (!input.fuel) {
-      throw Errors.internal('fuel source but no fuel input');
-    }
-    return input.fuel.address as Hex;
-  } else if (universe === Universe.TRON) {
-    if (!input.tron) {
-      throw Errors.internal('tron source but no tron input');
-    }
-
-    return input.tron.address as Hex;
-  }
-
-  throw Errors.internal('unknown universe');
-};
 
 const isDeposit = (universe: Universe, tokenAddress: Hex) => {
   if (universe === Universe.ETHEREUM) {

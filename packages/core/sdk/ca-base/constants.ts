@@ -1,6 +1,4 @@
 import { Universe } from '@avail-project/ca-common';
-
-import { convertTo32BytesHex } from './utils';
 import { MAINNET_CHAIN_IDS } from '@nexus/commons';
 
 const FUEL_NETWORK_URL = 'https://mainnet.fuel.network/v1/graphql';
@@ -137,7 +135,7 @@ const TOP_OWNER: {
 
 const ZERO_ADDRESS: `0x${string}` = '0x0000000000000000000000000000000000000000';
 
-const ZERO_ADDRESS_FUEL = convertTo32BytesHex(ZERO_ADDRESS);
+const ZERO_ADDRESS_FUEL = '0x0000000000000000000000000000000000000000000000000000000000000000';
 
 export {
   AaveTokenContracts,

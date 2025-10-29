@@ -44,6 +44,8 @@ const createEmptyIntent = ({
   chainID: number;
 }): Intent => ({
   allSources: [],
+  // FIXME: this should have user address
+  recipientAddress: '0x',
   destination: {
     amount: new Decimal(0),
     chainID,
@@ -254,7 +256,7 @@ export const createBridgeRFF = async ({
       chainList: config.chainList,
       cosmos: {
         address: config.cosmos.address,
-        client: config.cosmos.wallet,
+        wallet: config.cosmos.wallet,
       },
       evm: {
         address: config.evm.address,

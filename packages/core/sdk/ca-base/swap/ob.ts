@@ -17,7 +17,7 @@ import Decimal from 'decimal.js';
 import { orderBy, retry } from 'es-toolkit';
 import Long from 'long';
 import { ByteArray, Hex, PrivateKeyAccount, toBytes, WalletClient } from 'viem';
-import { getLogger } from '../logger';
+import { getLogger } from '@nexus/commons';
 import { divDecimals, equalFold, minutesToMs, waitForTxReceipt } from '../utils';
 import { EADDRESS, SWEEPER_ADDRESS } from './constants';
 import { getTokenDecimals } from './data';

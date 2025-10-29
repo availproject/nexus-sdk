@@ -180,6 +180,9 @@ class BridgeAndExecuteQuery {
   ): Promise<BridgeAndExecuteResult> {
     const { toChainId, token: tokenSymbol, amount, execute } = params;
     try {
+      logger.debug('bridgeAndExecute', {
+        options,
+      });
       // 1. Check if dst chain data is available
       // 2. Check if token is supported
       const { token, chain: dstChain } = this.chainList.getChainAndTokenFromSymbol(

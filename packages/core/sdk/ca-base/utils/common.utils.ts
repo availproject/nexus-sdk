@@ -14,7 +14,6 @@ import { arrayify, CHAIN_IDS, FuelConnector, hexlify, Provider } from 'fuels';
 import Long from 'long';
 import {
   ByteArray,
-  bytesToBigInt,
   bytesToHex,
   bytesToNumber,
   encodeAbiParameters,
@@ -22,19 +21,21 @@ import {
   getAbiItem,
   hashMessage,
   Hex,
+  hexToBigInt,
   keccak256,
   pad,
   PrivateKeyAccount,
   PublicClient,
   toBytes,
   toHex,
+  UserRejectedRequestError,
   WalletClient,
   WebSocketTransport,
 } from 'viem';
 import { TronWeb } from 'tronweb';
 import { ChainList } from '../chains';
 import { FUEL_BASE_ASSET_ID, isNativeAddress, ZERO_ADDRESS } from '../constants';
-import { getLogger } from '@nexus/commons';
+import { getLogger, IBridgeOptions } from '@nexus/commons';
 import {
   EthereumProvider,
   Intent,
@@ -55,6 +56,7 @@ import { requestTimeout, waitForIntentFulfilment } from './contract.utils';
 import { cosmosCreateDoubleCheckTx, cosmosFillCheck, cosmosRefundIntent } from './cosmos.utils';
 import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 import { Types, utils } from 'tronweb';
+import { Errors } from '../errors';
 
 const logger = getLogger();
 
@@ -353,10 +355,19 @@ const createRequestEVMSignature = async (
 
   const hash = keccak256(msg, 'bytes');
   const signature = toBytes(
-    await client.signMessage({
-      account: evmAddress,
-      message: { raw: hash },
-    }),
+    await client
+      .signMessage({
+        account: evmAddress,
+        message: { raw: hash },
+      })
+      .catch((e) => {
+        if (e instanceof UserRejectedRequestError) {
+          throw Errors.userDeniedAllowance();
+        }
+        throw e;
+      }),
+    // UserRejectedRequestError
+    // FIXME: provider error
   );
 
   return { requestHash: hashMessage({ raw: hash }), signature };
@@ -861,7 +872,7 @@ async function waitForTronApprovalTxConfirmation(
         throw new Error(result.Error);
       }
 
-      const allowance = bytesToBigInt(result.constant_result[0]);
+      const allowance = hexToBigInt(result.constant_result[0]);
       if (allowance < amount) {
         throw new Error('Allowance not set yet.');
       }
@@ -883,7 +894,30 @@ const createExplorerTxURL = (txHash: Hex, explorerURL: string) => {
   return new URL(`/tx/${txHash}`, explorerURL).href;
 };
 
+const retrieveAddress = (
+  universe: Universe,
+  input: Pick<IBridgeOptions, 'fuel' | 'evm' | 'tron'>,
+): Hex => {
+  if (universe === Universe.ETHEREUM) {
+    return input.evm.address;
+  } else if (universe === Universe.FUEL) {
+    if (!input.fuel) {
+      throw Errors.internal('fuel source but no fuel input');
+    }
+    return input.fuel.address as Hex;
+  } else if (universe === Universe.TRON) {
+    if (!input.tron) {
+      throw Errors.internal('tron source but no tron input');
+    }
+
+    return input.tron.address as Hex;
+  }
+
+  throw Errors.internal('unknown universe');
+};
+
 export {
+  retrieveAddress,
   createExplorerTxURL,
   waitForTronApprovalTxConfirmation,
   waitForTronDepositTxConfirmation,

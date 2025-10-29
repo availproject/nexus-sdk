@@ -263,6 +263,33 @@ export interface BridgeAndExecuteParams {
   recentApprovalTxHash?: string;
 }
 
+export type IBridgeOptions = {
+  cosmos: {
+    wallet: DirectSecp256k1Wallet;
+    address: string;
+  };
+  evm: {
+    address: `0x${string}`;
+    client: WalletClient;
+  };
+  fuel?: {
+    address: string;
+    connector: FuelConnector;
+    provider: Provider;
+  };
+  tron?: {
+    address: string;
+    adapter: AdapterProps;
+  };
+  hooks: {
+    onAllowance: OnAllowanceHook;
+    onIntent: OnIntentHook;
+  };
+  emit?: (eventName: string, ...args: any[]) => void;
+  networkConfig: NetworkConfig;
+  chainList: ChainListType;
+};
+
 export type BridgeAndExecuteResult =
   | {
       success: false;
@@ -389,6 +416,7 @@ export type Intent = {
     protocol: string;
     solver: string;
   };
+  recipientAddress: Hex;
   isAvailableBalanceInsufficient: boolean;
   sources: IntentSource[];
 };
