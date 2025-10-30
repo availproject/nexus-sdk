@@ -3,6 +3,7 @@ import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { logger } from '@nexus/commons';
 import BridgeAndExecuteModal from './bridge-execute-modal';
 import { BridgeAndExecuteButtonProps } from '../../types';
+import { trackError, trackWidgetInitiated } from 'src/utils/analytics';
 
 export function BridgeAndExecuteButton({
   contractAddress,
@@ -13,7 +14,7 @@ export function BridgeAndExecuteButton({
   children,
   className,
   title,
-}: BridgeAndExecuteButtonProps) {
+}: Readonly<BridgeAndExecuteButtonProps>) {
   const { startTransaction, activeTransaction } = useInternalNexus();
 
   const isLoading =
@@ -26,14 +27,21 @@ export function BridgeAndExecuteButton({
 
   const handleClick = () => {
     const transactionData = {
-      ...(prefill || {}),
+      ...prefill,
       contractAddress,
       contractAbi,
       functionName,
       buildFunctionParams,
     };
-
-    startTransaction('bridgeAndExecute', transactionData);
+    try {
+      trackWidgetInitiated('bridgeAndExecute');
+      startTransaction('bridgeAndExecute', transactionData);
+    } catch (error) {
+      trackError(error as Error, {
+        function: 'bridge_and_execute_button_click',
+      });
+      throw error;
+    }
   };
 
   return (

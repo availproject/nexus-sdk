@@ -19,30 +19,10 @@ export const SwapButton: FC<SwapButtonProps> = ({ prefill, children, className, 
     try {
       // Track widget initiation
       trackWidgetInitiated('swap');
-      
-      // Track intent creation with prefill data
-      if (prefill) {
-        const intentData = {
-          intentType: 'swap' as const,
-          sourceChain: prefill.fromChainID,
-          targetChain: prefill.toChainID,
-          token: prefill.fromTokenAddress,
-          amount: prefill.fromAmount
-        };
-        
-        // Import and call trackIntentCreated
-        import('../../utils/analytics').then(({ trackIntentCreated }) => {
-          trackIntentCreated(intentData);
-        }).catch(err => {
-          // Silently fail if analytics not initialized
-          console.debug('Analytics not available:', err);
-        });
-      }
-      
       startTransaction('swap', prefill);
     } catch (error) {
       trackError(error as Error, {
-        function: 'swap_button_click'
+        function: 'swap_button_click',
       });
       throw error;
     }

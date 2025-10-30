@@ -29,7 +29,7 @@ function BridgeFormSection({
   disabled = false,
   className,
   prefillFields = {},
-}: BridgeFormSectionProps) {
+}: Readonly<BridgeFormSectionProps>) {
   const { activeController } = useInternalNexus();
 
   if (!activeController) return null;
@@ -52,7 +52,7 @@ function BridgeFormSection({
   );
 }
 
-export default function BridgeModal({ title = 'Nexus Widget' }: { title?: string }) {
+export default function BridgeModal({ title = 'Nexus Widget' }: Readonly<{ title?: string }>) {
   const getSimulationError = (simulationResult: SimulationResult) => {
     return (
       simulationResult &&

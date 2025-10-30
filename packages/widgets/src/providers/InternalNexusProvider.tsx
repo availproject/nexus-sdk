@@ -19,7 +19,7 @@ import {
   SimulationResult,
   NexusNetwork,
   BridgeAndExecuteSimulationResult,
-} from '@nexus/core';
+} from '@avail-project/nexus-core';
 import type {
   ActiveTransaction,
   BridgeConfig,
@@ -45,7 +45,7 @@ import {
 import { DragConstraintsProvider } from '../components/motion/drag-constraints';
 import { getTokenFromInputData, getAmountFromInputData, formatSwapError } from '../utils/utils';
 import { getTokenAddress } from '../utils/token-utils';
-import { trackSdkHealth, trackError } from '../utils/analytics';
+import { trackSdkHealth, trackError, trackIntentCreated } from '../utils/analytics';
 
 const controllers: Record<Exclude<TransactionType, 'swap'>, ITransactionController> = {
   bridge: new BridgeController(),
@@ -191,25 +191,25 @@ export function InternalNexusProvider({
       await fetchBalances();
       setIsSdkInitialized(sdk.isInitialized());
       isSdkInitializedRef.current = sdk.isInitialized();
-      
+
       // Track SDK health after successful initialization
       trackSdkHealth({
         sdkInitialized: true,
         providerConnected: !!eipProvider,
         chainsAvailable: [],
-        apiEndpointsReachable: true
+        apiEndpointsReachable: true,
       });
-      
+
       setActiveTransaction((prev) => ({ ...prev, status: 'review' }));
       return true;
     } catch (err) {
       logger.error('SDK initialization failed:', err as Error);
-      
+
       // Track initialization failure
       trackError(err as Error, {
-        function: 'initialize'
+        function: 'initialize',
       });
-      
+
       const error = err instanceof Error ? err : new Error('SDK Initialization failed.');
       setActiveTransaction((prev) => ({ ...prev, status: 'simulation_error', error }));
       return false;
@@ -639,6 +639,12 @@ export function InternalNexusProvider({
         activeTransaction.simulationResult,
       );
 
+      const intentData = {
+        intentType: activeTransaction.type,
+        ...activeTransaction.inputData,
+      };
+      trackIntentCreated(intentData as any);
+
       // For non-swap transactions, use the traditional success/error handling
       setActiveTransaction((prev) => ({
         ...prev,
@@ -648,6 +654,9 @@ export function InternalNexusProvider({
       }));
     } catch (err) {
       logger.error('Transaction failed.', err as Error);
+      trackError(err as Error, {
+        function: `${activeTransaction.type}_failed`,
+      });
       const error = err instanceof Error ? err : new Error('Transaction failed.');
       setActiveTransaction((prev) => ({ ...prev, status: 'error', error }));
     }
@@ -681,9 +690,9 @@ export function InternalNexusProvider({
 
         // Convert SwapInputData to SwapInput format for SDK
         const fromAmountStr = inputData.fromAmount ?? '0';
-        const fromAmountNumber = parseFloat(fromAmountStr.toString());
+        const fromAmountNumber = Number.parseFloat(fromAmountStr.toString());
 
-        if (isNaN(fromAmountNumber) || fromAmountNumber <= 0) {
+        if (Number.isNaN(fromAmountNumber) || fromAmountNumber <= 0) {
           throw new Error('Invalid amount provided for swap');
         }
 
@@ -706,11 +715,11 @@ export function InternalNexusProvider({
                 fromAmountStr.toString(),
                 TOKEN_METADATA[inputData?.fromTokenAddress]?.decimals,
               ),
-              tokenAddress: actualFromTokenAddress as `0x${string}`,
+              tokenAddress: actualFromTokenAddress,
             },
           ],
           toChainId: inputData.toChainID,
-          toTokenAddress: actualToTokenAddress as `0x${string}`,
+          toTokenAddress: actualToTokenAddress,
         };
 
         logger.info('Swap Provider: Prepared swap input', swapInput);
@@ -728,7 +737,7 @@ export function InternalNexusProvider({
                   intent: data.intent,
                   swapMetadata: {
                     type: 'swap' as const,
-                    inputToken: actualFromTokenAddress as `0x${string}`,
+                    inputToken: actualFromTokenAddress,
                     outputToken: swapInput.toTokenAddress,
                     fromChainId: inputData?.fromChainID,
                     toChainId: inputData.toChainID,
@@ -748,6 +757,14 @@ export function InternalNexusProvider({
           .then((result) => {
             if (result.success) {
               // Swap succeeded - let useListenTransaction handle the success state
+              const intentData = {
+                intentType: 'swap' as const,
+                sourceChain: swapInput.from?.[0]?.chainId,
+                targetChain: swapInput.toChainId,
+                token: swapInput.from?.[0]?.tokenAddress,
+                amount: swapInput.from?.[0]?.amount.toString(),
+              };
+              trackIntentCreated(intentData as any);
               logger.info('Swap Provider: Swap execution succeeded');
               setActiveTransaction((prev) => ({
                 ...prev,
@@ -756,7 +773,9 @@ export function InternalNexusProvider({
             } else {
               // Swap failed - this captures your error!
               logger.error('Swap Provider: Swap execution failed:', result.error);
-
+              trackError(new Error(result.error), {
+                function: 'swap_execution_failed',
+              });
               // Set a flag to prevent success callbacks from overriding this error
               setActiveTransaction((prev) => ({
                 ...prev,
@@ -773,6 +792,9 @@ export function InternalNexusProvider({
           .catch((error) => {
             // Network/SDK errors
             logger.error('Swap Provider: Swap SDK error:', error);
+            trackError(error as Error, {
+              function: 'swap_sdk_error',
+            });
             const errorMessage = formatSwapError(error);
             setActiveTransaction((prev) => ({
               ...prev,
@@ -787,6 +809,9 @@ export function InternalNexusProvider({
           });
       } catch (error) {
         logger.error('Swap Provider: Swap initiation failed:', error as Error);
+        trackError(error as Error, {
+          function: 'swap_initiation_failed',
+        });
         const errorMessage = formatSwapError(error);
         setActiveTransaction((prev) => ({
           ...prev,

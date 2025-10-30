@@ -8,26 +8,26 @@ const NexusProvider = ({
   config,
   children,
 }: {
-  config?: { 
-    network?: NexusNetwork; 
+  config?: {
+    network?: NexusNetwork;
     debug?: boolean;
   };
   children: React.ReactNode;
 }) => {
   logger.debug('NexusProvider', { config });
-  
+
   useEffect(() => {
     // Auto-initialize analytics with your credentials
     initAnalytics();
-    
+
     trackEvent('sdk_initialized', {
-      version: '0.5.0',
+      version: '0.0.6',
       package: 'nexus-widgets',
       network: config?.network || 'mainnet',
-      debug: config?.debug || false
+      debug: config?.debug || false,
     });
   }, [config?.network, config?.debug]);
-  
+
   return (
     <InternalNexusProvider config={config} disableCollapse={false}>
       {children}

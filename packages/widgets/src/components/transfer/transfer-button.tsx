@@ -2,6 +2,7 @@
 import type { TransferButtonProps } from '../../types';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import TransferModal from './transfer-modal';
+import { trackError, trackWidgetInitiated } from 'src/utils/analytics';
 
 export function TransferButton({
   prefill,
@@ -14,7 +15,14 @@ export function TransferButton({
     activeTransaction.status === 'processing' || activeTransaction.reviewStatus === 'simulating';
 
   const handleClick = () => {
-    startTransaction('transfer', prefill);
+    try {
+      trackWidgetInitiated('transfer');
+      startTransaction('transfer', prefill);
+    } catch (error) {
+      trackError(error as Error, {
+        function: 'transfer_button_click',
+      });
+    }
   };
 
   return (
