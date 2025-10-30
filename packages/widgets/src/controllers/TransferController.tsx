@@ -6,6 +6,7 @@ import {
   UnifiedTransactionForm,
   UnifiedInputData,
 } from '../components/shared/unified-transaction-form';
+import { trackIntentCreated } from 'src/utils/analytics';
 
 export interface TransferConfig extends Partial<TransferParams> {}
 
@@ -130,6 +131,11 @@ export class TransferController implements ITransactionController {
 
   async confirmAndProceed(sdk: NexusSDK, inputData: TransferParams): Promise<TransferResult> {
     const result = await sdk.transfer(inputData);
+    const intentData = {
+      intentType: 'transfer',
+      ...inputData,
+    };
+    trackIntentCreated(intentData as any);
     return result;
   }
 }

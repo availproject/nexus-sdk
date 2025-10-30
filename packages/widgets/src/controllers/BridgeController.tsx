@@ -6,6 +6,7 @@ import {
   UnifiedTransactionForm,
   UnifiedInputData,
 } from '../components/shared/unified-transaction-form';
+import { trackIntentCreated } from 'src/utils/analytics';
 
 const BridgeInputForm: React.FC<{
   prefill: Partial<BridgeConfig>;
@@ -120,6 +121,11 @@ export class BridgeController implements ITransactionController {
 
   async confirmAndProceed(sdk: NexusSDK, inputData: BridgeParams): Promise<BridgeResult> {
     const result = await sdk.bridge(inputData);
+    const intentData = {
+      intentType: 'bridge',
+      ...inputData,
+    };
+    trackIntentCreated(intentData as any);
     return result;
   }
 }

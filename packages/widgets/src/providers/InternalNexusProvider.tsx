@@ -639,12 +639,6 @@ export function InternalNexusProvider({
         activeTransaction.simulationResult,
       );
 
-      const intentData = {
-        intentType: activeTransaction.type,
-        ...activeTransaction.inputData,
-      };
-      trackIntentCreated(intentData as any);
-
       // For non-swap transactions, use the traditional success/error handling
       setActiveTransaction((prev) => ({
         ...prev,

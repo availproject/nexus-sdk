@@ -17,6 +17,7 @@ import {
   logger,
 } from '@nexus/commons';
 import { Abi } from 'viem';
+import { trackIntentCreated } from 'src/utils/analytics';
 
 export interface BridgeAndExecuteConfig extends Partial<BridgeAndExecuteParams> {}
 
@@ -191,7 +192,11 @@ export class BridgeAndExecuteController implements ITransactionController {
       const execute = this.buildExecute(inputData as any);
       params = { ...inputData, execute } as BridgeAndExecuteParams;
     }
-
+    const intentData = {
+      intentType: 'bridgeAndExecute',
+      ...params,
+    };
+    trackIntentCreated(intentData as any);
     const result = await sdk.bridgeAndExecute(params);
     return result;
   }
