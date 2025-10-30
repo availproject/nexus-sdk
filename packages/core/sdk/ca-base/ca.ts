@@ -37,7 +37,7 @@ import {
   BridgeAndExecuteParams,
   ExecuteParams,
   OnEventParam,
-  SwapIntentHook,
+  OnSwapIntentHook,
 } from '@nexus/commons';
 import {
   cosmosFeeGrant,
@@ -49,9 +49,9 @@ import {
   refundExpiredIntents,
   switchChain,
   tronHexToEvmAddress,
+  getBalances,
 } from './utils';
 import { swap } from './swap/swap';
-import { getBalances } from './swap/route';
 import { getSwapSupportedChains } from './swap/utils';
 import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 import { utils } from 'tronweb';
@@ -59,6 +59,7 @@ import BridgeHandler from './requestHandlers/bridge';
 import { BridgeAndExecuteQuery } from './query/bridgeAndExecute';
 import { BackendSimulationClient, createBackendSimulationClient } from 'integrations/tenderly';
 import { createBridgeAndTransferParams } from './query/bridgeAndTransfer';
+import getMaxValueForBridge from './requestHandlers/bridgeMax';
 
 setLogLevel(LOG_LEVEL.NOLOGS);
 const logger = getLogger();
@@ -98,7 +99,7 @@ export class CA {
   protected _hooks: {
     onAllowance: OnAllowanceHook;
     onIntent: OnIntentHook;
-    onSwapIntent: SwapIntentHook;
+    onSwapIntent: OnSwapIntentHook;
   } = {
     onAllowance: (data) => data.allow(data.sources.map(() => 'max')),
     onIntent: (data) => data.allow(),
@@ -141,6 +142,16 @@ export class CA {
     });
 
     return bridgeHandler;
+  }
+
+  protected async _calculateMaxForBridge(params: Omit<BridgeQueryInput, 'amount' | 'recipient'>) {
+    return getMaxValueForBridge(params, {
+      chainList: this.chainList,
+      fuel: this._fuel,
+      evm: this._evm!,
+      tron: this._tron,
+      networkConfig: this._networkConfig,
+    });
   }
 
   protected _deinit = () => {
@@ -342,8 +353,8 @@ export class CA {
     this._hooks.onIntent = hook;
   }
 
-  protected _setOnSwapIntentHook(hook: OnIntentHook) {
-    this._hooks.onIntent = hook;
+  protected _setOnSwapIntentHook(hook: OnSwapIntentHook) {
+    this._hooks.onSwapIntent = hook;
   }
 
   protected async _bridgeAndTransfer(input: TransferQueryInput, options?: OnEventParam) {

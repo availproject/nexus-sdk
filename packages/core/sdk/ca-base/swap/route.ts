@@ -5,11 +5,9 @@ import {
   CurrencyID,
   destinationSwapWithExactIn,
   determineDestinationSwaps,
-  Environment,
   liquidateInputHoldings,
   OmniversalChainID,
   Universe,
-  // ZeroExAggregator,
 } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
 import { Hex, toBytes } from 'viem';
@@ -23,88 +21,28 @@ import {
   SwapParams,
 } from '@nexus/commons';
 import {
+  calculateMaxBridgeFees,
   convertTo32BytesHex,
   divDecimals,
   equalFold,
-  FeeStore,
   fetchPriceOracle,
-  getEVMBalancesForAddress,
   getFeeStore,
-  getFuelBalancesForAddress,
-  getTronBalancesForAddress,
   mulDecimals,
+  getBalances,
 } from '../utils';
 import { EADDRESS } from './constants';
-import { filterSupportedTokens, FlatBalance, getTokenDecimals } from './data';
+import { FlatBalance, getTokenDecimals } from './data';
 import {
   ErrorChainDataNotFound,
   ErrorCOTNotFound,
   ErrorInsufficientBalance,
-  // ErrorInsufficientBalance,
-  // ErrorSingleSourceHasNoSource,
   ErrorTokenNotFound,
 } from './errors';
 import { createIntent } from './rff';
-import {
-  balancesToAssets,
-  calculateValue,
-  convertTo32Bytes,
-  convertToEVMAddress,
-  getAnkrBalances,
-  toFlatBalance,
-} from './utils';
-import { ChainListType, BridgeAsset } from '@nexus/commons';
+import { calculateValue, convertTo32Bytes, convertToEVMAddress } from './utils';
+import { BridgeAsset } from '@nexus/commons';
 
 const logger = getLogger();
-
-export const getBalances = async (input: {
-  evmAddress: Hex;
-  chainList: ChainListType;
-  removeTransferFee?: boolean;
-  filter?: boolean;
-  fuelAddress?: string;
-  tronAddress?: string;
-  isCA?: boolean;
-  vscDomain: string;
-  networkHint: Environment;
-}) => {
-  const isCA = input.isCA ?? false;
-  const removeTransferFee = input.removeTransferFee ?? false;
-  const filter = input.filter ?? true;
-  const [ankrBalances, evmBalances, fuelBalances, tronBalances] = await Promise.all([
-    input.networkHint === Environment.FOLLY
-      ? Promise.resolve([])
-      : getAnkrBalances(input.evmAddress, input.chainList, removeTransferFee),
-    getEVMBalancesForAddress(input.vscDomain, input.evmAddress),
-    input.fuelAddress
-      ? getFuelBalancesForAddress(input.vscDomain, input.fuelAddress as `0x${string}`)
-      : Promise.resolve([]),
-    input.tronAddress
-      ? getTronBalancesForAddress(input.vscDomain, input.tronAddress as Hex)
-      : Promise.resolve([]),
-  ]);
-
-  const assets = balancesToAssets(
-    ankrBalances,
-    evmBalances,
-    fuelBalances,
-    tronBalances,
-    input.chainList,
-    isCA,
-  );
-  let balances = toFlatBalance(assets);
-  if (filter) {
-    balances = filterSupportedTokens(balances);
-  }
-
-  logger.debug('getBalances', {
-    assets,
-    balances,
-    removeTransferFee,
-  });
-
-  return { assets, balances };
-};
 
 export const determineSwapRoute = async (
   input: SwapData,
@@ -466,61 +404,6 @@ type BridgeInput = {
   decimals: number;
   tokenAddress: `0x${string}`;
 } | null;
-
-const calculateMaxBridgeFees = ({
-  assets,
-  feeStore,
-  dst,
-}: {
-  dst: {
-    chainId: number;
-    tokenAddress: Hex;
-    decimals: number;
-  };
-  assets: BridgeAsset[];
-  feeStore: FeeStore;
-}) => {
-  const borrow = assets.reduce((accumulator, asset) => {
-    return accumulator.add(Decimal.add(asset.eoaBalance, asset.ephemeralBalance));
-  }, new Decimal(0));
-
-  const protocolFee = feeStore.calculateProtocolFee(new Decimal(borrow));
-  let borrowWithFee = borrow.add(protocolFee);
-
-  const fulfilmentFee = feeStore.calculateFulfilmentFee({
-    decimals: dst.decimals,
-    destinationChainID: dst.chainId,
-    destinationTokenAddress: dst.tokenAddress,
-  });
-  borrowWithFee = borrowWithFee.add(fulfilmentFee);
-
-  logger.debug('calculateMaxBridgeFees:1', {
-    borrow: borrow.toFixed(),
-    protocolFee: protocolFee.toFixed(),
-    fulfilmentFee: fulfilmentFee.toFixed(),
-    borrowWithFee: borrowWithFee.toFixed(),
-  });
-
-  for (const asset of assets) {
-    const solverFee = feeStore.calculateSolverFee({
-      borrowAmount: Decimal.add(asset.eoaBalance, asset.ephemeralBalance),
-      decimals: asset.decimals,
-      destinationChainID: dst.chainId,
-      destinationTokenAddress: dst.tokenAddress,
-      sourceChainID: asset.chainID,
-      sourceTokenAddress: convertToEVMAddress(asset.contractAddress),
-    });
-
-    borrowWithFee = borrowWithFee.add(solverFee);
-    logger.debug('calculateMaxBridgeFees:2', {
-      borrow: borrow.toFixed(),
-      borrowWithFee: borrowWithFee.toFixed(),
-      solverFee: solverFee.toFixed(),
-    });
-  }
-
-  return borrowWithFee.minus(borrow);
-};
 
 const _exactInRoute = async (
   input: ExactInSwapInput,

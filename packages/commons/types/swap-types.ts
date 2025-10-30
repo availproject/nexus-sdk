@@ -110,7 +110,7 @@ export type SwapIntent = {
   }[];
 };
 
-export type SwapIntentHook = (data: {
+export type OnSwapIntentHook = (data: {
   allow: () => void;
   deny: () => void;
   intent: SwapIntent;
@@ -118,7 +118,7 @@ export type SwapIntentHook = (data: {
 }) => unknown;
 
 export type SwapParams = {
-  onSwapIntent: SwapIntentHook;
+  onSwapIntent: OnSwapIntentHook;
   chainList: ChainListType;
   address: {
     cosmos: string;

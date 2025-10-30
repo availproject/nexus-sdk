@@ -227,12 +227,9 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
 
 // Event name constants to prevent typos
 export const NEXUS_EVENTS = {
-  STEP_COMPLETE: 'step_complete',
-  EXPECTED_STEPS: 'expected_steps',
-  SWAP_STEPS: 'swap_step',
-  // Modular event names
-  BRIDGE_EXECUTE_EXPECTED_STEPS: 'bridge_execute_expected_steps',
-  BRIDGE_EXECUTE_COMPLETED_STEPS: 'bridge_execute_completed_steps',
+  STEP_COMPLETE: 'STEP_COMPLETE',
+  SWAP_STEP_COMPLETE: 'SWAP_STEP_COMPLETE',
+  STEPS_LIST: 'STEPS_LIST',
 } as const;
 
 // Helper constants for mainnet and testnet chain categorization

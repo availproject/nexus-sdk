@@ -47,6 +47,7 @@ import {
   TokenInfo,
   getLogger,
   IBridgeOptions,
+  NEXUS_EVENTS,
 } from '@nexus/commons';
 import {
   convertGasToToken,
@@ -79,13 +80,13 @@ import {
   waitForIntentFulfilment,
   createRFFromIntent,
   retrieveAddress,
+  getBalances,
 } from '../utils';
-import { getBalances } from 'sdk/ca-base/swap/route';
 import { TronWeb } from 'tronweb';
 import { Errors } from '../errors';
 
 type Params = {
-  recipientAddress?: Hex;
+  recipient?: Hex;
   dstChain: Chain;
   dstToken: TokenInfo;
   tokenAmount: bigint;
@@ -104,7 +105,7 @@ class BridgeHandler {
   ) {
     this.params = {
       ...params,
-      recipientAddress: retrieveAddress(params.dstChain.universe, options),
+      recipient: retrieveAddress(params.dstChain.universe, options),
     };
     console.log({ params: this.params, options });
   }
@@ -806,6 +807,7 @@ class BridgeHandler {
         sources,
       });
     });
+
     return true;
   }
 
@@ -815,7 +817,7 @@ class BridgeHandler {
   ) {
     this.steps = createSteps(intent, this.options.chainList, insufficientAllowanceSources);
     if (this.options.emit) {
-      this.options.emit('BRIDGE_STEP_LIST', this.steps);
+      this.options.emit({ name: NEXUS_EVENTS.STEPS_LIST, args: this.steps });
     }
     logger.debug('BridgeSteps', this.steps);
   }
@@ -850,7 +852,7 @@ class BridgeHandler {
       },
       isAvailableBalanceInsufficient: false,
       sources: [],
-      recipientAddress: this.params.recipientAddress,
+      recipientAddress: this.params.recipient,
     };
 
     const asset = assets.find(token.symbol);
@@ -1008,9 +1010,12 @@ class BridgeHandler {
     if (this.options.emit) {
       const s = this.steps.find((s) => s.typeID === step.typeID);
       if (s) {
-        this.options.emit('BRIDGE_STEP_DONE', {
-          ...s,
-          ...(data ? { data } : {}),
+        this.options.emit({
+          name: NEXUS_EVENTS.STEP_COMPLETE,
+          args: {
+            ...s,
+            ...(data ? { data } : {}),
+          },
         });
       }
     }

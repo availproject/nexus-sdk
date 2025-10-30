@@ -30,6 +30,15 @@ export const Errors = {
       },
     ),
 
+  tokenNotFound: (symbol: string, chainId: number) =>
+    createError(
+      ERROR_CODES.TOKEN_NOT_SUPPORTED,
+      `Token with symbol ${symbol} not found on chain ${chainId}`,
+      {
+        details: { symbol, chainId },
+      },
+    ),
+
   tronDepositFailed: (result: unknown) =>
     createError(ERROR_CODES.TRON_DEPOSIT_FAIL, 'Tron deposit transaction failed.', {
       details: { result },

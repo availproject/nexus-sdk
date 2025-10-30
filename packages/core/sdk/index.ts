@@ -24,6 +24,8 @@ import type {
   ExactInSwapInput,
   ExactOutSwapInput,
   OnEventParam,
+  BridgeMaxResult,
+  OnSwapIntentHook,
 } from '@nexus/commons';
 import { logger } from '@nexus/commons';
 import { CA } from './ca-base';
@@ -67,9 +69,9 @@ export class NexusSDK extends CA {
   /**
    * Bridge to destination chain from auto-selected or provided source chains
    */
-  public async bridge(params: BridgeParams): Promise<BridgeResult> {
+  public async bridge(params: BridgeParams, options?: OnEventParam): Promise<BridgeResult> {
     try {
-      const bridgeHandler = await this.createBridgeHandler(params);
+      const bridgeHandler = await this.createBridgeHandler(params, options);
       const result = await bridgeHandler.execute();
       return {
         success: true,
@@ -84,12 +86,21 @@ export class NexusSDK extends CA {
     }
   }
 
+  public async calculateMaxForBridge(
+    params: Omit<BridgeParams, 'amount'>,
+  ): Promise<BridgeMaxResult> {
+    return this._calculateMaxForBridge(params);
+  }
+
   /**
    * Bridge & transfer to an address (Attribution)
    */
-  public async bridgeAndTransfer(params: TransferParams): Promise<TransferResult> {
+  public async bridgeAndTransfer(
+    params: TransferParams,
+    options?: OnEventParam,
+  ): Promise<TransferResult> {
     try {
-      const result = await this._bridgeAndTransfer({ ...params, to: params.recipient });
+      const result = await this._bridgeAndTransfer({ ...params, to: params.recipient }, options);
       if (result.success) {
         return {
           success: result.success,
@@ -176,8 +187,8 @@ export class NexusSDK extends CA {
   /**
    * Set callback for swap intent details
    */
-  public setOnSwapIntentHook(callback: OnIntentHook): void {
-    this._setOnIntentHook(callback);
+  public setOnSwapIntentHook(callback: OnSwapIntentHook): void {
+    this._setOnSwapIntentHook(callback);
   }
 
   public addTron(adapter: AdapterProps) {
@@ -218,8 +229,11 @@ export class NexusSDK extends CA {
    * @param params Enhanced bridge and execute parameters
    * @returns Promise resolving to comprehensive operation result
    */
-  public async bridgeAndExecute(params: BridgeAndExecuteParams): Promise<BridgeAndExecuteResult> {
-    return this.bridgeAndExecute(params);
+  public async bridgeAndExecute(
+    params: BridgeAndExecuteParams,
+    options?: OnEventParam,
+  ): Promise<BridgeAndExecuteResult> {
+    return this._bridgeAndExecute(params, options);
   }
 
   /**

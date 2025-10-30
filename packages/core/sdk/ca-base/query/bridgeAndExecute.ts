@@ -2,7 +2,6 @@ import {
   BridgeAndExecuteParams,
   BridgeAndExecuteResult,
   BridgeResult,
-  DynamicParamBuilder,
   logger,
   Tx,
   Chain,
@@ -16,9 +15,9 @@ import {
   BridgeQueryInput,
   OnEventParam,
   BridgeAndExecuteSimulationResult,
+  NEXUS_EVENTS,
 } from '@nexus/commons';
 import {
-  Abi,
   createPublicClient,
   encodeFunctionData,
   Hex,
@@ -39,6 +38,20 @@ import {
 import { packERC20Approve } from '../swap/utils';
 import { BackendSimulationClient } from 'integrations/tenderly';
 import BridgeHandler from '../requestHandlers/bridge';
+
+const APPROVAL_STEP = {
+  type: 'APPROVAL',
+  typeID: 'AP',
+};
+
+const TRANSACTION_SENT = {
+  type: 'TRANSACTION_SENT',
+  typeID: 'TS',
+};
+const TRANSACTION_CONFIRMED = {
+  type: 'TRANSACTION_CONFIRMED',
+  typeID: 'CN',
+};
 
 class BridgeAndExecuteQuery {
   constructor(
@@ -268,17 +281,42 @@ class BridgeAndExecuteQuery {
         gasAmount,
       });
 
+      const executeSteps = [TRANSACTION_SENT, TRANSACTION_CONFIRMED];
+      if (approvalTx) {
+        executeSteps.unshift(APPROVAL_STEP);
+      }
+
       // 7. If bridge is required then bridge
       if (!skipBridge) {
-        bridgeResult = await this.bridgeWrapper({
-          token: tokenSymbol,
-          amount: divDecimals(BigInt(tokenAmount), token.decimals).toFixed(),
-          chainId: toChainId,
-          sourceChains: params.sourceChains,
-          gas: gasAmount,
-        });
+        bridgeResult = await this.bridgeWrapper(
+          {
+            token: tokenSymbol,
+            amount: divDecimals(BigInt(tokenAmount), token.decimals).toFixed(),
+            chainId: toChainId,
+            sourceChains: params.sourceChains,
+            gas: gasAmount,
+          },
+          {
+            onEvent: (event) => {
+              if (options && options.onEvent) {
+                if (event.name === NEXUS_EVENTS.STEPS_LIST) {
+                  options.onEvent({
+                    name: NEXUS_EVENTS.STEPS_LIST,
+                    args: event.args.concat(executeSteps),
+                  });
+                } else {
+                  options.onEvent(event);
+                }
+              }
+            },
+          },
+        );
         if (!bridgeResult.success) {
           throw new Error(`Bridge failed: ${bridgeResult.error}`);
+        }
+      } else {
+        if (options && options.onEvent) {
+          options.onEvent({ name: NEXUS_EVENTS.STEPS_LIST, args: executeSteps });
         }
       }
 
@@ -289,6 +327,7 @@ class BridgeAndExecuteQuery {
           tx,
         },
         {
+          emit: options?.onEvent,
           chain: dstChain,
           dstPublicClient,
           address,
@@ -546,16 +585,14 @@ class BridgeAndExecuteQuery {
     });
   }
 
-  private createExecuteTx(executeParams: {
-    contractAddress: Hex;
-    contractAbi: Abi;
-    functionName: string;
-    chainId: number;
-    address: Hex;
-    buildFunctionParams: DynamicParamBuilder;
-    tokenSymbol: string;
-    amount: string;
-  }): Tx {
+  private createExecuteTx(
+    executeParams: ExecuteParams & {
+      chainId: number;
+      address: Hex;
+      tokenSymbol: string;
+      amount: string;
+    },
+  ): Tx {
     const { functionParams, value } = executeParams.buildFunctionParams(
       executeParams.tokenSymbol,
       executeParams.amount,
@@ -582,6 +619,7 @@ class BridgeAndExecuteQuery {
       approvalTx: Tx | null;
     },
     options: {
+      emit?: OnEventParam['onEvent'];
       chain: Chain;
       dstPublicClient: PublicClient;
       address: Hex;
@@ -602,6 +640,9 @@ class BridgeAndExecuteQuery {
       });
 
       await waitForTxReceipt(approvalHash, options.dstPublicClient, 1);
+      if (options.emit) {
+        options.emit({ name: NEXUS_EVENTS.STEP_COMPLETE, args: APPROVAL_STEP });
+      }
     }
 
     const txHash = await options.client.sendTransaction({
@@ -609,6 +650,10 @@ class BridgeAndExecuteQuery {
       account: options.address,
       chain: options.chain,
     });
+
+    if (options.emit) {
+      options.emit({ name: NEXUS_EVENTS.STEP_COMPLETE, args: TRANSACTION_SENT });
+    }
 
     let receipt;
     if (waitForReceipt) {
@@ -618,6 +663,10 @@ class BridgeAndExecuteQuery {
         requiredConfirmations,
         receiptTimeout,
       );
+
+      if (options.emit) {
+        options.emit({ name: NEXUS_EVENTS.STEP_COMPLETE, args: TRANSACTION_CONFIRMED });
+      }
     }
 
     return {
@@ -627,9 +676,12 @@ class BridgeAndExecuteQuery {
     };
   }
 
-  private bridgeWrapper = async (params: BridgeParams): Promise<BridgeResult> => {
+  private bridgeWrapper = async (
+    params: BridgeParams,
+    options?: OnEventParam,
+  ): Promise<BridgeResult> => {
     try {
-      const handler = await this.bridge(params);
+      const handler = await this.bridge(params, options);
       const result = await handler.execute();
       return {
         success: true,

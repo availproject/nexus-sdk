@@ -1,6 +1,6 @@
 import { MsgCreateRequestForFunds, OmniversalRFF, Universe } from '@avail-project/ca-common';
 import { FUEL_BASE_ASSET_ID, INTENT_EXPIRY, isNativeAddress, ZERO_ADDRESS } from '../constants';
-import { getLogger, ChainListType, Intent, IBridgeOptions } from '@nexus/commons';
+import { getLogger, ChainListType, Intent, IBridgeOptions, BridgeAsset } from '@nexus/commons';
 import {
   convertTo32Bytes,
   convertTo32BytesHex,
@@ -15,6 +15,9 @@ import Long from 'long';
 import { TronWeb } from 'tronweb';
 import { tronHexToEvmAddress } from './tron.utils';
 import { Errors } from '../errors';
+import { convertToEVMAddress } from '../swap/utils';
+import Decimal from 'decimal.js';
+import { FeeStore } from './api.utils';
 
 type Destination = {
   tokenAddress: `0x${string}`;
@@ -258,4 +261,128 @@ const createRFFromIntent = async (
   };
 };
 
-export { createRFFromIntent, getSourcesAndDestinationsForRFF };
+const calculateMaxBridgeFees = ({
+  assets,
+  feeStore,
+  dst,
+}: {
+  dst: {
+    chainId: number;
+    tokenAddress: Hex;
+    decimals: number;
+  };
+  assets: BridgeAsset[];
+  feeStore: FeeStore;
+}) => {
+  const borrow = assets.reduce((accumulator, asset) => {
+    return accumulator.add(Decimal.add(asset.eoaBalance, asset.ephemeralBalance));
+  }, new Decimal(0));
+
+  const protocolFee = feeStore.calculateProtocolFee(new Decimal(borrow));
+  let borrowWithFee = borrow.add(protocolFee);
+
+  const fulfilmentFee = feeStore.calculateFulfilmentFee({
+    decimals: dst.decimals,
+    destinationChainID: dst.chainId,
+    destinationTokenAddress: dst.tokenAddress,
+  });
+  borrowWithFee = borrowWithFee.add(fulfilmentFee);
+
+  logger.debug('calculateMaxBridgeFees:1', {
+    borrow: borrow.toFixed(),
+    protocolFee: protocolFee.toFixed(),
+    fulfilmentFee: fulfilmentFee.toFixed(),
+    borrowWithFee: borrowWithFee.toFixed(),
+  });
+
+  for (const asset of assets) {
+    const solverFee = feeStore.calculateSolverFee({
+      borrowAmount: Decimal.add(asset.eoaBalance, asset.ephemeralBalance),
+      decimals: asset.decimals,
+      destinationChainID: dst.chainId,
+      destinationTokenAddress: dst.tokenAddress,
+      sourceChainID: asset.chainID,
+      sourceTokenAddress: convertToEVMAddress(asset.contractAddress),
+    });
+
+    borrowWithFee = borrowWithFee.add(solverFee);
+    logger.debug('calculateMaxBridgeFees:2', {
+      borrow: borrow.toFixed(),
+      borrowWithFee: borrowWithFee.toFixed(),
+      solverFee: solverFee.toFixed(),
+    });
+  }
+
+  return borrowWithFee.minus(borrow);
+};
+
+// FIXME: Remove the above function after updating the usage.
+const calculateMaxBridgeFee = ({
+  assets,
+  feeStore,
+  dst,
+}: {
+  dst: {
+    chainId: number;
+    tokenAddress: Hex;
+    decimals: number;
+  };
+  assets: {
+    chainID: number;
+    contractAddress: `0x${string}`;
+    decimals: number;
+    balance: Decimal;
+  }[];
+  feeStore: FeeStore;
+}) => {
+  const borrow = assets.reduce((accumulator, asset) => {
+    return accumulator.add(asset.balance);
+  }, new Decimal(0));
+
+  const protocolFee = feeStore.calculateProtocolFee(new Decimal(borrow));
+  let borrowWithFee = borrow.add(protocolFee);
+
+  const fulfilmentFee = feeStore.calculateFulfilmentFee({
+    decimals: dst.decimals,
+    destinationChainID: dst.chainId,
+    destinationTokenAddress: dst.tokenAddress,
+  });
+  borrowWithFee = borrowWithFee.add(fulfilmentFee);
+
+  logger.debug('calculateMaxBridgeFees:1', {
+    borrow: borrow.toFixed(),
+    protocolFee: protocolFee.toFixed(),
+    fulfilmentFee: fulfilmentFee.toFixed(),
+    borrowWithFee: borrowWithFee.toFixed(),
+  });
+
+  for (const asset of assets) {
+    const solverFee = feeStore.calculateSolverFee({
+      borrowAmount: asset.balance,
+      decimals: asset.decimals,
+      destinationChainID: dst.chainId,
+      destinationTokenAddress: dst.tokenAddress,
+      sourceChainID: asset.chainID,
+      sourceTokenAddress: convertToEVMAddress(asset.contractAddress),
+    });
+
+    borrowWithFee = borrowWithFee.add(solverFee);
+    logger.debug('calculateMaxBridgeFees:2', {
+      borrow: borrow.toFixed(),
+      borrowWithFee: borrowWithFee.toFixed(),
+      solverFee: solverFee.toFixed(),
+    });
+  }
+
+  const fee = borrowWithFee.minus(borrow);
+  const maxAmount = borrow.minus(fee).toFixed(dst.decimals, Decimal.ROUND_FLOOR);
+
+  return { fee, maxAmount };
+};
+
+export {
+  createRFFromIntent,
+  getSourcesAndDestinationsForRFF,
+  calculateMaxBridgeFee,
+  calculateMaxBridgeFees,
+};

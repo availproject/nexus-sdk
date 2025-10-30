@@ -99,12 +99,19 @@ export type DynamicParamBuilder = (
  * Parameters for bridging tokens between chains.
  */
 export interface BridgeParams {
+  recipient?: Hex;
   token: string;
   amount: number | string;
   chainId: number;
   gas?: bigint;
   sourceChains?: number[];
 }
+
+export type BridgeMaxResult = {
+  amountRaw: bigint;
+  amount: string;
+  symbol: string;
+};
 
 /**
  * Result structure for bridge transactions.
@@ -255,11 +262,9 @@ export interface BridgeAndExecuteParams {
   execute: Omit<ExecuteParams, 'toChainId'>;
   enableTransactionPolling?: boolean;
   transactionTimeout?: number;
-  // Global options for transaction confirmation
   waitForReceipt?: boolean;
   receiptTimeout?: number;
   requiredConfirmations?: number;
-  // Optional recent approval transaction hash to consider in simulation
   recentApprovalTxHash?: string;
 }
 
@@ -285,7 +290,7 @@ export type IBridgeOptions = {
     onAllowance: OnAllowanceHook;
     onIntent: OnIntentHook;
   };
-  emit?: (eventName: string, ...args: any[]) => void;
+  emit?: OnEventParam['onEvent'];
   networkConfig: NetworkConfig;
   chainList: ChainListType;
 };
@@ -319,7 +324,7 @@ export interface ContractCallParams {
 
 export type BridgeQueryInput = {
   amount: number | string;
-  recipientAddress?: Hex;
+  recipient?: Hex;
   chainId: number;
   gas?: bigint;
   sourceChains?: number[];
@@ -585,13 +590,18 @@ export type RequestHandlerInput = {
     onIntent: OnIntentHook;
   };
   options: {
-    emit: (eventName: string, ...args: any[]) => void;
+    emit: (event: EventUnion) => void;
     networkConfig: NetworkConfig;
   } & TxOptions;
 };
 
+type EventUnion =
+  | { name: 'STEPS_LIST'; args: StepInfo[] }
+  | { name: 'SWAP_STEP_COMPLETE'; args: unknown }
+  | { name: 'STEP_COMPLETE'; args: StepInfo };
+
 export type OnEventParam = {
-  onEvent?: (eventName: string, ...args: any[]) => void;
+  onEvent?: (event: EventUnion) => void;
 };
 
 export type RequestHandlerResponse = {

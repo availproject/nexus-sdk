@@ -1,6 +1,101 @@
-import { logger, SUPPORTED_CHAINS } from '@nexus/commons';
-import { equalFold } from 'sdk/ca-base/utils';
+import { Environment } from '@avail-project/ca-common';
+import { ChainListType, logger, SUPPORTED_CHAINS, UserAssetDatum } from '@nexus/commons';
+import {
+  equalFold,
+  getEVMBalancesForAddress,
+  getFuelBalancesForAddress,
+  getTronBalancesForAddress,
+  minutesToMs,
+} from '.';
 import { encodePacked, Hex, keccak256, pad, toHex } from 'viem';
+import { balancesToAssets, getAnkrBalances, toFlatBalance } from '../swap/utils';
+import { filterSupportedTokens } from '../swap/data';
+
+const getKeyForStorage = ({
+  evmAddress,
+  fuelAddress,
+  tronAddress,
+}: {
+  evmAddress: Hex;
+  fuelAddress?: string;
+  tronAddress?: string;
+}) => {
+  let key = evmAddress;
+  if (fuelAddress) {
+    key += `:${fuelAddress}`;
+  }
+  if (tronAddress) {
+    key += `:${tronAddress}`;
+  }
+  return key;
+};
+
+let balanceCache = {
+  value: {} as { [k: string]: { data: UserAssetDatum[]; lastUpdatedAt: number } },
+};
+
+export const getBalances = async (input: {
+  evmAddress: Hex;
+  chainList: ChainListType;
+  removeTransferFee?: boolean;
+  filter?: boolean;
+  fuelAddress?: string;
+  tronAddress?: string;
+  isCA?: boolean;
+  vscDomain: string;
+  networkHint: Environment;
+}) => {
+  const isCA = input.isCA ?? false;
+  const removeTransferFee = input.removeTransferFee ?? false;
+  const filter = input.filter ?? true;
+
+  const cacheKey = getKeyForStorage(input);
+  console.log({ balanceCache });
+
+  let cacheValue = balanceCache.value[cacheKey];
+  if (!cacheValue || cacheValue.lastUpdatedAt + minutesToMs(0.5) < Date.now()) {
+    console.log('fetching balance');
+    const [ankrBalances, evmBalances, fuelBalances, tronBalances] = await Promise.all([
+      input.networkHint === Environment.FOLLY || isCA
+        ? Promise.resolve([])
+        : getAnkrBalances(input.evmAddress, input.chainList, removeTransferFee),
+      getEVMBalancesForAddress(input.vscDomain, input.evmAddress),
+      input.fuelAddress
+        ? getFuelBalancesForAddress(input.vscDomain, input.fuelAddress as `0x${string}`)
+        : Promise.resolve([]),
+      input.tronAddress
+        ? getTronBalancesForAddress(input.vscDomain, input.tronAddress as Hex)
+        : Promise.resolve([]),
+    ]);
+
+    balanceCache.value[cacheKey] = {
+      data: balancesToAssets(
+        ankrBalances,
+        evmBalances,
+        fuelBalances,
+        tronBalances,
+        input.chainList,
+        isCA,
+      ),
+      lastUpdatedAt: Date.now(),
+    };
+  }
+
+  const assets = balanceCache.value[cacheKey].data;
+
+  let balances = toFlatBalance(assets);
+  if (filter) {
+    balances = filterSupportedTokens(balances);
+  }
+
+  logger.debug('getBalances', {
+    assets,
+    balances,
+    removeTransferFee,
+  });
+
+  return { assets, balances };
+};
 
 const getBalanceSlot = ({
   tokenSymbol,

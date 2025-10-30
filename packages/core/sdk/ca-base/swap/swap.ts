@@ -6,7 +6,13 @@ import {
   Universe,
 } from '@avail-project/ca-common';
 
-import { SwapMode, type SwapData, type SwapParams, SuccessfulSwapResult } from '@nexus/commons';
+import {
+  SwapMode,
+  type SwapData,
+  type SwapParams,
+  SuccessfulSwapResult,
+  NEXUS_EVENTS,
+} from '@nexus/commons';
 
 import { getLogger } from '@nexus/commons';
 import { divDecimals } from '../utils';
@@ -48,7 +54,7 @@ export const swap = async (
   const emitter = {
     emit: (step: SwapStep) => {
       if (options.onEvent) {
-        options.onEvent('swap_step', step);
+        options.onEvent({ name: NEXUS_EVENTS.SWAP_STEP_COMPLETE, args: step });
       }
     },
   };

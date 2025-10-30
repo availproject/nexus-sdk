@@ -61,21 +61,50 @@ const swapWithExactOutResult = await sdk.swapWithExactOut(swapWithExactOutInput,
 });
 
 // Bridge tokens
-const bridgeResult = await sdk.bridge({
-  token: 'USDC',
-  amount: 100,
-  chainId: 137, // to Polygon
-  sourceChains: [10, 42161], // Only use USDC from `Optimism` and `Arbitrum` as source for bridge
-});
+const bridgeResult = await sdk.bridge(
+  {
+    recipient: '0xC4Dd106b5Eb302aCd81d9d1eBFFc29Fa78DE6744',
+    token: 'USDC',
+    amount: 100,
+    chainId: 137, // to Polygon
+    sourceChains: [10, 42161], // Only use USDC from `Optimism` and `Arbitrum` as source for bridge
+  },
+  {
+    onEvent: (event) => {
+      if (event.name === NEXUS_EVENTS.STEPS_LIST) {
+        const stepsList = event.args;
+      }
+
+      if (event.name === NEXUS_EVENTS.STEP_COMPLETE) {
+        const step = event.args;
+        // mark it done in UI
+      }
+    },
+  },
+);
 
 // Transfer tokens (automatically optimized)
-const transferResult = await sdk.transfer({
-  token: 'ETH',
-  amount: 0.1,
-  chainId: 1, // Uses direct transfer if ETH + gas available on Ethereum
-  recipient: '0x742d35Cc6634C0532925a3b8D4C9db96c4b4Db45',
-  sourceChains: [8453], // Only use ETH from `Base` as source for bridge
-});
+const transferResult = await sdk.transfer(
+  {
+    token: 'ETH',
+    amount: 0.1,
+    chainId: 1, // Uses direct transfer if ETH + gas available on Ethereum
+    recipient: '0x742d35Cc6634C0532925a3b8D4C9db96c4b4Db45',
+    sourceChains: [8453], // Only use ETH from `Base` as source for bridge
+  },
+  {
+    onEvent: (event) => {
+      if (event.name === NEXUS_EVENTS.STEPS_LIST) {
+        const stepsList = event.args;
+      }
+
+      if (event.name === NEXUS_EVENTS.STEP_COMPLETE) {
+        const step = event.args;
+        // mark it done in UI
+      }
+    },
+  },
+);
 
 const executeResult = await sdk.execute({
   contractAddress,
@@ -151,7 +180,7 @@ await sdk.initialize(window.ethereum); // Returns: Promise<void>
 ## 📡 Event Handling
 
 ```typescript
-import type { OnIntentHook, OnAllowanceHook, EventListener } from '@avail-project/nexus-core';
+import type { OnIntentHook, OnAllowanceHook } from '@avail-project/nexus-core';
 
 // Intent approval flows
 sdk.setOnIntentHook(({ intent, allow, deny, refresh }: Parameters<OnIntentHook>[0]) => {
@@ -164,6 +193,22 @@ sdk.setOnIntentHook(({ intent, allow, deny, refresh }: Parameters<OnIntentHook>[
   // deny(): deny the intent and stop the flow
 
   // refresh(): should be on a timer of 5s to refresh the intent
+  // (old intents might fail due to fee changes if not refreshed)
+  if (userConfirms) allow();
+  else deny();
+});
+
+// Swap approval flow
+sdk.setOnSwapIntentHook(({ intent, allow, deny, refresh }: Parameters<OnSwapIntentHook>[0]) => {
+  // This is a hook for the dev to show user the swap intent, the sources and associated fees
+
+  // intent: Intent data containing sources and fees for display purpose
+
+  // allow(): accept the current intent and continue the flow
+
+  // deny(): deny the intent and stop the flow
+
+  // refresh(): should be on a timer of 15s-20s to refresh the intent
   // (old intents might fail due to fee changes if not refreshed)
   if (userConfirms) allow();
   else deny();
@@ -183,71 +228,6 @@ sdk.setOnAllowanceHook(({ allow, deny, sources }: Parameters<OnAllowanceHook>[0]
   // deny(): stops the flow
   allow(['min']); // or ['max'] or custom amounts
 });
-
-// Account/chain changes
-sdk.onAccountChanged((account) => console.log('Account:', account));
-sdk.onChainChanged((chainId) => console.log('Chain:', chainId));
-```
-
-### Progress Events for All Operations
-
-```typescript
-import { NEXUS_EVENTS, ProgressStep } from '@avail-project/nexus-core';
-
-// Bridge & Execute Progress
-const unsubscribeBridgeExecuteExpected = sdk.nexusEvents.on(
-  NEXUS_EVENTS.BRIDGE_EXECUTE_EXPECTED_STEPS,
-  (steps: ProgressStep[]) => {
-    console.log(
-      'Bridge & Execute steps →',
-      steps.map((s) => s.typeID),
-    );
-  },
-);
-
-const unsubscribeBridgeExecuteCompleted = sdk.nexusEvents.on(
-  NEXUS_EVENTS.BRIDGE_EXECUTE_COMPLETED_STEPS,
-  (step: ProgressStep) => {
-    console.log('Bridge & Execute completed →', step.typeID, step.data);
-
-    if (step.typeID === 'IS' && step.data.explorerURL) {
-      console.log('View transaction:', step.data.explorerURL);
-    }
-  },
-);
-
-// Transfer & Bridge Progress (optimized operations)
-const unsubscribeTransferExpected = sdk.nexusEvents.on(
-  NEXUS_EVENTS.EXPECTED_STEPS,
-  (steps: ProgressStep[]) => {
-    console.log(
-      'Transfer/Bridge steps →',
-      steps.map((s) => s.typeID),
-    );
-    // For direct transfers: ['CS', 'TS', 'IS'] (3 steps, ~5-15s)
-  },
-);
-
-const unsubscribeTransferCompleted = sdk.nexusEvents.on(
-  NEXUS_EVENTS.STEP_COMPLETE,
-  (step: ProgressStep) => {
-    console.log('Transfer/Bridge completed →', step.typeID, step.data);
-
-    if (step.typeID === 'IS' && step.data.explorerURL) {
-      // Transaction submitted with hash - works for both direct and CA
-      console.log('Transaction hash:', step.data.transactionHash);
-      console.log('Explorer URL:', step.data.explorerURL);
-    }
-  },
-);
-
-// Cleanup
-return () => {
-  unsubscribeBridgeExecuteExpected();
-  unsubscribeBridgeExecuteCompleted();
-  unsubscribeTransferExpected();
-  unsubscribeTransferCompleted();
-};
 ```
 
 The SDK emits **consistent event patterns** for all operations:

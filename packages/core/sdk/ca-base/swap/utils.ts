@@ -653,9 +653,6 @@ export const balancesToAssets = (
       if (!chain) {
         continue;
       }
-      logger.debug('balanceToAssets', {
-        chain,
-      });
       const tokenAddress = convertAddressByUniverse(
         toHex(currency.token_address),
         balance.universe,
