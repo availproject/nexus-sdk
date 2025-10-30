@@ -2,7 +2,7 @@
 import type { TransferButtonProps } from '../../types';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import TransferModal from './transfer-modal';
-import { trackError, trackIntentCreated, trackWidgetInitiated } from 'src/utils/analytics';
+import { trackError, trackWidgetInitiated } from 'src/utils/analytics';
 
 export function TransferButton({
   prefill,
@@ -18,18 +18,6 @@ export function TransferButton({
     try {
       // Track widget initiation
       trackWidgetInitiated('transfer');
-
-      // Track intent creation with prefill data
-      if (prefill) {
-        const intentData = {
-          intentType: 'transfer' as const,
-          sourceChain: prefill.sourceChains,
-          targetChain: prefill.chainId,
-          token: prefill.token,
-          amount: prefill.amount,
-        };
-        trackIntentCreated(intentData);
-      }
 
       startTransaction('transfer', prefill);
     } catch (error) {
