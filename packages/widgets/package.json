@@ -1,6 +1,6 @@
 {
-  "name": "@avail-project/nexus-widgets",
-  "version": "0.0.6",
+  "name": "@nexus/widgets",
+  "version": "0.0.5",
   "description": "Nexus React components for cross-chain transactions",
   "main": "./dist/index.js",
   "module": "./dist/index.esm.js",
@@ -40,7 +40,8 @@
   "dependencies": {
     "@lottiefiles/dotlottie-react": "0.14.2",
     "@nexus/commons": "workspace:*",
-    "@avail-project/nexus-core": "workspace:*",
+    "@nexus/core": "workspace:*",
+    "@openpanel/sdk": "1.0.0",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "decimal.js": "10.4.3",
