@@ -3,7 +3,7 @@ import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { logger } from '@nexus/commons';
 import BridgeAndExecuteModal from './bridge-execute-modal';
 import { BridgeAndExecuteButtonProps } from '../../types';
-import { trackError, trackWidgetInitiated } from 'src/utils/analytics';
+import { trackError, trackIntentCreated, trackWidgetInitiated } from 'src/utils/analytics';
 
 export function BridgeAndExecuteButton({
   contractAddress,
@@ -26,19 +26,33 @@ export function BridgeAndExecuteButton({
   }
 
   const handleClick = () => {
-    const transactionData = {
-      ...prefill,
-      contractAddress,
-      contractAbi,
-      functionName,
-      buildFunctionParams,
-    };
     try {
       trackWidgetInitiated('bridgeAndExecute');
+
+      const transactionData = {
+        ...(prefill || {}),
+        contractAddress,
+        contractAbi,
+        functionName,
+        buildFunctionParams,
+      };
+
+      if (prefill) {
+        const intentData = {
+          intentType: 'bridgeAndExecute' as const,
+          sourceChain: prefill.toChainId,
+          targetChain: prefill.toChainId,
+          token: prefill.token,
+          amount: prefill.amount,
+        };
+
+        trackIntentCreated(intentData);
+      }
+
       startTransaction('bridgeAndExecute', transactionData);
     } catch (error) {
       trackError(error as Error, {
-        function: 'bridge_and_execute_button_click',
+        function: 'bridgeAndExecute_button_click',
       });
       throw error;
     }

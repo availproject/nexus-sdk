@@ -9,7 +9,10 @@ build/
 
 # Testing
 coverage/
-
+package-lock.json
+*.pnpm-lock.yaml
+pnpm-lock.yaml/
+pnpm-lock
 # Debug
 npm-debug.log*
 yarn-debug.log*

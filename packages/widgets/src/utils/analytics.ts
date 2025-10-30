@@ -1,10 +1,13 @@
 // analytics.ts
 // Custom OpenPanel integration for Avail Nexus SDK
 
+import { useInternalNexus } from 'src/providers/InternalNexusProvider';
+import { ActiveTransaction } from 'src/types';
+
 const OPENPANEL_CONFIG = {
   apiUrl: 'https://analytics.availproject.org/api',
   clientId: '5e2f37bc-227e-49cc-9611-637d3614231f',
-  clientSecret: ''
+  clientSecret: '',
 };
 
 // Initialize OpenPanel
@@ -17,6 +20,7 @@ export function initAnalytics() {
 // Track events (direct POST to OpenPanel API)
 export async function trackEvent(name: string, properties?: Record<string, any>) {
   try {
+    const internalNexus = useInternalNexus();
     const body = {
       type: 'track',
       payload: {
@@ -28,9 +32,11 @@ export async function trackEvent(name: string, properties?: Record<string, any>)
           sdkVersion: '0.5.0',
           package: 'nexus-widgets',
           appDomain: typeof window !== 'undefined' ? window.location.hostname : 'unknown',
-          appUrl: typeof window !== 'undefined' ? window.location.origin : 'unknown'
-        }
-      }
+          appUrl: typeof window !== 'undefined' ? window.location.origin : 'unknown',
+          network: internalNexus.config?.network || 'mainnet',
+          debug: internalNexus.config?.debug || false,
+        },
+      },
     };
 
     const response = await fetch(`${OPENPANEL_CONFIG.apiUrl}/track`, {
@@ -38,9 +44,9 @@ export async function trackEvent(name: string, properties?: Record<string, any>)
       headers: {
         'Content-Type': 'application/json',
         'openpanel-client-id': OPENPANEL_CONFIG.clientId,
-        'openpanel-client-secret': OPENPANEL_CONFIG.clientSecret
+        'openpanel-client-secret': OPENPANEL_CONFIG.clientSecret,
       },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
@@ -52,6 +58,16 @@ export async function trackEvent(name: string, properties?: Record<string, any>)
   }
 }
 
+// Track Initialized
+export function trackSDKInitialized() {
+  trackEvent('sdk_initialized');
+}
+
+// Track DeInitialized
+export function trackSdkDeInitialized() {
+  trackEvent('sdk_deInitialized');
+}
+
 // Track errors
 export function trackError(
   error: Error,
@@ -61,7 +77,7 @@ export function trackError(
     state?: any;
     balances?: any;
     intentData?: any;
-  }
+  },
 ) {
   trackEvent(`sdk_error_${context.function}_failed`, {
     errorMessage: error.message,
@@ -71,7 +87,7 @@ export function trackError(
     params: context.params,
     state: context.state,
     balances: context.balances,
-    intentData: context.intentData
+    intentData: context.intentData,
   });
 }
 
@@ -79,8 +95,8 @@ export function trackError(
 export function trackIntentCreated(params: {
   intentId?: string;
   intentType: 'bridge' | 'swap' | 'transfer' | 'bridgeAndExecute' | 'unified_balance';
-  sourceChain?: string | number;
-  targetChain?: string | number;
+  sourceChain?: string | number | number[];
+  targetChain?: string | number | number[];
   token?: string;
   amount?: string | number;
   amountUSD?: number;
@@ -98,7 +114,7 @@ export function trackIntentCreated(params: {
     amountUSD: params.amountUSD,
     gasSupplied: params.gasSupplied,
     swapType: params.swapType,
-    sourceCount: params.sourceCount
+    sourceCount: params.sourceCount,
   });
 }
 
@@ -112,7 +128,7 @@ export function trackIntentFulfilled(params: {
     intentId: params.intentId,
     txHash: params.txHash,
     fulfillmentTime: params.fulfillmentTime,
-    fees: params.fees
+    fees: params.fees,
   });
 }
 
@@ -126,7 +142,7 @@ export function trackIntentFailed(params: {
     intentId: params.intentId,
     errorMessage: params.errorMessage,
     errorCode: params.errorCode,
-    failureType: params.failureType || 'other'
+    failureType: params.failureType || 'other',
   });
 }
 
@@ -138,8 +154,12 @@ export function trackIntentRefunded(params: {
   trackEvent('intent_refunded', {
     intentId: params.intentId,
     refundAmount: params.refundAmount,
-    refundTime: params.refundTime
+    refundTime: params.refundTime,
   });
+}
+
+export function trackTransaction(params: ActiveTransaction) {
+  trackEvent('active_transaction', params);
 }
 
 export function trackIntentUnfulfilled(intentId?: string) {
@@ -158,7 +178,7 @@ export function trackWidgetSiweSigned(widgetType: string) {
 export function trackWidgetParamsSpecified(widgetType: string, params: any) {
   trackEvent('widget_params_specified', {
     widgetType,
-    params: sanitizeParams(params)
+    params: sanitizeParams(params),
   });
 }
 

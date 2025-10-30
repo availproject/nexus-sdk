@@ -3,7 +3,7 @@ import { FC } from 'react';
 import { useInternalNexus } from '../../providers/InternalNexusProvider';
 import { SwapButtonProps } from '../../types';
 import SwapModal from './swap-modal';
-import { trackWidgetInitiated, trackError } from '../../utils/analytics';
+import { trackWidgetInitiated, trackError, trackIntentCreated } from '../../utils/analytics';
 
 export const SwapButton: FC<SwapButtonProps> = ({ prefill, children, className, title }) => {
   const { startTransaction, activeTransaction, config } = useInternalNexus();
@@ -19,6 +19,19 @@ export const SwapButton: FC<SwapButtonProps> = ({ prefill, children, className, 
     try {
       // Track widget initiation
       trackWidgetInitiated('swap');
+
+      // Track intent creation with prefill data
+      if (prefill) {
+        const intentData = {
+          intentType: 'swap' as const,
+          sourceChain: prefill.fromChainID,
+          targetChain: prefill.toChainID,
+          token: prefill.fromTokenAddress,
+          amount: prefill.fromAmount,
+        };
+        trackIntentCreated(intentData);
+      }
+
       startTransaction('swap', prefill);
     } catch (error) {
       trackError(error as Error, {
