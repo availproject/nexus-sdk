@@ -1,6 +1,6 @@
 {
   "name": "nexus-sdk-monorepo",
-  "version": "0.0.2",
+  "version": "1.0.0-beta.4",
   "private": true,
   "description": "Nexus SDK monorepo - cross-chain transactions with minimal friction",
   "scripts": {
