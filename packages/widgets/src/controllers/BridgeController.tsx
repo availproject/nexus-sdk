@@ -6,6 +6,7 @@ import {
   UnifiedTransactionForm,
   UnifiedInputData,
 } from '../components/shared/unified-transaction-form';
+import { trackIntentCreated } from 'src/utils/analytics';
 
 const BridgeInputForm: React.FC<{
   prefill: Partial<BridgeConfig>;
@@ -124,14 +125,14 @@ export class BridgeController implements ITransactionController {
     inputData: BridgeParams,
   ): Promise<BridgeResult> {
     const result = await sdk.bridge(inputData);
-    // const intentData = {
-    //   intentType: 'bridge',
-    //   ...inputData,
-    // };
-    // trackIntentCreated(
-    //   { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
-    //   intentData as any,
-    // );
+    const intentData = {
+      intentType: 'bridge',
+      ...inputData,
+    };
+    trackIntentCreated(
+      { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
+      intentData as any,
+    );
     return result;
   }
 }

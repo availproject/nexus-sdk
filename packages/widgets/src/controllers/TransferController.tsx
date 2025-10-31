@@ -6,6 +6,7 @@ import {
   UnifiedTransactionForm,
   UnifiedInputData,
 } from '../components/shared/unified-transaction-form';
+import { trackIntentCreated } from 'src/utils/analytics';
 
 export interface TransferConfig extends Partial<TransferParams> {}
 
@@ -134,14 +135,14 @@ export class TransferController implements ITransactionController {
     inputData: TransferParams,
   ): Promise<TransferResult> {
     const result = await sdk.transfer(inputData);
-    // const intentData = {
-    //   intentType: 'transfer',
-    //   ...inputData,
-    // };
-    // trackIntentCreated(
-    //   { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
-    //   intentData as any,
-    // );
+    const intentData = {
+      intentType: 'transfer',
+      ...inputData,
+    };
+    trackIntentCreated(
+      { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
+      intentData as any,
+    );
     return result;
   }
 }

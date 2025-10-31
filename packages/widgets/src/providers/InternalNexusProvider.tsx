@@ -914,13 +914,13 @@ export function InternalNexusProvider({
                 ...prev,
                 status: 'success',
               }));
-              // trackTransaction(
-              //   { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
-              //   {
-              //     ...activeTransaction,
-              //     status: 'success',
-              //   },
-              // );
+              trackTransaction(
+                { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
+                {
+                  ...activeTransaction,
+                  status: 'success',
+                },
+              );
             } else {
               // Swap failed - this captures your error!
               logger.error('Swap Provider: Swap execution failed:', result.error);
