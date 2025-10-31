@@ -13,10 +13,6 @@ overrides:
 importers:
 
   .:
-    dependencies:
-      '@openpanel/web':
-        specifier: 1.0.1
-        version: 1.0.1
     devDependencies:
       '@rollup/plugin-alias':
         specifier: ^5.1.1
