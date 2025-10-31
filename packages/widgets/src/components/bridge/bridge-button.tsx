@@ -5,20 +5,27 @@ import BridgeModal from './bridge-modal';
 import { trackWidgetInitiated, trackError } from '../../utils/analytics';
 
 export function BridgeButton({ prefill, children, className, title }: Readonly<BridgeButtonProps>) {
-  const { startTransaction, activeTransaction } = useInternalNexus();
+  const { startTransaction, activeTransaction, config } = useInternalNexus();
   const isLoading =
     activeTransaction.status === 'processing' || activeTransaction.reviewStatus === 'simulating';
 
   const handleClick = () => {
     try {
       // Track widget initiation
-      trackWidgetInitiated('bridge');
+      trackWidgetInitiated(
+        { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
+        'bridge',
+      );
 
       startTransaction('bridge', prefill);
     } catch (error) {
-      trackError(error as Error, {
-        function: 'bridge_button_click',
-      });
+      trackError(
+        error as Error,
+        { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
+        {
+          function: 'bridge_button_click',
+        },
+      );
     }
   };
 

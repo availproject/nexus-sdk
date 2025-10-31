@@ -41,6 +41,7 @@
     "@cosmjs/proto-signing": "^0.34.0",
     "@cosmjs/stargate": "^0.34.0",
     "@metamask/safe-event-emitter": "3.1.2",
+    "@openpanel/web": "1.0.1",
     "@starkware-industries/starkware-crypto-utils": "^0.2.1",
     "axios": "^1.7.7",
     "decimal.js": "^10.6.0",

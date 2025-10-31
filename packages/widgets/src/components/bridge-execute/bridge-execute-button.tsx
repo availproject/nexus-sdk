@@ -15,7 +15,7 @@ export function BridgeAndExecuteButton({
   className,
   title,
 }: Readonly<BridgeAndExecuteButtonProps>) {
-  const { startTransaction, activeTransaction } = useInternalNexus();
+  const { startTransaction, activeTransaction, config } = useInternalNexus();
 
   const isLoading =
     activeTransaction?.status === 'processing' || activeTransaction?.reviewStatus === 'simulating';
@@ -27,7 +27,10 @@ export function BridgeAndExecuteButton({
 
   const handleClick = () => {
     try {
-      trackWidgetInitiated('bridgeAndExecute');
+      trackWidgetInitiated(
+        { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
+        'bridgeAndExecute',
+      );
 
       const transactionData = {
         ...(prefill || {}),
@@ -39,9 +42,13 @@ export function BridgeAndExecuteButton({
 
       startTransaction('bridgeAndExecute', transactionData);
     } catch (error) {
-      trackError(error as Error, {
-        function: 'bridgeAndExecute_button_click',
-      });
+      trackError(
+        error as Error,
+        { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
+        {
+          function: 'bridgeAndExecute_button_click',
+        },
+      );
       throw error;
     }
   };

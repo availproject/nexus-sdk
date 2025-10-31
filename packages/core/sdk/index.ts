@@ -39,7 +39,7 @@ import {
   trackSDKBackendInitialized,
   trackSdkDeInitialized,
   trackSDKInitialized,
-} from 'utils/analytics';
+} from '../utils/analytics';
 
 export class NexusSDK extends CA {
   private readonly nexusAdapter: ChainAbstractionAdapter;

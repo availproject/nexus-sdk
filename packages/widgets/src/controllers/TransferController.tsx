@@ -1,7 +1,7 @@
 import React from 'react';
 import type { ITransactionController, ActiveTransaction } from '../types';
 import { NexusSDK } from '@avail-project/nexus-core';
-import { type TransferParams, type TransferResult, logger } from '@nexus/commons';
+import { NexusNetwork, type TransferParams, type TransferResult, logger } from '@nexus/commons';
 import {
   UnifiedTransactionForm,
   UnifiedInputData,
@@ -129,13 +129,20 @@ export class TransferController implements ITransactionController {
     };
   }
 
-  async confirmAndProceed(sdk: NexusSDK, inputData: TransferParams): Promise<TransferResult> {
+  async confirmAndProceed(
+    sdk: NexusSDK,
+    config: { network?: NexusNetwork; debug?: boolean },
+    inputData: TransferParams,
+  ): Promise<TransferResult> {
     const result = await sdk.transfer(inputData);
     const intentData = {
       intentType: 'transfer',
       ...inputData,
     };
-    trackIntentCreated(intentData as any);
+    trackIntentCreated(
+      { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
+      intentData as any,
+    );
     return result;
   }
 }

@@ -18,13 +18,20 @@ export const SwapButton: FC<SwapButtonProps> = ({ prefill, children, className, 
   const handleClick = () => {
     try {
       // Track widget initiation
-      trackWidgetInitiated('swap');
+      trackWidgetInitiated(
+        { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
+        'swap',
+      );
 
       startTransaction('swap', prefill);
     } catch (error) {
-      trackError(error as Error, {
-        function: 'swap_button_click',
-      });
+      trackError(
+        error as Error,
+        { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
+        {
+          function: 'swap_button_click',
+        },
+      );
       throw error;
     }
   };

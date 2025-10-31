@@ -10,20 +10,27 @@ export function TransferButton({
   className,
   title,
 }: Readonly<TransferButtonProps>) {
-  const { startTransaction, activeTransaction } = useInternalNexus();
+  const { startTransaction, activeTransaction, config } = useInternalNexus();
   const isLoading =
     activeTransaction.status === 'processing' || activeTransaction.reviewStatus === 'simulating';
 
   const handleClick = () => {
     try {
       // Track widget initiation
-      trackWidgetInitiated('transfer');
+      trackWidgetInitiated(
+        { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
+        'transfer',
+      );
 
       startTransaction('transfer', prefill);
     } catch (error) {
-      trackError(error as Error, {
-        function: 'transfer_button_click',
-      });
+      trackError(
+        error as Error,
+        { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
+        {
+          function: 'transfer_button_click',
+        },
+      );
       throw error;
     }
   };

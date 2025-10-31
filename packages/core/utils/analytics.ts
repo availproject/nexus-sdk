@@ -14,11 +14,11 @@ import {
   SwapInputOptionalParams,
   TransferParams,
 } from '@nexus/commons';
+import { OpenPanel } from '@openpanel/web';
 
 const OPENPANEL_CONFIG = {
-  apiUrl: 'https://analytics.availproject.org/api',
+  apiURL: 'https://analytics.availproject.org/api',
   clientId: '5e2f37bc-227e-49cc-9611-637d3614231f',
-  clientSecret: '',
 };
 
 // Initialize OpenPanel
@@ -32,35 +32,29 @@ export function initAnalytics() {
 export async function trackEvent(name: string, properties?: Record<string, any>) {
   try {
     const body = {
-      type: 'track',
-      payload: {
-        event: name,
-        properties: {
-          ...properties,
-          timestamp: new Date().toISOString(),
-          sessionId: getSessionId(),
-          sdkVersion: '0.1.0',
-          package: 'nexus-core',
-          appDomain: typeof window !== 'undefined' ? window.location.hostname : 'unknown',
-          appUrl: typeof window !== 'undefined' ? window.location.origin : 'unknown',
-        },
+      event: name,
+      properties: {
+        ...properties,
+        timestamp: new Date().toISOString(),
+        sessionId: getSessionId(),
+        sdkVersion: '0.1.0',
+        package: 'nexus-core',
+        appDomain: typeof window !== 'undefined' ? window.location.hostname : 'unknown',
+        appUrl: typeof window !== 'undefined' ? window.location.origin : 'unknown',
       },
     };
 
-    const response = await fetch(`${OPENPANEL_CONFIG.apiUrl}/track`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'openpanel-client-id': OPENPANEL_CONFIG.clientId,
-        'openpanel-client-secret': OPENPANEL_CONFIG.clientSecret,
-      },
-      body: JSON.stringify(body),
+    const op = new OpenPanel({
+      clientId: OPENPANEL_CONFIG.clientId,
+      apiUrl: OPENPANEL_CONFIG.apiURL,
+      trackScreenViews: true,
+      trackOutgoingLinks: true,
+      trackAttributes: true,
     });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error(`❌ Analytics tracking failed (${response.status}):`, errText);
-    }
+    op.track('track_core', body);
+
+    console.log(`Analytics tracking working`);
   } catch (error) {
     console.error('❌ Analytics tracking error:', error);
   }
