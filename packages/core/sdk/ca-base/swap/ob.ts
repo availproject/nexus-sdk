@@ -17,20 +17,13 @@ import Decimal from 'decimal.js';
 import { orderBy, retry } from 'es-toolkit';
 import Long from 'long';
 import { ByteArray, Hex, PrivateKeyAccount, toBytes, WalletClient } from 'viem';
-import { getLogger } from '@nexus/commons';
+import { getLogger, SWAP_STEPS, SwapStepType } from '@nexus/commons';
 import { divDecimals, equalFold, minutesToMs, waitForTxReceipt } from '../utils';
 import { EADDRESS, SWEEPER_ADDRESS } from './constants';
 import { getTokenDecimals } from './data';
 import { createBridgeRFF } from './rff';
 import { caliburExecute, checkAuthCodeSet, createSBCTxFromCalls, waitForSBCTxReceipt } from './sbc';
-import {
-  CREATE_PERMIT_FOR_SOURCE_SWAP,
-  DESTINATION_SWAP_BATCH_TX,
-  RFF_ID,
-  SOURCE_SWAP_HASH,
-  SWAP_COMPLETE,
-  SwapStep,
-} from './steps';
+
 import {
   bytesEqual,
   Cache,
@@ -73,7 +66,7 @@ type Options = {
   };
   destinationChainID: number;
   emitter: {
-    emit: (step: SwapStep) => void;
+    emit: (step: SwapStepType) => void;
   };
   networkConfig: {
     COSMOS_URL: string;
@@ -213,7 +206,7 @@ class BridgeHandler {
       if (sbcTx.length) {
         const ops = await vscSBCTx(sbcTx, this.options.networkConfig.VSC_DOMAIN);
         ops.forEach((op) => {
-          this.options.emitter.emit(SOURCE_SWAP_HASH(op, this.options.chainList));
+          this.options.emitter.emit(SWAP_STEPS.SOURCE_SWAP_HASH(op, this.options.chainList));
         });
         waitingPromises.push(
           ...ops.map(([chainID, hash]) =>
@@ -292,7 +285,7 @@ class BridgeHandler {
       );
 
       metadata.rff_id = BigInt(this.status.intentID.toNumber());
-      this.options.emitter.emit(RFF_ID(this.status.intentID.toNumber()));
+      this.options.emitter.emit(SWAP_STEPS.RFF_ID(this.status.intentID.toNumber()));
 
       // will just resolve immediately if no CA was required
       logger.debug('Fill wait start');
@@ -425,7 +418,7 @@ class DestinationSwapHandler {
     }
 
     if (hasDestinationSwap) {
-      this.options.emitter.emit(DESTINATION_SWAP_BATCH_TX(false));
+      this.options.emitter.emit(SWAP_STEPS.DESTINATION_SWAP_BATCH_TX(false));
     }
 
     // So whatever amount is swapped gets transferred ephemeral -> eoa
@@ -457,10 +450,10 @@ class DestinationSwapHandler {
     });
 
     if (hasDestinationSwap) {
-      this.options.emitter.emit(DESTINATION_SWAP_BATCH_TX(true));
+      this.options.emitter.emit(SWAP_STEPS.DESTINATION_SWAP_BATCH_TX(true));
     }
 
-    this.options.emitter.emit(SWAP_COMPLETE);
+    this.options.emitter.emit(SWAP_STEPS.SWAP_COMPLETE);
     performance.mark('xcs-ops-end');
 
     logger.debug('before dst metadata', {
@@ -628,7 +621,9 @@ class SourceSwapsHandler {
           if (isNativeAddress(convertToEVMAddress(swap.inputToken))) {
             sbcCalls.value += swap.amount;
           } else {
-            this.options.emitter.emit(CREATE_PERMIT_FOR_SOURCE_SWAP(false, symbol, chain));
+            this.options.emitter.emit(
+              SWAP_STEPS.CREATE_PERMIT_FOR_SOURCE_SWAP(false, symbol, chain),
+            );
             const allowanceCacheKey = getAllowanceCacheKey({
               chainID: chain.id,
               contractAddress: convertToEVMAddress(swap.inputToken),
@@ -654,7 +649,9 @@ class SourceSwapsHandler {
               this.disposableCache[allowanceCacheKey] = approvalTx;
             }
 
-            this.options.emitter.emit(CREATE_PERMIT_FOR_SOURCE_SWAP(true, symbol, chain));
+            this.options.emitter.emit(
+              SWAP_STEPS.CREATE_PERMIT_FOR_SOURCE_SWAP(true, symbol, chain),
+            );
             logger.debug('sourceSwap', {
               chainID,
               permitCalls: txs,
@@ -730,7 +727,7 @@ class SourceSwapsHandler {
           });
           metadataTx.tx_hash = convertTo32Bytes(hash);
           this.options.emitter.emit(
-            SOURCE_SWAP_HASH([BigInt(chain.id), hash], this.options.chainList),
+            SWAP_STEPS.SOURCE_SWAP_HASH([BigInt(chain.id), hash], this.options.chainList),
           );
 
           waitingPromises.push(wrap(Number(chainID), waitForTxReceipt(hash, publicClient, 2)));
@@ -758,7 +755,9 @@ class SourceSwapsHandler {
               const [chainID, hash] = ops[0];
               metadataTx.tx_hash = convertTo32Bytes(hash);
 
-              this.options.emitter.emit(SOURCE_SWAP_HASH([chainID, hash], this.options.chainList));
+              this.options.emitter.emit(
+                SWAP_STEPS.SOURCE_SWAP_HASH([chainID, hash], this.options.chainList),
+              );
 
               return wrap(
                 Number(chainID),

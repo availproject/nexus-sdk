@@ -4,7 +4,7 @@ export interface NexusErrorData {
   details?: Record<string, unknown>; // Specific structured info
 }
 
-class NexusError extends Error {
+export class NexusError extends Error {
   readonly code: ErrorCode;
   readonly data?: NexusErrorData;
 
@@ -27,6 +27,7 @@ class NexusError extends Error {
 
 export const ERROR_CODES = {
   INVALID_VALUES_ALLOWANCE_HOOK: 'INVALID_VALUES_ALLOWANCE_HOOK',
+  SDK_NOT_INITIALIZED: 'SDK_NOT_INITIALIZED',
   CHAIN_NOT_FOUND: 'CHAIN_NOT_FOUND',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
   TOKEN_NOT_SUPPORTED: 'TOKEN_NOT_SUPPORTED',
@@ -38,6 +39,8 @@ export const ERROR_CODES = {
   USER_DENIED_ALLOWANCE: 'USER_DENIED_ALLOWANCE',
   USER_DENIED_INTENT_SIGNATURE: 'USER_DENIED_INTENT_SIGNATURE',
   INSUFFICIENT_BALANCE: 'INSUFFICIENT_BALANCE',
+  WALLET_NOT_CONNECTED: 'WALLET_NOT_CONNECTED',
+  USER_DENIED_SIWE_SIGNATURE: 'USER_DENIED_SIWE_SIGNATURE',
 } as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];
@@ -45,8 +48,6 @@ export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];
 export function createError(code: ErrorCode, message: string, data?: NexusErrorData): NexusError {
   return new NexusError(code, message, data);
 }
-
-export default NexusError;
 
 /* --- Expected handling ---
 

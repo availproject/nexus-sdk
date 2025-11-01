@@ -6,6 +6,7 @@ import {
   bytesToNumber,
   createPublicClient,
   encodeFunctionData,
+  Hex,
   PrivateKeyAccount,
   toHex,
   webSocket,
@@ -36,43 +37,15 @@ import {
 
 const logger = getLogger();
 
-const createEmptyIntent = ({
-  chainID,
-  decimals,
-}: {
-  decimals: number;
-  chainID: number;
-}): Intent => ({
-  allSources: [],
-  // FIXME: this should have user address
-  recipientAddress: '0x',
-  destination: {
-    amount: new Decimal(0),
-    chainID,
-    decimals,
-    gas: 0n,
-    tokenContract: '0x',
-    universe: Universe.ETHEREUM,
-  },
-  fees: {
-    caGas: '0',
-    collection: '0',
-    fulfilment: '0',
-    gasSupplied: '0',
-    protocol: '0',
-    solver: '0',
-  },
-  isAvailableBalanceInsufficient: false,
-  sources: [],
-});
-
 export const createIntent = ({
   assets,
   feeStore,
   output,
+  address,
 }: {
   assets: BridgeAsset[];
   feeStore: FeeStore;
+  address: Hex;
   output: {
     amount: Decimal;
     chainID: number;
@@ -81,7 +54,28 @@ export const createIntent = ({
   };
 }) => {
   const eoaToEphemeralCalls: EoaToEphemeralCallMap = {};
-  const intent = createEmptyIntent({ chainID: output.chainID, decimals: output.decimals });
+  const intent: Intent = {
+    allSources: [],
+    recipientAddress: address,
+    destination: {
+      amount: new Decimal(0),
+      chainID: output.chainID,
+      decimals: output.decimals,
+      gas: 0n,
+      tokenContract: '0x',
+      universe: Universe.ETHEREUM,
+    },
+    fees: {
+      caGas: '0',
+      collection: '0',
+      fulfilment: '0',
+      gasSupplied: '0',
+      protocol: '0',
+      solver: '0',
+    },
+    isAvailableBalanceInsufficient: false,
+    sources: [],
+  };
 
   let borrow = output.amount;
   intent.destination.amount = borrow;
@@ -124,6 +118,15 @@ export const createIntent = ({
     if (accountedBalance.gte(borrow)) {
       break;
     }
+
+    const collectionFee = feeStore.calculateCollectionFee({
+      decimals: asset.decimals,
+      sourceChainID: asset.chainID,
+      sourceTokenAddress: asset.contractAddress,
+    });
+
+    intent.fees.collection = collectionFee.add(intent.fees.collection).toFixed();
+    borrow = borrow.add(collectionFee);
 
     const unaccountedBalance = borrow.minus(accountedBalance);
 
@@ -244,6 +247,7 @@ export const createBridgeRFF = async ({
     assets: input.assets,
     feeStore,
     output,
+    address: config.evm.address,
   });
 
   if (intent.isAvailableBalanceInsufficient) {
@@ -334,7 +338,7 @@ export const createBridgeRFF = async ({
 
     const tx: Tx[] = [];
 
-    if (allowance < source.value) {
+    if (allowance < source.valueRaw) {
       const allowanceTx = {
         data: packERC20Approve(config.chainList.getVaultContractAddress(Number(source.chainID))),
         to: convertAddressByUniverse(source.tokenAddress, Universe.ETHEREUM),
@@ -362,7 +366,7 @@ export const createBridgeRFF = async ({
     });
 
     depositCalls[Number(source.chainID)] = {
-      amount: source.value,
+      amount: source.valueRaw,
       tokenAddress: convertAddressByUniverse(source.tokenAddress, source.universe),
       tx: tx,
     };

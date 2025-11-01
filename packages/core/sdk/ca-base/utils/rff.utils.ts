@@ -29,7 +29,8 @@ type Source = {
   chainID: bigint;
   tokenAddress: `0x${string}`;
   universe: Universe;
-  value: bigint;
+  valueRaw: bigint;
+  value: Decimal;
 };
 
 const logger = getLogger();
@@ -59,7 +60,8 @@ const getSourcesAndDestinationsForRFF = (
       chainID: BigInt(source.chainID),
       tokenAddress: convertTo32BytesHex(source.tokenContract),
       universe: source.universe,
-      value: mulDecimals(source.amount, token.decimals),
+      valueRaw: mulDecimals(source.amount, token.decimals),
+      value: source.amount,
     });
   }
 
@@ -160,7 +162,7 @@ const createRFFromIntent = async (
       chainID: convertTo32Bytes(source.chainID),
       contractAddress: convertTo32Bytes(source.tokenAddress),
       universe: source.universe,
-      value: toBytes(source.value),
+      value: toBytes(source.valueRaw),
     })),
   });
 

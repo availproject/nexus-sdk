@@ -13,6 +13,7 @@ import { connect } from 'it-ws/client';
 import Long from 'long';
 import { getLogger } from '@nexus/commons';
 import { checkIntentFilled, vscCreateFeeGrant } from './api.utils';
+import { Errors } from '../errors';
 
 const logger = getLogger();
 
@@ -67,7 +68,7 @@ const cosmosCreateRFF = async ({
     );
 
     if (isDeliverTxFailure(res)) {
-      throw new Error(`Error creating RFF – code=${res.code} log=${res.rawLog ?? 'n/a'}`);
+      throw Errors.cosmosError(`Error creating RFF – code=${res.code} log=${res.rawLog ?? 'n/a'}`);
     }
 
     const decoded = MsgCreateRequestForFundsResponse.decode(res.msgResponses[0].value);
@@ -116,9 +117,9 @@ const cosmosRefundIntent = async (
         ) {
           return resp;
         }
-        throw new Error('RFF is not expired yet.');
+        throw Errors.cosmosError('RFF is not expired yet.');
       } else {
-        throw new Error('unknown error');
+        throw Errors.cosmosError(`unknown error: ${JSON.stringify(resp)}`);
       }
     } catch (e) {
       logger.error('Refund failed', e);

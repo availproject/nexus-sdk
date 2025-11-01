@@ -8,6 +8,7 @@ import {
 import { getLogoFromSymbol, ZERO_ADDRESS } from './constants';
 import { Chain, SUPPORTED_CHAINS, TOKEN_CONTRACT_ADDRESSES, TokenInfo } from '@nexus/commons';
 import { convertToHexAddressByUniverse, equalFold } from './utils';
+import { Errors } from './errors';
 
 class ChainList {
   public chains: Chain[];
@@ -37,7 +38,7 @@ class ChainList {
   public getNativeToken(chainID: number): TokenInfo {
     const chain = this.getChainByID(chainID);
     if (!chain) {
-      throw new Error('chain not found');
+      throw Errors.chainNotFound(chainID);
     }
 
     return {
@@ -85,10 +86,13 @@ class ChainList {
     return token;
   }
 
-  public getChainAndTokenFromSymbol(chainID: number, tokenSymbol: string) {
+  public getChainAndTokenFromSymbol(
+    chainID: number,
+    tokenSymbol: string,
+  ): { chain: Chain; token: (TokenInfo & { isNative: boolean }) | undefined } {
     const chain = this.getChainByID(chainID);
     if (!chain) {
-      throw new Error('chain not supported');
+      throw Errors.chainNotFound(chainID);
     }
 
     const token = chain.custom.knownTokens.find((t) => equalFold(t.symbol, tokenSymbol));
@@ -101,18 +105,19 @@ class ChainList {
             logo: chain.custom.icon,
             name: chain.nativeCurrency.name,
             symbol: chain.nativeCurrency.symbol,
+            isNative: true,
           },
           chain,
         };
       }
     }
-    return { chain, token };
+    return { chain, token: token ? { ...token, isNative: false } : undefined };
   }
 
   public getVaultContractAddress(chainID: number) {
     const chain = this.getChainByID(chainID);
     if (!chain) {
-      throw new Error('chain not supported');
+      throw Errors.chainNotFound(chainID);
     }
 
     const omniversalChainID = new OmniversalChainID(chain.universe, chainID);

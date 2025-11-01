@@ -24,30 +24,19 @@ import {
   webSocket,
 } from 'viem';
 import { isNativeAddress } from '../constants';
-import {
-  ALLOWANCE_APPROVAL_MINED,
-  ALLOWANCE_APPROVAL_REQ,
-  ALLOWANCE_COMPLETE,
-  createSteps,
-  INTENT_ACCEPTED,
-  INTENT_DEPOSIT_REQ,
-  INTENT_DEPOSITS_CONFIRMED,
-  INTENT_FULFILLED,
-  INTENT_HASH_SIGNED,
-  INTENT_SUBMITTED,
-} from '../steps';
+import { createSteps } from '../steps';
 import {
   Intent,
   onAllowanceHookSource,
   SetAllowanceInput,
   SponsoredApprovalDataArray,
-  Step,
-  StepInfo,
   Chain,
   TokenInfo,
   getLogger,
   IBridgeOptions,
   NEXUS_EVENTS,
+  BridgeStepType,
+  BRIDGE_STEPS,
 } from '@nexus/commons';
 import {
   convertGasToToken,
@@ -97,7 +86,7 @@ type Params = {
 const logger = getLogger();
 
 class BridgeHandler {
-  protected steps: Step[] = [];
+  protected steps: BridgeStepType[] = [];
   protected params: Required<Params>;
   constructor(
     params: Params,
@@ -305,7 +294,7 @@ class BridgeHandler {
       });
     });
 
-    this.markStepDone(INTENT_ACCEPTED);
+    this.markStepDone(BRIDGE_STEPS.INTENT_ACCEPTED);
 
     console.time('process:AllowanceHook');
 
@@ -361,7 +350,7 @@ class BridgeHandler {
     await this.waitForFill(requestHash, intentID, waitForDoubleCheckTx);
     removeIntentHashFromStore(this.options.evm.address, intentID);
 
-    this.markStepDone(INTENT_FULFILLED);
+    this.markStepDone(BRIDGE_STEPS.INTENT_FULFILLED);
 
     if (this.params.dstChain.universe === Universe.ETHEREUM) {
       await this.options.evm.client.switchChain({ id: this.params.dstChain.id });
@@ -374,7 +363,7 @@ class BridgeHandler {
     const { msgBasicCosmos, omniversalRFF, signatureData, sources, universes } =
       await createRFFromIntent(intent, this.options, this.params.dstChain.universe);
 
-    this.markStepDone(INTENT_HASH_SIGNED);
+    this.markStepDone(BRIDGE_STEPS.INTENT_HASH_SIGNED);
 
     logger.debug('processRFF:3', { msgBasicCosmos });
 
@@ -386,10 +375,7 @@ class BridgeHandler {
     });
 
     const explorerURL = getExplorerURL(this.options.networkConfig.EXPLORER_URL, intentID);
-    this.markStepDone(INTENT_SUBMITTED, {
-      explorerURL,
-      intentID: intentID.toNumber(),
-    });
+    this.markStepDone(BRIDGE_STEPS.INTENT_SUBMITTED(explorerURL, intentID.toNumber()));
 
     const tokenCollections = [];
     for (const [i, s] of sources.entries()) {
@@ -448,13 +434,13 @@ class BridgeHandler {
           .deposit(omniversalRFF.asFuelRFF(), hexlify(fuelSignatureData!.signature), i)
           .callParams({
             forward: {
-              amount: new BN(s.value.toString()),
+              amount: new BN(s.valueRaw.toString()),
               assetId: s.tokenAddress,
             },
           })
           .call();
 
-        this.markStepDone(INTENT_DEPOSIT_REQ(i + 1));
+        this.markStepDone(BRIDGE_STEPS.INTENT_DEPOSIT_REQUEST(i + 1, s.value, chain));
 
         fuelDeposits.push(
           (async function () {
@@ -480,10 +466,10 @@ class BridgeHandler {
           args: [omniversalRFF.asEVMRFF(), toHex(evmSignatureData!.signature), BigInt(i)],
           chain: chain,
           functionName: 'deposit',
-          value: s.value,
+          value: s.valueRaw,
         });
         const hash = await this.options.evm.client.writeContract(request);
-        this.markStepDone(INTENT_DEPOSIT_REQ(i + 1));
+        this.markStepDone(BRIDGE_STEPS.INTENT_DEPOSIT_REQUEST(i + 1, s.value, chain));
 
         evmDeposits.push(waitForTxReceipt(hash, publicClient));
       } else if (s.universe === Universe.TRON) {
@@ -508,16 +494,21 @@ class BridgeHandler {
           TronWeb.address.fromHex(this.options.tron!.address),
         );
 
-        const txResult = await provider.trx.sendRawTransaction(
-          await this.options.tron!.adapter.signTransaction(txWrap.transaction),
-        );
+        const signedTx = await this.options.tron!.adapter.signTransaction(txWrap.transaction);
 
-        logger.debug('tron deposit tx result', {
-          txResult,
+        logger.debug('tron deposit signTransaction result', {
+          signedTx,
         });
 
-        if (!txResult.result) {
-          throw Errors.tronDepositFailed(txResult);
+        if (!this.options.tron!.adapter.isMobile) {
+          const txResult = await provider.trx.sendRawTransaction(signedTx);
+
+          logger.debug('tron deposit tx result', {
+            txResult,
+          });
+          if (!txResult.result) {
+            throw Errors.tronDepositFailed(txResult);
+          }
         }
 
         tronDeposits.push(
@@ -547,7 +538,7 @@ class BridgeHandler {
         Promise.all(tronDeposits),
         Promise.all(fuelDeposits),
       ]);
-      this.markStepDone(INTENT_DEPOSITS_CONFIRMED);
+      this.markStepDone(BRIDGE_STEPS.INTENT_DEPOSITS_CONFIRMED);
     }
 
     logger.debug('PostIntentSubmission: Intent ID', {
@@ -642,13 +633,13 @@ class BridgeHandler {
                     e.walk((e) => e instanceof UserRejectedRequestError) instanceof
                     UserRejectedRequestError;
                   if (isUserRejectedRequestError) {
-                    throw Errors.userDeniedAllowance();
+                    throw Errors.userRejectedAllowance();
                   }
                 }
                 throw e;
               });
 
-            this.markStepDone(ALLOWANCE_APPROVAL_REQ(source.chainID));
+            this.markStepDone(BRIDGE_STEPS.ALLOWANCE_APPROVAL_REQUEST(chain));
 
             await waitForTxReceipt(h, publicClient);
           } else if (chain.universe === Universe.TRON) {
@@ -667,18 +658,24 @@ class BridgeHandler {
               },
               [
                 { type: 'address', value: TronWeb.address.fromHex(vc) },
-                { type: 'uint256', value: source.amount.toString() },
+                { type: 'uint256', value: source.amount.toString() }, 
               ],
               TronWeb.address.fromHex(this.options.tron?.address),
             );
             const signedTx = await this.options.tron.adapter.signTransaction(tx.transaction);
-            const txResult = await provider.trx.sendRawTransaction(signedTx);
-
-            logger.debug('tron tx result', {
-              txResult,
+            logger.debug('tron approval signTransaction result', {
+              signedTx,
             });
-            if (!txResult.result) {
-              throw Errors.tronApprovalFailed(txResult);
+
+            if (!this.options.tron!.adapter.isMobile) {
+              const txResult = await provider.trx.sendRawTransaction(signedTx);
+
+              logger.debug('tron tx result', {
+                txResult,
+              });
+              if (!txResult.result) {
+                throw Errors.tronApprovalFailed(txResult);
+              }
             }
 
             await waitForTronApprovalTxConfirmation(
@@ -690,7 +687,7 @@ class BridgeHandler {
             );
           }
 
-          this.markStepDone(ALLOWANCE_APPROVAL_MINED(source.chainID));
+          this.markStepDone(BRIDGE_STEPS.ALLOWANCE_APPROVAL_MINED(chain));
         } else {
           const account: JsonRpcAccount = {
             address: this.options.evm.address,
@@ -711,14 +708,14 @@ class BridgeHandler {
                   e.walk((e) => e instanceof UserRejectedRequestError) instanceof
                   UserRejectedRequestError;
                 if (isUserRejectedRequestError) {
-                  throw Errors.userDeniedAllowance();
+                  throw Errors.userRejectedAllowance();
                 }
               }
               throw e;
             }),
           );
 
-          this.markStepDone(ALLOWANCE_APPROVAL_REQ(source.chainID));
+          this.markStepDone(BRIDGE_STEPS.ALLOWANCE_APPROVAL_REQUEST(chain));
 
           sponsoredApprovalParams.push({
             address: convertTo32Bytes(account.address),
@@ -755,7 +752,7 @@ class BridgeHandler {
       if (this.params.dstChain.universe === Universe.ETHEREUM) {
         await switchChain(this.options.evm.client, this.params.dstChain);
       }
-      this.markStepDone(ALLOWANCE_COMPLETE);
+      this.markStepDone(BRIDGE_STEPS.ALLOWANCE_COMPLETE);
     }
   }
 
@@ -798,7 +795,7 @@ class BridgeHandler {
       };
 
       const deny = () => {
-        return reject(Errors.userDeniedAllowance);
+        return reject(Errors.userRejectedAllowance);
       };
 
       this.options.hooks.onAllowance({
@@ -1006,16 +1003,13 @@ class BridgeHandler {
     return intent;
   }
 
-  private markStepDone = (step: StepInfo, data?: { [k: string]: unknown }) => {
+  private markStepDone = (step: BridgeStepType) => {
     if (this.options.emit) {
       const s = this.steps.find((s) => s.typeID === step.typeID);
       if (s) {
         this.options.emit({
           name: NEXUS_EVENTS.STEP_COMPLETE,
-          args: {
-            ...s,
-            ...(data ? { data } : {}),
-          },
+          args: step,
         });
       }
     }

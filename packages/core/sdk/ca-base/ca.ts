@@ -1,4 +1,4 @@
-import { createCosmosWallet } from '@avail-project/ca-common';
+import { createCosmosWallet, Universe } from '@avail-project/ca-common';
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import { keyDerivation } from '@starkware-industries/starkware-crypto-utils';
 import { Account, FuelConnector, Provider } from 'fuels';
@@ -17,7 +17,7 @@ import { createSiweMessage } from 'viem/siwe';
 import { ChainList } from './chains';
 import { getNetworkConfig } from './config';
 import { FUEL_NETWORK_URL } from './constants';
-import { getLogger, LOG_LEVEL, setLogLevel } from '@nexus/commons';
+import { getLogger, LOG_LEVEL, setLogLevel, Chain, TransferParams } from '@nexus/commons';
 import { createBridgeParams } from './requestHandlers/helpers';
 import {
   BridgeQueryInput,
@@ -33,11 +33,11 @@ import {
   SwapMode,
   SwapParams,
   SupportedChainsResult,
-  TransferQueryInput,
   BridgeAndExecuteParams,
   ExecuteParams,
   OnEventParam,
   OnSwapIntentHook,
+  TronAdapter,
 } from '@nexus/commons';
 import {
   cosmosFeeGrant,
@@ -50,16 +50,18 @@ import {
   switchChain,
   tronHexToEvmAddress,
   getBalances,
+  retrieveSIWESignatureFromLocalStorage,
+  storeSIWESignatureToLocalStorage,
 } from './utils';
 import { swap } from './swap/swap';
 import { getSwapSupportedChains } from './swap/utils';
-import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 import { utils } from 'tronweb';
 import BridgeHandler from './requestHandlers/bridge';
 import { BridgeAndExecuteQuery } from './query/bridgeAndExecute';
 import { BackendSimulationClient, createBackendSimulationClient } from 'integrations/tenderly';
 import { createBridgeAndTransferParams } from './query/bridgeAndTransfer';
 import getMaxValueForBridge from './requestHandlers/bridgeMax';
+import { Errors } from './errors';
 
 setLogLevel(LOG_LEVEL.NOLOGS);
 const logger = getLogger();
@@ -94,7 +96,7 @@ export class CA {
   };
   protected _tron?: {
     address: string;
-    adapter: AdapterProps;
+    adapter: TronAdapter;
   };
   protected _hooks: {
     onAllowance: OnAllowanceHook;
@@ -127,8 +129,13 @@ export class CA {
     }
   }
 
-  protected async createBridgeHandler(input: BridgeQueryInput, options?: OnEventParam) {
+  protected createBridgeHandler(input: BridgeQueryInput, options?: OnEventParam) {
+    if (!this._evm) {
+      throw Errors.sdkNotInitialized();
+    }
+
     const params = createBridgeParams(input, this.chainList);
+    this.universeCheck(params.dstChain);
 
     const bridgeHandler = new BridgeHandler(params, {
       chainList: this.chainList,
@@ -174,7 +181,7 @@ export class CA {
 
   protected async _getUnifiedBalances(includeSwappableBalances = false) {
     if (!this._evm) {
-      throw new Error('CA not initialized');
+      throw Errors.sdkNotInitialized();
     }
     const { assets } = await getBalances({
       networkHint: this._networkConfig.NETWORK_HINT,
@@ -234,7 +241,7 @@ export class CA {
 
   protected _init = () => {
     if (!this._evm) {
-      throw new Error('use setEVMProvider before calling init()');
+      throw Errors.sdkNotInitialized();
     }
     // Return existing promise if initialization already started or done
     if (this._initStatus === INIT_STATUS.RUNNING || this._initStatus === INIT_STATUS.DONE) {
@@ -257,7 +264,7 @@ export class CA {
       } catch (e) {
         this._initStatus = INIT_STATUS.CREATED;
         logger.error('Error initializing CA', e);
-        throw new Error('Error initializing CA');
+        throw e;
       }
     })();
 
@@ -290,7 +297,7 @@ export class CA {
     this._isArcanaProvider = isArcanaWallet(provider);
   }
 
-  public async _setTronAdapter(adapter: AdapterProps) {
+  public async _setTronAdapter(adapter: TronAdapter) {
     if (this._tron) {
       logger.debug('Already has tron adapter, so skip', {
         adapter,
@@ -357,19 +364,19 @@ export class CA {
     this._hooks.onSwapIntent = hook;
   }
 
-  protected async _bridgeAndTransfer(input: TransferQueryInput, options?: OnEventParam) {
+  protected async _bridgeAndTransfer(input: TransferParams, options?: OnEventParam) {
     const params = createBridgeAndTransferParams(input, this.chainList);
     return this._bridgeAndExecute(params, options);
   }
 
-  protected async _simulateBridgeAndTransfer(input: TransferQueryInput) {
+  protected async _simulateBridgeAndTransfer(input: TransferParams) {
     const params = createBridgeAndTransferParams(input, this.chainList);
     return this._simulateBridgeAndExecute(params);
   }
 
   protected _changeChain(chainID: number) {
     if (!this._evm) {
-      throw new Error('EVM provider is not set');
+      throw Errors.sdkNotInitialized();
     }
     const chain = this.chainList.getChainByID(chainID);
     if (!chain) {
@@ -394,29 +401,18 @@ export class CA {
   }
 
   protected async _createCosmosWallet() {
-    const sig = await this._signatureForLogin();
-    const pvtKey = keyDerivation.getPrivateKeyFromEthSignature(sig);
+    let sig = this._getStoredSIWESignature(this._evm!.address);
+    if (!sig) {
+      sig = await this._signatureForLogin();
+      this._storeSIWESignature(this._evm!.address, sig);
+    }
 
+    const pvtKey = keyDerivation.getPrivateKeyFromEthSignature(sig);
     const wallet = await createCosmosWallet(`0x${pvtKey.padStart(64, '0')}`);
     this.#ephemeralWallet = privateKeyToAccount(`0x${pvtKey.padStart(64, '0')}`);
     const address = (await wallet.getAccounts())[0].address;
     await cosmosFeeGrant(this._networkConfig.COSMOS_URL, this._networkConfig.VSC_DOMAIN, address);
     return { wallet, address };
-  }
-
-  public getEVMClient() {
-    if (!this._evm) {
-      throw new Error('EVM provider is not set');
-    }
-    return this._evm.client;
-  }
-
-  protected _getChainID() {
-    if (!this._evm) {
-      throw new Error('EVM provider is not set');
-    }
-
-    return this._evm.client.getChainId();
   }
 
   protected async _getCosmosWallet() {
@@ -428,14 +424,14 @@ export class CA {
 
   protected async _getEVMAddress() {
     if (!this._evm) {
-      throw new Error('EVM provider is not set');
+      throw Errors.sdkNotInitialized();
     }
     return (await this._evm.client.requestAddresses())[0];
   }
 
   protected async _setProviderHooks() {
     if (!this._evm) {
-      throw new Error('EVM provider is not set');
+      throw Errors.sdkNotInitialized();
     }
     if (this._evm.provider) {
       this._evm.provider.on('accountsChanged', this.onAccountsChanged);
@@ -444,7 +440,7 @@ export class CA {
 
   protected async _signatureForLogin() {
     if (!this._evm) {
-      throw new Error('EVM provider is not set');
+      throw Errors.sdkNotInitialized();
     }
     const scheme = window.location.protocol.slice(0, -1);
     const domain = window.location.host;
@@ -461,13 +457,18 @@ export class CA {
       uri: origin,
       version: '1',
     });
-    const currentChain = await this._getChainID();
+    const currentChain = await this._evm.client.getChainId();
     try {
       await this._evm.client.switchChain({ id: 1 });
-      const res = await this._evm.client.signMessage({
-        account: address,
-        message,
-      });
+      const res = await this._evm.client
+        .signMessage({
+          account: address,
+          message,
+        })
+        .catch((e) => {
+          e.walk();
+          throw e;
+        });
       return res;
     } finally {
       await this._evm.client.switchChain({ id: currentChain });
@@ -480,7 +481,7 @@ export class CA {
 
   protected _simulateBridgeAndExecute(params: BridgeAndExecuteParams) {
     if (!this._evm) {
-      throw new Error('EVM provider is not set');
+      throw Errors.sdkNotInitialized();
     }
 
     const handler = new BridgeAndExecuteQuery(
@@ -496,7 +497,7 @@ export class CA {
 
   protected _bridgeAndExecute(params: BridgeAndExecuteParams, options?: OnEventParam) {
     if (!this._evm) {
-      throw new Error('EVM provider is not set');
+      throw Errors.sdkNotInitialized();
     }
 
     const handler = new BridgeAndExecuteQuery(
@@ -512,7 +513,7 @@ export class CA {
 
   protected async _execute(params: ExecuteParams) {
     if (!this._evm) {
-      throw new Error('EVM provider is not set');
+      throw Errors.sdkNotInitialized();
     }
 
     const handler = new BridgeAndExecuteQuery(
@@ -528,7 +529,7 @@ export class CA {
 
   protected async _simulateExecute(params: ExecuteParams) {
     if (!this._evm) {
-      throw new Error('EVM provider is not set.');
+      throw Errors.sdkNotInitialized();
     }
 
     const handler = new BridgeAndExecuteQuery(
@@ -540,5 +541,23 @@ export class CA {
     );
 
     return handler.simulateExecute(params, this._evm.address);
+  }
+
+  private universeCheck = (dstChain: Chain) => {
+    if (dstChain.universe === Universe.FUEL && !this._fuel) {
+      throw Errors.walletNotConnected('Fuel');
+    }
+
+    if (dstChain.universe === Universe.TRON && !this._tron) {
+      throw Errors.walletNotConnected('Tron');
+    }
+  };
+
+  private _getStoredSIWESignature(address: Hex) {
+    return retrieveSIWESignatureFromLocalStorage(address);
+  }
+
+  private _storeSIWESignature(address: Hex, signature: string) {
+    return storeSIWESignatureToLocalStorage(address, signature);
   }
 }

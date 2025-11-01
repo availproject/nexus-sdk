@@ -63,8 +63,16 @@ import { SWEEP_ABI } from './abi';
 import { CALIBUR_ADDRESS, EADDRESS, SWEEPER_ADDRESS } from './constants';
 import { chainData, getTokenVersion } from './data';
 import { createSBCTxFromCalls, waitForSBCTxReceipt } from './sbc';
-import { DESTINATION_SWAP_HASH, SwapStep } from './steps';
-import { AnkrAsset, AnkrBalances, SBCTx, SwapIntent, Tx, ChainListType } from '@nexus/commons';
+import {
+  SWAP_STEPS,
+  SwapStepType,
+  AnkrAsset,
+  AnkrBalances,
+  SBCTx,
+  SwapIntent,
+  Tx,
+  ChainListType,
+} from '@nexus/commons';
 import Long from 'long';
 
 const logger = getLogger();
@@ -1440,7 +1448,7 @@ export const performDestinationSwap = async ({
   chainList: ChainListType;
   COT: CurrencyID;
   emitter: {
-    emit: (step: SwapStep) => void;
+    emit: (step: SwapStepType) => void;
   };
   ephemeralAddress: Hex;
   ephemeralWallet: PrivateKeyAccount;
@@ -1473,7 +1481,7 @@ export const performDestinationSwap = async ({
       performance.mark('destination-swap-end');
 
       if (hasDestinationSwap) {
-        emitter.emit(DESTINATION_SWAP_HASH(ops[0], chainList));
+        emitter.emit(SWAP_STEPS.DESTINATION_SWAP_HASH(ops[0], chainList));
       }
 
       performance.mark('destination-swap-mining-start');

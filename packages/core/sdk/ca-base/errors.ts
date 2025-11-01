@@ -1,6 +1,7 @@
 import { ERROR_CODES, createError } from './nexusError';
 
 export const Errors = {
+  sdkNotInitialized: () => createError(ERROR_CODES.SDK_NOT_INITIALIZED, 'SDK is not initialized()'),
   invalidAllowance: (expected: number, got: number) =>
     createError(
       ERROR_CODES.INVALID_VALUES_ALLOWANCE_HOOK,
@@ -59,7 +60,7 @@ export const Errors = {
 
   userDeniedIntent: () => createError(ERROR_CODES.USER_DENIED_INTENT, 'User rejected the intent.'),
 
-  userDeniedAllowance: () =>
+  userRejectedAllowance: () =>
     createError(ERROR_CODES.USER_DENIED_ALLOWANCE, 'User rejected the allowance.'),
 
   userRejectedIntentSignature: () =>
@@ -67,4 +68,14 @@ export const Errors = {
 
   insufficientBalance: () =>
     createError(ERROR_CODES.INSUFFICIENT_BALANCE, 'Insufficient balance to proceed.'),
+
+  walletNotConnected: (walletType: string) =>
+    createError(ERROR_CODES.WALLET_NOT_CONNECTED, `Wallet is not connected for ${walletType}`),
+
+  userRejectedSIWESignature: () =>
+    createError(ERROR_CODES.USER_DENIED_SIWE_SIGNATURE, `User rejected SIWE signature.`),
+
+  vscError: (msg: string) => createError(ERROR_CODES.INTERNAL_ERROR, `VSC: ${msg}`),
+
+  cosmosError: (msg: string) => createError(ERROR_CODES.INTERNAL_ERROR, `COSMOS: ${msg}`),
 };

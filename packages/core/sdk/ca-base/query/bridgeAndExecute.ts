@@ -16,16 +16,10 @@ import {
   OnEventParam,
   BridgeAndExecuteSimulationResult,
   NEXUS_EVENTS,
+  BRIDGE_STEPS,
+  BridgeStepType,
 } from '@nexus/commons';
-import {
-  createPublicClient,
-  encodeFunctionData,
-  Hex,
-  http,
-  PublicClient,
-  toHex,
-  WalletClient,
-} from 'viem';
+import { createPublicClient, Hex, http, PublicClient, toHex, WalletClient } from 'viem';
 import {
   createExplorerTxURL,
   divDecimals,
@@ -39,25 +33,11 @@ import { packERC20Approve } from '../swap/utils';
 import { BackendSimulationClient } from 'integrations/tenderly';
 import BridgeHandler from '../requestHandlers/bridge';
 
-const APPROVAL_STEP = {
-  type: 'APPROVAL',
-  typeID: 'AP',
-};
-
-const TRANSACTION_SENT = {
-  type: 'TRANSACTION_SENT',
-  typeID: 'TS',
-};
-const TRANSACTION_CONFIRMED = {
-  type: 'TRANSACTION_CONFIRMED',
-  typeID: 'CN',
-};
-
 class BridgeAndExecuteQuery {
   constructor(
     private chainList: ChainListType,
     private evmClient: WalletClient,
-    private bridge: (input: BridgeQueryInput, options?: OnEventParam) => Promise<BridgeHandler>,
+    private bridge: (input: BridgeQueryInput, options?: OnEventParam) => BridgeHandler,
     private getUnifiedBalances: () => Promise<UserAssetDatum[]>,
     private simulationClient: BackendSimulationClient,
   ) {}
@@ -185,190 +165,181 @@ class BridgeAndExecuteQuery {
 
   /**
    * Bridge and execute operation - combines bridge and execute with proper sequencing
-   * Now includes smart balance checking to skip bridging when sufficient funds exist
+   * Checks balance and gas present on destination chain
+   * & bridges (required - available) token + gas
    */
   public async bridgeAndExecute(
     params: BridgeAndExecuteParams,
     options?: OnEventParam,
   ): Promise<BridgeAndExecuteResult> {
     const { toChainId, token: tokenSymbol, amount, execute } = params;
-    try {
-      logger.debug('bridgeAndExecute', {
-        options,
-      });
-      // 1. Check if dst chain data is available
-      // 2. Check if token is supported
-      const { token, chain: dstChain } = this.chainList.getChainAndTokenFromSymbol(
-        params.toChainId,
-        tokenSymbol,
-      );
-      if (!token) {
-        throw new Error(`Token ${tokenSymbol} not supported on chain ${toChainId}.`);
-      }
-
-      let bridgeResult: BridgeResult = {
-        success: true,
-        explorerUrl: '',
-      };
-
-      logger.debug('BridgeAndExecute:1', {
-        token,
-        dstChain,
-      });
-
-      const address = (await this.evmClient.getAddresses())[0];
-      let txs: Tx[] = [];
-
-      const { tx, approvalTx, dstPublicClient } = await this.createTxsForExecute(
-        { ...execute, toChainId: params.toChainId },
-        address,
-      );
-
-      logger.debug('BridgeAndExecute:2', {
-        tx,
-        approvalTx,
-      });
-
-      if (approvalTx) {
-        txs.push(approvalTx);
-      }
-
-      txs.push(tx);
-
-      // 5. simulate approval(?) and execution + fetch gasPrice + fetch unified balance
-      const [{ gasUsed }, gasEstimate, balances] = await Promise.all([
-        this.simulateBundle({
-          txs,
-          amount: BigInt(execute.tokenApproval?.amount ?? '0'),
-          userAddress: address,
-          chainId: dstChain.id,
-          tokenAddress: token.contractAddress,
-          tokenSymbol: execute.tokenApproval?.token ?? 'ETH',
-        }),
-        dstPublicClient.estimateFeesPerGas(),
-        this.getUnifiedBalances(),
-      ]);
-
-      const gasUnitPrice = gasEstimate.maxFeePerGas ?? gasEstimate.gasPrice ?? 0n;
-      if (gasUnitPrice === 0n) {
-        throw new Error('Gas price could not be fetched from RPC URL.');
-      }
-
-      const gasRequired = gasUsed * gasUnitPrice;
-
-      logger.debug('BridgeAndExecute:3', {
-        gasUsed,
-        gasEstimate,
-        gasUnitPrice,
-        balances,
-      });
-
-      // 6. Determine gas or token needed via bridge
-      const { skipBridge, tokenAmount, gasAmount } = await this.calculateOptimalBridgeAmount(
-        dstChain,
-        token.contractAddress,
-        token.decimals,
-        amount,
-        gasRequired,
-        balances,
-      );
-
-      // Create and emit steps
-
-      logger.debug('BridgeAndExecute:4:CalculateOptimalBridgeAmount', {
-        skipBridge,
-        tokenAmount,
-        gasAmount,
-      });
-
-      const executeSteps = [TRANSACTION_SENT, TRANSACTION_CONFIRMED];
-      if (approvalTx) {
-        executeSteps.unshift(APPROVAL_STEP);
-      }
-
-      // 7. If bridge is required then bridge
-      if (!skipBridge) {
-        bridgeResult = await this.bridgeWrapper(
-          {
-            token: tokenSymbol,
-            amount: divDecimals(BigInt(tokenAmount), token.decimals).toFixed(),
-            chainId: toChainId,
-            sourceChains: params.sourceChains,
-            gas: gasAmount,
-          },
-          {
-            onEvent: (event) => {
-              if (options && options.onEvent) {
-                if (event.name === NEXUS_EVENTS.STEPS_LIST) {
-                  options.onEvent({
-                    name: NEXUS_EVENTS.STEPS_LIST,
-                    args: event.args.concat(executeSteps),
-                  });
-                } else {
-                  options.onEvent(event);
-                }
-              }
-            },
-          },
-        );
-        if (!bridgeResult.success) {
-          throw new Error(`Bridge failed: ${bridgeResult.error}`);
-        }
-      } else {
-        if (options && options.onEvent) {
-          options.onEvent({ name: NEXUS_EVENTS.STEPS_LIST, args: executeSteps });
-        }
-      }
-
-      // 8. Execute the transaction
-      const executeResponse = await this.sendTx(
-        {
-          approvalTx,
-          tx,
-        },
-        {
-          emit: options?.onEvent,
-          chain: dstChain,
-          dstPublicClient,
-          address,
-          receiptTimeout: params.receiptTimeout,
-          requiredConfirmations: params.requiredConfirmations,
-          waitForReceipt: params.waitForReceipt,
-          client: this.evmClient,
-        },
-      );
-
-      logger.debug('BridgeAndExecute:5', {
-        executeResponse,
-      });
-
-      // 9. Return result
-      const result: BridgeAndExecuteResult = {
-        executeTransactionHash: executeResponse.txHash,
-        executeExplorerUrl: createExplorerTxURL(
-          executeResponse.txHash,
-          dstChain.blockExplorers!.default.url,
-        ),
-        approvalTransactionHash: executeResponse.approvalHash,
-        bridgeTransactionHash: bridgeResult.transactionHash,
-        bridgeExplorerUrl: bridgeResult.explorerUrl,
-        toChainId,
-        success: true,
-        bridgeSkipped: skipBridge,
-      };
-
-      return result;
-    } catch (error) {
-      const errorMessage = extractErrorMessage(error, 'bridge and execute');
-
-      logger.debug('BridgeAndExecute:5:ERROR', {
-        error,
-      });
-      return {
-        success: false,
-        error: `Bridge and execute operation failed: ${errorMessage}`,
-      };
+    logger.debug('bridgeAndExecute', {
+      options,
+    });
+    // 1. Check if dst chain data is available
+    // 2. Check if token is supported
+    const { token, chain: dstChain } = this.chainList.getChainAndTokenFromSymbol(
+      params.toChainId,
+      tokenSymbol,
+    );
+    if (!token) {
+      throw new Error(`Token ${tokenSymbol} not supported on chain ${toChainId}.`);
     }
+
+    let bridgeResult: BridgeResult = {
+      success: true,
+      explorerUrl: '',
+    };
+
+    logger.debug('BridgeAndExecute:1', {
+      token,
+      dstChain,
+    });
+
+    const address = (await this.evmClient.getAddresses())[0];
+    let txs: Tx[] = [];
+
+    const { tx, approvalTx, dstPublicClient } = await this.createTxsForExecute(
+      { ...execute, toChainId: params.toChainId },
+      address,
+    );
+
+    logger.debug('BridgeAndExecute:2', {
+      tx,
+      approvalTx,
+    });
+
+    if (approvalTx) {
+      txs.push(approvalTx);
+    }
+
+    txs.push(tx);
+
+    // 5. simulate approval(?) and execution + fetch gasPrice + fetch unified balance
+    const [{ gasUsed }, gasEstimate, balances] = await Promise.all([
+      this.simulateBundle({
+        txs,
+        amount: BigInt(execute.tokenApproval?.amount ?? '0'),
+        userAddress: address,
+        chainId: dstChain.id,
+        tokenAddress: token.contractAddress,
+        tokenSymbol: execute.tokenApproval?.token ?? 'ETH',
+      }),
+      dstPublicClient.estimateFeesPerGas(),
+      this.getUnifiedBalances(),
+    ]);
+
+    const gasUnitPrice = gasEstimate.maxFeePerGas ?? gasEstimate.gasPrice ?? 0n;
+    if (gasUnitPrice === 0n) {
+      throw new Error('Gas price could not be fetched from RPC URL.');
+    }
+
+    const gasRequired = gasUsed * gasUnitPrice;
+
+    logger.debug('BridgeAndExecute:3', {
+      gasUsed,
+      gasEstimate,
+      gasUnitPrice,
+      balances,
+    });
+
+    // 6. Determine gas or token needed via bridge
+    const { skipBridge, tokenAmount, gasAmount } = await this.calculateOptimalBridgeAmount(
+      dstChain,
+      token.contractAddress,
+      token.decimals,
+      amount,
+      gasRequired,
+      balances,
+    );
+
+    // Create and emit steps
+
+    logger.debug('BridgeAndExecute:4:CalculateOptimalBridgeAmount', {
+      skipBridge,
+      tokenAmount,
+      gasAmount,
+    });
+
+    const executeSteps: BridgeStepType[] = [
+      BRIDGE_STEPS.EXECUTE_TRANSACTION_SENT,
+      BRIDGE_STEPS.EXECUTE_TRANSACTION_CONFIRMED,
+    ];
+    if (approvalTx) {
+      executeSteps.unshift(BRIDGE_STEPS.EXECUTE_APPROVAL_STEP);
+    }
+
+    // 7. If bridge is required then bridge
+    if (!skipBridge) {
+      bridgeResult = await this.bridgeWrapper(
+        {
+          token: tokenSymbol,
+          amount: divDecimals(BigInt(tokenAmount), token.decimals).toFixed(),
+          chainId: toChainId,
+          sourceChains: params.sourceChains,
+          gas: gasAmount,
+        },
+        {
+          onEvent: (event) => {
+            if (options && options.onEvent) {
+              if (event.name === NEXUS_EVENTS.STEPS_LIST) {
+                options.onEvent({
+                  name: NEXUS_EVENTS.STEPS_LIST,
+                  args: event.args.concat(executeSteps),
+                });
+              } else {
+                options.onEvent(event);
+              }
+            }
+          },
+        },
+      );
+      if (!bridgeResult.success) {
+        throw new Error(`Bridge failed: ${bridgeResult.error}`);
+      }
+    } else {
+      if (options && options.onEvent) {
+        options.onEvent({ name: NEXUS_EVENTS.STEPS_LIST, args: executeSteps });
+      }
+    }
+
+    // 8. Execute the transaction
+    const executeResponse = await this.sendTx(
+      {
+        approvalTx,
+        tx,
+      },
+      {
+        emit: options?.onEvent,
+        chain: dstChain,
+        dstPublicClient,
+        address,
+        receiptTimeout: params.receiptTimeout,
+        requiredConfirmations: params.requiredConfirmations,
+        waitForReceipt: params.waitForReceipt,
+        client: this.evmClient,
+      },
+    );
+
+    logger.debug('BridgeAndExecute:5', {
+      executeResponse,
+    });
+
+    // 9. Return result
+    const result: BridgeAndExecuteResult = {
+      executeTransactionHash: executeResponse.txHash,
+      executeExplorerUrl: createExplorerTxURL(
+        executeResponse.txHash,
+        dstChain.blockExplorers!.default.url,
+      ),
+      approvalTransactionHash: executeResponse.approvalHash,
+      bridgeExplorerUrl: bridgeResult.explorerUrl,
+      toChainId,
+      success: true,
+      bridgeSkipped: skipBridge,
+    };
+
+    return result;
   }
 
   private async createTxsForExecute(params: ExecuteParams, address: Hex) {
@@ -395,11 +366,11 @@ class BridgeAndExecuteQuery {
         );
       }
       if (params.tokenApproval) {
-        const spender = params.tokenApproval.spender ?? params.contractAddress;
+        const spender = params.tokenApproval.spender;
         const currentAllowance = await erc20GetAllowance(
           {
             contractAddress: token.contractAddress,
-            spender: params.tokenApproval.spender ?? params.contractAddress,
+            spender: params.tokenApproval.spender,
             owner: address,
           },
           dstPublicClient,
@@ -417,13 +388,11 @@ class BridgeAndExecuteQuery {
     }
 
     // 4. Encode execute tx
-    const tx = this.createExecuteTx({
-      ...params,
-      amount: params.tokenApproval?.amount ?? '0',
-      tokenSymbol: params.tokenApproval?.token ?? 'ETH',
-      address,
-      chainId: dstChain.id,
-    });
+    const tx = {
+      to: params.to,
+      value: params.value ?? 0n,
+      data: params.data ?? '0x',
+    };
 
     return { tx, approvalTx, dstChain, dstPublicClient };
   }
@@ -585,34 +554,6 @@ class BridgeAndExecuteQuery {
     });
   }
 
-  private createExecuteTx(
-    executeParams: ExecuteParams & {
-      chainId: number;
-      address: Hex;
-      tokenSymbol: string;
-      amount: string;
-    },
-  ): Tx {
-    const { functionParams, value } = executeParams.buildFunctionParams(
-      executeParams.tokenSymbol,
-      executeParams.amount,
-      executeParams.chainId,
-      executeParams.address,
-    );
-
-    const data = encodeFunctionData({
-      abi: executeParams.contractAbi,
-      args: functionParams,
-      functionName: executeParams.functionName,
-    });
-
-    return {
-      to: executeParams.contractAddress,
-      data,
-      value: BigInt(value ?? 0),
-    };
-  }
-
   private async sendTx(
     params: {
       tx: Tx;
@@ -641,7 +582,10 @@ class BridgeAndExecuteQuery {
 
       await waitForTxReceipt(approvalHash, options.dstPublicClient, 1);
       if (options.emit) {
-        options.emit({ name: NEXUS_EVENTS.STEP_COMPLETE, args: APPROVAL_STEP });
+        options.emit({
+          name: NEXUS_EVENTS.STEP_COMPLETE,
+          args: BRIDGE_STEPS.EXECUTE_APPROVAL_STEP,
+        });
       }
     }
 
@@ -652,7 +596,10 @@ class BridgeAndExecuteQuery {
     });
 
     if (options.emit) {
-      options.emit({ name: NEXUS_EVENTS.STEP_COMPLETE, args: TRANSACTION_SENT });
+      options.emit({
+        name: NEXUS_EVENTS.STEP_COMPLETE,
+        args: BRIDGE_STEPS.EXECUTE_TRANSACTION_SENT,
+      });
     }
 
     let receipt;
@@ -665,7 +612,10 @@ class BridgeAndExecuteQuery {
       );
 
       if (options.emit) {
-        options.emit({ name: NEXUS_EVENTS.STEP_COMPLETE, args: TRANSACTION_CONFIRMED });
+        options.emit({
+          name: NEXUS_EVENTS.STEP_COMPLETE,
+          args: BRIDGE_STEPS.EXECUTE_TRANSACTION_CONFIRMED,
+        });
       }
     }
 
@@ -681,7 +631,7 @@ class BridgeAndExecuteQuery {
     options?: OnEventParam,
   ): Promise<BridgeResult> => {
     try {
-      const handler = await this.bridge(params, options);
+      const handler = this.bridge(params, options);
       const result = await handler.execute();
       return {
         success: true,
@@ -697,7 +647,7 @@ class BridgeAndExecuteQuery {
 
   private simulateBridgeWrapper = async (params: BridgeParams) => {
     try {
-      const handler = await this.bridge(params);
+      const handler = this.bridge(params);
       const result = await handler.simulate();
       return result;
     } catch (e) {

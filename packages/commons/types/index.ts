@@ -1,20 +1,20 @@
 import { SUPPORTED_CHAINS } from '../constants';
-import { Abi, TransactionReceipt, ByteArray, Hex, WalletClient } from 'viem';
+import { TransactionReceipt, ByteArray, Hex, WalletClient } from 'viem';
 import { ChainDatum, Environment, PermitVariant, Universe } from '@avail-project/ca-common';
 import * as ServiceTypes from './service-types';
 import Decimal from 'decimal.js';
 import { SwapIntent } from './swap-types';
-import { FuelConnector, Provider, TransactionRequestLike } from 'fuels';
+import { FuelConnector, Provider } from 'fuels';
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
-import { Types } from 'tronweb';
+import { SwapStepType } from './swap-steps';
+import { BridgeStepType } from './bridge-steps';
 
 type TokenInfo = {
   contractAddress: `0x${string}`;
   decimals: number;
-  logo?: string;
+  logo: string;
   name: string;
-  platform?: string;
   symbol: string;
 };
 
@@ -121,7 +121,6 @@ export type BridgeResult =
   | {
       success: true;
       explorerUrl: string;
-      transactionHash?: string;
     };
 
 /**
@@ -143,13 +142,17 @@ export interface SimulationResult {
   token: TokenInfo;
 }
 
+export type TronAdapter = AdapterProps & {
+  isMobile?: boolean;
+};
+
 /**
  * Parameters for transferring tokens.
  */
 export interface TransferParams {
-  token: SUPPORTED_TOKENS;
-  amount: number | string;
-  chainId: SUPPORTED_CHAINS_IDS;
+  token: string;
+  amount: string;
+  chainId: number;
   recipient: `0x${string}`;
   sourceChains?: number[];
 }
@@ -170,11 +173,13 @@ export interface TokenBalance {
 // Enhanced modular parameters for execute functionality with dynamic parameter building
 export interface ExecuteParams {
   toChainId: number;
-  contractAddress: Hex;
-  contractAbi: Abi;
-  functionName: string;
-  buildFunctionParams: DynamicParamBuilder;
-  value?: string; // Can be overridden by callback
+  to: Hex;
+  value?: bigint;
+  data?: Hex;
+
+  gas?: bigint;
+  gasPrice?: bigint;
+
   enableTransactionPolling?: boolean;
   transactionTimeout?: number;
   // Transaction receipt confirmation options
@@ -184,7 +189,7 @@ export interface ExecuteParams {
   tokenApproval?: {
     token: SUPPORTED_TOKENS;
     amount: string;
-    spender?: Hex;
+    spender: Hex;
   };
 }
 
@@ -257,7 +262,6 @@ export interface BridgeAndExecuteParams {
   toChainId: number;
   token: string;
   amount: bigint;
-  recipient?: Hex;
   sourceChains?: number[];
   execute: Omit<ExecuteParams, 'toChainId'>;
   enableTransactionPolling?: boolean;
@@ -284,7 +288,7 @@ export type IBridgeOptions = {
   };
   tron?: {
     address: string;
-    adapter: AdapterProps;
+    adapter: TronAdapter;
   };
   hooks: {
     onAllowance: OnAllowanceHook;
@@ -304,7 +308,6 @@ export type BridgeAndExecuteResult =
       executeTransactionHash: string;
       executeExplorerUrl: string;
       approvalTransactionHash?: string;
-      bridgeTransactionHash?: string; // undefined when bridge is skipped
       bridgeExplorerUrl?: string; // undefined when bridge is skipped
       toChainId: number;
       success: true;
@@ -557,7 +560,7 @@ export type ChainListType = {
     tokenSymbol: string,
   ): {
     chain: Chain;
-    token: TokenInfo | undefined;
+    token: (TokenInfo & { isNative: boolean }) | undefined;
   };
   getTokenByAddress(chainID: number, address: `0x${string}`): TokenInfo | undefined;
   getNativeToken(chainID: number): TokenInfo;
@@ -565,56 +568,14 @@ export type ChainListType = {
   getAnkrNameList(): string[];
 };
 
-export type RequestHandlerInput = {
-  chain: Chain;
-  chainList: ChainListType;
-  cosmosWallet: DirectSecp256k1Wallet;
-  evm: {
-    address: `0x${string}`;
-    client: WalletClient;
-    tx?: EVMTransaction;
-  };
-  fuel?: {
-    address: string;
-    connector: FuelConnector;
-    provider: Provider;
-    tx?: TransactionRequestLike;
-  };
-  tron?: {
-    address: string;
-    adapter: AdapterProps;
-    tx?: Types.Transaction<Types.TransferContract> | Types.Transaction<Types.TriggerSmartContract>;
-  };
-  hooks: {
-    onAllowance: OnAllowanceHook;
-    onIntent: OnIntentHook;
-  };
-  options: {
-    emit: (event: EventUnion) => void;
-    networkConfig: NetworkConfig;
-  } & TxOptions;
-};
-
 type EventUnion =
-  | { name: 'STEPS_LIST'; args: StepInfo[] }
-  | { name: 'SWAP_STEP_COMPLETE'; args: unknown }
-  | { name: 'STEP_COMPLETE'; args: StepInfo };
+  | { name: 'STEPS_LIST'; args: BridgeStepType[] }
+  | { name: 'SWAP_STEP_COMPLETE'; args: SwapStepType }
+  | { name: 'STEP_COMPLETE'; args: BridgeStepType };
 
 export type OnEventParam = {
   onEvent?: (event: EventUnion) => void;
 };
-
-export type RequestHandlerResponse = {
-  buildIntent(): Promise<
-    | {
-        intent: Intent;
-        token: TokenInfo;
-      }
-    | undefined
-  >;
-  input: RequestHandlerInput;
-  process(): Promise<unknown>;
-} | null;
 
 export type RFF = {
   deposited: boolean;
@@ -684,44 +645,11 @@ export type SponsoredApprovalData = {
 
 export type SponsoredApprovalDataArray = SponsoredApprovalData[];
 
-export type Step = {
-  data?:
-    | {
-        amount: string;
-        chainName: string;
-        symbol: string;
-      }
-    | {
-        chainID: number;
-        chainName: string;
-      }
-    | { confirmed: number; total: number }
-    | { explorerURL: string; intentID: number };
-} & StepInfo;
-
-export type StepInfo = {
-  type: string;
-  typeID: string;
-};
-
-export type Steps = Step[];
-
 export type Token = {
   contractAddress: `0x${string}`;
   decimals: number;
   name: string;
   symbol: string;
-};
-
-export type TransferQueryInput = {
-  to: Hex;
-} & Omit<BridgeQueryInput, 'gas'>;
-
-export type TxOptions = {
-  bridge: boolean;
-  gas: bigint;
-  skipTx: boolean;
-  sourceChains: number[];
 };
 
 export type UnifiedBalanceResponseData = {
@@ -765,8 +693,6 @@ export type {
   OnAllowanceHook,
   EthereumProvider,
   RequestArguments,
-  Step as ProgressStep,
-  Steps as ProgressSteps,
   onAllowanceHookSource as AllowanceHookSource,
   Network,
   UserAssetDatum as UserAsset,

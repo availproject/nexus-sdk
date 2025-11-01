@@ -359,6 +359,7 @@ const _exactOutRoute = async (
       assets: bridgeAssets,
       feeStore,
       output: bridgeInput,
+      address: params.address.ephemeral,
     });
 
     for (const chain in eoaToEphemeralCalls) {

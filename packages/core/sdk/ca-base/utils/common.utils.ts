@@ -45,7 +45,6 @@ import {
   ReadableIntent,
   SDKConfig,
   TokenInfo,
-  TxOptions,
   ChainListType,
   NexusNetwork,
   UserAssetDatum,
@@ -362,12 +361,10 @@ const createRequestEVMSignature = async (
       })
       .catch((e) => {
         if (e instanceof UserRejectedRequestError) {
-          throw Errors.userDeniedAllowance();
+          throw Errors.userRejectedIntentSignature();
         }
         throw e;
       }),
-    // UserRejectedRequestError
-    // FIXME: provider error
   );
 
   return { requestHash: hashMessage({ raw: hash }), signature };
@@ -553,33 +550,6 @@ const getSDKConfig = (c: { network?: NexusNetwork; debug?: boolean }): Required<
   }
 
   return config;
-};
-
-const getTxOptions = (options?: Partial<TxOptions>) => {
-  const defaultOptions: TxOptions = {
-    bridge: false,
-    gas: 0n,
-    skipTx: false,
-    sourceChains: [],
-  };
-
-  if (options?.bridge !== undefined) {
-    defaultOptions.bridge = options.bridge;
-  }
-
-  if (options?.gas !== undefined) {
-    defaultOptions.gas = options.gas;
-  }
-
-  if (options?.skipTx !== undefined) {
-    defaultOptions.skipTx = options.skipTx;
-  }
-
-  if (options?.sourceChains !== undefined) {
-    defaultOptions.sourceChains = options.sourceChains;
-  }
-
-  return defaultOptions;
 };
 
 class UserAsset {
@@ -885,7 +855,7 @@ async function waitForTronApprovalTxConfirmation(
         throw new Error(result.Error);
       }
 
-      const allowance = hexToBigInt(result.constant_result[0]);
+      const allowance = hexToBigInt(`0x${result.constant_result[0]}`);
       if (allowance < amount) {
         throw new Error('Allowance not set yet.');
       }
@@ -929,7 +899,19 @@ const retrieveAddress = (
   throw Errors.internal('unknown universe');
 };
 
+const SIWE_KEY = '_siwe_sig';
+
+const storeSIWESignatureToLocalStorage = (address: Hex, signature: string) => {
+  window.localStorage.setItem(`${SIWE_KEY}-${address}`, signature);
+};
+
+const retrieveSIWESignatureFromLocalStorage = (address: Hex) => {
+  return window.localStorage.getItem(`${SIWE_KEY}-${address}`);
+};
+
 export {
+  retrieveSIWESignatureFromLocalStorage,
+  storeSIWESignatureToLocalStorage,
   retrieveAddress,
   createExplorerTxURL,
   waitForTronApprovalTxConfirmation,
@@ -952,7 +934,6 @@ export {
   getExplorerURL,
   getSDKConfig,
   getSupportedChains,
-  getTxOptions,
   hexTo0xString,
   isArcanaWallet,
   minutesToMs,

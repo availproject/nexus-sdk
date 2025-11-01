@@ -12,6 +12,8 @@ import {
   type SwapParams,
   SuccessfulSwapResult,
   NEXUS_EVENTS,
+  SWAP_STEPS,
+  SwapStepType,
 } from '@nexus/commons';
 
 import { getLogger } from '@nexus/commons';
@@ -19,7 +21,6 @@ import { divDecimals } from '../utils';
 import { BEBOP_API_KEY, LIFI_API_KEY, ZERO_BYTES_32 } from './constants';
 import { BridgeHandler, DestinationSwapHandler, SourceSwapsHandler } from './ob';
 import { determineSwapRoute } from './route';
-import { DETERMINING_SWAP, SWAP_START, SwapStep } from './steps';
 import {
   Cache,
   convertMetadataToSwapResult,
@@ -52,20 +53,20 @@ export const swap = async (
 
   performance.mark('swap-start');
   const emitter = {
-    emit: (step: SwapStep) => {
+    emit: (step: SwapStepType) => {
       if (options.onEvent) {
         options.onEvent({ name: NEXUS_EVENTS.SWAP_STEP_COMPLETE, args: step });
       }
     },
   };
 
-  emitter.emit(SWAP_START);
+  emitter.emit(SWAP_STEPS.SWAP_START);
 
   logger.debug('swapBegin', { options, input });
 
   performance.mark('determine-swaps-start');
 
-  emitter.emit(DETERMINING_SWAP());
+  emitter.emit(SWAP_STEPS.DETERMINING_SWAP());
 
   const aggregators: Aggregator[] = [
     new LiFiAggregator(LIFI_API_KEY),
@@ -96,7 +97,7 @@ export const swap = async (
     swapRoute,
   });
 
-  emitter.emit(DETERMINING_SWAP(true));
+  emitter.emit(SWAP_STEPS.DETERMINING_SWAP(true));
   performance.mark('determine-swaps-end');
 
   performance.mark('xcs-ops-start');

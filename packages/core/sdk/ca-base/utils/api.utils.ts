@@ -11,14 +11,14 @@ import { connect } from 'it-ws/client';
 import Long from 'long';
 import { pack, unpack } from 'msgpackr';
 import { bytesToBigInt, bytesToNumber, toHex } from 'viem';
-import { getLogger } from '@nexus/commons';
-import { ALLOWANCE_APPROVAL_MINED, INTENT_COLLECTION, INTENT_COLLECTION_COMPLETE } from '../steps';
 import {
+  BRIDGE_STEPS,
+  BridgeStepType,
+  getLogger,
   FeeStoreData,
   OraclePriceResponse,
   RFF,
   SponsoredApprovalDataArray,
-  StepInfo,
   UnifiedBalanceResponseData,
 } from '@nexus/commons';
 import {
@@ -370,7 +370,7 @@ type CreateSponsoredApprovalResponse =
 const vscCreateSponsoredApprovals = async (
   vscDomain: string,
   input: SponsoredApprovalDataArray,
-  msd?: (s: StepInfo, data?: { [k: string]: unknown }) => void,
+  msd?: (s: BridgeStepType) => void,
 ) => {
   const connection = connect(
     new URL('/api/v1/create-sponsored-approvals', getVSCURL(vscDomain, 'wss')).toString(),
@@ -396,7 +396,11 @@ const vscCreateSponsoredApprovals = async (
       }
 
       if (msd) {
-        msd(ALLOWANCE_APPROVAL_MINED(bytesToNumber(input[data.part_idx].chain_id)));
+        msd(
+          BRIDGE_STEPS.ALLOWANCE_APPROVAL_MINED({
+            id: bytesToNumber(input[data.part_idx].chain_id),
+          }),
+        );
       }
 
       count += 1;
@@ -427,7 +431,7 @@ type VSCCreateRFFResponse =
 const vscCreateRFF = async (
   vscDomain: string,
   id: Long,
-  msd: (s: StepInfo, data?: { [k: string]: unknown }) => void,
+  msd: (s: BridgeStepType) => void,
   expectedCollectionIndexes: number[],
 ) => {
   const receivedCollectionsACKs = [];
@@ -448,7 +452,7 @@ const vscCreateRFF = async (
 
       if (data.status === 255) {
         if (expectedCollectionIndexes.length === receivedCollectionsACKs.length) {
-          msd(INTENT_COLLECTION_COMPLETE);
+          msd(BRIDGE_STEPS.INTENT_COLLECTION_COMPLETE);
           break;
         } else {
           logger.debug('(vsc)create-rff:collections failed', {
@@ -461,10 +465,12 @@ const vscCreateRFF = async (
         if (expectedCollectionIndexes.includes(data.idx)) {
           receivedCollectionsACKs.push(data.idx);
         }
-        msd(INTENT_COLLECTION(receivedCollectionsACKs.length), {
-          confirmed: receivedCollectionsACKs.length,
-          total: expectedCollectionIndexes.length,
-        });
+        msd(
+          BRIDGE_STEPS.INTENT_COLLECTION(
+            receivedCollectionsACKs.length,
+            expectedCollectionIndexes.length,
+          ),
+        );
       } else {
         if (expectedCollectionIndexes.includes(data.idx)) {
           throw new Error(`(vsc)create-rff: ${data.error}`);

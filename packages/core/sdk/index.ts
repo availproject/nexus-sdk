@@ -1,6 +1,5 @@
 // src/core/sdk/index.ts
 import { NexusUtils } from './utils';
-import { initializeSimulationClient } from '../integrations/tenderly';
 import type {
   BridgeParams,
   BridgeResult,
@@ -46,17 +45,6 @@ export class NexusSDK extends CA {
   public async initialize(provider: EthereumProvider): Promise<void> {
     await this._setEVMProvider(provider);
     await this._init();
-    const BACKEND_URL = 'https://nexus-backend.avail.so';
-    if (BACKEND_URL) {
-      try {
-        const initResult = await initializeSimulationClient(BACKEND_URL);
-        if (!initResult.success) {
-          throw new Error('Backend initialization failed');
-        }
-      } catch (error) {
-        throw new Error('Backend initialization failed');
-      }
-    }
   }
 
   /**
@@ -70,20 +58,11 @@ export class NexusSDK extends CA {
    * Bridge to destination chain from auto-selected or provided source chains
    */
   public async bridge(params: BridgeParams, options?: OnEventParam): Promise<BridgeResult> {
-    try {
-      const bridgeHandler = await this.createBridgeHandler(params, options);
-      const result = await bridgeHandler.execute();
-      return {
-        success: true,
-        explorerUrl: result.explorerURL ?? '',
-      };
-    } catch (e) {
-      logger.debug('BridgeError: ', e);
-      return {
-        success: false,
-        error: e instanceof Error ? e.message : String(e),
-      };
-    }
+    const result = await this.createBridgeHandler(params, options).execute();
+    return {
+      success: true,
+      explorerUrl: result.explorerURL ?? '',
+    };
   }
 
   public async calculateMaxForBridge(
@@ -99,75 +78,51 @@ export class NexusSDK extends CA {
     params: TransferParams,
     options?: OnEventParam,
   ): Promise<TransferResult> {
-    try {
-      const result = await this._bridgeAndTransfer({ ...params, to: params.recipient }, options);
-      if (result.success) {
-        return {
-          success: result.success,
-          transactionHash: result.executeTransactionHash,
-          explorerUrl: result.executeExplorerUrl,
-        };
-      }
-
-      return result;
-    } catch (e) {
+    const result = await this._bridgeAndTransfer(params, options);
+    if (result.success) {
       return {
-        success: false,
-        error: e instanceof Error ? e.message : String(e),
+        success: result.success,
+        transactionHash: result.executeTransactionHash,
+        explorerUrl: result.executeExplorerUrl,
       };
     }
+    return result;
   }
 
   public async swapWithExactIn(
     input: ExactInSwapInput,
     options?: OnEventParam,
   ): Promise<SwapResult> {
-    try {
-      const result = await this._swapWithExactIn(input, options);
-      return {
-        success: true,
-        result,
-      };
-    } catch (error) {
-      console.error('Error in swap with exact out', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
+    const result = await this._swapWithExactIn(input, options);
+    return {
+      success: true,
+      result,
+    };
   }
 
   public async swapWithExactOut(
     input: ExactOutSwapInput,
     options?: OnEventParam,
   ): Promise<SwapResult> {
-    try {
-      const result = await this._swapWithExactOut(input, options);
-      return {
-        success: true,
-        result,
-      };
-    } catch (error) {
-      console.error('Error in swap with exact out', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
+    const result = await this._swapWithExactOut(input, options);
+    return {
+      success: true,
+      result,
+    };
   }
 
   /**
    * Simulate bridge transaction to get costs and fees
    */
   public async simulateBridge(params: BridgeParams): Promise<SimulationResult> {
-    return (await this.createBridgeHandler(params)).simulate();
+    return this.createBridgeHandler(params).simulate();
   }
 
   /**
    * Simulate transfer transaction to get costs and fees
    */
   public async simulateTransfer(params: TransferParams): Promise<BridgeAndExecuteSimulationResult> {
-    return this._simulateBridgeAndTransfer({ ...params, to: params.recipient });
+    return this._simulateBridgeAndTransfer(params);
   }
 
   /**
