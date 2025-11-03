@@ -86,14 +86,14 @@ export const swap = async (
     swapRoute,
   });
 
-  let { assetsUsed, bridgeInput, destinationSwap, sourceSwaps } = swapRoute;
+  let { source, destination, bridge, extras } = swapRoute;
 
   logger.debug('initial-swap-route', {
-    assetsUsed,
-    bridgeInput,
-    destinationSwap,
+    source,
+    destination,
+    bridge,
+    extras,
     dstTokenInfo,
-    sourceSwaps,
     swapRoute,
   });
 
@@ -104,9 +104,9 @@ export const swap = async (
 
   // Swap Intent hook handling
   {
-    const destination = {
+    const destinationTokenDetails = {
       amount: divDecimals(
-        input.mode === SwapMode.EXACT_OUT ? input.data.toAmount : destinationSwap.outputAmount,
+        input.mode === SwapMode.EXACT_OUT ? input.data.toAmount : destination.swap.outputAmount,
         dstTokenInfo.decimals,
       ).toFixed(),
       chainID: input.data.toChainId,
@@ -120,20 +120,20 @@ export const swap = async (
     const refresh = async () => {
       if (accepted) {
         logger.warn('Swap Intent refresh called after acceptance');
-        return createSwapIntent(assetsUsed, destination, options.chainList);
+        return createSwapIntent(extras.assetsUsed, destinationTokenDetails, options.chainList);
       }
 
       const swapRouteResponse = await determineSwapRoute(input, swapRouteParams);
 
-      sourceSwaps = swapRouteResponse.sourceSwaps;
-      assetsUsed = swapRouteResponse.assetsUsed;
-      destinationSwap = swapRouteResponse.destinationSwap;
-      bridgeInput = swapRouteResponse.bridgeInput;
+      source = swapRouteResponse.source;
+      extras = swapRouteResponse.extras;
+      destination = swapRouteResponse.destination;
+      bridge = swapRouteResponse.bridge;
       logger.debug('refresh-swap-route', {
         dstTokenInfo,
         swapRoute: swapRouteResponse,
       });
-      return createSwapIntent(assetsUsed, destination, options.chainList);
+      return createSwapIntent(extras.assetsUsed, destinationTokenDetails, options.chainList);
     };
     // wait for intent acceptance hook
     await new Promise((resolve, reject) => {
@@ -149,7 +149,7 @@ export const swap = async (
       options.onSwapIntent({
         allow,
         deny,
-        intent: createSwapIntent(assetsUsed, destination, options.chainList),
+        intent: createSwapIntent(extras.assetsUsed, destinationTokenDetails, options.chainList),
         refresh,
       });
     });
@@ -184,16 +184,16 @@ export const swap = async (
     wallet: options.wallet,
   };
 
-  const srcSwapsHandler = new SourceSwapsHandler(sourceSwaps, opt);
-  const bridgeHandler = new BridgeHandler(bridgeInput, opt);
+  const srcSwapsHandler = new SourceSwapsHandler(source, opt);
+  const bridgeHandler = new BridgeHandler(bridge, opt);
   const dstSwapHandler = new DestinationSwapHandler(
-    { ...destinationSwap, getDDS: swapRoute.getDDS },
+    destination,
     dstTokenInfo,
     {
       chainID: input.data.toChainId,
       token: input.data.toTokenAddress,
       amount:
-        input.mode === SwapMode.EXACT_OUT ? input.data.toAmount : destinationSwap.outputAmount,
+        input.mode === SwapMode.EXACT_OUT ? input.data.toAmount : destination.swap.outputAmount,
     },
     opt,
   );

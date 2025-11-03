@@ -187,8 +187,8 @@ export interface ExecuteParams {
   receiptTimeout?: number;
   requiredConfirmations?: number;
   tokenApproval?: {
-    token: SUPPORTED_TOKENS;
-    amount: string;
+    token: string;
+    amount: bigint;
     spender: Hex;
   };
 }

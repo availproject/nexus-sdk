@@ -582,12 +582,11 @@ class BridgeHandler {
 
   private async setAllowances(input: Array<SetAllowanceInput>) {
     const originalChain = this.params.dstChain.id;
-    logger.debug('setAllowances', { originalChain });
+    logger.debug('setAllowances', { originalChain, input });
 
     const sponsoredApprovalParams: SponsoredApprovalDataArray = [];
     try {
       for (const source of input) {
-        logger.debug('setAllowances', { originalChain });
         const chain = this.options.chainList.getChainByID(source.chainID);
         if (!chain) {
           throw Errors.chainNotFound(source.chainID);
@@ -658,7 +657,7 @@ class BridgeHandler {
               },
               [
                 { type: 'address', value: TronWeb.address.fromHex(vc) },
-                { type: 'uint256', value: source.amount.toString() }, 
+                { type: 'uint256', value: source.amount.toString() },
               ],
               TronWeb.address.fromHex(this.options.tron?.address),
             );

@@ -28,37 +28,48 @@ const balances = await sdk.getUnifiedBalances(false);
 console.log('All balances:', balances);
 
 // Swap tokens (EXACT_IN - specify input amount)
-
-const swapWithExactInInput: ExactInSwapInput = {
-  from: [
-    {
-      chainId: inputData.fromChainID,
-      amount: parseUnits(
-        fromAmountStr.toString(),
-        TOKEN_METADATA[inputData?.fromTokenAddress]?.decimals,
-      ),
-      tokenAddress: actualFromTokenAddress as `0x${string}`,
+const swapWithExactInResult = await sdk.swapWithExactIn(
+  {
+    from: [
+      {
+        chainId: inputData.fromChainID,
+        amount: parseUnits(
+          fromAmountStr.toString(),
+          TOKEN_METADATA[inputData?.fromTokenAddress]?.decimals,
+        ),
+        tokenAddress: actualFromTokenAddress as `0x${string}`,
+      },
+    ],
+    toChainId: inputData.toChainID,
+    toTokenAddress: actualToTokenAddress as `0x${string}`,
+  },
+  {
+    onEvent: (event) => {
+      if (event.name === NEXUS_EVENTS.SWAP_STEP_COMPLETE) {
+        const step = event.args;
+        // mark it done in UI
+      }
     },
-  ],
-  toChainId: inputData.toChainID,
-  toTokenAddress: actualToTokenAddress as `0x${string}`,
-};
-
-const swapWithExactInResult = await sdk.swapWithExactIn(swapWithExactInInput, {
-  swapIntentHook: async (data: Parameters<SwapIntentHook>[0]) => {},
-});
+  },
+);
 
 // Swap tokens (EXACT_OUT - only specify destination chain, token and amount)
 
-const swapWithExactOutInput: ExactOutSwapInput = {
-  toChainId: inputData.toChainID,
-  toTokenAddress: actualToTokenAddress as `0x${string}`,
-  toAmount: 0n, // bigint
-};
-
-const swapWithExactOutResult = await sdk.swapWithExactOut(swapWithExactOutInput, {
-  swapIntentHook: async (data: Parameters<SwapIntentHook>[0]) => {},
-});
+const swapWithExactOutResult = await sdk.swapWithExactOut(
+  {
+    toChainId: inputData.toChainID,
+    toTokenAddress: actualToTokenAddress as `0x${string}`,
+    toAmount: 0n, // bigint
+  },
+  {
+    onEvent: (event) => {
+      if (event.name === NEXUS_EVENTS.SWAP_STEP_COMPLETE) {
+        const step = event.args;
+        // mark it done in UI
+      }
+    },
+  },
+);
 
 // Bridge tokens
 const bridgeResult = await sdk.bridge(
@@ -107,24 +118,12 @@ const transferResult = await sdk.transfer(
 );
 
 const executeResult = await sdk.execute({
-  contractAddress,
-  contractAbi: contractAbi,
-  functionName: functionName,
-  buildFunctionParams: (
-    token: SUPPORTED_TOKENS,
-    amount: string,
-    chainId: SUPPORTED_CHAINS_IDS,
-    user: `0x${string}`,
-  ) => {
-    const decimals = TOKEN_METADATA[token].decimals;
-    const amountWei = parseUnits(amount, decimals);
-    const tokenAddr = TOKEN_CONTRACT_ADDRESSES[token][chainId];
-    return { functionParams: [tokenAddr, amountWei, user, 0] };
-  },
-  value: ethValue,
+  to: '0x...',
+  value: 0n,
+  data: '0x...',
   tokenApproval: {
     token: 'USDC',
-    amount: '100000000',
+    amount: 10000n,
   },
 });
 ```
@@ -134,7 +133,6 @@ const executeResult = await sdk.execute({
 - **Cross-chain bridging** - Seamless token bridging between 16 chains
 - **Cross-chain swaps** - Token swapping between chains with EXACT_IN and EXACT_OUT modes
 - **Unified balances** - Aggregated portfolio view across all chains
-- **Allowance management** - Efficient token approval handling
 - **Smart direct transfers** - Send tokens to any address with automatic optimization
 - **Smart execution** - Direct smart contract interactions with balance checking
 - **Full testnet support** - Complete development environment

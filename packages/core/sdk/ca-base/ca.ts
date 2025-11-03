@@ -129,7 +129,7 @@ export class CA {
     }
   }
 
-  protected createBridgeHandler(input: BridgeQueryInput, options?: OnEventParam) {
+  protected createBridgeHandler = (input: BridgeQueryInput, options?: OnEventParam) => {
     if (!this._evm) {
       throw Errors.sdkNotInitialized();
     }
@@ -149,7 +149,7 @@ export class CA {
     });
 
     return bridgeHandler;
-  }
+  };
 
   protected async _calculateMaxForBridge(params: Omit<BridgeQueryInput, 'amount' | 'recipient'>) {
     return getMaxValueForBridge(params, {
@@ -179,7 +179,7 @@ export class CA {
     return fetchMyIntents(address, this._networkConfig.GRPC_URL, page);
   }
 
-  protected async _getUnifiedBalances(includeSwappableBalances = false) {
+  protected _getUnifiedBalances = async (includeSwappableBalances = false) => {
     if (!this._evm) {
       throw Errors.sdkNotInitialized();
     }
@@ -194,7 +194,7 @@ export class CA {
       tronAddress: this._tron?.address,
     });
     return assets;
-  }
+  };
 
   protected _isInitialized() {
     return this._initStatus === INIT_STATUS.DONE;

@@ -195,6 +195,7 @@ class BridgeAndExecuteQuery {
       token,
       dstChain,
     });
+    await this.evmClient.switchChain({ id: params.toChainId });
 
     const address = (await this.evmClient.getAddresses())[0];
     let txs: Tx[] = [];
