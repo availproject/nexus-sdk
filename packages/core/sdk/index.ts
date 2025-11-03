@@ -69,14 +69,14 @@ export class NexusSDK extends CA {
 
         if (!initResult.success) {
           trackError(new Error('Backend initialization failed') as Error, {
-            function: 'backend_initialization_failed',
+            function: 'backend-initialization-failed',
           });
           throw new Error('Backend initialization failed');
         }
         trackSDKBackendInitialized(this._config);
       } catch (error) {
         trackError(error as Error, {
-          function: 'backend_initialization_failed',
+          function: 'backend-initialization-failed',
         });
         throw new Error('Backend initialization failed');
       }
@@ -122,7 +122,7 @@ export class NexusSDK extends CA {
       };
     } catch (e) {
       trackError(e as Error, {
-        function: 'bridge_error',
+        function: 'bridge-error',
       });
       return {
         success: false,
@@ -159,7 +159,7 @@ export class NexusSDK extends CA {
       };
     } catch (e) {
       trackError(e as Error, {
-        function: 'transfer_error',
+        function: 'transfer-error',
       });
       return {
         success: false,
@@ -195,7 +195,7 @@ export class NexusSDK extends CA {
     } catch (error) {
       console.error('Error in swap with exact out', error);
       trackError(error as Error, {
-        function: 'swapWithExactIn_error',
+        function: 'swapWithExactIn-error',
       });
       return {
         success: false,
@@ -231,7 +231,7 @@ export class NexusSDK extends CA {
     } catch (error) {
       console.error('Error in swap with exact out', error);
       trackError(error as Error, {
-        function: 'swapWithExactOut_error',
+        function: 'swapWithExactOut-error',
       });
       return {
         success: false,

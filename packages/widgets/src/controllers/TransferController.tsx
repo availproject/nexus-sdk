@@ -1,12 +1,11 @@
 import React from 'react';
 import type { ITransactionController, ActiveTransaction } from '../types';
 import { NexusSDK } from '@avail-project/nexus-core';
-import { NexusNetwork, type TransferParams, type TransferResult, logger } from '@nexus/commons';
+import { type TransferParams, type TransferResult, logger } from '@nexus/commons';
 import {
   UnifiedTransactionForm,
   UnifiedInputData,
 } from '../components/shared/unified-transaction-form';
-import { trackIntentCreated } from 'src/utils/analytics';
 
 export interface TransferConfig extends Partial<TransferParams> {}
 
@@ -129,20 +128,8 @@ export class TransferController implements ITransactionController {
     };
   }
 
-  async confirmAndProceed(
-    sdk: NexusSDK,
-    config: { network?: NexusNetwork; debug?: boolean },
-    inputData: TransferParams,
-  ): Promise<TransferResult> {
+  async confirmAndProceed(sdk: NexusSDK, inputData: TransferParams): Promise<TransferResult> {
     const result = await sdk.transfer(inputData);
-    const intentData = {
-      intentType: 'transfer',
-      ...inputData,
-    };
-    trackIntentCreated(
-      { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
-      intentData as any,
-    );
     return result;
   }
 }

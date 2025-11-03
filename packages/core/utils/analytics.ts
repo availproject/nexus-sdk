@@ -21,13 +21,6 @@ const OPENPANEL_CONFIG = {
   clientId: '5e2f37bc-227e-49cc-9611-637d3614231f',
 };
 
-// Initialize OpenPanel
-export function initAnalytics() {
-  if (typeof window !== 'undefined') {
-    console.log('✅ Analytics initialized with OpenPanel');
-  }
-}
-
 // Track events (direct POST to OpenPanel API)
 export async function trackEvent(name: string, properties?: Record<string, any>) {
   try {
@@ -37,7 +30,7 @@ export async function trackEvent(name: string, properties?: Record<string, any>)
         ...properties,
         timestamp: new Date().toISOString(),
         sessionId: getSessionId(),
-        sdkVersion: '0.1.0',
+        sdkVersion: '1.0.0-beta.4',
         package: 'nexus-core',
         appDomain: typeof window !== 'undefined' ? window.location.hostname : 'unknown',
         appUrl: typeof window !== 'undefined' ? window.location.origin : 'unknown',
@@ -52,9 +45,7 @@ export async function trackEvent(name: string, properties?: Record<string, any>)
       trackAttributes: true,
     });
 
-    op.track('track_core', body);
-
-    console.log(`Analytics tracking working`);
+    op.track('nexus-core', body);
   } catch (error) {
     console.error('❌ Analytics tracking error:', error);
   }
@@ -65,7 +56,7 @@ export function trackSDKInitialized(config?: {
   network?: Network | NetworkConfig;
   debug?: boolean;
 }) {
-  trackEvent('sdk_initialized', {
+  trackEvent('nexus-core-initialized', {
     network: config?.network,
     debug: config?.network,
   });
@@ -75,7 +66,7 @@ export function trackSDKBackendInitialized(config?: {
   network?: Network | NetworkConfig;
   debug?: boolean;
 }) {
-  trackEvent('sdk_backend_initialized', {
+  trackEvent('nexus-core-backend-initialized', {
     network: config?.network,
     debug: config?.network,
   });
@@ -86,7 +77,7 @@ export function trackSdkDeInitialized(config?: {
   network?: Network | NetworkConfig;
   debug?: boolean;
 }) {
-  trackEvent('sdk_deInitialized', {
+  trackEvent('nexus-core-deInitialized', {
     network: config?.network,
     debug: config?.network,
   });
@@ -103,7 +94,7 @@ export function trackError(
     intentData?: any;
   },
 ) {
-  trackEvent(`sdk_core_error_${context.function}_failed`, {
+  trackEvent(`nexus-core-error-${context.function}-failed`, {
     errorMessage: error.message,
     errorStack: error.stack,
     errorCode: error.name,
@@ -134,15 +125,15 @@ export function trackNexusTransaction(params: {
   tokens?: string[];
   amount?: bigint;
 }) {
-  trackEvent('nexus_core_transaction', params);
+  trackEvent('nexus-core-transaction', params);
 }
 
 export function trackAllowance(allowanceData?: AllowanceHookSources) {
-  trackEvent('nexus_core_allowance', allowanceData);
+  trackEvent('nexus-core-allowance', allowanceData);
 }
 
 export function trackIntent(intentData?: ReadableIntent) {
-  trackEvent('nexus_core_intent', intentData);
+  trackEvent('nexus-core-intent', intentData);
 }
 
 // Helpers

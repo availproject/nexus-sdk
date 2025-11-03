@@ -46,12 +46,10 @@ import { DragConstraintsProvider } from '../components/motion/drag-constraints';
 import { getTokenFromInputData, getAmountFromInputData, formatSwapError } from '../utils/utils';
 import { getTokenAddress } from '../utils/token-utils';
 import {
-  trackSdkHealth,
   trackError,
   trackSDKInitialized,
   trackSdkDeInitialized,
-  trackTransaction,
-  trackIntentCreated,
+  trackTransactionDetails,
 } from '../utils/analytics';
 
 const controllers: Record<Exclude<TransactionType, 'swap'>, ITransactionController> = {
@@ -206,16 +204,6 @@ export function InternalNexusProvider({
       setIsSdkInitialized(sdk.isInitialized());
       isSdkInitializedRef.current = sdk.isInitialized();
 
-      // Track SDK health after successful initialization
-      trackSdkHealth(
-        { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
-        {
-          sdkInitialized: true,
-          providerConnected: !!eipProvider,
-          chainsAvailable: [],
-          apiEndpointsReachable: true,
-        },
-      );
       trackSDKInitialized({ network: config?.network ?? 'mainnet', debug: config?.debug ?? false });
       setActiveTransaction((prev) => ({ ...prev, status: 'review' }));
       return true;
@@ -227,7 +215,7 @@ export function InternalNexusProvider({
         err as Error,
         { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
         {
-          function: 'initialize',
+          function: 'nexus-widgets-initialize',
         },
       );
 
@@ -251,7 +239,7 @@ export function InternalNexusProvider({
         e as Error,
         { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
         {
-          function: 'deinitializeSdk',
+          function: 'nexus-widgets-deinitialize',
         },
       );
       logger.error('Error deinitializing SDK', e as Error);
@@ -353,7 +341,7 @@ export function InternalNexusProvider({
         inputData: normalizedPrefillData as any,
         prefillFields,
       });
-      trackTransaction(
+      trackTransactionDetails(
         { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
         {
           ...initialState,
@@ -378,7 +366,7 @@ export function InternalNexusProvider({
       new Error('Transaction Cancel') as Error,
       { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
       {
-        function: 'transaction_button_click',
+        function: 'nexus-widgets-transaction-calcel',
       },
     );
     if (isSdkInitialized && sdk) {
@@ -521,15 +509,6 @@ export function InternalNexusProvider({
           reviewStatus: 'gathering_input',
           status: 'review', // Explicitly ensure we stay in review mode
         }));
-        trackTransaction(
-          { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
-          {
-            ...activeTransaction,
-            simulationResult: null,
-            reviewStatus: 'gathering_input',
-            status: 'review',
-          },
-        );
         setIsSimulating(false); // Ensure simulation state is cleared
         return;
       }
@@ -557,16 +536,6 @@ export function InternalNexusProvider({
           reviewStatus: 'simulating',
           status: 'review', // Explicitly maintain review status
         }));
-
-        trackTransaction(
-          { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
-          {
-            ...activeTransaction,
-            simulationResult: null,
-            reviewStatus: 'simulating',
-            status: 'review',
-          },
-        );
 
         try {
           let simulationResult: any;
@@ -618,20 +587,7 @@ export function InternalNexusProvider({
               ),
               reviewStatus: 'gathering_input',
             }));
-            trackTransaction(
-              { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
-              {
-                ...activeTransaction,
-                simulationResult,
-                status: 'simulation_error',
-                error: new Error(
-                  'error' in simulationResult
-                    ? simulationResult.error || 'Simulation failed'
-                    : 'Simulation failed',
-                ),
-                reviewStatus: 'gathering_input',
-              },
-            );
+
             return;
           }
 
@@ -641,17 +597,6 @@ export function InternalNexusProvider({
             reviewStatus: simulationResult?.allowance?.needsApproval ? 'needs_allowance' : 'ready',
             status: 'review',
           }));
-          trackTransaction(
-            { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
-            {
-              ...activeTransaction,
-              simulationResult,
-              reviewStatus: simulationResult?.allowance?.needsApproval
-                ? 'needs_allowance'
-                : 'ready',
-              status: 'review',
-            },
-          );
         } catch (err) {
           logger.error('Simulation failed:', err as Error);
           const error = err instanceof Error ? err : new Error('Simulation failed.');
@@ -662,10 +607,10 @@ export function InternalNexusProvider({
             reviewStatus: 'gathering_input',
           }));
           trackError(
-            error as Error,
+            error,
             { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
             {
-              function: 'simulation_error',
+              function: 'nexus-widgets-simulation-error',
             },
           );
         } finally {
@@ -735,7 +680,6 @@ export function InternalNexusProvider({
       // Handle regular transaction controllers
       const executionResult = await activeController.confirmAndProceed(
         sdk,
-        { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
         activeTransaction.inputData,
         activeTransaction.simulationResult,
       );
@@ -747,33 +691,17 @@ export function InternalNexusProvider({
         error: executionResult?.error ? new Error(executionResult.error) : null,
         executionResult,
       }));
-      trackTransaction(
-        { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
-        {
-          ...activeTransaction,
-          status: executionResult?.success ? 'success' : 'error',
-          error: executionResult?.error ? new Error(executionResult.error) : null,
-          executionResult,
-        },
-      );
     } catch (err) {
       logger.error('Transaction failed.', err as Error);
-      trackError(
-        err as Error,
-        { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
-        {
-          function: `${activeTransaction.type}_failed`,
-        },
-      );
       const error = err instanceof Error ? err : new Error('Transaction failed.');
-      setActiveTransaction((prev) => ({ ...prev, status: 'error', error }));
       trackError(
-        error as Error,
+        error,
         { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
         {
-          function: 'transaction_failed_click',
+          function: 'nexus-widgets-transaction-error',
         },
       );
+      setActiveTransaction((prev) => ({ ...prev, status: 'error', error }));
     }
   }, [
     activeController,
@@ -867,70 +795,19 @@ export function InternalNexusProvider({
                 reviewStatus: 'ready',
                 status: 'review',
               }));
-
-              trackTransaction(
-                { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
-                {
-                  ...activeTransaction,
-                  simulationResult: {
-                    success: true,
-                    intent: data.intent,
-                    swapMetadata: {
-                      type: 'swap' as const,
-                      inputToken: actualFromTokenAddress as `0x${string}`,
-                      outputToken: swapInput.toTokenAddress,
-                      fromChainId: inputData?.fromChainID,
-                      toChainId: inputData.toChainID,
-                      inputAmount: inputData?.fromAmount ?? '',
-                      outputAmount: data.intent.destination?.amount?.toString() ?? '0',
-                    },
-                    allowance: {
-                      needsApproval: false,
-                      chainDetails: [],
-                    },
-                  },
-                  reviewStatus: 'ready',
-                  status: 'review',
-                },
-              );
             },
           })
           .then((result) => {
             if (result.success) {
-              // Swap succeeded - let useListenTransaction handle the success state
-              const intentData = {
-                intentType: 'swap' as const,
-                sourceChain: swapInput.from?.[0]?.chainId,
-                targetChain: swapInput.toChainId,
-                token: swapInput.from?.[0]?.tokenAddress,
-                amount: swapInput.from?.[0]?.amount.toString(),
-              };
-              trackIntentCreated(
-                { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
-                intentData as any,
-              );
               logger.info('Swap Provider: Swap execution succeeded');
               setActiveTransaction((prev) => ({
                 ...prev,
                 status: 'success',
               }));
-              trackTransaction(
-                { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
-                {
-                  ...activeTransaction,
-                  status: 'success',
-                },
-              );
             } else {
               // Swap failed - this captures your error!
               logger.error('Swap Provider: Swap execution failed:', result.error);
-              trackError(
-                new Error(result.error),
-                { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
-                {
-                  function: 'swap_execution_failed',
-                },
-              );
+
               // Set a flag to prevent success callbacks from overriding this error
               setActiveTransaction((prev) => ({
                 ...prev,
@@ -939,13 +816,7 @@ export function InternalNexusProvider({
                 error: new Error(result?.error ?? 'Swap execution failed'),
                 executionResult: result,
               }));
-              trackError(
-                new Error(result?.error ?? 'Swap execution failed') as Error,
-                { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
-                {
-                  function: 'simulation_error',
-                },
-              );
+
               // Clear the allow callback to prevent further execution
               swapAllowCallbackRef.current = null;
             }
@@ -953,13 +824,6 @@ export function InternalNexusProvider({
           .catch((error) => {
             // Network/SDK errors
             logger.error('Swap Provider: Swap SDK error:', error);
-            trackError(
-              error as Error,
-              { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
-              {
-                function: 'swap_sdk_error',
-              },
-            );
             const errorMessage = formatSwapError(error);
             setActiveTransaction((prev) => ({
               ...prev,
@@ -968,10 +832,10 @@ export function InternalNexusProvider({
               error: new Error(errorMessage),
             }));
             trackError(
-              error as Error,
+              error,
               { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
               {
-                function: 'simulation_error',
+                function: 'nexus-widgets-transaction-error',
               },
             );
           })
@@ -981,13 +845,6 @@ export function InternalNexusProvider({
           });
       } catch (error) {
         logger.error('Swap Provider: Swap initiation failed:', error as Error);
-        trackError(
-          error as Error,
-          { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
-          {
-            function: 'swap_initiation_failed',
-          },
-        );
         const errorMessage = formatSwapError(error);
         setActiveTransaction((prev) => ({
           ...prev,
@@ -998,7 +855,7 @@ export function InternalNexusProvider({
           error as Error,
           { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
           {
-            function: 'simulation_error',
+            function: 'nexus-widgets-transaction-error',
           },
         );
       }
@@ -1095,7 +952,6 @@ export function InternalNexusProvider({
         try {
           const executionResult = await activeController.confirmAndProceed(
             sdk,
-            { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
             inputData,
             simulationResult,
           );
@@ -1105,38 +961,29 @@ export function InternalNexusProvider({
             error: executionResult?.error ? new Error(executionResult.error) : null,
             executionResult,
           }));
-          trackTransaction(
-            { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
-            {
-              ...activeTransaction,
-              status: executionResult?.success ? 'success' : 'error',
-              error: executionResult?.error ? new Error(executionResult.error) : null,
-              executionResult,
-            },
-          );
         } catch (execErr) {
           logger.error('Transaction failed after allowance approval.', execErr as Error);
           const error = execErr instanceof Error ? execErr : new Error('Transaction failed.');
           setActiveTransaction((prev) => ({ ...prev, status: 'error', error }));
           trackError(
-            error as Error,
+            error,
             { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
             {
-              function: 'allowance_transaction_failed',
+              function: 'nexus-widgets-transaction-error',
             },
           );
         }
       } catch (err) {
         logger.error('Allowance setting failed:', err as Error);
         const error = err instanceof Error ? err : new Error('Failed to set allowance.');
-        setAllowanceError(error.message);
         trackError(
-          error as Error,
+          error,
           { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
           {
-            function: 'allowance_transaction_failed',
+            function: 'nexus-widgets-transaction-error',
           },
         );
+        setAllowanceError(error.message);
       } finally {
         setIsSettingAllowance(false);
       }
@@ -1156,7 +1003,7 @@ export function InternalNexusProvider({
       status: 'review',
       reviewStatus: 'needs_allowance',
     }));
-    trackTransaction(
+    trackTransactionDetails(
       { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
       {
         ...activeTransaction,
@@ -1183,13 +1030,7 @@ export function InternalNexusProvider({
       ...prev,
       status: 'set_allowance',
     }));
-    trackTransaction(
-      { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
-      {
-        ...activeTransaction,
-        status: 'set_allowance',
-      },
-    );
+
     setAllowanceError(null);
   }, [activeTransaction.status, activeTransaction.reviewStatus]);
 

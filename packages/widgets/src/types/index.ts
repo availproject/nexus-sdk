@@ -211,7 +211,6 @@ export interface ITransactionController {
   // The main action function that drives the review, simulation, and execution
   confirmAndProceed(
     sdk: NexusSDK,
-    config: { network?: NexusNetwork; debug?: boolean },
     inputData: any,
     simulationResult: ActiveTransaction['simulationResult'],
   ): Promise<BridgeResult | BridgeAndExecuteResult | TransferResult | SwapResult>;

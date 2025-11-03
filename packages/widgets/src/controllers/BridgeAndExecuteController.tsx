@@ -15,10 +15,8 @@ import {
   type BridgeAndExecuteResult,
   type BridgeAndExecuteSimulationResult,
   logger,
-  NexusNetwork,
 } from '@nexus/commons';
 import { Abi } from 'viem';
-import { trackIntentCreated } from 'src/utils/analytics';
 
 export interface BridgeAndExecuteConfig extends Partial<BridgeAndExecuteParams> {}
 
@@ -184,7 +182,6 @@ export class BridgeAndExecuteController implements ITransactionController {
 
   async confirmAndProceed(
     sdk: NexusSDK,
-    config: { network?: NexusNetwork; debug?: boolean },
     inputData: Partial<BridgeAndExecuteParams>,
     _simulationResult?: ActiveTransaction['simulationResult'],
   ): Promise<BridgeAndExecuteResult> {
@@ -194,14 +191,7 @@ export class BridgeAndExecuteController implements ITransactionController {
       const execute = this.buildExecute(inputData as any);
       params = { ...inputData, execute } as BridgeAndExecuteParams;
     }
-    const intentData = {
-      intentType: 'bridgeAndExecute',
-      ...params,
-    };
-    trackIntentCreated(
-      { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
-      intentData as any,
-    );
+
     const result = await sdk.bridgeAndExecute(params);
     return result;
   }

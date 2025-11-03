@@ -1,12 +1,11 @@
 import React from 'react';
 import type { ITransactionController, BridgeConfig, ActiveTransaction } from '../types';
 import { NexusSDK } from '@avail-project/nexus-core';
-import { type BridgeParams, type BridgeResult, logger, NexusNetwork } from '@nexus/commons';
+import { type BridgeParams, type BridgeResult, logger } from '@nexus/commons';
 import {
   UnifiedTransactionForm,
   UnifiedInputData,
 } from '../components/shared/unified-transaction-form';
-import { trackIntentCreated } from 'src/utils/analytics';
 
 const BridgeInputForm: React.FC<{
   prefill: Partial<BridgeConfig>;
@@ -119,20 +118,8 @@ export class BridgeController implements ITransactionController {
     };
   }
 
-  async confirmAndProceed(
-    sdk: NexusSDK,
-    config: { network?: NexusNetwork; debug?: boolean },
-    inputData: BridgeParams,
-  ): Promise<BridgeResult> {
+  async confirmAndProceed(sdk: NexusSDK, inputData: BridgeParams): Promise<BridgeResult> {
     const result = await sdk.bridge(inputData);
-    const intentData = {
-      intentType: 'bridge',
-      ...inputData,
-    };
-    trackIntentCreated(
-      { network: config?.network ?? 'mainnet', debug: config?.debug ?? false },
-      intentData as any,
-    );
     return result;
   }
 }
