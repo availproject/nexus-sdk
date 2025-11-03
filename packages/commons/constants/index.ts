@@ -331,7 +331,7 @@ export const DESTINATION_SWAP_TOKENS = new Map<
       },
       {
         decimals: 6,
-        logo: 'https://coin-images.coingecko.com/coins/images/6319/large/usdc.png?1696506694',
+        logo: 'https://coin-images.coingecko.com/coins/images/35023/large/USDT.png',
         name: 'USDT Coin',
         symbol: 'USDT',
         tokenAddress: '0x94b008aa00579c1307b0ef2c499ad98a8ce58e58',
@@ -378,7 +378,7 @@ export const DESTINATION_SWAP_TOKENS = new Map<
       },
       {
         decimals: 6,
-        logo: 'https://coin-images.coingecko.com/coins/images/6319/large/usdc.png?1696506694',
+        logo: 'https://coin-images.coingecko.com/coins/images/35023/large/USDT.png',
         name: 'USDT Coin',
         symbol: 'USDT',
         tokenAddress: '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9',
@@ -418,17 +418,10 @@ export const DESTINATION_SWAP_TOKENS = new Map<
       },
       {
         decimals: 6,
-        logo: 'https://coin-images.coingecko.com/coins/images/6319/large/usdc.png?1696506694',
+        logo: 'https://coin-images.coingecko.com/coins/images/35023/large/USDT.png',
         name: 'USDT Coin',
         symbol: 'USDT',
         tokenAddress: '0xf55bec9cafdbe8730f096aa55dad6d22d44099df',
-      },
-      {
-        decimals: 18,
-        logo: 'https://coin-images.coingecko.com/coins/images/279/large/ethereum.png?1696501628',
-        name: 'Ether',
-        symbol: 'ETH',
-        tokenAddress: '0x0000000000000000000000000000000000000000',
       },
     ],
   ],
