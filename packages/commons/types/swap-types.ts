@@ -3,7 +3,7 @@ import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import Decimal from 'decimal.js';
 import { type Hex, PrivateKeyAccount, WalletClient } from 'viem';
 
-import { NetworkConfig, TokenInfo, ChainListType, OnEventParam } from '../index';
+import { NetworkConfig, ChainListType, OnEventParam } from '../index';
 
 export type AuthorizationList = {
   address: Uint8Array;
@@ -265,7 +265,6 @@ export type SupportedChainsResult = {
   id: number;
   logo: string;
   name: string;
-  tokens: TokenInfo[];
 }[];
 
 export type Tx = {

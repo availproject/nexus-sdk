@@ -32,7 +32,6 @@ import {
   SDKConfig,
   SwapMode,
   SwapParams,
-  SupportedChainsResult,
   BridgeAndExecuteParams,
   ExecuteParams,
   OnEventParam,
@@ -52,6 +51,7 @@ import {
   getBalances,
   retrieveSIWESignatureFromLocalStorage,
   storeSIWESignatureToLocalStorage,
+  getBalancesForSwap,
 } from './utils';
 import { swap } from './swap/swap';
 import { getSwapSupportedChains } from './swap/utils';
@@ -194,6 +194,18 @@ export class CA {
       tronAddress: this._tron?.address,
     });
     return assets;
+  };
+
+  protected _getBalancesForSwap = async () => {
+    if (!this._evm) {
+      throw Errors.sdkNotInitialized();
+    }
+
+    const balances = await getBalancesForSwap({
+      evmAddress: (await this._evm.client.requestAddresses())[0],
+      chainList: this.chainList,
+    });
+    return balances;
   };
 
   protected _isInitialized() {
@@ -475,7 +487,7 @@ export class CA {
     }
   }
 
-  protected _getSwapSupportedChainsAndTokens(): SupportedChainsResult {
+  protected _getSwapSupportedChains() {
     return getSwapSupportedChains(this.chainList);
   }
 

@@ -34,6 +34,15 @@ let balanceCache = {
   value: {} as { [k: string]: { data: UserAssetDatum[]; lastUpdatedAt: number } },
 };
 
+export const getBalancesForSwap = async (input: { evmAddress: Hex; chainList: ChainListType }) => {
+  const assets = balancesToAssets(
+    await getAnkrBalances(input.evmAddress, input.chainList, true),
+    input.chainList,
+  );
+  let balances = toFlatBalance(assets, false);
+  return balances;
+};
+
 export const getBalances = async (input: {
   evmAddress: Hex;
   chainList: ChainListType;
@@ -71,10 +80,10 @@ export const getBalances = async (input: {
     balanceCache.value[cacheKey] = {
       data: balancesToAssets(
         ankrBalances,
+        input.chainList,
         evmBalances,
         fuelBalances,
         tronBalances,
-        input.chainList,
         isCA,
       ),
       lastUpdatedAt: Date.now(),

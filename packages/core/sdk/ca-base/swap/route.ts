@@ -489,6 +489,7 @@ const _exactInRoute = async (
       evmAddress: params.address.eoa,
       chainList: params.chainList,
       removeTransferFee: true,
+      filter: false,
       vscDomain: params.networkConfig.VSC_DOMAIN,
     }),
     fetchPriceOracle(params.networkConfig.GRPC_URL),
@@ -520,7 +521,7 @@ const _exactInRoute = async (
         return equalFold(b.tokenAddress, comparisonTokenAddress) && f.chainId === b.chainID;
       });
       if (!srcBalance) {
-        throw ErrorInsufficientBalance(f.amount.toString(), '0');
+        throw ErrorInsufficientBalance('0', f.amount.toString());
       }
 
       const requiredBalance = divDecimals(f.amount, srcBalance.decimals);

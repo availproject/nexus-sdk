@@ -203,8 +203,12 @@ export class NexusSDK extends CA {
     return this._simulateBridgeAndExecute(params);
   }
 
-  public getSwapSupportedChainsAndTokens(): SupportedChainsResult {
-    return this._getSwapSupportedChainsAndTokens();
+  public getBalancesForSwap() {
+    return this._getBalancesForSwap()
+  }
+
+  public getSwapSupportedChains(): SupportedChainsResult {
+    return this._getSwapSupportedChains();
   }
 
   public isInitialized() {

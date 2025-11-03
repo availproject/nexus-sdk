@@ -326,6 +326,7 @@ export type FlatBalance = {
   tokenAddress: `0x${string}`;
   universe: Universe;
   value: number;
+  logo: string;
 };
 
 const filterSupportedTokens = (tokens: FlatBalance[]) => {
@@ -342,10 +343,6 @@ const filterSupportedTokens = (tokens: FlatBalance[]) => {
     if (token.IsGasToken) {
       return true;
     }
-
-    // if (token.PermitVariant === PermitVariant.Unsupported) {
-    //   return false;
-    // }
 
     return true;
   });

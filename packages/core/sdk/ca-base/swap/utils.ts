@@ -46,7 +46,6 @@ import { getLogger } from '@nexus/commons';
 import {
   Chain,
   SuccessfulSwapResult,
-  TokenInfo,
   UnifiedBalanceResponseData,
   UserAssetDatum,
 } from '@nexus/commons';
@@ -604,6 +603,7 @@ export function getTokenSymbol(symbol: string) {
 
 export const toFlatBalance = (
   assets: UserAssetDatum[],
+  convertAddressToBytes32 = true,
   currentChainID?: number,
   selectedTokenAddress?: `0x${string}`,
 ) => {
@@ -613,16 +613,16 @@ export const toFlatBalance = (
   return assets
     .map((a) =>
       a.breakdown.map((b) => {
+        const tokenAddress = b.contractAddress === ZERO_ADDRESS ? EADDRESS : b.contractAddress;
         return {
           amount: b.balance,
           chainID: b.chain.id,
           decimals: b.decimals,
           symbol: a.symbol,
-          tokenAddress: convertTo32BytesHex(
-            b.contractAddress === ZERO_ADDRESS ? EADDRESS : b.contractAddress,
-          ),
+          tokenAddress: convertAddressToBytes32 ? convertTo32BytesHex(tokenAddress) : tokenAddress,
           universe: b.universe,
           value: b.balanceInFiat,
+          logo: a.icon ?? '',
         };
       }),
     )
@@ -640,11 +640,11 @@ export const toFlatBalance = (
 
 export const balancesToAssets = (
   ankrBalances: AnkrBalances,
-  evmBalances: UnifiedBalanceResponseData[],
-  fuelBalances: UnifiedBalanceResponseData[],
-  tronBalances: UnifiedBalanceResponseData[],
   chainList: ChainListType,
-  isCA: boolean,
+  evmBalances: UnifiedBalanceResponseData[] = [],
+  fuelBalances: UnifiedBalanceResponseData[] = [],
+  tronBalances: UnifiedBalanceResponseData[] = [],
+  isCA: boolean = true,
 ) => {
   const assets: UserAssetDatum[] = [];
   const vscBalances = evmBalances.concat(fuelBalances).concat(tronBalances);
@@ -1518,43 +1518,11 @@ export const performDestinationSwap = async ({
 };
 
 export const getSwapSupportedChains = (chainList: ChainListType) => {
-  const chains: {
-    id: number;
-    logo: string;
-    name: string;
-    tokens: TokenInfo[];
-  }[] = [];
-  for (const c of chainData.keys()) {
-    const chain = chainList.getChainByID(c);
-    if (!chain) {
-      continue;
-    }
-
-    const data = {
+  return chainList.chains
+    .filter((chain) => chain.ankrName !== '')
+    .map((chain) => ({
       id: chain.id,
-      logo: chain.custom.icon,
       name: chain.name,
-      tokens: [] as TokenInfo[],
-    };
-
-    const tokens = chainData.get(c);
-    if (!tokens) {
-      continue;
-    }
-
-    tokens.forEach((t) => {
-      if (t.PermitVariant !== PermitVariant.Unsupported) {
-        data.tokens.push({
-          contractAddress: convertToEVMAddress(t.TokenContractAddress),
-          decimals: t.TokenDecimals,
-          logo: '',
-          name: t.Name,
-          symbol: t.Name,
-        });
-      }
-    });
-
-    chains.push(data);
-  }
-  return chains;
+      logo: chain.custom.icon,
+    }));
 };
