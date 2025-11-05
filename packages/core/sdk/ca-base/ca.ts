@@ -523,7 +523,7 @@ export class CA {
     return handler.bridgeAndExecute(params, options);
   }
 
-  protected async _execute(params: ExecuteParams) {
+  protected async _execute(params: ExecuteParams, options?: OnEventParam) {
     if (!this._evm) {
       throw Errors.sdkNotInitialized();
     }
@@ -536,7 +536,7 @@ export class CA {
       this.simulationClient,
     );
 
-    return handler.execute(params, this._evm.address);
+    return handler.execute(params, options);
   }
 
   protected async _simulateExecute(params: ExecuteParams) {

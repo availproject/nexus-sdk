@@ -1,12 +1,12 @@
 import { Bytes, PermitVariant, Universe } from '@avail-project/ca-common';
-import { Hex } from 'viem';
+import { Hex, PublicClient } from 'viem';
 import { toHex } from 'viem/utils';
 
 import { ChainList } from '../chains';
 import { TokenInfo } from '@nexus/commons';
 import { convertTo32BytesHex, equalFold } from '../utils';
 import { EADDRESS } from './constants';
-import { convertToEVMAddress } from './utils';
+import { convertToEVMAddress, determinePermitVariantAndVersion } from './utils';
 
 export enum CurrencyID {
   AVAX = 5,
@@ -348,7 +348,7 @@ const filterSupportedTokens = (tokens: FlatBalance[]) => {
   });
 };
 
-const getTokenVersion = (tokenAddress: Hex) => {
+const getTokenVersion = async (tokenAddress: Hex, client: PublicClient) => {
   for (const [, tokens] of chainData.entries()) {
     const t = tokens.find((t) =>
       equalFold(convertTo32BytesHex(tokenAddress), t.TokenContractAddress),
@@ -357,7 +357,9 @@ const getTokenVersion = (tokenAddress: Hex) => {
       return { variant: t.PermitVariant, version: t.PermitContractVersion };
     }
   }
-  throw new Error('token not available or has no version');
+
+  const { variant, version } = await determinePermitVariantAndVersion(client, tokenAddress);
+  return { variant, version };
 };
 
 export const getTokenDecimals = (chainID: number | string, contractAddress: Bytes) => {

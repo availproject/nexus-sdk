@@ -1,5 +1,6 @@
 import {
   ArcanaVault,
+  Bytes,
   DepositVEPacket,
   Environment,
   ERC20ABI,
@@ -452,24 +453,25 @@ const evmWaitForFill = async (
   ]);
 };
 
-const convertTo32Bytes = (value: bigint | Hex | number) => {
+const convertTo32Bytes = (value: bigint | Hex | number | Bytes) => {
   if (typeof value == 'bigint' || typeof value === 'number') {
     return toBytes(value, {
       size: 32,
     });
-  }
-
-  if (typeof value === 'string') {
+  } else if (typeof value === 'string') {
     return pad(toBytes(value), {
       dir: 'left',
       size: 32,
     });
+  } else {
+    return pad(value, {
+      dir: 'left',
+      size: 32,
+    });
   }
-
-  throw new Error('invalid type');
 };
 
-const convertTo32BytesHex = (value: Hex) => {
+const convertTo32BytesHex = (value: Hex | Bytes) => {
   const bytes = convertTo32Bytes(value);
   return toHex(bytes);
 };

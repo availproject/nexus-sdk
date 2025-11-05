@@ -22,7 +22,7 @@ const createBridgeAndTransferParams = (
         data: '0x',
       }
     : {
-        to: input.recipient,
+        to: token.contractAddress,
         value: 0n,
         data: encodeFunctionData({
           abi: ERC20ABI,

@@ -693,6 +693,8 @@ class BridgeHandler {
             type: 'json-rpc',
           };
 
+          await switchChain(this.options.evm.client, chain);
+
           const signed = parseSignature(
             await signPermitForAddressAndValue(
               currency,

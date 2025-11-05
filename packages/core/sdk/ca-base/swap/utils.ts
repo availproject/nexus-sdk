@@ -6,6 +6,7 @@ import {
   ChaindataMap,
   CurrencyID,
   ERC20ABI,
+  Holding,
   LiFiAggregator,
   LiFiQuote,
   msgpackableAxios,
@@ -380,7 +381,7 @@ export const createPermitAndTransferFromTx = async ({
   logger.debug('createPermitTx', { allowance, amount });
 
   if (allowance < amount) {
-    const { variant, version } = getTokenVersion(contractAddress);
+    const { variant, version } = await getTokenVersion(contractAddress, publicClient);
     if (variant === PermitVariant.Unsupported) {
       const { request } = await publicClient.simulateContract({
         chain,
@@ -429,6 +430,115 @@ export const createPermitAndTransferFromTx = async ({
 
   return txList;
 };
+
+export const determinePermitVariantAndVersion = async (
+  client: PublicClient,
+  contractAddress: Hex,
+) => {
+  const standardPermitData = encodeFunctionData({
+    abi: [
+      {
+        type: 'function',
+        name: 'permit',
+        inputs: [
+          { type: 'address', name: 'owner' },
+          { type: 'address', name: 'spender' },
+          { type: 'uint256', name: 'value' },
+          { type: 'uint256', name: 'deadline' },
+          { type: 'uint8', name: 'v' },
+          { type: 'bytes32', name: 'r' },
+          { type: 'bytes32', name: 's' },
+        ],
+      },
+    ],
+    functionName: 'permit',
+    args: [
+      '0x0000000000000000000000000000000000000000',
+      '0x0000000000000000000000000000000000000000',
+      0n,
+      0n,
+      0,
+      '0x0000000000000000000000000000000000000000000000000000000000000000',
+      '0x0000000000000000000000000000000000000000000000000000000000000000',
+    ],
+  });
+
+  // Dummy data for DAI-style permit (holder=spender=zero, nonce=0, expiry=0, allowed=true, v=0, r=0, s=0)
+  const daiPermitData = encodeFunctionData({
+    abi: [
+      {
+        type: 'function',
+        name: 'permit',
+        inputs: [
+          { type: 'address', name: 'holder' },
+          { type: 'address', name: 'spender' },
+          { type: 'uint256', name: 'nonce' },
+          { type: 'uint256', name: 'expiry' },
+          { type: 'bool', name: 'allowed' },
+          { type: 'uint8', name: 'v' },
+          { type: 'bytes32', name: 'r' },
+          { type: 'bytes32', name: 's' },
+        ],
+      },
+    ],
+    functionName: 'permit',
+    args: [
+      '0x0000000000000000000000000000000000000000',
+      '0x0000000000000000000000000000000000000000',
+      0n,
+      0n,
+      true,
+      0,
+      '0x0000000000000000000000000000000000000000000000000000000000000000',
+      '0x0000000000000000000000000000000000000000000000000000000000000000',
+    ],
+  });
+
+  const promises = [
+    functionExists(client, contractAddress, standardPermitData),
+    functionExists(client, contractAddress, daiPermitData),
+    getVersion(client, contractAddress),
+  ];
+  const [canonicalPermitResponse, daiPermitResponse, versionResponse] =
+    await Promise.allSettled(promises);
+
+  let variant = PermitVariant.Unsupported;
+  if (canonicalPermitResponse.status === 'fulfilled') {
+    variant = PermitVariant.EIP2612Canonical;
+  } else if (daiPermitResponse.status === 'fulfilled') {
+    variant = PermitVariant.DAI;
+  }
+
+  return {
+    variant,
+    version: versionResponse.status === 'fulfilled' ? Number(versionResponse.value) : 1,
+  };
+};
+
+async function getVersion(client: PublicClient, token: `0x${string}`): Promise<string> {
+  try {
+    const result = await client.readContract({
+      address: token,
+      abi: [
+        {
+          type: 'function',
+          name: 'version',
+          inputs: [],
+          stateMutability: 'view',
+          outputs: [{ name: '', type: 'string' }],
+        },
+      ] as const,
+      functionName: 'version',
+    });
+    return result;
+  } catch {
+    return '1';
+  }
+}
+
+async function functionExists(client: PublicClient, token: `0x${string}`, data: `0x${string}`) {
+  return client.call({ to: token, data });
+}
 
 export const createPermitApprovalTx = async ({
   contractAddress,
@@ -639,12 +749,12 @@ export const toFlatBalance = (
 };
 
 export const balancesToAssets = (
+  isCA: boolean,
   ankrBalances: AnkrBalances,
   chainList: ChainListType,
   evmBalances: UnifiedBalanceResponseData[] = [],
   fuelBalances: UnifiedBalanceResponseData[] = [],
   tronBalances: UnifiedBalanceResponseData[] = [],
-  isCA: boolean = true,
 ) => {
   const assets: UserAssetDatum[] = [];
   const vscBalances = evmBalances.concat(fuelBalances).concat(tronBalances);
@@ -969,33 +1079,30 @@ export const getSetCodeKey = (input: SetCodeInput) =>
   ('a' + input.chainID + input.address).toLowerCase();
 
 export const getTxsFromQuote = (
-  aggregator: Aggregator,
-  quote: Quote,
-  inputToken: Bytes,
+  input: {
+    agg: Aggregator;
+    originalHolding: Holding & { decimals: number; symbol: string };
+    quote: Quote;
+    req: { inputToken: Bytes };
+  },
   createApproval = true,
 ) => {
   logger.debug('getTxsFromQuote', {
-    aggregator,
     createApproval,
-    inputToken,
-    quote,
+    input,
   });
-  if (aggregator instanceof LiFiAggregator) {
-    const originalResponse = (quote as LiFiQuote).originalResponse;
+  if (input.agg instanceof LiFiAggregator) {
+    const originalResponse = (input.quote as LiFiQuote).originalResponse;
     const tx = originalResponse.transactionRequest;
-    logger.debug('getTxsFromQuote', {
-      'approval.amount': quote.inputAmount,
-      'approval.target': originalResponse.estimate.approvalAddress,
-      tx: tx,
-      'tx.amount': quote.inputAmount,
-      'tx.inputToken': inputToken,
-      'tx.outputAmount': quote.outputAmountMinimum,
-    });
     const val = {
-      amount: quote.inputAmount,
+      amount: input.quote.inputAmount,
       approval: null as null | Tx,
-      inputToken,
-      outputAmount: quote.outputAmountMinimum,
+      input: {
+        token: input.req.inputToken,
+        decimals: input.originalHolding.decimals,
+        symbol: input.originalHolding.symbol,
+      },
+      outputAmount: input.quote.outputAmountMinimum,
       swap: {
         data: tx.data as Hex,
         to: tx.to as Hex,
@@ -1004,29 +1111,36 @@ export const getTxsFromQuote = (
     };
     if (createApproval) {
       val.approval = {
-        data: packERC20Approve(originalResponse.estimate.approvalAddress as Hex, quote.inputAmount),
-        to: convertToEVMAddress(inputToken),
+        data: packERC20Approve(
+          originalResponse.estimate.approvalAddress as Hex,
+          input.quote.inputAmount,
+        ),
+        to: convertToEVMAddress(input.req.inputToken),
         value: 0n,
       };
     }
 
     return val;
-  } else if (aggregator instanceof BebopAggregator) {
-    const originalResponse = (quote as BebopQuote).originalResponse;
+  } else if (input.agg instanceof BebopAggregator) {
+    const originalResponse = (input.quote as BebopQuote).originalResponse;
     const tx = originalResponse.quote.tx;
     logger.debug('getTxsFromQuote', {
-      'approval.amount': quote.inputAmount,
+      'approval.amount': input.quote.inputAmount,
       'approval.target': originalResponse.quote.approvalTarget,
       tx: tx,
-      'tx.amount': quote.inputAmount,
-      'tx.inputToken': inputToken,
-      'tx.outputAmount': quote.outputAmountMinimum,
+      'tx.amount': input.quote.inputAmount,
+      'tx.inputToken': input.req.inputToken,
+      'tx.outputAmount': input.quote.outputAmountMinimum,
     });
     const val = {
-      amount: quote.inputAmount,
+      amount: input.quote.inputAmount,
       approval: null as null | Tx,
-      inputToken,
-      outputAmount: quote.outputAmountMinimum,
+      input: {
+        token: input.req.inputToken,
+        decimals: input.originalHolding.decimals,
+        symbol: input.originalHolding.symbol,
+      },
+      outputAmount: input.quote.outputAmountMinimum,
       swap: {
         data: tx.data,
         to: tx.to,
@@ -1035,8 +1149,11 @@ export const getTxsFromQuote = (
     };
     if (createApproval) {
       val.approval = {
-        data: packERC20Approve(originalResponse.quote.approvalTarget as Hex, quote.inputAmount),
-        to: convertToEVMAddress(inputToken),
+        data: packERC20Approve(
+          originalResponse.quote.approvalTarget as Hex,
+          input.quote.inputAmount,
+        ),
+        to: convertToEVMAddress(input.req.inputToken),
         value: 0n,
       };
     }

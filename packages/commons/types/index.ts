@@ -250,7 +250,7 @@ export type EventListenerType = {
 export type BridgeAndExecuteSimulationResult =
   | {
       bridgeSimulation: SimulationResult | null;
-      executeSimulation?: ExecuteSimulation;
+      executeSimulation: ExecuteSimulation;
       success: true;
     }
   | {

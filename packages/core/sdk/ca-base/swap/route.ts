@@ -35,7 +35,7 @@ import {
   getBalances,
 } from '../utils';
 import { EADDRESS } from './constants';
-import { FlatBalance, getTokenDecimals } from './data';
+import { FlatBalance } from './data';
 import {
   ErrorChainDataNotFound,
   ErrorCOTNotFound,
@@ -122,6 +122,8 @@ const _exactOutRoute = async (
       equalFold(convertToEVMAddress(b.tokenAddress), dstChainCOTAddress),
   );
 
+  // Since its exact out, we start with desired destination amount and work our
+  // way backward from there
   const fetchDestinationSwapDetails = async (): Promise<DestinationSwap> => {
     let destinationSwap: Awaited<ReturnType<typeof determineDestinationSwaps>> = {
       aggregator: params.aggregators[0],
@@ -153,7 +155,7 @@ const _exactOutRoute = async (
       };
     }
 
-    // Use min but perform everything as max - for buffer of max - min
+    // Use min but perform everything as max - for buffer of (max - min)
     const min = destinationSwap.inputAmount;
     const max = destinationSwap.inputAmount
       .mul(1.02)
@@ -161,6 +163,14 @@ const _exactOutRoute = async (
 
     return {
       ...destinationSwap,
+      originalHolding: {
+        chainID: dstOmniversalChainID,
+        tokenAddress: dstChainCOT.tokenAddress,
+        amount: mulDecimals(destinationSwap.inputAmount, dstChainCOT.decimals),
+        value: 0,
+        decimals: dstChainCOT.decimals,
+        symbol: CurrencyID[dstChainCOT.currencyID],
+      },
       creationTime: createdAt,
       dstChainCOT: dstChainCOT,
       dstEOAToEphTx,
@@ -211,7 +221,7 @@ const _exactOutRoute = async (
 
   console.log({ cotAsset, dstChainCOTBalance });
 
-  let sourceSwaps: Awaited<ReturnType<typeof autoSelectSources>> = [];
+  let sourceSwaps: QuoteResponse = [];
 
   let sourceSwapsRequired = false;
 
@@ -225,26 +235,43 @@ const _exactOutRoute = async (
   }
 
   if (sourceSwapsRequired) {
-    sourceSwaps = await autoSelectSources(
-      userAddressInBytes,
-      balances.map((balance) => ({
-        amount: mulDecimals(balance.amount, balance.decimals),
-        chainID: new OmniversalChainID(balance.universe, balance.chainID),
-        tokenAddress: toBytes(balance.tokenAddress),
-        value: balance.value,
-      })),
-      dstSwapInputAmountInDecimal
-        .add(fees)
-        .mul(1.01)
-        .minus(cotAsset?.balance ?? '0'),
-      params.aggregators,
-      feeStore.data.fee.collection.map((f) => ({
-        ...f,
-        chainID: convertTo32Bytes(Number(f.chainID)),
-        fee: convertTo32Bytes(BigInt(f.fee)),
-        tokenAddress: convertTo32Bytes(f.tokenAddress as Hex),
-      })),
-    );
+    sourceSwaps = (
+      await autoSelectSources(
+        userAddressInBytes,
+        balances.map((balance) => ({
+          amount: mulDecimals(balance.amount, balance.decimals),
+          chainID: new OmniversalChainID(balance.universe, balance.chainID),
+          tokenAddress: toBytes(balance.tokenAddress),
+          value: balance.value,
+        })),
+        dstSwapInputAmountInDecimal
+          .add(fees)
+          .mul(1.01)
+          .minus(cotAsset?.balance ?? '0'),
+        params.aggregators,
+        feeStore.data.fee.collection.map((f) => ({
+          ...f,
+          chainID: convertTo32Bytes(Number(f.chainID)),
+          fee: convertTo32Bytes(BigInt(f.fee)),
+          tokenAddress: convertTo32Bytes(f.tokenAddress as Hex),
+        })),
+      )
+    ).map((v) => {
+      const balance = balances.find((b) =>
+        equalFold(b.tokenAddress, convertTo32BytesHex(v.req.inputToken)),
+      );
+      if (!balance) {
+        throw new Error('???');
+      }
+      return {
+        ...v,
+        originalHolding: {
+          ...v.originalHolding,
+          decimals: balance.decimals,
+          symbol: balance.symbol,
+        },
+      };
+    });
   }
   const sourceSwapCreationTime = Date.now();
 
@@ -352,17 +379,12 @@ const _exactOutRoute = async (
   }[] = [];
 
   for (const swap of sourceSwaps) {
-    const { decimals, symbol } = getTokenDecimals(
-      Number(swap.req.chain.chainID),
-      swap.req.inputToken,
-    );
-
     assetsUsed.push({
-      amount: divDecimals(swap.quote.inputAmount, decimals).toFixed(),
+      amount: divDecimals(swap.quote.inputAmount, swap.originalHolding.decimals).toFixed(),
       chainID: Number(swap.req.chain.chainID),
       contractAddress: convertToEVMAddress(swap.req.inputToken),
-      decimals,
-      symbol,
+      decimals: swap.originalHolding.decimals,
+      symbol: swap.originalHolding.symbol,
     });
   }
 
@@ -422,6 +444,7 @@ type DestinationSwap = {
   };
   quote: Quote | null;
   aggregator: Aggregator;
+  originalHolding: Holding & { symbol: string; decimals: number };
   outputAmount: bigint;
 };
 
@@ -430,7 +453,7 @@ export type SwapRoute = {
     swaps: ({
       req: QuoteRequestExactInput;
       cfee: bigint;
-      originalHolding: Holding;
+      originalHolding: Holding & { decimals: number; symbol: string };
       cur: Currency;
     } & {
       quote: Quote;
@@ -473,6 +496,15 @@ type BridgeInput = {
   decimals: number;
   tokenAddress: `0x${string}`;
 } | null;
+
+type QuoteResponse = {
+  agg: Aggregator;
+  quote: Quote;
+  req: QuoteRequestExactInput;
+  cfee: bigint;
+  originalHolding: Holding & { decimals: number; symbol: string };
+  cur: Currency;
+}[];
 
 const _exactInRoute = async (
   input: ExactInSwapInput,
@@ -612,7 +644,7 @@ const _exactInRoute = async (
     isBridgeRequired,
   });
 
-  let sourceSwaps: Awaited<ReturnType<typeof liquidateInputHoldings>>['quotes'] = [];
+  let sourceSwaps: QuoteResponse = [];
   if (isSrcSwapRequired) {
     const response = await liquidateInputHoldings(
       userAddressInBytes,
@@ -631,7 +663,22 @@ const _exactInRoute = async (
       })),
     );
 
-    sourceSwaps = response.quotes;
+    sourceSwaps = response.quotes.map((oq) => {
+      const balance = balances.find((b) =>
+        equalFold(b.tokenAddress, convertTo32BytesHex(oq.req.inputToken)),
+      );
+      if (!balance) {
+        throw new Error('???');
+      }
+      return {
+        ...oq,
+        originalHolding: {
+          ...oq.originalHolding,
+          decimals: balance.decimals,
+          symbol: balance.symbol,
+        },
+      };
+    });
   }
   const sourceSwapCreationTime = Date.now();
 
@@ -750,6 +797,14 @@ const _exactInRoute = async (
     });
     return {
       ...destinationSwap,
+      originalHolding: {
+        chainID: dstOmniversalChainID,
+        tokenAddress: dstChainCOT.tokenAddress,
+        amount: mulDecimals(dstSwapInputAmountInDecimal, dstChainCOT.decimals),
+        value: 0,
+        decimals: dstChainCOT.decimals,
+        symbol: CurrencyID[dstChainCOT.currencyID],
+      },
       dstChainCOT: dstChainCOT,
       dstEOAToEphTx,
       inputAmount: { min: dstSwapInputAmountInDecimal, max: dstSwapInputAmountInDecimal },

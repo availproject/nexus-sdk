@@ -86,7 +86,7 @@ type SwapInput = {
   agg: Aggregator;
   cfee: bigint;
   cur: Currency;
-  originalHolding: Holding;
+  originalHolding: Holding & { decimals: number; symbol: string };
   quote: Quote;
   req: QuoteRequestExactInput;
 };
@@ -368,12 +368,15 @@ class DestinationSwapHandler {
     let hasDestinationSwap = false;
     if (this.data.swap.quote) {
       hasDestinationSwap = true;
-      await this.requoteIfRequired(/*inputAmount*/);
+      await this.requoteIfRequired();
 
       const txs = getTxsFromQuote(
-        this.data.swap.aggregator,
-        this.data.swap.quote!,
-        this.data.swap.req.inputToken,
+        {
+          agg: this.data.swap.aggregator,
+          originalHolding: this.data.swap.originalHolding,
+          quote: this.data.swap.quote,
+          req: this.data.swap.req,
+        },
         true,
       );
 
@@ -523,7 +526,11 @@ class SourceSwapsHandler {
     const swaps: {
       amount: bigint;
       approval: null | Tx;
-      inputToken: Bytes;
+      input: {
+        token: Bytes;
+        decimals: number;
+        symbol: string;
+      };
       outputAmount: bigint;
       outputToken: Bytes;
       swap: {
@@ -601,16 +608,15 @@ class SourceSwapsHandler {
       {
         for (const swap of swaps) {
           amount += swap.outputAmount;
-          const { symbol } = getTokenDecimals(Number(chainID), swap.inputToken);
-          if (isNativeAddress(convertToEVMAddress(swap.inputToken))) {
+          if (isNativeAddress(convertToEVMAddress(swap.input.token))) {
             sbcCalls.value += swap.amount;
           } else {
             this.options.emitter.emit(
-              SWAP_STEPS.CREATE_PERMIT_FOR_SOURCE_SWAP(false, symbol, chain),
+              SWAP_STEPS.CREATE_PERMIT_FOR_SOURCE_SWAP(false, swap.input.symbol, chain),
             );
             const allowanceCacheKey = getAllowanceCacheKey({
               chainID: chain.id,
-              contractAddress: convertToEVMAddress(swap.inputToken),
+              contractAddress: convertToEVMAddress(swap.input.token),
               owner: this.options.address.eoa,
               spender: this.options.address.ephemeral,
             });
@@ -620,7 +626,7 @@ class SourceSwapsHandler {
               approval: this.disposableCache[allowanceCacheKey],
               cache: this.options.cache,
               chain,
-              contractAddress: convertToEVMAddress(swap.inputToken),
+              contractAddress: convertToEVMAddress(swap.input.token),
               owner: this.options.address.eoa,
               ownerWallet: this.options.wallet.eoa,
               publicClient,
@@ -634,7 +640,7 @@ class SourceSwapsHandler {
             }
 
             this.options.emitter.emit(
-              SWAP_STEPS.CREATE_PERMIT_FOR_SOURCE_SWAP(true, symbol, chain),
+              SWAP_STEPS.CREATE_PERMIT_FOR_SOURCE_SWAP(true, swap.input.symbol, chain),
             );
             logger.debug('sourceSwap', {
               chainID,
@@ -871,7 +877,15 @@ class SourceSwapsHandler {
                 returnData: {},
               });
 
-              return nq.quotes[0];
+              const q = nq.quotes[0];
+              return {
+                ...q,
+                originalHolding: {
+                  ...q.originalHolding,
+                  decimals: oq.originalHolding.decimals,
+                  symbol: oq.originalHolding.symbol,
+                },
+              };
             }),
           );
         }
@@ -962,10 +976,6 @@ class Swap {
 
   getMetadata() {
     const txs = this.getTxsData();
-    const { decimals: inputDecimals } = getTokenDecimals(
-      Number(this.input.req.chain.chainID),
-      this.input.req.inputToken,
-    );
 
     const { decimals: outputDecimals } = getTokenDecimals(
       Number(this.input.req.chain.chainID),
@@ -975,7 +985,7 @@ class Swap {
       agg: 1,
       input_amt: convertTo32Bytes(this.input.req.inputAmount),
       input_contract: this.input.req.inputToken,
-      input_decimals: inputDecimals,
+      input_decimals: txs.input.decimals,
       output_amt: convertTo32Bytes(txs.amount),
       output_contract: this.input.req.outputToken,
       output_decimals: outputDecimals,
@@ -984,12 +994,7 @@ class Swap {
 
   getTxsData() {
     return {
-      ...getTxsFromQuote(
-        this.input.agg,
-        this.input.quote,
-        this.input.req.inputToken,
-        !bytesEqual(EADDRESS_32_BYTES, this.input.req.inputToken),
-      ),
+      ...getTxsFromQuote(this.input, !bytesEqual(EADDRESS_32_BYTES, this.input.req.inputToken)),
       outputToken: this.input.req.outputToken,
     };
   }

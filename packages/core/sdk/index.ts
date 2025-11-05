@@ -166,8 +166,8 @@ export class NexusSDK extends CA {
    * @param params execute parameters including contract details and transaction settings
    * @returns Promise resolving to execute result with transaction hash and explorer URL
    */
-  public async execute(params: ExecuteParams): Promise<ExecuteResult> {
-    return this._execute(params);
+  public async execute(params: ExecuteParams, options?: OnEventParam): Promise<ExecuteResult> {
+    return this._execute(params, options);
   }
 
   /**
@@ -204,7 +204,7 @@ export class NexusSDK extends CA {
   }
 
   public getBalancesForSwap() {
-    return this._getBalancesForSwap()
+    return this._getBalancesForSwap();
   }
 
   public getSwapSupportedChains(): SupportedChainsResult {

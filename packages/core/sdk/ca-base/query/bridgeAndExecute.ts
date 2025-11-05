@@ -398,7 +398,8 @@ class BridgeAndExecuteQuery {
     return { tx, approvalTx, dstChain, dstPublicClient };
   }
 
-  public async execute(params: ExecuteParams, address: Hex) {
+  public async execute(params: ExecuteParams, options?: OnEventParam) {
+    const address = (await this.evmClient.getAddresses())[0];
     const { dstPublicClient, dstChain, approvalTx, tx } = await this.createTxsForExecute(
       params,
       address,
@@ -411,6 +412,7 @@ class BridgeAndExecuteQuery {
         tx,
       },
       {
+        emit: options?.onEvent,
         chain: dstChain,
         dstPublicClient,
         address,

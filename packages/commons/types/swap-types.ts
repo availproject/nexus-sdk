@@ -110,12 +110,14 @@ export type SwapIntent = {
   }[];
 };
 
-export type OnSwapIntentHook = (data: {
+export type OnSwapIntentHookData = {
   allow: () => void;
   deny: () => void;
   intent: SwapIntent;
   refresh: () => Promise<SwapIntent>;
-}) => unknown;
+};
+
+export type OnSwapIntentHook = (data: OnSwapIntentHookData) => unknown;
 
 export type SwapParams = {
   onSwapIntent: OnSwapIntentHook;
