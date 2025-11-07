@@ -436,7 +436,7 @@ const TESTNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/asset_platforms/images/279/large/ethereum.png?1706606803',
       knownTokens: [
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.VALIDIUM],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.VALIDIUM_TESTNET],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
@@ -444,8 +444,8 @@ const TESTNET_CHAINS: Chain[] = [
         },
       ],
     },
-    id: SUPPORTED_CHAINS.VALIDIUM,
-    name: 'Validium',
+    id: SUPPORTED_CHAINS.VALIDIUM_TESTNET,
+    name: 'Validium Testnet',
     ankrName: '',
     nativeCurrency: {
       decimals: 18,
