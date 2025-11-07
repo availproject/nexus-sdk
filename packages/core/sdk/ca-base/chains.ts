@@ -354,7 +354,7 @@ const TESTNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/coins/images/38927/standard/monad.jpg',
       knownTokens: [
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.MONAD_TESTNET],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.MONAD_TESTNET],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
@@ -617,7 +617,7 @@ const MAINNET_CHAINS: Chain[] = [
           symbol: 'USDT',
         },
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.ETHEREUM],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.ETHEREUM],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',

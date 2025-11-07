@@ -102,17 +102,17 @@ class BridgeAndExecuteQuery {
       this.getUnifiedBalances(),
     ]);
 
-    const gasUnitPrice = gasFeeEstimate.maxFeePerGas ?? gasFeeEstimate.gasPrice ?? 0n;
-    if (gasUnitPrice === 0n) {
+    const gasPrice = gasFeeEstimate.maxFeePerGas ?? gasFeeEstimate.gasPrice ?? 0n;
+    if (gasPrice === 0n) {
       throw new Error('Gas price could not be fetched from RPC URL.');
     }
 
-    const gasFee = gasUsed * gasUnitPrice;
+    const gasFee = gasUsed * gasPrice;
 
     logger.debug('BridgeAndExecute:3', {
       gasUsed,
       gasFeeEstimate,
-      gasUnitPrice,
+      gasPrice,
       balances,
     });
 
@@ -138,6 +138,7 @@ class BridgeAndExecuteQuery {
       dstPublicClient,
       gasFee,
       gasUsed,
+      gasPrice,
     };
   }
 
@@ -181,7 +182,7 @@ class BridgeAndExecuteQuery {
   /**
    * Bridge and execute operation - combines bridge and execute with proper sequencing
    * Checks balance and gas present on destination chain & bridges (required - available) token + gas.
-   *
+   * Simulates using tenderly for gas and gasPrice if gas and gasPrice not provided.
    */
   public async bridgeAndExecute(
     params: BridgeAndExecuteParams,
@@ -197,6 +198,8 @@ class BridgeAndExecuteQuery {
       gasAmount,
       tx,
       approvalTx,
+      gasUsed,
+      gasPrice,
     } = await this.estimateBridgeAndExecute(params);
 
     logger.debug('BridgeAndExecute:4:CalculateOptimalBridgeAmount', {
@@ -255,6 +258,8 @@ class BridgeAndExecuteQuery {
       {
         approvalTx,
         tx,
+        gas: gasUsed,
+        gasPrice,
       },
       {
         emit: options?.onEvent,
@@ -498,6 +503,8 @@ class BridgeAndExecuteQuery {
     params: {
       tx: Tx;
       approvalTx: Tx | null;
+      gas?: bigint;
+      gasPrice?: bigint;
     },
     options: {
       emit?: OnEventParam['onEvent'];
@@ -533,6 +540,8 @@ class BridgeAndExecuteQuery {
       ...params.tx,
       account: options.address,
       chain: options.chain,
+      gas: params.gas,
+      gasPrice: params.gasPrice,
     });
 
     if (options.emit) {

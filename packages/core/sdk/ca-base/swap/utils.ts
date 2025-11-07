@@ -779,7 +779,7 @@ export const balancesToAssets = (
       const decimals = token ? token.decimals : chain.nativeCurrency.decimals;
 
       if (token) {
-        const asset = assets.find((s) => s.symbol === token.symbol);
+        const asset = assets.find((s) => equalFold(s.symbol, token.symbol));
         if (asset) {
           asset.balance = new Decimal(asset.balance).add(currency.balance).toFixed();
           asset.balanceInFiat = new Decimal(asset.balanceInFiat)

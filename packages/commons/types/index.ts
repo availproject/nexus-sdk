@@ -167,10 +167,8 @@ export interface ExecuteParams {
   to: Hex;
   value?: bigint;
   data?: Hex;
-
   gas?: bigint;
   gasPrice?: bigint;
-
   enableTransactionPolling?: boolean;
   transactionTimeout?: number;
   // Transaction receipt confirmation options
