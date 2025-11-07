@@ -13,6 +13,8 @@
     "dev": "pnpm run dev:core & pnpm run dev:widgets",
     "format": "prettier --write \"packages/**/*.{ts,tsx}\"",
     "prepare": "husky install",
+    "typecheck:core": "pnpm -F @avail-project/nexus-core typecheck",
+    "typecheck:widgets": "pnpm -F @avail-project/nexus-widgets typecheck",
     "typecheck": "pnpm -r typecheck",
     "clean": "rimraf packages/widgets/dist packages/core/dist packages/commons/dist",
     "clean:modules": "rimraf node_modules packages/widgets/node_modules packages/core/node_modules packages/commons/node_modules",
