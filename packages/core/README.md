@@ -16,7 +16,7 @@ npm install @avail-project/nexus-core
 
 ## 🚀 Quick Start
 
-````typescript
+```typescript
 import { NexusSDK, NEXUS_EVENTS } from '@avail-project/nexus-core';
 
 // Initialize SDK
@@ -40,6 +40,7 @@ const bridgeResult = await sdk.bridge(
   {
     token: 'USDC',
     amount: "1.5",
+    recipient: '0x...' // Optional
     chainId: 137, // Polygon
   },
   {
@@ -53,7 +54,7 @@ const bridgeResult = await sdk.bridge(
 // ---------------------------
 // 3️⃣ Transfer tokens
 // ---------------------------
-const transferResult = await sdk.transfer(
+const transferResult = await sdk.bridgeAndTransfer(
   {
     token: 'ETH',
     amount: "1.5",
@@ -125,6 +126,8 @@ const swapResult = await sdk.swapWithExactIn(
   },
 );
 
+```
+
 ---
 
 ## ✨ Core Features
@@ -175,7 +178,7 @@ const sdkTest = new NexusSDK({ network: 'testnet' });
 
 // Initialize with wallet provider
 await sdk.initialize(window.ethereum);
-````
+```
 
 ---
 
@@ -184,7 +187,7 @@ await sdk.initialize(window.ethereum);
 **All main SDK functions support the `onEvent` hook**:
 
 - `bridge`
-- `transfer`
+- `bridgeAndTransfer`
 - `execute`
 - `bridgeAndExecute`
 - `swapWithExactIn` / `swapWithExactOut`
@@ -390,15 +393,15 @@ import type {
 
 ### Testnets
 
-| Network          | Chain ID   | Native | Status |
-| ---------------- | ---------- | ------ | ------ |
-| Optimism Sepolia | 11155420   | ETH    | ✅     |
-| Polygon Amoy     | 80002      | MATIC  | ✅     |
-| Arbitrum Sepolia | 421614     | ETH    | ✅     |
-| Base Sepolia     | 84532      | ETH    | ✅     |
-| Sepolia          | 11155111   | ETH    | ✅     |
-| Monad Testnet    | 10143      | MON    | ✅     |
-| Tron Shasta      | 2494104990 | TRX    | ✅     |
+| Network          | Chain ID | Native | Status |
+| ---------------- | -------- | ------ | ------ |
+| Optimism Sepolia | 11155420 | ETH    | ✅     |
+| Polygon Amoy     | 80002    | MATIC  | ✅     |
+| Arbitrum Sepolia | 421614   | ETH    | ✅     |
+| Base Sepolia     | 84532    | ETH    | ✅     |
+| Sepolia          | 11155111 | ETH    | ✅     |
+| Monad Testnet    | 10143    | MON    | ✅     |
+| Validium         | 567      | VLDM   | ✅     |
 
 ---
 
@@ -415,4 +418,4 @@ import type {
 ## 🔗 Resources
 
 - **GitHub:** [availproject/nexus-sdk](https://github.com/availproject/nexus-sdk)
-- **Docs:** [docs.availproject.org]([https://docs.availproject.org/api-reference/ava](https://docs.availproject.org/api-reference/ava)
+- **Docs:** [docs.availproject.org](https://docs.availproject.org/nexus/avail-nexus-sdk)

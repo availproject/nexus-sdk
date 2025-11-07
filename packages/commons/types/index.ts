@@ -116,26 +116,17 @@ export type BridgeMaxResult = {
 /**
  * Result structure for bridge transactions.
  */
-export type BridgeResult =
-  | { success: false; error: string }
-  | {
-      success: true;
-      explorerUrl: string;
-    };
+export type BridgeResult = {
+  explorerUrl: string;
+};
 
 /**
  * Result structure for transfer transactions.
  */
-export type TransferResult =
-  | {
-      success: true;
-      transactionHash: string;
-      explorerUrl: string;
-    }
-  | {
-      success: false;
-      error: string;
-    };
+export type TransferResult = {
+  transactionHash: string;
+  explorerUrl: string;
+};
 
 export interface SimulationResult {
   intent: ReadableIntent;
@@ -205,16 +196,10 @@ export interface ExecuteResult {
   approvalTransactionHash?: string;
 }
 
-export type ExecuteSimulation =
-  | {
-      gasUsed: bigint;
-      gasFee: bigint;
-      success: true;
-    }
-  | {
-      success: false;
-      error: string;
-    };
+export type ExecuteSimulation = {
+  gasUsed: bigint;
+  gasFee: bigint;
+};
 
 // New types for improved approval simulation
 export interface ApprovalInfo {
@@ -247,16 +232,10 @@ export type EventListenerType = {
   onEvent: (eventName: string, ...args: any[]) => void;
 };
 
-export type BridgeAndExecuteSimulationResult =
-  | {
-      bridgeSimulation: SimulationResult | null;
-      executeSimulation: ExecuteSimulation;
-      success: true;
-    }
-  | {
-      success: false;
-      error: string;
-    };
+export type BridgeAndExecuteSimulationResult = {
+  bridgeSimulation: SimulationResult | null;
+  executeSimulation: ExecuteSimulation;
+};
 
 export interface BridgeAndExecuteParams {
   toChainId: number;
@@ -299,31 +278,14 @@ export type IBridgeOptions = {
   chainList: ChainListType;
 };
 
-export type BridgeAndExecuteResult =
-  | {
-      success: false;
-      error: string;
-    }
-  | {
-      executeTransactionHash: string;
-      executeExplorerUrl: string;
-      approvalTransactionHash?: string;
-      bridgeExplorerUrl?: string; // undefined when bridge is skipped
-      toChainId: number;
-      success: true;
-      bridgeSkipped: boolean; // indicates if bridge was skipped due to sufficient funds
-    };
-
-/**
- * Smart contract call parameters
- */
-export interface ContractCallParams {
-  to: `0x${string}`;
-  data: `0x${string}`;
-  value?: bigint;
-  gas?: bigint;
-  gasPrice?: bigint;
-}
+export type BridgeAndExecuteResult = {
+  executeTransactionHash: string;
+  executeExplorerUrl: string;
+  approvalTransactionHash?: string;
+  bridgeExplorerUrl?: string; // undefined when bridge is skipped
+  toChainId: number;
+  bridgeSkipped: boolean; // indicates if bridge was skipped due to sufficient funds
+};
 
 export type BridgeQueryInput = {
   amount: number | string;
@@ -661,6 +623,7 @@ export type UnifiedBalanceResponseData = {
   }[];
   total_usd: string;
   universe: Universe;
+  errored: boolean;
 };
 
 export type UserAssetDatum = {

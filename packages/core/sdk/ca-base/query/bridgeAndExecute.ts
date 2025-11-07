@@ -6,7 +6,6 @@ import {
   Tx,
   Chain,
   ChainListType,
-  extractErrorMessage,
   BridgeParams,
   UserAssetDatum,
   ExecuteParams,
@@ -42,142 +41,9 @@ class BridgeAndExecuteQuery {
     private simulationClient: BackendSimulationClient,
   ) {}
 
-  public async simulateBridgeAndExecute(
-    params: BridgeAndExecuteParams,
-  ): Promise<BridgeAndExecuteSimulationResult> {
+  private async estimateBridgeAndExecute(params: BridgeAndExecuteParams) {
     const { toChainId, token: tokenSymbol, amount, execute } = params;
-    try {
-      // 1. Check if dst chain data is available
-      // 2. Check if token is supported
-      const { token, chain: dstChain } = this.chainList.getChainAndTokenFromSymbol(
-        params.toChainId,
-        tokenSymbol,
-      );
-      if (!token) {
-        throw new Error(`Token ${tokenSymbol} not supported on chain ${toChainId}.`);
-      }
 
-      let bridgeResult = null;
-
-      logger.debug('BridgeAndExecute:1', {
-        token,
-        dstChain,
-      });
-
-      const address = (await this.evmClient.getAddresses())[0];
-      let txs: Tx[] = [];
-
-      const { tx, approvalTx, dstPublicClient } = await this.createTxsForExecute(
-        { ...execute, toChainId: params.toChainId },
-        address,
-      );
-
-      logger.debug('BridgeAndExecute:2', {
-        tx,
-        approvalTx,
-      });
-
-      if (approvalTx) {
-        txs.push(approvalTx);
-      }
-
-      txs.push(tx);
-
-      // 5. simulate approval(?) and execution + fetch gasPrice + fetch unified balance
-      const [{ gasUsed }, gasEstimate, balances] = await Promise.all([
-        this.simulateBundle({
-          txs,
-          amount: BigInt(execute.tokenApproval?.amount ?? '0'),
-          userAddress: address,
-          chainId: dstChain.id,
-          tokenAddress: token.contractAddress,
-          tokenSymbol: execute.tokenApproval?.token ?? 'ETH',
-        }),
-        dstPublicClient.estimateFeesPerGas(),
-        this.getUnifiedBalances(),
-      ]);
-
-      const gasUnitPrice = gasEstimate.maxFeePerGas ?? gasEstimate.gasPrice ?? 0n;
-      if (gasUnitPrice === 0n) {
-        throw new Error('Gas price could not be fetched from RPC URL.');
-      }
-
-      const gasRequired = gasUsed * gasUnitPrice;
-
-      logger.debug('BridgeAndExecute:3', {
-        gasUsed,
-        gasEstimate,
-        gasUnitPrice,
-        balances,
-      });
-
-      // 6. Determine gas + token required for approval(?) + tx
-      const { skipBridge, tokenAmount, gasAmount } = await this.calculateOptimalBridgeAmount(
-        dstChain,
-        token.contractAddress,
-        token.decimals,
-        amount,
-        gasRequired,
-        balances,
-      );
-
-      logger.debug('BridgeAndExecute:4:CalculateOptimalBridgeAmount', {
-        skipBridge,
-        tokenAmount,
-        gasAmount,
-      });
-
-      // 7. If bridge is required then simulate bridge
-      if (!skipBridge) {
-        bridgeResult = await this.simulateBridgeWrapper({
-          token: tokenSymbol,
-          amount: divDecimals(BigInt(tokenAmount), token.decimals).toFixed(),
-          chainId: toChainId,
-          sourceChains: params.sourceChains,
-          gas: gasAmount,
-        });
-      }
-
-      // 8. Return result
-      const result: BridgeAndExecuteSimulationResult = {
-        success: true,
-        bridgeSimulation: bridgeResult,
-        executeSimulation: {
-          success: true,
-          gasUsed,
-          gasFee: gasRequired,
-        },
-      };
-
-      return result;
-    } catch (error) {
-      const errorMessage = extractErrorMessage(error, 'simulate bridge and execute');
-
-      logger.debug('Simulate BridgeAndExecute:5:ERROR', {
-        error,
-      });
-      return {
-        success: false,
-        error: `Simulate Bridge and execute operation failed: ${errorMessage}`,
-      };
-    }
-  }
-
-  /**
-   * Bridge and execute operation - combines bridge and execute with proper sequencing
-   * Checks balance and gas present on destination chain
-   * & bridges (required - available) token + gas
-   */
-  public async bridgeAndExecute(
-    params: BridgeAndExecuteParams,
-    options?: OnEventParam,
-  ): Promise<BridgeAndExecuteResult> {
-    const { toChainId, token: tokenSymbol, amount, execute } = params;
-    logger.debug('bridgeAndExecute', {
-      options,
-    });
-    // 1. Check if dst chain data is available
-    // 2. Check if token is supported
     const { token, chain: dstChain } = this.chainList.getChainAndTokenFromSymbol(
       params.toChainId,
       tokenSymbol,
@@ -185,11 +51,6 @@ class BridgeAndExecuteQuery {
     if (!token) {
       throw new Error(`Token ${tokenSymbol} not supported on chain ${toChainId}.`);
     }
-
-    let bridgeResult: BridgeResult = {
-      success: true,
-      explorerUrl: '',
-    };
 
     logger.debug('BridgeAndExecute:1', {
       token,
@@ -216,30 +77,41 @@ class BridgeAndExecuteQuery {
 
     txs.push(tx);
 
+    const determineGasUsed = params.execute.gas
+      ? Promise.resolve({ gasUsed: params.execute.gas + (approvalTx ? 85_000n : 0n) })
+      : this.simulateBundle({
+          txs,
+          amount: BigInt(execute.tokenApproval?.amount ?? '0'),
+          userAddress: address,
+          chainId: dstChain.id,
+          tokenAddress: token.contractAddress,
+          tokenSymbol: execute.tokenApproval?.token ?? 'ETH',
+        });
+
+    const determineGasFee = params.execute.gasPrice
+      ? Promise.resolve({
+          maxFeePerGas: params.execute.gasPrice,
+          gasPrice: params.execute.gasPrice,
+        })
+      : dstPublicClient.estimateFeesPerGas();
+
     // 5. simulate approval(?) and execution + fetch gasPrice + fetch unified balance
-    const [{ gasUsed }, gasEstimate, balances] = await Promise.all([
-      this.simulateBundle({
-        txs,
-        amount: BigInt(execute.tokenApproval?.amount ?? '0'),
-        userAddress: address,
-        chainId: dstChain.id,
-        tokenAddress: token.contractAddress,
-        tokenSymbol: execute.tokenApproval?.token ?? 'ETH',
-      }),
-      dstPublicClient.estimateFeesPerGas(),
+    const [{ gasUsed }, gasFeeEstimate, balances] = await Promise.all([
+      determineGasUsed,
+      determineGasFee,
       this.getUnifiedBalances(),
     ]);
 
-    const gasUnitPrice = gasEstimate.maxFeePerGas ?? gasEstimate.gasPrice ?? 0n;
+    const gasUnitPrice = gasFeeEstimate.maxFeePerGas ?? gasFeeEstimate.gasPrice ?? 0n;
     if (gasUnitPrice === 0n) {
       throw new Error('Gas price could not be fetched from RPC URL.');
     }
 
-    const gasRequired = gasUsed * gasUnitPrice;
+    const gasFee = gasUsed * gasUnitPrice;
 
     logger.debug('BridgeAndExecute:3', {
       gasUsed,
-      gasEstimate,
+      gasFeeEstimate,
       gasUnitPrice,
       balances,
     });
@@ -250,11 +122,82 @@ class BridgeAndExecuteQuery {
       token.contractAddress,
       token.decimals,
       amount,
-      gasRequired,
+      gasFee,
       balances,
     );
 
-    // Create and emit steps
+    return {
+      skipBridge,
+      tokenAmount,
+      gasAmount,
+      tx,
+      approvalTx,
+      token,
+      dstChain,
+      address,
+      dstPublicClient,
+      gasFee,
+      gasUsed,
+    };
+  }
+
+  public async simulateBridgeAndExecute(
+    params: BridgeAndExecuteParams,
+  ): Promise<BridgeAndExecuteSimulationResult> {
+    const { gasFee, token, skipBridge, tokenAmount, gasAmount, gasUsed } =
+      await this.estimateBridgeAndExecute(params);
+
+    logger.debug('BridgeAndExecute:4:CalculateOptimalBridgeAmount', {
+      skipBridge,
+      tokenAmount,
+      gasAmount,
+    });
+
+    let bridgeResult = null;
+
+    // 7. If bridge is required then simulate bridge
+    if (!skipBridge) {
+      bridgeResult = await this.simulateBridgeWrapper({
+        token: token.symbol,
+        amount: divDecimals(BigInt(tokenAmount), token.decimals).toFixed(),
+        chainId: params.toChainId,
+        sourceChains: params.sourceChains,
+        gas: gasAmount,
+      });
+    }
+
+    // 8. Return result
+    const result: BridgeAndExecuteSimulationResult = {
+      bridgeSimulation: bridgeResult,
+      executeSimulation: {
+        gasUsed,
+        gasFee,
+      },
+    };
+
+    return result;
+  }
+
+  /**
+   * Bridge and execute operation - combines bridge and execute with proper sequencing
+   * Checks balance and gas present on destination chain & bridges (required - available) token + gas.
+   *
+   */
+  public async bridgeAndExecute(
+    params: BridgeAndExecuteParams,
+    options?: OnEventParam,
+  ): Promise<BridgeAndExecuteResult> {
+    const {
+      dstPublicClient,
+      address,
+      dstChain,
+      token,
+      skipBridge,
+      tokenAmount,
+      gasAmount,
+      tx,
+      approvalTx,
+    } = await this.estimateBridgeAndExecute(params);
 
     logger.debug('BridgeAndExecute:4:CalculateOptimalBridgeAmount', {
       skipBridge,
@@ -266,17 +209,23 @@ class BridgeAndExecuteQuery {
       BRIDGE_STEPS.EXECUTE_TRANSACTION_SENT,
       BRIDGE_STEPS.EXECUTE_TRANSACTION_CONFIRMED,
     ];
+
+    // Approval and execute
     if (approvalTx) {
       executeSteps.unshift(BRIDGE_STEPS.EXECUTE_APPROVAL_STEP);
     }
+
+    let bridgeResult: BridgeResult = {
+      explorerUrl: '',
+    };
 
     // 7. If bridge is required then bridge
     if (!skipBridge) {
       bridgeResult = await this.bridgeWrapper(
         {
-          token: tokenSymbol,
+          token: token.symbol,
           amount: divDecimals(BigInt(tokenAmount), token.decimals).toFixed(),
-          chainId: toChainId,
+          chainId: params.toChainId,
           sourceChains: params.sourceChains,
           gas: gasAmount,
         },
@@ -295,9 +244,6 @@ class BridgeAndExecuteQuery {
           },
         },
       );
-      if (!bridgeResult.success) {
-        throw new Error(`Bridge failed: ${bridgeResult.error}`);
-      }
     } else {
       if (options && options.onEvent) {
         options.onEvent({ name: NEXUS_EVENTS.STEPS_LIST, args: executeSteps });
@@ -335,8 +281,7 @@ class BridgeAndExecuteQuery {
       ),
       approvalTransactionHash: executeResponse.approvalHash,
       bridgeExplorerUrl: bridgeResult.explorerUrl,
-      toChainId,
-      success: true,
+      toChainId: params.toChainId,
       bridgeSkipped: skipBridge,
     };
 
@@ -441,35 +386,27 @@ class BridgeAndExecuteQuery {
   }
 
   public async simulateExecute(params: ExecuteParams, address: Hex): Promise<ExecuteSimulation> {
-    try {
-      const { dstPublicClient, tx } = await this.createTxsForExecute(params, address);
+    const { dstPublicClient, tx } = await this.createTxsForExecute(params, address);
 
-      const [gasUsed, gasPrice] = await Promise.all([
-        dstPublicClient.estimateGas({
-          to: tx.to,
-          data: tx.data,
-          value: tx.value,
-          account: address,
-        }),
-        dstPublicClient.estimateFeesPerGas(),
-      ]);
+    const [gasUsed, gasPrice] = await Promise.all([
+      dstPublicClient.estimateGas({
+        to: tx.to,
+        data: tx.data,
+        value: tx.value,
+        account: address,
+      }),
+      dstPublicClient.estimateFeesPerGas(),
+    ]);
 
-      const gasUnitPrice = gasPrice.maxFeePerGas ?? gasPrice.gasPrice ?? 0n;
-      if (gasUnitPrice === 0n) {
-        throw new Error('could not get gas price from rpc.');
-      }
-
-      return {
-        gasUsed: gasUsed,
-        gasFee: gasUsed * gasUnitPrice,
-        success: true,
-      };
-    } catch (err) {
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : String(err),
-      };
+    const gasUnitPrice = gasPrice.maxFeePerGas ?? gasPrice.gasPrice ?? 0n;
+    if (gasUnitPrice === 0n) {
+      throw new Error('could not get gas price from rpc.');
     }
+
+    return {
+      gasUsed: gasUsed,
+      gasFee: gasUsed * gasUnitPrice,
+    };
   }
 
   /**
@@ -633,19 +570,11 @@ class BridgeAndExecuteQuery {
     params: BridgeParams,
     options?: OnEventParam,
   ): Promise<BridgeResult> => {
-    try {
-      const handler = this.bridge(params, options);
-      const result = await handler.execute();
-      return {
-        success: true,
-        explorerUrl: result?.explorerURL ?? '',
-      };
-    } catch (e) {
-      return {
-        success: false,
-        error: e instanceof Error ? e.message : String(e),
-      };
-    }
+    const handler = this.bridge(params, options);
+    const result = await handler.execute();
+    return {
+      explorerUrl: result?.explorerURL ?? '',
+    };
   };
 
   private simulateBridgeWrapper = async (params: BridgeParams) => {

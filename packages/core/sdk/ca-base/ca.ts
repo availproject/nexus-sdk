@@ -180,9 +180,10 @@ export class CA {
   }
 
   protected _getUnifiedBalances = async (includeSwappableBalances = false) => {
-    if (!this._evm) {
+    if (!this._evm || this._initStatus !== INIT_STATUS.DONE) {
       throw Errors.sdkNotInitialized();
     }
+
     const { assets } = await getBalances({
       networkHint: this._networkConfig.NETWORK_HINT,
       evmAddress: (await this._evm.client.requestAddresses())[0],

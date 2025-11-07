@@ -64,7 +64,6 @@ export const getBalances = async (input: {
 
   let cacheValue = balanceCache.value[cacheKey];
   if (!cacheValue || cacheValue.lastUpdatedAt + minutesToMs(0.5) < Date.now()) {
-    console.log('fetching balance');
     const [ankrBalances, evmBalances, fuelBalances, tronBalances] = await Promise.all([
       input.networkHint === Environment.FOLLY || isCA
         ? Promise.resolve([])

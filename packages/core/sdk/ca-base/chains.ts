@@ -136,43 +136,43 @@ class ChainList {
 }
 
 const TESTNET_CHAINS: Chain[] = [
-  {
-    blockExplorers: {
-      default: {
-        name: 'TronScan',
-        url: 'https://shasta.tronscan.org',
-      },
-    },
-    custom: {
-      icon: 'https://assets.coingecko.com/asset_platforms/images/1094/large/TRON_LOGO.png',
-      knownTokens: [
-        {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.TRON_SHASTA],
-          decimals: 6,
-          logo: getLogoFromSymbol('USDT'),
-          name: 'Tether USD',
-          symbol: 'USDT',
-        },
-      ],
-    },
-    id: SUPPORTED_CHAINS.TRON_SHASTA,
-    ankrName: '',
-    name: 'Tron Shasta',
-    nativeCurrency: {
-      decimals: 6,
-      name: 'TRX',
-      symbol: 'TRX',
-    },
-    rpcUrls: {
-      default: {
-        http: ['https://api.shasta.trongrid.io/jsonrpc'],
-        grpc: ['https://api.shasta.trongrid.io'],
-        publicHttp: ['https://api.shasta.trongrid.io/jsonrpc'],
-        webSocket: [],
-      },
-    },
-    universe: Universe.TRON,
-  },
+  // {
+  //   blockExplorers: {
+  //     default: {
+  //       name: 'TronScan',
+  //       url: 'https://shasta.tronscan.org',
+  //     },
+  //   },
+  //   custom: {
+  //     icon: 'https://assets.coingecko.com/asset_platforms/images/1094/large/TRON_LOGO.png',
+  //     knownTokens: [
+  //       {
+  //         contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.TRON_SHASTA],
+  //         decimals: 6,
+  //         logo: getLogoFromSymbol('USDT'),
+  //         name: 'Tether USD',
+  //         symbol: 'USDT',
+  //       },
+  //     ],
+  //   },
+  //   id: SUPPORTED_CHAINS.TRON_SHASTA,
+  //   ankrName: '',
+  //   name: 'Tron Shasta',
+  //   nativeCurrency: {
+  //     decimals: 6,
+  //     name: 'TRX',
+  //     symbol: 'TRX',
+  //   },
+  //   rpcUrls: {
+  //     default: {
+  //       http: ['https://api.shasta.trongrid.io/jsonrpc'],
+  //       grpc: ['https://api.shasta.trongrid.io'],
+  //       publicHttp: ['https://api.shasta.trongrid.io/jsonrpc'],
+  //       webSocket: [],
+  //     },
+  //   },
+  //   universe: Universe.TRON,
+  // },
   {
     blockExplorers: {
       default: {

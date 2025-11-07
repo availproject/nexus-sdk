@@ -324,7 +324,8 @@ export const getBalancesFromVSC = async (
   const response = await getVscReq(vscDomain).get<{
     balances: UnifiedBalanceResponseData[];
   }>(`/get-balance/${namespace}/${address}`);
-  return response.data.balances;
+  logger.debug('getBalancesFromVSC', { response });
+  return response.data.balances.filter((b) => b.errored !== true);
 };
 
 export const getEVMBalancesForAddress = async (vscDomain: string, address: `0x${string}`) => {

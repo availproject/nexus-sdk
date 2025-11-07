@@ -60,7 +60,6 @@ export class NexusSDK extends CA {
   public async bridge(params: BridgeParams, options?: OnEventParam): Promise<BridgeResult> {
     const result = await this.createBridgeHandler(params, options).execute();
     return {
-      success: true,
       explorerUrl: result.explorerURL ?? '',
     };
   }
@@ -79,14 +78,10 @@ export class NexusSDK extends CA {
     options?: OnEventParam,
   ): Promise<TransferResult> {
     const result = await this._bridgeAndTransfer(params, options);
-    if (result.success) {
-      return {
-        success: result.success,
-        transactionHash: result.executeTransactionHash,
-        explorerUrl: result.executeExplorerUrl,
-      };
-    }
-    return result;
+    return {
+      transactionHash: result.executeTransactionHash,
+      explorerUrl: result.executeExplorerUrl,
+    };
   }
 
   public async swapWithExactIn(
