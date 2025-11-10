@@ -101,7 +101,7 @@ const cosmosRefundIntent = async (
       ],
       {
         amount: [],
-        gas: 100_000n.toString(10),
+        gas: 200_000n.toString(10),
       },
     );
     logger.debug('Refund response', { resp });

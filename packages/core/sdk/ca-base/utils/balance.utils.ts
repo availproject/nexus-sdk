@@ -1,6 +1,7 @@
 import { Environment } from '@avail-project/ca-common';
 import { ChainListType, logger, SUPPORTED_CHAINS, UserAssetDatum } from '@nexus/commons';
 import {
+  // createPublicClientWithFallback,
   equalFold,
   getEVMBalancesForAddress,
   getFuelBalancesForAddress,
@@ -10,6 +11,7 @@ import {
 import { encodePacked, Hex, keccak256, pad, toHex } from 'viem';
 import { balancesToAssets, getAnkrBalances, toFlatBalance } from '../swap/utils';
 import { filterSupportedTokens } from '../swap/data';
+// import { Errors } from '../errors';
 
 const getKeyForStorage = ({
   evmAddress,
@@ -204,3 +206,25 @@ function getBalanceStorageSlot(token: string, chainId: number): number {
       ? DEFAULT_SLOT.USDT
       : DEFAULT_SLOT.ETH;
 }
+
+// export const getGasFeeFromBridgeParams = async (input: MaxBridgeParams, dstChain: Chain) => {
+//   let nativeAmount = 0n;
+//   if ('gas' in input && input.gas) {
+//     if ('gasPrice' in input && input.gasPrice) {
+//       nativeAmount = input.gas * input.gasPrice;
+//     } else {
+//       const pc = createPublicClientWithFallback(dstChain);
+//       const estimateGasPriceResponse = await pc.estimateFeesPerGas();
+//       const gasUnitPrice =
+//         estimateGasPriceResponse.maxFeePerGas ?? estimateGasPriceResponse.gasPrice ?? 0n;
+//       if (gasUnitPrice == 0n) {
+//         throw Errors.gasPriceError({
+//           chainId: dstChain.id,
+//         });
+//       }
+//       nativeAmount = input.gas * gasUnitPrice;
+//     }
+//   }
+
+//   return nativeAmount;
+// };

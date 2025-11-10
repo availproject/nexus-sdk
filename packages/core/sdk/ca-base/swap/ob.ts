@@ -356,7 +356,7 @@ class DestinationSwapHandler {
     }
   }
 
-  // FIXME: Need to add retry and reqoute
+  // Retry only once, can't keep user waiting.
   async process(
     metadata: SwapMetadata,
     // inputAmount = this.dstSwap.quote?.inputAmount,
@@ -364,48 +364,64 @@ class DestinationSwapHandler {
     await this.options.wallet.eoa.switchChain({
       id: Number(this.options.destinationChainID),
     });
+    try {
+      await this.executeSwap(metadata);
+    } catch (error) {
+      logger.warn('Destination swap failed, attempting single requote & retry.', {
+        error: (error as Error)?.message ?? error,
+      });
 
-    let hasDestinationSwap = false;
-    if (this.data.swap.quote) {
-      hasDestinationSwap = true;
-      await this.requoteIfRequired();
-
-      const txs = getTxsFromQuote(
-        {
-          agg: this.data.swap.aggregator,
-          originalHolding: this.data.swap.originalHolding,
-          quote: this.data.swap.quote,
-          req: this.data.swap.req,
-        },
-        true,
-      );
-
-      if (txs.approval) {
-        this.destinationCalls.push(txs.approval);
+      await this.requoteIfRequired(true);
+      try {
+        await this.executeSwap(metadata);
+      } catch (retryError) {
+        logger.error('Destination swap failed after single retry.', {
+          error: (retryError as Error)?.message ?? retryError,
+        });
+        throw retryError;
       }
-
-      this.destinationCalls.push(txs.swap);
-
-      logger.debug('swap:destinationCalls', {
-        destinationCalls: this.destinationCalls,
-      });
-
-      metadata.dst.swaps.push({
-        agg: 0,
-        input_amt: toBytes(txs.amount),
-        input_contract: this.data.swap.req.inputToken,
-        input_decimals: this.data.swap.dstChainCOT.decimals,
-        output_amt: convertTo32Bytes(this.dst.amount ?? 0),
-        output_contract: convertTo32Bytes(this.dst.token),
-        output_decimals: this.dstTokenInfo.decimals,
-      });
     }
+  }
 
-    if (hasDestinationSwap) {
-      this.options.emitter.emit(SWAP_STEPS.DESTINATION_SWAP_BATCH_TX(false));
+  /**
+   * Executes swap + sweeper steps
+   */
+  private async executeSwap(metadata: SwapMetadata) {
+    await this.requoteIfRequired(false);
+
+    const { swap } = this.data;
+    const txs = getTxsFromQuote(
+      {
+        agg: swap.aggregator,
+        originalHolding: swap.originalHolding,
+        quote: swap.quote!,
+        req: swap.req,
+      },
+      true,
+    );
+
+    if (txs.approval) {
+      this.destinationCalls.push(txs.approval);
     }
+    this.destinationCalls.push(txs.swap);
 
-    // So whatever amount is swapped gets transferred ephemeral -> eoa
+    logger.debug('swap:destinationCalls', {
+      destinationCalls: this.destinationCalls,
+    });
+
+    metadata.dst.swaps.push({
+      agg: 0,
+      input_amt: toBytes(txs.amount),
+      input_contract: swap.req.inputToken,
+      input_decimals: swap.dstChainCOT.decimals,
+      output_amt: convertTo32Bytes(this.dst.amount ?? 0),
+      output_contract: convertTo32Bytes(this.dst.token),
+      output_decimals: this.dstTokenInfo.decimals,
+    });
+
+    this.options.emitter.emit(SWAP_STEPS.DESTINATION_SWAP_BATCH_TX(false));
+
+    // Add sweeper tx
     this.destinationCalls = this.destinationCalls.concat(
       createSweeperTxs({
         cache: this.options.cache,
@@ -417,7 +433,7 @@ class DestinationSwapHandler {
       }),
     );
 
-    // Destination swap batched tx to VSC and waiting for receipt (sweep after)
+    // Execute batched destination tx
     const hash = await performDestinationSwap({
       actualAddress: this.options.address.eoa,
       cache: this.options.cache,
@@ -428,65 +444,65 @@ class DestinationSwapHandler {
       emitter: this.options.emitter,
       ephemeralAddress: this.options.address.ephemeral,
       ephemeralWallet: this.options.wallet.ephemeral,
-      hasDestinationSwap,
+      hasDestinationSwap: true,
       publicClientList: this.options.publicClientList,
       vscDomain: this.options.networkConfig.VSC_DOMAIN,
     });
 
-    if (hasDestinationSwap) {
-      this.options.emitter.emit(SWAP_STEPS.DESTINATION_SWAP_BATCH_TX(true));
-    }
-
+    this.options.emitter.emit(SWAP_STEPS.DESTINATION_SWAP_BATCH_TX(true));
     this.options.emitter.emit(SWAP_STEPS.SWAP_COMPLETE);
+
     performance.mark('xcs-ops-end');
 
-    logger.debug('before dst metadata', {
-      metadata,
-    });
-
+    logger.debug('before dst metadata', { metadata });
     metadata.dst.tx_hash = convertTo32Bytes(hash);
   }
 
-  async requoteIfRequired() {
-    let requote = false;
+  /**
+   * Requote if expired or invalid.
+   * If `force` = true, always requote regardless of expiry check.
+   */
+  private async requoteIfRequired(force = false) {
+    const { swap } = this.data;
+    let requote = force;
 
-    if (this.data.swap.aggregator instanceof BebopAggregator) {
-      const quote = this.data.swap.quote as BebopQuote;
-      if (quote.originalResponse.quote.expiry * 1000 < Date.now()) {
-        logger.debug('DDS: BEBOP', {
-          expiry: quote.originalResponse.quote.expiry * 1000,
-          now: Date.now(),
-        });
+    if (!force) {
+      if (swap.aggregator instanceof BebopAggregator) {
+        const quote = swap.quote as BebopQuote;
+        if (quote.originalResponse.quote.expiry * 1000 < Date.now()) requote = true;
+      } else if (Date.now() - swap.creationTime > minutesToMs(0.4)) {
         requote = true;
       }
-    } else if (Date.now() - this.data.swap.creationTime > minutesToMs(0.4)) {
-      requote = true;
     }
-    // else if (this.dstSwap.quote?.inputAmount !== inputAmount) {
-    //   requote = true;
-    // }
 
-    if (requote) {
-      const dstSwapResponse = await this.data.fetchDestinationSwapDetails();
-      if (!dstSwapResponse.quote) {
-        throw new Error('could not requote DS');
-      }
-      logger.debug('reqoutedDstSwap', {
-        inputAmountWithBuffer: this.data.swap.inputAmount.min.toFixed(),
-        newInputAmount: dstSwapResponse.inputAmount.min.toFixed(),
-      });
-      const isExactIn = this.dst.amount == undefined;
-      if (!isExactIn && dstSwapResponse.inputAmount.min.gt(this.data.swap.inputAmount.min)) {
-        throw new Error(
-          `Rates changed for destination swap and could not be filled even with buffer. Before: ${this.data.swap.inputAmount.min.toFixed()} ,After: ${dstSwapResponse.inputAmount.min.toFixed()}`,
-        );
-      }
-
-      this.data = {
-        swap: dstSwapResponse,
-        fetchDestinationSwapDetails: this.data.fetchDestinationSwapDetails,
-      };
+    if (!requote) {
+      return;
     }
+
+    logger.debug('Requoting destination swap...');
+    const newSwap = await this.data.fetchDestinationSwapDetails();
+    if (!newSwap.quote) throw new Error('Failed to requote destination swap.');
+
+    const isExactIn = this.dst.amount == undefined;
+    if (
+      !isExactIn &&
+      newSwap.inputAmount.min.gte(swap.inputAmount.min) &&
+      newSwap.inputAmount.min.lte(swap.inputAmount.max)
+    ) {
+      throw new Error(
+        `Rates changed beyond tolerance. Before: ${swap.inputAmount.min.toFixed()}, After: ${newSwap.inputAmount.min.toFixed()}`,
+      );
+    }
+
+    this.data = {
+      swap: newSwap,
+      fetchDestinationSwapDetails: this.data.fetchDestinationSwapDetails,
+    };
+
+    logger.debug('Destination swap requoted successfully.', {
+      before: swap.inputAmount.min.toFixed(),
+      after: newSwap.inputAmount.min.toFixed(),
+    });
   }
 }
 

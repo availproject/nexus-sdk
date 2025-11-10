@@ -353,7 +353,7 @@ class BridgeHandler {
     this.markStepDone(BRIDGE_STEPS.INTENT_FULFILLED);
 
     if (this.params.dstChain.universe === Universe.ETHEREUM) {
-      await this.options.evm.client.switchChain({ id: this.params.dstChain.id });
+      await switchChain(this.options.evm.client, this.params.dstChain);
     }
 
     return { explorerURL, intentID };

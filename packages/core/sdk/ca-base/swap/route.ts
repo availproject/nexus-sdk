@@ -61,6 +61,9 @@ export const determineSwapRoute = async (
     : _exactInRoute(input.data, options);
 };
 
+export const applyBuffer = (amount: Decimal, bufferPercent: number): Decimal =>
+  amount.mul(1 + bufferPercent / 100);
+
 // COT = currency of transfer
 // DEF: The common currency which is supported by bridge on every supported chain and acts as a transient currency for swaps.
 // FLOW: Source tokens get converted to COT, COT is bridged across chains to a destination chain,
@@ -84,15 +87,10 @@ const _exactOutRoute = async (
     fetchPriceOracle(params.networkConfig.GRPC_URL),
   ]);
 
-  // Any existing COT balance on dst chain
-  let dstEOAToEphTx: {
-    amount: bigint;
-    contractAddress: Hex;
-  } | null = null;
-  logger.debug('determineSwapRoute', { assets, balances, input });
-
   const userAddressInBytes = convertTo32Bytes(params.address.ephemeral);
   const dstOmniversalChainID = new OmniversalChainID(Universe.ETHEREUM, input.toChainId);
+
+  logger.debug('determineSwapRoute', { assets, balances, input });
 
   logger.debug('determineSwapRoute:destinationSwapInput', {
     dstOmniversalChainID,
@@ -103,6 +101,9 @@ const _exactOutRoute = async (
     userAddressInBytes,
   });
 
+  // ------------------------------
+  // 2. Fetch chain & COT information
+  // ------------------------------
   const dstChainDataMap = ChaindataMap.get(dstOmniversalChainID);
   if (!dstChainDataMap) {
     throw ErrorChainDataNotFound;
@@ -116,11 +117,15 @@ const _exactOutRoute = async (
   }
 
   const dstChainCOTAddress = convertToEVMAddress(dstChainCOT.tokenAddress);
+
   const dstChainCOTBalance = balances.find(
     (b) =>
       b.chainID === Number(input.toChainId) &&
       equalFold(convertToEVMAddress(b.tokenAddress), dstChainCOTAddress),
   );
+
+  // Track any existing COT that must be moved to ephemeral for swaps
+  let dstEOAToEphTx: { amount: bigint; contractAddress: Hex } | null = null;
 
   // Since its exact out, we start with desired destination amount and work our
   // way backward from there
@@ -132,7 +137,7 @@ const _exactOutRoute = async (
       quote: null,
     };
 
-    // If output token is not COT then only destination swap should exist
+    // If output token is not COT, calculate the actual destination swap
     if (!equalFold(input.toTokenAddress, dstChainCOTAddress)) {
       destinationSwap = await determineDestinationSwaps(
         userAddressInBytes,
@@ -147,7 +152,7 @@ const _exactOutRoute = async (
 
     const createdAt = Date.now();
 
-    // If destination has COT then need to send it to ephemeral so that it can be used in swap
+    // If user has existing COT on destination chain, it must be moved to ephemeral
     if (new Decimal(dstChainCOTBalance?.amount ?? 0).gt(0)) {
       dstEOAToEphTx = {
         amount: mulDecimals(dstChainCOTBalance?.amount ?? 0, dstChainCOTBalance?.decimals ?? 0),
@@ -157,9 +162,11 @@ const _exactOutRoute = async (
 
     // Use min but perform everything as max - for buffer of (max - min)
     const min = destinationSwap.inputAmount;
-    const max = destinationSwap.inputAmount
-      .mul(1.02)
-      .toDP(dstChainCOT.decimals, Decimal.ROUND_CEIL);
+    // Apply 2% buffer to destination input amount
+    const max = applyBuffer(destinationSwap.inputAmount, 2).toDP(
+      dstChainCOT.decimals,
+      Decimal.ROUND_CEIL,
+    );
 
     return {
       ...destinationSwap,
@@ -190,30 +197,25 @@ const _exactOutRoute = async (
 
   logger.debug('destination swaps', destinationSwap);
 
+  // ------------------------------
+  // 4. Compute source availability
+  // ------------------------------
+
   const cotAsset = assets.find((asset) => {
     return asset.abstracted && equalFold(asset.symbol, cotSymbol);
   });
-
   const dstSwapInputAmountInDecimal = destinationSwap.inputAmount.max;
-
-  logger.debug('determineSwapRoute:3', {
-    cotAsset,
-    dstChainCOTAddress,
-    dstChainCOTBalance,
-  });
-
   const cotTotalBalance = new Decimal(cotAsset?.balance ?? '0');
-
-  const fulfilmentFee = feeStore.calculateFulfilmentFee({
+  const fees = feeStore.calculateFulfilmentFee({
     decimals: dstChainCOT.decimals,
     destinationChainID: Number(input.toChainId),
     destinationTokenAddress: dstChainCOTAddress,
   });
 
-  const fees = fulfilmentFee;
-
-  logger.debug('determineSwapRoute:4', {
+  logger.debug('exact-out:3', {
     cotAsset,
+    dstChainCOTAddress,
+    dstChainCOTBalance,
     cotTotalBalance: cotTotalBalance.toFixed(),
     diff: fees.toFixed(),
     dstSwapInputAmountInDecimal: dstSwapInputAmountInDecimal.toFixed(),
@@ -221,18 +223,15 @@ const _exactOutRoute = async (
 
   console.log({ cotAsset, dstChainCOTBalance });
 
+  // ------------------------------
+  // 5. Determine if source swaps are required
+  // ------------------------------
+
   let sourceSwaps: QuoteResponse = [];
-
-  let sourceSwapsRequired = false;
-
-  // This should actually check dstChainCOTBalance < requiredDstChainCOTBalance
-  if (!dstChainCOTBalance) {
-    sourceSwapsRequired = true;
-  }
-
-  if (!cotAsset || new Decimal(cotAsset.balance).lt(dstSwapInputAmountInDecimal)) {
-    sourceSwapsRequired = true;
-  }
+  const sourceSwapsRequired =
+    !dstChainCOTBalance ||
+    !cotAsset ||
+    new Decimal(cotAsset.balance).lt(dstSwapInputAmountInDecimal);
 
   if (sourceSwapsRequired) {
     sourceSwaps = (
@@ -244,10 +243,7 @@ const _exactOutRoute = async (
           tokenAddress: toBytes(balance.tokenAddress),
           value: balance.value,
         })),
-        dstSwapInputAmountInDecimal
-          .add(fees)
-          .mul(1.01)
-          .minus(cotAsset?.balance ?? '0'),
+        applyBuffer(dstSwapInputAmountInDecimal.add(fees), 1).minus(cotAsset?.balance ?? '0'),
         params.aggregators,
         feeStore.data.fee.collection.map((f) => ({
           ...f,
@@ -261,7 +257,7 @@ const _exactOutRoute = async (
         equalFold(b.tokenAddress, convertTo32BytesHex(v.req.inputToken)),
       );
       if (!balance) {
-        throw new Error('???');
+        throw new Error('internal mapping error: balance for quote input not found');
       }
       return {
         ...v,
@@ -275,13 +271,16 @@ const _exactOutRoute = async (
   }
   const sourceSwapCreationTime = Date.now();
 
-  console.log({
+  logger.debug('exact-out:4', {
     dstChainCOTBalance,
     inequality: new Decimal(dstChainCOTBalance?.amount ?? 0).lt(
       dstSwapInputAmountInDecimal.add(fees),
     ),
   });
 
+  // ------------------------------
+  // 6. Bridge input calculation (account for already existing COT + COT from swaps)
+  // ------------------------------
   let bridgeInput: {
     amount: Decimal;
     assets: BridgeAsset[];
@@ -369,6 +368,10 @@ const _exactOutRoute = async (
       };
     }
   }
+
+  // ------------------------------
+  // 7. Prepare assets used to show in intent
+  // ------------------------------
 
   const assetsUsed: {
     amount: string;
@@ -506,6 +509,10 @@ type QuoteResponse = {
   cur: Currency;
 }[];
 
+// Helper to normalize token comparison tokens (preserve EADDRESS vs ZERO_ADDRESS handling)
+const normalizeToComparisonAddr = (tokenHex: Hex) =>
+  convertTo32BytesHex(equalFold(tokenHex, ZERO_ADDRESS) ? EADDRESS : tokenHex);
+
 const _exactInRoute = async (
   input: ExactInSwapInput,
   params: SwapParams & { aggregators: Aggregator[]; cotCurrencyID: CurrencyID },
@@ -514,6 +521,7 @@ const _exactInRoute = async (
     input,
     params,
   });
+
   const [feeStore, balanceResponse, oraclePrices] = await Promise.all([
     getFeeStore(params.networkConfig.GRPC_URL),
     getBalances({
@@ -525,7 +533,13 @@ const _exactInRoute = async (
       vscDomain: params.networkConfig.VSC_DOMAIN,
     }),
     fetchPriceOracle(params.networkConfig.GRPC_URL),
-  ]);
+  ]).catch((e) => {
+    throw new Error('Error fetching fee, balance or oracle', { cause: e });
+  });
+
+  if (balanceResponse.balances.length === 0) {
+    throw new Error('no balances returned for user');
+  }
 
   let { balances } = balanceResponse;
 
@@ -535,24 +549,24 @@ const _exactInRoute = async (
 
   const assetsUsed: AssetUsed = [];
   let srcBalances: FlatBalance[] = [];
-  if (input.from) {
+
+  if (input.from && input.from.length > 0) {
     // Filter out sources user requested to be used
     for (const f of input.from) {
-      const srcBalance = balances.find((b) => {
-        logger.debug('ExactIN:2:input.src', {
-          a: b.tokenAddress,
-          b: convertTo32BytesHex(f.tokenAddress),
-        });
+      if (typeof f.amount !== 'bigint') {
+        throw new Error('input.from.amount must be bigint');
+      }
 
-        // We are keeping ZERO_ADDRESS as EAddress so have to make the comparisonAddr like this
-        let comparisonTokenAddress = convertTo32BytesHex(f.tokenAddress);
-        if (equalFold(comparisonTokenAddress, ZERO_ADDRESS)) {
-          comparisonTokenAddress = EADDRESS;
-        }
+      const comparison = normalizeToComparisonAddr(f.tokenAddress);
 
-        return equalFold(b.tokenAddress, comparisonTokenAddress) && f.chainId === b.chainID;
-      });
+      const srcBalance = balances.find(
+        (b) => equalFold(b.tokenAddress, comparison) && f.chainId === b.chainID,
+      );
       if (!srcBalance) {
+        logger.error('ExactIN: no src balance found', {
+          token: f.tokenAddress,
+          chainId: f.chainId,
+        });
         throw ErrorInsufficientBalance('0', f.amount.toString());
       }
 
@@ -576,20 +590,15 @@ const _exactInRoute = async (
       });
     }
   } else {
-    srcBalances = balances;
+    srcBalances = balances.slice();
   }
-
-  logger.debug('ExactIN:3', {
-    srcBalances,
-    assetsUsed,
-  });
 
   const userAddressInBytes = convertTo32Bytes(params.address.ephemeral);
   const dstOmniversalChainID = new OmniversalChainID(Universe.ETHEREUM, input.toChainId);
 
   const dstChainDataMap = ChaindataMap.get(dstOmniversalChainID);
   if (!dstChainDataMap) {
-    throw new Error('chaindataMap not found');
+    throw new Error(`chaindata map not found for chain ${input.toChainId}`);
   }
 
   const cotSymbol = CurrencyID[params.cotCurrencyID];
@@ -635,7 +644,6 @@ const _exactInRoute = async (
 
   // Check if source swap is required (if all source balances are not COT currencyID)
   const isSrcSwapRequired = cotSources.length !== srcBalances.length;
-
   // Check if bridge is required (if all source balances are not on destination chain)
   const isBridgeRequired = !srcBalances.every((b) => b.chainID === input.toChainId);
 
@@ -663,12 +671,19 @@ const _exactInRoute = async (
       })),
     );
 
+    if (!response.quotes.length) {
+      throw new Error('source swap returned no quotes');
+    }
+
     sourceSwaps = response.quotes.map((oq) => {
       const balance = balances.find((b) =>
         equalFold(b.tokenAddress, convertTo32BytesHex(oq.req.inputToken)),
       );
       if (!balance) {
-        throw new Error('???');
+        logger.error('ExactIN: failed to map quote originalHolding to balance', {
+          quoteReq: oq.req,
+        });
+        throw new Error('internal mapping error: balance for quote input not found');
       }
       return {
         ...oq,
@@ -728,11 +743,15 @@ const _exactInRoute = async (
       feeStore,
     });
 
-    dstSwapInputAmountInDecimal = dstSwapInputAmountInDecimal.minus(maxFee).mul(0.98);
+    dstSwapInputAmountInDecimal = dstSwapInputAmountInDecimal.minus(maxFee);
     logger.debug('ExactIN:7', {
       dstSwapInputAmountInDecimal: dstSwapInputAmountInDecimal.toFixed(),
       maxFee: maxFee.toFixed(),
     });
+    if (dstSwapInputAmountInDecimal.isNegative()) {
+      throw new Error('bridge fees exceeds source amount');
+    }
+
     bridgeInput = {
       amount: dstSwapInputAmountInDecimal,
       assets: bridgeAssets,

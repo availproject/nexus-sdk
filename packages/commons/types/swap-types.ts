@@ -136,7 +136,7 @@ export type SwapParams = {
 } & OnEventParam;
 
 export interface ExactInSwapInput {
-  from?: {
+  from: {
     chainId: number;
     amount: bigint;
     tokenAddress: Hex;

@@ -78,4 +78,10 @@ export const Errors = {
   vscError: (msg: string) => createError(ERROR_CODES.INTERNAL_ERROR, `VSC: ${msg}`),
 
   cosmosError: (msg: string) => createError(ERROR_CODES.INTERNAL_ERROR, `COSMOS: ${msg}`),
+  gasPriceError: (result: unknown) =>
+    createError(ERROR_CODES.FETCH_GAS_PRICE_FAILED, `rpc: estimateMaxFeePerGas failed`, {
+      details: {
+        result,
+      },
+    }),
 };
