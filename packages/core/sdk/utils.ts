@@ -17,11 +17,11 @@ import {
   Network,
   ChainListType,
 } from '@nexus/commons';
-import { getSupportedChains } from './ca-base/utils';
+import { getCoinbasePrices, getSupportedChains } from './ca-base/utils';
 import { getSwapSupportedChains } from './ca-base/swap/utils';
 
 export class NexusUtils {
-  constructor(private chainList: ChainListType) {}
+  constructor(private readonly chainList: ChainListType) {}
 
   // Pure utility functions (no adapter dependency)
   formatBalance = utilFormatBalance;
@@ -37,6 +37,9 @@ export class NexusUtils {
   getChainMetadata = utilGetChainMetadata;
   formatTokenAmount = utilFormatTokenAmount;
   formatTestnetTokenAmount = utilFormatTestnetTokenAmount;
+  getCoinbaseRates = async (): Promise<Record<string, string>> => {
+    return getCoinbasePrices();
+  };
 
   getSupportedChains(env?: Network): SupportedChainsResult {
     return getSupportedChains(env);

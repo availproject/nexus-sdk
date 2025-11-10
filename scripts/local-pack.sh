@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Create local installable tarballs for @nexus/core and @nexus/widgets without publishing.
+# Create a local installable tarball for @avail-project/nexus-core without publishing.
 # This script builds packages, rewrites workspace deps for packaging, packs to dist-tarballs/, and restores files.
 set -e
 
@@ -31,7 +31,6 @@ info "Cleaning and building packages..."
 pnpm run clean
 pnpm -F @nexus/commons build
 pnpm -F @avail-project/nexus-core build
-pnpm -F @avail-project/nexus-widgets build
 
 # Pack core (already named @avail-project/nexus-core; remove workspace-only deps)
 info "Packing core as @avail-project/nexus-core (local tarball)..."
@@ -47,27 +46,11 @@ popd >/dev/null
 
 info "Created core tarball: $DEST_DIR/$CORE_TARBALL (name: @avail-project/nexus-core)"
 
-# Pack widgets (already named @avail-project/nexus-widgets; remove workspace-only deps; pin @avail-project/nexus-core to current version)
-info "Packing widgets as @avail-project/nexus-widgets (local tarball)..."
-pushd packages/widgets >/dev/null
-cp package.json package.json.backup
-
-CORE_VERSION=$(node -p "require('../core/package.json').version")
-export CORE_VERSION
-
-node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.dependencies=p.dependencies||{};if(p.dependencies['@nexus/commons']){delete p.dependencies['@nexus/commons'];}p.dependencies['@avail-project/nexus-core']=process.env.CORE_VERSION;fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
-
-WIDGETS_TARBALL=$(npm pack --pack-destination "$DEST_DIR" --silent)
-mv package.json.backup package.json
-popd >/dev/null
-
-info "Created widgets tarball: $DEST_DIR/$WIDGETS_TARBALL (name: @avail-project/nexus-widgets)"
-
 info "Done. Tarballs are in $DEST_DIR"
 echo ""
 echo "Install in a project with:"
-echo "  pnpm add $DEST_DIR/$CORE_TARBALL $DEST_DIR/$WIDGETS_TARBALL"
+echo "  pnpm add $DEST_DIR/$CORE_TARBALL"
 echo "or"
-echo "  npm i $DEST_DIR/$CORE_TARBALL $DEST_DIR/$WIDGETS_TARBALL"
+echo "  npm i $DEST_DIR/$CORE_TARBALL"
 
 
