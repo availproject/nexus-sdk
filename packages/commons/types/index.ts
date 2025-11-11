@@ -101,8 +101,8 @@ export type DynamicParamBuilder = (
 export interface BridgeParams {
   recipient?: Hex;
   token: string;
-  amount: number | string;
-  chainId: number;
+  amount: string;
+  toChainId: number;
   gas?: bigint;
   sourceChains?: number[];
 }
@@ -111,6 +111,7 @@ export type BridgeMaxResult = {
   amountRaw: bigint;
   amount: string;
   symbol: string;
+  sourceChainIds: number[];
 };
 
 /**
@@ -143,7 +144,7 @@ export type TronAdapter = AdapterProps & {
 export interface TransferParams {
   token: string;
   amount: string;
-  chainId: number;
+  toChainId: number;
   recipient: `0x${string}`;
   sourceChains?: number[];
 }
@@ -283,15 +284,6 @@ export type BridgeAndExecuteResult = {
   bridgeExplorerUrl?: string; // undefined when bridge is skipped
   toChainId: number;
   bridgeSkipped: boolean; // indicates if bridge was skipped due to sufficient funds
-};
-
-export type BridgeQueryInput = {
-  amount: number | string;
-  recipient?: Hex;
-  chainId: number;
-  gas?: bigint;
-  sourceChains?: number[];
-  token: string;
 };
 
 export type Chain = {

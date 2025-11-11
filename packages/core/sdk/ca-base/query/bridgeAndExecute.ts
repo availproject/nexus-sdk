@@ -11,7 +11,6 @@ import {
   ExecuteParams,
   ExecuteResult,
   ExecuteSimulation,
-  BridgeQueryInput,
   OnEventParam,
   BridgeAndExecuteSimulationResult,
   NEXUS_EVENTS,
@@ -22,21 +21,23 @@ import { createPublicClient, Hex, http, PublicClient, toHex, WalletClient } from
 import {
   createExplorerTxURL,
   divDecimals,
-  erc20GetAllowance,
   mulDecimals,
   UserAssets,
   waitForTxReceipt,
   generateStateOverride,
+  switchChain,
+  erc20GetAllowance,
 } from '../utils';
 import { packERC20Approve } from '../swap/utils';
 import { BackendSimulationClient } from 'integrations/tenderly';
 import BridgeHandler from '../requestHandlers/bridge';
+import { Errors } from '../errors';
 
 class BridgeAndExecuteQuery {
   constructor(
     private chainList: ChainListType,
     private evmClient: WalletClient,
-    private bridge: (input: BridgeQueryInput, options?: OnEventParam) => BridgeHandler,
+    private bridge: (input: BridgeParams, options?: OnEventParam) => BridgeHandler,
     private getUnifiedBalances: () => Promise<UserAssetDatum[]>,
     private simulationClient: BackendSimulationClient,
   ) {}
@@ -49,14 +50,10 @@ class BridgeAndExecuteQuery {
       tokenSymbol,
     );
     if (!token) {
-      throw new Error(`Token ${tokenSymbol} not supported on chain ${toChainId}.`);
+      throw Errors.tokenNotFound(tokenSymbol, toChainId);
     }
 
-    logger.debug('BridgeAndExecute:1', {
-      token,
-      dstChain,
-    });
-    await this.evmClient.switchChain({ id: params.toChainId });
+    await switchChain(this.evmClient, dstChain);
 
     const address = (await this.evmClient.getAddresses())[0];
     let txs: Tx[] = [];
@@ -104,7 +101,9 @@ class BridgeAndExecuteQuery {
 
     const gasPrice = gasFeeEstimate.maxFeePerGas ?? gasFeeEstimate.gasPrice ?? 0n;
     if (gasPrice === 0n) {
-      throw new Error('Gas price could not be fetched from RPC URL.');
+      throw Errors.gasPriceError({
+        chainId: dstChain.id,
+      });
     }
 
     const gasFee = gasUsed * gasPrice;
@@ -161,7 +160,7 @@ class BridgeAndExecuteQuery {
       bridgeResult = await this.simulateBridgeWrapper({
         token: token.symbol,
         amount: divDecimals(BigInt(tokenAmount), token.decimals).toFixed(),
-        chainId: params.toChainId,
+        toChainId: params.toChainId,
         sourceChains: params.sourceChains,
         gas: gasAmount,
       });
@@ -228,7 +227,7 @@ class BridgeAndExecuteQuery {
         {
           token: token.symbol,
           amount: divDecimals(BigInt(tokenAmount), token.decimals).toFixed(),
-          chainId: params.toChainId,
+          toChainId: params.toChainId,
           sourceChains: params.sourceChains,
           gas: gasAmount,
         },
@@ -297,7 +296,7 @@ class BridgeAndExecuteQuery {
     // 1. Check if dst chain data is available
     const dstChain = this.chainList.getChainByID(params.toChainId);
     if (!dstChain) {
-      throw new Error(`Chain not supported: ${params.toChainId}`);
+      throw Errors.chainNotFound(params.toChainId);
     }
 
     const dstPublicClient = createPublicClient({
@@ -312,29 +311,25 @@ class BridgeAndExecuteQuery {
         params.tokenApproval.token,
       );
       if (!token) {
-        throw new Error(
-          `Token ${params.tokenApproval.token} not supported on chain ${params.toChainId}.`,
-        );
+        throw Errors.tokenNotFound(params.tokenApproval.token, params.toChainId);
       }
-      if (params.tokenApproval) {
-        const spender = params.tokenApproval.spender;
-        const currentAllowance = await erc20GetAllowance(
-          {
-            contractAddress: token.contractAddress,
-            spender: params.tokenApproval.spender,
-            owner: address,
-          },
-          dstPublicClient,
-        );
+      const spender = params.tokenApproval.spender;
+      const currentAllowance = await erc20GetAllowance(
+        {
+          contractAddress: token.contractAddress,
+          spender: params.tokenApproval.spender,
+          owner: address,
+        },
+        dstPublicClient,
+      );
 
-        const requiredAllowance = BigInt(params.tokenApproval.amount);
-        if (currentAllowance < requiredAllowance) {
-          approvalTx = {
-            to: token.contractAddress,
-            data: packERC20Approve(spender, requiredAllowance),
-            value: 0n,
-          };
-        }
+      const requiredAllowance = BigInt(params.tokenApproval.amount);
+      if (currentAllowance < requiredAllowance) {
+        approvalTx = {
+          to: token.contractAddress,
+          data: packERC20Approve(spender, requiredAllowance),
+          value: 0n,
+        };
       }
     }
 
@@ -405,7 +400,7 @@ class BridgeAndExecuteQuery {
 
     const gasUnitPrice = gasPrice.maxFeePerGas ?? gasPrice.gasPrice ?? 0n;
     if (gasUnitPrice === 0n) {
-      throw new Error('could not get gas price from rpc.');
+      throw Errors.gasPriceError({});
     }
 
     return {

@@ -28,6 +28,7 @@ import {
   equalFold,
   minutesToMs,
 } from './common.utils';
+import { Errors } from '../errors';
 
 const logger = getLogger();
 
@@ -389,11 +390,11 @@ const vscCreateSponsoredApprovals = async (
       logger.debug('vscCreateSponsoredApprovals', { data });
 
       if ('errored' in data && data.errored) {
-        throw new Error(data.error);
+        throw Errors.vscError(`create-sponsored-approvals: ${data.error}`);
       }
 
       if ('error' in data && data.error) {
-        throw new Error(data.msg);
+        throw Errors.vscError(`create-sponsored-approvals: ${data.error}`);
       }
 
       if (msd) {
@@ -460,7 +461,7 @@ const vscCreateRFF = async (
             expectedCollectionIndexes,
             receivedCollectionsACKs,
           });
-          throw new Error('(vsc)create-rff: collections failed');
+          throw Errors.vscError('create-rff: collections failed');
         }
       } else if (data.status === 16) {
         if (expectedCollectionIndexes.includes(data.idx)) {
@@ -474,7 +475,7 @@ const vscCreateRFF = async (
         );
       } else {
         if (expectedCollectionIndexes.includes(data.idx)) {
-          throw new Error(`(vsc)create-rff: ${data.error}`);
+          throw Errors.vscError(`create-rff: ${data.error}`);
         } else {
           logger.debug('vscCreateRFF:ExpectedError:ignore', { data });
         }

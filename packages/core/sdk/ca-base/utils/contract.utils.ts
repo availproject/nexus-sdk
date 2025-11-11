@@ -26,7 +26,6 @@ import {
   pad,
   parseSignature,
   PublicClient,
-  SwitchChainError,
   WalletClient,
   WebSocketTransport,
 } from 'viem';
@@ -137,7 +136,7 @@ const getAllowances = async (
     } else {
       const chain = chainList.getChainByID(i.chainID);
       if (!chain) {
-        throw new Error('chain not found');
+        throw Errors.chainNotFound(i.chainID);
       }
       promises.push(getAllowance(chain, i.holderAddress, i.tokenContract, chainList));
     }
@@ -224,7 +223,7 @@ const setAllowances = async (
   const chainId = new OmniversalChainID(Universe.ETHEREUM, chain.id);
   const chainDatum = ChaindataMap.get(chainId);
   if (!chainDatum) {
-    throw new Error('Chain data not found');
+    throw Errors.internal(`chain data not found for chain ${chainId}`);
   }
 
   const account: JsonRpcAccount = {
@@ -248,7 +247,7 @@ const setAllowances = async (
   for (const addr of tokenContractAddresses) {
     const currency = chainDatum.CurrencyMap.get(convertTo32Bytes(addr));
     if (!currency) {
-      throw new Error('Currency not found');
+      throw Errors.internal(`currency not found for token ${addr}`);
     }
 
     if (currency.permitVariant === PermitVariant.Unsupported) {
@@ -360,14 +359,11 @@ const switchChain = async (client: WalletClient, chain: Chain) => {
   try {
     await client.switchChain({ id: chain.id });
   } catch (e) {
-    if (e instanceof SwitchChainError && e.code === SwitchChainError.code) {
-      await client.addChain({
-        chain,
-      });
-      await client.switchChain({ id: chain.id });
-      return;
-    }
-    throw e;
+    await client.addChain({
+      chain,
+    });
+    await client.switchChain({ id: chain.id });
+    return;
   }
 };
 

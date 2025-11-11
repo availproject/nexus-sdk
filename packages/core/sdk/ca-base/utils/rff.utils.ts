@@ -51,7 +51,7 @@ const getSourcesAndDestinationsForRFF = (
     const token = chainList.getTokenByAddress(source.chainID, source.tokenContract);
     if (!token) {
       logger.error('Token not found', { source });
-      throw new Error('token not found');
+      throw Errors.tokenNotSupported(source.tokenContract, source.chainID);
     }
 
     universes.add(source.universe);
@@ -194,7 +194,7 @@ const createRFFromIntent = async (
         logger.error('universe has fuel but not expected input', {
           fuelInput: options.fuel,
         });
-        throw new Error('universe has fuel but not expected input');
+        throw Errors.internal('universe list includes fuel but not expected input');
       }
 
       const { requestHash, signature } = await createRequestFuelSignature(
@@ -341,6 +341,8 @@ const calculateMaxBridgeFee = ({
     return accumulator.add(asset.balance);
   }, new Decimal(0));
 
+  const sourceChainIds: number[] = [];
+
   const protocolFee = feeStore.calculateProtocolFee(new Decimal(borrow));
   let borrowWithFee = borrow.add(protocolFee);
 
@@ -359,6 +361,10 @@ const calculateMaxBridgeFee = ({
   });
 
   for (const asset of assets) {
+    if (!asset.balance.gt(0)) {
+      continue;
+    }
+    sourceChainIds.push(asset.chainID);
     const collectionFee = feeStore.calculateCollectionFee({
       decimals: asset.decimals,
       sourceChainID: asset.chainID,
@@ -385,9 +391,11 @@ const calculateMaxBridgeFee = ({
   }
 
   const fee = borrowWithFee.minus(borrow);
-  const maxAmount = borrow.minus(fee).toFixed(dst.decimals, Decimal.ROUND_FLOOR);
+  const maxAmount = fee.lt(borrow)
+    ? borrow.minus(fee).toFixed(dst.decimals, Decimal.ROUND_FLOOR)
+    : '0';
 
-  return { fee, maxAmount };
+  return { fee, maxAmount, sourceChainIds };
 };
 
 export {

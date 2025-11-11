@@ -6,6 +6,7 @@ import {
   Intent,
   onAllowanceHookSource,
 } from '@nexus/commons';
+import { Errors } from './errors';
 
 const INTENT_FINISH_STEPS = [BRIDGE_STEPS.INTENT_FULFILLED];
 
@@ -39,7 +40,7 @@ const createSteps = (
       deposits++;
       const chain = chainList.getChainByID(s.chainID);
       if (!chain) {
-        throw new Error(`Unknown chain ID ${s.chainID} while building steps`);
+        throw Errors.chainNotFound(s.chainID);
       }
 
       steps.push(BRIDGE_STEPS.INTENT_DEPOSIT_REQUEST(i + 1, s.amount, chain));

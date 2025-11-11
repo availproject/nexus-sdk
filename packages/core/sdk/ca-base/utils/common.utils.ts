@@ -242,7 +242,7 @@ const convertIntent = (
   for (const s of intent.sources) {
     const chainInfo = chainList.getChainByID(s.chainID);
     if (!chainInfo) {
-      throw new Error('chain not supported');
+      throw Errors.chainNotFound(s.chainID);
     }
     sources.push({
       amount: s.amount.toFixed(),
@@ -258,7 +258,7 @@ const convertIntent = (
   for (const s of intent.allSources) {
     const chainInfo = chainList.getChainByID(s.chainID);
     if (!chainInfo) {
-      throw new Error('chain not supported');
+      throw Errors.chainNotFound(s.chainID);
     }
     allSources.push({
       amount: s.amount.toFixed(),
@@ -271,7 +271,7 @@ const convertIntent = (
 
   const destinationChainInfo = chainList.getChainByID(intent.destination.chainID);
   if (!destinationChainInfo) {
-    throw new Error('chain not supported');
+    throw Errors.chainNotFound(intent.destination.chainID);
   }
 
   const destination = {
@@ -384,20 +384,20 @@ const createRequestTronSignature = async (evmRFF: EVMRFF, client: AdapterProps) 
     evmRFF.expiry,
     evmRFF.parties,
   ]);
-  const hash = keccak256(msg, 'bytes');
+  const hash = toHex(keccak256(msg, 'bytes'));
 
   // FIXME: Hack - since tron doesn't supports binary decode of hex before signing
-  const uppercaseHash = convertToUpperCaseHash(toHex(hash));
-  const sig = await client.signMessage(uppercaseHash);
+  // const uppercaseHash = convertToUpperCaseHash(toHex(hash));
+  const sig = await client.signMessage(hash);
   return {
-    requestHash: utils.message.hashMessage(uppercaseHash) as Hex,
+    requestHash: utils.message.hashMessage(hash) as Hex,
     signature: toBytes(sig),
   };
 };
 
-const convertToUpperCaseHash = (input: Hex) => {
-  return `0x${input.substring(2).toUpperCase()}`;
-};
+// const convertToUpperCaseHash = (input: Hex) => {
+//   return `0x${input.substring(2).toUpperCase()}`;
+// };
 
 const convertGasToToken = (
   token: TokenInfo,

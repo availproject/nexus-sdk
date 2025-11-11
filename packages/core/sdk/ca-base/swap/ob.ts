@@ -50,6 +50,7 @@ import {
   Tx,
 } from '@nexus/commons';
 import { SwapRoute } from './route';
+import { Errors } from '../errors';
 
 type Options = {
   address: {
@@ -134,7 +135,7 @@ class BridgeHandler {
       for (const c in this.depositCalls) {
         const chain = this.options.chainList.getChainByID(Number(c));
         if (!chain) {
-          throw new Error('chain not found');
+          throw Errors.chainNotFound(Number(c));
         }
         const publicClient = this.options.publicClientList.get(c);
 
@@ -609,13 +610,8 @@ class SourceSwapsHandler {
       const publicClient = this.options.publicClientList.get(chainID);
       const chain = this.options.chainList.getChainByID(Number(chainID));
       if (!chain) {
-        throw new Error(`chain not found: ${chainID}`);
+        throw Errors.chainNotFound(chainID);
       }
-
-      logger.debug('srcSwapHandler:process', {
-        swaps,
-        mtd,
-      });
 
       metadataTx.swaps = metadataTx.swaps.concat(mtd);
 
@@ -928,7 +924,7 @@ class SourceSwapsHandler {
           slippage: this.options.slippage,
         })
       ) {
-        throw new Error('slippage greater than max slippage');
+        throw Errors.slippageError('source swap retry slippage exceeded max');
       }
     }
 

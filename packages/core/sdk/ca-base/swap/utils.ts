@@ -74,6 +74,7 @@ import {
   ChainListType,
 } from '@nexus/commons';
 import Long from 'long';
+import { Errors } from '../errors';
 
 const logger = getLogger();
 
@@ -1053,7 +1054,7 @@ export class PublicClientList {
     if (!client) {
       const chain = this.chainList.getChainByID(Number(chainID));
       if (!chain) {
-        throw new Error(`Chain not found: ${chainID}`);
+        throw Errors.chainNotFound(Number(chainID));
       }
       client = createPublicClient({
         transport: http(chain.rpcUrls.default.http[0]),
@@ -1218,7 +1219,7 @@ export const createSwapIntent = (
 ): SwapIntent => {
   const chain = chainList.getChainByID(destination.chainID);
   if (!chain) {
-    throw new Error(`chain not found: ${destination.chainID}`);
+    throw Errors.chainNotFound(destination.chainID);
   }
 
   const intent: SwapIntent = {
@@ -1241,7 +1242,7 @@ export const createSwapIntent = (
   for (const source of sources) {
     const chain = chainList.getChainByID(source.chainID);
     if (!chain) {
-      throw new Error(`chain not found: ${source.chainID}`);
+      throw Errors.chainNotFound(source.chainID);
     }
 
     intent.sources.push({

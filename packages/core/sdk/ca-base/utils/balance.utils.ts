@@ -118,9 +118,6 @@ const getBalanceSlot = ({
   userAddress: Hex;
 }) => {
   const balanceSlot = getBalanceStorageSlot(tokenSymbol, chainId);
-  if (!balanceSlot) {
-    throw new Error(`balance slot not available for symbol ${tokenSymbol}`);
-  }
 
   // Calculate storage slot for user's balance: keccak256(user_address . balances_slot)
   const userBalanceSlot = keccak256(

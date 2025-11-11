@@ -84,4 +84,11 @@ export const Errors = {
         result,
       },
     }),
+  slippageError: (msg: string) =>
+    createError(ERROR_CODES.SLIPPAGE_EXCEEDED_ALLOWANCE, `rpc: slippage exceeded - ${msg}`),
+  vaultContractNotFound: (chainId: number | bigint) =>
+    createError(
+      ERROR_CODES.VAULT_CONTRACT_NOT_FOUND,
+      `vault contract not found for chain ${chainId.toString()}`,
+    ),
 };

@@ -6,9 +6,9 @@ const getMaxValueForBridge = async (
   params: Omit<BridgeParams, 'amount' | 'recipient'>,
   options: Omit<IBridgeOptions, 'cosmos' | 'hooks' | 'events'>,
 ) => {
-  const token = options.chainList.getTokenInfoBySymbol(params.chainId, params.token);
+  const token = options.chainList.getTokenInfoBySymbol(params.toChainId, params.token);
   if (!token) {
-    throw Errors.tokenNotFound(params.token, params.chainId);
+    throw Errors.tokenNotFound(params.token, params.toChainId);
   }
 
   const [balances, feeStore] = await Promise.all([
@@ -29,17 +29,18 @@ const getMaxValueForBridge = async (
   // FIXME: error in asset.find use NexusError and better messaging.
   const tokenAsset = assets.find(params.token);
 
-  const { maxAmount } = calculateMaxBridgeFee({
-    assets: tokenAsset.getBridgeAssets(params.chainId),
+  const { maxAmount, sourceChainIds } = calculateMaxBridgeFee({
+    assets: tokenAsset.getBridgeAssets(params.toChainId),
     feeStore: feeStore,
     dst: {
-      chainId: params.chainId,
+      chainId: params.toChainId,
       tokenAddress: token.contractAddress,
       decimals: token.decimals,
     },
   });
 
   return {
+    sourceChainIds,
     amountRaw: mulDecimals(maxAmount, token.decimals),
     amount: maxAmount,
     symbol: token.symbol,

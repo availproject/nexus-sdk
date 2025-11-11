@@ -1,9 +1,7 @@
 export { CA } from './ca';
-export { simulateTransaction, type SimulationRequest, type SimulationResponse } from './simulate';
 
 export type {
   AllowanceHookSources,
-  BridgeQueryInput,
   EthereumProvider,
   ReadableIntent as Intent,
   NetworkConfig,

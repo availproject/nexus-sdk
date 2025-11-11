@@ -17,10 +17,16 @@ import { createSiweMessage } from 'viem/siwe';
 import { ChainList } from './chains';
 import { getNetworkConfig } from './config';
 import { FUEL_NETWORK_URL } from './constants';
-import { getLogger, LOG_LEVEL, setLogLevel, Chain, TransferParams } from '@nexus/commons';
+import {
+  getLogger,
+  LOG_LEVEL,
+  setLogLevel,
+  Chain,
+  TransferParams,
+  BridgeParams,
+} from '@nexus/commons';
 import { createBridgeParams } from './requestHandlers/helpers';
 import {
-  BridgeQueryInput,
   ChainListType,
   EthereumProvider,
   ExactInSwapInput,
@@ -46,12 +52,12 @@ import {
   isArcanaWallet,
   minutesToMs,
   refundExpiredIntents,
-  switchChain,
   tronHexToEvmAddress,
   getBalances,
   retrieveSIWESignatureFromLocalStorage,
   storeSIWESignatureToLocalStorage,
   getBalancesForSwap,
+  switchChain,
 } from './utils';
 import { swap } from './swap/swap';
 import { getSwapSupportedChains } from './swap/utils';
@@ -129,7 +135,7 @@ export class CA {
     }
   }
 
-  protected createBridgeHandler = (input: BridgeQueryInput, options?: OnEventParam) => {
+  protected createBridgeHandler = (input: BridgeParams, options?: OnEventParam) => {
     if (!this._evm) {
       throw Errors.sdkNotInitialized();
     }
@@ -151,7 +157,7 @@ export class CA {
     return bridgeHandler;
   };
 
-  protected async _calculateMaxForBridge(params: Omit<BridgeQueryInput, 'amount' | 'recipient'>) {
+  protected async _calculateMaxForBridge(params: Omit<BridgeParams, 'amount' | 'recipient'>) {
     return getMaxValueForBridge(params, {
       chainList: this.chainList,
       fuel: this._fuel,
@@ -287,6 +293,9 @@ export class CA {
   protected onAccountsChanged = (accounts: Array<`0x${string}`>) => {
     this._deinit();
     if (accounts.length !== 0) {
+      if (this._evm) {
+        this._evm.address = accounts[0];
+      }
       this._init();
     }
   };
@@ -393,7 +402,7 @@ export class CA {
     }
     const chain = this.chainList.getChainByID(chainID);
     if (!chain) {
-      throw new Error('chain not supported');
+      throw Errors.chainNotFound(chainID);
     }
 
     return switchChain(this._evm.client, chain);

@@ -1,13 +1,14 @@
+import { Errors } from '../errors';
 import { mulDecimals } from '../utils';
-import { BridgeQueryInput, ChainListType } from '@nexus/commons';
+import { BridgeParams, ChainListType } from '@nexus/commons';
 
-const createBridgeParams = (input: BridgeQueryInput, chainList: ChainListType) => {
+const createBridgeParams = (input: BridgeParams, chainList: ChainListType) => {
   const { chain: dstChain, token: dstToken } = chainList.getChainAndTokenFromSymbol(
-    input.chainId,
+    input.toChainId,
     input.token,
   );
   if (!dstToken) {
-    throw new Error('Token not supported on this chain.');
+    throw Errors.tokenNotFound(input.token, input.toChainId);
   }
 
   const params = {

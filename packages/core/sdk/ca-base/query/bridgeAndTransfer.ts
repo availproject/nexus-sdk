@@ -8,9 +8,9 @@ const createBridgeAndTransferParams = (
   input: TransferParams,
   chainList: ChainListType,
 ): BridgeAndExecuteParams => {
-  const { token } = chainList.getChainAndTokenFromSymbol(input.chainId, input.token);
+  const { token } = chainList.getChainAndTokenFromSymbol(input.toChainId, input.token);
   if (!token) {
-    throw Errors.tokenNotFound(input.token, input.chainId);
+    throw Errors.tokenNotFound(input.token, input.toChainId);
   }
 
   const tokenAmountInBigint = mulDecimals(input.amount, token.decimals);
@@ -32,7 +32,7 @@ const createBridgeAndTransferParams = (
       };
 
   return {
-    toChainId: input.chainId,
+    toChainId: input.toChainId,
     amount: tokenAmountInBigint,
     token: input.token,
     execute: tx,

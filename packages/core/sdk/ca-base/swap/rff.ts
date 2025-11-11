@@ -327,7 +327,7 @@ export const createBridgeRFF = async ({
 
     const chain = config.chainList.getChainByID(Number(source.chainID));
     if (!chain) {
-      throw new Error('chain not found');
+      throw Errors.chainNotFound(source.chainID);
     }
 
     const allowance = allowances[Number(source.chainID)];
@@ -374,7 +374,7 @@ export const createBridgeRFF = async ({
 
   const chain = config.chainList.getChainByID(Number(output.chainID));
   if (!chain) {
-    throw new Error('Unknown destination chain');
+    throw Errors.chainNotFound(output.chainID);
   }
 
   const ws = webSocket(chain.rpcUrls.default.webSocket[0]);

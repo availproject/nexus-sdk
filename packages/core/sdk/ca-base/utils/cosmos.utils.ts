@@ -163,7 +163,7 @@ const cosmosCreateDoubleCheckTx = async ({
     );
 
     if (isDeliverTxFailure(res)) {
-      throw new Error('Error creating MsgDoubleCheckTx');
+      throw Errors.cosmosError('double check tx failed');
     }
 
     logger.debug('double check response', { doubleCheckTx: res });

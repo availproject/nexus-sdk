@@ -31,6 +31,7 @@ import {
   PublicClientList,
   SwapMetadata,
 } from './utils';
+import { Errors } from '../errors';
 
 const logger = getLogger();
 
@@ -48,7 +49,7 @@ export const swap = async (
   const cache = new Cache(publicClientList);
   const dstChain = options.chainList.getChainByID(input.data.toChainId);
   if (!dstChain) {
-    throw new Error('destination chain not supported');
+    throw Errors.chainNotFound(input.data.toChainId);
   }
 
   performance.mark('swap-start');
