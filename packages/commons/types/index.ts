@@ -9,6 +9,7 @@ import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 import { SwapStepType } from './swap-steps';
 import { BridgeStepType } from './bridge-steps';
+import { FormatTokenBalanceOptions, FormattedParts } from '../utils/format';
 
 type TokenInfo = {
   contractAddress: `0x${string}`;
@@ -656,4 +657,6 @@ export type {
   TransactionReceipt,
   SwapIntent,
   SetAllowanceInput,
+  FormatTokenBalanceOptions,
+  FormattedParts,
 };
