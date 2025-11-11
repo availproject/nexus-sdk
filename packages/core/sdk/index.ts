@@ -39,6 +39,7 @@ import {
   trackSDKBackendInitialized,
   trackSdkDeInitialized,
   trackSDKInitialized,
+  trackTokenDetails,
 } from '../utils/analytics';
 
 export class NexusSDK extends CA {
@@ -106,6 +107,7 @@ export class NexusSDK extends CA {
   public async bridge(params: BridgeParams): Promise<BridgeResult> {
     try {
       trackNexusTransaction({ name: 'bridge', config: this._config, bridgeParams: params });
+      trackTokenDetails({ config: this._config, params });
       const result = await (await this._bridge(params)).exec();
       trackNexusTransaction({
         name: 'bridge',
@@ -141,6 +143,7 @@ export class NexusSDK extends CA {
         config: this._config,
         transaferParams: params,
       });
+      trackTokenDetails({ config: this._config, params });
       const result = await (await this._transfer({ ...params, to: params.recipient })).exec();
       trackNexusTransaction({
         name: 'transfer',
@@ -178,6 +181,7 @@ export class NexusSDK extends CA {
         config: this._config,
         exactInParams: { input, options },
       });
+      trackTokenDetails({ config: this._config, params: { input, options } });
       const result = await this._swapWithExactIn(input, options);
       trackNexusTransaction({
         name: 'swapWithExactIn',
@@ -214,6 +218,7 @@ export class NexusSDK extends CA {
         config: this._config,
         exactOutParams: { input, options },
       });
+      trackTokenDetails({ config: this._config, params: { input, options } });
       const result = await this._swapWithExactOut(input, options);
       trackNexusTransaction({
         name: 'swapWithExactOut',
@@ -258,6 +263,7 @@ export class NexusSDK extends CA {
       config: this._config,
       simulateBridge: params,
     });
+    trackTokenDetails({ config: this._config, params });
     return (await this._bridge(params)).simulate();
   }
 
@@ -270,6 +276,7 @@ export class NexusSDK extends CA {
       config: this._config,
       simulateTransfer: params,
     });
+    trackTokenDetails({ config: this._config, params });
     return (await this._transfer({ ...params, to: params.recipient })).simulate();
   }
 
@@ -364,6 +371,7 @@ export class NexusSDK extends CA {
       config: this._config,
       executeParams: params,
     });
+    trackTokenDetails({ config: this._config, params });
     return this.nexusAdapter.execute(params);
   }
 
@@ -378,6 +386,7 @@ export class NexusSDK extends CA {
       config: this._config,
       simulateExecute: params,
     });
+    trackTokenDetails({ config: this._config, params });
     return this.nexusAdapter.simulateExecute(params);
   }
 
@@ -392,6 +401,7 @@ export class NexusSDK extends CA {
       config: this._config,
       bridgeAndExecuteParams: params,
     });
+    trackTokenDetails({ config: this._config, params });
     return this.nexusAdapter.bridgeAndExecute(params);
   }
 
@@ -409,6 +419,7 @@ export class NexusSDK extends CA {
       config: this._config,
       simulateBridgeAndExecute: params,
     });
+    trackTokenDetails({ config: this._config, params });
     return this.nexusAdapter.simulateBridgeAndExecute(params);
   }
 

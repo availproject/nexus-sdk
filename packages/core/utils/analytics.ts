@@ -26,14 +26,13 @@ export async function trackEvent(name: string, properties?: Record<string, any>)
   try {
     const body = {
       event: name,
+      timestamp: new Date().toISOString(),
+      sessionId: getSessionId(),
+      sdkVersion: '1.0.0-beta.4',
+      package: 'nexus-core',
+      appUrl: typeof window !== 'undefined' ? window.location.origin : 'unknown',
       properties: {
         ...properties,
-        timestamp: new Date().toISOString(),
-        sessionId: getSessionId(),
-        sdkVersion: '1.0.0-beta.4',
-        package: 'nexus-core',
-        appDomain: typeof window !== 'undefined' ? window.location.hostname : 'unknown',
-        appUrl: typeof window !== 'undefined' ? window.location.origin : 'unknown',
       },
     };
 
@@ -134,6 +133,13 @@ export function trackAllowance(allowanceData?: AllowanceHookSources) {
 
 export function trackIntent(intentData?: ReadableIntent) {
   trackEvent('nexus-core-intent', intentData);
+}
+
+export function trackTokenDetails(params: {
+  config?: { network?: Network | NetworkConfig; debug?: boolean };
+  params: any;
+}) {
+  trackEvent('nexus-token-details', params);
 }
 
 // Helpers

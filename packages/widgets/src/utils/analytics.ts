@@ -1,7 +1,7 @@
 // analytics.ts
 // Custom OpenPanel integration for Avail Nexus SDK
 
-import { NexusNetwork } from '@nexus/commons';
+import { NexusNetwork, SUPPORTED_CHAINS_IDS, SUPPORTED_TOKENS } from '@nexus/commons';
 import { OpenPanel } from '@openpanel/web';
 import { ActiveTransaction } from 'src/types';
 
@@ -19,16 +19,15 @@ export async function trackEvent(
   try {
     const body = {
       event: name,
+      timestamp: new Date().toISOString(),
+      sessionId: getSessionId(),
+      sdkVersion: '0.0.6-beta.2',
+      package: 'nexus-widgets',
+      appUrl: typeof window !== 'undefined' ? window.location.origin : 'unknown',
+      network: config?.network || 'mainnet',
+      debug: config?.debug || false,
       properties: {
         ...properties,
-        timestamp: new Date().toISOString(),
-        sessionId: getSessionId(),
-        sdkVersion: '0.0.6-beta.2',
-        package: 'nexus-widgets',
-        appDomain: typeof window !== 'undefined' ? window.location.hostname : 'unknown',
-        appUrl: typeof window !== 'undefined' ? window.location.origin : 'unknown',
-        network: config?.network || 'mainnet',
-        debug: config?.debug || false,
       },
     };
 
