@@ -1,29 +1,19 @@
-import {
-  DepositVEPacket,
-  EVMRFF,
-  EVMVaultABI,
-  MsgDoubleCheckTx,
-  Universe,
-} from '@avail-project/ca-common';
+import { DepositVEPacket, EVMVaultABI, MsgDoubleCheckTx, Universe } from '@avail-project/ca-common';
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import Decimal from 'decimal.js';
 import Long from 'long';
 import {
   bytesToNumber,
   createPublicClient,
-  encodeAbiParameters,
   encodeFunctionData,
-  getAbiItem,
-  keccak256,
+  Hex,
   PrivateKeyAccount,
-  toBytes,
   toHex,
   webSocket,
 } from 'viem';
-import { ErrorInsufficientBalance } from '../errors';
-import { getLogger } from '../logger';
+import { Errors } from '../errors';
 import { createRFFromIntent } from '../utils';
-import { Intent, NetworkConfig } from '@nexus/commons';
+import { getLogger, Intent, NetworkConfig } from '@nexus/commons';
 import {
   convertAddressByUniverse,
   evmWaitForFill,
@@ -33,8 +23,10 @@ import {
   mulDecimals,
   removeIntentHashFromStore,
   storeIntentHashToStore,
+  cosmosCreateDoubleCheckTx,
+  cosmosCreateRFF,
 } from '../utils';
-import { cosmosCreateDoubleCheckTx, cosmosCreateRFF, packERC20Approve } from './utils';
+import { packERC20Approve } from './utils';
 import {
   BridgeAsset,
   EoaToEphemeralCallMap,
@@ -45,41 +37,15 @@ import {
 
 const logger = getLogger();
 
-const createEmptyIntent = ({
-  chainID,
-  decimals,
-}: {
-  decimals: number;
-  chainID: number;
-}): Intent => ({
-  allSources: [],
-  destination: {
-    amount: new Decimal(0),
-    chainID,
-    decimals,
-    gas: 0n,
-    tokenContract: '0x',
-    universe: Universe.ETHEREUM,
-  },
-  fees: {
-    caGas: '0',
-    collection: '0',
-    fulfilment: '0',
-    gasSupplied: '0',
-    protocol: '0',
-    solver: '0',
-  },
-  isAvailableBalanceInsufficient: false,
-  sources: [],
-});
-
 export const createIntent = ({
   assets,
   feeStore,
   output,
+  address,
 }: {
   assets: BridgeAsset[];
   feeStore: FeeStore;
+  address: Hex;
   output: {
     amount: Decimal;
     chainID: number;
@@ -88,7 +54,28 @@ export const createIntent = ({
   };
 }) => {
   const eoaToEphemeralCalls: EoaToEphemeralCallMap = {};
-  const intent = createEmptyIntent({ chainID: output.chainID, decimals: output.decimals });
+  const intent: Intent = {
+    allSources: [],
+    recipientAddress: address,
+    destination: {
+      amount: new Decimal(0),
+      chainID: output.chainID,
+      decimals: output.decimals,
+      gas: 0n,
+      tokenContract: '0x',
+      universe: Universe.ETHEREUM,
+    },
+    fees: {
+      caGas: '0',
+      collection: '0',
+      fulfilment: '0',
+      gasSupplied: '0',
+      protocol: '0',
+      solver: '0',
+    },
+    isAvailableBalanceInsufficient: false,
+    sources: [],
+  };
 
   let borrow = output.amount;
   intent.destination.amount = borrow;
@@ -131,6 +118,15 @@ export const createIntent = ({
     if (accountedBalance.gte(borrow)) {
       break;
     }
+
+    const collectionFee = feeStore.calculateCollectionFee({
+      decimals: asset.decimals,
+      sourceChainID: asset.chainID,
+      sourceTokenAddress: asset.contractAddress,
+    });
+
+    intent.fees.collection = collectionFee.add(intent.fees.collection).toFixed();
+    borrow = borrow.add(collectionFee);
 
     const unaccountedBalance = borrow.minus(accountedBalance);
 
@@ -251,10 +247,11 @@ export const createBridgeRFF = async ({
     assets: input.assets,
     feeStore,
     output,
+    address: config.evm.address,
   });
 
   if (intent.isAvailableBalanceInsufficient) {
-    throw ErrorInsufficientBalance;
+    throw Errors.insufficientBalance();
   }
 
   const { msgBasicCosmos, omniversalRFF, signatureData, sources } = await createRFFromIntent(
@@ -263,7 +260,7 @@ export const createBridgeRFF = async ({
       chainList: config.chainList,
       cosmos: {
         address: config.cosmos.address,
-        client: config.cosmos.wallet,
+        wallet: config.cosmos.wallet,
       },
       evm: {
         address: config.evm.address,
@@ -330,7 +327,7 @@ export const createBridgeRFF = async ({
 
     const chain = config.chainList.getChainByID(Number(source.chainID));
     if (!chain) {
-      throw new Error('chain not found');
+      throw Errors.chainNotFound(source.chainID);
     }
 
     const allowance = allowances[Number(source.chainID)];
@@ -341,7 +338,7 @@ export const createBridgeRFF = async ({
 
     const tx: Tx[] = [];
 
-    if (allowance < source.value) {
+    if (allowance < source.valueRaw) {
       const allowanceTx = {
         data: packERC20Approve(config.chainList.getVaultContractAddress(Number(source.chainID))),
         to: convertAddressByUniverse(source.tokenAddress, Universe.ETHEREUM),
@@ -369,7 +366,7 @@ export const createBridgeRFF = async ({
     });
 
     depositCalls[Number(source.chainID)] = {
-      amount: source.value,
+      amount: source.valueRaw,
       tokenAddress: convertAddressByUniverse(source.tokenAddress, source.universe),
       tx: tx,
     };
@@ -377,7 +374,7 @@ export const createBridgeRFF = async ({
 
   const chain = config.chainList.getChainByID(Number(output.chainID));
   if (!chain) {
-    throw new Error('Unknown destination chain');
+    throw Errors.chainNotFound(output.chainID);
   }
 
   const ws = webSocket(chain.rpcUrls.default.webSocket[0]);
@@ -419,28 +416,6 @@ export const createBridgeRFF = async ({
     intent,
     waitForFill,
   };
-};
-
-export const createRequestEVMSignature = async (evmRFF: EVMRFF, account: PrivateKeyAccount) => {
-  const abi = getAbiItem({ abi: EVMVaultABI, name: 'deposit' });
-  const msg = encodeAbiParameters(abi.inputs[0].components, [
-    evmRFF.sources,
-    evmRFF.destinationUniverse,
-    evmRFF.destinationChainID,
-    evmRFF.recipientAddress,
-    evmRFF.destinations,
-    evmRFF.nonce,
-    evmRFF.expiry,
-    evmRFF.parties,
-  ]);
-  const hash = keccak256(msg, 'bytes');
-  const signature = toBytes(
-    await account.signMessage({
-      message: { raw: hash },
-    }),
-  );
-
-  return { requestHash: hash, signature };
 };
 
 export const createDoubleCheckTx = (

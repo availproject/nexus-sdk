@@ -1,6 +1,6 @@
 {
   "name": "nexus-sdk-monorepo",
-  "version": "0.0.2",
+  "version": "1.0.0-beta.24",
   "private": true,
   "description": "Nexus SDK monorepo - cross-chain transactions with minimal friction",
   "scripts": {
@@ -13,6 +13,8 @@
     "dev": "pnpm run dev:core & pnpm run dev:widgets",
     "format": "prettier --write \"packages/**/*.{ts,tsx}\"",
     "prepare": "husky install",
+    "typecheck:core": "pnpm -F @avail-project/nexus-core typecheck",
+    "typecheck:widgets": "pnpm -F @avail-project/nexus-widgets typecheck",
     "typecheck": "pnpm -r typecheck",
     "clean": "rimraf packages/widgets/dist packages/core/dist packages/commons/dist",
     "clean:modules": "rimraf node_modules packages/widgets/node_modules packages/core/node_modules packages/commons/node_modules",

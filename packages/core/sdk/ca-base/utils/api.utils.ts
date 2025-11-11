@@ -11,15 +11,16 @@ import { connect } from 'it-ws/client';
 import Long from 'long';
 import { pack, unpack } from 'msgpackr';
 import { bytesToBigInt, bytesToNumber, toHex } from 'viem';
-import { getLogger } from '../logger';
-import { ALLOWANCE_APPROVAL_MINED, INTENT_COLLECTION, INTENT_COLLECTION_COMPLETE } from '../steps';
 import {
+  BRIDGE_STEPS,
+  BridgeStepType,
+  getLogger,
   FeeStoreData,
   OraclePriceResponse,
   RFF,
   SponsoredApprovalDataArray,
-  StepInfo,
   UnifiedBalanceResponseData,
+  ChainListType,
 } from '@nexus/commons';
 import {
   convertAddressByUniverse,
@@ -28,6 +29,7 @@ import {
   equalFold,
   minutesToMs,
 } from './common.utils';
+import { Errors } from '../errors';
 
 const logger = getLogger();
 
@@ -53,33 +55,66 @@ async function fetchMyIntents(address: string, grpcURL: string, page = 1) {
         reverse: true,
       },
     });
-    return intentTransform(response.requestForFunds);
+    return response.requestForFunds;
   } catch (error) {
     logger.error('Failed to fetch intents', error);
     throw new Error('Failed to fetch intents');
   }
 }
 
-const intentTransform = (input: RequestForFunds[]): RFF[] => {
-  return input.map((rff) => ({
-    deposited: rff.deposited,
-    destinationChainID: bytesToNumber(rff.destinationChainID),
-    destinations: rff.destinations.map((d) => ({
-      tokenAddress: convertToHexAddressByUniverse(d.contractAddress, rff.destinationUniverse),
-      value: bytesToBigInt(d.value),
-    })),
-    destinationUniverse: Universe[rff.destinationUniverse],
-    expiry: rff.expiry.toNumber(),
-    fulfilled: rff.fulfilled,
-    id: rff.id.toNumber(),
-    refunded: rff.refunded,
-    sources: rff.sources.map((s) => ({
-      chainID: bytesToNumber(s.chainID),
-      tokenAddress: convertToHexAddressByUniverse(s.contractAddress, s.universe),
-      universe: Universe[s.universe],
-      value: bytesToBigInt(s.value),
-    })),
-  }));
+export const intentTransform = (input: RequestForFunds[], chainList: ChainListType): RFF[] => {
+  return input.map((rff) => {
+    return {
+      deposited: rff.deposited,
+      destinationChainId: bytesToNumber(rff.destinationChainID),
+      destinations: rff.destinations.map((d) => {
+        const chainId = bytesToNumber(rff.destinationChainID);
+        const contractAddress = convertToHexAddressByUniverse(
+          d.contractAddress,
+          rff.destinationUniverse,
+        );
+        const token = chainList.getTokenByAddress(chainId, contractAddress);
+        if (!token) {
+          throw Errors.tokenNotSupported(contractAddress, chainId);
+        }
+        const valueRaw = bytesToBigInt(d.value);
+        return {
+          token: {
+            address: contractAddress,
+            symbol: token.symbol,
+            decimals: token.decimals,
+          },
+          valueRaw,
+          value: divDecimals(valueRaw, token.decimals).toFixed(token.decimals),
+        };
+      }),
+      destinationUniverse: Universe[rff.destinationUniverse],
+      expiry: rff.expiry.toNumber(),
+      fulfilled: rff.fulfilled,
+      id: rff.id.toNumber(),
+      refunded: rff.refunded,
+      sources: rff.sources.map((s) => {
+        const chainId = bytesToNumber(s.chainID);
+        const contractAddress = convertToHexAddressByUniverse(s.contractAddress, s.universe);
+        const token = chainList.getTokenByAddress(chainId, contractAddress);
+        if (!token) {
+          throw Errors.tokenNotSupported(contractAddress, chainId);
+        }
+        const valueRaw = bytesToBigInt(s.value);
+        return {
+          chainId: bytesToNumber(s.chainID),
+          universe: Universe[s.universe],
+          value: divDecimals(valueRaw, token.decimals).toFixed(token.decimals),
+          valueRaw,
+          token: {
+            address: contractAddress,
+            symbol: token.symbol,
+            decimals: token.decimals,
+          },
+        };
+      }),
+    };
+  });
 };
 
 async function fetchProtocolFees(grpcURL: string) {
@@ -324,7 +359,8 @@ export const getBalancesFromVSC = async (
   const response = await getVscReq(vscDomain).get<{
     balances: UnifiedBalanceResponseData[];
   }>(`/get-balance/${namespace}/${address}`);
-  return response.data.balances;
+  logger.debug('getBalancesFromVSC', { response });
+  return response.data.balances.filter((b) => b.errored !== true);
 };
 
 export const getEVMBalancesForAddress = async (vscDomain: string, address: `0x${string}`) => {
@@ -370,7 +406,7 @@ type CreateSponsoredApprovalResponse =
 const vscCreateSponsoredApprovals = async (
   vscDomain: string,
   input: SponsoredApprovalDataArray,
-  msd?: (s: StepInfo, data?: { [k: string]: unknown }) => void,
+  msd?: (s: BridgeStepType) => void,
 ) => {
   const connection = connect(
     new URL('/api/v1/create-sponsored-approvals', getVSCURL(vscDomain, 'wss')).toString(),
@@ -388,15 +424,19 @@ const vscCreateSponsoredApprovals = async (
       logger.debug('vscCreateSponsoredApprovals', { data });
 
       if ('errored' in data && data.errored) {
-        throw new Error(data.error);
+        throw Errors.vscError(`create-sponsored-approvals: ${data.error}`);
       }
 
       if ('error' in data && data.error) {
-        throw new Error(data.msg);
+        throw Errors.vscError(`create-sponsored-approvals: ${data.error}`);
       }
 
       if (msd) {
-        msd(ALLOWANCE_APPROVAL_MINED(bytesToNumber(input[data.part_idx].chain_id)));
+        msd(
+          BRIDGE_STEPS.ALLOWANCE_APPROVAL_MINED({
+            id: bytesToNumber(input[data.part_idx].chain_id),
+          }),
+        );
       }
 
       count += 1;
@@ -427,7 +467,7 @@ type VSCCreateRFFResponse =
 const vscCreateRFF = async (
   vscDomain: string,
   id: Long,
-  msd: (s: StepInfo, data?: { [k: string]: unknown }) => void,
+  msd: (s: BridgeStepType) => void,
   expectedCollectionIndexes: number[],
 ) => {
   const receivedCollectionsACKs = [];
@@ -448,26 +488,28 @@ const vscCreateRFF = async (
 
       if (data.status === 255) {
         if (expectedCollectionIndexes.length === receivedCollectionsACKs.length) {
-          msd(INTENT_COLLECTION_COMPLETE);
+          msd(BRIDGE_STEPS.INTENT_COLLECTION_COMPLETE);
           break;
         } else {
           logger.debug('(vsc)create-rff:collections failed', {
             expectedCollectionIndexes,
             receivedCollectionsACKs,
           });
-          throw new Error('(vsc)create-rff: collections failed');
+          throw Errors.vscError('create-rff: collections failed');
         }
       } else if (data.status === 16) {
         if (expectedCollectionIndexes.includes(data.idx)) {
           receivedCollectionsACKs.push(data.idx);
         }
-        msd(INTENT_COLLECTION(receivedCollectionsACKs.length), {
-          confirmed: receivedCollectionsACKs.length,
-          total: expectedCollectionIndexes.length,
-        });
+        msd(
+          BRIDGE_STEPS.INTENT_COLLECTION(
+            receivedCollectionsACKs.length,
+            expectedCollectionIndexes.length,
+          ),
+        );
       } else {
         if (expectedCollectionIndexes.includes(data.idx)) {
-          throw new Error(`(vsc)create-rff: ${data.error}`);
+          throw Errors.vscError(`create-rff: ${data.error}`);
         } else {
           logger.debug('vscCreateRFF:ExpectedError:ignore', { data });
         }

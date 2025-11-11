@@ -23,6 +23,7 @@ export const TESTNET_CHAIN_IDS = {
   POLYGON_AMOY: 80002,
   MONAD_TESTNET: 10143,
   TRON_SHASTA: 2494104990,
+  VALIDIUM_TESTNET: 567,
 } as const;
 
 export const SUPPORTED_CHAINS = {
@@ -227,12 +228,9 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
 
 // Event name constants to prevent typos
 export const NEXUS_EVENTS = {
-  STEP_COMPLETE: 'step_complete',
-  EXPECTED_STEPS: 'expected_steps',
-  SWAP_STEPS: 'swap_step',
-  // Modular event names
-  BRIDGE_EXECUTE_EXPECTED_STEPS: 'bridge_execute_expected_steps',
-  BRIDGE_EXECUTE_COMPLETED_STEPS: 'bridge_execute_completed_steps',
+  STEP_COMPLETE: 'STEP_COMPLETE',
+  SWAP_STEP_COMPLETE: 'SWAP_STEP_COMPLETE',
+  STEPS_LIST: 'STEPS_LIST',
 } as const;
 
 // Helper constants for mainnet and testnet chain categorization
@@ -279,6 +277,7 @@ export const TOKEN_CONTRACT_ADDRESSES = {
     [SUPPORTED_CHAINS.HYPEREVM]: '0xb88339CB7199b77E23DB6E890353E22632Ba630f',
     // testnet chains
     [SUPPORTED_CHAINS.SEPOLIA]: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+    [SUPPORTED_CHAINS.VALIDIUM_TESTNET]: '0x8Cf5f629Bb26FC3F92144e72bC4A3719A7DF07F3',
     [SUPPORTED_CHAINS.BASE_SEPOLIA]: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
     [SUPPORTED_CHAINS.ARBITRUM_SEPOLIA]: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d',
     [SUPPORTED_CHAINS.OPTIMISM_SEPOLIA]: '0x5fd84259d66Cd46123540766Be93DFE6D43130D7',
@@ -334,7 +333,7 @@ export const DESTINATION_SWAP_TOKENS = new Map<
       },
       {
         decimals: 6,
-        logo: 'https://coin-images.coingecko.com/coins/images/6319/large/usdc.png?1696506694',
+        logo: 'https://coin-images.coingecko.com/coins/images/35023/large/USDT.png',
         name: 'USDT Coin',
         symbol: 'USDT',
         tokenAddress: '0x94b008aa00579c1307b0ef2c499ad98a8ce58e58',
@@ -381,7 +380,7 @@ export const DESTINATION_SWAP_TOKENS = new Map<
       },
       {
         decimals: 6,
-        logo: 'https://coin-images.coingecko.com/coins/images/6319/large/usdc.png?1696506694',
+        logo: 'https://coin-images.coingecko.com/coins/images/35023/large/USDT.png',
         name: 'USDT Coin',
         symbol: 'USDT',
         tokenAddress: '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9',
@@ -421,17 +420,10 @@ export const DESTINATION_SWAP_TOKENS = new Map<
       },
       {
         decimals: 6,
-        logo: 'https://coin-images.coingecko.com/coins/images/6319/large/usdc.png?1696506694',
+        logo: 'https://coin-images.coingecko.com/coins/images/35023/large/USDT.png',
         name: 'USDT Coin',
         symbol: 'USDT',
         tokenAddress: '0xf55bec9cafdbe8730f096aa55dad6d22d44099df',
-      },
-      {
-        decimals: 18,
-        logo: 'https://coin-images.coingecko.com/coins/images/279/large/ethereum.png?1696501628',
-        name: 'Ether',
-        symbol: 'ETH',
-        tokenAddress: '0x0000000000000000000000000000000000000000',
       },
     ],
   ],

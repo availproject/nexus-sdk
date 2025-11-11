@@ -1,18 +1,23 @@
 import { MsgCreateRequestForFunds, OmniversalRFF, Universe } from '@avail-project/ca-common';
 import { FUEL_BASE_ASSET_ID, INTENT_EXPIRY, isNativeAddress, ZERO_ADDRESS } from '../constants';
-import { getLogger } from '../logger';
-import { ChainListType, Intent } from '@nexus/commons';
+import { getLogger, ChainListType, Intent, IBridgeOptions, BridgeAsset } from '@nexus/commons';
 import {
   convertTo32Bytes,
   convertTo32BytesHex,
   createRequestEVMSignature,
   createRequestFuelSignature,
+  createRequestTronSignature,
   mulDecimals,
 } from './common.utils';
-import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import { Hex, PrivateKeyAccount, toBytes, WalletClient } from 'viem';
-import { CHAIN_IDS, FuelConnector, Provider } from 'fuels';
+import { CHAIN_IDS } from 'fuels';
 import Long from 'long';
+import { TronWeb } from 'tronweb';
+import { tronHexToEvmAddress } from './tron.utils';
+import { Errors } from '../errors';
+import { convertToEVMAddress } from '../swap/utils';
+import Decimal from 'decimal.js';
+import { FeeStore } from './api.utils';
 
 type Destination = {
   tokenAddress: `0x${string}`;
@@ -24,7 +29,8 @@ type Source = {
   chainID: bigint;
   tokenAddress: `0x${string}`;
   universe: Universe;
-  value: bigint;
+  valueRaw: bigint;
+  value: Decimal;
 };
 
 const logger = getLogger();
@@ -45,7 +51,7 @@ const getSourcesAndDestinationsForRFF = (
     const token = chainList.getTokenByAddress(source.chainID, source.tokenContract);
     if (!token) {
       logger.error('Token not found', { source });
-      throw new Error('token not found');
+      throw Errors.tokenNotSupported(source.tokenContract, source.chainID);
     }
 
     universes.add(source.universe);
@@ -54,7 +60,8 @@ const getSourcesAndDestinationsForRFF = (
       chainID: BigInt(source.chainID),
       tokenAddress: convertTo32BytesHex(source.tokenContract),
       universe: source.universe,
-      value: mulDecimals(source.amount, token.decimals),
+      valueRaw: mulDecimals(source.amount, token.decimals),
+      value: source.amount,
     });
   }
 
@@ -87,11 +94,11 @@ const getSourcesAndDestinationsForRFF = (
 
 const createRFFromIntent = async (
   intent: Intent,
-  options: {
-    chainList: ChainListType;
-    cosmos: { address: string; client: DirectSecp256k1Wallet };
-    evm: { address: Hex; client: PrivateKeyAccount | WalletClient };
-    fuel?: { address: string; connector: FuelConnector; provider: Provider };
+  options: Pick<IBridgeOptions, 'chainList' | 'cosmos' | 'fuel' | 'tron'> & {
+    evm: {
+      address: `0x${string}`;
+      client: WalletClient | PrivateKeyAccount;
+    };
   },
   destinationUniverse: Universe,
 ) => {
@@ -116,6 +123,16 @@ const createRFFromIntent = async (
         universe,
       });
     }
+
+    if (universe === Universe.TRON) {
+      console.log({ tronAddress: TronWeb.address.toHex(options.tron!.address) });
+      parties.push({
+        address: convertTo32BytesHex(
+          tronHexToEvmAddress(TronWeb.address.toHex(options.tron!.address)),
+        ),
+        universe,
+      });
+    }
   }
 
   logger.debug('processRFF:1', {
@@ -131,6 +148,7 @@ const createRFFromIntent = async (
       contractAddress: toBytes(dest.tokenAddress),
       value: toBytes(dest.value),
     })),
+    recipientAddress: convertTo32Bytes(intent.recipientAddress),
     destinationUniverse: intent.destination.universe,
     expiry: Long.fromString((BigInt(Date.now() + INTENT_EXPIRY) / 1000n).toString()),
     nonce: window.crypto.getRandomValues(new Uint8Array(32)),
@@ -144,7 +162,7 @@ const createRFFromIntent = async (
       chainID: convertTo32Bytes(source.chainID),
       contractAddress: convertTo32Bytes(source.tokenAddress),
       universe: source.universe,
-      value: toBytes(source.value),
+      value: toBytes(source.valueRaw),
     })),
   });
 
@@ -176,7 +194,7 @@ const createRFFromIntent = async (
         logger.error('universe has fuel but not expected input', {
           fuelInput: options.fuel,
         });
-        throw new Error('universe has fuel but not expected input');
+        throw Errors.internal('universe list includes fuel but not expected input');
       }
 
       const { requestHash, signature } = await createRequestFuelSignature(
@@ -192,12 +210,33 @@ const createRFFromIntent = async (
         universe: Universe.FUEL,
       });
     }
+
+    if (universe === Universe.TRON) {
+      if (!options.tron) {
+        logger.error('universe has tron but not expected input', {
+          tronInput: options.tron,
+        });
+        throw Errors.internal('universe has tron but not expected input');
+      }
+      const { requestHash, signature } = await createRequestTronSignature(
+        omniversalRFF.asEVMRFF(),
+        options.tron.adapter,
+      );
+
+      signatureData.push({
+        address: convertTo32Bytes(tronHexToEvmAddress(TronWeb.address.toHex(options.tron.address))),
+        requestHash,
+        signature,
+        universe,
+      });
+    }
   }
 
   const msgBasicCosmos = MsgCreateRequestForFunds.create({
     destinationChainID: omniversalRFF.protobufRFF.destinationChainID,
     destinations: omniversalRFF.protobufRFF.destinations,
     destinationUniverse: omniversalRFF.protobufRFF.destinationUniverse,
+    recipientAddress: omniversalRFF.protobufRFF.recipientAddress,
     expiry: omniversalRFF.protobufRFF.expiry,
     nonce: omniversalRFF.protobufRFF.nonce,
     signatureData: signatureData.map((s) => ({
@@ -224,4 +263,144 @@ const createRFFromIntent = async (
   };
 };
 
-export { createRFFromIntent, getSourcesAndDestinationsForRFF };
+const calculateMaxBridgeFees = ({
+  assets,
+  feeStore,
+  dst,
+}: {
+  dst: {
+    chainId: number;
+    tokenAddress: Hex;
+    decimals: number;
+  };
+  assets: BridgeAsset[];
+  feeStore: FeeStore;
+}) => {
+  const borrow = assets.reduce((accumulator, asset) => {
+    return accumulator.add(Decimal.add(asset.eoaBalance, asset.ephemeralBalance));
+  }, new Decimal(0));
+
+  const protocolFee = feeStore.calculateProtocolFee(new Decimal(borrow));
+  let borrowWithFee = borrow.add(protocolFee);
+
+  const fulfilmentFee = feeStore.calculateFulfilmentFee({
+    decimals: dst.decimals,
+    destinationChainID: dst.chainId,
+    destinationTokenAddress: dst.tokenAddress,
+  });
+  borrowWithFee = borrowWithFee.add(fulfilmentFee);
+
+  logger.debug('calculateMaxBridgeFees:1', {
+    borrow: borrow.toFixed(),
+    protocolFee: protocolFee.toFixed(),
+    fulfilmentFee: fulfilmentFee.toFixed(),
+    borrowWithFee: borrowWithFee.toFixed(),
+  });
+
+  for (const asset of assets) {
+    const solverFee = feeStore.calculateSolverFee({
+      borrowAmount: Decimal.add(asset.eoaBalance, asset.ephemeralBalance),
+      decimals: asset.decimals,
+      destinationChainID: dst.chainId,
+      destinationTokenAddress: dst.tokenAddress,
+      sourceChainID: asset.chainID,
+      sourceTokenAddress: convertToEVMAddress(asset.contractAddress),
+    });
+
+    borrowWithFee = borrowWithFee.add(solverFee);
+    logger.debug('calculateMaxBridgeFees:2', {
+      borrow: borrow.toFixed(),
+      borrowWithFee: borrowWithFee.toFixed(),
+      solverFee: solverFee.toFixed(),
+    });
+  }
+
+  return borrowWithFee.minus(borrow);
+};
+
+// FIXME: Remove the above function after updating the usage.
+const calculateMaxBridgeFee = ({
+  assets,
+  feeStore,
+  dst,
+}: {
+  dst: {
+    chainId: number;
+    tokenAddress: Hex;
+    decimals: number;
+  };
+  assets: {
+    chainID: number;
+    contractAddress: `0x${string}`;
+    decimals: number;
+    balance: Decimal;
+  }[];
+  feeStore: FeeStore;
+}) => {
+  const borrow = assets.reduce((accumulator, asset) => {
+    return accumulator.add(asset.balance);
+  }, new Decimal(0));
+
+  const sourceChainIds: number[] = [];
+
+  const protocolFee = feeStore.calculateProtocolFee(new Decimal(borrow));
+  let borrowWithFee = borrow.add(protocolFee);
+
+  const fulfilmentFee = feeStore.calculateFulfilmentFee({
+    decimals: dst.decimals,
+    destinationChainID: dst.chainId,
+    destinationTokenAddress: dst.tokenAddress,
+  });
+  borrowWithFee = borrowWithFee.add(fulfilmentFee);
+
+  logger.debug('calculateMaxBridgeFees:1', {
+    borrow: borrow.toFixed(),
+    protocolFee: protocolFee.toFixed(),
+    fulfilmentFee: fulfilmentFee.toFixed(),
+    borrowWithFee: borrowWithFee.toFixed(),
+  });
+
+  for (const asset of assets) {
+    if (!asset.balance.gt(0)) {
+      continue;
+    }
+    sourceChainIds.push(asset.chainID);
+    const collectionFee = feeStore.calculateCollectionFee({
+      decimals: asset.decimals,
+      sourceChainID: asset.chainID,
+      sourceTokenAddress: asset.contractAddress,
+    });
+
+    borrowWithFee = borrowWithFee.add(collectionFee);
+
+    const solverFee = feeStore.calculateSolverFee({
+      borrowAmount: asset.balance,
+      decimals: asset.decimals,
+      destinationChainID: dst.chainId,
+      destinationTokenAddress: dst.tokenAddress,
+      sourceChainID: asset.chainID,
+      sourceTokenAddress: convertToEVMAddress(asset.contractAddress),
+    });
+
+    borrowWithFee = borrowWithFee.add(solverFee);
+    logger.debug('calculateMaxBridgeFees:2', {
+      borrow: borrow.toFixed(),
+      borrowWithFee: borrowWithFee.toFixed(),
+      solverFee: solverFee.toFixed(),
+    });
+  }
+
+  const fee = borrowWithFee.minus(borrow);
+  const maxAmount = fee.lt(borrow)
+    ? borrow.minus(fee).toFixed(dst.decimals, Decimal.ROUND_FLOOR)
+    : '0';
+
+  return { fee, maxAmount, sourceChainIds };
+};
+
+export {
+  createRFFromIntent,
+  getSourcesAndDestinationsForRFF,
+  calculateMaxBridgeFee,
+  calculateMaxBridgeFees,
+};

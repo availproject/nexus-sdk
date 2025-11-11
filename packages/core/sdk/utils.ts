@@ -1,6 +1,5 @@
 import {
   type SUPPORTED_CHAINS,
-  formatBalance as utilFormatBalance,
   parseUnits as utilParseUnits,
   formatUnits as utilFormatUnits,
   isValidAddress as utilIsValidAddress,
@@ -11,29 +10,19 @@ import {
   getTestnetTokenMetadata as utilGetTestnetTokenMetadata,
   getTokenMetadata as utilGetTokenMetadata,
   getChainMetadata as utilGetChainMetadata,
-  formatTokenAmount as utilFormatTokenAmount,
-  formatTestnetTokenAmount as utilFormatTestnetTokenAmount,
   SupportedChainsResult,
   Network,
+  ChainListType,
+  formatTokenBalance,
+  formatTokenBalanceParts,
 } from '@nexus/commons';
-import { ChainAbstractionAdapter } from '../adapters/chain-abstraction-adapter';
+import { getCoinbasePrices, getSupportedChains } from './ca-base/utils';
+import { getSwapSupportedChains } from './ca-base/swap/utils';
 
 export class NexusUtils {
-  constructor(
-    private readonly adapter: ChainAbstractionAdapter,
-    private readonly isReady: () => boolean,
-  ) {}
-
-  private ensureInitialized(): void {
-    if (!this.isReady()) {
-      throw new Error(
-        'NexusSDK must be initialized before using utils methods that require adapter access. Call sdk.initialize() first.',
-      );
-    }
-  }
-
-  // Pure utility functions (no adapter dependency)
-  formatBalance = utilFormatBalance;
+  constructor(private readonly chainList: ChainListType) {}
+  formatTokenBalance = formatTokenBalance;
+  formatTokenBalanceParts = formatTokenBalanceParts;
   parseUnits = utilParseUnits;
   formatUnits = utilFormatUnits;
   isValidAddress = utilIsValidAddress;
@@ -44,28 +33,28 @@ export class NexusUtils {
   getTestnetTokenMetadata = utilGetTestnetTokenMetadata;
   getTokenMetadata = utilGetTokenMetadata;
   getChainMetadata = utilGetChainMetadata;
-  formatTokenAmount = utilFormatTokenAmount;
-  formatTestnetTokenAmount = utilFormatTestnetTokenAmount;
+
+  getCoinbaseRates = async (): Promise<Record<string, string>> => {
+    return getCoinbasePrices();
+  };
 
   getSupportedChains(env?: Network): SupportedChainsResult {
-    this.ensureInitialized();
-    return this.adapter.getSupportedChains(env);
+    return getSupportedChains(env);
   }
 
   getSwapSupportedChainsAndTokens(): SupportedChainsResult {
-    this.ensureInitialized();
-    return this.adapter.nexusSDK.getSwapSupportedChainsAndTokens();
+    return getSwapSupportedChains(this.chainList);
   }
 
   /* Same for isSupportedChain / isSupportedToken */
 
   isSupportedChain(chainId: (typeof SUPPORTED_CHAINS)[keyof typeof SUPPORTED_CHAINS]): boolean {
-    this.ensureInitialized();
-    return this.adapter.isSupportedChain(chainId);
+    return !!this.chainList.getChainByID(chainId);
   }
 
+  // ???
   isSupportedToken(token: string): boolean {
-    this.ensureInitialized();
-    return this.adapter.isSupportedToken(token);
+    const supportedTokens = ['ETH', 'USDC', 'USDT'];
+    return supportedTokens.includes(token.toUpperCase());
   }
 }

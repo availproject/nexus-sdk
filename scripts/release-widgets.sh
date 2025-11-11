@@ -113,7 +113,7 @@ print_header "Starting @avail-project/nexus-widgets $RELEASE_TYPE release ($VERS
 
 # Run type checking
 print_status "Running type check..."
-pnpm run typecheck
+pnpm run typecheck:widgets
 
 # Clean previous builds
 print_status "Cleaning previous builds..."

@@ -1,5 +1,6 @@
 import {
   ArcanaVault,
+  Bytes,
   DepositVEPacket,
   Environment,
   ERC20ABI,
@@ -14,7 +15,6 @@ import { arrayify, CHAIN_IDS, FuelConnector, hexlify, Provider } from 'fuels';
 import Long from 'long';
 import {
   ByteArray,
-  bytesToBigInt,
   bytesToHex,
   bytesToNumber,
   encodeAbiParameters,
@@ -22,19 +22,21 @@ import {
   getAbiItem,
   hashMessage,
   Hex,
+  hexToBigInt,
   keccak256,
   pad,
   PrivateKeyAccount,
   PublicClient,
   toBytes,
   toHex,
+  UserRejectedRequestError,
   WalletClient,
   WebSocketTransport,
 } from 'viem';
 import { TronWeb } from 'tronweb';
 import { ChainList } from '../chains';
 import { FUEL_BASE_ASSET_ID, isNativeAddress, ZERO_ADDRESS } from '../constants';
-import { getLogger } from '../logger';
+import { getLogger, IBridgeOptions } from '@nexus/commons';
 import {
   EthereumProvider,
   Intent,
@@ -44,7 +46,6 @@ import {
   ReadableIntent,
   SDKConfig,
   TokenInfo,
-  TxOptions,
   ChainListType,
   NexusNetwork,
   UserAssetDatum,
@@ -55,6 +56,7 @@ import { requestTimeout, waitForIntentFulfilment } from './contract.utils';
 import { cosmosCreateDoubleCheckTx, cosmosFillCheck, cosmosRefundIntent } from './cosmos.utils';
 import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 import { Types, utils } from 'tronweb';
+import { Errors } from '../errors';
 
 const logger = getLogger();
 
@@ -240,7 +242,7 @@ const convertIntent = (
   for (const s of intent.sources) {
     const chainInfo = chainList.getChainByID(s.chainID);
     if (!chainInfo) {
-      throw new Error('chain not supported');
+      throw Errors.chainNotFound(s.chainID);
     }
     sources.push({
       amount: s.amount.toFixed(),
@@ -256,7 +258,7 @@ const convertIntent = (
   for (const s of intent.allSources) {
     const chainInfo = chainList.getChainByID(s.chainID);
     if (!chainInfo) {
-      throw new Error('chain not supported');
+      throw Errors.chainNotFound(s.chainID);
     }
     allSources.push({
       amount: s.amount.toFixed(),
@@ -269,7 +271,7 @@ const convertIntent = (
 
   const destinationChainInfo = chainList.getChainByID(intent.destination.chainID);
   if (!destinationChainInfo) {
-    throw new Error('chain not supported');
+    throw Errors.chainNotFound(intent.destination.chainID);
   }
 
   const destination = {
@@ -353,10 +355,17 @@ const createRequestEVMSignature = async (
 
   const hash = keccak256(msg, 'bytes');
   const signature = toBytes(
-    await client.signMessage({
-      account: evmAddress,
-      message: { raw: hash },
-    }),
+    await client
+      .signMessage({
+        account: evmAddress,
+        message: { raw: hash },
+      })
+      .catch((e) => {
+        if (e instanceof UserRejectedRequestError) {
+          throw Errors.userRejectedIntentSignature();
+        }
+        throw e;
+      }),
   );
 
   return { requestHash: hashMessage({ raw: hash }), signature };
@@ -375,20 +384,20 @@ const createRequestTronSignature = async (evmRFF: EVMRFF, client: AdapterProps) 
     evmRFF.expiry,
     evmRFF.parties,
   ]);
-  const hash = keccak256(msg, 'bytes');
+  const hash = toHex(keccak256(msg, 'bytes'));
 
   // FIXME: Hack - since tron doesn't supports binary decode of hex before signing
-  const uppercaseHash = convertToUpperCaseHash(toHex(hash));
-  const sig = await client.signMessage(uppercaseHash);
+  // const uppercaseHash = convertToUpperCaseHash(toHex(hash));
+  const sig = await client.signMessage(hash);
   return {
-    requestHash: utils.message.hashMessage(uppercaseHash) as Hex,
+    requestHash: utils.message.hashMessage(hash) as Hex,
     signature: toBytes(sig),
   };
 };
 
-const convertToUpperCaseHash = (input: Hex) => {
-  return `0x${input.substring(2).toUpperCase()}`;
-};
+// const convertToUpperCaseHash = (input: Hex) => {
+//   return `0x${input.substring(2).toUpperCase()}`;
+// };
 
 const convertGasToToken = (
   token: TokenInfo,
@@ -397,10 +406,7 @@ const convertGasToToken = (
   destinationUniverse: Universe,
   gas: Decimal,
 ) => {
-  if (gas.isZero()) {
-    return gas;
-  }
-  if (isNativeAddress(destinationUniverse, token.contractAddress)) {
+  if (gas.isZero() || isNativeAddress(destinationUniverse, token.contractAddress)) {
     return gas;
   }
 
@@ -420,6 +426,7 @@ const convertGasToToken = (
         rate.chainId === destinationChainID && equalFold(rate.tokenAddress, token.contractAddress),
     )
     ?.priceUsd.toFixed();
+
   if (!transferTokenInUSD) {
     throw new Error('could not find token in price oracle');
   }
@@ -446,24 +453,25 @@ const evmWaitForFill = async (
   ]);
 };
 
-const convertTo32Bytes = (value: bigint | Hex | number) => {
+const convertTo32Bytes = (value: bigint | Hex | number | Bytes) => {
   if (typeof value == 'bigint' || typeof value === 'number') {
     return toBytes(value, {
       size: 32,
     });
-  }
-
-  if (typeof value === 'string') {
+  } else if (typeof value === 'string') {
     return pad(toBytes(value), {
       dir: 'left',
       size: 32,
     });
+  } else {
+    return pad(value, {
+      dir: 'left',
+      size: 32,
+    });
   }
-
-  throw new Error('invalid type');
 };
 
-const convertTo32BytesHex = (value: Hex) => {
+const convertTo32BytesHex = (value: Hex | Bytes) => {
   const bytes = convertTo32Bytes(value);
   return toHex(bytes);
 };
@@ -546,39 +554,25 @@ const getSDKConfig = (c: { network?: NexusNetwork; debug?: boolean }): Required<
   return config;
 };
 
-const getTxOptions = (options?: Partial<TxOptions>) => {
-  const defaultOptions: TxOptions = {
-    bridge: false,
-    gas: 0n,
-    skipTx: false,
-    sourceChains: [],
-  };
-
-  if (options?.bridge !== undefined) {
-    defaultOptions.bridge = options.bridge;
-  }
-
-  if (options?.gas !== undefined) {
-    defaultOptions.gas = options.gas;
-  }
-
-  if (options?.skipTx !== undefined) {
-    defaultOptions.skipTx = options.skipTx;
-  }
-
-  if (options?.sourceChains !== undefined) {
-    defaultOptions.sourceChains = options.sourceChains;
-  }
-
-  return defaultOptions;
-};
-
 class UserAsset {
   get balance() {
     return this.value.balance;
   }
 
   constructor(public value: UserAssetDatum) {}
+
+  getBridgeAssets(dstChainId: number) {
+    return this.value.breakdown
+      .filter((b) => b.chain.id !== dstChainId)
+      .map((b) => {
+        return {
+          chainID: b.chain.id,
+          contractAddress: b.contractAddress,
+          decimals: b.decimals,
+          balance: new Decimal(b.balance),
+        };
+      });
+  }
 
   getBalanceOnChain(chainID: number, tokenAddress?: `0x${string}`) {
     return (
@@ -863,7 +857,7 @@ async function waitForTronApprovalTxConfirmation(
         throw new Error(result.Error);
       }
 
-      const allowance = bytesToBigInt(result.constant_result[0]);
+      const allowance = hexToBigInt(`0x${result.constant_result[0]}`);
       if (allowance < amount) {
         throw new Error('Allowance not set yet.');
       }
@@ -881,7 +875,47 @@ async function waitForTronApprovalTxConfirmation(
   throw new Error(`⏰ Timeout: Transaction not confirmed within ${timeout / 1000}s`);
 }
 
+const createExplorerTxURL = (txHash: Hex, explorerURL: string) => {
+  return new URL(`/tx/${txHash}`, explorerURL).href;
+};
+
+const retrieveAddress = (
+  universe: Universe,
+  input: Pick<IBridgeOptions, 'fuel' | 'evm' | 'tron'>,
+): Hex => {
+  if (universe === Universe.ETHEREUM) {
+    return input.evm.address;
+  } else if (universe === Universe.FUEL) {
+    if (!input.fuel) {
+      throw Errors.internal('fuel source but no fuel input');
+    }
+    return input.fuel.address as Hex;
+  } else if (universe === Universe.TRON) {
+    if (!input.tron) {
+      throw Errors.internal('tron source but no tron input');
+    }
+
+    return input.tron.address as Hex;
+  }
+
+  throw Errors.internal('unknown universe');
+};
+
+const SIWE_KEY = '_siwe_sig';
+
+const storeSIWESignatureToLocalStorage = (address: Hex, signature: string) => {
+  window.localStorage.setItem(`${SIWE_KEY}-${address}`, signature);
+};
+
+const retrieveSIWESignatureFromLocalStorage = (address: Hex) => {
+  return window.localStorage.getItem(`${SIWE_KEY}-${address}`);
+};
+
 export {
+  retrieveSIWESignatureFromLocalStorage,
+  storeSIWESignatureToLocalStorage,
+  retrieveAddress,
+  createExplorerTxURL,
   waitForTronApprovalTxConfirmation,
   waitForTronDepositTxConfirmation,
   UserAsset,
@@ -902,7 +936,6 @@ export {
   getExplorerURL,
   getSDKConfig,
   getSupportedChains,
-  getTxOptions,
   hexTo0xString,
   isArcanaWallet,
   minutesToMs,

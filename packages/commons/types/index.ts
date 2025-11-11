@@ -1,20 +1,21 @@
 import { SUPPORTED_CHAINS } from '../constants';
-import { Abi, TransactionReceipt, ByteArray, Hex, WalletClient } from 'viem';
+import { TransactionReceipt, ByteArray, Hex, WalletClient } from 'viem';
 import { ChainDatum, Environment, PermitVariant, Universe } from '@avail-project/ca-common';
 import * as ServiceTypes from './service-types';
 import Decimal from 'decimal.js';
 import { SwapIntent } from './swap-types';
-import { FuelConnector, Provider, TransactionRequestLike } from 'fuels';
+import { FuelConnector, Provider } from 'fuels';
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
-import { Types } from 'tronweb';
+import { SwapStepType } from './swap-steps';
+import { BridgeStepType } from './bridge-steps';
+import { FormatTokenBalanceOptions, FormattedParts } from '../utils/format';
 
 type TokenInfo = {
   contractAddress: `0x${string}`;
   decimals: number;
-  logo?: string;
+  logo: string;
   name: string;
-  platform?: string;
   symbol: string;
 };
 
@@ -85,9 +86,9 @@ export type SUPPORTED_CHAINS_IDS = (typeof SUPPORTED_CHAINS)[keyof typeof SUPPOR
  * This allows for dynamic parameter generation based on actual bridged amounts and user context
  */
 export type DynamicParamBuilder = (
-  token: SUPPORTED_TOKENS,
+  token: string,
   amount: string,
-  chainId: SUPPORTED_CHAINS_IDS,
+  chainId: number,
   userAddress: `0x${string}`,
 ) => {
   functionParams: readonly unknown[];
@@ -99,50 +100,52 @@ export type DynamicParamBuilder = (
  * Parameters for bridging tokens between chains.
  */
 export interface BridgeParams {
-  token: SUPPORTED_TOKENS;
-  amount: number | string;
-  chainId: SUPPORTED_CHAINS_IDS;
+  recipient?: Hex;
+  token: string;
+  amount: string;
+  toChainId: number;
   gas?: bigint;
   sourceChains?: number[];
 }
 
+export type BridgeMaxResult = {
+  amountRaw: bigint;
+  amount: string;
+  symbol: string;
+  sourceChainIds: number[];
+};
+
 /**
  * Result structure for bridge transactions.
  */
-export type BridgeResult =
-  | { success: false; error: string }
-  | {
-      success: true;
-      explorerUrl: string;
-      transactionHash?: string;
-    };
+export type BridgeResult = {
+  explorerUrl: string;
+};
 
 /**
  * Result structure for transfer transactions.
  */
-export type TransferResult =
-  | {
-      success: true;
-      transactionHash: string;
-      explorerUrl: string;
-    }
-  | {
-      success: false;
-      error: string;
-    };
+export type TransferResult = {
+  transactionHash: string;
+  explorerUrl: string;
+};
 
 export interface SimulationResult {
   intent: ReadableIntent;
   token: TokenInfo;
 }
 
+export type TronAdapter = AdapterProps & {
+  isMobile?: boolean;
+};
+
 /**
  * Parameters for transferring tokens.
  */
 export interface TransferParams {
-  token: SUPPORTED_TOKENS;
-  amount: number | string;
-  chainId: SUPPORTED_CHAINS_IDS;
+  token: string;
+  amount: string;
+  toChainId: number;
   recipient: `0x${string}`;
   sourceChains?: number[];
 }
@@ -162,12 +165,12 @@ export interface TokenBalance {
 
 // Enhanced modular parameters for execute functionality with dynamic parameter building
 export interface ExecuteParams {
-  toChainId: SUPPORTED_CHAINS_IDS;
-  contractAddress: string;
-  contractAbi: Abi;
-  functionName: string;
-  buildFunctionParams: DynamicParamBuilder;
-  value?: string; // Can be overridden by callback
+  toChainId: number;
+  to: Hex;
+  value?: bigint;
+  data?: Hex;
+  gas?: bigint;
+  gasPrice?: bigint;
   enableTransactionPolling?: boolean;
   transactionTimeout?: number;
   // Transaction receipt confirmation options
@@ -175,14 +178,10 @@ export interface ExecuteParams {
   receiptTimeout?: number;
   requiredConfirmations?: number;
   tokenApproval?: {
-    token: SUPPORTED_TOKENS;
-    amount: string;
+    token: string;
+    amount: bigint;
+    spender: Hex;
   };
-  /**
-   * Optional approval buffer in basis points (bps). Defaults to 100 (1%).
-   * Use 0 to disable buffer (e.g., for bridge+execute flows where exact balances are used).
-   */
-  approvalBufferBps?: number;
 }
 
 export interface ExecuteResult {
@@ -197,14 +196,14 @@ export interface ExecuteResult {
   approvalTransactionHash?: string;
 }
 
-export interface ExecuteSimulation {
-  contractAddress: string;
-  functionName: string;
-  gasUsed: string;
-  success: boolean;
-  error?: string;
-  gasCostEth?: string;
-}
+export type ExecuteSimulation = {
+  gasUsed: bigint;
+  gasPrice: bigint;
+  /**
+   * gasFee = gasUsed * gasPrice
+   */
+  gasFee: bigint;
+};
 
 // New types for improved approval simulation
 export interface ApprovalInfo {
@@ -233,103 +232,64 @@ export interface SimulationStep {
   description: string;
 }
 
-interface SimulationMetadata {
-  contractAddress: string;
-  functionName: string;
-  bridgeReceiveAmount: string;
-  bridgeFee: string;
-  inputAmount: string;
-  optimalBridgeAmount?: string;
-  targetChain: number;
-  approvalRequired: boolean;
-  bridgeSkipped?: boolean;
-  token?: SUPPORTED_TOKENS;
-}
+export type EventListenerType = {
+  onEvent: (eventName: string, ...args: any[]) => void;
+};
 
-export interface BridgeAndExecuteSimulationResult {
-  steps: SimulationStep[];
+export type BridgeAndExecuteSimulationResult = {
   bridgeSimulation: SimulationResult | null;
-  executeSimulation?: ExecuteSimulation;
-  totalEstimatedCost?: {
-    total: string;
-    breakdown: {
-      bridge: string;
-      execute: string;
-    };
-  };
-  success: boolean;
-  error?: string;
-  metadata?: SimulationMetadata;
-}
+  executeSimulation: ExecuteSimulation;
+};
 
 export interface BridgeAndExecuteParams {
-  toChainId: SUPPORTED_CHAINS_IDS;
-  token: SUPPORTED_TOKENS;
-  amount: number | string;
-  recipient?: `0x${string}`;
+  toChainId: number;
+  token: string;
+  amount: bigint;
   sourceChains?: number[];
-  execute?: Omit<ExecuteParams, 'toChainId'>;
+  execute: Omit<ExecuteParams, 'toChainId'>;
   enableTransactionPolling?: boolean;
   transactionTimeout?: number;
-  // Global options for transaction confirmation
   waitForReceipt?: boolean;
   receiptTimeout?: number;
   requiredConfirmations?: number;
-  // Optional recent approval transaction hash to consider in simulation
   recentApprovalTxHash?: string;
 }
 
-export interface BridgeAndExecuteResult {
-  executeTransactionHash?: string;
-  executeExplorerUrl?: string;
-  approvalTransactionHash?: string;
-  bridgeTransactionHash?: string; // undefined when bridge is skipped
-  bridgeExplorerUrl?: string; // undefined when bridge is skipped
-  toChainId: number;
-  success: boolean;
-  error?: string;
-  bridgeSkipped: boolean; // indicates if bridge was skipped due to sufficient funds
-}
-
-/**
- * Smart contract call parameters
- */
-export interface ContractCallParams {
-  to: `0x${string}`;
-  data: `0x${string}`;
-  value?: bigint;
-  gas?: bigint;
-  gasPrice?: bigint;
-}
-
-export type BridgeQueryInput = {
-  amount: number | string;
-  chainId: number;
-  gas?: bigint;
-  sourceChains?: number[];
-  token: string;
+export type IBridgeOptions = {
+  cosmos: {
+    wallet: DirectSecp256k1Wallet;
+    address: string;
+  };
+  evm: {
+    address: `0x${string}`;
+    client: WalletClient;
+  };
+  fuel?: {
+    address: string;
+    connector: FuelConnector;
+    provider: Provider;
+  };
+  tron?: {
+    address: string;
+    adapter: TronAdapter;
+  };
+  hooks: {
+    onAllowance: OnAllowanceHook;
+    onIntent: OnIntentHook;
+  };
+  emit?: OnEventParam['onEvent'];
+  networkConfig: NetworkConfig;
+  chainList: ChainListType;
 };
 
-export type SupportedUniverse = Universe.ETHEREUM | Universe.FUEL | Universe.TRON;
-
-export interface CA {
-  createHandler<T extends SupportedUniverse>(
-    params: {
-      receiver: Hex;
-      amount: bigint;
-      tokenAddress: Hex;
-      universe: T;
-      chainId: number;
-    },
-    options: Partial<TxOptions>,
-  ): Promise<CreateHandlerResponse | null>;
-
-  getChainID(): Promise<number>;
-
-  init(): Promise<void>;
-
-  switchChain(chainID: number): Promise<void>;
-}
+export type BridgeAndExecuteResult = {
+  executeTransactionHash: string;
+  executeExplorerUrl: string;
+  approvalTransactionHash?: string;
+  bridgeExplorerUrl?: string; // undefined when bridge is skipped
+  toChainId: number;
+  bridgeSkipped: boolean; // indicates if bridge was skipped due to sufficient funds
+};
 
 export type Chain = {
   blockExplorers?: {
@@ -360,11 +320,6 @@ export type Chain = {
   };
   universe: Universe;
 };
-
-export interface CreateHandlerResponse {
-  handler: IRequestHandler | null;
-  processTx: () => Promise<unknown>;
-}
 
 interface EthereumProvider {
   on(eventName: string | symbol, listener: (...args: any[]) => void): this;
@@ -426,6 +381,7 @@ export type Intent = {
     protocol: string;
     solver: string;
   };
+  recipientAddress: Hex;
   isAvailableBalanceInsufficient: boolean;
   sources: IntentSource[];
 };
@@ -452,17 +408,6 @@ export type IntentSourceForAllowance = {
   requiredAllowance: bigint;
   token: TokenInfo;
 };
-
-export interface IRequestHandler {
-  buildIntent(sourceChains: number[]): Promise<
-    | {
-        intent: Intent;
-        token: TokenInfo;
-      }
-    | undefined
-  >;
-  process(): Promise<{ explorerURL: string } | undefined>;
-}
 
 type Network = Extract<Environment, Environment.CERISE | Environment.CORAL | Environment.FOLLY>;
 
@@ -563,8 +508,6 @@ type RequestArguments = {
   readonly params?: object | readonly unknown[];
 };
 
-export type RequestHandler = new (i: RequestHandlerInput) => IRequestHandler;
-
 export type ChainListType = {
   chains: Chain[];
   getVaultContractAddress(chainID: number): `0x${string}`;
@@ -574,7 +517,7 @@ export type ChainListType = {
     tokenSymbol: string,
   ): {
     chain: Chain;
-    token: TokenInfo | undefined;
+    token: (TokenInfo & { isNative: boolean }) | undefined;
   };
   getTokenByAddress(chainID: number, address: `0x${string}`): TokenInfo | undefined;
   getNativeToken(chainID: number): TokenInfo;
@@ -582,62 +525,38 @@ export type ChainListType = {
   getAnkrNameList(): string[];
 };
 
-export type RequestHandlerInput = {
-  chain: Chain;
-  chainList: ChainListType;
-  cosmosWallet: DirectSecp256k1Wallet;
-  evm: {
-    address: `0x${string}`;
-    client: WalletClient;
-    tx?: EVMTransaction;
-  };
-  fuel?: {
-    address: string;
-    connector: FuelConnector;
-    provider: Provider;
-    tx?: TransactionRequestLike;
-  };
-  tron?: {
-    address: string;
-    adapter: AdapterProps;
-    tx?: Types.Transaction<Types.TransferContract> | Types.Transaction<Types.TriggerSmartContract>;
-  };
-  hooks: {
-    onAllowance: OnAllowanceHook;
-    onIntent: OnIntentHook;
-  };
-  options: {
-    emit: (eventName: string, ...args: any[]) => void;
-    networkConfig: NetworkConfig;
-  } & TxOptions;
-};
+type EventUnion =
+  | { name: 'STEPS_LIST'; args: BridgeStepType[] }
+  | { name: 'SWAP_STEP_COMPLETE'; args: SwapStepType }
+  | { name: 'STEP_COMPLETE'; args: BridgeStepType };
 
-export type RequestHandlerResponse = {
-  buildIntent(): Promise<
-    | {
-        intent: Intent;
-        token: TokenInfo;
-      }
-    | undefined
-  >;
-  input: RequestHandlerInput;
-  process(): Promise<unknown>;
-} | null;
+export type OnEventParam = {
+  onEvent?: (event: EventUnion) => void;
+};
 
 export type RFF = {
   deposited: boolean;
-  destinationChainID: number;
-  destinations: { tokenAddress: Hex; value: bigint }[];
+  destinationChainId: number;
+  destinations: {
+    token: { address: Hex; symbol: string; decimals: number };
+    value: string;
+    valueRaw: bigint;
+  }[];
   destinationUniverse: string;
   expiry: number;
   fulfilled: boolean;
   id: number;
   refunded: boolean;
   sources: {
-    chainID: number;
-    tokenAddress: Hex;
+    chainId: number;
     universe: string;
-    value: bigint;
+    valueRaw: bigint;
+    value: string;
+    token: {
+      address: Hex;
+      symbol: string;
+      decimals: number;
+    };
   }[];
 };
 
@@ -692,44 +611,11 @@ export type SponsoredApprovalData = {
 
 export type SponsoredApprovalDataArray = SponsoredApprovalData[];
 
-export type Step = {
-  data?:
-    | {
-        amount: string;
-        chainName: string;
-        symbol: string;
-      }
-    | {
-        chainID: number;
-        chainName: string;
-      }
-    | { confirmed: number; total: number }
-    | { explorerURL: string; intentID: number };
-} & StepInfo;
-
-export type StepInfo = {
-  type: string;
-  typeID: string;
-};
-
-export type Steps = Step[];
-
 export type Token = {
   contractAddress: `0x${string}`;
   decimals: number;
   name: string;
   symbol: string;
-};
-
-export type TransferQueryInput = {
-  to: Hex;
-} & Omit<BridgeQueryInput, 'gas'>;
-
-export type TxOptions = {
-  bridge: boolean;
-  gas: bigint;
-  skipTx: boolean;
-  sourceChains: number[];
 };
 
 export type UnifiedBalanceResponseData = {
@@ -741,6 +627,7 @@ export type UnifiedBalanceResponseData = {
   }[];
   total_usd: string;
   universe: Universe;
+  errored: boolean;
 };
 
 export type UserAssetDatum = {
@@ -773,8 +660,6 @@ export type {
   OnAllowanceHook,
   EthereumProvider,
   RequestArguments,
-  Step as ProgressStep,
-  Steps as ProgressSteps,
   onAllowanceHookSource as AllowanceHookSource,
   Network,
   UserAssetDatum as UserAsset,
@@ -785,4 +670,6 @@ export type {
   TransactionReceipt,
   SwapIntent,
   SetAllowanceInput,
+  FormatTokenBalanceOptions,
+  FormattedParts,
 };

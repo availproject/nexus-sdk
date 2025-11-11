@@ -26,23 +26,23 @@ import {
   pad,
   parseSignature,
   PublicClient,
-  SwitchChainError,
   WalletClient,
   WebSocketTransport,
 } from 'viem';
-
 import ERC20ABI from '../abi/erc20';
 import gasOracleABI from '../abi/gasOracle';
 import { FillEvent } from '../abi/vault';
 import { ZERO_ADDRESS } from '../constants';
-import { ErrorLiquidityTimeout } from '../errors';
-import { getLogger } from '../logger';
+import { Errors } from '../errors';
+import { getLogger } from '@nexus/commons';
 import {
   ChainListType,
   Chain,
   EVMTransaction,
   NetworkConfig,
   SponsoredApprovalData,
+  GetAllowanceParams,
+  SetAllowanceParams,
 } from '@nexus/commons';
 import { vscCreateSponsoredApprovals } from './api.utils';
 import { convertTo32Bytes, equalFold, minutesToMs } from './common.utils';
@@ -86,16 +86,38 @@ const getAllowance = async (
   const publicClient = createPublicClientWithFallback(chain);
 
   try {
-    const allowance = await publicClient.readContract({
-      abi: ERC20ABI,
-      address: tokenContract,
-      args: [address, chainList.getVaultContractAddress(chain.id)],
-      functionName: 'allowance',
-    });
+    const allowance = erc20GetAllowance(
+      {
+        contractAddress: tokenContract,
+        spender: chainList.getVaultContractAddress(chain.id),
+        owner: address,
+      },
+      publicClient,
+    );
     return allowance;
   } catch {
     return 0n;
   }
+};
+
+const erc20GetAllowance = (params: GetAllowanceParams, client: PublicClient) => {
+  return client.readContract({
+    address: params.contractAddress,
+    abi: ERC20ABI,
+    functionName: 'allowance',
+    args: [params.owner, params.spender],
+  });
+};
+
+const erc20SetAllowance = (params: SetAllowanceParams & { chain: Chain }, client: WalletClient) => {
+  return client.writeContract({
+    address: params.contractAddress,
+    abi: ERC20ABI,
+    functionName: 'approve',
+    args: [params.spender, params.amount],
+    chain: params.chain,
+    account: params.owner,
+  });
 };
 
 const getAllowances = async (
@@ -114,7 +136,7 @@ const getAllowances = async (
     } else {
       const chain = chainList.getChainByID(i.chainID);
       if (!chain) {
-        throw new Error('chain not found');
+        throw Errors.chainNotFound(i.chainID);
       }
       promises.push(getAllowance(chain, i.holderAddress, i.tokenContract, chainList));
     }
@@ -161,7 +183,7 @@ const requestTimeout = (timeout: number, ac: AbortController) => {
   return new Promise((_, reject) => {
     const t = window.setTimeout(() => {
       ac.abort();
-      return reject(ErrorLiquidityTimeout);
+      return reject(Errors.liquidityTimeout());
     }, minutesToMs(timeout));
     ac.signal.addEventListener(
       'abort',
@@ -201,7 +223,7 @@ const setAllowances = async (
   const chainId = new OmniversalChainID(Universe.ETHEREUM, chain.id);
   const chainDatum = ChaindataMap.get(chainId);
   if (!chainDatum) {
-    throw new Error('Chain data not found');
+    throw Errors.internal(`chain data not found for chain ${chainId}`);
   }
 
   const account: JsonRpcAccount = {
@@ -225,18 +247,20 @@ const setAllowances = async (
   for (const addr of tokenContractAddresses) {
     const currency = chainDatum.CurrencyMap.get(convertTo32Bytes(addr));
     if (!currency) {
-      throw new Error('Currency not found');
+      throw Errors.internal(`currency not found for token ${addr}`);
     }
 
     if (currency.permitVariant === PermitVariant.Unsupported) {
-      const hash = await client.writeContract({
-        abi: ERC20ABI,
-        account: address,
-        address: addr,
-        args: [vaultAddr, amount],
-        chain,
-        functionName: 'approve',
-      });
+      const hash = await erc20SetAllowance(
+        {
+          amount,
+          chain,
+          contractAddress: addr,
+          owner: address,
+          spender: vaultAddr,
+        },
+        client,
+      );
       p.push(
         (async function () {
           const result = await publicClient.waitForTransactionReceipt({
@@ -317,28 +341,29 @@ const waitForTxReceipt = async (
   hash: `0x${string}`,
   publicClient: PublicClient,
   confirmations = 1,
+  timeout = 60000,
 ) => {
   const r = await publicClient.waitForTransactionReceipt({
     confirmations,
     hash,
+    timeout,
   });
   if (r.status === 'reverted') {
     throw new Error(`Transaction reverted: ${hash}`);
   }
+
+  return r;
 };
 
 const switchChain = async (client: WalletClient, chain: Chain) => {
   try {
     await client.switchChain({ id: chain.id });
   } catch (e) {
-    if (e instanceof SwitchChainError && e.code === SwitchChainError.code) {
-      await client.addChain({
-        chain,
-      });
-      await client.switchChain({ id: chain.id });
-      return;
-    }
-    throw e;
+    await client.addChain({
+      chain,
+    });
+    await client.switchChain({ id: chain.id });
+    return;
   }
 };
 
@@ -544,6 +569,8 @@ const createPublicClientWithFallback = (chain: Chain): PublicClient => {
 };
 
 export {
+  erc20GetAllowance,
+  erc20SetAllowance,
   createPublicClientWithFallback,
   getAllowance,
   getAllowances,

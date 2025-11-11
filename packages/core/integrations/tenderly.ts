@@ -1,17 +1,15 @@
-import { formatEther, hexToBigInt } from 'viem';
 import {
   type ApiResponse,
   type BackendConfig,
   type ChainSupportResponse,
-  type GasEstimationRequest,
-  type GasEstimationResponse,
   type HealthCheckResponse,
   type ServiceStatusResponse,
   type BundleSimulationRequest,
-  type BundleSimulationResponse,
   type BackendBundleResponse,
 } from './types';
-import { CHAIN_METADATA, logger } from '@nexus/commons';
+import { logger } from '@nexus/commons';
+import axios from 'axios';
+import { Errors } from 'sdk/ca-base/errors';
 
 /**
  * Backend simulation result interface
@@ -148,190 +146,27 @@ export class BackendSimulationClient {
     }
   }
 
-  /**
-   * Simulate transaction using Tenderly's Gateway RPC with state overrides
-   * This provides more accurate simulation results than basic gas estimation
-   */
-  async simulate(request: GasEstimationRequest): Promise<BackendSimulationResult> {
-    try {
-      const response = await fetch(`${this.baseUrl}/api/gas-estimation/simulate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(request),
-      });
+  async simulateBundleV2(request: BundleSimulationRequest) {
+    logger.info('DEBUG simulateBundle - request:', JSON.stringify(request, null, 2));
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Simulation API error: ${response.status} - ${errorText}`);
-      }
+    const { data } = await axios.post<BackendBundleResponse>(
+      new URL(`/api/gas-estimation/bundle`, this.baseUrl).href,
+      request,
+    );
 
-      const result: ApiResponse<GasEstimationResponse> = await response.json();
-
-      if (!result.success || !result.data) {
-        throw new Error(result.error || result.message || 'Simulation failed');
-      }
-
-      const gasData = result.data;
-
-      return {
-        gasUsed: gasData.gasUsed,
-        gasPrice: gasData.gasPrice || '0x0',
-        maxFeePerGas: gasData.maxFeePerGas,
-        maxPriorityFeePerGas: gasData.maxPriorityFeePerGas,
-        success: true,
-        estimatedCost: {
-          totalFee: gasData?.gasUsed || '0',
-        },
-      };
-    } catch (error) {
-      logger.error('Simulation API error:', error as Error);
-      return {
-        gasUsed: '0x0',
-        gasPrice: '0x0',
-        success: false,
-        errorMessage: error instanceof Error ? error.message : 'Unknown error',
-        estimatedCost: {
-          totalFee: '0',
-        },
-      };
-    }
-  }
-
-  /**
-   * Fetch current gas price via RPC
-   */
-  private async getCurrentGasPrice(chainId: string): Promise<bigint> {
-    try {
-      const rpcUrl = this.getRpcUrl(chainId);
-
-      const response = await fetch(rpcUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          method: 'eth_gasPrice',
-          params: [],
-          id: 1,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`RPC request failed: ${response.status}`);
-      }
-
-      const result = await response.json();
-
-      if (result.error) {
-        throw new Error(`RPC error: ${result.error.message}`);
-      }
-
-      // Convert hex gas price to bigint
-      return hexToBigInt(result.result);
-    } catch (error) {
-      logger.warn('Failed to fetch current gas price, using fallback:', error);
-      // Fallback to 20 gwei if RPC call fails
-      return BigInt('20000000000'); // 20 gwei in wei
-    }
-  }
-
-  /**
-   * Get RPC URL for a given chain ID using CHAIN_METADATA
-   */
-  private getRpcUrl(chainId: string): string {
-    const chainIdNum = parseInt(chainId, 10);
-    const chainMetadata = CHAIN_METADATA[chainIdNum];
-
-    if (!chainMetadata || !chainMetadata.rpcUrls || chainMetadata.rpcUrls.length === 0) {
-      throw new Error(`No RPC URL available for chain ${chainId}`);
+    if (!data.success || !data.data) {
+      throw Errors.simulationError(data.message ?? 'Bundle simulation failed');
     }
 
-    // Use the first RPC URL from the metadata
-    return chainMetadata.rpcUrls[0];
-  }
+    const gasUsed = data.data.reduce((acc, d) => {
+      return acc + BigInt(d.gasUsed);
+    }, 0n);
 
-  async simulateBundle(request: BundleSimulationRequest): Promise<BundleSimulationResponse> {
-    try {
-      logger.info('DEBUG simulateBundle - request:', JSON.stringify(request, null, 2));
+    const gasLimit = data.data.reduce((acc, d) => {
+      return acc + BigInt(d.gasLimit);
+    }, 0n);
 
-      const response = await fetch(`${this.baseUrl}/api/gas-estimation/bundle`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(request),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Bundle simulation API error: ${response.status} - ${errorText}`);
-      }
-
-      const result: BackendBundleResponse = await response.json();
-
-      if (!result.success || !result.data) {
-        throw new Error(result.message || 'Bundle simulation failed');
-      }
-
-      logger.info('DEBUG simulateBundle - backend response:', result);
-
-      // Fetch current gas price via RPC
-      const currentGasPrice = await this.getCurrentGasPrice(request.chainId);
-      logger.info('DEBUG - Raw gas price from RPC (wei):', currentGasPrice.toString());
-      logger.info('DEBUG - Gas price in gwei:', (Number(currentGasPrice) / 1e9).toFixed(2));
-      logger.info('DEBUG - Chain ID:', request.chainId);
-
-      // Transform backend response to human-readable format
-      const transformedResults = result.data.map((item, index) => {
-        const gasUsed = hexToBigInt(item.gasUsed);
-        logger.info('DEBUG - Gas used (units):', gasUsed.toString());
-        const gasCostWei = gasUsed * currentGasPrice;
-        logger.info('DEBUG - Gas cost (wei):', gasCostWei.toString());
-        const gasCostEther = formatEther(gasCostWei);
-
-        return {
-          stepId: request.simulations[index]?.stepId || `step-${index}`,
-          gasUsed: gasCostEther, // Human-readable cost like "0.004205"
-          success: true,
-          error: undefined,
-        };
-      });
-
-      // Calculate total cost
-      const totalGasCostWei = result.data.reduce((sum, item) => {
-        const gasUsed = hexToBigInt(item.gasUsed);
-        return sum + gasUsed * currentGasPrice;
-      }, BigInt(0));
-
-      const totalGasCostEther = formatEther(totalGasCostWei);
-
-      logger.info('DEBUG simulateBundle - transformed response:', {
-        results: transformedResults,
-        totalGasUsed: totalGasCostEther,
-        gasPriceUsed: formatEther(currentGasPrice * BigInt(1000000000)) + ' gwei',
-      });
-
-      return {
-        success: true,
-        results: transformedResults,
-        totalGasUsed: totalGasCostEther,
-      };
-    } catch (error) {
-      logger.error('Bundle simulation API error:', error as Error);
-      return {
-        success: false,
-        results: request.simulations.map((sim) => ({
-          stepId: sim.stepId,
-          gasUsed: '0.0',
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        })),
-        totalGasUsed: '0.0',
-      };
-    }
+    return { gasUsed, gasLimit };
   }
 }
 

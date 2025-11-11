@@ -5,10 +5,10 @@ import {
   OmniversalChainID,
   Universe,
 } from '@avail-project/ca-common';
-
 import { getLogoFromSymbol, ZERO_ADDRESS } from './constants';
 import { Chain, SUPPORTED_CHAINS, TOKEN_CONTRACT_ADDRESSES, TokenInfo } from '@nexus/commons';
 import { convertToHexAddressByUniverse, equalFold } from './utils';
+import { Errors } from './errors';
 
 class ChainList {
   public chains: Chain[];
@@ -38,7 +38,7 @@ class ChainList {
   public getNativeToken(chainID: number): TokenInfo {
     const chain = this.getChainByID(chainID);
     if (!chain) {
-      throw new Error('chain not found');
+      throw Errors.chainNotFound(chainID);
     }
 
     return {
@@ -86,10 +86,13 @@ class ChainList {
     return token;
   }
 
-  public getChainAndTokenFromSymbol(chainID: number, tokenSymbol: string) {
+  public getChainAndTokenFromSymbol(
+    chainID: number,
+    tokenSymbol: string,
+  ): { chain: Chain; token: (TokenInfo & { isNative: boolean }) | undefined } {
     const chain = this.getChainByID(chainID);
     if (!chain) {
-      throw new Error('chain not supported');
+      throw Errors.chainNotFound(chainID);
     }
 
     const token = chain.custom.knownTokens.find((t) => equalFold(t.symbol, tokenSymbol));
@@ -102,18 +105,19 @@ class ChainList {
             logo: chain.custom.icon,
             name: chain.nativeCurrency.name,
             symbol: chain.nativeCurrency.symbol,
+            isNative: true,
           },
           chain,
         };
       }
     }
-    return { chain, token };
+    return { chain, token: token ? { ...token, isNative: false } : undefined };
   }
 
   public getVaultContractAddress(chainID: number) {
     const chain = this.getChainByID(chainID);
     if (!chain) {
-      throw new Error('chain not supported');
+      throw Errors.chainNotFound(chainID);
     }
 
     const omniversalChainID = new OmniversalChainID(chain.universe, chainID);
@@ -132,43 +136,43 @@ class ChainList {
 }
 
 const TESTNET_CHAINS: Chain[] = [
-  {
-    blockExplorers: {
-      default: {
-        name: 'TronScan',
-        url: 'https://shasta.tronscan.org',
-      },
-    },
-    custom: {
-      icon: 'https://assets.coingecko.com/asset_platforms/images/1094/large/TRON_LOGO.png',
-      knownTokens: [
-        {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.TRON_SHASTA],
-          decimals: 6,
-          logo: getLogoFromSymbol('USDT'),
-          name: 'Tether USD',
-          symbol: 'USDT',
-        },
-      ],
-    },
-    id: SUPPORTED_CHAINS.TRON_SHASTA,
-    ankrName: '',
-    name: 'Tron Shasta',
-    nativeCurrency: {
-      decimals: 6,
-      name: 'TRX',
-      symbol: 'TRX',
-    },
-    rpcUrls: {
-      default: {
-        http: ['https://api.shasta.trongrid.io/jsonrpc'],
-        grpc: ['https://api.shasta.trongrid.io'],
-        publicHttp: ['https://api.shasta.trongrid.io/jsonrpc'],
-        webSocket: [],
-      },
-    },
-    universe: Universe.TRON,
-  },
+  // {
+  //   blockExplorers: {
+  //     default: {
+  //       name: 'TronScan',
+  //       url: 'https://shasta.tronscan.org',
+  //     },
+  //   },
+  //   custom: {
+  //     icon: 'https://assets.coingecko.com/asset_platforms/images/1094/large/TRON_LOGO.png',
+  //     knownTokens: [
+  //       {
+  //         contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.TRON_SHASTA],
+  //         decimals: 6,
+  //         logo: getLogoFromSymbol('USDT'),
+  //         name: 'Tether USD',
+  //         symbol: 'USDT',
+  //       },
+  //     ],
+  //   },
+  //   id: SUPPORTED_CHAINS.TRON_SHASTA,
+  //   ankrName: '',
+  //   name: 'Tron Shasta',
+  //   nativeCurrency: {
+  //     decimals: 6,
+  //     name: 'TRX',
+  //     symbol: 'TRX',
+  //   },
+  //   rpcUrls: {
+  //     default: {
+  //       http: ['https://api.shasta.trongrid.io/jsonrpc'],
+  //       grpc: ['https://api.shasta.trongrid.io'],
+  //       publicHttp: ['https://api.shasta.trongrid.io/jsonrpc'],
+  //       webSocket: [],
+  //     },
+  //   },
+  //   universe: Universe.TRON,
+  // },
   {
     blockExplorers: {
       default: {
@@ -350,7 +354,7 @@ const TESTNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/coins/images/38927/standard/monad.jpg',
       knownTokens: [
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.MONAD_TESTNET],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.MONAD_TESTNET],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
@@ -417,6 +421,42 @@ const TESTNET_CHAINS: Chain[] = [
           'https://ethereum-sepolia-public.nodies.app',
         ],
         webSocket: ['wss://rpcs.avail.so/sepolia'],
+      },
+    },
+    universe: Universe.ETHEREUM,
+  },
+  {
+    blockExplorers: {
+      default: {
+        name: 'Validium Testnet Explorer',
+        url: 'https://testnet.explorer.validium.network',
+      },
+    },
+    custom: {
+      icon: 'https://assets.coingecko.com/asset_platforms/images/279/large/ethereum.png?1706606803',
+      knownTokens: [
+        {
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.VALIDIUM_TESTNET],
+          decimals: 6,
+          logo: getLogoFromSymbol('USDC'),
+          name: 'USD Coin',
+          symbol: 'USDC',
+        },
+      ],
+    },
+    id: SUPPORTED_CHAINS.VALIDIUM_TESTNET,
+    name: 'Validium Testnet',
+    ankrName: '',
+    nativeCurrency: {
+      decimals: 18,
+      name: 'VLDM',
+      symbol: 'VLDM',
+    },
+    rpcUrls: {
+      default: {
+        http: ['https://testnet.l2.rpc.validium.network'],
+        publicHttp: ['https://testnet.l2.rpc.validium.network'],
+        webSocket: ['wss://testnet.l2.rpc.validium.network/ws'],
       },
     },
     universe: Universe.ETHEREUM,
@@ -577,7 +617,7 @@ const MAINNET_CHAINS: Chain[] = [
           symbol: 'USDT',
         },
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.ETHEREUM],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.ETHEREUM],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',

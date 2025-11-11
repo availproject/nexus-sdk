@@ -7,7 +7,6 @@ import {
   CurrencyID,
   Holding,
   liquidateInputHoldings,
-  OmniversalChainID,
   Quote,
   QuoteRequestExactInput,
   Universe,
@@ -16,21 +15,14 @@ import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import Decimal from 'decimal.js';
 import { orderBy, retry } from 'es-toolkit';
 import Long from 'long';
-import { ByteArray, Hex, PrivateKeyAccount, toBytes, WalletClient } from 'viem';
-import { getLogger } from '../logger';
+import { Hex, PrivateKeyAccount, toBytes, WalletClient } from 'viem';
+import { getLogger, SWAP_STEPS, SwapStepType } from '@nexus/commons';
 import { divDecimals, equalFold, minutesToMs, waitForTxReceipt } from '../utils';
 import { EADDRESS, SWEEPER_ADDRESS } from './constants';
 import { getTokenDecimals } from './data';
 import { createBridgeRFF } from './rff';
 import { caliburExecute, checkAuthCodeSet, createSBCTxFromCalls, waitForSBCTxReceipt } from './sbc';
-import {
-  CREATE_PERMIT_FOR_SOURCE_SWAP,
-  DESTINATION_SWAP_BATCH_TX,
-  RFF_ID,
-  SOURCE_SWAP_HASH,
-  SWAP_COMPLETE,
-  SwapStep,
-} from './steps';
+
 import {
   bytesEqual,
   Cache,
@@ -57,6 +49,8 @@ import {
   SBCTx,
   Tx,
 } from '@nexus/commons';
+import { SwapRoute } from './route';
+import { Errors } from '../errors';
 
 type Options = {
   address: {
@@ -73,7 +67,7 @@ type Options = {
   };
   destinationChainID: number;
   emitter: {
-    emit: (step: SwapStep) => void;
+    emit: (step: SwapStepType) => void;
   };
   networkConfig: {
     COSMOS_URL: string;
@@ -93,31 +87,12 @@ type SwapInput = {
   agg: Aggregator;
   cfee: bigint;
   cur: Currency;
-  originalHolding: Holding;
+  originalHolding: Holding & { decimals: number; symbol: string };
   quote: Quote;
   req: QuoteRequestExactInput;
 };
 
 const logger = getLogger();
-
-type DDSInput = {
-  aggregator: Aggregator;
-  createdAt: number;
-  dstChainCOT: Currency;
-  dstEOAToEphTx: {
-    amount: bigint;
-    contractAddress: Hex;
-  } | null;
-  inputAmount: Decimal;
-  inputAmountWithBuffer: Decimal;
-  outputAmount: bigint;
-  quote: null | Quote;
-  req: {
-    chain: OmniversalChainID;
-    inputToken: Buffer<ArrayBufferLike>;
-    outputToken: ByteArray;
-  };
-};
 
 class BridgeHandler {
   private depositCalls: RFFDepositCallMap = {};
@@ -160,7 +135,7 @@ class BridgeHandler {
       for (const c in this.depositCalls) {
         const chain = this.options.chainList.getChainByID(Number(c));
         if (!chain) {
-          throw new Error('chain not found');
+          throw Errors.chainNotFound(Number(c));
         }
         const publicClient = this.options.publicClientList.get(c);
 
@@ -213,7 +188,7 @@ class BridgeHandler {
       if (sbcTx.length) {
         const ops = await vscSBCTx(sbcTx, this.options.networkConfig.VSC_DOMAIN);
         ops.forEach((op) => {
-          this.options.emitter.emit(SOURCE_SWAP_HASH(op, this.options.chainList));
+          this.options.emitter.emit(SWAP_STEPS.SOURCE_SWAP_HASH(op, this.options.chainList));
         });
         waitingPromises.push(
           ...ops.map(([chainID, hash]) =>
@@ -292,7 +267,7 @@ class BridgeHandler {
       );
 
       metadata.rff_id = BigInt(this.status.intentID.toNumber());
-      this.options.emitter.emit(RFF_ID(this.status.intentID.toNumber()));
+      this.options.emitter.emit(SWAP_STEPS.RFF_ID(this.status.intentID.toNumber()));
 
       // will just resolve immediately if no CA was required
       logger.debug('Fill wait start');
@@ -319,7 +294,7 @@ class BridgeHandler {
 class DestinationSwapHandler {
   private destinationCalls: Tx[] = [];
   constructor(
-    private dstSwap: { getDDS: () => Promise<DDSInput> } & DDSInput,
+    private data: SwapRoute['destination'],
     private dstTokenInfo: {
       contractAddress: `0x${string}`;
       decimals: number;
@@ -332,10 +307,10 @@ class DestinationSwapHandler {
     },
     private options: Options,
   ) {
-    if (dstSwap.dstEOAToEphTx) {
+    if (data.swap.dstEOAToEphTx) {
       options.cache.addAllowanceQuery({
         chainID: dst.chainID,
-        contractAddress: dstSwap.dstEOAToEphTx.contractAddress,
+        contractAddress: data.swap.dstEOAToEphTx.contractAddress,
         owner: options.address.eoa,
         spender: options.address.ephemeral,
       });
@@ -360,19 +335,19 @@ class DestinationSwapHandler {
 
     options.cache.addAllowanceQuery({
       chainID: dst.chainID,
-      contractAddress: convertToEVMAddress(dstSwap.req.inputToken),
+      contractAddress: convertToEVMAddress(data.swap.req.inputToken),
       owner: options.address.ephemeral,
       spender: SWEEPER_ADDRESS,
     });
   }
 
   async createPermit() {
-    if (this.dstSwap.dstEOAToEphTx) {
+    if (this.data.swap.dstEOAToEphTx) {
       const txs = await createPermitAndTransferFromTx({
-        amount: this.dstSwap.dstEOAToEphTx.amount,
+        amount: this.data.swap.dstEOAToEphTx.amount,
         cache: this.options.cache,
         chain: this.options.chainList.getChainByID(this.dst.chainID)!,
-        contractAddress: this.dstSwap.dstEOAToEphTx.contractAddress,
+        contractAddress: this.data.swap.dstEOAToEphTx.contractAddress,
         owner: this.options.address.eoa,
         ownerWallet: this.options.wallet.eoa,
         publicClient: this.options.publicClientList.get(this.dst.chainID),
@@ -382,7 +357,7 @@ class DestinationSwapHandler {
     }
   }
 
-  // FIXME: Need to add retry and reqoute
+  // Retry only once, can't keep user waiting.
   async process(
     metadata: SwapMetadata,
     // inputAmount = this.dstSwap.quote?.inputAmount,
@@ -390,45 +365,64 @@ class DestinationSwapHandler {
     await this.options.wallet.eoa.switchChain({
       id: Number(this.options.destinationChainID),
     });
+    try {
+      await this.executeSwap(metadata);
+    } catch (error) {
+      logger.warn('Destination swap failed, attempting single requote & retry.', {
+        error: (error as Error)?.message ?? error,
+      });
 
-    let hasDestinationSwap = false;
-    if (this.dstSwap.quote) {
-      hasDestinationSwap = true;
-      await this.requoteIfRequired(/*inputAmount*/);
-
-      const txs = getTxsFromQuote(
-        this.dstSwap.aggregator,
-        this.dstSwap.quote!,
-        this.dstSwap.req.inputToken,
-        true,
-      );
-
-      if (txs.approval) {
-        this.destinationCalls.push(txs.approval);
+      await this.requoteIfRequired(true);
+      try {
+        await this.executeSwap(metadata);
+      } catch (retryError) {
+        logger.error('Destination swap failed after single retry.', {
+          error: (retryError as Error)?.message ?? retryError,
+        });
+        throw retryError;
       }
-
-      this.destinationCalls.push(txs.swap);
-
-      logger.debug('swap:destinationCalls', {
-        destinationCalls: this.destinationCalls,
-      });
-
-      metadata.dst.swaps.push({
-        agg: 0,
-        input_amt: toBytes(txs.amount),
-        input_contract: this.dstSwap.req.inputToken,
-        input_decimals: this.dstSwap.dstChainCOT.decimals,
-        output_amt: convertTo32Bytes(this.dst.amount ?? 0),
-        output_contract: convertTo32Bytes(this.dst.token),
-        output_decimals: this.dstTokenInfo.decimals,
-      });
     }
+  }
 
-    if (hasDestinationSwap) {
-      this.options.emitter.emit(DESTINATION_SWAP_BATCH_TX(false));
+  /**
+   * Executes swap + sweeper steps
+   */
+  private async executeSwap(metadata: SwapMetadata) {
+    await this.requoteIfRequired(false);
+
+    const { swap } = this.data;
+    const txs = getTxsFromQuote(
+      {
+        agg: swap.aggregator,
+        originalHolding: swap.originalHolding,
+        quote: swap.quote!,
+        req: swap.req,
+      },
+      true,
+    );
+
+    if (txs.approval) {
+      this.destinationCalls.push(txs.approval);
     }
+    this.destinationCalls.push(txs.swap);
 
-    // So whatever amount is swapped gets transferred ephemeral -> eoa
+    logger.debug('swap:destinationCalls', {
+      destinationCalls: this.destinationCalls,
+    });
+
+    metadata.dst.swaps.push({
+      agg: 0,
+      input_amt: toBytes(txs.amount),
+      input_contract: swap.req.inputToken,
+      input_decimals: swap.dstChainCOT.decimals,
+      output_amt: convertTo32Bytes(this.dst.amount ?? 0),
+      output_contract: convertTo32Bytes(this.dst.token),
+      output_decimals: this.dstTokenInfo.decimals,
+    });
+
+    this.options.emitter.emit(SWAP_STEPS.DESTINATION_SWAP_BATCH_TX(false));
+
+    // Add sweeper tx
     this.destinationCalls = this.destinationCalls.concat(
       createSweeperTxs({
         cache: this.options.cache,
@@ -440,7 +434,7 @@ class DestinationSwapHandler {
       }),
     );
 
-    // Destination swap batched tx to VSC and waiting for receipt (sweep after)
+    // Execute batched destination tx
     const hash = await performDestinationSwap({
       actualAddress: this.options.address.eoa,
       cache: this.options.cache,
@@ -451,62 +445,65 @@ class DestinationSwapHandler {
       emitter: this.options.emitter,
       ephemeralAddress: this.options.address.ephemeral,
       ephemeralWallet: this.options.wallet.ephemeral,
-      hasDestinationSwap,
+      hasDestinationSwap: true,
       publicClientList: this.options.publicClientList,
       vscDomain: this.options.networkConfig.VSC_DOMAIN,
     });
 
-    if (hasDestinationSwap) {
-      this.options.emitter.emit(DESTINATION_SWAP_BATCH_TX(true));
-    }
+    this.options.emitter.emit(SWAP_STEPS.DESTINATION_SWAP_BATCH_TX(true));
+    this.options.emitter.emit(SWAP_STEPS.SWAP_COMPLETE);
 
-    this.options.emitter.emit(SWAP_COMPLETE);
     performance.mark('xcs-ops-end');
 
-    logger.debug('before dst metadata', {
-      metadata,
-    });
-
+    logger.debug('before dst metadata', { metadata });
     metadata.dst.tx_hash = convertTo32Bytes(hash);
   }
 
-  async requoteIfRequired() {
-    let requote = false;
+  /**
+   * Requote if expired or invalid.
+   * If `force` = true, always requote regardless of expiry check.
+   */
+  private async requoteIfRequired(force = false) {
+    const { swap } = this.data;
+    let requote = force;
 
-    if (this.dstSwap.aggregator instanceof BebopAggregator) {
-      const quote = this.dstSwap.quote as BebopQuote;
-      if (quote.originalResponse.quote.expiry * 1000 < Date.now()) {
-        logger.debug('DDS: BEBOP', {
-          expiry: quote.originalResponse.quote.expiry * 1000,
-          now: Date.now(),
-        });
+    if (!force) {
+      if (swap.aggregator instanceof BebopAggregator) {
+        const quote = swap.quote as BebopQuote;
+        if (quote.originalResponse.quote.expiry * 1000 < Date.now()) requote = true;
+      } else if (Date.now() - swap.creationTime > minutesToMs(0.4)) {
         requote = true;
       }
-    } else if (Date.now() - this.dstSwap.createdAt > minutesToMs(0.4)) {
-      requote = true;
     }
-    // else if (this.dstSwap.quote?.inputAmount !== inputAmount) {
-    //   requote = true;
-    // }
 
-    if (requote) {
-      const ddsResponse = await this.dstSwap.getDDS();
-      if (!ddsResponse.quote) {
-        throw new Error('could not requote DS');
-      }
-      logger.debug('reqoutedDstSwap', {
-        inputAmountWithBuffer: this.dstSwap.inputAmountWithBuffer.toFixed(),
-        newInputAmount: ddsResponse.inputAmount.toFixed(),
-      });
-      const isExactIn = this.dst.amount == undefined;
-      if (!isExactIn && ddsResponse.inputAmount.gt(this.dstSwap.inputAmountWithBuffer)) {
-        throw new Error(
-          `Rates changed for destination swap and could not be filled even with buffer. Before: ${this.dstSwap.inputAmountWithBuffer.toFixed()} ,After: ${ddsResponse.inputAmount.toFixed()}`,
-        );
-      }
-
-      this.dstSwap = { ...ddsResponse, getDDS: this.dstSwap.getDDS };
+    if (!requote) {
+      return;
     }
+
+    logger.debug('Requoting destination swap...');
+    const newSwap = await this.data.fetchDestinationSwapDetails();
+    if (!newSwap.quote) throw new Error('Failed to requote destination swap.');
+
+    const isExactIn = this.dst.amount == undefined;
+    if (
+      !isExactIn &&
+      newSwap.inputAmount.min.gte(swap.inputAmount.min) &&
+      newSwap.inputAmount.min.lte(swap.inputAmount.max)
+    ) {
+      throw new Error(
+        `Rates changed beyond tolerance. Before: ${swap.inputAmount.min.toFixed()}, After: ${newSwap.inputAmount.min.toFixed()}`,
+      );
+    }
+
+    this.data = {
+      swap: newSwap,
+      fetchDestinationSwapDetails: this.data.fetchDestinationSwapDetails,
+    };
+
+    logger.debug('Destination swap requoted successfully.', {
+      before: swap.inputAmount.min.toFixed(),
+      after: newSwap.inputAmount.min.toFixed(),
+    });
   }
 }
 
@@ -514,10 +511,10 @@ class SourceSwapsHandler {
   private disposableCache: { [k: string]: Tx } = {};
   private swaps: Map<bigint, SwapInput[]>;
   constructor(
-    quotes: SwapInput[],
+    data: SwapRoute['source'],
     private options: Options,
   ) {
-    this.swaps = this.groupAndOrder(quotes);
+    this.swaps = this.groupAndOrder(data.swaps);
     for (const [chainID, swapQuotes] of this.iterate(this.swaps)) {
       this.options.cache.addSetCodeQuery({
         address: this.options.address.ephemeral,
@@ -546,7 +543,11 @@ class SourceSwapsHandler {
     const swaps: {
       amount: bigint;
       approval: null | Tx;
-      inputToken: Bytes;
+      input: {
+        token: Bytes;
+        decimals: number;
+        symbol: string;
+      };
       outputAmount: bigint;
       outputToken: Bytes;
       swap: {
@@ -609,13 +610,8 @@ class SourceSwapsHandler {
       const publicClient = this.options.publicClientList.get(chainID);
       const chain = this.options.chainList.getChainByID(Number(chainID));
       if (!chain) {
-        throw new Error(`chain not found: ${chainID}`);
+        throw Errors.chainNotFound(chainID);
       }
-
-      logger.debug('srcSwapHandler:process', {
-        swaps,
-        mtd,
-      });
 
       metadataTx.swaps = metadataTx.swaps.concat(mtd);
 
@@ -624,14 +620,15 @@ class SourceSwapsHandler {
       {
         for (const swap of swaps) {
           amount += swap.outputAmount;
-          const { symbol } = getTokenDecimals(Number(chainID), swap.inputToken);
-          if (isNativeAddress(convertToEVMAddress(swap.inputToken))) {
+          if (isNativeAddress(convertToEVMAddress(swap.input.token))) {
             sbcCalls.value += swap.amount;
           } else {
-            this.options.emitter.emit(CREATE_PERMIT_FOR_SOURCE_SWAP(false, symbol, chain));
+            this.options.emitter.emit(
+              SWAP_STEPS.CREATE_PERMIT_FOR_SOURCE_SWAP(false, swap.input.symbol, chain),
+            );
             const allowanceCacheKey = getAllowanceCacheKey({
               chainID: chain.id,
-              contractAddress: convertToEVMAddress(swap.inputToken),
+              contractAddress: convertToEVMAddress(swap.input.token),
               owner: this.options.address.eoa,
               spender: this.options.address.ephemeral,
             });
@@ -641,7 +638,7 @@ class SourceSwapsHandler {
               approval: this.disposableCache[allowanceCacheKey],
               cache: this.options.cache,
               chain,
-              contractAddress: convertToEVMAddress(swap.inputToken),
+              contractAddress: convertToEVMAddress(swap.input.token),
               owner: this.options.address.eoa,
               ownerWallet: this.options.wallet.eoa,
               publicClient,
@@ -654,7 +651,9 @@ class SourceSwapsHandler {
               this.disposableCache[allowanceCacheKey] = approvalTx;
             }
 
-            this.options.emitter.emit(CREATE_PERMIT_FOR_SOURCE_SWAP(true, symbol, chain));
+            this.options.emitter.emit(
+              SWAP_STEPS.CREATE_PERMIT_FOR_SOURCE_SWAP(true, swap.input.symbol, chain),
+            );
             logger.debug('sourceSwap', {
               chainID,
               permitCalls: txs,
@@ -730,7 +729,7 @@ class SourceSwapsHandler {
           });
           metadataTx.tx_hash = convertTo32Bytes(hash);
           this.options.emitter.emit(
-            SOURCE_SWAP_HASH([BigInt(chain.id), hash], this.options.chainList),
+            SWAP_STEPS.SOURCE_SWAP_HASH([BigInt(chain.id), hash], this.options.chainList),
           );
 
           waitingPromises.push(wrap(Number(chainID), waitForTxReceipt(hash, publicClient, 2)));
@@ -758,7 +757,9 @@ class SourceSwapsHandler {
               const [chainID, hash] = ops[0];
               metadataTx.tx_hash = convertTo32Bytes(hash);
 
-              this.options.emitter.emit(SOURCE_SWAP_HASH([chainID, hash], this.options.chainList));
+              this.options.emitter.emit(
+                SWAP_STEPS.SOURCE_SWAP_HASH([chainID, hash], this.options.chainList),
+              );
 
               return wrap(
                 Number(chainID),
@@ -888,7 +889,15 @@ class SourceSwapsHandler {
                 returnData: {},
               });
 
-              return nq.quotes[0];
+              const q = nq.quotes[0];
+              return {
+                ...q,
+                originalHolding: {
+                  ...q.originalHolding,
+                  decimals: oq.originalHolding.decimals,
+                  symbol: oq.originalHolding.symbol,
+                },
+              };
             }),
           );
         }
@@ -915,7 +924,7 @@ class SourceSwapsHandler {
           slippage: this.options.slippage,
         })
       ) {
-        throw new Error('slippage greater than max slippage');
+        throw Errors.slippageError('source swap retry slippage exceeded max');
       }
     }
 
@@ -979,10 +988,6 @@ class Swap {
 
   getMetadata() {
     const txs = this.getTxsData();
-    const { decimals: inputDecimals } = getTokenDecimals(
-      Number(this.input.req.chain.chainID),
-      this.input.req.inputToken,
-    );
 
     const { decimals: outputDecimals } = getTokenDecimals(
       Number(this.input.req.chain.chainID),
@@ -992,7 +997,7 @@ class Swap {
       agg: 1,
       input_amt: convertTo32Bytes(this.input.req.inputAmount),
       input_contract: this.input.req.inputToken,
-      input_decimals: inputDecimals,
+      input_decimals: txs.input.decimals,
       output_amt: convertTo32Bytes(txs.amount),
       output_contract: this.input.req.outputToken,
       output_decimals: outputDecimals,
@@ -1001,30 +1006,11 @@ class Swap {
 
   getTxsData() {
     return {
-      ...getTxsFromQuote(
-        this.input.agg,
-        this.input.quote,
-        this.input.req.inputToken,
-        !bytesEqual(EADDRESS_32_BYTES, this.input.req.inputToken),
-      ),
+      ...getTxsFromQuote(this.input, !bytesEqual(EADDRESS_32_BYTES, this.input.req.inputToken)),
       outputToken: this.input.req.outputToken,
     };
   }
 }
-// class SwapGroup {
-//   requoted = true;
-//   constructor(
-//     public swaps: Swap[],
-//     public chainID: number,
-//   ) {}
-
-//   execute() {
-//     // Requote
-//     // Execute
-//   }
-
-//   requote() {}
-// }
 
 const wrap = async (chainID: number, promise: Promise<unknown>) => {
   await promise;

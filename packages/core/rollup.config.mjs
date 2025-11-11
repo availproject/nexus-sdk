@@ -5,8 +5,7 @@ import json from '@rollup/plugin-json';
 import alias from '@rollup/plugin-alias';
 import dts from 'rollup-plugin-dts';
 import { defineConfig } from 'rollup';
-import { createRequire } from 'module';
-
+import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const packageJson = require('./package.json');
 
@@ -43,6 +42,9 @@ const baseConfig = {
     /^viem/,
     // External dependencies that consumers should install
     '@avail-project/ca-common',
+    '@tronweb3/tronwallet-abstract-adapter',
+    // Ensure TronWeb is not bundled to preserve its side-effectful proto setup
+    'tronweb',
     '@cosmjs/proto-signing',
     '@cosmjs/stargate',
     '@starkware-industries/starkware-crypto-utils',
@@ -58,7 +60,8 @@ const baseConfig = {
     './commons',
   ],
   treeshake: {
-    moduleSideEffects: false,
+    // Preserve side effects for external deps like tronweb that rely on global proto init
+    moduleSideEffects: 'no-external',
     propertyReadSideEffects: false,
     unknownGlobalSideEffects: false,
   },
@@ -116,6 +119,8 @@ export default defineConfig([
       /^@cosmjs/,
       /^@starkware-industries/,
       '@metamask/safe-event-emitter',
+      '@tronweb3/tronwallet-abstract-adapter',
+      'tronweb',
       'decimal.js',
       'fuels',
       'long',

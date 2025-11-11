@@ -1,6 +1,6 @@
 // Core SDK entry point - headless, no React dependencies
 export { NexusSDK } from './sdk/index';
-
+export { NexusError, ERROR_CODES } from './sdk/ca-base/nexusError';
 // Re-export types from commons for convenience
 export type {
   BridgeParams,
@@ -31,8 +31,6 @@ export type {
   SUPPORTED_TOKENS,
   ChainMetadata,
   TokenMetadata,
-  ProgressStep,
-  ProgressSteps,
 } from '@nexus/commons';
 
 export {
@@ -45,9 +43,9 @@ export {
   MAINNET_CHAINS,
   TOKEN_CONTRACT_ADDRESSES,
   DESTINATION_SWAP_TOKENS,
+  BRIDGE_STEPS,
+  SWAP_STEPS,
 } from '@nexus/commons';
-
-export type { SwapStep } from './sdk/ca-base';
 
 // Re-export everything from commons (includes constants, utils, and types)
 export * from '@nexus/commons';

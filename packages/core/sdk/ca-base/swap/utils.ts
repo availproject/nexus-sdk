@@ -4,16 +4,11 @@ import {
   BebopQuote,
   Bytes,
   ChaindataMap,
-  createCosmosClient,
   CurrencyID,
   ERC20ABI,
-  EVMRFF,
-  EVMVaultABI,
+  Holding,
   LiFiAggregator,
   LiFiQuote,
-  MsgCreateRequestForFunds,
-  MsgCreateRequestForFundsResponse,
-  MsgDoubleCheckTx,
   msgpackableAxios,
   OmniversalChainID,
   PermitVariant,
@@ -21,8 +16,6 @@ import {
   Universe,
 } from '@avail-project/ca-common';
 import CaliburABI from './calibur.abi';
-import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
-import { isDeliverTxFailure } from '@cosmjs/stargate';
 import axios from 'axios';
 import Decimal from 'decimal.js';
 import { retry } from 'es-toolkit';
@@ -34,14 +27,11 @@ import {
   bytesToNumber,
   concat,
   createPublicClient,
-  encodeAbiParameters,
   encodeFunctionData,
-  getAbiItem,
   getContract,
   Hex,
   hexToBigInt,
   http,
-  keccak256,
   maxUint256,
   pad,
   parseSignature,
@@ -50,17 +40,13 @@ import {
   toBytes,
   toHex,
   WalletClient,
-  WebSocketTransport,
 } from 'viem';
-
 import { ERC20PermitABI, ERC20PermitEIP2612PolygonType, ERC20PermitEIP712Type } from '../abi/erc20';
-import { FillEvent } from '../abi/vault';
 import { getLogoFromSymbol, ZERO_ADDRESS } from '../constants';
-import { getLogger } from '../logger';
+import { getLogger } from '@nexus/commons';
 import {
   Chain,
   SuccessfulSwapResult,
-  TokenInfo,
   UnifiedBalanceResponseData,
   UserAssetDatum,
 } from '@nexus/commons';
@@ -69,7 +55,6 @@ import {
   convertTo32BytesHex,
   divDecimals,
   equalFold,
-  getCosmosURL,
   getExplorerURL,
   getVSCURL,
   waitForTxReceipt,
@@ -78,9 +63,18 @@ import { SWEEP_ABI } from './abi';
 import { CALIBUR_ADDRESS, EADDRESS, SWEEPER_ADDRESS } from './constants';
 import { chainData, getTokenVersion } from './data';
 import { createSBCTxFromCalls, waitForSBCTxReceipt } from './sbc';
-import { DESTINATION_SWAP_HASH, SwapStep } from './steps';
-import { AnkrAsset, AnkrBalances, SBCTx, SwapIntent, Tx, ChainListType } from '@nexus/commons';
+import {
+  SWAP_STEPS,
+  SwapStepType,
+  AnkrAsset,
+  AnkrBalances,
+  SBCTx,
+  SwapIntent,
+  Tx,
+  ChainListType,
+} from '@nexus/commons';
 import Long from 'long';
+import { Errors } from '../errors';
 
 const logger = getLogger();
 
@@ -305,104 +299,6 @@ export const vscSBCTx = async (input: SBCTx[], vscDomain: string) => {
   return ops;
 };
 
-export const createRequestEVMSignature = async (evmRFF: EVMRFF, client: WalletClient) => {
-  const account = (await client.getAddresses())[0];
-  const abi = getAbiItem({ abi: EVMVaultABI, name: 'deposit' });
-  const msg = encodeAbiParameters(abi.inputs[0].components, [
-    evmRFF.sources,
-    evmRFF.destinationUniverse,
-    evmRFF.destinationChainID,
-    evmRFF.recipientAddress,
-    evmRFF.destinations,
-    evmRFF.nonce,
-    evmRFF.expiry,
-    evmRFF.parties,
-  ]);
-  const hash = keccak256(msg, 'bytes');
-  const signature = toBytes(
-    await client.signMessage({
-      account,
-      message: { raw: hash },
-    }),
-  );
-
-  return { requestHash: hash, signature };
-};
-
-export const cosmosCreateRFF = async ({
-  address,
-  cosmosURL,
-  msg,
-  wallet,
-}: {
-  address: string;
-  cosmosURL: string;
-  msg: MsgCreateRequestForFunds;
-  wallet: DirectSecp256k1Wallet;
-}) => {
-  const client = await createCosmosClient(wallet, getCosmosURL(cosmosURL, 'rpc'), {
-    broadcastPollIntervalMs: 250,
-  });
-
-  const res = await client.signAndBroadcast(
-    address,
-    [
-      {
-        typeUrl: '/xarchain.chainabstraction.MsgCreateRequestForFunds',
-        value: msg,
-      },
-    ],
-    {
-      amount: [],
-      gas: 100_000n.toString(10),
-    },
-  );
-
-  if (isDeliverTxFailure(res)) {
-    throw new Error('Error creating RFF');
-  }
-
-  const decoded = MsgCreateRequestForFundsResponse.decode(res.msgResponses[0].value);
-  return decoded.id;
-};
-export const cosmosCreateDoubleCheckTx = async ({
-  address,
-  cosmosURL,
-  msg,
-  wallet,
-}: {
-  address: string;
-  cosmosURL: string;
-  msg: MsgDoubleCheckTx;
-  wallet: DirectSecp256k1Wallet;
-}) => {
-  const client = await createCosmosClient(wallet, getCosmosURL(cosmosURL, 'rpc'), {
-    broadcastPollIntervalMs: 250,
-  });
-
-  logger.debug('cosmosCreateDoubleCheckTx:1', { doubleCheckMsg: msg });
-
-  const res = await client.signAndBroadcast(
-    address,
-    [
-      {
-        typeUrl: '/xarchain.chainabstraction.MsgDoubleCheckTx',
-        value: msg,
-      },
-    ],
-    {
-      amount: [],
-      gas: 100_000n.toString(10),
-    },
-  );
-
-  if (isDeliverTxFailure(res)) {
-    throw new Error('Error creating MsgDoubleCheckTx');
-  }
-
-  logger.debug('cosmosCreateDoubleCheckTx:2', { doubleCheckTx: res });
-};
-
 export const EXPECTED_CALIBUR_CODE = concat(['0xef0100', CALIBUR_ADDRESS]);
 
 export const isAuthorizationCodeSet = async (
@@ -486,7 +382,7 @@ export const createPermitAndTransferFromTx = async ({
   logger.debug('createPermitTx', { allowance, amount });
 
   if (allowance < amount) {
-    const { variant, version } = getTokenVersion(contractAddress);
+    const { variant, version } = await getTokenVersion(contractAddress, publicClient);
     if (variant === PermitVariant.Unsupported) {
       const { request } = await publicClient.simulateContract({
         chain,
@@ -535,6 +431,115 @@ export const createPermitAndTransferFromTx = async ({
 
   return txList;
 };
+
+export const determinePermitVariantAndVersion = async (
+  client: PublicClient,
+  contractAddress: Hex,
+) => {
+  const standardPermitData = encodeFunctionData({
+    abi: [
+      {
+        type: 'function',
+        name: 'permit',
+        inputs: [
+          { type: 'address', name: 'owner' },
+          { type: 'address', name: 'spender' },
+          { type: 'uint256', name: 'value' },
+          { type: 'uint256', name: 'deadline' },
+          { type: 'uint8', name: 'v' },
+          { type: 'bytes32', name: 'r' },
+          { type: 'bytes32', name: 's' },
+        ],
+      },
+    ],
+    functionName: 'permit',
+    args: [
+      '0x0000000000000000000000000000000000000000',
+      '0x0000000000000000000000000000000000000000',
+      0n,
+      0n,
+      0,
+      '0x0000000000000000000000000000000000000000000000000000000000000000',
+      '0x0000000000000000000000000000000000000000000000000000000000000000',
+    ],
+  });
+
+  // Dummy data for DAI-style permit (holder=spender=zero, nonce=0, expiry=0, allowed=true, v=0, r=0, s=0)
+  const daiPermitData = encodeFunctionData({
+    abi: [
+      {
+        type: 'function',
+        name: 'permit',
+        inputs: [
+          { type: 'address', name: 'holder' },
+          { type: 'address', name: 'spender' },
+          { type: 'uint256', name: 'nonce' },
+          { type: 'uint256', name: 'expiry' },
+          { type: 'bool', name: 'allowed' },
+          { type: 'uint8', name: 'v' },
+          { type: 'bytes32', name: 'r' },
+          { type: 'bytes32', name: 's' },
+        ],
+      },
+    ],
+    functionName: 'permit',
+    args: [
+      '0x0000000000000000000000000000000000000000',
+      '0x0000000000000000000000000000000000000000',
+      0n,
+      0n,
+      true,
+      0,
+      '0x0000000000000000000000000000000000000000000000000000000000000000',
+      '0x0000000000000000000000000000000000000000000000000000000000000000',
+    ],
+  });
+
+  const promises = [
+    functionExists(client, contractAddress, standardPermitData),
+    functionExists(client, contractAddress, daiPermitData),
+    getVersion(client, contractAddress),
+  ];
+  const [canonicalPermitResponse, daiPermitResponse, versionResponse] =
+    await Promise.allSettled(promises);
+
+  let variant = PermitVariant.Unsupported;
+  if (canonicalPermitResponse.status === 'fulfilled') {
+    variant = PermitVariant.EIP2612Canonical;
+  } else if (daiPermitResponse.status === 'fulfilled') {
+    variant = PermitVariant.DAI;
+  }
+
+  return {
+    variant,
+    version: versionResponse.status === 'fulfilled' ? Number(versionResponse.value) : 1,
+  };
+};
+
+async function getVersion(client: PublicClient, token: `0x${string}`): Promise<string> {
+  try {
+    const result = await client.readContract({
+      address: token,
+      abi: [
+        {
+          type: 'function',
+          name: 'version',
+          inputs: [],
+          stateMutability: 'view',
+          outputs: [{ name: '', type: 'string' }],
+        },
+      ] as const,
+      functionName: 'version',
+    });
+    return result;
+  } catch {
+    return '1';
+  }
+}
+
+async function functionExists(client: PublicClient, token: `0x${string}`, data: `0x${string}`) {
+  return client.call({ to: token, data });
+}
 
 export const createPermitApprovalTx = async ({
   contractAddress,
@@ -709,6 +714,7 @@ export function getTokenSymbol(symbol: string) {
 
 export const toFlatBalance = (
   assets: UserAssetDatum[],
+  convertAddressToBytes32 = true,
   currentChainID?: number,
   selectedTokenAddress?: `0x${string}`,
 ) => {
@@ -718,16 +724,16 @@ export const toFlatBalance = (
   return assets
     .map((a) =>
       a.breakdown.map((b) => {
+        const tokenAddress = b.contractAddress === ZERO_ADDRESS ? EADDRESS : b.contractAddress;
         return {
           amount: b.balance,
           chainID: b.chain.id,
           decimals: b.decimals,
           symbol: a.symbol,
-          tokenAddress: convertTo32BytesHex(
-            b.contractAddress === ZERO_ADDRESS ? EADDRESS : b.contractAddress,
-          ),
+          tokenAddress: convertAddressToBytes32 ? convertTo32BytesHex(tokenAddress) : tokenAddress,
           universe: b.universe,
           value: b.balanceInFiat,
+          logo: a.icon ?? '',
         };
       }),
     )
@@ -744,12 +750,12 @@ export const toFlatBalance = (
 };
 
 export const balancesToAssets = (
-  ankrBalances: AnkrBalances,
-  evmBalances: UnifiedBalanceResponseData[],
-  fuelBalances: UnifiedBalanceResponseData[],
-  tronBalances: UnifiedBalanceResponseData[],
-  chainList: ChainListType,
   isCA: boolean,
+  ankrBalances: AnkrBalances,
+  chainList: ChainListType,
+  evmBalances: UnifiedBalanceResponseData[] = [],
+  fuelBalances: UnifiedBalanceResponseData[] = [],
+  tronBalances: UnifiedBalanceResponseData[] = [],
 ) => {
   const assets: UserAssetDatum[] = [];
   const vscBalances = evmBalances.concat(fuelBalances).concat(tronBalances);
@@ -766,9 +772,6 @@ export const balancesToAssets = (
       if (!chain) {
         continue;
       }
-      logger.debug('balanceToAssets', {
-        chain,
-      });
       const tokenAddress = convertAddressByUniverse(
         toHex(currency.token_address),
         balance.universe,
@@ -777,7 +780,7 @@ export const balancesToAssets = (
       const decimals = token ? token.decimals : chain.nativeCurrency.decimals;
 
       if (token) {
-        const asset = assets.find((s) => s.symbol === token.symbol);
+        const asset = assets.find((s) => equalFold(s.symbol, token.symbol));
         if (asset) {
           asset.balance = new Decimal(asset.balance).add(currency.balance).toFixed();
           asset.balanceInFiat = new Decimal(asset.balanceInFiat)
@@ -901,37 +904,6 @@ export const balancesToAssets = (
   });
   assets.sort((a, b) => b.balanceInFiat - a.balanceInFiat);
   return assets;
-};
-
-export const waitForIntentFulfilment = async (
-  publicClient: PublicClient<WebSocketTransport>,
-  vaultContractAddr: `0x${string}`,
-  requestHash: `0x${string}`,
-): Promise<void> => {
-  logger.debug('waitForIntentFulfilment', { requestHash });
-  return new Promise((resolve) => {
-    const unwatch = publicClient.watchContractEvent({
-      abi: [FillEvent] as const,
-      address: vaultContractAddr,
-      args: { requestHash },
-      eventName: 'Fulfilment',
-      onLogs: (logs) => {
-        logger.debug('waitForIntentFulfilment', { logs });
-        publicClient.transport.getRpcClient().then((c) => c.close());
-        // ac?.abort();
-        unwatch();
-        return resolve(void 0);
-      },
-      poll: false,
-    });
-    // ac?.signal.addEventListener(
-    //   "abort",
-    //   () => {
-    //     unwatch();
-    //   },
-    //   { once: true },
-    // );
-  });
 };
 
 export const average = (a: bigint, b: bigint) => {
@@ -1082,7 +1054,7 @@ export class PublicClientList {
     if (!client) {
       const chain = this.chainList.getChainByID(Number(chainID));
       if (!chain) {
-        throw new Error(`Chain not found: ${chainID}`);
+        throw Errors.chainNotFound(Number(chainID));
       }
       client = createPublicClient({
         transport: http(chain.rpcUrls.default.http[0]),
@@ -1108,33 +1080,30 @@ export const getSetCodeKey = (input: SetCodeInput) =>
   ('a' + input.chainID + input.address).toLowerCase();
 
 export const getTxsFromQuote = (
-  aggregator: Aggregator,
-  quote: Quote,
-  inputToken: Bytes,
+  input: {
+    agg: Aggregator;
+    originalHolding: Holding & { decimals: number; symbol: string };
+    quote: Quote;
+    req: { inputToken: Bytes };
+  },
   createApproval = true,
 ) => {
   logger.debug('getTxsFromQuote', {
-    aggregator,
     createApproval,
-    inputToken,
-    quote,
+    input,
   });
-  if (aggregator instanceof LiFiAggregator) {
-    const originalResponse = (quote as LiFiQuote).originalResponse;
+  if (input.agg instanceof LiFiAggregator) {
+    const originalResponse = (input.quote as LiFiQuote).originalResponse;
     const tx = originalResponse.transactionRequest;
-    logger.debug('getTxsFromQuote', {
-      'approval.amount': quote.inputAmount,
-      'approval.target': originalResponse.estimate.approvalAddress,
-      tx: tx,
-      'tx.amount': quote.inputAmount,
-      'tx.inputToken': inputToken,
-      'tx.outputAmount': quote.outputAmountMinimum,
-    });
     const val = {
-      amount: quote.inputAmount,
+      amount: input.quote.inputAmount,
       approval: null as null | Tx,
-      inputToken,
-      outputAmount: quote.outputAmountMinimum,
+      input: {
+        token: input.req.inputToken,
+        decimals: input.originalHolding.decimals,
+        symbol: input.originalHolding.symbol,
+      },
+      outputAmount: input.quote.outputAmountMinimum,
       swap: {
         data: tx.data as Hex,
         to: tx.to as Hex,
@@ -1143,29 +1112,36 @@ export const getTxsFromQuote = (
     };
     if (createApproval) {
       val.approval = {
-        data: packERC20Approve(originalResponse.estimate.approvalAddress as Hex, quote.inputAmount),
-        to: convertToEVMAddress(inputToken),
+        data: packERC20Approve(
+          originalResponse.estimate.approvalAddress as Hex,
+          input.quote.inputAmount,
+        ),
+        to: convertToEVMAddress(input.req.inputToken),
         value: 0n,
       };
     }
 
     return val;
-  } else if (aggregator instanceof BebopAggregator) {
-    const originalResponse = (quote as BebopQuote).originalResponse;
+  } else if (input.agg instanceof BebopAggregator) {
+    const originalResponse = (input.quote as BebopQuote).originalResponse;
     const tx = originalResponse.quote.tx;
     logger.debug('getTxsFromQuote', {
-      'approval.amount': quote.inputAmount,
+      'approval.amount': input.quote.inputAmount,
       'approval.target': originalResponse.quote.approvalTarget,
       tx: tx,
-      'tx.amount': quote.inputAmount,
-      'tx.inputToken': inputToken,
-      'tx.outputAmount': quote.outputAmountMinimum,
+      'tx.amount': input.quote.inputAmount,
+      'tx.inputToken': input.req.inputToken,
+      'tx.outputAmount': input.quote.outputAmountMinimum,
     });
     const val = {
-      amount: quote.inputAmount,
+      amount: input.quote.inputAmount,
       approval: null as null | Tx,
-      inputToken,
-      outputAmount: quote.outputAmountMinimum,
+      input: {
+        token: input.req.inputToken,
+        decimals: input.originalHolding.decimals,
+        symbol: input.originalHolding.symbol,
+      },
+      outputAmount: input.quote.outputAmountMinimum,
       swap: {
         data: tx.data,
         to: tx.to,
@@ -1174,8 +1150,11 @@ export const getTxsFromQuote = (
     };
     if (createApproval) {
       val.approval = {
-        data: packERC20Approve(originalResponse.quote.approvalTarget as Hex, quote.inputAmount),
-        to: convertToEVMAddress(inputToken),
+        data: packERC20Approve(
+          originalResponse.quote.approvalTarget as Hex,
+          input.quote.inputAmount,
+        ),
+        to: convertToEVMAddress(input.req.inputToken),
         value: 0n,
       };
     }
@@ -1240,7 +1219,7 @@ export const createSwapIntent = (
 ): SwapIntent => {
   const chain = chainList.getChainByID(destination.chainID);
   if (!chain) {
-    throw new Error(`chain not found: ${destination.chainID}`);
+    throw Errors.chainNotFound(destination.chainID);
   }
 
   const intent: SwapIntent = {
@@ -1263,7 +1242,7 @@ export const createSwapIntent = (
   for (const source of sources) {
     const chain = chainList.getChainByID(source.chainID);
     if (!chain) {
-      throw new Error(`chain not found: ${source.chainID}`);
+      throw Errors.chainNotFound(source.chainID);
     }
 
     intent.sources.push({
@@ -1587,7 +1566,7 @@ export const performDestinationSwap = async ({
   chainList: ChainListType;
   COT: CurrencyID;
   emitter: {
-    emit: (step: SwapStep) => void;
+    emit: (step: SwapStepType) => void;
   };
   ephemeralAddress: Hex;
   ephemeralWallet: PrivateKeyAccount;
@@ -1620,7 +1599,7 @@ export const performDestinationSwap = async ({
       performance.mark('destination-swap-end');
 
       if (hasDestinationSwap) {
-        emitter.emit(DESTINATION_SWAP_HASH(ops[0], chainList));
+        emitter.emit(SWAP_STEPS.DESTINATION_SWAP_HASH(ops[0], chainList));
       }
 
       performance.mark('destination-swap-mining-start');
@@ -1657,43 +1636,11 @@ export const performDestinationSwap = async ({
 };
 
 export const getSwapSupportedChains = (chainList: ChainListType) => {
-  const chains: {
-    id: number;
-    logo: string;
-    name: string;
-    tokens: TokenInfo[];
-  }[] = [];
-  for (const c of chainData.keys()) {
-    const chain = chainList.getChainByID(c);
-    if (!chain) {
-      continue;
-    }
-
-    const data = {
+  return chainList.chains
+    .filter((chain) => chain.ankrName !== '')
+    .map((chain) => ({
       id: chain.id,
-      logo: chain.custom.icon,
       name: chain.name,
-      tokens: [] as TokenInfo[],
-    };
-
-    const tokens = chainData.get(c);
-    if (!tokens) {
-      continue;
-    }
-
-    tokens.forEach((t) => {
-      if (t.PermitVariant !== PermitVariant.Unsupported) {
-        data.tokens.push({
-          contractAddress: convertToEVMAddress(t.TokenContractAddress),
-          decimals: t.TokenDecimals,
-          logo: '',
-          name: t.Name,
-          symbol: t.Name,
-        });
-      }
-    });
-
-    chains.push(data);
-  }
-  return chains;
+      logo: chain.custom.icon,
+    }));
 };

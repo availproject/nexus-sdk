@@ -13,12 +13,11 @@ import {
   WalletClient,
 } from 'viem';
 
-import { getLogger } from '../logger';
 import { waitForTxReceipt } from '../utils';
 import CaliburABI from './calibur.abi';
 import { CALIBUR_ADDRESS, CALIBUR_EIP712, ZERO_BYTES_20, ZERO_BYTES_32 } from './constants';
 import { Cache, convertTo32Bytes, isAuthorizationCodeSet, PublicClientList } from './utils';
-import { ChainListType, CaliburSBCTypes, SBCTx, Tx } from '@nexus/commons';
+import { getLogger, ChainListType, CaliburSBCTypes, SBCTx, Tx } from '@nexus/commons';
 
 const logger = getLogger();
 
