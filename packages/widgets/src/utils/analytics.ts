@@ -1,7 +1,7 @@
 // analytics.ts
 // Custom OpenPanel integration for Avail Nexus SDK
 
-import { NexusNetwork, SUPPORTED_CHAINS_IDS, SUPPORTED_TOKENS } from '@nexus/commons';
+import { NexusNetwork } from '@nexus/commons';
 import { OpenPanel } from '@openpanel/web';
 import { ActiveTransaction } from 'src/types';
 
