@@ -377,7 +377,7 @@ class BridgeHandler {
     const explorerURL = getExplorerURL(this.options.networkConfig.EXPLORER_URL, intentID);
     this.markStepDone(BRIDGE_STEPS.INTENT_SUBMITTED(explorerURL, intentID.toNumber()));
 
-    const tokenCollections = [];
+    const tokenCollections: number[] = [];
     for (const [i, s] of sources.entries()) {
       if (!isDeposit(s.universe, s.tokenAddress)) {
         tokenCollections.push(i);
@@ -920,17 +920,17 @@ class BridgeHandler {
         continue;
       }
 
-      if (assetC.chainID === CHAIN_IDS.fuel.mainnet) {
-        const fuelChain = this.options.chainList.getChainByID(CHAIN_IDS.fuel.mainnet);
-        const baseAssetBalanceOnFuel = assets.getNativeBalance(fuelChain!);
-        if (new Decimal(baseAssetBalanceOnFuel).lessThan('0.000_003')) {
-          logger.debug('fuel base asset balance is lesser than min expected deposit fee, so skip', {
-            current: baseAssetBalanceOnFuel,
-            minimum: '0.000_003',
-          });
-          continue;
-        }
-      }
+      // if (assetC.chainID === CHAIN_IDS.fuel.mainnet) {
+      //   const fuelChain = this.options.chainList.getChainByID(CHAIN_IDS.fuel.mainnet);
+      //   const baseAssetBalanceOnFuel = assets.getNativeBalance(fuelChain!);
+      //   if (new Decimal(baseAssetBalanceOnFuel).lessThan('0.000_003')) {
+      //     logger.debug('fuel base asset balance is lesser than min expected deposit fee, so skip', {
+      //       current: baseAssetBalanceOnFuel,
+      //       minimum: '0.000_003',
+      //     });
+      //     continue;
+      //   }
+      // }
 
       // Now collectionFee is a fixed amount - applicable to all
       const collectionFee = feeStore.calculateCollectionFee({

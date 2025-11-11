@@ -45,6 +45,7 @@ import {
 import { createIntent } from './rff';
 import { calculateValue, convertTo32Bytes, convertToEVMAddress } from './utils';
 import { BridgeAsset } from '@nexus/commons';
+import { Errors } from '../errors';
 
 const logger = getLogger();
 
@@ -257,7 +258,7 @@ const _exactOutRoute = async (
         equalFold(b.tokenAddress, convertTo32BytesHex(v.req.inputToken)),
       );
       if (!balance) {
-        throw new Error('internal mapping error: balance for quote input not found');
+        throw Errors.internal('mapping error: balance for quote input not found');
       }
       return {
         ...v,

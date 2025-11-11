@@ -20,6 +20,7 @@ import {
   RFF,
   SponsoredApprovalDataArray,
   UnifiedBalanceResponseData,
+  ChainListType,
 } from '@nexus/commons';
 import {
   convertAddressByUniverse,
@@ -54,33 +55,66 @@ async function fetchMyIntents(address: string, grpcURL: string, page = 1) {
         reverse: true,
       },
     });
-    return intentTransform(response.requestForFunds);
+    return response.requestForFunds;
   } catch (error) {
     logger.error('Failed to fetch intents', error);
     throw new Error('Failed to fetch intents');
   }
 }
 
-const intentTransform = (input: RequestForFunds[]): RFF[] => {
-  return input.map((rff) => ({
-    deposited: rff.deposited,
-    destinationChainID: bytesToNumber(rff.destinationChainID),
-    destinations: rff.destinations.map((d) => ({
-      tokenAddress: convertToHexAddressByUniverse(d.contractAddress, rff.destinationUniverse),
-      value: bytesToBigInt(d.value),
-    })),
-    destinationUniverse: Universe[rff.destinationUniverse],
-    expiry: rff.expiry.toNumber(),
-    fulfilled: rff.fulfilled,
-    id: rff.id.toNumber(),
-    refunded: rff.refunded,
-    sources: rff.sources.map((s) => ({
-      chainID: bytesToNumber(s.chainID),
-      tokenAddress: convertToHexAddressByUniverse(s.contractAddress, s.universe),
-      universe: Universe[s.universe],
-      value: bytesToBigInt(s.value),
-    })),
-  }));
+export const intentTransform = (input: RequestForFunds[], chainList: ChainListType): RFF[] => {
+  return input.map((rff) => {
+    return {
+      deposited: rff.deposited,
+      destinationChainId: bytesToNumber(rff.destinationChainID),
+      destinations: rff.destinations.map((d) => {
+        const chainId = bytesToNumber(rff.destinationChainID);
+        const contractAddress = convertToHexAddressByUniverse(
+          d.contractAddress,
+          rff.destinationUniverse,
+        );
+        const token = chainList.getTokenByAddress(chainId, contractAddress);
+        if (!token) {
+          throw Errors.tokenNotSupported(contractAddress, chainId);
+        }
+        const valueRaw = bytesToBigInt(d.value);
+        return {
+          token: {
+            address: contractAddress,
+            symbol: token.symbol,
+            decimals: token.decimals,
+          },
+          valueRaw,
+          value: divDecimals(valueRaw, token.decimals).toFixed(token.decimals),
+        };
+      }),
+      destinationUniverse: Universe[rff.destinationUniverse],
+      expiry: rff.expiry.toNumber(),
+      fulfilled: rff.fulfilled,
+      id: rff.id.toNumber(),
+      refunded: rff.refunded,
+      sources: rff.sources.map((s) => {
+        const chainId = bytesToNumber(s.chainID);
+        const contractAddress = convertToHexAddressByUniverse(s.contractAddress, s.universe);
+        const token = chainList.getTokenByAddress(chainId, contractAddress);
+        if (!token) {
+          throw Errors.tokenNotSupported(contractAddress, chainId);
+        }
+        const valueRaw = bytesToBigInt(s.value);
+        return {
+          chainId: bytesToNumber(s.chainID),
+          universe: Universe[s.universe],
+          value: divDecimals(valueRaw, token.decimals).toFixed(token.decimals),
+          valueRaw,
+          token: {
+            address: contractAddress,
+            symbol: token.symbol,
+            decimals: token.decimals,
+          },
+        };
+      }),
+    };
+  });
 };
 
 async function fetchProtocolFees(grpcURL: string) {

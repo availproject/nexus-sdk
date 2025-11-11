@@ -91,4 +91,6 @@ export const Errors = {
       ERROR_CODES.VAULT_CONTRACT_NOT_FOUND,
       `vault contract not found for chain ${chainId.toString()}`,
     ),
+  simulationError: (msg: string) =>
+    createError(ERROR_CODES.SIMULATION_FAILED, `tenderly simulation failed: ${msg}`),
 };

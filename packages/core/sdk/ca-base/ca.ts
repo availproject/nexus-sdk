@@ -58,6 +58,7 @@ import {
   storeSIWESignatureToLocalStorage,
   getBalancesForSwap,
   switchChain,
+  intentTransform,
 } from './utils';
 import { swap } from './swap/swap';
 import { getSwapSupportedChains } from './swap/utils';
@@ -182,7 +183,8 @@ export class CA {
   protected async _getMyIntents(page = 1) {
     const { wallet } = await this._getCosmosWallet();
     const address = (await wallet.getAccounts())[0].address;
-    return fetchMyIntents(address, this._networkConfig.GRPC_URL, page);
+    const rffList = await fetchMyIntents(address, this._networkConfig.GRPC_URL, page);
+    return intentTransform(rffList, this.chainList);
   }
 
   protected _getUnifiedBalances = async (includeSwappableBalances = false) => {

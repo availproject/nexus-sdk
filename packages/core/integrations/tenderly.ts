@@ -9,6 +9,7 @@ import {
 } from './types';
 import { logger } from '@nexus/commons';
 import axios from 'axios';
+import { Errors } from 'sdk/ca-base/errors';
 
 /**
  * Backend simulation result interface
@@ -154,7 +155,7 @@ export class BackendSimulationClient {
     );
 
     if (!data.success || !data.data) {
-      throw new Error(data.message || 'Bundle simulation failed');
+      throw Errors.simulationError(data.message ?? 'Bundle simulation failed');
     }
 
     const gasUsed = data.data.reduce((acc, d) => {

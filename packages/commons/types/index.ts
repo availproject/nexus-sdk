@@ -532,18 +532,27 @@ export type OnEventParam = {
 
 export type RFF = {
   deposited: boolean;
-  destinationChainID: number;
-  destinations: { tokenAddress: Hex; value: bigint }[];
+  destinationChainId: number;
+  destinations: {
+    token: { address: Hex; symbol: string; decimals: number };
+    value: string;
+    valueRaw: bigint;
+  }[];
   destinationUniverse: string;
   expiry: number;
   fulfilled: boolean;
   id: number;
   refunded: boolean;
   sources: {
-    chainID: number;
-    tokenAddress: Hex;
+    chainId: number;
     universe: string;
-    value: bigint;
+    valueRaw: bigint;
+    value: string;
+    token: {
+      address: Hex;
+      symbol: string;
+      decimals: number;
+    };
   }[];
 };
 
