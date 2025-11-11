@@ -144,7 +144,7 @@ class BridgeAndExecuteQuery {
   public async simulateBridgeAndExecute(
     params: BridgeAndExecuteParams,
   ): Promise<BridgeAndExecuteSimulationResult> {
-    const { gasFee, token, skipBridge, tokenAmount, gasAmount, gasUsed } =
+    const { gasFee, token, skipBridge, tokenAmount, gasAmount, gasUsed, gasPrice } =
       await this.estimateBridgeAndExecute(params);
 
     logger.debug('BridgeAndExecute:4:CalculateOptimalBridgeAmount', {
@@ -171,6 +171,7 @@ class BridgeAndExecuteQuery {
       bridgeSimulation: bridgeResult,
       executeSimulation: {
         gasUsed,
+        gasPrice,
         gasFee,
       },
     };
@@ -388,7 +389,7 @@ class BridgeAndExecuteQuery {
   public async simulateExecute(params: ExecuteParams, address: Hex): Promise<ExecuteSimulation> {
     const { dstPublicClient, tx } = await this.createTxsForExecute(params, address);
 
-    const [gasUsed, gasPrice] = await Promise.all([
+    const [gasUsed, feeEstimate] = await Promise.all([
       dstPublicClient.estimateGas({
         to: tx.to,
         data: tx.data,
@@ -398,14 +399,15 @@ class BridgeAndExecuteQuery {
       dstPublicClient.estimateFeesPerGas(),
     ]);
 
-    const gasUnitPrice = gasPrice.maxFeePerGas ?? gasPrice.gasPrice ?? 0n;
-    if (gasUnitPrice === 0n) {
+    const gasPrice = feeEstimate.maxFeePerGas ?? feeEstimate.gasPrice ?? 0n;
+    if (gasPrice === 0n) {
       throw Errors.gasPriceError({});
     }
 
     return {
       gasUsed: gasUsed,
-      gasFee: gasUsed * gasUnitPrice,
+      gasPrice: gasPrice,
+      gasFee: gasUsed * gasPrice,
     };
   }
 

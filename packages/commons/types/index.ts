@@ -198,6 +198,10 @@ export interface ExecuteResult {
 
 export type ExecuteSimulation = {
   gasUsed: bigint;
+  gasPrice: bigint;
+  /**
+   * gasFee = gasUsed * gasPrice
+   */
   gasFee: bigint;
 };
 
