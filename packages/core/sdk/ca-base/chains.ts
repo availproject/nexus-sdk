@@ -9,6 +9,7 @@ import { getLogoFromSymbol, ZERO_ADDRESS } from './constants';
 import { Chain, SUPPORTED_CHAINS, TOKEN_CONTRACT_ADDRESSES, TokenInfo } from '@nexus/commons';
 import { convertToHexAddressByUniverse, equalFold } from './utils';
 import { Errors } from './errors';
+import { Hex } from 'viem';
 
 class ChainList {
   public chains: Chain[];
@@ -51,6 +52,14 @@ class ChainList {
   }
 
   public getTokenByAddress(chainID: number, address: `0x${string}`) {
+    const result = this.getChainAndTokenByAddress(chainID, address);
+    if (result) {
+      return result.token;
+    }
+    return undefined;
+  }
+
+  public getChainAndTokenByAddress(chainID: number, address: Hex) {
     const chain = this.getChainByID(chainID);
     if (!chain) {
       return undefined;
@@ -59,10 +68,10 @@ class ChainList {
 
     if (!token) {
       if (equalFold(address, ZERO_ADDRESS)) {
-        return this.getNativeToken(chainID);
+        return { chain, token: this.getNativeToken(chainID) };
       }
     }
-    return token;
+    return { chain, token };
   }
 
   public getTokenInfoBySymbol(chainID: number, symbol: string) {
@@ -181,7 +190,7 @@ const TESTNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: 'https://assets.coingecko.com/coins/images/16547/large/arb.jpg?1721358242',
+      icon: 'https://assets.coingecko.com/coins/images/16547/large/arb.jpg',
       knownTokens: [
         {
           contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.ARBITRUM_SEPOLIA],
@@ -227,7 +236,7 @@ const TESTNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: 'https://assets.coingecko.com/coins/images/25244/large/Optimism.png?1696524385',
+      icon: 'https://assets.coingecko.com/coins/images/25244/large/Optimism.png',
       knownTokens: [
         {
           contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.OPTIMISM_SEPOLIA],
@@ -273,7 +282,7 @@ const TESTNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: 'https://assets.coingecko.com/asset_platforms/images/15/large/polygon_pos.png?1706606645',
+      icon: 'https://assets.coingecko.com/asset_platforms/images/15/large/polygon_pos.png',
       knownTokens: [
         {
           contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.POLYGON_AMOY],
@@ -312,7 +321,7 @@ const TESTNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: 'https://assets.coingecko.com/asset_platforms/images/131/large/base-network.png?1720533039',
+      icon: 'https://assets.coingecko.com/asset_platforms/images/131/large/base-network.png',
       knownTokens: [
         {
           contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.BASE_SEPOLIA],
@@ -394,7 +403,7 @@ const TESTNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: 'https://assets.coingecko.com/asset_platforms/images/279/large/ethereum.png?1706606803',
+      icon: 'https://assets.coingecko.com/asset_platforms/images/279/large/ethereum.png',
       knownTokens: [
         {
           contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.SEPOLIA],
@@ -433,7 +442,7 @@ const TESTNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: 'https://assets.coingecko.com/asset_platforms/images/279/large/ethereum.png?1706606803',
+      icon: 'https://assets.coingecko.com/asset_platforms/images/279/large/ethereum.png',
       knownTokens: [
         {
           contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.VALIDIUM_TESTNET],
@@ -607,7 +616,7 @@ const MAINNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: 'https://assets.coingecko.com/asset_platforms/images/279/large/ethereum.png?1706606803',
+      icon: 'https://assets.coingecko.com/asset_platforms/images/279/large/ethereum.png',
       knownTokens: [
         {
           contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.ETHEREUM],
@@ -650,7 +659,7 @@ const MAINNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: 'https://assets.coingecko.com/coins/images/25244/large/Optimism.png?1696524385',
+      icon: 'https://assets.coingecko.com/coins/images/25244/large/Optimism.png',
       knownTokens: [
         {
           contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.OPTIMISM],
@@ -693,7 +702,7 @@ const MAINNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: 'https://assets.coingecko.com/asset_platforms/images/15/large/polygon_pos.png?1706606645',
+      icon: 'https://assets.coingecko.com/asset_platforms/images/15/large/polygon_pos.png',
       knownTokens: [
         {
           contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.POLYGON],
@@ -736,7 +745,7 @@ const MAINNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: 'https://assets.coingecko.com/asset_platforms/images/131/large/base-network.png?1720533039',
+      icon: 'https://assets.coingecko.com/asset_platforms/images/131/large/base-network.png',
       knownTokens: [
         {
           contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.BASE],
@@ -772,7 +781,7 @@ const MAINNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: 'https://assets.coingecko.com/coins/images/16547/large/arb.jpg?1721358242',
+      icon: 'https://assets.coingecko.com/coins/images/16547/large/arb.jpg',
       knownTokens: [
         {
           contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.ARBITRUM],
@@ -815,7 +824,7 @@ const MAINNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: 'https://assets.coingecko.com/asset_platforms/images/153/large/scroll.jpeg?1706606782',
+      icon: 'https://assets.coingecko.com/asset_platforms/images/153/large/scroll.jpeg',
       knownTokens: [
         {
           contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.SCROLL],

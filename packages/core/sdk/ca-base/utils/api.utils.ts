@@ -64,18 +64,27 @@ async function fetchMyIntents(address: string, grpcURL: string, page = 1) {
 
 export const intentTransform = (input: RequestForFunds[], chainList: ChainListType): RFF[] => {
   return input.map((rff) => {
+    const dstChainId = bytesToNumber(rff.destinationChainID);
+    const dstChain = chainList.getChainByID(dstChainId);
+    if (!dstChain) {
+      throw Errors.chainNotFound(dstChainId);
+    }
     return {
       deposited: rff.deposited,
-      destinationChainId: bytesToNumber(rff.destinationChainID),
+      destinationChain: {
+        id: dstChain.id,
+        name: dstChain.name,
+        logo: dstChain.custom.icon,
+        universe: Universe[rff.destinationUniverse],
+      },
       destinations: rff.destinations.map((d) => {
-        const chainId = bytesToNumber(rff.destinationChainID);
         const contractAddress = convertToHexAddressByUniverse(
           d.contractAddress,
           rff.destinationUniverse,
         );
-        const token = chainList.getTokenByAddress(chainId, contractAddress);
+        const token = chainList.getTokenByAddress(dstChainId, contractAddress);
         if (!token) {
-          throw Errors.tokenNotSupported(contractAddress, chainId);
+          throw Errors.tokenNotSupported(contractAddress, dstChainId);
         }
         const valueRaw = bytesToBigInt(d.value);
         return {
@@ -88,7 +97,6 @@ export const intentTransform = (input: RequestForFunds[], chainList: ChainListTy
           value: divDecimals(valueRaw, token.decimals).toFixed(token.decimals),
         };
       }),
-      destinationUniverse: Universe[rff.destinationUniverse],
       expiry: rff.expiry.toNumber(),
       fulfilled: rff.fulfilled,
       id: rff.id.toNumber(),
@@ -96,20 +104,24 @@ export const intentTransform = (input: RequestForFunds[], chainList: ChainListTy
       sources: rff.sources.map((s) => {
         const chainId = bytesToNumber(s.chainID);
         const contractAddress = convertToHexAddressByUniverse(s.contractAddress, s.universe);
-        const token = chainList.getTokenByAddress(chainId, contractAddress);
-        if (!token) {
+        const result = chainList.getChainAndTokenByAddress(chainId, contractAddress);
+        if (!result || !result.token) {
           throw Errors.tokenNotSupported(contractAddress, chainId);
         }
         const valueRaw = bytesToBigInt(s.value);
         return {
-          chainId: bytesToNumber(s.chainID),
-          universe: Universe[s.universe],
-          value: divDecimals(valueRaw, token.decimals).toFixed(token.decimals),
+          chain: {
+            id: result.chain.id,
+            name: result.chain.name,
+            logo: result.chain.custom.icon,
+            universe: Universe[s.universe],
+          },
+          value: divDecimals(valueRaw, result.token.decimals).toFixed(result.token.decimals),
           valueRaw,
           token: {
             address: contractAddress,
-            symbol: token.symbol,
-            decimals: token.decimals,
+            symbol: result.token.symbol,
+            decimals: result.token.decimals,
           },
         };
       }),

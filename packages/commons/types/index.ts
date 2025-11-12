@@ -520,6 +520,15 @@ export type ChainListType = {
     token: (TokenInfo & { isNative: boolean }) | undefined;
   };
   getTokenByAddress(chainID: number, address: `0x${string}`): TokenInfo | undefined;
+  getChainAndTokenByAddress(
+    chainID: number,
+    address: `0x${string}`,
+  ):
+    | {
+        chain: Chain;
+        token: TokenInfo | undefined;
+      }
+    | undefined;
   getNativeToken(chainID: number): TokenInfo;
   getChainByID(id: number): Chain | undefined;
   getAnkrNameList(): string[];
@@ -536,20 +545,18 @@ export type OnEventParam = {
 
 export type RFF = {
   deposited: boolean;
-  destinationChainId: number;
+  destinationChain: { id: number; name: string; logo: string; universe: string };
   destinations: {
     token: { address: Hex; symbol: string; decimals: number };
     value: string;
     valueRaw: bigint;
   }[];
-  destinationUniverse: string;
   expiry: number;
   fulfilled: boolean;
   id: number;
   refunded: boolean;
   sources: {
-    chainId: number;
-    universe: string;
+    chain: { id: number; name: string; logo: string; universe: string };
     valueRaw: bigint;
     value: string;
     token: {
