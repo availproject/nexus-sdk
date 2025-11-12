@@ -116,7 +116,7 @@ export class NexusSDK extends CA {
   /**
    * Simulate transfer transaction to get costs and fees
    */
-  public async simulateTransfer(params: TransferParams): Promise<BridgeAndExecuteSimulationResult> {
+  public async simulateBridgeAndTransfer(params: TransferParams): Promise<BridgeAndExecuteSimulationResult> {
     return this._simulateBridgeAndTransfer(params);
   }
 
