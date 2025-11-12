@@ -18,18 +18,6 @@ pnpm run release:core:dev
 pnpm run release:core:prod
 ```
 
-#### Widgets Package (`@avail-project/nexus-widgets`)
-
-```bash
-# Development release (default)
-./scripts/release-widgets.sh dev [patch|minor|major]
-pnpm run release:widgets:dev
-
-# Production release
-./scripts/release-widgets.sh prod [patch|minor|major]
-pnpm run release:widgets:prod
-```
-
 ### Local Tarballs (No Publish)
 
 ```bash
@@ -37,8 +25,7 @@ pnpm run release:widgets:prod
 ./scripts/local-pack.sh
 
 # In another project
-pnpm add /absolute/path/to/dist-tarballs/avail-project-nexus-core-*.tgz \
-         /absolute/path/to/dist-tarballs/avail-project-nexus-widgets-*.tgz
+pnpm add /absolute/path/to/dist-tarballs/avail-project-nexus-core-*.tgz
 ```
 
 ## Release Types
@@ -79,15 +66,6 @@ pnpm add /absolute/path/to/dist-tarballs/avail-project-nexus-core-*.tgz \
 
 # Core – production release (patch) from current branch
 ./scripts/release-core.sh prod patch --yes
-
-# Widgets – interactive dev prerelease (requires matching core prerelease on npm)
-./scripts/release-widgets.sh
-
-# Widgets – non-interactive dev prerelease (beta), resolves latest core beta by timestamp, dry-run
-./scripts/release-widgets.sh dev patch beta --yes --dry-run
-
-# Widgets – production release (patch)
-./scripts/release-widgets.sh prod patch --yes
 ```
 
 ## Prerequisites

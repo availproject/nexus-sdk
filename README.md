@@ -19,19 +19,6 @@ npm install @avail-project/nexus-core
 
 [📖 Core Documentation](./packages/core/README.md)
 
-### [@avail-project/nexus-widgets](./packages/widgets/)
-
-**React components for cross-chain transactions**
-
-- Ready-to-use React widgets
-- Drop-in bridge, transfer, bridge-and-execute and execute components
-
-```bash
-npm install @avail-project/nexus-widgets
-```
-
-[Widgets Documentation](./packages/widgets/README.md)
-
 ## Supported Networks
 
 ### Mainnet Chains
@@ -87,30 +74,9 @@ const result = await sdk.bridge({
 });
 ```
 
-### React Widgets
-
-```typescript
-import { NexusProvider, BridgeButton } from '@avail-project/nexus-widgets';
-
-function App() {
-  return (
-    <NexusProvider config={{ network: 'mainnet' }}>
-      <BridgeButton prefill={{ token: 'USDC', amount: '100', chainId: 137 }}>
-        {({ onClick, isLoading }) => (
-          <button onClick={onClick} disabled={isLoading}>
-            Bridge USDC
-          </button>
-        )}
-      </BridgeButton>
-    </NexusProvider>
-  );
-}
-```
-
 ## Documentation
 
 - [Core SDK Documentation](./packages/core/README.md) - Headless SDK API reference
-- [Widgets Documentation](./packages/widgets/README.md) - React components guide
 - [API Documentation](https://docs.availproject.org/api-reference/avail-nexus-sdk)
 
 ## 🛠️ Development
@@ -132,7 +98,6 @@ pnpm test
 - Internal shared code stays in `@nexus/commons` (private). It is imported in source during development and bundled into `dist/commons` at build so consumers never install it directly.
 - Published package names used everywhere (dev and build):
   - `@avail-project/nexus-core`
-  - `@avail-project/nexus-widgets`
 
 ### TS path mapping for local DX
 
@@ -183,19 +148,6 @@ pnpm -r up typescript rollup decimal.js viem
 ./scripts/release-core.sh prod patch --yes
 ```
 
-### Widgets examples
-
-```bash
-# Interactive dev prerelease (requires a matching core prerelease on npm)
-./scripts/release-widgets.sh
-
-# Non-interactive dev prerelease (beta), resolves latest core beta by timestamp, dry-run
-./scripts/release-widgets.sh dev patch beta --yes --dry-run
-
-# Production release (patch) – ensure core is published first
-./scripts/release-widgets.sh prod patch --yes
-```
-
 ### Local tarballs (no publish)
 
 ```bash
@@ -203,8 +155,7 @@ pnpm -r up typescript rollup decimal.js viem
 ./scripts/local-pack.sh
 
 # In another project
-pnpm add /absolute/path/to/dist-tarballs/avail-project-nexus-core-*.tgz \
-         /absolute/path/to/dist-tarballs/avail-project-nexus-widgets-*.tgz
+pnpm add /absolute/path/to/dist-tarballs/avail-project-nexus-core-*.tgz
 ```
 
 ## License
