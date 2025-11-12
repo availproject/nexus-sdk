@@ -817,6 +817,10 @@ async function waitForTronDepositTxConfirmation(
   throw new Error(`⏰ Timeout: Transaction not confirmed within ${timeout / 1000}s`);
 }
 
+function percentageAdditionToBigInt(base: bigint, percentage: number) {
+  return base + BigInt(new Decimal(base).mul(percentage).toFixed(0));
+}
+
 async function waitForTronApprovalTxConfirmation(
   amount: bigint,
   owner: Hex,
@@ -912,6 +916,7 @@ const retrieveSIWESignatureFromLocalStorage = (address: Hex) => {
 };
 
 export {
+  percentageAdditionToBigInt,
   retrieveSIWESignatureFromLocalStorage,
   storeSIWESignatureToLocalStorage,
   retrieveAddress,

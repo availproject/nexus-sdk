@@ -17,7 +17,15 @@ import {
   BRIDGE_STEPS,
   BridgeStepType,
 } from '@nexus/commons';
-import { createPublicClient, Hex, http, PublicClient, toHex, WalletClient } from 'viem';
+import {
+  createPublicClient,
+  Hex,
+  http,
+  PublicClient,
+  serializeTransaction,
+  toHex,
+  WalletClient,
+} from 'viem';
 import {
   createExplorerTxURL,
   divDecimals,
@@ -27,6 +35,8 @@ import {
   generateStateOverride,
   switchChain,
   erc20GetAllowance,
+  percentageAdditionToBigInt,
+  getL1Fee,
 } from '../utils';
 import { packERC20Approve } from '../swap/utils';
 import { BackendSimulationClient } from 'integrations/tenderly';
@@ -83,7 +93,9 @@ class BridgeAndExecuteQuery {
           chainId: dstChain.id,
           tokenAddress: token.contractAddress,
           tokenSymbol: execute.tokenApproval?.token ?? 'ETH',
-        });
+        }).then(({ gasUsed }) => ({
+          gasUsed: percentageAdditionToBigInt(gasUsed, 0.1),
+        }));
 
     const determineGasFee = params.execute.gasPrice
       ? Promise.resolve({
@@ -93,10 +105,19 @@ class BridgeAndExecuteQuery {
       : dstPublicClient.estimateFeesPerGas();
 
     // 5. simulate approval(?) and execution + fetch gasPrice + fetch unified balance
-    const [{ gasUsed }, gasFeeEstimate, balances] = await Promise.all([
+    const [{ gasUsed }, gasFeeEstimate, balances, l1Fee] = await Promise.all([
       determineGasUsed,
       determineGasFee,
       this.getUnifiedBalances(),
+      getL1Fee(
+        dstChain,
+        serializeTransaction({
+          chainId: dstChain.id,
+          data: execute.data ?? '0x00',
+          to: execute.to,
+          type: 'eip1559',
+        }),
+      ),
     ]);
 
     const gasPrice = gasFeeEstimate.maxFeePerGas ?? gasFeeEstimate.gasPrice ?? 0n;
@@ -106,13 +127,14 @@ class BridgeAndExecuteQuery {
       });
     }
 
-    const gasFee = gasUsed * gasPrice;
+    const gasFee = gasUsed * (gasPrice + l1Fee);
 
     logger.debug('BridgeAndExecute:3', {
       gasUsed,
       gasFeeEstimate,
       gasPrice,
       balances,
+      l1Fee,
     });
 
     // 6. Determine gas or token needed via bridge
