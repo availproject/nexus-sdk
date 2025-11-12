@@ -4,16 +4,23 @@ import {
   CurrencyID,
   LiFiAggregator,
   Universe,
-} from '@arcana/ca-common';
+} from '@avail-project/ca-common';
 
-import { SwapMode, type SwapData, type SwapParams, SuccessfulSwapResult } from '@nexus/commons';
+import {
+  SwapMode,
+  type SwapData,
+  type SwapParams,
+  SuccessfulSwapResult,
+  NEXUS_EVENTS,
+  SWAP_STEPS,
+  SwapStepType,
+} from '@nexus/commons';
 
-import { getLogger } from '../logger';
+import { getLogger } from '@nexus/commons';
 import { divDecimals } from '../utils';
 import { BEBOP_API_KEY, LIFI_API_KEY, ZERO_BYTES_32 } from './constants';
 import { BridgeHandler, DestinationSwapHandler, SourceSwapsHandler } from './ob';
 import { determineSwapRoute } from './route';
-import { DETERMINING_SWAP, SWAP_START, SwapStep } from './steps';
 import {
   Cache,
   convertMetadataToSwapResult,
@@ -24,6 +31,7 @@ import {
   PublicClientList,
   SwapMetadata,
 } from './utils';
+import { Errors } from '../errors';
 
 const logger = getLogger();
 
@@ -40,24 +48,26 @@ export const swap = async (
   const publicClientList = new PublicClientList(options.chainList);
   const cache = new Cache(publicClientList);
   const dstChain = options.chainList.getChainByID(input.data.toChainId);
-
   if (!dstChain) {
-    throw new Error('destination chain not supported');
+    throw Errors.chainNotFound(input.data.toChainId);
   }
+
   performance.mark('swap-start');
   const emitter = {
-    emit: (step: SwapStep) => {
-      options.emit('swap_step', step);
+    emit: (step: SwapStepType) => {
+      if (options.onEvent) {
+        options.onEvent({ name: NEXUS_EVENTS.SWAP_STEP_COMPLETE, args: step });
+      }
     },
   };
 
-  emitter.emit(SWAP_START);
+  emitter.emit(SWAP_STEPS.SWAP_START);
 
   logger.debug('swapBegin', { options, input });
 
   performance.mark('determine-swaps-start');
 
-  emitter.emit(DETERMINING_SWAP());
+  emitter.emit(SWAP_STEPS.DETERMINING_SWAP());
 
   const aggregators: Aggregator[] = [
     new LiFiAggregator(LIFI_API_KEY),
@@ -77,77 +87,73 @@ export const swap = async (
     swapRoute,
   });
 
-  let { assetsUsed, bridgeInput, destinationSwap, sourceSwaps } = swapRoute;
+  let { source, destination, bridge, extras } = swapRoute;
 
   logger.debug('initial-swap-route', {
-    assetsUsed,
-    bridgeInput,
-    destinationSwap,
+    source,
+    destination,
+    bridge,
+    extras,
     dstTokenInfo,
-    sourceSwaps,
     swapRoute,
   });
 
-  emitter.emit(DETERMINING_SWAP(true));
+  emitter.emit(SWAP_STEPS.DETERMINING_SWAP(true));
   performance.mark('determine-swaps-end');
 
   performance.mark('xcs-ops-start');
 
   // Swap Intent hook handling
   {
-    if (options?.swapIntentHook) {
-      const hook = options?.swapIntentHook;
+    const destinationTokenDetails = {
+      amount: divDecimals(
+        input.mode === SwapMode.EXACT_OUT ? input.data.toAmount : destination.swap.outputAmount,
+        dstTokenInfo.decimals,
+      ).toFixed(),
+      chainID: input.data.toChainId,
+      contractAddress: input.data.toTokenAddress,
+      decimals: dstTokenInfo.decimals,
+      symbol: dstTokenInfo.symbol,
+    };
 
-      const destination = {
-        amount: divDecimals(
-          input.mode === SwapMode.EXACT_OUT ? input.data.toAmount : destinationSwap.outputAmount,
-          dstTokenInfo.decimals,
-        ).toFixed(),
-        chainID: input.data.toChainId,
-        contractAddress: input.data.toTokenAddress,
-        decimals: dstTokenInfo.decimals,
-        symbol: dstTokenInfo.symbol,
-      };
+    let accepted = false;
 
-      let accepted = false;
+    const refresh = async () => {
+      if (accepted) {
+        logger.warn('Swap Intent refresh called after acceptance');
+        return createSwapIntent(extras.assetsUsed, destinationTokenDetails, options.chainList);
+      }
 
-      const refresh = async () => {
-        if (accepted) {
-          logger.warn('Swap Intent refresh called after acceptance');
-          return createSwapIntent(assetsUsed, destination, options.chainList);
-        }
+      const swapRouteResponse = await determineSwapRoute(input, swapRouteParams);
 
-        const swapRouteResponse = await determineSwapRoute(input, swapRouteParams);
-
-        sourceSwaps = swapRouteResponse.sourceSwaps;
-        assetsUsed = swapRouteResponse.assetsUsed;
-        destinationSwap = swapRouteResponse.destinationSwap;
-        bridgeInput = swapRouteResponse.bridgeInput;
-        logger.debug('refresh-swap-route', {
-          dstTokenInfo,
-          swapRoute: swapRouteResponse,
-        });
-        return createSwapIntent(assetsUsed, destination, options.chainList);
-      };
-      // wait for intent acceptance hook
-      await new Promise((resolve, reject) => {
-        const allow = () => {
-          accepted = true;
-          return resolve('User allowed intent');
-        };
-
-        const deny = () => {
-          return reject(ErrorUserDeniedIntent);
-        };
-
-        hook({
-          allow,
-          deny,
-          intent: createSwapIntent(assetsUsed, destination, options.chainList),
-          refresh,
-        });
+      source = swapRouteResponse.source;
+      extras = swapRouteResponse.extras;
+      destination = swapRouteResponse.destination;
+      bridge = swapRouteResponse.bridge;
+      logger.debug('refresh-swap-route', {
+        dstTokenInfo,
+        swapRoute: swapRouteResponse,
       });
-    }
+      return createSwapIntent(extras.assetsUsed, destinationTokenDetails, options.chainList);
+    };
+    // wait for intent acceptance hook
+    await new Promise((resolve, reject) => {
+      const allow = () => {
+        accepted = true;
+        return resolve('User allowed intent');
+      };
+
+      const deny = () => {
+        return reject(ErrorUserDeniedIntent);
+      };
+
+      options.onSwapIntent({
+        allow,
+        deny,
+        intent: createSwapIntent(extras.assetsUsed, destinationTokenDetails, options.chainList),
+        refresh,
+      });
+    });
   }
 
   const metadata: SwapMetadata = {
@@ -179,16 +185,16 @@ export const swap = async (
     wallet: options.wallet,
   };
 
-  const srcSwapsHandler = new SourceSwapsHandler(sourceSwaps, opt);
-  const bridgeHandler = new BridgeHandler(bridgeInput, opt);
+  const srcSwapsHandler = new SourceSwapsHandler(source, opt);
+  const bridgeHandler = new BridgeHandler(bridge, opt);
   const dstSwapHandler = new DestinationSwapHandler(
-    { ...destinationSwap, getDDS: swapRoute.getDDS },
+    destination,
     dstTokenInfo,
     {
       chainID: input.data.toChainId,
       token: input.data.toTokenAddress,
       amount:
-        input.mode === SwapMode.EXACT_OUT ? input.data.toAmount : destinationSwap.outputAmount,
+        input.mode === SwapMode.EXACT_OUT ? input.data.toAmount : destination.swap.outputAmount,
     },
     opt,
   );

@@ -29,6 +29,8 @@ import {
 import { mainnet, polygon, arbitrum, optimism, base } from 'viem/chains';
 import { logger } from '../utils/logger';
 
+export * from './format';
+
 /**
  * Shared utility for standardized error message extraction
  */
@@ -67,20 +69,6 @@ export function getViemChain(chainId: number): Chain {
         },
       };
   }
-}
-
-/**
- * Format a balance string to a human-readable format using Decimal.js
- */
-export function formatBalance(balance: string, decimals: number, precision: number = 4): string {
-  const balanceDecimal = new Decimal(balance);
-  const divisor = new Decimal(10).pow(decimals);
-  const formatted = balanceDecimal.div(divisor);
-
-  if (formatted.isZero()) return '0';
-  if (formatted.lt(0.0001)) return '< 0.0001';
-
-  return formatted.toFixed(precision).replace(/\.?0+$/, '');
 }
 
 /**
@@ -138,40 +126,6 @@ export const getTokenMetadata = (symbol: SUPPORTED_TOKENS): TokenMetadata | unde
  */
 export function getChainMetadata(chainId: SUPPORTED_CHAINS_IDS): ChainMetadata {
   return CHAIN_METADATA[chainId];
-}
-
-/**
- * Format a mainnet token amount with proper decimals and symbol
- */
-export function formatTokenAmount(
-  amount: string | bigint,
-  tokenSymbol: SUPPORTED_TOKENS,
-  precision: number = 4,
-): string {
-  const metadata = getMainnetTokenMetadata(tokenSymbol);
-  if (!metadata) return `${amount} ${tokenSymbol}`;
-
-  const amountStr = typeof amount === 'bigint' ? amount.toString() : amount;
-  const formatted = formatBalance(amountStr, metadata.decimals, precision);
-
-  return `${formatted} ${metadata.symbol}`;
-}
-
-/**
- * Format a testnet token amount with proper decimals and symbol
- */
-export function formatTestnetTokenAmount(
-  amount: string | bigint,
-  tokenSymbol: SUPPORTED_TOKENS,
-  precision: number = 4,
-): string {
-  const metadata = getTestnetTokenMetadata(tokenSymbol);
-  if (!metadata) return `${amount} ${tokenSymbol}`;
-
-  const amountStr = typeof amount === 'bigint' ? amount.toString() : amount;
-  const formatted = formatBalance(amountStr, metadata.decimals, precision);
-
-  return `${formatted} ${metadata.symbol}`;
 }
 
 /**
@@ -532,6 +486,7 @@ export function getTokenContractAddress(
   chainId: SUPPORTED_CHAINS_IDS,
 ): string | undefined {
   const registry = TOKEN_CONTRACT_ADDRESSES;
+  // @ts-expect-error
   const address = registry[token]?.[chainId];
   return address || undefined;
 }

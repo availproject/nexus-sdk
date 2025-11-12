@@ -1,6 +1,6 @@
 {
   "name": "@avail-project/nexus-core",
-  "version": "0.0.2",
+  "version": "1.0.0-beta.26",
   "description": "Nexus headless SDK for cross-chain transactions",
   "main": "./dist/index.js",
   "module": "./dist/index.esm.js",
@@ -37,32 +37,34 @@
   "author": "decocereus<amartya@availproject.org>",
   "license": "MIT",
   "dependencies": {
-    "@arcana/ca-common": "1.0.1-alpha.6",
+    "@avail-project/ca-common": "1.0.0-beta.7",
     "@cosmjs/proto-signing": "^0.34.0",
     "@cosmjs/stargate": "^0.34.0",
     "@metamask/safe-event-emitter": "3.1.2",
     "@starkware-industries/starkware-crypto-utils": "^0.2.1",
-    "axios": "^1.7.7",
+    "@tronweb3/tronwallet-abstract-adapter": "^1.1.9",
+    "axios": "^1.12.2",
     "decimal.js": "^10.6.0",
-    "es-toolkit": "^1.39.8",
+    "es-toolkit": "^1.40.0",
     "fuels": "0.101.1",
     "it-ws": "^6.1.5",
     "long": "^5.3.2",
-    "msgpackr": "^1.11.4",
+    "msgpackr": "^1.11.5",
+    "tronweb": "^6.0.4",
     "tslib": "2.8.1"
   },
   "devDependencies": {
-    "@rollup/plugin-commonjs": "^25.0.0",
+    "@rollup/plugin-commonjs": "^25.0.8",
     "@rollup/plugin-json": "6.1.0",
-    "@rollup/plugin-node-resolve": "^15.0.0",
-    "@rollup/plugin-typescript": "^11.0.0",
-    "rollup": "^4.0.0",
-    "rollup-plugin-dts": "^6.0.0",
+    "@rollup/plugin-node-resolve": "^15.3.1",
+    "@rollup/plugin-typescript": "^11.1.6",
+    "rollup": "^4.52.4",
+    "rollup-plugin-dts": "^6.2.3",
     "rollup-plugin-typescript2": "0.36.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.9.3"
   },
   "peerDependencies": {
-    "viem": "^2.0.0"
+    "viem": "^2.31.7"
   },
   "publishConfig": {
     "access": "public"

@@ -66,7 +66,7 @@ class Logger {
     this.internalLog(LOG_LEVEL.DEBUG, message, params);
   }
 
-  error(message: string, err?: Error | string) {
+  error(message: string, err?: unknown) {
     if (err instanceof Error) {
       this.internalLog(LOG_LEVEL.ERROR, message, err.message);
       sendException(JSON.stringify({ error: err.message, message }));

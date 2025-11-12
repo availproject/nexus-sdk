@@ -1,33 +1,24 @@
+import { ChainListType } from '.';
 import { Hex } from 'viem';
-import { Chain } from '@nexus/commons';
-import { ChainListType } from '@nexus/commons';
 
-export type SwapStep =
-  | ReturnType<typeof CREATE_PERMIT_EOA_TO_EPHEMERAL>
-  | ReturnType<typeof CREATE_PERMIT_FOR_SOURCE_SWAP>
-  | ReturnType<typeof DESTINATION_SWAP_BATCH_TX>
-  | ReturnType<typeof DESTINATION_SWAP_HASH>
-  | ReturnType<typeof DETERMINING_SWAP>
-  | ReturnType<typeof RFF_ID>
-  | ReturnType<typeof SOURCE_SWAP_BATCH_TX>
-  | ReturnType<typeof SOURCE_SWAP_HASH>
-  | typeof SWAP_COMPLETE
-  | typeof SWAP_START;
-
-export const SWAP_START = {
+const SWAP_START = {
   completed: true,
   type: 'SWAP_START',
   typeID: 'SWAP_START',
 } as const;
 
-export const DETERMINING_SWAP = (completed: boolean = false) =>
+const DETERMINING_SWAP = (completed: boolean = false) =>
   ({
     completed,
     type: 'DETERMINING_SWAP',
     typeID: DETERMINING_SWAP,
   }) as const;
 
-export const CREATE_PERMIT_EOA_TO_EPHEMERAL = (completed: boolean, symbol: string, chain: Chain) =>
+const CREATE_PERMIT_EOA_TO_EPHEMERAL = (
+  completed: boolean,
+  symbol: string,
+  chain: { id: number; name?: string },
+) =>
   ({
     chain: {
       id: chain.id,
@@ -39,7 +30,11 @@ export const CREATE_PERMIT_EOA_TO_EPHEMERAL = (completed: boolean, symbol: strin
     typeID: `CREATE_PERMIT_EOA_TO_EPHEMERAL_${chain.id}_${symbol}`,
   }) as const;
 
-export const CREATE_PERMIT_FOR_SOURCE_SWAP = (completed: boolean, symbol: string, chain: Chain) =>
+const CREATE_PERMIT_FOR_SOURCE_SWAP = (
+  completed: boolean,
+  symbol: string,
+  chain: { id: number; name?: string },
+) =>
   ({
     chain: {
       id: chain.id,
@@ -51,14 +46,14 @@ export const CREATE_PERMIT_FOR_SOURCE_SWAP = (completed: boolean, symbol: string
     typeID: `CREATE_PERMIT_FOR_SOURCE_SWAP_${chain.id}_${symbol}`,
   }) as const;
 
-export const SOURCE_SWAP_BATCH_TX = (completed: boolean) =>
+const SOURCE_SWAP_BATCH_TX = (completed: boolean) =>
   ({
     completed,
     type: 'SOURCE_SWAP_BATCH_TX',
     typeID: 'SOURCE_SWAP_BATCH_TX',
   }) as const;
 
-export const SOURCE_SWAP_HASH = (ops: [bigint, Hex], chainList: ChainListType) => {
+const SOURCE_SWAP_HASH = (ops: [bigint, Hex], chainList: ChainListType) => {
   const chainID = ops[0];
   const chain = chainList.getChainByID(Number(ops[0]));
   if (!chain) {
@@ -77,7 +72,7 @@ export const SOURCE_SWAP_HASH = (ops: [bigint, Hex], chainList: ChainListType) =
   } as const;
 };
 
-export const RFF_ID = (id: number) =>
+const RFF_ID = (id: number) =>
   ({
     completed: true,
     data: id,
@@ -85,20 +80,20 @@ export const RFF_ID = (id: number) =>
     typeID: 'RFF_ID',
   }) as const;
 
-export const DESTINATION_SWAP_BATCH_TX = (completed: boolean) =>
+const DESTINATION_SWAP_BATCH_TX = (completed: boolean) =>
   ({
     completed,
     type: 'DESTINATION_SWAP_BATCH_TX',
     typeID: 'DESTINATION_SWAP_BATCH_TX',
   }) as const;
 
-export const SWAP_COMPLETE = {
+const SWAP_COMPLETE = {
   completed: true,
   type: 'SWAP_COMPLETE',
   typeID: 'SWAP_COMPLETE',
 } as const;
 
-export const DESTINATION_SWAP_HASH = (op: [bigint, Hex], chainList: ChainListType) => {
+const DESTINATION_SWAP_HASH = (op: [bigint, Hex], chainList: ChainListType) => {
   const chain = chainList.getChainByID(Number(op[0]));
   if (!chain) {
     throw new Error(`Unknown chain: ${op[0]}`);
@@ -114,3 +109,28 @@ export const DESTINATION_SWAP_HASH = (op: [bigint, Hex], chainList: ChainListTyp
     typeID: `DESTINATION_SWAP_HASH_${chain.id}`,
   } as const;
 };
+
+export const SWAP_STEPS = {
+  SWAP_START,
+  CREATE_PERMIT_EOA_TO_EPHEMERAL,
+  CREATE_PERMIT_FOR_SOURCE_SWAP,
+  DESTINATION_SWAP_BATCH_TX,
+  DESTINATION_SWAP_HASH,
+  DETERMINING_SWAP,
+  RFF_ID,
+  SOURCE_SWAP_BATCH_TX,
+  SOURCE_SWAP_HASH,
+  SWAP_COMPLETE,
+};
+
+export type SwapStepType =
+  | ReturnType<typeof SWAP_STEPS.CREATE_PERMIT_EOA_TO_EPHEMERAL>
+  | ReturnType<typeof SWAP_STEPS.CREATE_PERMIT_FOR_SOURCE_SWAP>
+  | ReturnType<typeof SWAP_STEPS.DESTINATION_SWAP_BATCH_TX>
+  | ReturnType<typeof SWAP_STEPS.DESTINATION_SWAP_HASH>
+  | ReturnType<typeof SWAP_STEPS.DETERMINING_SWAP>
+  | ReturnType<typeof SWAP_STEPS.RFF_ID>
+  | ReturnType<typeof SWAP_STEPS.SOURCE_SWAP_BATCH_TX>
+  | ReturnType<typeof SWAP_STEPS.SOURCE_SWAP_HASH>
+  | typeof SWAP_STEPS.SWAP_COMPLETE
+  | typeof SWAP_STEPS.SWAP_START;

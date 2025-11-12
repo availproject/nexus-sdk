@@ -1,4 +1,4 @@
-import { Environment } from '@arcana/ca-common';
+import { Environment } from '@avail-project/ca-common';
 
 import { NetworkConfig } from '@nexus/commons';
 

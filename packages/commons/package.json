@@ -14,19 +14,21 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@avail-project/ca-common": "1.0.0-beta.7",
     "@cosmjs/proto-signing": "^0.34.0",
-    "fuels": "0.101.1",
-    "@arcana/ca-common": "1.0.1-alpha.6",
+    "@tronweb3/tronwallet-abstract-adapter": "^1.1.9",
     "decimal.js": "^10.6.0",
-    "viem": "^2.31.7"
+    "fuels": "0.101.1",
+    "tronweb": "^6.0.4",
+    "viem": "^2.38.3"
   },
   "devDependencies": {
-    "@rollup/plugin-commonjs": "^25.0.0",
+    "@rollup/plugin-commonjs": "^25.0.8",
     "@rollup/plugin-json": "6.1.0",
-    "@rollup/plugin-node-resolve": "^15.0.0",
-    "@rollup/plugin-typescript": "^11.0.0",
-    "rollup": "^4.0.0",
-    "rollup-plugin-dts": "^6.0.0",
-    "typescript": "^5.0.0"
+    "@rollup/plugin-node-resolve": "^15.3.1",
+    "@rollup/plugin-typescript": "^11.1.6",
+    "rollup": "^4.52.4",
+    "rollup-plugin-dts": "^6.2.3",
+    "typescript": "^5.9.3"
   }
 }

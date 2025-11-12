@@ -4,21 +4,12 @@ import {
   getVaultContractMap,
   OmniversalChainID,
   Universe,
-} from '@arcana/ca-common';
-// import { CHAIN_IDS } from 'fuels';
-
-import {
-  // FUEL_BASE_ASSET_ID,
-  // FUEL_NETWORK_URL,
-  getLogoFromSymbol,
-  HYPEREVM_CHAIN_ID,
-  KAIA_CHAIN_ID,
-  MONAD_TESTNET_CHAIN_ID,
-  SOPHON_CHAIN_ID,
-  ZERO_ADDRESS,
-} from './constants';
-import { Chain, TokenInfo } from '@nexus/commons';
+} from '@avail-project/ca-common';
+import { getLogoFromSymbol, ZERO_ADDRESS } from './constants';
+import { Chain, SUPPORTED_CHAINS, TOKEN_CONTRACT_ADDRESSES, TokenInfo } from '@nexus/commons';
 import { convertToHexAddressByUniverse, equalFold } from './utils';
+import { Errors } from './errors';
+import { Hex } from 'viem';
 
 class ChainList {
   public chains: Chain[];
@@ -48,7 +39,7 @@ class ChainList {
   public getNativeToken(chainID: number): TokenInfo {
     const chain = this.getChainByID(chainID);
     if (!chain) {
-      throw new Error('chain not found');
+      throw Errors.chainNotFound(chainID);
     }
 
     return {
@@ -61,6 +52,14 @@ class ChainList {
   }
 
   public getTokenByAddress(chainID: number, address: `0x${string}`) {
+    const result = this.getChainAndTokenByAddress(chainID, address);
+    if (result) {
+      return result.token;
+    }
+    return undefined;
+  }
+
+  public getChainAndTokenByAddress(chainID: number, address: Hex) {
     const chain = this.getChainByID(chainID);
     if (!chain) {
       return undefined;
@@ -69,10 +68,10 @@ class ChainList {
 
     if (!token) {
       if (equalFold(address, ZERO_ADDRESS)) {
-        return this.getNativeToken(chainID);
+        return { chain, token: this.getNativeToken(chainID) };
       }
     }
-    return token;
+    return { chain, token };
   }
 
   public getTokenInfoBySymbol(chainID: number, symbol: string) {
@@ -96,17 +95,45 @@ class ChainList {
     return token;
   }
 
+  public getChainAndTokenFromSymbol(
+    chainID: number,
+    tokenSymbol: string,
+  ): { chain: Chain; token: (TokenInfo & { isNative: boolean }) | undefined } {
+    const chain = this.getChainByID(chainID);
+    if (!chain) {
+      throw Errors.chainNotFound(chainID);
+    }
+
+    const token = chain.custom.knownTokens.find((t) => equalFold(t.symbol, tokenSymbol));
+    if (!token) {
+      if (equalFold(chain.nativeCurrency.symbol, tokenSymbol)) {
+        return {
+          token: {
+            contractAddress: ZERO_ADDRESS,
+            decimals: chain.nativeCurrency.decimals,
+            logo: chain.custom.icon,
+            name: chain.nativeCurrency.name,
+            symbol: chain.nativeCurrency.symbol,
+            isNative: true,
+          },
+          chain,
+        };
+      }
+    }
+    return { chain, token: token ? { ...token, isNative: false } : undefined };
+  }
+
   public getVaultContractAddress(chainID: number) {
     const chain = this.getChainByID(chainID);
     if (!chain) {
-      throw new Error('chain not supported');
+      throw Errors.chainNotFound(chainID);
     }
 
     const omniversalChainID = new OmniversalChainID(chain.universe, chainID);
 
     const vc = this.vcm.get(omniversalChainID);
     if (!vc) {
-      throw new Error('vault contract not found');
+      throw new Error(`vault contract not found for chain: ${chainID}`);
     }
 
     return convertToHexAddressByUniverse(vc, chain.universe);
@@ -118,6 +145,43 @@ class ChainList {
 }
 
 const TESTNET_CHAINS: Chain[] = [
+  // {
+  //   blockExplorers: {
+  //     default: {
+  //       name: 'TronScan',
+  //       url: 'https://shasta.tronscan.org',
+  //     },
+  //   },
+  //   custom: {
+  //     icon: 'https://assets.coingecko.com/asset_platforms/images/1094/large/TRON_LOGO.png',
+  //     knownTokens: [
+  //       {
+  //         contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.TRON_SHASTA],
+  //         decimals: 6,
+  //         logo: getLogoFromSymbol('USDT'),
+  //         name: 'Tether USD',
+  //         symbol: 'USDT',
+  //       },
+  //     ],
+  //   },
+  //   id: SUPPORTED_CHAINS.TRON_SHASTA,
+  //   ankrName: '',
+  //   name: 'Tron Shasta',
+  //   nativeCurrency: {
+  //     decimals: 6,
+  //     name: 'TRX',
+  //     symbol: 'TRX',
+  //   },
+  //   rpcUrls: {
+  //     default: {
+  //       http: ['https://api.shasta.trongrid.io/jsonrpc'],
+  //       grpc: ['https://api.shasta.trongrid.io'],
+  //       publicHttp: ['https://api.shasta.trongrid.io/jsonrpc'],
+  //       webSocket: [],
+  //     },
+  //   },
+  //   universe: Universe.TRON,
+  // },
   {
     blockExplorers: {
       default: {
@@ -126,17 +190,17 @@ const TESTNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: 'https://assets.coingecko.com/coins/images/16547/large/arb.jpg?1721358242',
+      icon: 'https://assets.coingecko.com/coins/images/16547/large/arb.jpg',
       knownTokens: [
         {
-          contractAddress: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d',
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.ARBITRUM_SEPOLIA],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
           symbol: 'USDC',
         },
         {
-          contractAddress: '0xF954d4A5859b37De88a91bdbb8Ad309056FB04B1',
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.ARBITRUM_SEPOLIA],
           decimals: 18,
           logo: getLogoFromSymbol('USDT'),
           name: 'Testing USD',
@@ -144,7 +208,7 @@ const TESTNET_CHAINS: Chain[] = [
         },
       ],
     },
-    id: 421614,
+    id: SUPPORTED_CHAINS.ARBITRUM_SEPOLIA,
     name: 'Arbitrum Sepolia',
     ankrName: '',
     nativeCurrency: {
@@ -172,17 +236,17 @@ const TESTNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: 'https://assets.coingecko.com/coins/images/25244/large/Optimism.png?1696524385',
+      icon: 'https://assets.coingecko.com/coins/images/25244/large/Optimism.png',
       knownTokens: [
         {
-          contractAddress: '0x5fd84259d66Cd46123540766Be93DFE6D43130D7',
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.OPTIMISM_SEPOLIA],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
           symbol: 'USDC',
         },
         {
-          contractAddress: '0x6462693c2F21AC0E517f12641D404895030F7426',
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.OPTIMISM_SEPOLIA],
           decimals: 18,
           logo: getLogoFromSymbol('USDT'),
           name: 'Testing USD',
@@ -190,7 +254,7 @@ const TESTNET_CHAINS: Chain[] = [
         },
       ],
     },
-    id: 11155420,
+    id: SUPPORTED_CHAINS.OPTIMISM_SEPOLIA,
     name: 'OP Sepolia',
     ankrName: '',
     nativeCurrency: {
@@ -218,10 +282,10 @@ const TESTNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: 'https://assets.coingecko.com/asset_platforms/images/15/large/polygon_pos.png?1706606645',
+      icon: 'https://assets.coingecko.com/asset_platforms/images/15/large/polygon_pos.png',
       knownTokens: [
         {
-          contractAddress: '0x41E94Eb019C0762f9Bfcf9Fb1E58725BfB0e7582',
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.POLYGON_AMOY],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
@@ -229,7 +293,7 @@ const TESTNET_CHAINS: Chain[] = [
         },
       ],
     },
-    id: 80002,
+    id: SUPPORTED_CHAINS.POLYGON_AMOY,
     name: 'Amoy',
     ankrName: '',
     nativeCurrency: {
@@ -257,10 +321,10 @@ const TESTNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: 'https://assets.coingecko.com/asset_platforms/images/131/large/base-network.png?1720533039',
+      icon: 'https://assets.coingecko.com/asset_platforms/images/131/large/base-network.png',
       knownTokens: [
         {
-          contractAddress: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.BASE_SEPOLIA],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
@@ -268,7 +332,7 @@ const TESTNET_CHAINS: Chain[] = [
         },
       ],
     },
-    id: 84532,
+    id: SUPPORTED_CHAINS.BASE_SEPOLIA,
     name: 'Base Sepolia',
     ankrName: '',
     nativeCurrency: {
@@ -299,14 +363,14 @@ const TESTNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/coins/images/38927/standard/monad.jpg',
       knownTokens: [
         {
-          contractAddress: '0xf817257fed379853cDe0fa4F97AB987181B1E5Ea',
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.MONAD_TESTNET],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
           symbol: 'USDC',
         },
         {
-          contractAddress: '0x1c56F176D6735888fbB6f8bD9ADAd8Ad7a023a0b',
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.MONAD_TESTNET],
           decimals: 18,
           logo: getLogoFromSymbol('USDT'),
           name: 'Testing USDT',
@@ -314,7 +378,7 @@ const TESTNET_CHAINS: Chain[] = [
         },
       ],
     },
-    id: MONAD_TESTNET_CHAIN_ID,
+    id: SUPPORTED_CHAINS.MONAD_TESTNET,
     name: 'Monad Testnet',
     ankrName: '',
     nativeCurrency: {
@@ -339,10 +403,10 @@ const TESTNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: 'https://assets.coingecko.com/asset_platforms/images/279/large/ethereum.png?1706606803',
+      icon: 'https://assets.coingecko.com/asset_platforms/images/279/large/ethereum.png',
       knownTokens: [
         {
-          contractAddress: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.SEPOLIA],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
@@ -350,7 +414,7 @@ const TESTNET_CHAINS: Chain[] = [
         },
       ],
     },
-    id: 11155111,
+    id: SUPPORTED_CHAINS.SEPOLIA,
     name: 'Ethereum Sepolia',
     ankrName: '',
     nativeCurrency: {
@@ -366,6 +430,42 @@ const TESTNET_CHAINS: Chain[] = [
           'https://ethereum-sepolia-public.nodies.app',
         ],
         webSocket: ['wss://rpcs.avail.so/sepolia'],
+      },
+    },
+    universe: Universe.ETHEREUM,
+  },
+  {
+    blockExplorers: {
+      default: {
+        name: 'Validium Testnet Explorer',
+        url: 'https://testnet.explorer.validium.network',
+      },
+    },
+    custom: {
+      icon: 'https://assets.coingecko.com/asset_platforms/images/279/large/ethereum.png',
+      knownTokens: [
+        {
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.VALIDIUM_TESTNET],
+          decimals: 6,
+          logo: getLogoFromSymbol('USDC'),
+          name: 'USD Coin',
+          symbol: 'USDC',
+        },
+      ],
+    },
+    id: SUPPORTED_CHAINS.VALIDIUM_TESTNET,
+    name: 'Validium Testnet',
+    ankrName: '',
+    nativeCurrency: {
+      decimals: 18,
+      name: 'VLDM',
+      symbol: 'VLDM',
+    },
+    rpcUrls: {
+      default: {
+        http: ['https://testnet.l2.rpc.validium.network'],
+        publicHttp: ['https://testnet.l2.rpc.validium.network'],
+        webSocket: ['wss://testnet.l2.rpc.validium.network/ws'],
       },
     },
     universe: Universe.ETHEREUM,
@@ -433,14 +533,14 @@ const MAINNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/coins/images/38680/large/sophon_logo_200.png',
       knownTokens: [
         {
-          contractAddress: '0x6386da73545ae4e2b2e0393688fa8b65bb9a7169',
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.SOPHON],
           decimals: 6,
           logo: getLogoFromSymbol('USDT'),
           name: 'Tether USD',
           symbol: 'USDT',
         },
         {
-          contractAddress: '0x9aa0f72392b5784ad86c6f3e899bcc053d00db4f',
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.SOPHON],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
@@ -455,7 +555,7 @@ const MAINNET_CHAINS: Chain[] = [
         },
       ],
     },
-    id: SOPHON_CHAIN_ID,
+    id: SUPPORTED_CHAINS.SOPHON,
     name: 'Sophon',
     ankrName: '',
     nativeCurrency: {
@@ -483,7 +583,7 @@ const MAINNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/asset_platforms/images/9672/large/kaia.png',
       knownTokens: [
         {
-          contractAddress: '0xd077a400968890eacc75cdc901f0356c943e4fdb',
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.KAIA],
           decimals: 6,
           logo: getLogoFromSymbol('USDT'),
           name: 'Tether USD',
@@ -491,7 +591,7 @@ const MAINNET_CHAINS: Chain[] = [
         },
       ],
     },
-    id: KAIA_CHAIN_ID,
+    id: SUPPORTED_CHAINS.KAIA,
     name: 'Kaia Mainnet',
     ankrName: '',
     nativeCurrency: {
@@ -516,17 +616,17 @@ const MAINNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: 'https://assets.coingecko.com/asset_platforms/images/279/large/ethereum.png?1706606803',
+      icon: 'https://assets.coingecko.com/asset_platforms/images/279/large/ethereum.png',
       knownTokens: [
         {
-          contractAddress: '0xdac17f958d2ee523a2206206994597c13d831ec7',
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.ETHEREUM],
           decimals: 6,
           logo: getLogoFromSymbol('USDT'),
           name: 'Tether USD',
           symbol: 'USDT',
         },
         {
-          contractAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.ETHEREUM],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
@@ -534,7 +634,7 @@ const MAINNET_CHAINS: Chain[] = [
         },
       ],
     },
-    id: 1,
+    id: SUPPORTED_CHAINS.ETHEREUM,
     name: 'Ethereum Mainnet',
     ankrName: 'eth',
     nativeCurrency: {
@@ -559,17 +659,17 @@ const MAINNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: 'https://assets.coingecko.com/coins/images/25244/large/Optimism.png?1696524385',
+      icon: 'https://assets.coingecko.com/coins/images/25244/large/Optimism.png',
       knownTokens: [
         {
-          contractAddress: '0x94b008aa00579c1307b0ef2c499ad98a8ce58e58',
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.OPTIMISM],
           decimals: 6,
           logo: getLogoFromSymbol('USDT'),
           name: 'Tether USD',
           symbol: 'USDT',
         },
         {
-          contractAddress: '0x0b2c639c533813f4aa9d7837caf62653d097ff85',
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.OPTIMISM],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
@@ -577,7 +677,7 @@ const MAINNET_CHAINS: Chain[] = [
         },
       ],
     },
-    id: 10,
+    id: SUPPORTED_CHAINS.OPTIMISM,
     name: 'OP Mainnet',
     ankrName: 'optimism',
     nativeCurrency: {
@@ -602,17 +702,17 @@ const MAINNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: 'https://assets.coingecko.com/asset_platforms/images/15/large/polygon_pos.png?1706606645',
+      icon: 'https://assets.coingecko.com/asset_platforms/images/15/large/polygon_pos.png',
       knownTokens: [
         {
-          contractAddress: '0xc2132d05d31c914a87c6611c10748aeb04b58e8f',
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.POLYGON],
           decimals: 6,
           logo: getLogoFromSymbol('USDT'),
           name: 'Tether USD',
           symbol: 'USDT',
         },
         {
-          contractAddress: '0x3c499c542cef5e3811e1192ce70d8cc03d5c3359',
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.POLYGON],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
@@ -620,7 +720,7 @@ const MAINNET_CHAINS: Chain[] = [
         },
       ],
     },
-    id: 137,
+    id: SUPPORTED_CHAINS.POLYGON,
     name: 'Polygon PoS',
     ankrName: 'polygon',
     nativeCurrency: {
@@ -645,10 +745,10 @@ const MAINNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: 'https://assets.coingecko.com/asset_platforms/images/131/large/base-network.png?1720533039',
+      icon: 'https://assets.coingecko.com/asset_platforms/images/131/large/base-network.png',
       knownTokens: [
         {
-          contractAddress: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.BASE],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
@@ -656,7 +756,7 @@ const MAINNET_CHAINS: Chain[] = [
         },
       ],
     },
-    id: 8453,
+    id: SUPPORTED_CHAINS.BASE,
     name: 'Base',
     ankrName: 'base',
     nativeCurrency: {
@@ -681,17 +781,17 @@ const MAINNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: 'https://assets.coingecko.com/coins/images/16547/large/arb.jpg?1721358242',
+      icon: 'https://assets.coingecko.com/coins/images/16547/large/arb.jpg',
       knownTokens: [
         {
-          contractAddress: '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9',
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.ARBITRUM],
           decimals: 6,
           logo: getLogoFromSymbol('USDT'),
           name: 'Tether USD',
           symbol: 'USDT',
         },
         {
-          contractAddress: '0xaf88d065e77c8cc2239327c5edb3a432268e5831',
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.ARBITRUM],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
@@ -699,7 +799,7 @@ const MAINNET_CHAINS: Chain[] = [
         },
       ],
     },
-    id: 42161,
+    id: SUPPORTED_CHAINS.ARBITRUM,
     name: 'Arbitrum One',
     ankrName: 'arbitrum',
     nativeCurrency: {
@@ -724,17 +824,17 @@ const MAINNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: 'https://assets.coingecko.com/asset_platforms/images/153/large/scroll.jpeg?1706606782',
+      icon: 'https://assets.coingecko.com/asset_platforms/images/153/large/scroll.jpeg',
       knownTokens: [
         {
-          contractAddress: '0xf55bec9cafdbe8730f096aa55dad6d22d44099df',
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.SCROLL],
           decimals: 6,
           logo: getLogoFromSymbol('USDT'),
           name: 'Tether USD',
           symbol: 'USDT',
         },
         {
-          contractAddress: '0x06efdbff2a14a7c8e15944d1f4a48f9f95f663a4',
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.SCROLL],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
@@ -742,7 +842,7 @@ const MAINNET_CHAINS: Chain[] = [
         },
       ],
     },
-    id: 534352,
+    id: SUPPORTED_CHAINS.SCROLL,
     name: 'Scroll',
     ankrName: 'scroll',
     nativeCurrency: {
@@ -770,14 +870,14 @@ const MAINNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/asset_platforms/images/12/large/avalanche.png',
       knownTokens: [
         {
-          contractAddress: '0xb97ef9ef8734c71904d8002f8b6bc66dd9c48a6e',
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.AVALANCHE],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
           symbol: 'USDC',
         },
         {
-          contractAddress: '0x9702230a8ea53601f5cd2dc00fdbc13d4df4a8c7',
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.AVALANCHE],
           decimals: 6,
           logo: getLogoFromSymbol('USDT'),
           name: 'Tether USD',
@@ -785,7 +885,7 @@ const MAINNET_CHAINS: Chain[] = [
         },
       ],
     },
-    id: 43114,
+    id: SUPPORTED_CHAINS.AVALANCHE,
     ankrName: 'avalanche',
     name: 'Avalanche C-Chain',
     nativeCurrency: {
@@ -813,14 +913,14 @@ const MAINNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/asset_platforms/images/1/large/bnb_smart_chain.png',
       knownTokens: [
         {
-          contractAddress: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d',
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.BNB],
           decimals: 18,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
           symbol: 'USDC',
         },
         {
-          contractAddress: '0x55d398326f99059fF775485246999027B3197955',
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.BNB],
           decimals: 18,
           logo: getLogoFromSymbol('USDT'),
           name: 'Tether USD',
@@ -835,7 +935,7 @@ const MAINNET_CHAINS: Chain[] = [
         },
       ],
     },
-    id: 0x38,
+    id: SUPPORTED_CHAINS.BNB,
     name: 'BNB Smart Chain',
     ankrName: 'bsc',
     nativeCurrency: {
@@ -863,14 +963,14 @@ const MAINNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/asset_platforms/images/243/large/hyperliquid.png',
       knownTokens: [
         {
-          contractAddress: '0xB8CE59FC3717ada4C02eaDF9682A9e934F625ebb',
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.HYPEREVM],
           decimals: 6,
           logo: getLogoFromSymbol('USDT'),
           name: 'Tether USD',
           symbol: 'USDT',
         },
         {
-          contractAddress: '0xb88339CB7199b77E23DB6E890353E22632Ba630f',
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.HYPEREVM],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
@@ -878,7 +978,7 @@ const MAINNET_CHAINS: Chain[] = [
         },
       ],
     },
-    id: HYPEREVM_CHAIN_ID,
+    id: SUPPORTED_CHAINS.HYPEREVM,
     ankrName: '',
     name: 'HyperEVM',
     nativeCurrency: {
@@ -895,6 +995,43 @@ const MAINNET_CHAINS: Chain[] = [
     },
     universe: Universe.ETHEREUM,
   },
+  {
+    blockExplorers: {
+      default: {
+        name: 'TronScan',
+        url: 'https://tronscan.org',
+      },
+    },
+    custom: {
+      icon: 'https://assets.coingecko.com/asset_platforms/images/1094/large/TRON_LOGO.png',
+      knownTokens: [
+        {
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.TRON],
+          decimals: 6,
+          logo: getLogoFromSymbol('USDT'),
+          name: 'Tether USD',
+          symbol: 'USDT',
+        },
+      ],
+    },
+    id: SUPPORTED_CHAINS.TRON,
+    ankrName: '',
+    name: 'Tron mainnet',
+    nativeCurrency: {
+      decimals: 6,
+      name: 'TRX',
+      symbol: 'TRX',
+    },
+    rpcUrls: {
+      default: {
+        http: ['https://api.trongrid.io/jsonrpc'],
+        grpc: ['https://api.trongrid.io'],
+        publicHttp: ['https://api.trongrid.io/jsonrpc', 'https://tron.therpc.io/jsonrpc'],
+        webSocket: ['wss://tron.drpc.org'],
+      },
+    },
+    universe: Universe.TRON,
+  },
 ];
 
-export { ChainList, KAIA_CHAIN_ID, SOPHON_CHAIN_ID };
+export { ChainList };

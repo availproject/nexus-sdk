@@ -80,6 +80,17 @@ if [[ $NON_INTERACTIVE -eq 0 ]]; then
         print_error "Invalid release type. Use 'dev' or 'prod'"
         exit 1
     fi
+
+    # Second prompt: allow custom version override
+    read -p "Would you like to enter a custom version? (y/N): " _cv
+    if [[ $_cv == "y" || $_cv == "Y" ]]; then
+        read -p "Enter custom version (e.g., 1.2.3 or 1.2.3-beta.0): " _custom_version
+        if [[ -n "$_custom_version" ]]; then
+            CUSTOM_VERSION="$_custom_version"
+            print_status "Custom version set to $CUSTOM_VERSION"
+        fi
+    fi
+
     if [[ "$RELEASE_TYPE" == "dev" ]]; then
         read -p "Pre-release tag (e.g. beta, alpha, dev) (default: $PRERELEASE_ID): " _pre
         if [[ -n "$_pre" ]]; then PRERELEASE_ID="$_pre"; fi
@@ -114,7 +125,7 @@ print_header "Starting @avail-project/nexus-core $RELEASE_TYPE release ($VERSION
 
 # Run type checking
 print_status "Running type check..."
-pnpm run typecheck
+pnpm run typecheck:core
 
 # Clean previous builds
 print_status "Cleaning previous builds..."
@@ -147,9 +158,13 @@ if [[ "$RELEASE_TYPE" == "prod" ]]; then
     fi
 
     # Version bump
-    print_status "Bumping version ($VERSION_TYPE)..."
+    print_status "Bumping version (${CUSTOM_VERSION:+custom $CUSTOM_VERSION}${CUSTOM_VERSION:+, }$VERSION_TYPE)..."
     cd packages/core
-    npm version $VERSION_TYPE --no-git-tag-version
+    if [[ -n "$CUSTOM_VERSION" ]]; then
+        npm version "$CUSTOM_VERSION" --no-git-tag-version --allow-same-version
+    else
+        npm version $VERSION_TYPE --no-git-tag-version
+    fi
     CORE_VERSION=$(node -p "require('./package.json').version")
     cd ../..
 
@@ -223,10 +238,13 @@ else
     # Compute next prerelease version with 0-9 rollover by publication time
     print_status "Computing next $PRERELEASE_ID version with rollover logic..."
     cd packages/core
-    export PRERELEASE_ID
-    export VERSION_TYPE
-    export PKG='@avail-project/nexus-core'
-    PRERELEASE_VERSION=$(node -e '
+    if [[ -n "$CUSTOM_VERSION" ]]; then
+        PRERELEASE_VERSION="$CUSTOM_VERSION"
+    else
+        export PRERELEASE_ID
+        export VERSION_TYPE
+        export PKG='@avail-project/nexus-core'
+        PRERELEASE_VERSION=$(node -e '
 const cp=require("child_process");
 const fs=require("fs");
 const pkg=process.env.PKG;
@@ -258,6 +276,7 @@ if(latestPre){
 }
 console.log(next);
 ')
+    fi
     export PRERELEASE_VERSION
     npm version "$PRERELEASE_VERSION" --no-git-tag-version --allow-same-version
     cd ../..

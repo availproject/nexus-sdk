@@ -10,7 +10,7 @@ import {
 } from '../motion/drawer';
 import { ChevronDownIcon, CircleX } from '../icons';
 import { FormField } from '../motion/form-field';
-import { CHAIN_METADATA, SUPPORTED_CHAINS } from '@nexus/commons';
+import { CHAIN_METADATA, NexusNetwork, SUPPORTED_CHAINS } from '@nexus/commons';
 import { cn } from '../../utils/utils';
 import { TokenIcon } from './icons';
 import type { TransactionType as BalanceTransactionType } from '../../utils/balance-utils';
@@ -20,7 +20,7 @@ interface DestinationDrawerProps {
   tokenValue?: string;
   isChainSelectDisabled?: boolean;
   isTokenSelectDisabled?: boolean;
-  network?: 'mainnet' | 'testnet';
+  network?: NexusNetwork;
   onChainValueChange: (chain: string) => void;
   onTokenValueChange: (token: string, iconUrl?: string) => void;
   fieldLabel?: string;

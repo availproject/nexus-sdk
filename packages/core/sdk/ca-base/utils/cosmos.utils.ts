@@ -5,22 +5,21 @@ import {
   MsgDoubleCheckTx,
   MsgRefundReq,
   MsgRefundReqResponse,
-} from '@arcana/ca-common';
+} from '@avail-project/ca-common';
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import { isDeliverTxFailure, isDeliverTxSuccess } from '@cosmjs/stargate';
 import axios from 'axios';
 import { connect } from 'it-ws/client';
 import Long from 'long';
-
-import { getLogger } from '../logger';
+import { getLogger } from '@nexus/commons';
 import { checkIntentFilled, vscCreateFeeGrant } from './api.utils';
+import { Errors } from '../errors';
 
 const logger = getLogger();
 
 const getCosmosURL = (cosmosURL: string, kind: 'rest' | 'rpc') => {
   const u = new URL(cosmosURL);
   if (kind === 'rpc') {
-    // FIXME: don't hardcode port here
     u.port = '26650';
   }
   return u.toString();
@@ -69,7 +68,7 @@ const cosmosCreateRFF = async ({
     );
 
     if (isDeliverTxFailure(res)) {
-      throw new Error(`Error creating RFF – code=${res.code} log=${res.rawLog ?? 'n/a'}`);
+      throw Errors.cosmosError(`Error creating RFF – code=${res.code} log=${res.rawLog ?? 'n/a'}`);
     }
 
     const decoded = MsgCreateRequestForFundsResponse.decode(res.msgResponses[0].value);
@@ -102,7 +101,7 @@ const cosmosRefundIntent = async (
       ],
       {
         amount: [],
-        gas: 100_000n.toString(10),
+        gas: 200_000n.toString(10),
       },
     );
     logger.debug('Refund response', { resp });
@@ -118,9 +117,9 @@ const cosmosRefundIntent = async (
         ) {
           return resp;
         }
-        throw new Error('RFF is not expired yet.');
+        throw Errors.cosmosError('RFF is not expired yet.');
       } else {
-        throw new Error('unknown error');
+        throw Errors.cosmosError(`unknown error: ${JSON.stringify(resp)}`);
       }
     } catch (e) {
       logger.error('Refund failed', e);
@@ -164,7 +163,7 @@ const cosmosCreateDoubleCheckTx = async ({
     );
 
     if (isDeliverTxFailure(res)) {
-      throw new Error('Error creating MsgDoubleCheckTx');
+      throw Errors.cosmosError('double check tx failed');
     }
 
     logger.debug('double check response', { doubleCheckTx: res });
@@ -219,6 +218,9 @@ const waitForCosmosFillEvent = async (intentID: Long, cosmosURL: string, ac: Abo
     );
 
     for await (const resp of connection.source) {
+      logger.debug('waitForCosmosFillEvent', {
+        resp,
+      });
       const decodedResponse = JSON.parse(decoder.decode(resp));
       if (
         decodedResponse.result.events &&

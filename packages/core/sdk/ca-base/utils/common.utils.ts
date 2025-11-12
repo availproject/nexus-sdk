@@ -1,12 +1,14 @@
 import {
   ArcanaVault,
+  Bytes,
   DepositVEPacket,
   Environment,
+  ERC20ABI,
   EVMRFF,
   EVMVaultABI,
   MsgDoubleCheckTx,
   Universe,
-} from '@arcana/ca-common';
+} from '@avail-project/ca-common';
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import Decimal from 'decimal.js';
 import { arrayify, CHAIN_IDS, FuelConnector, hexlify, Provider } from 'fuels';
@@ -14,23 +16,27 @@ import Long from 'long';
 import {
   ByteArray,
   bytesToHex,
+  bytesToNumber,
   encodeAbiParameters,
+  encodeFunctionData,
   getAbiItem,
   hashMessage,
   Hex,
+  hexToBigInt,
   keccak256,
   pad,
   PrivateKeyAccount,
   PublicClient,
   toBytes,
   toHex,
+  UserRejectedRequestError,
   WalletClient,
   WebSocketTransport,
 } from 'viem';
-
+import { TronWeb } from 'tronweb';
 import { ChainList } from '../chains';
 import { FUEL_BASE_ASSET_ID, isNativeAddress, ZERO_ADDRESS } from '../constants';
-import { getLogger } from '../logger';
+import { getLogger, IBridgeOptions } from '@nexus/commons';
 import {
   EthereumProvider,
   Intent,
@@ -40,7 +46,6 @@ import {
   ReadableIntent,
   SDKConfig,
   TokenInfo,
-  TxOptions,
   ChainListType,
   NexusNetwork,
   UserAssetDatum,
@@ -49,6 +54,9 @@ import {
 import { FeeStore } from './api.utils';
 import { requestTimeout, waitForIntentFulfilment } from './contract.utils';
 import { cosmosCreateDoubleCheckTx, cosmosFillCheck, cosmosRefundIntent } from './cosmos.utils';
+import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
+import { Types, utils } from 'tronweb';
+import { Errors } from '../errors';
 
 const logger = getLogger();
 
@@ -59,7 +67,7 @@ function convertAddressByUniverse(input: ByteArray | Hex, universe: Universe) {
   const inputIsString = typeof input === 'string';
   const bytes = inputIsString ? toBytes(input) : input;
 
-  if (universe === Universe.ETHEREUM) {
+  if (universe === Universe.ETHEREUM || universe === Universe.TRON) {
     if (bytes.length === 20) {
       return inputIsString ? input : bytes;
     }
@@ -234,7 +242,7 @@ const convertIntent = (
   for (const s of intent.sources) {
     const chainInfo = chainList.getChainByID(s.chainID);
     if (!chainInfo) {
-      throw new Error('chain not supported');
+      throw Errors.chainNotFound(s.chainID);
     }
     sources.push({
       amount: s.amount.toFixed(),
@@ -250,7 +258,7 @@ const convertIntent = (
   for (const s of intent.allSources) {
     const chainInfo = chainList.getChainByID(s.chainID);
     if (!chainInfo) {
-      throw new Error('chain not supported');
+      throw Errors.chainNotFound(s.chainID);
     }
     allSources.push({
       amount: s.amount.toFixed(),
@@ -263,7 +271,7 @@ const convertIntent = (
 
   const destinationChainInfo = chainList.getChainByID(intent.destination.chainID);
   if (!destinationChainInfo) {
-    throw new Error('chain not supported');
+    throw Errors.chainNotFound(intent.destination.chainID);
   }
 
   const destination = {
@@ -323,6 +331,7 @@ const isArcanaWallet = (p: EthereumProvider) => {
   if ('isArcana' in p && p.isArcana) {
     return true;
   }
+
   return false;
 };
 
@@ -337,21 +346,58 @@ const createRequestEVMSignature = async (
     evmRFF.sources,
     evmRFF.destinationUniverse,
     evmRFF.destinationChainID,
+    evmRFF.recipientAddress,
     evmRFF.destinations,
     evmRFF.nonce,
     evmRFF.expiry,
     evmRFF.parties,
   ]);
+
   const hash = keccak256(msg, 'bytes');
   const signature = toBytes(
-    await client.signMessage({
-      account: evmAddress,
-      message: { raw: hash },
-    }),
+    await client
+      .signMessage({
+        account: evmAddress,
+        message: { raw: hash },
+      })
+      .catch((e) => {
+        if (e instanceof UserRejectedRequestError) {
+          throw Errors.userRejectedIntentSignature();
+        }
+        throw e;
+      }),
   );
 
   return { requestHash: hashMessage({ raw: hash }), signature };
 };
+
+const createRequestTronSignature = async (evmRFF: EVMRFF, client: AdapterProps) => {
+  logger.debug('createReqEVMSignature', { evmRFF });
+  const abi = getAbiItem({ abi: EVMVaultABI, name: 'deposit' });
+  const msg = encodeAbiParameters(abi.inputs[0].components, [
+    evmRFF.sources,
+    evmRFF.destinationUniverse,
+    evmRFF.destinationChainID,
+    evmRFF.recipientAddress,
+    evmRFF.destinations,
+    evmRFF.nonce,
+    evmRFF.expiry,
+    evmRFF.parties,
+  ]);
+  const hash = toHex(keccak256(msg, 'bytes'));
+
+  // FIXME: Hack - since tron doesn't supports binary decode of hex before signing
+  // const uppercaseHash = convertToUpperCaseHash(toHex(hash));
+  const sig = await client.signMessage(hash);
+  return {
+    requestHash: utils.message.hashMessage(hash) as Hex,
+    signature: toBytes(sig),
+  };
+};
+
+// const convertToUpperCaseHash = (input: Hex) => {
+//   return `0x${input.substring(2).toUpperCase()}`;
+// };
 
 const convertGasToToken = (
   token: TokenInfo,
@@ -360,7 +406,7 @@ const convertGasToToken = (
   destinationUniverse: Universe,
   gas: Decimal,
 ) => {
-  if (isNativeAddress(destinationUniverse, token.contractAddress)) {
+  if (gas.isZero() || isNativeAddress(destinationUniverse, token.contractAddress)) {
     return gas;
   }
 
@@ -380,6 +426,7 @@ const convertGasToToken = (
         rate.chainId === destinationChainID && equalFold(rate.tokenAddress, token.contractAddress),
     )
     ?.priceUsd.toFixed();
+
   if (!transferTokenInUSD) {
     throw new Error('could not find token in price oracle');
   }
@@ -406,24 +453,25 @@ const evmWaitForFill = async (
   ]);
 };
 
-const convertTo32Bytes = (value: bigint | Hex | number) => {
+const convertTo32Bytes = (value: bigint | Hex | number | Bytes) => {
   if (typeof value == 'bigint' || typeof value === 'number') {
     return toBytes(value, {
       size: 32,
     });
-  }
-
-  if (typeof value === 'string') {
+  } else if (typeof value === 'string') {
     return pad(toBytes(value), {
       dir: 'left',
       size: 32,
     });
+  } else {
+    return pad(value, {
+      dir: 'left',
+      size: 32,
+    });
   }
-
-  throw new Error('invalid type');
 };
 
-const convertTo32BytesHex = (value: Hex) => {
+const convertTo32BytesHex = (value: Hex | Bytes) => {
   const bytes = convertTo32Bytes(value);
   return toHex(bytes);
 };
@@ -435,7 +483,7 @@ const convertToHexAddressByUniverse = (address: Uint8Array, universe: Universe) 
     } else {
       throw new Error('fuel: invalid address length');
     }
-  } else if (universe === Universe.ETHEREUM) {
+  } else if (universe === Universe.ETHEREUM || universe === Universe.TRON) {
     if (address.length === 20) {
       return bytesToHex(address);
     } else if (address.length === 32) {
@@ -498,36 +546,12 @@ const getSDKConfig = (c: { network?: NexusNetwork; debug?: boolean }): Required<
       config.network = Environment.CORAL;
       break;
     }
+    case 'devnet': {
+      config.network = Environment.CERISE;
+    }
   }
 
   return config;
-};
-
-const getTxOptions = (options?: Partial<TxOptions>) => {
-  const defaultOptions: TxOptions = {
-    bridge: false,
-    gas: 0n,
-    skipTx: false,
-    sourceChains: [],
-  };
-
-  if (options?.bridge !== undefined) {
-    defaultOptions.bridge = options.bridge;
-  }
-
-  if (options?.gas !== undefined) {
-    defaultOptions.gas = options.gas;
-  }
-
-  if (options?.skipTx !== undefined) {
-    defaultOptions.skipTx = options.skipTx;
-  }
-
-  if (options?.sourceChains !== undefined) {
-    defaultOptions.sourceChains = options.sourceChains;
-  }
-
-  return defaultOptions;
 };
 
 class UserAsset {
@@ -536,6 +560,19 @@ class UserAsset {
   }
 
   constructor(public value: UserAssetDatum) {}
+
+  getBridgeAssets(dstChainId: number) {
+    return this.value.breakdown
+      .filter((b) => b.chain.id !== dstChainId)
+      .map((b) => {
+        return {
+          chainID: b.chain.id,
+          contractAddress: b.contractAddress,
+          decimals: b.decimals,
+          balance: new Decimal(b.balance),
+        };
+      });
+  }
 
   getBalanceOnChain(chainID: number, tokenAddress?: `0x${string}`) {
     return (
@@ -685,7 +722,202 @@ class UserAssets {
   }
 }
 
+// CHATGPT function below
+async function waitForTronTxConfirmation(
+  txid: string,
+  tronWeb: TronWeb,
+  options: { timeout?: number; interval?: number } = {},
+): Promise<Types.TransactionInfo> {
+  const { timeout = 120000, interval = 3000 } = options;
+
+  const startTime = Date.now();
+
+  logger.debug(`📡 Waiting for confirmation of tron tx`);
+
+  while (Date.now() - startTime < timeout) {
+    try {
+      const txInfo = await tronWeb.trx.getTransactionInfo(txid);
+
+      logger.debug(`tx info:`, {
+        txInfo,
+      });
+
+      if (txInfo && txInfo.receipt) {
+        const result = txInfo.receipt.result;
+        if (result === 'FAILED') {
+          throw new Error(`❌ Transaction reverted: ${txid}`);
+        } else {
+          return txInfo;
+        }
+      }
+    } catch (err) {
+      logger.error(`⚠️ Error while checking transaction:`, err);
+      // Don’t throw yet; continue polling
+    }
+
+    logger.debug('⏳ Still waiting...');
+    await new Promise((resolve) => setTimeout(resolve, interval));
+  }
+
+  throw new Error(`⏰ Timeout: Transaction not confirmed within ${timeout / 1000}s`);
+}
+
+async function waitForTronDepositTxConfirmation(
+  hash: Hex,
+  vaultContractAddress: Hex,
+  tronWeb: TronWeb,
+  owner: Hex,
+  options: { timeout?: number; interval?: number } = {},
+): Promise<void> {
+  const { timeout = 120000, interval = 3000 } = options;
+
+  const startTime = Date.now();
+
+  logger.debug(`📡 Waiting for confirmation of tron tx`);
+
+  const input = encodeFunctionData({
+    abi: EVMVaultABI,
+    functionName: 'requestState',
+    args: [hash],
+  });
+  while (Date.now() - startTime < timeout) {
+    try {
+      const result = await tronWeb.transactionBuilder.triggerConstantContract(
+        tronWeb.utils.address.fromHex(vaultContractAddress),
+        '',
+        {
+          input,
+        },
+        [],
+        tronWeb.utils.address.fromHex(owner),
+      );
+
+      logger.debug('requestHashWitnessedOnTron', {
+        result,
+      });
+      if (result.Error) {
+        throw new Error(result.Error);
+      }
+
+      const requestState = bytesToNumber(result.constant_result[0]);
+      if (requestState === 0) {
+        throw new Error('Request not witnessed yet.');
+      }
+
+      return;
+    } catch (err) {
+      logger.error(`⚠️ Error while checking transaction:`, err);
+      // Don’t throw yet; continue polling
+    }
+
+    logger.debug('⏳ Still waiting...');
+    await new Promise((resolve) => setTimeout(resolve, interval));
+  }
+
+  throw new Error(`⏰ Timeout: Transaction not confirmed within ${timeout / 1000}s`);
+}
+
+async function waitForTronApprovalTxConfirmation(
+  amount: bigint,
+  owner: Hex,
+  spender: Hex,
+  contractAddress: Hex,
+  tronWeb: TronWeb,
+  options: { timeout?: number; interval?: number } = {},
+): Promise<void> {
+  const { timeout = 120000, interval = 3000 } = options;
+
+  const startTime = Date.now();
+
+  logger.debug(`📡 Waiting for confirmation of tron approval tx`);
+
+  const input = encodeFunctionData({
+    abi: ERC20ABI,
+    functionName: 'allowance',
+    args: [owner, spender],
+  });
+
+  while (Date.now() - startTime < timeout) {
+    try {
+      const result = await tronWeb.transactionBuilder.triggerConstantContract(
+        tronWeb.utils.address.fromHex(contractAddress),
+        '',
+        {
+          input,
+        },
+        [],
+        tronWeb.utils.address.fromHex(owner),
+      );
+
+      logger.debug('waitForTronApprovalTxConfirmation', {
+        result,
+      });
+
+      if (result.Error) {
+        throw new Error(result.Error);
+      }
+
+      const allowance = hexToBigInt(`0x${result.constant_result[0]}`);
+      if (allowance < amount) {
+        throw new Error('Allowance not set yet.');
+      }
+
+      return;
+    } catch (err) {
+      logger.error(`⚠️ Error while checking transaction:`, err);
+      // Don’t throw yet; continue polling
+    }
+
+    logger.debug('⏳ Still waiting...');
+    await new Promise((resolve) => setTimeout(resolve, interval));
+  }
+
+  throw new Error(`⏰ Timeout: Transaction not confirmed within ${timeout / 1000}s`);
+}
+
+const createExplorerTxURL = (txHash: Hex, explorerURL: string) => {
+  return new URL(`/tx/${txHash}`, explorerURL).href;
+};
+
+const retrieveAddress = (
+  universe: Universe,
+  input: Pick<IBridgeOptions, 'fuel' | 'evm' | 'tron'>,
+): Hex => {
+  if (universe === Universe.ETHEREUM) {
+    return input.evm.address;
+  } else if (universe === Universe.FUEL) {
+    if (!input.fuel) {
+      throw Errors.internal('fuel source but no fuel input');
+    }
+    return input.fuel.address as Hex;
+  } else if (universe === Universe.TRON) {
+    if (!input.tron) {
+      throw Errors.internal('tron source but no tron input');
+    }
+
+    return input.tron.address as Hex;
+  }
+
+  throw Errors.internal('unknown universe');
+};
+
+const SIWE_KEY = '_siwe_sig';
+
+const storeSIWESignatureToLocalStorage = (address: Hex, signature: string) => {
+  window.localStorage.setItem(`${SIWE_KEY}-${address}`, signature);
+};
+
+const retrieveSIWESignatureFromLocalStorage = (address: Hex) => {
+  return window.localStorage.getItem(`${SIWE_KEY}-${address}`);
+};
+
 export {
+  retrieveSIWESignatureFromLocalStorage,
+  storeSIWESignatureToLocalStorage,
+  retrieveAddress,
+  createExplorerTxURL,
+  waitForTronApprovalTxConfirmation,
+  waitForTronDepositTxConfirmation,
   UserAsset,
   UserAssets,
   convertAddressByUniverse,
@@ -704,7 +936,6 @@ export {
   getExplorerURL,
   getSDKConfig,
   getSupportedChains,
-  getTxOptions,
   hexTo0xString,
   isArcanaWallet,
   minutesToMs,
@@ -712,4 +943,6 @@ export {
   refundExpiredIntents,
   removeIntentHashFromStore,
   storeIntentHashToStore,
+  createRequestTronSignature,
+  waitForTronTxConfirmation,
 };

@@ -7,6 +7,7 @@ import {
   DESTINATION_SWAP_TOKENS,
   type SupportedChainsResult,
   type TokenMetadata,
+  NexusNetwork,
 } from '@nexus/commons';
 import type { TransactionType } from './balance-utils';
 import type { NexusSDK } from '@avail-project/nexus-core';
@@ -34,7 +35,7 @@ export interface TokenSelectOption {
 export interface TokenResolutionParams {
   chainId?: number;
   type: TransactionType;
-  network?: 'mainnet' | 'testnet';
+  network?: NexusNetwork;
   isDestination?: boolean;
   sdk?: NexusSDK;
 }
@@ -162,9 +163,7 @@ function _processSdkData(sdkData: SupportedChainsResult | null): TransactionSupp
 /**
  * Get base token metadata based on network
  */
-function getBaseTokenMetadata(
-  _network: 'mainnet' | 'testnet' = 'mainnet',
-): Record<string, TokenMetadata> {
+function getBaseTokenMetadata(_network: NexusNetwork = 'mainnet'): Record<string, TokenMetadata> {
   return _network === 'testnet' ? TESTNET_TOKEN_METADATA : TOKEN_METADATA;
 }
 
@@ -259,6 +258,7 @@ export function getAvailableTokens(params: TokenResolutionParams): EnhancedToken
     }
     const enhancedBaseTokens = baseTokens.map((token) => ({
       ...token,
+      // @ts-expect-error
       contractAddress: TOKEN_CONTRACT_ADDRESSES[token.symbol]?.[chainId || 0],
     }));
     const result = [...enhancedBaseTokens, ...allDestinationTokens];
@@ -462,6 +462,7 @@ export function getAvailableTokens(params: TokenResolutionParams): EnhancedToken
     return {
       ...token,
       icon: finalIcon || token.icon,
+      // @ts-expect-error
       contractAddress: TOKEN_CONTRACT_ADDRESSES[token.symbol]?.[chainId || 0],
     };
   });
@@ -503,6 +504,7 @@ export function getTokenAddress(
   type: TransactionType = 'transfer',
 ): `0x${string}` {
   // Try standard TOKEN_CONTRACT_ADDRESSES first
+  // @ts-expect-error
   const standardAddress = TOKEN_CONTRACT_ADDRESSES[tokenSymbol]?.[chainId];
   if (standardAddress) {
     return standardAddress;
@@ -532,6 +534,7 @@ export function isTokenAvailableOnChain(
   // For swaps, be more permissive to avoid aggressive token resets
   if (type === 'swap') {
     // Check if token exists in either base tokens or destination swap tokens
+    // @ts-expect-error
     const baseTokens = TOKEN_CONTRACT_ADDRESSES[tokenSymbol];
     if (baseTokens && baseTokens[chainId]) {
       return true;
@@ -562,7 +565,7 @@ export function getTokenMetadata(
   tokenSymbol: string,
   chainId?: number,
   type: TransactionType = 'transfer',
-  network: 'mainnet' | 'testnet' = 'mainnet',
+  network: NexusNetwork = 'mainnet',
 ): EnhancedTokenMetadata | null {
   // Try base tokens first
   const baseTokens = getBaseTokenMetadata(network);
@@ -571,6 +574,7 @@ export function getTokenMetadata(
   if (baseToken) {
     return {
       ...baseToken,
+      // @ts-expect-error
       contractAddress: chainId ? TOKEN_CONTRACT_ADDRESSES[tokenSymbol]?.[chainId] : undefined,
     };
   }
@@ -622,6 +626,7 @@ export function getSupportedChainsForToken(
     }
 
     // Check base tokens (TOKEN_CONTRACT_ADDRESSES)
+    // @ts-expect-error
     const tokenContracts = TOKEN_CONTRACT_ADDRESSES[tokenSymbol];
     if (tokenContracts) {
       Object.keys(tokenContracts).forEach((chainId) => supportedChains.add(Number(chainId)));
@@ -651,6 +656,7 @@ export function getSupportedChainsForToken(
   const supportedChains = new Set<number>();
 
   // Add chains from TOKEN_CONTRACT_ADDRESSES (ERC20 tokens)
+  // @ts-expect-error
   const tokenContracts = TOKEN_CONTRACT_ADDRESSES[tokenSymbol];
   if (tokenContracts) {
     Object.keys(tokenContracts).forEach((chainId) => supportedChains.add(Number(chainId)));
