@@ -6,22 +6,17 @@
   "scripts": {
     "build:commons": "pnpm -F @nexus/commons build",
     "build:core": "pnpm -F @nexus/commons build && pnpm -F @avail-project/nexus-core build",
-    "build:widgets": "pnpm -F @nexus/commons build && pnpm -F @avail-project/nexus-widgets build",
-    "build": "pnpm run build:core && pnpm run build:widgets",
+    "build": "pnpm run build:core",
     "dev:core": "pnpm -F @avail-project/nexus-core dev",
-    "dev:widgets": "pnpm -F @avail-project/nexus-widgets dev",
-    "dev": "pnpm run dev:core & pnpm run dev:widgets",
+    "dev": "pnpm run dev:core",
     "format": "prettier --write \"packages/**/*.{ts,tsx}\"",
     "prepare": "husky install",
     "typecheck:core": "pnpm -F @avail-project/nexus-core typecheck",
-    "typecheck:widgets": "pnpm -F @avail-project/nexus-widgets typecheck",
     "typecheck": "pnpm -r typecheck",
-    "clean": "rimraf packages/widgets/dist packages/core/dist packages/commons/dist",
-    "clean:modules": "rimraf node_modules packages/widgets/node_modules packages/core/node_modules packages/commons/node_modules",
+    "clean": "rimraf packages/core/dist packages/commons/dist",
+    "clean:modules": "rimraf node_modules packages/core/node_modules packages/commons/node_modules",
     "release:core:dev": "./scripts/release-core.sh dev",
-    "release:core:prod": "./scripts/release-core.sh prod",
-    "release:widgets:dev": "./scripts/release-widgets.sh dev",
-    "release:widgets:prod": "./scripts/release-widgets.sh prod"
+    "release:core:prod": "./scripts/release-core.sh prod"
   },
   "keywords": [
     "nexus",
@@ -37,7 +32,7 @@
     "balance",
     "sdk"
   ],
-  "author": "decocereus<amartya@availproject.org>",
+  "author": "decocereus<amartya@availproject.org>, makyl<abhishek@availproject.org>",
   "license": "MIT",
   "pnpm": {
     "overrides": {
