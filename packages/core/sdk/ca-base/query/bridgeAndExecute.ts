@@ -113,7 +113,8 @@ class BridgeAndExecuteQuery {
         dstChain,
         serializeTransaction({
           chainId: dstChain.id,
-          data: execute.data ?? '0x00',
+          data: execute.data ?? '0x',
+          value: execute.value,
           to: execute.to,
           type: 'eip1559',
         }),
