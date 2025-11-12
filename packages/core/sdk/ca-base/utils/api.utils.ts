@@ -495,7 +495,7 @@ const vscCreateRFF = async (
       try {
         await connection.connected();
         connection.socket.send(pack({ id: id.toNumber() }));
-        for await (const resp of connection.source) {
+        responseLoop: for await (const resp of connection.source) {
           const data: VSCCreateRFFResponse = unpack(resp);
 
           logger.debug('vscCreateRFF:response', { data });
@@ -505,7 +505,7 @@ const vscCreateRFF = async (
             case 255: {
               if (collectionIndexes.length === 0) {
                 msd(BRIDGE_STEPS.INTENT_COLLECTION_COMPLETE);
-                break;
+                break responseLoop;
               } else {
                 logger.debug('(vsc)create-rff:collections failed', {
                   expectedCollectionIndexes,
