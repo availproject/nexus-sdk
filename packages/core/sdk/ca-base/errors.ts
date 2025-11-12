@@ -75,7 +75,12 @@ export const Errors = {
   userRejectedSIWESignature: () =>
     createError(ERROR_CODES.USER_DENIED_SIWE_SIGNATURE, `User rejected SIWE signature.`),
 
-  vscError: (msg: string) => createError(ERROR_CODES.INTERNAL_ERROR, `VSC: ${msg}`),
+  vscError: (msg: string, data?: unknown) =>
+    createError(ERROR_CODES.INTERNAL_ERROR, `VSC: ${msg}`, {
+      details: {
+        data,
+      },
+    }),
 
   cosmosError: (msg: string) => createError(ERROR_CODES.INTERNAL_ERROR, `COSMOS: ${msg}`),
   gasPriceError: (result: unknown) =>

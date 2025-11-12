@@ -464,19 +464,29 @@ const vscCreateSponsoredApprovals = async (
 };
 
 type VSCCreateRFFResponse =
+  // Global
   | {
-      error: string;
+      error: true;
       errored: true;
-      idx: number;
-      status: 26;
+      code: 0x13; // Fee changed
     }
+  | {
+      error: true;
+      errored: true;
+      code: 0x12; // Already deposited everything
+    }
+  | { status: 0xff; idx: 0; errored: false } // transmission complete, if no global error
+  // Local
   | {
       errored: false;
       idx: number;
-      status: 16;
+      status: 0x10; // Success
     }
-  | { status: 255 }
-  | { status: 19 };
+  | {
+      errored: true;
+      idx: number;
+      status: 0x1a; // could not collect
+    };
 
 const vscCreateRFF = async (
   vscDomain: string,
@@ -499,49 +509,54 @@ const vscCreateRFF = async (
           const data: VSCCreateRFFResponse = unpack(resp);
 
           logger.debug('vscCreateRFF:response', { data });
+          if ('idx' in data) {
+            // local msg
+            switch (data.status) {
+              // Will be called at the end of all calls, regardless of status
+              case 0xff: {
+                if (collectionIndexes.length === 0) {
+                  msd(BRIDGE_STEPS.INTENT_COLLECTION_COMPLETE);
+                  break responseLoop;
+                } else {
+                  logger.debug('(vsc)create-rff:collections failed', {
+                    expectedCollectionIndexes,
+                    receivedCollectionsACKs,
+                  });
+                  throw Errors.vscError('create-rff: some collections failed, retrying.');
+                }
+              }
+              // Collection successful for a chain
+              case 0x1a: {
+                if (collectionIndexes.includes(data.idx)) {
+                  receivedCollectionsACKs.push(data.idx);
+                  remove(collectionIndexes, (d) => d === data.idx);
+                }
+                msd(
+                  BRIDGE_STEPS.INTENT_COLLECTION(
+                    receivedCollectionsACKs.length,
+                    expectedCollectionIndexes.length,
+                  ),
+                );
+                break;
+              }
 
-          switch (data.status) {
-            // Will be called at the end of all calls, regardless of status
-            case 255: {
-              if (collectionIndexes.length === 0) {
-                msd(BRIDGE_STEPS.INTENT_COLLECTION_COMPLETE);
-                break responseLoop;
-              } else {
-                logger.debug('(vsc)create-rff:collections failed', {
-                  expectedCollectionIndexes,
-                  receivedCollectionsACKs,
-                });
-                throw Errors.vscError('create-rff: some collections failed, retrying.');
+              // Collection failed or is not applicable(say for native)
+              default: {
+                if (collectionIndexes.includes(data.idx)) {
+                  logger.debug(`vsc:create-rff:failed`, { data });
+                } else {
+                  logger.debug('vsc:create-rff:expectedError:ignore', { data });
+                }
               }
             }
-            // Collection successful for a chain
-            case 16: {
-              if (collectionIndexes.includes(data.idx)) {
-                receivedCollectionsACKs.push(data.idx);
-                remove(collectionIndexes, (d) => d === data.idx);
-              }
-              msd(
-                BRIDGE_STEPS.INTENT_COLLECTION(
-                  receivedCollectionsACKs.length,
-                  expectedCollectionIndexes.length,
-                ),
-              );
-              break;
-            }
-            // When fee expires
-            case 19: {
-              // break out of retries
+          } else {
+            if (data.code === 0x13) {
               controller.abort(Errors.rFFFeeExpired());
-              // force it to rebuild intent
               throw Errors.rFFFeeExpired();
-            }
-            // Collection failed or is not applicable(say for native)
-            default: {
-              if (collectionIndexes.includes(data.idx)) {
-                logger.debug(`vsc:create-rff:failed`, { data });
-              } else {
-                logger.debug('vsc:create-rff:expectedError:ignore', { data });
-              }
+            } else if (data.code === 0x12) {
+              break;
+            } else {
+              throw Errors.vscError('create-rff: unhandled error', data);
             }
           }
         }
