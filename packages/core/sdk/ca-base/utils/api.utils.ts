@@ -30,6 +30,7 @@ import {
   minutesToMs,
 } from './common.utils';
 import { Errors } from '../errors';
+import { remove, retry } from 'es-toolkit';
 
 const logger = getLogger();
 
@@ -474,7 +475,8 @@ type VSCCreateRFFResponse =
       idx: number;
       status: 16;
     }
-  | { status: 255 };
+  | { status: 255 }
+  | { status: 19 };
 
 const vscCreateRFF = async (
   vscDomain: string,
@@ -482,54 +484,76 @@ const vscCreateRFF = async (
   msd: (s: BridgeStepType) => void,
   expectedCollectionIndexes: number[],
 ) => {
-  const receivedCollectionsACKs = [];
-  const connection = connect(new URL('/api/v1/create-rff', getVSCURL(vscDomain, 'wss')).toString());
-  await connection.connected();
+  const controller = new AbortController();
+  const collectionIndexes = expectedCollectionIndexes.slice();
+  const receivedCollectionsACKs: number[] = [];
+  await retry(
+    async () => {
+      const connection = connect(
+        new URL('/api/v1/create-rff', getVSCURL(vscDomain, 'wss')).toString(),
+      );
+      try {
+        await connection.connected();
+        connection.socket.send(pack({ id: id.toNumber() }));
+        for await (const resp of connection.source) {
+          const data: VSCCreateRFFResponse = unpack(resp);
 
-  logger.debug('vscCreateRFF', {
-    expectedCollectionIndexes,
-  });
+          logger.debug('vscCreateRFF:response', { data });
 
-  try {
-    connection.socket.send(pack({ id: id.toNumber() }));
-
-    for await (const resp of connection.source) {
-      const data: VSCCreateRFFResponse = unpack(resp);
-
-      logger.debug('vscCreateRFF:response', { data });
-
-      if (data.status === 255) {
-        if (expectedCollectionIndexes.length === receivedCollectionsACKs.length) {
-          msd(BRIDGE_STEPS.INTENT_COLLECTION_COMPLETE);
-          break;
-        } else {
-          logger.debug('(vsc)create-rff:collections failed', {
-            expectedCollectionIndexes,
-            receivedCollectionsACKs,
-          });
-          throw Errors.vscError('create-rff: collections failed');
+          switch (data.status) {
+            // Will be called at the end of all calls, regardless of status
+            case 255: {
+              if (collectionIndexes.length === 0) {
+                msd(BRIDGE_STEPS.INTENT_COLLECTION_COMPLETE);
+                break;
+              } else {
+                logger.debug('(vsc)create-rff:collections failed', {
+                  expectedCollectionIndexes,
+                  receivedCollectionsACKs,
+                });
+                throw Errors.vscError('create-rff: some collections failed, retrying.');
+              }
+            }
+            // Collection successful for a chain
+            case 16: {
+              if (collectionIndexes.includes(data.idx)) {
+                receivedCollectionsACKs.push(data.idx);
+                remove(collectionIndexes, (d) => d === data.idx);
+              }
+              msd(
+                BRIDGE_STEPS.INTENT_COLLECTION(
+                  receivedCollectionsACKs.length,
+                  expectedCollectionIndexes.length,
+                ),
+              );
+              break;
+            }
+            // When fee expires
+            case 19: {
+              // break out of retries
+              controller.abort(Errors.rFFFeeExpired());
+              // force it to rebuild intent
+              throw Errors.rFFFeeExpired();
+            }
+            // Collection failed or is not applicable(say for native)
+            default: {
+              if (collectionIndexes.includes(data.idx)) {
+                logger.debug(`vsc:create-rff:failed`, { data });
+              } else {
+                logger.debug('vsc:create-rff:expectedError:ignore', { data });
+              }
+            }
+          }
         }
-      } else if (data.status === 16) {
-        if (expectedCollectionIndexes.includes(data.idx)) {
-          receivedCollectionsACKs.push(data.idx);
-        }
-        msd(
-          BRIDGE_STEPS.INTENT_COLLECTION(
-            receivedCollectionsACKs.length,
-            expectedCollectionIndexes.length,
-          ),
-        );
-      } else {
-        if (expectedCollectionIndexes.includes(data.idx)) {
-          throw Errors.vscError(`create-rff: ${data.error}`);
-        } else {
-          logger.debug('vscCreateRFF:ExpectedError:ignore', { data });
-        }
+      } finally {
+        connection.close();
       }
-    }
-  } finally {
-    connection.close();
-  }
+    },
+    {
+      retries: 3,
+      signal: controller.signal,
+    },
+  );
 };
 
 const checkIntentFilled = async (intentID: Long, grpcURL: string) => {

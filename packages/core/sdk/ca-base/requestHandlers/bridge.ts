@@ -73,6 +73,7 @@ import {
 } from '../utils';
 import { TronWeb } from 'tronweb';
 import { Errors } from '../errors';
+import { ERROR_CODES, NexusError } from '../nexusError';
 
 type Params = {
   recipient?: Hex;
@@ -250,7 +251,9 @@ class BridgeHandler {
     return sources;
   }
 
-  public execute = async () => {
+  public execute = async (
+    shouldRetryOnFailure = true,
+  ): Promise<{ explorerURL: string; intentID: Long }> => {
     let intent = await this.buildIntent(this.params.sourceChains);
 
     const allowances = await getAllowances(intent.allSources, this.options.chainList);
@@ -302,8 +305,35 @@ class BridgeHandler {
     await this.waitForOnAllowanceHook(insufficientAllowanceSources);
     console.timeEnd('process:AllowanceHook');
 
-    // Step 6: process intent
-    return this.executeIntent(intent);
+    // Step 6: Process intent
+    logger.debug('intent', { intent });
+
+    const response = await this.processRFF(intent);
+    if (response.retry) {
+      logger.debug('rff fee expired, going to rebuild intent...');
+      if (shouldRetryOnFailure) {
+        // If fee expired go back and rebuild intent if first time
+        return this.execute(false);
+      } else {
+        // Something else is wrong, retries probably wont fix it - so just throw
+        throw Errors.rFFFeeExpired();
+      }
+    }
+
+    const { explorerURL, intentID, requestHash, waitForDoubleCheckTx } = response;
+
+    // Step 7: Wait for fill
+    storeIntentHashToStore(this.options.evm.address, intentID.toNumber());
+    await this.waitForFill(requestHash, intentID, waitForDoubleCheckTx);
+    removeIntentHashFromStore(this.options.evm.address, intentID);
+
+    this.markStepDone(BRIDGE_STEPS.INTENT_FULFILLED);
+
+    if (this.params.dstChain.universe === Universe.ETHEREUM) {
+      await switchChain(this.options.evm.client, this.params.dstChain);
+    }
+
+    return { explorerURL, intentID };
   };
 
   private async waitForFill(
@@ -340,26 +370,16 @@ class BridgeHandler {
     await Promise.race(promisesToRace);
   }
 
-  private async executeIntent(intent: Intent) {
-    logger.debug('intent', { intent });
-
-    const { explorerURL, intentID, requestHash, waitForDoubleCheckTx } =
-      await this.processRFF(intent);
-
-    storeIntentHashToStore(this.options.evm.address, intentID.toNumber());
-    await this.waitForFill(requestHash, intentID, waitForDoubleCheckTx);
-    removeIntentHashFromStore(this.options.evm.address, intentID);
-
-    this.markStepDone(BRIDGE_STEPS.INTENT_FULFILLED);
-
-    if (this.params.dstChain.universe === Universe.ETHEREUM) {
-      await switchChain(this.options.evm.client, this.params.dstChain);
-    }
-
-    return { explorerURL, intentID };
-  }
-
-  private async processRFF(intent: Intent) {
+  private async processRFF(intent: Intent): Promise<
+    | { retry: true }
+    | {
+        retry: false;
+        explorerURL: string;
+        intentID: Long;
+        requestHash: Hex;
+        waitForDoubleCheckTx: () => any;
+      }
+  > {
     const { msgBasicCosmos, omniversalRFF, signatureData, sources, universes } =
       await createRFFromIntent(intent, this.options, this.params.dstChain.universe);
 
@@ -551,12 +571,24 @@ class BridgeHandler {
         message: 'going to create RFF',
         tokenCollections,
       });
-      await vscCreateRFF(
-        this.options.networkConfig.VSC_DOMAIN,
-        intentID,
-        this.markStepDone,
-        tokenCollections,
-      );
+      try {
+        await vscCreateRFF(
+          this.options.networkConfig.VSC_DOMAIN,
+          intentID,
+          this.markStepDone,
+          tokenCollections,
+        );
+      } catch (e) {
+        logger.debug('vscCreateRFF', {
+          'e instanceof NexusError?': e instanceof NexusError,
+          error: e,
+        });
+        if (e instanceof NexusError && e.code === ERROR_CODES.RFF_FEE_EXPIRED) {
+          // Send back to process again
+          return { retry: true };
+        }
+        throw e;
+      }
     } else {
       logger.debug('processRFF', {
         message: 'going to publish RFF',
@@ -573,6 +605,7 @@ class BridgeHandler {
     }
 
     return {
+      retry: false,
       explorerURL,
       intentID,
       requestHash: destinationSigData.requestHash,
