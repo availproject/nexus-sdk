@@ -257,13 +257,13 @@ const simulation = await sdk.simulateBridge({ token: 'USDC', amount: '83.50', ch
 ## 🔁 Transfer Operations
 
 ```typescript
-const result = await sdk.transfer({
+const result = await sdk.bridgeAndTransfer({
   token: 'USDC',
   amount: '1.53',
   chainId: 42161,
   recipient: '0x...',
 });
-const simulation = await sdk.simulateTransfer({
+const simulation = await sdk.simulateBridgeAndTransfer({
   token: 'USDC',
   amount: '1.53',
   chainId: 42161,
