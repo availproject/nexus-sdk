@@ -10,6 +10,7 @@ const loggerProvider = new LoggerProvider({
   processors: [
     new BatchLogRecordProcessor(new OTLPLogExporter({
       url: 'https://otel.avail.so/v1/logs',
+      headers: { 'x-otlp-force-fetch': '1' }
     }))
   ]
 });
