@@ -55,8 +55,12 @@ fi
 
 # Check for uncommitted changes
 if ! git diff-index --quiet HEAD --; then
-    print_error "There are uncommitted changes. Please commit or stash them first."
-    exit 1
+    print_header "There are uncommitted changes. Are you sure you want to continue?"
+    read -p "Continue? (y/N): " _continue
+    if [[ $_continue != [yY] ]]; then
+        print_error "Aborting release."
+        exit 1
+    fi
 fi
 
 # Get the release type from command line argument (positional defaults)
