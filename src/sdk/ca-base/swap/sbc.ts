@@ -100,7 +100,6 @@ export const createSBCTxFromCalls = async ({
   if (!(await isAuthorizationCodeSet(chainID, ephemeralAddress, cache))) {
     const nonce = await publicClient.getTransactionCount({
       address: ephemeralAddress,
-      blockTag: 'pending',
     });
 
     // create authorization for calibur
