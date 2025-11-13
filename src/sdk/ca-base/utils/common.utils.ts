@@ -883,7 +883,13 @@ const retrieveSIWESignatureFromLocalStorage = (address: Hex, siweChain: number) 
   return window.localStorage.getItem(`${SIWE_KEY}-${address}-${siweChain}`);
 };
 
+const createDeadlineFromNow = (minutes: bigint = 3n): bigint => {
+  const nowInSeconds = BigInt(Math.floor(Date.now() / 1000));
+  return nowInSeconds + minutes * 60n;
+};
+
 export {
+  createDeadlineFromNow,
   percentageAdditionToBigInt,
   retrieveSIWESignatureFromLocalStorage,
   storeSIWESignatureToLocalStorage,
