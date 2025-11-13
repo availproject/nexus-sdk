@@ -773,10 +773,25 @@ class BridgeHandler {
         logger.debug('setAllowances:sponsoredApprovals', {
           sponsoredApprovalParams,
         });
-        await vscCreateSponsoredApprovals(
+        const approvalHashes = await vscCreateSponsoredApprovals(
           this.options.networkConfig.VSC_DOMAIN,
           sponsoredApprovalParams,
-          this.markStepDone,
+        );
+
+        await Promise.all(
+          approvalHashes.map(async (approval) => {
+            const chain = this.options.chainList.getChainByID(approval.chainId);
+            if (!chain) {
+              throw Errors.chainNotFound(approval.chainId);
+            }
+
+            const publicClient = createPublicClientWithFallback(chain);
+            await waitForTxReceipt(approval.hash, publicClient);
+            BRIDGE_STEPS.ALLOWANCE_APPROVAL_MINED({
+              id: approval.chainId,
+            });
+            return;
+          }),
         );
       }
     } catch (e) {
