@@ -1,0 +1,108 @@
+import resolve from '@rollup/plugin-node-resolve';
+import commonjs from '@rollup/plugin-commonjs';
+import typescript from 'rollup-plugin-typescript2';
+import json from '@rollup/plugin-json';
+import dts from 'rollup-plugin-dts';
+import { defineConfig } from 'rollup';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const packageJson = require('./package.json');
+
+const isProduction = process.env.NODE_ENV === 'production';
+const shouldGenerateSourceMaps = false;
+
+// Base configuration for core (no React, no CSS)
+const baseConfig = {
+  input: 'src/index.ts',
+  plugins: [
+    json(),
+    resolve({
+      browser: true,
+      preferBuiltins: false,
+      exportConditions: ['browser', 'module', 'import'],
+    }),
+    commonjs({
+      include: /node_modules/,
+      transformMixedEsModules: true,
+      ignoreTryCatch: false,
+    }),
+    typescript({
+      tsconfig: './tsconfig.json',
+      useTsconfigDeclarationDir: true,
+    }),
+  ],
+  external: [
+    // Peer dependencies that consumers should install
+    ...Object.keys(packageJson.peerDependencies || {}),
+    /^viem/,
+    'buffer',
+    // External dependencies that consumers should install
+    '@avail-project/ca-common',
+    '@tronweb3/tronwallet-abstract-adapter',
+    // Ensure TronWeb is not bundled to preserve its side-effectful proto setup
+    'tronweb',
+    '@cosmjs/proto-signing',
+    '@cosmjs/stargate',
+    '@starkware-industries/starkware-crypto-utils',
+    '@metamask/safe-event-emitter',
+    'decimal.js',
+    'fuels',
+    'long',
+    'msgpackr',
+    'tslib',
+    'axios',
+    'es-toolkit',
+  ],
+  treeshake: {
+    // Preserve side effects for external deps like tronweb that rely on global proto init
+    moduleSideEffects: 'no-external',
+    propertyReadSideEffects: false,
+    unknownGlobalSideEffects: false,
+  },
+};
+
+export default defineConfig([
+  // Build configurations
+  {
+    ...baseConfig,
+    output: [
+      {
+        file: 'dist/index.js',
+        format: 'cjs',
+        sourcemap: shouldGenerateSourceMaps,
+        exports: 'named',
+        interop: 'auto',
+      },
+      {
+        file: 'dist/index.esm.js',
+        format: 'esm',
+        sourcemap: shouldGenerateSourceMaps,
+        exports: 'named',
+      },
+    ],
+  },
+
+  // TypeScript declarations
+  {
+    input: 'src/index.ts',
+    output: [{ file: 'dist/index.d.ts', format: 'esm' }],
+    plugins: [dts()],
+    external: [
+      ...Object.keys(packageJson.peerDependencies || {}),
+      /^viem/,
+      /^@arcana/,
+      /^@cosmjs/,
+      /^@starkware-industries/,
+      '@metamask/safe-event-emitter',
+      '@tronweb3/tronwallet-abstract-adapter',
+      'tronweb',
+      'decimal.js',
+      'fuels',
+      'long',
+      'msgpackr',
+      'tslib',
+      'axios',
+      'es-toolkit',
+    ],
+  },
+]);

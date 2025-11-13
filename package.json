@@ -1,22 +1,26 @@
 {
-  "name": "nexus-sdk-monorepo",
-  "version": "0.0.2-dev.2",
-  "private": true,
-  "description": "Nexus SDK monorepo - cross-chain transactions with minimal friction",
+  "name": "@avail-project/nexus-core",
+  "version": "1.0.0-beta.26",
+  "description": "Nexus headless SDK for cross-chain transactions",
+  "main": "./dist/index.js",
+  "module": "./dist/index.esm.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
-    "build:commons": "pnpm -F @nexus/commons build",
-    "build:core": "pnpm -F @nexus/commons build && pnpm -F @avail-project/nexus-core build",
-    "build": "pnpm run build:core",
-    "dev:core": "pnpm -F @avail-project/nexus-core dev",
-    "dev": "pnpm run dev:core",
-    "format": "prettier --write \"packages/**/*.{ts,tsx}\"",
-    "prepare": "husky install",
-    "typecheck:core": "pnpm -F @avail-project/nexus-core typecheck",
-    "typecheck": "pnpm -r typecheck",
-    "clean": "rimraf packages/core/dist packages/commons/dist",
-    "clean:modules": "rimraf node_modules packages/core/node_modules packages/commons/node_modules",
-    "release:core:dev": "./scripts/release-core.sh dev",
-    "release:core:prod": "./scripts/release-core.sh prod"
+    "build": "rollup -c",
+    "dev": "rollup -c -w",
+    "typecheck": "tsc --noEmit"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.esm.js",
+      "require": "./dist/index.js"
+    }
   },
   "keywords": [
     "nexus",
@@ -27,27 +31,42 @@
     "web3",
     "chain",
     "abstraction",
-    "intent",
-    "unified",
-    "balance",
-    "sdk"
+    "headless"
   ],
   "author": "decocereus<amartya@availproject.org>, makyl<abhishek@availproject.org>",
   "license": "MIT",
-  "pnpm": {
-    "overrides": {
-      "typescript": "^5.0.0",
-      "rollup": "^4.0.0",
-      "decimal.js": "10.6.0",
-      "viem": "^2.0.0"
-    }
+  "dependencies": {
+    "@avail-project/ca-common": "1.0.0-dev.1",
+    "@cosmjs/proto-signing": "^0.34.0",
+    "@cosmjs/stargate": "^0.34.0",
+    "@metamask/safe-event-emitter": "3.1.2",
+    "@starkware-industries/starkware-crypto-utils": "^0.2.1",
+    "@tronweb3/tronwallet-abstract-adapter": "^1.1.9",
+    "axios": "^1.12.2",
+    "decimal.js": "^10.6.0",
+    "es-toolkit": "^1.40.0",
+    "fuels": "0.101.1",
+    "buffer": "6.0.3",
+    "it-ws": "^6.1.5",
+    "long": "^5.3.2",
+    "msgpackr": "^1.11.5",
+    "tronweb": "^6.0.4",
+    "tslib": "2.8.1"
   },
   "devDependencies": {
-    "@rollup/plugin-alias": "^5.1.1",
-    "@types/node": "^20.19.22",
-    "husky": "^8.0.3",
-    "prettier": "^3.6.2",
-    "rimraf": "^5.0.10",
+    "@rollup/plugin-commonjs": "^25.0.8",
+    "@rollup/plugin-json": "6.1.0",
+    "@rollup/plugin-node-resolve": "^15.3.1",
+    "@rollup/plugin-typescript": "^11.1.6",
+    "rollup": "^4.52.4",
+    "rollup-plugin-dts": "^6.2.3",
+    "rollup-plugin-typescript2": "0.36.0",
     "typescript": "^5.9.3"
+  },
+  "peerDependencies": {
+    "viem": "^2.31.7"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
