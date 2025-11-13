@@ -33,7 +33,7 @@
     "abstraction",
     "headless"
   ],
-  "author": "decocereus<amartya@availproject.org>",
+  "author": "decocereus<amartya@availproject.org>, makyl<abhishek@availproject.org>",
   "license": "MIT",
   "dependencies": {
     "@avail-project/ca-common": "1.0.0-beta.7",
