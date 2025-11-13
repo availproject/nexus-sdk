@@ -29,7 +29,7 @@ const baseConfig = {
       sourceMap: shouldGenerateSourceMaps,
     }),
   ],
-  external: [...Object.keys(packageJson.dependencies || {}), /^viem/],
+  external: [...Object.keys(packageJson.dependencies || {}).filter((p) => p !== 'buffer'), /^viem/],
 };
 
 export default defineConfig([

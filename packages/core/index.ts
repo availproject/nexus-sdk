@@ -1,3 +1,4 @@
+import './_polyfill';
 // Core SDK entry point - headless, no React dependencies
 export { NexusSDK } from './sdk/index';
 export { NexusError, ERROR_CODES } from './sdk/ca-base/nexusError';
