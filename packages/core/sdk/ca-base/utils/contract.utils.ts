@@ -1,11 +1,4 @@
-import {
-  ChaindataMap,
-  Currency,
-  OmniversalChainID,
-  PermitCreationError,
-  PermitVariant,
-  Universe,
-} from '@avail-project/ca-common';
+import { Currency, PermitCreationError, PermitVariant } from '@avail-project/ca-common';
 import { ERC20ABI as ERC20ABIC } from '@avail-project/ca-common';
 import { CHAIN_IDS } from 'fuels';
 import {
@@ -19,12 +12,9 @@ import {
   getContract,
   Hex,
   hexToBigInt,
-  hexToBytes,
   http,
-  JsonRpcAccount,
   maxUint256,
   pad,
-  parseSignature,
   PublicClient,
   WalletClient,
   WebSocketTransport,
@@ -39,13 +29,10 @@ import {
   ChainListType,
   Chain,
   EVMTransaction,
-  NetworkConfig,
-  SponsoredApprovalData,
   GetAllowanceParams,
   SetAllowanceParams,
 } from '@nexus/commons';
-import { vscCreateSponsoredApprovals } from './api.utils';
-import { convertTo32Bytes, equalFold, minutesToMs } from './common.utils';
+import { equalFold, minutesToMs } from './common.utils';
 
 const logger = getLogger();
 
@@ -206,103 +193,6 @@ const getTokenTxFunction = (data: `0x${string}`) => {
     logger.debug('getTokenTxFunction', e);
     return { args: [], functionName: 'unknown' };
   }
-};
-
-const setAllowances = async (
-  tokenContractAddresses: Array<`0x${string}`>,
-  client: WalletClient,
-  networkConfig: NetworkConfig,
-  chainList: ChainListType,
-  chain: Chain,
-  amount: bigint,
-) => {
-  const vaultAddr = chainList.getVaultContractAddress(chain.id);
-  const p = [];
-  const address = (await client.getAddresses())[0];
-
-  const chainId = new OmniversalChainID(Universe.ETHEREUM, chain.id);
-  const chainDatum = ChaindataMap.get(chainId);
-  if (!chainDatum) {
-    throw Errors.internal(`chain data not found for chain ${chainId}`);
-  }
-
-  const account: JsonRpcAccount = {
-    address,
-    type: 'json-rpc',
-  };
-  const publicClient = createPublicClientWithFallback(chain);
-
-  const sponsoredApprovalParams: SponsoredApprovalData = {
-    address: hexToBytes(
-      pad(address, {
-        dir: 'left',
-        size: 32,
-      }),
-    ),
-    chain_id: chainDatum.ChainID32,
-    operations: [],
-    universe: chainDatum.Universe,
-  };
-
-  for (const addr of tokenContractAddresses) {
-    const currency = chainDatum.CurrencyMap.get(convertTo32Bytes(addr));
-    if (!currency) {
-      throw Errors.internal(`currency not found for token ${addr}`);
-    }
-
-    if (currency.permitVariant === PermitVariant.Unsupported) {
-      const hash = await erc20SetAllowance(
-        {
-          amount,
-          chain,
-          contractAddress: addr,
-          owner: address,
-          spender: vaultAddr,
-        },
-        client,
-      );
-      p.push(
-        (async function () {
-          const result = await publicClient.waitForTransactionReceipt({
-            confirmations: 2,
-            hash,
-          });
-          if (result.status === 'reverted') {
-            throw new Error('setAllowance failed with tx revert');
-          }
-        })(),
-      );
-    } else {
-      const signed = parseSignature(
-        await signPermitForAddressAndValue(
-          currency,
-          client,
-          publicClient,
-          account,
-          vaultAddr,
-          amount,
-        ),
-      );
-      sponsoredApprovalParams.operations.push({
-        sig_r: hexToBytes(signed.r),
-        sig_s: hexToBytes(signed.s),
-        sig_v: signed.yParity < 27 ? signed.yParity + 27 : signed.yParity,
-        token_address: currency.tokenAddress,
-        value: convertTo32Bytes(amount),
-        variant: currency.permitVariant === PermitVariant.PolygonEMT ? 2 : 1,
-      });
-    }
-  }
-
-  if (p.length) {
-    await Promise.all(p);
-  }
-
-  if (sponsoredApprovalParams.operations.length) {
-    await vscCreateSponsoredApprovals(networkConfig.VSC_DOMAIN, [sponsoredApprovalParams]);
-  }
-
-  return;
 };
 
 const DEFAULT_GAS_ORACLE_ADDRESS = '0x420000000000000000000000000000000000000F';
@@ -578,7 +468,6 @@ export {
   getTokenTxFunction,
   isEVMTx,
   requestTimeout,
-  setAllowances,
   signPermitForAddressAndValue,
   switchChain,
   waitForIntentFulfilment,

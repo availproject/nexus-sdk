@@ -10,7 +10,7 @@ import Decimal from 'decimal.js';
 import { connect } from 'it-ws/client';
 import Long from 'long';
 import { pack, unpack } from 'msgpackr';
-import { bytesToBigInt, bytesToNumber, toHex } from 'viem';
+import { bytesToBigInt, bytesToNumber, Hex, toHex } from 'viem';
 import {
   BRIDGE_STEPS,
   BridgeStepType,
@@ -419,7 +419,6 @@ type CreateSponsoredApprovalResponse =
 const vscCreateSponsoredApprovals = async (
   vscDomain: string,
   input: SponsoredApprovalDataArray,
-  msd?: (s: BridgeStepType) => void,
 ) => {
   const connection = connect(
     new URL('/api/v1/create-sponsored-approvals', getVSCURL(vscDomain, 'wss')).toString(),
@@ -427,10 +426,11 @@ const vscCreateSponsoredApprovals = async (
 
   await connection.connected();
 
+  const approvalHashes: { chainId: number; hash: Hex }[] = [];
+
   try {
     connection.socket.send(pack(input));
 
-    let count = 0;
     for await (const resp of connection.source) {
       const data: CreateSponsoredApprovalResponse = unpack(resp);
 
@@ -444,20 +444,19 @@ const vscCreateSponsoredApprovals = async (
         throw Errors.vscError(`create-sponsored-approvals: ${data.error}`);
       }
 
-      if (msd) {
-        msd(
-          BRIDGE_STEPS.ALLOWANCE_APPROVAL_MINED({
-            id: bytesToNumber(input[data.part_idx].chain_id),
-          }),
-        );
-      }
+      const inputData = input[data.part_idx];
 
-      count += 1;
-      if (count == input.length) {
+      approvalHashes.push({
+        chainId: bytesToNumber(inputData.chain_id),
+        hash: toHex(data.tx_hash),
+      });
+
+      if (approvalHashes.length == input.length) {
         break;
       }
     }
-    return 'ok';
+
+    return approvalHashes;
   } finally {
     connection.close();
   }
