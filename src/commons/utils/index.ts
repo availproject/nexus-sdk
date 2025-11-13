@@ -507,6 +507,12 @@ export function getNetworkNameByChainId(chainId: number): string {
     8217: 'Kaia',
     56: 'BNB Smart Chain',
     999: 'HyperEVM',
+    11155420: 'Optimism Sepolia',
+    80002: 'Polygon Amoy',
+    421614: 'Arbitrum Sepolia',
+    84532: 'Base Sepolia',
+    11155111: 'Sepolia',
+    10143: 'Monad Testnet',
   };
 
   return chainMap[chainId] || 'Unknown Network';
