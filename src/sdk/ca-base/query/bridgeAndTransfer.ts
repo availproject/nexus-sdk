@@ -1,4 +1,3 @@
-import { mulDecimals } from '../utils';
 import { ChainListType, BridgeAndExecuteParams, Tx, TransferParams } from '../../../commons';
 import { encodeFunctionData } from 'viem';
 import { ERC20ABI } from '@avail-project/ca-common';
