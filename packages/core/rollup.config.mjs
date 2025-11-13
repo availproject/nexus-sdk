@@ -40,6 +40,7 @@ const baseConfig = {
     // Peer dependencies that consumers should install
     ...Object.keys(packageJson.peerDependencies || {}),
     /^viem/,
+    'buffer',
     // External dependencies that consumers should install
     '@avail-project/ca-common',
     '@tronweb3/tronwallet-abstract-adapter',

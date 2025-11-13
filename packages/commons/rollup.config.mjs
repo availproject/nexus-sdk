@@ -30,6 +30,16 @@ const baseConfig = {
     }),
   ],
   external: [...Object.keys(packageJson.dependencies || {}).filter((p) => p !== 'buffer'), /^viem/],
+  treeshake: {
+    moduleSideEffects(id, external) {
+      // Always preserve side effects from _polyfill files
+      if (id && /_polyfill\.(ts|js)$/.test(id)) {
+        return true;
+      }
+      // Preserve side effects for external modules
+      return external;
+    },
+  },
 };
 
 export default defineConfig([
