@@ -29,6 +29,23 @@ import type {
 import { logger } from '../commons';
 import { CA } from './ca-base';
 import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
+import {
+  trackAllowance,
+  trackError,
+  trackGetBalanceSwap,
+  trackGetIntent,
+  trackGetSwapSupportedChains,
+  trackGetUnifiedBalances,
+  trackIntent,
+  trackIsInitialized,
+  trackNexusResult,
+  trackNexusTransaction,
+  trackSdkDeInitialized,
+  trackSDKInitialized,
+  trackSwapIntent,
+  trackTokenDetails,
+  trackTron,
+} from '../utils/analytics';
 
 export class NexusSDK extends CA {
   public readonly utils: NexusUtils;
@@ -43,31 +60,76 @@ export class NexusSDK extends CA {
    * Initialize the SDK with a provider
    */
   public async initialize(provider: EthereumProvider): Promise<void> {
-    await this._setEVMProvider(provider);
-    await this._init();
+    try {
+      await this._setEVMProvider(provider);
+      await this._init();
+      trackSDKInitialized(this._config);
+    } catch (error) {
+      trackError('initialization-failed', error as Error);
+    }
   }
 
   /**
    * Get unified balances across all chains
    */
-  public async getUnifiedBalances(includeSwappableBalances = false): Promise<UserAsset[]> {
-    return this._getUnifiedBalances(includeSwappableBalances);
+  public async getUnifiedBalances(includeSwappableBalances = false): Promise<UserAsset[] | {}> {
+    try {
+      trackGetUnifiedBalances(this._config);
+      return this._getUnifiedBalances(includeSwappableBalances);
+    } catch (error) {
+      trackError('getUnifiedBalances-failed', error as Error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   /**
    * Bridge to destination chain from auto-selected or provided source chains
    */
   public async bridge(params: BridgeParams, options?: OnEventParam): Promise<BridgeResult> {
-    const result = await this.createBridgeHandler(params, options).execute();
-    return {
-      explorerUrl: result.explorerURL ?? '',
-    };
+    try {
+      trackNexusTransaction({
+        name: 'bridge',
+        config: this._config,
+        bridgeParams: { params, options },
+      });
+      trackTokenDetails({ config: this._config, params });
+      const result = await this.createBridgeHandler(params, options).execute();
+      trackNexusResult({
+        name: 'bridge',
+        config: this._config,
+        result,
+      });
+      return {
+        explorerUrl: result.explorerURL ?? '',
+      };
+    } catch (error) {
+      trackError('bridge-error', error as Error);
+      return {
+        explorerUrl: '',
+      };
+    }
   }
 
   public async calculateMaxForBridge(
     params: Omit<BridgeParams, 'amount'>,
-  ): Promise<BridgeMaxResult> {
-    return this._calculateMaxForBridge(params);
+  ): Promise<BridgeMaxResult | {}> {
+    try {
+      trackNexusTransaction({
+        name: 'calculateMaxForBridge',
+        config: this._config,
+        calculateMaxForBridge: params,
+      });
+      return this._calculateMaxForBridge(params);
+    } catch (error) {
+      trackError('calculateMaxForBridge-error', error as Error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   /**
@@ -77,40 +139,117 @@ export class NexusSDK extends CA {
     params: TransferParams,
     options?: OnEventParam,
   ): Promise<TransferResult> {
-    const result = await this._bridgeAndTransfer(params, options);
-    return {
-      transactionHash: result.executeTransactionHash,
-      explorerUrl: result.executeExplorerUrl,
-    };
+    try {
+      trackNexusTransaction({
+        name: 'bridgeAndTransfer',
+        config: this._config,
+        bridgeAndTransferParams: { params, options },
+      });
+      trackTokenDetails({ config: this._config, params });
+      const result = await this._bridgeAndTransfer(params, options);
+      trackNexusResult({
+        name: 'bridgeAndTransfer',
+        config: this._config,
+        result,
+      });
+      return {
+        transactionHash: result.executeTransactionHash,
+        explorerUrl: result.executeExplorerUrl,
+      };
+    } catch (error) {
+      trackError('bridgeAndTransfer-error', error as Error);
+      return {
+        transactionHash: '',
+        explorerUrl: '',
+      };
+    }
   }
 
   public async swapWithExactIn(
     input: ExactInSwapInput,
     options?: OnEventParam,
   ): Promise<SwapResult> {
-    const result = await this._swapWithExactIn(input, options);
-    return {
-      success: true,
-      result,
-    };
+    try {
+      trackNexusTransaction({
+        name: 'swapWithExactIn',
+        config: this._config,
+        swapWithExactInParams: { input, options },
+      });
+      trackTokenDetails({ config: this._config, params: input });
+      const result = await this._swapWithExactIn(input, options);
+      trackNexusResult({
+        name: 'swapWithExactIn',
+        config: this._config,
+        result,
+      });
+      return {
+        success: true,
+        result,
+      };
+    } catch (error) {
+      trackError('swapWithExactIn-error', error as Error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   public async swapWithExactOut(
     input: ExactOutSwapInput,
     options?: OnEventParam,
   ): Promise<SwapResult> {
-    const result = await this._swapWithExactOut(input, options);
-    return {
-      success: true,
-      result,
-    };
+    try {
+      trackNexusTransaction({
+        name: 'swapWithExactOut',
+        config: this._config,
+        swapWithExactOutParams: { input, options },
+      });
+      trackTokenDetails({ config: this._config, params: input });
+      const result = await this._swapWithExactOut(input, options);
+      trackNexusResult({
+        name: 'swapWithExactOut',
+        config: this._config,
+        result,
+      });
+      return {
+        success: true,
+        result,
+      };
+    } catch (error) {
+      trackError('swapWithExactOut-error', error as Error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   /**
    * Simulate bridge transaction to get costs and fees
    */
-  public async simulateBridge(params: BridgeParams): Promise<SimulationResult> {
-    return this.createBridgeHandler(params).simulate();
+  public async simulateBridge(params: BridgeParams): Promise<SimulationResult | {}> {
+    try {
+      trackNexusTransaction({
+        name: 'simulateBridge',
+        config: this._config,
+        simulateBridgeParams: params,
+      });
+      trackTokenDetails({ config: this._config, params });
+      const result = await this.createBridgeHandler(params).simulate();
+      trackNexusResult({
+        name: 'simulateBridge',
+        config: this._config,
+        result,
+      });
+      return result;
+    } catch (error) {
+      trackError('simulateBridge-error', error as Error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   /**
@@ -118,32 +257,72 @@ export class NexusSDK extends CA {
    */
   public async simulateBridgeAndTransfer(
     params: TransferParams,
-  ): Promise<BridgeAndExecuteSimulationResult> {
-    return this._simulateBridgeAndTransfer(params);
+  ): Promise<BridgeAndExecuteSimulationResult | {}> {
+    try {
+      trackNexusTransaction({
+        name: 'simulateBridgeAndTransfer',
+        config: this._config,
+        simulateBridgeAndTransferParams: params,
+      });
+      trackTokenDetails({ config: this._config, params });
+      const result = this._simulateBridgeAndTransfer(params);
+      trackNexusResult({
+        name: 'simulateBridgeAndTransfer',
+        config: this._config,
+        result,
+      });
+      return result;
+    } catch (error) {
+      trackError('simulateBridgeAndTransfer-error', error as Error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   /**
    * Get user's intents with pagination
    */
-  public async getMyIntents(page: number = 1): Promise<RequestForFunds[]> {
-    return this._getMyIntents(page);
+  public async getMyIntents(page: number = 1): Promise<RequestForFunds[] | {}> {
+    try {
+      trackGetIntent(this._config);
+      return this._getMyIntents(page);
+    } catch (error) {
+      trackError('getMyIntents-error', error as Error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   /**
    * Set callback for intent status updates
    */
   public setOnIntentHook(callback: OnIntentHook): void {
-    this._setOnIntentHook(callback);
+    const wrappedCallback: OnIntentHook = (data) => {
+      trackIntent(data.intent);
+      callback(data);
+    };
+
+    this._setOnIntentHook(wrappedCallback);
   }
 
   /**
    * Set callback for swap intent details
    */
   public setOnSwapIntentHook(callback: OnSwapIntentHook): void {
-    this._setOnSwapIntentHook(callback);
+    const wrappedCallback: OnSwapIntentHook = (data) => {
+      trackSwapIntent(data.intent);
+      callback(data);
+    };
+
+    this._setOnSwapIntentHook(wrappedCallback);
   }
 
   public addTron(adapter: AdapterProps) {
+    trackTron(adapter);
     this._setTronAdapter(adapter);
   }
 
@@ -151,11 +330,21 @@ export class NexusSDK extends CA {
    * Set callback for allowance approval events
    */
   public setOnAllowanceHook(callback: OnAllowanceHook): void {
-    this._setOnAllowanceHook(callback);
+    const wrappedCallback: OnAllowanceHook = (data) => {
+      trackAllowance(data.sources);
+      callback(data);
+    };
+
+    this._setOnAllowanceHook(wrappedCallback);
   }
 
   public async deinit(): Promise<void> {
-    return this._deinit();
+    try {
+      trackSdkDeInitialized(this._config);
+      return this._deinit();
+    } catch (error) {
+      trackError('deInitialization-failed', error as Error);
+    }
   }
 
   /**
@@ -163,8 +352,28 @@ export class NexusSDK extends CA {
    * @param params execute parameters including contract details and transaction settings
    * @returns Promise resolving to execute result with transaction hash and explorer URL
    */
-  public async execute(params: ExecuteParams, options?: OnEventParam): Promise<ExecuteResult> {
-    return this._execute(params, options);
+  public async execute(params: ExecuteParams, options?: OnEventParam): Promise<ExecuteResult | {}> {
+    try {
+      trackNexusTransaction({
+        name: 'execute',
+        config: this._config,
+        executeParams: { params, options },
+      });
+      trackTokenDetails({ config: this._config, params });
+      const result = this._execute(params, options);
+      trackNexusResult({
+        name: 'execute',
+        config: this._config,
+        result,
+      });
+      return result;
+    } catch (error) {
+      trackError('execute-error', error as Error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   /**
@@ -172,8 +381,28 @@ export class NexusSDK extends CA {
    * @param params execute parameters for simulation
    * @returns Promise resolving to simulation result with gas estimates
    */
-  public async simulateExecute(params: ExecuteParams): Promise<ExecuteSimulation> {
-    return this._simulateExecute(params);
+  public async simulateExecute(params: ExecuteParams): Promise<ExecuteSimulation | {}> {
+    try {
+      trackNexusTransaction({
+        name: 'simulateExecute',
+        config: this._config,
+        simulateExecuteParams: params,
+      });
+      trackTokenDetails({ config: this._config, params });
+      const result = this._simulateExecute(params);
+      trackNexusResult({
+        name: 'simulateExecute',
+        config: this._config,
+        result,
+      });
+      return result;
+    } catch (error) {
+      trackError('simulateExecute-error', error as Error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   /**
@@ -184,8 +413,28 @@ export class NexusSDK extends CA {
   public async bridgeAndExecute(
     params: BridgeAndExecuteParams,
     options?: OnEventParam,
-  ): Promise<BridgeAndExecuteResult> {
-    return this._bridgeAndExecute(params, options);
+  ): Promise<BridgeAndExecuteResult | {}> {
+    try {
+      trackNexusTransaction({
+        name: 'bridgeAndExecute',
+        config: this._config,
+        bridgeAndExecuteParams: { params, options },
+      });
+      trackTokenDetails({ config: this._config, params });
+      const result = this._bridgeAndExecute(params, options);
+      trackNexusResult({
+        name: 'bridgeAndExecute',
+        config: this._config,
+        result,
+      });
+      return result;
+    } catch (error) {
+      trackError('bridgeAndExecute-error', error as Error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   /**
@@ -196,19 +445,66 @@ export class NexusSDK extends CA {
    */
   public async simulateBridgeAndExecute(
     params: BridgeAndExecuteParams,
-  ): Promise<BridgeAndExecuteSimulationResult> {
-    return this._simulateBridgeAndExecute(params);
+  ): Promise<BridgeAndExecuteSimulationResult | {}> {
+    try {
+      trackNexusTransaction({
+        name: 'simulateBridgeAndExecute',
+        config: this._config,
+        simulateBridgeAndExecute: params,
+      });
+      trackTokenDetails({ config: this._config, params });
+      const result = this._simulateBridgeAndExecute(params);
+      trackNexusResult({
+        name: 'simulateBridgeAndExecute',
+        config: this._config,
+        result,
+      });
+      return result;
+    } catch (error) {
+      trackError('simulateBridgeAndExecute-error', error as Error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   public getBalancesForSwap() {
-    return this._getBalancesForSwap();
+    try {
+      trackGetBalanceSwap(this._config);
+      return this._getBalancesForSwap();
+    } catch (error) {
+      trackError('getBalancesForSwap-failed', error as Error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
-  public getSwapSupportedChains(): SupportedChainsResult {
-    return this._getSwapSupportedChains();
+  public getSwapSupportedChains(): SupportedChainsResult | {} {
+    try {
+      trackGetSwapSupportedChains(this._config);
+      return this._getSwapSupportedChains();
+    } catch (error) {
+      trackError('getSwapSupportedChains-failed', error as Error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   public isInitialized() {
-    return this._isInitialized();
+    try {
+      trackIsInitialized(this._config);
+      return this._isInitialized();
+    } catch (error) {
+      trackError('isInitialized-failed', error as Error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 }
