@@ -26,7 +26,7 @@ import type {
   BridgeMaxResult,
   OnSwapIntentHook,
 } from '../commons';
-import { logger } from '../commons';
+import { getNetworkNameByChainId, logger } from '../commons';
 import { CA } from './ca-base';
 import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 import {
@@ -90,12 +90,17 @@ export class NexusSDK extends CA {
    */
   public async bridge(params: BridgeParams, options?: OnEventParam): Promise<BridgeResult> {
     try {
+      const updatedParams = {
+        ...params,
+        toChainId: getNetworkNameByChainId(params.toChainId),
+        sourceChains: params.sourceChains?.map(getNetworkNameByChainId),
+      };
       trackNexusTransaction({
         name: 'bridge',
         config: this._config,
-        bridgeParams: { params, options },
+        bridgeParams: { params: updatedParams, options },
       });
-      trackTokenDetails({ config: this._config, params });
+      trackTokenDetails({ config: this._config, params: updatedParams });
       const result = await this.createBridgeHandler(params, options).execute();
       trackNexusResult({
         name: 'bridge',
@@ -117,10 +122,15 @@ export class NexusSDK extends CA {
     params: Omit<BridgeParams, 'amount'>,
   ): Promise<BridgeMaxResult | {}> {
     try {
+      const updatedParams = {
+        ...params,
+        toChainId: getNetworkNameByChainId(params.toChainId),
+        sourceChains: params.sourceChains?.map(getNetworkNameByChainId),
+      };
       trackNexusTransaction({
         name: 'calculateMaxForBridge',
         config: this._config,
-        calculateMaxForBridge: params,
+        calculateMaxForBridge: updatedParams,
       });
       return this._calculateMaxForBridge(params);
     } catch (error) {
@@ -140,12 +150,17 @@ export class NexusSDK extends CA {
     options?: OnEventParam,
   ): Promise<TransferResult> {
     try {
+      const updatedParams = {
+        ...params,
+        toChainId: getNetworkNameByChainId(params.toChainId),
+        sourceChains: params.sourceChains?.map(getNetworkNameByChainId),
+      };
       trackNexusTransaction({
         name: 'bridgeAndTransfer',
         config: this._config,
-        bridgeAndTransferParams: { params, options },
+        bridgeAndTransferParams: { params: updatedParams, options },
       });
-      trackTokenDetails({ config: this._config, params });
+      trackTokenDetails({ config: this._config, params: updatedParams });
       const result = await this._bridgeAndTransfer(params, options);
       trackNexusResult({
         name: 'bridgeAndTransfer',
@@ -170,12 +185,20 @@ export class NexusSDK extends CA {
     options?: OnEventParam,
   ): Promise<SwapResult> {
     try {
+      const updatedParams = {
+        ...input,
+        from: input.from.map((f) => ({
+          ...f,
+          chainId: getNetworkNameByChainId(f.chainId),
+        })),
+        toChainId: getNetworkNameByChainId(input.toChainId),
+      };
       trackNexusTransaction({
         name: 'swapWithExactIn',
         config: this._config,
-        swapWithExactInParams: { input, options },
+        swapWithExactInParams: { input: updatedParams, options },
       });
-      trackTokenDetails({ config: this._config, params: input });
+      trackTokenDetails({ config: this._config, params: updatedParams });
       const result = await this._swapWithExactIn(input, options);
       trackNexusResult({
         name: 'swapWithExactIn',
@@ -200,12 +223,16 @@ export class NexusSDK extends CA {
     options?: OnEventParam,
   ): Promise<SwapResult> {
     try {
+      const updatedParams = {
+        ...input,
+        toChainId: getNetworkNameByChainId(input.toChainId),
+      };
       trackNexusTransaction({
         name: 'swapWithExactOut',
         config: this._config,
-        swapWithExactOutParams: { input, options },
+        swapWithExactOutParams: { input: updatedParams, options },
       });
-      trackTokenDetails({ config: this._config, params: input });
+      trackTokenDetails({ config: this._config, params: updatedParams });
       const result = await this._swapWithExactOut(input, options);
       trackNexusResult({
         name: 'swapWithExactOut',
@@ -230,12 +257,17 @@ export class NexusSDK extends CA {
    */
   public async simulateBridge(params: BridgeParams): Promise<SimulationResult | {}> {
     try {
+      const updatedParams = {
+        ...params,
+        toChainId: getNetworkNameByChainId(params.toChainId),
+        sourceChains: params.sourceChains?.map(getNetworkNameByChainId),
+      };
       trackNexusTransaction({
         name: 'simulateBridge',
         config: this._config,
-        simulateBridgeParams: params,
+        simulateBridgeParams: updatedParams,
       });
-      trackTokenDetails({ config: this._config, params });
+      trackTokenDetails({ config: this._config, params: updatedParams });
       const result = await this.createBridgeHandler(params).simulate();
       trackNexusResult({
         name: 'simulateBridge',
@@ -259,12 +291,17 @@ export class NexusSDK extends CA {
     params: TransferParams,
   ): Promise<BridgeAndExecuteSimulationResult | {}> {
     try {
+      const updatedParams = {
+        ...params,
+        toChainId: getNetworkNameByChainId(params.toChainId),
+        sourceChains: params.sourceChains?.map(getNetworkNameByChainId),
+      };
       trackNexusTransaction({
         name: 'simulateBridgeAndTransfer',
         config: this._config,
-        simulateBridgeAndTransferParams: params,
+        simulateBridgeAndTransferParams: updatedParams,
       });
-      trackTokenDetails({ config: this._config, params });
+      trackTokenDetails({ config: this._config, params: updatedParams });
       const result = this._simulateBridgeAndTransfer(params);
       trackNexusResult({
         name: 'simulateBridgeAndTransfer',
@@ -354,12 +391,16 @@ export class NexusSDK extends CA {
    */
   public async execute(params: ExecuteParams, options?: OnEventParam): Promise<ExecuteResult | {}> {
     try {
+      const updatedParams = {
+        ...params,
+        toChainId: getNetworkNameByChainId(params.toChainId),
+      };
       trackNexusTransaction({
         name: 'execute',
         config: this._config,
-        executeParams: { params, options },
+        executeParams: { params: updatedParams, options },
       });
-      trackTokenDetails({ config: this._config, params });
+      trackTokenDetails({ config: this._config, params: updatedParams });
       const result = this._execute(params, options);
       trackNexusResult({
         name: 'execute',
@@ -383,12 +424,16 @@ export class NexusSDK extends CA {
    */
   public async simulateExecute(params: ExecuteParams): Promise<ExecuteSimulation | {}> {
     try {
+      const updatedParams = {
+        ...params,
+        toChainId: getNetworkNameByChainId(params.toChainId),
+      };
       trackNexusTransaction({
         name: 'simulateExecute',
         config: this._config,
-        simulateExecuteParams: params,
+        simulateExecuteParams: updatedParams,
       });
-      trackTokenDetails({ config: this._config, params });
+      trackTokenDetails({ config: this._config, params: updatedParams });
       const result = this._simulateExecute(params);
       trackNexusResult({
         name: 'simulateExecute',
@@ -415,12 +460,23 @@ export class NexusSDK extends CA {
     options?: OnEventParam,
   ): Promise<BridgeAndExecuteResult | {}> {
     try {
+      const updatedParams = {
+        ...params,
+        toChainId: getNetworkNameByChainId(params.toChainId),
+        sourceChains: params.sourceChains?.map(getNetworkNameByChainId),
+        execute: {
+          ...params.execute,
+          ...((params.execute as any).toChainId
+            ? { toChainId: getNetworkNameByChainId((params.execute as any).toChainId) }
+            : {}),
+        },
+      };
       trackNexusTransaction({
         name: 'bridgeAndExecute',
         config: this._config,
-        bridgeAndExecuteParams: { params, options },
+        bridgeAndExecuteParams: { params: updatedParams, options },
       });
-      trackTokenDetails({ config: this._config, params });
+      trackTokenDetails({ config: this._config, params: updatedParams });
       const result = this._bridgeAndExecute(params, options);
       trackNexusResult({
         name: 'bridgeAndExecute',
@@ -447,12 +503,23 @@ export class NexusSDK extends CA {
     params: BridgeAndExecuteParams,
   ): Promise<BridgeAndExecuteSimulationResult | {}> {
     try {
+      const updatedParams = {
+        ...params,
+        toChainId: getNetworkNameByChainId(params.toChainId),
+        sourceChains: params.sourceChains?.map(getNetworkNameByChainId),
+        execute: {
+          ...params.execute,
+          ...((params.execute as any).toChainId
+            ? { toChainId: getNetworkNameByChainId((params.execute as any).toChainId) }
+            : {}),
+        },
+      };
       trackNexusTransaction({
         name: 'simulateBridgeAndExecute',
         config: this._config,
-        simulateBridgeAndExecute: params,
+        simulateBridgeAndExecute: updatedParams,
       });
-      trackTokenDetails({ config: this._config, params });
+      trackTokenDetails({ config: this._config, params: updatedParams });
       const result = this._simulateBridgeAndExecute(params);
       trackNexusResult({
         name: 'simulateBridgeAndExecute',

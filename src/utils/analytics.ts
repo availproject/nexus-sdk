@@ -168,17 +168,17 @@ export function trackError(name: string, error: Error) {
 export function trackNexusTransaction(params: {
   name: string;
   config?: { network?: Network | NetworkConfig; debug?: boolean };
-  calculateMaxForBridge?: Omit<BridgeParams, 'amount'>;
-  bridgeParams?: { params: BridgeParams; options?: OnEventParam };
-  bridgeAndTransferParams?: { params: TransferParams; options?: OnEventParam };
-  swapWithExactInParams?: { input: ExactInSwapInput; options?: OnEventParam };
-  swapWithExactOutParams?: { input: ExactOutSwapInput; options?: OnEventParam };
-  simulateBridgeParams?: BridgeParams;
-  simulateBridgeAndTransferParams?: TransferParams;
-  executeParams?: { params: ExecuteParams; options?: OnEventParam };
-  simulateExecuteParams?: ExecuteParams;
-  bridgeAndExecuteParams?: { params: BridgeAndExecuteParams; options?: OnEventParam };
-  simulateBridgeAndExecute?: BridgeAndExecuteParams;
+  calculateMaxForBridge?: Omit<BridgeParams, 'amount'> | any;
+  bridgeParams?: { params: BridgeParams | any; options?: OnEventParam };
+  bridgeAndTransferParams?: { params: TransferParams | any; options?: OnEventParam };
+  swapWithExactInParams?: { input: ExactInSwapInput | any; options?: OnEventParam };
+  swapWithExactOutParams?: { input: ExactOutSwapInput | any; options?: OnEventParam };
+  simulateBridgeParams?: BridgeParams | any;
+  simulateBridgeAndTransferParams?: TransferParams | any;
+  executeParams?: { params: ExecuteParams | any; options?: OnEventParam };
+  simulateExecuteParams?: ExecuteParams | any;
+  bridgeAndExecuteParams?: { params: BridgeAndExecuteParams | any; options?: OnEventParam };
+  simulateBridgeAndExecute?: BridgeAndExecuteParams | any;
 }) {
   trackEvent('nexus-transaction', params);
 }

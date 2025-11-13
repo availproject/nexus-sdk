@@ -370,7 +370,9 @@ export async function getTransactionHashWithFallback(
 
   return {
     success: false,
-    error: `Invalid transaction hash response: ${typeof response}${enablePolling ? ' (polling disabled)' : ''}`,
+    error: `Invalid transaction hash response: ${typeof response}${
+      enablePolling ? ' (polling disabled)' : ''
+    }`,
   };
 }
 
@@ -489,6 +491,25 @@ export function getTokenContractAddress(
   // @ts-expect-error
   const address = registry[token]?.[chainId];
   return address || undefined;
+}
+
+// __define-ocg__ Chain ID to Network name mapper
+export function getNetworkNameByChainId(chainId: number): string {
+  const chainMap: Record<number, string> = {
+    1: 'Ethereum',
+    10: 'Optimism',
+    137: 'Polygon',
+    42161: 'Arbitrum',
+    43114: 'Avalanche',
+    8453: 'Base',
+    534352: 'Scroll',
+    50104: 'Sophon',
+    8217: 'Kaia',
+    56: 'BNB Smart Chain',
+    999: 'HyperEVM',
+  };
+
+  return chainMap[chainId] || 'Unknown Network';
 }
 
 // Export logger utilities from commons
