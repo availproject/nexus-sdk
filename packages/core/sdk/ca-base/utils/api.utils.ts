@@ -30,6 +30,7 @@ import {
   minutesToMs,
 } from './common.utils';
 import { Errors } from '../errors';
+import { remove, retry } from 'es-toolkit';
 
 const logger = getLogger();
 
@@ -463,18 +464,29 @@ const vscCreateSponsoredApprovals = async (
 };
 
 type VSCCreateRFFResponse =
+  // Global
   | {
-      error: string;
+      error: true;
       errored: true;
-      idx: number;
-      status: 26;
+      code: 0x13; // Fee changed
     }
+  | {
+      error: true;
+      errored: true;
+      code: 0x12; // Already deposited everything
+    }
+  | { status: 0xff; idx: 0; errored: false } // transmission complete, if no global error
+  // Local
   | {
       errored: false;
       idx: number;
-      status: 16;
+      status: 0x10; // Success
     }
-  | { status: 255 };
+  | {
+      errored: true;
+      idx: number;
+      status: 0x1a; // could not collect
+    };
 
 const vscCreateRFF = async (
   vscDomain: string,
@@ -482,54 +494,81 @@ const vscCreateRFF = async (
   msd: (s: BridgeStepType) => void,
   expectedCollectionIndexes: number[],
 ) => {
-  const receivedCollectionsACKs = [];
-  const connection = connect(new URL('/api/v1/create-rff', getVSCURL(vscDomain, 'wss')).toString());
-  await connection.connected();
+  const controller = new AbortController();
+  const collectionIndexes = expectedCollectionIndexes.slice();
+  const receivedCollectionsACKs: number[] = [];
+  await retry(
+    async () => {
+      const connection = connect(
+        new URL('/api/v1/create-rff', getVSCURL(vscDomain, 'wss')).toString(),
+      );
+      try {
+        await connection.connected();
+        connection.socket.send(pack({ id: id.toNumber() }));
+        responseLoop: for await (const resp of connection.source) {
+          const data: VSCCreateRFFResponse = unpack(resp);
 
-  logger.debug('vscCreateRFF', {
-    expectedCollectionIndexes,
-  });
+          logger.debug('vscCreateRFF:response', { data });
+          if ('idx' in data) {
+            // local msg
+            switch (data.status) {
+              // Will be called at the end of all calls, regardless of status
+              case 0xff: {
+                if (collectionIndexes.length === 0) {
+                  msd(BRIDGE_STEPS.INTENT_COLLECTION_COMPLETE);
+                  break responseLoop;
+                } else {
+                  logger.debug('(vsc)create-rff:collections failed', {
+                    expectedCollectionIndexes,
+                    receivedCollectionsACKs,
+                  });
+                  throw Errors.vscError('create-rff: some collections failed, retrying.');
+                }
+              }
+              // Collection successful for a chain
+              case 0x1a: {
+                if (collectionIndexes.includes(data.idx)) {
+                  receivedCollectionsACKs.push(data.idx);
+                  remove(collectionIndexes, (d) => d === data.idx);
+                }
+                msd(
+                  BRIDGE_STEPS.INTENT_COLLECTION(
+                    receivedCollectionsACKs.length,
+                    expectedCollectionIndexes.length,
+                  ),
+                );
+                break;
+              }
 
-  try {
-    connection.socket.send(pack({ id: id.toNumber() }));
-
-    for await (const resp of connection.source) {
-      const data: VSCCreateRFFResponse = unpack(resp);
-
-      logger.debug('vscCreateRFF:response', { data });
-
-      if (data.status === 255) {
-        if (expectedCollectionIndexes.length === receivedCollectionsACKs.length) {
-          msd(BRIDGE_STEPS.INTENT_COLLECTION_COMPLETE);
-          break;
-        } else {
-          logger.debug('(vsc)create-rff:collections failed', {
-            expectedCollectionIndexes,
-            receivedCollectionsACKs,
-          });
-          throw Errors.vscError('create-rff: collections failed');
+              // Collection failed or is not applicable(say for native)
+              default: {
+                if (collectionIndexes.includes(data.idx)) {
+                  logger.debug(`vsc:create-rff:failed`, { data });
+                } else {
+                  logger.debug('vsc:create-rff:expectedError:ignore', { data });
+                }
+              }
+            }
+          } else {
+            if (data.code === 0x13) {
+              controller.abort(Errors.rFFFeeExpired());
+              throw Errors.rFFFeeExpired();
+            } else if (data.code === 0x12) {
+              break;
+            } else {
+              throw Errors.vscError('create-rff: unhandled error', data);
+            }
+          }
         }
-      } else if (data.status === 16) {
-        if (expectedCollectionIndexes.includes(data.idx)) {
-          receivedCollectionsACKs.push(data.idx);
-        }
-        msd(
-          BRIDGE_STEPS.INTENT_COLLECTION(
-            receivedCollectionsACKs.length,
-            expectedCollectionIndexes.length,
-          ),
-        );
-      } else {
-        if (expectedCollectionIndexes.includes(data.idx)) {
-          throw Errors.vscError(`create-rff: ${data.error}`);
-        } else {
-          logger.debug('vscCreateRFF:ExpectedError:ignore', { data });
-        }
+      } finally {
+        connection.close();
       }
-    }
-  } finally {
-    connection.close();
-  }
+    },
+    {
+      retries: 3,
+      signal: controller.signal,
+    },
+  );
 };
 
 const checkIntentFilled = async (intentID: Long, grpcURL: string) => {
