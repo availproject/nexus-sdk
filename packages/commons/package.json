@@ -19,7 +19,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@avail-project/ca-common": "1.0.0-beta.7",
+    "@avail-project/ca-common": "1.0.0-dev.1",
     "@cosmjs/proto-signing": "^0.34.0",
     "@tronweb3/tronwallet-abstract-adapter": "^1.1.9",
     "buffer": "6.0.3",

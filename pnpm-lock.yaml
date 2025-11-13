@@ -36,8 +36,8 @@ importers:
   packages/commons:
     dependencies:
       '@avail-project/ca-common':
-        specifier: 1.0.0-beta.7
-        version: 1.0.0-beta.7(@cosmjs/proto-signing@0.34.0)(@cosmjs/stargate@0.34.0)(axios@1.12.2)(decimal.js@10.6.0)(fuels@0.101.1(vitest@3.0.9(@types/node@24.8.1)(jiti@2.6.1)(lightningcss@1.30.1)))(google-protobuf@3.21.4)(long@5.3.2)(msgpackr@1.11.5)(viem@2.38.3(typescript@5.9.3))
+        specifier: 1.0.0-dev.1
+        version: 1.0.0-dev.1(@cosmjs/proto-signing@0.34.0)(@cosmjs/stargate@0.34.0)(axios@1.12.2)(decimal.js@10.6.0)(fuels@0.101.1(vitest@3.0.9(@types/node@24.8.1)(jiti@2.6.1)(lightningcss@1.30.1)))(google-protobuf@3.21.4)(long@5.3.2)(msgpackr@1.11.5)(viem@2.38.3(typescript@5.9.3))
       '@cosmjs/proto-signing':
         specifier: ^0.34.0
         version: 0.34.0
@@ -85,8 +85,8 @@ importers:
   packages/core:
     dependencies:
       '@avail-project/ca-common':
-        specifier: 1.0.0-beta.7
-        version: 1.0.0-beta.7(@cosmjs/proto-signing@0.34.0)(@cosmjs/stargate@0.34.0)(axios@1.12.2)(decimal.js@10.6.0)(fuels@0.101.1(vitest@3.0.9(@types/node@24.8.1)(jiti@2.6.1)(lightningcss@1.30.1)))(google-protobuf@3.21.4)(long@5.3.2)(msgpackr@1.11.5)(viem@2.38.3(typescript@5.9.3))
+        specifier: 1.0.0-dev.1
+        version: 1.0.0-dev.1(@cosmjs/proto-signing@0.34.0)(@cosmjs/stargate@0.34.0)(axios@1.12.2)(decimal.js@10.6.0)(fuels@0.101.1(vitest@3.0.9(@types/node@24.8.1)(jiti@2.6.1)(lightningcss@1.30.1)))(google-protobuf@3.21.4)(long@5.3.2)(msgpackr@1.11.5)(viem@2.38.3(typescript@5.9.3))
       '@cosmjs/proto-signing':
         specifier: ^0.34.0
         version: 0.34.0
@@ -169,8 +169,8 @@ packages:
   '@adraffy/ens-normalize@1.11.1':
     resolution: {integrity: sha512-nhCBV3quEgesuf7c7KYfperqSS14T8bYuvJ8PcLJp6znkZpFc0AuW4qBtr8eKVyPPe/8RSr7sglCWPU5eaxwKQ==}
 
-  '@avail-project/ca-common@1.0.0-beta.7':
-    resolution: {integrity: sha512-TCRrAM5aW0A+DoQiqmY0UJcZn6R3Mtpbt7V57V6LG4Tu52j4CC8Eye2a8Uo37YoFDXilB+AKyK6Ia+U9Kjximw==}
+  '@avail-project/ca-common@1.0.0-dev.1':
+    resolution: {integrity: sha512-S52TFg6+3JsLy3EdyWtcwJ15E4e+bAo7/o++CaaHL31rmV/fRdIn8r6yyrw2OFAOPJSC4HvxtgCjbbeERcg4IA==}
     peerDependencies:
       '@cosmjs/proto-signing': ^0.34.0
       '@cosmjs/stargate': ^0.34.0
@@ -2380,7 +2380,7 @@ snapshots:
 
   '@adraffy/ens-normalize@1.11.1': {}
 
-  '@avail-project/ca-common@1.0.0-beta.7(@cosmjs/proto-signing@0.34.0)(@cosmjs/stargate@0.34.0)(axios@1.12.2)(decimal.js@10.6.0)(fuels@0.101.1(vitest@3.0.9(@types/node@24.8.1)(jiti@2.6.1)(lightningcss@1.30.1)))(google-protobuf@3.21.4)(long@5.3.2)(msgpackr@1.11.5)(viem@2.38.3(typescript@5.9.3))':
+  '@avail-project/ca-common@1.0.0-dev.1(@cosmjs/proto-signing@0.34.0)(@cosmjs/stargate@0.34.0)(axios@1.12.2)(decimal.js@10.6.0)(fuels@0.101.1(vitest@3.0.9(@types/node@24.8.1)(jiti@2.6.1)(lightningcss@1.30.1)))(google-protobuf@3.21.4)(long@5.3.2)(msgpackr@1.11.5)(viem@2.38.3(typescript@5.9.3))':
     dependencies:
       '@bufbuild/protobuf': 2.9.0
       '@cosmjs/proto-signing': 0.34.0

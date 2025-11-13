@@ -36,7 +36,7 @@
   "author": "decocereus<amartya@availproject.org>",
   "license": "MIT",
   "dependencies": {
-    "@avail-project/ca-common": "1.0.0-beta.7",
+    "@avail-project/ca-common": "1.0.0-dev.1",
     "@cosmjs/proto-signing": "^0.34.0",
     "@cosmjs/stargate": "^0.34.0",
     "@metamask/safe-event-emitter": "3.1.2",
