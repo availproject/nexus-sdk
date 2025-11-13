@@ -13,12 +13,10 @@ const createBridgeAndTransferParams = (
     throw Errors.tokenNotFound(input.token, input.toChainId);
   }
 
-  const tokenAmountInBigint = mulDecimals(input.amount, token.decimals);
-
   const tx: Tx = token.isNative
     ? {
         to: input.recipient,
-        value: tokenAmountInBigint,
+        value: input.amount,
         data: '0x',
       }
     : {
@@ -27,13 +25,13 @@ const createBridgeAndTransferParams = (
         data: encodeFunctionData({
           abi: ERC20ABI,
           functionName: 'transfer',
-          args: [input.recipient, tokenAmountInBigint],
+          args: [input.recipient, input.amount],
         }),
       };
 
   return {
     toChainId: input.toChainId,
-    amount: tokenAmountInBigint,
+    amount: input.amount,
     token: input.token,
     execute: tx,
   };

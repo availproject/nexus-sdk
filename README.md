@@ -39,7 +39,7 @@ console.log('Balances:', balances);
 const bridgeResult = await sdk.bridge(
   {
     token: 'USDC',
-    amount: "1.5",
+    amount: 1_500_000n,
     recipient: '0x...' // Optional
     chainId: 137, // Polygon
   },
@@ -57,7 +57,7 @@ const bridgeResult = await sdk.bridge(
 const transferResult = await sdk.bridgeAndTransfer(
   {
     token: 'ETH',
-    amount: "1.5",
+    amount: 1_500_000n,
     chainId: 1, // Ethereum
     recipient: '0x742d35Cc6634C0532925a3b8D4C9db96c4b4Db45',
   },
@@ -248,8 +248,8 @@ const allBalances = await sdk.getUnifiedBalances(true); // Includes swappable to
 ## 🌉 Bridge Operations
 
 ```typescript
-const result = await sdk.bridge({ token: 'USDC', amount: '83.50', chainId: 137 });
-const simulation = await sdk.simulateBridge({ token: 'USDC', amount: '83.50', chainId: 137 });
+const result = await sdk.bridge({ token: 'USDC', amount: 83_500_000n, chainId: 137 });
+const simulation = await sdk.simulateBridge({ token: 'USDC', amount: 83_500_000n, chainId: 137 });
 ```
 
 ---
@@ -259,13 +259,13 @@ const simulation = await sdk.simulateBridge({ token: 'USDC', amount: '83.50', ch
 ```typescript
 const result = await sdk.bridgeAndTransfer({
   token: 'USDC',
-  amount: '1.53',
+  amount: 1_530_000n,
   chainId: 42161,
   recipient: '0x...',
 });
 const simulation = await sdk.simulateBridgeAndTransfer({
   token: 'USDC',
-  amount: '1.53',
+  amount: 1_530_000n, // = 1.53 USDC
   chainId: 42161,
   recipient: '0x...',
 });

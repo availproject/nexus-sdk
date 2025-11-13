@@ -182,7 +182,7 @@ class BridgeAndExecuteQuery {
     if (!skipBridge) {
       bridgeResult = await this.simulateBridgeWrapper({
         token: token.symbol,
-        amount: divDecimals(BigInt(tokenAmount), token.decimals).toFixed(),
+        amount: tokenAmount,
         toChainId: params.toChainId,
         sourceChains: params.sourceChains,
         gas: gasAmount,
@@ -250,7 +250,7 @@ class BridgeAndExecuteQuery {
       bridgeResult = await this.bridgeWrapper(
         {
           token: token.symbol,
-          amount: divDecimals(BigInt(tokenAmount), token.decimals).toFixed(),
+          amount: tokenAmount,
           toChainId: params.toChainId,
           sourceChains: params.sourceChains,
           gas: gasAmount,
