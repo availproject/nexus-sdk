@@ -115,8 +115,3 @@ Scripts will exit with error codes if:
 
 - `--yes` or `--ci`: skip interactive prompts (useful in CI; also bypasses the main-branch prompt on prod).
 - `--dry-run` or `-n`: simulate publish (runs `npm pack` instead of `npm publish`; skips git push/tag).
-
-## Internal Commons
-
-- `@nexus/commons` is internal and kept out of published dependencies.
-- Both scripts bundle `commons` into `dist/commons` so consumers never install it directly.
