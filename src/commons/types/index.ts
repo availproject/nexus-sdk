@@ -102,7 +102,7 @@ export type DynamicParamBuilder = (
 export interface BridgeParams {
   recipient?: Hex;
   token: string;
-  amount: string;
+  amount: bigint;
   toChainId: number;
   gas?: bigint;
   sourceChains?: number[];
@@ -144,7 +144,7 @@ export type TronAdapter = AdapterProps & {
  */
 export interface TransferParams {
   token: string;
-  amount: string;
+  amount: bigint;
   toChainId: number;
   recipient: `0x${string}`;
   sourceChains?: number[];

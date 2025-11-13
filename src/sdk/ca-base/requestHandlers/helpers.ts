@@ -1,5 +1,4 @@
 import { Errors } from '../errors';
-import { mulDecimals } from '../utils';
 import { BridgeParams, ChainListType } from '../../../commons';
 
 const createBridgeParams = (input: BridgeParams, chainList: ChainListType) => {
@@ -12,7 +11,7 @@ const createBridgeParams = (input: BridgeParams, chainList: ChainListType) => {
   }
 
   const params = {
-    tokenAmount: mulDecimals(input.amount, dstToken.decimals),
+    tokenAmount: input.amount,
     nativeAmount: input.gas ?? 0n,
     dstToken,
     dstChain,
