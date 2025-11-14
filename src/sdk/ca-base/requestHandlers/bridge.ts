@@ -648,7 +648,12 @@ class BridgeHandler {
 
         if (currency.permitVariant === PermitVariant.Unsupported || chain.id === 1) {
           if (chain.universe === Universe.ETHEREUM) {
-            await switchChain(this.options.evm.client, chain);
+            // await switchChain(this.options.evm.client, chain);
+
+            await this.options.evm.provider.request({
+              method: 'wallet_switchEthereumChain',
+              params: [{ chainId: toHex(chain.id) }],
+            });
 
             const h = await this.options.evm.client
               .writeContract({

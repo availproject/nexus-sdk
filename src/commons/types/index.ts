@@ -262,6 +262,7 @@ export type IBridgeOptions = {
   evm: {
     address: `0x${string}`;
     client: WalletClient;
+    provider: EthereumProvider;
   };
   fuel?: {
     address: string;
