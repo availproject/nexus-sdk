@@ -28,7 +28,6 @@ import {
 } from 'viem';
 import {
   createExplorerTxURL,
-  divDecimals,
   mulDecimals,
   UserAssets,
   waitForTxReceipt,

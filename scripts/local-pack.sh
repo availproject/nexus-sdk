@@ -19,22 +19,13 @@ DEST_DIR="$ROOT_DIR/dist-tarballs"
 
 cd "$ROOT_DIR"
 
-# Pre-flight
-if [[ ! -f package.json ]] || [[ ! -d packages ]]; then
-  err "Run from repo root"
-  exit 1
-fi
-
-mkdir -p "$DEST_DIR"
-
 info "Cleaning and building packages..."
-pnpm run clean
-pnpm -F @nexus/commons build
-pnpm -F @avail-project/nexus-core build
+npm run clean
+npm -F run build
+mkdir -p "$DEST_DIR"
 
 # Pack core (already named @avail-project/nexus-core; remove workspace-only deps)
 info "Packing core as @avail-project/nexus-core (local tarball)..."
-pushd packages/core >/dev/null
 cp package.json package.json.backup
 
 # Remove @nexus/commons (bundled into dist)
@@ -42,7 +33,6 @@ node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json
 
 CORE_TARBALL=$(npm pack --pack-destination "$DEST_DIR" --silent)
 mv package.json.backup package.json
-popd >/dev/null
 
 info "Created core tarball: $DEST_DIR/$CORE_TARBALL (name: @avail-project/nexus-core)"
 
