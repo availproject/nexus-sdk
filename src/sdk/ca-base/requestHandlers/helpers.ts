@@ -15,7 +15,7 @@ const createBridgeParams = (input: BridgeParams, chainList: ChainListType) => {
     nativeAmount: input.gas ?? 0n,
     dstToken,
     dstChain,
-    recipientAddress: input.recipient,
+    recipient: input.recipient,
     sourceChains: input.sourceChains ?? [],
   };
 
