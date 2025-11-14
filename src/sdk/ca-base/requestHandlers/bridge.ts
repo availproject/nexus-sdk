@@ -92,7 +92,7 @@ class BridgeHandler {
   constructor(params: Params, readonly options: IBridgeOptions) {
     this.params = {
       ...params,
-      recipient: retrieveAddress(params.dstChain.universe, options),
+      recipient: params.recipient ?? retrieveAddress(params.dstChain.universe, options),
     };
     console.log({ params: this.params, options });
   }

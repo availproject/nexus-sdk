@@ -327,14 +327,6 @@ const getSupportedChains = (env: Environment = Environment.CORAL) => {
   });
 };
 
-const isArcanaWallet = (p: EthereumProvider) => {
-  if ('isArcana' in p && p.isArcana) {
-    return true;
-  }
-
-  return false;
-};
-
 const createRequestEVMSignature = async (
   evmRFF: EVMRFF,
   evmAddress: `0x${string}`,
@@ -942,7 +934,6 @@ export {
   getSDKConfig,
   getSupportedChains,
   hexTo0xString,
-  isArcanaWallet,
   minutesToMs,
   mulDecimals,
   refundExpiredIntents,
