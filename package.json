@@ -12,6 +12,7 @@
   "scripts": {
     "build": "rollup -c",
     "dev": "rollup -c -w",
+    "clean": "rimraf dist dist-tarballs",
     "typecheck": "tsc --noEmit"
   },
   "sideEffects": false,
