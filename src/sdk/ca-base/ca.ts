@@ -112,7 +112,7 @@ export class CA {
     onIntent: OnIntentHook;
     onSwapIntent: OnSwapIntentHook;
   } = {
-    onAllowance: (data) => data.allow(data.sources.map(() => 'max')),
+    onAllowance: (data) => data.allow(data.sources.map(() => 'min')),
     onIntent: (data) => data.allow(),
     onSwapIntent: (data) => data.allow(),
   };
