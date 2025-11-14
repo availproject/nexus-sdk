@@ -49,7 +49,6 @@ import {
   fetchMyIntents,
   getSDKConfig,
   getSupportedChains,
-  isArcanaWallet,
   minutesToMs,
   refundExpiredIntents,
   tronHexToEvmAddress,
@@ -113,12 +112,11 @@ export class CA {
     onIntent: OnIntentHook;
     onSwapIntent: OnSwapIntentHook;
   } = {
-    onAllowance: (data) => data.allow(data.sources.map(() => 'max')),
+    onAllowance: (data) => data.allow(data.sources.map(() => 'min')),
     onIntent: (data) => data.allow(),
     onSwapIntent: (data) => data.allow(),
   };
   protected _initStatus = INIT_STATUS.CREATED;
-  protected _isArcanaProvider = false;
   protected _networkConfig: NetworkConfig;
   protected _refundInterval: number | undefined;
   protected _initPromise: Promise<void> | null = null;
@@ -151,7 +149,7 @@ export class CA {
       chainList: this.chainList,
       cosmos: this.#cosmos!,
       fuel: this._fuel,
-      evm: this._evm!,
+      evm: this._evm,
       hooks: this._hooks,
       tron: this._tron,
       networkConfig: this._networkConfig,
@@ -162,10 +160,14 @@ export class CA {
   };
 
   protected async _calculateMaxForBridge(params: Omit<BridgeParams, 'amount' | 'recipient'>) {
+    if (!this._evm) {
+      throw Errors.sdkNotInitialized();
+    }
+
     return getMaxValueForBridge(params, {
       chainList: this.chainList,
       fuel: this._fuel,
-      evm: this._evm!,
+      evm: this._evm,
       tron: this._tron,
       networkConfig: this._networkConfig,
     });
@@ -176,10 +178,12 @@ export class CA {
     if (this._evm) {
       this._evm.provider.removeListener('accountsChanged', this.onAccountsChanged);
     }
+
     if (this._refundInterval) {
       clearInterval(this._refundInterval);
       this._refundInterval = undefined;
     }
+
     this._initStatus = INIT_STATUS.CREATED;
   };
 
@@ -320,8 +324,6 @@ export class CA {
       provider,
       address,
     };
-
-    this._isArcanaProvider = isArcanaWallet(provider);
   }
 
   public async _setTronAdapter(adapter: TronAdapter) {
