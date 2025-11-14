@@ -51,7 +51,8 @@
     "long": "^5.3.2",
     "msgpackr": "^1.11.5",
     "tronweb": "^6.0.4",
-    "tslib": "2.8.1"
+    "tslib": "2.8.1",
+    "viem": "^2.31.7"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^25.0.8",
@@ -62,9 +63,6 @@
     "rollup-plugin-dts": "^6.2.3",
     "rollup-plugin-typescript2": "0.36.0",
     "typescript": "^5.9.3"
-  },
-  "peerDependencies": {
-    "viem": "^2.31.7"
   },
   "publishConfig": {
     "access": "public"
