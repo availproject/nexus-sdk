@@ -20,6 +20,7 @@ import {
   maxUint256,
   parseSignature,
   toHex,
+  TransactionReceipt,
   UserRejectedRequestError,
   webSocket,
 } from 'viem';
@@ -365,6 +366,7 @@ class BridgeHandler {
       );
     }
     await Promise.race(promisesToRace);
+    logger.debug('Fill completed');
   }
 
   private async processRFF(intent: Intent): Promise<
@@ -614,7 +616,8 @@ class BridgeHandler {
     const originalChain = this.params.dstChain.id;
     logger.debug('setAllowances', { originalChain, input });
 
-    const sponsoredApprovalParams: SponsoredApprovalDataArray = [];
+    const sponsoredApprovals: SponsoredApprovalDataArray = [];
+    const unsponsoredApprovals: Promise<TransactionReceipt>[] = [];
     try {
       for (const source of input) {
         const chain = this.options.chainList.getChainByID(source.chainID);
@@ -670,7 +673,7 @@ class BridgeHandler {
 
             this.markStepDone(BRIDGE_STEPS.ALLOWANCE_APPROVAL_REQUEST(chain));
 
-            await waitForTxReceipt(h, publicClient);
+            unsponsoredApprovals.push(waitForTxReceipt(h, publicClient));
           } else if (chain.universe === Universe.TRON) {
             if (!this.options.tron) {
               throw Errors.internal('Tron is available in sources but has no adapter/provider');
@@ -748,7 +751,7 @@ class BridgeHandler {
 
           this.markStepDone(BRIDGE_STEPS.ALLOWANCE_APPROVAL_REQUEST(chain));
 
-          sponsoredApprovalParams.push({
+          sponsoredApprovals.push({
             address: convertTo32Bytes(account.address),
             chain_id: chainDatum.ChainID32,
             operations: [
@@ -766,13 +769,13 @@ class BridgeHandler {
         }
       }
 
-      if (sponsoredApprovalParams.length) {
+      if (sponsoredApprovals.length) {
         logger.debug('setAllowances:sponsoredApprovals', {
-          sponsoredApprovalParams,
+          sponsoredApprovals,
         });
         const approvalHashes = await vscCreateSponsoredApprovals(
           this.options.networkConfig.VSC_DOMAIN,
-          sponsoredApprovalParams,
+          sponsoredApprovals,
         );
 
         await Promise.all(
@@ -791,6 +794,10 @@ class BridgeHandler {
           }),
         );
       }
+      if (unsponsoredApprovals.length) {
+        await Promise.all(unsponsoredApprovals);
+      }
+      this.markStepDone(BRIDGE_STEPS.ALLOWANCE_COMPLETE);
     } catch (e) {
       logger.error('Error setting allowances', e);
       throw e;
@@ -798,7 +805,6 @@ class BridgeHandler {
       if (this.params.dstChain.universe === Universe.ETHEREUM) {
         await switchChain(this.options.evm.client, this.params.dstChain);
       }
-      this.markStepDone(BRIDGE_STEPS.ALLOWANCE_COMPLETE);
     }
   }
 
