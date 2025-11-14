@@ -38,7 +38,6 @@ import { ChainList } from '../chains';
 import { FUEL_BASE_ASSET_ID, isNativeAddress, ZERO_ADDRESS } from '../constants';
 import { getLogger, IBridgeOptions } from '../../../commons';
 import {
-  EthereumProvider,
   Intent,
   Network,
   NetworkConfig,
