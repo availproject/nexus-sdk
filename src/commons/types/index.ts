@@ -1,7 +1,6 @@
 import { SUPPORTED_CHAINS } from '../constants';
 import { TransactionReceipt, ByteArray, Hex, WalletClient } from 'viem';
 import { ChainDatum, Environment, PermitVariant, Universe } from '@avail-project/ca-common';
-import * as ServiceTypes from './service-types';
 import Decimal from 'decimal.js';
 import { SwapIntent } from './swap-types';
 import { FuelConnector, Provider } from 'fuels';
@@ -660,7 +659,6 @@ export type UserAssetDatum = {
 };
 
 export type {
-  ServiceTypes,
   OnIntentHook,
   OnAllowanceHookData,
   OnIntentHookData,
