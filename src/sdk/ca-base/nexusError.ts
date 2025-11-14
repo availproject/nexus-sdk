@@ -59,7 +59,11 @@ export function createError(code: ErrorCode, message: string, data?: NexusErrorD
         body: message,
         severityNumber: SeverityNumber.ERROR,
         severityText: 'ERROR',
-        attributes: data as AnyValueMap
+        attributes: {
+            data: nexusError.data,
+            cause: nexusError.cause,
+            stackTrace: nexusError.stack
+        } as AnyValueMap
       })
   return nexusError
 }
