@@ -13,7 +13,23 @@
  *   use `formatTokenBalanceParts` which returns structured parts.
  */
 
-import { formatUnits } from 'viem';
+import { formatUnits, isAddress } from 'viem';
+
+/**
+ * Truncate an address for display purposes
+ */
+export function truncateAddress(
+  address: string,
+  startLength: number = 6,
+  endLength: number = 4,
+): string {
+  if (!isAddress(address)) return address;
+
+  if (address.length <= startLength + endLength + 2) return address;
+
+  return `${address.slice(0, startLength)}...${address.slice(-endLength)}`;
+}
+
 export interface FormatTokenBalanceOptions {
   decimals?: number; // when value is base units (bigint)
   symbol?: string; // e.g., "ETH"

@@ -38,7 +38,6 @@ import { ChainList } from '../chains';
 import { FUEL_BASE_ASSET_ID, isNativeAddress, ZERO_ADDRESS } from '../constants';
 import { getLogger, IBridgeOptions } from '../../../commons';
 import {
-  EthereumProvider,
   Intent,
   Network,
   NetworkConfig,
@@ -325,14 +324,6 @@ const getSupportedChains = (env: Environment = Environment.CORAL) => {
       tokens: [...chain.custom.knownTokens],
     };
   });
-};
-
-const isArcanaWallet = (p: EthereumProvider) => {
-  if ('isArcana' in p && p.isArcana) {
-    return true;
-  }
-
-  return false;
 };
 
 const createRequestEVMSignature = async (
@@ -942,7 +933,6 @@ export {
   getSDKConfig,
   getSupportedChains,
   hexTo0xString,
-  isArcanaWallet,
   minutesToMs,
   mulDecimals,
   refundExpiredIntents,
