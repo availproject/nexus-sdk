@@ -525,7 +525,7 @@ const vscCreateRFF = async (
                 }
               }
               // Collection successful for a chain
-              case 0x1a: {
+              case 0x10: {
                 if (collectionIndexes.includes(data.idx)) {
                   receivedCollectionsACKs.push(data.idx);
                   remove(collectionIndexes, (d) => d === data.idx);

@@ -158,6 +158,7 @@ const waitForIntentFulfilment = async (
     ac.signal.addEventListener(
       'abort',
       () => {
+        logger.debug('waitForIntentFulfilment: got abort, going to unwatch');
         unwatch();
         return resolve('ok from outside');
       },
@@ -249,6 +250,7 @@ const switchChain = async (client: WalletClient, chain: Chain) => {
   try {
     await client.switchChain({ id: chain.id });
   } catch (e) {
+    logger.debug('error during switching chain', e);
     await client.addChain({
       chain,
     });
@@ -297,7 +299,7 @@ async function signPermitForAddressAndValue(
         return '';
       });
     })(),
-    client.request({ method: 'eth_chainId' }, { dedupe: true }),
+    client.request({ method: 'eth_chainId' }),
   ];
 
   switch (cur.permitVariant) {
