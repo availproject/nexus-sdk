@@ -1,5 +1,3 @@
-import './_polyfill';
-
 // Types exports
 export * from './types';
 export * from './types/swap-steps';
