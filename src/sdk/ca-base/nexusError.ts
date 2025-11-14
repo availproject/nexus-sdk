@@ -54,18 +54,18 @@ export const ERROR_CODES = {
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];
 
 export function createError(code: ErrorCode, message: string, data?: NexusErrorData): NexusError {
-    const nexusError = new NexusError(code, message, data);
+  const nexusError = new NexusError(code, message, data);
     telemetryLogger.emit({
-        body: message,
-        severityNumber: SeverityNumber.ERROR,
-        severityText: 'ERROR',
-        attributes: {
-            data: nexusError.data,
-            cause: nexusError.cause,
-            stackTrace: nexusError.stack
-        } as AnyValueMap
-      })
-  return nexusError
+      body: message,
+      severityNumber: SeverityNumber.ERROR,
+      severityText: 'ERROR',
+      attributes: {
+        data: nexusError.data,
+        cause: nexusError.cause,
+        stackTrace: nexusError.stack,
+      } as AnyValueMap,
+    });
+  return nexusError;
 }
 
 /* --- Expected handling ---

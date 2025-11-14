@@ -48,6 +48,7 @@
     "@starkware-industries/starkware-crypto-utils": "^0.2.1",
     "@tronweb3/tronwallet-abstract-adapter": "^1.1.9",
     "axios": "^1.12.2",
+    "crypto": "1.0.1",
     "decimal.js": "^10.6.0",
     "es-toolkit": "^1.40.0",
     "fuels": "0.101.1",
