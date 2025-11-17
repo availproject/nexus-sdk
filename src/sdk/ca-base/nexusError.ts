@@ -49,23 +49,24 @@ export const ERROR_CODES = {
   VAULT_CONTRACT_NOT_FOUND: 'VAULT_CONTRACT_NOT_FOUND',
   SLIPPAGE_EXCEEDED_ALLOWANCE: 'SLIPPAGE_EXCEEDED_ALLOWANCE',
   RFF_FEE_EXPIRED: 'RFF_FEE_EXPIRED',
+  INVALID_INPUT: 'INVALID_INPUT',
 } as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];
 
 export function createError(code: ErrorCode, message: string, data?: NexusErrorData): NexusError {
-    const nexusError = new NexusError(code, message, data);
-    telemetryLogger.emit({
-        body: message,
-        severityNumber: SeverityNumber.ERROR,
-        severityText: 'ERROR',
-        attributes: {
-            data: nexusError.data,
-            cause: nexusError.cause,
-            stackTrace: nexusError.stack
-        } as AnyValueMap
-      })
-  return nexusError
+  const nexusError = new NexusError(code, message, data);
+  telemetryLogger.emit({
+    body: message,
+    severityNumber: SeverityNumber.ERROR,
+    severityText: 'ERROR',
+    attributes: {
+      data: nexusError.data,
+      cause: nexusError.cause,
+      stackTrace: nexusError.stack,
+    } as AnyValueMap,
+  });
+  return nexusError;
 }
 
 /* --- Expected handling ---

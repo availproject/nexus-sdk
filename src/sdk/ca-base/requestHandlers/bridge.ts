@@ -227,8 +227,10 @@ class BridgeHandler {
       if (requiredAllowance > currentAllowance) {
         const d = {
           allowance: {
-            current: currentAllowance.toString(),
-            minimum: requiredAllowance.toString(),
+            current: divDecimals(allowances[s.chainID], token.decimals).toFixed(token.decimals),
+            currentRaw: currentAllowance,
+            minimum: s.amount.toFixed(token.decimals),
+            minimumRaw: requiredAllowance,
           },
           chain: {
             id: chain.id,
@@ -836,7 +838,7 @@ class BridgeHandler {
           if (typeof allowance === 'string' && equalFold(allowance, 'max')) {
             amount = maxUint256;
           } else if (typeof allowance === 'string' && equalFold(allowance, 'min')) {
-            amount = BigInt(source.allowance.minimum);
+            amount = source.allowance.minimumRaw;
           } else if (typeof allowance === 'string') {
             amount = mulDecimals(allowance, source.token.decimals);
           } else {
