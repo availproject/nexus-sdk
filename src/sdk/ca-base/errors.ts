@@ -99,4 +99,5 @@ export const Errors = {
   simulationError: (msg: string) =>
     createError(ERROR_CODES.SIMULATION_FAILED, `tenderly simulation failed: ${msg}`),
   rFFFeeExpired: () => createError(ERROR_CODES.RFF_FEE_EXPIRED, `fee is not adequate`),
+  invalidInput: (msg: string) => createError(ERROR_CODES.INVALID_INPUT, `input invalid: ${msg}`),
 };
