@@ -36,12 +36,6 @@ import {
 } from '../utils';
 import { EADDRESS } from './constants';
 import { FlatBalance } from './data';
-import {
-  ErrorChainDataNotFound,
-  ErrorCOTNotFound,
-  ErrorInsufficientBalance,
-  ErrorTokenNotFound,
-} from './errors';
 import { createIntent } from './rff';
 import { calculateValue, convertTo32Bytes, convertToEVMAddress } from './utils';
 import { BridgeAsset } from '../../../commons';
@@ -107,14 +101,14 @@ const _exactOutRoute = async (
   // ------------------------------
   const dstChainDataMap = ChaindataMap.get(dstOmniversalChainID);
   if (!dstChainDataMap) {
-    throw ErrorChainDataNotFound;
+    throw Errors.internal(`chain data not found for chain ${input.toChainId}`);
   }
 
   const cotSymbol = CurrencyID[params.cotCurrencyID];
 
   const dstChainCOT = dstChainDataMap.Currencies.find((c) => c.currencyID === params.cotCurrencyID);
   if (!dstChainCOT) {
-    throw ErrorCOTNotFound(input.toChainId);
+    throw Errors.internal(`COT not found for chain ${input.toChainId}`);
   }
 
   const dstChainCOTAddress = convertToEVMAddress(dstChainCOT.tokenAddress);
@@ -317,7 +311,7 @@ const _exactOutRoute = async (
         convertToEVMAddress(swap.req.outputToken),
       );
       if (!token) {
-        throw ErrorTokenNotFound(
+        throw Errors.tokenNotFound(
           convertToEVMAddress(swap.req.outputToken),
           Number(swap.req.chain.chainID),
         );
@@ -539,7 +533,7 @@ const _exactInRoute = async (
   });
 
   if (balanceResponse.balances.length === 0) {
-    throw new Error('no balances returned for user');
+    throw Errors.noBalanceForAddress(params.address.eoa);
   }
 
   let { balances } = balanceResponse;
@@ -568,12 +562,14 @@ const _exactInRoute = async (
           token: f.tokenAddress,
           chainId: f.chainId,
         });
-        throw ErrorInsufficientBalance('0', f.amount.toString());
+        throw Errors.insufficientBalance(`available:0, required: ${f.amount.toString()}`);
       }
 
       const requiredBalance = divDecimals(f.amount, srcBalance.decimals);
       if (requiredBalance.gt(srcBalance.amount)) {
-        throw ErrorInsufficientBalance(srcBalance.amount, requiredBalance.toFixed());
+        throw Errors.insufficientBalance(
+          `available: ${srcBalance.amount}, required: ${requiredBalance.toFixed()}`,
+        );
       }
 
       srcBalances.push({
@@ -599,13 +595,13 @@ const _exactInRoute = async (
 
   const dstChainDataMap = ChaindataMap.get(dstOmniversalChainID);
   if (!dstChainDataMap) {
-    throw new Error(`chaindata map not found for chain ${input.toChainId}`);
+    throw Errors.internal(`chain data not found for chain ${input.toChainId}`);
   }
 
   const cotSymbol = CurrencyID[params.cotCurrencyID];
   const dstChainCOT = dstChainDataMap.Currencies.find((c) => c.currencyID === params.cotCurrencyID);
   if (!dstChainCOT) {
-    throw ErrorCOTNotFound(input.toChainId);
+    throw Errors.internal(`COT not found for chain ${input.toChainId}`);
   }
 
   const dstChainCOTAddress = convertToEVMAddress(dstChainCOT.tokenAddress);
@@ -706,7 +702,7 @@ const _exactInRoute = async (
       outputTokenAddress,
     );
     if (!token) {
-      throw ErrorTokenNotFound(outputTokenAddress, Number(swap.req.chain.chainID));
+      throw Errors.tokenNotFound(outputTokenAddress, Number(swap.req.chain.chainID));
     }
     const bridgeAsset = bridgeAssets.find((b) => equalFold(b.contractAddress, outputTokenAddress));
     const outputAmountInDecimal = divDecimals(swap.quote.outputAmountMinimum, token.decimals);

@@ -725,7 +725,9 @@ export const toFlatBalance = (
   return assets
     .map((a) =>
       a.breakdown.map((b) => {
-        const tokenAddress = b.contractAddress === ZERO_ADDRESS ? EADDRESS : b.contractAddress;
+        const tokenAddress = equalFold(b.contractAddress, ZERO_ADDRESS)
+          ? EADDRESS
+          : b.contractAddress;
         return {
           amount: b.balance,
           chainID: b.chain.id,
