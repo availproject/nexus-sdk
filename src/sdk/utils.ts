@@ -6,6 +6,7 @@ import {
   ChainListType,
   formatTokenBalance,
   formatTokenBalanceParts,
+  SupportedChainsAndTokensResult,
 } from '../commons';
 import { getCoinbasePrices, getSupportedChains } from './ca-base/utils';
 import { getSwapSupportedChains } from './ca-base/swap/utils';
@@ -24,7 +25,7 @@ export class NexusUtils {
     return getCoinbasePrices();
   };
 
-  getSupportedChains(env?: Network) {
+  getSupportedChains(env?: Network): SupportedChainsAndTokensResult {
     return getSupportedChains(env);
   }
 

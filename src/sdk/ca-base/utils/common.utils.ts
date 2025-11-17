@@ -36,7 +36,7 @@ import {
 import { TronWeb } from 'tronweb';
 import { ChainList } from '../chains';
 import { FUEL_BASE_ASSET_ID, isNativeAddress, ZERO_ADDRESS } from '../constants';
-import { getLogger, IBridgeOptions } from '../../../commons';
+import { getLogger, IBridgeOptions, SupportedChainsAndTokensResult } from '../../../commons';
 import {
   Intent,
   Network,
@@ -314,7 +314,9 @@ const hexTo0xString = (hex: string): `0x${string}` => {
   return `0x${hex}`;
 };
 
-const getSupportedChains = (env: Environment = Environment.CORAL) => {
+const getSupportedChains = (
+  env: Environment = Environment.CORAL,
+): SupportedChainsAndTokensResult => {
   const chainList = new ChainList(env);
   return chainList.chains.map((chain) => {
     return {
