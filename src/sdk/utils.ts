@@ -24,7 +24,7 @@ export class NexusUtils {
     return getCoinbasePrices();
   };
 
-  getSupportedChains(env?: Network): SupportedChainsResult {
+  getSupportedChains(env?: Network) {
     return getSupportedChains(env);
   }
 
