@@ -441,7 +441,9 @@ type OnAllowanceHook = (data: OnAllowanceHookData) => void;
 export type onAllowanceHookSource = {
   allowance: {
     current: string;
+    currentRaw: bigint;
     minimum: string;
+    minimumRaw: bigint;
   };
   chain: {
     id: number;
