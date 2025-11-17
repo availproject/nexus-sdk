@@ -125,19 +125,13 @@ print_header "Starting @avail-project/nexus-core $RELEASE_TYPE release ($VERSION
 
 # Run type checking
 print_status "Running type check..."
-pnpm run typecheck:core
-
+npm run typecheck
 # Clean previous builds
 print_status "Cleaning previous builds..."
-pnpm run clean
-
-# Build commons (dependency)
-print_status "Building commons package..."
-pnpm run build:commons
-
+npm run clean
 # Build core package
 print_status "Building @avail-project/nexus-core package..."
-pnpm run build:core
+npm run build
 
 if [[ "$RELEASE_TYPE" == "prod" ]]; then
     print_header "Creating production release..."
@@ -159,23 +153,19 @@ if [[ "$RELEASE_TYPE" == "prod" ]]; then
 
     # Version bump
     print_status "Bumping version (${CUSTOM_VERSION:+custom $CUSTOM_VERSION}${CUSTOM_VERSION:+, }$VERSION_TYPE)..."
-    cd packages/core
     if [[ -n "$CUSTOM_VERSION" ]]; then
         npm version "$CUSTOM_VERSION" --no-git-tag-version --allow-same-version
     else
         npm version $VERSION_TYPE --no-git-tag-version
     fi
     CORE_VERSION=$(node -p "require('./package.json').version")
-    cd ../..
-
-    # Update root package.json version to match
-    npm version $CORE_VERSION --no-git-tag-version --allow-same-version
 
     # Commit version changes (skip if no changes)
     if [[ $DRY_RUN -eq 1 ]]; then
         print_status "DRY RUN: would git add/commit version bumps for v$CORE_VERSION"
     else
-        git add packages/core/package.json package.json
+        # npm version may update package-lock.json
+        git add package.json package-lock.json 2>/dev/null || git add package.json
         if git diff --cached --quiet; then
             print_status "No version changes to commit (prod)."
         else
@@ -189,23 +179,6 @@ if [[ "$RELEASE_TYPE" == "prod" ]]; then
         fi
     fi
 
-    # Temporarily rename package for publishing
-    print_status "Preparing package for publishing as @avail-project/nexus-core..."
-    cd packages/core
-
-    # Backup original package.json
-    cp package.json package.json.backup
-
-    # Package already named @avail-project/nexus-core; no rename needed
-
-    # Remove workspace-only dependencies that should be bundled (e.g., @nexus/commons)
-    node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));if(p.dependencies&&p.dependencies['@nexus/commons']){delete p.dependencies['@nexus/commons'];}fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
-
-    # Bundle internal commons into dist (imports already aliased by Rollup)
-    print_status "Bundling internal @nexus/commons into dist..."
-    mkdir -p dist/commons
-    cp -R ../commons/dist/* dist/commons/
-
     # Publish to npm (or pack in dry-run)
     if [[ $DRY_RUN -eq 1 ]]; then
         print_status "DRY RUN: npm pack (skipping publish) for @avail-project/nexus-core@$CORE_VERSION"
@@ -214,10 +187,6 @@ if [[ "$RELEASE_TYPE" == "prod" ]]; then
         print_status "Publishing @avail-project/nexus-core@$CORE_VERSION to npm..."
         npm publish --access public
     fi
-
-    # Restore original package.json
-    mv package.json.backup package.json
-    cd ../..
 
     # Push changes and tags
     if [[ $DRY_RUN -eq 1 ]]; then
@@ -237,7 +206,6 @@ else
 
     # Compute next prerelease version with 0-9 rollover by publication time
     print_status "Computing next $PRERELEASE_ID version with rollover logic..."
-    cd packages/core
     if [[ -n "$CUSTOM_VERSION" ]]; then
         PRERELEASE_VERSION="$CUSTOM_VERSION"
     else
@@ -279,16 +247,12 @@ console.log(next);
     fi
     export PRERELEASE_VERSION
     npm version "$PRERELEASE_VERSION" --no-git-tag-version --allow-same-version
-    cd ../..
-
-    # Update root package.json to match
-    npm version "$PRERELEASE_VERSION" --no-git-tag-version --allow-same-version
 
     # Commit version changes (skip if no changes)
     if [[ $DRY_RUN -eq 1 ]]; then
         print_status "DRY RUN: would git add/commit dev bump to v$PRERELEASE_VERSION and tag core-v$PRERELEASE_VERSION"
     else
-        git add packages/core/package.json package.json
+        git add package.json package-lock.json 2>/dev/null || git add package.json
         if git diff --cached --quiet; then
             print_status "No version changes to commit (dev)."
         else
@@ -301,25 +265,6 @@ console.log(next);
             git tag "core-v$PRERELEASE_VERSION"
         fi
     fi
-
-    # Temporarily rename package for publishing
-    print_status "Preparing package for publishing as @avail-project/nexus-core..."
-    cd packages/core
-
-    # Backup original package.json
-    cp package.json package.json.backup
-
-    # Update package name for publishing
-    sed -i.tmp 's/"name": "@nexus\/core"/"name": "@avail-project\/nexus-core"/' package.json
-    rm package.json.tmp 2>/dev/null || true
-
-    # Remove workspace-only dependencies that should be bundled (e.g., @nexus/commons)
-    node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));if(p.dependencies&&p.dependencies['@nexus/commons']){delete p.dependencies['@nexus/commons'];}fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
-
-    # Bundle internal commons into dist (imports already aliased by Rollup)
-    print_status "Bundling internal @nexus/commons into dist..."
-    mkdir -p dist/commons
-    cp -R ../commons/dist/* dist/commons/
 
     # Publish to npm with prerelease tag (or pack in dry-run)
     if [[ $DRY_RUN -eq 1 ]]; then
@@ -335,10 +280,6 @@ console.log(next);
           npm dist-tag add @avail-project/nexus-core@$PRERELEASE_VERSION $INCREMENTAL_TAG || true
         fi
     fi
-
-    # Restore original package.json
-    mv package.json.backup package.json
-    cd ../..
 
     # Push changes and tags
     if [[ $DRY_RUN -eq 1 ]]; then
