@@ -74,11 +74,7 @@ export class NexusSDK extends CA {
    * Get unified balances across all chains
    */
   public async getUnifiedBalances(includeSwappableBalances = false): Promise<UserAsset[]> {
-    if (!this._initializedTracked) {
-      trackGetUnifiedBalances(getSDKConfigName(this._config));
-      this._initializedTracked = true;
-    }
-
+    trackGetUnifiedBalances(getSDKConfigName(this._config));
     return this._getUnifiedBalances(includeSwappableBalances);
   }
 
