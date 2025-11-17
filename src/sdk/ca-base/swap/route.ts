@@ -155,7 +155,8 @@ const _exactOutRoute = async (
       };
     }
 
-    // Use min but perform everything as max - for buffer of (max - min)
+    // min is what is actually needed for dst swap, we add 1% for bridge related fees and 1% buffer for source swaps.
+    // so we are charging min + 2% from the user, we add the buffer so the swap definitely happens and any pending amounts are sent back to the user.
     const min = destinationSwap.inputAmount;
     // Apply 2% buffer to destination input amount
     const max = applyBuffer(destinationSwap.inputAmount, 2).toDP(
@@ -414,6 +415,7 @@ const _exactOutRoute = async (
     },
     bridge: bridgeInput,
     destination: {
+      type: 'EXACT_OUT',
       swap: destinationSwap,
       fetchDestinationSwapDetails,
     },
@@ -461,6 +463,7 @@ export type SwapRoute = {
   };
   bridge: BridgeInput;
   destination: {
+    type: 'EXACT_IN' | 'EXACT_OUT';
     swap: DestinationSwap;
     fetchDestinationSwapDetails: () => Promise<DestinationSwap>;
   };
@@ -545,7 +548,7 @@ const _exactInRoute = async (
   const assetsUsed: AssetUsed = [];
   let srcBalances: FlatBalance[] = [];
 
-  if (input.from && input.from.length > 0) {
+  if (input.from.length > 0) {
     // Filter out sources user requested to be used
     for (const f of input.from) {
       if (typeof f.amount !== 'bigint') {
@@ -554,15 +557,20 @@ const _exactInRoute = async (
 
       const comparison = normalizeToComparisonAddr(f.tokenAddress);
 
-      const srcBalance = balances.find(
-        (b) => equalFold(b.tokenAddress, comparison) && f.chainId === b.chainID,
-      );
+      const srcBalance = balances.find((b) => {
+        logger.debug('ExactIn: from comparison', {
+          balanceTokenAddress: b.tokenAddress,
+          inputTokenAddress: f.tokenAddress,
+          comparisonTokenAddress: comparison,
+        });
+        return equalFold(b.tokenAddress, comparison) && f.chainId === b.chainID;
+      });
       if (!srcBalance) {
         logger.error('ExactIN: no src balance found', {
           token: f.tokenAddress,
           chainId: f.chainId,
         });
-        throw Errors.insufficientBalance(`available:0, required: ${f.amount.toString()}`);
+        throw Errors.insufficientBalance(`available: 0, required: ${f.amount.toString()}`);
       }
 
       const requiredBalance = divDecimals(f.amount, srcBalance.decimals);
@@ -680,7 +688,7 @@ const _exactInRoute = async (
         logger.error('ExactIN: failed to map quote originalHolding to balance', {
           quoteReq: oq.req,
         });
-        throw new Error('internal mapping error: balance for quote input not found');
+        throw Errors.internal('mapping error: balance for quote input not found');
       }
       return {
         ...oq,
@@ -847,6 +855,7 @@ const _exactInRoute = async (
     },
     bridge: bridgeInput,
     destination: {
+      type: 'EXACT_IN',
       swap: destinationSwap,
       fetchDestinationSwapDetails,
     },

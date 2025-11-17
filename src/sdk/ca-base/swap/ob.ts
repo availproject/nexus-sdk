@@ -482,9 +482,19 @@ class DestinationSwapHandler {
 
     logger.debug('Requoting destination swap...');
     const newSwap = await this.data.fetchDestinationSwapDetails();
-    if (!newSwap.quote) throw new Error('Failed to requote destination swap.');
+    if (!newSwap.quote) {
+      throw new Error('Failed to requote destination swap.');
+    }
 
-    const isExactIn = this.dst.amount == undefined;
+    const isExactIn = this.data.type === 'EXACT_IN';
+    logger.debug('destinationSwap Requote', {
+      isExactIn,
+      'newSwap.min': newSwap.inputAmount.min.toFixed(),
+      'newSwap.max': newSwap.inputAmount.max.toFixed(),
+      'swap.min': swap.inputAmount.min.toFixed(),
+      'swap.max': swap.inputAmount.max.toFixed(),
+    });
+
     if (
       !isExactIn &&
       newSwap.inputAmount.min.gte(swap.inputAmount.min) &&
@@ -496,6 +506,7 @@ class DestinationSwapHandler {
     }
 
     this.data = {
+      type: this.data.type,
       swap: newSwap,
       fetchDestinationSwapDetails: this.data.fetchDestinationSwapDetails,
     };

@@ -298,6 +298,14 @@ const calculateMaxBridgeFees = ({
   });
 
   for (const asset of assets) {
+    const collectionFee = feeStore.calculateCollectionFee({
+      decimals: asset.decimals,
+      sourceChainID: asset.chainID,
+      sourceTokenAddress: asset.contractAddress,
+    });
+
+    borrowWithFee = borrowWithFee.add(collectionFee);
+
     const solverFee = feeStore.calculateSolverFee({
       borrowAmount: Decimal.add(asset.eoaBalance, asset.ephemeralBalance),
       decimals: asset.decimals,
