@@ -64,7 +64,7 @@ export const Errors = {
     createError(ERROR_CODES.USER_DENIED_ALLOWANCE, 'User rejected the allowance.'),
 
   userRejectedIntentSignature: () =>
-    createError(ERROR_CODES.USER_DENIED_ALLOWANCE, 'User rejected signing the intent hash.'),
+    createError(ERROR_CODES.USER_DENIED_INTENT_SIGNATURE, 'User rejected signing the intent hash.'),
 
   insufficientBalance: () =>
     createError(ERROR_CODES.INSUFFICIENT_BALANCE, 'Insufficient balance to proceed.'),
