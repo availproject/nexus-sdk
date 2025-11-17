@@ -48,8 +48,8 @@ if ! git rev-parse --git-dir > /dev/null 2>&1; then
 fi
 
 # Check if we're in the root directory
-if [[ ! -f "package.json" ]] || [[ ! -d "packages/core" ]]; then
-    print_error "Please run this script from the monorepo root directory"
+if [[ ! -f "package.json" ]]; then
+    print_error "Please run this script from the root directory"
     exit 1
 fi
 
