@@ -1,6 +1,6 @@
 {
   "name": "@avail-project/nexus-core",
-  "version": "0.0.2-dev.3",
+  "version": "1.0.1-alpha.0",
   "description": "Nexus headless SDK for cross-chain transactions",
   "main": "./dist/index.js",
   "module": "./dist/index.esm.js",
@@ -41,6 +41,7 @@
     "@cosmjs/proto-signing": "^0.34.0",
     "@cosmjs/stargate": "^0.34.0",
     "@metamask/safe-event-emitter": "3.1.2",
+    "@openpanel/web": "1.0.2",
     "@opentelemetry/api-logs": "0.208.0",
     "@opentelemetry/exporter-logs-otlp-http": "0.208.0",
     "@opentelemetry/resources": "2.2.0",

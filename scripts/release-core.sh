@@ -47,9 +47,9 @@ if ! git rev-parse --git-dir > /dev/null 2>&1; then
     exit 1
 fi
 
-# Check if we're in the project root directory (single-package repo)
+# Check if we're in the root directory
 if [[ ! -f "package.json" ]]; then
-    print_error "Please run this script from the project root directory"
+    print_error "Please run this script from the root directory"
     exit 1
 fi
 
@@ -130,13 +130,11 @@ print_header "Starting @avail-project/nexus-core $RELEASE_TYPE release ($VERSION
 # Run type checking
 print_status "Running type check..."
 npm run typecheck
-
 # Clean previous builds
 print_status "Cleaning previous builds..."
-rm -rf dist
-
-# Build package
-print_status "Building @avail-project/nexus-core package (single package repo)..."
+npm run clean
+# Build core package
+print_status "Building @avail-project/nexus-core package..."
 npm run build
 
 if [[ "$RELEASE_TYPE" == "prod" ]]; then
@@ -170,7 +168,8 @@ if [[ "$RELEASE_TYPE" == "prod" ]]; then
     if [[ $DRY_RUN -eq 1 ]]; then
         print_status "DRY RUN: would git add/commit version bumps for v$CORE_VERSION"
     else
-        git add package.json
+        # npm version may update package-lock.json
+        git add package.json package-lock.json 2>/dev/null || git add package.json
         if git diff --cached --quiet; then
             print_status "No version changes to commit (prod)."
         else
@@ -183,6 +182,7 @@ if [[ "$RELEASE_TYPE" == "prod" ]]; then
             git tag "core-v$CORE_VERSION"
         fi
     fi
+
     # Publish to npm (or pack in dry-run)
     if [[ $DRY_RUN -eq 1 ]]; then
         print_status "DRY RUN: npm pack (skipping publish) for @avail-project/nexus-core@$CORE_VERSION"
@@ -256,7 +256,7 @@ console.log(next);
     if [[ $DRY_RUN -eq 1 ]]; then
         print_status "DRY RUN: would git add/commit dev bump to v$PRERELEASE_VERSION and tag core-v$PRERELEASE_VERSION"
     else
-        git add package.json
+        git add package.json package-lock.json 2>/dev/null || git add package.json
         if git diff --cached --quiet; then
             print_status "No version changes to commit (dev)."
         else
@@ -269,6 +269,7 @@ console.log(next);
             git tag "core-v$PRERELEASE_VERSION"
         fi
     fi
+
     # Publish to npm with prerelease tag (or pack in dry-run)
     if [[ $DRY_RUN -eq 1 ]]; then
         print_status "DRY RUN: npm pack (skipping publish) for @avail-project/nexus-core@$PRERELEASE_VERSION"
