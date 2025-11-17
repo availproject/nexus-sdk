@@ -45,9 +45,11 @@ import {
   trackTokenDetails,
   trackTron,
 } from '../utils/analytics';
+import { getSDKConfigName } from './ca-base/utils';
 
 export class NexusSDK extends CA {
   public readonly utils: NexusUtils;
+  private _initializedTracked = false;
 
   constructor(config?: { network?: NexusNetwork; debug?: boolean }) {
     super(config);
@@ -59,7 +61,11 @@ export class NexusSDK extends CA {
    * Initialize the SDK with a provider
    */
   public async initialize(provider: EthereumProvider): Promise<void> {
-    trackSDKInitialized(this._config);
+    if (!this._initializedTracked) {
+      trackSDKInitialized(getSDKConfigName(this._config));
+      this._initializedTracked = true;
+    }
+
     await this._setEVMProvider(provider);
     await this._init();
   }
@@ -68,7 +74,7 @@ export class NexusSDK extends CA {
    * Get unified balances across all chains
    */
   public async getUnifiedBalances(includeSwappableBalances = false): Promise<UserAsset[]> {
-    trackGetUnifiedBalances(this._config);
+    trackGetUnifiedBalances(getSDKConfigName(this._config));
     return this._getUnifiedBalances(includeSwappableBalances);
   }
 
@@ -83,14 +89,14 @@ export class NexusSDK extends CA {
     };
     trackNexusTransaction({
       name: 'bridge',
-      config: this._config,
+      config: getSDKConfigName(this._config),
       bridgeParams: { params: updatedParams, options },
     });
-    trackTokenDetails({ config: this._config, params: updatedParams });
+    trackTokenDetails({ config: getSDKConfigName(this._config), params: updatedParams });
     const result = await this.createBridgeHandler(params, options).execute();
     trackNexusResult({
       name: 'bridge',
-      config: this._config,
+      config: getSDKConfigName(this._config),
       result,
     });
     return {
@@ -108,14 +114,14 @@ export class NexusSDK extends CA {
     };
     trackNexusTransaction({
       name: 'calculateMaxForBridge',
-      config: this._config,
+      config: getSDKConfigName(this._config),
       calculateMaxForBridge: updatedParams,
     });
-    trackTokenDetails({ config: this._config, params: updatedParams });
+    trackTokenDetails({ config: getSDKConfigName(this._config), params: updatedParams });
     const result = this._calculateMaxForBridge(params);
     trackNexusResult({
       name: 'calculateMaxForBridge',
-      config: this._config,
+      config: getSDKConfigName(this._config),
       result,
     });
     return result;
@@ -135,14 +141,14 @@ export class NexusSDK extends CA {
     };
     trackNexusTransaction({
       name: 'bridgeAndTransfer',
-      config: this._config,
+      config: getSDKConfigName(this._config),
       bridgeAndTransferParams: { params: updatedParams, options },
     });
-    trackTokenDetails({ config: this._config, params: updatedParams });
+    trackTokenDetails({ config: getSDKConfigName(this._config), params: updatedParams });
     const result = await this._bridgeAndTransfer(params, options);
     trackNexusResult({
       name: 'bridgeAndTransfer',
-      config: this._config,
+      config: getSDKConfigName(this._config),
       result,
     });
     return {
@@ -165,14 +171,14 @@ export class NexusSDK extends CA {
     };
     trackNexusTransaction({
       name: 'swapWithExactIn',
-      config: this._config,
+      config: getSDKConfigName(this._config),
       swapWithExactInParams: { input: updatedParams, options },
     });
-    trackTokenDetails({ config: this._config, params: updatedParams });
+    trackTokenDetails({ config: getSDKConfigName(this._config), params: updatedParams });
     const result = await this._swapWithExactIn(input, options);
     trackNexusResult({
       name: 'swapWithExactIn',
-      config: this._config,
+      config: getSDKConfigName(this._config),
       result,
     });
     return {
@@ -191,14 +197,14 @@ export class NexusSDK extends CA {
     };
     trackNexusTransaction({
       name: 'swapWithExactOut',
-      config: this._config,
+      config: getSDKConfigName(this._config),
       swapWithExactOutParams: { input: updatedParams, options },
     });
-    trackTokenDetails({ config: this._config, params: updatedParams });
+    trackTokenDetails({ config: getSDKConfigName(this._config), params: updatedParams });
     const result = await this._swapWithExactOut(input, options);
     trackNexusResult({
       name: 'swapWithExactOut',
-      config: this._config,
+      config: getSDKConfigName(this._config),
       result,
     });
     return {
@@ -218,14 +224,14 @@ export class NexusSDK extends CA {
     };
     trackNexusTransaction({
       name: 'simulateBridge',
-      config: this._config,
+      config: getSDKConfigName(this._config),
       simulateBridgeParams: updatedParams,
     });
-    trackTokenDetails({ config: this._config, params: updatedParams });
+    trackTokenDetails({ config: getSDKConfigName(this._config), params: updatedParams });
     const result = this.createBridgeHandler(params).simulate();
     trackNexusResult({
       name: 'simulateBridge',
-      config: this._config,
+      config: getSDKConfigName(this._config),
       result,
     });
     return result;
@@ -244,14 +250,14 @@ export class NexusSDK extends CA {
     };
     trackNexusTransaction({
       name: 'simulateBridgeAndTransfer',
-      config: this._config,
+      config: getSDKConfigName(this._config),
       simulateBridgeAndTransferParams: updatedParams,
     });
-    trackTokenDetails({ config: this._config, params: updatedParams });
+    trackTokenDetails({ config: getSDKConfigName(this._config), params: updatedParams });
     const result = this._simulateBridgeAndTransfer(params);
     trackNexusResult({
       name: 'simulateBridgeAndTransfer',
-      config: this._config,
+      config: getSDKConfigName(this._config),
       result,
     });
     return result;
@@ -261,7 +267,7 @@ export class NexusSDK extends CA {
    * Get user's intents with pagination
    */
   public async getMyIntents(page: number = 1): Promise<RequestForFunds[]> {
-    trackGetIntent(this._config);
+    trackGetIntent(getSDKConfigName(this._config));
     return this._getMyIntents(page);
   }
 
@@ -270,7 +276,7 @@ export class NexusSDK extends CA {
    */
   public setOnIntentHook(callback: OnIntentHook): void {
     const wrappedCallback: OnIntentHook = (data) => {
-      trackIntent(data.intent);
+      trackIntent(getSDKConfigName(this._config), data.intent);
       callback(data);
     };
 
@@ -282,7 +288,7 @@ export class NexusSDK extends CA {
    */
   public setOnSwapIntentHook(callback: OnSwapIntentHook): void {
     const wrappedCallback: OnSwapIntentHook = (data) => {
-      trackSwapIntent(data.intent);
+      trackSwapIntent(getSDKConfigName(this._config), data.intent);
       callback(data);
     };
 
@@ -290,7 +296,7 @@ export class NexusSDK extends CA {
   }
 
   public addTron(adapter: AdapterProps) {
-    trackTron(adapter);
+    trackTron(getSDKConfigName(this._config), adapter);
     this._setTronAdapter(adapter);
   }
 
@@ -299,7 +305,7 @@ export class NexusSDK extends CA {
    */
   public setOnAllowanceHook(callback: OnAllowanceHook): void {
     const wrappedCallback: OnAllowanceHook = (data) => {
-      trackAllowance(data.sources);
+      trackAllowance(getSDKConfigName(this._config), data.sources);
       callback(data);
     };
 
@@ -307,7 +313,7 @@ export class NexusSDK extends CA {
   }
 
   public async deinit(): Promise<void> {
-    trackSdkDeInitialized(this._config);
+    trackSdkDeInitialized(getSDKConfigName(this._config));
     return this._deinit();
   }
 
@@ -323,14 +329,14 @@ export class NexusSDK extends CA {
     };
     trackNexusTransaction({
       name: 'execute',
-      config: this._config,
+      config: getSDKConfigName(this._config),
       executeParams: { params: updatedParams, options },
     });
-    trackTokenDetails({ config: this._config, params: updatedParams });
+    trackTokenDetails({ config: getSDKConfigName(this._config), params: updatedParams });
     const result = this._execute(params, options);
     trackNexusResult({
       name: 'execute',
-      config: this._config,
+      config: getSDKConfigName(this._config),
       result,
     });
     return result;
@@ -348,14 +354,14 @@ export class NexusSDK extends CA {
     };
     trackNexusTransaction({
       name: 'simulateExecute',
-      config: this._config,
+      config: getSDKConfigName(this._config),
       simulateExecuteParams: updatedParams,
     });
-    trackTokenDetails({ config: this._config, params: updatedParams });
+    trackTokenDetails({ config: getSDKConfigName(this._config), params: updatedParams });
     const result = this._simulateExecute(params);
     trackNexusResult({
       name: 'simulateExecute',
-      config: this._config,
+      config: getSDKConfigName(this._config),
       result,
     });
     return result;
@@ -383,14 +389,14 @@ export class NexusSDK extends CA {
     };
     trackNexusTransaction({
       name: 'bridgeAndExecute',
-      config: this._config,
+      config: getSDKConfigName(this._config),
       bridgeAndExecuteParams: { params: updatedParams, options },
     });
-    trackTokenDetails({ config: this._config, params: updatedParams });
+    trackTokenDetails({ config: getSDKConfigName(this._config), params: updatedParams });
     const result = this._bridgeAndExecute(params, options);
     trackNexusResult({
       name: 'bridgeAndExecute',
-      config: this._config,
+      config: getSDKConfigName(this._config),
       result,
     });
     return result;
@@ -418,31 +424,35 @@ export class NexusSDK extends CA {
     };
     trackNexusTransaction({
       name: 'simulateBridgeAndExecute',
-      config: this._config,
+      config: getSDKConfigName(this._config),
       simulateBridgeAndExecute: updatedParams,
     });
-    trackTokenDetails({ config: this._config, params: updatedParams });
+    trackTokenDetails({ config: getSDKConfigName(this._config), params: updatedParams });
     const result = this._simulateBridgeAndExecute(params);
     trackNexusResult({
       name: 'simulateBridgeAndExecute',
-      config: this._config,
+      config: getSDKConfigName(this._config),
       result,
     });
     return result;
   }
 
   public getBalancesForSwap() {
-    trackGetBalanceSwap(this._config);
+    trackGetBalanceSwap(getSDKConfigName(this._config));
     return this._getBalancesForSwap();
   }
 
   public getSwapSupportedChains(): SupportedChainsResult {
-    trackGetSwapSupportedChains(this._config);
+    trackGetSwapSupportedChains(getSDKConfigName(this._config));
     return this._getSwapSupportedChains();
   }
 
   public isInitialized() {
-    trackIsInitialized(this._config);
+    if (!this._initializedTracked) {
+      trackIsInitialized(getSDKConfigName(this._config));
+      this._initializedTracked = true;
+    }
+
     return this._isInitialized();
   }
 }

@@ -9,8 +9,7 @@ import {
   ExactInSwapInput,
   ExactOutSwapInput,
   ExecuteParams,
-  Network,
-  NetworkConfig,
+  NexusNetwork,
   OnEventParam,
   ReadableIntent,
   SwapIntent,
@@ -56,10 +55,7 @@ export async function trackEvent(name: string, properties?: Record<string, any>)
  * Track SDK Initialization
  * Logs an event when the Nexus SDK is initialized
  */
-export function trackSDKInitialized(config?: {
-  network?: Network | NetworkConfig;
-  debug?: boolean;
-}) {
+export function trackSDKInitialized(config?: { network?: NexusNetwork; debug?: boolean }) {
   trackEvent('nexus-initialized', {
     network: config?.network,
     debug: config?.network,
@@ -70,10 +66,7 @@ export function trackSDKInitialized(config?: {
  * Track SDK De-initialization
  * Logs an event when the SDK is de-initialized or reset
  */
-export function trackSdkDeInitialized(config?: {
-  network?: Network | NetworkConfig;
-  debug?: boolean;
-}) {
+export function trackSdkDeInitialized(config?: { network?: NexusNetwork; debug?: boolean }) {
   trackEvent('nexus-deInitialized', {
     network: config?.network,
     debug: config?.network,
@@ -84,7 +77,7 @@ export function trackSdkDeInitialized(config?: {
  * Track Get Intent call
  * Used to trace when an intent request is made
  */
-export function trackGetIntent(config?: { network?: Network | NetworkConfig; debug?: boolean }) {
+export function trackGetIntent(config?: { network?: NexusNetwork; debug?: boolean }) {
   trackEvent('nexus-getIntent', {
     network: config?.network,
     debug: config?.network,
@@ -95,10 +88,7 @@ export function trackGetIntent(config?: { network?: Network | NetworkConfig; deb
  * Track Get Balance for Swap
  * Logs event when swap balance retrieval is initiated
  */
-export function trackGetBalanceSwap(config?: {
-  network?: Network | NetworkConfig;
-  debug?: boolean;
-}) {
+export function trackGetBalanceSwap(config?: { network?: NexusNetwork; debug?: boolean }) {
   trackEvent('nexus-getBalancesForSwap', {
     network: config?.network,
     debug: config?.network,
@@ -109,10 +99,7 @@ export function trackGetBalanceSwap(config?: {
  * Track supported chains for Swap
  * Indicates which chains are supported by the SDK
  */
-export function trackGetSwapSupportedChains(config?: {
-  network?: Network | NetworkConfig;
-  debug?: boolean;
-}) {
+export function trackGetSwapSupportedChains(config?: { network?: NexusNetwork; debug?: boolean }) {
   trackEvent('nexus-getSwapSupportedChains', {
     network: config?.network,
     debug: config?.network,
@@ -123,10 +110,7 @@ export function trackGetSwapSupportedChains(config?: {
  * Track SDK Initialization Check
  * Logs if the SDK is currently initialized
  */
-export function trackIsInitialized(config?: {
-  network?: Network | NetworkConfig;
-  debug?: boolean;
-}) {
+export function trackIsInitialized(config?: { network?: NexusNetwork; debug?: boolean }) {
   trackEvent('nexus-isInitialized', {
     network: config?.network,
     debug: config?.network,
@@ -137,10 +121,7 @@ export function trackIsInitialized(config?: {
  * Track Unified Balances
  * Logs retrieval of balances across multiple chains or wallets
  */
-export function trackGetUnifiedBalances(config?: {
-  network?: Network | NetworkConfig;
-  debug?: boolean;
-}) {
+export function trackGetUnifiedBalances(config?: { network?: NexusNetwork; debug?: boolean }) {
   trackEvent('nexus-getUnifiedBalances', {
     network: config?.network,
     debug: config?.network,
@@ -153,7 +134,7 @@ export function trackGetUnifiedBalances(config?: {
  */
 export function trackNexusTransaction(params: {
   name: string;
-  config?: { network?: Network | NetworkConfig; debug?: boolean };
+  config?: { network?: NexusNetwork; debug?: boolean };
   calculateMaxForBridge?: Omit<BridgeParams, 'amount'> | any;
   bridgeParams?: { params: BridgeParams | any; options?: OnEventParam };
   bridgeAndTransferParams?: { params: TransferParams | any; options?: OnEventParam };
@@ -175,7 +156,7 @@ export function trackNexusTransaction(params: {
  */
 export function trackNexusResult(params: {
   name: string;
-  config?: { network?: Network | NetworkConfig; debug?: boolean };
+  config?: { network?: NexusNetwork; debug?: boolean };
   result?: any;
 }) {
   trackEvent('nexus-result', params);
@@ -184,36 +165,64 @@ export function trackNexusResult(params: {
 /**
  * Track token allowance information
  */
-export function trackAllowance(allowanceData?: AllowanceHookSources) {
-  trackEvent('nexus-allowance', allowanceData);
+export function trackAllowance(
+  config?: { network?: NexusNetwork; debug?: boolean },
+  allowanceData?: AllowanceHookSources,
+) {
+  trackEvent('nexus-allowance', {
+    network: config?.network,
+    debug: config?.network,
+    allowanceData,
+  });
 }
 
 /**
  * Track general intent data
  */
-export function trackIntent(intentData?: ReadableIntent) {
-  trackEvent('nexus-intent', intentData);
+export function trackIntent(
+  config?: { network?: NexusNetwork; debug?: boolean },
+  intentData?: ReadableIntent,
+) {
+  trackEvent('nexus-intent', {
+    network: config?.network,
+    debug: config?.network,
+    intentData,
+  });
 }
 
 /**
  * Track swap-related intents
  */
-export function trackSwapIntent(intentData?: SwapIntent) {
-  trackEvent('nexus-swap-intent', intentData);
+export function trackSwapIntent(
+  config?: { network?: NexusNetwork; debug?: boolean },
+  intentData?: SwapIntent,
+) {
+  trackEvent('nexus-swap-intent', {
+    network: config?.network,
+    debug: config?.network,
+    intentData,
+  });
 }
 
 /**
  * Track Tron adapter usage or configuration
  */
-export function trackTron(adapter?: AdapterProps) {
-  trackEvent('nexus-tron-adapter', adapter);
+export function trackTron(
+  config?: { network?: NexusNetwork; debug?: boolean },
+  adapter?: AdapterProps,
+) {
+  trackEvent('nexus-tron-adapter', {
+    network: config?.network,
+    debug: config?.network,
+    adapter,
+  });
 }
 
 /**
  * Track token details fetch event
  */
 export function trackTokenDetails(params: {
-  config?: { network?: Network | NetworkConfig; debug?: boolean };
+  config?: { network?: NexusNetwork; debug?: boolean };
   params: any;
 }) {
   trackEvent('nexus-token-details', params);

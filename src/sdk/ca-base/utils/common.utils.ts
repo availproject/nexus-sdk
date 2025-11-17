@@ -545,6 +545,31 @@ const getSDKConfig = (c: { network?: NexusNetwork; debug?: boolean }): Required<
   return config;
 };
 
+const getSDKConfigName = (
+  conf: SDKConfig,
+): Required<{ network?: NexusNetwork; debug?: boolean }> => {
+  const config = {
+    debug: conf.debug ?? false,
+    network: 'mainnet' as NexusNetwork,
+  };
+
+  switch (conf.network) {
+    case 0: {
+      config.network = 'testnet' as NexusNetwork;
+      break;
+    }
+    case 1: {
+      config.network = 'devnet' as NexusNetwork;
+      break;
+    }
+    case 2: {
+      config.network = 'mainnet' as NexusNetwork;
+    }
+  }
+
+  return config;
+};
+
 class UserAsset {
   get balance() {
     return this.value.balance;
@@ -931,6 +956,7 @@ export {
   getExpiredIntents,
   getExplorerURL,
   getSDKConfig,
+  getSDKConfigName,
   getSupportedChains,
   hexTo0xString,
   minutesToMs,
