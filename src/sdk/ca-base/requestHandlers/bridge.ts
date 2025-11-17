@@ -854,7 +854,7 @@ class BridgeHandler {
       };
 
       const deny = () => {
-        return reject(Errors.userRejectedAllowance);
+        return reject(Errors.userRejectedAllowance());
       };
 
       this.options.hooks.onAllowance({
