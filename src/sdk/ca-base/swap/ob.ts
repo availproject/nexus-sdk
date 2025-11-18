@@ -497,11 +497,13 @@ class DestinationSwapHandler {
 
     if (
       !isExactIn &&
-      newSwap.inputAmount.min.gte(swap.inputAmount.min) &&
-      newSwap.inputAmount.min.lte(swap.inputAmount.max)
+      !(
+        newSwap.inputAmount.min.gte(swap.inputAmount.min) &&
+        newSwap.inputAmount.min.lte(swap.inputAmount.max)
+      )
     ) {
       throw new Error(
-        `Rates changed beyond tolerance. Before: ${swap.inputAmount.min.toFixed()}, After: ${newSwap.inputAmount.min.toFixed()}`,
+        `Rates changed beyond tolerance. Tolerance: ${swap.inputAmount.min.toFixed()}-${swap.inputAmount.max.toFixed()}, After: ${newSwap.inputAmount.min.toFixed()}`,
       );
     }
 
