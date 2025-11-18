@@ -25,7 +25,6 @@ import {
   SwapParams,
 } from '../../../commons';
 import {
-  calculateMaxBridgeFees,
   convertTo32BytesHex,
   divDecimals,
   equalFold,
@@ -33,6 +32,7 @@ import {
   getFeeStore,
   mulDecimals,
   getBalances,
+  calculateMaxBridgeFee,
 } from '../utils';
 import { EADDRESS } from './constants';
 import { FlatBalance } from './data';
@@ -738,8 +738,8 @@ const _exactInRoute = async (
 
   let bridgeInput: BridgeInput = null;
   if (isBridgeRequired) {
-    const maxFee = calculateMaxBridgeFees({
-      assets: bridgeAssets,
+    const { fee: maxFee } = calculateMaxBridgeFee({
+      assets: bridgeAssets.map((b) => ({ ...b, balance: b.eoaBalance.add(b.ephemeralBalance) })),
       dst: {
         chainId: input.toChainId,
         tokenAddress: dstChainCOTAddress,
