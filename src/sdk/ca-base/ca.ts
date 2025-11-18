@@ -58,6 +58,7 @@ import {
   getBalancesForSwap,
   switchChain,
   intentTransform,
+  mulDecimals,
 } from './utils';
 import { swap } from './swap/swap';
 import { getSwapSupportedChains } from './swap/utils';
@@ -589,4 +590,16 @@ export class CA {
   private _storeSIWESignature(address: Hex, signature: string) {
     return storeSIWESignatureToLocalStorage(address, signature);
   }
+
+  protected _convertTokenReadableAmountToBigInt = (
+    amount: string,
+    tokenSymbol: string,
+    chainId: number,
+  ) => {
+    const token = this.chainList.getTokenInfoBySymbol(chainId, tokenSymbol);
+    if (!token) {
+      throw Errors.tokenNotFound(tokenSymbol, chainId);
+    }
+    return mulDecimals(amount, token.decimals);
+  };
 }
