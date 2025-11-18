@@ -491,11 +491,11 @@ const vscCreateRFF = async (
   vscDomain: string,
   id: Long,
   msd: (s: BridgeStepType) => void,
-  expectedCollectionIndexes: number[],
+  expectedCollections: number[],
 ) => {
   const controller = new AbortController();
-  const collectionIndexes = expectedCollectionIndexes.slice();
-  const receivedCollectionsACKs: number[] = [];
+  const pendingCollections = expectedCollections.slice();
+  const completedCollections: number[] = [];
   await retry(
     async () => {
       const connection = connect(
@@ -513,27 +513,29 @@ const vscCreateRFF = async (
             switch (data.status) {
               // Will be called at the end of all calls, regardless of status
               case 0xff: {
-                if (collectionIndexes.length === 0) {
+                if (pendingCollections.length === 0) {
                   msd(BRIDGE_STEPS.INTENT_COLLECTION_COMPLETE);
                   break responseLoop;
                 } else {
                   logger.debug('(vsc)create-rff:collections failed', {
-                    expectedCollectionIndexes,
-                    receivedCollectionsACKs,
+                    expectedCollections,
+                    completedCollections,
                   });
-                  throw Errors.vscError('create-rff: some collections failed, retrying.');
+                  throw Errors.vscError(
+                    `create-rff: collections failed. expected = ${expectedCollections}, got = ${completedCollections}`,
+                  );
                 }
               }
               // Collection successful for a chain
               case 0x10: {
-                if (collectionIndexes.includes(data.idx)) {
-                  receivedCollectionsACKs.push(data.idx);
-                  remove(collectionIndexes, (d) => d === data.idx);
+                if (pendingCollections.includes(data.idx)) {
+                  completedCollections.push(data.idx);
+                  remove(pendingCollections, (d) => d === data.idx);
                 }
                 msd(
                   BRIDGE_STEPS.INTENT_COLLECTION(
-                    receivedCollectionsACKs.length,
-                    expectedCollectionIndexes.length,
+                    completedCollections.length,
+                    expectedCollections.length,
                   ),
                 );
                 break;
@@ -541,7 +543,7 @@ const vscCreateRFF = async (
 
               // Collection failed or is not applicable(say for native)
               default: {
-                if (collectionIndexes.includes(data.idx)) {
+                if (pendingCollections.includes(data.idx)) {
                   logger.debug(`vsc:create-rff:failed`, { data });
                 } else {
                   logger.debug('vsc:create-rff:expectedError:ignore', { data });
