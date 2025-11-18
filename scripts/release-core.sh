@@ -55,8 +55,12 @@ fi
 
 # Check for uncommitted changes
 if ! git diff-index --quiet HEAD --; then
-    print_error "There are uncommitted changes. Please commit or stash them first."
-    exit 1
+    print_header "There are uncommitted changes. Are you sure you want to continue?"
+    read -p "Continue? (y/N): " _continue
+    if [[ $_continue != [yY] ]]; then
+        print_error "Aborting release."
+        exit 1
+    fi
 fi
 
 # Get the release type from command line argument (positional defaults)
@@ -151,7 +155,7 @@ if [[ "$RELEASE_TYPE" == "prod" ]]; then
         fi
     fi
 
-    # Version bump
+    # Version bump (root package.json)
     print_status "Bumping version (${CUSTOM_VERSION:+custom $CUSTOM_VERSION}${CUSTOM_VERSION:+, }$VERSION_TYPE)..."
     if [[ -n "$CUSTOM_VERSION" ]]; then
         npm version "$CUSTOM_VERSION" --no-git-tag-version --allow-same-version
@@ -204,7 +208,7 @@ if [[ "$RELEASE_TYPE" == "prod" ]]; then
 else
     print_header "Creating development release..."
 
-    # Compute next prerelease version with 0-9 rollover by publication time
+    # Compute next prerelease version with 0-9 rollover by publication time (root)
     print_status "Computing next $PRERELEASE_ID version with rollover logic..."
     if [[ -n "$CUSTOM_VERSION" ]]; then
         PRERELEASE_VERSION="$CUSTOM_VERSION"
