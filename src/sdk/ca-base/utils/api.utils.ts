@@ -407,6 +407,7 @@ type CreateSponsoredApprovalResponse =
   | {
       error: string;
       errored: true;
+      msg: string;
       part_idx: number;
     }
   | { error: true; msg: string } // why error not same struct?
@@ -437,11 +438,15 @@ const vscCreateSponsoredApprovals = async (
       logger.debug('vscCreateSponsoredApprovals', { data });
 
       if ('errored' in data && data.errored) {
-        throw Errors.vscError(`create-sponsored-approvals: ${data.error}`);
+        throw Errors.vscError(
+          `failed to create sponsored approvals: ${data.msg ?? 'Backend sent failure.'}`,
+        );
       }
 
       if ('error' in data && data.error) {
-        throw Errors.vscError(`create-sponsored-approvals: ${data.error}`);
+        throw Errors.vscError(
+          `failed to create sponsored approvals: ${data.msg ?? 'Backend sent failure.'}`,
+        );
       }
 
       const inputData = input[data.part_idx];
