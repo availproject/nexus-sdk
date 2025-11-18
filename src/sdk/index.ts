@@ -211,4 +211,11 @@ export class NexusSDK extends CA {
   public isInitialized() {
     return this._isInitialized();
   }
+
+  /**
+   * Helper function to convert an input like "1.13" to 1_130_000n for input to other functions
+   * Number of decimals for a token depends on the chain.
+   * ex: USDC on BNB chain has 18 decimals and 6 decimals on most other chains.
+   */
+  public convertTokenReadableAmountToBigInt = this._convertTokenReadableAmountToBigInt;
 }
