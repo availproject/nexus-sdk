@@ -49,7 +49,8 @@ import { getSDKConfigName } from './ca-base/utils';
 
 export class NexusSDK extends CA {
   public readonly utils: NexusUtils;
-  private _initializedTracked = false;
+  private _isInitializedTrack = false;
+  private _isFirstInitializedTrack = false;
 
   constructor(config?: { network?: NexusNetwork; debug?: boolean }) {
     super(config);
@@ -61,9 +62,9 @@ export class NexusSDK extends CA {
    * Initialize the SDK with a provider
    */
   public async initialize(provider: EthereumProvider): Promise<void> {
-    if (!this._initializedTracked) {
+    if (!this._isFirstInitializedTrack) {
       trackSDKInitialized(getSDKConfigName(this._config));
-      this._initializedTracked = true;
+      this._isFirstInitializedTrack = true;
     }
 
     await this._setEVMProvider(provider);
@@ -448,9 +449,9 @@ export class NexusSDK extends CA {
   }
 
   public isInitialized() {
-    if (!this._initializedTracked) {
+    if (!this._isInitializedTrack) {
       trackIsInitialized(getSDKConfigName(this._config));
-      this._initializedTracked = true;
+      this._isInitializedTrack = true;
     }
 
     return this._isInitialized();

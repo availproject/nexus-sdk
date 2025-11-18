@@ -58,7 +58,7 @@ export async function trackEvent(name: string, properties?: Record<string, any>)
 export function trackSDKInitialized(config?: { network?: NexusNetwork; debug?: boolean }) {
   trackEvent('nexus-initialized', {
     network: config?.network,
-    debug: config?.network,
+    debug: config?.debug,
   });
 }
 
@@ -69,7 +69,7 @@ export function trackSDKInitialized(config?: { network?: NexusNetwork; debug?: b
 export function trackSdkDeInitialized(config?: { network?: NexusNetwork; debug?: boolean }) {
   trackEvent('nexus-deInitialized', {
     network: config?.network,
-    debug: config?.network,
+    debug: config?.debug,
   });
 }
 
@@ -80,7 +80,7 @@ export function trackSdkDeInitialized(config?: { network?: NexusNetwork; debug?:
 export function trackGetIntent(config?: { network?: NexusNetwork; debug?: boolean }) {
   trackEvent('nexus-getIntent', {
     network: config?.network,
-    debug: config?.network,
+    debug: config?.debug,
   });
 }
 
@@ -91,7 +91,7 @@ export function trackGetIntent(config?: { network?: NexusNetwork; debug?: boolea
 export function trackGetBalanceSwap(config?: { network?: NexusNetwork; debug?: boolean }) {
   trackEvent('nexus-getBalancesForSwap', {
     network: config?.network,
-    debug: config?.network,
+    debug: config?.debug,
   });
 }
 
@@ -102,7 +102,7 @@ export function trackGetBalanceSwap(config?: { network?: NexusNetwork; debug?: b
 export function trackGetSwapSupportedChains(config?: { network?: NexusNetwork; debug?: boolean }) {
   trackEvent('nexus-getSwapSupportedChains', {
     network: config?.network,
-    debug: config?.network,
+    debug: config?.debug,
   });
 }
 
@@ -113,7 +113,7 @@ export function trackGetSwapSupportedChains(config?: { network?: NexusNetwork; d
 export function trackIsInitialized(config?: { network?: NexusNetwork; debug?: boolean }) {
   trackEvent('nexus-isInitialized', {
     network: config?.network,
-    debug: config?.network,
+    debug: config?.debug,
   });
 }
 
@@ -124,7 +124,7 @@ export function trackIsInitialized(config?: { network?: NexusNetwork; debug?: bo
 export function trackGetUnifiedBalances(config?: { network?: NexusNetwork; debug?: boolean }) {
   trackEvent('nexus-getUnifiedBalances', {
     network: config?.network,
-    debug: config?.network,
+    debug: config?.debug,
   });
 }
 
@@ -171,7 +171,7 @@ export function trackAllowance(
 ) {
   trackEvent('nexus-allowance', {
     network: config?.network,
-    debug: config?.network,
+    debug: config?.debug,
     allowanceData,
   });
 }
@@ -185,7 +185,7 @@ export function trackIntent(
 ) {
   trackEvent('nexus-intent', {
     network: config?.network,
-    debug: config?.network,
+    debug: config?.debug,
     intentData,
   });
 }
@@ -199,7 +199,7 @@ export function trackSwapIntent(
 ) {
   trackEvent('nexus-swap-intent', {
     network: config?.network,
-    debug: config?.network,
+    debug: config?.debug,
     intentData,
   });
 }
@@ -213,7 +213,7 @@ export function trackTron(
 ) {
   trackEvent('nexus-tron-adapter', {
     network: config?.network,
-    debug: config?.network,
+    debug: config?.debug,
     adapter,
   });
 }
