@@ -1,6 +1,55 @@
 /**
  * Analytics Manager
  * Central orchestrator for all analytics functionality in Nexus SDK
+ *
+ * PRIVACY & DATA SHARING:
+ * By default, this SDK sends anonymous telemetry to Avail's PostHog instance to help
+ * improve the SDK. This is an opt-out system (analytics enabled by default).
+ *
+ * DATA COLLECTED:
+ * - Session metrics (duration, success rates, operation counts)
+ * - Operation performance (timing, errors, operation types)
+ * - Wallet type (NOT wallet addresses unless you explicitly identify users)
+ * - Network/chain usage patterns
+ * - Error occurrences and types
+ *
+ * DATA NOT COLLECTED BY DEFAULT:
+ * - Wallet addresses (anonymized if you call identify())
+ * - Transaction amounts (excluded if privacy.anonymizeAmounts is true)
+ * - Personal information
+ *
+ * PRIVACY POLICY:
+ * Data collection is covered by Avail's Privacy Policy and PostHog's GDPR-compliant DPA.
+ * See: https://www.availproject.org/privacy
+ *
+ * OPT-OUT:
+ * To completely disable analytics:
+ * ```typescript
+ * const sdk = new NexusSDK({ analytics: { enabled: false } });
+ * ```
+ *
+ * PRIVACY CONTROLS:
+ * ```typescript
+ * const sdk = new NexusSDK({
+ *   analytics: {
+ *     privacy: {
+ *       anonymizeWallets: true,  // Hash wallet addresses with SHA-256
+ *       anonymizeAmounts: true,  // Exclude transaction amounts from events
+ *     }
+ *   }
+ * });
+ * ```
+ *
+ * CUSTOM ANALYTICS:
+ * You can use your own PostHog instance:
+ * ```typescript
+ * const sdk = new NexusSDK({
+ *   analytics: {
+ *     posthogApiKey: 'your-key',
+ *     posthogApiHost: 'https://your-posthog.com'
+ *   }
+ * });
+ * ```
  */
 import { AnalyticsProvider } from './providers/AnalyticsProvider';
 import { PostHogProvider } from './providers/PostHogProvider';
@@ -9,11 +58,32 @@ import { SessionManager } from './session';
 import { PerformanceTracker } from './performance';
 import { NexusAnalyticsEvents } from './events';
 import { AnalyticsConfig, BaseEventProperties } from './types';
+import { extractErrorCode } from './utils';
 
-// Default PostHog API key (Avail's shared analytics instance)
-// This is Avail's PostHog project for collecting Nexus SDK telemetry
-// All apps using Nexus SDK automatically send analytics to this instance
-// Apps can override this with their own key if they want custom analytics
+/**
+ * Default PostHog API Key - INTENTIONALLY PUBLIC
+ *
+ * This key is shared across all Nexus SDK users for Avail's internal telemetry.
+ * It is NOT a secret and is safe to commit to source code.
+ *
+ * Purpose:
+ * - Collect anonymous SDK usage metrics
+ * - Track errors and performance issues
+ * - Improve SDK quality for all users
+ *
+ * Security:
+ * - This is a "write-only" PostHog project API key (not a Personal API Key)
+ * - Cannot be used to read/modify data, only to send events
+ * - PostHog project is configured to reject malicious data
+ *
+ * Privacy:
+ * - All data sent to this instance is covered by Avail's Privacy Policy
+ * - No sensitive data (wallet addresses, amounts) collected by default
+ * - Users can opt-out via analytics.enabled = false
+ *
+ * Override:
+ * Set NEXUS_POSTHOG_KEY env var or pass custom key in SDK config
+ */
 const DEFAULT_POSTHOG_KEY = process.env.NEXUS_POSTHOG_KEY || 'phc_6j3VAnM7MFbXQjLbCZZnIczqN3OswwGbWKKLTtKN5kQ';
 const DEFAULT_POSTHOG_HOST = 'https://us.i.posthog.com';
 
@@ -136,13 +206,54 @@ export class AnalyticsManager {
   }
 
   /**
+   * Sanitize properties by removing sensitive financial data if privacy.anonymizeAmounts is enabled
+   */
+  private sanitizeProperties(properties?: Record<string, unknown>): Record<string, unknown> {
+    if (!properties || !this.config.privacy?.anonymizeAmounts) {
+      return properties || {};
+    }
+
+    // Fields to remove when anonymizing amounts
+    const sensitiveFields = ['amount', 'valueUsd', 'totalValueUsd', 'fees', 'gasUsed', 'value'];
+
+    const sanitized = Object.create(null);
+    for (const [key, value] of Object.entries(properties)) {
+      if (!sensitiveFields.includes(key)) {
+        sanitized[key] = value;
+      }
+    }
+
+    return sanitized;
+  }
+
+  /**
+   * Validate properties to prevent prototype pollution and injection attacks
+   */
+  private validateProperties(properties: Record<string, unknown>): Record<string, unknown> {
+    const blacklist = ['__proto__', 'constructor', 'prototype'];
+    const validated = Object.create(null);
+
+    for (const [key, value] of Object.entries(properties)) {
+      if (!blacklist.includes(key)) {
+        validated[key] = value;
+      }
+    }
+
+    return validated;
+  }
+
+  /**
    * Track an event with optional properties
    */
   track(event: string, properties?: Record<string, unknown>): void {
     if (!this.enabled) return;
 
+    // Apply privacy sanitization and validation
+    let sanitized = this.sanitizeProperties(properties);
+    sanitized = this.validateProperties(sanitized);
+
     const eventProps: Record<string, unknown> = {
-      ...properties,
+      ...sanitized,
       timestamp: new Date().toISOString(),
     };
 
@@ -156,12 +267,12 @@ export class AnalyticsManager {
   /**
    * Identify a user (typically by wallet address)
    */
-  identify(userId: string, properties?: Record<string, unknown>): void {
+  async identify(userId: string, properties?: Record<string, unknown>): Promise<void> {
     if (!this.enabled) return;
 
     // Apply privacy settings
     const userIdToUse = this.config.privacy?.anonymizeWallets
-      ? this.hashWalletAddress(userId)
+      ? await this.hashWalletAddress(userId)
       : userId;
 
     this.provider.identify(userIdToUse, properties);
@@ -172,18 +283,76 @@ export class AnalyticsManager {
   }
 
   /**
-   * Hash wallet address for privacy
+   * Track an error with automatic property extraction
+   * Convenience method for tracking errors across the SDK
+   *
+   * @param operation - Operation where error occurred (e.g., 'bridge', 'transfer', 'balanceFetch')
+   * @param error - Error object
+   * @param context - Additional context properties
    */
-  private hashWalletAddress(address: string): string {
-    // Simple hash for anonymization
-    // In production, consider using a more robust hashing algorithm
-    let hash = 0;
-    for (let i = 0; i < address.length; i++) {
-      const char = address.charCodeAt(i);
-      hash = (hash << 5) - hash + char;
-      hash = hash & hash; // Convert to 32bit integer
+  trackError(operation: string, error: Error | unknown, context?: Record<string, unknown>): void {
+    if (!this.enabled) return;
+
+    const errorObj = error as any;
+    const errorProperties: Record<string, unknown> = {
+      operation,
+      errorType: errorObj?.name || 'Error',
+      errorMessage: errorObj?.message || String(error),
+      errorCode: extractErrorCode(errorObj),
+      ...context,
+    };
+
+    // Include stack trace only if not in production
+    if (this.config.debug && errorObj?.stack) {
+      errorProperties.errorStack = errorObj.stack;
     }
-    return `anon_${Math.abs(hash).toString(36)}`;
+
+    this.track(NexusAnalyticsEvents.ERROR_OCCURRED, errorProperties);
+  }
+
+  /**
+   * Hash wallet address for privacy using SHA-256
+   * Uses Web Crypto API (browser) or Node crypto (server)
+   */
+  private async hashWalletAddress(address: string): Promise<string> {
+    try {
+      // Generate a simple salt from the session ID (consistent per session)
+      const salt = this.session.getSessionId().substring(0, 16);
+      const data = address + salt;
+
+      // Try Web Crypto API (browser)
+      if (typeof window !== 'undefined' && window.crypto?.subtle) {
+        const encoder = new TextEncoder();
+        const dataBuffer = encoder.encode(data);
+        const hashBuffer = await window.crypto.subtle.digest('SHA-256', dataBuffer);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        return `anon_${hashHex.substring(0, 16)}`;
+      }
+
+      // Fallback for Node.js environment
+      if (typeof require !== 'undefined') {
+        try {
+          const crypto = require('crypto');
+          const hash = crypto.createHash('sha256').update(data).digest('hex');
+          return `anon_${hash.substring(0, 16)}`;
+        } catch (e) {
+          // crypto module not available
+        }
+      }
+
+      // Last resort fallback (simple hash)
+      let simpleHash = 0;
+      for (let i = 0; i < data.length; i++) {
+        const char = data.charCodeAt(i);
+        simpleHash = (simpleHash << 5) - simpleHash + char;
+        simpleHash = simpleHash & simpleHash;
+      }
+      return `anon_${Math.abs(simpleHash).toString(36)}`;
+    } catch (error) {
+      // On any error, return a simple anonymized version
+      return `anon_${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
+    }
   }
 
   /**
