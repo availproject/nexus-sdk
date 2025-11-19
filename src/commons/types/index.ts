@@ -654,6 +654,17 @@ export type UserAssetDatum = {
   symbol: string;
 };
 
+export type SwapBalance = {
+  amount: string;
+  chainID: number;
+  decimals: number;
+  symbol: string;
+  tokenAddress: `0x${string}`;
+  universe: Universe;
+  value: number;
+  logo: string;
+};
+
 export type {
   OnIntentHook,
   OnAllowanceHookData,
