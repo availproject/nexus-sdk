@@ -725,7 +725,9 @@ export const toFlatBalance = (
   return assets
     .map((a) =>
       a.breakdown.map((b) => {
-        const tokenAddress = b.contractAddress === ZERO_ADDRESS ? EADDRESS : b.contractAddress;
+        const tokenAddress = equalFold(b.contractAddress, ZERO_ADDRESS)
+          ? EADDRESS
+          : b.contractAddress;
         return {
           amount: b.balance,
           chainID: b.chain.id,
@@ -1080,7 +1082,7 @@ export const getAllowanceCacheKey = ({
 export const getSetCodeKey = (input: SetCodeInput) =>
   ('a' + input.chainID + input.address).toLowerCase();
 
-export const getTxsFromQuote = (
+export const parseQuote = (
   input: {
     agg: Aggregator;
     originalHolding: Holding & { decimals: number; symbol: string };
@@ -1097,22 +1099,26 @@ export const getTxsFromQuote = (
     const originalResponse = (input.quote as LiFiQuote).originalResponse;
     const tx = originalResponse.transactionRequest;
     const val = {
-      amount: input.quote.inputAmount,
-      approval: null as null | Tx,
       input: {
+        amount: input.quote.inputAmount,
         token: input.req.inputToken,
         decimals: input.originalHolding.decimals,
         symbol: input.originalHolding.symbol,
       },
-      outputAmount: input.quote.outputAmountMinimum,
+      output: {
+        amount: input.quote.outputAmountMinimum,
+      },
       swap: {
-        data: tx.data as Hex,
-        to: tx.to as Hex,
-        value: BigInt(tx.value),
+        approval: null as null | Tx,
+        tx: {
+          data: tx.data as Hex,
+          to: tx.to as Hex,
+          value: BigInt(tx.value),
+        },
       },
     };
     if (createApproval) {
-      val.approval = {
+      val.swap.approval = {
         data: packERC20Approve(
           originalResponse.estimate.approvalAddress as Hex,
           input.quote.inputAmount,
@@ -1135,22 +1141,24 @@ export const getTxsFromQuote = (
       'tx.outputAmount': input.quote.outputAmountMinimum,
     });
     const val = {
-      amount: input.quote.inputAmount,
-      approval: null as null | Tx,
       input: {
+        amount: input.quote.inputAmount,
         token: input.req.inputToken,
         decimals: input.originalHolding.decimals,
         symbol: input.originalHolding.symbol,
       },
-      outputAmount: input.quote.outputAmountMinimum,
+      output: { amount: input.quote.outputAmountMinimum },
       swap: {
-        data: tx.data,
-        to: tx.to,
-        value: BigInt(tx.value),
+        approval: null as null | Tx,
+        tx: {
+          data: tx.data,
+          to: tx.to,
+          value: BigInt(tx.value),
+        },
       },
     };
     if (createApproval) {
-      val.approval = {
+      val.swap.approval = {
         data: packERC20Approve(
           originalResponse.quote.approvalTarget as Hex,
           input.quote.inputAmount,
