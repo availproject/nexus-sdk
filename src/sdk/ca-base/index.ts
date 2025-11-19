@@ -10,7 +10,6 @@ export type {
   OnIntentHook,
   RequestArguments,
   RFF,
-  SDKConfig,
   UserAssetDatum as UserAsset,
   BridgeStepType,
   SwapStepType,

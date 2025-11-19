@@ -39,14 +39,11 @@ import { FUEL_BASE_ASSET_ID, isNativeAddress, ZERO_ADDRESS } from '../constants'
 import { getLogger, IBridgeOptions, SupportedChainsAndTokensResult } from '../../../commons';
 import {
   Intent,
-  Network,
   NetworkConfig,
   OraclePriceResponse,
   ReadableIntent,
-  SDKConfig,
   TokenInfo,
   ChainListType,
-  NexusNetwork,
   UserAssetDatum,
   Chain,
 } from '../../../commons';
@@ -524,29 +521,6 @@ const createDepositDoubleCheckTx = (
   };
 };
 
-const getSDKConfig = (c: { network?: NexusNetwork; debug?: boolean }): Required<SDKConfig> => {
-  const config = {
-    debug: c.debug ?? false,
-    network: Environment.CORAL as Network,
-  };
-
-  switch (c.network) {
-    case 'testnet': {
-      config.network = Environment.FOLLY;
-      break;
-    }
-    case 'mainnet': {
-      config.network = Environment.CORAL;
-      break;
-    }
-    case 'devnet': {
-      config.network = Environment.CERISE;
-    }
-  }
-
-  return config;
-};
-
 class UserAsset {
   get balance() {
     return this.value.balance;
@@ -932,7 +906,6 @@ export {
   evmWaitForFill,
   getExpiredIntents,
   getExplorerURL,
-  getSDKConfig,
   getSupportedChains,
   hexTo0xString,
   minutesToMs,
