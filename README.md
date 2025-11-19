@@ -384,6 +384,91 @@ import type {
 
 ---
 
+## 📊 Analytics
+
+The Nexus SDK includes **built-in analytics** powered by PostHog to help improve the SDK and understand usage patterns. Analytics are **enabled by default** but can be easily customized or disabled.
+
+### Default Behavior
+
+By default, the SDK sends anonymous telemetry data to Avail's PostHog instance:
+- SDK initialization events
+- Operation performance metrics
+- Session duration and success rates
+- Error tracking (without sensitive data)
+
+**No wallet addresses or transaction amounts** are collected unless you explicitly configure custom analytics.
+
+### Disabling Analytics
+
+```typescript
+const sdk = new NexusSDK({
+  network: 'mainnet',
+  analytics: { enabled: false }
+});
+```
+
+### Privacy Controls
+
+```typescript
+const sdk = new NexusSDK({
+  network: 'mainnet',
+  analytics: {
+    enabled: true,
+    privacy: {
+      anonymizeWallets: true,  // Hash wallet addresses
+      anonymizeAmounts: true,  // Exclude transaction amounts
+    }
+  }
+});
+```
+
+### Custom Analytics (BYO PostHog)
+
+You can use your own PostHog instance for custom analytics:
+
+```typescript
+const sdk = new NexusSDK({
+  network: 'mainnet',
+  analytics: {
+    enabled: true,
+    posthogApiKey: 'your-posthog-key',
+    posthogApiHost: 'https://your-posthog-instance.com',
+    appMetadata: {
+      appName: 'My DApp',
+      appVersion: '1.0.0',
+      appUrl: 'https://mydapp.com'
+    }
+  }
+});
+```
+
+### Accessing Analytics Programmatically
+
+```typescript
+// Track custom events
+sdk.analytics.track('custom_event', { foo: 'bar' });
+
+// Identify users
+sdk.analytics.identify('user-id', { plan: 'premium' });
+
+// Check if analytics is enabled
+if (sdk.analytics.isEnabled()) {
+  console.log('Analytics active');
+}
+
+// Disable analytics at runtime
+sdk.analytics.disable();
+
+// Re-enable analytics
+sdk.analytics.enable();
+```
+
+### Bundle Size Impact
+
+Adding PostHog analytics increases the bundle size by approximately **~50KB gzipped**. The analytics code is tree-shakeable, so if you don't use it, it won't significantly impact your bundle.
+
+---
+
 ## 🌐 Supported Networks
 
 ### Mainnets

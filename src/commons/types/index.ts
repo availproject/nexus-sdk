@@ -654,6 +654,47 @@ export type UserAssetDatum = {
   symbol: string;
 };
 
+/**
+ * Analytics configuration options
+ */
+export interface AnalyticsConfig {
+  /** Enable or disable analytics tracking (default: true) */
+  enabled?: boolean;
+
+  /**
+   * PostHog API key (optional - uses Avail's default key if not provided)
+   * By default, all SDK telemetry goes to Avail's PostHog instance
+   * You can override this with your own key for custom analytics
+   */
+  posthogApiKey?: string;
+
+  /**
+   * PostHog API host (optional - uses Avail's PostHog instance by default)
+   */
+  posthogApiHost?: string;
+
+  /** Application metadata */
+  appMetadata?: {
+    appName?: string;
+    appVersion?: string;
+    appUrl?: string;
+  };
+
+  /** Privacy options */
+  privacy?: {
+    /** Anonymize wallet addresses by hashing */
+    anonymizeWallets?: boolean;
+    /** Exclude transaction amounts from analytics */
+    anonymizeAmounts?: boolean;
+  };
+
+  /** Enable session recording (default: false) */
+  sessionRecording?: boolean;
+
+  /** Enable debug logging (default: false) */
+  debug?: boolean;
+}
+
 export type {
   OnIntentHook,
   OnAllowanceHookData,

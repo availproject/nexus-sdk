@@ -25,18 +25,35 @@ import type {
   OnEventParam,
   BridgeMaxResult,
   OnSwapIntentHook,
+  AnalyticsConfig,
 } from '../commons';
 import { logger } from '../commons';
 import { CA } from './ca-base';
+import { AnalyticsManager } from '../analytics/AnalyticsManager';
+import { NexusAnalyticsEvents } from '../analytics/events';
 // import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 
 export class NexusSDK extends CA {
   public readonly utils: NexusUtils;
+  public readonly analytics: AnalyticsManager;
 
-  constructor(config?: { network?: NexusNetwork; debug?: boolean }) {
+  constructor(config?: { network?: NexusNetwork; debug?: boolean; analytics?: AnalyticsConfig }) {
     super(config);
     logger.debug('Nexus SDK initialized with config:', config);
     this.utils = new NexusUtils(this.chainList);
+
+    // Initialize analytics (backwards compatible - enabled by default)
+    this.analytics = new AnalyticsManager(
+      config?.analytics,
+      '1.0.0-beta.35', // SDK version from package.json
+      config?.network === 'mainnet' ? 'mainnet' : 'testnet'
+    );
+
+    // Track SDK initialization
+    this.analytics.track(NexusAnalyticsEvents.SDK_INITIALIZED, {
+      network: config?.network || 'testnet',
+      debug: config?.debug || false,
+    });
   }
 
   /**
