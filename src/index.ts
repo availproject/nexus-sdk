@@ -50,3 +50,17 @@ export {
 
 // Re-export everything from commons (includes constants, utils, and types)
 export * from './commons';
+
+// Analytics exports
+export { AnalyticsManager } from './analytics/AnalyticsManager';
+export { NexusAnalyticsEvents } from './analytics/events';
+export type {
+  AnalyticsProvider,
+  BaseEventProperties,
+  WalletProperties,
+  TransactionProperties,
+  ErrorProperties,
+  PerformanceProperties,
+  SessionProperties,
+  BalanceProperties,
+} from './analytics/types';
