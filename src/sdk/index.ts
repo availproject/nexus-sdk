@@ -28,7 +28,7 @@ import type {
 } from '../commons';
 import { logger } from '../commons';
 import { CA } from './ca-base';
-import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
+// import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 
 export class NexusSDK extends CA {
   public readonly utils: NexusUtils;
@@ -48,7 +48,8 @@ export class NexusSDK extends CA {
   }
 
   /**
-   * Get unified balances across all chains
+   * @deprecated use `getBalancesForBridge` for direct replacement.
+   * @returns unified balances across all chains
    */
   public async getUnifiedBalances(includeSwappableBalances = false): Promise<UserAsset[]> {
     return this._getUnifiedBalances(includeSwappableBalances);
@@ -143,9 +144,9 @@ export class NexusSDK extends CA {
     this._setOnSwapIntentHook(callback);
   }
 
-  public addTron(adapter: AdapterProps) {
-    this._setTronAdapter(adapter);
-  }
+  // public addTron(adapter: AdapterProps) {
+  //   this._setTronAdapter(adapter);
+  // }
 
   /**
    * Set callback for allowance approval events
@@ -178,7 +179,7 @@ export class NexusSDK extends CA {
 
   /**
    * Enhanced bridge and execute function with optional execute step and improved error handling
-   * @param params Enhanced bridge and execute parameters
+   * @param params bridge and execute parameters
    * @returns Promise resolving to comprehensive operation result
    */
   public async bridgeAndExecute(
@@ -200,10 +201,24 @@ export class NexusSDK extends CA {
     return this._simulateBridgeAndExecute(params);
   }
 
+  /**
+   * tokens returned here should be used in `input` for exact in swap
+   * @returns balances that can be used in swap operations
+   */
   public getBalancesForSwap() {
     return this._getBalancesForSwap();
   }
 
+  /**
+   * @returns balances that can be used in bridge operations
+   */
+  public getBalancesForBridge() {
+    return this._getUnifiedBalances(false);
+  }
+
+  /**
+   * @returns list of chains where swap is supported
+   */
   public getSwapSupportedChains(): SupportedChainsResult {
     return this._getSwapSupportedChains();
   }

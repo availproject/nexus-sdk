@@ -15,7 +15,7 @@ import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import Decimal from 'decimal.js';
 import { orderBy, retry } from 'es-toolkit';
 import Long from 'long';
-import { Hex, PrivateKeyAccount, toBytes, WalletClient } from 'viem';
+import { Hex, PrivateKeyAccount, WalletClient } from 'viem';
 import { getLogger, SWAP_STEPS, SwapStepType } from '../../../commons';
 import { divDecimals, equalFold, minutesToMs, waitForTxReceipt } from '../utils';
 import { EADDRESS, SWEEPER_ADDRESS } from './constants';
@@ -996,18 +996,6 @@ class SourceSwapsHandler {
 }
 
 class Swap {
-  txs: {
-    amount: bigint;
-    approval: null | Tx;
-    inputToken: Bytes;
-    outputAmount: bigint;
-    outputToken: Bytes;
-    swap: {
-      data: Hex;
-      to: Hex;
-      value: bigint;
-    };
-  } | null = null;
   constructor(public input: SwapInput) {}
 
   getMetadata() {
@@ -1017,6 +1005,7 @@ class Swap {
       Number(this.input.req.chain.chainID),
       this.input.req.outputToken,
     );
+
     return {
       agg: 1,
       input_amt: convertTo32Bytes(this.input.req.inputAmount),
