@@ -1,0 +1,192 @@
+/**
+ * Analytics Utility Functions
+ * Helper functions for extracting analytics properties from SDK data structures
+ */
+
+/**
+ * Detect wallet type from provider
+ * @param provider - Ethereum provider object
+ * @returns Wallet type string (MetaMask, Coinbase, WalletConnect, etc.)
+ */
+export function getWalletType(provider: any): string {
+  if (!provider) return 'Unknown';
+
+  // Check for common wallet provider flags
+  if (provider.isMetaMask) return 'MetaMask';
+  if (provider.isCoinbaseWallet) return 'Coinbase Wallet';
+  if (provider.isWalletConnect) return 'WalletConnect';
+  if (provider.isTrust) return 'Trust Wallet';
+  if (provider.isRabby) return 'Rabby';
+  if (provider.isBraveWallet) return 'Brave Wallet';
+  if (provider.isExodus) return 'Exodus';
+
+  // Try to get from constructor name
+  if (provider.constructor?.name && provider.constructor.name !== 'Object') {
+    return provider.constructor.name;
+  }
+
+  // Check for provider session (WalletConnect v2)
+  if (provider.session) return 'WalletConnect v2';
+
+  return 'Unknown';
+}
+
+/**
+ * Calculate USD value from token amount and oracle prices
+ * @param token - Token symbol (e.g., 'USDC', 'ETH')
+ * @param amount - Token amount as bigint or string
+ * @param oraclePrices - Oracle price data (if available)
+ * @returns USD value or undefined if cannot calculate
+ */
+export function calculateUsdValue(
+  token: string,
+  amount: bigint | string | number,
+  oraclePrices?: Record<string, number>
+): number | undefined {
+  if (!oraclePrices || !oraclePrices[token]) {
+    return undefined;
+  }
+
+  try {
+    // Convert amount to number (handle bigint, string, number)
+    let numericAmount: number;
+    if (typeof amount === 'bigint') {
+      // Assuming 6 decimals for most stablecoins, 18 for ETH
+      // This is a simplification - real implementation should know token decimals
+      const decimals = token === 'ETH' ? 18 : 6;
+      numericAmount = Number(amount) / Math.pow(10, decimals);
+    } else if (typeof amount === 'string') {
+      numericAmount = parseFloat(amount);
+    } else {
+      numericAmount = amount;
+    }
+
+    const price = oraclePrices[token];
+    return numericAmount * price;
+  } catch (error) {
+    return undefined;
+  }
+}
+
+/**
+ * Extract analytics properties from bridge/transfer intent
+ * @param intent - Intent object from CA SDK
+ * @returns Object with sourceChains, totalBreakdowns, and other properties
+ */
+export function extractIntentProperties(intent: any): Record<string, unknown> {
+  if (!intent) return {};
+
+  const props: Record<string, unknown> = {};
+
+  // Extract source chains
+  if (intent.sources && Array.isArray(intent.sources)) {
+    props.sourceChains = intent.sources.map((s: any) => s.chainID || s.chain?.id).filter(Boolean);
+    props.totalBreakdowns = intent.sources.length;
+  }
+
+  // Extract destination chain
+  if (intent.destination) {
+    props.destinationChainId = intent.destination.chainID || intent.destination.chain?.id;
+  }
+
+  // Extract token info
+  if (intent.token) {
+    props.token = intent.token.symbol || intent.token;
+  }
+
+  // Extract amount
+  if (intent.amount !== undefined) {
+    props.amount = intent.amount.toString();
+  }
+
+  // Extract fees if available
+  if (intent.fees) {
+    props.fees = intent.fees;
+  }
+
+  return props;
+}
+
+/**
+ * Extract breakdown statistics from balance assets
+ * @param assets - Array of user assets from balance query
+ * @returns Object with totalBreakdowns, chains, and tokens
+ */
+export function extractBreakdownStats(assets: any[]): {
+  totalBreakdowns: number;
+  chains: number[];
+  tokens: string[];
+  balanceCount: number;
+} {
+  if (!Array.isArray(assets) || assets.length === 0) {
+    return {
+      totalBreakdowns: 0,
+      chains: [],
+      tokens: [],
+      balanceCount: 0
+    };
+  }
+
+  const chains = new Set<number>();
+  const tokens = new Set<string>();
+  let totalBreakdowns = 0;
+
+  for (const asset of assets) {
+    // Count breakdowns
+    if (asset.breakdown && Array.isArray(asset.breakdown)) {
+      totalBreakdowns += asset.breakdown.length;
+
+      // Extract chains and tokens from breakdowns
+      for (const breakdown of asset.breakdown) {
+        if (breakdown.chain?.id) {
+          chains.add(breakdown.chain.id);
+        }
+      }
+    }
+
+    // Extract token symbol
+    if (asset.symbol) {
+      tokens.add(asset.symbol);
+    }
+  }
+
+  return {
+    totalBreakdowns,
+    chains: Array.from(chains),
+    tokens: Array.from(tokens),
+    balanceCount: assets.length
+  };
+}
+
+/**
+ * Sanitize URL to remove query parameters and sensitive data
+ * @param url - URL string
+ * @returns Sanitized URL without query params
+ */
+export function sanitizeUrl(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+
+  try {
+    const urlObj = new URL(url);
+    // Return URL without search params
+    return `${urlObj.origin}${urlObj.pathname}`;
+  } catch (error) {
+    // If URL parsing fails, just return the origin if it looks like a URL
+    if (url.startsWith('http')) {
+      return url.split('?')[0];
+    }
+    return undefined;
+  }
+}
+
+/**
+ * Extract error code from error object
+ * @param error - Error object
+ * @returns Error code or undefined
+ */
+export function extractErrorCode(error: any): string | number | undefined {
+  if (!error) return undefined;
+
+  // Common error code locations
+  return error.code || error.errorCode || error.statusCode || undefined;
+}

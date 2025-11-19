@@ -32,3 +32,11 @@ export type { AnalyticsProvider as IAnalyticsProvider } from './providers/Analyt
 // Utilities (for advanced usage)
 export { SessionManager } from './session';
 export { PerformanceTracker } from './performance';
+export {
+  getWalletType,
+  calculateUsdValue,
+  extractIntentProperties,
+  extractBreakdownStats,
+  sanitizeUrl,
+  extractErrorCode,
+} from './utils';
