@@ -292,7 +292,7 @@ class BridgeHandler {
 }
 
 class DestinationSwapHandler {
-  private destinationCalls: Tx[] = [];
+  private eoaToEphCalls: Tx[] = [];
   constructor(
     private data: SwapRoute['destination'],
     private dstTokenInfo: {
@@ -353,7 +353,7 @@ class DestinationSwapHandler {
         publicClient: this.options.publicClientList.get(this.dst.chainID),
         spender: this.options.address.ephemeral,
       });
-      this.destinationCalls = this.destinationCalls.concat(txs);
+      this.eoaToEphCalls = txs;
     }
   }
 
@@ -376,7 +376,7 @@ class DestinationSwapHandler {
       try {
         await this.executeSwap(metadata);
       } catch (retryError) {
-        logger.error('Destination swap failed after single retry.', {
+        logger.error('Destination swap failed even after retry.', {
           error: (retryError as Error)?.message ?? retryError,
         });
         throw retryError;
@@ -391,39 +391,48 @@ class DestinationSwapHandler {
     await this.requoteIfRequired(false);
 
     const { swap } = this.data;
-    const quote = parseQuote(
-      {
-        agg: swap.aggregator,
-        originalHolding: swap.originalHolding,
-        quote: swap.quote!,
-        req: swap.req,
-      },
-      true,
-    );
 
-    if (quote.swap.approval) {
-      this.destinationCalls.push(quote.swap.approval);
+    let calls: Tx[] = [];
+
+    if (this.eoaToEphCalls.length > 0) {
+      calls = calls.concat(this.eoaToEphCalls);
     }
-    this.destinationCalls.push(quote.swap.tx);
 
-    logger.debug('swap:destinationCalls', {
-      destinationCalls: this.destinationCalls,
-    });
+    if (swap.quote) {
+      const quote = parseQuote(
+        {
+          agg: swap.aggregator,
+          originalHolding: swap.originalHolding,
+          quote: swap.quote,
+          req: swap.req,
+        },
+        true,
+      );
 
-    metadata.dst.swaps.push({
-      agg: 0,
-      input_amt: toBytes(quote.input.amount),
-      input_contract: swap.req.inputToken,
-      input_decimals: swap.dstChainCOT.decimals,
-      output_amt: convertTo32Bytes(this.dst.amount ?? 0),
-      output_contract: convertTo32Bytes(this.dst.token),
-      output_decimals: this.dstTokenInfo.decimals,
-    });
+      if (quote.swap.approval) {
+        calls.push(quote.swap.approval);
+      }
+      calls.push(quote.swap.tx);
 
-    this.options.emitter.emit(SWAP_STEPS.DESTINATION_SWAP_BATCH_TX(false));
+      logger.debug('swap:destinationCalls', {
+        destinationCalls: calls,
+      });
+
+      metadata.dst.swaps.push({
+        agg: 0,
+        input_amt: convertTo32Bytes(quote.input.amount),
+        input_contract: swap.req.inputToken,
+        input_decimals: swap.dstChainCOT.decimals,
+        output_amt: convertTo32Bytes(this.dst.amount ?? 0),
+        output_contract: convertTo32Bytes(this.dst.token),
+        output_decimals: this.dstTokenInfo.decimals,
+      });
+
+      this.options.emitter.emit(SWAP_STEPS.DESTINATION_SWAP_BATCH_TX(false));
+    }
 
     // Add sweeper tx
-    this.destinationCalls = this.destinationCalls.concat(
+    calls = calls.concat(
       createSweeperTxs({
         cache: this.options.cache,
         chainID: this.dst.chainID,
@@ -438,7 +447,7 @@ class DestinationSwapHandler {
     const hash = await performDestinationSwap({
       actualAddress: this.options.address.eoa,
       cache: this.options.cache,
-      calls: this.destinationCalls,
+      calls,
       chain: this.options.chainList.getChainByID(this.dst.chainID)!,
       chainList: this.options.chainList,
       COT: this.options.cot.currencyID,
@@ -464,6 +473,13 @@ class DestinationSwapHandler {
    * If `force` = true, always requote regardless of expiry check.
    */
   private async requoteIfRequired(force = false) {
+    // There wasn't any quote to begin with so nothing to requote.
+    // Happens when dst token is COT, just need to send from ephemeral -> EOA
+    // Maybe FIXME: Bridge can directly send to EOA in these cases - save gas.
+    if (!this.data.swap.quote) {
+      return;
+    }
+
     const { swap } = this.data;
     let requote = force;
 
@@ -495,6 +511,10 @@ class DestinationSwapHandler {
       'swap.max': swap.inputAmount.max.toFixed(),
     });
 
+    // EXACT_IN:  min and max are same and input doesnt change so dont check here,
+    // In source swap failure cases it might have an issue. FIXME
+    // EXACT_OUT: min is the actual amount required so as long as it is within the range
+    // of previous [max, min] it should be executable.
     if (
       !isExactIn &&
       !(
