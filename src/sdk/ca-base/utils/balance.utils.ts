@@ -1,5 +1,11 @@
 import { Environment } from '@avail-project/ca-common';
-import { ChainListType, logger, SUPPORTED_CHAINS, UserAssetDatum } from '../../../commons';
+import {
+  ChainListType,
+  logger,
+  SUPPORTED_CHAINS,
+  SwapBalance,
+  UserAssetDatum,
+} from '../../../commons';
 import {
   equalFold,
   getEVMBalancesForAddress,
@@ -34,7 +40,10 @@ let balanceCache = {
   value: {} as { [k: string]: { data: UserAssetDatum[]; lastUpdatedAt: number } },
 };
 
-export const getBalancesForSwap = async (input: { evmAddress: Hex; chainList: ChainListType }) => {
+export const getBalancesForSwap = async (input: {
+  evmAddress: Hex;
+  chainList: ChainListType;
+}): Promise<SwapBalance[]> => {
   const assets = balancesToAssets(
     false,
     await getAnkrBalances(input.evmAddress, input.chainList, true),

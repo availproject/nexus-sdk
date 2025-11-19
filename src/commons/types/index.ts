@@ -654,7 +654,7 @@ export type UserAssetDatum = {
   symbol: string;
 };
 
-export type SwapBalance = {
+type SwapBalance = {
   amount: string;
   chainID: number;
   decimals: number;
@@ -683,4 +683,5 @@ export type {
   SetAllowanceInput,
   FormatTokenBalanceOptions,
   FormattedParts,
+  SwapBalance,
 };

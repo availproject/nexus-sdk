@@ -25,7 +25,6 @@ import type {
   OnEventParam,
   BridgeMaxResult,
   OnSwapIntentHook,
-  SwapBalance,
 } from '../commons';
 import { logger } from '../commons';
 import { CA } from './ca-base';
@@ -206,7 +205,7 @@ export class NexusSDK extends CA {
    * tokens returned here should be used in `input` for exact in swap
    * @returns balances that can be used in swap operations
    */
-  public getBalancesForSwap(): Promise<SwapBalance[]> {
+  public getBalancesForSwap() {
     return this._getBalancesForSwap();
   }
 
