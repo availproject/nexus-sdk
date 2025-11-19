@@ -35,7 +35,6 @@ import {
   NexusNetwork,
   OnAllowanceHook,
   OnIntentHook,
-  SDKConfig,
   SwapMode,
   SwapParams,
   BridgeAndExecuteParams,
@@ -47,7 +46,6 @@ import {
 import {
   cosmosFeeGrant,
   fetchMyIntents,
-  getSDKConfig,
   getSupportedChains,
   minutesToMs,
   refundExpiredIntents,
@@ -92,7 +90,6 @@ export class CA {
   };
   #ephemeralWallet?: PrivateKeyAccount;
   public chainList: ChainListType;
-  protected _config: Required<SDKConfig>;
   protected _evm?: {
     client: Client<CustomTransport, undefined, undefined, undefined, WalletActions & PublicActions>;
     provider: EthereumProvider;
@@ -126,14 +123,13 @@ export class CA {
   protected constructor(
     config: { network?: NexusNetwork; debug?: boolean } = { debug: false, network: 'testnet' },
   ) {
-    this._config = getSDKConfig(config);
-    this._networkConfig = getNetworkConfig(this._config.network);
+    this._networkConfig = getNetworkConfig(config.network);
     this.chainList = new ChainList(this._networkConfig.NETWORK_HINT);
     this.simulationClient = createBackendSimulationClient({
       baseUrl: 'https://nexus-backend.avail.so',
     });
 
-    if (this._config.debug) {
+    if (config.debug) {
       setLogLevel(LOG_LEVEL.DEBUG);
     }
   }
