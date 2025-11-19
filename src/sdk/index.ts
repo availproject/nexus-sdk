@@ -202,6 +202,7 @@ export class NexusSDK extends CA {
   }
 
   /**
+   * tokens returned here should be used in `input` for exact in swap
    * @returns balances that can be used in swap operations
    */
   public getBalancesForSwap() {
@@ -216,7 +217,7 @@ export class NexusSDK extends CA {
   }
 
   /**
-   * Get list of chains where swap is supported
+   * @returns list of chains where swap is supported
    */
   public getSwapSupportedChains(): SupportedChainsResult {
     return this._getSwapSupportedChains();
