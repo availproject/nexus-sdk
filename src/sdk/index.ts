@@ -206,8 +206,8 @@ export class NexusSDK extends CA {
    * tokens returned here should be used in `input` for exact in swap
    * @returns balances that can be used in swap operations
    */
-  public getBalancesForSwap(flat: true): Promise<UserAsset[]>;
-  public getBalancesForSwap(flat?: false): Promise<FlatBalance[]>;
+  public getBalancesForSwap(flat: true): Promise<FlatBalance[]>;
+  public getBalancesForSwap(flat?: false): Promise<UserAsset[]>;
   public async getBalancesForSwap(flat: boolean = false) {
     const result = await this._getBalancesForSwap();
     if (flat) {
