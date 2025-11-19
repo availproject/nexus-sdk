@@ -70,6 +70,14 @@ export const NexusAnalyticsEvents = {
   EXECUTE_TRANSACTION_SUCCESS: 'nexus_execute_transaction_success',
   EXECUTE_TRANSACTION_FAILED: 'nexus_execute_transaction_failed',
 
+  // Bridge and Execute Operations
+  BRIDGE_AND_EXECUTE_SIMULATION_STARTED: 'nexus_bridge_and_execute_simulation_started',
+  BRIDGE_AND_EXECUTE_SIMULATION_SUCCESS: 'nexus_bridge_and_execute_simulation_success',
+  BRIDGE_AND_EXECUTE_SIMULATION_FAILED: 'nexus_bridge_and_execute_simulation_failed',
+  BRIDGE_AND_EXECUTE_INITIATED: 'nexus_bridge_and_execute_initiated',
+  BRIDGE_AND_EXECUTE_TRANSACTION_SUCCESS: 'nexus_bridge_and_execute_transaction_success',
+  BRIDGE_AND_EXECUTE_TRANSACTION_FAILED: 'nexus_bridge_and_execute_transaction_failed',
+
   // Error Events
   ERROR_OCCURRED: 'nexus_error_occurred',
   API_ERROR: 'nexus_api_error',
