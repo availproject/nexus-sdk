@@ -95,9 +95,7 @@ class BridgeAndExecuteQuery {
           chainId: dstChain.id,
           tokenAddress: token.contractAddress,
           tokenSymbol: execute.tokenApproval?.token ?? 'ETH',
-        }).then(({ gasUsed }) => ({
-          gasUsed: percentageAdditionToBigInt(gasUsed, 0.1),
-        }));
+        });
 
     const determineGasFee = params.execute.gasPrice
       ? Promise.resolve({
@@ -130,7 +128,7 @@ class BridgeAndExecuteQuery {
       });
     }
 
-    const gasFee = gasUsed * (gasPrice + l1Fee);
+    const gasFee = percentageAdditionToBigInt(gasUsed, 0.3) * (gasPrice + l1Fee);
 
     logger.debug('BridgeAndExecute:3', {
       gasUsed,
