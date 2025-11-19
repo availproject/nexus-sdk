@@ -620,20 +620,17 @@ export const getAnkrBalances = async (
       totalBalanceUsd: string;
       totalCount: number;
     };
-  }>(
-    'https://rpc.ankr.com/multichain/269e541dd5773dac3204831e29b9538284dd3e9591d2b7cb2ac47d85eae213b9/',
-    {
-      id: Decimal.random(2).mul(100).toNumber(),
-      jsonrpc: '2.0',
-      method: 'ankr_getAccountBalance',
-      params: {
-        blockchain: chainList.getAnkrNameList(),
-        onlyWhitelisted: true,
-        pageSize: 500,
-        walletAddress: walletAddress,
-      },
+  }>('https://rpcs.avail.so/multichain', {
+    id: Decimal.random(2).mul(100).toNumber(),
+    jsonrpc: '2.0',
+    method: 'ankr_getAccountBalance',
+    params: {
+      blockchain: chainList.getAnkrNameList(),
+      onlyWhitelisted: true,
+      pageSize: 500,
+      walletAddress: walletAddress,
     },
-  );
+  });
   if (!res.data?.result) throw new Error('balances cannot be retrieved');
 
   const filteredAssets = res.data.result.assets.filter(

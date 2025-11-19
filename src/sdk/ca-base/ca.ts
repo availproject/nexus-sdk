@@ -134,7 +134,7 @@ export class CA {
     }
   }
 
-  protected createBridgeHandler = (input: BridgeParams, options?: OnEventParam) => {
+  protected _createBridgeHandler = (input: BridgeParams, options?: OnEventParam) => {
     if (!this._evm) {
       throw Errors.sdkNotInitialized();
     }
@@ -513,7 +513,7 @@ export class CA {
     const handler = new BridgeAndExecuteQuery(
       this.chainList,
       this._evm.client,
-      this.createBridgeHandler,
+      this._createBridgeHandler,
       this._getUnifiedBalances,
       this.simulationClient,
     );
@@ -521,7 +521,7 @@ export class CA {
     return handler.simulateBridgeAndExecute(params);
   }
 
-  protected _bridgeAndExecute(params: BridgeAndExecuteParams, options?: OnEventParam) {
+  protected _bridgeAndExecute = (params: BridgeAndExecuteParams, options?: OnEventParam) => {
     if (!this._evm) {
       throw Errors.sdkNotInitialized();
     }
@@ -529,13 +529,13 @@ export class CA {
     const handler = new BridgeAndExecuteQuery(
       this.chainList,
       this._evm.client,
-      this.createBridgeHandler,
+      this._createBridgeHandler,
       this._getUnifiedBalances,
       this.simulationClient,
     );
 
     return handler.bridgeAndExecute(params, options);
-  }
+  };
 
   protected async _execute(params: ExecuteParams, options?: OnEventParam) {
     if (!this._evm) {
@@ -545,7 +545,7 @@ export class CA {
     const handler = new BridgeAndExecuteQuery(
       this.chainList,
       this._evm.client,
-      this.createBridgeHandler,
+      this._createBridgeHandler,
       this._getUnifiedBalances,
       this.simulationClient,
     );
@@ -561,7 +561,7 @@ export class CA {
     const handler = new BridgeAndExecuteQuery(
       this.chainList,
       this._evm.client,
-      this.createBridgeHandler,
+      this._createBridgeHandler,
       this._getUnifiedBalances,
       this.simulationClient,
     );

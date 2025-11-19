@@ -59,7 +59,7 @@ export class NexusSDK extends CA {
    * Bridge to destination chain from auto-selected or provided source chains
    */
   public async bridge(params: BridgeParams, options?: OnEventParam): Promise<BridgeResult> {
-    const result = await this.createBridgeHandler(params, options).execute();
+    const result = await this._createBridgeHandler(params, options).execute();
     return {
       explorerUrl: result.explorerURL ?? '',
     };
@@ -111,7 +111,7 @@ export class NexusSDK extends CA {
    * Simulate bridge transaction to get costs and fees
    */
   public async simulateBridge(params: BridgeParams): Promise<SimulationResult> {
-    return this.createBridgeHandler(params).simulate();
+    return this._createBridgeHandler(params).simulate();
   }
 
   /**
