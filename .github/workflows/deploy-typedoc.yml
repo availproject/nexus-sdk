@@ -1,9 +1,9 @@
-name: Build & Publish TypeDoc
+name: Build & Publish TypeDoc (master -> root, develop -> /develop)
 
 on:
   push:
     branches:
-      - docs
+      - develop
       - master
 
 permissions:
@@ -30,13 +30,13 @@ jobs:
         run: npm run docs
         # typedoc_html.json should output to ./html_docs
 
-      - name: Publish to gh-pages under branch folder
+      - name: Publish to gh-pages (master -> root, develop -> /develop)
         env:
           REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BRANCH_NAME: ${{ github.ref_name }}
         run: |
-          set -e
+          set -euo pipefail
           echo "Publishing TypeDoc for branch: ${BRANCH_NAME}"
 
           REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
@@ -53,26 +53,39 @@ jobs:
             git remote add origin "${REMOTE}"
           fi
 
-          # Remove previous docs for this branch and copy new ones
-          rm -rf "${BRANCH_NAME}"
-          mkdir -p "${BRANCH_NAME}"
-          cp -r ../html_docs/* "${BRANCH_NAME}/" || true
-
-          # Ensure pages with underscores render correctly
+          # Ensure .nojekyll is present
           touch .nojekyll
 
+          # Publish logic:
+          # - If run on master => publish html_docs to root of gh-pages (overwrites root content but preserves /develop)
+          # - If run on develop => publish html_docs to gh-pages/develop/
+          if [ "${BRANCH_NAME}" = "master" ]; then
+            echo "Publishing master build to gh-pages root..."
+            # keep .git and /develop and .nojekyll - remove everything else from root
+            # enable extglob to use !(pattern)
+            bash -lc 'shopt -s extglob || true; rm -rf -- !(develop|.nojekyll|.git)'
+
+            # copy the built docs into the root
+            cp -r ../html_docs/* . || true
+          else
+            echo "Publishing develop build to gh-pages/develop/..."
+            rm -rf "${BRANCH_NAME}"
+            mkdir -p "${BRANCH_NAME}"
+            cp -r ../html_docs/* "${BRANCH_NAME}/" || true
+          fi
+
+          # Configure git user
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Stage everything
+          # Stage changes and commit
           git add -A
 
-          # Commit: create initial commit if none exists, otherwise update
           if git rev-parse --verify HEAD >/dev/null 2>&1; then
             git commit -m "chore(docs): update TypeDoc for ${BRANCH_NAME} (run: ${GITHUB_RUN_ID})" || echo "No changes to commit"
           else
             git commit -m "chore(docs): initialize gh-pages (run: ${GITHUB_RUN_ID})"
           fi
 
-          # Push to remote gh-pages (creates branch if it didn't exist)
+          # Push to gh-pages (creates branch if needed)
           git push --force "${REMOTE}" HEAD:gh-pages
