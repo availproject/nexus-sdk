@@ -1045,7 +1045,9 @@ class BridgeHandler {
     intent.destination.amount = borrow;
 
     if (accountedAmount.lt(borrowWithFee)) {
-      intent.isAvailableBalanceInsufficient = true;
+      throw Errors.insufficientBalance(
+        `required: ${borrowWithFee.toFixed()}, available: ${accountedAmount.toFixed()}`,
+      );
     }
 
     if (!gas.equals(0)) {

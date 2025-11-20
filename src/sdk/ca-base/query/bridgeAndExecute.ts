@@ -17,6 +17,8 @@ import {
   BRIDGE_STEPS,
   BridgeStepType,
   BeforeExecuteHook,
+  ReadableIntent,
+  TokenInfo,
 } from '../../../commons';
 import {
   createPublicClient,
@@ -176,7 +178,10 @@ class BridgeAndExecuteQuery {
       gasAmount,
     });
 
-    let bridgeResult = null;
+    let bridgeResult: null | {
+      intent: ReadableIntent;
+      token: TokenInfo;
+    } = null;
 
     // 7. If bridge is required then simulate bridge
     if (!skipBridge) {
@@ -613,14 +618,9 @@ class BridgeAndExecuteQuery {
   };
 
   private simulateBridgeWrapper = async (params: BridgeParams) => {
-    try {
-      const handler = this.bridge(params);
-      const result = await handler.simulate();
-      return result;
-    } catch (e) {
-      logger.debug('simulateBridgeError', { e });
-      return null;
-    }
+    const handler = this.bridge(params);
+    const result = await handler.simulate();
+    return result;
   };
 }
 
