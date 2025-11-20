@@ -9,16 +9,17 @@ import { EADDRESS } from './constants';
 import { convertToEVMAddress, determinePermitVariantAndVersion } from './utils';
 
 export enum CurrencyID {
-  AVAX = 5,
-  DAI = 6,
-  ETH = 3,
+  USDC = 0x1,
+  USDT = 0x2,
+  ETH = 0x3,
+  POL = 0x4,
+  AVAX = 0x5,
+  BNB = 0x6,
+  WETH = 0x7,
+  DAI = 0x8,
   HYPE = 0x10,
   KAIA = 0x11,
-  POL = 4,
-  USDC = 1,
   USDS = 99,
-  USDT = 2,
-  WETH = 7,
 }
 
 const chainData: Map<
@@ -274,6 +275,29 @@ const chainData: Map<
       },
     ],
   ],
+  [
+    56,
+    [
+      {
+        CurrencyID: CurrencyID.USDC,
+        IsGasToken: false,
+        Name: CurrencyID[CurrencyID.USDC],
+        PermitVariant: PermitVariant.Unsupported,
+        PermitContractVersion: 0,
+        TokenContractAddress: convertTo32BytesHex('0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d'),
+        TokenDecimals: 18,
+      },
+      {
+        CurrencyID: CurrencyID.BNB,
+        IsGasToken: true,
+        Name: CurrencyID[CurrencyID.BNB],
+        PermitVariant: PermitVariant.Unsupported,
+        PermitContractVersion: 0,
+        TokenContractAddress: convertTo32BytesHex(EADDRESS),
+        TokenDecimals: 18,
+      },
+    ],
+  ],
 ]);
 
 const getSwapSupportedChains = (chainList: ChainList) => {
@@ -365,7 +389,7 @@ const getTokenVersion = async (tokenAddress: Hex, client: PublicClient) => {
 export const getTokenDecimals = (chainID: number | string, contractAddress: Bytes) => {
   const cData = chainData.get(Number(chainID));
   if (!cData) {
-    throw new Error(`chain data not found for chain:${chainID}`);
+    throw new Error(`chain data not found for chain: ${chainID}`);
   }
   const token = cData.find((c) => equalFold(toHex(contractAddress), c.TokenContractAddress));
   if (!token) {
