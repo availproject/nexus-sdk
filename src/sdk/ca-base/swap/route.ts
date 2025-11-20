@@ -16,14 +16,17 @@ import {
 import Decimal from 'decimal.js';
 import { ByteArray, Hex, toBytes } from 'viem';
 import { ZERO_ADDRESS } from '../constants';
-import { getLogger, OraclePriceResponse } from '../../../commons';
 import {
+  getLogger,
+  OraclePriceResponse,
   ExactInSwapInput,
   ExactOutSwapInput,
   SwapData,
   SwapMode,
   SwapParams,
+  BridgeAsset,
 } from '../../../commons';
+
 import {
   convertTo32BytesHex,
   divDecimals,
@@ -38,7 +41,6 @@ import { EADDRESS } from './constants';
 import { FlatBalance } from './data';
 import { createIntent } from './rff';
 import { calculateValue, convertTo32Bytes, convertToEVMAddress } from './utils';
-import { BridgeAsset } from '../../../commons';
 import { Errors } from '../errors';
 
 const logger = getLogger();
@@ -552,7 +554,7 @@ const _exactInRoute = async (
     // Filter out sources user requested to be used
     for (const f of input.from) {
       if (typeof f.amount !== 'bigint') {
-        throw new Error('input.from.amount must be bigint');
+        throw new TypeError('input.from.amount must be bigint');
       }
 
       const comparison = normalizeToComparisonAddr(f.tokenAddress);

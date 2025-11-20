@@ -47,11 +47,11 @@ import { Errors } from '../errors';
 
 class BridgeAndExecuteQuery {
   constructor(
-    private chainList: ChainListType,
-    private evmClient: WalletClient,
-    private bridge: (input: BridgeParams, options?: OnEventParam) => BridgeHandler,
-    private getUnifiedBalances: () => Promise<UserAssetDatum[]>,
-    private simulationClient: BackendSimulationClient,
+    private readonly chainList: ChainListType,
+    private readonly evmClient: WalletClient,
+    private readonly bridge: (input: BridgeParams, options?: OnEventParam) => BridgeHandler,
+    private readonly getUnifiedBalances: () => Promise<UserAssetDatum[]>,
+    private readonly simulationClient: BackendSimulationClient,
   ) {}
 
   private async estimateBridgeAndExecute(params: BridgeAndExecuteParams) {
@@ -606,7 +606,7 @@ class BridgeAndExecuteQuery {
     };
   }
 
-  private bridgeWrapper = async (
+  private readonly bridgeWrapper = async (
     params: BridgeParams,
     options?: OnEventParam,
   ): Promise<BridgeResult> => {
@@ -617,7 +617,7 @@ class BridgeAndExecuteQuery {
     };
   };
 
-  private simulateBridgeWrapper = async (params: BridgeParams) => {
+  private readonly simulateBridgeWrapper = async (params: BridgeParams) => {
     const handler = this.bridge(params);
     const result = await handler.simulate();
     return result;

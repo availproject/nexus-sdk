@@ -12,9 +12,8 @@ import {
   webSocket,
 } from 'viem';
 import { Errors } from '../errors';
-import { createRFFromIntent } from '../utils';
-import { getLogger, Intent, NetworkConfig } from '../../../commons';
 import {
+  createRFFromIntent,
   convertAddressByUniverse,
   evmWaitForFill,
   FeeStore,
@@ -28,6 +27,9 @@ import {
 } from '../utils';
 import { packERC20Approve } from './utils';
 import {
+  getLogger,
+  Intent,
+  NetworkConfig,
   BridgeAsset,
   EoaToEphemeralCallMap,
   RFFDepositCallMap,
@@ -286,7 +288,7 @@ export const createBridgeRFF = async ({
 
     const doubleCheckTxMap: Record<number, () => Promise<void>> = {};
 
-    omniversalRFF.protobufRFF.sources.map((s) => {
+    omniversalRFF.protobufRFF.sources.forEach((s) => {
       doubleCheckTxMap[bytesToNumber(s.chainID)] = createDoubleCheckTx(
         s.chainID,
         config.cosmos,
