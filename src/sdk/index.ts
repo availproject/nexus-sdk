@@ -28,7 +28,6 @@ import type {
 } from '../commons';
 import { logger } from '../commons';
 import { CA } from './ca-base';
-import { FlatBalance } from './ca-base/swap/data';
 // import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 
 export class NexusSDK extends CA {
