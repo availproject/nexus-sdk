@@ -1,0 +1,8 @@
+{
+  "entryPoints": ["src/index.ts"],
+  "entryPointStrategy": "expand",
+  "name": "Nexus core SDK Reference",
+  "out": "html_docs",
+  "plugin": [],
+  "theme": "default"
+}

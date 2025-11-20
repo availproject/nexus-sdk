@@ -13,6 +13,7 @@
     "build": "rollup -c",
     "buildAndPack": "rollup -c && npm pack",
     "dev": "rollup -c -w",
+    "docs": "typedoc --options typedoc_html.json",
     "clean": "rimraf dist dist-tarballs",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build"
@@ -69,6 +70,10 @@
     "rollup": "^4.52.4",
     "rollup-plugin-dts": "^6.2.3",
     "rollup-plugin-typescript2": "0.36.0",
+    "typedoc": "0.28.14",
+    "typedoc-plugin-extras": "4.0.1",
+    "typedoc-plugin-missing-exports": "4.1.2",
+    "typedoc-plugin-rename-defaults": "0.7.3",
     "typescript": "^5.9.3"
   },
   "publishConfig": {
