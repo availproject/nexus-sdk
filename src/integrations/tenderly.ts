@@ -158,15 +158,7 @@ export class BackendSimulationClient {
       throw Errors.simulationError(data.message ?? 'Bundle simulation failed');
     }
 
-    const gasUsed = data.data.reduce((acc, d) => {
-      return acc + BigInt(d.gasUsed);
-    }, 0n);
-
-    const gasLimit = data.data.reduce((acc, d) => {
-      return acc + BigInt(d.gasLimit);
-    }, 0n);
-
-    return { gasUsed, gasLimit };
+    return { gas: data.data.map((d) => BigInt(d.gasLimit)) };
   }
 }
 

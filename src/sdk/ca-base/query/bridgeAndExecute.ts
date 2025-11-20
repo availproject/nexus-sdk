@@ -87,7 +87,7 @@ class BridgeAndExecuteQuery {
     txs.push(tx);
 
     const determineGasUsed = params.execute.gas
-      ? Promise.resolve({ gasUsed: params.execute.gas + (approvalTx ? 85_000n : 0n) })
+      ? Promise.resolve({ approvalGas: approvalTx ? 85_000n : 0n, txGas: params.execute.gas })
       : this.simulateBundle({
           txs,
           amount: BigInt(execute.tokenApproval?.amount ?? '0'),
@@ -95,6 +95,18 @@ class BridgeAndExecuteQuery {
           chainId: dstChain.id,
           tokenAddress: token.contractAddress,
           tokenSymbol: execute.tokenApproval?.token ?? 'ETH',
+        }).then(({ gas }) => {
+          if (approvalTx) {
+            return {
+              approvalGas: gas[0],
+              txGas: gas[1],
+            };
+          } else {
+            return {
+              approvalGas: 0n,
+              txGas: gas[0],
+            };
+          }
         });
 
     const determineGasFee = params.execute.gasPrice
@@ -105,7 +117,7 @@ class BridgeAndExecuteQuery {
       : dstPublicClient.estimateFeesPerGas();
 
     // 5. simulate approval(?) and execution + fetch gasPrice + fetch unified balance
-    const [{ gasUsed }, gasFeeEstimate, balances, l1Fee] = await Promise.all([
+    const [{ approvalGas, txGas }, gasFeeEstimate, balances, l1Fee] = await Promise.all([
       determineGasUsed,
       determineGasFee,
       this.getUnifiedBalances(),
@@ -128,10 +140,11 @@ class BridgeAndExecuteQuery {
       });
     }
 
-    const gasFee = percentageAdditionToBigInt(gasUsed, 0.3) * (gasPrice + l1Fee);
+    const gasFee = percentageAdditionToBigInt(approvalGas + txGas, 0.3) * gasPrice + l1Fee;
 
     logger.debug('BridgeAndExecute:3', {
-      gasUsed,
+      approvalGas,
+      txGas,
       gasFeeEstimate,
       gasPrice,
       balances,
@@ -159,7 +172,8 @@ class BridgeAndExecuteQuery {
       address,
       dstPublicClient,
       gasFee,
-      gasUsed,
+      approvalGas,
+      txGas,
       gasPrice,
     };
   }
@@ -167,7 +181,7 @@ class BridgeAndExecuteQuery {
   public async simulateBridgeAndExecute(
     params: BridgeAndExecuteParams,
   ): Promise<BridgeAndExecuteSimulationResult> {
-    const { gasFee, token, skipBridge, tokenAmount, gasAmount, gasUsed, gasPrice } =
+    const { gasFee, token, skipBridge, tokenAmount, gasAmount, approvalGas, txGas, gasPrice } =
       await this.estimateBridgeAndExecute(params);
 
     logger.debug('BridgeAndExecute:4:CalculateOptimalBridgeAmount', {
@@ -196,7 +210,7 @@ class BridgeAndExecuteQuery {
     const result: BridgeAndExecuteSimulationResult = {
       bridgeSimulation: bridgeResult,
       executeSimulation: {
-        gasUsed,
+        gasUsed: approvalGas + txGas,
         gasPrice,
         gasFee,
       },
@@ -224,7 +238,8 @@ class BridgeAndExecuteQuery {
       gasAmount,
       tx,
       approvalTx,
-      gasUsed,
+      approvalGas,
+      txGas,
       gasPrice,
     } = await this.estimateBridgeAndExecute(params);
 
@@ -232,6 +247,15 @@ class BridgeAndExecuteQuery {
       skipBridge,
       tokenAmount,
       gasAmount,
+      approval: {
+        tx: approvalTx,
+        gas: approvalGas,
+      },
+      tx: {
+        tx,
+        gas: txGas,
+      },
+      gasPrice,
     });
 
     const executeSteps: BridgeStepType[] = [
@@ -242,7 +266,10 @@ class BridgeAndExecuteQuery {
     // Approval and execute
     if (approvalTx) {
       executeSteps.unshift(BRIDGE_STEPS.EXECUTE_APPROVAL_STEP);
+      approvalTx.gas = approvalGas;
     }
+
+    tx.gas = txGas;
 
     let bridgeResult: BridgeResult = {
       explorerUrl: '',
@@ -283,6 +310,11 @@ class BridgeAndExecuteQuery {
       const response = await options.beforeExecute();
       tx.data = response.data;
       tx.value = response.value;
+
+      // For gas changes
+      if (response.gas && response.gas !== 0n) {
+        tx.gas = response.gas;
+      }
     }
 
     // 8. Execute the transaction
@@ -290,7 +322,6 @@ class BridgeAndExecuteQuery {
       {
         approvalTx,
         tx,
-        gas: gasUsed,
         gasPrice,
       },
       {
@@ -367,7 +398,7 @@ class BridgeAndExecuteQuery {
     }
 
     // 4. Encode execute tx
-    const tx = {
+    const tx: Tx = {
       to: params.to,
       value: params.value ?? 0n,
       data: params.data ?? '0x',
@@ -532,7 +563,6 @@ class BridgeAndExecuteQuery {
     params: {
       tx: Tx;
       approvalTx: Tx | null;
-      gas?: bigint;
       gasPrice?: bigint;
     },
     options: {
@@ -552,6 +582,7 @@ class BridgeAndExecuteQuery {
     if (params.approvalTx) {
       approvalHash = await options.client.sendTransaction({
         ...params.approvalTx,
+        maxFeePerGas: params.gasPrice,
         account: options.address,
         chain: options.chain,
       });
@@ -567,10 +598,9 @@ class BridgeAndExecuteQuery {
 
     const txHash = await options.client.sendTransaction({
       ...params.tx,
+      maxFeePerGas: params.gasPrice,
       account: options.address,
       chain: options.chain,
-      gas: params.gas,
-      gasPrice: params.gasPrice,
     });
 
     if (options.emit) {
@@ -611,7 +641,7 @@ class BridgeAndExecuteQuery {
     const handler = this.bridge(params, options);
     const result = await handler.execute();
     return {
-      explorerUrl: result?.explorerURL ?? '',
+      explorerUrl: result.explorerURL,
     };
   };
 
