@@ -162,18 +162,22 @@ class BridgeAndExecuteQuery {
     );
 
     return {
+      dstPublicClient,
+      dstChain,
+      amount: {
+        token: tokenAmount,
+        gas: gasAmount,
+      },
       skipBridge,
-      tokenAmount,
-      gasAmount,
       tx,
       approvalTx,
+      gas: {
+        tx: txGas,
+        approval: approvalGas,
+      },
       token,
-      dstChain,
       address,
-      dstPublicClient,
       gasFee,
-      approvalGas,
-      txGas,
       gasPrice,
     };
   }
@@ -181,13 +185,13 @@ class BridgeAndExecuteQuery {
   public async simulateBridgeAndExecute(
     params: BridgeAndExecuteParams,
   ): Promise<BridgeAndExecuteSimulationResult> {
-    const { gasFee, token, skipBridge, tokenAmount, gasAmount, approvalGas, txGas, gasPrice } =
+    const { gasFee, token, skipBridge, amount, gas, gasPrice } =
       await this.estimateBridgeAndExecute(params);
 
     logger.debug('BridgeAndExecute:4:CalculateOptimalBridgeAmount', {
       skipBridge,
-      tokenAmount,
-      gasAmount,
+      amount,
+      gas,
     });
 
     let bridgeResult: null | {
@@ -199,10 +203,10 @@ class BridgeAndExecuteQuery {
     if (!skipBridge) {
       bridgeResult = await this.simulateBridgeWrapper({
         token: token.symbol,
-        amount: tokenAmount,
+        amount: amount.token,
         toChainId: params.toChainId,
         sourceChains: params.sourceChains,
-        gas: gasAmount,
+        gas: amount.gas,
       });
     }
 
@@ -210,7 +214,7 @@ class BridgeAndExecuteQuery {
     const result: BridgeAndExecuteSimulationResult = {
       bridgeSimulation: bridgeResult,
       executeSimulation: {
-        gasUsed: approvalGas + txGas,
+        gasUsed: gas.approval + gas.tx,
         gasPrice,
         gasFee,
       },
@@ -230,30 +234,27 @@ class BridgeAndExecuteQuery {
   ): Promise<BridgeAndExecuteResult> {
     const {
       dstPublicClient,
-      address,
       dstChain,
+      address,
       token,
       skipBridge,
-      tokenAmount,
-      gasAmount,
       tx,
       approvalTx,
-      approvalGas,
-      txGas,
+      amount,
+      gas,
       gasPrice,
     } = await this.estimateBridgeAndExecute(params);
 
     logger.debug('BridgeAndExecute:4:CalculateOptimalBridgeAmount', {
       skipBridge,
-      tokenAmount,
-      gasAmount,
+      amount,
       approval: {
         tx: approvalTx,
-        gas: approvalGas,
+        gas: gas.approval,
       },
       tx: {
         tx,
-        gas: txGas,
+        gas: gas.tx,
       },
       gasPrice,
     });
@@ -266,10 +267,10 @@ class BridgeAndExecuteQuery {
     // Approval and execute
     if (approvalTx) {
       executeSteps.unshift(BRIDGE_STEPS.EXECUTE_APPROVAL_STEP);
-      approvalTx.gas = approvalGas;
+      approvalTx.gas = gas.approval;
     }
 
-    tx.gas = txGas;
+    tx.gas = gas.tx;
 
     let bridgeResult: BridgeResult = {
       explorerUrl: '',
@@ -280,10 +281,10 @@ class BridgeAndExecuteQuery {
       bridgeResult = await this.bridgeWrapper(
         {
           token: token.symbol,
-          amount: tokenAmount,
+          amount: amount.token,
           toChainId: params.toChainId,
           sourceChains: params.sourceChains,
-          gas: gasAmount,
+          gas: amount.gas,
         },
         {
           onEvent: (event) => {
