@@ -654,6 +654,10 @@ export type UserAssetDatum = {
   symbol: string;
 };
 
+export type BeforeExecuteHook = {
+  beforeExecute?: () => Promise<{ value: bigint; data: Hex }>;
+};
+
 export type {
   OnIntentHook,
   OnAllowanceHookData,

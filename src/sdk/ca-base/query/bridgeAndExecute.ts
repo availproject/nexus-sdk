@@ -16,6 +16,7 @@ import {
   NEXUS_EVENTS,
   BRIDGE_STEPS,
   BridgeStepType,
+  BeforeExecuteHook,
 } from '../../../commons';
 import {
   createPublicClient,
@@ -208,7 +209,7 @@ class BridgeAndExecuteQuery {
    */
   public async bridgeAndExecute(
     params: BridgeAndExecuteParams,
-    options?: OnEventParam,
+    options?: OnEventParam & BeforeExecuteHook,
   ): Promise<BridgeAndExecuteResult> {
     const {
       dstPublicClient,
@@ -273,6 +274,12 @@ class BridgeAndExecuteQuery {
       if (options && options.onEvent) {
         options.onEvent({ name: NEXUS_EVENTS.STEPS_LIST, args: executeSteps });
       }
+    }
+
+    if (options?.beforeExecute) {
+      const response = await options.beforeExecute();
+      tx.data = response.data;
+      tx.value = response.value;
     }
 
     // 8. Execute the transaction
