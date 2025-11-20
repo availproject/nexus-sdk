@@ -298,6 +298,38 @@ const chainData: Map<
       },
     ],
   ],
+  [
+    1,
+    [
+      {
+        CurrencyID: CurrencyID.USDC,
+        IsGasToken: false,
+        Name: CurrencyID[CurrencyID.USDC],
+        PermitVariant: PermitVariant.EIP2612Canonical,
+        PermitContractVersion: 2,
+        TokenContractAddress: convertTo32BytesHex('0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'),
+        TokenDecimals: 6,
+      },
+      {
+        CurrencyID: CurrencyID.USDT,
+        IsGasToken: false,
+        Name: CurrencyID[CurrencyID.USDT],
+        PermitVariant: PermitVariant.Unsupported,
+        PermitContractVersion: 0,
+        TokenContractAddress: convertTo32BytesHex('0xdac17f958d2ee523a2206206994597c13d831ec7'),
+        TokenDecimals: 6,
+      },
+      {
+        CurrencyID: CurrencyID.ETH,
+        IsGasToken: true,
+        Name: CurrencyID[CurrencyID.ETH],
+        PermitVariant: PermitVariant.Unsupported,
+        PermitContractVersion: 0,
+        TokenContractAddress: convertTo32BytesHex(EADDRESS),
+        TokenDecimals: 18,
+      },
+    ],
+  ],
 ]);
 
 const getSwapSupportedChains = (chainList: ChainList) => {
