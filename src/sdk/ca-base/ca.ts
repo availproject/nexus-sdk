@@ -25,6 +25,7 @@ import {
   Chain,
   TransferParams,
   BridgeParams,
+  BeforeExecuteHook,
 } from '../../commons';
 import { createBridgeParams } from './requestHandlers/helpers';
 import {
@@ -539,7 +540,10 @@ export class CA {
     return handler.simulateBridgeAndExecute(params);
   }
 
-  protected _bridgeAndExecute = (params: BridgeAndExecuteParams, options?: OnEventParam) => {
+  protected _bridgeAndExecute = (
+    params: BridgeAndExecuteParams,
+    options?: OnEventParam & BeforeExecuteHook,
+  ) => {
     if (!this._evm) {
       throw Errors.sdkNotInitialized();
     }
