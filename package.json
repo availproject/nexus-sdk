@@ -14,7 +14,7 @@
     "buildAndPack": "rollup -c && npm pack",
     "dev": "rollup -c -w",
     "docs": "typedoc --options typedoc_html.json",
-    "clean": "rimraf dist dist-tarballs",
+    "clean": "rimraf dist dist-tarballs html_docs",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build"
   },

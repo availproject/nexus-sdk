@@ -1,0 +1,77 @@
+name: Build & Publish TypeDoc
+
+on:
+  push:
+    branches:
+      - develop
+      - master
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build TypeDoc (runs your 'docs' script)
+        run: npm run docs
+        # typedoc_html.json has "out": "html_docs" so output will be at ./html_docs
+
+      - name: Publish to gh-pages under branch folder
+        env:
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH_NAME: ${{ github.ref_name }}
+        run: |
+          set -e
+          echo "Publishing TypeDoc for branch: ${BRANCH_NAME}"
+
+          REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+          TMP=tmp-gh-pages
+          rm -rf $TMP
+          mkdir -p $TMP
+          cd $TMP
+
+          # If gh-pages exists, clone it; otherwise init an empty repo
+          if git ls-remote --heads "${REMOTE}" gh-pages >/dev/null 2>&1; then
+            git clone --depth 1 --branch gh-pages "${REMOTE}" .
+          else
+            git init
+            git remote add origin "${REMOTE}"
+            # create an initial .nojekyll so the branch isn't empty after first push
+          fi
+
+          # Remove old docs for this branch and copy new ones
+          rm -rf "${BRANCH_NAME}"
+          mkdir -p "${BRANCH_NAME}"
+          cp -r ../html_docs/* "${BRANCH_NAME}/" || true
+
+          # Ensure pages with underscores render correctly
+          touch .nojekyll
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Commit + push
+          if git rev-parse --verify HEAD >/dev/null 2>&1; then
+            git add -A
+            git commit -m "chore(docs): update TypeDoc for ${BRANCH_NAME} (run: ${GITHUB_RUN_ID})" || echo "No changes to commit"
+          else
+            git add -A
+            git commit -m "chore(docs): initialize gh-pages (run: ${GITHUB_RUN_ID})"
+          fi
+
+          git push --force "${REMOTE}" HEAD:gh-pages
