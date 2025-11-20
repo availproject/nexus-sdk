@@ -1050,6 +1050,10 @@ class BridgeHandler {
       );
     }
 
+    if (!gas.equals(0)) {
+      intent.destination.gas = mulDecimals(gas, this.params.dstChain.nativeCurrency.decimals);
+    }
+
     logger.debug('createIntent:4', { intent });
 
     return intent;
