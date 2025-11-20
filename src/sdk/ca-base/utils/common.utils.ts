@@ -874,12 +874,12 @@ const retrieveAddress = (
 
 const SIWE_KEY = '_siwe_sig';
 
-const storeSIWESignatureToLocalStorage = (address: Hex, signature: string) => {
-  window.localStorage.setItem(`${SIWE_KEY}-${address}`, signature);
+const storeSIWESignatureToLocalStorage = (address: Hex, siweChain: number, signature: string) => {
+  window.localStorage.setItem(`${SIWE_KEY}-${address}-${siweChain}`, signature);
 };
 
-const retrieveSIWESignatureFromLocalStorage = (address: Hex) => {
-  return window.localStorage.getItem(`${SIWE_KEY}-${address}`);
+const retrieveSIWESignatureFromLocalStorage = (address: Hex, siweChain: number) => {
+  return window.localStorage.getItem(`${SIWE_KEY}-${address}-${siweChain}`);
 };
 
 export {

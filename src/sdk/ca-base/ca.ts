@@ -11,6 +11,7 @@ import {
   Client,
   CustomTransport,
   Hex,
+  UserRejectedRequestError,
 } from 'viem';
 import { privateKeyToAccount, PrivateKeyAccount } from 'viem/accounts';
 import { createSiweMessage } from 'viem/siwe';
@@ -90,6 +91,7 @@ export class CA {
   };
   #ephemeralWallet?: PrivateKeyAccount;
   public chainList: ChainListType;
+  private _siweChain = 1;
   protected _evm?: {
     client: Client<CustomTransport, undefined, undefined, undefined, WalletActions & PublicActions>;
     provider: EthereumProvider;
@@ -121,13 +123,21 @@ export class CA {
   private simulationClient: BackendSimulationClient;
 
   protected constructor(
-    config: { network?: NexusNetwork; debug?: boolean } = { debug: false, network: 'testnet' },
+    config: { network?: NexusNetwork; debug?: boolean; siweChain?: number } = {
+      debug: false,
+      network: 'testnet',
+      siweChain: 1,
+    },
   ) {
     this._networkConfig = getNetworkConfig(config.network);
     this.chainList = new ChainList(this._networkConfig.NETWORK_HINT);
     this.simulationClient = createBackendSimulationClient({
       baseUrl: 'https://nexus-backend.avail.so',
     });
+
+    if (config.siweChain) {
+      this._siweChain = config.siweChain;
+    }
 
     if (config.debug) {
       setLogLevel(LOG_LEVEL.DEBUG);
@@ -427,10 +437,10 @@ export class CA {
   }
 
   protected async _createCosmosWallet() {
-    let sig = this._getStoredSIWESignature(this._evm!.address);
+    let sig = retrieveSIWESignatureFromLocalStorage(this._evm!.address, this._siweChain);
     if (!sig) {
       sig = await this._signatureForLogin();
-      this._storeSIWESignature(this._evm!.address, sig);
+      storeSIWESignatureToLocalStorage(this._evm!.address, this._siweChain, sig);
     }
 
     const pvtKey = keyDerivation.getPrivateKeyFromEthSignature(sig);
@@ -468,13 +478,19 @@ export class CA {
     if (!this._evm) {
       throw Errors.sdkNotInitialized();
     }
+
+    const chain = this.chainList.getChainByID(this._siweChain);
+    if (!chain) {
+      throw Errors.chainNotFound(this._siweChain);
+    }
+
     const scheme = window.location.protocol.slice(0, -1);
     const domain = window.location.host;
     const origin = window.location.origin;
     const address = await this._getEVMAddress();
     const message = createSiweMessage({
       address,
-      chainId: 1,
+      chainId: chain.id,
       domain,
       issuedAt: new Date('2024-12-16T12:17:43.182Z'), // this remains same to arrive at same pvt key
       nonce: 'iLjYWC6s8frYt4l8w', // maybe this can be shortened hash of address
@@ -485,14 +501,16 @@ export class CA {
     });
     const currentChain = await this._evm.client.getChainId();
     try {
-      await this._evm.client.switchChain({ id: 1 });
+      await switchChain(this._evm.client, chain);
       const res = await this._evm.client
         .signMessage({
           account: address,
           message,
         })
         .catch((e) => {
-          e.walk();
+          if (e instanceof UserRejectedRequestError) {
+            throw Errors.userRejectedSIWESignature();
+          }
           throw e;
         });
       return res;
@@ -578,14 +596,6 @@ export class CA {
       throw Errors.walletNotConnected('Tron');
     }
   };
-
-  private _getStoredSIWESignature(address: Hex) {
-    return retrieveSIWESignatureFromLocalStorage(address);
-  }
-
-  private _storeSIWESignature(address: Hex, signature: string) {
-    return storeSIWESignatureToLocalStorage(address, signature);
-  }
 
   protected _convertTokenReadableAmountToBigInt = (
     amount: string,

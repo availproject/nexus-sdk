@@ -33,7 +33,7 @@ import { CA } from './ca-base';
 export class NexusSDK extends CA {
   public readonly utils: NexusUtils;
 
-  constructor(config?: { network?: NexusNetwork; debug?: boolean }) {
+  constructor(config?: { network?: NexusNetwork; debug?: boolean; siweChain?: number }) {
     super(config);
     logger.debug('Nexus SDK initialized with config:', config);
     this.utils = new NexusUtils(this.chainList);
