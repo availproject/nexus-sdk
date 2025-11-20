@@ -13,7 +13,7 @@
     "build": "rollup -c",
     "buildAndPack": "rollup -c && npm pack",
     "dev": "rollup -c -w",
-    "docs": "typedoc --plugin typedoc-theme-fresh --theme fresh --options typedoc_html.json",
+    "docs": "typedoc --options typedoc_html.json",
     "clean": "rimraf dist dist-tarballs html_docs",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build"
