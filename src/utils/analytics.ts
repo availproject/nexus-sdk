@@ -158,8 +158,19 @@ export function trackNexusResult(params: {
   name: string;
   config?: { network?: NexusNetwork; debug?: boolean };
   result?: any;
+  calculateMaxForBridge?: Omit<BridgeParams, 'amount'> | any;
+  bridgeParams?: { params: BridgeParams | any; options?: OnEventParam };
+  bridgeAndTransferParams?: { params: TransferParams | any; options?: OnEventParam };
+  swapWithExactInParams?: { input: ExactInSwapInput | any; options?: OnEventParam };
+  swapWithExactOutParams?: { input: ExactOutSwapInput | any; options?: OnEventParam };
+  simulateBridgeParams?: BridgeParams | any;
+  simulateBridgeAndTransferParams?: TransferParams | any;
+  executeParams?: { params: ExecuteParams | any; options?: OnEventParam };
+  simulateExecuteParams?: ExecuteParams | any;
+  bridgeAndExecuteParams?: { params: BridgeAndExecuteParams | any; options?: OnEventParam };
+  simulateBridgeAndExecute?: BridgeAndExecuteParams | any;
 }) {
-  trackEvent('nexus-result', params);
+  trackEvent('nexus-intent-success', params);
 }
 
 /**
@@ -216,16 +227,6 @@ export function trackTron(
     debug: config?.debug,
     adapter,
   });
-}
-
-/**
- * Track token details fetch event
- */
-export function trackTokenDetails(params: {
-  config?: { network?: NexusNetwork; debug?: boolean };
-  params: any;
-}) {
-  trackEvent('nexus-token-details', params);
 }
 
 // Helpers

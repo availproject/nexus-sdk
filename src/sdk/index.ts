@@ -42,7 +42,6 @@ import {
   trackSdkDeInitialized,
   trackSDKInitialized,
   trackSwapIntent,
-  trackTokenDetails,
   trackTron,
 } from '../utils/analytics';
 import { getSDKConfigName } from './ca-base/utils';
@@ -93,12 +92,12 @@ export class NexusSDK extends CA {
       config: getSDKConfigName(this._config),
       bridgeParams: { params: updatedParams, options },
     });
-    trackTokenDetails({ config: getSDKConfigName(this._config), params: updatedParams });
     const result = await this.createBridgeHandler(params, options).execute();
     trackNexusResult({
       name: 'bridge',
       config: getSDKConfigName(this._config),
       result,
+      bridgeParams: { params: updatedParams, options },
     });
     return {
       explorerUrl: result.explorerURL ?? '',
@@ -118,12 +117,12 @@ export class NexusSDK extends CA {
       config: getSDKConfigName(this._config),
       calculateMaxForBridge: updatedParams,
     });
-    trackTokenDetails({ config: getSDKConfigName(this._config), params: updatedParams });
     const result = this._calculateMaxForBridge(params);
     trackNexusResult({
       name: 'calculateMaxForBridge',
       config: getSDKConfigName(this._config),
       result,
+      calculateMaxForBridge: updatedParams,
     });
     return result;
   }
@@ -145,12 +144,12 @@ export class NexusSDK extends CA {
       config: getSDKConfigName(this._config),
       bridgeAndTransferParams: { params: updatedParams, options },
     });
-    trackTokenDetails({ config: getSDKConfigName(this._config), params: updatedParams });
     const result = await this._bridgeAndTransfer(params, options);
     trackNexusResult({
       name: 'bridgeAndTransfer',
       config: getSDKConfigName(this._config),
       result,
+      bridgeAndTransferParams: { params: updatedParams, options },
     });
     return {
       transactionHash: result.executeTransactionHash,
@@ -175,12 +174,12 @@ export class NexusSDK extends CA {
       config: getSDKConfigName(this._config),
       swapWithExactInParams: { input: updatedParams, options },
     });
-    trackTokenDetails({ config: getSDKConfigName(this._config), params: updatedParams });
     const result = await this._swapWithExactIn(input, options);
     trackNexusResult({
       name: 'swapWithExactIn',
       config: getSDKConfigName(this._config),
       result,
+      swapWithExactInParams: { input: updatedParams, options },
     });
     return {
       success: true,
@@ -201,12 +200,12 @@ export class NexusSDK extends CA {
       config: getSDKConfigName(this._config),
       swapWithExactOutParams: { input: updatedParams, options },
     });
-    trackTokenDetails({ config: getSDKConfigName(this._config), params: updatedParams });
     const result = await this._swapWithExactOut(input, options);
     trackNexusResult({
       name: 'swapWithExactOut',
       config: getSDKConfigName(this._config),
       result,
+      swapWithExactOutParams: { input: updatedParams, options },
     });
     return {
       success: true,
@@ -228,12 +227,12 @@ export class NexusSDK extends CA {
       config: getSDKConfigName(this._config),
       simulateBridgeParams: updatedParams,
     });
-    trackTokenDetails({ config: getSDKConfigName(this._config), params: updatedParams });
     const result = this.createBridgeHandler(params).simulate();
     trackNexusResult({
       name: 'simulateBridge',
       config: getSDKConfigName(this._config),
       result,
+      simulateBridgeParams: updatedParams,
     });
     return result;
   }
@@ -254,12 +253,12 @@ export class NexusSDK extends CA {
       config: getSDKConfigName(this._config),
       simulateBridgeAndTransferParams: updatedParams,
     });
-    trackTokenDetails({ config: getSDKConfigName(this._config), params: updatedParams });
     const result = this._simulateBridgeAndTransfer(params);
     trackNexusResult({
       name: 'simulateBridgeAndTransfer',
       config: getSDKConfigName(this._config),
       result,
+      simulateBridgeAndTransferParams: updatedParams,
     });
     return result;
   }
@@ -333,12 +332,12 @@ export class NexusSDK extends CA {
       config: getSDKConfigName(this._config),
       executeParams: { params: updatedParams, options },
     });
-    trackTokenDetails({ config: getSDKConfigName(this._config), params: updatedParams });
     const result = this._execute(params, options);
     trackNexusResult({
       name: 'execute',
       config: getSDKConfigName(this._config),
       result,
+      executeParams: { params: updatedParams, options },
     });
     return result;
   }
@@ -358,12 +357,12 @@ export class NexusSDK extends CA {
       config: getSDKConfigName(this._config),
       simulateExecuteParams: updatedParams,
     });
-    trackTokenDetails({ config: getSDKConfigName(this._config), params: updatedParams });
     const result = this._simulateExecute(params);
     trackNexusResult({
       name: 'simulateExecute',
       config: getSDKConfigName(this._config),
       result,
+      simulateExecuteParams: updatedParams,
     });
     return result;
   }
@@ -393,12 +392,12 @@ export class NexusSDK extends CA {
       config: getSDKConfigName(this._config),
       bridgeAndExecuteParams: { params: updatedParams, options },
     });
-    trackTokenDetails({ config: getSDKConfigName(this._config), params: updatedParams });
     const result = this._bridgeAndExecute(params, options);
     trackNexusResult({
       name: 'bridgeAndExecute',
       config: getSDKConfigName(this._config),
       result,
+      bridgeAndExecuteParams: { params: updatedParams, options },
     });
     return result;
   }
@@ -428,12 +427,12 @@ export class NexusSDK extends CA {
       config: getSDKConfigName(this._config),
       simulateBridgeAndExecute: updatedParams,
     });
-    trackTokenDetails({ config: getSDKConfigName(this._config), params: updatedParams });
     const result = this._simulateBridgeAndExecute(params);
     trackNexusResult({
       name: 'simulateBridgeAndExecute',
       config: getSDKConfigName(this._config),
       result,
+      simulateBridgeAndExecute: updatedParams,
     });
     return result;
   }
