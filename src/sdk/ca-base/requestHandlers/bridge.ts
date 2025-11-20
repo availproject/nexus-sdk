@@ -1045,11 +1045,9 @@ class BridgeHandler {
     intent.destination.amount = borrow;
 
     if (accountedAmount.lt(borrowWithFee)) {
-      intent.isAvailableBalanceInsufficient = true;
-    }
-
-    if (!gas.equals(0)) {
-      intent.destination.gas = mulDecimals(gas, this.params.dstChain.nativeCurrency.decimals);
+      throw Errors.insufficientBalance(
+        `required: ${borrowWithFee.toFixed()}, available: ${accountedAmount.toFixed()}`,
+      );
     }
 
     logger.debug('createIntent:4', { intent });
