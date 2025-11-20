@@ -19,16 +19,6 @@ import { ChainList } from './chains';
 import { getNetworkConfig } from './config';
 import { FUEL_NETWORK_URL } from './constants';
 import {
-  getLogger,
-  LOG_LEVEL,
-  setLogLevel,
-  Chain,
-  TransferParams,
-  BridgeParams,
-  BeforeExecuteHook,
-} from '../../commons';
-import { createBridgeParams } from './requestHandlers/helpers';
-import {
   ChainListType,
   EthereumProvider,
   ExactInSwapInput,
@@ -44,7 +34,15 @@ import {
   OnEventParam,
   OnSwapIntentHook,
   TronAdapter,
+  getLogger,
+  LOG_LEVEL,
+  setLogLevel,
+  Chain,
+  TransferParams,
+  BridgeParams,
+  BeforeExecuteHook,
 } from '../../commons';
+import { createBridgeParams } from './requestHandlers/helpers';
 import {
   cosmosFeeGrant,
   fetchMyIntents,
@@ -85,14 +83,14 @@ enum INIT_STATUS {
 const SIWE_STATEMENT = 'Sign in to enable Nexus';
 
 export class CA {
-  static getSupportedChains = getSupportedChains;
+  static readonly getSupportedChains = getSupportedChains;
   #cosmos?: {
     wallet: DirectSecp256k1Wallet;
     address: string;
   };
   #ephemeralWallet?: PrivateKeyAccount;
   public chainList: ChainListType;
-  private _siweChain = 1;
+  private readonly _siweChain: number = 1;
   protected _evm?: {
     client: Client<CustomTransport, undefined, undefined, undefined, WalletActions & PublicActions>;
     provider: EthereumProvider;
@@ -121,7 +119,7 @@ export class CA {
   protected _networkConfig: NetworkConfig;
   protected _refundInterval: number | undefined;
   protected _initPromise: Promise<void> | null = null;
-  private simulationClient: BackendSimulationClient;
+  private readonly simulationClient: BackendSimulationClient;
 
   protected constructor(
     config: { network?: NexusNetwork; debug?: boolean; siweChain?: number } = {
@@ -591,7 +589,7 @@ export class CA {
     return handler.simulateExecute(params, this._evm.address);
   }
 
-  private universeCheck = (dstChain: Chain) => {
+  private readonly universeCheck = (dstChain: Chain) => {
     if (dstChain.universe === Universe.FUEL && !this._fuel) {
       throw Errors.walletNotConnected('Fuel');
     }

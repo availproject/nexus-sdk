@@ -16,7 +16,6 @@ import Decimal from 'decimal.js';
 import { orderBy, retry } from 'es-toolkit';
 import Long from 'long';
 import { Hex, PrivateKeyAccount, WalletClient } from 'viem';
-import { getLogger, SWAP_STEPS, SwapStepType } from '../../../commons';
 import { divDecimals, equalFold, minutesToMs, waitForTxReceipt } from '../utils';
 import { EADDRESS, SWEEPER_ADDRESS } from './constants';
 import { getTokenDecimals } from './data';
@@ -42,6 +41,9 @@ import {
   vscSBCTx,
 } from './utils';
 import {
+  getLogger,
+  SWAP_STEPS,
+  SwapStepType,
   ChainListType,
   BridgeAsset,
   EoaToEphemeralCallMap,
@@ -107,14 +109,14 @@ class BridgeHandler {
     promise: Promise.resolve(),
   };
   constructor(
-    private input: {
+    private readonly input: {
       amount: Decimal;
       assets: BridgeAsset[];
       chainID: number;
       decimals: number;
       tokenAddress: `0x${string}`;
     } | null,
-    private options: Options,
+    private readonly options: Options,
   ) {
     if (input) {
       for (const asset of input.assets) {
@@ -295,17 +297,17 @@ class DestinationSwapHandler {
   private eoaToEphCalls: Tx[] = [];
   constructor(
     private data: SwapRoute['destination'],
-    private dstTokenInfo: {
+    private readonly dstTokenInfo: {
       contractAddress: `0x${string}`;
       decimals: number;
       symbol: string;
     },
-    private dst: {
+    private readonly dst: {
       amount?: bigint;
       chainID: number;
       token: `0x${string}`;
     },
-    private options: Options,
+    private readonly options: Options,
   ) {
     if (data.swap.dstEOAToEphTx) {
       options.cache.addAllowanceQuery({
@@ -542,8 +544,8 @@ class DestinationSwapHandler {
 
 class SourceSwapsHandler {
   private disposableCache: { [k: string]: Tx } = {};
-  private swapsData: Map<bigint, SwapInput[]>;
-  constructor(data: SwapRoute['source'], private options: Options) {
+  private readonly swapsData: Map<bigint, SwapInput[]>;
+  constructor(data: SwapRoute['source'], private readonly options: Options) {
     this.swapsData = this.groupAndOrder(data.swaps);
     for (const [chainID, swapQuotes] of this.iterate(this.swapsData)) {
       this.options.cache.addSetCodeQuery({

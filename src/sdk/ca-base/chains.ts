@@ -13,7 +13,7 @@ import { Hex } from 'viem';
 
 class ChainList {
   public chains: Chain[];
-  private vcm: ChainIDKeyedMap<Buffer<ArrayBufferLike>>;
+  private readonly vcm: ChainIDKeyedMap<Buffer<ArrayBufferLike>>;
 
   constructor(env: Environment) {
     switch (env) {

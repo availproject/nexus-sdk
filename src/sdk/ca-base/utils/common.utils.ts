@@ -33,11 +33,13 @@ import {
   WalletClient,
   WebSocketTransport,
 } from 'viem';
-import { TronWeb } from 'tronweb';
+import { TronWeb, Types, utils } from 'tronweb';
 import { ChainList } from '../chains';
 import { FUEL_BASE_ASSET_ID, isNativeAddress, ZERO_ADDRESS } from '../constants';
-import { getLogger, IBridgeOptions, SupportedChainsAndTokensResult } from '../../../commons';
 import {
+  getLogger,
+  IBridgeOptions,
+  SupportedChainsAndTokensResult,
   Intent,
   NetworkConfig,
   OraclePriceResponse,
@@ -51,7 +53,6 @@ import { FeeStore } from './api.utils';
 import { requestTimeout, waitForIntentFulfilment } from './contract.utils';
 import { cosmosCreateDoubleCheckTx, cosmosFillCheck, cosmosRefundIntent } from './cosmos.utils';
 import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
-import { Types, utils } from 'tronweb';
 import { Errors } from '../errors';
 
 const logger = getLogger();
@@ -709,7 +710,7 @@ async function waitForTronTxConfirmation(
         txInfo,
       });
 
-      if (txInfo && txInfo.receipt) {
+      if (txInfo?.receipt) {
         const result = txInfo.receipt.result;
         if (result === 'FAILED') {
           throw new Error(`❌ Transaction reverted: ${txid}`);

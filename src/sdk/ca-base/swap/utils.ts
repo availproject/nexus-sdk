@@ -43,12 +43,20 @@ import {
 } from 'viem';
 import { ERC20PermitABI, ERC20PermitEIP2612PolygonType, ERC20PermitEIP712Type } from '../abi/erc20';
 import { getLogoFromSymbol, ZERO_ADDRESS } from '../constants';
-import { getLogger } from '../../../commons';
 import {
+  getLogger,
   Chain,
   SuccessfulSwapResult,
   UnifiedBalanceResponseData,
   UserAssetDatum,
+  SWAP_STEPS,
+  SwapStepType,
+  AnkrAsset,
+  AnkrBalances,
+  SBCTx,
+  SwapIntent,
+  Tx,
+  ChainListType,
 } from '../../../commons';
 import {
   convertAddressByUniverse,
@@ -63,16 +71,6 @@ import { SWEEP_ABI } from './abi';
 import { CALIBUR_ADDRESS, EADDRESS, SWEEPER_ADDRESS } from './constants';
 import { chainData, FlatBalance, getTokenVersion } from './data';
 import { createSBCTxFromCalls, waitForSBCTxReceipt } from './sbc';
-import {
-  SWAP_STEPS,
-  SwapStepType,
-  AnkrAsset,
-  AnkrBalances,
-  SBCTx,
-  SwapIntent,
-  Tx,
-  ChainListType,
-} from '../../../commons';
 import Long from 'long';
 import { Errors } from '../errors';
 
@@ -686,8 +684,7 @@ export const getAnkrBalances = async (
           balance,
           balanceUSD: asset.balanceUsd,
           chainID: AnkrChainIdMapping.get(asset.blockchain)!,
-          tokenAddress:
-            asset.tokenType === 'ERC20' ? asset.contractAddress : (ZERO_ADDRESS as `0x${string}`),
+          tokenAddress: asset.tokenType === 'ERC20' ? asset.contractAddress : ZERO_ADDRESS,
           tokenData: {
             decimals: asset.tokenDecimals,
             icon: asset.thumbnail,
@@ -720,7 +717,7 @@ export const toFlatBalance = (
     assets,
   });
   return assets
-    .map((a) =>
+    .flatMap((a) =>
       a.breakdown.map((b) => {
         const tokenAddress = equalFold(b.contractAddress, ZERO_ADDRESS)
           ? EADDRESS
@@ -737,7 +734,6 @@ export const toFlatBalance = (
         };
       }),
     )
-    .flat()
     .filter((b) => {
       return !(b.chainID === currentChainID && equalFold(b.tokenAddress, selectedTokenAddress));
     })
@@ -810,8 +806,8 @@ export const balancesToAssets = (
                 balanceInFiat: new Decimal(currency.value).toDecimalPlaces(2).toNumber(),
                 chain: {
                   id: bytesToNumber(balance.chain_id),
-                  logo: chain.custom.icon as string,
-                  name: chain.name as string,
+                  logo: chain.custom.icon,
+                  name: chain.name,
                 },
                 contractAddress: tokenAddress,
                 decimals,
@@ -851,7 +847,7 @@ export const balancesToAssets = (
     const existingAsset = assets.find((a) => equalFold(a.symbol, asset.tokenData.symbol));
     if (existingAsset) {
       if (
-        !existingAsset.breakdown.find(
+        !existingAsset.breakdown.some(
           (t) => t.chain.id === chain.id && equalFold(t.contractAddress, asset.tokenAddress),
         )
       ) {
@@ -884,8 +880,8 @@ export const balancesToAssets = (
             balanceInFiat: new Decimal(asset.balanceUSD).toDecimalPlaces(2).toNumber(),
             chain: {
               id: chain.id,
-              logo: chain.custom.icon as string,
-              name: chain.name as string,
+              logo: chain.custom.icon,
+              name: chain.name,
             },
             contractAddress: asset.tokenAddress,
             decimals: asset.tokenData.decimals,
@@ -894,7 +890,7 @@ export const balancesToAssets = (
         ],
         decimals: asset.tokenData.decimals,
         icon: asset.tokenData.icon,
-        symbol: asset.tokenData.symbol as string,
+        symbol: asset.tokenData.symbol,
       });
     }
   }
@@ -926,11 +922,11 @@ export type SetCodeInput = {
 export class Cache {
   public allowanceValues: Map<string, bigint> = new Map();
   public setCodeValues: Map<string, Hex | undefined> = new Map();
-  private allowanceQueries: Set<AllowanceInput> = new Set();
-  private nativeAllowanceQueries: Set<AllowanceInput> = new Set();
-  private setCodeQueries: Set<SetCodeInput> = new Set();
+  private readonly allowanceQueries: Set<AllowanceInput> = new Set();
+  private readonly nativeAllowanceQueries: Set<AllowanceInput> = new Set();
+  private readonly setCodeQueries: Set<SetCodeInput> = new Set();
 
-  constructor(private publicClientList: PublicClientList) {}
+  constructor(private readonly publicClientList: PublicClientList) {}
 
   addAllowanceQuery(input: AllowanceInput) {
     this.allowanceQueries.add(input);
@@ -1047,7 +1043,7 @@ export class Cache {
 // To remove duplication of publicClients
 export class PublicClientList {
   private list: Record<number, PublicClient> = {};
-  constructor(private chainList: ChainListType) {}
+  constructor(private readonly chainList: ChainListType) {}
 
   get(chainID: bigint | number | string) {
     let client = this.list[Number(chainID)];
