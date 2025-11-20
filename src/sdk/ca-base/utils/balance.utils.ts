@@ -41,7 +41,7 @@ export const getBalancesForSwap = async (input: { evmAddress: Hex; chainList: Ch
     input.chainList,
   );
   let balances = toFlatBalance(assets, false);
-  return balances;
+  return { assets, balances };
 };
 
 export const getBalances = async (input: {

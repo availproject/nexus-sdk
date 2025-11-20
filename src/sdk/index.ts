@@ -28,6 +28,7 @@ import type {
 } from '../commons';
 import { logger } from '../commons';
 import { CA } from './ca-base';
+import { FlatBalance } from './ca-base/swap/data';
 // import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 
 export class NexusSDK extends CA {
@@ -205,8 +206,10 @@ export class NexusSDK extends CA {
    * tokens returned here should be used in `input` for exact in swap
    * @returns balances that can be used in swap operations
    */
-  public getBalancesForSwap() {
-    return this._getBalancesForSwap();
+  public async getBalancesForSwap() {
+    const result = await this._getBalancesForSwap();
+
+    return result.assets;
   }
 
   /**

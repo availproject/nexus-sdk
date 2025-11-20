@@ -61,7 +61,7 @@ import {
 } from '../utils';
 import { SWEEP_ABI } from './abi';
 import { CALIBUR_ADDRESS, EADDRESS, SWEEPER_ADDRESS } from './constants';
-import { chainData, getTokenVersion } from './data';
+import { chainData, FlatBalance, getTokenVersion } from './data';
 import { createSBCTxFromCalls, waitForSBCTxReceipt } from './sbc';
 import {
   SWAP_STEPS,
@@ -715,7 +715,7 @@ export const toFlatBalance = (
   convertAddressToBytes32 = true,
   currentChainID?: number,
   selectedTokenAddress?: `0x${string}`,
-) => {
+): FlatBalance[] => {
   logger.debug('toFlatBalance', {
     assets,
   });
