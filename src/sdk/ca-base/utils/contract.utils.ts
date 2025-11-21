@@ -32,7 +32,8 @@ import {
   GetAllowanceParams,
   SetAllowanceParams,
 } from '../../../commons';
-import { equalFold, minutesToMs } from './common.utils';
+import { vscCreateSponsoredApprovals } from './api.utils';
+import { convertTo32Bytes, createDeadlineFromNow, equalFold, minutesToMs } from './common.utils';
 
 const logger = getLogger();
 

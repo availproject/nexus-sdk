@@ -4,7 +4,6 @@ import {
   Chain,
   encodeAbiParameters,
   Hex,
-  maxUint256,
   PrivateKeyAccount,
   PublicClient,
   SignAuthorizationReturnType,
@@ -13,7 +12,7 @@ import {
   WalletClient,
 } from 'viem';
 
-import { waitForTxReceipt } from '../utils';
+import { createDeadlineFromNow, waitForTxReceipt } from '../utils';
 import CaliburABI from './calibur.abi';
 import { CALIBUR_ADDRESS, CALIBUR_EIP712, ZERO_BYTES_20, ZERO_BYTES_32 } from './constants';
 import { Cache, convertTo32Bytes, isAuthorizationCodeSet, PublicClientList } from './utils';
@@ -27,6 +26,7 @@ export const createBatchedCallSignature = (
   chain: bigint,
   address: `0x${string}`,
   account: PrivateKeyAccount,
+  deadline: bigint,
 ) => {
   return account.signTypedData({
     domain: {
@@ -41,7 +41,7 @@ export const createBatchedCallSignature = (
         calls: batchedCalls,
         revertOnFailure: true,
       },
-      deadline: maxUint256,
+      deadline,
       executor: toHex(ZERO_BYTES_20),
       keyHash: toHex(ZERO_BYTES_32),
       nonce,
@@ -86,20 +86,20 @@ export const createSBCTxFromCalls = async ({
   publicClient: PublicClient;
 }) => {
   const nonce = bytesToBigInt(window.crypto.getRandomValues(new Uint8Array(24))) << 64n;
-
+  const deadline = createDeadlineFromNow(3n);
   const signature = await createBatchedCallSignature(
     calls,
     nonce,
     BigInt(chainID),
     ephemeralAddress,
     ephemeralWallet,
+    deadline,
   );
 
   let authorization: null | SignAuthorizationReturnType = null;
   if (!(await isAuthorizationCodeSet(chainID, ephemeralAddress, cache))) {
     const nonce = await publicClient.getTransactionCount({
       address: ephemeralAddress,
-      blockTag: 'pending',
     });
 
     // create authorization for calibur
@@ -119,7 +119,7 @@ export const createSBCTxFromCalls = async ({
       value: convertTo32Bytes(c.value),
     })),
     chain_id: convertTo32Bytes(chainID),
-    deadline: toBytes(maxUint256),
+    deadline: toBytes(deadline),
     key_hash: ZERO_BYTES_32,
     nonce: convertTo32Bytes(nonce),
     revert_on_failure: true,
@@ -163,13 +163,14 @@ export const caliburExecute = async ({
   value: bigint;
 }) => {
   const nonce = bytesToBigInt(window.crypto.getRandomValues(new Uint8Array(24))) << 64n;
-
+  const deadline = createDeadlineFromNow(3n);
   const signature = await createBatchedCallSignature(
     calls,
     nonce,
     BigInt(chain.id),
     ephemeralAddress,
     ephemeralWallet,
+    deadline,
   );
 
   return actualWallet.writeContract({
@@ -182,7 +183,7 @@ export const caliburExecute = async ({
           calls,
           revertOnFailure: true,
         },
-        deadline: maxUint256,
+        deadline,
         executor: toHex(ZERO_BYTES_20),
         keyHash: toHex(ZERO_BYTES_32),
         nonce,

@@ -61,6 +61,7 @@ import {
 import {
   convertAddressByUniverse,
   convertTo32BytesHex,
+  createDeadlineFromNow,
   divDecimals,
   equalFold,
   getExplorerURL,
@@ -187,6 +188,8 @@ export const createPermitSignature = async (
     contract.read.nonces([walletAddress]),
   ]);
 
+  const deadline = createDeadlineFromNow(3n);
+
   logger.debug('createPermitSigParams', {
     account: walletAddress,
     domain: {
@@ -196,7 +199,7 @@ export const createPermitSignature = async (
       version,
     },
     message: {
-      deadline: maxUint256,
+      deadline,
       nonce,
       owner: walletAddress,
       spender: spender,
@@ -218,7 +221,7 @@ export const createPermitSignature = async (
             version: version.toString(),
           },
           message: {
-            deadline: maxUint256,
+            deadline,
             nonce,
             owner: walletAddress,
             spender: spender,
