@@ -48,12 +48,14 @@ import {
   ChainListType,
   UserAssetDatum,
   Chain,
+  NexusNetwork,
 } from '../../../commons';
 import { FeeStore } from './api.utils';
 import { requestTimeout, waitForIntentFulfilment } from './contract.utils';
 import { cosmosCreateDoubleCheckTx, cosmosFillCheck, cosmosRefundIntent } from './cosmos.utils';
 import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 import { Errors } from '../errors';
+import { Network } from '..';
 
 const logger = getLogger();
 
@@ -522,9 +524,7 @@ const createDepositDoubleCheckTx = (
   };
 };
 
-const getSDKConfigName = (
-  conf: SDKConfig,
-): Required<{ network?: NexusNetwork; debug?: boolean }> => {
+const getSDKConfigName = (conf: { network?: Network; debug?: boolean; siweChain?: number }) => {
   const config = {
     debug: conf.debug ?? false,
     network: 'mainnet' as NexusNetwork,

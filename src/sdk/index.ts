@@ -42,7 +42,6 @@ import {
   trackSdkDeInitialized,
   trackSDKInitialized,
   trackSwapIntent,
-  trackTron,
 } from '../utils/analytics';
 import { getSDKConfigName } from './ca-base/utils';
 
@@ -65,7 +64,7 @@ export class NexusSDK extends CA {
    */
   public async initialize(provider: EthereumProvider): Promise<void> {
     if (!this._isFirstInitializedTrack) {
-      trackSDKInitialized(getSDKConfigName(this._config));
+      trackSDKInitialized(getSDKConfigName(this._networkConfig));
       this._isFirstInitializedTrack = true;
     }
 
@@ -79,7 +78,7 @@ export class NexusSDK extends CA {
    * @returns unified balances across all chains
    */
   public async getUnifiedBalances(includeSwappableBalances = false): Promise<UserAsset[]> {
-    trackGetUnifiedBalances(getSDKConfigName(this._config));
+    trackGetUnifiedBalances(getSDKConfigName(this._networkConfig));
     return this._getUnifiedBalances(includeSwappableBalances);
   }
 
@@ -98,13 +97,13 @@ export class NexusSDK extends CA {
     };
     trackNexusTransaction({
       name: 'bridge',
-      config: getSDKConfigName(this._config),
+      config: getSDKConfigName(this._networkConfig),
       bridgeParams: { params: updatedParams, options },
     });
     const result = await this._createBridgeHandler(params, options).execute();
     trackNexusResult({
       name: 'bridge',
-      config: getSDKConfigName(this._config),
+      config: getSDKConfigName(this._networkConfig),
       result,
       bridgeParams: { params: updatedParams, options },
     });
@@ -128,13 +127,13 @@ export class NexusSDK extends CA {
     };
     trackNexusTransaction({
       name: 'calculateMaxForBridge',
-      config: getSDKConfigName(this._config),
+      config: getSDKConfigName(this._networkConfig),
       calculateMaxForBridge: updatedParams,
     });
     const result = this._calculateMaxForBridge(params);
     trackNexusResult({
       name: 'calculateMaxForBridge',
-      config: getSDKConfigName(this._config),
+      config: getSDKConfigName(this._networkConfig),
       result,
       calculateMaxForBridge: updatedParams,
     });
@@ -159,13 +158,13 @@ export class NexusSDK extends CA {
     };
     trackNexusTransaction({
       name: 'bridgeAndTransfer',
-      config: getSDKConfigName(this._config),
+      config: getSDKConfigName(this._networkConfig),
       bridgeAndTransferParams: { params: updatedParams, options },
     });
     const result = await this._bridgeAndTransfer(params, options);
     trackNexusResult({
       name: 'bridgeAndTransfer',
-      config: getSDKConfigName(this._config),
+      config: getSDKConfigName(this._networkConfig),
       result,
       bridgeAndTransferParams: { params: updatedParams, options },
     });
@@ -197,13 +196,13 @@ export class NexusSDK extends CA {
     };
     trackNexusTransaction({
       name: 'swapWithExactIn',
-      config: getSDKConfigName(this._config),
+      config: getSDKConfigName(this._networkConfig),
       swapWithExactInParams: { input: updatedParams, options },
     });
     const result = await this._swapWithExactIn(input, options);
     trackNexusResult({
       name: 'swapWithExactIn',
-      config: getSDKConfigName(this._config),
+      config: getSDKConfigName(this._networkConfig),
       result,
       swapWithExactInParams: { input: updatedParams, options },
     });
@@ -232,13 +231,13 @@ export class NexusSDK extends CA {
     };
     trackNexusTransaction({
       name: 'swapWithExactOut',
-      config: getSDKConfigName(this._config),
+      config: getSDKConfigName(this._networkConfig),
       swapWithExactOutParams: { input: updatedParams, options },
     });
     const result = await this._swapWithExactOut(input, options);
     trackNexusResult({
       name: 'swapWithExactOut',
-      config: getSDKConfigName(this._config),
+      config: getSDKConfigName(this._networkConfig),
       result,
       swapWithExactOutParams: { input: updatedParams, options },
     });
@@ -261,13 +260,13 @@ export class NexusSDK extends CA {
     };
     trackNexusTransaction({
       name: 'simulateBridge',
-      config: getSDKConfigName(this._config),
+      config: getSDKConfigName(this._networkConfig),
       simulateBridgeParams: updatedParams,
     });
-    const result = this.createBridgeHandler(params).simulate();
+    const result = this._createBridgeHandler(params).simulate();
     trackNexusResult({
       name: 'simulateBridge',
-      config: getSDKConfigName(this._config),
+      config: getSDKConfigName(this._networkConfig),
       result,
       simulateBridgeParams: updatedParams,
     });
@@ -289,13 +288,13 @@ export class NexusSDK extends CA {
     };
     trackNexusTransaction({
       name: 'simulateBridgeAndTransfer',
-      config: getSDKConfigName(this._config),
+      config: getSDKConfigName(this._networkConfig),
       simulateBridgeAndTransferParams: updatedParams,
     });
     const result = this._simulateBridgeAndTransfer(params);
     trackNexusResult({
       name: 'simulateBridgeAndTransfer',
-      config: getSDKConfigName(this._config),
+      config: getSDKConfigName(this._networkConfig),
       result,
       simulateBridgeAndTransferParams: updatedParams,
     });
@@ -308,7 +307,7 @@ export class NexusSDK extends CA {
    * @returns list of intents
    */
   public async getMyIntents(page: number = 1): Promise<RequestForFunds[]> {
-    trackGetIntent(getSDKConfigName(this._config));
+    trackGetIntent(getSDKConfigName(this._networkConfig));
     return this._getMyIntents(page);
   }
 
@@ -320,7 +319,7 @@ export class NexusSDK extends CA {
    */
   public setOnIntentHook(callback: OnIntentHook): void {
     const wrappedCallback: OnIntentHook = (data) => {
-      trackIntent(getSDKConfigName(this._config), data.intent);
+      trackIntent(getSDKConfigName(this._networkConfig), data.intent);
       callback(data);
     };
 
@@ -335,7 +334,7 @@ export class NexusSDK extends CA {
    */
   public setOnSwapIntentHook(callback: OnSwapIntentHook): void {
     const wrappedCallback: OnSwapIntentHook = (data) => {
-      trackSwapIntent(getSDKConfigName(this._config), data.intent);
+      trackSwapIntent(getSDKConfigName(this._networkConfig), data.intent);
       callback(data);
     };
 
@@ -343,7 +342,7 @@ export class NexusSDK extends CA {
   }
 
   // public addTron(adapter: AdapterProps) {
-  //   trackTron(getSDKConfigName(this._config), adapter);
+  //   trackTron(getSDKConfigName(this._networkConfig), adapter);
   //   this._setTronAdapter(adapter);
   // }
 
@@ -355,7 +354,7 @@ export class NexusSDK extends CA {
    */
   public setOnAllowanceHook(callback: OnAllowanceHook): void {
     const wrappedCallback: OnAllowanceHook = (data) => {
-      trackAllowance(getSDKConfigName(this._config), data.sources);
+      trackAllowance(getSDKConfigName(this._networkConfig), data.sources);
       callback(data);
     };
 
@@ -367,7 +366,7 @@ export class NexusSDK extends CA {
    * @returns Promise resolving to void
    */
   public async deinit(): Promise<void> {
-    trackSdkDeInitialized(getSDKConfigName(this._config));
+    trackSdkDeInitialized(getSDKConfigName(this._networkConfig));
     return this._deinit();
   }
 
@@ -385,13 +384,13 @@ export class NexusSDK extends CA {
     };
     trackNexusTransaction({
       name: 'execute',
-      config: getSDKConfigName(this._config),
+      config: getSDKConfigName(this._networkConfig),
       executeParams: { params: updatedParams, options },
     });
     const result = this._execute(params, options);
     trackNexusResult({
       name: 'execute',
-      config: getSDKConfigName(this._config),
+      config: getSDKConfigName(this._networkConfig),
       result,
       executeParams: { params: updatedParams, options },
     });
@@ -411,13 +410,13 @@ export class NexusSDK extends CA {
     };
     trackNexusTransaction({
       name: 'simulateExecute',
-      config: getSDKConfigName(this._config),
+      config: getSDKConfigName(this._networkConfig),
       simulateExecuteParams: updatedParams,
     });
     const result = this._simulateExecute(params);
     trackNexusResult({
       name: 'simulateExecute',
-      config: getSDKConfigName(this._config),
+      config: getSDKConfigName(this._networkConfig),
       result,
       simulateExecuteParams: updatedParams,
     });
@@ -450,13 +449,13 @@ export class NexusSDK extends CA {
     };
     trackNexusTransaction({
       name: 'bridgeAndExecute',
-      config: getSDKConfigName(this._config),
+      config: getSDKConfigName(this._networkConfig),
       bridgeAndExecuteParams: { params: updatedParams, options },
     });
     const result = this._bridgeAndExecute(params, options);
     trackNexusResult({
       name: 'bridgeAndExecute',
-      config: getSDKConfigName(this._config),
+      config: getSDKConfigName(this._networkConfig),
       result,
       bridgeAndExecuteParams: { params: updatedParams, options },
     });
@@ -475,7 +474,30 @@ export class NexusSDK extends CA {
   public async simulateBridgeAndExecute(
     params: BridgeAndExecuteParams,
   ): Promise<BridgeAndExecuteSimulationResult> {
-    return this._simulateBridgeAndExecute(params);
+    const updatedParams = {
+      ...params,
+      toChainId: CHAIN_METADATA[params.toChainId].name,
+      sourceChains: params.sourceChains?.map((chainId) => CHAIN_METADATA[chainId]?.name ?? chainId),
+      execute: {
+        ...params.execute,
+        ...((params.execute as any).toChainId
+          ? { toChainId: CHAIN_METADATA[(params.execute as any).toChainId].name }
+          : params.execute),
+      },
+    };
+    trackNexusTransaction({
+      name: 'simulateBridgeAndExecute',
+      config: getSDKConfigName(this._networkConfig),
+      simulateBridgeAndExecute: { params: updatedParams },
+    });
+    const result = this._simulateBridgeAndExecute(params);
+    trackNexusResult({
+      name: 'simulateBridgeAndExecute',
+      config: getSDKConfigName(this._networkConfig),
+      result,
+      simulateBridgeAndExecute: { params: updatedParams },
+    });
+    return result;
   }
 
   /**
@@ -484,6 +506,7 @@ export class NexusSDK extends CA {
    * @returns balances that can be used in swap operations
    */
   public async getBalancesForSwap() {
+    trackGetBalanceSwap(getSDKConfigName(this._networkConfig));
     const result = await this._getBalancesForSwap();
 
     return result.assets;
@@ -495,6 +518,7 @@ export class NexusSDK extends CA {
    * @returns balances that can be used in bridge operations
    */
   public getBalancesForBridge() {
+    trackGetUnifiedBalances(getSDKConfigName(this._networkConfig));
     return this._getUnifiedBalances(false);
   }
 
@@ -503,13 +527,13 @@ export class NexusSDK extends CA {
    * @returns list of chains where swap is supported
    */
   public getSwapSupportedChains(): SupportedChainsResult {
-    trackGetSwapSupportedChains(getSDKConfigName(this._config));
+    trackGetSwapSupportedChains(getSDKConfigName(this._networkConfig));
     return this._getSwapSupportedChains();
   }
 
   public isInitialized() {
     if (!this._isInitializedTrack) {
-      trackIsInitialized(getSDKConfigName(this._config));
+      trackIsInitialized(getSDKConfigName(this._networkConfig));
       this._isInitializedTrack = true;
     }
 
