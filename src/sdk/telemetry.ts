@@ -8,7 +8,8 @@ function getOrGenerateClientId(): string {
   let clientId = localStorage.getItem(KEY);
 
   if (!clientId) {
-    clientId = crypto.randomUUID();
+    const bytes = new Uint8Array(32);
+    clientId = window.crypto.getRandomValues(bytes).toString();
     localStorage.setItem(KEY, clientId);
   }
   return clientId;
