@@ -11,21 +11,13 @@ import {
   Client,
   CustomTransport,
   Hex,
+  UserRejectedRequestError,
 } from 'viem';
 import { privateKeyToAccount, PrivateKeyAccount } from 'viem/accounts';
 import { createSiweMessage } from 'viem/siwe';
 import { ChainList } from './chains';
 import { getNetworkConfig } from './config';
 import { FUEL_NETWORK_URL } from './constants';
-import {
-  getLogger,
-  LOG_LEVEL,
-  setLogLevel,
-  Chain,
-  TransferParams,
-  BridgeParams,
-} from '../../commons';
-import { createBridgeParams } from './requestHandlers/helpers';
 import {
   ChainListType,
   EthereumProvider,
@@ -35,7 +27,6 @@ import {
   NexusNetwork,
   OnAllowanceHook,
   OnIntentHook,
-  SDKConfig,
   SwapMode,
   SwapParams,
   BridgeAndExecuteParams,
@@ -43,11 +34,18 @@ import {
   OnEventParam,
   OnSwapIntentHook,
   TronAdapter,
+  getLogger,
+  LOG_LEVEL,
+  setLogLevel,
+  Chain,
+  TransferParams,
+  BridgeParams,
+  BeforeExecuteHook,
 } from '../../commons';
+import { createBridgeParams } from './requestHandlers/helpers';
 import {
   cosmosFeeGrant,
   fetchMyIntents,
-  getSDKConfig,
   getSupportedChains,
   minutesToMs,
   refundExpiredIntents,
@@ -85,14 +83,14 @@ enum INIT_STATUS {
 const SIWE_STATEMENT = 'Sign in to enable Nexus';
 
 export class CA {
-  static getSupportedChains = getSupportedChains;
+  static readonly getSupportedChains = getSupportedChains;
   #cosmos?: {
     wallet: DirectSecp256k1Wallet;
     address: string;
   };
   #ephemeralWallet?: PrivateKeyAccount;
   public chainList: ChainListType;
-  protected _config: Required<SDKConfig>;
+  private readonly _siweChain: number = 1;
   protected _evm?: {
     client: Client<CustomTransport, undefined, undefined, undefined, WalletActions & PublicActions>;
     provider: EthereumProvider;
@@ -121,24 +119,31 @@ export class CA {
   protected _networkConfig: NetworkConfig;
   protected _refundInterval: number | undefined;
   protected _initPromise: Promise<void> | null = null;
-  private simulationClient: BackendSimulationClient;
+  private readonly simulationClient: BackendSimulationClient;
 
   protected constructor(
-    config: { network?: NexusNetwork; debug?: boolean } = { debug: false, network: 'testnet' },
+    config: { network?: NexusNetwork; debug?: boolean; siweChain?: number } = {
+      debug: false,
+      network: 'testnet',
+      siweChain: 1,
+    },
   ) {
-    this._config = getSDKConfig(config);
-    this._networkConfig = getNetworkConfig(this._config.network);
+    this._networkConfig = getNetworkConfig(config.network);
     this.chainList = new ChainList(this._networkConfig.NETWORK_HINT);
     this.simulationClient = createBackendSimulationClient({
       baseUrl: 'https://nexus-backend.avail.so',
     });
 
-    if (this._config.debug) {
+    if (config.siweChain) {
+      this._siweChain = config.siweChain;
+    }
+
+    if (config.debug) {
       setLogLevel(LOG_LEVEL.DEBUG);
     }
   }
 
-  protected createBridgeHandler = (input: BridgeParams, options?: OnEventParam) => {
+  protected _createBridgeHandler = (input: BridgeParams, options?: OnEventParam) => {
     if (!this._evm) {
       throw Errors.sdkNotInitialized();
     }
@@ -431,10 +436,10 @@ export class CA {
   }
 
   protected async _createCosmosWallet() {
-    let sig = this._getStoredSIWESignature(this._evm!.address);
+    let sig = retrieveSIWESignatureFromLocalStorage(this._evm!.address, this._siweChain);
     if (!sig) {
       sig = await this._signatureForLogin();
-      this._storeSIWESignature(this._evm!.address, sig);
+      storeSIWESignatureToLocalStorage(this._evm!.address, this._siweChain, sig);
     }
 
     const pvtKey = keyDerivation.getPrivateKeyFromEthSignature(sig);
@@ -472,13 +477,19 @@ export class CA {
     if (!this._evm) {
       throw Errors.sdkNotInitialized();
     }
+
+    const chain = this.chainList.getChainByID(this._siweChain);
+    if (!chain) {
+      throw Errors.chainNotFound(this._siweChain);
+    }
+
     const scheme = window.location.protocol.slice(0, -1);
     const domain = window.location.host;
     const origin = window.location.origin;
     const address = await this._getEVMAddress();
     const message = createSiweMessage({
       address,
-      chainId: 1,
+      chainId: chain.id,
       domain,
       issuedAt: new Date('2024-12-16T12:17:43.182Z'), // this remains same to arrive at same pvt key
       nonce: 'iLjYWC6s8frYt4l8w', // maybe this can be shortened hash of address
@@ -489,14 +500,16 @@ export class CA {
     });
     const currentChain = await this._evm.client.getChainId();
     try {
-      await this._evm.client.switchChain({ id: 1 });
+      await switchChain(this._evm.client, chain);
       const res = await this._evm.client
         .signMessage({
           account: address,
           message,
         })
         .catch((e) => {
-          e.walk();
+          if (e instanceof UserRejectedRequestError) {
+            throw Errors.userRejectedSIWESignature();
+          }
           throw e;
         });
       return res;
@@ -517,7 +530,7 @@ export class CA {
     const handler = new BridgeAndExecuteQuery(
       this.chainList,
       this._evm.client,
-      this.createBridgeHandler,
+      this._createBridgeHandler,
       this._getUnifiedBalances,
       this.simulationClient,
     );
@@ -525,7 +538,10 @@ export class CA {
     return handler.simulateBridgeAndExecute(params);
   }
 
-  protected _bridgeAndExecute(params: BridgeAndExecuteParams, options?: OnEventParam) {
+  protected _bridgeAndExecute = (
+    params: BridgeAndExecuteParams,
+    options?: OnEventParam & BeforeExecuteHook,
+  ) => {
     if (!this._evm) {
       throw Errors.sdkNotInitialized();
     }
@@ -533,13 +549,13 @@ export class CA {
     const handler = new BridgeAndExecuteQuery(
       this.chainList,
       this._evm.client,
-      this.createBridgeHandler,
+      this._createBridgeHandler,
       this._getUnifiedBalances,
       this.simulationClient,
     );
 
     return handler.bridgeAndExecute(params, options);
-  }
+  };
 
   protected async _execute(params: ExecuteParams, options?: OnEventParam) {
     if (!this._evm) {
@@ -549,7 +565,7 @@ export class CA {
     const handler = new BridgeAndExecuteQuery(
       this.chainList,
       this._evm.client,
-      this.createBridgeHandler,
+      this._createBridgeHandler,
       this._getUnifiedBalances,
       this.simulationClient,
     );
@@ -565,7 +581,7 @@ export class CA {
     const handler = new BridgeAndExecuteQuery(
       this.chainList,
       this._evm.client,
-      this.createBridgeHandler,
+      this._createBridgeHandler,
       this._getUnifiedBalances,
       this.simulationClient,
     );
@@ -573,7 +589,7 @@ export class CA {
     return handler.simulateExecute(params, this._evm.address);
   }
 
-  private universeCheck = (dstChain: Chain) => {
+  private readonly universeCheck = (dstChain: Chain) => {
     if (dstChain.universe === Universe.FUEL && !this._fuel) {
       throw Errors.walletNotConnected('Fuel');
     }
@@ -582,14 +598,6 @@ export class CA {
       throw Errors.walletNotConnected('Tron');
     }
   };
-
-  private _getStoredSIWESignature(address: Hex) {
-    return retrieveSIWESignatureFromLocalStorage(address);
-  }
-
-  private _storeSIWESignature(address: Hex, signature: string) {
-    return storeSIWESignatureToLocalStorage(address, signature);
-  }
 
   protected _convertTokenReadableAmountToBigInt = (
     amount: string,

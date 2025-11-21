@@ -18,7 +18,7 @@ type TokenInfo = {
   symbol: string;
 };
 
-type NexusNetwork = 'mainnet' | 'testnet' | 'devnet';
+type NexusNetwork = 'mainnet' | 'testnet' | 'devnet' | NetworkConfig;
 
 export interface BlockTransaction {
   hash?: string;
@@ -414,10 +414,8 @@ type Network = Extract<Environment, Environment.CERISE | Environment.CORAL | Env
 export type NetworkConfig = {
   COSMOS_URL: string;
   EXPLORER_URL: string;
-  FAUCET_URL: string;
   GRPC_URL: string;
   NETWORK_HINT: Environment;
-  SIMULATION_URL: string;
   VSC_DOMAIN: string;
 };
 
@@ -569,11 +567,6 @@ export type RFF = {
   }[];
 };
 
-type SDKConfig = {
-  debug?: boolean;
-  network?: Network | NetworkConfig;
-};
-
 type SetAllowanceInput = {
   amount: bigint;
   chainID: number;
@@ -661,6 +654,10 @@ export type UserAssetDatum = {
   symbol: string;
 };
 
+export type BeforeExecuteHook = {
+  beforeExecute?: () => Promise<{ value: bigint; data: Hex }>;
+};
+
 export type {
   OnIntentHook,
   OnAllowanceHookData,
@@ -673,7 +670,6 @@ export type {
   UserAssetDatum as UserAsset,
   TokenInfo,
   RFF as RequestForFunds,
-  SDKConfig,
   NexusNetwork,
   TransactionReceipt,
   SwapIntent,

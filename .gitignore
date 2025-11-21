@@ -35,3 +35,4 @@ Thumbs.db
 *.swo
 
 /dist-tarballs
+html_docs/

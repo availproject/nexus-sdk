@@ -64,6 +64,11 @@ export const TESTNET_TOKEN_METADATA: Record<string, TokenMetadata> = {
   USDC: { ...BASE_TOKEN_METADATA.USDC, name: 'Test USD Coin' },
 } as const;
 
+/**
+ * Chain metadata
+ * @returns Chain metadata
+ */
+
 export const CHAIN_METADATA: Record<number, ChainMetadata> = {
   // Mainnet chains
   [SUPPORTED_CHAINS.ETHEREUM]: {
@@ -226,14 +231,20 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
   },
 } as const;
 
-// Event name constants to prevent typos
+/**
+ * Event name constants to prevent typos
+ * @returns Event name constants
+ */
 export const NEXUS_EVENTS = {
   STEP_COMPLETE: 'STEP_COMPLETE',
   SWAP_STEP_COMPLETE: 'SWAP_STEP_COMPLETE',
   STEPS_LIST: 'STEPS_LIST',
 } as const;
 
-// Helper constants for mainnet and testnet chain categorization
+/**
+ * Mainnet chains
+ * @returns Mainnet chains
+ */
 export const MAINNET_CHAINS = [
   SUPPORTED_CHAINS.ETHEREUM,
   SUPPORTED_CHAINS.BASE,
@@ -249,6 +260,10 @@ export const MAINNET_CHAINS = [
   SUPPORTED_CHAINS.TRON,
 ] as const;
 
+/**
+ * Testnet chains
+ * @returns Testnet chains
+ */
 export const TESTNET_CHAINS = [
   SUPPORTED_CHAINS.SEPOLIA,
   SUPPORTED_CHAINS.BASE_SEPOLIA,

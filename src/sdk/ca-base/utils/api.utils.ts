@@ -106,7 +106,7 @@ export const intentTransform = (input: RequestForFunds[], chainList: ChainListTy
         const chainId = bytesToNumber(s.chainID);
         const contractAddress = convertToHexAddressByUniverse(s.contractAddress, s.universe);
         const result = chainList.getChainAndTokenByAddress(chainId, contractAddress);
-        if (!result || !result.token) {
+        if (!result?.token) {
           throw Errors.tokenNotSupported(contractAddress, chainId);
         }
         const valueRaw = bytesToBigInt(s.value);
@@ -344,23 +344,21 @@ const getVSCURL = (vscDomain: string, protocol: 'https' | 'wss') => {
 let vscReq: AxiosInstance | null = null;
 
 const getVscReq = (vscDomain: string) => {
-  if (!vscReq) {
-    vscReq = axios.create({
-      baseURL: new URL('/api/v1', getVSCURL(vscDomain, 'https')).toString(),
-      headers: {
-        Accept: 'application/msgpack',
+  vscReq ??= axios.create({
+    baseURL: new URL('/api/v1', getVSCURL(vscDomain, 'https')).toString(),
+    headers: {
+      Accept: 'application/msgpack',
+    },
+    responseType: 'arraybuffer',
+    transformRequest: [
+      function (data, headers) {
+        if (['get', 'head'].includes((this.method as string).toLowerCase())) return;
+        headers['Content-Type'] = 'application/msgpack';
+        return pack(data);
       },
-      responseType: 'arraybuffer',
-      transformRequest: [
-        function (data, headers) {
-          if (['get', 'head'].includes((this.method as string).toLowerCase())) return;
-          headers['Content-Type'] = 'application/msgpack';
-          return pack(data);
-        },
-      ],
-      transformResponse: [(data) => unpack(data)],
-    });
-  }
+    ],
+    transformResponse: [(data) => unpack(data)],
+  });
   return vscReq;
 };
 

@@ -28,7 +28,7 @@ import type {
 } from '../commons';
 import { CHAIN_METADATA, logger } from '../commons';
 import { CA } from './ca-base';
-import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
+// import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 import {
   trackAllowance,
   trackGetBalanceSwap,
@@ -51,7 +51,7 @@ export class NexusSDK extends CA {
   private _isInitializedTrack = false;
   private _isFirstInitializedTrack = false;
 
-  constructor(config?: { network?: NexusNetwork; debug?: boolean }) {
+  constructor(config?: { network?: NexusNetwork; debug?: boolean; siweChain?: number }) {
     super(config);
     logger.debug('Nexus SDK initialized with config:', config);
     this.utils = new NexusUtils(this.chainList);
@@ -59,6 +59,9 @@ export class NexusSDK extends CA {
 
   /**
    * Initialize the SDK with a provider
+   * @param provider Ethereum provider
+   * @throws NexusError if the initialize fails
+   * @returns Promise resolving to void
    */
   public async initialize(provider: EthereumProvider): Promise<void> {
     if (!this._isFirstInitializedTrack) {
@@ -71,7 +74,9 @@ export class NexusSDK extends CA {
   }
 
   /**
-   * Get unified balances across all chains
+   * Returns unified balance for tokens across all chains
+   * @deprecated use `getBalancesForBridge` for direct replacement.
+   * @returns unified balances across all chains
    */
   public async getUnifiedBalances(includeSwappableBalances = false): Promise<UserAsset[]> {
     trackGetUnifiedBalances(getSDKConfigName(this._config));
@@ -79,7 +84,11 @@ export class NexusSDK extends CA {
   }
 
   /**
-   * Bridge to destination chain from auto-selected or provided source chains
+   * Bridge to destination chain from auto-selected sources or provided source chains
+   * @param params bridge parameters
+   * @param options event parameters
+   * @throws NexusError if the bridge fails
+   * @returns bridge result with explorer URL
    */
   public async bridge(params: BridgeParams, options?: OnEventParam): Promise<BridgeResult> {
     const updatedParams = {
@@ -92,7 +101,7 @@ export class NexusSDK extends CA {
       config: getSDKConfigName(this._config),
       bridgeParams: { params: updatedParams, options },
     });
-    const result = await this.createBridgeHandler(params, options).execute();
+    const result = await this._createBridgeHandler(params, options).execute();
     trackNexusResult({
       name: 'bridge',
       config: getSDKConfigName(this._config),
@@ -104,6 +113,11 @@ export class NexusSDK extends CA {
     };
   }
 
+  /**
+   * Calculates the maximum amount that can be bridged for a given token and destination chain
+   * @param params
+   * @returns
+   */
   public async calculateMaxForBridge(
     params: Omit<BridgeParams, 'amount'>,
   ): Promise<BridgeMaxResult> {
@@ -129,6 +143,10 @@ export class NexusSDK extends CA {
 
   /**
    * Bridge & transfer to an address (Attribution)
+   * @param params transfer parameters
+   * @param options event parameters
+   * @throws NexusError if the bridge and transfer fails
+   * @returns transfer result with transaction hash and explorer URL
    */
   public async bridgeAndTransfer(
     params: TransferParams,
@@ -157,6 +175,14 @@ export class NexusSDK extends CA {
     };
   }
 
+  /**
+   * Swap with exact in
+   * Useful when trying to swap with fixed sources and destination
+   * @param input swap input
+   * @param options event parameters
+   * @throws NexusError if the swap fails
+   * @returns swap result with success flag and result
+   */
   public async swapWithExactIn(
     input: ExactInSwapInput,
     options?: OnEventParam,
@@ -187,6 +213,15 @@ export class NexusSDK extends CA {
     };
   }
 
+  /**
+   * Swap with exact out
+   * Useful when trying to swap with a fixed destination.
+   * Sources are calculated automatically.
+   * @param input swap input
+   * @param options event parameters
+   * @throws NexusError if the swap fails
+   * @returns swap result with success flag and result
+   */
   public async swapWithExactOut(
     input: ExactOutSwapInput,
     options?: OnEventParam,
@@ -215,6 +250,8 @@ export class NexusSDK extends CA {
 
   /**
    * Simulate bridge transaction to get costs and fees
+   * @param params bridge parameters
+   * @returns simulation result with gas estimates
    */
   public async simulateBridge(params: BridgeParams): Promise<SimulationResult> {
     const updatedParams = {
@@ -238,7 +275,9 @@ export class NexusSDK extends CA {
   }
 
   /**
-   * Simulate transfer transaction to get costs and fees
+   * Simulate bridge + transfer transaction to get costs and fees
+   * @param params transfer parameters
+   * @returns simulation result with gas estimates
    */
   public async simulateBridgeAndTransfer(
     params: TransferParams,
@@ -264,7 +303,9 @@ export class NexusSDK extends CA {
   }
 
   /**
-   * Get user's intents with pagination
+   * Get user's past intents with pagination
+   * @param page page number
+   * @returns list of intents
    */
   public async getMyIntents(page: number = 1): Promise<RequestForFunds[]> {
     trackGetIntent(getSDKConfigName(this._config));
@@ -273,6 +314,9 @@ export class NexusSDK extends CA {
 
   /**
    * Set callback for intent status updates
+   * Useful for capturing intent and displaying information to the user
+   * Once set up, data will be automatically emitted, can be stored in a state or a variable for further use.
+   * @param callback intent status update callback
    */
   public setOnIntentHook(callback: OnIntentHook): void {
     const wrappedCallback: OnIntentHook = (data) => {
@@ -285,6 +329,9 @@ export class NexusSDK extends CA {
 
   /**
    * Set callback for swap intent details
+   * Useful for capturing swap intent and displaying information to the user
+   * Once set up, data will be automatically emitted, can be stored in a state or a variable for further use.
+   * @param callback swap intent details callback
    */
   public setOnSwapIntentHook(callback: OnSwapIntentHook): void {
     const wrappedCallback: OnSwapIntentHook = (data) => {
@@ -295,13 +342,16 @@ export class NexusSDK extends CA {
     this._setOnSwapIntentHook(wrappedCallback);
   }
 
-  public addTron(adapter: AdapterProps) {
-    trackTron(getSDKConfigName(this._config), adapter);
-    this._setTronAdapter(adapter);
-  }
+  // public addTron(adapter: AdapterProps) {
+  //   trackTron(getSDKConfigName(this._config), adapter);
+  //   this._setTronAdapter(adapter);
+  // }
 
   /**
    * Set callback for allowance approval events
+   * Useful for capturing allowance approval and displaying information to the user
+   * Once set up, data will be automatically emitted, can be stored in a state or a variable for further use.
+   * @param callback allowance approval event callback
    */
   public setOnAllowanceHook(callback: OnAllowanceHook): void {
     const wrappedCallback: OnAllowanceHook = (data) => {
@@ -312,6 +362,10 @@ export class NexusSDK extends CA {
     this._setOnAllowanceHook(wrappedCallback);
   }
 
+  /**
+   * Deinitialize the SDK
+   * @returns Promise resolving to void
+   */
   public async deinit(): Promise<void> {
     trackSdkDeInitialized(getSDKConfigName(this._config));
     return this._deinit();
@@ -320,6 +374,8 @@ export class NexusSDK extends CA {
   /**
    * Standalone function to execute funds into a smart contract
    * @param params execute parameters including contract details and transaction settings
+   * @param options event parameters
+   * @throws NexusError if the execute fails
    * @returns Promise resolving to execute result with transaction hash and explorer URL
    */
   public async execute(params: ExecuteParams, options?: OnEventParam): Promise<ExecuteResult> {
@@ -345,6 +401,7 @@ export class NexusSDK extends CA {
   /**
    * Simulate a standalone execute to estimate gas costs and validate parameters
    * @param params execute parameters for simulation
+   * @throws NexusError if the simulate execute fails
    * @returns Promise resolving to simulation result with gas estimates
    */
   public async simulateExecute(params: ExecuteParams): Promise<ExecuteSimulation> {
@@ -368,8 +425,12 @@ export class NexusSDK extends CA {
   }
 
   /**
-   * Enhanced bridge and execute function with optional execute step and improved error handling
-   * @param params Enhanced bridge and execute parameters
+   * Bridge and execute function
+   * Starts with an optional bridge transaction if user doesn't have enough funds on the destination chain.
+   * Then executes the contract call on the destination chain.
+   * @param params bridge and execute parameters
+   * @param options event parameters
+   * @throws NexusError if the bridge and execute fails
    * @returns Promise resolving to comprehensive operation result
    */
   public async bridgeAndExecute(
@@ -407,41 +468,40 @@ export class NexusSDK extends CA {
    * This method provides more accurate gas estimates by using the actual amount that will be
    * received on the destination chain after bridging (accounting for fees, slippage, etc.)
    * Includes detailed step-by-step breakdown with approval handling.
+   * @param params bridge and execute parameters
+   * @throws NexusError if the simulate bridge and execute fails
+   * @returns Promise resolving to simulation result with gas estimates
    */
   public async simulateBridgeAndExecute(
     params: BridgeAndExecuteParams,
   ): Promise<BridgeAndExecuteSimulationResult> {
-    const updatedParams = {
-      ...params,
-      toChainId: CHAIN_METADATA[params.toChainId].name,
-      sourceChains: params.sourceChains?.map((chainId) => CHAIN_METADATA[chainId]?.name ?? chainId),
-      execute: {
-        ...params.execute,
-        ...((params.execute as any).toChainId
-          ? { toChainId: CHAIN_METADATA[(params.execute as any).toChainId].name }
-          : params.execute),
-      },
-    };
-    trackNexusTransaction({
-      name: 'simulateBridgeAndExecute',
-      config: getSDKConfigName(this._config),
-      simulateBridgeAndExecute: updatedParams,
-    });
-    const result = this._simulateBridgeAndExecute(params);
-    trackNexusResult({
-      name: 'simulateBridgeAndExecute',
-      config: getSDKConfigName(this._config),
-      result,
-      simulateBridgeAndExecute: updatedParams,
-    });
-    return result;
+    return this._simulateBridgeAndExecute(params);
   }
 
-  public getBalancesForSwap() {
-    trackGetBalanceSwap(getSDKConfigName(this._config));
-    return this._getBalancesForSwap();
+  /**
+   * Tokens returned here should be used in `input` for exact in swap
+   * @throws NexusError if the get balances for swap fails
+   * @returns balances that can be used in swap operations
+   */
+  public async getBalancesForSwap() {
+    const result = await this._getBalancesForSwap();
+
+    return result.assets;
   }
 
+  /**
+   * Tokens returned here should be used in bridge, bridgeAndTransfer and bridgeAndExecute operations
+   * @throws NexusError if the get balances for bridge fails
+   * @returns balances that can be used in bridge operations
+   */
+  public getBalancesForBridge() {
+    return this._getUnifiedBalances(false);
+  }
+
+  /**
+   * Get list of chains where swap is supported
+   * @returns list of chains where swap is supported
+   */
   public getSwapSupportedChains(): SupportedChainsResult {
     trackGetSwapSupportedChains(getSDKConfigName(this._config));
     return this._getSwapSupportedChains();

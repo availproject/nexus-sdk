@@ -106,7 +106,7 @@ class BridgeHandler {
     };
   }
 
-  private buildIntent = async (sourceChains: number[] = []) => {
+  private readonly buildIntent = async (sourceChains: number[] = []) => {
     console.time('process:preIntentSteps');
 
     console.time('preIntentSteps:API');
@@ -650,12 +650,7 @@ class BridgeHandler {
 
         if (currency.permitVariant === PermitVariant.Unsupported || chain.id === 1) {
           if (chain.universe === Universe.ETHEREUM) {
-            // await switchChain(this.options.evm.client, chain);
-
-            await this.options.evm.provider.request({
-              method: 'wallet_switchEthereumChain',
-              params: [{ chainId: toHex(chain.id) }],
-            });
+            await switchChain(this.options.evm.client, chain);
 
             const h = await this.options.evm.client
               .writeContract({
@@ -706,7 +701,7 @@ class BridgeHandler {
               signedTx,
             });
 
-            if (!this.options.tron!.adapter.isMobile) {
+            if (!this.options.tron.adapter.isMobile) {
               const txResult = await provider.trx.sendRawTransaction(signedTx);
 
               logger.debug('tron tx result', {
@@ -1050,7 +1045,9 @@ class BridgeHandler {
     intent.destination.amount = borrow;
 
     if (accountedAmount.lt(borrowWithFee)) {
-      intent.isAvailableBalanceInsufficient = true;
+      throw Errors.insufficientBalance(
+        `required: ${borrowWithFee.toFixed()}, available: ${accountedAmount.toFixed()}`,
+      );
     }
 
     if (!gas.equals(0)) {
@@ -1062,7 +1059,7 @@ class BridgeHandler {
     return intent;
   }
 
-  private markStepDone = (step: BridgeStepType) => {
+  private readonly markStepDone = (step: BridgeStepType) => {
     if (this.options.emit) {
       const s = this.steps.find((s) => s.typeID === step.typeID);
       if (s) {

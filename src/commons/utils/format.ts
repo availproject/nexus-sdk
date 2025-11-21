@@ -252,6 +252,21 @@ function formatTiny(
   };
 }
 
+/**
+ * Format a token balance parts
+ * @param value - The value to format
+ * @param options - The options to format the balance
+ * @returns The formatted balance parts
+ * Examples:
+ * - 1.234567 -> "1.2346"
+ * - 0.00008509 -> "~0.0₄8509" (shows 4 leading zeros after decimal)
+ * - 0.000000000000000123 -> "~0.0₁₅123"
+ *
+ * Notes:
+ * - Uses Unicode subscript digits for the zero count.
+ * - Returns a structured object with parts of the balance.
+ */
+
 export function formatTokenBalanceParts(
   value: InputValue,
   {
@@ -311,6 +326,22 @@ export function formatTokenBalanceParts(
   return formatTiny(negative, fracRaw, zeros, tinyOpts);
 }
 
+/**
+ * Format a token balance
+ * @param value - The value to format
+ * @param options - The options to format the balance
+ * @returns The formatted balance
+ * Examples:
+ * - 1.234567 -> "1.2346"
+ * - 0.00008509 -> "~0.0₄8509" (shows 4 leading zeros after decimal)
+ * - 0.000000000000000123 -> "~0.0₁₅123"
+ *
+ * Notes:
+ * - Uses Unicode subscript digits for the zero count.
+ * - Returns a single string optimized for UI display.
+ * - If you need richer rendering (e.g., separate parts to style the subscript),
+ *   use `formatTokenBalanceParts` which returns structured parts.
+ */
 export function formatTokenBalance(
   value: string | number | bigint,
   options?: FormatTokenBalanceOptions,

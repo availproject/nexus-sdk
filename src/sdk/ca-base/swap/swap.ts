@@ -254,7 +254,7 @@ const calculatePerformance = () => {
 
     const entries = performance.getEntries();
 
-    if (entries.find((entry) => entry.name === 'source-swap-tx-start')) {
+    if (entries.some((entry) => entry.name === 'source-swap-tx-start')) {
       measures.push(
         performance.measure(
           'source-swap-tx-duration',
