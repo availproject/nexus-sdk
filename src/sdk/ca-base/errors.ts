@@ -3,6 +3,18 @@ import { ERROR_CODES, createError } from './nexusError';
 
 export const Errors = {
   sdkNotInitialized: () => createError(ERROR_CODES.SDK_NOT_INITIALIZED, 'SDK is not initialized()'),
+  sdkInitStateNotExpected: (state: string) =>
+    createError(ERROR_CODES.SDK_INIT_STATE_NOT_EXPECTED, 'Unexpected init SDK state', {
+      details: { state },
+    }),
+  accountConnectionFailed: () =>
+    createError(ERROR_CODES.CONNECT_ACCOUNT_FAILED, 'Account failed to connect from connector'),
+  environmentNotSupported: (environment: string) =>
+    createError(ERROR_CODES.ENVIRONMENT_NOT_SUPPORTED, 'Environment not supported yet', {
+      details: { environment },
+    }),
+  environmentNotKnown: () =>
+    createError(ERROR_CODES.ENVIRONMENT_NOT_KNOWN, 'Environment not known/mapped'),
   invalidAllowance: (expected: number, got: number) =>
     createError(
       ERROR_CODES.INVALID_VALUES_ALLOWANCE_HOOK,

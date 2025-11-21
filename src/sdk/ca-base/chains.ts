@@ -25,9 +25,9 @@ class ChainList {
         this.chains = TESTNET_CHAINS;
         break;
       case Environment.JADE:
-        throw new Error('Jade environment not supported yet');
+        throw Errors.environmentNotSupported("Jade");
       default:
-        throw new Error('Unknown environment');
+        throw Errors.environmentNotKnown();
     }
     this.vcm = getVaultContractMap(env);
   }

@@ -1,5 +1,6 @@
 import { ChainListType } from '.';
 import { Hex } from 'viem';
+import { Errors } from '../../sdk/ca-base/errors';
 
 const SWAP_START = {
   completed: true,
@@ -57,7 +58,7 @@ const SOURCE_SWAP_HASH = (ops: [bigint, Hex], chainList: ChainListType) => {
   const chainID = ops[0];
   const chain = chainList.getChainByID(Number(ops[0]));
   if (!chain) {
-    throw new Error(`Unknown chain: ${ops[0]}`);
+    throw Errors.chainNotFound(chainID);
   }
 
   return {
@@ -94,9 +95,10 @@ const SWAP_COMPLETE = {
 } as const;
 
 const DESTINATION_SWAP_HASH = (op: [bigint, Hex], chainList: ChainListType) => {
-  const chain = chainList.getChainByID(Number(op[0]));
+  const chainID = Number(op[0])
+  const chain = chainList.getChainByID(chainID);
   if (!chain) {
-    throw new Error(`Unknown chain: ${op[0]}`);
+    throw Errors.chainNotFound(chainID);
   }
   return {
     chain: {

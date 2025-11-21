@@ -284,7 +284,7 @@ export class CA {
 
     // Prevent concurrent initializations
     if (this._initStatus !== INIT_STATUS.CREATED) {
-      throw new Error(`Unexpected init state: ${this._initStatus}`);
+        throw Errors.sdkInitStateNotExpected(this._initStatus);
     }
 
     this._initStatus = INIT_STATUS.RUNNING;
@@ -372,7 +372,7 @@ export class CA {
 
     const address = await connector.currentAccount();
     if (!address) {
-      throw new Error('could not get current account from connector');
+      throw Errors.accountConnectionFailed();
     }
 
     const provider = new Provider(FUEL_NETWORK_URL, {
