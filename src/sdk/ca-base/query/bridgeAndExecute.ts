@@ -16,6 +16,9 @@ import {
   NEXUS_EVENTS,
   BRIDGE_STEPS,
   BridgeStepType,
+  BeforeExecuteHook,
+  ReadableIntent,
+  TokenInfo,
 } from '../../../commons';
 import {
   createPublicClient,
@@ -44,11 +47,11 @@ import { Errors } from '../errors';
 
 class BridgeAndExecuteQuery {
   constructor(
-    private chainList: ChainListType,
-    private evmClient: WalletClient,
-    private bridge: (input: BridgeParams, options?: OnEventParam) => BridgeHandler,
-    private getUnifiedBalances: () => Promise<UserAssetDatum[]>,
-    private simulationClient: BackendSimulationClient,
+    private readonly chainList: ChainListType,
+    private readonly evmClient: WalletClient,
+    private readonly bridge: (input: BridgeParams, options?: OnEventParam) => BridgeHandler,
+    private readonly getUnifiedBalances: () => Promise<UserAssetDatum[]>,
+    private readonly simulationClient: BackendSimulationClient,
   ) {}
 
   private async estimateBridgeAndExecute(params: BridgeAndExecuteParams) {
@@ -175,7 +178,10 @@ class BridgeAndExecuteQuery {
       gasAmount,
     });
 
-    let bridgeResult = null;
+    let bridgeResult: null | {
+      intent: ReadableIntent;
+      token: TokenInfo;
+    } = null;
 
     // 7. If bridge is required then simulate bridge
     if (!skipBridge) {
@@ -208,7 +214,7 @@ class BridgeAndExecuteQuery {
    */
   public async bridgeAndExecute(
     params: BridgeAndExecuteParams,
-    options?: OnEventParam,
+    options?: OnEventParam & BeforeExecuteHook,
   ): Promise<BridgeAndExecuteResult> {
     const {
       dstPublicClient,
@@ -273,6 +279,12 @@ class BridgeAndExecuteQuery {
       if (options && options.onEvent) {
         options.onEvent({ name: NEXUS_EVENTS.STEPS_LIST, args: executeSteps });
       }
+    }
+
+    if (options?.beforeExecute) {
+      const response = await options.beforeExecute();
+      tx.data = response.data;
+      tx.value = response.value;
     }
 
     // 8. Execute the transaction
@@ -594,7 +606,7 @@ class BridgeAndExecuteQuery {
     };
   }
 
-  private bridgeWrapper = async (
+  private readonly bridgeWrapper = async (
     params: BridgeParams,
     options?: OnEventParam,
   ): Promise<BridgeResult> => {
@@ -605,15 +617,10 @@ class BridgeAndExecuteQuery {
     };
   };
 
-  private simulateBridgeWrapper = async (params: BridgeParams) => {
-    try {
-      const handler = this.bridge(params);
-      const result = await handler.simulate();
-      return result;
-    } catch (e) {
-      logger.debug('simulateBridgeError', { e });
-      return null;
-    }
+  private readonly simulateBridgeWrapper = async (params: BridgeParams) => {
+    const handler = this.bridge(params);
+    const result = await handler.simulate();
+    return result;
   };
 }
 

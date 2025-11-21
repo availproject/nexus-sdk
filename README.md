@@ -239,8 +239,9 @@ All events include `typeID`, `transactionHash`, `explorerURL`, and `error` (if a
 ## 💰 Balance Operations
 
 ```typescript
-const balances = await sdk.getUnifiedBalances(); // CA balances
-const allBalances = await sdk.getUnifiedBalances(true); // Includes swappable tokens
+const unifiedBridgeBalances = await sdk.getBalancesForBridge(); // Returns balances that can be used in bridge operations
+---
+const swapBalances = await sdk.getBalancesForSwap(); // Returns balances that can be used in swap operations
 ```
 
 ---
@@ -248,8 +249,19 @@ const allBalances = await sdk.getUnifiedBalances(true); // Includes swappable to
 ## 🌉 Bridge Operations
 
 ```typescript
-const result = await sdk.bridge({ token: 'USDC', amount: 83_500_000n, chainId: 137 });
-const simulation = await sdk.simulateBridge({ token: 'USDC', amount: 83_500_000n, chainId: 137 });
+const result = await sdk.bridge({
+  token: 'USDC',
+  amount: 83_500_000n,
+  chainId: 137,
+  recipient: '0x....',
+});
+
+const simulation = await sdk.simulateBridge({
+  token: 'USDC',
+  amount: 83_500_000n,
+  chainId: 137,
+  recipient: '0x....',
+});
 ```
 
 ---
@@ -273,7 +285,7 @@ const simulation = await sdk.simulateBridgeAndTransfer({
 
 ---
 
-## ⚙️ Execute & Bridge+Execute
+## ⚙️ Execute & Bridge + Execute
 
 ```typescript
 // Direct contract execution
@@ -401,7 +413,6 @@ import type {
 | Base Sepolia     | 84532    | ETH    | ✅     |
 | Sepolia          | 11155111 | ETH    | ✅     |
 | Monad Testnet    | 10143    | MON    | ✅     |
-| Validium         | 567      | VLDM   | ✅     |
 
 ---
 

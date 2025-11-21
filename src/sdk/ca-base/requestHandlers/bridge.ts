@@ -71,6 +71,7 @@ import {
   createRFFromIntent,
   retrieveAddress,
   getBalances,
+  createDeadlineFromNow,
 } from '../utils';
 import { TronWeb } from 'tronweb';
 import { Errors } from '../errors';
@@ -106,7 +107,7 @@ class BridgeHandler {
     };
   }
 
-  private buildIntent = async (sourceChains: number[] = []) => {
+  private readonly buildIntent = async (sourceChains: number[] = []) => {
     console.time('process:preIntentSteps');
 
     console.time('preIntentSteps:API');
@@ -227,8 +228,10 @@ class BridgeHandler {
       if (requiredAllowance > currentAllowance) {
         const d = {
           allowance: {
-            current: currentAllowance.toString(),
-            minimum: requiredAllowance.toString(),
+            current: divDecimals(allowances[s.chainID], token.decimals).toFixed(token.decimals),
+            currentRaw: currentAllowance,
+            minimum: s.amount.toFixed(token.decimals),
+            minimumRaw: requiredAllowance,
           },
           chain: {
             id: chain.id,
@@ -648,12 +651,7 @@ class BridgeHandler {
 
         if (currency.permitVariant === PermitVariant.Unsupported || chain.id === 1) {
           if (chain.universe === Universe.ETHEREUM) {
-            // await switchChain(this.options.evm.client, chain);
-
-            await this.options.evm.provider.request({
-              method: 'wallet_switchEthereumChain',
-              params: [{ chainId: toHex(chain.id) }],
-            });
+            await switchChain(this.options.evm.client, chain);
 
             const h = await this.options.evm.client
               .writeContract({
@@ -704,7 +702,7 @@ class BridgeHandler {
               signedTx,
             });
 
-            if (!this.options.tron!.adapter.isMobile) {
+            if (!this.options.tron.adapter.isMobile) {
               const txResult = await provider.trx.sendRawTransaction(signedTx);
 
               logger.debug('tron tx result', {
@@ -741,6 +739,7 @@ class BridgeHandler {
               account,
               vc,
               source.amount,
+              createDeadlineFromNow(3n),
             ).catch((e) => {
               if (e instanceof ContractFunctionExecutionError) {
                 const isUserRejectedRequestError =
@@ -836,7 +835,7 @@ class BridgeHandler {
           if (typeof allowance === 'string' && equalFold(allowance, 'max')) {
             amount = maxUint256;
           } else if (typeof allowance === 'string' && equalFold(allowance, 'min')) {
-            amount = BigInt(source.allowance.minimum);
+            amount = source.allowance.minimumRaw;
           } else if (typeof allowance === 'string') {
             amount = mulDecimals(allowance, source.token.decimals);
           } else {
@@ -852,7 +851,7 @@ class BridgeHandler {
       };
 
       const deny = () => {
-        return reject(Errors.userRejectedAllowance);
+        return reject(Errors.userRejectedAllowance());
       };
 
       this.options.hooks.onAllowance({
@@ -1048,7 +1047,9 @@ class BridgeHandler {
     intent.destination.amount = borrow;
 
     if (accountedAmount.lt(borrowWithFee)) {
-      intent.isAvailableBalanceInsufficient = true;
+      throw Errors.insufficientBalance(
+        `required: ${borrowWithFee.toFixed()}, available: ${accountedAmount.toFixed()}`,
+      );
     }
 
     if (!gas.equals(0)) {
@@ -1060,7 +1061,7 @@ class BridgeHandler {
     return intent;
   }
 
-  private markStepDone = (step: BridgeStepType) => {
+  private readonly markStepDone = (step: BridgeStepType) => {
     if (this.options.emit) {
       const s = this.steps.find((s) => s.typeID === step.typeID);
       if (s) {

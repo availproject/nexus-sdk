@@ -23,7 +23,7 @@ export const TESTNET_CHAIN_IDS = {
   POLYGON_AMOY: 80002,
   MONAD_TESTNET: 10143,
   TRON_SHASTA: 2494104990,
-  VALIDIUM_TESTNET: 567,
+  // VALIDIUM_TESTNET: 567,
 } as const;
 
 export const SUPPORTED_CHAINS = {
@@ -63,6 +63,11 @@ export const TESTNET_TOKEN_METADATA: Record<string, TokenMetadata> = {
   USDT: { ...BASE_TOKEN_METADATA.USDT, name: 'Test Tether USD' },
   USDC: { ...BASE_TOKEN_METADATA.USDC, name: 'Test USD Coin' },
 } as const;
+
+/**
+ * Chain metadata
+ * @returns Chain metadata
+ */
 
 export const CHAIN_METADATA: Record<number, ChainMetadata> = {
   // Mainnet chains
@@ -226,14 +231,20 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
   },
 } as const;
 
-// Event name constants to prevent typos
+/**
+ * Event name constants to prevent typos
+ * @returns Event name constants
+ */
 export const NEXUS_EVENTS = {
   STEP_COMPLETE: 'STEP_COMPLETE',
   SWAP_STEP_COMPLETE: 'SWAP_STEP_COMPLETE',
   STEPS_LIST: 'STEPS_LIST',
 } as const;
 
-// Helper constants for mainnet and testnet chain categorization
+/**
+ * Mainnet chains
+ * @returns Mainnet chains
+ */
 export const MAINNET_CHAINS = [
   SUPPORTED_CHAINS.ETHEREUM,
   SUPPORTED_CHAINS.BASE,
@@ -249,6 +260,10 @@ export const MAINNET_CHAINS = [
   SUPPORTED_CHAINS.TRON,
 ] as const;
 
+/**
+ * Testnet chains
+ * @returns Testnet chains
+ */
 export const TESTNET_CHAINS = [
   SUPPORTED_CHAINS.SEPOLIA,
   SUPPORTED_CHAINS.BASE_SEPOLIA,
@@ -277,7 +292,7 @@ export const TOKEN_CONTRACT_ADDRESSES = {
     [SUPPORTED_CHAINS.HYPEREVM]: '0xb88339CB7199b77E23DB6E890353E22632Ba630f',
     // testnet chains
     [SUPPORTED_CHAINS.SEPOLIA]: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
-    [SUPPORTED_CHAINS.VALIDIUM_TESTNET]: '0x8Cf5f629Bb26FC3F92144e72bC4A3719A7DF07F3',
+    // [SUPPORTED_CHAINS.VALIDIUM_TESTNET]: '0x8Cf5f629Bb26FC3F92144e72bC4A3719A7DF07F3',
     [SUPPORTED_CHAINS.BASE_SEPOLIA]: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
     [SUPPORTED_CHAINS.ARBITRUM_SEPOLIA]: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d',
     [SUPPORTED_CHAINS.OPTIMISM_SEPOLIA]: '0x5fd84259d66Cd46123540766Be93DFE6D43130D7',

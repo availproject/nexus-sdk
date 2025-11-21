@@ -1,0 +1,12 @@
+{
+  "entryPoints": ["src/index.ts"],
+  "entryPointStrategy": "expand",
+  "tsconfig": "tsconfig.json",
+  "name": "Nexus core SDK Reference",
+  "out": "html_docs",
+  "plugin": [],
+  "theme": "default",
+  "excludePrivate": true,
+  "excludeProtected": false,
+  "includeVersion": true
+}

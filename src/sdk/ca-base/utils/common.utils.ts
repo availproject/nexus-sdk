@@ -33,20 +33,19 @@ import {
   WalletClient,
   WebSocketTransport,
 } from 'viem';
-import { TronWeb } from 'tronweb';
+import { TronWeb, Types, utils } from 'tronweb';
 import { ChainList } from '../chains';
 import { FUEL_BASE_ASSET_ID, isNativeAddress, ZERO_ADDRESS } from '../constants';
-import { getLogger, IBridgeOptions } from '../../../commons';
 import {
+  getLogger,
+  IBridgeOptions,
+  SupportedChainsAndTokensResult,
   Intent,
-  Network,
   NetworkConfig,
   OraclePriceResponse,
   ReadableIntent,
-  SDKConfig,
   TokenInfo,
   ChainListType,
-  NexusNetwork,
   UserAssetDatum,
   Chain,
 } from '../../../commons';
@@ -54,7 +53,6 @@ import { FeeStore } from './api.utils';
 import { requestTimeout, waitForIntentFulfilment } from './contract.utils';
 import { cosmosCreateDoubleCheckTx, cosmosFillCheck, cosmosRefundIntent } from './cosmos.utils';
 import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
-import { Types, utils } from 'tronweb';
 import { Errors } from '../errors';
 
 const logger = getLogger();
@@ -314,7 +312,9 @@ const hexTo0xString = (hex: string): `0x${string}` => {
   return `0x${hex}`;
 };
 
-const getSupportedChains = (env: Environment = Environment.CORAL) => {
+const getSupportedChains = (
+  env: Environment = Environment.CORAL,
+): SupportedChainsAndTokensResult => {
   const chainList = new ChainList(env);
   return chainList.chains.map((chain) => {
     return {
@@ -522,29 +522,6 @@ const createDepositDoubleCheckTx = (
   };
 };
 
-const getSDKConfig = (c: { network?: NexusNetwork; debug?: boolean }): Required<SDKConfig> => {
-  const config = {
-    debug: c.debug ?? false,
-    network: Environment.CORAL as Network,
-  };
-
-  switch (c.network) {
-    case 'testnet': {
-      config.network = Environment.FOLLY;
-      break;
-    }
-    case 'mainnet': {
-      config.network = Environment.CORAL;
-      break;
-    }
-    case 'devnet': {
-      config.network = Environment.CERISE;
-    }
-  }
-
-  return config;
-};
-
 class UserAsset {
   get balance() {
     return this.value.balance;
@@ -733,7 +710,7 @@ async function waitForTronTxConfirmation(
         txInfo,
       });
 
-      if (txInfo && txInfo.receipt) {
+      if (txInfo?.receipt) {
         const result = txInfo.receipt.result;
         if (result === 'FAILED') {
           throw new Error(`❌ Transaction reverted: ${txid}`);
@@ -898,15 +875,21 @@ const retrieveAddress = (
 
 const SIWE_KEY = '_siwe_sig';
 
-const storeSIWESignatureToLocalStorage = (address: Hex, signature: string) => {
-  window.localStorage.setItem(`${SIWE_KEY}-${address}`, signature);
+const storeSIWESignatureToLocalStorage = (address: Hex, siweChain: number, signature: string) => {
+  window.localStorage.setItem(`${SIWE_KEY}-${address}-${siweChain}`, signature);
 };
 
-const retrieveSIWESignatureFromLocalStorage = (address: Hex) => {
-  return window.localStorage.getItem(`${SIWE_KEY}-${address}`);
+const retrieveSIWESignatureFromLocalStorage = (address: Hex, siweChain: number) => {
+  return window.localStorage.getItem(`${SIWE_KEY}-${address}-${siweChain}`);
+};
+
+const createDeadlineFromNow = (minutes: bigint = 3n): bigint => {
+  const nowInSeconds = BigInt(Math.floor(Date.now() / 1000));
+  return nowInSeconds + minutes * 60n;
 };
 
 export {
+  createDeadlineFromNow,
   percentageAdditionToBigInt,
   retrieveSIWESignatureFromLocalStorage,
   storeSIWESignatureToLocalStorage,
@@ -930,7 +913,6 @@ export {
   evmWaitForFill,
   getExpiredIntents,
   getExplorerURL,
-  getSDKConfig,
   getSupportedChains,
   hexTo0xString,
   minutesToMs,

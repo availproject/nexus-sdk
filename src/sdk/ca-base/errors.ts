@@ -1,3 +1,4 @@
+import { Hex } from 'viem';
 import { ERROR_CODES, createError } from './nexusError';
 
 export const Errors = {
@@ -64,10 +65,10 @@ export const Errors = {
     createError(ERROR_CODES.USER_DENIED_ALLOWANCE, 'User rejected the allowance.'),
 
   userRejectedIntentSignature: () =>
-    createError(ERROR_CODES.USER_DENIED_ALLOWANCE, 'User rejected signing the intent hash.'),
+    createError(ERROR_CODES.USER_DENIED_INTENT_SIGNATURE, 'User rejected signing the intent hash.'),
 
-  insufficientBalance: () =>
-    createError(ERROR_CODES.INSUFFICIENT_BALANCE, 'Insufficient balance to proceed.'),
+  insufficientBalance: (msg?: string) =>
+    createError(ERROR_CODES.INSUFFICIENT_BALANCE, `Insufficient balance to proceed. ${msg}`),
 
   walletNotConnected: (walletType: string) =>
     createError(ERROR_CODES.WALLET_NOT_CONNECTED, `Wallet is not connected for ${walletType}`),
@@ -99,4 +100,8 @@ export const Errors = {
   simulationError: (msg: string) =>
     createError(ERROR_CODES.SIMULATION_FAILED, `tenderly simulation failed: ${msg}`),
   rFFFeeExpired: () => createError(ERROR_CODES.RFF_FEE_EXPIRED, `fee is not adequate`),
+  invalidInput: (msg: string) => createError(ERROR_CODES.INVALID_INPUT, `input invalid: ${msg}`),
+  noBalanceForAddress: (address: Hex) => {
+    createError(ERROR_CODES.NO_BALANCE_FOR_ADDRESS, `no balance found for user: ${address}`);
+  },
 };
