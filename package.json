@@ -1,6 +1,6 @@
 {
   "name": "@avail-project/nexus-core",
-  "version": "1.0.0-beta.39",
+  "version": "1.0.0-alpha.0",
   "description": "Nexus headless SDK for cross-chain transactions",
   "main": "./dist/index.js",
   "module": "./dist/index.esm.js",
@@ -56,7 +56,6 @@
     "decimal.js": "^10.6.0",
     "es-toolkit": "^1.40.0",
     "fuels": "0.101.1",
-    "buffer": "6.0.3",
     "it-ws": "^6.1.5",
     "long": "^5.3.2",
     "msgpackr": "^1.11.5",
