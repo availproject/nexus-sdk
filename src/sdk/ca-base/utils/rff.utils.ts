@@ -20,14 +20,14 @@ import Decimal from 'decimal.js';
 import { FeeStore } from './api.utils';
 
 type Destination = {
-  tokenAddress: `0x${string}`;
+  tokenAddress: Hex;
   universe: Universe;
   value: bigint;
 };
 
 type Source = {
   chainID: bigint;
-  tokenAddress: `0x${string}`;
+  tokenAddress: Hex;
   universe: Universe;
   valueRaw: bigint;
   value: Decimal;
