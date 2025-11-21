@@ -81,21 +81,6 @@ export type SUPPORTED_TOKENS = 'ETH' | 'USDC' | 'USDT';
 export type SUPPORTED_CHAINS_IDS = (typeof SUPPORTED_CHAINS)[keyof typeof SUPPORTED_CHAINS];
 
 /**
- * Dynamic parameter builder function for building function parameters at execution time
- * This allows for dynamic parameter generation based on actual bridged amounts and user context
- */
-export type DynamicParamBuilder = (
-  token: string,
-  amount: string,
-  chainId: number,
-  userAddress: `0x${string}`,
-) => {
-  functionParams: readonly unknown[];
-  /** ETH value in wei (string). Omit or '0' for ERC-20 calls */
-  value?: string;
-};
-
-/**
  * Parameters for bridging tokens between chains.
  */
 export interface BridgeParams {

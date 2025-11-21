@@ -6,6 +6,13 @@
   "excludePrivate": true,
   "excludeProtected": true,
   "excludeInternal": true,
+  "navigation": {
+    "includeCategories": true,
+    "includeGroups": true,
+    "includeFolders": false,
+    "compactFolders": false,
+    "excludeReferences": true
+  },
   "out": "html_docs",
   "plugin": ["typedoc-theme-fresh"],
   "theme": "fresh",
