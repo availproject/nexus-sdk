@@ -33,6 +33,7 @@ import { CA } from './ca-base';
 import { AnalyticsManager } from '../analytics/AnalyticsManager';
 import { NexusAnalyticsEvents } from '../analytics/events';
 // import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
+import nodePackage from '../../package.json' with { type: 'json' };
 
 export class NexusSDK extends CA {
   public readonly utils: NexusUtils;
@@ -46,7 +47,7 @@ export class NexusSDK extends CA {
     // Initialize analytics (backwards compatible - enabled by default)
     this.analytics = new AnalyticsManager(
       config?.analytics,
-      '1.0.0-beta.35', // SDK version from package.json
+      nodePackage.version, // SDK version from package.json
       config?.network === 'mainnet' ? 'mainnet' : 'testnet'
     );
 
