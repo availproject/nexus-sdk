@@ -3,6 +3,9 @@
  * Helper functions for extracting analytics properties from SDK data structures
  */
 
+import Decimal from "decimal.js";
+import { UserAssetDatum } from "../commons";
+
 /**
  * Detect wallet type from provider
  * @param provider - Ethereum provider object
@@ -12,13 +15,14 @@ export function getWalletType(provider: any): string {
   if (!provider) return 'Unknown';
 
   // Check for common wallet provider flags
-  if (provider.isMetaMask) return 'MetaMask';
   if (provider.isCoinbaseWallet) return 'Coinbase Wallet';
   if (provider.isWalletConnect) return 'WalletConnect';
   if (provider.isTrust) return 'Trust Wallet';
   if (provider.isRabby) return 'Rabby';
   if (provider.isBraveWallet) return 'Brave Wallet';
   if (provider.isExodus) return 'Exodus';
+  if (provider.isAmbire) return "Ambire Wallet";
+  if (provider.isMetaMask) return 'MetaMask'; // placing metamask last to avoid false positives
 
   // Try to get from constructor name
   if (provider.constructor?.name && provider.constructor.name !== 'Object') {
@@ -112,7 +116,7 @@ export function extractIntentProperties(intent: any): Record<string, unknown> {
  * @param assets - Array of user assets from balance query
  * @returns Object with totalBreakdowns, chains, and tokens
  */
-export function extractBreakdownStats(assets: any[]): {
+export function extractBreakdownStats(assets: UserAssetDatum[]): {
   totalBreakdowns: number;
   chains: number[];
   tokens: string[];
@@ -138,14 +142,14 @@ export function extractBreakdownStats(assets: any[]): {
 
       // Extract chains and tokens from breakdowns
       for (const breakdown of asset.breakdown) {
-        if (breakdown.chain?.id) {
+        if (breakdown.chain?.id && new Decimal(breakdown.balance).greaterThan(0)) {
           chains.add(breakdown.chain.id);
         }
       }
     }
 
     // Extract token symbol
-    if (asset.symbol) {
+    if (asset.symbol && new Decimal(asset.balance).greaterThan(0)) {
       tokens.add(asset.symbol);
     }
   }
