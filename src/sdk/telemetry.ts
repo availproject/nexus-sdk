@@ -2,6 +2,7 @@ import { LoggerProvider, BatchLogRecordProcessor } from '@opentelemetry/sdk-logs
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
 import { logs } from '@opentelemetry/api-logs';
 import { resourceFromAttributes } from '@opentelemetry/resources';
+import { toHex } from 'viem/utils';
 
 function getOrGenerateClientId(): string {
   const KEY = 'nexus-client-id';
@@ -9,7 +10,7 @@ function getOrGenerateClientId(): string {
 
   if (!clientId) {
     const bytes = new Uint8Array(32);
-    clientId = window.crypto.getRandomValues(bytes).toString();
+    clientId = toHex(window.crypto.getRandomValues(bytes));
     localStorage.setItem(KEY, clientId);
   }
   return clientId;
