@@ -56,7 +56,6 @@ export class NexusSDK extends CA {
 
     // Track SDK initialization
     this.analytics.track(NexusAnalyticsEvents.SDK_INITIALIZED, {
-      network: config?.network || 'testnet',
       debug: config?.debug || false,
     });
   }
