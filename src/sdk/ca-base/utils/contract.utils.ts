@@ -25,34 +25,10 @@ import { FillEvent } from '../abi/vault';
 import { ZERO_ADDRESS } from '../constants';
 import { Errors } from '../errors';
 import { getLogger } from '../../../commons';
-import {
-  ChainListType,
-  Chain,
-  EVMTransaction,
-  GetAllowanceParams,
-  SetAllowanceParams,
-} from '../../../commons';
-import { vscCreateSponsoredApprovals } from './api.utils';
-import { convertTo32Bytes, createDeadlineFromNow, equalFold, minutesToMs } from './common.utils';
+import { ChainListType, Chain, GetAllowanceParams, SetAllowanceParams } from '../../../commons';
+import { equalFold, minutesToMs } from './common.utils';
 
 const logger = getLogger();
-
-const isEVMTx = (tx: unknown): tx is EVMTransaction => {
-  logger.debug('isEVMTx', tx);
-  if (typeof tx !== 'object') {
-    return false;
-  }
-  if (!tx) {
-    return false;
-  }
-  if (!('to' in tx)) {
-    return false;
-  }
-  if (!('data' in tx || 'value' in tx)) {
-    return false;
-  }
-  return true;
-};
 
 const getAllowance = async (
   chain: Chain,
@@ -469,7 +445,6 @@ export {
   getAllowances,
   getL1Fee,
   getTokenTxFunction,
-  isEVMTx,
   requestTimeout,
   signPermitForAddressAndValue,
   switchChain,

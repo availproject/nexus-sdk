@@ -11,7 +11,7 @@ import {
 } from '@avail-project/ca-common';
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import Decimal from 'decimal.js';
-import { arrayify, CHAIN_IDS, FuelConnector, hexlify, Provider } from 'fuels';
+import { arrayify, FuelConnector, hexlify, Provider } from 'fuels';
 import Long from 'long';
 import {
   ByteArray,
@@ -49,8 +49,11 @@ import {
   UserAssetDatum,
   Chain,
 } from '../../../commons';
-import { FeeStore } from './api.utils';
-import { requestTimeout, waitForIntentFulfilment } from './contract.utils';
+import {
+  createPublicClientWithFallback,
+  requestTimeout,
+  waitForIntentFulfilment,
+} from './contract.utils';
 import { cosmosCreateDoubleCheckTx, cosmosFillCheck, cosmosRefundIntent } from './cosmos.utils';
 import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 import { Errors } from '../errors';
@@ -565,8 +568,8 @@ class UserAsset {
     return false;
   }
 
-  iterate(feeStore: FeeStore) {
-    return this.value.breakdown
+  async iterate(chainList: ChainListType) {
+    const values = this.value.breakdown
       .filter((b) => new Decimal(b.balance).gt(0))
       .sort((a, b) => {
         if (a.chain.id === 1) {
@@ -576,37 +579,46 @@ class UserAsset {
           return -1;
         }
         return Decimal.sub(b.balance, a.balance).toNumber();
-      })
-      .map((b) => {
-        let balance = new Decimal(b.balance);
-        if (this.isDeposit(b.contractAddress, b.universe)) {
-          const collectionFee = feeStore.calculateCollectionFee({
-            decimals: b.decimals,
-            sourceChainID: b.chain.id,
-            sourceTokenAddress: b.contractAddress,
-          });
-
-          let estimatedGasForDeposit = collectionFee.mul(b.chain.id === 1 ? 2 : 4);
-
-          if (b.contractAddress === FUEL_BASE_ASSET_ID && b.chain.id === CHAIN_IDS.fuel.mainnet) {
-            // Estimating this amount of gas is required for fuel -> vault
-            estimatedGasForDeposit = new Decimal('0.000_003');
-          }
-
-          if (new Decimal(b.balance).lessThan(estimatedGasForDeposit)) {
-            balance = new Decimal(0);
-          } else {
-            balance = new Decimal(b.balance).minus(estimatedGasForDeposit);
-          }
-        }
-        return {
-          balance,
-          chainID: b.chain.id,
-          decimals: b.decimals,
-          tokenContract: b.contractAddress,
-          universe: b.universe,
-        };
       });
+
+    const balances = [];
+
+    for (const b of values) {
+      let balance = new Decimal(b.balance);
+      if (this.isDeposit(b.contractAddress, b.universe)) {
+        const ESTIMATED_DEPOSIT_GAS = 200_000n;
+
+        const chain = chainList.getChainByID(b.chain.id);
+        if (!chain) {
+          throw Errors.chainNotFound(b.chain.id);
+        }
+
+        const publicClient = createPublicClientWithFallback(chain);
+        const gasEstimate = await publicClient.estimateFeesPerGas();
+        const gasUnitPrice = gasEstimate.maxFeePerGas ?? gasEstimate.gasPrice;
+
+        const estimatedGasForDeposit = divDecimals(
+          ESTIMATED_DEPOSIT_GAS * gasUnitPrice,
+          chain.nativeCurrency.decimals,
+        );
+
+        if (new Decimal(b.balance).lessThan(estimatedGasForDeposit)) {
+          balance = new Decimal(0);
+        } else {
+          balance = new Decimal(b.balance).minus(estimatedGasForDeposit);
+        }
+      }
+
+      balances.push({
+        balance,
+        chainID: b.chain.id,
+        decimals: b.decimals,
+        tokenContract: b.contractAddress,
+        universe: b.universe,
+      });
+    }
+
+    return balances;
   }
 }
 class UserAssets {

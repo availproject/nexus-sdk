@@ -44,6 +44,8 @@ import { packERC20Approve } from '../swap/utils';
 import { BackendSimulationClient } from '../../../integrations/tenderly';
 import BridgeHandler from '../requestHandlers/bridge';
 import { Errors } from '../errors';
+import { isNativeAddress } from '../constants';
+import { Universe } from '@avail-project/ca-common';
 
 class BridgeAndExecuteQuery {
   constructor(
@@ -90,11 +92,11 @@ class BridgeAndExecuteQuery {
       ? Promise.resolve({ approvalGas: approvalTx ? 85_000n : 0n, txGas: params.execute.gas })
       : this.simulateBundle({
           txs,
-          amount: BigInt(execute.tokenApproval?.amount ?? '0'),
+          amount: params.amount,
           userAddress: address,
           chainId: dstChain.id,
           tokenAddress: token.contractAddress,
-          tokenSymbol: execute.tokenApproval?.token ?? 'ETH',
+          tokenSymbol: params.token ?? 'ETH',
         }).then(({ gas }) => {
           if (approvalTx) {
             return {
@@ -143,6 +145,7 @@ class BridgeAndExecuteQuery {
     const gasFee = percentageAdditionToBigInt(approvalGas + txGas, 0.3) * gasPrice + l1Fee;
 
     logger.debug('BridgeAndExecute:3', {
+      increasedGas: percentageAdditionToBigInt(approvalGas + txGas, 0.3),
       approvalGas,
       txGas,
       gasFeeEstimate,
@@ -487,29 +490,44 @@ class BridgeAndExecuteQuery {
     requiredGasAmount: bigint,
     assets: UserAssetDatum[],
   ): Promise<{ skipBridge: boolean; tokenAmount: bigint; gasAmount: bigint }> {
-    try {
-      let skipBridge = true;
-      let tokenAmount = requiredTokenAmount;
-      let gasAmount = requiredGasAmount;
-      const assetList = new UserAssets(assets);
-      const { destinationAssetBalance, destinationGasBalance } = assetList.getAssetDetails(
-        chain,
-        tokenAddress,
-      );
+    let skipBridge = true;
+    let tokenAmount = requiredTokenAmount;
+    let gasAmount = requiredGasAmount;
+    const assetList = new UserAssets(assets);
+    const { destinationAssetBalance, destinationGasBalance } = assetList.getAssetDetails(
+      chain,
+      tokenAddress,
+    );
 
-      const destinationTokenAmount = mulDecimals(destinationAssetBalance, tokenDecimals);
-      const destinationGasAmount = mulDecimals(
-        destinationGasBalance,
-        chain.nativeCurrency.decimals,
-      );
+    const destinationTokenAmount = mulDecimals(destinationAssetBalance, tokenDecimals);
+    const destinationGasAmount = mulDecimals(destinationGasBalance, chain.nativeCurrency.decimals);
 
-      logger.debug('calculateOptimalBridgeAmount', {
-        destinationTokenAmount,
-        requiredTokenAmount,
-        destinationGasAmount,
-        requiredGasAmount,
-      });
+    logger.debug('calculateOptimalBridgeAmount', {
+      destinationTokenAmount,
+      requiredTokenAmount,
+      destinationGasAmount,
+      requiredGasAmount,
+    });
+    if (isNativeAddress(Universe.ETHEREUM, tokenAddress)) {
+      const totalRequired = requiredGasAmount + requiredTokenAmount;
+      if (destinationGasAmount < totalRequired) {
+        skipBridge = false;
+        // Total missing native amount
+        const difference = totalRequired - destinationGasAmount;
 
+        // First cover missing TOKEN
+        const missingToken =
+          requiredTokenAmount > destinationTokenAmount
+            ? requiredTokenAmount - destinationTokenAmount
+            : 0n;
+
+        // Then cover missing GAS out of the remaining deficit
+        const gasPart = difference > missingToken ? difference - missingToken : 0n;
+
+        tokenAmount = missingToken;
+        gasAmount = gasPart;
+      }
+    } else {
       const isGasBridgeRequired = destinationGasAmount < requiredGasAmount;
       const isTokenBridgeRequired = destinationTokenAmount < requiredTokenAmount;
 
@@ -524,17 +542,12 @@ class BridgeAndExecuteQuery {
         gasAmount =
           destinationGasAmount < requiredGasAmount ? requiredGasAmount - destinationGasAmount : 0n;
       }
-
-      return {
-        skipBridge,
-        tokenAmount,
-        gasAmount,
-      };
-    } catch (error) {
-      logger.warn(`Failed to calculate optimal bridge amount: ${error}`);
-      // Default to bridging full amount on error
-      return { skipBridge: false, tokenAmount: requiredTokenAmount, gasAmount: requiredGasAmount };
     }
+    return {
+      skipBridge,
+      tokenAmount,
+      gasAmount,
+    };
   }
 
   private async simulateBundle(input: {
@@ -555,6 +568,7 @@ class BridgeAndExecuteQuery {
         data: tx.data,
         value: toHex(tx.value),
         stepId: `sim_${i}`,
+        enableStateOverride: true, // ????????
         stateOverride: overrides,
       })),
     });
