@@ -147,7 +147,7 @@ export class BackendSimulationClient {
   }
 
   async simulateBundleV2(request: BundleSimulationRequest) {
-    logger.info('DEBUG simulateBundle - request:', JSON.stringify(request, null, 2));
+    logger.debug('DEBUG simulateBundle - request:', JSON.stringify(request, null, 2));
 
     const { data } = await axios.post<BackendBundleResponse>(
       new URL(`/api/gas-estimation/bundle`, this.baseUrl).href,
