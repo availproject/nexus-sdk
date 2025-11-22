@@ -24,6 +24,7 @@ import {
   createPublicClient,
   Hex,
   http,
+  parseGwei,
   PublicClient,
   serializeTransaction,
   toHex,
@@ -37,13 +38,17 @@ import {
   generateStateOverride,
   switchChain,
   erc20GetAllowance,
-  percentageAdditionToBigInt,
+  pctAdditionToBigInt,
   getL1Fee,
+  divideBigInt,
+  getPctGasBufferByChain,
 } from '../utils';
 import { packERC20Approve } from '../swap/utils';
 import { BackendSimulationClient } from '../../../integrations/tenderly';
 import BridgeHandler from '../requestHandlers/bridge';
 import { Errors } from '../errors';
+import { isNativeAddress } from '../constants';
+import { Universe } from '@avail-project/ca-common';
 
 class BridgeAndExecuteQuery {
   constructor(
@@ -65,8 +70,6 @@ class BridgeAndExecuteQuery {
       throw Errors.tokenNotFound(tokenSymbol, toChainId);
     }
 
-    await switchChain(this.evmClient, dstChain);
-
     const address = (await this.evmClient.getAddresses())[0];
     let txs: Tx[] = [];
 
@@ -87,27 +90,38 @@ class BridgeAndExecuteQuery {
     txs.push(tx);
 
     const determineGasUsed = params.execute.gas
-      ? Promise.resolve({ gasUsed: params.execute.gas + (approvalTx ? 85_000n : 0n) })
+      ? Promise.resolve({ approvalGas: approvalTx ? 70_000n : 0n, txGas: params.execute.gas })
       : this.simulateBundle({
           txs,
-          amount: BigInt(execute.tokenApproval?.amount ?? '0'),
+          amount: params.amount,
           userAddress: address,
           chainId: dstChain.id,
           tokenAddress: token.contractAddress,
-          tokenSymbol: execute.tokenApproval?.token ?? 'ETH',
-        }).then(({ gasUsed }) => ({
-          gasUsed: percentageAdditionToBigInt(gasUsed, 0.1),
-        }));
+          tokenSymbol: params.token ?? 'ETH',
+        }).then(({ gas }) => {
+          if (approvalTx) {
+            return {
+              approvalGas: gas[0],
+              txGas: gas[1],
+            };
+          } else {
+            return {
+              approvalGas: 0n,
+              txGas: gas[0],
+            };
+          }
+        });
 
     const determineGasFee = params.execute.gasPrice
       ? Promise.resolve({
           maxFeePerGas: params.execute.gasPrice,
           gasPrice: params.execute.gasPrice,
+          maxPriorityFeePerGas: 0n,
         })
       : dstPublicClient.estimateFeesPerGas();
 
     // 5. simulate approval(?) and execution + fetch gasPrice + fetch unified balance
-    const [{ gasUsed }, gasFeeEstimate, balances, l1Fee] = await Promise.all([
+    const [gasUsed, gasFeeEstimate, balances, l1Fee] = await Promise.all([
       determineGasUsed,
       determineGasFee,
       this.getUnifiedBalances(),
@@ -123,17 +137,32 @@ class BridgeAndExecuteQuery {
       ),
     ]);
 
-    const gasPrice = gasFeeEstimate.maxFeePerGas ?? gasFeeEstimate.gasPrice ?? 0n;
+    // gasLimit = 1.3 * gasUsed for each (1.05 for monad)
+    const pctBuffer = getPctGasBufferByChain(dstChain.id);
+    const approvalGas = pctAdditionToBigInt(gasUsed.approvalGas, pctBuffer);
+    const txGas = pctAdditionToBigInt(gasUsed.txGas, pctBuffer);
+
+    let gasPrice = gasFeeEstimate.maxFeePerGas ?? gasFeeEstimate.gasPrice ?? 0n;
     if (gasPrice === 0n) {
       throw Errors.gasPriceError({
         chainId: dstChain.id,
       });
     }
 
-    const gasFee = gasUsed * (gasPrice + l1Fee);
+    // gasPrice = (maxFeePerGas + 0.5 * maxPriorityFeePerGas)
+    gasPrice += divideBigInt(
+      gasFeeEstimate.maxPriorityFeePerGas === 0n
+        ? parseGwei('2')
+        : gasFeeEstimate.maxPriorityFeePerGas,
+      2,
+    );
+
+    const gasFee = (approvalGas + txGas) * gasPrice + l1Fee;
 
     logger.debug('BridgeAndExecute:3', {
-      gasUsed,
+      increasedGas: approvalGas + txGas,
+      approvalGas,
+      txGas,
       gasFeeEstimate,
       gasPrice,
       balances,
@@ -151,17 +180,22 @@ class BridgeAndExecuteQuery {
     );
 
     return {
+      dstPublicClient,
+      dstChain,
+      amount: {
+        token: tokenAmount,
+        gas: gasAmount,
+      },
       skipBridge,
-      tokenAmount,
-      gasAmount,
       tx,
       approvalTx,
+      gas: {
+        tx: txGas,
+        approval: approvalGas,
+      },
       token,
-      dstChain,
       address,
-      dstPublicClient,
       gasFee,
-      gasUsed,
       gasPrice,
     };
   }
@@ -169,13 +203,13 @@ class BridgeAndExecuteQuery {
   public async simulateBridgeAndExecute(
     params: BridgeAndExecuteParams,
   ): Promise<BridgeAndExecuteSimulationResult> {
-    const { gasFee, token, skipBridge, tokenAmount, gasAmount, gasUsed, gasPrice } =
+    const { gasFee, token, skipBridge, amount, gas, gasPrice } =
       await this.estimateBridgeAndExecute(params);
 
     logger.debug('BridgeAndExecute:4:CalculateOptimalBridgeAmount', {
       skipBridge,
-      tokenAmount,
-      gasAmount,
+      amount,
+      gas,
     });
 
     let bridgeResult: null | {
@@ -187,10 +221,10 @@ class BridgeAndExecuteQuery {
     if (!skipBridge) {
       bridgeResult = await this.simulateBridgeWrapper({
         token: token.symbol,
-        amount: tokenAmount,
+        amount: amount.token,
         toChainId: params.toChainId,
         sourceChains: params.sourceChains,
-        gas: gasAmount,
+        gas: amount.gas,
       });
     }
 
@@ -198,7 +232,7 @@ class BridgeAndExecuteQuery {
     const result: BridgeAndExecuteSimulationResult = {
       bridgeSimulation: bridgeResult,
       executeSimulation: {
-        gasUsed,
+        gasUsed: gas.approval + gas.tx,
         gasPrice,
         gasFee,
       },
@@ -218,22 +252,29 @@ class BridgeAndExecuteQuery {
   ): Promise<BridgeAndExecuteResult> {
     const {
       dstPublicClient,
-      address,
       dstChain,
+      address,
       token,
       skipBridge,
-      tokenAmount,
-      gasAmount,
       tx,
       approvalTx,
-      gasUsed,
+      amount,
+      gas,
       gasPrice,
     } = await this.estimateBridgeAndExecute(params);
 
     logger.debug('BridgeAndExecute:4:CalculateOptimalBridgeAmount', {
       skipBridge,
-      tokenAmount,
-      gasAmount,
+      amount,
+      approval: {
+        tx: approvalTx,
+        gas: gas.approval,
+      },
+      tx: {
+        tx,
+        gas: gas.tx,
+      },
+      gasPrice,
     });
 
     const executeSteps: BridgeStepType[] = [
@@ -244,7 +285,10 @@ class BridgeAndExecuteQuery {
     // Approval and execute
     if (approvalTx) {
       executeSteps.unshift(BRIDGE_STEPS.EXECUTE_APPROVAL_STEP);
+      approvalTx.gas = gas.approval;
     }
+
+    tx.gas = gas.tx;
 
     let bridgeResult: BridgeResult = {
       explorerUrl: '',
@@ -255,10 +299,10 @@ class BridgeAndExecuteQuery {
       bridgeResult = await this.bridgeWrapper(
         {
           token: token.symbol,
-          amount: tokenAmount,
+          amount: amount.token,
           toChainId: params.toChainId,
           sourceChains: params.sourceChains,
-          gas: gasAmount,
+          gas: amount.gas,
         },
         {
           onEvent: (event) => {
@@ -283,8 +327,20 @@ class BridgeAndExecuteQuery {
 
     if (options?.beforeExecute) {
       const response = await options.beforeExecute();
-      tx.data = response.data;
-      tx.value = response.value;
+      logger.debug('BeforeExecuteHook', {
+        response,
+      });
+      if (response.data) {
+        tx.data = response.data;
+      }
+
+      if (response.value) {
+        tx.value = response.value;
+      }
+
+      if (response.gas && response.gas !== 0n) {
+        tx.gas = response.gas;
+      }
     }
 
     // 8. Execute the transaction
@@ -292,7 +348,6 @@ class BridgeAndExecuteQuery {
       {
         approvalTx,
         tx,
-        gas: gasUsed,
         gasPrice,
       },
       {
@@ -369,7 +424,7 @@ class BridgeAndExecuteQuery {
     }
 
     // 4. Encode execute tx
-    const tx = {
+    const tx: Tx = {
       to: params.to,
       value: params.value ?? 0n,
       data: params.data ?? '0x',
@@ -457,29 +512,44 @@ class BridgeAndExecuteQuery {
     requiredGasAmount: bigint,
     assets: UserAssetDatum[],
   ): Promise<{ skipBridge: boolean; tokenAmount: bigint; gasAmount: bigint }> {
-    try {
-      let skipBridge = true;
-      let tokenAmount = requiredTokenAmount;
-      let gasAmount = requiredGasAmount;
-      const assetList = new UserAssets(assets);
-      const { destinationAssetBalance, destinationGasBalance } = assetList.getAssetDetails(
-        chain,
-        tokenAddress,
-      );
+    let skipBridge = true;
+    let tokenAmount = requiredTokenAmount;
+    let gasAmount = requiredGasAmount;
+    const assetList = new UserAssets(assets);
+    const { destinationAssetBalance, destinationGasBalance } = assetList.getAssetDetails(
+      chain,
+      tokenAddress,
+    );
 
-      const destinationTokenAmount = mulDecimals(destinationAssetBalance, tokenDecimals);
-      const destinationGasAmount = mulDecimals(
-        destinationGasBalance,
-        chain.nativeCurrency.decimals,
-      );
+    const destinationTokenAmount = mulDecimals(destinationAssetBalance, tokenDecimals);
+    const destinationGasAmount = mulDecimals(destinationGasBalance, chain.nativeCurrency.decimals);
 
-      logger.debug('calculateOptimalBridgeAmount', {
-        destinationTokenAmount,
-        requiredTokenAmount,
-        destinationGasAmount,
-        requiredGasAmount,
-      });
+    logger.debug('calculateOptimalBridgeAmount', {
+      destinationTokenAmount,
+      requiredTokenAmount,
+      destinationGasAmount,
+      requiredGasAmount,
+    });
+    if (isNativeAddress(Universe.ETHEREUM, tokenAddress)) {
+      const totalRequired = requiredGasAmount + requiredTokenAmount;
+      if (destinationGasAmount < totalRequired) {
+        skipBridge = false;
+        // Total missing native amount
+        const difference = totalRequired - destinationGasAmount;
 
+        // First cover missing TOKEN
+        const missingToken =
+          requiredTokenAmount > destinationTokenAmount
+            ? requiredTokenAmount - destinationTokenAmount
+            : 0n;
+
+        // Then cover missing GAS out of the remaining deficit
+        const gasPart = difference > missingToken ? difference - missingToken : 0n;
+
+        tokenAmount = missingToken;
+        gasAmount = gasPart;
+      }
+    } else {
       const isGasBridgeRequired = destinationGasAmount < requiredGasAmount;
       const isTokenBridgeRequired = destinationTokenAmount < requiredTokenAmount;
 
@@ -494,17 +564,12 @@ class BridgeAndExecuteQuery {
         gasAmount =
           destinationGasAmount < requiredGasAmount ? requiredGasAmount - destinationGasAmount : 0n;
       }
-
-      return {
-        skipBridge,
-        tokenAmount,
-        gasAmount,
-      };
-    } catch (error) {
-      logger.warn(`Failed to calculate optimal bridge amount: ${error}`);
-      // Default to bridging full amount on error
-      return { skipBridge: false, tokenAmount: requiredTokenAmount, gasAmount: requiredGasAmount };
     }
+    return {
+      skipBridge,
+      tokenAmount,
+      gasAmount,
+    };
   }
 
   private async simulateBundle(input: {
@@ -525,6 +590,7 @@ class BridgeAndExecuteQuery {
         data: tx.data,
         value: toHex(tx.value),
         stepId: `sim_${i}`,
+        enableStateOverride: true, // ????????
         stateOverride: overrides,
       })),
     });
@@ -534,7 +600,6 @@ class BridgeAndExecuteQuery {
     params: {
       tx: Tx;
       approvalTx: Tx | null;
-      gas?: bigint;
       gasPrice?: bigint;
     },
     options: {
@@ -549,6 +614,7 @@ class BridgeAndExecuteQuery {
     },
   ) {
     const { waitForReceipt = true, receiptTimeout = 300000, requiredConfirmations = 1 } = options;
+    await switchChain(options.client, options.chain);
 
     let approvalHash;
     if (params.approvalTx) {
@@ -571,8 +637,6 @@ class BridgeAndExecuteQuery {
       ...params.tx,
       account: options.address,
       chain: options.chain,
-      gas: params.gas,
-      gasPrice: params.gasPrice,
     });
 
     if (options.emit) {
@@ -613,7 +677,7 @@ class BridgeAndExecuteQuery {
     const handler = this.bridge(params, options);
     const result = await handler.execute();
     return {
-      explorerUrl: result?.explorerURL ?? '',
+      explorerUrl: result.explorerURL,
     };
   };
 

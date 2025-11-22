@@ -281,7 +281,6 @@ export type Tx = {
   to: Hex;
   value: bigint;
   gas?: bigint;
-  gasPrice?: bigint;
 };
 
 // export type UserAsset = {

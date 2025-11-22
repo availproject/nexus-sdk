@@ -147,7 +147,7 @@ export class BackendSimulationClient {
   }
 
   async simulateBundleV2(request: BundleSimulationRequest) {
-    logger.info('DEBUG simulateBundle - request:', JSON.stringify(request, null, 2));
+    logger.debug('DEBUG simulateBundle - request:', JSON.stringify(request, null, 2));
 
     const { data } = await axios.post<BackendBundleResponse>(
       new URL(`/api/gas-estimation/bundle`, this.baseUrl).href,
@@ -158,15 +158,7 @@ export class BackendSimulationClient {
       throw Errors.simulationError(data.message ?? 'Bundle simulation failed');
     }
 
-    const gasUsed = data.data.reduce((acc, d) => {
-      return acc + BigInt(d.gasUsed);
-    }, 0n);
-
-    const gasLimit = data.data.reduce((acc, d) => {
-      return acc + BigInt(d.gasLimit);
-    }, 0n);
-
-    return { gasUsed, gasLimit };
+    return { gas: data.data.map((d) => BigInt(d.gasLimit)) };
   }
 }
 
