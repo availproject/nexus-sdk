@@ -24,7 +24,7 @@ import gasOracleABI from '../abi/gasOracle';
 import { FillEvent } from '../abi/vault';
 import { ZERO_ADDRESS } from '../constants';
 import { Errors } from '../errors';
-import { getLogger } from '../../../commons';
+import { getLogger, MAINNET_CHAIN_IDS, TESTNET_CHAIN_IDS, TESTNET_CHAINS } from '../../../commons';
 import { ChainListType, Chain, GetAllowanceParams, SetAllowanceParams } from '../../../commons';
 import { equalFold, minutesToMs } from './common.utils';
 
@@ -224,15 +224,26 @@ const waitForTxReceipt = async (
 };
 
 const switchChain = async (client: WalletClient, chain: Chain) => {
+  const current = await client.getChainId();
+  if (current === chain.id) return;
+
   try {
     await client.switchChain({ id: chain.id });
-  } catch (e) {
-    logger.debug('error during switching chain', e);
-    await client.addChain({
-      chain,
-    });
-    await client.switchChain({ id: chain.id });
-    return;
+  } catch (outerErr) {
+    logger.error(`switchChain failed, trying addChain`, outerErr);
+    try {
+      await client.addChain({ chain });
+      await client.switchChain({ id: chain.id });
+    } catch (inner) {
+      logger.error('Unable to add/switch chain', inner);
+      throw inner;
+    }
+  }
+
+  const after = await client.getChainId();
+  if (after !== chain.id) {
+    logger.error(`Wallet did not switch chains even though no error was thrown`);
+    throw Errors.internal('wallet did not switch chain - no error thrown');
   }
 };
 
@@ -437,7 +448,16 @@ const createPublicClientWithFallback = (chain: Chain): PublicClient => {
   });
 };
 
+const getPctGasBufferByChain = (chainId: number) => {
+  if (chainId === TESTNET_CHAIN_IDS.MONAD_TESTNET || chainId === MAINNET_CHAIN_IDS.MONAD) {
+    return 0.05;
+  }
+
+  return 0.3;
+};
+
 export {
+  getPctGasBufferByChain,
   erc20GetAllowance,
   erc20SetAllowance,
   createPublicClientWithFallback,

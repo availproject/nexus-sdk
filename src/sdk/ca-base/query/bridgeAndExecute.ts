@@ -24,6 +24,7 @@ import {
   createPublicClient,
   Hex,
   http,
+  parseGwei,
   PublicClient,
   serializeTransaction,
   toHex,
@@ -37,8 +38,10 @@ import {
   generateStateOverride,
   switchChain,
   erc20GetAllowance,
-  percentageAdditionToBigInt,
+  pctAdditionToBigInt,
   getL1Fee,
+  divideBigInt,
+  getPctGasBufferByChain,
 } from '../utils';
 import { packERC20Approve } from '../swap/utils';
 import { BackendSimulationClient } from '../../../integrations/tenderly';
@@ -67,8 +70,6 @@ class BridgeAndExecuteQuery {
       throw Errors.tokenNotFound(tokenSymbol, toChainId);
     }
 
-    await switchChain(this.evmClient, dstChain);
-
     const address = (await this.evmClient.getAddresses())[0];
     let txs: Tx[] = [];
 
@@ -89,7 +90,7 @@ class BridgeAndExecuteQuery {
     txs.push(tx);
 
     const determineGasUsed = params.execute.gas
-      ? Promise.resolve({ approvalGas: approvalTx ? 85_000n : 0n, txGas: params.execute.gas })
+      ? Promise.resolve({ approvalGas: approvalTx ? 70_000n : 0n, txGas: params.execute.gas })
       : this.simulateBundle({
           txs,
           amount: params.amount,
@@ -115,11 +116,12 @@ class BridgeAndExecuteQuery {
       ? Promise.resolve({
           maxFeePerGas: params.execute.gasPrice,
           gasPrice: params.execute.gasPrice,
+          maxPriorityFeePerGas: 0n,
         })
       : dstPublicClient.estimateFeesPerGas();
 
     // 5. simulate approval(?) and execution + fetch gasPrice + fetch unified balance
-    const [{ approvalGas, txGas }, gasFeeEstimate, balances, l1Fee] = await Promise.all([
+    const [gasUsed, gasFeeEstimate, balances, l1Fee] = await Promise.all([
       determineGasUsed,
       determineGasFee,
       this.getUnifiedBalances(),
@@ -135,17 +137,30 @@ class BridgeAndExecuteQuery {
       ),
     ]);
 
-    const gasPrice = gasFeeEstimate.maxFeePerGas ?? gasFeeEstimate.gasPrice ?? 0n;
+    // gasLimit = 1.3 * gasUsed for each (1.05 for monad)
+    const pctBuffer = getPctGasBufferByChain(dstChain.id);
+    const approvalGas = pctAdditionToBigInt(gasUsed.approvalGas, pctBuffer);
+    const txGas = pctAdditionToBigInt(gasUsed.txGas, pctBuffer);
+
+    let gasPrice = gasFeeEstimate.maxFeePerGas ?? gasFeeEstimate.gasPrice ?? 0n;
     if (gasPrice === 0n) {
       throw Errors.gasPriceError({
         chainId: dstChain.id,
       });
     }
 
-    const gasFee = percentageAdditionToBigInt(approvalGas + txGas, 0.3) * gasPrice + l1Fee;
+    // gasPrice = (maxFeePerGas + 0.5 * maxPriorityFeePerGas)
+    gasPrice += divideBigInt(
+      gasFeeEstimate.maxPriorityFeePerGas === 0n
+        ? parseGwei('2')
+        : gasFeeEstimate.maxPriorityFeePerGas,
+      2,
+    );
+
+    const gasFee = (approvalGas + txGas) * gasPrice + l1Fee;
 
     logger.debug('BridgeAndExecute:3', {
-      increasedGas: percentageAdditionToBigInt(approvalGas + txGas, 0.3),
+      increasedGas: approvalGas + txGas,
       approvalGas,
       txGas,
       gasFeeEstimate,
@@ -592,12 +607,12 @@ class BridgeAndExecuteQuery {
     },
   ) {
     const { waitForReceipt = true, receiptTimeout = 300000, requiredConfirmations = 1 } = options;
+    await switchChain(options.client, options.chain);
 
     let approvalHash;
     if (params.approvalTx) {
       approvalHash = await options.client.sendTransaction({
         ...params.approvalTx,
-        maxFeePerGas: params.gasPrice,
         account: options.address,
         chain: options.chain,
       });
@@ -613,7 +628,6 @@ class BridgeAndExecuteQuery {
 
     const txHash = await options.client.sendTransaction({
       ...params.tx,
-      maxFeePerGas: params.gasPrice,
       account: options.address,
       chain: options.chain,
     });

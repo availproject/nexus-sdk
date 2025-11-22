@@ -649,10 +649,14 @@ class BridgeHandler {
           });
         }
 
+        if (chain.universe == Universe.ETHEREUM) {
+          logger.debug(`Switching chain to ${chain.id}`);
+
+          await switchChain(this.options.evm.client, chain);
+        }
+
         if (currency.permitVariant === PermitVariant.Unsupported || chain.id === 1) {
           if (chain.universe === Universe.ETHEREUM) {
-            await switchChain(this.options.evm.client, chain);
-
             const h = await this.options.evm.client
               .writeContract({
                 abi: ERC20ABI,
@@ -728,8 +732,6 @@ class BridgeHandler {
             address: this.options.evm.address,
             type: 'json-rpc',
           };
-
-          await switchChain(this.options.evm.client, chain);
 
           const signed = parseSignature(
             await signPermitForAddressAndValue(

@@ -797,8 +797,16 @@ async function waitForTronDepositTxConfirmation(
   throw new Error(`⏰ Timeout: Transaction not confirmed within ${timeout / 1000}s`);
 }
 
-function percentageAdditionToBigInt(base: bigint, percentage: number) {
+function pctAdditionToBigInt(base: bigint, percentage: number) {
   return base + BigInt(new Decimal(base).mul(percentage).toFixed(0));
+}
+
+function divideBigInt(base: bigint, divisor: number) {
+  if (base === 0n) {
+    return base;
+  }
+
+  return BigInt(new Decimal(base).div(divisor).toFixed(0));
 }
 
 async function waitForTronApprovalTxConfirmation(
@@ -901,8 +909,9 @@ const createDeadlineFromNow = (minutes: bigint = 3n): bigint => {
 };
 
 export {
+  divideBigInt,
   createDeadlineFromNow,
-  percentageAdditionToBigInt,
+  pctAdditionToBigInt,
   retrieveSIWESignatureFromLocalStorage,
   storeSIWESignatureToLocalStorage,
   retrieveAddress,
