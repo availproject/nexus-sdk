@@ -655,7 +655,7 @@ export type UserAssetDatum = {
 };
 
 export type BeforeExecuteHook = {
-  beforeExecute?: () => Promise<{ value: bigint; data: Hex; gas?: bigint }>;
+  beforeExecute?: () => Promise<{ value?: bigint; data?: Hex; gas?: bigint }>;
 };
 
 export type {

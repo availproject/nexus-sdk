@@ -327,10 +327,14 @@ class BridgeAndExecuteQuery {
 
     if (options?.beforeExecute) {
       const response = await options.beforeExecute();
-      tx.data = response.data;
-      tx.value = response.value;
+      if (response.data) {
+        tx.data = response.data;
+      }
 
-      // For gas changes
+      if (response.value) {
+        tx.value = response.value;
+      }
+
       if (response.gas && response.gas !== 0n) {
         tx.gas = response.gas;
       }
