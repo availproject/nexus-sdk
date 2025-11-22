@@ -25,6 +25,7 @@ import type {
   OnEventParam,
   BridgeMaxResult,
   OnSwapIntentHook,
+  BeforeExecuteHook,
 } from '../commons';
 import { logger } from '../commons';
 import { CA } from './ca-base';
@@ -244,7 +245,7 @@ export class NexusSDK extends CA {
    */
   public async bridgeAndExecute(
     params: BridgeAndExecuteParams,
-    options?: OnEventParam,
+    options?: OnEventParam & BeforeExecuteHook,
   ): Promise<BridgeAndExecuteResult> {
     return this._bridgeAndExecute(params, options);
   }

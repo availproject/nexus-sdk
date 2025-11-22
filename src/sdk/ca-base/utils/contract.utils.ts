@@ -24,7 +24,7 @@ import gasOracleABI from '../abi/gasOracle';
 import { FillEvent } from '../abi/vault';
 import { ZERO_ADDRESS } from '../constants';
 import { Errors } from '../errors';
-import { getLogger, MAINNET_CHAIN_IDS, TESTNET_CHAIN_IDS, TESTNET_CHAINS } from '../../../commons';
+import { getLogger, MAINNET_CHAIN_IDS, TESTNET_CHAIN_IDS } from '../../../commons';
 import { ChainListType, Chain, GetAllowanceParams, SetAllowanceParams } from '../../../commons';
 import { equalFold, minutesToMs } from './common.utils';
 

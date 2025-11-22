@@ -327,6 +327,9 @@ class BridgeAndExecuteQuery {
 
     if (options?.beforeExecute) {
       const response = await options.beforeExecute();
+      logger.debug('BeforeExecuteHook', {
+        response,
+      });
       if (response.data) {
         tx.data = response.data;
       }
