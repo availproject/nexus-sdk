@@ -1,4 +1,4 @@
-import telemetryLogger from '../../sdk/telemetry';
+import { telemetryLogger } from '../../sdk/ca-base/telemetry';
 
 export const LOG_LEVEL = {
   DEBUG: 1,
@@ -9,12 +9,12 @@ export const LOG_LEVEL = {
 } as const;
 
 export const LOG_LEVEL_NAME: Record<LogLevel, string> = {
-    [LOG_LEVEL.DEBUG]: "DEBUG",
-    [LOG_LEVEL.ERROR]: "ERROR",
-    [LOG_LEVEL.INFO]: "INFO",
-    [LOG_LEVEL.NOLOGS]: "NOLOGS",
-    [LOG_LEVEL.WARNING]: "WARNING",
-  };  
+  [LOG_LEVEL.DEBUG]: 'DEBUG',
+  [LOG_LEVEL.ERROR]: 'ERROR',
+  [LOG_LEVEL.INFO]: 'INFO',
+  [LOG_LEVEL.NOLOGS]: 'NOLOGS',
+  [LOG_LEVEL.WARNING]: 'WARNING',
+};
 
 type LogLevel = (typeof LOG_LEVEL)[keyof typeof LOG_LEVEL];
 type ExceptionReporter = (message: string) => void;
@@ -102,14 +102,18 @@ class Logger {
         params && typeof params === 'object' && 'cause' in params
           ? (params as any).cause
           : 'unknown|not_mapped';
-      telemetryLogger.emit({
-        body: message,
-        severityNumber: level,
-        severityText: LOG_LEVEL_NAME[level],
-        attributes: {
-          cause: cause,
-        },
-      });
+      try {
+        telemetryLogger?.emit({
+          body: message,
+          severityNumber: level,
+          severityText: LOG_LEVEL_NAME[level],
+          attributes: {
+            cause: cause,
+          },
+        });
+      } catch (error) {
+        console.error('Failed to send telemetry logs: ', error);
+      }
     }
     this.consoleLog(level, logMessage, params);
   }
