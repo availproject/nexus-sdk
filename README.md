@@ -294,7 +294,7 @@ const result = await sdk.execute({
   toChainId: 1,
   to: '0xc3d688B66703497DAA19211EEdff47f25384cdc3',
   data: '0x...',
-  tokenApproval: { token: 'USDC', amount: 1000000n, spender: "0x..." },
+  tokenApproval: { token: 'USDC', amount: 1000000n, spender: '0x...' },
 });
 
 // Bridge and execute
@@ -306,7 +306,7 @@ const result2 = await sdk.bridgeAndExecute({
   execute: {
     to: '0xa354F35829Ae975e850e23e9615b11Da1B3dC4DE',
     data: '0x...',
-    tokenApproval: { token: 'USDC', amount: 100_000_000n, spender: "0x..." },
+    tokenApproval: { token: 'USDC', amount: 100_000_000n, spender: '0x...' },
   },
 });
 ```
@@ -351,7 +351,10 @@ import { CHAIN_METADATA } from '@avail-project/nexus-core';
 
 const isValid = sdk.utils.isValidAddress('0x...');
 const chainMeta = CHAIN_METADATA[137];
-const formatted = sdk.utils.formatUnits(1000000n, 6) + " USDC"; // "1 USDC"
+const formatted = sdk.utils.formatTokenBalance('0.000294700412452583', {
+  symbol: 'ETH',
+  decimals: 18,
+}); // "~0.0₄2552 ETH"
 ```
 
 ---
