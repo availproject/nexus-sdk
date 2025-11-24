@@ -119,6 +119,7 @@ export type BridgeMaxResult = {
  */
 export type BridgeResult = {
   explorerUrl: string;
+  intent?: any;
 };
 
 /**
@@ -289,6 +290,7 @@ export type BridgeAndExecuteResult = {
   bridgeExplorerUrl?: string; // undefined when bridge is skipped
   toChainId: number;
   bridgeSkipped: boolean; // indicates if bridge was skipped due to sufficient funds
+  intent?: any;
 };
 
 export type Chain = {

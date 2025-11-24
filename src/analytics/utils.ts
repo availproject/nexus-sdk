@@ -194,3 +194,90 @@ export function extractErrorCode(error: any): string | number | undefined {
   // Common error code locations
   return error.code || error.errorCode || error.statusCode || undefined;
 }
+
+/**
+ * Extract properties from SwapRoute for analytics
+ * @param swapRoute - SwapRoute object
+ * @returns Object with sourceSwap, bridge, and destinationSwap properties
+ */
+export function extractSwapProperties(swapRoute: any): Record<string, unknown> {
+  if (!swapRoute) return {};
+
+  const props: Record<string, unknown> = {};
+
+  // Extract source swap details
+  if (swapRoute.source && swapRoute.source.swaps) {
+    props.sourceSwap = swapRoute.source.swaps.map((s: any) => ({
+      source: {
+        chainId: s.srcChainID,
+        token: s.srcToken,
+        amount: s.amount,
+      },
+      destination: {
+        chainId: s.dstChainID,
+        token: s.dstToken,
+        amount: s.minAmount,
+      },
+    }));
+  }
+
+  // Extract bridge details
+  if (swapRoute.bridge) {
+    props.bridge = {
+      sources: swapRoute.bridge.sources?.map((s: any) => ({
+        chainId: s.chainID,
+        token: s.tokenContract,
+        amount: s.amount?.toString(),
+      })),
+      destination: {
+        chainId: swapRoute.bridge.destination?.chainID,
+        token: swapRoute.bridge.token?.symbol,
+        amount: swapRoute.bridge.amount?.toString(),
+        gasSupplied: swapRoute.bridge.gas?.toString(),
+      },
+    };
+  }
+
+  // Extract destination swap details
+  if (swapRoute.destination) {
+    props.destinationSwap = {
+      source: {
+        chainId: swapRoute.destination.swap?.srcChainID,
+        token: swapRoute.destination.swap?.srcToken,
+        amount: swapRoute.destination.swap?.amount,
+      },
+      destination: {
+        chainId: swapRoute.destination.swap?.dstChainID,
+        token: swapRoute.destination.swap?.dstToken,
+        amount: swapRoute.destination.swap?.minAmount,
+      },
+    };
+  }
+
+  return props;
+}
+
+/**
+ * Extract properties from Bridge Intent for analytics
+ * @param intent - Intent object
+ * @returns Object with bridge property
+ */
+export function extractBridgeProperties(intent: any): Record<string, unknown> {
+  if (!intent) return {};
+
+  return {
+    bridge: {
+      sources: intent.sources?.map((s: any) => ({
+        chainId: s.chainID,
+        token: s.tokenContract, // Or symbol if available
+        amount: s.amount?.toString(),
+      })),
+      destination: {
+        chainId: intent.destination?.chainID,
+        token: intent.token?.symbol,
+        amount: intent.destination?.amount?.toString(),
+        gasSupplied: intent.gas?.toString(),
+      },
+    },
+  };
+}

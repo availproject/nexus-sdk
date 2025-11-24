@@ -217,6 +217,7 @@ export const swap = async (
   await dstSwapHandler.process(metadata);
 
   const result = convertMetadataToSwapResult(metadata, options.networkConfig.EXPLORER_URL);
+  result.swapRoute = swapRoute;
 
   performance.mark('swap-end');
   try {
