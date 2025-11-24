@@ -78,6 +78,10 @@ export const NexusAnalyticsEvents = {
   BRIDGE_AND_EXECUTE_TRANSACTION_SUCCESS: 'nexus_bridge_and_execute_transaction_success',
   BRIDGE_AND_EXECUTE_TRANSACTION_FAILED: 'nexus_bridge_and_execute_transaction_failed',
 
+  // Refund Operations
+  REFUND_INITIATED: 'nexus_refund_initiated',
+  REFUND_COMPLETED: 'nexus_refund_completed',
+
   // Error Events
   ERROR_OCCURRED: 'nexus_error_occurred',
   API_ERROR: 'nexus_api_error',
