@@ -603,7 +603,7 @@ class BridgeHandler {
     );
 
     if (!destinationSigData) {
-      throw new Error('requestHash not found for destination');
+      throw Errors.destinationRequestHashNotFound();
     }
 
     return {
@@ -910,7 +910,7 @@ class BridgeHandler {
 
     const asset = assets.find(token.symbol);
     if (!asset) {
-      throw new Error(`Asset ${token.symbol} not found in UserAssets`);
+      throw Errors.assetNotFound(token.symbol);
     }
 
     const allSources = asset.iterate(feeStore).map((v) => {

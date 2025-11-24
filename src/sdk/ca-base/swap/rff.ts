@@ -324,7 +324,7 @@ export const createBridgeRFF = async ({
   for (const [index, source] of sources.entries()) {
     const evmSignatureData = signatureData.find((s) => s.universe === Universe.ETHEREUM);
     if (!evmSignatureData) {
-      throw new Error('Unknown signature type');
+      throw Errors.unknownSignatureType();
     }
 
     const chain = config.chainList.getChainByID(Number(source.chainID));
@@ -387,7 +387,7 @@ export const createBridgeRFF = async ({
   const waitForFill = () => {
     const s = signatureData.find((s) => s.universe === Universe.ETHEREUM);
     if (!s) {
-      throw new Error('Unknown signature type');
+      throw Errors.unknownSignatureType();
     }
     logger.debug(`Waiting for fill: ${intentID}`);
 

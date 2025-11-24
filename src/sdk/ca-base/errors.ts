@@ -24,26 +24,32 @@ export const Errors = {
         details: { expectedLength: expected, receivedLength: got },
       },
     ),
-
   chainNotFound: (chainId: number | bigint) =>
     createError(ERROR_CODES.CHAIN_NOT_FOUND, `Chain not found: ${chainId}`, {
       details: { chainId },
     }),
-
+  chainDataNotFound: (chainId: number | bigint) =>
+    createError(ERROR_CODES.CHAIN_DATA_NOT_FOUND, `Chain data not found for chain: ${chainId}`, {
+      details: { chainId },
+    }),
+  assetNotFound: (tokenSymbol: string) =>
+    createError(ERROR_CODES.ASSET_NOT_FOUND, `Asset not found in UserAssets: ${tokenSymbol}`, {
+      details: { tokenSymbol },
+    }),
   internal: (msg: string, details?: Record<string, unknown>) =>
     createError(ERROR_CODES.INTERNAL_ERROR, `Internal error: ${msg}`, {
       details,
     }),
-
-  tokenNotSupported: (address: string, chainId: number) =>
+  tokenNotSupported: (address?: string, chainId?: number, additionalMessage?: string) =>
     createError(
       ERROR_CODES.TOKEN_NOT_SUPPORTED,
-      `Token with address ${address} is not supported on chain ${chainId}`,
+      `Token/Asset with address ${address} is not supported on chain ${chainId}.\n${additionalMessage}`,
       {
         details: { address, chainId },
       },
     ),
-
+  universeNotSupported: () =>
+    createError(ERROR_CODES.UNIVERSE_NOT_SUPPORTED, 'Universe not supported'),
   tokenNotFound: (symbol: string, chainId: number) =>
     createError(
       ERROR_CODES.TOKEN_NOT_SUPPORTED,
@@ -95,13 +101,22 @@ export const Errors = {
       },
     }),
 
-  cosmosError: (msg: string) => createError(ERROR_CODES.INTERNAL_ERROR, `COSMOS: ${msg}`),
+  cosmosError: (msg: string) => createError(ERROR_CODES.COSMOS_ERROR, `COSMOS: ${msg}`),
   gasPriceError: (result: unknown) =>
     createError(ERROR_CODES.FETCH_GAS_PRICE_FAILED, `rpc: estimateMaxFeePerGas failed`, {
       details: {
         result,
       },
     }),
+  unknownSignatureType: () => createError(ERROR_CODES.UNKNOWN_SIGNATURE, 'Unknown signature type'),
+  quoteFailed: (message: string) =>
+    createError(ERROR_CODES.QUOTE_FAILED, `Quote failed: ${message}`),
+  swapFailed: (message: string) => createError(ERROR_CODES.SWAP_FAILED, `Swap failed: ${message}`),
+  ratesChangedBeyondTolerance: (rate: number | bigint, tolerance: number | bigint) =>
+    createError(
+      ERROR_CODES.RATES_CHANGED_BEYOND_TOLERANCE,
+      `Rates changed beyond tolerance. Rate: ${rate}\nTolerance:${tolerance}`,
+    ),
   slippageError: (msg: string) =>
     createError(ERROR_CODES.SLIPPAGE_EXCEEDED_ALLOWANCE, `rpc: slippage exceeded - ${msg}`),
   vaultContractNotFound: (chainId: number | bigint) =>
@@ -112,7 +127,25 @@ export const Errors = {
   simulationError: (msg: string) =>
     createError(ERROR_CODES.SIMULATION_FAILED, `tenderly simulation failed: ${msg}`),
   rFFFeeExpired: () => createError(ERROR_CODES.RFF_FEE_EXPIRED, `fee is not adequate`),
+  destinationRequestHashNotFound: () =>
+    createError(
+      ERROR_CODES.DESTINATION_REQUEST_HASH_NOT_FOUND,
+      'requestHash not found for destination',
+    ),
+  transactionTimeout: (timeout: number) =>
+    createError(
+      ERROR_CODES.TRANSACTION_TIMEOUT,
+      `⏰ Timeout: Transaction not confirmed within ${timeout}s`,
+    ),
+  transactionReverted: (txHash: string) =>
+    createError(ERROR_CODES.TRANSACTION_REVERTED, `Transaction reverted: ${txHash}`),
   invalidInput: (msg: string) => createError(ERROR_CODES.INVALID_INPUT, `input invalid: ${msg}`),
+  invalidAddressLength: (addressType: string, additionalMessage?: string) =>
+    createError(
+      ERROR_CODES.INVALID_ADDRESS_LENGTH,
+      `Invalid ${addressType} address length: ${additionalMessage}`,
+      { details: { type: addressType } },
+    ),
   noBalanceForAddress: (address: Hex) => {
     createError(ERROR_CODES.NO_BALANCE_FOR_ADDRESS, `no balance found for user: ${address}`);
   },

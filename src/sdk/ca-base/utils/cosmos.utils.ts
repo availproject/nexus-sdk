@@ -232,7 +232,7 @@ const waitForCosmosFillEvent = async (intentID: Long, cosmosURL: string, ac: Abo
       }
     }
 
-    throw new Error('waitForCosmosFillEvent: out of loop but no events');
+    throw Errors.cosmosError('waitForCosmosFillEvent: out of loop but no events');
   } finally {
     connection.close();
   }

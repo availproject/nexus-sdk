@@ -72,7 +72,7 @@ function convertAddressByUniverse(input: ByteArray | Hex, universe: Universe) {
       return inputIsString ? toHex(bytes.subarray(12)) : bytes.subarray(12);
     }
 
-    throw new Error('invalid length of input');
+    throw Errors.invalidAddressLength('evm|tron');
   }
 
   if (universe === Universe.FUEL) {
@@ -87,7 +87,7 @@ function convertAddressByUniverse(input: ByteArray | Hex, universe: Universe) {
       return inputIsString ? toHex(padded) : padded;
     }
 
-    throw new Error('invalid length of input');
+    throw Errors.invalidAddressLength('fuel');
   }
 
   return toHex(input);
@@ -194,7 +194,7 @@ const createRequestFuelSignature = async (
 ) => {
   const account = await connector.currentAccount();
   if (!account) {
-    throw new Error('Fuel connector is not connected.');
+    throw Errors.internal('Fuel connector is not connected.');
   }
 
   const vault = new ArcanaVault(hexlify(fuelVaultAddress), provider);
@@ -419,7 +419,7 @@ const convertGasToToken = (
     ?.priceUsd.toFixed();
 
   if (!transferTokenInUSD) {
-    throw new Error('could not find token in price oracle');
+    throw Errors.internal('could not find token in price oracle');
   }
 
   const usdValue = gas.mul(gasTokenInUSD);
@@ -472,21 +472,21 @@ const convertToHexAddressByUniverse = (address: Uint8Array, universe: Universe) 
     if (address.length === 32) {
       return bytesToHex(address);
     } else {
-      throw new Error('fuel: invalid address length');
+      throw Errors.invalidAddressLength('fuel');
     }
   } else if (universe === Universe.ETHEREUM || universe === Universe.TRON) {
     if (address.length === 20) {
       return bytesToHex(address);
     } else if (address.length === 32) {
       if (!address.subarray(0, 12).every((b) => b === 0)) {
-        throw new Error('evm: non-zero-padded 32-byte address');
+        throw Errors.invalidAddressLength('evm', 'non-zero-padded 32-byte address');
       }
       return bytesToHex(address.subarray(12));
     } else {
-      throw new Error('evm: invalid address length');
+      throw Errors.invalidAddressLength('evm');
     }
   } else {
-    throw new Error('unsupported universe');
+    throw Errors.universeNotSupported();
   }
 };
 
@@ -621,8 +621,8 @@ class UserAssets {
       if (equalFold(asset.symbol, symbol)) {
         return new UserAsset(asset);
       }
+      throw Errors.tokenNotSupported();
     }
-    throw new Error('Asset is not supported.');
   }
 
   findOnChain(chainID: number, address: `0x${string}`) {
@@ -713,7 +713,7 @@ async function waitForTronTxConfirmation(
       if (txInfo?.receipt) {
         const result = txInfo.receipt.result;
         if (result === 'FAILED') {
-          throw new Error(`❌ Transaction reverted: ${txid}`);
+          throw Errors.transactionReverted(txid);
         } else {
           return txInfo;
         }
@@ -727,7 +727,7 @@ async function waitForTronTxConfirmation(
     await new Promise((resolve) => setTimeout(resolve, interval));
   }
 
-  throw new Error(`⏰ Timeout: Transaction not confirmed within ${timeout / 1000}s`);
+  throw Errors.transactionTimeout((timeout / 1000));
 }
 
 async function waitForTronDepositTxConfirmation(
@@ -764,12 +764,12 @@ async function waitForTronDepositTxConfirmation(
         result,
       });
       if (result.Error) {
-        throw new Error(result.Error);
+        throw Errors.internal(result.Error);
       }
 
       const requestState = bytesToNumber(result.constant_result[0]);
       if (requestState === 0) {
-        throw new Error('Request not witnessed yet.');
+        throw Errors.internal('Request not witnessed yet.');
       }
 
       return;
@@ -782,7 +782,7 @@ async function waitForTronDepositTxConfirmation(
     await new Promise((resolve) => setTimeout(resolve, interval));
   }
 
-  throw new Error(`⏰ Timeout: Transaction not confirmed within ${timeout / 1000}s`);
+  throw Errors.transactionTimeout((timeout / 1000));
 }
 
 function percentageAdditionToBigInt(base: bigint, percentage: number) {
@@ -826,12 +826,12 @@ async function waitForTronApprovalTxConfirmation(
       });
 
       if (result.Error) {
-        throw new Error(result.Error);
+        throw Errors.internal(result.Error);
       }
 
       const allowance = hexToBigInt(`0x${result.constant_result[0]}`);
       if (allowance < amount) {
-        throw new Error('Allowance not set yet.');
+        throw Errors.internal('Allowance not set yet.');
       }
 
       return;
@@ -844,7 +844,7 @@ async function waitForTronApprovalTxConfirmation(
     await new Promise((resolve) => setTimeout(resolve, interval));
   }
 
-  throw new Error(`⏰ Timeout: Transaction not confirmed within ${timeout / 1000}s`);
+  throw Errors.transactionTimeout((timeout / 1000));
 }
 
 const createExplorerTxURL = (txHash: Hex, explorerURL: string) => {

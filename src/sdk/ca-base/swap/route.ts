@@ -534,7 +534,7 @@ const _exactInRoute = async (
     }),
     fetchPriceOracle(params.networkConfig.GRPC_URL),
   ]).catch((e) => {
-    throw new Error('Error fetching fee, balance or oracle', { cause: e });
+    throw Errors.internal('Error fetching fee, balance or oracle', { cause: e });
   });
 
   if (balanceResponse.balances.length === 0) {
@@ -679,7 +679,7 @@ const _exactInRoute = async (
     );
 
     if (!response.quotes.length) {
-      throw new Error('source swap returned no quotes');
+      throw Errors.quoteFailed('source swap returned no quotes');
     }
 
     sourceSwaps = response.quotes.map((oq) => {
