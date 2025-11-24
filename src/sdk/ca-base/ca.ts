@@ -277,7 +277,7 @@ export class CA {
 
     // Prevent concurrent initializations
     if (this._initStatus !== INIT_STATUS.CREATED) {
-      throw new Error(`Unexpected init state: ${this._initStatus}`);
+        throw Errors.sdkInitStateNotExpected(this._initStatus);
     }
 
     this._initStatus = INIT_STATUS.RUNNING;
@@ -291,7 +291,7 @@ export class CA {
         this._initStatus = INIT_STATUS.DONE;
       } catch (e) {
         this._initStatus = INIT_STATUS.CREATED;
-        logger.error('Error initializing CA', e);
+        logger.error('Error initializing CA', e, {cause: 'SDK_NOT_INITIALIZED'});
         throw e;
       }
     })();
@@ -366,7 +366,7 @@ export class CA {
 
     const address = await connector.currentAccount();
     if (!address) {
-      throw new Error('could not get current account from connector');
+      throw Errors.accountConnectionFailed();
     }
 
     const provider = new Provider(FUEL_NETWORK_URL, {
@@ -413,7 +413,7 @@ export class CA {
         await refundExpiredIntents(account, this._networkConfig.COSMOS_URL, this.#cosmos!.wallet);
       }, minutesToMs(10));
     } catch (e) {
-      logger.error('Error checking pending refunds', e);
+      logger.error('Error checking pending refunds', e, {cause: 'REFUND_CHECK_ERROR'});
     }
   };
 

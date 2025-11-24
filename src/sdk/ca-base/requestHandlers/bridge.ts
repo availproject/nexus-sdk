@@ -603,7 +603,7 @@ class BridgeHandler {
     );
 
     if (!destinationSigData) {
-      throw new Error('requestHash not found for destination');
+      throw Errors.destinationRequestHashNotFound();
     }
 
     return {
@@ -804,7 +804,7 @@ class BridgeHandler {
       }
       this.markStepDone(BRIDGE_STEPS.ALLOWANCE_COMPLETE);
     } catch (e) {
-      logger.error('Error setting allowances', e);
+      logger.error('Error setting allowances', e, {cause: 'ALLOWANCE_SETTING_ERROR'});
       throw e;
     } finally {
       if (this.params.dstChain.universe === Universe.ETHEREUM) {
@@ -911,7 +911,7 @@ class BridgeHandler {
 
     const asset = assets.find(token.symbol);
     if (!asset) {
-      throw new Error(`Asset ${token.symbol} not found in UserAssets`);
+      throw Errors.assetNotFound(token.symbol);
     }
 
     const allSources = (await asset.iterate(this.options.chainList)).map((v) => {

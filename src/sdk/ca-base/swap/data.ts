@@ -7,6 +7,7 @@ import { TokenInfo } from '../../../commons';
 import { convertTo32BytesHex, equalFold } from '../utils';
 import { EADDRESS } from './constants';
 import { convertToEVMAddress, determinePermitVariantAndVersion } from './utils';
+import { Errors } from '../errors';
 
 export enum CurrencyID {
   USDC = 0x1,
@@ -421,11 +422,11 @@ const getTokenVersion = async (tokenAddress: Hex, client: PublicClient) => {
 export const getTokenDecimals = (chainID: number | string, contractAddress: Bytes) => {
   const cData = chainData.get(Number(chainID));
   if (!cData) {
-    throw new Error(`chain data not found for chain: ${chainID}`);
+    throw Errors.chainDataNotFound(Number(chainID));
   }
   const token = cData.find((c) => equalFold(toHex(contractAddress), c.TokenContractAddress));
   if (!token) {
-    throw new Error(`token not found: ${toHex(contractAddress)}`);
+    throw Errors.assetNotFound(toHex(contractAddress));
   }
   return {
     decimals: token.TokenDecimals,

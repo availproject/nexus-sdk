@@ -59,7 +59,7 @@ async function fetchMyIntents(address: string, grpcURL: string, page = 1) {
     return response.requestForFunds;
   } catch (error) {
     logger.error('Failed to fetch intents', error);
-    throw new Error('Failed to fetch intents');
+    throw Errors.cosmosError('Failed to fetch intents');
   }
 }
 
@@ -138,7 +138,7 @@ async function fetchProtocolFees(grpcURL: string) {
     return response;
   } catch (error) {
     logger.error('Failed to fetch protocol fees', error);
-    throw new Error('Failed to fetch protocol fees');
+    throw Errors.cosmosError('Failed to fetch protocol fees');
   }
 }
 
@@ -148,7 +148,7 @@ async function fetchSolverData(grpcURL: string) {
     return response;
   } catch (error) {
     logger.error('Failed to fetch solver data', error);
-    throw new Error('Failed to fetch solver data');
+    throw Errors.cosmosError('Failed to fetch solver data');
   }
 }
 
@@ -165,7 +165,7 @@ const fetchPriceOracle = async (grpcURL: string) => {
     }));
     return oracleRates;
   }
-  throw new Error('InternalError: No price data found.');
+  throw Errors.internal('No price data found.');
 };
 
 const coinbasePrices = {
@@ -184,10 +184,10 @@ const getCoinbasePrices = async () => {
       coinbasePrices.rates = exchange.data.data.rates;
       coinbasePrices.lastUpdatedAt = Date.now();
     } catch (error) {
-      logger.error('Failed to fetch Coinbase prices', error);
+      logger.error('Failed to fetch Coinbase prices', error, {cause: 'INTERNAL_ERROR'});
       // Return cached rates if available, otherwise throw
       if (Object.keys(coinbasePrices.rates).length === 0) {
-        throw new Error('Failed to fetch exchange rates and no cache available');
+        throw Errors.internal('Failed to fetch exchange rates and no cache available');
       }
     }
   }
@@ -584,7 +584,7 @@ const checkIntentFilled = async (intentID: Long, grpcURL: string) => {
     return 'ok';
   }
 
-  throw new Error('not filled yet');
+  throw Errors.internal('not filled yet');
 };
 
 export {

@@ -108,7 +108,7 @@ export const convertToEVMAddress = (address: Hex | Uint8Array) => {
     return toHex(address.subarray(12));
   }
 
-  throw new Error('Invalid address');
+  throw Errors.invalidAddressLength('evm');
 };
 
 export const bytesEqual = (bytes1: Uint8Array, bytes2: Uint8Array): boolean => {
@@ -257,7 +257,7 @@ export const createPermitSignature = async (
       };
     }
     default: {
-      throw new Error('Token Not supported: (2612 details not found)');
+      throw Errors.tokenNotSupported(undefined, undefined, '(2612 details not found)');
     }
   }
 };
@@ -282,7 +282,7 @@ export const vscSBCTx = async (input: SBCTx[], vscDomain: string) => {
       logger.debug('vscSBCTx', { data });
 
       if (data.errored) {
-        throw new Error('Error in VSC SBC Tx');
+        throw Errors.internal('Error in VSC SBC Tx');
       }
 
       ops.push([bytesToBigInt(input[data.part_idx].chain_id), toHex(data.tx_hash)]);
@@ -570,7 +570,7 @@ export const createPermitApprovalTx = async ({
 
   const { r, s, v } = parseSignature(signature);
   if (!v) {
-    throw new Error('invalid signature: v is not present');
+    throw Errors.internal('invalid signature: v is not present');
   }
 
   return {
@@ -633,7 +633,7 @@ export const getAnkrBalances = async (
       walletAddress: walletAddress,
     },
   });
-  if (!res.data?.result) throw new Error('balances cannot be retrieved');
+  if (!res.data?.result) throw Errors.internal('balances cannot be retrieved');
 
   const filteredAssets = res.data.result.assets.filter(
     (asset) =>
@@ -1168,7 +1168,7 @@ export const parseQuote = (
     return val;
   }
 
-  throw new Error('Unknown aggregator');
+  throw Errors.internal('Unknown aggregator');
 };
 
 /**
@@ -1484,7 +1484,7 @@ export const createSweeperTxs = ({
     )!.Currencies.find((c) => c.currencyID === COTCurrencyID);
 
     if (!currency) {
-      throw new Error(`cot not found on chain ${chainID}`);
+      throw Errors.internal(`cot not found on chain ${chainID}`);
     }
 
     tokenAddress = convertToEVMAddress(currency.tokenAddress);
@@ -1615,7 +1615,7 @@ export const performDestinationSwap = async ({
     }, 2);
     return hash;
   } catch (e) {
-    logger.error('destination swap failed twice, sweeping to eoa', e);
+    logger.error('destination swap failed twice, sweeping to eoa', e, {cause: 'SWAP_FAILED'});
     await vscSBCTx(
       [
         await createSBCTxFromCalls({
@@ -1635,7 +1635,7 @@ export const performDestinationSwap = async ({
       ],
       vscDomain,
     ).catch((e) => {
-      logger.error('error during destination sweep', e);
+      logger.error('error during destination sweep', e, {cause: 'DESTINATION_SWEEP_ERROR'});
     });
     throw e;
   }

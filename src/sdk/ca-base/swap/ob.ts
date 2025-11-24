@@ -378,9 +378,13 @@ class DestinationSwapHandler {
       try {
         await this.executeSwap(metadata);
       } catch (retryError) {
-        logger.error('Destination swap failed even after retry.', {
-          error: (retryError as Error)?.message ?? retryError,
-        });
+        logger.error(
+          'Destination swap failed even after retry.',
+          {
+            error: (retryError as Error)?.message ?? retryError,
+          },
+          { cause: 'SWAP_FAILED' },
+        );
         throw retryError;
       }
     }
@@ -501,7 +505,7 @@ class DestinationSwapHandler {
     logger.debug('Requoting destination swap...');
     const newSwap = await this.data.fetchDestinationSwapDetails();
     if (!newSwap.quote) {
-      throw new Error('Failed to requote destination swap.');
+      throw Errors.quoteFailed('Failed to requote destination swap.');
     }
 
     const isExactIn = this.data.type === 'EXACT_IN';
@@ -524,9 +528,9 @@ class DestinationSwapHandler {
         newSwap.inputAmount.min.lte(swap.inputAmount.max)
       )
     ) {
-      throw new Error(
-        `Rates changed beyond tolerance. Tolerance: ${swap.inputAmount.min.toFixed()}-${swap.inputAmount.max.toFixed()}, After: ${newSwap.inputAmount.min.toFixed()}`,
-      );
+      const rate = swap.inputAmount.min.toNumber();
+      const tolerance = swap.inputAmount.min.toNumber() - swap.inputAmount.max.toNumber();
+      throw Errors.ratesChangedBeyondTolerance(rate, tolerance);
     }
 
     this.data = {
@@ -861,10 +865,10 @@ class SourceSwapsHandler {
             } catch {
               // TODO: What to do here? Store it or something?
             }
-            throw new Error('source swap failed');
+            throw Errors.swapFailed('source swap failed');
           }
         } else {
-          throw new Error('some source swap failed even after retry');
+          throw Errors.swapFailed('some source swap failed even after retry');
         }
       }
 

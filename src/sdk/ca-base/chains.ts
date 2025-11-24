@@ -25,9 +25,9 @@ class ChainList {
         this.chains = TESTNET_CHAINS;
         break;
       case Environment.JADE:
-        throw new Error('Jade environment not supported yet');
+        throw Errors.environmentNotSupported('Jade');
       default:
-        throw new Error('Unknown environment');
+        throw Errors.environmentNotKnown();
     }
     this.vcm = getVaultContractMap(env);
   }
@@ -133,7 +133,7 @@ class ChainList {
 
     const vc = this.vcm.get(omniversalChainID);
     if (!vc) {
-      throw new Error(`vault contract not found for chain: ${chainID}`);
+      throw Errors.vaultContractNotFound(chainID);
     }
 
     return convertToHexAddressByUniverse(vc, chain.universe);

@@ -217,7 +217,7 @@ const waitForTxReceipt = async (
     timeout,
   });
   if (r.status === 'reverted') {
-    throw new Error(`Transaction reverted: ${hash}`);
+    throw Errors.transactionReverted(hash);
   }
 
   return r;
