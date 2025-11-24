@@ -71,7 +71,7 @@ import {
   createRFFromIntent,
   retrieveAddress,
   getBalances,
-  createDeadlineFromNow,
+  // createDeadlineFromNow,
 } from '../utils';
 import { TronWeb } from 'tronweb';
 import { Errors } from '../errors';
@@ -741,7 +741,6 @@ class BridgeHandler {
               account,
               vc,
               source.amount,
-              createDeadlineFromNow(3n),
             ).catch((e) => {
               if (e instanceof ContractFunctionExecutionError) {
                 const isUserRejectedRequestError =

@@ -60,6 +60,7 @@ import {
 import { createBridgeAndTransferParams } from './query/bridgeAndTransfer';
 import getMaxValueForBridge from './requestHandlers/bridgeMax';
 import { Errors } from './errors';
+import { setLoggerProvider } from './telemetry';
 
 setLogLevel(LOG_LEVEL.NOLOGS);
 const logger = getLogger();
@@ -283,6 +284,7 @@ export class CA {
 
     this._initPromise = (async () => {
       try {
+        setLoggerProvider();
         this._setProviderHooks();
         this.#cosmos = await this._createCosmosWallet();
         this._checkPendingRefunds();

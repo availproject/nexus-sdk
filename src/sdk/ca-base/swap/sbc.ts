@@ -119,7 +119,7 @@ export const createSBCTxFromCalls = async ({
       value: convertTo32Bytes(c.value),
     })),
     chain_id: convertTo32Bytes(chainID),
-    deadline: toBytes(deadline),
+    deadline: convertTo32Bytes(deadline),
     key_hash: ZERO_BYTES_32,
     nonce: convertTo32Bytes(nonce),
     revert_on_failure: true,
