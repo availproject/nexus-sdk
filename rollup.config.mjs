@@ -48,6 +48,7 @@ const baseConfig = {
     'decimal.js',
     'fuels',
     'long',
+    'posthog-js',
     'msgpackr',
     'tslib',
     'axios',
@@ -103,6 +104,7 @@ export default defineConfig([
       'tslib',
       'axios',
       'es-toolkit',
+      'posthog-js',
     ],
   },
 ]);
