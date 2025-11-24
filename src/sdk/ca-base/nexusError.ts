@@ -1,3 +1,6 @@
+import { AnyValueMap, SeverityNumber } from '@opentelemetry/api-logs';
+import { telemetryLogger } from './telemetry';
+
 export interface NexusErrorData {
   context?: string; // Where or why it happened
   cause?: unknown; // Optional nested error
@@ -55,6 +58,18 @@ export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];
 
 export function createError(code: ErrorCode, message: string, data?: NexusErrorData): NexusError {
   const nexusError = new NexusError(code, message, data);
+  try {
+    telemetryLogger?.emit({
+      body: message,
+      severityNumber: SeverityNumber.ERROR,
+      severityText: 'ERROR',
+      attributes: {
+        data: nexusError.data,
+        cause: code,
+        stackTrace: nexusError.stack,
+      } as AnyValueMap,
+    });
+  } catch {}
   return nexusError;
 }
 
