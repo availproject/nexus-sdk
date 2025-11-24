@@ -27,7 +27,7 @@ const createBridgeAndTransferParams = (
           functionName: 'transfer',
           args: [input.recipient, input.amount],
         }),
-        gas: 63_000n,
+        gas: 80_000n,
       };
 
   return {
