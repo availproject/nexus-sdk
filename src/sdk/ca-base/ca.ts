@@ -297,7 +297,7 @@ export class CA {
         this._initStatus = INIT_STATUS.DONE;
       } catch (e) {
         this._initStatus = INIT_STATUS.CREATED;
-        logger.error('Error initializing CA', e);
+        logger.error('Error initializing CA', e, {cause: 'SDK_NOT_INITIALIZED'});
         throw e;
       }
     })();
@@ -431,7 +431,7 @@ export class CA {
         await refundExpiredIntents(account, this._networkConfig.COSMOS_URL, this.#cosmos!.wallet);
       }, minutesToMs(10));
     } catch (e) {
-      logger.error('Error checking pending refunds', e);
+      logger.error('Error checking pending refunds', e, {cause: 'REFUND_CHECK_ERROR'});
     }
   }
 

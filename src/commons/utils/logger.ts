@@ -1,3 +1,5 @@
+import telemetryLogger from '../../sdk/telemetry';
+
 export const LOG_LEVEL = {
   DEBUG: 1,
   ERROR: 4,
@@ -5,6 +7,14 @@ export const LOG_LEVEL = {
   NOLOGS: 5,
   WARNING: 3,
 } as const;
+
+export const LOG_LEVEL_NAME: Record<LogLevel, string> = {
+    [LOG_LEVEL.DEBUG]: "DEBUG",
+    [LOG_LEVEL.ERROR]: "ERROR",
+    [LOG_LEVEL.INFO]: "INFO",
+    [LOG_LEVEL.NOLOGS]: "NOLOGS",
+    [LOG_LEVEL.WARNING]: "WARNING",
+  };  
 
 type LogLevel = (typeof LOG_LEVEL)[keyof typeof LOG_LEVEL];
 type ExceptionReporter = (message: string) => void;
@@ -66,9 +76,9 @@ class Logger {
     this.internalLog(LOG_LEVEL.DEBUG, message, params);
   }
 
-  error(message: string, err?: unknown) {
+  error(message: string, err?: unknown, params: unknown = {}) {
     if (err instanceof Error) {
-      this.internalLog(LOG_LEVEL.ERROR, message, err.message);
+      this.internalLog(LOG_LEVEL.ERROR, message, params);
       sendException(JSON.stringify({ error: err.message, message }));
       return;
     }
@@ -87,6 +97,20 @@ class Logger {
 
   internalLog(level: LogLevel, message: string, params?: unknown) {
     const logMessage = `[${this.prefix}] Msg: ${message}\n`;
+    if (level == LOG_LEVEL.ERROR || level == LOG_LEVEL.WARNING) {
+      const cause =
+        params && typeof params === 'object' && 'cause' in params
+          ? (params as any).cause
+          : 'unknown|not_mapped';
+      telemetryLogger.emit({
+        body: message,
+        severityNumber: level,
+        severityText: LOG_LEVEL_NAME[level],
+        attributes: {
+          cause: cause,
+        },
+      });
+    }
     this.consoleLog(level, logMessage, params);
   }
 

@@ -1614,7 +1614,7 @@ export const performDestinationSwap = async ({
     }, 2);
     return hash;
   } catch (e) {
-    logger.error('destination swap failed twice, sweeping to eoa', e);
+    logger.error('destination swap failed twice, sweeping to eoa', e, {cause: 'SWAP_FAILED'});
     await vscSBCTx(
       [
         await createSBCTxFromCalls({
@@ -1634,7 +1634,7 @@ export const performDestinationSwap = async ({
       ],
       vscDomain,
     ).catch((e) => {
-      logger.error('error during destination sweep', e);
+      logger.error('error during destination sweep', e, {cause: 'DESTINATION_SWEEP_ERROR'});
     });
     throw e;
   }
