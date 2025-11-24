@@ -113,10 +113,10 @@ export class CA {
     onIntent: OnIntentHook;
     onSwapIntent: OnSwapIntentHook;
   } = {
-    onAllowance: (data) => data.allow(data.sources.map(() => 'min')),
-    onIntent: (data) => data.allow(),
-    onSwapIntent: (data) => data.allow(),
-  };
+      onAllowance: (data) => data.allow(data.sources.map(() => 'min')),
+      onIntent: (data) => data.allow(),
+      onSwapIntent: (data) => data.allow(),
+    };
   protected _initStatus = INIT_STATUS.CREATED;
   protected _networkConfig: NetworkConfig;
   protected _refundInterval: number | undefined;
@@ -516,10 +516,10 @@ export class CA {
     await this._init();
     const account = await this._getEVMAddress();
     try {
-      await refundExpiredIntents(account, this._networkConfig.COSMOS_URL, this.#cosmos!.wallet);
+      await refundExpiredIntents(account, this._networkConfig.COSMOS_URL, this.#cosmos!.wallet, this._analytics);
 
       this._refundInterval = window.setInterval(async () => {
-        await refundExpiredIntents(account, this._networkConfig.COSMOS_URL, this.#cosmos!.wallet);
+        await refundExpiredIntents(account, this._networkConfig.COSMOS_URL, this.#cosmos!.wallet, this._analytics);
       }, minutesToMs(10));
     } catch (e) {
       logger.error('Error checking pending refunds', e);
