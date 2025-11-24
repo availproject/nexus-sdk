@@ -1,3 +1,5 @@
+import { Environment } from '@avail-project/ca-common';
+import { ChainList } from '../../sdk/ca-base/chains';
 import { ChainMetadata, TokenMetadata } from '../types';
 
 export const MAINNET_CHAIN_IDS = {
@@ -80,6 +82,15 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
     rpcUrls: ['https://eth.merkle.io'],
     blockExplorerUrls: ['https://etherscan.io'],
+  },
+  [SUPPORTED_CHAINS.MONAD]: {
+    id: SUPPORTED_CHAINS.MONAD,
+    name: 'Monad',
+    shortName: 'monad',
+    logo: 'https://assets.coingecko.com/coins/images/38927/large/monad.jpg',
+    nativeCurrency: { name: 'Monad', symbol: 'MON', decimals: 18 },
+    rpcUrls: ['https://rpcs.avail.so/monad'],
+    blockExplorerUrls: ['https://monadvision.com'],
   },
   [SUPPORTED_CHAINS.BASE]: {
     id: SUPPORTED_CHAINS.BASE,
