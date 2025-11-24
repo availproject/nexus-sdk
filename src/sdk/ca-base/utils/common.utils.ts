@@ -621,8 +621,8 @@ class UserAssets {
       if (equalFold(asset.symbol, symbol)) {
         return new UserAsset(asset);
       }
-      throw Errors.tokenNotSupported();
     }
+    throw Errors.tokenNotSupported();
   }
 
   findOnChain(chainID: number, address: `0x${string}`) {
@@ -719,7 +719,7 @@ async function waitForTronTxConfirmation(
         }
       }
     } catch (err) {
-      logger.error(`⚠️ Error while checking transaction:`, err);
+      logger.error(`⚠️ Error while checking transaction:`, err, {cause: 'TRANSACTION_CHECK_ERROR'});
       // Don’t throw yet; continue polling
     }
 
@@ -774,7 +774,7 @@ async function waitForTronDepositTxConfirmation(
 
       return;
     } catch (err) {
-      logger.error(`⚠️ Error while checking transaction:`, err);
+      logger.error(`⚠️ Error while checking transaction:`, err, {cause: 'TRANSACTION_CHECK_ERROR'});
       // Don’t throw yet; continue polling
     }
 
@@ -836,7 +836,7 @@ async function waitForTronApprovalTxConfirmation(
 
       return;
     } catch (err) {
-      logger.error(`⚠️ Error while checking transaction:`, err);
+      logger.error(`⚠️ Error while checking transaction:`, err, {cause: 'TRANSACTION_CHECK_ERROR'});
       // Don’t throw yet; continue polling
     }
 

@@ -378,9 +378,13 @@ class DestinationSwapHandler {
       try {
         await this.executeSwap(metadata);
       } catch (retryError) {
-        logger.error('Destination swap failed even after retry.', {
-          error: (retryError as Error)?.message ?? retryError,
-        });
+        logger.error(
+          'Destination swap failed even after retry.',
+          {
+            error: (retryError as Error)?.message ?? retryError,
+          },
+          { cause: 'SWAP_FAILED' },
+        );
         throw retryError;
       }
     }
@@ -861,7 +865,7 @@ class SourceSwapsHandler {
             } catch {
               // TODO: What to do here? Store it or something?
             }
-            throw  Errors.swapFailed('source swap failed');
+            throw Errors.swapFailed('source swap failed');
           }
         } else {
           throw Errors.swapFailed('some source swap failed even after retry');

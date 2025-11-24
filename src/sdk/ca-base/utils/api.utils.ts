@@ -184,7 +184,7 @@ const getCoinbasePrices = async () => {
       coinbasePrices.rates = exchange.data.data.rates;
       coinbasePrices.lastUpdatedAt = Date.now();
     } catch (error) {
-      logger.error('Failed to fetch Coinbase prices', error);
+      logger.error('Failed to fetch Coinbase prices', error, {cause: 'INTERNAL_ERROR'});
       // Return cached rates if available, otherwise throw
       if (Object.keys(coinbasePrices.rates).length === 0) {
         throw Errors.internal('Failed to fetch exchange rates and no cache available');
@@ -584,7 +584,7 @@ const checkIntentFilled = async (intentID: Long, grpcURL: string) => {
     return 'ok';
   }
 
-  throw new Error('not filled yet');
+  throw Errors.internal('not filled yet');
 };
 
 export {

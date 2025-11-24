@@ -335,7 +335,7 @@ export const createBridgeRFF = async ({
     const allowance = allowances[Number(source.chainID)];
     logger.debug('allowances', { allowance, chainID: Number(source.chainID) });
     if (allowance == null) {
-      throw new Error('Allowance not applicable');
+      throw Errors.internal('Allowance not applicable');
     }
 
     const tx: Tx[] = [];

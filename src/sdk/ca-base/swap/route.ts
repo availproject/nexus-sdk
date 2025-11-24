@@ -756,7 +756,7 @@ const _exactInRoute = async (
       maxFee: maxFee.toFixed(),
     });
     if (dstSwapInputAmountInDecimal.isNegative()) {
-      throw new Error('bridge fees exceeds source amount');
+      throw Errors.internal('bridge fees exceeds source amount');
     }
 
     bridgeInput = {
