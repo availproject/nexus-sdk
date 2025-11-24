@@ -49,7 +49,7 @@ class BridgeAndExecuteQuery {
     private bridge: (input: BridgeParams, options?: OnEventParam) => BridgeHandler,
     private getUnifiedBalances: () => Promise<UserAssetDatum[]>,
     private simulationClient: BackendSimulationClient,
-  ) {}
+  ) { }
 
   private async estimateBridgeAndExecute(params: BridgeAndExecuteParams) {
     const { toChainId, token: tokenSymbol, amount, execute } = params;
@@ -86,21 +86,21 @@ class BridgeAndExecuteQuery {
     const determineGasUsed = params.execute.gas
       ? Promise.resolve({ gasUsed: params.execute.gas + (approvalTx ? 85_000n : 0n) })
       : this.simulateBundle({
-          txs,
-          amount: BigInt(execute.tokenApproval?.amount ?? '0'),
-          userAddress: address,
-          chainId: dstChain.id,
-          tokenAddress: token.contractAddress,
-          tokenSymbol: execute.tokenApproval?.token ?? 'ETH',
-        }).then(({ gasUsed }) => ({
-          gasUsed: percentageAdditionToBigInt(gasUsed, 0.1),
-        }));
+        txs,
+        amount: BigInt(execute.tokenApproval?.amount ?? '0'),
+        userAddress: address,
+        chainId: dstChain.id,
+        tokenAddress: token.contractAddress,
+        tokenSymbol: execute.tokenApproval?.token ?? 'ETH',
+      }).then(({ gasUsed }) => ({
+        gasUsed: percentageAdditionToBigInt(gasUsed, 0.1),
+      }));
 
     const determineGasFee = params.execute.gasPrice
       ? Promise.resolve({
-          maxFeePerGas: params.execute.gasPrice,
-          gasPrice: params.execute.gasPrice,
-        })
+        maxFeePerGas: params.execute.gasPrice,
+        gasPrice: params.execute.gasPrice,
+      })
       : dstPublicClient.estimateFeesPerGas();
 
     // 5. simulate approval(?) and execution + fetch gasPrice + fetch unified balance
@@ -310,6 +310,7 @@ class BridgeAndExecuteQuery {
       bridgeExplorerUrl: bridgeResult.explorerUrl,
       toChainId: params.toChainId,
       bridgeSkipped: skipBridge,
+      intent: bridgeResult.intent,
     };
 
     return result;
@@ -602,6 +603,7 @@ class BridgeAndExecuteQuery {
     const result = await handler.execute();
     return {
       explorerUrl: result?.explorerURL ?? '',
+      intent: result.intent,
     };
   };
 

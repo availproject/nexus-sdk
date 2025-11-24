@@ -253,87 +253,91 @@ class BridgeHandler {
 
   public execute = async (
     shouldRetryOnFailure = true,
-  ): Promise<{ explorerURL: string; intentID: Long }> => {
-    let intent = await this.buildIntent(this.params.sourceChains);
+  ): Promise<{ explorerURL: string; intentID: Long; intent?: any }> => {
+    try {
+      let intent = await this.buildIntent(this.params.sourceChains);
 
-    const allowances = await getAllowances(intent.allSources, this.options.chainList);
+      const allowances = await getAllowances(intent.allSources, this.options.chainList);
 
-    let insufficientAllowanceSources = this.filterInsufficientAllowanceSources(intent, allowances);
-    this.createExpectedSteps(intent, insufficientAllowanceSources);
-
-    let accepted = false;
-    const refresh = async (sourceChains?: number[]) => {
-      if (accepted) {
-        logger.warn('Intent refresh called after acceptance');
-        return convertIntent(intent, this.params.dstToken, this.options.chainList);
-      }
-
-      intent = await this.buildIntent(sourceChains);
-      if (intent.isAvailableBalanceInsufficient) {
-        throw Errors.insufficientBalance();
-      }
-      insufficientAllowanceSources = this.filterInsufficientAllowanceSources(intent, allowances);
+      let insufficientAllowanceSources = this.filterInsufficientAllowanceSources(intent, allowances);
       this.createExpectedSteps(intent, insufficientAllowanceSources);
 
-      return convertIntent(intent, this.params.dstToken, this.options.chainList);
-    };
+      let accepted = false;
+      const refresh = async (sourceChains?: number[]) => {
+        if (accepted) {
+          logger.warn('Intent refresh called after acceptance');
+          return convertIntent(intent, this.params.dstToken, this.options.chainList);
+        }
 
-    // wait for intent acceptance hook
-    await new Promise((resolve, reject) => {
-      const allow = () => {
-        accepted = true;
-        return resolve('User allowed intent');
+        intent = await this.buildIntent(sourceChains);
+        if (intent.isAvailableBalanceInsufficient) {
+          throw Errors.insufficientBalance();
+        }
+        insufficientAllowanceSources = this.filterInsufficientAllowanceSources(intent, allowances);
+        this.createExpectedSteps(intent, insufficientAllowanceSources);
+
+        return convertIntent(intent, this.params.dstToken, this.options.chainList);
       };
 
-      const deny = () => {
-        return reject(Errors.userDeniedIntent());
-      };
+      // wait for intent acceptance hook
+      await new Promise((resolve, reject) => {
+        const allow = () => {
+          accepted = true;
+          return resolve('User allowed intent');
+        };
 
-      this.options.hooks.onIntent({
-        allow,
-        deny,
-        intent: convertIntent(intent, this.params.dstToken, this.options.chainList),
-        refresh,
+        const deny = () => {
+          return reject(Errors.userDeniedIntent());
+        };
+
+        this.options.hooks.onIntent({
+          allow,
+          deny,
+          intent: convertIntent(intent, this.params.dstToken, this.options.chainList),
+          refresh,
+        });
       });
-    });
 
-    this.markStepDone(BRIDGE_STEPS.INTENT_ACCEPTED);
+      this.markStepDone(BRIDGE_STEPS.INTENT_ACCEPTED);
 
-    console.time('process:AllowanceHook');
+      console.time('process:AllowanceHook');
 
-    // Step 5: set allowance if not set
-    await this.waitForOnAllowanceHook(insufficientAllowanceSources);
-    console.timeEnd('process:AllowanceHook');
+      // Step 5: set allowance if not set
+      await this.waitForOnAllowanceHook(insufficientAllowanceSources);
+      console.timeEnd('process:AllowanceHook');
 
-    // Step 6: Process intent
-    logger.debug('intent', { intent });
+      // Step 6: Process intent
+      logger.debug('intent', { intent });
 
-    const response = await this.processRFF(intent);
-    if (response.retry) {
-      logger.debug('rff fee expired, going to rebuild intent...');
-      if (shouldRetryOnFailure) {
-        // If fee expired go back and rebuild intent if first time
-        return this.execute(false);
-      } else {
-        // Something else is wrong, retries probably wont fix it - so just throw
-        throw Errors.rFFFeeExpired();
+      const response = await this.processRFF(intent);
+      if (response.retry) {
+        logger.debug('rff fee expired, going to rebuild intent...');
+        if (shouldRetryOnFailure) {
+          // If fee expired go back and rebuild intent if first time
+          return this.execute(false);
+        } else {
+          // Something else is wrong, retries probably wont fix it - so just throw
+          throw Errors.rFFFeeExpired();
+        }
       }
+
+      const { explorerURL, intentID, requestHash, waitForDoubleCheckTx } = response;
+
+      // Step 7: Wait for fill
+      storeIntentHashToStore(this.options.evm.address, intentID.toNumber());
+      await this.waitForFill(requestHash, intentID, waitForDoubleCheckTx);
+      removeIntentHashFromStore(this.options.evm.address, intentID);
+
+      this.markStepDone(BRIDGE_STEPS.INTENT_FULFILLED);
+
+      if (this.params.dstChain.universe === Universe.ETHEREUM) {
+        await switchChain(this.options.evm.client, this.params.dstChain);
+      }
+
+      return { explorerURL, intentID, intent };
+    } catch (error) {
+      throw error;
     }
-
-    const { explorerURL, intentID, requestHash, waitForDoubleCheckTx } = response;
-
-    // Step 7: Wait for fill
-    storeIntentHashToStore(this.options.evm.address, intentID.toNumber());
-    await this.waitForFill(requestHash, intentID, waitForDoubleCheckTx);
-    removeIntentHashFromStore(this.options.evm.address, intentID);
-
-    this.markStepDone(BRIDGE_STEPS.INTENT_FULFILLED);
-
-    if (this.params.dstChain.universe === Universe.ETHEREUM) {
-      await switchChain(this.options.evm.client, this.params.dstChain);
-    }
-
-    return { explorerURL, intentID };
   };
 
   private async waitForFill(
@@ -374,12 +378,12 @@ class BridgeHandler {
   private async processRFF(intent: Intent): Promise<
     | { retry: true }
     | {
-        retry: false;
-        explorerURL: string;
-        intentID: Long;
-        requestHash: Hex;
-        waitForDoubleCheckTx: () => any;
-      }
+      retry: false;
+      explorerURL: string;
+      intentID: Long;
+      requestHash: Hex;
+      waitForDoubleCheckTx: () => any;
+    }
   > {
     const { msgBasicCosmos, omniversalRFF, signatureData, sources, universes } =
       await createRFFromIntent(intent, this.options, this.params.dstChain.universe);

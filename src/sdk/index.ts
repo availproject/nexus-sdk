@@ -6,31 +6,32 @@ import type {
   TransferParams,
   TransferResult,
   OnIntentHook,
-  OnAllowanceHook,
   EthereumProvider,
-  UserAsset,
-  SimulationResult,
-  RequestForFunds,
-  NexusNetwork,
-  BridgeAndExecuteParams,
-  BridgeAndExecuteResult,
+  ExactInSwapInput,
+  ExactOutSwapInput,
   ExecuteParams,
   ExecuteResult,
   ExecuteSimulation,
-  BridgeAndExecuteSimulationResult,
+  NexusNetwork,
+  OnAllowanceHook,
+  OnEventParam,
+  OnSwapIntentHook,
+  RequestForFunds,
+  SimulationResult,
   SwapResult,
   SupportedChainsResult,
-  ExactInSwapInput,
-  ExactOutSwapInput,
-  OnEventParam,
-  BridgeMaxResult,
-  OnSwapIntentHook,
+  UserAsset,
   AnalyticsConfig,
+  BridgeMaxResult,
+  BridgeAndExecuteSimulationResult,
+  BridgeAndExecuteParams,
+  BridgeAndExecuteResult
 } from '../commons';
 import { logger } from '../commons';
-import { CA } from './ca-base';
 import { AnalyticsManager } from '../analytics/AnalyticsManager';
 import { NexusAnalyticsEvents } from '../analytics/events';
+import { extractBridgeProperties, extractSwapProperties } from '../analytics/utils';
+import { CA } from './ca-base/ca';
 // import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 import nodePackage from '../../package.json' with { type: 'json' };
 
@@ -94,6 +95,7 @@ export class NexusSDK extends CA {
         toChainId: params.toChainId,
         token: params.token,
         explorerUrl: result.explorerURL,
+        ...extractBridgeProperties(result.intent),
       });
 
       return {
@@ -139,6 +141,7 @@ export class NexusSDK extends CA {
         recipient: params.recipient,
         transactionHash: result.executeTransactionHash,
         explorerUrl: result.executeExplorerUrl,
+        ...extractBridgeProperties(result.intent),
       });
 
       return {
@@ -176,6 +179,7 @@ export class NexusSDK extends CA {
         swapType: 'exactIn',
         toChainId: input.toChainId,
         toTokenAddress: input.toTokenAddress,
+        ...extractSwapProperties(result.swapRoute),
       });
 
       return {
@@ -212,6 +216,7 @@ export class NexusSDK extends CA {
         swapType: 'exactOut',
         toChainId: input.toChainId,
         toTokenAddress: input.toTokenAddress,
+        ...extractSwapProperties(result.swapRoute),
       });
 
       return {
@@ -410,6 +415,7 @@ export class NexusSDK extends CA {
         contractAddress: params.execute?.to,
         executeTransactionHash: result.executeTransactionHash,
         bridgeExplorerUrl: result.bridgeExplorerUrl,
+        ...extractBridgeProperties(result.intent),
       });
 
       return result;

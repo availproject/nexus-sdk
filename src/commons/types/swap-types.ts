@@ -158,9 +158,9 @@ export enum SwapMode {
 
 export type SwapData =
   | {
-      mode: SwapMode.EXACT_IN;
-      data: ExactInSwapInput;
-    }
+    mode: SwapMode.EXACT_IN;
+    data: ExactInSwapInput;
+  }
   | { mode: SwapMode.EXACT_OUT; data: ExactOutSwapInput };
 
 export const CaliburSBCTypes = {
@@ -326,11 +326,12 @@ export type SuccessfulSwapResult = {
   sourceSwaps: ChainSwap[];
   explorerURL: string;
   destinationSwap: ChainSwap | null;
+  swapRoute?: any;
 };
 
 export type SwapResult =
   | {
-      success: true;
-      result: SuccessfulSwapResult;
-    }
+    success: true;
+    result: SuccessfulSwapResult;
+  }
   | { success: false; error: string };
