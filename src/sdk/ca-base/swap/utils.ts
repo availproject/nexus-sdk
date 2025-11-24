@@ -175,6 +175,7 @@ export const createPermitSignature = async (
   walletAddress: Hex,
   variant: PermitVariant,
   version: number,
+  deadline: bigint,
 ) => {
   const contract = getContract({
     abi: ERC20ABI,
@@ -187,8 +188,6 @@ export const createPermitSignature = async (
     client.request({ method: 'eth_chainId' }, { dedupe: true }),
     contract.read.nonces([walletAddress]),
   ]);
-
-  const deadline = createDeadlineFromNow(3n);
 
   logger.debug('createPermitSigParams', {
     account: walletAddress,
@@ -558,6 +557,7 @@ export const createPermitApprovalTx = async ({
   variant: PermitVariant;
   version: number;
 }) => {
+  const deadline = createDeadlineFromNow(3n);
   const { signature } = await createPermitSignature(
     contractAddress,
     ownerWallet,
@@ -565,6 +565,7 @@ export const createPermitApprovalTx = async ({
     owner,
     variant,
     version,
+    deadline,
   );
 
   const { r, s, v } = parseSignature(signature);
@@ -582,7 +583,7 @@ export const createPermitApprovalTx = async ({
           })
         : encodeFunctionData({
             abi: ERC20PermitABI,
-            args: [owner, spender, maxUint256, maxUint256, Number(v), r, s],
+            args: [owner, spender, maxUint256, deadline, Number(v), r, s],
             functionName: 'permit',
           }),
     to: contractAddress,

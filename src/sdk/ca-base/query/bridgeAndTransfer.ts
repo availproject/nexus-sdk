@@ -17,6 +17,7 @@ const createBridgeAndTransferParams = (
         to: input.recipient,
         value: input.amount,
         data: '0x',
+        gas: 21_000n,
       }
     : {
         to: token.contractAddress,
@@ -26,6 +27,7 @@ const createBridgeAndTransferParams = (
           functionName: 'transfer',
           args: [input.recipient, input.amount],
         }),
+        gas: 63_000n,
       };
 
   return {

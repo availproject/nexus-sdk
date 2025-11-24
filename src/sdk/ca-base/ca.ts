@@ -2,17 +2,7 @@ import { createCosmosWallet, Universe } from '@avail-project/ca-common';
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import { keyDerivation } from '@starkware-industries/starkware-crypto-utils';
 import { Account, FuelConnector, Provider } from 'fuels';
-import {
-  createWalletClient,
-  custom,
-  WalletActions,
-  publicActions,
-  type PublicActions,
-  Client,
-  CustomTransport,
-  Hex,
-  UserRejectedRequestError,
-} from 'viem';
+import { createWalletClient, custom, Hex, UserRejectedRequestError, WalletClient } from 'viem';
 import { privateKeyToAccount, PrivateKeyAccount } from 'viem/accounts';
 import { createSiweMessage } from 'viem/siwe';
 import { ChainList } from './chains';
@@ -70,6 +60,7 @@ import {
 import { createBridgeAndTransferParams } from './query/bridgeAndTransfer';
 import getMaxValueForBridge from './requestHandlers/bridgeMax';
 import { Errors } from './errors';
+import { setLoggerProvider } from './telemetry';
 
 setLogLevel(LOG_LEVEL.NOLOGS);
 const logger = getLogger();
@@ -92,7 +83,7 @@ export class CA {
   public chainList: ChainListType;
   private readonly _siweChain: number = 1;
   protected _evm?: {
-    client: Client<CustomTransport, undefined, undefined, undefined, WalletActions & PublicActions>;
+    client: WalletClient;
     provider: EthereumProvider;
     address: Hex;
   };
@@ -165,7 +156,7 @@ export class CA {
     return bridgeHandler;
   };
 
-  protected async _calculateMaxForBridge(params: Omit<BridgeParams, 'amount' | 'recipient'>) {
+  protected _calculateMaxForBridge = async (params: Omit<BridgeParams, 'amount' | 'recipient'>) => {
     if (!this._evm) {
       throw Errors.sdkNotInitialized();
     }
@@ -177,12 +168,13 @@ export class CA {
       tron: this._tron,
       networkConfig: this._networkConfig,
     });
-  }
+  };
 
   protected _deinit = () => {
     this.#cosmos = undefined;
+
     if (this._evm) {
-      this._evm.provider.removeListener('accountsChanged', this.onAccountsChanged);
+      this._evm.provider.removeListener('accountsChanged', this._onAccountsChanged);
     }
 
     if (this._refundInterval) {
@@ -193,12 +185,12 @@ export class CA {
     this._initStatus = INIT_STATUS.CREATED;
   };
 
-  protected async _getMyIntents(page = 1) {
+  protected _getMyIntents = async (page = 1) => {
     const { wallet } = await this._getCosmosWallet();
     const address = (await wallet.getAccounts())[0].address;
     const rffList = await fetchMyIntents(address, this._networkConfig.GRPC_URL, page);
     return intentTransform(rffList, this.chainList);
-  }
+  };
 
   protected _getUnifiedBalances = async (includeSwappableBalances = false) => {
     if (!this._evm || this._initStatus !== INIT_STATUS.DONE) {
@@ -230,30 +222,31 @@ export class CA {
     return balances;
   };
 
-  protected _isInitialized() {
+  protected _isInitialized = () => {
     return this._initStatus === INIT_STATUS.DONE;
-  }
+  };
 
-  protected async _swapWithExactIn(input: ExactInSwapInput, options?: OnEventParam) {
+  protected _swapWithExactIn = async (input: ExactInSwapInput, options?: OnEventParam) => {
     return swap(
       {
         mode: SwapMode.EXACT_IN,
         data: input,
       },
-      await this.getSwapOptions(options),
+      await this._getSwapOptions(options),
     );
-  }
-  protected async _swapWithExactOut(input: ExactOutSwapInput, options?: OnEventParam) {
+  };
+
+  protected _swapWithExactOut = async (input: ExactOutSwapInput, options?: OnEventParam) => {
     return swap(
       {
         mode: SwapMode.EXACT_OUT,
         data: input,
       },
-      await this.getSwapOptions(options),
+      await this._getSwapOptions(options),
     );
-  }
+  };
 
-  private async getSwapOptions(options?: OnEventParam): Promise<SwapParams> {
+  private _getSwapOptions = async (options?: OnEventParam): Promise<SwapParams> => {
     return {
       onSwapIntent: this._hooks.onSwapIntent,
       onEvent: options?.onEvent,
@@ -271,7 +264,7 @@ export class CA {
       networkConfig: this._networkConfig,
       ...options,
     };
-  }
+  };
 
   protected _init = () => {
     if (!this._evm) {
@@ -291,6 +284,7 @@ export class CA {
 
     this._initPromise = (async () => {
       try {
+        setLoggerProvider();
         this._setProviderHooks();
         this.#cosmos = await this._createCosmosWallet();
         this._checkPendingRefunds();
@@ -305,7 +299,7 @@ export class CA {
     return this._initPromise;
   };
 
-  protected onAccountsChanged = (accounts: Array<`0x${string}`>) => {
+  protected _onAccountsChanged = (accounts: Array<`0x${string}`>) => {
     this._deinit();
     if (accounts.length !== 0) {
       if (this._evm) {
@@ -315,13 +309,13 @@ export class CA {
     }
   };
 
-  async _setEVMProvider(provider: EthereumProvider) {
+  protected _setEVMProvider = async (provider: EthereumProvider) => {
     if (this._evm?.provider === provider) {
       return;
     }
     const client = createWalletClient({
-      transport: custom(provider),
-    }).extend(publicActions);
+      transport: custom({ ...provider, request: provider.request.bind(provider) }),
+    });
 
     const address = (await client.getAddresses())[0];
 
@@ -330,9 +324,9 @@ export class CA {
       provider,
       address,
     };
-  }
+  };
 
-  public async _setTronAdapter(adapter: TronAdapter) {
+  protected _setTronAdapter = async (adapter: TronAdapter) => {
     if (this._tron) {
       logger.debug('Already has tron adapter, so skip', {
         adapter,
@@ -354,9 +348,9 @@ export class CA {
       adapter,
       address: tronHexToEvmAddress(utils.address.toHex(adapter.address as string)),
     };
-  }
+  };
 
-  protected async _setFuelConnector(connector: FuelConnector) {
+  protected _setFuelConnector = async (connector: FuelConnector) => {
     if (this._fuel?.connector === connector) {
       return;
     }
@@ -385,43 +379,31 @@ export class CA {
       connector,
       provider,
     };
-  }
+  };
 
-  protected _setOnAllowanceHook(hook: OnAllowanceHook) {
+  protected _setOnAllowanceHook = (hook: OnAllowanceHook) => {
     this._hooks.onAllowance = hook;
-  }
+  };
 
-  protected _setOnIntentHook(hook: OnIntentHook) {
+  protected _setOnIntentHook = (hook: OnIntentHook) => {
     this._hooks.onIntent = hook;
-  }
+  };
 
-  protected _setOnSwapIntentHook(hook: OnSwapIntentHook) {
+  protected _setOnSwapIntentHook = (hook: OnSwapIntentHook) => {
     this._hooks.onSwapIntent = hook;
-  }
+  };
 
-  protected async _bridgeAndTransfer(input: TransferParams, options?: OnEventParam) {
+  protected _bridgeAndTransfer = async (input: TransferParams, options?: OnEventParam) => {
     const params = createBridgeAndTransferParams(input, this.chainList);
     return this._bridgeAndExecute(params, options);
-  }
+  };
 
-  protected async _simulateBridgeAndTransfer(input: TransferParams) {
+  protected _simulateBridgeAndTransfer = async (input: TransferParams) => {
     const params = createBridgeAndTransferParams(input, this.chainList);
     return this._simulateBridgeAndExecute(params);
-  }
+  };
 
-  protected _changeChain(chainID: number) {
-    if (!this._evm) {
-      throw Errors.sdkNotInitialized();
-    }
-    const chain = this.chainList.getChainByID(chainID);
-    if (!chain) {
-      throw Errors.chainNotFound(chainID);
-    }
-
-    return switchChain(this._evm.client, chain);
-  }
-
-  protected async _checkPendingRefunds() {
+  protected _checkPendingRefunds = async () => {
     await this._init();
     const account = await this._getEVMAddress();
     try {
@@ -433,9 +415,9 @@ export class CA {
     } catch (e) {
       logger.error('Error checking pending refunds', e, {cause: 'REFUND_CHECK_ERROR'});
     }
-  }
+  };
 
-  protected async _createCosmosWallet() {
+  protected _createCosmosWallet = async () => {
     let sig = retrieveSIWESignatureFromLocalStorage(this._evm!.address, this._siweChain);
     if (!sig) {
       sig = await this._signatureForLogin();
@@ -448,32 +430,32 @@ export class CA {
     const address = (await wallet.getAccounts())[0].address;
     await cosmosFeeGrant(this._networkConfig.COSMOS_URL, this._networkConfig.VSC_DOMAIN, address);
     return { wallet, address };
-  }
+  };
 
-  protected async _getCosmosWallet() {
+  protected _getCosmosWallet = async () => {
     if (!this.#cosmos) {
       this.#cosmos = await this._createCosmosWallet();
     }
     return this.#cosmos;
-  }
+  };
 
-  protected async _getEVMAddress() {
+  protected _getEVMAddress = async () => {
     if (!this._evm) {
       throw Errors.sdkNotInitialized();
     }
     return (await this._evm.client.requestAddresses())[0];
-  }
+  };
 
-  protected async _setProviderHooks() {
+  protected _setProviderHooks = async () => {
     if (!this._evm) {
       throw Errors.sdkNotInitialized();
     }
     if (this._evm.provider) {
-      this._evm.provider.on('accountsChanged', this.onAccountsChanged);
+      this._evm.provider.on('accountsChanged', this._onAccountsChanged);
     }
-  }
+  };
 
-  protected async _signatureForLogin() {
+  protected _signatureForLogin = async () => {
     if (!this._evm) {
       throw Errors.sdkNotInitialized();
     }
@@ -516,13 +498,13 @@ export class CA {
     } finally {
       await this._evm.client.switchChain({ id: currentChain });
     }
-  }
+  };
 
-  protected _getSwapSupportedChains() {
+  protected _getSwapSupportedChains = () => {
     return getSwapSupportedChains(this.chainList);
-  }
+  };
 
-  protected _simulateBridgeAndExecute(params: BridgeAndExecuteParams) {
+  protected _simulateBridgeAndExecute = (params: BridgeAndExecuteParams) => {
     if (!this._evm) {
       throw Errors.sdkNotInitialized();
     }
@@ -536,7 +518,7 @@ export class CA {
     );
 
     return handler.simulateBridgeAndExecute(params);
-  }
+  };
 
   protected _bridgeAndExecute = (
     params: BridgeAndExecuteParams,
@@ -557,7 +539,7 @@ export class CA {
     return handler.bridgeAndExecute(params, options);
   };
 
-  protected async _execute(params: ExecuteParams, options?: OnEventParam) {
+  protected _execute = async (params: ExecuteParams, options?: OnEventParam) => {
     if (!this._evm) {
       throw Errors.sdkNotInitialized();
     }
@@ -571,9 +553,9 @@ export class CA {
     );
 
     return handler.execute(params, options);
-  }
+  };
 
-  protected async _simulateExecute(params: ExecuteParams) {
+  protected _simulateExecute = (params: ExecuteParams) => {
     if (!this._evm) {
       throw Errors.sdkNotInitialized();
     }
@@ -587,7 +569,7 @@ export class CA {
     );
 
     return handler.simulateExecute(params, this._evm.address);
-  }
+  };
 
   private readonly universeCheck = (dstChain: Chain) => {
     if (dstChain.universe === Universe.FUEL && !this._fuel) {

@@ -71,7 +71,7 @@ import {
   createRFFromIntent,
   retrieveAddress,
   getBalances,
-  createDeadlineFromNow,
+  // createDeadlineFromNow,
 } from '../utils';
 import { TronWeb } from 'tronweb';
 import { Errors } from '../errors';
@@ -174,7 +174,7 @@ class BridgeHandler {
 
     // Step 4: create intent
     console.time('preIntentSteps: CreateIntent');
-    const intent = this.createIntent({
+    const intent = await this.createIntent({
       amount: tokenAmountInDecimal,
       assets: userAssets,
       feeStore,
@@ -649,10 +649,14 @@ class BridgeHandler {
           });
         }
 
+        if (chain.universe == Universe.ETHEREUM) {
+          logger.debug(`Switching chain to ${chain.id}`);
+
+          await switchChain(this.options.evm.client, chain);
+        }
+
         if (currency.permitVariant === PermitVariant.Unsupported || chain.id === 1) {
           if (chain.universe === Universe.ETHEREUM) {
-            await switchChain(this.options.evm.client, chain);
-
             const h = await this.options.evm.client
               .writeContract({
                 abi: ERC20ABI,
@@ -729,8 +733,6 @@ class BridgeHandler {
             type: 'json-rpc',
           };
 
-          await switchChain(this.options.evm.client, chain);
-
           const signed = parseSignature(
             await signPermitForAddressAndValue(
               currency,
@@ -739,7 +741,6 @@ class BridgeHandler {
               account,
               vc,
               source.amount,
-              createDeadlineFromNow(3n),
             ).catch((e) => {
               if (e instanceof ContractFunctionExecutionError) {
                 const isUserRejectedRequestError =
@@ -875,7 +876,7 @@ class BridgeHandler {
     logger.debug('BridgeSteps', this.steps);
   }
 
-  private createIntent(input: {
+  private async createIntent(input: {
     amount: Decimal;
     assets: UserAssets;
     feeStore: FeeStore;
@@ -913,7 +914,7 @@ class BridgeHandler {
       throw Errors.assetNotFound(token.symbol);
     }
 
-    const allSources = asset.iterate(feeStore).map((v) => {
+    const allSources = (await asset.iterate(this.options.chainList)).map((v) => {
       const chain = this.options.chainList.getChainByID(v.chainID);
       if (!chain) {
         throw Errors.chainNotFound(v.chainID);
@@ -974,18 +975,6 @@ class BridgeHandler {
       if (assetC.chainID === this.params.dstChain.id) {
         continue;
       }
-
-      // if (assetC.chainID === CHAIN_IDS.fuel.mainnet) {
-      //   const fuelChain = this.options.chainList.getChainByID(CHAIN_IDS.fuel.mainnet);
-      //   const baseAssetBalanceOnFuel = assets.getNativeBalance(fuelChain!);
-      //   if (new Decimal(baseAssetBalanceOnFuel).lessThan('0.000_003')) {
-      //     logger.debug('fuel base asset balance is lesser than min expected deposit fee, so skip', {
-      //       current: baseAssetBalanceOnFuel,
-      //       minimum: '0.000_003',
-      //     });
-      //     continue;
-      //   }
-      // }
 
       // Now collectionFee is a fixed amount - applicable to all
       const collectionFee = feeStore.calculateCollectionFee({

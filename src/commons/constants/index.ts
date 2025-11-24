@@ -13,6 +13,7 @@ export const MAINNET_CHAIN_IDS = {
   BNB: 56,
   HYPEREVM: 999,
   TRON: 728126428,
+  MONAD: 143,
 } as const;
 
 export const TESTNET_CHAIN_IDS = {
