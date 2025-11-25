@@ -84,7 +84,7 @@ import { extractErrorCode } from './utils';
  * Override:
  * Set NEXUS_POSTHOG_KEY env var or pass custom key in SDK config
  */
-const DEFAULT_POSTHOG_KEY = process.env.NEXUS_POSTHOG_KEY || 'phc_UD6lQU3PEw1d8oo8E17rJLmRAR7kxJbQ5OseHuCvi7N';
+const DEFAULT_POSTHOG_KEY = 'phc_UD6lQU3PEw1d8oo8E17rJLmRAR7kxJbQ5OseHuCvi7N';
 const DEFAULT_POSTHOG_HOST = 'https://us.i.posthog.com';
 
 export class AnalyticsManager {
