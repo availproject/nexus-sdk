@@ -40,7 +40,7 @@ import {
   erc20GetAllowance,
   pctAdditionToBigInt,
   getL1Fee,
-  divideBigInt,
+  // divideBigInt,
   getPctGasBufferByChain,
 } from '../utils';
 import { packERC20Approve } from '../swap/utils';
@@ -137,7 +137,7 @@ class BridgeAndExecuteQuery {
       ),
     ]);
 
-    // gasLimit = 1.3 * gasUsed for each (1.05 for monad)
+    // gasLimit = 1.3 * gasUsed (30% buffer)
     const pctBuffer = getPctGasBufferByChain(dstChain.id);
     const approvalGas = pctAdditionToBigInt(gasUsed.approvalGas, pctBuffer);
     const txGas = pctAdditionToBigInt(gasUsed.txGas, pctBuffer);
@@ -149,13 +149,12 @@ class BridgeAndExecuteQuery {
       });
     }
 
-    // gasPrice = (maxFeePerGas + 0.5 * maxPriorityFeePerGas)
-    gasPrice += divideBigInt(
-      gasFeeEstimate.maxPriorityFeePerGas === 0n
+    // Giving more is not an issue since it will be refunded - other than monad
+    // gasPrice = (baseFee + 5 * maxPriorityFeePerGas)
+    gasPrice +=
+      (gasFeeEstimate.maxPriorityFeePerGas === 0n
         ? parseGwei('2')
-        : gasFeeEstimate.maxPriorityFeePerGas,
-      2,
-    );
+        : gasFeeEstimate.maxPriorityFeePerGas) * 4n;
 
     const gasFee = (approvalGas + txGas) * gasPrice + l1Fee;
 
