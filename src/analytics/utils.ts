@@ -212,10 +212,8 @@ export function extractSwapProperties(swaps: SuccessfulSwapResult): Record<strin
       sources: s.swaps.map((swp) => ({
         tokenContract: swp.inputContract,
       })),
-      destinations: swaps.sourceSwaps.map((s) => ({
-        token: s.swaps.map((swp) => ({
-          tokenContract: swp.outputContract,
-        })),
+      destinations: s.swaps.map((swp) => ({
+        tokenContract: swp.outputContract,
       })),
     }));
   }
