@@ -1,5 +1,3 @@
-import { Environment } from '@avail-project/ca-common';
-import { ChainList } from '../../sdk/ca-base/chains';
 import { ChainMetadata, TokenMetadata } from '../types';
 
 export const MAINNET_CHAIN_IDS = {
