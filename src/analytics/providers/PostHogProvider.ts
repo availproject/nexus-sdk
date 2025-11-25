@@ -1,7 +1,7 @@
 /**
  * PostHog analytics provider implementation
  */
-import posthog from 'posthog-js';
+import posthog, { type PostHog } from 'posthog-js';
 import { AnalyticsProvider } from './AnalyticsProvider';
 
 export interface PostHogConfig {
@@ -13,7 +13,7 @@ export interface PostHogConfig {
 
 export class PostHogProvider implements AnalyticsProvider {
   private initialized = false;
-  private config: PostHogConfig;
+  private readonly config: PostHogConfig;
 
   constructor(config: PostHogConfig) {
     this.config = config;
@@ -49,7 +49,7 @@ export class PostHogProvider implements AnalyticsProvider {
               maskTextSelector: '.sensitive', // Mask elements with .sensitive class
             }
           : undefined,
-        loaded: (ph) => {
+        loaded: (ph: PostHog) => {
           if (this.config.debug) {
             console.log('[PostHogProvider] Initialized successfully');
             ph.debug();
