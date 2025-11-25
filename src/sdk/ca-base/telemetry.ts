@@ -21,7 +21,7 @@ function getOrGenerateClientId(): string {
   return clientId;
 }
 
-function getNetworkName(networkConfig: NetworkConfig) {
+function getNetworkName(networkConfig: NetworkConfig): string {
   return Environment[networkConfig.NETWORK_HINT];
 }
 
