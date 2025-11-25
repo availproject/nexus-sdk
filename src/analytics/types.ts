@@ -2,6 +2,8 @@
  * Analytics type definitions for Nexus SDK
  */
 
+import { AnalyticsNetwork } from "./AnalyticsManager";
+
 /**
  * Analytics configuration options
  */
@@ -48,7 +50,7 @@ export interface AnalyticsConfig {
  */
 export interface BaseEventProperties {
   sdkVersion?: string;
-  network?: 'mainnet' | 'testnet';
+  network?: AnalyticsNetwork;
   appName?: string;
   appUrl?: string;
   timestamp: string;

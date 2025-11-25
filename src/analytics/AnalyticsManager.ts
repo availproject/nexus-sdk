@@ -59,6 +59,7 @@ import { PerformanceTracker } from './performance';
 import { NexusAnalyticsEvents } from './events';
 import { AnalyticsConfig, BaseEventProperties } from './types';
 import { extractErrorCode } from './utils';
+import { version } from '../../package.json' with { type: 'json' };
 
 /**
  * Default PostHog API Key - INTENTIONALLY PUBLIC
@@ -87,6 +88,8 @@ import { extractErrorCode } from './utils';
 const DEFAULT_POSTHOG_KEY = 'phc_UD6lQU3PEw1d8oo8E17rJLmRAR7kxJbQ5OseHuCvi7N';
 const DEFAULT_POSTHOG_HOST = 'https://us.i.posthog.com';
 
+export type AnalyticsNetwork = 'mainnet' | 'testnet' | 'devnet' | 'custom';
+
 export class AnalyticsManager {
   private provider: AnalyticsProvider;
   private session: SessionManager;
@@ -94,12 +97,12 @@ export class AnalyticsManager {
   private config: AnalyticsConfig;
   private enabled: boolean;
   private sdkVersion: string;
-  private network?: 'mainnet' | 'testnet';
+  private network?: AnalyticsNetwork;
 
-  constructor(config?: AnalyticsConfig, sdkVersion: string = '0.0.1', network?: 'mainnet' | 'testnet') {
+  constructor(network: AnalyticsNetwork, config?: AnalyticsConfig) {
     this.config = config || { enabled: true };
     this.enabled = config?.enabled !== false; // Default: true (opt-out)
-    this.sdkVersion = sdkVersion;
+    this.sdkVersion = version;
     this.network = network;
 
     // Initialize session and performance trackers

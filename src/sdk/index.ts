@@ -34,7 +34,13 @@ import { NexusAnalyticsEvents } from '../analytics/events';
 import { extractBridgeProperties, extractSwapProperties } from '../analytics/utils';
 import { CA } from './ca-base/ca';
 // import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
-import nodePackage from '../../package.json' with { type: 'json' };
+
+function getNetwork(network: NexusNetwork) {
+  if (typeof network !== 'string') {
+    return 'custom'
+  }
+  return network;
+}
 
 export class NexusSDK extends CA {
   public readonly utils: NexusUtils;
@@ -47,9 +53,8 @@ export class NexusSDK extends CA {
 
     // Initialize analytics (backwards compatible - enabled by default)
     this.analytics = new AnalyticsManager(
+      getNetwork(config?.network || 'mainnet'),
       config?.analytics,
-      nodePackage.version, // SDK version from package.json
-      config?.network === 'mainnet' ? 'mainnet' : 'testnet'
     );
 
     // Make analytics available to CA base class for wallet/balance events
