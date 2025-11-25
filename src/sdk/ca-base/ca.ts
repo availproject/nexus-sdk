@@ -64,6 +64,7 @@ import { createBridgeAndTransferParams } from './query/bridgeAndTransfer';
 import getMaxValueForBridge from './requestHandlers/bridgeMax';
 import { Errors } from './errors';
 import { setLoggerProvider } from './telemetry';
+import Decimal from 'decimal.js';
 
 setLogLevel(LOG_LEVEL.NOLOGS);
 const logger = getLogger();
@@ -137,6 +138,26 @@ export class CA {
     if (config.debug) {
       setLogLevel(LOG_LEVEL.DEBUG);
     }
+  }
+
+  private getBalanceBucket(totalBalance: string) {
+    const balance = Number(totalBalance);
+    if (balance < 10) {
+      return '$0-$10';
+    }
+    if (balance < 100) {
+      return '$10-$100';
+    }
+    if (balance < 1000) {
+      return '$100-$1K';
+    }
+    if (balance < 10_000) {
+      return '$1K-$10K';
+    }
+    if (balance < 100_000) {
+      return '$10K-$100K';
+    }
+    return '$100K+';
   }
 
   protected _createBridgeHandler = (input: BridgeParams, options?: OnEventParam) => {
@@ -237,15 +258,18 @@ export class CA {
 
       // Track success
       if (this._analytics) {
+        const balanceBucket = this.getBalanceBucket(assets.reduce((agg, asset) => agg.add(asset.balanceInFiat), new Decimal(0)).toFixed())
         if (isRefresh) {
           this._analytics.track(NexusAnalyticsEvents.BALANCES_REFRESHED, {
             ...stats,
             includeSwappableBalances,
+            balanceBucket,
           });
         } else {
           this._analytics.track(NexusAnalyticsEvents.BALANCES_FETCH_SUCCESS, {
             ...stats,
             includeSwappableBalances,
+            balanceBucket,
           });
         }
       }

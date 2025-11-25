@@ -211,9 +211,11 @@ export function extractSwapProperties(swaps: SuccessfulSwapResult): Record<strin
       chainId: s.chainId,
       sources: s.swaps.map((swp) => ({
         tokenContract: swp.inputContract,
+        amount: new Decimal(swp.inputAmount.toString()).div(Decimal.pow(10, swp.inputDecimals)).toDecimalPlaces(swp.inputDecimals).toFixed()
       })),
       destinations: s.swaps.map((swp) => ({
         tokenContract: swp.outputContract,
+        amount: new Decimal(swp.outputAmount.toString()).div(Decimal.pow(10, swp.outputDecimals)).toDecimalPlaces(swp.outputDecimals).toFixed()
       })),
     }));
   }
@@ -228,6 +230,7 @@ export function extractSwapProperties(swaps: SuccessfulSwapResult): Record<strin
       destination: {
         chainId: swaps.swapRoute.bridge.chainID,
         token: swaps.swapRoute.bridge.tokenAddress,
+        amount: swaps.swapRoute.bridge.amount
       },
     };
   }
@@ -240,9 +243,11 @@ export function extractSwapProperties(swaps: SuccessfulSwapResult): Record<strin
       chainId: swaps.destinationSwap.chainId,
       source: swaps.destinationSwap.swaps.map((s) => ({
         tokenContract: s.inputContract,
+        amount: new Decimal(s.inputAmount.toString()).div(Decimal.pow(10, s.inputDecimals)).toDecimalPlaces(s.inputDecimals).toFixed()
       })),
       destination: swaps.destinationSwap.swaps.map((s) => ({
         tokenContract: s.outputContract,
+        amount: new Decimal(s.outputAmount.toString()).div(Decimal.pow(10, s.outputDecimals)).toDecimalPlaces(s.outputDecimals).toFixed()
       })),
     };
   }
@@ -263,11 +268,15 @@ export function extractBridgeProperties(intent: any): Record<string, unknown> {
       sources: intent.sources?.map((s: any) => ({
         chainId: s.chainID,
         token: s.tokenContract,
+        amount: s.amount,
       })),
       destination: {
         chainId: intent.destination?.chainID,
         token: intent.token?.symbol,
+        amount: intent.amount,
       },
+      fees: intent.fees,
+      sourcesTotal: intent.sourcesTotal
     },
   };
 }

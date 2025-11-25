@@ -214,7 +214,7 @@ export class AnalyticsManager {
     }
 
     // Fields to remove when anonymizing amounts
-    const sensitiveFields = ['amount', 'valueUsd', 'totalValueUsd', 'fees', 'gasUsed', 'value'];
+    const sensitiveFields = ['valueUsd', 'totalValueUsd', 'gasUsed', 'value'];
 
     const sanitized = Object.create(null);
     for (const [key, value] of Object.entries(properties)) {
