@@ -227,7 +227,7 @@ export const swap = async (
     });
     logger.debug('SwapID', { id });
   } catch (e) {
-    logger.error('postSwap', e, {cause: 'SWAP_FAILED'});
+    logger.error('postSwap', e, { cause: 'SWAP_FAILED' });
   }
 
   calculatePerformance();

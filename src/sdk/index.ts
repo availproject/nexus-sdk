@@ -94,7 +94,6 @@ export class NexusSDK extends CA {
       toChainId: params.toChainId,
       tokenSymbol: params.token,
       sourceChains: params.sourceChains,
-      amount: params.amount
     });
 
     try {
@@ -106,7 +105,7 @@ export class NexusSDK extends CA {
         tokenSymbol: params.token,
         explorerUrl: result.explorerURL,
         ...extractBridgeProperties(result.intent),
-        intent: result.intentID.toString,
+        intent: result.intentID.toString(),
       });
 
       return {
@@ -149,7 +148,6 @@ export class NexusSDK extends CA {
       toChainId: params.toChainId,
       tokenSymbol: params.token,
       recipient: params.recipient,
-      amount: params.amount
     });
 
     try {
@@ -209,7 +207,7 @@ export class NexusSDK extends CA {
         swapType: 'exactIn',
         toChainId: input.toChainId,
         toTokenAddress: input.toTokenAddress,
-        ...extractSwapProperties(result.swapRoute),
+        ...extractSwapProperties(result),
       });
 
       return {
@@ -255,7 +253,7 @@ export class NexusSDK extends CA {
         swapType: 'exactOut',
         toChainId: input.toChainId,
         toTokenAddress: input.toTokenAddress,
-        ...extractSwapProperties(result.swapRoute),
+        ...extractSwapProperties(result),
       });
 
       return {
@@ -280,6 +278,11 @@ export class NexusSDK extends CA {
    */
   public async simulateBridge(params: BridgeParams): Promise<SimulationResult> {
     try {
+      this.analytics.track(NexusAnalyticsEvents.BRIDGE_SIMULATION_STARTED, {
+        toChainId: params.toChainId,
+        tokenSymbol: params.token,
+      });
+
       const result = await this._createBridgeHandler(params).simulate();
 
       // Track simulation success
@@ -308,6 +311,12 @@ export class NexusSDK extends CA {
     params: TransferParams,
   ): Promise<BridgeAndExecuteSimulationResult> {
     try {
+      this.analytics.track(NexusAnalyticsEvents.BRIDGE_AND_EXECUTE_SIMULATION_STARTED, {
+        toChainId: params.toChainId,
+        tokenSymbol: params.token,
+        recipient: params.recipient,
+      });
+
       const result = await this._simulateBridgeAndTransfer(params);
 
       // Track simulation success
@@ -431,6 +440,10 @@ export class NexusSDK extends CA {
    */
   public async simulateExecute(params: ExecuteParams): Promise<ExecuteSimulation> {
     try {
+      this.analytics.track(NexusAnalyticsEvents.EXECUTE_SIMULATION_STARTED, {
+        toChainId: params.toChainId,
+        contractAddress: params.to,
+      });
       const result = await this._simulateExecute(params);
 
       // Track simulation success
@@ -508,6 +521,11 @@ export class NexusSDK extends CA {
     params: BridgeAndExecuteParams,
   ): Promise<BridgeAndExecuteSimulationResult> {
     try {
+      this.analytics.track(NexusAnalyticsEvents.BRIDGE_AND_EXECUTE_SIMULATION_STARTED, {
+        toChainId: params.toChainId,
+        tokenSymbol: params.token,
+        contractAddress: params.execute?.to,
+      });
       const result = await this._simulateBridgeAndExecute(params);
 
       // Track simulation success

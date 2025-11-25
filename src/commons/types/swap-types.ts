@@ -4,6 +4,7 @@ import Decimal from 'decimal.js';
 import { type Hex, PrivateKeyAccount, WalletClient } from 'viem';
 
 import { NetworkConfig, ChainListType, OnEventParam, TokenInfo } from '../index';
+import { SwapRoute } from '../../sdk/ca-base/swap/route';
 
 export type AuthorizationList = {
   address: Uint8Array;
@@ -325,7 +326,7 @@ export type SuccessfulSwapResult = {
   sourceSwaps: ChainSwap[];
   explorerURL: string;
   destinationSwap: ChainSwap | null;
-  swapRoute?: any;
+  swapRoute?: SwapRoute;
 };
 
 export type SwapResult =

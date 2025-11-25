@@ -4,7 +4,7 @@
  */
 
 import Decimal from "decimal.js";
-import { UserAssetDatum } from "../commons";
+import { SuccessfulSwapResult, UserAssetDatum } from "../commons";
 
 /**
  * Detect wallet type from provider
@@ -200,57 +200,52 @@ export function extractErrorCode(error: any): string | number | undefined {
  * @param swapRoute - SwapRoute object
  * @returns Object with sourceSwap, bridge, and destinationSwap properties
  */
-export function extractSwapProperties(swapRoute: any): Record<string, unknown> {
-  if (!swapRoute) return {};
+export function extractSwapProperties(swaps: SuccessfulSwapResult): Record<string, unknown> {
+  if (!swaps) return {};
 
   const props: Record<string, unknown> = {};
 
   // Extract source swap details
-  if (swapRoute.source && swapRoute.source.swaps) {
-    props.sourceSwap = swapRoute.source.swaps.map((s: any) => ({
-      source: {
-        chainId: s.srcChainID,
-        token: s.srcToken,
-        amount: s.amount,
-      },
-      destination: {
-        chainId: s.dstChainID,
-        token: s.dstToken,
-        amount: s.minAmount,
-      },
+  if (swaps.sourceSwaps) {
+    props.sourceSwaps = swaps.sourceSwaps.map((s) => ({
+      chainId: s.chainId,
+      sources: s.swaps.map((swp) => ({
+        tokenContract: swp.inputContract,
+      })),
+      destinations: swaps.sourceSwaps.map((s) => ({
+        token: s.swaps.map((swp) => ({
+          tokenContract: swp.outputContract,
+        })),
+      })),
     }));
   }
 
   // Extract bridge details
-  if (swapRoute.bridge) {
+  if (swaps.swapRoute?.bridge) {
     props.bridge = {
-      sources: swapRoute.bridge.sources?.map((s: any) => ({
+      sources: swaps.swapRoute.bridge.assets?.map((s) => ({
         chainId: s.chainID,
-        token: s.tokenContract,
-        amount: s.amount?.toString(),
+        token: s.contractAddress,
       })),
       destination: {
-        chainId: swapRoute.bridge.destination?.chainID,
-        token: swapRoute.bridge.token?.symbol,
-        amount: swapRoute.bridge.amount?.toString(),
-        gasSupplied: swapRoute.bridge.gas?.toString(),
+        chainId: swaps.swapRoute.bridge.chainID,
+        token: swaps.swapRoute.bridge.tokenAddress,
       },
     };
   }
 
+
+
   // Extract destination swap details
-  if (swapRoute.destination) {
+  if (swaps.destinationSwap) {
     props.destinationSwap = {
-      source: {
-        chainId: swapRoute.destination.swap?.srcChainID,
-        token: swapRoute.destination.swap?.srcToken,
-        amount: swapRoute.destination.swap?.amount,
-      },
-      destination: {
-        chainId: swapRoute.destination.swap?.dstChainID,
-        token: swapRoute.destination.swap?.dstToken,
-        amount: swapRoute.destination.swap?.minAmount,
-      },
+      chainId: swaps.destinationSwap.chainId,
+      source: swaps.destinationSwap.swaps.map((s) => ({
+        tokenContract: s.inputContract,
+      })),
+      destination: swaps.destinationSwap.swaps.map((s) => ({
+        tokenContract: s.outputContract,
+      })),
     };
   }
 
@@ -269,14 +264,11 @@ export function extractBridgeProperties(intent: any): Record<string, unknown> {
     bridge: {
       sources: intent.sources?.map((s: any) => ({
         chainId: s.chainID,
-        token: s.tokenContract, // Or symbol if available
-        amount: s.amount?.toString(),
+        token: s.tokenContract,
       })),
       destination: {
         chainId: intent.destination?.chainID,
         token: intent.token?.symbol,
-        amount: intent.destination?.amount?.toString(),
-        gasSupplied: intent.gas?.toString(),
       },
     },
   };
