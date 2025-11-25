@@ -49,8 +49,8 @@ export interface AnalyticsConfig {
  * Standard properties included in every event
  */
 export interface BaseEventProperties {
-  sdkVersion?: string;
-  network?: AnalyticsNetwork;
+  sdkVersion: string;
+  network: AnalyticsNetwork;
   appName?: string;
   appUrl?: string;
   timestamp: string;

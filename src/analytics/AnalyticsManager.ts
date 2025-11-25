@@ -490,7 +490,7 @@ export class AnalyticsManager {
   getBaseProperties(): BaseEventProperties {
     return {
       sdkVersion: this.sdkVersion,
-      network: this.network,
+      network: this.network || 'mainnet',
       appName: this.config.appMetadata?.appName,
       appUrl: this.config.appMetadata?.appUrl,
       timestamp: new Date().toISOString(),
