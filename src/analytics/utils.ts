@@ -230,7 +230,7 @@ export function extractSwapProperties(swaps: SuccessfulSwapResult): Record<strin
       destination: {
         chainId: swaps.swapRoute.bridge.chainID,
         token: swaps.swapRoute.bridge.tokenAddress,
-        amount: swaps.swapRoute.bridge.amount
+        amount: new Decimal(swaps.swapRoute.bridge.amount).toFixed()
       },
     };
   }
@@ -268,15 +268,14 @@ export function extractBridgeProperties(intent: any): Record<string, unknown> {
       sources: intent.sources?.map((s: any) => ({
         chainId: s.chainID,
         token: s.tokenContract,
-        amount: s.amount,
+        amount: new Decimal(s.amount).toFixed(),
       })),
       destination: {
-        chainId: intent.destination?.chainID,
-        token: intent.token?.symbol,
-        amount: intent.amount,
+        chainId: intent.destination.chainID,
+        token: intent.token.symbol,
+        amount: new Decimal(intent.destination.amount).toFixed(),
       },
       fees: intent.fees,
-      sourcesTotal: intent.sourcesTotal
     },
   };
 }
