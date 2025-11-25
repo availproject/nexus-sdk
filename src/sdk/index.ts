@@ -92,8 +92,9 @@ export class NexusSDK extends CA {
     // Track bridge started
     this.analytics.track(NexusAnalyticsEvents.BRIDGE_INITIATED, {
       toChainId: params.toChainId,
-      token: params.token,
+      tokenSymbol: params.token,
       sourceChains: params.sourceChains,
+      amount: params.amount
     });
 
     try {
@@ -102,9 +103,10 @@ export class NexusSDK extends CA {
       // Track bridge completed
       this.analytics.track(NexusAnalyticsEvents.BRIDGE_TRANSACTION_SUCCESS, {
         toChainId: params.toChainId,
-        token: params.token,
+        tokenSymbol: params.token,
         explorerUrl: result.explorerURL,
         ...extractBridgeProperties(result.intent),
+        intent: result.intentID.toString,
       });
 
       return {
@@ -114,7 +116,7 @@ export class NexusSDK extends CA {
       // Track bridge failed
       this.analytics.trackError('bridge', error, {
         toChainId: params.toChainId,
-        token: params.token,
+        tokenSymbol: params.token,
       });
       throw error;
     }
@@ -145,8 +147,9 @@ export class NexusSDK extends CA {
     // Track transfer started
     this.analytics.track(NexusAnalyticsEvents.TRANSFER_INITIATED, {
       toChainId: params.toChainId,
-      token: params.token,
+      tokenSymbol: params.token,
       recipient: params.recipient,
+      amount: params.amount
     });
 
     try {
@@ -155,10 +158,11 @@ export class NexusSDK extends CA {
       // Track transfer completed
       this.analytics.track(NexusAnalyticsEvents.TRANSFER_TRANSACTION_SUCCESS, {
         toChainId: params.toChainId,
-        token: params.token,
+        tokenSymbol: params.token,
         recipient: params.recipient,
         transactionHash: result.executeTransactionHash,
         explorerUrl: result.executeExplorerUrl,
+        bridgeExplorerUrl: result.bridgeExplorerUrl,
         ...extractBridgeProperties(result.intent),
       });
 
@@ -170,7 +174,7 @@ export class NexusSDK extends CA {
       // Track transfer failed
       this.analytics.trackError('transfer', error, {
         toChainId: params.toChainId,
-        token: params.token,
+        tokenSymbol: params.token,
         recipient: params.recipient,
       });
       throw error;
@@ -281,7 +285,7 @@ export class NexusSDK extends CA {
       // Track simulation success
       this.analytics.track(NexusAnalyticsEvents.BRIDGE_SIMULATION_SUCCESS, {
         toChainId: params.toChainId,
-        token: params.token,
+        tokenSymbol: params.token,
       });
 
       return result;
@@ -289,7 +293,7 @@ export class NexusSDK extends CA {
       // Track simulation failed
       this.analytics.trackError('bridgeSimulation', error, {
         toChainId: params.toChainId,
-        token: params.token,
+        tokenSymbol: params.token,
       });
       throw error;
     }
@@ -309,7 +313,7 @@ export class NexusSDK extends CA {
       // Track simulation success
       this.analytics.track(NexusAnalyticsEvents.TRANSFER_SIMULATION_SUCCESS, {
         toChainId: params.toChainId,
-        token: params.token,
+        tokenSymbol: params.token,
         recipient: params.recipient,
       });
 
@@ -318,7 +322,7 @@ export class NexusSDK extends CA {
       // Track simulation failed
       this.analytics.trackError('transferSimulation', error, {
         toChainId: params.toChainId,
-        token: params.token,
+        tokenSymbol: params.token,
       });
       throw error;
     }
@@ -462,7 +466,7 @@ export class NexusSDK extends CA {
     // Track bridge and execute started
     this.analytics.track(NexusAnalyticsEvents.BRIDGE_AND_EXECUTE_INITIATED, {
       toChainId: params.toChainId,
-      token: params.token,
+      tokenSymbol: params.token,
       contractAddress: params.execute?.to,
     });
 
@@ -472,7 +476,7 @@ export class NexusSDK extends CA {
       // Track bridge and execute completed
       this.analytics.track(NexusAnalyticsEvents.BRIDGE_AND_EXECUTE_TRANSACTION_SUCCESS, {
         toChainId: params.toChainId,
-        token: params.token,
+        tokenSymbol: params.token,
         contractAddress: params.execute?.to,
         executeTransactionHash: result.executeTransactionHash,
         bridgeExplorerUrl: result.bridgeExplorerUrl,
@@ -484,7 +488,7 @@ export class NexusSDK extends CA {
       // Track bridge and execute failed
       this.analytics.trackError('bridgeAndExecute', error, {
         toChainId: params.toChainId,
-        token: params.token,
+        tokenSymbol: params.token,
         contractAddress: params.execute?.to,
       });
       throw error;
@@ -509,7 +513,7 @@ export class NexusSDK extends CA {
       // Track simulation success
       this.analytics.track(NexusAnalyticsEvents.BRIDGE_AND_EXECUTE_SIMULATION_SUCCESS, {
         toChainId: params.toChainId,
-        token: params.token,
+        tokenSymbol: params.token,
         contractAddress: params.execute?.to,
       });
 
@@ -518,7 +522,7 @@ export class NexusSDK extends CA {
       // Track simulation failed
       this.analytics.trackError('bridgeAndExecuteSimulation', error, {
         toChainId: params.toChainId,
-        token: params.token,
+        tokenSymbol: params.token,
         contractAddress: params.execute?.to,
       });
       throw error;
