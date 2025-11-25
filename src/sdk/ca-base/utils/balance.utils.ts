@@ -1,38 +1,14 @@
 import { Environment } from '@avail-project/ca-common';
-import { ChainListType, logger, SUPPORTED_CHAINS, UserAssetDatum } from '../../../commons';
+import { ChainListType, logger, SUPPORTED_CHAINS } from '../../../commons';
 import {
   equalFold,
   getEVMBalancesForAddress,
   getFuelBalancesForAddress,
   getTronBalancesForAddress,
-  minutesToMs,
 } from '.';
 import { encodePacked, Hex, keccak256, pad, toHex } from 'viem';
 import { balancesToAssets, getAnkrBalances, toFlatBalance } from '../swap/utils';
 import { filterSupportedTokens } from '../swap/data';
-
-const getKeyForStorage = ({
-  evmAddress,
-  fuelAddress,
-  tronAddress,
-}: {
-  evmAddress: Hex;
-  fuelAddress?: string;
-  tronAddress?: string;
-}) => {
-  let key = evmAddress;
-  if (fuelAddress) {
-    key += `:${fuelAddress}`;
-  }
-  if (tronAddress) {
-    key += `:${tronAddress}`;
-  }
-  return key;
-};
-
-let balanceCache = {
-  value: {} as { [k: string]: { data: UserAssetDatum[]; lastUpdatedAt: number } },
-};
 
 export const getBalancesForSwap = async (input: { evmAddress: Hex; chainList: ChainListType }) => {
   const assets = balancesToAssets(
@@ -59,38 +35,27 @@ export const getBalances = async (input: {
   const removeTransferFee = input.removeTransferFee ?? false;
   const filter = input.filter ?? true;
 
-  const cacheKey = getKeyForStorage(input);
-  console.log({ balanceCache });
+  const [ankrBalances, evmBalances, fuelBalances, tronBalances] = await Promise.all([
+    input.networkHint === Environment.FOLLY || isCA
+      ? Promise.resolve([])
+      : getAnkrBalances(input.evmAddress, input.chainList, removeTransferFee),
+    getEVMBalancesForAddress(input.vscDomain, input.evmAddress),
+    input.fuelAddress
+      ? getFuelBalancesForAddress(input.vscDomain, input.fuelAddress as `0x${string}`)
+      : Promise.resolve([]),
+    input.tronAddress
+      ? getTronBalancesForAddress(input.vscDomain, input.tronAddress as Hex)
+      : Promise.resolve([]),
+  ]);
 
-  let cacheValue = balanceCache.value[cacheKey];
-  if (!cacheValue || cacheValue.lastUpdatedAt + minutesToMs(0.5) < Date.now()) {
-    const [ankrBalances, evmBalances, fuelBalances, tronBalances] = await Promise.all([
-      input.networkHint === Environment.FOLLY || isCA
-        ? Promise.resolve([])
-        : getAnkrBalances(input.evmAddress, input.chainList, removeTransferFee),
-      getEVMBalancesForAddress(input.vscDomain, input.evmAddress),
-      input.fuelAddress
-        ? getFuelBalancesForAddress(input.vscDomain, input.fuelAddress as `0x${string}`)
-        : Promise.resolve([]),
-      input.tronAddress
-        ? getTronBalancesForAddress(input.vscDomain, input.tronAddress as Hex)
-        : Promise.resolve([]),
-    ]);
-
-    balanceCache.value[cacheKey] = {
-      data: balancesToAssets(
-        isCA,
-        ankrBalances,
-        input.chainList,
-        evmBalances,
-        fuelBalances,
-        tronBalances,
-      ),
-      lastUpdatedAt: Date.now(),
-    };
-  }
-
-  const assets = balanceCache.value[cacheKey].data;
+  const assets = balancesToAssets(
+    isCA,
+    ankrBalances,
+    input.chainList,
+    evmBalances,
+    fuelBalances,
+    tronBalances,
+  );
 
   let balances = toFlatBalance(assets);
   if (filter) {

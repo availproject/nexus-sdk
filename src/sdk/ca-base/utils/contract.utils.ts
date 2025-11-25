@@ -24,7 +24,7 @@ import gasOracleABI from '../abi/gasOracle';
 import { FillEvent } from '../abi/vault';
 import { ZERO_ADDRESS } from '../constants';
 import { Errors } from '../errors';
-import { getLogger, MAINNET_CHAIN_IDS, TESTNET_CHAIN_IDS } from '../../../commons';
+import { getLogger } from '../../../commons';
 import { ChainListType, Chain, GetAllowanceParams, SetAllowanceParams } from '../../../commons';
 import { equalFold, minutesToMs } from './common.utils';
 
@@ -448,10 +448,10 @@ const createPublicClientWithFallback = (chain: Chain): PublicClient => {
   });
 };
 
-const getPctGasBufferByChain = (chainId: number) => {
-  if (chainId === TESTNET_CHAIN_IDS.MONAD_TESTNET || chainId === MAINNET_CHAIN_IDS.MONAD) {
-    return 0.05;
-  }
+const getPctGasBufferByChain = (_: number) => {
+  // if (chainId === TESTNET_CHAIN_IDS.MONAD_TESTNET || chainId === MAINNET_CHAIN_IDS.MONAD) {
+  //   return 0.05;
+  // }
 
   return 0.3;
 };

@@ -654,6 +654,42 @@ const MAINNET_CHAINS: Chain[] = [
   {
     blockExplorers: {
       default: {
+        name: 'Monad Vision',
+        url: 'https://monadvision.com',
+      },
+    },
+    custom: {
+      icon: 'https://assets.coingecko.com/coins/images/38927/large/monad.jpg',
+      knownTokens: [
+        {
+          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.MONAD],
+          decimals: 6,
+          logo: getLogoFromSymbol('USDC'),
+          name: 'USD Coin',
+          symbol: 'USDC',
+        },
+      ],
+    },
+    id: SUPPORTED_CHAINS.MONAD,
+    name: 'Monad',
+    ankrName: '',
+    nativeCurrency: {
+      decimals: 18,
+      name: 'Monad',
+      symbol: 'MON',
+    },
+    rpcUrls: {
+      default: {
+        http: ['https://rpcs.avail.so/monad'],
+        publicHttp: [],
+        webSocket: ['wss://rpcs.avail.so/monad'],
+      },
+    },
+    universe: Universe.ETHEREUM,
+  },
+  {
+    blockExplorers: {
+      default: {
         name: 'Optimism Etherscan',
         url: 'https://optimistic.etherscan.io',
       },
