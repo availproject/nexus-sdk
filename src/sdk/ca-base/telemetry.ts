@@ -2,7 +2,10 @@ import { LoggerProvider, BatchLogRecordProcessor } from '@opentelemetry/sdk-logs
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
 import { Logger, logs } from '@opentelemetry/api-logs';
 import { resourceFromAttributes } from '@opentelemetry/resources';
+import { Environment } from '@avail-project/ca-common';
 import { toHex } from 'viem/utils';
+import { NetworkConfig } from '../../commons';
+
 
 let telemetryLogger: Logger | null = null;
 
@@ -18,12 +21,20 @@ function getOrGenerateClientId(): string {
   return clientId;
 }
 
-const setLoggerProvider = () => {
+function getNetworkName(networkConfig: NetworkConfig) {
+  return Environment[networkConfig.NETWORK_HINT];
+}
+
+const setLoggerProvider = (networkConfig: NetworkConfig) => {
   if (!telemetryLogger) {
     const loggerProvider = new LoggerProvider({
       resource: resourceFromAttributes({
         'service.name': 'nexus-sdk-internal-logs',
         'client.id': getOrGenerateClientId(),
+        'origin': window.origin,
+        'host': window.location.host,
+        'hostname': window.location.hostname,
+        'network': getNetworkName(networkConfig),
       }),
       processors: [
         new BatchLogRecordProcessor(

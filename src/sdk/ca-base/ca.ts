@@ -281,7 +281,7 @@ export class CA {
 
     this._initPromise = (async () => {
       try {
-        setLoggerProvider();
+        setLoggerProvider(this._networkConfig);
         this._setProviderHooks();
         this.#cosmos = await this._createCosmosWallet();
         this._checkPendingRefunds();
