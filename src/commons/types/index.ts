@@ -18,7 +18,7 @@ type TokenInfo = {
   symbol: string;
 };
 
-type NexusNetwork = 'mainnet' | 'testnet' | 'devnet' | NetworkConfig;
+type NexusNetwork = 'mainnet' | 'canary' | 'testnet' | NetworkConfig;
 
 export interface BlockTransaction {
   hash?: string;
