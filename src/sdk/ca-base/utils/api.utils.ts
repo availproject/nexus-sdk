@@ -132,9 +132,7 @@ export const intentTransform = (input: RequestForFunds[], chainList: ChainListTy
 
 async function fetchProtocolFees(grpcURL: string) {
   try {
-    const response = await getCosmosQueryClient(grpcURL).ProtocolFees({
-      Universe: Universe.FUEL,
-    });
+    const response = await getCosmosQueryClient(grpcURL).ProtocolFees({});
     return response;
   } catch (error) {
     logger.error('Failed to fetch protocol fees', error);
@@ -184,7 +182,7 @@ const getCoinbasePrices = async () => {
       coinbasePrices.rates = exchange.data.data.rates;
       coinbasePrices.lastUpdatedAt = Date.now();
     } catch (error) {
-      logger.error('Failed to fetch Coinbase prices', error, {cause: 'INTERNAL_ERROR'});
+      logger.error('Failed to fetch Coinbase prices', error, { cause: 'INTERNAL_ERROR' });
       // Return cached rates if available, otherwise throw
       if (Object.keys(coinbasePrices.rates).length === 0) {
         throw Errors.internal('Failed to fetch exchange rates and no cache available');
@@ -365,7 +363,7 @@ const getVscReq = (vscDomain: string) => {
 export const getBalancesFromVSC = async (
   vscDomain: string,
   address: `0x${string}`,
-  namespace: 'ETHEREUM' | 'FUEL' | 'TRON' = 'ETHEREUM',
+  namespace: 'ETHEREUM' | 'TRON' = 'ETHEREUM',
 ) => {
   const response = await getVscReq(vscDomain).get<{
     balances: UnifiedBalanceResponseData[];
@@ -376,10 +374,6 @@ export const getBalancesFromVSC = async (
 
 export const getEVMBalancesForAddress = async (vscDomain: string, address: `0x${string}`) => {
   return getBalancesFromVSC(vscDomain, address);
-};
-
-export const getFuelBalancesForAddress = async (vscDomain: string, address: `0x${string}`) => {
-  return getBalancesFromVSC(vscDomain, address, 'FUEL');
 };
 
 export const getTronBalancesForAddress = async (vscDomain: string, address: `0x${string}`) => {

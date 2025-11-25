@@ -1,6 +1,5 @@
 import { Currency, PermitCreationError, PermitVariant } from '@avail-project/ca-common';
 import { ERC20ABI as ERC20ABIC } from '@avail-project/ca-common';
-import { CHAIN_IDS } from 'fuels';
 import {
   Account,
   Address,
@@ -95,15 +94,11 @@ const getAllowances = async (
   const values: { [k: number]: bigint } = {};
   const promises = [];
   for (const i of input) {
-    if (i.chainID === CHAIN_IDS.fuel.mainnet) {
-      promises.push(Promise.resolve(0n));
-    } else {
-      const chain = chainList.getChainByID(i.chainID);
-      if (!chain) {
-        throw Errors.chainNotFound(i.chainID);
-      }
-      promises.push(getAllowance(chain, i.holderAddress, i.tokenContract, chainList));
+    const chain = chainList.getChainByID(i.chainID);
+    if (!chain) {
+      throw Errors.chainNotFound(i.chainID);
     }
+    promises.push(getAllowance(chain, i.holderAddress, i.tokenContract, chainList));
   }
   const result = await Promise.all(promises);
   for (const i in result) {

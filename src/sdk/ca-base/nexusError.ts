@@ -45,7 +45,6 @@ export const ERROR_CODES = {
   UNKNOWN_SIGNATURE: 'UNKNOWN_SIGNATURE',
   TRON_DEPOSIT_FAIL: 'TRON_DEPOSIT_FAIL',
   TRON_APPROVAL_FAIL: 'TRON_APPROVAL_FAIL',
-  FUEL_DEPOSIT_FAIL: 'FUEL_DEPOSIT_FAIL',
   LIQUIDITY_TIMEOUT: 'LIQUIDITY_TIMEOUT',
   USER_DENIED_INTENT: 'USER_DENIED_INTENT',
   USER_DENIED_ALLOWANCE: 'USER_DENIED_ALLOWANCE',
@@ -119,7 +118,6 @@ function handleNexusError(err: unknown) {
         break;
 
       case ERROR_CODES.TRON_DEPOSIT_FAIL:
-      case ERROR_CODES.FUEL_DEPOSIT_FAIL:
         console.warn('Deposit failed');
         // Possibly ask user to retry
         break;

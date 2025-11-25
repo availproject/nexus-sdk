@@ -754,16 +754,14 @@ export const balancesToAssets = (
   ankrBalances: AnkrBalances,
   chainList: ChainListType,
   evmBalances: UnifiedBalanceResponseData[] = [],
-  fuelBalances: UnifiedBalanceResponseData[] = [],
   tronBalances: UnifiedBalanceResponseData[] = [],
 ) => {
   const assets: UserAssetDatum[] = [];
-  const vscBalances = evmBalances.concat(fuelBalances).concat(tronBalances);
+  const vscBalances = evmBalances.concat(tronBalances);
 
   logger.debug('balanceToAssets', {
     ankrBalances,
     evmBalances,
-    fuelBalances,
     tronBalances,
   });
   for (const balance of vscBalances) {
@@ -1615,7 +1613,7 @@ export const performDestinationSwap = async ({
     }, 2);
     return hash;
   } catch (e) {
-    logger.error('destination swap failed twice, sweeping to eoa', e, {cause: 'SWAP_FAILED'});
+    logger.error('destination swap failed twice, sweeping to eoa', e, { cause: 'SWAP_FAILED' });
     await vscSBCTx(
       [
         await createSBCTxFromCalls({
@@ -1635,7 +1633,7 @@ export const performDestinationSwap = async ({
       ],
       vscDomain,
     ).catch((e) => {
-      logger.error('error during destination sweep', e, {cause: 'DESTINATION_SWEEP_ERROR'});
+      logger.error('error during destination sweep', e, { cause: 'DESTINATION_SWEEP_ERROR' });
     });
     throw e;
   }

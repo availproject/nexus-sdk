@@ -1,11 +1,6 @@
 import { Environment } from '@avail-project/ca-common';
 import { ChainListType, logger, SUPPORTED_CHAINS } from '../../../commons';
-import {
-  equalFold,
-  getEVMBalancesForAddress,
-  getFuelBalancesForAddress,
-  getTronBalancesForAddress,
-} from '.';
+import { equalFold, getEVMBalancesForAddress, getTronBalancesForAddress } from '.';
 import { encodePacked, Hex, keccak256, pad, toHex } from 'viem';
 import { balancesToAssets, getAnkrBalances, toFlatBalance } from '../swap/utils';
 import { filterSupportedTokens } from '../swap/data';
@@ -25,7 +20,6 @@ export const getBalances = async (input: {
   chainList: ChainListType;
   removeTransferFee?: boolean;
   filter?: boolean;
-  fuelAddress?: string;
   tronAddress?: string;
   isCA?: boolean;
   vscDomain: string;
@@ -35,27 +29,17 @@ export const getBalances = async (input: {
   const removeTransferFee = input.removeTransferFee ?? false;
   const filter = input.filter ?? true;
 
-  const [ankrBalances, evmBalances, fuelBalances, tronBalances] = await Promise.all([
+  const [ankrBalances, evmBalances, tronBalances] = await Promise.all([
     input.networkHint === Environment.FOLLY || isCA
       ? Promise.resolve([])
       : getAnkrBalances(input.evmAddress, input.chainList, removeTransferFee),
     getEVMBalancesForAddress(input.vscDomain, input.evmAddress),
-    input.fuelAddress
-      ? getFuelBalancesForAddress(input.vscDomain, input.fuelAddress as `0x${string}`)
-      : Promise.resolve([]),
     input.tronAddress
       ? getTronBalancesForAddress(input.vscDomain, input.tronAddress as Hex)
       : Promise.resolve([]),
   ]);
 
-  const assets = balancesToAssets(
-    isCA,
-    ankrBalances,
-    input.chainList,
-    evmBalances,
-    fuelBalances,
-    tronBalances,
-  );
+  const assets = balancesToAssets(isCA, ankrBalances, input.chainList, evmBalances, tronBalances);
 
   let balances = toFlatBalance(assets);
   if (filter) {

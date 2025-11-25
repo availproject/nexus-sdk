@@ -69,11 +69,6 @@ export const Errors = {
       details: { result },
     }),
 
-  fuelDepositFailed: (result: unknown) =>
-    createError(ERROR_CODES.FUEL_DEPOSIT_FAIL, 'Fuel deposit transaction failed.', {
-      details: { result },
-    }),
-
   liquidityTimeout: () =>
     createError(ERROR_CODES.LIQUIDITY_TIMEOUT, 'Timed out waiting for fulfilment.'),
 

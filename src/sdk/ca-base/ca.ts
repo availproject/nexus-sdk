@@ -1,13 +1,11 @@
 import { createCosmosWallet, Universe } from '@avail-project/ca-common';
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import { keyDerivation } from '@starkware-industries/starkware-crypto-utils';
-import { Account, FuelConnector, Provider } from 'fuels';
 import { createWalletClient, custom, Hex, UserRejectedRequestError, WalletClient } from 'viem';
 import { privateKeyToAccount, PrivateKeyAccount } from 'viem/accounts';
 import { createSiweMessage } from 'viem/siwe';
 import { ChainList } from './chains';
 import { getNetworkConfig } from './config';
-import { FUEL_NETWORK_URL } from './constants';
 import {
   ChainListType,
   EthereumProvider,
@@ -87,12 +85,6 @@ export class CA {
     provider: EthereumProvider;
     address: Hex;
   };
-  protected _fuel?: {
-    account: Account;
-    address: string;
-    connector: FuelConnector;
-    provider: Provider;
-  };
   protected _tron?: {
     address: string;
     adapter: TronAdapter;
@@ -145,7 +137,6 @@ export class CA {
     const bridgeHandler = new BridgeHandler(params, {
       chainList: this.chainList,
       cosmos: this.#cosmos!,
-      fuel: this._fuel,
       evm: this._evm,
       hooks: this._hooks,
       tron: this._tron,
@@ -163,7 +154,6 @@ export class CA {
 
     return getMaxValueForBridge(params, {
       chainList: this.chainList,
-      fuel: this._fuel,
       evm: this._evm,
       tron: this._tron,
       networkConfig: this._networkConfig,
@@ -204,7 +194,6 @@ export class CA {
       filter: false,
       isCA: includeSwappableBalances === false,
       vscDomain: this._networkConfig.VSC_DOMAIN,
-      fuelAddress: this._fuel?.address,
       tronAddress: this._tron?.address,
     });
     return assets;
@@ -277,7 +266,7 @@ export class CA {
 
     // Prevent concurrent initializations
     if (this._initStatus !== INIT_STATUS.CREATED) {
-        throw Errors.sdkInitStateNotExpected(this._initStatus);
+      throw Errors.sdkInitStateNotExpected(this._initStatus);
     }
 
     this._initStatus = INIT_STATUS.RUNNING;
@@ -291,7 +280,7 @@ export class CA {
         this._initStatus = INIT_STATUS.DONE;
       } catch (e) {
         this._initStatus = INIT_STATUS.CREATED;
-        logger.error('Error initializing CA', e, {cause: 'SDK_NOT_INITIALIZED'});
+        logger.error('Error initializing CA', e, { cause: 'SDK_NOT_INITIALIZED' });
         throw e;
       }
     })();
@@ -350,37 +339,6 @@ export class CA {
     };
   };
 
-  protected _setFuelConnector = async (connector: FuelConnector) => {
-    if (this._fuel?.connector === connector) {
-      return;
-    }
-
-    logger.debug('setFuelConnector', {
-      connected: connector.connected,
-      connector: connector,
-    });
-
-    if (!(await connector.isConnected())) {
-      await connector.connect();
-    }
-
-    const address = await connector.currentAccount();
-    if (!address) {
-      throw Errors.accountConnectionFailed();
-    }
-
-    const provider = new Provider(FUEL_NETWORK_URL, {
-      resourceCacheTTL: -1,
-    });
-
-    this._fuel = {
-      account: new Account(address, provider, connector),
-      address,
-      connector,
-      provider,
-    };
-  };
-
   protected _setOnAllowanceHook = (hook: OnAllowanceHook) => {
     this._hooks.onAllowance = hook;
   };
@@ -413,7 +371,7 @@ export class CA {
         await refundExpiredIntents(account, this._networkConfig.COSMOS_URL, this.#cosmos!.wallet);
       }, minutesToMs(10));
     } catch (e) {
-      logger.error('Error checking pending refunds', e, {cause: 'REFUND_CHECK_ERROR'});
+      logger.error('Error checking pending refunds', e, { cause: 'REFUND_CHECK_ERROR' });
     }
   };
 
@@ -572,10 +530,6 @@ export class CA {
   };
 
   private readonly universeCheck = (dstChain: Chain) => {
-    if (dstChain.universe === Universe.FUEL && !this._fuel) {
-      throw Errors.walletNotConnected('Fuel');
-    }
-
     if (dstChain.universe === Universe.TRON && !this._tron) {
       throw Errors.walletNotConnected('Tron');
     }
