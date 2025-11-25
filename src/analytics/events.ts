@@ -94,6 +94,9 @@ export const NexusAnalyticsEvents = {
   // UI Events (primarily for widget usage)
   PAGE_VIEWED: 'nexus_page_viewed',
   BUTTON_CLICKED: 'nexus_button_clicked',
+
+  // Misc
+  GET_MY_INTENTS: 'nexus_get_my_intents',
 } as const;
 
 export type NexusAnalyticsEvent = (typeof NexusAnalyticsEvents)[keyof typeof NexusAnalyticsEvents];

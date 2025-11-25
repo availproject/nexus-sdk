@@ -808,7 +808,7 @@ class BridgeHandler {
       }
       this.markStepDone(BRIDGE_STEPS.ALLOWANCE_COMPLETE);
     } catch (e) {
-      logger.error('Error setting allowances', e, {cause: 'ALLOWANCE_SETTING_ERROR'});
+      logger.error('Error setting allowances', e, { cause: 'ALLOWANCE_SETTING_ERROR' });
       throw e;
     } finally {
       if (this.params.dstChain.universe === Universe.ETHEREUM) {
