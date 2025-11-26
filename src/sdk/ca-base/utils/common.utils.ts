@@ -135,9 +135,13 @@ const getExpiredIntents = (address: string) => {
   return expiredIntents;
 };
 
-const refundExpiredIntents = async ({ address, client }: CosmosOptions) => {
+const refundExpiredIntents = async ({
+  address,
+  evmAddress,
+  client,
+}: CosmosOptions & { evmAddress: string }) => {
   logger.debug('Starting check for expired intents at ', new Date());
-  const expIntents = getExpiredIntents(address);
+  const expIntents = getExpiredIntents(evmAddress);
   const failedRefunds: IntentD[] = [];
 
   for (const intent of expIntents) {
@@ -155,7 +159,7 @@ const refundExpiredIntents = async ({ address, client }: CosmosOptions) => {
 
   if (failedRefunds.length > 0) {
     for (const failed of failedRefunds) {
-      storeIntentHashToStore(address, failed.id, failed.createdAt);
+      storeIntentHashToStore(evmAddress, failed.id, failed.createdAt);
     }
   }
 };
