@@ -124,12 +124,6 @@ export class CA {
       baseUrl: 'https://nexus-backend.avail.so',
     });
 
-    console.log('ca:constructor', {
-      siweChain:
-        config?.siweChain ?? this._networkConfig.NETWORK_HINT === Environment.FOLLY
-          ? SUPPORTED_CHAINS.SEPOLIA
-          : SUPPORTED_CHAINS.ETHEREUM,
-    });
     this._siweChain =
       config?.siweChain ?? this._networkConfig.NETWORK_HINT === Environment.FOLLY
         ? SUPPORTED_CHAINS.SEPOLIA
