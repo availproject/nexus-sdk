@@ -272,7 +272,7 @@ export function extractBridgeProperties(intent: any): Record<string, unknown> {
       })),
       destination: {
         chainId: intent.destination.chainID,
-        token: intent.token.symbol,
+        // token: intent.token.symbol,
         amount: new Decimal(intent.destination.amount).toFixed(),
       },
       fees: intent.fees,
