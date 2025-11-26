@@ -41,7 +41,7 @@ const bridgeResult = await sdk.bridge(
     token: 'USDC',
     amount: 1_500_000n,
     recipient: '0x...' // Optional
-    chainId: 137, // Polygon
+    toChainId: 137, // Polygon
   },
   {
     onEvent: (event) => {
@@ -58,7 +58,7 @@ const transferResult = await sdk.bridgeAndTransfer(
   {
     token: 'ETH',
     amount: 1_500_000n,
-    chainId: 1, // Ethereum
+    toChainId: 1, // Ethereum
     recipient: '0x742d35Cc6634C0532925a3b8D4C9db96c4b4Db45',
   },
   {
@@ -77,7 +77,8 @@ const executeResult = await sdk.execute(
     to: '0x...',
     value: 0n,
     data: '0x...',
-    tokenApproval: { token: 'USDC', amount: 10000n },
+    toChainId: 1,
+    tokenApproval: { token: 'USDC', amount: 10000n, spender: "0x..."  },
   },
   {
     onEvent: (event) => {
@@ -99,7 +100,7 @@ const bridgeAndExecuteResult = await sdk.bridgeAndExecute(
     execute: {
       to: '0x...',
       data: '0x...',
-      tokenApproval: { token: 'USDC', amount: 100_000_000n },
+      tokenApproval: { token: 'USDC', amount: 100_000_000n, spender: "0x..." },
     },
   },
   {
@@ -252,14 +253,14 @@ const swapBalances = await sdk.getBalancesForSwap(); // Returns balances that ca
 const result = await sdk.bridge({
   token: 'USDC',
   amount: 83_500_000n,
-  chainId: 137,
+  toChainId: 137,
   recipient: '0x....',
 });
 
 const simulation = await sdk.simulateBridge({
   token: 'USDC',
   amount: 83_500_000n,
-  chainId: 137,
+  toChainId: 137,
   recipient: '0x....',
 });
 ```
@@ -272,13 +273,13 @@ const simulation = await sdk.simulateBridge({
 const result = await sdk.bridgeAndTransfer({
   token: 'USDC',
   amount: 1_530_000n,
-  chainId: 42161,
+  toChainId: 42161,
   recipient: '0x...',
 });
 const simulation = await sdk.simulateBridgeAndTransfer({
   token: 'USDC',
   amount: 1_530_000n, // = 1.53 USDC
-  chainId: 42161,
+  toChainId: 42161,
   recipient: '0x...',
 });
 ```
@@ -293,7 +294,7 @@ const result = await sdk.execute({
   toChainId: 1,
   to: '0xc3d688B66703497DAA19211EEdff47f25384cdc3',
   data: '0x...',
-  tokenApproval: { token: 'USDC', amount: 1000000n },
+  tokenApproval: { token: 'USDC', amount: 1000000n, spender: '0x...' },
 });
 
 // Bridge and execute
@@ -305,7 +306,7 @@ const result2 = await sdk.bridgeAndExecute({
   execute: {
     to: '0xa354F35829Ae975e850e23e9615b11Da1B3dC4DE',
     data: '0x...',
-    tokenApproval: { token: 'USDC', amount: 100_000_000n },
+    tokenApproval: { token: 'USDC', amount: 100_000_000n, spender: '0x...' },
   },
 });
 ```
@@ -346,9 +347,14 @@ console.log('Active intents:', intents);
 ## 🛠️ Utilities
 
 ```typescript
+import { CHAIN_METADATA } from '@avail-project/nexus-core';
+
 const isValid = sdk.utils.isValidAddress('0x...');
-const chainMeta = sdk.utils.getChainMetadata(137);
-const formatted = sdk.utils.formatTokenAmount('1000000', 'USDC'); // "1.0 USDC"
+const chainMeta = CHAIN_METADATA[137];
+const formatted = sdk.utils.formatTokenBalance('0.000294700412452583', {
+  symbol: 'ETH',
+  decimals: 18,
+}); // "~0.0₄2552 ETH"
 ```
 
 ---
@@ -357,7 +363,7 @@ const formatted = sdk.utils.formatTokenAmount('1000000', 'USDC'); // "1.0 USDC"
 
 ```typescript
 try {
-  await sdk.bridge({ token: 'USDC', amount: 1.53, chainId: 137 });
+  await sdk.bridge({ token: 'USDC', amount: 1_530_000n, toChainId: 137 });
 } catch (err) {
   if (err instanceof NexusError) {
     console.error(`[${err.code}] ${err.message}`);
