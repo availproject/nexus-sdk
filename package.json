@@ -1,25 +1,30 @@
 {
-  "name": "nexus-sdk-monorepo",
-  "version": "0.0.2",
-  "private": true,
-  "description": "Nexus SDK monorepo - cross-chain transactions with minimal friction",
+  "name": "@avail-project/nexus-core",
+  "version": "1.0.0-beta.53",
+  "description": "Nexus headless SDK for cross-chain transactions",
+  "main": "./dist/index.js",
+  "module": "./dist/index.esm.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
-    "build:commons": "pnpm -F @nexus/commons build",
-    "build:core": "pnpm -F @nexus/commons build && pnpm -F @avail-project/nexus-core build",
-    "build:widgets": "pnpm -F @nexus/commons build && pnpm -F @avail-project/nexus-widgets build",
-    "build": "pnpm run build:core && pnpm run build:widgets",
-    "dev:core": "pnpm -F @avail-project/nexus-core dev",
-    "dev:widgets": "pnpm -F @avail-project/nexus-widgets dev",
-    "dev": "pnpm run dev:core & pnpm run dev:widgets",
-    "format": "prettier --write \"packages/**/*.{ts,tsx}\"",
-    "prepare": "husky install",
-    "typecheck": "pnpm -r typecheck",
-    "clean": "rimraf packages/widgets/dist packages/core/dist packages/commons/dist",
-    "clean:modules": "rimraf node_modules packages/widgets/node_modules packages/core/node_modules packages/commons/node_modules",
-    "release:core:dev": "./scripts/release-core.sh dev",
-    "release:core:prod": "./scripts/release-core.sh prod",
-    "release:widgets:dev": "./scripts/release-widgets.sh dev",
-    "release:widgets:prod": "./scripts/release-widgets.sh prod"
+    "build": "rollup -c",
+    "buildAndPack": "rollup -c && npm pack",
+    "dev": "rollup -c -w",
+    "docs": "typedoc --plugin typedoc-theme-fresh --theme fresh --options typedoc_html.json",
+    "clean": "rimraf dist dist-tarballs html_docs",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.esm.js",
+      "require": "./dist/index.js"
+    }
   },
   "keywords": [
     "nexus",
@@ -30,27 +35,48 @@
     "web3",
     "chain",
     "abstraction",
-    "intent",
-    "unified",
-    "balance",
-    "sdk"
+    "headless"
   ],
-  "author": "decocereus<amartya@availproject.org>",
+  "author": "decocereus<amartya@availproject.org>, makyl<abhishek@availproject.org>",
   "license": "MIT",
-  "pnpm": {
-    "overrides": {
-      "typescript": "^5.0.0",
-      "rollup": "^4.0.0",
-      "decimal.js": "10.6.0",
-      "viem": "^2.0.0"
-    }
+  "dependencies": {
+    "@avail-project/ca-common": "1.0.0-rc.1",
+    "@cosmjs/proto-signing": "0.34.0",
+    "@cosmjs/stargate": "0.34.0",
+    "@metamask/safe-event-emitter": "3.1.2",
+    "@opentelemetry/api-logs": "0.208.0",
+    "@opentelemetry/exporter-logs-otlp-http": "0.208.0",
+    "@opentelemetry/resources": "2.2.0",
+    "@opentelemetry/sdk-logs": "0.208.0",
+    "@starkware-industries/starkware-crypto-utils": "^0.2.1",
+    "@tronweb3/tronwallet-abstract-adapter": "^1.1.9",
+    "axios": "^1.12.2",
+    "buffer": "6.0.3",
+    "decimal.js": "^10.6.0",
+    "es-toolkit": "^1.40.0",
+    "it-ws": "^6.1.5",
+    "long": "^5.3.2",
+    "msgpackr": "^1.11.5",
+    "tronweb": "^6.0.4",
+    "tslib": "2.8.1",
+    "viem": "^2.31.7"
   },
   "devDependencies": {
-    "@rollup/plugin-alias": "^5.1.1",
-    "@types/node": "^20.0.0",
-    "husky": "^8.0.0",
-    "prettier": "^3.0.0",
-    "rimraf": "^5.0.0",
-    "typescript": "^5.0.0"
+    "@rollup/plugin-commonjs": "^25.0.8",
+    "@rollup/plugin-json": "6.1.0",
+    "@rollup/plugin-node-resolve": "^15.3.1",
+    "@rollup/plugin-typescript": "^11.1.6",
+    "rollup": "^4.52.4",
+    "rollup-plugin-dts": "^6.2.3",
+    "rollup-plugin-typescript2": "0.36.0",
+    "typedoc": "0.28.14",
+    "typedoc-plugin-extras": "4.0.1",
+    "typedoc-plugin-missing-exports": "4.1.2",
+    "typedoc-plugin-rename-defaults": "0.7.3",
+    "typedoc-theme-fresh": "0.2.1",
+    "typescript": "^5.9.3"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
