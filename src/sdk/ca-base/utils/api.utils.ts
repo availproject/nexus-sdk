@@ -27,6 +27,7 @@ import {
   convertToHexAddressByUniverse,
   divDecimals,
   equalFold,
+  getExplorerURL,
   minutesToMs,
 } from './common.utils';
 import { Errors } from '../errors';
@@ -63,7 +64,11 @@ async function fetchMyIntents(address: string, grpcURL: string, page = 1) {
   }
 }
 
-export const intentTransform = (input: RequestForFunds[], chainList: ChainListType): RFF[] => {
+export const intentTransform = (
+  input: RequestForFunds[],
+  explorerBaseURL: string,
+  chainList: ChainListType,
+): RFF[] => {
   return input.map((rff) => {
     const dstChainId = bytesToNumber(rff.destinationChainID);
     const dstChain = chainList.getChainByID(dstChainId);
@@ -71,6 +76,7 @@ export const intentTransform = (input: RequestForFunds[], chainList: ChainListTy
       throw Errors.chainNotFound(dstChainId);
     }
     return {
+      explorerUrl: getExplorerURL(explorerBaseURL, rff.id),
       deposited: rff.deposited,
       destinationChain: {
         id: dstChain.id,
@@ -98,6 +104,7 @@ export const intentTransform = (input: RequestForFunds[], chainList: ChainListTy
           value: divDecimals(valueRaw, token.decimals).toFixed(token.decimals),
         };
       }),
+      fulfilledAt: rff.fulfilledAt.toNumber(),
       expiry: rff.expiry.toNumber(),
       fulfilled: rff.fulfilled,
       id: rff.id.toNumber(),

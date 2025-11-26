@@ -538,6 +538,7 @@ export type OnEventParam = {
 };
 
 export type RFF = {
+  explorerUrl: string;
   deposited: boolean;
   destinationChain: { id: number; name: string; logo: string; universe: string };
   destinations: {

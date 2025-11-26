@@ -187,7 +187,7 @@ export class CA {
     const { wallet } = await this._getCosmosWallet();
     const address = (await wallet.getAccounts())[0].address;
     const rffList = await fetchMyIntents(address, this._networkConfig.GRPC_URL, page);
-    return intentTransform(rffList, this.chainList);
+    return intentTransform(rffList, this._networkConfig.EXPLORER_URL, this.chainList);
   };
 
   protected _getUnifiedBalances = async (includeSwappableBalances = false) => {
