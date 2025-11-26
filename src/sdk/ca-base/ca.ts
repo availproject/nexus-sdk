@@ -1,4 +1,9 @@
-import { createCosmosClient, createCosmosWallet, Universe } from '@avail-project/ca-common';
+import {
+  createCosmosClient,
+  createCosmosWallet,
+  Environment,
+  Universe,
+} from '@avail-project/ca-common';
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import { keyDerivation } from '@starkware-industries/starkware-crypto-utils';
 import { createWalletClient, custom, Hex, UserRejectedRequestError, WalletClient } from 'viem';
@@ -30,6 +35,7 @@ import {
   BridgeParams,
   BeforeExecuteHook,
   CosmosOptions,
+  SUPPORTED_CHAINS,
 } from '../../commons';
 import { createBridgeParams } from './requestHandlers/helpers';
 import {
@@ -80,7 +86,7 @@ export class CA {
   };
   #ephemeralWallet?: PrivateKeyAccount;
   public chainList: ChainListType;
-  private readonly _siweChain: number = 1;
+  private readonly _siweChain;
   protected _evm?: {
     client: WalletClient;
     provider: EthereumProvider;
@@ -118,9 +124,10 @@ export class CA {
       baseUrl: 'https://nexus-backend.avail.so',
     });
 
-    if (config.siweChain) {
-      this._siweChain = config.siweChain;
-    }
+    this._siweChain =
+      config?.siweChain ?? this._networkConfig.NETWORK_HINT === Environment.FOLLY
+        ? SUPPORTED_CHAINS.SEPOLIA
+        : SUPPORTED_CHAINS.ETHEREUM;
 
     if (config.debug) {
       setLogLevel(LOG_LEVEL.DEBUG);
