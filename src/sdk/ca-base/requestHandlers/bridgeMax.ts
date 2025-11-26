@@ -17,7 +17,6 @@ const getMaxValueForBridge = async (
       vscDomain: options.networkConfig.VSC_DOMAIN,
       evmAddress: options.evm.address,
       chainList: options.chainList,
-      fuelAddress: options.fuel?.address,
       tronAddress: options.tron?.address,
       isCA: true,
     }),

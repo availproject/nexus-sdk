@@ -31,7 +31,7 @@ const cosmosFeeGrant = async (cosmosURL: string, vscDomain: string, address: str
       baseURL: getCosmosURL(cosmosURL, 'rest'),
     });
   } catch (e) {
-    logger.error('Requesting a fee grant', e, {cause: 'FEE_GRANT_REQUESTED'});
+    logger.error('Requesting a fee grant', e, { cause: 'FEE_GRANT_REQUESTED' });
     const response = await vscCreateFeeGrant(vscDomain, address);
     logger.debug('Fee grant response', response.data);
     return;
@@ -122,7 +122,7 @@ const cosmosRefundIntent = async (
         throw Errors.cosmosError(`unknown error: ${JSON.stringify(resp)}`);
       }
     } catch (e) {
-      logger.error('Refund failed', e, {cause: 'REFUND_FAILED'});
+      logger.error('Refund failed', e, { cause: 'REFUND_FAILED' });
       throw e;
     }
   } finally {

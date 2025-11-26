@@ -1,16 +1,14 @@
 import { MsgCreateRequestForFunds, OmniversalRFF, Universe } from '@avail-project/ca-common';
-import { FUEL_BASE_ASSET_ID, INTENT_EXPIRY, isNativeAddress, ZERO_ADDRESS } from '../constants';
+import { INTENT_EXPIRY, isNativeAddress, ZERO_ADDRESS } from '../constants';
 import { getLogger, ChainListType, Intent, IBridgeOptions } from '../../../commons';
 import {
   convertTo32Bytes,
   convertTo32BytesHex,
   createRequestEVMSignature,
-  createRequestFuelSignature,
   createRequestTronSignature,
   mulDecimals,
 } from './common.utils';
 import { Hex, PrivateKeyAccount, toBytes, WalletClient } from 'viem';
-import { CHAIN_IDS } from 'fuels';
 import Long from 'long';
 import { TronWeb } from 'tronweb';
 import { tronHexToEvmAddress } from './tron.utils';
@@ -35,11 +33,7 @@ type Source = {
 
 const logger = getLogger();
 
-const getSourcesAndDestinationsForRFF = (
-  intent: Intent,
-  chainList: ChainListType,
-  destinationUniverse: Universe,
-) => {
+const getSourcesAndDestinationsForRFF = (intent: Intent, chainList: ChainListType, _: Universe) => {
   const sources: Source[] = [];
   const universes = new Set<Universe>();
 
@@ -80,9 +74,7 @@ const getSourcesAndDestinationsForRFF = (
       destinations[0].value = destinations[0].value + intent.destination.gas;
     } else {
       destinations.push({
-        tokenAddress: convertTo32BytesHex(
-          destinationUniverse === Universe.FUEL ? FUEL_BASE_ASSET_ID : ZERO_ADDRESS,
-        ),
+        tokenAddress: convertTo32BytesHex(ZERO_ADDRESS),
         universe: intent.destination.universe,
         value: intent.destination.gas,
       });
@@ -94,7 +86,7 @@ const getSourcesAndDestinationsForRFF = (
 
 const createRFFromIntent = async (
   intent: Intent,
-  options: Pick<IBridgeOptions, 'chainList' | 'cosmos' | 'fuel' | 'tron'> & {
+  options: Pick<IBridgeOptions, 'chainList' | 'cosmos' | 'tron'> & {
     evm: {
       address: `0x${string}`;
       client: WalletClient | PrivateKeyAccount;
@@ -114,13 +106,6 @@ const createRFFromIntent = async (
       parties.push({
         address: convertTo32BytesHex(options.evm.address),
         universe: universe,
-      });
-    }
-
-    if (universe === Universe.FUEL) {
-      parties.push({
-        address: convertTo32BytesHex(options.fuel!.address as Hex),
-        universe,
       });
     }
 
@@ -186,28 +171,6 @@ const createRFFromIntent = async (
         requestHash,
         signature,
         universe: Universe.ETHEREUM,
-      });
-    }
-
-    if (universe === Universe.FUEL) {
-      if (!options.fuel?.address || !options.fuel?.provider || !options.fuel?.connector) {
-        logger.error('universe has fuel but not expected input', {
-          fuelInput: options.fuel,
-        });
-        throw Errors.internal('universe list includes fuel but not expected input');
-      }
-
-      const { requestHash, signature } = await createRequestFuelSignature(
-        options.chainList.getVaultContractAddress(CHAIN_IDS.fuel.mainnet),
-        options.fuel.provider,
-        options.fuel.connector,
-        omniversalRFF.asFuelRFF(),
-      );
-      signatureData.push({
-        address: toBytes(options.fuel.address),
-        requestHash,
-        signature,
-        universe: Universe.FUEL,
       });
     }
 

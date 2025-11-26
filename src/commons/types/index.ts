@@ -3,7 +3,6 @@ import { TransactionReceipt, ByteArray, Hex, WalletClient } from 'viem';
 import { ChainDatum, Environment, PermitVariant, Universe } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
 import { SwapIntent } from './swap-types';
-import { FuelConnector, Provider } from 'fuels';
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 import { SwapStepType } from './swap-steps';
@@ -18,7 +17,7 @@ type TokenInfo = {
   symbol: string;
 };
 
-type NexusNetwork = 'mainnet' | 'testnet' | 'devnet' | NetworkConfig;
+type NexusNetwork = 'mainnet' | 'canary' | 'testnet' | NetworkConfig;
 
 export interface BlockTransaction {
   hash?: string;
@@ -264,11 +263,6 @@ export type IBridgeOptions = {
     client: WalletClient;
     provider: EthereumProvider;
   };
-  fuel?: {
-    address: string;
-    connector: FuelConnector;
-    provider: Provider;
-  };
   tron?: {
     address: string;
     adapter: TronAdapter;
@@ -367,8 +361,6 @@ export type FeeStoreData = {
     sourceUniverse: Universe;
   }[];
 };
-
-export type FeeUniverse = 'ETHEREUM' | 'FUEL';
 
 export type Intent = {
   allSources: IntentSource[];
