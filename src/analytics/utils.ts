@@ -4,7 +4,8 @@
  */
 
 import Decimal from "decimal.js";
-import { SuccessfulSwapResult, UserAssetDatum } from "../commons";
+import { ReadableIntent, SuccessfulSwapResult, UserAssetDatum } from "../commons";
+import { Intent } from "../sdk/ca-base";
 
 /**
  * Detect wallet type from provider
@@ -260,7 +261,7 @@ export function extractSwapProperties(swaps: SuccessfulSwapResult): Record<strin
  * @param intent - Intent object
  * @returns Object with bridge property
  */
-export function extractBridgeProperties(intent: any): Record<string, unknown> {
+export function extractBridgeProperties(intent: ReadableIntent | Intent): Record<string, unknown> {
   if (!intent) return {};
 
   return {
@@ -271,9 +272,9 @@ export function extractBridgeProperties(intent: any): Record<string, unknown> {
         amount: new Decimal(s.amount).toFixed(),
       })),
       destination: {
-        chainId: intent.destination.chainID,
+        chainId: intent.destination?.chainID,
         // token: intent.token.symbol,
-        amount: new Decimal(intent.destination.amount).toFixed(),
+        amount: new Decimal(intent.destination?.amount || 0).toFixed(),
       },
       fees: intent.fees,
     },
