@@ -17,14 +17,14 @@ class ChainList {
 
   constructor(env: Environment) {
     switch (env) {
-      case Environment.CERISE:
+      case Environment.JADE:
       case Environment.CORAL:
         this.chains = MAINNET_CHAINS;
         break;
       case Environment.FOLLY:
         this.chains = TESTNET_CHAINS;
         break;
-      case Environment.JADE:
+      case Environment.CERISE:
         throw Errors.environmentNotSupported('Jade');
       default:
         throw Errors.environmentNotKnown();
@@ -473,55 +473,6 @@ const TESTNET_CHAINS: Chain[] = [
 ];
 
 const MAINNET_CHAINS: Chain[] = [
-  // {
-  //   blockExplorers: {
-  //     default: {
-  //       name: 'Fuel Network Explorer',
-  //       url: 'https://app.fuel.network/',
-  //     },
-  //   },
-  //   custom: {
-  //     icon: 'https://avatars.githubusercontent.com/u/55993183',
-  //     knownTokens: [
-  //       {
-  //         contractAddress: FUEL_BASE_ASSET_ID,
-  //         decimals: 9,
-  //         logo: getLogoFromSymbol('ETH'),
-  //         name: 'Ether',
-  //         symbol: 'ETH',
-  //       },
-  //       {
-  //         contractAddress: '0x286c479da40dc953bddc3bb4c453b608bba2e0ac483b077bd475174115395e6b',
-  //         decimals: 6,
-  //         logo: getLogoFromSymbol('USDC'),
-  //         name: 'USD Coin',
-  //         symbol: 'USDC',
-  //       },
-  //       {
-  //         contractAddress: '0xa0265fb5c32f6e8db3197af3c7eb05c48ae373605b8165b6f4a51c5b0ba4812e',
-  //         decimals: 6,
-  //         logo: getLogoFromSymbol('USDT'),
-  //         name: 'Tether USD',
-  //         symbol: 'USDT',
-  //       },
-  //     ],
-  //   },
-  //   id: CHAIN_IDS.fuel.mainnet,
-  //   name: 'Fuel Network',
-  //   ankrName: '',
-  //   nativeCurrency: {
-  //     decimals: 9,
-  //     name: 'Ether',
-  //     symbol: 'ETH',
-  //   },
-  //   rpcUrls: {
-  //     default: {
-  //       http: [FUEL_NETWORK_URL],
-  //       webSocket: [],
-  //     },
-  //   },
-  //   universe: Universe.FUEL,
-  // },
   {
     blockExplorers: {
       default: {

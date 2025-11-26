@@ -1,5 +1,4 @@
 import {
-  ArcanaVault,
   Bytes,
   DepositVEPacket,
   Environment,
@@ -11,7 +10,6 @@ import {
 } from '@avail-project/ca-common';
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import Decimal from 'decimal.js';
-import { arrayify, FuelConnector, hexlify, Provider } from 'fuels';
 import Long from 'long';
 import {
   ByteArray,
@@ -35,7 +33,7 @@ import {
 } from 'viem';
 import { TronWeb, Types, utils } from 'tronweb';
 import { ChainList } from '../chains';
-import { FUEL_BASE_ASSET_ID, isNativeAddress, ZERO_ADDRESS } from '../constants';
+import { isNativeAddress, ZERO_ADDRESS } from '../constants';
 import {
   getLogger,
   IBridgeOptions,
@@ -77,21 +75,6 @@ function convertAddressByUniverse(input: ByteArray | Hex, universe: Universe) {
     }
 
     throw Errors.invalidAddressLength('evm|tron');
-  }
-
-  if (universe === Universe.FUEL) {
-    if (bytes.length === 32) {
-      return inputIsString ? input : bytes;
-    }
-    if (bytes.length === 20) {
-      const padded = pad(bytes, {
-        dir: 'left',
-        size: 32,
-      });
-      return inputIsString ? toHex(padded) : padded;
-    }
-
-    throw Errors.invalidAddressLength('fuel');
   }
 
   return toHex(input);
@@ -215,26 +198,6 @@ const equalFold = (a?: string, b?: string) => {
     return false;
   }
   return a.toLowerCase() === b.toLowerCase();
-};
-
-const createRequestFuelSignature = async (
-  fuelVaultAddress: string,
-  provider: Provider,
-  connector: FuelConnector,
-  fuelRFF: Parameters<ArcanaVault['functions']['deposit']>[0],
-) => {
-  const account = await connector.currentAccount();
-  if (!account) {
-    throw Errors.internal('Fuel connector is not connected.');
-  }
-
-  const vault = new ArcanaVault(hexlify(fuelVaultAddress), provider);
-  const { value: hash } = await vault.functions.hash_request(fuelRFF).get();
-  const signature = await connector.signMessage(account, {
-    personalSign: arrayify(hash),
-  });
-
-  return { requestHash: hash as Hex, signature: arrayify(signature) };
 };
 
 const getExplorerURL = (baseURL: string, id: Long) => {
@@ -435,10 +398,7 @@ const convertGasToToken = (
   const gasTokenInUSD =
     oraclePrices
       .find(
-        (rate) =>
-          rate.chainId === destinationChainID &&
-          (equalFold(rate.tokenAddress, ZERO_ADDRESS) ||
-            equalFold(rate.tokenAddress, FUEL_BASE_ASSET_ID)),
+        (rate) => rate.chainId === destinationChainID && equalFold(rate.tokenAddress, ZERO_ADDRESS),
       )
       ?.priceUsd.toFixed() ?? '0';
 
@@ -499,13 +459,7 @@ const convertTo32BytesHex = (value: Hex | Bytes) => {
 };
 
 const convertToHexAddressByUniverse = (address: Uint8Array, universe: Universe) => {
-  if (universe === Universe.FUEL) {
-    if (address.length === 32) {
-      return bytesToHex(address);
-    } else {
-      throw Errors.invalidAddressLength('fuel');
-    }
-  } else if (universe === Universe.ETHEREUM || universe === Universe.TRON) {
+  if (universe === Universe.ETHEREUM || universe === Universe.TRON) {
     if (address.length === 20) {
       return bytesToHex(address);
     } else if (address.length === 32) {
@@ -587,10 +541,6 @@ class UserAsset {
   isDeposit(tokenAddress: `0x${string}`, universe: Universe) {
     if (universe === Universe.ETHEREUM) {
       return equalFold(tokenAddress, ZERO_ADDRESS);
-    }
-
-    if (universe === Universe.FUEL) {
-      return true;
     }
 
     return false;
@@ -759,7 +709,9 @@ async function waitForTronTxConfirmation(
         }
       }
     } catch (err) {
-      logger.error(`⚠️ Error while checking transaction:`, err, { cause: 'TRANSACTION_CHECK_ERROR' });
+      logger.error(`⚠️ Error while checking transaction:`, err, {
+        cause: 'TRANSACTION_CHECK_ERROR',
+      });
       // Don’t throw yet; continue polling
     }
 
@@ -767,7 +719,7 @@ async function waitForTronTxConfirmation(
     await new Promise((resolve) => setTimeout(resolve, interval));
   }
 
-  throw Errors.transactionTimeout((timeout / 1000));
+  throw Errors.transactionTimeout(timeout / 1000);
 }
 
 async function waitForTronDepositTxConfirmation(
@@ -814,7 +766,9 @@ async function waitForTronDepositTxConfirmation(
 
       return;
     } catch (err) {
-      logger.error(`⚠️ Error while checking transaction:`, err, { cause: 'TRANSACTION_CHECK_ERROR' });
+      logger.error(`⚠️ Error while checking transaction:`, err, {
+        cause: 'TRANSACTION_CHECK_ERROR',
+      });
       // Don’t throw yet; continue polling
     }
 
@@ -822,7 +776,7 @@ async function waitForTronDepositTxConfirmation(
     await new Promise((resolve) => setTimeout(resolve, interval));
   }
 
-  throw Errors.transactionTimeout((timeout / 1000));
+  throw Errors.transactionTimeout(timeout / 1000);
 }
 
 function pctAdditionToBigInt(base: bigint, percentage: number) {
@@ -884,7 +838,9 @@ async function waitForTronApprovalTxConfirmation(
 
       return;
     } catch (err) {
-      logger.error(`⚠️ Error while checking transaction:`, err, { cause: 'TRANSACTION_CHECK_ERROR' });
+      logger.error(`⚠️ Error while checking transaction:`, err, {
+        cause: 'TRANSACTION_CHECK_ERROR',
+      });
       // Don’t throw yet; continue polling
     }
 
@@ -892,24 +848,16 @@ async function waitForTronApprovalTxConfirmation(
     await new Promise((resolve) => setTimeout(resolve, interval));
   }
 
-  throw Errors.transactionTimeout((timeout / 1000));
+  throw Errors.transactionTimeout(timeout / 1000);
 }
 
 const createExplorerTxURL = (txHash: Hex, explorerURL: string) => {
   return new URL(`/tx/${txHash}`, explorerURL).href;
 };
 
-const retrieveAddress = (
-  universe: Universe,
-  input: Pick<IBridgeOptions, 'fuel' | 'evm' | 'tron'>,
-): Hex => {
+const retrieveAddress = (universe: Universe, input: Pick<IBridgeOptions, 'evm' | 'tron'>): Hex => {
   if (universe === Universe.ETHEREUM) {
     return input.evm.address;
-  } else if (universe === Universe.FUEL) {
-    if (!input.fuel) {
-      throw Errors.internal('fuel source but no fuel input');
-    }
-    return input.fuel.address as Hex;
   } else if (universe === Universe.TRON) {
     if (!input.tron) {
       throw Errors.internal('tron source but no tron input');
@@ -956,7 +904,6 @@ export {
   convertToHexAddressByUniverse,
   createDepositDoubleCheckTx,
   createRequestEVMSignature,
-  createRequestFuelSignature,
   divDecimals,
   equalFold,
   evmWaitForFill,

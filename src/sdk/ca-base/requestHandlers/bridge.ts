@@ -1,5 +1,4 @@
 import {
-  ArcanaVault,
   ChaindataMap,
   ERC20ABI,
   EVMVaultABI,
@@ -8,7 +7,6 @@ import {
   Universe,
 } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
-import { Account, BN, CHAIN_IDS, hexlify } from 'fuels';
 import Long from 'long';
 import {
   ContractFunctionExecutionError,
@@ -117,7 +115,6 @@ class BridgeHandler {
         vscDomain: this.options.networkConfig.VSC_DOMAIN,
         evmAddress: this.options.evm.address,
         chainList: this.options.chainList,
-        fuelAddress: this.options.fuel?.address,
         tronAddress: this.options.tron?.address,
         isCA: true,
       }),
@@ -411,19 +408,12 @@ class BridgeHandler {
     }
 
     const evmDeposits: Promise<unknown>[] = [];
-    const fuelDeposits: Promise<unknown>[] = [];
     const tronDeposits: Promise<unknown>[] = [];
 
     const evmSignatureData = signatureData.find((d) => d.universe === Universe.ETHEREUM);
 
     if (!evmSignatureData && universes.has(Universe.ETHEREUM)) {
       throw Errors.internal('ethereum in universe list but no signature data present');
-    }
-
-    const fuelSignatureData = signatureData.find((d) => d.universe === Universe.FUEL);
-
-    if (!fuelSignatureData && universes.has(Universe.FUEL)) {
-      throw Errors.internal('fuel in universe list but no signature data present');
     }
 
     const tronSignatureData = signatureData.find((d) => d.universe === Universe.TRON);
@@ -440,47 +430,7 @@ class BridgeHandler {
         throw Errors.chainNotFound(s.chainID);
       }
 
-      if (s.universe === Universe.FUEL) {
-        if (!this.options.fuel) {
-          throw Errors.internal('fuel is involved but no associated data');
-        }
-
-        const account = new Account(
-          this.options.fuel.address,
-          this.options.fuel.provider,
-          this.options.fuel.connector,
-        );
-
-        const vault = new ArcanaVault(
-          this.options.chainList.getVaultContractAddress(CHAIN_IDS.fuel.mainnet),
-          account,
-        );
-
-        const tx = await vault.functions
-          .deposit(omniversalRFF.asFuelRFF(), hexlify(fuelSignatureData!.signature), i)
-          .callParams({
-            forward: {
-              amount: new BN(s.valueRaw.toString()),
-              assetId: s.tokenAddress,
-            },
-          })
-          .call();
-
-        this.markStepDone(BRIDGE_STEPS.INTENT_DEPOSIT_REQUEST(i + 1, s.value, chain));
-
-        fuelDeposits.push(
-          (async function () {
-            const result = await tx.waitForResult();
-            logger.debug('PostIntentSubmission: Fuel deposit result', {
-              result,
-            });
-
-            if (result.transactionResult.isStatusFailure) {
-              throw Errors.fuelDepositFailed(result.transactionResult);
-            }
-          })(),
-        );
-      } else if (s.universe === Universe.ETHEREUM && isNativeAddress(s.universe, s.tokenAddress)) {
+      if (s.universe === Universe.ETHEREUM && isNativeAddress(s.universe, s.tokenAddress)) {
         await switchChain(this.options.evm.client, chain);
 
         const publicClient = createPublicClientWithFallback(chain);
@@ -558,12 +508,8 @@ class BridgeHandler {
       );
     }
 
-    if (evmDeposits.length || fuelDeposits.length || tronDeposits.length) {
-      await Promise.all([
-        Promise.all(evmDeposits),
-        Promise.all(tronDeposits),
-        Promise.all(fuelDeposits),
-      ]);
+    if (evmDeposits.length || tronDeposits.length) {
+      await Promise.all([Promise.all(evmDeposits), Promise.all(tronDeposits)]);
       this.markStepDone(BRIDGE_STEPS.INTENT_DEPOSITS_CONFIRMED);
     }
 

@@ -2,7 +2,16 @@ import { Environment } from '@avail-project/ca-common';
 
 import { NetworkConfig, NexusNetwork } from '../../commons';
 
-// Testnet with mainnet tokens
+// Mainnet
+const JADE_CONFIG: NetworkConfig = {
+  COSMOS_URL: 'https://cosmos-mainnet.availproject.org',
+  EXPLORER_URL: 'https://nexus-explorer.availproject.org',
+  GRPC_URL: 'https://grpcproxy-mainnet.availproject.org',
+  NETWORK_HINT: Environment.JADE,
+  VSC_DOMAIN: 'vsc-mainnet.availproject.org',
+};
+
+// Canary
 const CORAL_CONFIG: NetworkConfig = {
   COSMOS_URL: 'https://cosmos01-testnet.arcana.network',
   EXPLORER_URL: 'https://explorer.nexus.availproject.org',
@@ -11,16 +20,7 @@ const CORAL_CONFIG: NetworkConfig = {
   VSC_DOMAIN: 'vsc1-testnet.arcana.network',
 };
 
-// Dev with mainnet tokens
-const CERISE_CONFIG: NetworkConfig = {
-  COSMOS_URL: 'https://cosmos01-dev.arcana.network',
-  EXPLORER_URL: 'https://explorer.nexus-cerise.availproject.org',
-  GRPC_URL: 'https://mimosa-dash-grpc.arcana.network',
-  NETWORK_HINT: Environment.CERISE,
-  VSC_DOMAIN: 'mimosa-dash-vsc.arcana.network',
-};
-
-// Dev with testnet tokens
+// Testnet
 const FOLLY_CONFIG: NetworkConfig = {
   COSMOS_URL: 'https://cosmos04-dev.arcana.network',
   EXPLORER_URL: 'https://explorer.nexus-folly.availproject.org',
@@ -55,13 +55,13 @@ const getNetworkConfig = (network?: NexusNetwork): NetworkConfig => {
     return network;
   }
   switch (network) {
-    case 'devnet':
-      return CERISE_CONFIG;
+    case 'canary':
+      return CORAL_CONFIG;
     case 'testnet':
       return FOLLY_CONFIG;
     default:
-      return CORAL_CONFIG;
+      return JADE_CONFIG;
   }
 };
 
-export { CERISE_CONFIG, CORAL_CONFIG, getNetworkConfig };
+export { getNetworkConfig };
