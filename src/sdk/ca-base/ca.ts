@@ -371,12 +371,20 @@ export class CA {
 
   protected _checkPendingRefunds = async () => {
     await this._init();
-    const account = await this._getEVMAddress();
+    const evmAddress = await this._getEVMAddress();
     try {
-      await refundExpiredIntents({ address: account, client: this.#cosmos!.client });
+      await refundExpiredIntents({
+        evmAddress,
+        address: this.#cosmos!.address,
+        client: this.#cosmos!.client,
+      });
 
       this._refundInterval = window.setInterval(async () => {
-        await refundExpiredIntents({ address: account, client: this.#cosmos!.client });
+        await refundExpiredIntents({
+          evmAddress,
+          address: this.#cosmos!.address,
+          client: this.#cosmos!.client,
+        });
       }, minutesToMs(10));
     } catch (e) {
       logger.error('Error checking pending refunds', e, { cause: 'REFUND_CHECK_ERROR' });
@@ -392,14 +400,17 @@ export class CA {
 
     const pvtKey = keyDerivation.getPrivateKeyFromEthSignature(sig);
     const wallet = await createCosmosWallet(`0x${pvtKey.padStart(64, '0')}`);
+
     this.#ephemeralWallet = privateKeyToAccount(`0x${pvtKey.padStart(64, '0')}`);
+
     const address = (await wallet.getAccounts())[0].address;
+    await cosmosFeeGrant(this._networkConfig.COSMOS_URL, this._networkConfig.VSC_DOMAIN, address);
+
     const client = await createCosmosClient(
       wallet,
       getCosmosURL(this._networkConfig.COSMOS_URL, 'rpc'),
       { broadcastPollIntervalMs: 250 },
     );
-    await cosmosFeeGrant(this._networkConfig.COSMOS_URL, this._networkConfig.VSC_DOMAIN, address);
 
     return { wallet, address, client };
   };
