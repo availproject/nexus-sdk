@@ -11,7 +11,6 @@ import {
   QuoteRequestExactInput,
   Universe,
 } from '@avail-project/ca-common';
-import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import Decimal from 'decimal.js';
 import { orderBy, retry } from 'es-toolkit';
 import Long from 'long';
@@ -53,6 +52,7 @@ import {
 } from '../../../commons';
 import { SwapRoute } from './route';
 import { Errors } from '../errors';
+import { SigningStargateClient } from '@cosmjs/stargate';
 
 type Options = {
   address: {
@@ -79,7 +79,7 @@ type Options = {
   publicClientList: PublicClientList;
   slippage: number;
   wallet: {
-    cosmos: DirectSecp256k1Wallet;
+    cosmos: SigningStargateClient;
     eoa: WalletClient;
     ephemeral: PrivateKeyAccount;
   };
@@ -228,7 +228,7 @@ class BridgeHandler {
           chainList: this.options.chainList,
           cosmos: {
             address: this.options.address.cosmos,
-            wallet: this.options.wallet.cosmos,
+            client: this.options.wallet.cosmos,
           },
           evm: {
             address: this.options.address.ephemeral,

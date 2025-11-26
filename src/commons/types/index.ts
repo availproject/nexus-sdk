@@ -3,11 +3,11 @@ import { TransactionReceipt, ByteArray, Hex, WalletClient } from 'viem';
 import { ChainDatum, Environment, PermitVariant, Universe } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
 import { SwapIntent } from './swap-types';
-import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 import { SwapStepType } from './swap-steps';
 import { BridgeStepType } from './bridge-steps';
 import { FormatTokenBalanceOptions, FormattedParts } from '../utils/format';
+import { SigningStargateClient } from '@cosmjs/stargate';
 
 type TokenInfo = {
   contractAddress: `0x${string}`;
@@ -253,11 +253,13 @@ export interface BridgeAndExecuteParams {
   recentApprovalTxHash?: string;
 }
 
+export type CosmosOptions = {
+  address: string;
+  client: SigningStargateClient;
+};
+
 export type IBridgeOptions = {
-  cosmos: {
-    wallet: DirectSecp256k1Wallet;
-    address: string;
-  };
+  cosmos: CosmosOptions;
   evm: {
     address: `0x${string}`;
     client: WalletClient;

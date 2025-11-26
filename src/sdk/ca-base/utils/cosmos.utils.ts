@@ -1,17 +1,15 @@
 import {
-  createCosmosClient,
   MsgCreateRequestForFunds,
   MsgCreateRequestForFundsResponse,
   MsgDoubleCheckTx,
   MsgRefundReq,
   MsgRefundReqResponse,
 } from '@avail-project/ca-common';
-import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import { isDeliverTxFailure, isDeliverTxSuccess } from '@cosmjs/stargate';
 import axios from 'axios';
 import { connect } from 'it-ws/client';
 import Long from 'long';
-import { getLogger } from '../../../commons';
+import { CosmosOptions, getLogger } from '../../../commons';
 import { checkIntentFilled, vscCreateFeeGrant } from './api.utils';
 import { Errors } from '../errors';
 
@@ -40,18 +38,11 @@ const cosmosFeeGrant = async (cosmosURL: string, vscDomain: string, address: str
 
 const cosmosCreateRFF = async ({
   address,
-  cosmosURL,
+  client,
   msg,
-  wallet,
-}: {
-  address: string;
-  cosmosURL: string;
+}: CosmosOptions & {
   msg: MsgCreateRequestForFunds;
-  wallet: DirectSecp256k1Wallet;
 }) => {
-  const client = await createCosmosClient(wallet, getCosmosURL(cosmosURL, 'rpc'), {
-    broadcastPollIntervalMs: 250,
-  });
   try {
     const res = await client.signAndBroadcast(
       address,
@@ -78,15 +69,13 @@ const cosmosCreateRFF = async ({
   }
 };
 
-const cosmosRefundIntent = async (
-  cosmosURL: string,
-  intentID: number,
-  wallet: DirectSecp256k1Wallet,
-) => {
-  const address = (await wallet.getAccounts())[0].address;
-  const client = await createCosmosClient(wallet, getCosmosURL(cosmosURL, 'rpc'), {
-    broadcastPollIntervalMs: 250,
-  });
+const cosmosRefundIntent = async ({
+  address,
+  client,
+  intentID,
+}: CosmosOptions & {
+  intentID: number;
+}) => {
   try {
     const resp = await client.signAndBroadcast(
       address,
@@ -132,19 +121,11 @@ const cosmosRefundIntent = async (
 
 const cosmosCreateDoubleCheckTx = async ({
   address,
-  cosmosURL,
+  client,
   msg,
-  wallet,
-}: {
-  address: string;
-  cosmosURL: string;
+}: CosmosOptions & {
   msg: MsgDoubleCheckTx;
-  wallet: DirectSecp256k1Wallet;
 }) => {
-  const client = await createCosmosClient(wallet, getCosmosURL(cosmosURL, 'rpc'), {
-    broadcastPollIntervalMs: 250,
-  });
-
   try {
     logger.debug('cosmosCreateDoubleCheckTx', { doubleCheckMsg: msg });
 
