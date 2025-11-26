@@ -433,13 +433,10 @@ async function signPermitForAddressAndValue(
 }
 
 const createPublicClientWithFallback = (chain: Chain): PublicClient => {
-  if (chain.rpcUrls.default.http.length === 1) {
-    return createPublicClient({
-      transport: http(chain.rpcUrls.default.http[0]),
-    });
-  }
   return createPublicClient({
-    transport: fallback(chain.rpcUrls.default.http.map((s) => http(s))),
+    transport: fallback(
+      chain.rpcUrls.default.http.concat(chain.rpcUrls.default.publicHttp ?? []).map((s) => http(s)),
+    ),
   });
 };
 

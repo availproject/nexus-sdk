@@ -5,13 +5,13 @@ import { NetworkConfig, NexusNetwork } from '../../commons';
 // Mainnet
 const JADE_CONFIG: NetworkConfig = {
   COSMOS_URL: 'https://cosmos-mainnet.availproject.org',
-  EXPLORER_URL: 'https://explorer.nexus.availproject.org',
+  EXPLORER_URL: 'https://nexus-explorer.availproject.org',
   GRPC_URL: 'https://grpcproxy-mainnet.availproject.org',
   NETWORK_HINT: Environment.JADE,
-  VSC_DOMAIN: 'mimosa-dash-vsc.arcana.network',
+  VSC_DOMAIN: 'vsc-mainnet.availproject.org',
 };
 
-// Mainnet canary
+// Canary
 const CORAL_CONFIG: NetworkConfig = {
   COSMOS_URL: 'https://cosmos01-testnet.arcana.network',
   EXPLORER_URL: 'https://explorer.nexus.availproject.org',
