@@ -476,7 +476,7 @@ export class NexusSDK extends CA {
    * @returns Promise resolving to simulation result with gas estimates
    */
   public async simulateExecute(params: ExecuteParams): Promise<ExecuteSimulation> {
-    const opId = this.analytics.startOperation(NexusAnalyticsEvents.EXECUTE_SIMULATION_STARTED)
+    const opId = this.analytics.startOperation(NexusAnalyticsEvents.EXECUTE_SIMULATION_SUCCESS)
     try {
       this.analytics.track(NexusAnalyticsEvents.EXECUTE_SIMULATION_STARTED, {
         toChainId: params.toChainId,
@@ -561,7 +561,7 @@ export class NexusSDK extends CA {
   public async simulateBridgeAndExecute(
     params: BridgeAndExecuteParams,
   ): Promise<BridgeAndExecuteSimulationResult> {
-    const opId = this.analytics.startOperation(NexusAnalyticsEvents.BRIDGE_AND_EXECUTE_SIMULATION_STARTED)
+    const opId = this.analytics.startOperation(NexusAnalyticsEvents.BRIDGE_AND_EXECUTE_SIMULATION_SUCCESS)
     try {
       this.analytics.track(NexusAnalyticsEvents.BRIDGE_AND_EXECUTE_SIMULATION_STARTED, {
         toChainId: params.toChainId,
@@ -597,7 +597,7 @@ export class NexusSDK extends CA {
    * @returns balances that can be used in swap operations
    */
   public async getBalancesForSwap() {
-    const opId = this.analytics.startOperation(NexusAnalyticsEvents.BALANCES_FETCH_STARTED, { swap: true, bridge: false })
+    const opId = this.analytics.startOperation(NexusAnalyticsEvents.BALANCES_FETCH_SUCCESS, { swap: true, bridge: false })
     const result = await this._getBalancesForSwap();
     this.analytics.endOperation(opId, { success: true })
     return result.assets;
@@ -609,7 +609,7 @@ export class NexusSDK extends CA {
    * @returns balances that can be used in bridge operations
    */
   public getBalancesForBridge() {
-    const opId = this.analytics.startOperation(NexusAnalyticsEvents.BALANCES_FETCH_STARTED, { swap: false, bridge: true })
+    const opId = this.analytics.startOperation(NexusAnalyticsEvents.BALANCES_FETCH_SUCCESS, { swap: false, bridge: true })
     const result = this._getUnifiedBalances(false);
     this.analytics.endOperation(opId, { success: true })
     return result;
