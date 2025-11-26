@@ -313,7 +313,16 @@ const getSupportedChains = (
       id: chain.id,
       logo: chain.custom.icon,
       name: chain.name,
-      tokens: [...chain.custom.knownTokens],
+      tokens: [
+        ...chain.custom.knownTokens,
+        {
+          contractAddress: ZERO_ADDRESS,
+          decimals: chain.nativeCurrency.decimals,
+          logo: chain.custom.icon,
+          name: chain.nativeCurrency.name,
+          symbol: chain.nativeCurrency.symbol,
+        },
+      ],
     };
   });
 };
