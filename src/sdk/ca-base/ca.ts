@@ -1,4 +1,4 @@
-import { createCosmosWallet, Universe } from '@avail-project/ca-common';
+import { createCosmosClient, createCosmosWallet, Universe } from '@avail-project/ca-common';
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import { keyDerivation } from '@starkware-industries/starkware-crypto-utils';
 import { createWalletClient, custom, Hex, UserRejectedRequestError, WalletClient } from 'viem';
@@ -29,6 +29,7 @@ import {
   TransferParams,
   BridgeParams,
   BeforeExecuteHook,
+  CosmosOptions,
 } from '../../commons';
 import { createBridgeParams } from './requestHandlers/helpers';
 import {
@@ -45,6 +46,7 @@ import {
   switchChain,
   intentTransform,
   mulDecimals,
+  getCosmosURL,
 } from './utils';
 import { swap } from './swap/swap';
 import { getSwapSupportedChains } from './swap/utils';
@@ -73,9 +75,8 @@ const SIWE_STATEMENT = 'Sign in to enable Nexus';
 
 export class CA {
   static readonly getSupportedChains = getSupportedChains;
-  #cosmos?: {
+  #cosmos?: CosmosOptions & {
     wallet: DirectSecp256k1Wallet;
-    address: string;
   };
   #ephemeralWallet?: PrivateKeyAccount;
   public chainList: ChainListType;
@@ -246,7 +247,7 @@ export class CA {
         ephemeral: this.#ephemeralWallet!.address,
       },
       wallet: {
-        cosmos: this.#cosmos!.wallet,
+        cosmos: this.#cosmos!.client,
         ephemeral: this.#ephemeralWallet!,
         eoa: this._evm!.client,
       },
@@ -365,10 +366,10 @@ export class CA {
     await this._init();
     const account = await this._getEVMAddress();
     try {
-      await refundExpiredIntents(account, this._networkConfig.COSMOS_URL, this.#cosmos!.wallet);
+      await refundExpiredIntents({ address: account, client: this.#cosmos!.client });
 
       this._refundInterval = window.setInterval(async () => {
-        await refundExpiredIntents(account, this._networkConfig.COSMOS_URL, this.#cosmos!.wallet);
+        await refundExpiredIntents({ address: account, client: this.#cosmos!.client });
       }, minutesToMs(10));
     } catch (e) {
       logger.error('Error checking pending refunds', e, { cause: 'REFUND_CHECK_ERROR' });
@@ -386,8 +387,14 @@ export class CA {
     const wallet = await createCosmosWallet(`0x${pvtKey.padStart(64, '0')}`);
     this.#ephemeralWallet = privateKeyToAccount(`0x${pvtKey.padStart(64, '0')}`);
     const address = (await wallet.getAccounts())[0].address;
+    const client = await createCosmosClient(
+      wallet,
+      getCosmosURL(this._networkConfig.COSMOS_URL, 'rpc'),
+      { broadcastPollIntervalMs: 250 },
+    );
     await cosmosFeeGrant(this._networkConfig.COSMOS_URL, this._networkConfig.VSC_DOMAIN, address);
-    return { wallet, address };
+
+    return { wallet, address, client };
   };
 
   protected _getCosmosWallet = async () => {

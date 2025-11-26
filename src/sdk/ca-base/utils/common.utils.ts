@@ -8,7 +8,6 @@ import {
   MsgDoubleCheckTx,
   Universe,
 } from '@avail-project/ca-common';
-import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import Decimal from 'decimal.js';
 import Long from 'long';
 import {
@@ -39,13 +38,13 @@ import {
   IBridgeOptions,
   SupportedChainsAndTokensResult,
   Intent,
-  NetworkConfig,
   OraclePriceResponse,
   ReadableIntent,
   TokenInfo,
   ChainListType,
   UserAssetDatum,
   Chain,
+  CosmosOptions,
 } from '../../../commons';
 import {
   createPublicClientWithFallback,
@@ -136,11 +135,7 @@ const getExpiredIntents = (address: string) => {
   return expiredIntents;
 };
 
-const refundExpiredIntents = async (
-  address: string,
-  cosmosURL: string,
-  wallet: DirectSecp256k1Wallet,
-) => {
+const refundExpiredIntents = async ({ address, client }: CosmosOptions) => {
   logger.debug('Starting check for expired intents at ', new Date());
   const expIntents = getExpiredIntents(address);
   const failedRefunds: IntentD[] = [];
@@ -148,7 +143,7 @@ const refundExpiredIntents = async (
   for (const intent of expIntents) {
     logger.debug(`Starting refund for: ${intent.id}`);
     try {
-      await cosmosRefundIntent(cosmosURL, intent.id, wallet);
+      await cosmosRefundIntent({ client, intentID: intent.id, address });
     } catch (e) {
       logger.debug('Refund failed', e);
       failedRefunds.push({
@@ -447,15 +442,7 @@ const convertToHexAddressByUniverse = (address: Uint8Array, universe: Universe) 
   }
 };
 
-const createDepositDoubleCheckTx = (
-  chainID: Uint8Array,
-  cosmos: {
-    address: string;
-    wallet: DirectSecp256k1Wallet;
-  },
-  intentID: Long,
-  network: NetworkConfig,
-) => {
+const createDepositDoubleCheckTx = (chainID: Uint8Array, cosmos: CosmosOptions, intentID: Long) => {
   const msg = MsgDoubleCheckTx.create({
     creator: cosmos.address,
     packet: {
@@ -472,9 +459,8 @@ const createDepositDoubleCheckTx = (
   return () => {
     return cosmosCreateDoubleCheckTx({
       address: cosmos.address,
-      cosmosURL: network.COSMOS_URL,
+      client: cosmos.client,
       msg,
-      wallet: cosmos.wallet,
     });
   };
 };
