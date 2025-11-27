@@ -32,7 +32,7 @@ import {
 } from 'viem';
 import { TronWeb, Types, utils } from 'tronweb';
 import { ChainList } from '../chains';
-import { isNativeAddress, ZERO_ADDRESS } from '../constants';
+import { getLogoFromSymbol, isNativeAddress, ZERO_ADDRESS } from '../constants';
 import {
   getLogger,
   IBridgeOptions,
@@ -46,9 +46,7 @@ import {
   Chain,
   CosmosOptions,
 } from '../../../commons';
-import {
-  createPublicClientWithFallback
-} from './contract.utils';
+import { createPublicClientWithFallback } from './contract.utils';
 import { AnalyticsManager } from '../../../analytics/AnalyticsManager';
 import { NexusAnalyticsEvents } from '../../../analytics/events';
 import { requestTimeout, waitForIntentFulfilment } from './contract.utils';
@@ -318,7 +316,7 @@ const getSupportedChains = (
         {
           contractAddress: ZERO_ADDRESS,
           decimals: chain.nativeCurrency.decimals,
-          logo: chain.custom.icon,
+          logo: getLogoFromSymbol(chain.nativeCurrency.symbol),
           name: chain.nativeCurrency.name,
           symbol: chain.nativeCurrency.symbol,
         },
@@ -510,7 +508,7 @@ class UserAsset {
     return this.value.balance;
   }
 
-  constructor(public value: UserAssetDatum) { }
+  constructor(public value: UserAssetDatum) {}
 
   getBridgeAssets(dstChainId: number) {
     return this.value.breakdown
@@ -598,7 +596,7 @@ class UserAsset {
   }
 }
 class UserAssets {
-  constructor(public data: UserAssetDatum[]) { }
+  constructor(public data: UserAssetDatum[]) {}
 
   add(asset: UserAssetDatum) {
     this.data.push(asset);

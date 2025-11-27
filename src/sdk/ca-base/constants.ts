@@ -16,7 +16,7 @@ const SymbolToLogo: { [k: string]: string } = {
 };
 
 const getLogoFromSymbol = (symbol: string) => {
-  const logo = SymbolToLogo[symbol];
+  const logo = SymbolToLogo[symbol.toUpperCase()];
   if (!logo) {
     return '';
   }
