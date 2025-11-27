@@ -4,7 +4,8 @@ import Decimal from 'decimal.js';
 import { type Hex, PrivateKeyAccount, WalletClient } from 'viem';
 
 import { NetworkConfig, ChainListType, OnEventParam, TokenInfo } from '../index';
-import { SwapRoute } from '../../sdk/ca-base/swap/route';
+import type { SwapRoute } from '../../sdk/ca-base/swap/route';
+import { SigningStargateClient } from '@cosmjs/stargate';
 
 export type AuthorizationList = {
   address: Uint8Array;
@@ -129,7 +130,7 @@ export type SwapParams = {
     ephemeral: Hex;
   };
   wallet: {
-    cosmos: DirectSecp256k1Wallet;
+    cosmos: SigningStargateClient;
     ephemeral: PrivateKeyAccount;
     eoa: WalletClient;
   };

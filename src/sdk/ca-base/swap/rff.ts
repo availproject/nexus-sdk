@@ -1,5 +1,4 @@
 import { DepositVEPacket, EVMVaultABI, MsgDoubleCheckTx, Universe } from '@avail-project/ca-common';
-import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import Decimal from 'decimal.js';
 import Long from 'long';
 import {
@@ -35,6 +34,7 @@ import {
   RFFDepositCallMap,
   Tx,
   ChainListType,
+  CosmosOptions,
 } from '../../../commons';
 
 const logger = getLogger();
@@ -219,10 +219,7 @@ export const createBridgeRFF = async ({
 }: {
   config: {
     chainList: ChainListType;
-    cosmos: {
-      address: string;
-      wallet: DirectSecp256k1Wallet;
-    };
+    cosmos: CosmosOptions;
     evm: {
       address: `0x${string}`;
       client: PrivateKeyAccount;
@@ -260,14 +257,8 @@ export const createBridgeRFF = async ({
     intent,
     {
       chainList: config.chainList,
-      cosmos: {
-        address: config.cosmos.address,
-        wallet: config.cosmos.wallet,
-      },
-      evm: {
-        address: config.evm.address,
-        client: config.evm.client,
-      },
+      cosmos: config.cosmos,
+      evm: config.evm,
     },
     Universe.ETHEREUM,
   );
@@ -279,9 +270,8 @@ export const createBridgeRFF = async ({
   const createRFF = async () => {
     intentID = await cosmosCreateRFF({
       address: config.cosmos.address,
-      cosmosURL: config.network.COSMOS_URL,
+      client: config.cosmos.client,
       msg: msgBasicCosmos,
-      wallet: config.cosmos.wallet,
     });
 
     storeIntentHashToStore(config.evm.address, intentID.toNumber());
@@ -293,7 +283,6 @@ export const createBridgeRFF = async ({
         s.chainID,
         config.cosmos,
         intentID,
-        config.network.COSMOS_URL,
       );
     });
 
@@ -420,15 +409,7 @@ export const createBridgeRFF = async ({
   };
 };
 
-export const createDoubleCheckTx = (
-  chainID: Uint8Array,
-  cosmos: {
-    address: string;
-    wallet: DirectSecp256k1Wallet;
-  },
-  intentID: Long,
-  cosmosURL: string,
-) => {
+export const createDoubleCheckTx = (chainID: Uint8Array, cosmos: CosmosOptions, intentID: Long) => {
   const msg = MsgDoubleCheckTx.create({
     creator: cosmos.address,
     packet: {
@@ -445,9 +426,8 @@ export const createDoubleCheckTx = (
   return () => {
     return cosmosCreateDoubleCheckTx({
       address: cosmos.address,
-      cosmosURL,
       msg,
-      wallet: cosmos.wallet,
+      client: cosmos.client,
     });
   };
 };

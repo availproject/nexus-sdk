@@ -392,9 +392,8 @@ class BridgeHandler {
 
     const intentID = await cosmosCreateRFF({
       address: this.options.cosmos.address,
-      cosmosURL: this.options.networkConfig.COSMOS_URL,
       msg: msgBasicCosmos,
-      wallet: this.options.cosmos.wallet,
+      client: this.options.cosmos.client,
     });
 
     const explorerURL = getExplorerURL(this.options.networkConfig.EXPLORER_URL, intentID);
@@ -499,12 +498,7 @@ class BridgeHandler {
         );
       }
       doubleCheckTxs.push(
-        createDepositDoubleCheckTx(
-          convertTo32Bytes(chain.id),
-          this.options.cosmos,
-          intentID,
-          this.options.networkConfig,
-        ),
+        createDepositDoubleCheckTx(convertTo32Bytes(chain.id), this.options.cosmos, intentID),
       );
     }
 
