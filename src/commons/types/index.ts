@@ -17,7 +17,7 @@ type TokenInfo = {
   symbol: string;
 };
 
-type NexusNetwork = 'mainnet' | 'canary' | 'testnet' | NetworkConfig;
+type NexusNetwork = 'mainnet' | 'testnet' | NetworkConfig;
 
 export interface BlockTransaction {
   hash?: string;
@@ -521,9 +521,9 @@ export type ChainListType = {
     address: `0x${string}`,
   ):
     | {
-      chain: Chain;
-      token: TokenInfo | undefined;
-    }
+        chain: Chain;
+        token: TokenInfo | undefined;
+      }
     | undefined;
   getNativeToken(chainID: number): TokenInfo;
   getChainByID(id: number): Chain | undefined;
