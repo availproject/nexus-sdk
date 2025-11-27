@@ -88,7 +88,7 @@ import { version } from '../../package.json' with { type: 'json' };
 const DEFAULT_POSTHOG_KEY = 'phc_UD6lQU3PEw1d8oo8E17rJLmRAR7kxJbQ5OseHuCvi7N';
 const DEFAULT_POSTHOG_HOST = 'https://us.i.posthog.com';
 
-export type AnalyticsNetwork = 'mainnet' | 'testnet' | 'devnet' | 'custom';
+export type AnalyticsNetwork = 'mainnet' | 'testnet' | 'canary' | 'custom';
 
 export class AnalyticsManager {
   private provider: AnalyticsProvider;
