@@ -4,6 +4,7 @@ import Decimal from 'decimal.js';
 import { type Hex, PrivateKeyAccount, WalletClient } from 'viem';
 
 import { NetworkConfig, ChainListType, OnEventParam, TokenInfo } from '../index';
+import type { SwapRoute } from '../../sdk/ca-base/swap/route';
 import { SigningStargateClient } from '@cosmjs/stargate';
 
 export type AuthorizationList = {
@@ -159,9 +160,9 @@ export enum SwapMode {
 
 export type SwapData =
   | {
-      mode: SwapMode.EXACT_IN;
-      data: ExactInSwapInput;
-    }
+    mode: SwapMode.EXACT_IN;
+    data: ExactInSwapInput;
+  }
   | { mode: SwapMode.EXACT_OUT; data: ExactOutSwapInput };
 
 export const CaliburSBCTypes = {
@@ -326,11 +327,12 @@ export type SuccessfulSwapResult = {
   sourceSwaps: ChainSwap[];
   explorerURL: string;
   destinationSwap: ChainSwap | null;
+  swapRoute?: SwapRoute;
 };
 
 export type SwapResult =
   | {
-      success: true;
-      result: SuccessfulSwapResult;
-    }
+    success: true;
+    result: SuccessfulSwapResult;
+  }
   | { success: false; error: string };

@@ -11,6 +11,8 @@ import { privateKeyToAccount, PrivateKeyAccount } from 'viem/accounts';
 import { createSiweMessage } from 'viem/siwe';
 import { ChainList } from './chains';
 import { getNetworkConfig } from './config';
+import { NexusAnalyticsEvents } from '../../analytics/events';
+import { getWalletType, extractBreakdownStats } from '../../analytics/utils';
 import {
   ChainListType,
   EthereumProvider,
@@ -37,6 +39,7 @@ import {
   CosmosOptions,
   SUPPORTED_CHAINS,
 } from '../../commons';
+import { AnalyticsManager } from '../../analytics';
 import { createBridgeParams } from './requestHandlers/helpers';
 import {
   cosmosFeeGrant,
@@ -67,6 +70,7 @@ import { createBridgeAndTransferParams } from './query/bridgeAndTransfer';
 import getMaxValueForBridge from './requestHandlers/bridgeMax';
 import { Errors } from './errors';
 import { setLoggerProvider } from './telemetry';
+import Decimal from 'decimal.js';
 
 setLogLevel(LOG_LEVEL.NOLOGS);
 const logger = getLogger();
@@ -101,15 +105,17 @@ export class CA {
     onIntent: OnIntentHook;
     onSwapIntent: OnSwapIntentHook;
   } = {
-    onAllowance: (data) => data.allow(data.sources.map(() => 'min')),
-    onIntent: (data) => data.allow(),
-    onSwapIntent: (data) => data.allow(),
-  };
+      onAllowance: (data) => data.allow(data.sources.map(() => 'min')),
+      onIntent: (data) => data.allow(),
+      onSwapIntent: (data) => data.allow(),
+    };
   protected _initStatus = INIT_STATUS.CREATED;
   protected _networkConfig: NetworkConfig;
   protected _refundInterval: number | undefined;
   protected _initPromise: Promise<void> | null = null;
-  private readonly simulationClient: BackendSimulationClient;
+  private simulationClient: BackendSimulationClient;
+  protected _analytics?: AnalyticsManager; // Analytics manager set by subclass
+  private _balancesFetched = false; // Track if balances have been fetched for BALANCES_REFRESHED event
 
   protected constructor(
     config: { network?: NexusNetwork; debug?: boolean; siweChain?: number } = {
@@ -132,6 +138,26 @@ export class CA {
     if (config.debug) {
       setLogLevel(LOG_LEVEL.DEBUG);
     }
+  }
+
+  private getBalanceBucket(totalBalance: string) {
+    const balance = Number(totalBalance);
+    if (balance < 10) {
+      return '$0-$10';
+    }
+    if (balance < 100) {
+      return '$10-$100';
+    }
+    if (balance < 1000) {
+      return '$100-$1K';
+    }
+    if (balance < 10_000) {
+      return '$1K-$10K';
+    }
+    if (balance < 100_000) {
+      return '$10K-$100K';
+    }
+    return '$100K+';
   }
 
   protected _createBridgeHandler = (input: BridgeParams, options?: OnEventParam) => {
@@ -169,6 +195,13 @@ export class CA {
   };
 
   protected _deinit = () => {
+    // Track wallet disconnection before cleanup
+    if (this._analytics && this._evm) {
+      this._analytics.track(NexusAnalyticsEvents.WALLET_DISCONNECTED, {
+        walletType: getWalletType(this._evm.provider),
+      });
+    }
+
     this.#cosmos = undefined;
 
     if (this._evm) {
@@ -195,16 +228,63 @@ export class CA {
       throw Errors.sdkNotInitialized();
     }
 
-    const { assets } = await getBalances({
-      networkHint: this._networkConfig.NETWORK_HINT,
-      evmAddress: (await this._evm.client.requestAddresses())[0],
-      chainList: this.chainList,
-      filter: false,
-      isCA: includeSwappableBalances === false,
-      vscDomain: this._networkConfig.VSC_DOMAIN,
-      tronAddress: this._tron?.address,
-    });
-    return assets;
+    // Track if this is a refresh (subsequent call) or initial fetch
+    const isRefresh = this._balancesFetched || false;
+
+    try {
+      // Track balance fetch started
+      if (this._analytics) {
+        this._analytics.track(NexusAnalyticsEvents.BALANCES_FETCH_STARTED, {
+          includeSwappableBalances,
+          isRefresh,
+        });
+      }
+
+      const { assets } = await getBalances({
+        networkHint: this._networkConfig.NETWORK_HINT,
+        evmAddress: (await this._evm.client.requestAddresses())[0],
+        chainList: this.chainList,
+        filter: false,
+        isCA: includeSwappableBalances === false,
+        vscDomain: this._networkConfig.VSC_DOMAIN,
+        tronAddress: this._tron?.address,
+      });
+
+      // Extract balance statistics for analytics
+      const stats = extractBreakdownStats(assets);
+
+      // Track success
+      if (this._analytics) {
+        const balanceBucket = this.getBalanceBucket(assets.reduce((agg, asset) => agg.add(asset.balanceInFiat), new Decimal(0)).toFixed())
+        if (isRefresh) {
+          this._analytics.track(NexusAnalyticsEvents.BALANCES_REFRESHED, {
+            ...stats,
+            includeSwappableBalances,
+            balanceBucket,
+          });
+        } else {
+          this._analytics.track(NexusAnalyticsEvents.BALANCES_FETCH_SUCCESS, {
+            ...stats,
+            includeSwappableBalances,
+            balanceBucket,
+          });
+        }
+      }
+
+      // Mark that balances have been fetched at least once
+      this._balancesFetched = true;
+
+      return assets;
+    } catch (error) {
+      // Track failure
+      if (this._analytics) {
+        this._analytics.trackError('balanceFetch', error, {
+          includeSwappableBalances,
+          isRefresh,
+        });
+      }
+      throw error;
+    }
   };
 
   protected _getBalancesForSwap = async () => {
@@ -297,6 +377,16 @@ export class CA {
   };
 
   protected _onAccountsChanged = (accounts: Array<`0x${string}`>) => {
+    const oldAddress = this._evm?.address;
+
+    // Track wallet change
+    if (this._analytics && accounts.length !== 0) {
+      this._analytics.track(NexusAnalyticsEvents.WALLET_CHANGED, {
+        oldAddress: oldAddress || undefined,
+        newAddress: accounts[0],
+      });
+    }
+
     this._deinit();
     if (accounts.length !== 0) {
       if (this._evm) {
@@ -306,22 +396,55 @@ export class CA {
     }
   };
 
-  protected _setEVMProvider = async (provider: EthereumProvider) => {
+  protected onChainChanged = async (chainId: string) => {
+    // Track network change
+    if (this._analytics && this._evm) {
+      const oldChainId = await this._evm.client.getChainId().catch(() => undefined);
+      const newChainId = parseInt(chainId, 16);
+
+      this._analytics.track(NexusAnalyticsEvents.WALLET_NETWORK_CHANGED, {
+        oldChainId,
+        newChainId,
+      });
+    }
+  };
+
+  async _setEVMProvider(provider: EthereumProvider) {
     if (this._evm?.provider === provider) {
       return;
     }
-    const client = createWalletClient({
-      transport: custom({ ...provider, request: provider.request.bind(provider) }),
-    });
 
-    const address = (await client.getAddresses())[0];
+    try {
+      const client = createWalletClient({
+        transport: custom({ ...provider, request: provider.request.bind(provider) }),
+      });
 
-    this._evm = {
-      client,
-      provider,
-      address,
-    };
-  };
+      const address = (await client.getAddresses())[0];
+      const chainId = await client.getChainId();
+
+      this._evm = {
+        client,
+        provider,
+        address,
+      };
+
+      // Track successful wallet connection
+      if (this._analytics) {
+        this._analytics.track(NexusAnalyticsEvents.WALLET_CONNECTED, {
+          walletType: getWalletType(provider),
+          chainId,
+        });
+      }
+    } catch (error) {
+      // Track wallet connection failure
+      if (this._analytics) {
+        this._analytics.trackError('walletConnect', error, {
+          walletType: getWalletType(provider),
+        });
+      }
+      throw error;
+    }
+  }
 
   protected _setTronAdapter = async (adapter: TronAdapter) => {
     if (this._tron) {
@@ -377,6 +500,7 @@ export class CA {
         evmAddress,
         address: this.#cosmos!.address,
         client: this.#cosmos!.client,
+        analytics: this._analytics,
       });
 
       this._refundInterval = window.setInterval(async () => {
@@ -384,6 +508,7 @@ export class CA {
           evmAddress,
           address: this.#cosmos!.address,
           client: this.#cosmos!.client,
+          analytics: this._analytics,
         });
       }, minutesToMs(10));
     } catch (e) {

@@ -47,10 +47,11 @@ import {
   CosmosOptions,
 } from '../../../commons';
 import {
-  createPublicClientWithFallback,
-  requestTimeout,
-  waitForIntentFulfilment,
+  createPublicClientWithFallback
 } from './contract.utils';
+import { AnalyticsManager } from '../../../analytics/AnalyticsManager';
+import { NexusAnalyticsEvents } from '../../../analytics/events';
+import { requestTimeout, waitForIntentFulfilment } from './contract.utils';
 import { cosmosCreateDoubleCheckTx, cosmosFillCheck, cosmosRefundIntent } from './cosmos.utils';
 import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 import { Errors } from '../errors';
@@ -139,17 +140,43 @@ const refundExpiredIntents = async ({
   address,
   evmAddress,
   client,
-}: CosmosOptions & { evmAddress: string }) => {
+  analytics,
+}: CosmosOptions & { evmAddress: string; analytics?: AnalyticsManager }) => {
   logger.debug('Starting check for expired intents at ', new Date());
   const expIntents = getExpiredIntents(evmAddress);
   const failedRefunds: IntentD[] = [];
 
   for (const intent of expIntents) {
     logger.debug(`Starting refund for: ${intent.id}`);
+
+    // Track refund initiated
+    if (analytics) {
+      analytics.track(NexusAnalyticsEvents.REFUND_INITIATED, {
+        intentId: intent.id,
+        createdAt: intent.createdAt,
+      });
+    }
+
     try {
       await cosmosRefundIntent({ client, intentID: intent.id, address });
+      // Track refund success
+      if (analytics) {
+        analytics.track(NexusAnalyticsEvents.REFUND_COMPLETED, {
+          intentId: intent.id,
+          createdAt: intent.createdAt,
+        });
+      }
     } catch (e) {
       logger.debug('Refund failed', e);
+
+      // Track refund failure
+      if (analytics) {
+        analytics.trackError('refund', e, {
+          intentId: intent.id,
+          createdAt: intent.createdAt,
+        });
+      }
+
       failedRefunds.push({
         createdAt: intent.createdAt,
         id: intent.id,
@@ -474,7 +501,7 @@ class UserAsset {
     return this.value.balance;
   }
 
-  constructor(public value: UserAssetDatum) {}
+  constructor(public value: UserAssetDatum) { }
 
   getBridgeAssets(dstChainId: number) {
     return this.value.breakdown
@@ -562,7 +589,7 @@ class UserAsset {
   }
 }
 class UserAssets {
-  constructor(public data: UserAssetDatum[]) {}
+  constructor(public data: UserAssetDatum[]) { }
 
   add(asset: UserAssetDatum) {
     this.data.push(asset);

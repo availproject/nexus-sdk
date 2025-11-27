@@ -52,12 +52,12 @@ import { Universe } from '@avail-project/ca-common';
 
 class BridgeAndExecuteQuery {
   constructor(
-    private readonly chainList: ChainListType,
-    private readonly evmClient: WalletClient,
-    private readonly bridge: (input: BridgeParams, options?: OnEventParam) => BridgeHandler,
-    private readonly getUnifiedBalances: () => Promise<UserAssetDatum[]>,
-    private readonly simulationClient: BackendSimulationClient,
-  ) {}
+    private chainList: ChainListType,
+    private evmClient: WalletClient,
+    private bridge: (input: BridgeParams, options?: OnEventParam) => BridgeHandler,
+    private getUnifiedBalances: () => Promise<UserAssetDatum[]>,
+    private simulationClient: BackendSimulationClient,
+  ) { }
 
   private async estimateBridgeAndExecute(params: BridgeAndExecuteParams) {
     const { toChainId, token: tokenSymbol, amount, execute } = params;
@@ -92,32 +92,32 @@ class BridgeAndExecuteQuery {
     const determineGasUsed = params.execute.gas
       ? Promise.resolve({ approvalGas: approvalTx ? 70_000n : 0n, txGas: params.execute.gas })
       : this.simulateBundle({
-          txs,
-          amount: params.amount,
-          userAddress: address,
-          chainId: dstChain.id,
-          tokenAddress: token.contractAddress,
-          tokenSymbol: params.token ?? 'ETH',
-        }).then(({ gas }) => {
-          if (approvalTx) {
-            return {
-              approvalGas: gas[0],
-              txGas: gas[1],
-            };
-          } else {
-            return {
-              approvalGas: 0n,
-              txGas: gas[0],
-            };
-          }
-        });
+        txs,
+        amount: params.amount,
+        userAddress: address,
+        chainId: dstChain.id,
+        tokenAddress: token.contractAddress,
+        tokenSymbol: params.token ?? 'ETH',
+      }).then(({ gas }) => {
+        if (approvalTx) {
+          return {
+            approvalGas: gas[0],
+            txGas: gas[1],
+          };
+        } else {
+          return {
+            approvalGas: 0n,
+            txGas: gas[0],
+          };
+        }
+      });
 
     const determineGasFee = params.execute.gasPrice
       ? Promise.resolve({
-          maxFeePerGas: params.execute.gasPrice,
-          gasPrice: params.execute.gasPrice,
-          maxPriorityFeePerGas: 0n,
-        })
+        maxFeePerGas: params.execute.gasPrice,
+        gasPrice: params.execute.gasPrice,
+        maxPriorityFeePerGas: 0n,
+      })
       : dstPublicClient.estimateFeesPerGas();
 
     // 5. simulate approval(?) and execution + fetch gasPrice + fetch unified balance
@@ -376,6 +376,7 @@ class BridgeAndExecuteQuery {
       bridgeExplorerUrl: bridgeResult.explorerUrl,
       toChainId: params.toChainId,
       bridgeSkipped: skipBridge,
+      intent: bridgeResult.intent,
     };
 
     return result;
@@ -676,7 +677,8 @@ class BridgeAndExecuteQuery {
     const handler = this.bridge(params, options);
     const result = await handler.execute();
     return {
-      explorerUrl: result.explorerURL,
+      explorerUrl: result?.explorerURL ?? '',
+      intent: result.intent,
     };
   };
 

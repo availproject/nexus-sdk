@@ -217,6 +217,7 @@ export const swap = async (
   await dstSwapHandler.process(metadata);
 
   const result = convertMetadataToSwapResult(metadata, options.networkConfig.EXPLORER_URL);
+  result.swapRoute = swapRoute;
 
   performance.mark('swap-end');
   try {
@@ -226,7 +227,7 @@ export const swap = async (
     });
     logger.debug('SwapID', { id });
   } catch (e) {
-    logger.error('postSwap', e, {cause: 'SWAP_FAILED'});
+    logger.error('postSwap', e, { cause: 'SWAP_FAILED' });
   }
 
   calculatePerformance();
