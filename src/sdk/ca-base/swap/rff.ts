@@ -331,7 +331,10 @@ export const createBridgeRFF = async ({
 
     if (allowance < source.valueRaw) {
       const allowanceTx = {
-        data: packERC20Approve(config.chainList.getVaultContractAddress(Number(source.chainID))),
+        data: packERC20Approve(
+          config.chainList.getVaultContractAddress(Number(source.chainID)),
+          source.valueRaw,
+        ),
         to: convertAddressByUniverse(source.tokenAddress, Universe.ETHEREUM),
         value: 0n,
       };
