@@ -176,6 +176,7 @@ export const createPermitSignature = async (
   variant: PermitVariant,
   version: number,
   deadline: bigint,
+  amount: bigint,
 ) => {
   const contract = getContract({
     abi: ERC20ABI,
@@ -202,7 +203,7 @@ export const createPermitSignature = async (
       nonce,
       owner: walletAddress,
       spender: spender,
-      value: maxUint256,
+      value: amount,
     },
     primaryType: 'Permit',
     types: ERC20PermitEIP712Type,
@@ -224,7 +225,7 @@ export const createPermitSignature = async (
             nonce,
             owner: walletAddress,
             spender: spender,
-            value: maxUint256,
+            value: amount,
           },
           primaryType: 'Permit',
           types: ERC20PermitEIP712Type,
@@ -247,7 +248,7 @@ export const createPermitSignature = async (
           },
           message: {
             from: walletAddress,
-            functionSignature: packERC20Approve(spender),
+            functionSignature: packERC20Approve(spender, amount),
             nonce,
           },
           primaryType: 'MetaTransaction',
@@ -389,7 +390,7 @@ export const createPermitAndTransferFromTx = async ({
         abi: ERC20ABI,
         account: owner,
         address: contractAddress,
-        args: [spender, maxUint256],
+        args: [spender, amount],
         functionName: 'approve',
       });
       const hash = await ownerWallet.writeContract(request);
@@ -402,7 +403,7 @@ export const createPermitAndTransferFromTx = async ({
           owner,
           spender,
         },
-        maxUint256,
+        amount,
       );
     } else {
       const approvalTx =
@@ -414,6 +415,7 @@ export const createPermitAndTransferFromTx = async ({
           spender,
           variant,
           version,
+          amount,
         }));
       txList.push(approvalTx);
     }
@@ -549,6 +551,7 @@ export const createPermitApprovalTx = async ({
   spender,
   variant,
   version,
+  amount,
 }: {
   contractAddress: Hex;
   owner: Hex;
@@ -556,6 +559,7 @@ export const createPermitApprovalTx = async ({
   spender: Hex;
   variant: PermitVariant;
   version: number;
+  amount: bigint;
 }) => {
   const deadline = createDeadlineFromNow(3n);
   const { signature } = await createPermitSignature(
@@ -566,6 +570,7 @@ export const createPermitApprovalTx = async ({
     variant,
     version,
     deadline,
+    amount,
   );
 
   const { r, s, v } = parseSignature(signature);
@@ -578,12 +583,12 @@ export const createPermitApprovalTx = async ({
       variant === PermitVariant.PolygonEMT
         ? encodeFunctionData({
             abi: ERC20PermitABI,
-            args: [owner, packERC20Approve(spender), r, s, Number(v)],
+            args: [owner, packERC20Approve(spender, amount), r, s, Number(v)],
             functionName: 'executeMetaTransaction',
           })
         : encodeFunctionData({
             abi: ERC20PermitABI,
-            args: [owner, spender, maxUint256, deadline, Number(v), r, s],
+            args: [owner, spender, amount, deadline, Number(v), r, s],
             functionName: 'permit',
           }),
     to: contractAddress,
@@ -591,7 +596,7 @@ export const createPermitApprovalTx = async ({
   };
 };
 
-export const packERC20Approve = (spender: Hex, amount = maxUint256) => {
+export const packERC20Approve = (spender: Hex, amount: bigint) => {
   return encodeFunctionData({
     abi: ERC20ABI,
     args: [spender, amount],
@@ -1530,7 +1535,7 @@ export const createSweeperTxs = ({
 
     if (!sweeperAllowance || sweeperAllowance === 0n) {
       txs.push({
-        data: packERC20Approve(SWEEPER_ADDRESS),
+        data: packERC20Approve(SWEEPER_ADDRESS, maxUint256),
         to: convertToEVMAddress(tokenAddress),
         value: 0n,
       });
