@@ -1,58 +1,42 @@
-import { Environment } from '@avail-project/ca-common';
 import { ChainListType, logger, SUPPORTED_CHAINS } from '../../../commons';
 import { equalFold, getEVMBalancesForAddress, getTronBalancesForAddress } from '.';
 import { encodePacked, Hex, keccak256, pad, toHex } from 'viem';
-import { balancesToAssets, getAnkrBalances, toFlatBalance } from '../swap/utils';
-import { filterSupportedTokens } from '../swap/data';
+import {
+  ankrBalanceToAssets,
+  getAnkrBalances,
+  toFlatBalance,
+  vscBalancesToAssets,
+} from '../swap/utils';
 
-export const getBalancesForSwap = async (input: { evmAddress: Hex; chainList: ChainListType }) => {
-  const assets = balancesToAssets(
-    false,
-    await getAnkrBalances(input.evmAddress, input.chainList, true),
-    input.chainList,
-  );
-  let balances = toFlatBalance(assets, false);
+export const getBalancesForSwap = async (input: {
+  evmAddress: Hex;
+  chainList: ChainListType;
+  filter: boolean;
+}) => {
+  const ankrBalances = await getAnkrBalances(input.evmAddress, input.chainList, input.filter);
+
+  const assets = ankrBalanceToAssets(input.chainList, ankrBalances);
+  let balances = toFlatBalance(assets);
+
   return { assets, balances };
 };
 
-export const getBalances = async (input: {
-  evmAddress: Hex;
-  chainList: ChainListType;
-  removeTransferFee?: boolean;
-  filter?: boolean;
-  tronAddress?: string;
-  isCA?: boolean;
+export const getBalancesForBridge = async (input: {
   vscDomain: string;
-  networkHint: Environment;
+  evmAddress: Hex;
+  tronAddress?: string;
+  chainList: ChainListType;
 }) => {
-  const isCA = input.isCA ?? false;
-  const removeTransferFee = input.removeTransferFee ?? false;
-  const filter = input.filter ?? true;
-
-  const [ankrBalances, evmBalances, tronBalances] = await Promise.all([
-    input.networkHint === Environment.FOLLY || isCA
-      ? Promise.resolve([])
-      : getAnkrBalances(input.evmAddress, input.chainList, removeTransferFee),
+  const [evmBalances, tronBalances] = await Promise.all([
     getEVMBalancesForAddress(input.vscDomain, input.evmAddress),
     input.tronAddress
       ? getTronBalancesForAddress(input.vscDomain, input.tronAddress as Hex)
       : Promise.resolve([]),
   ]);
 
-  const assets = balancesToAssets(isCA, ankrBalances, input.chainList, evmBalances, tronBalances);
+  const assets = vscBalancesToAssets(input.chainList, evmBalances, tronBalances);
 
-  let balances = toFlatBalance(assets);
-  if (filter) {
-    balances = filterSupportedTokens(balances);
-  }
-
-  logger.debug('getBalances', {
-    assets,
-    balances,
-    removeTransferFee,
-  });
-
-  return { assets, balances };
+  return assets;
 };
 
 const getBalanceSlot = ({

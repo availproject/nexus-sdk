@@ -12,7 +12,7 @@ import { createSiweMessage } from 'viem/siwe';
 import { ChainList } from './chains';
 import { getNetworkConfig } from './config';
 import { NexusAnalyticsEvents } from '../../analytics/events';
-import { getWalletType, extractBreakdownStats } from '../../analytics/utils';
+import { getWalletType } from '../../analytics/utils';
 import {
   ChainListType,
   EthereumProvider,
@@ -48,7 +48,6 @@ import {
   minutesToMs,
   refundExpiredIntents,
   tronHexToEvmAddress,
-  getBalances,
   retrieveSIWESignatureFromLocalStorage,
   storeSIWESignatureToLocalStorage,
   getBalancesForSwap,
@@ -56,6 +55,7 @@ import {
   intentTransform,
   mulDecimals,
   getCosmosURL,
+  getBalancesForBridge,
 } from './utils';
 import { swap } from './swap/swap';
 import { getSwapSupportedChains } from './swap/utils';
@@ -70,7 +70,6 @@ import { createBridgeAndTransferParams } from './query/bridgeAndTransfer';
 import getMaxValueForBridge from './requestHandlers/bridgeMax';
 import { Errors } from './errors';
 import { setLoggerProvider } from './telemetry';
-import Decimal from 'decimal.js';
 
 setLogLevel(LOG_LEVEL.NOLOGS);
 const logger = getLogger();
@@ -105,17 +104,16 @@ export class CA {
     onIntent: OnIntentHook;
     onSwapIntent: OnSwapIntentHook;
   } = {
-      onAllowance: (data) => data.allow(data.sources.map(() => 'min')),
-      onIntent: (data) => data.allow(),
-      onSwapIntent: (data) => data.allow(),
-    };
+    onAllowance: (data) => data.allow(data.sources.map(() => 'min')),
+    onIntent: (data) => data.allow(),
+    onSwapIntent: (data) => data.allow(),
+  };
   protected _initStatus = INIT_STATUS.CREATED;
   protected _networkConfig: NetworkConfig;
   protected _refundInterval: number | undefined;
   protected _initPromise: Promise<void> | null = null;
   private simulationClient: BackendSimulationClient;
   protected _analytics?: AnalyticsManager; // Analytics manager set by subclass
-  private _balancesFetched = false; // Track if balances have been fetched for BALANCES_REFRESHED event
 
   protected constructor(
     config: { network?: NexusNetwork; debug?: boolean; siweChain?: number } = {
@@ -138,26 +136,6 @@ export class CA {
     if (config.debug) {
       setLogLevel(LOG_LEVEL.DEBUG);
     }
-  }
-
-  private getBalanceBucket(totalBalance: string) {
-    const balance = Number(totalBalance);
-    if (balance < 10) {
-      return '$0-$10';
-    }
-    if (balance < 100) {
-      return '$10-$100';
-    }
-    if (balance < 1000) {
-      return '$100-$1K';
-    }
-    if (balance < 10_000) {
-      return '$1K-$10K';
-    }
-    if (balance < 100_000) {
-      return '$10K-$100K';
-    }
-    return '$100K+';
   }
 
   protected _createBridgeHandler = (input: BridgeParams, options?: OnEventParam) => {
@@ -223,70 +201,6 @@ export class CA {
     return intentTransform(rffList, this._networkConfig.EXPLORER_URL, this.chainList);
   };
 
-  protected _getUnifiedBalances = async (includeSwappableBalances = false) => {
-    if (!this._evm || this._initStatus !== INIT_STATUS.DONE) {
-      throw Errors.sdkNotInitialized();
-    }
-
-    // Track if this is a refresh (subsequent call) or initial fetch
-    const isRefresh = this._balancesFetched || false;
-
-    try {
-      // Track balance fetch started
-      if (this._analytics) {
-        this._analytics.track(NexusAnalyticsEvents.BALANCES_FETCH_STARTED, {
-          includeSwappableBalances,
-          isRefresh,
-        });
-      }
-
-      const { assets } = await getBalances({
-        networkHint: this._networkConfig.NETWORK_HINT,
-        evmAddress: (await this._evm.client.requestAddresses())[0],
-        chainList: this.chainList,
-        filter: false,
-        isCA: includeSwappableBalances === false,
-        vscDomain: this._networkConfig.VSC_DOMAIN,
-        tronAddress: this._tron?.address,
-      });
-
-      // Extract balance statistics for analytics
-      const stats = extractBreakdownStats(assets);
-
-      // Track success
-      if (this._analytics) {
-        const balanceBucket = this.getBalanceBucket(assets.reduce((agg, asset) => agg.add(asset.balanceInFiat), new Decimal(0)).toFixed())
-        if (isRefresh) {
-          this._analytics.track(NexusAnalyticsEvents.BALANCES_REFRESHED, {
-            ...stats,
-            includeSwappableBalances,
-            balanceBucket,
-          });
-        } else {
-          this._analytics.track(NexusAnalyticsEvents.BALANCES_FETCH_SUCCESS, {
-            ...stats,
-            includeSwappableBalances,
-            balanceBucket,
-          });
-        }
-      }
-
-      // Mark that balances have been fetched at least once
-      this._balancesFetched = true;
-
-      return assets;
-    } catch (error) {
-      // Track failure
-      if (this._analytics) {
-        this._analytics.trackError('balanceFetch', error, {
-          includeSwappableBalances,
-          isRefresh,
-        });
-      }
-      throw error;
-    }
-  };
-
   protected _getBalancesForSwap = async () => {
     if (!this._evm) {
       throw Errors.sdkNotInitialized();
@@ -295,6 +209,20 @@ export class CA {
     const balances = await getBalancesForSwap({
       evmAddress: (await this._evm.client.requestAddresses())[0],
       chainList: this.chainList,
+      filter: false,
+    });
+    return balances;
+  };
+
+  protected _getBalancesForBridge = async () => {
+    if (!this._evm) {
+      throw Errors.sdkNotInitialized();
+    }
+
+    const balances = await getBalancesForBridge({
+      evmAddress: (await this._evm.client.requestAddresses())[0],
+      chainList: this.chainList,
+      vscDomain: this._networkConfig.VSC_DOMAIN,
     });
     return balances;
   };
@@ -621,7 +549,7 @@ export class CA {
       this.chainList,
       this._evm.client,
       this._createBridgeHandler,
-      this._getUnifiedBalances,
+      this._getBalancesForBridge,
       this.simulationClient,
     );
 
@@ -640,7 +568,7 @@ export class CA {
       this.chainList,
       this._evm.client,
       this._createBridgeHandler,
-      this._getUnifiedBalances,
+      this._getBalancesForBridge,
       this.simulationClient,
     );
 
@@ -656,7 +584,7 @@ export class CA {
       this.chainList,
       this._evm.client,
       this._createBridgeHandler,
-      this._getUnifiedBalances,
+      this._getBalancesForBridge,
       this.simulationClient,
     );
 
@@ -672,7 +600,7 @@ export class CA {
       this.chainList,
       this._evm.client,
       this._createBridgeHandler,
-      this._getUnifiedBalances,
+      this._getBalancesForBridge,
       this.simulationClient,
     );
 

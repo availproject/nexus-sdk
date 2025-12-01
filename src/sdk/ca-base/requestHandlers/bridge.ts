@@ -68,7 +68,7 @@ import {
   waitForIntentFulfilment,
   createRFFromIntent,
   retrieveAddress,
-  getBalances,
+  getBalancesForBridge,
   // createDeadlineFromNow,
 } from '../utils';
 import { TronWeb } from 'tronweb';
@@ -109,37 +109,33 @@ class BridgeHandler {
     console.time('process:preIntentSteps');
 
     console.time('preIntentSteps:API');
-    const [balances, oraclePrices, feeStore] = await Promise.all([
-      getBalances({
-        networkHint: this.options.networkConfig.NETWORK_HINT,
+    const [assets, oraclePrices, feeStore] = await Promise.all([
+      getBalancesForBridge({
         vscDomain: this.options.networkConfig.VSC_DOMAIN,
         evmAddress: this.options.evm.address,
         chainList: this.options.chainList,
         tronAddress: this.options.tron?.address,
-        isCA: true,
       }),
       fetchPriceOracle(this.options.networkConfig.GRPC_URL),
       getFeeStore(this.options.networkConfig.GRPC_URL),
     ]);
 
     logger.debug('Step 0: BuildIntent', {
-      balances,
+      assets,
       oraclePrices,
       feeStore,
     });
 
     console.timeEnd('preIntentSteps:API');
     logger.debug('Step 1:', {
-      balances,
+      assets,
       feeStore,
       oraclePrices,
     });
 
     console.time('preIntentSteps: Parse');
 
-    const { assets } = balances;
     // Step 2: parse simulation results
-
     const userAssets = new UserAssets(assets);
 
     console.time('preIntentSteps: CalculateGas');
@@ -257,7 +253,10 @@ class BridgeHandler {
 
       const allowances = await getAllowances(intent.allSources, this.options.chainList);
 
-      let insufficientAllowanceSources = this.filterInsufficientAllowanceSources(intent, allowances);
+      let insufficientAllowanceSources = this.filterInsufficientAllowanceSources(
+        intent,
+        allowances,
+      );
       this.createExpectedSteps(intent, insufficientAllowanceSources);
 
       let accepted = false;
@@ -376,12 +375,12 @@ class BridgeHandler {
   private async processRFF(intent: Intent): Promise<
     | { retry: true }
     | {
-      retry: false;
-      explorerURL: string;
-      intentID: Long;
-      requestHash: Hex;
-      waitForDoubleCheckTx: () => any;
-    }
+        retry: false;
+        explorerURL: string;
+        intentID: Long;
+        requestHash: Hex;
+        waitForDoubleCheckTx: () => any;
+      }
   > {
     const { msgBasicCosmos, omniversalRFF, signatureData, sources, universes } =
       await createRFFromIntent(intent, this.options, this.params.dstChain.universe);
