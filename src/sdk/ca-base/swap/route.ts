@@ -34,8 +34,8 @@ import {
   fetchPriceOracle,
   getFeeStore,
   mulDecimals,
-  getBalances,
   calculateMaxBridgeFee,
+  getBalancesForSwap,
 } from '../utils';
 import { EADDRESS } from './constants';
 import { FlatBalance } from './data';
@@ -73,13 +73,11 @@ const _exactOutRoute = async (
 ): Promise<SwapRoute> => {
   const [feeStore, { assets, balances }, oraclePrices] = await Promise.all([
     getFeeStore(params.networkConfig.GRPC_URL),
-    getBalances({
-      networkHint: params.networkConfig.NETWORK_HINT,
+    getBalancesForSwap({
       evmAddress: params.address.eoa,
       chainList: params.chainList,
-      removeTransferFee: true,
+      // Use only stable and native coins for exact out.
       filter: true,
-      vscDomain: params.networkConfig.VSC_DOMAIN,
     }),
     fetchPriceOracle(params.networkConfig.GRPC_URL),
   ]);
@@ -524,13 +522,10 @@ const _exactInRoute = async (
 
   const [feeStore, balanceResponse, oraclePrices] = await Promise.all([
     getFeeStore(params.networkConfig.GRPC_URL),
-    getBalances({
-      networkHint: params.networkConfig.NETWORK_HINT,
+    getBalancesForSwap({
       evmAddress: params.address.eoa,
       chainList: params.chainList,
-      removeTransferFee: true,
-      filter: false,
-      vscDomain: params.networkConfig.VSC_DOMAIN,
+      filter: true,
     }),
     fetchPriceOracle(params.networkConfig.GRPC_URL),
   ]).catch((e) => {

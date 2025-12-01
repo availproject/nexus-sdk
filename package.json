@@ -16,7 +16,8 @@
     "docs": "typedoc --plugin typedoc-theme-fresh --theme fresh --options typedoc_html.json",
     "clean": "rimraf dist dist-tarballs html_docs",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "prepare": "npm run build"
   },
   "sideEffects": false,
   "exports": {
@@ -40,7 +41,7 @@
   "author": "decocereus<amartya@availproject.org>, makyl<abhishek@availproject.org>",
   "license": "MIT",
   "dependencies": {
-    "@avail-project/ca-common": "1.0.0-rc.1",
+    "@avail-project/ca-common": "availproject/ca-common#main",
     "@cosmjs/proto-signing": "0.34.0",
     "@cosmjs/stargate": "0.34.0",
     "@metamask/safe-event-emitter": "3.1.2",

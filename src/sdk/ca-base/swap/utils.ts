@@ -616,7 +616,7 @@ const multiplierByChain = (chainID: number) => {
 export const getAnkrBalances = async (
   walletAddress: `0x${string}`,
   chainList: ChainListType,
-  removeTransferFee = false,
+  removeTransferFee: boolean,
 ) => {
   const publicClients: { [id: number]: PublicClient } = {};
   const res = await axios.post<{
@@ -754,9 +754,7 @@ export const toFlatBalance = (
     );
 };
 
-export const balancesToAssets = (
-  isCA: boolean,
-  ankrBalances: AnkrBalances,
+export const vscBalancesToAssets = (
   chainList: ChainListType,
   evmBalances: UnifiedBalanceResponseData[] = [],
   tronBalances: UnifiedBalanceResponseData[] = [],
@@ -765,7 +763,6 @@ export const balancesToAssets = (
   const vscBalances = evmBalances.concat(tronBalances);
 
   logger.debug('balanceToAssets', {
-    ankrBalances,
     evmBalances,
     tronBalances,
   });
@@ -830,16 +827,19 @@ export const balancesToAssets = (
     }
   }
 
+  assets.forEach((asset) => {
+    asset.breakdown.sort((a, b) => b.balanceInFiat - a.balanceInFiat);
+  });
+  assets.sort((a, b) => b.balanceInFiat - a.balanceInFiat);
+  return assets;
+};
+
+export const ankrBalanceToAssets = (chainList: ChainListType, ankrBalances: AnkrBalances) => {
+  const assets: UserAssetDatum[] = [];
+
   for (const asset of ankrBalances) {
     if (new Decimal(asset.balance).equals(0)) {
       continue;
-    }
-
-    if (isCA) {
-      // Checking if a particular token is supported for CA
-      if (!chainList.getTokenByAddress(asset.chainID, asset.tokenAddress)) {
-        continue;
-      }
     }
 
     const d = chainData.get(asset.chainID);
