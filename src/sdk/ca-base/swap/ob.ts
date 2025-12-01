@@ -15,7 +15,7 @@ import Decimal from 'decimal.js';
 import { orderBy, retry } from 'es-toolkit';
 import Long from 'long';
 import { Hex, PrivateKeyAccount, WalletClient } from 'viem';
-import { divDecimals, equalFold, minutesToMs, waitForTxReceipt } from '../utils';
+import { divDecimals, equalFold, minutesToMs, switchChain, waitForTxReceipt } from '../utils';
 import { EADDRESS, SWEEPER_ADDRESS } from './constants';
 import { getTokenDecimals } from './data';
 import { createBridgeRFF } from './rff';
@@ -150,12 +150,9 @@ class BridgeHandler {
           rffDepositCalls: { ...this.depositCalls },
         });
 
-        await this.options.wallet.eoa.switchChain({
-          id: Number(c),
-        });
+        await switchChain(this.options.wallet.eoa, chain);
 
         if (e2e) {
-          await this.options.wallet.eoa.switchChain({ id: chain.id });
           const txs = await createPermitAndTransferFromTx({
             amount: e2e.amount,
             cache: this.options.cache,
@@ -364,9 +361,11 @@ class DestinationSwapHandler {
     metadata: SwapMetadata,
     // inputAmount = this.dstSwap.quote?.inputAmount,
   ) {
-    await this.options.wallet.eoa.switchChain({
-      id: Number(this.options.destinationChainID),
-    });
+    const chain = this.options.chainList.getChainByID(this.dst.chainID);
+    if (!chain) {
+      throw Errors.chainNotFound(this.dst.chainID);
+    }
+    await switchChain(this.options.wallet.eoa, chain);
     try {
       await this.executeSwap(metadata);
     } catch (error) {
@@ -740,7 +739,7 @@ class SourceSwapsHandler {
             );
           }
 
-          await this.options.wallet.eoa.switchChain({ id: Number(chainID) });
+          await switchChain(this.options.wallet.eoa, chain);
           /*
            * EOA creates & sends tx {
              to: ephemeralAddress (we check above it its delegated to calibur), 
