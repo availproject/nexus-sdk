@@ -66,6 +66,7 @@ import {
   equalFold,
   getExplorerURL,
   getVSCURL,
+  switchChain,
   waitForTxReceipt,
 } from '../utils';
 import { SWEEP_ABI } from './abi';
@@ -348,9 +349,7 @@ export const createPermitAndTransferFromTx = async ({
   spender: Hex;
 }) => {
   const txList: Tx[] = [];
-  await ownerWallet.switchChain({
-    id: chain.id,
-  });
+  await switchChain(ownerWallet, chain);
 
   logger.debug('createPermitCalls', {
     contractAddress,
