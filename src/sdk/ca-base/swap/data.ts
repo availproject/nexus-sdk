@@ -3,7 +3,7 @@ import { Hex, PublicClient } from 'viem';
 import { toHex } from 'viem/utils';
 
 import { ChainList } from '../chains';
-import { logger, TokenInfo } from '../../../commons';
+import { TokenInfo } from '../../../commons';
 import { convertTo32BytesHex, equalFold } from '../utils';
 import { EADDRESS } from './constants';
 import { convertToEVMAddress, determinePermitVariantAndVersion } from './utils';
