@@ -16,8 +16,12 @@
     "docs": "typedoc --plugin typedoc-theme-fresh --theme fresh --options typedoc_html.json",
     "clean": "rimraf dist dist-tarballs html_docs",
     "typecheck": "tsc --noEmit",
+    "lint": "biome lint ./src",
+    "lint:fix": "biome lint --write ./src",
+    "format": "biome format --write .",
+    "check": "biome check --write .",
     "prepublishOnly": "npm run build",
-    "prepare": "npm run build"
+    "prepare": "npm run build && (husky || true)"
   },
   "sideEffects": false,
   "exports": {
@@ -64,10 +68,13 @@
     "viem": "^2.31.7"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.3.8",
     "@rollup/plugin-commonjs": "^25.0.8",
     "@rollup/plugin-json": "6.1.0",
     "@rollup/plugin-node-resolve": "^15.3.1",
     "@rollup/plugin-typescript": "^11.1.6",
+    "husky": "9.1.7",
+    "lint-staged": "16.2.7",
     "rollup": "^4.52.4",
     "rollup-plugin-dts": "^6.2.3",
     "rollup-plugin-typescript2": "0.36.0",

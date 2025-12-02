@@ -1,0 +1,249 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+
+  // ========================================
+  // VCS (Version Control System)
+  // ========================================
+  // Tells Biome to respect your .gitignore file when checking files
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true,
+    "defaultBranch": "main"
+  },
+
+  "files": {
+    "ignoreUnknown": false,
+    // Use force-ignore syntax (!!) to exclude directories/files
+    "includes": [
+      "**/*",
+      "!!node_modules",
+      "!!dist",
+      "!!dist-tarballs",
+      "!!html_docs",
+      "!!*.d.ts",
+      "!!.rollup.cache",
+      "!!.vscode",
+      "!!.husky"
+    ]
+  },
+
+  // ========================================
+  // FORMATTER CONFIGURATION
+  // ========================================
+  "formatter": {
+    "enabled": true,
+    // formatWithErrors: Don't format files with syntax errors (prevents corrupting broken code)
+    "formatWithErrors": false,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineEnding": "lf",
+    "lineWidth": 100
+  },
+
+  // JavaScript/TypeScript specific formatting
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      // quoteProperties: Only quote object properties when needed (e.g., "foo-bar": value)
+      "quoteProperties": "asNeeded",
+      // trailingCommas: "es5" = add trailing commas where valid in ES5 (objects, arrays, not function params)
+      "trailingCommas": "es5",
+      "semicolons": "always",
+      "arrowParentheses": "always",
+      "bracketSpacing": true
+    }
+  },
+
+  // JSON specific formatting
+  "json": {
+    "formatter": {
+      "enabled": true,
+      "indentStyle": "space",
+      "indentWidth": 2,
+      "lineWidth": 100
+    },
+    "parser": {
+      "allowComments": true,
+      "allowTrailingCommas": false
+    }
+  },
+
+  // ========================================
+  // LINTER CONFIGURATION
+  // ========================================
+  "linter": {
+    "enabled": true,
+    "rules": {
+      // Enables all Biome recommended rules as baseline
+      "recommended": true,
+
+      // ========================================
+      // Complexity Rules
+      // Catches overly complex or redundant code patterns
+      // ========================================
+      "complexity": {
+        // noArguments: Disallow use of 'arguments' object (use rest parameters instead)
+        "noArguments": "error",
+        // noCommaOperator: Comma operator often obscures side effects
+        "noCommaOperator": "error",
+        "noExtraBooleanCast": "error",
+        // noForEach: Prefer for...of loops (more performant, easier to break/continue)
+        "noForEach": "warn",
+        // noUselessCatch: Catches that just rethrow are pointless
+        "noUselessCatch": "error",
+        "noUselessConstructor": "error",
+        "noUselessLoneBlockStatements": "error",
+        "noUselessRename": "error",
+        "noUselessSwitchCase": "error",
+        "noUselessTernary": "error",
+        "useLiteralKeys": "error",
+        // useOptionalChain: Prefer obj?.prop over obj && obj.prop
+        "useOptionalChain": "warn",
+        "useRegexLiterals": "error"
+      },
+
+      // ========================================
+      // Correctness Rules
+      // Prevents bugs and runtime errors
+      // ========================================
+      "correctness": {
+        "noConstAssign": "error",
+        "noConstantCondition": "error",
+        "noEmptyCharacterClassInRegex": "error",
+        "noEmptyPattern": "error",
+        "noGlobalObjectCalls": "error",
+        "noInvalidConstructorSuper": "error",
+        // noNonoctalDecimalEscape: Prevents \8 and \9 in strings (not valid escapes)
+        "noNonoctalDecimalEscape": "error",
+        // noPrecisionLoss: Catches numbers that lose precision (e.g., 9007199254740993)
+        "noPrecisionLoss": "error",
+        "noSelfAssign": "error",
+        "noSetterReturn": "error",
+        "noSwitchDeclarations": "error",
+        "noUndeclaredVariables": "error",
+        "noUnreachable": "error",
+        "noUnreachableSuper": "error",
+        "noUnsafeFinally": "error",
+        // noUnsafeOptionalChaining: Prevents obj?.prop() in arithmetic/logical ops where it could be undefined
+        "noUnsafeOptionalChaining": "error",
+        "noUnusedLabels": "error",
+        "noUnusedVariables": "warn",
+        "useIsNan": "error",
+        "useValidForDirection": "error",
+        // useValidTypeof: Ensure typeof comparisons use valid string literals
+        "useValidTypeof": "error",
+        "useYield": "error"
+      },
+
+      // ========================================
+      // Security Rules
+      // Prevents security vulnerabilities
+      // ========================================
+      "security": {
+        "noGlobalEval": "error"
+      },
+
+      // ========================================
+      // Style Rules
+      // Enforces best practices and modern syntax
+      // ========================================
+      "style": {
+        // noInferrableTypes: Don't write obvious types like const x: number = 5
+        "noInferrableTypes": "warn",
+        "noNamespace": "error",
+        // noNegationElse: Prefer if (condition) {} else {} over if (!condition) {} else {}
+        "noNegationElse": "warn",
+        // noNonNullAssertion: Discourages foo! (TypeScript non-null assertion)
+        "noNonNullAssertion": "warn",
+        "noParameterAssign": "warn",
+        "noUnusedTemplateLiteral": "error",
+        // useAsConstAssertion: Prefer 'as const' over explicit type for literals
+        "useAsConstAssertion": "error",
+        "useConst": "error",
+        "useDefaultParameterLast": "error",
+        // useEnumInitializers: All enum members should have explicit values
+        "useEnumInitializers": "error",
+        // useExponentiationOperator: Prefer ** over Math.pow()
+        "useExponentiationOperator": "error",
+        // useNodejsImportProtocol: Enforce node: prefix for Node.js imports (import fs from "node:fs")
+        "useNodejsImportProtocol": "error",
+        // useNumberNamespace: Prefer Number.isNaN() over isNaN()
+        "useNumberNamespace": "error",
+        "useTemplate": "warn"
+      },
+
+      // ========================================
+      // Suspicious Rules
+      // Catches likely mistakes and anti-patterns
+      // ========================================
+      "suspicious": {
+        "noAssignInExpressions": "warn",
+        "noAsyncPromiseExecutor": "error",
+        "noCatchAssign": "error",
+        "noClassAssign": "error",
+        "noCompareNegZero": "error",
+        "noControlCharactersInRegex": "error",
+        "noDebugger": "error",
+        // noDoubleEquals: Prefer === over ==
+        "noDoubleEquals": "warn",
+        "noDuplicateCase": "error",
+        "noDuplicateClassMembers": "error",
+        "noDuplicateObjectKeys": "error",
+        "noDuplicateParameters": "error",
+        "noEmptyBlockStatements": "warn",
+        "noExplicitAny": "warn",
+        "noExtraNonNullAssertion": "error",
+        // noFallthroughSwitchClause: Prevents accidental fall-through in switch statements
+        "noFallthroughSwitchClause": "error",
+        "noFunctionAssign": "error",
+        "noGlobalAssign": "error",
+        "noImportAssign": "error",
+        "noLabelVar": "error",
+        "noMisleadingCharacterClass": "error",
+        // noPrototypeBuiltins: Prevents obj.hasOwnProperty() (use Object.prototype.hasOwnProperty.call() instead)
+        "noPrototypeBuiltins": "error",
+        "noRedeclare": "error",
+        "noSelfCompare": "error",
+        "noShadowRestrictedNames": "error",
+        "noSparseArray": "warn",
+        // noUnsafeDeclarationMerging: Prevents merging class and interface with same name
+        "noUnsafeDeclarationMerging": "error",
+        "noUnsafeNegation": "error",
+        // noVar: Use const/let instead of var
+        "noVar": "error",
+        "useDefaultSwitchClauseLast": "error",
+        "useGetterReturn": "error"
+      },
+
+      // ========================================
+      // Performance Rules
+      // Optimizations for better runtime performance
+      // ========================================
+      "performance": {
+        // noAccumulatingSpread: Warns against [...arr, item] in loops (quadratic complexity)
+        "noAccumulatingSpread": "warn",
+        // noDelete: delete operator is slow, prefer setting to undefined or using Map
+        "noDelete": "warn"
+      }
+    }
+  },
+
+  // ========================================
+  // OVERRIDES
+  // Special rules for specific file patterns
+  // ========================================
+  "overrides": [
+    {
+      // Test files can use 'any' more liberally
+      "includes": ["*.test.ts", "*.spec.ts", "**/__tests__/**"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off"
+          }
+        }
+      }
+    }
+  ]
+}
