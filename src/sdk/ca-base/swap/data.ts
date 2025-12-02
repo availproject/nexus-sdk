@@ -3,7 +3,7 @@ import { Hex, PublicClient } from 'viem';
 import { toHex } from 'viem/utils';
 
 import { ChainList } from '../chains';
-import { TokenInfo } from '../../../commons';
+import { logger, TokenInfo } from '../../../commons';
 import { convertTo32BytesHex, equalFold } from '../utils';
 import { EADDRESS } from './constants';
 import { convertToEVMAddress, determinePermitVariantAndVersion } from './utils';
@@ -387,22 +387,27 @@ export type FlatBalance = {
 };
 
 const filterSupportedTokens = (tokens: FlatBalance[]) => {
-  return tokens.filter((t) => {
-    const d = chainData.get(t.chainID);
-    if (!d) {
-      return false;
-    }
-    const token = d.find((dt) => equalFold(dt.TokenContractAddress, t.tokenAddress));
-    if (!token) {
-      return false;
-    }
+  return tokens.filter((t) => isTokenSupported(t.chainID, t.tokenAddress));
+};
 
-    if (token.IsGasToken) {
-      return true;
-    }
+const isTokenSupported = (chainId: number, contractAddress: Hex) => {
+  const d = chainData.get(chainId);
+  if (!d) {
+    return false;
+  }
 
-    return true;
+  const token = d.find((dt) => {
+    return equalFold(dt.TokenContractAddress, contractAddress);
   });
+  if (!token) {
+    return false;
+  }
+
+  if (token.IsGasToken) {
+    return true;
+  }
+
+  return true;
 };
 
 const getTokenVersion = async (tokenAddress: Hex, client: PublicClient) => {
@@ -434,4 +439,10 @@ export const getTokenDecimals = (chainID: number | string, contractAddress: Byte
   };
 };
 
-export { chainData, filterSupportedTokens, getSwapSupportedChains, getTokenVersion };
+export {
+  chainData,
+  filterSupportedTokens,
+  getSwapSupportedChains,
+  getTokenVersion,
+  isTokenSupported,
+};

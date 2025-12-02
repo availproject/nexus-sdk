@@ -71,7 +71,7 @@ import {
 } from '../utils';
 import { SWEEP_ABI } from './abi';
 import { CALIBUR_ADDRESS, EADDRESS, SWEEPER_ADDRESS } from './constants';
-import { chainData, FlatBalance, getTokenVersion } from './data';
+import { FlatBalance, getTokenVersion, isTokenSupported } from './data';
 import { createSBCTxFromCalls, waitForSBCTxReceipt } from './sbc';
 import Long from 'long';
 import { Errors } from '../errors';
@@ -833,7 +833,11 @@ export const vscBalancesToAssets = (
   return assets;
 };
 
-export const ankrBalanceToAssets = (chainList: ChainListType, ankrBalances: AnkrBalances) => {
+export const ankrBalanceToAssets = (
+  chainList: ChainListType,
+  ankrBalances: AnkrBalances,
+  filter: boolean,
+) => {
   const assets: UserAssetDatum[] = [];
 
   for (const asset of ankrBalances) {
@@ -841,8 +845,7 @@ export const ankrBalanceToAssets = (chainList: ChainListType, ankrBalances: Ankr
       continue;
     }
 
-    const d = chainData.get(asset.chainID);
-    if (!d) {
+    if (filter && !isTokenSupported(asset.chainID, convertTo32BytesHex(asset.tokenAddress))) {
       continue;
     }
 
