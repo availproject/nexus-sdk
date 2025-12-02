@@ -1,5 +1,6 @@
 import { PublicClient } from 'viem';
 import { getLogger } from '../../../commons';
+import { Errors } from '../errors';
 
 const logger = getLogger();
 
@@ -98,6 +99,6 @@ export const getGasPriceRecommendations = async (
     return recommendations;
   } catch (error) {
     logger.error('Failed to get gas price recommendations', { error });
-    throw new Error(`Failed to get gas price recommendations: ${error}`);
+    throw Errors.internal(`Failed to get gas price recommendations: ${error}`);
   }
 };
