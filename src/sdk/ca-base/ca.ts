@@ -56,6 +56,7 @@ import {
   mulDecimals,
   getCosmosURL,
   getBalancesForBridge,
+  cosmosRefundIntent,
 } from './utils';
 import { swap } from './swap/swap';
 import { getSwapSupportedChains } from './swap/utils';
@@ -589,6 +590,18 @@ export class CA {
     );
 
     return handler.execute(params, options);
+  };
+
+  protected _initiateRefund = async (intentID: number) => {
+    if (!this._evm || !this.#cosmos) {
+      throw Errors.sdkNotInitialized();
+    }
+
+    await cosmosRefundIntent({
+      intentID,
+      address: this._evm.address,
+      client: this.#cosmos.client,
+    });
   };
 
   protected _simulateExecute = (params: ExecuteParams) => {
