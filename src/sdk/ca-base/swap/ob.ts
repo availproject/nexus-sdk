@@ -528,8 +528,8 @@ class DestinationSwapHandler {
       )
     ) {
       const rate = swap.inputAmount.min.toNumber();
-      const tolerance = swap.inputAmount.min.toNumber() - swap.inputAmount.max.toNumber();
-      throw Errors.ratesChangedBeyondTolerance(rate, tolerance);
+      const tolerance = swap.inputAmount.max.minus(swap.inputAmount.min);
+      throw Errors.ratesChangedBeyondTolerance(rate, tolerance.toNumber());
     }
 
     this.data = {
