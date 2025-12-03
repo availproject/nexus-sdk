@@ -106,9 +106,6 @@ class BridgeHandler {
   }
 
   private readonly buildIntent = async (sourceChains: number[] = []) => {
-    console.time('process:preIntentSteps');
-
-    console.time('preIntentSteps:API');
     const [assets, oraclePrices, feeStore] = await Promise.all([
       getBalancesForBridge({
         vscDomain: this.options.networkConfig.VSC_DOMAIN,
@@ -120,25 +117,14 @@ class BridgeHandler {
       getFeeStore(this.options.networkConfig.GRPC_URL),
     ]);
 
-    logger.debug('Step 0: BuildIntent', {
-      assets,
-      oraclePrices,
-      feeStore,
-    });
-
-    console.timeEnd('preIntentSteps:API');
     logger.debug('Step 1:', {
       assets,
       feeStore,
       oraclePrices,
     });
 
-    console.time('preIntentSteps: Parse');
-
     // Step 2: parse simulation results
     const userAssets = new UserAssets(assets);
-
-    console.time('preIntentSteps: CalculateGas');
 
     const nativeAmountInDecimal = divDecimals(
       this.params.nativeAmount,
@@ -158,15 +144,12 @@ class BridgeHandler {
       nativeAmountInDecimal,
     );
 
-    console.timeEnd('preIntentSteps: CalculateGas');
-
     logger.debug('preIntent:1', {
       gasInNative: nativeAmountInDecimal.toFixed(),
       gasInToken: gasInToken.toFixed(),
     });
 
     // Step 4: create intent
-    console.time('preIntentSteps: CreateIntent');
     const intent = await this.createIntent({
       amount: tokenAmountInDecimal,
       assets: userAssets,
@@ -176,8 +159,6 @@ class BridgeHandler {
       sourceChains,
       token: this.params.dstToken,
     });
-    console.timeEnd('preIntentSteps: CreateIntent');
-    console.timeEnd('process:preIntentSteps');
 
     return intent;
   };
@@ -293,11 +274,8 @@ class BridgeHandler {
 
       this.markStepDone(BRIDGE_STEPS.INTENT_ACCEPTED);
 
-      console.time('process:AllowanceHook');
-
       // Step 5: set allowance if not set
       await this.waitForOnAllowanceHook(insufficientAllowanceSources);
-      console.timeEnd('process:AllowanceHook');
 
       // Step 6: Process intent
       logger.debug('intent', { intent });

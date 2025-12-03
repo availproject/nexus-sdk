@@ -37,6 +37,7 @@ import {
   CosmosOptions,
   MAINNET_CHAIN_IDS,
 } from '../../../commons';
+import { orderBy } from 'es-toolkit';
 
 const logger = getLogger();
 
@@ -110,15 +111,14 @@ export const createIntent = ({
     protocolFee: protocolFee.toFixed(),
   });
 
-  const sortedAssets = [...assets].sort((a, b) => {
-    if (a.chainID === MAINNET_CHAIN_IDS.ETHEREUM) return 1; // a goes to end
-    if (b.chainID === MAINNET_CHAIN_IDS.ETHEREUM) return -1; // b goes to end
-
-    return Decimal.sub(
-      Decimal.add(a.eoaBalance, a.ephemeralBalance),
-      Decimal.add(b.eoaBalance, b.ephemeralBalance),
-    ).toNumber(); // sort others by balance
-  });
+  const sortedAssets = orderBy(
+    assets,
+    [
+      (a) => (a.chainID === MAINNET_CHAIN_IDS.ETHEREUM ? 1 : 0),
+      (a) => Decimal.add(a.eoaBalance, a.ephemeralBalance).toNumber(),
+    ],
+    ['asc', 'desc'],
+  );
 
   for (const asset of sortedAssets) {
     if (
