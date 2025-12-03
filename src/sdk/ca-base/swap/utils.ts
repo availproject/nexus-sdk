@@ -71,7 +71,7 @@ import {
 } from '../utils';
 import { SWEEP_ABI } from './abi';
 import { CALIBUR_ADDRESS, EADDRESS, SWEEPER_ADDRESS } from './constants';
-import { FlatBalance, getTokenVersion, isTokenSupported } from './data';
+import { FlatBalance, getPermitVariantAndVersion, isTokenSupported } from './data';
 import { createSBCTxFromCalls, waitForSBCTxReceipt } from './sbc';
 import Long from 'long';
 import { Errors } from '../errors';
@@ -382,7 +382,7 @@ export const createPermitAndTransferFromTx = async ({
   logger.debug('createPermitTx', { allowance, amount });
 
   if (allowance < amount) {
-    const { variant, version } = await getTokenVersion(contractAddress, publicClient);
+    const { variant, version } = await getPermitVariantAndVersion(contractAddress, publicClient);
     if (variant === PermitVariant.Unsupported) {
       const { request } = await publicClient.simulateContract({
         chain,

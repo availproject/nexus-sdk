@@ -165,8 +165,8 @@ const _exactOutRoute = async (
     // min is what is actually needed for dst swap, we add 1% for bridge related fees and 1% buffer for source swaps.
     // so we are charging min + 2% from the user, we add the buffer so the swap definitely happens and any pending amounts are sent back to the user.
     const min = destinationSwap.inputAmount;
-    // Apply 2% buffer to destination input amount
-    const max = applyBuffer(destinationSwap.inputAmount, 2).toDP(
+    // Apply 5% buffer to destination input amount - any leftover is sent back in COT.
+    const max = applyBuffer(destinationSwap.inputAmount, 5).toDP(
       dstChainCOT.decimals,
       Decimal.ROUND_CEIL,
     );

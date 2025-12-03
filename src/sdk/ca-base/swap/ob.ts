@@ -193,7 +193,7 @@ class BridgeHandler {
           ...ops.map(([chainID, hash]) =>
             wrap(
               Number(chainID),
-              waitForTxReceipt(hash, this.options.publicClientList.get(chainID), 2),
+              waitForTxReceipt(hash, this.options.publicClientList.get(chainID), 1),
             ),
           ),
         );
@@ -255,15 +255,19 @@ class BridgeHandler {
     this.status = this.waitForFill();
 
     if (this.status.intentID.toNumber() != 0) {
-      await retry(
-        async () => {
-          await this.createDoubleCheckTx().then(() => {
-            logger.info('double-check-returned');
-            return true;
-          });
-        },
-        { delay: 3000, retries: 3 },
-      );
+      const dbc = this.createDoubleCheckTx;
+      // we don't have to wait for this.
+      (async function () {
+        await retry(
+          async () => {
+            await dbc().then(() => {
+              logger.info('double-check-returned');
+              return true;
+            });
+          },
+          { delay: 3000, retries: 3 },
+        );
+      })();
 
       metadata.rff_id = BigInt(this.status.intentID.toNumber());
       this.options.emitter.emit(SWAP_STEPS.RFF_ID(this.status.intentID.toNumber()));
@@ -528,8 +532,8 @@ class DestinationSwapHandler {
       )
     ) {
       const rate = swap.inputAmount.min.toNumber();
-      const tolerance = swap.inputAmount.min.toNumber() - swap.inputAmount.max.toNumber();
-      throw Errors.ratesChangedBeyondTolerance(rate, tolerance);
+      const tolerance = swap.inputAmount.max.minus(swap.inputAmount.min);
+      throw Errors.ratesChangedBeyondTolerance(rate, tolerance.toNumber());
     }
 
     this.data = {
@@ -761,7 +765,7 @@ class SourceSwapsHandler {
             SWAP_STEPS.SOURCE_SWAP_HASH([BigInt(chain.id), hash], this.options.chainList),
           );
 
-          waitingPromises.push(wrap(Number(chainID), waitForTxReceipt(hash, publicClient, 2)));
+          waitingPromises.push(wrap(Number(chainID), waitForTxReceipt(hash, publicClient, 1)));
         } else {
           logger.debug('sourceSwapsHandler', {
             calls: sbcCalls.calls,
@@ -792,7 +796,7 @@ class SourceSwapsHandler {
 
               return wrap(
                 Number(chainID),
-                waitForTxReceipt(hash, this.options.publicClientList.get(chainID), 2),
+                waitForTxReceipt(hash, this.options.publicClientList.get(chainID), 1),
               );
             })(),
           );
