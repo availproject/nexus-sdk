@@ -45,7 +45,6 @@ import {
   createPublicClientWithFallback,
   equalFold,
   FeeStore,
-  fetchPriceOracle,
   getAllowances,
   getExplorerURL,
   getFeeStore,
@@ -108,28 +107,19 @@ class BridgeHandler {
     console.time('process:preIntentSteps');
 
     console.time('preIntentSteps:API');
-    const [assets, oraclePrices, feeStore] = await Promise.all([
+    const [assets, feeStore] = await Promise.all([
       getBalancesForBridge({
         vscDomain: this.options.networkConfig.VSC_DOMAIN,
         evmAddress: this.options.evm.address,
         chainList: this.options.chainList,
         tronAddress: this.options.tron?.address,
       }),
-      fetchPriceOracle(this.options.networkConfig.GRPC_URL),
       getFeeStore(this.options.networkConfig.GRPC_URL),
     ]);
 
     logger.debug('Step 0: BuildIntent', {
       assets,
-      oraclePrices,
       feeStore,
-    });
-
-    console.timeEnd('preIntentSteps:API');
-    logger.debug('Step 1:', {
-      assets,
-      feeStore,
-      oraclePrices,
     });
 
     console.time('preIntentSteps: Parse');
@@ -139,30 +129,10 @@ class BridgeHandler {
 
     console.time('preIntentSteps: CalculateGas');
 
-    const nativeAmountInDecimal = divDecimals(
-      this.params.nativeAmount,
-      this.params.dstChain.nativeCurrency.decimals,
-    );
-
     const tokenAmountInDecimal = divDecimals(
       this.params.tokenAmount,
       this.params.dstToken.decimals,
     );
-
-    const gasInToken = convertGasToToken(
-      this.params.dstToken,
-      oraclePrices,
-      this.params.dstChain.id,
-      this.params.dstChain.universe,
-      nativeAmountInDecimal,
-    );
-
-    console.timeEnd('preIntentSteps: CalculateGas');
-
-    logger.debug('preIntent:1', {
-      gasInNative: nativeAmountInDecimal.toFixed(),
-      gasInToken: gasInToken.toFixed(),
-    });
 
     // Step 4: create intent
     console.time('preIntentSteps: CreateIntent');
@@ -170,8 +140,8 @@ class BridgeHandler {
       amount: tokenAmountInDecimal,
       assets: userAssets,
       feeStore,
-      gas: nativeAmountInDecimal,
-      gasInToken,
+      gas: new Decimal(0),
+      gasInToken: new Decimal(0),
       sourceChains,
       token: this.params.dstToken,
     });

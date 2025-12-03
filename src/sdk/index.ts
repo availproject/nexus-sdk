@@ -364,12 +364,12 @@ export class NexusSDK extends CA {
    * @param page page number
    * @returns list of intents
    */
-  public async getMyIntents(page: number = 1): Promise<RequestForFunds[]> {
-    const opId = this.analytics.startOperation(NexusAnalyticsEvents.GET_MY_INTENTS);
-    const result = await this._getMyIntents(page);
-    this.analytics.endOperation(opId, { success: true });
-    return result;
-  }
+  // public async getMyIntents(page: number = 1): Promise<RequestForFunds[]> {
+  //   const opId = this.analytics.startOperation(NexusAnalyticsEvents.GET_MY_INTENTS);
+  //   const result = await this._getMyIntents(page);
+  //   this.analytics.endOperation(opId, { success: true });
+  //   return result;
+  // }
 
   /**
    * Set callback for intent status updates

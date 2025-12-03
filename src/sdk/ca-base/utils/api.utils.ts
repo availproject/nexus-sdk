@@ -45,24 +45,24 @@ const getCosmosQueryClient = (grpcURL: string) => {
   return cosmosQueryClient;
 };
 
-const PAGE_LIMIT = 100;
+// const PAGE_LIMIT = 100;
 
-async function fetchMyIntents(address: string, grpcURL: string, page = 1) {
-  try {
-    const response = await getCosmosQueryClient(grpcURL).RequestForFundsByAddress({
-      account: address,
-      pagination: {
-        limit: PAGE_LIMIT,
-        offset: (page - 1) * PAGE_LIMIT,
-        reverse: true,
-      },
-    });
-    return response.requestForFunds;
-  } catch (error) {
-    logger.error('Failed to fetch intents', error);
-    throw Errors.cosmosError('Failed to fetch intents');
-  }
-}
+// async function fetchMyIntents(address: string, grpcURL: string, page = 1) {
+//   try {
+//     const response = await getCosmosQueryClient(grpcURL).GetRequestForFunds({
+//       account: address,
+//       pagination: {
+//         limit: PAGE_LIMIT,
+//         offset: (page - 1) * PAGE_LIMIT,
+//         reverse: true,
+//       },
+//     });
+//     return response.requestForFunds;
+//   } catch (error) {
+//     logger.error('Failed to fetch intents', error);
+//     throw Errors.cosmosError('Failed to fetch intents');
+//   }
+// }
 
 export const intentTransform = (
   input: RequestForFunds[],
@@ -139,7 +139,7 @@ export const intentTransform = (
 
 async function fetchProtocolFees(grpcURL: string) {
   try {
-    const response = await getCosmosQueryClient(grpcURL).ProtocolFees({});
+    const response = await getCosmosQueryClient(grpcURL).GetProtocolFees({});
     return response;
   } catch (error) {
     logger.error('Failed to fetch protocol fees', error);
@@ -149,29 +149,13 @@ async function fetchProtocolFees(grpcURL: string) {
 
 async function fetchSolverData(grpcURL: string) {
   try {
-    const response = await getCosmosQueryClient(grpcURL).SolverDataAll({});
+    const response = await getCosmosQueryClient(grpcURL).GetSolverData({});
     return response;
   } catch (error) {
     logger.error('Failed to fetch solver data', error);
     throw Errors.cosmosError('Failed to fetch solver data');
   }
 }
-
-const fetchPriceOracle = async (grpcURL: string) => {
-  const data = await getCosmosQueryClient(grpcURL).PriceOracleData({});
-  if (data.PriceOracleData?.priceData?.length) {
-    const oracleRates: OraclePriceResponse = data.PriceOracleData?.priceData.map((data) => ({
-      chainId: bytesToNumber(data.chainID),
-      priceUsd: new Decimal(bytesToNumber(data.price)).div(Decimal.pow(10, data.decimals)),
-      tokenAddress: convertAddressByUniverse(toHex(data.tokenAddress), data.universe),
-      tokensPerUsd: new Decimal(1).div(
-        new Decimal(bytesToNumber(data.price)).div(Decimal.pow(10, data.decimals)),
-      ),
-    }));
-    return oracleRates;
-  }
-  throw Errors.internal('No price data found.');
-};
 
 const coinbasePrices = {
   lastUpdatedAt: 0,
@@ -295,13 +279,13 @@ const getFeeStore = async (grpcURL: string) => {
   const [p, s] = await Promise.allSettled([fetchProtocolFees(grpcURL), fetchSolverData(grpcURL)]);
   if (p.status === 'fulfilled') {
     logger.debug('getFeeStore', {
-      collection: p.value.ProtocolFees?.collectionFees,
-      fulfilment: p.value.ProtocolFees?.fulfilmentFees,
-      protocol: p.value.ProtocolFees?.feeBP,
+      collection: p.value.protocolFees?.collectionFees,
+      fulfilment: p.value.protocolFees?.fulfilmentFees,
+      protocol: p.value.protocolFees?.feeBP,
     });
-    feeData.fee.protocol.feeBP = p.value.ProtocolFees?.feeBP.toString(10) ?? '0';
+    feeData.fee.protocol.feeBP = p.value.protocolFees?.feeBP.toString(10) ?? '0';
     feeData.fee.collection =
-      p.value.ProtocolFees?.collectionFees.map((fee) => {
+      p.value.protocolFees?.collectionFees.map((fee) => {
         return {
           chainID: bytesToNumber(fee.chainID),
           fee: bytesToNumber(fee.fee),
@@ -310,7 +294,7 @@ const getFeeStore = async (grpcURL: string) => {
         };
       }) ?? [];
     feeData.fee.fulfilment =
-      p.value.ProtocolFees?.fulfilmentFees.map((fee) => {
+      p.value.protocolFees?.fulfilmentFees.map((fee) => {
         return {
           chainID: bytesToNumber(fee.chainID),
           fee: bytesToNumber(fee.fee),
@@ -321,7 +305,7 @@ const getFeeStore = async (grpcURL: string) => {
   }
   if (s.status === 'fulfilled') {
     feeData.solverRoutes =
-      s.value.solverData[0]?.advertisedFees.map((s) => {
+      s.value.solverData?.advertisedFees.map((s) => {
         return {
           destinationChainID: bytesToNumber(s.destinationChainID),
           destinationTokenAddress: convertAddressByUniverse(
@@ -577,7 +561,7 @@ const vscCreateRFF = async (
 };
 
 const checkIntentFilled = async (intentID: Long, grpcURL: string) => {
-  const response = await getCosmosQueryClient(grpcURL).RequestForFunds({
+  const response = await getCosmosQueryClient(grpcURL).GetRequestForFunds({
     id: intentID,
   });
   if (response.requestForFunds?.fulfilled) {
@@ -590,8 +574,7 @@ const checkIntentFilled = async (intentID: Long, grpcURL: string) => {
 
 export {
   checkIntentFilled,
-  fetchMyIntents,
-  fetchPriceOracle,
+  // fetchMyIntents,
   fetchProtocolFees,
   fetchSolverData,
   getCoinbasePrices,

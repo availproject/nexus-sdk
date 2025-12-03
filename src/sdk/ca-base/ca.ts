@@ -43,7 +43,7 @@ import { AnalyticsManager } from '../../analytics';
 import { createBridgeParams } from './requestHandlers/helpers';
 import {
   cosmosFeeGrant,
-  fetchMyIntents,
+  // fetchMyIntents,
   getSupportedChains,
   minutesToMs,
   refundExpiredIntents,
@@ -52,7 +52,7 @@ import {
   storeSIWESignatureToLocalStorage,
   getBalancesForSwap,
   switchChain,
-  intentTransform,
+  // intentTransform,
   mulDecimals,
   getCosmosURL,
   getBalancesForBridge,
@@ -195,12 +195,12 @@ export class CA {
     this._initStatus = INIT_STATUS.CREATED;
   };
 
-  protected _getMyIntents = async (page = 1) => {
-    const { wallet } = await this._getCosmosWallet();
-    const address = (await wallet.getAccounts())[0].address;
-    const rffList = await fetchMyIntents(address, this._networkConfig.GRPC_URL, page);
-    return intentTransform(rffList, this._networkConfig.EXPLORER_URL, this.chainList);
-  };
+  // protected _getMyIntents = async (page = 1) => {
+  //   const { wallet } = await this._getCosmosWallet();
+  //   const address = (await wallet.getAccounts())[0].address;
+  //   const rffList = await fetchMyIntents(address, this._networkConfig.GRPC_URL, page);
+  //   return intentTransform(rffList, this._networkConfig.EXPLORER_URL, this.chainList);
+  // };
 
   protected _getBalancesForSwap = async () => {
     if (!this._evm) {

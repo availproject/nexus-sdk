@@ -3,7 +3,7 @@ import {
   MsgCreatePendingClaimResponse,
   MsgCreateRequestForFunds,
   MsgCreateRequestForFundsResponse,
-=} from '@avail-project/ca-common';
+} from '@avail-project/ca-common';
 import { isDeliverTxFailure, isDeliverTxSuccess } from '@cosmjs/stargate';
 import axios from 'axios';
 import { connect } from 'it-ws/client';
