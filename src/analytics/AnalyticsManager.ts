@@ -51,13 +51,13 @@
  * });
  * ```
  */
-import { AnalyticsProvider } from './providers/AnalyticsProvider';
+import type { AnalyticsProvider } from './providers/AnalyticsProvider';
 import { PostHogProvider } from './providers/PostHogProvider';
 import { NoOpProvider } from './providers/NoOpProvider';
 import { SessionManager } from './session';
 import { PerformanceTracker } from './performance';
 import { NexusAnalyticsEvents } from './events';
-import { AnalyticsConfig, BaseEventProperties } from './types';
+import type { AnalyticsConfig, BaseEventProperties } from './types';
 import { extractErrorCode } from './utils';
 import { version } from '../../package.json' with { type: 'json' };
 
@@ -361,15 +361,25 @@ export class AnalyticsManager {
   /**
    * Start tracking an operation's performance
    */
-  startOperation(operationName: string, metadata?: Record<string, unknown>): string {
+  startPerformanceTracking(operationName: string, metadata?: Record<string, unknown>) {
+    if (!this.enabled) return {
+      endPerformanceTracking: (result: { success: boolean; error?: Error }) => {
+        //
+      }
+    }
     this.session.trackOperationAttempt();
-    return this.performance.startOperation(operationName, metadata);
+    const operationId = this.performance.startOperation(operationName, metadata);
+    return {
+      endPerformanceTracking: (result: { success: boolean; error?: Error }) => {
+        this.endPerformanceTracking(operationId, result);
+      },
+    }
   }
 
   /**
    * End tracking an operation and emit performance event
    */
-  endOperation(
+  private endPerformanceTracking(
     operationId: string,
     result: { success: boolean; error?: Error }
   ): void {
@@ -389,19 +399,19 @@ export class AnalyticsManager {
   /**
    * Wrap an async operation with automatic tracking
    */
-  async trackOperation<T>(
+  async trackPerformance<T>(
     operationName: string,
     fn: () => Promise<T>,
     metadata?: Record<string, unknown>
   ): Promise<T> {
-    const operationId = this.startOperation(operationName, metadata);
+    const tracker = this.startPerformanceTracking(operationName, metadata);
 
     try {
       const result = await fn();
-      this.endOperation(operationId, { success: true });
+      tracker.endPerformanceTracking({ success: true });
       return result;
     } catch (error) {
-      this.endOperation(operationId, { success: false, error: error as Error });
+      tracker.endPerformanceTracking({ success: false, error: error as Error });
       throw error;
     }
   }
