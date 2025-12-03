@@ -1,0 +1,103 @@
+name: Build Verification
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  # Test bundler compatibility
+  bundler-compatibility:
+    name: Test ${{ matrix.bundler }} bundler
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        bundler: [vite, nextjs-turbopack, webpack, esbuild]
+        node-version: [20]
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      
+      - name: Build SDK package
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+          pnpm pack
+      
+      - name: Install test project dependencies
+        run: |
+          if [ "${{ matrix.bundler }}" = "vite" ]; then
+            cd .ci-tests/vite-test
+          elif [ "${{ matrix.bundler }}" = "nextjs-turbopack" ]; then
+            cd .ci-tests/nextjs-test
+          elif [ "${{ matrix.bundler }}" = "webpack" ]; then
+            cd .ci-tests/webpack-test
+          elif [ "${{ matrix.bundler }}" = "esbuild" ]; then
+            cd .ci-tests/esbuild-test
+          fi
+          
+          # Install dependencies
+          pnpm install
+          
+          # Install the built SDK package
+          SDK_TARBALL=$(ls ../../avail-project-nexus-core-*.tgz | head -1)
+          pnpm add "file:${SDK_TARBALL}"
+      
+      - name: Build with ${{ matrix.bundler }}
+        run: |
+          if [ "${{ matrix.bundler }}" = "vite" ]; then
+            cd .ci-tests/vite-test
+            pnpm build
+          elif [ "${{ matrix.bundler }}" = "nextjs-turbopack" ]; then
+            cd .ci-tests/nextjs-test
+            pnpm build --turbo
+          elif [ "${{ matrix.bundler }}" = "webpack" ]; then
+            cd .ci-tests/webpack-test
+            pnpm build
+          elif [ "${{ matrix.bundler }}" = "esbuild" ]; then
+            cd .ci-tests/esbuild-test
+            pnpm build
+          fi
+      
+      - name: Verify bundle output
+        run: |
+          if [ "${{ matrix.bundler }}" = "vite" ]; then
+            cd .ci-tests/vite-test
+            if [ ! -d "dist" ]; then
+              echo "Error: Vite build output not found"
+              exit 1
+            fi
+          elif [ "${{ matrix.bundler }}" = "nextjs-turbopack" ]; then
+            cd .ci-tests/nextjs-test
+            if [ ! -d ".next" ]; then
+              echo "Error: Next.js build output not found"
+              exit 1
+            fi
+          elif [ "${{ matrix.bundler }}" = "webpack" ]; then
+            cd .ci-tests/webpack-test
+            if [ ! -d "dist" ]; then
+              echo "Error: Webpack build output not found"
+              exit 1
+            fi
+          elif [ "${{ matrix.bundler }}" = "esbuild" ]; then
+            cd .ci-tests/esbuild-test
+            if [ ! -d "dist" ]; then
+              echo "Error: esbuild build output not found"
+              exit 1
+            fi
+          fi
+          echo "✅ ${{ matrix.bundler }} bundle verified successfully"
