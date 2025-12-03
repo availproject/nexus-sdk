@@ -225,8 +225,6 @@ const _exactOutRoute = async (
     dstSwapInputAmountInDecimal: dstSwapInputAmountInDecimal.toFixed(),
   });
 
-  console.log({ cotAsset, dstChainCOTBalance });
-
   // ------------------------------
   // 5. Determine if source swaps are required
   // ------------------------------
@@ -794,6 +792,12 @@ const _exactInRoute = async (
       Decimal.ROUND_FLOOR,
     );
 
+    // const createdAt = Date.now();
+    let dstEOAToEphTx: {
+      amount: bigint;
+      contractAddress: Hex;
+    } | null = null;
+
     // If toTokenAddress is not same as cot then create dstSwap
     if (!equalFold(input.toTokenAddress, dstChainCOTAddress)) {
       destinationSwap = await destinationSwapWithExactIn(
@@ -804,22 +808,16 @@ const _exactInRoute = async (
         params.aggregators,
         dstChainCOT.currencyID,
       );
-    }
 
-    // const createdAt = Date.now();
-    let dstEOAToEphTx: {
-      amount: bigint;
-      contractAddress: Hex;
-    } | null = null;
-
-    const hasDstChainCOTInInput = cotSources.find((c) =>
-      equalFold(convertToEVMAddress(c.tokenAddress), dstChainCOTAddress),
-    );
-    if (hasDstChainCOTInInput) {
-      dstEOAToEphTx = {
-        amount: mulDecimals(hasDstChainCOTInInput.amount, hasDstChainCOTInInput.decimals),
-        contractAddress: dstChainCOTAddress,
-      };
+      const hasDstChainCOTInInput = cotSources.find((c) =>
+        equalFold(convertToEVMAddress(c.tokenAddress), dstChainCOTAddress),
+      );
+      if (hasDstChainCOTInInput) {
+        dstEOAToEphTx = {
+          amount: mulDecimals(hasDstChainCOTInInput.amount, hasDstChainCOTInInput.decimals),
+          contractAddress: dstChainCOTAddress,
+        };
+      }
     }
 
     logger.debug('ExactIN: getDDS: SingleSrcSwap: After', {

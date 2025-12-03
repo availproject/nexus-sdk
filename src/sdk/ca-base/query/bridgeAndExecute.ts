@@ -250,6 +250,7 @@ class BridgeAndExecuteQuery {
     } = await this.estimateBridgeAndExecute(params);
 
     logger.debug('BridgeAndExecute:4:CalculateOptimalBridgeAmount', {
+      params,
       skipBridge,
       amount,
       approval: {
