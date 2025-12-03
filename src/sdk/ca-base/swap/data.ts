@@ -410,7 +410,7 @@ const isTokenSupported = (chainId: number, contractAddress: Hex) => {
   return true;
 };
 
-const getTokenVersion = async (tokenAddress: Hex, client: PublicClient) => {
+const getPermitVariantAndVersion = async (tokenAddress: Hex, client: PublicClient) => {
   for (const [, tokens] of chainData.entries()) {
     const t = tokens.find((t) =>
       equalFold(convertTo32BytesHex(tokenAddress), t.TokenContractAddress),
@@ -443,6 +443,6 @@ export {
   chainData,
   filterSupportedTokens,
   getSwapSupportedChains,
-  getTokenVersion,
+  getPermitVariantAndVersion,
   isTokenSupported,
 };
