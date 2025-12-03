@@ -629,23 +629,25 @@ export type UnifiedBalanceResponseData = {
   errored: boolean;
 };
 
+export type AssetBreakdown = {
+  balance: string;
+  balanceInFiat: number;
+  chain: {
+    id: number;
+    logo: string;
+    name: string;
+  };
+  contractAddress: `0x${string}`;
+  decimals: number;
+  isNative?: boolean;
+  universe: Universe;
+};
+
 export type UserAssetDatum = {
   abstracted?: boolean;
   balance: string;
   balanceInFiat: number;
-  breakdown: {
-    balance: string;
-    balanceInFiat: number;
-    chain: {
-      id: number;
-      logo: string;
-      name: string;
-    };
-    contractAddress: `0x${string}`;
-    decimals: number;
-    isNative?: boolean;
-    universe: Universe;
-  }[];
+  breakdown: AssetBreakdown[];
   decimals: number;
   icon?: string;
   symbol: string;
