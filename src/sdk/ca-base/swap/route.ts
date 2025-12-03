@@ -119,6 +119,10 @@ const _exactOutRoute = async (
       equalFold(convertToEVMAddress(b.tokenAddress), dstChainCOTAddress),
   );
 
+  logger.debug('determineSwapRoute:destinationSwapInput', {
+    dstChainCOTBalance,
+  });
+
   // Track any existing COT that must be moved to ephemeral for swaps
   let dstEOAToEphTx: { amount: bigint; contractAddress: Hex } | null = null;
 
@@ -143,17 +147,20 @@ const _exactOutRoute = async (
         },
         params.aggregators,
       );
+
+      // If user has existing COT on destination chain, it must be moved to ephemeral
+      if (new Decimal(dstChainCOTBalance?.amount ?? 0).gt(0)) {
+        logger.debug(
+          `eoa -> ephemeral for destination COT for amount: ${dstChainCOTBalance?.amount}`,
+        );
+        dstEOAToEphTx = {
+          amount: mulDecimals(dstChainCOTBalance?.amount ?? 0, dstChainCOTBalance?.decimals ?? 0),
+          contractAddress: dstChainCOTAddress,
+        };
+      }
     }
 
     const createdAt = Date.now();
-
-    // If user has existing COT on destination chain, it must be moved to ephemeral
-    if (new Decimal(dstChainCOTBalance?.amount ?? 0).gt(0)) {
-      dstEOAToEphTx = {
-        amount: mulDecimals(dstChainCOTBalance?.amount ?? 0, dstChainCOTBalance?.decimals ?? 0),
-        contractAddress: dstChainCOTAddress,
-      };
-    }
 
     // min is what is actually needed for dst swap, we add 1% for bridge related fees and 1% buffer for source swaps.
     // so we are charging min + 2% from the user, we add the buffer so the swap definitely happens and any pending amounts are sent back to the user.
@@ -200,6 +207,7 @@ const _exactOutRoute = async (
   const cotAsset = assets.find((asset) => {
     return asset.abstracted && equalFold(asset.symbol, cotSymbol);
   });
+
   const dstSwapInputAmountInDecimal = destinationSwap.inputAmount.max;
   const cotTotalBalance = new Decimal(cotAsset?.balance ?? '0');
   const fees = feeStore.calculateFulfilmentFee({
@@ -216,8 +224,6 @@ const _exactOutRoute = async (
     diff: fees.toFixed(),
     dstSwapInputAmountInDecimal: dstSwapInputAmountInDecimal.toFixed(),
   });
-
-  console.log({ cotAsset, dstChainCOTBalance });
 
   // ------------------------------
   // 5. Determine if source swaps are required
@@ -525,7 +531,7 @@ const _exactInRoute = async (
     getBalancesForSwap({
       evmAddress: params.address.eoa,
       chainList: params.chainList,
-      filter: true,
+      filter: false,
     }),
     fetchPriceOracle(params.networkConfig.GRPC_URL),
   ]).catch((e) => {
@@ -573,7 +579,9 @@ const _exactInRoute = async (
       const requiredBalance = divDecimals(f.amount, srcBalance.decimals);
       if (requiredBalance.gt(srcBalance.amount)) {
         throw Errors.insufficientBalance(
-          `available: ${srcBalance.amount}, required: ${requiredBalance.toFixed()}`,
+          `available: ${srcBalance.amount} ${
+            srcBalance.symbol
+          }, required: ${requiredBalance.toFixed()} ${srcBalance.symbol}`,
         );
       }
 
@@ -784,6 +792,12 @@ const _exactInRoute = async (
       Decimal.ROUND_FLOOR,
     );
 
+    // const createdAt = Date.now();
+    let dstEOAToEphTx: {
+      amount: bigint;
+      contractAddress: Hex;
+    } | null = null;
+
     // If toTokenAddress is not same as cot then create dstSwap
     if (!equalFold(input.toTokenAddress, dstChainCOTAddress)) {
       destinationSwap = await destinationSwapWithExactIn(
@@ -794,22 +808,16 @@ const _exactInRoute = async (
         params.aggregators,
         dstChainCOT.currencyID,
       );
-    }
 
-    // const createdAt = Date.now();
-    let dstEOAToEphTx: {
-      amount: bigint;
-      contractAddress: Hex;
-    } | null = null;
-
-    const hasDstChainCOTInInput = cotSources.find((c) =>
-      equalFold(convertToEVMAddress(c.tokenAddress), dstChainCOTAddress),
-    );
-    if (hasDstChainCOTInInput) {
-      dstEOAToEphTx = {
-        amount: mulDecimals(hasDstChainCOTInInput.amount, hasDstChainCOTInInput.decimals),
-        contractAddress: dstChainCOTAddress,
-      };
+      const hasDstChainCOTInInput = cotSources.find((c) =>
+        equalFold(convertToEVMAddress(c.tokenAddress), dstChainCOTAddress),
+      );
+      if (hasDstChainCOTInInput) {
+        dstEOAToEphTx = {
+          amount: mulDecimals(hasDstChainCOTInInput.amount, hasDstChainCOTInInput.decimals),
+          contractAddress: dstChainCOTAddress,
+        };
+      }
     }
 
     logger.debug('ExactIN: getDDS: SingleSrcSwap: After', {

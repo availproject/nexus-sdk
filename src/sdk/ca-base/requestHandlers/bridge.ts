@@ -179,10 +179,6 @@ class BridgeHandler {
     console.timeEnd('preIntentSteps: CreateIntent');
     console.timeEnd('process:preIntentSteps');
 
-    if (intent.isAvailableBalanceInsufficient) {
-      throw Errors.insufficientBalance();
-    }
-
     return intent;
   };
 
@@ -980,7 +976,9 @@ class BridgeHandler {
 
     if (accountedAmount.lt(borrowWithFee)) {
       throw Errors.insufficientBalance(
-        `required: ${borrowWithFee.toFixed()}, available: ${accountedAmount.toFixed()}`,
+        `required: ${borrowWithFee.toFixed()} ${
+          token.symbol
+        }, available: ${accountedAmount.toFixed()} ${token.symbol}`,
       );
     }
 
