@@ -7,16 +7,21 @@ import {
   toFlatBalance,
   vscBalancesToAssets,
 } from '../swap/utils';
+import { filterSupportedTokens } from '../swap/data';
 
 export const getBalancesForSwap = async (input: {
   evmAddress: Hex;
   chainList: ChainListType;
   filter: boolean;
 }) => {
-  const ankrBalances = await getAnkrBalances(input.evmAddress, input.chainList, input.filter);
+  const ankrBalances = await getAnkrBalances(input.evmAddress, input.chainList, true);
 
-  const assets = ankrBalanceToAssets(input.chainList, ankrBalances);
+  const assets = ankrBalanceToAssets(input.chainList, ankrBalances, input.filter);
   let balances = toFlatBalance(assets);
+
+  if (input.filter) {
+    balances = filterSupportedTokens(balances);
+  }
 
   return { assets, balances };
 };
