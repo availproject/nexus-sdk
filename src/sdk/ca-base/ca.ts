@@ -7,7 +7,7 @@ import {
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import { keyDerivation } from '@starkware-industries/starkware-crypto-utils';
 import { createWalletClient, custom, Hex, UserRejectedRequestError, WalletClient } from 'viem';
-import { privateKeyToAccount, PrivateKeyAccount } from 'viem/accounts';
+import { privateKeyToAccount, PrivateKeyAccount, generatePrivateKey } from 'viem/accounts';
 import { createSiweMessage } from 'viem/siwe';
 import { ChainList } from './chains';
 import { getNetworkConfig } from './config';
@@ -56,6 +56,7 @@ import {
   mulDecimals,
   getCosmosURL,
   getBalancesForBridge,
+  cosmosRefundIntent,
 } from './utils';
 import { swap } from './swap/swap';
 import { getSwapSupportedChains } from './swap/utils';
@@ -229,6 +230,25 @@ export class CA {
 
   protected _isInitialized = () => {
     return this._initStatus === INIT_STATUS.DONE;
+  };
+
+  protected _initiateRefund = async (intentId: number) => {
+    if (!this._evm) {
+      throw Errors.sdkNotInitialized();
+    }
+
+    const wallet = await createCosmosWallet(generatePrivateKey());
+    const client = await createCosmosClient(
+      wallet,
+      getCosmosURL(this._networkConfig.COSMOS_URL, 'rpc'),
+      { broadcastPollIntervalMs: 250 },
+    );
+
+    await cosmosRefundIntent({
+      address: this._evm.address,
+      client,
+      intentID: intentId,
+    });
   };
 
   protected _swapWithExactIn = async (input: ExactInSwapInput, options?: OnEventParam) => {

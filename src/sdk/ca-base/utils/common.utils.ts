@@ -1,11 +1,9 @@
 import {
   Bytes,
-  DepositVEPacket,
   Environment,
   ERC20ABI,
   EVMRFF,
   EVMVaultABI,
-  MsgDoubleCheckTx,
   Universe,
 } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
@@ -50,7 +48,7 @@ import { createPublicClientWithFallback } from './contract.utils';
 import { AnalyticsManager } from '../../../analytics/AnalyticsManager';
 import { NexusAnalyticsEvents } from '../../../analytics/events';
 import { requestTimeout, waitForIntentFulfilment } from './contract.utils';
-import { cosmosCreateDoubleCheckTx, cosmosFillCheck, cosmosRefundIntent } from './cosmos.utils';
+import { cosmosFillCheck, cosmosRefundIntent } from './cosmos.utils';
 import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 import { Errors } from '../errors';
 
@@ -480,29 +478,6 @@ const convertToHexAddressByUniverse = (address: Uint8Array, universe: Universe) 
   }
 };
 
-const createDepositDoubleCheckTx = (chainID: Uint8Array, cosmos: CosmosOptions, intentID: Long) => {
-  const msg = MsgDoubleCheckTx.create({
-    creator: cosmos.address,
-    packet: {
-      $case: 'depositPacket',
-      value: DepositVEPacket.create({
-        gasRefunded: false,
-        id: intentID,
-      }),
-    },
-    txChainID: chainID,
-    txUniverse: Universe.ETHEREUM,
-  });
-
-  return () => {
-    return cosmosCreateDoubleCheckTx({
-      address: cosmos.address,
-      client: cosmos.client,
-      msg,
-    });
-  };
-};
-
 class UserAsset {
   get balance() {
     return this.value.balance;
@@ -898,7 +873,6 @@ export {
   convertTo32Bytes,
   convertTo32BytesHex,
   convertToHexAddressByUniverse,
-  createDepositDoubleCheckTx,
   createRequestEVMSignature,
   divDecimals,
   equalFold,

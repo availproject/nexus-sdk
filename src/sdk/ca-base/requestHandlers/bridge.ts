@@ -42,7 +42,6 @@ import {
   convertIntent,
   convertTo32Bytes,
   cosmosCreateRFF,
-  createDepositDoubleCheckTx,
   createPublicClientWithFallback,
   equalFold,
   FeeStore,
@@ -314,11 +313,11 @@ class BridgeHandler {
         }
       }
 
-      const { explorerURL, intentID, requestHash, waitForDoubleCheckTx } = response;
+      const { explorerURL, intentID, requestHash } = response;
 
       // Step 7: Wait for fill
       storeIntentHashToStore(this.options.evm.address, intentID.toNumber());
-      await this.waitForFill(requestHash, intentID, waitForDoubleCheckTx);
+      await this.waitForFill(requestHash, intentID);
       removeIntentHashFromStore(this.options.evm.address, intentID);
 
       this.markStepDone(BRIDGE_STEPS.INTENT_FULFILLED);
@@ -333,13 +332,7 @@ class BridgeHandler {
     }
   };
 
-  private async waitForFill(
-    requestHash: `0x${string}`,
-    intentID: Long,
-    waitForDoubleCheckTx: () => Promise<void>,
-  ) {
-    waitForDoubleCheckTx();
-
+  private async waitForFill(requestHash: `0x${string}`, intentID: Long) {
     const ac = new AbortController();
     let promisesToRace = [
       requestTimeout(3, ac),
@@ -375,7 +368,6 @@ class BridgeHandler {
         explorerURL: string;
         intentID: Long;
         requestHash: Hex;
-        waitForDoubleCheckTx: () => any;
       }
   > {
     const { msgBasicCosmos, omniversalRFF, signatureData, sources, universes } =
@@ -415,8 +407,6 @@ class BridgeHandler {
     if (!tronSignatureData && universes.has(Universe.TRON)) {
       throw Errors.internal('tron in universe list but no signature data present');
     }
-
-    const doubleCheckTxs = [];
 
     for (const [i, s] of sources.entries()) {
       const chain = this.options.chainList.getChainByID(Number(s.chainID));
@@ -492,9 +482,6 @@ class BridgeHandler {
           })(),
         );
       }
-      doubleCheckTxs.push(
-        createDepositDoubleCheckTx(convertTo32Bytes(chain.id), this.options.cosmos, intentID),
-      );
     }
 
     if (evmDeposits.length || tronDeposits.length) {
@@ -550,7 +537,6 @@ class BridgeHandler {
       explorerURL,
       intentID,
       requestHash: destinationSigData.requestHash,
-      waitForDoubleCheckTx: waitForDoubleCheckTx(doubleCheckTxs),
     };
   }
 
@@ -1010,12 +996,6 @@ const isDeposit = (universe: Universe, tokenAddress: Hex) => {
   }
 
   return true;
-};
-
-const waitForDoubleCheckTx = (input: Array<() => Promise<void>>) => {
-  return async () => {
-    await Promise.allSettled(input.map((i) => i()));
-  };
 };
 
 export default BridgeHandler;

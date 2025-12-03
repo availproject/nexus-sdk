@@ -1,10 +1,9 @@
 import {
+  MsgCreatePendingClaim,
+  MsgCreatePendingClaimResponse,
   MsgCreateRequestForFunds,
   MsgCreateRequestForFundsResponse,
-  MsgDoubleCheckTx,
-  MsgRefundReq,
-  MsgRefundReqResponse,
-} from '@avail-project/ca-common';
+=} from '@avail-project/ca-common';
 import { isDeliverTxFailure, isDeliverTxSuccess } from '@cosmjs/stargate';
 import axios from 'axios';
 import { connect } from 'it-ws/client';
@@ -48,7 +47,7 @@ const cosmosCreateRFF = async ({
       address,
       [
         {
-          typeUrl: '/xarchain.chainabstraction.MsgCreateRequestForFunds',
+          typeUrl: '/xarchain.chainabstraction.v1.MsgCreateRequestForFunds',
           value: msg,
         },
       ],
@@ -81,10 +80,14 @@ const cosmosRefundIntent = async ({
       address,
       [
         {
-          typeUrl: '/xarchain.chainabstraction.MsgRefundReq',
-          value: MsgRefundReq.create({
-            creator: address,
-            rffID: intentID,
+          typeUrl: '/xarchain.chainabstraction.v1.MsgCreatePendingClaim',
+          value: MsgCreatePendingClaim.create({
+            claim: {
+              RFFID: intentID,
+              claim: {
+                $case: 'refundClaim',
+              },
+            },
           }),
         },
       ],
@@ -96,58 +99,17 @@ const cosmosRefundIntent = async ({
     logger.debug('Refund response', { resp });
     try {
       if (isDeliverTxSuccess(resp)) {
-        const decoded = MsgRefundReqResponse.decode(resp.msgResponses[0].value);
+        const decoded = MsgCreatePendingClaimResponse.decode(resp.msgResponses[0].value);
         logger.debug('Refund success', { decoded, resp });
         return resp;
-      } else if (resp.code === 18) {
-        if (
-          resp.rawLog?.includes('RFF already refunded') ||
-          resp.rawLog?.includes('RFF already filled')
-        ) {
-          return resp;
-        }
-        throw Errors.cosmosError('RFF is not expired yet.');
       } else {
-        throw Errors.cosmosError(`unknown error: ${JSON.stringify(resp)}`);
+        logger.debug('Refund error', { resp });
+        throw Errors.cosmosError(`Refund error`);
       }
     } catch (e) {
       logger.error('Refund failed', e, { cause: 'REFUND_FAILED' });
       throw e;
     }
-  } finally {
-    client.disconnect();
-  }
-};
-
-const cosmosCreateDoubleCheckTx = async ({
-  address,
-  client,
-  msg,
-}: CosmosOptions & {
-  msg: MsgDoubleCheckTx;
-}) => {
-  try {
-    logger.debug('cosmosCreateDoubleCheckTx', { doubleCheckMsg: msg });
-
-    const res = await client.signAndBroadcast(
-      address,
-      [
-        {
-          typeUrl: '/xarchain.chainabstraction.MsgDoubleCheckTx',
-          value: msg,
-        },
-      ],
-      {
-        amount: [],
-        gas: 100_000n.toString(10),
-      },
-    );
-
-    if (isDeliverTxFailure(res)) {
-      throw Errors.cosmosError('double check tx failed');
-    }
-
-    logger.debug('double check response', { doubleCheckTx: res });
   } finally {
     client.disconnect();
   }
@@ -219,11 +181,4 @@ const waitForCosmosFillEvent = async (intentID: Long, cosmosURL: string, ac: Abo
   }
 };
 
-export {
-  cosmosCreateDoubleCheckTx,
-  cosmosCreateRFF,
-  cosmosFeeGrant,
-  cosmosFillCheck,
-  cosmosRefundIntent,
-  getCosmosURL,
-};
+export { cosmosCreateRFF, cosmosFeeGrant, cosmosFillCheck, cosmosRefundIntent, getCosmosURL };

@@ -630,6 +630,8 @@ export class NexusSDK extends CA {
     return this._isInitialized();
   }
 
+  public refundIntent = this._initiateRefund;
+
   /**
    * Helper function to convert an input like "1.13" to 1_130_000n for input to other functions
    * Number of decimals for a token depends on the chain.

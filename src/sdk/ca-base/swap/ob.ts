@@ -244,31 +244,13 @@ class BridgeHandler {
       this.depositCalls = response.depositCalls;
       this.eoaToEphCalls = response.eoaToEphemeralCalls;
 
-      const [, { createDoubleCheckTx }] = await Promise.all([
-        this.createRFFDeposits(),
-        response.createRFF(),
-      ]);
+      await Promise.all([this.createRFFDeposits(), response.createRFF()]);
       this.waitForFill = response.waitForFill;
-      this.createDoubleCheckTx = createDoubleCheckTx;
     }
 
     this.status = this.waitForFill();
 
     if (this.status.intentID.toNumber() != 0) {
-      const dbc = this.createDoubleCheckTx;
-      // we don't have to wait for this.
-      (async function () {
-        await retry(
-          async () => {
-            await dbc().then(() => {
-              logger.info('double-check-returned');
-              return true;
-            });
-          },
-          { delay: 3000, retries: 3 },
-        );
-      })();
-
       metadata.rff_id = BigInt(this.status.intentID.toNumber());
       this.options.emitter.emit(SWAP_STEPS.RFF_ID(this.status.intentID.toNumber()));
 
@@ -290,8 +272,6 @@ class BridgeHandler {
     intentID: Long.fromNumber(0),
     promise: Promise.resolve(),
   });
-
-  private createDoubleCheckTx = async () => {};
 }
 
 class DestinationSwapHandler {

@@ -503,7 +503,7 @@ const vscCreateRFF = async (
   await retry(
     async () => {
       const connection = connect(
-        new URL('/api/v1/create-rff', getVSCURL(vscDomain, 'wss')).toString(),
+        new URL('/api/v1/create-deposits', getVSCURL(vscDomain, 'wss')).toString(),
       );
       try {
         await connection.connected();
