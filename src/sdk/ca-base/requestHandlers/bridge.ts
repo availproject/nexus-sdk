@@ -340,11 +340,11 @@ class BridgeHandler {
   private async processRFF(intent: Intent): Promise<
     | { retry: true }
     | {
-        retry: false;
-        explorerURL: string;
-        intentID: Long;
-        requestHash: Hex;
-      }
+      retry: false;
+      explorerURL: string;
+      intentID: Long;
+      requestHash: Hex;
+    }
   > {
     const { msgBasicCosmos, omniversalRFF, signatureData, sources, universes } =
       await createRFFromIntent(intent, this.options, this.params.dstChain.universe);
@@ -938,8 +938,7 @@ class BridgeHandler {
 
     if (accountedAmount.lt(borrowWithFee)) {
       throw Errors.insufficientBalance(
-        `required: ${borrowWithFee.toFixed()} ${
-          token.symbol
+        `required: ${borrowWithFee.toFixed()} ${token.symbol
         }, available: ${accountedAmount.toFixed()} ${token.symbol}`,
       );
     }
@@ -977,21 +976,21 @@ const publishRFFUntilFillOrTimeout = ({
 }) => {
   const timeout = 5000;
   // Start looping after 5 sec
-  window.setTimeout(() => {
+  setTimeout(() => {
     // If already aborted then dont start
     if (ac.signal.aborted) {
       logger.debug('publish RFF cancelled, since already filled');
       return;
     }
 
-    const intervalID = window.setInterval(async () => {
+    const intervalID = Number(setInterval(async () => {
       await vscPublishRFF(vscDomain, intentID);
-    }, timeout);
+    }, timeout));
 
     ac.signal.addEventListener(
       'abort',
       () => {
-        window.clearInterval(intervalID);
+        clearInterval(intervalID);
       },
       { once: true },
     );
