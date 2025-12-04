@@ -16,7 +16,6 @@ import type {
   OnAllowanceHook,
   OnEventParam,
   OnSwapIntentHook,
-  RequestForFunds,
   SimulationResult,
   SwapResult,
   SupportedChainsResult,

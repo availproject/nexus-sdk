@@ -16,7 +16,6 @@ import {
   BridgeStepType,
   getLogger,
   FeeStoreData,
-  OraclePriceResponse,
   RFF,
   SponsoredApprovalDataArray,
   UnifiedBalanceResponseData,

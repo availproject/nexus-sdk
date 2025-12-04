@@ -38,7 +38,6 @@ import {
   BRIDGE_STEPS,
 } from '../../../commons';
 import {
-  convertGasToToken,
   convertIntent,
   convertTo32Bytes,
   cosmosCreateRFF,
