@@ -232,8 +232,9 @@ export class CA {
     return this._initStatus === INIT_STATUS.DONE;
   };
 
+  // FIXME: Need to test more
   protected _initiateRefund = async (intentId: number) => {
-    if (!this._evm) {
+    if (!this._evm || this.#cosmos) {
       throw Errors.sdkNotInitialized();
     }
 
@@ -245,7 +246,7 @@ export class CA {
     );
 
     await cosmosRefundIntent({
-      address: this._evm.address,
+      address: (await wallet.getAccounts())[0].address,
       client,
       intentID: intentId,
     });

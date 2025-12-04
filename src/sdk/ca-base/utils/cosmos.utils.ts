@@ -82,10 +82,12 @@ const cosmosRefundIntent = async ({
         {
           typeUrl: '/xarchain.chainabstraction.v1.MsgCreatePendingClaim',
           value: MsgCreatePendingClaim.create({
+            creator: address,
             claim: {
               RFFID: intentID,
               claim: {
                 $case: 'refundClaim',
+                value: {},
               },
             },
           }),
