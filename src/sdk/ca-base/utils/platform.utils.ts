@@ -3,7 +3,6 @@ const MEMORYMAP: Map<string, string> = new Map()
 export class PlatformUtils {
   static storageSetItem(key: string, value: string) {
     if (typeof window === 'undefined') {
-      console.log("Set", "Key", key, "Value: ", value);
       MEMORYMAP.set(key, value)
       return;
     }
@@ -14,7 +13,6 @@ export class PlatformUtils {
   static storageGetItem(key: string): string | null {
     if (typeof window === 'undefined') {
       const v = MEMORYMAP.get(key)
-      console.log("Get", "Key", key, "Value: ", v);
       return v ? v : null
     }
 
