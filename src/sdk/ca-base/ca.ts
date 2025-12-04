@@ -453,14 +453,14 @@ export class CA {
         analytics: this._analytics,
       });
 
-      this._refundInterval = window.setInterval(async () => {
+      this._refundInterval = Number(setInterval(async () => {
         await refundExpiredIntents({
           evmAddress,
           address: this.#cosmos!.address,
           client: this.#cosmos!.client,
           analytics: this._analytics,
         });
-      }, minutesToMs(10));
+      }, minutesToMs(10)));
     } catch (e) {
       logger.error('Error checking pending refunds', e, { cause: 'REFUND_CHECK_ERROR' });
     }
