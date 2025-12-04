@@ -639,7 +639,6 @@ export type AssetBreakdown = {
   };
   contractAddress: `0x${string}`;
   decimals: number;
-  isNative?: boolean;
   universe: Universe;
 };
 
