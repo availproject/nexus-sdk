@@ -41,7 +41,7 @@
   "author": "decocereus<amartya@availproject.org>, makyl<abhishek@availproject.org>",
   "license": "MIT",
   "dependencies": {
-    "@avail-project/ca-common": "github:availproject/ca-common#mmjee/new-cosmos",
+    "@avail-project/ca-common": "github:availproject/ca-common#fix-backend-support-new-cosmos",
     "@cosmjs/proto-signing": "0.34.0",
     "@cosmjs/stargate": "0.34.0",
     "@metamask/safe-event-emitter": "3.1.2",
