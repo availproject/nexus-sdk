@@ -32,6 +32,7 @@ export type {
   SUPPORTED_TOKENS,
   ChainMetadata,
   TokenMetadata,
+  AssetBreakdown,
 } from './commons';
 
 export {
