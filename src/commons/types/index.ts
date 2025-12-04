@@ -622,7 +622,6 @@ export type UnifiedBalanceResponseData = {
   currencies: {
     balance: string;
     token_address: Uint8Array;
-    value: string;
   }[];
   total_usd: string;
   universe: Universe;

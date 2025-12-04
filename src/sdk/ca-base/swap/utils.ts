@@ -782,13 +782,9 @@ export const vscBalancesToAssets = (
         const asset = assets.find((s) => equalFold(s.symbol, token.symbol));
         if (asset) {
           asset.balance = new Decimal(asset.balance).add(currency.balance).toFixed();
-          asset.balanceInFiat = new Decimal(asset.balanceInFiat)
-            .add(currency.value)
-            .toDecimalPlaces(2)
-            .toNumber();
           asset.breakdown.push({
             balance: currency.balance,
-            balanceInFiat: new Decimal(currency.value).toDecimalPlaces(2).toNumber(),
+            balanceInFiat: 0,
             chain: {
               id: bytesToNumber(balance.chain_id),
               logo: chain.custom.icon,
@@ -802,11 +798,11 @@ export const vscBalancesToAssets = (
           assets.push({
             abstracted: true,
             balance: currency.balance,
-            balanceInFiat: new Decimal(currency.value).toDecimalPlaces(2).toNumber(),
+            balanceInFiat: 0,
             breakdown: [
               {
                 balance: currency.balance,
-                balanceInFiat: new Decimal(currency.value).toDecimalPlaces(2).toNumber(),
+                balanceInFiat: 0,
                 chain: {
                   id: bytesToNumber(balance.chain_id),
                   logo: chain.custom.icon,
