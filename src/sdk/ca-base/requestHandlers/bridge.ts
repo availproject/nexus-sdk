@@ -303,6 +303,7 @@ class BridgeHandler {
 
   private async waitForFill(requestHash: `0x${string}`, intentID: Long) {
     const ac = new AbortController();
+
     let promisesToRace = [
       requestTimeout(3, ac),
       cosmosFillCheck(
@@ -326,6 +327,12 @@ class BridgeHandler {
         ),
       );
     }
+    publishRFFUntilFillOrTimeout({
+      intentID,
+      vscDomain: this.options.networkConfig.VSC_DOMAIN,
+      ac,
+    });
+
     await Promise.race(promisesToRace);
     logger.debug('Fill completed');
   }
@@ -958,6 +965,38 @@ class BridgeHandler {
     }
   };
 }
+
+const publishRFFUntilFillOrTimeout = ({
+  intentID,
+  vscDomain,
+  ac,
+}: {
+  ac: AbortController;
+  intentID: Long;
+  vscDomain: string;
+}) => {
+  const timeout = 5000;
+  // Start looping after 5 sec
+  window.setTimeout(() => {
+    // If already aborted then dont start
+    if (ac.signal.aborted) {
+      logger.debug('publish RFF cancelled, since already filled');
+      return;
+    }
+
+    const intervalID = window.setInterval(async () => {
+      await vscPublishRFF(vscDomain, intentID);
+    }, timeout);
+
+    ac.signal.addEventListener(
+      'abort',
+      () => {
+        window.clearInterval(intervalID);
+      },
+      { once: true },
+    );
+  }, timeout);
+};
 
 const isDeposit = (universe: Universe, tokenAddress: Hex) => {
   if (universe === Universe.ETHEREUM) {

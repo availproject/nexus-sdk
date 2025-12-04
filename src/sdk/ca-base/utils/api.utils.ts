@@ -326,7 +326,7 @@ const getFeeStore = async (grpcURL: string) => {
 };
 
 const getVSCURL = (vscDomain: string, protocol: 'https' | 'wss') => {
-  return `${protocol}://${vscDomain}`;
+  return new URL(`${protocol}://${vscDomain}`).toString();
 };
 
 let vscReq: AxiosInstance | null = null;

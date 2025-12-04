@@ -642,7 +642,6 @@ export type UserAssetDatum = {
     };
     contractAddress: `0x${string}`;
     decimals: number;
-    isNative?: boolean;
     universe: Universe;
   }[];
   decimals: number;
