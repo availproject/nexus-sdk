@@ -11,6 +11,7 @@ export type {
   RequestArguments,
   RFF,
   UserAssetDatum as UserAsset,
+  AssetBreakdown,
   BridgeStepType,
   SwapStepType,
 } from '../../commons';
