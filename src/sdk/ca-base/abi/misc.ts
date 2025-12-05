@@ -2,14 +2,14 @@ const ApproveABI = [
   {
     constant: false,
     inputs: [
-      { name: "_spender", type: "address" },
-      { name: "_value", type: "uint256" },
+      { name: '_spender', type: 'address' },
+      { name: '_value', type: 'uint256' },
     ],
-    name: "approve",
-    outputs: [{ name: "", type: "bool" }],
+    name: 'approve',
+    outputs: [{ name: '', type: 'bool' }],
     payable: false,
-    stateMutability: "nonpayable",
-    type: "function",
+    stateMutability: 'nonpayable',
+    type: 'function',
   },
 ] as const;
 
