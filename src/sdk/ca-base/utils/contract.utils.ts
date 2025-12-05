@@ -26,7 +26,6 @@ import { Errors } from '../errors';
 import { getLogger } from '../../../commons';
 import { ChainListType, Chain, GetAllowanceParams, SetAllowanceParams } from '../../../commons';
 import { equalFold, minutesToMs } from './common.utils';
-import { PlatformUtils } from './platform.utils';
 
 const logger = getLogger();
 
