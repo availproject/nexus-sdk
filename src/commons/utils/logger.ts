@@ -97,10 +97,11 @@ class Logger {
 
   internalLog(level: LogLevel, message: string, params?: unknown) {
     const logMessage = `[${this.prefix}] Msg: ${message}\n`;
-    if (level == LOG_LEVEL.ERROR || level == LOG_LEVEL.WARNING) {
+    if (level === LOG_LEVEL.ERROR || level === LOG_LEVEL.WARNING) {
       const cause =
         params && typeof params === 'object' && 'cause' in params
-          ? (params as any).cause
+          ? // biome-ignore lint/suspicious/noExplicitAny: using `any` for unsure types
+            (params as any).cause
           : 'unknown|not_mapped';
       try {
         telemetryLogger?.emit({

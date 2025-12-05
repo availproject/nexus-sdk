@@ -455,7 +455,7 @@ const vscCreateSponsoredApprovals = async (
         hash: toHex(data.tx_hash),
       });
 
-      if (approvalHashes.length == input.length) {
+      if (approvalHashes.length === input.length) {
         break;
       }
     }

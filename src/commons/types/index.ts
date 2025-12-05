@@ -2,7 +2,7 @@ import type { ChainDatum, Environment, PermitVariant, Universe } from '@avail-pr
 import type { SigningStargateClient } from '@cosmjs/stargate';
 import type { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 import type Decimal from 'decimal.js';
-import type { ByteArray, Hex, TransactionReceipt, WalletClient } from 'viem';
+import type { ByteArray, EIP1193EventMap, Hex, TransactionReceipt, WalletClient } from 'viem';
 import type { SUPPORTED_CHAINS } from '../constants';
 import type { FormatTokenBalanceOptions, FormattedParts } from '../utils/format';
 import type { BridgeStepType } from './bridge-steps';
@@ -118,6 +118,7 @@ export type BridgeMaxResult = {
  */
 export type BridgeResult = {
   explorerUrl: string;
+  // biome-ignore lint/suspicious/noExplicitAny: currently the type is unknown, fix it
   intent?: any;
 };
 
@@ -232,6 +233,7 @@ export interface SimulationStep {
 }
 
 export type EventListenerType = {
+  // biome-ignore lint/suspicious/noExplicitAny: currently the type is unknown, fix it
   onEvent: (eventName: string, ...args: any[]) => void;
 };
 
@@ -286,6 +288,7 @@ export type BridgeAndExecuteResult = {
   bridgeExplorerUrl?: string; // undefined when bridge is skipped
   toChainId: number;
   bridgeSkipped: boolean; // indicates if bridge was skipped due to sufficient funds
+  // biome-ignore lint/suspicious/noExplicitAny: currently the type is unknown, fix it
   intent?: any;
 };
 
@@ -320,13 +323,12 @@ export type Chain = {
 };
 
 interface EthereumProvider {
-  on(eventName: string | symbol, listener: (...args: any[]) => void): this;
+  on<event extends keyof EIP1193EventMap>(event: event, listener: EIP1193EventMap[event]): void;
 
-  removeListener(
-    eventName: string | symbol,
-    /* eslint-disable @typescript-eslint/no-explicit-any */
-    listener: (...args: any[]) => void
-  ): this;
+  removeListener<event extends keyof EIP1193EventMap>(
+    event: event,
+    listener: EIP1193EventMap[event]
+  ): void;
 
   request(args: RequestArguments): Promise<unknown>;
 }

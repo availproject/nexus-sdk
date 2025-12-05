@@ -89,7 +89,9 @@ export function createError(code: ErrorCode, message: string, data?: NexusErrorD
         stackTrace: nexusError.stack,
       } as AnyValueMap,
     });
-  } catch {}
+  } catch {
+    console.error('Failed to emit error to telemetry', nexusError);
+  }
   return nexusError;
 }
 

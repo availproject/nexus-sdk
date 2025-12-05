@@ -281,9 +281,9 @@ async function signPermitForAddressAndValue(
   });
 
   const walletAddress = account.address;
-  deadline = deadline ?? 2n ** 256n - 1n;
+  const _newDeadline = deadline ?? 2n ** 256n - 1n;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // biome-ignore lint/suspicious/noExplicitAny: using `any` for unsure types
   const requestsToBeMade: Promise<any>[] = [
     (() => {
       // Hack for sophon ETH
@@ -328,7 +328,7 @@ async function signPermitForAddressAndValue(
         },
         message: {
           allowed: true,
-          expiry: deadline,
+          expiry: _newDeadline,
           holder: walletAddress,
           nonce,
           spender: spender,
@@ -356,7 +356,7 @@ async function signPermitForAddressAndValue(
           version: cur.permitContractVersion.toString(10),
         },
         message: {
-          deadline,
+          deadline: _newDeadline,
           nonce,
           owner: walletAddress,
           spender,
@@ -389,7 +389,7 @@ async function signPermitForAddressAndValue(
         },
         message: {
           allowed: true,
-          expiry: deadline,
+          expiry: _newDeadline,
           holder: walletAddress,
           nonce,
           spender: spender,

@@ -246,6 +246,7 @@ class BridgeHandler {
 
   public execute = async (
     shouldRetryOnFailure = true
+    // biome-ignore lint/suspicious/noExplicitAny: currently the type is unknown, fix it
   ): Promise<{ explorerURL: string; intentID: Long; intent?: any }> => {
     try {
       let intent = await this.buildIntent(this.params.sourceChains);
@@ -379,7 +380,7 @@ class BridgeHandler {
         explorerURL: string;
         intentID: Long;
         requestHash: Hex;
-        waitForDoubleCheckTx: () => any;
+        waitForDoubleCheckTx: () => Promise<void>;
       }
   > {
     const { msgBasicCosmos, omniversalRFF, signatureData, sources, universes } =

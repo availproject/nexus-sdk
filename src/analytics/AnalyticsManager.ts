@@ -297,7 +297,11 @@ export class AnalyticsManager {
   trackError(operation: string, error: Error | unknown, context?: Record<string, unknown>): void {
     if (!this.enabled) return;
 
-    const errorObj = error as any;
+    const errorObj = error as Error & {
+      code?: number;
+      errorCode?: number;
+      statusCode?: number;
+    };
     const errorProperties: Record<string, unknown> = {
       operation,
       errorType: errorObj?.name || 'Error',

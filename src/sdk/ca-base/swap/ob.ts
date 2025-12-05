@@ -185,9 +185,9 @@ class BridgeHandler {
       }
       if (sbcTx.length) {
         const ops = await vscSBCTx(sbcTx, this.options.networkConfig.VSC_DOMAIN);
-        ops.forEach((op) => {
+        for (const op of ops) {
           this.options.emitter.emit(SWAP_STEPS.SOURCE_SWAP_HASH(op, this.options.chainList));
-        });
+        }
         waitingPromises.push(
           ...ops.map(([chainID, hash]) =>
             wrap(
@@ -253,7 +253,7 @@ class BridgeHandler {
 
     this.status = this.waitForFill();
 
-    if (this.status.intentID.toNumber() != 0) {
+    if (this.status.intentID.toNumber() !== 0) {
       const dbc = this.createDoubleCheckTx;
       // we don't have to wait for this.
       (async () => {
@@ -290,7 +290,7 @@ class BridgeHandler {
     promise: Promise.resolve(),
   });
 
-  private createDoubleCheckTx = async () => {};
+  private createDoubleCheckTx = async () => Promise.resolve();
 }
 
 class DestinationSwapHandler {

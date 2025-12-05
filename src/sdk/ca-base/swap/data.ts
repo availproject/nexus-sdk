@@ -357,7 +357,7 @@ const getSwapSupportedChains = (chainList: ChainList) => {
       continue;
     }
 
-    tokens.forEach((t) => {
+    for (const t of tokens) {
       if (t.PermitVariant !== PermitVariant.Unsupported) {
         data.tokens.push({
           contractAddress: convertToEVMAddress(t.TokenContractAddress),
@@ -367,7 +367,7 @@ const getSwapSupportedChains = (chainList: ChainList) => {
           symbol: t.Name,
         });
       }
-    });
+    }
 
     chains.push(data);
   }

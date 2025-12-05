@@ -444,7 +444,7 @@ const evmWaitForFill = async (
 };
 
 const convertTo32Bytes = (value: bigint | Hex | number | Bytes) => {
-  if (typeof value == 'bigint' || typeof value === 'number') {
+  if (typeof value === 'bigint' || typeof value === 'number') {
     return toBytes(value, {
       size: 32,
     });
@@ -668,9 +668,9 @@ class UserAssets {
   }
 
   sort() {
-    this.data.forEach((asset) => {
+    for (const asset of this.data) {
       asset.breakdown.sort((a, b) => b.balanceInFiat - a.balanceInFiat);
-    });
+    }
     this.data.sort((a, b) => b.balanceInFiat - a.balanceInFiat);
   }
 

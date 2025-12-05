@@ -283,9 +283,9 @@ const calculatePerformance = () => {
     );
 
     console.log('Timings for XCS:');
-    measures.forEach((measure) => {
+    for (const measure of measures) {
       console.log(`${measure.name}: ${measure.duration}`);
-    });
+    }
   } catch (e) {
     logger.error('calculatePerformance', e);
   } finally {

@@ -97,16 +97,17 @@ export const convertTo32Bytes = (
 export const EADDRESS_32_BYTES = convertTo32Bytes(EADDRESS);
 
 export const convertToEVMAddress = (address: Hex | Uint8Array) => {
-  if (typeof address === 'string') {
-    address = toBytes(address);
+  let addr = address;
+  if (typeof addr === 'string') {
+    addr = toBytes(addr);
   }
 
-  if (address.length === 20) {
-    return toHex(address);
+  if (addr.length === 20) {
+    return toHex(addr);
   }
 
-  if (address.length == 32) {
-    return toHex(address.subarray(12));
+  if (addr.length === 32) {
+    return toHex(addr.subarray(12));
   }
 
   throw Errors.invalidAddressLength('evm');
@@ -318,7 +319,7 @@ export const isAuthorizationCodeSet = async (
     return false;
   }
 
-  return code != '0x' && equalFold(code, EXPECTED_CALIBUR_CODE);
+  return code !== '0x' && equalFold(code, EXPECTED_CALIBUR_CODE);
 };
 
 export const isNativeAddress = (contractAddress: Hex) =>
@@ -825,9 +826,9 @@ export const vscBalancesToAssets = (
     }
   }
 
-  assets.forEach((asset) => {
+  for (const asset of assets) {
     asset.breakdown.sort((a, b) => b.balanceInFiat - a.balanceInFiat);
-  });
+  }
   assets.sort((a, b) => b.balanceInFiat - a.balanceInFiat);
   return assets;
 };
@@ -903,9 +904,9 @@ export const ankrBalanceToAssets = (
     }
   }
 
-  assets.forEach((asset) => {
+  for (const asset of assets) {
     asset.breakdown.sort((a, b) => b.balanceInFiat - a.balanceInFiat);
-  });
+  }
   assets.sort((a, b) => b.balanceInFiat - a.balanceInFiat);
   return assets;
 };
@@ -1078,10 +1079,10 @@ export const getAllowanceCacheKey = ({
   contractAddress,
   owner,
   spender,
-}: AllowanceInput) => ('a' + contractAddress + chainID + owner + spender).toLowerCase();
+}: AllowanceInput) => `a${contractAddress}${chainID}${owner}${spender}`.toLowerCase();
 
 export const getSetCodeKey = (input: SetCodeInput) =>
-  ('a' + input.chainID + input.address).toLowerCase();
+  `a${input.chainID}${input.address}`.toLowerCase();
 
 export const parseQuote = (
   input: {
@@ -1451,7 +1452,7 @@ export const postSwap = async ({
 
   const rffIDN = Number(metadata.rff_id);
   // @ts-expect-error
-  delete metadata.rff_id;
+  metadata.rff_id = undefined;
 
   const res = await metadataAxios<{ value: number }>({
     data: {

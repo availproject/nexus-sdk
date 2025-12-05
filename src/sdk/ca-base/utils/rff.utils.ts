@@ -38,7 +38,7 @@ const getSourcesAndDestinationsForRFF = (intent: Intent, chainList: ChainListTyp
   const universes = new Set<Universe>();
 
   for (const source of intent.sources) {
-    if (source.chainID == intent.destination.chainID) {
+    if (source.chainID === intent.destination.chainID) {
       continue;
     }
 
@@ -69,7 +69,7 @@ const getSourcesAndDestinationsForRFF = (intent: Intent, chainList: ChainListTyp
     },
   ];
 
-  if (intent.destination.gas != 0n) {
+  if (intent.destination.gas !== 0n) {
     if (isNativeAddress(intent.destination.universe, intent.destination.tokenContract)) {
       destinations[0].value = destinations[0].value + intent.destination.gas;
     } else {

@@ -6,7 +6,7 @@ if (!globalThis.Buffer) {
 }
 
 // Add polyfills for missing methods
-const proto = _Buffer.prototype as any;
+const proto = _Buffer.prototype;
 if (proto && typeof proto.writeUint32BE !== 'function') {
   if (typeof proto.writeUInt32BE === 'function') {
     // Alias the capital I versions
@@ -17,40 +17,38 @@ if (proto && typeof proto.writeUint32BE !== 'function') {
   } else {
     // Fallback implementations
     proto.writeUint32BE = function (value: number, offset = 0) {
-      offset = offset >>> 0;
+      this[offset] = offset >>> 0;
       const normalized = Number(value) >>> 0;
-      (this as any)[offset] = (normalized >>> 24) & 0xff;
-      (this as any)[offset + 1] = (normalized >>> 16) & 0xff;
-      (this as any)[offset + 2] = (normalized >>> 8) & 0xff;
-      (this as any)[offset + 3] = normalized & 0xff;
+      this[offset] = (normalized >>> 24) & 0xff;
+      this[offset + 1] = (normalized >>> 16) & 0xff;
+      this[offset + 2] = (normalized >>> 8) & 0xff;
+      this[offset + 3] = normalized & 0xff;
       return offset + 4;
     };
     proto.writeUint32LE = function (value: number, offset = 0) {
-      offset = offset >>> 0;
+      this[offset] = offset >>> 0;
       const normalized = Number(value) >>> 0;
-      (this as any)[offset] = normalized & 0xff;
-      (this as any)[offset + 1] = (normalized >>> 8) & 0xff;
-      (this as any)[offset + 2] = (normalized >>> 16) & 0xff;
-      (this as any)[offset + 3] = (normalized >>> 24) & 0xff;
+      this[offset] = normalized & 0xff;
+      this[offset + 1] = (normalized >>> 8) & 0xff;
+      this[offset + 2] = (normalized >>> 16) & 0xff;
+      this[offset + 3] = (normalized >>> 24) & 0xff;
       return offset + 4;
     };
     proto.readUint32BE = function (offset = 0) {
-      offset = offset >>> 0;
+      this[offset] = offset >>> 0;
       return (
-        ((this as any)[offset] * 0x1000000 +
-          (((this as any)[offset + 1] << 16) |
-            ((this as any)[offset + 2] << 8) |
-            (this as any)[offset + 3])) >>>
+        (this[offset] * 0x1000000 +
+          ((this[offset + 1] << 16) | (this[offset + 2] << 8) | this[offset + 3])) >>>
         0
       );
     };
     proto.readUint32LE = function (offset = 0) {
-      offset = offset >>> 0;
+      this[offset] = offset >>> 0;
       return (
-        ((this as any)[offset] |
-          ((this as any)[offset + 1] << 8) |
-          ((this as any)[offset + 2] << 16) |
-          ((this as any)[offset + 3] * 0x1000000)) >>>
+        (this[offset] |
+          (this[offset + 1] << 8) |
+          (this[offset + 2] << 16) |
+          (this[offset + 3] * 0x1000000)) >>>
         0
       );
     };
