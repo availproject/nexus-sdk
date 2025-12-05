@@ -40,6 +40,10 @@
   ],
   "author": "decocereus<amartya@availproject.org>, makyl<abhishek@availproject.org>",
   "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
   "dependencies": {
     "@avail-project/ca-common": "availproject/ca-common#main",
     "@cosmjs/proto-signing": "0.34.0",
