@@ -16,7 +16,7 @@ if (proto && typeof proto.writeUint32BE !== 'function') {
     proto.readUint32LE = proto.readUInt32LE;
   } else {
     // Fallback implementations
-    proto.writeUint32BE = function (value: number, offset: number = 0) {
+    proto.writeUint32BE = function (value: number, offset = 0) {
       offset = offset >>> 0;
       const normalized = Number(value) >>> 0;
       (this as any)[offset] = (normalized >>> 24) & 0xff;
@@ -25,7 +25,7 @@ if (proto && typeof proto.writeUint32BE !== 'function') {
       (this as any)[offset + 3] = normalized & 0xff;
       return offset + 4;
     };
-    proto.writeUint32LE = function (value: number, offset: number = 0) {
+    proto.writeUint32LE = function (value: number, offset = 0) {
       offset = offset >>> 0;
       const normalized = Number(value) >>> 0;
       (this as any)[offset] = normalized & 0xff;
@@ -34,7 +34,7 @@ if (proto && typeof proto.writeUint32BE !== 'function') {
       (this as any)[offset + 3] = (normalized >>> 24) & 0xff;
       return offset + 4;
     };
-    proto.readUint32BE = function (offset: number = 0) {
+    proto.readUint32BE = function (offset = 0) {
       offset = offset >>> 0;
       return (
         ((this as any)[offset] * 0x1000000 +
@@ -44,7 +44,7 @@ if (proto && typeof proto.writeUint32BE !== 'function') {
         0
       );
     };
-    proto.readUint32LE = function (offset: number = 0) {
+    proto.readUint32LE = function (offset = 0) {
       offset = offset >>> 0;
       return (
         ((this as any)[offset] |

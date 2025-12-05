@@ -1,5 +1,5 @@
+import type { BridgeParams, ChainListType } from '../../../commons';
 import { Errors } from '../errors';
-import { BridgeParams, ChainListType } from '../../../commons';
 
 const createBridgeParams = (input: BridgeParams, chainList: ChainListType) => {
   if (input.amount === 0n && (!input.gas || input.gas === 0n)) {
@@ -8,7 +8,7 @@ const createBridgeParams = (input: BridgeParams, chainList: ChainListType) => {
 
   const { chain: dstChain, token: dstToken } = chainList.getChainAndTokenFromSymbol(
     input.toChainId,
-    input.token,
+    input.token
   );
   if (!dstToken) {
     throw Errors.tokenNotFound(input.token, input.toChainId);

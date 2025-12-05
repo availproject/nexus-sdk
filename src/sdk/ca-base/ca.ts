@@ -4,80 +4,86 @@ import {
   Environment,
   Universe,
 } from '@avail-project/ca-common';
-import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
+import type { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import { keyDerivation } from '@starkware-industries/starkware-crypto-utils';
-import { createWalletClient, custom, Hex, UserRejectedRequestError, WalletClient } from 'viem';
-import { privateKeyToAccount, PrivateKeyAccount } from 'viem/accounts';
+import { utils } from 'tronweb';
+import {
+  createWalletClient,
+  custom,
+  type Hex,
+  UserRejectedRequestError,
+  type WalletClient,
+} from 'viem';
+import { type PrivateKeyAccount, privateKeyToAccount } from 'viem/accounts';
 import { createSiweMessage } from 'viem/siwe';
-import { ChainList } from './chains';
-import { getNetworkConfig } from './config';
+import type { AnalyticsManager } from '../../analytics';
 import { NexusAnalyticsEvents } from '../../analytics/events';
 import { getWalletType } from '../../analytics/utils';
 import {
-  ChainListType,
-  EthereumProvider,
-  ExactInSwapInput,
-  ExactOutSwapInput,
-  NetworkConfig,
-  NexusNetwork,
-  OnAllowanceHook,
-  OnIntentHook,
-  SwapMode,
-  SwapParams,
-  BridgeAndExecuteParams,
-  ExecuteParams,
-  OnEventParam,
-  OnSwapIntentHook,
-  TronAdapter,
+  type BeforeExecuteHook,
+  type BridgeAndExecuteParams,
+  type BridgeParams,
+  type Chain,
+  type ChainListType,
+  type CosmosOptions,
+  type EthereumProvider,
+  type ExactInSwapInput,
+  type ExactOutSwapInput,
+  type ExecuteParams,
   getLogger,
   LOG_LEVEL,
-  setLogLevel,
-  Chain,
-  TransferParams,
-  BridgeParams,
-  BeforeExecuteHook,
-  CosmosOptions,
+  type NetworkConfig,
+  type NexusNetwork,
+  type OnAllowanceHook,
+  type OnEventParam,
+  type OnIntentHook,
+  type OnSwapIntentHook,
   SUPPORTED_CHAINS,
+  SwapMode,
+  type SwapParams,
+  setLogLevel,
+  type TransferParams,
+  type TronAdapter,
 } from '../../commons';
-import { AnalyticsManager } from '../../analytics';
+import {
+  type BackendSimulationClient,
+  createBackendSimulationClient,
+} from '../../integrations/tenderly';
+import { ChainList } from './chains';
+import { getNetworkConfig } from './config';
+import { Errors } from './errors';
+import { BridgeAndExecuteQuery } from './query/bridgeAndExecute';
+import { createBridgeAndTransferParams } from './query/bridgeAndTransfer';
+import BridgeHandler from './requestHandlers/bridge';
+import getMaxValueForBridge from './requestHandlers/bridgeMax';
 import { createBridgeParams } from './requestHandlers/helpers';
+import { swap } from './swap/swap';
+import { getSwapSupportedChains } from './swap/utils';
+import { setLoggerProvider } from './telemetry';
 import {
   cosmosFeeGrant,
   fetchMyIntents,
+  getBalancesForBridge,
+  getBalancesForSwap,
+  getCosmosURL,
   getSupportedChains,
+  intentTransform,
   minutesToMs,
+  mulDecimals,
   refundExpiredIntents,
-  tronHexToEvmAddress,
   retrieveSIWESignatureFromLocalStorage,
   storeSIWESignatureToLocalStorage,
-  getBalancesForSwap,
   switchChain,
-  intentTransform,
-  mulDecimals,
-  getCosmosURL,
-  getBalancesForBridge,
+  tronHexToEvmAddress,
 } from './utils';
-import { swap } from './swap/swap';
-import { getSwapSupportedChains } from './swap/utils';
-import { utils } from 'tronweb';
-import BridgeHandler from './requestHandlers/bridge';
-import { BridgeAndExecuteQuery } from './query/bridgeAndExecute';
-import {
-  BackendSimulationClient,
-  createBackendSimulationClient,
-} from '../../integrations/tenderly';
-import { createBridgeAndTransferParams } from './query/bridgeAndTransfer';
-import getMaxValueForBridge from './requestHandlers/bridgeMax';
-import { Errors } from './errors';
-import { setLoggerProvider } from './telemetry';
 
 setLogLevel(LOG_LEVEL.NOLOGS);
 const logger = getLogger();
 
 enum INIT_STATUS {
-  CREATED,
-  RUNNING,
-  DONE,
+  CREATED = 0,
+  RUNNING = 1,
+  DONE = 2,
 }
 
 const SIWE_STATEMENT = 'Sign in to enable Nexus';
@@ -120,7 +126,7 @@ export class CA {
       debug: false,
       network: 'testnet',
       siweChain: 1,
-    },
+    }
   ) {
     this._networkConfig = getNetworkConfig(config.network);
     this.chainList = new ChainList(this._networkConfig.NETWORK_HINT);
@@ -129,7 +135,7 @@ export class CA {
     });
 
     this._siweChain =
-      config?.siweChain ?? this._networkConfig.NETWORK_HINT === Environment.FOLLY
+      (config?.siweChain ?? this._networkConfig.NETWORK_HINT === Environment.FOLLY)
         ? SUPPORTED_CHAINS.SEPOLIA
         : SUPPORTED_CHAINS.ETHEREUM;
 
@@ -237,7 +243,7 @@ export class CA {
         mode: SwapMode.EXACT_IN,
         data: input,
       },
-      await this._getSwapOptions(options),
+      await this._getSwapOptions(options)
     );
   };
 
@@ -247,7 +253,7 @@ export class CA {
         mode: SwapMode.EXACT_OUT,
         data: input,
       },
-      await this._getSwapOptions(options),
+      await this._getSwapOptions(options)
     );
   };
 
@@ -328,7 +334,7 @@ export class CA {
     // Track network change
     if (this._analytics && this._evm) {
       const oldChainId = await this._evm.client.getChainId().catch(() => undefined);
-      const newChainId = parseInt(chainId, 16);
+      const newChainId = Number.parseInt(chainId, 16);
 
       this._analytics.track(NexusAnalyticsEvents.WALLET_NETWORK_CHANGED, {
         oldChainId,
@@ -462,7 +468,7 @@ export class CA {
     const client = await createCosmosClient(
       wallet,
       getCosmosURL(this._networkConfig.COSMOS_URL, 'rpc'),
-      { broadcastPollIntervalMs: 250 },
+      { broadcastPollIntervalMs: 250 }
     );
 
     return { wallet, address, client };
@@ -550,7 +556,7 @@ export class CA {
       this._evm.client,
       this._createBridgeHandler,
       this._getBalancesForBridge,
-      this.simulationClient,
+      this.simulationClient
     );
 
     return handler.simulateBridgeAndExecute(params);
@@ -558,7 +564,7 @@ export class CA {
 
   protected _bridgeAndExecute = (
     params: BridgeAndExecuteParams,
-    options?: OnEventParam & BeforeExecuteHook,
+    options?: OnEventParam & BeforeExecuteHook
   ) => {
     if (!this._evm) {
       throw Errors.sdkNotInitialized();
@@ -569,7 +575,7 @@ export class CA {
       this._evm.client,
       this._createBridgeHandler,
       this._getBalancesForBridge,
-      this.simulationClient,
+      this.simulationClient
     );
 
     return handler.bridgeAndExecute(params, options);
@@ -585,7 +591,7 @@ export class CA {
       this._evm.client,
       this._createBridgeHandler,
       this._getBalancesForBridge,
-      this.simulationClient,
+      this.simulationClient
     );
 
     return handler.execute(params, options);
@@ -601,7 +607,7 @@ export class CA {
       this._evm.client,
       this._createBridgeHandler,
       this._getBalancesForBridge,
-      this.simulationClient,
+      this.simulationClient
     );
 
     return handler.simulateExecute(params, this._evm.address);
@@ -616,7 +622,7 @@ export class CA {
   protected _convertTokenReadableAmountToBigInt = (
     amount: string,
     tokenSymbol: string,
-    chainId: number,
+    chainId: number
   ) => {
     const token = this.chainList.getTokenInfoBySymbol(chainId, tokenSymbol);
     if (!token) {

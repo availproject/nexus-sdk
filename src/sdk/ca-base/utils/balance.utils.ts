@@ -1,13 +1,13 @@
-import { ChainListType, logger, SUPPORTED_CHAINS } from '../../../commons';
-import { equalFold, getEVMBalancesForAddress, getTronBalancesForAddress } from '.';
-import { encodePacked, Hex, keccak256, pad, toHex } from 'viem';
+import { encodePacked, type Hex, keccak256, pad, toHex } from 'viem';
+import { type ChainListType, logger, SUPPORTED_CHAINS } from '../../../commons';
+import { filterSupportedTokens } from '../swap/data';
 import {
   ankrBalanceToAssets,
   getAnkrBalances,
   toFlatBalance,
   vscBalancesToAssets,
 } from '../swap/utils';
-import { filterSupportedTokens } from '../swap/data';
+import { equalFold, getEVMBalancesForAddress, getTronBalancesForAddress } from '.';
 
 export const getBalancesForSwap = async (input: {
   evmAddress: Hex;
@@ -57,7 +57,7 @@ const getBalanceSlot = ({
 
   // Calculate storage slot for user's balance: keccak256(user_address . balances_slot)
   const userBalanceSlot = keccak256(
-    encodePacked(['bytes32', 'uint256'], [pad(userAddress, { size: 32 }), BigInt(balanceSlot)]),
+    encodePacked(['bytes32', 'uint256'], [pad(userAddress, { size: 32 }), BigInt(balanceSlot)])
   );
 
   logger.debug('getBalanceSlot', {
@@ -136,6 +136,6 @@ function getBalanceStorageSlot(token: string, chainId: number): number {
   return token === 'USDC'
     ? DEFAULT_SLOT.USDC
     : token === 'USDT'
-    ? DEFAULT_SLOT.USDT
-    : DEFAULT_SLOT.ETH;
+      ? DEFAULT_SLOT.USDT
+      : DEFAULT_SLOT.ETH;
 }

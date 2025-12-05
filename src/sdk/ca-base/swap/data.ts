@@ -1,13 +1,12 @@
-import { Bytes, PermitVariant, Universe } from '@avail-project/ca-common';
-import { Hex, PublicClient } from 'viem';
+import { type Bytes, PermitVariant, type Universe } from '@avail-project/ca-common';
+import type { Hex, PublicClient } from 'viem';
 import { toHex } from 'viem/utils';
-
-import { ChainList } from '../chains';
-import { TokenInfo } from '../../../commons';
+import type { TokenInfo } from '../../../commons';
+import type { ChainList } from '../chains';
+import { Errors } from '../errors';
 import { convertTo32BytesHex, equalFold } from '../utils';
 import { EADDRESS } from './constants';
 import { convertToEVMAddress, determinePermitVariantAndVersion } from './utils';
-import { Errors } from '../errors';
 
 export enum CurrencyID {
   USDC = 0x1,
@@ -413,7 +412,7 @@ const isTokenSupported = (chainId: number, contractAddress: Hex) => {
 const getPermitVariantAndVersion = async (tokenAddress: Hex, client: PublicClient) => {
   for (const [, tokens] of chainData.entries()) {
     const t = tokens.find((t) =>
-      equalFold(convertTo32BytesHex(tokenAddress), t.TokenContractAddress),
+      equalFold(convertTo32BytesHex(tokenAddress), t.TokenContractAddress)
     );
     if (t) {
       return { variant: t.PermitVariant, version: t.PermitContractVersion };

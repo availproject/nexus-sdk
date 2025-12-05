@@ -1,15 +1,15 @@
-import {
-  type ApiResponse,
-  type BackendConfig,
-  type ChainSupportResponse,
-  type HealthCheckResponse,
-  type ServiceStatusResponse,
-  type BundleSimulationRequest,
-  type BackendBundleResponse,
-} from './types';
-import { logger } from '../commons';
 import axios from 'axios';
+import { logger } from '../commons';
 import { Errors } from '../sdk/ca-base/errors';
+import type {
+  ApiResponse,
+  BackendBundleResponse,
+  BackendConfig,
+  BundleSimulationRequest,
+  ChainSupportResponse,
+  HealthCheckResponse,
+  ServiceStatusResponse,
+} from './types';
 
 /**
  * Backend simulation result interface
@@ -150,8 +150,8 @@ export class BackendSimulationClient {
     logger.debug('DEBUG simulateBundle - request:', JSON.stringify(request, null, 2));
 
     const { data } = await axios.post<BackendBundleResponse>(
-      new URL(`/api/gas-estimation/bundle`, this.baseUrl).href,
-      request,
+      new URL('/api/gas-estimation/bundle', this.baseUrl).href,
+      request
     );
 
     if (!data.success || !data.data) {

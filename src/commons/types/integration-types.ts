@@ -1,4 +1,4 @@
-import { Hex } from 'viem';
+import type { Hex } from 'viem';
 
 export interface ApiResponse<T = unknown> {
   success: boolean;

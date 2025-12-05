@@ -1,6 +1,6 @@
-import { ChainListType } from '.';
-import { Hex } from 'viem';
+import type { Hex } from 'viem';
 import { Errors } from '../../sdk/ca-base/errors';
+import type { ChainListType } from '.';
 
 const SWAP_START = {
   completed: true,
@@ -8,7 +8,7 @@ const SWAP_START = {
   typeID: 'SWAP_START',
 } as const;
 
-const DETERMINING_SWAP = (completed: boolean = false) =>
+const DETERMINING_SWAP = (completed = false) =>
   ({
     completed,
     type: 'DETERMINING_SWAP',
@@ -18,7 +18,7 @@ const DETERMINING_SWAP = (completed: boolean = false) =>
 const CREATE_PERMIT_EOA_TO_EPHEMERAL = (
   completed: boolean,
   symbol: string,
-  chain: { id: number; name?: string },
+  chain: { id: number; name?: string }
 ) =>
   ({
     chain: {
@@ -34,7 +34,7 @@ const CREATE_PERMIT_EOA_TO_EPHEMERAL = (
 const CREATE_PERMIT_FOR_SOURCE_SWAP = (
   completed: boolean,
   symbol: string,
-  chain: { id: number; name?: string },
+  chain: { id: number; name?: string }
 ) =>
   ({
     chain: {
@@ -95,7 +95,7 @@ const SWAP_COMPLETE = {
 } as const;
 
 const DESTINATION_SWAP_HASH = (op: [bigint, Hex], chainList: ChainListType) => {
-  const chainID = Number(op[0])
+  const chainID = Number(op[0]);
   const chain = chainList.getChainByID(chainID);
   if (!chain) {
     throw Errors.chainNotFound(chainID);

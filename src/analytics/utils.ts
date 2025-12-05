@@ -3,9 +3,9 @@
  * Helper functions for extracting analytics properties from SDK data structures
  */
 
-import Decimal from "decimal.js";
-import { ReadableIntent, SuccessfulSwapResult, UserAssetDatum } from "../commons";
-import { Intent } from "../sdk/ca-base";
+import Decimal from 'decimal.js';
+import type { ReadableIntent, SuccessfulSwapResult, UserAssetDatum } from '../commons';
+import type { Intent } from '../sdk/ca-base';
 
 /**
  * Detect wallet type from provider
@@ -22,7 +22,7 @@ export function getWalletType(provider: any): string {
   if (provider.isRabby) return 'Rabby';
   if (provider.isBraveWallet) return 'Brave Wallet';
   if (provider.isExodus) return 'Exodus';
-  if (provider.isAmbire) return "Ambire Wallet";
+  if (provider.isAmbire) return 'Ambire Wallet';
   if (provider.isMetaMask) return 'MetaMask'; // placing metamask last to avoid false positives
 
   // Try to get from constructor name
@@ -59,16 +59,16 @@ export function calculateUsdValue(
       // Assuming 6 decimals for most stablecoins, 18 for ETH
       // This is a simplification - real implementation should know token decimals
       const decimals = token === 'ETH' ? 18 : 6;
-      numericAmount = Number(amount) / Math.pow(10, decimals);
+      numericAmount = Number(amount) / 10 ** decimals;
     } else if (typeof amount === 'string') {
-      numericAmount = parseFloat(amount);
+      numericAmount = Number.parseFloat(amount);
     } else {
       numericAmount = amount;
     }
 
     const price = oraclePrices[token];
     return numericAmount * price;
-  } catch (error) {
+  } catch (_error) {
     return undefined;
   }
 }
@@ -128,7 +128,7 @@ export function extractBreakdownStats(assets: UserAssetDatum[]): {
       totalBreakdowns: 0,
       chains: [],
       tokens: [],
-      balanceCount: 0
+      balanceCount: 0,
     };
   }
 
@@ -159,7 +159,7 @@ export function extractBreakdownStats(assets: UserAssetDatum[]): {
     totalBreakdowns,
     chains: Array.from(chains),
     tokens: Array.from(tokens),
-    balanceCount: assets.length
+    balanceCount: assets.length,
   };
 }
 
@@ -175,7 +175,7 @@ export function sanitizeUrl(url: string | undefined): string | undefined {
     const urlObj = new URL(url);
     // Return URL without search params
     return `${urlObj.origin}${urlObj.pathname}`;
-  } catch (error) {
+  } catch (_error) {
     // If URL parsing fails, just return the origin if it looks like a URL
     if (url.startsWith('http')) {
       return url.split('?')[0];
@@ -212,11 +212,17 @@ export function extractSwapProperties(swaps: SuccessfulSwapResult): Record<strin
       chainId: s.chainId,
       sources: s.swaps.map((swp) => ({
         tokenContract: swp.inputContract,
-        amount: new Decimal(swp.inputAmount.toString()).div(Decimal.pow(10, swp.inputDecimals)).toDecimalPlaces(swp.inputDecimals).toFixed()
+        amount: new Decimal(swp.inputAmount.toString())
+          .div(Decimal.pow(10, swp.inputDecimals))
+          .toDecimalPlaces(swp.inputDecimals)
+          .toFixed(),
       })),
       destinations: s.swaps.map((swp) => ({
         tokenContract: swp.outputContract,
-        amount: new Decimal(swp.outputAmount.toString()).div(Decimal.pow(10, swp.outputDecimals)).toDecimalPlaces(swp.outputDecimals).toFixed()
+        amount: new Decimal(swp.outputAmount.toString())
+          .div(Decimal.pow(10, swp.outputDecimals))
+          .toDecimalPlaces(swp.outputDecimals)
+          .toFixed(),
       })),
     }));
   }
@@ -231,12 +237,10 @@ export function extractSwapProperties(swaps: SuccessfulSwapResult): Record<strin
       destination: {
         chainId: swaps.swapRoute.bridge.chainID,
         token: swaps.swapRoute.bridge.tokenAddress,
-        amount: new Decimal(swaps.swapRoute.bridge.amount).toFixed()
+        amount: new Decimal(swaps.swapRoute.bridge.amount).toFixed(),
       },
     };
   }
-
-
 
   // Extract destination swap details
   if (swaps.destinationSwap) {
@@ -244,11 +248,17 @@ export function extractSwapProperties(swaps: SuccessfulSwapResult): Record<strin
       chainId: swaps.destinationSwap.chainId,
       source: swaps.destinationSwap.swaps.map((s) => ({
         tokenContract: s.inputContract,
-        amount: new Decimal(s.inputAmount.toString()).div(Decimal.pow(10, s.inputDecimals)).toDecimalPlaces(s.inputDecimals).toFixed()
+        amount: new Decimal(s.inputAmount.toString())
+          .div(Decimal.pow(10, s.inputDecimals))
+          .toDecimalPlaces(s.inputDecimals)
+          .toFixed(),
       })),
       destination: swaps.destinationSwap.swaps.map((s) => ({
         tokenContract: s.outputContract,
-        amount: new Decimal(s.outputAmount.toString()).div(Decimal.pow(10, s.outputDecimals)).toDecimalPlaces(s.outputDecimals).toFixed()
+        amount: new Decimal(s.outputAmount.toString())
+          .div(Decimal.pow(10, s.outputDecimals))
+          .toDecimalPlaces(s.outputDecimals)
+          .toFixed(),
       })),
     };
   }

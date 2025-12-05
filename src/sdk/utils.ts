@@ -1,16 +1,16 @@
+import { formatUnits, isAddress, parseUnits } from 'viem';
 import {
-  type SUPPORTED_CHAINS,
-  truncateAddress as utilTruncateAddress,
-  SupportedChainsResult,
-  Network,
-  ChainListType,
+  type ChainListType,
   formatTokenBalance,
   formatTokenBalanceParts,
-  SupportedChainsAndTokensResult,
+  type Network,
+  type SUPPORTED_CHAINS,
+  type SupportedChainsAndTokensResult,
+  type SupportedChainsResult,
+  truncateAddress as utilTruncateAddress,
 } from '../commons';
-import { getCoinbasePrices, getSupportedChains } from './ca-base/utils';
 import { getSwapSupportedChains } from './ca-base/swap/utils';
-import { formatUnits, isAddress, parseUnits } from 'viem';
+import { getCoinbasePrices, getSupportedChains } from './ca-base/utils';
 
 export class NexusUtils {
   constructor(private readonly chainList: ChainListType) {}

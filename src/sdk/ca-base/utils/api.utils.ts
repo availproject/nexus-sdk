@@ -1,27 +1,29 @@
 import {
-  Bytes,
+  type Bytes,
   GrpcWebImpl,
   QueryClientImpl,
-  RequestForFunds,
+  type RequestForFunds,
   Universe,
 } from '@avail-project/ca-common';
-import axios, { AxiosInstance } from 'axios';
+import axios, { type AxiosInstance } from 'axios';
 import Decimal from 'decimal.js';
+import { remove, retry } from 'es-toolkit';
 import { connect } from 'it-ws/client';
-import Long from 'long';
+import type Long from 'long';
 import { pack, unpack } from 'msgpackr';
-import { bytesToBigInt, bytesToNumber, Hex, toHex } from 'viem';
+import { bytesToBigInt, bytesToNumber, type Hex, toHex } from 'viem';
 import {
   BRIDGE_STEPS,
-  BridgeStepType,
+  type BridgeStepType,
+  type ChainListType,
+  type FeeStoreData,
   getLogger,
-  FeeStoreData,
-  OraclePriceResponse,
-  RFF,
-  SponsoredApprovalDataArray,
-  UnifiedBalanceResponseData,
-  ChainListType,
+  type OraclePriceResponse,
+  type RFF,
+  type SponsoredApprovalDataArray,
+  type UnifiedBalanceResponseData,
 } from '../../../commons';
+import { Errors } from '../errors';
 import {
   convertAddressByUniverse,
   convertToHexAddressByUniverse,
@@ -30,8 +32,6 @@ import {
   getExplorerURL,
   minutesToMs,
 } from './common.utils';
-import { Errors } from '../errors';
-import { remove, retry } from 'es-toolkit';
 
 const logger = getLogger();
 
@@ -67,7 +67,7 @@ async function fetchMyIntents(address: string, grpcURL: string, page = 1) {
 export const intentTransform = (
   input: RequestForFunds[],
   explorerBaseURL: string,
-  chainList: ChainListType,
+  chainList: ChainListType
 ): RFF[] => {
   return input.map((rff) => {
     const dstChainId = bytesToNumber(rff.destinationChainID);
@@ -87,7 +87,7 @@ export const intentTransform = (
       destinations: rff.destinations.map((d) => {
         const contractAddress = convertToHexAddressByUniverse(
           d.contractAddress,
-          rff.destinationUniverse,
+          rff.destinationUniverse
         );
         const token = chainList.getTokenByAddress(dstChainId, contractAddress);
         if (!token) {
@@ -165,7 +165,7 @@ const fetchPriceOracle = async (grpcURL: string) => {
       priceUsd: new Decimal(bytesToNumber(data.price)).div(Decimal.pow(10, data.decimals)),
       tokenAddress: convertAddressByUniverse(toHex(data.tokenAddress), data.universe),
       tokensPerUsd: new Decimal(1).div(
-        new Decimal(bytesToNumber(data.price)).div(Decimal.pow(10, data.decimals)),
+        new Decimal(bytesToNumber(data.price)).div(Decimal.pow(10, data.decimals))
       ),
     }));
     return oracleRates;
@@ -326,14 +326,14 @@ const getFeeStore = async (grpcURL: string) => {
           destinationChainID: bytesToNumber(s.destinationChainID),
           destinationTokenAddress: convertAddressByUniverse(
             toHex(s.destinationTokenAddress),
-            s.destinationUniverse,
+            s.destinationUniverse
           ),
           destinationUniverse: s.destinationUniverse,
           feeBP: s.feeBP,
           sourceChainID: bytesToNumber(s.sourceChainID),
           sourceTokenAddress: convertAddressByUniverse(
             toHex(s.sourceTokenAddress),
-            s.sourceUniverse,
+            s.sourceUniverse
           ),
           sourceUniverse: s.sourceUniverse,
         };
@@ -370,7 +370,7 @@ const getVscReq = (vscDomain: string) => {
 export const getBalancesFromVSC = async (
   vscDomain: string,
   address: `0x${string}`,
-  namespace: 'ETHEREUM' | 'TRON' = 'ETHEREUM',
+  namespace: 'ETHEREUM' | 'TRON' = 'ETHEREUM'
 ) => {
   const response = await getVscReq(vscDomain).get<{
     balances: UnifiedBalanceResponseData[];
@@ -388,7 +388,7 @@ export const getTronBalancesForAddress = async (vscDomain: string, address: `0x$
 };
 
 const vscCreateFeeGrant = async (vscDomain: string, address: string) => {
-  const response = await getVscReq(vscDomain).post(`/create-feegrant`, {
+  const response = await getVscReq(vscDomain).post('/create-feegrant', {
     cosmos_address: address,
   });
   return response;
@@ -418,10 +418,10 @@ type CreateSponsoredApprovalResponse =
 
 const vscCreateSponsoredApprovals = async (
   vscDomain: string,
-  input: SponsoredApprovalDataArray,
+  input: SponsoredApprovalDataArray
 ) => {
   const connection = connect(
-    new URL('/api/v1/create-sponsored-approvals', getVSCURL(vscDomain, 'wss')).toString(),
+    new URL('/api/v1/create-sponsored-approvals', getVSCURL(vscDomain, 'wss')).toString()
   );
 
   await connection.connected();
@@ -438,13 +438,13 @@ const vscCreateSponsoredApprovals = async (
 
       if ('errored' in data && data.errored) {
         throw Errors.vscError(
-          `failed to create sponsored approvals: ${data.msg ?? 'Backend sent failure.'}`,
+          `failed to create sponsored approvals: ${data.msg ?? 'Backend sent failure.'}`
         );
       }
 
       if ('error' in data && data.error) {
         throw Errors.vscError(
-          `failed to create sponsored approvals: ${data.msg ?? 'Backend sent failure.'}`,
+          `failed to create sponsored approvals: ${data.msg ?? 'Backend sent failure.'}`
         );
       }
 
@@ -495,7 +495,7 @@ const vscCreateRFF = async (
   vscDomain: string,
   id: Long,
   msd: (s: BridgeStepType) => void,
-  expectedCollections: number[],
+  expectedCollections: number[]
 ) => {
   const controller = new AbortController();
   const pendingCollections = expectedCollections.slice();
@@ -503,7 +503,7 @@ const vscCreateRFF = async (
   await retry(
     async () => {
       const connection = connect(
-        new URL('/api/v1/create-rff', getVSCURL(vscDomain, 'wss')).toString(),
+        new URL('/api/v1/create-rff', getVSCURL(vscDomain, 'wss')).toString()
       );
       try {
         await connection.connected();
@@ -526,7 +526,7 @@ const vscCreateRFF = async (
                     completedCollections,
                   });
                   throw Errors.vscError(
-                    `create-rff: collections failed. expected = ${expectedCollections}, got = ${completedCollections}`,
+                    `create-rff: collections failed. expected = ${expectedCollections}, got = ${completedCollections}`
                   );
                 }
               }
@@ -539,8 +539,8 @@ const vscCreateRFF = async (
                 msd(
                   BRIDGE_STEPS.INTENT_COLLECTION(
                     completedCollections.length,
-                    expectedCollections.length,
-                  ),
+                    expectedCollections.length
+                  )
                 );
                 break;
               }
@@ -548,7 +548,7 @@ const vscCreateRFF = async (
               // Collection failed or is not applicable(say for native)
               default: {
                 if (pendingCollections.includes(data.idx)) {
-                  logger.debug(`vsc:create-rff:failed`, { data });
+                  logger.debug('vsc:create-rff:failed', { data });
                 } else {
                   logger.debug('vsc:create-rff:expectedError:ignore', { data });
                 }
@@ -572,7 +572,7 @@ const vscCreateRFF = async (
     {
       retries: 3,
       signal: controller.signal,
-    },
+    }
   );
 };
 

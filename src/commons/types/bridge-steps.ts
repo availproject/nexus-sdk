@@ -1,4 +1,4 @@
-import Decimal from 'decimal.js';
+import type Decimal from 'decimal.js';
 
 const INTENT_ACCEPTED = {
   type: 'INTENT_ACCEPTED',
@@ -53,7 +53,7 @@ const ALLOWANCE_COMPLETE = {
 const INTENT_DEPOSIT_REQUEST = (
   id: number,
   amount: Decimal,
-  chain: { id: number; name?: string },
+  chain: { id: number; name?: string }
 ) =>
   ({
     type: 'INTENT_DEPOSIT',
@@ -133,4 +133,4 @@ type BridgeStepType =
   | typeof EXECUTE_TRANSACTION_CONFIRMED
   | typeof EXECUTE_TRANSACTION_SENT;
 
-export { BridgeStepType, BRIDGE_STEPS };
+export { type BridgeStepType, BRIDGE_STEPS };

@@ -1,17 +1,17 @@
 import {
-  MsgCreateRequestForFunds,
+  type MsgCreateRequestForFunds,
   MsgCreateRequestForFundsResponse,
-  MsgDoubleCheckTx,
+  type MsgDoubleCheckTx,
   MsgRefundReq,
   MsgRefundReqResponse,
 } from '@avail-project/ca-common';
 import { isDeliverTxFailure, isDeliverTxSuccess } from '@cosmjs/stargate';
 import axios from 'axios';
 import { connect } from 'it-ws/client';
-import Long from 'long';
-import { CosmosOptions, getLogger } from '../../../commons';
-import { checkIntentFilled, vscCreateFeeGrant } from './api.utils';
+import type Long from 'long';
+import { type CosmosOptions, getLogger } from '../../../commons';
 import { Errors } from '../errors';
+import { checkIntentFilled, vscCreateFeeGrant } from './api.utils';
 
 const logger = getLogger();
 
@@ -55,7 +55,7 @@ const cosmosCreateRFF = async ({
       {
         amount: [],
         gas: 100_000n.toString(10),
-      },
+      }
     );
 
     if (isDeliverTxFailure(res)) {
@@ -91,7 +91,7 @@ const cosmosRefundIntent = async ({
       {
         amount: [],
         gas: 200_000n.toString(10),
-      },
+      }
     );
     logger.debug('Refund response', { resp });
     try {
@@ -140,7 +140,7 @@ const cosmosCreateDoubleCheckTx = async ({
       {
         amount: [],
         gas: 100_000n.toString(10),
-      },
+      }
     );
 
     if (isDeliverTxFailure(res)) {
@@ -159,7 +159,7 @@ const cosmosFillCheck = async (
   intentID: Long,
   grpcURL: string,
   cosmosURL: string,
-  ac: AbortController,
+  ac: AbortController
 ) => {
   return Promise.any([
     waitForCosmosFillEvent(intentID, cosmosURL, ac),
@@ -181,7 +181,7 @@ const waitForCosmosFillEvent = async (intentID: Long, cosmosURL: string, ac: Abo
       connection.close();
       return Promise.resolve('ok from outside');
     },
-    { once: true },
+    { once: true }
   );
 
   const EVENT = 'xarchain.chainabstraction.RFFFulfilledEvent.id';
@@ -195,7 +195,7 @@ const waitForCosmosFillEvent = async (intentID: Long, cosmosURL: string, ac: Abo
         params: {
           query: `${EVENT}='"${intentID}"'`,
         },
-      }),
+      })
     );
 
     for await (const resp of connection.source) {

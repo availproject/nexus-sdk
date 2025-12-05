@@ -1,6 +1,6 @@
 import { Environment } from '@avail-project/ca-common';
 
-import { NetworkConfig, NexusNetwork } from '../../commons';
+import type { NetworkConfig, NexusNetwork } from '../../commons';
 
 // const JADE_CONFIG: NetworkConfig = {
 //   COSMOS_URL: 'https://cosmos-mainnet.availproject.org',

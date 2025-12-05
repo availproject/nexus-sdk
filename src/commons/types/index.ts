@@ -1,13 +1,13 @@
-import { SUPPORTED_CHAINS } from '../constants';
-import { TransactionReceipt, ByteArray, Hex, WalletClient } from 'viem';
-import { ChainDatum, Environment, PermitVariant, Universe } from '@avail-project/ca-common';
-import Decimal from 'decimal.js';
-import { SwapIntent } from './swap-types';
-import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
-import { SwapStepType } from './swap-steps';
-import { BridgeStepType } from './bridge-steps';
-import { FormatTokenBalanceOptions, FormattedParts } from '../utils/format';
-import { SigningStargateClient } from '@cosmjs/stargate';
+import type { ChainDatum, Environment, PermitVariant, Universe } from '@avail-project/ca-common';
+import type { SigningStargateClient } from '@cosmjs/stargate';
+import type { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
+import type Decimal from 'decimal.js';
+import type { ByteArray, Hex, TransactionReceipt, WalletClient } from 'viem';
+import type { SUPPORTED_CHAINS } from '../constants';
+import type { FormatTokenBalanceOptions, FormattedParts } from '../utils/format';
+import type { BridgeStepType } from './bridge-steps';
+import type { SwapStepType } from './swap-steps';
+import type { SwapIntent } from './swap-types';
 
 type TokenInfo = {
   contractAddress: `0x${string}`;
@@ -87,7 +87,7 @@ export type DynamicParamBuilder = (
   token: string,
   amount: string,
   chainId: number,
-  userAddress: `0x${string}`,
+  userAddress: `0x${string}`
 ) => {
   functionParams: readonly unknown[];
   /** ETH value in wei (string). Omit or '0' for ERC-20 calls */
@@ -325,7 +325,7 @@ interface EthereumProvider {
   removeListener(
     eventName: string | symbol,
     /* eslint-disable @typescript-eslint/no-explicit-any */
-    listener: (...args: any[]) => void,
+    listener: (...args: any[]) => void
   ): this;
 
   request(args: RequestArguments): Promise<unknown>;
@@ -510,7 +510,7 @@ export type ChainListType = {
   getTokenInfoBySymbol(chainID: number, symbol: string): TokenInfo | undefined;
   getChainAndTokenFromSymbol(
     chainID: number,
-    tokenSymbol: string,
+    tokenSymbol: string
   ): {
     chain: Chain;
     token: (TokenInfo & { isNative: boolean }) | undefined;
@@ -518,7 +518,7 @@ export type ChainListType = {
   getTokenByAddress(chainID: number, address: `0x${string}`): TokenInfo | undefined;
   getChainAndTokenByAddress(
     chainID: number,
-    address: `0x${string}`,
+    address: `0x${string}`
   ):
     | {
         chain: Chain;

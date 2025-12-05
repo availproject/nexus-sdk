@@ -1,4 +1,4 @@
-import { Hex } from 'viem';
+import type { Hex } from 'viem';
 
 export type GetAllowanceParams = {
   contractAddress: Hex;

@@ -1,4 +1,4 @@
-import { AnyValueMap, SeverityNumber } from '@opentelemetry/api-logs';
+import { type AnyValueMap, SeverityNumber } from '@opentelemetry/api-logs';
 import { telemetryLogger } from './telemetry';
 
 export interface NexusErrorData {

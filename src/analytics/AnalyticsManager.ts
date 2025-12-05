@@ -51,15 +51,16 @@
  * });
  * ```
  */
-import { AnalyticsProvider } from './providers/AnalyticsProvider';
-import { PostHogProvider } from './providers/PostHogProvider';
-import { NoOpProvider } from './providers/NoOpProvider';
-import { SessionManager } from './session';
-import { PerformanceTracker } from './performance';
-import { NexusAnalyticsEvents } from './events';
-import { AnalyticsConfig, BaseEventProperties } from './types';
-import { extractErrorCode } from './utils';
+
 import { version } from '../../package.json' with { type: 'json' };
+import { NexusAnalyticsEvents } from './events';
+import { PerformanceTracker } from './performance';
+import type { AnalyticsProvider } from './providers/AnalyticsProvider';
+import { NoOpProvider } from './providers/NoOpProvider';
+import { PostHogProvider } from './providers/PostHogProvider';
+import { SessionManager } from './session';
+import type { AnalyticsConfig, BaseEventProperties } from './types';
+import { extractErrorCode } from './utils';
 
 /**
  * Default PostHog API Key - INTENTIONALLY PUBLIC
@@ -329,17 +330,17 @@ export class AnalyticsManager {
         const dataBuffer = encoder.encode(data);
         const hashBuffer = await window.crypto.subtle.digest('SHA-256', dataBuffer);
         const hashArray = Array.from(new Uint8Array(hashBuffer));
-        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        const hashHex = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
         return `anon_${hashHex.substring(0, 16)}`;
       }
 
       // Fallback for Node.js environment
       if (typeof require !== 'undefined') {
         try {
-          const crypto = require('crypto');
+          const crypto = require('node:crypto');
           const hash = crypto.createHash('sha256').update(data).digest('hex');
           return `anon_${hash.substring(0, 16)}`;
-        } catch (e) {
+        } catch (_e) {
           // crypto module not available
         }
       }
@@ -352,7 +353,7 @@ export class AnalyticsManager {
         simpleHash = simpleHash & simpleHash;
       }
       return `anon_${Math.abs(simpleHash).toString(36)}`;
-    } catch (error) {
+    } catch (_error) {
       // On any error, return a simple anonymized version
       return `anon_${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
     }
@@ -369,10 +370,7 @@ export class AnalyticsManager {
   /**
    * End tracking an operation and emit performance event
    */
-  endOperation(
-    operationId: string,
-    result: { success: boolean; error?: Error }
-  ): void {
+  endOperation(operationId: string, result: { success: boolean; error?: Error }): void {
     const perfProperties = this.performance.endOperation(operationId, result);
 
     if (perfProperties) {
@@ -382,7 +380,10 @@ export class AnalyticsManager {
       }
 
       // Track performance event
-      this.track(NexusAnalyticsEvents.OPERATION_PERFORMANCE, perfProperties as Record<string, unknown>);
+      this.track(
+        NexusAnalyticsEvents.OPERATION_PERFORMANCE,
+        perfProperties as Record<string, unknown>
+      );
     }
   }
 

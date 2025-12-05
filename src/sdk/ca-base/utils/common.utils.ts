@@ -1,58 +1,61 @@
 import {
-  Bytes,
+  type Bytes,
   DepositVEPacket,
   Environment,
   ERC20ABI,
-  EVMRFF,
+  type EVMRFF,
   EVMVaultABI,
   MsgDoubleCheckTx,
   Universe,
 } from '@avail-project/ca-common';
+import type { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 import Decimal from 'decimal.js';
-import Long from 'long';
+import type Long from 'long';
+import { type TronWeb, type Types, utils } from 'tronweb';
 import {
-  ByteArray,
+  type ByteArray,
   bytesToHex,
   bytesToNumber,
   encodeAbiParameters,
   encodeFunctionData,
   getAbiItem,
+  type Hex,
   hashMessage,
-  Hex,
   hexToBigInt,
   keccak256,
+  type PrivateKeyAccount,
+  type PublicClient,
   pad,
-  PrivateKeyAccount,
-  PublicClient,
   toBytes,
   toHex,
   UserRejectedRequestError,
-  WalletClient,
-  WebSocketTransport,
+  type WalletClient,
+  type WebSocketTransport,
 } from 'viem';
-import { TronWeb, Types, utils } from 'tronweb';
+import type { AnalyticsManager } from '../../../analytics/AnalyticsManager';
+import { NexusAnalyticsEvents } from '../../../analytics/events';
+import {
+  type Chain,
+  type ChainListType,
+  type CosmosOptions,
+  getLogger,
+  type IBridgeOptions,
+  type Intent,
+  type OraclePriceResponse,
+  type ReadableIntent,
+  type SupportedChainsAndTokensResult,
+  type TokenInfo,
+  type UserAssetDatum,
+} from '../../../commons';
 import { ChainList } from '../chains';
 import { getLogoFromSymbol, isNativeAddress, ZERO_ADDRESS } from '../constants';
-import {
-  getLogger,
-  IBridgeOptions,
-  SupportedChainsAndTokensResult,
-  Intent,
-  OraclePriceResponse,
-  ReadableIntent,
-  TokenInfo,
-  ChainListType,
-  UserAssetDatum,
-  Chain,
-  CosmosOptions,
-} from '../../../commons';
-import { createPublicClientWithFallback } from './contract.utils';
-import { AnalyticsManager } from '../../../analytics/AnalyticsManager';
-import { NexusAnalyticsEvents } from '../../../analytics/events';
-import { requestTimeout, waitForIntentFulfilment } from './contract.utils';
-import { cosmosCreateDoubleCheckTx, cosmosFillCheck, cosmosRefundIntent } from './cosmos.utils';
-import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 import { Errors } from '../errors';
+import {
+  createPublicClientWithFallback,
+  requestTimeout,
+  waitForIntentFulfilment,
+} from './contract.utils';
+import { cosmosCreateDoubleCheckTx, cosmosFillCheck, cosmosRefundIntent } from './cosmos.utils';
 
 const logger = getLogger();
 
@@ -221,7 +224,7 @@ const mulDecimals = (input: Decimal | number | string, decimals: number) => {
 const convertIntent = (
   intent: Intent,
   token: TokenInfo,
-  chainList: ChainListType,
+  chainList: ChainListType
 ): ReadableIntent => {
   console.time('convertIntent');
   const sources = [];
@@ -281,7 +284,7 @@ const convertIntent = (
         intent.fees.solver,
         intent.fees.protocol,
         intent.fees.fulfilment,
-        intent.fees.gasSupplied,
+        intent.fees.gasSupplied
       ).toFixed(token.decimals),
     },
     sources,
@@ -303,7 +306,7 @@ const hexTo0xString = (hex: string): `0x${string}` => {
 };
 
 const getSupportedChains = (
-  env: Environment = Environment.CORAL,
+  env: Environment = Environment.CORAL
 ): SupportedChainsAndTokensResult => {
   const chainList = new ChainList(env);
   return chainList.chains.map((chain) => {
@@ -328,7 +331,7 @@ const getSupportedChains = (
 const createRequestEVMSignature = async (
   evmRFF: EVMRFF,
   evmAddress: `0x${string}`,
-  client: WalletClient | PrivateKeyAccount,
+  client: WalletClient | PrivateKeyAccount
 ) => {
   logger.debug('createReqEVMSignature', { evmRFF });
   const abi = getAbiItem({ abi: EVMVaultABI, name: 'deposit' });
@@ -355,7 +358,7 @@ const createRequestEVMSignature = async (
           throw Errors.userRejectedIntentSignature();
         }
         throw e;
-      }),
+      })
   );
 
   return { requestHash: hashMessage({ raw: hash }), signature };
@@ -394,7 +397,7 @@ const convertGasToToken = (
   oraclePrices: OraclePriceResponse,
   destinationChainID: number,
   destinationUniverse: Universe,
-  gas: Decimal,
+  gas: Decimal
 ) => {
   if (gas.isZero() || isNativeAddress(destinationUniverse, token.contractAddress)) {
     return gas;
@@ -403,14 +406,14 @@ const convertGasToToken = (
   const gasTokenInUSD =
     oraclePrices
       .find(
-        (rate) => rate.chainId === destinationChainID && equalFold(rate.tokenAddress, ZERO_ADDRESS),
+        (rate) => rate.chainId === destinationChainID && equalFold(rate.tokenAddress, ZERO_ADDRESS)
       )
       ?.priceUsd.toFixed() ?? '0';
 
   const transferTokenInUSD = oraclePrices
     .find(
       (rate) =>
-        rate.chainId === destinationChainID && equalFold(rate.tokenAddress, token.contractAddress),
+        rate.chainId === destinationChainID && equalFold(rate.tokenAddress, token.contractAddress)
     )
     ?.priceUsd.toFixed();
 
@@ -430,7 +433,7 @@ const evmWaitForFill = async (
   requestHash: `0x${string}`,
   intentID: Long,
   grpcURL: string,
-  cosmosURL: string,
+  cosmosURL: string
 ) => {
   const ac = new AbortController();
   await Promise.race([
@@ -573,7 +576,7 @@ class UserAsset {
 
         const estimatedGasForDeposit = divDecimals(
           ESTIMATED_DEPOSIT_GAS * gasUnitPrice,
-          chain.nativeCurrency.decimals,
+          chain.nativeCurrency.decimals
         );
 
         if (new Decimal(b.balance).lessThan(estimatedGasForDeposit)) {
@@ -614,7 +617,7 @@ class UserAssets {
   findOnChain(chainID: number, address: `0x${string}`) {
     return this.data.find((asset) => {
       const index = asset.breakdown.findIndex(
-        (b) => b.chain.id === chainID && equalFold(b.contractAddress, address),
+        (b) => b.chain.id === chainID && equalFold(b.contractAddress, address)
       );
       if (index > -1) {
         return asset;
@@ -624,7 +627,7 @@ class UserAssets {
   }
 
   getAssetDetails(chain: Chain, address: `0x${string}`) {
-    let asset = this.findOnChain(chain.id, address);
+    const asset = this.findOnChain(chain.id, address);
 
     getLogger().debug('getAssetDetails', {
       asset,
@@ -680,19 +683,19 @@ class UserAssets {
 async function waitForTronTxConfirmation(
   txid: string,
   tronWeb: TronWeb,
-  options: { timeout?: number; interval?: number } = {},
+  options: { timeout?: number; interval?: number } = {}
 ): Promise<Types.TransactionInfo> {
   const { timeout = 120000, interval = 3000 } = options;
 
   const startTime = Date.now();
 
-  logger.debug(`📡 Waiting for confirmation of tron tx`);
+  logger.debug('📡 Waiting for confirmation of tron tx');
 
   while (Date.now() - startTime < timeout) {
     try {
       const txInfo = await tronWeb.trx.getTransactionInfo(txid);
 
-      logger.debug(`tx info:`, {
+      logger.debug('tx info:', {
         txInfo,
       });
 
@@ -705,7 +708,7 @@ async function waitForTronTxConfirmation(
         }
       }
     } catch (err) {
-      logger.error(`⚠️ Error while checking transaction:`, err, {
+      logger.error('⚠️ Error while checking transaction:', err, {
         cause: 'TRANSACTION_CHECK_ERROR',
       });
       // Don’t throw yet; continue polling
@@ -723,13 +726,13 @@ async function waitForTronDepositTxConfirmation(
   vaultContractAddress: Hex,
   tronWeb: TronWeb,
   owner: Hex,
-  options: { timeout?: number; interval?: number } = {},
+  options: { timeout?: number; interval?: number } = {}
 ): Promise<void> {
   const { timeout = 120000, interval = 3000 } = options;
 
   const startTime = Date.now();
 
-  logger.debug(`📡 Waiting for confirmation of tron tx`);
+  logger.debug('📡 Waiting for confirmation of tron tx');
 
   const input = encodeFunctionData({
     abi: EVMVaultABI,
@@ -745,7 +748,7 @@ async function waitForTronDepositTxConfirmation(
           input,
         },
         [],
-        tronWeb.utils.address.fromHex(owner),
+        tronWeb.utils.address.fromHex(owner)
       );
 
       logger.debug('requestHashWitnessedOnTron', {
@@ -762,7 +765,7 @@ async function waitForTronDepositTxConfirmation(
 
       return;
     } catch (err) {
-      logger.error(`⚠️ Error while checking transaction:`, err, {
+      logger.error('⚠️ Error while checking transaction:', err, {
         cause: 'TRANSACTION_CHECK_ERROR',
       });
       // Don’t throw yet; continue polling
@@ -793,13 +796,13 @@ async function waitForTronApprovalTxConfirmation(
   spender: Hex,
   contractAddress: Hex,
   tronWeb: TronWeb,
-  options: { timeout?: number; interval?: number } = {},
+  options: { timeout?: number; interval?: number } = {}
 ): Promise<void> {
   const { timeout = 120000, interval = 3000 } = options;
 
   const startTime = Date.now();
 
-  logger.debug(`📡 Waiting for confirmation of tron approval tx`);
+  logger.debug('📡 Waiting for confirmation of tron approval tx');
 
   const input = encodeFunctionData({
     abi: ERC20ABI,
@@ -816,7 +819,7 @@ async function waitForTronApprovalTxConfirmation(
           input,
         },
         [],
-        tronWeb.utils.address.fromHex(owner),
+        tronWeb.utils.address.fromHex(owner)
       );
 
       logger.debug('waitForTronApprovalTxConfirmation', {
@@ -834,7 +837,7 @@ async function waitForTronApprovalTxConfirmation(
 
       return;
     } catch (err) {
-      logger.error(`⚠️ Error while checking transaction:`, err, {
+      logger.error('⚠️ Error while checking transaction:', err, {
         cause: 'TRANSACTION_CHECK_ERROR',
       });
       // Don’t throw yet; continue polling
@@ -875,7 +878,7 @@ const retrieveSIWESignatureFromLocalStorage = (address: Hex, siweChain: number) 
   return window.localStorage.getItem(`${SIWE_KEY}-${address}-${siweChain}`);
 };
 
-const createDeadlineFromNow = (minutes: bigint = 3n): bigint => {
+const createDeadlineFromNow = (minutes = 3n): bigint => {
   const nowInSeconds = BigInt(Math.floor(Date.now() / 1000));
   return nowInSeconds + minutes * 60n;
 };
