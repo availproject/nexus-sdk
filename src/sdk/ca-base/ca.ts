@@ -108,10 +108,10 @@ export class CA {
     onIntent: OnIntentHook;
     onSwapIntent: OnSwapIntentHook;
   } = {
-      onAllowance: (data) => data.allow(data.sources.map(() => 'min')),
-      onIntent: (data) => data.allow(),
-      onSwapIntent: (data) => data.allow(),
-    };
+    onAllowance: (data) => data.allow(data.sources.map(() => 'min')),
+    onIntent: (data) => data.allow(),
+    onSwapIntent: (data) => data.allow(),
+  };
   protected _initStatus = INIT_STATUS.CREATED;
   protected _networkConfig: NetworkConfig;
   protected _refundInterval: number | undefined;
@@ -464,14 +464,16 @@ export class CA {
           analytics: this._analytics,
         });
 
-        this._refundInterval = window.setInterval(async () => {
-          await refundExpiredIntents({
-            evmAddress,
-            address: this.#cosmos!.address,
-            client: this.#cosmos!.client,
-            analytics: this._analytics,
-          });
-        }, minutesToMs(10));
+        this._refundInterval = Number(
+          setInterval(async () => {
+            await refundExpiredIntents({
+              evmAddress,
+              address: this.#cosmos!.address,
+              client: this.#cosmos!.client,
+              analytics: this._analytics,
+            });
+          }, minutesToMs(10)),
+        );
       } catch (e) {
         logger.error('Error checking pending refunds', e, { cause: 'REFUND_CHECK_ERROR' });
       }
@@ -539,7 +541,7 @@ export class CA {
 
     let scheme = PlatformUtils.locationProtocol();
     if (PlatformUtils.isBrowser()) {
-      scheme = scheme.slice(0, -1)
+      scheme = scheme.slice(0, -1);
     }
     const domain = PlatformUtils.locationHost();
     const origin = PlatformUtils.locationOrigin();
