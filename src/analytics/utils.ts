@@ -4,15 +4,32 @@
  */
 
 import Decimal from 'decimal.js';
-import type { ReadableIntent, SuccessfulSwapResult, UserAssetDatum } from '../commons';
+import type {
+  EthereumProvider,
+  ReadableIntent,
+  SuccessfulSwapResult,
+  UserAssetDatum,
+} from '../commons';
 import type { Intent } from '../sdk/ca-base';
+
+type ExtendedEthereumProvider = EthereumProvider & {
+  isCoinbaseWallet?: boolean;
+  isWalletConnect?: boolean;
+  isTrust?: boolean;
+  isRabby?: boolean;
+  isBraveWallet?: boolean;
+  isExodus?: boolean;
+  isAmbire?: boolean;
+  isMetaMask?: boolean;
+  session?: Record<string, unknown>;
+};
 
 /**
  * Detect wallet type from provider
  * @param provider - Ethereum provider object
  * @returns Wallet type string (MetaMask, Coinbase, WalletConnect, etc.)
  */
-export function getWalletType(provider: any): string {
+export function getWalletType(provider: ExtendedEthereumProvider): string {
   if (!provider) return 'Unknown';
 
   // Check for common wallet provider flags
@@ -23,7 +40,6 @@ export function getWalletType(provider: any): string {
   if (provider.isBraveWallet) return 'Brave Wallet';
   if (provider.isExodus) return 'Exodus';
   if (provider.isAmbire) return 'Ambire Wallet';
-  if (provider.isMetaMask) return 'MetaMask'; // placing metamask last to avoid false positives
 
   // Try to get from constructor name
   if (provider.constructor?.name && provider.constructor.name !== 'Object') {
@@ -32,6 +48,8 @@ export function getWalletType(provider: any): string {
 
   // Check for provider session (WalletConnect v2)
   if (provider.session) return 'WalletConnect v2';
+
+  if (provider.isMetaMask) return 'MetaMask'; // placing metamask last to avoid false positives
 
   return 'Unknown';
 }
@@ -78,20 +96,20 @@ export function calculateUsdValue(
  * @param intent - Intent object from CA SDK
  * @returns Object with sourceChains, totalBreakdowns, and other properties
  */
-export function extractIntentProperties(intent: any): Record<string, unknown> {
+export function extractIntentProperties(intent: ReadableIntent): Record<string, unknown> {
   if (!intent) return {};
 
   const props: Record<string, unknown> = {};
 
   // Extract source chains
   if (intent.sources && Array.isArray(intent.sources)) {
-    props.sourceChains = intent.sources.map((s: any) => s.chainID || s.chain?.id).filter(Boolean);
+    props.sourceChains = intent.sources.map((s) => s.chainID).filter(Boolean);
     props.totalBreakdowns = intent.sources.length;
   }
 
   // Extract destination chain
   if (intent.destination) {
-    props.destinationChainId = intent.destination.chainID || intent.destination.chain?.id;
+    props.destinationChainId = intent.destination.chainID;
   }
 
   // Extract token info
@@ -100,8 +118,8 @@ export function extractIntentProperties(intent: any): Record<string, unknown> {
   }
 
   // Extract amount
-  if (intent.amount !== undefined) {
-    props.amount = intent.amount.toString();
+  if (intent.destination.amount !== undefined) {
+    props.amount = intent.destination.amount;
   }
 
   // Extract fees if available
@@ -189,7 +207,11 @@ export function sanitizeUrl(url: string | undefined): string | undefined {
  * @param error - Error object
  * @returns Error code or undefined
  */
-export function extractErrorCode(error: any): string | number | undefined {
+export function extractErrorCode(error: {
+  code?: number;
+  errorCode?: number;
+  statusCode?: number;
+}): string | number | undefined {
   if (!error) return undefined;
 
   // Common error code locations
@@ -276,14 +298,13 @@ export function extractBridgeProperties(intent: ReadableIntent | Intent): Record
 
   return {
     bridge: {
-      sources: intent.sources?.map((s: any) => ({
+      sources: intent.sources?.map((s) => ({
         chainId: s.chainID,
-        token: s.tokenContract,
+        token: s.contractAddress,
         amount: new Decimal(s.amount).toFixed(),
       })),
       destination: {
         chainId: intent.destination?.chainID,
-        // token: intent.token.symbol,
         amount: new Decimal(intent.destination?.amount || 0).toFixed(),
       },
       fees: intent.fees,

@@ -1,8 +1,8 @@
 import { Buffer as _Buffer } from 'buffer';
 
 // Ensure Buffer is on globalThis
-if (!(globalThis as any).Buffer) {
-  (globalThis as any).Buffer = _Buffer;
+if (!globalThis.Buffer) {
+  globalThis.Buffer = _Buffer;
 }
 
 // Add polyfills for missing methods
@@ -57,6 +57,7 @@ if (proto && typeof proto.writeUint32BE !== 'function') {
   }
 }
 
-if (!(globalThis as any).process) {
-  (globalThis as any).process = { env: { NODE_ENV: 'production' } };
+if (!globalThis.process) {
+  // @ts-expect-error Don't know how to fix this, actually it is referencing NodeJS.Process instead of globalThis.process (custom definition)
+  globalThis.process = { env: { NODE_ENV: 'production' } };
 }
