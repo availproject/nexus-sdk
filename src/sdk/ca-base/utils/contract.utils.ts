@@ -26,6 +26,7 @@ import { Errors } from '../errors';
 import { getLogger } from '../../../commons';
 import { ChainListType, Chain, GetAllowanceParams, SetAllowanceParams } from '../../../commons';
 import { equalFold, minutesToMs } from './common.utils';
+import { PlatformUtils } from './platform.utils';
 
 const logger = getLogger();
 
@@ -141,17 +142,34 @@ const waitForIntentFulfilment = async (
 
 const requestTimeout = (timeout: number, ac: AbortController) => {
   return new Promise((_, reject) => {
-    const t = window.setTimeout(() => {
-      ac.abort();
-      return reject(Errors.liquidityTimeout());
-    }, minutesToMs(timeout));
-    ac.signal.addEventListener(
-      'abort',
-      () => {
-        window.clearTimeout(t);
-      },
-      { once: true },
-    );
+    // TODO This is ugly and most likely it will not work with Bun or Deno.
+    if (PlatformUtils.isBrowser()) {
+      const t = window.setTimeout(() => {
+        ac.abort();
+        return reject(Errors.liquidityTimeout());
+      }, minutesToMs(timeout));
+
+      ac.signal.addEventListener(
+        'abort',
+        () => {
+          window.clearTimeout(t);
+        },
+        { once: true },
+      );
+    } else {
+      const t = setTimeout(() => {
+        ac.abort();
+        return reject(Errors.liquidityTimeout());
+      }, minutesToMs(timeout));
+
+      ac.signal.addEventListener(
+        'abort',
+        () => {
+          clearTimeout(t);
+        },
+        { once: true },
+      );
+    }
   });
 };
 

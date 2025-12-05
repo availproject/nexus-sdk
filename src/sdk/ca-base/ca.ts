@@ -72,6 +72,7 @@ import { createBridgeAndTransferParams } from './query/bridgeAndTransfer';
 import getMaxValueForBridge from './requestHandlers/bridgeMax';
 import { Errors } from './errors';
 import { setLoggerProvider } from './telemetry';
+import { PlatformUtils } from './utils/platform.utils';
 
 setLogLevel(LOG_LEVEL.NOLOGS);
 const logger = getLogger();
@@ -107,10 +108,10 @@ export class CA {
     onIntent: OnIntentHook;
     onSwapIntent: OnSwapIntentHook;
   } = {
-    onAllowance: (data) => data.allow(data.sources.map(() => 'min')),
-    onIntent: (data) => data.allow(),
-    onSwapIntent: (data) => data.allow(),
-  };
+      onAllowance: (data) => data.allow(data.sources.map(() => 'min')),
+      onIntent: (data) => data.allow(),
+      onSwapIntent: (data) => data.allow(),
+    };
   protected _initStatus = INIT_STATUS.CREATED;
   protected _networkConfig: NetworkConfig;
   protected _refundInterval: number | undefined;
@@ -317,7 +318,7 @@ export class CA {
 
     this._initPromise = (async () => {
       try {
-        setLoggerProvider(this._networkConfig);
+        await setLoggerProvider(this._networkConfig);
         this._setProviderHooks();
         this.#cosmos = await this._createCosmosWallet();
         this._checkPendingRefunds();
@@ -536,9 +537,12 @@ export class CA {
       throw Errors.chainNotFound(this._siweChain);
     }
 
-    const scheme = window.location.protocol.slice(0, -1);
-    const domain = window.location.host;
-    const origin = window.location.origin;
+    let scheme = PlatformUtils.locationProtocol();
+    if (PlatformUtils.isBrowser()) {
+      scheme = scheme.slice(0, -1)
+    }
+    const domain = PlatformUtils.locationHost();
+    const origin = PlatformUtils.locationOrigin();
     const address = await this._getEVMAddress();
     const message = createSiweMessage({
       address,
