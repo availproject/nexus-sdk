@@ -54,7 +54,7 @@ class BridgeAndExecuteQuery {
   constructor(
     private chainList: ChainListType,
     private evmClient: WalletClient,
-    private bridge: (input: BridgeParams, options?: OnEventParam) => BridgeHandler,
+    private bridge: (input: BridgeParams, options?: OnEventParam) => Promise<BridgeHandler>,
     private getUnifiedBalances: () => Promise<UserAssetDatum[]>,
     private simulationClient: BackendSimulationClient,
   ) {}
@@ -662,7 +662,7 @@ class BridgeAndExecuteQuery {
     params: BridgeParams,
     options?: OnEventParam,
   ): Promise<BridgeResult> => {
-    const handler = this.bridge(params, options);
+    const handler = await this.bridge(params, options);
     const result = await handler.execute();
     return {
       explorerUrl: result?.explorerURL ?? '',
@@ -671,7 +671,7 @@ class BridgeAndExecuteQuery {
   };
 
   private readonly simulateBridgeWrapper = async (params: BridgeParams) => {
-    const handler = this.bridge(params);
+    const handler = await this.bridge(params);
     const result = await handler.simulate();
     return result;
   };

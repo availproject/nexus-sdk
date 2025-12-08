@@ -38,7 +38,7 @@ const logger = getLogger();
 let cosmosQueryClient: null | QueryClientImpl = null;
 
 const getCosmosQueryClient = (grpcURL: string) => {
-  if (!cosmosQueryClient) {
+  if (!cosmosQueryClient) { 
     const rpc = new GrpcWebImpl(grpcURL, {});
     cosmosQueryClient = new QueryClientImpl(rpc);
   }
