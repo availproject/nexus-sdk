@@ -113,7 +113,7 @@ export class CA {
   protected _networkConfig: NetworkConfig;
   protected _refundInterval: number | undefined;
   protected _initPromise: Promise<void> | null = null;
-  private simulationClient: BackendSimulationClient;
+  private readonly simulationClient: BackendSimulationClient;
   protected _analytics?: AnalyticsManager; // Analytics manager set by subclass
 
   protected constructor(
@@ -186,7 +186,7 @@ export class CA {
 
     this.#cosmos = undefined;
 
-    if (this._evm && this._evm.provider.removeListener) {
+    if (this._evm?.provider.removeListener) {
       this._evm.provider.removeListener('accountsChanged', this._onAccountsChanged);
     }
 
@@ -263,7 +263,7 @@ export class CA {
     });
   };
 
-  private _getSwapOptions = async (options?: OnEventParam): Promise<SwapParams> => {
+  private readonly _getSwapOptions = async (options?: OnEventParam): Promise<SwapParams> => {
     return {
       onSwapIntent: this._hooks.onSwapIntent,
       onEvent: options?.onEvent,
@@ -340,7 +340,7 @@ export class CA {
     // Track network change
     if (this._analytics && this._evm) {
       const oldChainId = await this._evm.client.getChainId().catch(() => undefined);
-      const newChainId = parseInt(chainId, 16);
+      const newChainId = Number.parseInt(chainId, 16);
 
       this._analytics.track(NexusAnalyticsEvents.WALLET_NETWORK_CHANGED, {
         oldChainId,
@@ -503,7 +503,7 @@ export class CA {
     if (!this._evm) {
       throw Errors.sdkNotInitialized();
     }
-    if (this._evm.provider && this._evm.provider.on) {
+    if (this._evm.provider?.on) {
       this._evm.provider.on('accountsChanged', this._onAccountsChanged);
     }
   };
@@ -634,7 +634,7 @@ export class CA {
     }
   };
 
-  private reinitOnAccountChange = async () => {
+  private readonly reinitOnAccountChange = async () => {
     if (!this._evm) {
       return;
     }

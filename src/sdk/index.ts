@@ -419,9 +419,8 @@ export class NexusSDK extends CA {
       sessionDuration: Date.now() - this.analytics.getSessionId().length, // Approximate
     });
 
-    await this._deinit();
+    this._deinit();
     this.analytics.endOperation(opId, { success: true });
-    return;
   }
 
   /**
@@ -638,7 +637,9 @@ export class NexusSDK extends CA {
   /**
    * Useful for checking if the SDK has succesfully received the EVM provider
    */
-  public hasEvmProvider = !!this._evm;
+  public get hasEvmProvider(): boolean {
+    return !!this._evm;
+  }
 
   /**
    * For triggering account change, if provider in initialize doesn't have event hooks like .on(...) and .removeListener(...).

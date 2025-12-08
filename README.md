@@ -347,7 +347,7 @@ console.log('Active intents:', intents);
 ## 🛠️ Utilities
 
 ```typescript
-import { CHAIN_METADATA } from '@avail-project/nexus-core';
+import { CHAIN_METADATA, formatTokenBalance, truncateAddress } from '@avail-project/nexus-core';
 
 const isValid = sdk.utils.isValidAddress('0x...');
 const chainMeta = CHAIN_METADATA[137];
@@ -355,6 +355,10 @@ const formatted = sdk.utils.formatTokenBalance('0.000294700412452583', {
   symbol: 'ETH',
   decimals: 18,
 }); // "~0.0₄2552 ETH"
+
+// Direct imports (no sdk instance required) for stateless helpers:
+const directFormatted = formatTokenBalance(12.345678, { symbol: 'USDC' });
+const short = truncateAddress('0x1234567890123456789012345678901234567890');
 ```
 
 ---
@@ -397,6 +401,7 @@ The Nexus SDK includes **built-in analytics** powered by PostHog to help improve
 ### Default Behavior
 
 By default, the SDK sends anonymous telemetry data to Avail's PostHog instance:
+
 - SDK initialization events
 - Operation performance metrics
 - Session duration and success rates
@@ -409,7 +414,7 @@ By default, the SDK sends anonymous telemetry data to Avail's PostHog instance:
 ```typescript
 const sdk = new NexusSDK({
   network: 'mainnet',
-  analytics: { enabled: false }
+  analytics: { enabled: false },
 });
 ```
 
@@ -421,10 +426,10 @@ const sdk = new NexusSDK({
   analytics: {
     enabled: true,
     privacy: {
-      anonymizeWallets: true,  // Hash wallet addresses
-      anonymizeAmounts: true,  // Exclude transaction amounts
-    }
-  }
+      anonymizeWallets: true, // Hash wallet addresses
+      anonymizeAmounts: true, // Exclude transaction amounts
+    },
+  },
 });
 ```
 
@@ -442,9 +447,9 @@ const sdk = new NexusSDK({
     appMetadata: {
       appName: 'My DApp',
       appVersion: '1.0.0',
-      appUrl: 'https://mydapp.com'
-    }
-  }
+      appUrl: 'https://mydapp.com',
+    },
+  },
 });
 ```
 
