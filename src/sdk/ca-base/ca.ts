@@ -115,7 +115,6 @@ export class CA {
   protected _initPromise: Promise<void> | null = null;
   private simulationClient: BackendSimulationClient;
   protected _analytics?: AnalyticsManager; // Analytics manager set by subclass
-  protected _hasEvmProvider = false;
 
   protected constructor(
     config: { network?: NexusNetwork; debug?: boolean; siweChain?: number } = {
@@ -129,11 +128,12 @@ export class CA {
     this.simulationClient = createBackendSimulationClient({
       baseUrl: 'https://nexus-backend.avail.so',
     });
-
-    this._siweChain =
-      (config?.siweChain ?? this._networkConfig.NETWORK_HINT === Environment.FOLLY)
+    const defaultChain =
+      this._networkConfig.NETWORK_HINT === Environment.FOLLY
         ? SUPPORTED_CHAINS.SEPOLIA
         : SUPPORTED_CHAINS.ETHEREUM;
+
+    this._siweChain = config?.siweChain ?? defaultChain;
 
     if (config.debug) {
       setLogLevel(LOG_LEVEL.DEBUG);
@@ -375,7 +375,6 @@ export class CA {
           chainId,
         });
       }
-      this._hasEvmProvider = true;
     } catch (error) {
       // Track wallet connection failure
       if (this._analytics) {

@@ -638,7 +638,7 @@ export class NexusSDK extends CA {
   /**
    * Useful for checking if the SDK has succesfully received the EVM provider
    */
-  public hasEvmProvider = this._hasEvmProvider;
+  public hasEvmProvider = !!this._evm;
 
   /**
    * For triggering account change, if provider in initialize doesn't have event hooks like .on(...) and .removeListener(...).
