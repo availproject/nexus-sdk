@@ -165,7 +165,7 @@ export class CA {
       throw Errors.sdkNotInitialized();
     }
 
-    return this.withReinit(async () => {
+    return this.withReinit(() => {
       return getMaxValueForBridge(params, {
         chainList: this.chainList,
         evm: this._evm!,
@@ -227,7 +227,7 @@ export class CA {
 
     return this.withReinit(async () => {
       return getBalancesForBridge({
-        evmAddress: (await this._evm!.client.requestAddresses())[0],
+        evmAddress: this._evm!.address,
         chainList: this.chainList,
         vscDomain: this._networkConfig.VSC_DOMAIN,
       });
@@ -422,14 +422,14 @@ export class CA {
   };
 
   protected _bridgeAndTransfer = async (input: TransferParams, options?: OnEventParam) => {
-    return this.withReinit(async () => {
+    return this.withReinit(() => {
       const params = createBridgeAndTransferParams(input, this.chainList);
       return this._bridgeAndExecute(params, options);
     });
   };
 
   protected _simulateBridgeAndTransfer = async (input: TransferParams) => {
-    return this.withReinit(async () => {
+    return this.withReinit(() => {
       const params = createBridgeAndTransferParams(input, this.chainList);
       return this._simulateBridgeAndExecute(params);
     });
@@ -561,7 +561,7 @@ export class CA {
       throw Errors.sdkNotInitialized();
     }
 
-    return this.withReinit(async () => {
+    return this.withReinit(() => {
       return new BridgeAndExecuteQuery(
         this.chainList,
         this._evm!.client,
@@ -580,7 +580,7 @@ export class CA {
       throw Errors.sdkNotInitialized();
     }
 
-    return this.withReinit(async () => {
+    return this.withReinit(() => {
       return new BridgeAndExecuteQuery(
         this.chainList,
         this._evm!.client,
@@ -596,7 +596,7 @@ export class CA {
       throw Errors.sdkNotInitialized();
     }
 
-    return this.withReinit(async () => {
+    return this.withReinit(() => {
       return new BridgeAndExecuteQuery(
         this.chainList,
         this._evm!.client,
@@ -612,7 +612,7 @@ export class CA {
       throw Errors.sdkNotInitialized();
     }
 
-    return this.withReinit(async () => {
+    return this.withReinit(() => {
       return new BridgeAndExecuteQuery(
         this.chainList,
         this._evm!.client,
