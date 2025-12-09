@@ -37,7 +37,6 @@ import {
   PublicClientList,
   SwapMetadata,
   SwapMetadataTx,
-  vscSBCTx,
 } from './utils';
 import {
   getLogger,
@@ -49,6 +48,9 @@ import {
   RFFDepositCallMap,
   SBCTx,
   Tx,
+  VSCClient,
+  CosmosQueryClient,
+  QueryClients,
 } from '../../../commons';
 import { SwapRoute } from './route';
 import { Errors } from '../errors';
@@ -83,7 +85,7 @@ type Options = {
     eoa: WalletClient;
     ephemeral: PrivateKeyAccount;
   };
-};
+} & QueryClients;
 
 type SwapInput = {
   agg: Aggregator;
@@ -185,7 +187,7 @@ class BridgeHandler {
         );
       }
       if (sbcTx.length) {
-        const ops = await vscSBCTx(sbcTx, this.options.networkConfig.VSC_DOMAIN);
+        const ops = await this.options.vscClient.vscSBCTx(sbcTx);
         ops.forEach((op) => {
           this.options.emitter.emit(SWAP_STEPS.SOURCE_SWAP_HASH(op, this.options.chainList));
         });
@@ -222,6 +224,8 @@ class BridgeHandler {
 
       const response = await createBridgeRFF({
         config: {
+          vscClient: this.options.vscClient,
+          cosmosQueryClient: this.options.cosmosQueryClient,
           chainList: this.options.chainList,
           cosmos: {
             address: this.options.address.cosmos,
@@ -231,10 +235,6 @@ class BridgeHandler {
             address: this.options.address.ephemeral,
             client: this.options.wallet.ephemeral,
             eoaAddress: this.options.address.eoa,
-          },
-          network: {
-            COSMOS_URL: this.options.networkConfig.COSMOS_URL,
-            GRPC_URL: this.options.networkConfig.GRPC_URL,
           },
         },
         input: { assets: this.input.assets },
@@ -465,7 +465,7 @@ class DestinationSwapHandler {
       ephemeralWallet: this.options.wallet.ephemeral,
       hasDestinationSwap: true,
       publicClientList: this.options.publicClientList,
-      vscDomain: this.options.networkConfig.VSC_DOMAIN,
+      vscClient: this.options.vscClient,
     });
 
     this.options.emitter.emit(SWAP_STEPS.DESTINATION_SWAP_BATCH_TX(true));
@@ -712,19 +712,16 @@ class SourceSwapsHandler {
               this.options.cache,
             ))
           ) {
-            const ops = await vscSBCTx(
-              [
-                await createSBCTxFromCalls({
-                  cache: this.options.cache,
-                  calls: [],
-                  chainID: chain.id,
-                  ephemeralAddress: this.options.address.ephemeral,
-                  ephemeralWallet: this.options.wallet.ephemeral,
-                  publicClient,
-                }),
-              ],
-              this.options.networkConfig.VSC_DOMAIN,
-            );
+            const ops = await this.options.vscClient.vscSBCTx([
+              await createSBCTxFromCalls({
+                cache: this.options.cache,
+                calls: [],
+                chainID: chain.id,
+                ephemeralAddress: this.options.address.ephemeral,
+                ephemeralWallet: this.options.wallet.ephemeral,
+                publicClient,
+              }),
+            ]);
 
             logger.debug('SetAuthCodeWithoutCalls', {
               ops,
@@ -774,19 +771,16 @@ class SourceSwapsHandler {
           waitingPromises.push(
             (async () => {
               logger.debug('waitingPromises:1');
-              const ops = await vscSBCTx(
-                [
-                  await createSBCTxFromCalls({
-                    cache: this.options.cache,
-                    calls: sbcCalls.calls,
-                    chainID: chain.id,
-                    ephemeralAddress: this.options.address.ephemeral,
-                    ephemeralWallet: this.options.wallet.ephemeral,
-                    publicClient,
-                  }),
-                ],
-                this.options.networkConfig.VSC_DOMAIN,
-              );
+              const ops = await this.options.vscClient.vscSBCTx([
+                await createSBCTxFromCalls({
+                  cache: this.options.cache,
+                  calls: sbcCalls.calls,
+                  chainID: chain.id,
+                  ephemeralAddress: this.options.address.ephemeral,
+                  ephemeralWallet: this.options.wallet.ephemeral,
+                  publicClient,
+                }),
+              ]);
               const [chainID, hash] = ops[0];
               metadataTx.tx_hash = convertTo32Bytes(hash);
 
@@ -863,7 +857,7 @@ class SourceSwapsHandler {
               );
             }
             try {
-              const ops = await vscSBCTx(sbcTxs, this.options.networkConfig.VSC_DOMAIN);
+              const ops = await this.options.vscClient.vscSBCTx(sbcTxs);
               await waitForSBCTxReceipt(ops, this.options.chainList, this.options.publicClientList);
             } catch {
               // TODO: What to do here? Store it or something?

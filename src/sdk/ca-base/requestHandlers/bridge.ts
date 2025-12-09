@@ -46,7 +46,6 @@ import {
   createPublicClientWithFallback,
   equalFold,
   FeeStore,
-  fetchPriceOracle,
   getAllowances,
   getExplorerURL,
   getFeeStore,
@@ -55,9 +54,6 @@ import {
   signPermitForAddressAndValue,
   storeIntentHashToStore,
   switchChain,
-  vscCreateRFF,
-  vscCreateSponsoredApprovals,
-  vscPublishRFF,
   waitForTxReceipt,
   UserAssets,
   waitForTronDepositTxConfirmation,
@@ -111,13 +107,13 @@ class BridgeHandler {
     console.time('preIntentSteps:API');
     const [assets, oraclePrices, feeStore] = await Promise.all([
       getBalancesForBridge({
-        vscDomain: this.options.networkConfig.VSC_DOMAIN,
+        vscClient: this.options.vscClient,
         evmAddress: this.options.evm.address,
         chainList: this.options.chainList,
         tronAddress: this.options.tron?.address,
       }),
-      fetchPriceOracle(this.options.networkConfig.GRPC_URL),
-      getFeeStore(this.options.networkConfig.GRPC_URL),
+      this.options.cosmosQueryClient.fetchPriceOracle(),
+      getFeeStore(this.options.cosmosQueryClient),
     ]);
 
     logger.debug('Step 0: BuildIntent', {
@@ -343,12 +339,7 @@ class BridgeHandler {
     const ac = new AbortController();
     let promisesToRace = [
       requestTimeout(3, ac),
-      cosmosFillCheck(
-        intentID,
-        this.options.networkConfig.GRPC_URL,
-        this.options.networkConfig.COSMOS_URL,
-        ac,
-      ),
+      cosmosFillCheck(intentID, this.options.cosmosQueryClient, ac),
     ];
 
     // Use eth_subscribe to read fill events if destination is EVM - usually the fastest
@@ -391,7 +382,7 @@ class BridgeHandler {
       client: this.options.cosmos.client,
     });
 
-    const explorerURL = getExplorerURL(this.options.networkConfig.EXPLORER_URL, intentID);
+    const explorerURL = getExplorerURL(this.options.intentExplorerUrl, intentID);
     this.markStepDone(BRIDGE_STEPS.INTENT_SUBMITTED(explorerURL, intentID.toNumber()));
 
     const tokenCollections: number[] = [];
@@ -513,12 +504,7 @@ class BridgeHandler {
         tokenCollections,
       });
       try {
-        await vscCreateRFF(
-          this.options.networkConfig.VSC_DOMAIN,
-          intentID,
-          this.markStepDone,
-          tokenCollections,
-        );
+        await this.options.vscClient.vscCreateRFF(intentID, this.markStepDone, tokenCollections);
       } catch (e) {
         logger.debug('vscCreateRFF', {
           'e instanceof NexusError?': e instanceof NexusError,
@@ -534,7 +520,7 @@ class BridgeHandler {
       logger.debug('processRFF', {
         message: 'going to publish RFF',
       });
-      await vscPublishRFF(this.options.networkConfig.VSC_DOMAIN, intentID);
+      await this.options.vscClient.vscPublishRFF(intentID);
     }
 
     const destinationSigData = signatureData.find(
@@ -717,8 +703,7 @@ class BridgeHandler {
         logger.debug('setAllowances:sponsoredApprovals', {
           sponsoredApprovals,
         });
-        const approvalHashes = await vscCreateSponsoredApprovals(
-          this.options.networkConfig.VSC_DOMAIN,
+        const approvalHashes = await this.options.vscClient.vscCreateSponsoredApprovals(
           sponsoredApprovals,
         );
 

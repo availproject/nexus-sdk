@@ -28,7 +28,6 @@ import { packERC20Approve } from './utils';
 import {
   getLogger,
   Intent,
-  NetworkConfig,
   BridgeAsset,
   EoaToEphemeralCallMap,
   RFFDepositCallMap,
@@ -36,6 +35,9 @@ import {
   ChainListType,
   CosmosOptions,
   MAINNET_CHAIN_IDS,
+  CosmosQueryClient,
+  VSCClient,
+  QueryClients,
 } from '../../../commons';
 
 const logger = getLogger();
@@ -238,8 +240,7 @@ export const createBridgeRFF = async ({
       client: PrivateKeyAccount;
       eoaAddress: `0x${string}`;
     };
-    network: Pick<NetworkConfig, 'COSMOS_URL' | 'GRPC_URL'>;
-  };
+  } & QueryClients;
   input: {
     assets: BridgeAsset[];
   };
@@ -252,7 +253,7 @@ export const createBridgeRFF = async ({
 }) => {
   logger.debug('createBridgeRFF', { input, output });
 
-  const feeStore = await getFeeStore(config.network.GRPC_URL);
+  const feeStore = await getFeeStore(config.cosmosQueryClient);
   const depositCalls: RFFDepositCallMap = {};
 
   const { eoaToEphemeralCalls, intent } = createIntent({
@@ -400,8 +401,7 @@ export const createBridgeRFF = async ({
         pc,
         s.requestHash,
         intentID,
-        config.network.GRPC_URL,
-        config.network.COSMOS_URL,
+        config.cosmosQueryClient,
       ),
     };
 

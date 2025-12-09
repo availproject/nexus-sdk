@@ -19,12 +19,12 @@ const getMaxValueForBridge = async (
 
   const [assets, feeStore] = await Promise.all([
     getBalancesForBridge({
-      vscDomain: options.networkConfig.VSC_DOMAIN,
+      vscClient: options.vscClient,
       evmAddress: options.evm.address,
       chainList: options.chainList,
       tronAddress: options.tron?.address,
     }),
-    getFeeStore(options.networkConfig.GRPC_URL),
+    getFeeStore(options.cosmosQueryClient),
   ]);
 
   const userAssets = new UserAssets(assets);
