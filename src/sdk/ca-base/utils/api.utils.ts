@@ -12,8 +12,6 @@ import Long from 'long';
 import { pack, unpack } from 'msgpackr';
 import { bytesToBigInt, bytesToNumber, Hex, toHex } from 'viem';
 import {
-  BRIDGE_STEPS,
-  BridgeStepType,
   getLogger,
   FeeStoreData,
   OraclePriceResponse,
@@ -67,6 +65,7 @@ type VSCCreateRFFResponse =
   | {
       errored: false;
       idx: number;
+      tx_hash: Bytes;
       status: 0x10; // Success
     }
   | {
@@ -538,8 +537,8 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
     },
     vscCreateRFF: async (
       id: Long,
-      msd: (s: BridgeStepType) => void,
-      expectedCollections: number[],
+      msd: (s: { current: number; total: number; txHash: Hex; chainId: number }) => void,
+      expectedCollections: { index: number; chainId: number }[],
     ) => {
       const controller = new AbortController();
       const pendingCollections = expectedCollections.slice();
@@ -560,7 +559,6 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
                   // Will be called at the end of all calls, regardless of status
                   case 0xff: {
                     if (pendingCollections.length === 0) {
-                      msd(BRIDGE_STEPS.INTENT_COLLECTION_COMPLETE);
                       break responseLoop;
                     } else {
                       logger.debug('(vsc)create-rff:collections failed', {
@@ -574,22 +572,25 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
                   }
                   // Collection successful for a chain
                   case 0x10: {
-                    if (pendingCollections.includes(data.idx)) {
-                      completedCollections.push(data.idx);
-                      remove(pendingCollections, (d) => d === data.idx);
-                    }
-                    msd(
-                      BRIDGE_STEPS.INTENT_COLLECTION(
-                        completedCollections.length,
-                        expectedCollections.length,
-                      ),
+                    const pendingCollection = pendingCollections.find(
+                      (pc) => pc.index === data.idx,
                     );
+                    if (pendingCollection) {
+                      completedCollections.push(data.idx);
+                      remove(pendingCollections, (d) => d.index === data.idx);
+                      msd({
+                        current: completedCollections.length,
+                        total: expectedCollections.length,
+                        txHash: toHex(data.tx_hash),
+                        chainId: pendingCollection.chainId,
+                      });
+                    }
                     break;
                   }
 
                   // Collection failed or is not applicable(say for native)
                   default: {
-                    if (pendingCollections.includes(data.idx)) {
+                    if (pendingCollections.find((pc) => pc.index === data.idx)) {
                       logger.debug(`vsc:create-rff:failed`, { data });
                     } else {
                       logger.debug('vsc:create-rff:expectedError:ignore', { data });

@@ -134,6 +134,7 @@ export type SwapParams = {
     ephemeral: PrivateKeyAccount;
     eoa: WalletClient;
   };
+  intentExplorerUrl: string;
 } & OnEventParam &
   QueryClients;
 

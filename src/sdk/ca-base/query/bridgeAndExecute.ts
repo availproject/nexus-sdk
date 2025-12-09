@@ -277,9 +277,7 @@ class BridgeAndExecuteQuery {
 
     tx.gas = gas.tx;
 
-    let bridgeResult: BridgeResult = {
-      explorerUrl: '',
-    };
+    let bridgeResult: BridgeResult | null = null;
 
     // 7. If bridge is required then bridge
     if (!skipBridge) {
@@ -361,10 +359,10 @@ class BridgeAndExecuteQuery {
         dstChain.blockExplorers!.default.url,
       ),
       approvalTransactionHash: executeResponse.approvalHash,
-      bridgeExplorerUrl: bridgeResult.explorerUrl,
+      bridgeExplorerUrl: bridgeResult?.explorerUrl,
       toChainId: params.toChainId,
       bridgeSkipped: skipBridge,
-      intent: bridgeResult.intent,
+      intent: bridgeResult?.intent,
     };
 
     return result;
@@ -665,7 +663,8 @@ class BridgeAndExecuteQuery {
     const handler = await this.bridge(params, options);
     const result = await handler.execute();
     return {
-      explorerUrl: result?.explorerURL ?? '',
+      explorerUrl: result.explorerURL,
+      sourceTxs: result.sourceTxs,
       intent: result.intent,
     };
   };

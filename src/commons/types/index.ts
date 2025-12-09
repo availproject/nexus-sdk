@@ -122,12 +122,23 @@ export type BridgeMaxResult = {
   sourceChainIds: number[];
 };
 
+export type SourceTxs = {
+  chain: {
+    id: number;
+    name: string;
+    logo: string;
+  };
+  hash: Hex;
+  explorerUrl: string;
+}[];
+
 /**
  * Result structure for bridge transactions.
  */
 export type BridgeResult = {
   explorerUrl: string;
-  intent?: any;
+  sourceTxs: SourceTxs;
+  intent: ReadableIntent;
 };
 
 /**
@@ -733,8 +744,8 @@ type VSCClient = {
   >;
   vscCreateRFF: (
     id: Long,
-    msd: (s: BridgeStepType) => void,
-    expectedCollections: number[],
+    msd: (s: { current: number; total: number; txHash: Hex; chainId: number }) => void,
+    expectedCollections: { index: number; chainId: number }[],
   ) => Promise<void>;
   vscSBCTx: (input: SBCTx[]) => Promise<[bigint, `0x${string}`][]>;
 };
