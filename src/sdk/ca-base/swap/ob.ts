@@ -48,8 +48,6 @@ import {
   RFFDepositCallMap,
   SBCTx,
   Tx,
-  VSCClient,
-  CosmosQueryClient,
   QueryClients,
 } from '../../../commons';
 import { SwapRoute } from './route';

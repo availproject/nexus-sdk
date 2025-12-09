@@ -35,8 +35,6 @@ import {
   ChainListType,
   CosmosOptions,
   MAINNET_CHAIN_IDS,
-  CosmosQueryClient,
-  VSCClient,
   QueryClients,
 } from '../../../commons';
 
