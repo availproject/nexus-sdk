@@ -1,5 +1,5 @@
-import { ChainListType, logger, SUPPORTED_CHAINS } from '../../../commons';
-import { equalFold, getEVMBalancesForAddress, getTronBalancesForAddress } from '.';
+import { ChainListType, logger, SUPPORTED_CHAINS, VSCClient } from '../../../commons';
+import { equalFold } from '.';
 import { encodePacked, Hex, keccak256, pad, toHex } from 'viem';
 import {
   ankrBalanceToAssets,
@@ -27,15 +27,15 @@ export const getBalancesForSwap = async (input: {
 };
 
 export const getBalancesForBridge = async (input: {
-  vscDomain: string;
+  vscClient: VSCClient;
   evmAddress: Hex;
   tronAddress?: string;
   chainList: ChainListType;
 }) => {
   const [evmBalances, tronBalances] = await Promise.all([
-    getEVMBalancesForAddress(input.vscDomain, input.evmAddress),
+    input.vscClient.getEVMBalancesForAddress(input.evmAddress),
     input.tronAddress
-      ? getTronBalancesForAddress(input.vscDomain, input.tronAddress as Hex)
+      ? input.vscClient.getTronBalancesForAddress(input.tronAddress as Hex)
       : Promise.resolve([]),
   ]);
 

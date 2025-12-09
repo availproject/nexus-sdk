@@ -38,12 +38,12 @@ import {
   BeforeExecuteHook,
   CosmosOptions,
   SUPPORTED_CHAINS,
+  QueryClients,
 } from '../../commons';
 import { AnalyticsManager } from '../../analytics';
 import { createBridgeParams } from './requestHandlers/helpers';
 import {
   cosmosFeeGrant,
-  fetchMyIntents,
   getSupportedChains,
   minutesToMs,
   refundExpiredIntents,
@@ -54,9 +54,10 @@ import {
   switchChain,
   intentTransform,
   mulDecimals,
-  getCosmosURL,
   getBalancesForBridge,
   equalFold,
+  createCosmosQueryClient,
+  createVSCClient,
 } from './utils';
 import { swap } from './swap/swap';
 import { getSwapSupportedChains } from './swap/utils';
@@ -100,6 +101,7 @@ export class CA {
     address: string;
     adapter: TronAdapter;
   };
+  protected _queryClients: QueryClients;
   protected _hooks: {
     onAllowance: OnAllowanceHook;
     onIntent: OnIntentHook;
@@ -134,6 +136,17 @@ export class CA {
         : SUPPORTED_CHAINS.ETHEREUM;
 
     this._siweChain = config?.siweChain ?? defaultChain;
+    this._queryClients = {
+      cosmosQueryClient: createCosmosQueryClient({
+        cosmosGrpcWebUrl: this._networkConfig.COSMOS_GRPC_URL,
+        cosmosRestUrl: this._networkConfig.COSMOS_REST_URL,
+        cosmosWsUrl: this._networkConfig.COSMOS_WS_URL,
+      }),
+      vscClient: createVSCClient({
+        vscUrl: this._networkConfig.VSC_BASE_URL,
+        vscWsUrl: this._networkConfig.VSC_WS_URL,
+      }),
+    };
 
     if (config.debug) {
       setLogLevel(LOG_LEVEL.DEBUG);
@@ -155,7 +168,8 @@ export class CA {
         evm: this._evm!,
         hooks: this._hooks,
         tron: this._tron,
-        networkConfig: this._networkConfig,
+        ...this._queryClients,
+        intentExplorerUrl: this._networkConfig.INTENT_EXPLORER_URL,
         emit: options?.onEvent,
       });
     });
@@ -171,7 +185,8 @@ export class CA {
         chainList: this.chainList,
         evm: this._evm!,
         tron: this._tron,
-        networkConfig: this._networkConfig,
+        intentExplorerUrl: this._networkConfig.INTENT_EXPLORER_URL,
+        ...this._queryClients,
       });
     });
   };
@@ -202,8 +217,8 @@ export class CA {
     return this.withReinit(async () => {
       const { wallet } = await this._getCosmosWallet();
       const address = (await wallet.getAccounts())[0].address;
-      const rffList = await fetchMyIntents(address, this._networkConfig.GRPC_URL, page);
-      return intentTransform(rffList, this._networkConfig.EXPLORER_URL, this.chainList);
+      const rffList = await this._queryClients.cosmosQueryClient.fetchMyIntents(address, page);
+      return intentTransform(rffList, this._networkConfig.INTENT_EXPLORER_URL, this.chainList);
     });
   };
 
@@ -230,7 +245,7 @@ export class CA {
       return getBalancesForBridge({
         evmAddress: this._evm!.address,
         chainList: this.chainList,
-        vscDomain: this._networkConfig.VSC_DOMAIN,
+        vscClient: this._queryClients.vscClient,
       });
     });
   };
@@ -278,7 +293,7 @@ export class CA {
         ephemeral: this.#ephemeralWallet!,
         eoa: this._evm!.client,
       },
-      networkConfig: this._networkConfig,
+      ...this._queryClients,
       ...options,
     };
   };
@@ -474,13 +489,15 @@ export class CA {
     this.#ephemeralWallet = privateKeyToAccount(`0x${pvtKey.padStart(64, '0')}`);
 
     const address = (await wallet.getAccounts())[0].address;
-    await cosmosFeeGrant(this._networkConfig.COSMOS_URL, this._networkConfig.VSC_DOMAIN, address);
-
-    const client = await createCosmosClient(
-      wallet,
-      getCosmosURL(this._networkConfig.COSMOS_URL, 'rpc'),
-      { broadcastPollIntervalMs: 250 },
+    await cosmosFeeGrant(
+      address,
+      this._queryClients.cosmosQueryClient,
+      this._queryClients.vscClient,
     );
+
+    const client = await createCosmosClient(wallet, this._networkConfig.COSMOS_RPC_URL, {
+      broadcastPollIntervalMs: 250,
+    });
 
     return { wallet, address, client };
   };
