@@ -111,7 +111,9 @@ export class NexusSDK extends CA {
       });
       this.analytics.endOperation(opId, { success: true });
       return {
-        explorerUrl: result.explorerURL ?? '',
+        explorerUrl: result.explorerURL,
+        sourceTxs: result.sourceTxs,
+        intent: result.intent,
       };
     } catch (error) {
       // Track bridge failed

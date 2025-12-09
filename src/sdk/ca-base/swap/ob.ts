@@ -71,11 +71,6 @@ type Options = {
   emitter: {
     emit: (step: SwapStepType) => void;
   };
-  networkConfig: {
-    COSMOS_URL: string;
-    GRPC_URL: string;
-    VSC_DOMAIN: string;
-  };
   publicClientList: PublicClientList;
   slippage: number;
   wallet: {

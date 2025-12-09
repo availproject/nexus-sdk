@@ -293,6 +293,7 @@ export class CA {
         ephemeral: this.#ephemeralWallet!,
         eoa: this._evm!.client,
       },
+      intentExplorerUrl: this._networkConfig.INTENT_EXPLORER_URL,
       ...this._queryClients,
       ...options,
     };

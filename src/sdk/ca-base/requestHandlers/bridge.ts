@@ -36,6 +36,8 @@ import {
   NEXUS_EVENTS,
   BridgeStepType,
   BRIDGE_STEPS,
+  ReadableIntent,
+  SourceTxs,
 } from '../../../commons';
 import {
   convertGasToToken,
@@ -65,6 +67,7 @@ import {
   createRFFromIntent,
   retrieveAddress,
   getBalancesForBridge,
+  createExplorerTxURL,
   // createDeadlineFromNow,
 } from '../utils';
 import { TronWeb } from 'tronweb';
@@ -239,7 +242,12 @@ class BridgeHandler {
 
   public execute = async (
     shouldRetryOnFailure = true,
-  ): Promise<{ explorerURL: string; intentID: Long; intent?: any }> => {
+  ): Promise<{
+    explorerURL: string;
+    intentID: Long;
+    intent: ReadableIntent;
+    sourceTxs: SourceTxs;
+  }> => {
     try {
       let intent = await this.buildIntent(this.params.sourceChains);
 
@@ -310,7 +318,7 @@ class BridgeHandler {
         }
       }
 
-      const { explorerURL, intentID, requestHash, waitForDoubleCheckTx } = response;
+      const { explorerURL, intentID, requestHash, waitForDoubleCheckTx, sourceTxs } = response;
 
       // Step 7: Wait for fill
       storeIntentHashToStore(this.options.evm.address, intentID.toNumber());
@@ -323,7 +331,12 @@ class BridgeHandler {
         await switchChain(this.options.evm.client, this.params.dstChain);
       }
 
-      return { explorerURL, intentID, intent };
+      return {
+        explorerURL,
+        intentID,
+        intent: convertIntent(intent, this.params.dstToken, this.options.chainList),
+        sourceTxs,
+      };
     } catch (error) {
       throw error;
     }
@@ -367,6 +380,7 @@ class BridgeHandler {
         intentID: Long;
         requestHash: Hex;
         waitForDoubleCheckTx: () => any;
+        sourceTxs: SourceTxs;
       }
   > {
     const { msgBasicCosmos, omniversalRFF, signatureData, sources, universes } =
@@ -385,12 +399,22 @@ class BridgeHandler {
     const explorerURL = getExplorerURL(this.options.intentExplorerUrl, intentID);
     this.markStepDone(BRIDGE_STEPS.INTENT_SUBMITTED(explorerURL, intentID.toNumber()));
 
-    const tokenCollections: number[] = [];
+    const tokenCollections: { index: number; chainId: number }[] = [];
     for (const [i, s] of sources.entries()) {
       if (!isDeposit(s.universe, s.tokenAddress)) {
-        tokenCollections.push(i);
+        tokenCollections.push({ index: i, chainId: Number(s.chainID) });
       }
     }
+
+    const sourceTxs: {
+      chain: {
+        id: number;
+        name: string;
+        logo: string;
+      };
+      hash: Hex;
+      explorerUrl: string;
+    }[] = [];
 
     const evmDeposits: Promise<unknown>[] = [];
     const tronDeposits: Promise<unknown>[] = [];
@@ -431,7 +455,15 @@ class BridgeHandler {
         });
         const hash = await this.options.evm.client.writeContract(request);
         this.markStepDone(BRIDGE_STEPS.INTENT_DEPOSIT_REQUEST(i + 1, s.value, chain));
-
+        sourceTxs.push({
+          chain: {
+            id: chain.id,
+            name: chain.name,
+            logo: chain.custom.icon,
+          },
+          hash,
+          explorerUrl: createExplorerTxURL(hash, chain.blockExplorers!.default.url),
+        });
         evmDeposits.push(waitForTxReceipt(hash, publicClient));
       } else if (s.universe === Universe.TRON) {
         const provider = new TronWeb({
@@ -498,13 +530,41 @@ class BridgeHandler {
     });
 
     if (tokenCollections.length > 0) {
+      const markCollectionDone = (params: {
+        current: number;
+        total: number;
+        txHash: Hex;
+        chainId: number;
+      }) => {
+        const chain = this.options.chainList.getChainByID(params.chainId);
+        if (!chain) {
+          logger.debug('MarkCollectionDone: chain not found?', {
+            chainId: params.chainId,
+          });
+          return;
+        }
+        const explorerUrl = createExplorerTxURL(params.txHash, chain.blockExplorers!.default.url);
+        sourceTxs.push({
+          chain: {
+            id: chain.id,
+            name: chain.name,
+            logo: chain.custom.icon,
+          },
+          hash: params.txHash,
+          explorerUrl: explorerUrl,
+        });
+        this.markStepDone(
+          BRIDGE_STEPS.INTENT_COLLECTION(params.current, params.total, params.txHash, explorerUrl),
+        );
+      };
       logger.debug('processRFF', {
         intentID: intentID.toString(),
         message: 'going to create RFF',
         tokenCollections,
       });
       try {
-        await this.options.vscClient.vscCreateRFF(intentID, this.markStepDone, tokenCollections);
+        await this.options.vscClient.vscCreateRFF(intentID, markCollectionDone, tokenCollections);
+        this.markStepDone(BRIDGE_STEPS.INTENT_COLLECTION_COMPLETE);
       } catch (e) {
         logger.debug('vscCreateRFF', {
           'e instanceof NexusError?': e instanceof NexusError,
@@ -535,6 +595,7 @@ class BridgeHandler {
       retry: false,
       explorerURL,
       intentID,
+      sourceTxs,
       requestHash: destinationSigData.requestHash,
       waitForDoubleCheckTx: waitForDoubleCheckTx(doubleCheckTxs),
     };
