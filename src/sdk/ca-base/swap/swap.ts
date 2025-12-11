@@ -177,10 +177,11 @@ export const swap = async (
     },
     destinationChainID: input.data.toChainId,
     emitter,
-    networkConfig: options.networkConfig,
     publicClientList,
     slippage: 0.005,
     wallet: options.wallet,
+    cosmosQueryClient: options.cosmosQueryClient,
+    vscClient: options.vscClient,
   };
 
   const srcSwapsHandler = new SourceSwapsHandler(source, opt);
@@ -214,7 +215,7 @@ export const swap = async (
   // 3: Destination swap
   await dstSwapHandler.process(metadata);
 
-  const result = convertMetadataToSwapResult(metadata, options.networkConfig.EXPLORER_URL);
+  const result = convertMetadataToSwapResult(metadata, options.intentExplorerUrl);
   result.swapRoute = swapRoute;
 
   performance.mark('swap-end');

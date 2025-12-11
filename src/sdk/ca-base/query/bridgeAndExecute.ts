@@ -56,7 +56,7 @@ class BridgeAndExecuteQuery {
   constructor(
     private chainList: ChainListType,
     private evmClient: WalletClient,
-    private bridge: (input: BridgeParams, options?: OnEventParam) => BridgeHandler,
+    private bridge: (input: BridgeParams, options?: OnEventParam) => Promise<BridgeHandler>,
     private getUnifiedBalances: () => Promise<UserAssetDatum[]>,
     private simulationClient: BackendSimulationClient
   ) {}
@@ -279,9 +279,7 @@ class BridgeAndExecuteQuery {
 
     tx.gas = gas.tx;
 
-    let bridgeResult: BridgeResult = {
-      explorerUrl: '',
-    };
+    let bridgeResult: BridgeResult | null = null;
 
     // 7. If bridge is required then bridge
     if (skipBridge) {
@@ -363,10 +361,10 @@ class BridgeAndExecuteQuery {
         dstChain.blockExplorers!.default.url
       ),
       approvalTransactionHash: executeResponse.approvalHash,
-      bridgeExplorerUrl: bridgeResult.explorerUrl,
+      bridgeExplorerUrl: bridgeResult?.explorerUrl,
       toChainId: params.toChainId,
       bridgeSkipped: skipBridge,
-      intent: bridgeResult.intent,
+      intent: bridgeResult?.intent,
     };
 
     return result;
@@ -664,16 +662,17 @@ class BridgeAndExecuteQuery {
     params: BridgeParams,
     options?: OnEventParam
   ): Promise<BridgeResult> => {
-    const handler = this.bridge(params, options);
+    const handler = await this.bridge(params, options);
     const result = await handler.execute();
     return {
-      explorerUrl: result?.explorerURL ?? '',
+      explorerUrl: result.explorerURL,
+      sourceTxs: result.sourceTxs,
       intent: result.intent,
     };
   };
 
   private readonly simulateBridgeWrapper = async (params: BridgeParams) => {
-    const handler = this.bridge(params);
+    const handler = await this.bridge(params);
     const result = await handler.simulate();
     return result;
   };

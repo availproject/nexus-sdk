@@ -1,4 +1,5 @@
 import type Decimal from 'decimal.js';
+import type { Hex } from 'viem';
 
 const INTENT_ACCEPTED = {
   type: 'INTENT_ACCEPTED',
@@ -75,13 +76,15 @@ const INTENT_COLLECTION_COMPLETE = {
   typeID: 'ICC',
 } as const;
 
-const INTENT_COLLECTION = (id: number, total: number) =>
+const INTENT_COLLECTION = (id: number, total: number, txHash?: Hex, explorerUrl?: string) =>
   ({
     type: 'INTENT_COLLECTION',
     typeID: `IC_${id}`,
     data: {
       confirmed: id,
       total,
+      txHash,
+      explorerUrl,
     },
   }) as const;
 

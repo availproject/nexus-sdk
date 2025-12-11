@@ -100,7 +100,7 @@ export class NexusSDK extends CA {
     const opId = this.analytics.startOperation(NexusAnalyticsEvents.BRIDGE_TRANSACTION_SUCCESS);
 
     try {
-      const result = await this._createBridgeHandler(params, options).execute();
+      const result = await (await this._createBridgeHandler(params, options)).execute();
 
       // Track bridge completed
       this.analytics.track(NexusAnalyticsEvents.BRIDGE_TRANSACTION_SUCCESS, {
@@ -112,7 +112,9 @@ export class NexusSDK extends CA {
       });
       this.analytics.endOperation(opId, { success: true });
       return {
-        explorerUrl: result.explorerURL ?? '',
+        explorerUrl: result.explorerURL,
+        sourceTxs: result.sourceTxs,
+        intent: result.intent,
       };
     } catch (error) {
       // Track bridge failed
@@ -303,7 +305,7 @@ export class NexusSDK extends CA {
         tokenSymbol: params.token,
       });
 
-      const result = await this._createBridgeHandler(params).simulate();
+      const result = await (await this._createBridgeHandler(params)).simulate();
 
       // Track simulation success
       this.analytics.track(NexusAnalyticsEvents.BRIDGE_SIMULATION_SUCCESS, {
@@ -420,9 +422,8 @@ export class NexusSDK extends CA {
       sessionDuration: Date.now() - this.analytics.getSessionId().length, // Approximate
     });
 
-    await this._deinit();
+    this._deinit();
     this.analytics.endOperation(opId, { success: true });
-    return;
   }
 
   /**
@@ -630,6 +631,24 @@ export class NexusSDK extends CA {
   public isInitialized() {
     return this._isInitialized();
   }
+
+  /**
+   * Used to set EVM provider outside of initialize, should allow fetching balances without initializing the SDK.
+   */
+  public setEVMProvider = this._setEVMProvider;
+
+  /**
+   * Useful for checking if the SDK has succesfully received the EVM provider
+   */
+  public get hasEvmProvider(): boolean {
+    return !!this._evm;
+  }
+
+  /**
+   * For triggering account change, if provider in initialize doesn't have event hooks like .on(...) and .removeListener(...).
+   * It doesnt do anything if address has not changed since last check.
+   */
+  public triggerAccountChange = this._triggerAccountChange;
 
   /**
    * Helper function to convert an input like "1.13" to 1_130_000n for input to other functions

@@ -132,7 +132,7 @@ const waitForIntentFulfilment = async (
       onLogs: (logs) => {
         logger.debug('waitForIntentFulfilment', { logs });
         ac.abort();
-        return resolve('ok');
+        return resolve(logs[0].transactionHash);
       },
       poll: false,
     });

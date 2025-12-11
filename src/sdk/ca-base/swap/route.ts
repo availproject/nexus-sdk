@@ -32,7 +32,6 @@ import {
   convertTo32BytesHex,
   divDecimals,
   equalFold,
-  fetchPriceOracle,
   getBalancesForSwap,
   getFeeStore,
   mulDecimals,
@@ -71,14 +70,14 @@ const _exactOutRoute = async (
   params: SwapParams & { aggregators: Aggregator[]; cotCurrencyID: CurrencyID }
 ): Promise<SwapRoute> => {
   const [feeStore, { assets, balances }, oraclePrices] = await Promise.all([
-    getFeeStore(params.networkConfig.GRPC_URL),
+    getFeeStore(params.cosmosQueryClient),
     getBalancesForSwap({
       evmAddress: params.address.eoa,
       chainList: params.chainList,
       // Use only stable and native coins for exact out.
       filter: true,
     }),
-    fetchPriceOracle(params.networkConfig.GRPC_URL),
+    params.cosmosQueryClient.fetchPriceOracle(),
   ]);
 
   const userAddressInBytes = convertTo32Bytes(params.address.ephemeral);
@@ -526,13 +525,13 @@ const _exactInRoute = async (
   });
 
   const [feeStore, balanceResponse, oraclePrices] = await Promise.all([
-    getFeeStore(params.networkConfig.GRPC_URL),
+    getFeeStore(params.cosmosQueryClient),
     getBalancesForSwap({
       evmAddress: params.address.eoa,
       chainList: params.chainList,
       filter: false,
     }),
-    fetchPriceOracle(params.networkConfig.GRPC_URL),
+    params.cosmosQueryClient.fetchPriceOracle(),
   ]).catch((e) => {
     throw Errors.internal('Error fetching fee, balance or oracle', { cause: e });
   });

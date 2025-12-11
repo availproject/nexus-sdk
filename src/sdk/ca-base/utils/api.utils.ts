@@ -13,15 +13,16 @@ import type Long from 'long';
 import { pack, unpack } from 'msgpackr';
 import { bytesToBigInt, bytesToNumber, type Hex, toHex } from 'viem';
 import {
-  BRIDGE_STEPS,
-  type BridgeStepType,
   type ChainListType,
+  type CosmosQueryClient,
   type FeeStoreData,
   getLogger,
   type OraclePriceResponse,
   type RFF,
+  type SBCTx,
   type SponsoredApprovalDataArray,
   type UnifiedBalanceResponseData,
+  type VSCClient,
 } from '../../../commons';
 import { Errors } from '../errors';
 import {
@@ -33,36 +34,178 @@ import {
   minutesToMs,
 } from './common.utils';
 
-const logger = getLogger();
+type CreateSponsoredApprovalResponse =
+  | {
+      error: string;
+      errored: true;
+      msg: string;
+      part_idx: number;
+    }
+  | { error: true; msg: string } // why error not same struct?
+  | {
+      errored: false;
+      part_idx: number;
+      tx_hash: Bytes;
+    };
 
-let cosmosQueryClient: null | QueryClientImpl = null;
-
-const getCosmosQueryClient = (grpcURL: string) => {
-  if (!cosmosQueryClient) {
-    const rpc = new GrpcWebImpl(grpcURL, {});
-    cosmosQueryClient = new QueryClientImpl(rpc);
-  }
-  return cosmosQueryClient;
-};
+type VSCCreateRFFResponse =
+  // Global
+  | {
+      error: true;
+      errored: true;
+      code: 0x13; // Fee changed
+    }
+  | {
+      error: true;
+      errored: true;
+      code: 0x12; // Already deposited everything
+    }
+  | { status: 0xff; idx: 0; errored: false } // transmission complete, if no global error
+  // Local
+  | {
+      errored: false;
+      idx: number;
+      tx_hash: Bytes;
+      status: 0x10; // Success
+    }
+  | {
+      errored: true;
+      idx: number;
+      status: 0x1a; // could not collect
+    };
 
 const PAGE_LIMIT = 100;
+const logger = getLogger();
+const decoder = new TextDecoder('utf-8');
 
-async function fetchMyIntents(address: string, grpcURL: string, page = 1) {
-  try {
-    const response = await getCosmosQueryClient(grpcURL).RequestForFundsByAddress({
-      account: address,
-      pagination: {
-        limit: PAGE_LIMIT,
-        offset: (page - 1) * PAGE_LIMIT,
-        reverse: true,
-      },
-    });
-    return response.requestForFunds;
-  } catch (error) {
-    logger.error('Failed to fetch intents', error);
-    throw Errors.cosmosError('Failed to fetch intents');
-  }
-}
+const createCosmosQueryClient = ({
+  cosmosRestUrl,
+  cosmosGrpcWebUrl,
+  cosmosWsUrl,
+}: {
+  cosmosRestUrl: string;
+  cosmosGrpcWebUrl: string;
+  cosmosWsUrl: string;
+}): CosmosQueryClient => {
+  const rpc = new GrpcWebImpl(cosmosGrpcWebUrl, {});
+  const cosmosQueryClient = new QueryClientImpl(rpc);
+
+  return {
+    fetchMyIntents: async (address: string, page = 1) => {
+      try {
+        const response = await cosmosQueryClient.RequestForFundsByAddress({
+          account: address,
+          pagination: {
+            limit: PAGE_LIMIT,
+            offset: (page - 1) * PAGE_LIMIT,
+            reverse: true,
+          },
+        });
+        return response.requestForFunds;
+      } catch (error) {
+        logger.error('Failed to fetch intents', error);
+        throw Errors.cosmosError('Failed to fetch intents');
+      }
+    },
+    fetchProtocolFees: async () => {
+      try {
+        const response = await cosmosQueryClient.ProtocolFees({});
+        return response;
+      } catch (error) {
+        logger.error('Failed to fetch protocol fees', error);
+        throw Errors.cosmosError('Failed to fetch protocol fees');
+      }
+    },
+    fetchSolverData: async () => {
+      try {
+        const response = await cosmosQueryClient.SolverDataAll({});
+        return response;
+      } catch (error) {
+        logger.error('Failed to fetch solver data', error);
+        throw Errors.cosmosError('Failed to fetch solver data');
+      }
+    },
+    fetchPriceOracle: async () => {
+      const data = await cosmosQueryClient.PriceOracleData({});
+      if (data.PriceOracleData?.priceData?.length) {
+        const oracleRates: OraclePriceResponse = data.PriceOracleData?.priceData.map((data) => ({
+          chainId: bytesToNumber(data.chainID),
+          priceUsd: new Decimal(bytesToNumber(data.price)).div(Decimal.pow(10, data.decimals)),
+          tokenAddress: convertAddressByUniverse(toHex(data.tokenAddress), data.universe),
+          tokensPerUsd: new Decimal(1).div(
+            new Decimal(bytesToNumber(data.price)).div(Decimal.pow(10, data.decimals))
+          ),
+        }));
+        return oracleRates;
+      }
+      throw Errors.internal('No price data found.');
+    },
+    checkIntentFilled: async (intentID: Long) => {
+      const response = await cosmosQueryClient.RequestForFunds({
+        id: intentID,
+      });
+      if (response.requestForFunds?.fulfilled) {
+        logger.debug('intent already filled', { response });
+        return 'ok';
+      }
+
+      throw Errors.internal('not filled yet');
+    },
+    getAccount: async (address: string) => {
+      await axios.get(`/cosmos/auth/v1beta1/accounts/${address}`, {
+        baseURL: cosmosRestUrl,
+      });
+    },
+
+    waitForCosmosFillEvent: async (intentID: Long, ac: AbortController) => {
+      const connection = connect(new URL(cosmosWsUrl).toString());
+      await connection.connected();
+
+      ac.signal.addEventListener(
+        'abort',
+        () => {
+          connection.close();
+          return Promise.resolve('ok from outside');
+        },
+        { once: true }
+      );
+
+      const EVENT = 'xarchain.chainabstraction.RFFFulfilledEvent.id';
+
+      try {
+        connection.socket.send(
+          JSON.stringify({
+            id: '0',
+            jsonrpc: '2.0',
+            method: 'subscribe',
+            params: {
+              query: `${EVENT}='"${intentID}"'`,
+            },
+          })
+        );
+
+        for await (const resp of connection.source) {
+          logger.debug('waitForCosmosFillEvent', {
+            resp,
+          });
+          const decodedResponse = JSON.parse(decoder.decode(resp));
+          if (
+            decodedResponse.result.events &&
+            EVENT in decodedResponse.result.events &&
+            decodedResponse.result.events[EVENT].includes(`"${intentID}"`)
+          ) {
+            ac.abort();
+            return 'ok';
+          }
+        }
+
+        throw Errors.cosmosError('waitForCosmosFillEvent: out of loop but no events');
+      } finally {
+        connection.close();
+      }
+    },
+  };
+};
 
 export const intentTransform = (
   input: RequestForFunds[],
@@ -135,42 +278,6 @@ export const intentTransform = (
       }),
     };
   });
-};
-
-async function fetchProtocolFees(grpcURL: string) {
-  try {
-    const response = await getCosmosQueryClient(grpcURL).ProtocolFees({});
-    return response;
-  } catch (error) {
-    logger.error('Failed to fetch protocol fees', error);
-    throw Errors.cosmosError('Failed to fetch protocol fees');
-  }
-}
-
-async function fetchSolverData(grpcURL: string) {
-  try {
-    const response = await getCosmosQueryClient(grpcURL).SolverDataAll({});
-    return response;
-  } catch (error) {
-    logger.error('Failed to fetch solver data', error);
-    throw Errors.cosmosError('Failed to fetch solver data');
-  }
-}
-
-const fetchPriceOracle = async (grpcURL: string) => {
-  const data = await getCosmosQueryClient(grpcURL).PriceOracleData({});
-  if (data.PriceOracleData?.priceData?.length) {
-    const oracleRates: OraclePriceResponse = data.PriceOracleData?.priceData.map((data) => ({
-      chainId: bytesToNumber(data.chainID),
-      priceUsd: new Decimal(bytesToNumber(data.price)).div(Decimal.pow(10, data.decimals)),
-      tokenAddress: convertAddressByUniverse(toHex(data.tokenAddress), data.universe),
-      tokensPerUsd: new Decimal(1).div(
-        new Decimal(bytesToNumber(data.price)).div(Decimal.pow(10, data.decimals))
-      ),
-    }));
-    return oracleRates;
-  }
-  throw Errors.internal('No price data found.');
 };
 
 const coinbasePrices = {
@@ -281,7 +388,7 @@ export class FeeStore {
   }
 }
 
-const getFeeStore = async (grpcURL: string) => {
+const getFeeStore = async (grpcClient: Awaited<ReturnType<typeof createCosmosQueryClient>>) => {
   const feeData: FeeStoreData = {
     fee: {
       collection: [],
@@ -292,7 +399,10 @@ const getFeeStore = async (grpcURL: string) => {
     },
     solverRoutes: [],
   };
-  const [p, s] = await Promise.allSettled([fetchProtocolFees(grpcURL), fetchSolverData(grpcURL)]);
+  const [p, s] = await Promise.allSettled([
+    grpcClient.fetchProtocolFees(),
+    grpcClient.fetchSolverData(),
+  ]);
   if (p.status === 'fulfilled') {
     logger.debug('getFeeStore', {
       collection: p.value.ProtocolFees?.collectionFees,
@@ -342,15 +452,9 @@ const getFeeStore = async (grpcURL: string) => {
   return new FeeStore(feeData);
 };
 
-const getVSCURL = (vscDomain: string, protocol: 'https' | 'wss') => {
-  return `${protocol}://${vscDomain}`;
-};
-
-let vscReq: AxiosInstance | null = null;
-
-const getVscReq = (vscDomain: string) => {
-  vscReq ??= axios.create({
-    baseURL: new URL('/api/v1', getVSCURL(vscDomain, 'https')).toString(),
+const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: string }): VSCClient => {
+  const instance = axios.create({
+    baseURL: new URL('/api/v1', vscUrl).toString(),
     headers: {
       Accept: 'application/msgpack',
     },
@@ -364,241 +468,203 @@ const getVscReq = (vscDomain: string) => {
     ],
     transformResponse: [(data) => unpack(data)],
   });
-  return vscReq;
-};
 
-export const getBalancesFromVSC = async (
-  vscDomain: string,
-  address: `0x${string}`,
-  namespace: 'ETHEREUM' | 'TRON' = 'ETHEREUM'
-) => {
-  const response = await getVscReq(vscDomain).get<{
-    balances: UnifiedBalanceResponseData[];
-  }>(`/get-balance/${namespace}/${address}`);
-  logger.debug('getBalancesFromVSC', { response });
-  return response.data.balances.filter((b) => b.errored !== true);
-};
-
-export const getEVMBalancesForAddress = async (vscDomain: string, address: `0x${string}`) => {
-  return getBalancesFromVSC(vscDomain, address);
-};
-
-export const getTronBalancesForAddress = async (vscDomain: string, address: `0x${string}`) => {
-  return getBalancesFromVSC(vscDomain, address, 'TRON');
-};
-
-const vscCreateFeeGrant = async (vscDomain: string, address: string) => {
-  const response = await getVscReq(vscDomain).post('/create-feegrant', {
-    cosmos_address: address,
-  });
-  return response;
-};
-
-const vscPublishRFF = async (vscDomain: string, id: Long) => {
-  const response = await getVscReq(vscDomain).post('/publish-rff', {
-    id: id.toNumber(),
-  });
-  logger.debug('publishRFF', { response });
-  return { id };
-};
-
-type CreateSponsoredApprovalResponse =
-  | {
-      error: string;
-      errored: true;
-      msg: string;
-      part_idx: number;
-    }
-  | { error: true; msg: string } // why error not same struct?
-  | {
-      errored: false;
-      part_idx: number;
-      tx_hash: Bytes;
-    };
-
-const vscCreateSponsoredApprovals = async (
-  vscDomain: string,
-  input: SponsoredApprovalDataArray
-) => {
-  const connection = connect(
-    new URL('/api/v1/create-sponsored-approvals', getVSCURL(vscDomain, 'wss')).toString()
-  );
-
-  await connection.connected();
-
-  const approvalHashes: { chainId: number; hash: Hex }[] = [];
-
-  try {
-    connection.socket.send(pack(input));
-
-    for await (const resp of connection.source) {
-      const data: CreateSponsoredApprovalResponse = unpack(resp);
-
-      logger.debug('vscCreateSponsoredApprovals', { data });
-
-      if ('errored' in data && data.errored) {
-        throw Errors.vscError(
-          `failed to create sponsored approvals: ${data.msg ?? 'Backend sent failure.'}`
-        );
-      }
-
-      if ('error' in data && data.error) {
-        throw Errors.vscError(
-          `failed to create sponsored approvals: ${data.msg ?? 'Backend sent failure.'}`
-        );
-      }
-
-      const inputData = input[data.part_idx];
-
-      approvalHashes.push({
-        chainId: bytesToNumber(inputData.chain_id),
-        hash: toHex(data.tx_hash),
+  return {
+    getEVMBalancesForAddress: async (address: `0x${string}`) => {
+      return getBalancesFromVSC(instance, address);
+    },
+    getTronBalancesForAddress: async (address: `0x${string}`) => {
+      return getBalancesFromVSC(instance, address, 'TRON');
+    },
+    vscCreateFeeGrant: async (address: string) => {
+      const response = await instance.post('/create-feegrant', {
+        cosmos_address: address,
       });
-
-      if (approvalHashes.length === input.length) {
-        break;
-      }
-    }
-
-    return approvalHashes;
-  } finally {
-    connection.close();
-  }
-};
-
-type VSCCreateRFFResponse =
-  // Global
-  | {
-      error: true;
-      errored: true;
-      code: 0x13; // Fee changed
-    }
-  | {
-      error: true;
-      errored: true;
-      code: 0x12; // Already deposited everything
-    }
-  | { status: 0xff; idx: 0; errored: false } // transmission complete, if no global error
-  // Local
-  | {
-      errored: false;
-      idx: number;
-      status: 0x10; // Success
-    }
-  | {
-      errored: true;
-      idx: number;
-      status: 0x1a; // could not collect
-    };
-
-const vscCreateRFF = async (
-  vscDomain: string,
-  id: Long,
-  msd: (s: BridgeStepType) => void,
-  expectedCollections: number[]
-) => {
-  const controller = new AbortController();
-  const pendingCollections = expectedCollections.slice();
-  const completedCollections: number[] = [];
-  await retry(
-    async () => {
+      return response;
+    },
+    vscPublishRFF: async (id: Long) => {
+      const response = await instance.post('/publish-rff', {
+        id: id.toNumber(),
+      });
+      logger.debug('publishRFF', { response });
+      return { id };
+    },
+    vscCreateSponsoredApprovals: async (input: SponsoredApprovalDataArray) => {
       const connection = connect(
-        new URL('/api/v1/create-rff', getVSCURL(vscDomain, 'wss')).toString()
+        new URL('/api/v1/create-sponsored-approvals', vscWsUrl).toString()
       );
+
+      await connection.connected();
+
+      const approvalHashes: { chainId: number; hash: Hex }[] = [];
+
       try {
-        await connection.connected();
-        connection.socket.send(pack({ id: id.toNumber() }));
-        responseLoop: for await (const resp of connection.source) {
-          const data: VSCCreateRFFResponse = unpack(resp);
+        connection.socket.send(pack(input));
 
-          logger.debug('vscCreateRFF:response', { data });
-          if ('idx' in data) {
-            // local msg
-            switch (data.status) {
-              // Will be called at the end of all calls, regardless of status
-              case 0xff: {
-                if (pendingCollections.length === 0) {
-                  msd(BRIDGE_STEPS.INTENT_COLLECTION_COMPLETE);
-                  break responseLoop;
-                } else {
-                  logger.debug('(vsc)create-rff:collections failed', {
-                    expectedCollections,
-                    completedCollections,
-                  });
-                  throw Errors.vscError(
-                    `create-rff: collections failed. expected = ${expectedCollections}, got = ${completedCollections}`
-                  );
-                }
-              }
-              // Collection successful for a chain
-              case 0x10: {
-                if (pendingCollections.includes(data.idx)) {
-                  completedCollections.push(data.idx);
-                  remove(pendingCollections, (d) => d === data.idx);
-                }
-                msd(
-                  BRIDGE_STEPS.INTENT_COLLECTION(
-                    completedCollections.length,
-                    expectedCollections.length
-                  )
-                );
-                break;
-              }
+        for await (const resp of connection.source) {
+          const data: CreateSponsoredApprovalResponse = unpack(resp);
 
-              // Collection failed or is not applicable(say for native)
-              default: {
-                if (pendingCollections.includes(data.idx)) {
-                  logger.debug('vsc:create-rff:failed', { data });
-                } else {
-                  logger.debug('vsc:create-rff:expectedError:ignore', { data });
-                }
-              }
-            }
-          } else {
-            if (data.code === 0x13) {
-              controller.abort(Errors.rFFFeeExpired());
-              throw Errors.rFFFeeExpired();
-            } else if (data.code === 0x12) {
-              break;
-            } else {
-              throw Errors.vscError('create-rff: unhandled error', data);
-            }
+          logger.debug('vscCreateSponsoredApprovals', { data });
+
+          if ('errored' in data && data.errored) {
+            throw Errors.vscError(
+              `failed to create sponsored approvals: ${data.msg ?? 'Backend sent failure.'}`
+            );
+          }
+
+          if ('error' in data && data.error) {
+            throw Errors.vscError(
+              `failed to create sponsored approvals: ${data.msg ?? 'Backend sent failure.'}`
+            );
+          }
+
+          const inputData = input[data.part_idx];
+
+          approvalHashes.push({
+            chainId: bytesToNumber(inputData.chain_id),
+            hash: toHex(data.tx_hash),
+          });
+
+          if (approvalHashes.length === input.length) {
+            break;
           }
         }
+
+        return approvalHashes;
       } finally {
         connection.close();
       }
     },
-    {
-      retries: 3,
-      signal: controller.signal,
-    }
-  );
+    vscCreateRFF: async (
+      id: Long,
+      msd: (s: { current: number; total: number; txHash: Hex; chainId: number }) => void,
+      expectedCollections: { index: number; chainId: number }[]
+    ) => {
+      const controller = new AbortController();
+      const pendingCollections = expectedCollections.slice();
+      const completedCollections: number[] = [];
+      await retry(
+        async () => {
+          const connection = connect(new URL('/api/v1/create-rff', vscWsUrl).toString());
+          try {
+            await connection.connected();
+            connection.socket.send(pack({ id: id.toNumber() }));
+            responseLoop: for await (const resp of connection.source) {
+              const data: VSCCreateRFFResponse = unpack(resp);
+
+              logger.debug('vscCreateRFF:response', { data });
+              if ('idx' in data) {
+                // local msg
+                switch (data.status) {
+                  // Will be called at the end of all calls, regardless of status
+                  case 0xff: {
+                    if (pendingCollections.length === 0) {
+                      break responseLoop;
+                    } else {
+                      logger.debug('(vsc)create-rff:collections failed', {
+                        expectedCollections,
+                        completedCollections,
+                      });
+                      throw Errors.vscError(
+                        `create-rff: collections failed. expected = ${expectedCollections}, got = ${completedCollections}`
+                      );
+                    }
+                  }
+                  // Collection successful for a chain
+                  case 0x10: {
+                    const pendingCollection = pendingCollections.find(
+                      (pc) => pc.index === data.idx
+                    );
+                    if (pendingCollection) {
+                      completedCollections.push(data.idx);
+                      remove(pendingCollections, (d) => d.index === data.idx);
+                      msd({
+                        current: completedCollections.length,
+                        total: expectedCollections.length,
+                        txHash: toHex(data.tx_hash),
+                        chainId: pendingCollection.chainId,
+                      });
+                    }
+                    break;
+                  }
+
+                  // Collection failed or is not applicable(say for native)
+                  default: {
+                    if (pendingCollections.find((pc) => pc.index === data.idx)) {
+                      logger.debug('vsc:create-rff:failed', { data });
+                    } else {
+                      logger.debug('vsc:create-rff:expectedError:ignore', { data });
+                    }
+                  }
+                }
+              } else {
+                if (data.code === 0x13) {
+                  controller.abort(Errors.rFFFeeExpired());
+                  throw Errors.rFFFeeExpired();
+                } else if (data.code === 0x12) {
+                  break;
+                } else {
+                  throw Errors.vscError('create-rff: unhandled error', data);
+                }
+              }
+            }
+          } finally {
+            connection.close();
+          }
+        },
+        {
+          retries: 3,
+          signal: controller.signal,
+        }
+      );
+    },
+    vscSBCTx: async (input: SBCTx[]) => {
+      const ops: [bigint, Hex][] = [];
+      const connection = connect(new URL('/api/v1/create-sbc-tx', vscWsUrl).toString());
+
+      try {
+        await connection.connected();
+        connection.socket.send(pack(input));
+        let count = 0;
+        for await (const response of connection.source) {
+          const data: {
+            errored: boolean;
+            part_idx: number;
+            tx_hash: Uint8Array;
+          } = unpack(response);
+
+          logger.debug('vscSBCTx', { data });
+
+          if (data.errored) {
+            throw Errors.internal('Error in VSC SBC Tx');
+          }
+
+          ops.push([bytesToBigInt(input[data.part_idx].chain_id), toHex(data.tx_hash)]);
+
+          count += 1;
+
+          if (count === input.length) {
+            break;
+          }
+        }
+      } finally {
+        await connection.close();
+      }
+      return ops;
+    },
+  };
 };
 
-const checkIntentFilled = async (intentID: Long, grpcURL: string) => {
-  const response = await getCosmosQueryClient(grpcURL).RequestForFunds({
-    id: intentID,
-  });
-  if (response.requestForFunds?.fulfilled) {
-    logger.debug('intent already filled', { response });
-    return 'ok';
-  }
-
-  throw Errors.internal('not filled yet');
+export const getBalancesFromVSC = async (
+  instance: AxiosInstance,
+  address: `0x${string}`,
+  namespace: 'ETHEREUM' | 'TRON' = 'ETHEREUM'
+) => {
+  const response = await instance.get<{
+    balances: UnifiedBalanceResponseData[];
+  }>(`/get-balance/${namespace}/${address}`);
+  logger.debug('getBalancesFromVSC', { address, namespace, response });
+  return response.data.balances.filter((b) => b.errored !== true);
 };
 
-export {
-  checkIntentFilled,
-  fetchMyIntents,
-  fetchPriceOracle,
-  fetchProtocolFees,
-  fetchSolverData,
-  getCoinbasePrices,
-  getFeeStore,
-  vscCreateFeeGrant,
-  vscCreateRFF,
-  vscCreateSponsoredApprovals,
-  vscPublishRFF,
-  getVSCURL,
-};
+export { getCoinbasePrices, getFeeStore, createCosmosQueryClient, createVSCClient };

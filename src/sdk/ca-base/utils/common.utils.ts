@@ -38,6 +38,7 @@ import {
   type Chain,
   type ChainListType,
   type CosmosOptions,
+  type CosmosQueryClient,
   getLogger,
   type IBridgeOptions,
   type Intent,
@@ -432,14 +433,13 @@ const evmWaitForFill = async (
   publicClient: PublicClient<WebSocketTransport>,
   requestHash: `0x${string}`,
   intentID: Long,
-  grpcURL: string,
-  cosmosURL: string
+  cosmosQueryClient: CosmosQueryClient
 ) => {
   const ac = new AbortController();
   await Promise.race([
     waitForIntentFulfilment(publicClient, vaultContractAddress, requestHash, ac),
     requestTimeout(3, ac),
-    cosmosFillCheck(intentID, grpcURL, cosmosURL, ac),
+    cosmosFillCheck(intentID, cosmosQueryClient, ac),
   ]);
 };
 

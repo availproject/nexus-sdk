@@ -4,7 +4,7 @@ import type { SigningStargateClient } from '@cosmjs/stargate';
 import type Decimal from 'decimal.js';
 import type { Hex, PrivateKeyAccount, WalletClient } from 'viem';
 import type { SwapRoute } from '../../sdk/ca-base/swap/route';
-import type { ChainListType, NetworkConfig, OnEventParam, TokenInfo } from '../index';
+import type { ChainListType, NetworkConfig, OnEventParam, QueryClients, TokenInfo } from '../index';
 
 export type AuthorizationList = {
   address: Uint8Array;
@@ -133,8 +133,9 @@ export type SwapParams = {
     ephemeral: PrivateKeyAccount;
     eoa: WalletClient;
   };
-  networkConfig: NetworkConfig;
-} & OnEventParam;
+  intentExplorerUrl: string;
+} & OnEventParam &
+  QueryClients;
 
 export interface ExactInSwapInput {
   from: {

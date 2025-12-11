@@ -2,30 +2,28 @@ import { Environment } from '@avail-project/ca-common';
 
 import type { NetworkConfig, NexusNetwork } from '../../commons';
 
-// const JADE_CONFIG: NetworkConfig = {
-//   COSMOS_URL: 'https://cosmos-mainnet.availproject.org',
-//   EXPLORER_URL: 'https://nexus-explorer.availproject.org',
-//   GRPC_URL: 'https://grpcproxy-mainnet.availproject.org',
-//   NETWORK_HINT: Environment.JADE,
-//   VSC_DOMAIN: 'vsc-mainnet.availproject.org',
-// };
-
 // Mainnet
 const CORAL_CONFIG: NetworkConfig = {
-  COSMOS_URL: 'https://cosmos01-testnet.arcana.network',
-  EXPLORER_URL: 'https://explorer.nexus.availproject.org',
-  GRPC_URL: 'https://grpcproxy-testnet.arcana.network',
+  COSMOS_REST_URL: 'https://cosmos01-testnet.arcana.network',
+  COSMOS_RPC_URL: 'https://cosmos01-testnet.arcana.network:26650',
+  COSMOS_WS_URL: 'wss://cosmos01-testnet.arcana.network:26650/websocket',
+  COSMOS_GRPC_URL: 'https://grpcproxy-testnet.arcana.network',
+  VSC_BASE_URL: 'https://vsc1-testnet.arcana.network',
+  VSC_WS_URL: 'wss://vsc1-testnet.arcana.network',
+  INTENT_EXPLORER_URL: 'https://explorer.nexus.availproject.org',
   NETWORK_HINT: Environment.CORAL,
-  VSC_DOMAIN: 'vsc1-testnet.arcana.network',
 };
 
 // Testnet
 const FOLLY_CONFIG: NetworkConfig = {
-  COSMOS_URL: 'https://cosmos04-dev.arcana.network',
-  EXPLORER_URL: 'https://explorer.nexus-folly.availproject.org',
-  GRPC_URL: 'https://grpc-folly.arcana.network',
+  COSMOS_REST_URL: 'https://cosmos04-dev.arcana.network',
+  COSMOS_RPC_URL: 'https://cosmos04-dev.arcana.network:26650',
+  COSMOS_WS_URL: 'wss://cosmos04-dev.arcana.network:26650',
+  COSMOS_GRPC_URL: 'https://grpc-folly.arcana.network',
+  VSC_BASE_URL: 'https://vsc1-folly.arcana.network',
+  VSC_WS_URL: 'wss://vsc1-folly.arcana.network',
+  INTENT_EXPLORER_URL: 'https://explorer.nexus-folly.availproject.org',
   NETWORK_HINT: Environment.FOLLY,
-  VSC_DOMAIN: 'vsc1-folly.arcana.network',
 };
 
 const isNetworkConfig = (config?: Environment | NetworkConfig): config is NetworkConfig => {
@@ -34,10 +32,13 @@ const isNetworkConfig = (config?: Environment | NetworkConfig): config is Networ
   }
   if (
     !(
-      config.VSC_DOMAIN &&
-      config.COSMOS_URL &&
-      config.EXPLORER_URL &&
-      config.GRPC_URL &&
+      config.VSC_BASE_URL &&
+      config.VSC_WS_URL &&
+      config.COSMOS_REST_URL &&
+      config.COSMOS_RPC_URL &&
+      config.COSMOS_WS_URL &&
+      config.INTENT_EXPLORER_URL &&
+      config.COSMOS_GRPC_URL &&
       config.NETWORK_HINT
     )
   ) {

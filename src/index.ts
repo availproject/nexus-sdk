@@ -1,67 +1,77 @@
 import './_polyfill';
-// Core SDK entry point - headless, no React dependencies
-export { NexusSDK } from './sdk/index';
-export { NexusError, NexusErrorData, ERROR_CODES } from './sdk/ca-base/nexusError';
-// Re-export types from commons for convenience
-export type {
-  BridgeParams,
-  BridgeResult,
-  TransferParams,
-  TransferResult,
-  ExecuteParams,
-  DynamicParamBuilder,
-  ExecuteResult,
-  ExecuteSimulation,
-  BridgeAndExecuteParams,
-  BridgeAndExecuteResult,
-  BridgeAndExecuteSimulationResult,
-  AllowanceResponse,
-  AllowanceHookSource,
-  EthereumProvider,
-  RequestArguments,
-  EventListener,
-  UserAsset,
-  SimulationResult,
-  RequestForFunds,
-  NexusNetwork,
-  OnIntentHook,
-  OnIntentHookData,
-  OnAllowanceHook,
-  OnAllowanceHookData,
-  SUPPORTED_CHAINS_IDS,
-  SUPPORTED_TOKENS,
-  ChainMetadata,
-  TokenMetadata,
-  AssetBreakdown,
-} from './commons';
-
-export {
-  CHAIN_METADATA,
-  SUPPORTED_CHAINS,
-  TESTNET_CHAINS,
-  TESTNET_TOKEN_METADATA,
-  TOKEN_METADATA,
-  NEXUS_EVENTS,
-  MAINNET_CHAINS,
-  TOKEN_CONTRACT_ADDRESSES,
-  DESTINATION_SWAP_TOKENS,
-  BRIDGE_STEPS,
-  SWAP_STEPS,
-} from './commons';
-
-// Re-export everything from commons (includes constants, utils, and types)
-export * from './commons';
 
 // Analytics exports
 export { AnalyticsManager } from './analytics/AnalyticsManager';
 export { NexusAnalyticsEvents } from './analytics/events';
 export type {
   AnalyticsProvider,
+  BalanceProperties,
   BaseEventProperties,
-  WalletProperties,
-  TransactionProperties,
   ErrorProperties,
   PerformanceProperties,
   SessionProperties,
-  BalanceProperties,
+  TransactionProperties,
+  WalletProperties,
 } from './analytics/types';
+// Re-export types from commons for convenience
+export type {
+  AllowanceHookSource,
+  AllowanceResponse,
+  AssetBreakdown,
+  BridgeAndExecuteParams,
+  BridgeAndExecuteResult,
+  BridgeAndExecuteSimulationResult,
+  BridgeParams,
+  BridgeResult,
+  ChainMetadata,
+  DynamicParamBuilder,
+  EthereumProvider,
+  EventListener,
+  ExecuteParams,
+  ExecuteResult,
+  ExecuteSimulation,
+  NexusNetwork,
+  OnAllowanceHook,
+  OnAllowanceHookData,
+  OnIntentHook,
+  OnIntentHookData,
+  RequestArguments,
+  RequestForFunds,
+  SimulationResult,
+  SUPPORTED_CHAINS_IDS,
+  SUPPORTED_TOKENS,
+  TokenMetadata,
+  TransferParams,
+  TransferResult,
+  UserAsset,
+} from './commons';
+// Re-export everything from commons (includes constants, utils, and types)
+export * from './commons';
+export {
+  BRIDGE_STEPS,
+  CHAIN_METADATA,
+  DESTINATION_SWAP_TOKENS,
+  MAINNET_CHAINS,
+  NEXUS_EVENTS,
+  SUPPORTED_CHAINS,
+  SWAP_STEPS,
+  TESTNET_CHAINS,
+  TESTNET_TOKEN_METADATA,
+  TOKEN_CONTRACT_ADDRESSES,
+  TOKEN_METADATA,
+} from './commons';
+export { ERROR_CODES, NexusError, NexusErrorData } from './sdk/ca-base/nexusError';
+// Core SDK entry point - headless, no React dependencies
+export { NexusSDK } from './sdk/index';
+// Utility exports (direct access without sdk instance)
+export {
+  formatTokenBalance,
+  formatTokenBalanceParts,
+  formatUnits,
+  getCoinbaseRates,
+  getSupportedChains,
+  isSupportedToken,
+  isValidAddress,
+  parseUnits,
+  truncateAddress,
+} from './sdk/utils';
