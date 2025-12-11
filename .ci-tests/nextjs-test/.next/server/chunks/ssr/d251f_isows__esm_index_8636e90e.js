@@ -1,3 +1,0 @@
-module.exports=[80864,a=>{"use strict";a.s(["WebSocket",()=>c],80864);var b=a.i(69890);let c=(()=>{try{if("undefined"!=typeof WebSocket)return WebSocket;if(void 0!==a.g.WebSocket)return a.g.WebSocket;if(void 0!==window.WebSocket)return window.WebSocket;if(void 0!==self.WebSocket)return self.WebSocket;throw Error("`WebSocket` is not supported in this environment")}catch{if(b.WebSocket)return b.WebSocket;return b}})()}];
-
-//# sourceMappingURL=d251f_isows__esm_index_8636e90e.js.map
