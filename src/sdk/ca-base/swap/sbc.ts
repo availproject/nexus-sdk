@@ -1,22 +1,32 @@
 import { Universe } from '@avail-project/ca-common';
 import {
   bytesToBigInt,
-  Chain,
+  type Chain,
   encodeAbiParameters,
-  Hex,
-  PrivateKeyAccount,
-  PublicClient,
-  SignAuthorizationReturnType,
+  type Hex,
+  type PrivateKeyAccount,
+  type PublicClient,
+  type SignAuthorizationReturnType,
   toBytes,
   toHex,
-  WalletClient,
+  type WalletClient,
 } from 'viem';
-
+import {
+  CaliburSBCTypes,
+  type ChainListType,
+  getLogger,
+  type SBCTx,
+  type Tx,
+} from '../../../commons';
 import { createDeadlineFromNow, waitForTxReceipt } from '../utils';
 import CaliburABI from './calibur.abi';
 import { CALIBUR_ADDRESS, CALIBUR_EIP712, ZERO_BYTES_20, ZERO_BYTES_32 } from './constants';
-import { Cache, convertTo32Bytes, isAuthorizationCodeSet, PublicClientList } from './utils';
-import { getLogger, ChainListType, CaliburSBCTypes, SBCTx, Tx } from '../../../commons';
+import {
+  type Cache,
+  convertTo32Bytes,
+  isAuthorizationCodeSet,
+  type PublicClientList,
+} from './utils';
 
 const logger = getLogger();
 
@@ -26,7 +36,7 @@ export const createBatchedCallSignature = (
   chain: bigint,
   address: `0x${string}`,
   account: PrivateKeyAccount,
-  deadline: bigint,
+  deadline: bigint
 ) => {
   return account.signTypedData({
     domain: {
@@ -54,15 +64,15 @@ export const createBatchedCallSignature = (
 export const waitForSBCTxReceipt = (
   ops: [bigint, Hex][],
   chainList: ChainListType,
-  publicClientList: PublicClientList,
+  publicClientList: PublicClientList
 ) => {
   return Promise.all(
     ops.map((op) => {
       const chain = chainList.getChainByID(Number(op[0]));
-      const explorerURL = new URL(`/tx/${op[1]}`, chain!.blockExplorers?.default.url);
-      console.log({ explorerURL: explorerURL.toString() });
-      return waitForTxReceipt(op[1], publicClientList.get(chain!.id), 1);
-    }),
+      const explorerURL = new URL(`/tx/${op[1]}`, chain?.blockExplorers?.default.url);
+      logger.debug('waitForSBCTxReceipt', { explorerURL: explorerURL.toString() });
+      return waitForTxReceipt(op[1], publicClientList.get(chain?.id), 1);
+    })
   );
 };
 
@@ -93,7 +103,7 @@ export const createSBCTxFromCalls = async ({
     BigInt(chainID),
     ephemeralAddress,
     ephemeralWallet,
-    deadline,
+    deadline
   );
 
   let authorization: null | SignAuthorizationReturnType = null;
@@ -170,7 +180,7 @@ export const caliburExecute = async ({
     BigInt(chain.id),
     ephemeralAddress,
     ephemeralWallet,
-    deadline,
+    deadline
   );
 
   return actualWallet.writeContract({
@@ -202,6 +212,6 @@ const packSignatureAndHookData = (signature: Hex, hookData: Hex = '0x') => {
       { name: 'signature', type: 'bytes' },
       { name: 'hookData', type: 'bytes' },
     ],
-    [signature, hookData],
+    [signature, hookData]
   );
 };

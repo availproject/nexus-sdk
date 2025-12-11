@@ -3,7 +3,7 @@ import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import Decimal from 'decimal.js';
 import { type Hex, PrivateKeyAccount, WalletClient } from 'viem';
 
-import { NetworkConfig, ChainListType, OnEventParam, TokenInfo } from '../index';
+import { NetworkConfig, ChainListType, OnEventParam, TokenInfo, QueryClients } from '../index';
 import type { SwapRoute } from '../../sdk/ca-base/swap/route';
 import { SigningStargateClient } from '@cosmjs/stargate';
 
@@ -134,8 +134,9 @@ export type SwapParams = {
     ephemeral: PrivateKeyAccount;
     eoa: WalletClient;
   };
-  networkConfig: NetworkConfig;
-} & OnEventParam;
+  intentExplorerUrl: string;
+} & OnEventParam &
+  QueryClients;
 
 export interface ExactInSwapInput {
   from: {
@@ -160,9 +161,9 @@ export enum SwapMode {
 
 export type SwapData =
   | {
-    mode: SwapMode.EXACT_IN;
-    data: ExactInSwapInput;
-  }
+      mode: SwapMode.EXACT_IN;
+      data: ExactInSwapInput;
+    }
   | { mode: SwapMode.EXACT_OUT; data: ExactOutSwapInput };
 
 export const CaliburSBCTypes = {
@@ -332,7 +333,7 @@ export type SuccessfulSwapResult = {
 
 export type SwapResult =
   | {
-    success: true;
-    result: SuccessfulSwapResult;
-  }
+      success: true;
+      result: SuccessfulSwapResult;
+    }
   | { success: false; error: string };

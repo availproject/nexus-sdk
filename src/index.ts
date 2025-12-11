@@ -49,6 +49,19 @@ export {
   SWAP_STEPS,
 } from './commons';
 
+// Utility exports (direct access without sdk instance)
+export {
+  formatTokenBalance,
+  formatTokenBalanceParts,
+  truncateAddress,
+  parseUnits,
+  formatUnits,
+  isValidAddress,
+  getCoinbaseRates,
+  getSupportedChains,
+  isSupportedToken,
+} from './sdk/utils';
+
 // Re-export everything from commons (includes constants, utils, and types)
 export * from './commons';
 

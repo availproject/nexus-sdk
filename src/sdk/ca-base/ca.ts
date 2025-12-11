@@ -38,12 +38,12 @@ import {
   BeforeExecuteHook,
   CosmosOptions,
   SUPPORTED_CHAINS,
+  QueryClients,
 } from '../../commons';
 import { AnalyticsManager } from '../../analytics';
 import { createBridgeParams } from './requestHandlers/helpers';
 import {
   cosmosFeeGrant,
-  fetchMyIntents,
   getSupportedChains,
   minutesToMs,
   refundExpiredIntents,
@@ -54,8 +54,10 @@ import {
   switchChain,
   intentTransform,
   mulDecimals,
-  getCosmosURL,
   getBalancesForBridge,
+  equalFold,
+  createCosmosQueryClient,
+  createVSCClient,
 } from './utils';
 import { swap } from './swap/swap';
 import { getSwapSupportedChains } from './swap/utils';
@@ -99,6 +101,7 @@ export class CA {
     address: string;
     adapter: TronAdapter;
   };
+  protected _queryClients: QueryClients;
   protected _hooks: {
     onAllowance: OnAllowanceHook;
     onIntent: OnIntentHook;
@@ -112,7 +115,7 @@ export class CA {
   protected _networkConfig: NetworkConfig;
   protected _refundInterval: number | undefined;
   protected _initPromise: Promise<void> | null = null;
-  private simulationClient: BackendSimulationClient;
+  private readonly simulationClient: BackendSimulationClient;
   protected _analytics?: AnalyticsManager; // Analytics manager set by subclass
 
   protected constructor(
@@ -127,11 +130,23 @@ export class CA {
     this.simulationClient = createBackendSimulationClient({
       baseUrl: 'https://nexus-backend.avail.so',
     });
-
-    this._siweChain =
-      config?.siweChain ?? this._networkConfig.NETWORK_HINT === Environment.FOLLY
+    const defaultChain =
+      this._networkConfig.NETWORK_HINT === Environment.FOLLY
         ? SUPPORTED_CHAINS.SEPOLIA
         : SUPPORTED_CHAINS.ETHEREUM;
+
+    this._siweChain = config?.siweChain ?? defaultChain;
+    this._queryClients = {
+      cosmosQueryClient: createCosmosQueryClient({
+        cosmosGrpcWebUrl: this._networkConfig.COSMOS_GRPC_URL,
+        cosmosRestUrl: this._networkConfig.COSMOS_REST_URL,
+        cosmosWsUrl: this._networkConfig.COSMOS_WS_URL,
+      }),
+      vscClient: createVSCClient({
+        vscUrl: this._networkConfig.VSC_BASE_URL,
+        vscWsUrl: this._networkConfig.VSC_WS_URL,
+      }),
+    };
 
     if (config.debug) {
       setLogLevel(LOG_LEVEL.DEBUG);
@@ -146,17 +161,18 @@ export class CA {
     const params = createBridgeParams(input, this.chainList);
     this.universeCheck(params.dstChain);
 
-    const bridgeHandler = new BridgeHandler(params, {
-      chainList: this.chainList,
-      cosmos: this.#cosmos!,
-      evm: this._evm,
-      hooks: this._hooks,
-      tron: this._tron,
-      networkConfig: this._networkConfig,
-      emit: options?.onEvent,
+    return this.withReinit(async () => {
+      return new BridgeHandler(params, {
+        chainList: this.chainList,
+        cosmos: this.#cosmos!,
+        evm: this._evm!,
+        hooks: this._hooks,
+        tron: this._tron,
+        ...this._queryClients,
+        intentExplorerUrl: this._networkConfig.INTENT_EXPLORER_URL,
+        emit: options?.onEvent,
+      });
     });
-
-    return bridgeHandler;
   };
 
   protected _calculateMaxForBridge = async (params: Omit<BridgeParams, 'amount' | 'recipient'>) => {
@@ -164,11 +180,14 @@ export class CA {
       throw Errors.sdkNotInitialized();
     }
 
-    return getMaxValueForBridge(params, {
-      chainList: this.chainList,
-      evm: this._evm,
-      tron: this._tron,
-      networkConfig: this._networkConfig,
+    return this.withReinit(() => {
+      return getMaxValueForBridge(params, {
+        chainList: this.chainList,
+        evm: this._evm!,
+        tron: this._tron,
+        intentExplorerUrl: this._networkConfig.INTENT_EXPLORER_URL,
+        ...this._queryClients,
+      });
     });
   };
 
@@ -182,7 +201,7 @@ export class CA {
 
     this.#cosmos = undefined;
 
-    if (this._evm) {
+    if (this._evm?.provider.removeListener) {
       this._evm.provider.removeListener('accountsChanged', this._onAccountsChanged);
     }
 
@@ -195,10 +214,12 @@ export class CA {
   };
 
   protected _getMyIntents = async (page = 1) => {
-    const { wallet } = await this._getCosmosWallet();
-    const address = (await wallet.getAccounts())[0].address;
-    const rffList = await fetchMyIntents(address, this._networkConfig.GRPC_URL, page);
-    return intentTransform(rffList, this._networkConfig.EXPLORER_URL, this.chainList);
+    return this.withReinit(async () => {
+      const { wallet } = await this._getCosmosWallet();
+      const address = (await wallet.getAccounts())[0].address;
+      const rffList = await this._queryClients.cosmosQueryClient.fetchMyIntents(address, page);
+      return intentTransform(rffList, this._networkConfig.INTENT_EXPLORER_URL, this.chainList);
+    });
   };
 
   protected _getBalancesForSwap = async () => {
@@ -206,12 +227,13 @@ export class CA {
       throw Errors.sdkNotInitialized();
     }
 
-    const balances = await getBalancesForSwap({
-      evmAddress: (await this._evm.client.requestAddresses())[0],
-      chainList: this.chainList,
-      filter: false,
+    return this.withReinit(async () => {
+      return getBalancesForSwap({
+        evmAddress: (await this._evm!.client.requestAddresses())[0],
+        chainList: this.chainList,
+        filter: false,
+      });
     });
-    return balances;
   };
 
   protected _getBalancesForBridge = async () => {
@@ -219,12 +241,13 @@ export class CA {
       throw Errors.sdkNotInitialized();
     }
 
-    const balances = await getBalancesForBridge({
-      evmAddress: (await this._evm.client.requestAddresses())[0],
-      chainList: this.chainList,
-      vscDomain: this._networkConfig.VSC_DOMAIN,
+    return this.withReinit(async () => {
+      return getBalancesForBridge({
+        evmAddress: this._evm!.address,
+        chainList: this.chainList,
+        vscClient: this._queryClients.vscClient,
+      });
     });
-    return balances;
   };
 
   protected _isInitialized = () => {
@@ -232,26 +255,30 @@ export class CA {
   };
 
   protected _swapWithExactIn = async (input: ExactInSwapInput, options?: OnEventParam) => {
-    return swap(
-      {
-        mode: SwapMode.EXACT_IN,
-        data: input,
-      },
-      await this._getSwapOptions(options),
-    );
+    return this.withReinit(async () => {
+      return swap(
+        {
+          mode: SwapMode.EXACT_IN,
+          data: input,
+        },
+        await this._getSwapOptions(options),
+      );
+    });
   };
 
   protected _swapWithExactOut = async (input: ExactOutSwapInput, options?: OnEventParam) => {
-    return swap(
-      {
-        mode: SwapMode.EXACT_OUT,
-        data: input,
-      },
-      await this._getSwapOptions(options),
-    );
+    return this.withReinit(async () => {
+      return swap(
+        {
+          mode: SwapMode.EXACT_OUT,
+          data: input,
+        },
+        await this._getSwapOptions(options),
+      );
+    });
   };
 
-  private _getSwapOptions = async (options?: OnEventParam): Promise<SwapParams> => {
+  private readonly _getSwapOptions = async (options?: OnEventParam): Promise<SwapParams> => {
     return {
       onSwapIntent: this._hooks.onSwapIntent,
       onEvent: options?.onEvent,
@@ -266,7 +293,8 @@ export class CA {
         ephemeral: this.#ephemeralWallet!,
         eoa: this._evm!.client,
       },
-      networkConfig: this._networkConfig,
+      intentExplorerUrl: this._networkConfig.INTENT_EXPLORER_URL,
+      ...this._queryClients,
       ...options,
     };
   };
@@ -328,7 +356,7 @@ export class CA {
     // Track network change
     if (this._analytics && this._evm) {
       const oldChainId = await this._evm.client.getChainId().catch(() => undefined);
-      const newChainId = parseInt(chainId, 16);
+      const newChainId = Number.parseInt(chainId, 16);
 
       this._analytics.track(NexusAnalyticsEvents.WALLET_NETWORK_CHANGED, {
         oldChainId,
@@ -411,37 +439,42 @@ export class CA {
   };
 
   protected _bridgeAndTransfer = async (input: TransferParams, options?: OnEventParam) => {
-    const params = createBridgeAndTransferParams(input, this.chainList);
-    return this._bridgeAndExecute(params, options);
+    return this.withReinit(() => {
+      const params = createBridgeAndTransferParams(input, this.chainList);
+      return this._bridgeAndExecute(params, options);
+    });
   };
 
   protected _simulateBridgeAndTransfer = async (input: TransferParams) => {
-    const params = createBridgeAndTransferParams(input, this.chainList);
-    return this._simulateBridgeAndExecute(params);
+    return this.withReinit(() => {
+      const params = createBridgeAndTransferParams(input, this.chainList);
+      return this._simulateBridgeAndExecute(params);
+    });
   };
 
   protected _checkPendingRefunds = async () => {
-    await this._init();
-    const evmAddress = await this._getEVMAddress();
-    try {
-      await refundExpiredIntents({
-        evmAddress,
-        address: this.#cosmos!.address,
-        client: this.#cosmos!.client,
-        analytics: this._analytics,
-      });
-
-      this._refundInterval = window.setInterval(async () => {
+    return this.withReinit(async () => {
+      const evmAddress = await this._getEVMAddress();
+      try {
         await refundExpiredIntents({
           evmAddress,
           address: this.#cosmos!.address,
           client: this.#cosmos!.client,
           analytics: this._analytics,
         });
-      }, minutesToMs(10));
-    } catch (e) {
-      logger.error('Error checking pending refunds', e, { cause: 'REFUND_CHECK_ERROR' });
-    }
+
+        this._refundInterval = window.setInterval(async () => {
+          await refundExpiredIntents({
+            evmAddress,
+            address: this.#cosmos!.address,
+            client: this.#cosmos!.client,
+            analytics: this._analytics,
+          });
+        }, minutesToMs(10));
+      } catch (e) {
+        logger.error('Error checking pending refunds', e, { cause: 'REFUND_CHECK_ERROR' });
+      }
+    });
   };
 
   protected _createCosmosWallet = async () => {
@@ -457,13 +490,15 @@ export class CA {
     this.#ephemeralWallet = privateKeyToAccount(`0x${pvtKey.padStart(64, '0')}`);
 
     const address = (await wallet.getAccounts())[0].address;
-    await cosmosFeeGrant(this._networkConfig.COSMOS_URL, this._networkConfig.VSC_DOMAIN, address);
-
-    const client = await createCosmosClient(
-      wallet,
-      getCosmosURL(this._networkConfig.COSMOS_URL, 'rpc'),
-      { broadcastPollIntervalMs: 250 },
+    await cosmosFeeGrant(
+      address,
+      this._queryClients.cosmosQueryClient,
+      this._queryClients.vscClient,
     );
+
+    const client = await createCosmosClient(wallet, this._networkConfig.COSMOS_RPC_URL, {
+      broadcastPollIntervalMs: 250,
+    });
 
     return { wallet, address, client };
   };
@@ -486,7 +521,7 @@ export class CA {
     if (!this._evm) {
       throw Errors.sdkNotInitialized();
     }
-    if (this._evm.provider) {
+    if (this._evm.provider?.on) {
       this._evm.provider.on('accountsChanged', this._onAccountsChanged);
     }
   };
@@ -545,15 +580,15 @@ export class CA {
       throw Errors.sdkNotInitialized();
     }
 
-    const handler = new BridgeAndExecuteQuery(
-      this.chainList,
-      this._evm.client,
-      this._createBridgeHandler,
-      this._getBalancesForBridge,
-      this.simulationClient,
-    );
-
-    return handler.simulateBridgeAndExecute(params);
+    return this.withReinit(() => {
+      return new BridgeAndExecuteQuery(
+        this.chainList,
+        this._evm!.client,
+        this._createBridgeHandler,
+        this._getBalancesForBridge,
+        this.simulationClient,
+      ).simulateBridgeAndExecute(params);
+    });
   };
 
   protected _bridgeAndExecute = (
@@ -564,15 +599,15 @@ export class CA {
       throw Errors.sdkNotInitialized();
     }
 
-    const handler = new BridgeAndExecuteQuery(
-      this.chainList,
-      this._evm.client,
-      this._createBridgeHandler,
-      this._getBalancesForBridge,
-      this.simulationClient,
-    );
-
-    return handler.bridgeAndExecute(params, options);
+    return this.withReinit(() => {
+      return new BridgeAndExecuteQuery(
+        this.chainList,
+        this._evm!.client,
+        this._createBridgeHandler,
+        this._getBalancesForBridge,
+        this.simulationClient,
+      ).bridgeAndExecute(params, options);
+    });
   };
 
   protected _execute = async (params: ExecuteParams, options?: OnEventParam) => {
@@ -580,15 +615,15 @@ export class CA {
       throw Errors.sdkNotInitialized();
     }
 
-    const handler = new BridgeAndExecuteQuery(
-      this.chainList,
-      this._evm.client,
-      this._createBridgeHandler,
-      this._getBalancesForBridge,
-      this.simulationClient,
-    );
-
-    return handler.execute(params, options);
+    return this.withReinit(() => {
+      return new BridgeAndExecuteQuery(
+        this.chainList,
+        this._evm!.client,
+        this._createBridgeHandler,
+        this._getBalancesForBridge,
+        this.simulationClient,
+      ).execute(params, options);
+    });
   };
 
   protected _simulateExecute = (params: ExecuteParams) => {
@@ -596,15 +631,19 @@ export class CA {
       throw Errors.sdkNotInitialized();
     }
 
-    const handler = new BridgeAndExecuteQuery(
-      this.chainList,
-      this._evm.client,
-      this._createBridgeHandler,
-      this._getBalancesForBridge,
-      this.simulationClient,
-    );
+    return this.withReinit(() => {
+      return new BridgeAndExecuteQuery(
+        this.chainList,
+        this._evm!.client,
+        this._createBridgeHandler,
+        this._getBalancesForBridge,
+        this.simulationClient,
+      ).simulateExecute(params, this._evm!.address);
+    });
+  };
 
-    return handler.simulateExecute(params, this._evm.address);
+  protected _triggerAccountChange = async () => {
+    await this.reinitOnAccountChange();
   };
 
   private readonly universeCheck = (dstChain: Chain) => {
@@ -612,6 +651,26 @@ export class CA {
       throw Errors.walletNotConnected('Tron');
     }
   };
+
+  private readonly reinitOnAccountChange = async () => {
+    if (!this._evm) {
+      return;
+    }
+
+    const account = (await this._evm.client.getAddresses())[0];
+    if (!equalFold(account, this._evm.address)) {
+      this._deinit();
+      if (this._evm) {
+        this._evm.address = account;
+      }
+      await this._init();
+    }
+  };
+
+  private async withReinit<T>(fn: () => Promise<T>): Promise<T> {
+    await this.reinitOnAccountChange();
+    return fn();
+  }
 
   protected _convertTokenReadableAmountToBigInt = (
     amount: string,

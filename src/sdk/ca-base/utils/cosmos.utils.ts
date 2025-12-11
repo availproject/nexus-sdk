@@ -1,3 +1,5 @@
+import Long from 'long';
+import { CosmosOptions, CosmosQueryClient, getLogger, VSCClient } from '../../../commons';
 import {
   MsgCreateRequestForFunds,
   MsgCreateRequestForFundsResponse,
@@ -6,34 +8,34 @@ import {
   MsgRefundReqResponse,
 } from '@avail-project/ca-common';
 import { isDeliverTxFailure, isDeliverTxSuccess } from '@cosmjs/stargate';
-import axios from 'axios';
-import { connect } from 'it-ws/client';
-import Long from 'long';
-import { CosmosOptions, getLogger } from '../../../commons';
-import { checkIntentFilled, vscCreateFeeGrant } from './api.utils';
 import { Errors } from '../errors';
 
 const logger = getLogger();
 
-const getCosmosURL = (cosmosURL: string, kind: 'rest' | 'rpc') => {
-  const u = new URL(cosmosURL);
-  if (kind === 'rpc') {
-    u.port = '26650';
-  }
-  return u.toString();
-};
-
-const cosmosFeeGrant = async (cosmosURL: string, vscDomain: string, address: string) => {
+const cosmosFeeGrant = async (
+  address: string,
+  cosmosClient: CosmosQueryClient,
+  vscClient: VSCClient,
+) => {
   try {
-    await axios.get(`/cosmos/auth/v1beta1/accounts/${address}`, {
-      baseURL: getCosmosURL(cosmosURL, 'rest'),
-    });
+    await cosmosClient.getAccount(address);
   } catch (e) {
     logger.error('Requesting a fee grant', e, { cause: 'FEE_GRANT_REQUESTED' });
-    const response = await vscCreateFeeGrant(vscDomain, address);
-    logger.debug('Fee grant response', response.data);
+    const response = await vscClient.vscCreateFeeGrant(address);
+    logger.debug('Fee grant response', response);
     return;
   }
+};
+
+const cosmosFillCheck = async (
+  intentID: Long,
+  cosmosClient: CosmosQueryClient,
+  ac: AbortController,
+) => {
+  return Promise.any([
+    cosmosClient.waitForCosmosFillEvent(intentID, ac),
+    cosmosClient.checkIntentFilled(intentID),
+  ]);
 };
 
 const cosmosCreateRFF = async ({
@@ -68,7 +70,6 @@ const cosmosCreateRFF = async ({
     client.disconnect();
   }
 };
-
 const cosmosRefundIntent = async ({
   address,
   client,
@@ -118,7 +119,6 @@ const cosmosRefundIntent = async ({
     client.disconnect();
   }
 };
-
 const cosmosCreateDoubleCheckTx = async ({
   address,
   client,
@@ -153,77 +153,10 @@ const cosmosCreateDoubleCheckTx = async ({
   }
 };
 
-const decoder = new TextDecoder('utf-8');
-
-const cosmosFillCheck = async (
-  intentID: Long,
-  grpcURL: string,
-  cosmosURL: string,
-  ac: AbortController,
-) => {
-  return Promise.any([
-    waitForCosmosFillEvent(intentID, cosmosURL, ac),
-    checkIntentFilled(intentID, grpcURL),
-  ]);
-};
-
-const waitForCosmosFillEvent = async (intentID: Long, cosmosURL: string, ac: AbortController) => {
-  const u = new URL('/websocket', cosmosURL);
-  u.protocol = 'wss';
-  u.port = '26650';
-  const connection = connect(u.toString());
-
-  await connection.connected();
-
-  ac.signal.addEventListener(
-    'abort',
-    () => {
-      connection.close();
-      return Promise.resolve('ok from outside');
-    },
-    { once: true },
-  );
-
-  const EVENT = 'xarchain.chainabstraction.RFFFulfilledEvent.id';
-
-  try {
-    connection.socket.send(
-      JSON.stringify({
-        id: '0',
-        jsonrpc: '2.0',
-        method: 'subscribe',
-        params: {
-          query: `${EVENT}='"${intentID}"'`,
-        },
-      }),
-    );
-
-    for await (const resp of connection.source) {
-      logger.debug('waitForCosmosFillEvent', {
-        resp,
-      });
-      const decodedResponse = JSON.parse(decoder.decode(resp));
-      if (
-        decodedResponse.result.events &&
-        EVENT in decodedResponse.result.events &&
-        decodedResponse.result.events[EVENT].includes(`"${intentID}"`)
-      ) {
-        ac.abort();
-        return 'ok';
-      }
-    }
-
-    throw Errors.cosmosError('waitForCosmosFillEvent: out of loop but no events');
-  } finally {
-    connection.close();
-  }
-};
-
 export {
-  cosmosCreateDoubleCheckTx,
-  cosmosCreateRFF,
   cosmosFeeGrant,
   cosmosFillCheck,
+  cosmosCreateDoubleCheckTx,
   cosmosRefundIntent,
-  getCosmosURL,
+  cosmosCreateRFF,
 };
