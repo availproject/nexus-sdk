@@ -597,7 +597,7 @@ export class NexusSDK extends CA {
       this.analytics.track(NexusAnalyticsEvents.BALANCES_FETCH_SUCCESS, {
         swap: true,
         bridge: false,
-        balanceBucket: getBalanceBucket(result?.assets?.reduce((acc, asset) => acc.add(asset?.balanceInFiat || 0), new Decimal(0) || 0).toFixed())
+        swappableBalanceBucket: getBalanceBucket(result?.assets?.reduce((acc, asset) => acc.add(asset?.balanceInFiat || 0), new Decimal(0) || 0).toFixed())
       })
       return result.assets;
     } catch (e) {
@@ -615,7 +615,7 @@ export class NexusSDK extends CA {
    * @returns balances that can be used in bridge operations
    */
   public async getBalancesForBridge() {
-    this.analytics.track(NexusAnalyticsEvents.BALANCES_FETCH_SUCCESS, {
+    this.analytics.track(NexusAnalyticsEvents.BALANCES_FETCH_STARTED, {
       swap: false,
       bridge: true
     })
@@ -627,7 +627,7 @@ export class NexusSDK extends CA {
       this.analytics.track(NexusAnalyticsEvents.BALANCES_FETCH_SUCCESS, {
         swap: false,
         bridge: true,
-        balanceBucket: getBalanceBucket(result?.reduce((acc, asset) => acc.add(asset?.balanceInFiat || 0), new Decimal(0) || 0).toFixed())
+        bridgeableBalanceBucket: getBalanceBucket(result?.reduce((acc, asset) => acc.add(asset?.balanceInFiat || 0), new Decimal(0) || 0).toFixed())
       })
       return result;
     } catch (e) {
