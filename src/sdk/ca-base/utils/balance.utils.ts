@@ -107,21 +107,20 @@ const DEFAULT_SLOT = {
 } as const;
 
 function getBalanceStorageSlot(token: string, chainId: number): number {
+  // Only list different from default
   const storageSlotMapping: Record<number, Record<string, number>> = {
-    [SUPPORTED_CHAINS.ETHEREUM]: DEFAULT_SLOT,
-    [SUPPORTED_CHAINS.BASE]: DEFAULT_SLOT,
-    [SUPPORTED_CHAINS.ARBITRUM]: DEFAULT_SLOT,
-    [SUPPORTED_CHAINS.OPTIMISM]: DEFAULT_SLOT,
-    [SUPPORTED_CHAINS.POLYGON]: DEFAULT_SLOT,
-    [SUPPORTED_CHAINS.AVALANCHE]: DEFAULT_SLOT,
-    [SUPPORTED_CHAINS.SCROLL]: DEFAULT_SLOT,
-    // Testnets
-    [SUPPORTED_CHAINS.BASE_SEPOLIA]: DEFAULT_SLOT,
-    [SUPPORTED_CHAINS.ARBITRUM_SEPOLIA]: DEFAULT_SLOT,
-    [SUPPORTED_CHAINS.OPTIMISM_SEPOLIA]: DEFAULT_SLOT,
-    [SUPPORTED_CHAINS.POLYGON_AMOY]: DEFAULT_SLOT,
+    [SUPPORTED_CHAINS.BNB]: {
+      ETH: 0,
+      USDC: 1,
+      USDT: 1,
+    },
   };
 
+  logger.debug('storageSlotMapping', {
+    storageSlotMapping,
+    chainId,
+    val: storageSlotMapping[chainId],
+  });
   const chainMapping = storageSlotMapping[chainId];
   if (chainMapping) {
     const slot = chainMapping[token];
@@ -133,9 +132,9 @@ function getBalanceStorageSlot(token: string, chainId: number): number {
 
   logger.warn(`Unsupported chain ${chainId}, falling back to defaults`);
 
-  return token === 'USDC'
+  return equalFold(token, 'USDC')
     ? DEFAULT_SLOT.USDC
-    : token === 'USDT'
+    : equalFold(token, 'USDT')
     ? DEFAULT_SLOT.USDT
     : DEFAULT_SLOT.ETH;
 }
