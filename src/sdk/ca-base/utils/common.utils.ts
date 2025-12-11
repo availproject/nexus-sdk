@@ -45,14 +45,16 @@ import {
   UserAssetDatum,
   Chain,
   CosmosOptions,
+  CosmosQueryClient,
 } from '../../../commons';
 import { createPublicClientWithFallback } from './contract.utils';
 import { AnalyticsManager } from '../../../analytics/AnalyticsManager';
 import { NexusAnalyticsEvents } from '../../../analytics/events';
 import { requestTimeout, waitForIntentFulfilment } from './contract.utils';
-import { cosmosCreateDoubleCheckTx, cosmosFillCheck, cosmosRefundIntent } from './cosmos.utils';
+import { cosmosFillCheck } from './cosmos.utils';
 import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 import { Errors } from '../errors';
+import { cosmosCreateDoubleCheckTx, cosmosRefundIntent } from './cosmos.utils';
 
 const logger = getLogger();
 
@@ -429,14 +431,13 @@ const evmWaitForFill = async (
   publicClient: PublicClient<WebSocketTransport>,
   requestHash: `0x${string}`,
   intentID: Long,
-  grpcURL: string,
-  cosmosURL: string,
+  cosmosQueryClient: CosmosQueryClient,
 ) => {
   const ac = new AbortController();
   await Promise.race([
     waitForIntentFulfilment(publicClient, vaultContractAddress, requestHash, ac),
     requestTimeout(3, ac),
-    cosmosFillCheck(intentID, grpcURL, cosmosURL, ac),
+    cosmosFillCheck(intentID, cosmosQueryClient, ac),
   ]);
 };
 

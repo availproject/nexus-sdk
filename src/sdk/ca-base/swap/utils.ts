@@ -19,8 +19,6 @@ import CaliburABI from './calibur.abi';
 import axios from 'axios';
 import Decimal from 'decimal.js';
 import { retry } from 'es-toolkit';
-import { connect } from 'it-ws/client';
-import { pack, unpack } from 'msgpackr';
 import {
   ByteArray,
   bytesToBigInt,
@@ -53,10 +51,10 @@ import {
   SwapStepType,
   AnkrAsset,
   AnkrBalances,
-  SBCTx,
   SwapIntent,
   Tx,
   ChainListType,
+  VSCClient,
 } from '../../../commons';
 import {
   convertAddressByUniverse,
@@ -65,13 +63,12 @@ import {
   divDecimals,
   equalFold,
   getExplorerURL,
-  getVSCURL,
   switchChain,
   waitForTxReceipt,
 } from '../utils';
 import { SWEEP_ABI } from './abi';
 import { CALIBUR_ADDRESS, EADDRESS, SWEEPER_ADDRESS } from './constants';
-import { chainData, FlatBalance, getTokenVersion } from './data';
+import { FlatBalance, getPermitVariantAndVersion, isTokenSupported } from './data';
 import { createSBCTxFromCalls, waitForSBCTxReceipt } from './sbc';
 import Long from 'long';
 import { Errors } from '../errors';
@@ -159,15 +156,6 @@ const AnkrChainIdMapping = new Map([
   ['xai', 660279],
   ['xlayer', 196],
 ]);
-
-export const NativeSlippage: Record<number, string> = {
-  1: '0.02',
-  10: '0.0002',
-  137: '0.02',
-  42161: '0.0002',
-  43114: '0.01',
-  8453: '0.0002',
-};
 
 export const createPermitSignature = async (
   contractAddress: Hex,
@@ -264,43 +252,6 @@ export const createPermitSignature = async (
   }
 };
 
-export const vscSBCTx = async (input: SBCTx[], vscDomain: string) => {
-  const ops: [bigint, Hex][] = [];
-  const connection = connect(
-    new URL('/api/v1/create-sbc-tx', getVSCURL(vscDomain, 'wss')).toString(),
-  );
-
-  try {
-    await connection.connected();
-    connection.socket.send(pack(input));
-    let count = 0;
-    for await (const response of connection.source) {
-      const data: {
-        errored: boolean;
-        part_idx: number;
-        tx_hash: Uint8Array;
-      } = unpack(response);
-
-      logger.debug('vscSBCTx', { data });
-
-      if (data.errored) {
-        throw Errors.internal('Error in VSC SBC Tx');
-      }
-
-      ops.push([bytesToBigInt(input[data.part_idx].chain_id), toHex(data.tx_hash)]);
-
-      count += 1;
-
-      if (count === input.length) {
-        break;
-      }
-    }
-  } finally {
-    await connection.close();
-  }
-  return ops;
-};
-
 export const EXPECTED_CALIBUR_CODE = concat(['0xef0100', CALIBUR_ADDRESS]);
 
 export const isAuthorizationCodeSet = async (
@@ -382,7 +333,7 @@ export const createPermitAndTransferFromTx = async ({
   logger.debug('createPermitTx', { allowance, amount });
 
   if (allowance < amount) {
-    const { variant, version } = await getTokenVersion(contractAddress, publicClient);
+    const { variant, version } = await getPermitVariantAndVersion(contractAddress, publicClient);
     if (variant === PermitVariant.Unsupported) {
       const { request } = await publicClient.simulateContract({
         chain,
@@ -833,7 +784,11 @@ export const vscBalancesToAssets = (
   return assets;
 };
 
-export const ankrBalanceToAssets = (chainList: ChainListType, ankrBalances: AnkrBalances) => {
+export const ankrBalanceToAssets = (
+  chainList: ChainListType,
+  ankrBalances: AnkrBalances,
+  filter: boolean,
+) => {
   const assets: UserAssetDatum[] = [];
 
   for (const asset of ankrBalances) {
@@ -841,8 +796,7 @@ export const ankrBalanceToAssets = (chainList: ChainListType, ankrBalances: Ankr
       continue;
     }
 
-    const d = chainData.get(asset.chainID);
-    if (!d) {
+    if (filter && !isTokenSupported(asset.chainID, convertTo32BytesHex(asset.tokenAddress))) {
       continue;
     }
 
@@ -1407,6 +1361,7 @@ function mtx2eip712tx(input: SwapMetadataTx) {
     univ: input.univ,
   };
 }
+
 export const postSwap = async ({
   metadata,
   wallet,
@@ -1565,7 +1520,7 @@ export const performDestinationSwap = async ({
   ephemeralWallet,
   hasDestinationSwap,
   publicClientList,
-  vscDomain,
+  vscClient,
 }: {
   actualAddress: Hex;
   cache: Cache;
@@ -1580,7 +1535,7 @@ export const performDestinationSwap = async ({
   ephemeralWallet: PrivateKeyAccount;
   hasDestinationSwap: boolean;
   publicClientList: PublicClientList;
-  vscDomain: string;
+  vscClient: VSCClient;
 }) => {
   try {
     // If destination swap token is COT then calls is an empty array,
@@ -1603,7 +1558,7 @@ export const performDestinationSwap = async ({
         publicClient: publicClientList.get(chain.id),
       });
       performance.mark('destination-swap-start');
-      const ops = await vscSBCTx([sbcTx], vscDomain);
+      const ops = await vscClient.vscSBCTx([sbcTx]);
       performance.mark('destination-swap-end');
 
       if (hasDestinationSwap) {
@@ -1618,8 +1573,8 @@ export const performDestinationSwap = async ({
     return hash;
   } catch (e) {
     logger.error('destination swap failed twice, sweeping to eoa', e, { cause: 'SWAP_FAILED' });
-    await vscSBCTx(
-      [
+    await vscClient
+      .vscSBCTx([
         await createSBCTxFromCalls({
           cache,
           calls: createSweeperTxs({
@@ -1634,11 +1589,10 @@ export const performDestinationSwap = async ({
           ephemeralWallet,
           publicClient: publicClientList.get(chain.id),
         }),
-      ],
-      vscDomain,
-    ).catch((e) => {
-      logger.error('error during destination sweep', e, { cause: 'DESTINATION_SWEEP_ERROR' });
-    });
+      ])
+      .catch((e) => {
+        logger.error('error during destination sweep', e, { cause: 'DESTINATION_SWEEP_ERROR' });
+      });
     throw e;
   }
 };

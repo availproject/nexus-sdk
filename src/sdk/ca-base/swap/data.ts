@@ -387,25 +387,30 @@ export type FlatBalance = {
 };
 
 const filterSupportedTokens = (tokens: FlatBalance[]) => {
-  return tokens.filter((t) => {
-    const d = chainData.get(t.chainID);
-    if (!d) {
-      return false;
-    }
-    const token = d.find((dt) => equalFold(dt.TokenContractAddress, t.tokenAddress));
-    if (!token) {
-      return false;
-    }
-
-    if (token.IsGasToken) {
-      return true;
-    }
-
-    return true;
-  });
+  return tokens.filter((t) => isTokenSupported(t.chainID, t.tokenAddress));
 };
 
-const getTokenVersion = async (tokenAddress: Hex, client: PublicClient) => {
+const isTokenSupported = (chainId: number, contractAddress: Hex) => {
+  const d = chainData.get(chainId);
+  if (!d) {
+    return false;
+  }
+
+  const token = d.find((dt) => {
+    return equalFold(dt.TokenContractAddress, contractAddress);
+  });
+  if (!token) {
+    return false;
+  }
+
+  if (token.IsGasToken) {
+    return true;
+  }
+
+  return true;
+};
+
+const getPermitVariantAndVersion = async (tokenAddress: Hex, client: PublicClient) => {
   for (const [, tokens] of chainData.entries()) {
     const t = tokens.find((t) =>
       equalFold(convertTo32BytesHex(tokenAddress), t.TokenContractAddress),
@@ -434,4 +439,10 @@ export const getTokenDecimals = (chainID: number | string, contractAddress: Byte
   };
 };
 
-export { chainData, filterSupportedTokens, getSwapSupportedChains, getTokenVersion };
+export {
+  chainData,
+  filterSupportedTokens,
+  getSwapSupportedChains,
+  getPermitVariantAndVersion,
+  isTokenSupported,
+};

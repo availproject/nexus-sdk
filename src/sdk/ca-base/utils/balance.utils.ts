@@ -1,5 +1,5 @@
-import { ChainListType, logger, SUPPORTED_CHAINS } from '../../../commons';
-import { equalFold, getEVMBalancesForAddress, getTronBalancesForAddress } from '.';
+import { ChainListType, logger, SUPPORTED_CHAINS, VSCClient } from '../../../commons';
+import { equalFold } from '.';
 import { encodePacked, Hex, keccak256, pad, toHex } from 'viem';
 import {
   ankrBalanceToAssets,
@@ -7,30 +7,35 @@ import {
   toFlatBalance,
   vscBalancesToAssets,
 } from '../swap/utils';
+import { filterSupportedTokens } from '../swap/data';
 
 export const getBalancesForSwap = async (input: {
   evmAddress: Hex;
   chainList: ChainListType;
   filter: boolean;
 }) => {
-  const ankrBalances = await getAnkrBalances(input.evmAddress, input.chainList, input.filter);
+  const ankrBalances = await getAnkrBalances(input.evmAddress, input.chainList, true);
 
-  const assets = ankrBalanceToAssets(input.chainList, ankrBalances);
+  const assets = ankrBalanceToAssets(input.chainList, ankrBalances, input.filter);
   let balances = toFlatBalance(assets);
+
+  if (input.filter) {
+    balances = filterSupportedTokens(balances);
+  }
 
   return { assets, balances };
 };
 
 export const getBalancesForBridge = async (input: {
-  vscDomain: string;
+  vscClient: VSCClient;
   evmAddress: Hex;
   tronAddress?: string;
   chainList: ChainListType;
 }) => {
   const [evmBalances, tronBalances] = await Promise.all([
-    getEVMBalancesForAddress(input.vscDomain, input.evmAddress),
+    input.vscClient.getEVMBalancesForAddress(input.evmAddress),
     input.tronAddress
-      ? getTronBalancesForAddress(input.vscDomain, input.tronAddress as Hex)
+      ? input.vscClient.getTronBalancesForAddress(input.tronAddress as Hex)
       : Promise.resolve([]),
   ]);
 

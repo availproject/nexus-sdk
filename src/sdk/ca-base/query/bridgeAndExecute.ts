@@ -24,7 +24,6 @@ import {
   createPublicClient,
   Hex,
   http,
-  parseGwei,
   PublicClient,
   serializeTransaction,
   toHex,
@@ -49,15 +48,16 @@ import BridgeHandler from '../requestHandlers/bridge';
 import { Errors } from '../errors';
 import { isNativeAddress } from '../constants';
 import { Universe } from '@avail-project/ca-common';
+import { getGasPriceRecommendations } from './gasFeeHistory';
 
 class BridgeAndExecuteQuery {
   constructor(
     private chainList: ChainListType,
     private evmClient: WalletClient,
-    private bridge: (input: BridgeParams, options?: OnEventParam) => BridgeHandler,
+    private bridge: (input: BridgeParams, options?: OnEventParam) => Promise<BridgeHandler>,
     private getUnifiedBalances: () => Promise<UserAssetDatum[]>,
     private simulationClient: BackendSimulationClient,
-  ) { }
+  ) {}
 
   private async estimateBridgeAndExecute(params: BridgeAndExecuteParams) {
     const { toChainId, token: tokenSymbol, amount, execute } = params;
@@ -80,6 +80,8 @@ class BridgeAndExecuteQuery {
 
     logger.debug('BridgeAndExecute:2', {
       tx,
+      dstChain,
+      dstPublicClient,
       approvalTx,
     });
 
@@ -92,38 +94,30 @@ class BridgeAndExecuteQuery {
     const determineGasUsed = params.execute.gas
       ? Promise.resolve({ approvalGas: approvalTx ? 70_000n : 0n, txGas: params.execute.gas })
       : this.simulateBundle({
-        txs,
-        amount: params.amount,
-        userAddress: address,
-        chainId: dstChain.id,
-        tokenAddress: token.contractAddress,
-        tokenSymbol: params.token ?? 'ETH',
-      }).then(({ gas }) => {
-        if (approvalTx) {
-          return {
-            approvalGas: gas[0],
-            txGas: gas[1],
-          };
-        } else {
-          return {
-            approvalGas: 0n,
-            txGas: gas[0],
-          };
-        }
-      });
-
-    const determineGasFee = params.execute.gasPrice
-      ? Promise.resolve({
-        maxFeePerGas: params.execute.gasPrice,
-        gasPrice: params.execute.gasPrice,
-        maxPriorityFeePerGas: 0n,
-      })
-      : dstPublicClient.estimateFeesPerGas();
+          txs,
+          amount: params.amount,
+          userAddress: address,
+          chainId: dstChain.id,
+          tokenAddress: token.contractAddress,
+          tokenSymbol: params.token ?? 'ETH',
+        }).then(({ gas }) => {
+          if (approvalTx) {
+            return {
+              approvalGas: gas[0],
+              txGas: gas[1],
+            };
+          } else {
+            return {
+              approvalGas: 0n,
+              txGas: gas[0],
+            };
+          }
+        });
 
     // 5. simulate approval(?) and execution + fetch gasPrice + fetch unified balance
-    const [gasUsed, gasFeeEstimate, balances, l1Fee] = await Promise.all([
+    const [gasUsed, gasPriceRecommendations, balances, l1Fee] = await Promise.all([
       determineGasUsed,
-      determineGasFee,
+      getGasPriceRecommendations(dstPublicClient),
       this.getUnifiedBalances(),
       getL1Fee(
         dstChain,
@@ -142,19 +136,12 @@ class BridgeAndExecuteQuery {
     const approvalGas = pctAdditionToBigInt(gasUsed.approvalGas, pctBuffer);
     const txGas = pctAdditionToBigInt(gasUsed.txGas, pctBuffer);
 
-    let gasPrice = gasFeeEstimate.maxFeePerGas ?? gasFeeEstimate.gasPrice ?? 0n;
+    let gasPrice = gasPriceRecommendations.high;
     if (gasPrice === 0n) {
       throw Errors.gasPriceError({
         chainId: dstChain.id,
       });
     }
-
-    // Giving more is not an issue since it will be refunded - other than monad
-    // gasPrice = (baseFee + 5 * maxPriorityFeePerGas)
-    gasPrice +=
-      (gasFeeEstimate.maxPriorityFeePerGas === 0n
-        ? parseGwei('2')
-        : gasFeeEstimate.maxPriorityFeePerGas) * 4n;
 
     const gasFee = (approvalGas + txGas) * gasPrice + l1Fee;
 
@@ -162,7 +149,7 @@ class BridgeAndExecuteQuery {
       increasedGas: approvalGas + txGas,
       approvalGas,
       txGas,
-      gasFeeEstimate,
+      gasPriceRecommendations,
       gasPrice,
       balances,
       l1Fee,
@@ -263,6 +250,7 @@ class BridgeAndExecuteQuery {
     } = await this.estimateBridgeAndExecute(params);
 
     logger.debug('BridgeAndExecute:4:CalculateOptimalBridgeAmount', {
+      params,
       skipBridge,
       amount,
       approval: {
@@ -289,9 +277,7 @@ class BridgeAndExecuteQuery {
 
     tx.gas = gas.tx;
 
-    let bridgeResult: BridgeResult = {
-      explorerUrl: '',
-    };
+    let bridgeResult: BridgeResult | null = null;
 
     // 7. If bridge is required then bridge
     if (!skipBridge) {
@@ -373,10 +359,10 @@ class BridgeAndExecuteQuery {
         dstChain.blockExplorers!.default.url,
       ),
       approvalTransactionHash: executeResponse.approvalHash,
-      bridgeExplorerUrl: bridgeResult.explorerUrl,
+      bridgeExplorerUrl: bridgeResult?.explorerUrl,
       toChainId: params.toChainId,
       bridgeSkipped: skipBridge,
-      intent: bridgeResult.intent,
+      intent: bridgeResult?.intent,
     };
 
     return result;
@@ -674,16 +660,17 @@ class BridgeAndExecuteQuery {
     params: BridgeParams,
     options?: OnEventParam,
   ): Promise<BridgeResult> => {
-    const handler = this.bridge(params, options);
+    const handler = await this.bridge(params, options);
     const result = await handler.execute();
     return {
-      explorerUrl: result?.explorerURL ?? '',
+      explorerUrl: result.explorerURL,
+      sourceTxs: result.sourceTxs,
       intent: result.intent,
     };
   };
 
   private readonly simulateBridgeWrapper = async (params: BridgeParams) => {
-    const handler = this.bridge(params);
+    const handler = await this.bridge(params);
     const result = await handler.simulate();
     return result;
   };

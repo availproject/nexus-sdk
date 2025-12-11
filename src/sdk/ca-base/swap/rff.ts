@@ -28,13 +28,14 @@ import { packERC20Approve } from './utils';
 import {
   getLogger,
   Intent,
-  NetworkConfig,
   BridgeAsset,
   EoaToEphemeralCallMap,
   RFFDepositCallMap,
   Tx,
   ChainListType,
   CosmosOptions,
+  MAINNET_CHAIN_IDS,
+  QueryClients,
 } from '../../../commons';
 
 const logger = getLogger();
@@ -109,7 +110,17 @@ export const createIntent = ({
     protocolFee: protocolFee.toFixed(),
   });
 
-  for (const asset of assets) {
+  const sortedAssets = [...assets].sort((a, b) => {
+    if (a.chainID === MAINNET_CHAIN_IDS.ETHEREUM) return 1; // a goes to end
+    if (b.chainID === MAINNET_CHAIN_IDS.ETHEREUM) return -1; // b goes to end
+
+    return Decimal.sub(
+      Decimal.add(a.eoaBalance, a.ephemeralBalance),
+      Decimal.add(b.eoaBalance, b.ephemeralBalance),
+    ).toNumber(); // sort others by balance
+  });
+
+  for (const asset of sortedAssets) {
     if (
       asset.chainID === output.chainID ||
       Decimal.add(asset.eoaBalance, asset.ephemeralBalance).lte(0)
@@ -206,7 +217,9 @@ export const createIntent = ({
   }
 
   if (accountedBalance < borrow) {
-    intent.isAvailableBalanceInsufficient = true;
+    throw Errors.insufficientBalance(
+      `available: ${accountedBalance.toFixed()}, required: ${borrow.toFixed()}`,
+    );
   }
 
   return { eoaToEphemeralCalls, intent };
@@ -225,8 +238,7 @@ export const createBridgeRFF = async ({
       client: PrivateKeyAccount;
       eoaAddress: `0x${string}`;
     };
-    network: Pick<NetworkConfig, 'COSMOS_URL' | 'GRPC_URL'>;
-  };
+  } & QueryClients;
   input: {
     assets: BridgeAsset[];
   };
@@ -239,7 +251,7 @@ export const createBridgeRFF = async ({
 }) => {
   logger.debug('createBridgeRFF', { input, output });
 
-  const feeStore = await getFeeStore(config.network.GRPC_URL);
+  const feeStore = await getFeeStore(config.cosmosQueryClient);
   const depositCalls: RFFDepositCallMap = {};
 
   const { eoaToEphemeralCalls, intent } = createIntent({
@@ -248,10 +260,6 @@ export const createBridgeRFF = async ({
     output,
     address: config.evm.address,
   });
-
-  if (intent.isAvailableBalanceInsufficient) {
-    throw Errors.insufficientBalance();
-  }
 
   const { msgBasicCosmos, omniversalRFF, signatureData, sources } = await createRFFromIntent(
     intent,
@@ -391,8 +399,7 @@ export const createBridgeRFF = async ({
         pc,
         s.requestHash,
         intentID,
-        config.network.GRPC_URL,
-        config.network.COSMOS_URL,
+        config.cosmosQueryClient,
       ),
     };
 

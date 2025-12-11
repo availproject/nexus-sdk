@@ -1,13 +1,22 @@
 import { SUPPORTED_CHAINS } from '../constants';
 import { TransactionReceipt, ByteArray, Hex, WalletClient } from 'viem';
-import { ChainDatum, Environment, PermitVariant, Universe } from '@avail-project/ca-common';
+import {
+  ChainDatum,
+  Environment,
+  PermitVariant,
+  QueryAllSolverDataResponse,
+  QueryGetProtocolFeesResponse,
+  RequestForFunds,
+  Universe,
+} from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
-import { SwapIntent } from './swap-types';
+import { SBCTx, SwapIntent } from './swap-types';
 import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 import { SwapStepType } from './swap-steps';
 import { BridgeStepType } from './bridge-steps';
 import { FormatTokenBalanceOptions, FormattedParts } from '../utils/format';
 import { SigningStargateClient } from '@cosmjs/stargate';
+import Long from 'long';
 
 type TokenInfo = {
   contractAddress: `0x${string}`;
@@ -113,12 +122,23 @@ export type BridgeMaxResult = {
   sourceChainIds: number[];
 };
 
+export type SourceTxs = {
+  chain: {
+    id: number;
+    name: string;
+    logo: string;
+  };
+  hash: Hex;
+  explorerUrl: string;
+}[];
+
 /**
  * Result structure for bridge transactions.
  */
 export type BridgeResult = {
   explorerUrl: string;
-  intent?: any;
+  sourceTxs: SourceTxs;
+  intent: ReadableIntent;
 };
 
 /**
@@ -275,9 +295,9 @@ export type IBridgeOptions = {
     onIntent: OnIntentHook;
   };
   emit?: OnEventParam['onEvent'];
-  networkConfig: NetworkConfig;
+  intentExplorerUrl: string;
   chainList: ChainListType;
-};
+} & QueryClients;
 
 export type BridgeAndExecuteResult = {
   executeTransactionHash: string;
@@ -408,11 +428,14 @@ export type IntentSourceForAllowance = {
 type Network = Extract<Environment, Environment.CERISE | Environment.CORAL | Environment.FOLLY>;
 
 export type NetworkConfig = {
-  COSMOS_URL: string;
-  EXPLORER_URL: string;
-  GRPC_URL: string;
+  COSMOS_REST_URL: string;
+  COSMOS_RPC_URL: string;
+  COSMOS_WS_URL: string;
+  COSMOS_GRPC_URL: string;
+  VSC_BASE_URL: string;
+  VSC_WS_URL: string;
+  INTENT_EXPLORER_URL: string;
   NETWORK_HINT: Environment;
-  VSC_DOMAIN: string;
 };
 
 type OnIntentHookData = {
@@ -629,23 +652,24 @@ export type UnifiedBalanceResponseData = {
   errored: boolean;
 };
 
+export type AssetBreakdown = {
+  balance: string;
+  balanceInFiat: number;
+  chain: {
+    id: number;
+    logo: string;
+    name: string;
+  };
+  contractAddress: `0x${string}`;
+  decimals: number;
+  universe: Universe;
+};
+
 export type UserAssetDatum = {
   abstracted?: boolean;
   balance: string;
   balanceInFiat: number;
-  breakdown: {
-    balance: string;
-    balanceInFiat: number;
-    chain: {
-      id: number;
-      logo: string;
-      name: string;
-    };
-    contractAddress: `0x${string}`;
-    decimals: number;
-    isNative?: boolean;
-    universe: Universe;
-  }[];
+  breakdown: AssetBreakdown[];
   decimals: number;
   icon?: string;
   symbol: string;
@@ -695,7 +719,46 @@ export interface AnalyticsConfig {
   debug?: boolean;
 }
 
+type CosmosQueryClient = {
+  fetchMyIntents: (address: string, page?: number) => Promise<RequestForFunds[]>;
+  fetchProtocolFees: () => Promise<QueryGetProtocolFeesResponse>;
+  fetchSolverData: () => Promise<QueryAllSolverDataResponse>;
+  fetchPriceOracle: () => Promise<OraclePriceResponse>;
+  checkIntentFilled: (intentID: Long) => Promise<string>;
+  getAccount: (address: string) => Promise<void>;
+  waitForCosmosFillEvent: (intentID: Long, ac: AbortController) => Promise<string>;
+};
+
+type VSCClient = {
+  getEVMBalancesForAddress: (address: `0x${string}`) => Promise<UnifiedBalanceResponseData[]>;
+  getTronBalancesForAddress: (address: `0x${string}`) => Promise<UnifiedBalanceResponseData[]>;
+  vscCreateFeeGrant: (address: string) => Promise<unknown>;
+  vscPublishRFF: (id: Long) => Promise<{
+    id: Long;
+  }>;
+  vscCreateSponsoredApprovals: (input: SponsoredApprovalDataArray) => Promise<
+    {
+      chainId: number;
+      hash: Hex;
+    }[]
+  >;
+  vscCreateRFF: (
+    id: Long,
+    msd: (s: { current: number; total: number; txHash: Hex; chainId: number }) => void,
+    expectedCollections: { index: number; chainId: number }[],
+  ) => Promise<void>;
+  vscSBCTx: (input: SBCTx[]) => Promise<[bigint, `0x${string}`][]>;
+};
+
+type QueryClients = {
+  cosmosQueryClient: CosmosQueryClient;
+  vscClient: VSCClient;
+};
+
 export type {
+  QueryClients,
+  VSCClient,
+  CosmosQueryClient,
   OnIntentHook,
   OnAllowanceHookData,
   OnIntentHookData,

@@ -1,4 +1,5 @@
 import Decimal from 'decimal.js';
+import { Hex } from 'viem';
 
 const INTENT_ACCEPTED = {
   type: 'INTENT_ACCEPTED',
@@ -18,7 +19,7 @@ const INTENT_SUBMITTED = (explorerURL = '', intentID = 0) =>
       explorerURL,
       intentID,
     },
-  }) as const;
+  } as const);
 
 const INTENT_FULFILLED = {
   type: 'INTENT_FULFILLED',
@@ -33,7 +34,7 @@ const ALLOWANCE_APPROVAL_REQUEST = (chain: { id: number; name?: string }) =>
       chainID: chain.id,
       chainName: chain.name,
     },
-  }) as const;
+  } as const);
 
 const ALLOWANCE_APPROVAL_MINED = (chain: { id: number; name?: string }) =>
   ({
@@ -43,7 +44,7 @@ const ALLOWANCE_APPROVAL_MINED = (chain: { id: number; name?: string }) =>
       chainID: chain.id,
       chainName: chain.name,
     },
-  }) as const;
+  } as const);
 
 const ALLOWANCE_COMPLETE = {
   type: 'ALLOWANCE_ALL_DONE',
@@ -63,7 +64,7 @@ const INTENT_DEPOSIT_REQUEST = (
       chainID: chain.id,
       chainName: chain.name,
     },
-  }) as const;
+  } as const);
 
 const INTENT_DEPOSITS_CONFIRMED = {
   type: 'INTENT_DEPOSITS_CONFIRMED',
@@ -75,15 +76,17 @@ const INTENT_COLLECTION_COMPLETE = {
   typeID: 'ICC',
 } as const;
 
-const INTENT_COLLECTION = (id: number, total: number) =>
+const INTENT_COLLECTION = (id: number, total: number, txHash?: Hex, explorerUrl?: string) =>
   ({
     type: 'INTENT_COLLECTION',
     typeID: `IC_${id}`,
     data: {
       confirmed: id,
       total,
+      txHash,
+      explorerUrl,
     },
-  }) as const;
+  } as const);
 
 const EXECUTE_APPROVAL_STEP = {
   type: 'APPROVAL',
