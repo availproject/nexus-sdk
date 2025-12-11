@@ -364,7 +364,7 @@ export class AnalyticsManager {
   startPerformanceTracking(operationName: string, metadata?: Record<string, unknown>) {
     if (!this.enabled) return {
       endPerformanceTracking: (result: { success: boolean; error?: Error }) => {
-        //
+        console.log('Analytics is disabled', result);
       }
     }
     this.session.trackOperationAttempt();
