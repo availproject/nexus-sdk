@@ -17,7 +17,7 @@
     "clean": "rimraf dist dist-tarballs html_docs",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build",
-    "prepare": "(test -d node_modules || npm install) && npm run build"
+    "prepare": "npm run build"
   },
   "sideEffects": false,
   "exports": {
@@ -45,7 +45,7 @@
     "npm": ">=9.0.0"
   },
   "dependencies": {
-    "@avail-project/ca-common": "git+https://github.com/availproject/ca-common.git#fix/prepare-cmd",
+    "@avail-project/ca-common": "availproject/ca-common#main",
     "@cosmjs/proto-signing": "0.34.0",
     "@cosmjs/stargate": "0.34.0",
     "@metamask/safe-event-emitter": "3.1.2",
