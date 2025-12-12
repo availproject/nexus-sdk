@@ -99,4 +99,47 @@ export const NexusAnalyticsEvents = {
   GET_MY_INTENTS: 'nexus_get_my_intents',
 } as const;
 
+export const NexusAnalyticsErrors = {
+  BRIDGE: 'bridge',
+  TRANSFER: 'transfer',
+  SWAP: 'swap',
+  BRIDGE_SIMULATION: 'bridgeSimulation',
+  TRANSFER_SIMULATION: 'transferSimulation',
+  SWAP_SIMULATION: 'swapSimulation',
+  EXECUTE: 'execute',
+  EXECUTE_SIMULATION: 'executeSimulation',
+  BRIDGE_AND_EXECUTE: 'bridgeAndExecute',
+  BRIDGE_AND_EXECUTE_SIMULATION: 'bridgeAndExecuteSimulation',
+  BALANCES_FETCH: 'balancesFetch',
+}
+
+export const NexusAnalyticsPerformanceEvents = {
+  PERF_SDK_INITIALIZED: "nexus_sdk_initialized",
+  PERF_BALANCES_FETCH: "nexus_balances_fetch_success",
+  PERF_TRANSFER_TRANSACTION: "nexus_transfer_transaction_success",
+  PERF_BRIDGE_TRANSACTION: "nexus_bridge_transaction_success",
+  PERF_SWAP_TRANSACTION: "nexus_swap_transaction_success",
+  PERF_BRIDGE_SIMULATION: "nexus_bridge_simulation_success",
+  PERF_TRANSFER_SIMULATION: "nexus_transfer_simulation_success",
+  PERF_GET_MY_INTENTS: "nexus_get_my_intents",
+  PERF_SDK_DEINITIALIZED: "nexus_sdk_deinitialized",
+  PERF_EXECUTE_TRANSACTION: "nexus_execute_transaction_success",
+  PERF_EXECUTE_SIMULATION: "nexus_execute_simulation_success",
+  PERF_BRIDGE_AND_EXECUTE_TRANSACTION: "nexus_bridge_and_execute_transaction_success",
+  PERF_BRIDGE_AND_EXECUTE_SIMULATION: "nexus_bridge_and_execute_simulation_success",
+}
+
+export const NexusAnalytics = {
+  EVENTS: NexusAnalyticsEvents,
+  ERRORS: NexusAnalyticsErrors,
+  PERF: NexusAnalyticsPerformanceEvents
+}
+
 export type NexusAnalyticsEvent = (typeof NexusAnalyticsEvents)[keyof typeof NexusAnalyticsEvents];
+export type NexusAnalyticsError = (typeof NexusAnalyticsErrors)[keyof typeof NexusAnalyticsErrors];
+export type NexusAnalyticsPerformanceEvent = (typeof NexusAnalyticsPerformanceEvents)[keyof typeof NexusAnalyticsPerformanceEvents];
+export type NexusAnalyticsType = {
+  EVENTS: NexusAnalyticsEvent;
+  ERRORS: NexusAnalyticsError;
+  PERF: NexusAnalyticsPerformanceEvent;
+}
