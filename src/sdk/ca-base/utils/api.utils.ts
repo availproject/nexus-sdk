@@ -1,6 +1,6 @@
 import {
   Bytes,
-  GrpcWebImpl,
+  createGrpcWebImpl,
   QueryClientImpl,
   RequestForFunds,
   Universe,
@@ -78,7 +78,7 @@ const PAGE_LIMIT = 100;
 const logger = getLogger();
 const decoder = new TextDecoder('utf-8');
 
-const createCosmosQueryClient = ({
+const createCosmosQueryClient = async ({
   cosmosRestUrl,
   cosmosGrpcWebUrl,
   cosmosWsUrl,
@@ -86,8 +86,9 @@ const createCosmosQueryClient = ({
   cosmosRestUrl: string;
   cosmosGrpcWebUrl: string;
   cosmosWsUrl: string;
-}): CosmosQueryClient => {
-  const rpc = new GrpcWebImpl(cosmosGrpcWebUrl, {});
+}): Promise<CosmosQueryClient> => {
+  // :| smh
+  const rpc = await createGrpcWebImpl(cosmosGrpcWebUrl);
   const cosmosQueryClient = new QueryClientImpl(rpc);
 
   return {
