@@ -307,9 +307,6 @@ export class CA {
 
     this._initPromise = (async () => {
       try {
-        await setLoggerProvider(this._networkConfig);
-        this._setProviderHooks();
-        this.#cosmos = await this._createCosmosWallet();
         this._queryClients = {
           cosmosQueryClient: await createCosmosQueryClient({
             cosmosGrpcWebUrl: this._networkConfig.COSMOS_GRPC_URL,
@@ -321,6 +318,9 @@ export class CA {
             vscWsUrl: this._networkConfig.VSC_WS_URL,
           }),
         };
+        await setLoggerProvider(this._networkConfig);
+        this._setProviderHooks();
+        this.#cosmos = await this._createCosmosWallet();
         this._checkPendingRefunds();
         this._initStatus = INIT_STATUS.DONE;
       } catch (e) {
