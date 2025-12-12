@@ -107,7 +107,7 @@ export const Errors = {
   quoteFailed: (message: string) =>
     createError(ERROR_CODES.QUOTE_FAILED, `Quote failed: ${message}`),
   swapFailed: (message: string) => createError(ERROR_CODES.SWAP_FAILED, `Swap failed: ${message}`),
-  ratesChangedBeyondTolerance: (rate: number | bigint, tolerance: number | bigint) =>
+  ratesChangedBeyondTolerance: (rate: number | bigint, tolerance: string) =>
     createError(
       ERROR_CODES.RATES_CHANGED_BEYOND_TOLERANCE,
       `Rates changed beyond tolerance. Rate: ${rate}\nTolerance:${tolerance}`,
