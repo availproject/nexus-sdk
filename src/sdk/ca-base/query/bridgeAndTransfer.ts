@@ -1,11 +1,11 @@
-import { ChainListType, BridgeAndExecuteParams, Tx, TransferParams } from '../../../commons';
-import { encodeFunctionData } from 'viem';
 import { ERC20ABI } from '@avail-project/ca-common';
+import { encodeFunctionData } from 'viem';
+import type { BridgeAndExecuteParams, ChainListType, TransferParams, Tx } from '../../../commons';
 import { Errors } from '../errors';
 
 const createBridgeAndTransferParams = (
   input: TransferParams,
-  chainList: ChainListType,
+  chainList: ChainListType
 ): BridgeAndExecuteParams => {
   const { token } = chainList.getChainAndTokenFromSymbol(input.toChainId, input.token);
   if (!token) {

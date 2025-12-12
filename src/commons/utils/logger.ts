@@ -47,7 +47,7 @@ export const getLogger = () => {
 };
 
 class Logger {
-  private prefix: string = 'NEXUS_SDK';
+  private prefix = 'NEXUS_SDK';
 
   consoleLog(level: LogLevel, message: string, params?: unknown) {
     if (level < state.logLevel) {
@@ -56,19 +56,19 @@ class Logger {
 
     switch (level) {
       case LOG_LEVEL.DEBUG:
-        console.debug(`[DEBUG]`, message, params);
+        console.debug('[DEBUG]', message, params);
         break;
       case LOG_LEVEL.ERROR:
-        console.error(`[ERROR]`, message, params);
+        console.error('[ERROR]', message, params);
         break;
       case LOG_LEVEL.INFO:
-        console.info(`[INFO]`, message, params);
+        console.info('[INFO]', message, params);
         break;
       case LOG_LEVEL.WARNING:
-        console.warn(`[WARN]`, message, params);
+        console.warn('[WARN]', message, params);
         break;
       default:
-        console.log(`[LOG]`, message, params);
+        console.log('[LOG]', message, params);
     }
   }
 
@@ -97,10 +97,11 @@ class Logger {
 
   internalLog(level: LogLevel, message: string, params?: unknown) {
     const logMessage = `[${this.prefix}] Msg: ${message}\n`;
-    if (level == LOG_LEVEL.ERROR || level == LOG_LEVEL.WARNING) {
+    if (level === LOG_LEVEL.ERROR || level === LOG_LEVEL.WARNING) {
       const cause =
         params && typeof params === 'object' && 'cause' in params
-          ? (params as any).cause
+          ? // biome-ignore lint/suspicious/noExplicitAny: allow any for cause
+            (params.cause as any)
           : 'unknown|not_mapped';
       try {
         telemetryLogger?.emit({

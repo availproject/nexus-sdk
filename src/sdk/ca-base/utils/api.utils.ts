@@ -1,28 +1,30 @@
 import {
-  Bytes,
+  type Bytes,
   GrpcWebImpl,
   QueryClientImpl,
-  RequestForFunds,
+  type RequestForFunds,
   Universe,
 } from '@avail-project/ca-common';
-import axios, { AxiosInstance } from 'axios';
+import axios, { type AxiosInstance } from 'axios';
 import Decimal from 'decimal.js';
+import { remove, retry } from 'es-toolkit';
 import { connect } from 'it-ws/client';
-import Long from 'long';
+import type Long from 'long';
 import { pack, unpack } from 'msgpackr';
-import { bytesToBigInt, bytesToNumber, Hex, toHex } from 'viem';
+import { bytesToBigInt, bytesToNumber, type Hex, toHex } from 'viem';
 import {
+  type ChainListType,
+  type CosmosQueryClient,
+  type FeeStoreData,
   getLogger,
-  FeeStoreData,
-  OraclePriceResponse,
-  RFF,
-  SponsoredApprovalDataArray,
-  UnifiedBalanceResponseData,
-  ChainListType,
-  VSCClient,
-  CosmosQueryClient,
-  SBCTx,
+  type OraclePriceResponse,
+  type RFF,
+  type SBCTx,
+  type SponsoredApprovalDataArray,
+  type UnifiedBalanceResponseData,
+  type VSCClient,
 } from '../../../commons';
+import { Errors } from '../errors';
 import {
   convertAddressByUniverse,
   convertToHexAddressByUniverse,
@@ -31,8 +33,6 @@ import {
   getExplorerURL,
   minutesToMs,
 } from './common.utils';
-import { Errors } from '../errors';
-import { remove, retry } from 'es-toolkit';
 
 type CreateSponsoredApprovalResponse =
   | {
@@ -133,7 +133,7 @@ const createCosmosQueryClient = ({
           priceUsd: new Decimal(bytesToNumber(data.price)).div(Decimal.pow(10, data.decimals)),
           tokenAddress: convertAddressByUniverse(toHex(data.tokenAddress), data.universe),
           tokensPerUsd: new Decimal(1).div(
-            new Decimal(bytesToNumber(data.price)).div(Decimal.pow(10, data.decimals)),
+            new Decimal(bytesToNumber(data.price)).div(Decimal.pow(10, data.decimals))
           ),
         }));
         return oracleRates;
@@ -167,7 +167,7 @@ const createCosmosQueryClient = ({
           connection.close();
           return Promise.resolve('ok from outside');
         },
-        { once: true },
+        { once: true }
       );
 
       const EVENT = 'xarchain.chainabstraction.RFFFulfilledEvent.id';
@@ -181,7 +181,7 @@ const createCosmosQueryClient = ({
             params: {
               query: `${EVENT}='"${intentID}"'`,
             },
-          }),
+          })
         );
 
         for await (const resp of connection.source) {
@@ -210,7 +210,7 @@ const createCosmosQueryClient = ({
 export const intentTransform = (
   input: RequestForFunds[],
   explorerBaseURL: string,
-  chainList: ChainListType,
+  chainList: ChainListType
 ): RFF[] => {
   return input.map((rff) => {
     const dstChainId = bytesToNumber(rff.destinationChainID);
@@ -230,7 +230,7 @@ export const intentTransform = (
       destinations: rff.destinations.map((d) => {
         const contractAddress = convertToHexAddressByUniverse(
           d.contractAddress,
-          rff.destinationUniverse,
+          rff.destinationUniverse
         );
         const token = chainList.getTokenByAddress(dstChainId, contractAddress);
         if (!token) {
@@ -436,14 +436,14 @@ const getFeeStore = async (grpcClient: Awaited<ReturnType<typeof createCosmosQue
           destinationChainID: bytesToNumber(s.destinationChainID),
           destinationTokenAddress: convertAddressByUniverse(
             toHex(s.destinationTokenAddress),
-            s.destinationUniverse,
+            s.destinationUniverse
           ),
           destinationUniverse: s.destinationUniverse,
           feeBP: s.feeBP,
           sourceChainID: bytesToNumber(s.sourceChainID),
           sourceTokenAddress: convertAddressByUniverse(
             toHex(s.sourceTokenAddress),
-            s.sourceUniverse,
+            s.sourceUniverse
           ),
           sourceUniverse: s.sourceUniverse,
         };
@@ -477,7 +477,7 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
       return getBalancesFromVSC(instance, address, 'TRON');
     },
     vscCreateFeeGrant: async (address: string) => {
-      const response = await instance.post(`/create-feegrant`, {
+      const response = await instance.post('/create-feegrant', {
         cosmos_address: address,
       });
       return response;
@@ -491,7 +491,7 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
     },
     vscCreateSponsoredApprovals: async (input: SponsoredApprovalDataArray) => {
       const connection = connect(
-        new URL('/api/v1/create-sponsored-approvals', vscWsUrl).toString(),
+        new URL('/api/v1/create-sponsored-approvals', vscWsUrl).toString()
       );
 
       await connection.connected();
@@ -508,13 +508,13 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
 
           if ('errored' in data && data.errored) {
             throw Errors.vscError(
-              `failed to create sponsored approvals: ${data.msg ?? 'Backend sent failure.'}`,
+              `failed to create sponsored approvals: ${data.msg ?? 'Backend sent failure.'}`
             );
           }
 
           if ('error' in data && data.error) {
             throw Errors.vscError(
-              `failed to create sponsored approvals: ${data.msg ?? 'Backend sent failure.'}`,
+              `failed to create sponsored approvals: ${data.msg ?? 'Backend sent failure.'}`
             );
           }
 
@@ -525,7 +525,7 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
             hash: toHex(data.tx_hash),
           });
 
-          if (approvalHashes.length == input.length) {
+          if (approvalHashes.length === input.length) {
             break;
           }
         }
@@ -538,7 +538,7 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
     vscCreateRFF: async (
       id: Long,
       msd: (s: { current: number; total: number; txHash: Hex; chainId: number }) => void,
-      expectedCollections: { index: number; chainId: number }[],
+      expectedCollections: { index: number; chainId: number }[]
     ) => {
       const controller = new AbortController();
       const pendingCollections = expectedCollections.slice();
@@ -566,14 +566,14 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
                         completedCollections,
                       });
                       throw Errors.vscError(
-                        `create-rff: collections failed. expected = ${expectedCollections}, got = ${completedCollections}`,
+                        `create-rff: collections failed. expected = ${expectedCollections}, got = ${completedCollections}`
                       );
                     }
                   }
                   // Collection successful for a chain
                   case 0x10: {
                     const pendingCollection = pendingCollections.find(
-                      (pc) => pc.index === data.idx,
+                      (pc) => pc.index === data.idx
                     );
                     if (pendingCollection) {
                       completedCollections.push(data.idx);
@@ -591,7 +591,7 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
                   // Collection failed or is not applicable(say for native)
                   default: {
                     if (pendingCollections.find((pc) => pc.index === data.idx)) {
-                      logger.debug(`vsc:create-rff:failed`, { data });
+                      logger.debug('vsc:create-rff:failed', { data });
                     } else {
                       logger.debug('vsc:create-rff:expectedError:ignore', { data });
                     }
@@ -615,7 +615,7 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
         {
           retries: 3,
           signal: controller.signal,
-        },
+        }
       );
     },
     vscSBCTx: async (input: SBCTx[]) => {
@@ -658,7 +658,7 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
 export const getBalancesFromVSC = async (
   instance: AxiosInstance,
   address: `0x${string}`,
-  namespace: 'ETHEREUM' | 'TRON' = 'ETHEREUM',
+  namespace: 'ETHEREUM' | 'TRON' = 'ETHEREUM'
 ) => {
   const response = await instance.get<{
     balances: UnifiedBalanceResponseData[];

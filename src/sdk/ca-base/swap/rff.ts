@@ -286,13 +286,13 @@ export const createBridgeRFF = async ({
 
     const doubleCheckTxMap: Record<number, () => Promise<void>> = {};
 
-    omniversalRFF.protobufRFF.sources.forEach((s) => {
+    for (const s of omniversalRFF.protobufRFF.sources) {
       doubleCheckTxMap[bytesToNumber(s.chainID)] = createDoubleCheckTx(
         s.chainID,
         config.cosmos,
         intentID
       );
-    });
+    }
 
     return {
       createDoubleCheckTx: async () => {

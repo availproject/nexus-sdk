@@ -1,4 +1,4 @@
-import { AnyValueMap, SeverityNumber } from '@opentelemetry/api-logs';
+import { type AnyValueMap, SeverityNumber } from '@opentelemetry/api-logs';
 import { telemetryLogger } from './telemetry';
 
 export interface NexusErrorData {
@@ -89,7 +89,9 @@ export function createError(code: ErrorCode, message: string, data?: NexusErrorD
         stackTrace: nexusError.stack,
       } as AnyValueMap,
     });
-  } catch {}
+  } catch {
+    //
+  }
   return nexusError;
 }
 

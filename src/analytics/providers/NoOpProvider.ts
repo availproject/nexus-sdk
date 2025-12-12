@@ -2,7 +2,7 @@
  * No-op analytics provider
  * Used when analytics is disabled or for testing
  */
-import { AnalyticsProvider } from './AnalyticsProvider';
+import type { AnalyticsProvider } from './AnalyticsProvider';
 
 export class NoOpProvider implements AnalyticsProvider {
   private initialized = false;

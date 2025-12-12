@@ -1,52 +1,51 @@
 import {
-  Aggregator,
+  type Aggregator,
   autoSelectSources,
   ChaindataMap,
-  Currency,
+  type Currency,
   CurrencyID,
   destinationSwapWithExactIn,
   determineDestinationSwaps,
-  Holding,
+  type Holding,
   liquidateInputHoldings,
   OmniversalChainID,
-  Quote,
-  QuoteRequestExactInput,
+  type Quote,
+  type QuoteRequestExactInput,
   Universe,
 } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
-import { ByteArray, Hex, toBytes } from 'viem';
-import { ZERO_ADDRESS } from '../constants';
+import { type ByteArray, type Hex, toBytes } from 'viem';
 import {
+  type BridgeAsset,
+  type ExactInSwapInput,
+  type ExactOutSwapInput,
   getLogger,
-  OraclePriceResponse,
-  ExactInSwapInput,
-  ExactOutSwapInput,
-  SwapData,
+  type OraclePriceResponse,
+  type SwapData,
   SwapMode,
-  SwapParams,
-  BridgeAsset,
+  type SwapParams,
 } from '../../../commons';
-
+import { ZERO_ADDRESS } from '../constants';
+import { Errors } from '../errors';
 import {
+  calculateMaxBridgeFee,
   convertTo32BytesHex,
   divDecimals,
   equalFold,
+  getBalancesForSwap,
   getFeeStore,
   mulDecimals,
-  calculateMaxBridgeFee,
-  getBalancesForSwap,
 } from '../utils';
 import { EADDRESS } from './constants';
-import { FlatBalance } from './data';
+import type { FlatBalance } from './data';
 import { createIntent } from './rff';
 import { calculateValue, convertTo32Bytes, convertToEVMAddress } from './utils';
-import { Errors } from '../errors';
 
 const logger = getLogger();
 
 export const determineSwapRoute = async (
   input: SwapData,
-  options: SwapParams & { aggregators: Aggregator[]; cotCurrencyID: CurrencyID },
+  options: SwapParams & { aggregators: Aggregator[]; cotCurrencyID: CurrencyID }
 ): Promise<SwapRoute> => {
   logger.debug('determineSwapRoute', {
     input,
@@ -68,7 +67,7 @@ export const applyBuffer = (amount: Decimal, bufferPercent: number): Decimal =>
 
 const _exactOutRoute = async (
   input: ExactOutSwapInput,
-  params: SwapParams & { aggregators: Aggregator[]; cotCurrencyID: CurrencyID },
+  params: SwapParams & { aggregators: Aggregator[]; cotCurrencyID: CurrencyID }
 ): Promise<SwapRoute> => {
   const [feeStore, { assets, balances }, oraclePrices] = await Promise.all([
     getFeeStore(params.cosmosQueryClient),
@@ -115,7 +114,7 @@ const _exactOutRoute = async (
   const dstChainCOTBalance = balances.find(
     (b) =>
       b.chainID === Number(input.toChainId) &&
-      equalFold(convertToEVMAddress(b.tokenAddress), dstChainCOTAddress),
+      equalFold(convertToEVMAddress(b.tokenAddress), dstChainCOTAddress)
   );
 
   logger.debug('determineSwapRoute:destinationSwapInput', {
@@ -144,13 +143,13 @@ const _exactOutRoute = async (
           amount: BigInt(input.toAmount),
           tokenAddress: convertTo32Bytes(input.toTokenAddress),
         },
-        params.aggregators,
+        params.aggregators
       );
 
       // If user has existing COT on destination chain, it must be moved to ephemeral
       if (new Decimal(dstChainCOTBalance?.amount ?? 0).gt(0)) {
         logger.debug(
-          `eoa -> ephemeral for destination COT for amount: ${dstChainCOTBalance?.amount}`,
+          `eoa -> ephemeral for destination COT for amount: ${dstChainCOTBalance?.amount}`
         );
         dstEOAToEphTx = {
           amount: mulDecimals(dstChainCOTBalance?.amount ?? 0, dstChainCOTBalance?.decimals ?? 0),
@@ -167,7 +166,7 @@ const _exactOutRoute = async (
     // Apply 5% buffer to destination input amount - any leftover is sent back in COT.
     const max = applyBuffer(destinationSwap.inputAmount, 5).toDP(
       dstChainCOT.decimals,
-      Decimal.ROUND_CEIL,
+      Decimal.ROUND_CEIL
     );
 
     return {
@@ -251,11 +250,11 @@ const _exactOutRoute = async (
           chainID: convertTo32Bytes(Number(f.chainID)),
           fee: convertTo32Bytes(BigInt(f.fee)),
           tokenAddress: convertTo32Bytes(f.tokenAddress as Hex),
-        })),
+        }))
       )
     ).map((v) => {
       const balance = balances.find((b) =>
-        equalFold(b.tokenAddress, convertTo32BytesHex(v.req.inputToken)),
+        equalFold(b.tokenAddress, convertTo32BytesHex(v.req.inputToken))
       );
       if (!balance) {
         throw Errors.internal('mapping error: balance for quote input not found');
@@ -275,7 +274,7 @@ const _exactOutRoute = async (
   logger.debug('exact-out:4', {
     dstChainCOTBalance,
     inequality: new Decimal(dstChainCOTBalance?.amount ?? 0).lt(
-      dstSwapInputAmountInDecimal.add(fees),
+      dstSwapInputAmountInDecimal.add(fees)
     ),
   });
 
@@ -314,12 +313,12 @@ const _exactOutRoute = async (
 
       const token = params.chainList.getTokenByAddress(
         Number(swap.req.chain.chainID),
-        convertToEVMAddress(swap.req.outputToken),
+        convertToEVMAddress(swap.req.outputToken)
       );
       if (!token) {
         throw Errors.tokenNotFound(
           convertToEVMAddress(swap.req.outputToken),
-          Number(swap.req.chain.chainID),
+          Number(swap.req.chain.chainID)
         );
       }
 
@@ -328,7 +327,7 @@ const _exactOutRoute = async (
       if (bAsset) {
         bAsset.ephemeralBalance = Decimal.add(
           bAsset.ephemeralBalance,
-          divDecimals(outputAmount, token.decimals),
+          divDecimals(outputAmount, token.decimals)
         );
       } else {
         bridgeAssets.push({
@@ -404,7 +403,7 @@ const _exactOutRoute = async (
       assetsUsed.push({
         amount: divDecimals(
           eoaToEphemeralCalls[chain].amount,
-          eoaToEphemeralCalls[chain].decimals,
+          eoaToEphemeralCalls[chain].decimals
         ).toFixed(),
         chainID: Number(chain),
         contractAddress: eoaToEphemeralCalls[chain].tokenAddress,
@@ -518,7 +517,7 @@ const normalizeToComparisonAddr = (tokenHex: Hex) =>
 
 const _exactInRoute = async (
   input: ExactInSwapInput,
-  params: SwapParams & { aggregators: Aggregator[]; cotCurrencyID: CurrencyID },
+  params: SwapParams & { aggregators: Aggregator[]; cotCurrencyID: CurrencyID }
 ): Promise<SwapRoute> => {
   logger.debug('exactInRoute', {
     input,
@@ -541,7 +540,7 @@ const _exactInRoute = async (
     throw Errors.noBalanceForAddress(params.address.eoa);
   }
 
-  let { balances } = balanceResponse;
+  const { balances } = balanceResponse;
 
   logger.debug('ExactIN:1', {
     balances,
@@ -580,7 +579,7 @@ const _exactInRoute = async (
         throw Errors.insufficientBalance(
           `available: ${srcBalance.amount} ${
             srcBalance.symbol
-          }, required: ${requiredBalance.toFixed()} ${srcBalance.symbol}`,
+          }, required: ${requiredBalance.toFixed()} ${srcBalance.symbol}`
         );
       }
 
@@ -625,7 +624,7 @@ const _exactInRoute = async (
 
   for (const source of srcBalances) {
     const cot = ChaindataMap.get(
-      new OmniversalChainID(Universe.ETHEREUM, source.chainID),
+      new OmniversalChainID(Universe.ETHEREUM, source.chainID)
     )?.Currencies.find((c) => c.currencyID === params.cotCurrencyID);
     if (
       cot &&
@@ -677,7 +676,7 @@ const _exactInRoute = async (
         fee: convertTo32Bytes(BigInt(f.fee)),
         tokenAddress: convertTo32Bytes(f.tokenAddress as Hex),
         universe: f.universe,
-      })),
+      }))
     );
 
     if (!response.quotes.length) {
@@ -686,7 +685,7 @@ const _exactInRoute = async (
 
     sourceSwaps = response.quotes.map((oq) => {
       const balance = balances.find((b) =>
-        equalFold(b.tokenAddress, convertTo32BytesHex(oq.req.inputToken)),
+        equalFold(b.tokenAddress, convertTo32BytesHex(oq.req.inputToken))
       );
       if (!balance) {
         logger.error('ExactIN: failed to map quote originalHolding to balance', {
@@ -711,7 +710,7 @@ const _exactInRoute = async (
     const outputTokenAddress = convertToEVMAddress(swap.req.outputToken);
     const token = params.chainList.getTokenByAddress(
       Number(swap.req.chain.chainID),
-      outputTokenAddress,
+      outputTokenAddress
     );
     if (!token) {
       throw Errors.tokenNotFound(outputTokenAddress, Number(swap.req.chain.chainID));
@@ -788,7 +787,7 @@ const _exactInRoute = async (
 
     dstSwapInputAmountInDecimal = dstSwapInputAmountInDecimal.toDP(
       dstChainCOT.decimals,
-      Decimal.ROUND_FLOOR,
+      Decimal.ROUND_FLOOR
     );
 
     // const createdAt = Date.now();
@@ -805,11 +804,11 @@ const _exactInRoute = async (
         mulDecimals(dstSwapInputAmountInDecimal, dstChainCOT.decimals),
         convertTo32Bytes(input.toTokenAddress),
         params.aggregators,
-        dstChainCOT.currencyID,
+        dstChainCOT.currencyID
       );
 
       const hasDstChainCOTInInput = cotSources.find((c) =>
-        equalFold(convertToEVMAddress(c.tokenAddress), dstChainCOTAddress),
+        equalFold(convertToEVMAddress(c.tokenAddress), dstChainCOTAddress)
       );
       if (hasDstChainCOTInInput) {
         dstEOAToEphTx = {

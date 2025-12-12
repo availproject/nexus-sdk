@@ -1,6 +1,4 @@
-import { SUPPORTED_CHAINS } from '../constants';
-import { TransactionReceipt, ByteArray, Hex, WalletClient } from 'viem';
-import {
+import type {
   ChainDatum,
   Environment,
   PermitVariant,
@@ -9,14 +7,16 @@ import {
   RequestForFunds,
   Universe,
 } from '@avail-project/ca-common';
-import Decimal from 'decimal.js';
-import { SBCTx, SwapIntent } from './swap-types';
-import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
-import { SwapStepType } from './swap-steps';
-import { BridgeStepType } from './bridge-steps';
-import { FormatTokenBalanceOptions, FormattedParts } from '../utils/format';
-import { SigningStargateClient } from '@cosmjs/stargate';
-import Long from 'long';
+import type { SigningStargateClient } from '@cosmjs/stargate';
+import type { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
+import type Decimal from 'decimal.js';
+import type Long from 'long';
+import type { ByteArray, Hex, TransactionReceipt, WalletClient } from 'viem';
+import type { SUPPORTED_CHAINS } from '../constants';
+import type { FormatTokenBalanceOptions, FormattedParts } from '../utils/format';
+import type { BridgeStepType } from './bridge-steps';
+import type { SwapStepType } from './swap-steps';
+import type { SBCTx, SwapIntent } from './swap-types';
 
 type TokenInfo = {
   contractAddress: `0x${string}`;
@@ -96,7 +96,7 @@ export type DynamicParamBuilder = (
   token: string,
   amount: string,
   chainId: number,
-  userAddress: `0x${string}`,
+  userAddress: `0x${string}`
 ) => {
   functionParams: readonly unknown[];
   /** ETH value in wei (string). Omit or '0' for ERC-20 calls */
@@ -252,7 +252,7 @@ export interface SimulationStep {
 }
 
 export type EventListenerType = {
-  onEvent: (eventName: string, ...args: any[]) => void;
+  onEvent: (eventName: string, ...args: unknown[]) => void;
 };
 
 export type BridgeAndExecuteSimulationResult = {
@@ -306,7 +306,7 @@ export type BridgeAndExecuteResult = {
   bridgeExplorerUrl?: string; // undefined when bridge is skipped
   toChainId: number;
   bridgeSkipped: boolean; // indicates if bridge was skipped due to sufficient funds
-  intent?: any;
+  intent?: Intent | ReadableIntent;
 };
 
 export type Chain = {
@@ -340,12 +340,13 @@ export type Chain = {
 };
 
 interface EthereumProvider {
+  // biome-ignore lint/suspicious/noExplicitAny: allow any for listener
   on(eventName: string | symbol, listener: (...args: any[]) => void): this;
 
   removeListener(
     eventName: string | symbol,
-    /* eslint-disable @typescript-eslint/no-explicit-any */
-    listener: (...args: any[]) => void,
+    // biome-ignore lint/suspicious/noExplicitAny: allow any for listener
+    listener: (...args: any[]) => void
   ): this;
 
   request(args: RequestArguments): Promise<unknown>;
@@ -533,7 +534,7 @@ export type ChainListType = {
   getTokenInfoBySymbol(chainID: number, symbol: string): TokenInfo | undefined;
   getChainAndTokenFromSymbol(
     chainID: number,
-    tokenSymbol: string,
+    tokenSymbol: string
   ): {
     chain: Chain;
     token: (TokenInfo & { isNative: boolean }) | undefined;
@@ -541,7 +542,7 @@ export type ChainListType = {
   getTokenByAddress(chainID: number, address: `0x${string}`): TokenInfo | undefined;
   getChainAndTokenByAddress(
     chainID: number,
-    address: `0x${string}`,
+    address: `0x${string}`
   ):
     | {
         chain: Chain;
@@ -745,7 +746,7 @@ type VSCClient = {
   vscCreateRFF: (
     id: Long,
     msd: (s: { current: number; total: number; txHash: Hex; chainId: number }) => void,
-    expectedCollections: { index: number; chainId: number }[],
+    expectedCollections: { index: number; chainId: number }[]
   ) => Promise<void>;
   vscSBCTx: (input: SBCTx[]) => Promise<[bigint, `0x${string}`][]>;
 };

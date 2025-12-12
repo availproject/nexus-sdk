@@ -1,30 +1,39 @@
-import { Currency, PermitCreationError, PermitVariant } from '@avail-project/ca-common';
-import { ERC20ABI as ERC20ABIC } from '@avail-project/ca-common';
 import {
-  Account,
-  Address,
+  type Currency,
+  ERC20ABI as ERC20ABIC,
+  PermitCreationError,
+  PermitVariant,
+} from '@avail-project/ca-common';
+import {
+  type Account,
+  type Address,
   bytesToHex,
   createPublicClient,
   decodeFunctionData,
   encodeFunctionData,
   fallback,
   getContract,
-  Hex,
+  type Hex,
   hexToBigInt,
   http,
   maxUint256,
+  type PublicClient,
   pad,
-  PublicClient,
-  WalletClient,
-  WebSocketTransport,
+  type WalletClient,
+  type WebSocketTransport,
 } from 'viem';
+import type {
+  Chain,
+  ChainListType,
+  GetAllowanceParams,
+  SetAllowanceParams,
+} from '../../../commons';
+import { getLogger } from '../../../commons';
 import ERC20ABI from '../abi/erc20';
 import gasOracleABI from '../abi/gasOracle';
 import { FillEvent } from '../abi/vault';
 import { ZERO_ADDRESS } from '../constants';
 import { Errors } from '../errors';
-import { getLogger } from '../../../commons';
-import { ChainListType, Chain, GetAllowanceParams, SetAllowanceParams } from '../../../commons';
 import { equalFold, minutesToMs } from './common.utils';
 
 const logger = getLogger();
@@ -33,7 +42,7 @@ const getAllowance = async (
   chain: Chain,
   address: `0x${string}`,
   tokenContract: `0x${string}`,
-  chainList: ChainListType,
+  chainList: ChainListType
 ) => {
   logger.debug('getAllowance', {
     tokenContract,
@@ -55,7 +64,7 @@ const getAllowance = async (
         spender: chainList.getVaultContractAddress(chain.id),
         owner: address,
       },
-      publicClient,
+      publicClient
     );
     return allowance;
   } catch {
@@ -89,7 +98,7 @@ const getAllowances = async (
     tokenContract: `0x${string}`;
     holderAddress: `0x${string}`;
   }[],
-  chainList: ChainListType,
+  chainList: ChainListType
 ) => {
   const values: { [k: number]: bigint } = {};
   const promises = [];
@@ -112,7 +121,7 @@ const waitForIntentFulfilment = async (
   publicClient: PublicClient<WebSocketTransport>,
   vaultContractAddr: `0x${string}`,
   requestHash: `0x${string}`,
-  ac: AbortController,
+  ac: AbortController
 ) => {
   return new Promise((resolve) => {
     const unwatch = publicClient.watchContractEvent({
@@ -134,7 +143,7 @@ const waitForIntentFulfilment = async (
         unwatch();
         return resolve('ok from outside');
       },
-      { once: true },
+      { once: true }
     );
   });
 };
@@ -150,7 +159,7 @@ const requestTimeout = (timeout: number, ac: AbortController) => {
       () => {
         window.clearTimeout(t);
       },
-      { once: true },
+      { once: true }
     );
   });
 };
@@ -204,7 +213,7 @@ const waitForTxReceipt = async (
   hash: `0x${string}`,
   publicClient: PublicClient,
   confirmations = 1,
-  timeout = 60000,
+  timeout = 60000
 ) => {
   const r = await publicClient.waitForTransactionReceipt({
     confirmations,
@@ -225,7 +234,7 @@ const switchChain = async (client: WalletClient, chain: Chain) => {
   try {
     await client.switchChain({ id: chain.id });
   } catch (outerErr) {
-    logger.error(`switchChain failed, trying addChain`, outerErr);
+    logger.error('switchChain failed, trying addChain', outerErr);
     try {
       await client.addChain({ chain });
       await client.switchChain({ id: chain.id });
@@ -237,7 +246,7 @@ const switchChain = async (client: WalletClient, chain: Chain) => {
 
   const after = await client.getChainId();
   if (after !== chain.id) {
-    logger.error(`Wallet did not switch chains even though no error was thrown`);
+    logger.error('Wallet did not switch chains even though no error was thrown');
     throw Errors.internal('wallet did not switch chain - no error thrown');
   }
 };
@@ -263,7 +272,7 @@ async function signPermitForAddressAndValue(
   account: Account,
   spender: Address,
   value: bigint,
-  deadline?: bigint,
+  deadline?: bigint
 ) {
   const contract = getContract({
     abi: ERC20ABIC,
@@ -272,10 +281,9 @@ async function signPermitForAddressAndValue(
   });
 
   const walletAddress = account.address;
-  deadline = deadline ?? 2n ** 256n - 1n;
+  const newDeadline = deadline ?? 2n ** 256n - 1n;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const requestsToBeMade: Promise<any>[] = [
+  const requestsToBeMade: Promise<string | bigint | Hex>[] = [
     (() => {
       // Hack for sophon ETH
       return contract.read.name().catch(() => {
@@ -286,10 +294,6 @@ async function signPermitForAddressAndValue(
   ];
 
   switch (cur.permitVariant) {
-    case PermitVariant.Unsupported:
-    default: {
-      throw new PermitCreationError('Permits are unsupported on this currency');
-    }
     case PermitVariant.DAI:
     case PermitVariant.EIP2612Canonical:
     case PermitVariant.Polygon2612: {
@@ -298,11 +302,18 @@ async function signPermitForAddressAndValue(
     }
     case PermitVariant.PolygonEMT: {
       requestsToBeMade[2] = contract.read.getNonce([walletAddress]);
+      break;
+    }
+    case PermitVariant.Unsupported: {
+      throw new PermitCreationError('Permits are unsupported on this currency');
+    }
+    default: {
+      throw new PermitCreationError('Permits are unsupported on this currency');
     }
   }
 
   const [name, chainID, nonce] = await Promise.all(
-    requestsToBeMade as [Promise<string>, Promise<Hex>, Promise<bigint>],
+    requestsToBeMade as [Promise<string>, Promise<Hex>, Promise<bigint>]
   );
 
   switch (cur.permitVariant) {
@@ -317,7 +328,7 @@ async function signPermitForAddressAndValue(
         },
         message: {
           allowed: true,
-          expiry: deadline,
+          expiry: newDeadline,
           holder: walletAddress,
           nonce,
           spender: spender,
@@ -345,7 +356,7 @@ async function signPermitForAddressAndValue(
           version: cur.permitContractVersion.toString(10),
         },
         message: {
-          deadline,
+          deadline: newDeadline,
           nonce,
           owner: walletAddress,
           spender,
@@ -378,7 +389,7 @@ async function signPermitForAddressAndValue(
         },
         message: {
           allowed: true,
-          expiry: deadline,
+          expiry: newDeadline,
           holder: walletAddress,
           nonce,
           spender: spender,
@@ -435,7 +446,7 @@ async function signPermitForAddressAndValue(
 const createPublicClientWithFallback = (chain: Chain): PublicClient => {
   return createPublicClient({
     transport: fallback(
-      chain.rpcUrls.default.http.concat(chain.rpcUrls.default.publicHttp ?? []).map((s) => http(s)),
+      chain.rpcUrls.default.http.concat(chain.rpcUrls.default.publicHttp ?? []).map((s) => http(s))
     ),
   });
 };

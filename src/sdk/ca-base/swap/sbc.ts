@@ -71,7 +71,7 @@ export const waitForSBCTxReceipt = (
       const chain = chainList.getChainByID(Number(op[0]));
       const explorerURL = new URL(`/tx/${op[1]}`, chain?.blockExplorers?.default.url);
       logger.debug('waitForSBCTxReceipt', { explorerURL: explorerURL.toString() });
-      return waitForTxReceipt(op[1], publicClientList.get(chain?.id), 1);
+      return waitForTxReceipt(op[1], publicClientList.get(chain!.id), 1);
     })
   );
 };

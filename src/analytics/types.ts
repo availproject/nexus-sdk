@@ -2,7 +2,7 @@
  * Analytics type definitions for Nexus SDK
  */
 
-import { AnalyticsNetwork } from "./AnalyticsManager";
+import type { AnalyticsNetwork } from './AnalyticsManager';
 
 /**
  * Analytics configuration options

@@ -1,6 +1,6 @@
 import { Environment } from '@avail-project/ca-common';
 
-import { NetworkConfig, NexusNetwork } from '../../commons';
+import type { NetworkConfig, NexusNetwork } from '../../commons';
 
 // Mainnet
 const CORAL_CONFIG: NetworkConfig = {

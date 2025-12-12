@@ -1,29 +1,43 @@
 import {
-  Aggregator,
+  type Aggregator,
   BebopAggregator,
-  BebopQuote,
-  Bytes,
-  Currency,
-  CurrencyID,
-  Holding,
+  type BebopQuote,
+  type Bytes,
+  type Currency,
+  type CurrencyID,
+  type Holding,
   liquidateInputHoldings,
-  Quote,
-  QuoteRequestExactInput,
+  type Quote,
+  type QuoteRequestExactInput,
   Universe,
 } from '@avail-project/ca-common';
+import type { SigningStargateClient } from '@cosmjs/stargate';
 import Decimal from 'decimal.js';
 import { orderBy, retry } from 'es-toolkit';
 import Long from 'long';
-import { Hex, PrivateKeyAccount, WalletClient } from 'viem';
+import type { Hex, PrivateKeyAccount, WalletClient } from 'viem';
+import {
+  type BridgeAsset,
+  type ChainListType,
+  type EoaToEphemeralCallMap,
+  getLogger,
+  type QueryClients,
+  type RFFDepositCallMap,
+  type SBCTx,
+  SWAP_STEPS,
+  type SwapStepType,
+  type Tx,
+} from '../../../commons';
+import { Errors } from '../errors';
 import { divDecimals, equalFold, minutesToMs, switchChain, waitForTxReceipt } from '../utils';
 import { EADDRESS, SWEEPER_ADDRESS } from './constants';
 import { getTokenDecimals } from './data';
 import { createBridgeRFF } from './rff';
+import type { SwapRoute } from './route';
 import { caliburExecute, checkAuthCodeSet, createSBCTxFromCalls, waitForSBCTxReceipt } from './sbc';
-
 import {
   bytesEqual,
-  Cache,
+  type Cache,
   convertTo32Bytes,
   convertToEVMAddress,
   createPermitAndTransferFromTx,
@@ -31,28 +45,13 @@ import {
   EADDRESS_32_BYTES,
   EXPECTED_CALIBUR_CODE,
   getAllowanceCacheKey,
-  parseQuote,
   isNativeAddress,
+  type PublicClientList,
+  parseQuote,
   performDestinationSwap,
-  PublicClientList,
-  SwapMetadata,
-  SwapMetadataTx,
+  type SwapMetadata,
+  type SwapMetadataTx,
 } from './utils';
-import {
-  getLogger,
-  SWAP_STEPS,
-  SwapStepType,
-  ChainListType,
-  BridgeAsset,
-  EoaToEphemeralCallMap,
-  RFFDepositCallMap,
-  SBCTx,
-  Tx,
-  QueryClients,
-} from '../../../commons';
-import { SwapRoute } from './route';
-import { Errors } from '../errors';
-import { SigningStargateClient } from '@cosmjs/stargate';
 
 type Options = {
   address: {
@@ -111,7 +110,7 @@ class BridgeHandler {
       decimals: number;
       tokenAddress: `0x${string}`;
     } | null,
-    private readonly options: Options,
+    private readonly options: Options
   ) {
     if (input) {
       for (const asset of input.assets) {
@@ -170,27 +169,27 @@ class BridgeHandler {
                 COTCurrencyID: this.options.cot.currencyID,
                 receiver: this.options.address.eoa,
                 sender: this.options.address.ephemeral,
-              }),
+              })
             ),
             chainID: chain.id,
             ephemeralAddress: this.options.address.ephemeral,
             ephemeralWallet: this.options.wallet.ephemeral,
             publicClient,
-          }),
+          })
         );
       }
       if (sbcTx.length) {
         const ops = await this.options.vscClient.vscSBCTx(sbcTx);
-        ops.forEach((op) => {
+        for (const op of ops) {
           this.options.emitter.emit(SWAP_STEPS.SOURCE_SWAP_HASH(op, this.options.chainList));
-        });
+        }
         waitingPromises.push(
           ...ops.map(([chainID, hash]) =>
             wrap(
               Number(chainID),
-              waitForTxReceipt(hash, this.options.publicClientList.get(chainID), 1),
-            ),
-          ),
+              waitForTxReceipt(hash, this.options.publicClientList.get(chainID), 1)
+            )
+          )
         );
       }
     }
@@ -203,12 +202,12 @@ class BridgeHandler {
       amount: Decimal;
       chainID: number;
       tokenAddress: `0x${string}`;
-    }[],
+    }[]
   ) {
     if (this.input) {
       for (const asset of this.input.assets) {
         const updatedAsset = inputAssets.find(
-          (i) => i.chainID === asset.chainID && equalFold(i.tokenAddress, asset.contractAddress),
+          (i) => i.chainID === asset.chainID && equalFold(i.tokenAddress, asset.contractAddress)
         );
         if (updatedAsset) {
           asset.ephemeralBalance = updatedAsset.amount;
@@ -247,10 +246,10 @@ class BridgeHandler {
 
     this.status = this.waitForFill();
 
-    if (this.status.intentID.toNumber() != 0) {
+    if (this.status.intentID.toNumber() !== 0) {
       const dbc = this.createDoubleCheckTx;
       // we don't have to wait for this.
-      (async function () {
+      (async () => {
         await retry(
           async () => {
             await dbc().then(() => {
@@ -258,7 +257,7 @@ class BridgeHandler {
               return true;
             });
           },
-          { delay: 3000, retries: 3 },
+          { delay: 3000, retries: 3 }
         );
       })();
 
@@ -284,7 +283,9 @@ class BridgeHandler {
     promise: Promise.resolve(),
   });
 
-  private createDoubleCheckTx = async () => {};
+  private createDoubleCheckTx = async () => {
+    //
+  };
 }
 
 class DestinationSwapHandler {
@@ -301,7 +302,7 @@ class DestinationSwapHandler {
       chainID: number;
       token: `0x${string}`;
     },
-    private readonly options: Options,
+    private readonly options: Options
   ) {
     if (data.swap.dstEOAToEphTx) {
       options.cache.addAllowanceQuery({
@@ -355,7 +356,7 @@ class DestinationSwapHandler {
 
   // Retry only once, can't keep user waiting.
   async process(
-    metadata: SwapMetadata,
+    metadata: SwapMetadata
     // inputAmount = this.dstSwap.quote?.inputAmount,
   ) {
     const chain = this.options.chainList.getChainByID(this.dst.chainID);
@@ -379,7 +380,7 @@ class DestinationSwapHandler {
           {
             error: (retryError as Error)?.message ?? retryError,
           },
-          { cause: 'SWAP_FAILED' },
+          { cause: 'SWAP_FAILED' }
         );
         throw retryError;
       }
@@ -408,7 +409,7 @@ class DestinationSwapHandler {
           quote: swap.quote,
           req: swap.req,
         },
-        true,
+        true
       );
 
       if (quote.swap.approval) {
@@ -442,7 +443,7 @@ class DestinationSwapHandler {
         receiver: this.options.address.eoa,
         sender: this.options.address.ephemeral,
         tokenAddress: this.dst.token,
-      }),
+      })
     );
 
     // Execute batched destination tx
@@ -545,7 +546,10 @@ class DestinationSwapHandler {
 class SourceSwapsHandler {
   private disposableCache: { [k: string]: Tx } = {};
   private readonly swapsData: Map<bigint, SwapInput[]>;
-  constructor(data: SwapRoute['source'], private readonly options: Options) {
+  constructor(
+    data: SwapRoute['source'],
+    private readonly options: Options
+  ) {
     this.swapsData = this.groupAndOrder(data.swaps);
     for (const [chainID, swapQuotes] of this.iterate(this.swapsData)) {
       this.options.cache.addSetCodeQuery({
@@ -605,7 +609,7 @@ class SourceSwapsHandler {
   async process(
     metadata: SwapMetadata,
     input = this.swapsData,
-    retry = true,
+    retry = true
   ): Promise<{ amount: Decimal; chainID: number; tokenAddress: `0x${string}` }[]> {
     logger.debug('sourceSwapsHandler', {
       input,
@@ -643,157 +647,151 @@ class SourceSwapsHandler {
 
       // 1. Source swap calls
       let amount = 0n;
-      {
-        for (const quote of quotes) {
-          amount += quote.output.amount;
-          if (isNativeAddress(convertToEVMAddress(quote.input.token))) {
-            sbcCalls.value += quote.input.amount;
-          } else {
-            this.options.emitter.emit(
-              SWAP_STEPS.CREATE_PERMIT_FOR_SOURCE_SWAP(false, quote.input.symbol, chain),
-            );
-            const allowanceCacheKey = getAllowanceCacheKey({
-              chainID: chain.id,
-              contractAddress: convertToEVMAddress(quote.input.token),
-              owner: this.options.address.eoa,
-              spender: this.options.address.ephemeral,
-            });
+      for (const quote of quotes) {
+        amount += quote.output.amount;
+        if (isNativeAddress(convertToEVMAddress(quote.input.token))) {
+          sbcCalls.value += quote.input.amount;
+        } else {
+          this.options.emitter.emit(
+            SWAP_STEPS.CREATE_PERMIT_FOR_SOURCE_SWAP(false, quote.input.symbol, chain)
+          );
+          const allowanceCacheKey = getAllowanceCacheKey({
+            chainID: chain.id,
+            contractAddress: convertToEVMAddress(quote.input.token),
+            owner: this.options.address.eoa,
+            spender: this.options.address.ephemeral,
+          });
 
-            const txs = await createPermitAndTransferFromTx({
-              amount: quote.input.amount,
-              approval: this.disposableCache[allowanceCacheKey],
-              cache: this.options.cache,
-              chain,
-              contractAddress: convertToEVMAddress(quote.input.token),
-              owner: this.options.address.eoa,
-              ownerWallet: this.options.wallet.eoa,
-              publicClient,
-              spender: this.options.address.ephemeral,
-            });
+          const txs = await createPermitAndTransferFromTx({
+            amount: quote.input.amount,
+            approval: this.disposableCache[allowanceCacheKey],
+            cache: this.options.cache,
+            chain,
+            contractAddress: convertToEVMAddress(quote.input.token),
+            owner: this.options.address.eoa,
+            ownerWallet: this.options.wallet.eoa,
+            publicClient,
+            spender: this.options.address.ephemeral,
+          });
 
-            // Approval & transferFrom
-            if (txs.length === 2) {
-              const approvalTx = txs[0];
-              this.disposableCache[allowanceCacheKey] = approvalTx;
-            }
-
-            this.options.emitter.emit(
-              SWAP_STEPS.CREATE_PERMIT_FOR_SOURCE_SWAP(true, quote.input.symbol, chain),
-            );
-            logger.debug('sourceSwap', {
-              chainID,
-              permitCalls: txs,
-              quote,
-            });
-            sbcCalls.calls.push(...txs);
+          // Approval & transferFrom
+          if (txs.length === 2) {
+            const approvalTx = txs[0];
+            this.disposableCache[allowanceCacheKey] = approvalTx;
           }
 
-          if (quote.swap.approval) {
-            sbcCalls.calls.push(quote.swap.approval);
-          }
-          sbcCalls.calls.push(quote.swap.tx);
+          this.options.emitter.emit(
+            SWAP_STEPS.CREATE_PERMIT_FOR_SOURCE_SWAP(true, quote.input.symbol, chain)
+          );
+          logger.debug('sourceSwap', {
+            chainID,
+            permitCalls: txs,
+            quote,
+          });
+          sbcCalls.calls.push(...txs);
         }
+
+        if (quote.swap.approval) {
+          sbcCalls.calls.push(quote.swap.approval);
+        }
+        sbcCalls.calls.push(quote.swap.tx);
       }
+      if (sbcCalls.value > 0n) {
+        if (
+          !(await checkAuthCodeSet(
+            Number(chainID),
+            this.options.address.ephemeral,
+            this.options.cache
+          ))
+        ) {
+          const ops = await this.options.vscClient.vscSBCTx([
+            await createSBCTxFromCalls({
+              cache: this.options.cache,
+              calls: [],
+              chainID: chain.id,
+              ephemeralAddress: this.options.address.ephemeral,
+              ephemeralWallet: this.options.wallet.ephemeral,
+              publicClient,
+            }),
+          ]);
 
-      // 2. Create batched calls
-      {
-        if (sbcCalls.value > 0n) {
-          if (
-            !(await checkAuthCodeSet(
-              Number(chainID),
-              this.options.address.ephemeral,
-              this.options.cache,
-            ))
-          ) {
-            const ops = await this.options.vscClient.vscSBCTx([
-              await createSBCTxFromCalls({
-                cache: this.options.cache,
-                calls: [],
-                chainID: chain.id,
-                ephemeralAddress: this.options.address.ephemeral,
-                ephemeralWallet: this.options.wallet.ephemeral,
-                publicClient,
-              }),
-            ]);
+          logger.debug('SetAuthCodeWithoutCalls', {
+            ops,
+          });
 
-            logger.debug('SetAuthCodeWithoutCalls', {
-              ops,
-            });
+          await waitForSBCTxReceipt(ops, this.options.chainList, this.options.publicClientList);
 
-            await waitForSBCTxReceipt(ops, this.options.chainList, this.options.publicClientList);
+          // We know its set since we got receipt,
+          // and so if we come back on retry it is already set
+          this.options.cache.addSetCodeValue(
+            {
+              address: this.options.address.ephemeral,
+              chainID: Number(chainID),
+            },
+            EXPECTED_CALIBUR_CODE
+          );
+        }
 
-            // We know its set since we got receipt,
-            // and so if we come back on retry it is already set
-            this.options.cache.addSetCodeValue(
-              {
-                address: this.options.address.ephemeral,
-                chainID: Number(chainID),
-              },
-              EXPECTED_CALIBUR_CODE,
-            );
-          }
-
-          await switchChain(this.options.wallet.eoa, chain);
-          /*
+        await switchChain(this.options.wallet.eoa, chain);
+        /*
            * EOA creates & sends tx {
              to: ephemeralAddress (we check above it its delegated to calibur), 
              value: sbcCalls.value,
              data: SignUsingEphemeral(AggregatorTx(approval(iff non native is involved) and swap))
            }
            */
-          const hash = await caliburExecute({
-            actualAddress: this.options.address.eoa,
-            actualWallet: this.options.wallet.eoa,
-            calls: sbcCalls.calls,
-            chain,
-            ephemeralAddress: this.options.address.ephemeral,
-            ephemeralWallet: this.options.wallet.ephemeral,
-            value: sbcCalls.value,
-          });
-          metadataTx.tx_hash = convertTo32Bytes(hash);
-          this.options.emitter.emit(
-            SWAP_STEPS.SOURCE_SWAP_HASH([BigInt(chain.id), hash], this.options.chainList),
-          );
+        const hash = await caliburExecute({
+          actualAddress: this.options.address.eoa,
+          actualWallet: this.options.wallet.eoa,
+          calls: sbcCalls.calls,
+          chain,
+          ephemeralAddress: this.options.address.ephemeral,
+          ephemeralWallet: this.options.wallet.ephemeral,
+          value: sbcCalls.value,
+        });
+        metadataTx.tx_hash = convertTo32Bytes(hash);
+        this.options.emitter.emit(
+          SWAP_STEPS.SOURCE_SWAP_HASH([BigInt(chain.id), hash], this.options.chainList)
+        );
 
-          waitingPromises.push(wrap(Number(chainID), waitForTxReceipt(hash, publicClient, 1)));
-        } else {
-          logger.debug('sourceSwapsHandler', {
-            calls: sbcCalls.calls,
-          });
+        waitingPromises.push(wrap(Number(chainID), waitForTxReceipt(hash, publicClient, 1)));
+      } else {
+        logger.debug('sourceSwapsHandler', {
+          calls: sbcCalls.calls,
+        });
 
-          waitingPromises.push(
-            (async () => {
-              logger.debug('waitingPromises:1');
-              const ops = await this.options.vscClient.vscSBCTx([
-                await createSBCTxFromCalls({
-                  cache: this.options.cache,
-                  calls: sbcCalls.calls,
-                  chainID: chain.id,
-                  ephemeralAddress: this.options.address.ephemeral,
-                  ephemeralWallet: this.options.wallet.ephemeral,
-                  publicClient,
-                }),
-              ]);
-              const [chainID, hash] = ops[0];
-              metadataTx.tx_hash = convertTo32Bytes(hash);
+        waitingPromises.push(
+          (async () => {
+            logger.debug('waitingPromises:1');
+            const ops = await this.options.vscClient.vscSBCTx([
+              await createSBCTxFromCalls({
+                cache: this.options.cache,
+                calls: sbcCalls.calls,
+                chainID: chain.id,
+                ephemeralAddress: this.options.address.ephemeral,
+                ephemeralWallet: this.options.wallet.ephemeral,
+                publicClient,
+              }),
+            ]);
+            const [chainID, hash] = ops[0];
+            metadataTx.tx_hash = convertTo32Bytes(hash);
 
-              this.options.emitter.emit(
-                SWAP_STEPS.SOURCE_SWAP_HASH([chainID, hash], this.options.chainList),
-              );
+            this.options.emitter.emit(
+              SWAP_STEPS.SOURCE_SWAP_HASH([chainID, hash], this.options.chainList)
+            );
 
-              return wrap(
-                Number(chainID),
-                waitForTxReceipt(hash, this.options.publicClientList.get(chainID), 1),
-              );
-            })(),
-          );
-        }
+            return wrap(
+              Number(chainID),
+              waitForTxReceipt(hash, this.options.publicClientList.get(chainID), 1)
+            );
+          })()
+        );
       }
 
       assets.push({
         amount: divDecimals(
           amount,
-          getTokenDecimals(Number(chainID), quotes[0].output.token).decimals,
+          getTokenDecimals(Number(chainID), quotes[0].output.token).decimals
         ),
         chainID: Number(chainID),
         tokenAddress: convertToEVMAddress(quotes[0].output.token),
@@ -846,7 +844,7 @@ class SourceSwapsHandler {
                   ephemeralAddress: this.options.address.ephemeral,
                   ephemeralWallet: this.options.wallet.ephemeral,
                   publicClient: this.options.publicClientList.get(chainID),
-                }),
+                })
               );
             }
             try {
@@ -903,7 +901,7 @@ class SourceSwapsHandler {
               ],
               this.options.aggregators,
               [],
-              oq.cur.currencyID,
+              oq.cur.currencyID
             ).then((nq) => {
               logger.debug('retryWithSlippage:quoteRequests:2', {
                 returnData: {},
@@ -918,7 +916,7 @@ class SourceSwapsHandler {
                   symbol: oq.originalHolding.symbol,
                 },
               };
-            }),
+            })
           );
         }
       }
@@ -966,9 +964,9 @@ class SourceSwapsHandler {
             // if native currency is involved move it up
             equalFold(convertToEVMAddress(s.req.inputToken), EADDRESS) ? -1 : 1,
         ],
-        ['asc'],
+        ['asc']
       ),
-      (s) => s.req.chain.chainID,
+      (s) => s.req.chain.chainID
     );
   }
 
@@ -999,7 +997,7 @@ class Swap {
 
     const { decimals: outputDecimals } = getTokenDecimals(
       Number(this.input.req.chain.chainID),
-      this.input.req.outputToken,
+      this.input.req.outputToken
     );
 
     return {

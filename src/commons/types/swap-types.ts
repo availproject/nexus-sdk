@@ -1,11 +1,10 @@
-import { Universe } from '@avail-project/ca-common';
-import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
-import Decimal from 'decimal.js';
-import { type Hex, PrivateKeyAccount, WalletClient } from 'viem';
-
-import { NetworkConfig, ChainListType, OnEventParam, TokenInfo, QueryClients } from '../index';
+import type { Universe } from '@avail-project/ca-common';
+import type { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
+import type { SigningStargateClient } from '@cosmjs/stargate';
+import type Decimal from 'decimal.js';
+import type { Hex, PrivateKeyAccount, WalletClient } from 'viem';
 import type { SwapRoute } from '../../sdk/ca-base/swap/route';
-import { SigningStargateClient } from '@cosmjs/stargate';
+import type { ChainListType, NetworkConfig, OnEventParam, QueryClients, TokenInfo } from '../index';
 
 export type AuthorizationList = {
   address: Uint8Array;
@@ -155,8 +154,8 @@ export interface ExactOutSwapInput {
 }
 
 export enum SwapMode {
-  EXACT_IN,
-  EXACT_OUT,
+  EXACT_IN = 0,
+  EXACT_OUT = 1,
 }
 
 export type SwapData =
