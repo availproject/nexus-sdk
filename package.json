@@ -17,7 +17,7 @@
     "clean": "rimraf dist dist-tarballs html_docs",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build",
-    "prepare": "npm run build"
+    "prepare": "(test -d node_modules || npm install) && npm run build"
   },
   "sideEffects": false,
   "exports": {
