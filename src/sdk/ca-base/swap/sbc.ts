@@ -17,6 +17,7 @@ import CaliburABI from './calibur.abi';
 import { CALIBUR_ADDRESS, CALIBUR_EIP712, ZERO_BYTES_20, ZERO_BYTES_32 } from './constants';
 import { Cache, convertTo32Bytes, isAuthorizationCodeSet, PublicClientList } from './utils';
 import { getLogger, ChainListType, CaliburSBCTypes, SBCTx, Tx } from '../../../commons';
+import { PlatformUtils } from '../utils/platform.utils';
 
 const logger = getLogger();
 
@@ -85,7 +86,7 @@ export const createSBCTxFromCalls = async ({
   ephemeralWallet: PrivateKeyAccount;
   publicClient: PublicClient;
 }) => {
-  const nonce = bytesToBigInt(window.crypto.getRandomValues(new Uint8Array(24))) << 64n;
+  const nonce = bytesToBigInt(await PlatformUtils.cryptoGetRandomValues(new Uint8Array(24))) << 64n;
   const deadline = createDeadlineFromNow(3n);
   const signature = await createBatchedCallSignature(
     calls,
@@ -162,7 +163,7 @@ export const caliburExecute = async ({
   ephemeralWallet: PrivateKeyAccount;
   value: bigint;
 }) => {
-  const nonce = bytesToBigInt(window.crypto.getRandomValues(new Uint8Array(24))) << 64n;
+  const nonce = bytesToBigInt(await PlatformUtils.cryptoGetRandomValues(new Uint8Array(24))) << 64n;
   const deadline = createDeadlineFromNow(3n);
   const signature = await createBatchedCallSignature(
     calls,

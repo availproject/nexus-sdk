@@ -141,14 +141,15 @@ const waitForIntentFulfilment = async (
 
 const requestTimeout = (timeout: number, ac: AbortController) => {
   return new Promise((_, reject) => {
-    const t = window.setTimeout(() => {
+    const t = setTimeout(() => {
       ac.abort();
       return reject(Errors.liquidityTimeout());
     }, minutesToMs(timeout));
+
     ac.signal.addEventListener(
       'abort',
       () => {
-        window.clearTimeout(t);
+        clearTimeout(t);
       },
       { once: true },
     );

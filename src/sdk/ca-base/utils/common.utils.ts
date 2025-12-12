@@ -55,6 +55,7 @@ import { cosmosFillCheck } from './cosmos.utils';
 import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 import { Errors } from '../errors';
 import { cosmosCreateDoubleCheckTx, cosmosRefundIntent } from './cosmos.utils';
+import { PlatformUtils } from './platform.utils';
 
 const logger = getLogger();
 
@@ -89,18 +90,18 @@ type IntentD = { createdAt: number; id: number };
 
 const storeIntentHashToStore = (address: string, id: number, createdAt = Date.now()) => {
   let intents: Array<IntentD> = [];
-  const fetchedIntents = localStorage.getItem(getIntentKey(address));
+  const fetchedIntents = PlatformUtils.storageGetItem(getIntentKey(address));
   if (fetchedIntents) {
     intents = JSON.parse(fetchedIntents) ?? [];
   }
 
   intents.push({ createdAt, id });
-  localStorage.setItem(getIntentKey(address), JSON.stringify(intents));
+  PlatformUtils.storageSetItem(getIntentKey(address), JSON.stringify(intents));
 };
 
 const removeIntentHashFromStore = (address: string, id: Long) => {
   let intents: Array<IntentD> = [];
-  const fetchedIntents = localStorage.getItem(getIntentKey(address));
+  const fetchedIntents = PlatformUtils.storageGetItem(getIntentKey(address));
   if (fetchedIntents) {
     intents = JSON.parse(fetchedIntents) ?? [];
   }
@@ -109,13 +110,13 @@ const removeIntentHashFromStore = (address: string, id: Long) => {
 
   intents = intents.filter((h: IntentD) => h.id !== id.toNumber());
   if (oLen !== intents.length) {
-    localStorage.setItem(getIntentKey(address), JSON.stringify(intents));
+    PlatformUtils.storageSetItem(getIntentKey(address), JSON.stringify(intents));
   }
 };
 
 const getExpiredIntents = (address: string) => {
   let intents: Array<IntentD> = [];
-  const fetchedIntents = localStorage.getItem(getIntentKey(address));
+  const fetchedIntents = PlatformUtils.storageGetItem(getIntentKey(address));
   if (fetchedIntents) {
     intents = JSON.parse(fetchedIntents) ?? [];
   }
@@ -132,7 +133,7 @@ const getExpiredIntents = (address: string) => {
       nonExpiredIntents.push(intent);
     }
   }
-  localStorage.setItem(getIntentKey(address), JSON.stringify(nonExpiredIntents));
+  PlatformUtils.storageSetItem(getIntentKey(address), JSON.stringify(nonExpiredIntents));
   return expiredIntents;
 };
 
@@ -509,7 +510,7 @@ class UserAsset {
     return this.value.balance;
   }
 
-  constructor(public value: UserAssetDatum) {}
+  constructor(public value: UserAssetDatum) { }
 
   getBridgeAssets(dstChainId: number) {
     return this.value.breakdown
@@ -597,7 +598,7 @@ class UserAsset {
   }
 }
 class UserAssets {
-  constructor(public data: UserAssetDatum[]) {}
+  constructor(public data: UserAssetDatum[]) { }
 
   add(asset: UserAssetDatum) {
     this.data.push(asset);
@@ -869,11 +870,11 @@ const retrieveAddress = (universe: Universe, input: Pick<IBridgeOptions, 'evm' |
 const SIWE_KEY = '_siwe_sig';
 
 const storeSIWESignatureToLocalStorage = (address: Hex, siweChain: number, signature: string) => {
-  window.localStorage.setItem(`${SIWE_KEY}-${address}-${siweChain}`, signature);
+  PlatformUtils.storageSetItem(`${SIWE_KEY}-${address}-${siweChain}`, signature);
 };
 
 const retrieveSIWESignatureFromLocalStorage = (address: Hex, siweChain: number) => {
-  return window.localStorage.getItem(`${SIWE_KEY}-${address}-${siweChain}`);
+  return PlatformUtils.storageGetItem(`${SIWE_KEY}-${address}-${siweChain}`);
 };
 
 const createDeadlineFromNow = (minutes: bigint = 3n): bigint => {

@@ -72,6 +72,7 @@ import { createBridgeAndTransferParams } from './query/bridgeAndTransfer';
 import getMaxValueForBridge from './requestHandlers/bridgeMax';
 import { Errors } from './errors';
 import { setLoggerProvider } from './telemetry';
+import { PlatformUtils } from './utils/platform.utils';
 
 setLogLevel(LOG_LEVEL.NOLOGS);
 const logger = getLogger();
@@ -101,7 +102,7 @@ export class CA {
     address: string;
     adapter: TronAdapter;
   };
-  protected _queryClients: QueryClients;
+  protected _queryClients?: QueryClients;
   protected _hooks: {
     onAllowance: OnAllowanceHook;
     onIntent: OnIntentHook;
@@ -136,17 +137,6 @@ export class CA {
         : SUPPORTED_CHAINS.ETHEREUM;
 
     this._siweChain = config?.siweChain ?? defaultChain;
-    this._queryClients = {
-      cosmosQueryClient: createCosmosQueryClient({
-        cosmosGrpcWebUrl: this._networkConfig.COSMOS_GRPC_URL,
-        cosmosRestUrl: this._networkConfig.COSMOS_REST_URL,
-        cosmosWsUrl: this._networkConfig.COSMOS_WS_URL,
-      }),
-      vscClient: createVSCClient({
-        vscUrl: this._networkConfig.VSC_BASE_URL,
-        vscWsUrl: this._networkConfig.VSC_WS_URL,
-      }),
-    };
 
     if (config.debug) {
       setLogLevel(LOG_LEVEL.DEBUG);
@@ -168,7 +158,7 @@ export class CA {
         evm: this._evm!,
         hooks: this._hooks,
         tron: this._tron,
-        ...this._queryClients,
+        ...this._queryClients!, // reinit does initialize
         intentExplorerUrl: this._networkConfig.INTENT_EXPLORER_URL,
         emit: options?.onEvent,
       });
@@ -186,7 +176,7 @@ export class CA {
         evm: this._evm!,
         tron: this._tron,
         intentExplorerUrl: this._networkConfig.INTENT_EXPLORER_URL,
-        ...this._queryClients,
+        ...this._queryClients!,
       });
     });
   };
@@ -217,7 +207,7 @@ export class CA {
     return this.withReinit(async () => {
       const { wallet } = await this._getCosmosWallet();
       const address = (await wallet.getAccounts())[0].address;
-      const rffList = await this._queryClients.cosmosQueryClient.fetchMyIntents(address, page);
+      const rffList = await this._queryClients!.cosmosQueryClient.fetchMyIntents(address, page);
       return intentTransform(rffList, this._networkConfig.INTENT_EXPLORER_URL, this.chainList);
     });
   };
@@ -245,7 +235,7 @@ export class CA {
       return getBalancesForBridge({
         evmAddress: this._evm!.address,
         chainList: this.chainList,
-        vscClient: this._queryClients.vscClient,
+        vscClient: this._queryClients!.vscClient,
       });
     });
   };
@@ -294,7 +284,7 @@ export class CA {
         eoa: this._evm!.client,
       },
       intentExplorerUrl: this._networkConfig.INTENT_EXPLORER_URL,
-      ...this._queryClients,
+      ...this._queryClients!,
       ...options,
     };
   };
@@ -317,7 +307,18 @@ export class CA {
 
     this._initPromise = (async () => {
       try {
-        setLoggerProvider(this._networkConfig);
+        this._queryClients = {
+          cosmosQueryClient: await createCosmosQueryClient({
+            cosmosGrpcWebUrl: this._networkConfig.COSMOS_GRPC_URL,
+            cosmosRestUrl: this._networkConfig.COSMOS_REST_URL,
+            cosmosWsUrl: this._networkConfig.COSMOS_WS_URL,
+          }),
+          vscClient: createVSCClient({
+            vscUrl: this._networkConfig.VSC_BASE_URL,
+            vscWsUrl: this._networkConfig.VSC_WS_URL,
+          }),
+        };
+        await setLoggerProvider(this._networkConfig);
         this._setProviderHooks();
         this.#cosmos = await this._createCosmosWallet();
         this._checkPendingRefunds();
@@ -463,14 +464,16 @@ export class CA {
           analytics: this._analytics,
         });
 
-        this._refundInterval = window.setInterval(async () => {
-          await refundExpiredIntents({
-            evmAddress,
-            address: this.#cosmos!.address,
-            client: this.#cosmos!.client,
-            analytics: this._analytics,
-          });
-        }, minutesToMs(10));
+        this._refundInterval = Number(
+          setInterval(async () => {
+            await refundExpiredIntents({
+              evmAddress,
+              address: this.#cosmos!.address,
+              client: this.#cosmos!.client,
+              analytics: this._analytics,
+            });
+          }, minutesToMs(10)),
+        );
       } catch (e) {
         logger.error('Error checking pending refunds', e, { cause: 'REFUND_CHECK_ERROR' });
       }
@@ -492,8 +495,8 @@ export class CA {
     const address = (await wallet.getAccounts())[0].address;
     await cosmosFeeGrant(
       address,
-      this._queryClients.cosmosQueryClient,
-      this._queryClients.vscClient,
+      this._queryClients!.cosmosQueryClient,
+      this._queryClients!.vscClient,
     );
 
     const client = await createCosmosClient(wallet, this._networkConfig.COSMOS_RPC_URL, {
@@ -536,9 +539,12 @@ export class CA {
       throw Errors.chainNotFound(this._siweChain);
     }
 
-    const scheme = window.location.protocol.slice(0, -1);
-    const domain = window.location.host;
-    const origin = window.location.origin;
+    let scheme = PlatformUtils.locationProtocol();
+    if (PlatformUtils.isBrowser()) {
+      scheme = scheme.slice(0, -1);
+    }
+    const domain = PlatformUtils.locationHost();
+    const origin = PlatformUtils.locationOrigin();
     const address = await this._getEVMAddress();
     const message = createSiweMessage({
       address,
@@ -663,8 +669,10 @@ export class CA {
       if (this._evm) {
         this._evm.address = account;
       }
-      await this._init();
     }
+
+    // Init regardless
+    await this._init();
   };
 
   private async withReinit<T>(fn: () => Promise<T>): Promise<T> {

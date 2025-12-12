@@ -18,7 +18,7 @@ const CORAL_CONFIG: NetworkConfig = {
 const FOLLY_CONFIG: NetworkConfig = {
   COSMOS_REST_URL: 'https://cosmos04-dev.arcana.network',
   COSMOS_RPC_URL: 'https://cosmos04-dev.arcana.network:26650',
-  COSMOS_WS_URL: 'wss://cosmos04-dev.arcana.network:26650',
+  COSMOS_WS_URL: 'wss://cosmos04-dev.arcana.network:26650/websocket',
   COSMOS_GRPC_URL: 'https://grpc-folly.arcana.network',
   VSC_BASE_URL: 'https://vsc1-folly.arcana.network',
   VSC_WS_URL: 'wss://vsc1-folly.arcana.network',
