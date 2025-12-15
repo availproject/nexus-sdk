@@ -14,7 +14,6 @@ import { bytesToBigInt, bytesToNumber, Hex, toHex } from 'viem';
 import {
   getLogger,
   FeeStoreData,
-  OraclePriceResponse,
   RFF,
   SponsoredApprovalDataArray,
   UnifiedBalanceResponseData,
@@ -74,7 +73,7 @@ type VSCCreateRFFResponse =
       status: 0x1a; // could not collect
     };
 
-const PAGE_LIMIT = 100;
+// const PAGE_LIMIT = 100;
 const logger = getLogger();
 const decoder = new TextDecoder('utf-8');
 
@@ -92,25 +91,25 @@ const createCosmosQueryClient = async ({
   const cosmosQueryClient = new QueryClientImpl(rpc);
 
   return {
-    fetchMyIntents: async (address: string, page = 1) => {
-      try {
-        const response = await cosmosQueryClient.RequestForFundsByAddress({
-          account: address,
-          pagination: {
-            limit: PAGE_LIMIT,
-            offset: (page - 1) * PAGE_LIMIT,
-            reverse: true,
-          },
-        });
-        return response.requestForFunds;
-      } catch (error) {
-        logger.error('Failed to fetch intents', error);
-        throw Errors.cosmosError('Failed to fetch intents');
-      }
-    },
+    // fetchMyIntents: async (address: string, page = 1) => {
+    //   // try {
+    //   //   const response = await cosmosQueryClient.RequestForFundsByAddress({
+    //   //     account: address,
+    //   //     pagination: {
+    //   //       limit: PAGE_LIMIT,
+    //   //       offset: (page - 1) * PAGE_LIMIT,
+    //   //       reverse: true,
+    //   //     },
+    //   //   });
+    //   //   return response.requestForFunds;
+    //   // } catch (error) {
+    //   //   logger.error('Failed to fetch intents', error);
+    //   //   throw Errors.cosmosError('Failed to fetch intents');
+    //   // }
+    // },
     fetchProtocolFees: async () => {
       try {
-        const response = await cosmosQueryClient.ProtocolFees({});
+        const response = await cosmosQueryClient.GetProtocolFees({});
         return response;
       } catch (error) {
         logger.error('Failed to fetch protocol fees', error);
@@ -119,30 +118,16 @@ const createCosmosQueryClient = async ({
     },
     fetchSolverData: async () => {
       try {
-        const response = await cosmosQueryClient.SolverDataAll({});
+        const response = await cosmosQueryClient.GetSolverData({});
         return response;
       } catch (error) {
         logger.error('Failed to fetch solver data', error);
         throw Errors.cosmosError('Failed to fetch solver data');
       }
     },
-    fetchPriceOracle: async () => {
-      const data = await cosmosQueryClient.PriceOracleData({});
-      if (data.PriceOracleData?.priceData?.length) {
-        const oracleRates: OraclePriceResponse = data.PriceOracleData?.priceData.map((data) => ({
-          chainId: bytesToNumber(data.chainID),
-          priceUsd: new Decimal(bytesToNumber(data.price)).div(Decimal.pow(10, data.decimals)),
-          tokenAddress: convertAddressByUniverse(toHex(data.tokenAddress), data.universe),
-          tokensPerUsd: new Decimal(1).div(
-            new Decimal(bytesToNumber(data.price)).div(Decimal.pow(10, data.decimals)),
-          ),
-        }));
-        return oracleRates;
-      }
-      throw Errors.internal('No price data found.');
-    },
+
     checkIntentFilled: async (intentID: Long) => {
-      const response = await cosmosQueryClient.RequestForFunds({
+      const response = await cosmosQueryClient.GetRequestForFunds({
         id: intentID,
       });
       if (response.requestForFunds?.fulfilled) {
@@ -406,13 +391,13 @@ const getFeeStore = async (grpcClient: Awaited<ReturnType<typeof createCosmosQue
   ]);
   if (p.status === 'fulfilled') {
     logger.debug('getFeeStore', {
-      collection: p.value.ProtocolFees?.collectionFees,
-      fulfilment: p.value.ProtocolFees?.fulfilmentFees,
-      protocol: p.value.ProtocolFees?.feeBP,
+      collection: p.value.protocolFees?.collectionFees,
+      fulfilment: p.value.protocolFees?.fulfilmentFees,
+      protocol: p.value.protocolFees?.feeBP,
     });
-    feeData.fee.protocol.feeBP = p.value.ProtocolFees?.feeBP.toString(10) ?? '0';
+    feeData.fee.protocol.feeBP = p.value.protocolFees?.feeBP.toString(10) ?? '0';
     feeData.fee.collection =
-      p.value.ProtocolFees?.collectionFees.map((fee) => {
+      p.value.protocolFees?.collectionFees.map((fee) => {
         return {
           chainID: bytesToNumber(fee.chainID),
           fee: bytesToNumber(fee.fee),
@@ -421,7 +406,7 @@ const getFeeStore = async (grpcClient: Awaited<ReturnType<typeof createCosmosQue
         };
       }) ?? [];
     feeData.fee.fulfilment =
-      p.value.ProtocolFees?.fulfilmentFees.map((fee) => {
+      p.value.protocolFees?.fulfilmentFees.map((fee) => {
         return {
           chainID: bytesToNumber(fee.chainID),
           fee: bytesToNumber(fee.fee),
@@ -432,7 +417,7 @@ const getFeeStore = async (grpcClient: Awaited<ReturnType<typeof createCosmosQue
   }
   if (s.status === 'fulfilled') {
     feeData.solverRoutes =
-      s.value.solverData[0]?.advertisedFees.map((s) => {
+      s.value.solverData?.advertisedFees.map((s) => {
         return {
           destinationChainID: bytesToNumber(s.destinationChainID),
           destinationTokenAddress: convertAddressByUniverse(
@@ -546,7 +531,7 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
       const completedCollections: number[] = [];
       await retry(
         async () => {
-          const connection = connect(new URL('/api/v1/create-rff', vscWsUrl).toString());
+          const connection = connect(new URL('/api/v1/create-deposits', vscWsUrl).toString());
           try {
             await connection.connected();
             connection.socket.send(pack({ id: id.toNumber() }));
@@ -656,6 +641,38 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
   };
 };
 
+const publishRFFUntilFillOrTimeout = ({
+  intentID,
+  vscClient,
+  ac,
+}: {
+  ac: AbortController;
+  intentID: Long;
+  vscClient: VSCClient;
+}) => {
+  const timeout = 5000;
+  // Start looping after 5 sec
+  window.setTimeout(() => {
+    // If already aborted then dont start
+    if (ac.signal.aborted) {
+      logger.debug('publish RFF cancelled, since already filled');
+      return;
+    }
+
+    const intervalID = window.setInterval(async () => {
+      await vscClient.vscPublishRFF(intentID);
+    }, timeout);
+
+    ac.signal.addEventListener(
+      'abort',
+      () => {
+        window.clearInterval(intervalID);
+      },
+      { once: true },
+    );
+  }, timeout);
+};
+
 export const getBalancesFromVSC = async (
   instance: AxiosInstance,
   address: `0x${string}`,
@@ -668,4 +685,10 @@ export const getBalancesFromVSC = async (
   return response.data.balances.filter((b) => b.errored !== true);
 };
 
-export { getCoinbasePrices, getFeeStore, createCosmosQueryClient, createVSCClient };
+export {
+  getCoinbasePrices,
+  getFeeStore,
+  createCosmosQueryClient,
+  createVSCClient,
+  publishRFFUntilFillOrTimeout,
+};

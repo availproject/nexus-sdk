@@ -18,7 +18,6 @@ import { ByteArray, Hex, toBytes } from 'viem';
 import { ZERO_ADDRESS } from '../constants';
 import {
   getLogger,
-  OraclePriceResponse,
   ExactInSwapInput,
   ExactOutSwapInput,
   SwapData,
@@ -70,7 +69,7 @@ const _exactOutRoute = async (
   input: ExactOutSwapInput,
   params: SwapParams & { aggregators: Aggregator[]; cotCurrencyID: CurrencyID },
 ): Promise<SwapRoute> => {
-  const [feeStore, { assets, balances }, oraclePrices] = await Promise.all([
+  const [feeStore, { assets, balances }] = await Promise.all([
     getFeeStore(params.cosmosQueryClient),
     getBalancesForSwap({
       evmAddress: params.address.eoa,
@@ -78,7 +77,7 @@ const _exactOutRoute = async (
       // Use only stable and native coins for exact out.
       filter: true,
     }),
-    params.cosmosQueryClient.fetchPriceOracle(),
+    // params.cosmosQueryClient.fetchPriceOracle(),
   ]);
 
   const userAddressInBytes = convertTo32Bytes(params.address.ephemeral);
@@ -426,7 +425,6 @@ const _exactOutRoute = async (
     },
     extras: {
       aggregators: params.aggregators,
-      oraclePrices,
       balances,
       assetsUsed,
       cotSymbol,
@@ -481,7 +479,6 @@ export type SwapRoute = {
       symbol: string;
     }[];
     aggregators: Aggregator[];
-    oraclePrices: OraclePriceResponse;
     balances: FlatBalance[];
     cotSymbol: string;
   };
@@ -525,14 +522,13 @@ const _exactInRoute = async (
     params,
   });
 
-  const [feeStore, balanceResponse, oraclePrices] = await Promise.all([
+  const [feeStore, balanceResponse] = await Promise.all([
     getFeeStore(params.cosmosQueryClient),
     getBalancesForSwap({
       evmAddress: params.address.eoa,
       chainList: params.chainList,
       filter: false,
     }),
-    params.cosmosQueryClient.fetchPriceOracle(),
   ]).catch((e) => {
     throw Errors.internal('Error fetching fee, balance or oracle', { cause: e });
   });
@@ -866,7 +862,6 @@ const _exactInRoute = async (
     extras: {
       assetsUsed,
       aggregators: params.aggregators,
-      oraclePrices,
       balances,
       cotSymbol,
     },

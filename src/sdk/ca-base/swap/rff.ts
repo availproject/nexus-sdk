@@ -1,8 +1,7 @@
-import { DepositVEPacket, EVMVaultABI, MsgDoubleCheckTx, Universe } from '@avail-project/ca-common';
+import { EVMVaultABI, Universe } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
 import Long from 'long';
 import {
-  bytesToNumber,
   createPublicClient,
   encodeFunctionData,
   Hex,
@@ -21,7 +20,6 @@ import {
   mulDecimals,
   removeIntentHashFromStore,
   storeIntentHashToStore,
-  cosmosCreateDoubleCheckTx,
   cosmosCreateRFF,
 } from '../utils';
 import { packERC20Approve } from './utils';
@@ -284,27 +282,7 @@ export const createBridgeRFF = async ({
 
     storeIntentHashToStore(config.evm.address, intentID.toNumber());
 
-    const doubleCheckTxMap: Record<number, () => Promise<void>> = {};
-
-    omniversalRFF.protobufRFF.sources.forEach((s) => {
-      doubleCheckTxMap[bytesToNumber(s.chainID)] = createDoubleCheckTx(
-        s.chainID,
-        config.cosmos,
-        intentID,
-      );
-    });
-
     return {
-      createDoubleCheckTx: async () => {
-        try {
-          for (const k in doubleCheckTxMap) {
-            logger.debug('Starting double check tx', { chain: k });
-            await doubleCheckTxMap[k]();
-          }
-        } catch (error) {
-          logger.error('Error during double check tx', error);
-        }
-      },
       intentID,
     };
   };
@@ -416,28 +394,5 @@ export const createBridgeRFF = async ({
     eoaToEphemeralCalls,
     intent,
     waitForFill,
-  };
-};
-
-export const createDoubleCheckTx = (chainID: Uint8Array, cosmos: CosmosOptions, intentID: Long) => {
-  const msg = MsgDoubleCheckTx.create({
-    creator: cosmos.address,
-    packet: {
-      $case: 'depositPacket',
-      value: DepositVEPacket.create({
-        gasRefunded: false,
-        id: intentID,
-      }),
-    },
-    txChainID: chainID,
-    txUniverse: Universe.ETHEREUM,
-  });
-
-  return () => {
-    return cosmosCreateDoubleCheckTx({
-      address: cosmos.address,
-      msg,
-      client: cosmos.client,
-    });
   };
 };

@@ -3,9 +3,8 @@ import { CosmosOptions, CosmosQueryClient, getLogger, VSCClient } from '../../..
 import {
   MsgCreateRequestForFunds,
   MsgCreateRequestForFundsResponse,
-  MsgDoubleCheckTx,
-  MsgRefundReq,
-  MsgRefundReqResponse,
+  MsgCreatePendingClaim,
+  MsgCreatePendingClaimResponse,
 } from '@avail-project/ca-common';
 import { isDeliverTxFailure, isDeliverTxSuccess } from '@cosmjs/stargate';
 import { Errors } from '../errors';
@@ -50,7 +49,7 @@ const cosmosCreateRFF = async ({
       address,
       [
         {
-          typeUrl: '/xarchain.chainabstraction.MsgCreateRequestForFunds',
+          typeUrl: '/xarchain.chainabstraction.v1.MsgCreateRequestForFunds',
           value: msg,
         },
       ],
@@ -82,10 +81,14 @@ const cosmosRefundIntent = async ({
       address,
       [
         {
-          typeUrl: '/xarchain.chainabstraction.MsgRefundReq',
-          value: MsgRefundReq.create({
-            creator: address,
-            rffID: intentID,
+          typeUrl: '/xarchain.chainabstraction.v1.MsgCreatePendingClaim',
+          value: MsgCreatePendingClaim.create({
+            claim: {
+              RFFID: intentID,
+              claim: {
+                $case: 'refundClaim',
+              },
+            },
           }),
         },
       ],
@@ -97,7 +100,7 @@ const cosmosRefundIntent = async ({
     logger.debug('Refund response', { resp });
     try {
       if (isDeliverTxSuccess(resp)) {
-        const decoded = MsgRefundReqResponse.decode(resp.msgResponses[0].value);
+        const decoded = MsgCreatePendingClaimResponse.decode(resp.msgResponses[0].value);
         logger.debug('Refund success', { decoded, resp });
         return resp;
       } else if (resp.code === 18) {
@@ -119,44 +122,5 @@ const cosmosRefundIntent = async ({
     client.disconnect();
   }
 };
-const cosmosCreateDoubleCheckTx = async ({
-  address,
-  client,
-  msg,
-}: CosmosOptions & {
-  msg: MsgDoubleCheckTx;
-}) => {
-  try {
-    logger.debug('cosmosCreateDoubleCheckTx', { doubleCheckMsg: msg });
 
-    const res = await client.signAndBroadcast(
-      address,
-      [
-        {
-          typeUrl: '/xarchain.chainabstraction.MsgDoubleCheckTx',
-          value: msg,
-        },
-      ],
-      {
-        amount: [],
-        gas: 100_000n.toString(10),
-      },
-    );
-
-    if (isDeliverTxFailure(res)) {
-      throw Errors.cosmosError('double check tx failed');
-    }
-
-    logger.debug('double check response', { doubleCheckTx: res });
-  } finally {
-    client.disconnect();
-  }
-};
-
-export {
-  cosmosFeeGrant,
-  cosmosFillCheck,
-  cosmosCreateDoubleCheckTx,
-  cosmosRefundIntent,
-  cosmosCreateRFF,
-};
+export { cosmosFeeGrant, cosmosFillCheck, cosmosRefundIntent, cosmosCreateRFF };

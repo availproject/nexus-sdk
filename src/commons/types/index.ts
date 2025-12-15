@@ -4,9 +4,10 @@ import {
   ChainDatum,
   Environment,
   PermitVariant,
-  QueryAllSolverDataResponse,
+  // QueryAllSolverDataResponse,
   QueryGetProtocolFeesResponse,
-  RequestForFunds,
+  QueryGetSolverDataResponse,
+  // RequestForFunds,
   Universe,
 } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
@@ -645,7 +646,6 @@ export type UnifiedBalanceResponseData = {
   currencies: {
     balance: string;
     token_address: Uint8Array;
-    value: string;
   }[];
   total_usd: string;
   universe: Universe;
@@ -720,10 +720,9 @@ export interface AnalyticsConfig {
 }
 
 type CosmosQueryClient = {
-  fetchMyIntents: (address: string, page?: number) => Promise<RequestForFunds[]>;
+  // fetchMyIntents: (address: string, page?: number) => Promise<RequestForFunds[]>;
   fetchProtocolFees: () => Promise<QueryGetProtocolFeesResponse>;
-  fetchSolverData: () => Promise<QueryAllSolverDataResponse>;
-  fetchPriceOracle: () => Promise<OraclePriceResponse>;
+  fetchSolverData: () => Promise<QueryGetSolverDataResponse>;
   checkIntentFilled: (intentID: Long) => Promise<string>;
   getAccount: (address: string) => Promise<void>;
   waitForCosmosFillEvent: (intentID: Long, ac: AbortController) => Promise<string>;

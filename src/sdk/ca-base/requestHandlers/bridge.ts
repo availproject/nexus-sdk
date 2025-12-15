@@ -40,11 +40,10 @@ import {
   SourceTxs,
 } from '../../../commons';
 import {
-  convertGasToToken,
+  // convertGasToToken,
   convertIntent,
   convertTo32Bytes,
   cosmosCreateRFF,
-  createDepositDoubleCheckTx,
   createPublicClientWithFallback,
   equalFold,
   FeeStore,
@@ -68,6 +67,7 @@ import {
   retrieveAddress,
   getBalancesForBridge,
   createExplorerTxURL,
+  publishRFFUntilFillOrTimeout,
   // createDeadlineFromNow,
 } from '../utils';
 import { TronWeb } from 'tronweb';
@@ -108,20 +108,18 @@ class BridgeHandler {
     console.time('process:preIntentSteps');
 
     console.time('preIntentSteps:API');
-    const [assets, oraclePrices, feeStore] = await Promise.all([
+    const [assets, feeStore] = await Promise.all([
       getBalancesForBridge({
         vscClient: this.options.vscClient,
         evmAddress: this.options.evm.address,
         chainList: this.options.chainList,
         tronAddress: this.options.tron?.address,
       }),
-      this.options.cosmosQueryClient.fetchPriceOracle(),
       getFeeStore(this.options.cosmosQueryClient),
     ]);
 
     logger.debug('Step 0: BuildIntent', {
       assets,
-      oraclePrices,
       feeStore,
     });
 
@@ -129,7 +127,6 @@ class BridgeHandler {
     logger.debug('Step 1:', {
       assets,
       feeStore,
-      oraclePrices,
     });
 
     console.time('preIntentSteps: Parse');
@@ -139,29 +136,29 @@ class BridgeHandler {
 
     console.time('preIntentSteps: CalculateGas');
 
-    const nativeAmountInDecimal = divDecimals(
-      this.params.nativeAmount,
-      this.params.dstChain.nativeCurrency.decimals,
-    );
+    // const nativeAmountInDecimal = divDecimals(
+    //   this.params.nativeAmount,
+    //   this.params.dstChain.nativeCurrency.decimals,
+    // );
 
     const tokenAmountInDecimal = divDecimals(
       this.params.tokenAmount,
       this.params.dstToken.decimals,
     );
 
-    const gasInToken = convertGasToToken(
-      this.params.dstToken,
-      oraclePrices,
-      this.params.dstChain.id,
-      this.params.dstChain.universe,
-      nativeAmountInDecimal,
-    );
+    // const gasInToken = convertGasToToken(
+    //   this.params.dstToken,
+    //   oraclePrices,
+    //   this.params.dstChain.id,
+    //   this.params.dstChain.universe,
+    //   nativeAmountInDecimal,
+    // );
 
     console.timeEnd('preIntentSteps: CalculateGas');
 
     logger.debug('preIntent:1', {
-      gasInNative: nativeAmountInDecimal.toFixed(),
-      gasInToken: gasInToken.toFixed(),
+      // gasInNative: nativeAmountInDecimal.toFixed(),
+      // gasInToken: gasInToken.toFixed(),
     });
 
     // Step 4: create intent
@@ -170,8 +167,8 @@ class BridgeHandler {
       amount: tokenAmountInDecimal,
       assets: userAssets,
       feeStore,
-      gas: nativeAmountInDecimal,
-      gasInToken,
+      gas: new Decimal(0),
+      gasInToken: new Decimal(0),
       sourceChains,
       token: this.params.dstToken,
     });
@@ -318,11 +315,11 @@ class BridgeHandler {
         }
       }
 
-      const { explorerURL, intentID, requestHash, waitForDoubleCheckTx, sourceTxs } = response;
+      const { explorerURL, intentID, requestHash, sourceTxs } = response;
 
       // Step 7: Wait for fill
       storeIntentHashToStore(this.options.evm.address, intentID.toNumber());
-      await this.waitForFill(requestHash, intentID, waitForDoubleCheckTx);
+      await this.waitForFill(requestHash, intentID);
       removeIntentHashFromStore(this.options.evm.address, intentID);
 
       this.markStepDone(BRIDGE_STEPS.INTENT_FULFILLED);
@@ -342,13 +339,7 @@ class BridgeHandler {
     }
   };
 
-  private async waitForFill(
-    requestHash: `0x${string}`,
-    intentID: Long,
-    waitForDoubleCheckTx: () => Promise<void>,
-  ) {
-    waitForDoubleCheckTx();
-
+  private async waitForFill(requestHash: `0x${string}`, intentID: Long) {
     const ac = new AbortController();
     let promisesToRace = [
       requestTimeout(3, ac),
@@ -368,6 +359,8 @@ class BridgeHandler {
         ),
       );
     }
+
+    publishRFFUntilFillOrTimeout({ intentID, vscClient: this.options.vscClient, ac });
     await Promise.race(promisesToRace);
     logger.debug('Fill completed');
   }
@@ -379,7 +372,6 @@ class BridgeHandler {
         explorerURL: string;
         intentID: Long;
         requestHash: Hex;
-        waitForDoubleCheckTx: () => any;
         sourceTxs: SourceTxs;
       }
   > {
@@ -430,8 +422,6 @@ class BridgeHandler {
     if (!tronSignatureData && universes.has(Universe.TRON)) {
       throw Errors.internal('tron in universe list but no signature data present');
     }
-
-    const doubleCheckTxs = [];
 
     for (const [i, s] of sources.entries()) {
       const chain = this.options.chainList.getChainByID(Number(s.chainID));
@@ -515,9 +505,6 @@ class BridgeHandler {
           })(),
         );
       }
-      doubleCheckTxs.push(
-        createDepositDoubleCheckTx(convertTo32Bytes(chain.id), this.options.cosmos, intentID),
-      );
     }
 
     if (evmDeposits.length || tronDeposits.length) {
@@ -597,7 +584,6 @@ class BridgeHandler {
       intentID,
       sourceTxs,
       requestHash: destinationSigData.requestHash,
-      waitForDoubleCheckTx: waitForDoubleCheckTx(doubleCheckTxs),
     };
   }
 
@@ -1056,12 +1042,6 @@ const isDeposit = (universe: Universe, tokenAddress: Hex) => {
   }
 
   return true;
-};
-
-const waitForDoubleCheckTx = (input: Array<() => Promise<void>>) => {
-  return async () => {
-    await Promise.allSettled(input.map((i) => i()));
-  };
 };
 
 export default BridgeHandler;

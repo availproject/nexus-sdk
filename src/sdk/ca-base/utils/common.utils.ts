@@ -1,11 +1,9 @@
 import {
   Bytes,
-  DepositVEPacket,
   Environment,
   ERC20ABI,
   EVMRFF,
   EVMVaultABI,
-  MsgDoubleCheckTx,
   Universe,
 } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
@@ -54,7 +52,7 @@ import { requestTimeout, waitForIntentFulfilment } from './contract.utils';
 import { cosmosFillCheck } from './cosmos.utils';
 import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 import { Errors } from '../errors';
-import { cosmosCreateDoubleCheckTx, cosmosRefundIntent } from './cosmos.utils';
+import { cosmosRefundIntent } from './cosmos.utils';
 import { PlatformUtils } from './platform.utils';
 
 const logger = getLogger();
@@ -482,35 +480,12 @@ const convertToHexAddressByUniverse = (address: Uint8Array, universe: Universe) 
   }
 };
 
-const createDepositDoubleCheckTx = (chainID: Uint8Array, cosmos: CosmosOptions, intentID: Long) => {
-  const msg = MsgDoubleCheckTx.create({
-    creator: cosmos.address,
-    packet: {
-      $case: 'depositPacket',
-      value: DepositVEPacket.create({
-        gasRefunded: false,
-        id: intentID,
-      }),
-    },
-    txChainID: chainID,
-    txUniverse: Universe.ETHEREUM,
-  });
-
-  return () => {
-    return cosmosCreateDoubleCheckTx({
-      address: cosmos.address,
-      client: cosmos.client,
-      msg,
-    });
-  };
-};
-
 class UserAsset {
   get balance() {
     return this.value.balance;
   }
 
-  constructor(public value: UserAssetDatum) { }
+  constructor(public value: UserAssetDatum) {}
 
   getBridgeAssets(dstChainId: number) {
     return this.value.breakdown
@@ -598,7 +573,7 @@ class UserAsset {
   }
 }
 class UserAssets {
-  constructor(public data: UserAssetDatum[]) { }
+  constructor(public data: UserAssetDatum[]) {}
 
   add(asset: UserAssetDatum) {
     this.data.push(asset);
@@ -900,7 +875,6 @@ export {
   convertTo32Bytes,
   convertTo32BytesHex,
   convertToHexAddressByUniverse,
-  createDepositDoubleCheckTx,
   createRequestEVMSignature,
   divDecimals,
   equalFold,

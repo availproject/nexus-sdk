@@ -52,7 +52,7 @@ import {
   storeSIWESignatureToLocalStorage,
   getBalancesForSwap,
   switchChain,
-  intentTransform,
+  // intentTransform,
   mulDecimals,
   getBalancesForBridge,
   equalFold,
@@ -203,14 +203,14 @@ export class CA {
     this._initStatus = INIT_STATUS.CREATED;
   };
 
-  protected _getMyIntents = async (page = 1) => {
-    return this.withReinit(async () => {
-      const { wallet } = await this._getCosmosWallet();
-      const address = (await wallet.getAccounts())[0].address;
-      const rffList = await this._queryClients!.cosmosQueryClient.fetchMyIntents(address, page);
-      return intentTransform(rffList, this._networkConfig.INTENT_EXPLORER_URL, this.chainList);
-    });
-  };
+  // protected _getMyIntents = async (page = 1) => {
+  //   return this.withReinit(async () => {
+  //     const { wallet } = await this._getCosmosWallet();
+  //     const address = (await wallet.getAccounts())[0].address;
+  //     const rffList = await this._queryClients!.cosmosQueryClient.fetchMyIntents(address, page);
+  //     return intentTransform(rffList, this._networkConfig.INTENT_EXPLORER_URL, this.chainList);
+  //   });
+  // };
 
   protected _getBalancesForSwap = async () => {
     if (!this._evm) {
