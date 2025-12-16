@@ -19,6 +19,7 @@ import {
   BeforeExecuteHook,
   ReadableIntent,
   TokenInfo,
+  SwapAndExecuteParams,
 } from '../../../commons';
 import {
   createPublicClient,
@@ -484,6 +485,10 @@ class BridgeAndExecuteQuery {
       gasPrice: gasPrice,
       gasFee: gasUsed * gasPrice,
     };
+  }
+
+  public async swapAndExecute(params: SwapAndExecuteParams) {
+
   }
 
   /**

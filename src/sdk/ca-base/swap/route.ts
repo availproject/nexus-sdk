@@ -35,11 +35,17 @@ import {
   mulDecimals,
   calculateMaxBridgeFee,
   getBalancesForSwap,
+  convertGasToToken,
 } from '../utils';
-import { EADDRESS } from './constants';
+import { EADDRESS, EADDRESS_32_BYTES } from './constants';
 import { FlatBalance } from './data';
 import { createIntent } from './rff';
-import { calculateValue, convertTo32Bytes, convertToEVMAddress } from './utils';
+import {
+  calculateValue,
+  convertTo32Bytes,
+  convertToEVMAddress,
+  sortSourcesByPriority,
+} from './utils';
 import { Errors } from '../errors';
 
 const logger = getLogger();
@@ -76,7 +82,8 @@ const _exactOutRoute = async (
       evmAddress: params.address.eoa,
       chainList: params.chainList,
       // Use only stable and native coins for exact out.
-      filter: true,
+      filterWithSupportedTokens: true,
+      allowedSources: input.sources,
     }),
     params.cosmosQueryClient.fetchPriceOracle(),
   ]);
@@ -87,13 +94,13 @@ const _exactOutRoute = async (
   logger.debug('determineSwapRoute', { assets, balances, input });
 
   logger.debug('determineSwapRoute:destinationSwapInput', {
-    dstOmniversalChainID,
-    s: {
-      amount: BigInt(input.toAmount),
-      tokenAddress: toBytes(input.toTokenAddress),
-    },
-    userAddressInBytes,
+    input,
   });
+
+  const dstChain = params.chainList.getChainByID(input.toChainId);
+  if (!dstChain) {
+    throw Errors.chainNotFound(input.toChainId);
+  }
 
   // ------------------------------
   // 2. Fetch chain & COT information
@@ -118,6 +125,26 @@ const _exactOutRoute = async (
       equalFold(convertToEVMAddress(b.tokenAddress), dstChainCOTAddress),
   );
 
+  let gasInCOT = new Decimal(0);
+
+  if (input.toNativeAmount && input.toNativeAmount > 0n) {
+    // 1. Convert to COT
+    gasInCOT = convertGasToToken(
+      {
+        contractAddress: dstChainCOTAddress,
+        decimals: dstChainCOT.decimals,
+      },
+      oraclePrices,
+      dstChain.id,
+      dstChain.universe,
+      divDecimals(input.toNativeAmount ?? 0n, dstChain.nativeCurrency.decimals),
+    ).mul(1.02);
+    // 2. Add to destination toAmount
+
+    // 3. Create quote for that
+    // 4. Add execution, sweeping and requoting logic
+  }
+
   logger.debug('determineSwapRoute:destinationSwapInput', {
     dstChainCOTBalance,
   });
@@ -137,15 +164,28 @@ const _exactOutRoute = async (
 
     // If output token is not COT, calculate the actual destination swap
     if (!equalFold(input.toTokenAddress, dstChainCOTAddress)) {
-      destinationSwap = await determineDestinationSwaps(
-        userAddressInBytes,
-        dstOmniversalChainID,
-        {
-          amount: BigInt(input.toAmount),
-          tokenAddress: convertTo32Bytes(input.toTokenAddress),
-        },
-        params.aggregators,
-      );
+      const [ds, dgs] = await Promise.all([
+        determineDestinationSwaps(
+          userAddressInBytes,
+          dstOmniversalChainID,
+          {
+            amount: BigInt(input.toAmount),
+            tokenAddress: convertTo32Bytes(input.toTokenAddress),
+          },
+          params.aggregators,
+        ),
+        !gasInCOT.isZero()
+          ? destinationSwapWithExactIn(
+              userAddressInBytes,
+              dstOmniversalChainID,
+              mulDecimals(gasInCOT, dstChainCOT.decimals),
+              EADDRESS_32_BYTES,
+              params.aggregators,
+            )
+          : null,
+      ]);
+
+      destinationSwap = ds;
 
       // If user has existing COT on destination chain, it must be moved to ephemeral
       if (new Decimal(dstChainCOTBalance?.amount ?? 0).gt(0)) {
@@ -162,8 +202,9 @@ const _exactOutRoute = async (
     const createdAt = Date.now();
 
     // min is what is actually needed for dst swap, we add 1% for bridge related fees and 1% buffer for source swaps.
-    // so we are charging min + 2% from the user, we add the buffer so the swap definitely happens and any pending amounts are sent back to the user.
-    const min = destinationSwap.inputAmount;
+    // We also add gasInCOT to it because we need to be able to swap to Gas
+    // so we are charging min + 5% from the user, we add the buffer so the swap definitely happens and any pending amounts are sent back to the user.
+    const min = destinationSwap.inputAmount.add(gasInCOT);
     // Apply 5% buffer to destination input amount - any leftover is sent back in COT.
     const max = applyBuffer(destinationSwap.inputAmount, 5).toDP(
       dstChainCOT.decimals,
@@ -234,11 +275,18 @@ const _exactOutRoute = async (
     !cotAsset ||
     new Decimal(cotAsset.balance).lt(dstSwapInputAmountInDecimal);
 
+  const sortedBalances = sortSourcesByPriority(balances, {
+    // FIXME: Actual token or COT??
+    tokenAddress: dstChainCOTAddress,
+    // FIXME: Actual token or COT??
+    symbol: 'USDC',
+    chainID: dstChain.id,
+  });
   if (sourceSwapsRequired) {
     sourceSwaps = (
       await autoSelectSources(
         userAddressInBytes,
-        balances.map((balance) => ({
+        sortedBalances.map((balance) => ({
           amount: mulDecimals(balance.amount, balance.decimals),
           chainID: new OmniversalChainID(balance.universe, balance.chainID),
           tokenAddress: toBytes(balance.tokenAddress),
@@ -470,6 +518,7 @@ export type SwapRoute = {
   destination: {
     type: 'EXACT_IN' | 'EXACT_OUT';
     swap: DestinationSwap;
+    gasSwap: DestinationSwap;
     fetchDestinationSwapDetails: () => Promise<DestinationSwap>;
   };
   extras: {
@@ -530,7 +579,7 @@ const _exactInRoute = async (
     getBalancesForSwap({
       evmAddress: params.address.eoa,
       chainList: params.chainList,
-      filter: false,
+      filterWithSupportedTokens: false,
     }),
     params.cosmosQueryClient.fetchPriceOracle(),
   ]).catch((e) => {

@@ -18,7 +18,7 @@ import {
 import CaliburABI from './calibur.abi';
 import axios from 'axios';
 import Decimal from 'decimal.js';
-import { retry } from 'es-toolkit';
+import { orderBy, retry } from 'es-toolkit';
 import {
   ByteArray,
   bytesToBigInt,
@@ -55,6 +55,8 @@ import {
   Tx,
   ChainListType,
   VSCClient,
+  Source,
+  MAINNET_CHAIN_IDS,
 } from '../../../commons';
 import {
   convertAddressByUniverse,
@@ -90,8 +92,6 @@ export const convertTo32Bytes = (
 
   return pad(input, { dir: 'left', size: 32 });
 };
-
-export const EADDRESS_32_BYTES = convertTo32Bytes(EADDRESS);
 
 export const convertToEVMAddress = (address: Hex | Uint8Array) => {
   if (typeof address === 'string') {
@@ -787,16 +787,35 @@ export const vscBalancesToAssets = (
 export const ankrBalanceToAssets = (
   chainList: ChainListType,
   ankrBalances: AnkrBalances,
-  filter: boolean,
+  filterWithSupportedTokens: boolean,
+  allowedSources: Source[] = [],
 ) => {
   const assets: UserAssetDatum[] = [];
+
+  const allowed = (chainId: number, tokenAddress: Hex) => {
+    if (allowedSources.length === 0) {
+      return true;
+    }
+
+    return !!allowedSources.find(
+      (s) => s.chainId === chainId && equalFold(s.tokenAddress, tokenAddress),
+    );
+  };
 
   for (const asset of ankrBalances) {
     if (new Decimal(asset.balance).equals(0)) {
       continue;
     }
 
-    if (filter && !isTokenSupported(asset.chainID, convertTo32BytesHex(asset.tokenAddress))) {
+    // Check if filter with supportedToken is ON and token is not in the list
+    const isSupportedToken =
+      filterWithSupportedTokens &&
+      !isTokenSupported(asset.chainID, convertTo32BytesHex(asset.tokenAddress));
+
+    // Check if user has allowed this source to be used - defaults to all being allowed
+    const isAllowed = allowed(asset.chainID, asset.tokenAddress);
+
+    if (!isSupportedToken || !isAllowed) {
       continue;
     }
 
@@ -1605,4 +1624,67 @@ export const getSwapSupportedChains = (chainList: ChainListType) => {
       name: chain.name,
       logo: chain.custom.icon,
     }));
+};
+
+export const sortSourcesByPriority = (
+  balances: FlatBalance[],
+  destination: { tokenAddress: Hex; chainID: number; symbol: string },
+) => {
+  const STABLECOINS = ['USDC', 'USDT'];
+  const ETHEREUM_STABLECOINS = ['USDC', 'USDT', 'DAI'];
+
+  const isGasToken = (tokenAddress: Hex): boolean => {
+    return equalFold(tokenAddress, ZERO_ADDRESS) || equalFold(tokenAddress, EADDRESS);
+  };
+
+  const isSameToken = (balance: FlatBalance): boolean => {
+    return (
+      equalFold(balance.tokenAddress, destination.tokenAddress) ||
+      (balance.symbol === destination.symbol &&
+        balance.symbol !== 'ETH' &&
+        balance.symbol !== 'WETH')
+    );
+  };
+
+  const getPriority = (balance: FlatBalance): number => {
+    // Priority levels:
+    // 1 - Same token on destination chain
+    // 2 - USDC/USDT on destination chain (non-Ethereum)
+    // 3 - Native gas token on destination chain (non-Ethereum)
+    // 4 - Any other token on destination chain (non-Ethereum)
+    // 5 - Same token on other non-Ethereum chains
+    // 6 - USDC/USDT on other non-Ethereum chains
+    // 7 - Any other token on non-Ethereum chains (catch-all)
+    // 8 - Same token on Ethereum (different chain)
+    // 9 - USDC/USDT/DAI on Ethereum
+    // 10 - ETH on Ethereum
+    // 11 - Any other token on Ethereum
+
+    const isSame = isSameToken(balance);
+    const isSameChain = balance.chainID === destination.chainID;
+    const isEthereum = balance.chainID === MAINNET_CHAIN_IDS.ETHEREUM;
+    const isGas = isGasToken(balance.tokenAddress);
+
+    if (isSameChain) {
+      if (isSame) return 1;
+      if (!isEthereum) {
+        if (STABLECOINS.includes(balance.symbol)) return 2;
+        if (isGas) return 3;
+        return 4;
+      }
+    }
+
+    if (isEthereum) {
+      if (isSame) return 8;
+      if (ETHEREUM_STABLECOINS.includes(balance.symbol)) return 9;
+      if (balance.symbol === 'ETH') return 10;
+      return 11;
+    } else {
+      if (isSame) return 5;
+      if (STABLECOINS.includes(balance.symbol)) return 6;
+      return 7;
+    }
+  };
+
+  return orderBy(balances, [getPriority, (b) => b.value], ['asc', 'desc']);
 };

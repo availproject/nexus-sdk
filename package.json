@@ -11,6 +11,7 @@
   ],
   "scripts": {
     "build": "rollup -c",
+    "test": "vitest",
     "buildAndPack": "rollup -c && npm pack",
     "dev": "rollup -c -w",
     "docs": "typedoc --plugin typedoc-theme-fresh --theme fresh --options typedoc_html.json",
@@ -80,7 +81,8 @@
     "typedoc-plugin-missing-exports": "4.1.2",
     "typedoc-plugin-rename-defaults": "0.7.3",
     "typedoc-theme-fresh": "0.2.1",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "4.0.15"
   },
   "publishConfig": {
     "access": "public"

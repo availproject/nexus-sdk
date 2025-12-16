@@ -221,7 +221,7 @@ export class CA {
       return getBalancesForSwap({
         evmAddress: (await this._evm!.client.requestAddresses())[0],
         chainList: this.chainList,
-        filter: false,
+        filterWithSupportedTokens: false,
       });
     });
   };
@@ -692,3 +692,5 @@ export class CA {
     return mulDecimals(amount, token.decimals);
   };
 }
+
+

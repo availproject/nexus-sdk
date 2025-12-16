@@ -16,7 +16,7 @@ import { orderBy, retry } from 'es-toolkit';
 import Long from 'long';
 import { Hex, PrivateKeyAccount, WalletClient } from 'viem';
 import { divDecimals, equalFold, minutesToMs, switchChain, waitForTxReceipt } from '../utils';
-import { EADDRESS, SWEEPER_ADDRESS } from './constants';
+import { EADDRESS, SWEEPER_ADDRESS, EADDRESS_32_BYTES } from './constants';
 import { getTokenDecimals } from './data';
 import { createBridgeRFF } from './rff';
 import { caliburExecute, checkAuthCodeSet, createSBCTxFromCalls, waitForSBCTxReceipt } from './sbc';
@@ -28,7 +28,6 @@ import {
   convertToEVMAddress,
   createPermitAndTransferFromTx,
   createSweeperTxs,
-  EADDRESS_32_BYTES,
   EXPECTED_CALIBUR_CODE,
   getAllowanceCacheKey,
   parseQuote,

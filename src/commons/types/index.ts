@@ -274,6 +274,20 @@ export interface BridgeAndExecuteParams {
   recentApprovalTxHash?: string;
 }
 
+export interface SwapAndExecuteParams {
+  toChainId: number;
+  token: string;
+  amount: bigint;
+  sourceTokens: { fromChainId: number; fromTokenAddress: Hex }[];
+  execute: Omit<ExecuteParams, 'toChainId'>;
+  enableTransactionPolling?: boolean;
+  transactionTimeout?: number;
+  waitForReceipt?: boolean;
+  receiptTimeout?: number;
+  requiredConfirmations?: number;
+  recentApprovalTxHash?: string;
+}
+
 export type CosmosOptions = {
   address: string;
   client: SigningStargateClient;
