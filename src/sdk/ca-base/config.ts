@@ -14,6 +14,18 @@ const CORAL_CONFIG: NetworkConfig = {
   NETWORK_HINT: Environment.CORAL,
 };
 
+// Devnet
+const CERISE_CONFIG: NetworkConfig = {
+  COSMOS_REST_URL: 'https://debugnet.availproject.org',
+  COSMOS_RPC_URL: 'https://debugnet.availproject.org:26650',
+  COSMOS_WS_URL: 'wss://debugnet.availproject.org:26650/websocket',
+  COSMOS_GRPC_URL: 'https://debugnet.availproject.org/grpc-web/',
+  VSC_BASE_URL: 'https://vsc-debugnet.availproject.org',
+  VSC_WS_URL: 'wss://vsc-debugnet.availproject.org',
+  INTENT_EXPLORER_URL: 'https://explorer.nexus-cerise.availproject.org', // ??
+  NETWORK_HINT: Environment.CERISE,
+};
+
 // Testnet
 const FOLLY_CONFIG: NetworkConfig = {
   COSMOS_REST_URL: 'https://cosmos04-dev.arcana.network',
@@ -57,6 +69,8 @@ const getNetworkConfig = (network?: NexusNetwork): NetworkConfig => {
   switch (network) {
     case 'testnet':
       return FOLLY_CONFIG;
+    case 'devnet':
+      return CERISE_CONFIG;
     default:
       return CORAL_CONFIG;
   }

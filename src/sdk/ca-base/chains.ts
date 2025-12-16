@@ -19,13 +19,12 @@ class ChainList {
     switch (env) {
       case Environment.JADE:
       case Environment.CORAL:
+      case Environment.CERISE:
         this.chains = MAINNET_CHAINS;
         break;
       case Environment.FOLLY:
         this.chains = TESTNET_CHAINS;
         break;
-      case Environment.CERISE:
-        throw Errors.environmentNotSupported('Jade');
       default:
         throw Errors.environmentNotKnown();
     }
