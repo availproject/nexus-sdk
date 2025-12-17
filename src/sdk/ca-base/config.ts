@@ -16,13 +16,13 @@ const CORAL_CONFIG: NetworkConfig = {
 
 // Devnet
 const CERISE_CONFIG: NetworkConfig = {
-  COSMOS_REST_URL: 'https://debugnet.availproject.org',
-  COSMOS_RPC_URL: 'https://debugnet.availproject.org:26650',
-  COSMOS_WS_URL: 'wss://debugnet.availproject.org:26650/websocket',
-  COSMOS_GRPC_URL: 'https://debugnet.availproject.org/grpc-web/',
-  VSC_BASE_URL: 'https://vsc-debugnet.availproject.org',
-  VSC_WS_URL: 'wss://vsc-debugnet.availproject.org',
-  INTENT_EXPLORER_URL: 'https://explorer.nexus-cerise.availproject.org', // ??
+  COSMOS_REST_URL: 'https://cosmos01-dev.arcana.network',
+  COSMOS_RPC_URL: 'https://cosmos01-dev.arcana.network:26650',
+  COSMOS_WS_URL: 'wss://cosmos01-dev.arcana.network:26650/websocket',
+  COSMOS_GRPC_URL: 'https://mimosa-dash-grpc.arcana.network',
+  VSC_BASE_URL: 'https://mimosa-dash-vsc.arcana.network',
+  VSC_WS_URL: 'wss://mimosa-dash-vsc.arcana.network',
+  INTENT_EXPLORER_URL: 'https://explorer.nexus-cerise.availproject.org',
   NETWORK_HINT: Environment.CERISE,
 };
 
