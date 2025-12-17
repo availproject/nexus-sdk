@@ -107,7 +107,9 @@ export const swap = async (
   {
     const destinationTokenDetails = {
       amount: divDecimals(
-        input.mode === SwapMode.EXACT_OUT ? input.data.toAmount : destination.swap.outputAmount,
+        input.mode === SwapMode.EXACT_OUT
+          ? input.data.toAmount
+          : destination.swap.tokenSwap.outputAmount,
         dstTokenInfo.decimals,
       ).toFixed(),
       chainID: input.data.toChainId,
@@ -195,7 +197,9 @@ export const swap = async (
       chainID: input.data.toChainId,
       token: input.data.toTokenAddress,
       amount:
-        input.mode === SwapMode.EXACT_OUT ? input.data.toAmount : destination.swap.outputAmount,
+        input.mode === SwapMode.EXACT_OUT
+          ? input.data.toAmount
+          : destination.swap.tokenSwap.outputAmount,
     },
     opt,
   );

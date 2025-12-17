@@ -604,6 +604,8 @@ export class NexusSDK extends CA {
     return result.assets;
   }
 
+  public swapAndExecute = this._swapAndExecute;
+
   /**
    * Tokens returned here should be used in bridge, bridgeAndTransfer and bridgeAndExecute operations
    * @throws NexusError if the get balances for bridge fails

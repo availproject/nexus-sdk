@@ -162,6 +162,7 @@ const _exactOutRoute = async (
       quote: null,
     };
 
+    let gasSwap = null;
     // If output token is not COT, calculate the actual destination swap
     if (!equalFold(input.toTokenAddress, dstChainCOTAddress)) {
       const [ds, dgs] = await Promise.all([
@@ -186,6 +187,21 @@ const _exactOutRoute = async (
       ]);
 
       destinationSwap = ds;
+
+      if (dgs) {
+        gasSwap = {
+          quote: dgs.quote,
+          aggregator: dgs.aggregator,
+          originalHolding: {
+            chainID: dstOmniversalChainID,
+            tokenAddress: dstChainCOT.tokenAddress,
+            amount: mulDecimals(destinationSwap.inputAmount, dstChainCOT.decimals),
+            value: 0,
+            decimals: dstChainCOT.decimals,
+            symbol: CurrencyID[dstChainCOT.currencyID],
+          },
+        };
+      }
 
       // If user has existing COT on destination chain, it must be moved to ephemeral
       if (new Decimal(dstChainCOTBalance?.amount ?? 0).gt(0)) {
@@ -212,15 +228,6 @@ const _exactOutRoute = async (
     );
 
     return {
-      ...destinationSwap,
-      originalHolding: {
-        chainID: dstOmniversalChainID,
-        tokenAddress: dstChainCOT.tokenAddress,
-        amount: mulDecimals(destinationSwap.inputAmount, dstChainCOT.decimals),
-        value: 0,
-        decimals: dstChainCOT.decimals,
-        symbol: CurrencyID[dstChainCOT.currencyID],
-      },
       creationTime: createdAt,
       dstChainCOT: dstChainCOT,
       dstEOAToEphTx,
@@ -228,11 +235,24 @@ const _exactOutRoute = async (
         min,
         max,
       },
-      req: {
-        chain: dstOmniversalChainID,
-        inputToken: dstChainCOT.tokenAddress,
-        outputToken: toBytes(input.toTokenAddress),
+      inputToken: dstChainCOT.tokenAddress,
+      tokenSwap: {
+        ...destinationSwap,
+        originalHolding: {
+          chainID: dstOmniversalChainID,
+          tokenAddress: dstChainCOT.tokenAddress,
+          amount: mulDecimals(destinationSwap.inputAmount, dstChainCOT.decimals),
+          value: 0,
+          decimals: dstChainCOT.decimals,
+          symbol: CurrencyID[dstChainCOT.currencyID],
+        },
+        req: {
+          chain: dstOmniversalChainID,
+          outputToken: toBytes(input.toTokenAddress),
+        },
       },
+
+      gasSwap,
     };
   };
 
@@ -489,16 +509,26 @@ type DestinationSwap = {
     amount: bigint;
     contractAddress: Hex;
   } | null;
+
+  // This is input of tokenSwap + gasSwap + buffer
   inputAmount: { min: Decimal; max: Decimal };
-  req: {
-    chain: OmniversalChainID;
-    inputToken: Buffer<ArrayBufferLike>;
-    outputToken: ByteArray;
+  // COT
+  inputToken: ByteArray;
+  tokenSwap: {
+    req: {
+      chain: OmniversalChainID;
+      outputToken: ByteArray;
+    };
+    quote: Quote | null;
+    originalHolding: Holding & { symbol: string; decimals: number };
+    aggregator: Aggregator;
+    outputAmount: bigint;
   };
-  quote: Quote | null;
-  aggregator: Aggregator;
-  originalHolding: Holding & { symbol: string; decimals: number };
-  outputAmount: bigint;
+  gasSwap: {
+    quote: Quote | null;
+    originalHolding: Holding & { symbol: string; decimals: number };
+    aggregator: Aggregator;
+  } | null;
 };
 
 export type SwapRoute = {
@@ -518,7 +548,6 @@ export type SwapRoute = {
   destination: {
     type: 'EXACT_IN' | 'EXACT_OUT';
     swap: DestinationSwap;
-    gasSwap: DestinationSwap;
     fetchDestinationSwapDetails: () => Promise<DestinationSwap>;
   };
   extras: {
@@ -873,23 +902,27 @@ const _exactInRoute = async (
       dstSwapInputAmountInDecimal: dstSwapInputAmountInDecimal.toFixed(),
     });
     return {
-      ...destinationSwap,
-      originalHolding: {
-        chainID: dstOmniversalChainID,
-        tokenAddress: dstChainCOT.tokenAddress,
-        amount: mulDecimals(dstSwapInputAmountInDecimal, dstChainCOT.decimals),
-        value: 0,
-        decimals: dstChainCOT.decimals,
-        symbol: CurrencyID[dstChainCOT.currencyID],
+      tokenSwap: {
+        ...destinationSwap,
+        originalHolding: {
+          chainID: dstOmniversalChainID,
+          tokenAddress: dstChainCOT.tokenAddress,
+          amount: mulDecimals(dstSwapInputAmountInDecimal, dstChainCOT.decimals),
+          value: 0,
+          decimals: dstChainCOT.decimals,
+          symbol: CurrencyID[dstChainCOT.currencyID],
+        },
+        req: {
+          chain: dstOmniversalChainID,
+          outputToken: toBytes(input.toTokenAddress),
+        },
       },
       dstChainCOT: dstChainCOT,
       dstEOAToEphTx,
       inputAmount: { min: dstSwapInputAmountInDecimal, max: dstSwapInputAmountInDecimal },
-      req: {
-        chain: dstOmniversalChainID,
-        inputToken: dstChainCOT.tokenAddress,
-        outputToken: toBytes(input.toTokenAddress),
-      },
+      inputToken: dstChainCOT.tokenAddress,
+      gasSwap: null,
+
       creationTime: Date.now(),
     };
   };

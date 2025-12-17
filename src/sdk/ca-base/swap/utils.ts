@@ -1059,7 +1059,7 @@ export const parseQuote = (
     agg: Aggregator;
     originalHolding: Holding & { decimals: number; symbol: string };
     quote: Quote;
-    req: { inputToken: Bytes };
+    inputToken: Bytes;
   },
   createApproval = true,
 ) => {
@@ -1073,7 +1073,7 @@ export const parseQuote = (
     const val = {
       input: {
         amount: input.quote.inputAmount,
-        token: input.req.inputToken,
+        token: input.inputToken,
         decimals: input.originalHolding.decimals,
         symbol: input.originalHolding.symbol,
       },
@@ -1095,7 +1095,7 @@ export const parseQuote = (
           originalResponse.estimate.approvalAddress as Hex,
           input.quote.inputAmount,
         ),
-        to: convertToEVMAddress(input.req.inputToken),
+        to: convertToEVMAddress(input.inputToken),
         value: 0n,
       };
     }
@@ -1109,13 +1109,13 @@ export const parseQuote = (
       'approval.target': originalResponse.quote.approvalTarget,
       tx: tx,
       'tx.amount': input.quote.inputAmount,
-      'tx.inputToken': input.req.inputToken,
+      'tx.inputToken': input.inputToken,
       'tx.outputAmount': input.quote.outputAmountMinimum,
     });
     const val = {
       input: {
         amount: input.quote.inputAmount,
-        token: input.req.inputToken,
+        token: input.inputToken,
         decimals: input.originalHolding.decimals,
         symbol: input.originalHolding.symbol,
       },
@@ -1135,7 +1135,7 @@ export const parseQuote = (
           originalResponse.quote.approvalTarget as Hex,
           input.quote.inputAmount,
         ),
-        to: convertToEVMAddress(input.req.inputToken),
+        to: convertToEVMAddress(input.inputToken),
         value: 0n,
       };
     }

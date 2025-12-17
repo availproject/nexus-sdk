@@ -182,7 +182,21 @@ export interface TokenBalance {
   isNative?: boolean;
 }
 
-// Enhanced modular parameters for execute functionality with dynamic parameter building
+type GasPriceSelector = 'low' | 'medium' | 'high' | 'ultrahigh';
+
+export interface SwapExecuteParams {
+  to: Hex;
+  value?: bigint;
+  data?: Hex;
+  gas: bigint;
+  gasPrice?: GasPriceSelector;
+  tokenApproval?: {
+    token: Hex;
+    amount: bigint;
+    spender: Hex;
+  };
+}
+
 export interface ExecuteParams {
   toChainId: number;
   to: Hex;
@@ -276,16 +290,10 @@ export interface BridgeAndExecuteParams {
 
 export interface SwapAndExecuteParams {
   toChainId: number;
-  token: string;
-  amount: bigint;
-  sourceTokens: { fromChainId: number; fromTokenAddress: Hex }[];
-  execute: Omit<ExecuteParams, 'toChainId'>;
-  enableTransactionPolling?: boolean;
-  transactionTimeout?: number;
-  waitForReceipt?: boolean;
-  receiptTimeout?: number;
-  requiredConfirmations?: number;
-  recentApprovalTxHash?: string;
+  toTokenAddress: Hex;
+  toAmount: bigint;
+  sources?: { chainId: number; tokenAddress: Hex }[];
+  execute: SwapExecuteParams;
 }
 
 export type CosmosOptions = {
