@@ -32,6 +32,7 @@ import {
   SwapMetadata,
 } from './utils';
 import { Errors } from '../errors';
+import { Hex } from 'viem';
 
 const logger = getLogger();
 
@@ -120,13 +121,19 @@ export const swap = async (
 
     let accepted = false;
 
-    const refresh = async () => {
+    const refresh = async (sources?: { chainId: number; tokenAddress: Hex }[]) => {
       if (accepted) {
         logger.warn('Swap Intent refresh called after acceptance');
         return createSwapIntent(extras.assetsUsed, destinationTokenDetails, options.chainList);
       }
 
-      const swapRouteResponse = await determineSwapRoute(input, swapRouteParams);
+      // Can only update sources in exact out
+      let updatedInput = { ...input };
+      if (updatedInput.mode === SwapMode.EXACT_OUT) {
+        updatedInput.data.sources = sources;
+      }
+
+      const swapRouteResponse = await determineSwapRoute(updatedInput, swapRouteParams);
 
       source = swapRouteResponse.source;
       extras = swapRouteResponse.extras;
