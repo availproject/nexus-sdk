@@ -21,10 +21,11 @@ import {
   // divideBigInt,
   getPctGasBufferByChain,
   equalFold,
+  convertTo32BytesHex,
 } from '../utils';
 import { getTokenInfo, packERC20Approve } from '../swap/utils';
 import { Errors } from '../errors';
-import { isNativeAddress, ZERO_ADDRESS } from '../constants';
+import { isNativeAddress } from '../constants';
 import { Universe } from '@avail-project/ca-common';
 import { getGasPriceRecommendations } from './gasFeeHistory';
 import { FlatBalance } from '../swap/data';
@@ -254,14 +255,16 @@ class SwapAndExecuteQuery {
     let gasAmount = requiredGasAmount;
 
     let destinationTokenAmount = 0n;
-    const tokenBalance = balances.find((b) => equalFold(b.tokenAddress, tokenAddress));
+    const tokenBalance = balances.find((b) =>
+      equalFold(b.tokenAddress, convertTo32BytesHex(tokenAddress)),
+    );
     if (tokenBalance) {
       destinationTokenAmount = mulDecimals(tokenBalance.amount, tokenDecimals);
     }
 
     let destinationGasAmount = 0n;
-    const gasBalance = balances.find(
-      (b) => equalFold(b.tokenAddress, ZERO_ADDRESS) || equalFold(b.tokenAddress, EADDRESS),
+    const gasBalance = balances.find((b) =>
+      equalFold(b.tokenAddress, convertTo32BytesHex(EADDRESS)),
     );
     if (gasBalance) {
       destinationGasAmount = mulDecimals(gasBalance.amount, gasBalance.decimals);

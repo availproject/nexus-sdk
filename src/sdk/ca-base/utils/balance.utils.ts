@@ -24,7 +24,12 @@ export const getBalancesForSwap = async (input: {
     input.allowedSources,
   );
   let balances = toFlatBalance(assets);
-
+  logger.debug('getBalancesForSwap', {
+    input,
+    ankrBalances,
+    assets,
+    balances,
+  });
   if (input.filterWithSupportedTokens) {
     balances = filterSupportedTokens(balances);
   }

@@ -808,14 +808,21 @@ export const ankrBalanceToAssets = (
     }
 
     // Check if filter with supportedToken is ON and token is not in the list
-    const isSupportedToken =
-      filterWithSupportedTokens &&
-      !isTokenSupported(asset.chainID, convertTo32BytesHex(asset.tokenAddress));
+    const isSupportedToken = isTokenSupported(
+      asset.chainID,
+      convertTo32BytesHex(asset.tokenAddress),
+    );
 
     // Check if user has allowed this source to be used - defaults to all being allowed
     const isAllowed = allowed(asset.chainID, asset.tokenAddress);
 
-    if (!isSupportedToken || !isAllowed) {
+    logger.debug('ankrBalanaceToAssets', {
+      isAllowed,
+      isSupportedToken,
+      allowedSources,
+    });
+
+    if ((filterWithSupportedTokens && !isSupportedToken) || !isAllowed) {
       continue;
     }
 

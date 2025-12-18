@@ -222,10 +222,7 @@ const _exactOutRoute = async (
     // so we are charging min + 5% from the user, we add the buffer so the swap definitely happens and any pending amounts are sent back to the user.
     const min = destinationSwap.inputAmount.add(gasInCOT);
     // Apply 5% buffer to destination input amount - any leftover is sent back in COT.
-    const max = applyBuffer(destinationSwap.inputAmount, 5).toDP(
-      dstChainCOT.decimals,
-      Decimal.ROUND_CEIL,
-    );
+    const max = applyBuffer(min, 5).toDP(dstChainCOT.decimals, Decimal.ROUND_CEIL);
 
     return {
       creationTime: createdAt,
@@ -251,7 +248,6 @@ const _exactOutRoute = async (
           outputToken: toBytes(input.toTokenAddress),
         },
       },
-
       gasSwap,
     };
   };
