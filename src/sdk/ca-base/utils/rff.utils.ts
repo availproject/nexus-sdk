@@ -227,6 +227,105 @@ const createRFFromIntent = async (
   };
 };
 
+const createMayanRFFromIntent = async (
+  intent: Intent,
+  options: Pick<IBridgeOptions, 'chainList' | 'cosmos' | 'tron'> & {
+    evm: {
+      address: `0x${string}`;
+      client: WalletClient | PrivateKeyAccount;
+    };
+  },
+  destinationUniverse: Universe,
+) => {
+  const { destinations, sources, universes } = getSourcesAndDestinationsForRFF(
+    intent,
+    options.chainList,
+    destinationUniverse,
+  );
+
+  const parties: Array<{ address: string; universe: Universe }> = [];
+  for (const universe of universes) {
+    if (universe === Universe.ETHEREUM) {
+      parties.push({
+        address: convertTo32BytesHex(options.evm.address),
+        universe: universe,
+      });
+    }
+  }
+
+  const omniversalRFF = new OmniversalRFF({
+    destinationChainID: convertTo32Bytes(intent.destination.chainID),
+    destinations: destinations.map((dest) => ({
+      contractAddress: toBytes(dest.tokenAddress),
+      value: toBytes(dest.value),
+    })),
+    recipientAddress: convertTo32Bytes(intent.recipientAddress),
+    destinationUniverse: intent.destination.universe,
+    expiry: Long.fromString((BigInt(Date.now() + INTENT_EXPIRY) / 1000n).toString()),
+    nonce: await PlatformUtils.cryptoGetRandomValues(new Uint8Array(32)),
+    // @ts-expect-error
+    signatureData: parties.map((p) => ({
+      address: toBytes(p.address),
+      universe: p.universe,
+    })),
+    // @ts-expect-error
+    sources: sources.map((source) => ({
+      chainID: convertTo32Bytes(source.chainID),
+      contractAddress: convertTo32Bytes(source.tokenAddress),
+      universe: source.universe,
+      value: toBytes(source.valueRaw),
+    })),
+  });
+
+  const signatureData: {
+    address: Uint8Array;
+    requestHash: `0x${string}`;
+    signature: Uint8Array;
+    universe: Universe;
+  }[] = [];
+
+  for (const universe of universes) {
+    if (universe === Universe.ETHEREUM) {
+      const { requestHash, signature } = await createRequestEVMSignature(
+        omniversalRFF.asEVMRFF(),
+        options.evm.address,
+        options.evm.client,
+      );
+
+      signatureData.push({
+        address: convertTo32Bytes(options.evm.address),
+        requestHash,
+        signature,
+        universe: Universe.ETHEREUM,
+      });
+    }
+  }
+
+  const msgBasicCosmos = MsgCreateRequestForFunds.create({
+    destinationChainID: omniversalRFF.protobufRFF.destinationChainID,
+    destinations: omniversalRFF.protobufRFF.destinations,
+    destinationUniverse: omniversalRFF.protobufRFF.destinationUniverse,
+    recipientAddress: omniversalRFF.protobufRFF.recipientAddress,
+    expiry: omniversalRFF.protobufRFF.expiry,
+    nonce: omniversalRFF.protobufRFF.nonce,
+    signatureData: signatureData.map((s) => ({
+      address: s.address,
+      signature: s.signature,
+      universe: s.universe,
+    })),
+    sources: omniversalRFF.protobufRFF.sources,
+    user: options.cosmos.address,
+  });
+
+  return {
+    msgBasicCosmos,
+    omniversalRFF,
+    signatureData,
+    sources,
+    universes,
+  };
+};
+
 const calculateMaxBridgeFee = ({
   assets,
   feeStore,
@@ -306,4 +405,4 @@ const calculateMaxBridgeFee = ({
   return { fee, maxAmount, sourceChainIds };
 };
 
-export { createRFFromIntent, getSourcesAndDestinationsForRFF, calculateMaxBridgeFee };
+export { createRFFromIntent, createMayanRFFromIntent, getSourcesAndDestinationsForRFF, calculateMaxBridgeFee };

@@ -82,6 +82,11 @@ export class NexusSDK extends CA {
     this.analytics.endOperation(opId, { success: true });
   }
 
+  public async bridgeMayan(params: BridgeParams, options?: OnEventParam) {
+    const result = await (await this._createBridgeHandler(params, options)).executeMayan();
+    return result;
+  }
+
   /**
    * Bridge to destination chain from auto-selected sources or provided source chains
    * @param params bridge parameters

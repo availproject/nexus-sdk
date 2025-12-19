@@ -68,6 +68,7 @@ import {
   retrieveAddress,
   getBalancesForBridge,
   createExplorerTxURL,
+  createMayanRFFromIntent,
   // createDeadlineFromNow,
 } from '../utils';
 import { TronWeb } from 'tronweb';
@@ -337,6 +338,85 @@ class BridgeHandler {
         intent: convertIntent(intent, this.params.dstToken, this.options.chainList),
         sourceTxs,
       };
+    } catch (error) {
+      throw error;
+    }
+  };
+
+  public executeMayan = async (): Promise<{
+    intent: ReadableIntent;
+    mayanQuotes: any;
+    rff: Awaited<ReturnType<typeof createMayanRFFromIntent>>;
+  }> => {
+    try {
+      let intent = await this.buildIntent(this.params.sourceChains);
+
+      const readableIntent = convertIntent(intent, this.params.dstToken, this.options.chainList);
+      const getMayanQuotes = async (intent: ReadableIntent) => {
+        const res = await fetch('http://localhost:4000/', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            intent,
+          }),
+        });
+
+        if (!res.ok) {
+          throw new Error(`Request failed: ${res.status}`);
+        }
+
+        const { data } = await res.json();
+        return data;
+      };
+      const mayanQuotes = await getMayanQuotes(readableIntent);
+
+      const allowances = await getAllowances(intent.allSources, this.options.chainList);
+
+      let insufficientAllowanceSources = this.filterInsufficientAllowanceSources(
+        intent,
+        allowances,
+      );
+
+      let accepted = false;
+      const refresh = async (sourceChains?: number[]) => {
+        if (accepted) {
+          logger.warn('Intent refresh called after acceptance');
+          return convertIntent(intent, this.params.dstToken, this.options.chainList);
+        }
+
+        intent = await this.buildIntent(sourceChains);
+        if (intent.isAvailableBalanceInsufficient) {
+          throw Errors.insufficientBalance();
+        }
+        insufficientAllowanceSources = this.filterInsufficientAllowanceSources(intent, allowances);
+        return convertIntent(intent, this.params.dstToken, this.options.chainList);
+      };
+
+      await new Promise((resolve, reject) => {
+        const allow = () => {
+          accepted = true;
+          return resolve('User allowed intent');
+        };
+
+        const deny = () => {
+          return reject(Errors.userDeniedIntent());
+        };
+
+        this.options.hooks.onIntent({
+          allow,
+          deny,
+          intent: convertIntent(intent, this.params.dstToken, this.options.chainList),
+          refresh,
+        });
+      });
+
+      await this.waitForOnAllowanceHook(insufficientAllowanceSources);
+
+      const rff = await createMayanRFFromIntent(intent, this.options, this.params.dstChain.universe);
+      
+      return { mayanQuotes, intent: readableIntent, rff };
     } catch (error) {
       throw error;
     }
