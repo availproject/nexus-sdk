@@ -65,11 +65,16 @@ jobs:
       
       - name: Create release summary
         run: |
-          echo "## 🚀 Published to npm" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Package**: \`@avail-project/nexus-core\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Version**: \`${{ github.event.release.tag_name }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**npm**: https://www.npmjs.com/package/@avail-project/nexus-core/v/${{ github.event.release.tag_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Release Notes" >> $GITHUB_STEP_SUMMARY
-          echo "${{ github.event.release.body }}" >> $GITHUB_STEP_SUMMARY
+          TAG="${{ github.event.release.tag_name }}"
+          VERSION="${TAG#v}"
+
+          {
+          echo "## 🚀 Published to npm"
+          echo "" 
+          echo "**Package**: \`@avail-project/nexus-core\`"
+          echo "**Version**: \`${VERSION}\`"
+          echo "**npm**: https://www.npmjs.com/package/@avail-project/nexus-core/v/${VERSION}"
+          echo ""
+          echo "### Release Notes"
+          echo "${{ github.event.release.body }}"
+          } >> $GITHUB_STEP_SUMMARY
