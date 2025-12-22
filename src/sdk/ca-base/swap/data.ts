@@ -397,8 +397,8 @@ const isTokenSupported = (chainId: number, contractAddress: Hex) => {
     return false;
   }
 
-  if (equalFold(contractAddress, ZERO_ADDRESS)) {
-    contractAddress = EADDRESS;
+  if (equalFold(contractAddress, convertTo32BytesHex(ZERO_ADDRESS))) {
+    contractAddress = convertTo32BytesHex(EADDRESS);
   }
 
   const token = d.find((dt) => {
