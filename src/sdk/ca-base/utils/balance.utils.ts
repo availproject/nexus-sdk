@@ -14,6 +14,7 @@ export const getBalancesForSwap = async (input: {
   chainList: ChainListType;
   filterWithSupportedTokens: boolean;
   allowedSources?: Source[];
+  removeSources?: Source[];
 }) => {
   const ankrBalances = await getAnkrBalances(input.evmAddress, input.chainList, true);
 
@@ -22,6 +23,7 @@ export const getBalancesForSwap = async (input: {
     ankrBalances,
     input.filterWithSupportedTokens,
     input.allowedSources,
+    input.removeSources
   );
   let balances = toFlatBalance(assets);
   logger.debug('getBalancesForSwap', {

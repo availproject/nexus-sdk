@@ -292,7 +292,7 @@ export interface SwapAndExecuteParams {
   toChainId: number;
   toTokenAddress: Hex;
   toAmount: bigint;
-  sources?: { chainId: number; tokenAddress: Hex }[];
+  fromSources?: { chainId: number; tokenAddress: Hex }[];
   execute: SwapExecuteParams;
 }
 

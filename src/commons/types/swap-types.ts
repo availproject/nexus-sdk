@@ -154,7 +154,7 @@ export type Source = {
 };
 
 export interface ExactOutSwapInput {
-  sources?: Source[];
+  fromSources?: Source[];
   toChainId: number;
   toTokenAddress: Hex;
   toAmount: bigint;

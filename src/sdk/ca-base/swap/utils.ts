@@ -621,6 +621,7 @@ export const getAnkrBalances = async (
           logger.debug('getAnkrBalances', {
             balance: asset.balance,
             chainID,
+            asset,
             transferFee: transferFee.toFixed(),
           });
 
@@ -789,6 +790,7 @@ export const ankrBalanceToAssets = (
   ankrBalances: AnkrBalances,
   filterWithSupportedTokens: boolean,
   allowedSources: Source[] = [],
+  removeSources: Source[] = [],
 ) => {
   const assets: UserAssetDatum[] = [];
 
@@ -816,13 +818,25 @@ export const ankrBalanceToAssets = (
     // Check if user has allowed this source to be used - defaults to all being allowed
     const isAllowed = allowed(asset.chainID, asset.tokenAddress);
 
+    const removeSource = !!removeSources.find(
+      (rs) => rs.chainId == asset.chainID && equalFold(rs.tokenAddress, asset.tokenAddress),
+    );
+
     logger.debug('ankrBalanaceToAssets', {
       isAllowed,
       isSupportedToken,
       allowedSources,
+      token: asset.tokenData.symbol,
+      chainId: asset.chainID,
+      tokenAddress: asset.tokenAddress,
+      removeSource,
     });
 
     if ((filterWithSupportedTokens && !isSupportedToken) || !isAllowed) {
+      continue;
+    }
+
+    if (removeSource) {
       continue;
     }
 
@@ -1637,16 +1651,18 @@ export const sortSourcesByPriority = (
   balances: FlatBalance[],
   destination: { tokenAddress: Hex; chainID: number; symbol: string },
 ) => {
-  const STABLECOINS = ['USDC', 'USDT'];
-  const ETHEREUM_STABLECOINS = ['USDC', 'USDT', 'DAI'];
+  const STABLECOINS = ['USDC', 'USDT', 'DAI'];
 
   const isGasToken = (tokenAddress: Hex): boolean => {
-    return equalFold(tokenAddress, ZERO_ADDRESS) || equalFold(tokenAddress, EADDRESS);
+    return (
+      equalFold(tokenAddress, convertTo32BytesHex(ZERO_ADDRESS)) ||
+      equalFold(tokenAddress, convertTo32BytesHex(EADDRESS))
+    );
   };
 
   const isSameToken = (balance: FlatBalance): boolean => {
     return (
-      equalFold(balance.tokenAddress, destination.tokenAddress) ||
+      equalFold(balance.tokenAddress, convertTo32BytesHex(destination.tokenAddress)) ||
       (balance.symbol === destination.symbol &&
         balance.symbol !== 'ETH' &&
         balance.symbol !== 'WETH')
@@ -1672,10 +1688,18 @@ export const sortSourcesByPriority = (
     const isEthereum = balance.chainID === MAINNET_CHAIN_IDS.ETHEREUM;
     const isGas = isGasToken(balance.tokenAddress);
 
+    logger.debug('sortSourcesByPriority:getPriority', {
+      isSame,
+      isSameChain,
+      isEthereum,
+      isGas,
+      balance,
+    });
+
     if (isSameChain) {
       if (isSame) return 1;
       if (!isEthereum) {
-        if (STABLECOINS.includes(balance.symbol)) return 2;
+        if (STABLECOINS.some((coin) => equalFold(coin, balance.symbol))) return 2;
         if (isGas) return 3;
         return 4;
       }
@@ -1683,12 +1707,12 @@ export const sortSourcesByPriority = (
 
     if (isEthereum) {
       if (isSame) return 8;
-      if (ETHEREUM_STABLECOINS.includes(balance.symbol)) return 9;
+      if (STABLECOINS.some((coin) => equalFold(coin, balance.symbol))) return 9;
       if (balance.symbol === 'ETH') return 10;
       return 11;
     } else {
       if (isSame) return 5;
-      if (STABLECOINS.includes(balance.symbol)) return 6;
+      if (STABLECOINS.some((coin) => equalFold(coin, balance.symbol))) return 6;
       return 7;
     }
   };

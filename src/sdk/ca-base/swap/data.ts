@@ -8,6 +8,7 @@ import { convertTo32BytesHex, equalFold } from '../utils';
 import { EADDRESS } from './constants';
 import { convertToEVMAddress, determinePermitVariantAndVersion } from './utils';
 import { Errors } from '../errors';
+import { ZERO_ADDRESS } from '../constants';
 
 export enum CurrencyID {
   USDC = 0x1,
@@ -394,6 +395,10 @@ const isTokenSupported = (chainId: number, contractAddress: Hex) => {
   const d = chainData.get(chainId);
   if (!d) {
     return false;
+  }
+
+  if (equalFold(contractAddress, ZERO_ADDRESS)) {
+    contractAddress = EADDRESS;
   }
 
   const token = d.find((dt) => {

@@ -25,6 +25,7 @@ import {
   SwapMode,
   SwapParams,
   BridgeAsset,
+  Source,
 } from '../../../commons';
 
 import {
@@ -44,6 +45,8 @@ import {
   calculateValue,
   convertTo32Bytes,
   convertToEVMAddress,
+  getTokenInfo,
+  PublicClientList,
   sortSourcesByPriority,
 } from './utils';
 import { Errors } from '../errors';
@@ -52,7 +55,11 @@ const logger = getLogger();
 
 export const determineSwapRoute = async (
   input: SwapData,
-  options: SwapParams & { aggregators: Aggregator[]; cotCurrencyID: CurrencyID },
+  options: SwapParams & {
+    publicClientList: PublicClientList;
+    aggregators: Aggregator[];
+    cotCurrencyID: CurrencyID;
+  },
 ): Promise<SwapRoute> => {
   logger.debug('determineSwapRoute', {
     input,
@@ -74,18 +81,45 @@ export const applyBuffer = (amount: Decimal, bufferPercent: number): Decimal =>
 
 const _exactOutRoute = async (
   input: ExactOutSwapInput,
-  params: SwapParams & { aggregators: Aggregator[]; cotCurrencyID: CurrencyID },
+  params: SwapParams & {
+    publicClientList: PublicClientList;
+    aggregators: Aggregator[];
+    cotCurrencyID: CurrencyID;
+  },
 ): Promise<SwapRoute> => {
-  const [feeStore, { assets, balances }, oraclePrices] = await Promise.all([
+  const dstChain = params.chainList.getChainByID(input.toChainId);
+  if (!dstChain) {
+    throw Errors.chainNotFound(input.toChainId);
+  }
+
+  const removeSources: Source[] = [
+    {
+      chainId: input.toChainId,
+      tokenAddress: input.toTokenAddress,
+    },
+  ];
+  // 1) Required: 1 KAITO and 0.0004 ETH, Have: 0.2 KAITO and 0.0002 ETH => toNativeAmount = 0.0002 * 10**18
+  // 2) Required: 1 KAITO and 0.0004 ETH, Have: 0.2 KAITO and 0.0006 ETH => toNativeAmount = -(0.0004 * 10**18) - this signifies not to touch that amount during source selection (skipped & combined with 3)
+  // 3) Required: 1 KAITO and 0.0004 ETH, Have: 0.2 KAITO and 0.0004 ETH => toNativeAmount = -1 => signifying not to touch native currency, just remove from the list of sources
+  if (input.toNativeAmount === -1n || (input.toNativeAmount && input.toNativeAmount > 0n)) {
+    removeSources.push({
+      chainId: input.toChainId,
+      tokenAddress: EADDRESS,
+    });
+  }
+
+  const [feeStore, { assets, balances }, oraclePrices, dstTokenInfo] = await Promise.all([
     getFeeStore(params.cosmosQueryClient),
     getBalancesForSwap({
       evmAddress: params.address.eoa,
       chainList: params.chainList,
       // Use only stable and native coins for exact out.
       filterWithSupportedTokens: true,
-      allowedSources: input.sources,
+      allowedSources: input.fromSources,
+      removeSources,
     }),
     params.cosmosQueryClient.fetchPriceOracle(),
+    getTokenInfo(input.toTokenAddress, params.publicClientList.get(input.toChainId), dstChain),
   ]);
 
   const userAddressInBytes = convertTo32Bytes(params.address.ephemeral);
@@ -96,11 +130,6 @@ const _exactOutRoute = async (
   logger.debug('determineSwapRoute:destinationSwapInput', {
     input,
   });
-
-  const dstChain = params.chainList.getChainByID(input.toChainId);
-  if (!dstChain) {
-    throw Errors.chainNotFound(input.toChainId);
-  }
 
   // ------------------------------
   // 2. Fetch chain & COT information
@@ -126,9 +155,8 @@ const _exactOutRoute = async (
   );
 
   let gasInCOT = new Decimal(0);
-
   if (input.toNativeAmount && input.toNativeAmount > 0n) {
-    // 1. Convert to COT
+    // Convert to COT
     gasInCOT = convertGasToToken(
       {
         contractAddress: dstChainCOTAddress,
@@ -139,10 +167,6 @@ const _exactOutRoute = async (
       dstChain.universe,
       divDecimals(input.toNativeAmount ?? 0n, dstChain.nativeCurrency.decimals),
     ).mul(1.02);
-    // 2. Add to destination toAmount
-
-    // 3. Create quote for that
-    // 4. Add execution, sweeping and requoting logic
   }
 
   logger.debug('determineSwapRoute:destinationSwapInput', {
@@ -163,6 +187,7 @@ const _exactOutRoute = async (
     };
 
     let gasSwap = null;
+
     // If output token is not COT, calculate the actual destination swap
     if (!equalFold(input.toTokenAddress, dstChainCOTAddress)) {
       const [ds, dgs] = await Promise.all([
@@ -212,6 +237,7 @@ const _exactOutRoute = async (
           amount: mulDecimals(dstChainCOTBalance?.amount ?? 0, dstChainCOTBalance?.decimals ?? 0),
           contractAddress: dstChainCOTAddress,
         };
+        
       }
     }
 
@@ -292,10 +318,8 @@ const _exactOutRoute = async (
     new Decimal(cotAsset.balance).lt(dstSwapInputAmountInDecimal);
 
   const sortedBalances = sortSourcesByPriority(balances, {
-    // FIXME: Actual token or COT??
-    tokenAddress: dstChainCOTAddress,
-    // FIXME: Actual token or COT??
-    symbol: 'USDC',
+    tokenAddress: input.toTokenAddress,
+    symbol: dstTokenInfo.symbol,
     chainID: dstChain.id,
   });
   if (sourceSwapsRequired) {

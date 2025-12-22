@@ -205,10 +205,11 @@ class SwapAndExecuteQuery {
     if (!skipSwap) {
       const swapResult = await this.swap(
         {
-          sources: params.sources,
+          fromSources: params.fromSources,
           toTokenAddress: params.toTokenAddress,
           toAmount: amount.token,
-          toNativeAmount: amount.gas,
+          // -1n signifies the source list to not list native balance
+          toNativeAmount: amount.gas === 0n ? -1n : amount.gas,
           toChainId: params.toChainId,
         },
         options,

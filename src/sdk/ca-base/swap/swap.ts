@@ -76,7 +76,7 @@ export const swap = async (
     // new ZeroExAggregator(ZERO_X_API_KEY),
   ];
 
-  const swapRouteParams = { ...options, aggregators, cotCurrencyID: COT };
+  const swapRouteParams = { ...options, publicClientList, aggregators, cotCurrencyID: COT };
 
   const [swapRoute, dstTokenInfo] = await Promise.all([
     determineSwapRoute(input, swapRouteParams),
@@ -121,7 +121,7 @@ export const swap = async (
 
     let accepted = false;
 
-    const refresh = async (sources?: { chainId: number; tokenAddress: Hex }[]) => {
+    const refresh = async (fromSources?: { chainId: number; tokenAddress: Hex }[]) => {
       if (accepted) {
         logger.warn('Swap Intent refresh called after acceptance');
         return createSwapIntent(extras.assetsUsed, destinationTokenDetails, options.chainList);
@@ -130,7 +130,7 @@ export const swap = async (
       // Can only update sources in exact out
       let updatedInput = { ...input };
       if (updatedInput.mode === SwapMode.EXACT_OUT) {
-        updatedInput.data.sources = sources;
+        updatedInput.data.fromSources = fromSources;
       }
 
       const swapRouteResponse = await determineSwapRoute(updatedInput, swapRouteParams);
