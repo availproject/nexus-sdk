@@ -214,7 +214,7 @@ export class CA {
     });
   };
 
-  protected _getBalancesForSwap = async () => {
+  protected _getBalancesForSwap = async (onlyNativesAndStables = false) => {
     if (!this._evm) {
       throw Errors.sdkNotInitialized();
     }
@@ -223,7 +223,7 @@ export class CA {
       return getBalancesForSwap({
         evmAddress: (await this._evm!.client.requestAddresses())[0],
         chainList: this.chainList,
-        filterWithSupportedTokens: false,
+        filterWithSupportedTokens: onlyNativesAndStables,
       });
     });
   };
@@ -502,7 +502,7 @@ export class CA {
     if (!sig) {
       sig = await this._signatureForLogin();
       storeSIWESignatureToLocalStorage(this._evm!.address, this._siweChain, sig);
-    }
+    } 
 
     const pvtKey = keyDerivation.getPrivateKeyFromEthSignature(sig);
     const wallet = await createCosmosWallet(`0x${pvtKey.padStart(64, '0')}`);

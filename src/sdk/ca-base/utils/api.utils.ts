@@ -389,7 +389,7 @@ export class FeeStore {
   }
 }
 
-const getFeeStore = async (grpcClient: Awaited<ReturnType<typeof createCosmosQueryClient>>) => {
+const getFeeStore = async (cosmosQueryClient: CosmosQueryClient) => {
   const feeData: FeeStoreData = {
     fee: {
       collection: [],
@@ -401,8 +401,8 @@ const getFeeStore = async (grpcClient: Awaited<ReturnType<typeof createCosmosQue
     solverRoutes: [],
   };
   const [p, s] = await Promise.allSettled([
-    grpcClient.fetchProtocolFees(),
-    grpcClient.fetchSolverData(),
+    cosmosQueryClient.fetchProtocolFees(),
+    cosmosQueryClient.fetchSolverData(),
   ]);
   if (p.status === 'fulfilled') {
     logger.debug('getFeeStore', {

@@ -10,7 +10,7 @@ import {
   Universe,
 } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
-import { SBCTx, SwapIntent } from './swap-types';
+import { SBCTx, Source, SwapIntent } from './swap-types';
 import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 import { SwapStepType } from './swap-steps';
 import { BridgeStepType } from './bridge-steps';
@@ -292,7 +292,7 @@ export interface SwapAndExecuteParams {
   toChainId: number;
   toTokenAddress: Hex;
   toAmount: bigint;
-  fromSources?: { chainId: number; tokenAddress: Hex }[];
+  fromSources?: Source[];
   execute: SwapExecuteParams;
 }
 
