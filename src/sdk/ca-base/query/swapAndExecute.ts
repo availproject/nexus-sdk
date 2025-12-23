@@ -184,6 +184,7 @@ class SwapAndExecuteQuery {
     logger.debug('BridgeAndExecute:4:CalculateOptimalSwapAmount', {
       params,
       skipSwap,
+      fromSources: params.fromSources,
       amount,
       approval: {
         tx: approvalTx,

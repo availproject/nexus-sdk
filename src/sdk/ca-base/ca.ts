@@ -260,6 +260,10 @@ export class CA {
 
   protected _swapWithExactOut = async (input: ExactOutSwapInput, options?: OnEventParam) => {
     return this.withReinit(async () => {
+      logger.debug('swapWithExactOut', {
+        input,
+        options,
+      });
       return swap(
         {
           mode: SwapMode.EXACT_OUT,
@@ -279,7 +283,7 @@ export class CA {
         this._swapWithExactOut,
       ).swapAndExecute(input, options);
     });
-  }
+  };
 
   private readonly _getSwapOptions = async (options?: OnEventParam): Promise<SwapParams> => {
     return {
@@ -705,5 +709,3 @@ export class CA {
     return mulDecimals(amount, token.decimals);
   };
 }
-
-
