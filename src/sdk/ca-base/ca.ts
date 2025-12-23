@@ -502,7 +502,7 @@ export class CA {
     if (!sig) {
       sig = await this._signatureForLogin();
       storeSIWESignatureToLocalStorage(this._evm!.address, this._siweChain, sig);
-    } 
+    }
 
     const pvtKey = keyDerivation.getPrivateKeyFromEthSignature(sig);
     const wallet = await createCosmosWallet(`0x${pvtKey.padStart(64, '0')}`);

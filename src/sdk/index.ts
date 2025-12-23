@@ -594,12 +594,12 @@ export class NexusSDK extends CA {
    * @throws NexusError if the get balances for swap fails
    * @returns balances that can be used in swap operations
    */
-  public async getBalancesForSwap() {
+  public async getBalancesForSwap(onlyNativesAndStables = false) {
     const opId = this.analytics.startOperation(NexusAnalyticsEvents.BALANCES_FETCH_SUCCESS, {
       swap: true,
       bridge: false,
     });
-    const result = await this._getBalancesForSwap();
+    const result = await this._getBalancesForSwap(onlyNativesAndStables);
     this.analytics.endOperation(opId, { success: true });
     return result.assets;
   }
