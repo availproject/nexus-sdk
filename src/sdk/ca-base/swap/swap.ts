@@ -130,7 +130,9 @@ export const swap = async (
       // Can only update sources in exact out
       let updatedInput = { ...input };
       if (updatedInput.mode === SwapMode.EXACT_OUT) {
-        updatedInput.data.fromSources = fromSources;
+        if (fromSources && fromSources.length > 0) {
+          updatedInput.data.fromSources = fromSources;
+        }
       }
 
       const swapRouteResponse = await determineSwapRoute(updatedInput, swapRouteParams);
