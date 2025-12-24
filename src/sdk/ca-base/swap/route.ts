@@ -104,7 +104,7 @@ const _exactOutRoute = async (
   if (input.toNativeAmount === -1n || (input.toNativeAmount && input.toNativeAmount > 0n)) {
     removeSources.push({
       chainId: input.toChainId,
-      tokenAddress: EADDRESS,
+      tokenAddress: ZERO_ADDRESS,
     });
   }
 
@@ -237,7 +237,6 @@ const _exactOutRoute = async (
           amount: mulDecimals(dstChainCOTBalance?.amount ?? 0, dstChainCOTBalance?.decimals ?? 0),
           contractAddress: dstChainCOTAddress,
         };
-        
       }
     }
 
