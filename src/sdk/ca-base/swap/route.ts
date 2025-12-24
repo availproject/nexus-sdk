@@ -331,7 +331,7 @@ const _exactOutRoute = async (
           tokenAddress: toBytes(balance.tokenAddress),
           value: balance.value,
         })),
-        applyBuffer(dstSwapInputAmountInDecimal.add(fees), 1).minus(cotAsset?.balance ?? '0'),
+        applyBuffer(dstSwapInputAmountInDecimal.add(fees), 2).minus(cotAsset?.balance ?? '0'),
         params.aggregators,
         feeStore.data.fee.collection.map((f) => ({
           ...f,
