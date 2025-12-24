@@ -50,6 +50,7 @@ import {
   sortSourcesByPriority,
 } from './utils';
 import { Errors } from '../errors';
+import { uniqBy } from 'es-toolkit';
 
 const logger = getLogger();
 
@@ -176,12 +177,24 @@ const _exactOutRoute = async (
   // Track any existing COT that must be moved to ephemeral for swaps
   let dstEOAToEphTx: { amount: bigint; contractAddress: Hex } | null = null;
 
+  // Collection Fee needs to be calculated on cot
   const maxCollectionFee = sumCollectionFee(
-    balances.map((b) => ({
-      chainID: b.chainID,
-      contractAddress: convertToEVMAddress(b.tokenAddress),
-      decimals: b.decimals,
-    })),
+    uniqBy(balances, (b) => b.chainID).map((b) => {
+      const cdm = ChaindataMap.get(new OmniversalChainID(Universe.ETHEREUM, b.chainID));
+      if (!cdm) {
+        throw Errors.internal(`chain data not found for chain ${input.toChainId}`);
+      }
+
+      const chainCOT = cdm.Currencies.find((c) => c.currencyID === params.cotCurrencyID);
+      if (!chainCOT) {
+        throw Errors.internal(`COT not found for chain ${input.toChainId}`);
+      }
+      return {
+        chainID: b.chainID,
+        contractAddress: convertToEVMAddress(chainCOT.tokenAddress),
+        decimals: b.decimals,
+      };
+    }),
     feeStore,
   );
 
