@@ -132,6 +132,10 @@ export const createIntent = ({
       break;
     }
 
+    logger.debug('bridgeRFF:2.0', {
+      asset,
+    });
+
     const collectionFee = feeStore.calculateCollectionFee({
       decimals: asset.decimals,
       sourceChainID: asset.chainID,
@@ -161,6 +165,11 @@ export const createIntent = ({
 
     intent.fees.solver = solverFee.add(intent.fees.solver).toFixed();
     borrow = borrow.add(solverFee);
+
+    logger.debug('bridgeRFF:2.01', {
+      solverFee: solverFee.toFixed(),
+      collectionFee: collectionFee.toFixed(),
+    });
 
     const unaccountedBalance2 = borrow.minus(accountedBalance);
 

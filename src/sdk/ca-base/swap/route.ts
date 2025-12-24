@@ -289,7 +289,8 @@ const _exactOutRoute = async (
     return asset.abstracted && equalFold(asset.symbol, cotSymbol);
   });
 
-  const dstSwapInputAmountInDecimal = destinationSwap.inputAmount.max;
+  // FIXME: this should be min???
+  const dstSwapInputAmountInDecimal = applyBuffer(destinationSwap.inputAmount.min, 1);
   const cotTotalBalance = new Decimal(cotAsset?.balance ?? '0');
   const fees = feeStore.calculateFulfilmentFee({
     decimals: dstChainCOT.decimals,
@@ -437,6 +438,12 @@ const _exactOutRoute = async (
         swap,
       });
     }
+
+    logger.debug('routeValues', {
+      dstMin: destinationSwap.inputAmount.min.toFixed(),
+      dstMax: destinationSwap.inputAmount.max.toFixed(),
+      bridgeOutputExectation: dstSwapInputAmountInDecimal.toFixed(),
+    });
 
     // If COT from source swap at destination chain + existing COT accounts
     // for requirement then RFF shouldn't be created
