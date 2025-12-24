@@ -127,12 +127,10 @@ export const swap = async (
         return createSwapIntent(extras.assetsUsed, destinationTokenDetails, options.chainList);
       }
 
-      // Can only update sources in exact out
       let updatedInput = { ...input };
-      if (updatedInput.mode === SwapMode.EXACT_OUT) {
-        if (fromSources && fromSources.length > 0) {
-          updatedInput.data.fromSources = fromSources;
-        }
+      // Can only update sources in exact out, Update only if sources are sent in refresh, otherwise it will use the old resources
+      if (updatedInput.mode === SwapMode.EXACT_OUT && fromSources && fromSources.length > 0) {
+        updatedInput.data.fromSources = fromSources;
       }
 
       const swapRouteResponse = await determineSwapRoute(updatedInput, swapRouteParams);
