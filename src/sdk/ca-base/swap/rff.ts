@@ -40,6 +40,30 @@ import {
 
 const logger = getLogger();
 
+export const sumCollectionFee = (
+  assets: Pick<BridgeAsset, 'chainID' | 'contractAddress' | 'decimals'>[],
+  feeStore: FeeStore,
+) => {
+  logger.debug('sumCollectionFee', {
+    assets,
+    feeStore,
+  });
+  let fee = new Decimal(0);
+  for (const asset of assets) {
+    const collectionFee = feeStore.calculateCollectionFee({
+      decimals: asset.decimals,
+      sourceChainID: asset.chainID,
+      sourceTokenAddress: asset.contractAddress,
+    });
+    logger.debug('sumCollectionFee', {
+      collectionFee: collectionFee.toFixed(),
+    });
+    fee = fee.add(collectionFee);
+  }
+
+  return fee;
+};
+
 export const createIntent = ({
   assets,
   feeStore,
@@ -81,7 +105,7 @@ export const createIntent = ({
   };
 
   let borrow = output.amount;
-  intent.destination.amount = borrow;
+  intent.destination.amount = new Decimal(borrow);
   intent.destination.tokenContract = output.tokenAddress;
 
   const protocolFee = feeStore.calculateProtocolFee(borrow);
@@ -200,7 +224,7 @@ export const createIntent = ({
 
       if (borrowFromThisChain.gt(asset.ephemeralBalance.toString())) {
         logger.debug('createBridgeRFF:2.2', {
-          assetEphemeral: asset.ephemeralBalance,
+          assetEphemeral: asset.ephemeralBalance.toFixed(),
           borrowFromThisChain: borrowFromThisChain.toFixed(),
         });
         eoaToEphemeralCalls[asset.chainID] = {
@@ -230,6 +254,12 @@ export const createIntent = ({
       `available: ${accountedBalance.toFixed()}, required: ${borrow.toFixed()}`,
     );
   }
+
+  logger.debug('createIntentEnd', {
+    accountedBalance: accountedBalance.toFixed(),
+    borrowEnd: borrow.toFixed(),
+    borrowStart: intent.destination.amount.toFixed(),
+  });
 
   return { eoaToEphemeralCalls, intent };
 };

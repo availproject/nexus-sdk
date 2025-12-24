@@ -40,7 +40,7 @@ import {
 } from '../utils';
 import { EADDRESS, EADDRESS_32_BYTES } from './constants';
 import { FlatBalance } from './data';
-import { createIntent } from './rff';
+import { createIntent, sumCollectionFee } from './rff';
 import {
   calculateValue,
   convertTo32Bytes,
@@ -176,6 +176,23 @@ const _exactOutRoute = async (
   // Track any existing COT that must be moved to ephemeral for swaps
   let dstEOAToEphTx: { amount: bigint; contractAddress: Hex } | null = null;
 
+  const maxCollectionFee = sumCollectionFee(
+    balances.map((b) => ({
+      chainID: b.chainID,
+      contractAddress: convertToEVMAddress(b.tokenAddress),
+      decimals: b.decimals,
+    })),
+    feeStore,
+  );
+
+  const fees = feeStore
+    .calculateFulfilmentFee({
+      decimals: dstChainCOT.decimals,
+      destinationChainID: Number(input.toChainId),
+      destinationTokenAddress: dstChainCOTAddress,
+    })
+    .add(maxCollectionFee);
+
   // Since its exact out, we start with desired destination amount and work our
   // way backward from there
   const fetchDestinationSwapDetails = async (): Promise<DestinationSwap> => {
@@ -245,7 +262,12 @@ const _exactOutRoute = async (
     // min is what is actually needed for dst swap, we add 1% for bridge related fees and 1% buffer for source swaps.
     // We also add gasInCOT to it because we need to be able to swap to Gas
     // so we are charging min + 5% from the user, we add the buffer so the swap definitely happens and any pending amounts are sent back to the user.
-    const min = destinationSwap.inputAmount.add(gasInCOT);
+
+    logger.debug('maxCollectionFee', {
+      maxCollectionFee: maxCollectionFee.toFixed(),
+    });
+
+    const min = destinationSwap.inputAmount.add(gasInCOT).add(maxCollectionFee);
     // Apply 5% buffer to destination input amount - any leftover is sent back in COT.
     const max = applyBuffer(min, 5).toDP(dstChainCOT.decimals, Decimal.ROUND_CEIL);
 
@@ -292,11 +314,6 @@ const _exactOutRoute = async (
   // FIXME: this should be min???
   const dstSwapInputAmountInDecimal = applyBuffer(destinationSwap.inputAmount.min, 1);
   const cotTotalBalance = new Decimal(cotAsset?.balance ?? '0');
-  const fees = feeStore.calculateFulfilmentFee({
-    decimals: dstChainCOT.decimals,
-    destinationChainID: Number(input.toChainId),
-    destinationTokenAddress: dstChainCOTAddress,
-  });
 
   logger.debug('exact-out:3', {
     cotAsset,
@@ -332,7 +349,7 @@ const _exactOutRoute = async (
           tokenAddress: toBytes(balance.tokenAddress),
           value: balance.value,
         })),
-        applyBuffer(dstSwapInputAmountInDecimal.add(fees), 2).minus(cotAsset?.balance ?? '0'),
+        applyBuffer(dstSwapInputAmountInDecimal, 2).minus(cotAsset?.balance ?? '0'),
         params.aggregators,
         feeStore.data.fee.collection.map((f) => ({
           ...f,
@@ -455,7 +472,8 @@ const _exactOutRoute = async (
       bridgeInput = {
         amount: dstSwapInputAmountInDecimal
           .minus(dstChainCOTBalance?.amount ?? 0)
-          .minus(dstCOTSwapAmount),
+          .minus(dstCOTSwapAmount)
+          .minus(fees),
         assets: bridgeAssets,
         chainID: input.toChainId,
         decimals: dstChainCOT.decimals,
