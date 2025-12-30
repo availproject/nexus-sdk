@@ -27,7 +27,7 @@ import {
   convertTo32Bytes,
   createSwapIntent,
   getTokenInfo,
-  postSwap,
+  // postSwap,
   PublicClientList,
   SwapMetadata,
 } from './utils';
