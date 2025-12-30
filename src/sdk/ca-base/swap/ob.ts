@@ -82,7 +82,6 @@ type Options = {
 
 type SwapInput = {
   agg: Aggregator;
-  cfee: bigint;
   cur: Currency;
   originalHolding: Holding & { decimals: number; symbol: string };
   quote: Quote;
@@ -303,10 +302,10 @@ class DestinationSwapHandler {
     },
     private readonly options: Options,
   ) {
-    if (data.swap.dstEOAToEphTx) {
+    if (data.dstEOAToEphTx) {
       options.cache.addAllowanceQuery({
         chainID: dst.chainID,
-        contractAddress: data.swap.dstEOAToEphTx.contractAddress,
+        contractAddress: data.dstEOAToEphTx.contractAddress,
         owner: options.address.eoa,
         spender: options.address.ephemeral,
       });
@@ -338,12 +337,12 @@ class DestinationSwapHandler {
   }
 
   async createPermit() {
-    if (this.data.swap.dstEOAToEphTx) {
+    if (this.data.dstEOAToEphTx) {
       const txs = await createPermitAndTransferFromTx({
-        amount: this.data.swap.dstEOAToEphTx.amount,
+        amount: this.data.dstEOAToEphTx.amount,
         cache: this.options.cache,
         chain: this.options.chainList.getChainByID(this.dst.chainID)!,
-        contractAddress: this.data.swap.dstEOAToEphTx.contractAddress,
+        contractAddress: this.data.dstEOAToEphTx.contractAddress,
         owner: this.options.address.eoa,
         ownerWallet: this.options.wallet.eoa,
         publicClient: this.options.publicClientList.get(this.dst.chainID),
@@ -567,6 +566,7 @@ class DestinationSwapHandler {
     this.data = {
       type: this.data.type,
       swap: newSwap,
+      dstEOAToEphTx: this.data.dstEOAToEphTx,
       fetchDestinationSwapDetails: this.data.fetchDestinationSwapDetails,
     };
 

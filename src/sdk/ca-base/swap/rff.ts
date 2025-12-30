@@ -37,28 +37,43 @@ import {
   MAINNET_CHAIN_IDS,
   QueryClients,
 } from '../../../commons';
+import { applyBuffer } from './route';
 
 const logger = getLogger();
 
-export const sumCollectionFee = (
-  assets: Pick<BridgeAsset, 'chainID' | 'contractAddress' | 'decimals'>[],
+export const estimateCollectionFee = (
+  assets: (Pick<BridgeAsset, 'chainID' | 'contractAddress' | 'decimals'> & { value: number })[],
+  outputAmount: Decimal,
   feeStore: FeeStore,
 ) => {
+  let expectedAmount = applyBuffer(outputAmount, 30);
   logger.debug('sumCollectionFee', {
     assets,
     feeStore,
+    outputAmount: outputAmount.toFixed(),
+    expectedAmount: expectedAmount.toFixed(),
   });
+  let accounted = new Decimal(0);
   let fee = new Decimal(0);
+
   for (const asset of assets) {
+    if (accounted.gt(expectedAmount)) {
+      break;
+    }
     const collectionFee = feeStore.calculateCollectionFee({
       decimals: asset.decimals,
       sourceChainID: asset.chainID,
       sourceTokenAddress: asset.contractAddress,
     });
-    logger.debug('sumCollectionFee', {
+
+    logger.debug('estimateCollectionFee', {
       collectionFee: collectionFee.toFixed(),
+      fee: fee.toFixed(),
+      accounted: accounted.toFixed(),
     });
+
     fee = fee.add(collectionFee);
+    accounted = accounted.add(asset.value);
   }
 
   return fee;
@@ -141,7 +156,7 @@ export const createIntent = ({
     return Decimal.sub(
       Decimal.add(a.eoaBalance, a.ephemeralBalance),
       Decimal.add(b.eoaBalance, b.ephemeralBalance),
-    ).toNumber(); // sort others by balance
+    ).toNumber(); //sort others by balance
   });
 
   for (const asset of sortedAssets) {

@@ -232,15 +232,15 @@ export const swap = async (
   result.swapRoute = swapRoute;
 
   performance.mark('swap-end');
-  try {
-    const id = await postSwap({
-      metadata,
-      wallet: options.wallet.ephemeral,
-    });
-    logger.debug('SwapID', { id });
-  } catch (e) {
-    logger.error('postSwap', e, { cause: 'SWAP_FAILED' });
-  }
+  // try {
+  //   const id = await postSwap({
+  //     metadata,
+  //     wallet: options.wallet.ephemeral,
+  //   });
+  //   logger.debug('SwapID', { id });
+  // } catch (e) {
+  //   logger.error('postSwap', e, { cause: 'SWAP_FAILED' });
+  // }
 
   calculatePerformance();
 
