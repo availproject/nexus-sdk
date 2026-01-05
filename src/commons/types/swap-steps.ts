@@ -13,7 +13,7 @@ const DETERMINING_SWAP = (completed: boolean = false) =>
     completed,
     type: 'DETERMINING_SWAP',
     typeID: DETERMINING_SWAP,
-  }) as const;
+  } as const);
 
 const CREATE_PERMIT_EOA_TO_EPHEMERAL = (
   completed: boolean,
@@ -29,7 +29,7 @@ const CREATE_PERMIT_EOA_TO_EPHEMERAL = (
     symbol,
     type: 'CREATE_PERMIT_EOA_TO_EPHEMERAL',
     typeID: `CREATE_PERMIT_EOA_TO_EPHEMERAL_${chain.id}_${symbol}`,
-  }) as const;
+  } as const);
 
 const CREATE_PERMIT_FOR_SOURCE_SWAP = (
   completed: boolean,
@@ -45,14 +45,25 @@ const CREATE_PERMIT_FOR_SOURCE_SWAP = (
     symbol,
     type: 'CREATE_PERMIT_FOR_SOURCE_SWAP',
     typeID: `CREATE_PERMIT_FOR_SOURCE_SWAP_${chain.id}_${symbol}`,
-  }) as const;
+  } as const);
 
 const SOURCE_SWAP_BATCH_TX = (completed: boolean) =>
   ({
     completed,
     type: 'SOURCE_SWAP_BATCH_TX',
     typeID: 'SOURCE_SWAP_BATCH_TX',
-  }) as const;
+  } as const);
+
+const BRIDGE_DEPOSIT = (data: {
+  chain: { id: number; name: string };
+  hash: Hex;
+  explorerURL: string;
+}) =>
+  ({
+    type: 'BRIDGE_DEPOSIT',
+    typeID: `BRIDGE_DEPOSIT_${data.chain.id}`,
+    data,
+  } as const);
 
 const SOURCE_SWAP_HASH = (ops: [bigint, Hex], chainList: ChainListType) => {
   const chainID = ops[0];
@@ -79,14 +90,14 @@ const RFF_ID = (id: number) =>
     data: id,
     type: 'RFF_ID',
     typeID: 'RFF_ID',
-  }) as const;
+  } as const);
 
 const DESTINATION_SWAP_BATCH_TX = (completed: boolean) =>
   ({
     completed,
     type: 'DESTINATION_SWAP_BATCH_TX',
     typeID: 'DESTINATION_SWAP_BATCH_TX',
-  }) as const;
+  } as const);
 
 const SWAP_COMPLETE = {
   completed: true,
@@ -95,7 +106,7 @@ const SWAP_COMPLETE = {
 } as const;
 
 const DESTINATION_SWAP_HASH = (op: [bigint, Hex], chainList: ChainListType) => {
-  const chainID = Number(op[0])
+  const chainID = Number(op[0]);
   const chain = chainList.getChainByID(chainID);
   if (!chain) {
     throw Errors.chainNotFound(chainID);
@@ -123,6 +134,7 @@ export const SWAP_STEPS = {
   SOURCE_SWAP_BATCH_TX,
   SOURCE_SWAP_HASH,
   SWAP_COMPLETE,
+  BRIDGE_DEPOSIT,
 };
 
 export type SwapStepType =
@@ -134,5 +146,6 @@ export type SwapStepType =
   | ReturnType<typeof SWAP_STEPS.RFF_ID>
   | ReturnType<typeof SWAP_STEPS.SOURCE_SWAP_BATCH_TX>
   | ReturnType<typeof SWAP_STEPS.SOURCE_SWAP_HASH>
+  | ReturnType<typeof SWAP_STEPS.BRIDGE_DEPOSIT>
   | typeof SWAP_STEPS.SWAP_COMPLETE
   | typeof SWAP_STEPS.SWAP_START;

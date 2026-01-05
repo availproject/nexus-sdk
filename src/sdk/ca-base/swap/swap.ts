@@ -143,7 +143,13 @@ export const swap = async (
         dstTokenInfo,
         swapRoute: swapRouteResponse,
       });
-      return createSwapIntent(extras.assetsUsed, destinationTokenDetails, options.chainList);
+      const swapIntent = createSwapIntent(
+        extras.assetsUsed,
+        destinationTokenDetails,
+        options.chainList,
+      );
+      logger.debug('onIntentHook:refresh', { swapIntent });
+      return swapIntent;
     };
     // wait for intent acceptance hook
     await new Promise((resolve, reject) => {
@@ -156,10 +162,18 @@ export const swap = async (
         return reject(ErrorUserDeniedIntent);
       };
 
+      const swapIntent = createSwapIntent(
+        extras.assetsUsed,
+        destinationTokenDetails,
+        options.chainList,
+      );
+
+      logger.debug('onIntentHook', { swapIntent });
+
       options.onSwapIntent({
         allow,
         deny,
-        intent: createSwapIntent(extras.assetsUsed, destinationTokenDetails, options.chainList),
+        intent: swapIntent,
         refresh,
       });
     });

@@ -182,7 +182,7 @@ export interface TokenBalance {
   isNative?: boolean;
 }
 
-type GasPriceSelector = 'low' | 'medium' | 'high' | 'ultrahigh';
+type GasPriceSelector = 'low' | 'medium' | 'high' | 'ultraHigh';
 
 export interface SwapExecuteParams {
   to: Hex;

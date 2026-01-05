@@ -86,7 +86,7 @@ max: 1.05 USDC (5% buffer)
 
 Source Swap:
 bFee = 0.07 USDC (cF + fF) (sF should be covered by buffer in source swap)
-max + 1% max + bFee = 1.05 + 0.01 + 0.07 = 1.08 USDC
+output: max + 1% max + bFee = 1.05 + 0.01 + 0.07 = 1.08 USDC
 
 Bridge:
 use max as output
@@ -156,9 +156,6 @@ const _exactOutRoute = async (
 
   logger.debug('determineSwapRoute', { balances, input });
 
-  // ------------------------------
-  // 2. Fetch chain & COT information
-  // ------------------------------
   const dstChainDataMap = ChaindataMap.get(dstOmniversalChainID);
   if (!dstChainDataMap) {
     throw Errors.internal(`chain data not found for chain ${input.toChainId}`);
@@ -284,10 +281,6 @@ const _exactOutRoute = async (
 
   logger.debug('destination swaps', destinationSwap);
 
-  // ------------------------------
-  // 4. Compute source availability
-  // ------------------------------
-
   // Collection Fee needs to be calculated on cot
   const estimatedCollectionFee = estimateCollectionFee(
     uniqBy(balances, (b) => b.chainID).map((b) => {
@@ -321,7 +314,6 @@ const _exactOutRoute = async (
 
   const bridgeOutput = destinationSwap.inputAmount.max;
 
-  // FIXME: Remove selected COT balances - not sure what this means later
   const sourceSwapOutputRequired = applyBuffer(
     bridgeOutput.add(estimatedBridgeFees),
     BUFFER_EXACT_OUT.SOURCE_SWAP,
@@ -334,17 +326,13 @@ const _exactOutRoute = async (
     sourceSwapOutputRequired: sourceSwapOutputRequired.toFixed(),
   });
 
-  // ------------------------------
-  // 5. Determine if source swaps are required
-  // ------------------------------
-
   const sortedBalances = sortSourcesByPriority(balances, {
     tokenAddress: input.toTokenAddress,
     symbol: dstTokenInfo.symbol,
     chainID: dstChain.id,
   });
 
-  const { quotes: sourceSwapQuotes, cots } = await autoSelectSourcesV2(
+  const { quotes: sourceSwapQuotes, usedCOTs } = await autoSelectSourcesV2(
     userAddressInBytes,
     sortedBalances.map((balance) => ({
       amount: mulDecimals(balance.amount, balance.decimals),
@@ -375,9 +363,6 @@ const _exactOutRoute = async (
 
   const sourceSwapCreationTime = Date.now();
 
-  // ------------------------------
-  // 6. Bridge input calculation (account for already existing COT + COT from swaps)
-  // ------------------------------
   let bridgeInput: {
     amount: Decimal;
     assets: BridgeAsset[];
@@ -389,13 +374,13 @@ const _exactOutRoute = async (
   // If every source swap and cot used is not on destination chain then bridge is required
   const isBridgeRequired = !(
     sourceSwapQuotes.every((q) => Number(q.originalHolding.chainID.chainID) === input.toChainId) &&
-    cots.every((q) => Number(q.originalHolding.chainID.chainID) === input.toChainId)
+    usedCOTs.every((q) => Number(q.originalHolding.chainID.chainID) === input.toChainId)
   );
 
   let dstEOAToEphTx: { amount: bigint; contractAddress: Hex } | null = null;
 
-  // Check if cot has destination chain
-  const dstChainExistingCOT = cots.find(
+  // Check if used cot list has destination chain
+  const dstChainExistingCOT = usedCOTs.find(
     (c) => Number(c.originalHolding.chainID.chainID) === input.toChainId,
   );
   if (dstChainExistingCOT) {
@@ -419,7 +404,7 @@ const _exactOutRoute = async (
     dstEOAToEphTx ? divDecimals(dstEOAToEphTx.amount, dstChainCOT.decimals) : 0,
   );
 
-  for (const cot of cots) {
+  for (const cot of usedCOTs) {
     assetsUsed.push({
       amount: cot.amountUsed.toFixed(),
       chainID: Number(cot.originalHolding.chainID.chainID),
@@ -441,7 +426,6 @@ const _exactOutRoute = async (
     });
   }
 
-  // If swap happens to COT on destination chain then that amount doesn't needs to be in RFF
   for (const swap of sourceSwaps) {
     assetsUsed.push({
       amount: divDecimals(swap.quote.inputAmount, swap.originalHolding.decimals).toFixed(),
@@ -452,6 +436,8 @@ const _exactOutRoute = async (
     });
 
     const outputAmount = swap.quote.outputAmountMinimum;
+
+    // If swap happens to COT on destination chain then that amount doesn't needs to be in RFF
     if (Number(swap.originalHolding.chainID.chainID) === input.toChainId) {
       dstTotalCOTAmount = dstTotalCOTAmount.plus(divDecimals(outputAmount, swap.cur.decimals));
       continue;
@@ -553,11 +539,8 @@ const _exactOutRoute = async (
 type DestinationSwap = {
   creationTime: number;
   dstChainCOT: Currency;
-
-  // This is input of tokenSwap + gasSwap + buffer
-  inputAmount: { min: Decimal; max: Decimal };
-  // COT
-  inputToken: ByteArray;
+  inputAmount: { min: Decimal; max: Decimal }; // This is input of tokenSwap + gasSwap + buffer
+  inputToken: ByteArray; // COT
   tokenSwap: {
     req: {
       chain: OmniversalChainID;

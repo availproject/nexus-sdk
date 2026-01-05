@@ -180,16 +180,24 @@ class BridgeHandler {
       }
       if (sbcTx.length) {
         const ops = await this.options.vscClient.vscSBCTx(sbcTx);
-        ops.forEach((op) => {
-          this.options.emitter.emit(SWAP_STEPS.SOURCE_SWAP_HASH(op, this.options.chainList));
-        });
         waitingPromises.push(
-          ...ops.map(([chainID, hash]) =>
-            wrap(
+          ...ops.map(([chainID, hash]) => {
+            const chain = this.options.chainList.getChainByID(Number(chainID));
+            if (!chain) {
+              throw Errors.chainNotFound(chainID);
+            }
+            this.options.emitter.emit(
+              SWAP_STEPS.BRIDGE_DEPOSIT({
+                chain,
+                hash,
+                explorerURL: chain.blockExplorers!.default.url,
+              }),
+            );
+            return wrap(
               Number(chainID),
               waitForTxReceipt(hash, this.options.publicClientList.get(chainID), 1),
-            ),
-          ),
+            );
+          }),
         );
       }
     }

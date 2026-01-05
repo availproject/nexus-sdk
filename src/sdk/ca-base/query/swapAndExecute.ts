@@ -84,7 +84,7 @@ class SwapAndExecuteQuery {
     const approvalGas = pctAdditionToBigInt(gasUsed.approvalGas, pctBuffer);
     const txGas = pctAdditionToBigInt(gasUsed.txGas, pctBuffer);
 
-    let gasPrice = gasPriceRecommendations.high;
+    let gasPrice = gasPriceRecommendations[params.execute.gasPrice ?? 'high'];
     if (gasPrice === 0n) {
       throw Errors.gasPriceError({
         chainId: toChainId,
