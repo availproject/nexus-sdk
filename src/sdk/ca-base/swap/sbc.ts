@@ -27,6 +27,7 @@ import {
   isAuthorizationCodeSet,
   type PublicClientList,
 } from './utils';
+import { PlatformUtils } from '../utils/platform.utils';
 
 const logger = getLogger();
 
@@ -71,7 +72,7 @@ export const waitForSBCTxReceipt = (
       const chain = chainList.getChainByID(Number(op[0]));
       const explorerURL = new URL(`/tx/${op[1]}`, chain?.blockExplorers?.default.url);
       logger.debug('waitForSBCTxReceipt', { explorerURL: explorerURL.toString() });
-      return waitForTxReceipt(op[1], publicClientList.get(chain?.id), 1);
+      return waitForTxReceipt(op[1], publicClientList.get(chain!.id), 1);
     })
   );
 };
@@ -95,7 +96,7 @@ export const createSBCTxFromCalls = async ({
   ephemeralWallet: PrivateKeyAccount;
   publicClient: PublicClient;
 }) => {
-  const nonce = bytesToBigInt(window.crypto.getRandomValues(new Uint8Array(24))) << 64n;
+  const nonce = bytesToBigInt(await PlatformUtils.cryptoGetRandomValues(new Uint8Array(24))) << 64n;
   const deadline = createDeadlineFromNow(3n);
   const signature = await createBatchedCallSignature(
     calls,
@@ -172,7 +173,7 @@ export const caliburExecute = async ({
   ephemeralWallet: PrivateKeyAccount;
   value: bigint;
 }) => {
-  const nonce = bytesToBigInt(window.crypto.getRandomValues(new Uint8Array(24))) << 64n;
+  const nonce = bytesToBigInt(await PlatformUtils.cryptoGetRandomValues(new Uint8Array(24))) << 64n;
   const deadline = createDeadlineFromNow(3n);
   const signature = await createBatchedCallSignature(
     calls,

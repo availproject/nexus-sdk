@@ -27,11 +27,12 @@ import {
   convertTo32Bytes,
   createSwapIntent,
   getTokenInfo,
-  postSwap,
+  // postSwap,
   PublicClientList,
   SwapMetadata,
 } from './utils';
 import { Errors } from '../errors';
+import { Hex } from 'viem';
 
 const logger = getLogger();
 
@@ -75,7 +76,7 @@ export const swap = async (
     // new ZeroExAggregator(ZERO_X_API_KEY),
   ];
 
-  const swapRouteParams = { ...options, aggregators, cotCurrencyID: COT };
+  const swapRouteParams = { ...options, publicClientList, aggregators, cotCurrencyID: COT };
 
   const [swapRoute, dstTokenInfo] = await Promise.all([
     determineSwapRoute(input, swapRouteParams),
@@ -107,7 +108,9 @@ export const swap = async (
   {
     const destinationTokenDetails = {
       amount: divDecimals(
-        input.mode === SwapMode.EXACT_OUT ? input.data.toAmount : destination.swap.outputAmount,
+        input.mode === SwapMode.EXACT_OUT
+          ? input.data.toAmount
+          : destination.swap.tokenSwap.outputAmount,
         dstTokenInfo.decimals,
       ).toFixed(),
       chainID: input.data.toChainId,
@@ -118,13 +121,19 @@ export const swap = async (
 
     let accepted = false;
 
-    const refresh = async () => {
+    const refresh = async (fromSources?: { chainId: number; tokenAddress: Hex }[]) => {
       if (accepted) {
         logger.warn('Swap Intent refresh called after acceptance');
         return createSwapIntent(extras.assetsUsed, destinationTokenDetails, options.chainList);
       }
 
-      const swapRouteResponse = await determineSwapRoute(input, swapRouteParams);
+      let updatedInput = { ...input };
+      // Can only update sources in exact out, Update only if sources are sent in refresh, otherwise it will use the old resources
+      if (updatedInput.mode === SwapMode.EXACT_OUT && fromSources && fromSources.length > 0) {
+        updatedInput.data.fromSources = fromSources;
+      }
+
+      const swapRouteResponse = await determineSwapRoute(updatedInput, swapRouteParams);
 
       source = swapRouteResponse.source;
       extras = swapRouteResponse.extras;
@@ -134,7 +143,13 @@ export const swap = async (
         dstTokenInfo,
         swapRoute: swapRouteResponse,
       });
-      return createSwapIntent(extras.assetsUsed, destinationTokenDetails, options.chainList);
+      const swapIntent = createSwapIntent(
+        extras.assetsUsed,
+        destinationTokenDetails,
+        options.chainList,
+      );
+      logger.debug('onIntentHook:refresh', { swapIntent });
+      return swapIntent;
     };
     // wait for intent acceptance hook
     await new Promise((resolve, reject) => {
@@ -147,10 +162,18 @@ export const swap = async (
         return reject(ErrorUserDeniedIntent);
       };
 
+      const swapIntent = createSwapIntent(
+        extras.assetsUsed,
+        destinationTokenDetails,
+        options.chainList,
+      );
+
+      logger.debug('onIntentHook', { swapIntent });
+
       options.onSwapIntent({
         allow,
         deny,
-        intent: createSwapIntent(extras.assetsUsed, destinationTokenDetails, options.chainList),
+        intent: swapIntent,
         refresh,
       });
     });
@@ -195,7 +218,9 @@ export const swap = async (
       chainID: input.data.toChainId,
       token: input.data.toTokenAddress,
       amount:
-        input.mode === SwapMode.EXACT_OUT ? input.data.toAmount : destination.swap.outputAmount,
+        input.mode === SwapMode.EXACT_OUT
+          ? input.data.toAmount
+          : destination.swap.tokenSwap.outputAmount,
     },
     opt,
   );
@@ -221,15 +246,15 @@ export const swap = async (
   result.swapRoute = swapRoute;
 
   performance.mark('swap-end');
-  try {
-    const id = await postSwap({
-      metadata,
-      wallet: options.wallet.ephemeral,
-    });
-    logger.debug('SwapID', { id });
-  } catch (e) {
-    logger.error('postSwap', e, { cause: 'SWAP_FAILED' });
-  }
+  // try {
+  //   const id = await postSwap({
+  //     metadata,
+  //     wallet: options.wallet.ephemeral,
+  //   });
+  //   logger.debug('SwapID', { id });
+  // } catch (e) {
+  //   logger.error('postSwap', e, { cause: 'SWAP_FAILED' });
+  // }
 
   calculatePerformance();
 

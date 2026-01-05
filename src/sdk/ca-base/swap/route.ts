@@ -1,6 +1,6 @@
 import {
   Aggregator,
-  autoSelectSources,
+  autoSelectSourcesV2,
   ChaindataMap,
   Currency,
   CurrencyID,
@@ -25,6 +25,7 @@ import {
   SwapMode,
   SwapParams,
   BridgeAsset,
+  Source,
 } from '../../../commons';
 
 import {
@@ -35,18 +36,31 @@ import {
   mulDecimals,
   calculateMaxBridgeFee,
   getBalancesForSwap,
+  convertGasToToken,
 } from '../utils';
-import { EADDRESS } from './constants';
+import { EADDRESS, EADDRESS_32_BYTES } from './constants';
 import { FlatBalance } from './data';
-import { createIntent } from './rff';
-import { calculateValue, convertTo32Bytes, convertToEVMAddress } from './utils';
+import { createIntent, estimateCollectionFee } from './rff';
+import {
+  calculateValue,
+  convertTo32Bytes,
+  convertToEVMAddress,
+  getTokenInfo,
+  PublicClientList,
+  sortSourcesByPriority,
+} from './utils';
 import { Errors } from '../errors';
+import { uniqBy } from 'es-toolkit';
 
 const logger = getLogger();
 
 export const determineSwapRoute = async (
   input: SwapData,
-  options: SwapParams & { aggregators: Aggregator[]; cotCurrencyID: CurrencyID },
+  options: SwapParams & {
+    publicClientList: PublicClientList;
+    aggregators: Aggregator[];
+    cotCurrencyID: CurrencyID;
+  },
 ): Promise<SwapRoute> => {
   logger.debug('determineSwapRoute', {
     input,
@@ -60,44 +74,88 @@ export const determineSwapRoute = async (
 export const applyBuffer = (amount: Decimal, bufferPercent: number): Decimal =>
   amount.mul(1 + bufferPercent / 100);
 
+/*
+Exact out:
+sF = solver Fee
+cF = collection Fee
+fF = fulfilment Fee
+
+Destination Swap:
+min: 1 USDC
+max: 1.05 USDC (5% buffer)
+
+Source Swap:
+bFee = 0.07 USDC (cF + fF) (sF should be covered by buffer in source swap)
+output: max + 1% max + bFee = 1.05 + 0.01 + 0.07 = 1.08 USDC
+
+Bridge:
+use max as output
+
+source amount will be like max + (s1 + s2)sF + (s1 + s2)cF + fF
+                                -------------  -----------------
+                                  covered by    already included
+                                    buffer      during calculation
+*/
+
 // COT = currency of transfer
 // DEF: The common currency which is supported by bridge on every supported chain and acts as a transient currency for swaps.
 // FLOW: Source tokens get converted to COT, COT is bridged across chains to a destination chain,
 // COT is then changed to desired destination token
 // Currently COT is USDC.
 
+enum BUFFER_EXACT_OUT {
+  DESTINATION_SWAP = 5,
+  SOURCE_SWAP = 2,
+}
+
 const _exactOutRoute = async (
   input: ExactOutSwapInput,
-  params: SwapParams & { aggregators: Aggregator[]; cotCurrencyID: CurrencyID },
+  params: SwapParams & {
+    publicClientList: PublicClientList;
+    aggregators: Aggregator[];
+    cotCurrencyID: CurrencyID;
+  },
 ): Promise<SwapRoute> => {
-  const [feeStore, { assets, balances }, oraclePrices] = await Promise.all([
+  const dstChain = params.chainList.getChainByID(input.toChainId);
+  if (!dstChain) {
+    throw Errors.chainNotFound(input.toChainId);
+  }
+
+  const removeSources: Source[] = [
+    {
+      chainId: input.toChainId,
+      tokenAddress: input.toTokenAddress,
+    },
+  ];
+  // 1) Required: 1 KAITO and 0.0004 ETH, Have: 0.2 KAITO and 0.0002 ETH => toNativeAmount = 0.0002 * 10**18
+  // 2) Required: 1 KAITO and 0.0004 ETH, Have: 0.2 KAITO and 0.0006 ETH => toNativeAmount = -(0.0004 * 10**18) - this signifies not to touch that amount during source selection (skipped & combined with 3)
+  // 3) Required: 1 KAITO and 0.0004 ETH, Have: 0.2 KAITO and 0.0004 ETH => toNativeAmount = -1 => signifying not to touch native currency, just remove from the list of sources
+  if (input.toNativeAmount === -1n || (input.toNativeAmount && input.toNativeAmount > 0n)) {
+    removeSources.push({
+      chainId: input.toChainId,
+      tokenAddress: ZERO_ADDRESS,
+    });
+  }
+
+  const [feeStore, { balances }, oraclePrices, dstTokenInfo] = await Promise.all([
     getFeeStore(params.cosmosQueryClient),
     getBalancesForSwap({
       evmAddress: params.address.eoa,
       chainList: params.chainList,
       // Use only stable and native coins for exact out.
-      filter: true,
+      filterWithSupportedTokens: true,
+      allowedSources: input.fromSources,
+      removeSources,
     }),
     params.cosmosQueryClient.fetchPriceOracle(),
+    getTokenInfo(input.toTokenAddress, params.publicClientList.get(input.toChainId), dstChain),
   ]);
 
   const userAddressInBytes = convertTo32Bytes(params.address.ephemeral);
   const dstOmniversalChainID = new OmniversalChainID(Universe.ETHEREUM, input.toChainId);
 
-  logger.debug('determineSwapRoute', { assets, balances, input });
+  logger.debug('determineSwapRoute', { balances, input });
 
-  logger.debug('determineSwapRoute:destinationSwapInput', {
-    dstOmniversalChainID,
-    s: {
-      amount: BigInt(input.toAmount),
-      tokenAddress: toBytes(input.toTokenAddress),
-    },
-    userAddressInBytes,
-  });
-
-  // ------------------------------
-  // 2. Fetch chain & COT information
-  // ------------------------------
   const dstChainDataMap = ChaindataMap.get(dstOmniversalChainID);
   if (!dstChainDataMap) {
     throw Errors.internal(`chain data not found for chain ${input.toChainId}`);
@@ -112,18 +170,20 @@ const _exactOutRoute = async (
 
   const dstChainCOTAddress = convertToEVMAddress(dstChainCOT.tokenAddress);
 
-  const dstChainCOTBalance = balances.find(
-    (b) =>
-      b.chainID === Number(input.toChainId) &&
-      equalFold(convertToEVMAddress(b.tokenAddress), dstChainCOTAddress),
-  );
-
-  logger.debug('determineSwapRoute:destinationSwapInput', {
-    dstChainCOTBalance,
-  });
-
-  // Track any existing COT that must be moved to ephemeral for swaps
-  let dstEOAToEphTx: { amount: bigint; contractAddress: Hex } | null = null;
+  let gasInCOT = new Decimal(0);
+  if (input.toNativeAmount && input.toNativeAmount > 0n) {
+    // Convert to COT
+    gasInCOT = convertGasToToken(
+      {
+        contractAddress: dstChainCOTAddress,
+        decimals: dstChainCOT.decimals,
+      },
+      oraclePrices,
+      dstChain.id,
+      dstChain.universe,
+      divDecimals(input.toNativeAmount ?? 0n, dstChain.nativeCurrency.decimals),
+    ).mul(1.02);
+  }
 
   // Since its exact out, we start with desired destination amount and work our
   // way backward from there
@@ -135,26 +195,45 @@ const _exactOutRoute = async (
       quote: null,
     };
 
+    let gasSwap = null;
+
     // If output token is not COT, calculate the actual destination swap
     if (!equalFold(input.toTokenAddress, dstChainCOTAddress)) {
-      destinationSwap = await determineDestinationSwaps(
-        userAddressInBytes,
-        dstOmniversalChainID,
-        {
-          amount: BigInt(input.toAmount),
-          tokenAddress: convertTo32Bytes(input.toTokenAddress),
-        },
-        params.aggregators,
-      );
+      const [ds, dgs] = await Promise.all([
+        determineDestinationSwaps(
+          userAddressInBytes,
+          dstOmniversalChainID,
+          {
+            amount: BigInt(input.toAmount),
+            tokenAddress: convertTo32Bytes(input.toTokenAddress),
+          },
+          params.aggregators,
+        ),
+        !gasInCOT.isZero()
+          ? destinationSwapWithExactIn(
+              userAddressInBytes,
+              dstOmniversalChainID,
+              mulDecimals(gasInCOT, dstChainCOT.decimals),
+              EADDRESS_32_BYTES,
+              params.aggregators,
+            )
+          : null,
+      ]);
 
-      // If user has existing COT on destination chain, it must be moved to ephemeral
-      if (new Decimal(dstChainCOTBalance?.amount ?? 0).gt(0)) {
-        logger.debug(
-          `eoa -> ephemeral for destination COT for amount: ${dstChainCOTBalance?.amount}`,
-        );
-        dstEOAToEphTx = {
-          amount: mulDecimals(dstChainCOTBalance?.amount ?? 0, dstChainCOTBalance?.decimals ?? 0),
-          contractAddress: dstChainCOTAddress,
+      destinationSwap = ds;
+
+      if (dgs) {
+        gasSwap = {
+          quote: dgs.quote,
+          aggregator: dgs.aggregator,
+          originalHolding: {
+            chainID: dstOmniversalChainID,
+            tokenAddress: dstChainCOT.tokenAddress,
+            amount: mulDecimals(destinationSwap.inputAmount, dstChainCOT.decimals),
+            value: 0,
+            decimals: dstChainCOT.decimals,
+            symbol: CurrencyID[dstChainCOT.currencyID],
+          },
         };
       }
     }
@@ -162,36 +241,39 @@ const _exactOutRoute = async (
     const createdAt = Date.now();
 
     // min is what is actually needed for dst swap, we add 1% for bridge related fees and 1% buffer for source swaps.
-    // so we are charging min + 2% from the user, we add the buffer so the swap definitely happens and any pending amounts are sent back to the user.
-    const min = destinationSwap.inputAmount;
+    // We also add gasInCOT to it because we need to be able to swap to Gas
+    // so we are charging min + 5% from the user, we add the buffer so the swap definitely happens and any pending amounts are sent back to the user.
+    const min = destinationSwap.inputAmount.add(gasInCOT);
     // Apply 5% buffer to destination input amount - any leftover is sent back in COT.
-    const max = applyBuffer(destinationSwap.inputAmount, 5).toDP(
+    const max = applyBuffer(min, BUFFER_EXACT_OUT.DESTINATION_SWAP).toDP(
       dstChainCOT.decimals,
       Decimal.ROUND_CEIL,
     );
 
     return {
-      ...destinationSwap,
-      originalHolding: {
-        chainID: dstOmniversalChainID,
-        tokenAddress: dstChainCOT.tokenAddress,
-        amount: mulDecimals(destinationSwap.inputAmount, dstChainCOT.decimals),
-        value: 0,
-        decimals: dstChainCOT.decimals,
-        symbol: CurrencyID[dstChainCOT.currencyID],
-      },
       creationTime: createdAt,
       dstChainCOT: dstChainCOT,
-      dstEOAToEphTx,
       inputAmount: {
         min,
         max,
       },
-      req: {
-        chain: dstOmniversalChainID,
-        inputToken: dstChainCOT.tokenAddress,
-        outputToken: toBytes(input.toTokenAddress),
+      inputToken: dstChainCOT.tokenAddress,
+      tokenSwap: {
+        ...destinationSwap,
+        originalHolding: {
+          chainID: dstOmniversalChainID,
+          tokenAddress: dstChainCOT.tokenAddress,
+          amount: mulDecimals(destinationSwap.inputAmount, dstChainCOT.decimals),
+          value: 0,
+          decimals: dstChainCOT.decimals,
+          symbol: CurrencyID[dstChainCOT.currencyID],
+        },
+        req: {
+          chain: dstOmniversalChainID,
+          outputToken: toBytes(input.toTokenAddress),
+        },
       },
+      gasSwap,
     };
   };
 
@@ -199,89 +281,88 @@ const _exactOutRoute = async (
 
   logger.debug('destination swaps', destinationSwap);
 
-  // ------------------------------
-  // 4. Compute source availability
-  // ------------------------------
+  // Collection Fee needs to be calculated on cot
+  const estimatedCollectionFee = estimateCollectionFee(
+    uniqBy(balances, (b) => b.chainID).map((b) => {
+      const cdm = ChaindataMap.get(new OmniversalChainID(Universe.ETHEREUM, b.chainID));
+      if (!cdm) {
+        throw Errors.internal(`chain data not found for chain ${input.toChainId}`);
+      }
 
-  const cotAsset = assets.find((asset) => {
-    return asset.abstracted && equalFold(asset.symbol, cotSymbol);
-  });
-
-  const dstSwapInputAmountInDecimal = destinationSwap.inputAmount.max;
-  const cotTotalBalance = new Decimal(cotAsset?.balance ?? '0');
-  const fees = feeStore.calculateFulfilmentFee({
-    decimals: dstChainCOT.decimals,
-    destinationChainID: Number(input.toChainId),
-    destinationTokenAddress: dstChainCOTAddress,
-  });
-
-  logger.debug('exact-out:3', {
-    cotAsset,
-    dstChainCOTAddress,
-    dstChainCOTBalance,
-    cotTotalBalance: cotTotalBalance.toFixed(),
-    diff: fees.toFixed(),
-    dstSwapInputAmountInDecimal: dstSwapInputAmountInDecimal.toFixed(),
-  });
-
-  // ------------------------------
-  // 5. Determine if source swaps are required
-  // ------------------------------
-
-  let sourceSwaps: QuoteResponse = [];
-  const sourceSwapsRequired =
-    !dstChainCOTBalance ||
-    !cotAsset ||
-    new Decimal(cotAsset.balance).lt(dstSwapInputAmountInDecimal);
-
-  if (sourceSwapsRequired) {
-    sourceSwaps = (
-      await autoSelectSources(
-        userAddressInBytes,
-        balances.map((balance) => ({
-          amount: mulDecimals(balance.amount, balance.decimals),
-          chainID: new OmniversalChainID(balance.universe, balance.chainID),
-          tokenAddress: toBytes(balance.tokenAddress),
-          value: balance.value,
-        })),
-        applyBuffer(dstSwapInputAmountInDecimal.add(fees), 1).minus(cotAsset?.balance ?? '0'),
-        params.aggregators,
-        feeStore.data.fee.collection.map((f) => ({
-          ...f,
-          chainID: convertTo32Bytes(Number(f.chainID)),
-          fee: convertTo32Bytes(BigInt(f.fee)),
-          tokenAddress: convertTo32Bytes(f.tokenAddress as Hex),
-        })),
-      )
-    ).map((v) => {
-      const balance = balances.find((b) =>
-        equalFold(b.tokenAddress, convertTo32BytesHex(v.req.inputToken)),
-      );
-      if (!balance) {
-        throw Errors.internal('mapping error: balance for quote input not found');
+      const chainCOT = cdm.Currencies.find((c) => c.currencyID === params.cotCurrencyID);
+      if (!chainCOT) {
+        throw Errors.internal(`COT not found for chain ${input.toChainId}`);
       }
       return {
-        ...v,
-        originalHolding: {
-          ...v.originalHolding,
-          decimals: balance.decimals,
-          symbol: balance.symbol,
-        },
+        value: b.value,
+        chainID: b.chainID,
+        contractAddress: convertToEVMAddress(chainCOT.tokenAddress),
+        decimals: b.decimals,
       };
-    });
-  }
-  const sourceSwapCreationTime = Date.now();
+    }),
+    destinationSwap.inputAmount.max,
+    feeStore,
+  );
 
-  logger.debug('exact-out:4', {
-    dstChainCOTBalance,
-    inequality: new Decimal(dstChainCOTBalance?.amount ?? 0).lt(
-      dstSwapInputAmountInDecimal.add(fees),
-    ),
+  const estimatedBridgeFees = feeStore
+    .calculateFulfilmentFee({
+      decimals: dstChainCOT.decimals,
+      destinationChainID: Number(input.toChainId),
+      destinationTokenAddress: dstChainCOTAddress,
+    })
+    .add(estimatedCollectionFee);
+
+  const bridgeOutput = destinationSwap.inputAmount.max;
+
+  const sourceSwapOutputRequired = applyBuffer(
+    bridgeOutput.add(estimatedBridgeFees),
+    BUFFER_EXACT_OUT.SOURCE_SWAP,
+  );
+
+  logger.debug('exact-out:3', {
+    dstChainCOTAddress,
+    estimatedBridgeFees: estimatedBridgeFees.toFixed(),
+    bridgeOutput: bridgeOutput.toFixed(),
+    sourceSwapOutputRequired: sourceSwapOutputRequired.toFixed(),
   });
 
-  // ------------------------------
-  // 6. Bridge input calculation (account for already existing COT + COT from swaps)
-  // ------------------------------
+  const sortedBalances = sortSourcesByPriority(balances, {
+    tokenAddress: input.toTokenAddress,
+    symbol: dstTokenInfo.symbol,
+    chainID: dstChain.id,
+  });
+
+  const { quotes: sourceSwapQuotes, usedCOTs } = await autoSelectSourcesV2(
+    userAddressInBytes,
+    sortedBalances.map((balance) => ({
+      amount: mulDecimals(balance.amount, balance.decimals),
+      chainID: new OmniversalChainID(balance.universe, balance.chainID),
+      tokenAddress: toBytes(balance.tokenAddress),
+      value: balance.value,
+    })),
+    sourceSwapOutputRequired,
+    params.aggregators,
+  );
+
+  const sourceSwaps = sourceSwapQuotes.map((v) => {
+    const balance = balances.find((b) =>
+      equalFold(b.tokenAddress, convertTo32BytesHex(v.req.inputToken)),
+    );
+    if (!balance) {
+      throw Errors.internal('mapping error: balance for quote input not found');
+    }
+    return {
+      ...v,
+      originalHolding: {
+        ...v.originalHolding,
+        decimals: balance.decimals,
+        symbol: balance.symbol,
+      },
+    };
+  });
+
+  const sourceSwapCreationTime = Date.now();
+
   let bridgeInput: {
     amount: Decimal;
     assets: BridgeAsset[];
@@ -290,89 +371,24 @@ const _exactOutRoute = async (
     tokenAddress: `0x${string}`;
   } | null = null;
 
-  const bridgeAssets: BridgeAsset[] =
-    cotAsset?.breakdown.map((b) => ({
-      chainID: b.chain.id,
-      contractAddress: b.contractAddress,
-      decimals: b.decimals,
-      eoaBalance: new Decimal(b.balance),
-      ephemeralBalance: new Decimal(0),
-    })) ?? [];
+  // If every source swap and cot used is not on destination chain then bridge is required
+  const isBridgeRequired = !(
+    sourceSwapQuotes.every((q) => Number(q.originalHolding.chainID.chainID) === input.toChainId) &&
+    usedCOTs.every((q) => Number(q.originalHolding.chainID.chainID) === input.toChainId)
+  );
 
-  if (new Decimal(dstChainCOTBalance?.amount ?? 0n).lt(dstSwapInputAmountInDecimal.add(fees))) {
-    // If swap happens to COT on destination chain
-    // then that amount doesn't needs to be in RFF
-    let dstCOTSwapAmount = new Decimal(0);
+  let dstEOAToEphTx: { amount: bigint; contractAddress: Hex } | null = null;
 
-    for (const swap of sourceSwaps) {
-      const bAsset = bridgeAssets.find((ba) => {
-        return (
-          ba.chainID === Number(swap.req.chain.chainID) &&
-          equalFold(ba.contractAddress, convertToEVMAddress(swap.req.outputToken))
-        );
-      });
-
-      const token = params.chainList.getTokenByAddress(
-        Number(swap.req.chain.chainID),
-        convertToEVMAddress(swap.req.outputToken),
-      );
-      if (!token) {
-        throw Errors.tokenNotFound(
-          convertToEVMAddress(swap.req.outputToken),
-          Number(swap.req.chain.chainID),
-        );
-      }
-
-      const outputAmount = swap.quote.outputAmountMinimum;
-
-      if (bAsset) {
-        bAsset.ephemeralBalance = Decimal.add(
-          bAsset.ephemeralBalance,
-          divDecimals(outputAmount, token.decimals),
-        );
-      } else {
-        bridgeAssets.push({
-          chainID: Number(swap.req.chain.chainID),
-          contractAddress: convertToEVMAddress(swap.req.outputToken),
-          decimals: token.decimals,
-          eoaBalance: new Decimal(0),
-          ephemeralBalance: divDecimals(outputAmount, token.decimals),
-        });
-      }
-
-      if (Number(swap.req.chain.chainID) === input.toChainId) {
-        dstCOTSwapAmount = dstCOTSwapAmount.plus(divDecimals(outputAmount, token.decimals));
-      }
-
-      logger.debug('determineSwapRoute:sourceSwap', {
-        outputAmountLikely: swap.quote.outputAmountLikely ?? 0,
-        outputAmountMinimum: swap.quote.outputAmountMinimum ?? 0,
-        swap,
-      });
-    }
-
-    // If COT from source swap at destination chain + existing COT accounts
-    // for requirement then RFF shouldn't be created
-    if (
-      new Decimal(dstChainCOTBalance?.amount ?? 0)
-        .plus(dstCOTSwapAmount)
-        .lt(dstSwapInputAmountInDecimal)
-    ) {
-      bridgeInput = {
-        amount: dstSwapInputAmountInDecimal
-          .minus(dstChainCOTBalance?.amount ?? 0)
-          .minus(dstCOTSwapAmount),
-        assets: bridgeAssets,
-        chainID: input.toChainId,
-        decimals: dstChainCOT.decimals,
-        tokenAddress: convertToEVMAddress(dstChainCOT.tokenAddress),
-      };
-    }
+  // Check if used cot list has destination chain
+  const dstChainExistingCOT = usedCOTs.find(
+    (c) => Number(c.originalHolding.chainID.chainID) === input.toChainId,
+  );
+  if (dstChainExistingCOT) {
+    dstEOAToEphTx = {
+      amount: mulDecimals(dstChainExistingCOT.amountUsed, dstChainExistingCOT.cur.decimals),
+      contractAddress: convertToEVMAddress(dstChainExistingCOT.originalHolding.tokenAddress),
+    };
   }
-
-  // ------------------------------
-  // 7. Prepare assets used to show in intent
-  // ------------------------------
 
   const assetsUsed: {
     amount: string;
@@ -381,6 +397,34 @@ const _exactOutRoute = async (
     decimals: number;
     symbol: string;
   }[] = [];
+  const bridgeAssets: BridgeAsset[] = [];
+
+  // Tracks existing COT + COT after swap, since that shouldn't be involved in swap
+  let dstTotalCOTAmount = new Decimal(
+    dstEOAToEphTx ? divDecimals(dstEOAToEphTx.amount, dstChainCOT.decimals) : 0,
+  );
+
+  for (const cot of usedCOTs) {
+    assetsUsed.push({
+      amount: cot.amountUsed.toFixed(),
+      chainID: Number(cot.originalHolding.chainID.chainID),
+      contractAddress: convertToEVMAddress(cot.originalHolding.tokenAddress),
+      decimals: cot.cur.decimals,
+      symbol: CurrencyID[cot.cur.currencyID],
+    });
+
+    if (Number(cot.originalHolding.chainID.chainID) === input.toChainId) {
+      continue;
+    }
+
+    bridgeAssets.push({
+      chainID: Number(cot.originalHolding.chainID.chainID),
+      contractAddress: convertToEVMAddress(cot.originalHolding.tokenAddress),
+      decimals: cot.cur.decimals,
+      eoaBalance: cot.amountUsed,
+      ephemeralBalance: new Decimal(0),
+    });
+  }
 
   for (const swap of sourceSwaps) {
     assetsUsed.push({
@@ -390,28 +434,85 @@ const _exactOutRoute = async (
       decimals: swap.originalHolding.decimals,
       symbol: swap.originalHolding.symbol,
     });
+
+    const outputAmount = swap.quote.outputAmountMinimum;
+
+    // If swap happens to COT on destination chain then that amount doesn't needs to be in RFF
+    if (Number(swap.originalHolding.chainID.chainID) === input.toChainId) {
+      dstTotalCOTAmount = dstTotalCOTAmount.plus(divDecimals(outputAmount, swap.cur.decimals));
+      continue;
+    }
+
+    const bAsset = bridgeAssets.find((ba) => {
+      return (
+        ba.chainID === Number(swap.req.chain.chainID) &&
+        equalFold(ba.contractAddress, convertToEVMAddress(swap.req.outputToken))
+      );
+    });
+
+    const token = params.chainList.getTokenByAddress(
+      Number(swap.req.chain.chainID),
+      convertToEVMAddress(swap.req.outputToken),
+    );
+    if (!token) {
+      throw Errors.tokenNotFound(
+        convertToEVMAddress(swap.req.outputToken),
+        Number(swap.req.chain.chainID),
+      );
+    }
+
+    if (bAsset) {
+      bAsset.ephemeralBalance = Decimal.add(
+        bAsset.ephemeralBalance,
+        divDecimals(outputAmount, token.decimals),
+      );
+    } else {
+      bridgeAssets.push({
+        chainID: Number(swap.req.chain.chainID),
+        contractAddress: convertToEVMAddress(swap.req.outputToken),
+        decimals: token.decimals,
+        eoaBalance: new Decimal(0),
+        ephemeralBalance: divDecimals(outputAmount, token.decimals),
+      });
+    }
+
+    logger.debug('determineSwapRoute:sourceSwap', {
+      outputAmountLikely: swap.quote.outputAmountLikely ?? 0,
+      outputAmountMinimum: swap.quote.outputAmountMinimum ?? 0,
+      swap,
+    });
+  }
+
+  // Bridge should not involve existing dst cot + any swap to cot on dst chain
+  const bridgeAmountWithoutDstCOT = bridgeOutput.minus(dstTotalCOTAmount);
+
+  logger.debug('exactOut:BeforeBridgeSet', {
+    bridgeAmountWithoutDstCOT: bridgeAmountWithoutDstCOT.toFixed(),
+    bridgeAssets,
+    assetsUsed,
+    dstEOAToEphTx,
+    isBridgeRequired,
+  });
+
+  if (isBridgeRequired) {
+    bridgeInput = {
+      amount: bridgeAmountWithoutDstCOT,
+      assets: bridgeAssets,
+      chainID: input.toChainId,
+      decimals: dstChainCOT.decimals,
+      tokenAddress: convertToEVMAddress(dstChainCOT.tokenAddress),
+    };
   }
 
   if (bridgeInput) {
-    const { eoaToEphemeralCalls } = createIntent({
+    const createIntentResponse = createIntent({
       assets: bridgeAssets,
       feeStore,
       output: bridgeInput,
       address: params.address.ephemeral,
     });
 
-    for (const chain in eoaToEphemeralCalls) {
-      assetsUsed.push({
-        amount: divDecimals(
-          eoaToEphemeralCalls[chain].amount,
-          eoaToEphemeralCalls[chain].decimals,
-        ).toFixed(),
-        chainID: Number(chain),
-        contractAddress: eoaToEphemeralCalls[chain].tokenAddress,
-        decimals: eoaToEphemeralCalls[chain].decimals,
-        symbol: cotSymbol,
-      });
-    }
+    logger.debug('ExactOut: createIntent', { bridgeAssets, bridgeInput, createIntentResponse });
   }
   return {
     source: {
@@ -423,6 +524,7 @@ const _exactOutRoute = async (
       type: 'EXACT_OUT',
       swap: destinationSwap,
       fetchDestinationSwapDetails,
+      dstEOAToEphTx,
     },
     extras: {
       aggregators: params.aggregators,
@@ -437,27 +539,29 @@ const _exactOutRoute = async (
 type DestinationSwap = {
   creationTime: number;
   dstChainCOT: Currency;
-  dstEOAToEphTx: {
-    amount: bigint;
-    contractAddress: Hex;
-  } | null;
-  inputAmount: { min: Decimal; max: Decimal };
-  req: {
-    chain: OmniversalChainID;
-    inputToken: Buffer<ArrayBufferLike>;
-    outputToken: ByteArray;
+  inputAmount: { min: Decimal; max: Decimal }; // This is input of tokenSwap + gasSwap + buffer
+  inputToken: ByteArray; // COT
+  tokenSwap: {
+    req: {
+      chain: OmniversalChainID;
+      outputToken: ByteArray;
+    };
+    quote: Quote | null;
+    originalHolding: Holding & { symbol: string; decimals: number };
+    aggregator: Aggregator;
+    outputAmount: bigint;
   };
-  quote: Quote | null;
-  aggregator: Aggregator;
-  originalHolding: Holding & { symbol: string; decimals: number };
-  outputAmount: bigint;
+  gasSwap: {
+    quote: Quote | null;
+    originalHolding: Holding & { symbol: string; decimals: number };
+    aggregator: Aggregator;
+  } | null;
 };
 
 export type SwapRoute = {
   source: {
     swaps: ({
       req: QuoteRequestExactInput;
-      cfee: bigint;
       originalHolding: Holding & { decimals: number; symbol: string };
       cur: Currency;
     } & {
@@ -469,6 +573,10 @@ export type SwapRoute = {
   bridge: BridgeInput;
   destination: {
     type: 'EXACT_IN' | 'EXACT_OUT';
+    dstEOAToEphTx: {
+      amount: bigint;
+      contractAddress: Hex;
+    } | null;
     swap: DestinationSwap;
     fetchDestinationSwapDetails: () => Promise<DestinationSwap>;
   };
@@ -530,7 +638,7 @@ const _exactInRoute = async (
     getBalancesForSwap({
       evmAddress: params.address.eoa,
       chainList: params.chainList,
-      filter: false,
+      filterWithSupportedTokens: false,
     }),
     params.cosmosQueryClient.fetchPriceOracle(),
   ]).catch((e) => {
@@ -774,6 +882,11 @@ const _exactInRoute = async (
     dstSwapInputAmountInDecimal: dstSwapInputAmountInDecimal.toFixed(),
   });
 
+  let dstEOAToEphTx: {
+    amount: bigint;
+    contractAddress: Hex;
+  } | null = null;
+
   const fetchDestinationSwapDetails = async () => {
     let destinationSwap: Awaited<ReturnType<typeof destinationSwapWithExactIn>> = {
       aggregator: params.aggregators[0],
@@ -790,12 +903,6 @@ const _exactInRoute = async (
       dstChainCOT.decimals,
       Decimal.ROUND_FLOOR,
     );
-
-    // const createdAt = Date.now();
-    let dstEOAToEphTx: {
-      amount: bigint;
-      contractAddress: Hex;
-    } | null = null;
 
     // If toTokenAddress is not same as cot then create dstSwap
     if (!equalFold(input.toTokenAddress, dstChainCOTAddress)) {
@@ -824,23 +931,26 @@ const _exactInRoute = async (
       dstSwapInputAmountInDecimal: dstSwapInputAmountInDecimal.toFixed(),
     });
     return {
-      ...destinationSwap,
-      originalHolding: {
-        chainID: dstOmniversalChainID,
-        tokenAddress: dstChainCOT.tokenAddress,
-        amount: mulDecimals(dstSwapInputAmountInDecimal, dstChainCOT.decimals),
-        value: 0,
-        decimals: dstChainCOT.decimals,
-        symbol: CurrencyID[dstChainCOT.currencyID],
+      tokenSwap: {
+        ...destinationSwap,
+        originalHolding: {
+          chainID: dstOmniversalChainID,
+          tokenAddress: dstChainCOT.tokenAddress,
+          amount: mulDecimals(dstSwapInputAmountInDecimal, dstChainCOT.decimals),
+          value: 0,
+          decimals: dstChainCOT.decimals,
+          symbol: CurrencyID[dstChainCOT.currencyID],
+        },
+        req: {
+          chain: dstOmniversalChainID,
+          outputToken: toBytes(input.toTokenAddress),
+        },
       },
       dstChainCOT: dstChainCOT,
-      dstEOAToEphTx,
       inputAmount: { min: dstSwapInputAmountInDecimal, max: dstSwapInputAmountInDecimal },
-      req: {
-        chain: dstOmniversalChainID,
-        inputToken: dstChainCOT.tokenAddress,
-        outputToken: toBytes(input.toTokenAddress),
-      },
+      inputToken: dstChainCOT.tokenAddress,
+      gasSwap: null,
+
       creationTime: Date.now(),
     };
   };
@@ -862,6 +972,7 @@ const _exactInRoute = async (
       type: 'EXACT_IN',
       swap: destinationSwap,
       fetchDestinationSwapDetails,
+      dstEOAToEphTx,
     },
     extras: {
       assetsUsed,

@@ -11,6 +11,7 @@
   ],
   "scripts": {
     "build": "rollup -c",
+    "test": "vitest",
     "buildAndPack": "rollup -c && npm pack",
     "dev": "rollup -c -w",
     "docs": "typedoc --plugin typedoc-theme-fresh --theme fresh --options typedoc_html.json",
@@ -49,7 +50,7 @@
     "npm": ">=9.0.0"
   },
   "dependencies": {
-    "@avail-project/ca-common": "availproject/ca-common#main",
+    "@avail-project/ca-common": "github:availproject/ca-common#feat/auto-select-sources-v2",
     "@cosmjs/proto-signing": "0.34.0",
     "@cosmjs/stargate": "0.34.0",
     "@metamask/safe-event-emitter": "3.1.2",
@@ -87,7 +88,8 @@
     "typedoc-plugin-missing-exports": "4.1.2",
     "typedoc-plugin-rename-defaults": "0.7.3",
     "typedoc-theme-fresh": "0.2.1",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "4.0.15"
   },
   "publishConfig": {
     "access": "public"

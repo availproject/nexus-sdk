@@ -148,10 +148,17 @@ export interface ExactInSwapInput {
   toTokenAddress: Hex;
 }
 
+export type Source = {
+  tokenAddress: Hex;
+  chainId: number;
+};
+
 export interface ExactOutSwapInput {
+  fromSources?: Source[];
   toChainId: number;
   toTokenAddress: Hex;
   toAmount: bigint;
+  toNativeAmount?: bigint;
 }
 
 export enum SwapMode {

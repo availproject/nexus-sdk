@@ -5,18 +5,19 @@ import { resourceFromAttributes } from '@opentelemetry/resources';
 import { Environment } from '@avail-project/ca-common';
 import { toHex } from 'viem/utils';
 import { NetworkConfig } from '../../commons';
+import { PlatformUtils } from './utils/platform.utils';
 
 
 let telemetryLogger: Logger | null = null;
 
-function getOrGenerateClientId(): string {
+async function getOrGenerateClientId(): Promise<string> {
   const KEY = 'nexus-client-id';
-  let clientId = window.localStorage.getItem(KEY);
+  let clientId = PlatformUtils.storageGetItem(KEY);
 
   if (!clientId) {
     const bytes = new Uint8Array(32);
-    clientId = toHex(window.crypto.getRandomValues(bytes));
-    window.localStorage.setItem(KEY, clientId);
+    clientId = toHex(await PlatformUtils.cryptoGetRandomValues(bytes));
+    PlatformUtils.storageSetItem(KEY, clientId);
   }
   return clientId;
 }
@@ -25,15 +26,18 @@ function getNetworkName(networkConfig: NetworkConfig): string {
   return Environment[networkConfig.NETWORK_HINT];
 }
 
-const setLoggerProvider = (networkConfig: NetworkConfig) => {
+const setLoggerProvider = async (networkConfig: NetworkConfig) => {
   if (!telemetryLogger) {
+    // TODO Check if window.origin is what we actually want because ChatGPT said:
+    // There is no standard window.origin property.
+    // In older browsers, window.origin might even be undefined.
     const loggerProvider = new LoggerProvider({
       resource: resourceFromAttributes({
         'service.name': 'nexus-sdk-internal-logs',
-        'client.id': getOrGenerateClientId(),
-        'origin': window.origin,
-        'host': window.location.host,
-        'hostname': window.location.hostname,
+        'client.id': await getOrGenerateClientId(),
+        'origin': PlatformUtils.isBrowser() ? window.origin : PlatformUtils.locationOrigin(),
+        'host': PlatformUtils.locationHost(),
+        'hostname': PlatformUtils.locationHost(),
         'network': getNetworkName(networkConfig),
       }),
       processors: [

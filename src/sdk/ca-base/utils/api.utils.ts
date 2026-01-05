@@ -1,6 +1,6 @@
 import {
   Bytes,
-  GrpcWebImpl,
+  createGrpcWebImpl,
   QueryClientImpl,
   RequestForFunds,
   Universe,
@@ -78,7 +78,7 @@ const PAGE_LIMIT = 100;
 const logger = getLogger();
 const decoder = new TextDecoder('utf-8');
 
-const createCosmosQueryClient = ({
+const createCosmosQueryClient = async ({
   cosmosRestUrl,
   cosmosGrpcWebUrl,
   cosmosWsUrl,
@@ -86,8 +86,9 @@ const createCosmosQueryClient = ({
   cosmosRestUrl: string;
   cosmosGrpcWebUrl: string;
   cosmosWsUrl: string;
-}): CosmosQueryClient => {
-  const rpc = new GrpcWebImpl(cosmosGrpcWebUrl, {});
+}): Promise<CosmosQueryClient> => {
+  // :| smh
+  const rpc = await createGrpcWebImpl(cosmosGrpcWebUrl);
   const cosmosQueryClient = new QueryClientImpl(rpc);
 
   return {
@@ -388,7 +389,7 @@ export class FeeStore {
   }
 }
 
-const getFeeStore = async (grpcClient: Awaited<ReturnType<typeof createCosmosQueryClient>>) => {
+const getFeeStore = async (cosmosQueryClient: CosmosQueryClient) => {
   const feeData: FeeStoreData = {
     fee: {
       collection: [],
@@ -400,8 +401,8 @@ const getFeeStore = async (grpcClient: Awaited<ReturnType<typeof createCosmosQue
     solverRoutes: [],
   };
   const [p, s] = await Promise.allSettled([
-    grpcClient.fetchProtocolFees(),
-    grpcClient.fetchSolverData(),
+    cosmosQueryClient.fetchProtocolFees(),
+    cosmosQueryClient.fetchSolverData(),
   ]);
   if (p.status === 'fulfilled') {
     logger.debug('getFeeStore', {

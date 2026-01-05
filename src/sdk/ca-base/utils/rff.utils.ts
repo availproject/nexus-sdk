@@ -16,6 +16,7 @@ import { Errors } from '../errors';
 import { convertToEVMAddress } from '../swap/utils';
 import Decimal from 'decimal.js';
 import { FeeStore } from './api.utils';
+import { PlatformUtils } from './platform.utils';
 
 type Destination = {
   tokenAddress: Hex;
@@ -136,7 +137,7 @@ const createRFFromIntent = async (
     recipientAddress: convertTo32Bytes(intent.recipientAddress),
     destinationUniverse: intent.destination.universe,
     expiry: Long.fromString((BigInt(Date.now() + INTENT_EXPIRY) / 1000n).toString()),
-    nonce: window.crypto.getRandomValues(new Uint8Array(32)),
+    nonce: await PlatformUtils.cryptoGetRandomValues(new Uint8Array(32)),
     // @ts-expect-error
     signatureData: parties.map((p) => ({
       address: toBytes(p.address),

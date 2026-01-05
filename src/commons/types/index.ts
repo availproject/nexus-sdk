@@ -10,7 +10,7 @@ import {
   Universe,
 } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
-import { SBCTx, SwapIntent } from './swap-types';
+import { SBCTx, Source, SwapIntent } from './swap-types';
 import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 import { SwapStepType } from './swap-steps';
 import { BridgeStepType } from './bridge-steps';
@@ -182,7 +182,21 @@ export interface TokenBalance {
   isNative?: boolean;
 }
 
-// Enhanced modular parameters for execute functionality with dynamic parameter building
+type GasPriceSelector = 'low' | 'medium' | 'high' | 'ultraHigh';
+
+export interface SwapExecuteParams {
+  to: Hex;
+  value?: bigint;
+  data?: Hex;
+  gas: bigint;
+  gasPrice?: GasPriceSelector;
+  tokenApproval?: {
+    token: Hex;
+    amount: bigint;
+    spender: Hex;
+  };
+}
+
 export interface ExecuteParams {
   toChainId: number;
   to: Hex;
@@ -272,6 +286,14 @@ export interface BridgeAndExecuteParams {
   receiptTimeout?: number;
   requiredConfirmations?: number;
   recentApprovalTxHash?: string;
+}
+
+export interface SwapAndExecuteParams {
+  toChainId: number;
+  toTokenAddress: Hex;
+  toAmount: bigint;
+  fromSources?: Source[];
+  execute: SwapExecuteParams;
 }
 
 export type CosmosOptions = {
