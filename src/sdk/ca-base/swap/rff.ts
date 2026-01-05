@@ -37,8 +37,47 @@ import {
   MAINNET_CHAIN_IDS,
   QueryClients,
 } from '../../../commons';
+import { applyBuffer } from './route';
 
 const logger = getLogger();
+
+export const estimateCollectionFee = (
+  assets: (Pick<BridgeAsset, 'chainID' | 'contractAddress' | 'decimals'> & { value: number })[],
+  outputAmount: Decimal,
+  feeStore: FeeStore,
+) => {
+  let expectedAmount = applyBuffer(outputAmount, 30);
+  logger.debug('sumCollectionFee', {
+    assets,
+    feeStore,
+    outputAmount: outputAmount.toFixed(),
+    expectedAmount: expectedAmount.toFixed(),
+  });
+  let accounted = new Decimal(0);
+  let fee = new Decimal(0);
+
+  for (const asset of assets) {
+    if (accounted.gt(expectedAmount)) {
+      break;
+    }
+    const collectionFee = feeStore.calculateCollectionFee({
+      decimals: asset.decimals,
+      sourceChainID: asset.chainID,
+      sourceTokenAddress: asset.contractAddress,
+    });
+
+    logger.debug('estimateCollectionFee', {
+      collectionFee: collectionFee.toFixed(),
+      fee: fee.toFixed(),
+      accounted: accounted.toFixed(),
+    });
+
+    fee = fee.add(collectionFee);
+    accounted = accounted.add(asset.value);
+  }
+
+  return fee;
+};
 
 export const createIntent = ({
   assets,
@@ -81,7 +120,7 @@ export const createIntent = ({
   };
 
   let borrow = output.amount;
-  intent.destination.amount = borrow;
+  intent.destination.amount = new Decimal(borrow);
   intent.destination.tokenContract = output.tokenAddress;
 
   const protocolFee = feeStore.calculateProtocolFee(borrow);
@@ -117,7 +156,7 @@ export const createIntent = ({
     return Decimal.sub(
       Decimal.add(a.eoaBalance, a.ephemeralBalance),
       Decimal.add(b.eoaBalance, b.ephemeralBalance),
-    ).toNumber(); // sort others by balance
+    ).toNumber(); //sort others by balance
   });
 
   for (const asset of sortedAssets) {
@@ -131,6 +170,10 @@ export const createIntent = ({
     if (accountedBalance.gte(borrow)) {
       break;
     }
+
+    logger.debug('bridgeRFF:2.0', {
+      asset,
+    });
 
     const collectionFee = feeStore.calculateCollectionFee({
       decimals: asset.decimals,
@@ -162,6 +205,11 @@ export const createIntent = ({
     intent.fees.solver = solverFee.add(intent.fees.solver).toFixed();
     borrow = borrow.add(solverFee);
 
+    logger.debug('bridgeRFF:2.01', {
+      solverFee: solverFee.toFixed(),
+      collectionFee: collectionFee.toFixed(),
+    });
+
     const unaccountedBalance2 = borrow.minus(accountedBalance);
 
     let borrowFromThisChain = new Decimal(0);
@@ -191,7 +239,7 @@ export const createIntent = ({
 
       if (borrowFromThisChain.gt(asset.ephemeralBalance.toString())) {
         logger.debug('createBridgeRFF:2.2', {
-          assetEphemeral: asset.ephemeralBalance,
+          assetEphemeral: asset.ephemeralBalance.toFixed(),
           borrowFromThisChain: borrowFromThisChain.toFixed(),
         });
         eoaToEphemeralCalls[asset.chainID] = {
@@ -221,6 +269,12 @@ export const createIntent = ({
       `available: ${accountedBalance.toFixed()}, required: ${borrow.toFixed()}`,
     );
   }
+
+  logger.debug('createIntentEnd', {
+    accountedBalance: accountedBalance.toFixed(),
+    borrowEnd: borrow.toFixed(),
+    borrowStart: intent.destination.amount.toFixed(),
+  });
 
   return { eoaToEphemeralCalls, intent };
 };

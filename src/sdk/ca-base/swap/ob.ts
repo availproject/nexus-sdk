@@ -16,7 +16,7 @@ import { orderBy, retry } from 'es-toolkit';
 import Long from 'long';
 import { Hex, PrivateKeyAccount, WalletClient } from 'viem';
 import { divDecimals, equalFold, minutesToMs, switchChain, waitForTxReceipt } from '../utils';
-import { EADDRESS, SWEEPER_ADDRESS } from './constants';
+import { EADDRESS, SWEEPER_ADDRESS, EADDRESS_32_BYTES } from './constants';
 import { getTokenDecimals } from './data';
 import { createBridgeRFF } from './rff';
 import { caliburExecute, checkAuthCodeSet, createSBCTxFromCalls, waitForSBCTxReceipt } from './sbc';
@@ -28,7 +28,6 @@ import {
   convertToEVMAddress,
   createPermitAndTransferFromTx,
   createSweeperTxs,
-  EADDRESS_32_BYTES,
   EXPECTED_CALIBUR_CODE,
   getAllowanceCacheKey,
   parseQuote,
@@ -53,6 +52,7 @@ import {
 import { SwapRoute } from './route';
 import { Errors } from '../errors';
 import { SigningStargateClient } from '@cosmjs/stargate';
+import { ZERO_ADDRESS } from '../constants';
 
 type Options = {
   address: {
@@ -82,7 +82,6 @@ type Options = {
 
 type SwapInput = {
   agg: Aggregator;
-  cfee: bigint;
   cur: Currency;
   originalHolding: Holding & { decimals: number; symbol: string };
   quote: Quote;
@@ -181,16 +180,24 @@ class BridgeHandler {
       }
       if (sbcTx.length) {
         const ops = await this.options.vscClient.vscSBCTx(sbcTx);
-        ops.forEach((op) => {
-          this.options.emitter.emit(SWAP_STEPS.SOURCE_SWAP_HASH(op, this.options.chainList));
-        });
         waitingPromises.push(
-          ...ops.map(([chainID, hash]) =>
-            wrap(
+          ...ops.map(([chainID, hash]) => {
+            const chain = this.options.chainList.getChainByID(Number(chainID));
+            if (!chain) {
+              throw Errors.chainNotFound(chainID);
+            }
+            this.options.emitter.emit(
+              SWAP_STEPS.BRIDGE_DEPOSIT({
+                chain,
+                hash,
+                explorerURL: chain.blockExplorers!.default.url,
+              }),
+            );
+            return wrap(
               Number(chainID),
               waitForTxReceipt(hash, this.options.publicClientList.get(chainID), 1),
-            ),
-          ),
+            );
+          }),
         );
       }
     }
@@ -303,10 +310,10 @@ class DestinationSwapHandler {
     },
     private readonly options: Options,
   ) {
-    if (data.swap.dstEOAToEphTx) {
+    if (data.dstEOAToEphTx) {
       options.cache.addAllowanceQuery({
         chainID: dst.chainID,
-        contractAddress: data.swap.dstEOAToEphTx.contractAddress,
+        contractAddress: data.dstEOAToEphTx.contractAddress,
         owner: options.address.eoa,
         spender: options.address.ephemeral,
       });
@@ -331,19 +338,19 @@ class DestinationSwapHandler {
 
     options.cache.addAllowanceQuery({
       chainID: dst.chainID,
-      contractAddress: convertToEVMAddress(data.swap.req.inputToken),
+      contractAddress: convertToEVMAddress(data.swap.inputToken),
       owner: options.address.ephemeral,
       spender: SWEEPER_ADDRESS,
     });
   }
 
   async createPermit() {
-    if (this.data.swap.dstEOAToEphTx) {
+    if (this.data.dstEOAToEphTx) {
       const txs = await createPermitAndTransferFromTx({
-        amount: this.data.swap.dstEOAToEphTx.amount,
+        amount: this.data.dstEOAToEphTx.amount,
         cache: this.options.cache,
         chain: this.options.chainList.getChainByID(this.dst.chainID)!,
-        contractAddress: this.data.swap.dstEOAToEphTx.contractAddress,
+        contractAddress: this.data.dstEOAToEphTx.contractAddress,
         owner: this.options.address.eoa,
         ownerWallet: this.options.wallet.eoa,
         publicClient: this.options.publicClientList.get(this.dst.chainID),
@@ -400,13 +407,14 @@ class DestinationSwapHandler {
       calls = calls.concat(this.eoaToEphCalls);
     }
 
-    if (swap.quote) {
+    // Check if token swap
+    if (swap.tokenSwap.quote) {
       const quote = parseQuote(
         {
-          agg: swap.aggregator,
-          originalHolding: swap.originalHolding,
-          quote: swap.quote,
-          req: swap.req,
+          agg: swap.tokenSwap.aggregator,
+          originalHolding: swap.tokenSwap.originalHolding,
+          quote: swap.tokenSwap.quote,
+          inputToken: swap.inputToken,
         },
         true,
       );
@@ -423,7 +431,7 @@ class DestinationSwapHandler {
       metadata.dst.swaps.push({
         agg: 0,
         input_amt: convertTo32Bytes(quote.input.amount),
-        input_contract: swap.req.inputToken,
+        input_contract: swap.inputToken,
         input_decimals: swap.dstChainCOT.decimals,
         output_amt: convertTo32Bytes(this.dst.amount ?? 0),
         output_contract: convertTo32Bytes(this.dst.token),
@@ -431,6 +439,28 @@ class DestinationSwapHandler {
       });
 
       this.options.emitter.emit(SWAP_STEPS.DESTINATION_SWAP_BATCH_TX(false));
+    }
+
+    let hasGasSwap = false;
+
+    // Check if there is gas swap
+    if (swap.gasSwap) {
+      const quote = parseQuote(
+        {
+          agg: swap.gasSwap.aggregator,
+          originalHolding: swap.gasSwap.originalHolding,
+          quote: swap.gasSwap.quote!,
+          inputToken: swap.inputToken,
+        },
+        true,
+      );
+
+      if (quote.swap.approval) {
+        calls.push(quote.swap.approval);
+      }
+      calls.push(quote.swap.tx);
+
+      hasGasSwap = true;
     }
 
     // Add sweeper tx
@@ -443,6 +473,16 @@ class DestinationSwapHandler {
         sender: this.options.address.ephemeral,
         tokenAddress: this.dst.token,
       }),
+      hasGasSwap
+        ? createSweeperTxs({
+            cache: this.options.cache,
+            chainID: this.dst.chainID,
+            COTCurrencyID: this.options.cot.currencyID,
+            receiver: this.options.address.eoa,
+            sender: this.options.address.ephemeral,
+            tokenAddress: ZERO_ADDRESS,
+          })
+        : [],
     );
 
     // Execute batched destination tx
@@ -478,7 +518,7 @@ class DestinationSwapHandler {
     // There wasn't any quote to begin with so nothing to requote.
     // Happens when dst token is COT, just need to send from ephemeral -> EOA
     // Maybe FIXME: Bridge can directly send to EOA in these cases - save gas.
-    if (!this.data.swap.quote) {
+    if (!this.data.swap.tokenSwap.quote && !this.data.swap.gasSwap?.quote) {
       return;
     }
 
@@ -486,8 +526,8 @@ class DestinationSwapHandler {
     let requote = force;
 
     if (!force) {
-      if (swap.aggregator instanceof BebopAggregator) {
-        const quote = swap.quote as BebopQuote;
+      if (swap.tokenSwap.aggregator instanceof BebopAggregator) {
+        const quote = swap.tokenSwap.quote as BebopQuote;
         if (quote.originalResponse.quote.expiry * 1000 < Date.now()) requote = true;
       } else if (Date.now() - swap.creationTime > minutesToMs(0.4)) {
         requote = true;
@@ -500,7 +540,7 @@ class DestinationSwapHandler {
 
     logger.debug('Requoting destination swap...');
     const newSwap = await this.data.fetchDestinationSwapDetails();
-    if (!newSwap.quote) {
+    if (!newSwap.tokenSwap.quote) {
       throw Errors.quoteFailed('Failed to requote destination swap.');
     }
 
@@ -534,6 +574,7 @@ class DestinationSwapHandler {
     this.data = {
       type: this.data.type,
       swap: newSwap,
+      dstEOAToEphTx: this.data.dstEOAToEphTx,
       fetchDestinationSwapDetails: this.data.fetchDestinationSwapDetails,
     };
 
@@ -1016,7 +1057,10 @@ class Swap {
   }
 
   getParsedQuote() {
-    const data = parseQuote(this.input, !bytesEqual(EADDRESS_32_BYTES, this.input.req.inputToken));
+    const data = parseQuote(
+      { ...this.input, inputToken: this.input.req.inputToken },
+      !bytesEqual(EADDRESS_32_BYTES, this.input.req.inputToken),
+    );
     return { ...data, output: { ...data.output, token: this.input.req.outputToken } };
   }
 }

@@ -1,6 +1,7 @@
-import { convertTo32BytesHex } from '../utils';
+import { convertTo32BytesHex, convertTo32Bytes } from '../utils';
 
 export const EADDRESS = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
+export const EADDRESS_32_BYTES = convertTo32Bytes(EADDRESS)
 export const SWEEPER_ADDRESS = '0x0000000000296e7a886f40f7bc60D2E3653216a6';
 export const ZERO_BYTES_32 = new Uint8Array(32);
 export const ZERO_BYTES_20 = new Uint8Array(20);

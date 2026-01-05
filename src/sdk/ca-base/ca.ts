@@ -39,6 +39,7 @@ import {
   CosmosOptions,
   SUPPORTED_CHAINS,
   QueryClients,
+  SwapAndExecuteParams,
 } from '../../commons';
 import { AnalyticsManager } from '../../analytics';
 import { createBridgeParams } from './requestHandlers/helpers';
@@ -73,6 +74,7 @@ import getMaxValueForBridge from './requestHandlers/bridgeMax';
 import { Errors } from './errors';
 import { setLoggerProvider } from './telemetry';
 import { PlatformUtils } from './utils/platform.utils';
+import { SwapAndExecuteQuery } from './query/swapAndExecute';
 
 setLogLevel(LOG_LEVEL.NOLOGS);
 const logger = getLogger();
@@ -212,7 +214,7 @@ export class CA {
     });
   };
 
-  protected _getBalancesForSwap = async () => {
+  protected _getBalancesForSwap = async (onlyNativesAndStables = false) => {
     if (!this._evm) {
       throw Errors.sdkNotInitialized();
     }
@@ -221,7 +223,7 @@ export class CA {
       return getBalancesForSwap({
         evmAddress: (await this._evm!.client.requestAddresses())[0],
         chainList: this.chainList,
-        filter: false,
+        filterWithSupportedTokens: onlyNativesAndStables,
       });
     });
   };
@@ -258,6 +260,10 @@ export class CA {
 
   protected _swapWithExactOut = async (input: ExactOutSwapInput, options?: OnEventParam) => {
     return this.withReinit(async () => {
+      logger.debug('swapWithExactOut', {
+        input,
+        options,
+      });
       return swap(
         {
           mode: SwapMode.EXACT_OUT,
@@ -265,6 +271,17 @@ export class CA {
         },
         await this._getSwapOptions(options),
       );
+    });
+  };
+
+  protected _swapAndExecute = async (input: SwapAndExecuteParams, options?: OnEventParam) => {
+    return this.withReinit(async () => {
+      return new SwapAndExecuteQuery(
+        this.chainList,
+        this._evm!.client,
+        this._getBalancesForSwap,
+        this._swapWithExactOut,
+      ).swapAndExecute(input, options);
     });
   };
 

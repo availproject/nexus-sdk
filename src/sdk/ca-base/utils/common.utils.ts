@@ -393,7 +393,10 @@ const createRequestTronSignature = async (evmRFF: EVMRFF, client: AdapterProps) 
 // };
 
 const convertGasToToken = (
-  token: TokenInfo,
+  token: {
+    contractAddress: Hex;
+    decimals: number;
+  },
   oraclePrices: OraclePriceResponse,
   destinationChainID: number,
   destinationUniverse: Universe,
@@ -510,7 +513,7 @@ class UserAsset {
     return this.value.balance;
   }
 
-  constructor(public value: UserAssetDatum) { }
+  constructor(public value: UserAssetDatum) {}
 
   getBridgeAssets(dstChainId: number) {
     return this.value.breakdown
@@ -598,7 +601,7 @@ class UserAsset {
   }
 }
 class UserAssets {
-  constructor(public data: UserAssetDatum[]) { }
+  constructor(public data: UserAssetDatum[]) {}
 
   add(asset: UserAssetDatum) {
     this.data.push(asset);

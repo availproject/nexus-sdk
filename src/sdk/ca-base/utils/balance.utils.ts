@@ -1,4 +1,4 @@
-import { ChainListType, logger, SUPPORTED_CHAINS, VSCClient } from '../../../commons';
+import { ChainListType, logger, Source, SUPPORTED_CHAINS, VSCClient } from '../../../commons';
 import { equalFold } from '.';
 import { encodePacked, Hex, keccak256, pad, toHex } from 'viem';
 import {
@@ -12,14 +12,27 @@ import { filterSupportedTokens } from '../swap/data';
 export const getBalancesForSwap = async (input: {
   evmAddress: Hex;
   chainList: ChainListType;
-  filter: boolean;
+  filterWithSupportedTokens: boolean;
+  allowedSources?: Source[];
+  removeSources?: Source[];
 }) => {
   const ankrBalances = await getAnkrBalances(input.evmAddress, input.chainList, true);
 
-  const assets = ankrBalanceToAssets(input.chainList, ankrBalances, input.filter);
+  const assets = ankrBalanceToAssets(
+    input.chainList,
+    ankrBalances,
+    input.filterWithSupportedTokens,
+    input.allowedSources,
+    input.removeSources
+  );
   let balances = toFlatBalance(assets);
-
-  if (input.filter) {
+  logger.debug('getBalancesForSwap', {
+    input,
+    ankrBalances,
+    assets,
+    balances,
+  });
+  if (input.filterWithSupportedTokens) {
     balances = filterSupportedTokens(balances);
   }
 
