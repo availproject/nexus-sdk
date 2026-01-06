@@ -18,11 +18,7 @@ import { formatUnits, isAddress } from 'viem';
 /**
  * Truncate an address for display purposes
  */
-export function truncateAddress(
-  address: string,
-  startLength: number = 6,
-  endLength: number = 4,
-): string {
+export function truncateAddress(address: string, startLength = 6, endLength = 4): string {
   if (!isAddress(address)) return address;
 
   if (address.length <= startLength + endLength + 2) return address;
@@ -140,7 +136,7 @@ function stripTrailingZeros(s: string): string {
 
 function normalizeValue(
   value: InputValue,
-  decimals?: number,
+  decimals?: number
 ): { negative: boolean; intPart: string; fracRaw: string } {
   let decimalStr: string;
   if (typeof value === 'bigint') {
@@ -181,7 +177,7 @@ function formatNormal(
   negative: boolean,
   intPart: string,
   fracRaw: string,
-  opts: NormalFormatOpts,
+  opts: NormalFormatOpts
 ): FormattedParts {
   let fraction = fracRaw.slice(0, opts.maxFractionDigits);
   if (opts.trimTrailingZeros) fraction = stripTrailingZeros(fraction);
@@ -215,7 +211,7 @@ function formatTiny(
   negative: boolean,
   fracRaw: string,
   zeros: number,
-  opts: TinyFormatOpts,
+  opts: TinyFormatOpts
 ): FormattedParts {
   const sig = fracRaw.slice(zeros, zeros + opts.significantDigits);
   const hasMore = fracRaw.length > zeros + sig.length;
@@ -279,7 +275,7 @@ export function formatTokenBalanceParts(
     thousandSeparator = false,
     trimTrailingZeros = true,
     approxTilde = true,
-  }: FormatTokenBalanceOptions = {},
+  }: FormatTokenBalanceOptions = {}
 ): FormattedParts {
   const normalized = normalizeValue(value, decimals);
   const { negative, intPart, fracRaw } = normalized;
@@ -309,7 +305,7 @@ export function formatTokenBalanceParts(
     // else treat as tiny
   }
 
-  let zeros = isIntegerNonZero ? 0 : countLeadingZeros(fracRaw);
+  const zeros = isIntegerNonZero ? 0 : countLeadingZeros(fracRaw);
   if (!isIntegerNonZero && tinyThresholdPower < 0) {
     const limitZeros = Math.max(0, Math.abs(tinyThresholdPower) - 1);
     if (zeros <= limitZeros) {
@@ -344,7 +340,7 @@ export function formatTokenBalanceParts(
  */
 export function formatTokenBalance(
   value: string | number | bigint,
-  options?: FormatTokenBalanceOptions,
+  options?: FormatTokenBalanceOptions
 ): string {
   return formatTokenBalanceParts(value, options).text;
 }

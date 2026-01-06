@@ -1,12 +1,11 @@
-import { LoggerProvider, BatchLogRecordProcessor } from '@opentelemetry/sdk-logs';
-import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
-import { Logger, logs } from '@opentelemetry/api-logs';
-import { resourceFromAttributes } from '@opentelemetry/resources';
 import { Environment } from '@avail-project/ca-common';
+import { type Logger, logs } from '@opentelemetry/api-logs';
+import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
+import { resourceFromAttributes } from '@opentelemetry/resources';
+import { BatchLogRecordProcessor, LoggerProvider } from '@opentelemetry/sdk-logs';
 import { toHex } from 'viem/utils';
-import { NetworkConfig } from '../../commons';
+import type { NetworkConfig } from '../../commons';
 import { PlatformUtils } from './utils/platform.utils';
-
 
 let telemetryLogger: Logger | null = null;
 
@@ -35,17 +34,17 @@ const setLoggerProvider = async (networkConfig: NetworkConfig) => {
       resource: resourceFromAttributes({
         'service.name': 'nexus-sdk-internal-logs',
         'client.id': await getOrGenerateClientId(),
-        'origin': PlatformUtils.isBrowser() ? window.origin : PlatformUtils.locationOrigin(),
-        'host': PlatformUtils.locationHost(),
-        'hostname': PlatformUtils.locationHost(),
-        'network': getNetworkName(networkConfig),
+        origin: PlatformUtils.isBrowser() ? window.origin : PlatformUtils.locationOrigin(),
+        host: PlatformUtils.locationHost(),
+        hostname: PlatformUtils.locationHost(),
+        network: getNetworkName(networkConfig),
       }),
       processors: [
         new BatchLogRecordProcessor(
           new OTLPLogExporter({
             url: 'https://otel.avail.so/v1/logs',
             headers: { 'x-otlp-force-fetch': '1' },
-          }),
+          })
         ),
       ],
     });

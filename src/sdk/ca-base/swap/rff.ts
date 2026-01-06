@@ -36,17 +36,17 @@ import {
   removeIntentHashFromStore,
   storeIntentHashToStore,
 } from '../utils';
-import { packERC20Approve } from './utils';
 import { applyBuffer } from './route';
+import { packERC20Approve } from './utils';
 
 const logger = getLogger();
 
 export const estimateCollectionFee = (
   assets: (Pick<BridgeAsset, 'chainID' | 'contractAddress' | 'decimals'> & { value: number })[],
   outputAmount: Decimal,
-  feeStore: FeeStore,
+  feeStore: FeeStore
 ) => {
-  let expectedAmount = applyBuffer(outputAmount, 30);
+  const expectedAmount = applyBuffer(outputAmount, 30);
   logger.debug('sumCollectionFee', {
     assets,
     feeStore,
@@ -155,7 +155,7 @@ export const createIntent = ({
 
     return Decimal.sub(
       Decimal.add(a.eoaBalance, a.ephemeralBalance),
-      Decimal.add(b.eoaBalance, b.ephemeralBalance),
+      Decimal.add(b.eoaBalance, b.ephemeralBalance)
     ).toNumber(); //sort others by balance
   });
 
@@ -340,13 +340,13 @@ export const createBridgeRFF = async ({
 
     const doubleCheckTxMap: Record<number, () => Promise<void>> = {};
 
-    omniversalRFF.protobufRFF.sources.forEach((s) => {
+    for (const s of omniversalRFF.protobufRFF.sources) {
       doubleCheckTxMap[bytesToNumber(s.chainID)] = createDoubleCheckTx(
         s.chainID,
         config.cosmos,
         intentID
       );
-    });
+    }
 
     return {
       createDoubleCheckTx: async () => {

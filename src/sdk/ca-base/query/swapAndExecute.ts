@@ -1,35 +1,42 @@
+import { Universe } from '@avail-project/ca-common';
 import {
-  logger,
-  Tx,
-  Chain,
-  ChainListType,
-  UserAssetDatum,
-  OnEventParam,
-  NEXUS_EVENTS,
+  createPublicClient,
+  type Hex,
+  http,
+  type PublicClient,
+  type TransactionReceipt,
+  type WalletClient,
+} from 'viem';
+import {
   BRIDGE_STEPS,
-  SwapAndExecuteParams,
-  ExactOutSwapInput,
-  SwapExecuteParams,
+  type Chain,
+  type ChainListType,
+  type ExactOutSwapInput,
+  logger,
+  NEXUS_EVENTS,
+  type OnEventParam,
+  type SwapAndExecuteParams,
+  type SwapExecuteParams,
+  type Tx,
+  type UserAssetDatum,
 } from '../../../commons';
-import { createPublicClient, Hex, http, PublicClient, WalletClient } from 'viem';
+import { isNativeAddress } from '../constants';
+import { Errors } from '../errors';
+import { EADDRESS } from '../swap/constants';
+import type { FlatBalance } from '../swap/data';
+import { getTokenInfo, packERC20Approve } from '../swap/utils';
 import {
-  mulDecimals,
-  waitForTxReceipt,
-  switchChain,
+  convertTo32BytesHex,
+  equalFold,
   erc20GetAllowance,
-  pctAdditionToBigInt,
   // divideBigInt,
   getPctGasBufferByChain,
-  equalFold,
-  convertTo32BytesHex,
+  mulDecimals,
+  pctAdditionToBigInt,
+  switchChain,
+  waitForTxReceipt,
 } from '../utils';
-import { getTokenInfo, packERC20Approve } from '../swap/utils';
-import { Errors } from '../errors';
-import { isNativeAddress } from '../constants';
-import { Universe } from '@avail-project/ca-common';
 import { getGasPriceRecommendations } from './gasFeeHistory';
-import { FlatBalance } from '../swap/data';
-import { EADDRESS } from '../swap/constants';
 
 class SwapAndExecuteQuery {
   constructor(
@@ -39,19 +46,19 @@ class SwapAndExecuteQuery {
       assets: UserAssetDatum[];
       balances: FlatBalance[];
     }>,
-    private swap: (input: ExactOutSwapInput, options?: OnEventParam) => Promise<unknown>,
+    private swap: (input: ExactOutSwapInput, options?: OnEventParam) => Promise<unknown>
   ) {}
 
   private async estimateSwapAndExecute(params: SwapAndExecuteParams) {
     const { toChainId, toAmount, execute } = params;
 
     const address = (await this.evmClient.getAddresses())[0];
-    let txs: Tx[] = [];
+    const txs: Tx[] = [];
 
     const { tx, approvalTx, dstChain, dstPublicClient } = await this.createTxsForExecute(
       execute,
       toChainId,
-      address,
+      address
     );
 
     logger.debug('SwapAndExecute:2', {
@@ -84,7 +91,7 @@ class SwapAndExecuteQuery {
     const approvalGas = pctAdditionToBigInt(gasUsed.approvalGas, pctBuffer);
     const txGas = pctAdditionToBigInt(gasUsed.txGas, pctBuffer);
 
-    let gasPrice = gasPriceRecommendations[params.execute.gasPrice ?? 'high'];
+    const gasPrice = gasPriceRecommendations[params.execute.gasPrice ?? 'high'];
     if (gasPrice === 0n) {
       throw Errors.gasPriceError({
         chainId: toChainId,
@@ -109,7 +116,7 @@ class SwapAndExecuteQuery {
       dstTokenInfo.decimals,
       toAmount,
       gasFee,
-      balances.balances,
+      balances.balances
     );
 
     return {
@@ -154,7 +161,7 @@ class SwapAndExecuteQuery {
           spender: params.tokenApproval.spender,
           owner: address,
         },
-        dstPublicClient,
+        dstPublicClient
       );
 
       const requiredAllowance = BigInt(params.tokenApproval.amount);
@@ -213,7 +220,7 @@ class SwapAndExecuteQuery {
           toNativeAmount: amount.gas === 0n ? -1n : amount.gas,
           toChainId: params.toChainId,
         },
-        options,
+        options
       );
 
       logger.debug('swapResult:SwapAndExecute()', {
@@ -233,7 +240,7 @@ class SwapAndExecuteQuery {
         dstPublicClient,
         address,
         client: this.evmClient,
-      },
+      }
     );
 
     logger.debug('swapResult:executeResponse()', {
@@ -250,7 +257,7 @@ class SwapAndExecuteQuery {
     tokenDecimals: number,
     requiredTokenAmount: bigint,
     requiredGasAmount: bigint,
-    balances: FlatBalance[],
+    balances: FlatBalance[]
   ): Promise<{ skipSwap: boolean; tokenAmount: bigint; gasAmount: bigint }> {
     let skipSwap = true;
     let tokenAmount = requiredTokenAmount;
@@ -258,7 +265,7 @@ class SwapAndExecuteQuery {
 
     let destinationTokenAmount = 0n;
     const tokenBalance = balances.find((b) =>
-      equalFold(b.tokenAddress, convertTo32BytesHex(tokenAddress)),
+      equalFold(b.tokenAddress, convertTo32BytesHex(tokenAddress))
     );
     if (tokenBalance) {
       destinationTokenAmount = mulDecimals(tokenBalance.amount, tokenDecimals);
@@ -266,7 +273,7 @@ class SwapAndExecuteQuery {
 
     let destinationGasAmount = 0n;
     const gasBalance = balances.find((b) =>
-      equalFold(b.tokenAddress, convertTo32BytesHex(EADDRESS)),
+      equalFold(b.tokenAddress, convertTo32BytesHex(EADDRESS))
     );
     if (gasBalance) {
       destinationGasAmount = mulDecimals(gasBalance.amount, gasBalance.decimals);
@@ -335,12 +342,12 @@ class SwapAndExecuteQuery {
       waitForReceipt?: boolean;
       receiptTimeout?: number;
       requiredConfirmations?: number;
-    },
+    }
   ) {
     const { waitForReceipt = true, receiptTimeout = 300000, requiredConfirmations = 1 } = options;
     await switchChain(options.client, options.chain);
 
-    let approvalHash;
+    let approvalHash: Hex | undefined;
     if (params.approvalTx) {
       approvalHash = await options.client.sendTransaction({
         ...params.approvalTx,
@@ -370,13 +377,13 @@ class SwapAndExecuteQuery {
       });
     }
 
-    let receipt;
+    let receipt: TransactionReceipt | undefined;
     if (waitForReceipt) {
       receipt = await waitForTxReceipt(
         txHash,
         options.dstPublicClient,
         requiredConfirmations,
-        receiptTimeout,
+        receiptTimeout
       );
 
       if (options.emit) {

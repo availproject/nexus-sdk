@@ -1,4 +1,4 @@
-import { PublicClient } from 'viem';
+import type { PublicClient } from 'viem';
 import { getLogger } from '../../../commons';
 import { Errors } from '../errors';
 
@@ -41,7 +41,7 @@ export function mean(nums: readonly bigint[]): bigint {
  * - UltraHigh (90th percentile): Fastest confirmation, highest cost
  */
 export const getGasPriceRecommendations = async (
-  publicClient: PublicClient,
+  publicClient: PublicClient
 ): Promise<GasPriceRecommendations> => {
   try {
     const feeHistory = await publicClient.getFeeHistory({

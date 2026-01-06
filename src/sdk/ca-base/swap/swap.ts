@@ -1,22 +1,22 @@
 import {
-  Aggregator,
+  type Aggregator,
   BebopAggregator,
   CurrencyID,
   LiFiAggregator,
   Universe,
 } from '@avail-project/ca-common';
-
+import type { Hex } from 'viem';
 import {
-  SwapMode,
-  type SwapData,
-  type SwapParams,
-  SuccessfulSwapResult,
+  getLogger,
   NEXUS_EVENTS,
+  type SuccessfulSwapResult,
   SWAP_STEPS,
-  SwapStepType,
+  type SwapData,
+  SwapMode,
+  type SwapParams,
+  type SwapStepType,
 } from '../../../commons';
-
-import { getLogger } from '../../../commons';
+import { Errors } from '../errors';
 import { divDecimals } from '../utils';
 import { BEBOP_API_KEY, LIFI_API_KEY, ZERO_BYTES_32 } from './constants';
 import { BridgeHandler, DestinationSwapHandler, SourceSwapsHandler } from './ob';
@@ -29,10 +29,8 @@ import {
   getTokenInfo,
   // postSwap,
   PublicClientList,
-  SwapMetadata,
+  type SwapMetadata,
 } from './utils';
-import { Errors } from '../errors';
-import { Hex } from 'viem';
 
 const logger = getLogger();
 
@@ -41,7 +39,7 @@ const ErrorUserDeniedIntent = new Error('User denied swap');
 export const swap = async (
   input: SwapData,
   options: SwapParams,
-  COT = CurrencyID.USDC,
+  COT = CurrencyID.USDC
 ): Promise<SuccessfulSwapResult> => {
   performance.clearMarks();
   performance.clearMeasures();
@@ -111,7 +109,7 @@ export const swap = async (
         input.mode === SwapMode.EXACT_OUT
           ? input.data.toAmount
           : destination.swap.tokenSwap.outputAmount,
-        dstTokenInfo.decimals,
+        dstTokenInfo.decimals
       ).toFixed(),
       chainID: input.data.toChainId,
       contractAddress: input.data.toTokenAddress,
@@ -127,7 +125,7 @@ export const swap = async (
         return createSwapIntent(extras.assetsUsed, destinationTokenDetails, options.chainList);
       }
 
-      let updatedInput = { ...input };
+      const updatedInput = { ...input };
       // Can only update sources in exact out, Update only if sources are sent in refresh, otherwise it will use the old resources
       if (updatedInput.mode === SwapMode.EXACT_OUT && fromSources && fromSources.length > 0) {
         updatedInput.data.fromSources = fromSources;
@@ -146,7 +144,7 @@ export const swap = async (
       const swapIntent = createSwapIntent(
         extras.assetsUsed,
         destinationTokenDetails,
-        options.chainList,
+        options.chainList
       );
       logger.debug('onIntentHook:refresh', { swapIntent });
       return swapIntent;
@@ -165,7 +163,7 @@ export const swap = async (
       const swapIntent = createSwapIntent(
         extras.assetsUsed,
         destinationTokenDetails,
-        options.chainList,
+        options.chainList
       );
 
       logger.debug('onIntentHook', { swapIntent });
@@ -222,7 +220,7 @@ export const swap = async (
           ? input.data.toAmount
           : destination.swap.tokenSwap.outputAmount,
     },
-    opt,
+    opt
   );
 
   performance.mark('allowance-cache-start');
@@ -270,13 +268,13 @@ const calculatePerformance = () => {
       performance.measure(
         'allowance-calls-duration',
         'allowance-cache-start',
-        'allowance-cache-end',
+        'allowance-cache-end'
       ),
       performance.measure(
         'determine-swaps-duration',
         'determine-swaps-start',
-        'determine-swaps-end',
-      ),
+        'determine-swaps-end'
+      )
     );
 
     const entries = performance.getEntries();
@@ -286,13 +284,13 @@ const calculatePerformance = () => {
         performance.measure(
           'source-swap-tx-duration',
           'source-swap-tx-start',
-          'source-swap-tx-end',
+          'source-swap-tx-end'
         ),
         performance.measure(
           'source-swap-mining-duration',
           'source-swap-mining-start',
-          'source-swap-mining-end',
-        ),
+          'source-swap-mining-end'
+        )
       );
     }
 
@@ -301,19 +299,19 @@ const calculatePerformance = () => {
       performance.measure(
         'destination-swap-tx-duration',
         'destination-swap-start',
-        'destination-swap-end',
+        'destination-swap-end'
       ),
       performance.measure(
         'destination-swap-mining-duration',
         'destination-swap-mining-start',
-        'destination-swap-mining-end',
-      ),
+        'destination-swap-mining-end'
+      )
     );
 
     console.log('Timings for XCS:');
-    measures.forEach((measure) => {
+    for (const measure of measures) {
       console.log(`${measure.name}: ${measure.duration}`);
-    });
+    }
   } catch (e) {
     logger.error('calculatePerformance', e);
   } finally {

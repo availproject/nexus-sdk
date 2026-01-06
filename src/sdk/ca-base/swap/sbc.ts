@@ -19,6 +19,7 @@ import {
   type Tx,
 } from '../../../commons';
 import { createDeadlineFromNow, waitForTxReceipt } from '../utils';
+import { PlatformUtils } from '../utils/platform.utils';
 import CaliburABI from './calibur.abi';
 import { CALIBUR_ADDRESS, CALIBUR_EIP712, ZERO_BYTES_20, ZERO_BYTES_32 } from './constants';
 import {
@@ -27,7 +28,6 @@ import {
   isAuthorizationCodeSet,
   type PublicClientList,
 } from './utils';
-import { PlatformUtils } from '../utils/platform.utils';
 
 const logger = getLogger();
 
