@@ -144,7 +144,7 @@ export function extractBreakdownStats(assets: UserAssetDatum[]): {
 
       // Extract chains and tokens from breakdowns
       for (const breakdown of asset.breakdown) {
-        if (breakdown.chain?.id && new Decimal(breakdown.balance).greaterThan(0)) {
+        if (breakdown.chain.id && new Decimal(breakdown.balance).greaterThan(0)) {
           chains.add(breakdown.chain.id);
         }
       }

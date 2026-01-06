@@ -357,7 +357,7 @@ class BridgeAndExecuteQuery {
       executeTransactionHash: executeResponse.txHash,
       executeExplorerUrl: createExplorerTxURL(
         executeResponse.txHash,
-        dstChain.blockExplorers?.default.url
+        dstChain.blockExplorers.default.url
       ),
       approvalTransactionHash: executeResponse.approvalHash,
       bridgeExplorerUrl: bridgeResult?.explorerUrl,
@@ -447,10 +447,7 @@ class BridgeAndExecuteQuery {
 
     const result: ExecuteResult = {
       chainId: params.toChainId,
-      explorerUrl: createExplorerTxURL(
-        executeResponse.txHash,
-        dstChain.blockExplorers?.default.url
-      ),
+      explorerUrl: createExplorerTxURL(executeResponse.txHash, dstChain.blockExplorers.default.url),
       transactionHash: executeResponse.txHash,
       approvalTransactionHash: executeResponse.approvalHash,
       receipt: executeResponse.receipt,

@@ -78,7 +78,7 @@ const SOURCE_SWAP_HASH = (ops: [bigint, Hex], chainList: ChainListType) => {
       name: chain.name,
     },
     completed: true,
-    explorerURL: new URL(`/tx/${ops[1]}`, chain?.blockExplorers?.default.url).toString(),
+    explorerURL: new URL(`/tx/${ops[1]}`, chain.blockExplorers.default.url).toString(),
     type: 'SOURCE_SWAP_HASH',
     typeID: `SOURCE_SWAP_HASH_${chainID}`,
   } as const;
@@ -111,13 +111,14 @@ const DESTINATION_SWAP_HASH = (op: [bigint, Hex], chainList: ChainListType) => {
   if (!chain) {
     throw Errors.chainNotFound(chainID);
   }
+
   return {
     chain: {
       id: chain.id,
       name: chain.name,
     },
     completed: true,
-    explorerURL: new URL(`/tx/${op[1]}`, chain?.blockExplorers?.default.url).toString(),
+    explorerURL: new URL(`/tx/${op[1]}`, chain.blockExplorers.default.url).toString(),
     type: 'DESTINATION_SWAP_HASH',
     typeID: `DESTINATION_SWAP_HASH_${chain.id}`,
   } as const;

@@ -18,6 +18,7 @@ import {
   type SBCTx,
   type Tx,
 } from '../../../commons';
+import { Errors } from '../errors';
 import { createDeadlineFromNow, waitForTxReceipt } from '../utils';
 import { PlatformUtils } from '../utils/platform.utils';
 import CaliburABI from './calibur.abi';
@@ -70,7 +71,11 @@ export const waitForSBCTxReceipt = (
   return Promise.all(
     ops.map((op) => {
       const chain = chainList.getChainByID(Number(op[0]));
-      const explorerURL = new URL(`/tx/${op[1]}`, chain?.blockExplorers?.default.url);
+      if (!chain) {
+        throw Errors.chainNotFound(Number(op[0]));
+      }
+
+      const explorerURL = new URL(`/tx/${op[1]}`, chain.blockExplorers.default.url);
       logger.debug('waitForSBCTxReceipt', { explorerURL: explorerURL.toString() });
       return waitForTxReceipt(op[1], publicClientList.get(chain!.id), 1);
     })
