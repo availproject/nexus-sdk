@@ -11,8 +11,7 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
-    # commented for testing, uncomment before merge to develop
-    # if: github.ref == 'refs/heads/develop'
+    if: github.ref == 'refs/heads/develop'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
