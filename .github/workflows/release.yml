@@ -53,7 +53,7 @@ jobs:
   release:
     needs: determine-release-type
     runs-on: ubuntu-latest
-    environment: release-${{ needs.determine-release-type.outputs.release_type }}
+    environment: release
     permissions:
       contents: write
       id-token: write
