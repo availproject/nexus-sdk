@@ -4,10 +4,7 @@
     [1, "https://eth.merkle.io"],
     [10, "https://mainnet.optimism.io"],
     [8453, "https://mainnet.base.org"],
-    [
-      42161,
-      "https://arb-mainnet.g.alchemy.com/v2/PfaswrKq0rjOrfYWHfE9uLQKhiD4JCdq"
-    ],
+    [42161, "https://arb-mainnet.g.alchemy.com/v2/PfaswrKq0rjOrfYWHfE9uLQKhiD4JCdq"],
     [137, "https://polygon-rpc.com"],
     [84532, "https://sepolia.base.org"],
     [421614, "https://sepolia-rollup.arbitrum.io/rpc"],
@@ -20,9 +17,9 @@
       "privateKey": "PRIVATEKEY",
       "id": "N00",
       "operation": "bridge",
-      "token": "ETH",
-      "amount": "1000000000000000",
-      "toChainId": 84532,
+      "token": "USDC",
+      "amount": "1000000",
+      "toChainId": 421614,
       "recipient": "0xcc62e01ac3ed3a9e10baf2b057a05790850d3651",
       "count": 1
     }

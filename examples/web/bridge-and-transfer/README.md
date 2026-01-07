@@ -31,7 +31,7 @@ Obtain testnet USDC on any supported chain:
 - **Source Options**: Ethereum Sepolia, Optimism Sepolia, Base Sepolia
 - **Faucet**: Visit appropriate testnet faucets
 - **Bridge**: Use official testnet bridges if needed
-- **Amount**: At least 2 USDC (includes bridge + transfer gas)
+- **Amount**: At least 1.5 USDC (1,500,000 units, includes bridge + transfer gas)
 
 ### 3. Run the Application
 
@@ -375,6 +375,50 @@ class BridgeTransferService {
     return params;
   }
 }
+```
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+| Problem | Cause | Solution |
+|---------|-------|----------|
+| **Transfer fails** | Invalid recipient address | Verify address format and checksum |
+| **Bridge timeout** | Network congestion | Retry with higher gas settings |
+| **Insufficient funds** | Low balance on source chains | Fund wallet with testnet tokens |
+| **Gas estimation fails** | Complex multi-step operation | Reduce amount or simplify transaction |
+
+### Debug Information
+
+```typescript
+// Enable detailed logging in nexus.ts
+const sdk = new NexusSDK({ 
+  network: 'testnet',
+  debug: true 
+});
+
+// Log all events
+sdk.bridgeAndTransfer(transferParams, {
+  onEvent: (event) => {
+    console.log('Event:', event.name, event.args);
+  }
+});
+```
+
+### Error Recovery
+
+```typescript
+// Retry logic for failed transfers
+const executeWithRetry = async (params, maxRetries = 3) => {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await sdk.bridgeAndTransfer(params);
+    } catch (error) {
+      if (i === maxRetries - 1) throw error;
+      await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5s
+    }
+  }
+};
 ```
 
 ---

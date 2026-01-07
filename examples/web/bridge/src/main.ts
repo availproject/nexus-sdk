@@ -1,28 +1,17 @@
-import { initializeNexus, isWalletAvailable, bridgeCallback, NexusData } from './nexus';
+import { initializeNexus, getWallet, bridgeCallback, NexusData, stringifyError } from './nexus';
 import { errorScreen, loadingScreen, mainScreen } from './screens';
 
 async function main() {
   loadingScreen();
 
-  let provider = await isWalletAvailable();
-  if (typeof provider == 'string') {
-    errorScreen(provider);
-    return;
+  try {
+    let provider = await getWallet();
+    let sdk = await initializeNexus(provider);
+    const data = await NexusData.fetch(sdk);
+    mainScreen(data, () => bridgeCallback(sdk));
+  } catch(e: any) {
+    errorScreen(stringifyError(e))
   }
-
-  let sdk = await initializeNexus(provider);
-  if (typeof sdk == 'string') {
-    errorScreen(sdk);
-    return;
-  }
-
-  const data = await NexusData.fetch(sdk);
-  if (typeof data == 'string') {
-    errorScreen(data);
-    return;
-  }
-
-  mainScreen(data, () => bridgeCallback(sdk));
 }
 
 main();

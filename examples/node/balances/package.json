@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@tsconfig/node20": "^20.1.4",
-    "@avail-project/nexus-core": "availproject/nexus-sdk#cdcea928cbd9cdf46f71740daebece3e17cf7b80",
+    "@avail-project/nexus-core": "availproject/nexus-sdk#b56801f98705665d0fe7ab5c7bae1800e1151866",
     "ethers": "^6.15.0"
   }
 }

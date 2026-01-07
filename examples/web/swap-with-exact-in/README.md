@@ -207,7 +207,7 @@ const testnetParams = {
   from: [
     {
       chainId: 421614,              // Arbitrum Sepolia
-      amount: 1000000000n,         
+      amount: 1000000n,             // 1 USDT
       tokenAddress: '0x6Ee6F34B03E05C85C03C754c8c50D2591a894f5' // USDT Sepolia
     }
   ],
@@ -215,6 +215,10 @@ const testnetParams = {
   toTokenAddress: '0x75faf114e29164470b99d6e18c65f18b8e3f5544' // USDC Sepolia
 };
 ```
+
+**Current Code Configuration**: The example defaults to mainnet with 1 USDT. For safe testing, either:
+1. Use the testnet configuration above
+2. Or modify the existing mainnet params to use smaller amounts
 
 ## 🛡️ Security Considerations
 
@@ -360,6 +364,33 @@ setInterval(async () => {
     toTokenAddress: USDC_ADDRESS
   });
 }, automatedSwap.interval);
+```
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+| Problem | Cause | Solution |
+|---------|-------|----------|
+| **Swap fails** | Insufficient liquidity or price impact too high | Try smaller amount or different token pair |
+| **Approval fails** | Token approval transaction failed | Check gas settings, retry approval |
+| **Wrong network** | Wallet on incorrect chain | Switch wallet to appropriate network |
+| **Route not found** | No available swap path | Try different input/output tokens |
+
+### Error Recovery
+
+```typescript
+// Enhanced error handling with retry
+const executeWithRetry = async (params, maxRetries = 3) => {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await sdk.swapWithExactIn(params);
+    } catch (error) {
+      if (i === maxRetries - 1) throw error;
+      await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5s
+    }
+  }
+};
 ```
 
 ## 📖 Related Examples

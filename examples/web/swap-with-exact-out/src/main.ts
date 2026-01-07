@@ -1,33 +1,17 @@
-import {
-  initializeNexus,
-  isWalletAvailable,
-  swapWithExactOutCallback,
-  getBalancesForSwap,
-} from './nexus';
+import { initializeNexus, getWallet, swapWithExactOutCallback, stringifyError } from './nexus';
 import { errorScreen, loadingScreen, mainScreen } from './screens';
 
 async function main() {
   loadingScreen();
 
-  let provider = await isWalletAvailable();
-  if (typeof provider == 'string') {
-    errorScreen(provider);
-    return;
+  try {
+    let provider = await getWallet();
+    let sdk = await initializeNexus(provider);
+    const data = await sdk.getBalancesForSwap()
+    mainScreen(data, () => swapWithExactOutCallback(sdk));
+  } catch(e: any) {
+    errorScreen(stringifyError(e))
   }
-
-  let sdk = await initializeNexus(provider);
-  if (typeof sdk == 'string') {
-    errorScreen(sdk);
-    return;
-  }
-
-  let balances = await getBalancesForSwap(sdk);
-  if (typeof balances == 'string') {
-    errorScreen(balances);
-    return;
-  }
-
-  mainScreen(balances, () => swapWithExactOutCallback(sdk));
 }
 
 main();

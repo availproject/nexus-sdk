@@ -504,6 +504,48 @@ rsync -av frontend/dist/ user@server:/var/www/wasm-example/
 </script>
 ```
 
+## 🐛 Troubleshooting
+
+### Build Issues
+
+| Error | Cause | Solution |
+|-------|--------|----------|
+| **wasm32-unknown-unknown not found** | Missing Rust target | Run `rustup target add wasm32-unknown-unknown` |
+| **wasm-bindgen command not found** | Missing tool | Run `cargo install wasm-bindgen-cli` |
+| **Font loading failed** | Missing font file | Ensure Roboto-Medium.ttf exists in media/ |
+| **WASM too large** | Debug build in production | Use `--release` flag for production builds |
+
+### Runtime Issues
+
+| Problem | Cause | Solution |
+|---------|--------|----------|
+| **Wallet not detected** | No wallet extension | Install MetaMask or compatible wallet |
+| **SDK initialization fails** | Network mismatch | Switch wallet to testnet network |
+| **Bridge operation fails** | Insufficient funds | Fund wallet with testnet tokens |
+| **UI not responsive** | Rust panic/error | Check browser console for error details |
+
+### Debug Mode
+
+```bash
+# Enable verbose logging
+RUST_LOG=debug npm run dev
+
+# Build with debug info
+./build.sh dev
+
+# Monitor browser console for Rust logs
+console.log('[RUST]:', ...); // Rust logs appear here
+```
+
+### API Compatibility
+
+This example uses the updated Nexus SDK API:
+- Bridge operations require single parameter call
+- Event handlers are optional for simplified usage
+- Amounts must be specified in smallest token units (bigint)
+
+For advanced event handling, refer to the core bridge example.
+
 ---
 
 **💡 Pro Tip**: This WASM example demonstrates the power of combining Rust's performance with JavaScript's web ecosystem. The Macroquad framework provides smooth 60 FPS graphics while the Nexus SDK handles complex cross-chain logic, creating a unique high-performance DeFi application.

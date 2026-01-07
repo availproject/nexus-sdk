@@ -196,14 +196,14 @@ export const swapParams = {
 const crossChainParams = {
   toChainId: 1,                        // Ethereum mainnet
   toTokenAddress: '0xA0b86a33E6441b8e8C7C7b0b8e8e8e8e8e', // USDC on Ethereum
-  toAmount: 1000000000n                       // Exactly 1000 USDC
+  toAmount: 1000000n                       // Exactly 1 USDC
 };
 
 // Polygon to Arbitrum exact-out
 const polygonToArbitrumParams = {
   toChainId: 42161,                     // Arbitrum
   toTokenAddress: '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb', // USDT on Arbitrum
-  toAmount: 2000000000n                     // Exactly 2000 USDT
+  toAmount: 1000000n                     // Exactly 1 USDT
 };
 ```
 
@@ -216,9 +216,13 @@ const sdk = new NexusSDK({ network: 'testnet' });
 const testnetParams = {
   toChainId: 421614,                     // Arbitrum Sepolia
   toTokenAddress: '0x6Ee6F34B03E05C85C03C754c8c50D2591a894f5', // USDT Sepolia
-  toAmount: 1000000000n                     // Exactly 1000 USDT testnet
+  toAmount: 1000000n                 // Exactly 1 USDT testnet
 };
 ```
+
+**Current Code Configuration**: The example defaults to mainnet with 1 USDT. For safe testing, either:
+1. Use the testnet configuration above
+2. Or modify the existing mainnet params to use smaller amounts
 
 ## 🛡️ Security Considerations
 
@@ -394,6 +398,32 @@ const processPayment = async (invoice) => {
   } catch (error) {
     await markInvoiceFailed(invoice.id, error);
     notifyPaymentFailure(invoice, error);
+  }
+};
+```
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+| Problem | Cause | Solution |
+|---------|-------|----------|
+| **Target amount unavailable** | Insufficient liquidity for exact output | Reduce target amount or try different token |
+| **High input cost** | Low liquidity for target token | Use smaller target or different timing |
+| **Route calculation failed** | No valid swap paths available | Try different input tokens or targets |
+| **Approval insufficient** | Token approval too low for swap | Increase approval amount or use max approval |
+
+### Error Analysis
+
+```typescript
+// Analyze failed exact-out swaps
+const analyzeSwapFailure = (error, targetAmount) => {
+  if (error.message.includes('insufficient liquidity')) {
+    console.log('Try reducing target amount:', targetAmount * 0.9n);
+  }
+  
+  if (error.message.includes('route not found')) {
+    console.log('Try alternative input tokens or different target token');
   }
 };
 ```

@@ -5,14 +5,13 @@ import {
   TOKEN_CONTRACT_ADDRESSES,
   type EthereumProvider,
   type ExactInSwapInput,
-  type UserAssetDatum,
 } from '@avail-project/nexus-core';
 import { swapScreen, errorScreen, mainScreen } from './screens';
 
 export const swapParams: ExactInSwapInput = {
   from: [
     {
-      amount: 100_000n,
+      amount: 1_000_000_000n,
       chainId: SUPPORTED_CHAINS.ARBITRUM,
       tokenAddress: TOKEN_CONTRACT_ADDRESSES.USDT[SUPPORTED_CHAINS.ARBITRUM],
     },
@@ -21,32 +20,19 @@ export const swapParams: ExactInSwapInput = {
   toChainId: SUPPORTED_CHAINS.ARBITRUM,
 };
 
-export async function isWalletAvailable(): Promise<EthereumProvider | string> {
+export async function getWallet(): Promise<EthereumProvider> {
   const provider = (window as any).ethereum;
   if (provider == undefined) {
-    return 'No wallet provider is available to us. Install one (e.g. Metamask)';
+    throw new Error('No wallet provider is available to us. Install one (e.g. Metamask)');
   }
 
   return provider;
 }
 
-export async function initializeNexus(provider: EthereumProvider): Promise<NexusSDK | string> {
-  try {
-    const sdk = new NexusSDK({ network: 'mainnet' });
-    await sdk.initialize(provider);
-    return sdk;
-  } catch (e: any) {
-    return 'Failed to initialize Nexus. Reason: ' + e.toString();
-  }
-}
-
-export async function getBalancesForSwap(sdk: NexusSDK): Promise<UserAssetDatum[] | string> {
-  try {
-    return await sdk.getBalancesForSwap();
-  } catch (e: any) {
-    const error = 'Failed to fetch balances for swap. Reason: ' + e.toString();
-    return error;
-  }
+export async function initializeNexus(provider: EthereumProvider): Promise<NexusSDK> {
+  const sdk = new NexusSDK({ network: 'mainnet' });
+  await sdk.initialize(provider);
+  return sdk;
 }
 
 export async function swapWithExactInCallback(sdk: NexusSDK) {
@@ -60,15 +46,18 @@ export async function swapWithExactInCallback(sdk: NexusSDK) {
       },
     });
 
-    const balances = await getBalancesForSwap(sdk);
-    if (typeof balances == 'string') {
-      errorScreen(balances);
-      return;
-    }
-
+    const balances = await sdk.getBalancesForSwap();
     mainScreen(balances, () => swapWithExactInCallback(sdk));
   } catch (e: any) {
-    const error = 'Failed to run swap with exact in. Reason: ' + e.toString();
-    errorScreen(error);
+    errorScreen(stringifyError(e));
   }
+}
+
+export function stringifyError(err: any) {
+  return JSON.stringify({
+    message: err.message,
+    stack: err.stack,
+    name: err.name,
+    ...err, // include extra enumerable fields
+  });
 }

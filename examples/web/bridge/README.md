@@ -30,7 +30,7 @@ npm install
 Obtain testnet USDC on Arbitrum Sepolia:
 - **Faucet**: Visit [Arbitrum Sepolia Faucet](https://sepolia-faucet.arbitrum.io/)
 - **Bridge**: Bridge from Ethereum Sepolia using official bridge
-- **Amount**: At least 1 USDC for testing (includes gas fees)
+- **Amount**: At least 1 USDC (1,000,000 units) for testing (includes gas fees)
 
 ### 3. Run the Application
 

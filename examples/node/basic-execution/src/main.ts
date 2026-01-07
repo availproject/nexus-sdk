@@ -13,7 +13,7 @@ function sleep(ms: number) {
 async function createProvider(
   id: string,
   privateKey: string,
-  chains: [number, string][],
+  chains: [number, string][]
 ): Promise<Wallet> {
   try {
     const wallet = new ethers.Wallet(privateKey, new ethers.InfuraProvider());
@@ -63,6 +63,7 @@ async function logBridgeBalances(id: string, sdk: NexusSDK) {
     throw new Error(error.message);
   }
 }
+
 
 async function main() {
   const config = readAndParseConfigurationFile();
