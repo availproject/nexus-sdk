@@ -51,7 +51,7 @@
     "npm": ">=9.0.0"
   },
   "dependencies": {
-    "@avail-project/ca-common": "github:availproject/ca-common#feat/auto-select-sources-v2",
+    "@avail-project/ca-common": "1.0.0-beta.8",
     "@cosmjs/proto-signing": "0.34.0",
     "@cosmjs/stargate": "0.34.0",
     "@metamask/safe-event-emitter": "3.1.2",
