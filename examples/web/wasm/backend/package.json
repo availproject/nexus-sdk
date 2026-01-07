@@ -1,0 +1,20 @@
+{
+  "name": "wasm-backend",
+  "version": "0.1.0",
+  "description": "Rust backend for WASM bridge example",
+  "main": "index.js",
+  "scripts": {
+    "build": "./build_release.sh"
+  },
+  "keywords": [
+    "rust",
+    "wasm",
+    "macroquad",
+    "bridge"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "wasm-pack": "^0.12.1"
+  }
+}
