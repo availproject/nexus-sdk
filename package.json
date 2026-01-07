@@ -22,6 +22,7 @@
     "format": "biome format --write .",
     "check": "biome check --write .",
     "prepublishOnly": "npm run build",
+    "release": "release-it",
     "prepare": "npm run build && (husky || true)"
   },
   "sideEffects": false,
@@ -80,6 +81,7 @@
     "@rollup/plugin-typescript": "^11.1.6",
     "husky": "9.1.7",
     "lint-staged": "16.2.7",
+    "release-it": "19.2.3",
     "rollup": "^4.52.4",
     "rollup-plugin-dts": "^6.2.3",
     "rollup-plugin-typescript2": "0.36.0",

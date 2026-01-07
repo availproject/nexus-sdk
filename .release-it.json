@@ -1,0 +1,20 @@
+{
+  "git": {
+    "commitMessage": "chore: release v${version}",
+    "tagName": "v${version}",
+    "push": true
+  },
+  "npm": {
+    "publish": true,
+    "tag": "beta"
+  },
+  "github": {
+    "release": true,
+    "releaseName": "v${version}",
+    "preRelease": true,
+    "autoGenerate": true
+  },
+  "hooks": {
+    "before:init": ["npm run build"]
+  }
+}
