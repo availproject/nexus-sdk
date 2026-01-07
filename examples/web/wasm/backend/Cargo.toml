@@ -1,0 +1,9 @@
+[package]
+name = "backend"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+macroquad = { version = "0.4.14", features = ["log"] }
+# Sapp-utils is actually NOT needed, but I am too lazy to write my own string wasm thingy
+sapp-jsutils = { version = "0.1.7" }
