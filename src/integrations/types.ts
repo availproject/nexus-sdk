@@ -1,4 +1,4 @@
-import { Hex } from 'viem';
+import type { Hex } from 'viem';
 
 /**
  * State override for simulation - allows modifying blockchain state during simulation

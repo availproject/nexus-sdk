@@ -1,53 +1,54 @@
-import {
-  BridgeAndExecuteParams,
-  BridgeAndExecuteResult,
-  BridgeResult,
-  logger,
-  Tx,
-  Chain,
-  ChainListType,
-  BridgeParams,
-  UserAssetDatum,
-  ExecuteParams,
-  ExecuteResult,
-  ExecuteSimulation,
-  OnEventParam,
-  BridgeAndExecuteSimulationResult,
-  NEXUS_EVENTS,
-  BRIDGE_STEPS,
-  BridgeStepType,
-  BeforeExecuteHook,
-  ReadableIntent,
-  TokenInfo,
-} from '../../../commons';
+import { Universe } from '@avail-project/ca-common';
 import {
   createPublicClient,
-  Hex,
+  type Hex,
   http,
-  PublicClient,
+  type PublicClient,
   serializeTransaction,
+  type TransactionReceipt,
   toHex,
-  WalletClient,
+  type WalletClient,
 } from 'viem';
 import {
+  type BeforeExecuteHook,
+  BRIDGE_STEPS,
+  type BridgeAndExecuteParams,
+  type BridgeAndExecuteResult,
+  type BridgeAndExecuteSimulationResult,
+  type BridgeParams,
+  type BridgeResult,
+  type BridgeStepType,
+  type Chain,
+  type ChainListType,
+  type ExecuteParams,
+  type ExecuteResult,
+  type ExecuteSimulation,
+  logger,
+  NEXUS_EVENTS,
+  type OnEventParam,
+  type ReadableIntent,
+  type TokenInfo,
+  type Tx,
+  type UserAssetDatum,
+} from '../../../commons';
+import type { BackendSimulationClient } from '../../../integrations/tenderly';
+import { isNativeAddress } from '../constants';
+import { Errors } from '../errors';
+import type BridgeHandler from '../requestHandlers/bridge';
+import { packERC20Approve } from '../swap/utils';
+import {
   createExplorerTxURL,
-  mulDecimals,
-  UserAssets,
-  waitForTxReceipt,
-  generateStateOverride,
-  switchChain,
   erc20GetAllowance,
-  pctAdditionToBigInt,
+  generateStateOverride,
   getL1Fee,
   // divideBigInt,
   getPctGasBufferByChain,
+  mulDecimals,
+  pctAdditionToBigInt,
+  switchChain,
+  UserAssets,
+  waitForTxReceipt,
 } from '../utils';
-import { packERC20Approve } from '../swap/utils';
-import { BackendSimulationClient } from '../../../integrations/tenderly';
-import BridgeHandler from '../requestHandlers/bridge';
-import { Errors } from '../errors';
-import { isNativeAddress } from '../constants';
-import { Universe } from '@avail-project/ca-common';
 import { getGasPriceRecommendations } from './gasFeeHistory';
 
 class BridgeAndExecuteQuery {
@@ -56,7 +57,7 @@ class BridgeAndExecuteQuery {
     private evmClient: WalletClient,
     private bridge: (input: BridgeParams, options?: OnEventParam) => Promise<BridgeHandler>,
     private getUnifiedBalances: () => Promise<UserAssetDatum[]>,
-    private simulationClient: BackendSimulationClient,
+    private simulationClient: BackendSimulationClient
   ) {}
 
   private async estimateBridgeAndExecute(params: BridgeAndExecuteParams) {
@@ -64,18 +65,18 @@ class BridgeAndExecuteQuery {
 
     const { token, chain: dstChain } = this.chainList.getChainAndTokenFromSymbol(
       params.toChainId,
-      tokenSymbol,
+      tokenSymbol
     );
     if (!token) {
       throw Errors.tokenNotFound(tokenSymbol, toChainId);
     }
 
     const address = (await this.evmClient.getAddresses())[0];
-    let txs: Tx[] = [];
+    const txs: Tx[] = [];
 
     const { tx, approvalTx, dstPublicClient } = await this.createTxsForExecute(
       { ...execute, toChainId: params.toChainId },
-      address,
+      address
     );
 
     logger.debug('BridgeAndExecute:2', {
@@ -127,7 +128,7 @@ class BridgeAndExecuteQuery {
           value: execute.value,
           to: execute.to,
           type: 'eip1559',
-        }),
+        })
       ),
     ]);
 
@@ -136,7 +137,7 @@ class BridgeAndExecuteQuery {
     const approvalGas = pctAdditionToBigInt(gasUsed.approvalGas, pctBuffer);
     const txGas = pctAdditionToBigInt(gasUsed.txGas, pctBuffer);
 
-    let gasPrice = gasPriceRecommendations.high;
+    const gasPrice = gasPriceRecommendations.high;
     if (gasPrice === 0n) {
       throw Errors.gasPriceError({
         chainId: dstChain.id,
@@ -162,7 +163,7 @@ class BridgeAndExecuteQuery {
       token.decimals,
       amount,
       gasFee,
-      balances,
+      balances
     );
 
     return {
@@ -187,7 +188,7 @@ class BridgeAndExecuteQuery {
   }
 
   public async simulateBridgeAndExecute(
-    params: BridgeAndExecuteParams,
+    params: BridgeAndExecuteParams
   ): Promise<BridgeAndExecuteSimulationResult> {
     const { gasFee, token, skipBridge, amount, gas, gasPrice } =
       await this.estimateBridgeAndExecute(params);
@@ -234,7 +235,7 @@ class BridgeAndExecuteQuery {
    */
   public async bridgeAndExecute(
     params: BridgeAndExecuteParams,
-    options?: OnEventParam & BeforeExecuteHook,
+    options?: OnEventParam & BeforeExecuteHook
   ): Promise<BridgeAndExecuteResult> {
     const {
       dstPublicClient,
@@ -280,7 +281,11 @@ class BridgeAndExecuteQuery {
     let bridgeResult: BridgeResult | null = null;
 
     // 7. If bridge is required then bridge
-    if (!skipBridge) {
+    if (skipBridge) {
+      if (options?.onEvent) {
+        options.onEvent({ name: NEXUS_EVENTS.STEPS_LIST, args: executeSteps });
+      }
+    } else {
       bridgeResult = await this.bridgeWrapper(
         {
           token: token.symbol,
@@ -291,7 +296,7 @@ class BridgeAndExecuteQuery {
         },
         {
           onEvent: (event) => {
-            if (options && options.onEvent) {
+            if (options?.onEvent) {
               if (event.name === NEXUS_EVENTS.STEPS_LIST) {
                 options.onEvent({
                   name: NEXUS_EVENTS.STEPS_LIST,
@@ -302,12 +307,8 @@ class BridgeAndExecuteQuery {
               }
             }
           },
-        },
+        }
       );
-    } else {
-      if (options && options.onEvent) {
-        options.onEvent({ name: NEXUS_EVENTS.STEPS_LIST, args: executeSteps });
-      }
     }
 
     if (options?.beforeExecute) {
@@ -344,7 +345,7 @@ class BridgeAndExecuteQuery {
         requiredConfirmations: params.requiredConfirmations,
         waitForReceipt: params.waitForReceipt,
         client: this.evmClient,
-      },
+      }
     );
 
     logger.debug('BridgeAndExecute:5', {
@@ -356,7 +357,7 @@ class BridgeAndExecuteQuery {
       executeTransactionHash: executeResponse.txHash,
       executeExplorerUrl: createExplorerTxURL(
         executeResponse.txHash,
-        dstChain.blockExplorers!.default.url,
+        dstChain.blockExplorers.default.url
       ),
       approvalTransactionHash: executeResponse.approvalHash,
       bridgeExplorerUrl: bridgeResult?.explorerUrl,
@@ -384,7 +385,7 @@ class BridgeAndExecuteQuery {
     if (params.tokenApproval) {
       const token = this.chainList.getTokenInfoBySymbol(
         params.toChainId,
-        params.tokenApproval.token,
+        params.tokenApproval.token
       );
       if (!token) {
         throw Errors.tokenNotFound(params.tokenApproval.token, params.toChainId);
@@ -396,7 +397,7 @@ class BridgeAndExecuteQuery {
           spender: params.tokenApproval.spender,
           owner: address,
         },
-        dstPublicClient,
+        dstPublicClient
       );
 
       const requiredAllowance = BigInt(params.tokenApproval.amount);
@@ -423,7 +424,7 @@ class BridgeAndExecuteQuery {
     const address = (await this.evmClient.getAddresses())[0];
     const { dstPublicClient, dstChain, approvalTx, tx } = await this.createTxsForExecute(
       params,
-      address,
+      address
     );
 
     // 1. Execute the transaction
@@ -441,15 +442,12 @@ class BridgeAndExecuteQuery {
         requiredConfirmations: params.requiredConfirmations,
         waitForReceipt: params.waitForReceipt,
         client: this.evmClient,
-      },
+      }
     );
 
     const result: ExecuteResult = {
       chainId: params.toChainId,
-      explorerUrl: createExplorerTxURL(
-        executeResponse.txHash,
-        dstChain.blockExplorers!.default.url,
-      ),
+      explorerUrl: createExplorerTxURL(executeResponse.txHash, dstChain.blockExplorers.default.url),
       transactionHash: executeResponse.txHash,
       approvalTransactionHash: executeResponse.approvalHash,
       receipt: executeResponse.receipt,
@@ -496,7 +494,7 @@ class BridgeAndExecuteQuery {
     tokenDecimals: number,
     requiredTokenAmount: bigint,
     requiredGasAmount: bigint,
-    assets: UserAssetDatum[],
+    assets: UserAssetDatum[]
   ): Promise<{ skipBridge: boolean; tokenAmount: bigint; gasAmount: bigint }> {
     let skipBridge = true;
     let tokenAmount = requiredTokenAmount;
@@ -504,7 +502,7 @@ class BridgeAndExecuteQuery {
     const assetList = new UserAssets(assets);
     const { destinationAssetBalance, destinationGasBalance } = assetList.getAssetDetails(
       chain,
-      tokenAddress,
+      tokenAddress
     );
 
     const destinationTokenAmount = mulDecimals(destinationAssetBalance, tokenDecimals);
@@ -597,12 +595,12 @@ class BridgeAndExecuteQuery {
       waitForReceipt?: boolean;
       receiptTimeout?: number;
       requiredConfirmations?: number;
-    },
+    }
   ) {
     const { waitForReceipt = true, receiptTimeout = 300000, requiredConfirmations = 1 } = options;
     await switchChain(options.client, options.chain);
 
-    let approvalHash;
+    let approvalHash: Hex | undefined;
     if (params.approvalTx) {
       approvalHash = await options.client.sendTransaction({
         ...params.approvalTx,
@@ -632,13 +630,13 @@ class BridgeAndExecuteQuery {
       });
     }
 
-    let receipt;
+    let receipt: TransactionReceipt | undefined;
     if (waitForReceipt) {
       receipt = await waitForTxReceipt(
         txHash,
         options.dstPublicClient,
         requiredConfirmations,
-        receiptTimeout,
+        receiptTimeout
       );
 
       if (options.emit) {
@@ -658,7 +656,7 @@ class BridgeAndExecuteQuery {
 
   private readonly bridgeWrapper = async (
     params: BridgeParams,
-    options?: OnEventParam,
+    options?: OnEventParam
   ): Promise<BridgeResult> => {
     const handler = await this.bridge(params, options);
     const result = await handler.execute();

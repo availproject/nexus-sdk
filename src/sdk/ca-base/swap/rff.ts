@@ -5,48 +5,48 @@ import {
   bytesToNumber,
   createPublicClient,
   encodeFunctionData,
-  Hex,
-  PrivateKeyAccount,
+  type Hex,
+  type PrivateKeyAccount,
   toHex,
   webSocket,
 } from 'viem';
+import {
+  type BridgeAsset,
+  type ChainListType,
+  type CosmosOptions,
+  type EoaToEphemeralCallMap,
+  getLogger,
+  type Intent,
+  MAINNET_CHAIN_IDS,
+  type QueryClients,
+  type RFFDepositCallMap,
+  type Tx,
+} from '../../../commons';
 import { Errors } from '../errors';
 import {
-  createRFFromIntent,
   convertAddressByUniverse,
+  cosmosCreateDoubleCheckTx,
+  cosmosCreateRFF,
+  createRFFromIntent,
   evmWaitForFill,
-  FeeStore,
+  type FeeStore,
   getAllowances,
   getFeeStore,
   mulDecimals,
   removeIntentHashFromStore,
   storeIntentHashToStore,
-  cosmosCreateDoubleCheckTx,
-  cosmosCreateRFF,
 } from '../utils';
-import { packERC20Approve } from './utils';
-import {
-  getLogger,
-  Intent,
-  BridgeAsset,
-  EoaToEphemeralCallMap,
-  RFFDepositCallMap,
-  Tx,
-  ChainListType,
-  CosmosOptions,
-  MAINNET_CHAIN_IDS,
-  QueryClients,
-} from '../../../commons';
 import { applyBuffer } from './route';
+import { packERC20Approve } from './utils';
 
 const logger = getLogger();
 
 export const estimateCollectionFee = (
   assets: (Pick<BridgeAsset, 'chainID' | 'contractAddress' | 'decimals'> & { value: number })[],
   outputAmount: Decimal,
-  feeStore: FeeStore,
+  feeStore: FeeStore
 ) => {
-  let expectedAmount = applyBuffer(outputAmount, 30);
+  const expectedAmount = applyBuffer(outputAmount, 30);
   logger.debug('sumCollectionFee', {
     assets,
     feeStore,
@@ -155,7 +155,7 @@ export const createIntent = ({
 
     return Decimal.sub(
       Decimal.add(a.eoaBalance, a.ephemeralBalance),
-      Decimal.add(b.eoaBalance, b.ephemeralBalance),
+      Decimal.add(b.eoaBalance, b.ephemeralBalance)
     ).toNumber(); //sort others by balance
   });
 
@@ -188,7 +188,7 @@ export const createIntent = ({
 
     const estimatedBorrowFromThisChain = Decimal.add(
       asset.eoaBalance.toString(),
-      asset.ephemeralBalance.toString(),
+      asset.ephemeralBalance.toString()
     ).lte(unaccountedBalance)
       ? Decimal.add(asset.eoaBalance.toString(), asset.ephemeralBalance.toString())
       : unaccountedBalance;
@@ -217,13 +217,13 @@ export const createIntent = ({
       logger.debug('createBridgeRFF:2.1', {
         assetBalance: Decimal.add(
           asset.eoaBalance.toString(),
-          asset.ephemeralBalance.toString(),
+          asset.ephemeralBalance.toString()
         ).toFixed(),
         unaccountedBalance: unaccountedBalance2.toFixed(),
       });
       borrowFromThisChain = Decimal.add(
         asset.eoaBalance.toString(),
-        asset.ephemeralBalance.toString(),
+        asset.ephemeralBalance.toString()
       );
 
       // Create allowance and deposit tx for (asset.eoaBalance) from usdc(eoa) -> usdc(eph)
@@ -245,7 +245,7 @@ export const createIntent = ({
         eoaToEphemeralCalls[asset.chainID] = {
           amount: mulDecimals(
             borrowFromThisChain.minus(asset.ephemeralBalance.toString()),
-            asset.decimals,
+            asset.decimals
           ),
           decimals: asset.decimals,
           tokenAddress: asset.contractAddress,
@@ -266,7 +266,7 @@ export const createIntent = ({
 
   if (accountedBalance < borrow) {
     throw Errors.insufficientBalance(
-      `available: ${accountedBalance.toFixed()}, required: ${borrow.toFixed()}`,
+      `available: ${accountedBalance.toFixed()}, required: ${borrow.toFixed()}`
     );
   }
 
@@ -322,7 +322,7 @@ export const createBridgeRFF = async ({
       cosmos: config.cosmos,
       evm: config.evm,
     },
-    Universe.ETHEREUM,
+    Universe.ETHEREUM
   );
 
   logger.debug('createIntent', { intent });
@@ -340,13 +340,13 @@ export const createBridgeRFF = async ({
 
     const doubleCheckTxMap: Record<number, () => Promise<void>> = {};
 
-    omniversalRFF.protobufRFF.sources.forEach((s) => {
+    for (const s of omniversalRFF.protobufRFF.sources) {
       doubleCheckTxMap[bytesToNumber(s.chainID)] = createDoubleCheckTx(
         s.chainID,
         config.cosmos,
-        intentID,
+        intentID
       );
-    });
+    }
 
     return {
       createDoubleCheckTx: async () => {
@@ -369,7 +369,7 @@ export const createBridgeRFF = async ({
       tokenContract: s.tokenContract,
       holderAddress: config.evm.address,
     })),
-    config.chainList,
+    config.chainList
   );
 
   for (const [index, source] of sources.entries()) {
@@ -395,7 +395,7 @@ export const createBridgeRFF = async ({
       const allowanceTx = {
         data: packERC20Approve(
           config.chainList.getVaultContractAddress(Number(source.chainID)),
-          source.valueRaw,
+          source.valueRaw
         ),
         to: convertAddressByUniverse(source.tokenAddress, Universe.ETHEREUM),
         value: 0n,
@@ -453,7 +453,7 @@ export const createBridgeRFF = async ({
         pc,
         s.requestHash,
         intentID,
-        config.cosmosQueryClient,
+        config.cosmosQueryClient
       ),
     };
 

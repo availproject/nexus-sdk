@@ -1,11 +1,11 @@
-import { isNativeAddress } from './constants';
 import {
-  BridgeStepType,
   BRIDGE_STEPS,
-  ChainListType,
-  Intent,
-  onAllowanceHookSource,
+  type BridgeStepType,
+  type ChainListType,
+  type Intent,
+  type onAllowanceHookSource,
 } from '../../commons';
+import { isNativeAddress } from './constants';
 import { Errors } from './errors';
 
 const INTENT_FINISH_STEPS = [BRIDGE_STEPS.INTENT_FULFILLED];
@@ -13,7 +13,7 @@ const INTENT_FINISH_STEPS = [BRIDGE_STEPS.INTENT_FULFILLED];
 const createSteps = (
   intent: Intent,
   chainList: ChainListType,
-  unallowedSources?: onAllowanceHookSource[],
+  unallowedSources?: onAllowanceHookSource[]
 ) => {
   const steps: BridgeStepType[] = [];
 
@@ -22,7 +22,7 @@ const createSteps = (
     for (const source of unallowedSources) {
       steps.push(
         BRIDGE_STEPS.ALLOWANCE_APPROVAL_REQUEST(source.chain),
-        BRIDGE_STEPS.ALLOWANCE_APPROVAL_MINED(source.chain),
+        BRIDGE_STEPS.ALLOWANCE_APPROVAL_MINED(source.chain)
       );
     }
     steps.push(BRIDGE_STEPS.ALLOWANCE_COMPLETE);

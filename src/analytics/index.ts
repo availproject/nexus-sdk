@@ -5,38 +5,35 @@
 
 // Main analytics manager
 export { AnalyticsManager } from './AnalyticsManager';
-
+export type { NexusAnalyticsEvent } from './events';
 // Event constants
 export { NexusAnalyticsEvents } from './events';
-export type { NexusAnalyticsEvent } from './events';
-
-// Types
-export type {
-  AnalyticsConfig,
-  BaseEventProperties,
-  WalletProperties,
-  TransactionProperties,
-  ErrorProperties,
-  PerformanceProperties,
-  SessionProperties,
-  BalanceProperties,
-  AnalyticsProvider,
-  OperationContext,
-} from './types';
-
+export { PerformanceTracker } from './performance';
+export type { AnalyticsProvider as IAnalyticsProvider } from './providers/AnalyticsProvider';
+export { NoOpProvider } from './providers/NoOpProvider';
 // Providers (for advanced usage)
 export { PostHogProvider } from './providers/PostHogProvider';
-export { NoOpProvider } from './providers/NoOpProvider';
-export type { AnalyticsProvider as IAnalyticsProvider } from './providers/AnalyticsProvider';
 
 // Utilities (for advanced usage)
 export { SessionManager } from './session';
-export { PerformanceTracker } from './performance';
+// Types
+export type {
+  AnalyticsConfig,
+  AnalyticsProvider,
+  BalanceProperties,
+  BaseEventProperties,
+  ErrorProperties,
+  OperationContext,
+  PerformanceProperties,
+  SessionProperties,
+  TransactionProperties,
+  WalletProperties,
+} from './types';
 export {
-  getWalletType,
   calculateUsdValue,
-  extractIntentProperties,
   extractBreakdownStats,
-  sanitizeUrl,
   extractErrorCode,
+  extractIntentProperties,
+  getWalletType,
+  sanitizeUrl,
 } from './utils';

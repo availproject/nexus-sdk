@@ -1,8 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
-import { sortSourcesByPriority } from './utils';
-import { FlatBalance } from './data';
-import { MAINNET_CHAIN_IDS } from '../../../commons';
 import { Universe } from '@avail-project/ca-common';
+import { describe, expect, it, vi } from 'vitest';
+import { MAINNET_CHAIN_IDS } from '../../../commons';
+import type { FlatBalance } from './data';
+import { sortSourcesByPriority } from './utils';
 
 vi.mock('../constants', () => ({
   getLogoFromSymbol: vi.fn(() => ''),
@@ -17,8 +17,8 @@ const createBalance = (
   chainID: number,
   symbol: string,
   tokenAddress: `0x${string}`,
-  amount: string = '1000',
-  priceUSD: number = 1,
+  amount = '1000',
+  priceUSD = 1
 ): FlatBalance => ({
   chainID,
   symbol,
@@ -26,7 +26,7 @@ const createBalance = (
   amount,
   decimals: 18,
   universe: Universe.ETHEREUM,
-  value: parseFloat(amount) * priceUSD,
+  value: Number.parseFloat(amount) * priceUSD,
   logo: '',
 });
 

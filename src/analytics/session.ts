@@ -1,13 +1,13 @@
 /**
  * Session management for analytics tracking
  */
-import { SessionProperties } from './types';
+import type { SessionProperties } from './types';
 
 export class SessionManager {
   private sessionId: string;
   private sessionStartTime: number;
-  private operationsAttempted: number = 0;
-  private operationsSucceeded: number = 0;
+  private operationsAttempted = 0;
+  private operationsSucceeded = 0;
 
   constructor() {
     this.sessionId = this.generateSessionId();
