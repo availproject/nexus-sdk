@@ -1,15 +1,20 @@
 import {
-  ChainIDKeyedMap,
+  type ChainIDKeyedMap,
   Environment,
   getVaultContractMap,
   OmniversalChainID,
   Universe,
 } from '@avail-project/ca-common';
+import type { Hex } from 'viem';
+import {
+  type Chain,
+  SUPPORTED_CHAINS,
+  TOKEN_CONTRACT_ADDRESSES,
+  type TokenInfo,
+} from '../../commons';
 import { getLogoFromSymbol, ZERO_ADDRESS } from './constants';
-import { Chain, SUPPORTED_CHAINS, TOKEN_CONTRACT_ADDRESSES, TokenInfo } from '../../commons';
-import { convertToHexAddressByUniverse, equalFold } from './utils';
 import { Errors } from './errors';
-import { Hex } from 'viem';
+import { convertToHexAddressByUniverse, equalFold } from './utils';
 
 class ChainList {
   public chains: Chain[];
@@ -96,7 +101,7 @@ class ChainList {
 
   public getChainAndTokenFromSymbol(
     chainID: number,
-    tokenSymbol: string,
+    tokenSymbol: string
   ): { chain: Chain; token: (TokenInfo & { isNative: boolean }) | undefined } {
     const chain = this.getChainByID(chainID);
     if (!chain) {
@@ -192,14 +197,14 @@ const TESTNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/coins/images/16547/large/arb.jpg',
       knownTokens: [
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.ARBITRUM_SEPOLIA],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDC[SUPPORTED_CHAINS.ARBITRUM_SEPOLIA],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
           symbol: 'USDC',
         },
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.ARBITRUM_SEPOLIA],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDT[SUPPORTED_CHAINS.ARBITRUM_SEPOLIA],
           decimals: 18,
           logo: getLogoFromSymbol('USDT'),
           name: 'Testing USD',
@@ -238,14 +243,14 @@ const TESTNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/coins/images/25244/large/Optimism.png',
       knownTokens: [
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.OPTIMISM_SEPOLIA],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDC[SUPPORTED_CHAINS.OPTIMISM_SEPOLIA],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
           symbol: 'USDC',
         },
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.OPTIMISM_SEPOLIA],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDT[SUPPORTED_CHAINS.OPTIMISM_SEPOLIA],
           decimals: 18,
           logo: getLogoFromSymbol('USDT'),
           name: 'Testing USD',
@@ -284,7 +289,7 @@ const TESTNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/asset_platforms/images/15/large/polygon_pos.png',
       knownTokens: [
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.POLYGON_AMOY],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDC[SUPPORTED_CHAINS.POLYGON_AMOY],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
@@ -323,7 +328,7 @@ const TESTNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/asset_platforms/images/131/large/base-network.png',
       knownTokens: [
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.BASE_SEPOLIA],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDC[SUPPORTED_CHAINS.BASE_SEPOLIA],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
@@ -362,14 +367,14 @@ const TESTNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/coins/images/38927/standard/monad.jpg',
       knownTokens: [
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.MONAD_TESTNET],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDC[SUPPORTED_CHAINS.MONAD_TESTNET],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
           symbol: 'USDC',
         },
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.MONAD_TESTNET],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDT[SUPPORTED_CHAINS.MONAD_TESTNET],
           decimals: 18,
           logo: getLogoFromSymbol('USDT'),
           name: 'Testing USDT',
@@ -405,7 +410,7 @@ const TESTNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/asset_platforms/images/279/large/ethereum.png',
       knownTokens: [
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.SEPOLIA],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDC[SUPPORTED_CHAINS.SEPOLIA],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
@@ -483,14 +488,14 @@ const MAINNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/coins/images/38680/large/sophon_logo_200.png',
       knownTokens: [
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.SOPHON],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDT[SUPPORTED_CHAINS.SOPHON],
           decimals: 6,
           logo: getLogoFromSymbol('USDT'),
           name: 'Tether USD',
           symbol: 'USDT',
         },
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.SOPHON],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDC[SUPPORTED_CHAINS.SOPHON],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
@@ -533,7 +538,7 @@ const MAINNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/asset_platforms/images/9672/large/kaia.png',
       knownTokens: [
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.KAIA],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDT[SUPPORTED_CHAINS.KAIA],
           decimals: 6,
           logo: getLogoFromSymbol('USDT'),
           name: 'Tether USD',
@@ -569,14 +574,14 @@ const MAINNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/asset_platforms/images/279/large/ethereum.png',
       knownTokens: [
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.ETHEREUM],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDT[SUPPORTED_CHAINS.ETHEREUM],
           decimals: 6,
           logo: getLogoFromSymbol('USDT'),
           name: 'Tether USD',
           symbol: 'USDT',
         },
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.ETHEREUM],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDC[SUPPORTED_CHAINS.ETHEREUM],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
@@ -612,7 +617,7 @@ const MAINNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/coins/images/38927/large/monad.jpg',
       knownTokens: [
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.MONAD],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDC[SUPPORTED_CHAINS.MONAD],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
@@ -648,14 +653,14 @@ const MAINNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/coins/images/25244/large/Optimism.png',
       knownTokens: [
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.OPTIMISM],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDT[SUPPORTED_CHAINS.OPTIMISM],
           decimals: 6,
           logo: getLogoFromSymbol('USDT'),
           name: 'Tether USD',
           symbol: 'USDT',
         },
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.OPTIMISM],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDC[SUPPORTED_CHAINS.OPTIMISM],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
@@ -691,14 +696,14 @@ const MAINNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/asset_platforms/images/15/large/polygon_pos.png',
       knownTokens: [
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.POLYGON],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDT[SUPPORTED_CHAINS.POLYGON],
           decimals: 6,
           logo: getLogoFromSymbol('USDT'),
           name: 'Tether USD',
           symbol: 'USDT',
         },
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.POLYGON],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDC[SUPPORTED_CHAINS.POLYGON],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
@@ -734,7 +739,7 @@ const MAINNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/asset_platforms/images/131/large/base-network.png',
       knownTokens: [
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.BASE],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDC[SUPPORTED_CHAINS.BASE],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
@@ -770,14 +775,14 @@ const MAINNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/coins/images/16547/large/arb.jpg',
       knownTokens: [
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.ARBITRUM],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDT[SUPPORTED_CHAINS.ARBITRUM],
           decimals: 6,
           logo: getLogoFromSymbol('USDT'),
           name: 'Tether USD',
           symbol: 'USDT',
         },
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.ARBITRUM],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDC[SUPPORTED_CHAINS.ARBITRUM],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
@@ -813,14 +818,14 @@ const MAINNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/asset_platforms/images/153/large/scroll.jpeg',
       knownTokens: [
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.SCROLL],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDT[SUPPORTED_CHAINS.SCROLL],
           decimals: 6,
           logo: getLogoFromSymbol('USDT'),
           name: 'Tether USD',
           symbol: 'USDT',
         },
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.SCROLL],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDC[SUPPORTED_CHAINS.SCROLL],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
@@ -856,14 +861,14 @@ const MAINNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/asset_platforms/images/12/large/avalanche.png',
       knownTokens: [
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.AVALANCHE],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDC[SUPPORTED_CHAINS.AVALANCHE],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
           symbol: 'USDC',
         },
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.AVALANCHE],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDT[SUPPORTED_CHAINS.AVALANCHE],
           decimals: 6,
           logo: getLogoFromSymbol('USDT'),
           name: 'Tether USD',
@@ -899,14 +904,14 @@ const MAINNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/asset_platforms/images/1/large/bnb_smart_chain.png',
       knownTokens: [
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.BNB],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDC[SUPPORTED_CHAINS.BNB],
           decimals: 18,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
           symbol: 'USDC',
         },
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.BNB],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDT[SUPPORTED_CHAINS.BNB],
           decimals: 18,
           logo: getLogoFromSymbol('USDT'),
           name: 'Tether USD',
@@ -949,14 +954,14 @@ const MAINNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/asset_platforms/images/243/large/hyperliquid.png',
       knownTokens: [
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.HYPEREVM],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDT[SUPPORTED_CHAINS.HYPEREVM],
           decimals: 6,
           logo: getLogoFromSymbol('USDT'),
           name: 'Tether USD',
           symbol: 'USDT',
         },
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.HYPEREVM],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDC[SUPPORTED_CHAINS.HYPEREVM],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',

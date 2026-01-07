@@ -1,4 +1,4 @@
-import { ChainMetadata, TokenMetadata } from '../types';
+import type { ChainMetadata, TokenMetadata } from '../types';
 
 export const MAINNET_CHAIN_IDS = {
   ETHEREUM: 1,

@@ -1,20 +1,20 @@
 import {
-  type SUPPORTED_CHAINS,
-  truncateAddress as utilTruncateAddress,
-  SupportedChainsResult,
-  Network,
-  ChainListType,
-  formatTokenBalance as commonsFormatTokenBalance,
-  formatTokenBalanceParts as commonsFormatTokenBalanceParts,
-  SupportedChainsAndTokensResult,
-} from '../commons';
-import { getCoinbasePrices, getSupportedChains as fetchSupportedChains } from './ca-base/utils';
-import { getSwapSupportedChains } from './ca-base/swap/utils';
-import {
   formatUnits as viemFormatUnits,
   isAddress as viemIsAddress,
   parseUnits as viemParseUnits,
 } from 'viem';
+import {
+  type ChainListType,
+  formatTokenBalance as commonsFormatTokenBalance,
+  formatTokenBalanceParts as commonsFormatTokenBalanceParts,
+  type Network,
+  type SUPPORTED_CHAINS,
+  type SupportedChainsAndTokensResult,
+  type SupportedChainsResult,
+  truncateAddress as utilTruncateAddress,
+} from '../commons';
+import { getSwapSupportedChains } from './ca-base/swap/utils';
+import { getSupportedChains as fetchSupportedChains, getCoinbasePrices } from './ca-base/utils';
 
 // Stateless utility exports
 export const formatTokenBalance = commonsFormatTokenBalance;

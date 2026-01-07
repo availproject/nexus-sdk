@@ -1,63 +1,64 @@
 import {
-  Aggregator,
+  type Aggregator,
   BebopAggregator,
-  BebopQuote,
-  Bytes,
+  type BebopQuote,
+  type Bytes,
   ChaindataMap,
-  CurrencyID,
+  type CurrencyID,
   ERC20ABI,
-  Holding,
+  type Holding,
   LiFiAggregator,
-  LiFiQuote,
+  type LiFiQuote,
   msgpackableAxios,
   OmniversalChainID,
   PermitVariant,
-  Quote,
+  type Quote,
   Universe,
 } from '@avail-project/ca-common';
-import CaliburABI from './calibur.abi';
 import axios from 'axios';
 import Decimal from 'decimal.js';
 import { orderBy, retry } from 'es-toolkit';
+import Long from 'long';
 import {
-  ByteArray,
+  type ByteArray,
   bytesToBigInt,
   bytesToNumber,
   concat,
   createPublicClient,
   encodeFunctionData,
   getContract,
-  Hex,
+  type Hex,
   hexToBigInt,
   http,
   maxUint256,
+  type PrivateKeyAccount,
+  type PublicClient,
   pad,
   parseSignature,
-  PrivateKeyAccount,
-  PublicClient,
   toBytes,
   toHex,
-  WalletClient,
+  type WalletClient,
 } from 'viem';
-import { ERC20PermitABI, ERC20PermitEIP2612PolygonType, ERC20PermitEIP712Type } from '../abi/erc20';
-import { getLogoFromSymbol, ZERO_ADDRESS } from '../constants';
 import {
+  type AnkrAsset,
+  type AnkrBalances,
+  type Chain,
+  type ChainListType,
   getLogger,
-  Chain,
-  SuccessfulSwapResult,
-  UnifiedBalanceResponseData,
-  UserAssetDatum,
-  SWAP_STEPS,
-  SwapStepType,
-  AnkrAsset,
-  AnkrBalances,
-  SwapIntent,
-  Tx,
-  ChainListType,
-  VSCClient,
-  Source,
   MAINNET_CHAIN_IDS,
+  type Source,
+  type SuccessfulSwapResult,
+  SWAP_STEPS,
+  type SwapIntent,
+  type SwapStepType,
+  type Tx,
+  type UnifiedBalanceResponseData,
+  type UserAssetDatum,
+  type VSCClient,
 } from '../../../commons';
+import { ERC20PermitABI, ERC20PermitEIP712Type, ERC20PermitEIP2612PolygonType } from '../abi/erc20';
+import { getLogoFromSymbol, ZERO_ADDRESS } from '../constants';
+import { Errors } from '../errors';
 import {
   convertAddressByUniverse,
   convertTo32BytesHex,
@@ -69,16 +70,15 @@ import {
   waitForTxReceipt,
 } from '../utils';
 import { SWEEP_ABI } from './abi';
+import CaliburABI from './calibur.abi';
 import { CALIBUR_ADDRESS, EADDRESS, SWEEPER_ADDRESS } from './constants';
-import { FlatBalance, getPermitVariantAndVersion, isTokenSupported } from './data';
+import { type FlatBalance, getPermitVariantAndVersion, isTokenSupported } from './data';
 import { createSBCTxFromCalls, waitForSBCTxReceipt } from './sbc';
-import Long from 'long';
-import { Errors } from '../errors';
 
 const logger = getLogger();
 
 export const convertTo32Bytes = (
-  input: `0x${string}` | bigint | ByteArray | number,
+  input: `0x${string}` | bigint | ByteArray | number
 ): Uint8Array => {
   if (typeof input === 'string') {
     return toBytes(pad(input, { dir: 'left', size: 32 }));
@@ -93,7 +93,8 @@ export const convertTo32Bytes = (
   return pad(input, { dir: 'left', size: 32 });
 };
 
-export const convertToEVMAddress = (address: Hex | Uint8Array) => {
+export const convertToEVMAddress = (addr: Hex | Uint8Array) => {
+  let address = addr;
   if (typeof address === 'string') {
     address = toBytes(address);
   }
@@ -102,7 +103,7 @@ export const convertToEVMAddress = (address: Hex | Uint8Array) => {
     return toHex(address);
   }
 
-  if (address.length == 32) {
+  if (address.length === 32) {
     return toHex(address.subarray(12));
   }
 
@@ -165,7 +166,7 @@ export const createPermitSignature = async (
   variant: PermitVariant,
   version: number,
   deadline: bigint,
-  amount: bigint,
+  amount: bigint
 ) => {
   const contract = getContract({
     abi: ERC20ABI,
@@ -257,7 +258,7 @@ export const EXPECTED_CALIBUR_CODE = concat(['0xef0100', CALIBUR_ADDRESS]);
 export const isAuthorizationCodeSet = async (
   chainID: number,
   address: `0x${string}`,
-  cache: Cache,
+  cache: Cache
 ) => {
   const code = cache.getCode({
     address,
@@ -269,7 +270,7 @@ export const isAuthorizationCodeSet = async (
     return false;
   }
 
-  return code != '0x' && equalFold(code, EXPECTED_CALIBUR_CODE);
+  return code !== '0x' && equalFold(code, EXPECTED_CALIBUR_CODE);
 };
 
 export const isNativeAddress = (contractAddress: Hex) =>
@@ -353,7 +354,7 @@ export const createPermitAndTransferFromTx = async ({
           owner,
           spender,
         },
-        amount,
+        amount
       );
     } else {
       const approvalTx =
@@ -386,7 +387,7 @@ export const createPermitAndTransferFromTx = async ({
 
 export const determinePermitVariantAndVersion = async (
   client: PublicClient,
-  contractAddress: Hex,
+  contractAddress: Hex
 ) => {
   const standardPermitData = encodeFunctionData({
     abi: [
@@ -452,9 +453,8 @@ export const determinePermitVariantAndVersion = async (
     functionExists(client, contractAddress, daiPermitData),
     getVersion(client, contractAddress),
   ];
-  const [canonicalPermitResponse, daiPermitResponse, versionResponse] = await Promise.allSettled(
-    promises,
-  );
+  const [canonicalPermitResponse, daiPermitResponse, versionResponse] =
+    await Promise.allSettled(promises);
 
   let variant = PermitVariant.Unsupported;
   if (canonicalPermitResponse.status === 'fulfilled') {
@@ -520,7 +520,7 @@ export const createPermitApprovalTx = async ({
     variant,
     version,
     deadline,
-    amount,
+    amount
   );
 
   const { r, s, v } = parseSignature(signature);
@@ -566,7 +566,7 @@ const multiplierByChain = (chainID: number) => {
 export const getAnkrBalances = async (
   walletAddress: `0x${string}`,
   chainList: ChainListType,
-  removeTransferFee: boolean,
+  removeTransferFee: boolean
 ) => {
   const publicClients: { [id: number]: PublicClient } = {};
   const res = await axios.post<{
@@ -593,7 +593,7 @@ export const getAnkrBalances = async (
   const filteredAssets = res.data.result.assets.filter(
     (asset) =>
       AnkrChainIdMapping.has(asset.blockchain) &&
-      !new Decimal(asset.tokenPrice?.trim() || 0).equals(0),
+      !new Decimal(asset.tokenPrice?.trim() || 0).equals(0)
   );
   const assets: AnkrBalances = [];
   const promises = [];
@@ -615,7 +615,7 @@ export const getAnkrBalances = async (
           const multipler = multiplierByChain(Number(chainID));
           const transferFee = divDecimals(
             fee.maxFeePerGas * 1_500_000n * multipler,
-            chain.nativeCurrency.decimals,
+            chain.nativeCurrency.decimals
           );
 
           logger.debug('getAnkrBalances', {
@@ -628,7 +628,7 @@ export const getAnkrBalances = async (
           balance = new Decimal(asset.balance).gt(transferFee)
             ? Decimal.sub(asset.balance, transferFee).toFixed(
                 asset.tokenDecimals,
-                Decimal.ROUND_FLOOR,
+                Decimal.ROUND_FLOOR
               )
             : '0';
 
@@ -653,7 +653,7 @@ export const getAnkrBalances = async (
           },
           universe: Universe.ETHEREUM,
         });
-      })(),
+      })()
     );
   }
   await Promise.all(promises);
@@ -671,7 +671,7 @@ export const toFlatBalance = (
   assets: UserAssetDatum[],
   convertAddressToBytes32 = true,
   currentChainID?: number,
-  selectedTokenAddress?: `0x${string}`,
+  selectedTokenAddress?: `0x${string}`
 ): FlatBalance[] => {
   logger.debug('toFlatBalance', {
     assets,
@@ -692,7 +692,7 @@ export const toFlatBalance = (
           value: b.balanceInFiat,
           logo: a.icon ?? '',
         };
-      }),
+      })
     )
     .filter((b) => {
       return !(b.chainID === currentChainID && equalFold(b.tokenAddress, selectedTokenAddress));
@@ -701,14 +701,14 @@ export const toFlatBalance = (
       (b) =>
         b.universe === Universe.ETHEREUM &&
         new Decimal(b.amount).gt(0) &&
-        new Decimal(b.value).gt(0),
+        new Decimal(b.value).gt(0)
     );
 };
 
 export const vscBalancesToAssets = (
   chainList: ChainListType,
   evmBalances: UnifiedBalanceResponseData[] = [],
-  tronBalances: UnifiedBalanceResponseData[] = [],
+  tronBalances: UnifiedBalanceResponseData[] = []
 ) => {
   const assets: UserAssetDatum[] = [];
   const vscBalances = evmBalances.concat(tronBalances);
@@ -725,7 +725,7 @@ export const vscBalancesToAssets = (
       }
       const tokenAddress = convertAddressByUniverse(
         toHex(currency.token_address),
-        balance.universe,
+        balance.universe
       );
       const token = chainList.getTokenByAddress(chain.id, tokenAddress);
       const decimals = token ? token.decimals : chain.nativeCurrency.decimals;
@@ -778,9 +778,9 @@ export const vscBalancesToAssets = (
     }
   }
 
-  assets.forEach((asset) => {
+  for (const asset of assets) {
     asset.breakdown.sort((a, b) => b.balanceInFiat - a.balanceInFiat);
-  });
+  }
   assets.sort((a, b) => b.balanceInFiat - a.balanceInFiat);
   return assets;
 };
@@ -790,7 +790,7 @@ export const ankrBalanceToAssets = (
   ankrBalances: AnkrBalances,
   filterWithSupportedTokens: boolean,
   allowedSources: Source[] = [],
-  removeSources: Source[] = [],
+  removeSources: Source[] = []
 ) => {
   const assets: UserAssetDatum[] = [];
 
@@ -800,7 +800,7 @@ export const ankrBalanceToAssets = (
     }
 
     return !!allowedSources.find(
-      (s) => s.chainId === chainId && equalFold(s.tokenAddress, tokenAddress),
+      (s) => s.chainId === chainId && equalFold(s.tokenAddress, tokenAddress)
     );
   };
 
@@ -812,14 +812,14 @@ export const ankrBalanceToAssets = (
     // Check if filter with supportedToken is ON and token is not in the list
     const isSupportedToken = isTokenSupported(
       asset.chainID,
-      convertTo32BytesHex(asset.tokenAddress),
+      convertTo32BytesHex(asset.tokenAddress)
     );
 
     // Check if user has allowed this source to be used - defaults to all being allowed
     const isAllowed = allowed(asset.chainID, asset.tokenAddress);
 
     const removeSource = !!removeSources.find(
-      (rs) => rs.chainId == asset.chainID && equalFold(rs.tokenAddress, asset.tokenAddress),
+      (rs) => rs.chainId === asset.chainID && equalFold(rs.tokenAddress, asset.tokenAddress)
     );
 
     logger.debug('ankrBalanaceToAssets', {
@@ -848,7 +848,7 @@ export const ankrBalanceToAssets = (
     if (existingAsset) {
       if (
         !existingAsset.breakdown.some(
-          (t) => t.chain.id === chain.id && equalFold(t.contractAddress, asset.tokenAddress),
+          (t) => t.chain.id === chain.id && equalFold(t.contractAddress, asset.tokenAddress)
         )
       ) {
         existingAsset.balance = Decimal.add(existingAsset.balance, asset.balance).toFixed();
@@ -895,9 +895,9 @@ export const ankrBalanceToAssets = (
     }
   }
 
-  assets.forEach((asset) => {
+  for (const asset of assets) {
     asset.breakdown.sort((a, b) => b.balanceInFiat - a.balanceInFiat);
-  });
+  }
   assets.sort((a, b) => b.balanceInFiat - a.balanceInFiat);
   return assets;
 };
@@ -983,7 +983,7 @@ export class Cache {
             });
           }
           this.allowanceValues.set(getAllowanceCacheKey(inp), allowance);
-        })(input, publicClient),
+        })(input, publicClient)
       );
     }
     await Promise.all(requests);
@@ -992,7 +992,7 @@ export class Cache {
   private async processAllowanceRequests() {
     // The request query list is small so don't care about performance here (for now)
     const unprocessedInput = [...this.allowanceQueries].filter(
-      (v) => this.getAllowance(v) === undefined,
+      (v) => this.getAllowance(v) === undefined
     );
     const inputByChainID = Map.groupBy(unprocessedInput, (i) => i.chainID);
     const requests = [];
@@ -1013,7 +1013,7 @@ export class Cache {
                 })
                 .then((allowance) => {
                   this.allowanceValues.set(getAllowanceCacheKey(input), allowance);
-                }),
+                })
         );
       }
     }
@@ -1033,7 +1033,7 @@ export class Cache {
           })
           .then((code) => {
             this.setCodeValues.set(getSetCodeKey(input), code);
-          }),
+          })
       );
     }
     await Promise.all(requests);
@@ -1070,10 +1070,10 @@ export const getAllowanceCacheKey = ({
   contractAddress,
   owner,
   spender,
-}: AllowanceInput) => ('a' + contractAddress + chainID + owner + spender).toLowerCase();
+}: AllowanceInput) => `a${contractAddress}${chainID}${owner}${spender}`.toLowerCase();
 
 export const getSetCodeKey = (input: SetCodeInput) =>
-  ('a' + input.chainID + input.address).toLowerCase();
+  `a${input.chainID}${input.address}`.toLowerCase();
 
 export const parseQuote = (
   input: {
@@ -1082,7 +1082,7 @@ export const parseQuote = (
     quote: Quote;
     inputToken: Bytes;
   },
-  createApproval = true,
+  createApproval = true
 ) => {
   logger.debug('getTxsFromQuote', {
     createApproval,
@@ -1114,7 +1114,7 @@ export const parseQuote = (
       val.swap.approval = {
         data: packERC20Approve(
           originalResponse.estimate.approvalAddress as Hex,
-          input.quote.inputAmount,
+          input.quote.inputAmount
         ),
         to: convertToEVMAddress(input.inputToken),
         value: 0n,
@@ -1154,7 +1154,7 @@ export const parseQuote = (
       val.swap.approval = {
         data: packERC20Approve(
           originalResponse.quote.approvalTarget as Hex,
-          input.quote.inputAmount,
+          input.quote.inputAmount
         ),
         to: convertToEVMAddress(input.inputToken),
         value: 0n,
@@ -1217,7 +1217,7 @@ export const createSwapIntent = (
     decimals: number;
     symbol: string;
   },
-  chainList: ChainListType,
+  chainList: ChainListType
 ): SwapIntent => {
   const chain = chainList.getChainByID(destination.chainID);
   if (!chain) {
@@ -1268,7 +1268,7 @@ export const createSwapIntent = (
 export const getTokenInfo = async (
   contractAddress: Hex,
   publicClient: PublicClient,
-  chain: Chain,
+  chain: Chain
 ) => {
   if (isNativeAddress(contractAddress)) {
     return {
@@ -1364,7 +1364,7 @@ const convertSwapMetaToSwap = (src: SwapMetadataTx) => {
 
 export const convertMetadataToSwapResult = (
   metadata: SwapMetadata,
-  baseURL: string,
+  baseURL: string
 ): SuccessfulSwapResult => {
   return {
     sourceSwaps: metadata.src.map(convertSwapMetaToSwap),
@@ -1388,7 +1388,7 @@ function mswap2eip712swap(input: SwapMetadataTx['swaps'][0]) {
 export const calculateValue = (
   amount: Decimal.Value,
   value: Decimal.Value,
-  newAmount: Decimal.Value,
+  newAmount: Decimal.Value
 ) => {
   return Decimal.div(value, amount).mul(newAmount);
 };
@@ -1444,7 +1444,7 @@ export const postSwap = async ({
 
   const rffIDN = Number(metadata.rff_id);
   // @ts-expect-error
-  delete metadata.rff_id;
+  metadata.rff_id = undefined;
 
   const res = await metadataAxios<{ value: number }>({
     data: {
@@ -1477,7 +1477,7 @@ export const createSweeperTxs = ({
   const txs: Tx[] = [];
   if (!tokenAddress) {
     const currency = ChaindataMap.get(
-      new OmniversalChainID(Universe.ETHEREUM, chainID),
+      new OmniversalChainID(Universe.ETHEREUM, chainID)
     )!.Currencies.find((c) => c.currencyID === COTCurrencyID);
 
     if (!currency) {
@@ -1590,7 +1590,7 @@ export const performDestinationSwap = async ({
             COTCurrencyID: COT,
             receiver: actualAddress,
             sender: ephemeralAddress,
-          }),
+          })
         ),
         chainID: chain.id,
         ephemeralAddress,
@@ -1649,7 +1649,7 @@ export const getSwapSupportedChains = (chainList: ChainListType) => {
 
 export const sortSourcesByPriority = (
   balances: FlatBalance[],
-  destination: { tokenAddress: Hex; chainID: number; symbol: string },
+  destination: { tokenAddress: Hex; chainID: number; symbol: string }
 ) => {
   const STABLECOINS = ['USDC', 'USDT', 'DAI'];
 

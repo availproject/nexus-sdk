@@ -2,7 +2,7 @@
  * PostHog analytics provider implementation
  */
 import posthog, { type PostHog } from 'posthog-js';
-import { AnalyticsProvider } from './AnalyticsProvider';
+import type { AnalyticsProvider } from './AnalyticsProvider';
 
 export interface PostHogConfig {
   apiKey: string;

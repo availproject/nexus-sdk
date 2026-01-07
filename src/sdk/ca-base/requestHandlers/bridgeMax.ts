@@ -1,16 +1,16 @@
-import { BridgeParams, IBridgeOptions } from '../../../commons';
+import type { BridgeParams, IBridgeOptions } from '../../../commons';
+import { Errors } from '../errors';
 import {
-  getBalancesForBridge,
   calculateMaxBridgeFee,
+  getBalancesForBridge,
   getFeeStore,
   mulDecimals,
   UserAssets,
 } from '../utils';
-import { Errors } from '../errors';
 
 const getMaxValueForBridge = async (
   params: Omit<BridgeParams, 'amount' | 'recipient'>,
-  options: Omit<IBridgeOptions, 'cosmos' | 'hooks' | 'events'>,
+  options: Omit<IBridgeOptions, 'cosmos' | 'hooks' | 'events'>
 ) => {
   const token = options.chainList.getTokenInfoBySymbol(params.toChainId, params.token);
   if (!token) {

@@ -1,4 +1,4 @@
-import { AnyValueMap, SeverityNumber } from '@opentelemetry/api-logs';
+import { type AnyValueMap, SeverityNumber } from '@opentelemetry/api-logs';
 import { telemetryLogger } from './telemetry';
 
 export interface NexusErrorData {
@@ -89,6 +89,7 @@ export function createError(code: ErrorCode, message: string, data?: NexusErrorD
         stackTrace: nexusError.stack,
       } as AnyValueMap,
     });
+    // biome-ignore lint/suspicious/noEmptyBlockStatements: error logger - shouldn't block anything
   } catch {}
   return nexusError;
 }

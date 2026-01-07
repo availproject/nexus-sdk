@@ -1,4 +1,4 @@
-import { Hex } from 'viem';
+import type { Hex } from 'viem';
 import { Errors } from '../errors';
 
 function tronHexToEvmAddress(tronHex: string): Hex {

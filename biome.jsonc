@@ -96,6 +96,7 @@
         "noUselessLoneBlockStatements": "error",
         "noUselessRename": "error",
         "noUselessSwitchCase": "error",
+
         "noUselessTernary": "error",
         "useLiteralKeys": "error",
         // useOptionalChain: Prefer obj?.prop over obj && obj.prop
@@ -155,7 +156,7 @@
         // noNegationElse: Prefer if (condition) {} else {} over if (!condition) {} else {}
         "noNegationElse": "warn",
         // noNonNullAssertion: Discourages foo! (TypeScript non-null assertion)
-        "noNonNullAssertion": "warn",
+        "noNonNullAssertion": "off",
         "noParameterAssign": "warn",
         "noUnusedTemplateLiteral": "error",
         // useAsConstAssertion: Prefer 'as const' over explicit type for literals
