@@ -1,0 +1,92 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g., 1.0.0, 1.0.0-beta.1, 1.0.0-rc.1)'
+        required: true
+        type: string
+
+jobs:
+  determine-release-type:
+    runs-on: ubuntu-latest
+    outputs:
+      release_type: ${{ steps.check.outputs.release_type }}
+      config_file: ${{ steps.check.outputs.config_file }}
+    steps:
+      - name: Determine release type
+        id: check
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          BRANCH="${{ github.ref }}"
+
+          if [[ "$BRANCH" == "refs/heads/master" ]]; then
+            if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Error: master branch only accepts stable versions (x.y.z)"
+              exit 1
+            fi
+            echo "release_type=stable" >> $GITHUB_OUTPUT
+            echo "config_file=.release-it.stable.json" >> $GITHUB_OUTPUT
+
+          elif [[ "$BRANCH" == "refs/heads/develop" ]]; then
+            if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]; then
+              echo "Error: develop branch only accepts beta versions (x.y.z-beta.N)"
+              exit 1
+            fi
+            echo "release_type=beta" >> $GITHUB_OUTPUT
+            echo "config_file=.release-it.beta.json" >> $GITHUB_OUTPUT
+
+          elif [[ "$BRANCH" =~ ^refs/heads/release/ ]]; then
+            if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]; then
+              echo "Error: release/* branches only accept rc versions (x.y.z-rc.N)"
+              exit 1
+            fi
+            echo "release_type=rc" >> $GITHUB_OUTPUT
+            echo "config_file=.release-it.rc.json" >> $GITHUB_OUTPUT
+
+          else
+            echo "Error: Releases can only be triggered from master, develop, or release/* branches"
+            exit 1
+          fi
+
+  release:
+    needs: determine-release-type
+    runs-on: ubuntu-latest
+    environment: release-${{ needs.determine-release-type.outputs.release_type }}
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate version format
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          RELEASE_TYPE="${{ needs.determine-release-type.outputs.release_type }}"
+          echo "Releasing $RELEASE_TYPE version: $VERSION"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Update npm
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Release
+        run: npx release-it ${{ github.event.inputs.version }} --ci --config ${{ needs.determine-release-type.outputs.config_file }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
