@@ -7,73 +7,72 @@ import {
   Universe,
 } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
-import Long from 'long';
+import type Long from 'long';
+import { TronWeb } from 'tronweb';
 import {
   ContractFunctionExecutionError,
   createPublicClient,
   encodeFunctionData,
-  Hex,
+  type Hex,
   hexToBytes,
-  JsonRpcAccount,
+  type JsonRpcAccount,
   maxUint256,
   parseSignature,
+  type TransactionReceipt,
   toHex,
-  TransactionReceipt,
   UserRejectedRequestError,
   webSocket,
 } from 'viem';
-import { isNativeAddress } from '../constants';
-import { createSteps } from '../steps';
 import {
-  Intent,
-  onAllowanceHookSource,
-  SetAllowanceInput,
-  SponsoredApprovalDataArray,
-  Chain,
-  TokenInfo,
-  getLogger,
-  IBridgeOptions,
-  NEXUS_EVENTS,
-  BridgeStepType,
   BRIDGE_STEPS,
+  type BridgeStepType,
+  type Chain,
+  getLogger,
+  type IBridgeOptions,
+  type Intent,
+  NEXUS_EVENTS,
+  type onAllowanceHookSource,
+  type ReadableIntent,
+  type SetAllowanceInput,
+  type SourceTxs,
+  type SponsoredApprovalDataArray,
+  type TokenInfo,
 } from '../../../commons';
+import { isNativeAddress } from '../constants';
+import { Errors } from '../errors';
+import { ERROR_CODES, NexusError } from '../nexusError';
+import { createSteps } from '../steps';
 import {
   convertGasToToken,
   convertIntent,
   convertTo32Bytes,
   cosmosCreateRFF,
+  cosmosFillCheck,
   createDepositDoubleCheckTx,
+  createExplorerTxURL,
   createPublicClientWithFallback,
+  createRFFromIntent,
+  divDecimals,
   equalFold,
-  FeeStore,
-  fetchPriceOracle,
+  type FeeStore,
   getAllowances,
+  getBalancesForBridge,
   getExplorerURL,
   getFeeStore,
   mulDecimals,
   removeIntentHashFromStore,
+  requestTimeout,
+  retrieveAddress,
   signPermitForAddressAndValue,
   storeIntentHashToStore,
   switchChain,
-  vscCreateRFF,
-  vscCreateSponsoredApprovals,
-  vscPublishRFF,
-  waitForTxReceipt,
   UserAssets,
-  waitForTronDepositTxConfirmation,
-  waitForTronApprovalTxConfirmation,
-  divDecimals,
-  requestTimeout,
-  cosmosFillCheck,
   waitForIntentFulfilment,
-  createRFFromIntent,
-  retrieveAddress,
-  getBalances,
+  waitForTronApprovalTxConfirmation,
+  waitForTronDepositTxConfirmation,
+  waitForTxReceipt,
   // createDeadlineFromNow,
 } from '../utils';
-import { TronWeb } from 'tronweb';
-import { Errors } from '../errors';
-import { ERROR_CODES, NexusError } from '../nexusError';
 
 type Params = {
   recipient?: Hex;
@@ -89,7 +88,10 @@ const logger = getLogger();
 class BridgeHandler {
   protected steps: BridgeStepType[] = [];
   protected params: Required<Params>;
-  constructor(params: Params, readonly options: IBridgeOptions) {
+  constructor(
+    params: Params,
+    readonly options: IBridgeOptions
+  ) {
     this.params = {
       ...params,
       recipient: params.recipient ?? retrieveAddress(params.dstChain.universe, options),
@@ -109,49 +111,45 @@ class BridgeHandler {
     console.time('process:preIntentSteps');
 
     console.time('preIntentSteps:API');
-    const [balances, oraclePrices, feeStore] = await Promise.all([
-      getBalances({
-        networkHint: this.options.networkConfig.NETWORK_HINT,
-        vscDomain: this.options.networkConfig.VSC_DOMAIN,
+    const [assets, oraclePrices, feeStore] = await Promise.all([
+      getBalancesForBridge({
+        vscClient: this.options.vscClient,
         evmAddress: this.options.evm.address,
         chainList: this.options.chainList,
         tronAddress: this.options.tron?.address,
-        isCA: true,
       }),
-      fetchPriceOracle(this.options.networkConfig.GRPC_URL),
-      getFeeStore(this.options.networkConfig.GRPC_URL),
+      this.options.cosmosQueryClient.fetchPriceOracle(),
+      getFeeStore(this.options.cosmosQueryClient),
     ]);
 
     logger.debug('Step 0: BuildIntent', {
-      balances,
+      assets,
       oraclePrices,
       feeStore,
     });
 
     console.timeEnd('preIntentSteps:API');
     logger.debug('Step 1:', {
-      balances,
+      assets,
       feeStore,
       oraclePrices,
     });
 
     console.time('preIntentSteps: Parse');
 
-    const { assets } = balances;
     // Step 2: parse simulation results
-
     const userAssets = new UserAssets(assets);
 
     console.time('preIntentSteps: CalculateGas');
 
     const nativeAmountInDecimal = divDecimals(
       this.params.nativeAmount,
-      this.params.dstChain.nativeCurrency.decimals,
+      this.params.dstChain.nativeCurrency.decimals
     );
 
     const tokenAmountInDecimal = divDecimals(
       this.params.tokenAmount,
-      this.params.dstToken.decimals,
+      this.params.dstToken.decimals
     );
 
     const gasInToken = convertGasToToken(
@@ -159,7 +157,7 @@ class BridgeHandler {
       oraclePrices,
       this.params.dstChain.id,
       this.params.dstChain.universe,
-      nativeAmountInDecimal,
+      nativeAmountInDecimal
     );
 
     console.timeEnd('preIntentSteps: CalculateGas');
@@ -183,16 +181,12 @@ class BridgeHandler {
     console.timeEnd('preIntentSteps: CreateIntent');
     console.timeEnd('process:preIntentSteps');
 
-    if (intent.isAvailableBalanceInsufficient) {
-      throw Errors.insufficientBalance();
-    }
-
     return intent;
   };
 
   private filterInsufficientAllowanceSources(
     intent: Intent,
-    allowances: Awaited<ReturnType<typeof getAllowances>>,
+    allowances: Awaited<ReturnType<typeof getAllowances>>
   ) {
     const sources: onAllowanceHookSource[] = [];
     for (const s of intent.sources) {
@@ -250,106 +244,119 @@ class BridgeHandler {
   }
 
   public execute = async (
-    shouldRetryOnFailure = true,
-  ): Promise<{ explorerURL: string; intentID: Long }> => {
-    let intent = await this.buildIntent(this.params.sourceChains);
+    shouldRetryOnFailure = true
+  ): Promise<{
+    explorerURL: string;
+    intentID: Long;
+    intent: ReadableIntent;
+    sourceTxs: SourceTxs;
+  }> => {
+    try {
+      let intent = await this.buildIntent(this.params.sourceChains);
 
-    const allowances = await getAllowances(intent.allSources, this.options.chainList);
+      const allowances = await getAllowances(intent.allSources, this.options.chainList);
 
-    let insufficientAllowanceSources = this.filterInsufficientAllowanceSources(intent, allowances);
-    this.createExpectedSteps(intent, insufficientAllowanceSources);
-
-    let accepted = false;
-    const refresh = async (sourceChains?: number[]) => {
-      if (accepted) {
-        logger.warn('Intent refresh called after acceptance');
-        return convertIntent(intent, this.params.dstToken, this.options.chainList);
-      }
-
-      intent = await this.buildIntent(sourceChains);
-      if (intent.isAvailableBalanceInsufficient) {
-        throw Errors.insufficientBalance();
-      }
-      insufficientAllowanceSources = this.filterInsufficientAllowanceSources(intent, allowances);
+      let insufficientAllowanceSources = this.filterInsufficientAllowanceSources(
+        intent,
+        allowances
+      );
       this.createExpectedSteps(intent, insufficientAllowanceSources);
 
-      return convertIntent(intent, this.params.dstToken, this.options.chainList);
-    };
+      let accepted = false;
+      const refresh = async (sourceChains?: number[]) => {
+        if (accepted) {
+          logger.warn('Intent refresh called after acceptance');
+          return convertIntent(intent, this.params.dstToken, this.options.chainList);
+        }
 
-    // wait for intent acceptance hook
-    await new Promise((resolve, reject) => {
-      const allow = () => {
-        accepted = true;
-        return resolve('User allowed intent');
+        intent = await this.buildIntent(sourceChains);
+        if (intent.isAvailableBalanceInsufficient) {
+          throw Errors.insufficientBalance();
+        }
+        insufficientAllowanceSources = this.filterInsufficientAllowanceSources(intent, allowances);
+        this.createExpectedSteps(intent, insufficientAllowanceSources);
+
+        return convertIntent(intent, this.params.dstToken, this.options.chainList);
       };
 
-      const deny = () => {
-        return reject(Errors.userDeniedIntent());
-      };
+      // wait for intent acceptance hook
+      await new Promise((resolve, reject) => {
+        const allow = () => {
+          accepted = true;
+          return resolve('User allowed intent');
+        };
 
-      this.options.hooks.onIntent({
-        allow,
-        deny,
-        intent: convertIntent(intent, this.params.dstToken, this.options.chainList),
-        refresh,
+        const deny = () => {
+          return reject(Errors.userDeniedIntent());
+        };
+
+        this.options.hooks.onIntent({
+          allow,
+          deny,
+          intent: convertIntent(intent, this.params.dstToken, this.options.chainList),
+          refresh,
+        });
       });
-    });
 
-    this.markStepDone(BRIDGE_STEPS.INTENT_ACCEPTED);
+      this.markStepDone(BRIDGE_STEPS.INTENT_ACCEPTED);
 
-    console.time('process:AllowanceHook');
+      console.time('process:AllowanceHook');
 
-    // Step 5: set allowance if not set
-    await this.waitForOnAllowanceHook(insufficientAllowanceSources);
-    console.timeEnd('process:AllowanceHook');
+      // Step 5: set allowance if not set
+      await this.waitForOnAllowanceHook(insufficientAllowanceSources);
+      console.timeEnd('process:AllowanceHook');
 
-    // Step 6: Process intent
-    logger.debug('intent', { intent });
+      // Step 6: Process intent
+      logger.debug('intent', { intent });
 
-    const response = await this.processRFF(intent);
-    if (response.retry) {
-      logger.debug('rff fee expired, going to rebuild intent...');
-      if (shouldRetryOnFailure) {
-        // If fee expired go back and rebuild intent if first time
-        return this.execute(false);
-      } else {
-        // Something else is wrong, retries probably wont fix it - so just throw
-        throw Errors.rFFFeeExpired();
+      const response = await this.processRFF(intent);
+      if (response.retry) {
+        logger.debug('rff fee expired, going to rebuild intent...');
+        if (shouldRetryOnFailure) {
+          // If fee expired go back and rebuild intent if first time
+          return this.execute(false);
+        } else {
+          // Something else is wrong, retries probably wont fix it - so just throw
+          throw Errors.rFFFeeExpired();
+        }
       }
+
+      const { explorerURL, intentID, requestHash, waitForDoubleCheckTx, sourceTxs } = response;
+
+      // Step 7: Wait for fill
+      storeIntentHashToStore(this.options.evm.address, intentID.toNumber());
+      await this.waitForFill(requestHash, intentID, waitForDoubleCheckTx);
+      removeIntentHashFromStore(this.options.evm.address, intentID);
+
+      this.markStepDone(BRIDGE_STEPS.INTENT_FULFILLED);
+
+      if (this.params.dstChain.universe === Universe.ETHEREUM) {
+        await switchChain(this.options.evm.client, this.params.dstChain);
+      }
+
+      return {
+        explorerURL,
+        intentID,
+        intent: convertIntent(intent, this.params.dstToken, this.options.chainList),
+        sourceTxs,
+      };
+    } catch (error) {
+      logger.error('bridge: execute error', error);
+      throw error;
     }
-
-    const { explorerURL, intentID, requestHash, waitForDoubleCheckTx } = response;
-
-    // Step 7: Wait for fill
-    storeIntentHashToStore(this.options.evm.address, intentID.toNumber());
-    await this.waitForFill(requestHash, intentID, waitForDoubleCheckTx);
-    removeIntentHashFromStore(this.options.evm.address, intentID);
-
-    this.markStepDone(BRIDGE_STEPS.INTENT_FULFILLED);
-
-    if (this.params.dstChain.universe === Universe.ETHEREUM) {
-      await switchChain(this.options.evm.client, this.params.dstChain);
-    }
-
-    return { explorerURL, intentID };
   };
 
   private async waitForFill(
     requestHash: `0x${string}`,
     intentID: Long,
-    waitForDoubleCheckTx: () => Promise<void>,
+    waitForDoubleCheckTx: () => Promise<void>
   ) {
     waitForDoubleCheckTx();
 
     const ac = new AbortController();
-    let promisesToRace = [
+    const promisesToRace = [
       requestTimeout(3, ac),
-      cosmosFillCheck(
-        intentID,
-        this.options.networkConfig.GRPC_URL,
-        this.options.networkConfig.COSMOS_URL,
-        ac,
-      ),
+      cosmosFillCheck(intentID, this.options.cosmosQueryClient, ac),
     ];
 
     // Use eth_subscribe to read fill events if destination is EVM - usually the fastest
@@ -361,8 +368,8 @@ class BridgeHandler {
           }),
           this.options.chainList.getVaultContractAddress(this.params.dstChain.id),
           requestHash,
-          ac,
-        ),
+          ac
+        )
       );
     }
     await Promise.race(promisesToRace);
@@ -376,7 +383,8 @@ class BridgeHandler {
         explorerURL: string;
         intentID: Long;
         requestHash: Hex;
-        waitForDoubleCheckTx: () => any;
+        waitForDoubleCheckTx: () => Promise<void>;
+        sourceTxs: SourceTxs;
       }
   > {
     const { msgBasicCosmos, omniversalRFF, signatureData, sources, universes } =
@@ -392,15 +400,25 @@ class BridgeHandler {
       client: this.options.cosmos.client,
     });
 
-    const explorerURL = getExplorerURL(this.options.networkConfig.EXPLORER_URL, intentID);
+    const explorerURL = getExplorerURL(this.options.intentExplorerUrl, intentID);
     this.markStepDone(BRIDGE_STEPS.INTENT_SUBMITTED(explorerURL, intentID.toNumber()));
 
-    const tokenCollections: number[] = [];
+    const tokenCollections: { index: number; chainId: number }[] = [];
     for (const [i, s] of sources.entries()) {
       if (!isDeposit(s.universe, s.tokenAddress)) {
-        tokenCollections.push(i);
+        tokenCollections.push({ index: i, chainId: Number(s.chainID) });
       }
     }
+
+    const sourceTxs: {
+      chain: {
+        id: number;
+        name: string;
+        logo: string;
+      };
+      hash: Hex;
+      explorerUrl: string;
+    }[] = [];
 
     const evmDeposits: Promise<unknown>[] = [];
     const tronDeposits: Promise<unknown>[] = [];
@@ -441,14 +459,22 @@ class BridgeHandler {
         });
         const hash = await this.options.evm.client.writeContract(request);
         this.markStepDone(BRIDGE_STEPS.INTENT_DEPOSIT_REQUEST(i + 1, s.value, chain));
-
+        sourceTxs.push({
+          chain: {
+            id: chain.id,
+            name: chain.name,
+            logo: chain.custom.icon,
+          },
+          hash,
+          explorerUrl: createExplorerTxURL(hash, chain.blockExplorers!.default.url),
+        });
         evmDeposits.push(waitForTxReceipt(hash, publicClient));
       } else if (s.universe === Universe.TRON) {
         const provider = new TronWeb({
           fullHost: chain.rpcUrls.default.grpc![0],
         });
         const vaultContractAddress = this.options.chainList.getVaultContractAddress(
-          Number(s.chainID),
+          Number(s.chainID)
         );
         const txWrap = await provider.transactionBuilder.triggerSmartContract(
           TronWeb.address.fromHex(vaultContractAddress),
@@ -462,7 +488,7 @@ class BridgeHandler {
             }),
           },
           [],
-          TronWeb.address.fromHex(this.options.tron!.address),
+          TronWeb.address.fromHex(this.options.tron!.address)
         );
 
         const signedTx = await this.options.tron!.adapter.signTransaction(txWrap.transaction);
@@ -488,13 +514,13 @@ class BridgeHandler {
               tronSignatureData!.requestHash,
               vaultContractAddress,
               provider,
-              this.options.tron!.address as Hex,
+              this.options.tron!.address as Hex
             );
-          })(),
+          })()
         );
       }
       doubleCheckTxs.push(
-        createDepositDoubleCheckTx(convertTo32Bytes(chain.id), this.options.cosmos, intentID),
+        createDepositDoubleCheckTx(convertTo32Bytes(chain.id), this.options.cosmos, intentID)
       );
     }
 
@@ -508,18 +534,41 @@ class BridgeHandler {
     });
 
     if (tokenCollections.length > 0) {
+      const markCollectionDone = (params: {
+        current: number;
+        total: number;
+        txHash: Hex;
+        chainId: number;
+      }) => {
+        const chain = this.options.chainList.getChainByID(params.chainId);
+        if (!chain) {
+          logger.debug('MarkCollectionDone: chain not found?', {
+            chainId: params.chainId,
+          });
+          return;
+        }
+        const explorerUrl = createExplorerTxURL(params.txHash, chain.blockExplorers!.default.url);
+        sourceTxs.push({
+          chain: {
+            id: chain.id,
+            name: chain.name,
+            logo: chain.custom.icon,
+          },
+          hash: params.txHash,
+          explorerUrl: explorerUrl,
+        });
+        this.markStepDone(
+          BRIDGE_STEPS.INTENT_COLLECTION(params.current, params.total, params.txHash, explorerUrl)
+        );
+      };
       logger.debug('processRFF', {
         intentID: intentID.toString(),
         message: 'going to create RFF',
         tokenCollections,
       });
       try {
-        await vscCreateRFF(
-          this.options.networkConfig.VSC_DOMAIN,
-          intentID,
-          this.markStepDone,
-          tokenCollections,
-        );
+        await this.options.vscClient.vscCreateRFF(intentID, markCollectionDone, tokenCollections);
+        this.markStepDone(BRIDGE_STEPS.INTENT_COLLECTION_COMPLETE);
       } catch (e) {
         logger.debug('vscCreateRFF', {
           'e instanceof NexusError?': e instanceof NexusError,
@@ -535,11 +584,11 @@ class BridgeHandler {
       logger.debug('processRFF', {
         message: 'going to publish RFF',
       });
-      await vscPublishRFF(this.options.networkConfig.VSC_DOMAIN, intentID);
+      await this.options.vscClient.vscPublishRFF(intentID);
     }
 
     const destinationSigData = signatureData.find(
-      (s) => s.universe === intent.destination.universe,
+      (s) => s.universe === intent.destination.universe
     );
 
     if (!destinationSigData) {
@@ -550,6 +599,7 @@ class BridgeHandler {
       retry: false,
       explorerURL,
       intentID,
+      sourceTxs,
       requestHash: destinationSigData.requestHash,
       waitForDoubleCheckTx: waitForDoubleCheckTx(doubleCheckTxs),
     };
@@ -589,7 +639,7 @@ class BridgeHandler {
           });
         }
 
-        if (chain.universe == Universe.ETHEREUM) {
+        if (chain.universe === Universe.ETHEREUM) {
           logger.debug(`Switching chain to ${chain.id}`);
 
           await switchChain(this.options.evm.client, chain);
@@ -639,7 +689,7 @@ class BridgeHandler {
                 { type: 'address', value: TronWeb.address.fromHex(vc) },
                 { type: 'uint256', value: source.amount.toString() },
               ],
-              TronWeb.address.fromHex(this.options.tron?.address),
+              TronWeb.address.fromHex(this.options.tron?.address)
             );
             const signedTx = await this.options.tron.adapter.signTransaction(tx.transaction);
             logger.debug('tron approval signTransaction result', {
@@ -662,7 +712,7 @@ class BridgeHandler {
               this.options.tron.address as Hex,
               vc,
               source.tokenContract,
-              provider,
+              provider
             );
           }
 
@@ -680,7 +730,7 @@ class BridgeHandler {
               publicClient,
               account,
               vc,
-              source.amount,
+              source.amount
             ).catch((e) => {
               if (e instanceof ContractFunctionExecutionError) {
                 const isUserRejectedRequestError =
@@ -691,7 +741,7 @@ class BridgeHandler {
                 }
               }
               throw e;
-            }),
+            })
           );
 
           this.markStepDone(BRIDGE_STEPS.ALLOWANCE_APPROVAL_REQUEST(chain));
@@ -718,10 +768,8 @@ class BridgeHandler {
         logger.debug('setAllowances:sponsoredApprovals', {
           sponsoredApprovals,
         });
-        const approvalHashes = await vscCreateSponsoredApprovals(
-          this.options.networkConfig.VSC_DOMAIN,
-          sponsoredApprovals,
-        );
+        const approvalHashes =
+          await this.options.vscClient.vscCreateSponsoredApprovals(sponsoredApprovals);
 
         await Promise.all(
           approvalHashes.map(async (approval) => {
@@ -736,7 +784,7 @@ class BridgeHandler {
               id: approval.chainId,
             });
             return;
-          }),
+          })
         );
       }
       if (unsponsoredApprovals.length) {
@@ -807,7 +855,7 @@ class BridgeHandler {
 
   private createExpectedSteps(
     intent: Intent,
-    insufficientAllowanceSources?: onAllowanceHookSource[],
+    insufficientAllowanceSources?: onAllowanceHookSource[]
   ) {
     this.steps = createSteps(intent, this.options.chainList, insufficientAllowanceSources);
     if (this.options.emit) {
@@ -867,7 +915,7 @@ class BridgeHandler {
 
     const destinationBalance = asset.getBalanceOnChain(
       this.params.dstChain.id,
-      token.contractAddress,
+      token.contractAddress
     );
 
     const borrow = amount;
@@ -977,7 +1025,9 @@ class BridgeHandler {
 
     if (accountedAmount.lt(borrowWithFee)) {
       throw Errors.insufficientBalance(
-        `required: ${borrowWithFee.toFixed()}, available: ${accountedAmount.toFixed()}`,
+        `required: ${borrowWithFee.toFixed()} ${
+          token.symbol
+        }, available: ${accountedAmount.toFixed()} ${token.symbol}`
       );
     }
 

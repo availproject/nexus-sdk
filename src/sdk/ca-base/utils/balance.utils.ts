@@ -1,58 +1,66 @@
-import { Environment } from '@avail-project/ca-common';
-import { ChainListType, logger, SUPPORTED_CHAINS } from '../../../commons';
-import { equalFold, getEVMBalancesForAddress, getTronBalancesForAddress } from '.';
-import { encodePacked, Hex, keccak256, pad, toHex } from 'viem';
-import { balancesToAssets, getAnkrBalances, toFlatBalance } from '../swap/utils';
+import { encodePacked, type Hex, keccak256, pad, toHex } from 'viem';
+import {
+  type ChainListType,
+  logger,
+  type Source,
+  SUPPORTED_CHAINS,
+  type VSCClient,
+} from '../../../commons';
 import { filterSupportedTokens } from '../swap/data';
+import {
+  ankrBalanceToAssets,
+  getAnkrBalances,
+  toFlatBalance,
+  vscBalancesToAssets,
+} from '../swap/utils';
+import { equalFold } from '.';
 
-export const getBalancesForSwap = async (input: { evmAddress: Hex; chainList: ChainListType }) => {
-  const assets = balancesToAssets(
-    false,
-    await getAnkrBalances(input.evmAddress, input.chainList, true),
-    input.chainList,
-  );
-  let balances = toFlatBalance(assets, false);
-  return { assets, balances };
-};
-
-export const getBalances = async (input: {
+export const getBalancesForSwap = async (input: {
   evmAddress: Hex;
   chainList: ChainListType;
-  removeTransferFee?: boolean;
-  filter?: boolean;
-  tronAddress?: string;
-  isCA?: boolean;
-  vscDomain: string;
-  networkHint: Environment;
+  filterWithSupportedTokens: boolean;
+  allowedSources?: Source[];
+  removeSources?: Source[];
 }) => {
-  const isCA = input.isCA ?? false;
-  const removeTransferFee = input.removeTransferFee ?? false;
-  const filter = input.filter ?? true;
+  const ankrBalances = await getAnkrBalances(input.evmAddress, input.chainList, true);
 
-  const [ankrBalances, evmBalances, tronBalances] = await Promise.all([
-    input.networkHint === Environment.FOLLY || isCA
-      ? Promise.resolve([])
-      : getAnkrBalances(input.evmAddress, input.chainList, removeTransferFee),
-    getEVMBalancesForAddress(input.vscDomain, input.evmAddress),
-    input.tronAddress
-      ? getTronBalancesForAddress(input.vscDomain, input.tronAddress as Hex)
-      : Promise.resolve([]),
-  ]);
-
-  const assets = balancesToAssets(isCA, ankrBalances, input.chainList, evmBalances, tronBalances);
-
+  const assets = ankrBalanceToAssets(
+    input.chainList,
+    ankrBalances,
+    input.filterWithSupportedTokens,
+    input.allowedSources,
+    input.removeSources
+  );
   let balances = toFlatBalance(assets);
-  if (filter) {
+  logger.debug('getBalancesForSwap', {
+    input,
+    ankrBalances,
+    assets,
+    balances,
+  });
+  if (input.filterWithSupportedTokens) {
     balances = filterSupportedTokens(balances);
   }
 
-  logger.debug('getBalances', {
-    assets,
-    balances,
-    removeTransferFee,
-  });
-
   return { assets, balances };
+};
+
+export const getBalancesForBridge = async (input: {
+  vscClient: VSCClient;
+  evmAddress: Hex;
+  tronAddress?: string;
+  chainList: ChainListType;
+}) => {
+  const [evmBalances, tronBalances] = await Promise.all([
+    input.vscClient.getEVMBalancesForAddress(input.evmAddress),
+    input.tronAddress
+      ? input.vscClient.getTronBalancesForAddress(input.tronAddress as Hex)
+      : Promise.resolve([]),
+  ]);
+
+  const assets = vscBalancesToAssets(input.chainList, evmBalances, tronBalances);
+
+  return assets;
 };
 
 const getBalanceSlot = ({
@@ -68,7 +76,7 @@ const getBalanceSlot = ({
 
   // Calculate storage slot for user's balance: keccak256(user_address . balances_slot)
   const userBalanceSlot = keccak256(
-    encodePacked(['bytes32', 'uint256'], [pad(userAddress, { size: 32 }), BigInt(balanceSlot)]),
+    encodePacked(['bytes32', 'uint256'], [pad(userAddress, { size: 32 }), BigInt(balanceSlot)])
   );
 
   logger.debug('getBalanceSlot', {
@@ -118,21 +126,20 @@ const DEFAULT_SLOT = {
 } as const;
 
 function getBalanceStorageSlot(token: string, chainId: number): number {
+  // Only list different from default
   const storageSlotMapping: Record<number, Record<string, number>> = {
-    [SUPPORTED_CHAINS.ETHEREUM]: DEFAULT_SLOT,
-    [SUPPORTED_CHAINS.BASE]: DEFAULT_SLOT,
-    [SUPPORTED_CHAINS.ARBITRUM]: DEFAULT_SLOT,
-    [SUPPORTED_CHAINS.OPTIMISM]: DEFAULT_SLOT,
-    [SUPPORTED_CHAINS.POLYGON]: DEFAULT_SLOT,
-    [SUPPORTED_CHAINS.AVALANCHE]: DEFAULT_SLOT,
-    [SUPPORTED_CHAINS.SCROLL]: DEFAULT_SLOT,
-    // Testnets
-    [SUPPORTED_CHAINS.BASE_SEPOLIA]: DEFAULT_SLOT,
-    [SUPPORTED_CHAINS.ARBITRUM_SEPOLIA]: DEFAULT_SLOT,
-    [SUPPORTED_CHAINS.OPTIMISM_SEPOLIA]: DEFAULT_SLOT,
-    [SUPPORTED_CHAINS.POLYGON_AMOY]: DEFAULT_SLOT,
+    [SUPPORTED_CHAINS.BNB]: {
+      ETH: 0,
+      USDC: 1,
+      USDT: 1,
+    },
   };
 
+  logger.debug('storageSlotMapping', {
+    storageSlotMapping,
+    chainId,
+    val: storageSlotMapping[chainId],
+  });
   const chainMapping = storageSlotMapping[chainId];
   if (chainMapping) {
     const slot = chainMapping[token];
@@ -144,9 +151,9 @@ function getBalanceStorageSlot(token: string, chainId: number): number {
 
   logger.warn(`Unsupported chain ${chainId}, falling back to defaults`);
 
-  return token === 'USDC'
+  return equalFold(token, 'USDC')
     ? DEFAULT_SLOT.USDC
-    : token === 'USDT'
-    ? DEFAULT_SLOT.USDT
-    : DEFAULT_SLOT.ETH;
+    : equalFold(token, 'USDT')
+      ? DEFAULT_SLOT.USDT
+      : DEFAULT_SLOT.ETH;
 }

@@ -32,6 +32,7 @@ export type {
   SUPPORTED_TOKENS,
   ChainMetadata,
   TokenMetadata,
+  AssetBreakdown,
 } from './commons';
 
 export {
@@ -48,5 +49,32 @@ export {
   SWAP_STEPS,
 } from './commons';
 
+// Utility exports (direct access without sdk instance)
+export {
+  formatTokenBalance,
+  formatTokenBalanceParts,
+  truncateAddress,
+  parseUnits,
+  formatUnits,
+  isValidAddress,
+  getCoinbaseRates,
+  getSupportedChains,
+  isSupportedToken,
+} from './sdk/utils';
+
 // Re-export everything from commons (includes constants, utils, and types)
 export * from './commons';
+
+// Analytics exports
+export { AnalyticsManager } from './analytics/AnalyticsManager';
+export { NexusAnalyticsEvents } from './analytics/events';
+export type {
+  AnalyticsProvider,
+  BaseEventProperties,
+  WalletProperties,
+  TransactionProperties,
+  ErrorProperties,
+  PerformanceProperties,
+  SessionProperties,
+  BalanceProperties,
+} from './analytics/types';

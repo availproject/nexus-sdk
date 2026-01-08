@@ -47,6 +47,7 @@ const baseConfig = {
     '@metamask/safe-event-emitter',
     'decimal.js',
     'long',
+    'posthog-js',
     'msgpackr',
     'tslib',
     'axios',
@@ -101,6 +102,7 @@ export default defineConfig([
       'tslib',
       'axios',
       'es-toolkit',
+      'posthog-js',
     ],
   },
 ]);

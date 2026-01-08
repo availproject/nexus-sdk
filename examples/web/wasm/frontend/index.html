@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Nexus SDK - Wasm Example</title>
+    <style>
+      html,
+      body,
+      canvas {
+        margin: 0px;
+        padding: 0px;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        position: absolute;
+        background: black;
+        z-index: 0;
+      }
+    </style>
+  </head>
+
+  <body>
+    <canvas id="glcanvas" tabindex="1"></canvas>
+    <script src="src/gl.js"></script>
+    <script src="src/more_glue.js"></script>
+    <script type="module" src="/src/main.ts"></script>
+    <script>
+      function delay(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+      }
+
+      async function load_wasm() {
+        while (true) {
+          if (window.glue_js_loaded != undefined) {
+            break;
+          }
+          await delay(50);
+        }
+
+        load('./build/program.wasm');
+      }
+
+      load_wasm();
+    </script>
+    <!-- Your compiled wasm file -->
+  </body>
+</html>

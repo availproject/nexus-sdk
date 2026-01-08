@@ -1,5 +1,5 @@
-import { Hex } from 'viem';
-import { ERROR_CODES, createError } from './nexusError';
+import type { Hex } from 'viem';
+import { createError, ERROR_CODES } from './nexusError';
 
 export const Errors = {
   sdkNotInitialized: () => createError(ERROR_CODES.SDK_NOT_INITIALIZED, 'SDK is not initialized()'),
@@ -22,7 +22,7 @@ export const Errors = {
       {
         context: 'onAllowance:allow()',
         details: { expectedLength: expected, receivedLength: got },
-      },
+      }
     ),
   chainNotFound: (chainId: number | bigint) =>
     createError(ERROR_CODES.CHAIN_NOT_FOUND, `Chain not found: ${chainId}`, {
@@ -46,7 +46,7 @@ export const Errors = {
       `Token/Asset with address ${address} is not supported on chain ${chainId}.\n${additionalMessage}`,
       {
         details: { address, chainId },
-      },
+      }
     ),
   universeNotSupported: () =>
     createError(ERROR_CODES.UNIVERSE_NOT_SUPPORTED, 'Universe not supported'),
@@ -56,7 +56,7 @@ export const Errors = {
       `Token with symbol ${symbol} not found on chain ${chainId}`,
       {
         details: { symbol, chainId },
-      },
+      }
     ),
 
   tronDepositFailed: (result: unknown) =>
@@ -87,7 +87,7 @@ export const Errors = {
     createError(ERROR_CODES.WALLET_NOT_CONNECTED, `Wallet is not connected for ${walletType}`),
 
   userRejectedSIWESignature: () =>
-    createError(ERROR_CODES.USER_DENIED_SIWE_SIGNATURE, `User rejected SIWE signature.`),
+    createError(ERROR_CODES.USER_DENIED_SIWE_SIGNATURE, 'User rejected SIWE signature.'),
 
   vscError: (msg: string, data?: unknown) =>
     createError(ERROR_CODES.INTERNAL_ERROR, `VSC: ${msg}`, {
@@ -98,7 +98,7 @@ export const Errors = {
 
   cosmosError: (msg: string) => createError(ERROR_CODES.COSMOS_ERROR, `COSMOS: ${msg}`),
   gasPriceError: (result: unknown) =>
-    createError(ERROR_CODES.FETCH_GAS_PRICE_FAILED, `rpc: estimateMaxFeePerGas failed`, {
+    createError(ERROR_CODES.FETCH_GAS_PRICE_FAILED, 'rpc: estimateMaxFeePerGas failed', {
       details: {
         result,
       },
@@ -107,30 +107,30 @@ export const Errors = {
   quoteFailed: (message: string) =>
     createError(ERROR_CODES.QUOTE_FAILED, `Quote failed: ${message}`),
   swapFailed: (message: string) => createError(ERROR_CODES.SWAP_FAILED, `Swap failed: ${message}`),
-  ratesChangedBeyondTolerance: (rate: number | bigint, tolerance: number | bigint) =>
+  ratesChangedBeyondTolerance: (rate: number | bigint, tolerance: string) =>
     createError(
       ERROR_CODES.RATES_CHANGED_BEYOND_TOLERANCE,
-      `Rates changed beyond tolerance. Rate: ${rate}\nTolerance:${tolerance}`,
+      `Rates changed beyond tolerance. Rate: ${rate}\nTolerance:${tolerance}`
     ),
   slippageError: (msg: string) =>
     createError(ERROR_CODES.SLIPPAGE_EXCEEDED_ALLOWANCE, `rpc: slippage exceeded - ${msg}`),
   vaultContractNotFound: (chainId: number | bigint) =>
     createError(
       ERROR_CODES.VAULT_CONTRACT_NOT_FOUND,
-      `vault contract not found for chain ${chainId.toString()}`,
+      `vault contract not found for chain ${chainId.toString()}`
     ),
   simulationError: (msg: string) =>
     createError(ERROR_CODES.SIMULATION_FAILED, `tenderly simulation failed: ${msg}`),
-  rFFFeeExpired: () => createError(ERROR_CODES.RFF_FEE_EXPIRED, `fee is not adequate`),
+  rFFFeeExpired: () => createError(ERROR_CODES.RFF_FEE_EXPIRED, 'fee is not adequate'),
   destinationRequestHashNotFound: () =>
     createError(
       ERROR_CODES.DESTINATION_REQUEST_HASH_NOT_FOUND,
-      'requestHash not found for destination',
+      'requestHash not found for destination'
     ),
   transactionTimeout: (timeout: number) =>
     createError(
       ERROR_CODES.TRANSACTION_TIMEOUT,
-      `⏰ Timeout: Transaction not confirmed within ${timeout}s`,
+      `⏰ Timeout: Transaction not confirmed within ${timeout}s`
     ),
   transactionReverted: (txHash: string) =>
     createError(ERROR_CODES.TRANSACTION_REVERTED, `Transaction reverted: ${txHash}`),
@@ -139,7 +139,7 @@ export const Errors = {
     createError(
       ERROR_CODES.INVALID_ADDRESS_LENGTH,
       `Invalid ${addressType} address length: ${additionalMessage}`,
-      { details: { type: addressType } },
+      { details: { type: addressType } }
     ),
   noBalanceForAddress: (address: Hex) => {
     createError(ERROR_CODES.NO_BALANCE_FOR_ADDRESS, `no balance found for user: ${address}`);

@@ -1,43 +1,73 @@
 // src/core/sdk/index.ts
-import { NexusUtils } from './utils';
+
+import { AnalyticsManager } from '../analytics/AnalyticsManager';
+import { NexusAnalyticsEvents } from '../analytics/events';
+import { extractBridgeProperties, extractSwapProperties } from '../analytics/utils';
 import type {
-  BridgeParams,
-  BridgeResult,
-  TransferParams,
-  TransferResult,
-  OnIntentHook,
-  OnAllowanceHook,
-  EthereumProvider,
-  UserAsset,
-  SimulationResult,
-  RequestForFunds,
-  NexusNetwork,
+  AnalyticsConfig,
+  BeforeExecuteHook,
   BridgeAndExecuteParams,
   BridgeAndExecuteResult,
+  BridgeAndExecuteSimulationResult,
+  BridgeMaxResult,
+  BridgeParams,
+  BridgeResult,
+  EthereumProvider,
+  ExactInSwapInput,
+  ExactOutSwapInput,
   ExecuteParams,
   ExecuteResult,
   ExecuteSimulation,
-  BridgeAndExecuteSimulationResult,
-  SwapResult,
-  SupportedChainsResult,
-  ExactInSwapInput,
-  ExactOutSwapInput,
+  NexusNetwork,
+  OnAllowanceHook,
   OnEventParam,
-  BridgeMaxResult,
+  OnIntentHook,
   OnSwapIntentHook,
-  BeforeExecuteHook,
+  RequestForFunds,
+  SimulationResult,
+  SupportedChainsResult,
+  SwapResult,
+  TransferParams,
+  TransferResult,
 } from '../commons';
 import { logger } from '../commons';
-import { CA } from './ca-base';
-// import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
+import { CA } from './ca-base/ca';
+import { NexusUtils } from './utils';
+
+function getNetwork(network: NexusNetwork) {
+  if (typeof network !== 'string') {
+    return 'custom';
+  }
+  return network;
+}
 
 export class NexusSDK extends CA {
   public readonly utils: NexusUtils;
+  public readonly analytics: AnalyticsManager;
 
-  constructor(config?: { network?: NexusNetwork; debug?: boolean; siweChain?: number }) {
+  constructor(config?: {
+    network?: NexusNetwork;
+    debug?: boolean;
+    siweChain?: number;
+    analytics?: AnalyticsConfig;
+  }) {
     super(config);
     logger.debug('Nexus SDK initialized with config:', config);
     this.utils = new NexusUtils(this.chainList);
+
+    // Initialize analytics (backwards compatible - enabled by default)
+    this.analytics = new AnalyticsManager(
+      getNetwork(config?.network || 'mainnet'),
+      config?.analytics
+    );
+
+    // Make analytics available to CA base class for wallet/balance events
+    this._analytics = this.analytics;
+
+    // Track SDK initialization
+    this.analytics.track(NexusAnalyticsEvents.SDK_INITIALIZED, {
+      debug: config?.debug || false,
+    });
   }
 
   /**
@@ -47,17 +77,10 @@ export class NexusSDK extends CA {
    * @returns Promise resolving to void
    */
   public async initialize(provider: EthereumProvider): Promise<void> {
+    const opId = this.analytics.startOperation(NexusAnalyticsEvents.SDK_INITIALIZED);
     await this._setEVMProvider(provider);
     await this._init();
-  }
-
-  /**
-   * Returns unified balance for tokens across all chains
-   * @deprecated use `getBalancesForBridge` for direct replacement.
-   * @returns unified balances across all chains
-   */
-  public async getUnifiedBalances(includeSwappableBalances = false): Promise<UserAsset[]> {
-    return this._getUnifiedBalances(includeSwappableBalances);
+    this.analytics.endOperation(opId, { success: true });
   }
 
   /**
@@ -68,10 +91,40 @@ export class NexusSDK extends CA {
    * @returns bridge result with explorer URL
    */
   public async bridge(params: BridgeParams, options?: OnEventParam): Promise<BridgeResult> {
-    const result = await this._createBridgeHandler(params, options).execute();
-    return {
-      explorerUrl: result.explorerURL ?? '',
-    };
+    // Track bridge started
+    this.analytics.track(NexusAnalyticsEvents.BRIDGE_INITIATED, {
+      toChainId: params.toChainId,
+      tokenSymbol: params.token,
+      sourceChains: params.sourceChains,
+    });
+    const opId = this.analytics.startOperation(NexusAnalyticsEvents.BRIDGE_TRANSACTION_SUCCESS);
+
+    try {
+      const result = await (await this._createBridgeHandler(params, options)).execute();
+
+      // Track bridge completed
+      this.analytics.track(NexusAnalyticsEvents.BRIDGE_TRANSACTION_SUCCESS, {
+        toChainId: params.toChainId,
+        tokenSymbol: params.token,
+        explorerUrl: result.explorerURL,
+        ...extractBridgeProperties(result.intent),
+        intent: result.intentID.toString(),
+      });
+      this.analytics.endOperation(opId, { success: true });
+      return {
+        explorerUrl: result.explorerURL,
+        sourceTxs: result.sourceTxs,
+        intent: result.intent,
+      };
+    } catch (error) {
+      // Track bridge failed
+      this.analytics.trackError('bridge', error, {
+        toChainId: params.toChainId,
+        tokenSymbol: params.token,
+      });
+      this.analytics.endOperation(opId, { success: false, error: error as Error });
+      throw error;
+    }
   }
 
   /**
@@ -80,7 +133,7 @@ export class NexusSDK extends CA {
    * @returns
    */
   public async calculateMaxForBridge(
-    params: Omit<BridgeParams, 'amount'>,
+    params: Omit<BridgeParams, 'amount'>
   ): Promise<BridgeMaxResult> {
     return this._calculateMaxForBridge(params);
   }
@@ -94,13 +147,45 @@ export class NexusSDK extends CA {
    */
   public async bridgeAndTransfer(
     params: TransferParams,
-    options?: OnEventParam,
+    options?: OnEventParam
   ): Promise<TransferResult> {
-    const result = await this._bridgeAndTransfer(params, options);
-    return {
-      transactionHash: result.executeTransactionHash,
-      explorerUrl: result.executeExplorerUrl,
-    };
+    // Track transfer started
+    this.analytics.track(NexusAnalyticsEvents.TRANSFER_INITIATED, {
+      toChainId: params.toChainId,
+      tokenSymbol: params.token,
+      recipient: params.recipient,
+    });
+    const opId = this.analytics.startOperation(NexusAnalyticsEvents.TRANSFER_TRANSACTION_SUCCESS);
+
+    try {
+      const result = await this._bridgeAndTransfer(params, options);
+
+      // Track transfer completed
+      this.analytics.track(NexusAnalyticsEvents.TRANSFER_TRANSACTION_SUCCESS, {
+        toChainId: params.toChainId,
+        tokenSymbol: params.token,
+        recipient: params.recipient,
+        transactionHash: result.executeTransactionHash,
+        explorerUrl: result.executeExplorerUrl,
+        bridgeExplorerUrl: result.bridgeExplorerUrl,
+        ...extractBridgeProperties(result.intent),
+      });
+      this.analytics.endOperation(opId, { success: true });
+
+      return {
+        transactionHash: result.executeTransactionHash,
+        explorerUrl: result.executeExplorerUrl,
+      };
+    } catch (error) {
+      // Track transfer failed
+      this.analytics.trackError('transfer', error, {
+        toChainId: params.toChainId,
+        tokenSymbol: params.token,
+        recipient: params.recipient,
+      });
+      this.analytics.endOperation(opId, { success: false, error: error as Error });
+      throw error;
+    }
   }
 
   /**
@@ -113,13 +198,46 @@ export class NexusSDK extends CA {
    */
   public async swapWithExactIn(
     input: ExactInSwapInput,
-    options?: OnEventParam,
+    options?: OnEventParam
   ): Promise<SwapResult> {
-    const result = await this._swapWithExactIn(input, options);
-    return {
-      success: true,
-      result,
-    };
+    // Track swap started
+    this.analytics.track(NexusAnalyticsEvents.SWAP_INITIATED, {
+      swapType: 'exactIn',
+      toChainId: input.toChainId,
+      toTokenAddress: input.toTokenAddress,
+      sourceChains: input.from.map((f) => f.chainId),
+    });
+    const opId = this.analytics.startOperation(NexusAnalyticsEvents.SWAP_TRANSACTION_SUCCESS, {
+      swapType: 'exactIn',
+    });
+
+    try {
+      const result = await this._swapWithExactIn(input, options);
+
+      // Track swap completed
+      this.analytics.track(NexusAnalyticsEvents.SWAP_TRANSACTION_SUCCESS, {
+        swapType: 'exactIn',
+        toChainId: input.toChainId,
+        toTokenAddress: input.toTokenAddress,
+        ...extractSwapProperties(result),
+      });
+
+      this.analytics.endOperation(opId, { success: true });
+
+      return {
+        success: true,
+        result,
+      };
+    } catch (error) {
+      // Track swap failed
+      this.analytics.trackError('swap', error, {
+        swapType: 'exactIn',
+        toChainId: input.toChainId,
+        toTokenAddress: input.toTokenAddress,
+      });
+      this.analytics.endOperation(opId, { success: false, error: error as Error });
+      throw error;
+    }
   }
 
   /**
@@ -133,13 +251,45 @@ export class NexusSDK extends CA {
    */
   public async swapWithExactOut(
     input: ExactOutSwapInput,
-    options?: OnEventParam,
+    options?: OnEventParam
   ): Promise<SwapResult> {
-    const result = await this._swapWithExactOut(input, options);
-    return {
-      success: true,
-      result,
-    };
+    // Track swap started
+    this.analytics.track(NexusAnalyticsEvents.SWAP_INITIATED, {
+      swapType: 'exactOut',
+      toChainId: input.toChainId,
+      toTokenAddress: input.toTokenAddress,
+    });
+    const opId = this.analytics.startOperation(NexusAnalyticsEvents.SWAP_TRANSACTION_SUCCESS, {
+      swapType: 'exactOut',
+    });
+
+    try {
+      const result = await this._swapWithExactOut(input, options);
+
+      // Track swap completed
+      this.analytics.track(NexusAnalyticsEvents.SWAP_TRANSACTION_SUCCESS, {
+        swapType: 'exactOut',
+        toChainId: input.toChainId,
+        toTokenAddress: input.toTokenAddress,
+        ...extractSwapProperties(result),
+      });
+
+      this.analytics.endOperation(opId, { success: true });
+
+      return {
+        success: true,
+        result,
+      };
+    } catch (error) {
+      // Track swap failed
+      this.analytics.trackError('swap', error, {
+        swapType: 'exactOut',
+        toChainId: input.toChainId,
+        toTokenAddress: input.toTokenAddress,
+      });
+      this.analytics.endOperation(opId, { success: false, error: error as Error });
+      throw error;
+    }
   }
 
   /**
@@ -148,7 +298,31 @@ export class NexusSDK extends CA {
    * @returns simulation result with gas estimates
    */
   public async simulateBridge(params: BridgeParams): Promise<SimulationResult> {
-    return this._createBridgeHandler(params).simulate();
+    const opId = this.analytics.startOperation(NexusAnalyticsEvents.BRIDGE_SIMULATION_SUCCESS);
+    try {
+      this.analytics.track(NexusAnalyticsEvents.BRIDGE_SIMULATION_STARTED, {
+        toChainId: params.toChainId,
+        tokenSymbol: params.token,
+      });
+
+      const result = await (await this._createBridgeHandler(params)).simulate();
+
+      // Track simulation success
+      this.analytics.track(NexusAnalyticsEvents.BRIDGE_SIMULATION_SUCCESS, {
+        toChainId: params.toChainId,
+        tokenSymbol: params.token,
+      });
+      this.analytics.endOperation(opId, { success: true });
+      return result;
+    } catch (error) {
+      // Track simulation failed
+      this.analytics.trackError('bridgeSimulation', error, {
+        toChainId: params.toChainId,
+        tokenSymbol: params.token,
+      });
+      this.analytics.endOperation(opId, { success: false, error: error as Error });
+      throw error;
+    }
   }
 
   /**
@@ -157,9 +331,35 @@ export class NexusSDK extends CA {
    * @returns simulation result with gas estimates
    */
   public async simulateBridgeAndTransfer(
-    params: TransferParams,
+    params: TransferParams
   ): Promise<BridgeAndExecuteSimulationResult> {
-    return this._simulateBridgeAndTransfer(params);
+    const opId = this.analytics.startOperation(NexusAnalyticsEvents.TRANSFER_SIMULATION_SUCCESS);
+    try {
+      this.analytics.track(NexusAnalyticsEvents.BRIDGE_AND_EXECUTE_SIMULATION_STARTED, {
+        toChainId: params.toChainId,
+        tokenSymbol: params.token,
+        recipient: params.recipient,
+      });
+
+      const result = await this._simulateBridgeAndTransfer(params);
+
+      // Track simulation success
+      this.analytics.track(NexusAnalyticsEvents.TRANSFER_SIMULATION_SUCCESS, {
+        toChainId: params.toChainId,
+        tokenSymbol: params.token,
+        recipient: params.recipient,
+      });
+      this.analytics.endOperation(opId, { success: true });
+      return result;
+    } catch (error) {
+      // Track simulation failed
+      this.analytics.trackError('transferSimulation', error, {
+        toChainId: params.toChainId,
+        tokenSymbol: params.token,
+      });
+      this.analytics.endOperation(opId, { success: false, error: error as Error });
+      throw error;
+    }
   }
 
   /**
@@ -167,8 +367,11 @@ export class NexusSDK extends CA {
    * @param page page number
    * @returns list of intents
    */
-  public async getMyIntents(page: number = 1): Promise<RequestForFunds[]> {
-    return this._getMyIntents(page);
+  public async getMyIntents(page = 1): Promise<RequestForFunds[]> {
+    const opId = this.analytics.startOperation(NexusAnalyticsEvents.GET_MY_INTENTS);
+    const result = await this._getMyIntents(page);
+    this.analytics.endOperation(opId, { success: true });
+    return result;
   }
 
   /**
@@ -210,7 +413,17 @@ export class NexusSDK extends CA {
    * @returns Promise resolving to void
    */
   public async deinit(): Promise<void> {
-    return this._deinit();
+    // Track session end before deinitializing
+    this.analytics.trackSessionEnd();
+    const opId = this.analytics.startOperation(NexusAnalyticsEvents.SDK_DEINITIALIZED);
+
+    // Track SDK deinitialization
+    this.analytics.track(NexusAnalyticsEvents.SDK_DEINITIALIZED, {
+      sessionDuration: Date.now() - this.analytics.getSessionId().length, // Approximate
+    });
+
+    this._deinit();
+    this.analytics.endOperation(opId, { success: true });
   }
 
   /**
@@ -221,7 +434,34 @@ export class NexusSDK extends CA {
    * @returns Promise resolving to execute result with transaction hash and explorer URL
    */
   public async execute(params: ExecuteParams, options?: OnEventParam): Promise<ExecuteResult> {
-    return this._execute(params, options);
+    // Track execute started
+    this.analytics.track(NexusAnalyticsEvents.EXECUTE_INITIATED, {
+      toChainId: params.toChainId,
+      contractAddress: params.to,
+    });
+    const opId = this.analytics.startOperation(NexusAnalyticsEvents.EXECUTE_TRANSACTION_SUCCESS);
+
+    try {
+      const result = await this._execute(params, options);
+
+      // Track execute completed
+      this.analytics.track(NexusAnalyticsEvents.EXECUTE_TRANSACTION_SUCCESS, {
+        toChainId: params.toChainId,
+        contractAddress: params.to,
+        transactionHash: result.transactionHash,
+        explorerUrl: result.explorerUrl,
+      });
+      this.analytics.endOperation(opId, { success: true });
+      return result;
+    } catch (error) {
+      // Track execute failed
+      this.analytics.trackError('execute', error, {
+        toChainId: params.toChainId,
+        contractAddress: params.to,
+      });
+      this.analytics.endOperation(opId, { success: false, error: error as Error });
+      throw error;
+    }
   }
 
   /**
@@ -231,7 +471,30 @@ export class NexusSDK extends CA {
    * @returns Promise resolving to simulation result with gas estimates
    */
   public async simulateExecute(params: ExecuteParams): Promise<ExecuteSimulation> {
-    return this._simulateExecute(params);
+    const opId = this.analytics.startOperation(NexusAnalyticsEvents.EXECUTE_SIMULATION_SUCCESS);
+    try {
+      this.analytics.track(NexusAnalyticsEvents.EXECUTE_SIMULATION_STARTED, {
+        toChainId: params.toChainId,
+        contractAddress: params.to,
+      });
+      const result = await this._simulateExecute(params);
+
+      // Track simulation success
+      this.analytics.track(NexusAnalyticsEvents.EXECUTE_SIMULATION_SUCCESS, {
+        toChainId: params.toChainId,
+        contractAddress: params.to,
+      });
+      this.analytics.endOperation(opId, { success: true });
+      return result;
+    } catch (error) {
+      // Track simulation failed
+      this.analytics.trackError('executeSimulation', error, {
+        toChainId: params.toChainId,
+        contractAddress: params.to,
+      });
+      this.analytics.endOperation(opId, { success: false, error: error as Error });
+      throw error;
+    }
   }
 
   /**
@@ -245,9 +508,42 @@ export class NexusSDK extends CA {
    */
   public async bridgeAndExecute(
     params: BridgeAndExecuteParams,
-    options?: OnEventParam & BeforeExecuteHook,
+    options?: OnEventParam & BeforeExecuteHook
   ): Promise<BridgeAndExecuteResult> {
-    return this._bridgeAndExecute(params, options);
+    // Track bridge and execute started
+    this.analytics.track(NexusAnalyticsEvents.BRIDGE_AND_EXECUTE_INITIATED, {
+      toChainId: params.toChainId,
+      tokenSymbol: params.token,
+      contractAddress: params.execute?.to,
+    });
+    const opId = this.analytics.startOperation(
+      NexusAnalyticsEvents.BRIDGE_AND_EXECUTE_TRANSACTION_SUCCESS
+    );
+
+    try {
+      const result = await this._bridgeAndExecute(params, options);
+
+      // Track bridge and execute completed
+      this.analytics.track(NexusAnalyticsEvents.BRIDGE_AND_EXECUTE_TRANSACTION_SUCCESS, {
+        toChainId: params.toChainId,
+        tokenSymbol: params.token,
+        contractAddress: params.execute?.to,
+        executeTransactionHash: result.executeTransactionHash,
+        bridgeExplorerUrl: result.bridgeExplorerUrl,
+        ...extractBridgeProperties(result.intent),
+      });
+      this.analytics.endOperation(opId, { success: true });
+      return result;
+    } catch (error) {
+      // Track bridge and execute failed
+      this.analytics.trackError('bridgeAndExecute', error, {
+        toChainId: params.toChainId,
+        tokenSymbol: params.token,
+        contractAddress: params.execute?.to,
+      });
+      this.analytics.endOperation(opId, { success: false, error: error as Error });
+      throw error;
+    }
   }
 
   /**
@@ -260,9 +556,38 @@ export class NexusSDK extends CA {
    * @returns Promise resolving to simulation result with gas estimates
    */
   public async simulateBridgeAndExecute(
-    params: BridgeAndExecuteParams,
+    params: BridgeAndExecuteParams
   ): Promise<BridgeAndExecuteSimulationResult> {
-    return this._simulateBridgeAndExecute(params);
+    const opId = this.analytics.startOperation(
+      NexusAnalyticsEvents.BRIDGE_AND_EXECUTE_SIMULATION_SUCCESS
+    );
+    try {
+      this.analytics.track(NexusAnalyticsEvents.BRIDGE_AND_EXECUTE_SIMULATION_STARTED, {
+        toChainId: params.toChainId,
+        tokenSymbol: params.token,
+        contractAddress: params.execute?.to,
+      });
+      const result = await this._simulateBridgeAndExecute(params);
+
+      // Track simulation success
+      this.analytics.track(NexusAnalyticsEvents.BRIDGE_AND_EXECUTE_SIMULATION_SUCCESS, {
+        toChainId: params.toChainId,
+        tokenSymbol: params.token,
+        contractAddress: params.execute?.to,
+      });
+      this.analytics.endOperation(opId, { success: true });
+
+      return result;
+    } catch (error) {
+      // Track simulation failed
+      this.analytics.trackError('bridgeAndExecuteSimulation', error, {
+        toChainId: params.toChainId,
+        tokenSymbol: params.token,
+        contractAddress: params.execute?.to,
+      });
+      this.analytics.endOperation(opId, { success: false, error: error as Error });
+      throw error;
+    }
   }
 
   /**
@@ -270,11 +595,17 @@ export class NexusSDK extends CA {
    * @throws NexusError if the get balances for swap fails
    * @returns balances that can be used in swap operations
    */
-  public async getBalancesForSwap() {
-    const result = await this._getBalancesForSwap();
-
+  public async getBalancesForSwap(onlyNativesAndStables = false) {
+    const opId = this.analytics.startOperation(NexusAnalyticsEvents.BALANCES_FETCH_SUCCESS, {
+      swap: true,
+      bridge: false,
+    });
+    const result = await this._getBalancesForSwap(onlyNativesAndStables);
+    this.analytics.endOperation(opId, { success: true });
     return result.assets;
   }
+
+  public swapAndExecute = this._swapAndExecute;
 
   /**
    * Tokens returned here should be used in bridge, bridgeAndTransfer and bridgeAndExecute operations
@@ -282,7 +613,13 @@ export class NexusSDK extends CA {
    * @returns balances that can be used in bridge operations
    */
   public getBalancesForBridge() {
-    return this._getUnifiedBalances(false);
+    const opId = this.analytics.startOperation(NexusAnalyticsEvents.BALANCES_FETCH_SUCCESS, {
+      swap: false,
+      bridge: true,
+    });
+    const result = this._getBalancesForBridge();
+    this.analytics.endOperation(opId, { success: true });
+    return result;
   }
 
   /**
@@ -296,6 +633,24 @@ export class NexusSDK extends CA {
   public isInitialized() {
     return this._isInitialized();
   }
+
+  /**
+   * Used to set EVM provider outside of initialize, should allow fetching balances without initializing the SDK.
+   */
+  public setEVMProvider = this._setEVMProvider;
+
+  /**
+   * Useful for checking if the SDK has succesfully received the EVM provider
+   */
+  public get hasEvmProvider(): boolean {
+    return !!this._evm;
+  }
+
+  /**
+   * For triggering account change, if provider in initialize doesn't have event hooks like .on(...) and .removeListener(...).
+   * It doesnt do anything if address has not changed since last check.
+   */
+  public triggerAccountChange = this._triggerAccountChange;
 
   /**
    * Helper function to convert an input like "1.13" to 1_130_000n for input to other functions

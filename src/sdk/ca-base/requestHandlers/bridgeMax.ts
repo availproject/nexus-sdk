@@ -1,32 +1,36 @@
-import { BridgeParams, IBridgeOptions } from '../../../commons';
-import { getBalances, calculateMaxBridgeFee, getFeeStore, mulDecimals, UserAssets } from '../utils';
+import type { BridgeParams, IBridgeOptions } from '../../../commons';
 import { Errors } from '../errors';
+import {
+  calculateMaxBridgeFee,
+  getBalancesForBridge,
+  getFeeStore,
+  mulDecimals,
+  UserAssets,
+} from '../utils';
 
 const getMaxValueForBridge = async (
   params: Omit<BridgeParams, 'amount' | 'recipient'>,
-  options: Omit<IBridgeOptions, 'cosmos' | 'hooks' | 'events'>,
+  options: Omit<IBridgeOptions, 'cosmos' | 'hooks' | 'events'>
 ) => {
   const token = options.chainList.getTokenInfoBySymbol(params.toChainId, params.token);
   if (!token) {
     throw Errors.tokenNotFound(params.token, params.toChainId);
   }
 
-  const [balances, feeStore] = await Promise.all([
-    getBalances({
-      networkHint: options.networkConfig.NETWORK_HINT,
-      vscDomain: options.networkConfig.VSC_DOMAIN,
+  const [assets, feeStore] = await Promise.all([
+    getBalancesForBridge({
+      vscClient: options.vscClient,
       evmAddress: options.evm.address,
       chainList: options.chainList,
       tronAddress: options.tron?.address,
-      isCA: true,
     }),
-    getFeeStore(options.networkConfig.GRPC_URL),
+    getFeeStore(options.cosmosQueryClient),
   ]);
 
-  const assets = new UserAssets(balances.assets);
+  const userAssets = new UserAssets(assets);
 
   // FIXME: error in asset.find use NexusError and better messaging.
-  const tokenAsset = assets.find(params.token);
+  const tokenAsset = userAssets.find(params.token);
 
   const { maxAmount, sourceChainIds } = calculateMaxBridgeFee({
     assets: tokenAsset.getBridgeAssets(params.toChainId),

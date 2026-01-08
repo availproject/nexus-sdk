@@ -1,13 +1,22 @@
-import { SUPPORTED_CHAINS } from '../constants';
-import { TransactionReceipt, ByteArray, Hex, WalletClient } from 'viem';
-import { ChainDatum, Environment, PermitVariant, Universe } from '@avail-project/ca-common';
-import Decimal from 'decimal.js';
-import { SwapIntent } from './swap-types';
-import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
-import { SwapStepType } from './swap-steps';
-import { BridgeStepType } from './bridge-steps';
-import { FormatTokenBalanceOptions, FormattedParts } from '../utils/format';
-import { SigningStargateClient } from '@cosmjs/stargate';
+import type {
+  ChainDatum,
+  Environment,
+  PermitVariant,
+  QueryAllSolverDataResponse,
+  QueryGetProtocolFeesResponse,
+  RequestForFunds,
+  Universe,
+} from '@avail-project/ca-common';
+import type { SigningStargateClient } from '@cosmjs/stargate';
+import type { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
+import type Decimal from 'decimal.js';
+import type Long from 'long';
+import type { ByteArray, Hex, TransactionReceipt, WalletClient } from 'viem';
+import type { SUPPORTED_CHAINS } from '../constants';
+import type { FormatTokenBalanceOptions, FormattedParts } from '../utils/format';
+import type { BridgeStepType } from './bridge-steps';
+import type { SwapStepType } from './swap-steps';
+import type { SBCTx, Source, SwapIntent } from './swap-types';
 
 type TokenInfo = {
   contractAddress: `0x${string}`;
@@ -17,7 +26,7 @@ type TokenInfo = {
   symbol: string;
 };
 
-type NexusNetwork = 'mainnet' | 'canary' | 'testnet' | NetworkConfig;
+type NexusNetwork = 'mainnet' | 'testnet' | NetworkConfig;
 
 export interface BlockTransaction {
   hash?: string;
@@ -87,7 +96,7 @@ export type DynamicParamBuilder = (
   token: string,
   amount: string,
   chainId: number,
-  userAddress: `0x${string}`,
+  userAddress: `0x${string}`
 ) => {
   functionParams: readonly unknown[];
   /** ETH value in wei (string). Omit or '0' for ERC-20 calls */
@@ -113,11 +122,23 @@ export type BridgeMaxResult = {
   sourceChainIds: number[];
 };
 
+export type SourceTxs = {
+  chain: {
+    id: number;
+    name: string;
+    logo: string;
+  };
+  hash: Hex;
+  explorerUrl: string;
+}[];
+
 /**
  * Result structure for bridge transactions.
  */
 export type BridgeResult = {
   explorerUrl: string;
+  sourceTxs: SourceTxs;
+  intent: ReadableIntent;
 };
 
 /**
@@ -161,7 +182,21 @@ export interface TokenBalance {
   isNative?: boolean;
 }
 
-// Enhanced modular parameters for execute functionality with dynamic parameter building
+type GasPriceSelector = 'low' | 'medium' | 'high' | 'ultraHigh';
+
+export interface SwapExecuteParams {
+  to: Hex;
+  value?: bigint;
+  data?: Hex;
+  gas: bigint;
+  gasPrice?: GasPriceSelector;
+  tokenApproval?: {
+    token: Hex;
+    amount: bigint;
+    spender: Hex;
+  };
+}
+
 export interface ExecuteParams {
   toChainId: number;
   to: Hex;
@@ -231,7 +266,7 @@ export interface SimulationStep {
 }
 
 export type EventListenerType = {
-  onEvent: (eventName: string, ...args: any[]) => void;
+  onEvent: (eventName: string, ...args: unknown[]) => void;
 };
 
 export type BridgeAndExecuteSimulationResult = {
@@ -251,6 +286,14 @@ export interface BridgeAndExecuteParams {
   receiptTimeout?: number;
   requiredConfirmations?: number;
   recentApprovalTxHash?: string;
+}
+
+export interface SwapAndExecuteParams {
+  toChainId: number;
+  toTokenAddress: Hex;
+  toAmount: bigint;
+  fromSources?: Source[];
+  execute: SwapExecuteParams;
 }
 
 export type CosmosOptions = {
@@ -274,9 +317,9 @@ export type IBridgeOptions = {
     onIntent: OnIntentHook;
   };
   emit?: OnEventParam['onEvent'];
-  networkConfig: NetworkConfig;
+  intentExplorerUrl: string;
   chainList: ChainListType;
-};
+} & QueryClients;
 
 export type BridgeAndExecuteResult = {
   executeTransactionHash: string;
@@ -285,10 +328,11 @@ export type BridgeAndExecuteResult = {
   bridgeExplorerUrl?: string; // undefined when bridge is skipped
   toChainId: number;
   bridgeSkipped: boolean; // indicates if bridge was skipped due to sufficient funds
+  intent?: ReadableIntent;
 };
 
 export type Chain = {
-  blockExplorers?: {
+  blockExplorers: {
     default: {
       name: string;
       url: string;
@@ -318,12 +362,13 @@ export type Chain = {
 };
 
 interface EthereumProvider {
+  // biome-ignore lint/suspicious/noExplicitAny: expected for listener
   on(eventName: string | symbol, listener: (...args: any[]) => void): this;
 
   removeListener(
     eventName: string | symbol,
-    /* eslint-disable @typescript-eslint/no-explicit-any */
-    listener: (...args: any[]) => void,
+    // biome-ignore lint/suspicious/noExplicitAny: expected for listener
+    listener: (...args: any[]) => void
   ): this;
 
   request(args: RequestArguments): Promise<unknown>;
@@ -406,11 +451,14 @@ export type IntentSourceForAllowance = {
 type Network = Extract<Environment, Environment.CERISE | Environment.CORAL | Environment.FOLLY>;
 
 export type NetworkConfig = {
-  COSMOS_URL: string;
-  EXPLORER_URL: string;
-  GRPC_URL: string;
+  COSMOS_REST_URL: string;
+  COSMOS_RPC_URL: string;
+  COSMOS_WS_URL: string;
+  COSMOS_GRPC_URL: string;
+  VSC_BASE_URL: string;
+  VSC_WS_URL: string;
+  INTENT_EXPLORER_URL: string;
   NETWORK_HINT: Environment;
-  VSC_DOMAIN: string;
 };
 
 type OnIntentHookData = {
@@ -508,7 +556,7 @@ export type ChainListType = {
   getTokenInfoBySymbol(chainID: number, symbol: string): TokenInfo | undefined;
   getChainAndTokenFromSymbol(
     chainID: number,
-    tokenSymbol: string,
+    tokenSymbol: string
   ): {
     chain: Chain;
     token: (TokenInfo & { isNative: boolean }) | undefined;
@@ -516,7 +564,7 @@ export type ChainListType = {
   getTokenByAddress(chainID: number, address: `0x${string}`): TokenInfo | undefined;
   getChainAndTokenByAddress(
     chainID: number,
-    address: `0x${string}`,
+    address: `0x${string}`
   ):
     | {
         chain: Chain;
@@ -627,23 +675,24 @@ export type UnifiedBalanceResponseData = {
   errored: boolean;
 };
 
+export type AssetBreakdown = {
+  balance: string;
+  balanceInFiat: number;
+  chain: {
+    id: number;
+    logo: string;
+    name: string;
+  };
+  contractAddress: `0x${string}`;
+  decimals: number;
+  universe: Universe;
+};
+
 export type UserAssetDatum = {
   abstracted?: boolean;
   balance: string;
   balanceInFiat: number;
-  breakdown: {
-    balance: string;
-    balanceInFiat: number;
-    chain: {
-      id: number;
-      logo: string;
-      name: string;
-    };
-    contractAddress: `0x${string}`;
-    decimals: number;
-    isNative?: boolean;
-    universe: Universe;
-  }[];
+  breakdown: AssetBreakdown[];
   decimals: number;
   icon?: string;
   symbol: string;
@@ -652,8 +701,87 @@ export type UserAssetDatum = {
 export type BeforeExecuteHook = {
   beforeExecute?: () => Promise<{ value?: bigint; data?: Hex; gas?: bigint }>;
 };
+/**
+ * Analytics configuration options
+ */
+export interface AnalyticsConfig {
+  /** Enable or disable analytics tracking (default: true) */
+  enabled?: boolean;
+
+  /**
+   * PostHog API key (optional - uses Avail's default key if not provided)
+   * By default, all SDK telemetry goes to Avail's PostHog instance
+   * You can override this with your own key for custom analytics
+   */
+  posthogApiKey?: string;
+
+  /**
+   * PostHog API host (optional - uses Avail's PostHog instance by default)
+   */
+  posthogApiHost?: string;
+
+  /** Application metadata */
+  appMetadata?: {
+    appName?: string;
+    appVersion?: string;
+    appUrl?: string;
+  };
+
+  /** Privacy options */
+  privacy?: {
+    /** Anonymize wallet addresses by hashing */
+    anonymizeWallets?: boolean;
+    /** Exclude transaction amounts from analytics */
+    anonymizeAmounts?: boolean;
+  };
+
+  /** Enable session recording (default: false) */
+  sessionRecording?: boolean;
+
+  /** Enable debug logging (default: false) */
+  debug?: boolean;
+}
+
+type CosmosQueryClient = {
+  fetchMyIntents: (address: string, page?: number) => Promise<RequestForFunds[]>;
+  fetchProtocolFees: () => Promise<QueryGetProtocolFeesResponse>;
+  fetchSolverData: () => Promise<QueryAllSolverDataResponse>;
+  fetchPriceOracle: () => Promise<OraclePriceResponse>;
+  checkIntentFilled: (intentID: Long) => Promise<string>;
+  getAccount: (address: string) => Promise<void>;
+  waitForCosmosFillEvent: (intentID: Long, ac: AbortController) => Promise<string>;
+};
+
+type VSCClient = {
+  getEVMBalancesForAddress: (address: `0x${string}`) => Promise<UnifiedBalanceResponseData[]>;
+  getTronBalancesForAddress: (address: `0x${string}`) => Promise<UnifiedBalanceResponseData[]>;
+  vscCreateFeeGrant: (address: string) => Promise<unknown>;
+  vscPublishRFF: (id: Long) => Promise<{
+    id: Long;
+  }>;
+  vscCreateSponsoredApprovals: (input: SponsoredApprovalDataArray) => Promise<
+    {
+      chainId: number;
+      hash: Hex;
+    }[]
+  >;
+  vscCreateRFF: (
+    id: Long,
+    msd: (s: { current: number; total: number; txHash: Hex; chainId: number }) => void,
+    expectedCollections: { index: number; chainId: number }[]
+  ) => Promise<void>;
+  vscSBCTx: (input: SBCTx[]) => Promise<[bigint, `0x${string}`][]>;
+};
+
+type QueryClients = {
+  cosmosQueryClient: CosmosQueryClient;
+  vscClient: VSCClient;
+};
 
 export type {
+  QueryClients,
+  VSCClient,
+  CosmosQueryClient,
   OnIntentHook,
   OnAllowanceHookData,
   OnIntentHookData,

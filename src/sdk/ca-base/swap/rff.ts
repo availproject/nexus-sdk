@@ -5,39 +5,79 @@ import {
   bytesToNumber,
   createPublicClient,
   encodeFunctionData,
-  Hex,
-  PrivateKeyAccount,
+  type Hex,
+  type PrivateKeyAccount,
   toHex,
   webSocket,
 } from 'viem';
+import {
+  type BridgeAsset,
+  type ChainListType,
+  type CosmosOptions,
+  type EoaToEphemeralCallMap,
+  getLogger,
+  type Intent,
+  MAINNET_CHAIN_IDS,
+  type QueryClients,
+  type RFFDepositCallMap,
+  type Tx,
+} from '../../../commons';
 import { Errors } from '../errors';
 import {
-  createRFFromIntent,
   convertAddressByUniverse,
+  cosmosCreateDoubleCheckTx,
+  cosmosCreateRFF,
+  createRFFromIntent,
   evmWaitForFill,
-  FeeStore,
+  type FeeStore,
   getAllowances,
   getFeeStore,
   mulDecimals,
   removeIntentHashFromStore,
   storeIntentHashToStore,
-  cosmosCreateDoubleCheckTx,
-  cosmosCreateRFF,
 } from '../utils';
+import { applyBuffer } from './route';
 import { packERC20Approve } from './utils';
-import {
-  getLogger,
-  Intent,
-  NetworkConfig,
-  BridgeAsset,
-  EoaToEphemeralCallMap,
-  RFFDepositCallMap,
-  Tx,
-  ChainListType,
-  CosmosOptions,
-} from '../../../commons';
 
 const logger = getLogger();
+
+export const estimateCollectionFee = (
+  assets: (Pick<BridgeAsset, 'chainID' | 'contractAddress' | 'decimals'> & { value: number })[],
+  outputAmount: Decimal,
+  feeStore: FeeStore
+) => {
+  const expectedAmount = applyBuffer(outputAmount, 30);
+  logger.debug('sumCollectionFee', {
+    assets,
+    feeStore,
+    outputAmount: outputAmount.toFixed(),
+    expectedAmount: expectedAmount.toFixed(),
+  });
+  let accounted = new Decimal(0);
+  let fee = new Decimal(0);
+
+  for (const asset of assets) {
+    if (accounted.gt(expectedAmount)) {
+      break;
+    }
+    const collectionFee = feeStore.calculateCollectionFee({
+      decimals: asset.decimals,
+      sourceChainID: asset.chainID,
+      sourceTokenAddress: asset.contractAddress,
+    });
+
+    logger.debug('estimateCollectionFee', {
+      collectionFee: collectionFee.toFixed(),
+      fee: fee.toFixed(),
+      accounted: accounted.toFixed(),
+    });
+
+    fee = fee.add(collectionFee);
+    accounted = accounted.add(asset.value);
+  }
+
+  return fee;
+};
 
 export const createIntent = ({
   assets,
@@ -80,7 +120,7 @@ export const createIntent = ({
   };
 
   let borrow = output.amount;
-  intent.destination.amount = borrow;
+  intent.destination.amount = new Decimal(borrow);
   intent.destination.tokenContract = output.tokenAddress;
 
   const protocolFee = feeStore.calculateProtocolFee(borrow);
@@ -109,7 +149,17 @@ export const createIntent = ({
     protocolFee: protocolFee.toFixed(),
   });
 
-  for (const asset of assets) {
+  const sortedAssets = [...assets].sort((a, b) => {
+    if (a.chainID === MAINNET_CHAIN_IDS.ETHEREUM) return 1; // a goes to end
+    if (b.chainID === MAINNET_CHAIN_IDS.ETHEREUM) return -1; // b goes to end
+
+    return Decimal.sub(
+      Decimal.add(a.eoaBalance, a.ephemeralBalance),
+      Decimal.add(b.eoaBalance, b.ephemeralBalance)
+    ).toNumber(); //sort others by balance
+  });
+
+  for (const asset of sortedAssets) {
     if (
       asset.chainID === output.chainID ||
       Decimal.add(asset.eoaBalance, asset.ephemeralBalance).lte(0)
@@ -120,6 +170,10 @@ export const createIntent = ({
     if (accountedBalance.gte(borrow)) {
       break;
     }
+
+    logger.debug('bridgeRFF:2.0', {
+      asset,
+    });
 
     const collectionFee = feeStore.calculateCollectionFee({
       decimals: asset.decimals,
@@ -134,7 +188,7 @@ export const createIntent = ({
 
     const estimatedBorrowFromThisChain = Decimal.add(
       asset.eoaBalance.toString(),
-      asset.ephemeralBalance.toString(),
+      asset.ephemeralBalance.toString()
     ).lte(unaccountedBalance)
       ? Decimal.add(asset.eoaBalance.toString(), asset.ephemeralBalance.toString())
       : unaccountedBalance;
@@ -151,6 +205,11 @@ export const createIntent = ({
     intent.fees.solver = solverFee.add(intent.fees.solver).toFixed();
     borrow = borrow.add(solverFee);
 
+    logger.debug('bridgeRFF:2.01', {
+      solverFee: solverFee.toFixed(),
+      collectionFee: collectionFee.toFixed(),
+    });
+
     const unaccountedBalance2 = borrow.minus(accountedBalance);
 
     let borrowFromThisChain = new Decimal(0);
@@ -158,13 +217,13 @@ export const createIntent = ({
       logger.debug('createBridgeRFF:2.1', {
         assetBalance: Decimal.add(
           asset.eoaBalance.toString(),
-          asset.ephemeralBalance.toString(),
+          asset.ephemeralBalance.toString()
         ).toFixed(),
         unaccountedBalance: unaccountedBalance2.toFixed(),
       });
       borrowFromThisChain = Decimal.add(
         asset.eoaBalance.toString(),
-        asset.ephemeralBalance.toString(),
+        asset.ephemeralBalance.toString()
       );
 
       // Create allowance and deposit tx for (asset.eoaBalance) from usdc(eoa) -> usdc(eph)
@@ -180,13 +239,13 @@ export const createIntent = ({
 
       if (borrowFromThisChain.gt(asset.ephemeralBalance.toString())) {
         logger.debug('createBridgeRFF:2.2', {
-          assetEphemeral: asset.ephemeralBalance,
+          assetEphemeral: asset.ephemeralBalance.toFixed(),
           borrowFromThisChain: borrowFromThisChain.toFixed(),
         });
         eoaToEphemeralCalls[asset.chainID] = {
           amount: mulDecimals(
             borrowFromThisChain.minus(asset.ephemeralBalance.toString()),
-            asset.decimals,
+            asset.decimals
           ),
           decimals: asset.decimals,
           tokenAddress: asset.contractAddress,
@@ -206,8 +265,16 @@ export const createIntent = ({
   }
 
   if (accountedBalance < borrow) {
-    intent.isAvailableBalanceInsufficient = true;
+    throw Errors.insufficientBalance(
+      `available: ${accountedBalance.toFixed()}, required: ${borrow.toFixed()}`
+    );
   }
+
+  logger.debug('createIntentEnd', {
+    accountedBalance: accountedBalance.toFixed(),
+    borrowEnd: borrow.toFixed(),
+    borrowStart: intent.destination.amount.toFixed(),
+  });
 
   return { eoaToEphemeralCalls, intent };
 };
@@ -225,8 +292,7 @@ export const createBridgeRFF = async ({
       client: PrivateKeyAccount;
       eoaAddress: `0x${string}`;
     };
-    network: Pick<NetworkConfig, 'COSMOS_URL' | 'GRPC_URL'>;
-  };
+  } & QueryClients;
   input: {
     assets: BridgeAsset[];
   };
@@ -239,7 +305,7 @@ export const createBridgeRFF = async ({
 }) => {
   logger.debug('createBridgeRFF', { input, output });
 
-  const feeStore = await getFeeStore(config.network.GRPC_URL);
+  const feeStore = await getFeeStore(config.cosmosQueryClient);
   const depositCalls: RFFDepositCallMap = {};
 
   const { eoaToEphemeralCalls, intent } = createIntent({
@@ -249,10 +315,6 @@ export const createBridgeRFF = async ({
     address: config.evm.address,
   });
 
-  if (intent.isAvailableBalanceInsufficient) {
-    throw Errors.insufficientBalance();
-  }
-
   const { msgBasicCosmos, omniversalRFF, signatureData, sources } = await createRFFromIntent(
     intent,
     {
@@ -260,7 +322,7 @@ export const createBridgeRFF = async ({
       cosmos: config.cosmos,
       evm: config.evm,
     },
-    Universe.ETHEREUM,
+    Universe.ETHEREUM
   );
 
   logger.debug('createIntent', { intent });
@@ -278,13 +340,13 @@ export const createBridgeRFF = async ({
 
     const doubleCheckTxMap: Record<number, () => Promise<void>> = {};
 
-    omniversalRFF.protobufRFF.sources.forEach((s) => {
+    for (const s of omniversalRFF.protobufRFF.sources) {
       doubleCheckTxMap[bytesToNumber(s.chainID)] = createDoubleCheckTx(
         s.chainID,
         config.cosmos,
-        intentID,
+        intentID
       );
-    });
+    }
 
     return {
       createDoubleCheckTx: async () => {
@@ -307,7 +369,7 @@ export const createBridgeRFF = async ({
       tokenContract: s.tokenContract,
       holderAddress: config.evm.address,
     })),
-    config.chainList,
+    config.chainList
   );
 
   for (const [index, source] of sources.entries()) {
@@ -331,7 +393,10 @@ export const createBridgeRFF = async ({
 
     if (allowance < source.valueRaw) {
       const allowanceTx = {
-        data: packERC20Approve(config.chainList.getVaultContractAddress(Number(source.chainID))),
+        data: packERC20Approve(
+          config.chainList.getVaultContractAddress(Number(source.chainID)),
+          source.valueRaw
+        ),
         to: convertAddressByUniverse(source.tokenAddress, Universe.ETHEREUM),
         value: 0n,
       };
@@ -388,8 +453,7 @@ export const createBridgeRFF = async ({
         pc,
         s.requestHash,
         intentID,
-        config.network.GRPC_URL,
-        config.network.COSMOS_URL,
+        config.cosmosQueryClient
       ),
     };
 

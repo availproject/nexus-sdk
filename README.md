@@ -347,7 +347,7 @@ console.log('Active intents:', intents);
 ## 🛠️ Utilities
 
 ```typescript
-import { CHAIN_METADATA } from '@avail-project/nexus-core';
+import { CHAIN_METADATA, formatTokenBalance, truncateAddress } from '@avail-project/nexus-core';
 
 const isValid = sdk.utils.isValidAddress('0x...');
 const chainMeta = CHAIN_METADATA[137];
@@ -355,6 +355,10 @@ const formatted = sdk.utils.formatTokenBalance('0.000294700412452583', {
   symbol: 'ETH',
   decimals: 18,
 }); // "~0.0₄2552 ETH"
+
+// Direct imports (no sdk instance required) for stateless helpers:
+const directFormatted = formatTokenBalance(12.345678, { symbol: 'USDC' });
+const short = truncateAddress('0x1234567890123456789012345678901234567890');
 ```
 
 ---
@@ -387,6 +391,92 @@ import type {
   TokenMetadata,
 } from '@avail-project/nexus-core';
 ```
+
+---
+
+## 📊 Analytics
+
+The Nexus SDK includes **built-in analytics** powered by PostHog to help improve the SDK and understand usage patterns. Analytics are **enabled by default** but can be easily customized or disabled.
+
+### Default Behavior
+
+By default, the SDK sends anonymous telemetry data to Avail's PostHog instance:
+
+- SDK initialization events
+- Operation performance metrics
+- Session duration and success rates
+- Error tracking (without sensitive data)
+
+**No wallet addresses or transaction amounts** are collected unless you explicitly configure custom analytics.
+
+### Disabling Analytics
+
+```typescript
+const sdk = new NexusSDK({
+  network: 'mainnet',
+  analytics: { enabled: false },
+});
+```
+
+### Privacy Controls
+
+```typescript
+const sdk = new NexusSDK({
+  network: 'mainnet',
+  analytics: {
+    enabled: true,
+    privacy: {
+      anonymizeWallets: true, // Hash wallet addresses
+      anonymizeAmounts: true, // Exclude transaction amounts
+    },
+  },
+});
+```
+
+### Custom Analytics (BYO PostHog)
+
+You can use your own PostHog instance for custom analytics:
+
+```typescript
+const sdk = new NexusSDK({
+  network: 'mainnet',
+  analytics: {
+    enabled: true,
+    posthogApiKey: 'your-posthog-key',
+    posthogApiHost: 'https://your-posthog-instance.com',
+    appMetadata: {
+      appName: 'My DApp',
+      appVersion: '1.0.0',
+      appUrl: 'https://mydapp.com',
+    },
+  },
+});
+```
+
+### Accessing Analytics Programmatically
+
+```typescript
+// Track custom events
+sdk.analytics.track('custom_event', { foo: 'bar' });
+
+// Identify users
+sdk.analytics.identify('user-id', { plan: 'premium' });
+
+// Check if analytics is enabled
+if (sdk.analytics.isEnabled()) {
+  console.log('Analytics active');
+}
+
+// Disable analytics at runtime
+sdk.analytics.disable();
+
+// Re-enable analytics
+sdk.analytics.enable();
+```
+
+### Bundle Size Impact
+
+Adding PostHog analytics increases the bundle size by approximately **~50KB gzipped**. The analytics code is tree-shakeable, so if you don't use it, it won't significantly impact your bundle.
 
 ---
 

@@ -1,4 +1,5 @@
 import { Universe } from '@avail-project/ca-common';
+import { equalFold } from './utils';
 
 const SymbolToLogo: { [k: string]: string } = {
   BNB: 'https://assets.coingecko.com/coins/images/825/large/bnb-icon2_2x.png',
@@ -16,7 +17,7 @@ const SymbolToLogo: { [k: string]: string } = {
 };
 
 const getLogoFromSymbol = (symbol: string) => {
-  const logo = SymbolToLogo[symbol];
+  const logo = SymbolToLogo[symbol.toUpperCase()];
   if (!logo) {
     return '';
   }
@@ -26,7 +27,7 @@ const getLogoFromSymbol = (symbol: string) => {
 
 const isNativeAddress = (universe: Universe, address: `0x${string}`) => {
   if (universe === Universe.ETHEREUM || universe === Universe.TRON) {
-    return address === ZERO_ADDRESS || address === ZERO_ADDRESS_BYTES_32;
+    return equalFold(address, ZERO_ADDRESS) || equalFold(address, ZERO_ADDRESS_BYTES_32);
   }
 
   // Handle other universes or return false by default

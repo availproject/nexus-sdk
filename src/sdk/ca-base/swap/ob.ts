@@ -1,58 +1,57 @@
 import {
-  Aggregator,
+  type Aggregator,
   BebopAggregator,
-  BebopQuote,
-  Bytes,
-  Currency,
-  CurrencyID,
-  Holding,
+  type BebopQuote,
+  type Bytes,
+  type Currency,
+  type CurrencyID,
+  type Holding,
   liquidateInputHoldings,
-  Quote,
-  QuoteRequestExactInput,
+  type Quote,
+  type QuoteRequestExactInput,
   Universe,
 } from '@avail-project/ca-common';
+import type { SigningStargateClient } from '@cosmjs/stargate';
 import Decimal from 'decimal.js';
 import { orderBy, retry } from 'es-toolkit';
 import Long from 'long';
-import { Hex, PrivateKeyAccount, WalletClient } from 'viem';
-import { divDecimals, equalFold, minutesToMs, waitForTxReceipt } from '../utils';
-import { EADDRESS, SWEEPER_ADDRESS } from './constants';
+import type { Hex, PrivateKeyAccount, WalletClient } from 'viem';
+import {
+  type BridgeAsset,
+  type ChainListType,
+  type EoaToEphemeralCallMap,
+  getLogger,
+  type QueryClients,
+  type RFFDepositCallMap,
+  type SBCTx,
+  SWAP_STEPS,
+  type SwapStepType,
+  type Tx,
+} from '../../../commons';
+import { ZERO_ADDRESS } from '../constants';
+import { Errors } from '../errors';
+import { divDecimals, equalFold, minutesToMs, switchChain, waitForTxReceipt } from '../utils';
+import { EADDRESS, EADDRESS_32_BYTES, SWEEPER_ADDRESS } from './constants';
 import { getTokenDecimals } from './data';
 import { createBridgeRFF } from './rff';
+import type { SwapRoute } from './route';
 import { caliburExecute, checkAuthCodeSet, createSBCTxFromCalls, waitForSBCTxReceipt } from './sbc';
-
 import {
   bytesEqual,
-  Cache,
+  type Cache,
   convertTo32Bytes,
   convertToEVMAddress,
   createPermitAndTransferFromTx,
   createSweeperTxs,
-  EADDRESS_32_BYTES,
   EXPECTED_CALIBUR_CODE,
   getAllowanceCacheKey,
-  parseQuote,
   isNativeAddress,
+  type PublicClientList,
+  parseQuote,
   performDestinationSwap,
-  PublicClientList,
-  SwapMetadata,
-  SwapMetadataTx,
-  vscSBCTx,
+  type SwapMetadata,
+  type SwapMetadataTx,
 } from './utils';
-import {
-  getLogger,
-  SWAP_STEPS,
-  SwapStepType,
-  ChainListType,
-  BridgeAsset,
-  EoaToEphemeralCallMap,
-  RFFDepositCallMap,
-  SBCTx,
-  Tx,
-} from '../../../commons';
-import { SwapRoute } from './route';
-import { Errors } from '../errors';
-import { SigningStargateClient } from '@cosmjs/stargate';
 
 type Options = {
   address: {
@@ -71,11 +70,6 @@ type Options = {
   emitter: {
     emit: (step: SwapStepType) => void;
   };
-  networkConfig: {
-    COSMOS_URL: string;
-    GRPC_URL: string;
-    VSC_DOMAIN: string;
-  };
   publicClientList: PublicClientList;
   slippage: number;
   wallet: {
@@ -83,11 +77,10 @@ type Options = {
     eoa: WalletClient;
     ephemeral: PrivateKeyAccount;
   };
-};
+} & QueryClients;
 
 type SwapInput = {
   agg: Aggregator;
-  cfee: bigint;
   cur: Currency;
   originalHolding: Holding & { decimals: number; symbol: string };
   quote: Quote;
@@ -116,7 +109,7 @@ class BridgeHandler {
       decimals: number;
       tokenAddress: `0x${string}`;
     } | null,
-    private readonly options: Options,
+    private readonly options: Options
   ) {
     if (input) {
       for (const asset of input.assets) {
@@ -150,12 +143,9 @@ class BridgeHandler {
           rffDepositCalls: { ...this.depositCalls },
         });
 
-        await this.options.wallet.eoa.switchChain({
-          id: Number(c),
-        });
+        await switchChain(this.options.wallet.eoa, chain);
 
         if (e2e) {
-          await this.options.wallet.eoa.switchChain({ id: chain.id });
           const txs = await createPermitAndTransferFromTx({
             amount: e2e.amount,
             cache: this.options.cache,
@@ -178,27 +168,35 @@ class BridgeHandler {
                 COTCurrencyID: this.options.cot.currencyID,
                 receiver: this.options.address.eoa,
                 sender: this.options.address.ephemeral,
-              }),
+              })
             ),
             chainID: chain.id,
             ephemeralAddress: this.options.address.ephemeral,
             ephemeralWallet: this.options.wallet.ephemeral,
             publicClient,
-          }),
+          })
         );
       }
       if (sbcTx.length) {
-        const ops = await vscSBCTx(sbcTx, this.options.networkConfig.VSC_DOMAIN);
-        ops.forEach((op) => {
-          this.options.emitter.emit(SWAP_STEPS.SOURCE_SWAP_HASH(op, this.options.chainList));
-        });
+        const ops = await this.options.vscClient.vscSBCTx(sbcTx);
         waitingPromises.push(
-          ...ops.map(([chainID, hash]) =>
-            wrap(
+          ...ops.map(([chainID, hash]) => {
+            const chain = this.options.chainList.getChainByID(Number(chainID));
+            if (!chain) {
+              throw Errors.chainNotFound(chainID);
+            }
+            this.options.emitter.emit(
+              SWAP_STEPS.BRIDGE_DEPOSIT({
+                chain,
+                hash,
+                explorerURL: chain.blockExplorers.default.url,
+              })
+            );
+            return wrap(
               Number(chainID),
-              waitForTxReceipt(hash, this.options.publicClientList.get(chainID), 2),
-            ),
-          ),
+              waitForTxReceipt(hash, this.options.publicClientList.get(chainID), 1)
+            );
+          })
         );
       }
     }
@@ -211,12 +209,12 @@ class BridgeHandler {
       amount: Decimal;
       chainID: number;
       tokenAddress: `0x${string}`;
-    }[],
+    }[]
   ) {
     if (this.input) {
       for (const asset of this.input.assets) {
         const updatedAsset = inputAssets.find(
-          (i) => i.chainID === asset.chainID && equalFold(i.tokenAddress, asset.contractAddress),
+          (i) => i.chainID === asset.chainID && equalFold(i.tokenAddress, asset.contractAddress)
         );
         if (updatedAsset) {
           asset.ephemeralBalance = updatedAsset.amount;
@@ -225,6 +223,8 @@ class BridgeHandler {
 
       const response = await createBridgeRFF({
         config: {
+          vscClient: this.options.vscClient,
+          cosmosQueryClient: this.options.cosmosQueryClient,
           chainList: this.options.chainList,
           cosmos: {
             address: this.options.address.cosmos,
@@ -234,10 +234,6 @@ class BridgeHandler {
             address: this.options.address.ephemeral,
             client: this.options.wallet.ephemeral,
             eoaAddress: this.options.address.eoa,
-          },
-          network: {
-            COSMOS_URL: this.options.networkConfig.COSMOS_URL,
-            GRPC_URL: this.options.networkConfig.GRPC_URL,
           },
         },
         input: { assets: this.input.assets },
@@ -257,16 +253,20 @@ class BridgeHandler {
 
     this.status = this.waitForFill();
 
-    if (this.status.intentID.toNumber() != 0) {
-      await retry(
-        async () => {
-          await this.createDoubleCheckTx().then(() => {
-            logger.info('double-check-returned');
-            return true;
-          });
-        },
-        { delay: 3000, retries: 3 },
-      );
+    if (this.status.intentID.toNumber() !== 0) {
+      const dbc = this.createDoubleCheckTx;
+      // we don't have to wait for this.
+      (async () => {
+        await retry(
+          async () => {
+            await dbc().then(() => {
+              logger.info('double-check-returned');
+              return true;
+            });
+          },
+          { delay: 3000, retries: 3 }
+        );
+      })();
 
       metadata.rff_id = BigInt(this.status.intentID.toNumber());
       this.options.emitter.emit(SWAP_STEPS.RFF_ID(this.status.intentID.toNumber()));
@@ -290,6 +290,7 @@ class BridgeHandler {
     promise: Promise.resolve(),
   });
 
+  // biome-ignore lint/suspicious/noEmptyBlockStatements: default it empty - expected & correct
   private createDoubleCheckTx = async () => {};
 }
 
@@ -307,12 +308,12 @@ class DestinationSwapHandler {
       chainID: number;
       token: `0x${string}`;
     },
-    private readonly options: Options,
+    private readonly options: Options
   ) {
-    if (data.swap.dstEOAToEphTx) {
+    if (data.dstEOAToEphTx) {
       options.cache.addAllowanceQuery({
         chainID: dst.chainID,
-        contractAddress: data.swap.dstEOAToEphTx.contractAddress,
+        contractAddress: data.dstEOAToEphTx.contractAddress,
         owner: options.address.eoa,
         spender: options.address.ephemeral,
       });
@@ -337,19 +338,19 @@ class DestinationSwapHandler {
 
     options.cache.addAllowanceQuery({
       chainID: dst.chainID,
-      contractAddress: convertToEVMAddress(data.swap.req.inputToken),
+      contractAddress: convertToEVMAddress(data.swap.inputToken),
       owner: options.address.ephemeral,
       spender: SWEEPER_ADDRESS,
     });
   }
 
   async createPermit() {
-    if (this.data.swap.dstEOAToEphTx) {
+    if (this.data.dstEOAToEphTx) {
       const txs = await createPermitAndTransferFromTx({
-        amount: this.data.swap.dstEOAToEphTx.amount,
+        amount: this.data.dstEOAToEphTx.amount,
         cache: this.options.cache,
         chain: this.options.chainList.getChainByID(this.dst.chainID)!,
-        contractAddress: this.data.swap.dstEOAToEphTx.contractAddress,
+        contractAddress: this.data.dstEOAToEphTx.contractAddress,
         owner: this.options.address.eoa,
         ownerWallet: this.options.wallet.eoa,
         publicClient: this.options.publicClientList.get(this.dst.chainID),
@@ -361,12 +362,14 @@ class DestinationSwapHandler {
 
   // Retry only once, can't keep user waiting.
   async process(
-    metadata: SwapMetadata,
+    metadata: SwapMetadata
     // inputAmount = this.dstSwap.quote?.inputAmount,
   ) {
-    await this.options.wallet.eoa.switchChain({
-      id: Number(this.options.destinationChainID),
-    });
+    const chain = this.options.chainList.getChainByID(this.dst.chainID);
+    if (!chain) {
+      throw Errors.chainNotFound(this.dst.chainID);
+    }
+    await switchChain(this.options.wallet.eoa, chain);
     try {
       await this.executeSwap(metadata);
     } catch (error) {
@@ -383,7 +386,7 @@ class DestinationSwapHandler {
           {
             error: (retryError as Error)?.message ?? retryError,
           },
-          { cause: 'SWAP_FAILED' },
+          { cause: 'SWAP_FAILED' }
         );
         throw retryError;
       }
@@ -404,15 +407,16 @@ class DestinationSwapHandler {
       calls = calls.concat(this.eoaToEphCalls);
     }
 
-    if (swap.quote) {
+    // Check if token swap
+    if (swap.tokenSwap.quote) {
       const quote = parseQuote(
         {
-          agg: swap.aggregator,
-          originalHolding: swap.originalHolding,
-          quote: swap.quote,
-          req: swap.req,
+          agg: swap.tokenSwap.aggregator,
+          originalHolding: swap.tokenSwap.originalHolding,
+          quote: swap.tokenSwap.quote,
+          inputToken: swap.inputToken,
         },
-        true,
+        true
       );
 
       if (quote.swap.approval) {
@@ -427,7 +431,7 @@ class DestinationSwapHandler {
       metadata.dst.swaps.push({
         agg: 0,
         input_amt: convertTo32Bytes(quote.input.amount),
-        input_contract: swap.req.inputToken,
+        input_contract: swap.inputToken,
         input_decimals: swap.dstChainCOT.decimals,
         output_amt: convertTo32Bytes(this.dst.amount ?? 0),
         output_contract: convertTo32Bytes(this.dst.token),
@@ -435,6 +439,28 @@ class DestinationSwapHandler {
       });
 
       this.options.emitter.emit(SWAP_STEPS.DESTINATION_SWAP_BATCH_TX(false));
+    }
+
+    let hasGasSwap = false;
+
+    // Check if there is gas swap
+    if (swap.gasSwap) {
+      const quote = parseQuote(
+        {
+          agg: swap.gasSwap.aggregator,
+          originalHolding: swap.gasSwap.originalHolding,
+          quote: swap.gasSwap.quote!,
+          inputToken: swap.inputToken,
+        },
+        true
+      );
+
+      if (quote.swap.approval) {
+        calls.push(quote.swap.approval);
+      }
+      calls.push(quote.swap.tx);
+
+      hasGasSwap = true;
     }
 
     // Add sweeper tx
@@ -447,6 +473,16 @@ class DestinationSwapHandler {
         sender: this.options.address.ephemeral,
         tokenAddress: this.dst.token,
       }),
+      hasGasSwap
+        ? createSweeperTxs({
+            cache: this.options.cache,
+            chainID: this.dst.chainID,
+            COTCurrencyID: this.options.cot.currencyID,
+            receiver: this.options.address.eoa,
+            sender: this.options.address.ephemeral,
+            tokenAddress: ZERO_ADDRESS,
+          })
+        : []
     );
 
     // Execute batched destination tx
@@ -462,7 +498,7 @@ class DestinationSwapHandler {
       ephemeralWallet: this.options.wallet.ephemeral,
       hasDestinationSwap: true,
       publicClientList: this.options.publicClientList,
-      vscDomain: this.options.networkConfig.VSC_DOMAIN,
+      vscClient: this.options.vscClient,
     });
 
     this.options.emitter.emit(SWAP_STEPS.DESTINATION_SWAP_BATCH_TX(true));
@@ -482,7 +518,7 @@ class DestinationSwapHandler {
     // There wasn't any quote to begin with so nothing to requote.
     // Happens when dst token is COT, just need to send from ephemeral -> EOA
     // Maybe FIXME: Bridge can directly send to EOA in these cases - save gas.
-    if (!this.data.swap.quote) {
+    if (!this.data.swap.tokenSwap.quote && !this.data.swap.gasSwap?.quote) {
       return;
     }
 
@@ -490,8 +526,8 @@ class DestinationSwapHandler {
     let requote = force;
 
     if (!force) {
-      if (swap.aggregator instanceof BebopAggregator) {
-        const quote = swap.quote as BebopQuote;
+      if (swap.tokenSwap.aggregator instanceof BebopAggregator) {
+        const quote = swap.tokenSwap.quote as BebopQuote;
         if (quote.originalResponse.quote.expiry * 1000 < Date.now()) requote = true;
       } else if (Date.now() - swap.creationTime > minutesToMs(0.4)) {
         requote = true;
@@ -504,7 +540,7 @@ class DestinationSwapHandler {
 
     logger.debug('Requoting destination swap...');
     const newSwap = await this.data.fetchDestinationSwapDetails();
-    if (!newSwap.quote) {
+    if (!newSwap.tokenSwap.quote) {
       throw Errors.quoteFailed('Failed to requote destination swap.');
     }
 
@@ -529,13 +565,16 @@ class DestinationSwapHandler {
       )
     ) {
       const rate = swap.inputAmount.min.toNumber();
-      const tolerance = swap.inputAmount.min.toNumber() - swap.inputAmount.max.toNumber();
-      throw Errors.ratesChangedBeyondTolerance(rate, tolerance);
+      throw Errors.ratesChangedBeyondTolerance(
+        rate,
+        `${swap.inputAmount.min} - ${swap.inputAmount.max}`
+      );
     }
 
     this.data = {
       type: this.data.type,
       swap: newSwap,
+      dstEOAToEphTx: this.data.dstEOAToEphTx,
       fetchDestinationSwapDetails: this.data.fetchDestinationSwapDetails,
     };
 
@@ -549,7 +588,10 @@ class DestinationSwapHandler {
 class SourceSwapsHandler {
   private disposableCache: { [k: string]: Tx } = {};
   private readonly swapsData: Map<bigint, SwapInput[]>;
-  constructor(data: SwapRoute['source'], private readonly options: Options) {
+  constructor(
+    data: SwapRoute['source'],
+    private readonly options: Options
+  ) {
     this.swapsData = this.groupAndOrder(data.swaps);
     for (const [chainID, swapQuotes] of this.iterate(this.swapsData)) {
       this.options.cache.addSetCodeQuery({
@@ -609,7 +651,7 @@ class SourceSwapsHandler {
   async process(
     metadata: SwapMetadata,
     input = this.swapsData,
-    retry = true,
+    retry = true
   ): Promise<{ amount: Decimal; chainID: number; tokenAddress: `0x${string}` }[]> {
     logger.debug('sourceSwapsHandler', {
       input,
@@ -647,163 +689,151 @@ class SourceSwapsHandler {
 
       // 1. Source swap calls
       let amount = 0n;
-      {
-        for (const quote of quotes) {
-          amount += quote.output.amount;
-          if (isNativeAddress(convertToEVMAddress(quote.input.token))) {
-            sbcCalls.value += quote.input.amount;
-          } else {
-            this.options.emitter.emit(
-              SWAP_STEPS.CREATE_PERMIT_FOR_SOURCE_SWAP(false, quote.input.symbol, chain),
-            );
-            const allowanceCacheKey = getAllowanceCacheKey({
-              chainID: chain.id,
-              contractAddress: convertToEVMAddress(quote.input.token),
-              owner: this.options.address.eoa,
-              spender: this.options.address.ephemeral,
-            });
+      for (const quote of quotes) {
+        amount += quote.output.amount;
+        if (isNativeAddress(convertToEVMAddress(quote.input.token))) {
+          sbcCalls.value += quote.input.amount;
+        } else {
+          this.options.emitter.emit(
+            SWAP_STEPS.CREATE_PERMIT_FOR_SOURCE_SWAP(false, quote.input.symbol, chain)
+          );
+          const allowanceCacheKey = getAllowanceCacheKey({
+            chainID: chain.id,
+            contractAddress: convertToEVMAddress(quote.input.token),
+            owner: this.options.address.eoa,
+            spender: this.options.address.ephemeral,
+          });
 
-            const txs = await createPermitAndTransferFromTx({
-              amount: quote.input.amount,
-              approval: this.disposableCache[allowanceCacheKey],
-              cache: this.options.cache,
-              chain,
-              contractAddress: convertToEVMAddress(quote.input.token),
-              owner: this.options.address.eoa,
-              ownerWallet: this.options.wallet.eoa,
-              publicClient,
-              spender: this.options.address.ephemeral,
-            });
+          const txs = await createPermitAndTransferFromTx({
+            amount: quote.input.amount,
+            approval: this.disposableCache[allowanceCacheKey],
+            cache: this.options.cache,
+            chain,
+            contractAddress: convertToEVMAddress(quote.input.token),
+            owner: this.options.address.eoa,
+            ownerWallet: this.options.wallet.eoa,
+            publicClient,
+            spender: this.options.address.ephemeral,
+          });
 
-            // Approval & transferFrom
-            if (txs.length === 2) {
-              const approvalTx = txs[0];
-              this.disposableCache[allowanceCacheKey] = approvalTx;
-            }
-
-            this.options.emitter.emit(
-              SWAP_STEPS.CREATE_PERMIT_FOR_SOURCE_SWAP(true, quote.input.symbol, chain),
-            );
-            logger.debug('sourceSwap', {
-              chainID,
-              permitCalls: txs,
-              quote,
-            });
-            sbcCalls.calls.push(...txs);
+          // Approval & transferFrom
+          if (txs.length === 2) {
+            const approvalTx = txs[0];
+            this.disposableCache[allowanceCacheKey] = approvalTx;
           }
 
-          if (quote.swap.approval) {
-            sbcCalls.calls.push(quote.swap.approval);
-          }
-          sbcCalls.calls.push(quote.swap.tx);
+          this.options.emitter.emit(
+            SWAP_STEPS.CREATE_PERMIT_FOR_SOURCE_SWAP(true, quote.input.symbol, chain)
+          );
+          logger.debug('sourceSwap', {
+            chainID,
+            permitCalls: txs,
+            quote,
+          });
+          sbcCalls.calls.push(...txs);
         }
+
+        if (quote.swap.approval) {
+          sbcCalls.calls.push(quote.swap.approval);
+        }
+        sbcCalls.calls.push(quote.swap.tx);
       }
+      if (sbcCalls.value > 0n) {
+        if (
+          !(await checkAuthCodeSet(
+            Number(chainID),
+            this.options.address.ephemeral,
+            this.options.cache
+          ))
+        ) {
+          const ops = await this.options.vscClient.vscSBCTx([
+            await createSBCTxFromCalls({
+              cache: this.options.cache,
+              calls: [],
+              chainID: chain.id,
+              ephemeralAddress: this.options.address.ephemeral,
+              ephemeralWallet: this.options.wallet.ephemeral,
+              publicClient,
+            }),
+          ]);
 
-      // 2. Create batched calls
-      {
-        if (sbcCalls.value > 0n) {
-          if (
-            !(await checkAuthCodeSet(
-              Number(chainID),
-              this.options.address.ephemeral,
-              this.options.cache,
-            ))
-          ) {
-            const ops = await vscSBCTx(
-              [
-                await createSBCTxFromCalls({
-                  cache: this.options.cache,
-                  calls: [],
-                  chainID: chain.id,
-                  ephemeralAddress: this.options.address.ephemeral,
-                  ephemeralWallet: this.options.wallet.ephemeral,
-                  publicClient,
-                }),
-              ],
-              this.options.networkConfig.VSC_DOMAIN,
-            );
+          logger.debug('SetAuthCodeWithoutCalls', {
+            ops,
+          });
 
-            logger.debug('SetAuthCodeWithoutCalls', {
-              ops,
-            });
+          await waitForSBCTxReceipt(ops, this.options.chainList, this.options.publicClientList);
 
-            await waitForSBCTxReceipt(ops, this.options.chainList, this.options.publicClientList);
+          // We know its set since we got receipt,
+          // and so if we come back on retry it is already set
+          this.options.cache.addSetCodeValue(
+            {
+              address: this.options.address.ephemeral,
+              chainID: Number(chainID),
+            },
+            EXPECTED_CALIBUR_CODE
+          );
+        }
 
-            // We know its set since we got receipt,
-            // and so if we come back on retry it is already set
-            this.options.cache.addSetCodeValue(
-              {
-                address: this.options.address.ephemeral,
-                chainID: Number(chainID),
-              },
-              EXPECTED_CALIBUR_CODE,
-            );
-          }
-
-          await this.options.wallet.eoa.switchChain({ id: Number(chainID) });
-          /*
+        await switchChain(this.options.wallet.eoa, chain);
+        /*
            * EOA creates & sends tx {
              to: ephemeralAddress (we check above it its delegated to calibur), 
              value: sbcCalls.value,
              data: SignUsingEphemeral(AggregatorTx(approval(iff non native is involved) and swap))
            }
            */
-          const hash = await caliburExecute({
-            actualAddress: this.options.address.eoa,
-            actualWallet: this.options.wallet.eoa,
-            calls: sbcCalls.calls,
-            chain,
-            ephemeralAddress: this.options.address.ephemeral,
-            ephemeralWallet: this.options.wallet.ephemeral,
-            value: sbcCalls.value,
-          });
-          metadataTx.tx_hash = convertTo32Bytes(hash);
-          this.options.emitter.emit(
-            SWAP_STEPS.SOURCE_SWAP_HASH([BigInt(chain.id), hash], this.options.chainList),
-          );
+        const hash = await caliburExecute({
+          actualAddress: this.options.address.eoa,
+          actualWallet: this.options.wallet.eoa,
+          calls: sbcCalls.calls,
+          chain,
+          ephemeralAddress: this.options.address.ephemeral,
+          ephemeralWallet: this.options.wallet.ephemeral,
+          value: sbcCalls.value,
+        });
+        metadataTx.tx_hash = convertTo32Bytes(hash);
+        this.options.emitter.emit(
+          SWAP_STEPS.SOURCE_SWAP_HASH([BigInt(chain.id), hash], this.options.chainList)
+        );
 
-          waitingPromises.push(wrap(Number(chainID), waitForTxReceipt(hash, publicClient, 2)));
-        } else {
-          logger.debug('sourceSwapsHandler', {
-            calls: sbcCalls.calls,
-          });
+        waitingPromises.push(wrap(Number(chainID), waitForTxReceipt(hash, publicClient, 1)));
+      } else {
+        logger.debug('sourceSwapsHandler', {
+          calls: sbcCalls.calls,
+        });
 
-          waitingPromises.push(
-            (async () => {
-              logger.debug('waitingPromises:1');
-              const ops = await vscSBCTx(
-                [
-                  await createSBCTxFromCalls({
-                    cache: this.options.cache,
-                    calls: sbcCalls.calls,
-                    chainID: chain.id,
-                    ephemeralAddress: this.options.address.ephemeral,
-                    ephemeralWallet: this.options.wallet.ephemeral,
-                    publicClient,
-                  }),
-                ],
-                this.options.networkConfig.VSC_DOMAIN,
-              );
-              const [chainID, hash] = ops[0];
-              metadataTx.tx_hash = convertTo32Bytes(hash);
+        waitingPromises.push(
+          (async () => {
+            logger.debug('waitingPromises:1');
+            const ops = await this.options.vscClient.vscSBCTx([
+              await createSBCTxFromCalls({
+                cache: this.options.cache,
+                calls: sbcCalls.calls,
+                chainID: chain.id,
+                ephemeralAddress: this.options.address.ephemeral,
+                ephemeralWallet: this.options.wallet.ephemeral,
+                publicClient,
+              }),
+            ]);
+            const [chainID, hash] = ops[0];
+            metadataTx.tx_hash = convertTo32Bytes(hash);
 
-              this.options.emitter.emit(
-                SWAP_STEPS.SOURCE_SWAP_HASH([chainID, hash], this.options.chainList),
-              );
+            this.options.emitter.emit(
+              SWAP_STEPS.SOURCE_SWAP_HASH([chainID, hash], this.options.chainList)
+            );
 
-              return wrap(
-                Number(chainID),
-                waitForTxReceipt(hash, this.options.publicClientList.get(chainID), 2),
-              );
-            })(),
-          );
-        }
+            return wrap(
+              Number(chainID),
+              waitForTxReceipt(hash, this.options.publicClientList.get(chainID), 1)
+            );
+          })()
+        );
       }
 
       assets.push({
         amount: divDecimals(
           amount,
-          getTokenDecimals(Number(chainID), quotes[0].output.token).decimals,
+          getTokenDecimals(Number(chainID), quotes[0].output.token).decimals
         ),
         chainID: Number(chainID),
         tokenAddress: convertToEVMAddress(quotes[0].output.token),
@@ -856,11 +886,11 @@ class SourceSwapsHandler {
                   ephemeralAddress: this.options.address.ephemeral,
                   ephemeralWallet: this.options.wallet.ephemeral,
                   publicClient: this.options.publicClientList.get(chainID),
-                }),
+                })
               );
             }
             try {
-              const ops = await vscSBCTx(sbcTxs, this.options.networkConfig.VSC_DOMAIN);
+              const ops = await this.options.vscClient.vscSBCTx(sbcTxs);
               await waitForSBCTxReceipt(ops, this.options.chainList, this.options.publicClientList);
             } catch {
               // TODO: What to do here? Store it or something?
@@ -913,7 +943,7 @@ class SourceSwapsHandler {
               ],
               this.options.aggregators,
               [],
-              oq.cur.currencyID,
+              oq.cur.currencyID
             ).then((nq) => {
               logger.debug('retryWithSlippage:quoteRequests:2', {
                 returnData: {},
@@ -928,7 +958,7 @@ class SourceSwapsHandler {
                   symbol: oq.originalHolding.symbol,
                 },
               };
-            }),
+            })
           );
         }
       }
@@ -976,9 +1006,9 @@ class SourceSwapsHandler {
             // if native currency is involved move it up
             equalFold(convertToEVMAddress(s.req.inputToken), EADDRESS) ? -1 : 1,
         ],
-        ['asc'],
+        ['asc']
       ),
-      (s) => s.req.chain.chainID,
+      (s) => s.req.chain.chainID
     );
   }
 
@@ -1009,7 +1039,7 @@ class Swap {
 
     const { decimals: outputDecimals } = getTokenDecimals(
       Number(this.input.req.chain.chainID),
-      this.input.req.outputToken,
+      this.input.req.outputToken
     );
 
     return {
@@ -1024,7 +1054,10 @@ class Swap {
   }
 
   getParsedQuote() {
-    const data = parseQuote(this.input, !bytesEqual(EADDRESS_32_BYTES, this.input.req.inputToken));
+    const data = parseQuote(
+      { ...this.input, inputToken: this.input.req.inputToken },
+      !bytesEqual(EADDRESS_32_BYTES, this.input.req.inputToken)
+    );
     return { ...data, output: { ...data.output, token: this.input.req.outputToken } };
   }
 }

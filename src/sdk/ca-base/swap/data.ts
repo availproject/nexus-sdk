@@ -1,13 +1,13 @@
-import { Bytes, PermitVariant, Universe } from '@avail-project/ca-common';
-import { Hex, PublicClient } from 'viem';
+import { type Bytes, PermitVariant, type Universe } from '@avail-project/ca-common';
+import type { Hex, PublicClient } from 'viem';
 import { toHex } from 'viem/utils';
-
-import { ChainList } from '../chains';
-import { TokenInfo } from '../../../commons';
+import type { TokenInfo } from '../../../commons';
+import type { ChainList } from '../chains';
+import { ZERO_ADDRESS } from '../constants';
+import { Errors } from '../errors';
 import { convertTo32BytesHex, equalFold } from '../utils';
 import { EADDRESS } from './constants';
 import { convertToEVMAddress, determinePermitVariantAndVersion } from './utils';
-import { Errors } from '../errors';
 
 export enum CurrencyID {
   USDC = 0x1,
@@ -358,7 +358,7 @@ const getSwapSupportedChains = (chainList: ChainList) => {
       continue;
     }
 
-    tokens.forEach((t) => {
+    for (const t of tokens) {
       if (t.PermitVariant !== PermitVariant.Unsupported) {
         data.tokens.push({
           contractAddress: convertToEVMAddress(t.TokenContractAddress),
@@ -368,7 +368,7 @@ const getSwapSupportedChains = (chainList: ChainList) => {
           symbol: t.Name,
         });
       }
-    });
+    }
 
     chains.push(data);
   }
@@ -387,28 +387,39 @@ export type FlatBalance = {
 };
 
 const filterSupportedTokens = (tokens: FlatBalance[]) => {
-  return tokens.filter((t) => {
-    const d = chainData.get(t.chainID);
-    if (!d) {
-      return false;
-    }
-    const token = d.find((dt) => equalFold(dt.TokenContractAddress, t.tokenAddress));
-    if (!token) {
-      return false;
-    }
-
-    if (token.IsGasToken) {
-      return true;
-    }
-
-    return true;
-  });
+  return tokens.filter((t) => isTokenSupported(t.chainID, t.tokenAddress));
 };
 
-const getTokenVersion = async (tokenAddress: Hex, client: PublicClient) => {
+const isTokenSupported = (chainId: number, contractAddress: Hex) => {
+  const d = chainData.get(chainId);
+  if (!d) {
+    return false;
+  }
+
+  let cmpAddress = contractAddress;
+
+  if (equalFold(cmpAddress, convertTo32BytesHex(ZERO_ADDRESS))) {
+    cmpAddress = convertTo32BytesHex(EADDRESS);
+  }
+
+  const token = d.find((dt) => {
+    return equalFold(dt.TokenContractAddress, cmpAddress);
+  });
+  if (!token) {
+    return false;
+  }
+
+  if (token.IsGasToken) {
+    return true;
+  }
+
+  return true;
+};
+
+const getPermitVariantAndVersion = async (tokenAddress: Hex, client: PublicClient) => {
   for (const [, tokens] of chainData.entries()) {
     const t = tokens.find((t) =>
-      equalFold(convertTo32BytesHex(tokenAddress), t.TokenContractAddress),
+      equalFold(convertTo32BytesHex(tokenAddress), t.TokenContractAddress)
     );
     if (t) {
       return { variant: t.PermitVariant, version: t.PermitContractVersion };
@@ -434,4 +445,10 @@ export const getTokenDecimals = (chainID: number | string, contractAddress: Byte
   };
 };
 
-export { chainData, filterSupportedTokens, getSwapSupportedChains, getTokenVersion };
+export {
+  chainData,
+  filterSupportedTokens,
+  getSwapSupportedChains,
+  getPermitVariantAndVersion,
+  isTokenSupported,
+};

@@ -1,4 +1,5 @@
-import Decimal from 'decimal.js';
+import type Decimal from 'decimal.js';
+import type { Hex } from 'viem';
 
 const INTENT_ACCEPTED = {
   type: 'INTENT_ACCEPTED',
@@ -53,7 +54,7 @@ const ALLOWANCE_COMPLETE = {
 const INTENT_DEPOSIT_REQUEST = (
   id: number,
   amount: Decimal,
-  chain: { id: number; name?: string },
+  chain: { id: number; name?: string }
 ) =>
   ({
     type: 'INTENT_DEPOSIT',
@@ -75,13 +76,15 @@ const INTENT_COLLECTION_COMPLETE = {
   typeID: 'ICC',
 } as const;
 
-const INTENT_COLLECTION = (id: number, total: number) =>
+const INTENT_COLLECTION = (id: number, total: number, txHash?: Hex, explorerUrl?: string) =>
   ({
     type: 'INTENT_COLLECTION',
     typeID: `IC_${id}`,
     data: {
       confirmed: id,
       total,
+      txHash,
+      explorerUrl,
     },
   }) as const;
 
@@ -133,4 +136,4 @@ type BridgeStepType =
   | typeof EXECUTE_TRANSACTION_CONFIRMED
   | typeof EXECUTE_TRANSACTION_SENT;
 
-export { BridgeStepType, BRIDGE_STEPS };
+export { type BridgeStepType, BRIDGE_STEPS };

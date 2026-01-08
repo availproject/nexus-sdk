@@ -1,18 +1,19 @@
-export { CA } from './ca';
+export { Environment as Network, RequestForFunds } from '@avail-project/ca-common';
 
 export type {
   AllowanceHookSources,
+  AssetBreakdown,
+  BridgeStepType,
   EthereumProvider,
-  ReadableIntent as Intent,
   NetworkConfig,
   OnAllowanceHook,
-  onAllowanceHookSource,
   OnIntentHook,
+  onAllowanceHookSource,
+  ReadableIntent as Intent,
   RequestArguments,
   RFF,
-  UserAssetDatum as UserAsset,
-  BridgeStepType,
   SwapStepType,
+  UserAssetDatum as UserAsset,
 } from '../../commons';
 
-export { Environment as Network, RequestForFunds } from '@avail-project/ca-common';
+export { CA } from './ca';
