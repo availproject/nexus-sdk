@@ -337,7 +337,8 @@ export class AnalyticsManager {
       // Fallback for Node.js environment
       if (typeof require !== 'undefined') {
         try {
-          const crypto = require('node:crypto');
+          // biome-ignore lint/style/useNodejsImportProtocol: cannot externalize node:crypto
+          const crypto = require('crypto');
           const hash = crypto.createHash('sha256').update(data).digest('hex');
           return `anon_${hash.substring(0, 16)}`;
         } catch (_e) {
