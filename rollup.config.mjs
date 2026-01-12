@@ -40,6 +40,7 @@ const baseConfig = {
     // External dependencies that consumers should install
     '@avail-project/ca-common',
     '@tronweb3/tronwallet-abstract-adapter',
+    'node:crypto',
     // Ensure TronWeb is not bundled to preserve its side-effectful proto setup
     'tronweb',
     '@cosmjs/proto-signing',
