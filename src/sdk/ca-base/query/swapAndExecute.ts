@@ -100,8 +100,8 @@ class SwapAndExecuteQuery {
     ]);
 
     const pctBuffer = getPctGasBufferByChain(toChainId);
-    const approvalGas = pctAdditionToBigInt(gasUsed.approvalGas, pctBuffer);
-    const txGas = pctAdditionToBigInt(gasUsed.txGas, pctBuffer);
+    const [suggestedApprovalGas, approvalGas] = pctAdditionToBigInt(gasUsed.approvalGas, pctBuffer);
+    const [suggestedTxGas, txGas] = pctAdditionToBigInt(gasUsed.txGas, pctBuffer);
 
     const gasPrice = gasPriceRecommendations[params.execute.gasPrice ?? 'high'];
     if (gasPrice === 0n) {
@@ -111,10 +111,10 @@ class SwapAndExecuteQuery {
     }
 
     if (approvalTx) {
-      approvalTx.gas = approvalGas;
+      approvalTx.gas = suggestedApprovalGas;
     }
 
-    tx.gas = txGas;
+    tx.gas = suggestedTxGas;
 
     const gasFee = (approvalGas + txGas) * gasPrice + l1Fee;
 
