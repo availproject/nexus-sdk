@@ -44,7 +44,7 @@ export const getGasPriceRecommendations = async (
   try {
     const feeHistory = await publicClient.getFeeHistory({
       blockCount: 20,
-      rewardPercentiles: [25, 50, 75, 90], // Low, Medium, High, UltraHigh
+      rewardPercentiles: [50, 75, 90],
       blockTag: 'latest',
     });
 
@@ -53,14 +53,14 @@ export const getGasPriceRecommendations = async (
     }
 
     // Extract priority fees for each speed tier
-    const pctl50Fees = feeHistory.reward.map((block) => block[1]); // 50th percentile
-    const pctl75Fees = feeHistory.reward.map((block) => block[2]); // 75th percentile
-    const Pctl90Fees = feeHistory.reward.map((block) => block[3]); // 90th percentile
+    const pctl50Fees = feeHistory.reward.map((block) => block[0]); // 50th percentile
+    const pctl75Fees = feeHistory.reward.map((block) => block[1]); // 75th percentile
+    const pctl90Fees = feeHistory.reward.map((block) => block[2]); // 90th percentile
 
     // Calculate averages across all blocks
     const avgLowPriority = mean(pctl50Fees);
     const avgMediumPriority = mean(pctl75Fees);
-    const avgHighPriority = mean(Pctl90Fees);
+    const avgHighPriority = mean(pctl90Fees);
 
     // Get next block's base fee (last element in array)
     const nextBaseFee = feeHistory.baseFeePerGas[feeHistory.baseFeePerGas.length - 1];
