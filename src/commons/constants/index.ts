@@ -14,6 +14,7 @@ export const MAINNET_CHAIN_IDS = {
   HYPEREVM: 999,
   // TRON: 728126428,
   MONAD: 143,
+  MEGAETH: 4326,
 } as const;
 
 export const TESTNET_CHAIN_IDS = {

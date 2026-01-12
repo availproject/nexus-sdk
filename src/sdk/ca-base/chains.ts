@@ -609,6 +609,34 @@ const MAINNET_CHAINS: Chain[] = [
   {
     blockExplorers: {
       default: {
+        name: 'MegaETH Blockscout',
+        url: 'https://megaeth.blockscout.com/',
+      },
+    },
+    custom: {
+      icon: 'https://assets.coingecko.com/coins/images/69995/large/ICON.png',
+      knownTokens: [],
+    },
+    id: SUPPORTED_CHAINS.MEGAETH,
+    name: 'MegaETH',
+    ankrName: '',
+    nativeCurrency: {
+      decimals: 18,
+      name: 'Ether',
+      symbol: 'ETH',
+    },
+    rpcUrls: {
+      default: {
+        http: ['https://rpcs.avail.so/megaeth'],
+        publicHttp: [],
+        webSocket: ['wss://rpcs.avail.so/megaeth'],
+      },
+    },
+    universe: Universe.ETHEREUM,
+  },
+  {
+    blockExplorers: {
+      default: {
         name: 'Monad Vision',
         url: 'https://monadvision.com',
       },
