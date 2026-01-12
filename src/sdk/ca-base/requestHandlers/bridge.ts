@@ -353,7 +353,7 @@ class BridgeHandler {
 
       const readableIntent = convertIntent(intent, this.params.dstToken, this.options.chainList);
       const getMayanQuotes = async (intent: ReadableIntent) => {
-        const res = await fetch('http://localhost:4000/', {
+        const res = await fetch('http://localhost:4000/transaction/quote', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
