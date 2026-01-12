@@ -741,7 +741,7 @@ async function waitForTronDepositTxConfirmation(
 }
 
 function pctAdditionToBigInt(base: bigint, percentage: number) {
-  return base + BigInt(new Decimal(base).mul(percentage).toFixed(0));
+  return base + BigInt(new Decimal(base).mul(percentage).toFixed(0, Decimal.ROUND_CEIL));
 }
 
 function divideBigInt(base: bigint, divisor: number) {
