@@ -115,6 +115,10 @@ export const swap = async (
       contractAddress: input.data.toTokenAddress,
       decimals: dstTokenInfo.decimals,
       symbol: dstTokenInfo.symbol,
+      gasAmount: divDecimals(
+        destination.swap.gasSwap?.quote?.outputAmountMinimum ?? '0',
+        dstChain.nativeCurrency.decimals
+      ).toFixed(),
     };
 
     let accepted = false;
