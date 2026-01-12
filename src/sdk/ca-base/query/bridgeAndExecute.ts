@@ -134,8 +134,10 @@ class BridgeAndExecuteQuery {
     ]);
 
     const pctBuffer = getPctGasBufferByChain(dstChain.id);
-    const approvalGas = pctAdditionToBigInt(gasUsed.approvalGas, pctBuffer);
-    const txGas = pctAdditionToBigInt(gasUsed.txGas, pctBuffer);
+
+    // We ask for more, but suggest lesser than that
+    const [suggestedApprovalGas, approvalGas] = pctAdditionToBigInt(gasUsed.approvalGas, pctBuffer);
+    const [suggestedTxGas, txGas] = pctAdditionToBigInt(gasUsed.txGas, pctBuffer);
 
     const gasPrice = gasPriceRecommendations[params.execute.gasPrice ?? 'high'];
 
@@ -146,10 +148,10 @@ class BridgeAndExecuteQuery {
     }
 
     if (approvalTx) {
-      approvalTx.gas = approvalGas;
+      approvalTx.gas = suggestedApprovalGas;
     }
 
-    tx.gas = txGas;
+    tx.gas = suggestedTxGas;
 
     const gasFee = (approvalGas + txGas) * gasPrice + l1Fee;
 
