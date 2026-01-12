@@ -121,6 +121,7 @@ class BridgeAndExecuteQuery {
       getGasPriceRecommendations(dstPublicClient),
       this.getUnifiedBalances(),
       getL1Fee(
+        execute.to,
         dstChain,
         serializeTransaction({
           chainId: dstChain.id,
@@ -132,17 +133,23 @@ class BridgeAndExecuteQuery {
       ),
     ]);
 
-    // gasLimit = 1.3 * gasUsed (30% buffer)
     const pctBuffer = getPctGasBufferByChain(dstChain.id);
     const approvalGas = pctAdditionToBigInt(gasUsed.approvalGas, pctBuffer);
     const txGas = pctAdditionToBigInt(gasUsed.txGas, pctBuffer);
 
-    const gasPrice = gasPriceRecommendations.high;
+    const gasPrice = gasPriceRecommendations[params.execute.gasPrice ?? 'high'];
+
     if (gasPrice === 0n) {
       throw Errors.gasPriceError({
         chainId: dstChain.id,
       });
     }
+
+    if (approvalTx) {
+      approvalTx.gas = approvalGas;
+    }
+
+    tx.gas = txGas;
 
     const gasFee = (approvalGas + txGas) * gasPrice + l1Fee;
 
@@ -273,10 +280,7 @@ class BridgeAndExecuteQuery {
     // Approval and execute
     if (approvalTx) {
       executeSteps.unshift(BRIDGE_STEPS.EXECUTE_APPROVAL_STEP);
-      approvalTx.gas = gas.approval;
     }
-
-    tx.gas = gas.tx;
 
     let bridgeResult: BridgeResult | null = null;
 

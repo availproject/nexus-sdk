@@ -4,6 +4,7 @@ import {
   type Hex,
   http,
   type PublicClient,
+  serializeTransaction,
   type TransactionReceipt,
   type WalletClient,
 } from 'viem';
@@ -32,6 +33,7 @@ import {
   convertTo32BytesHex,
   equalFold,
   erc20GetAllowance,
+  getL1Fee,
   // divideBigInt,
   getPctGasBufferByChain,
   mulDecimals,
@@ -85,14 +87,24 @@ class SwapAndExecuteQuery {
     });
 
     // 5. simulate approval(?) and execution + fetch gasPrice + fetch unified balance
-    const [gasUsed, gasPriceRecommendations, balances, dstTokenInfo] = await Promise.all([
+    const [gasUsed, gasPriceRecommendations, balances, dstTokenInfo, l1Fee] = await Promise.all([
       determineGasUsed,
       getGasPriceRecommendations(dstPublicClient),
       this.getBalancesForSwap(),
       getTokenInfo(params.toTokenAddress, dstPublicClient, dstChain),
+      getL1Fee(
+        execute.to,
+        dstChain,
+        serializeTransaction({
+          chainId: dstChain.id,
+          data: execute.data ?? '0x',
+          value: execute.value,
+          to: execute.to,
+          type: 'eip1559',
+        })
+      ),
     ]);
 
-    // gasLimit = 1.3 * gasUsed (30% buffer)
     const pctBuffer = getPctGasBufferByChain(toChainId);
     const approvalGas = pctAdditionToBigInt(gasUsed.approvalGas, pctBuffer);
     const txGas = pctAdditionToBigInt(gasUsed.txGas, pctBuffer);
@@ -104,7 +116,13 @@ class SwapAndExecuteQuery {
       });
     }
 
-    const gasFee = (approvalGas + txGas) * gasPrice;
+    if (approvalTx) {
+      approvalTx.gas = approvalGas;
+    }
+
+    tx.gas = txGas;
+
+    const gasFee = (approvalGas + txGas) * gasPrice + l1Fee;
 
     logger.debug('SwapAndExecute:3', {
       increasedGas: approvalGas + txGas,
