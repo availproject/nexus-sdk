@@ -182,7 +182,7 @@ export interface TokenBalance {
   isNative?: boolean;
 }
 
-type GasPriceSelector = 'low' | 'medium' | 'high' | 'ultraHigh';
+type GasPriceSelector = 'low' | 'medium' | 'high';
 
 export interface SwapExecuteParams {
   to: Hex;
@@ -203,7 +203,7 @@ export interface ExecuteParams {
   value?: bigint;
   data?: Hex;
   gas?: bigint;
-  gasPrice?: bigint;
+  gasPrice?: GasPriceSelector;
   enableTransactionPolling?: boolean;
   transactionTimeout?: number;
   // Transaction receipt confirmation options
