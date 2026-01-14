@@ -15,7 +15,9 @@ import {
   logger,
   NEXUS_EVENTS,
   type OnEventParam,
+  type SuccessfulSwapResult,
   type SwapAndExecuteParams,
+  type SwapAndExecuteResult,
   type SwapExecuteParams,
   type Tx,
   type UserAssetDatum,
@@ -46,7 +48,10 @@ class SwapAndExecuteQuery {
       assets: UserAssetDatum[];
       balances: FlatBalance[];
     }>,
-    private swap: (input: ExactOutSwapInput, options?: OnEventParam) => Promise<unknown>
+    private swap: (
+      input: ExactOutSwapInput,
+      options?: OnEventParam
+    ) => Promise<SuccessfulSwapResult>
   ) {}
 
   private async estimateSwapAndExecute(params: SwapAndExecuteParams) {
@@ -184,7 +189,10 @@ class SwapAndExecuteQuery {
     return { tx, approvalTx, dstChain, dstPublicClient };
   }
 
-  public async swapAndExecute(params: SwapAndExecuteParams, options?: OnEventParam) {
+  public async swapAndExecute(
+    params: SwapAndExecuteParams,
+    options?: OnEventParam
+  ): Promise<SwapAndExecuteResult> {
     const { dstPublicClient, dstChain, address, skipSwap, tx, approvalTx, amount, gas, gasPrice } =
       await this.estimateSwapAndExecute(params);
 
@@ -210,8 +218,10 @@ class SwapAndExecuteQuery {
 
     tx.gas = gas.tx;
 
+    let swapResult: SuccessfulSwapResult | null = null;
+
     if (!skipSwap) {
-      const swapResult = await this.swap(
+      swapResult = await this.swap(
         {
           fromSources: params.fromSources,
           toTokenAddress: params.toTokenAddress,
@@ -223,9 +233,7 @@ class SwapAndExecuteQuery {
         options
       );
 
-      logger.debug('swapResult:SwapAndExecute()', {
-        swapResult,
-      });
+      logger.debug('swapResult:SwapAndExecute()', { swapResult });
     }
 
     const executeResponse = await this.sendTx(
@@ -243,9 +251,16 @@ class SwapAndExecuteQuery {
       }
     );
 
-    logger.debug('swapResult:executeResponse()', {
+    logger.debug('swapResult:executeResponse()', { executeResponse });
+
+    const result: SwapAndExecuteResult = {
+      swapResult,
       executeResponse,
-    });
+    };
+
+    logger.debug('swapResult:full result', { result });
+
+    return result;
   }
 
   /**

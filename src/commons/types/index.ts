@@ -16,7 +16,7 @@ import type { SUPPORTED_CHAINS } from '../constants';
 import type { FormatTokenBalanceOptions, FormattedParts } from '../utils/format';
 import type { BridgeStepType } from './bridge-steps';
 import type { SwapStepType } from './swap-steps';
-import type { SBCTx, Source, SwapIntent } from './swap-types';
+import type { SBCTx, Source, SuccessfulSwapResult, SwapIntent } from './swap-types';
 
 type TokenInfo = {
   contractAddress: `0x${string}`;
@@ -329,6 +329,15 @@ export type BridgeAndExecuteResult = {
   toChainId: number;
   bridgeSkipped: boolean; // indicates if bridge was skipped due to sufficient funds
   intent?: ReadableIntent;
+};
+
+export type SwapAndExecuteResult = {
+  swapResult: SuccessfulSwapResult | null;
+  executeResponse: {
+    txHash: `0x${string}`;
+    receipt: TransactionReceipt | undefined;
+    approvalHash: `0x${string}` | undefined;
+  };
 };
 
 export type Chain = {
