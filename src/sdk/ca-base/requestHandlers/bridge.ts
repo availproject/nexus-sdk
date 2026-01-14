@@ -1,6 +1,7 @@
 import {
   ChaindataMap,
   ERC20ABI,
+  EVMRFF,
   EVMVaultABI,
   OmniversalChainID,
   PermitVariant,
@@ -74,6 +75,7 @@ import {
 import { TronWeb } from 'tronweb';
 import { Errors } from '../errors';
 import { ERROR_CODES, NexusError } from '../nexusError';
+import { getQuotes, recordTx } from '../utils/shim-server.utils';
 
 type Params = {
   recipient?: Hex;
@@ -347,31 +349,18 @@ class BridgeHandler {
     intent: ReadableIntent;
     mayanQuotes: any;
     rff: Awaited<ReturnType<typeof createMayanRFFromIntent>>;
+    record: {
+      id: string;
+      data: unknown;
+      status: 'success' | 'recorded' | 'submitted' | 'pending' | 'partial-failure' | 'failure';
+      createdAt: Date;
+      updatedAt: Date;
+    };
   }> => {
     try {
       let intent = await this.buildIntent(this.params.sourceChains);
-
       const readableIntent = convertIntent(intent, this.params.dstToken, this.options.chainList);
-      const getMayanQuotes = async (intent: ReadableIntent) => {
-        const res = await fetch('http://localhost:4000/transaction/quote', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            intent,
-          }),
-        });
-
-        if (!res.ok) {
-          throw new Error(`Request failed: ${res.status}`);
-        }
-
-        const { data } = await res.json();
-        return data;
-      };
-      const mayanQuotes = await getMayanQuotes(readableIntent);
-
+      const mayanQuotes = await getQuotes(readableIntent);
       const allowances = await getAllowances(intent.allSources, this.options.chainList);
 
       let insufficientAllowanceSources = this.filterInsufficientAllowanceSources(
@@ -414,9 +403,11 @@ class BridgeHandler {
 
       await this.waitForOnAllowanceHook(insufficientAllowanceSources);
 
-      const rff = await createMayanRFFromIntent(intent, this.options, this.params.dstChain.universe);
-      
-      return { mayanQuotes, intent: readableIntent, rff };
+      const { record, rff } = await this.processMayanRFF(intent);
+
+      // We might have other stuff to do like follow up
+
+      return { intent: readableIntent, mayanQuotes, rff, record };
     } catch (error) {
       throw error;
     }
@@ -679,6 +670,183 @@ class BridgeHandler {
       requestHash: destinationSigData.requestHash,
       waitForDoubleCheckTx: waitForDoubleCheckTx(doubleCheckTxs),
     };
+  }
+
+  private async processMayanRFF(intent: Intent) {
+    const { evmRFF, signatureData, sources, universes } = await createMayanRFFromIntent(
+      intent,
+      this.options,
+      this.params.dstChain.universe,
+    );
+
+    function serializeEVMRFF(rff: EVMRFF) {
+      return {
+        ...rff,
+        sources: rff.sources.map((s) => ({
+          ...s,
+          chainID: s.chainID.toString(),
+          value: s.value.toString(),
+        })),
+        destinationChainID: rff.destinationChainID.toString(),
+        destinations: rff.destinations.map((d) => ({
+          contractAddress: d.contractAddress,
+          value: d.value.toString(),
+        })),
+        nonce: rff.nonce.toString(),
+        expiry: rff.expiry.toString(),
+      };
+    }
+
+    const serialized = {
+      evmRFF: serializeEVMRFF(evmRFF.asEVMRFF()),
+      signatureData: signatureData.map((x) => ({
+        ...x,
+        address: toHex(x.address),
+        signature: toHex(x.signature),
+      })),
+      sources: sources.map((x) => ({
+        ...x,
+        chainID: x.chainID.toString(),
+        valueRaw: x.valueRaw.toString(),
+      })),
+      universes: [...universes],
+    };
+
+    const record = await recordTx(serialized);
+    return { record, rff: { evmRFF, signatureData, sources, universes } };
+
+    // const tokenCollections: { index: number; chainId: number }[] = [];
+    // for (const [i, s] of sources.entries()) {
+    //   if (!isDeposit(s.universe, s.tokenAddress)) {
+    //     tokenCollections.push({ index: i, chainId: Number(s.chainID) });
+    //   }
+    // }
+
+    // const sourceTxs: {
+    //   chain: {
+    //     id: number;
+    //     name: string;
+    //     logo: string;
+    //   };
+    //   hash: Hex;
+    //   explorerUrl: string;
+    // }[] = [];
+
+    // const evmDeposits: Promise<unknown>[] = [];
+
+    // const evmSignatureData = signatureData.find((d) => d.universe === Universe.ETHEREUM);
+
+    // if (!evmSignatureData && universes.has(Universe.ETHEREUM)) {
+    //   throw Errors.internal('ethereum in universe list but no signature data present');
+    // }
+
+    // for (const [i, s] of sources.entries()) {
+    //   const chain = this.options.chainList.getChainByID(Number(s.chainID));
+    //   if (!chain) {
+    //     throw Errors.chainNotFound(s.chainID);
+    //   }
+
+    //   if (s.universe === Universe.ETHEREUM && isNativeAddress(s.universe, s.tokenAddress)) {
+    //     await switchChain(this.options.evm.client, chain);
+
+    //     const publicClient = createPublicClientWithFallback(chain);
+
+    //     const { request } = await publicClient.simulateContract({
+    //       abi: EVMVaultABI,
+    //       account: this.options.evm.address,
+    //       address: this.options.chainList.getVaultContractAddress(chain.id),
+    //       args: [evmRFF.asEVMRFF(), toHex(evmSignatureData!.signature), BigInt(i)],
+    //       chain: chain,
+    //       functionName: 'deposit',
+    //       value: s.valueRaw,
+    //     });
+    //     const hash = await this.options.evm.client.writeContract(request);
+    //     sourceTxs.push({
+    //       chain: {
+    //         id: chain.id,
+    //         name: chain.name,
+    //         logo: chain.custom.icon,
+    //       },
+    //       hash,
+    //       explorerUrl: createExplorerTxURL(hash, chain.blockExplorers!.default.url),
+    //     });
+    //     evmDeposits.push(waitForTxReceipt(hash, publicClient));
+    //   }
+    // }
+
+    // if (evmDeposits.length) {
+    //   await Promise.all(evmDeposits);
+    //   // RECORD EVM NATIVE DEPOSITS IN SHIM DB
+    // }
+
+    // if (tokenCollections.length > 0) {
+    //   const markCollectionDone = (params: {
+    //     current: number;
+    //     total: number;
+    //     txHash: Hex;
+    //     chainId: number;
+    //   }) => {
+    //     const chain = this.options.chainList.getChainByID(params.chainId);
+    //     if (!chain) {
+    //       logger.debug('MarkCollectionDone: chain not found?', {
+    //         chainId: params.chainId,
+    //       });
+    //       return;
+    //     }
+    //     const explorerUrl = createExplorerTxURL(params.txHash, chain.blockExplorers!.default.url);
+    //     sourceTxs.push({
+    //       chain: {
+    //         id: chain.id,
+    //         name: chain.name,
+    //         logo: chain.custom.icon,
+    //       },
+    //       hash: params.txHash,
+    //       explorerUrl: explorerUrl,
+    //     });
+    //   };
+
+    //   // TODO FROM HERE, everything happens in the server, send to shim server for token collection, db updates and follow up
+    //   // If we have token collection to do, we do it
+    //   // If not, we check the receipt and we mark it as done if ok
+    //   // Then we follow up the tx
+
+    //   try {
+    //     await this.options.vscClient.vscCreateRFF(intentID, markCollectionDone, tokenCollections);
+    //     this.markStepDone(BRIDGE_STEPS.INTENT_COLLECTION_COMPLETE);
+    //   } catch (e) {
+    //     logger.debug('vscCreateRFF', {
+    //       'e instanceof NexusError?': e instanceof NexusError,
+    //       error: e,
+    //     });
+    //     if (e instanceof NexusError && e.code === ERROR_CODES.RFF_FEE_EXPIRED) {
+    //       // Send back to process again
+    //       return { retry: true };
+    //     }
+    //     throw e;
+    //   }
+    // } else {
+    //   logger.debug('processRFF', {
+    //     message: 'going to publish RFF',
+    //   });
+    //   await this.options.vscClient.vscPublishRFF(intentID);
+    // }
+
+    // const destinationSigData = signatureData.find(
+    //   (s) => s.universe === intent.destination.universe,
+    // );
+
+    // if (!destinationSigData) {
+    //   throw Errors.destinationRequestHashNotFound();
+    // }
+
+    // return {
+    //   retry: false,
+    //   explorerURL,
+    //   intentID,
+    //   sourceTxs,
+    //   requestHash: destinationSigData.requestHash,
+    //   waitForDoubleCheckTx: waitForDoubleCheckTx(doubleCheckTxs),
+    // };
   }
 
   private async setAllowances(input: Array<SetAllowanceInput>) {

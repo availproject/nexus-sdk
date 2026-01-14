@@ -229,7 +229,7 @@ const createRFFromIntent = async (
 
 const createMayanRFFromIntent = async (
   intent: Intent,
-  options: Pick<IBridgeOptions, 'chainList' | 'cosmos' | 'tron'> & {
+  options: Pick<IBridgeOptions, 'chainList'> & {
     evm: {
       address: `0x${string}`;
       client: WalletClient | PrivateKeyAccount;
@@ -253,7 +253,7 @@ const createMayanRFFromIntent = async (
     }
   }
 
-  const omniversalRFF = new OmniversalRFF({
+  const evmRFF = new OmniversalRFF({
     destinationChainID: convertTo32Bytes(intent.destination.chainID),
     destinations: destinations.map((dest) => ({
       contractAddress: toBytes(dest.tokenAddress),
@@ -287,7 +287,7 @@ const createMayanRFFromIntent = async (
   for (const universe of universes) {
     if (universe === Universe.ETHEREUM) {
       const { requestHash, signature } = await createRequestEVMSignature(
-        omniversalRFF.asEVMRFF(),
+        evmRFF.asEVMRFF(),
         options.evm.address,
         options.evm.client,
       );
@@ -301,25 +301,8 @@ const createMayanRFFromIntent = async (
     }
   }
 
-  const msgBasicCosmos = MsgCreateRequestForFunds.create({
-    destinationChainID: omniversalRFF.protobufRFF.destinationChainID,
-    destinations: omniversalRFF.protobufRFF.destinations,
-    destinationUniverse: omniversalRFF.protobufRFF.destinationUniverse,
-    recipientAddress: omniversalRFF.protobufRFF.recipientAddress,
-    expiry: omniversalRFF.protobufRFF.expiry,
-    nonce: omniversalRFF.protobufRFF.nonce,
-    signatureData: signatureData.map((s) => ({
-      address: s.address,
-      signature: s.signature,
-      universe: s.universe,
-    })),
-    sources: omniversalRFF.protobufRFF.sources,
-    user: options.cosmos.address,
-  });
-
   return {
-    msgBasicCosmos,
-    omniversalRFF,
+    evmRFF,
     signatureData,
     sources,
     universes,
