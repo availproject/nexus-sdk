@@ -116,7 +116,7 @@ class SwapAndExecuteQuery {
 
     // 6. Determine gas or token needed via bridge
     const { skipSwap, tokenAmount, gasAmount } = await this.calculateOptimalSwapAmount(
-      //   dstChain,
+      toChainId,
       dstTokenInfo.contractAddress,
       dstTokenInfo.decimals,
       toAmount,
@@ -268,6 +268,7 @@ class SwapAndExecuteQuery {
    * Returns the exact amount needed to bridge, or indicates if bridge can be skipped entirely
    */
   private async calculateOptimalSwapAmount(
+    toChainId: number,
     tokenAddress: Hex,
     tokenDecimals: number,
     requiredTokenAmount: bigint,
@@ -279,16 +280,16 @@ class SwapAndExecuteQuery {
     let gasAmount = requiredGasAmount;
 
     let destinationTokenAmount = 0n;
-    const tokenBalance = balances.find((b) =>
-      equalFold(b.tokenAddress, convertTo32BytesHex(tokenAddress))
+    const tokenBalance = balances.find(
+      (b) => b.chainID === toChainId && equalFold(b.tokenAddress, convertTo32BytesHex(tokenAddress))
     );
     if (tokenBalance) {
       destinationTokenAmount = mulDecimals(tokenBalance.amount, tokenDecimals);
     }
 
     let destinationGasAmount = 0n;
-    const gasBalance = balances.find((b) =>
-      equalFold(b.tokenAddress, convertTo32BytesHex(EADDRESS))
+    const gasBalance = balances.find(
+      (b) => b.chainID === toChainId && equalFold(b.tokenAddress, convertTo32BytesHex(EADDRESS))
     );
     if (gasBalance) {
       destinationGasAmount = mulDecimals(gasBalance.amount, gasBalance.decimals);
