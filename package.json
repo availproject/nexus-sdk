@@ -48,6 +48,7 @@
     "@avail-project/ca-common": "github:availproject/ca-common#main",
     "@cosmjs/proto-signing": "0.34.0",
     "@cosmjs/stargate": "0.34.0",
+    "@mayanfinance/swap-sdk": "12.2.5",
     "@metamask/safe-event-emitter": "3.1.2",
     "@opentelemetry/api-logs": "0.208.0",
     "@opentelemetry/exporter-logs-otlp-http": "0.208.0",

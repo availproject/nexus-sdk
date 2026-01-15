@@ -17,6 +17,7 @@ import { BridgeStepType } from './bridge-steps';
 import { FormatTokenBalanceOptions, FormattedParts } from '../utils/format';
 import { SigningStargateClient } from '@cosmjs/stargate';
 import Long from 'long';
+import { MayanQuotes } from '../../sdk/ca-base/utils/shim-server.utils';
 
 type TokenInfo = {
   contractAddress: `0x${string}`;
@@ -443,6 +444,7 @@ type OnIntentHookData = {
   deny: () => void;
   intent: ReadableIntent;
   refresh: (selectedSources?: number[]) => Promise<ReadableIntent>;
+  quotes?: MayanQuotes;
 };
 
 type OnAllowanceHookData = {
