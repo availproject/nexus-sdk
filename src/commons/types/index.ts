@@ -331,11 +331,25 @@ export type BridgeAndExecuteResult = {
   intent?: ReadableIntent;
 };
 
+/**
+ * Result returned from swapAndExecute operation.
+ */
 export type SwapAndExecuteResult = {
+  /** The swap result, or null if swap was skipped */
   swapResult: SuccessfulSwapResult | null;
+  /**
+   * Indicates if the swap was skipped because the user already had
+   * sufficient balance on the destination chain.
+   * When true, swapResult will be null and a SWAP_SKIPPED event will have been emitted.
+   */
+  swapSkipped: boolean;
+  /** The execute transaction response */
   executeResponse: {
+    /** Transaction hash of the execute call */
     txHash: `0x${string}`;
+    /** Transaction receipt (if waitForReceipt was true) */
     receipt: TransactionReceipt | undefined;
+    /** Approval transaction hash (if token approval was needed) */
     approvalHash: `0x${string}` | undefined;
   };
 };

@@ -16,6 +16,7 @@ import {
   NEXUS_EVENTS,
   type OnEventParam,
   type SuccessfulSwapResult,
+  SWAP_STEPS,
   type SwapAndExecuteParams,
   type SwapAndExecuteResult,
   type SwapExecuteParams,
@@ -193,8 +194,19 @@ class SwapAndExecuteQuery {
     params: SwapAndExecuteParams,
     options?: OnEventParam
   ): Promise<SwapAndExecuteResult> {
-    const { dstPublicClient, dstChain, address, skipSwap, tx, approvalTx, amount, gas, gasPrice } =
-      await this.estimateSwapAndExecute(params);
+    const {
+      dstPublicClient,
+      dstChain,
+      address,
+      skipSwap,
+      tx,
+      approvalTx,
+      amount,
+      gas,
+      gasPrice,
+      dstTokenInfo,
+      gasFee,
+    } = await this.estimateSwapAndExecute(params);
 
     logger.debug('BridgeAndExecute:4:CalculateOptimalSwapAmount', {
       params,
@@ -220,7 +232,38 @@ class SwapAndExecuteQuery {
 
     let swapResult: SuccessfulSwapResult | null = null;
 
-    if (!skipSwap) {
+    if (skipSwap) {
+      // Emit SWAP_SKIPPED event with full data
+      if (options?.onEvent) {
+        options.onEvent({
+          name: NEXUS_EVENTS.SWAP_STEP_COMPLETE,
+          args: SWAP_STEPS.SWAP_SKIPPED({
+            destination: {
+              amount: params.toAmount.toString(),
+              chain: { id: dstChain.id, name: dstChain.name },
+              token: {
+                contractAddress: params.toTokenAddress,
+                decimals: dstTokenInfo.decimals,
+                symbol: dstTokenInfo.symbol,
+              },
+            },
+            input: {
+              amount: params.toAmount.toString(),
+              token: {
+                contractAddress: params.toTokenAddress,
+                decimals: dstTokenInfo.decimals,
+                symbol: dstTokenInfo.symbol,
+              },
+            },
+            gas: {
+              required: (gas.tx + gas.approval).toString(),
+              price: gasPrice.toString(),
+              estimatedFee: gasFee.toString(),
+            },
+          }),
+        });
+      }
+    } else {
       swapResult = await this.swap(
         {
           fromSources: params.fromSources,
@@ -255,6 +298,7 @@ class SwapAndExecuteQuery {
 
     const result: SwapAndExecuteResult = {
       swapResult,
+      swapSkipped: skipSwap,
       executeResponse,
     };
 
