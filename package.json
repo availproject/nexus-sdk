@@ -16,7 +16,10 @@
     "docs": "typedoc --plugin typedoc-theme-fresh --theme fresh --options typedoc_html.json",
     "clean": "rimraf dist dist-tarballs html_docs",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "test:v2": "tsx test/integration/v2-statekeeper.test.ts",
+    "test:v2:e2e": "tsx test/integration/v2-e2e.test.ts",
+    "test:ui": "python3 -m http.server 8000 -d ui"
   },
   "sideEffects": false,
   "exports": {
@@ -69,6 +72,7 @@
     "rollup": "^4.52.4",
     "rollup-plugin-dts": "^6.2.3",
     "rollup-plugin-typescript2": "0.36.0",
+    "tsx": "^4.19.0",
     "typedoc": "0.28.14",
     "typedoc-plugin-extras": "4.0.1",
     "typedoc-plugin-missing-exports": "4.1.2",

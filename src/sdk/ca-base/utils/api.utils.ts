@@ -21,6 +21,10 @@ import {
   SponsoredApprovalDataArray,
   UnifiedBalanceResponseData,
   ChainListType,
+  V2Request,
+  CreateRffResponse,
+  V2RffResponse,
+  ListRffsResponse,
 } from '../../../commons';
 import {
   convertAddressByUniverse,
@@ -586,6 +590,159 @@ const checkIntentFilled = async (intentID: Long, grpcURL: string) => {
   }
 
   throw Errors.internal('not filled yet');
+};
+
+// ============================================================================
+// Statekeeper Client (v2 API)
+// ============================================================================
+
+/**
+ * Client for interacting with the Statekeeper v2 REST API.
+ * Used for RFF submission in the new nexus protocol.
+ */
+export class StatekeeperClient {
+  private baseUrl: string;
+  private client: AxiosInstance;
+
+  constructor(baseUrl: string) {
+    this.baseUrl = baseUrl.replace(/\/$/, ''); // Remove trailing slash
+    this.client = axios.create({
+      baseURL: this.baseUrl,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+  }
+
+  /**
+   * Submit an RFF to the statekeeper
+   * @param request The v2 Request structure
+   * @param signature The user's signature over the request hash (hex string)
+   * @returns The request hash
+   */
+  async submitRff(request: V2Request, signature: Hex): Promise<Hex> {
+    const url = '/rff';
+
+    const body = {
+      request,
+      signature,
+    };
+
+    logger.debug('StatekeeperClient:submitRff', { url: this.baseUrl + url, body });
+
+    const response = await this.client.post<CreateRffResponse>(url, body);
+
+    if (response.status !== 200 && response.status !== 201) {
+      throw Errors.internal(`Statekeeper returned error ${response.status}: ${JSON.stringify(response.data)}`);
+    }
+
+    const requestHash = response.data.request_hash;
+    if (!requestHash) {
+      throw Errors.internal('Missing request_hash in statekeeper response');
+    }
+
+    logger.debug('StatekeeperClient:submitRff:success', { requestHash });
+
+    return requestHash;
+  }
+
+  /**
+   * Get an RFF by its hash
+   * @param requestHash The request hash (0x-prefixed hex string)
+   * @returns The RFF details
+   */
+  async getRff(requestHash: Hex): Promise<V2RffResponse> {
+    const url = `/rff/${requestHash}`;
+
+    logger.debug('StatekeeperClient:getRff', { url: this.baseUrl + url });
+
+    const response = await this.client.get<V2RffResponse>(url);
+
+    if (response.status !== 200) {
+      throw Errors.internal(`Failed to get RFF ${requestHash}: ${response.status}`);
+    }
+
+    return response.data;
+  }
+
+  /**
+   * List RFFs with optional filters
+   * @param state Optional state filter ('created' | 'deposited' | 'fulfilled' | 'expired')
+   * @param limit Optional limit on number of results
+   * @returns Array of RFF responses
+   */
+  async listRffs(state?: string, limit?: number): Promise<V2RffResponse[]> {
+    const params = new URLSearchParams();
+    if (state) params.append('state', state);
+    if (limit) params.append('limit', limit.toString());
+
+    const queryString = params.toString();
+    const url = queryString ? `/rffs?${queryString}` : '/rffs';
+
+    logger.debug('StatekeeperClient:listRffs', { url: this.baseUrl + url });
+
+    const response = await this.client.get<ListRffsResponse>(url);
+
+    if (response.status !== 200) {
+      throw Errors.internal(`Failed to list RFFs: ${response.status}`);
+    }
+
+    return response.data.rffs;
+  }
+
+  /**
+   * Check statekeeper health
+   * @returns true if healthy
+   */
+  async checkHealth(): Promise<boolean> {
+    try {
+      const response = await this.client.get('/health');
+      return response.status === 200;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Poll for RFF status until it reaches a target state or times out
+   * @param requestHash The request hash to poll
+   * @param targetStates Array of states to wait for
+   * @param timeoutMs Timeout in milliseconds (default 5 minutes)
+   * @param pollIntervalMs Poll interval in milliseconds (default 2 seconds)
+   */
+  async waitForStatus(
+    requestHash: Hex,
+    targetStates: Array<'created' | 'deposited' | 'fulfilled' | 'expired'>,
+    timeoutMs = 5 * 60 * 1000,
+    pollIntervalMs = 2000,
+  ): Promise<V2RffResponse> {
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < timeoutMs) {
+      const rff = await this.getRff(requestHash);
+
+      if (targetStates.includes(rff.status)) {
+        return rff;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    }
+
+    throw Errors.internal(`Timeout waiting for RFF ${requestHash} to reach status: ${targetStates.join(', ')}`);
+  }
+}
+
+// Singleton instance cache
+let statekeeperClient: StatekeeperClient | null = null;
+
+/**
+ * Get or create a StatekeeperClient instance
+ */
+export const getStatekeeperClient = (statekeeperUrl: string): StatekeeperClient => {
+  if (!statekeeperClient) {
+    statekeeperClient = new StatekeeperClient(statekeeperUrl);
+  }
+  return statekeeperClient;
 };
 
 export {

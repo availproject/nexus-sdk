@@ -1,6 +1,16 @@
 import { MsgCreateRequestForFunds, OmniversalRFF, Universe } from '@avail-project/ca-common';
 import { INTENT_EXPIRY, isNativeAddress, ZERO_ADDRESS } from '../constants';
-import { getLogger, ChainListType, Intent, IBridgeOptions } from '../../../commons';
+import {
+  getLogger,
+  ChainListType,
+  Intent,
+  IBridgeOptions,
+  V2Request,
+  V2SourcePair,
+  V2DestinationPair,
+  V2Party,
+  V2Universe,
+} from '../../../commons';
 import {
   convertTo32Bytes,
   convertTo32BytesHex,
@@ -8,7 +18,15 @@ import {
   createRequestTronSignature,
   mulDecimals,
 } from './common.utils';
-import { Hex, PrivateKeyAccount, toBytes, WalletClient } from 'viem';
+import {
+  Hex,
+  PrivateKeyAccount,
+  toBytes,
+  WalletClient,
+  encodeAbiParameters,
+  keccak256,
+  hashMessage,
+} from 'viem';
 import Long from 'long';
 import { TronWeb } from 'tronweb';
 import { tronHexToEvmAddress } from './tron.utils';
@@ -305,4 +323,213 @@ const calculateMaxBridgeFee = ({
   return { fee, maxAmount, sourceChainIds };
 };
 
-export { createRFFromIntent, getSourcesAndDestinationsForRFF, calculateMaxBridgeFee };
+// ============================================================================
+// V2 Request Creation (for Statekeeper API)
+// ============================================================================
+
+/**
+ * Convert Universe enum to V2Universe string
+ */
+const universeToV2 = (universe: Universe): V2Universe => {
+  return universe === Universe.ETHEREUM ? 'EVM' : 'TRON';
+};
+
+/**
+ * Convert V2Universe string to numeric value for ABI encoding
+ */
+const universeToNumeric = (universe: V2Universe): number => {
+  switch (universe) {
+    case 'EVM': return 0;
+    case 'TRON': return 1;
+    case 'FUEL': return 2;
+    case 'SVM': return 3;
+    default: return 0;
+  }
+};
+
+/**
+ * Convert a bigint to a hex string (0x-prefixed)
+ */
+const bigintToHex = (value: bigint): string => {
+  return '0x' + value.toString(16);
+};
+
+/**
+ * ABI type definitions for V2 Request encoding (matches Solidity Vault.sol)
+ */
+const V2_REQUEST_ABI = [
+  {
+    components: [
+      { name: 'universe', type: 'uint8' },
+      { name: 'chainID', type: 'uint256' },
+      { name: 'contractAddress', type: 'bytes32' },
+      { name: 'value', type: 'uint256' },
+      { name: 'fee', type: 'uint256' },
+    ],
+    name: 'sources',
+    type: 'tuple[]',
+  },
+  { name: 'destinationUniverse', type: 'uint8' },
+  { name: 'destinationChainID', type: 'uint256' },
+  { name: 'recipientAddress', type: 'bytes32' },
+  {
+    components: [
+      { name: 'contractAddress', type: 'bytes32' },
+      { name: 'value', type: 'uint256' },
+    ],
+    name: 'destinations',
+    type: 'tuple[]',
+  },
+  { name: 'nonce', type: 'uint256' },
+  { name: 'expiry', type: 'uint256' },
+  {
+    components: [
+      { name: 'universe', type: 'uint8' },
+      { name: 'address_', type: 'bytes32' },
+    ],
+    name: 'parties',
+    type: 'tuple[]',
+  },
+] as const;
+
+/**
+ * Create a V2 Request from an Intent for the Statekeeper API
+ */
+const createV2RequestFromIntent = async (
+  intent: Intent,
+  options: Pick<IBridgeOptions, 'chainList' | 'tron'> & {
+    evm: {
+      address: `0x${string}`;
+      client: WalletClient | PrivateKeyAccount;
+    };
+  },
+  destinationUniverse: Universe,
+): Promise<{
+  request: V2Request;
+  signature: Hex;
+  requestHash: Hex;
+}> => {
+  const { destinations, sources, universes } = getSourcesAndDestinationsForRFF(
+    intent,
+    options.chainList,
+    destinationUniverse,
+  );
+
+  // Build parties array
+  const parties: V2Party[] = [];
+  for (const universe of universes) {
+    if (universe === Universe.ETHEREUM) {
+      parties.push({
+        universe: universeToV2(universe),
+        address: convertTo32BytesHex(options.evm.address),
+      });
+    }
+    if (universe === Universe.TRON && options.tron) {
+      parties.push({
+        universe: universeToV2(universe),
+        address: convertTo32BytesHex(
+          tronHexToEvmAddress(TronWeb.address.toHex(options.tron.address)),
+        ),
+      });
+    }
+  }
+
+  // Generate nonce
+  const nonceBytes = window.crypto.getRandomValues(new Uint8Array(32));
+  const nonce = BigInt('0x' + Array.from(nonceBytes).map(b => b.toString(16).padStart(2, '0')).join(''));
+
+  // Calculate expiry
+  const expiry = BigInt(Math.floor((Date.now() + INTENT_EXPIRY) / 1000));
+
+  // Build V2 sources with fee field (set to 0 for now, statekeeper will calculate)
+  const v2Sources: V2SourcePair[] = sources.map((source) => ({
+    universe: universeToV2(source.universe),
+    chain_id: bigintToHex(source.chainID),
+    contract_address: source.tokenAddress,
+    value: bigintToHex(source.valueRaw),
+    fee: '0x0', // Fee will be calculated by the statekeeper/protocol
+  }));
+
+  // Build V2 destinations
+  const v2Destinations: V2DestinationPair[] = destinations.map((dest) => ({
+    contract_address: dest.tokenAddress,
+    value: bigintToHex(dest.value),
+  }));
+
+  // Build the V2 Request
+  const v2Request: V2Request = {
+    sources: v2Sources,
+    destination_universe: universeToV2(intent.destination.universe),
+    destination_chain_id: bigintToHex(BigInt(intent.destination.chainID)),
+    recipient_address: convertTo32BytesHex(intent.recipientAddress),
+    destinations: v2Destinations,
+    nonce: bigintToHex(nonce),
+    expiry: bigintToHex(expiry),
+    parties,
+  };
+
+  logger.debug('createV2RequestFromIntent:built', { v2Request });
+
+  // Encode the request for signing (matches Solidity ABI encoding)
+  // Note: ABI encoding uses numeric universe values, while JSON API uses strings
+  const encodedSources = v2Sources.map((s) => ({
+    universe: universeToNumeric(s.universe),
+    chainID: BigInt(s.chain_id),
+    contractAddress: s.contract_address as `0x${string}`,
+    value: BigInt(s.value),
+    fee: BigInt(s.fee),
+  }));
+
+  const encodedDestinations = v2Destinations.map((d) => ({
+    contractAddress: d.contract_address as `0x${string}`,
+    value: BigInt(d.value),
+  }));
+
+  const encodedParties = parties.map((p) => ({
+    universe: universeToNumeric(p.universe),
+    address_: p.address as `0x${string}`,
+  }));
+
+  const encodedRequest = encodeAbiParameters(V2_REQUEST_ABI, [
+    encodedSources,
+    universeToNumeric(v2Request.destination_universe),
+    BigInt(v2Request.destination_chain_id),
+    v2Request.recipient_address as `0x${string}`,
+    encodedDestinations,
+    nonce,
+    expiry,
+    encodedParties,
+  ]);
+
+  // Hash the encoded request
+  const hash = keccak256(encodedRequest);
+
+  // Sign the hash
+  const signature = await options.evm.client.signMessage({
+    account: options.evm.address,
+    message: { raw: hash },
+  });
+
+  // The request hash is the EIP-191 prefixed hash (same as what Vault contract uses)
+  const requestHash = hashMessage({ raw: hash });
+
+  logger.debug('createV2RequestFromIntent:signed', {
+    hash,
+    requestHash,
+    signature,
+  });
+
+  return {
+    request: v2Request,
+    signature: signature as Hex,
+    requestHash: requestHash as Hex,
+  };
+};
+
+export {
+  createRFFromIntent,
+  getSourcesAndDestinationsForRFF,
+  calculateMaxBridgeFee,
+  createV2RequestFromIntent,
+  universeToV2,
+};

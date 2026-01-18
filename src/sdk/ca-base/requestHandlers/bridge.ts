@@ -69,6 +69,8 @@ import {
   createRFFromIntent,
   retrieveAddress,
   getBalances,
+  createV2RequestFromIntent,
+  getStatekeeperClient,
   // createDeadlineFromNow,
 } from '../utils';
 import { TronWeb } from 'tronweb';
@@ -249,6 +251,94 @@ class BridgeHandler {
     return sources;
   }
 
+  /**
+   * Execute bridge using v2 Statekeeper API
+   * This is the new protocol that uses REST API instead of Cosmos chain
+   */
+  public executeV2 = async (
+    shouldRetryOnFailure = true,
+  ): Promise<{ explorerURL: string; requestHash: Hex }> => {
+    let intent = await this.buildIntent(this.params.sourceChains);
+
+    const allowances = await getAllowances(intent.allSources, this.options.chainList);
+
+    let insufficientAllowanceSources = this.filterInsufficientAllowanceSources(intent, allowances);
+    this.createExpectedSteps(intent, insufficientAllowanceSources);
+
+    let accepted = false;
+    const refresh = async (sourceChains?: number[]) => {
+      if (accepted) {
+        logger.warn('Intent refresh called after acceptance');
+        return convertIntent(intent, this.params.dstToken, this.options.chainList);
+      }
+
+      intent = await this.buildIntent(sourceChains);
+      if (intent.isAvailableBalanceInsufficient) {
+        throw Errors.insufficientBalance();
+      }
+      insufficientAllowanceSources = this.filterInsufficientAllowanceSources(intent, allowances);
+      this.createExpectedSteps(intent, insufficientAllowanceSources);
+
+      return convertIntent(intent, this.params.dstToken, this.options.chainList);
+    };
+
+    // wait for intent acceptance hook
+    await new Promise((resolve, reject) => {
+      const allow = () => {
+        accepted = true;
+        return resolve('User allowed intent');
+      };
+
+      const deny = () => {
+        return reject(Errors.userDeniedIntent());
+      };
+
+      this.options.hooks.onIntent({
+        allow,
+        deny,
+        intent: convertIntent(intent, this.params.dstToken, this.options.chainList),
+        refresh,
+      });
+    });
+
+    this.markStepDone(BRIDGE_STEPS.INTENT_ACCEPTED);
+
+    console.time('process:AllowanceHook');
+
+    // Step 5: set allowance if not set
+    await this.waitForOnAllowanceHook(insufficientAllowanceSources);
+    console.timeEnd('process:AllowanceHook');
+
+    // Step 6: Process intent using v2 API
+    logger.debug('intent (v2)', { intent });
+
+    const response = await this.processRFFv2(intent);
+    if (response.retry) {
+      logger.debug('rff fee expired, going to rebuild intent...');
+      if (shouldRetryOnFailure) {
+        return this.executeV2(false);
+      } else {
+        throw Errors.rFFFeeExpired();
+      }
+    }
+
+    const { explorerURL, requestHash } = response;
+
+    // Step 7: Wait for fill using v2 polling
+    await this.waitForFillV2(requestHash);
+
+    this.markStepDone(BRIDGE_STEPS.INTENT_FULFILLED);
+
+    if (this.params.dstChain.universe === Universe.ETHEREUM) {
+      await switchChain(this.options.evm.client, this.params.dstChain);
+    }
+
+    return { explorerURL, requestHash };
+  };
+
+  /**
+   * Execute bridge using v1 Cosmos chain (legacy)
+   */
   public execute = async (
     shouldRetryOnFailure = true,
   ): Promise<{ explorerURL: string; intentID: Long }> => {
@@ -553,6 +643,91 @@ class BridgeHandler {
       requestHash: destinationSigData.requestHash,
       waitForDoubleCheckTx: waitForDoubleCheckTx(doubleCheckTxs),
     };
+  }
+
+  /**
+   * Process RFF using v2 Statekeeper API
+   * This is the new protocol that uses REST API instead of Cosmos chain
+   */
+  private async processRFFv2(intent: Intent): Promise<
+    | { retry: true }
+    | {
+        retry: false;
+        explorerURL: string;
+        requestHash: Hex;
+      }
+  > {
+    // Create V2 Request and sign it
+    const { request, signature, requestHash } = await createV2RequestFromIntent(
+      intent,
+      this.options,
+      this.params.dstChain.universe,
+    );
+
+    this.markStepDone(BRIDGE_STEPS.INTENT_HASH_SIGNED);
+
+    logger.debug('processRFFv2: Request created', { request, requestHash });
+
+    // Submit to Statekeeper
+    const statekeeperClient = getStatekeeperClient(
+      this.options.networkConfig.STATEKEEPER_URL,
+    );
+
+    try {
+      const submittedHash = await statekeeperClient.submitRff(request, signature);
+
+      logger.debug('processRFFv2: Submitted to statekeeper', {
+        submittedHash,
+        requestHash,
+      });
+
+      // Generate explorer URL using the request hash
+      const explorerURL = `${this.options.networkConfig.EXPLORER_URL}/rff/${requestHash}`;
+      this.markStepDone(BRIDGE_STEPS.INTENT_SUBMITTED(explorerURL, 0)); // Use 0 as placeholder for intentID
+
+      // Mark collection as complete - statekeeper handles this internally
+      this.markStepDone(BRIDGE_STEPS.INTENT_COLLECTION_COMPLETE);
+
+      return {
+        retry: false,
+        explorerURL,
+        requestHash,
+      };
+    } catch (e) {
+      logger.error('processRFFv2: Failed to submit to statekeeper', e);
+
+      // Check if it's a fee expired error
+      if (e instanceof NexusError && e.code === ERROR_CODES.RFF_FEE_EXPIRED) {
+        return { retry: true };
+      }
+
+      throw e;
+    }
+  }
+
+  /**
+   * Wait for RFF fulfillment using v2 Statekeeper API
+   */
+  private async waitForFillV2(requestHash: Hex): Promise<void> {
+    const statekeeperClient = getStatekeeperClient(
+      this.options.networkConfig.STATEKEEPER_URL,
+    );
+
+    logger.debug('waitForFillV2: Waiting for fulfillment', { requestHash });
+
+    // Poll statekeeper until RFF is fulfilled or expired
+    const rff = await statekeeperClient.waitForStatus(
+      requestHash,
+      ['fulfilled', 'expired'],
+      5 * 60 * 1000, // 5 minute timeout
+      2000, // Poll every 2 seconds
+    );
+
+    if (rff.status === 'expired') {
+      throw Errors.internal(`RFF ${requestHash} expired before fulfillment`);
+    }
+
+    logger.debug('waitForFillV2: RFF fulfilled', { requestHash, rff });
   }
 
   private async setAllowances(input: Array<SetAllowanceInput>) {

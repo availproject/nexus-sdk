@@ -44,7 +44,7 @@ import {
   getPctGasBufferByChain,
 } from '../utils';
 import { packERC20Approve } from '../swap/utils';
-import { BackendSimulationClient } from '../../../integrations/tenderly';
+import { BackendSimulationClient } from '../../../commons/utils/integrations/tenderly';
 import BridgeHandler from '../requestHandlers/bridge';
 import { Errors } from '../errors';
 import { isNativeAddress } from '../constants';

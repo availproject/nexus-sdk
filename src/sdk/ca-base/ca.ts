@@ -62,7 +62,7 @@ import { BridgeAndExecuteQuery } from './query/bridgeAndExecute';
 import {
   BackendSimulationClient,
   createBackendSimulationClient,
-} from '../../integrations/tenderly';
+} from '../../commons/utils/integrations/tenderly';
 import { createBridgeAndTransferParams } from './query/bridgeAndTransfer';
 import getMaxValueForBridge from './requestHandlers/bridgeMax';
 import { Errors } from './errors';
