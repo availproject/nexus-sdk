@@ -24,6 +24,9 @@ type TokenInfo = {
   logo: string;
   name: string;
   symbol: string;
+  displaySymbol?: string;
+  displayName?: string;
+  displayLogo?: string;
 };
 
 type NexusNetwork = 'mainnet' | 'testnet' | NetworkConfig;
@@ -85,7 +88,7 @@ export interface AllowanceResponse {
   token: string;
 }
 
-export type SUPPORTED_TOKENS = 'ETH' | 'USDC' | 'USDT';
+export type SUPPORTED_TOKENS = 'ETH' | 'USDC' | 'USDT' | 'USDM';
 export type SUPPORTED_CHAINS_IDS = (typeof SUPPORTED_CHAINS)[keyof typeof SUPPORTED_CHAINS];
 
 /**
@@ -565,6 +568,9 @@ export type ReadableIntent = {
     logo: string | undefined;
     name: string;
     symbol: string;
+    displaySymbol?: string;
+    displayName?: string;
+    displayLogo?: string;
   };
 };
 
@@ -714,6 +720,9 @@ export type AssetBreakdown = {
   contractAddress: `0x${string}`;
   decimals: number;
   universe: Universe;
+  displaySymbol?: string;
+  displayName?: string;
+  displayLogo?: string;
 };
 
 export type UserAssetDatum = {
@@ -724,6 +733,9 @@ export type UserAssetDatum = {
   decimals: number;
   icon?: string;
   symbol: string;
+  displaySymbol?: string;
+  displayName?: string;
+  displayLogo?: string;
 };
 
 export type BeforeExecuteHook = {

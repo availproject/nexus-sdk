@@ -229,6 +229,11 @@ const convertIntent = (
   chainList: ChainListType
 ): ReadableIntent => {
   console.time('convertIntent');
+  const isUSDMAlias = equalFold(token.symbol, 'USDM');
+  const displaySymbol = isUSDMAlias ? 'USDC' : token.symbol.toUpperCase();
+  const displayName = isUSDMAlias ? 'USD Coin' : token.name;
+  const displayLogo = isUSDMAlias ? getLogoFromSymbol('USDC') : token.logo;
+
   const sources = [];
   let sourcesTotal = new Decimal(0);
   for (const s of intent.sources) {
@@ -296,6 +301,9 @@ const convertIntent = (
       logo: token.logo,
       name: token.name,
       symbol: token.symbol.toUpperCase(),
+      displayLogo,
+      displayName,
+      displaySymbol,
     },
   };
 };
@@ -610,6 +618,34 @@ class UserAssets {
   }
 
   find(symbol: string) {
+    if (equalFold(symbol, 'USDM')) {
+      const usdAssets = this.data.filter(
+        (a) => equalFold(a.symbol, 'USDC') || equalFold(a.symbol, 'USDM')
+      );
+      if (usdAssets.length === 0) {
+        throw Errors.tokenNotSupported();
+      }
+
+      const breakdown = usdAssets.flatMap((a) => a.breakdown);
+      const balance = usdAssets.reduce((sum, a) => sum.add(a.balance), new Decimal(0));
+      const balanceInFiat = usdAssets.reduce((sum, a) => sum + a.balanceInFiat, 0);
+
+      const decimals =
+        usdAssets.find((a) => equalFold(a.symbol, 'USDM'))?.decimals ??
+        usdAssets.find((a) => equalFold(a.symbol, 'USDC'))?.decimals ??
+        18;
+
+      return new UserAsset({
+        abstracted: usdAssets.some((a) => a.abstracted),
+        balance: balance.toString(),
+        balanceInFiat,
+        breakdown,
+        decimals,
+        icon: getLogoFromSymbol('USDM'),
+        symbol: 'USDM',
+      });
+    }
+
     for (const asset of this.data) {
       if (equalFold(asset.symbol, symbol)) {
         return new UserAsset(asset);
