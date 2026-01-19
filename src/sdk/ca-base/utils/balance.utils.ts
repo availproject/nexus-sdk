@@ -1,11 +1,14 @@
+import Decimal from 'decimal.js';
 import { encodePacked, type Hex, keccak256, pad, toHex } from 'viem';
 import {
   type ChainListType,
   logger,
   type Source,
   SUPPORTED_CHAINS,
+  TOKEN_CONTRACT_ADDRESSES,
   type VSCClient,
 } from '../../../commons';
+import { getLogoFromSymbol } from '../constants';
 import { filterSupportedTokens } from '../swap/data';
 import {
   ankrBalanceToAssets,
@@ -60,7 +63,74 @@ export const getBalancesForBridge = async (input: {
 
   const assets = vscBalancesToAssets(input.chainList, evmBalances, tronBalances);
 
-  return assets;
+  return segregateUSDMFromUSDC(assets, input.chainList);
+};
+
+const segregateUSDMFromUSDC = (
+  assets: ReturnType<typeof vscBalancesToAssets>,
+  chainList: ChainListType
+) => {
+  const megaethAddress = TOKEN_CONTRACT_ADDRESSES.USDC[SUPPORTED_CHAINS.MEGAETH];
+  const usdcIndex = assets.findIndex((a) => equalFold(a.symbol, 'USDC'));
+
+  if (usdcIndex === -1) {
+    return assets;
+  }
+
+  const usdcAsset = assets[usdcIndex];
+  const usdMBreakdown = usdcAsset.breakdown.filter(
+    (b) => b.chain.id === SUPPORTED_CHAINS.MEGAETH && equalFold(b.contractAddress, megaethAddress)
+  );
+
+  if (usdMBreakdown.length === 0) {
+    return assets;
+  }
+
+  const remainingBreakdown = usdcAsset.breakdown.filter(
+    (b) =>
+      !(b.chain.id === SUPPORTED_CHAINS.MEGAETH && equalFold(b.contractAddress, megaethAddress))
+  );
+
+  const usdMBalance = usdMBreakdown.reduce(
+    (sum, b) => sum.add(new Decimal(b.balance)),
+    new Decimal(0)
+  );
+  const usdMBalanceFiat = usdMBreakdown.reduce((sum, b) => sum + b.balanceInFiat, 0);
+
+  const megaToken = chainList.getTokenByAddress(SUPPORTED_CHAINS.MEGAETH, megaethAddress) ?? {
+    decimals: 18,
+    logo: getLogoFromSymbol('USDM'),
+    name: 'USDm',
+    symbol: 'USDM',
+  };
+
+  const usdMAsset = {
+    abstracted: usdcAsset.abstracted,
+    balance: usdMBalance.toString(),
+    balanceInFiat: usdMBalanceFiat,
+    breakdown: usdMBreakdown,
+    decimals: megaToken.decimals ?? 18,
+    icon: getLogoFromSymbol('USDM'),
+    symbol: 'USDM',
+  };
+
+  const updatedUSDCBalance = remainingBreakdown.reduce(
+    (sum, b) => sum.add(new Decimal(b.balance)),
+    new Decimal(0)
+  );
+  const updatedUSDCBalanceFiat = remainingBreakdown.reduce((sum, b) => sum + b.balanceInFiat, 0);
+
+  const updatedUSDCAsset = {
+    ...usdcAsset,
+    balance: updatedUSDCBalance.toString(),
+    balanceInFiat: updatedUSDCBalanceFiat,
+    breakdown: remainingBreakdown,
+  };
+
+  const next = assets.slice(0, usdcIndex).concat(assets.slice(usdcIndex + 1));
+  next.push(updatedUSDCAsset);
+  next.push(usdMAsset);
+  return next;
 };
 
 const getBalanceSlot = ({

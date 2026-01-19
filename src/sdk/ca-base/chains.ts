@@ -617,11 +617,11 @@ const MAINNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/coins/images/69995/large/ICON.png',
       knownTokens: [
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDM[SUPPORTED_CHAINS.MEGAETH],
-          decimals: 6,
-          logo: getLogoFromSymbol('USDM'),
-          name: 'Mountain Protocol USD',
-          symbol: 'USDM',
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDC[SUPPORTED_CHAINS.MEGAETH],
+          decimals: 18,
+          logo: getLogoFromSymbol('USDC'),
+          name: 'USD Coin',
+          symbol: 'USDC',
         },
       ],
     },
