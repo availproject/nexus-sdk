@@ -72,46 +72,47 @@ const segregateUSDMFromUSDC = (
 ) => {
   const megaethAddress = TOKEN_CONTRACT_ADDRESSES.USDC[SUPPORTED_CHAINS.MEGAETH];
   const usdcIndex = assets.findIndex((a) => equalFold(a.symbol, 'USDC'));
-
   if (usdcIndex === -1) {
     return assets;
   }
 
+  const usdmIndex = assets.findIndex((a) => equalFold(a.symbol, 'USDM'));
   const usdcAsset = assets[usdcIndex];
-  const usdMBreakdown = usdcAsset.breakdown.filter(
-    (b) => b.chain.id === SUPPORTED_CHAINS.MEGAETH && equalFold(b.contractAddress, megaethAddress)
-  );
+  const usdmAsset = usdmIndex >= 0 ? assets[usdmIndex] : undefined;
 
-  if (usdMBreakdown.length === 0) {
-    return assets;
-  }
-
-  const remainingBreakdown = usdcAsset.breakdown.filter(
+  const remainingBreakdown = (usdcAsset.breakdown ?? []).filter(
     (b) =>
       !(b.chain.id === SUPPORTED_CHAINS.MEGAETH && equalFold(b.contractAddress, megaethAddress))
   );
 
-  const usdMBalance = usdMBreakdown.reduce(
+  const usdmOnlyBreakdown = (usdcAsset.breakdown ?? []).concat(usdmAsset?.breakdown ?? []);
+  const usdmBalance = usdmOnlyBreakdown.reduce(
     (sum, b) => sum.add(new Decimal(b.balance)),
     new Decimal(0)
   );
-  const usdMBalanceFiat = usdMBreakdown.reduce((sum, b) => sum + b.balanceInFiat, 0);
+  const usdmBalanceFiat = usdmOnlyBreakdown.reduce((sum, b) => sum + b.balanceInFiat, 0);
 
   const megaToken = chainList.getTokenByAddress(SUPPORTED_CHAINS.MEGAETH, megaethAddress) ?? {
     decimals: 18,
-    logo: getLogoFromSymbol('USDM'),
-    name: 'USDm',
+    logo: getLogoFromSymbol('USDC'),
+    name: 'USD Coin',
     symbol: 'USDM',
+    displayLogo: getLogoFromSymbol('USDM'),
+    displayName: 'USDm',
+    displaySymbol: 'USDC',
   };
 
-  const usdMAsset = {
-    abstracted: usdcAsset.abstracted,
-    balance: usdMBalance.toString(),
-    balanceInFiat: usdMBalanceFiat,
-    breakdown: usdMBreakdown,
+  const newUSDMAsset = {
+    abstracted: usdcAsset.abstracted || usdmAsset?.abstracted,
+    balance: usdmBalance.toString(),
+    balanceInFiat: usdmBalanceFiat,
+    breakdown: usdmOnlyBreakdown,
     decimals: megaToken.decimals ?? 18,
-    icon: getLogoFromSymbol('USDM'),
+    icon: megaToken.logo ?? getLogoFromSymbol('USDC'),
     symbol: 'USDM',
+    displaySymbol: 'USDC',
+    displayName: 'USD Coin',
+    displayLogo: getLogoFromSymbol('USDC'),
   };
 
   const updatedUSDCBalance = remainingBreakdown.reduce(
@@ -127,9 +128,13 @@ const segregateUSDMFromUSDC = (
     breakdown: remainingBreakdown,
   };
 
-  const next = assets.slice(0, usdcIndex).concat(assets.slice(usdcIndex + 1));
-  next.push(updatedUSDCAsset);
-  next.push(usdMAsset);
+  const next = assets.slice();
+  next.splice(usdcIndex, 1, updatedUSDCAsset);
+  if (usdmIndex >= 0) {
+    next.splice(usdmIndex, 1, newUSDMAsset);
+  } else {
+    next.push(newUSDMAsset);
+  }
   return next;
 };
 
