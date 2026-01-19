@@ -27,7 +27,7 @@ export const getCoinbaseRates = async (): Promise<Record<string, string>> => get
 export const getSupportedChains = (env?: Network): SupportedChainsAndTokensResult =>
   fetchSupportedChains(env);
 export const isSupportedToken = (token: string): boolean => {
-  const supportedTokens = ['ETH', 'USDC', 'USDT', 'USDM'];
+  const supportedTokens = ['ETH', 'USDC', 'USDT'];
   return supportedTokens.includes(token.toUpperCase());
 };
 
