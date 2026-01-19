@@ -85,7 +85,7 @@ export interface AllowanceResponse {
   token: string;
 }
 
-export type SUPPORTED_TOKENS = 'ETH' | 'USDC' | 'USDT';
+export type SUPPORTED_TOKENS = 'ETH' | 'USDC' | 'USDT' | 'USDM';
 export type SUPPORTED_CHAINS_IDS = (typeof SUPPORTED_CHAINS)[keyof typeof SUPPORTED_CHAINS];
 
 /**
@@ -588,7 +588,12 @@ export type OnEventParam = {
 export type RFF = {
   explorerUrl: string;
   deposited: boolean;
-  destinationChain: { id: number; name: string; logo: string; universe: string };
+  destinationChain: {
+    id: number;
+    name: string;
+    logo: string;
+    universe: string;
+  };
   destinations: {
     token: { address: Hex; symbol: string; decimals: number };
     value: string;

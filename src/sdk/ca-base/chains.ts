@@ -615,7 +615,15 @@ const MAINNET_CHAINS: Chain[] = [
     },
     custom: {
       icon: 'https://assets.coingecko.com/coins/images/69995/large/ICON.png',
-      knownTokens: [],
+      knownTokens: [
+        {
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDM[SUPPORTED_CHAINS.MEGAETH],
+          decimals: 6,
+          logo: getLogoFromSymbol('USDC'),
+          name: 'USD Coin',
+          symbol: 'USDC',
+        },
+      ],
     },
     id: SUPPORTED_CHAINS.MEGAETH,
     name: 'MegaETH',
