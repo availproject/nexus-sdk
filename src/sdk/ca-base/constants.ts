@@ -14,6 +14,7 @@ const SymbolToLogo: { [k: string]: string } = {
   USDT: 'https://coin-images.coingecko.com/coins/images/35023/large/USDT.png',
   WETH: 'https://coin-images.coingecko.com/coins/images/2518/standard/weth.png',
   HYPE: 'https://assets.coingecko.com/coins/images/50882/large/hyperliquid.jpg',
+  USDM: 'https://assets.coingecko.com/coins/images/31719/standard/usdm.png?1696530540',
 };
 
 const getLogoFromSymbol = (symbol: string) => {
