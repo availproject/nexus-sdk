@@ -619,9 +619,9 @@ const MAINNET_CHAINS: Chain[] = [
         {
           contractAddress: TOKEN_CONTRACT_ADDRESSES.USDM[SUPPORTED_CHAINS.MEGAETH],
           decimals: 6,
-          logo: getLogoFromSymbol('USDC'),
-          name: 'USD Coin',
-          symbol: 'USDC',
+          logo: getLogoFromSymbol('USDM'),
+          name: 'Mountain Protocol USD',
+          symbol: 'USDM',
         },
       ],
     },
