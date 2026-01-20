@@ -65,6 +65,9 @@ export {
 // Re-export everything from commons (includes constants, utils, and types)
 export * from './commons';
 
+// Shim stuff
+export { ShimRFFSerde, ShimRFF, SerializedShimRFF, NewVaultAbi } from './sdk/ca-base/utils';
+
 // Analytics exports
 export { AnalyticsManager } from './analytics/AnalyticsManager';
 export { NexusAnalyticsEvents } from './analytics/events';

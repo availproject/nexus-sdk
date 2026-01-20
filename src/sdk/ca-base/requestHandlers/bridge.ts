@@ -11,6 +11,7 @@ import Long from 'long';
 import {
   ContractFunctionExecutionError,
   createPublicClient,
+  encodeAbiParameters,
   encodeFunctionData,
   Hex,
   hexToBytes,
@@ -68,19 +69,13 @@ import {
   retrieveAddress,
   getBalancesForBridge,
   createExplorerTxURL,
-  createMayanRFFromIntent,
   // createDeadlineFromNow,
 } from '../utils';
 import { TronWeb } from 'tronweb';
 import { Errors } from '../errors';
 import { ERROR_CODES, NexusError } from '../nexusError';
-import {
-  getQuotes,
-  MayanQuotes,
-  recordTx,
-  serializeEVMRFF,
-  submitTx,
-} from '../utils/shim-server.utils';
+import { getQuotes, MayanQuotes, recordTx, submitTx } from '../utils/shim-server.utils';
+import { createShimRFFromIntent, NewVaultAbi, ShimRFFSerde } from '../utils/shim-rff.utils';
 
 type Params = {
   recipient?: Hex;
@@ -350,7 +345,7 @@ class BridgeHandler {
     }
   };
 
-  public executeMayan = async (): Promise<any> => {
+  public executeShim = async (): Promise<any> => {
     try {
       let intent = await this.buildIntent(this.params.sourceChains);
       const readableIntent = convertIntent(intent, this.params.dstToken, this.options.chainList);
@@ -398,7 +393,7 @@ class BridgeHandler {
 
       await this.waitForOnAllowanceHook(insufficientAllowanceSources);
 
-      return await this.processMayanRFF(intent, mayanQuotes);
+      return await this.processShimRFF(intent, mayanQuotes);
     } catch (error) {
       throw error;
     }
@@ -663,14 +658,24 @@ class BridgeHandler {
     };
   }
 
-  private async processMayanRFF(intent: Intent, quotes: MayanQuotes) {
-    const { evmRFF, signatureData, sources, universes } = await createMayanRFFromIntent(
+  private async processShimRFF(intent: Intent, quotes: MayanQuotes) {
+    const { shimRFF, signatureData, sources, universes } = await createShimRFFromIntent(
       intent,
       this.options,
       this.params.dstChain.universe,
     );
 
-    const serialized = serializeEVMRFF(evmRFF.asEVMRFF(), signatureData, quotes);
+    const serialized = {
+      signatureData: signatureData.map((x) => ({
+        ...x,
+        address: toHex(x.address),
+        signature: toHex(x.signature),
+      })),
+      quotes,
+      rff: ShimRFFSerde.serialize(shimRFF),
+      route: 1,
+      routeData: encodeAbiParameters([{ type: 'uint64' }, { type: 'uint64' }], [0n, 0n]),
+    };
     const recordId = await recordTx(serialized);
 
     const sourceTxs: {
@@ -695,33 +700,41 @@ class BridgeHandler {
       if (!chain) {
         throw Errors.chainNotFound(s.chainID);
       }
-      if (s.universe === Universe.ETHEREUM && isNativeAddress(s.universe, s.tokenAddress)) {
-        await switchChain(this.options.evm.client, chain);
-
-        const publicClient = createPublicClientWithFallback(chain);
-
-        const { request } = await publicClient.simulateContract({
-          abi: EVMVaultABI,
-          account: this.options.evm.address,
-          address: this.options.chainList.getVaultContractAddress(chain.id),
-          args: [evmRFF.asEVMRFF(), toHex(evmSignatureData!.signature), BigInt(i)],
-          chain: chain,
-          functionName: 'deposit',
-          value: s.valueRaw,
-        });
-        const hash = await this.options.evm.client.writeContract(request);
-        sourceTxs.push({
-          sourceIndex: i,
-          chain: {
-            id: chain.id,
-            name: chain.name,
-            logo: chain.custom.icon,
-          },
-          hash,
-          explorerUrl: createExplorerTxURL(hash, chain.blockExplorers!.default.url),
-        });
-        evmDeposits.push(waitForTxReceipt(hash, publicClient));
+      if (s.universe !== Universe.ETHEREUM || !isNativeAddress(s.universe, s.tokenAddress)) {
+        continue;
       }
+
+      await switchChain(this.options.evm.client, chain);
+
+      const publicClient = createPublicClientWithFallback(chain);
+
+      const { request } = await publicClient.simulateContract({
+        abi: NewVaultAbi,
+        account: this.options.evm.address,
+        address: '0x3B7C0E49c607d47f4711D8573312eA5B6480566D', // On base // this.options.chainList.getVaultContractAddress(chain.id),
+        functionName: 'depositRouter',
+        args: [
+          shimRFF,
+          toHex(evmSignatureData!.signature),
+          BigInt(i),
+          serialized.route,
+          serialized.routeData,
+        ],
+        chain: chain,
+        value: s.valueRaw,
+      });
+      const hash = await this.options.evm.client.writeContract(request);
+      sourceTxs.push({
+        sourceIndex: i,
+        chain: {
+          id: chain.id,
+          name: chain.name,
+          logo: chain.custom.icon,
+        },
+        hash,
+        explorerUrl: createExplorerTxURL(hash, chain.blockExplorers!.default.url),
+      });
+      evmDeposits.push(waitForTxReceipt(hash, publicClient));
     }
     if (evmDeposits.length) {
       await Promise.all(evmDeposits);
@@ -747,7 +760,7 @@ class BridgeHandler {
 
         const publicClient = createPublicClientWithFallback(chain);
 
-        const vc = this.options.chainList.getVaultContractAddress(chain.id);
+        const vc = '0x3B7C0E49c607d47f4711D8573312eA5B6480566D'; //this.options.chainList.getVaultContractAddress(chain.id);
 
         const chainId = new OmniversalChainID(chain.universe, source.chainID);
         const chainDatum = ChaindataMap.get(chainId);
@@ -772,7 +785,12 @@ class BridgeHandler {
           await switchChain(this.options.evm.client, chain);
         }
 
-        if (currency.permitVariant === PermitVariant.Unsupported || chain.id === 1) {
+        const THIS_IS_TRUE: boolean = true; // TODO Fix this
+        if (
+          currency.permitVariant === PermitVariant.Unsupported ||
+          chain.id === 1 ||
+          THIS_IS_TRUE
+        ) {
           if (chain.universe === Universe.ETHEREUM) {
             const h = await this.options.evm.client
               .writeContract({

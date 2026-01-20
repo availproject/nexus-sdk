@@ -82,8 +82,8 @@ export class NexusSDK extends CA {
     this.analytics.endOperation(opId, { success: true });
   }
 
-  public async bridgeMayan(params: BridgeParams, options?: OnEventParam) {
-    const result = await (await this._createBridgeHandler(params, options)).executeMayan();
+  public async bridgeShim(params: BridgeParams, options?: OnEventParam) {
+    const result = await (await this._createBridgeHandler(params, options)).executeShim();
     return result;
   }
 

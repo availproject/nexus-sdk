@@ -33,7 +33,7 @@ const getAllowance = async (
   chain: Chain,
   address: `0x${string}`,
   tokenContract: `0x${string}`,
-  chainList: ChainListType,
+  _chainList: ChainListType,
 ) => {
   logger.debug('getAllowance', {
     tokenContract,
@@ -52,7 +52,7 @@ const getAllowance = async (
     const allowance = erc20GetAllowance(
       {
         contractAddress: tokenContract,
-        spender: chainList.getVaultContractAddress(chain.id),
+        spender: '0x3B7C0E49c607d47f4711D8573312eA5B6480566D', //chainList.getVaultContractAddress(chain.id),
         owner: address,
       },
       publicClient,

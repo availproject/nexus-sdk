@@ -1,7 +1,8 @@
-import { EVMRFF, Universe } from '@avail-project/ca-common';
 import { ReadableIntent } from '../../../commons';
-import { Hex, toHex } from 'viem';
+import { Hex } from 'viem';
 import { Quote, ChainName, Token } from '@mayanfinance/swap-sdk';
+import { Universe } from '@avail-project/ca-common';
+import { SerializedShimRFF } from './shim-rff.utils';
 
 const shimUrl = `http://localhost:4000`;
 
@@ -15,41 +16,6 @@ export type MayanQuotes = {
     mayanChain: ChainName;
     mayanToken: Token;
   }[];
-};
-
-export const serializeEVMRFF = (
-  rffData: EVMRFF,
-  signatureData: {
-    address: Uint8Array;
-    requestHash: `0x${string}`;
-    signature: Uint8Array;
-    universe: Universe;
-  }[],
-  quotes: MayanQuotes,
-) => {
-  return {
-    rff: {
-      ...rffData,
-      sources: rffData.sources.map((s) => ({
-        ...s,
-        chainID: s.chainID.toString(),
-        value: s.value.toString(),
-      })),
-      destinationChainID: rffData.destinationChainID.toString(),
-      destinations: rffData.destinations.map((d) => ({
-        contractAddress: d.contractAddress,
-        value: d.value.toString(),
-      })),
-      nonce: rffData.nonce.toString(),
-      expiry: rffData.expiry.toString(),
-    },
-    signatureData: signatureData.map((x) => ({
-      ...x,
-      address: toHex(x.address),
-      signature: toHex(x.signature),
-    })),
-    quotes,
-  };
 };
 
 export const getQuotes = async (intent: ReadableIntent): Promise<MayanQuotes> => {
@@ -71,9 +37,18 @@ export const getQuotes = async (intent: ReadableIntent): Promise<MayanQuotes> =>
   return data;
 };
 
-export const recordTx = async (
-  payload: ReturnType<typeof serializeEVMRFF>,
-): Promise<string> => {
+export const recordTx = async (payload: {
+  signatureData: {
+    address: `0x${string}`;
+    signature: `0x${string}`;
+    requestHash: `0x${string}`;
+    universe: Universe;
+  }[];
+  quotes: MayanQuotes;
+  rff: SerializedShimRFF;
+  route: number;
+  routeData: `0x${string}`;
+}): Promise<string> => {
   const res = await fetch(`${shimUrl}/transaction/record`, {
     method: 'POST',
     headers: {
