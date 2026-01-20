@@ -85,7 +85,24 @@ const segregateUSDMFromUSDC = (
       !(b.chain.id === SUPPORTED_CHAINS.MEGAETH && equalFold(b.contractAddress, megaethAddress))
   );
 
-  const usdmOnlyBreakdown = (usdcAsset.breakdown ?? []).concat(usdmAsset?.breakdown ?? []);
+  const aggregatedBreakdownMap = new Map<string, (typeof usdcAsset.breakdown)[number]>();
+
+  for (const entry of (usdcAsset.breakdown ?? []).concat(usdmAsset?.breakdown ?? [])) {
+    const key = `${entry.chain.id}-${entry.contractAddress?.toLowerCase?.() ?? ''}`;
+    const existing = aggregatedBreakdownMap.get(key);
+    if (existing) {
+      aggregatedBreakdownMap.set(key, {
+        ...existing,
+        balance: new Decimal(existing.balance).add(entry.balance).toString(),
+        balanceInFiat: existing.balanceInFiat + entry.balanceInFiat,
+      });
+    } else {
+      aggregatedBreakdownMap.set(key, entry);
+    }
+  }
+
+  const usdmOnlyBreakdown = Array.from(aggregatedBreakdownMap.values());
+
   const usdmBalance = usdmOnlyBreakdown.reduce(
     (sum, b) => sum.add(new Decimal(b.balance)),
     new Decimal(0)
