@@ -619,31 +619,24 @@ class UserAssets {
 
   find(symbol: string) {
     if (equalFold(symbol, 'USDM')) {
-      const usdAssets = this.data.filter(
-        (a) => equalFold(a.symbol, 'USDC') || equalFold(a.symbol, 'USDM')
-      );
-      if (usdAssets.length === 0) {
-        throw Errors.tokenNotSupported();
+      // The USDM asset from segregateUSDMFromUSDC already contains merged/deduplicated
+      // USDC + USDm balances. Use it directly to avoid duplicates.
+      const usdmAsset = this.data.find((a) => equalFold(a.symbol, 'USDM'));
+      if (usdmAsset) {
+        return new UserAsset(usdmAsset);
       }
 
-      const breakdown = usdAssets.flatMap((a) => a.breakdown);
-      const balance = usdAssets.reduce((sum, a) => sum.add(a.balance), new Decimal(0));
-      const balanceInFiat = usdAssets.reduce((sum, a) => sum + a.balanceInFiat, 0);
+      // Fallback to USDC if USDM asset doesn't exist
+      const usdcAsset = this.data.find((a) => equalFold(a.symbol, 'USDC'));
+      if (usdcAsset) {
+        return new UserAsset({
+          ...usdcAsset,
+          icon: getLogoFromSymbol('USDM'),
+          symbol: 'USDM',
+        });
+      }
 
-      const decimals =
-        usdAssets.find((a) => equalFold(a.symbol, 'USDM'))?.decimals ??
-        usdAssets.find((a) => equalFold(a.symbol, 'USDC'))?.decimals ??
-        18;
-
-      return new UserAsset({
-        abstracted: usdAssets.some((a) => a.abstracted),
-        balance: balance.toString(),
-        balanceInFiat,
-        breakdown,
-        decimals,
-        icon: getLogoFromSymbol('USDM'),
-        symbol: 'USDM',
-      });
+      throw Errors.tokenNotSupported();
     }
 
     for (const asset of this.data) {
