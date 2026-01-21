@@ -105,6 +105,61 @@ const SWAP_COMPLETE = {
   typeID: 'SWAP_COMPLETE',
 } as const;
 
+/**
+ * Event emitted when a swap is skipped in swapAndExecute because the user
+ * already has sufficient balance on the destination chain.
+ *
+ * @param data - The swap skip event data
+ * @param data.destination - Information about what the user will receive
+ * @param data.destination.amount - The output amount (in atomic units as string)
+ * @param data.destination.chain - The destination chain info (id and name)
+ * @param data.destination.token - The destination token info (address, decimals, symbol)
+ * @param data.input - Information about the requested input
+ * @param data.input.amount - The input amount requested (in atomic units as string)
+ * @param data.input.token - The input token info (address, decimals, symbol)
+ * @param data.gas - Gas estimation details for the execute transaction
+ * @param data.gas.required - Total gas units required (approval + execution)
+ * @param data.gas.price - Gas price used for estimation (in wei as string)
+ * @param data.gas.estimatedFee - Total estimated gas fee (gas * price, in wei as string)
+ *
+ * @example
+ * ```typescript
+ * sdk.swapAndExecute(params, {
+ *   onEvent: (event) => {
+ *     if (event.name === NEXUS_EVENTS.SWAP_STEP_COMPLETE) {
+ *       if (event.args.type === 'SWAP_SKIPPED') {
+ *         console.log('Swap skipped - user has sufficient balance');
+ *         console.log('Output amount:', event.args.data.destination.amount);
+ *         console.log('Gas fee:', event.args.data.gas.estimatedFee);
+ *       }
+ *     }
+ *   },
+ * });
+ * ```
+ */
+const SWAP_SKIPPED = (data: {
+  destination: {
+    amount: string;
+    chain: { id: number; name: string };
+    token: { contractAddress: Hex; decimals: number; symbol: string };
+  };
+  input: {
+    amount: string;
+    token: { contractAddress: Hex; decimals: number; symbol: string };
+  };
+  gas: {
+    required: string;
+    price: string;
+    estimatedFee: string;
+  };
+}) =>
+  ({
+    completed: true,
+    type: 'SWAP_SKIPPED',
+    typeID: 'SWAP_SKIPPED',
+    data,
+  }) as const;
+
 const DESTINATION_SWAP_HASH = (op: [bigint, Hex], chainList: ChainListType) => {
   const chainID = Number(op[0]);
   const chain = chainList.getChainByID(chainID);
@@ -135,6 +190,7 @@ export const SWAP_STEPS = {
   SOURCE_SWAP_BATCH_TX,
   SOURCE_SWAP_HASH,
   SWAP_COMPLETE,
+  SWAP_SKIPPED,
   BRIDGE_DEPOSIT,
 };
 
@@ -148,5 +204,6 @@ export type SwapStepType =
   | ReturnType<typeof SWAP_STEPS.SOURCE_SWAP_BATCH_TX>
   | ReturnType<typeof SWAP_STEPS.SOURCE_SWAP_HASH>
   | ReturnType<typeof SWAP_STEPS.BRIDGE_DEPOSIT>
+  | ReturnType<typeof SWAP_STEPS.SWAP_SKIPPED>
   | typeof SWAP_STEPS.SWAP_COMPLETE
   | typeof SWAP_STEPS.SWAP_START;

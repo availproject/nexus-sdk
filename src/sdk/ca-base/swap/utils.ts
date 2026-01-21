@@ -1216,6 +1216,7 @@ export const createSwapIntent = (
     contractAddress: `0x${string}`;
     decimals: number;
     symbol: string;
+    gasAmount: string;
   },
   chainList: ChainListType
 ): SwapIntent => {
@@ -1236,6 +1237,14 @@ export const createSwapIntent = (
         contractAddress: destination.contractAddress,
         decimals: destination.decimals,
         symbol: destination.symbol,
+      },
+      gas: {
+        amount: destination.gasAmount,
+        token: {
+          contractAddress: ZERO_ADDRESS,
+          decimals: chain.nativeCurrency.decimals,
+          symbol: chain.nativeCurrency.symbol,
+        },
       },
     },
     sources: [],

@@ -15,7 +15,10 @@ import {
   logger,
   NEXUS_EVENTS,
   type OnEventParam,
+  type SuccessfulSwapResult,
+  SWAP_STEPS,
   type SwapAndExecuteParams,
+  type SwapAndExecuteResult,
   type SwapExecuteParams,
   type Tx,
   type UserAssetDatum,
@@ -46,7 +49,10 @@ class SwapAndExecuteQuery {
       assets: UserAssetDatum[];
       balances: FlatBalance[];
     }>,
-    private swap: (input: ExactOutSwapInput, options?: OnEventParam) => Promise<unknown>
+    private swap: (
+      input: ExactOutSwapInput,
+      options?: OnEventParam
+    ) => Promise<SuccessfulSwapResult>
   ) {}
 
   private async estimateSwapAndExecute(params: SwapAndExecuteParams) {
@@ -111,7 +117,7 @@ class SwapAndExecuteQuery {
 
     // 6. Determine gas or token needed via bridge
     const { skipSwap, tokenAmount, gasAmount } = await this.calculateOptimalSwapAmount(
-      //   dstChain,
+      toChainId,
       dstTokenInfo.contractAddress,
       dstTokenInfo.decimals,
       toAmount,
@@ -184,9 +190,23 @@ class SwapAndExecuteQuery {
     return { tx, approvalTx, dstChain, dstPublicClient };
   }
 
-  public async swapAndExecute(params: SwapAndExecuteParams, options?: OnEventParam) {
-    const { dstPublicClient, dstChain, address, skipSwap, tx, approvalTx, amount, gas, gasPrice } =
-      await this.estimateSwapAndExecute(params);
+  public async swapAndExecute(
+    params: SwapAndExecuteParams,
+    options?: OnEventParam
+  ): Promise<SwapAndExecuteResult> {
+    const {
+      dstPublicClient,
+      dstChain,
+      address,
+      skipSwap,
+      tx,
+      approvalTx,
+      amount,
+      gas,
+      gasPrice,
+      dstTokenInfo,
+      gasFee,
+    } = await this.estimateSwapAndExecute(params);
 
     logger.debug('BridgeAndExecute:4:CalculateOptimalSwapAmount', {
       params,
@@ -210,8 +230,41 @@ class SwapAndExecuteQuery {
 
     tx.gas = gas.tx;
 
-    if (!skipSwap) {
-      const swapResult = await this.swap(
+    let swapResult: SuccessfulSwapResult | null = null;
+
+    if (skipSwap) {
+      // Emit SWAP_SKIPPED event with full data
+      if (options?.onEvent) {
+        options.onEvent({
+          name: NEXUS_EVENTS.SWAP_STEP_COMPLETE,
+          args: SWAP_STEPS.SWAP_SKIPPED({
+            destination: {
+              amount: params.toAmount.toString(),
+              chain: { id: dstChain.id, name: dstChain.name },
+              token: {
+                contractAddress: params.toTokenAddress,
+                decimals: dstTokenInfo.decimals,
+                symbol: dstTokenInfo.symbol,
+              },
+            },
+            input: {
+              amount: params.toAmount.toString(),
+              token: {
+                contractAddress: params.toTokenAddress,
+                decimals: dstTokenInfo.decimals,
+                symbol: dstTokenInfo.symbol,
+              },
+            },
+            gas: {
+              required: (gas.tx + gas.approval).toString(),
+              price: gasPrice.toString(),
+              estimatedFee: gasFee.toString(),
+            },
+          }),
+        });
+      }
+    } else {
+      swapResult = await this.swap(
         {
           fromSources: params.fromSources,
           toTokenAddress: params.toTokenAddress,
@@ -223,9 +276,7 @@ class SwapAndExecuteQuery {
         options
       );
 
-      logger.debug('swapResult:SwapAndExecute()', {
-        swapResult,
-      });
+      logger.debug('swapResult:SwapAndExecute()', { swapResult });
     }
 
     const executeResponse = await this.sendTx(
@@ -243,9 +294,17 @@ class SwapAndExecuteQuery {
       }
     );
 
-    logger.debug('swapResult:executeResponse()', {
+    logger.debug('swapResult:executeResponse()', { executeResponse });
+
+    const result: SwapAndExecuteResult = {
+      swapResult,
+      swapSkipped: skipSwap,
       executeResponse,
-    });
+    };
+
+    logger.debug('swapResult:full result', { result });
+
+    return result;
   }
 
   /**
@@ -253,6 +312,7 @@ class SwapAndExecuteQuery {
    * Returns the exact amount needed to bridge, or indicates if bridge can be skipped entirely
    */
   private async calculateOptimalSwapAmount(
+    toChainId: number,
     tokenAddress: Hex,
     tokenDecimals: number,
     requiredTokenAmount: bigint,
@@ -264,16 +324,16 @@ class SwapAndExecuteQuery {
     let gasAmount = requiredGasAmount;
 
     let destinationTokenAmount = 0n;
-    const tokenBalance = balances.find((b) =>
-      equalFold(b.tokenAddress, convertTo32BytesHex(tokenAddress))
+    const tokenBalance = balances.find(
+      (b) => b.chainID === toChainId && equalFold(b.tokenAddress, convertTo32BytesHex(tokenAddress))
     );
     if (tokenBalance) {
       destinationTokenAmount = mulDecimals(tokenBalance.amount, tokenDecimals);
     }
 
     let destinationGasAmount = 0n;
-    const gasBalance = balances.find((b) =>
-      equalFold(b.tokenAddress, convertTo32BytesHex(EADDRESS))
+    const gasBalance = balances.find(
+      (b) => b.chainID === toChainId && equalFold(b.tokenAddress, convertTo32BytesHex(EADDRESS))
     );
     if (gasBalance) {
       destinationGasAmount = mulDecimals(gasBalance.amount, gasBalance.decimals);

@@ -22,7 +22,8 @@ export class PlatformUtils {
 
   static async cryptoGetRandomValues(bytes: Uint8Array): Promise<Uint8Array> {
     if (typeof window === 'undefined') {
-      const crypto = await import('node:crypto');
+      // biome-ignore lint/style/useNodejsImportProtocol: cannot externalize node:crypto
+      const crypto = await import('crypto');
       return crypto.getRandomValues(bytes);
     }
 
