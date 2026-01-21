@@ -717,6 +717,42 @@ const MAINNET_CHAINS: Chain[] = [
   {
     blockExplorers: {
       default: {
+        name: 'MegaETH Blockscout',
+        url: 'https://megaeth.blockscout.com/',
+      },
+    },
+    custom: {
+      icon: 'https://assets.coingecko.com/coins/images/69995/large/ICON.png',
+      knownTokens: [
+        {
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDM[SUPPORTED_CHAINS.MEGAETH],
+          decimals: 6,
+          logo: getLogoFromSymbol('USDC'),
+          name: 'USD Coin',
+          symbol: 'USDC',
+        },
+      ],
+    },
+    id: SUPPORTED_CHAINS.MEGAETH,
+    name: 'MegaETH',
+    ankrName: '',
+    nativeCurrency: {
+      decimals: 18,
+      name: 'Ether',
+      symbol: 'ETH',
+    },
+    rpcUrls: {
+      default: {
+        http: ['https://rpcs.avail.so/megaeth'],
+        publicHttp: [],
+        webSocket: ['wss://rpcs.avail.so/megaeth'],
+      },
+    },
+    universe: Universe.ETHEREUM,
+  },
+  {
+    blockExplorers: {
+      default: {
         name: 'Polygonscan',
         url: 'https://polygonscan.com',
       },
