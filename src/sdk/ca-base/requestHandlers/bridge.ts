@@ -391,7 +391,7 @@ class BridgeHandler {
         });
       });
 
-      await this.waitForOnAllowanceHook(insufficientAllowanceSources);
+      await this.waitForOnAllowanceHook(insufficientAllowanceSources, true);
 
       return await this.processShimRFF(intent, mayanQuotes);
     } catch (error) {
@@ -745,7 +745,7 @@ class BridgeHandler {
     return submitResult;
   }
 
-  private async setAllowances(input: Array<SetAllowanceInput>) {
+  private async setAllowances(input: Array<SetAllowanceInput>, disableSponsoredApproval = false) {
     const originalChain = this.params.dstChain.id;
     logger.debug('setAllowances', { originalChain, input });
 
@@ -785,11 +785,10 @@ class BridgeHandler {
           await switchChain(this.options.evm.client, chain);
         }
 
-        const THIS_IS_TRUE: boolean = true; // TODO Fix this
         if (
           currency.permitVariant === PermitVariant.Unsupported ||
           chain.id === 1 ||
-          THIS_IS_TRUE
+          disableSponsoredApproval
         ) {
           if (chain.universe === Universe.ETHEREUM) {
             const h = await this.options.evm.client
@@ -947,7 +946,7 @@ class BridgeHandler {
     }
   }
 
-  private async waitForOnAllowanceHook(sources: onAllowanceHookSource[]): Promise<boolean> {
+  private async waitForOnAllowanceHook(sources: onAllowanceHookSource[], disableSponsoredApproval = false): Promise<boolean> {
     if (sources.length === 0) {
       return false;
     }
@@ -982,7 +981,7 @@ class BridgeHandler {
             tokenContract: source.token.contractAddress,
           });
         }
-        this.setAllowances(val).then(resolve).catch(reject);
+        this.setAllowances(val, disableSponsoredApproval).then(resolve).catch(reject);
       };
 
       const deny = () => {
