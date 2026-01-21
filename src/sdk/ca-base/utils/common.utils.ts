@@ -229,6 +229,11 @@ const convertIntent = (
   chainList: ChainListType
 ): ReadableIntent => {
   console.time('convertIntent');
+  const isUSDMAlias = equalFold(token.symbol, 'USDM');
+  const displaySymbol = isUSDMAlias ? 'USDC' : token.symbol.toUpperCase();
+  const displayName = isUSDMAlias ? 'USD Coin' : token.name;
+  const displayLogo = isUSDMAlias ? getLogoFromSymbol('USDC') : token.logo;
+
   const sources = [];
   let sourcesTotal = new Decimal(0);
   for (const s of intent.sources) {
@@ -296,6 +301,9 @@ const convertIntent = (
       logo: token.logo,
       name: token.name,
       symbol: token.symbol.toUpperCase(),
+      displayLogo,
+      displayName,
+      displaySymbol,
     },
   };
 };
@@ -609,6 +617,27 @@ class UserAssets {
   }
 
   find(symbol: string) {
+    if (equalFold(symbol, 'USDM')) {
+      // The USDM asset from segregateUSDMFromUSDC already contains merged/deduplicated
+      // USDC + USDm balances. Use it directly to avoid duplicates.
+      const usdmAsset = this.data.find((a) => equalFold(a.symbol, 'USDM'));
+      if (usdmAsset) {
+        return new UserAsset(usdmAsset);
+      }
+
+      // Fallback to USDC if USDM asset doesn't exist
+      const usdcAsset = this.data.find((a) => equalFold(a.symbol, 'USDC'));
+      if (usdcAsset) {
+        return new UserAsset({
+          ...usdcAsset,
+          icon: getLogoFromSymbol('USDM'),
+          symbol: 'USDM',
+        });
+      }
+
+      throw Errors.tokenNotSupported();
+    }
+
     for (const asset of this.data) {
       if (equalFold(asset.symbol, symbol)) {
         return new UserAsset(asset);
