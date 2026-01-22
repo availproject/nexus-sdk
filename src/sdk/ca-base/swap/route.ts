@@ -292,11 +292,12 @@ const _exactOutRoute = async (
       if (!chainCOT) {
         throw Errors.internal(`COT not found for chain ${input.toChainId}`);
       }
+      // value - usd value, chainID - remains same, contractAddress & decimals - taken from cot
       return {
         value: b.value,
         chainID: b.chainID,
         contractAddress: convertToEVMAddress(chainCOT.tokenAddress),
-        decimals: b.decimals,
+        decimals: chainCOT.decimals,
       };
     }),
     destinationSwap.inputAmount.max,
