@@ -21,6 +21,7 @@ export const TESTNET_CHAIN_IDS = {
   SEPOLIA: 11155111,
   BASE_SEPOLIA: 84532,
   ARBITRUM_SEPOLIA: 421614,
+  CITREA_TESTNET: 5115,
   OPTIMISM_SEPOLIA: 11155420,
   POLYGON_AMOY: 80002,
   MONAD_TESTNET: 10143,
@@ -204,6 +205,19 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
     rpcUrls: ['https://sepolia.drpc.org'],
     blockExplorerUrls: ['https://sepolia.etherscan.io'],
   },
+  [SUPPORTED_CHAINS.CITREA_TESTNET]: {
+    id: SUPPORTED_CHAINS.CITREA_TESTNET,
+    name: 'Citrea Testnet',
+    shortName: 'CitreaTestnet',
+    logo: 'https://assets.coingecko.com/coins/images/69995/large/ICON.png',
+    nativeCurrency: {
+      decimals: 18,
+      name: 'CBTC',
+      symbol: 'cBTC',
+    },
+    rpcUrls: ['https://rpcs.avail.so/citrea-testnet'],
+    blockExplorerUrls: ['https://explorer.testnet.citrea.xyz'],
+  },
   [SUPPORTED_CHAINS.BASE_SEPOLIA]: {
     id: SUPPORTED_CHAINS.BASE_SEPOLIA,
     name: 'Base Sepolia',
@@ -291,6 +305,7 @@ export const TESTNET_CHAINS = [
   SUPPORTED_CHAINS.OPTIMISM_SEPOLIA,
   SUPPORTED_CHAINS.POLYGON_AMOY,
   SUPPORTED_CHAINS.MONAD_TESTNET,
+  SUPPORTED_CHAINS.CITREA_TESTNET,
   // SUPPORTED_CHAINS.TRON_SHASTA,
 ] as const;
 
@@ -320,6 +335,7 @@ export const TOKEN_CONTRACT_ADDRESSES = {
     [SUPPORTED_CHAINS.OPTIMISM_SEPOLIA]: '0x5fd84259d66Cd46123540766Be93DFE6D43130D7',
     [SUPPORTED_CHAINS.POLYGON_AMOY]: '0x41E94Eb019C0762f9Bfcf9Fb1E58725BfB0e7582',
     [SUPPORTED_CHAINS.MONAD_TESTNET]: '0xf817257fed379853cDe0fa4F97AB987181B1E5Ea',
+    [SUPPORTED_CHAINS.CITREA_TESTNET]: '0xb669dC8cC6D044307Ba45366C0c836eC3c7e31AA',
   } as const,
   USDT: {
     [SUPPORTED_CHAINS.ETHEREUM]: '0xdac17f958d2ee523a2206206994597c13d831ec7',
