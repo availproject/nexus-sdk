@@ -4,6 +4,7 @@ import {
   type Hex,
   http,
   type PublicClient,
+  serializeTransaction,
   type TransactionReceipt,
   type WalletClient,
 } from 'viem';
@@ -32,10 +33,10 @@ import {
   convertTo32BytesHex,
   equalFold,
   erc20GetAllowance,
-  // divideBigInt,
+  getL1Fee,
   getPctGasBufferByChain,
   mulDecimals,
-  pctAdditionToBigInt,
+  pctAdditionWithSuggestion,
   switchChain,
   waitForTxReceipt,
 } from '../utils';
@@ -85,26 +86,45 @@ class SwapAndExecuteQuery {
     });
 
     // 5. simulate approval(?) and execution + fetch gasPrice + fetch unified balance
-    const [gasUsed, gasPriceRecommendations, balances, dstTokenInfo] = await Promise.all([
+    const [gasUsed, gasPriceRecommendations, balances, dstTokenInfo, l1Fee] = await Promise.all([
       determineGasUsed,
       getGasPriceRecommendations(dstPublicClient),
       this.getBalancesForSwap(),
       getTokenInfo(params.toTokenAddress, dstPublicClient, dstChain),
+      getL1Fee(
+        execute.to,
+        dstChain,
+        serializeTransaction({
+          chainId: dstChain.id,
+          data: execute.data ?? '0x',
+          value: execute.value,
+          to: execute.to,
+          type: 'eip1559',
+        })
+      ),
     ]);
 
-    // gasLimit = 1.3 * gasUsed (30% buffer)
     const pctBuffer = getPctGasBufferByChain(toChainId);
-    const approvalGas = pctAdditionToBigInt(gasUsed.approvalGas, pctBuffer);
-    const txGas = pctAdditionToBigInt(gasUsed.txGas, pctBuffer);
+    const [suggestedApprovalGas, approvalGas] = pctAdditionWithSuggestion(
+      gasUsed.approvalGas,
+      pctBuffer
+    );
+    const [suggestedTxGas, txGas] = pctAdditionWithSuggestion(gasUsed.txGas, pctBuffer);
 
-    const gasPrice = gasPriceRecommendations[params.execute.gasPrice ?? 'high'];
+    const gasPrice = gasPriceRecommendations[params.execute.gasPrice ?? 'medium'];
     if (gasPrice === 0n) {
       throw Errors.gasPriceError({
         chainId: toChainId,
       });
     }
 
-    const gasFee = (approvalGas + txGas) * gasPrice;
+    if (approvalTx) {
+      approvalTx.gas = suggestedApprovalGas;
+    }
+
+    tx.gas = suggestedTxGas;
+
+    const gasFee = (approvalGas + txGas) * gasPrice + l1Fee;
 
     logger.debug('SwapAndExecute:3', {
       increasedGas: approvalGas + txGas,

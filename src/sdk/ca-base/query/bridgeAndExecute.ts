@@ -41,10 +41,9 @@ import {
   erc20GetAllowance,
   generateStateOverride,
   getL1Fee,
-  // divideBigInt,
   getPctGasBufferByChain,
   mulDecimals,
-  pctAdditionToBigInt,
+  pctAdditionWithSuggestion,
   switchChain,
   UserAssets,
   waitForTxReceipt,
@@ -121,6 +120,7 @@ class BridgeAndExecuteQuery {
       getGasPriceRecommendations(dstPublicClient),
       this.getUnifiedBalances(),
       getL1Fee(
+        execute.to,
         dstChain,
         serializeTransaction({
           chainId: dstChain.id,
@@ -132,17 +132,28 @@ class BridgeAndExecuteQuery {
       ),
     ]);
 
-    // gasLimit = 1.3 * gasUsed (30% buffer)
     const pctBuffer = getPctGasBufferByChain(dstChain.id);
-    const approvalGas = pctAdditionToBigInt(gasUsed.approvalGas, pctBuffer);
-    const txGas = pctAdditionToBigInt(gasUsed.txGas, pctBuffer);
 
-    const gasPrice = gasPriceRecommendations.high;
+    // We ask for more, but suggest lesser than that
+    const [suggestedApprovalGas, approvalGas] = pctAdditionWithSuggestion(
+      gasUsed.approvalGas,
+      pctBuffer
+    );
+    const [suggestedTxGas, txGas] = pctAdditionWithSuggestion(gasUsed.txGas, pctBuffer);
+
+    const gasPrice = gasPriceRecommendations[params.execute.gasPrice ?? 'medium'];
+
     if (gasPrice === 0n) {
       throw Errors.gasPriceError({
         chainId: dstChain.id,
       });
     }
+
+    if (approvalTx) {
+      approvalTx.gas = suggestedApprovalGas;
+    }
+
+    tx.gas = suggestedTxGas;
 
     const gasFee = (approvalGas + txGas) * gasPrice + l1Fee;
 
@@ -273,10 +284,7 @@ class BridgeAndExecuteQuery {
     // Approval and execute
     if (approvalTx) {
       executeSteps.unshift(BRIDGE_STEPS.EXECUTE_APPROVAL_STEP);
-      approvalTx.gas = gas.approval;
     }
-
-    tx.gas = gas.tx;
 
     let bridgeResult: BridgeResult | null = null;
 

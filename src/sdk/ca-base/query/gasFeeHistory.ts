@@ -11,8 +11,6 @@ export type GasPriceRecommendations = {
   low: bigint;
   medium: bigint;
   high: bigint;
-  ultraHigh: bigint;
-  baseFee: bigint;
 };
 
 // from es-toolkit but with bigints
@@ -46,7 +44,7 @@ export const getGasPriceRecommendations = async (
   try {
     const feeHistory = await publicClient.getFeeHistory({
       blockCount: 20,
-      rewardPercentiles: [25, 50, 75, 90], // Low, Medium, High, UltraHigh
+      rewardPercentiles: [50, 75, 90],
       blockTag: 'latest',
     });
 
@@ -55,16 +53,14 @@ export const getGasPriceRecommendations = async (
     }
 
     // Extract priority fees for each speed tier
-    const lowPriorityFees = feeHistory.reward.map((block) => block[0]); // 25th percentile
-    const mediumPriorityFees = feeHistory.reward.map((block) => block[1]); // 50th percentile
-    const highPriorityFees = feeHistory.reward.map((block) => block[2]); // 75th percentile
-    const ultraHighPriorityFees = feeHistory.reward.map((block) => block[3]); // 90th percentile
+    const pctl50Fees = feeHistory.reward.map((block) => block[0]); // 50th percentile
+    const pctl75Fees = feeHistory.reward.map((block) => block[1]); // 75th percentile
+    const pctl90Fees = feeHistory.reward.map((block) => block[2]); // 90th percentile
 
     // Calculate averages across all blocks
-    const avgLowPriority = mean(lowPriorityFees);
-    const avgMediumPriority = mean(mediumPriorityFees);
-    const avgHighPriority = mean(highPriorityFees);
-    const avgUltraHighPriority = mean(ultraHighPriorityFees);
+    const avgLowPriority = mean(pctl50Fees);
+    const avgMediumPriority = mean(pctl75Fees);
+    const avgHighPriority = mean(pctl90Fees);
 
     // Get next block's base fee (last element in array)
     const nextBaseFee = feeHistory.baseFeePerGas[feeHistory.baseFeePerGas.length - 1];
@@ -77,23 +73,15 @@ export const getGasPriceRecommendations = async (
       low: baseFeeWithBuffer + avgLowPriority,
       medium: baseFeeWithBuffer + avgMediumPriority,
       high: baseFeeWithBuffer + avgHighPriority,
-      ultraHigh: baseFeeWithBuffer + avgUltraHighPriority,
-      baseFee: nextBaseFee,
     };
 
     logger.debug('Gas price recommendations', {
       baseFee: nextBaseFee.toString(),
       baseFeeWithBuffer: baseFeeWithBuffer.toString(),
-      avgLowPriority: avgLowPriority.toString(),
-      avgMediumPriority: avgMediumPriority.toString(),
-      avgHighPriority: avgHighPriority.toString(),
-      avgUltraHighPriority: avgUltraHighPriority.toString(),
-      recommendations: {
-        low: recommendations.low.toString(),
-        medium: recommendations.medium.toString(),
-        high: recommendations.high.toString(),
-        ultraHigh: recommendations.ultraHigh.toString(),
-      },
+      'avglowPriority(50pctl)': avgLowPriority.toString(),
+      'avgMediumPriority(75pctl)': avgMediumPriority.toString(),
+      'avgHighPriority(90pctl)': avgHighPriority.toString(),
+      recommendations,
     });
 
     return recommendations;

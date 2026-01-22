@@ -740,8 +740,11 @@ async function waitForTronDepositTxConfirmation(
   throw Errors.transactionTimeout(timeout / 1000);
 }
 
-function pctAdditionToBigInt(base: bigint, percentage: number) {
-  return base + BigInt(new Decimal(base).mul(percentage).toFixed(0));
+function pctAdditionWithSuggestion(base: bigint, percentage: number) {
+  const pctAmount = BigInt(new Decimal(base).mul(percentage).toFixed(0, Decimal.ROUND_CEIL));
+  const value = base + pctAmount;
+  const reducedValue = base + (pctAmount * 70n) / 100n;
+  return [reducedValue, value];
 }
 
 function divideBigInt(base: bigint, divisor: number) {
@@ -848,7 +851,7 @@ const createDeadlineFromNow = (minutes = 3n): bigint => {
 export {
   divideBigInt,
   createDeadlineFromNow,
-  pctAdditionToBigInt,
+  pctAdditionWithSuggestion,
   retrieveSIWESignatureFromLocalStorage,
   storeSIWESignatureToLocalStorage,
   retrieveAddress,

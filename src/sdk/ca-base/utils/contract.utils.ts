@@ -27,10 +27,12 @@ import {
   type ChainListType,
   type GetAllowanceParams,
   getLogger,
+  MAINNET_CHAIN_IDS,
   type SetAllowanceParams,
+  TESTNET_CHAIN_IDS,
 } from '../../../commons';
 import ERC20ABI from '../abi/erc20';
-import gasOracleABI from '../abi/gasOracle';
+import { ARBITRUM_GAS_ORACLE_ABI, OP_STACK_GAS_ORACLE_ABI } from '../abi/gasOracle';
 import { FillEvent } from '../abi/vault';
 import { ZERO_ADDRESS } from '../constants';
 import { Errors } from '../errors';
@@ -181,33 +183,45 @@ const getTokenTxFunction = (data: `0x${string}`) => {
 const DEFAULT_GAS_ORACLE_ADDRESS = '0x420000000000000000000000000000000000000F';
 
 const L1_GAS_ORACLES: Record<number, `0x${string}`> = {
-  10: DEFAULT_GAS_ORACLE_ADDRESS,
-  11155420: DEFAULT_GAS_ORACLE_ADDRESS,
-  534352: '0x5300000000000000000000000000000000000002',
-  8453: DEFAULT_GAS_ORACLE_ADDRESS,
-  84532: DEFAULT_GAS_ORACLE_ADDRESS,
+  [MAINNET_CHAIN_IDS.OPTIMISM]: DEFAULT_GAS_ORACLE_ADDRESS,
+  [TESTNET_CHAIN_IDS.OPTIMISM_SEPOLIA]: DEFAULT_GAS_ORACLE_ADDRESS,
+  [MAINNET_CHAIN_IDS.SCROLL]: '0x5300000000000000000000000000000000000002',
+  [MAINNET_CHAIN_IDS.BASE]: DEFAULT_GAS_ORACLE_ADDRESS,
+  [TESTNET_CHAIN_IDS.BASE_SEPOLIA]: DEFAULT_GAS_ORACLE_ADDRESS,
+  [MAINNET_CHAIN_IDS.ARBITRUM]: '0x00000000000000000000000000000000000000C8',
 } as const;
 
 const chainsWithGasOracles = Object.keys(L1_GAS_ORACLES).map(Number);
 
-const getL1Fee = async (chain: Chain, input: `0x${string}` = '0x') => {
+const getL1Fee = async (toAddress: Hex, chain: Chain, input: `0x${string}` = '0x') => {
   let fee = 0n;
   if (chainsWithGasOracles.includes(chain.id)) {
-    fee = await fetchL1Fee(chain, input);
+    fee = await fetchL1Fee(toAddress, chain, input);
   }
 
   return fee;
 };
 
-const fetchL1Fee = (chain: Chain, input: `0x${string}`) => {
+const fetchL1Fee = async (toAddress: Hex, chain: Chain, input: `0x${string}`) => {
   const pc = createPublicClientWithFallback(chain);
 
-  return pc.readContract({
-    abi: gasOracleABI,
-    address: L1_GAS_ORACLES[chain.id],
-    args: [input],
-    functionName: 'getL1Fee',
-  });
+  if (chain.id === MAINNET_CHAIN_IDS.ARBITRUM) {
+    const result = await pc.readContract({
+      abi: ARBITRUM_GAS_ORACLE_ABI,
+      address: L1_GAS_ORACLES[chain.id],
+      functionName: 'gasEstimateL1Component',
+      args: [toAddress, false, input],
+    });
+    // result = [gasEstimateForL1, baseFee, l1BaseFeeEstimate]
+    return result[0] * result[1];
+  } else {
+    return pc.readContract({
+      abi: OP_STACK_GAS_ORACLE_ABI,
+      address: L1_GAS_ORACLES[chain.id],
+      args: [input],
+      functionName: 'getL1Fee',
+    });
+  }
 };
 
 const waitForTxReceipt = async (
@@ -450,12 +464,13 @@ const createPublicClientWithFallback = (chain: Chain): PublicClient => {
   });
 };
 
-const getPctGasBufferByChain = (_: number) => {
-  // if (chainId === TESTNET_CHAIN_IDS.MONAD_TESTNET || chainId === MAINNET_CHAIN_IDS.MONAD) {
-  //   return 0.05;
-  // }
+const getPctGasBufferByChain = (chainId: number) => {
+  // 100% buffer for arbitrum, smh
+  if (chainId === MAINNET_CHAIN_IDS.ARBITRUM) {
+    return 1;
+  }
 
-  return 0.3;
+  return 0.5;
 };
 
 export {
