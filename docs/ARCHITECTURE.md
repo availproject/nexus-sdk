@@ -1455,7 +1455,7 @@ private async estimateSwapAndExecute(params: SwapAndExecuteParams) {
   const approvalGas = pctAdditionWithSuggestion(gasUsed.approvalGas, pctBuffer);
   const txGas = pctAdditionWithSuggestion(gasUsed.txGas, pctBuffer);
 
-  const gasPrice = gasPriceRecommendations[params.execute.gasPrice ?? 'high'];
+  const gasPrice = gasPriceRecommendations[params.execute.gasPrice ?? 'medium'];
   const gasFee = (approvalGas + txGas) * gasPrice;
 
   // Calculate how much needs to be swapped

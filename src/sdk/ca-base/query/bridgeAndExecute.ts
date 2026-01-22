@@ -141,7 +141,7 @@ class BridgeAndExecuteQuery {
     );
     const [suggestedTxGas, txGas] = pctAdditionWithSuggestion(gasUsed.txGas, pctBuffer);
 
-    const gasPrice = gasPriceRecommendations[params.execute.gasPrice ?? 'high'];
+    const gasPrice = gasPriceRecommendations[params.execute.gasPrice ?? 'medium'];
 
     if (gasPrice === 0n) {
       throw Errors.gasPriceError({
