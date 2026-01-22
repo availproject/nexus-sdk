@@ -1452,8 +1452,8 @@ private async estimateSwapAndExecute(params: SwapAndExecuteParams) {
 
   // Add gas buffer (chain-specific, typically 30%)
   const pctBuffer = getPctGasBufferByChain(toChainId);
-  const approvalGas = pctAdditionToBigInt(gasUsed.approvalGas, pctBuffer);
-  const txGas = pctAdditionToBigInt(gasUsed.txGas, pctBuffer);
+  const approvalGas = pctAdditionWithSuggestion(gasUsed.approvalGas, pctBuffer);
+  const txGas = pctAdditionWithSuggestion(gasUsed.txGas, pctBuffer);
 
   const gasPrice = gasPriceRecommendations[params.execute.gasPrice ?? 'high'];
   const gasFee = (approvalGas + txGas) * gasPrice;

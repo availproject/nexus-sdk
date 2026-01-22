@@ -34,10 +34,9 @@ import {
   equalFold,
   erc20GetAllowance,
   getL1Fee,
-  // divideBigInt,
   getPctGasBufferByChain,
   mulDecimals,
-  pctAdditionToBigInt,
+  pctAdditionWithSuggestion,
   switchChain,
   waitForTxReceipt,
 } from '../utils';
@@ -106,8 +105,11 @@ class SwapAndExecuteQuery {
     ]);
 
     const pctBuffer = getPctGasBufferByChain(toChainId);
-    const [suggestedApprovalGas, approvalGas] = pctAdditionToBigInt(gasUsed.approvalGas, pctBuffer);
-    const [suggestedTxGas, txGas] = pctAdditionToBigInt(gasUsed.txGas, pctBuffer);
+    const [suggestedApprovalGas, approvalGas] = pctAdditionWithSuggestion(
+      gasUsed.approvalGas,
+      pctBuffer
+    );
+    const [suggestedTxGas, txGas] = pctAdditionWithSuggestion(gasUsed.txGas, pctBuffer);
 
     const gasPrice = gasPriceRecommendations[params.execute.gasPrice ?? 'high'];
     if (gasPrice === 0n) {

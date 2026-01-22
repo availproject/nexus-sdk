@@ -41,10 +41,9 @@ import {
   erc20GetAllowance,
   generateStateOverride,
   getL1Fee,
-  // divideBigInt,
   getPctGasBufferByChain,
   mulDecimals,
-  pctAdditionToBigInt,
+  pctAdditionWithSuggestion,
   switchChain,
   UserAssets,
   waitForTxReceipt,
@@ -136,8 +135,11 @@ class BridgeAndExecuteQuery {
     const pctBuffer = getPctGasBufferByChain(dstChain.id);
 
     // We ask for more, but suggest lesser than that
-    const [suggestedApprovalGas, approvalGas] = pctAdditionToBigInt(gasUsed.approvalGas, pctBuffer);
-    const [suggestedTxGas, txGas] = pctAdditionToBigInt(gasUsed.txGas, pctBuffer);
+    const [suggestedApprovalGas, approvalGas] = pctAdditionWithSuggestion(
+      gasUsed.approvalGas,
+      pctBuffer
+    );
+    const [suggestedTxGas, txGas] = pctAdditionWithSuggestion(gasUsed.txGas, pctBuffer);
 
     const gasPrice = gasPriceRecommendations[params.execute.gasPrice ?? 'high'];
 
