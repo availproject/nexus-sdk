@@ -171,6 +171,12 @@ class SwapAndExecuteQuery {
       );
 
       const requiredAllowance = BigInt(params.tokenApproval.amount);
+
+      logger.debug('SwapAndExecute:createTxsForExecute', {
+        requiredAllowance,
+        currentAllowance,
+        skipApproval: currentAllowance > requiredAllowance,
+      });
       if (currentAllowance < requiredAllowance) {
         approvalTx = {
           to: params.tokenApproval.token,
