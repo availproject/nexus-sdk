@@ -770,3 +770,26 @@ Services required for local testing:
 | Anvil (POLY) | 8548 | Local Polygon |
 | Statekeeper | 9080 | V2 RFF API |
 | Solver | 9081 | Fulfillment service |
+
+---
+
+## V2 Middleware Protocol (localhost:3000)
+
+### Balance Fetching
+1. SDK → `GET /api/v1/balance/evm/:address` → Middleware
+2. Middleware → Fetches from all chain RPCs → Returns JSON
+3. Response: `{ "42161": { currencies: [...], total_usd, universe, errored } }`
+
+### Approval Creation
+1. SDK → `WSS /api/v1/create-sponsored-approvals` → Middleware
+2. Middleware → Submits permit txs to chains → Returns streamed responses
+3. Response per chain: `{ chainId, address, errored, txHash }`
+
+### RFF Submission
+1. SDK → `POST /api/v1/rff` → Middleware → Statekeeper
+2. Statekeeper validates & stores → Returns request_hash
+3. Response: `{ request_hash: "0x..." }`
+
+### RFF Status
+1. SDK → `GET /api/v1/rff/:hash` → Middleware → Statekeeper
+2. Response: `{ request, request_hash, signature, status, solver }`

@@ -183,6 +183,27 @@ await sdk.initialize(window.ethereum);
 
 ---
 
+## V2 Protocol Configuration
+
+Enable V2 middleware:
+
+```typescript
+import { JADE } from '@avail-project/nexus-core';
+
+const config = {
+  ...JADE,
+  useV2Middleware: true,
+  MIDDLEWARE_URL: 'http://localhost:3000',
+};
+```
+
+V2 uses:
+- REST API for balance & RFF operations
+- WebSocket (JSON) for approvals
+- Direct statekeeper integration via middleware
+
+---
+
 ## 📡 Event Handling
 
 **All main SDK functions support the `onEvent` hook**:
