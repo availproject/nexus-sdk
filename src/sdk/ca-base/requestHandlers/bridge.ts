@@ -73,6 +73,10 @@ import {
   getStatekeeperClient,
   // createDeadlineFromNow,
 } from '../utils';
+import {
+  submitRffToMiddleware,
+} from '../utils/middleware.utils';
+import type { V2MiddlewareRffPayload } from '../../../commons';
 import { TronWeb } from 'tronweb';
 import { Errors } from '../errors';
 import { ERROR_CODES, NexusError } from '../nexusError';
@@ -703,6 +707,33 @@ class BridgeHandler {
 
       throw e;
     }
+  }
+
+  /**
+   * Process RFF using v2 Middleware
+   * This submits RFFs via the middleware instead of directly to statekeeper
+   */
+  // @ts-expect-error - Will be used in Task 9
+  private async processRFFv2Middleware(
+    intent: Intent,
+    msd: (step: BridgeStepType) => void,
+  ): Promise<Hex> {
+    const { request, signature } = await createV2RequestFromIntent(
+      intent,
+      this.options,
+      this.params.dstChain.universe,
+    );
+
+    msd(BRIDGE_STEPS.INTENT_HASH_SIGNED);
+
+    const payload: V2MiddlewareRffPayload = { request, signature };
+    const response = await submitRffToMiddleware(
+      this.options.networkConfig.MIDDLEWARE_URL,
+      payload,
+    );
+
+    logger.debug('processRFFv2Middleware', { requestHash: response.request_hash });
+    return response.request_hash;
   }
 
   /**
