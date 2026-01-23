@@ -34,6 +34,11 @@ import {
   getExplorerURL,
   minutesToMs,
 } from './common.utils';
+import {
+  getBalancesFromMiddleware,
+  // @ts-expect-error - createApprovalsViaMiddleware will be used in Task 10
+  createApprovalsViaMiddleware,
+} from './middleware.utils';
 import { Errors } from '../errors';
 import { remove, retry } from 'es-toolkit';
 
@@ -385,6 +390,13 @@ export const getBalancesFromVSC = async (
 
 export const getEVMBalancesForAddress = async (vscDomain: string, address: `0x${string}`) => {
   return getBalancesFromVSC(vscDomain, address);
+};
+
+export const getEVMBalancesForAddressV2 = async (
+  middlewareUrl: string,
+  address: `0x${string}`,
+) => {
+  return getBalancesFromMiddleware(middlewareUrl, address, 0);
 };
 
 export const getTronBalancesForAddress = async (vscDomain: string, address: `0x${string}`) => {
