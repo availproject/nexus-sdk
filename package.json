@@ -17,8 +17,6 @@
     "clean": "rimraf dist dist-tarballs html_docs",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build",
-    "test:v2": "tsx test/integration/v2-statekeeper.test.ts",
-    "test:v2:e2e": "tsx test/integration/v2-e2e.test.ts",
     "test:v2:middleware": "tsx test/integration/v2-middleware-e2e.test.ts",
     "test:ui": "python3 -m http.server 8000 -d ui"
   },
