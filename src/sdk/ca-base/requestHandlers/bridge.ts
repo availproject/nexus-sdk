@@ -75,8 +75,9 @@ import {
 } from '../utils';
 import {
   submitRffToMiddleware,
+  createApprovalsViaMiddleware,
 } from '../utils/middleware.utils';
-import type { V2MiddlewareRffPayload } from '../../../commons';
+import type { V2MiddlewareRffPayload, V2ApprovalsByChain } from '../../../commons';
 import { TronWeb } from 'tronweb';
 import { Errors } from '../errors';
 import { ERROR_CODES, NexusError } from '../nexusError';
@@ -262,6 +263,88 @@ class BridgeHandler {
   public executeV2 = async (
     shouldRetryOnFailure = true,
   ): Promise<{ explorerURL: string; requestHash: Hex }> => {
+    if (this.options.networkConfig.useV2Middleware) {
+      return this.executeV2ViaMiddleware(shouldRetryOnFailure);
+    }
+    // Existing V2 logic (statekeeper direct)
+    return this.executeV2Direct(shouldRetryOnFailure);
+  };
+
+  private async executeV2ViaMiddleware(
+    _shouldRetryOnFailure = true,
+  ): Promise<{ explorerURL: string; requestHash: Hex }> {
+    let intent = await this.buildIntent(this.params.sourceChains);
+
+    const allowances = await getAllowances(intent.allSources, this.options.chainList);
+
+    let insufficientAllowanceSources = this.filterInsufficientAllowanceSources(intent, allowances);
+    this.createExpectedSteps(intent, insufficientAllowanceSources);
+
+    let accepted = false;
+    const refresh = async (sourceChains?: number[]) => {
+      if (accepted) {
+        logger.warn('Intent refresh called after acceptance');
+        return convertIntent(intent, this.params.dstToken, this.options.chainList);
+      }
+
+      intent = await this.buildIntent(sourceChains);
+      if (intent.isAvailableBalanceInsufficient) {
+        throw Errors.insufficientBalance();
+      }
+      insufficientAllowanceSources = this.filterInsufficientAllowanceSources(intent, allowances);
+      this.createExpectedSteps(intent, insufficientAllowanceSources);
+
+      return convertIntent(intent, this.params.dstToken, this.options.chainList);
+    };
+
+    // wait for intent acceptance hook
+    await new Promise((resolve, reject) => {
+      const allow = () => {
+        accepted = true;
+        return resolve('User allowed intent');
+      };
+
+      const deny = () => {
+        return reject(Errors.userDeniedIntent());
+      };
+
+      this.options.hooks.onIntent({
+        allow,
+        deny,
+        intent: convertIntent(intent, this.params.dstToken, this.options.chainList),
+        refresh,
+      });
+    });
+
+    this.markStepDone(BRIDGE_STEPS.INTENT_ACCEPTED);
+
+    // Step 5: Create approvals via middleware
+    await this.createApprovalsViaMiddleware(intent);
+
+    // Step 6: Submit intent via middleware
+    const requestHash = await this.processRFFv2Middleware(intent, this.markStepDone);
+
+    const explorerURL = `${this.options.networkConfig.EXPLORER_URL}/rff/${requestHash}`;
+    this.markStepDone(BRIDGE_STEPS.INTENT_SUBMITTED(explorerURL, 0));
+
+    // Mark collection as complete - middleware handles this internally
+    this.markStepDone(BRIDGE_STEPS.INTENT_COLLECTION_COMPLETE);
+
+    // Step 7: Wait for fill using v2 polling
+    await this.waitForFillV2(requestHash);
+
+    this.markStepDone(BRIDGE_STEPS.INTENT_FULFILLED);
+
+    if (this.params.dstChain.universe === Universe.ETHEREUM) {
+      await switchChain(this.options.evm.client, this.params.dstChain);
+    }
+
+    return { explorerURL, requestHash };
+  }
+
+  private async executeV2Direct(
+    shouldRetryOnFailure = true,
+  ): Promise<{ explorerURL: string; requestHash: Hex }> {
     let intent = await this.buildIntent(this.params.sourceChains);
 
     const allowances = await getAllowances(intent.allSources, this.options.chainList);
@@ -320,7 +403,7 @@ class BridgeHandler {
     if (response.retry) {
       logger.debug('rff fee expired, going to rebuild intent...');
       if (shouldRetryOnFailure) {
-        return this.executeV2(false);
+        return this.executeV2Direct(false);
       } else {
         throw Errors.rFFFeeExpired();
       }
@@ -338,7 +421,7 @@ class BridgeHandler {
     }
 
     return { explorerURL, requestHash };
-  };
+  }
 
   /**
    * Execute bridge using v1 Cosmos chain (legacy)
@@ -713,7 +796,6 @@ class BridgeHandler {
    * Process RFF using v2 Middleware
    * This submits RFFs via the middleware instead of directly to statekeeper
    */
-  // @ts-expect-error - Will be used in Task 9
   private async processRFFv2Middleware(
     intent: Intent,
     msd: (step: BridgeStepType) => void,
@@ -734,6 +816,182 @@ class BridgeHandler {
 
     logger.debug('processRFFv2Middleware', { requestHash: response.request_hash });
     return response.request_hash;
+  }
+
+  /**
+   * Convert internal sponsored approval format to middleware format
+   */
+  private convertToMiddlewareApprovals(
+    sponsoredApprovals: SponsoredApprovalDataArray,
+  ): V2ApprovalsByChain {
+    const result: V2ApprovalsByChain = {};
+
+    for (const approval of sponsoredApprovals) {
+      const chainId = Number(
+        BigInt(
+          '0x' +
+            Array.from(approval.chain_id)
+              .map((b) => b.toString(16).padStart(2, '0'))
+              .join(''),
+        ),
+      );
+      const address = `0x${Array.from(approval.address)
+        .slice(-20)
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('')}` as Hex;
+
+      if (!result[chainId]) {
+        result[chainId] = [];
+      }
+
+      const ops = approval.operations.map((op) => ({
+        tokenAddress: `0x${Array.from(op.token_address)
+          .slice(-20)
+          .map((b) => b.toString(16).padStart(2, '0'))
+          .join('')}` as Hex,
+        variant: op.variant as 1 | 2,
+        value: op.value
+          ? (`0x${Array.from(op.value)
+              .map((b) => b.toString(16).padStart(2, '0'))
+              .join('')}` as Hex)
+          : null,
+        signature: {
+          v: op.sig_v,
+          r: `0x${Array.from(op.sig_r)
+            .map((b) => b.toString(16).padStart(2, '0'))
+            .join('')}` as Hex,
+          s: `0x${Array.from(op.sig_s)
+            .map((b) => b.toString(16).padStart(2, '0'))
+            .join('')}` as Hex,
+        },
+      }));
+
+      result[chainId].push({ address, ops });
+    }
+
+    return result;
+  }
+
+  /**
+   * Create approvals via middleware
+   */
+  private async createApprovalsViaMiddleware(intent: Intent) {
+    const sponsoredApprovals = await this.buildSponsoredApprovals(intent);
+    const middlewareApprovals = this.convertToMiddlewareApprovals(sponsoredApprovals);
+
+    const results = await createApprovalsViaMiddleware(
+      this.options.networkConfig.MIDDLEWARE_URL,
+      middlewareApprovals,
+    );
+
+    for (const result of results) {
+      if (result.errored) {
+        throw Errors.internal(`Approval failed on chain ${result.chainId}: ${result.message}`);
+      }
+    }
+
+    return results.map((r) => ({ chainId: r.chainId, hash: r.txHash! }));
+  }
+
+  /**
+   * Build sponsored approvals from intent
+   */
+  private async buildSponsoredApprovals(intent: Intent): Promise<SponsoredApprovalDataArray> {
+    const sponsoredApprovals: SponsoredApprovalDataArray = [];
+
+    for (const source of intent.sources) {
+      if (
+        source.chainID === intent.destination.chainID ||
+        isNativeAddress(source.universe, source.tokenContract)
+      ) {
+        continue;
+      }
+
+      const chain = this.options.chainList.getChainByID(source.chainID);
+      if (!chain) {
+        throw Errors.chainNotFound(source.chainID);
+      }
+
+      const token = this.options.chainList.getTokenByAddress(source.chainID, source.tokenContract);
+      if (!token) {
+        throw Errors.tokenNotSupported(source.tokenContract, source.chainID);
+      }
+
+      const publicClient = createPublicClientWithFallback(chain);
+      const vc = this.options.chainList.getVaultContractAddress(chain.id);
+
+      const chainId = new OmniversalChainID(chain.universe, source.chainID);
+      const chainDatum = ChaindataMap.get(chainId);
+      if (!chainDatum) {
+        throw Errors.internal('Chain data not found', {
+          chainId: source.chainID,
+          universe: chain.universe,
+        });
+      }
+
+      const currency = chainDatum.CurrencyMap.get(convertTo32Bytes(source.tokenContract));
+      if (!currency) {
+        throw Errors.internal('currency not found', {
+          chainId: source.chainID,
+          tokenContractAddress: source.tokenContract,
+        });
+      }
+
+      // Only create permit-based approvals for middleware
+      if (currency.permitVariant !== PermitVariant.Unsupported && chain.id !== 1) {
+        if (chain.universe === Universe.ETHEREUM) {
+          await switchChain(this.options.evm.client, chain);
+        }
+
+        const account: JsonRpcAccount = {
+          address: this.options.evm.address,
+          type: 'json-rpc',
+        };
+
+        const requiredAmount = mulDecimals(source.amount, token.decimals);
+
+        const signed = parseSignature(
+          await signPermitForAddressAndValue(
+            currency,
+            this.options.evm.client,
+            publicClient,
+            account,
+            vc,
+            requiredAmount,
+          ).catch((e) => {
+            if (e instanceof ContractFunctionExecutionError) {
+              const isUserRejectedRequestError =
+                e.walk((e) => e instanceof UserRejectedRequestError) instanceof
+                UserRejectedRequestError;
+              if (isUserRejectedRequestError) {
+                throw Errors.userRejectedAllowance();
+              }
+            }
+            throw e;
+          }),
+        );
+
+        this.markStepDone(BRIDGE_STEPS.ALLOWANCE_APPROVAL_REQUEST(chain));
+
+        sponsoredApprovals.push({
+          address: convertTo32Bytes(account.address),
+          chain_id: chainDatum.ChainID32,
+          operations: [
+            {
+              sig_r: hexToBytes(signed.r),
+              sig_s: hexToBytes(signed.s),
+              sig_v: signed.yParity < 27 ? signed.yParity + 27 : signed.yParity,
+              token_address: currency.tokenAddress,
+              value: convertTo32Bytes(requiredAmount),
+              variant: currency.permitVariant === PermitVariant.PolygonEMT ? 2 : 1,
+            },
+          ],
+          universe: chainDatum.Universe,
+        });
+      }
+    }
+
+    return sponsoredApprovals;
   }
 
   /**
