@@ -413,6 +413,7 @@ export type NetworkConfig = {
   VSC_DOMAIN: string;
   STATEKEEPER_URL: string;
   MIDDLEWARE_URL: string;
+  useV2Middleware?: boolean;  // NEW: opt-in flag
 };
 
 // ============================================================================

@@ -11,6 +11,7 @@ const JADE_CONFIG: NetworkConfig = {
   VSC_DOMAIN: 'vsc-mainnet.availproject.org',
   STATEKEEPER_URL: 'http://localhost:9080',
   MIDDLEWARE_URL: 'http://localhost:3000',
+  useV2Middleware: false,  // Default to V1
 };
 
 // Canary
@@ -22,6 +23,7 @@ const CORAL_CONFIG: NetworkConfig = {
   VSC_DOMAIN: 'vsc1-testnet.arcana.network',
   STATEKEEPER_URL: 'http://localhost:9080',
   MIDDLEWARE_URL: 'http://localhost:3000',
+  useV2Middleware: false,  // Default to V1
 };
 
 // Testnet
@@ -33,6 +35,7 @@ const FOLLY_CONFIG: NetworkConfig = {
   VSC_DOMAIN: 'vsc1-folly.arcana.network',
   STATEKEEPER_URL: 'http://localhost:9080',
   MIDDLEWARE_URL: 'http://localhost:3000',
+  useV2Middleware: false,  // Default to V1
 };
 
 const isNetworkConfig = (config?: Environment | NetworkConfig): config is NetworkConfig => {
