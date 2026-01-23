@@ -8,7 +8,7 @@
  * - forge CLI available for contract deployment
  *
  * Run with:
- *   bun test/integration/v2-middleware-e2e.test.ts
+ *   pnpm test:v2:middleware
  */
 
 import { execSync } from 'child_process';
@@ -50,7 +50,35 @@ const CHAINS = [
 ];
 
 const deployer = privateKeyToAccount(DEPLOYER_KEY);
-const deployedTokens: Record<number, Address> = {};
+
+// ============================================================================
+// Test Runner
+// ============================================================================
+
+class TestRunner {
+  private passed = 0;
+  private failed = 0;
+
+  async test(name: string, fn: () => Promise<void>) {
+    process.stdout.write(`  ${name}... `);
+    try {
+      await fn();
+      console.log('\x1b[32m✓ PASSED\x1b[0m');
+      this.passed++;
+    } catch (error) {
+      console.log('\x1b[31m✗ FAILED\x1b[0m');
+      console.error('    Error:', error instanceof Error ? error.message : error);
+      this.failed++;
+    }
+  }
+
+  summary() {
+    console.log('\n' + '='.repeat(50));
+    console.log(`Results: ${this.passed} passed, ${this.failed} failed`);
+    console.log('='.repeat(50));
+    return this.failed === 0;
+  }
+}
 
 // ============================================================================
 // Utility Functions
@@ -123,41 +151,78 @@ async function signPermit(chainId: number, token: Address, nonce: bigint) {
 }
 
 // ============================================================================
-// Test Suite
+// Main Test Suite
 // ============================================================================
 
-describe('V2 Middleware E2E', () => {
-  beforeAll(async () => {
-    console.log('\n=== Setting up test environment ===\n');
+async function runTests() {
+  console.log('\n' + '='.repeat(50));
+  console.log('V2 Middleware E2E Integration Tests');
+  console.log('='.repeat(50) + '\n');
 
-    for (const chain of CHAINS) {
+  const runner = new TestRunner();
+  const deployedTokens: Record<number, Address> = {};
+
+  console.log(`Test wallet: ${deployer.address}`);
+  console.log(`Middleware: ${MIDDLEWARE_URL}\n`);
+
+  // -------------------------------------------------------------------------
+  // Setup: Deploy tokens and mint
+  // -------------------------------------------------------------------------
+  console.log('\n[Setup] Deploying test environment');
+
+  for (const chain of CHAINS) {
+    process.stdout.write(`  Deploying token on ${chain.name}... `);
+    try {
       deployedTokens[chain.chainId] = await deployMockToken(chain.port);
-      console.log(`Deployed token on ${chain.name}: ${deployedTokens[chain.chainId]}`);
+      console.log(`\x1b[32m✓\x1b[0m ${deployedTokens[chain.chainId]}`);
 
       const mintAmount = parseUnits('1000', 6);
+      process.stdout.write(`  Minting ${formatUnits(mintAmount, 6)} tokens... `);
       await mintTokens(chain.port, deployedTokens[chain.chainId], deployer.address, mintAmount);
-      console.log(`Minted ${formatUnits(mintAmount, 6)} tokens`);
+      console.log('\x1b[32m✓\x1b[0m');
+    } catch (error) {
+      console.log('\x1b[31m✗ FAILED\x1b[0m');
+      console.error('    Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
     }
+  }
 
-    console.log('\n=== Setup complete ===\n');
-  }, 120000);
+  console.log('\n=== Setup complete ===\n');
 
-  test('fetch balances via middleware', async () => {
+  // -------------------------------------------------------------------------
+  // Test 1: Fetch balances
+  // -------------------------------------------------------------------------
+  console.log('\n[1] Balance Fetching');
+
+  await runner.test('Fetch balances via middleware', async () => {
     const balances = await getBalancesFromMiddleware(MIDDLEWARE_URL, deployer.address, 0);
 
-    expect(Array.isArray(balances)).toBe(true);
-    expect(balances.length).toBeGreaterThan(0);
+    if (!Array.isArray(balances)) {
+      throw new Error('Expected balances to be an array');
+    }
+    if (balances.length === 0) {
+      throw new Error('Expected balances array to have items');
+    }
 
     const arbBalance = balances.find(b => {
       const chainIdNum = Number(BigInt('0x' + Array.from(b.chain_id).map(x => x.toString(16).padStart(2, '0')).join('')));
       return chainIdNum === 42161;
     });
 
-    expect(arbBalance).toBeDefined();
-    expect(arbBalance!.currencies.length).toBeGreaterThan(0);
-  }, 30000);
+    if (!arbBalance) {
+      throw new Error('Expected to find Arbitrum balance');
+    }
+    if (arbBalance.currencies.length === 0) {
+      throw new Error('Expected currencies array to have items');
+    }
+  });
 
-  test('create approvals via middleware', async () => {
+  // -------------------------------------------------------------------------
+  // Test 2: Create approvals
+  // -------------------------------------------------------------------------
+  console.log('\n[2] Approval Creation');
+
+  await runner.test('Create approvals via middleware', async () => {
     const approvals: V2ApprovalsByChain = {};
 
     for (const chain of CHAINS) {
@@ -174,14 +239,27 @@ describe('V2 Middleware E2E', () => {
 
     const results = await createApprovalsViaMiddleware(MIDDLEWARE_URL, approvals);
 
-    expect(results.length).toBe(CHAINS.length);
-    for (const result of results) {
-      expect(result.errored).toBe(false);
-      expect(result.txHash).toMatch(/^0x[a-fA-F0-9]{64}$/);
+    if (results.length !== CHAINS.length) {
+      throw new Error(`Expected ${CHAINS.length} results, got ${results.length}`);
     }
-  }, 60000);
+    for (const result of results) {
+      if (result.errored) {
+        throw new Error('Expected result to not be errored');
+      }
+      if (!/^0x[a-fA-F0-9]{64}$/.test(result.txHash)) {
+        throw new Error(`Invalid txHash format: ${result.txHash}`);
+      }
+    }
+  });
 
-  test('submit RFF via middleware', async () => {
+  // -------------------------------------------------------------------------
+  // Test 3: Submit RFF
+  // -------------------------------------------------------------------------
+  console.log('\n[3] RFF Submission');
+
+  let submittedHash: Hex | null = null;
+
+  await runner.test('Submit RFF via middleware', async () => {
     const sourceChain = CHAINS[0];
     const destChain = CHAINS[1];
     const amount = parseUnits('100', 6);
@@ -213,20 +291,57 @@ describe('V2 Middleware E2E', () => {
     const payload: V2MiddlewareRffPayload = { request: rffRequest, signature };
 
     const response = await submitRffToMiddleware(MIDDLEWARE_URL, payload);
-    expect(response.request_hash).toMatch(/^0x[a-fA-F0-9]{64}$/);
+    if (!/^0x[a-fA-F0-9]{64}$/.test(response.request_hash)) {
+      throw new Error(`Invalid request_hash format: ${response.request_hash}`);
+    }
+    submittedHash = response.request_hash as Hex;
+    console.log(`    Hash: ${submittedHash.slice(0, 20)}...`);
+  });
 
-    const rff = await getRffFromMiddleware(MIDDLEWARE_URL, response.request_hash);
-    expect(rff.request_hash).toBe(response.request_hash);
-    expect(rff.status).toBe('created');
-  }, 30000);
+  // -------------------------------------------------------------------------
+  // Test 4: Retrieve RFF
+  // -------------------------------------------------------------------------
+  console.log('\n[4] RFF Retrieval');
 
-  test('list RFFs from middleware', async () => {
+  await runner.test('Get RFF by hash', async () => {
+    if (!submittedHash) throw new Error('No submitted hash');
+
+    const rff = await getRffFromMiddleware(MIDDLEWARE_URL, submittedHash);
+    if (rff.request_hash !== submittedHash) {
+      throw new Error(`Expected request_hash to match: ${rff.request_hash} !== ${submittedHash}`);
+    }
+    if (rff.status !== 'created') {
+      throw new Error(`Expected status to be "created", got "${rff.status}"`);
+    }
+    console.log(`    Status: ${rff.status}`);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 5: List RFFs
+  // -------------------------------------------------------------------------
+  console.log('\n[5] RFF Listing');
+
+  await runner.test('List RFFs from middleware', async () => {
     const rffs = await listRffsFromMiddleware(MIDDLEWARE_URL, {
       status: 'created',
       limit: 10,
     });
 
-    expect(rffs.rffs).toBeDefined();
-    expect(Array.isArray(rffs.rffs)).toBe(true);
-  }, 30000);
-});
+    if (!rffs.rffs) {
+      throw new Error('Expected rffs property to be defined');
+    }
+    if (!Array.isArray(rffs.rffs)) {
+      throw new Error('Expected rffs to be an array');
+    }
+    console.log(`    Found ${rffs.rffs.length} RFFs`);
+  });
+
+  // -------------------------------------------------------------------------
+  // Summary
+  // -------------------------------------------------------------------------
+  const success = runner.summary();
+  process.exit(success ? 0 : 1);
+}
+
+// Run tests
+runTests().catch(console.error);
