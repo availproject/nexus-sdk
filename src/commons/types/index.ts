@@ -743,6 +743,8 @@ export type BeforeExecuteHook = {
   beforeExecute?: () => Promise<{ value?: bigint; data?: Hex; gas?: bigint }>;
 };
 
+export * from './middleware-types';
+
 export type {
   OnIntentHook,
   OnAllowanceHookData,
