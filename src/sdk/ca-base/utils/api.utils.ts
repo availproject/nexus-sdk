@@ -36,7 +36,6 @@ import {
 } from './common.utils';
 import {
   getBalancesFromMiddleware,
-  // @ts-expect-error - createApprovalsViaMiddleware will be used in Task 10
   createApprovalsViaMiddleware,
 } from './middleware.utils';
 import { Errors } from '../errors';
@@ -770,4 +769,5 @@ export {
   vscCreateSponsoredApprovals,
   vscPublishRFF,
   getVSCURL,
+  createApprovalsViaMiddleware,
 };
