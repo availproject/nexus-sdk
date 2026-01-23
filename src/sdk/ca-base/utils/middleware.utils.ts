@@ -8,6 +8,7 @@ import {
   CreateRffResponse,
   V2RffResponse,
   ListRffsResponse,
+  UnifiedBalanceResponseData,
 } from '../../../commons';
 import { logger } from '../../../commons/utils/logger';
 import { Errors } from '../errors';
@@ -39,6 +40,53 @@ export const getMiddlewareClient = (middlewareUrl: string): AxiosInstance => {
 // ============================================================================
 
 /**
+ * Adapts V2 balance response (JSON with string chainIds) to V1 format (msgpack with Uint8Array)
+ * V2: { "42161": { currencies: [{ token_address: "0x...", balance, value }], ... } }
+ * V1: [{ chain_id: Uint8Array(32), currencies: [{ token_address: Uint8Array(32), balance, value }] }]
+ */
+export const adaptV2BalanceToV1Format = (
+  v2Response: V2BalanceResponse,
+): UnifiedBalanceResponseData[] => {
+  const result: UnifiedBalanceResponseData[] = [];
+
+  for (const [chainIdStr, chainData] of Object.entries(v2Response)) {
+    const chainId = parseInt(chainIdStr, 10);
+    const chainIdBytes = new Uint8Array(32);
+    const chainIdBigInt = BigInt(chainId);
+
+    for (let i = 0; i < 32; i++) {
+      chainIdBytes[31 - i] = Number((chainIdBigInt >> BigInt(i * 8)) & 0xFFn);
+    }
+
+    const currencies = chainData.currencies.map(c => {
+      const tokenAddress = c.token_address.startsWith('0x')
+        ? c.token_address.slice(2)
+        : c.token_address;
+      const tokenBytes = new Uint8Array(32);
+      for (let i = 0; i < 20; i++) {
+        tokenBytes[12 + i] = parseInt(tokenAddress.slice(i * 2, i * 2 + 2), 16);
+      }
+
+      return {
+        balance: c.balance,
+        token_address: tokenBytes,
+        value: c.value,
+      };
+    });
+
+    result.push({
+      chain_id: chainIdBytes,
+      currencies,
+      total_usd: chainData.total_usd,
+      universe: chainData.universe as 0 | 1,
+      errored: chainData.errored,
+    });
+  }
+
+  return result;
+};
+
+/**
  * Get balances from middleware
  * GET /balance/:universe/:addr
  */
@@ -46,7 +94,7 @@ export const getBalancesFromMiddleware = async (
   middlewareUrl: string,
   address: Hex,
   universe: number,
-): Promise<V2BalanceResponse> => {
+): Promise<UnifiedBalanceResponseData[]> => {
   try {
     const client = getMiddlewareClient(middlewareUrl);
     logger.debug('getBalancesFromMiddleware', { address, universe, middlewareUrl });
@@ -54,7 +102,7 @@ export const getBalancesFromMiddleware = async (
     const response = await client.get<V2BalanceResponse>(`/balance/${universe}/${address}`);
 
     logger.debug('getBalancesFromMiddleware:response', { data: response.data });
-    return response.data;
+    return adaptV2BalanceToV1Format(response.data);
   } catch (error) {
     logger.error('getBalancesFromMiddleware:error', error);
     throw Errors.internal('Failed to fetch balances from middleware', {
