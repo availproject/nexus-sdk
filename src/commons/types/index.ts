@@ -412,6 +412,7 @@ export type NetworkConfig = {
   NETWORK_HINT: Environment;
   VSC_DOMAIN: string;
   STATEKEEPER_URL: string;
+  MIDDLEWARE_URL: string;
 };
 
 // ============================================================================
