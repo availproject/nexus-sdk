@@ -10,6 +10,7 @@ export const MAINNET_CHAIN_IDS = {
   SCROLL: 534352,
   SOPHON: 50104,
   KAIA: 8217,
+  CITREA: 4114,
   BNB: 56,
   HYPEREVM: 999,
   // TRON: 728126428,
@@ -80,6 +81,15 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
     rpcUrls: ['https://eth.merkle.io'],
     blockExplorerUrls: ['https://etherscan.io'],
+  },
+  [SUPPORTED_CHAINS.CITREA]: {
+    id: SUPPORTED_CHAINS.CITREA,
+    name: 'Citrea Mainnet',
+    shortName: 'citrea',
+    logo: 'https://assets.coingecko.com/coins/images/279/small/ethereum.png',
+    nativeCurrency: { name: 'CBTC', symbol: 'cBTC', decimals: 18 },
+    rpcUrls: ['https://rpcs.avail.so/citrea'],
+    blockExplorerUrls: ['https://explorer.mainnet.citrea.xyz'],
   },
   [SUPPORTED_CHAINS.MONAD]: {
     id: SUPPORTED_CHAINS.MONAD,
@@ -301,6 +311,7 @@ export const TOKEN_CONTRACT_ADDRESSES = {
     [SUPPORTED_CHAINS.BNB]: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d',
     [SUPPORTED_CHAINS.HYPEREVM]: '0xb88339CB7199b77E23DB6E890353E22632Ba630f',
     [SUPPORTED_CHAINS.MONAD]: '0x754704Bc059F8C67012fEd69BC8A327a5aafb603',
+    [SUPPORTED_CHAINS.CITREA]: '0xE045e6c36cF77FAA2CfB54466D71A3aEF7bbE839',
     // Testnet chains
     [SUPPORTED_CHAINS.SEPOLIA]: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
     // [SUPPORTED_CHAINS.VALIDIUM_TESTNET]: '0x8Cf5f629Bb26FC3F92144e72bC4A3719A7DF07F3',
@@ -321,6 +332,7 @@ export const TOKEN_CONTRACT_ADDRESSES = {
     [SUPPORTED_CHAINS.AVALANCHE]: '0x9702230a8ea53601f5cd2dc00fdbc13d4df4a8c7',
     [SUPPORTED_CHAINS.BNB]: '0x55d398326f99059fF775485246999027B3197955',
     [SUPPORTED_CHAINS.HYPEREVM]: '0xB8CE59FC3717ada4C02eaDF9682A9e934F625ebb',
+    [SUPPORTED_CHAINS.CITREA]: '0x9f3096Bac87e7F03DC09b0B416eB0DF837304dc4',
     // [SUPPORTED_CHAINS.TRON]: '0xa614f803B6FD780986A42c78Ec9c7f77e6DeD13C',
     // testnet chains
     // [SUPPORTED_CHAINS.TRON_SHASTA]: '0x42a1e39aefA49290F2B3F9ed688D7cecf86CD6E0',

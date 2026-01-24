@@ -480,6 +480,49 @@ const MAINNET_CHAINS: Chain[] = [
   {
     blockExplorers: {
       default: {
+        name: 'Citrea Explorer',
+        url: 'https://explorer.mainnet.citrea.xyz',
+      },
+    },
+    custom: {
+      icon: 'https://assets.coingecko.com/coins/images/38680/large/sophon_logo_200.png',
+      knownTokens: [
+        {
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDT[SUPPORTED_CHAINS.CITREA],
+          decimals: 6,
+          logo: getLogoFromSymbol('USDT'),
+          name: 'Tether USD',
+          symbol: 'USDT',
+        },
+        {
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDC[SUPPORTED_CHAINS.CITREA],
+          decimals: 6,
+          logo: getLogoFromSymbol('USDC'),
+          name: 'USD Coin',
+          symbol: 'USDC',
+        },
+      ],
+    },
+    id: SUPPORTED_CHAINS.CITREA,
+    name: 'Citrea Mainnet',
+    ankrName: '',
+    nativeCurrency: {
+      decimals: 18,
+      name: 'CBTC',
+      symbol: 'cBTC',
+    },
+    rpcUrls: {
+      default: {
+        http: ['https://rpcs.avail.so/citrea'],
+        publicHttp: [],
+        webSocket: ['wss://rpcs.avail.so/citrea'],
+      },
+    },
+    universe: Universe.ETHEREUM,
+  },
+  {
+    blockExplorers: {
+      default: {
         name: 'Sophscan',
         url: 'https://sophscan.xyz',
       },
