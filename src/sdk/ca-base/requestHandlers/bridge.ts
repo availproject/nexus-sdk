@@ -11,7 +11,6 @@ import type Long from 'long';
 import { TronWeb } from 'tronweb';
 import {
   ContractFunctionExecutionError,
-  createPublicClient,
   encodeFunctionData,
   type Hex,
   hexToBytes,
@@ -21,7 +20,6 @@ import {
   type TransactionReceipt,
   toHex,
   UserRejectedRequestError,
-  webSocket,
 } from 'viem';
 import {
   BRIDGE_STEPS,
@@ -363,9 +361,7 @@ class BridgeHandler {
     if (this.params.dstChain.universe === Universe.ETHEREUM) {
       promisesToRace.push(
         waitForIntentFulfilment(
-          createPublicClient({
-            transport: webSocket(this.params.dstChain.rpcUrls.default.webSocket[0]),
-          }),
+          createPublicClientWithFallback(this.params.dstChain),
           this.options.chainList.getVaultContractAddress(this.params.dstChain.id),
           requestHash,
           ac

@@ -20,7 +20,6 @@ import {
   type PublicClient,
   pad,
   type WalletClient,
-  type WebSocketTransport,
 } from 'viem';
 import {
   type Chain,
@@ -120,7 +119,7 @@ const getAllowances = async (
 };
 
 const waitForIntentFulfilment = async (
-  publicClient: PublicClient<WebSocketTransport>,
+  publicClient: PublicClient,
   vaultContractAddr: `0x${string}`,
   requestHash: `0x${string}`,
   ac: AbortController
@@ -136,7 +135,6 @@ const waitForIntentFulfilment = async (
         ac.abort();
         return resolve(logs[0].transactionHash);
       },
-      poll: false,
     });
     ac.signal.addEventListener(
       'abort',
