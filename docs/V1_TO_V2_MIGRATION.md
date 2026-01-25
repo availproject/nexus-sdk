@@ -52,3 +52,32 @@ V2 replaces msgpack WebSocket APIs with REST/JSON APIs via middleware.
 ## Rollback
 
 Set `useV2Middleware: false` to use V1 protocol.
+
+## Test Suite Changes
+
+The V2 integration removes all legacy V1 tests in favor of a single comprehensive E2E test:
+
+### Removed Tests
+- `test/integration/v2-statekeeper.test.ts` - Used direct statekeeper API (V1)
+- `test/integration/v2-e2e.test.ts` - Used direct statekeeper + cast impersonation (V1)
+- `test/integration/v2-rpc-balance.test.ts` - Used VSC balance API (V1)
+
+### New Test
+- `test/integration/v2-middleware-e2e.test.ts` - Complete V2 middleware E2E test
+
+The new test demonstrates:
+1. Balance retrieval via middleware REST API
+2. Approval creation via middleware WebSocket
+3. RFF submission via middleware REST API
+4. RFF status tracking via middleware REST API
+
+Run with:
+```bash
+pnpm test:v2:middleware
+```
+
+Prerequisites:
+- Anvil nodes on ports 8545, 8546
+- Middleware on port 3000
+
+For production usage examples, see [Next.js V2 Integration Guide](./NEXTJS_V2_INTEGRATION.md).

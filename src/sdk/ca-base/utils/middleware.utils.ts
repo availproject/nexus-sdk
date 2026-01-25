@@ -29,6 +29,7 @@ export const getMiddlewareClient = (middlewareUrl: string): AxiosInstance => {
       timeout: 30000,
       headers: {
         'Content-Type': 'application/json',
+        'Accept': 'application/json',
       },
     });
   }

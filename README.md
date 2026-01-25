@@ -16,40 +16,9 @@ npm install @avail-project/nexus-core
 
 ## 🚀 Quick Start
 
-```typescript
-import { NexusSDK, NEXUS_EVENTS } from '@avail-project/nexus-core';
 
-// Initialize SDK
-const sdk = new NexusSDK({ network: 'mainnet' });
-await sdk.initialize(provider); // Your EVM-compatible wallet provider
 
-// (Optional) Add TRON support
-const tronLinkAdapter = new TronLinkAdapter();
-sdk.addTron(tronLinkAdapter);
 
-// ---------------------------
-// 1️⃣ Get unified balances
-// ---------------------------
-const balances = await sdk.getUnifiedBalances(false); // false = CA balances only
-console.log('Balances:', balances);
-
-// ---------------------------
-// 2️⃣ Bridge tokens
-// ---------------------------
-const bridgeResult = await sdk.bridge(
-  {
-    token: 'USDC',
-    amount: 1_500_000n,
-    recipient: '0x...' // Optional
-    toChainId: 137, // Polygon
-  },
-  {
-    onEvent: (event) => {
-      if (event.name === NEXUS_EVENTS.STEPS_LIST) console.log('Bridge steps:', event.args);
-      if (event.name === NEXUS_EVENTS.STEP_COMPLETE) console.log('Step completed:', event.args);
-    },
-  },
-);
 
 // ---------------------------
 // 3️⃣ Transfer tokens

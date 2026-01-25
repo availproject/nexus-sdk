@@ -124,6 +124,8 @@ class BridgeHandler {
         chainList: this.options.chainList,
         tronAddress: this.options.tron?.address,
         isCA: true,
+        useV2Middleware: this.options.networkConfig.useV2Middleware,
+        middlewareUrl: this.options.networkConfig.MIDDLEWARE_URL,
       }),
       fetchPriceOracle(this.options.networkConfig.GRPC_URL),
       getFeeStore(this.options.networkConfig.GRPC_URL),

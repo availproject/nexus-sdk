@@ -18,6 +18,8 @@
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build",
     "test:v2:middleware": "tsx test/integration/v2-middleware-e2e.test.ts",
+    "test:sdk:v2:middleware": "tsx test/integration/sdk-v2-middleware-e2e.test.ts",
+    "test:sdk:v2:balance": "tsx test/integration/sdk-v2-balance-test.ts",
     "test:ui": "python3 -m http.server 8000 -d ui"
   },
   "sideEffects": false,

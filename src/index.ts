@@ -2,6 +2,7 @@ import './_polyfill';
 // Core SDK entry point - headless, no React dependencies
 export { NexusSDK } from './sdk/index';
 export { NexusError, NexusErrorData, ERROR_CODES } from './sdk/ca-base/nexusError';
+export { Network } from './sdk/ca-base/index';
 // Re-export types from commons for convenience
 export type {
   BridgeParams,

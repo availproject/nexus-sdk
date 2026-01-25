@@ -80,6 +80,8 @@ const _exactOutRoute = async (
       removeTransferFee: true,
       filter: true,
       vscDomain: params.networkConfig.VSC_DOMAIN,
+      useV2Middleware: params.networkConfig.useV2Middleware,
+      middlewareUrl: params.networkConfig.MIDDLEWARE_URL,
     }),
     fetchPriceOracle(params.networkConfig.GRPC_URL),
   ]);
@@ -531,6 +533,8 @@ const _exactInRoute = async (
       removeTransferFee: true,
       filter: false,
       vscDomain: params.networkConfig.VSC_DOMAIN,
+      useV2Middleware: params.networkConfig.useV2Middleware,
+      middlewareUrl: params.networkConfig.MIDDLEWARE_URL,
     }),
     fetchPriceOracle(params.networkConfig.GRPC_URL),
   ]).catch((e) => {

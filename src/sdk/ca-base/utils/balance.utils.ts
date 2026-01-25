@@ -1,6 +1,6 @@
 import { Environment } from '@avail-project/ca-common';
 import { ChainListType, logger, SUPPORTED_CHAINS } from '../../../commons';
-import { equalFold, getEVMBalancesForAddress, getTronBalancesForAddress } from '.';
+import { equalFold, getEVMBalancesForAddress, getEVMBalancesForAddressV2, getTronBalancesForAddress } from '.';
 import { encodePacked, Hex, keccak256, pad, toHex } from 'viem';
 import { balancesToAssets, getAnkrBalances, toFlatBalance } from '../swap/utils';
 import { filterSupportedTokens } from '../swap/data';
@@ -24,6 +24,8 @@ export const getBalances = async (input: {
   isCA?: boolean;
   vscDomain: string;
   networkHint: Environment;
+  useV2Middleware?: boolean;
+  middlewareUrl?: string;
 }) => {
   const isCA = input.isCA ?? false;
   const removeTransferFee = input.removeTransferFee ?? false;
@@ -33,7 +35,10 @@ export const getBalances = async (input: {
     input.networkHint === Environment.FOLLY || isCA
       ? Promise.resolve([])
       : getAnkrBalances(input.evmAddress, input.chainList, removeTransferFee),
-    getEVMBalancesForAddress(input.vscDomain, input.evmAddress),
+    // Use V2 middleware when enabled, otherwise fall back to V1 VSC
+    input.useV2Middleware && input.middlewareUrl
+      ? getEVMBalancesForAddressV2(input.middlewareUrl, input.evmAddress)
+      : getEVMBalancesForAddress(input.vscDomain, input.evmAddress),
     input.tronAddress
       ? getTronBalancesForAddress(input.vscDomain, input.tronAddress as Hex)
       : Promise.resolve([]),

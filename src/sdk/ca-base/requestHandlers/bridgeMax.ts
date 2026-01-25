@@ -19,6 +19,8 @@ const getMaxValueForBridge = async (
       chainList: options.chainList,
       tronAddress: options.tron?.address,
       isCA: true,
+      useV2Middleware: options.networkConfig.useV2Middleware,
+      middlewareUrl: options.networkConfig.MIDDLEWARE_URL,
     }),
     getFeeStore(options.networkConfig.GRPC_URL),
   ]);

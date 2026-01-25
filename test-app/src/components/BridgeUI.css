@@ -1,0 +1,405 @@
+.bridge-container {
+  background: white;
+  border-radius: 12px;
+  padding: 2rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.bridge-header {
+  text-align: center;
+  margin-bottom: 2rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 2px solid #e9ecef;
+}
+
+.bridge-header h2 {
+  margin: 0;
+  color: #333;
+  font-size: 2rem;
+}
+
+.bridge-subtitle {
+  margin: 0.5rem 0 0 0;
+  color: #6c757d;
+  font-size: 0.95rem;
+}
+
+/* Connect Section */
+.connect-section {
+  text-align: center;
+  padding: 3rem 2rem;
+}
+
+.connect-text {
+  font-size: 1.1rem;
+  color: #495057;
+  margin-bottom: 1.5rem;
+}
+
+/* Wallet Info */
+.wallet-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+  margin-bottom: 2rem;
+}
+
+.info-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.info-label {
+  font-weight: 600;
+  color: #495057;
+}
+
+.info-value {
+  background: #e9ecef;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  font-family: 'Courier New', monospace;
+  color: #333;
+}
+
+/* Balances Section */
+.balances-section {
+  margin-bottom: 2rem;
+}
+
+.balances-section h3 {
+  margin: 0 0 1rem 0;
+  color: #333;
+  font-size: 1.3rem;
+}
+
+.balances-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 1rem;
+}
+
+.balance-card {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 1.5rem;
+  border-radius: 10px;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.balance-token {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+}
+
+.balance-chains {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.chain-balance {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.chain-name {
+  font-weight: 600;
+}
+
+.chain-amount {
+  font-family: 'Courier New', monospace;
+}
+
+.loading,
+.no-balances {
+  text-align: center;
+  padding: 2rem;
+  color: #6c757d;
+  font-style: italic;
+}
+
+/* Bridge Form */
+.bridge-form {
+  background: #f8f9fa;
+  padding: 1.5rem;
+  border-radius: 10px;
+  margin-bottom: 2rem;
+}
+
+.bridge-form h3 {
+  margin: 0 0 1.5rem 0;
+  color: #333;
+  font-size: 1.3rem;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  align-items: start;
+}
+
+.form-row:has(.form-arrow) {
+  align-items: center;
+}
+
+.form-arrow {
+  font-size: 2rem;
+  color: #667eea;
+  align-self: center;
+  margin-top: 1.5rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.form-group label {
+  font-weight: 600;
+  color: #495057;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.form-control {
+  padding: 0.75rem 1rem;
+  border: 2px solid #dee2e6;
+  border-radius: 8px;
+  font-size: 1rem;
+  transition: border-color 0.3s ease;
+}
+
+.form-control:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.form-control:disabled {
+  background: #e9ecef;
+  cursor: not-allowed;
+}
+
+.form-hint {
+  margin-top: 0.25rem;
+  font-size: 0.85rem;
+  color: #6c757d;
+}
+
+/* Buttons */
+.btn {
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+}
+
+.btn-secondary {
+  background: #6c757d;
+  color: white;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: #5a6268;
+}
+
+.btn-small {
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+}
+
+.btn-large {
+  width: 100%;
+  padding: 1rem;
+  font-size: 1.1rem;
+}
+
+/* Bridge Progress */
+.bridge-progress {
+  background: #e7f3ff;
+  border-left: 4px solid #2196f3;
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.bridge-progress h3 {
+  margin: 0 0 1rem 0;
+  color: #0d47a1;
+  font-size: 1.2rem;
+}
+
+.steps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.step-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  background: white;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+}
+
+.step-number {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #dee2e6;
+  border-radius: 50%;
+  font-weight: 700;
+  color: #495057;
+  flex-shrink: 0;
+}
+
+.step-title {
+  flex: 1;
+  color: #495057;
+  font-weight: 500;
+}
+
+.step-status {
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+
+.step-complete {
+  background: #d4edda;
+  border-left: 3px solid #28a745;
+}
+
+.step-complete .step-number {
+  background: #28a745;
+  color: white;
+}
+
+.step-complete .step-title {
+  color: #155724;
+}
+
+.step-pending {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+/* Bridge Result */
+.bridge-result {
+  background: #d4edda;
+  border-left: 4px solid #28a745;
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.bridge-result h3 {
+  margin: 0 0 0.75rem 0;
+  color: #155724;
+  font-size: 1.2rem;
+}
+
+.bridge-result p {
+  margin: 0 0 0.5rem 0;
+  color: #155724;
+}
+
+.explorer-link {
+  display: inline-block;
+  color: #0d47a1;
+  text-decoration: none;
+  font-weight: 600;
+  word-break: break-all;
+  padding: 0.5rem 1rem;
+  background: rgba(13, 71, 161, 0.1);
+  border-radius: 6px;
+}
+
+.explorer-link:hover {
+  background: rgba(13, 71, 161, 0.2);
+  text-decoration: underline;
+}
+
+/* Error Message */
+.error-message {
+  background: #f8d7da;
+  border-left: 4px solid #dc3545;
+  border-radius: 8px;
+  padding: 1rem;
+  color: #721c24;
+  margin-top: 1rem;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .bridge-container {
+    padding: 1rem;
+  }
+
+  .bridge-header h2 {
+    font-size: 1.5rem;
+  }
+
+  .form-row {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .form-arrow {
+    transform: rotate(90deg);
+    margin: 0;
+  }
+
+  .balances-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .wallet-info {
+    flex-direction: column;
+    gap: 1rem;
+  }
+}

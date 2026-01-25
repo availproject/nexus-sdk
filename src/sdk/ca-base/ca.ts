@@ -203,6 +203,8 @@ export class CA {
       isCA: includeSwappableBalances === false,
       vscDomain: this._networkConfig.VSC_DOMAIN,
       tronAddress: this._tron?.address,
+      useV2Middleware: this._networkConfig.useV2Middleware,
+      middlewareUrl: this._networkConfig.MIDDLEWARE_URL,
     });
     return assets;
   };

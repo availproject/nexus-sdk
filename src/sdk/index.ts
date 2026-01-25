@@ -68,7 +68,11 @@ export class NexusSDK extends CA {
    * @returns bridge result with explorer URL
    */
   public async bridge(params: BridgeParams, options?: OnEventParam): Promise<BridgeResult> {
-    const result = await this._createBridgeHandler(params, options).execute();
+    const handler = this._createBridgeHandler(params, options);
+    // Call appropriate execute method based on V2 middleware configuration
+    const result = await (this._networkConfig.useV2Middleware
+      ? handler.executeV2()
+      : handler.execute());
     return {
       explorerUrl: result.explorerURL ?? '',
     };
