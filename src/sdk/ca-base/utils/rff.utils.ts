@@ -128,7 +128,6 @@ const createRFFromIntent = async (
     }
 
     if (universe === Universe.TRON) {
-      console.log({ tronAddress: TronWeb.address.toHex(options.tron!.address) });
       parties.push({
         address: convertTo32BytesHex(
           tronHexToEvmAddress(TronWeb.address.toHex(options.tron!.address)),
@@ -487,18 +486,11 @@ const createV2RequestFromIntent = async (
     }
   }
 
-  // Generate nonce - using Date.now() to match the working middleware test format
-  // The working test uses: nonce: Date.now().toString()
+  // Generate nonce using timestamp (matches middleware test format)
   const nonce = BigInt(Date.now());
 
-  // Calculate expiry - matches working test: (Math.floor(Date.now() / 1000) + 3600).toString()
+  // Calculate expiry timestamp
   const expiry = BigInt(Math.floor((Date.now() + INTENT_EXPIRY) / 1000));
-
-  console.log('[NEXUS-SDK] Nonce/Expiry generation:', {
-    nonce: nonce.toString(),
-    expiry: expiry.toString(),
-    INTENT_EXPIRY_ms: INTENT_EXPIRY,
-  });
 
   // Build V2 sources with fee field (set to 0 for now, statekeeper will calculate)
   // IMPORTANT: Use decimal strings for values, and 32-byte hex for chain_id to match solver
@@ -531,45 +523,8 @@ const createV2RequestFromIntent = async (
 
   logger.debug('createV2RequestFromIntent:built', { v2Request });
 
-  // ============================================================================
-  // DIAGNOSTIC: Print EXACT request for comparison with working middleware test
-  // ============================================================================
-  console.log('[NEXUS-SDK] ========== V2 REQUEST DEBUG ==========');
-  console.log('[NEXUS-SDK] Full V2Request JSON:', JSON.stringify(v2Request, null, 2));
-  console.log('[NEXUS-SDK] Sources[0] details:');
-  if (v2Request.sources[0]) {
-    const s = v2Request.sources[0];
-    console.log(`  universe: "${s.universe}"`);
-    console.log(`  chain_id: "${s.chain_id}" (length: ${s.chain_id.length})`);
-    console.log(`  contract_address: "${s.contract_address}" (length: ${s.contract_address.length})`);
-    console.log(`  value: "${s.value}"`);
-    console.log(`  fee: "${s.fee}"`);
-  }
-  console.log('[NEXUS-SDK] Destination details:');
-  console.log(`  destination_universe: "${v2Request.destination_universe}"`);
-  console.log(`  destination_chain_id: "${v2Request.destination_chain_id}" (length: ${v2Request.destination_chain_id.length})`);
-  console.log(`  recipient_address: "${v2Request.recipient_address}" (length: ${v2Request.recipient_address.length})`);
-  console.log('[NEXUS-SDK] Nonce/Expiry:');
-  console.log(`  nonce: "${v2Request.nonce}" (length: ${v2Request.nonce.length})`);
-  console.log(`  expiry: "${v2Request.expiry}" (length: ${v2Request.expiry.length})`);
-  console.log('[NEXUS-SDK] Parties[0] details:');
-  if (v2Request.parties[0]) {
-    const p = v2Request.parties[0];
-    console.log(`  universe: "${p.universe}"`);
-    console.log(`  address: "${p.address}" (length: ${p.address.length})`);
-  }
-  console.log('[NEXUS-SDK] ==========================================');
-
-  // Compute the request hash using the SAME method as the working test
-  // This must match exactly what the solver computes
+  // Compute the request hash (must match solver's computation)
   const hash = computeRequestHash(v2Request);
-
-  console.log('[NEXUS-SDK] RFF Signing Debug:', {
-    hash,
-    signerAddress: options.evm.address,
-    nonce: v2Request.nonce,
-    expiry: v2Request.expiry,
-  });
 
   // Sign the hash with personal_sign (EIP-191)
   const signature = await options.evm.client.signMessage({
@@ -577,12 +532,8 @@ const createV2RequestFromIntent = async (
     message: { raw: hash },
   }) as Hex;
 
-  console.log('[NEXUS-SDK] RFF Signature:', signature);
-
   // The request hash is the EIP-191 prefixed hash (same as what Vault contract uses)
   const requestHash = hashMessage({ raw: hash });
-
-  console.log('[NEXUS-SDK] RFF Request Hash (EIP-191 prefixed):', requestHash);
 
   logger.debug('createV2RequestFromIntent:signed', {
     hash,

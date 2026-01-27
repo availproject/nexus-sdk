@@ -731,26 +731,18 @@ export class StatekeeperClient {
   ): Promise<V2RffResponse> {
     const startTime = Date.now();
     let lastStatus: string | null = null;
-    let pollCount = 0;
-
-    console.log(`[NEXUS-SDK] Starting to poll for RFF status: ${requestHash}`);
 
     while (Date.now() - startTime < timeoutMs) {
-      pollCount++;
       const rff = await this.getRff(requestHash);
 
-      // Log status changes
       if (rff.status !== lastStatus) {
-        console.log(`[NEXUS-SDK] RFF ${requestHash.slice(0, 10)}... status: ${lastStatus || 'initial'} -> ${rff.status} (poll #${pollCount})`);
         lastStatus = rff.status;
-
         if (onStatusUpdate) {
           onStatusUpdate(rff.status, rff);
         }
       }
 
       if (targetStates.includes(rff.status)) {
-        console.log(`[NEXUS-SDK] RFF reached target status: ${rff.status} after ${pollCount} polls`);
         return rff;
       }
 

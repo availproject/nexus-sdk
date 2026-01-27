@@ -138,15 +138,8 @@ export const submitRffToMiddleware = async (
     const client = getMiddlewareClient(middlewareUrl);
     logger.debug('submitRffToMiddleware', { payload, middlewareUrl });
 
-    // DIAGNOSTIC: Print exact payload being sent to middleware
-    console.log('[NEXUS-SDK] ========== RFF SUBMISSION PAYLOAD ==========');
-    console.log('[NEXUS-SDK] POST /api/v1/rff');
-    console.log('[NEXUS-SDK] Payload JSON:', JSON.stringify(payload, null, 2));
-    console.log('[NEXUS-SDK] ==============================================');
-
     const response = await client.post<CreateRffResponse>('/api/v1/rff', payload);
 
-    console.log('[NEXUS-SDK] RFF Submission Response:', response.data);
     logger.debug('submitRffToMiddleware:response', { data: response.data });
     return response.data;
   } catch (error) {
@@ -223,87 +216,67 @@ export const createApprovalsViaMiddleware = async (
   middlewareUrl: string,
   approvals: V2ApprovalsByChain,
 ): Promise<V2ApprovalResponse[]> => {
-  // Count expected responses based on number of chains with approvals
   const expectedChains = Object.keys(approvals).length;
-  console.log(`[NEXUS-SDK] createApprovalsViaMiddleware: expecting ${expectedChains} chain responses`, approvals);
+  logger.debug('createApprovalsViaMiddleware', { expectedChains, approvals });
 
   return new Promise((resolve, reject) => {
     try {
-      // Convert HTTP URL to WebSocket URL
       const wsUrl = middlewareUrl.replace(/^http/, 'ws') + '/api/v1/create-sponsored-approvals';
-      console.log('[NEXUS-SDK] WebSocket connecting to:', wsUrl);
-      logger.debug('createApprovalsViaMiddleware', { wsUrl, approvals });
+      logger.debug('createApprovalsViaMiddleware:connecting', { wsUrl });
 
       const ws = new WebSocket(wsUrl);
       const results: V2ApprovalResponse[] = [];
       let isConnected = false;
 
       const timeout = setTimeout(() => {
-        console.log('[NEXUS-SDK] WebSocket timeout! Results so far:', results);
+        logger.error('createApprovalsViaMiddleware:timeout', { results });
         if (ws.readyState !== WebSocket.CLOSED) {
           ws.close();
           reject(Errors.internal('WebSocket timeout waiting for approval responses'));
         }
-      }, 120000); // 120 second timeout
+      }, 120000);
 
       ws.onopen = () => {
-        console.log('[NEXUS-SDK] WebSocket connected, sending approvals...');
         logger.debug('createApprovalsViaMiddleware:connected');
         isConnected = true;
-        // Send the approvals data as JSON
         ws.send(JSON.stringify(approvals));
-        console.log('[NEXUS-SDK] Approvals sent, waiting for responses...');
       };
 
       ws.onmessage = (event) => {
         try {
-          const message = JSON.parse(event.data);
-          console.log('[NEXUS-SDK] WebSocket message received:', message);
+          const message = JSON.parse(event.data as string) as Record<string, unknown>;
           logger.debug('createApprovalsViaMiddleware:message', { message });
 
-          // Handle status message
           if (message.status === 'connected') {
-            console.log('[NEXUS-SDK] WebSocket status: connected');
             return;
           }
 
-          // Handle completion message (middleware should send this when done)
           if (message.status === 'done' || message.status === 'complete') {
-            console.log('[NEXUS-SDK] WebSocket received completion signal, closing...');
             clearTimeout(timeout);
             ws.close();
             return;
           }
 
-          // Handle error message from middleware
           if (message.errored && message.chainId === undefined) {
-            console.error('[NEXUS-SDK] WebSocket error from middleware:', message.message);
+            logger.error('createApprovalsViaMiddleware:middlewareError', { message: message.message });
             clearTimeout(timeout);
             ws.close();
-            // Don't reject - this might be a "no approvals needed" case
             return;
           }
 
-          // Handle approval response
           if (message.chainId !== undefined) {
-            console.log(`[NEXUS-SDK] Approval response for chain ${message.chainId}:`, message);
-            results.push(message as V2ApprovalResponse);
-
-            // If we've received all expected responses, we can close
+            results.push(message as unknown as V2ApprovalResponse);
             if (results.length >= expectedChains) {
-              console.log('[NEXUS-SDK] All chain responses received, closing WebSocket...');
               clearTimeout(timeout);
               ws.close();
             }
           }
         } catch (parseError) {
-          console.error('[NEXUS-SDK] WebSocket parse error:', parseError);
-          logger.error('createApprovalsViaMiddleware:parse-error', parseError);
+          logger.error('createApprovalsViaMiddleware:parseError', parseError);
         }
       };
 
       ws.onerror = (error) => {
-        console.error('[NEXUS-SDK] WebSocket error:', error);
         clearTimeout(timeout);
         logger.error('createApprovalsViaMiddleware:error', error);
         reject(Errors.internal('WebSocket error during approval creation', {
@@ -312,10 +285,8 @@ export const createApprovalsViaMiddleware = async (
       };
 
       ws.onclose = () => {
-        console.log('[NEXUS-SDK] WebSocket closed, results:', results);
         clearTimeout(timeout);
         logger.debug('createApprovalsViaMiddleware:closed', { results });
-
         if (!isConnected) {
           reject(Errors.internal('WebSocket connection failed'));
         } else {
@@ -323,7 +294,6 @@ export const createApprovalsViaMiddleware = async (
         }
       };
     } catch (error) {
-      console.error('[NEXUS-SDK] createApprovalsViaMiddleware error:', error);
       logger.error('createApprovalsViaMiddleware:error', error);
       reject(Errors.internal('Failed to create approvals via middleware', {
         error: error instanceof Error ? error.message : String(error),
