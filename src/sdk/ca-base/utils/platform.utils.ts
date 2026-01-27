@@ -17,7 +17,13 @@ export function detectPlatform(): Platform {
 
   const hasHermes = typeof global !== 'undefined' && !!(global as any).HermesInternal;
 
-  if (isReactNative || hasHermes) {
+  const hasExpo =
+    typeof global !== 'undefined' &&
+    ((global as any).expo != null ||
+      (global as any).__expo != null ||
+      (global as any).ExpoModules != null);
+
+  if (isReactNative || hasHermes || hasExpo) {
     _platform = 'react-native';
     return _platform;
   }
