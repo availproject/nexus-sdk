@@ -5,7 +5,7 @@ import { resourceFromAttributes } from '@opentelemetry/resources';
 import { BatchLogRecordProcessor, LoggerProvider } from '@opentelemetry/sdk-logs';
 import { toHex } from 'viem/utils';
 import type { NetworkConfig } from '../../commons';
-import { PlatformUtils } from './utils/platform.utils';
+import * as PlatformUtils from './utils/platform.utils';
 
 let telemetryLogger: Logger | null = null;
 

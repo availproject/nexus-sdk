@@ -15,7 +15,7 @@ import {
   createRequestTronSignature,
   mulDecimals,
 } from './common.utils';
-import { PlatformUtils } from './platform.utils';
+import * as PlatformUtils from './platform.utils';
 import { tronHexToEvmAddress } from './tron.utils';
 
 type Destination = {

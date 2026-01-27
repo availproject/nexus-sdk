@@ -53,6 +53,7 @@
  */
 
 import { version } from '../../package.json' with { type: 'json' };
+import { logger } from '../commons';
 import { NexusAnalyticsEvents } from './events';
 import { PerformanceTracker } from './performance';
 import type { AnalyticsProvider } from './providers/AnalyticsProvider';
@@ -110,18 +111,24 @@ export class AnalyticsManager {
     this.session = new SessionManager();
     this.performance = new PerformanceTracker();
 
-    // Initialize the appropriate provider
-    if (this.enabled) {
-      const posthogApiKey = config?.posthogApiKey || DEFAULT_POSTHOG_KEY;
-      const posthogApiHost = config?.posthogApiHost || DEFAULT_POSTHOG_HOST;
+    try {
+      // Initialize the appropriate provider
+      if (this.enabled) {
+        const posthogApiKey = config?.posthogApiKey || DEFAULT_POSTHOG_KEY;
+        const posthogApiHost = config?.posthogApiHost || DEFAULT_POSTHOG_HOST;
 
-      this.provider = new PostHogProvider({
-        apiKey: posthogApiKey,
-        apiHost: posthogApiHost,
-        sessionRecording: config?.sessionRecording || false,
-        debug: config?.debug || false,
-      });
-    } else {
+        this.provider = new PostHogProvider({
+          apiKey: posthogApiKey,
+          apiHost: posthogApiHost,
+          sessionRecording: config?.sessionRecording || false,
+          debug: config?.debug || false,
+        });
+      } else {
+        this.provider = new NoOpProvider();
+      }
+    } catch (e) {
+      logger.debug('analytics init failed', e);
+      // If analytics fail due to any reason(say on rn), initialize it to noop provider so it doesnt breaks the app
       this.provider = new NoOpProvider();
     }
 

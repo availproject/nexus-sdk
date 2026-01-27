@@ -81,7 +81,7 @@ import {
   switchChain,
   tronHexToEvmAddress,
 } from './utils';
-import { PlatformUtils } from './utils/platform.utils';
+import * as PlatformUtils from './utils/platform.utils';
 
 setLogLevel(LOG_LEVEL.NOLOGS);
 const logger = getLogger();

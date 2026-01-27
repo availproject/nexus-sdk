@@ -57,7 +57,7 @@ import {
   waitForIntentFulfilment,
 } from './contract.utils';
 import { cosmosCreateDoubleCheckTx, cosmosFillCheck, cosmosRefundIntent } from './cosmos.utils';
-import { PlatformUtils } from './platform.utils';
+import * as PlatformUtils from './platform.utils';
 
 const logger = getLogger();
 
