@@ -1,11 +1,9 @@
 import {
   Bytes,
-  DepositVEPacket,
   Environment,
   ERC20ABI,
   EVMRFF,
   EVMVaultABI,
-  MsgDoubleCheckTx,
   Universe,
 } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
@@ -23,12 +21,10 @@ import {
   keccak256,
   pad,
   PrivateKeyAccount,
-  PublicClient,
   toBytes,
   toHex,
   UserRejectedRequestError,
   WalletClient,
-  WebSocketTransport,
 } from 'viem';
 import { TronWeb, Types, utils } from 'tronweb';
 import { ChainList } from '../chains';
@@ -44,14 +40,8 @@ import {
   ChainListType,
   UserAssetDatum,
   Chain,
-  CosmosOptions,
 } from '../../../commons';
-import {
-  createPublicClientWithFallback,
-  requestTimeout,
-  waitForIntentFulfilment,
-} from './contract.utils';
-import { cosmosCreateDoubleCheckTx, cosmosFillCheck, cosmosRefundIntent } from './cosmos.utils';
+import { createPublicClientWithFallback } from './contract.utils';
 import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 import { Errors } from '../errors';
 
@@ -79,90 +69,6 @@ function convertAddressByUniverse(input: ByteArray | Hex, universe: Universe) {
 }
 
 const minutesToMs = (min: number) => min * 60 * 1000;
-
-const INTENT_KEY = 'xar-sdk-intents';
-const getIntentKey = (address: string) => {
-  return `${INTENT_KEY}-${address}`;
-};
-type IntentD = { createdAt: number; id: number };
-
-const storeIntentHashToStore = (address: string, id: number, createdAt = Date.now()) => {
-  let intents: Array<IntentD> = [];
-  const fetchedIntents = localStorage.getItem(getIntentKey(address));
-  if (fetchedIntents) {
-    intents = JSON.parse(fetchedIntents) ?? [];
-  }
-
-  intents.push({ createdAt, id });
-  localStorage.setItem(getIntentKey(address), JSON.stringify(intents));
-};
-
-const removeIntentHashFromStore = (address: string, id: Long) => {
-  let intents: Array<IntentD> = [];
-  const fetchedIntents = localStorage.getItem(getIntentKey(address));
-  if (fetchedIntents) {
-    intents = JSON.parse(fetchedIntents) ?? [];
-  }
-
-  const oLen = intents.length;
-
-  intents = intents.filter((h: IntentD) => h.id !== id.toNumber());
-  if (oLen !== intents.length) {
-    localStorage.setItem(getIntentKey(address), JSON.stringify(intents));
-  }
-};
-
-const getExpiredIntents = (address: string) => {
-  let intents: Array<IntentD> = [];
-  const fetchedIntents = localStorage.getItem(getIntentKey(address));
-  if (fetchedIntents) {
-    intents = JSON.parse(fetchedIntents) ?? [];
-  }
-  logger.debug('getExpiredIntents', { intents });
-  const expiredIntents: Array<IntentD> = [];
-  const nonExpiredIntents: Array<IntentD> = [];
-
-  const TEN_MINUTES_BEFORE = Date.now() - 600000;
-
-  for (const intent of intents) {
-    if (intent.createdAt < TEN_MINUTES_BEFORE) {
-      expiredIntents.push(intent);
-    } else {
-      nonExpiredIntents.push(intent);
-    }
-  }
-  localStorage.setItem(getIntentKey(address), JSON.stringify(nonExpiredIntents));
-  return expiredIntents;
-};
-
-const refundExpiredIntents = async ({
-  address,
-  evmAddress,
-  client,
-}: CosmosOptions & { evmAddress: string }) => {
-  logger.debug('Starting check for expired intents at ', new Date());
-  const expIntents = getExpiredIntents(evmAddress);
-  const failedRefunds: IntentD[] = [];
-
-  for (const intent of expIntents) {
-    logger.debug(`Starting refund for: ${intent.id}`);
-    try {
-      await cosmosRefundIntent({ client, intentID: intent.id, address });
-    } catch (e) {
-      logger.debug('Refund failed', e);
-      failedRefunds.push({
-        createdAt: intent.createdAt,
-        id: intent.id,
-      });
-    }
-  }
-
-  if (failedRefunds.length > 0) {
-    for (const failed of failedRefunds) {
-      storeIntentHashToStore(evmAddress, failed.id, failed.createdAt);
-    }
-  }
-};
 
 const equalFold = (a?: string, b?: string) => {
   if (!a || !b) {
@@ -390,22 +296,6 @@ const convertGasToToken = (
   return tokenEquivalent.toDP(token.decimals, Decimal.ROUND_CEIL);
 };
 
-const evmWaitForFill = async (
-  vaultContractAddress: `0x${string}`,
-  publicClient: PublicClient<WebSocketTransport>,
-  requestHash: `0x${string}`,
-  intentID: Long,
-  grpcURL: string,
-  cosmosURL: string,
-) => {
-  const ac = new AbortController();
-  await Promise.race([
-    waitForIntentFulfilment(publicClient, vaultContractAddress, requestHash, ac),
-    requestTimeout(3, ac),
-    cosmosFillCheck(intentID, grpcURL, cosmosURL, ac),
-  ]);
-};
-
 const convertTo32Bytes = (value: bigint | Hex | number | Bytes) => {
   if (typeof value == 'bigint' || typeof value === 'number') {
     return toBytes(value, {
@@ -444,29 +334,6 @@ const convertToHexAddressByUniverse = (address: Uint8Array, universe: Universe) 
   } else {
     throw Errors.universeNotSupported();
   }
-};
-
-const createDepositDoubleCheckTx = (chainID: Uint8Array, cosmos: CosmosOptions, intentID: Long) => {
-  const msg = MsgDoubleCheckTx.create({
-    creator: cosmos.address,
-    packet: {
-      $case: 'depositPacket',
-      value: DepositVEPacket.create({
-        gasRefunded: false,
-        id: intentID,
-      }),
-    },
-    txChainID: chainID,
-    txUniverse: Universe.ETHEREUM,
-  });
-
-  return () => {
-    return cosmosCreateDoubleCheckTx({
-      address: cosmos.address,
-      client: cosmos.client,
-      msg,
-    });
-  };
 };
 
 class UserAsset {
@@ -831,16 +698,6 @@ const retrieveAddress = (universe: Universe, input: Pick<IBridgeOptions, 'evm' |
   throw Errors.internal('unknown universe');
 };
 
-const SIWE_KEY = '_siwe_sig';
-
-const storeSIWESignatureToLocalStorage = (address: Hex, siweChain: number, signature: string) => {
-  window.localStorage.setItem(`${SIWE_KEY}-${address}-${siweChain}`, signature);
-};
-
-const retrieveSIWESignatureFromLocalStorage = (address: Hex, siweChain: number) => {
-  return window.localStorage.getItem(`${SIWE_KEY}-${address}-${siweChain}`);
-};
-
 const createDeadlineFromNow = (minutes: bigint = 3n): bigint => {
   const nowInSeconds = BigInt(Math.floor(Date.now() / 1000));
   return nowInSeconds + minutes * 60n;
@@ -850,8 +707,6 @@ export {
   divideBigInt,
   createDeadlineFromNow,
   pctAdditionToBigInt,
-  retrieveSIWESignatureFromLocalStorage,
-  storeSIWESignatureToLocalStorage,
   retrieveAddress,
   createExplorerTxURL,
   waitForTronApprovalTxConfirmation,
@@ -864,20 +719,14 @@ export {
   convertTo32Bytes,
   convertTo32BytesHex,
   convertToHexAddressByUniverse,
-  createDepositDoubleCheckTx,
   createRequestEVMSignature,
   divDecimals,
   equalFold,
-  evmWaitForFill,
-  getExpiredIntents,
   getExplorerURL,
   getSupportedChains,
   hexTo0xString,
   minutesToMs,
   mulDecimals,
-  refundExpiredIntents,
-  removeIntentHashFromStore,
-  storeIntentHashToStore,
   createRequestTronSignature,
   waitForTronTxConfirmation,
 };

@@ -7,8 +7,8 @@ import { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 import { SwapStepType } from './swap-steps';
 import { BridgeStepType } from './bridge-steps';
 import { FormatTokenBalanceOptions, FormattedParts } from '../utils/format';
-import { SigningStargateClient } from '@cosmjs/stargate';
 
+// Note: SigningStargateClient removed - cosmos is optional in V2
 type TokenInfo = {
   contractAddress: `0x${string}`;
   decimals: number;
@@ -255,11 +255,11 @@ export interface BridgeAndExecuteParams {
 
 export type CosmosOptions = {
   address: string;
-  client: SigningStargateClient;
+  client: unknown; // Was SigningStargateClient - cosmos is deprecated in V2
 };
 
 export type IBridgeOptions = {
-  cosmos: CosmosOptions;
+  cosmos?: CosmosOptions;
   evm: {
     address: `0x${string}`;
     client: WalletClient;
@@ -413,7 +413,9 @@ export type NetworkConfig = {
   VSC_DOMAIN: string;
   STATEKEEPER_URL: string;
   MIDDLEWARE_URL: string;
-  useV2Middleware?: boolean;  // NEW: opt-in flag
+  useV2Middleware?: boolean; // opt-in flag for V2 middleware
+  rpcOverrides?: Record<number, string>; // chainId -> RPC URL override (for local forks like Anvil)
+  vaultOverrides?: Record<number, `0x${string}`>; // chainId -> vault contract address override (for local testing)
 };
 
 // ============================================================================
@@ -617,6 +619,7 @@ export type ChainListType = {
   getNativeToken(chainID: number): TokenInfo;
   getChainByID(id: number): Chain | undefined;
   getAnkrNameList(): string[];
+  setVaultOverrides?(overrides: Record<number, `0x${string}`>): void;
 };
 
 type EventUnion =

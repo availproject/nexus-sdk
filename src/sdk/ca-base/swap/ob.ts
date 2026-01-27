@@ -52,7 +52,8 @@ import {
 } from '../../../commons';
 import { SwapRoute } from './route';
 import { Errors } from '../errors';
-import { SigningStargateClient } from '@cosmjs/stargate';
+
+// Note: SigningStargateClient removed - cosmos deprecatheaed in V2
 
 type Options = {
   address: {
@@ -79,7 +80,7 @@ type Options = {
   publicClientList: PublicClientList;
   slippage: number;
   wallet: {
-    cosmos: SigningStargateClient;
+    cosmos: unknown; // Was SigningStargateClient - cosmos deprecated in V2
     eoa: WalletClient;
     ephemeral: PrivateKeyAccount;
   };
@@ -549,7 +550,10 @@ class DestinationSwapHandler {
 class SourceSwapsHandler {
   private disposableCache: { [k: string]: Tx } = {};
   private readonly swapsData: Map<bigint, SwapInput[]>;
-  constructor(data: SwapRoute['source'], private readonly options: Options) {
+  constructor(
+    data: SwapRoute['source'],
+    private readonly options: Options,
+  ) {
     this.swapsData = this.groupAndOrder(data.swaps);
     for (const [chainID, swapQuotes] of this.iterate(this.swapsData)) {
       this.options.cache.addSetCodeQuery({
@@ -743,7 +747,7 @@ class SourceSwapsHandler {
           await this.options.wallet.eoa.switchChain({ id: Number(chainID) });
           /*
            * EOA creates & sends tx {
-             to: ephemeralAddress (we check above it its delegated to calibur), 
+             to: ephemeralAddress (we check above it its delegated to calibur),
              value: sbcCalls.value,
              data: SignUsingEphemeral(AggregatorTx(approval(iff non native is involved) and swap))
            }

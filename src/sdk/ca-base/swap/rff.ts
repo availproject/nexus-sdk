@@ -1,30 +1,9 @@
-import { DepositVEPacket, EVMVaultABI, MsgDoubleCheckTx, Universe } from '@avail-project/ca-common';
+import { Universe } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
 import Long from 'long';
-import {
-  bytesToNumber,
-  createPublicClient,
-  encodeFunctionData,
-  Hex,
-  PrivateKeyAccount,
-  toHex,
-  webSocket,
-} from 'viem';
+import { Hex, PrivateKeyAccount } from 'viem';
 import { Errors } from '../errors';
-import {
-  createRFFromIntent,
-  convertAddressByUniverse,
-  evmWaitForFill,
-  FeeStore,
-  getAllowances,
-  getFeeStore,
-  mulDecimals,
-  removeIntentHashFromStore,
-  storeIntentHashToStore,
-  cosmosCreateDoubleCheckTx,
-  cosmosCreateRFF,
-} from '../utils';
-import { packERC20Approve } from './utils';
+import { FeeStore, mulDecimals } from '../utils';
 import {
   getLogger,
   Intent,
@@ -32,9 +11,7 @@ import {
   BridgeAsset,
   EoaToEphemeralCallMap,
   RFFDepositCallMap,
-  Tx,
   ChainListType,
-  CosmosOptions,
 } from '../../../commons';
 
 const logger = getLogger();
@@ -212,14 +189,14 @@ export const createIntent = ({
   return { eoaToEphemeralCalls, intent };
 };
 
-export const createBridgeRFF = async ({
-  config,
-  input,
-  output,
-}: {
+/**
+ * @deprecated V1 swap RFF creation - requires cosmos chain.
+ * TODO: Migrate to V2 middleware-based swap flow.
+ */
+export const createBridgeRFF = async (_params: {
   config: {
     chainList: ChainListType;
-    cosmos: CosmosOptions;
+    cosmos?: unknown;
     evm: {
       address: `0x${string}`;
       client: PrivateKeyAccount;
@@ -236,198 +213,12 @@ export const createBridgeRFF = async ({
     decimals: number;
     tokenAddress: `0x${string}`;
   };
-}) => {
-  logger.debug('createBridgeRFF', { input, output });
-
-  const feeStore = await getFeeStore(config.network.GRPC_URL);
-  const depositCalls: RFFDepositCallMap = {};
-
-  const { eoaToEphemeralCalls, intent } = createIntent({
-    assets: input.assets,
-    feeStore,
-    output,
-    address: config.evm.address,
-  });
-
-  if (intent.isAvailableBalanceInsufficient) {
-    throw Errors.insufficientBalance();
-  }
-
-  const { msgBasicCosmos, omniversalRFF, signatureData, sources } = await createRFFromIntent(
-    intent,
-    {
-      chainList: config.chainList,
-      cosmos: config.cosmos,
-      evm: config.evm,
-    },
-    Universe.ETHEREUM,
-  );
-
-  logger.debug('createIntent', { intent });
-
-  let intentID = Long.fromNumber(0);
-
-  const createRFF = async () => {
-    intentID = await cosmosCreateRFF({
-      address: config.cosmos.address,
-      client: config.cosmos.client,
-      msg: msgBasicCosmos,
-    });
-
-    storeIntentHashToStore(config.evm.address, intentID.toNumber());
-
-    const doubleCheckTxMap: Record<number, () => Promise<void>> = {};
-
-    omniversalRFF.protobufRFF.sources.forEach((s) => {
-      doubleCheckTxMap[bytesToNumber(s.chainID)] = createDoubleCheckTx(
-        s.chainID,
-        config.cosmos,
-        intentID,
-      );
-    });
-
-    return {
-      createDoubleCheckTx: async () => {
-        try {
-          for (const k in doubleCheckTxMap) {
-            logger.debug('Starting double check tx', { chain: k });
-            await doubleCheckTxMap[k]();
-          }
-        } catch (error) {
-          logger.error('Error during double check tx', error);
-        }
-      },
-      intentID,
-    };
-  };
-
-  const allowances = await getAllowances(
-    intent.sources.map((s) => ({
-      chainID: s.chainID,
-      tokenContract: s.tokenContract,
-      holderAddress: config.evm.address,
-    })),
-    config.chainList,
-  );
-
-  for (const [index, source] of sources.entries()) {
-    const evmSignatureData = signatureData.find((s) => s.universe === Universe.ETHEREUM);
-    if (!evmSignatureData) {
-      throw Errors.unknownSignatureType();
-    }
-
-    const chain = config.chainList.getChainByID(Number(source.chainID));
-    if (!chain) {
-      throw Errors.chainNotFound(source.chainID);
-    }
-
-    const allowance = allowances[Number(source.chainID)];
-    logger.debug('allowances', { allowance, chainID: Number(source.chainID) });
-    if (allowance == null) {
-      throw Errors.internal('Allowance not applicable');
-    }
-
-    const tx: Tx[] = [];
-
-    if (allowance < source.valueRaw) {
-      const allowanceTx = {
-        data: packERC20Approve(config.chainList.getVaultContractAddress(Number(source.chainID))),
-        to: convertAddressByUniverse(source.tokenAddress, Universe.ETHEREUM),
-        value: 0n,
-      };
-      tx.push(allowanceTx);
-    }
-
-    console.log({
-      argsForRFFDeposit: [
-        omniversalRFF.asEVMRFF(),
-        toHex(evmSignatureData.signature),
-        BigInt(index),
-      ],
-    });
-
-    tx.push({
-      data: encodeFunctionData({
-        abi: EVMVaultABI,
-        args: [omniversalRFF.asEVMRFF(), toHex(evmSignatureData.signature), BigInt(index)],
-        functionName: 'deposit',
-      }),
-      to: config.chainList.getVaultContractAddress(Number(source.chainID)),
-      value: 0n,
-    });
-
-    depositCalls[Number(source.chainID)] = {
-      amount: source.valueRaw,
-      tokenAddress: convertAddressByUniverse(source.tokenAddress, source.universe),
-      tx: tx,
-    };
-  }
-
-  const chain = config.chainList.getChainByID(Number(output.chainID));
-  if (!chain) {
-    throw Errors.chainNotFound(output.chainID);
-  }
-
-  const ws = webSocket(chain.rpcUrls.default.webSocket[0]);
-  const pc = createPublicClient({
-    transport: ws,
-  });
-
-  const waitForFill = () => {
-    const s = signatureData.find((s) => s.universe === Universe.ETHEREUM);
-    if (!s) {
-      throw Errors.unknownSignatureType();
-    }
-    logger.debug(`Waiting for fill: ${intentID}`);
-
-    const r = {
-      filled: false,
-      intentID,
-      promise: evmWaitForFill(
-        config.chainList.getVaultContractAddress(chain.id),
-        pc,
-        s.requestHash,
-        intentID,
-        config.network.GRPC_URL,
-        config.network.COSMOS_URL,
-      ),
-    };
-
-    r.promise.then(() => {
-      r.filled = true;
-      removeIntentHashFromStore(config.evm.address, r.intentID);
-    });
-
-    return r;
-  };
-  return {
-    createRFF,
-    depositCalls,
-    eoaToEphemeralCalls,
-    intent,
-    waitForFill,
-  };
-};
-
-export const createDoubleCheckTx = (chainID: Uint8Array, cosmos: CosmosOptions, intentID: Long) => {
-  const msg = MsgDoubleCheckTx.create({
-    creator: cosmos.address,
-    packet: {
-      $case: 'depositPacket',
-      value: DepositVEPacket.create({
-        gasRefunded: false,
-        id: intentID,
-      }),
-    },
-    txChainID: chainID,
-    txUniverse: Universe.ETHEREUM,
-  });
-
-  return () => {
-    return cosmosCreateDoubleCheckTx({
-      address: cosmos.address,
-      msg,
-      client: cosmos.client,
-    });
-  };
+}): Promise<{
+  createRFF: () => Promise<{ createDoubleCheckTx: () => Promise<void>; intentID: Long }>;
+  depositCalls: RFFDepositCallMap;
+  eoaToEphemeralCalls: EoaToEphemeralCallMap;
+  intent: Intent;
+  waitForFill: () => { filled: boolean; intentID: Long; promise: Promise<void> };
+}> => {
+  throw Errors.internal('createBridgeRFF: V1 swap RFF not available in V2. Use bridge() for cross-chain transfers.');
 };

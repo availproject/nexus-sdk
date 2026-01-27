@@ -1,10 +1,10 @@
 import { Universe } from '@avail-project/ca-common';
-import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import Decimal from 'decimal.js';
 import { type Hex, PrivateKeyAccount, WalletClient } from 'viem';
 
 import { NetworkConfig, ChainListType, OnEventParam, TokenInfo } from '../index';
-import { SigningStargateClient } from '@cosmjs/stargate';
+
+// Note: DirectSecp256k1Wallet and SigningStargateClient removed - cosmos is deprecated in V2
 
 export type AuthorizationList = {
   address: Uint8Array;
@@ -65,7 +65,7 @@ export type InternalSwapInput = {
   chainList: ChainListType;
   cosmos: {
     address: string;
-    wallet: DirectSecp256k1Wallet;
+    wallet: unknown;  // Was DirectSecp256k1Wallet - cosmos deprecated in V2
   };
   destination: {
     amount?: bigint;
@@ -129,7 +129,7 @@ export type SwapParams = {
     ephemeral: Hex;
   };
   wallet: {
-    cosmos: SigningStargateClient;
+    cosmos: unknown;  // Was SigningStargateClient - cosmos deprecated in V2
     ephemeral: PrivateKeyAccount;
     eoa: WalletClient;
   };

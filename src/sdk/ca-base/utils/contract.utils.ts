@@ -9,7 +9,6 @@ import {
   encodeFunctionData,
   fallback,
   getContract,
-  Hex,
   hexToBigInt,
   http,
   maxUint256,
@@ -35,6 +34,15 @@ const getAllowance = async (
   tokenContract: `0x${string}`,
   chainList: ChainListType,
 ) => {
+  const vaultAddress = chainList.getVaultContractAddress(chain.id);
+
+  console.log('[NEXUS-SDK] getAllowance called:', {
+    chainId: chain.id,
+    tokenContract,
+    owner: address,
+    spender: vaultAddress,
+  });
+
   logger.debug('getAllowance', {
     tokenContract,
     ZERO_ADDRESS,
@@ -49,16 +57,18 @@ const getAllowance = async (
   const publicClient = createPublicClientWithFallback(chain);
 
   try {
-    const allowance = erc20GetAllowance(
+    const allowance = await erc20GetAllowance(
       {
         contractAddress: tokenContract,
-        spender: chainList.getVaultContractAddress(chain.id),
+        spender: vaultAddress,
         owner: address,
       },
       publicClient,
     );
     return allowance;
-  } catch {
+  } catch (e) {
+    // If RPC fails (e.g., Anvil fork), assume no allowance - permit will be needed
+    console.log(`[NEXUS-SDK] getAllowance failed for chain ${chain.id}, assuming 0:`, e);
     return 0n;
   }
 };
@@ -265,55 +275,65 @@ async function signPermitForAddressAndValue(
   value: bigint,
   deadline?: bigint,
 ) {
+  const contractAddress = bytesToHex(cur.tokenAddress.subarray(12));
   const contract = getContract({
     abi: ERC20ABIC,
-    address: bytesToHex(cur.tokenAddress.subarray(12)),
+    address: contractAddress,
     client: { public: publicClient },
   });
 
   const walletAddress = account.address;
   deadline = deadline ?? 2n ** 256n - 1n;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const requestsToBeMade: Promise<any>[] = [
-    (() => {
-      // Hack for sophon ETH
-      return contract.read.name().catch(() => {
-        return '';
-      });
-    })(),
+  // Debug logging for permit signing
+  console.log('[NEXUS-SDK] Permit signing started:', {
+    tokenContract: contractAddress,
+    owner: walletAddress,
+    spender,
+    permitVariant: cur.permitVariant,
+  });
+
+  const [name, chainID, version] = await Promise.all([
+    contract.read.name().catch(() => ''),
     client.request({ method: 'eth_chainId' }),
-  ];
+    publicClient
+      .readContract({
+        address: contractAddress,
+        abi: [
+          {
+            inputs: [],
+            name: 'version',
+            outputs: [{ name: '', type: 'string' }],
+            stateMutability: 'view',
+            type: 'function',
+          },
+        ] as const,
+        functionName: 'version',
+      })
+      .catch(() => cur.permitContractVersion.toString(10)),
+  ]);
+
+  console.log('[NEXUS-SDK] Permit domain values:', {
+    name,
+    version,
+    chainId: hexToBigInt(chainID).toString(),
+    verifyingContract: contractAddress,
+  });
 
   switch (cur.permitVariant) {
     case PermitVariant.Unsupported:
     default: {
       throw new PermitCreationError('Permits are unsupported on this currency');
     }
-    case PermitVariant.DAI:
-    case PermitVariant.EIP2612Canonical:
-    case PermitVariant.Polygon2612: {
-      requestsToBeMade[2] = contract.read.nonces([walletAddress]);
-      break;
-    }
-    case PermitVariant.PolygonEMT: {
-      requestsToBeMade[2] = contract.read.getNonce([walletAddress]);
-    }
-  }
-
-  const [name, chainID, nonce] = await Promise.all(
-    requestsToBeMade as [Promise<string>, Promise<Hex>, Promise<bigint>],
-  );
-
-  switch (cur.permitVariant) {
     case PermitVariant.DAI: {
+      const nonce = await contract.read.nonces([walletAddress]);
       return client.signTypedData({
         account,
         domain: {
           chainId: hexToBigInt(chainID),
           name,
           verifyingContract: contract.address,
-          version: cur.permitContractVersion.toString(10),
+          version,
         },
         message: {
           allowed: true,
@@ -336,35 +356,64 @@ async function signPermitForAddressAndValue(
       });
     }
     case PermitVariant.EIP2612Canonical: {
-      return client.signTypedData({
+      const nonce = await contract.read.nonces([walletAddress]);
+
+      // Build permit data
+      const domain = {
+        chainId: hexToBigInt(chainID),
+        name,
+        verifyingContract: contract.address,
+        version,
+      };
+      const message = {
+        deadline,
+        nonce,
+        owner: walletAddress,
+        spender,
+        value,
+      };
+      const types = {
+        EIP712Domain,
+        Permit: [
+          { name: 'owner', type: 'address' },
+          { name: 'spender', type: 'address' },
+          { name: 'value', type: 'uint256' },
+          { name: 'nonce', type: 'uint256' },
+          { name: 'deadline', type: 'uint256' },
+        ],
+      };
+
+      // DIAGNOSTIC: Full permit details for comparison with working test
+      console.log('[NEXUS-SDK] ========== EIP2612 PERMIT DEBUG ==========');
+      console.log('[NEXUS-SDK] Domain:', JSON.stringify({
+        name: domain.name,
+        version: domain.version,
+        chainId: domain.chainId.toString(),
+        verifyingContract: domain.verifyingContract,
+      }, null, 2));
+      console.log('[NEXUS-SDK] Message:', JSON.stringify({
+        owner: message.owner,
+        spender: message.spender,
+        value: message.value.toString(),
+        nonce: message.nonce.toString(),
+        deadline: message.deadline.toString(),
+      }, null, 2));
+      console.log('[NEXUS-SDK] Types:', JSON.stringify(types.Permit, null, 2));
+      console.log('[NEXUS-SDK] ============================================');
+
+      const signature = await client.signTypedData({
         account,
-        domain: {
-          chainId: hexToBigInt(chainID),
-          name,
-          verifyingContract: contract.address,
-          version: cur.permitContractVersion.toString(10),
-        },
-        message: {
-          deadline,
-          nonce,
-          owner: walletAddress,
-          spender,
-          value,
-        },
+        domain,
+        message,
         primaryType: 'Permit',
-        types: {
-          EIP712Domain,
-          Permit: [
-            { name: 'owner', type: 'address' },
-            { name: 'spender', type: 'address' },
-            { name: 'value', type: 'uint256' },
-            { name: 'nonce', type: 'uint256' },
-            { name: 'deadline', type: 'uint256' },
-          ],
-        },
+        types,
       });
+
+      console.log('[NEXUS-SDK] Permit Signature:', signature);
+      return signature;
     }
     case PermitVariant.Polygon2612: {
+      const nonce = await contract.read.nonces([walletAddress]);
       return client.signTypedData({
         account,
         domain: {
@@ -374,7 +423,7 @@ async function signPermitForAddressAndValue(
             size: 32,
           }),
           verifyingContract: contract.address,
-          version: cur.permitContractVersion.toString(10),
+          version,
         },
         message: {
           allowed: true,
@@ -397,6 +446,7 @@ async function signPermitForAddressAndValue(
       });
     }
     case PermitVariant.PolygonEMT: {
+      const nonce = await contract.read.getNonce([walletAddress]);
       const funcSig = encodeFunctionData({
         abi: ERC20ABI,
         args: [spender, value],
@@ -411,7 +461,7 @@ async function signPermitForAddressAndValue(
             size: 32,
           }),
           verifyingContract: contract.address,
-          version: cur.permitContractVersion.toString(10),
+          version,
         },
         message: {
           from: walletAddress,
@@ -432,11 +482,43 @@ async function signPermitForAddressAndValue(
   }
 }
 
+// Module-level RPC overrides for local testing (e.g., Anvil forks)
+let rpcOverrides: Record<number, string> = {};
+
+/**
+ * Set RPC URL overrides for specific chains.
+ * Useful for local testing with Anvil/Hardhat forks.
+ * @param overrides - Map of chainId to RPC URL
+ */
+const setRpcOverrides = (overrides: Record<number, string>) => {
+  rpcOverrides = overrides;
+  console.log('[NEXUS-SDK] RPC overrides set:', overrides);
+  logger.debug('RPC overrides set', { overrides });
+};
+
+/**
+ * Get the current RPC overrides
+ */
+const getRpcOverrides = (): Record<number, string> => {
+  return rpcOverrides;
+};
+
 const createPublicClientWithFallback = (chain: Chain): PublicClient => {
+  // Check for RPC override first (for local forks like Anvil)
+  const override = rpcOverrides[chain.id];
+  if (override) {
+    console.log(`[NEXUS-SDK] Using RPC override for chain ${chain.id}: ${override}`);
+    logger.debug('Using RPC override for chain', { chainId: chain.id, rpc: override });
+    return createPublicClient({
+      transport: http(override),
+    });
+  }
+
+  // Fall back to default chain RPCs
+  const defaultRpcs = chain.rpcUrls.default.http.concat(chain.rpcUrls.default.publicHttp ?? []);
+  console.log(`[NEXUS-SDK] Using default RPCs for chain ${chain.id}:`, defaultRpcs[0]);
   return createPublicClient({
-    transport: fallback(
-      chain.rpcUrls.default.http.concat(chain.rpcUrls.default.publicHttp ?? []).map((s) => http(s)),
-    ),
+    transport: fallback(defaultRpcs.map((s) => http(s))),
   });
 };
 
@@ -458,6 +540,8 @@ export {
   getL1Fee,
   getTokenTxFunction,
   requestTimeout,
+  setRpcOverrides,
+  getRpcOverrides,
   signPermitForAddressAndValue,
   switchChain,
   waitForIntentFulfilment,

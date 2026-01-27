@@ -11,7 +11,7 @@ const JADE_CONFIG: NetworkConfig = {
   VSC_DOMAIN: 'vsc-mainnet.availproject.org',
   STATEKEEPER_URL: 'http://localhost:9080',
   MIDDLEWARE_URL: 'http://localhost:3000',
-  useV2Middleware: false,  // Default to V1
+  useV2Middleware: true,  // V2 middleware is now the default
 };
 
 // Canary
@@ -23,7 +23,7 @@ const CORAL_CONFIG: NetworkConfig = {
   VSC_DOMAIN: 'vsc1-testnet.arcana.network',
   STATEKEEPER_URL: 'http://localhost:9080',
   MIDDLEWARE_URL: 'http://localhost:3000',
-  useV2Middleware: false,  // Default to V1
+  useV2Middleware: true,  // V2 middleware is now the default
 };
 
 // Testnet
@@ -35,25 +35,21 @@ const FOLLY_CONFIG: NetworkConfig = {
   VSC_DOMAIN: 'vsc1-folly.arcana.network',
   STATEKEEPER_URL: 'http://localhost:9080',
   MIDDLEWARE_URL: 'http://localhost:3000',
-  useV2Middleware: false,  // Default to V1
+  useV2Middleware: true,  // V2 middleware is now the default
 };
 
 const isNetworkConfig = (config?: Environment | NetworkConfig): config is NetworkConfig => {
   if (typeof config !== 'object') {
     return false;
   }
+  // Check required fields exist (NETWORK_HINT can be 0 which is falsy, so use !== undefined)
   if (
-    !(
-      config.VSC_DOMAIN &&
-      config.COSMOS_URL &&
-      config.EXPLORER_URL &&
-      config.GRPC_URL &&
-      config.NETWORK_HINT
-    )
+    !config.VSC_DOMAIN ||
+    !config.COSMOS_URL ||
+    !config.EXPLORER_URL ||
+    !config.GRPC_URL ||
+    config.NETWORK_HINT === undefined
   ) {
-    return false;
-  }
-  if (config.NETWORK_HINT === undefined) {
     return false;
   }
   return true;

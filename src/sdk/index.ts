@@ -69,10 +69,7 @@ export class NexusSDK extends CA {
    */
   public async bridge(params: BridgeParams, options?: OnEventParam): Promise<BridgeResult> {
     const handler = this._createBridgeHandler(params, options);
-    // Call appropriate execute method based on V2 middleware configuration
-    const result = await (this._networkConfig.useV2Middleware
-      ? handler.executeV2()
-      : handler.execute());
+    const result = await handler.execute();
     return {
       explorerUrl: result.explorerURL ?? '',
     };
@@ -115,35 +112,24 @@ export class NexusSDK extends CA {
    * @throws NexusError if the swap fails
    * @returns swap result with success flag and result
    */
+  /**
+   * @deprecated V1 swap not available in V2. Use bridge() for cross-chain transfers.
+   */
   public async swapWithExactIn(
-    input: ExactInSwapInput,
-    options?: OnEventParam,
+    _input: ExactInSwapInput,
+    _options?: OnEventParam,
   ): Promise<SwapResult> {
-    const result = await this._swapWithExactIn(input, options);
-    return {
-      success: true,
-      result,
-    };
+    throw new Error('swapWithExactIn: V1 swap not available in V2. Use bridge() for cross-chain transfers.');
   }
 
   /**
-   * Swap with exact out
-   * Useful when trying to swap with a fixed destination.
-   * Sources are calculated automatically.
-   * @param input swap input
-   * @param options event parameters
-   * @throws NexusError if the swap fails
-   * @returns swap result with success flag and result
+   * @deprecated V1 swap not available in V2. Use bridge() for cross-chain transfers.
    */
   public async swapWithExactOut(
-    input: ExactOutSwapInput,
-    options?: OnEventParam,
+    _input: ExactOutSwapInput,
+    _options?: OnEventParam,
   ): Promise<SwapResult> {
-    const result = await this._swapWithExactOut(input, options);
-    return {
-      success: true,
-      result,
-    };
+    throw new Error('swapWithExactOut: V1 swap not available in V2. Use bridge() for cross-chain transfers.');
   }
 
   /**
@@ -171,8 +157,11 @@ export class NexusSDK extends CA {
    * @param page page number
    * @returns list of intents
    */
-  public async getMyIntents(page: number = 1): Promise<RequestForFunds[]> {
-    return this._getMyIntents(page);
+  /**
+   * @deprecated V1 intents query not available in V2. Use getRffs() from middleware instead.
+   */
+  public async getMyIntents(_page: number = 1): Promise<RequestForFunds[]> {
+    throw new Error('getMyIntents: V1 cosmos intents not available in V2. Use middleware getRffs() API.');
   }
 
   /**

@@ -226,7 +226,7 @@ const createRFFromIntent = async (
       universe: s.universe,
     })),
     sources: omniversalRFF.protobufRFF.sources,
-    user: options.cosmos.address,
+    user: options.cosmos?.address ?? '',
   });
 
   logger.debug('processRFF:2', {
@@ -348,17 +348,29 @@ const universeToNumeric = (universe: V2Universe): number => {
 };
 
 /**
- * Convert a bigint to a hex string (0x-prefixed)
+ * Convert a bigint to a decimal string - used for V2Request JSON payload
+ * The middleware/statekeeper expects decimal strings for values
  */
-const bigintToHex = (value: bigint): string => {
-  return '0x' + value.toString(16);
+const bigintToDecimalString = (value: bigint): string => {
+  return value.toString(10);
 };
+
+/**
+ * Convert a chain ID to a 32-byte hex string (0x + 64 chars)
+ * This matches the format expected by the statekeeper/solver
+ */
+const chainIdToBytes32Hex = (chainId: bigint): Hex => {
+  return ('0x' + chainId.toString(16).padStart(64, '0')) as Hex;
+};
+
 
 /**
  * ABI type definitions for V2 Request encoding (matches Solidity Vault.sol)
  */
-const V2_REQUEST_ABI = [
+const V2_REQUEST_ABI_PARAMS = [
   {
+    name: 'sources',
+    type: 'tuple[]',
     components: [
       { name: 'universe', type: 'uint8' },
       { name: 'chainID', type: 'uint256' },
@@ -366,31 +378,72 @@ const V2_REQUEST_ABI = [
       { name: 'value', type: 'uint256' },
       { name: 'fee', type: 'uint256' },
     ],
-    name: 'sources',
-    type: 'tuple[]',
   },
   { name: 'destinationUniverse', type: 'uint8' },
   { name: 'destinationChainID', type: 'uint256' },
   { name: 'recipientAddress', type: 'bytes32' },
   {
+    name: 'destinations',
+    type: 'tuple[]',
     components: [
       { name: 'contractAddress', type: 'bytes32' },
       { name: 'value', type: 'uint256' },
     ],
-    name: 'destinations',
-    type: 'tuple[]',
   },
   { name: 'nonce', type: 'uint256' },
   { name: 'expiry', type: 'uint256' },
   {
+    name: 'parties',
+    type: 'tuple[]',
     components: [
       { name: 'universe', type: 'uint8' },
       { name: 'address_', type: 'bytes32' },
     ],
-    name: 'parties',
-    type: 'tuple[]',
   },
 ] as const;
+
+/**
+ * Compute the request hash matching the solver's verification
+ * This MUST match exactly what the solver computes in vault.rs
+ */
+const computeRequestHash = (request: V2Request): Hex => {
+  const sources = request.sources.map((s) => ({
+    universe: universeToNumeric(s.universe),
+    chainID: BigInt(s.chain_id),
+    contractAddress: s.contract_address as Hex,
+    value: BigInt(s.value),
+    fee: BigInt(s.fee),
+  }));
+
+  const destinations = request.destinations.map((d) => ({
+    contractAddress: d.contract_address as Hex,
+    value: BigInt(d.value),
+  }));
+
+  const parties = request.parties.map((p) => ({
+    universe: universeToNumeric(p.universe),
+    address_: p.address as Hex,
+  }));
+
+  const destinationUniverse = universeToNumeric(request.destination_universe);
+  const destinationChainID = BigInt(request.destination_chain_id);
+  const recipientAddress = request.recipient_address as Hex;
+  const nonce = BigInt(request.nonce);
+  const expiry = BigInt(request.expiry);
+
+  const encoded = encodeAbiParameters(V2_REQUEST_ABI_PARAMS, [
+    sources,
+    destinationUniverse,
+    destinationChainID,
+    recipientAddress,
+    destinations,
+    nonce,
+    expiry,
+    parties,
+  ]);
+
+  return keccak256(encoded);
+};
 
 /**
  * Create a V2 Request from an Intent for the Statekeeper API
@@ -434,84 +487,102 @@ const createV2RequestFromIntent = async (
     }
   }
 
-  // Generate nonce
-  const nonceBytes = window.crypto.getRandomValues(new Uint8Array(32));
-  const nonce = BigInt('0x' + Array.from(nonceBytes).map(b => b.toString(16).padStart(2, '0')).join(''));
+  // Generate nonce - using Date.now() to match the working middleware test format
+  // The working test uses: nonce: Date.now().toString()
+  const nonce = BigInt(Date.now());
 
-  // Calculate expiry
+  // Calculate expiry - matches working test: (Math.floor(Date.now() / 1000) + 3600).toString()
   const expiry = BigInt(Math.floor((Date.now() + INTENT_EXPIRY) / 1000));
 
+  console.log('[NEXUS-SDK] Nonce/Expiry generation:', {
+    nonce: nonce.toString(),
+    expiry: expiry.toString(),
+    INTENT_EXPIRY_ms: INTENT_EXPIRY,
+  });
+
   // Build V2 sources with fee field (set to 0 for now, statekeeper will calculate)
+  // IMPORTANT: Use decimal strings for values, and 32-byte hex for chain_id to match solver
   const v2Sources: V2SourcePair[] = sources.map((source) => ({
     universe: universeToV2(source.universe),
-    chain_id: bigintToHex(source.chainID),
+    chain_id: chainIdToBytes32Hex(source.chainID),
     contract_address: source.tokenAddress,
-    value: bigintToHex(source.valueRaw),
-    fee: '0x0', // Fee will be calculated by the statekeeper/protocol
+    value: bigintToDecimalString(source.valueRaw),
+    fee: '0', // Fee will be calculated by the statekeeper/protocol
   }));
 
   // Build V2 destinations
   const v2Destinations: V2DestinationPair[] = destinations.map((dest) => ({
     contract_address: dest.tokenAddress,
-    value: bigintToHex(dest.value),
+    value: bigintToDecimalString(dest.value),
   }));
 
   // Build the V2 Request
+  // IMPORTANT: Use decimal strings for nonce/expiry, 32-byte hex for chain_id
   const v2Request: V2Request = {
     sources: v2Sources,
     destination_universe: universeToV2(intent.destination.universe),
-    destination_chain_id: bigintToHex(BigInt(intent.destination.chainID)),
+    destination_chain_id: chainIdToBytes32Hex(BigInt(intent.destination.chainID)),
     recipient_address: convertTo32BytesHex(intent.recipientAddress),
     destinations: v2Destinations,
-    nonce: bigintToHex(nonce),
-    expiry: bigintToHex(expiry),
+    nonce: bigintToDecimalString(nonce),
+    expiry: bigintToDecimalString(expiry),
     parties,
   };
 
   logger.debug('createV2RequestFromIntent:built', { v2Request });
 
-  // Encode the request for signing (matches Solidity ABI encoding)
-  // Note: ABI encoding uses numeric universe values, while JSON API uses strings
-  const encodedSources = v2Sources.map((s) => ({
-    universe: universeToNumeric(s.universe),
-    chainID: BigInt(s.chain_id),
-    contractAddress: s.contract_address as `0x${string}`,
-    value: BigInt(s.value),
-    fee: BigInt(s.fee),
-  }));
+  // ============================================================================
+  // DIAGNOSTIC: Print EXACT request for comparison with working middleware test
+  // ============================================================================
+  console.log('[NEXUS-SDK] ========== V2 REQUEST DEBUG ==========');
+  console.log('[NEXUS-SDK] Full V2Request JSON:', JSON.stringify(v2Request, null, 2));
+  console.log('[NEXUS-SDK] Sources[0] details:');
+  if (v2Request.sources[0]) {
+    const s = v2Request.sources[0];
+    console.log(`  universe: "${s.universe}"`);
+    console.log(`  chain_id: "${s.chain_id}" (length: ${s.chain_id.length})`);
+    console.log(`  contract_address: "${s.contract_address}" (length: ${s.contract_address.length})`);
+    console.log(`  value: "${s.value}"`);
+    console.log(`  fee: "${s.fee}"`);
+  }
+  console.log('[NEXUS-SDK] Destination details:');
+  console.log(`  destination_universe: "${v2Request.destination_universe}"`);
+  console.log(`  destination_chain_id: "${v2Request.destination_chain_id}" (length: ${v2Request.destination_chain_id.length})`);
+  console.log(`  recipient_address: "${v2Request.recipient_address}" (length: ${v2Request.recipient_address.length})`);
+  console.log('[NEXUS-SDK] Nonce/Expiry:');
+  console.log(`  nonce: "${v2Request.nonce}" (length: ${v2Request.nonce.length})`);
+  console.log(`  expiry: "${v2Request.expiry}" (length: ${v2Request.expiry.length})`);
+  console.log('[NEXUS-SDK] Parties[0] details:');
+  if (v2Request.parties[0]) {
+    const p = v2Request.parties[0];
+    console.log(`  universe: "${p.universe}"`);
+    console.log(`  address: "${p.address}" (length: ${p.address.length})`);
+  }
+  console.log('[NEXUS-SDK] ==========================================');
 
-  const encodedDestinations = v2Destinations.map((d) => ({
-    contractAddress: d.contract_address as `0x${string}`,
-    value: BigInt(d.value),
-  }));
+  // Compute the request hash using the SAME method as the working test
+  // This must match exactly what the solver computes
+  const hash = computeRequestHash(v2Request);
 
-  const encodedParties = parties.map((p) => ({
-    universe: universeToNumeric(p.universe),
-    address_: p.address as `0x${string}`,
-  }));
+  console.log('[NEXUS-SDK] RFF Signing Debug:', {
+    hash,
+    signerAddress: options.evm.address,
+    nonce: v2Request.nonce,
+    expiry: v2Request.expiry,
+  });
 
-  const encodedRequest = encodeAbiParameters(V2_REQUEST_ABI, [
-    encodedSources,
-    universeToNumeric(v2Request.destination_universe),
-    BigInt(v2Request.destination_chain_id),
-    v2Request.recipient_address as `0x${string}`,
-    encodedDestinations,
-    nonce,
-    expiry,
-    encodedParties,
-  ]);
-
-  // Hash the encoded request
-  const hash = keccak256(encodedRequest);
-
-  // Sign the hash
+  // Sign the hash with personal_sign (EIP-191)
   const signature = await options.evm.client.signMessage({
     account: options.evm.address,
     message: { raw: hash },
-  });
+  }) as Hex;
+
+  console.log('[NEXUS-SDK] RFF Signature:', signature);
 
   // The request hash is the EIP-191 prefixed hash (same as what Vault contract uses)
   const requestHash = hashMessage({ raw: hash });
+
+  console.log('[NEXUS-SDK] RFF Request Hash (EIP-191 prefixed):', requestHash);
 
   logger.debug('createV2RequestFromIntent:signed', {
     hash,

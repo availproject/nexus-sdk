@@ -14,6 +14,7 @@ import { Hex } from 'viem';
 class ChainList {
   public chains: Chain[];
   private readonly vcm: ChainIDKeyedMap<Buffer<ArrayBufferLike>>;
+  private vaultOverrides: Record<number, `0x${string}`> = {};
 
   constructor(env: Environment) {
     switch (env) {
@@ -30,6 +31,14 @@ class ChainList {
         throw Errors.environmentNotKnown();
     }
     this.vcm = getVaultContractMap(env);
+  }
+
+  /**
+   * Set vault address overrides for specific chains (for local testing)
+   */
+  public setVaultOverrides(overrides: Record<number, `0x${string}`>) {
+    this.vaultOverrides = overrides;
+    console.log('[NEXUS-SDK] Vault overrides set:', overrides);
   }
 
   public getChainByID(id: number) {
@@ -124,6 +133,13 @@ class ChainList {
   }
 
   public getVaultContractAddress(chainID: number) {
+    // Check for vault override first (for local testing)
+    const override = this.vaultOverrides[chainID];
+    if (override) {
+      console.log(`[NEXUS-SDK] Using vault override for chain ${chainID}: ${override}`);
+      return override;
+    }
+
     const chain = this.getChainByID(chainID);
     if (!chain) {
       throw Errors.chainNotFound(chainID);

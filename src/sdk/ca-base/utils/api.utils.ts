@@ -720,19 +720,37 @@ export class StatekeeperClient {
    * @param targetStates Array of states to wait for
    * @param timeoutMs Timeout in milliseconds (default 5 minutes)
    * @param pollIntervalMs Poll interval in milliseconds (default 2 seconds)
+   * @param onStatusUpdate Optional callback for status updates
    */
   async waitForStatus(
     requestHash: Hex,
     targetStates: Array<'created' | 'deposited' | 'fulfilled' | 'expired'>,
     timeoutMs = 5 * 60 * 1000,
     pollIntervalMs = 2000,
+    onStatusUpdate?: (status: string, rff: V2RffResponse) => void,
   ): Promise<V2RffResponse> {
     const startTime = Date.now();
+    let lastStatus: string | null = null;
+    let pollCount = 0;
+
+    console.log(`[NEXUS-SDK] Starting to poll for RFF status: ${requestHash}`);
 
     while (Date.now() - startTime < timeoutMs) {
+      pollCount++;
       const rff = await this.getRff(requestHash);
 
+      // Log status changes
+      if (rff.status !== lastStatus) {
+        console.log(`[NEXUS-SDK] RFF ${requestHash.slice(0, 10)}... status: ${lastStatus || 'initial'} -> ${rff.status} (poll #${pollCount})`);
+        lastStatus = rff.status;
+
+        if (onStatusUpdate) {
+          onStatusUpdate(rff.status, rff);
+        }
+      }
+
       if (targetStates.includes(rff.status)) {
+        console.log(`[NEXUS-SDK] RFF reached target status: ${rff.status} after ${pollCount} polls`);
         return rff;
       }
 

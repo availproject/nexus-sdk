@@ -1,33 +1,19 @@
-import {
-  ChaindataMap,
-  ERC20ABI,
-  EVMVaultABI,
-  OmniversalChainID,
-  PermitVariant,
-  Universe,
-} from '@avail-project/ca-common';
+import { ChaindataMap, OmniversalChainID, PermitVariant, Universe } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
-import Long from 'long';
 import {
   ContractFunctionExecutionError,
-  createPublicClient,
-  encodeFunctionData,
   Hex,
   hexToBytes,
   JsonRpcAccount,
   maxUint256,
   parseSignature,
-  toHex,
-  TransactionReceipt,
   UserRejectedRequestError,
-  webSocket,
 } from 'viem';
 import { isNativeAddress } from '../constants';
 import { createSteps } from '../steps';
 import {
   Intent,
   onAllowanceHookSource,
-  SetAllowanceInput,
   SponsoredApprovalDataArray,
   Chain,
   TokenInfo,
@@ -41,46 +27,24 @@ import {
   convertGasToToken,
   convertIntent,
   convertTo32Bytes,
-  cosmosCreateRFF,
-  createDepositDoubleCheckTx,
   createPublicClientWithFallback,
-  equalFold,
   FeeStore,
   fetchPriceOracle,
   getAllowances,
-  getExplorerURL,
   getFeeStore,
   mulDecimals,
-  removeIntentHashFromStore,
   signPermitForAddressAndValue,
-  storeIntentHashToStore,
   switchChain,
-  vscCreateRFF,
-  vscCreateSponsoredApprovals,
-  vscPublishRFF,
-  waitForTxReceipt,
   UserAssets,
-  waitForTronDepositTxConfirmation,
-  waitForTronApprovalTxConfirmation,
   divDecimals,
-  requestTimeout,
-  cosmosFillCheck,
-  waitForIntentFulfilment,
-  createRFFromIntent,
   retrieveAddress,
   getBalances,
   createV2RequestFromIntent,
   getStatekeeperClient,
-  // createDeadlineFromNow,
 } from '../utils';
-import {
-  submitRffToMiddleware,
-  createApprovalsViaMiddleware,
-} from '../utils/middleware.utils';
+import { submitRffToMiddleware, createApprovalsViaMiddleware } from '../utils/middleware.utils';
 import type { V2MiddlewareRffPayload, V2ApprovalsByChain } from '../../../commons';
-import { TronWeb } from 'tronweb';
 import { Errors } from '../errors';
-import { ERROR_CODES, NexusError } from '../nexusError';
 
 type Params = {
   recipient?: Hex;
@@ -96,7 +60,10 @@ const logger = getLogger();
 class BridgeHandler {
   protected steps: BridgeStepType[] = [];
   protected params: Required<Params>;
-  constructor(params: Params, readonly options: IBridgeOptions) {
+  constructor(
+    params: Params,
+    readonly options: IBridgeOptions,
+  ) {
     this.params = {
       ...params,
       recipient: params.recipient ?? retrieveAddress(params.dstChain.universe, options),
@@ -259,22 +226,10 @@ class BridgeHandler {
   }
 
   /**
-   * Execute bridge using v2 Statekeeper API
-   * This is the new protocol that uses REST API instead of Cosmos chain
+   * Execute bridge via middleware
+   * This is the main execution path that uses the V2 middleware for approvals and RFF submission
    */
-  public executeV2 = async (
-    shouldRetryOnFailure = true,
-  ): Promise<{ explorerURL: string; requestHash: Hex }> => {
-    if (this.options.networkConfig.useV2Middleware) {
-      return this.executeV2ViaMiddleware(shouldRetryOnFailure);
-    }
-    // Existing V2 logic (statekeeper direct)
-    return this.executeV2Direct(shouldRetryOnFailure);
-  };
-
-  private async executeV2ViaMiddleware(
-    _shouldRetryOnFailure = true,
-  ): Promise<{ explorerURL: string; requestHash: Hex }> {
+  public execute = async (): Promise<{ explorerURL: string; requestHash: Hex }> => {
     let intent = await this.buildIntent(this.params.sourceChains);
 
     const allowances = await getAllowances(intent.allSources, this.options.chainList);
@@ -342,457 +297,7 @@ class BridgeHandler {
     }
 
     return { explorerURL, requestHash };
-  }
-
-  private async executeV2Direct(
-    shouldRetryOnFailure = true,
-  ): Promise<{ explorerURL: string; requestHash: Hex }> {
-    let intent = await this.buildIntent(this.params.sourceChains);
-
-    const allowances = await getAllowances(intent.allSources, this.options.chainList);
-
-    let insufficientAllowanceSources = this.filterInsufficientAllowanceSources(intent, allowances);
-    this.createExpectedSteps(intent, insufficientAllowanceSources);
-
-    let accepted = false;
-    const refresh = async (sourceChains?: number[]) => {
-      if (accepted) {
-        logger.warn('Intent refresh called after acceptance');
-        return convertIntent(intent, this.params.dstToken, this.options.chainList);
-      }
-
-      intent = await this.buildIntent(sourceChains);
-      if (intent.isAvailableBalanceInsufficient) {
-        throw Errors.insufficientBalance();
-      }
-      insufficientAllowanceSources = this.filterInsufficientAllowanceSources(intent, allowances);
-      this.createExpectedSteps(intent, insufficientAllowanceSources);
-
-      return convertIntent(intent, this.params.dstToken, this.options.chainList);
-    };
-
-    // wait for intent acceptance hook
-    await new Promise((resolve, reject) => {
-      const allow = () => {
-        accepted = true;
-        return resolve('User allowed intent');
-      };
-
-      const deny = () => {
-        return reject(Errors.userDeniedIntent());
-      };
-
-      this.options.hooks.onIntent({
-        allow,
-        deny,
-        intent: convertIntent(intent, this.params.dstToken, this.options.chainList),
-        refresh,
-      });
-    });
-
-    this.markStepDone(BRIDGE_STEPS.INTENT_ACCEPTED);
-
-    console.time('process:AllowanceHook');
-
-    // Step 5: set allowance if not set
-    await this.waitForOnAllowanceHook(insufficientAllowanceSources);
-    console.timeEnd('process:AllowanceHook');
-
-    // Step 6: Process intent using v2 API
-    logger.debug('intent (v2)', { intent });
-
-    const response = await this.processRFFv2(intent);
-    if (response.retry) {
-      logger.debug('rff fee expired, going to rebuild intent...');
-      if (shouldRetryOnFailure) {
-        return this.executeV2Direct(false);
-      } else {
-        throw Errors.rFFFeeExpired();
-      }
-    }
-
-    const { explorerURL, requestHash } = response;
-
-    // Step 7: Wait for fill using v2 polling
-    await this.waitForFillV2(requestHash);
-
-    this.markStepDone(BRIDGE_STEPS.INTENT_FULFILLED);
-
-    if (this.params.dstChain.universe === Universe.ETHEREUM) {
-      await switchChain(this.options.evm.client, this.params.dstChain);
-    }
-
-    return { explorerURL, requestHash };
-  }
-
-  /**
-   * Execute bridge using v1 Cosmos chain (legacy)
-   */
-  public execute = async (
-    shouldRetryOnFailure = true,
-  ): Promise<{ explorerURL: string; intentID: Long }> => {
-    let intent = await this.buildIntent(this.params.sourceChains);
-
-    const allowances = await getAllowances(intent.allSources, this.options.chainList);
-
-    let insufficientAllowanceSources = this.filterInsufficientAllowanceSources(intent, allowances);
-    this.createExpectedSteps(intent, insufficientAllowanceSources);
-
-    let accepted = false;
-    const refresh = async (sourceChains?: number[]) => {
-      if (accepted) {
-        logger.warn('Intent refresh called after acceptance');
-        return convertIntent(intent, this.params.dstToken, this.options.chainList);
-      }
-
-      intent = await this.buildIntent(sourceChains);
-      if (intent.isAvailableBalanceInsufficient) {
-        throw Errors.insufficientBalance();
-      }
-      insufficientAllowanceSources = this.filterInsufficientAllowanceSources(intent, allowances);
-      this.createExpectedSteps(intent, insufficientAllowanceSources);
-
-      return convertIntent(intent, this.params.dstToken, this.options.chainList);
-    };
-
-    // wait for intent acceptance hook
-    await new Promise((resolve, reject) => {
-      const allow = () => {
-        accepted = true;
-        return resolve('User allowed intent');
-      };
-
-      const deny = () => {
-        return reject(Errors.userDeniedIntent());
-      };
-
-      this.options.hooks.onIntent({
-        allow,
-        deny,
-        intent: convertIntent(intent, this.params.dstToken, this.options.chainList),
-        refresh,
-      });
-    });
-
-    this.markStepDone(BRIDGE_STEPS.INTENT_ACCEPTED);
-
-    console.time('process:AllowanceHook');
-
-    // Step 5: set allowance if not set
-    await this.waitForOnAllowanceHook(insufficientAllowanceSources);
-    console.timeEnd('process:AllowanceHook');
-
-    // Step 6: Process intent
-    logger.debug('intent', { intent });
-
-    const response = await this.processRFF(intent);
-    if (response.retry) {
-      logger.debug('rff fee expired, going to rebuild intent...');
-      if (shouldRetryOnFailure) {
-        // If fee expired go back and rebuild intent if first time
-        return this.execute(false);
-      } else {
-        // Something else is wrong, retries probably wont fix it - so just throw
-        throw Errors.rFFFeeExpired();
-      }
-    }
-
-    const { explorerURL, intentID, requestHash, waitForDoubleCheckTx } = response;
-
-    // Step 7: Wait for fill
-    storeIntentHashToStore(this.options.evm.address, intentID.toNumber());
-    await this.waitForFill(requestHash, intentID, waitForDoubleCheckTx);
-    removeIntentHashFromStore(this.options.evm.address, intentID);
-
-    this.markStepDone(BRIDGE_STEPS.INTENT_FULFILLED);
-
-    if (this.params.dstChain.universe === Universe.ETHEREUM) {
-      await switchChain(this.options.evm.client, this.params.dstChain);
-    }
-
-    return { explorerURL, intentID };
   };
-
-  private async waitForFill(
-    requestHash: `0x${string}`,
-    intentID: Long,
-    waitForDoubleCheckTx: () => Promise<void>,
-  ) {
-    waitForDoubleCheckTx();
-
-    const ac = new AbortController();
-    let promisesToRace = [
-      requestTimeout(3, ac),
-      cosmosFillCheck(
-        intentID,
-        this.options.networkConfig.GRPC_URL,
-        this.options.networkConfig.COSMOS_URL,
-        ac,
-      ),
-    ];
-
-    // Use eth_subscribe to read fill events if destination is EVM - usually the fastest
-    if (this.params.dstChain.universe === Universe.ETHEREUM) {
-      promisesToRace.push(
-        waitForIntentFulfilment(
-          createPublicClient({
-            transport: webSocket(this.params.dstChain.rpcUrls.default.webSocket[0]),
-          }),
-          this.options.chainList.getVaultContractAddress(this.params.dstChain.id),
-          requestHash,
-          ac,
-        ),
-      );
-    }
-    await Promise.race(promisesToRace);
-    logger.debug('Fill completed');
-  }
-
-  private async processRFF(intent: Intent): Promise<
-    | { retry: true }
-    | {
-        retry: false;
-        explorerURL: string;
-        intentID: Long;
-        requestHash: Hex;
-        waitForDoubleCheckTx: () => any;
-      }
-  > {
-    const { msgBasicCosmos, omniversalRFF, signatureData, sources, universes } =
-      await createRFFromIntent(intent, this.options, this.params.dstChain.universe);
-
-    this.markStepDone(BRIDGE_STEPS.INTENT_HASH_SIGNED);
-
-    logger.debug('processRFF:3', { msgBasicCosmos });
-
-    const intentID = await cosmosCreateRFF({
-      address: this.options.cosmos.address,
-      msg: msgBasicCosmos,
-      client: this.options.cosmos.client,
-    });
-
-    const explorerURL = getExplorerURL(this.options.networkConfig.EXPLORER_URL, intentID);
-    this.markStepDone(BRIDGE_STEPS.INTENT_SUBMITTED(explorerURL, intentID.toNumber()));
-
-    const tokenCollections: number[] = [];
-    for (const [i, s] of sources.entries()) {
-      if (!isDeposit(s.universe, s.tokenAddress)) {
-        tokenCollections.push(i);
-      }
-    }
-
-    const evmDeposits: Promise<unknown>[] = [];
-    const tronDeposits: Promise<unknown>[] = [];
-
-    const evmSignatureData = signatureData.find((d) => d.universe === Universe.ETHEREUM);
-
-    if (!evmSignatureData && universes.has(Universe.ETHEREUM)) {
-      throw Errors.internal('ethereum in universe list but no signature data present');
-    }
-
-    const tronSignatureData = signatureData.find((d) => d.universe === Universe.TRON);
-
-    if (!tronSignatureData && universes.has(Universe.TRON)) {
-      throw Errors.internal('tron in universe list but no signature data present');
-    }
-
-    const doubleCheckTxs = [];
-
-    for (const [i, s] of sources.entries()) {
-      const chain = this.options.chainList.getChainByID(Number(s.chainID));
-      if (!chain) {
-        throw Errors.chainNotFound(s.chainID);
-      }
-
-      if (s.universe === Universe.ETHEREUM && isNativeAddress(s.universe, s.tokenAddress)) {
-        await switchChain(this.options.evm.client, chain);
-
-        const publicClient = createPublicClientWithFallback(chain);
-
-        const { request } = await publicClient.simulateContract({
-          abi: EVMVaultABI,
-          account: this.options.evm.address,
-          address: this.options.chainList.getVaultContractAddress(chain.id),
-          args: [omniversalRFF.asEVMRFF(), toHex(evmSignatureData!.signature), BigInt(i)],
-          chain: chain,
-          functionName: 'deposit',
-          value: s.valueRaw,
-        });
-        const hash = await this.options.evm.client.writeContract(request);
-        this.markStepDone(BRIDGE_STEPS.INTENT_DEPOSIT_REQUEST(i + 1, s.value, chain));
-
-        evmDeposits.push(waitForTxReceipt(hash, publicClient));
-      } else if (s.universe === Universe.TRON) {
-        const provider = new TronWeb({
-          fullHost: chain.rpcUrls.default.grpc![0],
-        });
-        const vaultContractAddress = this.options.chainList.getVaultContractAddress(
-          Number(s.chainID),
-        );
-        const txWrap = await provider.transactionBuilder.triggerSmartContract(
-          TronWeb.address.fromHex(vaultContractAddress),
-          '',
-          {
-            txLocal: true,
-            input: encodeFunctionData({
-              abi: EVMVaultABI,
-              functionName: 'deposit',
-              args: [omniversalRFF.asEVMRFF(), toHex(tronSignatureData!.signature), BigInt(i)],
-            }),
-          },
-          [],
-          TronWeb.address.fromHex(this.options.tron!.address),
-        );
-
-        const signedTx = await this.options.tron!.adapter.signTransaction(txWrap.transaction);
-
-        logger.debug('tron deposit signTransaction result', {
-          signedTx,
-        });
-
-        if (!this.options.tron!.adapter.isMobile) {
-          const txResult = await provider.trx.sendRawTransaction(signedTx);
-
-          logger.debug('tron deposit tx result', {
-            txResult,
-          });
-          if (!txResult.result) {
-            throw Errors.tronDepositFailed(txResult);
-          }
-        }
-
-        tronDeposits.push(
-          (async () => {
-            await waitForTronDepositTxConfirmation(
-              tronSignatureData!.requestHash,
-              vaultContractAddress,
-              provider,
-              this.options.tron!.address as Hex,
-            );
-          })(),
-        );
-      }
-      doubleCheckTxs.push(
-        createDepositDoubleCheckTx(convertTo32Bytes(chain.id), this.options.cosmos, intentID),
-      );
-    }
-
-    if (evmDeposits.length || tronDeposits.length) {
-      await Promise.all([Promise.all(evmDeposits), Promise.all(tronDeposits)]);
-      this.markStepDone(BRIDGE_STEPS.INTENT_DEPOSITS_CONFIRMED);
-    }
-
-    logger.debug('PostIntentSubmission: Intent ID', {
-      id: intentID.toNumber(),
-    });
-
-    if (tokenCollections.length > 0) {
-      logger.debug('processRFF', {
-        intentID: intentID.toString(),
-        message: 'going to create RFF',
-        tokenCollections,
-      });
-      try {
-        await vscCreateRFF(
-          this.options.networkConfig.VSC_DOMAIN,
-          intentID,
-          this.markStepDone,
-          tokenCollections,
-        );
-      } catch (e) {
-        logger.debug('vscCreateRFF', {
-          'e instanceof NexusError?': e instanceof NexusError,
-          error: e,
-        });
-        if (e instanceof NexusError && e.code === ERROR_CODES.RFF_FEE_EXPIRED) {
-          // Send back to process again
-          return { retry: true };
-        }
-        throw e;
-      }
-    } else {
-      logger.debug('processRFF', {
-        message: 'going to publish RFF',
-      });
-      await vscPublishRFF(this.options.networkConfig.VSC_DOMAIN, intentID);
-    }
-
-    const destinationSigData = signatureData.find(
-      (s) => s.universe === intent.destination.universe,
-    );
-
-    if (!destinationSigData) {
-      throw Errors.destinationRequestHashNotFound();
-    }
-
-    return {
-      retry: false,
-      explorerURL,
-      intentID,
-      requestHash: destinationSigData.requestHash,
-      waitForDoubleCheckTx: waitForDoubleCheckTx(doubleCheckTxs),
-    };
-  }
-
-  /**
-   * Process RFF using v2 Statekeeper API
-   * This is the new protocol that uses REST API instead of Cosmos chain
-   */
-  private async processRFFv2(intent: Intent): Promise<
-    | { retry: true }
-    | {
-        retry: false;
-        explorerURL: string;
-        requestHash: Hex;
-      }
-  > {
-    // Create V2 Request and sign it
-    const { request, signature, requestHash } = await createV2RequestFromIntent(
-      intent,
-      this.options,
-      this.params.dstChain.universe,
-    );
-
-    this.markStepDone(BRIDGE_STEPS.INTENT_HASH_SIGNED);
-
-    logger.debug('processRFFv2: Request created', { request, requestHash });
-
-    // Submit to Statekeeper
-    const statekeeperClient = getStatekeeperClient(
-      this.options.networkConfig.STATEKEEPER_URL,
-    );
-
-    try {
-      const submittedHash = await statekeeperClient.submitRff(request, signature);
-
-      logger.debug('processRFFv2: Submitted to statekeeper', {
-        submittedHash,
-        requestHash,
-      });
-
-      // Generate explorer URL using the request hash
-      const explorerURL = `${this.options.networkConfig.EXPLORER_URL}/rff/${requestHash}`;
-      this.markStepDone(BRIDGE_STEPS.INTENT_SUBMITTED(explorerURL, 0)); // Use 0 as placeholder for intentID
-
-      // Mark collection as complete - statekeeper handles this internally
-      this.markStepDone(BRIDGE_STEPS.INTENT_COLLECTION_COMPLETE);
-
-      return {
-        retry: false,
-        explorerURL,
-        requestHash,
-      };
-    } catch (e) {
-      logger.error('processRFFv2: Failed to submit to statekeeper', e);
-
-      // Check if it's a fee expired error
-      if (e instanceof NexusError && e.code === ERROR_CODES.RFF_FEE_EXPIRED) {
-        return { retry: true };
-      }
-
-      throw e;
-    }
-  }
 
   /**
    * Process RFF using v2 Middleware
@@ -802,19 +307,27 @@ class BridgeHandler {
     intent: Intent,
     msd: (step: BridgeStepType) => void,
   ): Promise<Hex> {
+    console.log('[NEXUS-SDK] processRFFv2Middleware: Creating RFF request from intent...');
     const { request, signature } = await createV2RequestFromIntent(
       intent,
       this.options,
       this.params.dstChain.universe,
     );
 
+    console.log('[NEXUS-SDK] processRFFv2Middleware: RFF request created, signing...');
     msd(BRIDGE_STEPS.INTENT_HASH_SIGNED);
 
     const payload: V2MiddlewareRffPayload = { request, signature };
+    console.log('[NEXUS-SDK] processRFFv2Middleware: Submitting RFF to middleware...');
     const response = await submitRffToMiddleware(
       this.options.networkConfig.MIDDLEWARE_URL,
       payload,
     );
+
+    console.log('[NEXUS-SDK] ========================================');
+    console.log('[NEXUS-SDK] RFF SUBMITTED SUCCESSFULLY');
+    console.log('[NEXUS-SDK] Request Hash:', response.request_hash);
+    console.log('[NEXUS-SDK] ========================================');
 
     logger.debug('processRFFv2Middleware', { requestHash: response.request_hash });
     return response.request_hash;
@@ -878,8 +391,17 @@ class BridgeHandler {
    * Create approvals via middleware
    */
   private async createApprovalsViaMiddleware(intent: Intent) {
+    console.log('[NEXUS-SDK] createApprovalsViaMiddleware - intent.sources:', intent.sources);
     const sponsoredApprovals = await this.buildSponsoredApprovals(intent);
+    console.log('[NEXUS-SDK] sponsoredApprovals built:', sponsoredApprovals.length, 'items');
     const middlewareApprovals = this.convertToMiddlewareApprovals(sponsoredApprovals);
+    console.log('[NEXUS-SDK] middlewareApprovals:', JSON.stringify(middlewareApprovals));
+
+    // If no approvals needed, skip the WebSocket call
+    if (Object.keys(middlewareApprovals).length === 0) {
+      console.log('[NEXUS-SDK] No approvals needed, skipping middleware call');
+      return [];
+    }
 
     const results = await createApprovalsViaMiddleware(
       this.options.networkConfig.MIDDLEWARE_URL,
@@ -899,13 +421,28 @@ class BridgeHandler {
    * Build sponsored approvals from intent
    */
   private async buildSponsoredApprovals(intent: Intent): Promise<SponsoredApprovalDataArray> {
+    console.log('[NEXUS-SDK] buildSponsoredApprovals - sources:', intent.sources.length);
+    console.log('[NEXUS-SDK] destination chainID:', intent.destination.chainID);
+
+    // Get all allowances at once to check against
+    const allowances = await getAllowances(intent.allSources, this.options.chainList);
+    console.log('[NEXUS-SDK] allowances:', allowances);
     const sponsoredApprovals: SponsoredApprovalDataArray = [];
 
     for (const source of intent.sources) {
-      if (
-        source.chainID === intent.destination.chainID ||
-        isNativeAddress(source.universe, source.tokenContract)
-      ) {
+      console.log('[NEXUS-SDK] Processing source:', {
+        chainID: source.chainID,
+        tokenContract: source.tokenContract,
+        amount: source.amount.toString(),
+      });
+
+      if (source.chainID === intent.destination.chainID) {
+        console.log('[NEXUS-SDK] Skipping: source is destination chain');
+        continue;
+      }
+
+      if (isNativeAddress(source.universe, source.tokenContract)) {
+        console.log('[NEXUS-SDK] Skipping: native token');
         continue;
       }
 
@@ -919,20 +456,51 @@ class BridgeHandler {
         throw Errors.tokenNotSupported(source.tokenContract, source.chainID);
       }
 
+      // --- Start of new allowance check ---
+      const requiredAllowance = mulDecimals(source.amount, token.decimals);
+      const currentAllowance = allowances[source.chainID] ?? 0n;
+
+      console.log('[NEXUS-SDK] Allowance check:', {
+        chainId: chain.id,
+        token: token.symbol,
+        requiredAllowance: requiredAllowance.toString(),
+        currentAllowance: currentAllowance.toString(),
+        needsApproval: requiredAllowance > currentAllowance,
+      });
+
+      if (requiredAllowance <= currentAllowance) {
+        console.log('[NEXUS-SDK] Skipping: allowance already sufficient');
+        logger.debug(
+          `Allowance sufficient for ${token.symbol} on chain ${chain.id}, skipping approval.`,
+        );
+        continue; // Skip this source if allowance is already sufficient
+      }
+      // --- End of new allowance check ---
+
       const publicClient = createPublicClientWithFallback(chain);
       const vc = this.options.chainList.getVaultContractAddress(chain.id);
 
       const chainId = new OmniversalChainID(chain.universe, source.chainID);
+      console.log('[NEXUS-SDK] Looking up chainDatum for:', {
+        universe: chain.universe,
+        chainID: source.chainID,
+      });
       const chainDatum = ChaindataMap.get(chainId);
       if (!chainDatum) {
+        console.log('[NEXUS-SDK] ERROR: Chain data not found in ChaindataMap');
         throw Errors.internal('Chain data not found', {
           chainId: source.chainID,
           universe: chain.universe,
         });
       }
+      console.log(
+        '[NEXUS-SDK] chainDatum found, looking up currency for:',
+        convertTo32Bytes(source.tokenContract),
+      );
 
       const currency = chainDatum.CurrencyMap.get(convertTo32Bytes(source.tokenContract));
       if (!currency) {
+        console.log('[NEXUS-SDK] ERROR: Currency not found in CurrencyMap');
         throw Errors.internal('currency not found', {
           chainId: source.chainID,
           tokenContractAddress: source.tokenContract,
@@ -940,8 +508,20 @@ class BridgeHandler {
       }
 
       // Only create permit-based approvals for middleware
+      console.log('[NEXUS-SDK] Permit check:', {
+        chainId: chain.id,
+        tokenSymbol: token.symbol,
+        permitVariant: currency.permitVariant,
+        permitVariantName: PermitVariant[currency.permitVariant],
+        isUnsupported: currency.permitVariant === PermitVariant.Unsupported,
+        isEthMainnet: chain.id === 1,
+        willCreatePermit: currency.permitVariant !== PermitVariant.Unsupported && chain.id !== 1,
+      });
+
       if (currency.permitVariant !== PermitVariant.Unsupported && chain.id !== 1) {
+        console.log('[NEXUS-SDK] Creating permit for chain', chain.id);
         if (chain.universe === Universe.ETHEREUM) {
+          console.log('[NEXUS-SDK] Switching chain to', chain.id);
           await switchChain(this.options.evm.client, chain);
         }
 
@@ -950,7 +530,11 @@ class BridgeHandler {
           type: 'json-rpc',
         };
 
-        const requiredAmount = mulDecimals(source.amount, token.decimals);
+        console.log('[NEXUS-SDK] Signing permit for:', {
+          account: account.address,
+          spender: vc,
+          value: 'maxUint256',
+        });
 
         const signed = parseSignature(
           await signPermitForAddressAndValue(
@@ -959,8 +543,9 @@ class BridgeHandler {
             publicClient,
             account,
             vc,
-            requiredAmount,
+            maxUint256,
           ).catch((e) => {
+            console.log('[NEXUS-SDK] signPermitForAddressAndValue error:', e);
             if (e instanceof ContractFunctionExecutionError) {
               const isUserRejectedRequestError =
                 e.walk((e) => e instanceof UserRejectedRequestError) instanceof
@@ -973,8 +558,15 @@ class BridgeHandler {
           }),
         );
 
+        console.log('[NEXUS-SDK] Permit signed successfully:', {
+          r: signed.r,
+          s: signed.s,
+          yParity: signed.yParity,
+        });
+
         this.markStepDone(BRIDGE_STEPS.ALLOWANCE_APPROVAL_REQUEST(chain));
 
+        console.log('[NEXUS-SDK] Adding sponsored approval for chain', chain.id);
         sponsoredApprovals.push({
           address: convertTo32Bytes(account.address),
           chain_id: chainDatum.ChainID32,
@@ -984,15 +576,22 @@ class BridgeHandler {
               sig_s: hexToBytes(signed.s),
               sig_v: signed.yParity < 27 ? signed.yParity + 27 : signed.yParity,
               token_address: currency.tokenAddress,
-              value: convertTo32Bytes(requiredAmount),
+              value: convertTo32Bytes(maxUint256),
               variant: currency.permitVariant === PermitVariant.PolygonEMT ? 2 : 1,
             },
           ],
           universe: chainDatum.Universe,
         });
+      } else {
+        console.log('[NEXUS-SDK] Skipping permit: unsupported or Ethereum mainnet');
       }
     }
 
+    console.log(
+      '[NEXUS-SDK] buildSponsoredApprovals complete:',
+      sponsoredApprovals.length,
+      'approvals',
+    );
     return sponsoredApprovals;
   }
 
@@ -1000,9 +599,13 @@ class BridgeHandler {
    * Wait for RFF fulfillment using v2 Statekeeper API
    */
   private async waitForFillV2(requestHash: Hex): Promise<void> {
-    const statekeeperClient = getStatekeeperClient(
-      this.options.networkConfig.STATEKEEPER_URL,
-    );
+    const statekeeperClient = getStatekeeperClient(this.options.networkConfig.STATEKEEPER_URL);
+
+    console.log('[NEXUS-SDK] ========================================');
+    console.log('[NEXUS-SDK] WAITING FOR RFF FULFILLMENT');
+    console.log('[NEXUS-SDK] Request Hash:', requestHash);
+    console.log('[NEXUS-SDK] Statekeeper URL:', this.options.networkConfig.STATEKEEPER_URL);
+    console.log('[NEXUS-SDK] ========================================');
 
     logger.debug('waitForFillV2: Waiting for fulfillment', { requestHash });
 
@@ -1015,260 +618,17 @@ class BridgeHandler {
     );
 
     if (rff.status === 'expired') {
+      console.log('[NEXUS-SDK] RFF EXPIRED:', requestHash);
       throw Errors.internal(`RFF ${requestHash} expired before fulfillment`);
     }
 
+    console.log('[NEXUS-SDK] ========================================');
+    console.log('[NEXUS-SDK] RFF FULFILLED!');
+    console.log('[NEXUS-SDK] Request Hash:', requestHash);
+    console.log('[NEXUS-SDK] Final Status:', rff.status);
+    console.log('[NEXUS-SDK] ========================================');
+
     logger.debug('waitForFillV2: RFF fulfilled', { requestHash, rff });
-  }
-
-  private async setAllowances(input: Array<SetAllowanceInput>) {
-    const originalChain = this.params.dstChain.id;
-    logger.debug('setAllowances', { originalChain, input });
-
-    const sponsoredApprovals: SponsoredApprovalDataArray = [];
-    const unsponsoredApprovals: Promise<TransactionReceipt>[] = [];
-    try {
-      for (const source of input) {
-        const chain = this.options.chainList.getChainByID(source.chainID);
-        if (!chain) {
-          throw Errors.chainNotFound(source.chainID);
-        }
-
-        const publicClient = createPublicClientWithFallback(chain);
-
-        const vc = this.options.chainList.getVaultContractAddress(chain.id);
-
-        const chainId = new OmniversalChainID(chain.universe, source.chainID);
-        const chainDatum = ChaindataMap.get(chainId);
-        if (!chainDatum) {
-          throw Errors.internal('Chain data not found', {
-            chainId: source.chainID,
-            universe: chain.universe,
-          });
-        }
-
-        const currency = chainDatum.CurrencyMap.get(convertTo32Bytes(source.tokenContract));
-        if (!currency) {
-          throw Errors.internal('currency not found', {
-            chainId: source.chainID,
-            tokenContractAddress: source.tokenContract,
-          });
-        }
-
-        if (chain.universe == Universe.ETHEREUM) {
-          logger.debug(`Switching chain to ${chain.id}`);
-
-          await switchChain(this.options.evm.client, chain);
-        }
-
-        if (currency.permitVariant === PermitVariant.Unsupported || chain.id === 1) {
-          if (chain.universe === Universe.ETHEREUM) {
-            const h = await this.options.evm.client
-              .writeContract({
-                abi: ERC20ABI,
-                account: this.options.evm.address,
-                address: source.tokenContract,
-                args: [vc, BigInt(source.amount)],
-                chain,
-                functionName: 'approve',
-              })
-              .catch((e) => {
-                if (e instanceof ContractFunctionExecutionError) {
-                  const isUserRejectedRequestError =
-                    e.walk((e) => e instanceof UserRejectedRequestError) instanceof
-                    UserRejectedRequestError;
-                  if (isUserRejectedRequestError) {
-                    throw Errors.userRejectedAllowance();
-                  }
-                }
-                throw e;
-              });
-
-            this.markStepDone(BRIDGE_STEPS.ALLOWANCE_APPROVAL_REQUEST(chain));
-
-            unsponsoredApprovals.push(waitForTxReceipt(h, publicClient));
-          } else if (chain.universe === Universe.TRON) {
-            if (!this.options.tron) {
-              throw Errors.internal('Tron is available in sources but has no adapter/provider');
-            }
-
-            const provider = new TronWeb({
-              fullHost: chain.rpcUrls.default.grpc![0],
-            });
-            const tx = await provider.transactionBuilder.triggerSmartContract(
-              TronWeb.address.fromHex(source.tokenContract),
-              'approve(address,uint256)',
-              {
-                txLocal: true,
-              },
-              [
-                { type: 'address', value: TronWeb.address.fromHex(vc) },
-                { type: 'uint256', value: source.amount.toString() },
-              ],
-              TronWeb.address.fromHex(this.options.tron?.address),
-            );
-            const signedTx = await this.options.tron.adapter.signTransaction(tx.transaction);
-            logger.debug('tron approval signTransaction result', {
-              signedTx,
-            });
-
-            if (!this.options.tron.adapter.isMobile) {
-              const txResult = await provider.trx.sendRawTransaction(signedTx);
-
-              logger.debug('tron tx result', {
-                txResult,
-              });
-              if (!txResult.result) {
-                throw Errors.tronApprovalFailed(txResult);
-              }
-            }
-
-            await waitForTronApprovalTxConfirmation(
-              source.amount,
-              this.options.tron.address as Hex,
-              vc,
-              source.tokenContract,
-              provider,
-            );
-          }
-
-          this.markStepDone(BRIDGE_STEPS.ALLOWANCE_APPROVAL_MINED(chain));
-        } else {
-          const account: JsonRpcAccount = {
-            address: this.options.evm.address,
-            type: 'json-rpc',
-          };
-
-          const signed = parseSignature(
-            await signPermitForAddressAndValue(
-              currency,
-              this.options.evm.client,
-              publicClient,
-              account,
-              vc,
-              source.amount,
-            ).catch((e) => {
-              if (e instanceof ContractFunctionExecutionError) {
-                const isUserRejectedRequestError =
-                  e.walk((e) => e instanceof UserRejectedRequestError) instanceof
-                  UserRejectedRequestError;
-                if (isUserRejectedRequestError) {
-                  throw Errors.userRejectedAllowance();
-                }
-              }
-              throw e;
-            }),
-          );
-
-          this.markStepDone(BRIDGE_STEPS.ALLOWANCE_APPROVAL_REQUEST(chain));
-
-          sponsoredApprovals.push({
-            address: convertTo32Bytes(account.address),
-            chain_id: chainDatum.ChainID32,
-            operations: [
-              {
-                sig_r: hexToBytes(signed.r),
-                sig_s: hexToBytes(signed.s),
-                sig_v: signed.yParity < 27 ? signed.yParity + 27 : signed.yParity,
-                token_address: currency.tokenAddress,
-                value: convertTo32Bytes(source.amount),
-                variant: currency.permitVariant === PermitVariant.PolygonEMT ? 2 : 1,
-              },
-            ],
-            universe: chainDatum.Universe,
-          });
-        }
-      }
-
-      if (sponsoredApprovals.length) {
-        logger.debug('setAllowances:sponsoredApprovals', {
-          sponsoredApprovals,
-        });
-        const approvalHashes = await vscCreateSponsoredApprovals(
-          this.options.networkConfig.VSC_DOMAIN,
-          sponsoredApprovals,
-        );
-
-        await Promise.all(
-          approvalHashes.map(async (approval) => {
-            const chain = this.options.chainList.getChainByID(approval.chainId);
-            if (!chain) {
-              throw Errors.chainNotFound(approval.chainId);
-            }
-
-            const publicClient = createPublicClientWithFallback(chain);
-            await waitForTxReceipt(approval.hash, publicClient);
-            BRIDGE_STEPS.ALLOWANCE_APPROVAL_MINED({
-              id: approval.chainId,
-            });
-            return;
-          }),
-        );
-      }
-      if (unsponsoredApprovals.length) {
-        await Promise.all(unsponsoredApprovals);
-      }
-      this.markStepDone(BRIDGE_STEPS.ALLOWANCE_COMPLETE);
-    } catch (e) {
-      logger.error('Error setting allowances', e, { cause: 'ALLOWANCE_SETTING_ERROR' });
-      throw e;
-    } finally {
-      if (this.params.dstChain.universe === Universe.ETHEREUM) {
-        await switchChain(this.options.evm.client, this.params.dstChain);
-      }
-    }
-  }
-
-  private async waitForOnAllowanceHook(sources: onAllowanceHookSource[]): Promise<boolean> {
-    if (sources.length === 0) {
-      return false;
-    }
-
-    await new Promise((resolve, reject) => {
-      const allow = (allowances: Array<'max' | 'min' | bigint | string>) => {
-        if (sources.length !== allowances.length) {
-          return reject(Errors.invalidAllowance(sources.length, allowances.length));
-        }
-
-        logger.debug('CA:BaseRequest:Allowances', {
-          allowances,
-          sources,
-        });
-        const val: Array<SetAllowanceInput> = [];
-        for (let i = 0; i < sources.length; i++) {
-          const source = sources[i];
-          const allowance = allowances[i];
-          let amount = 0n;
-          if (typeof allowance === 'string' && equalFold(allowance, 'max')) {
-            amount = maxUint256;
-          } else if (typeof allowance === 'string' && equalFold(allowance, 'min')) {
-            amount = source.allowance.minimumRaw;
-          } else if (typeof allowance === 'string') {
-            amount = mulDecimals(allowance, source.token.decimals);
-          } else {
-            amount = allowance;
-          }
-          val.push({
-            amount,
-            chainID: source.chain.id,
-            tokenContract: source.token.contractAddress,
-          });
-        }
-        this.setAllowances(val).then(resolve).catch(reject);
-      };
-
-      const deny = () => {
-        return reject(Errors.userRejectedAllowance());
-      };
-
-      this.options.hooks.onAllowance({
-        allow,
-        deny,
-        sources,
-      });
-    });
-
-    return true;
   }
 
   private createExpectedSteps(
@@ -1372,8 +732,16 @@ class BridgeHandler {
     });
 
     logger.debug('createIntent:1.1', { allowedSources });
+    console.log('[NEXUS-SDK] createIntent: allowedSources count:', allowedSources.length);
+    console.log('[NEXUS-SDK] createIntent: sourceChains filter:', input.sourceChains);
+    console.log('[NEXUS-SDK] createIntent: destination chainId:', this.params.dstChain.id);
 
     for (const assetC of allowedSources) {
+      console.log('[NEXUS-SDK] createIntent: processing asset:', {
+        chainID: assetC.chainID,
+        balance: assetC.balance,
+        tokenContract: assetC.tokenContract,
+      });
       if (accountedAmount.greaterThanOrEqualTo(borrowWithFee)) {
         break;
       }
@@ -1428,6 +796,12 @@ class BridgeHandler {
         ? new Decimal(assetC.balance)
         : unaccountedBalance;
 
+      console.log('[NEXUS-SDK] createIntent: ADDING source to intent:', {
+        chainID: assetC.chainID,
+        amount: borrowFromThisChain.toFixed(),
+        tokenContract: assetC.tokenContract,
+      });
+
       intent.sources.push({
         amount: borrowFromThisChain,
         chainID: assetC.chainID,
@@ -1438,6 +812,8 @@ class BridgeHandler {
 
       accountedAmount = accountedAmount.add(borrowFromThisChain);
     }
+
+    console.log('[NEXUS-SDK] createIntent: final sources count:', intent.sources.length);
 
     intent.destination.amount = borrow;
 
@@ -1468,19 +844,5 @@ class BridgeHandler {
     }
   };
 }
-
-const isDeposit = (universe: Universe, tokenAddress: Hex) => {
-  if (universe === Universe.ETHEREUM) {
-    return isNativeAddress(universe, tokenAddress);
-  }
-
-  return true;
-};
-
-const waitForDoubleCheckTx = (input: Array<() => Promise<void>>) => {
-  return async () => {
-    await Promise.allSettled(input.map((i) => i()));
-  };
-};
 
 export default BridgeHandler;
