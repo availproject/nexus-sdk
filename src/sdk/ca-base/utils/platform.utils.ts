@@ -53,24 +53,7 @@ export function storageGetItem(key: string): string | null {
 }
 
 export async function cryptoGetRandomValues(bytes: Uint8Array): Promise<Uint8Array> {
-  const platform = detectPlatform();
-
-  if (platform === 'browser') {
-    return window.crypto.getRandomValues(bytes);
-  }
-
-  if (platform === 'react-native') {
-    if (globalThis.crypto?.getRandomValues) {
-      return globalThis.crypto.getRandomValues(bytes);
-    }
-    throw new Error(
-      'React Native requires crypto polyfill. Install "expo-standard-web-crypto" and import it at app entry.'
-    );
-  }
-
-  // biome-ignore lint/style/useNodejsImportProtocol: cannot externalize node:crypto
-  const crypto = await import('crypto');
-  return crypto.getRandomValues(bytes);
+  return globalThis.crypto.getRandomValues(bytes);
 }
 
 export function locationProtocol(): string {
