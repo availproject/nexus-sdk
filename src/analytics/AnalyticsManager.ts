@@ -123,6 +123,7 @@ export class AnalyticsManager {
           sessionRecording: config?.sessionRecording || false,
           debug: config?.debug || false,
         });
+        this.provider.initialize();
       } else {
         this.provider = new NoOpProvider();
       }
@@ -131,9 +132,6 @@ export class AnalyticsManager {
       // If analytics fail due to any reason(say on rn), initialize it to noop provider so it doesnt breaks the app
       this.provider = new NoOpProvider();
     }
-
-    // Initialize the provider
-    this.provider.initialize();
 
     // Register global properties
     if (this.enabled && this.provider.isInitialized()) {
