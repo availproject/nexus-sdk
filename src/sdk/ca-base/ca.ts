@@ -65,6 +65,7 @@ import { getSwapSupportedChains } from './swap/utils';
 import { setLoggerProvider } from './telemetry';
 import {
   cosmosFeeGrant,
+  cosmosRefundIntent,
   createCosmosQueryClient,
   createVSCClient,
   equalFold,
@@ -713,5 +714,17 @@ export class CA {
       throw Errors.tokenNotFound(tokenSymbol, chainId);
     }
     return mulDecimals(amount, token.decimals);
+  };
+
+  protected _refundIntent = async (intentID: number) => {
+    if (!this.#cosmos) {
+      throw Errors.sdkNotInitialized();
+    }
+
+    await cosmosRefundIntent({
+      intentID,
+      address: this.#cosmos.address,
+      client: this.#cosmos.client,
+    });
   };
 }
