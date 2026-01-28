@@ -1,10 +1,12 @@
 name: Release
 
+run-name: "Release ${{ inputs.version }}"
+
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version (e.g., 1.0.0, 1.0.0-beta.1, 1.0.0-rc.1)'
+        description: 'Version (e.g., 1.0.0 for full release, or 1.0.0-beta.1/1.0.0-rc.1 for tag-only)'
         required: true
         type: string
 
@@ -12,8 +14,7 @@ jobs:
   determine-release-type:
     runs-on: ubuntu-latest
     outputs:
-      release_type: ${{ steps.check.outputs.release_type }}
-      config_file: ${{ steps.check.outputs.config_file }}
+      is_stable_version: ${{ steps.check.outputs.is_stable_version }}
     steps:
       - name: Determine release type
         id: check
@@ -21,53 +22,53 @@ jobs:
           VERSION="${{ github.event.inputs.version }}"
           BRANCH="${{ github.ref }}"
 
-          if [[ "$BRANCH" == "refs/heads/master" ]]; then
-            if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "Error: master branch only accepts stable versions (x.y.z)"
+          # Stable version (x.y.z) - full release
+          if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            if [[ "$BRANCH" != "refs/heads/master" ]]; then
+              echo "Error: Stable version releases can only be triggered from master branch"
               exit 1
             fi
-            echo "release_type=stable" >> $GITHUB_OUTPUT
-            echo "config_file=.release-it.stable.json" >> $GITHUB_OUTPUT
+            echo "is_stable_version=true" >> $GITHUB_OUTPUT
 
-          elif [[ "$BRANCH" == "refs/heads/develop" ]]; then
-            if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]; then
-              echo "Error: develop branch only accepts beta versions (x.y.z-beta.N)"
-              exit 1
-            fi
-            echo "release_type=beta" >> $GITHUB_OUTPUT
-            echo "config_file=.release-it.beta.json" >> $GITHUB_OUTPUT
+          # Beta or RC version - tag only
+          elif [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-(beta|rc)\.[0-9]+$ ]]; then
+            echo "is_stable_version=false" >> $GITHUB_OUTPUT
 
-          elif [[ "$BRANCH" =~ ^refs/heads/release/ ]]; then
-            if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]; then
-              echo "Error: release/* branches only accept rc versions (x.y.z-rc.N)"
-              exit 1
-            fi
-            echo "release_type=rc" >> $GITHUB_OUTPUT
-            echo "config_file=.release-it.rc.json" >> $GITHUB_OUTPUT
-
+          # Anything else - reject
           else
-            echo "Error: Releases can only be triggered from master, develop, or release/* branches"
+            echo "Error: Invalid version format '$VERSION'"
+            echo "Accepted formats:"
+            echo "  - x.y.z (stable release)"
+            echo "  - x.y.z-beta.N (tag only)"
+            echo "  - x.y.z-rc.N (tag only)"
             exit 1
           fi
 
   release:
     needs: determine-release-type
+    if: needs.determine-release-type.outputs.is_stable_version == 'true'
     runs-on: ubuntu-latest
     environment: release
     permissions:
       contents: write
       id-token: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Generate a token
+        id: generate_token
+        uses: actions/create-github-app-token@v1
         with:
-          fetch-depth: 0
+          app-id: ${{ secrets.RELEASER_APP_ID }}
+          private-key: ${{ secrets.RELEASER_APP_KEY }}
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ steps.generate_token.outputs.token }}
+      - run: |
+          git config --global user.email "releaser-bot"
+          git config --global user.name "releaser-bot"
 
-      - name: Validate version format
+      - name: Log release info
         run: |
-          VERSION="${{ github.event.inputs.version }}"
-          RELEASE_TYPE="${{ needs.determine-release-type.outputs.release_type }}"
-          echo "Releasing $RELEASE_TYPE version: $VERSION"
+          echo "Releasing stable version: ${{ github.event.inputs.version }}"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -81,12 +82,32 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Configure git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
       - name: Release
-        run: npx release-it ${{ github.event.inputs.version }} --ci --config ${{ needs.determine-release-type.outputs.config_file }}
+        run: npx release-it ${{ github.event.inputs.version }} --ci --config .release-it.stable.json
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.generate_token.outputs.token }}
+
+  tag-only:
+    needs: determine-release-type
+    if: needs.determine-release-type.outputs.is_stable_version == 'false'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Generate a token
+        id: generate_token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.RELEASER_APP_ID }}
+          private-key: ${{ secrets.RELEASER_APP_KEY }}
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ steps.generate_token.outputs.token }}
+      - name: Create tag
+        run: |
+          git config --global user.email "releaser-bot"
+          git config --global user.name "releaser-bot"
+          VERSION="${{ github.event.inputs.version }}"
+          git tag -a "$VERSION" -m "Tag $VERSION"
+          git push origin "$VERSION"
+          echo "Created tag: $VERSION"
