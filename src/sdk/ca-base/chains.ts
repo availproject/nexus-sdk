@@ -189,6 +189,42 @@ const TESTNET_CHAINS: Chain[] = [
   {
     blockExplorers: {
       default: {
+        name: 'Citrea Testnet explorer',
+        url: 'https://explorer.testnet.citrea.xyz/',
+      },
+    },
+    custom: {
+      icon: 'https://raw.githubusercontent.com/availproject/nexus-assets/main/chains/citrea-testnet/logo.png',
+      knownTokens: [
+        {
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDC[SUPPORTED_CHAINS.CITREA_TESTNET],
+          decimals: 6,
+          logo: getLogoFromSymbol('USDC'),
+          name: 'USD Coin',
+          symbol: 'USDC',
+        },
+      ],
+    },
+    id: SUPPORTED_CHAINS.CITREA_TESTNET,
+    name: 'Citrea Testnet',
+    ankrName: '',
+    nativeCurrency: {
+      decimals: 18,
+      name: 'CBTC',
+      symbol: 'cBTC',
+    },
+    rpcUrls: {
+      default: {
+        http: ['https://rpcs.avail.so/citrea-testnet'],
+        publicHttp: [],
+        webSocket: ['wss://rpcs.avail.so/citrea-testnet'],
+      },
+    },
+    universe: Universe.ETHEREUM,
+  },
+  {
+    blockExplorers: {
+      default: {
         name: 'Arbitrum Sepolia Explorer',
         url: 'https://sepolia.arbiscan.io/',
       },
