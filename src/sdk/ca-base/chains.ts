@@ -485,7 +485,7 @@ const MAINNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: 'https://assets.coingecko.com/coins/images/38680/large/sophon_logo_200.png',
+      icon: 'https://raw.githubusercontent.com/availproject/nexus-assets/main/chains/citrea/logo.png',
       knownTokens: [
         {
           contractAddress: TOKEN_CONTRACT_ADDRESSES.USDT[SUPPORTED_CHAINS.CITREA],
