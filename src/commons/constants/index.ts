@@ -209,7 +209,7 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
     id: SUPPORTED_CHAINS.CITREA_TESTNET,
     name: 'Citrea Testnet',
     shortName: 'CitreaTestnet',
-    logo: 'https://assets.coingecko.com/coins/images/69995/large/ICON.png',
+    logo: 'https://raw.githubusercontent.com/availproject/nexus-assets/main/chains/citrea-testnet/logo.png',
     nativeCurrency: {
       decimals: 18,
       name: 'CBTC',

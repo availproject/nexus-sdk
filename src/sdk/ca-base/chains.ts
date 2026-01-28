@@ -194,7 +194,7 @@ const TESTNET_CHAINS: Chain[] = [
       },
     },
     custom: {
-      icon: 'https://assets.coingecko.com/coins/images/16547/large/arb.jpg',
+      icon: 'https://raw.githubusercontent.com/availproject/nexus-assets/main/chains/citrea-testnet/logo.png',
       knownTokens: [
         {
           contractAddress: TOKEN_CONTRACT_ADDRESSES.USDC[SUPPORTED_CHAINS.CITREA_TESTNET],
