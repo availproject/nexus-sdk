@@ -423,6 +423,11 @@ export function encodeShimRouteData(d: ShimRouteData): Hex {
   return encodeAbiParameters([{ type: 'uint8' }, { type: 'bytes' }], [d.swiftVersion, v1Payload]);
 }
 
+export const vaultAddressByChainId = (chainId: number) =>
+  chainId === 8453
+    ? '0x4152FAFe480013F2a33d1aE4d7322fCDD5393395'
+    : '0x91BC4bd9Ced9cD9C35467a0797a0724A3FA7ff9b';
+
 export const NewVaultAbi = [
   { inputs: [], stateMutability: 'nonpayable', type: 'constructor' },
   { inputs: [], name: 'AccessControlBadConfirmation', type: 'error' },

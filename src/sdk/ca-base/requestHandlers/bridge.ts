@@ -80,6 +80,7 @@ import {
   NewVaultAbi,
   ShimRFFSerde,
   ShimRouterActionSerde,
+  vaultAddressByChainId,
 } from '../utils/shim-rff.utils';
 
 type Params = {
@@ -720,7 +721,7 @@ class BridgeHandler {
       const { request } = await publicClient.simulateContract({
         abi: NewVaultAbi,
         account: this.options.evm.address,
-        address: '0x4152FAFe480013F2a33d1aE4d7322fCDD5393395', // On base // this.options.chainList.getVaultContractAddress(chain.id),
+        address: vaultAddressByChainId(chain.id), // this.options.chainList.getVaultContractAddress(chain.id),
         functionName: 'depositRouter',
         args: [
           shimRFF,
@@ -769,7 +770,7 @@ class BridgeHandler {
 
         const publicClient = createPublicClientWithFallback(chain);
 
-        const vc = '0x4152FAFe480013F2a33d1aE4d7322fCDD5393395'; //this.options.chainList.getVaultContractAddress(chain.id);
+        const vc = vaultAddressByChainId(chain.id); //this.options.chainList.getVaultContractAddress(chain.id);
 
         const chainId = new OmniversalChainID(chain.universe, source.chainID);
         const chainDatum = ChaindataMap.get(chainId);

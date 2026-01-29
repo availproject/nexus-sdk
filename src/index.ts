@@ -75,6 +75,7 @@ export {
   ShimRouterActionSerde,
   SerializedShimRouteData,
   encodeShimRouteData,
+  vaultAddressByChainId,
 } from './sdk/ca-base/utils/shim-rff.utils';
 
 // Analytics exports

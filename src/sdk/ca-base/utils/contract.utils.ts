@@ -26,6 +26,7 @@ import { Errors } from '../errors';
 import { getLogger } from '../../../commons';
 import { ChainListType, Chain, GetAllowanceParams, SetAllowanceParams } from '../../../commons';
 import { equalFold, minutesToMs } from './common.utils';
+import { vaultAddressByChainId } from './shim-rff.utils';
 
 const logger = getLogger();
 
@@ -52,7 +53,7 @@ const getAllowance = async (
     const allowance = erc20GetAllowance(
       {
         contractAddress: tokenContract,
-        spender: '0x4152FAFe480013F2a33d1aE4d7322fCDD5393395', //chainList.getVaultContractAddress(chain.id),
+        spender: vaultAddressByChainId(chain.id), //chainList.getVaultContractAddress(chain.id),
         owner: address,
       },
       publicClient,
