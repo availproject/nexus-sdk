@@ -131,10 +131,10 @@ const createCosmosQueryClient = async ({
       if (data.PriceOracleData?.priceData?.length) {
         const oracleRates: OraclePriceResponse = data.PriceOracleData?.priceData.map((data) => ({
           chainId: bytesToNumber(data.chainID),
-          priceUsd: new Decimal(bytesToNumber(data.price)).div(Decimal.pow(10, data.decimals)),
+          priceUsd: new Decimal(bytesToBigInt(data.price)).div(Decimal.pow(10, data.decimals)),
           tokenAddress: convertAddressByUniverse(toHex(data.tokenAddress), data.universe),
           tokensPerUsd: new Decimal(1).div(
-            new Decimal(bytesToNumber(data.price)).div(Decimal.pow(10, data.decimals))
+            new Decimal(bytesToBigInt(data.price)).div(Decimal.pow(10, data.decimals))
           ),
         }));
         return oracleRates;
@@ -415,7 +415,7 @@ const getFeeStore = async (cosmosQueryClient: CosmosQueryClient) => {
       p.value.ProtocolFees?.collectionFees.map((fee) => {
         return {
           chainID: bytesToNumber(fee.chainID),
-          fee: bytesToNumber(fee.fee),
+          fee: bytesToBigInt(fee.fee),
           tokenAddress: convertAddressByUniverse(toHex(fee.tokenAddress), fee.universe),
           universe: fee.universe,
         };
@@ -424,7 +424,7 @@ const getFeeStore = async (cosmosQueryClient: CosmosQueryClient) => {
       p.value.ProtocolFees?.fulfilmentFees.map((fee) => {
         return {
           chainID: bytesToNumber(fee.chainID),
-          fee: bytesToNumber(fee.fee),
+          fee: bytesToBigInt(fee.fee),
           tokenAddress: convertAddressByUniverse(toHex(fee.tokenAddress), fee.universe),
           universe: fee.universe,
         };
