@@ -3353,7 +3353,6 @@ type SwapStepType = {
 | Avalanche | 43114 | AVAX | USDC, USDT |
 | Scroll | 534352 | ETH | USDC, USDT |
 | BNB | 56 | BNB | USDC, USDT, ETH |
-| Sophon | 50104 | SOPH | USDC, USDT, ETH |
 | Kaia | 8217 | KAIA | USDT |
 | HyperEVM | 999 | HYPE | USDC, USDT |
 | Monad | TBD | MON | USDC |
@@ -3615,7 +3614,6 @@ const rpcUrl: string = RPCURLMap.get(arbitrumChainId);
 | BSC | 56 | ETHEREUM | USDC, USDT, BNB |
 | Scroll | 534352 | ETHEREUM | USDC, USDT, ETH |
 | Kaia | 8217 | ETHEREUM | USDC, USDT, KAIA |
-| Sophon | 50104 | ETHEREUM | USDC, USDT, SOPH |
 | HyperEVM | 999 | ETHEREUM | USDC, USDT, HYPE |
 | Monad | 143 | ETHEREUM | USDC, USDT, MON |
 | MegaETH | 4326 | ETHEREUM | USDC, USDT, ETH |
