@@ -493,7 +493,6 @@ Adding PostHog analytics increases the bundle size by approximately **~50KB gzip
 | Avalanche | 43114     | AVAX   | ✅     |
 | Base      | 8453      | ETH    | ✅     |
 | Scroll    | 534352    | ETH    | ✅     |
-| Sophon    | 50104     | SOPH   | ✅     |
 | Kaia      | 8217      | KAIA   | ✅     |
 | BNB       | 56        | BNB    | ✅     |
 | HyperEVM  | 999       | HYPE   | ✅     |

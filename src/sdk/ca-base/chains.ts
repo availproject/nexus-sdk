@@ -559,56 +559,6 @@ const MAINNET_CHAINS: Chain[] = [
   {
     blockExplorers: {
       default: {
-        name: 'Sophscan',
-        url: 'https://sophscan.xyz',
-      },
-    },
-    custom: {
-      icon: 'https://assets.coingecko.com/coins/images/38680/large/sophon_logo_200.png',
-      knownTokens: [
-        {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDT[SUPPORTED_CHAINS.SOPHON],
-          decimals: 6,
-          logo: getLogoFromSymbol('USDT'),
-          name: 'Tether USD',
-          symbol: 'USDT',
-        },
-        {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDC[SUPPORTED_CHAINS.SOPHON],
-          decimals: 6,
-          logo: getLogoFromSymbol('USDC'),
-          name: 'USD Coin',
-          symbol: 'USDC',
-        },
-        {
-          contractAddress: '0x72af9f169b619d85a47dfa8fefbcd39de55c567d',
-          decimals: 18,
-          logo: getLogoFromSymbol('ETH'),
-          name: 'Ether',
-          symbol: 'ETH',
-        },
-      ],
-    },
-    id: SUPPORTED_CHAINS.SOPHON,
-    name: 'Sophon',
-    ankrName: '',
-    nativeCurrency: {
-      decimals: 18,
-      name: 'Sophon',
-      symbol: 'SOPH',
-    },
-    rpcUrls: {
-      default: {
-        http: ['https://sophon.gateway.tenderly.co/1d4STFT7zmG0vM5QowibCw'],
-        publicHttp: ['https://rpc-quicknode.sophon.xyz'],
-        webSocket: ['wss://sophon.gateway.tenderly.co/1d4STFT7zmG0vM5QowibCw'],
-      },
-    },
-    universe: Universe.ETHEREUM,
-  },
-  {
-    blockExplorers: {
-      default: {
         name: 'KaiaScan',
         url: 'https://kaiascan.io',
       },
