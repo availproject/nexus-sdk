@@ -13,17 +13,23 @@ import {
   toBytes,
   UserRejectedRequestError,
   WalletClient,
+  zeroAddress,
 } from 'viem';
 import { Errors } from '../errors';
 import Decimal from 'decimal.js';
 import { PlatformUtils } from './platform.utils';
+import { MayanQuotes } from './shim-server.utils';
+import {
+  createSwiftRandomKey,
+  getSwiftToTokenHexString,
+  getWormholeChainIdByName,
+} from '@mayanfinance/swap-sdk';
 
 type Destination = {
   tokenAddress: Hex;
   universe: Universe;
   value: bigint;
 };
-
 type Source = {
   chainID: bigint;
   tokenAddress: Hex;
@@ -31,7 +37,6 @@ type Source = {
   valueRaw: bigint;
   value: Decimal;
 };
-
 export type ShimRFF = {
   sources: {
     universe: number;
@@ -46,12 +51,11 @@ export type ShimRFF = {
   }[];
   destinationCaip2namespace: `0x${string}`;
   destinationContractAddress: `0x${string}`;
-  destinationCaip2ChainId: bigint;
+  destinationCaip2chainId: bigint;
   destinationMinTokenAmount: bigint;
   nonce: bigint;
-  expiry: bigint;
+  deadline: bigint;
 };
-
 export type SerializedShimRFF = {
   sources: {
     universe: number;
@@ -66,12 +70,11 @@ export type SerializedShimRFF = {
   }[];
   destinationCaip2namespace: `0x${string}`;
   destinationContractAddress: `0x${string}`;
-  destinationCaip2ChainId: string;
+  destinationCaip2chainId: string;
   destinationMinTokenAmount: string;
   nonce: string;
-  expiry: string;
+  deadline: string;
 };
-
 export class ShimRFFSerde {
   static serialize(rff: ShimRFF): SerializedShimRFF {
     return {
@@ -88,10 +91,10 @@ export class ShimRFFSerde {
       })),
       destinationCaip2namespace: rff.destinationCaip2namespace,
       destinationContractAddress: rff.destinationContractAddress,
-      destinationCaip2ChainId: rff.destinationCaip2ChainId.toString(),
+      destinationCaip2chainId: rff.destinationCaip2chainId.toString(),
       destinationMinTokenAmount: rff.destinationMinTokenAmount.toString(),
       nonce: rff.nonce.toString(),
-      expiry: rff.expiry.toString(),
+      deadline: rff.deadline.toString(),
     };
   }
 
@@ -110,10 +113,90 @@ export class ShimRFFSerde {
       })),
       destinationCaip2namespace: data.destinationCaip2namespace,
       destinationContractAddress: data.destinationContractAddress,
-      destinationCaip2ChainId: BigInt(data.destinationCaip2ChainId),
+      destinationCaip2chainId: BigInt(data.destinationCaip2chainId),
       destinationMinTokenAmount: BigInt(data.destinationMinTokenAmount),
       nonce: BigInt(data.nonce),
-      expiry: BigInt(data.expiry),
+      deadline: BigInt(data.deadline),
+    };
+  }
+}
+
+export type ShimRouteData = {
+  chainId: number;
+  tokenAddress: `0x${string}`;
+  trader: `0x${string}`;
+  tokenOut: `0x${string}`;
+  minAmountOut: bigint;
+  gasDrop: bigint;
+  deadline: bigint;
+  destAddr: `0x${string}`;
+  destChainId: number;
+  referrerAddr: `0x${string}`;
+  cancelFee: bigint;
+  refundFee: bigint;
+  referrerBps: number;
+  auctionMode: number;
+  random: `0x${string}`;
+  swiftVersion: number;
+};
+export type SerializedShimRouteData = {
+  chainId: number;
+  tokenAddress: `0x${string}`;
+  trader: `0x${string}`;
+  tokenOut: `0x${string}`;
+  minAmountOut: string;
+  gasDrop: string;
+  deadline: string;
+  destAddr: `0x${string}`;
+  destChainId: number;
+  referrerAddr: `0x${string}`;
+  cancelFee: string;
+  refundFee: string;
+  referrerBps: number;
+  auctionMode: number;
+  random: `0x${string}`;
+  swiftVersion: number;
+};
+export class ShimRouterActionSerde {
+  static serialize(d: ShimRouteData): SerializedShimRouteData {
+    return {
+      chainId: d.chainId,
+      tokenAddress: d.tokenAddress,
+      trader: d.trader,
+      tokenOut: d.tokenOut,
+      minAmountOut: d.minAmountOut.toString(),
+      gasDrop: d.gasDrop.toString(),
+      deadline: d.deadline.toString(),
+      destAddr: d.destAddr,
+      destChainId: d.destChainId,
+      referrerAddr: d.referrerAddr,
+      cancelFee: d.cancelFee.toString(),
+      refundFee: d.refundFee.toString(),
+      referrerBps: d.referrerBps,
+      auctionMode: d.auctionMode,
+      random: d.random,
+      swiftVersion: d.swiftVersion,
+    };
+  }
+
+  static deserialize(d: SerializedShimRouteData): ShimRouteData {
+    return {
+      chainId: d.chainId,
+      tokenAddress: d.tokenAddress,
+      trader: d.trader,
+      tokenOut: d.tokenOut,
+      minAmountOut: BigInt(d.minAmountOut),
+      gasDrop: BigInt(d.gasDrop),
+      deadline: BigInt(d.deadline),
+      destAddr: d.destAddr,
+      destChainId: d.destChainId,
+      referrerAddr: d.referrerAddr,
+      cancelFee: BigInt(d.cancelFee),
+      refundFee: BigInt(d.refundFee),
+      referrerBps: d.referrerBps,
+      auctionMode: d.auctionMode,
+      random: d.random,
+      swiftVersion: d.swiftVersion,
     };
   }
 }
@@ -127,6 +210,7 @@ export const createShimRFFromIntent = async (
     };
   },
   destinationUniverse: Universe,
+  quotes: MayanQuotes,
 ) => {
   const { destination, sources, universes } = getSourcesAndDestinationsForRFF(
     intent,
@@ -144,6 +228,40 @@ export const createShimRFFromIntent = async (
     }
   }
 
+  const routerActions = await Promise.all(
+    quotes.quotes.map(async (x) => {
+      if (x.quote.type !== 'SWIFT') throw new Error('Invalid quote type');
+      if (!x.quote.swiftAuctionMode) {
+        throw new Error('Swift swap requires auction mode');
+      }
+
+      const deadline = x.quote.deadline64
+        ? BigInt(x.quote.deadline64)
+        : BigInt(Math.floor((Date.now() + INTENT_EXPIRY) / 1000));
+
+      const routerAction: ShimRouteData = {
+        chainId: x.mayanToken.chainId,
+        tokenAddress: convertTo32BytesHex(x.mayanToken.contract as `0x${string}`),
+        trader: convertTo32BytesHex(options.evm.address),
+        tokenOut: getSwiftToTokenHexString(x.quote) as `0x${string}`,
+        minAmountOut: mulDecimals(x.quote.minAmountOut, x.quote.toToken.decimals),
+        gasDrop: BigInt(x.quote.gasDrop),
+        deadline,
+        destAddr: convertTo32BytesHex(intent.recipientAddress),
+        destChainId: getWormholeChainIdByName(x.quote.toChain),
+        referrerAddr: convertTo32BytesHex(zeroAddress),
+        cancelFee: BigInt(x.quote.cancelRelayerFee64 ?? '0'),
+        refundFee: BigInt(x.quote.refundRelayerFee64 ?? x.quote.refundRelayerFee ?? '0'),
+        referrerBps: x.quote.referrerBps ?? 0,
+        auctionMode: x.quote.swiftAuctionMode,
+        random: convertTo32BytesHex(`0x${createSwiftRandomKey(x.quote).toString('hex')}`),
+        swiftVersion: 1,
+      };
+
+      return routerAction;
+    }),
+  );
+
   const shimRFF: ShimRFF = {
     sources: sources.map((source) => ({
       chainID: source.chainID,
@@ -155,10 +273,10 @@ export const createShimRFFromIntent = async (
     parties: parties.map((x) => ({ address_: x.address, universe: x.universe })),
     destinationCaip2namespace: keccak256(toBytes('eip155')),
     destinationContractAddress: convertTo32BytesHex(destination.tokenAddress),
-    destinationCaip2ChainId: BigInt(intent.destination.chainID),
+    destinationCaip2chainId: BigInt(intent.destination.chainID),
     destinationMinTokenAmount: destination.value,
-    nonce: bytesToBigInt(await PlatformUtils.cryptoGetRandomValues(new Uint8Array(16))),
-    expiry: BigInt(Math.floor((Date.now() + INTENT_EXPIRY) / 1000)),
+    nonce: bytesToBigInt(await PlatformUtils.cryptoGetRandomValues(new Uint8Array(8))),
+    deadline: BigInt(Math.floor((Date.now() + INTENT_EXPIRY) / 1000)),
   };
 
   const signatureData: {
@@ -187,6 +305,7 @@ export const createShimRFFromIntent = async (
 
   return {
     shimRFF,
+    routerActions,
     signatureData,
     sources,
     universes,
@@ -266,6 +385,43 @@ const createRequestShimSignature = async (
 
   return { requestHash: hashMessage({ raw: hash }), signature };
 };
+
+export function encodeShimRouteData(d: ShimRouteData): Hex {
+  const v1Payload = encodeAbiParameters(
+    [
+      { type: 'bytes32' },
+      { type: 'bytes32' },
+      { type: 'uint64' },
+      { type: 'uint64' },
+      { type: 'uint64' },
+      { type: 'uint64' },
+      { type: 'uint64' },
+      { type: 'bytes32' },
+      { type: 'uint16' },
+      { type: 'bytes32' },
+      { type: 'uint8' },
+      { type: 'uint8' },
+      { type: 'bytes32' },
+    ],
+    [
+      d.trader,
+      d.tokenOut,
+      d.minAmountOut,
+      d.gasDrop,
+      d.cancelFee,
+      d.refundFee,
+      d.deadline,
+      d.destAddr,
+      d.destChainId,
+      d.referrerAddr,
+      d.referrerBps,
+      d.auctionMode,
+      d.random,
+    ],
+  );
+
+  return encodeAbiParameters([{ type: 'uint8' }, { type: 'bytes' }], [d.swiftVersion, v1Payload]);
+}
 
 export const NewVaultAbi = [
   { inputs: [], stateMutability: 'nonpayable', type: 'constructor' },
@@ -490,7 +646,6 @@ export const NewVaultAbi = [
             name: 'sources',
             type: 'tuple[]',
           },
-          { internalType: 'bytes32', name: 'recipientAddress', type: 'bytes32' },
           {
             components: [
               { internalType: 'enum Universe', name: 'universe', type: 'uint8' },
@@ -500,12 +655,13 @@ export const NewVaultAbi = [
             name: 'parties',
             type: 'tuple[]',
           },
+          { internalType: 'bytes32', name: 'recipientAddress', type: 'bytes32' },
           { internalType: 'bytes32', name: 'destinationCaip2namespace', type: 'bytes32' },
           { internalType: 'bytes32', name: 'destinationContractAddress', type: 'bytes32' },
-          { internalType: 'uint256', name: 'destinationCaip2ChainId', type: 'uint256' },
           { internalType: 'uint256', name: 'destinationMinTokenAmount', type: 'uint256' },
-          { internalType: 'uint128', name: 'nonce', type: 'uint128' },
-          { internalType: 'uint128', name: 'expiry', type: 'uint128' },
+          { internalType: 'uint256', name: 'destinationCaip2chainId', type: 'uint256' },
+          { internalType: 'uint64', name: 'nonce', type: 'uint64' },
+          { internalType: 'uint64', name: 'deadline', type: 'uint64' },
         ],
         internalType: 'struct Action',
         name: 'action',

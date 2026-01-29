@@ -66,7 +66,16 @@ export {
 export * from './commons';
 
 // Shim stuff
-export { ShimRFFSerde, ShimRFF, SerializedShimRFF, NewVaultAbi } from './sdk/ca-base/utils';
+export {
+  ShimRFFSerde,
+  ShimRFF,
+  SerializedShimRFF,
+  NewVaultAbi,
+  ShimRouteData,
+  ShimRouterActionSerde,
+  SerializedShimRouteData,
+  encodeShimRouteData,
+} from './sdk/ca-base/utils/shim-rff.utils';
 
 // Analytics exports
 export { AnalyticsManager } from './analytics/AnalyticsManager';

@@ -2,7 +2,7 @@ import { ReadableIntent } from '../../../commons';
 import { Hex } from 'viem';
 import { Quote, ChainName, Token } from '@mayanfinance/swap-sdk';
 import { Universe } from '@avail-project/ca-common';
-import { SerializedShimRFF } from './shim-rff.utils';
+import { SerializedShimRFF, SerializedShimRouteData } from './shim-rff.utils';
 
 const shimUrl = `http://localhost:4000`;
 
@@ -47,7 +47,7 @@ export const recordTx = async (payload: {
   quotes: MayanQuotes;
   rff: SerializedShimRFF;
   route: number;
-  routeData: `0x${string}`;
+  routesData: SerializedShimRouteData[];
 }): Promise<string> => {
   const res = await fetch(`${shimUrl}/transaction/record`, {
     method: 'POST',

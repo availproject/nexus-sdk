@@ -11,7 +11,6 @@ import Long from 'long';
 import {
   ContractFunctionExecutionError,
   createPublicClient,
-  encodeAbiParameters,
   encodeFunctionData,
   Hex,
   hexToBytes,
@@ -75,7 +74,13 @@ import { TronWeb } from 'tronweb';
 import { Errors } from '../errors';
 import { ERROR_CODES, NexusError } from '../nexusError';
 import { getQuotes, MayanQuotes, recordTx, submitTx } from '../utils/shim-server.utils';
-import { createShimRFFromIntent, NewVaultAbi, ShimRFFSerde } from '../utils/shim-rff.utils';
+import {
+  createShimRFFromIntent,
+  encodeShimRouteData,
+  NewVaultAbi,
+  ShimRFFSerde,
+  ShimRouterActionSerde,
+} from '../utils/shim-rff.utils';
 
 type Params = {
   recipient?: Hex;
@@ -659,11 +664,8 @@ class BridgeHandler {
   }
 
   private async processShimRFF(intent: Intent, quotes: MayanQuotes) {
-    const { shimRFF, signatureData, sources, universes } = await createShimRFFromIntent(
-      intent,
-      this.options,
-      this.params.dstChain.universe,
-    );
+    const { shimRFF, signatureData, sources, universes, routerActions } =
+      await createShimRFFromIntent(intent, this.options, this.params.dstChain.universe, quotes);
 
     const serialized = {
       signatureData: signatureData.map((x) => ({
@@ -674,7 +676,7 @@ class BridgeHandler {
       quotes,
       rff: ShimRFFSerde.serialize(shimRFF),
       route: 1,
-      routeData: encodeAbiParameters([{ type: 'uint64' }, { type: 'uint64' }], [0n, 0n]),
+      routesData: routerActions.map((x) => ShimRouterActionSerde.serialize(x)),
     };
     const recordId = await recordTx(serialized);
 
@@ -704,6 +706,13 @@ class BridgeHandler {
         continue;
       }
 
+      const routeData = routerActions.find(
+        (x) => x.tokenAddress === s.tokenAddress && x.chainId.toString() === s.chainID.toString(),
+      );
+      if (!routeData) throw new Error('Route Data not found');
+
+      const encodedRouteData = encodeShimRouteData(routeData);
+
       await switchChain(this.options.evm.client, chain);
 
       const publicClient = createPublicClientWithFallback(chain);
@@ -711,14 +720,14 @@ class BridgeHandler {
       const { request } = await publicClient.simulateContract({
         abi: NewVaultAbi,
         account: this.options.evm.address,
-        address: '0x3B7C0E49c607d47f4711D8573312eA5B6480566D', // On base // this.options.chainList.getVaultContractAddress(chain.id),
+        address: '0x4152FAFe480013F2a33d1aE4d7322fCDD5393395', // On base // this.options.chainList.getVaultContractAddress(chain.id),
         functionName: 'depositRouter',
         args: [
           shimRFF,
           toHex(evmSignatureData!.signature),
           BigInt(i),
           serialized.route,
-          serialized.routeData,
+          encodedRouteData,
         ],
         chain: chain,
         value: s.valueRaw,
@@ -760,7 +769,7 @@ class BridgeHandler {
 
         const publicClient = createPublicClientWithFallback(chain);
 
-        const vc = '0x3B7C0E49c607d47f4711D8573312eA5B6480566D'; //this.options.chainList.getVaultContractAddress(chain.id);
+        const vc = '0x4152FAFe480013F2a33d1aE4d7322fCDD5393395'; //this.options.chainList.getVaultContractAddress(chain.id);
 
         const chainId = new OmniversalChainID(chain.universe, source.chainID);
         const chainDatum = ChaindataMap.get(chainId);
@@ -946,7 +955,10 @@ class BridgeHandler {
     }
   }
 
-  private async waitForOnAllowanceHook(sources: onAllowanceHookSource[], disableSponsoredApproval = false): Promise<boolean> {
+  private async waitForOnAllowanceHook(
+    sources: onAllowanceHookSource[],
+    disableSponsoredApproval = false,
+  ): Promise<boolean> {
     if (sources.length === 0) {
       return false;
     }

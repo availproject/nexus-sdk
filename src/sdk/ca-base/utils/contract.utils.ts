@@ -52,7 +52,7 @@ const getAllowance = async (
     const allowance = erc20GetAllowance(
       {
         contractAddress: tokenContract,
-        spender: '0x3B7C0E49c607d47f4711D8573312eA5B6480566D', //chainList.getVaultContractAddress(chain.id),
+        spender: '0x4152FAFe480013F2a33d1aE4d7322fCDD5393395', //chainList.getVaultContractAddress(chain.id),
         owner: address,
       },
       publicClient,
