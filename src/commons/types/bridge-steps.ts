@@ -11,7 +11,7 @@ const INTENT_HASH_SIGNED = {
   typeID: 'IHS',
 } as const;
 
-const INTENT_SUBMITTED = (explorerURL = '', intentID = 0) =>
+const INTENT_SUBMITTED = (explorerURL = 'unknown', intentID = 'unknown') =>
   ({
     type: 'INTENT_SUBMITTED',
     typeID: 'IS',

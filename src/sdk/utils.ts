@@ -7,13 +7,11 @@ import {
   type ChainListType,
   formatTokenBalance as commonsFormatTokenBalance,
   formatTokenBalanceParts as commonsFormatTokenBalanceParts,
-  type Network,
+  type NexusNetworkHint,
   type SUPPORTED_CHAINS,
   type SupportedChainsAndTokensResult,
-  type SupportedChainsResult,
   truncateAddress as utilTruncateAddress,
 } from '../commons';
-import { getSwapSupportedChains } from './ca-base/swap/utils';
 import { getSupportedChains as fetchSupportedChains, getCoinbasePrices } from './ca-base/utils';
 
 // Stateless utility exports
@@ -24,7 +22,7 @@ export const parseUnits = viemParseUnits;
 export const formatUnits = viemFormatUnits;
 export const isValidAddress = viemIsAddress;
 export const getCoinbaseRates = async (): Promise<Record<string, string>> => getCoinbasePrices();
-export const getSupportedChains = (env?: Network): SupportedChainsAndTokensResult =>
+export const getSupportedChains = (env: NexusNetworkHint): SupportedChainsAndTokensResult =>
   fetchSupportedChains(env);
 export const isSupportedToken = (token: string): boolean => {
   const supportedTokens = ['ETH', 'USDC', 'USDT'];
@@ -77,16 +75,8 @@ export class NexusUtils {
    * @param env - The network to get the supported chains and tokens for
    * @returns SupportedChainsAndTokensResult
    */
-  getSupportedChains(env?: Network): SupportedChainsAndTokensResult {
+  getSupportedChains(env: NexusNetworkHint): SupportedChainsAndTokensResult {
     return getSupportedChains(env);
-  }
-
-  /**
-   * Get the supported chains and tokens for the network
-   * @returns SupportedChainsResult
-   */
-  getSwapSupportedChainsAndTokens(): SupportedChainsResult {
-    return getSwapSupportedChains(this.chainList);
   }
 
   /**

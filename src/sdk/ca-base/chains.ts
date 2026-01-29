@@ -1,39 +1,32 @@
-import {
-  type ChainIDKeyedMap,
-  Environment,
-  getVaultContractMap,
-  OmniversalChainID,
-  Universe,
-} from '@avail-project/ca-common';
+import { Universe } from '@avail-project/ca-common';
 import type { Hex } from 'viem';
 import {
   type Chain,
+  type NexusNetworkHint,
   SUPPORTED_CHAINS,
   TOKEN_CONTRACT_ADDRESSES,
   type TokenInfo,
 } from '../../commons';
 import { getLogoFromSymbol, ZERO_ADDRESS } from './constants';
 import { Errors } from './errors';
-import { convertToHexAddressByUniverse, equalFold } from './utils';
+import { equalFold } from './utils';
 
 class ChainList {
   public chains: Chain[];
-  private readonly vcm: ChainIDKeyedMap<Buffer<ArrayBufferLike>>;
+  private readonly vcm: Record<number, Hex>;
 
-  constructor(env: Environment) {
+  constructor(env: NexusNetworkHint) {
     switch (env) {
-      case Environment.JADE:
-      case Environment.CORAL:
-      case Environment.CERISE:
+      case 'mainnet':
         this.chains = MAINNET_CHAINS;
         break;
-      case Environment.FOLLY:
+      case 'testnet':
         this.chains = TESTNET_CHAINS;
         break;
       default:
         throw Errors.environmentNotKnown();
     }
-    this.vcm = getVaultContractMap(env);
+    this.vcm = {};
   }
 
   public getChainByID(id: number) {
@@ -133,14 +126,12 @@ class ChainList {
       throw Errors.chainNotFound(chainID);
     }
 
-    const omniversalChainID = new OmniversalChainID(chain.universe, chainID);
-
-    const vc = this.vcm.get(omniversalChainID);
+    const vc = this.vcm[chainID];
     if (!vc) {
       throw Errors.vaultContractNotFound(chainID);
     }
 
-    return convertToHexAddressByUniverse(vc, chain.universe);
+    return vc;
   }
 
   getAnkrNameList() {

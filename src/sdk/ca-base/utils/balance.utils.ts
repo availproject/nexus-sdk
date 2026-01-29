@@ -1,68 +1,109 @@
-import { encodePacked, type Hex, keccak256, pad, toHex } from 'viem';
+import Decimal from 'decimal.js';
+import { bytesToNumber, encodePacked, type Hex, keccak256, pad, toHex } from 'viem';
 import {
   type ChainListType,
   logger,
-  type Source,
   SUPPORTED_CHAINS,
-  type VSCClient,
+  type UnifiedBalanceResponseData,
+  type UserAssetDatum,
 } from '../../../commons';
-import { filterSupportedTokens } from '../swap/data';
-import {
-  ankrBalanceToAssets,
-  getAnkrBalances,
-  toFlatBalance,
-  vscBalancesToAssets,
-} from '../swap/utils';
-import { equalFold } from '.';
-
-export const getBalancesForSwap = async (input: {
-  evmAddress: Hex;
-  chainList: ChainListType;
-  filterWithSupportedTokens: boolean;
-  allowedSources?: Source[];
-  removeSources?: Source[];
-}) => {
-  const ankrBalances = await getAnkrBalances(input.evmAddress, input.chainList, true);
-
-  const assets = ankrBalanceToAssets(
-    input.chainList,
-    ankrBalances,
-    input.filterWithSupportedTokens,
-    input.allowedSources,
-    input.removeSources
-  );
-  let balances = toFlatBalance(assets);
-  logger.debug('getBalancesForSwap', {
-    input,
-    ankrBalances,
-    assets,
-    balances,
-  });
-  if (input.filterWithSupportedTokens) {
-    balances = filterSupportedTokens(balances);
-  }
-
-  return { assets, balances };
-};
+import { getLogoFromSymbol } from '../constants';
+import { convertAddressByUniverse, type createMiddlewareClient, equalFold } from '.';
 
 export const getBalancesForBridge = async (input: {
-  vscClient: VSCClient;
+  middlewareClient: ReturnType<typeof createMiddlewareClient>;
   evmAddress: Hex;
-  tronAddress?: string;
+  // tronAddress?: string;
   chainList: ChainListType;
 }) => {
-  const [evmBalances, tronBalances] = await Promise.all([
-    input.vscClient.getEVMBalancesForAddress(input.evmAddress),
-    input.tronAddress
-      ? input.vscClient.getTronBalancesForAddress(input.tronAddress as Hex)
-      : Promise.resolve([]),
+  const [evmBalances] = await Promise.all([
+    input.middlewareClient.getBalances(input.evmAddress, 0),
   ]);
 
-  const assets = vscBalancesToAssets(input.chainList, evmBalances, tronBalances);
+  const assets = vscBalancesToAssets(input.chainList, evmBalances, []);
 
   return assets;
 };
 
+export const vscBalancesToAssets = (
+  chainList: ChainListType,
+  evmBalances: UnifiedBalanceResponseData[] = [],
+  tronBalances: UnifiedBalanceResponseData[] = []
+) => {
+  const assets: UserAssetDatum[] = [];
+  const vscBalances = evmBalances.concat(tronBalances);
+
+  logger.debug('balanceToAssets', {
+    evmBalances,
+    tronBalances,
+  });
+  for (const balance of vscBalances) {
+    for (const currency of balance.currencies) {
+      const chain = chainList.getChainByID(bytesToNumber(balance.chain_id));
+      if (!chain) {
+        continue;
+      }
+      const tokenAddress = convertAddressByUniverse(
+        toHex(currency.token_address),
+        balance.universe
+      );
+      const token = chainList.getTokenByAddress(chain.id, tokenAddress);
+      const decimals = token ? token.decimals : chain.nativeCurrency.decimals;
+
+      if (token) {
+        const asset = assets.find((s) => equalFold(s.symbol, token.symbol));
+        if (asset) {
+          asset.balance = new Decimal(asset.balance).add(currency.balance).toFixed();
+          asset.balanceInFiat = new Decimal(asset.balanceInFiat)
+            .add(currency.value)
+            .toDecimalPlaces(2)
+            .toNumber();
+          asset.breakdown.push({
+            balance: currency.balance,
+            balanceInFiat: new Decimal(currency.value).toDecimalPlaces(2).toNumber(),
+            chain: {
+              id: bytesToNumber(balance.chain_id),
+              logo: chain.custom.icon,
+              name: chain.name,
+            },
+            contractAddress: tokenAddress,
+            decimals,
+            universe: balance.universe,
+          });
+        } else {
+          assets.push({
+            abstracted: true,
+            balance: currency.balance,
+            balanceInFiat: new Decimal(currency.value).toDecimalPlaces(2).toNumber(),
+            breakdown: [
+              {
+                balance: currency.balance,
+                balanceInFiat: new Decimal(currency.value).toDecimalPlaces(2).toNumber(),
+                chain: {
+                  id: bytesToNumber(balance.chain_id),
+                  logo: chain.custom.icon,
+                  name: chain.name,
+                },
+                contractAddress: tokenAddress,
+                decimals,
+                universe: balance.universe,
+              },
+            ],
+            decimals: token.decimals,
+            icon: getLogoFromSymbol(token.symbol),
+            symbol: token.symbol,
+          });
+        }
+      }
+    }
+  }
+
+  for (const asset of assets) {
+    asset.breakdown.sort((a, b) => b.balanceInFiat - a.balanceInFiat);
+  }
+  assets.sort((a, b) => b.balanceInFiat - a.balanceInFiat);
+  return assets;
+};
 const getBalanceSlot = ({
   tokenSymbol,
   chainId,

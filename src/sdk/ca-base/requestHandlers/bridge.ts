@@ -7,14 +7,11 @@ import {
   Universe,
 } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
-import type Long from 'long';
 import { TronWeb } from 'tronweb';
 import {
   ContractFunctionExecutionError,
   createPublicClient,
-  encodeFunctionData,
   type Hex,
-  hexToBytes,
   type JsonRpcAccount,
   maxUint256,
   parseSignature,
@@ -35,43 +32,32 @@ import {
   type ReadableIntent,
   type SetAllowanceInput,
   type SourceTxs,
-  type SponsoredApprovalDataArray,
   type TokenInfo,
+  type V2ApprovalsByChain,
 } from '../../../commons';
 import { isNativeAddress } from '../constants';
 import { Errors } from '../errors';
-import { ERROR_CODES, NexusError } from '../nexusError';
 import { createSteps } from '../steps';
 import {
-  convertGasToToken,
   convertIntent,
   convertTo32Bytes,
-  cosmosCreateRFF,
-  cosmosFillCheck,
-  createDepositDoubleCheckTx,
   createExplorerTxURL,
   createPublicClientWithFallback,
-  createRFFromIntent,
+  createV2RequestFromIntent,
   divDecimals,
   equalFold,
-  type FeeStore,
   getAllowances,
   getBalancesForBridge,
   getExplorerURL,
-  getFeeStore,
   mulDecimals,
-  removeIntentHashFromStore,
   requestTimeout,
   retrieveAddress,
   signPermitForAddressAndValue,
-  storeIntentHashToStore,
   switchChain,
   UserAssets,
   waitForIntentFulfilment,
   waitForTronApprovalTxConfirmation,
-  waitForTronDepositTxConfirmation,
   waitForTxReceipt,
-  // createDeadlineFromNow,
 } from '../utils';
 
 type Params = {
@@ -108,78 +94,38 @@ class BridgeHandler {
   }
 
   private readonly buildIntent = async (sourceChains: number[] = []) => {
-    console.time('process:preIntentSteps');
-
-    console.time('preIntentSteps:API');
-    const [assets, oraclePrices, feeStore] = await Promise.all([
+    // Promise.all because there will be fees + oracle API ?
+    const [assets] = await Promise.all([
       getBalancesForBridge({
-        vscClient: this.options.vscClient,
+        middlewareClient: this.options.middlewareClient,
         evmAddress: this.options.evm.address,
         chainList: this.options.chainList,
-        tronAddress: this.options.tron?.address,
       }),
-      this.options.cosmosQueryClient.fetchPriceOracle(),
-      getFeeStore(this.options.cosmosQueryClient),
     ]);
 
     logger.debug('Step 0: BuildIntent', {
       assets,
-      oraclePrices,
-      feeStore,
     });
-
-    console.timeEnd('preIntentSteps:API');
-    logger.debug('Step 1:', {
-      assets,
-      feeStore,
-      oraclePrices,
-    });
-
-    console.time('preIntentSteps: Parse');
 
     // Step 2: parse simulation results
     const userAssets = new UserAssets(assets);
 
     console.time('preIntentSteps: CalculateGas');
 
-    const nativeAmountInDecimal = divDecimals(
-      this.params.nativeAmount,
-      this.params.dstChain.nativeCurrency.decimals
-    );
-
     const tokenAmountInDecimal = divDecimals(
       this.params.tokenAmount,
       this.params.dstToken.decimals
     );
 
-    const gasInToken = convertGasToToken(
-      this.params.dstToken,
-      oraclePrices,
-      this.params.dstChain.id,
-      this.params.dstChain.universe,
-      nativeAmountInDecimal
-    );
-
-    console.timeEnd('preIntentSteps: CalculateGas');
-
-    logger.debug('preIntent:1', {
-      gasInNative: nativeAmountInDecimal.toFixed(),
-      gasInToken: gasInToken.toFixed(),
-    });
-
     // Step 4: create intent
-    console.time('preIntentSteps: CreateIntent');
     const intent = await this.createIntent({
       amount: tokenAmountInDecimal,
       assets: userAssets,
-      feeStore,
-      gas: nativeAmountInDecimal,
-      gasInToken,
+      gas: new Decimal(0),
+      gasInToken: new Decimal(0),
       sourceChains,
       token: this.params.dstToken,
     });
-    console.timeEnd('preIntentSteps: CreateIntent');
-    console.timeEnd('process:preIntentSteps');
 
     return intent;
   };
@@ -243,11 +189,8 @@ class BridgeHandler {
     return sources;
   }
 
-  public execute = async (
-    shouldRetryOnFailure = true
-  ): Promise<{
+  public execute = async (): Promise<{
     explorerURL: string;
-    intentID: Long;
     intent: ReadableIntent;
     sourceTxs: SourceTxs;
   }> => {
@@ -309,24 +252,10 @@ class BridgeHandler {
       // Step 6: Process intent
       logger.debug('intent', { intent });
 
-      const response = await this.processRFF(intent);
-      if (response.retry) {
-        logger.debug('rff fee expired, going to rebuild intent...');
-        if (shouldRetryOnFailure) {
-          // If fee expired go back and rebuild intent if first time
-          return this.execute(false);
-        } else {
-          // Something else is wrong, retries probably wont fix it - so just throw
-          throw Errors.rFFFeeExpired();
-        }
-      }
-
-      const { explorerURL, intentID, requestHash, waitForDoubleCheckTx, sourceTxs } = response;
+      const { explorerURL, requestHash, sourceTxs } = await this.processRFF(intent);
 
       // Step 7: Wait for fill
-      storeIntentHashToStore(this.options.evm.address, intentID.toNumber());
-      await this.waitForFill(requestHash, intentID, waitForDoubleCheckTx);
-      removeIntentHashFromStore(this.options.evm.address, intentID);
+      await this.waitForFill(requestHash);
 
       this.markStepDone(BRIDGE_STEPS.INTENT_FULFILLED);
 
@@ -336,7 +265,6 @@ class BridgeHandler {
 
       return {
         explorerURL,
-        intentID,
         intent: convertIntent(intent, this.params.dstToken, this.options.chainList),
         sourceTxs,
       };
@@ -346,18 +274,9 @@ class BridgeHandler {
     }
   };
 
-  private async waitForFill(
-    requestHash: `0x${string}`,
-    intentID: Long,
-    waitForDoubleCheckTx: () => Promise<void>
-  ) {
-    waitForDoubleCheckTx();
-
+  private async waitForFill(requestHash: `0x${string}`) {
     const ac = new AbortController();
-    const promisesToRace = [
-      requestTimeout(3, ac),
-      cosmosFillCheck(intentID, this.options.cosmosQueryClient, ac),
-    ];
+    const promisesToRace = [requestTimeout(3, ac)];
 
     // Use eth_subscribe to read fill events if destination is EVM - usually the fastest
     if (this.params.dstChain.universe === Universe.ETHEREUM) {
@@ -376,39 +295,29 @@ class BridgeHandler {
     logger.debug('Fill completed');
   }
 
-  private async processRFF(intent: Intent): Promise<
-    | { retry: true }
-    | {
-        retry: false;
-        explorerURL: string;
-        intentID: Long;
-        requestHash: Hex;
-        waitForDoubleCheckTx: () => Promise<void>;
-        sourceTxs: SourceTxs;
-      }
-  > {
-    const { msgBasicCosmos, omniversalRFF, signatureData, sources, universes } =
-      await createRFFromIntent(intent, this.options, this.params.dstChain.universe);
+  private async processRFF(
+    intent: Intent
+  ): Promise<{ explorerURL: string; requestHash: Hex; sourceTxs: SourceTxs }> {
+    const { v2Request, request, signature } = await createV2RequestFromIntent(
+      intent,
+      this.options,
+      this.params.dstChain.universe
+    );
 
     this.markStepDone(BRIDGE_STEPS.INTENT_HASH_SIGNED);
 
-    logger.debug('processRFF:3', { msgBasicCosmos });
+    logger.debug('processRFF:3', { request });
 
-    const intentID = await cosmosCreateRFF({
-      address: this.options.cosmos.address,
-      msg: msgBasicCosmos,
-      client: this.options.cosmos.client,
+    const createRFFResponse = await this.options.middlewareClient.submitRFF({
+      request: v2Request,
+      signature,
     });
 
-    const explorerURL = getExplorerURL(this.options.intentExplorerUrl, intentID);
-    this.markStepDone(BRIDGE_STEPS.INTENT_SUBMITTED(explorerURL, intentID.toNumber()));
-
-    const tokenCollections: { index: number; chainId: number }[] = [];
-    for (const [i, s] of sources.entries()) {
-      if (!isDeposit(s.universe, s.tokenAddress)) {
-        tokenCollections.push({ index: i, chainId: Number(s.chainID) });
-      }
-    }
+    const explorerURL = getExplorerURL(
+      this.options.intentExplorerUrl,
+      createRFFResponse.request_hash
+    );
+    this.markStepDone(BRIDGE_STEPS.INTENT_SUBMITTED(explorerURL, createRFFResponse.request_hash));
 
     const sourceTxs: {
       chain: {
@@ -421,44 +330,29 @@ class BridgeHandler {
     }[] = [];
 
     const evmDeposits: Promise<unknown>[] = [];
-    const tronDeposits: Promise<unknown>[] = [];
 
-    const evmSignatureData = signatureData.find((d) => d.universe === Universe.ETHEREUM);
-
-    if (!evmSignatureData && universes.has(Universe.ETHEREUM)) {
-      throw Errors.internal('ethereum in universe list but no signature data present');
-    }
-
-    const tronSignatureData = signatureData.find((d) => d.universe === Universe.TRON);
-
-    if (!tronSignatureData && universes.has(Universe.TRON)) {
-      throw Errors.internal('tron in universe list but no signature data present');
-    }
-
-    const doubleCheckTxs = [];
-
-    for (const [i, s] of sources.entries()) {
+    for (const [i, s] of request.sources.entries()) {
       const chain = this.options.chainList.getChainByID(Number(s.chainID));
       if (!chain) {
         throw Errors.chainNotFound(s.chainID);
       }
 
-      if (s.universe === Universe.ETHEREUM && isNativeAddress(s.universe, s.tokenAddress)) {
+      if (s.universe === Universe.ETHEREUM && isNativeAddress(s.universe, s.contractAddress)) {
         await switchChain(this.options.evm.client, chain);
 
         const publicClient = createPublicClientWithFallback(chain);
 
-        const { request } = await publicClient.simulateContract({
+        const result = await publicClient.simulateContract({
           abi: EVMVaultABI,
           account: this.options.evm.address,
           address: this.options.chainList.getVaultContractAddress(chain.id),
-          args: [omniversalRFF.asEVMRFF(), toHex(evmSignatureData!.signature), BigInt(i)],
+          args: [request, signature, BigInt(i)],
           chain: chain,
           functionName: 'deposit',
-          value: s.valueRaw,
+          value: s.value,
         });
-        const hash = await this.options.evm.client.writeContract(request);
-        this.markStepDone(BRIDGE_STEPS.INTENT_DEPOSIT_REQUEST(i + 1, s.value, chain));
+        const hash = await this.options.evm.client.writeContract(result.request);
+        this.markStepDone(BRIDGE_STEPS.INTENT_DEPOSIT_REQUEST(i + 1, new Decimal(s.value), chain));
         sourceTxs.push({
           chain: {
             id: chain.id,
@@ -469,139 +363,21 @@ class BridgeHandler {
           explorerUrl: createExplorerTxURL(hash, chain.blockExplorers!.default.url),
         });
         evmDeposits.push(waitForTxReceipt(hash, publicClient));
-      } else if (s.universe === Universe.TRON) {
-        const provider = new TronWeb({
-          fullHost: chain.rpcUrls.default.grpc![0],
-        });
-        const vaultContractAddress = this.options.chainList.getVaultContractAddress(
-          Number(s.chainID)
-        );
-        const txWrap = await provider.transactionBuilder.triggerSmartContract(
-          TronWeb.address.fromHex(vaultContractAddress),
-          '',
-          {
-            txLocal: true,
-            input: encodeFunctionData({
-              abi: EVMVaultABI,
-              functionName: 'deposit',
-              args: [omniversalRFF.asEVMRFF(), toHex(tronSignatureData!.signature), BigInt(i)],
-            }),
-          },
-          [],
-          TronWeb.address.fromHex(this.options.tron!.address)
-        );
-
-        const signedTx = await this.options.tron!.adapter.signTransaction(txWrap.transaction);
-
-        logger.debug('tron deposit signTransaction result', {
-          signedTx,
-        });
-
-        if (!this.options.tron!.adapter.isMobile) {
-          const txResult = await provider.trx.sendRawTransaction(signedTx);
-
-          logger.debug('tron deposit tx result', {
-            txResult,
-          });
-          if (!txResult.result) {
-            throw Errors.tronDepositFailed(txResult);
-          }
-        }
-
-        tronDeposits.push(
-          (async () => {
-            await waitForTronDepositTxConfirmation(
-              tronSignatureData!.requestHash,
-              vaultContractAddress,
-              provider,
-              this.options.tron!.address as Hex
-            );
-          })()
-        );
       }
-      doubleCheckTxs.push(
-        createDepositDoubleCheckTx(convertTo32Bytes(chain.id), this.options.cosmos, intentID)
-      );
     }
-
-    if (evmDeposits.length || tronDeposits.length) {
-      await Promise.all([Promise.all(evmDeposits), Promise.all(tronDeposits)]);
+    if (evmDeposits.length) {
+      await Promise.all([...evmDeposits]);
       this.markStepDone(BRIDGE_STEPS.INTENT_DEPOSITS_CONFIRMED);
     }
 
     logger.debug('PostIntentSubmission: Intent ID', {
-      id: intentID.toNumber(),
+      id: createRFFResponse.request_hash,
     });
 
-    if (tokenCollections.length > 0) {
-      const markCollectionDone = (params: {
-        current: number;
-        total: number;
-        txHash: Hex;
-        chainId: number;
-      }) => {
-        const chain = this.options.chainList.getChainByID(params.chainId);
-        if (!chain) {
-          logger.debug('MarkCollectionDone: chain not found?', {
-            chainId: params.chainId,
-          });
-          return;
-        }
-        const explorerUrl = createExplorerTxURL(params.txHash, chain.blockExplorers!.default.url);
-        sourceTxs.push({
-          chain: {
-            id: chain.id,
-            name: chain.name,
-            logo: chain.custom.icon,
-          },
-          hash: params.txHash,
-          explorerUrl: explorerUrl,
-        });
-        this.markStepDone(
-          BRIDGE_STEPS.INTENT_COLLECTION(params.current, params.total, params.txHash, explorerUrl)
-        );
-      };
-      logger.debug('processRFF', {
-        intentID: intentID.toString(),
-        message: 'going to create RFF',
-        tokenCollections,
-      });
-      try {
-        await this.options.vscClient.vscCreateRFF(intentID, markCollectionDone, tokenCollections);
-        this.markStepDone(BRIDGE_STEPS.INTENT_COLLECTION_COMPLETE);
-      } catch (e) {
-        logger.debug('vscCreateRFF', {
-          'e instanceof NexusError?': e instanceof NexusError,
-          error: e,
-        });
-        if (e instanceof NexusError && e.code === ERROR_CODES.RFF_FEE_EXPIRED) {
-          // Send back to process again
-          return { retry: true };
-        }
-        throw e;
-      }
-    } else {
-      logger.debug('processRFF', {
-        message: 'going to publish RFF',
-      });
-      await this.options.vscClient.vscPublishRFF(intentID);
-    }
-
-    const destinationSigData = signatureData.find(
-      (s) => s.universe === intent.destination.universe
-    );
-
-    if (!destinationSigData) {
-      throw Errors.destinationRequestHashNotFound();
-    }
-
     return {
-      retry: false,
       explorerURL,
-      intentID,
       sourceTxs,
-      requestHash: destinationSigData.requestHash,
-      waitForDoubleCheckTx: waitForDoubleCheckTx(doubleCheckTxs),
+      requestHash: createRFFResponse.request_hash,
     };
   }
 
@@ -609,7 +385,7 @@ class BridgeHandler {
     const originalChain = this.params.dstChain.id;
     logger.debug('setAllowances', { originalChain, input });
 
-    const sponsoredApprovals: SponsoredApprovalDataArray = [];
+    const sponsoredApprovals: V2ApprovalsByChain = {};
     const unsponsoredApprovals: Promise<TransactionReceipt>[] = [];
     try {
       for (const source of input) {
@@ -746,46 +522,35 @@ class BridgeHandler {
 
           this.markStepDone(BRIDGE_STEPS.ALLOWANCE_APPROVAL_REQUEST(chain));
 
-          sponsoredApprovals.push({
-            address: convertTo32Bytes(account.address),
-            chain_id: chainDatum.ChainID32,
-            operations: [
-              {
-                sig_r: hexToBytes(signed.r),
-                sig_s: hexToBytes(signed.s),
-                sig_v: signed.yParity < 27 ? signed.yParity + 27 : signed.yParity,
-                token_address: currency.tokenAddress,
-                value: convertTo32Bytes(source.amount),
-                variant: currency.permitVariant === PermitVariant.PolygonEMT ? 2 : 1,
-              },
-            ],
-            universe: chainDatum.Universe,
-          });
+          sponsoredApprovals[chain.id] = [
+            {
+              address: account.address,
+              ops: [
+                {
+                  signature: {
+                    v: signed.yParity < 27 ? signed.yParity + 27 : signed.yParity,
+                    r: signed.r,
+                    s: signed.s,
+                  },
+                  tokenAddress: source.tokenContract,
+                  value: toHex(source.amount),
+                  variant: currency.permitVariant === PermitVariant.PolygonEMT ? 2 : 1,
+                },
+              ],
+            },
+          ];
         }
       }
 
-      if (sponsoredApprovals.length) {
+      if (Object.keys(sponsoredApprovals).length) {
         logger.debug('setAllowances:sponsoredApprovals', {
           sponsoredApprovals,
         });
-        const approvalHashes =
-          await this.options.vscClient.vscCreateSponsoredApprovals(sponsoredApprovals);
-
-        await Promise.all(
-          approvalHashes.map(async (approval) => {
-            const chain = this.options.chainList.getChainByID(approval.chainId);
-            if (!chain) {
-              throw Errors.chainNotFound(approval.chainId);
-            }
-
-            const publicClient = createPublicClientWithFallback(chain);
-            await waitForTxReceipt(approval.hash, publicClient);
-            BRIDGE_STEPS.ALLOWANCE_APPROVAL_MINED({
-              id: approval.chainId,
-            });
-            return;
-          })
-        );
+        const approvalResponse =
+          await this.options.middlewareClient.createApprovals(sponsoredApprovals);
+        logger.debug('sponsoredApprovals', {
+          approvalResponse,
+        });
       }
       if (unsponsoredApprovals.length) {
         await Promise.all(unsponsoredApprovals);
@@ -867,13 +632,12 @@ class BridgeHandler {
   private async createIntent(input: {
     amount: Decimal;
     assets: UserAssets;
-    feeStore: FeeStore;
     gas: Decimal;
     gasInToken: Decimal;
     sourceChains: number[];
     token: TokenInfo;
   }) {
-    const { amount, assets, feeStore, gas, gasInToken, token } = input;
+    const { amount, assets, gas, gasInToken, token } = input;
     const intent: Intent = {
       allSources: [],
       destination: {
@@ -920,29 +684,14 @@ class BridgeHandler {
 
     const borrow = amount;
 
-    const protocolFee = feeStore.calculateProtocolFee(borrow);
-    intent.fees.protocol = protocolFee.toFixed();
-
-    let borrowWithFee = borrow.add(gasInToken).add(protocolFee);
+    const borrowWithFee = borrow.add(gasInToken);
 
     logger.debug('createIntent:0', {
       borrow: borrow.toFixed(),
       borrowWithFee: borrowWithFee.toFixed(),
       destinationBalance,
       gasInToken: gasInToken.toFixed(),
-      protocolFee: protocolFee.toFixed(),
     });
-
-    const fulfilmentFee = feeStore.calculateFulfilmentFee({
-      decimals: token.decimals,
-      destinationChainID: this.params.dstChain.id,
-      destinationTokenAddress: token.contractAddress,
-    });
-    logger.debug('createIntent:1', { fulfilmentFee });
-
-    intent.fees.fulfilment = fulfilmentFee.toFixed();
-
-    borrowWithFee = borrowWithFee.add(fulfilmentFee);
 
     let accountedAmount = new Decimal(0);
 
@@ -964,18 +713,6 @@ class BridgeHandler {
         continue;
       }
 
-      // Now collectionFee is a fixed amount - applicable to all
-      const collectionFee = feeStore.calculateCollectionFee({
-        decimals: assetC.decimals,
-        sourceChainID: assetC.chainID,
-        sourceTokenAddress: assetC.tokenContract,
-      });
-
-      intent.fees.collection = collectionFee.add(intent.fees.collection).toFixed();
-      borrowWithFee = borrowWithFee.add(collectionFee);
-
-      logger.debug('createIntent:2', { collectionFee });
-
       const unaccountedAmount = borrowWithFee.minus(accountedAmount);
 
       let borrowFromThisChain = new Decimal(assetC.balance).lessThanOrEqualTo(unaccountedAmount)
@@ -989,20 +726,6 @@ class BridgeHandler {
         borrowFromThisChain: borrowFromThisChain.toFixed(),
         unaccountedAmount: unaccountedAmount.toFixed(),
       });
-
-      const solverFee = feeStore.calculateSolverFee({
-        borrowAmount: borrowFromThisChain,
-        decimals: assetC.decimals,
-        destinationChainID: this.params.dstChain.id,
-        destinationTokenAddress: token.contractAddress,
-        sourceChainID: assetC.chainID,
-        sourceTokenAddress: assetC.tokenContract,
-      });
-      intent.fees.solver = solverFee.add(intent.fees.solver).toFixed();
-
-      logger.debug('createIntent:3', { solverFee });
-
-      borrowWithFee = borrowWithFee.add(solverFee);
 
       const unaccountedBalance = borrowWithFee.minus(accountedAmount);
 
@@ -1052,19 +775,5 @@ class BridgeHandler {
     }
   };
 }
-
-const isDeposit = (universe: Universe, tokenAddress: Hex) => {
-  if (universe === Universe.ETHEREUM) {
-    return isNativeAddress(universe, tokenAddress);
-  }
-
-  return true;
-};
-
-const waitForDoubleCheckTx = (input: Array<() => Promise<void>>) => {
-  return async () => {
-    await Promise.allSettled(input.map((i) => i()));
-  };
-};
 
 export default BridgeHandler;

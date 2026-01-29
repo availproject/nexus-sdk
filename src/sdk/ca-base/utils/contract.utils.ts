@@ -473,7 +473,16 @@ const getPctGasBufferByChain = (chainId: number) => {
   return 0.5;
 };
 
+const packERC20Approve = (spender: Hex, amount: bigint) => {
+  return encodeFunctionData({
+    abi: ERC20ABI,
+    args: [spender, amount],
+    functionName: 'approve',
+  });
+};
+
 export {
+  packERC20Approve,
   getPctGasBufferByChain,
   erc20GetAllowance,
   erc20SetAllowance,

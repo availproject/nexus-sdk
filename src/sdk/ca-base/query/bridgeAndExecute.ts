@@ -35,7 +35,6 @@ import type { BackendSimulationClient } from '../../../integrations/tenderly';
 import { isNativeAddress } from '../constants';
 import { Errors } from '../errors';
 import type BridgeHandler from '../requestHandlers/bridge';
-import { packERC20Approve } from '../swap/utils';
 import {
   createExplorerTxURL,
   erc20GetAllowance,
@@ -43,6 +42,7 @@ import {
   getL1Fee,
   getPctGasBufferByChain,
   mulDecimals,
+  packERC20Approve,
   pctAdditionWithSuggestion,
   switchChain,
   UserAssets,

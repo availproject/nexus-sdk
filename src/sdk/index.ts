@@ -2,19 +2,16 @@
 
 import { AnalyticsManager } from '../analytics/AnalyticsManager';
 import { NexusAnalyticsEvents } from '../analytics/events';
-import { extractBridgeProperties, extractSwapProperties } from '../analytics/utils';
+import { extractBridgeProperties } from '../analytics/utils';
 import type {
   AnalyticsConfig,
   BeforeExecuteHook,
   BridgeAndExecuteParams,
   BridgeAndExecuteResult,
   BridgeAndExecuteSimulationResult,
-  BridgeMaxResult,
   BridgeParams,
   BridgeResult,
   EthereumProvider,
-  ExactInSwapInput,
-  ExactOutSwapInput,
   ExecuteParams,
   ExecuteResult,
   ExecuteSimulation,
@@ -22,11 +19,7 @@ import type {
   OnAllowanceHook,
   OnEventParam,
   OnIntentHook,
-  OnSwapIntentHook,
-  RequestForFunds,
   SimulationResult,
-  SupportedChainsResult,
-  SwapResult,
   TransferParams,
   TransferResult,
 } from '../commons';
@@ -102,15 +95,6 @@ export class NexusSDK extends CA {
     try {
       const result = await (await this._createBridgeHandler(params, options)).execute();
 
-      // Track bridge completed
-      this.analytics.track(NexusAnalyticsEvents.BRIDGE_TRANSACTION_SUCCESS, {
-        toChainId: params.toChainId,
-        tokenSymbol: params.token,
-        explorerUrl: result.explorerURL,
-        ...extractBridgeProperties(result.intent),
-        intent: result.intentID.toString(),
-      });
-      this.analytics.endOperation(opId, { success: true });
       return {
         explorerUrl: result.explorerURL,
         sourceTxs: result.sourceTxs,
@@ -125,17 +109,6 @@ export class NexusSDK extends CA {
       this.analytics.endOperation(opId, { success: false, error: error as Error });
       throw error;
     }
-  }
-
-  /**
-   * Calculates the maximum amount that can be bridged for a given token and destination chain
-   * @param params
-   * @returns
-   */
-  public async calculateMaxForBridge(
-    params: Omit<BridgeParams, 'amount'>
-  ): Promise<BridgeMaxResult> {
-    return this._calculateMaxForBridge(params);
   }
 
   /**
@@ -182,110 +155,6 @@ export class NexusSDK extends CA {
         toChainId: params.toChainId,
         tokenSymbol: params.token,
         recipient: params.recipient,
-      });
-      this.analytics.endOperation(opId, { success: false, error: error as Error });
-      throw error;
-    }
-  }
-
-  /**
-   * Swap with exact in
-   * Useful when trying to swap with fixed sources and destination
-   * @param input swap input
-   * @param options event parameters
-   * @throws NexusError if the swap fails
-   * @returns swap result with success flag and result
-   */
-  public async swapWithExactIn(
-    input: ExactInSwapInput,
-    options?: OnEventParam
-  ): Promise<SwapResult> {
-    // Track swap started
-    this.analytics.track(NexusAnalyticsEvents.SWAP_INITIATED, {
-      swapType: 'exactIn',
-      toChainId: input.toChainId,
-      toTokenAddress: input.toTokenAddress,
-      sourceChains: input.from.map((f) => f.chainId),
-    });
-    const opId = this.analytics.startOperation(NexusAnalyticsEvents.SWAP_TRANSACTION_SUCCESS, {
-      swapType: 'exactIn',
-    });
-
-    try {
-      const result = await this._swapWithExactIn(input, options);
-
-      // Track swap completed
-      this.analytics.track(NexusAnalyticsEvents.SWAP_TRANSACTION_SUCCESS, {
-        swapType: 'exactIn',
-        toChainId: input.toChainId,
-        toTokenAddress: input.toTokenAddress,
-        ...extractSwapProperties(result),
-      });
-
-      this.analytics.endOperation(opId, { success: true });
-
-      return {
-        success: true,
-        result,
-      };
-    } catch (error) {
-      // Track swap failed
-      this.analytics.trackError('swap', error, {
-        swapType: 'exactIn',
-        toChainId: input.toChainId,
-        toTokenAddress: input.toTokenAddress,
-      });
-      this.analytics.endOperation(opId, { success: false, error: error as Error });
-      throw error;
-    }
-  }
-
-  /**
-   * Swap with exact out
-   * Useful when trying to swap with a fixed destination.
-   * Sources are calculated automatically.
-   * @param input swap input
-   * @param options event parameters
-   * @throws NexusError if the swap fails
-   * @returns swap result with success flag and result
-   */
-  public async swapWithExactOut(
-    input: ExactOutSwapInput,
-    options?: OnEventParam
-  ): Promise<SwapResult> {
-    // Track swap started
-    this.analytics.track(NexusAnalyticsEvents.SWAP_INITIATED, {
-      swapType: 'exactOut',
-      toChainId: input.toChainId,
-      toTokenAddress: input.toTokenAddress,
-    });
-    const opId = this.analytics.startOperation(NexusAnalyticsEvents.SWAP_TRANSACTION_SUCCESS, {
-      swapType: 'exactOut',
-    });
-
-    try {
-      const result = await this._swapWithExactOut(input, options);
-
-      // Track swap completed
-      this.analytics.track(NexusAnalyticsEvents.SWAP_TRANSACTION_SUCCESS, {
-        swapType: 'exactOut',
-        toChainId: input.toChainId,
-        toTokenAddress: input.toTokenAddress,
-        ...extractSwapProperties(result),
-      });
-
-      this.analytics.endOperation(opId, { success: true });
-
-      return {
-        success: true,
-        result,
-      };
-    } catch (error) {
-      // Track swap failed
-      this.analytics.trackError('swap', error, {
-        swapType: 'exactOut',
-        toChainId: input.toChainId,
-        toTokenAddress: input.toTokenAddress,
       });
       this.analytics.endOperation(opId, { success: false, error: error as Error });
       throw error;
@@ -367,9 +236,9 @@ export class NexusSDK extends CA {
    * @param page page number
    * @returns list of intents
    */
-  public async getMyIntents(page = 1): Promise<RequestForFunds[]> {
+  public async getMyIntents() {
     const opId = this.analytics.startOperation(NexusAnalyticsEvents.GET_MY_INTENTS);
-    const result = await this._getMyIntents(page);
+    const result = await this._getMyIntents();
     this.analytics.endOperation(opId, { success: true });
     return result;
   }
@@ -382,16 +251,6 @@ export class NexusSDK extends CA {
    */
   public setOnIntentHook(callback: OnIntentHook): void {
     this._setOnIntentHook(callback);
-  }
-
-  /**
-   * Set callback for swap intent details
-   * Useful for capturing swap intent and displaying information to the user
-   * Once set up, data will be automatically emitted, can be stored in a state or a variable for further use.
-   * @param callback swap intent details callback
-   */
-  public setOnSwapIntentHook(callback: OnSwapIntentHook): void {
-    this._setOnSwapIntentHook(callback);
   }
 
   // public addTron(adapter: AdapterProps) {
@@ -591,23 +450,6 @@ export class NexusSDK extends CA {
   }
 
   /**
-   * Tokens returned here should be used in `input` for exact in swap
-   * @throws NexusError if the get balances for swap fails
-   * @returns balances that can be used in swap operations
-   */
-  public async getBalancesForSwap(onlyNativesAndStables = false) {
-    const opId = this.analytics.startOperation(NexusAnalyticsEvents.BALANCES_FETCH_SUCCESS, {
-      swap: true,
-      bridge: false,
-    });
-    const result = await this._getBalancesForSwap(onlyNativesAndStables);
-    this.analytics.endOperation(opId, { success: true });
-    return result.assets;
-  }
-
-  public swapAndExecute = this._swapAndExecute;
-
-  /**
    * Tokens returned here should be used in bridge, bridgeAndTransfer and bridgeAndExecute operations
    * @throws NexusError if the get balances for bridge fails
    * @returns balances that can be used in bridge operations
@@ -620,14 +462,6 @@ export class NexusSDK extends CA {
     const result = this._getBalancesForBridge();
     this.analytics.endOperation(opId, { success: true });
     return result;
-  }
-
-  /**
-   * Get list of chains where swap is supported
-   * @returns list of chains where swap is supported
-   */
-  public getSwapSupportedChains(): SupportedChainsResult {
-    return this._getSwapSupportedChains();
   }
 
   public isInitialized() {
@@ -658,9 +492,4 @@ export class NexusSDK extends CA {
    * ex: USDC on BNB chain has 18 decimals and 6 decimals on most other chains.
    */
   public convertTokenReadableAmountToBigInt = this._convertTokenReadableAmountToBigInt;
-
-  /**
-   * Helper function to initiate refund if not already triggered by system
-   */
-  public refundIntent = this._refundIntent;
 }

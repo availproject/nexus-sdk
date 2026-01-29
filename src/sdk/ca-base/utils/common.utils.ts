@@ -1,13 +1,4 @@
-import {
-  type Bytes,
-  DepositVEPacket,
-  Environment,
-  ERC20ABI,
-  type EVMRFF,
-  EVMVaultABI,
-  MsgDoubleCheckTx,
-  Universe,
-} from '@avail-project/ca-common';
+import { type Bytes, ERC20ABI, type EVMRFF, EVMVaultABI, Universe } from '@avail-project/ca-common';
 import type { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 import Decimal from 'decimal.js';
 import type Long from 'long';
@@ -24,39 +15,29 @@ import {
   hexToBigInt,
   keccak256,
   type PrivateKeyAccount,
-  type PublicClient,
   pad,
   toBytes,
   toHex,
   UserRejectedRequestError,
   type WalletClient,
-  type WebSocketTransport,
 } from 'viem';
-import type { AnalyticsManager } from '../../../analytics/AnalyticsManager';
-import { NexusAnalyticsEvents } from '../../../analytics/events';
 import {
   type Chain,
   type ChainListType,
-  type CosmosOptions,
-  type CosmosQueryClient,
   getLogger,
   type IBridgeOptions,
   type Intent,
+  type NexusNetworkHint,
   type OraclePriceResponse,
   type ReadableIntent,
-  type SupportedChainsAndTokensResult,
   type TokenInfo,
   type UserAssetDatum,
 } from '../../../commons';
+import type { SupportedChainsAndTokensResult } from '../../../commons/types';
 import { ChainList } from '../chains';
 import { getLogoFromSymbol, isNativeAddress, ZERO_ADDRESS } from '../constants';
 import { Errors } from '../errors';
-import {
-  createPublicClientWithFallback,
-  requestTimeout,
-  waitForIntentFulfilment,
-} from './contract.utils';
-import { cosmosCreateDoubleCheckTx, cosmosFillCheck, cosmosRefundIntent } from './cosmos.utils';
+import { createPublicClientWithFallback } from './contract.utils';
 import { PlatformUtils } from './platform.utils';
 
 const logger = getLogger();
@@ -139,61 +120,6 @@ const getExpiredIntents = (address: string) => {
   return expiredIntents;
 };
 
-const refundExpiredIntents = async ({
-  address,
-  evmAddress,
-  client,
-  analytics,
-}: CosmosOptions & { evmAddress: string; analytics?: AnalyticsManager }) => {
-  logger.debug('Starting check for expired intents at ', new Date());
-  const expIntents = getExpiredIntents(evmAddress);
-  const failedRefunds: IntentD[] = [];
-
-  for (const intent of expIntents) {
-    logger.debug(`Starting refund for: ${intent.id}`);
-
-    // Track refund initiated
-    if (analytics) {
-      analytics.track(NexusAnalyticsEvents.REFUND_INITIATED, {
-        intentId: intent.id,
-        createdAt: intent.createdAt,
-      });
-    }
-
-    try {
-      await cosmosRefundIntent({ client, intentID: intent.id, address });
-      // Track refund success
-      if (analytics) {
-        analytics.track(NexusAnalyticsEvents.REFUND_COMPLETED, {
-          intentId: intent.id,
-          createdAt: intent.createdAt,
-        });
-      }
-    } catch (e) {
-      logger.debug('Refund failed', e);
-
-      // Track refund failure
-      if (analytics) {
-        analytics.trackError('refund', e, {
-          intentId: intent.id,
-          createdAt: intent.createdAt,
-        });
-      }
-
-      failedRefunds.push({
-        createdAt: intent.createdAt,
-        id: intent.id,
-      });
-    }
-  }
-
-  if (failedRefunds.length > 0) {
-    for (const failed of failedRefunds) {
-      storeIntentHashToStore(evmAddress, failed.id, failed.createdAt);
-    }
-  }
-};
-
 const equalFold = (a?: string, b?: string) => {
   if (!a || !b) {
     return false;
@@ -201,8 +127,8 @@ const equalFold = (a?: string, b?: string) => {
   return a.toLowerCase() === b.toLowerCase();
 };
 
-const getExplorerURL = (baseURL: string, id: Long) => {
-  return new URL(`/intent/${id.toNumber()}`, baseURL).toString();
+const getExplorerURL = (baseURL: string, hash: string) => {
+  return new URL(`/rffs/${hash}`, baseURL).toString();
 };
 
 /**
@@ -307,10 +233,8 @@ const hexTo0xString = (hex: string): `0x${string}` => {
   return `0x${hex}`;
 };
 
-const getSupportedChains = (
-  env: Environment = Environment.CORAL
-): SupportedChainsAndTokensResult => {
-  const chainList = new ChainList(env);
+const getSupportedChains = (network: NexusNetworkHint): SupportedChainsAndTokensResult => {
+  const chainList = new ChainList(network);
   return chainList.chains.map((chain) => {
     return {
       id: chain.id,
@@ -432,21 +356,6 @@ const convertGasToToken = (
   return tokenEquivalent.toDP(token.decimals, Decimal.ROUND_CEIL);
 };
 
-const evmWaitForFill = async (
-  vaultContractAddress: `0x${string}`,
-  publicClient: PublicClient<WebSocketTransport>,
-  requestHash: `0x${string}`,
-  intentID: Long,
-  cosmosQueryClient: CosmosQueryClient
-) => {
-  const ac = new AbortController();
-  await Promise.race([
-    waitForIntentFulfilment(publicClient, vaultContractAddress, requestHash, ac),
-    requestTimeout(3, ac),
-    cosmosFillCheck(intentID, cosmosQueryClient, ac),
-  ]);
-};
-
 const convertTo32Bytes = (value: bigint | Hex | number | Bytes) => {
   if (typeof value === 'bigint' || typeof value === 'number') {
     return toBytes(value, {
@@ -485,29 +394,6 @@ const convertToHexAddressByUniverse = (address: Uint8Array, universe: Universe) 
   } else {
     throw Errors.universeNotSupported();
   }
-};
-
-const createDepositDoubleCheckTx = (chainID: Uint8Array, cosmos: CosmosOptions, intentID: Long) => {
-  const msg = MsgDoubleCheckTx.create({
-    creator: cosmos.address,
-    packet: {
-      $case: 'depositPacket',
-      value: DepositVEPacket.create({
-        gasRefunded: false,
-        id: intentID,
-      }),
-    },
-    txChainID: chainID,
-    txUniverse: Universe.ETHEREUM,
-  });
-
-  return () => {
-    return cosmosCreateDoubleCheckTx({
-      address: cosmos.address,
-      client: cosmos.client,
-      msg,
-    });
-  };
 };
 
 class UserAsset {
@@ -866,18 +752,15 @@ export {
   convertTo32Bytes,
   convertTo32BytesHex,
   convertToHexAddressByUniverse,
-  createDepositDoubleCheckTx,
   createRequestEVMSignature,
   divDecimals,
   equalFold,
-  evmWaitForFill,
   getExpiredIntents,
   getExplorerURL,
   getSupportedChains,
   hexTo0xString,
   minutesToMs,
   mulDecimals,
-  refundExpiredIntents,
   removeIntentHashFromStore,
   storeIntentHashToStore,
   createRequestTronSignature,

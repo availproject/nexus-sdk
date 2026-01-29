@@ -1,4 +1,3 @@
-import { Environment } from '@avail-project/ca-common';
 import { type Logger, logs } from '@opentelemetry/api-logs';
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
@@ -22,7 +21,7 @@ async function getOrGenerateClientId(): Promise<string> {
 }
 
 function getNetworkName(networkConfig: NetworkConfig): string {
-  return Environment[networkConfig.NETWORK_HINT];
+  return networkConfig.NETWORK_HINT;
 }
 
 const setLoggerProvider = async (networkConfig: NetworkConfig) => {

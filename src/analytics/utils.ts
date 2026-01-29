@@ -4,7 +4,7 @@
  */
 
 import Decimal from 'decimal.js';
-import type { ReadableIntent, SuccessfulSwapResult, UserAssetDatum } from '../commons';
+import type { ReadableIntent, UserAssetDatum } from '../commons';
 
 /**
  * Detect wallet type from provider
@@ -197,76 +197,6 @@ export function extractErrorCode(error?: any): string | number | undefined {
 
   // Common error code locations
   return error.code || error.errorCode || error.statusCode || undefined;
-}
-
-/**
- * Extract properties from SwapRoute for analytics
- * @param swapRoute - SwapRoute object
- * @returns Object with sourceSwap, bridge, and destinationSwap properties
- */
-export function extractSwapProperties(swaps: SuccessfulSwapResult): Record<string, unknown> {
-  if (!swaps) return {};
-
-  const props: Record<string, unknown> = {};
-
-  // Extract source swap details
-  if (swaps.sourceSwaps) {
-    props.sourceSwaps = swaps.sourceSwaps.map((s) => ({
-      chainId: s.chainId,
-      sources: s.swaps.map((swp) => ({
-        tokenContract: swp.inputContract,
-        amount: new Decimal(swp.inputAmount.toString())
-          .div(Decimal.pow(10, swp.inputDecimals))
-          .toDecimalPlaces(swp.inputDecimals)
-          .toFixed(),
-      })),
-      destinations: s.swaps.map((swp) => ({
-        tokenContract: swp.outputContract,
-        amount: new Decimal(swp.outputAmount.toString())
-          .div(Decimal.pow(10, swp.outputDecimals))
-          .toDecimalPlaces(swp.outputDecimals)
-          .toFixed(),
-      })),
-    }));
-  }
-
-  // Extract bridge details
-  if (swaps.swapRoute?.bridge) {
-    props.bridge = {
-      sources: swaps.swapRoute.bridge.assets?.map((s) => ({
-        chainId: s.chainID,
-        token: s.contractAddress,
-      })),
-      destination: {
-        chainId: swaps.swapRoute.bridge.chainID,
-        token: swaps.swapRoute.bridge.tokenAddress,
-        amount: new Decimal(swaps.swapRoute.bridge.amount).toFixed(),
-      },
-    };
-  }
-
-  // Extract destination swap details
-  if (swaps.destinationSwap) {
-    props.destinationSwap = {
-      chainId: swaps.destinationSwap.chainId,
-      source: swaps.destinationSwap.swaps.map((s) => ({
-        tokenContract: s.inputContract,
-        amount: new Decimal(s.inputAmount.toString())
-          .div(Decimal.pow(10, s.inputDecimals))
-          .toDecimalPlaces(s.inputDecimals)
-          .toFixed(),
-      })),
-      destination: swaps.destinationSwap.swaps.map((s) => ({
-        tokenContract: s.outputContract,
-        amount: new Decimal(s.outputAmount.toString())
-          .div(Decimal.pow(10, s.outputDecimals))
-          .toDecimalPlaces(s.outputDecimals)
-          .toFixed(),
-      })),
-    };
-  }
-
-  return props;
 }
 
 /**

@@ -1,21 +1,6 @@
-import {
-  createCosmosClient,
-  createCosmosWallet,
-  Environment,
-  Universe,
-} from '@avail-project/ca-common';
-import type { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
-import { keyDerivation } from '@starkware-industries/starkware-crypto-utils';
+import { Universe } from '@avail-project/ca-common';
 import { utils } from 'tronweb';
-import {
-  createWalletClient,
-  custom,
-  type Hex,
-  UserRejectedRequestError,
-  type WalletClient,
-} from 'viem';
-import { type PrivateKeyAccount, privateKeyToAccount } from 'viem/accounts';
-import { createSiweMessage } from 'viem/siwe';
+import { createWalletClient, custom, type Hex, type WalletClient } from 'viem';
 import type { AnalyticsManager } from '../../analytics';
 import { NexusAnalyticsEvents } from '../../analytics/events';
 import { getWalletType } from '../../analytics/utils';
@@ -25,10 +10,7 @@ import {
   type BridgeParams,
   type Chain,
   type ChainListType,
-  type CosmosOptions,
   type EthereumProvider,
-  type ExactInSwapInput,
-  type ExactOutSwapInput,
   type ExecuteParams,
   getLogger,
   LOG_LEVEL,
@@ -37,12 +19,6 @@ import {
   type OnAllowanceHook,
   type OnEventParam,
   type OnIntentHook,
-  type OnSwapIntentHook,
-  type QueryClients,
-  SUPPORTED_CHAINS,
-  type SwapAndExecuteParams,
-  SwapMode,
-  type SwapParams,
   setLogLevel,
   type TransferParams,
   type TronAdapter,
@@ -56,34 +32,18 @@ import { getNetworkConfig } from './config';
 import { Errors } from './errors';
 import { BridgeAndExecuteQuery } from './query/bridgeAndExecute';
 import { createBridgeAndTransferParams } from './query/bridgeAndTransfer';
-import { SwapAndExecuteQuery } from './query/swapAndExecute';
 import BridgeHandler from './requestHandlers/bridge';
-import getMaxValueForBridge from './requestHandlers/bridgeMax';
 import { createBridgeParams } from './requestHandlers/helpers';
-import { swap } from './swap/swap';
-import { getSwapSupportedChains } from './swap/utils';
 import { setLoggerProvider } from './telemetry';
 import {
-  cosmosFeeGrant,
-  cosmosRefundIntent,
-  createCosmosQueryClient,
-  createVSCClient,
+  createMiddlewareClient,
   equalFold,
   getBalancesForBridge,
-  getBalancesForSwap,
   getSupportedChains,
-  intentTransform,
-  minutesToMs,
   mulDecimals,
-  refundExpiredIntents,
-  retrieveSIWESignatureFromLocalStorage,
-  storeSIWESignatureToLocalStorage,
-  switchChain,
   tronHexToEvmAddress,
 } from './utils';
-import { PlatformUtils } from './utils/platform.utils';
 
-setLogLevel(LOG_LEVEL.NOLOGS);
 const logger = getLogger();
 
 enum INIT_STATUS {
@@ -92,16 +52,9 @@ enum INIT_STATUS {
   DONE = 3,
 }
 
-const SIWE_STATEMENT = 'Sign in to enable Nexus';
-
 export class CA {
   static readonly getSupportedChains = getSupportedChains;
-  #cosmos?: CosmosOptions & {
-    wallet: DirectSecp256k1Wallet;
-  };
-  #ephemeralWallet?: PrivateKeyAccount;
   public chainList: ChainListType;
-  private readonly _siweChain;
   protected _evm?: {
     client: WalletClient;
     provider: EthereumProvider;
@@ -111,15 +64,13 @@ export class CA {
     address: string;
     adapter: TronAdapter;
   };
-  protected _queryClients?: QueryClients;
+  protected middlewareClient: ReturnType<typeof createMiddlewareClient>;
   protected _hooks: {
     onAllowance: OnAllowanceHook;
     onIntent: OnIntentHook;
-    onSwapIntent: OnSwapIntentHook;
   } = {
     onAllowance: (data) => data.allow(data.sources.map(() => 'min')),
     onIntent: (data) => data.allow(),
-    onSwapIntent: (data) => data.allow(),
   };
   protected _initStatus = INIT_STATUS.CREATED;
   protected _networkConfig: NetworkConfig;
@@ -132,7 +83,6 @@ export class CA {
     config: { network?: NexusNetwork; debug?: boolean; siweChain?: number } = {
       debug: false,
       network: 'testnet',
-      siweChain: 1,
     }
   ) {
     this._networkConfig = getNetworkConfig(config.network);
@@ -140,12 +90,11 @@ export class CA {
     this.simulationClient = createBackendSimulationClient({
       baseUrl: 'https://nexus-backend.avail.so',
     });
-    const defaultChain =
-      this._networkConfig.NETWORK_HINT === Environment.FOLLY
-        ? SUPPORTED_CHAINS.SEPOLIA
-        : SUPPORTED_CHAINS.ETHEREUM;
 
-    this._siweChain = config?.siweChain ?? defaultChain;
+    this.middlewareClient = createMiddlewareClient(
+      this._networkConfig.MIDDLEWARE_HTTP_URL,
+      this._networkConfig.MIDDLEWARE_WS_URL
+    );
 
     if (config.debug) {
       setLogLevel(LOG_LEVEL.DEBUG);
@@ -163,29 +112,12 @@ export class CA {
     return this.withReinit(async () => {
       return new BridgeHandler(params, {
         chainList: this.chainList,
-        cosmos: this.#cosmos!,
         evm: this._evm!,
         hooks: this._hooks,
         tron: this._tron,
-        ...this._queryClients!, // reinit does initialize
+        middlewareClient: this.middlewareClient,
         intentExplorerUrl: this._networkConfig.INTENT_EXPLORER_URL,
         emit: options?.onEvent,
-      });
-    });
-  };
-
-  protected _calculateMaxForBridge = async (params: Omit<BridgeParams, 'amount' | 'recipient'>) => {
-    if (!this._evm) {
-      throw Errors.sdkNotInitialized();
-    }
-
-    return this.withReinit(() => {
-      return getMaxValueForBridge(params, {
-        chainList: this.chainList,
-        evm: this._evm!,
-        tron: this._tron,
-        intentExplorerUrl: this._networkConfig.INTENT_EXPLORER_URL,
-        ...this._queryClients!,
       });
     });
   };
@@ -197,8 +129,6 @@ export class CA {
         walletType: getWalletType(this._evm.provider),
       });
     }
-
-    this.#cosmos = undefined;
 
     if (this._evm?.provider.removeListener) {
       this._evm.provider.removeListener('accountsChanged', this._onAccountsChanged);
@@ -212,26 +142,12 @@ export class CA {
     this._initStatus = INIT_STATUS.CREATED;
   };
 
-  protected _getMyIntents = async (page = 1) => {
+  protected _getMyIntents = async () => {
     return this.withReinit(async () => {
-      const { wallet } = await this._getCosmosWallet();
-      const address = (await wallet.getAccounts())[0].address;
-      const rffList = await this._queryClients!.cosmosQueryClient.fetchMyIntents(address, page);
-      return intentTransform(rffList, this._networkConfig.INTENT_EXPLORER_URL, this.chainList);
-    });
-  };
-
-  protected _getBalancesForSwap = async (onlyNativesAndStables = false) => {
-    if (!this._evm) {
-      throw Errors.sdkNotInitialized();
-    }
-
-    return this.withReinit(async () => {
-      return getBalancesForSwap({
-        evmAddress: (await this._evm!.client.requestAddresses())[0],
-        chainList: this.chainList,
-        filterWithSupportedTokens: onlyNativesAndStables,
+      const rffList = await this.middlewareClient.listRFFs({
+        address: this._evm!.address,
       });
+      return rffList;
     });
   };
 
@@ -244,73 +160,13 @@ export class CA {
       return getBalancesForBridge({
         evmAddress: this._evm!.address,
         chainList: this.chainList,
-        vscClient: this._queryClients!.vscClient,
+        middlewareClient: this.middlewareClient,
       });
     });
   };
 
   protected _isInitialized = () => {
     return this._initStatus === INIT_STATUS.DONE;
-  };
-
-  protected _swapWithExactIn = async (input: ExactInSwapInput, options?: OnEventParam) => {
-    return this.withReinit(async () => {
-      return swap(
-        {
-          mode: SwapMode.EXACT_IN,
-          data: input,
-        },
-        await this._getSwapOptions(options)
-      );
-    });
-  };
-
-  protected _swapWithExactOut = async (input: ExactOutSwapInput, options?: OnEventParam) => {
-    return this.withReinit(async () => {
-      logger.debug('swapWithExactOut', {
-        input,
-        options,
-      });
-      return swap(
-        {
-          mode: SwapMode.EXACT_OUT,
-          data: input,
-        },
-        await this._getSwapOptions(options)
-      );
-    });
-  };
-
-  protected _swapAndExecute = async (input: SwapAndExecuteParams, options?: OnEventParam) => {
-    return this.withReinit(async () => {
-      return new SwapAndExecuteQuery(
-        this.chainList,
-        this._evm!.client,
-        this._getBalancesForSwap,
-        this._swapWithExactOut
-      ).swapAndExecute(input, options);
-    });
-  };
-
-  private readonly _getSwapOptions = async (options?: OnEventParam): Promise<SwapParams> => {
-    return {
-      onSwapIntent: this._hooks.onSwapIntent,
-      onEvent: options?.onEvent,
-      chainList: this.chainList,
-      address: {
-        cosmos: this.#cosmos!.address,
-        eoa: (await this._evm!.client.getAddresses())[0],
-        ephemeral: this.#ephemeralWallet!.address,
-      },
-      wallet: {
-        cosmos: this.#cosmos!.client,
-        ephemeral: this.#ephemeralWallet!,
-        eoa: this._evm!.client,
-      },
-      intentExplorerUrl: this._networkConfig.INTENT_EXPLORER_URL,
-      ...this._queryClients!,
-      ...options,
-    };
   };
 
   protected _init = () => {
@@ -331,21 +187,8 @@ export class CA {
 
     this._initPromise = (async () => {
       try {
-        this._queryClients = {
-          cosmosQueryClient: await createCosmosQueryClient({
-            cosmosGrpcWebUrl: this._networkConfig.COSMOS_GRPC_URL,
-            cosmosRestUrl: this._networkConfig.COSMOS_REST_URL,
-            cosmosWsUrl: this._networkConfig.COSMOS_WS_URL,
-          }),
-          vscClient: createVSCClient({
-            vscUrl: this._networkConfig.VSC_BASE_URL,
-            vscWsUrl: this._networkConfig.VSC_WS_URL,
-          }),
-        };
         await setLoggerProvider(this._networkConfig);
         this._setProviderHooks();
-        this.#cosmos = await this._createCosmosWallet();
-        this._checkPendingRefunds();
         this._initStatus = INIT_STATUS.DONE;
       } catch (e) {
         this._initStatus = INIT_STATUS.CREATED;
@@ -459,10 +302,6 @@ export class CA {
     this._hooks.onIntent = hook;
   };
 
-  protected _setOnSwapIntentHook = (hook: OnSwapIntentHook) => {
-    this._hooks.onSwapIntent = hook;
-  };
-
   protected _bridgeAndTransfer = async (input: TransferParams, options?: OnEventParam) => {
     return this.withReinit(() => {
       const params = createBridgeAndTransferParams(input, this.chainList);
@@ -475,66 +314,6 @@ export class CA {
       const params = createBridgeAndTransferParams(input, this.chainList);
       return this._simulateBridgeAndExecute(params);
     });
-  };
-
-  protected _checkPendingRefunds = async () => {
-    return this.withReinit(async () => {
-      const evmAddress = await this._getEVMAddress();
-      try {
-        await refundExpiredIntents({
-          evmAddress,
-          address: this.#cosmos!.address,
-          client: this.#cosmos!.client,
-          analytics: this._analytics,
-        });
-
-        this._refundInterval = Number(
-          setInterval(async () => {
-            await refundExpiredIntents({
-              evmAddress,
-              address: this.#cosmos!.address,
-              client: this.#cosmos!.client,
-              analytics: this._analytics,
-            });
-          }, minutesToMs(10))
-        );
-      } catch (e) {
-        logger.error('Error checking pending refunds', e, { cause: 'REFUND_CHECK_ERROR' });
-      }
-    });
-  };
-
-  protected _createCosmosWallet = async () => {
-    let sig = retrieveSIWESignatureFromLocalStorage(this._evm!.address, this._siweChain);
-    if (!sig) {
-      sig = await this._signatureForLogin();
-      storeSIWESignatureToLocalStorage(this._evm!.address, this._siweChain, sig);
-    }
-
-    const pvtKey = keyDerivation.getPrivateKeyFromEthSignature(sig);
-    const wallet = await createCosmosWallet(`0x${pvtKey.padStart(64, '0')}`);
-
-    this.#ephemeralWallet = privateKeyToAccount(`0x${pvtKey.padStart(64, '0')}`);
-
-    const address = (await wallet.getAccounts())[0].address;
-    await cosmosFeeGrant(
-      address,
-      this._queryClients!.cosmosQueryClient,
-      this._queryClients!.vscClient
-    );
-
-    const client = await createCosmosClient(wallet, this._networkConfig.COSMOS_RPC_URL, {
-      broadcastPollIntervalMs: 250,
-    });
-
-    return { wallet, address, client };
-  };
-
-  protected _getCosmosWallet = async () => {
-    if (!this.#cosmos) {
-      this.#cosmos = await this._createCosmosWallet();
-    }
-    return this.#cosmos;
   };
 
   protected _getEVMAddress = async () => {
@@ -551,58 +330,6 @@ export class CA {
     if (this._evm.provider?.on) {
       this._evm.provider.on('accountsChanged', this._onAccountsChanged);
     }
-  };
-
-  protected _signatureForLogin = async () => {
-    if (!this._evm) {
-      throw Errors.sdkNotInitialized();
-    }
-
-    const chain = this.chainList.getChainByID(this._siweChain);
-    if (!chain) {
-      throw Errors.chainNotFound(this._siweChain);
-    }
-
-    let scheme = PlatformUtils.locationProtocol();
-    if (PlatformUtils.isBrowser()) {
-      scheme = scheme.slice(0, -1);
-    }
-    const domain = PlatformUtils.locationHost();
-    const origin = PlatformUtils.locationOrigin();
-    const address = await this._getEVMAddress();
-    const message = createSiweMessage({
-      address,
-      chainId: chain.id,
-      domain,
-      issuedAt: new Date('2024-12-16T12:17:43.182Z'), // this remains same to arrive at same pvt key
-      nonce: 'iLjYWC6s8frYt4l8w', // maybe this can be shortened hash of address
-      scheme,
-      statement: SIWE_STATEMENT,
-      uri: origin,
-      version: '1',
-    });
-    const currentChain = await this._evm.client.getChainId();
-    try {
-      await switchChain(this._evm.client, chain);
-      const res = await this._evm.client
-        .signMessage({
-          account: address,
-          message,
-        })
-        .catch((e) => {
-          if (e instanceof UserRejectedRequestError) {
-            throw Errors.userRejectedSIWESignature();
-          }
-          throw e;
-        });
-      return res;
-    } finally {
-      await this._evm.client.switchChain({ id: currentChain });
-    }
-  };
-
-  protected _getSwapSupportedChains = () => {
-    return getSwapSupportedChains(this.chainList);
   };
 
   protected _simulateBridgeAndExecute = (params: BridgeAndExecuteParams) => {
@@ -714,17 +441,5 @@ export class CA {
       throw Errors.tokenNotFound(tokenSymbol, chainId);
     }
     return mulDecimals(amount, token.decimals);
-  };
-
-  protected _refundIntent = async (intentID: number) => {
-    if (!this.#cosmos) {
-      throw Errors.sdkNotInitialized();
-    }
-
-    await cosmosRefundIntent({
-      intentID,
-      address: this.#cosmos.address,
-      client: this.#cosmos.client,
-    });
   };
 }

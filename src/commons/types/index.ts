@@ -1,22 +1,12 @@
-import type {
-  ChainDatum,
-  Environment,
-  PermitVariant,
-  QueryAllSolverDataResponse,
-  QueryGetProtocolFeesResponse,
-  RequestForFunds,
-  Universe,
-} from '@avail-project/ca-common';
+import type { ChainDatum, Environment, PermitVariant, Universe } from '@avail-project/ca-common';
 import type { SigningStargateClient } from '@cosmjs/stargate';
 import type { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 import type Decimal from 'decimal.js';
-import type Long from 'long';
 import type { ByteArray, Hex, TransactionReceipt, WalletClient } from 'viem';
+import type { createMiddlewareClient } from '../../sdk/ca-base/utils';
 import type { SUPPORTED_CHAINS } from '../constants';
 import type { FormatTokenBalanceOptions, FormattedParts } from '../utils/format';
 import type { BridgeStepType } from './bridge-steps';
-import type { SwapStepType } from './swap-steps';
-import type { SBCTx, Source, SuccessfulSwapResult, SwapIntent } from './swap-types';
 
 type TokenInfo = {
   contractAddress: `0x${string}`;
@@ -26,7 +16,9 @@ type TokenInfo = {
   symbol: string;
 };
 
-type NexusNetwork = 'mainnet' | 'testnet' | NetworkConfig;
+type NexusNetworkHint = 'mainnet' | 'testnet';
+
+type NexusNetwork = NexusNetworkHint | NetworkConfig;
 
 export interface BlockTransaction {
   hash?: string;
@@ -288,21 +280,12 @@ export interface BridgeAndExecuteParams {
   recentApprovalTxHash?: string;
 }
 
-export interface SwapAndExecuteParams {
-  toChainId: number;
-  toTokenAddress: Hex;
-  toAmount: bigint;
-  fromSources?: Source[];
-  execute: SwapExecuteParams;
-}
-
 export type CosmosOptions = {
   address: string;
   client: SigningStargateClient;
 };
 
 export type IBridgeOptions = {
-  cosmos: CosmosOptions;
   evm: {
     address: `0x${string}`;
     client: WalletClient;
@@ -319,7 +302,15 @@ export type IBridgeOptions = {
   emit?: OnEventParam['onEvent'];
   intentExplorerUrl: string;
   chainList: ChainListType;
-} & QueryClients;
+  middlewareClient: ReturnType<typeof createMiddlewareClient>;
+};
+
+export type SupportedChainsAndTokensResult = {
+  id: number;
+  logo: string;
+  name: string;
+  tokens: TokenInfo[];
+}[];
 
 export type BridgeAndExecuteResult = {
   executeTransactionHash: string;
@@ -329,29 +320,6 @@ export type BridgeAndExecuteResult = {
   toChainId: number;
   bridgeSkipped: boolean; // indicates if bridge was skipped due to sufficient funds
   intent?: ReadableIntent;
-};
-
-/**
- * Result returned from swapAndExecute operation.
- */
-export type SwapAndExecuteResult = {
-  /** The swap result, or null if swap was skipped */
-  swapResult: SuccessfulSwapResult | null;
-  /**
-   * Indicates if the swap was skipped because the user already had
-   * sufficient balance on the destination chain.
-   * When true, swapResult will be null and a SWAP_SKIPPED event will have been emitted.
-   */
-  swapSkipped: boolean;
-  /** The execute transaction response */
-  executeResponse: {
-    /** Transaction hash of the execute call */
-    txHash: `0x${string}`;
-    /** Transaction receipt (if waitForReceipt was true) */
-    receipt: TransactionReceipt | undefined;
-    /** Approval transaction hash (if token approval was needed) */
-    approvalHash: `0x${string}` | undefined;
-  };
 };
 
 export type Chain = {
@@ -474,14 +442,10 @@ export type IntentSourceForAllowance = {
 type Network = Extract<Environment, Environment.CERISE | Environment.CORAL | Environment.FOLLY>;
 
 export type NetworkConfig = {
-  COSMOS_REST_URL: string;
-  COSMOS_RPC_URL: string;
-  COSMOS_WS_URL: string;
-  COSMOS_GRPC_URL: string;
-  VSC_BASE_URL: string;
-  VSC_WS_URL: string;
+  MIDDLEWARE_HTTP_URL: string;
+  MIDDLEWARE_WS_URL: string;
   INTENT_EXPLORER_URL: string;
-  NETWORK_HINT: Environment;
+  NETWORK_HINT: NexusNetworkHint;
 };
 
 type OnIntentHookData = {
@@ -601,11 +565,17 @@ export type ChainListType = {
 
 type EventUnion =
   | { name: 'STEPS_LIST'; args: BridgeStepType[] }
-  | { name: 'SWAP_STEP_COMPLETE'; args: SwapStepType }
   | { name: 'STEP_COMPLETE'; args: BridgeStepType };
 
 export type OnEventParam = {
   onEvent?: (event: EventUnion) => void;
+};
+
+export type Tx = {
+  data: Hex;
+  to: Hex;
+  value: bigint;
+  gas?: bigint;
 };
 
 export type RFF = {
@@ -765,46 +735,8 @@ export interface AnalyticsConfig {
   debug?: boolean;
 }
 
-type CosmosQueryClient = {
-  fetchMyIntents: (address: string, page?: number) => Promise<RequestForFunds[]>;
-  fetchProtocolFees: () => Promise<QueryGetProtocolFeesResponse>;
-  fetchSolverData: () => Promise<QueryAllSolverDataResponse>;
-  fetchPriceOracle: () => Promise<OraclePriceResponse>;
-  checkIntentFilled: (intentID: Long) => Promise<string>;
-  getAccount: (address: string) => Promise<void>;
-  waitForCosmosFillEvent: (intentID: Long, ac: AbortController) => Promise<string>;
-};
-
-type VSCClient = {
-  getEVMBalancesForAddress: (address: `0x${string}`) => Promise<UnifiedBalanceResponseData[]>;
-  getTronBalancesForAddress: (address: `0x${string}`) => Promise<UnifiedBalanceResponseData[]>;
-  vscCreateFeeGrant: (address: string) => Promise<unknown>;
-  vscPublishRFF: (id: Long) => Promise<{
-    id: Long;
-  }>;
-  vscCreateSponsoredApprovals: (input: SponsoredApprovalDataArray) => Promise<
-    {
-      chainId: number;
-      hash: Hex;
-    }[]
-  >;
-  vscCreateRFF: (
-    id: Long,
-    msd: (s: { current: number; total: number; txHash: Hex; chainId: number }) => void,
-    expectedCollections: { index: number; chainId: number }[]
-  ) => Promise<void>;
-  vscSBCTx: (input: SBCTx[]) => Promise<[bigint, `0x${string}`][]>;
-};
-
-type QueryClients = {
-  cosmosQueryClient: CosmosQueryClient;
-  vscClient: VSCClient;
-};
-
 export type {
-  QueryClients,
-  VSCClient,
-  CosmosQueryClient,
+  NexusNetworkHint,
   OnIntentHook,
   OnAllowanceHookData,
   OnIntentHookData,
@@ -818,7 +750,6 @@ export type {
   RFF as RequestForFunds,
   NexusNetwork,
   TransactionReceipt,
-  SwapIntent,
   SetAllowanceInput,
   FormatTokenBalanceOptions,
   FormattedParts,
