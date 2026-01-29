@@ -8,7 +8,7 @@ export interface V2BalanceResponse {
       value: string;
     }[];
     total_usd: string;
-    universe: number;
+    universe: string; // "EVM" | "TRON"
     errored: boolean;
   };
 }

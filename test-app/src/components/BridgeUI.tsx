@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { NexusSDK, NEXUS_EVENTS } from '@avail-project/nexus-core';
-import { createWalletClient, http, type Hex, type WalletClient } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
-import { arbitrum } from 'viem/chains';
+import { ConnectKitButton } from 'connectkit';
+import { useAccount, useWalletClient } from 'wagmi';
 import './BridgeUI.css';
 
 interface Balance {
@@ -25,158 +24,106 @@ interface BridgeStepEvent {
   type?: string;
 }
 
-// Minimal EIP-1193 provider interface for SDK compatibility
-interface EIP1193Provider {
-  request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
-  on: (event: string, handler: (...args: unknown[]) => void) => EIP1193Provider;
-  removeListener: (event: string, handler: (...args: unknown[]) => void) => EIP1193Provider;
-}
-
-// Anvil test account - DO NOT use on mainnet!
-const ANVIL_PRIVATE_KEY =
-  '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80' as Hex;
-const ANVIL_ADDRESS = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266' as Hex;
-
-// Local Anvil RPC endpoints
-const ANVIL_RPCS: Record<number, string> = {
-  1: 'http://localhost:8545', // Ethereum
-  42161: 'http://localhost:8546', // Arbitrum
-  137: 'http://localhost:8547', // Polygon
-  8453: 'http://localhost:8548', // Base
+// Testnet chain configuration
+const TESTNET_CHAINS = {
+  11155111: { name: 'Ethereum Sepolia', symbol: 'ETH' },
+  421614: { name: 'Arbitrum Sepolia', symbol: 'ETH' },
+  84532: { name: 'Base Sepolia', symbol: 'ETH' },
+  80002: { name: 'Polygon Amoy', symbol: 'POL' },
 };
 
-// Custom vault addresses for local middleware testing
-// These MUST match middleware/src/modules/approvals/constants.ts exactly
+const CHAIN_IDS = Object.keys(TESTNET_CHAINS).map(Number);
+
+// Testnet vault addresses (from provided config)
 const VAULT_ADDRESSES: Record<number, `0x${string}`> = {
-  1: '0x1f92fF844cedcD3F0941e12cafaBD5EF2DD7a462', // Ethereum - from middleware constants
-  42161: '0x32DD1A542652879e7F4Af4Cb7a553401Dd93Daab', // Arbitrum - from middleware constants
-  137: '0xae5926A1AD0FED47b868E16325b5B10853017236', // Polygon - from middleware constants
-  8453: '0x05052e0276c5bDCa620c2c0663E80E585dAe3445', // Base - from middleware constants
+  11155111: '0x82a45a6cbe14b2707a3b375cf0aa5eb74c95a5bb', // Ethereum Sepolia
+  421614: '0x590cb8868c6debc12ccd42e837042659cfb91504', // Arbitrum Sepolia
+  84532: '0x30dc8fd71fa448c30da563df5efa151c840e610e', // Base Sepolia
+  80002: '0x10b69f0e3c21c1187526940a615959e9ee6012f9', // Polygon Amoy
 };
 
-// V2 Middleware Configuration for Local Anvil Testing
-// Note: NETWORK_HINT values: 0 = FOLLY (testnet), 2 = CORAL (canary), 3 = JADE (mainnet)
+// V2 Middleware Configuration for Testnet
 const V2_CONFIG = {
   COSMOS_URL: 'https://cosmos-mainnet.availproject.org',
-  EXPLORER_URL: 'http://localhost:3000/explorer',
+  EXPLORER_URL: 'http://64.225.34.135:3000/',
   GRPC_URL: 'https://grpcproxy-mainnet.availproject.org',
-  NETWORK_HINT: 3, // Environment.JADE (mainnet) - use 3 for mainnet chain forks
-  VSC_DOMAIN: 'vsc-mainnet.availproject.org',
-  STATEKEEPER_URL: 'http://localhost:9080',
-  MIDDLEWARE_URL: 'http://localhost:3000',
+  NETWORK_HINT: 0, // FOLLY (testnet)
+  VSC_DOMAIN: 'vsc-testnet.availproject.org',
+  STATEKEEPER_URL: 'http://64.225.34.135:9080',
+  MIDDLEWARE_URL: 'http://localhost:4050',
   useV2Middleware: true,
-  rpcOverrides: ANVIL_RPCS, // Use Anvil RPCs for permit nonce fetching
-  vaultOverrides: VAULT_ADDRESSES, // Use custom vault addresses for local middleware
+  rpcOverrides: {
+    11155111: 'https://ethereum-sepolia-rpc.publicnode.com',
+    421614: 'https://sepolia-rollup.arbitrum.io/rpc',
+    84532: 'https://sepolia.base.org',
+    80002: 'https://rpc-amoy.polygon.technology',
+  },
+  vaultOverrides: VAULT_ADDRESSES,
 };
-
-const CHAIN_NAMES: Record<number, string> = {
-  1: 'Ethereum',
-  137: 'Polygon',
-  8453: 'Base',
-  42161: 'Arbitrum',
-};
-
-/**
- * Create an EIP-1193 compatible provider from Anvil private key
- */
-function createAnvilProvider(): EIP1193Provider {
-  const account = privateKeyToAccount(ANVIL_PRIVATE_KEY);
-
-  // Create wallet client for primary chain (Arbitrum)
-  const walletClient: WalletClient = createWalletClient({
-    account,
-    chain: arbitrum,
-    transport: http(ANVIL_RPCS[42161]),
-  });
-
-  // EIP-1193 compatible provider
-  const provider: EIP1193Provider = {
-    request: async ({ method, params }) => {
-      const p = params as Hex[] | undefined;
-      switch (method) {
-        case 'eth_requestAccounts':
-        case 'eth_accounts':
-          return [account.address];
-        case 'eth_chainId':
-          return '0xa4b1'; // 42161 in hex (Arbitrum)
-        case 'personal_sign': {
-          if (!p) throw new Error('No params for personal_sign');
-          return walletClient.signMessage({
-            account,
-            message: { raw: p[0] },
-          });
-        }
-        case 'eth_signTypedData_v4': {
-          if (!p) throw new Error('No params for eth_signTypedData_v4');
-          const typedData = JSON.parse(p[1]);
-          return walletClient.signTypedData(typedData);
-        }
-        case 'eth_sendTransaction': {
-          if (!p) throw new Error('No params for eth_sendTransaction');
-          const txParams = p[0] as unknown as Parameters<typeof walletClient.sendTransaction>[0];
-          return walletClient.sendTransaction(txParams);
-        }
-        default:
-          return walletClient.request({
-            method,
-            params,
-          } as Parameters<typeof walletClient.request>[0]);
-      }
-    },
-    on: () => provider,
-    removeListener: () => provider,
-  };
-
-  return provider;
-}
 
 function BridgeUI() {
+  const { address, isConnected } = useAccount();
+  const { data: walletClient } = useWalletClient();
+
   const [sdk, setSdk] = useState<NexusSDK | null>(null);
-  const [isConnected, setIsConnected] = useState(false);
-  const [isConnecting, setIsConnecting] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
   const [balances, setBalances] = useState<Balance[]>([]);
   const [isLoadingBalances, setIsLoadingBalances] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Bridge form state
   const [selectedToken, setSelectedToken] = useState('USDC');
-  const [amount, setAmount] = useState('10');
-  const [sourceChain, setSourceChain] = useState(42161); // Arbitrum
-  const [destinationChain, setDestinationChain] = useState(137); // Polygon
+  const [amount, setAmount] = useState('1');
+  const [sourceChain, setSourceChain] = useState(421614); // Arbitrum Sepolia
+  const [destinationChain, setDestinationChain] = useState(80002); // Polygon Amoy
   const [isBridging, setIsBridging] = useState(false);
   const [bridgeSteps, setBridgeSteps] = useState<BridgeStep[]>([]);
   const [bridgeResult, setBridgeResult] = useState<string | null>(null);
 
-  // Auto-initialize on mount
+  // Initialize SDK when wallet connects
   useEffect(() => {
-    initializeSDK();
-  }, []);
+    if (isConnected && walletClient && !isInitialized) {
+      initializeSDK();
+    }
+  }, [isConnected, walletClient, isInitialized]);
 
-  // Initialize SDK with Anvil key
+  // Reset SDK when wallet disconnects
+  useEffect(() => {
+    if (!isConnected) {
+      setSdk(null);
+      setIsInitialized(false);
+      setBalances([]);
+    }
+  }, [isConnected]);
+
   const initializeSDK = async () => {
+    if (!walletClient) return;
+
     try {
-      setIsConnecting(true);
       setError(null);
 
-      const provider = createAnvilProvider();
+      // Create EIP-1193 provider from wallet client
+      const provider = {
+        request: walletClient.request.bind(walletClient),
+        on: () => provider,
+        removeListener: () => provider,
+      };
+
       const sdkInstance = new NexusSDK({ network: V2_CONFIG });
       await sdkInstance.initialize(provider);
-      console.log('SDK initialized with Anvil account:', ANVIL_ADDRESS);
+      console.log('SDK initialized with wallet:', address);
 
       setSdk(sdkInstance);
-      setIsConnected(true);
+      setIsInitialized(true);
 
       // Load balances
       await loadBalances(sdkInstance);
     } catch (err) {
       console.error('Failed to initialize SDK:', err);
       setError(err instanceof Error ? err.message : 'Failed to initialize SDK');
-    } finally {
-      setIsConnecting(false);
     }
   };
 
-  // Load balances
   const loadBalances = async (sdkInstance: NexusSDK) => {
     try {
       setIsLoadingBalances(true);
@@ -185,12 +132,13 @@ function BridgeUI() {
       const unifiedBalances = await sdkInstance.getBalancesForBridge();
 
       // Transform SDK balance format to our UI format
-      // SDK returns UserAssetDatum with `breakdown` array, not `chains`
       const transformedBalances: Balance[] = unifiedBalances.map((asset) => ({
         symbol: asset.symbol,
         chains: (asset.breakdown || []).map((item) => ({
           chainId: item.chain.id,
-          chainName: CHAIN_NAMES[item.chain.id] || item.chain.name || `Chain ${item.chain.id}`,
+          chainName:
+            TESTNET_CHAINS[item.chain.id as keyof typeof TESTNET_CHAINS]?.name ||
+            `Chain ${item.chain.id}`,
           balance: item.balance,
         })),
       }));
@@ -204,7 +152,6 @@ function BridgeUI() {
     }
   };
 
-  // Bridge tokens
   const handleBridge = async () => {
     if (!sdk) {
       setError('SDK not initialized');
@@ -217,16 +164,20 @@ function BridgeUI() {
       setBridgeSteps([]);
       setBridgeResult(null);
 
-      console.log(`Bridging ${amount} ${selectedToken}: ${CHAIN_NAMES[sourceChain]} → ${CHAIN_NAMES[destinationChain]}`);
+      const sourceChainName =
+        TESTNET_CHAINS[sourceChain as keyof typeof TESTNET_CHAINS]?.name || sourceChain;
+      const destChainName =
+        TESTNET_CHAINS[destinationChain as keyof typeof TESTNET_CHAINS]?.name || destinationChain;
 
-      // Bridge using SDK
+      console.log(`Bridging ${amount} ${selectedToken}: ${sourceChainName} -> ${destChainName}`);
+
       const result = await sdk.bridge(
         {
           token: selectedToken,
-          amount: BigInt(parseFloat(amount) * 1e6), // Convert to USDC decimals
+          amount: BigInt(parseFloat(amount) * 1e6), // USDC has 6 decimals
           toChainId: destinationChain,
           sourceChains: [sourceChain],
-        }, // Type assertion for flexibility
+        },
         {
           onEvent: (event) => {
             if (event.name === NEXUS_EVENTS.STEPS_LIST) {
@@ -244,7 +195,9 @@ function BridgeUI() {
               const completedStep = event.args as BridgeStepEvent;
               setBridgeSteps((prev) =>
                 prev.map((step) =>
-                  step.typeID === completedStep.typeID ? { ...step, status: 'complete' as const } : step,
+                  step.typeID === completedStep.typeID
+                    ? { ...step, status: 'complete' as const }
+                    : step,
                 ),
               );
             }
@@ -264,7 +217,6 @@ function BridgeUI() {
     }
   };
 
-  // Get balance for selected token and source chain
   const getSourceBalance = () => {
     const tokenBalance = balances.find((b) => b.symbol === selectedToken);
     if (!tokenBalance) return '0';
@@ -277,42 +229,46 @@ function BridgeUI() {
     <div className="bridge-container">
       <div className="bridge-header">
         <h2>Bridge Tokens</h2>
-        <p className="bridge-subtitle">
-          V2 Middleware • Anvil Test Account • {isConnected ? 'Connected' : 'Disconnected'}
-        </p>
+        <p className="bridge-subtitle">V2 Middleware - Testnet</p>
       </div>
 
       {!isConnected ? (
         <div className="connect-section">
-          {isConnecting ? (
-            <p className="connect-text">Initializing SDK with Anvil account...</p>
-          ) : (
-            <>
-              <p className="connect-text">Failed to connect. Click to retry.</p>
-              <button onClick={initializeSDK} className="btn btn-primary btn-large">
-                Retry Connection
+          <p className="connect-text">Connect your wallet to start bridging</p>
+          <ConnectKitButton.Custom>
+            {({ show }) => (
+              <button onClick={show} className="btn btn-primary btn-large">
+                Connect Wallet
               </button>
-            </>
-          )}
-          {error && <div className="error-message">{error}</div>}
+            )}
+          </ConnectKitButton.Custom>
         </div>
       ) : (
         <>
           {/* Wallet Info */}
           <div className="wallet-info">
             <div className="info-item">
-              <span className="info-label">Anvil Account:</span>
+              <span className="info-label">Connected:</span>
               <code className="info-value">
-                {ANVIL_ADDRESS.slice(0, 6)}...{ANVIL_ADDRESS.slice(-4)}
+                {address?.slice(0, 6)}...{address?.slice(-4)}
               </code>
             </div>
-            <button
-              onClick={() => loadBalances(sdk!)}
-              disabled={isLoadingBalances}
-              className="btn btn-small btn-secondary"
-            >
-              {isLoadingBalances ? 'Loading...' : 'Refresh'}
-            </button>
+            <div className="wallet-actions">
+              <button
+                onClick={() => sdk && loadBalances(sdk)}
+                disabled={isLoadingBalances || !sdk}
+                className="btn btn-small btn-secondary"
+              >
+                {isLoadingBalances ? 'Loading...' : 'Refresh'}
+              </button>
+              <ConnectKitButton.Custom>
+                {({ show }) => (
+                  <button onClick={show} className="btn btn-small btn-outline">
+                    Wallet
+                  </button>
+                )}
+              </ConnectKitButton.Custom>
+            </div>
           </div>
 
           {error && <div className="error-message">{error}</div>}
@@ -323,7 +279,7 @@ function BridgeUI() {
             {isLoadingBalances ? (
               <div className="loading">Loading balances...</div>
             ) : balances.length === 0 ? (
-              <div className="no-balances">No balances found</div>
+              <div className="no-balances">No balances found. Get testnet USDC from a faucet.</div>
             ) : (
               <div className="balances-grid">
                 {balances.map((balance) => (
@@ -390,10 +346,11 @@ function BridgeUI() {
                   disabled={isBridging}
                   className="form-control"
                 >
-                  <option value={42161}>Arbitrum</option>
-                  <option value={137}>Polygon</option>
-                  <option value={8453}>Base</option>
-                  <option value={1}>Ethereum</option>
+                  {CHAIN_IDS.map((chainId) => (
+                    <option key={chainId} value={chainId}>
+                      {TESTNET_CHAINS[chainId as keyof typeof TESTNET_CHAINS]?.name}
+                    </option>
+                  ))}
                 </select>
                 <small className="balance-hint">Balance: {getSourceBalance()}</small>
               </div>
@@ -406,17 +363,18 @@ function BridgeUI() {
                   disabled={isBridging}
                   className="form-control"
                 >
-                  <option value={137}>Polygon</option>
-                  <option value={42161}>Arbitrum</option>
-                  <option value={8453}>Base</option>
-                  <option value={1}>Ethereum</option>
+                  {CHAIN_IDS.filter((id) => id !== sourceChain).map((chainId) => (
+                    <option key={chainId} value={chainId}>
+                      {TESTNET_CHAINS[chainId as keyof typeof TESTNET_CHAINS]?.name}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
 
             <button
               onClick={handleBridge}
-              disabled={isBridging || !amount}
+              disabled={isBridging || !amount || !sdk}
               className="btn btn-primary btn-large"
             >
               {isBridging ? 'Bridging...' : 'Bridge Tokens'}
@@ -455,11 +413,11 @@ function BridgeUI() {
 
       {/* Info Box */}
       <div className="info-box">
-        <h4>Test Environment</h4>
+        <h4>Testnet Environment</h4>
         <ul>
-          <li>Using Anvil test account (deployer key)</li>
           <li>Middleware: {V2_CONFIG.MIDDLEWARE_URL}</li>
           <li>Statekeeper: {V2_CONFIG.STATEKEEPER_URL}</li>
+          <li>Chains: Ethereum Sepolia, Arbitrum Sepolia, Base Sepolia, Polygon Amoy</li>
         </ul>
       </div>
     </div>

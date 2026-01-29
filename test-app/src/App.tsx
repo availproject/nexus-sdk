@@ -9,8 +9,8 @@ function App() {
   return (
     <div className="App">
       <header className="app-header">
-        <h1>🚀 Nexus SDK V2 Middleware Test</h1>
-        <p className="subtitle">Test SDK integration with V2 Middleware APIs</p>
+        <h1>Nexus SDK V2 Testnet</h1>
+        <p className="subtitle">Bridge tokens across testnets with V2 Middleware</p>
       </header>
 
       <div className="tabs">
@@ -39,28 +39,28 @@ function App() {
         {activeTab === 'test' && <V2MiddlewareTest />}
         {activeTab === 'config' && (
           <div className="config-panel">
-            <h2>Configuration</h2>
+            <h2>Testnet Configuration</h2>
             <div className="config-info">
               <div className="config-item">
                 <label>Middleware URL:</label>
-                <code>http://localhost:3000</code>
+                <code>http://localhost:4050</code>
               </div>
               <div className="config-item">
                 <label>Statekeeper URL:</label>
-                <code>http://localhost:9080</code>
+                <code>http://64.225.34.135:9080</code>
               </div>
               <div className="config-item">
                 <label>V2 Middleware Enabled:</label>
                 <code className="success">true</code>
               </div>
               <div className="config-item">
-                <label>Test Chains:</label>
-                <code>Arbitrum (42161), Base (8453)</code>
+                <label>Chains:</label>
+                <code>Ethereum Sepolia, Arbitrum Sepolia, Base Sepolia, Polygon Amoy</code>
               </div>
             </div>
             <div className="config-note">
-              <strong>Note:</strong> Make sure middleware is running on port 3000
-              and statekeeper on port 9080 before running tests.
+              <strong>Note:</strong> Make sure middleware is running on port 4050.
+              Connect your wallet to test on real testnets.
             </div>
           </div>
         )}

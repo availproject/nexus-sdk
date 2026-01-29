@@ -29,6 +29,7 @@ const baseConfig = {
     typescript({
       tsconfig: './tsconfig.json',
       useTsconfigDeclarationDir: true,
+      clean: true,
     }),
   ],
   external: [

@@ -41,9 +41,23 @@ export const getMiddlewareClient = (middlewareUrl: string): AxiosInstance => {
 // ============================================================================
 
 /**
+ * Convert universe string to numeric value
+ */
+const universeStringToNumber = (universe: string): 0 | 1 => {
+  switch (universe.toUpperCase()) {
+    case 'EVM':
+      return 0;
+    case 'TRON':
+      return 1;
+    default:
+      return 0; // Default to EVM
+  }
+};
+
+/**
  * Adapts V2 balance response (JSON with string chainIds) to V1 format (msgpack with Uint8Array)
- * V2: { "42161": { currencies: [{ token_address: "0x...", balance, value }], ... } }
- * V1: [{ chain_id: Uint8Array(32), currencies: [{ token_address: Uint8Array(32), balance, value }] }]
+ * V2: { "42161": { currencies: [{ token_address: "0x...", balance, value }], universe: "EVM", ... } }
+ * V1: [{ chain_id: Uint8Array(32), currencies: [{ token_address: Uint8Array(32), balance, value }], universe: 0|1 }]
  */
 export const adaptV2BalanceToV1Format = (
   v2Response: V2BalanceResponse,
@@ -75,11 +89,14 @@ export const adaptV2BalanceToV1Format = (
       };
     });
 
+    // Convert universe string ("EVM" | "TRON") to numeric (0 | 1)
+    const universeNumeric = universeStringToNumber(chainData.universe);
+
     result.push({
       chain_id: chainIdBytes,
       currencies,
       total_usd: chainData.total_usd,
-      universe: chainData.universe as 0 | 1,
+      universe: universeNumeric,
       errored: chainData.errored,
     });
   }
