@@ -189,6 +189,42 @@ const TESTNET_CHAINS: Chain[] = [
   {
     blockExplorers: {
       default: {
+        name: 'Citrea Testnet explorer',
+        url: 'https://explorer.testnet.citrea.xyz/',
+      },
+    },
+    custom: {
+      icon: 'https://raw.githubusercontent.com/availproject/nexus-assets/main/chains/citrea-testnet/logo.png',
+      knownTokens: [
+        {
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDC[SUPPORTED_CHAINS.CITREA_TESTNET],
+          decimals: 6,
+          logo: getLogoFromSymbol('USDC'),
+          name: 'USD Coin',
+          symbol: 'USDC',
+        },
+      ],
+    },
+    id: SUPPORTED_CHAINS.CITREA_TESTNET,
+    name: 'Citrea Testnet',
+    ankrName: '',
+    nativeCurrency: {
+      decimals: 18,
+      name: 'CBTC',
+      symbol: 'cBTC',
+    },
+    rpcUrls: {
+      default: {
+        http: ['https://rpcs.avail.so/citrea-testnet'],
+        publicHttp: [],
+        webSocket: ['wss://rpcs.avail.so/citrea-testnet'],
+      },
+    },
+    universe: Universe.ETHEREUM,
+  },
+  {
+    blockExplorers: {
+      default: {
         name: 'Arbitrum Sepolia Explorer',
         url: 'https://sepolia.arbiscan.io/',
       },
@@ -480,49 +516,42 @@ const MAINNET_CHAINS: Chain[] = [
   {
     blockExplorers: {
       default: {
-        name: 'Sophscan',
-        url: 'https://sophscan.xyz',
+        name: 'Citrea Explorer',
+        url: 'https://explorer.mainnet.citrea.xyz',
       },
     },
     custom: {
-      icon: 'https://assets.coingecko.com/coins/images/38680/large/sophon_logo_200.png',
+      icon: 'https://raw.githubusercontent.com/availproject/nexus-assets/main/chains/citrea/logo.png',
       knownTokens: [
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDT[SUPPORTED_CHAINS.SOPHON],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDT[SUPPORTED_CHAINS.CITREA],
           decimals: 6,
           logo: getLogoFromSymbol('USDT'),
           name: 'Tether USD',
           symbol: 'USDT',
         },
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDC[SUPPORTED_CHAINS.SOPHON],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDC[SUPPORTED_CHAINS.CITREA],
           decimals: 6,
           logo: getLogoFromSymbol('USDC'),
           name: 'USD Coin',
           symbol: 'USDC',
         },
-        {
-          contractAddress: '0x72af9f169b619d85a47dfa8fefbcd39de55c567d',
-          decimals: 18,
-          logo: getLogoFromSymbol('ETH'),
-          name: 'Ether',
-          symbol: 'ETH',
-        },
       ],
     },
-    id: SUPPORTED_CHAINS.SOPHON,
-    name: 'Sophon',
+    id: SUPPORTED_CHAINS.CITREA,
+    name: 'Citrea Mainnet',
     ankrName: '',
     nativeCurrency: {
       decimals: 18,
-      name: 'Sophon',
-      symbol: 'SOPH',
+      name: 'CBTC',
+      symbol: 'cBTC',
     },
     rpcUrls: {
       default: {
-        http: ['https://sophon.gateway.tenderly.co/1d4STFT7zmG0vM5QowibCw'],
-        publicHttp: ['https://rpc-quicknode.sophon.xyz'],
-        webSocket: ['wss://sophon.gateway.tenderly.co/1d4STFT7zmG0vM5QowibCw'],
+        http: ['https://rpcs.avail.so/citrea'],
+        publicHttp: [],
+        webSocket: ['wss://rpcs.avail.so/citrea'],
       },
     },
     universe: Universe.ETHEREUM,

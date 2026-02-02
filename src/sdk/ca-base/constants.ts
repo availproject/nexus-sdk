@@ -9,11 +9,11 @@ const SymbolToLogo: { [k: string]: string } = {
   MATIC: 'https://coin-images.coingecko.com/coins/images/32440/standard/polygon.png',
   MON: 'https://assets.coingecko.com/coins/images/38927/large/monad.jpg',
   POL: 'https://coin-images.coingecko.com/coins/images/32440/standard/polygon.png',
-  SOPH: 'https://assets.coingecko.com/coins/images/38680/large/sophon_logo_200.png',
   USDC: 'https://coin-images.coingecko.com/coins/images/6319/large/usdc.png',
   USDT: 'https://coin-images.coingecko.com/coins/images/35023/large/USDT.png',
   WETH: 'https://coin-images.coingecko.com/coins/images/2518/standard/weth.png',
   HYPE: 'https://assets.coingecko.com/coins/images/50882/large/hyperliquid.jpg',
+  CBTC: 'https://raw.githubusercontent.com/availproject/nexus-assets/main/tokens/cbtc/logo.png',
 };
 
 const getLogoFromSymbol = (symbol: string) => {

@@ -14,6 +14,38 @@ npm install @avail-project/nexus-core
 
 ---
 
+## 🤖 Skills (skills.sh)
+
+This repo ships Codex/skills.sh skills under `skills/` to help agents integrate the SDK end-to-end.
+
+Install all skills from the repo:
+
+```bash
+npx skills add availproject/nexus-sdk
+```
+
+Install a single skill (recommended):
+
+```bash
+npx skills add https://github.com/availproject/nexus-sdk --skill nexus-sdk-integration
+```
+
+Install from a specific branch or tag:
+
+```bash
+npx skills add https://github.com/availproject/nexus-sdk --skill nexus-sdk-integration --ref develop
+```
+
+Available skills:
+- `nexus-sdk-integration` (parent/orchestrator)
+- `nexus-sdk-setup`
+- `nexus-sdk-hooks-events`
+- `nexus-sdk-bridge-flows`
+- `nexus-sdk-swap-flows`
+- `nexus-sdk-balances-metadata-utils`
+
+---
+
 ## 🚀 Quick Start
 
 ```typescript
@@ -493,7 +525,6 @@ Adding PostHog analytics increases the bundle size by approximately **~50KB gzip
 | Avalanche | 43114     | AVAX   | ✅     |
 | Base      | 8453      | ETH    | ✅     |
 | Scroll    | 534352    | ETH    | ✅     |
-| Sophon    | 50104     | SOPH   | ✅     |
 | Kaia      | 8217      | KAIA   | ✅     |
 | BNB       | 56        | BNB    | ✅     |
 | HyperEVM  | 999       | HYPE   | ✅     |

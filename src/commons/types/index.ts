@@ -16,7 +16,7 @@ import type { SUPPORTED_CHAINS } from '../constants';
 import type { FormatTokenBalanceOptions, FormattedParts } from '../utils/format';
 import type { BridgeStepType } from './bridge-steps';
 import type { SwapStepType } from './swap-steps';
-import type { SBCTx, Source, SwapIntent } from './swap-types';
+import type { SBCTx, Source, SuccessfulSwapResult, SwapIntent } from './swap-types';
 
 type TokenInfo = {
   contractAddress: `0x${string}`;
@@ -182,7 +182,7 @@ export interface TokenBalance {
   isNative?: boolean;
 }
 
-type GasPriceSelector = 'low' | 'medium' | 'high' | 'ultraHigh';
+type GasPriceSelector = 'low' | 'medium' | 'high';
 
 export interface SwapExecuteParams {
   to: Hex;
@@ -203,7 +203,7 @@ export interface ExecuteParams {
   value?: bigint;
   data?: Hex;
   gas?: bigint;
-  gasPrice?: bigint;
+  gasPrice?: GasPriceSelector;
   enableTransactionPolling?: boolean;
   transactionTimeout?: number;
   // Transaction receipt confirmation options
@@ -331,6 +331,29 @@ export type BridgeAndExecuteResult = {
   intent?: ReadableIntent;
 };
 
+/**
+ * Result returned from swapAndExecute operation.
+ */
+export type SwapAndExecuteResult = {
+  /** The swap result, or null if swap was skipped */
+  swapResult: SuccessfulSwapResult | null;
+  /**
+   * Indicates if the swap was skipped because the user already had
+   * sufficient balance on the destination chain.
+   * When true, swapResult will be null and a SWAP_SKIPPED event will have been emitted.
+   */
+  swapSkipped: boolean;
+  /** The execute transaction response */
+  executeResponse: {
+    /** Transaction hash of the execute call */
+    txHash: `0x${string}`;
+    /** Transaction receipt (if waitForReceipt was true) */
+    receipt: TransactionReceipt | undefined;
+    /** Approval transaction hash (if token approval was needed) */
+    approvalHash: `0x${string}` | undefined;
+  };
+};
+
 export type Chain = {
   blockExplorers: {
     default: {
@@ -384,13 +407,13 @@ export type FeeStoreData = {
   fee: {
     collection: {
       chainID: number;
-      fee: number;
+      fee: bigint;
       tokenAddress: string;
       universe: Universe;
     }[];
     fulfilment: {
       chainID: number;
-      fee: number;
+      fee: bigint;
       tokenAddress: string;
       universe: Universe;
     }[];

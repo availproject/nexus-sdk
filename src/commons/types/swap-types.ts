@@ -95,6 +95,14 @@ export type SwapIntent = {
       decimals: number;
       symbol: string;
     };
+    gas: {
+      amount: string;
+      token: {
+        contractAddress: Hex;
+        decimals: number;
+        symbol: string;
+      };
+    };
   };
   sources: {
     amount: string;

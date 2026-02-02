@@ -658,4 +658,9 @@ export class NexusSDK extends CA {
    * ex: USDC on BNB chain has 18 decimals and 6 decimals on most other chains.
    */
   public convertTokenReadableAmountToBigInt = this._convertTokenReadableAmountToBigInt;
+
+  /**
+   * Helper function to initiate refund if not already triggered by system
+   */
+  public refundIntent = this._refundIntent;
 }

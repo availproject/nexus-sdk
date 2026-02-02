@@ -553,53 +553,52 @@ class UserAsset {
     const values = this.value.breakdown
       .filter((b) => new Decimal(b.balance).gt(0))
       .sort((a, b) => {
-        if (a.chain.id === 1) {
-          return 1;
-        }
-        if (b.chain.id === 1) {
-          return -1;
-        }
+        if (a.chain.id === 1) return 1;
+        if (b.chain.id === 1) return -1;
         return Decimal.sub(b.balance, a.balance).toNumber();
       });
 
-    const balances = [];
+    return Promise.all(
+      values.map(async (b) => {
+        let balance = new Decimal(b.balance);
 
-    for (const b of values) {
-      let balance = new Decimal(b.balance);
-      if (this.isDeposit(b.contractAddress, b.universe)) {
-        const ESTIMATED_DEPOSIT_GAS = 200_000n;
+        if (this.isDeposit(b.contractAddress, b.universe)) {
+          const ESTIMATED_DEPOSIT_GAS = 300_000n;
+          const chain = chainList.getChainByID(b.chain.id);
+          if (!chain) {
+            throw Errors.chainNotFound(b.chain.id);
+          }
 
-        const chain = chainList.getChainByID(b.chain.id);
-        if (!chain) {
-          throw Errors.chainNotFound(b.chain.id);
+          const publicClient = createPublicClientWithFallback(chain);
+          const gasEstimate = await publicClient.estimateFeesPerGas();
+          const gasUnitPrice = gasEstimate.maxFeePerGas ?? gasEstimate.gasPrice;
+
+          const estimatedGasForDeposit = divDecimals(
+            ESTIMATED_DEPOSIT_GAS * gasUnitPrice,
+            chain.nativeCurrency.decimals
+          );
+
+          logger.debug('estimatedGasForDeposit', {
+            chainID: chain.id,
+            value: estimatedGasForDeposit.toFixed(),
+          });
+
+          if (new Decimal(b.balance).lessThan(estimatedGasForDeposit)) {
+            balance = new Decimal(0);
+          } else {
+            balance = new Decimal(b.balance).minus(estimatedGasForDeposit);
+          }
         }
 
-        const publicClient = createPublicClientWithFallback(chain);
-        const gasEstimate = await publicClient.estimateFeesPerGas();
-        const gasUnitPrice = gasEstimate.maxFeePerGas ?? gasEstimate.gasPrice;
-
-        const estimatedGasForDeposit = divDecimals(
-          ESTIMATED_DEPOSIT_GAS * gasUnitPrice,
-          chain.nativeCurrency.decimals
-        );
-
-        if (new Decimal(b.balance).lessThan(estimatedGasForDeposit)) {
-          balance = new Decimal(0);
-        } else {
-          balance = new Decimal(b.balance).minus(estimatedGasForDeposit);
-        }
-      }
-
-      balances.push({
-        balance,
-        chainID: b.chain.id,
-        decimals: b.decimals,
-        tokenContract: b.contractAddress,
-        universe: b.universe,
-      });
-    }
-
-    return balances;
+        return {
+          balance,
+          chainID: b.chain.id,
+          decimals: b.decimals,
+          tokenContract: b.contractAddress,
+          universe: b.universe,
+        };
+      })
+    );
   }
 }
 class UserAssets {
@@ -740,8 +739,11 @@ async function waitForTronDepositTxConfirmation(
   throw Errors.transactionTimeout(timeout / 1000);
 }
 
-function pctAdditionToBigInt(base: bigint, percentage: number) {
-  return base + BigInt(new Decimal(base).mul(percentage).toFixed(0));
+function pctAdditionWithSuggestion(base: bigint, percentage: number) {
+  const pctAmount = BigInt(new Decimal(base).mul(percentage).toFixed(0, Decimal.ROUND_CEIL));
+  const value = base + pctAmount;
+  const reducedValue = base + (pctAmount * 70n) / 100n;
+  return [reducedValue, value];
 }
 
 function divideBigInt(base: bigint, divisor: number) {
@@ -848,7 +850,7 @@ const createDeadlineFromNow = (minutes = 3n): bigint => {
 export {
   divideBigInt,
   createDeadlineFromNow,
-  pctAdditionToBigInt,
+  pctAdditionWithSuggestion,
   retrieveSIWESignatureFromLocalStorage,
   storeSIWESignatureToLocalStorage,
   retrieveAddress,
