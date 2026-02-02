@@ -1,25 +1,44 @@
-import { ChainListType, logger, SUPPORTED_CHAINS, VSCClient } from '../../../commons';
-import { equalFold } from '.';
-import { encodePacked, Hex, keccak256, pad, toHex } from 'viem';
+import { encodePacked, type Hex, keccak256, pad, toHex } from 'viem';
+import {
+  type ChainListType,
+  logger,
+  type Source,
+  SUPPORTED_CHAINS,
+  type VSCClient,
+} from '../../../commons';
+import { filterSupportedTokens } from '../swap/data';
 import {
   ankrBalanceToAssets,
   getAnkrBalances,
   toFlatBalance,
   vscBalancesToAssets,
 } from '../swap/utils';
-import { filterSupportedTokens } from '../swap/data';
+import { equalFold } from '.';
 
 export const getBalancesForSwap = async (input: {
   evmAddress: Hex;
   chainList: ChainListType;
-  filter: boolean;
+  filterWithSupportedTokens: boolean;
+  allowedSources?: Source[];
+  removeSources?: Source[];
 }) => {
   const ankrBalances = await getAnkrBalances(input.evmAddress, input.chainList, true);
 
-  const assets = ankrBalanceToAssets(input.chainList, ankrBalances, input.filter);
+  const assets = ankrBalanceToAssets(
+    input.chainList,
+    ankrBalances,
+    input.filterWithSupportedTokens,
+    input.allowedSources,
+    input.removeSources
+  );
   let balances = toFlatBalance(assets);
-
-  if (input.filter) {
+  logger.debug('getBalancesForSwap', {
+    input,
+    ankrBalances,
+    assets,
+    balances,
+  });
+  if (input.filterWithSupportedTokens) {
     balances = filterSupportedTokens(balances);
   }
 
@@ -57,7 +76,7 @@ const getBalanceSlot = ({
 
   // Calculate storage slot for user's balance: keccak256(user_address . balances_slot)
   const userBalanceSlot = keccak256(
-    encodePacked(['bytes32', 'uint256'], [pad(userAddress, { size: 32 }), BigInt(balanceSlot)]),
+    encodePacked(['bytes32', 'uint256'], [pad(userAddress, { size: 32 }), BigInt(balanceSlot)])
   );
 
   logger.debug('getBalanceSlot', {
@@ -135,6 +154,6 @@ function getBalanceStorageSlot(token: string, chainId: number): number {
   return equalFold(token, 'USDC')
     ? DEFAULT_SLOT.USDC
     : equalFold(token, 'USDT')
-    ? DEFAULT_SLOT.USDT
-    : DEFAULT_SLOT.ETH;
+      ? DEFAULT_SLOT.USDT
+      : DEFAULT_SLOT.ETH;
 }

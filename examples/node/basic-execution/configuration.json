@@ -1,0 +1,27 @@
+{
+  "network": "testnet",
+  "chains": [
+    [1, "https://eth.merkle.io"],
+    [10, "https://mainnet.optimism.io"],
+    [8453, "https://mainnet.base.org"],
+    [42161, "https://arb-mainnet.g.alchemy.com/v2/PfaswrKq0rjOrfYWHfE9uLQKhiD4JCdq"],
+    [137, "https://polygon-rpc.com"],
+    [84532, "https://sepolia.base.org"],
+    [421614, "https://sepolia-rollup.arbitrum.io/rpc"],
+    [10143, "https://testnet-rpc.monad.xyz/"],
+    [11155111, "https://sepolia.drpc.org"],
+    [11155420, "https://sepolia.optimism.io"]
+  ],
+  "profiles": [
+    {
+      "privateKey": "PRIVATEKEY",
+      "id": "N00",
+      "operation": "bridge",
+      "token": "USDC",
+      "amount": "1000000",
+      "toChainId": 421614,
+      "recipient": "0xcc62e01ac3ed3a9e10baf2b057a05790850d3651",
+      "count": 1
+    }
+  ]
+}

@@ -1,11 +1,17 @@
 // src/core/sdk/index.ts
-import { NexusUtils } from './utils';
+
+import { AnalyticsManager } from '../analytics/AnalyticsManager';
+import { NexusAnalyticsEvents } from '../analytics/events';
+import { extractBridgeProperties, extractSwapProperties } from '../analytics/utils';
 import type {
+  AnalyticsConfig,
+  BeforeExecuteHook,
+  BridgeAndExecuteParams,
+  BridgeAndExecuteResult,
+  BridgeAndExecuteSimulationResult,
+  BridgeMaxResult,
   BridgeParams,
   BridgeResult,
-  TransferParams,
-  TransferResult,
-  OnIntentHook,
   EthereumProvider,
   ExactInSwapInput,
   ExactOutSwapInput,
@@ -15,23 +21,18 @@ import type {
   NexusNetwork,
   OnAllowanceHook,
   OnEventParam,
+  OnIntentHook,
   OnSwapIntentHook,
   RequestForFunds,
   SimulationResult,
-  SwapResult,
   SupportedChainsResult,
-  AnalyticsConfig,
-  BridgeMaxResult,
-  BridgeAndExecuteSimulationResult,
-  BridgeAndExecuteParams,
-  BridgeAndExecuteResult,
-  BeforeExecuteHook,
+  SwapResult,
+  TransferParams,
+  TransferResult,
 } from '../commons';
 import { logger } from '../commons';
-import { AnalyticsManager } from '../analytics/AnalyticsManager';
-import { NexusAnalyticsEvents } from '../analytics/events';
-import { extractBridgeProperties, extractSwapProperties } from '../analytics/utils';
 import { CA } from './ca-base/ca';
+import { NexusUtils } from './utils';
 
 function getNetwork(network: NexusNetwork) {
   if (typeof network !== 'string') {
@@ -57,7 +58,7 @@ export class NexusSDK extends CA {
     // Initialize analytics (backwards compatible - enabled by default)
     this.analytics = new AnalyticsManager(
       getNetwork(config?.network || 'mainnet'),
-      config?.analytics,
+      config?.analytics
     );
 
     // Make analytics available to CA base class for wallet/balance events
@@ -137,7 +138,7 @@ export class NexusSDK extends CA {
    * @returns
    */
   public async calculateMaxForBridge(
-    params: Omit<BridgeParams, 'amount'>,
+    params: Omit<BridgeParams, 'amount'>
   ): Promise<BridgeMaxResult> {
     return this._calculateMaxForBridge(params);
   }
@@ -151,7 +152,7 @@ export class NexusSDK extends CA {
    */
   public async bridgeAndTransfer(
     params: TransferParams,
-    options?: OnEventParam,
+    options?: OnEventParam
   ): Promise<TransferResult> {
     // Track transfer started
     this.analytics.track(NexusAnalyticsEvents.TRANSFER_INITIATED, {
@@ -202,7 +203,7 @@ export class NexusSDK extends CA {
    */
   public async swapWithExactIn(
     input: ExactInSwapInput,
-    options?: OnEventParam,
+    options?: OnEventParam
   ): Promise<SwapResult> {
     // Track swap started
     this.analytics.track(NexusAnalyticsEvents.SWAP_INITIATED, {
@@ -255,7 +256,7 @@ export class NexusSDK extends CA {
    */
   public async swapWithExactOut(
     input: ExactOutSwapInput,
-    options?: OnEventParam,
+    options?: OnEventParam
   ): Promise<SwapResult> {
     // Track swap started
     this.analytics.track(NexusAnalyticsEvents.SWAP_INITIATED, {
@@ -335,7 +336,7 @@ export class NexusSDK extends CA {
    * @returns simulation result with gas estimates
    */
   public async simulateBridgeAndTransfer(
-    params: TransferParams,
+    params: TransferParams
   ): Promise<BridgeAndExecuteSimulationResult> {
     const opId = this.analytics.startOperation(NexusAnalyticsEvents.TRANSFER_SIMULATION_SUCCESS);
     try {
@@ -371,7 +372,7 @@ export class NexusSDK extends CA {
    * @param page page number
    * @returns list of intents
    */
-  public async getMyIntents(page: number = 1): Promise<RequestForFunds[]> {
+  public async getMyIntents(page = 1): Promise<RequestForFunds[]> {
     const opId = this.analytics.startOperation(NexusAnalyticsEvents.GET_MY_INTENTS);
     const result = await this._getMyIntents(page);
     this.analytics.endOperation(opId, { success: true });
@@ -512,7 +513,7 @@ export class NexusSDK extends CA {
    */
   public async bridgeAndExecute(
     params: BridgeAndExecuteParams,
-    options?: OnEventParam & BeforeExecuteHook,
+    options?: OnEventParam & BeforeExecuteHook
   ): Promise<BridgeAndExecuteResult> {
     // Track bridge and execute started
     this.analytics.track(NexusAnalyticsEvents.BRIDGE_AND_EXECUTE_INITIATED, {
@@ -521,7 +522,7 @@ export class NexusSDK extends CA {
       contractAddress: params.execute?.to,
     });
     const opId = this.analytics.startOperation(
-      NexusAnalyticsEvents.BRIDGE_AND_EXECUTE_TRANSACTION_SUCCESS,
+      NexusAnalyticsEvents.BRIDGE_AND_EXECUTE_TRANSACTION_SUCCESS
     );
 
     try {
@@ -560,10 +561,10 @@ export class NexusSDK extends CA {
    * @returns Promise resolving to simulation result with gas estimates
    */
   public async simulateBridgeAndExecute(
-    params: BridgeAndExecuteParams,
+    params: BridgeAndExecuteParams
   ): Promise<BridgeAndExecuteSimulationResult> {
     const opId = this.analytics.startOperation(
-      NexusAnalyticsEvents.BRIDGE_AND_EXECUTE_SIMULATION_SUCCESS,
+      NexusAnalyticsEvents.BRIDGE_AND_EXECUTE_SIMULATION_SUCCESS
     );
     try {
       this.analytics.track(NexusAnalyticsEvents.BRIDGE_AND_EXECUTE_SIMULATION_STARTED, {
@@ -599,15 +600,17 @@ export class NexusSDK extends CA {
    * @throws NexusError if the get balances for swap fails
    * @returns balances that can be used in swap operations
    */
-  public async getBalancesForSwap() {
+  public async getBalancesForSwap(onlyNativesAndStables = false) {
     const opId = this.analytics.startOperation(NexusAnalyticsEvents.BALANCES_FETCH_SUCCESS, {
       swap: true,
       bridge: false,
     });
-    const result = await this._getBalancesForSwap();
+    const result = await this._getBalancesForSwap(onlyNativesAndStables);
     this.analytics.endOperation(opId, { success: true });
     return result.assets;
   }
+
+  public swapAndExecute = this._swapAndExecute;
 
   /**
    * Tokens returned here should be used in bridge, bridgeAndTransfer and bridgeAndExecute operations

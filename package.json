@@ -1,6 +1,6 @@
 {
   "name": "@avail-project/nexus-core",
-  "version": "1.0.0-beta.58",
+  "version": "1.0.0-beta.59",
   "description": "Nexus headless SDK for cross-chain transactions",
   "main": "./dist/index.js",
   "module": "./dist/index.esm.js",
@@ -11,13 +11,19 @@
   ],
   "scripts": {
     "build": "rollup -c",
+    "test": "vitest",
     "buildAndPack": "rollup -c && npm pack",
     "dev": "rollup -c -w",
     "docs": "typedoc --plugin typedoc-theme-fresh --theme fresh --options typedoc_html.json",
     "clean": "rimraf dist dist-tarballs html_docs",
     "typecheck": "tsc --noEmit",
+    "lint": "biome lint ./src",
+    "lint:fix": "biome lint --write ./src",
+    "format": "biome format --write .",
+    "check": "biome check --write .",
     "prepublishOnly": "npm run build",
-    "prepare": "npm run build"
+    "release": "release-it",
+    "prepare": "npm run build && (husky || true)"
   },
   "sideEffects": false,
   "exports": {
@@ -45,7 +51,7 @@
     "npm": ">=9.0.0"
   },
   "dependencies": {
-    "@avail-project/ca-common": "github:availproject/ca-common#main",
+    "@avail-project/ca-common": "1.0.0-beta.8",
     "@cosmjs/proto-signing": "0.34.0",
     "@cosmjs/stargate": "0.34.0",
     "@mayanfinance/swap-sdk": "12.2.5",
@@ -69,10 +75,14 @@
     "viem": "^2.31.7"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.3.8",
     "@rollup/plugin-commonjs": "^25.0.8",
     "@rollup/plugin-json": "6.1.0",
     "@rollup/plugin-node-resolve": "^15.3.1",
     "@rollup/plugin-typescript": "^11.1.6",
+    "husky": "9.1.7",
+    "lint-staged": "16.2.7",
+    "release-it": "19.2.3",
     "rollup": "^4.52.4",
     "rollup-plugin-dts": "^6.2.3",
     "rollup-plugin-typescript2": "0.36.0",
@@ -81,9 +91,13 @@
     "typedoc-plugin-missing-exports": "4.1.2",
     "typedoc-plugin-rename-defaults": "0.7.3",
     "typedoc-theme-fresh": "0.2.1",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "4.0.15"
   },
   "publishConfig": {
     "access": "public"
+  },
+  "repository": {
+    "url": "https://github.com/availproject/nexus-sdk"
   }
 }

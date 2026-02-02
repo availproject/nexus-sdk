@@ -1,7 +1,7 @@
 /**
  * Performance tracking utilities for SDK operations
  */
-import { PerformanceProperties, OperationContext } from './types';
+import type { OperationContext, PerformanceProperties } from './types';
 
 export class PerformanceTracker {
   private activeOperations: Map<string, OperationContext> = new Map();

@@ -1,13 +1,18 @@
-import Long from 'long';
-import { CosmosOptions, CosmosQueryClient, getLogger, VSCClient } from '../../../commons';
 import {
-  MsgCreateRequestForFunds,
+  type MsgCreateRequestForFunds,
   MsgCreateRequestForFundsResponse,
-  MsgDoubleCheckTx,
+  type MsgDoubleCheckTx,
   MsgRefundReq,
   MsgRefundReqResponse,
 } from '@avail-project/ca-common';
 import { isDeliverTxFailure, isDeliverTxSuccess } from '@cosmjs/stargate';
+import type Long from 'long';
+import {
+  type CosmosOptions,
+  type CosmosQueryClient,
+  getLogger,
+  type VSCClient,
+} from '../../../commons';
 import { Errors } from '../errors';
 
 const logger = getLogger();
@@ -15,7 +20,7 @@ const logger = getLogger();
 const cosmosFeeGrant = async (
   address: string,
   cosmosClient: CosmosQueryClient,
-  vscClient: VSCClient,
+  vscClient: VSCClient
 ) => {
   try {
     await cosmosClient.getAccount(address);
@@ -30,7 +35,7 @@ const cosmosFeeGrant = async (
 const cosmosFillCheck = async (
   intentID: Long,
   cosmosClient: CosmosQueryClient,
-  ac: AbortController,
+  ac: AbortController
 ) => {
   return Promise.any([
     cosmosClient.waitForCosmosFillEvent(intentID, ac),
@@ -57,7 +62,7 @@ const cosmosCreateRFF = async ({
       {
         amount: [],
         gas: 100_000n.toString(10),
-      },
+      }
     );
 
     if (isDeliverTxFailure(res)) {
@@ -92,7 +97,7 @@ const cosmosRefundIntent = async ({
       {
         amount: [],
         gas: 200_000n.toString(10),
-      },
+      }
     );
     logger.debug('Refund response', { resp });
     try {
@@ -140,7 +145,7 @@ const cosmosCreateDoubleCheckTx = async ({
       {
         amount: [],
         gas: 100_000n.toString(10),
-      },
+      }
     );
 
     if (isDeliverTxFailure(res)) {

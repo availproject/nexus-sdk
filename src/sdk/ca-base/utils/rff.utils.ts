@@ -1,6 +1,13 @@
 import { MsgCreateRequestForFunds, OmniversalRFF, Universe } from '@avail-project/ca-common';
+import Decimal from 'decimal.js';
+import Long from 'long';
+import { TronWeb } from 'tronweb';
+import { type Hex, type PrivateKeyAccount, toBytes, type WalletClient } from 'viem';
+import { type ChainListType, getLogger, type IBridgeOptions, type Intent } from '../../../commons';
 import { INTENT_EXPIRY, isNativeAddress, ZERO_ADDRESS } from '../constants';
-import { getLogger, ChainListType, Intent, IBridgeOptions } from '../../../commons';
+import { Errors } from '../errors';
+import { convertToEVMAddress } from '../swap/utils';
+import type { FeeStore } from './api.utils';
 import {
   convertTo32Bytes,
   convertTo32BytesHex,
@@ -8,15 +15,8 @@ import {
   createRequestTronSignature,
   mulDecimals,
 } from './common.utils';
-import { Hex, PrivateKeyAccount, toBytes, WalletClient } from 'viem';
-import Long from 'long';
-import { TronWeb } from 'tronweb';
-import { tronHexToEvmAddress } from './tron.utils';
-import { Errors } from '../errors';
-import { convertToEVMAddress } from '../swap/utils';
-import Decimal from 'decimal.js';
-import { FeeStore } from './api.utils';
 import { PlatformUtils } from './platform.utils';
+import { tronHexToEvmAddress } from './tron.utils';
 
 type Destination = {
   tokenAddress: Hex;
@@ -39,7 +39,7 @@ const getSourcesAndDestinationsForRFF = (intent: Intent, chainList: ChainListTyp
   const universes = new Set<Universe>();
 
   for (const source of intent.sources) {
-    if (source.chainID == intent.destination.chainID) {
+    if (source.chainID === intent.destination.chainID) {
       continue;
     }
 
@@ -70,7 +70,7 @@ const getSourcesAndDestinationsForRFF = (intent: Intent, chainList: ChainListTyp
     },
   ];
 
-  if (intent.destination.gas != 0n) {
+  if (intent.destination.gas !== 0n) {
     if (isNativeAddress(intent.destination.universe, intent.destination.tokenContract)) {
       destinations[0].value = destinations[0].value + intent.destination.gas;
     } else {
@@ -93,12 +93,12 @@ const createRFFromIntent = async (
       client: WalletClient | PrivateKeyAccount;
     };
   },
-  destinationUniverse: Universe,
+  destinationUniverse: Universe
 ) => {
   const { destinations, sources, universes } = getSourcesAndDestinationsForRFF(
     intent,
     options.chainList,
-    destinationUniverse,
+    destinationUniverse
   );
 
   const parties: Array<{ address: string; universe: Universe }> = [];
@@ -111,10 +111,12 @@ const createRFFromIntent = async (
     }
 
     if (universe === Universe.TRON) {
-      console.log({ tronAddress: TronWeb.address.toHex(options.tron!.address) });
+      logger.debug('createRFFFromIntent: Tron', {
+        tronAddress: TronWeb.address.toHex(options.tron!.address),
+      });
       parties.push({
         address: convertTo32BytesHex(
-          tronHexToEvmAddress(TronWeb.address.toHex(options.tron!.address)),
+          tronHexToEvmAddress(TronWeb.address.toHex(options.tron!.address))
         ),
         universe,
       });
@@ -164,7 +166,7 @@ const createRFFromIntent = async (
       const { requestHash, signature } = await createRequestEVMSignature(
         omniversalRFF.asEVMRFF(),
         options.evm.address,
-        options.evm.client,
+        options.evm.client
       );
 
       signatureData.push({
@@ -184,7 +186,7 @@ const createRFFromIntent = async (
       }
       const { requestHash, signature } = await createRequestTronSignature(
         omniversalRFF.asEVMRFF(),
-        options.tron.adapter,
+        options.tron.adapter
       );
 
       signatureData.push({

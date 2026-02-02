@@ -1,11 +1,7 @@
-import {
-  type BackendConfig,
-  type BundleSimulationRequest,
-  type BackendBundleResponse,
-} from './types';
-import { logger } from '../commons';
 import axios from 'axios';
+import { logger } from '../commons';
 import { Errors } from '../sdk/ca-base/errors';
+import type { BackendBundleResponse, BackendConfig, BundleSimulationRequest } from './types';
 
 /**
  * Factory function to create a backend simulation client
@@ -29,8 +25,8 @@ export class BackendSimulationClient {
     logger.debug('DEBUG simulateBundle - request:', JSON.stringify(request, null, 2));
 
     const { data } = await axios.post<BackendBundleResponse>(
-      new URL(`/api/gas-estimation/bundleV2`, this.baseUrl).href,
-      request,
+      new URL('/api/gas-estimation/bundleV2', this.baseUrl).href,
+      request
     );
 
     if (!data.success || !data.data) {

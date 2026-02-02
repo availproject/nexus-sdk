@@ -22,6 +22,14 @@ yarn-error.log*
 .env.test.local
 .env.production.local
 
+# CI Test Artifacts
+.ci-tests/**/node_modules
+.ci-tests/**/dist
+.ci-tests/**/.next
+.ci-tests/**/pnpm-lock.yaml
+.ci-tests/**/package-lock.json
+.ci-tests/**/bun.lockb
+
 # OS
 .DS_Store
 Thumbs.db
@@ -30,7 +38,6 @@ Thumbs.db
 
 # IDE
 .idea/
-.vscode/
 *.swp
 *.swo
 

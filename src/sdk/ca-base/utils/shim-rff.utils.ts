@@ -1,24 +1,24 @@
 import { Universe } from '@avail-project/ca-common';
 import { INTENT_EXPIRY } from '../constants';
-import { ChainListType, Intent, IBridgeOptions } from '../../../commons';
+import type { ChainListType, Intent, IBridgeOptions } from '../../../commons';
 import { convertTo32Bytes, convertTo32BytesHex, mulDecimals } from './common.utils';
 import {
   bytesToBigInt,
   encodeAbiParameters,
   getAbiItem,
   hashMessage,
-  Hex,
+  type Hex,
   keccak256,
-  PrivateKeyAccount,
+  type PrivateKeyAccount,
   toBytes,
   UserRejectedRequestError,
-  WalletClient,
+  type WalletClient,
   zeroAddress,
 } from 'viem';
 import { Errors } from '../errors';
-import Decimal from 'decimal.js';
+import type Decimal from 'decimal.js';
 import { PlatformUtils } from './platform.utils';
-import { MayanQuotes } from './shim-server.utils';
+import type { MayanQuotes } from './shim-server.utils';
 import {
   createSwiftRandomKey,
   getSwiftToTokenHexString,
@@ -75,8 +75,8 @@ export type SerializedShimRFF = {
   nonce: string;
   deadline: string;
 };
-export class ShimRFFSerde {
-  static serialize(rff: ShimRFF): SerializedShimRFF {
+export const ShimRFFSerde = {
+  serialize(rff: ShimRFF): SerializedShimRFF {
     return {
       sources: rff.sources.map((s) => ({
         universe: s.universe,
@@ -96,9 +96,8 @@ export class ShimRFFSerde {
       nonce: rff.nonce.toString(),
       deadline: rff.deadline.toString(),
     };
-  }
-
-  static deserialize(data: SerializedShimRFF): ShimRFF {
+  },
+  deserialize(data: SerializedShimRFF): ShimRFF {
     return {
       sources: data.sources.map((s) => ({
         universe: s.universe,
@@ -157,8 +156,8 @@ export type SerializedShimRouteData = {
   random: `0x${string}`;
   swiftVersion: number;
 };
-export class ShimRouterActionSerde {
-  static serialize(d: ShimRouteData): SerializedShimRouteData {
+export const ShimRouterActionSerde =  {
+  serialize(d: ShimRouteData): SerializedShimRouteData {
     return {
       chainId: d.chainId,
       tokenAddress: d.tokenAddress,
@@ -177,9 +176,8 @@ export class ShimRouterActionSerde {
       random: d.random,
       swiftVersion: d.swiftVersion,
     };
-  }
-
-  static deserialize(d: SerializedShimRouteData): ShimRouteData {
+  },
+  deserialize(d: SerializedShimRouteData): ShimRouteData {
     return {
       chainId: d.chainId,
       tokenAddress: d.tokenAddress,
@@ -317,7 +315,7 @@ const getSourcesAndDestinationsForRFF = (intent: Intent, chainList: ChainListTyp
   const universes = new Set<Universe>();
 
   for (const source of intent.sources) {
-    if (source.chainID == intent.destination.chainID) {
+    if (source.chainID === intent.destination.chainID) {
       continue;
     }
 

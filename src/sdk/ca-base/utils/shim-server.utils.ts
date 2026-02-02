@@ -1,10 +1,10 @@
-import { ReadableIntent } from '../../../commons';
-import { Hex } from 'viem';
-import { Quote, ChainName, Token } from '@mayanfinance/swap-sdk';
-import { Universe } from '@avail-project/ca-common';
-import { SerializedShimRFF, SerializedShimRouteData } from './shim-rff.utils';
+import type { ReadableIntent } from '../../../commons';
+import type { Hex } from 'viem';
+import type { Quote, ChainName, Token } from '@mayanfinance/swap-sdk';
+import type { Universe } from '@avail-project/ca-common';
+import type { SerializedShimRFF, SerializedShimRouteData } from './shim-rff.utils';
 
-const shimUrl = `http://localhost:4000`;
+const shimUrl = 'http://localhost:4000';
 
 export type MayanQuotes = {
   destination: {
@@ -76,7 +76,7 @@ export const submitTx = async (payload: {
     hash: Hex;
     explorerUrl: string;
   }[];
-}): Promise<any> => {
+}): Promise<Record<string, unknown>> => {
   const res = await fetch(`${shimUrl}/transaction/submit`, {
     method: 'POST',
     headers: {
