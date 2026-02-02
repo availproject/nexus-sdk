@@ -2,11 +2,11 @@
 
 A **headless TypeScript SDK** for **cross-chain operations**, **token bridging**, **swapping**, and **unified balance management** — built for backends, CLIs, and custom UI integrations.
 
-> ⚡ Powering next-generation cross-chain apps with a single interface.
+> Powering next-generation cross-chain apps with a single interface.
 
 ---
 
-## 📦 Installation
+## Installation
 
 ```bash
 npm install @avail-project/nexus-core
@@ -14,7 +14,7 @@ npm install @avail-project/nexus-core
 
 ---
 
-## 🤖 Skills (skills.sh)
+## Skills (skills.sh)
 
 This repo ships Codex/skills.sh skills under `skills/` to help agents integrate the SDK end-to-end.
 
@@ -46,7 +46,7 @@ Available skills:
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ```typescript
 import { NexusSDK, NEXUS_EVENTS } from '@avail-project/nexus-core';
@@ -55,24 +55,20 @@ import { NexusSDK, NEXUS_EVENTS } from '@avail-project/nexus-core';
 const sdk = new NexusSDK({ network: 'mainnet' });
 await sdk.initialize(provider); // Your EVM-compatible wallet provider
 
-// (Optional) Add TRON support
-const tronLinkAdapter = new TronLinkAdapter();
-sdk.addTron(tronLinkAdapter);
+// ---------------------------
+// 1. Get balances for bridge operations
+// ---------------------------
+const bridgeBalances = await sdk.getBalancesForBridge();
+console.log('Bridge balances:', bridgeBalances);
 
 // ---------------------------
-// 1️⃣ Get unified balances
-// ---------------------------
-const balances = await sdk.getUnifiedBalances(false); // false = CA balances only
-console.log('Balances:', balances);
-
-// ---------------------------
-// 2️⃣ Bridge tokens
+// 2. Bridge tokens
 // ---------------------------
 const bridgeResult = await sdk.bridge(
   {
     token: 'USDC',
     amount: 1_500_000n,
-    recipient: '0x...' // Optional
+    recipient: '0x...', // Optional
     toChainId: 137, // Polygon
   },
   {
@@ -84,7 +80,7 @@ const bridgeResult = await sdk.bridge(
 );
 
 // ---------------------------
-// 3️⃣ Transfer tokens
+// 3. Transfer tokens
 // ---------------------------
 const transferResult = await sdk.bridgeAndTransfer(
   {
@@ -102,7 +98,7 @@ const transferResult = await sdk.bridgeAndTransfer(
 );
 
 // ---------------------------
-// 4️⃣ Execute a contract
+// 4. Execute a contract
 // ---------------------------
 const executeResult = await sdk.execute(
   {
@@ -121,7 +117,7 @@ const executeResult = await sdk.execute(
 );
 
 // ---------------------------
-// 5️⃣ Bridge and Execute
+// 5. Bridge and Execute
 // ---------------------------
 const bridgeAndExecuteResult = await sdk.bridgeAndExecute(
   {
@@ -144,7 +140,7 @@ const bridgeAndExecuteResult = await sdk.bridgeAndExecute(
 );
 
 // ---------------------------
-// 6️⃣ Swap tokens
+// 6. Swap tokens
 // ---------------------------
 const swapResult = await sdk.swapWithExactIn(
   {
@@ -163,7 +159,7 @@ const swapResult = await sdk.swapWithExactIn(
 
 ---
 
-## ✨ Core Features
+## Core Features
 
 - **Cross-chain bridging** — Move tokens seamlessly across 16+ chains.
 - **Cross-chain swaps** — Execute EXACT_IN and EXACT_OUT swaps between any supported networks.
@@ -176,9 +172,9 @@ const swapResult = await sdk.swapWithExactIn(
 
 ---
 
-## 🧠 Smart Optimizations
+## Smart Optimizations
 
-### 🔁 Bridge Skip Optimization
+### Bridge Skip Optimization
 
 During **bridge-and-execute** operations, the SDK checks whether sufficient funds already exist on the destination chain:
 
@@ -187,7 +183,7 @@ During **bridge-and-execute** operations, the SDK checks whether sufficient fund
 - **Adaptive bridging** — Skips unnecessary bridging or transfers only the shortfall.
 - **Seamless fallback** — Uses chain abstraction if local funds are insufficient.
 
-### ⚡ Direct Transfer Optimization
+### Direct Transfer Optimization
 
 For transfers, the SDK automatically chooses the most efficient execution path:
 
@@ -198,7 +194,7 @@ For transfers, the SDK automatically chooses the most efficient execution path:
 
 ---
 
-## 🏗️ Initialization
+## Initialization
 
 ```typescript
 import { NexusSDK, type NexusNetwork } from '@avail-project/nexus-core';
@@ -215,7 +211,7 @@ await sdk.initialize(window.ethereum);
 
 ---
 
-## 📡 Event Handling
+## Event Handling
 
 **All main SDK functions support the `onEvent` hook**:
 
@@ -265,21 +261,22 @@ sdk.setOnAllowanceHook(({ sources, allow, deny }) => {
 |                  | `STEP_COMPLETE`      | Fired per completed step with data      |
 | Swap             | `SWAP_STEP_COMPLETE` | Fired per completed step with data      |
 
-All events include `typeID`, `transactionHash`, `explorerURL`, and `error` (if any).
+Events are delivered as `{ name, args }`. `STEPS_LIST` provides an ordered list of bridge steps,
+`STEP_COMPLETE` provides the completed bridge step, and `SWAP_STEP_COMPLETE` provides the completed swap step.
+Step payloads include `type` and `typeID`, and some steps include extra data such as `explorerUrl` and `intentID`.
 
 ---
 
-## 💰 Balance Operations
+## Balance Operations
 
 ```typescript
 const unifiedBridgeBalances = await sdk.getBalancesForBridge(); // Returns balances that can be used in bridge operations
----
 const swapBalances = await sdk.getBalancesForSwap(); // Returns balances that can be used in swap operations
 ```
 
 ---
 
-## 🌉 Bridge Operations
+## Bridge Operations
 
 ```typescript
 const result = await sdk.bridge({
@@ -299,7 +296,7 @@ const simulation = await sdk.simulateBridge({
 
 ---
 
-## 🔁 Transfer Operations
+## Transfer Operations
 
 ```typescript
 const result = await sdk.bridgeAndTransfer({
@@ -318,7 +315,7 @@ const simulation = await sdk.simulateBridgeAndTransfer({
 
 ---
 
-## ⚙️ Execute & Bridge + Execute
+## Execute & Bridge + Execute
 
 ```typescript
 // Direct contract execution
@@ -345,7 +342,7 @@ const result2 = await sdk.bridgeAndExecute({
 
 ---
 
-## 🔄 Swap Operations
+## Swap Operations
 
 ```typescript
 const swapResult = await sdk.swapWithExactIn(
@@ -367,7 +364,7 @@ const swapResult = await sdk.swapWithExactIn(
 
 ---
 
-## 🧩 Intent Management
+## Intent Management
 
 ```typescript
 const intents = await sdk.getMyIntents(1);
@@ -376,7 +373,7 @@ console.log('Active intents:', intents);
 
 ---
 
-## 🛠️ Utilities
+## Utilities
 
 ```typescript
 import { CHAIN_METADATA, formatTokenBalance, truncateAddress } from '@avail-project/nexus-core';
@@ -395,7 +392,7 @@ const short = truncateAddress('0x1234567890123456789012345678901234567890');
 
 ---
 
-## 🧾 Error Handling
+## Error Handling
 
 ```typescript
 try {
@@ -411,7 +408,7 @@ try {
 
 ---
 
-## 🧠 TypeScript Support
+## TypeScript Support
 
 ```typescript
 import type {
@@ -426,7 +423,7 @@ import type {
 
 ---
 
-## 📊 Analytics
+## Analytics
 
 The Nexus SDK includes **built-in analytics** powered by PostHog to help improve the SDK and understand usage patterns. Analytics are **enabled by default** but can be easily customized or disabled.
 
@@ -512,38 +509,40 @@ Adding PostHog analytics increases the bundle size by approximately **~50KB gzip
 
 ---
 
-## 🌐 Supported Networks
+## Supported Networks
 
 ### Mainnets
 
-| Network   | Chain ID  | Native | Status |
-| --------- | --------- | ------ | ------ |
-| Ethereum  | 1         | ETH    | ✅     |
-| Optimism  | 10        | ETH    | ✅     |
-| Polygon   | 137       | MATIC  | ✅     |
-| Arbitrum  | 42161     | ETH    | ✅     |
-| Avalanche | 43114     | AVAX   | ✅     |
-| Base      | 8453      | ETH    | ✅     |
-| Scroll    | 534352    | ETH    | ✅     |
-| Kaia      | 8217      | KAIA   | ✅     |
-| BNB       | 56        | BNB    | ✅     |
-| HyperEVM  | 999       | HYPE   | ✅     |
-| TRON      | 728126428 | TRX    | ✅     |
+| Network         | Chain ID | Native | Status |
+| --------------- | -------- | ------ | ------ |
+| Ethereum        | 1        | ETH    |      |
+| Citrea Mainnet  | 4114     | cBTC   |      |
+| Monad           | 143      | MON    |      |
+| Base            | 8453     | ETH    |      |
+| Arbitrum One    | 42161    | ETH    |      |
+| Optimism        | 10       | ETH    |      |
+| Polygon         | 137      | MATIC  |      |
+| Avalanche       | 43114    | AVAX   |      |
+| Scroll          | 534352   | ETH    |      |
+| Kaia Mainnet    | 8217     | KAIA   |      |
+| BNB Smart Chain | 56       | BNB    |      |
+| Hyper EVM       | 999      | HYPE   |      |
 
 ### Testnets
 
 | Network          | Chain ID | Native | Status |
 | ---------------- | -------- | ------ | ------ |
-| Optimism Sepolia | 11155420 | ETH    | ✅     |
-| Polygon Amoy     | 80002    | MATIC  | ✅     |
-| Arbitrum Sepolia | 421614   | ETH    | ✅     |
-| Base Sepolia     | 84532    | ETH    | ✅     |
-| Sepolia          | 11155111 | ETH    | ✅     |
-| Monad Testnet    | 10143    | MON    | ✅     |
+| Sepolia          | 11155111 | ETH    |      |
+| Base Sepolia     | 84532    | ETH    |      |
+| Arbitrum Sepolia | 421614   | ETH    |      |
+| Optimism Sepolia | 11155420 | ETH    |      |
+| Polygon Amoy     | 80002    | MATIC  |      |
+| Monad Testnet    | 10143    | MON    |      |
+| Citrea Testnet   | 5115     | cBTC   |      |
 
 ---
 
-## 💎 Supported Tokens
+## Supported Tokens
 
 | Token | Name       | Decimals | Availability   |
 | ----- | ---------- | -------- | -------------- |
@@ -553,7 +552,7 @@ Adding PostHog analytics increases the bundle size by approximately **~50KB gzip
 
 ---
 
-## 🔗 Resources
+## Resources
 
 - **GitHub:** [availproject/nexus-sdk](https://github.com/availproject/nexus-sdk)
 - **Docs:** [docs.availproject.org](https://docs.availproject.org/nexus/avail-nexus-sdk)
