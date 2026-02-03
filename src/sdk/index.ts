@@ -50,6 +50,11 @@ export class NexusSDK extends CA {
     debug?: boolean;
     siweChain?: number;
     analytics?: AnalyticsConfig;
+    siweParams?: {
+      scheme: string;
+      domain: string;
+      origin: string;
+    };
   }) {
     super(config);
     logger.debug('Nexus SDK initialized with config:', config);
