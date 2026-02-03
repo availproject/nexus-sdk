@@ -590,7 +590,7 @@ export class CA {
       nonce: 'iLjYWC6s8frYt4l8w', // maybe this can be shortened hash of address
       scheme: this._siweParams.scheme,
       statement: SIWE_STATEMENT,
-      uri: this._siweParams.domain,
+      uri: this._siweParams.origin,
       version: '1',
     });
     const currentChain = await this._evm.client.getChainId();
