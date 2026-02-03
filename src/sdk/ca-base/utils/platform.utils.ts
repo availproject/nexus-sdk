@@ -58,9 +58,9 @@ export async function cryptoGetRandomValues(bytes: Uint8Array): Promise<Uint8Arr
 
 export function locationProtocol(): string {
   if (detectPlatform() === 'browser') {
-    return window.location.protocol;
+    return window.location.protocol.slice(0, -1);
   }
-  return 'https:';
+  return 'https';
 }
 
 export function locationHost(): string {

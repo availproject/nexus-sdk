@@ -125,11 +125,25 @@ export class CA {
   protected _networkConfig: NetworkConfig;
   protected _refundInterval: number | undefined;
   protected _initPromise: Promise<void> | null = null;
+  protected _siweParams: {
+    scheme: string;
+    domain: string;
+    origin: string;
+  };
   private readonly simulationClient: BackendSimulationClient;
   protected _analytics?: AnalyticsManager; // Analytics manager set by subclass
 
   protected constructor(
-    config: { network?: NexusNetwork; debug?: boolean; siweChain?: number } = {
+    config: {
+      network?: NexusNetwork;
+      debug?: boolean;
+      siweChain?: number;
+      siweParams?: {
+        scheme: string;
+        domain: string;
+        origin: string;
+      };
+    } = {
       debug: false,
       network: 'testnet',
       siweChain: 1,
@@ -145,8 +159,12 @@ export class CA {
         ? SUPPORTED_CHAINS.SEPOLIA
         : SUPPORTED_CHAINS.ETHEREUM;
 
-    this._siweChain = config?.siweChain ?? defaultChain;
-
+    this._siweChain = config.siweChain ?? defaultChain;
+    this._siweParams = config.siweParams ?? {
+      scheme: PlatformUtils.locationProtocol(),
+      domain: PlatformUtils.locationHost(),
+      origin: PlatformUtils.locationOrigin(),
+    };
     if (config.debug) {
       setLogLevel(LOG_LEVEL.DEBUG);
     }
@@ -563,22 +581,16 @@ export class CA {
       throw Errors.chainNotFound(this._siweChain);
     }
 
-    let scheme = PlatformUtils.locationProtocol();
-    if (PlatformUtils.isBrowser()) {
-      scheme = scheme.slice(0, -1);
-    }
-    const domain = PlatformUtils.locationHost();
-    const origin = PlatformUtils.locationOrigin();
     const address = await this._getEVMAddress();
     const message = createSiweMessage({
       address,
       chainId: chain.id,
-      domain,
+      domain: this._siweParams.domain,
       issuedAt: new Date('2024-12-16T12:17:43.182Z'), // this remains same to arrive at same pvt key
       nonce: 'iLjYWC6s8frYt4l8w', // maybe this can be shortened hash of address
-      scheme,
+      scheme: this._siweParams.scheme,
       statement: SIWE_STATEMENT,
-      uri: origin,
+      uri: this._siweParams.domain,
       version: '1',
     });
     const currentChain = await this._evm.client.getChainId();
