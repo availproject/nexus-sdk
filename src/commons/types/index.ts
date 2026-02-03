@@ -24,9 +24,7 @@ type TokenInfo = {
   logo: string;
   name: string;
   symbol: string;
-  displaySymbol?: string;
-  displayName?: string;
-  displayLogo?: string;
+  equivalentCurrency?: string;
 };
 
 type NexusNetwork = 'mainnet' | 'testnet' | NetworkConfig;
@@ -715,22 +713,16 @@ export type AssetBreakdown = {
   contractAddress: `0x${string}`;
   decimals: number;
   universe: Universe;
-  displaySymbol?: string;
-  displayName?: string;
-  displayLogo?: string;
+  symbol: string;
 };
 
 export type UserAssetDatum = {
-  abstracted?: boolean;
   balance: string;
   balanceInFiat: number;
   breakdown: AssetBreakdown[];
   decimals: number;
   icon?: string;
   symbol: string;
-  displaySymbol?: string;
-  displayName?: string;
-  displayLogo?: string;
 };
 
 export type BeforeExecuteHook = {

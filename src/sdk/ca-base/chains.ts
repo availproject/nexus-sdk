@@ -84,7 +84,9 @@ class ChainList {
       return undefined;
     }
 
-    const token = chain.custom.knownTokens.find((t) => equalFold(t.symbol, symbol));
+    const token = chain.custom.knownTokens.find(
+      (t) => equalFold(t.equivalentCurrency, symbol) || equalFold(t.symbol, symbol)
+    );
     if (!token) {
       if (equalFold(chain.nativeCurrency.symbol, symbol)) {
         return {
@@ -730,6 +732,7 @@ const MAINNET_CHAINS: Chain[] = [
           logo: getLogoFromSymbol('USDM'),
           name: 'USDm',
           symbol: 'USDM',
+          equivalentCurrency: 'USDC',
         },
       ],
     },

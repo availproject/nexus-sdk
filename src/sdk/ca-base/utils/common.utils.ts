@@ -51,11 +51,8 @@ import {
 import { ChainList } from '../chains';
 import { getLogoFromSymbol, isNativeAddress, ZERO_ADDRESS } from '../constants';
 import { Errors } from '../errors';
-import {
-  createPublicClientWithFallback,
-  requestTimeout,
-  waitForIntentFulfilment,
-} from './contract.utils';
+import type { FeeStore } from './api.utils';
+import { requestTimeout, waitForIntentFulfilment } from './contract.utils';
 import { cosmosCreateDoubleCheckTx, cosmosFillCheck, cosmosRefundIntent } from './cosmos.utils';
 import { PlatformUtils } from './platform.utils';
 
@@ -229,10 +226,6 @@ const convertIntent = (
   chainList: ChainListType
 ): ReadableIntent => {
   console.time('convertIntent');
-  const isUSDMAlias = equalFold(token.symbol, 'USDM');
-  const displaySymbol = isUSDMAlias ? 'USDC' : token.symbol.toUpperCase();
-  const displayName = isUSDMAlias ? 'USD Coin' : token.name;
-  const displayLogo = isUSDMAlias ? getLogoFromSymbol('USDC') : token.logo;
 
   const sources = [];
   let sourcesTotal = new Decimal(0);
@@ -301,9 +294,6 @@ const convertIntent = (
       logo: token.logo,
       name: token.name,
       symbol: token.symbol.toUpperCase(),
-      displayLogo,
-      displayName,
-      displaySymbol,
     },
   };
 };
@@ -557,7 +547,7 @@ class UserAsset {
     return false;
   }
 
-  async iterate(chainList: ChainListType) {
+  iterate(feeStore: FeeStore) {
     const values = this.value.breakdown
       .filter((b) => new Decimal(b.balance).gt(0))
       .sort((a, b) => {
@@ -566,47 +556,36 @@ class UserAsset {
         return Decimal.sub(b.balance, a.balance).toNumber();
       });
 
-    return Promise.all(
-      values.map(async (b) => {
-        let balance = new Decimal(b.balance);
+    return values.map((b) => {
+      let balance = new Decimal(b.balance);
 
-        if (this.isDeposit(b.contractAddress, b.universe)) {
-          const ESTIMATED_DEPOSIT_GAS = 300_000n;
-          const chain = chainList.getChainByID(b.chain.id);
-          if (!chain) {
-            throw Errors.chainNotFound(b.chain.id);
-          }
-
-          const publicClient = createPublicClientWithFallback(chain);
-          const gasEstimate = await publicClient.estimateFeesPerGas();
-          const gasUnitPrice = gasEstimate.maxFeePerGas ?? gasEstimate.gasPrice;
-
-          const estimatedGasForDeposit = divDecimals(
-            ESTIMATED_DEPOSIT_GAS * gasUnitPrice,
-            chain.nativeCurrency.decimals
-          );
-
-          logger.debug('estimatedGasForDeposit', {
-            chainID: chain.id,
-            value: estimatedGasForDeposit.toFixed(),
-          });
-
-          if (new Decimal(b.balance).lessThan(estimatedGasForDeposit)) {
-            balance = new Decimal(0);
-          } else {
-            balance = new Decimal(b.balance).minus(estimatedGasForDeposit);
-          }
-        }
-
-        return {
-          balance,
-          chainID: b.chain.id,
+      if (this.isDeposit(b.contractAddress, b.universe)) {
+        const estimatedGasForDeposit = feeStore.calculateCollectionFee({
           decimals: b.decimals,
-          tokenContract: b.contractAddress,
-          universe: b.universe,
-        };
-      })
-    );
+          sourceChainID: b.chain.id,
+          sourceTokenAddress: b.contractAddress,
+        });
+
+        logger.debug('estimatedGasForDeposit', {
+          chainID: b.chain.id,
+          value: estimatedGasForDeposit.toFixed(),
+        });
+
+        if (new Decimal(b.balance).lessThan(estimatedGasForDeposit)) {
+          balance = new Decimal(0);
+        } else {
+          balance = new Decimal(b.balance).minus(estimatedGasForDeposit);
+        }
+      }
+
+      return {
+        balance,
+        chainID: b.chain.id,
+        decimals: b.decimals,
+        tokenContract: b.contractAddress,
+        universe: b.universe,
+      };
+    });
   }
 }
 class UserAssets {
@@ -617,30 +596,16 @@ class UserAssets {
   }
 
   find(symbol: string) {
-    if (equalFold(symbol, 'USDM')) {
-      // The USDM asset from segregateUSDMFromUSDC already contains merged/deduplicated
-      // USDC + USDm balances. Use it directly to avoid duplicates.
-      const usdmAsset = this.data.find((a) => equalFold(a.symbol, 'USDM'));
-      if (usdmAsset) {
-        return new UserAsset(usdmAsset);
-      }
-
-      // Fallback to USDC if USDM asset doesn't exist
-      const usdcAsset = this.data.find((a) => equalFold(a.symbol, 'USDC'));
-      if (usdcAsset) {
-        return new UserAsset({
-          ...usdcAsset,
-          icon: getLogoFromSymbol('USDM'),
-          symbol: 'USDM',
-        });
-      }
-
-      throw Errors.tokenNotSupported();
-    }
-
     for (const asset of this.data) {
       if (equalFold(asset.symbol, symbol)) {
         return new UserAsset(asset);
+      }
+
+      // For assets which are grouped under equivalent currency, but have their own symbol.
+      for (const chainAsset of asset.breakdown) {
+        if (equalFold(chainAsset.symbol, symbol)) {
+          return new UserAsset(asset);
+        }
       }
     }
     throw Errors.tokenNotSupported();
