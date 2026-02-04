@@ -70,7 +70,7 @@ const segregateUSDMFromUSDC = (
   assets: ReturnType<typeof vscBalancesToAssets>,
   chainList: ChainListType
 ) => {
-  const megaethAddress = TOKEN_CONTRACT_ADDRESSES.USDC[SUPPORTED_CHAINS.MEGAETH];
+  const megaethAddress = TOKEN_CONTRACT_ADDRESSES.USDM[SUPPORTED_CHAINS.MEGAETH];
   const usdcIndex = assets.findIndex((a) => equalFold(a.symbol, 'USDC'));
   if (usdcIndex === -1) {
     return assets;
