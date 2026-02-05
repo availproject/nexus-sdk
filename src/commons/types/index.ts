@@ -410,13 +410,13 @@ export type FeeStoreData = {
   fee: {
     collection: {
       chainID: number;
-      fee: number;
+      fee: bigint;
       tokenAddress: string;
       universe: Universe;
     }[];
     fulfilment: {
       chainID: number;
-      fee: number;
+      fee: bigint;
       tokenAddress: string;
       universe: Universe;
     }[];
