@@ -731,7 +731,8 @@ export const vscBalancesToAssets = (
       const decimals = token ? token.decimals : chain.nativeCurrency.decimals;
 
       if (token) {
-        const asset = assets.find((s) => equalFold(s.symbol, token.symbol));
+        const groupSymbol = token.equivalentCurrency ?? token.symbol;
+        const asset = assets.find((s) => equalFold(s.symbol, groupSymbol));
         if (asset) {
           asset.balance = new Decimal(asset.balance).add(currency.balance).toFixed();
           asset.balanceInFiat = new Decimal(asset.balanceInFiat)
@@ -747,12 +748,12 @@ export const vscBalancesToAssets = (
               name: chain.name,
             },
             contractAddress: tokenAddress,
+            symbol: token.symbol,
             decimals,
             universe: balance.universe,
           });
         } else {
           assets.push({
-            abstracted: true,
             balance: currency.balance,
             balanceInFiat: new Decimal(currency.value).toDecimalPlaces(2).toNumber(),
             breakdown: [
@@ -764,14 +765,15 @@ export const vscBalancesToAssets = (
                   logo: chain.custom.icon,
                   name: chain.name,
                 },
+                symbol: token.symbol,
                 contractAddress: tokenAddress,
                 decimals,
                 universe: balance.universe,
               },
             ],
             decimals: token.decimals,
-            icon: getLogoFromSymbol(token.symbol),
-            symbol: token.symbol,
+            icon: getLogoFromSymbol(groupSymbol),
+            symbol: groupSymbol,
           });
         }
       }
@@ -844,7 +846,9 @@ export const ankrBalanceToAssets = (
     if (!chain) {
       continue;
     }
-    const existingAsset = assets.find((a) => equalFold(a.symbol, asset.tokenData.symbol));
+    const resolvedToken = chainList.getTokenByAddress(chain.id, asset.tokenAddress);
+    const groupSymbol = resolvedToken?.equivalentCurrency ?? asset.tokenData.symbol;
+    const existingAsset = assets.find((a) => equalFold(a.symbol, groupSymbol));
     if (existingAsset) {
       if (
         !existingAsset.breakdown.some(
@@ -864,6 +868,7 @@ export const ankrBalanceToAssets = (
             logo: chain.custom.icon,
             name: chain.name,
           },
+          symbol: asset.tokenData.symbol,
           contractAddress: asset.tokenAddress,
           decimals: asset.tokenData.decimals,
           universe: asset.universe,
@@ -871,7 +876,6 @@ export const ankrBalanceToAssets = (
       }
     } else {
       assets.push({
-        abstracted: true,
         balance: asset.balance,
         balanceInFiat: new Decimal(asset.balanceUSD).toDecimalPlaces(2).toNumber(),
         breakdown: [
@@ -883,6 +887,7 @@ export const ankrBalanceToAssets = (
               logo: chain.custom.icon,
               name: chain.name,
             },
+            symbol: asset.tokenData.symbol,
             contractAddress: asset.tokenAddress,
             decimals: asset.tokenData.decimals,
             universe: asset.universe,
@@ -890,7 +895,7 @@ export const ankrBalanceToAssets = (
         ],
         decimals: asset.tokenData.decimals,
         icon: asset.tokenData.icon,
-        symbol: asset.tokenData.symbol,
+        symbol: groupSymbol,
       });
     }
   }

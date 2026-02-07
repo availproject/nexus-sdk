@@ -11,6 +11,7 @@ const SymbolToLogo: { [k: string]: string } = {
   POL: 'https://coin-images.coingecko.com/coins/images/32440/standard/polygon.png',
   USDC: 'https://coin-images.coingecko.com/coins/images/6319/large/usdc.png',
   USDT: 'https://coin-images.coingecko.com/coins/images/35023/large/USDT.png',
+  USDM: 'https://assets.coingecko.com/coins/images/31719/large/usdm.png',
   WETH: 'https://coin-images.coingecko.com/coins/images/2518/standard/weth.png',
   HYPE: 'https://assets.coingecko.com/coins/images/50882/large/hyperliquid.jpg',
   CBTC: 'https://raw.githubusercontent.com/availproject/nexus-assets/main/tokens/cbtc/logo.png',
