@@ -608,7 +608,7 @@ class UserAssets {
         }
       }
     }
-    throw Errors.tokenNotSupported();
+    throw Errors.tokenNotFound(symbol, 0);
   }
 
   findOnChain(chainID: number, address: `0x${string}`) {

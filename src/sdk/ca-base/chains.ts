@@ -110,7 +110,9 @@ class ChainList {
       throw Errors.chainNotFound(chainID);
     }
 
-    const token = chain.custom.knownTokens.find((t) => equalFold(t.symbol, tokenSymbol));
+    const token = chain.custom.knownTokens.find(
+      (t) => equalFold(t.equivalentCurrency, tokenSymbol) || equalFold(t.symbol, tokenSymbol)
+    );
     if (!token) {
       if (equalFold(chain.nativeCurrency.symbol, tokenSymbol)) {
         return {
@@ -727,7 +729,7 @@ const MAINNET_CHAINS: Chain[] = [
       icon: 'https://assets.coingecko.com/coins/images/69995/large/ICON.png',
       knownTokens: [
         {
-          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDC[SUPPORTED_CHAINS.MEGAETH],
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDM[SUPPORTED_CHAINS.MEGAETH],
           decimals: 18,
           logo: getLogoFromSymbol('USDM'),
           name: 'USDm',
