@@ -230,15 +230,32 @@ const convertIntent = (
   const sources = [];
   let sourcesTotal = new Decimal(0);
   for (const s of intent.sources) {
-    const chainInfo = chainList.getChainByID(s.chainID);
-    if (!chainInfo) {
+    const data = chainList.getChainAndTokenByAddress(s.chainID, s.tokenContract);
+    if (!data) {
       throw Errors.chainNotFound(s.chainID);
+    }
+    if (!data.token) {
+      throw Errors.tokenNotFound(token.symbol, s.chainID);
     }
     sources.push({
       amount: s.amount.toFixed(),
-      chainID: chainInfo.id,
-      chainLogo: chainInfo.custom.icon,
-      chainName: chainInfo.name,
+      amountRaw: mulDecimals(s.amount, data.token.decimals),
+      token: {
+        decimals: data.token.decimals,
+        symbol: data.token.symbol,
+        logo: data.token.logo,
+        contractAddress: s.tokenContract,
+      },
+      chain: {
+        id: data.chain.id,
+        logo: data.chain.custom.icon,
+        name: data.chain.name,
+      },
+
+      // Deprecated ones but will be here for compatibility
+      chainID: data.chain.id,
+      chainLogo: data.chain.custom.icon,
+      chainName: data.chain.name,
       contractAddress: s.tokenContract,
     });
     sourcesTotal = sourcesTotal.plus(s.amount);
@@ -246,15 +263,32 @@ const convertIntent = (
 
   const allSources = [];
   for (const s of intent.allSources) {
-    const chainInfo = chainList.getChainByID(s.chainID);
-    if (!chainInfo) {
+    const data = chainList.getChainAndTokenByAddress(s.chainID, s.tokenContract);
+    if (!data) {
       throw Errors.chainNotFound(s.chainID);
+    }
+    if (!data.token) {
+      throw Errors.tokenNotFound(token.symbol, s.chainID);
     }
     allSources.push({
       amount: s.amount.toFixed(),
-      chainID: chainInfo.id,
-      chainLogo: chainInfo.custom.icon,
-      chainName: chainInfo.name,
+      amountRaw: mulDecimals(s.amount, data.token.decimals),
+      token: {
+        decimals: data.token.decimals,
+        symbol: data.token.symbol,
+        logo: data.token.logo,
+        contractAddress: s.tokenContract,
+      },
+      chain: {
+        id: data.chain.id,
+        logo: data.chain.custom.icon,
+        name: data.chain.name,
+      },
+
+      // Deprecated ones but will be here for compatibility
+      chainID: data.chain.id,
+      chainLogo: data.chain.custom.icon,
+      chainName: data.chain.name,
       contractAddress: s.tokenContract,
     });
   }

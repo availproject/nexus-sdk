@@ -534,11 +534,37 @@ export type OraclePriceResponse = {
 
 export type ReadableIntent = {
   allSources: {
-    amount: string;
+    /**
+     * @deprecated use chain.id
+     */
     chainID: number;
+    /**
+     * @deprecated use chain.logo
+     */
     chainLogo: string | undefined;
+    /**
+     * @deprecated use chain.name
+     */
     chainName: string;
+    /**
+     * @deprecated use token.contractAddress
+     */
     contractAddress: `0x${string}`;
+
+    // New ones
+    amount: string;
+    amountRaw: bigint;
+    chain: {
+      id: number;
+      name: string;
+      logo: string;
+    };
+    token: {
+      decimals: number;
+      symbol: string;
+      logo: string;
+      contractAddress: Hex;
+    };
   }[];
   destination: {
     amount: string;
@@ -554,11 +580,37 @@ export type ReadableIntent = {
     total: string;
   };
   sources: {
-    amount: string;
+    /**
+     * @deprecated use chain.id
+     */
     chainID: number;
+    /**
+     * @deprecated use chain.logo
+     */
     chainLogo: string | undefined;
+    /**
+     * @deprecated use chain.name
+     */
     chainName: string;
+    /**
+     * @deprecated use token.contractAddress
+     */
     contractAddress: `0x${string}`;
+
+    // New ones
+    amount: string;
+    amountRaw: bigint;
+    chain: {
+      id: number;
+      name: string;
+      logo: string;
+    };
+    token: {
+      decimals: number;
+      symbol: string;
+      logo: string;
+      contractAddress: Hex;
+    };
   }[];
   sourcesTotal: string;
   token: {
