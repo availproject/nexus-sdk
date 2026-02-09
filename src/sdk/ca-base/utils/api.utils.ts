@@ -415,7 +415,7 @@ const getFeeStore = async (cosmosQueryClient: CosmosQueryClient) => {
       p.value.ProtocolFees?.collectionFees.map((fee) => {
         return {
           chainID: bytesToNumber(fee.chainID),
-          fee: bytesToBigInt(fee.fee),
+          fee: fee.fee.length === 0 ? 0n : bytesToBigInt(fee.fee),
           tokenAddress: convertAddressByUniverse(toHex(fee.tokenAddress), fee.universe),
           universe: fee.universe,
         };
@@ -424,7 +424,7 @@ const getFeeStore = async (cosmosQueryClient: CosmosQueryClient) => {
       p.value.ProtocolFees?.fulfilmentFees.map((fee) => {
         return {
           chainID: bytesToNumber(fee.chainID),
-          fee: bytesToBigInt(fee.fee),
+          fee: fee.fee.length === 0 ? 0n : bytesToBigInt(fee.fee),
           tokenAddress: convertAddressByUniverse(toHex(fee.tokenAddress), fee.universe),
           universe: fee.universe,
         };
