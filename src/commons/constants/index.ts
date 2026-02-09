@@ -87,7 +87,7 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
     id: SUPPORTED_CHAINS.CITREA,
     name: 'Citrea Mainnet',
     shortName: 'citrea',
-    logo: 'https://assets.coingecko.com/coins/images/279/small/ethereum.png',
+    logo: 'https://raw.githubusercontent.com/availproject/nexus-assets/main/chains/citrea/logo.png',
     nativeCurrency: { name: 'CBTC', symbol: 'cBTC', decimals: 18 },
     rpcUrls: ['https://rpcs.avail.so/citrea'],
     blockExplorerUrls: ['https://explorer.mainnet.citrea.xyz'],
