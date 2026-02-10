@@ -14,6 +14,7 @@ import {
   createRequestEVMSignature,
   createRequestTronSignature,
   mulDecimals,
+  type UserAsset,
 } from './common.utils';
 import { PlatformUtils } from './platform.utils';
 import { tronHexToEvmAddress } from './tron.utils';
@@ -229,25 +230,25 @@ const createRFFromIntent = async (
   };
 };
 
-const calculateMaxBridgeFee = ({
+const calculateMaxBridgeFee = async ({
   assets,
   feeStore,
   dst,
+  chainList,
 }: {
   dst: {
     chainId: number;
     tokenAddress: Hex;
     decimals: number;
   };
-  assets: {
-    chainID: number;
-    contractAddress: `0x${string}`;
-    decimals: number;
-    balance: Decimal;
-  }[];
+  assets: UserAsset;
   feeStore: FeeStore;
+  chainList: ChainListType;
 }) => {
-  const borrow = assets.reduce((accumulator, asset) => {
+  const borrow = assets.value.breakdown.reduce((accumulator, asset) => {
+    if (asset.chain.id === dst.chainId) {
+      return accumulator;
+    }
     return accumulator.add(asset.balance);
   }, new Decimal(0));
 
@@ -270,18 +271,27 @@ const calculateMaxBridgeFee = ({
     borrowWithFee: borrowWithFee.toFixed(),
   });
 
-  for (const asset of assets) {
-    if (!asset.balance.gt(0)) {
+  for (const asset of await assets.iterate(chainList)) {
+    if (asset.chainID === dst.chainId) {
       continue;
     }
-    sourceChainIds.push(asset.chainID);
-    const collectionFee = feeStore.calculateCollectionFee({
-      decimals: asset.decimals,
-      sourceChainID: asset.chainID,
-      sourceTokenAddress: asset.contractAddress,
-    });
 
-    borrowWithFee = borrowWithFee.add(collectionFee);
+    if (asset.balance.lte(0)) {
+      continue;
+    }
+
+    sourceChainIds.push(asset.chainID);
+
+    const isNative = isNativeAddress(asset.universe, asset.tokenContract);
+    if (!isNative) {
+      const collectionFee = feeStore.calculateCollectionFee({
+        decimals: asset.decimals,
+        sourceChainID: asset.chainID,
+        sourceTokenAddress: asset.tokenContract,
+      });
+
+      borrowWithFee = borrowWithFee.add(collectionFee);
+    }
 
     const solverFee = feeStore.calculateSolverFee({
       borrowAmount: asset.balance,
@@ -289,7 +299,7 @@ const calculateMaxBridgeFee = ({
       destinationChainID: dst.chainId,
       destinationTokenAddress: dst.tokenAddress,
       sourceChainID: asset.chainID,
-      sourceTokenAddress: convertToEVMAddress(asset.contractAddress),
+      sourceTokenAddress: convertToEVMAddress(asset.tokenContract),
     });
 
     borrowWithFee = borrowWithFee.add(solverFee);

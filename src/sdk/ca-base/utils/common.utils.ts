@@ -562,19 +562,6 @@ class UserAsset {
 
   constructor(public value: UserAssetDatum) {}
 
-  getBridgeAssets(dstChainId: number) {
-    return this.value.breakdown
-      .filter((b) => b.chain.id !== dstChainId)
-      .map((b) => {
-        return {
-          chainID: b.chain.id,
-          contractAddress: b.contractAddress,
-          decimals: b.decimals,
-          balance: new Decimal(b.balance),
-        };
-      });
-  }
-
   getBalanceOnChain(chainID: number, tokenAddress?: `0x${string}`) {
     return (
       this.value.breakdown.find((b) => {
