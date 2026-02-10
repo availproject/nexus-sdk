@@ -902,7 +902,7 @@ class BridgeHandler {
       throw Errors.assetNotFound(token.symbol);
     }
 
-    const allSources = asset.iterate(feeStore).map((v) => {
+    const allSources = (await asset.iterate(this.options.chainList)).map((v) => {
       const chain = this.options.chainList.getChainByID(v.chainID);
       if (!chain) {
         throw Errors.chainNotFound(v.chainID);
