@@ -1,20 +1,26 @@
 import { Universe } from '@avail-project/ca-common';
 import { equalFold } from './utils';
 
+const NEXUS_ASSETS_BASE_URL =
+  'https://raw.githubusercontent.com/availproject/nexus-assets/main/tokens';
+
+const NEXUS_CHAIN_ASSETS_BASE_URL =
+  'https://raw.githubusercontent.com/availproject/nexus-assets/main/chains';
+
 const SymbolToLogo: { [k: string]: string } = {
-  BNB: 'https://assets.coingecko.com/coins/images/825/large/bnb-icon2_2x.png',
-  AVAX: 'https://assets.coingecko.com/coins/images/12559/standard/Avalanche_Circle_RedWhite_Trans.png',
-  ETH: 'https://coin-images.coingecko.com/coins/images/279/large/ethereum.png',
-  KAIA: 'https://assets.coingecko.com/coins/images/39901/large/KAIA.png',
-  MATIC: 'https://coin-images.coingecko.com/coins/images/32440/standard/polygon.png',
-  MON: 'https://assets.coingecko.com/coins/images/38927/large/monad.jpg',
-  POL: 'https://coin-images.coingecko.com/coins/images/32440/standard/polygon.png',
-  USDC: 'https://coin-images.coingecko.com/coins/images/6319/large/usdc.png',
-  USDT: 'https://coin-images.coingecko.com/coins/images/35023/large/USDT.png',
+  AVAX: `${NEXUS_ASSETS_BASE_URL}/avax/logo.png`,
+  BNB: `${NEXUS_ASSETS_BASE_URL}/bnb/logo.png`,
+  ETH: `${NEXUS_ASSETS_BASE_URL}/eth/logo.png`,
+  KAIA: `${NEXUS_ASSETS_BASE_URL}/kaia/logo.png`,
+  MATIC: `${NEXUS_ASSETS_BASE_URL}/matic/logo.png`,
+  MON: `${NEXUS_ASSETS_BASE_URL}/mon/logo.png`,
+  POL: `${NEXUS_ASSETS_BASE_URL}/pol/logo.png`,
+  USDC: `${NEXUS_ASSETS_BASE_URL}/usdc/logo.png`,
+  USDT: `${NEXUS_ASSETS_BASE_URL}/usdt/logo.png`,
   USDM: 'https://assets.coingecko.com/coins/images/31719/large/usdm.png',
-  WETH: 'https://coin-images.coingecko.com/coins/images/2518/standard/weth.png',
-  HYPE: 'https://assets.coingecko.com/coins/images/50882/large/hyperliquid.jpg',
-  CBTC: 'https://raw.githubusercontent.com/availproject/nexus-assets/main/tokens/cbtc/logo.png',
+  WETH: `${NEXUS_ASSETS_BASE_URL}/weth/logo.png`,
+  HYPE: `${NEXUS_ASSETS_BASE_URL}/hype/logo.png`,
+  CBTC: `${NEXUS_ASSETS_BASE_URL}/cbtc/logo.png`,
 };
 
 const getLogoFromSymbol = (symbol: string) => {
@@ -41,4 +47,10 @@ const ZERO_ADDRESS: `0x${string}` = '0x0000000000000000000000000000000000000000'
 
 const ZERO_ADDRESS_BYTES_32 = '0x0000000000000000000000000000000000000000000000000000000000000000';
 
-export { getLogoFromSymbol, INTENT_EXPIRY, isNativeAddress, ZERO_ADDRESS };
+export {
+  getLogoFromSymbol,
+  INTENT_EXPIRY,
+  isNativeAddress,
+  NEXUS_CHAIN_ASSETS_BASE_URL,
+  ZERO_ADDRESS,
+};
