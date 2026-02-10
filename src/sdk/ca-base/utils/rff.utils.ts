@@ -282,16 +282,13 @@ const calculateMaxBridgeFee = async ({
 
     sourceChainIds.push(asset.chainID);
 
-    const isNative = isNativeAddress(asset.universe, asset.tokenContract);
-    if (!isNative) {
-      const collectionFee = feeStore.calculateCollectionFee({
-        decimals: asset.decimals,
-        sourceChainID: asset.chainID,
-        sourceTokenAddress: asset.tokenContract,
-      });
+    const collectionFee = feeStore.calculateCollectionFee({
+      decimals: asset.decimals,
+      sourceChainID: asset.chainID,
+      sourceTokenAddress: asset.tokenContract,
+    });
 
-      borrowWithFee = borrowWithFee.add(collectionFee);
-    }
+    borrowWithFee = borrowWithFee.add(collectionFee);
 
     const solverFee = feeStore.calculateSolverFee({
       borrowAmount: asset.balance,
