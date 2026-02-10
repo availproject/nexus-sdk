@@ -618,9 +618,6 @@ export type ReadableIntent = {
     logo: string | undefined;
     name: string;
     symbol: string;
-    displaySymbol?: string;
-    displayName?: string;
-    displayLogo?: string;
   };
 };
 
