@@ -24,6 +24,7 @@ type TokenInfo = {
   logo: string;
   name: string;
   symbol: string;
+  equivalentCurrency?: string;
 };
 
 type NexusNetwork = 'mainnet' | 'testnet' | NetworkConfig;
@@ -85,7 +86,7 @@ export interface AllowanceResponse {
   token: string;
 }
 
-export type SUPPORTED_TOKENS = 'ETH' | 'USDC' | 'USDT';
+export type SUPPORTED_TOKENS = 'ETH' | 'USDC' | 'USDT' | 'USDM';
 export type SUPPORTED_CHAINS_IDS = (typeof SUPPORTED_CHAINS)[keyof typeof SUPPORTED_CHAINS];
 
 /**
@@ -533,11 +534,37 @@ export type OraclePriceResponse = {
 
 export type ReadableIntent = {
   allSources: {
-    amount: string;
+    /**
+     * @deprecated use chain.id
+     */
     chainID: number;
+    /**
+     * @deprecated use chain.logo
+     */
     chainLogo: string | undefined;
+    /**
+     * @deprecated use chain.name
+     */
     chainName: string;
+    /**
+     * @deprecated use token.contractAddress
+     */
     contractAddress: `0x${string}`;
+
+    // New ones
+    amount: string;
+    amountRaw: bigint;
+    chain: {
+      id: number;
+      name: string;
+      logo: string;
+    };
+    token: {
+      decimals: number;
+      symbol: string;
+      logo: string;
+      contractAddress: Hex;
+    };
   }[];
   destination: {
     amount: string;
@@ -553,11 +580,37 @@ export type ReadableIntent = {
     total: string;
   };
   sources: {
-    amount: string;
+    /**
+     * @deprecated use chain.id
+     */
     chainID: number;
+    /**
+     * @deprecated use chain.logo
+     */
     chainLogo: string | undefined;
+    /**
+     * @deprecated use chain.name
+     */
     chainName: string;
+    /**
+     * @deprecated use token.contractAddress
+     */
     contractAddress: `0x${string}`;
+
+    // New ones
+    amount: string;
+    amountRaw: bigint;
+    chain: {
+      id: number;
+      name: string;
+      logo: string;
+    };
+    token: {
+      decimals: number;
+      symbol: string;
+      logo: string;
+      contractAddress: Hex;
+    };
   }[];
   sourcesTotal: string;
   token: {
@@ -709,10 +762,10 @@ export type AssetBreakdown = {
   contractAddress: `0x${string}`;
   decimals: number;
   universe: Universe;
+  symbol: string;
 };
 
 export type UserAssetDatum = {
-  abstracted?: boolean;
   balance: string;
   balanceInFiat: number;
   breakdown: AssetBreakdown[];

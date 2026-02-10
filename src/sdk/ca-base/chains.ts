@@ -84,7 +84,9 @@ class ChainList {
       return undefined;
     }
 
-    const token = chain.custom.knownTokens.find((t) => equalFold(t.symbol, symbol));
+    const token = chain.custom.knownTokens.find(
+      (t) => equalFold(t.equivalentCurrency, symbol) || equalFold(t.symbol, symbol)
+    );
     if (!token) {
       if (equalFold(chain.nativeCurrency.symbol, symbol)) {
         return {
@@ -108,7 +110,9 @@ class ChainList {
       throw Errors.chainNotFound(chainID);
     }
 
-    const token = chain.custom.knownTokens.find((t) => equalFold(t.symbol, tokenSymbol));
+    const token = chain.custom.knownTokens.find(
+      (t) => equalFold(t.equivalentCurrency, tokenSymbol) || equalFold(t.symbol, tokenSymbol)
+    );
     if (!token) {
       if (equalFold(chain.nativeCurrency.symbol, tokenSymbol)) {
         return {
@@ -710,6 +714,43 @@ const MAINNET_CHAINS: Chain[] = [
         http: ['https://rpcs.avail.so/optimism'],
         publicHttp: ['https://mainnet.optimism.io', 'https://1rpc.io/op'],
         webSocket: ['wss://rpcs.avail.so/optimism'],
+      },
+    },
+    universe: Universe.ETHEREUM,
+  },
+  {
+    blockExplorers: {
+      default: {
+        name: 'MegaETH Blockscout',
+        url: 'https://megaeth.blockscout.com/',
+      },
+    },
+    custom: {
+      icon: 'https://assets.coingecko.com/coins/images/69995/large/ICON.png',
+      knownTokens: [
+        {
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDM[SUPPORTED_CHAINS.MEGAETH],
+          decimals: 18,
+          logo: getLogoFromSymbol('USDM'),
+          name: 'USDm',
+          symbol: 'USDM',
+          equivalentCurrency: 'USDC',
+        },
+      ],
+    },
+    id: SUPPORTED_CHAINS.MEGAETH,
+    name: 'MegaETH',
+    ankrName: '',
+    nativeCurrency: {
+      decimals: 18,
+      name: 'Ether',
+      symbol: 'ETH',
+    },
+    rpcUrls: {
+      default: {
+        http: ['https://rpcs.avail.so/megaeth'],
+        publicHttp: [],
+        webSocket: ['wss://rpcs.avail.so/megaeth'],
       },
     },
     universe: Universe.ETHEREUM,

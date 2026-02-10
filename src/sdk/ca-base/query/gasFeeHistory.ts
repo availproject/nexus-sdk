@@ -33,10 +33,9 @@ export function mean(nums: readonly bigint[]): bigint {
  * Uses percentiles of recent blocks' priority fees to determine appropriate maxFeePerGas
  * for different transaction speeds
  *
- * - Low (25th percentile): Slower transactions, lower cost
- * - Medium (50th percentile): Balanced speed and cost
- * - High (75th percentile): Faster confirmation, higher cost
- * - UltraHigh (90th percentile): Fastest confirmation, highest cost
+ * - Low (50th percentile): Balanced speed and cost
+ * - Medium (75th percentile): Faster confirmation, higher cost
+ * - High (90th percentile): Fastest confirmation, highest cost
  */
 export const getGasPriceRecommendations = async (
   publicClient: PublicClient

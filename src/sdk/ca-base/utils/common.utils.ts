@@ -51,11 +51,8 @@ import {
 import { ChainList } from '../chains';
 import { getLogoFromSymbol, isNativeAddress, ZERO_ADDRESS } from '../constants';
 import { Errors } from '../errors';
-import {
-  createPublicClientWithFallback,
-  requestTimeout,
-  waitForIntentFulfilment,
-} from './contract.utils';
+import type { FeeStore } from './api.utils';
+import { requestTimeout, waitForIntentFulfilment } from './contract.utils';
 import { cosmosCreateDoubleCheckTx, cosmosFillCheck, cosmosRefundIntent } from './cosmos.utils';
 import { PlatformUtils } from './platform.utils';
 
@@ -229,18 +226,36 @@ const convertIntent = (
   chainList: ChainListType
 ): ReadableIntent => {
   console.time('convertIntent');
+
   const sources = [];
   let sourcesTotal = new Decimal(0);
   for (const s of intent.sources) {
-    const chainInfo = chainList.getChainByID(s.chainID);
-    if (!chainInfo) {
+    const data = chainList.getChainAndTokenByAddress(s.chainID, s.tokenContract);
+    if (!data) {
       throw Errors.chainNotFound(s.chainID);
+    }
+    if (!data.token) {
+      throw Errors.tokenNotFound(token.symbol, s.chainID);
     }
     sources.push({
       amount: s.amount.toFixed(),
-      chainID: chainInfo.id,
-      chainLogo: chainInfo.custom.icon,
-      chainName: chainInfo.name,
+      amountRaw: mulDecimals(s.amount, data.token.decimals),
+      token: {
+        decimals: data.token.decimals,
+        symbol: data.token.symbol,
+        logo: data.token.logo,
+        contractAddress: s.tokenContract,
+      },
+      chain: {
+        id: data.chain.id,
+        logo: data.chain.custom.icon,
+        name: data.chain.name,
+      },
+
+      // Deprecated ones but will be here for compatibility
+      chainID: data.chain.id,
+      chainLogo: data.chain.custom.icon,
+      chainName: data.chain.name,
       contractAddress: s.tokenContract,
     });
     sourcesTotal = sourcesTotal.plus(s.amount);
@@ -248,15 +263,32 @@ const convertIntent = (
 
   const allSources = [];
   for (const s of intent.allSources) {
-    const chainInfo = chainList.getChainByID(s.chainID);
-    if (!chainInfo) {
+    const data = chainList.getChainAndTokenByAddress(s.chainID, s.tokenContract);
+    if (!data) {
       throw Errors.chainNotFound(s.chainID);
+    }
+    if (!data.token) {
+      throw Errors.tokenNotFound(token.symbol, s.chainID);
     }
     allSources.push({
       amount: s.amount.toFixed(),
-      chainID: chainInfo.id,
-      chainLogo: chainInfo.custom.icon,
-      chainName: chainInfo.name,
+      amountRaw: mulDecimals(s.amount, data.token.decimals),
+      token: {
+        decimals: data.token.decimals,
+        symbol: data.token.symbol,
+        logo: data.token.logo,
+        contractAddress: s.tokenContract,
+      },
+      chain: {
+        id: data.chain.id,
+        logo: data.chain.custom.icon,
+        name: data.chain.name,
+      },
+
+      // Deprecated ones but will be here for compatibility
+      chainID: data.chain.id,
+      chainLogo: data.chain.custom.icon,
+      chainName: data.chain.name,
       contractAddress: s.tokenContract,
     });
   }
@@ -549,7 +581,7 @@ class UserAsset {
     return false;
   }
 
-  async iterate(chainList: ChainListType) {
+  iterate(feeStore: FeeStore) {
     const values = this.value.breakdown
       .filter((b) => new Decimal(b.balance).gt(0))
       .sort((a, b) => {
@@ -558,47 +590,36 @@ class UserAsset {
         return Decimal.sub(b.balance, a.balance).toNumber();
       });
 
-    return Promise.all(
-      values.map(async (b) => {
-        let balance = new Decimal(b.balance);
+    return values.map((b) => {
+      let balance = new Decimal(b.balance);
 
-        if (this.isDeposit(b.contractAddress, b.universe)) {
-          const ESTIMATED_DEPOSIT_GAS = 300_000n;
-          const chain = chainList.getChainByID(b.chain.id);
-          if (!chain) {
-            throw Errors.chainNotFound(b.chain.id);
-          }
-
-          const publicClient = createPublicClientWithFallback(chain);
-          const gasEstimate = await publicClient.estimateFeesPerGas();
-          const gasUnitPrice = gasEstimate.maxFeePerGas ?? gasEstimate.gasPrice;
-
-          const estimatedGasForDeposit = divDecimals(
-            ESTIMATED_DEPOSIT_GAS * gasUnitPrice,
-            chain.nativeCurrency.decimals
-          );
-
-          logger.debug('estimatedGasForDeposit', {
-            chainID: chain.id,
-            value: estimatedGasForDeposit.toFixed(),
-          });
-
-          if (new Decimal(b.balance).lessThan(estimatedGasForDeposit)) {
-            balance = new Decimal(0);
-          } else {
-            balance = new Decimal(b.balance).minus(estimatedGasForDeposit);
-          }
-        }
-
-        return {
-          balance,
-          chainID: b.chain.id,
+      if (this.isDeposit(b.contractAddress, b.universe)) {
+        const estimatedGasForDeposit = feeStore.calculateCollectionFee({
           decimals: b.decimals,
-          tokenContract: b.contractAddress,
-          universe: b.universe,
-        };
-      })
-    );
+          sourceChainID: b.chain.id,
+          sourceTokenAddress: b.contractAddress,
+        });
+
+        logger.debug('estimatedGasForDeposit', {
+          chainID: b.chain.id,
+          value: estimatedGasForDeposit.toFixed(),
+        });
+
+        if (new Decimal(b.balance).lessThan(estimatedGasForDeposit)) {
+          balance = new Decimal(0);
+        } else {
+          balance = new Decimal(b.balance).minus(estimatedGasForDeposit);
+        }
+      }
+
+      return {
+        balance,
+        chainID: b.chain.id,
+        decimals: b.decimals,
+        tokenContract: b.contractAddress,
+        universe: b.universe,
+      };
+    });
   }
 }
 class UserAssets {
@@ -613,8 +634,15 @@ class UserAssets {
       if (equalFold(asset.symbol, symbol)) {
         return new UserAsset(asset);
       }
+
+      // For assets which are grouped under equivalent currency, but have their own symbol.
+      for (const chainAsset of asset.breakdown) {
+        if (equalFold(chainAsset.symbol, symbol)) {
+          return new UserAsset(asset);
+        }
+      }
     }
-    throw Errors.tokenNotSupported();
+    throw Errors.tokenNotFound(symbol, 0);
   }
 
   findOnChain(chainID: number, address: `0x${string}`) {

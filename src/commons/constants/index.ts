@@ -13,6 +13,7 @@ export const MAINNET_CHAIN_IDS = {
   BNB: 56,
   HYPEREVM: 999,
   // TRON: 728126428,
+  MEGAETH: 4326,
   MONAD: 143,
 } as const;
 
@@ -86,7 +87,7 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
     id: SUPPORTED_CHAINS.CITREA,
     name: 'Citrea Mainnet',
     shortName: 'citrea',
-    logo: 'https://assets.coingecko.com/coins/images/279/small/ethereum.png',
+    logo: 'https://raw.githubusercontent.com/availproject/nexus-assets/main/chains/citrea/logo.png',
     nativeCurrency: { name: 'CBTC', symbol: 'cBTC', decimals: 18 },
     rpcUrls: ['https://rpcs.avail.so/citrea'],
     blockExplorerUrls: ['https://explorer.mainnet.citrea.xyz'],
@@ -184,6 +185,19 @@ export const CHAIN_METADATA: Record<number, ChainMetadata> = {
     rpcUrls: ['https://rpc.hyperliquid.xyz/evm'],
     blockExplorerUrls: ['https://hyperevmscan.io/'],
   },
+  [SUPPORTED_CHAINS.MEGAETH]: {
+    id: 4326,
+    name: 'MegaETH',
+    shortName: 'megaETH',
+    logo: 'https://assets.coingecko.com/coins/images/69995/large/ICON.png',
+    nativeCurrency: {
+      decimals: 18,
+      name: 'Ether',
+      symbol: 'ETH',
+    },
+    rpcUrls: ['https://rpcs.avail.so/megaeth'],
+    blockExplorerUrls: ['https://megaeth.blockscout.com/'],
+  },
 
   // Testnet chains
   [SUPPORTED_CHAINS.SEPOLIA]: {
@@ -280,6 +294,7 @@ export const MAINNET_CHAINS = [
   SUPPORTED_CHAINS.KAIA,
   SUPPORTED_CHAINS.BNB,
   SUPPORTED_CHAINS.HYPEREVM,
+  SUPPORTED_CHAINS.MEGAETH,
   // SUPPORTED_CHAINS.TRON,
 ] as const;
 
@@ -342,6 +357,9 @@ export const TOKEN_CONTRACT_ADDRESSES = {
     [SUPPORTED_CHAINS.ARBITRUM_SEPOLIA]: '0xF954d4A5859b37De88a91bdbb8Ad309056FB04B1',
     [SUPPORTED_CHAINS.OPTIMISM_SEPOLIA]: '0x6462693c2F21AC0E517f12641D404895030F7426',
     [SUPPORTED_CHAINS.MONAD_TESTNET]: '0x1c56F176D6735888fbB6f8bD9ADAd8Ad7a023a0b',
+  },
+  USDM: {
+    [SUPPORTED_CHAINS.MEGAETH]: '0xFAfDdbb3FC7688494971a79cc65DCa3EF82079E7',
   },
 } as const;
 
