@@ -51,7 +51,7 @@
     "npm": ">=9.0.0"
   },
   "dependencies": {
-    "@avail-project/ca-common": "github:availproject/ca-common#91801f57abd83929bc4d9af0a39815b9038234b5",
+    "@avail-project/ca-common": "1.0.0",
     "@cosmjs/proto-signing": "^0.34.1",
     "@cosmjs/stargate": "^0.34.1",
     "@metamask/safe-event-emitter": "3.1.2",
