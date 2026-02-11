@@ -9,12 +9,12 @@ import { Errors } from '../errors';
 import { convertToEVMAddress } from '../swap/utils';
 import type { FeeStore } from './api.utils';
 import {
+  assetListWithDepositDeducted,
   convertTo32Bytes,
   convertTo32BytesHex,
   createRequestEVMSignature,
   createRequestTronSignature,
   mulDecimals,
-  type UserAsset,
 } from './common.utils';
 import { PlatformUtils } from './platform.utils';
 import { tronHexToEvmAddress } from './tron.utils';
@@ -241,12 +241,18 @@ const calculateMaxBridgeFee = async ({
     tokenAddress: Hex;
     decimals: number;
   };
-  assets: UserAsset;
+  assets: {
+    balance: string;
+    chainId: number;
+    contractAddress: Hex;
+    universe: Universe;
+    decimals: number;
+  }[];
   feeStore: FeeStore;
   chainList: ChainListType;
 }) => {
-  const borrow = assets.value.breakdown.reduce((accumulator, asset) => {
-    if (asset.chain.id === dst.chainId) {
+  const borrow = assets.reduce((accumulator, asset) => {
+    if (asset.chainId === dst.chainId) {
       return accumulator;
     }
     return accumulator.add(asset.balance);
@@ -271,7 +277,7 @@ const calculateMaxBridgeFee = async ({
     borrowWithFee: borrowWithFee.toFixed(),
   });
 
-  for (const asset of await assets.iterate(chainList)) {
+  for (const asset of await assetListWithDepositDeducted(assets, chainList)) {
     if (asset.chainID === dst.chainId) {
       continue;
     }

@@ -555,9 +555,67 @@ const estimateGasForDeposit = async (chain: Chain) => {
   return divDecimals(ESTIMATED_DEPOSIT_GAS * gasUnitPrice, chain.nativeCurrency.decimals);
 };
 
+const assetListWithDepositDeducted = async (
+  balances: {
+    balance: string;
+    chainId: number;
+    contractAddress: Hex;
+    universe: Universe;
+    decimals: number;
+  }[],
+  chainList: ChainListType
+) => {
+  const values = balances
+    .filter((b) => new Decimal(b.balance).gt(0))
+    .sort((a, b) => {
+      if (a.chainId === 1) return 1;
+      if (b.chainId === 1) return -1;
+      return Decimal.sub(b.balance, a.balance).toNumber();
+    });
+
+  return Promise.all(
+    values.map(async (b) => {
+      let balance = new Decimal(b.balance);
+      if (UserAsset.isDeposit(b.contractAddress, b.universe)) {
+        const chain = chainList.getChainByID(b.chainId);
+        if (!chain) {
+          throw Errors.chainNotFound(b.chainId);
+        }
+
+        const estimatedGasForDeposit = await estimateGasForDeposit(chain);
+
+        logger.debug('estimatedGasForDeposit', {
+          chainID: chain.id,
+          value: estimatedGasForDeposit.toFixed(),
+        });
+
+        balance = estimatedGasForDeposit.gte(b.balance)
+          ? new Decimal(0)
+          : new Decimal(b.balance).minus(estimatedGasForDeposit);
+      }
+
+      return {
+        balance,
+        chainID: b.chainId,
+        decimals: b.decimals,
+        tokenContract: b.contractAddress,
+        universe: b.universe,
+      };
+    })
+  );
+};
+
 class UserAsset {
   get balance() {
     return this.value.balance;
+  }
+
+  static isDeposit(tokenAddress: `0x${string}`, universe: Universe) {
+    if (universe === Universe.ETHEREUM) {
+      return equalFold(tokenAddress, ZERO_ADDRESS);
+    }
+
+    return false;
   }
 
   constructor(public value: UserAssetDatum) {}
@@ -573,52 +631,16 @@ class UserAsset {
     );
   }
 
-  isDeposit(tokenAddress: `0x${string}`, universe: Universe) {
-    if (universe === Universe.ETHEREUM) {
-      return equalFold(tokenAddress, ZERO_ADDRESS);
-    }
-
-    return false;
-  }
-
   iterate(chainList: ChainListType) {
-    const values = this.value.breakdown
-      .filter((b) => new Decimal(b.balance).gt(0))
-      .sort((a, b) => {
-        if (a.chain.id === 1) return 1;
-        if (b.chain.id === 1) return -1;
-        return Decimal.sub(b.balance, a.balance).toNumber();
-      });
-
-    return Promise.all(
-      values.map(async (b) => {
-        let balance = new Decimal(b.balance);
-        if (this.isDeposit(b.contractAddress, b.universe)) {
-          const chain = chainList.getChainByID(b.chain.id);
-          if (!chain) {
-            throw Errors.chainNotFound(b.chain.id);
-          }
-
-          const estimatedGasForDeposit = await estimateGasForDeposit(chain);
-
-          logger.debug('estimatedGasForDeposit', {
-            chainID: chain.id,
-            value: estimatedGasForDeposit.toFixed(),
-          });
-
-          balance = estimatedGasForDeposit.gte(b.balance)
-            ? new Decimal(0)
-            : new Decimal(b.balance).minus(estimatedGasForDeposit);
-        }
-
-        return {
-          balance,
-          chainID: b.chain.id,
-          decimals: b.decimals,
-          tokenContract: b.contractAddress,
-          universe: b.universe,
-        };
-      })
+    return assetListWithDepositDeducted(
+      this.value.breakdown.map((b) => ({
+        balance: b.balance,
+        chainId: b.chain.id,
+        contractAddress: b.contractAddress,
+        decimals: b.decimals,
+        universe: b.universe,
+      })),
+      chainList
     );
   }
 }
@@ -908,4 +930,5 @@ export {
   removeIntentHashFromStore,
   storeIntentHashToStore,
   createRequestTronSignature,
+  assetListWithDepositDeducted,
 };

@@ -33,7 +33,13 @@ const getMaxValueForBridge = async (
   const tokenAsset = userAssets.find(params.token);
 
   const { maxAmount, sourceChainIds } = await calculateMaxBridgeFee({
-    assets: tokenAsset,
+    assets: tokenAsset.value.breakdown.map((b) => ({
+      balance: b.balance,
+      chainId: b.chain.id,
+      contractAddress: b.contractAddress,
+      decimals: b.decimals,
+      universe: b.universe,
+    })),
     feeStore: feeStore,
     dst: {
       chainId: params.toChainId,
