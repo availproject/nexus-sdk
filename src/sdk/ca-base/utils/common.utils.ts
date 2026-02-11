@@ -547,12 +547,12 @@ const createDepositDoubleCheckTx = (chainID: Uint8Array, cosmos: CosmosOptions, 
 
 const ESTIMATED_DEPOSIT_GAS = 300_000n;
 
-const estimateGasForDeposit = async (chain: Chain) => {
+const estimateGasForDeposit = async (chain: Chain, gas: bigint) => {
   const publicClient = createPublicClientWithFallback(chain);
   const gasEstimate = await publicClient.estimateFeesPerGas();
   const gasUnitPrice = gasEstimate.maxFeePerGas ?? gasEstimate.gasPrice;
 
-  return divDecimals(ESTIMATED_DEPOSIT_GAS * gasUnitPrice, chain.nativeCurrency.decimals);
+  return divDecimals(gas * gasUnitPrice, chain.nativeCurrency.decimals);
 };
 
 const assetListWithDepositDeducted = async (
@@ -563,7 +563,8 @@ const assetListWithDepositDeducted = async (
     universe: Universe;
     decimals: number;
   }[],
-  chainList: ChainListType
+  chainList: ChainListType,
+  gas = ESTIMATED_DEPOSIT_GAS
 ) => {
   const values = balances
     .filter((b) => new Decimal(b.balance).gt(0))
@@ -582,7 +583,7 @@ const assetListWithDepositDeducted = async (
           throw Errors.chainNotFound(b.chainId);
         }
 
-        const estimatedGasForDeposit = await estimateGasForDeposit(chain);
+        const estimatedGasForDeposit = await estimateGasForDeposit(chain, gas);
 
         logger.debug('estimatedGasForDeposit', {
           chainID: chain.id,
@@ -931,4 +932,5 @@ export {
   storeIntentHashToStore,
   createRequestTronSignature,
   assetListWithDepositDeducted,
+  ESTIMATED_DEPOSIT_GAS,
 };

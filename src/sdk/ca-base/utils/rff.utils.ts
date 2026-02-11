@@ -14,6 +14,7 @@ import {
   convertTo32BytesHex,
   createRequestEVMSignature,
   createRequestTronSignature,
+  ESTIMATED_DEPOSIT_GAS,
   mulDecimals,
 } from './common.utils';
 import { PlatformUtils } from './platform.utils';
@@ -277,7 +278,11 @@ const calculateMaxBridgeFee = async ({
     borrowWithFee: borrowWithFee.toFixed(),
   });
 
-  for (const asset of await assetListWithDepositDeducted(assets, chainList)) {
+  for (const asset of await assetListWithDepositDeducted(
+    assets,
+    chainList,
+    (ESTIMATED_DEPOSIT_GAS * 115n) / 100n // Increase by 15% usage so max always works
+  )) {
     if (asset.chainID === dst.chainId) {
       continue;
     }
