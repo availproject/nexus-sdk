@@ -51,6 +51,7 @@ import {
 import { ChainList } from '../chains';
 import { getLogoFromSymbol, isNativeAddress, ZERO_ADDRESS } from '../constants';
 import { Errors } from '../errors';
+import { getGasPriceRecommendations } from '../query/gasFeeHistory';
 import {
   createPublicClientWithFallback,
   requestTimeout,
@@ -549,10 +550,9 @@ const ESTIMATED_DEPOSIT_GAS = 300_000n;
 
 const estimateGasForDeposit = async (chain: Chain, gas: bigint) => {
   const publicClient = createPublicClientWithFallback(chain);
-  const gasEstimate = await publicClient.estimateFeesPerGas();
-  const gasUnitPrice = gasEstimate.maxFeePerGas ?? gasEstimate.gasPrice;
+  const gasUnitPrice = await getGasPriceRecommendations(publicClient);
 
-  return divDecimals(gas * gasUnitPrice, chain.nativeCurrency.decimals);
+  return divDecimals(gas * gasUnitPrice.medium, chain.nativeCurrency.decimals);
 };
 
 const assetListWithDepositDeducted = async (

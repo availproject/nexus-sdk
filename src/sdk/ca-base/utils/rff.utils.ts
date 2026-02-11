@@ -252,8 +252,13 @@ const calculateMaxBridgeFee = async ({
   feeStore: FeeStore;
   chainList: ChainListType;
 }) => {
-  const borrow = assets.reduce((accumulator, asset) => {
-    if (asset.chainId === dst.chainId) {
+  const assetsWithDepositRemoved = await assetListWithDepositDeducted(
+    assets,
+    chainList,
+    (ESTIMATED_DEPOSIT_GAS * 115n) / 100n // Increase by 15% usage so max always works
+  );
+  const borrow = assetsWithDepositRemoved.reduce((accumulator, asset) => {
+    if (asset.chainID === dst.chainId) {
       return accumulator;
     }
     return accumulator.add(asset.balance);
@@ -276,13 +281,10 @@ const calculateMaxBridgeFee = async ({
     protocolFee: protocolFee.toFixed(),
     fulfilmentFee: fulfilmentFee.toFixed(),
     borrowWithFee: borrowWithFee.toFixed(),
+    assets: [...assets],
   });
 
-  for (const asset of await assetListWithDepositDeducted(
-    assets,
-    chainList,
-    (ESTIMATED_DEPOSIT_GAS * 115n) / 100n // Increase by 15% usage so max always works
-  )) {
+  for (const asset of assetsWithDepositRemoved) {
     if (asset.chainID === dst.chainId) {
       continue;
     }
@@ -313,8 +315,10 @@ const calculateMaxBridgeFee = async ({
     borrowWithFee = borrowWithFee.add(solverFee);
     logger.debug('calculateMaxBridgeFees:2', {
       borrow: borrow.toFixed(),
-      borrowWithFee: borrowWithFee.toFixed(),
+      chainId: asset.chainID,
+      collectionFee: collectionFee.toFixed(),
       solverFee: solverFee.toFixed(),
+      borrowWithFee: borrowWithFee.toFixed(),
     });
   }
 
@@ -322,6 +326,16 @@ const calculateMaxBridgeFee = async ({
   const maxAmount = fee.lt(borrow)
     ? borrow.minus(fee).toFixed(dst.decimals, Decimal.ROUND_FLOOR)
     : '0';
+
+  logger.debug('calcMax', {
+    assets: assetsWithDepositRemoved.map((a) => ({ ...a, balance: a.balance.toFixed() })),
+    fee: fee.toFixed(),
+    max: maxAmount,
+    borrow: borrow.toFixed(),
+    borrowWithFee: borrowWithFee.toFixed(),
+    fulfilmentFee: fulfilmentFee.toFixed(),
+    protocolFee: protocolFee.toFixed(),
+  });
 
   return { fee, maxAmount, sourceChainIds };
 };
