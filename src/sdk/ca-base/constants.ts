@@ -1,11 +1,6 @@
 import { Universe } from '@avail-project/ca-common';
+import { NEXUS_ASSETS_BASE_URL } from '../../commons';
 import { equalFold } from './utils';
-
-const NEXUS_ASSETS_BASE_URL =
-  'https://raw.githubusercontent.com/availproject/nexus-assets/main/tokens';
-
-const NEXUS_CHAIN_ASSETS_BASE_URL =
-  'https://raw.githubusercontent.com/availproject/nexus-assets/main/chains';
 
 const SymbolToLogo: { [k: string]: string } = {
   AVAX: `${NEXUS_ASSETS_BASE_URL}/avax/logo.png`,
@@ -47,10 +42,4 @@ const ZERO_ADDRESS: `0x${string}` = '0x0000000000000000000000000000000000000000'
 
 const ZERO_ADDRESS_BYTES_32 = '0x0000000000000000000000000000000000000000000000000000000000000000';
 
-export {
-  getLogoFromSymbol,
-  INTENT_EXPIRY,
-  isNativeAddress,
-  NEXUS_CHAIN_ASSETS_BASE_URL,
-  ZERO_ADDRESS,
-};
+export { getLogoFromSymbol, INTENT_EXPIRY, isNativeAddress, ZERO_ADDRESS };

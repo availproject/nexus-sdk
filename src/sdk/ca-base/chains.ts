@@ -8,11 +8,12 @@ import {
 import type { Hex } from 'viem';
 import {
   type Chain,
+  NEXUS_CHAIN_ASSETS_BASE_URL,
   SUPPORTED_CHAINS,
   TOKEN_CONTRACT_ADDRESSES,
   type TokenInfo,
 } from '../../commons';
-import { getLogoFromSymbol, NEXUS_CHAIN_ASSETS_BASE_URL, ZERO_ADDRESS } from './constants';
+import { getLogoFromSymbol, ZERO_ADDRESS } from './constants';
 import { Errors } from './errors';
 import { convertToHexAddressByUniverse, equalFold } from './utils';
 

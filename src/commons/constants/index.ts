@@ -1,5 +1,10 @@
-import { NEXUS_CHAIN_ASSETS_BASE_URL } from '../../sdk/ca-base/constants';
 import type { ChainMetadata, TokenMetadata } from '../types';
+
+export const NEXUS_ASSETS_BASE_URL =
+  'https://raw.githubusercontent.com/availproject/nexus-assets/main/tokens';
+
+export const NEXUS_CHAIN_ASSETS_BASE_URL =
+  'https://raw.githubusercontent.com/availproject/nexus-assets/main/chains';
 
 export const MAINNET_CHAIN_IDS = {
   ETHEREUM: 1,
