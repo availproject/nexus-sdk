@@ -44,6 +44,7 @@ import {
   type Intent,
   type OraclePriceResponse,
   type ReadableIntent,
+  SUPPORTED_CHAINS,
   type SupportedChainsAndTokensResult,
   type TokenInfo,
   type UserAssetDatum,
@@ -54,6 +55,7 @@ import { Errors } from '../errors';
 import { getGasPriceRecommendations } from '../query/gasFeeHistory';
 import {
   createPublicClientWithFallback,
+  L1_GAS_ORACLES,
   requestTimeout,
   waitForIntentFulfilment,
 } from './contract.utils';
@@ -547,12 +549,81 @@ const createDepositDoubleCheckTx = (chainID: Uint8Array, cosmos: CosmosOptions, 
 };
 
 const ESTIMATED_DEPOSIT_GAS = 300_000n;
+// Estimated deposit tx calldata: ~750 bytes, 16 gas per non-zero byte
+const ESTIMATED_DEPOSIT_CALLDATA_BYTES = 750n;
+const L1_GAS_PER_BYTE = 16n;
+const ESTIMATED_DEPOSIT_CALLDATA_GAS = ESTIMATED_DEPOSIT_CALLDATA_BYTES * L1_GAS_PER_BYTE;
+
+const estimateL1FeeForDeposit = async (
+  publicClient: PublicClient,
+  chainId: number
+): Promise<bigint> => {
+  const oracleAddress = L1_GAS_ORACLES[chainId];
+  if (!oracleAddress) {
+    return 0n;
+  }
+
+  try {
+    if (chainId === SUPPORTED_CHAINS.ARBITRUM) {
+      const result = await publicClient.readContract({
+        abi: [
+          {
+            name: 'getPricesInWei',
+            type: 'function',
+            inputs: [],
+            outputs: [
+              { name: 'perL2Tx', type: 'uint256' },
+              { name: 'perL1CalldataUnit', type: 'uint256' },
+              { name: 'perStorageCell', type: 'uint256' },
+              { name: 'perArbGasBase', type: 'uint256' },
+              { name: 'perArbGasCongestion', type: 'uint256' },
+              { name: 'perArbGasTotal', type: 'uint256' },
+            ],
+            stateMutability: 'view',
+          },
+        ] as const,
+        address: oracleAddress,
+        functionName: 'getPricesInWei',
+      });
+      return result[1] * ESTIMATED_DEPOSIT_CALLDATA_GAS;
+    } else {
+      // OP Stack chains (Scroll, Base, Optimism)
+      const l1BaseFee = await publicClient.readContract({
+        abi: [
+          {
+            inputs: [],
+            name: 'l1BaseFee',
+            outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
+            stateMutability: 'view',
+            type: 'function',
+          },
+        ] as const,
+        address: oracleAddress,
+        functionName: 'l1BaseFee',
+      });
+      // L1 fee with 1.5x buffer for scalar variations
+      return (l1BaseFee * ESTIMATED_DEPOSIT_CALLDATA_GAS * 15n) / 10n;
+    }
+  } catch (e) {
+    logger.debug('Failed to estimate L1 fee, using fallback', { chainId, error: e });
+    return 100_000_000_000_000n; // ~0.0001 ETH fallback
+  }
+};
 
 const estimateGasForDeposit = async (chain: Chain, gas: bigint) => {
   const publicClient = createPublicClientWithFallback(chain);
-  const gasUnitPrice = await getGasPriceRecommendations(publicClient);
 
-  return divDecimals(gas * gasUnitPrice.medium, chain.nativeCurrency.decimals);
+  const [gasRecs, l1Fee] = await Promise.all([
+    getGasPriceRecommendations(publicClient),
+    estimateL1FeeForDeposit(publicClient, chain.id),
+  ]);
+
+  const l2Fee = gas * gasRecs.high;
+  const totalFee = l2Fee + l1Fee;
+  // Add 20% buffer for gas price volatility
+  const totalFeeWithBuffer = (totalFee * 120n) / 100n;
+
+  return divDecimals(totalFeeWithBuffer, chain.nativeCurrency.decimals);
 };
 
 const assetListWithDepositDeducted = async (

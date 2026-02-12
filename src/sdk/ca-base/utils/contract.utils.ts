@@ -482,6 +482,7 @@ export {
   getAllowances,
   getL1Fee,
   getTokenTxFunction,
+  L1_GAS_ORACLES,
   requestTimeout,
   signPermitForAddressAndValue,
   switchChain,
