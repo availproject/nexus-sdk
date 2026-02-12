@@ -28,8 +28,6 @@ const getMaxValueForBridge = async (
   ]);
 
   const userAssets = new UserAssets(assets);
-
-  // FIXME: error in asset.find use NexusError and better messaging.
   const tokenAsset = userAssets.find(params.token);
 
   const { maxAmount, sourceChainIds } = await calculateMaxBridgeFee({

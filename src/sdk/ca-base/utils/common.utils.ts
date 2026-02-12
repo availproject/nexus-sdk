@@ -554,6 +554,9 @@ const ESTIMATED_DEPOSIT_CALLDATA_BYTES = 750n;
 const L1_GAS_PER_BYTE = 16n;
 const ESTIMATED_DEPOSIT_CALLDATA_GAS = ESTIMATED_DEPOSIT_CALLDATA_BYTES * L1_GAS_PER_BYTE;
 
+// ArbGasInfo precompile address for L1 fee estimation
+const ARBITRUM_GAS_INFO_ADDRESS = '0x000000000000000000000000000000000000006C' as const;
+
 const estimateL1FeeForDeposit = async (
   publicClient: PublicClient,
   chainId: number
@@ -565,7 +568,8 @@ const estimateL1FeeForDeposit = async (
 
   try {
     if (chainId === SUPPORTED_CHAINS.ARBITRUM) {
-      const result = await publicClient.readContract({
+      // Use ArbGasInfo.getPricesInWei to get perL1CalldataUnit (price per byte)
+      const prices = await publicClient.readContract({
         abi: [
           {
             name: 'getPricesInWei',
@@ -582,10 +586,12 @@ const estimateL1FeeForDeposit = async (
             stateMutability: 'view',
           },
         ] as const,
-        address: oracleAddress,
+        address: ARBITRUM_GAS_INFO_ADDRESS,
         functionName: 'getPricesInWei',
       });
-      return result[1] * ESTIMATED_DEPOSIT_CALLDATA_GAS;
+      const perL1CalldataUnit = prices[1];
+      // L1 fee = price per byte * calldata bytes, with 1.5x buffer
+      return (perL1CalldataUnit * ESTIMATED_DEPOSIT_CALLDATA_BYTES * 15n) / 10n;
     } else {
       // OP Stack chains (Scroll, Base, Optimism)
       const l1BaseFee = await publicClient.readContract({
@@ -618,8 +624,16 @@ const estimateGasForDeposit = async (chain: Chain, gas: bigint) => {
     estimateL1FeeForDeposit(publicClient, chain.id),
   ]);
 
-  const l2Fee = gas * gasRecs.high;
+  const l2Fee = gas * gasRecs.medium;
   const totalFee = l2Fee + l1Fee;
+
+  logger.debug('estimateGasForDeposit', {
+    chain: chain.id,
+    l2Fee,
+    l1Fee,
+    totalFee,
+  });
+
   // Add 20% buffer for gas price volatility
   const totalFeeWithBuffer = (totalFee * 120n) / 100n;
 

@@ -252,6 +252,9 @@ const calculateMaxBridgeFee = async ({
   feeStore: FeeStore;
   chainList: ChainListType;
 }) => {
+  logger.debug('calcumateMaxBridgeFee', {
+    'dst.chainId': dst.chainId,
+  });
   const assetsWithDepositRemoved = await assetListWithDepositDeducted(
     assets,
     chainList,
@@ -281,7 +284,7 @@ const calculateMaxBridgeFee = async ({
     protocolFee: protocolFee.toFixed(),
     fulfilmentFee: fulfilmentFee.toFixed(),
     borrowWithFee: borrowWithFee.toFixed(),
-    assets: [...assets],
+    assets: [...assetsWithDepositRemoved.map((a) => ({ ...a, balance: a.balance.toFixed() }))],
   });
 
   for (const asset of assetsWithDepositRemoved) {
