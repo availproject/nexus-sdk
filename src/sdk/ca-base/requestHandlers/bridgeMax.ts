@@ -2,6 +2,7 @@ import type { BridgeParams, IBridgeOptions } from '../../../commons';
 import { Errors } from '../errors';
 import {
   calculateMaxBridgeFee,
+  divDecimals,
   getBalancesForBridge,
   getFeeStore,
   mulDecimals,
@@ -47,10 +48,15 @@ const getMaxValueForBridge = async (
     chainList: options.chainList,
   });
 
+  const maxAmountRaw = mulDecimals(maxAmount, token.decimals);
+  // Apply 2% safety haircut to reduce max-amount execution failures due to fee drift.
+  const safeAmountRaw = (maxAmountRaw * 98n) / 100n;
+  const safeAmount = divDecimals(safeAmountRaw, token.decimals).toFixed(token.decimals);
+
   return {
     sourceChainIds,
-    amountRaw: mulDecimals(maxAmount, token.decimals),
-    amount: maxAmount,
+    amountRaw: safeAmountRaw,
+    amount: safeAmount,
     symbol: token.symbol,
   };
 };

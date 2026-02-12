@@ -52,7 +52,6 @@ import {
 import { ChainList } from '../chains';
 import { getLogoFromSymbol, isNativeAddress, ZERO_ADDRESS } from '../constants';
 import { Errors } from '../errors';
-import { getGasPriceRecommendations } from '../query/gasFeeHistory';
 import {
   createPublicClientWithFallback,
   L1_GAS_ORACLES,
@@ -616,28 +615,37 @@ const estimateL1FeeForDeposit = async (
   }
 };
 
-const estimateGasForDeposit = async (chain: Chain, gas: bigint) => {
+const estimateGasForDeposit = async (chain: Chain, gas: bigint, feeMultiplier = 120n) => {
   const publicClient = createPublicClientWithFallback(chain);
 
-  const [gasRecs, l1Fee] = await Promise.all([
-    getGasPriceRecommendations(publicClient),
+  const [gasEstimate, l1Fee] = await Promise.all([
+    publicClient.estimateFeesPerGas(),
     estimateL1FeeForDeposit(publicClient, chain.id),
   ]);
 
-  const l2Fee = gas * gasRecs.medium;
-  const totalFee = l2Fee + l1Fee;
+  const gasUnitPrice = gasEstimate.maxFeePerGas ?? gasEstimate.gasPrice ?? 0n;
+  if (gasUnitPrice === 0n) {
+    throw Errors.gasPriceError({
+      chainId: chain.id,
+      gasEstimate,
+      l1Fee,
+    });
+  }
+  // Add buffer using feeMultiplier
+  const l2Fee = (gas * gasUnitPrice * feeMultiplier) / 100n;
+  const adjustedL1Fee = (l1Fee * feeMultiplier) / 100n;
+  const totalFee = l2Fee + adjustedL1Fee;
 
   logger.debug('estimateGasForDeposit', {
     chain: chain.id,
     l2Fee,
     l1Fee,
+    adjustedL1Fee,
+    feeMultiplier,
     totalFee,
   });
 
-  // Add 20% buffer for gas price volatility
-  const totalFeeWithBuffer = (totalFee * 120n) / 100n;
-
-  return divDecimals(totalFeeWithBuffer, chain.nativeCurrency.decimals);
+  return divDecimals(totalFee, chain.nativeCurrency.decimals);
 };
 
 const assetListWithDepositDeducted = async (
@@ -649,7 +657,7 @@ const assetListWithDepositDeducted = async (
     decimals: number;
   }[],
   chainList: ChainListType,
-  gas = ESTIMATED_DEPOSIT_GAS
+  feeMultiplier: bigint // Percentage multiplier for L1 + L2 fee (100 = 1x, 115 = 1.15x)
 ) => {
   const values = balances
     .filter((b) => new Decimal(b.balance).gt(0))
@@ -668,16 +676,21 @@ const assetListWithDepositDeducted = async (
           throw Errors.chainNotFound(b.chainId);
         }
 
-        const estimatedGasForDeposit = await estimateGasForDeposit(chain, gas);
+        const estimatedGasForDepositValue = await estimateGasForDeposit(
+          chain,
+          ESTIMATED_DEPOSIT_GAS,
+          feeMultiplier
+        );
 
         logger.debug('estimatedGasForDeposit', {
           chainID: chain.id,
-          value: estimatedGasForDeposit.toFixed(),
+          value: estimatedGasForDepositValue.toFixed(),
+          balance: b.balance,
         });
 
-        balance = estimatedGasForDeposit.gte(b.balance)
+        balance = estimatedGasForDepositValue.gte(b.balance)
           ? new Decimal(0)
-          : new Decimal(b.balance).minus(estimatedGasForDeposit);
+          : new Decimal(b.balance).minus(estimatedGasForDepositValue);
       }
 
       return {
@@ -717,7 +730,7 @@ class UserAsset {
     );
   }
 
-  iterate(chainList: ChainListType) {
+  iterate(chainList: ChainListType, _dstChainId: number) {
     return assetListWithDepositDeducted(
       this.value.breakdown.map((b) => ({
         balance: b.balance,
@@ -726,7 +739,8 @@ class UserAsset {
         decimals: b.decimals,
         universe: b.universe,
       })),
-      chainList
+      chainList,
+      120n
     );
   }
 }
