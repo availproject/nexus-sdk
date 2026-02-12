@@ -207,7 +207,9 @@ const _exactOutRoute = async (
             tokenAddress: convertTo32Bytes(input.toTokenAddress),
           },
           params.aggregators
-        ),
+        ).catch((err) => {
+          throw Errors.quoteFailed(`quoting destination swap failed: ${err}`);
+        }),
         gasInCOT.isZero()
           ? null
           : destinationSwapWithExactIn(
@@ -216,7 +218,9 @@ const _exactOutRoute = async (
               mulDecimals(gasInCOT, dstChainCOT.decimals),
               EADDRESS_32_BYTES,
               params.aggregators
-            ),
+            ).catch((err) => {
+              throw Errors.quoteFailed(`quoting destination gas swap failed: ${err}`);
+            }),
       ]);
 
       destinationSwap = ds;
@@ -342,7 +346,9 @@ const _exactOutRoute = async (
     })),
     sourceSwapOutputRequired,
     params.aggregators
-  );
+  ).catch((err) => {
+    throw Errors.quoteFailed(`quoting source swap failed: ${err}`);
+  });
 
   const sourceSwaps = sourceSwapQuotes.map((v) => {
     const balance = balances.find((b) =>
@@ -786,7 +792,9 @@ const _exactInRoute = async (
         tokenAddress: convertTo32Bytes(f.tokenAddress as Hex),
         universe: f.universe,
       }))
-    );
+    ).catch((err) => {
+      throw Errors.quoteFailed(`quoting source swap failed: ${err}`);
+    });
 
     if (!response.quotes.length) {
       throw Errors.quoteFailed('source swap returned no quotes');
@@ -797,7 +805,7 @@ const _exactInRoute = async (
         equalFold(b.tokenAddress, convertTo32BytesHex(oq.req.inputToken))
       );
       if (!balance) {
-        logger.error('ExactIN: failed to map quote originalHolding to balance', {
+        logger.error('ExactIn: failed to map quote originalHolding to balance', {
           quoteReq: oq.req,
         });
         throw Errors.internal('mapping error: balance for quote input not found');
@@ -913,7 +921,9 @@ const _exactInRoute = async (
         convertTo32Bytes(input.toTokenAddress),
         params.aggregators,
         dstChainCOT.currencyID
-      );
+      ).catch((err) => {
+        throw Errors.quoteFailed(`quoting destination swap failed: ${err}`);
+      });
 
       const hasDstChainCOTInInput = cotSources.find((c) =>
         equalFold(convertToEVMAddress(c.tokenAddress), dstChainCOTAddress)
