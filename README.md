@@ -1466,33 +1466,33 @@ sdk.analytics.enable();
 
 ### Mainnets
 
-| Network | Chain ID | Native | Status |
-|---------|----------|--------|--------|
-| Ethereum | 1 | ETH | ✅ |
-| Citrea Mainnet | 4114 | cBTC | ✅ |
-| Monad | 143 | MON | ✅ |
-| Base | 8453 | ETH | ✅ |
-| Arbitrum One | 42161 | ETH | ✅ |
-| Optimism | 10 | ETH | ✅ |
-| Polygon | 137 | MATIC | ✅ |
-| Avalanche | 43114 | AVAX | ✅ |
-| Scroll | 534352 | ETH | ✅ |
-| Kaia Mainnet | 8217 | KAIA | ✅ |
-| BNB Smart Chain | 56 | BNB | ✅ |
-| Hyper EVM | 999 | HYPE | ✅ |
-| MegaETH | 4326 | ETH | ✅ |
+| Network | Chain ID | Native | Bridge | Swap |
+|---------|----------|--------|--------|------|
+| Ethereum | 1 | ETH | ✅ | ❌ |
+| Citrea Mainnet | 4114 | cBTC | ✅ | ❌ |
+| Monad | 143 | MON | ✅ | ❌ |
+| Base | 8453 | ETH | ✅ | ✅ |
+| Arbitrum One | 42161 | ETH | ✅ | ✅ |
+| Optimism | 10 | ETH | ✅ | ✅ |
+| Polygon | 137 | MATIC | ✅ | ✅ |
+| Avalanche | 43114 | AVAX | ✅ | ✅ |
+| Scroll | 534352 | ETH | ✅ | ✅ |
+| Kaia Mainnet | 8217 | KAIA | ✅ | ❌ |
+| BNB Smart Chain | 56 | BNB | ✅ | ✅ |
+| Hyper EVM | 999 | HYPE | ✅ | ❌ |
+| MegaETH | 4326 | ETH | ✅ | ❌ |
 
 ### Testnets
 
-| Network | Chain ID | Native | Status |
-|---------|----------|--------|--------|
-| Sepolia | 11155111 | ETH | ✅ |
-| Base Sepolia | 84532 | ETH | ✅ |
-| Arbitrum Sepolia | 421614 | ETH | ✅ |
-| Optimism Sepolia | 11155420 | ETH | ✅ |
-| Polygon Amoy | 80002 | MATIC | ✅ |
-| Monad Testnet | 10143 | MON | ✅ |
-| Citrea Testnet | 5115 | cBTC | ✅ |
+| Network | Chain ID | Native | Bridge | Swap |
+|---------|----------|--------|--------|------|
+| Sepolia | 11155111 | ETH | ✅ | ❌ |
+| Base Sepolia | 84532 | ETH | ✅ | ❌ |
+| Arbitrum Sepolia | 421614 | ETH | ✅ | ❌ |
+| Optimism Sepolia | 11155420 | ETH | ✅ | ❌ |
+| Polygon Amoy | 80002 | MATIC | ✅ | ❌ |
+| Monad Testnet | 10143 | MON | ✅ | ❌ |
+| Citrea Testnet | 5115 | cBTC | ✅ | ❌ |
 
 ---
 
