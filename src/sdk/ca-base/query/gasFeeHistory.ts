@@ -75,6 +75,7 @@ export const getGasPriceRecommendations = async (
     };
 
     logger.debug('Gas price recommendations', {
+      chainId: await publicClient.getChainId(),
       baseFee: nextBaseFee.toString(),
       baseFeeWithBuffer: baseFeeWithBuffer.toString(),
       'avglowPriority(50pctl)': avgLowPriority.toString(),

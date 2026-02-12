@@ -850,14 +850,20 @@ const _exactInRoute = async (
 
   let bridgeInput: BridgeInput = null;
   if (isBridgeRequired) {
-    const { fee: maxFee } = calculateMaxBridgeFee({
-      assets: bridgeAssets.map((b) => ({ ...b, balance: b.eoaBalance.add(b.ephemeralBalance) })),
+    const { fee: maxFee } = await calculateMaxBridgeFee({
+      assets: bridgeAssets.map((b) => ({
+        ...b,
+        chainId: b.chainID,
+        balance: b.eoaBalance.add(b.ephemeralBalance).toFixed(),
+        universe: Universe.ETHEREUM,
+      })),
       dst: {
         chainId: input.toChainId,
         tokenAddress: dstChainCOTAddress,
         decimals: dstChainCOT.decimals,
       },
       feeStore,
+      chainList: params.chainList,
     });
 
     dstSwapInputAmountInDecimal = dstSwapInputAmountInDecimal.minus(maxFee);

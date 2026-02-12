@@ -9,6 +9,7 @@ import { Errors } from '../errors';
 import { convertToEVMAddress } from '../swap/utils';
 import type { FeeStore } from './api.utils';
 import {
+  assetListWithDepositDeducted,
   convertTo32Bytes,
   convertTo32BytesHex,
   createRequestEVMSignature,
@@ -229,10 +230,11 @@ const createRFFromIntent = async (
   };
 };
 
-const calculateMaxBridgeFee = ({
+const calculateMaxBridgeFee = async ({
   assets,
   feeStore,
   dst,
+  chainList,
 }: {
   dst: {
     chainId: number;
@@ -240,14 +242,27 @@ const calculateMaxBridgeFee = ({
     decimals: number;
   };
   assets: {
-    chainID: number;
-    contractAddress: `0x${string}`;
+    balance: string;
+    chainId: number;
+    contractAddress: Hex;
+    universe: Universe;
     decimals: number;
-    balance: Decimal;
   }[];
   feeStore: FeeStore;
+  chainList: ChainListType;
 }) => {
-  const borrow = assets.reduce((accumulator, asset) => {
+  logger.debug('calcumateMaxBridgeFee', {
+    'dst.chainId': dst.chainId,
+  });
+  const assetsWithDepositRemoved = await assetListWithDepositDeducted(
+    assets,
+    chainList,
+    120n // 20% buffer on L1 + L2 fee
+  );
+  const borrow = assetsWithDepositRemoved.reduce((accumulator, asset) => {
+    if (asset.chainID === dst.chainId) {
+      return accumulator;
+    }
     return accumulator.add(asset.balance);
   }, new Decimal(0));
 
@@ -268,17 +283,24 @@ const calculateMaxBridgeFee = ({
     protocolFee: protocolFee.toFixed(),
     fulfilmentFee: fulfilmentFee.toFixed(),
     borrowWithFee: borrowWithFee.toFixed(),
+    assets: [...assetsWithDepositRemoved.map((a) => ({ ...a, balance: a.balance.toFixed() }))],
   });
 
-  for (const asset of assets) {
-    if (!asset.balance.gt(0)) {
+  for (const asset of assetsWithDepositRemoved) {
+    if (asset.chainID === dst.chainId) {
       continue;
     }
+
+    if (asset.balance.lte(0)) {
+      continue;
+    }
+
     sourceChainIds.push(asset.chainID);
+
     const collectionFee = feeStore.calculateCollectionFee({
       decimals: asset.decimals,
       sourceChainID: asset.chainID,
-      sourceTokenAddress: asset.contractAddress,
+      sourceTokenAddress: asset.tokenContract,
     });
 
     borrowWithFee = borrowWithFee.add(collectionFee);
@@ -289,14 +311,16 @@ const calculateMaxBridgeFee = ({
       destinationChainID: dst.chainId,
       destinationTokenAddress: dst.tokenAddress,
       sourceChainID: asset.chainID,
-      sourceTokenAddress: convertToEVMAddress(asset.contractAddress),
+      sourceTokenAddress: convertToEVMAddress(asset.tokenContract),
     });
 
     borrowWithFee = borrowWithFee.add(solverFee);
     logger.debug('calculateMaxBridgeFees:2', {
       borrow: borrow.toFixed(),
-      borrowWithFee: borrowWithFee.toFixed(),
+      chainId: asset.chainID,
+      collectionFee: collectionFee.toFixed(),
       solverFee: solverFee.toFixed(),
+      borrowWithFee: borrowWithFee.toFixed(),
     });
   }
 
@@ -304,6 +328,16 @@ const calculateMaxBridgeFee = ({
   const maxAmount = fee.lt(borrow)
     ? borrow.minus(fee).toFixed(dst.decimals, Decimal.ROUND_FLOOR)
     : '0';
+
+  logger.debug('calcMax', {
+    assets: assetsWithDepositRemoved.map((a) => ({ ...a, balance: a.balance.toFixed() })),
+    fee: fee.toFixed(),
+    max: maxAmount,
+    borrow: borrow.toFixed(),
+    borrowWithFee: borrowWithFee.toFixed(),
+    fulfilmentFee: fulfilmentFee.toFixed(),
+    protocolFee: protocolFee.toFixed(),
+  });
 
   return { fee, maxAmount, sourceChainIds };
 };

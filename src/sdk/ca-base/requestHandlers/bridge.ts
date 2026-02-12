@@ -902,14 +902,20 @@ class BridgeHandler {
       throw Errors.assetNotFound(token.symbol);
     }
 
-    const allSources = asset.iterate(feeStore).map((v) => {
-      const chain = this.options.chainList.getChainByID(v.chainID);
-      if (!chain) {
-        throw Errors.chainNotFound(v.chainID);
-      }
+    const allSources = (await asset.iterate(this.options.chainList, this.params.dstChain.id)).map(
+      (v) => {
+        const chain = this.options.chainList.getChainByID(v.chainID);
+        if (!chain) {
+          throw Errors.chainNotFound(v.chainID);
+        }
 
-      return { ...v, amount: v.balance, holderAddress: retrieveAddress(v.universe, this.options) };
-    });
+        return {
+          ...v,
+          amount: v.balance,
+          holderAddress: retrieveAddress(v.universe, this.options),
+        };
+      }
+    );
 
     intent.allSources = allSources;
 
@@ -938,7 +944,10 @@ class BridgeHandler {
       destinationChainID: this.params.dstChain.id,
       destinationTokenAddress: token.contractAddress,
     });
-    logger.debug('createIntent:1', { fulfilmentFee });
+    logger.debug('createIntent:fee', {
+      fulfilmentFee: fulfilmentFee.toFixed(),
+      protocolFee: protocolFee.toFixed(),
+    });
 
     intent.fees.fulfilment = fulfilmentFee.toFixed();
 
@@ -964,6 +973,12 @@ class BridgeHandler {
         continue;
       }
 
+      // Keep fee accounting aligned with max-calculation path: skip
+      // sources that cannot contribute any amount after deposit deduction.
+      if (assetC.balance.lte(0)) {
+        continue;
+      }
+
       // Now collectionFee is a fixed amount - applicable to all
       const collectionFee = feeStore.calculateCollectionFee({
         decimals: assetC.decimals,
@@ -973,8 +988,6 @@ class BridgeHandler {
 
       intent.fees.collection = collectionFee.add(intent.fees.collection).toFixed();
       borrowWithFee = borrowWithFee.add(collectionFee);
-
-      logger.debug('createIntent:2', { collectionFee });
 
       const unaccountedAmount = borrowWithFee.minus(accountedAmount);
 
@@ -1000,7 +1013,15 @@ class BridgeHandler {
       });
       intent.fees.solver = solverFee.add(intent.fees.solver).toFixed();
 
-      logger.debug('createIntent:3', { solverFee });
+      logger.debug('createIntent:loop', {
+        dstChainID: this.params.dstChain.id,
+        srcChainID: assetC.chainID,
+        srcBalance: assetC.balance.toFixed(),
+        collectionFee: collectionFee.toFixed(),
+        solverFee: solverFee.toFixed(),
+        accountedAmount: accountedAmount.toFixed(),
+        borrowWithFee: borrowWithFee.toFixed(),
+      });
 
       borrowWithFee = borrowWithFee.add(solverFee);
 

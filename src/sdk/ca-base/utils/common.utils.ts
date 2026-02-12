@@ -44,6 +44,7 @@ import {
   type Intent,
   type OraclePriceResponse,
   type ReadableIntent,
+  SUPPORTED_CHAINS,
   type SupportedChainsAndTokensResult,
   type TokenInfo,
   type UserAssetDatum,
@@ -51,8 +52,12 @@ import {
 import { ChainList } from '../chains';
 import { getLogoFromSymbol, isNativeAddress, ZERO_ADDRESS } from '../constants';
 import { Errors } from '../errors';
-import type { FeeStore } from './api.utils';
-import { requestTimeout, waitForIntentFulfilment } from './contract.utils';
+import {
+  createPublicClientWithFallback,
+  L1_GAS_ORACLES,
+  requestTimeout,
+  waitForIntentFulfilment,
+} from './contract.utils';
 import { cosmosCreateDoubleCheckTx, cosmosFillCheck, cosmosRefundIntent } from './cosmos.utils';
 import { PlatformUtils } from './platform.utils';
 
@@ -542,25 +547,177 @@ const createDepositDoubleCheckTx = (chainID: Uint8Array, cosmos: CosmosOptions, 
   };
 };
 
+const ESTIMATED_DEPOSIT_GAS = 300_000n;
+// Estimated deposit tx calldata: ~750 bytes, 16 gas per non-zero byte
+const ESTIMATED_DEPOSIT_CALLDATA_BYTES = 750n;
+const L1_GAS_PER_BYTE = 16n;
+const ESTIMATED_DEPOSIT_CALLDATA_GAS = ESTIMATED_DEPOSIT_CALLDATA_BYTES * L1_GAS_PER_BYTE;
+
+// ArbGasInfo precompile address for L1 fee estimation
+const ARBITRUM_GAS_INFO_ADDRESS = '0x000000000000000000000000000000000000006C' as const;
+
+const estimateL1FeeForDeposit = async (
+  publicClient: PublicClient,
+  chainId: number
+): Promise<bigint> => {
+  const oracleAddress = L1_GAS_ORACLES[chainId];
+  if (!oracleAddress) {
+    return 0n;
+  }
+
+  try {
+    if (chainId === SUPPORTED_CHAINS.ARBITRUM) {
+      // Use ArbGasInfo.getPricesInWei to get perL1CalldataUnit (price per byte)
+      const prices = await publicClient.readContract({
+        abi: [
+          {
+            name: 'getPricesInWei',
+            type: 'function',
+            inputs: [],
+            outputs: [
+              { name: 'perL2Tx', type: 'uint256' },
+              { name: 'perL1CalldataUnit', type: 'uint256' },
+              { name: 'perStorageCell', type: 'uint256' },
+              { name: 'perArbGasBase', type: 'uint256' },
+              { name: 'perArbGasCongestion', type: 'uint256' },
+              { name: 'perArbGasTotal', type: 'uint256' },
+            ],
+            stateMutability: 'view',
+          },
+        ] as const,
+        address: ARBITRUM_GAS_INFO_ADDRESS,
+        functionName: 'getPricesInWei',
+      });
+      const perL1CalldataUnit = prices[1];
+      // L1 fee = price per byte * calldata bytes, with 1.5x buffer
+      return (perL1CalldataUnit * ESTIMATED_DEPOSIT_CALLDATA_BYTES * 15n) / 10n;
+    } else {
+      // OP Stack chains (Scroll, Base, Optimism)
+      const l1BaseFee = await publicClient.readContract({
+        abi: [
+          {
+            inputs: [],
+            name: 'l1BaseFee',
+            outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
+            stateMutability: 'view',
+            type: 'function',
+          },
+        ] as const,
+        address: oracleAddress,
+        functionName: 'l1BaseFee',
+      });
+      // L1 fee with 1.5x buffer for scalar variations
+      return (l1BaseFee * ESTIMATED_DEPOSIT_CALLDATA_GAS * 15n) / 10n;
+    }
+  } catch (e) {
+    logger.debug('Failed to estimate L1 fee, using fallback', { chainId, error: e });
+    return 100_000_000_000_000n; // ~0.0001 ETH fallback
+  }
+};
+
+const estimateGasForDeposit = async (chain: Chain, gas: bigint, feeMultiplier = 120n) => {
+  const publicClient = createPublicClientWithFallback(chain);
+
+  const [gasEstimate, l1Fee] = await Promise.all([
+    publicClient.estimateFeesPerGas(),
+    estimateL1FeeForDeposit(publicClient, chain.id),
+  ]);
+
+  const gasUnitPrice = gasEstimate.maxFeePerGas ?? gasEstimate.gasPrice ?? 0n;
+  if (gasUnitPrice === 0n) {
+    throw Errors.gasPriceError({
+      chainId: chain.id,
+      gasEstimate,
+      l1Fee,
+    });
+  }
+  // Add buffer using feeMultiplier
+  const l2Fee = (gas * gasUnitPrice * feeMultiplier) / 100n;
+  const adjustedL1Fee = (l1Fee * feeMultiplier) / 100n;
+  const totalFee = l2Fee + adjustedL1Fee;
+
+  logger.debug('estimateGasForDeposit', {
+    chain: chain.id,
+    l2Fee,
+    l1Fee,
+    adjustedL1Fee,
+    feeMultiplier,
+    totalFee,
+  });
+
+  return divDecimals(totalFee, chain.nativeCurrency.decimals);
+};
+
+const assetListWithDepositDeducted = async (
+  balances: {
+    balance: string;
+    chainId: number;
+    contractAddress: Hex;
+    universe: Universe;
+    decimals: number;
+  }[],
+  chainList: ChainListType,
+  feeMultiplier: bigint // Percentage multiplier for L1 + L2 fee (100 = 1x, 115 = 1.15x)
+) => {
+  const values = balances
+    .filter((b) => new Decimal(b.balance).gt(0))
+    .sort((a, b) => {
+      if (a.chainId === 1) return 1;
+      if (b.chainId === 1) return -1;
+      return Decimal.sub(b.balance, a.balance).toNumber();
+    });
+
+  return Promise.all(
+    values.map(async (b) => {
+      let balance = new Decimal(b.balance);
+      if (UserAsset.isDeposit(b.contractAddress, b.universe)) {
+        const chain = chainList.getChainByID(b.chainId);
+        if (!chain) {
+          throw Errors.chainNotFound(b.chainId);
+        }
+
+        const estimatedGasForDepositValue = await estimateGasForDeposit(
+          chain,
+          ESTIMATED_DEPOSIT_GAS,
+          feeMultiplier
+        );
+
+        logger.debug('estimatedGasForDeposit', {
+          chainID: chain.id,
+          value: estimatedGasForDepositValue.toFixed(),
+          balance: b.balance,
+        });
+
+        balance = estimatedGasForDepositValue.gte(b.balance)
+          ? new Decimal(0)
+          : new Decimal(b.balance).minus(estimatedGasForDepositValue);
+      }
+
+      return {
+        balance,
+        chainID: b.chainId,
+        decimals: b.decimals,
+        tokenContract: b.contractAddress,
+        universe: b.universe,
+      };
+    })
+  );
+};
+
 class UserAsset {
   get balance() {
     return this.value.balance;
   }
 
-  constructor(public value: UserAssetDatum) {}
+  static isDeposit(tokenAddress: `0x${string}`, universe: Universe) {
+    if (universe === Universe.ETHEREUM) {
+      return equalFold(tokenAddress, ZERO_ADDRESS);
+    }
 
-  getBridgeAssets(dstChainId: number) {
-    return this.value.breakdown
-      .filter((b) => b.chain.id !== dstChainId)
-      .map((b) => {
-        return {
-          chainID: b.chain.id,
-          contractAddress: b.contractAddress,
-          decimals: b.decimals,
-          balance: new Decimal(b.balance),
-        };
-      });
+    return false;
   }
+
+  constructor(public value: UserAssetDatum) {}
 
   getBalanceOnChain(chainID: number, tokenAddress?: `0x${string}`) {
     return (
@@ -573,53 +730,18 @@ class UserAsset {
     );
   }
 
-  isDeposit(tokenAddress: `0x${string}`, universe: Universe) {
-    if (universe === Universe.ETHEREUM) {
-      return equalFold(tokenAddress, ZERO_ADDRESS);
-    }
-
-    return false;
-  }
-
-  iterate(feeStore: FeeStore) {
-    const values = this.value.breakdown
-      .filter((b) => new Decimal(b.balance).gt(0))
-      .sort((a, b) => {
-        if (a.chain.id === 1) return 1;
-        if (b.chain.id === 1) return -1;
-        return Decimal.sub(b.balance, a.balance).toNumber();
-      });
-
-    return values.map((b) => {
-      let balance = new Decimal(b.balance);
-
-      if (this.isDeposit(b.contractAddress, b.universe)) {
-        const estimatedGasForDeposit = feeStore.calculateCollectionFee({
-          decimals: b.decimals,
-          sourceChainID: b.chain.id,
-          sourceTokenAddress: b.contractAddress,
-        });
-
-        logger.debug('estimatedGasForDeposit', {
-          chainID: b.chain.id,
-          value: estimatedGasForDeposit.toFixed(),
-        });
-
-        if (new Decimal(b.balance).lessThan(estimatedGasForDeposit)) {
-          balance = new Decimal(0);
-        } else {
-          balance = new Decimal(b.balance).minus(estimatedGasForDeposit);
-        }
-      }
-
-      return {
-        balance,
-        chainID: b.chain.id,
+  iterate(chainList: ChainListType, _dstChainId: number) {
+    return assetListWithDepositDeducted(
+      this.value.breakdown.map((b) => ({
+        balance: b.balance,
+        chainId: b.chain.id,
+        contractAddress: b.contractAddress,
         decimals: b.decimals,
-        tokenContract: b.contractAddress,
         universe: b.universe,
-      };
-    });
+      })),
+      chainList,
+      120n
+    );
   }
 }
 class UserAssets {
@@ -908,4 +1030,6 @@ export {
   removeIntentHashFromStore,
   storeIntentHashToStore,
   createRequestTronSignature,
+  assetListWithDepositDeducted,
+  ESTIMATED_DEPOSIT_GAS,
 };

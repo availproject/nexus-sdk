@@ -2,6 +2,7 @@ import type { BridgeParams, IBridgeOptions } from '../../../commons';
 import { Errors } from '../errors';
 import {
   calculateMaxBridgeFee,
+  divDecimals,
   getBalancesForBridge,
   getFeeStore,
   mulDecimals,
@@ -28,24 +29,34 @@ const getMaxValueForBridge = async (
   ]);
 
   const userAssets = new UserAssets(assets);
-
-  // FIXME: error in asset.find use NexusError and better messaging.
   const tokenAsset = userAssets.find(params.token);
 
-  const { maxAmount, sourceChainIds } = calculateMaxBridgeFee({
-    assets: tokenAsset.getBridgeAssets(params.toChainId),
+  const { maxAmount, sourceChainIds } = await calculateMaxBridgeFee({
+    assets: tokenAsset.value.breakdown.map((b) => ({
+      balance: b.balance,
+      chainId: b.chain.id,
+      contractAddress: b.contractAddress,
+      decimals: b.decimals,
+      universe: b.universe,
+    })),
     feeStore: feeStore,
     dst: {
       chainId: params.toChainId,
       tokenAddress: token.contractAddress,
       decimals: token.decimals,
     },
+    chainList: options.chainList,
   });
+
+  const maxAmountRaw = mulDecimals(maxAmount, token.decimals);
+  // Apply 2% safety haircut to reduce max-amount execution failures due to fee drift.
+  const safeAmountRaw = (maxAmountRaw * 98n) / 100n;
+  const safeAmount = divDecimals(safeAmountRaw, token.decimals).toFixed(token.decimals);
 
   return {
     sourceChainIds,
-    amountRaw: mulDecimals(maxAmount, token.decimals),
-    amount: maxAmount,
+    amountRaw: safeAmountRaw,
+    amount: safeAmount,
     symbol: token.symbol,
   };
 };
