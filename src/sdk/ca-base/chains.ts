@@ -192,6 +192,7 @@ const TESTNET_CHAINS: Chain[] = [
   //   universe: Universe.TRON,
   // },
   {
+    swapSupported: false,
     blockExplorers: {
       default: {
         name: 'Citrea Testnet explorer',
@@ -228,6 +229,7 @@ const TESTNET_CHAINS: Chain[] = [
     universe: Universe.ETHEREUM,
   },
   {
+    swapSupported: false,
     blockExplorers: {
       default: {
         name: 'Arbitrum Sepolia Explorer',
@@ -274,6 +276,7 @@ const TESTNET_CHAINS: Chain[] = [
     universe: Universe.ETHEREUM,
   },
   {
+    swapSupported: false,
     blockExplorers: {
       default: {
         name: 'OP Sepolia Explorer',
@@ -320,6 +323,7 @@ const TESTNET_CHAINS: Chain[] = [
     universe: Universe.ETHEREUM,
   },
   {
+    swapSupported: false,
     blockExplorers: {
       default: {
         name: 'Amoy Polygon Explorer',
@@ -359,6 +363,7 @@ const TESTNET_CHAINS: Chain[] = [
     universe: Universe.ETHEREUM,
   },
   {
+    swapSupported: false,
     blockExplorers: {
       default: {
         name: 'Base Sepolia Scan',
@@ -398,6 +403,7 @@ const TESTNET_CHAINS: Chain[] = [
     universe: Universe.ETHEREUM,
   },
   {
+    swapSupported: false,
     blockExplorers: {
       default: {
         name: 'Monad Testnet Explorer',
@@ -441,6 +447,7 @@ const TESTNET_CHAINS: Chain[] = [
     universe: Universe.ETHEREUM,
   },
   {
+    swapSupported: false,
     blockExplorers: {
       default: {
         name: 'Etherscan Sepolia',
@@ -479,46 +486,11 @@ const TESTNET_CHAINS: Chain[] = [
     },
     universe: Universe.ETHEREUM,
   },
-  // {
-  //   blockExplorers: {
-  //     default: {
-  //       name: 'Validium Testnet Explorer',
-  //       url: 'https://testnet.explorer.validium.network',
-  //     },
-  //   },
-  //   custom: {
-  //     icon: 'https://assets.coingecko.com/asset_platforms/images/279/large/ethereum.png',
-  //     knownTokens: [
-  //       {
-  //         contractAddress: TOKEN_CONTRACT_ADDRESSES['USDC'][SUPPORTED_CHAINS.VALIDIUM_TESTNET],
-  //         decimals: 6,
-  //         logo: getLogoFromSymbol('USDC'),
-  //         name: 'USD Coin',
-  //         symbol: 'USDC',
-  //       },
-  //     ],
-  //   },
-  //   id: SUPPORTED_CHAINS.VALIDIUM_TESTNET,
-  //   name: 'Validium Testnet',
-  //   ankrName: '',
-  //   nativeCurrency: {
-  //     decimals: 18,
-  //     name: 'VLDM',
-  //     symbol: 'VLDM',
-  //   },
-  //   rpcUrls: {
-  //     default: {
-  //       http: ['https://testnet.l2.rpc.validium.network'],
-  //       publicHttp: ['https://testnet.l2.rpc.validium.network'],
-  //       webSocket: ['wss://testnet.l2.rpc.validium.network/ws'],
-  //     },
-  //   },
-  //   universe: Universe.ETHEREUM,
-  // },
 ];
 
 const MAINNET_CHAINS: Chain[] = [
   {
+    swapSupported: false,
     blockExplorers: {
       default: {
         name: 'Citrea Explorer',
@@ -562,6 +534,7 @@ const MAINNET_CHAINS: Chain[] = [
     universe: Universe.ETHEREUM,
   },
   {
+    swapSupported: false,
     blockExplorers: {
       default: {
         name: 'KaiaScan',
@@ -598,6 +571,7 @@ const MAINNET_CHAINS: Chain[] = [
     universe: Universe.ETHEREUM,
   },
   {
+    swapSupported: false,
     blockExplorers: {
       default: {
         name: 'Etherscan',
@@ -641,6 +615,7 @@ const MAINNET_CHAINS: Chain[] = [
     universe: Universe.ETHEREUM,
   },
   {
+    swapSupported: false,
     blockExplorers: {
       default: {
         name: 'Monad Vision',
@@ -677,6 +652,7 @@ const MAINNET_CHAINS: Chain[] = [
     universe: Universe.ETHEREUM,
   },
   {
+    swapSupported: true,
     blockExplorers: {
       default: {
         name: 'Optimism Etherscan',
@@ -720,6 +696,7 @@ const MAINNET_CHAINS: Chain[] = [
     universe: Universe.ETHEREUM,
   },
   {
+    swapSupported: true,
     blockExplorers: {
       default: {
         name: 'MegaETH Blockscout',
@@ -757,6 +734,7 @@ const MAINNET_CHAINS: Chain[] = [
     universe: Universe.ETHEREUM,
   },
   {
+    swapSupported: true,
     blockExplorers: {
       default: {
         name: 'Polygonscan',
@@ -800,6 +778,7 @@ const MAINNET_CHAINS: Chain[] = [
     universe: Universe.ETHEREUM,
   },
   {
+    swapSupported: true,
     blockExplorers: {
       default: {
         name: 'Basescan',
@@ -836,6 +815,7 @@ const MAINNET_CHAINS: Chain[] = [
     universe: Universe.ETHEREUM,
   },
   {
+    swapSupported: true,
     blockExplorers: {
       default: {
         name: 'Arbiscan',
@@ -879,6 +859,7 @@ const MAINNET_CHAINS: Chain[] = [
     universe: Universe.ETHEREUM,
   },
   {
+    swapSupported: true,
     blockExplorers: {
       default: {
         name: 'Scrollscan',
@@ -922,6 +903,7 @@ const MAINNET_CHAINS: Chain[] = [
     universe: Universe.ETHEREUM,
   },
   {
+    swapSupported: true,
     blockExplorers: {
       default: {
         name: 'Snowscan',
@@ -965,6 +947,7 @@ const MAINNET_CHAINS: Chain[] = [
     universe: Universe.ETHEREUM,
   },
   {
+    swapSupported: true,
     blockExplorers: {
       default: {
         name: 'BscScan',
@@ -1015,6 +998,7 @@ const MAINNET_CHAINS: Chain[] = [
     universe: Universe.ETHEREUM,
   },
   {
+    swapSupported: false,
     blockExplorers: {
       default: {
         name: 'Hyperscan',
