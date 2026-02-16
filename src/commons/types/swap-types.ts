@@ -218,6 +218,7 @@ export type AnkrBalance = {
   balance: string;
   balanceUSD: string;
   chainID: number;
+  error?: boolean;
   tokenAddress: `0x${string}`;
   tokenData: {
     decimals: number;

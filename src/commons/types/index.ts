@@ -383,6 +383,7 @@ export type Chain = {
     };
   };
   universe: Universe;
+  swapSupported: boolean;
 };
 
 interface EthereumProvider {

@@ -1653,7 +1653,7 @@ export const performDestinationSwap = async ({
 
 export const getSwapSupportedChains = (chainList: ChainListType) => {
   return chainList.chains
-    .filter((chain) => chain.ankrName !== '')
+    .filter((chain) => chain.swapSupported)
     .map((chain) => ({
       id: chain.id,
       name: chain.name,

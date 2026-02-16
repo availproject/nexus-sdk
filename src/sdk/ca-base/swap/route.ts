@@ -282,7 +282,10 @@ const _exactOutRoute = async (
 
   // Collection Fee needs to be calculated on cot
   const estimatedCollectionFee = estimateCollectionFee(
-    uniqBy(balances, (b) => b.chainID).map((b) => {
+    uniqBy(
+      balances.filter((b) => new Decimal(b.amount).gt(0)),
+      (b) => b.chainID
+    ).map((b) => {
       const cdm = ChaindataMap.get(new OmniversalChainID(Universe.ETHEREUM, b.chainID));
       if (!cdm) {
         throw Errors.internal(`chain data not found for chain ${input.toChainId}`);
