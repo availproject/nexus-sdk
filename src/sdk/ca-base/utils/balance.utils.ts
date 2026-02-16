@@ -37,7 +37,7 @@ const MULTICALL3_ABI = [
 
 const mapMulticallResultToBalance = (input: {
   chain: Chain;
-  balance: bigint;
+  balance: string;
   balanceUSD?: string;
   tokenAddress: Hex;
   tokenData: {
@@ -48,7 +48,7 @@ const mapMulticallResultToBalance = (input: {
   };
   error?: boolean;
 }): AnkrBalance => ({
-  balance: input.balance.toString(),
+  balance: input.balance,
   balanceUSD: input.balanceUSD ?? '0',
   chainID: input.chain.id,
   tokenAddress: input.tokenAddress,
@@ -139,7 +139,7 @@ export const getBalance = async (
   }
   const balances: AnkrBalance[] = [
     mapMulticallResultToBalance({
-      balance: nativeBalance,
+      balance: divDecimals(nativeBalance, chain.nativeCurrency.decimals).toFixed(),
       balanceUSD: '0',
       chain,
       tokenAddress: ZERO_ADDRESS,
@@ -158,10 +158,11 @@ export const getBalance = async (
     const result = responses[i + 1];
     const tokenBalance = result.status === 'success' ? result.result : 0n;
     const isStable = STABLE_SYMBOLS.has(token.symbol.toUpperCase());
+    const tokenBalancesInDecimal = divDecimals(tokenBalance, token.decimals).toFixed();
     balances.push(
       mapMulticallResultToBalance({
-        balance: tokenBalance,
-        balanceUSD: isStable ? tokenBalance.toString() : '0',
+        balance: tokenBalancesInDecimal,
+        balanceUSD: isStable ? tokenBalancesInDecimal : '0',
         chain,
         tokenAddress: token.contractAddress,
         tokenData: {
@@ -200,6 +201,7 @@ export const getBalancesForSwap = async (input: {
   const multicallChains = input.chainList.chains.filter(
     (chain) => chain.ankrName === '' && chain.swapSupported && chain.universe === Universe.ETHEREUM
   );
+
   const [ankrBalances, multicallBalances] = await Promise.all([
     ankrChains.length > 0
       ? getAnkrBalances(input.evmAddress, input.chainList, true)
@@ -208,6 +210,11 @@ export const getBalancesForSwap = async (input: {
       ? getBalances(multicallChains, input.evmAddress)
       : Promise.resolve([]),
   ]);
+
+  logger.debug('getBalancesForSwap', {
+    ankrBalances,
+    multicallBalances,
+  });
   const mergedBalances = [...ankrBalances, ...multicallBalances];
 
   const assets = ankrBalanceToAssets(
