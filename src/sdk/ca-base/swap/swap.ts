@@ -50,6 +50,9 @@ export const swap = async (
   if (!dstChain) {
     throw Errors.chainNotFound(input.data.toChainId);
   }
+  if (!dstChain.swapSupported) {
+    throw Errors.chainNotEnabledForSwap(input.data.toChainId);
+  }
 
   performance.mark('swap-start');
   const emitter = {

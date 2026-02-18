@@ -32,6 +32,14 @@ export const Errors = {
     createError(ERROR_CODES.CHAIN_DATA_NOT_FOUND, `Chain data not found for chain: ${chainId}`, {
       details: { chainId },
     }),
+  chainNotEnabledForSwap: (chainId: number | bigint) =>
+    createError(
+      ERROR_CODES.CHAIN_NOT_SUPPORTED_FOR_SWAP,
+      `Swap is not enabled on this chain: ${chainId}`,
+      {
+        details: { chainId },
+      }
+    ),
   assetNotFound: (tokenSymbol: string) =>
     createError(ERROR_CODES.ASSET_NOT_FOUND, `Asset not found in UserAssets: ${tokenSymbol}`, {
       details: { tokenSymbol },
