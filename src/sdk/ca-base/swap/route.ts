@@ -73,6 +73,16 @@ export const determineSwapRoute = async (
 export const applyBuffer = (amount: Decimal, bufferPercent: number): Decimal =>
   amount.mul(1 + bufferPercent / 100);
 
+const applyBufferWithCap = (
+  amount: Decimal,
+  bufferPercent: number,
+  cap: number
+): { amountWithBuffer: Decimal; buffer: Decimal } => {
+  const cappedBuffer = Decimal.min(amount.mul(bufferPercent / 100), cap);
+
+  return { amountWithBuffer: amount.plus(cappedBuffer), buffer: cappedBuffer };
+};
+
 /*
 Exact out:
 sF = solver Fee
@@ -103,8 +113,10 @@ source amount will be like max + (s1 + s2)sF + (s1 + s2)cF + fF
 // Currently COT is USDC.
 
 enum BUFFER_EXACT_OUT {
-  DESTINATION_SWAP = 5,
-  SOURCE_SWAP = 2,
+  DESTINATION_SWAP_BUFFER_PCT = 5,
+  DESTINATION_SWAP_MAX_IN_USD = 2, // <-- magic number ???
+  SOURCE_SWAP_BUFFER_PCT = 2,
+  SOURCE_SWAP_MAX_IN_USD = 1, // <-- another magic
 }
 
 const _exactOutRoute = async (
@@ -243,11 +255,13 @@ const _exactOutRoute = async (
     // We also add gasInCOT to it because we need to be able to swap to Gas
     // so we are charging min + 5% from the user, we add the buffer so the swap definitely happens and any pending amounts are sent back to the user.
     const min = destinationSwap.inputAmount.add(gasInCOT);
-    // Apply 5% buffer to destination input amount - any leftover is sent back in COT.
-    const max = applyBuffer(min, BUFFER_EXACT_OUT.DESTINATION_SWAP).toDP(
-      dstChainCOT.decimals,
-      Decimal.ROUND_CEIL
+    // Apply min(5%, 2 USD) buffer to destination input amount - any leftover is sent back in COT.
+    let { amountWithBuffer: max, buffer: dstBuffer } = applyBufferWithCap(
+      min,
+      BUFFER_EXACT_OUT.DESTINATION_SWAP_BUFFER_PCT,
+      BUFFER_EXACT_OUT.DESTINATION_SWAP_MAX_IN_USD
     );
+    max = max.toDP(dstChainCOT.decimals, Decimal.ROUND_CEIL);
 
     return {
       creationTime: createdAt,
@@ -316,10 +330,12 @@ const _exactOutRoute = async (
     .add(estimatedCollectionFee);
 
   const bridgeOutput = destinationSwap.inputAmount.max;
+  const bridgeOutputWithFees = bridgeOutput.add(estimatedBridgeFees);
 
-  const sourceSwapOutputRequired = applyBuffer(
-    bridgeOutput.add(estimatedBridgeFees),
-    BUFFER_EXACT_OUT.SOURCE_SWAP
+  const { amountWithBuffer: sourceSwapOutputRequired, buffer: srcBuffer } = applyBufferWithCap(
+    bridgeOutputWithFees,
+    BUFFER_EXACT_OUT.SOURCE_SWAP_BUFFER_PCT,
+    BUFFER_EXACT_OUT.SOURCE_SWAP_MAX_IN_USD
   );
 
   logger.debug('exact-out:3', {
@@ -507,27 +523,34 @@ const _exactOutRoute = async (
     };
   }
 
-  if (bridgeInput) {
-    const createIntentResponse = createIntent({
-      assets: bridgeAssets,
-      feeStore,
-      output: bridgeInput,
-      address: params.address.ephemeral,
-    });
+  const createIntentResponse = bridgeInput
+    ? createIntent({
+        assets: bridgeAssets,
+        feeStore,
+        output: bridgeInput,
+        address: params.address.ephemeral,
+      })
+    : null;
+  logger.debug('ExactOut: createIntent', { bridgeAssets, bridgeInput, createIntentResponse });
 
-    logger.debug('ExactOut: createIntent', { bridgeAssets, bridgeInput, createIntentResponse });
-  }
   return {
     source: {
       swaps: sourceSwaps,
       creationTime: sourceSwapCreationTime,
     },
-    bridge: bridgeInput,
+    bridge:
+      createIntentResponse && bridgeInput
+        ? { ...bridgeInput, estimatedFees: createIntentResponse.intent.fees }
+        : null,
     destination: {
       type: 'EXACT_OUT',
       swap: destinationSwap,
       fetchDestinationSwapDetails,
       dstEOAToEphTx,
+    },
+    // FIXME: add actual buffer
+    buffer: {
+      amount: '',
     },
     extras: {
       aggregators: params.aggregators,
@@ -583,6 +606,9 @@ export type SwapRoute = {
     swap: DestinationSwap;
     fetchDestinationSwapDetails: () => Promise<DestinationSwap>;
   };
+  buffer: {
+    amount: string;
+  };
   extras: {
     assetsUsed: {
       amount: string;
@@ -612,6 +638,13 @@ type BridgeInput = {
   chainID: number;
   decimals: number;
   tokenAddress: `0x${string}`;
+  estimatedFees: {
+    caGas: string;
+    gasSupplied: string;
+    protocol: string;
+    solver: string;
+    // total: string;
+  };
 } | null;
 
 type QuoteResponse = {
@@ -884,6 +917,23 @@ const _exactInRoute = async (
       chainID: input.toChainId,
       decimals: dstChainCOT.decimals,
       tokenAddress: convertToEVMAddress(dstChainCOT.tokenAddress),
+      estimatedFees: createIntent({
+        assets: bridgeAssets.map((b) => ({
+          ...b,
+          chainId: b.chainID,
+          balance: b.eoaBalance.add(b.ephemeralBalance).toFixed(),
+          universe: Universe.ETHEREUM,
+        })),
+        feeStore,
+        output: {
+          chainID: input.toChainId,
+          tokenAddress: dstChainCOTAddress,
+          decimals: dstChainCOT.decimals,
+          // FIXME: actual amount here
+          amount: new Decimal(0),
+        },
+        address: params.address.ephemeral,
+      }).intent.fees,
     };
   }
 
@@ -989,6 +1039,10 @@ const _exactInRoute = async (
       oraclePrices,
       balances,
       cotSymbol,
+    },
+    // FIXME: actual amount here
+    buffer: {
+      amount: '',
     },
   };
 };
