@@ -1237,6 +1237,15 @@ export const createSwapIntent = (
     decimals: number;
     symbol: string;
   }[],
+  // FIXME: Need to aggregator fee
+  feesAndBuffer: {
+    buffer: string;
+    bridgeFees?: {
+      caGas: string;
+      protocol: string;
+      solver: string;
+    };
+  },
   destination: {
     amount: string;
     chainID: number;
@@ -1252,6 +1261,16 @@ export const createSwapIntent = (
     throw Errors.chainNotFound(destination.chainID);
   }
 
+  let totalBridgeFee = new Decimal(0);
+  if (feesAndBuffer.bridgeFees) {
+    totalBridgeFee = totalBridgeFee.add(
+      Decimal.sum(
+        feesAndBuffer.bridgeFees.caGas,
+        feesAndBuffer.bridgeFees.solver,
+        feesAndBuffer.bridgeFees.protocol
+      )
+    );
+  }
   const intent: SwapIntent = {
     destination: {
       amount: destination.amount,
@@ -1265,6 +1284,7 @@ export const createSwapIntent = (
         decimals: destination.decimals,
         symbol: destination.symbol,
       },
+
       gas: {
         amount: destination.gasAmount,
         token: {
@@ -1273,6 +1293,12 @@ export const createSwapIntent = (
           symbol: chain.nativeCurrency.symbol,
         },
       },
+    },
+    feesAndBuffer: {
+      buffer: feesAndBuffer.buffer,
+      bridge: feesAndBuffer.bridgeFees
+        ? { ...feesAndBuffer.bridgeFees, total: totalBridgeFee.toFixed() }
+        : null,
     },
     sources: [],
   };
