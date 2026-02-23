@@ -84,9 +84,12 @@ type Params = {
 };
 
 const logger = getLogger();
+const EIP7702_DELEGATION_PREFIX = '0xef0100';
+const EIP7702_DELEGATION_CODE_HEX_LENGTH = 48; // 0x + 3-byte prefix + 20-byte delegate
 
 class BridgeHandler {
   protected steps: BridgeStepType[] = [];
+  private delegated7702ByChain = new Map<number, boolean>();
   protected params: Required<Params>;
   constructor(
     params: Params,
@@ -254,7 +257,11 @@ class BridgeHandler {
     try {
       let intent = await this.buildIntent(this.params.sourceChains);
 
-      const allowances = await getAllowances(intent.allSources, this.options.chainList);
+      const [allowances, delegated7702ByChain] = await Promise.all([
+        getAllowances(intent.allSources, this.options.chainList),
+        this.getDelegated7702ByChain(intent),
+      ]);
+      this.delegated7702ByChain = delegated7702ByChain;
 
       let insufficientAllowanceSources = this.filterInsufficientAllowanceSources(
         intent,
@@ -645,7 +652,17 @@ class BridgeHandler {
           await switchChain(this.options.evm.client, chain);
         }
 
-        if (currency.permitVariant === PermitVariant.Unsupported) {
+        const token = this.options.chainList.getTokenByAddress(
+          source.chainID,
+          source.tokenContract
+        );
+        const isUSDC = token ? equalFold(token.symbol, 'USDC') : false;
+        const isDelegated7702 =
+          chain.universe === Universe.ETHEREUM &&
+          isUSDC &&
+          (this.delegated7702ByChain.get(chain.id) ?? false);
+
+        if (currency.permitVariant === PermitVariant.Unsupported || isDelegated7702) {
           if (chain.universe === Universe.ETHEREUM) {
             const h = await this.options.evm.client
               .writeContract({
@@ -799,6 +816,39 @@ class BridgeHandler {
         await switchChain(this.options.evm.client, this.params.dstChain);
       }
     }
+  }
+
+  private async getDelegated7702ByChain(intent: Intent): Promise<Map<number, boolean>> {
+    const usdcEvmSourceChains = new Set<number>();
+
+    for (const s of intent.sources) {
+      if (s.universe !== Universe.ETHEREUM || isNativeAddress(s.universe, s.tokenContract)) {
+        continue;
+      }
+      const token = this.options.chainList.getTokenByAddress(s.chainID, s.tokenContract);
+      if (token && equalFold(token.symbol, 'USDC')) {
+        usdcEvmSourceChains.add(s.chainID);
+      }
+    }
+
+    const entries = await Promise.all(
+      [...usdcEvmSourceChains].map(async (chainID) => {
+        const chain = this.options.chainList.getChainByID(chainID);
+        if (!chain) {
+          throw Errors.chainNotFound(chainID);
+        }
+        const publicClient = createPublicClientWithFallback(chain);
+        const code = await publicClient.getCode({ address: this.options.evm.address });
+        const normalizedCode = (code ?? '0x').toLowerCase();
+        const isDelegated7702 =
+          normalizedCode.startsWith(EIP7702_DELEGATION_PREFIX) &&
+          normalizedCode.length === EIP7702_DELEGATION_CODE_HEX_LENGTH;
+
+        return [chainID, isDelegated7702] as const;
+      })
+    );
+
+    return new Map(entries);
   }
 
   private async waitForOnAllowanceHook(sources: onAllowanceHookSource[]): Promise<boolean> {
