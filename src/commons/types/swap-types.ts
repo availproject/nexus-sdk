@@ -104,15 +104,14 @@ export type SwapIntent = {
       };
     };
   };
-  buffer: {
-    amount: string;
-  };
-  bridgeFees: {
-    caGas: string;
-    gasSupplied: string;
-    protocol: string;
-    solver: string;
-    total: string;
+  feesAndBuffer: {
+    buffer: string;
+    bridge: {
+      caGas: string;
+      protocol: string;
+      solver: string;
+      total: string;
+    } | null;
   };
   sources: {
     amount: string;

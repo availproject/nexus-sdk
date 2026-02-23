@@ -126,7 +126,15 @@ export const swap = async (
     const refresh = async (fromSources?: { chainId: number; tokenAddress: Hex }[]) => {
       if (accepted) {
         logger.warn('Swap Intent refresh called after acceptance');
-        return createSwapIntent(extras.assetsUsed, destinationTokenDetails, options.chainList);
+        return createSwapIntent(
+          extras.assetsUsed,
+          {
+            buffer: swapRoute.buffer.amount,
+            bridgeFees: swapRoute.bridge?.estimatedFees,
+          },
+          destinationTokenDetails,
+          options.chainList
+        );
       }
 
       const updatedInput = { ...input };
@@ -147,6 +155,10 @@ export const swap = async (
       });
       const swapIntent = createSwapIntent(
         extras.assetsUsed,
+        {
+          buffer: swapRouteResponse.buffer.amount,
+          bridgeFees: swapRouteResponse.bridge?.estimatedFees,
+        },
         destinationTokenDetails,
         options.chainList
       );
@@ -166,6 +178,10 @@ export const swap = async (
 
       const swapIntent = createSwapIntent(
         extras.assetsUsed,
+        {
+          buffer: swapRoute.buffer.amount,
+          bridgeFees: swapRoute.bridge?.estimatedFees,
+        },
         destinationTokenDetails,
         options.chainList
       );

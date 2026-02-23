@@ -196,6 +196,8 @@ const _exactOutRoute = async (
     ).mul(1.02);
   }
 
+  let buffer = new Decimal(0);
+
   // Since its exact out, we start with desired destination amount and work our
   // way backward from there
   const fetchDestinationSwapDetails = async (): Promise<DestinationSwap> => {
@@ -262,6 +264,7 @@ const _exactOutRoute = async (
       BUFFER_EXACT_OUT.DESTINATION_SWAP_MAX_IN_USD
     );
     max = max.toDP(dstChainCOT.decimals, Decimal.ROUND_CEIL);
+    buffer = buffer.add(dstBuffer);
 
     return {
       creationTime: createdAt,
@@ -338,8 +341,12 @@ const _exactOutRoute = async (
     BUFFER_EXACT_OUT.SOURCE_SWAP_MAX_IN_USD
   );
 
+  buffer = buffer.add(srcBuffer);
+
   logger.debug('exact-out:3', {
     dstChainCOTAddress,
+    srcBuffer: srcBuffer.toFixed(),
+    buffer: buffer.toFixed(),
     estimatedBridgeFees: estimatedBridgeFees.toFixed(),
     bridgeOutput: bridgeOutput.toFixed(),
     sourceSwapOutputRequired: sourceSwapOutputRequired.toFixed(),
@@ -548,9 +555,8 @@ const _exactOutRoute = async (
       fetchDestinationSwapDetails,
       dstEOAToEphTx,
     },
-    // FIXME: add actual buffer
     buffer: {
-      amount: '',
+      amount: buffer.toFixed(),
     },
     extras: {
       aggregators: params.aggregators,
@@ -929,7 +935,6 @@ const _exactInRoute = async (
           chainID: input.toChainId,
           tokenAddress: dstChainCOTAddress,
           decimals: dstChainCOT.decimals,
-          // FIXME: actual amount here
           amount: new Decimal(0),
         },
         address: params.address.ephemeral,
@@ -1040,9 +1045,8 @@ const _exactInRoute = async (
       balances,
       cotSymbol,
     },
-    // FIXME: actual amount here
     buffer: {
-      amount: '',
+      amount: '0',
     },
   };
 };
