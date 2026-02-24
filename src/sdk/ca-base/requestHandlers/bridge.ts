@@ -36,6 +36,7 @@ import {
   type SetAllowanceInput,
   type SourceTxs,
   type SponsoredApprovalDataArray,
+  SUPPORTED_CHAINS,
   type TokenInfo,
 } from '../../../commons';
 import { isNativeAddress } from '../constants';
@@ -662,7 +663,11 @@ class BridgeHandler {
           isUSDC &&
           (this.delegated7702ByChain.get(chain.id) ?? false);
 
-        if (currency.permitVariant === PermitVariant.Unsupported || isDelegated7702) {
+        if (
+          currency.permitVariant === PermitVariant.Unsupported ||
+          isDelegated7702 ||
+          chain.id === SUPPORTED_CHAINS.ETHEREUM
+        ) {
           if (chain.universe === Universe.ETHEREUM) {
             const h = await this.options.evm.client
               .writeContract({
