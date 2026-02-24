@@ -571,7 +571,7 @@ const MAINNET_CHAINS: Chain[] = [
     universe: Universe.ETHEREUM,
   },
   {
-    swapSupported: true,
+    swapSupported: false,
     blockExplorers: {
       default: {
         name: 'Etherscan',
@@ -599,7 +599,7 @@ const MAINNET_CHAINS: Chain[] = [
     },
     id: SUPPORTED_CHAINS.ETHEREUM,
     name: 'Ethereum Mainnet',
-    ankrName: 'eth',
+    ankrName: '',
     nativeCurrency: {
       decimals: 18,
       name: 'Ether',
