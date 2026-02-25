@@ -230,7 +230,7 @@ const convertIntent = (
   token: TokenInfo,
   chainList: ChainListType
 ): ReadableIntent => {
-  console.time('convertIntent');
+  const tConvertIntent = logger.timer('convertIntent');
 
   const sources = [];
   let sourcesTotal = new Decimal(0);
@@ -309,7 +309,7 @@ const convertIntent = (
     chainLogo: destinationChainInfo?.custom.icon,
     chainName: destinationChainInfo?.name,
   };
-  console.timeEnd('convertIntent');
+  tConvertIntent.end();
   return {
     allSources,
     destination,

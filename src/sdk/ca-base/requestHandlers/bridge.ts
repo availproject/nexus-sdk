@@ -109,9 +109,9 @@ class BridgeHandler {
   }
 
   private readonly buildIntent = async (sourceChains: number[] = []) => {
-    console.time('process:preIntentSteps');
+    const tProcessPreIntentSteps = logger.timer('process:preIntentSteps');
 
-    console.time('preIntentSteps:API');
+    const tPreIntentStepsApi = logger.timer('preIntentSteps:API');
     const [assets, oraclePrices, feeStore] = await Promise.all([
       getBalancesForBridge({
         vscClient: this.options.vscClient,
@@ -129,19 +129,20 @@ class BridgeHandler {
       feeStore,
     });
 
-    console.timeEnd('preIntentSteps:API');
+    tPreIntentStepsApi.end();
     logger.debug('Step 1:', {
       assets,
       feeStore,
       oraclePrices,
     });
 
-    console.time('preIntentSteps: Parse');
+    const tPreIntentStepsParse = logger.timer('preIntentSteps: Parse');
 
     // Step 2: parse simulation results
     const userAssets = new UserAssets(assets);
+    tPreIntentStepsParse.end();
 
-    console.time('preIntentSteps: CalculateGas');
+    const tPreIntentStepsCalcGas = logger.timer('preIntentSteps: CalculateGas');
 
     const nativeAmountInDecimal = divDecimals(
       this.params.nativeAmount,
@@ -161,7 +162,7 @@ class BridgeHandler {
       nativeAmountInDecimal
     );
 
-    console.timeEnd('preIntentSteps: CalculateGas');
+    tPreIntentStepsCalcGas.end();
 
     logger.debug('preIntent:1', {
       gasInNative: nativeAmountInDecimal.toFixed(),
@@ -169,7 +170,7 @@ class BridgeHandler {
     });
 
     // Step 4: create intent
-    console.time('preIntentSteps: CreateIntent');
+    const tPreIntentStepsCreateIntent = logger.timer('preIntentSteps: CreateIntent');
     const intent = await this.createIntent({
       amount: tokenAmountInDecimal,
       assets: userAssets,
@@ -179,8 +180,8 @@ class BridgeHandler {
       sourceChains,
       token: this.params.dstToken,
     });
-    console.timeEnd('preIntentSteps: CreateIntent');
-    console.timeEnd('process:preIntentSteps');
+    tPreIntentStepsCreateIntent.end();
+    tProcessPreIntentSteps.end();
 
     return intent;
   };
@@ -301,11 +302,11 @@ class BridgeHandler {
 
       this.markStepDone(BRIDGE_STEPS.INTENT_ACCEPTED);
 
-      console.time('process:AllowanceHook');
+      const tProcessAllowanceHook = logger.timer('process:AllowanceHook');
 
       // Step 5: set allowance if not set
       await this.waitForOnAllowanceHook(insufficientAllowanceSources);
-      console.timeEnd('process:AllowanceHook');
+      tProcessAllowanceHook.end();
 
       // Step 6: Process intent
       logger.debug('intent', { intent });
