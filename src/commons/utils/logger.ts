@@ -122,6 +122,20 @@ class Logger {
   warn(message: string, params: unknown = {}) {
     this.internalLog(LOG_LEVEL.WARNING, message, params);
   }
+
+  timer(label?: string) {
+    if (LOG_LEVEL.DEBUG < state.logLevel) {
+      return { end: () => {} };
+    }
+    const timerLabel = `[${this.prefix}] Timer: ${label}`;
+    console.time(timerLabel);
+    
+    return {
+      end: () => {
+        console.timeEnd(timerLabel);
+      }
+    };
+  }
 }
 
 const state: LoggerState = {
