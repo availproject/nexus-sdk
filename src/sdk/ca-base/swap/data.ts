@@ -20,6 +20,10 @@ export enum CurrencyID {
   DAI = 0x8,
   HYPE = 0x10,
   KAIA = 0x11,
+  SOPH = 0x12,
+  TRX = 0x13,
+  MON = 0x14,
+  CBTC = 0x15,
   USDS = 99,
 }
 
@@ -292,6 +296,52 @@ const chainData: Map<
         CurrencyID: CurrencyID.BNB,
         IsGasToken: true,
         Name: CurrencyID[CurrencyID.BNB],
+        PermitVariant: PermitVariant.Unsupported,
+        PermitContractVersion: 0,
+        TokenContractAddress: convertTo32BytesHex(EADDRESS),
+        TokenDecimals: 18,
+      },
+    ],
+  ],
+  [
+    143,
+    [
+      {
+        CurrencyID: CurrencyID.USDC,
+        IsGasToken: false,
+        Name: CurrencyID[CurrencyID.USDC],
+        PermitVariant: PermitVariant.EIP2612Canonical,
+        PermitContractVersion: 2,
+        TokenContractAddress: convertTo32BytesHex('0x754704Bc059F8C67012fEd69BC8A327a5aafb603'),
+        TokenDecimals: 6,
+      },
+      {
+        CurrencyID: CurrencyID.MON,
+        IsGasToken: true,
+        Name: CurrencyID[CurrencyID.ETH],
+        PermitVariant: PermitVariant.Unsupported,
+        PermitContractVersion: 0,
+        TokenContractAddress: convertTo32BytesHex(EADDRESS),
+        TokenDecimals: 18,
+      },
+    ],
+  ],
+  [
+    4326,
+    [
+      {
+        CurrencyID: CurrencyID.USDC,
+        IsGasToken: false,
+        Name: CurrencyID[CurrencyID.USDC],
+        PermitVariant: PermitVariant.EIP2612Canonical,
+        PermitContractVersion: 1,
+        TokenContractAddress: convertTo32BytesHex('0xFAfDdbb3FC7688494971a79cc65DCa3EF82079E7'),
+        TokenDecimals: 18,
+      },
+      {
+        CurrencyID: CurrencyID.ETH,
+        IsGasToken: true,
+        Name: CurrencyID[CurrencyID.ETH],
         PermitVariant: PermitVariant.Unsupported,
         PermitContractVersion: 0,
         TokenContractAddress: convertTo32BytesHex(EADDRESS),
