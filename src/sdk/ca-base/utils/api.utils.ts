@@ -497,41 +497,85 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
 
       await connection.connected();
 
-      const approvalHashes: { chainId: number; hash: Hex }[] = [];
+      const approvals: { chainId: number; hash: Hex }[] = [];
+      const failedChainIds = new Set<number>();
+      const seenPartIdx = new Set<number>();
+      const totalParts = input.length;
+
+      const markPartFailed = (partIdx: number) => {
+        if (partIdx < 0 || !input[partIdx]) {
+          return;
+        }
+        failedChainIds.add(bytesToNumber(input[partIdx].chain_id));
+        seenPartIdx.add(partIdx);
+      };
+
+      const markAllUnseenPartsFailed = () => {
+        for (let i = 0; i < totalParts; i++) {
+          if (!seenPartIdx.has(i)) {
+            markPartFailed(i);
+          }
+        }
+      };
+
+      const isPartLevelError = (data: CreateSponsoredApprovalResponse) =>
+        ('errored' in data && data.errored) || ('error' in data && data.error);
+
+      const isComplete = () => seenPartIdx.size === totalParts;
 
       try {
         connection.socket.send(pack(input));
 
         for await (const resp of connection.source) {
+          if (isComplete()) {
+            break;
+          }
+
           const data: CreateSponsoredApprovalResponse = unpack(resp);
+          const partIdx = 'part_idx' in data ? data.part_idx : -1;
 
           logger.debug('vscCreateSponsoredApprovals', { data });
 
-          if ('errored' in data && data.errored) {
-            throw Errors.vscError(
-              `failed to create sponsored approvals: ${data.msg ?? 'Backend sent failure.'}`
-            );
+          if (isPartLevelError(data)) {
+            if (partIdx >= 0) {
+              markPartFailed(partIdx);
+            } else {
+              markAllUnseenPartsFailed();
+            }
+            if (isComplete()) {
+              break;
+            }
+            continue;
           }
 
-          if ('error' in data && data.error) {
-            throw Errors.vscError(
-              `failed to create sponsored approvals: ${data.msg ?? 'Backend sent failure.'}`
-            );
+          if (partIdx < 0 || !input[partIdx]) {
+            continue;
           }
 
-          const inputData = input[data.part_idx];
+          if (!('tx_hash' in data)) {
+            markPartFailed(partIdx);
+            if (isComplete()) {
+              break;
+            }
+            continue;
+          }
 
-          approvalHashes.push({
-            chainId: bytesToNumber(inputData.chain_id),
+          approvals.push({
+            chainId: bytesToNumber(input[partIdx].chain_id),
             hash: toHex(data.tx_hash),
           });
 
-          if (approvalHashes.length === input.length) {
+          seenPartIdx.add(partIdx);
+
+          if (isComplete()) {
             break;
           }
         }
 
-        return approvalHashes;
+        return {
+          approvals,
+          failedChainIds: [...failedChainIds],
+        };
       } finally {
         connection.close();
       }
