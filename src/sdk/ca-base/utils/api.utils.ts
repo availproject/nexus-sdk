@@ -500,8 +500,6 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
       const approvals: { chainId: number; hash: Hex }[] = [];
       const failedChainIds = new Set<number>();
       const seenPartIdx = new Set<number>();
-      const totalParts = input.length;
-
       const markPartFailed = (partIdx: number) => {
         if (partIdx < 0 || !input[partIdx]) {
           return;
@@ -510,24 +508,11 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
         seenPartIdx.add(partIdx);
       };
 
-      const markAllUnseenPartsFailed = () => {
-        for (let i = 0; i < totalParts; i++) {
-          if (!seenPartIdx.has(i)) {
-            markPartFailed(i);
-          }
-        }
-      };
-
-      const isPartLevelError = (data: CreateSponsoredApprovalResponse) =>
-        ('errored' in data && data.errored) || ('error' in data && data.error);
-
-      const isComplete = () => seenPartIdx.size === totalParts;
-
       try {
         connection.socket.send(pack(input));
 
         for await (const resp of connection.source) {
-          if (isComplete()) {
+          if (seenPartIdx.size === input.length) {
             break;
           }
 
@@ -536,27 +521,30 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
 
           logger.debug('vscCreateSponsoredApprovals', { data });
 
-          if (isPartLevelError(data)) {
-            if (partIdx >= 0) {
-              markPartFailed(partIdx);
-            } else {
-              markAllUnseenPartsFailed();
-            }
-            if (isComplete()) {
-              break;
+          if ('errored' in data && data.errored) {
+            // Backend reported this specific part as failed.
+            markPartFailed(partIdx);
+            continue;
+          }
+
+          if ('error' in data && data.error) {
+            // Global error payload: mark every unresolved part as failed.
+            for (let i = 0; i < input.length; i++) {
+              if (!seenPartIdx.has(i)) {
+                markPartFailed(i);
+              }
             }
             continue;
           }
 
           if (partIdx < 0 || !input[partIdx]) {
+            // Ignore payloads that cannot be mapped to a valid input part.
             continue;
           }
 
           if (!('tx_hash' in data)) {
+            // A mapped part without tx hash is treated as failed.
             markPartFailed(partIdx);
-            if (isComplete()) {
-              break;
-            }
             continue;
           }
 
@@ -567,7 +555,7 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
 
           seenPartIdx.add(partIdx);
 
-          if (isComplete()) {
+          if (seenPartIdx.size === input.length) {
             break;
           }
         }
