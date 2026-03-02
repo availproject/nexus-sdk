@@ -7,6 +7,7 @@ import {
   Universe,
 } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
+import { attemptAsync } from 'es-toolkit';
 import type Long from 'long';
 import { TronWeb } from 'tronweb';
 import {
@@ -69,7 +70,6 @@ import {
   switchChain,
   UserAssets,
   waitForIntentFulfilment,
-  waitForTronApprovalTxConfirmation,
   waitForTronDepositTxConfirmation,
   waitForTxReceipt,
   // createDeadlineFromNow,
@@ -85,12 +85,9 @@ type Params = {
 };
 
 const logger = getLogger();
-const EIP7702_DELEGATION_PREFIX = '0xef0100';
-const EIP7702_DELEGATION_CODE_HEX_LENGTH = 48; // 0x + 3-byte prefix + 20-byte delegate
 
 class BridgeHandler {
   protected steps: BridgeStepType[] = [];
-  private delegated7702ByChain = new Map<number, boolean>();
   protected params: Required<Params>;
   constructor(
     params: Params,
@@ -258,11 +255,7 @@ class BridgeHandler {
     try {
       let intent = await this.buildIntent(this.params.sourceChains);
 
-      const [allowances, delegated7702ByChain] = await Promise.all([
-        getAllowances(intent.allSources, this.options.chainList),
-        this.getDelegated7702ByChain(intent),
-      ]);
-      this.delegated7702ByChain = delegated7702ByChain;
+      const allowances = await getAllowances(intent.allSources, this.options.chainList);
 
       let insufficientAllowanceSources = this.filterInsufficientAllowanceSources(
         intent,
@@ -619,6 +612,8 @@ class BridgeHandler {
 
     const sponsoredApprovals: SponsoredApprovalDataArray = [];
     const unsponsoredApprovals: Promise<TransactionReceipt>[] = [];
+    const sponsoredSourcesByChain = new Map<number, SetAllowanceInput[]>();
+
     try {
       for (const source of input) {
         const chain = this.options.chainList.getChainByID(source.chainID);
@@ -626,6 +621,14 @@ class BridgeHandler {
           throw Errors.chainNotFound(source.chainID);
         }
 
+        if (chain.universe !== Universe.ETHEREUM) {
+          throw Errors.internal('Allowance approvals are only supported for Ethereum chains', {
+            chainId: source.chainID,
+            universe: chain.universe,
+          });
+        }
+
+        await switchChain(this.options.evm.client, chain);
         const publicClient = createPublicClientWithFallback(chain);
 
         const vc = this.options.chainList.getVaultContractAddress(chain.id);
@@ -647,98 +650,17 @@ class BridgeHandler {
           });
         }
 
-        if (chain.universe === Universe.ETHEREUM) {
-          logger.debug(`Switching chain to ${chain.id}`);
-
-          await switchChain(this.options.evm.client, chain);
-        }
-
-        const token = this.options.chainList.getTokenByAddress(
-          source.chainID,
-          source.tokenContract
-        );
-        const isUSDC = token ? equalFold(token.symbol, 'USDC') : false;
-        const isDelegated7702 =
-          chain.universe === Universe.ETHEREUM &&
-          isUSDC &&
-          (this.delegated7702ByChain.get(chain.id) ?? false);
-
         if (
           currency.permitVariant === PermitVariant.Unsupported ||
-          isDelegated7702 ||
           chain.id === SUPPORTED_CHAINS.ETHEREUM
         ) {
-          if (chain.universe === Universe.ETHEREUM) {
-            const h = await this.options.evm.client
-              .writeContract({
-                abi: ERC20ABI,
-                account: this.options.evm.address,
-                address: source.tokenContract,
-                args: [vc, BigInt(source.amount)],
-                chain,
-                functionName: 'approve',
-              })
-              .catch((e) => {
-                if (e instanceof ContractFunctionExecutionError) {
-                  const isUserRejectedRequestError =
-                    e.walk((e) => e instanceof UserRejectedRequestError) instanceof
-                    UserRejectedRequestError;
-                  if (isUserRejectedRequestError) {
-                    throw Errors.userRejectedAllowance();
-                  }
-                }
-                throw e;
-              });
-
-            this.markStepDone(BRIDGE_STEPS.ALLOWANCE_APPROVAL_REQUEST(chain));
-
-            unsponsoredApprovals.push(waitForTxReceipt(h, publicClient));
-          } else if (chain.universe === Universe.TRON) {
-            if (!this.options.tron) {
-              throw Errors.internal('Tron is available in sources but has no adapter/provider');
-            }
-
-            const provider = new TronWeb({
-              fullHost: chain.rpcUrls.default.grpc![0],
-            });
-            const tx = await provider.transactionBuilder.triggerSmartContract(
-              TronWeb.address.fromHex(source.tokenContract),
-              'approve(address,uint256)',
-              {
-                txLocal: true,
-              },
-              [
-                { type: 'address', value: TronWeb.address.fromHex(vc) },
-                { type: 'uint256', value: source.amount.toString() },
-              ],
-              TronWeb.address.fromHex(this.options.tron?.address)
-            );
-            const signedTx = await this.options.tron.adapter.signTransaction(tx.transaction);
-            logger.debug('tron approval signTransaction result', {
-              signedTx,
-            });
-
-            if (!this.options.tron.adapter.isMobile) {
-              const txResult = await provider.trx.sendRawTransaction(signedTx);
-
-              logger.debug('tron tx result', {
-                txResult,
-              });
-              if (!txResult.result) {
-                throw Errors.tronApprovalFailed(txResult);
-              }
-            }
-
-            await waitForTronApprovalTxConfirmation(
-              source.amount,
-              this.options.tron.address as Hex,
-              vc,
-              source.tokenContract,
-              provider
-            );
-          }
-
-          this.markStepDone(BRIDGE_STEPS.ALLOWANCE_APPROVAL_MINED(chain));
+          const { chain: approvalChain, waitReceipt } = await this.createEvmDirectApproval(source);
+          unsponsoredApprovals.push(
+            waitReceipt.then((receipt) => {
+              this.markStepDone(BRIDGE_STEPS.ALLOWANCE_APPROVAL_MINED(approvalChain));
+              return receipt;
+            })
+          );
         } else {
           const account: JsonRpcAccount = {
             address: this.options.evm.address,
@@ -768,6 +690,7 @@ class BridgeHandler {
 
           this.markStepDone(BRIDGE_STEPS.ALLOWANCE_APPROVAL_REQUEST(chain));
 
+          this.addSponsoredSource(sponsoredSourcesByChain, source);
           sponsoredApprovals.push({
             address: convertTo32Bytes(account.address),
             chain_id: chainDatum.ChainID32,
@@ -790,24 +713,64 @@ class BridgeHandler {
         logger.debug('setAllowances:sponsoredApprovals', {
           sponsoredApprovals,
         });
-        const approvalHashes =
-          await this.options.vscClient.vscCreateSponsoredApprovals(sponsoredApprovals);
+        const [createSponsoredApprovalsErr, sponsoredResult] = await attemptAsync(() =>
+          this.options.vscClient.vscCreateSponsoredApprovals(sponsoredApprovals)
+        );
+        const approvalHashes = sponsoredResult?.approvals ?? [];
+        const failedSponsoredChainIds = new Set<number>(sponsoredResult?.failedChainIds ?? []);
 
-        await Promise.all(
-          approvalHashes.map(async (approval) => {
-            const chain = this.options.chainList.getChainByID(approval.chainId);
-            if (!chain) {
-              throw Errors.chainNotFound(approval.chainId);
+        if (createSponsoredApprovalsErr) {
+          logger.warn(
+            'setAllowances: sponsored approvals failed, falling back to direct approvals',
+            createSponsoredApprovalsErr
+          );
+          await this.fallbackToDirectApprovals(
+            [...sponsoredSourcesByChain.values()].flat(),
+            unsponsoredApprovals
+          );
+        } else {
+          await Promise.all(
+            approvalHashes.map(async (approval) => {
+              const chain = this.options.chainList.getChainByID(approval.chainId);
+              if (!chain) {
+                throw Errors.chainNotFound(approval.chainId);
+              }
+
+              const publicClient = createPublicClientWithFallback(chain);
+              const [waitForApprovalErr] = await attemptAsync(() =>
+                waitForTxReceipt(approval.hash, publicClient)
+              );
+
+              if (waitForApprovalErr) {
+                logger.warn('setAllowances: sponsored approval mining failed', {
+                  approval,
+                  error: waitForApprovalErr,
+                });
+                failedSponsoredChainIds.add(approval.chainId);
+                return;
+              }
+
+              BRIDGE_STEPS.ALLOWANCE_APPROVAL_MINED({
+                id: approval.chainId,
+              });
+            })
+          );
+
+          if (failedSponsoredChainIds.size) {
+            logger.warn(
+              'setAllowances: falling back to direct approvals for failed sponsored chains',
+              {
+                chainIds: [...failedSponsoredChainIds],
+              }
+            );
+            const failedSources: SetAllowanceInput[] = [];
+            for (const chainId of failedSponsoredChainIds) {
+              failedSources.push(...(sponsoredSourcesByChain.get(chainId) ?? []));
             }
 
-            const publicClient = createPublicClientWithFallback(chain);
-            await waitForTxReceipt(approval.hash, publicClient);
-            BRIDGE_STEPS.ALLOWANCE_APPROVAL_MINED({
-              id: approval.chainId,
-            });
-            return;
-          })
-        );
+            await this.fallbackToDirectApprovals(failedSources, unsponsoredApprovals);
+          }
+        }
       }
       if (unsponsoredApprovals.length) {
         await Promise.all(unsponsoredApprovals);
@@ -823,37 +786,75 @@ class BridgeHandler {
     }
   }
 
-  private async getDelegated7702ByChain(intent: Intent): Promise<Map<number, boolean>> {
-    const usdcEvmSourceChains = new Set<number>();
+  private addSponsoredSource(
+    sponsoredSourcesByChain: Map<number, SetAllowanceInput[]>,
+    source: SetAllowanceInput
+  ) {
+    const current = sponsoredSourcesByChain.get(source.chainID);
+    if (current) {
+      current.push(source);
+    } else {
+      sponsoredSourcesByChain.set(source.chainID, [source]);
+    }
+  }
 
-    for (const s of intent.sources) {
-      if (s.universe !== Universe.ETHEREUM || isNativeAddress(s.universe, s.tokenContract)) {
-        continue;
-      }
-      const token = this.options.chainList.getTokenByAddress(s.chainID, s.tokenContract);
-      if (token && equalFold(token.symbol, 'USDC')) {
-        usdcEvmSourceChains.add(s.chainID);
-      }
+  private async createEvmDirectApproval(
+    source: SetAllowanceInput
+  ): Promise<{ chain: Chain; waitReceipt: Promise<TransactionReceipt> }> {
+    const chain = this.options.chainList.getChainByID(source.chainID);
+    if (!chain) {
+      throw Errors.chainNotFound(source.chainID);
     }
 
-    const entries = await Promise.all(
-      [...usdcEvmSourceChains].map(async (chainID) => {
-        const chain = this.options.chainList.getChainByID(chainID);
-        if (!chain) {
-          throw Errors.chainNotFound(chainID);
-        }
-        const publicClient = createPublicClientWithFallback(chain);
-        const code = await publicClient.getCode({ address: this.options.evm.address });
-        const normalizedCode = (code ?? '0x').toLowerCase();
-        const isDelegated7702 =
-          normalizedCode.startsWith(EIP7702_DELEGATION_PREFIX) &&
-          normalizedCode.length === EIP7702_DELEGATION_CODE_HEX_LENGTH;
+    if (chain.universe !== Universe.ETHEREUM) {
+      throw Errors.internal('Allowance approvals are only supported for Ethereum chains', {
+        chainId: source.chainID,
+        universe: chain.universe,
+      });
+    }
 
-        return [chainID, isDelegated7702] as const;
+    const publicClient = createPublicClientWithFallback(chain);
+    const vc = this.options.chainList.getVaultContractAddress(chain.id);
+
+    await switchChain(this.options.evm.client, chain);
+    const hash = await this.options.evm.client
+      .writeContract({
+        abi: ERC20ABI,
+        account: this.options.evm.address,
+        address: source.tokenContract,
+        args: [vc, BigInt(source.amount)],
+        chain,
+        functionName: 'approve',
       })
-    );
+      .catch((e) => {
+        if (e instanceof ContractFunctionExecutionError) {
+          const isUserRejectedRequestError =
+            e.walk((err) => err instanceof UserRejectedRequestError) instanceof
+            UserRejectedRequestError;
+          if (isUserRejectedRequestError) {
+            throw Errors.userRejectedAllowance();
+          }
+        }
+        throw e;
+      });
 
-    return new Map(entries);
+    this.markStepDone(BRIDGE_STEPS.ALLOWANCE_APPROVAL_REQUEST(chain));
+    return { chain, waitReceipt: waitForTxReceipt(hash, publicClient) };
+  }
+
+  private async fallbackToDirectApprovals(
+    sources: SetAllowanceInput[],
+    unsponsoredApprovals: Promise<TransactionReceipt>[]
+  ) {
+    for (const source of sources) {
+      const { chain, waitReceipt } = await this.createEvmDirectApproval(source);
+      unsponsoredApprovals.push(
+        waitReceipt.then((receipt) => {
+          this.markStepDone(BRIDGE_STEPS.ALLOWANCE_APPROVAL_MINED(chain));
+          return receipt;
+        })
+      );
+    }
   }
 
   private async waitForOnAllowanceHook(sources: onAllowanceHookSource[]): Promise<boolean> {

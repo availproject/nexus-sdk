@@ -497,41 +497,73 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
 
       await connection.connected();
 
-      const approvalHashes: { chainId: number; hash: Hex }[] = [];
+      const approvals: { chainId: number; hash: Hex }[] = [];
+      const failedChainIds = new Set<number>();
+      const seenPartIdx = new Set<number>();
+      const markPartFailed = (partIdx: number) => {
+        if (partIdx < 0 || !input[partIdx]) {
+          return;
+        }
+        failedChainIds.add(bytesToNumber(input[partIdx].chain_id));
+        seenPartIdx.add(partIdx);
+      };
 
       try {
         connection.socket.send(pack(input));
 
         for await (const resp of connection.source) {
+          if (seenPartIdx.size === input.length) {
+            break;
+          }
+
           const data: CreateSponsoredApprovalResponse = unpack(resp);
+          const partIdx = 'part_idx' in data ? data.part_idx : -1;
 
           logger.debug('vscCreateSponsoredApprovals', { data });
 
           if ('errored' in data && data.errored) {
-            throw Errors.vscError(
-              `failed to create sponsored approvals: ${data.msg ?? 'Backend sent failure.'}`
-            );
+            // Backend reported this specific part as failed.
+            markPartFailed(partIdx);
+            continue;
           }
 
           if ('error' in data && data.error) {
-            throw Errors.vscError(
-              `failed to create sponsored approvals: ${data.msg ?? 'Backend sent failure.'}`
-            );
+            // Global error payload: mark every unresolved part as failed.
+            for (let i = 0; i < input.length; i++) {
+              if (!seenPartIdx.has(i)) {
+                markPartFailed(i);
+              }
+            }
+            continue;
           }
 
-          const inputData = input[data.part_idx];
+          if (partIdx < 0 || !input[partIdx]) {
+            // Ignore payloads that cannot be mapped to a valid input part.
+            continue;
+          }
 
-          approvalHashes.push({
-            chainId: bytesToNumber(inputData.chain_id),
+          if (!('tx_hash' in data)) {
+            // A mapped part without tx hash is treated as failed.
+            markPartFailed(partIdx);
+            continue;
+          }
+
+          approvals.push({
+            chainId: bytesToNumber(input[partIdx].chain_id),
             hash: toHex(data.tx_hash),
           });
 
-          if (approvalHashes.length === input.length) {
+          seenPartIdx.add(partIdx);
+
+          if (seenPartIdx.size === input.length) {
             break;
           }
         }
 
-        return approvalHashes;
+        return {
+          approvals,
+          failedChainIds: [...failedChainIds],
+        };
       } finally {
         connection.close();
       }

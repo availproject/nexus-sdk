@@ -836,12 +836,13 @@ type VSCClient = {
   vscPublishRFF: (id: Long) => Promise<{
     id: Long;
   }>;
-  vscCreateSponsoredApprovals: (input: SponsoredApprovalDataArray) => Promise<
-    {
+  vscCreateSponsoredApprovals: (input: SponsoredApprovalDataArray) => Promise<{
+    approvals: {
       chainId: number;
       hash: Hex;
-    }[]
-  >;
+    }[];
+    failedChainIds: number[];
+  }>;
   vscCreateRFF: (
     id: Long,
     msd: (s: { current: number; total: number; txHash: Hex; chainId: number }) => void,
