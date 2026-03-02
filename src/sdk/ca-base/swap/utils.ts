@@ -254,6 +254,16 @@ export const createPermitSignature = async (
 };
 
 export const EXPECTED_CALIBUR_CODE = concat(['0xef0100', CALIBUR_ADDRESS]);
+const EIP7702_DELEGATION_PREFIX = '0xef0100';
+const EIP7702_DELEGATION_CODE_HEX_LENGTH = 48; // 0x + 3-byte prefix + 20-byte delegate
+
+export const isEip7702DelegatedCode = (code?: Hex) => {
+  const normalizedCode = (code ?? '0x').toLowerCase();
+  return (
+    normalizedCode.startsWith(EIP7702_DELEGATION_PREFIX) &&
+    normalizedCode.length === EIP7702_DELEGATION_CODE_HEX_LENGTH
+  );
+};
 
 export const isAuthorizationCodeSet = async (
   chainID: number,
@@ -285,6 +295,7 @@ export const createPermitAndTransferFromTx = async ({
   cache,
   chain,
   contractAddress,
+  disablePermit,
   owner,
   ownerWallet,
   publicClient,
@@ -295,6 +306,7 @@ export const createPermitAndTransferFromTx = async ({
   cache: Cache;
   chain: Chain;
   contractAddress: Hex;
+  disablePermit?: boolean;
   owner: Hex;
   ownerWallet: WalletClient;
   publicClient: PublicClient;
@@ -334,8 +346,18 @@ export const createPermitAndTransferFromTx = async ({
   logger.debug('createPermitTx', { allowance, amount });
 
   if (allowance < amount) {
-    const { variant, version } = await getPermitVariantAndVersion(contractAddress, publicClient);
-    if (variant === PermitVariant.Unsupported) {
+    let shouldUseDirectApproval = disablePermit === true;
+    let variant = PermitVariant.Unsupported;
+    let version = 0;
+
+    if (!shouldUseDirectApproval) {
+      const permitDetails = await getPermitVariantAndVersion(contractAddress, publicClient);
+      variant = permitDetails.variant;
+      version = permitDetails.version;
+      shouldUseDirectApproval = variant === PermitVariant.Unsupported;
+    }
+
+    if (shouldUseDirectApproval) {
       const { request } = await publicClient.simulateContract({
         chain,
         abi: ERC20ABI,

@@ -45,6 +45,7 @@ import {
   createSweeperTxs,
   EXPECTED_CALIBUR_CODE,
   getAllowanceCacheKey,
+  isEip7702DelegatedCode,
   isNativeAddress,
   type PublicClientList,
   parseQuote,
@@ -119,6 +120,14 @@ class BridgeHandler {
           owner: options.address.ephemeral,
           spender: options.chainList.getVaultContractAddress(asset.chainID),
         });
+        options.cache.addSetCodeQuery({
+          address: options.address.eoa,
+          chainID: asset.chainID,
+        });
+        options.cache.addSetCodeQuery({
+          address: options.address.ephemeral,
+          chainID: asset.chainID,
+        });
       }
     }
   }
@@ -151,6 +160,12 @@ class BridgeHandler {
             cache: this.options.cache,
             chain,
             contractAddress: e2e.tokenAddress,
+            disablePermit: isEip7702DelegatedCode(
+              this.options.cache.getCode({
+                address: this.options.address.eoa,
+                chainID: Number(c),
+              })
+            ),
             owner: this.options.address.eoa,
             ownerWallet: this.options.wallet.eoa,
             publicClient,
@@ -323,6 +338,10 @@ class DestinationSwapHandler {
       address: options.address.ephemeral,
       chainID: dst.chainID,
     });
+    options.cache.addSetCodeQuery({
+      address: options.address.eoa,
+      chainID: dst.chainID,
+    });
 
     logger.debug('dstSwapHandler:constructor', {
       isNativeAddress: isNativeAddress(dst.token),
@@ -351,6 +370,12 @@ class DestinationSwapHandler {
         cache: this.options.cache,
         chain: this.options.chainList.getChainByID(this.dst.chainID)!,
         contractAddress: this.data.dstEOAToEphTx.contractAddress,
+        disablePermit: isEip7702DelegatedCode(
+          this.options.cache.getCode({
+            address: this.options.address.eoa,
+            chainID: this.dst.chainID,
+          })
+        ),
         owner: this.options.address.eoa,
         ownerWallet: this.options.wallet.eoa,
         publicClient: this.options.publicClientList.get(this.dst.chainID),
@@ -598,6 +623,10 @@ class SourceSwapsHandler {
         address: this.options.address.ephemeral,
         chainID: Number(chainID),
       });
+      this.options.cache.addSetCodeQuery({
+        address: this.options.address.eoa,
+        chainID: Number(chainID),
+      });
 
       for (const sQuote of swapQuotes) {
         this.options.cache.addAllowanceQuery({
@@ -710,6 +739,12 @@ class SourceSwapsHandler {
             cache: this.options.cache,
             chain,
             contractAddress: convertToEVMAddress(quote.input.token),
+            disablePermit: isEip7702DelegatedCode(
+              this.options.cache.getCode({
+                address: this.options.address.eoa,
+                chainID: Number(chainID),
+              })
+            ),
             owner: this.options.address.eoa,
             ownerWallet: this.options.wallet.eoa,
             publicClient,
