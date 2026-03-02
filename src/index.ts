@@ -61,8 +61,11 @@ export {
   TOKEN_CONTRACT_ADDRESSES,
   TOKEN_METADATA,
 } from './commons';
-export { ERROR_CODES, NexusError, NexusErrorData } from './sdk/ca-base/nexusError';
-export { sortSourcesByPriorityWithAsset as sortSourcesByPriority } from './sdk/ca-base/swap/utils';
+export {
+  ERROR_CODES,
+  NexusError,
+  NexusErrorData,
+} from './sdk/ca-base/nexusError';
 // Core SDK entry point - headless, no React dependencies
 export { NexusSDK } from './sdk/index';
 // Utility exports (direct access without sdk instance)
