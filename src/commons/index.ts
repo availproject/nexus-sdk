@@ -1,6 +1,4 @@
 // Types exports
-
-export { sortSourcesByPriorityWithAsset as sortSourcesByPriority } from '../sdk/ca-base/swap/utils';
 // Constants exports
 export * from './constants';
 export * from './types';

@@ -17,7 +17,7 @@ import {
 } from '@avail-project/ca-common';
 import axios from 'axios';
 import Decimal from 'decimal.js';
-import { orderBy, retry } from 'es-toolkit';
+import { retry } from 'es-toolkit';
 import Long from 'long';
 import {
   type ByteArray,
@@ -45,7 +45,6 @@ import {
   type Chain,
   type ChainListType,
   getLogger,
-  MAINNET_CHAIN_IDS,
   type Source,
   type SuccessfulSwapResult,
   SWAP_STEPS,
@@ -1708,83 +1707,4 @@ export const getSwapSupportedChains = (chainList: ChainListType) => {
       logo: chain.custom.icon,
     }));
 };
-
-export const sortSourcesByPriorityWithAsset = (
-  assets: UserAssetDatum[],
-  destination: { tokenAddress: Hex; chainID: number; symbol: string }
-) => {
-  return sortSourcesByPriority(toFlatBalance(assets), destination);
-};
-
-export const sortSourcesByPriority = (
-  balances: FlatBalance[],
-  destination: { tokenAddress: Hex; chainID: number; symbol: string }
-) => {
-  const STABLECOINS = ['USDC', 'USDT', 'DAI'];
-
-  const isGasToken = (tokenAddress: Hex): boolean => {
-    return (
-      equalFold(tokenAddress, convertTo32BytesHex(ZERO_ADDRESS)) ||
-      equalFold(tokenAddress, convertTo32BytesHex(EADDRESS))
-    );
-  };
-
-  const isSameToken = (balance: FlatBalance): boolean => {
-    return (
-      equalFold(balance.tokenAddress, convertTo32BytesHex(destination.tokenAddress)) ||
-      (balance.symbol === destination.symbol &&
-        balance.symbol !== 'ETH' &&
-        balance.symbol !== 'WETH')
-    );
-  };
-
-  const getPriority = (balance: FlatBalance): number => {
-    // Priority levels:
-    // 1 - Same token on destination chain
-    // 2 - USDC/USDT on destination chain (non-Ethereum)
-    // 3 - Native gas token on destination chain (non-Ethereum)
-    // 4 - Any other token on destination chain (non-Ethereum)
-    // 5 - Same token on other non-Ethereum chains
-    // 6 - USDC/USDT on other non-Ethereum chains
-    // 7 - Any other token on non-Ethereum chains (catch-all)
-    // 8 - Same token on Ethereum (different chain)
-    // 9 - USDC/USDT/DAI on Ethereum
-    // 10 - ETH on Ethereum
-    // 11 - Any other token on Ethereum
-
-    const isSame = isSameToken(balance);
-    const isSameChain = balance.chainID === destination.chainID;
-    const isEthereum = balance.chainID === MAINNET_CHAIN_IDS.ETHEREUM;
-    const isGas = isGasToken(balance.tokenAddress);
-
-    logger.debug('sortSourcesByPriority:getPriority', {
-      isSame,
-      isSameChain,
-      isEthereum,
-      isGas,
-      balance,
-    });
-
-    if (isSameChain) {
-      if (isSame) return 1;
-      if (!isEthereum) {
-        if (STABLECOINS.some((coin) => equalFold(coin, balance.symbol))) return 2;
-        if (isGas) return 3;
-        return 4;
-      }
-    }
-
-    if (isEthereum) {
-      if (isSame) return 8;
-      if (STABLECOINS.some((coin) => equalFold(coin, balance.symbol))) return 9;
-      if (balance.symbol === 'ETH') return 10;
-      return 11;
-    } else {
-      if (isSame) return 5;
-      if (STABLECOINS.some((coin) => equalFold(coin, balance.symbol))) return 6;
-      return 7;
-    }
-  };
-
-  return orderBy(balances, [getPriority, (b) => b.value], ['asc', 'desc']);
-};
+export { sortSourcesByPriority, sortSourcesByPriorityWithAsset } from './sort';

@@ -5,7 +5,7 @@ import type { TokenInfo } from '../../../commons';
 import type { ChainList } from '../chains';
 import { ZERO_ADDRESS } from '../constants';
 import { Errors } from '../errors';
-import { convertTo32BytesHex, equalFold } from '../utils';
+import { convertTo32BytesHex, equalFold } from '../utils/common.utils';
 import { EADDRESS } from './constants';
 import { convertToEVMAddress, determinePermitVariantAndVersion } from './utils';
 
