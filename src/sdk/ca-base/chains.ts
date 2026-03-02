@@ -714,6 +714,13 @@ const MAINNET_CHAINS: Chain[] = [
           symbol: 'USDM',
           equivalentCurrency: 'USDC',
         },
+        {
+          contractAddress: TOKEN_CONTRACT_ADDRESSES.USDT[SUPPORTED_CHAINS.MEGAETH],
+          decimals: 6,
+          logo: getLogoFromSymbol('USDT'),
+          name: 'USDT0',
+          symbol: 'USDT',
+        },
       ],
     },
     id: SUPPORTED_CHAINS.MEGAETH,
