@@ -1709,6 +1709,13 @@ export const getSwapSupportedChains = (chainList: ChainListType) => {
     }));
 };
 
+export const sortSourcesByPriorityWithAsset = (
+  assets: UserAssetDatum[],
+  destination: { tokenAddress: Hex; chainID: number; symbol: string }
+) => {
+  return sortSourcesByPriority(toFlatBalance(assets), destination);
+};
+
 export const sortSourcesByPriority = (
   balances: FlatBalance[],
   destination: { tokenAddress: Hex; chainID: number; symbol: string }
