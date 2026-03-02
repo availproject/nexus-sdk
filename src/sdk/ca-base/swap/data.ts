@@ -347,6 +347,15 @@ const chainData: Map<
         TokenContractAddress: convertTo32BytesHex(EADDRESS),
         TokenDecimals: 18,
       },
+      {
+        CurrencyID: CurrencyID.USDT,
+        Name: CurrencyID[CurrencyID.USDT],
+        TokenContractAddress: convertTo32BytesHex('0xB8CE59FC3717ada4C02eaDF9682A9e934F625ebb'),
+        PermitVariant: PermitVariant.EIP2612Canonical,
+        PermitContractVersion: 1,
+        TokenDecimals: 6,
+        IsGasToken: false,
+      },
     ],
   ],
   [
