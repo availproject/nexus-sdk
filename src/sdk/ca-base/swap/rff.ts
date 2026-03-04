@@ -270,6 +270,10 @@ export const createIntent = ({
     );
   }
 
+  intent.fees.caGas = Decimal.sum(intent.fees.collection, intent.fees.fulfilment).toFixed(
+    output.decimals
+  );
+
   logger.debug('createIntentEnd', {
     accountedBalance: accountedBalance.toFixed(),
     borrowEnd: borrow.toFixed(),
