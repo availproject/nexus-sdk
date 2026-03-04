@@ -12,7 +12,6 @@ import {
 } from '../../../commons';
 import { ZERO_ADDRESS } from '../constants';
 import { Errors } from '../errors';
-import { filterSupportedTokens } from '../swap/data';
 import {
   ankrBalanceToAssets,
   getAnkrBalances,
@@ -224,7 +223,7 @@ export const getBalancesForSwap = async (input: {
     input.allowedSources,
     input.removeSources
   );
-  let balances = toFlatBalance(assets);
+  const balances = toFlatBalance(assets);
   logger.debug('getBalancesForSwap', {
     input,
     ankrBalances,
@@ -233,9 +232,10 @@ export const getBalancesForSwap = async (input: {
     assets,
     balances,
   });
-  if (input.filterWithSupportedTokens) {
-    balances = filterSupportedTokens(balances);
-  }
+
+  // if (input.filterWithSupportedTokens) {
+  //   balances = filterSupportedTokens(balances);
+  // }
 
   return { assets, balances };
 };
