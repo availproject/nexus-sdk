@@ -231,6 +231,7 @@ export class CA {
         evmAddress: (await this._evm!.client.requestAddresses())[0],
         chainList: this.chainList,
         filterWithSupportedTokens: onlyNativesAndStables,
+        oraclePrices: this._queryClients?.cosmosQueryClient.fetchPriceOracle(),
       });
     });
   };

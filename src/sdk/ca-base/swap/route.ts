@@ -148,17 +148,19 @@ const _exactOutRoute = async (
     });
   }
 
+  const oraclePricesPromise = params.cosmosQueryClient.fetchPriceOracle();
+
   const [feeStore, { balances }, oraclePrices, dstTokenInfo] = await Promise.all([
     getFeeStore(params.cosmosQueryClient),
     getBalancesForSwap({
       evmAddress: params.address.eoa,
       chainList: params.chainList,
-      // Use only stable and native coins for exact out.
-      filterWithSupportedTokens: true,
+      filterWithSupportedTokens: false,
       allowedSources: input.fromSources,
       removeSources,
+      oraclePrices: oraclePricesPromise,
     }),
-    params.cosmosQueryClient.fetchPriceOracle(),
+    oraclePricesPromise,
     getTokenInfo(input.toTokenAddress, params.publicClientList.get(input.toChainId), dstChain),
   ]);
 
@@ -675,14 +677,17 @@ const _exactInRoute = async (
     params,
   });
 
+  const oraclePricesPromise = params.cosmosQueryClient.fetchPriceOracle();
+
   const [feeStore, balanceResponse, oraclePrices] = await Promise.all([
     getFeeStore(params.cosmosQueryClient),
     getBalancesForSwap({
       evmAddress: params.address.eoa,
       chainList: params.chainList,
       filterWithSupportedTokens: false,
+      oraclePrices: oraclePricesPromise,
     }),
-    params.cosmosQueryClient.fetchPriceOracle(),
+    oraclePricesPromise,
   ]).catch((e) => {
     throw Errors.internal('Error fetching fee, balance or oracle', { cause: e });
   });

@@ -6,6 +6,7 @@ import {
   type Chain,
   type ChainListType,
   logger,
+  type OraclePriceResponse,
   type Source,
   SUPPORTED_CHAINS,
   type VSCClient,
@@ -189,10 +190,37 @@ export const getBalances = async (chains: Chain[], address: Hex): Promise<AnkrBa
   return chainBalances.flat();
 };
 
+const enrichBalancesWithOracleUSD = (
+  balances: AnkrBalance[],
+  oraclePrices: OraclePriceResponse
+): AnkrBalance[] => {
+  if (oraclePrices.length === 0) {
+    return balances;
+  }
+
+  return balances.map((balance) => {
+    const tokenAddress = equalFold(balance.tokenAddress, ZERO_ADDRESS)
+      ? ZERO_ADDRESS
+      : balance.tokenAddress;
+    const oracleRate = oraclePrices.find(
+      (rate) => rate.chainId === balance.chainID && equalFold(rate.tokenAddress, tokenAddress)
+    );
+    if (!oracleRate) {
+      return balance;
+    }
+
+    return {
+      ...balance,
+      balanceUSD: new Decimal(balance.balance).mul(oracleRate.priceUsd).toFixed(),
+    };
+  });
+};
+
 export const getBalancesForSwap = async (input: {
   evmAddress: Hex;
   chainList: ChainListType;
   filterWithSupportedTokens: boolean;
+  oraclePrices?: OraclePriceResponse | Promise<OraclePriceResponse>;
   allowedSources?: Source[];
   removeSources?: Source[];
 }) => {
@@ -201,20 +229,26 @@ export const getBalancesForSwap = async (input: {
     (chain) => chain.ankrName === '' && chain.swapSupported && chain.universe === Universe.ETHEREUM
   );
 
-  const [ankrBalances, multicallBalances] = await Promise.all([
+  const [ankrBalances, multicallBalances, oraclePrices] = await Promise.all([
     ankrChains.length > 0
       ? getAnkrBalances(input.evmAddress, input.chainList, true)
       : Promise.resolve([]),
     multicallChains.length > 0
       ? getBalances(multicallChains, input.evmAddress)
       : Promise.resolve([]),
+    input.oraclePrices ? Promise.resolve(input.oraclePrices) : Promise.resolve([]),
   ]);
+  const multicallBalancesWithOracleUSD = enrichBalancesWithOracleUSD(
+    multicallBalances,
+    oraclePrices
+  );
 
   logger.debug('getBalancesForSwap', {
     ankrBalances,
-    multicallBalances,
+    multicallBalances: multicallBalancesWithOracleUSD,
+    oraclePrices,
   });
-  const mergedBalances = [...ankrBalances, ...multicallBalances];
+  const mergedBalances = [...ankrBalances, ...multicallBalancesWithOracleUSD];
 
   const assets = ankrBalanceToAssets(
     input.chainList,
@@ -227,8 +261,9 @@ export const getBalancesForSwap = async (input: {
   logger.debug('getBalancesForSwap', {
     input,
     ankrBalances,
-    multicallBalances,
+    multicallBalances: multicallBalancesWithOracleUSD,
     mergedBalances,
+    oraclePrices,
     assets,
     balances,
   });
