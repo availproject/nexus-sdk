@@ -599,7 +599,7 @@ const MAINNET_CHAINS: Chain[] = [
     },
     id: SUPPORTED_CHAINS.ETHEREUM,
     name: 'Ethereum Mainnet',
-    ankrName: '',
+    ankrName: 'eth',
     nativeCurrency: {
       decimals: 18,
       name: 'Ether',
