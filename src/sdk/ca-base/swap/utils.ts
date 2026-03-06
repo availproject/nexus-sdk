@@ -4,7 +4,7 @@ import {
   type BebopQuote,
   type Bytes,
   ChaindataMap,
-  type CurrencyID,
+  CurrencyID,
   ERC20ABI,
   type Holding,
   LiFiAggregator,
@@ -45,6 +45,7 @@ import {
   type Chain,
   type ChainListType,
   getLogger,
+  type SBCTx,
   type Source,
   type SuccessfulSwapResult,
   SWAP_STEPS,
@@ -1696,6 +1697,92 @@ export const performDestinationSwap = async ({
       });
     throw e;
   }
+};
+
+export const sweepCotBalancesToEoa = async ({
+  balances,
+  chainList,
+  COTCurrencyID,
+  eoaAddress,
+  ephemeralAddress,
+  ephemeralWallet,
+  publicClientList,
+  vscClient,
+}: {
+  balances: FlatBalance[];
+  chainList: ChainListType;
+  COTCurrencyID: CurrencyID;
+  eoaAddress: Hex;
+  ephemeralAddress: Hex;
+  ephemeralWallet: PrivateKeyAccount;
+  publicClientList: PublicClientList;
+  vscClient: VSCClient;
+}) => {
+  const cotSymbol = CurrencyID[COTCurrencyID];
+  const cotBalances = balances.filter(
+    (b) =>
+      b.universe === Universe.ETHEREUM &&
+      equalFold(b.symbol, cotSymbol) &&
+      new Decimal(b.amount).gt(0)
+  );
+
+  if (cotBalances.length === 0) {
+    return;
+  }
+
+  const cache = new Cache(publicClientList);
+  for (const balance of cotBalances) {
+    cache.addSetCodeQuery({
+      address: ephemeralAddress,
+      chainID: balance.chainID,
+    });
+    cache.addAllowanceQuery({
+      chainID: balance.chainID,
+      contractAddress: balance.tokenAddress,
+      owner: ephemeralAddress,
+      spender: SWEEPER_ADDRESS,
+    });
+  }
+
+  await cache.process();
+
+  const sbcTxs = (
+    await Promise.all(
+      cotBalances.map(async (balance) => {
+        try {
+          return await createSBCTxFromCalls({
+            cache,
+            calls: createSweeperTxs({
+              cache,
+              chainID: balance.chainID,
+              COTCurrencyID,
+              receiver: eoaAddress,
+              sender: ephemeralAddress,
+              tokenAddress: balance.tokenAddress,
+            }),
+            chainID: balance.chainID,
+            ephemeralAddress,
+            ephemeralWallet,
+            publicClient: publicClientList.get(balance.chainID),
+          });
+        } catch (e) {
+          logger.error('error creating cot sweep tx', e, {
+            cause: 'COT_SWEEP_TX_BUILD_ERROR',
+            chainID: balance.chainID,
+            tokenAddress: balance.tokenAddress,
+          });
+          return null;
+        }
+      })
+    )
+  ).filter((tx): tx is SBCTx => tx !== null);
+
+  if (sbcTxs.length === 0) {
+    return;
+  }
+
+  const ops = await vscClient.vscSBCTx(sbcTxs);
+  await waitForSBCTxReceipt(ops, chainList, publicClientList);
 };
 
 export const getSwapSupportedChains = (chainList: ChainListType) => {
