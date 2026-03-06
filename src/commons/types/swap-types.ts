@@ -104,6 +104,15 @@ export type SwapIntent = {
       };
     };
   };
+  feesAndBuffer: {
+    buffer: string;
+    bridge: {
+      caGas: string;
+      protocol: string;
+      solver: string;
+      total: string;
+    } | null;
+  };
   sources: {
     amount: string;
     chain: {

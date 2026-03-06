@@ -32,7 +32,6 @@ import { ZERO_ADDRESS } from '../constants';
 import { Errors } from '../errors';
 import { divDecimals, equalFold, minutesToMs, switchChain, waitForTxReceipt } from '../utils';
 import { EADDRESS, EADDRESS_32_BYTES, SWEEPER_ADDRESS } from './constants';
-import { getTokenDecimals } from './data';
 import { createBridgeRFF } from './rff';
 import type { SwapRoute } from './route';
 import { caliburExecute, checkAuthCodeSet, createSBCTxFromCalls, waitForSBCTxReceipt } from './sbc';
@@ -865,11 +864,15 @@ class SourceSwapsHandler {
         );
       }
 
+      const outputDecimals = swapQuotes[0]?.input.cur.decimals;
+      if (typeof outputDecimals !== 'number') {
+        throw Errors.internal(
+          `missing source swap output decimals for chain ${chainID.toString()}`
+        );
+      }
+
       assets.push({
-        amount: divDecimals(
-          amount,
-          getTokenDecimals(Number(chainID), quotes[0].output.token).decimals
-        ),
+        amount: divDecimals(amount, outputDecimals),
         chainID: Number(chainID),
         tokenAddress: convertToEVMAddress(quotes[0].output.token),
       });
@@ -1072,11 +1075,6 @@ class Swap {
   getMetadata() {
     const txs = this.getParsedQuote();
 
-    const { decimals: outputDecimals } = getTokenDecimals(
-      Number(this.input.req.chain.chainID),
-      this.input.req.outputToken
-    );
-
     return {
       agg: 1,
       input_amt: convertTo32Bytes(this.input.req.inputAmount),
@@ -1084,7 +1082,7 @@ class Swap {
       input_decimals: txs.input.decimals,
       output_amt: convertTo32Bytes(txs.input.amount),
       output_contract: this.input.req.outputToken,
-      output_decimals: outputDecimals,
+      output_decimals: this.input.cur.decimals,
     };
   }
 

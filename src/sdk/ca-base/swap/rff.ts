@@ -36,7 +36,6 @@ import {
   removeIntentHashFromStore,
   storeIntentHashToStore,
 } from '../utils';
-import { applyBuffer } from './route';
 import { packERC20Approve } from './utils';
 
 const logger = getLogger();
@@ -46,20 +45,10 @@ export const estimateCollectionFee = (
   outputAmount: Decimal,
   feeStore: FeeStore
 ) => {
-  const expectedAmount = applyBuffer(outputAmount, 30);
-  logger.debug('sumCollectionFee', {
-    assets,
-    feeStore,
-    outputAmount: outputAmount.toFixed(),
-    expectedAmount: expectedAmount.toFixed(),
-  });
   let accounted = new Decimal(0);
   let fee = new Decimal(0);
 
   for (const asset of assets) {
-    if (accounted.gt(expectedAmount)) {
-      break;
-    }
     const collectionFee = feeStore.calculateCollectionFee({
       decimals: asset.decimals,
       sourceChainID: asset.chainID,
@@ -76,6 +65,11 @@ export const estimateCollectionFee = (
     accounted = accounted.add(asset.value);
   }
 
+  logger.debug('sumCollectionFee', {
+    assets,
+    feeStore,
+    outputAmount: outputAmount.toFixed(),
+  });
   return fee;
 };
 
@@ -269,6 +263,10 @@ export const createIntent = ({
       `available: ${accountedBalance.toFixed()}, required: ${borrow.toFixed()}`
     );
   }
+
+  intent.fees.caGas = Decimal.sum(intent.fees.collection, intent.fees.fulfilment).toFixed(
+    output.decimals
+  );
 
   logger.debug('createIntentEnd', {
     accountedBalance: accountedBalance.toFixed(),

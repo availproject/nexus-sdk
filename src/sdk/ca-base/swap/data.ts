@@ -1,13 +1,9 @@
-import { type Bytes, PermitVariant, type Universe } from '@avail-project/ca-common';
+import { PermitVariant, type Universe } from '@avail-project/ca-common';
 import type { Hex, PublicClient } from 'viem';
-import { toHex } from 'viem/utils';
-import type { TokenInfo } from '../../../commons';
-import type { ChainList } from '../chains';
 import { ZERO_ADDRESS } from '../constants';
-import { Errors } from '../errors';
-import { convertTo32BytesHex, equalFold } from '../utils';
+import { convertTo32BytesHex, equalFold } from '../utils/common.utils';
 import { EADDRESS } from './constants';
-import { convertToEVMAddress, determinePermitVariantAndVersion } from './utils';
+import { determinePermitVariantAndVersion } from './utils';
 
 export enum CurrencyID {
   USDC = 0x1,
@@ -392,48 +388,6 @@ const chainData: Map<
   ],
 ]);
 
-const getSwapSupportedChains = (chainList: ChainList) => {
-  const chains: {
-    id: number;
-    logo: string;
-    name: string;
-    tokens: TokenInfo[];
-  }[] = [];
-  for (const c of chainData.keys()) {
-    const chain = chainList.getChainByID(c);
-    if (!chain) {
-      continue;
-    }
-
-    const data = {
-      id: chain.id,
-      logo: chain.custom.icon,
-      name: chain.name,
-      tokens: [] as TokenInfo[],
-    };
-
-    const tokens = chainData.get(c);
-    if (!tokens) {
-      continue;
-    }
-
-    for (const t of tokens) {
-      if (t.PermitVariant !== PermitVariant.Unsupported) {
-        data.tokens.push({
-          contractAddress: convertToEVMAddress(t.TokenContractAddress),
-          decimals: t.TokenDecimals,
-          logo: '',
-          name: t.Name,
-          symbol: t.Name,
-        });
-      }
-    }
-
-    chains.push(data);
-  }
-  return chains;
-};
-
 export type FlatBalance = {
   amount: string;
   chainID: number;
@@ -489,25 +443,4 @@ const getPermitVariantAndVersion = async (tokenAddress: Hex, client: PublicClien
   return { variant, version };
 };
 
-export const getTokenDecimals = (chainID: number | string, contractAddress: Bytes) => {
-  const cData = chainData.get(Number(chainID));
-  if (!cData) {
-    throw Errors.chainDataNotFound(Number(chainID));
-  }
-  const token = cData.find((c) => equalFold(toHex(contractAddress), c.TokenContractAddress));
-  if (!token) {
-    throw Errors.assetNotFound(toHex(contractAddress));
-  }
-  return {
-    decimals: token.TokenDecimals,
-    symbol: CurrencyID[token.CurrencyID],
-  };
-};
-
-export {
-  chainData,
-  filterSupportedTokens,
-  getSwapSupportedChains,
-  getPermitVariantAndVersion,
-  isTokenSupported,
-};
+export { chainData, isTokenSupported, filterSupportedTokens, getPermitVariantAndVersion };

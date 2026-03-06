@@ -1,4 +1,29 @@
-import { convertTo32Bytes, convertTo32BytesHex } from '../utils';
+import type { Bytes } from '@avail-project/ca-common';
+import { type Hex, pad, toBytes, toHex } from 'viem';
+
+const convertTo32Bytes = (value: Hex | Bytes) => {
+  if (typeof value === 'bigint' || typeof value === 'number') {
+    return toBytes(value, {
+      size: 32,
+    });
+  }
+
+  if (typeof value === 'string') {
+    return pad(toBytes(value), {
+      dir: 'left',
+      size: 32,
+    });
+  }
+
+  return pad(value, {
+    dir: 'left',
+    size: 32,
+  });
+};
+
+const convertTo32BytesHex = (value: Hex | Bytes) => {
+  return toHex(convertTo32Bytes(value));
+};
 
 export const EADDRESS = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
 export const EADDRESS_32_BYTES = convertTo32Bytes(EADDRESS);

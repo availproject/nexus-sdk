@@ -1,6 +1,5 @@
 import { Universe } from '@avail-project/ca-common';
 import { NEXUS_ASSETS_BASE_URL } from '../../commons';
-import { equalFold } from './utils';
 
 const SymbolToLogo: { [k: string]: string } = {
   AVAX: `${NEXUS_ASSETS_BASE_URL}/avax/logo.png`,
@@ -25,6 +24,13 @@ const getLogoFromSymbol = (symbol: string) => {
   }
 
   return logo;
+};
+
+const equalFold = (a?: string, b?: string) => {
+  if (!a || !b) {
+    return false;
+  }
+  return a.toLowerCase() === b.toLowerCase();
 };
 
 const isNativeAddress = (universe: Universe, address: `0x${string}`) => {

@@ -1468,9 +1468,9 @@ sdk.analytics.enable();
 
 | Network | Chain ID | Native | Bridge | Swap |
 |---------|----------|--------|--------|------|
-| Ethereum | 1 | ETH | ✅ | ❌ |
+| Ethereum | 1 | ETH | ✅ | ✅ |
 | Citrea Mainnet | 4114 | cBTC | ✅ | ❌ |
-| Monad | 143 | MON | ✅ | ❌ |
+| Monad | 143 | MON | ✅ | ✅ |
 | Base | 8453 | ETH | ✅ | ✅ |
 | Arbitrum One | 42161 | ETH | ✅ | ✅ |
 | Optimism | 10 | ETH | ✅ | ✅ |
@@ -1480,7 +1480,7 @@ sdk.analytics.enable();
 | Kaia Mainnet | 8217 | KAIA | ✅ | ❌ |
 | BNB Smart Chain | 56 | BNB | ✅ | ✅ |
 | Hyper EVM | 999 | HYPE | ✅ | ❌ |
-| MegaETH | 4326 | ETH | ✅ | ❌ |
+| MegaETH | 4326 | ETH | ✅ | ✅ |
 
 ### Testnets
 
