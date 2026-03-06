@@ -66,15 +66,23 @@ export const sortSourcesByPriority = (
   destination: { tokenAddress: Hex; chainID: number; symbol: string }
 ) => {
   const isGasToken = (tokenAddress: Hex): boolean => {
+    const normalized = convertTo32BytesHex(tokenAddress);
     return (
-      equalFold(tokenAddress, convertTo32BytesHex(ZERO_ADDRESS)) ||
-      equalFold(tokenAddress, convertTo32BytesHex(EADDRESS))
+      equalFold(normalized, convertTo32BytesHex(ZERO_ADDRESS)) ||
+      equalFold(normalized, convertTo32BytesHex(EADDRESS))
     );
   };
 
+  const normalizedDestAddress = equalFold(destination.tokenAddress, ZERO_ADDRESS)
+    ? EADDRESS
+    : destination.tokenAddress;
+
   const isSameToken = (balance: FlatBalance): boolean => {
     return (
-      equalFold(balance.tokenAddress, convertTo32BytesHex(destination.tokenAddress)) ||
+      equalFold(
+        convertTo32BytesHex(balance.tokenAddress),
+        convertTo32BytesHex(normalizedDestAddress)
+      ) ||
       (balance.symbol === destination.symbol &&
         balance.symbol !== 'ETH' &&
         balance.symbol !== 'WETH')
@@ -89,11 +97,9 @@ export const sortSourcesByPriority = (
 
     if (isSameChain) {
       if (isSame) return 1;
-      if (!isEthereum) {
-        if (STABLECOINS.some((coin) => equalFold(coin, balance.symbol))) return 2;
-        if (isGas) return 3;
-        return 4;
-      }
+      if (STABLECOINS.some((coin) => equalFold(coin, balance.symbol))) return 2;
+      if (isGas) return 3;
+      return 4;
     }
 
     if (isEthereum) {
