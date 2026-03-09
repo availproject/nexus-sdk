@@ -299,7 +299,8 @@ class SwapAndExecuteQuery {
           fromSources: params.fromSources,
           toTokenAddress: params.toTokenAddress,
           toAmount: amount.token,
-          // -1n signifies the source list to not list native balance
+          // Positive: shortfall to source. Negative: reserve abs(value) from native balance.
+          // -1n: exactly enough gas — remove native from sources entirely.
           toNativeAmount: amount.gas === 0n ? -1n : amount.gas,
           toChainId: params.toChainId,
         },
@@ -407,8 +408,16 @@ class SwapAndExecuteQuery {
             ? requiredTokenAmount - destinationTokenAmount
             : 0n;
 
-        gasAmount =
-          destinationGasAmount < requiredGasAmount ? requiredGasAmount - destinationGasAmount : 0n;
+        if (destinationGasAmount < requiredGasAmount) {
+          // Case 1: need more gas — positive shortfall
+          gasAmount = requiredGasAmount - destinationGasAmount;
+        } else if (destinationGasAmount > requiredGasAmount) {
+          // Case 2: surplus gas — negative required amount signals "reserve this, use the rest"
+          gasAmount = -requiredGasAmount;
+        } else {
+          // Case 3: exactly enough — 0n, caller converts to -1n sentinel
+          gasAmount = 0n;
+        }
       }
     }
     return {

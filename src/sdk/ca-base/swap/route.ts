@@ -282,8 +282,13 @@ const _exactOutRoute = async (
     },
   ];
   // 1) Required: 1 KAITO and 0.0004 ETH, Have: 0.2 KAITO and 0.0002 ETH => toNativeAmount = 0.0002 * 10**18
-  // 2) Required: 1 KAITO and 0.0004 ETH, Have: 0.2 KAITO and 0.0006 ETH => toNativeAmount = -(0.0004 * 10**18) - this signifies not to touch that amount during source selection (skipped & combined with 3)
-  // 3) Required: 1 KAITO and 0.0004 ETH, Have: 0.2 KAITO and 0.0004 ETH => toNativeAmount = -1 => signifying not to touch native currency, just remove from the list of sources
+  //    Need more gas — positive shortfall. Remove native from sources entirely.
+  // 2) Required: 1 KAITO and 0.0004 ETH, Have: 0.2 KAITO and 0.0006 ETH => toNativeAmount = -(0.0004 * 10**18)
+  //    Surplus gas — reserve abs(value) from native balance, allow the rest as swap source.
+  // 3) Required: 1 KAITO and 0.0004 ETH, Have: 0.2 KAITO and 0.0004 ETH => toNativeAmount = -1
+  //    Exactly enough gas — remove native from sources entirely.
+  const reserveNativeAmount =
+    input.toNativeAmount && input.toNativeAmount < -1n ? -input.toNativeAmount : undefined;
   if (input.toNativeAmount === -1n || (input.toNativeAmount && input.toNativeAmount > 0n)) {
     removeSources.push({
       chainId: input.toChainId,
@@ -331,6 +336,24 @@ const _exactOutRoute = async (
             equalFold(b.tokenAddress, normalizeToComparisonAddr(s.tokenAddress))
         )
     );
+  }
+
+  // Case 2: deduct reserved native amount from the dst chain native balance so the
+  // surplus can still be used as a swap source.
+  if (reserveNativeAmount) {
+    const nativeAddr32 = normalizeToComparisonAddr(ZERO_ADDRESS);
+    balances = balances.map((b) => {
+      if (b.chainID !== input.toChainId || !equalFold(b.tokenAddress, nativeAddr32)) {
+        return b;
+      }
+      const reserved = divDecimals(reserveNativeAmount, dstChain.nativeCurrency.decimals);
+      const remaining = new Decimal(b.amount).sub(reserved);
+      if (remaining.lte(0)) {
+        return { ...b, amount: '0', value: 0 };
+      }
+      const ratio = remaining.div(b.amount);
+      return { ...b, amount: remaining.toString(), value: ratio.mul(b.value).toNumber() };
+    });
   }
 
   const userAddressInBytes = convertTo32Bytes(params.address.ephemeral);
