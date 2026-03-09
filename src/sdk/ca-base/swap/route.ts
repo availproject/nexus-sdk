@@ -310,7 +310,8 @@ const _exactOutRoute = async (
   ]);
 
   // When using preloaded balances, apply the allowedSources/removeSources filters inline.
-  // FlatBalance.tokenAddress is 32-byte hex, so normalize the filter addresses to match.
+  // FlatBalance.tokenAddress is 32-byte hex using EADDRESS (not ZERO_ADDRESS) for native tokens,
+  // so we use normalizeToComparisonAddr to map ZERO_ADDRESS → EADDRESS before comparing.
   let balances = rawBalances;
   if (params.preloadedBalances) {
     if (input.fromSources?.length) {
@@ -318,7 +319,7 @@ const _exactOutRoute = async (
         input.fromSources!.some(
           (s) =>
             s.chainId === b.chainID &&
-            equalFold(b.tokenAddress, convertTo32BytesHex(s.tokenAddress))
+            equalFold(b.tokenAddress, normalizeToComparisonAddr(s.tokenAddress))
         )
       );
     }
@@ -327,7 +328,7 @@ const _exactOutRoute = async (
         !removeSources.some(
           (s) =>
             s.chainId === b.chainID &&
-            equalFold(b.tokenAddress, convertTo32BytesHex(s.tokenAddress))
+            equalFold(b.tokenAddress, normalizeToComparisonAddr(s.tokenAddress))
         )
     );
   }
