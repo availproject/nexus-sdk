@@ -1,8 +1,9 @@
-import type { Universe } from '@avail-project/ca-common';
+import type { Quote, Universe } from '@avail-project/ca-common';
 import type { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import type { SigningStargateClient } from '@cosmjs/stargate';
 import type Decimal from 'decimal.js';
 import type { Hex, PrivateKeyAccount, WalletClient } from 'viem';
+import type { FlatBalance } from '../../sdk/ca-base/swap/data';
 import type { SwapRoute } from '../../sdk/ca-base/swap/route';
 import type { ChainListType, NetworkConfig, OnEventParam, QueryClients, TokenInfo } from '../index';
 
@@ -85,6 +86,7 @@ export type InternalSwapInput = {
 export type SwapIntent = {
   destination: {
     amount: string;
+    value?: string;
     chain: {
       id: number;
       logo: string;
@@ -97,6 +99,7 @@ export type SwapIntent = {
     };
     gas: {
       amount: string;
+      value?: string;
       token: {
         contractAddress: Hex;
         decimals: number;
@@ -115,6 +118,7 @@ export type SwapIntent = {
   };
   sources: {
     amount: string;
+    value?: string;
     chain: {
       id: number;
       logo: string;
@@ -151,18 +155,44 @@ export type SwapParams = {
     eoa: WalletClient;
   };
   intentExplorerUrl: string;
+  preloadedBalances?: FlatBalance[];
 } & OnEventParam &
   QueryClients;
 
 export interface ExactInSwapInput {
   from: {
     chainId: number;
-    amount: bigint;
+    amount?: bigint;
     tokenAddress: Hex;
   }[];
   toChainId: number;
   toTokenAddress: Hex;
 }
+
+export type MaxSwapInput = {
+  toChainId: number;
+  toTokenAddress: Hex;
+  fromSources?: {
+    chainId: number;
+    tokenAddress: Hex;
+  }[];
+};
+
+export type MaxSwapResult = {
+  toChainId: number;
+  toTokenAddress: Hex;
+  maxAmount: string;
+  maxAmountRaw: bigint;
+  symbol: string;
+  decimals: number;
+  sources: {
+    chainId: number;
+    tokenAddress: Hex;
+    symbol: string;
+    decimals: number;
+    amount: string;
+  }[];
+};
 
 export type Source = {
   tokenAddress: Hex;
@@ -361,3 +391,9 @@ export type SwapResult =
       result: SuccessfulSwapResult;
     }
   | { success: false; error: string };
+
+export type ISwap = {
+  input: Quote['input'];
+  output: Quote['output'];
+  txData: Quote['txData'];
+};

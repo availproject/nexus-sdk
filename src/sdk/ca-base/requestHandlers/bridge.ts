@@ -328,7 +328,7 @@ class BridgeHandler {
       // Step 7: Wait for fill
       storeIntentHashToStore(this.options.evm.address, intentID.toNumber());
       await this.waitForFill(requestHash, intentID, waitForDoubleCheckTx);
-      removeIntentHashFromStore(this.options.evm.address, intentID);
+      removeIntentHashFromStore(this.options.evm.address, intentID.toNumber());
 
       this.markStepDone(BRIDGE_STEPS.INTENT_FULFILLED);
 

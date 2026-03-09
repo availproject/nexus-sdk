@@ -33,6 +33,7 @@ import {
   type ExecuteParams,
   getLogger,
   LOG_LEVEL,
+  type MaxSwapInput,
   type NetworkConfig,
   type NexusNetwork,
   type OnAllowanceHook,
@@ -61,6 +62,7 @@ import { SwapAndExecuteQuery } from './query/swapAndExecute';
 import BridgeHandler from './requestHandlers/bridge';
 import getMaxValueForBridge from './requestHandlers/bridgeMax';
 import { createBridgeParams } from './requestHandlers/helpers';
+import { calculateMaxForSwap } from './swap/max';
 import { swap } from './swap/swap';
 import { getSwapSupportedChains, PublicClientList, sweepCotBalancesToEoa } from './swap/utils';
 import { setLoggerProvider } from './telemetry';
@@ -127,6 +129,7 @@ export class CA {
   protected _refundInterval: number | undefined;
   protected _cotSweepInterval: number | undefined;
   protected _isCotSweepRunning = false;
+  protected _isSwapRunning = false;
   protected _initPromise: Promise<void> | null = null;
   private readonly simulationClient: BackendSimulationClient;
   protected _analytics?: AnalyticsManager; // Analytics manager set by subclass
@@ -264,29 +267,56 @@ export class CA {
 
   protected _swapWithExactIn = async (input: ExactInSwapInput, options?: OnEventParam) => {
     return this.withReinit(async () => {
-      return swap(
-        {
-          mode: SwapMode.EXACT_IN,
-          data: input,
-        },
-        await this._getSwapOptions(options)
-      );
+      let swapFailed = false;
+      this._isSwapRunning = true;
+      try {
+        return await swap(
+          {
+            mode: SwapMode.EXACT_IN,
+            data: input,
+          },
+          await this._getSwapOptions(options)
+        );
+      } catch (e) {
+        swapFailed = true;
+        throw e;
+      } finally {
+        this._isSwapRunning = false;
+        if (swapFailed) void this._sweepCotToEoa();
+      }
     });
   };
 
-  protected _swapWithExactOut = async (input: ExactOutSwapInput, options?: OnEventParam) => {
+  protected _swapWithExactOut = async (
+    input: ExactOutSwapInput,
+    options?: OnEventParam,
+    preloadedBalances?: SwapParams['preloadedBalances']
+  ) => {
     return this.withReinit(async () => {
-      logger.debug('swapWithExactOut', {
-        input,
-        options,
-      });
-      return swap(
-        {
-          mode: SwapMode.EXACT_OUT,
-          data: input,
-        },
-        await this._getSwapOptions(options)
-      );
+      let swapFailed = false;
+      logger.debug('swapWithExactOut', { input, options });
+      this._isSwapRunning = true;
+      try {
+        return await swap(
+          {
+            mode: SwapMode.EXACT_OUT,
+            data: input,
+          },
+          { ...(await this._getSwapOptions(options)), preloadedBalances }
+        );
+      } catch (e) {
+        swapFailed = true;
+        throw e;
+      } finally {
+        this._isSwapRunning = false;
+        if (swapFailed) void this._sweepCotToEoa();
+      }
+    });
+  };
+
+  protected _calculateMaxForSwap = async (input: MaxSwapInput) => {
+    return this.withReinit(async () => {
+      return calculateMaxForSwap(input, await this._getSwapOptions());
     });
   };
 
@@ -497,7 +527,9 @@ export class CA {
           client: this.#cosmos!.client,
           analytics: this._analytics,
         });
-
+      } catch (e) {
+        logger.error('Error checking pending refunds', e, { cause: 'REFUND_CHECK_ERROR' });
+      } finally {
         this._refundInterval = Number(
           setInterval(async () => {
             await refundExpiredIntents({
@@ -508,8 +540,6 @@ export class CA {
             });
           }, minutesToMs(10))
         );
-      } catch (e) {
-        logger.error('Error checking pending refunds', e, { cause: 'REFUND_CHECK_ERROR' });
       }
     });
   };
@@ -543,7 +573,7 @@ export class CA {
     if (!this.#ephemeralWallet || !this._queryClients || !this._evm) {
       return;
     }
-    if (this._isCotSweepRunning) {
+    if (this._isCotSweepRunning || this._isSwapRunning) {
       return;
     }
 

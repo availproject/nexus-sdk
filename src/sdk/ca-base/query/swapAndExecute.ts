@@ -21,6 +21,7 @@ import {
   type SwapAndExecuteParams,
   type SwapAndExecuteResult,
   type SwapExecuteParams,
+  type SwapParams,
   type Tx,
   type UserAssetDatum,
 } from '../../../commons';
@@ -52,7 +53,8 @@ class SwapAndExecuteQuery {
     }>,
     private swap: (
       input: ExactOutSwapInput,
-      options?: OnEventParam
+      options?: OnEventParam,
+      preloadedBalances?: SwapParams['preloadedBalances']
     ) => Promise<SuccessfulSwapResult>
   ) {}
 
@@ -163,6 +165,7 @@ class SwapAndExecuteQuery {
       address,
       gasFee,
       gasPrice,
+      balances,
     };
   }
 
@@ -232,6 +235,7 @@ class SwapAndExecuteQuery {
       gasPrice,
       dstTokenInfo,
       gasFee,
+      balances,
     } = await this.estimateSwapAndExecute(params);
 
     logger.debug('BridgeAndExecute:4:CalculateOptimalSwapAmount', {
@@ -299,7 +303,8 @@ class SwapAndExecuteQuery {
           toNativeAmount: amount.gas === 0n ? -1n : amount.gas,
           toChainId: params.toChainId,
         },
-        options
+        options,
+        balances.balances
       );
 
       logger.debug('swapResult:SwapAndExecute()', { swapResult });

@@ -17,17 +17,14 @@ import {
   type SwapStepType,
 } from '../../../commons';
 import { Errors } from '../errors';
-import { divDecimals } from '../utils';
 import { BEBOP_API_KEY, LIFI_API_KEY, ZERO_BYTES_32 } from './constants';
+import { createSwapIntent } from './intent';
 import { BridgeHandler, DestinationSwapHandler, SourceSwapsHandler } from './ob';
-import { determineSwapRoute } from './route';
+import { determineSwapRoute, type SwapRoute } from './route';
 import {
   Cache,
   convertMetadataToSwapResult,
   convertTo32Bytes,
-  createSwapIntent,
-  getTokenInfo,
-  // postSwap,
   PublicClientList,
   type SwapMetadata,
 } from './utils';
@@ -71,21 +68,11 @@ export const swap = async (
   const aggregators: Aggregator[] = [
     new LiFiAggregator(LIFI_API_KEY),
     new BebopAggregator(BEBOP_API_KEY),
-    // new ZeroExAggregator(ZERO_X_API_KEY),
   ];
 
   const swapRouteParams = { ...options, publicClientList, aggregators, cotCurrencyID: COT };
 
-  const [swapRoute, dstTokenInfo] = await Promise.all([
-    determineSwapRoute(input, swapRouteParams),
-    getTokenInfo(input.data.toTokenAddress, publicClientList.get(input.data.toChainId), dstChain),
-  ]);
-
-  logger.debug('initial-swap-route', {
-    dstTokenInfo,
-    swapRoute,
-  });
-
+  let swapRoute = await determineSwapRoute(input, swapRouteParams);
   let { source, destination, bridge, extras } = swapRoute;
 
   logger.debug('initial-swap-route', {
@@ -93,7 +80,6 @@ export const swap = async (
     destination,
     bridge,
     extras,
-    dstTokenInfo,
     swapRoute,
   });
 
@@ -102,146 +88,29 @@ export const swap = async (
 
   performance.mark('xcs-ops-start');
 
-  // Swap Intent hook handling
-  {
-    const destinationTokenDetails = {
-      amount: divDecimals(
-        input.mode === SwapMode.EXACT_OUT
-          ? input.data.toAmount
-          : destination.swap.tokenSwap.outputAmount,
-        dstTokenInfo.decimals
-      ).toFixed(),
-      chainID: input.data.toChainId,
-      contractAddress: input.data.toTokenAddress,
-      decimals: dstTokenInfo.decimals,
-      symbol: dstTokenInfo.symbol,
-      gasAmount: divDecimals(
-        destination.swap.gasSwap?.quote?.outputAmountMinimum ?? '0',
-        dstChain.nativeCurrency.decimals
-      ).toFixed(),
-    };
+  swapRoute = await waitForIntentApproval(swapRoute, {
+    input,
+    swapRouteParams,
+    onSwapIntent: options.onSwapIntent,
+    chainList: options.chainList,
+  });
 
-    let accepted = false;
+  ({ source, destination, bridge, extras } = swapRoute);
 
-    const refresh = async (fromSources?: { chainId: number; tokenAddress: Hex }[]) => {
-      if (accepted) {
-        logger.warn('Swap Intent refresh called after acceptance');
-        return createSwapIntent(
-          extras.assetsUsed,
-          {
-            buffer: swapRoute.buffer.amount,
-            bridgeFees: swapRoute.bridge?.estimatedFees,
-          },
-          destinationTokenDetails,
-          options.chainList
-        );
-      }
-
-      const updatedInput = { ...input };
-      // Can only update sources in exact out, Update only if sources are sent in refresh, otherwise it will use the old resources
-      if (updatedInput.mode === SwapMode.EXACT_OUT && fromSources && fromSources.length > 0) {
-        updatedInput.data.fromSources = fromSources;
-      }
-
-      const swapRouteResponse = await determineSwapRoute(updatedInput, swapRouteParams);
-
-      source = swapRouteResponse.source;
-      extras = swapRouteResponse.extras;
-      destination = swapRouteResponse.destination;
-      bridge = swapRouteResponse.bridge;
-      logger.debug('refresh-swap-route', {
-        dstTokenInfo,
-        swapRoute: swapRouteResponse,
-      });
-      const swapIntent = createSwapIntent(
-        extras.assetsUsed,
-        {
-          buffer: swapRouteResponse.buffer.amount,
-          bridgeFees: swapRouteResponse.bridge?.estimatedFees,
-        },
-        destinationTokenDetails,
-        options.chainList
-      );
-      logger.debug('onIntentHook:refresh', { swapIntent });
-      return swapIntent;
-    };
-    // wait for intent acceptance hook
-    await new Promise((resolve, reject) => {
-      const allow = () => {
-        accepted = true;
-        return resolve('User allowed intent');
-      };
-
-      const deny = () => {
-        return reject(ErrorUserDeniedIntent);
-      };
-
-      const swapIntent = createSwapIntent(
-        extras.assetsUsed,
-        {
-          buffer: swapRoute.buffer.amount,
-          bridgeFees: swapRoute.bridge?.estimatedFees,
-        },
-        destinationTokenDetails,
-        options.chainList
-      );
-
-      logger.debug('onIntentHook', { swapIntent });
-
-      options.onSwapIntent({
-        allow,
-        deny,
-        intent: swapIntent,
-        refresh,
-      });
-    });
-  }
-
-  const metadata: SwapMetadata = {
-    dst: {
-      chid: convertTo32Bytes(input.data.toChainId),
-      swaps: [],
-      tx_hash: ZERO_BYTES_32,
-      univ: Universe.ETHEREUM,
-    },
-    has_xcs: true,
-    rff_id: 0n,
-    src: [],
-  };
-
-  const opt = {
-    address: options.address,
+  const metadata = createMetadata(input);
+  const opt = createSwapHandlerOptions({
+    options,
     aggregators,
     cache,
-    chainList: options.chainList,
-    cot: {
-      currencyID: COT,
-      symbol: CurrencyID[COT],
-    },
-    destinationChainID: input.data.toChainId,
+    COT,
+    input,
     emitter,
     publicClientList,
-    slippage: 0.005,
-    wallet: options.wallet,
-    cosmosQueryClient: options.cosmosQueryClient,
-    vscClient: options.vscClient,
-  };
+  });
 
-  const srcSwapsHandler = new SourceSwapsHandler(source, opt);
+  const srcSwapsHandler = new SourceSwapsHandler(swapRoute, opt);
   const bridgeHandler = new BridgeHandler(bridge, opt);
-  const dstSwapHandler = new DestinationSwapHandler(
-    destination,
-    dstTokenInfo,
-    {
-      chainID: input.data.toChainId,
-      token: input.data.toTokenAddress,
-      amount:
-        input.mode === SwapMode.EXACT_OUT
-          ? input.data.toAmount
-          : destination.swap.tokenSwap.outputAmount,
-    },
-    opt
-  );
+  const dstSwapHandler = new DestinationSwapHandler(swapRoute, opt);
 
   performance.mark('allowance-cache-start');
   await cache.process();
@@ -264,15 +133,6 @@ export const swap = async (
   result.swapRoute = swapRoute;
 
   performance.mark('swap-end');
-  // try {
-  //   const id = await postSwap({
-  //     metadata,
-  //     wallet: options.wallet.ephemeral,
-  //   });
-  //   logger.debug('SwapID', { id });
-  // } catch (e) {
-  //   logger.error('postSwap', e, { cause: 'SWAP_FAILED' });
-  // }
 
   calculatePerformance();
 
@@ -338,4 +198,99 @@ const calculatePerformance = () => {
     performance.clearMarks();
     performance.clearMeasures();
   }
+};
+
+const createMetadata = (input: SwapData): SwapMetadata => ({
+  dst: {
+    chid: convertTo32Bytes(input.data.toChainId),
+    swaps: [],
+    tx_hash: ZERO_BYTES_32,
+    univ: Universe.ETHEREUM,
+  },
+  has_xcs: true,
+  rff_id: 0n,
+  src: [],
+});
+
+type SwapHandlerOptionsContext = {
+  options: SwapParams;
+  aggregators: Aggregator[];
+  cache: Cache;
+  COT: CurrencyID;
+  input: SwapData;
+  emitter: { emit: (step: SwapStepType) => void };
+  publicClientList: PublicClientList;
+};
+
+const createSwapHandlerOptions = ({
+  options,
+  aggregators,
+  cache,
+  COT,
+  input,
+  emitter,
+  publicClientList,
+}: SwapHandlerOptionsContext) => ({
+  address: options.address,
+  aggregators,
+  cache,
+  chainList: options.chainList,
+  cot: {
+    currencyID: COT,
+    symbol: CurrencyID[COT],
+  },
+  destinationChainID: input.data.toChainId,
+  emitter,
+  publicClientList,
+  slippage: 0.005,
+  wallet: options.wallet,
+  cosmosQueryClient: options.cosmosQueryClient,
+  vscClient: options.vscClient,
+});
+
+type IntentApprovalContext = {
+  input: SwapData;
+  swapRouteParams: Parameters<typeof determineSwapRoute>[1];
+} & Pick<SwapParams, 'onSwapIntent' | 'chainList'>;
+
+const waitForIntentApproval = async (
+  initialRoute: SwapRoute,
+  ctx: IntentApprovalContext
+): Promise<SwapRoute> => {
+  let currentRoute = initialRoute;
+  let accepted = false;
+
+  const refresh = async (fromSources?: { chainId: number; tokenAddress: Hex }[]) => {
+    if (accepted) {
+      logger.warn('Swap Intent refresh called after acceptance');
+      return createSwapIntent(currentRoute, ctx.input, ctx.chainList);
+    }
+
+    const updatedInput = { ...ctx.input };
+    // Can only update sources in exact out. Update only if sources are sent in refresh.
+    if (updatedInput.mode === SwapMode.EXACT_OUT && fromSources && fromSources.length > 0) {
+      updatedInput.data.fromSources = fromSources;
+    }
+
+    currentRoute = await determineSwapRoute(updatedInput, ctx.swapRouteParams);
+    logger.debug('refresh-swap-route', { swapRoute: currentRoute });
+
+    const swapIntent = createSwapIntent(currentRoute, ctx.input, ctx.chainList);
+    logger.debug('onIntentHook:refresh', { swapIntent });
+    return swapIntent;
+  };
+
+  await new Promise<void>((resolve, reject) => {
+    const allow = () => {
+      accepted = true;
+      resolve();
+    };
+    const deny = () => reject(ErrorUserDeniedIntent);
+
+    const swapIntent = createSwapIntent(currentRoute, ctx.input, ctx.chainList);
+    logger.debug('onIntentHook', { swapIntent });
+    ctx.onSwapIntent({ allow, deny, intent: swapIntent, refresh });
+  });
+
+  return currentRoute;
 };

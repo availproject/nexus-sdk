@@ -457,7 +457,7 @@ export const createBridgeRFF = async ({
 
     r.promise.then(() => {
       r.filled = true;
-      removeIntentHashFromStore(config.evm.address, r.intentID);
+      removeIntentHashFromStore(config.evm.address, r.intentID.toNumber());
     });
 
     return r;

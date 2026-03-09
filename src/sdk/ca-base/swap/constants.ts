@@ -39,3 +39,4 @@ export const CALIBUR_EIP712 = {
 export const LIFI_API_KEY =
   'bcb7981d-ea26-4adf-8926-95d3adf4c001.23bcc0d7-7df7-4c86-bb37-ae9ffc25bb95';
 export const BEBOP_API_KEY = 'ae262dbf-e4d0-4b66-aaec-57a1b4581440';
+export const FEE_COLLECTOR = '0xCABB1EEafEC3d94553E0001B07F9C921b5265090';
