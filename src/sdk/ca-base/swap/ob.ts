@@ -311,6 +311,12 @@ class DestinationSwapHandler {
         owner: options.address.eoa,
         spender: options.address.ephemeral,
       });
+      if (!isNativeAddress(this.destinationData.eoaToEphemeral.contractAddress)) {
+        options.cache.addPermitQuery({
+          chainID: this.destinationData.chainId,
+          contractAddress: this.destinationData.eoaToEphemeral.contractAddress,
+        });
+      }
     }
 
     options.cache.addSetCodeQuery({
@@ -585,19 +591,28 @@ class SourceSwapsHandler {
       });
 
       for (const sQuote of swapQuotes) {
+        const inputAddress = sQuote.quote.input.contractAddress as Hex;
+
         this.options.cache.addAllowanceQuery({
           chainID: Number(chainID),
-          contractAddress: sQuote.quote.input.contractAddress as Hex,
+          contractAddress: inputAddress,
           owner: this.options.address.eoa,
           spender: this.options.address.ephemeral,
         });
 
         this.options.cache.addAllowanceQuery({
           chainID: Number(chainID),
-          contractAddress: sQuote.quote.input.contractAddress as Hex,
+          contractAddress: inputAddress,
           owner: this.options.address.ephemeral,
           spender: SWEEPER_ADDRESS,
         });
+
+        if (!isNativeAddress(inputAddress)) {
+          this.options.cache.addPermitQuery({
+            chainID: Number(chainID),
+            contractAddress: inputAddress,
+          });
+        }
       }
     }
   }

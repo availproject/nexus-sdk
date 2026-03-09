@@ -344,7 +344,9 @@ export const createPermitAndTransferFromTx = async ({
     let version = 0;
 
     if (!shouldUseDirectApproval) {
-      const permitDetails = await getPermitVariantAndVersion(contractAddress, publicClient);
+      const permitDetails =
+        cache.getPermit({ chainID: chain.id, contractAddress }) ??
+        (await getPermitVariantAndVersion(contractAddress, publicClient));
       variant = permitDetails.variant;
       version = permitDetails.version;
       shouldUseDirectApproval = variant === PermitVariant.Unsupported;
@@ -910,12 +912,20 @@ export type SetCodeInput = {
   chainID: number;
 };
 
+export type PermitQueryInput = {
+  chainID: number;
+  contractAddress: Hex;
+};
+
 export class Cache {
   public allowanceValues: Map<string, bigint> = new Map();
   public setCodeValues: Map<string, Hex | undefined> = new Map();
   private readonly allowanceQueries: Map<string, AllowanceInput> = new Map();
   private readonly nativeAllowanceQueries: Map<string, AllowanceInput> = new Map();
   private readonly setCodeQueries: Map<string, SetCodeInput> = new Map();
+  private readonly permitQueries: Map<string, PermitQueryInput> = new Map();
+  private readonly permitValues: Map<string, { variant: PermitVariant; version: number }> =
+    new Map();
 
   constructor(private readonly publicClientList: PublicClientList) {}
 
@@ -947,11 +957,20 @@ export class Cache {
     return this.setCodeValues.get(getSetCodeKey(input));
   }
 
+  addPermitQuery(input: PermitQueryInput) {
+    this.permitQueries.set(getPermitCacheKey(input), input);
+  }
+
+  getPermit(input: PermitQueryInput) {
+    return this.permitValues.get(getPermitCacheKey(input));
+  }
+
   async process() {
     await Promise.all([
       this.processNativeAllowanceRequests(),
       this.processAllowanceRequests(),
       this.processGetCodeRequests(),
+      this.processPermitRequests(),
     ]);
   }
 
@@ -1032,6 +1051,20 @@ export class Cache {
     }
     await Promise.all(requests);
   }
+
+  private async processPermitRequests() {
+    const requests: Promise<void>[] = [];
+    for (const input of this.permitQueries.values()) {
+      if (this.getPermit(input)) continue;
+      const publicClient = this.publicClientList.get(input.chainID);
+      requests.push(
+        getPermitVariantAndVersion(input.contractAddress, publicClient).then((result) => {
+          this.permitValues.set(getPermitCacheKey(input), result);
+        })
+      );
+    }
+    await Promise.all(requests);
+  }
 }
 
 // To remove duplication of publicClients
@@ -1068,6 +1101,9 @@ export const getAllowanceCacheKey = ({
 
 export const getSetCodeKey = (input: SetCodeInput) =>
   `a${input.chainID}${input.address}`.toLowerCase();
+
+export const getPermitCacheKey = (input: PermitQueryInput) =>
+  `p${input.contractAddress}${input.chainID}`.toLowerCase();
 
 export const parseQuote = (swap: QuoteResponse, createApproval = true) => {
   const { input, txData } = swap.quote;
@@ -1530,13 +1566,14 @@ export const sweepCotBalancesToEoa = async ({
 
   const cache = new Cache(publicClientList);
   for (const balance of cotBalances) {
+    const tokenAddress = convertToEVMAddress(balance.tokenAddress);
     cache.addSetCodeQuery({
       address: ephemeralAddress,
       chainID: balance.chainID,
     });
     cache.addAllowanceQuery({
       chainID: balance.chainID,
-      contractAddress: balance.tokenAddress,
+      contractAddress: tokenAddress,
       owner: ephemeralAddress,
       spender: SWEEPER_ADDRESS,
     });
@@ -1547,6 +1584,7 @@ export const sweepCotBalancesToEoa = async ({
   const sbcTxs = (
     await Promise.all(
       cotBalances.map(async (balance) => {
+        const tokenAddress = convertToEVMAddress(balance.tokenAddress);
         try {
           return await createSBCTxFromCalls({
             cache,
@@ -1556,7 +1594,7 @@ export const sweepCotBalancesToEoa = async ({
               COTCurrencyID,
               receiver: eoaAddress,
               sender: ephemeralAddress,
-              tokenAddress: balance.tokenAddress,
+              tokenAddress,
             }),
             chainID: balance.chainID,
             ephemeralAddress,
