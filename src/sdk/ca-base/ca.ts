@@ -239,7 +239,7 @@ export class CA {
 
     return this.withReinit(async () => {
       return getBalancesForSwap({
-        evmAddress: (await this._evm!.client.requestAddresses())[0],
+        evmAddress: this._evm!.address,
         chainList: this.chainList,
         filterWithSupportedTokens: onlyNativesAndStables,
         oraclePrices: this._queryClients?.cosmosQueryClient.fetchPriceOracle(),
@@ -414,6 +414,8 @@ export class CA {
         this._evm.address = accounts[0];
       }
       this._init();
+    } else {
+      this._evm = undefined;
     }
   };
 
@@ -651,7 +653,7 @@ export class CA {
     if (!this._evm) {
       throw Errors.sdkNotInitialized();
     }
-    return (await this._evm.client.requestAddresses())[0];
+    return this._evm.address;
   };
 
   protected _setProviderHooks = async () => {

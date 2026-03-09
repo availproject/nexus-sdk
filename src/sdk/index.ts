@@ -423,6 +423,7 @@ export class NexusSDK extends CA {
     });
 
     this._deinit();
+    this._evm = undefined;
     this.analytics.endOperation(opId, { success: true });
   }
 
