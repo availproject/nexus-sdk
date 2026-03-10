@@ -461,7 +461,7 @@ class DestinationSwapHandler {
           COTCurrencyID: this.options.cot.currencyID,
           receiver: this.options.address.eoa,
           sender: this.options.address.ephemeral,
-          tokenAddress: tokenSwap.quote.output.contractAddress as Hex,
+          tokenAddress: tokenSwap.quote.output.contractAddress,
         })
       );
       this.options.emitter.emit(SWAP_STEPS.DESTINATION_SWAP_BATCH_TX(false));
@@ -591,13 +591,13 @@ class DestinationSwapHandler {
 
     logger.debug('Requoting destination swap...');
     const newSwap = await this.destinationData.getDstSwap();
-    if (!newSwap?.tokenSwap) {
+    if (!newSwap) {
       throw Errors.quoteFailed('Failed to requote destination swap.');
     }
 
     this.destinationData.swap = newSwap;
 
-    logger.debug('Destination swap requoted successfully.', {});
+    logger.debug('Destination swap requoted successfully.');
   }
 }
 
