@@ -11,7 +11,6 @@ import {
 } from '@avail-project/ca-common';
 import axios from 'axios';
 import Decimal from 'decimal.js';
-import { retry } from 'es-toolkit';
 import Long from 'long';
 import {
   type ByteArray,
@@ -1473,64 +1472,36 @@ export const performDestinationSwap = async ({
   publicClientList: PublicClientList;
   vscClient: VSCClient;
 }) => {
-  try {
-    // If destination swap token is COT then calls is an empty array,
-    // sweeper txs will send from ephemeral -> eoa, other cases it sweeps the dust
-    const hash = await retry(async () => {
-      const sbcTx = await createSBCTxFromCalls({
+  // If destination swap token is COT then calls is an empty array,
+  // sweeper txs will send from ephemeral -> eoa, other cases it sweeps the dust
+  const sbcTx = await createSBCTxFromCalls({
+    cache,
+    calls: calls.concat(
+      createSweeperTxs({
         cache,
-        calls: calls.concat(
-          createSweeperTxs({
-            cache,
-            chainID: chain.id,
-            COTCurrencyID: COT,
-            receiver: actualAddress,
-            sender: ephemeralAddress,
-          })
-        ),
         chainID: chain.id,
-        ephemeralAddress,
-        ephemeralWallet,
-        publicClient: publicClientList.get(chain.id),
-      });
-      performance.mark('destination-swap-start');
-      const ops = await vscClient.vscSBCTx([sbcTx]);
-      performance.mark('destination-swap-end');
+        COTCurrencyID: COT,
+        receiver: actualAddress,
+        sender: ephemeralAddress,
+      })
+    ),
+    chainID: chain.id,
+    ephemeralAddress,
+    ephemeralWallet,
+    publicClient: publicClientList.get(chain.id),
+  });
+  performance.mark('destination-swap-start');
+  const ops = await vscClient.vscSBCTx([sbcTx]);
+  performance.mark('destination-swap-end');
 
-      if (hasDestinationSwap) {
-        emitter.emit(SWAP_STEPS.DESTINATION_SWAP_HASH(ops[0], chainList));
-      }
-
-      performance.mark('destination-swap-mining-start');
-      await waitForSBCTxReceipt(ops, chainList, publicClientList);
-      performance.mark('destination-swap-mining-end');
-      return ops[0][1];
-    }, 2);
-    return hash;
-  } catch (e) {
-    logger.error('destination swap failed twice, sweeping to eoa', e, { cause: 'SWAP_FAILED' });
-    await vscClient
-      .vscSBCTx([
-        await createSBCTxFromCalls({
-          cache,
-          calls: createSweeperTxs({
-            cache,
-            chainID: chain.id,
-            COTCurrencyID: COT,
-            receiver: actualAddress,
-            sender: ephemeralAddress,
-          }),
-          chainID: chain.id,
-          ephemeralAddress,
-          ephemeralWallet,
-          publicClient: publicClientList.get(chain.id),
-        }),
-      ])
-      .catch((e) => {
-        logger.error('error during destination sweep', e, { cause: 'DESTINATION_SWEEP_ERROR' });
-      });
-    throw e;
+  if (hasDestinationSwap) {
+    emitter.emit(SWAP_STEPS.DESTINATION_SWAP_HASH(ops[0], chainList));
   }
+
+  performance.mark('destination-swap-mining-start');
+  await waitForSBCTxReceipt(ops, chainList, publicClientList);
+  performance.mark('destination-swap-mining-end');
+  return ops[0][1];
 };
 
 export const sweepCotBalancesToEoa = async ({

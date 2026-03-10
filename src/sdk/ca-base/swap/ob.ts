@@ -394,37 +394,39 @@ class DestinationSwapHandler {
     }
   }
 
-  // Retry only once, can't keep user waiting.
-  async process(
-    metadata: SwapMetadata
-    // inputAmount = this.dstSwap.quote?.inputAmount,
-  ) {
+  async process(metadata: SwapMetadata) {
     const chain = this.options.chainList.getChainByID(this.destinationData.chainId);
     if (!chain) {
       throw Errors.chainNotFound(this.destinationData.chainId);
     }
     await switchChain(this.options.wallet.eoa, chain);
-    try {
-      await this.executeSwap(metadata);
-    } catch (error) {
-      logger.warn('Destination swap failed, attempting single requote & retry.', {
-        error: (error as Error)?.message ?? error,
-      });
 
-      await this.requoteIfRequired(true);
+    const MAX_RETRIES = 2;
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      if (attempt > 0) {
+        logger.warn(
+          `Destination swap failed, requoting (attempt ${attempt + 1}/${MAX_RETRIES + 1}).`,
+          {
+            error: (lastError as Error)?.message ?? lastError,
+          }
+        );
+        await this.requoteIfRequired(true);
+      }
       try {
         await this.executeSwap(metadata);
-      } catch (retryError) {
-        logger.error(
-          'Destination swap failed even after retry.',
-          {
-            error: (retryError as Error)?.message ?? retryError,
-          },
-          { cause: 'SWAP_FAILED' }
-        );
-        throw retryError;
+        return;
+      } catch (error) {
+        lastError = error;
       }
     }
+
+    logger.error('Destination swap failed after all retries, sweeping to eoa', lastError, {
+      cause: 'SWAP_FAILED',
+    });
+    await this.sweepToEoa();
+    throw lastError;
   }
 
   /**
@@ -532,6 +534,33 @@ class DestinationSwapHandler {
         output_decimals: swap.gasSwap.quote.output.decimals,
       });
     }
+  }
+
+  /**
+   * Sweep remaining ephemeral balances to EOA as a last resort fallback.
+   */
+  private async sweepToEoa() {
+    const chain = this.options.chainList.getChainByID(this.destinationData.chainId)!;
+    await this.options.vscClient
+      .vscSBCTx([
+        await createSBCTxFromCalls({
+          cache: this.options.cache,
+          calls: createSweeperTxs({
+            cache: this.options.cache,
+            chainID: chain.id,
+            COTCurrencyID: this.options.cot.currencyID,
+            receiver: this.options.address.eoa,
+            sender: this.options.address.ephemeral,
+          }),
+          chainID: chain.id,
+          ephemeralAddress: this.options.address.ephemeral,
+          ephemeralWallet: this.options.wallet.ephemeral,
+          publicClient: this.options.publicClientList.get(chain.id),
+        }),
+      ])
+      .catch((e) => {
+        logger.error('error during destination sweep', e, { cause: 'DESTINATION_SWEEP_ERROR' });
+      });
   }
 
   /**

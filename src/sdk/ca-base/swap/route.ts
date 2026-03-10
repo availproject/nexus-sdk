@@ -533,14 +533,20 @@ const _exactOutRoute = async (
 
   let buffer = new Decimal(0);
 
-  const dstAmount = divDecimals(input.toAmount, dstTokenInfo.decimals).add(gasInCOT);
-  const destination = createDestination(input.toChainId, dstAmount);
+  const needsTokenSwap = !equalFold(input.toTokenAddress, dstChainCOTAddress);
+  const needsGasSwap = !gasInCOT.isZero();
+
+  // When toToken IS COT and no gas swap, inputAmount = COT amount directly.
+  // Otherwise getDstSwap resolves the actual COT input from swap quotes.
+  const destination = createDestination(
+    input.toChainId,
+    needsTokenSwap
+      ? new Decimal(0)
+      : divDecimals(input.toAmount, dstChainCOT.decimals).add(gasInCOT)
+  );
 
   let originalMax: Decimal | null = null;
   const getDstSwap = async (): Promise<DestinationSwap> => {
-    const needsTokenSwap = !equalFold(input.toTokenAddress, dstChainCOTAddress);
-    const needsGasSwap = !gasInCOT.isZero();
-
     if (!needsTokenSwap && !needsGasSwap) {
       return { creationTime: Date.now(), tokenSwap: null, gasSwap: null };
     }
@@ -567,6 +573,12 @@ const _exactOutRoute = async (
           )
         : null,
     ]);
+
+    // Total COT required = tokenSwap COT input + gasSwap COT input
+    destination.inputAmount.min = Decimal.add(
+      tokenSwap?.quote.input.amount ?? 0,
+      gasSwap?.quote.input.amount ?? 0
+    );
 
     // Apply min(5%, $2) buffer to destination input amount — leftover is returned in COT.
     const { amountWithBuffer, buffer: dstBuffer } = applyBufferWithCap(
