@@ -730,7 +730,7 @@ class SourceSwapsHandler {
           sbcCalls.calls.push(...txs);
         }
 
-        const parsed = parseQuote(swap, !isNativeAddress(swap.quote.txData.approvalAddress as Hex));
+        const parsed = parseQuote(swap, !isNativeAddress(swap.quote.input.contractAddress));
 
         if (parsed.approval) {
           sbcCalls.calls.push(parsed.approval);
