@@ -1534,7 +1534,7 @@ sdk.analytics.enable();
 | Arbitrum One | 42161 | ETH | ✅ | ✅ |
 | Optimism | 10 | ETH | ✅ | ✅ |
 | Polygon | 137 | MATIC | ✅ | ✅ |
-| Avalanche | 43114 | AVAX | ✅ | ✅ |
+| Avalanche | 43114 | AVAX | ✅ | ❌ |
 | Scroll | 534352 | ETH | ✅ | ✅ |
 | Kaia Mainnet | 8217 | KAIA | ✅ | ❌ |
 | BNB Smart Chain | 56 | BNB | ✅ | ✅ |

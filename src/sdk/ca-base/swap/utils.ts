@@ -67,6 +67,7 @@ import { CALIBUR_ADDRESS, EADDRESS, SWEEPER_ADDRESS } from './constants';
 import { type FlatBalance, getPermitVariantAndVersion, isTokenSupported } from './data';
 import { createSBCTxFromCalls, waitForSBCTxReceipt } from './sbc';
 
+const USD_DECIMAL_PLACES = 6;
 const logger = getLogger();
 
 export const convertTo32Bytes = (
@@ -724,11 +725,13 @@ export const vscBalancesToAssets = (
           asset.balance = new Decimal(asset.balance).add(currency.balance).toFixed();
           asset.balanceInFiat = new Decimal(asset.balanceInFiat)
             .add(currency.value)
-            .toDecimalPlaces(2)
+            .toDecimalPlaces(USD_DECIMAL_PLACES)
             .toNumber();
           asset.breakdown.push({
             balance: currency.balance,
-            balanceInFiat: new Decimal(currency.value).toDecimalPlaces(2).toNumber(),
+            balanceInFiat: new Decimal(currency.value)
+              .toDecimalPlaces(USD_DECIMAL_PLACES)
+              .toNumber(),
             chain: {
               id: bytesToNumber(balance.chain_id),
               logo: chain.custom.icon,
@@ -742,11 +745,15 @@ export const vscBalancesToAssets = (
         } else {
           assets.push({
             balance: currency.balance,
-            balanceInFiat: new Decimal(currency.value).toDecimalPlaces(2).toNumber(),
+            balanceInFiat: new Decimal(currency.value)
+              .toDecimalPlaces(USD_DECIMAL_PLACES)
+              .toNumber(),
             breakdown: [
               {
                 balance: currency.balance,
-                balanceInFiat: new Decimal(currency.value).toDecimalPlaces(2).toNumber(),
+                balanceInFiat: new Decimal(currency.value)
+                  .toDecimalPlaces(USD_DECIMAL_PLACES)
+                  .toNumber(),
                 chain: {
                   id: bytesToNumber(balance.chain_id),
                   logo: chain.custom.icon,
@@ -844,12 +851,14 @@ export const ankrBalanceToAssets = (
       ) {
         existingAsset.balance = Decimal.add(existingAsset.balance, asset.balance).toFixed();
         existingAsset.balanceInFiat = Decimal.add(existingAsset.balanceInFiat, asset.balanceUSD)
-          .toDecimalPlaces(2)
+          .toDecimalPlaces(USD_DECIMAL_PLACES)
           .toNumber();
 
         existingAsset.breakdown.push({
           balance: asset.balance,
-          balanceInFiat: new Decimal(asset.balanceUSD).toDecimalPlaces(2).toNumber(),
+          balanceInFiat: new Decimal(asset.balanceUSD)
+            .toDecimalPlaces(USD_DECIMAL_PLACES)
+            .toNumber(),
           chain: {
             id: chain.id,
             logo: chain.custom.icon,
@@ -864,11 +873,13 @@ export const ankrBalanceToAssets = (
     } else {
       assets.push({
         balance: asset.balance,
-        balanceInFiat: new Decimal(asset.balanceUSD).toDecimalPlaces(2).toNumber(),
+        balanceInFiat: new Decimal(asset.balanceUSD).toDecimalPlaces(USD_DECIMAL_PLACES).toNumber(),
         breakdown: [
           {
             balance: asset.balance,
-            balanceInFiat: new Decimal(asset.balanceUSD).toDecimalPlaces(2).toNumber(),
+            balanceInFiat: new Decimal(asset.balanceUSD)
+              .toDecimalPlaces(USD_DECIMAL_PLACES)
+              .toNumber(),
             chain: {
               id: chain.id,
               logo: chain.custom.icon,
