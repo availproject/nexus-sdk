@@ -161,7 +161,7 @@ describe('sortSourcesByPriority', () => {
       tokenAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48' as `0x${string}`,
     };
 
-    it('Priority 1: Same token on destination chain', () => {
+    it('Priority 1: Same token on destination chain (Ethereum)', () => {
       const balances = [
         createBalance(137, 'USDC', '0x2791bca1f2de4661ed88a30c99a7a9449aa84174', '50', 1),
         createBalance(1, 'USDC', '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', '100', 1),
@@ -171,46 +171,68 @@ describe('sortSourcesByPriority', () => {
       expect(sorted[0].symbol).toBe('USDC');
     });
 
-    it('Priority 5: Same token on other non-Ethereum chains', () => {
+    it('Priority 2: Stablecoin on same-chain Ethereum beats cross-chain stablecoin', () => {
       const balances = [
-        createBalance(1, 'DAI', '0x6b175474e89094c44da98b954eedeac495271d0f', '50', 1),
-        createBalance(137, 'USDC', '0x2791bca1f2de4661ed88a30c99a7a9449aa84174', '100', 1),
-        createBalance(42161, 'LINK', '0xf97f4df75117a78c1a5a0dbb814af92458539fb4', '80', 1),
-      ];
-      const sorted = sortSourcesByPriority(balances, destination);
-      expect(sorted[0].chainID).toBe(137);
-      expect(sorted[0].symbol).toBe('USDC');
-    });
-
-    it('Priority 9: USDC/USDT/DAI on Ethereum (same chain, different token)', () => {
-      const balances = [
-        createBalance(1, 'DAI', '0x6b175474e89094c44da98b954eedeac495271d0f', '100', 1), // Priority 9
-        createBalance(1, 'ETH', EADDRESS, '0.1', 3000), // Priority 10
+        createBalance(42161, 'USDT', '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9', '500', 1), // Priority 6
+        createBalance(1, 'DAI', '0x6b175474e89094c44da98b954eedeac495271d0f', '100', 1), // Priority 2
       ];
       const sorted = sortSourcesByPriority(balances, destination);
       expect(sorted[0].chainID).toBe(1);
       expect(sorted[0].symbol).toBe('DAI');
     });
 
-    it('Priority 10: ETH on Ethereum (same chain, gas token)', () => {
+    it('Priority 2: Stablecoin on same-chain Ethereum', () => {
       const balances = [
-        createBalance(1, 'ETH', EADDRESS, '0.1', 3000), // Priority 10
-        createBalance(1, 'LINK', '0x514910771af9ca656af840dff83e8264ecf986ca', '100', 1), // Priority 11
+        createBalance(1, 'DAI', '0x6b175474e89094c44da98b954eedeac495271d0f', '100', 1), // Priority 2
+        createBalance(1, 'ETH', EADDRESS, '0.1', 3000), // Priority 3
+      ];
+      const sorted = sortSourcesByPriority(balances, destination);
+      expect(sorted[0].chainID).toBe(1);
+      expect(sorted[0].symbol).toBe('DAI');
+    });
+
+    it('Priority 3: Gas token on same-chain Ethereum beats other tokens', () => {
+      const balances = [
+        createBalance(1, 'ETH', EADDRESS, '0.1', 3000), // Priority 3
+        createBalance(1, 'LINK', '0x514910771af9ca656af840dff83e8264ecf986ca', '100', 1), // Priority 4
       ];
       const sorted = sortSourcesByPriority(balances, destination);
       expect(sorted[0].chainID).toBe(1);
       expect(sorted[0].symbol).toBe('ETH');
     });
 
-    it('Priority 11: Any other token on Ethereum (same chain)', () => {
+    it('Priority 4: Other token on same-chain Ethereum', () => {
       const balances = [
-        createBalance(1, 'LINK', '0x514910771af9ca656af840dff83e8264ecf986ca', '100', 1), // Priority 11
-        createBalance(1, 'PEPE', '0x6982508145454ce325ddbe47a25d4ec3d2311933', '50', 1), // Priority 11
+        createBalance(1, 'LINK', '0x514910771af9ca656af840dff83e8264ecf986ca', '100', 1), // Priority 4
+        createBalance(1, 'PEPE', '0x6982508145454ce325ddbe47a25d4ec3d2311933', '50', 1), // Priority 4
       ];
       const sorted = sortSourcesByPriority(balances, destination);
-      // Both are Priority 11, so higher value (LINK) wins
+      // Both are Priority 4, so higher value (LINK) wins
       expect(sorted[0].chainID).toBe(1);
       expect(sorted[0].symbol).toBe('LINK');
+    });
+
+    it('Priority 4: Same-chain Ethereum other token beats cross-chain other token', () => {
+      const balances = [
+        createBalance(42161, 'LINK', '0xf97f4df75117a78c1a5a0dbb814af92458539fb4', '500', 1), // Priority 7
+        createBalance(1, 'LINK', '0x514910771af9ca656af840dff83e8264ecf986ca', '100', 1), // Priority 4
+      ];
+      const sorted = sortSourcesByPriority(balances, destination);
+      expect(sorted[0].chainID).toBe(1);
+      expect(sorted[0].symbol).toBe('LINK');
+    });
+
+    it('Priority 5: Same token on other non-Ethereum chains', () => {
+      const balances = [
+        createBalance(1, 'DAI', '0x6b175474e89094c44da98b954eedeac495271d0f', '50', 1), // Priority 2
+        createBalance(137, 'USDC', '0x2791bca1f2de4661ed88a30c99a7a9449aa84174', '100', 1), // Priority 5
+        createBalance(42161, 'LINK', '0xf97f4df75117a78c1a5a0dbb814af92458539fb4', '80', 1), // Priority 7
+      ];
+      const sorted = sortSourcesByPriority(balances, destination);
+      expect(sorted[0].chainID).toBe(1);
+      expect(sorted[0].symbol).toBe('DAI');
+      expect(sorted[1].chainID).toBe(137);
+      expect(sorted[1].symbol).toBe('USDC');
     });
 
     it('Priority 7: Non-Ethereum chains are deprioritized', () => {
@@ -224,7 +246,73 @@ describe('sortSourcesByPriority', () => {
     });
   });
 
+  describe('Address normalization', () => {
+    it('isGasToken: raw EADDRESS is recognized as gas token (priority 3)', () => {
+      const destination = {
+        chainID: 137,
+        symbol: 'USDC',
+        tokenAddress: '0x2791bca1f2de4661ed88a30c99a7a9449aa84174' as `0x${string}`,
+      };
+      const balances = [
+        createBalance(137, 'MATIC', EADDRESS, '100', 1), // should be priority 3
+        createBalance(137, 'LINK', '0x53e0bca35ec356bd5dddfebbd1fc0fd03fabad39', '200', 1), // priority 4
+      ];
+      const sorted = sortSourcesByPriority(balances, destination);
+      expect(sorted[0].symbol).toBe('MATIC');
+    });
+
+    it('destination ZERO_ADDRESS matches EADDRESS balance (isSameToken)', () => {
+      const destination = {
+        chainID: 137,
+        symbol: 'ETH',
+        tokenAddress: '0x0000000000000000000000000000000000000000' as `0x${string}`,
+      };
+      const balances = [
+        createBalance(137, 'ETH', EADDRESS, '1', 3000), // same token via ZERO→EADDRESS normalization
+        createBalance(137, 'USDC', '0x2791bca1f2de4661ed88a30c99a7a9449aa84174', '5000', 1), // stablecoin, priority 2
+      ];
+      const sorted = sortSourcesByPriority(balances, destination);
+      // ETH on same chain with ZERO_ADDRESS destination should match as same token (priority 1)
+      expect(sorted[0].symbol).toBe('ETH');
+    });
+  });
+
   describe('Full priority ordering', () => {
+    it('should order all priorities correctly for Ethereum destination', () => {
+      const destination = {
+        chainID: MAINNET_CHAIN_IDS.ETHEREUM,
+        symbol: 'USDC',
+        tokenAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48' as `0x${string}`,
+      };
+
+      const balances = [
+        createBalance(10, 'LINK', '0x350a791bfc2c21f9ed5d10980dad2e2638ffa7f6', '170', 1), // Priority 7 = $170
+        createBalance(42161, 'USDT', '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9', '160', 1), // Priority 6 = $160
+        createBalance(137, 'USDC', '0x2791bca1f2de4661ed88a30c99a7a9449aa84174', '150', 1), // Priority 5 = $150
+        createBalance(1, 'LINK', '0x514910771af9ca656af840dff83e8264ecf986ca', '140', 1), // Priority 4 = $140
+        createBalance(1, 'ETH', EADDRESS, '0.1', 1300000), // Priority 3 = $130000 (value shouldn't overcome priority)
+        createBalance(1, 'DAI', '0x6b175474e89094c44da98b954eedeac495271d0f', '120', 1), // Priority 2 = $120
+        createBalance(1, 'USDC', '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', '110', 1), // Priority 1 = $110
+      ];
+
+      const sorted = sortSourcesByPriority(balances, destination);
+
+      expect(sorted[0].symbol).toBe('USDC');
+      expect(sorted[0].chainID).toBe(1); // P1
+      expect(sorted[1].symbol).toBe('DAI');
+      expect(sorted[1].chainID).toBe(1); // P2
+      expect(sorted[2].symbol).toBe('ETH');
+      expect(sorted[2].chainID).toBe(1); // P3
+      expect(sorted[3].symbol).toBe('LINK');
+      expect(sorted[3].chainID).toBe(1); // P4
+      expect(sorted[4].symbol).toBe('USDC');
+      expect(sorted[4].chainID).toBe(137); // P5
+      expect(sorted[5].symbol).toBe('USDT');
+      expect(sorted[5].chainID).toBe(42161); // P6
+      expect(sorted[6].symbol).toBe('LINK');
+      expect(sorted[6].chainID).toBe(10); // P7
+    });
+
     it('should order all priorities correctly for non-Ethereum destination', () => {
       const destination = {
         chainID: 137,

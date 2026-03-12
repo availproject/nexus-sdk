@@ -21,6 +21,7 @@ import {
   type SwapAndExecuteParams,
   type SwapAndExecuteResult,
   type SwapExecuteParams,
+  type SwapParams,
   type Tx,
   type UserAssetDatum,
 } from '../../../commons';
@@ -52,7 +53,8 @@ class SwapAndExecuteQuery {
     }>,
     private swap: (
       input: ExactOutSwapInput,
-      options?: OnEventParam
+      options?: OnEventParam,
+      preloadedBalances?: SwapParams['preloadedBalances']
     ) => Promise<SuccessfulSwapResult>
   ) {}
 
@@ -163,6 +165,7 @@ class SwapAndExecuteQuery {
       address,
       gasFee,
       gasPrice,
+      balances,
     };
   }
 
@@ -232,6 +235,7 @@ class SwapAndExecuteQuery {
       gasPrice,
       dstTokenInfo,
       gasFee,
+      balances,
     } = await this.estimateSwapAndExecute(params);
 
     logger.debug('BridgeAndExecute:4:CalculateOptimalSwapAmount', {
@@ -295,11 +299,13 @@ class SwapAndExecuteQuery {
           fromSources: params.fromSources,
           toTokenAddress: params.toTokenAddress,
           toAmount: amount.token,
-          // -1n signifies the source list to not list native balance
+          // Positive: shortfall to source. Negative: reserve abs(value) from native balance.
+          // -1n: exactly enough gas — remove native from sources entirely.
           toNativeAmount: amount.gas === 0n ? -1n : amount.gas,
           toChainId: params.toChainId,
         },
-        options
+        options,
+        balances.balances
       );
 
       logger.debug('swapResult:SwapAndExecute()', { swapResult });
@@ -402,8 +408,16 @@ class SwapAndExecuteQuery {
             ? requiredTokenAmount - destinationTokenAmount
             : 0n;
 
-        gasAmount =
-          destinationGasAmount < requiredGasAmount ? requiredGasAmount - destinationGasAmount : 0n;
+        if (destinationGasAmount < requiredGasAmount) {
+          // Case 1: need more gas — positive shortfall
+          gasAmount = requiredGasAmount - destinationGasAmount;
+        } else if (destinationGasAmount > requiredGasAmount) {
+          // Case 2: surplus gas — negative required amount signals "reserve this, use the rest"
+          gasAmount = -requiredGasAmount;
+        } else {
+          // Case 3: exactly enough — 0n, caller converts to -1n sentinel
+          gasAmount = 0n;
+        }
       }
     }
     return {

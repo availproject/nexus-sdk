@@ -66,46 +66,61 @@ export const sortSourcesByPriority = (
   destination: { tokenAddress: Hex; chainID: number; symbol: string }
 ) => {
   const isGasToken = (tokenAddress: Hex): boolean => {
+    const normalized = convertTo32BytesHex(tokenAddress);
     return (
-      equalFold(tokenAddress, convertTo32BytesHex(ZERO_ADDRESS)) ||
-      equalFold(tokenAddress, convertTo32BytesHex(EADDRESS))
+      equalFold(normalized, convertTo32BytesHex(ZERO_ADDRESS)) ||
+      equalFold(normalized, convertTo32BytesHex(EADDRESS))
     );
   };
 
+  const normalizedDestAddress = equalFold(destination.tokenAddress, ZERO_ADDRESS)
+    ? EADDRESS
+    : destination.tokenAddress;
+
   const isSameToken = (balance: FlatBalance): boolean => {
     return (
-      equalFold(balance.tokenAddress, convertTo32BytesHex(destination.tokenAddress)) ||
+      equalFold(
+        convertTo32BytesHex(balance.tokenAddress),
+        convertTo32BytesHex(normalizedDestAddress)
+      ) ||
       (balance.symbol === destination.symbol &&
         balance.symbol !== 'ETH' &&
         balance.symbol !== 'WETH')
     );
   };
 
+  const isStablecoin = (symbol: string) => STABLECOINS.some((coin) => equalFold(coin, symbol));
+
+  // Priority groups ordered by bridging cost (lowest = preferred):
+  //   1–4:  same chain         (no bridge needed)
+  //   5–7:  other chains       (bridge required)
+  //   8–11: Ethereum mainnet   (most expensive to bridge from)
+  // Within each group: same token > stablecoin > gas > other
   const getPriority = (balance: FlatBalance): number => {
     const isSame = isSameToken(balance);
     const isSameChain = balance.chainID === destination.chainID;
     const isEthereum = balance.chainID === ETHEREUM_CHAIN_ID;
+    const isStable = isStablecoin(balance.symbol);
     const isGas = isGasToken(balance.tokenAddress);
 
     if (isSameChain) {
-      if (isSame) return 1;
-      if (!isEthereum) {
-        if (STABLECOINS.some((coin) => equalFold(coin, balance.symbol))) return 2;
-        if (isGas) return 3;
-        return 4;
-      }
+      if (isSame) return 1; // Same token,  same chain
+      if (isStable) return 2; // Stablecoin,  same chain
+      if (isGas) return 3; // Gas token,   same chain
+      return 4; // Other token, same chain
     }
 
-    if (isEthereum) {
-      if (isSame) return 8;
-      if (STABLECOINS.some((coin) => equalFold(coin, balance.symbol))) return 9;
-      if (balance.symbol === 'ETH') return 10;
-      return 11;
+    if (!isEthereum) {
+      if (isSame) return 5; // Same token,  other chain
+      if (isStable) return 6; // Stablecoin,  other chain
+      return 7; // Other token, other chain
     }
 
-    if (isSame) return 5;
-    if (STABLECOINS.some((coin) => equalFold(coin, balance.symbol))) return 6;
-    return 7;
+    // Ethereum mainnet
+    if (isSame) return 8; // Same token,  Ethereum
+    if (isStable) return 9; // Stablecoin,  Ethereum
+    if (balance.symbol === 'ETH') return 10; // ETH, Ethereum
+    return 11; // Other token, Ethereum
   };
 
   return orderBy(balances, [getPriority, (balance) => balance.value], ['asc', 'desc']);

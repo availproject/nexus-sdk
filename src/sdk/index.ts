@@ -423,6 +423,7 @@ export class NexusSDK extends CA {
     });
 
     this._deinit();
+    this._evm = undefined;
     this.analytics.endOperation(opId, { success: true });
   }
 
@@ -663,4 +664,17 @@ export class NexusSDK extends CA {
    * Helper function to initiate refund if not already triggered by system
    */
   public refundIntent = this._refundIntent;
+
+  /**
+   * Calculate the maximum amount that can be swapped to a destination token across all available sources.
+   * Useful for populating a "Max" button in swap UIs before calling `swapWithExactIn`.
+   * The returned `maxAmountRaw` can be passed directly as `toAmount` in `swapWithExactOut`.
+   *
+   * A haircut of `min(3%, 3 USDC)` is applied to account for slippage and fee variance at execution time.
+   *
+   * @param input - Destination token and optional source restrictions
+   * @throws NexusError if the destination chain is unsupported or routing fails
+   * @returns Max swappable amount with per-source breakdown
+   */
+  public calculateMaxForSwap = this._calculateMaxForSwap;
 }

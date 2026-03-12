@@ -692,6 +692,65 @@ type SwapResult = {
 };
 ```
 
+#### `calculateMaxForSwap(input)`
+
+Calculate the maximum amount that can be swapped to a destination token across all available sources.
+Useful for populating a "Max" button before calling `swapWithExactIn`.
+
+```typescript
+const max = await sdk.calculateMaxForSwap({
+  toChainId: 8453,
+  toTokenAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // USDC on Base
+});
+
+console.log(`Max swappable: ${max.maxAmount} ${max.symbol}`);
+console.log('Sources used:', max.sources);
+```
+
+You can also restrict which source chains/tokens are considered:
+
+```typescript
+const max = await sdk.calculateMaxForSwap({
+  toChainId: 8453,
+  toTokenAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+  fromSources: [
+    { chainId: 10, tokenAddress: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85' },
+  ],
+});
+```
+
+**MaxSwapInput:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `toChainId` | `number` | Yes | Destination chain ID |
+| `toTokenAddress` | `Hex` | Yes | Output token address |
+| `fromSources` | `Array<{ chainId, tokenAddress }>` | No | Restrict which source tokens to consider |
+
+**MaxSwapResult:**
+
+```typescript
+type MaxSwapResult = {
+  toChainId: number;
+  toTokenAddress: Hex;
+  maxAmount: string;      // Human-readable amount
+  maxAmountRaw: bigint;   // Raw amount with decimals, suitable for toAmount in swapWithExactOut
+  symbol: string;
+  decimals: number;
+  sources: {
+    chainId: number;
+    tokenAddress: Hex;
+    symbol: string;
+    decimals: number;
+    amount: string;       // Portion of this source used
+  }[];
+};
+```
+
+> **Note:** A small haircut of up to `min(3%, 3 USDC)` is applied to the quoted max to account for slippage and fee variance between quote time and execution.
+
+---
+
 #### `getSwapSupportedChains()`
 
 Get chains and tokens supported for swap operations.
@@ -1475,7 +1534,7 @@ sdk.analytics.enable();
 | Arbitrum One | 42161 | ETH | ✅ | ✅ |
 | Optimism | 10 | ETH | ✅ | ✅ |
 | Polygon | 137 | MATIC | ✅ | ✅ |
-| Avalanche | 43114 | AVAX | ✅ | ✅ |
+| Avalanche | 43114 | AVAX | ✅ | ❌ |
 | Scroll | 534352 | ETH | ✅ | ✅ |
 | Kaia Mainnet | 8217 | KAIA | ✅ | ❌ |
 | BNB Smart Chain | 56 | BNB | ✅ | ✅ |

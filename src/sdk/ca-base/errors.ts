@@ -141,7 +141,8 @@ export const Errors = {
       `Invalid ${addressType} address length: ${additionalMessage}`,
       { details: { type: addressType } }
     ),
-  noBalanceForAddress: (address: Hex) => {
-    createError(ERROR_CODES.NO_BALANCE_FOR_ADDRESS, `no balance found for user: ${address}`);
-  },
+  noBalanceForAddress: (address: Hex) =>
+    createError(ERROR_CODES.NO_BALANCE_FOR_ADDRESS, `no balance found for user: ${address}`),
+  quoteError: () =>
+    createError(ERROR_CODES.QUOTE_ERROR, 'sources are not enough for output amount'),
 };

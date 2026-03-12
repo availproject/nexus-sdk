@@ -910,7 +910,7 @@ const MAINNET_CHAINS: Chain[] = [
     universe: Universe.ETHEREUM,
   },
   {
-    swapSupported: true,
+    swapSupported: false,
     blockExplorers: {
       default: {
         name: 'Snowscan',
@@ -937,7 +937,7 @@ const MAINNET_CHAINS: Chain[] = [
       ],
     },
     id: SUPPORTED_CHAINS.AVALANCHE,
-    ankrName: 'avalanche',
+    ankrName: '',
     name: 'Avalanche C-Chain',
     nativeCurrency: {
       decimals: 18,

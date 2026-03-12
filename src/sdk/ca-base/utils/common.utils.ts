@@ -103,7 +103,7 @@ const storeIntentHashToStore = (address: string, id: number, createdAt = Date.no
   PlatformUtils.storageSetItem(getIntentKey(address), JSON.stringify(intents));
 };
 
-const removeIntentHashFromStore = (address: string, id: Long) => {
+const removeIntentHashFromStore = (address: string, id: number) => {
   let intents: Array<IntentD> = [];
   const fetchedIntents = PlatformUtils.storageGetItem(getIntentKey(address));
   if (fetchedIntents) {
@@ -112,7 +112,7 @@ const removeIntentHashFromStore = (address: string, id: Long) => {
 
   const oLen = intents.length;
 
-  intents = intents.filter((h: IntentD) => h.id !== id.toNumber());
+  intents = intents.filter((h: IntentD) => h.id !== id);
   if (oLen !== intents.length) {
     PlatformUtils.storageSetItem(getIntentKey(address), JSON.stringify(intents));
   }
@@ -125,20 +125,8 @@ const getExpiredIntents = (address: string) => {
     intents = JSON.parse(fetchedIntents) ?? [];
   }
   logger.debug('getExpiredIntents', { intents });
-  const expiredIntents: Array<IntentD> = [];
-  const nonExpiredIntents: Array<IntentD> = [];
-
   const TEN_MINUTES_BEFORE = Date.now() - 600000;
-
-  for (const intent of intents) {
-    if (intent.createdAt < TEN_MINUTES_BEFORE) {
-      expiredIntents.push(intent);
-    } else {
-      nonExpiredIntents.push(intent);
-    }
-  }
-  PlatformUtils.storageSetItem(getIntentKey(address), JSON.stringify(nonExpiredIntents));
-  return expiredIntents;
+  return intents.filter((intent) => intent.createdAt < TEN_MINUTES_BEFORE);
 };
 
 const refundExpiredIntents = async ({
@@ -149,12 +137,10 @@ const refundExpiredIntents = async ({
 }: CosmosOptions & { evmAddress: string; analytics?: AnalyticsManager }) => {
   logger.debug('Starting check for expired intents at ', new Date());
   const expIntents = getExpiredIntents(evmAddress);
-  const failedRefunds: IntentD[] = [];
 
   for (const intent of expIntents) {
     logger.debug(`Starting refund for: ${intent.id}`);
 
-    // Track refund initiated
     if (analytics) {
       analytics.track(NexusAnalyticsEvents.REFUND_INITIATED, {
         intentId: intent.id,
@@ -164,7 +150,7 @@ const refundExpiredIntents = async ({
 
     try {
       await cosmosRefundIntent({ client, intentID: intent.id, address });
-      // Track refund success
+      removeIntentHashFromStore(evmAddress, intent.id);
       if (analytics) {
         analytics.track(NexusAnalyticsEvents.REFUND_COMPLETED, {
           intentId: intent.id,
@@ -173,25 +159,13 @@ const refundExpiredIntents = async ({
       }
     } catch (e) {
       logger.debug('Refund failed', e);
-
-      // Track refund failure
       if (analytics) {
         analytics.trackError('refund', e, {
           intentId: intent.id,
           createdAt: intent.createdAt,
         });
       }
-
-      failedRefunds.push({
-        createdAt: intent.createdAt,
-        id: intent.id,
-      });
-    }
-  }
-
-  if (failedRefunds.length > 0) {
-    for (const failed of failedRefunds) {
-      storeIntentHashToStore(evmAddress, failed.id, failed.createdAt);
+      // Intent stays in storage, will be retried on next interval
     }
   }
 };

@@ -1,4 +1,5 @@
 import {
+  CurrencyID,
   createCosmosClient,
   createCosmosWallet,
   Environment,
@@ -32,6 +33,7 @@ import {
   type ExecuteParams,
   getLogger,
   LOG_LEVEL,
+  type MaxSwapInput,
   type NetworkConfig,
   type NexusNetwork,
   type OnAllowanceHook,
@@ -60,8 +62,9 @@ import { SwapAndExecuteQuery } from './query/swapAndExecute';
 import BridgeHandler from './requestHandlers/bridge';
 import getMaxValueForBridge from './requestHandlers/bridgeMax';
 import { createBridgeParams } from './requestHandlers/helpers';
+import { calculateMaxForSwap } from './swap/max';
 import { swap } from './swap/swap';
-import { getSwapSupportedChains } from './swap/utils';
+import { getSwapSupportedChains, PublicClientList, sweepCotBalancesToEoa } from './swap/utils';
 import { setLoggerProvider } from './telemetry';
 import {
   cosmosFeeGrant,
@@ -124,6 +127,9 @@ export class CA {
   protected _initStatus = INIT_STATUS.CREATED;
   protected _networkConfig: NetworkConfig;
   protected _refundInterval: number | undefined;
+  protected _cotSweepInterval: number | undefined;
+  protected _isCotSweepRunning = false;
+  protected _isSwapRunning = false;
   protected _initPromise: Promise<void> | null = null;
   private readonly simulationClient: BackendSimulationClient;
   protected _analytics?: AnalyticsManager; // Analytics manager set by subclass
@@ -208,6 +214,11 @@ export class CA {
       clearInterval(this._refundInterval);
       this._refundInterval = undefined;
     }
+    if (this._cotSweepInterval) {
+      clearInterval(this._cotSweepInterval);
+      this._cotSweepInterval = undefined;
+    }
+    this._isCotSweepRunning = false;
 
     this._initStatus = INIT_STATUS.CREATED;
   };
@@ -228,7 +239,7 @@ export class CA {
 
     return this.withReinit(async () => {
       return getBalancesForSwap({
-        evmAddress: (await this._evm!.client.requestAddresses())[0],
+        evmAddress: this._evm!.address,
         chainList: this.chainList,
         filterWithSupportedTokens: onlyNativesAndStables,
         oraclePrices: this._queryClients?.cosmosQueryClient.fetchPriceOracle(),
@@ -256,29 +267,56 @@ export class CA {
 
   protected _swapWithExactIn = async (input: ExactInSwapInput, options?: OnEventParam) => {
     return this.withReinit(async () => {
-      return swap(
-        {
-          mode: SwapMode.EXACT_IN,
-          data: input,
-        },
-        await this._getSwapOptions(options)
-      );
+      let swapFailed = false;
+      this._isSwapRunning = true;
+      try {
+        return await swap(
+          {
+            mode: SwapMode.EXACT_IN,
+            data: input,
+          },
+          await this._getSwapOptions(options)
+        );
+      } catch (e) {
+        swapFailed = true;
+        throw e;
+      } finally {
+        this._isSwapRunning = false;
+        if (swapFailed) void this._sweepCotToEoa();
+      }
     });
   };
 
-  protected _swapWithExactOut = async (input: ExactOutSwapInput, options?: OnEventParam) => {
+  protected _swapWithExactOut = async (
+    input: ExactOutSwapInput,
+    options?: OnEventParam,
+    preloadedBalances?: SwapParams['preloadedBalances']
+  ) => {
     return this.withReinit(async () => {
-      logger.debug('swapWithExactOut', {
-        input,
-        options,
-      });
-      return swap(
-        {
-          mode: SwapMode.EXACT_OUT,
-          data: input,
-        },
-        await this._getSwapOptions(options)
-      );
+      let swapFailed = false;
+      logger.debug('swapWithExactOut', { input, options });
+      this._isSwapRunning = true;
+      try {
+        return await swap(
+          {
+            mode: SwapMode.EXACT_OUT,
+            data: input,
+          },
+          { ...(await this._getSwapOptions(options)), preloadedBalances }
+        );
+      } catch (e) {
+        swapFailed = true;
+        throw e;
+      } finally {
+        this._isSwapRunning = false;
+        if (swapFailed) void this._sweepCotToEoa();
+      }
+    });
+  };
+
+  protected _calculateMaxForSwap = async (input: MaxSwapInput) => {
+    return this.withReinit(async () => {
+      return calculateMaxForSwap(input, await this._getSwapOptions());
     });
   };
 
@@ -347,6 +385,7 @@ export class CA {
         this._setProviderHooks();
         this.#cosmos = await this._createCosmosWallet();
         this._checkPendingRefunds();
+        this._startCotSweepInterval();
         this._initStatus = INIT_STATUS.DONE;
       } catch (e) {
         this._initStatus = INIT_STATUS.CREATED;
@@ -375,6 +414,8 @@ export class CA {
         this._evm.address = accounts[0];
       }
       this._init();
+    } else {
+      this._evm = undefined;
     }
   };
 
@@ -488,7 +529,9 @@ export class CA {
           client: this.#cosmos!.client,
           analytics: this._analytics,
         });
-
+      } catch (e) {
+        logger.error('Error checking pending refunds', e, { cause: 'REFUND_CHECK_ERROR' });
+      } finally {
         this._refundInterval = Number(
           setInterval(async () => {
             await refundExpiredIntents({
@@ -499,10 +542,78 @@ export class CA {
             });
           }, minutesToMs(10))
         );
-      } catch (e) {
-        logger.error('Error checking pending refunds', e, { cause: 'REFUND_CHECK_ERROR' });
       }
     });
+  };
+
+  protected _startCotSweepInterval = (
+    intervalMs = minutesToMs(5),
+    cotCurrencyID: CurrencyID = CurrencyID.USDC
+  ) => {
+    if (this._cotSweepInterval) {
+      clearInterval(this._cotSweepInterval);
+    }
+
+    this._cotSweepInterval = Number(
+      setInterval(() => {
+        void this._sweepCotToEoa(cotCurrencyID);
+      }, intervalMs)
+    );
+
+    // Trigger one run immediately on init.
+    void this._sweepCotToEoa(cotCurrencyID);
+  };
+
+  protected _stopCotSweepInterval = () => {
+    if (this._cotSweepInterval) {
+      clearInterval(this._cotSweepInterval);
+      this._cotSweepInterval = undefined;
+    }
+  };
+
+  protected _sweepCotToEoa = async (cotCurrencyID: CurrencyID = CurrencyID.USDC) => {
+    if (!this.#ephemeralWallet || !this._queryClients || !this._evm) {
+      return;
+    }
+    if (this._isCotSweepRunning || this._isSwapRunning) {
+      return;
+    }
+
+    this._isCotSweepRunning = true;
+    try {
+      const ephemeralAddress = this.#ephemeralWallet.address;
+      const eoaAddress = await this._getEVMAddress();
+
+      const { balances } = await getBalancesForSwap({
+        evmAddress: ephemeralAddress,
+        chainList: this.chainList,
+        filterWithSupportedTokens: true,
+        oraclePrices: this._queryClients.cosmosQueryClient.fetchPriceOracle(),
+      });
+
+      if (balances.length === 0) {
+        return;
+      }
+
+      const publicClientList = new PublicClientList(this.chainList);
+
+      await sweepCotBalancesToEoa({
+        balances,
+        chainList: this.chainList,
+        COTCurrencyID: cotCurrencyID,
+        eoaAddress,
+        ephemeralAddress,
+        ephemeralWallet: this.#ephemeralWallet,
+        publicClientList,
+        vscClient: this._queryClients.vscClient,
+      });
+    } catch (e) {
+      logger.error('Error sweeping COT from ephemeral to EOA', e, {
+        cause: 'COT_SWEEP_INTERVAL_ERROR',
+      });
+    } finally {
+      this._isCotSweepRunning = false;
+    }
   };
 
   protected _createCosmosWallet = async () => {
@@ -542,7 +653,7 @@ export class CA {
     if (!this._evm) {
       throw Errors.sdkNotInitialized();
     }
-    return (await this._evm.client.requestAddresses())[0];
+    return this._evm.address;
   };
 
   protected _setProviderHooks = async () => {

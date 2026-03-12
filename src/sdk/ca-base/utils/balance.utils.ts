@@ -15,6 +15,7 @@ import { ZERO_ADDRESS } from '../constants';
 import { Errors } from '../errors';
 import {
   ankrBalanceToAssets,
+  fetchTransferFees,
   getAnkrBalances,
   toFlatBalance,
   vscBalancesToAssets,
@@ -216,6 +217,29 @@ const enrichBalancesWithOracleUSD = (
   });
 };
 
+const deductTransferFees = (
+  balances: AnkrBalance[],
+  feeByChainID: Map<number, Decimal>
+): AnkrBalance[] =>
+  balances.map((balance) => {
+    if (!equalFold(balance.tokenAddress, ZERO_ADDRESS)) return balance;
+    const transferFee = feeByChainID.get(balance.chainID);
+    if (!transferFee) return balance;
+    const adjusted = new Decimal(balance.balance).gt(transferFee)
+      ? Decimal.sub(balance.balance, transferFee).toFixed(
+          balance.tokenData.decimals,
+          Decimal.ROUND_FLOOR
+        )
+      : '0';
+    logger.debug('deductTransferFees', {
+      chainID: balance.chainID,
+      oldBalance: balance.balance,
+      newBalance: adjusted,
+      transferFee: transferFee.toFixed(),
+    });
+    return { ...balance, balance: adjusted };
+  });
+
 export const getBalancesForSwap = async (input: {
   evmAddress: Hex;
   chainList: ChainListType;
@@ -228,15 +252,17 @@ export const getBalancesForSwap = async (input: {
   const multicallChains = input.chainList.chains.filter(
     (chain) => chain.ankrName === '' && chain.swapSupported && chain.universe === Universe.ETHEREUM
   );
+  const allChains = [...ankrChains, ...multicallChains];
 
-  const [ankrBalances, multicallBalances, oraclePrices] = await Promise.all([
+  const [ankrBalances, multicallBalances, oraclePrices, transferFeesByChain] = await Promise.all([
     ankrChains.length > 0
-      ? getAnkrBalances(input.evmAddress, input.chainList, true)
+      ? getAnkrBalances(input.evmAddress, input.chainList)
       : Promise.resolve([]),
     multicallChains.length > 0
       ? getBalances(multicallChains, input.evmAddress)
       : Promise.resolve([]),
     input.oraclePrices ? Promise.resolve(input.oraclePrices) : Promise.resolve([]),
+    fetchTransferFees(allChains),
   ]);
   const multicallBalancesWithOracleUSD = enrichBalancesWithOracleUSD(
     multicallBalances,
@@ -248,7 +274,10 @@ export const getBalancesForSwap = async (input: {
     multicallBalances: multicallBalancesWithOracleUSD,
     oraclePrices,
   });
-  const mergedBalances = [...ankrBalances, ...multicallBalancesWithOracleUSD];
+  const mergedBalances = deductTransferFees(
+    [...ankrBalances, ...multicallBalancesWithOracleUSD],
+    transferFeesByChain
+  );
 
   const assets = ankrBalanceToAssets(
     input.chainList,
