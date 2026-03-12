@@ -353,7 +353,7 @@ class DestinationSwapHandler {
     }
 
     if (this.destinationData.swap.tokenSwap) {
-      const outputAddress = this.destinationData.swap.tokenSwap.quote.output.contractAddress as Hex;
+      const outputAddress = this.destinationData.swap.tokenSwap.quote.output.contractAddress;
       if (isNativeAddress(outputAddress)) {
         options.cache.addNativeAllowanceQuery({
           chainID: this.destinationData.chainId,
@@ -516,10 +516,10 @@ class DestinationSwapHandler {
       metadata.dst.swaps.push({
         agg: 0,
         input_amt: convertTo32Bytes(swap.tokenSwap.quote.input.amountRaw),
-        input_contract: convertTo32Bytes(swap.tokenSwap.quote.input.contractAddress as Hex),
+        input_contract: convertTo32Bytes(swap.tokenSwap.quote.input.contractAddress),
         input_decimals: swap.tokenSwap.quote.input.decimals,
         output_amt: convertTo32Bytes(swap.tokenSwap.quote.output.amountRaw),
-        output_contract: convertTo32Bytes(swap.tokenSwap.quote.output.contractAddress as Hex),
+        output_contract: convertTo32Bytes(swap.tokenSwap.quote.output.contractAddress),
         output_decimals: swap.tokenSwap.quote.output.decimals,
       });
     }
@@ -527,10 +527,10 @@ class DestinationSwapHandler {
       metadata.dst.swaps.push({
         agg: 0,
         input_amt: convertTo32Bytes(swap.gasSwap.quote.input.amountRaw),
-        input_contract: convertTo32Bytes(swap.gasSwap.quote.input.contractAddress as Hex),
+        input_contract: convertTo32Bytes(swap.gasSwap.quote.input.contractAddress),
         input_decimals: swap.gasSwap.quote.input.decimals,
         output_amt: convertTo32Bytes(swap.gasSwap.quote.output.amountRaw),
-        output_contract: convertTo32Bytes(swap.gasSwap.quote.output.contractAddress as Hex),
+        output_contract: convertTo32Bytes(swap.gasSwap.quote.output.contractAddress),
         output_decimals: swap.gasSwap.quote.output.decimals,
       });
     }
@@ -620,7 +620,7 @@ class SourceSwapsHandler {
       });
 
       for (const sQuote of swapQuotes) {
-        const inputAddress = sQuote.quote.input.contractAddress as Hex;
+        const inputAddress = sQuote.quote.input.contractAddress;
 
         this.options.cache.addAllowanceQuery({
           chainID: Number(chainID),
@@ -681,7 +681,7 @@ class SourceSwapsHandler {
       let amount = new Decimal(0);
       for (const swap of swaps) {
         amount = amount.add(swap.quote.output.amount);
-        if (isNativeAddress(swap.quote.input.contractAddress as Hex)) {
+        if (isNativeAddress(swap.quote.input.contractAddress)) {
           sbcCalls.value += swap.quote.input.amountRaw;
         } else {
           this.options.emitter.emit(
@@ -689,7 +689,7 @@ class SourceSwapsHandler {
           );
           const allowanceCacheKey = getAllowanceCacheKey({
             chainID: chain.id,
-            contractAddress: swap.quote.input.contractAddress as Hex,
+            contractAddress: swap.quote.input.contractAddress,
             owner: this.options.address.eoa,
             spender: this.options.address.ephemeral,
           });
@@ -700,7 +700,7 @@ class SourceSwapsHandler {
             approval: this.disposableCache[allowanceCacheKey],
             cache: this.options.cache,
             chain,
-            contractAddress: swap.quote.input.contractAddress as Hex,
+            contractAddress: swap.quote.input.contractAddress,
             disablePermit: isEip7702DelegatedCode(
               this.options.cache.getCode({
                 address: this.options.address.eoa,
@@ -833,7 +833,7 @@ class SourceSwapsHandler {
         amount: amount,
         chainID: Number(chainID),
         // FIXME: ???
-        tokenAddress: swaps[0].quote.output.contractAddress as Hex,
+        tokenAddress: swaps[0].quote.output.contractAddress,
       });
     }
 
@@ -906,10 +906,10 @@ class SourceSwapsHandler {
             swaps: swaps.map((s) => ({
               agg: 0,
               input_amt: convertTo32Bytes(s.quote.input.amountRaw),
-              input_contract: convertTo32Bytes(s.quote.input.contractAddress as Hex),
+              input_contract: convertTo32Bytes(s.quote.input.contractAddress),
               input_decimals: s.quote.input.decimals,
               output_amt: convertTo32Bytes(s.quote.output.amountRaw),
-              output_contract: convertTo32Bytes(s.quote.output.contractAddress as Hex),
+              output_contract: convertTo32Bytes(s.quote.output.contractAddress),
               output_decimals: s.quote.output.decimals,
             })),
             tx_hash: convertTo32Bytes(hash),
@@ -955,7 +955,7 @@ class SourceSwapsHandler {
                   {
                     ...oldSwap.holding,
                     amountRaw: oldSwap.quote.input.amountRaw,
-                    tokenAddress: convertTo32Bytes(oldSwap.quote.input.contractAddress as Hex),
+                    tokenAddress: convertTo32Bytes(oldSwap.quote.input.contractAddress),
                   },
                 ],
                 this.options.aggregators,

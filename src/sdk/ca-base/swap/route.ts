@@ -223,7 +223,7 @@ const accumulateSwapIntoBridgeAssets = (bridgeAssets: BridgeAsset[], swap: Quote
   } else {
     bridgeAssets.push({
       chainID: Number(swap.chainID),
-      contractAddress: swap.quote.output.contractAddress as Hex,
+      contractAddress: swap.quote.output.contractAddress,
       decimals: swap.quote.output.decimals,
       eoaBalance: new Decimal(0),
       ephemeralBalance: new Decimal(swap.quote.output.amount),
@@ -422,7 +422,7 @@ const buildExactOutSourceAssets = (
     assetsUsed.push({
       amount: swap.quote.input.amount,
       chainID: swap.chainID,
-      contractAddress: swap.quote.input.contractAddress as Hex,
+      contractAddress: swap.quote.input.contractAddress,
       decimals: swap.quote.input.decimals,
       symbol: swap.quote.input.symbol,
     });

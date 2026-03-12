@@ -1120,15 +1120,15 @@ export const parseQuote = (swap: QuoteResponse, createApproval = true) => {
   const val = {
     approval: null as null | Tx,
     tx: {
-      to: txData.tx.to as Hex,
-      data: txData.tx.data as Hex,
+      to: txData.tx.to,
+      data: txData.tx.data,
       value: BigInt(txData.tx.value),
     } as Tx,
   };
   if (createApproval) {
     val.approval = {
-      data: packERC20Approve(txData.approvalAddress as Hex, input.amountRaw),
-      to: input.contractAddress as Hex,
+      data: packERC20Approve(txData.approvalAddress, input.amountRaw),
+      to: input.contractAddress,
       value: 0n,
     };
   }
