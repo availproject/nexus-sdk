@@ -40,15 +40,22 @@ import {
   getLogger,
   type SBCTx,
   type Source,
+  SUPPORTED_CHAINS,
   type SuccessfulSwapResult,
   SWAP_STEPS,
   type SwapStepType,
+  TOKEN_CONTRACT_ADDRESSES,
   type Tx,
   type UnifiedBalanceResponseData,
   type UserAssetDatum,
   type VSCClient,
 } from '../../../commons';
-import { ERC20PermitABI, ERC20PermitEIP712Type, ERC20PermitEIP2612PolygonType } from '../abi/erc20';
+import {
+  ERC20PermitABI,
+  ERC20PermitEIP712Type,
+  ERC20PermitEIP2612PolygonType,
+  ETHEREUM_USDT_APPROVE_ABI,
+} from '../abi/erc20';
 import { getLogoFromSymbol, ZERO_ADDRESS } from '../constants';
 import { Errors } from '../errors';
 import {
@@ -353,9 +360,15 @@ export const createPermitAndTransferFromTx = async ({
     }
 
     if (shouldUseDirectApproval) {
+      const abi = equalFold(
+        TOKEN_CONTRACT_ADDRESSES.USDT[SUPPORTED_CHAINS.ETHEREUM],
+        contractAddress
+      )
+        ? [ETHEREUM_USDT_APPROVE_ABI]
+        : ERC20ABI;
       const { request } = await publicClient.simulateContract({
         chain,
-        abi: ERC20ABI,
+        abi,
         account: owner,
         address: contractAddress,
         args: [spender, amount],
@@ -1612,4 +1625,5 @@ export const getSwapSupportedChains = (chainList: ChainListType) => {
       logo: chain.custom.icon,
     }));
 };
+
 export { sortSourcesByPriority, sortSourcesByPriorityWithAsset } from './sort';
