@@ -983,7 +983,7 @@ class BridgeHandler {
 
     const borrow = amount;
 
-    const protocolFee = feeStore.calculateProtocolFee(borrow);
+    const protocolFee = feeStore.calculateProtocolFee(borrow, this.params.dstChain);
     intent.fees.protocol = protocolFee.toFixed();
 
     let borrowWithFee = borrow.add(gasInToken).add(protocolFee);

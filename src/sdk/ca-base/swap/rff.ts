@@ -12,6 +12,7 @@ import {
 } from 'viem';
 import {
   type BridgeAsset,
+  type Chain,
   type ChainListType,
   type CosmosOptions,
   type EoaToEphemeralCallMap,
@@ -78,7 +79,9 @@ export const createIntent = ({
   feeStore,
   output,
   address,
+  dstChain,
 }: {
+  dstChain: Chain;
   assets: BridgeAsset[];
   feeStore: FeeStore;
   address: Hex;
@@ -117,7 +120,7 @@ export const createIntent = ({
   intent.destination.amount = new Decimal(borrow);
   intent.destination.tokenContract = output.tokenAddress;
 
-  const protocolFee = feeStore.calculateProtocolFee(borrow);
+  const protocolFee = feeStore.calculateProtocolFee(borrow, dstChain);
   borrow = borrow.add(protocolFee);
 
   intent.fees.protocol = protocolFee.toFixed();
@@ -301,12 +304,18 @@ export const createBridgeRFF = async ({
     tokenAddress: `0x${string}`;
   };
 }) => {
+  const dstChain = config.chainList.getChainByID(Number(output.chainID));
+  if (!dstChain) {
+    throw Errors.chainNotFound(output.chainID);
+  }
+
   logger.debug('createBridgeRFF', { input, output });
 
   const feeStore = await getFeeStore(config.cosmosQueryClient);
   const depositCalls: RFFDepositCallMap = {};
 
   const { eoaToEphemeralCalls, intent } = createIntent({
+    dstChain,
     assets: input.assets,
     feeStore,
     output,
@@ -426,12 +435,7 @@ export const createBridgeRFF = async ({
     };
   }
 
-  const chain = config.chainList.getChainByID(Number(output.chainID));
-  if (!chain) {
-    throw Errors.chainNotFound(output.chainID);
-  }
-
-  const ws = webSocket(chain.rpcUrls.default.webSocket[0]);
+  const ws = webSocket(dstChain.rpcUrls.default.webSocket[0]);
   const pc = createPublicClient({
     transport: ws,
   });
@@ -447,7 +451,7 @@ export const createBridgeRFF = async ({
       filled: false,
       intentID,
       promise: evmWaitForFill(
-        config.chainList.getVaultContractAddress(chain.id),
+        config.chainList.getVaultContractAddress(dstChain.id),
         pc,
         s.requestHash,
         intentID,
