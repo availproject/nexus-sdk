@@ -421,6 +421,11 @@ export type FeeStoreData = {
     }[];
     protocol: {
       feeBP: string;
+      feePerChain: {
+        universe: Universe;
+        chainID: number;
+        feeBP: string;
+      }[];
     };
   };
   solverRoutes: {
