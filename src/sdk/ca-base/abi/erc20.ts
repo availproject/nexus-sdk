@@ -344,7 +344,19 @@ const ERC20PermitEIP2612PolygonType = {
   ],
 } as const;
 
+const ETHEREUM_USDT_APPROVE_ABI = {
+  name: 'approve',
+  type: 'function',
+  stateMutability: 'nonpayable',
+  inputs: [
+    { name: 'spender', type: 'address' },
+    { name: 'value', type: 'uint256' },
+  ],
+  outputs: [],
+};
+
 export {
+  ETHEREUM_USDT_APPROVE_ABI,
   ERC20AllowanceABI,
   ERC20PermitABI,
   ERC20PermitEIP2612PolygonType,
