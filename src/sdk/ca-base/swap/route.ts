@@ -705,6 +705,7 @@ const _exactOutRoute = async (
       tokenAddress: convertToEVMAddress(dstChainCOT.tokenAddress),
     };
     const intentResponse = createIntent({
+      dstChain,
       assets: bridgeAssets,
       feeStore,
       output: pendingBridge,
@@ -934,6 +935,7 @@ const _exactInRoute = async (
       decimals: dstChainCOT.decimals,
       tokenAddress: convertToEVMAddress(dstChainCOT.tokenAddress),
       estimatedFees: createIntent({
+        dstChain,
         assets: bridgeAssets,
         feeStore,
         output: {
