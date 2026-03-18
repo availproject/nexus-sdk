@@ -175,6 +175,7 @@ export class CA {
         tron: this._tron,
         ...this._queryClients!, // reinit does initialize
         intentExplorerUrl: this._networkConfig.INTENT_EXPLORER_URL,
+        metadataUrl: this._networkConfig.METADATA_URL,
         emit: options?.onEvent,
       });
     });
@@ -191,6 +192,7 @@ export class CA {
         evm: this._evm!,
         tron: this._tron,
         intentExplorerUrl: this._networkConfig.INTENT_EXPLORER_URL,
+        metadataUrl: this._networkConfig.METADATA_URL,
         ...this._queryClients!,
       });
     });
@@ -347,6 +349,7 @@ export class CA {
         eoa: this._evm!.client,
       },
       intentExplorerUrl: this._networkConfig.INTENT_EXPLORER_URL,
+      metadataUrl: this._networkConfig.METADATA_URL,
       ...this._queryClients!,
       ...options,
     };

@@ -26,7 +26,13 @@ import {
 } from '../../../commons';
 import { ZERO_ADDRESS } from '../constants';
 import { Errors } from '../errors';
-import { equalFold, minutesToMs, switchChain, waitForTxReceipt } from '../utils';
+import {
+  equalFold,
+  minutesToMs,
+  postCollectionHash,
+  switchChain,
+  waitForTxReceipt,
+} from '../utils';
 import { EADDRESS, SWEEPER_ADDRESS } from './constants';
 import { createBridgeRFF } from './rff';
 import type { SwapRoute } from './route';
@@ -73,6 +79,7 @@ type Options = {
     eoa: WalletClient;
     ephemeral: PrivateKeyAccount;
   };
+  metadataUrl: string;
 } & QueryClients;
 
 const logger = getLogger();
@@ -121,6 +128,7 @@ class BridgeHandler {
 
   async createRFFDeposits() {
     const waitingPromises = [];
+    const hashes: { chainId: number; hash: Hex }[] = [];
     if (Object.keys(this.depositCalls).length > 0) {
       const sbcTx: SBCTx[] = [];
       for (const c in this.depositCalls) {
@@ -187,6 +195,7 @@ class BridgeHandler {
             if (!chain) {
               throw Errors.chainNotFound(chainID);
             }
+            hashes.push({ chainId: chain.id, hash });
             this.options.emitter.emit(
               SWAP_STEPS.BRIDGE_DEPOSIT({
                 chain,
@@ -203,6 +212,7 @@ class BridgeHandler {
       }
     }
     await Promise.all(waitingPromises);
+    return hashes;
   }
 
   async process(
@@ -245,10 +255,11 @@ class BridgeHandler {
       this.depositCalls = response.depositCalls;
       this.eoaToEphCalls = response.eoaToEphemeralCalls;
 
-      const [, { createDoubleCheckTx }] = await Promise.all([
+      const [hashes, { intentID, createDoubleCheckTx }] = await Promise.all([
         this.createRFFDeposits(),
         response.createRFF(),
       ]);
+      postCollectionHash(hashes, intentID.toNumber(), this.options.metadataUrl);
       this.waitForFill = response.waitForFill;
       this.createDoubleCheckTx = createDoubleCheckTx;
     }

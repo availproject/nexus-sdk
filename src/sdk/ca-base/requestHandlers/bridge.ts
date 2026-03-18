@@ -62,6 +62,8 @@ import {
   getExplorerURL,
   getFeeStore,
   mulDecimals,
+  // createDeadlineFromNow,
+  postCollectionHash,
   removeIntentHashFromStore,
   requestTimeout,
   retrieveAddress,
@@ -72,7 +74,6 @@ import {
   waitForIntentFulfilment,
   waitForTronDepositTxConfirmation,
   waitForTxReceipt,
-  // createDeadlineFromNow,
 } from '../utils';
 
 type Params = {
@@ -470,7 +471,22 @@ class BridgeHandler {
           hash,
           explorerUrl: createExplorerTxURL(hash, chain.blockExplorers!.default.url),
         });
-        evmDeposits.push(waitForTxReceipt(hash, publicClient));
+        evmDeposits.push(
+          (async () => {
+            const r = await waitForTxReceipt(hash, publicClient);
+            postCollectionHash(
+              [
+                {
+                  chainId: Number(s.chainID),
+                  hash,
+                },
+              ],
+              intentID.toNumber(),
+              this.options.metadataUrl
+            );
+            return r;
+          })()
+        );
       } else if (s.universe === Universe.TRON) {
         const provider = new TronWeb({
           fullHost: chain.rpcUrls.default.grpc![0],
@@ -549,6 +565,16 @@ class BridgeHandler {
           });
           return;
         }
+        postCollectionHash(
+          [
+            {
+              chainId: params.chainId,
+              hash: params.txHash,
+            },
+          ],
+          intentID.toNumber(),
+          this.options.metadataUrl
+        );
         const explorerUrl = createExplorerTxURL(params.txHash, chain.blockExplorers!.default.url);
         sourceTxs.push({
           chain: {

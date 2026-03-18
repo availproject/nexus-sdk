@@ -155,6 +155,7 @@ export type SwapParams = {
     eoa: WalletClient;
   };
   intentExplorerUrl: string;
+  metadataUrl: string;
   preloadedBalances?: FlatBalance[];
 } & OnEventParam &
   QueryClients;

@@ -319,6 +319,7 @@ export type IBridgeOptions = {
   };
   emit?: OnEventParam['onEvent'];
   intentExplorerUrl: string;
+  metadataUrl: string;
   chainList: ChainListType;
 } & QueryClients;
 
@@ -476,6 +477,7 @@ export type IntentSourceForAllowance = {
 type Network = Extract<Environment, Environment.CERISE | Environment.CORAL | Environment.FOLLY>;
 
 export type NetworkConfig = {
+  METADATA_URL: string;
   COSMOS_REST_URL: string;
   COSMOS_RPC_URL: string;
   COSMOS_WS_URL: string;

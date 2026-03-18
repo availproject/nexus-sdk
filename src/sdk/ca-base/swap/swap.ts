@@ -245,6 +245,7 @@ const createSwapHandlerOptions = ({
   slippage: 0.005,
   wallet: options.wallet,
   cosmosQueryClient: options.cosmosQueryClient,
+  metadataUrl: options.metadataUrl,
   vscClient: options.vscClient,
 });
 

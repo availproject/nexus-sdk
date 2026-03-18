@@ -5,6 +5,7 @@ import type { NetworkConfig, NexusNetwork } from '../../commons';
 // Mainnet
 const CORAL_CONFIG: NetworkConfig = {
   COSMOS_REST_URL: 'https://cosmos01-testnet.arcana.network',
+  METADATA_URL: '',
   COSMOS_RPC_URL: 'https://cosmos01-testnet.arcana.network:26650',
   COSMOS_WS_URL: 'wss://cosmos01-testnet.arcana.network:26650/websocket',
   COSMOS_GRPC_URL: 'https://grpcproxy-testnet.arcana.network',
@@ -16,6 +17,7 @@ const CORAL_CONFIG: NetworkConfig = {
 
 // Testnet
 const FOLLY_CONFIG: NetworkConfig = {
+  METADATA_URL: '',
   COSMOS_REST_URL: 'https://cosmos04-dev.arcana.network',
   COSMOS_RPC_URL: 'https://cosmos04-dev.arcana.network:26650',
   COSMOS_WS_URL: 'wss://cosmos04-dev.arcana.network:26650/websocket',

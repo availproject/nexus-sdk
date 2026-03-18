@@ -688,6 +688,25 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
   };
 };
 
+const postCollectionHash = async (
+  input: { chainId: number; hash: Hex }[],
+  intentId: number,
+  baseURL: string
+) => {
+  try {
+    await axios.post(new URL('/metadata/collection', baseURL).href, {
+      intentId,
+      collectionHashes: input,
+    });
+  } catch (e) {
+    logger.error('failed to post collection hash', e, {
+      intentId,
+      input,
+    });
+    // Don't throw, collection hash metadata post should not block flow
+  }
+};
+
 export const getBalancesFromVSC = async (
   instance: AxiosInstance,
   address: `0x${string}`,
@@ -700,4 +719,10 @@ export const getBalancesFromVSC = async (
   return response.data.balances.filter((b) => b.errored !== true);
 };
 
-export { getCoinbasePrices, getFeeStore, createCosmosQueryClient, createVSCClient };
+export {
+  postCollectionHash,
+  getCoinbasePrices,
+  getFeeStore,
+  createCosmosQueryClient,
+  createVSCClient,
+};
