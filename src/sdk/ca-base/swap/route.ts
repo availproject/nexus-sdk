@@ -627,16 +627,20 @@ const _exactOutRoute = async (
     destination.inputAmount.max,
     feeStore
   );
-  const estimatedBridgeFees = feeStore
-    .calculateFulfilmentFee({
+
+  const bridgeOutput = destination.inputAmount.max;
+
+  const estimatedBridgeFees = Decimal.sum(
+    feeStore.calculateProtocolFee(bridgeOutput),
+    feeStore.calculateFulfilmentFee({
       decimals: dstChainCOT.decimals,
       destinationChainID: Number(input.toChainId),
       destinationTokenAddress: dstChainCOTAddress,
-    })
-    .add(estimatedCollectionFee);
+    }),
+    estimatedCollectionFee
+  );
 
-  const bridgeOutput = destination.inputAmount.max;
-  const bridgeOutputWithFees = bridgeOutput.add(estimatedBridgeFees);
+  let bridgeOutputWithFees = bridgeOutput.add(estimatedBridgeFees);
 
   const { amountWithBuffer: sourceSwapOutputRequired, buffer: srcBuffer } = applyBufferWithCap(
     bridgeOutputWithFees,
@@ -675,6 +679,22 @@ const _exactOutRoute = async (
 
   // If COT's account for source amount then no swap, so remove buffer
   if (sourceSwapQuotes.length === 0 && usedCOTs.length > 0) {
+    // Since we are not keeping buffer, use expected sources to calculate fees
+    let solverFee = new Decimal(0);
+    for (const uCOT of usedCOTs) {
+      const sFee = feeStore.calculateSolverFee({
+        borrowAmount: uCOT.amountUsed,
+        decimals: uCOT.cur.decimals,
+        destinationChainID: input.toChainId,
+        destinationTokenAddress: dstChainCOTAddress,
+        sourceChainID: Number(uCOT.originalHolding.chainID.chainID),
+        sourceTokenAddress: convertToEVMAddress(uCOT.originalHolding.tokenAddress),
+      });
+
+      solverFee = solverFee.add(sFee);
+    }
+    bridgeOutputWithFees = bridgeOutputWithFees.add(solverFee);
+    // get solver fee & protocol fee
     const quoteRes = await autoSelectSourcesV2(
       userAddressInBytes,
       toAggregatorInputs(sortedBalances),
@@ -697,6 +717,7 @@ const _exactOutRoute = async (
         dstChainCOTAddress,
         srcBuffer: srcBuffer.toFixed(),
         buffer: buffer.toFixed(),
+        solverFee: solverFee.toFixed(),
         estimatedBridgeFees: estimatedBridgeFees.toFixed(),
         bridgeOutput: bridgeOutput.toFixed(),
         sourceSwapOutputRequired: bridgeOutputWithFees.toFixed(),
