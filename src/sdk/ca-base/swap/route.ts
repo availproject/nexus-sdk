@@ -661,7 +661,7 @@ const _exactOutRoute = async (
     chainID: dstChain.id,
   });
 
-  const { quoteResponses: sourceSwapQuotes, usedCOTs } = await autoSelectSourcesV2(
+  let { quoteResponses: sourceSwapQuotes, usedCOTs } = await autoSelectSourcesV2(
     userAddressInBytes,
     toAggregatorInputs(sortedBalances),
     sourceSwapOutputRequired,
@@ -672,6 +672,37 @@ const _exactOutRoute = async (
     }
     throw e;
   });
+
+  // If COT's account for source amount then no swap, so remove buffer
+  if (sourceSwapQuotes.length === 0 && usedCOTs.length > 0) {
+    const quoteRes = await autoSelectSourcesV2(
+      userAddressInBytes,
+      toAggregatorInputs(sortedBalances),
+      bridgeOutputWithFees,
+      params.aggregators
+    ).catch((e) => {
+      if (e instanceof Error && e.message === 'NOT_ENOUGH_SWAP_FOR_REQUIREMENT') {
+        throw Errors.quoteError();
+      }
+      throw e;
+    });
+
+    // kind of unnecessary check - but lets keep it for testing for now
+    if (quoteRes.quoteResponses.length === 0 && quoteRes.usedCOTs.length > 0) {
+      sourceSwapQuotes = [];
+      usedCOTs = quoteRes.usedCOTs;
+      buffer = buffer.minus(srcBuffer);
+
+      logger.debug('exact-out: source swap requirements:requoted since source all cot', {
+        dstChainCOTAddress,
+        srcBuffer: srcBuffer.toFixed(),
+        buffer: buffer.toFixed(),
+        estimatedBridgeFees: estimatedBridgeFees.toFixed(),
+        bridgeOutput: bridgeOutput.toFixed(),
+        sourceSwapOutputRequired: bridgeOutputWithFees.toFixed(),
+      });
+    }
+  }
 
   logger.debug('sourceSwap', {
     sourceSwapQuotes,
