@@ -573,9 +573,7 @@ const _exactOutRoute = async (
     ]);
 
     // COT input = swap quote input (or direct COT transfer) + gas
-    destination.inputAmount.min = new Decimal(
-      tokenSwap?.quote.input.amount ?? cotTransferAmount
-    ).add(gasInCOT);
+    destination.inputAmount.min = new Decimal(tokenSwap?.quote.input.amount ?? 0).add(gasInCOT);
 
     // Apply min(5%, $2) buffer to destination input amount — leftover is returned in COT.
     const { amountWithBuffer, buffer: dstBuffer } = applyBufferWithCap(
