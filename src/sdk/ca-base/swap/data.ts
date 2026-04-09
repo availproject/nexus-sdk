@@ -386,6 +386,39 @@ const chainData: Map<
       },
     ],
   ],
+  // Citrea Mainnet
+  [
+    4114,
+    [
+      {
+        CurrencyID: CurrencyID.USDC,
+        IsGasToken: false,
+        Name: CurrencyID[CurrencyID.USDC],
+        PermitVariant: PermitVariant.EIP2612Canonical,
+        PermitContractVersion: 2,
+        TokenContractAddress: convertTo32BytesHex('0xE045e6c36cF77FAA2CfB54466D71A3aEF7bbE839'),
+        TokenDecimals: 6,
+      },
+      {
+        CurrencyID: CurrencyID.USDT,
+        IsGasToken: false,
+        Name: CurrencyID[CurrencyID.USDT],
+        PermitVariant: PermitVariant.EIP2612Canonical,
+        PermitContractVersion: 1,
+        TokenContractAddress: convertTo32BytesHex('0x9f3096Bac87e7F03DC09b0B416eB0DF837304dc4'),
+        TokenDecimals: 6,
+      },
+      {
+        CurrencyID: CurrencyID.CBTC,
+        IsGasToken: true,
+        Name: CurrencyID[CurrencyID.CBTC],
+        PermitVariant: PermitVariant.Unsupported,
+        PermitContractVersion: 0,
+        TokenContractAddress: convertTo32BytesHex(EADDRESS),
+        TokenDecimals: 18,
+      },
+    ],
+  ],
 ]);
 
 export type FlatBalance = {
