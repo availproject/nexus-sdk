@@ -490,7 +490,7 @@ const TESTNET_CHAINS: Chain[] = [
 
 const MAINNET_CHAINS: Chain[] = [
   {
-    swapSupported: false,
+    swapSupported: true,
     blockExplorers: {
       default: {
         name: 'Citrea Explorer',

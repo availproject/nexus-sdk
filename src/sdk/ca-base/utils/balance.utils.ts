@@ -25,7 +25,7 @@ import { createPublicClientWithFallback } from './contract.utils';
 import { TOKENS_BY_CHAIN } from './swap-tokens.utils';
 
 const MULTICALL3_ADDRESS = '0xcA11bde05977b3631167028862bE2a173976CA11' as const;
-const STABLE_SYMBOLS = new Set(['USDC', 'USDT', 'USDM', 'ctUSD']);
+const STABLE_SYMBOLS = new Set(['USDC', 'USDT', 'USDM', 'CTUSD']);
 
 const MULTICALL3_ABI = [
   {

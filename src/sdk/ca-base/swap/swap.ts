@@ -2,6 +2,7 @@ import {
   type Aggregator,
   BebopAggregator,
   CurrencyID,
+  FibrousAggregator,
   LiFiAggregator,
   Universe,
 } from '@avail-project/ca-common';
@@ -68,6 +69,7 @@ export const swap = async (
   const aggregators: Aggregator[] = [
     new LiFiAggregator(LIFI_API_KEY),
     new BebopAggregator(BEBOP_API_KEY),
+    new FibrousAggregator(),
   ];
 
   const swapRouteParams = { ...options, publicClientList, aggregators, cotCurrencyID: COT };
