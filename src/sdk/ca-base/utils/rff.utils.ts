@@ -268,7 +268,12 @@ const calculateMaxBridgeFee = async ({
 
   const sourceChainIds: number[] = [];
 
-  const protocolFee = feeStore.calculateProtocolFee(new Decimal(borrow));
+  const dstChain = chainList.getChainByID(dst.chainId);
+  if (!dstChain) {
+    throw Errors.chainNotFound(dst.chainId);
+  }
+
+  const protocolFee = feeStore.calculateProtocolFee(new Decimal(borrow), dstChain);
   let borrowWithFee = borrow.add(protocolFee);
 
   const fulfilmentFee = feeStore.calculateFulfilmentFee({

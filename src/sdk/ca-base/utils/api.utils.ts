@@ -13,6 +13,7 @@ import type Long from 'long';
 import { pack, unpack } from 'msgpackr';
 import { bytesToBigInt, bytesToNumber, type Hex, toHex } from 'viem';
 import {
+  type Chain,
   type ChainListType,
   type CosmosQueryClient,
   type FeeStoreData,
@@ -352,8 +353,15 @@ export class FeeStore {
     return new Decimal(fulfilmentFeeBasis.fee ?? 0).div(Decimal.pow(10, decimals));
   }
 
-  public calculateProtocolFee(borrow: Decimal) {
-    const protocolFeeBasis = new Decimal(this.data.fee.protocol.feeBP ?? 0).div(Decimal.pow(10, 4));
+  public calculateProtocolFee(borrow: Decimal, dstChain: Chain) {
+    const bp = this.data.fee.protocol.feePerChain.find((fpc) => {
+      return fpc.chainID === dstChain.id && dstChain.universe === fpc.universe;
+    });
+
+    const protocolFeeBasis = new Decimal(bp?.feeBP ?? this.data.fee.protocol.feeBP ?? 0).div(
+      Decimal.pow(10, 4)
+    );
+
     return borrow.mul(protocolFeeBasis);
   }
 
@@ -396,6 +404,7 @@ const getFeeStore = async (cosmosQueryClient: CosmosQueryClient) => {
       fulfilment: [],
       protocol: {
         feeBP: '0',
+        feePerChain: [],
       },
     },
     solverRoutes: [],
@@ -411,6 +420,12 @@ const getFeeStore = async (cosmosQueryClient: CosmosQueryClient) => {
       protocol: p.value.ProtocolFees?.feeBP,
     });
     feeData.fee.protocol.feeBP = p.value.ProtocolFees?.feeBP.toString(10) ?? '0';
+    feeData.fee.protocol.feePerChain =
+      p.value.ProtocolFees?.perChainFeeBP.map((fbp) => ({
+        universe: fbp.universe,
+        chainID: bytesToNumber(fbp.chainID),
+        feeBP: fbp.feeBP.toString(10),
+      })) ?? [];
     feeData.fee.collection =
       p.value.ProtocolFees?.collectionFees.map((fee) => {
         return {
