@@ -61,7 +61,7 @@
     "@opentelemetry/sdk-logs": "0.208.0",
     "@starkware-industries/starkware-crypto-utils": "^0.2.1",
     "@tronweb3/tronwallet-abstract-adapter": "^1.1.9",
-    "axios": "^1.12.2",
+    "axios": "^1.15.0",
     "buffer": "6.0.3",
     "decimal.js": "^10.6.0",
     "es-toolkit": "^1.40.0",
@@ -95,6 +95,9 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "overrides": {
+    "axios": "$axios"
   },
   "repository": {
     "url": "https://github.com/availproject/nexus-sdk"
