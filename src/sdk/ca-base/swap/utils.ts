@@ -415,29 +415,58 @@ export const createPermitAndTransferFromTx = async ({
   return txList;
 };
 
-const CANONICAL_PERMIT_SELECTOR = 'd505accf';
-const DAI_PERMIT_SELECTOR = '8fcbaf0c';
+const domainSeparatorAbi = [
+  {
+    type: 'function',
+    name: 'DOMAIN_SEPARATOR',
+    inputs: [],
+    stateMutability: 'view',
+    outputs: [{ name: '', type: 'bytes32' }],
+  },
+] as const;
+
+const noncesAbi = [
+  {
+    type: 'function',
+    name: 'nonces',
+    inputs: [{ name: 'owner', type: 'address' }],
+    stateMutability: 'view',
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+] as const;
 
 export const determinePermitVariantAndVersion = async (
   client: PublicClient,
   contractAddress: Hex
 ) => {
-  const [code, version] = await Promise.all([
-    client.getCode({ address: contractAddress }),
+  const [hasDomainSeparator, hasNonces, version] = await Promise.all([
+    client
+      .readContract({
+        address: contractAddress,
+        abi: domainSeparatorAbi,
+        functionName: 'DOMAIN_SEPARATOR',
+      })
+      .then(() => true)
+      .catch(() => false),
+    client
+      .readContract({
+        address: contractAddress,
+        abi: noncesAbi,
+        functionName: 'nonces',
+        args: ['0x0000000000000000000000000000000000000000'],
+      })
+      .then(() => true)
+      .catch(() => false),
     getVersion(client, contractAddress),
   ]);
 
-  const normalizedCode = typeof code === 'string' ? code.toLowerCase() : '';
-
-  let permitVariant = PermitVariant.Unsupported;
-  if (normalizedCode.includes(CANONICAL_PERMIT_SELECTOR)) {
-    permitVariant = PermitVariant.EIP2612Canonical;
-  } else if (normalizedCode.includes(DAI_PERMIT_SELECTOR)) {
-    permitVariant = PermitVariant.DAI;
+  let variant = PermitVariant.Unsupported;
+  if (hasDomainSeparator && hasNonces) {
+    variant = PermitVariant.EIP2612Canonical;
   }
 
   return {
-    variant: permitVariant,
+    variant,
     version: Number(version),
   };
 };
