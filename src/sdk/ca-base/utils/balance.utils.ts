@@ -22,9 +22,11 @@ import {
 } from '../swap/utils';
 import { divDecimals, equalFold } from '.';
 import { createPublicClientWithFallback } from './contract.utils';
+import { TOKENS_BY_CHAIN } from './swap-tokens.utils';
 
 const MULTICALL3_ADDRESS = '0xcA11bde05977b3631167028862bE2a173976CA11' as const;
-const STABLE_SYMBOLS = new Set(['USDC', 'USDT', 'USDM']);
+const CITREA_MULTICALL3_ADDRESS = '0xA738e84fdE890Bc60b99AF7ccE43990E534304de' as const;
+const STABLE_SYMBOLS = new Set(['USDC', 'USDT', 'USDM', 'CTUSD']);
 
 const MULTICALL3_ABI = [
   {
@@ -98,14 +100,19 @@ export const getBalance = async (
   }
 
   const publicClient = createPublicClientWithFallback(chain);
+  const multicall3Address =
+    chain.id === SUPPORTED_CHAINS.CITREA ? CITREA_MULTICALL3_ADDRESS : MULTICALL3_ADDRESS;
+  const extraKnownTokens =
+    TOKENS_BY_CHAIN.find((tokenByChain) => tokenByChain.chainId === chain.id)?.tokens ?? [];
+  const tokenInfos = [...chain.custom.knownTokens, ...extraKnownTokens];
   const contracts = [
     {
       abi: MULTICALL3_ABI,
-      address: MULTICALL3_ADDRESS,
+      address: multicall3Address,
       args: [address],
       functionName: 'getEthBalance',
     },
-    ...chain.custom.knownTokens.map((token) => ({
+    ...tokenInfos.map((token) => ({
       abi: ERC20ABI,
       address: token.contractAddress,
       args: [address] as const,
@@ -116,7 +123,7 @@ export const getBalance = async (
   const multicallPromise = publicClient.multicall({
     allowFailure: true,
     contracts: contracts as Parameters<typeof publicClient.multicall>[0]['contracts'],
-    multicallAddress: MULTICALL3_ADDRESS,
+    multicallAddress: multicall3Address,
   });
   const feePromise = opts.removeTransferFee
     ? publicClient
@@ -154,8 +161,8 @@ export const getBalance = async (
     }),
   ];
 
-  for (let i = 0; i < chain.custom.knownTokens.length; i++) {
-    const token = chain.custom.knownTokens[i];
+  for (let i = 0; i < tokenInfos.length; i++) {
+    const token = tokenInfos[i];
     const result = responses[i + 1];
     const tokenBalance = result.status === 'success' ? result.result : 0n;
     const isStable = STABLE_SYMBOLS.has(token.symbol.toUpperCase());

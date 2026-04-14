@@ -51,7 +51,7 @@
     "npm": ">=9.0.0"
   },
   "dependencies": {
-    "@avail-project/ca-common": "github:availproject/ca-common#feat/protocol-fee-per-chain",
+    "@avail-project/ca-common": "2.1.0",
     "@cosmjs/proto-signing": "^0.34.1",
     "@cosmjs/stargate": "^0.34.1",
     "@metamask/safe-event-emitter": "3.1.2",
@@ -61,7 +61,7 @@
     "@opentelemetry/sdk-logs": "0.208.0",
     "@starkware-industries/starkware-crypto-utils": "^0.2.1",
     "@tronweb3/tronwallet-abstract-adapter": "^1.1.9",
-    "axios": "^1.15.0",
+    "axios": "1.15.0",
     "buffer": "6.0.3",
     "decimal.js": "^10.6.0",
     "es-toolkit": "^1.40.0",
@@ -84,7 +84,7 @@
     "release-it": "19.2.3",
     "rollup": "^4.52.4",
     "rollup-plugin-dts": "^6.2.3",
-    "rollup-plugin-typescript2": "0.36.0",
+    "rollup-plugin-typescript2": "0.37.0",
     "typedoc": "0.28.14",
     "typedoc-plugin-extras": "4.0.1",
     "typedoc-plugin-missing-exports": "4.1.2",

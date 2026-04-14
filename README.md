@@ -1528,7 +1528,7 @@ sdk.analytics.enable();
 | Network | Chain ID | Native | Bridge | Swap |
 |---------|----------|--------|--------|------|
 | Ethereum | 1 | ETH | ✅ | ✅ |
-| Citrea Mainnet | 4114 | cBTC | ✅ | ❌ |
+| Citrea Mainnet | 4114 | cBTC | ✅ | ✅ |
 | Monad | 143 | MON | ✅ | ✅ |
 | Base | 8453 | ETH | ✅ | ✅ |
 | Arbitrum One | 42161 | ETH | ✅ | ✅ |

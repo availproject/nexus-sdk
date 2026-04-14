@@ -415,87 +415,59 @@ export const createPermitAndTransferFromTx = async ({
   return txList;
 };
 
+const domainSeparatorAbi = [
+  {
+    type: 'function',
+    name: 'DOMAIN_SEPARATOR',
+    inputs: [],
+    stateMutability: 'view',
+    outputs: [{ name: '', type: 'bytes32' }],
+  },
+] as const;
+
+const noncesAbi = [
+  {
+    type: 'function',
+    name: 'nonces',
+    inputs: [{ name: 'owner', type: 'address' }],
+    stateMutability: 'view',
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+] as const;
+
 export const determinePermitVariantAndVersion = async (
   client: PublicClient,
   contractAddress: Hex
 ) => {
-  const standardPermitData = encodeFunctionData({
-    abi: [
-      {
-        type: 'function',
-        name: 'permit',
-        inputs: [
-          { type: 'address', name: 'owner' },
-          { type: 'address', name: 'spender' },
-          { type: 'uint256', name: 'value' },
-          { type: 'uint256', name: 'deadline' },
-          { type: 'uint8', name: 'v' },
-          { type: 'bytes32', name: 'r' },
-          { type: 'bytes32', name: 's' },
-        ],
-      },
-    ],
-    functionName: 'permit',
-    args: [
-      '0x0000000000000000000000000000000000000000',
-      '0x0000000000000000000000000000000000000000',
-      0n,
-      0n,
-      0,
-      '0x0000000000000000000000000000000000000000000000000000000000000000',
-      '0x0000000000000000000000000000000000000000000000000000000000000000',
-    ],
-  });
-
-  // Dummy data for DAI-style permit (holder=spender=zero, nonce=0, expiry=0, allowed=true, v=0, r=0, s=0)
-  const daiPermitData = encodeFunctionData({
-    abi: [
-      {
-        type: 'function',
-        name: 'permit',
-        inputs: [
-          { type: 'address', name: 'holder' },
-          { type: 'address', name: 'spender' },
-          { type: 'uint256', name: 'nonce' },
-          { type: 'uint256', name: 'expiry' },
-          { type: 'bool', name: 'allowed' },
-          { type: 'uint8', name: 'v' },
-          { type: 'bytes32', name: 'r' },
-          { type: 'bytes32', name: 's' },
-        ],
-      },
-    ],
-    functionName: 'permit',
-    args: [
-      '0x0000000000000000000000000000000000000000',
-      '0x0000000000000000000000000000000000000000',
-      0n,
-      0n,
-      true,
-      0,
-      '0x0000000000000000000000000000000000000000000000000000000000000000',
-      '0x0000000000000000000000000000000000000000000000000000000000000000',
-    ],
-  });
-
-  const promises = [
-    functionExists(client, contractAddress, standardPermitData),
-    functionExists(client, contractAddress, daiPermitData),
+  const [hasDomainSeparator, hasNonces, version] = await Promise.all([
+    client
+      .readContract({
+        address: contractAddress,
+        abi: domainSeparatorAbi,
+        functionName: 'DOMAIN_SEPARATOR',
+      })
+      .then(() => true)
+      .catch(() => false),
+    client
+      .readContract({
+        address: contractAddress,
+        abi: noncesAbi,
+        functionName: 'nonces',
+        args: ['0x0000000000000000000000000000000000000000'],
+      })
+      .then(() => true)
+      .catch(() => false),
     getVersion(client, contractAddress),
-  ];
-  const [canonicalPermitResponse, daiPermitResponse, versionResponse] =
-    await Promise.allSettled(promises);
+  ]);
 
   let variant = PermitVariant.Unsupported;
-  if (canonicalPermitResponse.status === 'fulfilled') {
+  if (hasDomainSeparator && hasNonces) {
     variant = PermitVariant.EIP2612Canonical;
-  } else if (daiPermitResponse.status === 'fulfilled') {
-    variant = PermitVariant.DAI;
   }
 
   return {
     variant,
-    version: versionResponse.status === 'fulfilled' ? Number(versionResponse.value) : 1,
+    version: Number(version),
   };
 };
 
@@ -518,10 +490,6 @@ async function getVersion(client: PublicClient, token: `0x${string}`): Promise<s
   } catch {
     return '1';
   }
-}
-
-async function functionExists(client: PublicClient, token: `0x${string}`, data: `0x${string}`) {
-  return client.call({ to: token, data });
 }
 
 export const createPermitApprovalTx = async ({
