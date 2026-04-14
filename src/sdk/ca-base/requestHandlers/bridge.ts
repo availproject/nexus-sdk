@@ -101,14 +101,17 @@ class BridgeHandler {
   }
 
   public async simulate() {
-    const intent = await this.buildIntent(this.params.sourceChains);
+    const intent = await this.buildIntent(this.params.sourceChains, false);
     return {
       intent: convertIntent(intent, this.params.dstToken, this.options.chainList),
       token: this.params.dstToken,
     };
   }
 
-  private readonly buildIntent = async (sourceChains: number[] = []) => {
+  private readonly buildIntent = async (
+    sourceChains: number[] = [],
+    shouldThrowOnInsufficientBalance = true
+  ) => {
     const tProcessPreIntentSteps = logger.timer('process:preIntentSteps');
 
     const tPreIntentStepsApi = logger.timer('preIntentSteps:API');
@@ -179,6 +182,7 @@ class BridgeHandler {
       gasInToken,
       sourceChains,
       token: this.params.dstToken,
+      shouldThrowOnInsufficientBalance,
     });
     tPreIntentStepsCreateIntent.end();
     tProcessPreIntentSteps.end();
@@ -926,6 +930,8 @@ class BridgeHandler {
     assets: UserAssets;
     feeStore: FeeStore;
     gas: Decimal;
+    /** When false, sets isAvailableBalanceInsufficient flag instead of throwing. */
+    shouldThrowOnInsufficientBalance?: boolean;
     gasInToken: Decimal;
     sourceChains: number[];
     token: TokenInfo;
@@ -1102,11 +1108,14 @@ class BridgeHandler {
     intent.destination.amount = borrow;
 
     if (accountedAmount.lt(borrowWithFee)) {
-      throw Errors.insufficientBalance(
-        `required: ${borrowWithFee.toFixed()} ${
-          token.symbol
-        }, available: ${accountedAmount.toFixed()} ${token.symbol}`
-      );
+      if (input.shouldThrowOnInsufficientBalance !== false) {
+        throw Errors.insufficientBalance(
+          `required: ${borrowWithFee.toFixed()} ${
+            token.symbol
+          }, available: ${accountedAmount.toFixed()} ${token.symbol}`
+        );
+      }
+      intent.isAvailableBalanceInsufficient = true;
     }
 
     if (!gas.equals(0)) {

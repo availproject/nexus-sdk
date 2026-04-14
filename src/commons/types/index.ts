@@ -539,6 +539,9 @@ export type OraclePriceResponse = {
 }[];
 
 export type ReadableIntent = {
+  /** True when the user's available balance cannot cover amount + fees. */
+  isAvailableBalanceInsufficient?: boolean;
+
   allSources: {
     /**
      * @deprecated use chain.id

@@ -285,6 +285,7 @@ const convertIntent = (
   };
   tConvertIntent.end();
   return {
+    isAvailableBalanceInsufficient: intent.isAvailableBalanceInsufficient || undefined,
     allSources,
     destination,
     fees: {
