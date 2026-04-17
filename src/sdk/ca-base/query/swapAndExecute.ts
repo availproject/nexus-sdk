@@ -1,15 +1,6 @@
 import { Universe } from '@avail-project/ca-common';
+import { createPublicClient, type Hex, http, type PublicClient, type WalletClient } from 'viem';
 import {
-  createPublicClient,
-  type Hex,
-  http,
-  type PublicClient,
-  serializeTransaction,
-  type TransactionReceipt,
-  type WalletClient,
-} from 'viem';
-import {
-  BRIDGE_STEPS,
   type Chain,
   type ChainListType,
   type ExactOutSwapInput,
@@ -25,23 +16,17 @@ import {
   type Tx,
   type UserAssetDatum,
 } from '../../../commons';
+import {
+  type ExecuteFeeParams,
+  sendExecuteTransactions,
+} from '../../../services/executeTransactions';
+import { estimateTotalFees, type TxWithGas } from '../../../services/feeEstimation';
 import { isNativeAddress } from '../constants';
 import { Errors } from '../errors';
 import { EADDRESS } from '../swap/constants';
 import type { FlatBalance } from '../swap/data';
 import { getTokenInfo, packERC20Approve } from '../swap/utils';
-import {
-  convertTo32BytesHex,
-  equalFold,
-  erc20GetAllowance,
-  getL1Fee,
-  getPctGasBufferByChain,
-  mulDecimals,
-  pctAdditionWithSuggestion,
-  switchChain,
-  waitForTxReceipt,
-} from '../utils';
-import { getGasPriceRecommendations } from './gasFeeHistory';
+import { convertTo32BytesHex, equalFold, erc20GetAllowance, mulDecimals } from '../utils';
 
 class SwapAndExecuteQuery {
   constructor(
@@ -83,58 +68,79 @@ class SwapAndExecuteQuery {
     txs.push(tx);
 
     const determineGasUsed = Promise.resolve({
-      approvalGas: approvalTx ? 70_000n : 0n,
+      approvalGas: approvalTx
+        ? await dstPublicClient
+            .estimateGas({
+              to: approvalTx.to,
+              data: approvalTx.data,
+              value: approvalTx.value,
+              account: address,
+            })
+            .catch(() => 70_000n)
+        : 0n,
       txGas: params.execute.gas,
     });
 
-    // 5. simulate approval(?) and execution + fetch gasPrice + fetch unified balance
-    const [gasUsed, gasPriceRecommendations, balances, dstTokenInfo, l1Fee] = await Promise.all([
+    const [gasUsed, balances, dstTokenInfo] = await Promise.all([
       determineGasUsed,
-      getGasPriceRecommendations(dstPublicClient),
       this.getBalancesForSwap(),
       getTokenInfo(params.toTokenAddress, dstPublicClient, dstChain),
-      getL1Fee(
-        execute.to,
-        dstChain,
-        serializeTransaction({
-          chainId: dstChain.id,
-          data: execute.data ?? '0x',
-          value: execute.value,
-          to: execute.to,
-          type: 'eip1559',
-        })
-      ),
     ]);
 
-    const pctBuffer = getPctGasBufferByChain(toChainId);
-    const [suggestedApprovalGas, approvalGas] = pctAdditionWithSuggestion(
-      gasUsed.approvalGas,
-      pctBuffer
-    );
-    const [suggestedTxGas, txGas] = pctAdditionWithSuggestion(gasUsed.txGas, pctBuffer);
+    const feeEstimateItems: TxWithGas[] = [
+      ...(approvalTx
+        ? [
+            {
+              tx: {
+                to: approvalTx.to,
+                data: approvalTx.data,
+                value: approvalTx.value,
+              },
+              gasEstimate: gasUsed.approvalGas,
+              gasEstimateKind: 'final' as const,
+            },
+          ]
+        : []),
+      {
+        tx: {
+          to: tx.to,
+          data: tx.data,
+          value: tx.value,
+        },
+        gasEstimate: gasUsed.txGas,
+      },
+    ];
 
-    const gasPrice = gasPriceRecommendations[params.execute.gasPrice ?? 'medium'];
-    if (gasPrice === 0n) {
+    const fees = await estimateTotalFees(
+      dstPublicClient,
+      feeEstimateItems,
+      params.execute.gasPrice ?? 'medium'
+    );
+    const approvalFee = approvalTx ? fees[0] : null;
+    const txFee = fees[approvalTx ? 1 : 0];
+
+    if (!txFee || txFee.recommended.maxFeePerGas === 0n) {
       throw Errors.gasPriceError({
         chainId: toChainId,
       });
     }
 
-    if (approvalTx) {
-      approvalTx.gas = suggestedApprovalGas;
+    if (approvalTx && approvalFee) {
+      approvalTx.gas = approvalFee.recommended.gasLimit;
     }
 
-    tx.gas = suggestedTxGas;
+    tx.gas = txFee.recommended.gasLimit;
 
-    const gasFee = (approvalGas + txGas) * gasPrice + l1Fee;
+    const gasPrice = txFee.recommended.maxFeePerGas;
+    const l1Fee = fees.reduce((sum, fee) => sum + fee.l1Fee, 0n);
+    const gasFee = fees.reduce((sum, fee) => sum + fee.recommended.totalMaxCost, 0n);
 
     logger.debug('SwapAndExecute:3', {
-      increasedGas: approvalGas + txGas,
-      approvalGas,
-      txGas,
-      gasPriceRecommendations,
+      fees,
       gasPrice,
       balances,
+      l1Fee,
+      gasFee,
     });
 
     // 6. Determine gas or token needed via bridge
@@ -158,9 +164,19 @@ class SwapAndExecuteQuery {
       tx,
       approvalTx,
       gas: {
-        tx: txGas,
-        approval: approvalGas,
+        tx: txFee.recommended.gasLimit,
+        approval: approvalFee?.recommended.gasLimit ?? 0n,
       },
+      feeParams: txFee.recommended.useLegacyPricing
+        ? ({
+            type: 'legacy',
+            gasPrice: txFee.recommended.maxFeePerGas,
+          } satisfies ExecuteFeeParams)
+        : ({
+            type: 'eip1559',
+            maxFeePerGas: txFee.recommended.maxFeePerGas,
+            maxPriorityFeePerGas: txFee.recommended.maxPriorityFeePerGas,
+          } satisfies ExecuteFeeParams),
       dstTokenInfo,
       address,
       gasFee,
@@ -232,6 +248,7 @@ class SwapAndExecuteQuery {
       approvalTx,
       amount,
       gas,
+      feeParams,
       gasPrice,
       dstTokenInfo,
       gasFee,
@@ -315,7 +332,7 @@ class SwapAndExecuteQuery {
       {
         approvalTx,
         tx,
-        gasPrice,
+        feeParams,
       },
       {
         emit: options?.onEvent,
@@ -431,7 +448,7 @@ class SwapAndExecuteQuery {
     params: {
       tx: Tx;
       approvalTx: Tx | null;
-      gasPrice?: bigint;
+      feeParams?: ExecuteFeeParams;
     },
     options: {
       emit?: OnEventParam['onEvent'];
@@ -444,61 +461,7 @@ class SwapAndExecuteQuery {
       requiredConfirmations?: number;
     }
   ) {
-    const { waitForReceipt = true, receiptTimeout = 300000, requiredConfirmations = 1 } = options;
-    await switchChain(options.client, options.chain);
-
-    let approvalHash: Hex | undefined;
-    if (params.approvalTx) {
-      approvalHash = await options.client.sendTransaction({
-        ...params.approvalTx,
-        account: options.address,
-        chain: options.chain,
-      });
-
-      await waitForTxReceipt(approvalHash, options.dstPublicClient, 1);
-      if (options.emit) {
-        options.emit({
-          name: NEXUS_EVENTS.STEP_COMPLETE,
-          args: BRIDGE_STEPS.EXECUTE_APPROVAL_STEP,
-        });
-      }
-    }
-
-    const txHash = await options.client.sendTransaction({
-      ...params.tx,
-      account: options.address,
-      chain: options.chain,
-    });
-
-    if (options.emit) {
-      options.emit({
-        name: NEXUS_EVENTS.STEP_COMPLETE,
-        args: BRIDGE_STEPS.EXECUTE_TRANSACTION_SENT,
-      });
-    }
-
-    let receipt: TransactionReceipt | undefined;
-    if (waitForReceipt) {
-      receipt = await waitForTxReceipt(
-        txHash,
-        options.dstPublicClient,
-        requiredConfirmations,
-        receiptTimeout
-      );
-
-      if (options.emit) {
-        options.emit({
-          name: NEXUS_EVENTS.STEP_COMPLETE,
-          args: BRIDGE_STEPS.EXECUTE_TRANSACTION_CONFIRMED,
-        });
-      }
-    }
-
-    return {
-      txHash,
-      receipt,
-      approvalHash,
-    };
+    return sendExecuteTransactions(params, options);
   }
 }
 

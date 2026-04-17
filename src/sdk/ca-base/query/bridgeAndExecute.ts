@@ -4,8 +4,6 @@ import {
   type Hex,
   http,
   type PublicClient,
-  serializeTransaction,
-  type TransactionReceipt,
   toHex,
   type WalletClient,
 } from 'viem';
@@ -32,6 +30,11 @@ import {
   type UserAssetDatum,
 } from '../../../commons';
 import type { BackendSimulationClient } from '../../../integrations/tenderly';
+import {
+  type ExecuteFeeParams,
+  sendExecuteTransactions,
+} from '../../../services/executeTransactions';
+import { estimateTotalFees, type TxWithGas } from '../../../services/feeEstimation';
 import { isNativeAddress } from '../constants';
 import { Errors } from '../errors';
 import type BridgeHandler from '../requestHandlers/bridge';
@@ -40,15 +43,9 @@ import {
   createExplorerTxURL,
   erc20GetAllowance,
   generateStateOverride,
-  getL1Fee,
-  getPctGasBufferByChain,
   mulDecimals,
-  pctAdditionWithSuggestion,
-  switchChain,
   UserAssets,
-  waitForTxReceipt,
 } from '../utils';
-import { getGasPriceRecommendations } from './gasFeeHistory';
 
 class BridgeAndExecuteQuery {
   constructor(
@@ -114,57 +111,61 @@ class BridgeAndExecuteQuery {
           }
         });
 
-    // 5. simulate approval(?) and execution + fetch gasPrice + fetch unified balance
-    const [gasUsed, gasPriceRecommendations, balances, l1Fee] = await Promise.all([
-      determineGasUsed,
-      getGasPriceRecommendations(dstPublicClient),
-      this.getUnifiedBalances(),
-      getL1Fee(
-        execute.to,
-        dstChain,
-        serializeTransaction({
-          chainId: dstChain.id,
-          data: execute.data ?? '0x',
-          value: execute.value,
-          to: execute.to,
-          type: 'eip1559',
-        })
-      ),
-    ]);
+    const [gasUsed, balances] = await Promise.all([determineGasUsed, this.getUnifiedBalances()]);
 
-    const pctBuffer = getPctGasBufferByChain(dstChain.id);
+    const feeEstimateItems: TxWithGas[] = [
+      ...(approvalTx
+        ? [
+            {
+              tx: {
+                to: approvalTx.to,
+                data: approvalTx.data,
+                value: approvalTx.value,
+              },
+              gasEstimate: gasUsed.approvalGas,
+            },
+          ]
+        : []),
+      {
+        tx: {
+          to: tx.to,
+          data: tx.data,
+          value: tx.value,
+        },
+        gasEstimate: gasUsed.txGas,
+      },
+    ];
 
-    // We ask for more, but suggest lesser than that
-    const [suggestedApprovalGas, approvalGas] = pctAdditionWithSuggestion(
-      gasUsed.approvalGas,
-      pctBuffer
+    const fees = await estimateTotalFees(
+      dstPublicClient,
+      feeEstimateItems,
+      params.execute.gasPrice ?? 'medium'
     );
-    const [suggestedTxGas, txGas] = pctAdditionWithSuggestion(gasUsed.txGas, pctBuffer);
+    const approvalFee = approvalTx ? fees[0] : null;
+    const txFee = fees[approvalTx ? 1 : 0];
 
-    const gasPrice = gasPriceRecommendations[params.execute.gasPrice ?? 'medium'];
-
-    if (gasPrice === 0n) {
+    if (!txFee || txFee.recommended.maxFeePerGas === 0n) {
       throw Errors.gasPriceError({
         chainId: dstChain.id,
       });
     }
 
-    if (approvalTx) {
-      approvalTx.gas = suggestedApprovalGas;
+    if (approvalTx && approvalFee) {
+      approvalTx.gas = approvalFee.recommended.gasLimit;
     }
 
-    tx.gas = suggestedTxGas;
+    tx.gas = txFee.recommended.gasLimit;
 
-    const gasFee = (approvalGas + txGas) * gasPrice + l1Fee;
+    const gasPrice = txFee.recommended.maxFeePerGas;
+    const l1Fee = fees.reduce((sum, fee) => sum + fee.l1Fee, 0n);
+    const gasFee = fees.reduce((sum, fee) => sum + fee.recommended.totalMaxCost, 0n);
 
     logger.debug('BridgeAndExecute:3', {
-      increasedGas: approvalGas + txGas,
-      approvalGas,
-      txGas,
-      gasPriceRecommendations,
+      fees,
       gasPrice,
       balances,
       l1Fee,
+      gasFee,
     });
 
     // 6. Determine gas or token needed via bridge
@@ -188,9 +189,19 @@ class BridgeAndExecuteQuery {
       tx,
       approvalTx,
       gas: {
-        tx: txGas,
-        approval: approvalGas,
+        tx: txFee.recommended.gasLimit,
+        approval: approvalFee?.recommended.gasLimit ?? 0n,
       },
+      feeParams: txFee.recommended.useLegacyPricing
+        ? ({
+            type: 'legacy',
+            gasPrice: txFee.recommended.maxFeePerGas,
+          } satisfies ExecuteFeeParams)
+        : ({
+            type: 'eip1559',
+            maxFeePerGas: txFee.recommended.maxFeePerGas,
+            maxPriorityFeePerGas: txFee.recommended.maxPriorityFeePerGas,
+          } satisfies ExecuteFeeParams),
       token,
       address,
       gasFee,
@@ -258,6 +269,7 @@ class BridgeAndExecuteQuery {
       approvalTx,
       amount,
       gas,
+      feeParams,
       gasPrice,
     } = await this.estimateBridgeAndExecute(params);
 
@@ -342,7 +354,7 @@ class BridgeAndExecuteQuery {
       {
         approvalTx,
         tx,
-        gasPrice,
+        feeParams,
       },
       {
         emit: options?.onEvent,
@@ -592,7 +604,7 @@ class BridgeAndExecuteQuery {
     params: {
       tx: Tx;
       approvalTx: Tx | null;
-      gasPrice?: bigint;
+      feeParams?: ExecuteFeeParams;
     },
     options: {
       emit?: OnEventParam['onEvent'];
@@ -605,61 +617,7 @@ class BridgeAndExecuteQuery {
       requiredConfirmations?: number;
     }
   ) {
-    const { waitForReceipt = true, receiptTimeout = 300000, requiredConfirmations = 1 } = options;
-    await switchChain(options.client, options.chain);
-
-    let approvalHash: Hex | undefined;
-    if (params.approvalTx) {
-      approvalHash = await options.client.sendTransaction({
-        ...params.approvalTx,
-        account: options.address,
-        chain: options.chain,
-      });
-
-      await waitForTxReceipt(approvalHash, options.dstPublicClient, 1);
-      if (options.emit) {
-        options.emit({
-          name: NEXUS_EVENTS.STEP_COMPLETE,
-          args: BRIDGE_STEPS.EXECUTE_APPROVAL_STEP,
-        });
-      }
-    }
-
-    const txHash = await options.client.sendTransaction({
-      ...params.tx,
-      account: options.address,
-      chain: options.chain,
-    });
-
-    if (options.emit) {
-      options.emit({
-        name: NEXUS_EVENTS.STEP_COMPLETE,
-        args: BRIDGE_STEPS.EXECUTE_TRANSACTION_SENT,
-      });
-    }
-
-    let receipt: TransactionReceipt | undefined;
-    if (waitForReceipt) {
-      receipt = await waitForTxReceipt(
-        txHash,
-        options.dstPublicClient,
-        requiredConfirmations,
-        receiptTimeout
-      );
-
-      if (options.emit) {
-        options.emit({
-          name: NEXUS_EVENTS.STEP_COMPLETE,
-          args: BRIDGE_STEPS.EXECUTE_TRANSACTION_CONFIRMED,
-        });
-      }
-    }
-
-    return {
-      txHash,
-      receipt,
-      approvalHash,
-    };
+    return sendExecuteTransactions(params, options);
   }
 
   private readonly bridgeWrapper = async (

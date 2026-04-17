@@ -1,16 +1,21 @@
 import type { PublicClient } from 'viem';
-import { getLogger } from '../../../commons';
-import { Errors } from '../errors';
+import { getLogger } from '../commons';
+import { Errors } from '../sdk/ca-base/errors';
 
 const logger = getLogger();
 
 /**
  * Gas price recommendations for different transaction speeds
  */
+export type Eip1559FeeRecommendation = {
+  maxFeePerGas: bigint;
+  maxPriorityFeePerGas: bigint;
+};
+
 export type GasPriceRecommendations = {
-  low: bigint;
-  medium: bigint;
-  high: bigint;
+  low: Eip1559FeeRecommendation;
+  medium: Eip1559FeeRecommendation;
+  high: Eip1559FeeRecommendation;
 };
 
 // from es-toolkit but with bigints
@@ -69,9 +74,18 @@ export const getGasPriceRecommendations = async (
 
     // Calculate maxFeePerGas for each tier: baseFee + buffer + priorityFee
     const recommendations: GasPriceRecommendations = {
-      low: baseFeeWithBuffer + avgLowPriority,
-      medium: baseFeeWithBuffer + avgMediumPriority,
-      high: baseFeeWithBuffer + avgHighPriority,
+      low: {
+        maxFeePerGas: baseFeeWithBuffer + avgLowPriority,
+        maxPriorityFeePerGas: avgLowPriority,
+      },
+      medium: {
+        maxFeePerGas: baseFeeWithBuffer + avgMediumPriority,
+        maxPriorityFeePerGas: avgMediumPriority,
+      },
+      high: {
+        maxFeePerGas: baseFeeWithBuffer + avgHighPriority,
+        maxPriorityFeePerGas: avgHighPriority,
+      },
     };
 
     logger.debug('Gas price recommendations', {
