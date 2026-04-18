@@ -1,4 +1,5 @@
 import { type PublicClient, serializeTransaction } from 'viem';
+import { SUPPORTED_CHAINS } from '../commons/constants';
 import { ARBITRUM_GAS_ORACLE_ABI } from '../sdk/ca-base/abi/gasOracle';
 import { type Eip1559FeeRecommendation, getGasPriceRecommendations } from './gasFeeHistory';
 
@@ -9,22 +10,14 @@ enum FeeModel {
   DEFAULT = 3,
 }
 
-const CHAIN_FEE_MODEL: Record<number, FeeModel> = {
-  10: FeeModel.OP_STACK,
-  254: FeeModel.OP_STACK,
-  480: FeeModel.OP_STACK,
-  1135: FeeModel.OP_STACK,
-  7560: FeeModel.OP_STACK,
-  8453: FeeModel.OP_STACK,
-  84532: FeeModel.OP_STACK,
-  34443: FeeModel.OP_STACK,
-  7777777: FeeModel.OP_STACK,
-  11155420: FeeModel.OP_STACK,
-  534351: FeeModel.OP_STACK_SCROLL,
-  534352: FeeModel.OP_STACK_SCROLL,
-  42161: FeeModel.ARBITRUM,
-  42170: FeeModel.ARBITRUM,
-  421614: FeeModel.ARBITRUM,
+const CHAIN_FEE_MODEL: Partial<Record<number, FeeModel>> = {
+  [SUPPORTED_CHAINS.OPTIMISM]: FeeModel.OP_STACK,
+  [SUPPORTED_CHAINS.BASE]: FeeModel.OP_STACK,
+  [SUPPORTED_CHAINS.BASE_SEPOLIA]: FeeModel.OP_STACK,
+  [SUPPORTED_CHAINS.OPTIMISM_SEPOLIA]: FeeModel.OP_STACK,
+  [SUPPORTED_CHAINS.SCROLL]: FeeModel.OP_STACK_SCROLL,
+  [SUPPORTED_CHAINS.ARBITRUM]: FeeModel.ARBITRUM,
+  [SUPPORTED_CHAINS.ARBITRUM_SEPOLIA]: FeeModel.ARBITRUM,
 };
 
 const L1_FEE_ORACLE = {
