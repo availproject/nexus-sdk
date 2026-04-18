@@ -34,7 +34,7 @@ import {
   type ExecuteFeeParams,
   sendExecuteTransactions,
 } from '../../../services/executeTransactions';
-import { estimateTotalFees, type TxWithGas } from '../../../services/feeEstimation';
+import { estimateFeeContext, finalizeFeeEstimates } from '../../../services/feeEstimation';
 import { isNativeAddress } from '../constants';
 import { Errors } from '../errors';
 import type BridgeHandler from '../requestHandlers/bridge';
@@ -111,35 +111,61 @@ class BridgeAndExecuteQuery {
           }
         });
 
-    const [gasUsed, balances] = await Promise.all([determineGasUsed, this.getUnifiedBalances()]);
-
-    const feeEstimateItems: TxWithGas[] = [
-      ...(approvalTx
-        ? [
-            {
-              tx: {
-                to: approvalTx.to,
-                data: approvalTx.data,
-                value: approvalTx.value,
-              },
-              gasEstimate: gasUsed.approvalGas,
-            },
-          ]
-        : []),
-      {
-        tx: {
-          to: tx.to,
-          data: tx.data,
-          value: tx.value,
-        },
-        gasEstimate: gasUsed.txGas,
-      },
-    ];
-
-    const fees = await estimateTotalFees(
+    const feeContextPromise = estimateFeeContext(
       dstPublicClient,
-      feeEstimateItems,
+      dstChain.id,
+      [
+        ...(approvalTx
+          ? [
+              {
+                tx: {
+                  to: approvalTx.to,
+                  data: approvalTx.data,
+                  value: approvalTx.value,
+                },
+              },
+            ]
+          : []),
+        {
+          tx: {
+            to: tx.to,
+            data: tx.data,
+            value: tx.value,
+          },
+        },
+      ],
       params.execute.gasPrice ?? 'medium'
+    );
+
+    const [gasUsed, balances, feeContext] = await Promise.all([
+      determineGasUsed,
+      this.getUnifiedBalances(),
+      feeContextPromise,
+    ]);
+    const fees = finalizeFeeEstimates(
+      [
+        ...(approvalTx
+          ? [
+              {
+                tx: {
+                  to: approvalTx.to,
+                  data: approvalTx.data,
+                  value: approvalTx.value,
+                },
+                gasEstimate: gasUsed.approvalGas,
+              },
+            ]
+          : []),
+        {
+          tx: {
+            to: tx.to,
+            data: tx.data,
+            value: tx.value,
+          },
+          gasEstimate: gasUsed.txGas,
+        },
+      ],
+      feeContext
     );
     const approvalFee = approvalTx ? fees[0] : null;
     const txFee = fees[approvalTx ? 1 : 0];

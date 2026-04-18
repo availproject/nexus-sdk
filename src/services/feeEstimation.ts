@@ -94,20 +94,30 @@ type RawFeeResult = {
 
 type GasEstimateL1ComponentResult = readonly [bigint, bigint, bigint];
 
+export type FeeOverhead = {
+  l1Fee: bigint;
+  extraGas: bigint;
+};
+
+export type FeeContextItem = Pick<TxWithGas, 'tx' | 'gasEstimateKind'>;
+
+export type FeeContext = {
+  chainId: number;
+  recommendation: Eip1559FeeRecommendation;
+  overheads: FeeOverhead[];
+};
+
 type FeeStrategy = (
   client: PublicClient,
-  items: TxWithGas[],
-  gasPrice: bigint,
+  items: FeeContextItem[],
   chainId: number
-) => Promise<RawFeeResult[]>;
+) => Promise<FeeOverhead[]>;
 
-async function getClientChainId(client: PublicClient): Promise<number> {
-  if (client.chain?.id) {
-    return client.chain.id;
-  }
-
-  return client.getChainId();
-}
+type FeeModelConfig = {
+  buffers: BufferConfig;
+  useLegacyPricing: boolean;
+  strategy: FeeStrategy;
+};
 
 function serializeTxForOracle(chainId: number, tx: TxRequest): `0x${string}` {
   return serializeTransaction({
@@ -154,7 +164,7 @@ function buildFeeEstimate(
 function buildOpStackStrategy(model: FeeModel.OP_STACK | FeeModel.OP_STACK_SCROLL): FeeStrategy {
   const oracle = L1_FEE_ORACLE[model];
 
-  return async (client, items, gasPrice, chainId) => {
+  return async (client, items, chainId) => {
     const l1Fees = await Promise.all(
       items.map((item) => {
         const serialized = serializeTxForOracle(chainId, item.tx);
@@ -167,16 +177,14 @@ function buildOpStackStrategy(model: FeeModel.OP_STACK | FeeModel.OP_STACK_SCROL
       })
     );
 
-    return items.map((item, i) => ({
+    return items.map((_, i) => ({
       l1Fee: l1Fees[i],
-      l2Fee: item.gasEstimate * gasPrice,
-      gasPrice,
-      gasEstimate: item.gasEstimate,
+      extraGas: 0n,
     }));
   };
 }
 
-const arbitrumStrategy: FeeStrategy = async (client, items, gasPrice) => {
+const arbitrumStrategy: FeeStrategy = async (client, items) => {
   const l1Results = await Promise.all(
     items.map((item) => {
       if (item.gasEstimateKind === 'final') {
@@ -192,56 +200,102 @@ const arbitrumStrategy: FeeStrategy = async (client, items, gasPrice) => {
     })
   );
 
-  return items.map((item, i) => {
+  return items.map((_, i) => {
     const l1GasUnits = l1Results[i]?.[0] ?? 0n;
-    const totalGas = item.gasEstimate + l1GasUnits;
 
     return {
       l1Fee: 0n,
-      l2Fee: totalGas * gasPrice,
-      gasPrice,
-      gasEstimate: totalGas,
+      extraGas: l1GasUnits,
     };
   });
 };
 
-const defaultStrategy: FeeStrategy = async (_client, items, gasPrice) =>
-  items.map((item) => ({
+const defaultStrategy: FeeStrategy = async (_client, items) =>
+  items.map(() => ({
     l1Fee: 0n,
-    l2Fee: item.gasEstimate * gasPrice,
-    gasPrice,
-    gasEstimate: item.gasEstimate,
+    extraGas: 0n,
   }));
 
-const strategies: Record<FeeModel, FeeStrategy> = {
-  [FeeModel.OP_STACK]: buildOpStackStrategy(FeeModel.OP_STACK),
-  [FeeModel.OP_STACK_SCROLL]: buildOpStackStrategy(FeeModel.OP_STACK_SCROLL),
-  [FeeModel.ARBITRUM]: arbitrumStrategy,
-  [FeeModel.DEFAULT]: defaultStrategy,
+const FEE_MODEL_CONFIGS: Record<FeeModel, FeeModelConfig> = {
+  [FeeModel.OP_STACK]: {
+    buffers: BUFFER_CONFIGS[FeeModel.OP_STACK],
+    useLegacyPricing: false,
+    strategy: buildOpStackStrategy(FeeModel.OP_STACK),
+  },
+  [FeeModel.OP_STACK_SCROLL]: {
+    buffers: BUFFER_CONFIGS[FeeModel.OP_STACK_SCROLL],
+    useLegacyPricing: false,
+    strategy: buildOpStackStrategy(FeeModel.OP_STACK_SCROLL),
+  },
+  [FeeModel.ARBITRUM]: {
+    buffers: BUFFER_CONFIGS[FeeModel.ARBITRUM],
+    useLegacyPricing: true,
+    strategy: arbitrumStrategy,
+  },
+  [FeeModel.DEFAULT]: {
+    buffers: BUFFER_CONFIGS[FeeModel.DEFAULT],
+    useLegacyPricing: false,
+    strategy: defaultStrategy,
+  },
 };
 
-const LEGACY_PRICING_MODELS = new Set<FeeModel>([FeeModel.ARBITRUM]);
+function getFeeModel(chainId: number): FeeModel {
+  return CHAIN_FEE_MODEL[chainId] ?? FeeModel.DEFAULT;
+}
+
+export async function estimateFeeContext(
+  client: PublicClient,
+  chainId: number,
+  items: FeeContextItem[],
+  priceTier: PriceTier
+): Promise<FeeContext> {
+  const feeModel = getFeeModel(chainId);
+  const [gasPriceRecommendations, overheads] = await Promise.all([
+    getGasPriceRecommendations(client, chainId),
+    FEE_MODEL_CONFIGS[feeModel].strategy(client, items, chainId),
+  ]);
+
+  return {
+    chainId,
+    recommendation: gasPriceRecommendations[priceTier],
+    overheads,
+  };
+}
+
+export function finalizeFeeEstimates(items: TxWithGas[], context: FeeContext): FeeEstimate[] {
+  if (items.length !== context.overheads.length) {
+    throw new Error('finalizeFeeEstimates requires overheads for every transaction');
+  }
+
+  const { buffers, useLegacyPricing } = FEE_MODEL_CONFIGS[getFeeModel(context.chainId)];
+
+  return items.map((item, index) => {
+    const overhead = context.overheads[index];
+    const totalGas = item.gasEstimate + overhead.extraGas;
+
+    return buildFeeEstimate(
+      {
+        l1Fee: overhead.l1Fee,
+        l2Fee: totalGas * context.recommendation.maxFeePerGas,
+        gasPrice: context.recommendation.maxFeePerGas,
+        gasEstimate: totalGas,
+      },
+      buffers,
+      useLegacyPricing,
+      context.recommendation.maxPriorityFeePerGas
+    );
+  });
+}
 
 export async function estimateTotalFees(
   client: PublicClient,
   items: TxWithGas[],
-  priceTier: PriceTier = 'medium',
-  bufferOverrides?: Partial<BufferConfig>
+  chainId: number,
+  priceTier: PriceTier
 ): Promise<FeeEstimate[]> {
   if (items.length === 0) {
     return [];
   }
-
-  const chainId = await getClientChainId(client);
-  const model = CHAIN_FEE_MODEL[chainId] ?? FeeModel.DEFAULT;
-  const buffers = { ...BUFFER_CONFIGS[model], ...bufferOverrides };
-  const useLegacyPricing = LEGACY_PRICING_MODELS.has(model);
-
-  const recommendations = await getGasPriceRecommendations(client);
-  const selected: Eip1559FeeRecommendation = recommendations[priceTier];
-  const rawResults = await strategies[model](client, items, selected.maxFeePerGas, chainId);
-
-  return rawResults.map((raw) =>
-    buildFeeEstimate(raw, buffers, useLegacyPricing, selected.maxPriorityFeePerGas)
-  );
+  const context = await estimateFeeContext(client, chainId, items, priceTier);
+  return finalizeFeeEstimates(items, context);
 }

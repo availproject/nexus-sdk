@@ -4,7 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockPublicClient = vi.hoisted(() => ({ kind: 'publicClient' })) as unknown as PublicClient;
 const createPublicClientMock = vi.hoisted(() => vi.fn(() => mockPublicClient));
-const estimateTotalFeesMock = vi.hoisted(() => vi.fn());
+const estimateFeeContextMock = vi.hoisted(() => vi.fn());
+const finalizeFeeEstimatesMock = vi.hoisted(() => vi.fn());
 const erc20GetAllowanceMock = vi.hoisted(() => vi.fn());
 
 vi.mock('viem', async () => {
@@ -30,7 +31,8 @@ vi.mock('../../../../src/sdk/ca-base/utils', async () => {
 });
 
 vi.mock('../../../../src/services/feeEstimation', () => ({
-  estimateTotalFees: estimateTotalFeesMock,
+  estimateFeeContext: estimateFeeContextMock,
+  finalizeFeeEstimates: finalizeFeeEstimatesMock,
 }));
 
 import { BridgeAndExecuteQuery } from '../../../../src/sdk/ca-base/query/bridgeAndExecute';
@@ -82,7 +84,18 @@ describe('BridgeAndExecuteQuery fee estimation', () => {
     vi.clearAllMocks();
     createPublicClientMock.mockReturnValue(mockPublicClient);
     erc20GetAllowanceMock.mockResolvedValue(0n);
-    estimateTotalFeesMock.mockResolvedValue([
+    estimateFeeContextMock.mockResolvedValue({
+      chainId: 42161,
+      recommendation: {
+        maxFeePerGas: 17n,
+        maxPriorityFeePerGas: 2n,
+      },
+      overheads: [
+        { l1Fee: 0n, extraGas: 0n },
+        { l1Fee: 0n, extraGas: 0n },
+      ],
+    });
+    finalizeFeeEstimatesMock.mockReturnValue([
       {
         l1Fee: 0n,
         l2Fee: 0n,
@@ -150,22 +163,30 @@ describe('BridgeAndExecuteQuery fee estimation', () => {
       },
     });
 
-    expect(estimateTotalFeesMock).toHaveBeenCalledTimes(1);
-    expect(estimateTotalFeesMock).toHaveBeenCalledWith(
+    expect(estimateFeeContextMock).toHaveBeenCalledTimes(1);
+    expect(estimateFeeContextMock).toHaveBeenCalledWith(
       mockPublicClient,
+      42161,
       [
         expect.objectContaining({
-          gasEstimate: 70_000n,
+          tx: expect.objectContaining({
+            to: expect.any(String),
+          }),
         }),
         expect.objectContaining({
-          gasEstimate: 21_000n,
+          tx: expect.objectContaining({
+            to: expect.any(String),
+          }),
         }),
       ],
       'medium'
     );
 
-    const [, items] = estimateTotalFeesMock.mock.calls[0] ?? [];
+    expect(finalizeFeeEstimatesMock).toHaveBeenCalledTimes(1);
+    const [items] = finalizeFeeEstimatesMock.mock.calls[0] ?? [];
     expect(items).toHaveLength(2);
+    expect(items?.[0]?.gasEstimate).toBe(70_000n);
+    expect(items?.[1]?.gasEstimate).toBe(21_000n);
     expect(
       items?.every(
         (item: { gasEstimateKind?: 'raw' | 'final' }) => item.gasEstimateKind !== 'final'

@@ -4,7 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockPublicClient = vi.hoisted(() => ({ kind: 'publicClient' })) as unknown as PublicClient;
 const createPublicClientMock = vi.hoisted(() => vi.fn(() => mockPublicClient));
-const estimateTotalFeesMock = vi.hoisted(() => vi.fn());
+const estimateFeeContextMock = vi.hoisted(() => vi.fn());
+const finalizeFeeEstimatesMock = vi.hoisted(() => vi.fn());
 const erc20GetAllowanceMock = vi.hoisted(() => vi.fn());
 const getTokenInfoMock = vi.hoisted(() => vi.fn());
 const estimateGasMock = vi.hoisted(() => vi.fn());
@@ -42,7 +43,8 @@ vi.mock('../../../../src/sdk/ca-base/swap/utils', async () => {
 });
 
 vi.mock('../../../../src/services/feeEstimation', () => ({
-  estimateTotalFees: estimateTotalFeesMock,
+  estimateFeeContext: estimateFeeContextMock,
+  finalizeFeeEstimates: finalizeFeeEstimatesMock,
 }));
 
 import { SwapAndExecuteQuery } from '../../../../src/sdk/ca-base/query/swapAndExecute';
@@ -96,7 +98,18 @@ describe('SwapAndExecuteQuery fee estimation', () => {
       decimals: 6,
       symbol: 'USDC',
     });
-    estimateTotalFeesMock.mockResolvedValue([
+    estimateFeeContextMock.mockResolvedValue({
+      chainId: 42161,
+      recommendation: {
+        maxFeePerGas: 17n,
+        maxPriorityFeePerGas: 2n,
+      },
+      overheads: [
+        { l1Fee: 0n, extraGas: 0n },
+        { l1Fee: 0n, extraGas: 0n },
+      ],
+    });
+    finalizeFeeEstimatesMock.mockReturnValue([
       {
         l1Fee: 0n,
         l2Fee: 0n,
@@ -158,20 +171,29 @@ describe('SwapAndExecuteQuery fee estimation', () => {
       },
     });
 
-    expect(estimateTotalFeesMock).toHaveBeenCalledTimes(1);
-    expect(estimateTotalFeesMock).toHaveBeenCalledWith(
+    expect(estimateFeeContextMock).toHaveBeenCalledTimes(1);
+    expect(estimateFeeContextMock).toHaveBeenCalledWith(
       mockPublicClient,
+      42161,
       [
         expect.objectContaining({
-          gasEstimate: 50_000n,
           gasEstimateKind: 'final',
+          tx: expect.objectContaining({
+            to: expect.any(String),
+          }),
         }),
         expect.objectContaining({
-          gasEstimate: 100_000n,
+          tx: expect.objectContaining({
+            to: expect.any(String),
+          }),
         }),
       ],
       'medium'
     );
+    expect(finalizeFeeEstimatesMock).toHaveBeenCalledTimes(1);
+    const [items] = finalizeFeeEstimatesMock.mock.calls[0] ?? [];
+    expect(items?.[0]?.gasEstimate).toBe(50_000n);
+    expect(items?.[1]?.gasEstimate).toBe(100_000n);
 
     expect(result.approvalTx?.gas).toBe(60_000n);
     expect(result.tx.gas).toBe(130_000n);

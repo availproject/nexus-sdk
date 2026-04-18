@@ -43,7 +43,8 @@ export function mean(nums: readonly bigint[]): bigint {
  * - High (90th percentile): Fastest confirmation, highest cost
  */
 export const getGasPriceRecommendations = async (
-  publicClient: PublicClient
+  publicClient: PublicClient,
+  chainId?: number
 ): Promise<GasPriceRecommendations> => {
   try {
     const feeHistory = await publicClient.getFeeHistory({
@@ -89,7 +90,7 @@ export const getGasPriceRecommendations = async (
     };
 
     logger.debug('Gas price recommendations', {
-      chainId: await publicClient.getChainId(),
+      chainId: chainId ?? publicClient.chain?.id,
       baseFee: nextBaseFee.toString(),
       baseFeeWithBuffer: baseFeeWithBuffer.toString(),
       'avglowPriority(50pctl)': avgLowPriority.toString(),

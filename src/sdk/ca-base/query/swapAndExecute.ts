@@ -20,7 +20,7 @@ import {
   type ExecuteFeeParams,
   sendExecuteTransactions,
 } from '../../../services/executeTransactions';
-import { estimateTotalFees, type TxWithGas } from '../../../services/feeEstimation';
+import { estimateFeeContext, finalizeFeeEstimates } from '../../../services/feeEstimation';
 import { isNativeAddress } from '../constants';
 import { Errors } from '../errors';
 import { EADDRESS } from '../swap/constants';
@@ -67,54 +67,75 @@ class SwapAndExecuteQuery {
 
     txs.push(tx);
 
-    const determineGasUsed = Promise.resolve({
-      approvalGas: approvalTx
-        ? await dstPublicClient
-            .estimateGas({
-              to: approvalTx.to,
-              data: approvalTx.data,
-              value: approvalTx.value,
-              account: address,
-            })
-            .catch(() => 70_000n)
-        : 0n,
-      txGas: params.execute.gas,
-    });
+    const approvalGasPromise = approvalTx
+      ? dstPublicClient
+          .estimateGas({
+            to: approvalTx.to,
+            data: approvalTx.data,
+            value: approvalTx.value,
+            account: address,
+          })
+          .catch(() => 70_000n)
+      : Promise.resolve(0n);
 
-    const [gasUsed, balances, dstTokenInfo] = await Promise.all([
-      determineGasUsed,
+    const feeContextPromise = estimateFeeContext(
+      dstPublicClient,
+      toChainId,
+      [
+        ...(approvalTx
+          ? [
+              {
+                tx: {
+                  to: approvalTx.to,
+                  data: approvalTx.data,
+                  value: approvalTx.value,
+                },
+                gasEstimateKind: 'final' as const,
+              },
+            ]
+          : []),
+        {
+          tx: {
+            to: tx.to,
+            data: tx.data,
+            value: tx.value,
+          },
+        },
+      ],
+      params.execute.gasPrice ?? 'medium'
+    );
+
+    const [approvalGas, balances, dstTokenInfo, feeContext] = await Promise.all([
+      approvalGasPromise,
       this.getBalancesForSwap(),
       getTokenInfo(params.toTokenAddress, dstPublicClient, dstChain),
+      feeContextPromise,
     ]);
-
-    const feeEstimateItems: TxWithGas[] = [
-      ...(approvalTx
-        ? [
-            {
-              tx: {
-                to: approvalTx.to,
-                data: approvalTx.data,
-                value: approvalTx.value,
+    const fees = finalizeFeeEstimates(
+      [
+        ...(approvalTx
+          ? [
+              {
+                tx: {
+                  to: approvalTx.to,
+                  data: approvalTx.data,
+                  value: approvalTx.value,
+                },
+                gasEstimate: approvalGas,
+                gasEstimateKind: 'final' as const,
               },
-              gasEstimate: gasUsed.approvalGas,
-              gasEstimateKind: 'final' as const,
-            },
-          ]
-        : []),
-      {
-        tx: {
-          to: tx.to,
-          data: tx.data,
-          value: tx.value,
+            ]
+          : []),
+        {
+          tx: {
+            to: tx.to,
+            data: tx.data,
+            value: tx.value,
+          },
+          gasEstimate: params.execute.gas,
         },
-        gasEstimate: gasUsed.txGas,
-      },
-    ];
-
-    const fees = await estimateTotalFees(
-      dstPublicClient,
-      feeEstimateItems,
-      params.execute.gasPrice ?? 'medium'
+      ],
+      feeContext
     );
     const approvalFee = approvalTx ? fees[0] : null;
     const txFee = fees[approvalTx ? 1 : 0];
