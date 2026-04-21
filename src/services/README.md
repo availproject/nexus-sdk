@@ -16,6 +16,8 @@ Only files that are not straightforward get full explanations below. For the sim
   Shared fee estimation engine for chain-aware gas pricing and fee overhead handling. Explained below.
 - `gasFeeHistory.ts`
   Reads fee history from the client and turns it into low/medium/high EIP-1559 recommendations. No extra explanation needed.
+- `swapNativeReserveFee.ts`
+  Builds a representative synthetic `calibur.execute(...)` transaction and prices it with the shared fee engine so swap balance queries can reserve native gas without calling `eth_estimateGas`. Explained below.
 - `walletCapabilities.ts`
   Small helper that checks whether a wallet reports atomic batch support for a set of chain IDs. No extra explanation needed.
 
@@ -23,6 +25,7 @@ Only files that are not straightforward get full explanations below. For the sim
 
 - `feeEstimation.ts`
 - `depositFeeEstimation.ts`
+- `swapNativeReserveFee.ts`
 
 ## `feeEstimation.ts`
 
@@ -250,3 +253,41 @@ The main limitations are intentional:
 - fallback gas may overestimate meaningfully on some chains
 
 That tradeoff is acceptable for usable-balance deduction, where modest overestimation is safer than underestimating the amount of native token that must be reserved.
+
+## `swapNativeReserveFee.ts`
+
+### What this file is for
+
+`swapNativeReserveFee.ts` exists for swap balance queries.
+
+When the SDK prepares balances for swap flows, it wants a usable native balance rather than the full raw native balance. That reserve is needed because source-side native swaps may be executed through `calibur.execute(...)`, and the EOA must still have enough native token left to submit that transaction.
+
+### Why this file exists separately from `feeEstimation.ts`
+
+`feeEstimation.ts` assumes the caller already has a transaction shape.
+
+In the balance-fetch path, the SDK does not have the user's final swap transaction yet, and balance queries are latency-sensitive enough that calling `eth_estimateGas` is not desirable. So this file builds a representative synthetic transaction shape and reuses the shared fee engine only for pricing and L1-overhead handling.
+
+### How it works
+
+This file:
+
+- builds a representative `calibur.execute(...)` transaction
+- uses a fixed gas assumption instead of `eth_estimateGas`
+- calls `estimateFeeContext(...)`
+- finalizes the fee with `finalizeFeeEstimates(...)`
+- applies a synthetic-shape buffer to stay conservative
+
+That gives the balance path:
+
+- chain-aware gas-price recommendations
+- OP/Scroll L1 fee handling
+- Arbitrum L1 posting cost handling
+
+without paying the cost of a real gas estimation during every balance fetch.
+
+### What it intentionally does not do
+
+This file does not try to predict the exact final swap transaction.
+
+It only produces a conservative native reserve estimate for balance deduction. The final submitted swap transaction can still differ in calldata shape, approvals, or sweep behavior.

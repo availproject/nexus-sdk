@@ -50,6 +50,7 @@ import {
   type UserAssetDatum,
   type VSCClient,
 } from '../../../commons';
+import { estimateRepresentativeSwapNativeReserveFee } from '../../../services/swapNativeReserveFee';
 import {
   ERC20PermitABI,
   ERC20PermitEIP712Type,
@@ -552,15 +553,6 @@ export const packERC20Approve = (spender: Hex, amount: bigint) => {
   });
 };
 
-const multiplierByChain = (chainID: number) => {
-  switch (chainID) {
-    case 534352:
-      return 100n;
-    default:
-      return 3n;
-  }
-};
-
 export const getAnkrBalances = async (
   walletAddress: `0x${string}`,
   chainList: ChainListType
@@ -612,15 +604,8 @@ export const fetchTransferFees = async (chains: Chain[]): Promise<Map<number, De
   await Promise.all(
     chains.map(async (chain) => {
       try {
-        const client = createPublicClient({
-          transport: http(chain.rpcUrls.default.http[0]),
-        });
-        const fee = await client.estimateFeesPerGas();
-        const multiplier = multiplierByChain(chain.id);
-        feeByChainID.set(
-          chain.id,
-          divDecimals(fee.maxFeePerGas * 1_500_000n * multiplier, chain.nativeCurrency.decimals)
-        );
+        const fee = await estimateRepresentativeSwapNativeReserveFee({ chain });
+        feeByChainID.set(chain.id, divDecimals(fee, chain.nativeCurrency.decimals));
       } catch (e) {
         logger.error('fetchTransferFees', e, { chainID: chain.id });
       }
@@ -798,16 +783,6 @@ export const ankrBalanceToAssets = (
     const removeSource = !!removeSources.find(
       (rs) => rs.chainId === asset.chainID && equalFold(rs.tokenAddress, asset.tokenAddress)
     );
-
-    logger.debug('ankrBalanaceToAssets', {
-      isAllowed,
-      isSupportedToken,
-      allowedSources,
-      token: asset.tokenData.symbol,
-      chainId: asset.chainID,
-      tokenAddress: asset.tokenAddress,
-      removeSource,
-    });
 
     if ((filterWithSupportedTokens && !isSupportedToken) || !isAllowed) {
       continue;
