@@ -1,6 +1,6 @@
 import type { PublicClient } from 'viem';
 import { getLogger } from '../commons';
-import { Errors } from '../sdk/ca-base/errors';
+import { Errors } from '../core/errors';
 
 const logger = getLogger();
 

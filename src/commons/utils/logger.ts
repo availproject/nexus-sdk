@@ -1,5 +1,5 @@
 import type { AnyValue } from '@opentelemetry/api-logs';
-import { telemetryLogger } from '../../sdk/ca-base/telemetry';
+import { telemetryLogger } from '../../core/telemetry';
 
 export const LOG_LEVEL = {
   DEBUG: 1,
@@ -129,11 +129,11 @@ class Logger {
     }
     const timerLabel = `[${this.prefix}] Timer: ${label}`;
     console.time(timerLabel);
-    
+
     return {
       end: () => {
         console.timeEnd(timerLabel);
-      }
+      },
     };
   }
 }

@@ -19,9 +19,9 @@ vi.mock('viem', async () => {
   };
 });
 
-vi.mock('../../../../src/sdk/ca-base/utils', async () => {
-  const actual = await vi.importActual<typeof import('../../../../src/sdk/ca-base/utils')>(
-    '../../../../src/sdk/ca-base/utils'
+vi.mock('../../../../src/core/utils', async () => {
+  const actual = await vi.importActual<typeof import('../../../../src/core/utils')>(
+    '../../../../src/core/utils'
   );
   return {
     ...actual,
@@ -32,9 +32,9 @@ vi.mock('../../../../src/sdk/ca-base/utils', async () => {
   };
 });
 
-vi.mock('../../../../src/sdk/ca-base/swap/utils', async () => {
-  const actual = await vi.importActual<typeof import('../../../../src/sdk/ca-base/swap/utils')>(
-    '../../../../src/sdk/ca-base/swap/utils'
+vi.mock('../../../../src/swap/utils', async () => {
+  const actual = await vi.importActual<typeof import('../../../../src/swap/utils')>(
+    '../../../../src/swap/utils'
   );
   return {
     ...actual,
@@ -47,7 +47,7 @@ vi.mock('../../../../src/services/feeEstimation', () => ({
   finalizeFeeEstimates: finalizeFeeEstimatesMock,
 }));
 
-import { SwapAndExecuteQuery } from '../../../../src/sdk/ca-base/query/swapAndExecute';
+import { SwapAndExecuteQuery } from '../../../../src/flows/swapAndExecute';
 
 const USER_ADDRESS = '0x1111111111111111111111111111111111111111' as const;
 const TARGET = '0x2222222222222222222222222222222222222222' as const;

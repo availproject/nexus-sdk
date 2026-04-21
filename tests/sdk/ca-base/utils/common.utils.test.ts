@@ -7,12 +7,12 @@ vi.mock('../../../../src/services/depositFeeEstimation', () => ({
   estimateRepresentativeDepositTxFee: estimateRepresentativeDepositTxFeeMock,
 }));
 
-vi.mock('../../../../src/sdk/ca-base/chains', () => ({
+vi.mock('../../../../src/core/chains', () => ({
   ChainList: class {},
 }));
 
-import { ZERO_ADDRESS } from '../../../../src/sdk/ca-base/constants';
-import { assetListWithDepositDeducted } from '../../../../src/sdk/ca-base/utils/common.utils';
+import { ZERO_ADDRESS } from '../../../../src/core/constants';
+import { assetListWithDepositDeducted } from '../../../../src/core/utils/common.utils';
 
 describe('assetListWithDepositDeducted', () => {
   beforeEach(() => {

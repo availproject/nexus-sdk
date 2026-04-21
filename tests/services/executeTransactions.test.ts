@@ -1,7 +1,7 @@
 import type { Hex } from 'viem';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../src/sdk/ca-base/utils', () => ({
+vi.mock('../../src/core/utils', () => ({
   switchChain: vi.fn().mockResolvedValue(undefined),
   waitForTxReceipt: vi.fn().mockResolvedValue({
     status: 'success',
@@ -13,7 +13,7 @@ vi.mock('../../src/sdk/ca-base/utils', () => ({
   }),
 }));
 
-import { waitForTxReceipt } from '../../src/sdk/ca-base/utils';
+import { waitForTxReceipt } from '../../src/core/utils';
 import {
   type ExecuteFeeParams,
   sendExecuteTransactions,

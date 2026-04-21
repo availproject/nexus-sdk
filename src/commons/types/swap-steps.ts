@@ -1,5 +1,5 @@
 import type { Hex } from 'viem';
-import { Errors } from '../../sdk/ca-base/errors';
+import { Errors } from '../../core/errors';
 import type { ChainListType } from '.';
 
 const SWAP_START = {

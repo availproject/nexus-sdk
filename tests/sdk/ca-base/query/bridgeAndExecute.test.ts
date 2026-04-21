@@ -17,9 +17,9 @@ vi.mock('viem', async () => {
   };
 });
 
-vi.mock('../../../../src/sdk/ca-base/utils', async () => {
-  const actual = await vi.importActual<typeof import('../../../../src/sdk/ca-base/utils')>(
-    '../../../../src/sdk/ca-base/utils'
+vi.mock('../../../../src/core/utils', async () => {
+  const actual = await vi.importActual<typeof import('../../../../src/core/utils')>(
+    '../../../../src/core/utils'
   );
   return {
     ...actual,
@@ -35,7 +35,7 @@ vi.mock('../../../../src/services/feeEstimation', () => ({
   finalizeFeeEstimates: finalizeFeeEstimatesMock,
 }));
 
-import { BridgeAndExecuteQuery } from '../../../../src/sdk/ca-base/query/bridgeAndExecute';
+import { BridgeAndExecuteQuery } from '../../../../src/flows/bridgeAndExecute';
 
 const USER_ADDRESS = '0x1111111111111111111111111111111111111111' as const;
 const SPENDER = '0x2222222222222222222222222222222222222222' as const;

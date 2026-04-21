@@ -31,7 +31,7 @@ import type {
   TransferResult,
 } from '../commons';
 import { logger } from '../commons';
-import { CA } from './ca-base/ca';
+import { CA } from '../core/ca';
 import { NexusUtils } from './utils';
 
 function getNetwork(network: NexusNetwork) {

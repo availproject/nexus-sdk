@@ -1,6 +1,6 @@
 import { type PublicClient, serializeTransaction } from 'viem';
+import { ARBITRUM_GAS_ORACLE_ABI } from '../abi/gasOracle';
 import { SUPPORTED_CHAINS } from '../commons/constants';
-import { ARBITRUM_GAS_ORACLE_ABI } from '../sdk/ca-base/abi/gasOracle';
 import { type Eip1559FeeRecommendation, getGasPriceRecommendations } from './gasFeeHistory';
 
 enum FeeModel {

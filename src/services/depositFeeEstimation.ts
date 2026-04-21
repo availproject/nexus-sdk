@@ -1,8 +1,8 @@
 import { EVMVaultABI, Universe } from '@avail-project/ca-common';
 import { encodeFunctionData, type Hex, pad } from 'viem';
 import type { Chain } from '../commons';
-import { ZERO_ADDRESS } from '../sdk/ca-base/constants';
-import { createPublicClientWithFallback } from '../sdk/ca-base/utils/contract.utils';
+import { ZERO_ADDRESS } from '../core/constants';
+import { createPublicClientWithFallback } from '../core/utils/contract.utils';
 import {
   estimateFeeContext,
   type FeeEstimate,
