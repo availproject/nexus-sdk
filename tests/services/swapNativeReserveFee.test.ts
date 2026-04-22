@@ -70,7 +70,7 @@ describe('estimateRepresentativeSwapNativeReserveFee', () => {
       [
         expect.objectContaining({
           gasEstimateKind: 'raw',
-          l1DiffSizeHint: 120n,
+          l1DiffSizeHint: 200n,
           tx: expect.objectContaining({
             to: '0x1111111111111111111111111111111111111111',
             value: 1n,
@@ -91,6 +91,8 @@ describe('estimateRepresentativeSwapNativeReserveFee', () => {
         chainId: 4114,
       })
     );
+    const [{ tx }] = estimateFeeContextMock.mock.calls[0]?.[2] ?? [];
+    expect((tx.data as string).length).toBeGreaterThan(4000);
     expect(result).toBe(120n);
   });
 });

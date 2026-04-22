@@ -3,6 +3,7 @@ import {
   bytesToBigInt,
   type Chain,
   encodeAbiParameters,
+  encodeFunctionData,
   type Hex,
   type PrivateKeyAccount,
   type PublicClient,
@@ -18,6 +19,8 @@ import {
   type SBCTx,
   type Tx,
 } from '../../../commons';
+import type { ExecuteFeeParams } from '../../../services/executeTransactions';
+import { estimateFeeContext, finalizeFeeEstimates } from '../../../services/feeEstimation';
 import { Errors } from '../errors';
 import { createDeadlineFromNow, waitForTxReceipt } from '../utils';
 import { PlatformUtils } from '../utils/platform.utils';
@@ -31,6 +34,101 @@ import {
 } from './utils';
 
 const logger = getLogger();
+
+const spreadFeeParams = (feeParams?: ExecuteFeeParams) => {
+  if (!feeParams) {
+    return {};
+  }
+
+  if (feeParams.type === 'legacy') {
+    return { gasPrice: feeParams.gasPrice };
+  }
+
+  return {
+    maxFeePerGas: feeParams.maxFeePerGas,
+    maxPriorityFeePerGas: feeParams.maxPriorityFeePerGas,
+  };
+};
+
+const buildCaliburExecuteRequest = (input: {
+  calls: Tx[];
+  deadline: bigint;
+  ephemeralAddress: Hex;
+  nonce: bigint;
+  signature: Hex;
+  value: bigint;
+}) => {
+  const args = [
+    {
+      batchedCall: {
+        calls: input.calls,
+        revertOnFailure: true,
+      },
+      deadline: input.deadline,
+      executor: toHex(ZERO_BYTES_20),
+      keyHash: toHex(ZERO_BYTES_32),
+      nonce: input.nonce,
+    },
+    packSignatureAndHookData(input.signature),
+  ] as const;
+
+  return {
+    abi: CaliburABI,
+    address: input.ephemeralAddress,
+    args,
+    functionName: 'execute' as const,
+    value: input.value,
+  };
+};
+
+const estimateCaliburExecuteFee = async (input: {
+  actualAddress: Hex;
+  chain: Chain;
+  publicClient: PublicClient;
+  request: ReturnType<typeof buildCaliburExecuteRequest>;
+}) => {
+  const tx = {
+    to: input.request.address,
+    data: encodeFunctionData({
+      abi: input.request.abi,
+      functionName: input.request.functionName,
+      args: input.request.args,
+    }),
+    value: input.request.value,
+  };
+
+  const gasEstimatePromise = input.publicClient
+    .estimateGas({
+      account: input.actualAddress,
+      to: tx.to,
+      data: tx.data,
+      value: tx.value,
+    })
+    .catch(() => 1_500_000n);
+  const feeContextPromise = estimateFeeContext(
+    input.publicClient,
+    input.chain.id,
+    [{ tx }],
+    'medium'
+  );
+
+  const [gasEstimate, feeContext] = await Promise.all([gasEstimatePromise, feeContextPromise]);
+  const [feeEstimate] = finalizeFeeEstimates([{ tx, gasEstimate }], feeContext);
+
+  return {
+    gas: feeEstimate.recommended.gasLimit,
+    feeParams: feeEstimate.recommended.useLegacyPricing
+      ? ({
+          type: 'legacy',
+          gasPrice: feeEstimate.recommended.maxFeePerGas,
+        } satisfies ExecuteFeeParams)
+      : ({
+          type: 'eip1559',
+          maxFeePerGas: feeEstimate.recommended.maxFeePerGas,
+          maxPriorityFeePerGas: feeEstimate.recommended.maxPriorityFeePerGas,
+        } satisfies ExecuteFeeParams),
+  };
+};
 
 export const createBatchedCallSignature = (
   batchedCalls: Tx[],
@@ -168,6 +266,7 @@ export const caliburExecute = async ({
   chain,
   ephemeralAddress,
   ephemeralWallet,
+  publicClient,
   value,
 }: {
   actualAddress: Hex;
@@ -176,6 +275,7 @@ export const caliburExecute = async ({
   chain: Chain;
   ephemeralAddress: Hex;
   ephemeralWallet: PrivateKeyAccount;
+  publicClient: PublicClient;
   value: bigint;
 }) => {
   const nonce = bytesToBigInt(await PlatformUtils.cryptoGetRandomValues(new Uint8Array(24))) << 64n;
@@ -189,26 +289,27 @@ export const caliburExecute = async ({
     deadline
   );
 
-  return actualWallet.writeContract({
-    abi: CaliburABI,
-    account: actualAddress,
-    address: ephemeralAddress,
-    args: [
-      {
-        batchedCall: {
-          calls,
-          revertOnFailure: true,
-        },
-        deadline,
-        executor: toHex(ZERO_BYTES_20),
-        keyHash: toHex(ZERO_BYTES_32),
-        nonce,
-      },
-      packSignatureAndHookData(signature),
-    ],
-    chain,
-    functionName: 'execute',
+  const request = buildCaliburExecuteRequest({
+    calls,
+    deadline,
+    ephemeralAddress,
+    nonce,
+    signature,
     value,
+  });
+  const { gas, feeParams } = await estimateCaliburExecuteFee({
+    actualAddress,
+    chain,
+    publicClient,
+    request,
+  });
+
+  return actualWallet.writeContract({
+    ...request,
+    account: actualAddress,
+    chain,
+    gas,
+    ...spreadFeeParams(feeParams),
   });
 };
 

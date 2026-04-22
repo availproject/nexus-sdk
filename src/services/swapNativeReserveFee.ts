@@ -14,14 +14,17 @@ export const DEFAULT_SWAP_NATIVE_RESERVE_GAS = 1_500_000n;
 
 const DEFAULT_PRICE_TIER: PriceTier = 'medium';
 const DEFAULT_SYNTHETIC_SWAP_BUFFER = 120n;
-const DEFAULT_CITREA_SWAP_L1_DIFF_SIZE = 120n;
+const DEFAULT_CITREA_SWAP_L1_DIFF_SIZE = 200n;
 const REPRESENTATIVE_EPHEMERAL = '0x1111111111111111111111111111111111111111' as const;
-const REPRESENTATIVE_TARGET = '0x2222222222222222222222222222222222222222' as const;
+const REPRESENTATIVE_ROUTER = '0xbeb0b0623f66be8ce162ebdfa2ec543a522f4ea6' as const;
+const REPRESENTATIVE_STABLE = '0x06efdbff2a14a7c8e15944d1f4a48f9f95f663a4' as const;
+const REPRESENTATIVE_WRAPPED_NATIVE = '0xac4c6e212a361c968f1725b4d055b47e63f80b75' as const;
+const REPRESENTATIVE_RECIPIENT = '0xc452cbf994d5a4f4b1d7c9a4dbb75e79c14e05b9' as const;
+const REPRESENTATIVE_EXECUTOR = '0xc10ee9031f2a0b84766a86b55a8d90f357910fb4' as const;
 const REPRESENTATIVE_SIGNATURE = `0x${'11'.repeat(65)}` as Hex;
-const REPRESENTATIVE_SWAP_CALL_DATA = `0x${'11'.repeat(384)}` as Hex;
-const REPRESENTATIVE_SWEEP_CALL_DATA = `0x${'22'.repeat(68)}` as Hex;
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 const ZERO_BYTES_32 = `0x${'00'.repeat(32)}` as const;
+const EADDRESS_BODY = 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
 
 const applyMultiplier = (value: bigint, multiplier: bigint) => (value * multiplier) / 100n;
 
@@ -34,6 +37,28 @@ const getRepresentativeL1DiffSizeHint = (chainId: number) => {
       return undefined;
   }
 };
+
+const buildRepresentativeSwapCallData = (): Hex =>
+  `0x2143d82c${'0'.repeat(56)}a0${'0'.repeat(63)}32${'0'.repeat(63)}34${'0'.repeat(
+    63
+  )}76${'0'.repeat(24)}${REPRESENTATIVE_ROUTER.slice(2)}${'0'.repeat(
+    24
+  )}${REPRESENTATIVE_RECIPIENT.slice(2)}${'0'.repeat(24)}${REPRESENTATIVE_RECIPIENT.slice(
+    2
+  )}${'0'.repeat(64)}${'0'.repeat(56)}69b41d24${'0'.repeat(
+    56
+  )}69b41d24${'0'.repeat(24)}a210a4ebe64040b8a26cb798ef450f9c${'0'.repeat(
+    24
+  )}${REPRESENTATIVE_RECIPIENT.slice(2)}${'0'.repeat(1200)}` as Hex;
+
+const buildRepresentativeSweepCallData = (): Hex =>
+  `0x45f3bd1c8${'0'.repeat(23)}${EADDRESS_BODY}${'0'.repeat(48)}5b9bd4f21f19${'0'.repeat(
+    24
+  )}${REPRESENTATIVE_ROUTER.slice(2)}${'0'.repeat(24)}${REPRESENTATIVE_STABLE.slice(
+    2
+  )}${'0'.repeat(56)}35d17${'0'.repeat(24)}${REPRESENTATIVE_EXECUTOR.slice(
+    2
+  )}${'0'.repeat(224)}` as Hex;
 
 const buildRepresentativeCaliburExecuteTx = (): TxRequest => {
   const wrappedSignature = encodeAbiParameters(
@@ -54,14 +79,14 @@ const buildRepresentativeCaliburExecuteTx = (): TxRequest => {
           batchedCall: {
             calls: [
               {
-                to: REPRESENTATIVE_TARGET,
-                value: 1n,
-                data: REPRESENTATIVE_SWAP_CALL_DATA,
+                to: REPRESENTATIVE_ROUTER,
+                value: 100_000_000_000_000n,
+                data: buildRepresentativeSwapCallData(),
               },
               {
-                to: REPRESENTATIVE_TARGET,
+                to: REPRESENTATIVE_WRAPPED_NATIVE,
                 value: 0n,
-                data: REPRESENTATIVE_SWEEP_CALL_DATA,
+                data: buildRepresentativeSweepCallData(),
               },
             ],
             revertOnFailure: true,
