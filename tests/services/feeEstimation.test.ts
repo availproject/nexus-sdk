@@ -14,11 +14,13 @@ import {
 } from '../../src/services/feeEstimation';
 
 const readContract = vi.fn();
+const request = vi.fn();
 
 const makeClient = (chainId: number) =>
   ({
     chain: { id: chainId },
     readContract,
+    request,
     getChainId: vi
       .fn()
       .mockRejectedValue(new Error('estimateTotalFees should not call getChainId')),
@@ -29,6 +31,7 @@ const makeClient = (chainId: number) =>
 describe('estimateTotalFees', () => {
   beforeEach(() => {
     readContract.mockReset();
+    request.mockReset();
     getGasPriceRecommendationsMock.mockReset();
     getGasPriceRecommendationsMock.mockResolvedValue({
       low: { maxFeePerGas: 11n, maxPriorityFeePerGas: 2n },
@@ -125,6 +128,45 @@ describe('estimateTotalFees', () => {
     expect(fee.l2Fee).toBe(1300n);
     expect(fee.recommended.gasLimit).toBe(120n);
     expect(fee.recommended.totalMaxCost).toBe(1712n);
+  });
+
+  it('returns a separate L1 fee for Citrea estimates using l1FeeRate and l1DiffSize', async () => {
+    request
+      .mockResolvedValueOnce({ l1FeeRate: '0x2' })
+      .mockResolvedValueOnce({ gas: '0x186a0', l1DiffSize: '0x11' });
+    const client = makeClient(4114);
+
+    const [fee] = await estimateTotalFees(
+      client,
+      [
+        {
+          tx: {
+            to: '0x1111111111111111111111111111111111111111',
+            data: '0x1234',
+          },
+          gasEstimate: 100n,
+        },
+      ],
+      4114,
+      'medium'
+    );
+
+    expect(request).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        method: 'eth_getBlockByNumber',
+        params: ['latest', false],
+      })
+    );
+    expect(request).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        method: 'eth_estimateDiffSize',
+      })
+    );
+    expect(fee.l1Fee).toBe(34n);
+    expect(fee.l2Fee).toBe(1300n);
+    expect(fee.recommended.totalMaxCost).toBe(1840n);
   });
 
   it('has no separate L1 fee on default fee models', async () => {
@@ -225,6 +267,34 @@ describe('estimateTotalFees', () => {
     expect(context.overheads).toEqual([
       {
         l1Fee: 25n,
+        extraGas: 0n,
+      },
+    ]);
+  });
+
+  it('uses a Citrea diff-size hint without calling eth_estimateDiffSize', async () => {
+    request.mockResolvedValueOnce({ l1FeeRate: '0x2' });
+    const client = makeClient(4114);
+
+    const context = await estimateFeeContext(
+      client,
+      4114,
+      [
+        {
+          tx: {
+            to: '0x1111111111111111111111111111111111111111',
+            data: '0x1234',
+          },
+          l1DiffSizeHint: 120n,
+        },
+      ],
+      'medium'
+    );
+
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(context.overheads).toEqual([
+      {
+        l1Fee: 240n,
         extraGas: 0n,
       },
     ]);

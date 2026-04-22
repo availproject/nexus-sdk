@@ -1,4 +1,4 @@
-import { type PublicClient, serializeTransaction } from 'viem';
+import { type Hex, hexToBigInt, type PublicClient, serializeTransaction, toHex } from 'viem';
 import { ARBITRUM_GAS_ORACLE_ABI } from '../abi/gasOracle';
 import { SUPPORTED_CHAINS } from '../commons/constants';
 import { type Eip1559FeeRecommendation, getGasPriceRecommendations } from './gasFeeHistory';
@@ -7,7 +7,8 @@ enum FeeModel {
   OP_STACK = 0,
   OP_STACK_SCROLL = 1,
   ARBITRUM = 2,
-  DEFAULT = 3,
+  CITREA = 3,
+  DEFAULT = 4,
 }
 
 const CHAIN_FEE_MODEL: Partial<Record<number, FeeModel>> = {
@@ -18,6 +19,8 @@ const CHAIN_FEE_MODEL: Partial<Record<number, FeeModel>> = {
   [SUPPORTED_CHAINS.SCROLL]: FeeModel.OP_STACK_SCROLL,
   [SUPPORTED_CHAINS.ARBITRUM]: FeeModel.ARBITRUM,
   [SUPPORTED_CHAINS.ARBITRUM_SEPOLIA]: FeeModel.ARBITRUM,
+  [SUPPORTED_CHAINS.CITREA]: FeeModel.CITREA,
+  [SUPPORTED_CHAINS.CITREA_TESTNET]: FeeModel.CITREA,
 };
 
 const L1_FEE_ORACLE = {
@@ -47,6 +50,7 @@ const BUFFER_CONFIGS: Record<FeeModel, BufferConfig> = {
   [FeeModel.OP_STACK]: { gasEstimate: 1.2, gasPrice: 1.1, l1Fee: 1.3 },
   [FeeModel.OP_STACK_SCROLL]: { gasEstimate: 1.2, gasPrice: 1.1, l1Fee: 1.3 },
   [FeeModel.ARBITRUM]: { gasEstimate: 1.2, gasPrice: 1.4, l1Fee: 1.0 },
+  [FeeModel.CITREA]: { gasEstimate: 1.2, gasPrice: 1.2, l1Fee: 1.2 },
   [FeeModel.DEFAULT]: { gasEstimate: 1.2, gasPrice: 1.2, l1Fee: 1.0 },
 };
 
@@ -86,13 +90,22 @@ type RawFeeResult = {
 };
 
 type GasEstimateL1ComponentResult = readonly [bigint, bigint, bigint];
+type CitreaEstimateDiffSizeResult = {
+  gas: Hex;
+  l1DiffSize: Hex;
+};
+type CitreaBlockResult = {
+  l1FeeRate?: Hex | null;
+};
 
 export type FeeOverhead = {
   l1Fee: bigint;
   extraGas: bigint;
 };
 
-export type FeeContextItem = Pick<TxWithGas, 'tx' | 'gasEstimateKind'>;
+export type FeeContextItem = Pick<TxWithGas, 'tx' | 'gasEstimateKind'> & {
+  l1DiffSizeHint?: bigint;
+};
 
 export type FeeContext = {
   chainId: number;
@@ -123,6 +136,36 @@ function serializeTxForOracle(chainId: number, tx: TxRequest): `0x${string}` {
     maxPriorityFeePerGas: 1n,
     gas: 1n,
   });
+}
+
+function toRpcTransactionRequest(tx: TxRequest) {
+  return {
+    to: tx.to,
+    data: tx.data,
+    value: toHex(tx.value ?? 0n),
+  };
+}
+
+async function requestCustomRpcMethod<T>(
+  client: PublicClient,
+  args: { method: string; params?: unknown[] }
+): Promise<T> {
+  return (
+    client.request as unknown as (request: { method: string; params?: unknown[] }) => Promise<T>
+  )(args);
+}
+
+async function getCitreaL1FeeRate(client: PublicClient): Promise<bigint> {
+  const block = await requestCustomRpcMethod<CitreaBlockResult | null>(client, {
+    method: 'eth_getBlockByNumber',
+    params: ['latest', false],
+  });
+
+  if (!block?.l1FeeRate) {
+    throw new Error('Citrea block response missing l1FeeRate');
+  }
+
+  return hexToBigInt(block.l1FeeRate);
 }
 
 function applyBuffer(value: bigint, multiplier: number): bigint {
@@ -203,6 +246,29 @@ const arbitrumStrategy: FeeStrategy = async (client, items) => {
   });
 };
 
+const citreaStrategy: FeeStrategy = async (client, items) => {
+  const [l1FeeRate, l1DiffSizes] = await Promise.all([
+    getCitreaL1FeeRate(client),
+    Promise.all(
+      items.map((item) => {
+        if (item.l1DiffSizeHint !== undefined) {
+          return Promise.resolve(item.l1DiffSizeHint);
+        }
+
+        return requestCustomRpcMethod<CitreaEstimateDiffSizeResult>(client, {
+          method: 'eth_estimateDiffSize',
+          params: [toRpcTransactionRequest(item.tx)],
+        }).then((result) => hexToBigInt(result.l1DiffSize));
+      })
+    ),
+  ]);
+
+  return l1DiffSizes.map((l1DiffSize) => ({
+    l1Fee: l1FeeRate * l1DiffSize,
+    extraGas: 0n,
+  }));
+};
+
 const defaultStrategy: FeeStrategy = async (_client, items) =>
   items.map(() => ({
     l1Fee: 0n,
@@ -224,6 +290,11 @@ const FEE_MODEL_CONFIGS: Record<FeeModel, FeeModelConfig> = {
     buffers: BUFFER_CONFIGS[FeeModel.ARBITRUM],
     useLegacyPricing: true,
     strategy: arbitrumStrategy,
+  },
+  [FeeModel.CITREA]: {
+    buffers: BUFFER_CONFIGS[FeeModel.CITREA],
+    useLegacyPricing: false,
+    strategy: citreaStrategy,
   },
   [FeeModel.DEFAULT]: {
     buffers: BUFFER_CONFIGS[FeeModel.DEFAULT],

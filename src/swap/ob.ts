@@ -788,6 +788,7 @@ class SourceSwapsHandler {
           chain,
           ephemeralAddress: this.options.address.ephemeral,
           ephemeralWallet: this.options.wallet.ephemeral,
+          publicClient,
           value: sbcCalls.value,
         });
 
