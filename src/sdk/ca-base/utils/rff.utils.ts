@@ -257,7 +257,10 @@ const calculateMaxBridgeFee = async ({
   const assetsWithDepositRemoved = await assetListWithDepositDeducted(
     assets,
     chainList,
-    120n // 20% buffer on L1 + L2 fee
+    {
+      destinationChainId: dst.chainId,
+      feeMultiplier: 120n,
+    } // 20% explicit fee buffer, plus internal representative deposit buffer
   );
   const borrow = assetsWithDepositRemoved.reduce((accumulator, asset) => {
     if (asset.chainID === dst.chainId) {

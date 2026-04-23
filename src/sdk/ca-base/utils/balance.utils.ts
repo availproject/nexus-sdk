@@ -60,38 +60,7 @@ const mapMulticallResultToBalance = (input: {
   error: input.error,
 });
 
-const multiplierByChain = (chainID: number) => {
-  switch (chainID) {
-    case 534352:
-      return 100n;
-    default:
-      return 3n;
-  }
-};
-
-const applyNativeTransferFeeBuffer = (input: {
-  chain: Chain;
-  nativeBalance: bigint;
-  maxFeePerGas: bigint;
-}): bigint => {
-  const transferFee = divDecimals(
-    input.maxFeePerGas * 1_500_000n * multiplierByChain(input.chain.id),
-    input.chain.nativeCurrency.decimals
-  );
-  const transferFeeRaw = BigInt(
-    transferFee
-      .mul(Decimal.pow(10, input.chain.nativeCurrency.decimals))
-      .toDecimalPlaces(0)
-      .toString()
-  );
-  return input.nativeBalance > transferFeeRaw ? input.nativeBalance - transferFeeRaw : 0n;
-};
-
-export const getBalance = async (
-  chain: Chain,
-  address: Hex,
-  opts: { removeTransferFee?: boolean } = {}
-): Promise<AnkrBalance[]> => {
+export const getBalance = async (chain: Chain, address: Hex): Promise<AnkrBalance[]> => {
   if (!isAddress(address)) {
     throw Errors.invalidInput(`invalid evm address: ${address}`);
   }
@@ -125,26 +94,13 @@ export const getBalance = async (
     contracts: contracts as Parameters<typeof publicClient.multicall>[0]['contracts'],
     multicallAddress: multicall3Address,
   });
-  const feePromise = opts.removeTransferFee
-    ? publicClient
-        .estimateFeesPerGas()
-        .then((f) => f.maxFeePerGas)
-        .catch(() => null)
-    : Promise.resolve(null);
-  const [rawResponses, maxFeePerGas] = await Promise.all([multicallPromise, feePromise]);
+  const rawResponses = await multicallPromise;
   const responses = rawResponses as Array<
     { status: 'success'; result: bigint } | { status: 'failure'; error: Error }
   >;
 
   const nativeResult = responses[0];
-  let nativeBalance = nativeResult.status === 'success' ? nativeResult.result : 0n;
-  if (opts.removeTransferFee && nativeResult.status === 'success' && maxFeePerGas !== null) {
-    nativeBalance = applyNativeTransferFeeBuffer({
-      chain,
-      nativeBalance,
-      maxFeePerGas,
-    });
-  }
+  const nativeBalance = nativeResult.status === 'success' ? nativeResult.result : 0n;
   const balances: AnkrBalance[] = [
     mapMulticallResultToBalance({
       balance: divDecimals(nativeBalance, chain.nativeCurrency.decimals).toFixed(),
@@ -192,9 +148,7 @@ export const getBalances = async (chains: Chain[], address: Hex): Promise<AnkrBa
     throw Errors.invalidInput(`invalid evm address: ${address}`);
   }
 
-  const chainBalances = await Promise.all(
-    chains.map((chain) => getBalance(chain, address, { removeTransferFee: true }))
-  );
+  const chainBalances = await Promise.all(chains.map((chain) => getBalance(chain, address)));
   return chainBalances.flat();
 };
 
@@ -238,12 +192,6 @@ const deductTransferFees = (
           Decimal.ROUND_FLOOR
         )
       : '0';
-    logger.debug('deductTransferFees', {
-      chainID: balance.chainID,
-      oldBalance: balance.balance,
-      newBalance: adjusted,
-      transferFee: transferFee.toFixed(),
-    });
     return { ...balance, balance: adjusted };
   });
 
@@ -276,10 +224,16 @@ export const getBalancesForSwap = async (input: {
     oraclePrices
   );
 
+  const tfbc: string[] = [];
+  transferFeesByChain.forEach((v, k) => {
+    tfbc.push(`${k}: ${v.toFixed()}`);
+  });
+
   logger.debug('getBalancesForSwap', {
     ankrBalances,
     multicallBalances: multicallBalancesWithOracleUSD,
     oraclePrices,
+    transferFeesByChain: tfbc,
   });
   const mergedBalances = deductTransferFees(
     [...ankrBalances, ...multicallBalancesWithOracleUSD],
