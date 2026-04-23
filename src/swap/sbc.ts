@@ -5,6 +5,7 @@ import {
   encodeAbiParameters,
   encodeFunctionData,
   type Hex,
+  keccak256,
   type PrivateKeyAccount,
   type PublicClient,
   type SignAuthorizationReturnType,
@@ -13,7 +14,14 @@ import {
   type WalletClient,
 } from 'viem';
 import CaliburABI from '../abi/calibur.abi';
-import { CaliburSBCTypes, type ChainListType, getLogger, type SBCTx, type Tx } from '../commons';
+import {
+  type CaliburExecuteTx,
+  CaliburSBCTypes,
+  type ChainListType,
+  getLogger,
+  type SBCTx,
+  type Tx,
+} from '../commons';
 import { Errors } from '../core/errors';
 import { createDeadlineFromNow, waitForTxReceipt } from '../core/utils';
 import { PlatformUtils } from '../core/utils/platform.utils';
@@ -29,6 +37,16 @@ import {
 } from './utils';
 
 const logger = getLogger();
+const CALIBUR_SECP256K1_KEY_TYPE = 2;
+
+const createCaliburSecp256k1KeyHash = (address: Hex): Hex => {
+  return keccak256(
+    encodeAbiParameters(
+      [{ type: 'uint8' }, { type: 'bytes32' }],
+      [CALIBUR_SECP256K1_KEY_TYPE, keccak256(toHex(convertTo32Bytes(address)))]
+    )
+  );
+};
 
 const spreadFeeParams = (feeParams?: ExecuteFeeParams) => {
   if (!feeParams) {
@@ -131,7 +149,8 @@ export const createBatchedCallSignature = (
   chain: bigint,
   address: `0x${string}`,
   account: PrivateKeyAccount,
-  deadline: bigint
+  deadline: bigint,
+  keyHash: Hex = toHex(ZERO_BYTES_32)
 ) => {
   return account.signTypedData({
     domain: {
@@ -148,7 +167,7 @@ export const createBatchedCallSignature = (
       },
       deadline,
       executor: toHex(ZERO_BYTES_20),
-      keyHash: toHex(ZERO_BYTES_32),
+      keyHash,
       nonce,
     },
     primaryType: 'SignedBatchedCall',
@@ -251,6 +270,50 @@ export const createSBCTxFromCalls = async ({
     request,
   });
 
+  return request;
+};
+
+export const createCaliburExecuteTxFromCalls = async ({
+  calls,
+  chainID,
+  executionAddress,
+  signerWallet,
+}: {
+  calls: Tx[];
+  chainID: number;
+  executionAddress: Hex;
+  signerWallet: PrivateKeyAccount;
+}): Promise<CaliburExecuteTx> => {
+  const nonce = bytesToBigInt(await PlatformUtils.cryptoGetRandomValues(new Uint8Array(24))) << 64n;
+  const deadline = createDeadlineFromNow(3n);
+  const keyHash = createCaliburSecp256k1KeyHash(signerWallet.address);
+  const signature = await createBatchedCallSignature(
+    calls,
+    nonce,
+    BigInt(chainID),
+    executionAddress,
+    signerWallet,
+    deadline,
+    keyHash
+  );
+
+  const request: CaliburExecuteTx = {
+    address: convertTo32Bytes(executionAddress),
+    calls: calls.map((c) => ({
+      data: toBytes(c.data),
+      to_addr: toBytes(c.to),
+      value: convertTo32Bytes(c.value),
+    })),
+    chain_id: convertTo32Bytes(chainID),
+    deadline: convertTo32Bytes(deadline),
+    key_hash: toBytes(keyHash),
+    nonce: convertTo32Bytes(nonce),
+    revert_on_failure: true,
+    signature: toBytes(packSignatureAndHookData(signature)),
+    universe: Universe.ETHEREUM,
+  };
+
+  logger.debug('createCaliburExecuteTxFromCalls', { request });
   return request;
 };
 

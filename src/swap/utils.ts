@@ -45,6 +45,7 @@ import {
   type AnkrBalances,
   type Chain,
   type ChainListType,
+  type DestinationExecution,
   getLogger,
   type SBCTx,
   type Source,
@@ -73,7 +74,7 @@ import {
 import { estimateRepresentativeSwapNativeReserveFee } from '../services/swapNativeReserveFee';
 import { CALIBUR_ADDRESS, EADDRESS, SWEEPER_ADDRESS } from './constants';
 import { type FlatBalance, getPermitVariantAndVersion, isTokenSupported } from './data';
-import { createSBCTxFromCalls, waitForSBCTxReceipt } from './sbc';
+import { createCaliburExecuteTxFromCalls, createSBCTxFromCalls, waitForSBCTxReceipt } from './sbc';
 
 const USD_DECIMAL_PLACES = 6;
 const logger = getLogger();
@@ -1417,11 +1418,11 @@ export const performDestinationSwap = async ({
   chain,
   chainList,
   COT,
+  destinationExecution,
   emitter,
-  ephemeralAddress,
-  ephemeralWallet,
   hasDestinationSwap,
   publicClientList,
+  signerWallet,
   vscClient,
 }: {
   actualAddress: Hex;
@@ -1430,35 +1431,51 @@ export const performDestinationSwap = async ({
   chain: Chain;
   chainList: ChainListType;
   COT: CurrencyID;
+  destinationExecution: DestinationExecution;
   emitter: {
     emit: (step: SwapStepType) => void;
   };
-  ephemeralAddress: Hex;
-  ephemeralWallet: PrivateKeyAccount;
   hasDestinationSwap: boolean;
   publicClientList: PublicClientList;
+  signerWallet: PrivateKeyAccount;
   vscClient: VSCClient;
 }) => {
   // If destination swap token is COT then calls is an empty array,
-  // sweeper txs will send from ephemeral -> eoa, other cases it sweeps the dust
-  const sbcTx = await createSBCTxFromCalls({
-    cache,
-    calls: calls.concat(
-      createSweeperTxs({
-        cache,
-        chainID: chain.id,
-        COTCurrencyID: COT,
-        receiver: actualAddress,
-        sender: ephemeralAddress,
-      })
-    ),
-    chainID: chain.id,
-    ephemeralAddress,
-    ephemeralWallet,
-    publicClient: publicClientList.get(chain.id),
-  });
+  // sweeper txs will send from destination execution account -> eoa, other cases it sweeps the dust
+  const batchCalls = calls.concat(
+    createSweeperTxs({
+      cache,
+      chainID: chain.id,
+      COTCurrencyID: COT,
+      receiver: actualAddress,
+      sender: destinationExecution.address,
+    })
+  );
   performance.mark('destination-swap-start');
-  const ops = await vscClient.vscSBCTx([sbcTx]);
+  const ops =
+    destinationExecution.mode === 'calibur_account'
+      ? [
+          await (async () => {
+            return vscClient.vscCreateCaliburExecuteTx(
+              await createCaliburExecuteTxFromCalls({
+                calls: batchCalls,
+                chainID: chain.id,
+                executionAddress: destinationExecution.address,
+                signerWallet,
+              })
+            );
+          })(),
+        ]
+      : await vscClient.vscSBCTx([
+          await createSBCTxFromCalls({
+            cache,
+            calls: batchCalls,
+            chainID: chain.id,
+            ephemeralAddress: destinationExecution.address,
+            ephemeralWallet: signerWallet,
+            publicClient: publicClientList.get(chain.id),
+          }),
+        ]);
   performance.mark('destination-swap-end');
 
   if (hasDestinationSwap) {

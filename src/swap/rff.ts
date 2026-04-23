@@ -284,6 +284,7 @@ export const createBridgeRFF = async ({
   config,
   input,
   output,
+  recipientAddress,
 }: {
   config: {
     chainList: ChainListType;
@@ -303,6 +304,7 @@ export const createBridgeRFF = async ({
     decimals: number;
     tokenAddress: `0x${string}`;
   };
+  recipientAddress: `0x${string}`;
 }) => {
   const dstChain = config.chainList.getChainByID(Number(output.chainID));
   if (!dstChain) {
@@ -319,7 +321,7 @@ export const createBridgeRFF = async ({
     assets: input.assets,
     feeStore,
     output,
-    address: config.evm.address,
+    address: recipientAddress,
   });
 
   const { msgBasicCosmos, omniversalRFF, signatureData, sources } = await createRFFromIntent(
