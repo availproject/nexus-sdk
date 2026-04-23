@@ -42,7 +42,7 @@ const setLoggerProvider = async (networkConfig: NetworkConfig) => {
       processors: [
         new BatchLogRecordProcessor(
           new OTLPLogExporter({
-            url: 'https://otel.avail.so/v1/logs',
+            url: 'https://otel2.avail.so/v1/logs',
             headers: { 'x-otlp-force-fetch': '1' },
           })
         ),
