@@ -1,4 +1,6 @@
+import { encodeAbiParameters, keccak256, toHex } from 'viem';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { convertTo32Bytes } from '../../../../src/core/utils/common.utils';
 
 const estimateFeeContextMock = vi.hoisted(() => vi.fn());
 const finalizeFeeEstimatesMock = vi.hoisted(() => vi.fn());
@@ -8,7 +10,7 @@ vi.mock('../../../../src/services/feeEstimation', () => ({
   finalizeFeeEstimates: finalizeFeeEstimatesMock,
 }));
 
-import { caliburExecute } from '../../../../src/swap/sbc';
+import { caliburExecute, createCaliburExecuteTxFromCalls } from '../../../../src/swap/sbc';
 
 describe('caliburExecute', () => {
   const estimateGasMock = vi.fn();
@@ -89,5 +91,39 @@ describe('caliburExecute', () => {
       })
     );
     expect(result).toBe('0xhash');
+  });
+
+  it('uses the registered ephemeral key hash for standalone Calibur account execution', async () => {
+    const result = await createCaliburExecuteTxFromCalls({
+      calls: [
+        {
+          to: '0x2222222222222222222222222222222222222222',
+          value: 1n,
+          data: '0x1234',
+        },
+      ],
+      chainID: 999,
+      executionAddress: '0x4444444444444444444444444444444444444444',
+      signerWallet: {
+        address: '0x3333333333333333333333333333333333333333',
+        signTypedData: signTypedDataMock,
+      } as never,
+    });
+
+    const expectedKeyHash = keccak256(
+      encodeAbiParameters(
+        [{ type: 'uint8' }, { type: 'bytes32' }],
+        [2, keccak256(toHex(convertTo32Bytes('0x3333333333333333333333333333333333333333')))]
+      )
+    );
+
+    expect(signTypedDataMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.objectContaining({
+          keyHash: expectedKeyHash,
+        }),
+      })
+    );
+    expect(toHex(result.key_hash)).toBe(expectedKeyHash);
   });
 });

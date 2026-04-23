@@ -43,6 +43,40 @@ export type SBCTx = {
   universe: Universe;
 };
 
+export type CaliburExecuteTx = Omit<SBCTx, 'authorization_list'>;
+
+export type CaliburManagedKey = {
+  keyType: number;
+  publicKey: Uint8Array;
+  settings: Uint8Array;
+};
+
+export type CaliburAccountAddress = {
+  address: Hex;
+  bootstrapped: boolean;
+  deployed: boolean;
+  deployer: Hex;
+  salt: Hex;
+};
+
+export type EnsureCaliburAccountInput = {
+  chainId: number;
+  entryPoint: Hex;
+  keys: CaliburManagedKey[];
+  owner: Hex;
+};
+
+export type EnsureCaliburAccountResult = CaliburAccountAddress & {
+  bootstrapTxHash: Hex | null;
+  deployTxHash: Hex | null;
+};
+
+export type DestinationExecution = {
+  address: Hex;
+  entryPoint: Hex | null;
+  mode: '7702' | 'calibur_account';
+};
+
 type BaseSwapInput = {
   toChainID: number;
   toTokenAddress: Hex;

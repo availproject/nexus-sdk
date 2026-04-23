@@ -95,6 +95,7 @@ class BridgeHandler {
       assets: BridgeAsset[];
       chainID: number;
       decimals: number;
+      recipientAddress: Hex;
       tokenAddress: `0x${string}`;
     } | null,
     private readonly options: Options
@@ -240,6 +241,7 @@ class BridgeHandler {
         },
         input: { assets: this.input.assets },
         output: this.input,
+        recipientAddress: this.input.recipientAddress,
       });
 
       this.depositCalls = response.depositCalls;
@@ -297,37 +299,40 @@ class BridgeHandler {
 }
 
 class DestinationSwapHandler {
-  private eoaToEphCalls: Tx[] = [];
+  private accountEnsured = false;
   private destinationData: SwapRoute['destination'];
+  private eoaToDestinationAccountCalls: Tx[] = [];
   constructor(
     route: SwapRoute,
     private readonly options: Options
   ) {
     this.destinationData = route.destination;
-    if (this.destinationData.eoaToEphemeral) {
+    if (this.destinationData.eoaToDestinationAccount) {
       options.cache.addAllowanceQuery({
         chainID: this.destinationData.chainId,
-        contractAddress: this.destinationData.eoaToEphemeral.contractAddress,
+        contractAddress: this.destinationData.eoaToDestinationAccount.contractAddress,
         owner: options.address.eoa,
-        spender: options.address.ephemeral,
+        spender: this.destinationData.execution.address,
       });
-      if (!isNativeAddress(this.destinationData.eoaToEphemeral.contractAddress)) {
+      if (!isNativeAddress(this.destinationData.eoaToDestinationAccount.contractAddress)) {
         options.cache.addPermitQuery({
           chainID: this.destinationData.chainId,
-          contractAddress: this.destinationData.eoaToEphemeral.contractAddress,
+          contractAddress: this.destinationData.eoaToDestinationAccount.contractAddress,
         });
       }
     }
 
-    options.cache.addSetCodeQuery({
-      address: options.address.ephemeral,
-      chainID: this.destinationData.chainId,
-    });
+    if (this.destinationData.execution.mode === '7702') {
+      options.cache.addSetCodeQuery({
+        address: options.address.ephemeral,
+        chainID: this.destinationData.chainId,
+      });
 
-    options.cache.addSetCodeQuery({
-      address: options.address.eoa,
-      chainID: this.destinationData.chainId,
-    });
+      options.cache.addSetCodeQuery({
+        address: options.address.eoa,
+        chainID: this.destinationData.chainId,
+      });
+    }
 
     // COT sweeper always runs in performDestinationSwap to sweep leftover COT dust
     const cotCurrency = ChaindataMap.get(
@@ -337,7 +342,7 @@ class DestinationSwapHandler {
       options.cache.addAllowanceQuery({
         chainID: this.destinationData.chainId,
         contractAddress: convertToEVMAddress(cotCurrency.tokenAddress),
-        owner: options.address.ephemeral,
+        owner: this.destinationData.execution.address,
         spender: SWEEPER_ADDRESS,
       });
     }
@@ -346,8 +351,8 @@ class DestinationSwapHandler {
     if (this.destinationData.swap.gasSwap) {
       options.cache.addNativeAllowanceQuery({
         chainID: this.destinationData.chainId,
-        contractAddress: options.address.ephemeral,
-        owner: options.address.ephemeral,
+        contractAddress: this.destinationData.execution.address,
+        owner: this.destinationData.execution.address,
         spender: SWEEPER_ADDRESS,
       });
     }
@@ -357,15 +362,15 @@ class DestinationSwapHandler {
       if (isNativeAddress(outputAddress)) {
         options.cache.addNativeAllowanceQuery({
           chainID: this.destinationData.chainId,
-          contractAddress: options.address.ephemeral,
-          owner: options.address.ephemeral,
+          contractAddress: this.destinationData.execution.address,
+          owner: this.destinationData.execution.address,
           spender: SWEEPER_ADDRESS,
         });
       } else {
         options.cache.addAllowanceQuery({
           chainID: this.destinationData.chainId,
           contractAddress: outputAddress,
-          owner: options.address.ephemeral,
+          owner: this.destinationData.execution.address,
           spender: SWEEPER_ADDRESS,
         });
       }
@@ -373,24 +378,29 @@ class DestinationSwapHandler {
   }
 
   async createPermit() {
-    if (this.destinationData.eoaToEphemeral) {
+    await this.ensureDestinationAccount();
+
+    if (this.destinationData.eoaToDestinationAccount) {
       const txs = await createPermitAndTransferFromTx({
-        amount: this.destinationData.eoaToEphemeral.amount,
+        amount: this.destinationData.eoaToDestinationAccount.amount,
         cache: this.options.cache,
         chain: this.options.chainList.getChainByID(this.destinationData.chainId)!,
-        contractAddress: this.destinationData.eoaToEphemeral.contractAddress,
-        disablePermit: isEip7702DelegatedCode(
-          this.options.cache.getCode({
-            address: this.options.address.eoa,
-            chainID: this.destinationData.chainId,
-          })
-        ),
+        contractAddress: this.destinationData.eoaToDestinationAccount.contractAddress,
+        disablePermit:
+          this.destinationData.execution.mode === '7702'
+            ? isEip7702DelegatedCode(
+                this.options.cache.getCode({
+                  address: this.options.address.eoa,
+                  chainID: this.destinationData.chainId,
+                })
+              )
+            : false,
         owner: this.options.address.eoa,
         ownerWallet: this.options.wallet.eoa,
         publicClient: this.options.publicClientList.get(this.destinationData.chainId),
-        spender: this.options.address.ephemeral,
+        spender: this.destinationData.execution.address,
       });
-      this.eoaToEphCalls = txs;
+      this.eoaToDestinationAccountCalls = txs;
     }
   }
 
@@ -433,6 +443,7 @@ class DestinationSwapHandler {
    * Executes swap + sweeper steps
    */
   private async executeSwap(metadata: SwapMetadata) {
+    await this.ensureDestinationAccount();
     await this.requoteIfRequired(false);
 
     const { swap } = this.destinationData;
@@ -440,8 +451,8 @@ class DestinationSwapHandler {
     let calls: Tx[] = [];
     let sweeperCalls: Tx[] = [];
 
-    if (this.eoaToEphCalls.length > 0) {
-      calls = calls.concat(this.eoaToEphCalls);
+    if (this.eoaToDestinationAccountCalls.length > 0) {
+      calls = calls.concat(this.eoaToDestinationAccountCalls);
     }
 
     // Check if token swap
@@ -460,7 +471,7 @@ class DestinationSwapHandler {
           chainID: this.destinationData.chainId,
           COTCurrencyID: this.options.cot.currencyID,
           receiver: this.options.address.eoa,
-          sender: this.options.address.ephemeral,
+          sender: this.destinationData.execution.address,
           tokenAddress: tokenSwap.quote.output.contractAddress,
         })
       );
@@ -481,7 +492,7 @@ class DestinationSwapHandler {
           chainID: this.destinationData.chainId,
           COTCurrencyID: this.options.cot.currencyID,
           receiver: this.options.address.eoa,
-          sender: this.options.address.ephemeral,
+          sender: this.destinationData.execution.address,
           tokenAddress: ZERO_ADDRESS,
         })
       );
@@ -497,11 +508,11 @@ class DestinationSwapHandler {
       chain: this.options.chainList.getChainByID(this.destinationData.chainId)!,
       chainList: this.options.chainList,
       COT: this.options.cot.currencyID,
+      destinationExecution: this.destinationData.execution,
       emitter: this.options.emitter,
-      ephemeralAddress: this.options.address.ephemeral,
-      ephemeralWallet: this.options.wallet.ephemeral,
       hasDestinationSwap: true,
       publicClientList: this.options.publicClientList,
+      signerWallet: this.options.wallet.ephemeral,
       vscClient: this.options.vscClient,
     });
 
@@ -537,30 +548,54 @@ class DestinationSwapHandler {
   }
 
   /**
-   * Sweep remaining ephemeral balances to EOA as a last resort fallback.
+   * Sweep remaining destination-account balances to EOA as a last resort fallback.
    */
   private async sweepToEoa() {
     const chain = this.options.chainList.getChainByID(this.destinationData.chainId)!;
-    await this.options.vscClient
-      .vscSBCTx([
-        await createSBCTxFromCalls({
-          cache: this.options.cache,
-          calls: createSweeperTxs({
-            cache: this.options.cache,
-            chainID: chain.id,
-            COTCurrencyID: this.options.cot.currencyID,
-            receiver: this.options.address.eoa,
-            sender: this.options.address.ephemeral,
-          }),
-          chainID: chain.id,
-          ephemeralAddress: this.options.address.ephemeral,
-          ephemeralWallet: this.options.wallet.ephemeral,
-          publicClient: this.options.publicClientList.get(chain.id),
-        }),
-      ])
-      .catch((e) => {
-        logger.error('error during destination sweep', e, { cause: 'DESTINATION_SWEEP_ERROR' });
-      });
+    await this.ensureDestinationAccount();
+    await performDestinationSwap({
+      actualAddress: this.options.address.eoa,
+      cache: this.options.cache,
+      calls: createSweeperTxs({
+        cache: this.options.cache,
+        chainID: chain.id,
+        COTCurrencyID: this.options.cot.currencyID,
+        receiver: this.options.address.eoa,
+        sender: this.destinationData.execution.address,
+      }),
+      chain,
+      chainList: this.options.chainList,
+      COT: this.options.cot.currencyID,
+      destinationExecution: this.destinationData.execution,
+      emitter: this.options.emitter,
+      hasDestinationSwap: false,
+      publicClientList: this.options.publicClientList,
+      signerWallet: this.options.wallet.ephemeral,
+      vscClient: this.options.vscClient,
+    }).catch((e) => {
+      logger.error('error during destination sweep', e, { cause: 'DESTINATION_SWEEP_ERROR' });
+    });
+  }
+
+  private async ensureDestinationAccount() {
+    if (this.accountEnsured || this.destinationData.execution.mode !== 'calibur_account') {
+      return;
+    }
+
+    await this.options.vscClient.vscEnsureCaliburAccount({
+      chainId: this.destinationData.chainId,
+      entryPoint: this.destinationData.execution.entryPoint!,
+      keys: [
+        {
+          keyType: 2,
+          publicKey: convertTo32Bytes(this.options.address.ephemeral),
+          settings: convertTo32Bytes(0n),
+        },
+      ],
+      owner: this.options.address.eoa,
+    });
+
+    this.accountEnsured = true;
   }
 
   /**

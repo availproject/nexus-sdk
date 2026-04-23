@@ -15,11 +15,13 @@ import { uniqBy } from 'es-toolkit';
 import { type Hex, toBytes } from 'viem';
 import {
   type BridgeAsset,
+  type DestinationExecution,
   type ExactInSwapInput,
   type ExactOutSwapInput,
   getLogger,
   type OraclePriceResponse,
   type Source,
+  SUPPORTED_CHAINS,
   type SwapData,
   SwapMode,
   type SwapParams,
@@ -36,7 +38,7 @@ import {
   getFeeStore,
   mulDecimals,
 } from '../core/utils';
-import { EADDRESS, EADDRESS_32_BYTES } from './constants';
+import { CALIBUR_DESTINATION_ENTRYPOINTS, EADDRESS, EADDRESS_32_BYTES } from './constants';
 import type { FlatBalance } from './data';
 import { createIntent, estimateCollectionFee } from './rff';
 import {
@@ -49,6 +51,37 @@ import {
 } from './utils';
 
 const logger = getLogger();
+
+const isCaliburAccountDestinationChain = (chainId: number) => chainId === SUPPORTED_CHAINS.HYPEREVM;
+
+export const resolveDestinationExecution = async ({
+  chainId,
+  eoaAddress,
+  ephemeralAddress,
+  needsDestinationSwap,
+  vscClient,
+}: {
+  chainId: number;
+  eoaAddress: Hex;
+  ephemeralAddress: Hex;
+  needsDestinationSwap: boolean;
+  vscClient: SwapParams['vscClient'];
+}): Promise<DestinationExecution> => {
+  if (!needsDestinationSwap || !isCaliburAccountDestinationChain(chainId)) {
+    return {
+      address: ephemeralAddress,
+      entryPoint: null,
+      mode: '7702',
+    };
+  }
+
+  const account = await vscClient.vscGetCaliburAccountAddress(chainId, eoaAddress);
+  return {
+    address: account.address,
+    entryPoint: CALIBUR_DESTINATION_ENTRYPOINTS[chainId] ?? null,
+    mode: 'calibur_account',
+  };
+};
 
 export const determineSwapRoute = async (
   input: SwapData,
@@ -283,9 +316,14 @@ const buildSwapRouteResult = ({
 });
 
 /** Creates a blank destination object seeded with the given inputAmount for both min and max. */
-const createDestination = (chainId: number, inputAmount: Decimal): SwapRoute['destination'] => ({
+const createDestination = (
+  chainId: number,
+  execution: DestinationExecution,
+  inputAmount: Decimal
+): SwapRoute['destination'] => ({
   chainId,
-  eoaToEphemeral: null,
+  eoaToDestinationAccount: null,
+  execution,
   getDstSwap: async () => null,
   swap: { creationTime: Date.now(), tokenSwap: null, gasSwap: null },
   inputAmount: { min: inputAmount, max: inputAmount },
@@ -506,7 +544,7 @@ const _exactOutRoute = async (
     );
   }
 
-  const userAddressInBytes = convertTo32Bytes(params.address.ephemeral);
+  const sourceAddressInBytes = convertTo32Bytes(params.address.ephemeral);
   const dstOmniversalChainID = new OmniversalChainID(Universe.ETHEREUM, input.toChainId);
 
   logger.debug('exact-out: fetched balances', { balances, input });
@@ -536,13 +574,25 @@ const _exactOutRoute = async (
   const needsTokenSwap =
     input.toAmount > 0n && !equalFold(input.toTokenAddress, dstChainCOTAddress);
   const needsGasSwap = !gasInCOT.isZero();
+  const destinationExecution = await resolveDestinationExecution({
+    chainId: input.toChainId,
+    eoaAddress: params.address.eoa,
+    ephemeralAddress: params.address.ephemeral,
+    needsDestinationSwap: needsTokenSwap || needsGasSwap,
+    vscClient: params.vscClient,
+  });
+  const destinationExecutionAddressInBytes = convertTo32Bytes(destinationExecution.address);
 
   // COT required for direct transfer when toToken IS COT. Zero when a swap resolves it.
   const cotTransferAmount = needsTokenSwap
     ? new Decimal(0)
     : divDecimals(input.toAmount, dstChainCOT.decimals);
 
-  const destination = createDestination(input.toChainId, cotTransferAmount.add(gasInCOT));
+  const destination = createDestination(
+    input.toChainId,
+    destinationExecution,
+    cotTransferAmount.add(gasInCOT)
+  );
 
   let originalMax: Decimal | null = null;
   const getDstSwap = async (): Promise<DestinationSwap> => {
@@ -553,7 +603,7 @@ const _exactOutRoute = async (
     const [tokenSwap, gasSwap] = await Promise.all([
       needsTokenSwap
         ? determineDestinationSwaps(
-            userAddressInBytes,
+            destinationExecutionAddressInBytes,
             {
               chainID: dstOmniversalChainID,
               amountRaw: BigInt(input.toAmount),
@@ -564,7 +614,7 @@ const _exactOutRoute = async (
         : null,
       needsGasSwap
         ? destinationSwapWithExactIn(
-            userAddressInBytes,
+            destinationExecutionAddressInBytes,
             dstOmniversalChainID,
             mulDecimals(gasInCOT, dstChainCOT.decimals),
             EADDRESS_32_BYTES,
@@ -663,7 +713,7 @@ const _exactOutRoute = async (
   });
 
   const { quoteResponses: sourceSwapQuotes, usedCOTs } = await autoSelectSourcesV2(
-    userAddressInBytes,
+    sourceAddressInBytes,
     toAggregatorInputs(sortedBalances),
     sourceSwapOutputRequired,
     params.aggregators
@@ -687,7 +737,7 @@ const _exactOutRoute = async (
     dstChainCOT.decimals
   );
 
-  destination.eoaToEphemeral = dstEOAToEphTx;
+  destination.eoaToDestinationAccount = dstEOAToEphTx;
 
   const isBridgeRequired = !(
     sourceSwapQuotes.every((q) => q.chainID === input.toChainId) &&
@@ -703,6 +753,7 @@ const _exactOutRoute = async (
       assets: bridgeAssets,
       chainID: input.toChainId,
       decimals: dstChainCOT.decimals,
+      recipientAddress: destinationExecution.address,
       tokenAddress: convertToEVMAddress(dstChainCOT.tokenAddress),
     };
     const intentResponse = createIntent({
@@ -710,7 +761,7 @@ const _exactOutRoute = async (
       assets: bridgeAssets,
       feeStore,
       output: pendingBridge,
-      address: params.address.ephemeral,
+      address: pendingBridge.recipientAddress,
     });
     bridgeInput = { ...pendingBridge, estimatedFees: intentResponse.intent.fees };
   }
@@ -746,10 +797,11 @@ export type SwapRoute = {
   bridge: BridgeInput;
   destination: {
     chainId: number;
-    eoaToEphemeral: {
+    eoaToDestinationAccount: {
       amount: bigint;
       contractAddress: Hex;
     } | null;
+    execution: DestinationExecution;
     inputAmount: { min: Decimal; max: Decimal }; // This is input of tokenSwap + gasSwap + buffer
     swap: DestinationSwap;
     getDstSwap: () => Promise<DestinationSwap | null>;
@@ -785,6 +837,7 @@ type PendingBridgeInput = {
   assets: BridgeAsset[];
   chainID: number;
   decimals: number;
+  recipientAddress: Hex;
   tokenAddress: `0x${string}`;
 };
 
@@ -838,7 +891,7 @@ const _exactInRoute = async (
   );
 
   const dstOmniversalChainID = new OmniversalChainID(Universe.ETHEREUM, input.toChainId);
-  const userAddressInBytes = convertTo32Bytes(params.address.ephemeral);
+  const sourceAddressInBytes = convertTo32Bytes(params.address.ephemeral);
 
   const bridgeAssets: BridgeAsset[] = [];
 
@@ -881,7 +934,7 @@ const _exactInRoute = async (
   let sourceSwaps: QuoteResponse[] = [];
   if (isSrcSwapRequired) {
     const response = await liquidateInputHoldings(
-      userAddressInBytes,
+      sourceAddressInBytes,
       toAggregatorInputs(srcBalances),
       params.aggregators
     );
@@ -934,6 +987,7 @@ const _exactInRoute = async (
       assets: bridgeAssets,
       chainID: input.toChainId,
       decimals: dstChainCOT.decimals,
+      recipientAddress: params.address.ephemeral,
       tokenAddress: convertToEVMAddress(dstChainCOT.tokenAddress),
       estimatedFees: createIntent({
         dstChain,
@@ -959,17 +1013,32 @@ const _exactInRoute = async (
     Decimal.ROUND_FLOOR
   );
 
-  const destination = createDestination(input.toChainId, dstSwapInputAmountInDecimal);
-
   const needsDstSwap = !equalFold(input.toTokenAddress, dstChainCOTAddress);
+  const destinationExecution = await resolveDestinationExecution({
+    chainId: input.toChainId,
+    eoaAddress: params.address.eoa,
+    ephemeralAddress: params.address.ephemeral,
+    needsDestinationSwap: needsDstSwap,
+    vscClient: params.vscClient,
+  });
+  const destinationExecutionAddressInBytes = convertTo32Bytes(destinationExecution.address);
+  const destination = createDestination(
+    input.toChainId,
+    destinationExecution,
+    dstSwapInputAmountInDecimal
+  );
+
+  if (bridgeInput) {
+    bridgeInput.recipientAddress = destinationExecution.address;
+  }
 
   // If dst token isn't COT and user holds COT on the dst chain,
-  // that COT must be moved from EOA → ephemeral for the destination swap.
+  // that COT must be moved from EOA → destination execution account for the destination swap.
   const dstChainCOTSource = cotSources.find((c) =>
     equalFold(convertToEVMAddress(c.tokenAddress), dstChainCOTAddress)
   );
   if (needsDstSwap && dstChainCOTSource) {
-    destination.eoaToEphemeral = {
+    destination.eoaToDestinationAccount = {
       amount: mulDecimals(dstChainCOTSource.amount, dstChainCOTSource.decimals),
       contractAddress: dstChainCOTAddress,
     };
@@ -979,7 +1048,7 @@ const _exactInRoute = async (
     let tokenSwap = null;
     if (needsDstSwap) {
       tokenSwap = await destinationSwapWithExactIn(
-        userAddressInBytes,
+        destinationExecutionAddressInBytes,
         dstOmniversalChainID,
         mulDecimals(dstSwapInputAmountInDecimal, dstChainCOT.decimals),
         convertTo32Bytes(input.toTokenAddress),

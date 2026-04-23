@@ -13,9 +13,11 @@ import type Long from 'long';
 import { pack, unpack } from 'msgpackr';
 import { bytesToBigInt, bytesToNumber, type Hex, toHex } from 'viem';
 import {
+  type CaliburExecuteTx,
   type Chain,
   type ChainListType,
   type CosmosQueryClient,
+  type EnsureCaliburAccountInput,
   type FeeStoreData,
   getLogger,
   type OraclePriceResponse,
@@ -28,6 +30,7 @@ import {
 import { Errors } from '../errors';
 import {
   convertAddressByUniverse,
+  convertTo32Bytes,
   convertToHexAddressByUniverse,
   divDecimals,
   equalFold,
@@ -75,9 +78,34 @@ type VSCCreateRFFResponse =
       status: 0x1a; // could not collect
     };
 
+type CaliburAccountAddressResponse = {
+  address: Bytes;
+  bootstrapped: boolean;
+  deployed: boolean;
+  deployer: Bytes;
+  owner: Bytes;
+  salt: Bytes;
+  universe: Universe;
+};
+
+type EnsureCaliburAccountResponse = CaliburAccountAddressResponse & {
+  bootstrap_tx_hash: Bytes;
+  deploy_tx_hash: Bytes;
+};
+
+type TransactionHashResponse = {
+  tx_hash: Bytes;
+};
+
 const PAGE_LIMIT = 100;
 const logger = getLogger();
 const decoder = new TextDecoder('utf-8');
+const maybeHexFromBytes = (value?: Bytes): Hex | null => {
+  if (!value || bytesToBigInt(value) === 0n) {
+    return null;
+  }
+  return toHex(value);
+};
 
 const createCosmosQueryClient = async ({
   cosmosRestUrl,
@@ -665,6 +693,57 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
           signal: controller.signal,
         }
       );
+    },
+    vscGetCaliburAccountAddress: async (chainId: number, owner: Hex) => {
+      const response = await instance.post<CaliburAccountAddressResponse>(
+        '/get-calibur-account-address',
+        {
+          chain_id: convertTo32Bytes(chainId),
+          owner: convertTo32Bytes(owner),
+          universe: Universe.ETHEREUM,
+        }
+      );
+
+      return {
+        address: convertToHexAddressByUniverse(response.data.address, Universe.ETHEREUM),
+        bootstrapped: response.data.bootstrapped,
+        deployed: response.data.deployed,
+        deployer: convertToHexAddressByUniverse(response.data.deployer, Universe.ETHEREUM),
+        salt: toHex(response.data.salt),
+      };
+    },
+    vscEnsureCaliburAccount: async (input: EnsureCaliburAccountInput) => {
+      const response = await instance.post<EnsureCaliburAccountResponse>(
+        '/ensure-calibur-account',
+        {
+          chain_id: convertTo32Bytes(input.chainId),
+          entry_point: convertTo32Bytes(input.entryPoint),
+          keys: input.keys.map((key) => ({
+            key_type: key.keyType,
+            public_key: key.publicKey,
+            settings: key.settings,
+          })),
+          owner: convertTo32Bytes(input.owner),
+          universe: Universe.ETHEREUM,
+        }
+      );
+
+      return {
+        address: convertToHexAddressByUniverse(response.data.address, Universe.ETHEREUM),
+        bootstrapped: response.data.bootstrapped,
+        bootstrapTxHash: maybeHexFromBytes(response.data.bootstrap_tx_hash),
+        deployed: response.data.deployed,
+        deployTxHash: maybeHexFromBytes(response.data.deploy_tx_hash),
+        deployer: convertToHexAddressByUniverse(response.data.deployer, Universe.ETHEREUM),
+        salt: toHex(response.data.salt),
+      };
+    },
+    vscCreateCaliburExecuteTx: async (input: CaliburExecuteTx) => {
+      const response = await instance.post<TransactionHashResponse>(
+        '/create-calibur-execute-tx',
+        input
+      );
+      return [bytesToBigInt(input.chain_id), toHex(response.data.tx_hash)];
     },
     vscSBCTx: async (input: SBCTx[]) => {
       const ops: [bigint, Hex][] = [];

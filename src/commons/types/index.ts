@@ -16,7 +16,16 @@ import type { SUPPORTED_CHAINS } from '../constants';
 import type { FormatTokenBalanceOptions, FormattedParts } from '../utils/format';
 import type { BridgeStepType } from './bridge-steps';
 import type { SwapStepType } from './swap-steps';
-import type { SBCTx, Source, SuccessfulSwapResult, SwapIntent } from './swap-types';
+import type {
+  CaliburAccountAddress,
+  CaliburExecuteTx,
+  EnsureCaliburAccountInput,
+  EnsureCaliburAccountResult,
+  SBCTx,
+  Source,
+  SuccessfulSwapResult,
+  SwapIntent,
+} from './swap-types';
 
 type TokenInfo = {
   contractAddress: `0x${string}`;
@@ -856,6 +865,11 @@ type VSCClient = {
     msd: (s: { current: number; total: number; txHash: Hex; chainId: number }) => void,
     expectedCollections: { index: number; chainId: number }[]
   ) => Promise<void>;
+  vscGetCaliburAccountAddress: (chainId: number, owner: Hex) => Promise<CaliburAccountAddress>;
+  vscEnsureCaliburAccount: (
+    input: EnsureCaliburAccountInput
+  ) => Promise<EnsureCaliburAccountResult>;
+  vscCreateCaliburExecuteTx: (input: CaliburExecuteTx) => Promise<[bigint, `0x${string}`]>;
   vscSBCTx: (input: SBCTx[]) => Promise<[bigint, `0x${string}`][]>;
 };
 
