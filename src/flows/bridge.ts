@@ -1,0 +1,1157 @@
+import {
+  ChaindataMap,
+  ERC20ABI,
+  EVMVaultABI,
+  OmniversalChainID,
+  PermitVariant,
+  Universe,
+} from '@avail-project/ca-common';
+import Decimal from 'decimal.js';
+import { attemptAsync } from 'es-toolkit';
+import type Long from 'long';
+import { TronWeb } from 'tronweb';
+import {
+  ContractFunctionExecutionError,
+  createPublicClient,
+  encodeFunctionData,
+  type Hex,
+  hexToBytes,
+  type JsonRpcAccount,
+  maxUint256,
+  parseSignature,
+  type TransactionReceipt,
+  toHex,
+  UserRejectedRequestError,
+  webSocket,
+} from 'viem';
+import { createSteps } from '../bridge/steps';
+import {
+  BRIDGE_STEPS,
+  type BridgeStepType,
+  type Chain,
+  getLogger,
+  type IBridgeOptions,
+  type Intent,
+  NEXUS_EVENTS,
+  type onAllowanceHookSource,
+  type ReadableIntent,
+  type SetAllowanceInput,
+  type SourceTxs,
+  type SponsoredApprovalDataArray,
+  SUPPORTED_CHAINS,
+  type TokenInfo,
+} from '../commons';
+import { isNativeAddress } from '../core/constants';
+import { Errors } from '../core/errors';
+import { ERROR_CODES, NexusError } from '../core/nexusError';
+import {
+  convertGasToToken,
+  convertIntent,
+  convertTo32Bytes,
+  cosmosCreateRFF,
+  cosmosFillCheck,
+  createDepositDoubleCheckTx,
+  createExplorerTxURL,
+  createPublicClientWithFallback,
+  createRFFromIntent,
+  divDecimals,
+  equalFold,
+  type FeeStore,
+  getAllowances,
+  getBalancesForBridge,
+  getExplorerURL,
+  getFeeStore,
+  mulDecimals,
+  removeIntentHashFromStore,
+  requestTimeout,
+  retrieveAddress,
+  signPermitForAddressAndValue,
+  storeIntentHashToStore,
+  switchChain,
+  UserAssets,
+  waitForIntentFulfilment,
+  waitForTronDepositTxConfirmation,
+  waitForTxReceipt,
+  // createDeadlineFromNow,
+} from '../core/utils';
+
+type Params = {
+  recipient?: Hex;
+  dstChain: Chain;
+  dstToken: TokenInfo;
+  tokenAmount: bigint;
+  nativeAmount: bigint;
+  sourceChains: number[];
+};
+
+const logger = getLogger();
+
+class BridgeHandler {
+  protected steps: BridgeStepType[] = [];
+  protected params: Required<Params>;
+  constructor(
+    params: Params,
+    readonly options: IBridgeOptions
+  ) {
+    this.params = {
+      ...params,
+      recipient: params.recipient ?? retrieveAddress(params.dstChain.universe, options),
+    };
+    console.log({ params: this.params, options });
+  }
+
+  public async simulate() {
+    const intent = await this.buildIntent(this.params.sourceChains, false);
+    return {
+      intent: convertIntent(intent, this.params.dstToken, this.options.chainList),
+      token: this.params.dstToken,
+    };
+  }
+
+  private readonly buildIntent = async (
+    sourceChains: number[] = [],
+    shouldThrowOnInsufficientBalance = true
+  ) => {
+    const tProcessPreIntentSteps = logger.timer('process:preIntentSteps');
+
+    const tPreIntentStepsApi = logger.timer('preIntentSteps:API');
+    const [assets, oraclePrices, feeStore] = await Promise.all([
+      getBalancesForBridge({
+        vscClient: this.options.vscClient,
+        evmAddress: this.options.evm.address,
+        chainList: this.options.chainList,
+        tronAddress: this.options.tron?.address,
+      }),
+      this.options.cosmosQueryClient.fetchPriceOracle(),
+      getFeeStore(this.options.cosmosQueryClient),
+    ]);
+
+    logger.debug('Step 0: BuildIntent', {
+      assets,
+      oraclePrices,
+      feeStore,
+    });
+
+    tPreIntentStepsApi.end();
+    logger.debug('Step 1:', {
+      assets,
+      feeStore,
+      oraclePrices,
+    });
+
+    const tPreIntentStepsParse = logger.timer('preIntentSteps: Parse');
+
+    // Step 2: parse simulation results
+    const userAssets = new UserAssets(assets);
+    tPreIntentStepsParse.end();
+
+    const tPreIntentStepsCalcGas = logger.timer('preIntentSteps: CalculateGas');
+
+    const nativeAmountInDecimal = divDecimals(
+      this.params.nativeAmount,
+      this.params.dstChain.nativeCurrency.decimals
+    );
+
+    const tokenAmountInDecimal = divDecimals(
+      this.params.tokenAmount,
+      this.params.dstToken.decimals
+    );
+
+    const gasInToken = convertGasToToken(
+      this.params.dstToken,
+      oraclePrices,
+      this.params.dstChain.id,
+      this.params.dstChain.universe,
+      nativeAmountInDecimal
+    );
+
+    tPreIntentStepsCalcGas.end();
+
+    logger.debug('preIntent:1', {
+      gasInNative: nativeAmountInDecimal.toFixed(),
+      gasInToken: gasInToken.toFixed(),
+    });
+
+    // Step 4: create intent
+    const tPreIntentStepsCreateIntent = logger.timer('preIntentSteps: CreateIntent');
+    const intent = await this.createIntent({
+      amount: tokenAmountInDecimal,
+      assets: userAssets,
+      feeStore,
+      gas: nativeAmountInDecimal,
+      gasInToken,
+      sourceChains,
+      token: this.params.dstToken,
+      shouldThrowOnInsufficientBalance,
+    });
+    tPreIntentStepsCreateIntent.end();
+    tProcessPreIntentSteps.end();
+
+    return intent;
+  };
+
+  private filterInsufficientAllowanceSources(
+    intent: Intent,
+    allowances: Awaited<ReturnType<typeof getAllowances>>
+  ) {
+    const sources: onAllowanceHookSource[] = [];
+    for (const s of intent.sources) {
+      if (
+        s.chainID === intent.destination.chainID ||
+        isNativeAddress(s.universe, s.tokenContract)
+      ) {
+        continue;
+      }
+
+      const chain = this.options.chainList.getChainByID(s.chainID);
+      if (!chain) {
+        throw Errors.chainNotFound(s.chainID);
+      }
+
+      const token = this.options.chainList.getTokenByAddress(s.chainID, s.tokenContract);
+      if (!token) {
+        throw Errors.tokenNotSupported(s.tokenContract, s.chainID);
+      }
+
+      const requiredAllowance = mulDecimals(s.amount, token.decimals);
+      const currentAllowance = allowances[s.chainID] ?? 0n;
+
+      logger.debug('getUnallowedSources:1', {
+        currentAllowance: currentAllowance.toString(),
+        requiredAllowance: requiredAllowance.toString(),
+        token,
+      });
+
+      if (requiredAllowance > currentAllowance) {
+        const d = {
+          allowance: {
+            current: divDecimals(allowances[s.chainID], token.decimals).toFixed(token.decimals),
+            currentRaw: currentAllowance,
+            minimum: s.amount.toFixed(token.decimals),
+            minimumRaw: requiredAllowance,
+          },
+          chain: {
+            id: chain.id,
+            logo: chain.custom.icon,
+            name: chain.name,
+          },
+          token: {
+            contractAddress: token.contractAddress,
+            decimals: token.decimals,
+            logo: token.logo || '',
+            name: token.name,
+            symbol: token.symbol,
+          },
+        };
+        sources.push(d);
+      }
+    }
+    return sources;
+  }
+
+  public execute = async (
+    shouldRetryOnFailure = true
+  ): Promise<{
+    explorerURL: string;
+    intentID: Long;
+    intent: ReadableIntent;
+    sourceTxs: SourceTxs;
+  }> => {
+    try {
+      let intent = await this.buildIntent(this.params.sourceChains);
+
+      const allowances = await getAllowances(intent.allSources, this.options.chainList);
+
+      let insufficientAllowanceSources = this.filterInsufficientAllowanceSources(
+        intent,
+        allowances
+      );
+      this.createExpectedSteps(intent, insufficientAllowanceSources);
+
+      let accepted = false;
+      const refresh = async (sourceChains?: number[]) => {
+        if (accepted) {
+          logger.warn('Intent refresh called after acceptance');
+          return convertIntent(intent, this.params.dstToken, this.options.chainList);
+        }
+
+        intent = await this.buildIntent(sourceChains);
+        if (intent.isAvailableBalanceInsufficient) {
+          throw Errors.insufficientBalance();
+        }
+        insufficientAllowanceSources = this.filterInsufficientAllowanceSources(intent, allowances);
+        this.createExpectedSteps(intent, insufficientAllowanceSources);
+
+        return convertIntent(intent, this.params.dstToken, this.options.chainList);
+      };
+
+      // wait for intent acceptance hook
+      await new Promise((resolve, reject) => {
+        const allow = () => {
+          accepted = true;
+          return resolve('User allowed intent');
+        };
+
+        const deny = () => {
+          return reject(Errors.userDeniedIntent());
+        };
+
+        this.options.hooks.onIntent({
+          allow,
+          deny,
+          intent: convertIntent(intent, this.params.dstToken, this.options.chainList),
+          refresh,
+        });
+      });
+
+      this.markStepDone(BRIDGE_STEPS.INTENT_ACCEPTED);
+
+      const tProcessAllowanceHook = logger.timer('process:AllowanceHook');
+
+      // Step 5: set allowance if not set
+      await this.waitForOnAllowanceHook(insufficientAllowanceSources);
+      tProcessAllowanceHook.end();
+
+      // Step 6: Process intent
+      logger.debug('intent', { intent });
+
+      const response = await this.processRFF(intent);
+      if (response.retry) {
+        logger.debug('rff fee expired, going to rebuild intent...');
+        if (shouldRetryOnFailure) {
+          // If fee expired go back and rebuild intent if first time
+          return this.execute(false);
+        } else {
+          // Something else is wrong, retries probably wont fix it - so just throw
+          throw Errors.rFFFeeExpired();
+        }
+      }
+
+      const { explorerURL, intentID, requestHash, waitForDoubleCheckTx, sourceTxs } = response;
+
+      // Step 7: Wait for fill
+      storeIntentHashToStore(this.options.evm.address, intentID.toNumber());
+      await this.waitForFill(requestHash, intentID, waitForDoubleCheckTx);
+      removeIntentHashFromStore(this.options.evm.address, intentID.toNumber());
+
+      this.markStepDone(BRIDGE_STEPS.INTENT_FULFILLED);
+
+      if (this.params.dstChain.universe === Universe.ETHEREUM) {
+        await switchChain(this.options.evm.client, this.params.dstChain);
+      }
+
+      return {
+        explorerURL,
+        intentID,
+        intent: convertIntent(intent, this.params.dstToken, this.options.chainList),
+        sourceTxs,
+      };
+    } catch (error) {
+      logger.error('bridge: execute error', error);
+      throw error;
+    }
+  };
+
+  private async waitForFill(
+    requestHash: `0x${string}`,
+    intentID: Long,
+    waitForDoubleCheckTx: () => Promise<void>
+  ) {
+    waitForDoubleCheckTx();
+
+    const ac = new AbortController();
+    const promisesToRace = [
+      requestTimeout(3, ac),
+      cosmosFillCheck(intentID, this.options.cosmosQueryClient, ac),
+    ];
+
+    // Use eth_subscribe to read fill events if destination is EVM - usually the fastest
+    if (this.params.dstChain.universe === Universe.ETHEREUM) {
+      promisesToRace.push(
+        waitForIntentFulfilment(
+          createPublicClient({
+            transport: webSocket(this.params.dstChain.rpcUrls.default.webSocket[0]),
+          }),
+          this.options.chainList.getVaultContractAddress(this.params.dstChain.id),
+          requestHash,
+          ac
+        )
+      );
+    }
+    await Promise.race(promisesToRace);
+    logger.debug('Fill completed');
+  }
+
+  private async processRFF(intent: Intent): Promise<
+    | { retry: true }
+    | {
+        retry: false;
+        explorerURL: string;
+        intentID: Long;
+        requestHash: Hex;
+        waitForDoubleCheckTx: () => Promise<void>;
+        sourceTxs: SourceTxs;
+      }
+  > {
+    const { msgBasicCosmos, omniversalRFF, signatureData, sources, universes } =
+      await createRFFromIntent(intent, this.options, this.params.dstChain.universe);
+
+    this.markStepDone(BRIDGE_STEPS.INTENT_HASH_SIGNED);
+
+    logger.debug('processRFF:3', { msgBasicCosmos });
+
+    const intentID = await cosmosCreateRFF({
+      address: this.options.cosmos.address,
+      msg: msgBasicCosmos,
+      client: this.options.cosmos.client,
+    });
+
+    const explorerURL = getExplorerURL(this.options.intentExplorerUrl, intentID);
+    this.markStepDone(BRIDGE_STEPS.INTENT_SUBMITTED(explorerURL, intentID.toNumber()));
+
+    const tokenCollections: { index: number; chainId: number }[] = [];
+    for (const [i, s] of sources.entries()) {
+      if (!isDeposit(s.universe, s.tokenAddress)) {
+        tokenCollections.push({ index: i, chainId: Number(s.chainID) });
+      }
+    }
+
+    const sourceTxs: {
+      chain: {
+        id: number;
+        name: string;
+        logo: string;
+      };
+      hash: Hex;
+      explorerUrl: string;
+    }[] = [];
+
+    const evmDeposits: Promise<unknown>[] = [];
+    const tronDeposits: Promise<unknown>[] = [];
+
+    const evmSignatureData = signatureData.find((d) => d.universe === Universe.ETHEREUM);
+
+    if (!evmSignatureData && universes.has(Universe.ETHEREUM)) {
+      throw Errors.internal('ethereum in universe list but no signature data present');
+    }
+
+    const tronSignatureData = signatureData.find((d) => d.universe === Universe.TRON);
+
+    if (!tronSignatureData && universes.has(Universe.TRON)) {
+      throw Errors.internal('tron in universe list but no signature data present');
+    }
+
+    const doubleCheckTxs = [];
+
+    for (const [i, s] of sources.entries()) {
+      const chain = this.options.chainList.getChainByID(Number(s.chainID));
+      if (!chain) {
+        throw Errors.chainNotFound(s.chainID);
+      }
+
+      if (s.universe === Universe.ETHEREUM && isNativeAddress(s.universe, s.tokenAddress)) {
+        await switchChain(this.options.evm.client, chain);
+
+        const publicClient = createPublicClientWithFallback(chain);
+
+        const { request } = await publicClient.simulateContract({
+          abi: EVMVaultABI,
+          account: this.options.evm.address,
+          address: this.options.chainList.getVaultContractAddress(chain.id),
+          args: [omniversalRFF.asEVMRFF(), toHex(evmSignatureData!.signature), BigInt(i)],
+          chain: chain,
+          functionName: 'deposit',
+          value: s.valueRaw,
+        });
+        const hash = await this.options.evm.client.writeContract(request);
+        this.markStepDone(BRIDGE_STEPS.INTENT_DEPOSIT_REQUEST(i + 1, s.value, chain));
+        sourceTxs.push({
+          chain: {
+            id: chain.id,
+            name: chain.name,
+            logo: chain.custom.icon,
+          },
+          hash,
+          explorerUrl: createExplorerTxURL(hash, chain.blockExplorers!.default.url),
+        });
+        evmDeposits.push(waitForTxReceipt(hash, publicClient));
+      } else if (s.universe === Universe.TRON) {
+        const provider = new TronWeb({
+          fullHost: chain.rpcUrls.default.grpc![0],
+        });
+        const vaultContractAddress = this.options.chainList.getVaultContractAddress(
+          Number(s.chainID)
+        );
+        const txWrap = await provider.transactionBuilder.triggerSmartContract(
+          TronWeb.address.fromHex(vaultContractAddress),
+          '',
+          {
+            txLocal: true,
+            input: encodeFunctionData({
+              abi: EVMVaultABI,
+              functionName: 'deposit',
+              args: [omniversalRFF.asEVMRFF(), toHex(tronSignatureData!.signature), BigInt(i)],
+            }),
+          },
+          [],
+          TronWeb.address.fromHex(this.options.tron!.address)
+        );
+
+        const signedTx = await this.options.tron!.adapter.signTransaction(txWrap.transaction);
+
+        logger.debug('tron deposit signTransaction result', {
+          signedTx,
+        });
+
+        if (!this.options.tron!.adapter.isMobile) {
+          const txResult = await provider.trx.sendRawTransaction(signedTx);
+
+          logger.debug('tron deposit tx result', {
+            txResult,
+          });
+          if (!txResult.result) {
+            throw Errors.tronDepositFailed(txResult);
+          }
+        }
+
+        tronDeposits.push(
+          (async () => {
+            await waitForTronDepositTxConfirmation(
+              tronSignatureData!.requestHash,
+              vaultContractAddress,
+              provider,
+              this.options.tron!.address as Hex
+            );
+          })()
+        );
+      }
+      doubleCheckTxs.push(
+        createDepositDoubleCheckTx(convertTo32Bytes(chain.id), this.options.cosmos, intentID)
+      );
+    }
+
+    if (evmDeposits.length || tronDeposits.length) {
+      await Promise.all([Promise.all(evmDeposits), Promise.all(tronDeposits)]);
+      this.markStepDone(BRIDGE_STEPS.INTENT_DEPOSITS_CONFIRMED);
+    }
+
+    logger.debug('PostIntentSubmission: Intent ID', {
+      id: intentID.toNumber(),
+    });
+
+    if (tokenCollections.length > 0) {
+      const markCollectionDone = (params: {
+        current: number;
+        total: number;
+        txHash: Hex;
+        chainId: number;
+      }) => {
+        const chain = this.options.chainList.getChainByID(params.chainId);
+        if (!chain) {
+          logger.debug('MarkCollectionDone: chain not found?', {
+            chainId: params.chainId,
+          });
+          return;
+        }
+        const explorerUrl = createExplorerTxURL(params.txHash, chain.blockExplorers!.default.url);
+        sourceTxs.push({
+          chain: {
+            id: chain.id,
+            name: chain.name,
+            logo: chain.custom.icon,
+          },
+          hash: params.txHash,
+          explorerUrl: explorerUrl,
+        });
+        this.markStepDone(
+          BRIDGE_STEPS.INTENT_COLLECTION(params.current, params.total, params.txHash, explorerUrl)
+        );
+      };
+      logger.debug('processRFF', {
+        intentID: intentID.toString(),
+        message: 'going to create RFF',
+        tokenCollections,
+      });
+      try {
+        await this.options.vscClient.vscCreateRFF(intentID, markCollectionDone, tokenCollections);
+        this.markStepDone(BRIDGE_STEPS.INTENT_COLLECTION_COMPLETE);
+      } catch (e) {
+        logger.debug('vscCreateRFF', {
+          'e instanceof NexusError?': e instanceof NexusError,
+          error: e,
+        });
+        if (e instanceof NexusError && e.code === ERROR_CODES.RFF_FEE_EXPIRED) {
+          // Send back to process again
+          return { retry: true };
+        }
+        throw e;
+      }
+    } else {
+      logger.debug('processRFF', {
+        message: 'going to publish RFF',
+      });
+      await this.options.vscClient.vscPublishRFF(intentID);
+    }
+
+    const destinationSigData = signatureData.find(
+      (s) => s.universe === intent.destination.universe
+    );
+
+    if (!destinationSigData) {
+      throw Errors.destinationRequestHashNotFound();
+    }
+
+    return {
+      retry: false,
+      explorerURL,
+      intentID,
+      sourceTxs,
+      requestHash: destinationSigData.requestHash,
+      waitForDoubleCheckTx: waitForDoubleCheckTx(doubleCheckTxs),
+    };
+  }
+
+  private async setAllowances(input: Array<SetAllowanceInput>) {
+    const originalChain = this.params.dstChain.id;
+    logger.debug('setAllowances', { originalChain, input });
+
+    const sponsoredApprovals: SponsoredApprovalDataArray = [];
+    const unsponsoredApprovals: Promise<TransactionReceipt>[] = [];
+    const sponsoredSourcesByChain = new Map<number, SetAllowanceInput[]>();
+
+    try {
+      for (const source of input) {
+        const chain = this.options.chainList.getChainByID(source.chainID);
+        if (!chain) {
+          throw Errors.chainNotFound(source.chainID);
+        }
+
+        if (chain.universe !== Universe.ETHEREUM) {
+          throw Errors.internal('Allowance approvals are only supported for Ethereum chains', {
+            chainId: source.chainID,
+            universe: chain.universe,
+          });
+        }
+
+        await switchChain(this.options.evm.client, chain);
+        const publicClient = createPublicClientWithFallback(chain);
+
+        const vc = this.options.chainList.getVaultContractAddress(chain.id);
+
+        const chainId = new OmniversalChainID(chain.universe, source.chainID);
+        const chainDatum = ChaindataMap.get(chainId);
+        if (!chainDatum) {
+          throw Errors.internal('Chain data not found', {
+            chainId: source.chainID,
+            universe: chain.universe,
+          });
+        }
+
+        const currency = chainDatum.CurrencyMap.get(convertTo32Bytes(source.tokenContract));
+        if (!currency) {
+          throw Errors.internal('currency not found', {
+            chainId: source.chainID,
+            tokenContractAddress: source.tokenContract,
+          });
+        }
+
+        if (
+          currency.permitVariant === PermitVariant.Unsupported ||
+          chain.id === SUPPORTED_CHAINS.ETHEREUM
+        ) {
+          const { chain: approvalChain, waitReceipt } = await this.createEvmDirectApproval(source);
+          unsponsoredApprovals.push(
+            waitReceipt.then((receipt) => {
+              this.markStepDone(BRIDGE_STEPS.ALLOWANCE_APPROVAL_MINED(approvalChain));
+              return receipt;
+            })
+          );
+        } else {
+          const account: JsonRpcAccount = {
+            address: this.options.evm.address,
+            type: 'json-rpc',
+          };
+
+          const signed = parseSignature(
+            await signPermitForAddressAndValue(
+              currency,
+              this.options.evm.client,
+              publicClient,
+              account,
+              vc,
+              source.amount
+            ).catch((e) => {
+              if (e instanceof ContractFunctionExecutionError) {
+                const isUserRejectedRequestError =
+                  e.walk((e) => e instanceof UserRejectedRequestError) instanceof
+                  UserRejectedRequestError;
+                if (isUserRejectedRequestError) {
+                  throw Errors.userRejectedAllowance();
+                }
+              }
+              throw e;
+            })
+          );
+
+          this.markStepDone(BRIDGE_STEPS.ALLOWANCE_APPROVAL_REQUEST(chain));
+
+          this.addSponsoredSource(sponsoredSourcesByChain, source);
+          sponsoredApprovals.push({
+            address: convertTo32Bytes(account.address),
+            chain_id: chainDatum.ChainID32,
+            operations: [
+              {
+                sig_r: hexToBytes(signed.r),
+                sig_s: hexToBytes(signed.s),
+                sig_v: signed.yParity < 27 ? signed.yParity + 27 : signed.yParity,
+                token_address: currency.tokenAddress,
+                value: convertTo32Bytes(source.amount),
+                variant: currency.permitVariant === PermitVariant.PolygonEMT ? 2 : 1,
+              },
+            ],
+            universe: chainDatum.Universe,
+          });
+        }
+      }
+
+      if (sponsoredApprovals.length) {
+        logger.debug('setAllowances:sponsoredApprovals', {
+          sponsoredApprovals,
+        });
+        const [createSponsoredApprovalsErr, sponsoredResult] = await attemptAsync(() =>
+          this.options.vscClient.vscCreateSponsoredApprovals(sponsoredApprovals)
+        );
+        const approvalHashes = sponsoredResult?.approvals ?? [];
+        const failedSponsoredChainIds = new Set<number>(sponsoredResult?.failedChainIds ?? []);
+
+        if (createSponsoredApprovalsErr) {
+          logger.warn(
+            'setAllowances: sponsored approvals failed, falling back to direct approvals',
+            createSponsoredApprovalsErr
+          );
+          await this.fallbackToDirectApprovals(
+            [...sponsoredSourcesByChain.values()].flat(),
+            unsponsoredApprovals
+          );
+        } else {
+          await Promise.all(
+            approvalHashes.map(async (approval) => {
+              const chain = this.options.chainList.getChainByID(approval.chainId);
+              if (!chain) {
+                throw Errors.chainNotFound(approval.chainId);
+              }
+
+              const publicClient = createPublicClientWithFallback(chain);
+              const [waitForApprovalErr] = await attemptAsync(() =>
+                waitForTxReceipt(approval.hash, publicClient)
+              );
+
+              if (waitForApprovalErr) {
+                logger.warn('setAllowances: sponsored approval mining failed', {
+                  approval,
+                  error: waitForApprovalErr,
+                });
+                failedSponsoredChainIds.add(approval.chainId);
+                return;
+              }
+
+              BRIDGE_STEPS.ALLOWANCE_APPROVAL_MINED({
+                id: approval.chainId,
+              });
+            })
+          );
+
+          if (failedSponsoredChainIds.size) {
+            logger.warn(
+              'setAllowances: falling back to direct approvals for failed sponsored chains',
+              {
+                chainIds: [...failedSponsoredChainIds],
+              }
+            );
+            const failedSources: SetAllowanceInput[] = [];
+            for (const chainId of failedSponsoredChainIds) {
+              failedSources.push(...(sponsoredSourcesByChain.get(chainId) ?? []));
+            }
+
+            await this.fallbackToDirectApprovals(failedSources, unsponsoredApprovals);
+          }
+        }
+      }
+      if (unsponsoredApprovals.length) {
+        await Promise.all(unsponsoredApprovals);
+      }
+      this.markStepDone(BRIDGE_STEPS.ALLOWANCE_COMPLETE);
+    } catch (e) {
+      logger.error('Error setting allowances', e, { cause: 'ALLOWANCE_SETTING_ERROR' });
+      throw e;
+    } finally {
+      if (this.params.dstChain.universe === Universe.ETHEREUM) {
+        await switchChain(this.options.evm.client, this.params.dstChain);
+      }
+    }
+  }
+
+  private addSponsoredSource(
+    sponsoredSourcesByChain: Map<number, SetAllowanceInput[]>,
+    source: SetAllowanceInput
+  ) {
+    const current = sponsoredSourcesByChain.get(source.chainID);
+    if (current) {
+      current.push(source);
+    } else {
+      sponsoredSourcesByChain.set(source.chainID, [source]);
+    }
+  }
+
+  private async createEvmDirectApproval(
+    source: SetAllowanceInput
+  ): Promise<{ chain: Chain; waitReceipt: Promise<TransactionReceipt> }> {
+    const chain = this.options.chainList.getChainByID(source.chainID);
+    if (!chain) {
+      throw Errors.chainNotFound(source.chainID);
+    }
+
+    if (chain.universe !== Universe.ETHEREUM) {
+      throw Errors.internal('Allowance approvals are only supported for Ethereum chains', {
+        chainId: source.chainID,
+        universe: chain.universe,
+      });
+    }
+
+    const publicClient = createPublicClientWithFallback(chain);
+    const vc = this.options.chainList.getVaultContractAddress(chain.id);
+
+    await switchChain(this.options.evm.client, chain);
+    const hash = await this.options.evm.client
+      .writeContract({
+        abi: ERC20ABI,
+        account: this.options.evm.address,
+        address: source.tokenContract,
+        args: [vc, BigInt(source.amount)],
+        chain,
+        functionName: 'approve',
+      })
+      .catch((e) => {
+        if (e instanceof ContractFunctionExecutionError) {
+          const isUserRejectedRequestError =
+            e.walk((err) => err instanceof UserRejectedRequestError) instanceof
+            UserRejectedRequestError;
+          if (isUserRejectedRequestError) {
+            throw Errors.userRejectedAllowance();
+          }
+        }
+        throw e;
+      });
+
+    this.markStepDone(BRIDGE_STEPS.ALLOWANCE_APPROVAL_REQUEST(chain));
+    return { chain, waitReceipt: waitForTxReceipt(hash, publicClient) };
+  }
+
+  private async fallbackToDirectApprovals(
+    sources: SetAllowanceInput[],
+    unsponsoredApprovals: Promise<TransactionReceipt>[]
+  ) {
+    for (const source of sources) {
+      const { chain, waitReceipt } = await this.createEvmDirectApproval(source);
+      unsponsoredApprovals.push(
+        waitReceipt.then((receipt) => {
+          this.markStepDone(BRIDGE_STEPS.ALLOWANCE_APPROVAL_MINED(chain));
+          return receipt;
+        })
+      );
+    }
+  }
+
+  private async waitForOnAllowanceHook(sources: onAllowanceHookSource[]): Promise<boolean> {
+    if (sources.length === 0) {
+      return false;
+    }
+
+    await new Promise((resolve, reject) => {
+      const allow = (allowances: Array<'max' | 'min' | bigint | string>) => {
+        if (sources.length !== allowances.length) {
+          return reject(Errors.invalidAllowance(sources.length, allowances.length));
+        }
+
+        logger.debug('CA:BaseRequest:Allowances', {
+          allowances,
+          sources,
+        });
+        const val: Array<SetAllowanceInput> = [];
+        for (let i = 0; i < sources.length; i++) {
+          const source = sources[i];
+          const allowance = allowances[i];
+          let amount = 0n;
+          if (typeof allowance === 'string' && equalFold(allowance, 'max')) {
+            amount = maxUint256;
+          } else if (typeof allowance === 'string' && equalFold(allowance, 'min')) {
+            amount = source.allowance.minimumRaw;
+          } else if (typeof allowance === 'string') {
+            amount = mulDecimals(allowance, source.token.decimals);
+          } else {
+            amount = allowance;
+          }
+          val.push({
+            amount,
+            chainID: source.chain.id,
+            tokenContract: source.token.contractAddress,
+          });
+        }
+        this.setAllowances(val).then(resolve).catch(reject);
+      };
+
+      const deny = () => {
+        return reject(Errors.userRejectedAllowance());
+      };
+
+      this.options.hooks.onAllowance({
+        allow,
+        deny,
+        sources,
+      });
+    });
+
+    return true;
+  }
+
+  private createExpectedSteps(
+    intent: Intent,
+    insufficientAllowanceSources?: onAllowanceHookSource[]
+  ) {
+    this.steps = createSteps(intent, this.options.chainList, insufficientAllowanceSources);
+    if (this.options.emit) {
+      this.options.emit({ name: NEXUS_EVENTS.STEPS_LIST, args: this.steps });
+    }
+    logger.debug('BridgeSteps', this.steps);
+  }
+
+  private async createIntent(input: {
+    amount: Decimal;
+    assets: UserAssets;
+    feeStore: FeeStore;
+    gas: Decimal;
+    /** When false, sets isAvailableBalanceInsufficient flag instead of throwing. */
+    shouldThrowOnInsufficientBalance?: boolean;
+    gasInToken: Decimal;
+    sourceChains: number[];
+    token: TokenInfo;
+  }) {
+    const { amount, assets, feeStore, gas, gasInToken, token } = input;
+    const intent: Intent = {
+      allSources: [],
+      destination: {
+        amount: new Decimal('0'),
+        chainID: this.params.dstChain.id,
+        decimals: token.decimals,
+        gas: 0n,
+        tokenContract: token.contractAddress,
+        universe: this.params.dstChain.universe,
+      },
+      fees: {
+        caGas: '0',
+        collection: '0',
+        fulfilment: '0',
+        gasSupplied: input.gasInToken.toFixed(),
+        protocol: '0',
+        solver: '0',
+      },
+      isAvailableBalanceInsufficient: false,
+      sources: [],
+      recipientAddress: this.params.recipient,
+    };
+
+    const asset = assets.find(token.symbol);
+    if (!asset) {
+      throw Errors.assetNotFound(token.symbol);
+    }
+
+    const allSources = (await asset.iterate(this.options.chainList, this.params.dstChain.id)).map(
+      (v) => {
+        const chain = this.options.chainList.getChainByID(v.chainID);
+        if (!chain) {
+          throw Errors.chainNotFound(v.chainID);
+        }
+
+        return {
+          ...v,
+          amount: v.balance,
+          holderAddress: retrieveAddress(v.universe, this.options),
+        };
+      }
+    );
+
+    intent.allSources = allSources;
+
+    const destinationBalance = asset.getBalanceOnChain(
+      this.params.dstChain.id,
+      token.contractAddress
+    );
+
+    const borrow = amount;
+
+    const protocolFee = feeStore.calculateProtocolFee(borrow, this.params.dstChain);
+    intent.fees.protocol = protocolFee.toFixed();
+
+    let borrowWithFee = borrow.add(gasInToken).add(protocolFee);
+
+    logger.debug('createIntent:0', {
+      borrow: borrow.toFixed(),
+      borrowWithFee: borrowWithFee.toFixed(),
+      destinationBalance,
+      gasInToken: gasInToken.toFixed(),
+      protocolFee: protocolFee.toFixed(),
+    });
+
+    const fulfilmentFee = feeStore.calculateFulfilmentFee({
+      decimals: token.decimals,
+      destinationChainID: this.params.dstChain.id,
+      destinationTokenAddress: token.contractAddress,
+    });
+    logger.debug('createIntent:fee', {
+      fulfilmentFee: fulfilmentFee.toFixed(),
+      protocolFee: protocolFee.toFixed(),
+    });
+
+    intent.fees.fulfilment = fulfilmentFee.toFixed();
+
+    borrowWithFee = borrowWithFee.add(fulfilmentFee);
+
+    let accountedAmount = new Decimal(0);
+
+    const allowedSources = allSources.filter((b) => {
+      if (input.sourceChains.length === 0) {
+        return true;
+      }
+      return input.sourceChains.includes(b.chainID);
+    });
+
+    logger.debug('createIntent:1.1', { allowedSources });
+
+    for (const assetC of allowedSources) {
+      if (accountedAmount.greaterThanOrEqualTo(borrowWithFee)) {
+        break;
+      }
+
+      if (assetC.chainID === this.params.dstChain.id) {
+        continue;
+      }
+
+      // Keep fee accounting aligned with max-calculation path: skip
+      // sources that cannot contribute any amount after deposit deduction.
+      if (assetC.balance.lte(0)) {
+        continue;
+      }
+
+      // Now collectionFee is a fixed amount - applicable to all
+      const collectionFee = feeStore.calculateCollectionFee({
+        decimals: assetC.decimals,
+        sourceChainID: assetC.chainID,
+        sourceTokenAddress: assetC.tokenContract,
+      });
+
+      intent.fees.collection = collectionFee.add(intent.fees.collection).toFixed();
+      borrowWithFee = borrowWithFee.add(collectionFee);
+
+      const unaccountedAmount = borrowWithFee.minus(accountedAmount);
+
+      let borrowFromThisChain = new Decimal(assetC.balance).lessThanOrEqualTo(unaccountedAmount)
+        ? new Decimal(assetC.balance)
+        : unaccountedAmount;
+
+      logger.debug('createIntent:2.1', {
+        accountedAmount: accountedAmount.toFixed(),
+        asset: assetC,
+        balance: assetC.balance.toFixed(),
+        borrowFromThisChain: borrowFromThisChain.toFixed(),
+        unaccountedAmount: unaccountedAmount.toFixed(),
+      });
+
+      const solverFee = feeStore.calculateSolverFee({
+        borrowAmount: borrowFromThisChain,
+        decimals: assetC.decimals,
+        destinationChainID: this.params.dstChain.id,
+        destinationTokenAddress: token.contractAddress,
+        sourceChainID: assetC.chainID,
+        sourceTokenAddress: assetC.tokenContract,
+      });
+      intent.fees.solver = solverFee.add(intent.fees.solver).toFixed();
+
+      logger.debug('createIntent:loop', {
+        dstChainID: this.params.dstChain.id,
+        srcChainID: assetC.chainID,
+        srcBalance: assetC.balance.toFixed(),
+        collectionFee: collectionFee.toFixed(),
+        solverFee: solverFee.toFixed(),
+        accountedAmount: accountedAmount.toFixed(),
+        borrowWithFee: borrowWithFee.toFixed(),
+      });
+
+      borrowWithFee = borrowWithFee.add(solverFee);
+
+      const unaccountedBalance = borrowWithFee.minus(accountedAmount);
+
+      borrowFromThisChain = new Decimal(assetC.balance).lessThanOrEqualTo(unaccountedBalance)
+        ? new Decimal(assetC.balance)
+        : unaccountedBalance;
+
+      intent.sources.push({
+        amount: borrowFromThisChain,
+        chainID: assetC.chainID,
+        tokenContract: assetC.tokenContract,
+        universe: assetC.universe,
+        holderAddress: assetC.holderAddress,
+      });
+
+      accountedAmount = accountedAmount.add(borrowFromThisChain);
+    }
+
+    intent.destination.amount = borrow;
+
+    if (accountedAmount.lt(borrowWithFee)) {
+      if (input.shouldThrowOnInsufficientBalance !== false) {
+        throw Errors.insufficientBalance(
+          `required: ${borrowWithFee.toFixed()} ${
+            token.symbol
+          }, available: ${accountedAmount.toFixed()} ${token.symbol}`
+        );
+      }
+      intent.isAvailableBalanceInsufficient = true;
+    }
+
+    if (!gas.equals(0)) {
+      intent.destination.gas = mulDecimals(gas, this.params.dstChain.nativeCurrency.decimals);
+    }
+
+    logger.debug('createIntent:4', { intent });
+
+    return intent;
+  }
+
+  private readonly markStepDone = (step: BridgeStepType) => {
+    if (this.options.emit) {
+      const s = this.steps.find((s) => s.typeID === step.typeID);
+      if (s) {
+        this.options.emit({
+          name: NEXUS_EVENTS.STEP_COMPLETE,
+          args: step,
+        });
+      }
+    }
+  };
+}
+
+const isDeposit = (universe: Universe, tokenAddress: Hex) => {
+  if (universe === Universe.ETHEREUM) {
+    return isNativeAddress(universe, tokenAddress);
+  }
+
+  return true;
+};
+
+const waitForDoubleCheckTx = (input: Array<() => Promise<void>>) => {
+  return async () => {
+    await Promise.allSettled(input.map((i) => i()));
+  };
+};
+
+export default BridgeHandler;

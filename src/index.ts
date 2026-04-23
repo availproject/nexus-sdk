@@ -65,8 +65,7 @@ export {
   ERROR_CODES,
   NexusError,
   NexusErrorData,
-} from './sdk/ca-base/nexusError';
-export { sortSourcesByPriorityWithAsset as sortSourcesByPriority } from './sdk/ca-base/swap/sort';
+} from './core/nexusError';
 // Core SDK entry point - headless, no React dependencies
 export { NexusSDK } from './sdk/index';
 // Utility exports (direct access without sdk instance)
@@ -81,3 +80,4 @@ export {
   parseUnits,
   truncateAddress,
 } from './sdk/utils';
+export { sortSourcesByPriorityWithAsset as sortSourcesByPriority } from './swap/sort';

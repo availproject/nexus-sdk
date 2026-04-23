@@ -13,8 +13,8 @@ import {
   type SupportedChainsResult,
   truncateAddress as utilTruncateAddress,
 } from '../commons';
-import { getSwapSupportedChains } from './ca-base/swap/utils';
-import { getSupportedChains as fetchSupportedChains, getCoinbasePrices } from './ca-base/utils';
+import { getSupportedChains as fetchSupportedChains, getCoinbasePrices } from '../core/utils';
+import { getSwapSupportedChains } from '../swap/utils';
 
 // Stateless utility exports
 export const formatTokenBalance = commonsFormatTokenBalance;

@@ -1,7 +1,7 @@
 import type { Hex, PublicClient, TransactionReceipt, WalletClient } from 'viem';
 import { BRIDGE_STEPS, type Chain, NEXUS_EVENTS, type OnEventParam, type Tx } from '../commons';
-import { Errors } from '../sdk/ca-base/errors';
-import { switchChain, waitForTxReceipt } from '../sdk/ca-base/utils';
+import { Errors } from '../core/errors';
+import { switchChain, waitForTxReceipt } from '../core/utils';
 import { getAtomicBatchSupport } from './walletCapabilities';
 
 export type ExecuteFeeParams =

@@ -3,8 +3,8 @@ import type { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import type { SigningStargateClient } from '@cosmjs/stargate';
 import type Decimal from 'decimal.js';
 import type { Hex, PrivateKeyAccount, WalletClient } from 'viem';
-import type { FlatBalance } from '../../sdk/ca-base/swap/data';
-import type { SwapRoute } from '../../sdk/ca-base/swap/route';
+import type { FlatBalance } from '../../swap/data';
+import type { SwapRoute } from '../../swap/route';
 import type { ChainListType, NetworkConfig, OnEventParam, QueryClients, TokenInfo } from '../index';
 
 export type AuthorizationList = {

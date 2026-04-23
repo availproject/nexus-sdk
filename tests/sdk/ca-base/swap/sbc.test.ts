@@ -8,7 +8,7 @@ vi.mock('../../../../src/services/feeEstimation', () => ({
   finalizeFeeEstimates: finalizeFeeEstimatesMock,
 }));
 
-import { caliburExecute } from '../../../../src/sdk/ca-base/swap/sbc';
+import { caliburExecute } from '../../../../src/swap/sbc';
 
 describe('caliburExecute', () => {
   const estimateGasMock = vi.fn();

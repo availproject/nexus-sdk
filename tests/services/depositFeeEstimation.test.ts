@@ -10,7 +10,7 @@ vi.mock('../../src/services/feeEstimation', () => ({
   finalizeFeeEstimates: finalizeFeeEstimatesMock,
 }));
 
-vi.mock('../../src/sdk/ca-base/utils/contract.utils', () => ({
+vi.mock('../../src/core/utils/contract.utils', () => ({
   createPublicClientWithFallback: createPublicClientWithFallbackMock,
 }));
 
