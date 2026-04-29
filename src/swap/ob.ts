@@ -378,6 +378,10 @@ class DestinationSwapHandler {
   }
 
   async createPermit() {
+    if (this.destinationData.execution.mode === 'direct_eoa') {
+      return;
+    }
+
     await this.ensureDestinationAccount();
 
     if (this.destinationData.eoaToDestinationAccount) {
@@ -405,6 +409,12 @@ class DestinationSwapHandler {
   }
 
   async process(metadata: SwapMetadata) {
+    if (this.destinationData.execution.mode === 'direct_eoa') {
+      this.options.emitter.emit(SWAP_STEPS.SWAP_COMPLETE);
+      performance.mark('xcs-ops-end');
+      return;
+    }
+
     const chain = this.options.chainList.getChainByID(this.destinationData.chainId);
     if (!chain) {
       throw Errors.chainNotFound(this.destinationData.chainId);
@@ -582,14 +592,25 @@ class DestinationSwapHandler {
       return;
     }
 
+    // The factory path is bootstrap-once: both the user EOA and the ephemeral signing key are
+    // registered as admin keys at deployment time, and the VSC/bootstrapAuthority cannot rotate
+    // them through subsequent ensureAccount calls. The wrapper itself is not frozen, however —
+    // admin keys retain the ability to mutate keys/entry point on-chain by signing SBCs that
+    // target the wrapper with canonical Calibur's register/revoke/update/updateEntryPoint
+    // selectors. The trust boundary is the signing keys.
     await this.options.vscClient.vscEnsureCaliburAccount({
       chainId: this.destinationData.chainId,
       entryPoint: this.destinationData.execution.entryPoint!,
       keys: [
         {
           keyType: 2,
+          publicKey: convertTo32Bytes(this.options.address.eoa),
+          settings: convertTo32Bytes(1n << 200n),
+        },
+        {
+          keyType: 2,
           publicKey: convertTo32Bytes(this.options.address.ephemeral),
-          settings: convertTo32Bytes(0n),
+          settings: convertTo32Bytes(1n << 200n),
         },
       ],
       owner: this.options.address.eoa,

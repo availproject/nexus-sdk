@@ -65,9 +65,30 @@ describe('resolveDestinationExecution', () => {
 
     expect(vscClient.vscGetCaliburAccountAddress).not.toHaveBeenCalled();
     expect(result).toEqual({
-      address: '0x2222222222222222222222222222222222222222',
+      address: '0x1111111111111111111111111111111111111111',
       entryPoint: null,
-      mode: '7702',
+      mode: 'direct_eoa',
+    });
+  });
+
+  it('routes no-destination-execution transfers directly to the EOA on 7702 chains as well', async () => {
+    const vscClient = {
+      vscGetCaliburAccountAddress: vi.fn(),
+    } as Partial<VSCClient> as VSCClient;
+
+    const result = await resolveDestinationExecution({
+      chainId: SUPPORTED_CHAINS.ETHEREUM,
+      eoaAddress: '0x1111111111111111111111111111111111111111',
+      ephemeralAddress: '0x2222222222222222222222222222222222222222',
+      needsDestinationSwap: false,
+      vscClient,
+    });
+
+    expect(vscClient.vscGetCaliburAccountAddress).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      address: '0x1111111111111111111111111111111111111111',
+      entryPoint: null,
+      mode: 'direct_eoa',
     });
   });
 });

@@ -1440,6 +1440,12 @@ export const performDestinationSwap = async ({
   signerWallet: PrivateKeyAccount;
   vscClient: VSCClient;
 }) => {
+  if (destinationExecution.mode === 'direct_eoa') {
+    throw new Error(
+      'performDestinationSwap must not be called for direct_eoa destination execution'
+    );
+  }
+
   // If destination swap token is COT then calls is an empty array,
   // sweeper txs will send from destination execution account -> eoa, other cases it sweeps the dust
   const batchCalls = calls.concat(

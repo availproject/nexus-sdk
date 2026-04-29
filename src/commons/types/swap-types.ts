@@ -74,7 +74,7 @@ export type EnsureCaliburAccountResult = CaliburAccountAddress & {
 export type DestinationExecution = {
   address: Hex;
   entryPoint: Hex | null;
-  mode: '7702' | 'calibur_account';
+  mode: '7702' | 'calibur_account' | 'direct_eoa';
 };
 
 type BaseSwapInput = {

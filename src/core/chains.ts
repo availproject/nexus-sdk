@@ -1005,7 +1005,7 @@ const MAINNET_CHAINS: Chain[] = [
     universe: Universe.ETHEREUM,
   },
   {
-    swapSupported: false,
+    swapSupported: true,
     blockExplorers: {
       default: {
         name: 'Hyperscan',

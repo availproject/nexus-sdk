@@ -67,7 +67,15 @@ export const resolveDestinationExecution = async ({
   needsDestinationSwap: boolean;
   vscClient: SwapParams['vscClient'];
 }): Promise<DestinationExecution> => {
-  if (!needsDestinationSwap || !isCaliburAccountDestinationChain(chainId)) {
+  if (!needsDestinationSwap) {
+    return {
+      address: eoaAddress,
+      entryPoint: null,
+      mode: 'direct_eoa',
+    };
+  }
+
+  if (!isCaliburAccountDestinationChain(chainId)) {
     return {
       address: ephemeralAddress,
       entryPoint: null,
