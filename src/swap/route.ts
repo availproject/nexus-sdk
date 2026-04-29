@@ -533,7 +533,8 @@ const _exactOutRoute = async (
 
   let buffer = new Decimal(0);
 
-  const needsTokenSwap = !equalFold(input.toTokenAddress, dstChainCOTAddress);
+  const needsTokenSwap =
+    input.toAmount > 0n && !equalFold(input.toTokenAddress, dstChainCOTAddress);
   const needsGasSwap = !gasInCOT.isZero();
 
   // COT required for direct transfer when toToken IS COT. Zero when a swap resolves it.
