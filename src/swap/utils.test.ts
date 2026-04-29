@@ -2,7 +2,7 @@ import { Universe } from '@avail-project/ca-common';
 import { describe, expect, it, vi } from 'vitest';
 import { MAINNET_CHAIN_IDS } from '../commons';
 import type { FlatBalance } from './data';
-import { sortSourcesByPriority } from './utils';
+import { createPermitOnlyApprovalTx, sortSourcesByPriority } from './utils';
 
 vi.mock('../core/constants', () => ({
   getLogoFromSymbol: vi.fn(() => ''),
@@ -28,6 +28,64 @@ const createBalance = (
   universe: Universe.ETHEREUM,
   value: Number.parseFloat(amount) * priceUSD,
   logo: '',
+});
+
+describe('createPermitOnlyApprovalTx', () => {
+  it('signs an EIP-2612 permit with the explicit chain id and returns a Tx', async () => {
+    const publicClient = {
+      readContract: vi.fn(async ({ functionName }) => {
+        switch (functionName) {
+          case 'DOMAIN_SEPARATOR':
+            return `0x${'01'.repeat(32)}`;
+          case 'name':
+            return 'USD Coin';
+          case 'nonces':
+            return 7n;
+          case 'version':
+            return '2';
+          default:
+            throw new Error(`unexpected readContract ${functionName}`);
+        }
+      }),
+    };
+    const signerWallet = {
+      address: '0x2222222222222222222222222222222222222222',
+      signTypedData: vi.fn().mockResolvedValue(`0x${'11'.repeat(32)}${'22'.repeat(32)}1b`),
+    };
+
+    const tx = await createPermitOnlyApprovalTx({
+      amount: 1_000_000n,
+      chainId: 999,
+      contractAddress: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      owner: '0x2222222222222222222222222222222222222222',
+      publicClient: publicClient as never,
+      signerWallet: signerWallet as never,
+      spender: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+    });
+
+    expect(signerWallet.signTypedData).toHaveBeenCalledWith(
+      expect.objectContaining({
+        domain: expect.objectContaining({
+          chainId: 999n,
+          name: 'USD Coin',
+          verifyingContract: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          version: '2',
+        }),
+        message: expect.objectContaining({
+          owner: '0x2222222222222222222222222222222222222222',
+          spender: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+          value: 1_000_000n,
+        }),
+        primaryType: 'Permit',
+      })
+    );
+    expect(tx).toEqual(
+      expect.objectContaining({
+        to: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        value: 0n,
+      })
+    );
+  });
 });
 
 describe('sortSourcesByPriority', () => {

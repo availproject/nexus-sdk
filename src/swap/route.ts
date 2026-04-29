@@ -1,6 +1,8 @@
+import * as CaCommon from '@avail-project/ca-common';
 import {
   type Aggregator,
   autoSelectSourcesV2,
+  type Bytes,
   ChaindataMap,
   CurrencyID,
   destinationSwapWithExactIn,
@@ -12,16 +14,17 @@ import {
 } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
 import { uniqBy } from 'es-toolkit';
-import { type Hex, toBytes } from 'viem';
+import { type Hex, toBytes, toHex } from 'viem';
 import {
   type BridgeAsset,
+  type Chain,
   type DestinationExecution,
   type ExactInSwapInput,
   type ExactOutSwapInput,
   getLogger,
   type OraclePriceResponse,
   type Source,
-  SUPPORTED_CHAINS,
+  type SourceExecution,
   type SwapData,
   SwapMode,
   type SwapParams,
@@ -38,7 +41,7 @@ import {
   getFeeStore,
   mulDecimals,
 } from '../core/utils';
-import { CALIBUR_DESTINATION_ENTRYPOINTS, EADDRESS, EADDRESS_32_BYTES } from './constants';
+import { EADDRESS, EADDRESS_32_BYTES, requireCaliburEntryPoint } from './constants';
 import type { FlatBalance } from './data';
 import { createIntent, estimateCollectionFee } from './rff';
 import {
@@ -52,30 +55,21 @@ import {
 
 const logger = getLogger();
 
-const isCaliburAccountDestinationChain = (chainId: number) => chainId === SUPPORTED_CHAINS.HYPEREVM;
+export const requiresCaliburAccount = (chain: Chain | undefined): boolean =>
+  !!chain && chain.swapSupported && !chain.pectraUpgradeSupport;
 
-export const resolveDestinationExecution = async ({
-  chainId,
+export const resolveSourceExecution = async ({
+  chain,
   eoaAddress,
   ephemeralAddress,
-  needsDestinationSwap,
   vscClient,
 }: {
-  chainId: number;
+  chain: Chain;
   eoaAddress: Hex;
   ephemeralAddress: Hex;
-  needsDestinationSwap: boolean;
   vscClient: SwapParams['vscClient'];
-}): Promise<DestinationExecution> => {
-  if (!needsDestinationSwap) {
-    return {
-      address: eoaAddress,
-      entryPoint: null,
-      mode: 'direct_eoa',
-    };
-  }
-
-  if (!isCaliburAccountDestinationChain(chainId)) {
+}): Promise<SourceExecution> => {
+  if (!requiresCaliburAccount(chain)) {
     return {
       address: ephemeralAddress,
       entryPoint: null,
@@ -83,13 +77,186 @@ export const resolveDestinationExecution = async ({
     };
   }
 
-  const account = await vscClient.vscGetCaliburAccountAddress(chainId, eoaAddress);
+  const account = await vscClient.vscGetCaliburAccountAddress(chain.id, eoaAddress);
   return {
     address: account.address,
-    entryPoint: CALIBUR_DESTINATION_ENTRYPOINTS[chainId] ?? null,
+    entryPoint: requireCaliburEntryPoint(chain.id),
     mode: 'calibur_account',
   };
 };
+
+export const resolveDestinationExecution = async ({
+  chain,
+  eoaAddress,
+  ephemeralAddress,
+  needsDestinationExecution,
+  vscClient,
+}: {
+  chain: Chain;
+  eoaAddress: Hex;
+  ephemeralAddress: Hex;
+  needsDestinationExecution: boolean;
+  vscClient: SwapParams['vscClient'];
+}): Promise<DestinationExecution> => {
+  if (!needsDestinationExecution) {
+    return {
+      address: eoaAddress,
+      entryPoint: null,
+      mode: 'direct_eoa',
+    };
+  }
+
+  if (!requiresCaliburAccount(chain)) {
+    return {
+      address: ephemeralAddress,
+      entryPoint: null,
+      mode: '7702',
+    };
+  }
+
+  const account = await vscClient.vscGetCaliburAccountAddress(chain.id, eoaAddress);
+  return {
+    address: account.address,
+    entryPoint: requireCaliburEntryPoint(chain.id),
+    mode: 'calibur_account',
+  };
+};
+
+type AggregatorInput = ReturnType<typeof toAggregatorInputs>[number];
+type AggregatorInputWithRecipient = AggregatorInput & { recipient: Bytes };
+type SourceExecutionRecord = Record<number, SourceExecution>;
+
+type CaCommonPerRecipientApi = typeof CaCommon & {
+  autoSelectSourcesV2ByRecipient?: (
+    holdings: AggregatorInputWithRecipient[],
+    outputRequired: Decimal,
+    aggregators: Aggregator[],
+    commonCurrencyID?: CurrencyID
+  ) => ReturnType<typeof autoSelectSourcesV2>;
+  liquidateInputHoldingsByRecipient?: (
+    holdings: AggregatorInputWithRecipient[],
+    aggregators: Aggregator[],
+    commonCurrencyID?: CurrencyID
+  ) => ReturnType<typeof liquidateInputHoldings>;
+};
+
+const caCommonPerRecipient = CaCommon as CaCommonPerRecipientApi;
+
+const liquidateInputHoldingsForRecipients = async (
+  holdings: AggregatorInputWithRecipient[],
+  aggregators: Aggregator[],
+  commonCurrencyID?: CurrencyID
+) => {
+  if (caCommonPerRecipient.liquidateInputHoldingsByRecipient) {
+    return caCommonPerRecipient.liquidateInputHoldingsByRecipient(
+      holdings,
+      aggregators,
+      commonCurrencyID
+    );
+  }
+
+  const grouped = Map.groupBy(holdings, (holding) => toHex(holding.recipient));
+  const responses = await Promise.all(
+    [...grouped.values()].map((group) =>
+      liquidateInputHoldings(group[0].recipient, group, aggregators, commonCurrencyID)
+    )
+  );
+  return responses.flat();
+};
+
+const autoSelectSourcesV2ForRecipients = async (
+  holdings: AggregatorInputWithRecipient[],
+  outputRequired: Decimal,
+  aggregators: Aggregator[],
+  commonCurrencyID?: CurrencyID
+) => {
+  if (caCommonPerRecipient.autoSelectSourcesV2ByRecipient) {
+    return caCommonPerRecipient.autoSelectSourcesV2ByRecipient(
+      holdings,
+      outputRequired,
+      aggregators,
+      commonCurrencyID
+    );
+  }
+
+  const recipients = new Map(holdings.map((holding) => [toHex(holding.recipient), holding]));
+  if (recipients.size === 1) {
+    return autoSelectSourcesV2(
+      holdings[0].recipient,
+      holdings,
+      outputRequired,
+      aggregators,
+      commonCurrencyID
+    );
+  }
+
+  throw Errors.internal(
+    '@avail-project/ca-common per-recipient source quoting API is required for mixed source execution recipients'
+  );
+};
+
+const resolveSourceExecutions = async ({
+  eoaAddress,
+  ephemeralAddress,
+  sourceBalances,
+  params,
+}: {
+  eoaAddress: Hex;
+  ephemeralAddress: Hex;
+  sourceBalances: FlatBalance[];
+  params: SwapParams & { publicClientList: PublicClientList };
+}): Promise<SourceExecutionRecord> => {
+  const uniqueSourceChains = uniqBy(sourceBalances, (balance) => balance.chainID);
+  const entries = await Promise.all(
+    uniqueSourceChains.map(async (balance) => {
+      const chain = params.chainList.getChainByID(balance.chainID);
+      if (!chain) {
+        throw Errors.chainNotFound(balance.chainID);
+      }
+
+      const execution = await resolveSourceExecution({
+        chain,
+        eoaAddress,
+        ephemeralAddress,
+        vscClient: params.vscClient,
+      });
+      return [balance.chainID, execution] as const;
+    })
+  );
+
+  return Object.fromEntries(entries) as SourceExecutionRecord;
+};
+
+export const toAggregatorInputsWithRecipients = (
+  balances: FlatBalance[],
+  sourceExecutions: SourceExecutionRecord
+): AggregatorInputWithRecipient[] =>
+  toAggregatorInputs(balances).map((holding, index) => {
+    const chainId = balances[index].chainID;
+    const execution = sourceExecutions[chainId];
+    if (!execution) {
+      throw Errors.internal(`source execution not resolved for chain ${chainId}`);
+    }
+
+    return {
+      ...holding,
+      recipient: convertTo32Bytes(execution.address),
+    };
+  });
+
+export const hasDestinationChainSourceSwapOutput = (
+  sourceSwaps: Pick<QuoteResponse, 'chainID'>[],
+  sourceExecutions: SourceExecutionRecord,
+  destinationChainId: number,
+  eoaAddress: Hex
+) =>
+  sourceSwaps.some((swap) => {
+    if (Number(swap.chainID) !== destinationChainId) {
+      return false;
+    }
+    const execution = sourceExecutions[destinationChainId];
+    return !!execution && !equalFold(execution.address, eoaAddress);
+  });
 
 export const determineSwapRoute = async (
   input: SwapData,
@@ -552,7 +719,6 @@ const _exactOutRoute = async (
     );
   }
 
-  const sourceAddressInBytes = convertTo32Bytes(params.address.ephemeral);
   const dstOmniversalChainID = new OmniversalChainID(Universe.ETHEREUM, input.toChainId);
 
   logger.debug('exact-out: fetched balances', { balances, input });
@@ -583,10 +749,10 @@ const _exactOutRoute = async (
     input.toAmount > 0n && !equalFold(input.toTokenAddress, dstChainCOTAddress);
   const needsGasSwap = !gasInCOT.isZero();
   const destinationExecution = await resolveDestinationExecution({
-    chainId: input.toChainId,
+    chain: dstChain,
     eoaAddress: params.address.eoa,
     ephemeralAddress: params.address.ephemeral,
-    needsDestinationSwap: needsTokenSwap || needsGasSwap,
+    needsDestinationExecution: needsTokenSwap || needsGasSwap,
     vscClient: params.vscClient,
   });
   const destinationExecutionAddressInBytes = convertTo32Bytes(destinationExecution.address);
@@ -719,12 +885,18 @@ const _exactOutRoute = async (
     symbol: dstTokenInfo.symbol,
     chainID: dstChain.id,
   });
+  const sourceExecutions = await resolveSourceExecutions({
+    eoaAddress: params.address.eoa,
+    ephemeralAddress: params.address.ephemeral,
+    sourceBalances: sortedBalances,
+    params,
+  });
 
-  const { quoteResponses: sourceSwapQuotes, usedCOTs } = await autoSelectSourcesV2(
-    sourceAddressInBytes,
-    toAggregatorInputs(sortedBalances),
+  const { quoteResponses: sourceSwapQuotes, usedCOTs } = await autoSelectSourcesV2ForRecipients(
+    toAggregatorInputsWithRecipients(sortedBalances, sourceExecutions),
     sourceSwapOutputRequired,
-    params.aggregators
+    params.aggregators,
+    params.cotCurrencyID
   ).catch((e) => {
     if (e instanceof Error && e.message === 'NOT_ENOUGH_SWAP_FOR_REQUIREMENT') {
       throw Errors.quoteError();
@@ -747,6 +919,25 @@ const _exactOutRoute = async (
 
   destination.eoaToDestinationAccount = dstEOAToEphTx;
 
+  if (
+    !needsTokenSwap &&
+    !needsGasSwap &&
+    hasDestinationChainSourceSwapOutput(
+      sourceSwapQuotes,
+      sourceExecutions,
+      input.toChainId,
+      params.address.eoa
+    )
+  ) {
+    destination.execution = await resolveDestinationExecution({
+      chain: dstChain,
+      eoaAddress: params.address.eoa,
+      ephemeralAddress: params.address.ephemeral,
+      needsDestinationExecution: true,
+      vscClient: params.vscClient,
+    });
+  }
+
   const isBridgeRequired = !(
     sourceSwapQuotes.every((q) => q.chainID === input.toChainId) &&
     usedCOTs.every((q) => Number(q.originalHolding.chainID.chainID) === input.toChainId)
@@ -761,7 +952,7 @@ const _exactOutRoute = async (
       assets: bridgeAssets,
       chainID: input.toChainId,
       decimals: dstChainCOT.decimals,
-      recipientAddress: destinationExecution.address,
+      recipientAddress: destination.execution.address,
       tokenAddress: convertToEVMAddress(dstChainCOT.tokenAddress),
     };
     const intentResponse = createIntent({
@@ -778,7 +969,11 @@ const _exactOutRoute = async (
 
   return buildSwapRouteResult({
     type: 'EXACT_OUT',
-    source: { swaps: sourceSwapQuotes, creationTime: sourceSwapCreationTime },
+    source: {
+      swaps: sourceSwapQuotes,
+      creationTime: sourceSwapCreationTime,
+      executions: sourceExecutions,
+    },
     bridge: bridgeInput,
     destination,
     dstTokenInfo,
@@ -801,6 +996,7 @@ export type SwapRoute = {
   source: {
     swaps: QuoteResponse[];
     creationTime: number;
+    executions: SourceExecutionRecord;
   };
   bridge: BridgeInput;
   destination: {
@@ -899,7 +1095,12 @@ const _exactInRoute = async (
   );
 
   const dstOmniversalChainID = new OmniversalChainID(Universe.ETHEREUM, input.toChainId);
-  const sourceAddressInBytes = convertTo32Bytes(params.address.ephemeral);
+  const sourceExecutions = await resolveSourceExecutions({
+    eoaAddress: params.address.eoa,
+    ephemeralAddress: params.address.ephemeral,
+    sourceBalances: srcBalances,
+    params,
+  });
 
   const bridgeAssets: BridgeAsset[] = [];
 
@@ -941,10 +1142,10 @@ const _exactInRoute = async (
 
   let sourceSwaps: QuoteResponse[] = [];
   if (isSrcSwapRequired) {
-    const response = await liquidateInputHoldings(
-      sourceAddressInBytes,
-      toAggregatorInputs(srcBalances),
-      params.aggregators
+    const response = await liquidateInputHoldingsForRecipients(
+      toAggregatorInputsWithRecipients(srcBalances, sourceExecutions),
+      params.aggregators,
+      params.cotCurrencyID
     );
 
     if (!response.length) {
@@ -1022,11 +1223,17 @@ const _exactInRoute = async (
   );
 
   const needsDstSwap = !equalFold(input.toTokenAddress, dstChainCOTAddress);
+  const hasDestinationChainSourceOutput = hasDestinationChainSourceSwapOutput(
+    sourceSwaps,
+    sourceExecutions,
+    input.toChainId,
+    params.address.eoa
+  );
   const destinationExecution = await resolveDestinationExecution({
-    chainId: input.toChainId,
+    chain: dstChain,
     eoaAddress: params.address.eoa,
     ephemeralAddress: params.address.ephemeral,
-    needsDestinationSwap: needsDstSwap,
+    needsDestinationExecution: needsDstSwap || hasDestinationChainSourceOutput,
     vscClient: params.vscClient,
   });
   const destinationExecutionAddressInBytes = convertTo32Bytes(destinationExecution.address);
@@ -1082,7 +1289,11 @@ const _exactInRoute = async (
 
   return buildSwapRouteResult({
     type: 'EXACT_IN',
-    source: { swaps: sourceSwaps, creationTime: sourceSwapCreationTime },
+    source: {
+      swaps: sourceSwaps,
+      creationTime: sourceSwapCreationTime,
+      executions: sourceExecutions,
+    },
     bridge: bridgeInput,
     destination,
     dstTokenInfo,

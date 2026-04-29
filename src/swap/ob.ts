@@ -20,6 +20,7 @@ import {
   type QueryClients,
   type RFFDepositCallMap,
   type SBCTx,
+  type SourceExecution,
   SWAP_STEPS,
   type SwapStepType,
   type Tx,
@@ -30,7 +31,13 @@ import { equalFold, minutesToMs, switchChain, waitForTxReceipt } from '../core/u
 import { EADDRESS, SWEEPER_ADDRESS } from './constants';
 import { createBridgeRFF } from './rff';
 import type { SwapRoute } from './route';
-import { caliburExecute, checkAuthCodeSet, createSBCTxFromCalls, waitForSBCTxReceipt } from './sbc';
+import {
+  caliburExecute,
+  checkAuthCodeSet,
+  createCaliburExecuteTxFromCalls,
+  createSBCTxFromCalls,
+  waitForSBCTxReceipt,
+} from './sbc';
 import {
   type Cache,
   convertTo32Bytes,
@@ -80,6 +87,7 @@ const logger = getLogger();
 class BridgeHandler {
   private depositCalls: RFFDepositCallMap = {};
   private eoaToEphCalls: EoaToEphemeralCallMap = {};
+  private readonly sourceExecutionsByChain: Map<number, SourceExecution>;
   private status: {
     filled: boolean;
     intentID: Long;
@@ -98,38 +106,72 @@ class BridgeHandler {
       recipientAddress: Hex;
       tokenAddress: `0x${string}`;
     } | null,
-    private readonly options: Options
+    private readonly options: Options,
+    sourceExecutions: Record<number, SourceExecution> = {}
   ) {
+    this.sourceExecutionsByChain = new Map(
+      Object.entries(sourceExecutions).map(([chainID, execution]) => [Number(chainID), execution])
+    );
     if (input) {
       for (const asset of input.assets) {
+        const execution = this.getSourceExecution(asset.chainID);
         options.cache.addAllowanceQuery({
           chainID: asset.chainID,
           contractAddress: asset.contractAddress,
           owner: options.address.ephemeral,
           spender: options.chainList.getVaultContractAddress(asset.chainID),
         });
-        options.cache.addSetCodeQuery({
-          address: options.address.eoa,
+        options.cache.addAllowanceQuery({
           chainID: asset.chainID,
+          contractAddress: asset.contractAddress,
+          owner: execution.address,
+          spender: SWEEPER_ADDRESS,
         });
-        options.cache.addSetCodeQuery({
-          address: options.address.ephemeral,
-          chainID: asset.chainID,
-        });
+        if (execution.mode === '7702') {
+          options.cache.addSetCodeQuery({
+            address: options.address.eoa,
+            chainID: asset.chainID,
+          });
+          options.cache.addSetCodeQuery({
+            address: options.address.ephemeral,
+            chainID: asset.chainID,
+          });
+        }
       }
     }
   }
 
   async createRFFDeposits() {
-    const waitingPromises = [];
+    const waitingPromises: Promise<number>[] = [];
     if (Object.keys(this.depositCalls).length > 0) {
       const sbcTx: SBCTx[] = [];
+      const queueDepositReceipt = ([chainID, hash]: [bigint, Hex]) => {
+        const chain = this.options.chainList.getChainByID(Number(chainID));
+        if (!chain) {
+          throw Errors.chainNotFound(chainID);
+        }
+        this.options.emitter.emit(
+          SWAP_STEPS.BRIDGE_DEPOSIT({
+            chain,
+            hash,
+            explorerURL: chain.blockExplorers.default.url,
+          })
+        );
+        waitingPromises.push(
+          wrap(
+            Number(chainID),
+            waitForTxReceipt(hash, this.options.publicClientList.get(chainID), 1)
+          )
+        );
+      };
+
       for (const c in this.depositCalls) {
         const chain = this.options.chainList.getChainByID(Number(c));
         if (!chain) {
           throw Errors.chainNotFound(Number(c));
         }
         const publicClient = this.options.publicClientList.get(c);
+        const execution = this.getSourceExecution(Number(c));
 
         const calls = [];
         const e2e = this.eoaToEphCalls[Number(c)];
@@ -140,67 +182,66 @@ class BridgeHandler {
           rffDepositCalls: { ...this.depositCalls },
         });
 
-        await switchChain(this.options.wallet.eoa, chain);
-
         if (e2e) {
+          await switchChain(this.options.wallet.eoa, chain);
           const txs = await createPermitAndTransferFromTx({
             amount: e2e.amount,
             cache: this.options.cache,
             chain,
             contractAddress: e2e.tokenAddress,
-            disablePermit: isEip7702DelegatedCode(
-              this.options.cache.getCode({
-                address: this.options.address.eoa,
-                chainID: Number(c),
-              })
-            ),
+            disablePermit:
+              execution.mode === '7702' &&
+              isEip7702DelegatedCode(
+                this.options.cache.getCode({
+                  address: this.options.address.eoa,
+                  chainID: Number(c),
+                })
+              ),
             owner: this.options.address.eoa,
             ownerWallet: this.options.wallet.eoa,
             publicClient,
-            spender: this.options.address.ephemeral,
+            spender: execution.address,
           });
           calls.push(...txs);
         }
-        sbcTx.push(
-          await createSBCTxFromCalls({
+        const batchCalls = calls.concat(this.depositCalls[c].tx).concat(
+          createSweeperTxs({
             cache: this.options.cache,
-            calls: calls.concat(this.depositCalls[c].tx).concat(
-              createSweeperTxs({
-                cache: this.options.cache,
-                chainID: chain.id,
-                COTCurrencyID: this.options.cot.currencyID,
-                receiver: this.options.address.eoa,
-                sender: this.options.address.ephemeral,
-              })
-            ),
             chainID: chain.id,
-            ephemeralAddress: this.options.address.ephemeral,
-            ephemeralWallet: this.options.wallet.ephemeral,
-            publicClient,
+            COTCurrencyID: this.options.cot.currencyID,
+            receiver: this.options.address.eoa,
+            sender: execution.address,
           })
         );
+        if (execution.mode === 'calibur_account') {
+          queueDepositReceipt(
+            await this.options.vscClient.vscCreateCaliburExecuteTx(
+              await createCaliburExecuteTxFromCalls({
+                calls: batchCalls,
+                chainID: chain.id,
+                executionAddress: execution.address,
+                signerWallet: this.options.wallet.ephemeral,
+              })
+            )
+          );
+        } else {
+          sbcTx.push(
+            await createSBCTxFromCalls({
+              cache: this.options.cache,
+              calls: batchCalls,
+              chainID: chain.id,
+              ephemeralAddress: this.options.address.ephemeral,
+              ephemeralWallet: this.options.wallet.ephemeral,
+              publicClient,
+            })
+          );
+        }
       }
       if (sbcTx.length) {
         const ops = await this.options.vscClient.vscSBCTx(sbcTx);
-        waitingPromises.push(
-          ...ops.map(([chainID, hash]) => {
-            const chain = this.options.chainList.getChainByID(Number(chainID));
-            if (!chain) {
-              throw Errors.chainNotFound(chainID);
-            }
-            this.options.emitter.emit(
-              SWAP_STEPS.BRIDGE_DEPOSIT({
-                chain,
-                hash,
-                explorerURL: chain.blockExplorers.default.url,
-              })
-            );
-            return wrap(
-              Number(chainID),
-              waitForTxReceipt(hash, this.options.publicClientList.get(chainID), 1)
-            );
-          })
-        );
+        for (const op of ops) {
+          queueDepositReceipt(op);
+        }
       }
     }
     await Promise.all(waitingPromises);
@@ -238,6 +279,8 @@ class BridgeHandler {
             client: this.options.wallet.ephemeral,
             eoaAddress: this.options.address.eoa,
           },
+          publicClientList: this.options.publicClientList,
+          sourceExecutions: Object.fromEntries(this.sourceExecutionsByChain),
         },
         input: { assets: this.input.assets },
         output: this.input,
@@ -296,6 +339,38 @@ class BridgeHandler {
 
   // biome-ignore lint/suspicious/noEmptyBlockStatements: default it empty - expected & correct
   private createDoubleCheckTx = async () => {};
+
+  getPotentialCaliburDepositChains() {
+    if (!this.input) {
+      return [];
+    }
+
+    return [
+      ...new Set(
+        this.input.assets
+          .filter((asset) => {
+            if (asset.chainID === this.input?.chainID) {
+              return false;
+            }
+            if (asset.eoaBalance.add(asset.ephemeralBalance).lte(0)) {
+              return false;
+            }
+            return this.getSourceExecution(asset.chainID).mode === 'calibur_account';
+          })
+          .map((asset) => asset.chainID)
+      ),
+    ];
+  }
+
+  private getSourceExecution(chainID: number): SourceExecution {
+    return (
+      this.sourceExecutionsByChain.get(Number(chainID)) ?? {
+        address: this.options.address.ephemeral,
+        entryPoint: null,
+        mode: '7702',
+      }
+    );
+  }
 }
 
 class DestinationSwapHandler {
@@ -659,21 +734,31 @@ class DestinationSwapHandler {
 
 class SourceSwapsHandler {
   private disposableCache: { [k: string]: Tx } = {};
+  private readonly sourceExecutionsByChain: Map<number, SourceExecution>;
   private readonly swapsData: Map<number, SwapRoute['source']['swaps']>;
   constructor(
     route: SwapRoute,
     private readonly options: Options
   ) {
+    this.sourceExecutionsByChain = new Map(
+      Object.entries(route.source.executions ?? {}).map(([chainID, execution]) => [
+        Number(chainID),
+        execution,
+      ])
+    );
     this.swapsData = this.groupAndOrder(route.source.swaps);
     for (const [chainID, swapQuotes] of this.swapsData) {
-      this.options.cache.addSetCodeQuery({
-        address: this.options.address.ephemeral,
-        chainID: Number(chainID),
-      });
-      this.options.cache.addSetCodeQuery({
-        address: this.options.address.eoa,
-        chainID: Number(chainID),
-      });
+      const execution = this.getSourceExecution(chainID);
+      if (execution.mode === '7702') {
+        this.options.cache.addSetCodeQuery({
+          address: this.options.address.ephemeral,
+          chainID: Number(chainID),
+        });
+        this.options.cache.addSetCodeQuery({
+          address: this.options.address.eoa,
+          chainID: Number(chainID),
+        });
+      }
 
       for (const sQuote of swapQuotes) {
         const inputAddress = sQuote.quote.input.contractAddress;
@@ -682,13 +767,13 @@ class SourceSwapsHandler {
           chainID: Number(chainID),
           contractAddress: inputAddress,
           owner: this.options.address.eoa,
-          spender: this.options.address.ephemeral,
+          spender: execution.address,
         });
 
         this.options.cache.addAllowanceQuery({
           chainID: Number(chainID),
           contractAddress: inputAddress,
-          owner: this.options.address.ephemeral,
+          owner: execution.address,
           spender: SWEEPER_ADDRESS,
         });
 
@@ -732,6 +817,7 @@ class SourceSwapsHandler {
       if (!chain) {
         throw Errors.chainNotFound(chainID);
       }
+      const execution = this.getSourceExecution(chainID);
 
       // 1. Source swap calls
       let amount = new Decimal(0);
@@ -747,7 +833,7 @@ class SourceSwapsHandler {
             chainID: chain.id,
             contractAddress: swap.quote.input.contractAddress,
             owner: this.options.address.eoa,
-            spender: this.options.address.ephemeral,
+            spender: execution.address,
           });
 
           // EOA --> Ephemeral transfer
@@ -757,16 +843,18 @@ class SourceSwapsHandler {
             cache: this.options.cache,
             chain,
             contractAddress: swap.quote.input.contractAddress,
-            disablePermit: isEip7702DelegatedCode(
-              this.options.cache.getCode({
-                address: this.options.address.eoa,
-                chainID: Number(chainID),
-              })
-            ),
+            disablePermit:
+              execution.mode === '7702' &&
+              isEip7702DelegatedCode(
+                this.options.cache.getCode({
+                  address: this.options.address.eoa,
+                  chainID: Number(chainID),
+                })
+              ),
             owner: this.options.address.eoa,
             ownerWallet: this.options.wallet.eoa,
             publicClient,
-            spender: this.options.address.ephemeral,
+            spender: execution.address,
           });
 
           // Approval & transferFrom
@@ -795,6 +883,7 @@ class SourceSwapsHandler {
       }
       if (sbcCalls.value > 0n) {
         if (
+          execution.mode === '7702' &&
           !(await checkAuthCodeSet(
             Number(chainID),
             this.options.address.ephemeral,
@@ -842,9 +931,10 @@ class SourceSwapsHandler {
           actualWallet: this.options.wallet.eoa,
           calls: sbcCalls.calls,
           chain,
-          ephemeralAddress: this.options.address.ephemeral,
-          ephemeralWallet: this.options.wallet.ephemeral,
+          mode: execution.mode,
           publicClient,
+          signerWallet: this.options.wallet.ephemeral,
+          targetAddress: execution.address,
           value: sbcCalls.value,
         });
 
@@ -862,17 +952,28 @@ class SourceSwapsHandler {
         waitingPromises.push(
           (async () => {
             logger.debug('waitingPromises:1');
-            const ops = await this.options.vscClient.vscSBCTx([
-              await createSBCTxFromCalls({
-                cache: this.options.cache,
-                calls: sbcCalls.calls,
-                chainID: chain.id,
-                ephemeralAddress: this.options.address.ephemeral,
-                ephemeralWallet: this.options.wallet.ephemeral,
-                publicClient,
-              }),
-            ]);
-            const [opChainID, hash] = ops[0];
+            const [opChainID, hash] =
+              execution.mode === 'calibur_account'
+                ? await this.options.vscClient.vscCreateCaliburExecuteTx(
+                    await createCaliburExecuteTxFromCalls({
+                      calls: sbcCalls.calls,
+                      chainID: chain.id,
+                      executionAddress: execution.address,
+                      signerWallet: this.options.wallet.ephemeral,
+                    })
+                  )
+                : (
+                    await this.options.vscClient.vscSBCTx([
+                      await createSBCTxFromCalls({
+                        cache: this.options.cache,
+                        calls: sbcCalls.calls,
+                        chainID: chain.id,
+                        ephemeralAddress: this.options.address.ephemeral,
+                        ephemeralWallet: this.options.wallet.ephemeral,
+                        publicClient,
+                      }),
+                    ])
+                  )[0];
             chainHashMap.set(Number(chainID), hash);
             this.options.emitter.emit(
               SWAP_STEPS.SOURCE_SWAP_HASH([opChainID, hash], this.options.chainList)
@@ -923,26 +1024,45 @@ class SourceSwapsHandler {
             });
 
             const sbcTxs: SBCTx[] = [];
+            const caliburOps: Promise<[bigint, Hex]>[] = [];
             for (const chainID of successfulSwaps) {
-              sbcTxs.push(
-                await createSBCTxFromCalls({
-                  cache: this.options.cache,
-                  calls: createSweeperTxs({
+              const execution = this.getSourceExecution(chainID);
+              const calls = createSweeperTxs({
+                cache: this.options.cache,
+                chainID,
+                COTCurrencyID: this.options.cot.currencyID,
+                receiver: this.options.address.eoa,
+                sender: execution.address,
+              });
+              if (execution.mode === 'calibur_account') {
+                caliburOps.push(
+                  this.options.vscClient.vscCreateCaliburExecuteTx(
+                    await createCaliburExecuteTxFromCalls({
+                      calls,
+                      chainID,
+                      executionAddress: execution.address,
+                      signerWallet: this.options.wallet.ephemeral,
+                    })
+                  )
+                );
+              } else {
+                sbcTxs.push(
+                  await createSBCTxFromCalls({
                     cache: this.options.cache,
-                    chainID,
-                    COTCurrencyID: this.options.cot.currencyID,
-                    receiver: this.options.address.eoa,
-                    sender: this.options.address.ephemeral,
-                  }),
-                  chainID: chainID,
-                  ephemeralAddress: this.options.address.ephemeral,
-                  ephemeralWallet: this.options.wallet.ephemeral,
-                  publicClient: this.options.publicClientList.get(chainID),
-                })
-              );
+                    calls,
+                    chainID: chainID,
+                    ephemeralAddress: this.options.address.ephemeral,
+                    ephemeralWallet: this.options.wallet.ephemeral,
+                    publicClient: this.options.publicClientList.get(chainID),
+                  })
+                );
+              }
             }
             try {
-              const ops = await this.options.vscClient.vscSBCTx(sbcTxs);
+              const ops = [
+                ...(sbcTxs.length ? await this.options.vscClient.vscSBCTx(sbcTxs) : []),
+                ...(await Promise.all(caliburOps)),
+              ];
               await waitForSBCTxReceipt(ops, this.options.chainList, this.options.publicClientList);
             } catch {
               // TODO: What to do here? Store it or something?
@@ -1007,7 +1127,7 @@ class SourceSwapsHandler {
             });
             quoteRequests.push(
               liquidateInputHoldings(
-                convertTo32Bytes(this.options.address.ephemeral),
+                convertTo32Bytes(this.getSourceExecution(fChain).address),
                 [
                   {
                     ...oldSwap.holding,
@@ -1063,6 +1183,20 @@ class SourceSwapsHandler {
     });
 
     return this.process(metadata, this.groupAndOrder(quoteResponses), false);
+  }
+
+  getCaliburSourceChains() {
+    return [...this.swapsData.keys()].filter(
+      (chainID) => this.getSourceExecution(chainID).mode === 'calibur_account'
+    );
+  }
+
+  private getSourceExecution(chainID: number): SourceExecution {
+    const execution = this.sourceExecutionsByChain.get(Number(chainID));
+    if (!execution) {
+      throw Errors.internal(`source execution not found for chain ${chainID}`);
+    }
+    return execution;
   }
 
   private groupAndOrder(input: SwapRoute['source']['swaps']) {

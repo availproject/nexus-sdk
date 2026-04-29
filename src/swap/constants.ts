@@ -37,8 +37,15 @@ export const CALIBUR_EIP712 = {
   salt: convertTo32BytesHex(CALIBUR_ADDRESS),
   version: '1.0.0',
 } as const;
-export const CALIBUR_DESTINATION_ENTRYPOINTS: Partial<Record<number, Hex>> = {
+export const CALIBUR_ENTRYPOINTS: Partial<Record<number, Hex>> = {
   [SUPPORTED_CHAINS.HYPEREVM]: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
+};
+export const requireCaliburEntryPoint = (chainId: number): Hex => {
+  const entryPoint = CALIBUR_ENTRYPOINTS[chainId];
+  if (!entryPoint) {
+    throw new Error(`Missing Calibur entrypoint for chain ${chainId}`);
+  }
+  return entryPoint;
 };
 export const LIFI_API_KEY =
   'bcb7981d-ea26-4adf-8926-95d3adf4c001.23bcc0d7-7df7-4c86-bb37-ae9ffc25bb95';

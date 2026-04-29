@@ -21,6 +21,10 @@ export type BridgeAsset = {
   contractAddress: `0x${string}`;
   decimals: number;
   eoaBalance: Decimal;
+  /**
+   * Balance held at the per-chain source execution target:
+   * ephemeral on 7702 chains, wrapper on Calibur-account chains.
+   */
   ephemeralBalance: Decimal;
 };
 
@@ -74,7 +78,14 @@ export type EnsureCaliburAccountResult = CaliburAccountAddress & {
 export type DestinationExecution = {
   address: Hex;
   entryPoint: Hex | null;
+  /** Destination-only mode for direct COT handoff; source execution always uses 7702 or Calibur. */
   mode: '7702' | 'calibur_account' | 'direct_eoa';
+};
+
+export type SourceExecution = {
+  address: Hex;
+  entryPoint: Hex | null;
+  mode: '7702' | 'calibur_account';
 };
 
 type BaseSwapInput = {

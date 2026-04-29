@@ -193,6 +193,7 @@ const TESTNET_CHAINS: Chain[] = [
   // },
   {
     swapSupported: false,
+    pectraUpgradeSupport: true,
     blockExplorers: {
       default: {
         name: 'Citrea Testnet explorer',
@@ -230,6 +231,7 @@ const TESTNET_CHAINS: Chain[] = [
   },
   {
     swapSupported: false,
+    pectraUpgradeSupport: true,
     blockExplorers: {
       default: {
         name: 'Arbitrum Sepolia Explorer',
@@ -277,6 +279,7 @@ const TESTNET_CHAINS: Chain[] = [
   },
   {
     swapSupported: false,
+    pectraUpgradeSupport: true,
     blockExplorers: {
       default: {
         name: 'OP Sepolia Explorer',
@@ -324,6 +327,7 @@ const TESTNET_CHAINS: Chain[] = [
   },
   {
     swapSupported: false,
+    pectraUpgradeSupport: true,
     blockExplorers: {
       default: {
         name: 'Amoy Polygon Explorer',
@@ -364,6 +368,7 @@ const TESTNET_CHAINS: Chain[] = [
   },
   {
     swapSupported: false,
+    pectraUpgradeSupport: true,
     blockExplorers: {
       default: {
         name: 'Base Sepolia Scan',
@@ -404,6 +409,7 @@ const TESTNET_CHAINS: Chain[] = [
   },
   {
     swapSupported: false,
+    pectraUpgradeSupport: true,
     blockExplorers: {
       default: {
         name: 'Monad Testnet Explorer',
@@ -448,6 +454,7 @@ const TESTNET_CHAINS: Chain[] = [
   },
   {
     swapSupported: false,
+    pectraUpgradeSupport: true,
     blockExplorers: {
       default: {
         name: 'Etherscan Sepolia',
@@ -491,6 +498,7 @@ const TESTNET_CHAINS: Chain[] = [
 const MAINNET_CHAINS: Chain[] = [
   {
     swapSupported: true,
+    pectraUpgradeSupport: true,
     blockExplorers: {
       default: {
         name: 'Citrea Explorer',
@@ -535,6 +543,7 @@ const MAINNET_CHAINS: Chain[] = [
   },
   {
     swapSupported: false,
+    pectraUpgradeSupport: true,
     blockExplorers: {
       default: {
         name: 'KaiaScan',
@@ -572,6 +581,7 @@ const MAINNET_CHAINS: Chain[] = [
   },
   {
     swapSupported: true,
+    pectraUpgradeSupport: true,
     blockExplorers: {
       default: {
         name: 'Etherscan',
@@ -616,6 +626,7 @@ const MAINNET_CHAINS: Chain[] = [
   },
   {
     swapSupported: true,
+    pectraUpgradeSupport: true,
     blockExplorers: {
       default: {
         name: 'Monad Vision',
@@ -653,6 +664,7 @@ const MAINNET_CHAINS: Chain[] = [
   },
   {
     swapSupported: true,
+    pectraUpgradeSupport: true,
     blockExplorers: {
       default: {
         name: 'Optimism Etherscan',
@@ -697,6 +709,7 @@ const MAINNET_CHAINS: Chain[] = [
   },
   {
     swapSupported: true,
+    pectraUpgradeSupport: true,
     blockExplorers: {
       default: {
         name: 'MegaETH Blockscout',
@@ -742,6 +755,7 @@ const MAINNET_CHAINS: Chain[] = [
   },
   {
     swapSupported: true,
+    pectraUpgradeSupport: true,
     blockExplorers: {
       default: {
         name: 'Polygonscan',
@@ -786,6 +800,7 @@ const MAINNET_CHAINS: Chain[] = [
   },
   {
     swapSupported: true,
+    pectraUpgradeSupport: true,
     blockExplorers: {
       default: {
         name: 'Basescan',
@@ -823,6 +838,7 @@ const MAINNET_CHAINS: Chain[] = [
   },
   {
     swapSupported: true,
+    pectraUpgradeSupport: true,
     blockExplorers: {
       default: {
         name: 'Arbiscan',
@@ -867,6 +883,7 @@ const MAINNET_CHAINS: Chain[] = [
   },
   {
     swapSupported: true,
+    pectraUpgradeSupport: true,
     blockExplorers: {
       default: {
         name: 'Scrollscan',
@@ -911,6 +928,7 @@ const MAINNET_CHAINS: Chain[] = [
   },
   {
     swapSupported: false,
+    pectraUpgradeSupport: false,
     blockExplorers: {
       default: {
         name: 'Snowscan',
@@ -955,6 +973,7 @@ const MAINNET_CHAINS: Chain[] = [
   },
   {
     swapSupported: true,
+    pectraUpgradeSupport: true,
     blockExplorers: {
       default: {
         name: 'BscScan',
@@ -1006,6 +1025,7 @@ const MAINNET_CHAINS: Chain[] = [
   },
   {
     swapSupported: true,
+    pectraUpgradeSupport: false,
     blockExplorers: {
       default: {
         name: 'Hyperscan',

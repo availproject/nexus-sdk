@@ -1,6 +1,41 @@
+import { toHex } from 'viem';
 import { describe, expect, it, vi } from 'vitest';
-import { SUPPORTED_CHAINS, type VSCClient } from '../commons';
-import { resolveDestinationExecution } from './route';
+import { type Chain, SUPPORTED_CHAINS, type VSCClient } from '../commons';
+import type { FlatBalance } from './data';
+import {
+  hasDestinationChainSourceSwapOutput,
+  requiresCaliburAccount,
+  resolveDestinationExecution,
+  toAggregatorInputsWithRecipients,
+} from './route';
+
+const baseChain = {
+  blockExplorers: { default: { name: 'Explorer', url: 'https://example.com' } },
+  custom: { icon: '', knownTokens: [] },
+  id: SUPPORTED_CHAINS.ETHEREUM,
+  name: 'Ethereum',
+  ankrName: 'eth',
+  nativeCurrency: { decimals: 18, name: 'Ether', symbol: 'ETH' },
+  pectraUpgradeSupport: true,
+  rpcUrls: { default: { http: [], webSocket: [] } },
+  swapSupported: true,
+  universe: 1,
+} as Chain;
+
+describe('requiresCaliburAccount', () => {
+  it('only requires Calibur for swap-supported non-Pectra chains', () => {
+    expect(
+      requiresCaliburAccount({ ...baseChain, swapSupported: true, pectraUpgradeSupport: false })
+    ).toBe(true);
+    expect(
+      requiresCaliburAccount({ ...baseChain, swapSupported: false, pectraUpgradeSupport: false })
+    ).toBe(false);
+    expect(
+      requiresCaliburAccount({ ...baseChain, swapSupported: true, pectraUpgradeSupport: true })
+    ).toBe(false);
+    expect(requiresCaliburAccount(undefined)).toBe(false);
+  });
+});
 
 describe('resolveDestinationExecution', () => {
   it('uses the deterministic Calibur account on HyperEVM when a destination swap is required', async () => {
@@ -11,10 +46,15 @@ describe('resolveDestinationExecution', () => {
     } as Partial<VSCClient> as VSCClient;
 
     const result = await resolveDestinationExecution({
-      chainId: SUPPORTED_CHAINS.HYPEREVM,
+      chain: {
+        ...baseChain,
+        id: SUPPORTED_CHAINS.HYPEREVM,
+        name: 'HyperEVM',
+        pectraUpgradeSupport: false,
+      },
       eoaAddress: '0x1111111111111111111111111111111111111111',
       ephemeralAddress: '0x2222222222222222222222222222222222222222',
-      needsDestinationSwap: true,
+      needsDestinationExecution: true,
       vscClient,
     });
 
@@ -35,10 +75,10 @@ describe('resolveDestinationExecution', () => {
     } as Partial<VSCClient> as VSCClient;
 
     const result = await resolveDestinationExecution({
-      chainId: SUPPORTED_CHAINS.ETHEREUM,
+      chain: baseChain,
       eoaAddress: '0x1111111111111111111111111111111111111111',
       ephemeralAddress: '0x2222222222222222222222222222222222222222',
-      needsDestinationSwap: true,
+      needsDestinationExecution: true,
       vscClient,
     });
 
@@ -56,10 +96,15 @@ describe('resolveDestinationExecution', () => {
     } as Partial<VSCClient> as VSCClient;
 
     const result = await resolveDestinationExecution({
-      chainId: SUPPORTED_CHAINS.HYPEREVM,
+      chain: {
+        ...baseChain,
+        id: SUPPORTED_CHAINS.HYPEREVM,
+        name: 'HyperEVM',
+        pectraUpgradeSupport: false,
+      },
       eoaAddress: '0x1111111111111111111111111111111111111111',
       ephemeralAddress: '0x2222222222222222222222222222222222222222',
-      needsDestinationSwap: false,
+      needsDestinationExecution: false,
       vscClient,
     });
 
@@ -77,10 +122,10 @@ describe('resolveDestinationExecution', () => {
     } as Partial<VSCClient> as VSCClient;
 
     const result = await resolveDestinationExecution({
-      chainId: SUPPORTED_CHAINS.ETHEREUM,
+      chain: baseChain,
       eoaAddress: '0x1111111111111111111111111111111111111111',
       ephemeralAddress: '0x2222222222222222222222222222222222222222',
-      needsDestinationSwap: false,
+      needsDestinationExecution: false,
       vscClient,
     });
 
@@ -90,5 +135,89 @@ describe('resolveDestinationExecution', () => {
       entryPoint: null,
       mode: 'direct_eoa',
     });
+  });
+});
+
+describe('toAggregatorInputsWithRecipients', () => {
+  it('uses the execution address for each source chain recipient', () => {
+    const holdings = toAggregatorInputsWithRecipients(
+      [
+        {
+          amount: '1',
+          chainID: SUPPORTED_CHAINS.ETHEREUM,
+          decimals: 6,
+          logo: '',
+          symbol: 'USDC',
+          tokenAddress: '0x000000000000000000000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          universe: 1,
+          value: 1,
+        },
+        {
+          amount: '2',
+          chainID: SUPPORTED_CHAINS.HYPEREVM,
+          decimals: 6,
+          logo: '',
+          symbol: 'USDC',
+          tokenAddress: '0x000000000000000000000000bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          universe: 1,
+          value: 2,
+        },
+      ] as FlatBalance[],
+      {
+        [SUPPORTED_CHAINS.ETHEREUM]: {
+          address: '0x2222222222222222222222222222222222222222',
+          entryPoint: null,
+          mode: '7702',
+        },
+        [SUPPORTED_CHAINS.HYPEREVM]: {
+          address: '0x3333333333333333333333333333333333333333',
+          entryPoint: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
+          mode: 'calibur_account',
+        },
+      }
+    );
+
+    expect(toHex(holdings[0].recipient)).toBe(
+      '0x0000000000000000000000002222222222222222222222222222222222222222'
+    );
+    expect(toHex(holdings[1].recipient)).toBe(
+      '0x0000000000000000000000003333333333333333333333333333333333333333'
+    );
+  });
+});
+
+describe('hasDestinationChainSourceSwapOutput', () => {
+  it('detects when same-chain source swaps output to a non-EOA execution target', () => {
+    expect(
+      hasDestinationChainSourceSwapOutput(
+        [{ chainID: SUPPORTED_CHAINS.HYPEREVM }],
+        {
+          [SUPPORTED_CHAINS.HYPEREVM]: {
+            address: '0x3333333333333333333333333333333333333333',
+            entryPoint: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
+            mode: 'calibur_account',
+          },
+        },
+        SUPPORTED_CHAINS.HYPEREVM,
+        '0x1111111111111111111111111111111111111111'
+      )
+    ).toBe(true);
+  });
+
+  it('does not force destination execution when output already lands on the EOA', () => {
+    expect(
+      hasDestinationChainSourceSwapOutput(
+        [{ chainID: SUPPORTED_CHAINS.HYPEREVM }],
+        {
+          [SUPPORTED_CHAINS.HYPEREVM]: {
+            address: '0x1111111111111111111111111111111111111111',
+            entryPoint: null,
+            mode: '7702',
+          },
+        },
+        SUPPORTED_CHAINS.HYPEREVM,
+        '0x1111111111111111111111111111111111111111'
+      )
+    ).toBe(false);
   });
 });

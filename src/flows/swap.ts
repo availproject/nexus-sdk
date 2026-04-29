@@ -10,6 +10,7 @@ import type { Hex } from 'viem';
 import {
   getLogger,
   NEXUS_EVENTS,
+  type SourceExecution,
   type SuccessfulSwapResult,
   SWAP_STEPS,
   type SwapData,
@@ -111,12 +112,21 @@ export const swap = async (
   });
 
   const srcSwapsHandler = new SourceSwapsHandler(swapRoute, opt);
-  const bridgeHandler = new BridgeHandler(bridge, opt);
+  const bridgeHandler = new BridgeHandler(bridge, opt, source.executions);
   const dstSwapHandler = new DestinationSwapHandler(swapRoute, opt);
 
   performance.mark('allowance-cache-start');
   await cache.process();
   performance.mark('allowance-cache-end');
+
+  await ensureCaliburAccountsBeforeExecution({
+    bridgeHandler,
+    destinationChainID: destination.chainId,
+    destinationExecution: destination.execution,
+    options,
+    sourceExecutions: source.executions,
+    sourceHandler: srcSwapsHandler,
+  });
 
   // 0.5: Destination swap: create permit
   await dstSwapHandler.createPermit();
@@ -249,6 +259,66 @@ const createSwapHandlerOptions = ({
   cosmosQueryClient: options.cosmosQueryClient,
   vscClient: options.vscClient,
 });
+
+const ensureCaliburAccountsBeforeExecution = async ({
+  bridgeHandler,
+  destinationChainID,
+  destinationExecution,
+  options,
+  sourceExecutions,
+  sourceHandler,
+}: {
+  bridgeHandler: BridgeHandler;
+  destinationChainID: number;
+  destinationExecution: SwapRoute['destination']['execution'];
+  options: SwapParams;
+  sourceExecutions: Record<number, SourceExecution>;
+  sourceHandler: SourceSwapsHandler;
+}) => {
+  const executionsByChain = new Map<number, SourceExecution | typeof destinationExecution>();
+  const addExecution = (
+    chainID: number,
+    execution: SourceExecution | typeof destinationExecution | undefined
+  ) => {
+    if (!execution || execution.mode !== 'calibur_account') {
+      return;
+    }
+    if (!execution.entryPoint) {
+      throw Errors.internal(`Calibur entrypoint not configured for chain ${chainID}`);
+    }
+    executionsByChain.set(chainID, execution);
+  };
+
+  for (const chainID of sourceHandler.getCaliburSourceChains()) {
+    addExecution(chainID, sourceExecutions[chainID]);
+  }
+  for (const chainID of bridgeHandler.getPotentialCaliburDepositChains()) {
+    addExecution(chainID, sourceExecutions[chainID]);
+  }
+  addExecution(destinationChainID, destinationExecution);
+
+  await Promise.all(
+    [...executionsByChain.entries()].map(([chainID, execution]) =>
+      options.vscClient.vscEnsureCaliburAccount({
+        chainId: chainID,
+        entryPoint: execution.entryPoint!,
+        keys: [
+          {
+            keyType: 2,
+            publicKey: convertTo32Bytes(options.address.eoa),
+            settings: convertTo32Bytes(1n << 200n),
+          },
+          {
+            keyType: 2,
+            publicKey: convertTo32Bytes(options.address.ephemeral),
+            settings: convertTo32Bytes(1n << 200n),
+          },
+        ],
+        owner: options.address.eoa,
+      })
+    )
+  );
+};
 
 type IntentApprovalContext = {
   input: SwapData;

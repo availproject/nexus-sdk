@@ -546,6 +546,81 @@ export const createPermitApprovalTx = async ({
   };
 };
 
+export const createPermitOnlyApprovalTx = async ({
+  amount,
+  chainId,
+  contractAddress,
+  owner,
+  publicClient,
+  signerWallet,
+  spender,
+}: {
+  amount: bigint;
+  chainId: number;
+  contractAddress: Hex;
+  owner: Hex;
+  publicClient: PublicClient;
+  signerWallet: PrivateKeyAccount;
+  spender: Hex;
+}): Promise<Tx> => {
+  if (!equalFold(owner, signerWallet.address)) {
+    throw Errors.internal('permit signer must match permit owner');
+  }
+
+  const { variant, version } = await getPermitVariantAndVersion(contractAddress, publicClient);
+  if (variant !== PermitVariant.EIP2612Canonical) {
+    throw Errors.tokenNotSupported(undefined, undefined, '(2612 details not found)');
+  }
+
+  const deadline = createDeadlineFromNow(3n);
+  const [name, nonce] = await Promise.all([
+    publicClient.readContract({
+      abi: ERC20ABI,
+      address: contractAddress,
+      functionName: 'name',
+    }),
+    publicClient.readContract({
+      abi: ERC20ABI,
+      address: contractAddress,
+      args: [owner],
+      functionName: 'nonces',
+    }),
+  ]);
+
+  const signature = await signerWallet.signTypedData({
+    domain: {
+      chainId: BigInt(chainId),
+      name,
+      verifyingContract: contractAddress,
+      version: version.toString(),
+    },
+    message: {
+      deadline,
+      nonce,
+      owner,
+      spender,
+      value: amount,
+    },
+    primaryType: 'Permit',
+    types: ERC20PermitEIP712Type,
+  });
+
+  const { r, s, v } = parseSignature(signature);
+  if (!v) {
+    throw Errors.internal('invalid signature: v is not present');
+  }
+
+  return {
+    data: encodeFunctionData({
+      abi: ERC20PermitABI,
+      args: [owner, spender, amount, deadline, Number(v), r, s],
+      functionName: 'permit',
+    }),
+    to: contractAddress,
+    value: 0n,
+  };
+};
+
 export const packERC20Approve = (spender: Hex, amount: bigint) => {
   return encodeFunctionData({
     abi: ERC20ABI,

@@ -70,9 +70,10 @@ describe('caliburExecute', () => {
         },
       ],
       chain,
-      ephemeralAddress: '0x3333333333333333333333333333333333333333',
-      ephemeralWallet,
+      mode: '7702',
       publicClient,
+      signerWallet: ephemeralWallet,
+      targetAddress: '0x3333333333333333333333333333333333333333',
       value: 1n,
     });
 
@@ -91,6 +92,52 @@ describe('caliburExecute', () => {
       })
     );
     expect(result).toBe('0xhash');
+  });
+
+  it('targets a Calibur wrapper and signs with the registered ephemeral key hash', async () => {
+    await caliburExecute({
+      actualAddress: '0x1111111111111111111111111111111111111111',
+      actualWallet: wallet,
+      calls: [
+        {
+          to: '0x2222222222222222222222222222222222222222',
+          value: 1n,
+          data: '0x1234',
+        },
+      ],
+      chain,
+      mode: 'calibur_account',
+      publicClient,
+      signerWallet: {
+        address: '0x3333333333333333333333333333333333333333',
+        signTypedData: signTypedDataMock,
+      } as never,
+      targetAddress: '0x4444444444444444444444444444444444444444',
+      value: 1n,
+    });
+
+    const expectedKeyHash = keccak256(
+      encodeAbiParameters(
+        [{ type: 'uint8' }, { type: 'bytes32' }],
+        [2, keccak256(toHex(convertTo32Bytes('0x3333333333333333333333333333333333333333')))]
+      )
+    );
+
+    expect(writeContractMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        address: '0x4444444444444444444444444444444444444444',
+      })
+    );
+    expect(signTypedDataMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        domain: expect.objectContaining({
+          verifyingContract: '0x4444444444444444444444444444444444444444',
+        }),
+        message: expect.objectContaining({
+          keyHash: expectedKeyHash,
+        }),
+      })
+    );
   });
 
   it('uses the registered ephemeral key hash for standalone Calibur account execution', async () => {

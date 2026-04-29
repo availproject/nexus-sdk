@@ -393,6 +393,7 @@ export type Chain = {
   };
   universe: Universe;
   swapSupported: boolean;
+  pectraUpgradeSupport: boolean;
 };
 
 interface EthereumProvider {
