@@ -246,6 +246,13 @@ const arbitrumStrategy: FeeStrategy = async (client, items) => {
   });
 };
 
+const CITREA_DIFF_SIZE_BASE = 96n; // nonce + balance + a couple slot writes
+const CITREA_DIFF_SIZE_SAFETY = 13n; // 1.3x
+const fallbackCitreaDiffSize = (tx: TxRequest) => {
+  const calldataBytes = BigInt(((tx.data?.length ?? 2) - 2) / 2);
+  return ((CITREA_DIFF_SIZE_BASE + calldataBytes) * CITREA_DIFF_SIZE_SAFETY) / 10n;
+};
+
 const citreaStrategy: FeeStrategy = async (client, items) => {
   const [l1FeeRate, l1DiffSizes] = await Promise.all([
     getCitreaL1FeeRate(client),
@@ -258,7 +265,9 @@ const citreaStrategy: FeeStrategy = async (client, items) => {
         return requestCustomRpcMethod<CitreaEstimateDiffSizeResult>(client, {
           method: 'eth_estimateDiffSize',
           params: [toRpcTransactionRequest(item.tx)],
-        }).then((result) => hexToBigInt(result.l1DiffSize));
+        })
+          .then((result) => hexToBigInt(result.l1DiffSize))
+          .catch(() => fallbackCitreaDiffSize(item.tx));
       })
     ),
   ]);
