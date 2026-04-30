@@ -299,4 +299,32 @@ describe('estimateTotalFees', () => {
       },
     ]);
   });
+
+  it('falls back to a conservative Citrea diff-size when eth_estimateDiffSize reverts', async () => {
+    request
+      .mockResolvedValueOnce({ l1FeeRate: '0x2' })
+      .mockRejectedValueOnce(new Error('execution reverted'));
+    const client = makeClient(4114);
+
+    const context = await estimateFeeContext(
+      client,
+      4114,
+      [
+        {
+          tx: {
+            to: '0x1111111111111111111111111111111111111111',
+            data: '0x1234',
+          },
+        },
+      ],
+      'medium'
+    );
+
+    expect(context.overheads).toEqual([
+      {
+        l1Fee: 240n,
+        extraGas: 0n,
+      },
+    ]);
+  });
 });
