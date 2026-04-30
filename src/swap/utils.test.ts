@@ -57,6 +57,7 @@ describe('createPermitOnlyApprovalTx', () => {
       amount: 1_000_000n,
       chainId: 999,
       contractAddress: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      deadline: 123456789n,
       owner: '0x2222222222222222222222222222222222222222',
       publicClient: publicClient as never,
       signerWallet: signerWallet as never,
@@ -72,6 +73,7 @@ describe('createPermitOnlyApprovalTx', () => {
           version: '2',
         }),
         message: expect.objectContaining({
+          deadline: 123456789n,
           owner: '0x2222222222222222222222222222222222222222',
           spender: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
           value: 1_000_000n,

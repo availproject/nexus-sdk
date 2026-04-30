@@ -289,10 +289,10 @@ const ensureCaliburAccountsBeforeExecution = async ({
     executionsByChain.set(chainID, execution);
   };
 
-  for (const chainID of sourceHandler.getCaliburSourceChains()) {
+  for (const chainID of sourceHandler.getPlannedCaliburChains()) {
     addExecution(chainID, sourceExecutions[chainID]);
   }
-  for (const chainID of bridgeHandler.getPotentialCaliburDepositChains()) {
+  for (const chainID of bridgeHandler.getPlannedCaliburDepositChains()) {
     addExecution(chainID, sourceExecutions[chainID]);
   }
   addExecution(destinationChainID, destinationExecution);

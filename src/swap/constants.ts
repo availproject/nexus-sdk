@@ -1,6 +1,7 @@
 import type { Bytes } from '@avail-project/ca-common';
 import { type Hex, pad, toBytes, toHex } from 'viem';
 import { SUPPORTED_CHAINS } from '../commons';
+import { Errors } from '../core/errors';
 
 const convertTo32Bytes = (value: Hex | Bytes) => {
   if (typeof value === 'bigint' || typeof value === 'number') {
@@ -43,7 +44,7 @@ export const CALIBUR_ENTRYPOINTS: Partial<Record<number, Hex>> = {
 export const requireCaliburEntryPoint = (chainId: number): Hex => {
   const entryPoint = CALIBUR_ENTRYPOINTS[chainId];
   if (!entryPoint) {
-    throw new Error(`Missing Calibur entrypoint for chain ${chainId}`);
+    throw Errors.internal(`Missing Calibur entrypoint for chain ${chainId}`);
   }
   return entryPoint;
 };

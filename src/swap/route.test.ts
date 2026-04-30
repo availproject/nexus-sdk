@@ -6,6 +6,7 @@ import {
   hasDestinationChainSourceSwapOutput,
   requiresCaliburAccount,
   resolveDestinationExecution,
+  resolveSourceExecution,
   toAggregatorInputsWithRecipients,
 } from './route';
 
@@ -34,6 +35,30 @@ describe('requiresCaliburAccount', () => {
       requiresCaliburAccount({ ...baseChain, swapSupported: true, pectraUpgradeSupport: true })
     ).toBe(false);
     expect(requiresCaliburAccount(undefined)).toBe(false);
+  });
+});
+
+describe('resolveSourceExecution', () => {
+  it('throws when a Calibur source chain is missing an entrypoint mapping', async () => {
+    const vscClient = {
+      vscGetCaliburAccountAddress: vi.fn().mockResolvedValue({
+        address: '0x3333333333333333333333333333333333333333',
+      }),
+    } as Partial<VSCClient> as VSCClient;
+
+    await expect(
+      resolveSourceExecution({
+        chain: {
+          ...baseChain,
+          id: SUPPORTED_CHAINS.AVALANCHE,
+          name: 'Avalanche',
+          pectraUpgradeSupport: false,
+        },
+        eoaAddress: '0x1111111111111111111111111111111111111111',
+        ephemeralAddress: '0x2222222222222222222222222222222222222222',
+        vscClient,
+      })
+    ).rejects.toThrow('Missing Calibur entrypoint for chain 43114');
   });
 });
 

@@ -35,6 +35,7 @@ import {
   convertAddressByUniverse,
   cosmosCreateDoubleCheckTx,
   cosmosCreateRFF,
+  createDeadlineFromNow,
   createRFFromIntent,
   evmWaitForFill,
   type FeeStore,
@@ -47,6 +48,18 @@ import {
 import { createPermitOnlyApprovalTx, type PublicClientList, packERC20Approve } from './utils';
 
 const logger = getLogger();
+const BRIDGE_VAULT_PERMIT_DEADLINE_MINUTES = 15n;
+
+const getSourceExecutionOrThrow = (
+  sourceExecutions: Record<number, SourceExecution> | undefined,
+  chainID: number
+): SourceExecution => {
+  const execution = sourceExecutions?.[chainID];
+  if (!execution) {
+    throw Errors.internal(`source execution not found for chain ${chainID}`);
+  }
+  return execution;
+};
 
 export const estimateCollectionFee = (
   assets: (Pick<BridgeAsset, 'chainID' | 'contractAddress' | 'decimals'> & { value: number })[],
@@ -290,6 +303,7 @@ export const createIntent = ({
 export const createVaultFundingAndAllowanceCalls = async ({
   allowance,
   chainID,
+  deadline,
   evm,
   publicClientList,
   sourceExecution,
@@ -299,6 +313,7 @@ export const createVaultFundingAndAllowanceCalls = async ({
 }: {
   allowance: bigint;
   chainID: number;
+  deadline: bigint;
   evm: {
     address: Hex;
     client: PrivateKeyAccount;
@@ -333,6 +348,7 @@ export const createVaultFundingAndAllowanceCalls = async ({
         amount: valueRaw,
         chainId: chainID,
         contractAddress: tokenAddress,
+        deadline,
         owner: evm.address,
         publicClient: publicClientList.get(chainID),
         signerWallet: evm.client,
@@ -453,6 +469,7 @@ export const createBridgeRFF = async ({
     })),
     config.chainList
   );
+  const permitDeadline = createDeadlineFromNow(BRIDGE_VAULT_PERMIT_DEADLINE_MINUTES);
 
   for (const [index, source] of sources.entries()) {
     const evmSignatureData = signatureData.find((s) => s.universe === Universe.ETHEREUM);
@@ -475,24 +492,13 @@ export const createBridgeRFF = async ({
     const tx = await createVaultFundingAndAllowanceCalls({
       allowance,
       chainID: Number(source.chainID),
+      deadline: permitDeadline,
       evm: config.evm,
       publicClientList: config.publicClientList,
-      sourceExecution: config.sourceExecutions?.[Number(source.chainID)] ?? {
-        address: config.evm.address,
-        entryPoint: null,
-        mode: '7702',
-      },
+      sourceExecution: getSourceExecutionOrThrow(config.sourceExecutions, Number(source.chainID)),
       tokenAddress,
       valueRaw: source.valueRaw,
       vaultAddress: config.chainList.getVaultContractAddress(Number(source.chainID)),
-    });
-
-    console.log({
-      argsForRFFDeposit: [
-        omniversalRFF.asEVMRFF(),
-        toHex(evmSignatureData.signature),
-        BigInt(index),
-      ],
     });
 
     tx.push({

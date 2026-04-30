@@ -550,6 +550,7 @@ export const createPermitOnlyApprovalTx = async ({
   amount,
   chainId,
   contractAddress,
+  deadline,
   owner,
   publicClient,
   signerWallet,
@@ -558,6 +559,7 @@ export const createPermitOnlyApprovalTx = async ({
   amount: bigint;
   chainId: number;
   contractAddress: Hex;
+  deadline: bigint;
   owner: Hex;
   publicClient: PublicClient;
   signerWallet: PrivateKeyAccount;
@@ -572,7 +574,6 @@ export const createPermitOnlyApprovalTx = async ({
     throw Errors.tokenNotSupported(undefined, undefined, '(2612 details not found)');
   }
 
-  const deadline = createDeadlineFromNow(3n);
   const [name, nonce] = await Promise.all([
     publicClient.readContract({
       abi: ERC20ABI,

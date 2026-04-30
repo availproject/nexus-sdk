@@ -340,41 +340,36 @@ class BridgeHandler {
   // biome-ignore lint/suspicious/noEmptyBlockStatements: default it empty - expected & correct
   private createDoubleCheckTx = async () => {};
 
-  getPotentialCaliburDepositChains() {
+  getPlannedCaliburDepositChains(): Set<number> {
     if (!this.input) {
-      return [];
+      return new Set();
     }
 
-    return [
-      ...new Set(
-        this.input.assets
-          .filter((asset) => {
-            if (asset.chainID === this.input?.chainID) {
-              return false;
-            }
-            if (asset.eoaBalance.add(asset.ephemeralBalance).lte(0)) {
-              return false;
-            }
-            return this.getSourceExecution(asset.chainID).mode === 'calibur_account';
-          })
-          .map((asset) => asset.chainID)
-      ),
-    ];
+    return new Set(
+      this.input.assets
+        .filter((asset) => {
+          if (asset.chainID === this.input?.chainID) {
+            return false;
+          }
+          if (asset.eoaBalance.add(asset.ephemeralBalance).lte(0)) {
+            return false;
+          }
+          return this.getSourceExecution(asset.chainID).mode === 'calibur_account';
+        })
+        .map((asset) => asset.chainID)
+    );
   }
 
   private getSourceExecution(chainID: number): SourceExecution {
-    return (
-      this.sourceExecutionsByChain.get(Number(chainID)) ?? {
-        address: this.options.address.ephemeral,
-        entryPoint: null,
-        mode: '7702',
-      }
-    );
+    const execution = this.sourceExecutionsByChain.get(Number(chainID));
+    if (!execution) {
+      throw Errors.internal(`source execution not found for chain ${chainID}`);
+    }
+    return execution;
   }
 }
 
 class DestinationSwapHandler {
-  private accountEnsured = false;
   private destinationData: SwapRoute['destination'];
   private eoaToDestinationAccountCalls: Tx[] = [];
   constructor(
@@ -457,8 +452,6 @@ class DestinationSwapHandler {
       return;
     }
 
-    await this.ensureDestinationAccount();
-
     if (this.destinationData.eoaToDestinationAccount) {
       const txs = await createPermitAndTransferFromTx({
         amount: this.destinationData.eoaToDestinationAccount.amount,
@@ -528,7 +521,6 @@ class DestinationSwapHandler {
    * Executes swap + sweeper steps
    */
   private async executeSwap(metadata: SwapMetadata) {
-    await this.ensureDestinationAccount();
     await this.requoteIfRequired(false);
 
     const { swap } = this.destinationData;
@@ -637,7 +629,6 @@ class DestinationSwapHandler {
    */
   private async sweepToEoa() {
     const chain = this.options.chainList.getChainByID(this.destinationData.chainId)!;
-    await this.ensureDestinationAccount();
     await performDestinationSwap({
       actualAddress: this.options.address.eoa,
       cache: this.options.cache,
@@ -660,38 +651,6 @@ class DestinationSwapHandler {
     }).catch((e) => {
       logger.error('error during destination sweep', e, { cause: 'DESTINATION_SWEEP_ERROR' });
     });
-  }
-
-  private async ensureDestinationAccount() {
-    if (this.accountEnsured || this.destinationData.execution.mode !== 'calibur_account') {
-      return;
-    }
-
-    // The factory path is bootstrap-once: both the user EOA and the ephemeral signing key are
-    // registered as admin keys at deployment time, and the VSC/bootstrapAuthority cannot rotate
-    // them through subsequent ensureAccount calls. The wrapper itself is not frozen, however —
-    // admin keys retain the ability to mutate keys/entry point on-chain by signing SBCs that
-    // target the wrapper with canonical Calibur's register/revoke/update/updateEntryPoint
-    // selectors. The trust boundary is the signing keys.
-    await this.options.vscClient.vscEnsureCaliburAccount({
-      chainId: this.destinationData.chainId,
-      entryPoint: this.destinationData.execution.entryPoint!,
-      keys: [
-        {
-          keyType: 2,
-          publicKey: convertTo32Bytes(this.options.address.eoa),
-          settings: convertTo32Bytes(1n << 200n),
-        },
-        {
-          keyType: 2,
-          publicKey: convertTo32Bytes(this.options.address.ephemeral),
-          settings: convertTo32Bytes(1n << 200n),
-        },
-      ],
-      owner: this.options.address.eoa,
-    });
-
-    this.accountEnsured = true;
   }
 
   /**
@@ -1185,9 +1144,11 @@ class SourceSwapsHandler {
     return this.process(metadata, this.groupAndOrder(quoteResponses), false);
   }
 
-  getCaliburSourceChains() {
-    return [...this.swapsData.keys()].filter(
-      (chainID) => this.getSourceExecution(chainID).mode === 'calibur_account'
+  getPlannedCaliburChains(): Set<number> {
+    return new Set(
+      [...this.swapsData.keys()].filter(
+        (chainID) => this.getSourceExecution(chainID).mode === 'calibur_account'
+      )
     );
   }
 
