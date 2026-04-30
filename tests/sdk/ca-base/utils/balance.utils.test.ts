@@ -30,7 +30,10 @@ vi.mock('../../../../src/core/utils/contract.utils', () => ({
 }));
 
 import { ZERO_ADDRESS } from '../../../../src/core/constants';
-import { getBalancesForSwap } from '../../../../src/core/utils/balance.utils';
+import {
+  generateStateOverride,
+  getBalancesForSwap,
+} from '../../../../src/core/utils/balance.utils';
 
 describe('getBalancesForSwap', () => {
   beforeEach(() => {
@@ -98,5 +101,41 @@ describe('getBalancesForSwap', () => {
       undefined,
       undefined
     );
+  });
+});
+
+describe('generateStateOverride', () => {
+  const user = '0x742d35Cc6634C0532925a3b8D4C9db96c4b4Db45' as const;
+  const usdcPolygon = '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359' as const;
+
+  it('uses account balance for any native token (zero address), not only ETH', () => {
+    const amount = 1_000_000_000_000_000_000n;
+    const o = generateStateOverride({
+      tokenSymbol: 'POL',
+      tokenAddress: ZERO_ADDRESS,
+      chainId: 137,
+      userAddress: user,
+      amount,
+    });
+    expect(o).toEqual({
+      [user]: {
+        balance: '0x1bc16d674ec80000',
+      },
+    });
+  });
+
+  it('uses ERC-20 storage override for non-native tokens', () => {
+    const amount = 1_000_000n;
+    const o = generateStateOverride({
+      tokenSymbol: 'USDC',
+      tokenAddress: usdcPolygon,
+      chainId: 137,
+      userAddress: user,
+      amount,
+    });
+    expect(o).toMatchObject({
+      [usdcPolygon]: { storage: expect.any(Object) },
+      [user]: { balance: '0x186a0' },
+    });
   });
 });

@@ -317,8 +317,8 @@ export const generateStateOverride = (params: {
   amount: bigint;
 }) => {
   const amountInHex = toHex(params.amount * 2n);
-  // FIXME: it should estimate for any other native token also
-  if (equalFold(params.tokenSymbol, 'ETH')) {
+  // Native currency on any EVM chain uses account balance override (not only ETH).
+  if (equalFold(params.tokenAddress, ZERO_ADDRESS)) {
     return {
       [params.userAddress]: {
         balance: amountInHex,
