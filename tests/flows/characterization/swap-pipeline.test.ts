@@ -8,6 +8,8 @@ import { ZERO_ADDRESS } from '../../../src/core/constants';
 import { equalFold } from '../../../src/core/utils';
 import { swap } from '../../../src/flows/swap';
 import { EADDRESS } from '../../../src/swap/constants';
+import { SAFE_SALT_NONCE } from '../../../src/swap/safe.constants';
+import { predictSafeAccountAddress } from '../../../src/swap/safetx';
 import { convertTo32Bytes } from '../../../src/swap/utils';
 
 const determineSwapRouteMock = vi.hoisted(() => vi.fn());
@@ -15,7 +17,8 @@ const createPermitAndTransferFromTxMock = vi.hoisted(() => vi.fn());
 const createPermitOnlyApprovalTxMock = vi.hoisted(() => vi.fn());
 const createSweeperTxsMock = vi.hoisted(() => vi.fn());
 const performDestinationSwapMock = vi.hoisted(() => vi.fn());
-const createCaliburExecuteTxFromCallsMock = vi.hoisted(() => vi.fn());
+const createSafeExecuteEOASubmittedTxMock = vi.hoisted(() => vi.fn());
+const createSafeExecuteTxFromCallsMock = vi.hoisted(() => vi.fn());
 const createSBCTxFromCallsMock = vi.hoisted(() => vi.fn());
 const caliburExecuteMock = vi.hoisted(() => vi.fn());
 const checkAuthCodeSetMock = vi.hoisted(() => vi.fn());
@@ -61,9 +64,19 @@ vi.mock('../../../src/swap/sbc', async () => {
     ...actual,
     caliburExecute: caliburExecuteMock,
     checkAuthCodeSet: checkAuthCodeSetMock,
-    createCaliburExecuteTxFromCalls: createCaliburExecuteTxFromCallsMock,
     createSBCTxFromCalls: createSBCTxFromCallsMock,
     waitForSBCTxReceipt: waitForSBCTxReceiptMock,
+  };
+});
+
+vi.mock('../../../src/swap/safetx', async () => {
+  const actual = await vi.importActual<typeof import('../../../src/swap/safetx')>(
+    '../../../src/swap/safetx'
+  );
+  return {
+    ...actual,
+    createSafeExecuteEOASubmittedTx: createSafeExecuteEOASubmittedTxMock,
+    createSafeExecuteTxFromCalls: createSafeExecuteTxFromCallsMock,
   };
 });
 
@@ -94,6 +107,9 @@ vi.mock('viem', async () => {
 });
 
 describe('swap pipeline characterization', () => {
+  const EPHEMERAL_ADDRESS = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' as const;
+  const EPHEMERAL_SAFE_ADDRESS = predictSafeAccountAddress(EPHEMERAL_ADDRESS);
+
   const createSourceQuote = (
     chainID: number,
     inputToken: Hex = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
@@ -132,12 +148,16 @@ describe('swap pipeline characterization', () => {
     }) as never;
 
   const makeExecution = (
-    mode: '7702' | 'calibur_account' | 'direct_eoa',
+    mode: '7702' | 'safe_account' | 'direct_eoa',
     address: Hex,
-    entryPoint: Hex | null = null
+    entryPoint: Hex | null = null,
+    factoryAddress: Hex | null = mode === 'safe_account'
+      ? '0x4444444444444444444444444444444444444444'
+      : null
   ) => ({
     address,
     entryPoint,
+    factoryAddress,
     mode,
   });
 
@@ -243,13 +263,18 @@ describe('swap pipeline characterization', () => {
 
   const makeOptions = (vscClientOverrides: Record<string, unknown> = {}) => {
     const vscClient = {
-      vscCreateCaliburExecuteTx: vi.fn(async (request: { chainID: number }) => {
-        pipelineEvents.push(`vscCalibur:${request.chainID}`);
-        return [BigInt(request.chainID), `0x${'11'.repeat(32)}`];
+      vscCreateSafeExecuteTx: vi.fn(async (request: { chainId: number; chainID?: number }) => {
+        const chainID = request.chainId ?? request.chainID;
+        pipelineEvents.push(`vscSafe:${chainID}`);
+        return [BigInt(chainID), `0x${'11'.repeat(32)}`];
       }),
-      vscEnsureCaliburAccount: vi.fn(async ({ chainId }) => {
+      vscEnsureSafeAccount: vi.fn(async ({ chainId }) => {
         pipelineEvents.push(`ensure:${chainId}`);
-        return {};
+        return {
+          address: EPHEMERAL_SAFE_ADDRESS,
+          deployTxHash: null,
+          exists: true,
+        };
       }),
       vscSBCTx: vi.fn(async (requests: Array<{ chainID: number }>) => {
         pipelineEvents.push(`vscSbc:${requests.map((request) => request.chainID).join(',')}`);
@@ -266,7 +291,7 @@ describe('swap pipeline characterization', () => {
         address: {
           cosmos: 'avail1characterization',
           eoa: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-          ephemeral: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          ephemeral: EPHEMERAL_ADDRESS,
         },
         chainList: chainList(),
         cosmosQueryClient: {} as never,
@@ -276,7 +301,10 @@ describe('swap pipeline characterization', () => {
         wallet: {
           cosmos: {} as never,
           eoa: {} as never,
-          ephemeral: { address: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' } as never,
+          ephemeral: {
+            address: EPHEMERAL_ADDRESS,
+            sign: vi.fn(async () => `0x${'99'.repeat(65)}`),
+          } as never,
         },
       },
       vscClient,
@@ -411,8 +439,12 @@ describe('swap pipeline characterization', () => {
       pipelineEvents.push('destination.perform');
       return `0x${'77'.repeat(32)}`;
     });
-    createCaliburExecuteTxFromCallsMock.mockImplementation(async ({ chainID, calls }) => ({
-      chainID,
+    createSafeExecuteEOASubmittedTxMock.mockImplementation(async ({ safeAddress }) => {
+      pipelineEvents.push(`walletSafe:${safeAddress}`);
+      return `0x${'88'.repeat(32)}`;
+    });
+    createSafeExecuteTxFromCallsMock.mockImplementation(async ({ chainId, calls }) => ({
+      chainId,
       calls,
     }));
     createSBCTxFromCallsMock.mockImplementation(async ({ chainID, calls }) => ({
@@ -420,7 +452,7 @@ describe('swap pipeline characterization', () => {
       calls,
     }));
     caliburExecuteMock.mockImplementation(async ({ targetAddress }) => {
-      pipelineEvents.push(`walletCalibur:${targetAddress}`);
+      pipelineEvents.push(`walletSafe:${targetAddress}`);
       return `0x${'88'.repeat(32)}`;
     });
     checkAuthCodeSetMock.mockResolvedValue(true);
@@ -441,12 +473,8 @@ describe('swap pipeline characterization', () => {
     evmWaitForFillMock.mockResolvedValue(undefined);
   });
 
-  it('runs a Calibur source swap plus bridge through the real handlers and ensures before source execution', async () => {
-    const execution = makeExecution(
-      'calibur_account',
-      '0x3333333333333333333333333333333333333333',
-      '0x0000000071727De22E5E9d8BAf0edAc6f37da032'
-    );
+  it('runs a Safe source swap plus bridge through the real handlers and ensures before source execution', async () => {
+    const execution = makeExecution('safe_account', EPHEMERAL_SAFE_ADDRESS);
     const route = baseRoute({
       source: {
         creationTime: 1,
@@ -482,7 +510,7 @@ describe('swap pipeline characterization', () => {
       },
     });
 
-    await runScenario(
+    const { vscClient } = await runScenario(
       route,
       [
         {
@@ -495,20 +523,29 @@ describe('swap pipeline characterization', () => {
     );
 
     expect(pipelineEvents.indexOf(`ensure:${SUPPORTED_CHAINS.HYPEREVM}`)).toBeLessThan(
-      pipelineEvents.indexOf(`vscCalibur:${SUPPORTED_CHAINS.HYPEREVM}`)
+      pipelineEvents.indexOf(`vscSafe:${SUPPORTED_CHAINS.HYPEREVM}`)
+    );
+    expect(vscClient.vscEnsureSafeAccount).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chainId: SUPPORTED_CHAINS.HYPEREVM,
+        owner: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        safeAddress: EPHEMERAL_SAFE_ADDRESS,
+        saltNonce: SAFE_SALT_NONCE,
+        signature: `0x${'99'.repeat(65)}`,
+        deadline: expect.anything(),
+      })
+    );
+    expect(typeof vi.mocked(vscClient.vscEnsureSafeAccount).mock.calls[0]?.[0]?.deadline).toBe(
+      'bigint'
     );
     expect(
-      pipelineEvents.filter((event) => event === `vscCalibur:${SUPPORTED_CHAINS.HYPEREVM}`)
+      pipelineEvents.filter((event) => event === `vscSafe:${SUPPORTED_CHAINS.HYPEREVM}`)
     ).toHaveLength(2);
     expect(cosmosCreateRFFMock).toHaveBeenCalledTimes(1);
   });
 
-  it('bridges Calibur-held COT without any source swap step', async () => {
-    const execution = makeExecution(
-      'calibur_account',
-      '0x3333333333333333333333333333333333333333',
-      '0x0000000071727De22E5E9d8BAf0edAc6f37da032'
-    );
+  it('bridges Safe-held COT without any source swap step', async () => {
+    const execution = makeExecution('safe_account', EPHEMERAL_SAFE_ADDRESS);
     const route = baseRoute({
       source: {
         creationTime: 1,
@@ -542,17 +579,13 @@ describe('swap pipeline characterization', () => {
 
     expect(pipelineEvents).not.toContain(`vscSbc:${SUPPORTED_CHAINS.HYPEREVM}`);
     expect(
-      pipelineEvents.filter((event) => event === `vscCalibur:${SUPPORTED_CHAINS.HYPEREVM}`)
+      pipelineEvents.filter((event) => event === `vscSafe:${SUPPORTED_CHAINS.HYPEREVM}`)
     ).toHaveLength(1);
     expect(cosmosCreateRFFMock).toHaveBeenCalledTimes(1);
   });
 
-  it('skips the Calibur vault permit when the wrapper allowance is already sufficient', async () => {
-    const execution = makeExecution(
-      'calibur_account',
-      '0x3333333333333333333333333333333333333333',
-      '0x0000000071727De22E5E9d8BAf0edAc6f37da032'
-    );
+  it('skips the Safe vault permit when the ephemeral allowance is already sufficient', async () => {
+    const execution = makeExecution('safe_account', EPHEMERAL_SAFE_ADDRESS);
     const route = baseRoute({
       source: {
         creationTime: 1,
@@ -588,12 +621,8 @@ describe('swap pipeline characterization', () => {
     expect(cosmosCreateRFFMock).toHaveBeenCalledTimes(1);
   });
 
-  it('aborts before any cosmos broadcast when bridge permit construction fails after a Calibur source swap', async () => {
-    const execution = makeExecution(
-      'calibur_account',
-      '0x3333333333333333333333333333333333333333',
-      '0x0000000071727De22E5E9d8BAf0edAc6f37da032'
-    );
+  it('aborts before any cosmos broadcast when bridge permit construction fails after a Safe source swap', async () => {
+    const execution = makeExecution('safe_account', EPHEMERAL_SAFE_ADDRESS);
     const route = baseRoute({
       source: {
         creationTime: 1,
@@ -646,16 +675,12 @@ describe('swap pipeline characterization', () => {
 
     expect(cosmosCreateRFFMock).not.toHaveBeenCalled();
     expect(
-      pipelineEvents.filter((event) => event === `vscCalibur:${SUPPORTED_CHAINS.HYPEREVM}`)
+      pipelineEvents.filter((event) => event === `vscSafe:${SUPPORTED_CHAINS.HYPEREVM}`)
     ).toHaveLength(1);
   });
 
-  it('hands off same-chain Calibur source output to the destination execution when no bridge is needed', async () => {
-    const execution = makeExecution(
-      'calibur_account',
-      '0x3333333333333333333333333333333333333333',
-      '0x0000000071727De22E5E9d8BAf0edAc6f37da032'
-    );
+  it('hands off same-chain Safe source output to the destination execution when no bridge is needed', async () => {
+    const execution = makeExecution('safe_account', EPHEMERAL_SAFE_ADDRESS);
     const route = baseRoute({
       source: {
         creationTime: 1,
@@ -703,12 +728,8 @@ describe('swap pipeline characterization', () => {
     ).toHaveLength(1);
   });
 
-  it('ensures a shared same-chain Calibur execution exactly once even when a destination swap is required', async () => {
-    const execution = makeExecution(
-      'calibur_account',
-      '0x3333333333333333333333333333333333333333',
-      '0x0000000071727De22E5E9d8BAf0edAc6f37da032'
-    );
+  it('ensures a shared same-chain Safe execution exactly once even when a destination swap is required', async () => {
+    const execution = makeExecution('safe_account', EPHEMERAL_SAFE_ADDRESS);
     const route = baseRoute({
       source: {
         creationTime: 1,
@@ -809,12 +830,8 @@ describe('swap pipeline characterization', () => {
     expect(performDestinationSwapMock).toHaveBeenCalledTimes(1);
   });
 
-  it('runs mixed 7702 and Calibur sources through their respective submission paths', async () => {
-    const caliburExecution = makeExecution(
-      'calibur_account',
-      '0x3333333333333333333333333333333333333333',
-      '0x0000000071727De22E5E9d8BAf0edAc6f37da032'
-    );
+  it('runs mixed 7702 and Safe sources through their respective submission paths', async () => {
+    const safeExecution = makeExecution('safe_account', EPHEMERAL_SAFE_ADDRESS);
     const delegatedExecution = makeExecution(
       '7702',
       '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
@@ -824,7 +841,7 @@ describe('swap pipeline characterization', () => {
       source: {
         creationTime: 1,
         executions: {
-          [SUPPORTED_CHAINS.HYPEREVM]: caliburExecution,
+          [SUPPORTED_CHAINS.HYPEREVM]: safeExecution,
           [SUPPORTED_CHAINS.ARBITRUM]: delegatedExecution,
         },
         swaps: [
@@ -894,7 +911,7 @@ describe('swap pipeline characterization', () => {
       pipelineEvents.filter((event) => event === `ensure:${SUPPORTED_CHAINS.HYPEREVM}`)
     ).toHaveLength(1);
     expect(
-      pipelineEvents.filter((event) => event === `vscCalibur:${SUPPORTED_CHAINS.HYPEREVM}`)
+      pipelineEvents.filter((event) => event === `vscSafe:${SUPPORTED_CHAINS.HYPEREVM}`)
     ).toHaveLength(2);
     expect(
       pipelineEvents.filter((event) => event === `vscSbc:${SUPPORTED_CHAINS.ARBITRUM}`)

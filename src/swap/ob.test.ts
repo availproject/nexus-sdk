@@ -10,7 +10,8 @@ const waitForTxReceiptMock = vi.hoisted(() => vi.fn());
 const performDestinationSwapMock = vi.hoisted(() => vi.fn());
 const createPermitAndTransferFromTxMock = vi.hoisted(() => vi.fn());
 const createSweeperTxsMock = vi.hoisted(() => vi.fn());
-const createCaliburExecuteTxFromCallsMock = vi.hoisted(() => vi.fn());
+const createSafeExecuteEOASubmittedTxMock = vi.hoisted(() => vi.fn());
+const createSafeExecuteTxFromCallsMock = vi.hoisted(() => vi.fn());
 const createSBCTxFromCallsMock = vi.hoisted(() => vi.fn());
 const caliburExecuteMock = vi.hoisted(() => vi.fn());
 const checkAuthCodeSetMock = vi.hoisted(() => vi.fn());
@@ -50,9 +51,17 @@ vi.mock('./sbc', async () => {
     ...actual,
     caliburExecute: caliburExecuteMock,
     checkAuthCodeSet: checkAuthCodeSetMock,
-    createCaliburExecuteTxFromCalls: createCaliburExecuteTxFromCallsMock,
     createSBCTxFromCalls: createSBCTxFromCallsMock,
     waitForSBCTxReceipt: waitForSBCTxReceiptMock,
+  };
+});
+
+vi.mock('./safetx', async () => {
+  const actual = await vi.importActual<typeof import('./safetx')>('./safetx');
+  return {
+    ...actual,
+    createSafeExecuteEOASubmittedTx: createSafeExecuteEOASubmittedTxMock,
+    createSafeExecuteTxFromCalls: createSafeExecuteTxFromCallsMock,
   };
 });
 
@@ -105,7 +114,8 @@ describe('DestinationSwapHandler', () => {
         value: 0n,
       },
     ]);
-    createCaliburExecuteTxFromCallsMock.mockResolvedValue({ kind: 'calibur' });
+    createSafeExecuteEOASubmittedTxMock.mockResolvedValue('0xhash');
+    createSafeExecuteTxFromCallsMock.mockResolvedValue({ kind: 'safe' });
     createSBCTxFromCallsMock.mockResolvedValue({ kind: 'sbc' });
     createSweeperTxsMock.mockReturnValue([]);
     caliburExecuteMock.mockResolvedValue('0xhash');
@@ -115,7 +125,7 @@ describe('DestinationSwapHandler', () => {
 
   it('skips destination execution entirely for direct-to-EOA routes', async () => {
     const emitter = { emit: vi.fn() };
-    const vscClient = { vscEnsureCaliburAccount: vi.fn() };
+    const vscClient = { vscEnsureSafeAccount: vi.fn() };
     const metadata = {
       dst: {
         chid: ZERO_BYTES_32,
@@ -159,7 +169,6 @@ describe('DestinationSwapHandler', () => {
         aggregators: [],
         cache: {
           addAllowanceQuery: vi.fn(),
-          addNativeAllowanceQuery: vi.fn(),
           addPermitQuery: vi.fn(),
           addSetCodeQuery: vi.fn(),
         },
@@ -190,16 +199,16 @@ describe('DestinationSwapHandler', () => {
 
     await handler.process(metadata as never);
 
-    expect(vscClient.vscEnsureCaliburAccount).not.toHaveBeenCalled();
+    expect(vscClient.vscEnsureSafeAccount).not.toHaveBeenCalled();
     expect(performDestinationSwapMock).not.toHaveBeenCalled();
     expect(emitter.emit).toHaveBeenCalledWith(SWAP_STEPS.SWAP_COMPLETE);
     expect(metadata.dst.tx_hash).toEqual(ZERO_BYTES_32);
   });
 
-  it('does not self-ensure Calibur destination accounts after the orchestration preflight', async () => {
+  it('does not self-ensure Safe destination accounts after the orchestration preflight', async () => {
     const emitter = { emit: vi.fn() };
     const vscClient = {
-      vscEnsureCaliburAccount: vi.fn().mockResolvedValue({}),
+      vscEnsureSafeAccount: vi.fn().mockResolvedValue({}),
     };
     const metadata = {
       dst: {
@@ -221,8 +230,8 @@ describe('DestinationSwapHandler', () => {
           eoaToDestinationAccount: null,
           execution: {
             address: '0x3333333333333333333333333333333333333333',
-            entryPoint: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
-            mode: 'calibur_account',
+            entryPoint: null,
+            mode: 'safe_account',
           },
           getDstSwap: vi.fn().mockResolvedValue(null),
           inputAmount: { max: new Decimal(0), min: new Decimal(0) },
@@ -244,7 +253,6 @@ describe('DestinationSwapHandler', () => {
         aggregators: [],
         cache: {
           addAllowanceQuery: vi.fn(),
-          addNativeAllowanceQuery: vi.fn(),
           addPermitQuery: vi.fn(),
           addSetCodeQuery: vi.fn(),
         },
@@ -276,7 +284,7 @@ describe('DestinationSwapHandler', () => {
     await handler.createPermit();
     await handler.process(metadata as never);
 
-    expect(vscClient.vscEnsureCaliburAccount).not.toHaveBeenCalled();
+    expect(vscClient.vscEnsureSafeAccount).not.toHaveBeenCalled();
   });
 });
 
@@ -292,7 +300,8 @@ describe('SourceSwapsHandler', () => {
         value: 0n,
       },
     ]);
-    createCaliburExecuteTxFromCallsMock.mockResolvedValue({ kind: 'calibur' });
+    createSafeExecuteEOASubmittedTxMock.mockResolvedValue('0xhash');
+    createSafeExecuteTxFromCallsMock.mockResolvedValue({ kind: 'safe' });
     createSBCTxFromCallsMock.mockResolvedValue({ kind: 'sbc' });
     createSweeperTxsMock.mockReturnValue([]);
     caliburExecuteMock.mockResolvedValue('0xhash');
@@ -300,10 +309,9 @@ describe('SourceSwapsHandler', () => {
     waitForSBCTxReceiptMock.mockResolvedValue(undefined);
   });
 
-  it('caches Calibur source allowances against the wrapper without 7702 code queries', () => {
+  it('caches Safe source allowances against the Safe account without 7702 code queries', () => {
     const cache = {
       addAllowanceQuery: vi.fn(),
-      addNativeAllowanceQuery: vi.fn(),
       addPermitQuery: vi.fn(),
       addSetCodeQuery: vi.fn(),
     };
@@ -315,8 +323,8 @@ describe('SourceSwapsHandler', () => {
           executions: {
             999: {
               address: '0x3333333333333333333333333333333333333333',
-              entryPoint: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
-              mode: 'calibur_account',
+              entryPoint: null,
+              mode: 'safe_account',
             },
           },
         },
@@ -350,9 +358,9 @@ describe('SourceSwapsHandler', () => {
     });
   });
 
-  it('submits ERC20-only Calibur source swaps through signed Calibur execution', async () => {
+  it('submits ERC20-only Safe source swaps through signed Safe execution', async () => {
     const vscClient = {
-      vscCreateCaliburExecuteTx: vi.fn().mockResolvedValue([999n, `0x${'11'.repeat(32)}`]),
+      vscCreateSafeExecuteTx: vi.fn().mockResolvedValue([999n, `0x${'11'.repeat(32)}`]),
       vscSBCTx: vi.fn(),
     };
     const handler = new SourceSwapsHandler(
@@ -362,8 +370,8 @@ describe('SourceSwapsHandler', () => {
           executions: {
             999: {
               address: '0x3333333333333333333333333333333333333333',
-              entryPoint: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
-              mode: 'calibur_account',
+              entryPoint: null,
+              mode: 'safe_account',
             },
           },
         },
@@ -377,7 +385,6 @@ describe('SourceSwapsHandler', () => {
         aggregators: [],
         cache: {
           addAllowanceQuery: vi.fn(),
-          addNativeAllowanceQuery: vi.fn(),
           addPermitQuery: vi.fn(),
           addSetCodeQuery: vi.fn(),
           getCode: vi.fn(() => '0x'),
@@ -411,17 +418,17 @@ describe('SourceSwapsHandler', () => {
       src: [],
     });
 
-    expect(createCaliburExecuteTxFromCallsMock).toHaveBeenCalledWith(
+    expect(createSafeExecuteTxFromCallsMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        chainID: 999,
-        executionAddress: '0x3333333333333333333333333333333333333333',
+        chainId: 999,
+        safeAddress: '0x3333333333333333333333333333333333333333',
       })
     );
-    expect(vscClient.vscCreateCaliburExecuteTx).toHaveBeenCalledWith({ kind: 'calibur' });
+    expect(vscClient.vscCreateSafeExecuteTx).toHaveBeenCalledWith({ kind: 'safe' });
     expect(vscClient.vscSBCTx).not.toHaveBeenCalled();
   });
 
-  it('submits native-value Calibur source swaps directly through caliburExecute without pre-auth', async () => {
+  it('submits native-value Safe source swaps directly through Safe execute without pre-auth', async () => {
     const baseQuote = makeSourceQuote(999) as {
       chainID: number;
       holding: unknown;
@@ -471,7 +478,7 @@ describe('SourceSwapsHandler', () => {
       },
     } as never;
     const vscClient = {
-      vscCreateCaliburExecuteTx: vi.fn(),
+      vscCreateSafeExecuteTx: vi.fn(),
       vscSBCTx: vi.fn(),
     };
     const handler = new SourceSwapsHandler(
@@ -481,8 +488,8 @@ describe('SourceSwapsHandler', () => {
           executions: {
             999: {
               address: '0x3333333333333333333333333333333333333333',
-              entryPoint: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
-              mode: 'calibur_account',
+              entryPoint: null,
+              mode: 'safe_account',
             },
           },
         },
@@ -496,7 +503,6 @@ describe('SourceSwapsHandler', () => {
         aggregators: [],
         cache: {
           addAllowanceQuery: vi.fn(),
-          addNativeAllowanceQuery: vi.fn(),
           addPermitQuery: vi.fn(),
           addSetCodeQuery: vi.fn(),
           getCode: vi.fn(() => '0x'),
@@ -532,16 +538,16 @@ describe('SourceSwapsHandler', () => {
 
     expect(checkAuthCodeSetMock).not.toHaveBeenCalled();
     expect(vscClient.vscSBCTx).not.toHaveBeenCalled();
-    expect(caliburExecuteMock).toHaveBeenCalledWith(
+    expect(caliburExecuteMock).not.toHaveBeenCalled();
+    expect(createSafeExecuteEOASubmittedTxMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        mode: 'calibur_account',
-        targetAddress: '0x3333333333333333333333333333333333333333',
-        value: 2_000_000_000_000_000n,
+        nativeValue: 2_000_000_000_000_000n,
+        safeAddress: '0x3333333333333333333333333333333333333333',
       })
     );
   });
 
-  it('returns the planned Calibur source chains as a Set', () => {
+  it('returns the planned Safe source chains as a Set', () => {
     const handler = new SourceSwapsHandler(
       {
         source: {
@@ -549,8 +555,8 @@ describe('SourceSwapsHandler', () => {
           executions: {
             999: {
               address: '0x3333333333333333333333333333333333333333',
-              entryPoint: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
-              mode: 'calibur_account',
+              entryPoint: null,
+              mode: 'safe_account',
             },
           },
         },
@@ -563,7 +569,6 @@ describe('SourceSwapsHandler', () => {
         },
         cache: {
           addAllowanceQuery: vi.fn(),
-          addNativeAllowanceQuery: vi.fn(),
           addPermitQuery: vi.fn(),
           addSetCodeQuery: vi.fn(),
         },
@@ -574,7 +579,7 @@ describe('SourceSwapsHandler', () => {
       } as never
     );
 
-    expect(handler.getPlannedCaliburChains()).toEqual(new Set([999]));
+    expect(handler.getPlannedSafeChains()).toEqual(new Set([999]));
   });
 });
 
@@ -582,7 +587,7 @@ describe('BridgeHandler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     waitForTxReceiptMock.mockResolvedValue(undefined);
-    createCaliburExecuteTxFromCallsMock.mockResolvedValue({ kind: 'calibur' });
+    createSafeExecuteTxFromCallsMock.mockResolvedValue({ kind: 'safe' });
     createSBCTxFromCallsMock.mockResolvedValue({ kind: 'sbc' });
     createSweeperTxsMock.mockReturnValue([]);
     waitForSBCTxReceiptMock.mockResolvedValue(undefined);
@@ -630,7 +635,7 @@ describe('BridgeHandler', () => {
     tokenAddress: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' as `0x${string}`,
   };
 
-  it('keeps vault allowance owner as ephemeral for Calibur bridge assets', () => {
+  it('keeps vault allowance owner as ephemeral for Safe bridge assets', () => {
     const cache = {
       addAllowanceQuery: vi.fn(),
       addSetCodeQuery: vi.fn(),
@@ -652,8 +657,8 @@ describe('BridgeHandler', () => {
       {
         999: {
           address: '0x3333333333333333333333333333333333333333',
-          entryPoint: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
-          mode: 'calibur_account',
+          entryPoint: null,
+          mode: 'safe_account',
         },
       }
     );
@@ -667,9 +672,9 @@ describe('BridgeHandler', () => {
     expect(cache.addSetCodeQuery).not.toHaveBeenCalled();
   });
 
-  it('submits Calibur bridge deposits through the wrapper execution path', async () => {
+  it('submits Safe bridge deposits through the Safe execution path', async () => {
     const vscClient = {
-      vscCreateCaliburExecuteTx: vi.fn().mockResolvedValue([999n, `0x${'22'.repeat(32)}`]),
+      vscCreateSafeExecuteTx: vi.fn().mockResolvedValue([999n, `0x${'22'.repeat(32)}`]),
       vscSBCTx: vi.fn(),
     };
     const handler = new BridgeHandler(
@@ -709,8 +714,8 @@ describe('BridgeHandler', () => {
       {
         999: {
           address: '0x3333333333333333333333333333333333333333',
-          entryPoint: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
-          mode: 'calibur_account',
+          entryPoint: null,
+          mode: 'safe_account',
         },
       }
     );
@@ -725,17 +730,17 @@ describe('BridgeHandler', () => {
       []
     );
 
-    expect(createCaliburExecuteTxFromCallsMock).toHaveBeenCalledWith(
+    expect(createSafeExecuteTxFromCallsMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        chainID: 999,
-        executionAddress: '0x3333333333333333333333333333333333333333',
+        chainId: 999,
+        safeAddress: '0x3333333333333333333333333333333333333333',
       })
     );
-    expect(vscClient.vscCreateCaliburExecuteTx).toHaveBeenCalledWith({ kind: 'calibur' });
+    expect(vscClient.vscCreateSafeExecuteTx).toHaveBeenCalledWith({ kind: 'safe' });
     expect(vscClient.vscSBCTx).not.toHaveBeenCalled();
   });
 
-  it('throws immediately when a required Calibur deposit execution is missing', () => {
+  it('throws immediately when a required Safe deposit execution is missing', () => {
     expect(
       () =>
         new BridgeHandler(

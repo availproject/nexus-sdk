@@ -326,7 +326,7 @@ export const createVaultFundingAndAllowanceCalls = async ({
 }): Promise<Tx[]> => {
   const tx: Tx[] = [];
 
-  if (sourceExecution.mode === 'calibur_account') {
+  if (sourceExecution.mode === 'safe_account') {
     tx.push({
       data: encodeFunctionData({
         abi: ERC20ABI,
@@ -342,7 +342,7 @@ export const createVaultFundingAndAllowanceCalls = async ({
     return tx;
   }
 
-  if (sourceExecution.mode === 'calibur_account') {
+  if (sourceExecution.mode === 'safe_account') {
     tx.push(
       await createPermitOnlyApprovalTx({
         amount: valueRaw,

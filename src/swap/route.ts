@@ -41,7 +41,7 @@ import {
   getFeeStore,
   mulDecimals,
 } from '../core/utils';
-import { EADDRESS, EADDRESS_32_BYTES, requireCaliburEntryPoint } from './constants';
+import { EADDRESS, EADDRESS_32_BYTES } from './constants';
 import type { FlatBalance } from './data';
 import { createIntent, estimateCollectionFee } from './rff';
 import {
@@ -55,12 +55,12 @@ import {
 
 const logger = getLogger();
 
-export const requiresCaliburAccount = (chain: Chain | undefined): boolean =>
+export const requiresSafeAccount = (chain: Chain | undefined): boolean =>
   !!chain && chain.swapSupported && !chain.pectraUpgradeSupport;
 
 export const resolveSourceExecution = async ({
   chain,
-  eoaAddress,
+  eoaAddress: _eoaAddress,
   ephemeralAddress,
   vscClient,
 }: {
@@ -69,7 +69,7 @@ export const resolveSourceExecution = async ({
   ephemeralAddress: Hex;
   vscClient: SwapParams['vscClient'];
 }): Promise<SourceExecution> => {
-  if (!requiresCaliburAccount(chain)) {
+  if (!requiresSafeAccount(chain)) {
     return {
       address: ephemeralAddress,
       entryPoint: null,
@@ -77,11 +77,12 @@ export const resolveSourceExecution = async ({
     };
   }
 
-  const account = await vscClient.vscGetCaliburAccountAddress(chain.id, eoaAddress);
+  const account = await vscClient.vscGetSafeAccountAddress(chain.id, ephemeralAddress);
   return {
     address: account.address,
-    entryPoint: requireCaliburEntryPoint(chain.id),
-    mode: 'calibur_account',
+    entryPoint: null,
+    factoryAddress: account.factoryAddress,
+    mode: 'safe_account',
   };
 };
 
@@ -106,7 +107,7 @@ export const resolveDestinationExecution = async ({
     };
   }
 
-  if (!requiresCaliburAccount(chain)) {
+  if (!requiresSafeAccount(chain)) {
     return {
       address: ephemeralAddress,
       entryPoint: null,
@@ -114,11 +115,12 @@ export const resolveDestinationExecution = async ({
     };
   }
 
-  const account = await vscClient.vscGetCaliburAccountAddress(chain.id, eoaAddress);
+  const account = await vscClient.vscGetSafeAccountAddress(chain.id, ephemeralAddress);
   return {
     address: account.address,
-    entryPoint: requireCaliburEntryPoint(chain.id),
-    mode: 'calibur_account',
+    entryPoint: null,
+    factoryAddress: account.factoryAddress,
+    mode: 'safe_account',
   };
 };
 
@@ -322,7 +324,7 @@ source amount will be like max + (s1 + s2)sF + (s1 + s2)cF + fF
 // Currently COT is USDC.
 
 enum BUFFER_EXACT_OUT {
-  DESTINATION_SWAP_BUFFER_PCT = 5,
+  DESTINATION_SWAP_BUFFER_PCT = 10,
   DESTINATION_SWAP_MAX_IN_USD = 2, // <-- magic number ???
   SOURCE_SWAP_BUFFER_PCT = 2,
   SOURCE_SWAP_MAX_IN_USD = 1, // <-- another magic
@@ -755,7 +757,12 @@ const _exactOutRoute = async (
     needsDestinationExecution: needsTokenSwap || needsGasSwap,
     vscClient: params.vscClient,
   });
-  const destinationExecutionAddressInBytes = convertTo32Bytes(destinationExecution.address);
+  // Aggregator recipient is the user's EOA, not the wrapper. The wrapper still holds the
+  // bridged COT (the swap *input*); the aggregator delivers swap *output* directly to the EOA
+  // so we never need to sweep token or native dust out of the wrapper post-swap. This applies
+  // uniformly to both 7702 (Calibur) and `safe_account` modes — Safe doesn't implement
+  // ERC-7914, so the previous wrapper-then-sweep pattern broke `approveNative`.
+  const dstSwapRecipientInBytes = convertTo32Bytes(params.address.eoa);
 
   // COT required for direct transfer when toToken IS COT. Zero when a swap resolves it.
   const cotTransferAmount = needsTokenSwap
@@ -777,7 +784,7 @@ const _exactOutRoute = async (
     const [tokenSwap, gasSwap] = await Promise.all([
       needsTokenSwap
         ? determineDestinationSwaps(
-            destinationExecutionAddressInBytes,
+            dstSwapRecipientInBytes,
             {
               chainID: dstOmniversalChainID,
               amountRaw: BigInt(input.toAmount),
@@ -788,7 +795,7 @@ const _exactOutRoute = async (
         : null,
       needsGasSwap
         ? destinationSwapWithExactIn(
-            destinationExecutionAddressInBytes,
+            dstSwapRecipientInBytes,
             dstOmniversalChainID,
             mulDecimals(gasInCOT, dstChainCOT.decimals),
             EADDRESS_32_BYTES,
@@ -1236,7 +1243,9 @@ const _exactInRoute = async (
     needsDestinationExecution: needsDstSwap || hasDestinationChainSourceOutput,
     vscClient: params.vscClient,
   });
-  const destinationExecutionAddressInBytes = convertTo32Bytes(destinationExecution.address);
+  // See exact-out path: aggregator recipient = EOA, not the wrapper. Wrapper holds the COT
+  // input; aggregator delivers output directly to the user.
+  const dstSwapRecipientInBytes = convertTo32Bytes(params.address.eoa);
   const destination = createDestination(
     input.toChainId,
     destinationExecution,
@@ -1263,7 +1272,7 @@ const _exactInRoute = async (
     let tokenSwap = null;
     if (needsDstSwap) {
       tokenSwap = await destinationSwapWithExactIn(
-        destinationExecutionAddressInBytes,
+        dstSwapRecipientInBytes,
         dstOmniversalChainID,
         mulDecimals(dstSwapInputAmountInDecimal, dstChainCOT.decimals),
         convertTo32Bytes(input.toTokenAddress),

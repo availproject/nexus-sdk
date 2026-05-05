@@ -1,8 +1,11 @@
-import { Universe } from '@avail-project/ca-common';
+import { CurrencyID, ERC20ABI, Universe } from '@avail-project/ca-common';
+import { decodeFunctionData } from 'viem';
 import { describe, expect, it, vi } from 'vitest';
+import { SWEEP_ABI } from '../abi/sweep';
 import { MAINNET_CHAIN_IDS } from '../commons';
+import { SWEEPER_ADDRESS } from './constants';
 import type { FlatBalance } from './data';
-import { createPermitOnlyApprovalTx, sortSourcesByPriority } from './utils';
+import { createPermitOnlyApprovalTx, createSweeperTxs, sortSourcesByPriority } from './utils';
 
 vi.mock('../core/constants', () => ({
   getLogoFromSymbol: vi.fn(() => ''),
@@ -87,6 +90,111 @@ describe('createPermitOnlyApprovalTx', () => {
         value: 0n,
       })
     );
+  });
+});
+
+describe('createSweeperTxs', () => {
+  // Cache double — only `getAllowance` is exercised by createSweeperTxs.
+  const makeCache = (allowance?: bigint) =>
+    ({
+      getAllowance: () => allowance,
+    }) as unknown as Parameters<typeof createSweeperTxs>[0]['cache'];
+
+  const ERC20_TOKEN = '0xb88339cb7199b77e23db6e890353e22632ba630f' as const;
+  const RECEIVER = '0x1111111111111111111111111111111111111111' as const;
+  const SENDER = '0x2222222222222222222222222222222222222222' as const;
+
+  it('throws when tokenAddress is the EADDRESS native sentinel — native sweeping is no longer supported', () => {
+    expect(() =>
+      createSweeperTxs({
+        cache: makeCache(0n),
+        chainID: 999,
+        COTCurrencyID: CurrencyID.USDC,
+        receiver: RECEIVER,
+        sender: SENDER,
+        tokenAddress: EADDRESS,
+      })
+    ).toThrow(/native sweeping is not supported/);
+  });
+
+  it('throws when tokenAddress is the zero-address native sentinel', () => {
+    expect(() =>
+      createSweeperTxs({
+        cache: makeCache(0n),
+        chainID: 999,
+        COTCurrencyID: CurrencyID.USDC,
+        receiver: RECEIVER,
+        sender: SENDER,
+        tokenAddress: '0x0000000000000000000000000000000000000000',
+      })
+    ).toThrow(/native sweeping is not supported/);
+  });
+
+  it('emits [approve(SWEEPER, max), sweepERC20(token, receiver)] when no allowance cached', () => {
+    const txs = createSweeperTxs({
+      cache: makeCache(0n),
+      chainID: 999,
+      COTCurrencyID: CurrencyID.USDC,
+      receiver: RECEIVER,
+      sender: SENDER,
+      tokenAddress: ERC20_TOKEN,
+    });
+
+    expect(txs).toHaveLength(2);
+    // First call: token.approve(SWEEPER, max)
+    expect(txs[0].to).toBe(ERC20_TOKEN);
+    expect(txs[0].value).toBe(0n);
+    const decodedApprove = decodeFunctionData({ abi: ERC20ABI, data: txs[0].data });
+    expect(decodedApprove.functionName).toBe('approve');
+    expect(decodedApprove.args![0]).toBe(SWEEPER_ADDRESS);
+    expect(decodedApprove.args![1]).toBe(2n ** 256n - 1n);
+    // Second call: Sweeper.sweepERC20(token, receiver)
+    expect(txs[1].to).toBe(SWEEPER_ADDRESS);
+    expect(txs[1].value).toBe(0n);
+    const decodedSweep = decodeFunctionData({ abi: SWEEP_ABI, data: txs[1].data });
+    expect(decodedSweep.functionName).toBe('sweepERC20');
+    expect((decodedSweep.args![0] as string).toLowerCase()).toBe(ERC20_TOKEN);
+    expect((decodedSweep.args![1] as string).toLowerCase()).toBe(RECEIVER);
+  });
+
+  it('skips the approve when allowance is already maxUint256', () => {
+    const txs = createSweeperTxs({
+      cache: makeCache(2n ** 256n - 1n),
+      chainID: 999,
+      COTCurrencyID: CurrencyID.USDC,
+      receiver: RECEIVER,
+      sender: SENDER,
+      tokenAddress: ERC20_TOKEN,
+    });
+
+    expect(txs).toHaveLength(1);
+    expect(txs[0].to).toBe(SWEEPER_ADDRESS);
+    const decoded = decodeFunctionData({ abi: SWEEP_ABI, data: txs[0].data });
+    expect(decoded.functionName).toBe('sweepERC20');
+  });
+
+  it('does NOT emit any approveNative or sweepERC7914 selector regardless of inputs', () => {
+    // Calldata for approveNative(address,uint256) is 0x23d57886...
+    // Calldata for sweepERC7914(address) is 0x... (Sweeper ABI). Either way, neither selector
+    // should ever appear in createSweeperTxs output after this change.
+    const txs = createSweeperTxs({
+      cache: makeCache(0n),
+      chainID: 999,
+      COTCurrencyID: CurrencyID.USDC,
+      receiver: RECEIVER,
+      sender: SENDER,
+      tokenAddress: ERC20_TOKEN,
+    });
+
+    for (const tx of txs) {
+      expect(tx.data.startsWith('0x23d57886')).toBe(false); // approveNative
+    }
+    // sweepERC7914 is decoded via SWEEP_ABI and would appear as functionName if used.
+    const sweepCall = txs.find((tx) => tx.to === SWEEPER_ADDRESS);
+    if (sweepCall) {
+      const decoded = decodeFunctionData({ abi: SWEEP_ABI, data: sweepCall.data });
+      expect(decoded.functionName).not.toBe('sweepERC7914');
+    }
   });
 });
 

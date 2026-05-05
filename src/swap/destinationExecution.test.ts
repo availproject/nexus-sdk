@@ -3,13 +3,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VSCClient } from '../commons';
 
 const createSBCTxFromCallsMock = vi.hoisted(() => vi.fn());
-const createCaliburExecuteTxFromCallsMock = vi.hoisted(() => vi.fn());
+const createSafeExecuteTxFromCallsMock = vi.hoisted(() => vi.fn());
 const waitForSBCTxReceiptMock = vi.hoisted(() => vi.fn());
 
 vi.mock('./sbc', () => ({
   createSBCTxFromCalls: createSBCTxFromCallsMock,
-  createCaliburExecuteTxFromCalls: createCaliburExecuteTxFromCallsMock,
   waitForSBCTxReceipt: waitForSBCTxReceiptMock,
+}));
+
+vi.mock('./safetx', () => ({
+  createSafeExecuteTxFromCalls: createSafeExecuteTxFromCallsMock,
 }));
 
 import { performDestinationSwap } from './utils';
@@ -17,7 +20,7 @@ import { performDestinationSwap } from './utils';
 describe('performDestinationSwap', () => {
   type MockedDestinationVSCClient = Pick<
     VSCClient,
-    'vscCreateCaliburExecuteTx' | 'vscEnsureCaliburAccount' | 'vscSBCTx'
+    'vscCreateSafeExecuteTx' | 'vscEnsureSafeAccount' | 'vscSBCTx'
   >;
 
   const emitter = { emit: vi.fn() } as const;
@@ -49,14 +52,14 @@ describe('performDestinationSwap', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     createSBCTxFromCallsMock.mockResolvedValue({ chain_id: new Uint8Array([1]) });
-    createCaliburExecuteTxFromCallsMock.mockResolvedValue({ chain_id: new Uint8Array([2]) });
+    createSafeExecuteTxFromCallsMock.mockResolvedValue({ chain_id: new Uint8Array([2]) });
     waitForSBCTxReceiptMock.mockResolvedValue(undefined);
   });
 
-  it('uses the smart-account VSC flow for Calibur account destinations', async () => {
+  it('uses the smart-account VSC flow for Safe account destinations', async () => {
     const vscClient: MockedDestinationVSCClient = {
-      vscCreateCaliburExecuteTx: vi.fn().mockResolvedValue([999n, '0xhash']),
-      vscEnsureCaliburAccount: vi.fn(),
+      vscCreateSafeExecuteTx: vi.fn().mockResolvedValue([999n, '0xhash']),
+      vscEnsureSafeAccount: vi.fn(),
       vscSBCTx: vi.fn(),
     };
 
@@ -64,24 +67,24 @@ describe('performDestinationSwap', () => {
       ...baseInput,
       destinationExecution: {
         address: '0x3333333333333333333333333333333333333333',
-        entryPoint: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
-        mode: 'calibur_account',
+        entryPoint: null,
+        mode: 'safe_account',
       },
       vscClient: vscClient as VSCClient,
     });
 
-    expect(vscClient.vscEnsureCaliburAccount).not.toHaveBeenCalled();
-    expect(vscClient.vscCreateCaliburExecuteTx).toHaveBeenCalledTimes(1);
+    expect(vscClient.vscEnsureSafeAccount).not.toHaveBeenCalled();
+    expect(vscClient.vscCreateSafeExecuteTx).toHaveBeenCalledTimes(1);
     expect(vscClient.vscSBCTx).not.toHaveBeenCalled();
-    expect(createCaliburExecuteTxFromCallsMock).toHaveBeenCalledTimes(1);
+    expect(createSafeExecuteTxFromCallsMock).toHaveBeenCalledTimes(1);
     expect(createSBCTxFromCallsMock).not.toHaveBeenCalled();
     expect(result).toBe('0xhash');
   });
 
   it('keeps the existing 7702 SBC path for delegated destinations', async () => {
     const vscClient: MockedDestinationVSCClient = {
-      vscCreateCaliburExecuteTx: vi.fn(),
-      vscEnsureCaliburAccount: vi.fn(),
+      vscCreateSafeExecuteTx: vi.fn(),
+      vscEnsureSafeAccount: vi.fn(),
       vscSBCTx: vi.fn().mockResolvedValue([[999n, '0xhash']]),
     };
 
@@ -95,11 +98,11 @@ describe('performDestinationSwap', () => {
       vscClient: vscClient as VSCClient,
     });
 
-    expect(vscClient.vscEnsureCaliburAccount).not.toHaveBeenCalled();
-    expect(vscClient.vscCreateCaliburExecuteTx).not.toHaveBeenCalled();
+    expect(vscClient.vscEnsureSafeAccount).not.toHaveBeenCalled();
+    expect(vscClient.vscCreateSafeExecuteTx).not.toHaveBeenCalled();
     expect(vscClient.vscSBCTx).toHaveBeenCalledTimes(1);
     expect(createSBCTxFromCallsMock).toHaveBeenCalledTimes(1);
-    expect(createCaliburExecuteTxFromCallsMock).not.toHaveBeenCalled();
+    expect(createSafeExecuteTxFromCallsMock).not.toHaveBeenCalled();
     expect(result).toBe('0xhash');
   });
 });

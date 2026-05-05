@@ -4,9 +4,8 @@ import { type Chain, SUPPORTED_CHAINS, type VSCClient } from '../commons';
 import type { FlatBalance } from './data';
 import {
   hasDestinationChainSourceSwapOutput,
-  requiresCaliburAccount,
+  requiresSafeAccount,
   resolveDestinationExecution,
-  resolveSourceExecution,
   toAggregatorInputsWithRecipients,
 } from './route';
 
@@ -23,50 +22,27 @@ const baseChain = {
   universe: 1,
 } as Chain;
 
-describe('requiresCaliburAccount', () => {
-  it('only requires Calibur for swap-supported non-Pectra chains', () => {
+describe('requiresSafeAccount', () => {
+  it('only requires Safe for swap-supported non-Pectra chains', () => {
     expect(
-      requiresCaliburAccount({ ...baseChain, swapSupported: true, pectraUpgradeSupport: false })
+      requiresSafeAccount({ ...baseChain, swapSupported: true, pectraUpgradeSupport: false })
     ).toBe(true);
     expect(
-      requiresCaliburAccount({ ...baseChain, swapSupported: false, pectraUpgradeSupport: false })
+      requiresSafeAccount({ ...baseChain, swapSupported: false, pectraUpgradeSupport: false })
     ).toBe(false);
     expect(
-      requiresCaliburAccount({ ...baseChain, swapSupported: true, pectraUpgradeSupport: true })
+      requiresSafeAccount({ ...baseChain, swapSupported: true, pectraUpgradeSupport: true })
     ).toBe(false);
-    expect(requiresCaliburAccount(undefined)).toBe(false);
-  });
-});
-
-describe('resolveSourceExecution', () => {
-  it('throws when a Calibur source chain is missing an entrypoint mapping', async () => {
-    const vscClient = {
-      vscGetCaliburAccountAddress: vi.fn().mockResolvedValue({
-        address: '0x3333333333333333333333333333333333333333',
-      }),
-    } as Partial<VSCClient> as VSCClient;
-
-    await expect(
-      resolveSourceExecution({
-        chain: {
-          ...baseChain,
-          id: SUPPORTED_CHAINS.AVALANCHE,
-          name: 'Avalanche',
-          pectraUpgradeSupport: false,
-        },
-        eoaAddress: '0x1111111111111111111111111111111111111111',
-        ephemeralAddress: '0x2222222222222222222222222222222222222222',
-        vscClient,
-      })
-    ).rejects.toThrow('Missing Calibur entrypoint for chain 43114');
+    expect(requiresSafeAccount(undefined)).toBe(false);
   });
 });
 
 describe('resolveDestinationExecution', () => {
-  it('uses the deterministic Calibur account on HyperEVM when a destination swap is required', async () => {
+  it('uses the deterministic Safe account on HyperEVM when a destination swap is required', async () => {
     const vscClient = {
-      vscGetCaliburAccountAddress: vi.fn().mockResolvedValue({
+      vscGetSafeAccountAddress: vi.fn().mockResolvedValue({
         address: '0x3333333333333333333333333333333333333333',
+        factoryAddress: '0x4444444444444444444444444444444444444444',
       }),
     } as Partial<VSCClient> as VSCClient;
 
@@ -83,20 +59,21 @@ describe('resolveDestinationExecution', () => {
       vscClient,
     });
 
-    expect(vscClient.vscGetCaliburAccountAddress).toHaveBeenCalledWith(
+    expect(vscClient.vscGetSafeAccountAddress).toHaveBeenCalledWith(
       SUPPORTED_CHAINS.HYPEREVM,
-      '0x1111111111111111111111111111111111111111'
+      '0x2222222222222222222222222222222222222222'
     );
     expect(result).toEqual({
       address: '0x3333333333333333333333333333333333333333',
-      entryPoint: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
-      mode: 'calibur_account',
+      entryPoint: null,
+      factoryAddress: '0x4444444444444444444444444444444444444444',
+      mode: 'safe_account',
     });
   });
 
   it('keeps the ephemeral executor on 7702 destination paths', async () => {
     const vscClient = {
-      vscGetCaliburAccountAddress: vi.fn(),
+      vscGetSafeAccountAddress: vi.fn(),
     } as Partial<VSCClient> as VSCClient;
 
     const result = await resolveDestinationExecution({
@@ -107,7 +84,7 @@ describe('resolveDestinationExecution', () => {
       vscClient,
     });
 
-    expect(vscClient.vscGetCaliburAccountAddress).not.toHaveBeenCalled();
+    expect(vscClient.vscGetSafeAccountAddress).not.toHaveBeenCalled();
     expect(result).toEqual({
       address: '0x2222222222222222222222222222222222222222',
       entryPoint: null,
@@ -117,7 +94,7 @@ describe('resolveDestinationExecution', () => {
 
   it('keeps direct-to-eoa destination transfers off the smart-account path when no destination swap is needed', async () => {
     const vscClient = {
-      vscGetCaliburAccountAddress: vi.fn(),
+      vscGetSafeAccountAddress: vi.fn(),
     } as Partial<VSCClient> as VSCClient;
 
     const result = await resolveDestinationExecution({
@@ -133,7 +110,7 @@ describe('resolveDestinationExecution', () => {
       vscClient,
     });
 
-    expect(vscClient.vscGetCaliburAccountAddress).not.toHaveBeenCalled();
+    expect(vscClient.vscGetSafeAccountAddress).not.toHaveBeenCalled();
     expect(result).toEqual({
       address: '0x1111111111111111111111111111111111111111',
       entryPoint: null,
@@ -143,7 +120,7 @@ describe('resolveDestinationExecution', () => {
 
   it('routes no-destination-execution transfers directly to the EOA on 7702 chains as well', async () => {
     const vscClient = {
-      vscGetCaliburAccountAddress: vi.fn(),
+      vscGetSafeAccountAddress: vi.fn(),
     } as Partial<VSCClient> as VSCClient;
 
     const result = await resolveDestinationExecution({
@@ -154,7 +131,7 @@ describe('resolveDestinationExecution', () => {
       vscClient,
     });
 
-    expect(vscClient.vscGetCaliburAccountAddress).not.toHaveBeenCalled();
+    expect(vscClient.vscGetSafeAccountAddress).not.toHaveBeenCalled();
     expect(result).toEqual({
       address: '0x1111111111111111111111111111111111111111',
       entryPoint: null,
@@ -196,8 +173,8 @@ describe('toAggregatorInputsWithRecipients', () => {
         },
         [SUPPORTED_CHAINS.HYPEREVM]: {
           address: '0x3333333333333333333333333333333333333333',
-          entryPoint: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
-          mode: 'calibur_account',
+          entryPoint: null,
+          mode: 'safe_account',
         },
       }
     );
@@ -219,8 +196,8 @@ describe('hasDestinationChainSourceSwapOutput', () => {
         {
           [SUPPORTED_CHAINS.HYPEREVM]: {
             address: '0x3333333333333333333333333333333333333333',
-            entryPoint: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
-            mode: 'calibur_account',
+            entryPoint: null,
+            mode: 'safe_account',
           },
         },
         SUPPORTED_CHAINS.HYPEREVM,

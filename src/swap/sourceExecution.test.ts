@@ -19,7 +19,7 @@ const baseChain = {
 describe('resolveSourceExecution', () => {
   it('uses the ephemeral execution account for Pectra chains without calling VSC', async () => {
     const vscClient = {
-      vscGetCaliburAccountAddress: vi.fn(),
+      vscGetSafeAccountAddress: vi.fn(),
     } as Partial<VSCClient> as VSCClient;
 
     const result = await resolveSourceExecution({
@@ -29,7 +29,7 @@ describe('resolveSourceExecution', () => {
       vscClient,
     });
 
-    expect(vscClient.vscGetCaliburAccountAddress).not.toHaveBeenCalled();
+    expect(vscClient.vscGetSafeAccountAddress).not.toHaveBeenCalled();
     expect(result).toEqual({
       address: '0x2222222222222222222222222222222222222222',
       entryPoint: null,
@@ -37,10 +37,11 @@ describe('resolveSourceExecution', () => {
     });
   });
 
-  it('uses the deterministic Calibur account for non-Pectra swap chains', async () => {
+  it('uses the deterministic Safe account for non-Pectra swap chains', async () => {
     const vscClient = {
-      vscGetCaliburAccountAddress: vi.fn().mockResolvedValue({
+      vscGetSafeAccountAddress: vi.fn().mockResolvedValue({
         address: '0x3333333333333333333333333333333333333333',
+        factoryAddress: '0x4444444444444444444444444444444444444444',
       }),
     } as Partial<VSCClient> as VSCClient;
 
@@ -56,14 +57,15 @@ describe('resolveSourceExecution', () => {
       vscClient,
     });
 
-    expect(vscClient.vscGetCaliburAccountAddress).toHaveBeenCalledWith(
+    expect(vscClient.vscGetSafeAccountAddress).toHaveBeenCalledWith(
       SUPPORTED_CHAINS.HYPEREVM,
-      '0x1111111111111111111111111111111111111111'
+      '0x2222222222222222222222222222222222222222'
     );
     expect(result).toEqual({
       address: '0x3333333333333333333333333333333333333333',
-      entryPoint: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
-      mode: 'calibur_account',
+      entryPoint: null,
+      factoryAddress: '0x4444444444444444444444444444444444444444',
+      mode: 'safe_account',
     });
   });
 });

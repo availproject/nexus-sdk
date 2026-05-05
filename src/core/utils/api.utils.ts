@@ -11,17 +11,17 @@ import { remove, retry } from 'es-toolkit';
 import { connect } from 'it-ws/client';
 import type Long from 'long';
 import { pack, unpack } from 'msgpackr';
-import { bytesToBigInt, bytesToNumber, type Hex, toHex } from 'viem';
+import { bytesToBigInt, bytesToNumber, type Hex, toBytes, toHex } from 'viem';
 import {
-  type CaliburExecuteTx,
   type Chain,
   type ChainListType,
   type CosmosQueryClient,
-  type EnsureCaliburAccountInput,
+  type EnsureSafeAccountInput,
   type FeeStoreData,
   getLogger,
   type OraclePriceResponse,
   type RFF,
+  type SafeExecuteTx,
   type SBCTx,
   type SponsoredApprovalDataArray,
   type UnifiedBalanceResponseData,
@@ -78,19 +78,18 @@ type VSCCreateRFFResponse =
       status: 0x1a; // could not collect
     };
 
-type CaliburAccountAddressResponse = {
+type SafeAccountAddressResponse = {
   address: Bytes;
-  bootstrapped: boolean;
-  deployed: boolean;
-  deployer: Bytes;
+  exists: boolean;
+  factory_address: Bytes;
   owner: Bytes;
-  salt: Bytes;
   universe: Universe;
 };
 
-type EnsureCaliburAccountResponse = CaliburAccountAddressResponse & {
-  bootstrap_tx_hash: Bytes;
+type EnsureSafeAccountResponse = {
+  address: Bytes;
   deploy_tx_hash: Bytes;
+  exists: boolean;
 };
 
 type TransactionHashResponse = {
@@ -694,9 +693,9 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
         }
       );
     },
-    vscGetCaliburAccountAddress: async (chainId: number, owner: Hex) => {
-      const response = await instance.post<CaliburAccountAddressResponse>(
-        '/get-calibur-account-address',
+    vscGetSafeAccountAddress: async (chainId: number, owner: Hex) => {
+      const response = await instance.post<SafeAccountAddressResponse>(
+        '/get-safe-account-address',
         {
           chain_id: convertTo32Bytes(chainId),
           owner: convertTo32Bytes(owner),
@@ -706,44 +705,48 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
 
       return {
         address: convertToHexAddressByUniverse(response.data.address, Universe.ETHEREUM),
-        bootstrapped: response.data.bootstrapped,
-        deployed: response.data.deployed,
-        deployer: convertToHexAddressByUniverse(response.data.deployer, Universe.ETHEREUM),
-        salt: toHex(response.data.salt),
+        exists: response.data.exists,
+        factoryAddress: convertToHexAddressByUniverse(
+          response.data.factory_address,
+          Universe.ETHEREUM
+        ),
       };
     },
-    vscEnsureCaliburAccount: async (input: EnsureCaliburAccountInput) => {
-      const response = await instance.post<EnsureCaliburAccountResponse>(
-        '/ensure-calibur-account',
-        {
-          chain_id: convertTo32Bytes(input.chainId),
-          entry_point: convertTo32Bytes(input.entryPoint),
-          keys: input.keys.map((key) => ({
-            key_type: key.keyType,
-            public_key: key.publicKey,
-            settings: key.settings,
-          })),
-          owner: convertTo32Bytes(input.owner),
-          universe: Universe.ETHEREUM,
-        }
-      );
+    vscEnsureSafeAccount: async (input: EnsureSafeAccountInput) => {
+      const response = await instance.post<EnsureSafeAccountResponse>('/ensure-safe-account', {
+        chain_id: convertTo32Bytes(input.chainId),
+        deadline: convertTo32Bytes(input.deadline),
+        owner: convertTo32Bytes(input.owner),
+        safe_address: convertTo32Bytes(input.safeAddress),
+        salt_nonce: convertTo32Bytes(input.saltNonce),
+        signature: toBytes(input.signature),
+        universe: Universe.ETHEREUM,
+      });
 
       return {
         address: convertToHexAddressByUniverse(response.data.address, Universe.ETHEREUM),
-        bootstrapped: response.data.bootstrapped,
-        bootstrapTxHash: maybeHexFromBytes(response.data.bootstrap_tx_hash),
-        deployed: response.data.deployed,
         deployTxHash: maybeHexFromBytes(response.data.deploy_tx_hash),
-        deployer: convertToHexAddressByUniverse(response.data.deployer, Universe.ETHEREUM),
-        salt: toHex(response.data.salt),
+        exists: response.data.exists,
       };
     },
-    vscCreateCaliburExecuteTx: async (input: CaliburExecuteTx) => {
-      const response = await instance.post<TransactionHashResponse>(
-        '/create-calibur-execute-tx',
-        input
-      );
-      return [bytesToBigInt(input.chain_id), toHex(response.data.tx_hash)];
+    vscCreateSafeExecuteTx: async (input: SafeExecuteTx) => {
+      const response = await instance.post<TransactionHashResponse>('/create-safe-execute-tx', {
+        base_gas: convertTo32Bytes(input.baseGas),
+        chain_id: convertTo32Bytes(input.chainId),
+        data: toBytes(input.data),
+        gas_price: convertTo32Bytes(input.gasPrice),
+        gas_token: toBytes(input.gasToken),
+        nonce: convertTo32Bytes(input.nonce),
+        operation: input.operation,
+        refund_receiver: toBytes(input.refundReceiver),
+        safe_address: convertTo32Bytes(input.safeAddress),
+        safe_tx_gas: convertTo32Bytes(input.safeTxGas),
+        signature: toBytes(input.signature),
+        to: toBytes(input.to),
+        universe: Universe.ETHEREUM,
+        value: convertTo32Bytes(input.value),
+      });
+      return [BigInt(input.chainId), toHex(response.data.tx_hash)];
     },
     vscSBCTx: async (input: SBCTx[]) => {
       const ops: [bigint, Hex][] = [];

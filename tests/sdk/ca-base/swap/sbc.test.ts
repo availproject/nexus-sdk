@@ -1,6 +1,4 @@
-import { encodeAbiParameters, keccak256, toHex } from 'viem';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { convertTo32Bytes } from '../../../../src/core/utils/common.utils';
 
 const estimateFeeContextMock = vi.hoisted(() => vi.fn());
 const finalizeFeeEstimatesMock = vi.hoisted(() => vi.fn());
@@ -10,7 +8,7 @@ vi.mock('../../../../src/services/feeEstimation', () => ({
   finalizeFeeEstimates: finalizeFeeEstimatesMock,
 }));
 
-import { caliburExecute, createCaliburExecuteTxFromCalls } from '../../../../src/swap/sbc';
+import { caliburExecute } from '../../../../src/swap/sbc';
 
 describe('caliburExecute', () => {
   const estimateGasMock = vi.fn();
@@ -70,7 +68,6 @@ describe('caliburExecute', () => {
         },
       ],
       chain,
-      mode: '7702',
       publicClient,
       signerWallet: ephemeralWallet,
       targetAddress: '0x3333333333333333333333333333333333333333',
@@ -92,85 +89,5 @@ describe('caliburExecute', () => {
       })
     );
     expect(result).toBe('0xhash');
-  });
-
-  it('targets a Calibur wrapper and signs with the registered ephemeral key hash', async () => {
-    await caliburExecute({
-      actualAddress: '0x1111111111111111111111111111111111111111',
-      actualWallet: wallet,
-      calls: [
-        {
-          to: '0x2222222222222222222222222222222222222222',
-          value: 1n,
-          data: '0x1234',
-        },
-      ],
-      chain,
-      mode: 'calibur_account',
-      publicClient,
-      signerWallet: {
-        address: '0x3333333333333333333333333333333333333333',
-        signTypedData: signTypedDataMock,
-      } as never,
-      targetAddress: '0x4444444444444444444444444444444444444444',
-      value: 1n,
-    });
-
-    const expectedKeyHash = keccak256(
-      encodeAbiParameters(
-        [{ type: 'uint8' }, { type: 'bytes32' }],
-        [2, keccak256(toHex(convertTo32Bytes('0x3333333333333333333333333333333333333333')))]
-      )
-    );
-
-    expect(writeContractMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        address: '0x4444444444444444444444444444444444444444',
-      })
-    );
-    expect(signTypedDataMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        domain: expect.objectContaining({
-          verifyingContract: '0x4444444444444444444444444444444444444444',
-        }),
-        message: expect.objectContaining({
-          keyHash: expectedKeyHash,
-        }),
-      })
-    );
-  });
-
-  it('uses the registered ephemeral key hash for standalone Calibur account execution', async () => {
-    const result = await createCaliburExecuteTxFromCalls({
-      calls: [
-        {
-          to: '0x2222222222222222222222222222222222222222',
-          value: 1n,
-          data: '0x1234',
-        },
-      ],
-      chainID: 999,
-      executionAddress: '0x4444444444444444444444444444444444444444',
-      signerWallet: {
-        address: '0x3333333333333333333333333333333333333333',
-        signTypedData: signTypedDataMock,
-      } as never,
-    });
-
-    const expectedKeyHash = keccak256(
-      encodeAbiParameters(
-        [{ type: 'uint8' }, { type: 'bytes32' }],
-        [2, keccak256(toHex(convertTo32Bytes('0x3333333333333333333333333333333333333333')))]
-      )
-    );
-
-    expect(signTypedDataMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        message: expect.objectContaining({
-          keyHash: expectedKeyHash,
-        }),
-      })
-    );
-    expect(toHex(result.key_hash)).toBe(expectedKeyHash);
   });
 });

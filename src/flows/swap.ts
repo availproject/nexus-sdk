@@ -23,6 +23,8 @@ import { BEBOP_API_KEY, LIFI_API_KEY, ZERO_BYTES_32 } from '../swap/constants';
 import { createSwapIntent } from '../swap/intent';
 import { BridgeHandler, DestinationSwapHandler, SourceSwapsHandler } from '../swap/ob';
 import { determineSwapRoute, type SwapRoute } from '../swap/route';
+import { SAFE_SALT_NONCE } from '../swap/safe.constants';
+import { hashEnsureAuthorization, predictSafeAccountAddress } from '../swap/safetx';
 import {
   Cache,
   convertMetadataToSwapResult,
@@ -34,6 +36,7 @@ import {
 const logger = getLogger();
 
 const ErrorUserDeniedIntent = new Error('User denied swap');
+const ENSURE_AUTH_DEADLINE_SECONDS = 30 * 60;
 
 export const swap = async (
   input: SwapData,
@@ -119,7 +122,7 @@ export const swap = async (
   await cache.process();
   performance.mark('allowance-cache-end');
 
-  await ensureCaliburAccountsBeforeExecution({
+  await ensureSafeAccountsBeforeExecution({
     bridgeHandler,
     destinationChainID: destination.chainId,
     destinationExecution: destination.execution,
@@ -260,7 +263,7 @@ const createSwapHandlerOptions = ({
   vscClient: options.vscClient,
 });
 
-const ensureCaliburAccountsBeforeExecution = async ({
+const ensureSafeAccountsBeforeExecution = async ({
   bridgeHandler,
   destinationChainID,
   destinationExecution,
@@ -280,43 +283,54 @@ const ensureCaliburAccountsBeforeExecution = async ({
     chainID: number,
     execution: SourceExecution | typeof destinationExecution | undefined
   ) => {
-    if (!execution || execution.mode !== 'calibur_account') {
+    if (!execution || execution.mode !== 'safe_account') {
       return;
-    }
-    if (!execution.entryPoint) {
-      throw Errors.internal(`Calibur entrypoint not configured for chain ${chainID}`);
     }
     executionsByChain.set(chainID, execution);
   };
 
-  for (const chainID of sourceHandler.getPlannedCaliburChains()) {
+  for (const chainID of sourceHandler.getPlannedSafeChains()) {
     addExecution(chainID, sourceExecutions[chainID]);
   }
-  for (const chainID of bridgeHandler.getPlannedCaliburDepositChains()) {
+  for (const chainID of bridgeHandler.getPlannedSafeDepositChains()) {
     addExecution(chainID, sourceExecutions[chainID]);
   }
   addExecution(destinationChainID, destinationExecution);
 
   await Promise.all(
-    [...executionsByChain.entries()].map(([chainID, execution]) =>
-      options.vscClient.vscEnsureCaliburAccount({
+    [...executionsByChain.entries()].map(async ([chainID, execution]) => {
+      const owner = options.address.ephemeral;
+      const safeAddress = predictSafeAccountAddress(owner);
+      if (safeAddress.toLowerCase() !== execution.address.toLowerCase()) {
+        throw Errors.internal(`Safe address mismatch for chain ${chainID}`);
+      }
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + ENSURE_AUTH_DEADLINE_SECONDS);
+      const signature = await options.wallet.ephemeral.sign({
+        hash: hashEnsureAuthorization({
+          chainId: chainID,
+          deadline,
+          owner,
+          safeAddress,
+          saltNonce: SAFE_SALT_NONCE,
+        }),
+      });
+
+      const result = await options.vscClient.vscEnsureSafeAccount({
         chainId: chainID,
-        entryPoint: execution.entryPoint!,
-        keys: [
-          {
-            keyType: 2,
-            publicKey: convertTo32Bytes(options.address.eoa),
-            settings: convertTo32Bytes(1n << 200n),
-          },
-          {
-            keyType: 2,
-            publicKey: convertTo32Bytes(options.address.ephemeral),
-            settings: convertTo32Bytes(1n << 200n),
-          },
-        ],
-        owner: options.address.eoa,
-      })
-    )
+        deadline,
+        owner,
+        safeAddress,
+        saltNonce: SAFE_SALT_NONCE,
+        signature,
+      });
+      if (!result.exists) {
+        throw Errors.internal(`Safe ensure returned exists=false for chain ${chainID}`);
+      }
+      if (result.deployTxHash) {
+        logger.debug('safe-ensure-deployed', { chainID, deployTxHash: result.deployTxHash });
+      }
+      return result;
+    })
   );
 };
 

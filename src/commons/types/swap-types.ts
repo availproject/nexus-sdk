@@ -23,7 +23,7 @@ export type BridgeAsset = {
   eoaBalance: Decimal;
   /**
    * Balance held at the per-chain source execution target:
-   * ephemeral on 7702 chains, wrapper on Calibur-account chains.
+   * ephemeral on 7702 chains, Safe account on non-7702 chains.
    */
   ephemeralBalance: Decimal;
 };
@@ -47,45 +47,57 @@ export type SBCTx = {
   universe: Universe;
 };
 
-export type CaliburExecuteTx = Omit<SBCTx, 'authorization_list'>;
-
-export type CaliburManagedKey = {
-  keyType: number;
-  publicKey: Uint8Array;
-  settings: Uint8Array;
-};
-
-export type CaliburAccountAddress = {
-  address: Hex;
-  bootstrapped: boolean;
-  deployed: boolean;
-  deployer: Hex;
-  salt: Hex;
-};
-
-export type EnsureCaliburAccountInput = {
+export type SafeExecuteTx = {
+  baseGas: bigint;
   chainId: number;
-  entryPoint: Hex;
-  keys: CaliburManagedKey[];
-  owner: Hex;
+  data: Hex;
+  gasPrice: bigint;
+  gasToken: Hex;
+  nonce: bigint;
+  operation: number;
+  refundReceiver: Hex;
+  safeAddress: Hex;
+  safeTxGas: bigint;
+  signature: Hex;
+  to: Hex;
+  value: bigint;
 };
 
-export type EnsureCaliburAccountResult = CaliburAccountAddress & {
-  bootstrapTxHash: Hex | null;
+export type SafeAccountAddress = {
+  address: Hex;
+  exists: boolean;
+  factoryAddress: Hex;
+};
+
+export type EnsureSafeAccountInput = {
+  chainId: number;
+  deadline: bigint;
+  owner: Hex;
+  safeAddress: Hex;
+  saltNonce: bigint;
+  signature: Hex;
+};
+
+export type EnsureSafeAccountResult = {
+  address: Hex;
   deployTxHash: Hex | null;
+  exists: boolean;
 };
 
 export type DestinationExecution = {
   address: Hex;
   entryPoint: Hex | null;
-  /** Destination-only mode for direct COT handoff; source execution always uses 7702 or Calibur. */
-  mode: '7702' | 'calibur_account' | 'direct_eoa';
+  factoryAddress?: Hex | null;
+  /** Destination-only mode for direct COT handoff; source execution always uses 7702 or Safe. */
+  mode: '7702' | 'safe_account' | 'direct_eoa';
 };
 
 export type SourceExecution = {
   address: Hex;
   entryPoint: Hex | null;
-  mode: '7702' | 'calibur_account';
+  factoryAddress?: Hex | null;
+  /** Source execution always uses either the 7702-delegated ephemeral account or Safe. */
+  mode: '7702' | 'safe_account';
 };
 
 type BaseSwapInput = {

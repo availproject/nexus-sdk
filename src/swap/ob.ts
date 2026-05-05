@@ -25,19 +25,13 @@ import {
   type SwapStepType,
   type Tx,
 } from '../commons';
-import { ZERO_ADDRESS } from '../core/constants';
 import { Errors } from '../core/errors';
 import { equalFold, minutesToMs, switchChain, waitForTxReceipt } from '../core/utils';
 import { EADDRESS, SWEEPER_ADDRESS } from './constants';
 import { createBridgeRFF } from './rff';
 import type { SwapRoute } from './route';
-import {
-  caliburExecute,
-  checkAuthCodeSet,
-  createCaliburExecuteTxFromCalls,
-  createSBCTxFromCalls,
-  waitForSBCTxReceipt,
-} from './sbc';
+import { createSafeExecuteEOASubmittedTx, createSafeExecuteTxFromCalls } from './safetx';
+import { caliburExecute, checkAuthCodeSet, createSBCTxFromCalls, waitForSBCTxReceipt } from './sbc';
 import {
   type Cache,
   convertTo32Bytes,
@@ -213,14 +207,15 @@ class BridgeHandler {
             sender: execution.address,
           })
         );
-        if (execution.mode === 'calibur_account') {
+        if (execution.mode === 'safe_account') {
           queueDepositReceipt(
-            await this.options.vscClient.vscCreateCaliburExecuteTx(
-              await createCaliburExecuteTxFromCalls({
+            await this.options.vscClient.vscCreateSafeExecuteTx(
+              await createSafeExecuteTxFromCalls({
                 calls: batchCalls,
-                chainID: chain.id,
-                executionAddress: execution.address,
-                signerWallet: this.options.wallet.ephemeral,
+                chainId: chain.id,
+                ephemeralWallet: this.options.wallet.ephemeral,
+                publicClient,
+                safeAddress: execution.address,
               })
             )
           );
@@ -340,7 +335,7 @@ class BridgeHandler {
   // biome-ignore lint/suspicious/noEmptyBlockStatements: default it empty - expected & correct
   private createDoubleCheckTx = async () => {};
 
-  getPlannedCaliburDepositChains(): Set<number> {
+  getPlannedSafeDepositChains(): Set<number> {
     if (!this.input) {
       return new Set();
     }
@@ -354,7 +349,7 @@ class BridgeHandler {
           if (asset.eoaBalance.add(asset.ephemeralBalance).lte(0)) {
             return false;
           }
-          return this.getSourceExecution(asset.chainID).mode === 'calibur_account';
+          return this.getSourceExecution(asset.chainID).mode === 'safe_account';
         })
         .map((asset) => asset.chainID)
     );
@@ -404,7 +399,9 @@ class DestinationSwapHandler {
       });
     }
 
-    // COT sweeper always runs in performDestinationSwap to sweep leftover COT dust
+    // COT sweeper always runs in performDestinationSwap to drain leftover wrapper COT to EOA.
+    // Aggregator output goes directly to the EOA (see route.ts), so we no longer pre-fetch
+    // allowance for the swap output token or for native — those sweepers don't run anymore.
     const cotCurrency = ChaindataMap.get(
       new OmniversalChainID(Universe.ETHEREUM, this.destinationData.chainId)
     )?.Currencies.find((c) => c.currencyID === options.cot.currencyID);
@@ -415,35 +412,6 @@ class DestinationSwapHandler {
         owner: this.destinationData.execution.address,
         spender: SWEEPER_ADDRESS,
       });
-    }
-
-    // tokenSwap and gasSwap sweepers (only when destination is not COT)
-    if (this.destinationData.swap.gasSwap) {
-      options.cache.addNativeAllowanceQuery({
-        chainID: this.destinationData.chainId,
-        contractAddress: this.destinationData.execution.address,
-        owner: this.destinationData.execution.address,
-        spender: SWEEPER_ADDRESS,
-      });
-    }
-
-    if (this.destinationData.swap.tokenSwap) {
-      const outputAddress = this.destinationData.swap.tokenSwap.quote.output.contractAddress;
-      if (isNativeAddress(outputAddress)) {
-        options.cache.addNativeAllowanceQuery({
-          chainID: this.destinationData.chainId,
-          contractAddress: this.destinationData.execution.address,
-          owner: this.destinationData.execution.address,
-          spender: SWEEPER_ADDRESS,
-        });
-      } else {
-        options.cache.addAllowanceQuery({
-          chainID: this.destinationData.chainId,
-          contractAddress: outputAddress,
-          owner: this.destinationData.execution.address,
-          spender: SWEEPER_ADDRESS,
-        });
-      }
     }
   }
 
@@ -518,7 +486,13 @@ class DestinationSwapHandler {
   }
 
   /**
-   * Executes swap + sweeper steps
+   * Executes swap + sweeper steps.
+   *
+   * Aggregator output recipient is the user's EOA (set in route.ts), so the swap output never
+   * lands at the wrapper. We don't emit per-swap sweepers here. The only sweep that still runs
+   * is the leftover-COT sweep appended inside `performDestinationSwap` — that catches whatever
+   * COT remains at the wrapper after the swap consumed its input. ERC20-only; works on both
+   * Calibur (7702) and Safe modes.
    */
   private async executeSwap(metadata: SwapMetadata) {
     await this.requoteIfRequired(false);
@@ -526,7 +500,6 @@ class DestinationSwapHandler {
     const { swap } = this.destinationData;
 
     let calls: Tx[] = [];
-    let sweeperCalls: Tx[] = [];
 
     if (this.eoaToDestinationAccountCalls.length > 0) {
       calls = calls.concat(this.eoaToDestinationAccountCalls);
@@ -542,16 +515,6 @@ class DestinationSwapHandler {
       }
       calls.push(parsed.tx);
 
-      sweeperCalls = sweeperCalls.concat(
-        createSweeperTxs({
-          cache: this.options.cache,
-          chainID: this.destinationData.chainId,
-          COTCurrencyID: this.options.cot.currencyID,
-          receiver: this.options.address.eoa,
-          sender: this.destinationData.execution.address,
-          tokenAddress: tokenSwap.quote.output.contractAddress,
-        })
-      );
       this.options.emitter.emit(SWAP_STEPS.DESTINATION_SWAP_BATCH_TX(false));
     }
 
@@ -562,20 +525,7 @@ class DestinationSwapHandler {
         calls.push(parsed.approval);
       }
       calls.push(parsed.tx);
-
-      sweeperCalls = sweeperCalls.concat(
-        createSweeperTxs({
-          cache: this.options.cache,
-          chainID: this.destinationData.chainId,
-          COTCurrencyID: this.options.cot.currencyID,
-          receiver: this.options.address.eoa,
-          sender: this.destinationData.execution.address,
-          tokenAddress: ZERO_ADDRESS,
-        })
-      );
     }
-
-    calls = calls.concat(sweeperCalls);
 
     // Execute batched destination tx
     const hash = await performDestinationSwap({
@@ -877,25 +827,31 @@ class SourceSwapsHandler {
           );
         }
 
-        await switchChain(this.options.wallet.eoa, chain);
-        /*
-           * EOA creates & sends tx {
-             to: ephemeralAddress (we check above it its delegated to calibur), 
-             value: sbcCalls.value,
-             data: SignUsingEphemeral(AggregatorTx(approval(iff non native is involved) and swap))
-           }
-           */
-        const hash = await caliburExecute({
-          actualAddress: this.options.address.eoa,
-          actualWallet: this.options.wallet.eoa,
-          calls: sbcCalls.calls,
-          chain,
-          mode: execution.mode,
-          publicClient,
-          signerWallet: this.options.wallet.ephemeral,
-          targetAddress: execution.address,
-          value: sbcCalls.value,
-        });
+        const hash =
+          execution.mode === 'safe_account'
+            ? await createSafeExecuteEOASubmittedTx({
+                actualAddress: this.options.address.eoa,
+                calls: sbcCalls.calls,
+                chain,
+                eoaWallet: this.options.wallet.eoa,
+                ephemeralWallet: this.options.wallet.ephemeral,
+                nativeValue: sbcCalls.value,
+                publicClient,
+                safeAddress: execution.address,
+              })
+            : await (async () => {
+                await switchChain(this.options.wallet.eoa, chain);
+                return caliburExecute({
+                  actualAddress: this.options.address.eoa,
+                  actualWallet: this.options.wallet.eoa,
+                  calls: sbcCalls.calls,
+                  chain,
+                  publicClient,
+                  signerWallet: this.options.wallet.ephemeral,
+                  targetAddress: execution.address,
+                  value: sbcCalls.value,
+                });
+              })();
 
         this.options.emitter.emit(
           SWAP_STEPS.SOURCE_SWAP_HASH([BigInt(chain.id), hash], this.options.chainList)
@@ -912,13 +868,14 @@ class SourceSwapsHandler {
           (async () => {
             logger.debug('waitingPromises:1');
             const [opChainID, hash] =
-              execution.mode === 'calibur_account'
-                ? await this.options.vscClient.vscCreateCaliburExecuteTx(
-                    await createCaliburExecuteTxFromCalls({
+              execution.mode === 'safe_account'
+                ? await this.options.vscClient.vscCreateSafeExecuteTx(
+                    await createSafeExecuteTxFromCalls({
                       calls: sbcCalls.calls,
-                      chainID: chain.id,
-                      executionAddress: execution.address,
-                      signerWallet: this.options.wallet.ephemeral,
+                      chainId: chain.id,
+                      ephemeralWallet: this.options.wallet.ephemeral,
+                      publicClient,
+                      safeAddress: execution.address,
                     })
                   )
                 : (
@@ -983,7 +940,7 @@ class SourceSwapsHandler {
             });
 
             const sbcTxs: SBCTx[] = [];
-            const caliburOps: Promise<[bigint, Hex]>[] = [];
+            const safeOps: Promise<[bigint, Hex]>[] = [];
             for (const chainID of successfulSwaps) {
               const execution = this.getSourceExecution(chainID);
               const calls = createSweeperTxs({
@@ -993,14 +950,15 @@ class SourceSwapsHandler {
                 receiver: this.options.address.eoa,
                 sender: execution.address,
               });
-              if (execution.mode === 'calibur_account') {
-                caliburOps.push(
-                  this.options.vscClient.vscCreateCaliburExecuteTx(
-                    await createCaliburExecuteTxFromCalls({
+              if (execution.mode === 'safe_account') {
+                safeOps.push(
+                  this.options.vscClient.vscCreateSafeExecuteTx(
+                    await createSafeExecuteTxFromCalls({
                       calls,
-                      chainID,
-                      executionAddress: execution.address,
-                      signerWallet: this.options.wallet.ephemeral,
+                      chainId: chainID,
+                      ephemeralWallet: this.options.wallet.ephemeral,
+                      publicClient: this.options.publicClientList.get(chainID),
+                      safeAddress: execution.address,
                     })
                   )
                 );
@@ -1020,7 +978,7 @@ class SourceSwapsHandler {
             try {
               const ops = [
                 ...(sbcTxs.length ? await this.options.vscClient.vscSBCTx(sbcTxs) : []),
-                ...(await Promise.all(caliburOps)),
+                ...(await Promise.all(safeOps)),
               ];
               await waitForSBCTxReceipt(ops, this.options.chainList, this.options.publicClientList);
             } catch {
@@ -1144,10 +1102,10 @@ class SourceSwapsHandler {
     return this.process(metadata, this.groupAndOrder(quoteResponses), false);
   }
 
-  getPlannedCaliburChains(): Set<number> {
+  getPlannedSafeChains(): Set<number> {
     return new Set(
       [...this.swapsData.keys()].filter(
-        (chainID) => this.getSourceExecution(chainID).mode === 'calibur_account'
+        (chainID) => this.getSourceExecution(chainID).mode === 'safe_account'
       )
     );
   }

@@ -27,4 +27,30 @@ export const TOKENS_BY_CHAIN: TokenByChain = [
       },
     ],
   },
+  {
+    chainId: MAINNET_CHAIN_IDS.HYPEREVM,
+    tokens: [
+      {
+        contractAddress: '0xfd739d4e423301ce9385c1fb8850539d657c296d',
+        name: 'Kinetiq Staked HYPE',
+        logo: `${NEXUS_ASSETS_BASE_URL}/hype/logo.png`,
+        decimals: 18,
+        symbol: 'KHYPE',
+      },
+      {
+        contractAddress: '0x5555555555555555555555555555555555555555',
+        name: 'Wrapped Hype',
+        logo: `${NEXUS_ASSETS_BASE_URL}/hype/logo.png`,
+        decimals: 18,
+        symbol: 'WHYPE',
+      },
+      {
+        contractAddress: '0xffaa4a3d97fe9107cef8a3f48c069f577ff76cc1',
+        name: 'Staked HYPE',
+        logo: `${NEXUS_ASSETS_BASE_URL}/hype/logo.png`,
+        decimals: 18,
+        symbol: 'stHYPE',
+      },
+    ],
+  },
 ];

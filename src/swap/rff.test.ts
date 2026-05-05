@@ -49,7 +49,7 @@ describe('createVaultFundingAndAllowanceCalls', () => {
     });
   });
 
-  it('funds ephemeral from the Calibur wrapper and signs an ephemeral vault permit', async () => {
+  it('funds ephemeral from the Safe and signs an ephemeral vault permit', async () => {
     const calls = await createVaultFundingAndAllowanceCalls({
       allowance: 0n,
       chainID: 999,
@@ -61,8 +61,8 @@ describe('createVaultFundingAndAllowanceCalls', () => {
       publicClientList: { get: vi.fn(() => ({})) } as never,
       sourceExecution: {
         address: '0x3333333333333333333333333333333333333333',
-        entryPoint: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
-        mode: 'calibur_account',
+        entryPoint: null,
+        mode: 'safe_account',
       },
       tokenAddress: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
       valueRaw: 1_000_000n,
@@ -101,7 +101,7 @@ describe('createVaultFundingAndAllowanceCalls', () => {
     });
   });
 
-  it('skips the permit step when the wrapper already has enough vault allowance', async () => {
+  it('skips the permit step when the ephemeral already has enough vault allowance', async () => {
     const calls = await createVaultFundingAndAllowanceCalls({
       allowance: 1_000_000n,
       chainID: 999,
@@ -113,8 +113,8 @@ describe('createVaultFundingAndAllowanceCalls', () => {
       publicClientList: { get: vi.fn(() => ({})) } as never,
       sourceExecution: {
         address: '0x3333333333333333333333333333333333333333',
-        entryPoint: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
-        mode: 'calibur_account',
+        entryPoint: null,
+        mode: 'safe_account',
       },
       tokenAddress: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
       valueRaw: 1_000_000n,
@@ -273,7 +273,7 @@ describe('createBridgeRFF', () => {
     });
   });
 
-  it('throws when a Calibur bridge source execution is missing instead of silently falling back to 7702', async () => {
+  it('throws when a Safe bridge source execution is missing instead of silently falling back to 7702', async () => {
     await expect(
       createBridgeRFF({
         config: makeConfig({}),
@@ -284,7 +284,7 @@ describe('createBridgeRFF', () => {
     ).rejects.toThrow('source execution not found for chain 999');
   });
 
-  it('rejects before any cosmos broadcast if Calibur vault permit construction fails', async () => {
+  it('rejects before any cosmos broadcast if Safe vault permit construction fails', async () => {
     createPermitOnlyApprovalTxMock.mockRejectedValueOnce(new Error('permit failed'));
 
     await expect(
@@ -292,8 +292,8 @@ describe('createBridgeRFF', () => {
         config: makeConfig({
           [SUPPORTED_CHAINS.HYPEREVM]: {
             address: '0x3333333333333333333333333333333333333333',
-            entryPoint: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
-            mode: 'calibur_account',
+            entryPoint: null,
+            mode: 'safe_account',
           },
         }),
         input: makeInput(),

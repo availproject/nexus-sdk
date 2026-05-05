@@ -32,7 +32,6 @@ import {
   toHex,
   type WalletClient,
 } from 'viem';
-import CaliburABI from '../abi/calibur.abi';
 import {
   ERC20PermitABI,
   ERC20PermitEIP712Type,
@@ -74,7 +73,8 @@ import {
 import { estimateRepresentativeSwapNativeReserveFee } from '../services/swapNativeReserveFee';
 import { CALIBUR_ADDRESS, EADDRESS, SWEEPER_ADDRESS } from './constants';
 import { type FlatBalance, getPermitVariantAndVersion, isTokenSupported } from './data';
-import { createCaliburExecuteTxFromCalls, createSBCTxFromCalls, waitForSBCTxReceipt } from './sbc';
+import { createSafeExecuteTxFromCalls } from './safetx';
+import { createSBCTxFromCalls, waitForSBCTxReceipt } from './sbc';
 
 const USD_DECIMAL_PLACES = 6;
 const logger = getLogger();
@@ -964,7 +964,6 @@ export class Cache {
   public allowanceValues: Map<string, bigint> = new Map();
   public setCodeValues: Map<string, Hex | undefined> = new Map();
   private readonly allowanceQueries: Map<string, AllowanceInput> = new Map();
-  private readonly nativeAllowanceQueries: Map<string, AllowanceInput> = new Map();
   private readonly setCodeQueries: Map<string, SetCodeInput> = new Map();
   private readonly permitQueries: Map<string, PermitQueryInput> = new Map();
   private readonly permitValues: Map<string, { variant: PermitVariant; version: number }> =
@@ -978,10 +977,6 @@ export class Cache {
 
   addAllowanceValue(input: AllowanceInput, value: bigint) {
     this.allowanceValues.set(getAllowanceCacheKey(input), value);
-  }
-
-  addNativeAllowanceQuery(input: AllowanceInput) {
-    this.nativeAllowanceQueries.set(getAllowanceCacheKey(input), input);
   }
 
   addSetCodeQuery(input: SetCodeInput) {
@@ -1010,40 +1005,10 @@ export class Cache {
 
   async process() {
     await Promise.all([
-      this.processNativeAllowanceRequests(),
       this.processAllowanceRequests(),
       this.processGetCodeRequests(),
       this.processPermitRequests(),
     ]);
-  }
-
-  private async processNativeAllowanceRequests() {
-    const requests: Promise<void>[] = [];
-    for (const input of this.nativeAllowanceQueries.values()) {
-      const publicClient = this.publicClientList.get(input.chainID);
-      // Fire getCode and nativeAllowance simultaneously so both land in the same
-      // multicall batch as the ERC20 allowance reads. nativeAllowance may revert
-      // if the account isn't delegated to Calibur yet, so we catch and default to 0n.
-      requests.push(
-        Promise.all([
-          publicClient.getCode({ address: input.contractAddress }),
-          publicClient
-            .readContract({
-              address: input.contractAddress,
-              abi: CaliburABI,
-              functionName: 'nativeAllowance',
-              args: [input.spender],
-            })
-            .catch(() => 0n),
-        ]).then(([code, allowance]) => {
-          this.allowanceValues.set(
-            getAllowanceCacheKey(input),
-            equalFold(code, EXPECTED_CALIBUR_CODE) ? allowance : 0n
-          );
-        })
-      );
-    }
-    await Promise.all(requests);
   }
 
   private async processAllowanceRequests() {
@@ -1398,6 +1363,20 @@ export const postSwap = async ({
   return rffIDN === 0 ? res.data.value : rffIDN;
 };
 
+/**
+ * Builds an ERC20 sweep batch: approve the Sweeper for `tokenAddress` (if not already
+ * approved), then call `Sweeper.sweepERC20(tokenAddress, receiver)` to drain the sender's
+ * balance to the receiver. The Sweeper at SWEEPER_ADDRESS pulls from `msg.sender`, so the
+ * sender at execution time must equal `sender` in the cache lookup (Calibur wrapper on 7702
+ * chains, Safe proxy on non-Pectra chains — both work because the call chain
+ * `Safe.execTransaction → MultiSendCallOnly DELEGATECALL → CALL Sweeper` results in
+ * `msg.sender` at the Sweeper being the wrapper address).
+ *
+ * Native sweeping is intentionally not supported here. The destination-swap path routes
+ * aggregator output directly to the user's EOA (see route.ts `dstSwapRecipientInBytes`), so
+ * native dust never accrues at the wrapper. If `tokenAddress` resolves to a native address,
+ * we throw — that indicates a caller bug; the caller should not be sweeping native.
+ */
 export const createSweeperTxs = ({
   cache,
   chainID,
@@ -1413,7 +1392,6 @@ export const createSweeperTxs = ({
   sender: Hex;
   tokenAddress?: Hex;
 }) => {
-  const txs: Tx[] = [];
   if (!tokenAddress) {
     const currency = ChaindataMap.get(
       new OmniversalChainID(Universe.ETHEREUM, chainID)
@@ -1427,62 +1405,35 @@ export const createSweeperTxs = ({
   }
 
   if (isNativeAddress(tokenAddress)) {
-    const nativeAllowance = cache.getAllowance({
-      chainID: Number(chainID),
-      contractAddress: sender,
-      owner: sender,
-      spender: SWEEPER_ADDRESS,
-    });
-    logger.debug('createSweeperTxs', {
-      nativeAllowance,
-    });
+    throw Errors.internal(
+      'createSweeperTxs called with native token address; native sweeping is not supported (aggregator should deliver native output directly to EOA)'
+    );
+  }
 
-    if (!nativeAllowance || nativeAllowance === 0n) {
-      txs.push({
-        to: sender,
-        data: encodeFunctionData({
-          abi: CaliburABI,
-          functionName: 'approveNative',
-          args: [SWEEPER_ADDRESS, maxUint256],
-        }),
-        value: 0n,
-      });
-    }
+  const txs: Tx[] = [];
+  const sweeperAllowance = cache.getAllowance({
+    chainID: Number(chainID),
+    contractAddress: convertToEVMAddress(tokenAddress),
+    owner: sender,
+    spender: SWEEPER_ADDRESS,
+  });
 
+  if (!sweeperAllowance || sweeperAllowance === 0n) {
     txs.push({
-      data: encodeFunctionData({
-        abi: SWEEP_ABI,
-        args: [receiver],
-        functionName: 'sweepERC7914',
-      }),
-      to: SWEEPER_ADDRESS,
-      value: 0n,
-    });
-  } else {
-    const sweeperAllowance = cache.getAllowance({
-      chainID: Number(chainID),
-      contractAddress: convertToEVMAddress(tokenAddress),
-      owner: sender,
-      spender: SWEEPER_ADDRESS,
-    });
-
-    if (!sweeperAllowance || sweeperAllowance === 0n) {
-      txs.push({
-        data: packERC20Approve(SWEEPER_ADDRESS, maxUint256),
-        to: convertToEVMAddress(tokenAddress),
-        value: 0n,
-      });
-    }
-    txs.push({
-      data: encodeFunctionData({
-        abi: SWEEP_ABI,
-        args: [convertToEVMAddress(tokenAddress), receiver],
-        functionName: 'sweepERC20',
-      }),
-      to: SWEEPER_ADDRESS,
+      data: packERC20Approve(SWEEPER_ADDRESS, maxUint256),
+      to: convertToEVMAddress(tokenAddress),
       value: 0n,
     });
   }
+  txs.push({
+    data: encodeFunctionData({
+      abi: SWEEP_ABI,
+      args: [convertToEVMAddress(tokenAddress), receiver],
+      functionName: 'sweepERC20',
+    }),
+    to: SWEEPER_ADDRESS,
+    value: 0n,
+  });
 
   return txs;
 };
@@ -1535,15 +1486,16 @@ export const performDestinationSwap = async ({
   );
   performance.mark('destination-swap-start');
   const ops =
-    destinationExecution.mode === 'calibur_account'
+    destinationExecution.mode === 'safe_account'
       ? [
           await (async () => {
-            return vscClient.vscCreateCaliburExecuteTx(
-              await createCaliburExecuteTxFromCalls({
+            return vscClient.vscCreateSafeExecuteTx(
+              await createSafeExecuteTxFromCalls({
                 calls: batchCalls,
-                chainID: chain.id,
-                executionAddress: destinationExecution.address,
-                signerWallet,
+                chainId: chain.id,
+                ephemeralWallet: signerWallet,
+                publicClient: publicClientList.get(chain.id),
+                safeAddress: destinationExecution.address,
               })
             );
           })(),
