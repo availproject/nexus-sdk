@@ -757,12 +757,15 @@ const _exactOutRoute = async (
     needsDestinationExecution: needsTokenSwap || needsGasSwap,
     vscClient: params.vscClient,
   });
-  // Aggregator recipient is the user's EOA, not the wrapper. The wrapper still holds the
-  // bridged COT (the swap *input*); the aggregator delivers swap *output* directly to the EOA
-  // so we never need to sweep token or native dust out of the wrapper post-swap. This applies
-  // uniformly to both 7702 (Calibur) and `safe_account` modes — Safe doesn't implement
-  // ERC-7914, so the previous wrapper-then-sweep pattern broke `approveNative`.
-  const dstSwapRecipientInBytes = convertTo32Bytes(params.address.eoa);
+  // Aggregator simulation context (taker_address / fromAddress) must be the wrapper — that's
+  // the on-chain executor at runtime, so the aggregator's permit/approval routing has to match.
+  // Output recipient is the user's EOA so we never need to sweep token or native dust out of
+  // the wrapper post-swap. Safe doesn't implement ERC-7914, so the previous
+  // wrapper-as-recipient + sweep pattern broke `approveNative`. Splitting these two roles
+  // (userAddress vs receiverAddress) lets the aggregator simulate as the wrapper but deliver
+  // output to the EOA. Applies uniformly to 7702 (Calibur) and `safe_account` modes.
+  const dstSwapTakerInBytes = convertTo32Bytes(destinationExecution.address);
+  const dstSwapReceiverInBytes = convertTo32Bytes(params.address.eoa);
 
   // COT required for direct transfer when toToken IS COT. Zero when a swap resolves it.
   const cotTransferAmount = needsTokenSwap
@@ -784,22 +787,26 @@ const _exactOutRoute = async (
     const [tokenSwap, gasSwap] = await Promise.all([
       needsTokenSwap
         ? determineDestinationSwaps(
-            dstSwapRecipientInBytes,
+            dstSwapTakerInBytes,
             {
               chainID: dstOmniversalChainID,
               amountRaw: BigInt(input.toAmount),
               tokenAddress: convertTo32Bytes(input.toTokenAddress),
             },
-            params.aggregators
+            params.aggregators,
+            undefined,
+            dstSwapReceiverInBytes
           )
         : null,
       needsGasSwap
         ? destinationSwapWithExactIn(
-            dstSwapRecipientInBytes,
+            dstSwapTakerInBytes,
             dstOmniversalChainID,
             mulDecimals(gasInCOT, dstChainCOT.decimals),
             EADDRESS_32_BYTES,
-            params.aggregators
+            params.aggregators,
+            undefined,
+            dstSwapReceiverInBytes
           )
         : null,
     ]);
@@ -1243,9 +1250,12 @@ const _exactInRoute = async (
     needsDestinationExecution: needsDstSwap || hasDestinationChainSourceOutput,
     vscClient: params.vscClient,
   });
-  // See exact-out path: aggregator recipient = EOA, not the wrapper. Wrapper holds the COT
-  // input; aggregator delivers output directly to the user.
-  const dstSwapRecipientInBytes = convertTo32Bytes(params.address.eoa);
+  // See exact-out path: aggregator simulates as the wrapper (it's the on-chain executor) but
+  // delivers swap output directly to the user's EOA. Wrapper holds the COT input; the EOA
+  // receives the output. Splitting userAddress (taker) and receiverAddress prevents simulation
+  // mismatches that previously caused GS013 reverts on Safe-mode chains.
+  const dstSwapTakerInBytes = convertTo32Bytes(destinationExecution.address);
+  const dstSwapReceiverInBytes = convertTo32Bytes(params.address.eoa);
   const destination = createDestination(
     input.toChainId,
     destinationExecution,
@@ -1272,12 +1282,13 @@ const _exactInRoute = async (
     let tokenSwap = null;
     if (needsDstSwap) {
       tokenSwap = await destinationSwapWithExactIn(
-        dstSwapRecipientInBytes,
+        dstSwapTakerInBytes,
         dstOmniversalChainID,
         mulDecimals(dstSwapInputAmountInDecimal, dstChainCOT.decimals),
         convertTo32Bytes(input.toTokenAddress),
         params.aggregators,
-        dstChainCOT.currencyID
+        dstChainCOT.currencyID,
+        dstSwapReceiverInBytes
       );
 
       // Rate guard on requote: check output didn't drop beyond 0.5% tolerance
