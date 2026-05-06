@@ -51,6 +51,13 @@ export const TOKENS_BY_CHAIN: TokenByChain = [
         decimals: 18,
         symbol: 'stHYPE',
       },
+      {
+        contractAddress: '0x111111a1a0667d36bD57c0A9f569b98057111111',
+        name: 'USDH',
+        logo: `${NEXUS_ASSETS_BASE_URL}/usdh/logo.png`,
+        decimals: 6,
+        symbol: 'USDH',
+      },
     ],
   },
 ];
