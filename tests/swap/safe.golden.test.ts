@@ -5,14 +5,14 @@ import {
   SAFE_PROXY_CREATION_CODE,
   SAFE_PROXY_INIT_CODE_HASH,
   SAFE_SALT_NONCE,
-} from './safe.constants';
+} from '../../src/swap/safe.constants';
 import {
   buildMultiSendPayload,
   buildSafeInitializer,
   hashEnsureAuthorization,
   hashSafeTx,
   predictSafeAccountAddress,
-} from './safetx';
+} from '../../src/swap/safetx';
 
 const OWNER = '0x1111111111111111111111111111111111111111';
 const EXPECTED_SAFE = '0x9eAc574979eCC3B7944C9cECFc8804ad72AE5cf9';

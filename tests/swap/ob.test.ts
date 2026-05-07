@@ -2,8 +2,8 @@ import { CurrencyID } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
 import Long from 'long';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { SWAP_STEPS } from '../commons';
-import { EADDRESS, SWEEPER_ADDRESS, ZERO_BYTES_32 } from './constants';
+import { SWAP_STEPS } from '../../src/commons';
+import { EADDRESS, SWEEPER_ADDRESS, ZERO_BYTES_32 } from '../../src/swap/constants';
 
 const switchChainMock = vi.hoisted(() => vi.fn());
 const waitForTxReceiptMock = vi.hoisted(() => vi.fn());
@@ -18,8 +18,9 @@ const checkAuthCodeSetMock = vi.hoisted(() => vi.fn());
 const waitForSBCTxReceiptMock = vi.hoisted(() => vi.fn());
 const createBridgeRFFMock = vi.hoisted(() => vi.fn());
 
-vi.mock('../core/utils', async () => {
-  const actual = await vi.importActual<typeof import('../core/utils')>('../core/utils');
+vi.mock('../../src/core/utils', async () => {
+  const actual =
+    await vi.importActual<typeof import('../../src/core/utils')>('../../src/core/utils');
   return {
     ...actual,
     switchChain: switchChainMock,
@@ -27,8 +28,9 @@ vi.mock('../core/utils', async () => {
   };
 });
 
-vi.mock('./utils', async () => {
-  const actual = await vi.importActual<typeof import('./utils')>('./utils');
+vi.mock('../../src/swap/utils', async () => {
+  const actual =
+    await vi.importActual<typeof import('../../src/swap/utils')>('../../src/swap/utils');
   return {
     ...actual,
     createPermitAndTransferFromTx: createPermitAndTransferFromTxMock,
@@ -37,16 +39,16 @@ vi.mock('./utils', async () => {
   };
 });
 
-vi.mock('./rff', async () => {
-  const actual = await vi.importActual<typeof import('./rff')>('./rff');
+vi.mock('../../src/swap/rff', async () => {
+  const actual = await vi.importActual<typeof import('../../src/swap/rff')>('../../src/swap/rff');
   return {
     ...actual,
     createBridgeRFF: createBridgeRFFMock,
   };
 });
 
-vi.mock('./sbc', async () => {
-  const actual = await vi.importActual<typeof import('./sbc')>('./sbc');
+vi.mock('../../src/swap/sbc', async () => {
+  const actual = await vi.importActual<typeof import('../../src/swap/sbc')>('../../src/swap/sbc');
   return {
     ...actual,
     caliburExecute: caliburExecuteMock,
@@ -56,8 +58,9 @@ vi.mock('./sbc', async () => {
   };
 });
 
-vi.mock('./safetx', async () => {
-  const actual = await vi.importActual<typeof import('./safetx')>('./safetx');
+vi.mock('../../src/swap/safetx', async () => {
+  const actual =
+    await vi.importActual<typeof import('../../src/swap/safetx')>('../../src/swap/safetx');
   return {
     ...actual,
     createSafeExecuteEOASubmittedTx: createSafeExecuteEOASubmittedTxMock,
@@ -65,8 +68,8 @@ vi.mock('./safetx', async () => {
   };
 });
 
-import { BridgeHandler, DestinationSwapHandler, SourceSwapsHandler } from './ob';
-import { convertTo32Bytes } from './utils';
+import { BridgeHandler, DestinationSwapHandler, SourceSwapsHandler } from '../../src/swap/ob';
+import { convertTo32Bytes } from '../../src/swap/utils';
 
 const makeSourceQuote = (chainID: number) =>
   ({

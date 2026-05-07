@@ -1,8 +1,8 @@
 import { Universe } from '@avail-project/ca-common';
 import { toBytes } from 'viem';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { SUPPORTED_CHAINS } from '../../commons';
-import { convertTo32Bytes } from './common.utils';
+import { SUPPORTED_CHAINS } from '../../../src/commons';
+import { convertTo32Bytes } from '../../../src/core/utils/common.utils';
 
 const postMock = vi.hoisted(() => vi.fn());
 const axiosCreateMock = vi.hoisted(() => vi.fn(() => ({ post: postMock })));
@@ -13,7 +13,7 @@ vi.mock('axios', () => ({
   },
 }));
 
-import { createVSCClient } from './api.utils';
+import { createVSCClient } from '../../../src/core/utils/api.utils';
 
 describe('createVSCClient Safe account methods', () => {
   beforeEach(() => {

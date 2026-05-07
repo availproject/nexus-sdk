@@ -1,13 +1,17 @@
 import { CurrencyID, ERC20ABI, Universe } from '@avail-project/ca-common';
 import { decodeFunctionData } from 'viem';
 import { describe, expect, it, vi } from 'vitest';
-import { SWEEP_ABI } from '../abi/sweep';
-import { MAINNET_CHAIN_IDS } from '../commons';
-import { SWEEPER_ADDRESS } from './constants';
-import type { FlatBalance } from './data';
-import { createPermitOnlyApprovalTx, createSweeperTxs, sortSourcesByPriority } from './utils';
+import { SWEEP_ABI } from '../../src/abi/sweep';
+import { MAINNET_CHAIN_IDS } from '../../src/commons';
+import { SWEEPER_ADDRESS } from '../../src/swap/constants';
+import type { FlatBalance } from '../../src/swap/data';
+import {
+  createPermitOnlyApprovalTx,
+  createSweeperTxs,
+  sortSourcesByPriority,
+} from '../../src/swap/utils';
 
-vi.mock('../core/constants', () => ({
+vi.mock('../../src/core/constants', () => ({
   getLogoFromSymbol: vi.fn(() => ''),
   ZERO_ADDRESS: '0x0000000000000000000000000000000000000000',
   INTENT_EXPIRY: 15 * 60 * 1000,

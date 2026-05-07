@@ -2,7 +2,7 @@ import { ERC20ABI, Universe } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
 import { decodeFunctionData } from 'viem';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { SUPPORTED_CHAINS } from '../commons';
+import { SUPPORTED_CHAINS } from '../../src/commons';
 
 const createPermitOnlyApprovalTxMock = vi.hoisted(() => vi.fn());
 const cosmosCreateRFFMock = vi.hoisted(() => vi.fn());
@@ -14,16 +14,18 @@ const getFeeStoreMock = vi.hoisted(() => vi.fn());
 const removeIntentHashFromStoreMock = vi.hoisted(() => vi.fn());
 const storeIntentHashToStoreMock = vi.hoisted(() => vi.fn());
 
-vi.mock('./utils', async () => {
-  const actual = await vi.importActual<typeof import('./utils')>('./utils');
+vi.mock('../../src/swap/utils', async () => {
+  const actual =
+    await vi.importActual<typeof import('../../src/swap/utils')>('../../src/swap/utils');
   return {
     ...actual,
     createPermitOnlyApprovalTx: createPermitOnlyApprovalTxMock,
   };
 });
 
-vi.mock('../core/utils', async () => {
-  const actual = await vi.importActual<typeof import('../core/utils')>('../core/utils');
+vi.mock('../../src/core/utils', async () => {
+  const actual =
+    await vi.importActual<typeof import('../../src/core/utils')>('../../src/core/utils');
   return {
     ...actual,
     cosmosCreateDoubleCheckTx: cosmosCreateDoubleCheckTxMock,
@@ -37,7 +39,7 @@ vi.mock('../core/utils', async () => {
   };
 });
 
-import { createBridgeRFF, createVaultFundingAndAllowanceCalls } from './rff';
+import { createBridgeRFF, createVaultFundingAndAllowanceCalls } from '../../src/swap/rff';
 
 describe('createVaultFundingAndAllowanceCalls', () => {
   beforeEach(() => {

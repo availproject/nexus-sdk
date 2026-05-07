@@ -7,6 +7,8 @@ const createPublicClientMock = vi.hoisted(() => vi.fn(() => mockPublicClient));
 const estimateFeeContextMock = vi.hoisted(() => vi.fn());
 const finalizeFeeEstimatesMock = vi.hoisted(() => vi.fn());
 const erc20GetAllowanceMock = vi.hoisted(() => vi.fn());
+const getTokenInfoMock = vi.hoisted(() => vi.fn());
+const estimateGasMock = vi.hoisted(() => vi.fn());
 
 vi.mock('viem', async () => {
   const actual = await vi.importActual<typeof import('viem')>('viem');
@@ -17,10 +19,9 @@ vi.mock('viem', async () => {
   };
 });
 
-vi.mock('../../../../src/core/utils', async () => {
-  const actual = await vi.importActual<typeof import('../../../../src/core/utils')>(
-    '../../../../src/core/utils'
-  );
+vi.mock('../../src/core/utils', async () => {
+  const actual =
+    await vi.importActual<typeof import('../../src/core/utils')>('../../src/core/utils');
   return {
     ...actual,
     erc20GetAllowance: erc20GetAllowanceMock,
@@ -30,17 +31,27 @@ vi.mock('../../../../src/core/utils', async () => {
   };
 });
 
-vi.mock('../../../../src/services/feeEstimation', () => ({
+vi.mock('../../src/swap/utils', async () => {
+  const actual =
+    await vi.importActual<typeof import('../../src/swap/utils')>('../../src/swap/utils');
+  return {
+    ...actual,
+    getTokenInfo: getTokenInfoMock,
+  };
+});
+
+vi.mock('../../src/services/feeEstimation', () => ({
   estimateFeeContext: estimateFeeContextMock,
   finalizeFeeEstimates: finalizeFeeEstimatesMock,
 }));
 
-import { BridgeAndExecuteQuery } from '../../../../src/flows/bridgeAndExecute';
+import { SwapAndExecuteQuery } from '../../src/flows/swapAndExecute';
 
 const USER_ADDRESS = '0x1111111111111111111111111111111111111111' as const;
-const SPENDER = '0x2222222222222222222222222222222222222222' as const;
-const TARGET = '0x3333333333333333333333333333333333333333' as const;
-const TOKEN = '0x4444444444444444444444444444444444444444' as const;
+const TARGET = '0x2222222222222222222222222222222222222222' as const;
+const SPENDER = '0x3333333333333333333333333333333333333333' as const;
+const TO_TOKEN = '0x4444444444444444444444444444444444444444' as const;
+const APPROVAL_TOKEN = '0x5555555555555555555555555555555555555555' as const;
 
 const dstChain = {
   id: 42161,
@@ -71,19 +82,20 @@ const dstChain = {
   universe: Universe.ETHEREUM,
 } as const;
 
-const tokenInfo = {
-  contractAddress: TOKEN,
-  decimals: 6,
-  logo: '',
-  name: 'USD Coin',
-  symbol: 'USDC',
-};
-
-describe('BridgeAndExecuteQuery fee estimation', () => {
+describe('SwapAndExecuteQuery fee estimation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    Object.assign(mockPublicClient as object, {
+      estimateGas: estimateGasMock,
+    });
     createPublicClientMock.mockReturnValue(mockPublicClient);
     erc20GetAllowanceMock.mockResolvedValue(0n);
+    estimateGasMock.mockResolvedValue(50_000n);
+    getTokenInfoMock.mockResolvedValue({
+      contractAddress: TO_TOKEN,
+      decimals: 6,
+      symbol: 'USDC',
+    });
     estimateFeeContextMock.mockResolvedValue({
       chainId: 42161,
       recommendation: {
@@ -101,10 +113,10 @@ describe('BridgeAndExecuteQuery fee estimation', () => {
         l2Fee: 0n,
         total: 0n,
         recommended: {
-          gasLimit: 84_000n,
+          gasLimit: 60_000n,
           maxFeePerGas: 17n,
           maxPriorityFeePerGas: 2n,
-          totalMaxCost: 1_428_000n,
+          totalMaxCost: 1_020_000n,
           useLegacyPricing: true,
         },
       },
@@ -113,51 +125,46 @@ describe('BridgeAndExecuteQuery fee estimation', () => {
         l2Fee: 0n,
         total: 0n,
         recommended: {
-          gasLimit: 25_000n,
+          gasLimit: 130_000n,
           maxFeePerGas: 17n,
           maxPriorityFeePerGas: 2n,
-          totalMaxCost: 425_000n,
+          totalMaxCost: 2_210_000n,
           useLegacyPricing: true,
         },
       },
     ]);
   });
 
-  it('builds fee-estimate items for approval and execute txs and uses the helper result', async () => {
-    const chainList = {
-      getChainAndTokenFromSymbol: vi.fn(() => ({
-        chain: dstChain,
-        token: { ...tokenInfo, isNative: false },
-      })),
-      getChainByID: vi.fn(() => dstChain),
-      getTokenInfoBySymbol: vi.fn(() => tokenInfo),
-    } as never;
-
-    const query = new BridgeAndExecuteQuery(
-      chainList,
+  it('marks approval gas as final and uses helper-based fee outputs', async () => {
+    const query = new SwapAndExecuteQuery(
+      {
+        getChainByID: vi.fn(() => dstChain),
+      } as never,
       {
         getAddresses: vi.fn().mockResolvedValue([USER_ADDRESS]),
       } as never,
-      vi.fn() as never,
-      vi.fn().mockResolvedValue([]) as never,
-      {
-        simulateBundleV2: vi.fn(),
-      } as never
+      vi.fn().mockResolvedValue({
+        assets: [],
+        balances: [],
+      }) as never,
+      vi.fn() as never
     );
 
-    const result = await (query as any).estimateBridgeAndExecute({
-      token: 'USDC',
-      amount: 1_000_000n,
+    // biome-ignore lint/suspicious/noExplicitAny: testing the private estimateSwapAndExecute method
+    const result = await (query as any).estimateSwapAndExecute({
       toChainId: dstChain.id,
+      toTokenAddress: TO_TOKEN,
+      toAmount: 100_000_000n,
+      fromSources: [],
       execute: {
         to: TARGET,
         data: '0x1234',
         value: 0n,
-        gas: 21_000n,
+        gas: 100_000n,
         gasPrice: 'medium',
         tokenApproval: {
-          token: 'USDC',
-          amount: 1_000_000n,
+          token: APPROVAL_TOKEN,
+          amount: 100_000_000n,
           spender: SPENDER,
         },
       },
@@ -169,6 +176,7 @@ describe('BridgeAndExecuteQuery fee estimation', () => {
       42161,
       [
         expect.objectContaining({
+          gasEstimateKind: 'final',
           tx: expect.objectContaining({
             to: expect.any(String),
           }),
@@ -181,28 +189,22 @@ describe('BridgeAndExecuteQuery fee estimation', () => {
       ],
       'medium'
     );
-
     expect(finalizeFeeEstimatesMock).toHaveBeenCalledTimes(1);
     const [items] = finalizeFeeEstimatesMock.mock.calls[0] ?? [];
-    expect(items).toHaveLength(2);
-    expect(items?.[0]?.gasEstimate).toBe(70_000n);
-    expect(items?.[1]?.gasEstimate).toBe(21_000n);
-    expect(
-      items?.every(
-        (item: { gasEstimateKind?: 'raw' | 'final' }) => item.gasEstimateKind !== 'final'
-      )
-    ).toBe(true);
-    expect(result.approvalTx?.gas).toBe(84_000n);
-    expect(result.tx.gas).toBe(25_000n);
+    expect(items?.[0]?.gasEstimate).toBe(50_000n);
+    expect(items?.[1]?.gasEstimate).toBe(100_000n);
+
+    expect(result.approvalTx?.gas).toBe(60_000n);
+    expect(result.tx.gas).toBe(130_000n);
     expect(result.gas).toEqual({
-      approval: 84_000n,
-      tx: 25_000n,
+      approval: 60_000n,
+      tx: 130_000n,
     });
     expect(result.feeParams).toEqual({
       type: 'legacy',
       gasPrice: 17n,
     });
     expect(result.gasPrice).toBe(17n);
-    expect(result.gasFee).toBe(1_853_000n);
+    expect(result.gasFee).toBe(3_230_000n);
   });
 });

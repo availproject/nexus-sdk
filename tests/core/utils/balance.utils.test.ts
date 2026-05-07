@@ -11,10 +11,9 @@ const createPublicClientWithFallbackMock = vi.hoisted(() => vi.fn());
 const multicallMock = vi.hoisted(() => vi.fn());
 const estimateFeesPerGasMock = vi.hoisted(() => vi.fn());
 
-vi.mock('../../../../src/swap/utils', async () => {
-  const actual = await vi.importActual<typeof import('../../../../src/swap/utils')>(
-    '../../../../src/swap/utils'
-  );
+vi.mock('../../../src/swap/utils', async () => {
+  const actual =
+    await vi.importActual<typeof import('../../../src/swap/utils')>('../../../src/swap/utils');
   return {
     ...actual,
     ankrBalanceToAssets: ankrBalanceToAssetsMock,
@@ -25,12 +24,12 @@ vi.mock('../../../../src/swap/utils', async () => {
   };
 });
 
-vi.mock('../../../../src/core/utils/contract.utils', () => ({
+vi.mock('../../../src/core/utils/contract.utils', () => ({
   createPublicClientWithFallback: createPublicClientWithFallbackMock,
 }));
 
-import { ZERO_ADDRESS } from '../../../../src/core/constants';
-import { getBalancesForSwap } from '../../../../src/core/utils/balance.utils';
+import { ZERO_ADDRESS } from '../../../src/core/constants';
+import { getBalancesForSwap } from '../../../src/core/utils/balance.utils';
 
 describe('getBalancesForSwap', () => {
   beforeEach(() => {

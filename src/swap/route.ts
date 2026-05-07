@@ -1,20 +1,19 @@
-import * as CaCommon from '@avail-project/ca-common';
 import {
   type Aggregator,
-  autoSelectSourcesV2,
+  autoSelectSources,
   type Bytes,
   ChaindataMap,
   CurrencyID,
-  destinationSwapWithExactIn,
-  determineDestinationSwaps,
-  liquidateInputHoldings,
+  getDestinationExactInSwap,
+  getDestinationExactOutSwap,
+  liquidateSourceHoldings,
   OmniversalChainID,
   type QuoteResponse,
   Universe,
 } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
 import { uniqBy } from 'es-toolkit';
-import { type Hex, toBytes, toHex } from 'viem';
+import { type Hex, toBytes } from 'viem';
 import {
   type BridgeAsset,
   type Chain,
@@ -125,77 +124,17 @@ export const resolveDestinationExecution = async ({
 };
 
 type AggregatorInput = ReturnType<typeof toAggregatorInputs>[number];
-type AggregatorInputWithRecipient = AggregatorInput & { recipient: Bytes };
+// Per-holding shape carrying both the swap *taker* (on-chain executor — Calibur ephemeral on
+// 7702 chains, Safe contract on non-Pectra chains) and the *receiver* (output recipient). For
+// source-side swaps the two are always equal — output stays at the wrapper for the bridge step
+// to consume — but they're stored as distinct fields so every call site has to acknowledge
+// each role explicitly. Names mirror the ca-common wrapper vocabulary
+// (`HoldingWithSwapAddresses`).
+type AggregatorInputWithSwapAddresses = AggregatorInput & {
+  takerAddress: Bytes;
+  receiverAddress: Bytes;
+};
 type SourceExecutionRecord = Record<number, SourceExecution>;
-
-type CaCommonPerRecipientApi = typeof CaCommon & {
-  autoSelectSourcesV2ByRecipient?: (
-    holdings: AggregatorInputWithRecipient[],
-    outputRequired: Decimal,
-    aggregators: Aggregator[],
-    commonCurrencyID?: CurrencyID
-  ) => ReturnType<typeof autoSelectSourcesV2>;
-  liquidateInputHoldingsByRecipient?: (
-    holdings: AggregatorInputWithRecipient[],
-    aggregators: Aggregator[],
-    commonCurrencyID?: CurrencyID
-  ) => ReturnType<typeof liquidateInputHoldings>;
-};
-
-const caCommonPerRecipient = CaCommon as CaCommonPerRecipientApi;
-
-const liquidateInputHoldingsForRecipients = async (
-  holdings: AggregatorInputWithRecipient[],
-  aggregators: Aggregator[],
-  commonCurrencyID?: CurrencyID
-) => {
-  if (caCommonPerRecipient.liquidateInputHoldingsByRecipient) {
-    return caCommonPerRecipient.liquidateInputHoldingsByRecipient(
-      holdings,
-      aggregators,
-      commonCurrencyID
-    );
-  }
-
-  const grouped = Map.groupBy(holdings, (holding) => toHex(holding.recipient));
-  const responses = await Promise.all(
-    [...grouped.values()].map((group) =>
-      liquidateInputHoldings(group[0].recipient, group, aggregators, commonCurrencyID)
-    )
-  );
-  return responses.flat();
-};
-
-const autoSelectSourcesV2ForRecipients = async (
-  holdings: AggregatorInputWithRecipient[],
-  outputRequired: Decimal,
-  aggregators: Aggregator[],
-  commonCurrencyID?: CurrencyID
-) => {
-  if (caCommonPerRecipient.autoSelectSourcesV2ByRecipient) {
-    return caCommonPerRecipient.autoSelectSourcesV2ByRecipient(
-      holdings,
-      outputRequired,
-      aggregators,
-      commonCurrencyID
-    );
-  }
-
-  const recipients = new Map(holdings.map((holding) => [toHex(holding.recipient), holding]));
-  if (recipients.size === 1) {
-    return autoSelectSourcesV2(
-      holdings[0].recipient,
-      holdings,
-      outputRequired,
-      aggregators,
-      commonCurrencyID
-    );
-  }
-
-  throw Errors.internal(
-    '@avail-project/ca-common per-recipient source quoting API is required for mixed source execution recipients'
-  );
-};
 
 const resolveSourceExecutions = async ({
   eoaAddress,
@@ -229,10 +168,10 @@ const resolveSourceExecutions = async ({
   return Object.fromEntries(entries) as SourceExecutionRecord;
 };
 
-export const toAggregatorInputsWithRecipients = (
+export const toAggregatorInputsWithSwapAddresses = (
   balances: FlatBalance[],
   sourceExecutions: SourceExecutionRecord
-): AggregatorInputWithRecipient[] =>
+): AggregatorInputWithSwapAddresses[] =>
   toAggregatorInputs(balances).map((holding, index) => {
     const chainId = balances[index].chainID;
     const execution = sourceExecutions[chainId];
@@ -240,9 +179,14 @@ export const toAggregatorInputsWithRecipients = (
       throw Errors.internal(`source execution not resolved for chain ${chainId}`);
     }
 
+    // Source-side: taker == receiver (output stays at the wrapper for the bridge step). Both
+    // fields populated explicitly so the wrapper's required-field contract is satisfied at
+    // every call site, even though the value is the same today.
+    const swapAddress = convertTo32Bytes(execution.address);
     return {
       ...holding,
-      recipient: convertTo32Bytes(execution.address),
+      takerAddress: swapAddress,
+      receiverAddress: swapAddress,
     };
   });
 
@@ -583,11 +527,11 @@ const resolveSourceBalances = (
 
 /**
  * Builds assetsUsed, bridgeAssets, dstEOAToEphTx, and dstTotalCOTAmount from
- * autoSelectSourcesV2 results. Skips dst-chain entries from bridgeAssets and
+ * autoSelectSources results. Skips dst-chain entries from bridgeAssets and
  * tracks dst COT for bridge amount deduction.
  */
 const buildExactOutSourceAssets = (
-  usedCOTs: Awaited<ReturnType<typeof autoSelectSourcesV2>>['usedCOTs'],
+  usedCOTs: Awaited<ReturnType<typeof autoSelectSources>>['usedCOTs'],
   sourceSwapQuotes: QuoteResponse[],
   dstChainId: number,
   dstCOTDecimals: number
@@ -786,28 +730,26 @@ const _exactOutRoute = async (
 
     const [tokenSwap, gasSwap] = await Promise.all([
       needsTokenSwap
-        ? determineDestinationSwaps(
-            dstSwapTakerInBytes,
-            {
+        ? getDestinationExactOutSwap({
+            takerAddress: dstSwapTakerInBytes,
+            receiverAddress: dstSwapReceiverInBytes,
+            requirement: {
               chainID: dstOmniversalChainID,
               amountRaw: BigInt(input.toAmount),
               tokenAddress: convertTo32Bytes(input.toTokenAddress),
             },
-            params.aggregators,
-            undefined,
-            dstSwapReceiverInBytes
-          )
+            aggregators: params.aggregators,
+          })
         : null,
       needsGasSwap
-        ? destinationSwapWithExactIn(
-            dstSwapTakerInBytes,
-            dstOmniversalChainID,
-            mulDecimals(gasInCOT, dstChainCOT.decimals),
-            EADDRESS_32_BYTES,
-            params.aggregators,
-            undefined,
-            dstSwapReceiverInBytes
-          )
+        ? getDestinationExactInSwap({
+            takerAddress: dstSwapTakerInBytes,
+            receiverAddress: dstSwapReceiverInBytes,
+            chain: dstOmniversalChainID,
+            inputAmount: mulDecimals(gasInCOT, dstChainCOT.decimals),
+            outputToken: EADDRESS_32_BYTES,
+            aggregators: params.aggregators,
+          })
         : null,
     ]);
 
@@ -906,12 +848,12 @@ const _exactOutRoute = async (
     params,
   });
 
-  const { quoteResponses: sourceSwapQuotes, usedCOTs } = await autoSelectSourcesV2ForRecipients(
-    toAggregatorInputsWithRecipients(sortedBalances, sourceExecutions),
-    sourceSwapOutputRequired,
-    params.aggregators,
-    params.cotCurrencyID
-  ).catch((e) => {
+  const { quoteResponses: sourceSwapQuotes, usedCOTs } = await autoSelectSources({
+    holdings: toAggregatorInputsWithSwapAddresses(sortedBalances, sourceExecutions),
+    outputRequired: sourceSwapOutputRequired,
+    aggregators: params.aggregators,
+    commonCurrencyID: params.cotCurrencyID,
+  }).catch((e) => {
     if (e instanceof Error && e.message === 'NOT_ENOUGH_SWAP_FOR_REQUIREMENT') {
       throw Errors.quoteError();
     }
@@ -1156,11 +1098,11 @@ const _exactInRoute = async (
 
   let sourceSwaps: QuoteResponse[] = [];
   if (isSrcSwapRequired) {
-    const response = await liquidateInputHoldingsForRecipients(
-      toAggregatorInputsWithRecipients(srcBalances, sourceExecutions),
-      params.aggregators,
-      params.cotCurrencyID
-    );
+    const response = await liquidateSourceHoldings({
+      holdings: toAggregatorInputsWithSwapAddresses(srcBalances, sourceExecutions),
+      aggregators: params.aggregators,
+      commonCurrencyID: params.cotCurrencyID,
+    });
 
     if (!response.length) {
       throw Errors.quoteFailed('source swap returned no quotes');
@@ -1281,15 +1223,15 @@ const _exactInRoute = async (
   const getDstSwap = async () => {
     let tokenSwap = null;
     if (needsDstSwap) {
-      tokenSwap = await destinationSwapWithExactIn(
-        dstSwapTakerInBytes,
-        dstOmniversalChainID,
-        mulDecimals(dstSwapInputAmountInDecimal, dstChainCOT.decimals),
-        convertTo32Bytes(input.toTokenAddress),
-        params.aggregators,
-        dstChainCOT.currencyID,
-        dstSwapReceiverInBytes
-      );
+      tokenSwap = await getDestinationExactInSwap({
+        takerAddress: dstSwapTakerInBytes,
+        receiverAddress: dstSwapReceiverInBytes,
+        chain: dstOmniversalChainID,
+        inputAmount: mulDecimals(dstSwapInputAmountInDecimal, dstChainCOT.decimals),
+        outputToken: convertTo32Bytes(input.toTokenAddress),
+        aggregators: params.aggregators,
+        inputCurrency: dstChainCOT.currencyID,
+      });
 
       // Rate guard on requote: check output didn't drop beyond 0.5% tolerance
       if (destination.swap.tokenSwap) {

@@ -6,13 +6,14 @@ const switchChainMock = vi.hoisted(() => vi.fn());
 const estimateFeeContextMock = vi.hoisted(() => vi.fn());
 const finalizeFeeEstimatesMock = vi.hoisted(() => vi.fn());
 
-vi.mock('../core/utils', async () => {
-  const actual = await vi.importActual<typeof import('../core/utils')>('../core/utils');
+vi.mock('../../src/core/utils', async () => {
+  const actual =
+    await vi.importActual<typeof import('../../src/core/utils')>('../../src/core/utils');
   return { ...actual, switchChain: switchChainMock };
 });
 
-vi.mock('../services/feeEstimation', async () => {
-  const actual = await vi.importActual<typeof import('../services/feeEstimation')>(
+vi.mock('../../src/services/feeEstimation', async () => {
+  const actual = await vi.importActual<typeof import('../../src/services/feeEstimation')>(
     '../services/feeEstimation'
   );
   return {
@@ -22,9 +23,9 @@ vi.mock('../services/feeEstimation', async () => {
   };
 });
 
-import { buildMultiSendPayload, createSafeExecuteEOASubmittedTx } from './safetx';
+import { buildMultiSendPayload, createSafeExecuteEOASubmittedTx } from '../../src/swap/safetx';
 
-const EPHEMERAL_PRIVATE_KEY = ('0x' + '11'.repeat(32)) as Hex;
+const EPHEMERAL_PRIVATE_KEY = `0x${'11'.repeat(32)}` as Hex;
 const SAFE_ADDRESS = '0x9eAc574979eCC3B7944C9cECFc8804ad72AE5cf9' as const;
 const EOA_ADDRESS = '0x2222222222222222222222222222222222222222' as const;
 

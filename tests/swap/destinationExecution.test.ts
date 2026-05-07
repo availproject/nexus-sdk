@@ -1,21 +1,21 @@
 import { CurrencyID } from '@avail-project/ca-common';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { VSCClient } from '../commons';
+import type { VSCClient } from '../../src/commons';
 
 const createSBCTxFromCallsMock = vi.hoisted(() => vi.fn());
 const createSafeExecuteTxFromCallsMock = vi.hoisted(() => vi.fn());
 const waitForSBCTxReceiptMock = vi.hoisted(() => vi.fn());
 
-vi.mock('./sbc', () => ({
+vi.mock('../../src/swap/sbc', () => ({
   createSBCTxFromCalls: createSBCTxFromCallsMock,
   waitForSBCTxReceipt: waitForSBCTxReceiptMock,
 }));
 
-vi.mock('./safetx', () => ({
+vi.mock('../../src/swap/safetx', () => ({
   createSafeExecuteTxFromCalls: createSafeExecuteTxFromCallsMock,
 }));
 
-import { performDestinationSwap } from './utils';
+import { performDestinationSwap } from '../../src/swap/utils';
 
 describe('performDestinationSwap', () => {
   type MockedDestinationVSCClient = Pick<

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { Chain, VSCClient } from '../commons';
-import { SUPPORTED_CHAINS } from '../commons';
-import { resolveSourceExecution } from './route';
+import type { Chain, VSCClient } from '../../src/commons';
+import { SUPPORTED_CHAINS } from '../../src/commons';
+import { resolveSourceExecution } from '../../src/swap/route';
 
 const baseChain = {
   blockExplorers: { default: { name: 'Explorer', url: 'https://example.com' } },
