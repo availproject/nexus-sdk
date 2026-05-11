@@ -610,18 +610,18 @@ const _exactOutRoute = async (
     throw Errors.chainNotFound(input.toChainId);
   }
 
-  const removeSources: Source[] = [
-    {
+  // toAmount / toNativeAmount sentinel semantics (same shape for both):
+  //   > 0n   : shortfall — bridge this amount. Remove from dst-chain sources entirely.
+  //   < -1n  : surplus — reserve abs(value) from dst balance, use the rest as a swap source.
+  //   === -1n: exactly enough — remove from dst-chain sources entirely.
+  const removeSources: Source[] = [];
+  if (input.toAmount === -1n || input.toAmount > 0n) {
+    removeSources.push({
       chainId: input.toChainId,
       tokenAddress: input.toTokenAddress,
-    },
-  ];
-  // 1) Required: 1 KAITO and 0.0004 ETH, Have: 0.2 KAITO and 0.0002 ETH => toNativeAmount = 0.0002 * 10**18
-  //    Need more gas — positive shortfall. Remove native from sources entirely.
-  // 2) Required: 1 KAITO and 0.0004 ETH, Have: 0.2 KAITO and 0.0006 ETH => toNativeAmount = -(0.0004 * 10**18)
-  //    Surplus gas — reserve abs(value) from native balance, allow the rest as swap source.
-  // 3) Required: 1 KAITO and 0.0004 ETH, Have: 0.2 KAITO and 0.0004 ETH => toNativeAmount = -1
-  //    Exactly enough gas — remove native from sources entirely.
+    });
+  }
+  const reserveTokenAmount = input.toAmount < -1n ? -input.toAmount : undefined;
   const reserveNativeAmount =
     input.toNativeAmount && input.toNativeAmount < -1n ? -input.toNativeAmount : undefined;
   if (input.toNativeAmount === -1n || (input.toNativeAmount && input.toNativeAmount > 0n)) {
@@ -653,8 +653,17 @@ const _exactOutRoute = async (
     balances = filterRemoveSources(balances, removeSources);
   }
 
-  // Case 2: deduct reserved native amount from the dst chain native balance so the
-  // surplus can still be used as a swap source.
+  // Surplus case: reserve the required amount from dst-chain balance so only the
+  // surplus is available as a swap source.
+  if (reserveTokenAmount) {
+    balances = deductReservedBalance(
+      balances,
+      input.toChainId,
+      normalizeToComparisonAddr(input.toTokenAddress),
+      reserveTokenAmount,
+      dstTokenInfo.decimals
+    );
+  }
   if (reserveNativeAmount) {
     balances = deductReservedBalance(
       balances,
@@ -711,10 +720,12 @@ const _exactOutRoute = async (
   const dstSwapTakerInBytes = convertTo32Bytes(destinationExecution.address);
   const dstSwapReceiverInBytes = convertTo32Bytes(params.address.eoa);
 
-  // COT required for direct transfer when toToken IS COT. Zero when a swap resolves it.
-  const cotTransferAmount = needsTokenSwap
-    ? new Decimal(0)
-    : divDecimals(input.toAmount, dstChainCOT.decimals);
+  // COT required for direct transfer when toToken IS COT and toAmount is a positive
+  // shortfall. Zero when a swap resolves it, or under sentinel toAmount (-1n / <-1n).
+  const cotTransferAmount =
+    input.toAmount > 0n && !needsTokenSwap
+      ? divDecimals(input.toAmount, dstChainCOT.decimals)
+      : new Decimal(0);
 
   const destination = createDestination(
     input.toChainId,
