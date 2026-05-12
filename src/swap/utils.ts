@@ -19,9 +19,7 @@ import {
   concat,
   createPublicClient,
   encodeFunctionData,
-  getContract,
   type Hex,
-  hexToBigInt,
   http,
   maxUint256,
   type PrivateKeyAccount,
@@ -32,12 +30,7 @@ import {
   toHex,
   type WalletClient,
 } from 'viem';
-import {
-  ERC20PermitABI,
-  ERC20PermitEIP712Type,
-  ERC20PermitEIP2612PolygonType,
-  ETHEREUM_USDT_APPROVE_ABI,
-} from '../abi/erc20';
+import { ERC20PermitABI, ERC20PermitEIP712Type, ETHEREUM_USDT_APPROVE_ABI } from '../abi/erc20';
 import { SWEEP_ABI } from '../abi/sweep';
 import {
   type AnkrAsset,
@@ -67,6 +60,7 @@ import {
   divDecimals,
   equalFold,
   getExplorerURL,
+  signPermitForAddressAndValue,
   switchChain,
   waitForTxReceipt,
 } from '../core/utils';
@@ -159,101 +153,6 @@ const AnkrChainIdMapping = new Map([
   ['xai', 660279],
   ['xlayer', 196],
 ]);
-
-export const createPermitSignature = async (
-  contractAddress: Hex,
-  client: WalletClient,
-  spender: Hex,
-  walletAddress: Hex,
-  variant: PermitVariant,
-  version: number,
-  deadline: bigint,
-  amount: bigint
-) => {
-  const contract = getContract({
-    abi: ERC20ABI,
-    address: contractAddress,
-    client,
-  });
-
-  const [name, chainID, nonce] = await Promise.all([
-    contract.read.name(),
-    client.request({ method: 'eth_chainId' }, { dedupe: true }),
-    contract.read.nonces([walletAddress]),
-  ]);
-
-  logger.debug('createPermitSigParams', {
-    account: walletAddress,
-    domain: {
-      chainId: hexToBigInt(chainID),
-      name,
-      verifyingContract: contractAddress,
-      version,
-    },
-    message: {
-      deadline,
-      nonce,
-      owner: walletAddress,
-      spender: spender,
-      value: amount,
-    },
-    primaryType: 'Permit',
-    types: ERC20PermitEIP712Type,
-  });
-
-  switch (variant) {
-    case PermitVariant.EIP2612Canonical: {
-      return {
-        signature: await client.signTypedData({
-          account: walletAddress,
-          domain: {
-            chainId: hexToBigInt(chainID),
-            name,
-            verifyingContract: contractAddress,
-            version: version.toString(),
-          },
-          message: {
-            deadline,
-            nonce,
-            owner: walletAddress,
-            spender: spender,
-            value: amount,
-          },
-          primaryType: 'Permit',
-          types: ERC20PermitEIP712Type,
-        }),
-        variant,
-      };
-    }
-    case PermitVariant.PolygonEMT: {
-      return {
-        signature: await client.signTypedData({
-          account: walletAddress,
-          domain: {
-            name,
-            salt: pad(chainID, {
-              dir: 'left',
-              size: 32,
-            }),
-            verifyingContract: contract.address,
-            version: version.toString(10),
-          },
-          message: {
-            from: walletAddress,
-            functionSignature: packERC20Approve(spender, amount),
-            nonce,
-          },
-          primaryType: 'MetaTransaction',
-          types: ERC20PermitEIP2612PolygonType,
-        }),
-        variant,
-      };
-    }
-    default: {
-      throw Errors.tokenNotSupported(undefined, undefined, '(2612 details not found)');
-    }
-  }
-};
 
 export const EXPECTED_CALIBUR_CODE = concat(['0xef0100', CALIBUR_ADDRESS]);
 const EIP7702_DELEGATION_PREFIX = '0xef0100';
@@ -392,13 +291,15 @@ export const createPermitAndTransferFromTx = async ({
       const approvalTx =
         approval ??
         (await createPermitApprovalTx({
+          amount,
+          chain,
           contractAddress,
           owner,
           ownerWallet,
+          publicClient,
           spender,
           variant,
           version,
-          amount,
         }));
       txList.push(approvalTx);
     }
@@ -495,33 +396,39 @@ async function getVersion(client: PublicClient, token: `0x${string}`): Promise<s
 }
 
 export const createPermitApprovalTx = async ({
+  amount,
+  chain,
   contractAddress,
   owner,
   ownerWallet,
+  publicClient,
   spender,
   variant,
   version,
-  amount,
 }: {
+  amount: bigint;
+  chain: Chain;
   contractAddress: Hex;
   owner: Hex;
   ownerWallet: WalletClient;
+  publicClient: PublicClient;
   spender: Hex;
   variant: PermitVariant;
   version: number;
-  amount: bigint;
 }) => {
   const deadline = createDeadlineFromNow(3n);
-  const { signature } = await createPermitSignature(
-    contractAddress,
-    ownerWallet,
-    spender,
-    owner,
-    variant,
-    version,
+  const signature = await signPermitForAddressAndValue({
+    chain,
+    client: ownerWallet,
     deadline,
-    amount
-  );
+    permitContractVersion: version,
+    permitVariant: variant,
+    publicClient,
+    spender,
+    tokenAddress: contractAddress,
+    value: amount,
+    walletAddress: owner,
+  });
 
   const { r, s, v } = parseSignature(signature);
   if (!v) {
