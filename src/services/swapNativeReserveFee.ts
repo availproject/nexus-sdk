@@ -60,7 +60,7 @@ const buildRepresentativeSweepCallData = (): Hex =>
     2
   )}${'0'.repeat(224)}` as Hex;
 
-const buildRepresentativeCaliburExecuteTx = (): TxRequest => {
+const buildRepresentativeSourceExecutionTx = (): TxRequest => {
   const wrappedSignature = encodeAbiParameters(
     [
       { name: 'signature', type: 'bytes' },
@@ -115,7 +115,7 @@ export const estimateRepresentativeSwapNativeReserveFee = async ({
   syntheticBufferMultiplier?: bigint;
 }): Promise<bigint> => {
   const client = createPublicClientWithFallback(chain);
-  const tx = buildRepresentativeCaliburExecuteTx();
+  const tx = buildRepresentativeSourceExecutionTx();
   const feeContext = await estimateFeeContext(
     client,
     chain.id,

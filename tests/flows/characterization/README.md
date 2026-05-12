@@ -1,6 +1,6 @@
 # Swap Pipeline Characterization
 
-These tests capture the current public `swap()` flow before source-side Calibur execution changes.
+These tests pin the public `swap()` flow at stable boundaries so refactors don't silently shift sequencing or contracts between layers.
 
 Keep assertions on stable boundaries:
 - intent approval happens before execution
@@ -9,4 +9,4 @@ Keep assertions on stable boundaries:
 - destination handling runs after bridge handling
 - Step events and final result shape stay coherent
 
-Do not lock behavior that the source-side Calibur implementation intentionally changes, including source quote recipient APIs, Calibur bridge deposit batch assembly, or the current lazy bridge ensure ordering.
+Avoid locking down internals that legitimately vary by execution mode (7702/Calibur vs `safe_account`), such as source quote recipient APIs, source-side batch assembly, or lazy bridge-ensure ordering.
