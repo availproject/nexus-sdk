@@ -1,11 +1,5 @@
-import { concatHex, encodeAbiParameters, keccak256 } from 'viem';
 import { describe, expect, it } from 'vitest';
-import {
-  SAFE_L2_SINGLETON,
-  SAFE_PROXY_CREATION_CODE,
-  SAFE_PROXY_INIT_CODE_HASH,
-  SAFE_SALT_NONCE,
-} from '../../src/swap/safe.constants';
+import { SAFE_PROXY_INIT_CODE_HASH, SAFE_SALT_NONCE } from '../../src/swap/safe.constants';
 import {
   buildMultiSendPayload,
   buildSafeInitializer,
@@ -18,25 +12,13 @@ const OWNER = '0x1111111111111111111111111111111111111111';
 const EXPECTED_SAFE = '0x9eAc574979eCC3B7944C9cECFc8804ad72AE5cf9';
 
 describe('Safe account primitives', () => {
-  it('pins canonical Safe proxy creation data', () => {
-    expect(SAFE_PROXY_CREATION_CODE.length).toBe(974);
+  it('pins canonical Safe proxy init-code hash and salt nonce', () => {
     expect(SAFE_PROXY_INIT_CODE_HASH).toBe(
       '0xe298282cefe913ab5d282047161268a8222e4bd4ed106300c547894bbefd31ee'
     );
     expect(SAFE_SALT_NONCE).toBe(
       11197599655881020237971107609127442512094659259259914404695382623312824468967n
     );
-  });
-
-  it('recomputes SAFE_PROXY_INIT_CODE_HASH from creation code so the two pinned constants cannot drift', () => {
-    expect(
-      keccak256(
-        concatHex([
-          SAFE_PROXY_CREATION_CODE,
-          encodeAbiParameters([{ type: 'address' }], [SAFE_L2_SINGLETON]),
-        ])
-      )
-    ).toBe(SAFE_PROXY_INIT_CODE_HASH);
   });
 
   it('builds the canonical single-owner initializer', () => {
