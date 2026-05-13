@@ -692,6 +692,92 @@ type SwapResult = {
 };
 ```
 
+#### `swapAndExecute(params, options?)`
+
+Swap into a destination token and execute a contract call on the destination chain in a single flow.
+
+If the user already holds enough of `toTokenAddress` on `toChainId`, the swap is **skipped** and only the contract call runs — saving fees and time. When skipped, a `SWAP_SKIPPED` event is emitted and `swapResult` is `null`.
+
+```typescript
+const result = await sdk.swapAndExecute(
+  {
+    toChainId: 8453, // Base
+    toTokenAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // USDC on Base
+    toAmount: 100_000_000n, // 100 USDC (exact amount the contract needs)
+    fromSources: [
+      // Optional: restrict source chains/tokens for routing
+      { chainId: 10, tokenAddress: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85' },
+    ],
+    execute: {
+      to: '0xDeFiProtocol',
+      data: '0x...', // Encoded deposit() call
+      gas: 200_000n,
+      gasPrice: 'medium', // 'low' | 'medium' | 'high'
+      tokenApproval: {
+        token: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+        amount: 100_000_000n,
+        spender: '0xDeFiProtocol',
+      },
+    },
+  },
+  {
+    onEvent: (event) => console.log(event),
+  }
+);
+
+if (result.swapSkipped) {
+  console.log('Used existing balance on destination — no swap needed!');
+} else {
+  console.log('Swap explorer:', result.swapResult?.explorerURL);
+}
+console.log('Execute tx:', result.executeResponse.txHash);
+```
+
+**SwapAndExecuteParams:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `toChainId` | `number` | Yes | Destination chain ID |
+| `toTokenAddress` | `Hex` | Yes | Output token contract address on destination chain |
+| `toAmount` | `bigint` | Yes | Exact output amount required before the execute call |
+| `fromSources` | `Array<{ chainId, tokenAddress }>` | No | Restrict which source chains/tokens to draw from |
+| `execute` | `SwapExecuteParams` | Yes | Contract call to run after the swap (see below) |
+
+**SwapExecuteParams:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `to` | `Hex` | Yes | Contract address to call |
+| `data` | `Hex` | No | Encoded function call data |
+| `value` | `bigint` | No | Native token value to send with the call |
+| `gas` | `bigint` | Yes | Gas limit for the execute call |
+| `gasPrice` | `'low' \| 'medium' \| 'high'` | No | Gas price strategy |
+| `tokenApproval` | `{ token: Hex, amount: bigint, spender: Hex }` | No | Approve the spender to pull tokens before executing |
+
+> **Note:** Unlike `bridgeAndExecute` (which uses token symbols), `swapAndExecute` uses token **contract addresses** for both `toTokenAddress` and `tokenApproval.token` — consistent with the rest of the swap API.
+
+**Options (`OnEventParam`):**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `onEvent` | `(event: EventUnion) => void` | No | Callback fired on each progress event. Emits swap steps (e.g. `SWAP_STEP_COMPLETE`, `SWAP_SKIPPED`) and execute steps (approval, transaction sent, confirmed). See [Events & Steps](#events--steps). |
+
+User approval for the swap is driven by the global swap intent hook set via `setOnSwapIntentHook` — not by `options`. If `setOnSwapIntentHook` is not set, the swap intent is auto-approved. The allowance hook (`setOnAllowanceHook`) does **not** fire for swap flows; token allowances are automatically set to the minimum required for the current swap.
+
+**SwapAndExecuteResult:**
+
+```typescript
+type SwapAndExecuteResult = {
+  swapResult: SuccessfulSwapResult | null; // null when swap was skipped
+  swapSkipped: boolean;                    // true if destination already had sufficient balance
+  executeResponse: {
+    txHash: `0x${string}`;
+    receipt: TransactionReceipt | undefined; // present if execute waited for a receipt
+    approvalHash: `0x${string}` | undefined; // present if tokenApproval was needed
+  };
+};
+```
+
 #### `calculateMaxForSwap(input)`
 
 Calculate the maximum amount that can be swapped to a destination token across all available sources.
@@ -1262,6 +1348,8 @@ import type {
   BridgeAndExecuteParams,
   ExactInSwapInput,
   ExactOutSwapInput,
+  SwapAndExecuteParams,
+  SwapExecuteParams,
 
   // Operation Results
   BridgeResult,
@@ -1269,6 +1357,7 @@ import type {
   ExecuteResult,
   BridgeAndExecuteResult,
   SwapResult,
+  SwapAndExecuteResult,
   BridgeMaxResult,
 
   // Simulation Results
