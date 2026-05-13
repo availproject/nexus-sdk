@@ -11,15 +11,17 @@ import { remove, retry } from 'es-toolkit';
 import { connect } from 'it-ws/client';
 import type Long from 'long';
 import { pack, unpack } from 'msgpackr';
-import { bytesToBigInt, bytesToNumber, type Hex, toHex } from 'viem';
+import { bytesToBigInt, bytesToNumber, type Hex, toBytes, toHex } from 'viem';
 import {
   type Chain,
   type ChainListType,
   type CosmosQueryClient,
+  type EnsureSafeAccountInput,
   type FeeStoreData,
   getLogger,
   type OraclePriceResponse,
   type RFF,
+  type SafeExecuteTx,
   type SBCTx,
   type SponsoredApprovalDataArray,
   type UnifiedBalanceResponseData,
@@ -28,6 +30,7 @@ import {
 import { Errors } from '../errors';
 import {
   convertAddressByUniverse,
+  convertTo32Bytes,
   convertToHexAddressByUniverse,
   divDecimals,
   equalFold,
@@ -75,9 +78,33 @@ type VSCCreateRFFResponse =
       status: 0x1a; // could not collect
     };
 
+type SafeAccountAddressResponse = {
+  address: Bytes;
+  exists: boolean;
+  factory_address: Bytes;
+  owner: Bytes;
+  universe: Universe;
+};
+
+type EnsureSafeAccountResponse = {
+  address: Bytes;
+  deploy_tx_hash: Bytes;
+  exists: boolean;
+};
+
+type TransactionHashResponse = {
+  tx_hash: Bytes;
+};
+
 const PAGE_LIMIT = 100;
 const logger = getLogger();
 const decoder = new TextDecoder('utf-8');
+const maybeHexFromBytes = (value?: Bytes): Hex | null => {
+  if (!value || bytesToBigInt(value) === 0n) {
+    return null;
+  }
+  return toHex(value);
+};
 
 const createCosmosQueryClient = async ({
   cosmosRestUrl,
@@ -665,6 +692,61 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
           signal: controller.signal,
         }
       );
+    },
+    vscGetSafeAccountAddress: async (chainId: number, owner: Hex) => {
+      const response = await instance.post<SafeAccountAddressResponse>(
+        '/get-safe-account-address',
+        {
+          chain_id: convertTo32Bytes(chainId),
+          owner: convertTo32Bytes(owner),
+          universe: Universe.ETHEREUM,
+        }
+      );
+
+      return {
+        address: convertToHexAddressByUniverse(response.data.address, Universe.ETHEREUM),
+        exists: response.data.exists,
+        factoryAddress: convertToHexAddressByUniverse(
+          response.data.factory_address,
+          Universe.ETHEREUM
+        ),
+      };
+    },
+    vscEnsureSafeAccount: async (input: EnsureSafeAccountInput) => {
+      const response = await instance.post<EnsureSafeAccountResponse>('/ensure-safe-account', {
+        chain_id: convertTo32Bytes(input.chainId),
+        deadline: convertTo32Bytes(input.deadline),
+        owner: convertTo32Bytes(input.owner),
+        safe_address: convertTo32Bytes(input.safeAddress),
+        salt_nonce: convertTo32Bytes(input.saltNonce),
+        signature: toBytes(input.signature),
+        universe: Universe.ETHEREUM,
+      });
+
+      return {
+        address: convertToHexAddressByUniverse(response.data.address, Universe.ETHEREUM),
+        deployTxHash: maybeHexFromBytes(response.data.deploy_tx_hash),
+        exists: response.data.exists,
+      };
+    },
+    vscCreateSafeExecuteTx: async (input: SafeExecuteTx) => {
+      const response = await instance.post<TransactionHashResponse>('/create-safe-execute-tx', {
+        base_gas: convertTo32Bytes(input.baseGas),
+        chain_id: convertTo32Bytes(input.chainId),
+        data: toBytes(input.data),
+        gas_price: convertTo32Bytes(input.gasPrice),
+        gas_token: toBytes(input.gasToken),
+        nonce: convertTo32Bytes(input.nonce),
+        operation: input.operation,
+        refund_receiver: toBytes(input.refundReceiver),
+        safe_address: convertTo32Bytes(input.safeAddress),
+        safe_tx_gas: convertTo32Bytes(input.safeTxGas),
+        signature: toBytes(input.signature),
+        to: toBytes(input.to),
+        universe: Universe.ETHEREUM,
+        value: convertTo32Bytes(input.value),
+      });
+      return [BigInt(input.chainId), toHex(response.data.tx_hash)];
     },
     vscSBCTx: async (input: SBCTx[]) => {
       const ops: [bigint, Hex][] = [];

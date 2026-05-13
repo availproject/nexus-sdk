@@ -1538,7 +1538,7 @@ sdk.analytics.enable();
 | Scroll | 534352 | ETH | ✅ | ✅ |
 | Kaia Mainnet | 8217 | KAIA | ✅ | ❌ |
 | BNB Smart Chain | 56 | BNB | ✅ | ✅ |
-| Hyper EVM | 999 | HYPE | ✅ | ❌ |
+| Hyper EVM | 999 | HYPE | ✅ | ✅ |
 | MegaETH | 4326 | ETH | ✅ | ✅ |
 
 ### Testnets

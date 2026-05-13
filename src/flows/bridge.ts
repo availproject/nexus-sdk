@@ -11,12 +11,12 @@ import { attemptAsync } from 'es-toolkit';
 import type Long from 'long';
 import { TronWeb } from 'tronweb';
 import {
+  bytesToHex,
   ContractFunctionExecutionError,
   createPublicClient,
   encodeFunctionData,
   type Hex,
   hexToBytes,
-  type JsonRpcAccount,
   maxUint256,
   parseSignature,
   type TransactionReceipt,
@@ -667,20 +667,20 @@ class BridgeHandler {
             })
           );
         } else {
-          const account: JsonRpcAccount = {
-            address: this.options.evm.address,
-            type: 'json-rpc',
-          };
+          const walletAddress = this.options.evm.address;
 
           const signed = parseSignature(
-            await signPermitForAddressAndValue(
-              currency,
-              this.options.evm.client,
+            await signPermitForAddressAndValue({
+              chain,
+              client: this.options.evm.client,
+              permitContractVersion: currency.permitContractVersion,
+              permitVariant: currency.permitVariant,
               publicClient,
-              account,
-              vc,
-              source.amount
-            ).catch((e) => {
+              spender: vc,
+              tokenAddress: bytesToHex(currency.tokenAddress.subarray(12)),
+              value: source.amount,
+              walletAddress,
+            }).catch((e) => {
               if (e instanceof ContractFunctionExecutionError) {
                 const isUserRejectedRequestError =
                   e.walk((e) => e instanceof UserRejectedRequestError) instanceof
@@ -697,7 +697,7 @@ class BridgeHandler {
 
           this.addSponsoredSource(sponsoredSourcesByChain, source);
           sponsoredApprovals.push({
-            address: convertTo32Bytes(account.address),
+            address: convertTo32Bytes(walletAddress),
             chain_id: chainDatum.ChainID32,
             operations: [
               {

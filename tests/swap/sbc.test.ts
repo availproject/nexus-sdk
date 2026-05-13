@@ -3,12 +3,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const estimateFeeContextMock = vi.hoisted(() => vi.fn());
 const finalizeFeeEstimatesMock = vi.hoisted(() => vi.fn());
 
-vi.mock('../../../../src/services/feeEstimation', () => ({
+vi.mock('../../src/services/feeEstimation', () => ({
   estimateFeeContext: estimateFeeContextMock,
   finalizeFeeEstimates: finalizeFeeEstimatesMock,
 }));
 
-import { caliburExecute } from '../../../../src/swap/sbc';
+import { caliburExecute } from '../../src/swap/sbc';
 
 describe('caliburExecute', () => {
   const estimateGasMock = vi.fn();
@@ -68,9 +68,9 @@ describe('caliburExecute', () => {
         },
       ],
       chain,
-      ephemeralAddress: '0x3333333333333333333333333333333333333333',
-      ephemeralWallet,
       publicClient,
+      signerWallet: ephemeralWallet,
+      targetAddress: '0x3333333333333333333333333333333333333333',
       value: 1n,
     });
 

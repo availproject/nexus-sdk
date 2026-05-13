@@ -3,16 +3,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const estimateRepresentativeDepositTxFeeMock = vi.hoisted(() => vi.fn());
 
-vi.mock('../../../../src/services/depositFeeEstimation', () => ({
+vi.mock('../../../src/services/depositFeeEstimation', () => ({
   estimateRepresentativeDepositTxFee: estimateRepresentativeDepositTxFeeMock,
 }));
 
-vi.mock('../../../../src/core/chains', () => ({
+vi.mock('../../../src/core/chains', () => ({
   ChainList: class {},
 }));
 
-import { ZERO_ADDRESS } from '../../../../src/core/constants';
-import { assetListWithDepositDeducted } from '../../../../src/core/utils/common.utils';
+import { ZERO_ADDRESS } from '../../../src/core/constants';
+import { assetListWithDepositDeducted } from '../../../src/core/utils/common.utils';
 
 describe('assetListWithDepositDeducted', () => {
   beforeEach(() => {

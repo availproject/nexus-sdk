@@ -23,7 +23,7 @@ import { type ExecuteFeeParams, sendExecuteTransactions } from '../services/exec
 import { estimateFeeContext, finalizeFeeEstimates } from '../services/feeEstimation';
 import { EADDRESS } from '../swap/constants';
 import type { FlatBalance } from '../swap/data';
-import { getTokenInfo, packERC20Approve } from '../swap/utils';
+import { getTokenInfo, packERC20Approve, validateDestinationChainForSwap } from '../swap/utils';
 
 class SwapAndExecuteQuery {
   constructor(
@@ -42,6 +42,8 @@ class SwapAndExecuteQuery {
 
   private async estimateSwapAndExecute(params: SwapAndExecuteParams) {
     const { toChainId, toAmount, execute } = params;
+
+    validateDestinationChainForSwap(this.chainList, toChainId);
 
     const address = (await this.evmClient.getAddresses())[0];
     const txs: Tx[] = [];

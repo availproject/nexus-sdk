@@ -17,7 +17,7 @@ Only files that are not straightforward get full explanations below. For the sim
 - `gasFeeHistory.ts`
   Reads fee history from the client and turns it into low/medium/high EIP-1559 recommendations. No extra explanation needed.
 - `swapNativeReserveFee.ts`
-  Builds a representative synthetic `calibur.execute(...)` transaction and prices it with the shared fee engine so swap balance queries can reserve native gas without calling `eth_estimateGas`. Explained below.
+  Builds a representative synthetic source-execution transaction and prices it with the shared fee engine so swap balance queries can reserve native gas without calling `eth_estimateGas`. Explained below.
 - `walletCapabilities.ts`
   Small helper that checks whether a wallet reports atomic batch support for a set of chain IDs. No extra explanation needed.
 
@@ -260,7 +260,7 @@ That tradeoff is acceptable for usable-balance deduction, where modest overestim
 
 `swapNativeReserveFee.ts` exists for swap balance queries.
 
-When the SDK prepares balances for swap flows, it wants a usable native balance rather than the full raw native balance. That reserve is needed because source-side native swaps may be executed through `calibur.execute(...)`, and the EOA must still have enough native token left to submit that transaction.
+When the SDK prepares balances for swap flows, it wants a usable native balance rather than the full raw native balance. That reserve is needed because source-side native swaps are submitted on-chain by the EOA (via `calibur.execute(...)` on 7702 chains, or `Safe.execTransaction(...)` on non-7702 chains), and the EOA must still have enough native token left to pay for that submission.
 
 ### Why this file exists separately from `feeEstimation.ts`
 
@@ -272,7 +272,7 @@ In the balance-fetch path, the SDK does not have the user's final swap transacti
 
 This file:
 
-- builds a representative `calibur.execute(...)` transaction
+- builds a representative source-execution transaction (the `calibur.execute(...)` shape is used as a synthetic fixture across chain types; the fee engine is chain-aware so the resulting estimate is driven by `chain.id`, not the call data)
 - uses a fixed gas assumption instead of `eth_estimateGas`
 - calls `estimateFeeContext(...)`
 - finalizes the fee with `finalizeFeeEstimates(...)`

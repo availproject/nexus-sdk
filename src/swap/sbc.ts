@@ -48,9 +48,10 @@ const spreadFeeParams = (feeParams?: ExecuteFeeParams) => {
 const buildCaliburExecuteRequest = (input: {
   calls: Tx[];
   deadline: bigint;
-  ephemeralAddress: Hex;
+  keyHash: Hex;
   nonce: bigint;
   signature: Hex;
+  targetAddress: Hex;
   value: bigint;
 }) => {
   const args = [
@@ -61,7 +62,7 @@ const buildCaliburExecuteRequest = (input: {
       },
       deadline: input.deadline,
       executor: toHex(ZERO_BYTES_20),
-      keyHash: toHex(ZERO_BYTES_32),
+      keyHash: input.keyHash,
       nonce: input.nonce,
     },
     packSignatureAndHookData(input.signature),
@@ -69,7 +70,7 @@ const buildCaliburExecuteRequest = (input: {
 
   return {
     abi: CaliburABI,
-    address: input.ephemeralAddress,
+    address: input.targetAddress,
     args,
     functionName: 'execute' as const,
     value: input.value,
@@ -131,7 +132,8 @@ export const createBatchedCallSignature = (
   chain: bigint,
   address: `0x${string}`,
   account: PrivateKeyAccount,
-  deadline: bigint
+  deadline: bigint,
+  keyHash: Hex = toHex(ZERO_BYTES_32)
 ) => {
   return account.signTypedData({
     domain: {
@@ -148,7 +150,7 @@ export const createBatchedCallSignature = (
       },
       deadline,
       executor: toHex(ZERO_BYTES_20),
-      keyHash: toHex(ZERO_BYTES_32),
+      keyHash,
       nonce,
     },
     primaryType: 'SignedBatchedCall',
@@ -259,37 +261,40 @@ export const caliburExecute = async ({
   actualWallet,
   calls,
   chain,
-  ephemeralAddress,
-  ephemeralWallet,
   publicClient,
+  signerWallet,
+  targetAddress,
   value,
 }: {
   actualAddress: Hex;
   actualWallet: WalletClient;
   calls: Tx[];
   chain: Chain;
-  ephemeralAddress: Hex;
-  ephemeralWallet: PrivateKeyAccount;
   publicClient: PublicClient;
+  signerWallet: PrivateKeyAccount;
+  targetAddress: Hex;
   value: bigint;
 }) => {
   const nonce = bytesToBigInt(await PlatformUtils.cryptoGetRandomValues(new Uint8Array(24))) << 64n;
   const deadline = createDeadlineFromNow(3n);
+  const keyHash = toHex(ZERO_BYTES_32);
   const signature = await createBatchedCallSignature(
     calls,
     nonce,
     BigInt(chain.id),
-    ephemeralAddress,
-    ephemeralWallet,
-    deadline
+    targetAddress,
+    signerWallet,
+    deadline,
+    keyHash
   );
 
   const request = buildCaliburExecuteRequest({
     calls,
     deadline,
-    ephemeralAddress,
+    keyHash,
     nonce,
     signature,
+    targetAddress,
     value,
   });
   const { gas, feeParams } = await estimateCaliburExecuteFee({

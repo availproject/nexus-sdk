@@ -21,6 +21,10 @@ export type BridgeAsset = {
   contractAddress: `0x${string}`;
   decimals: number;
   eoaBalance: Decimal;
+  /**
+   * Balance held at the per-chain source execution target:
+   * ephemeral on 7702 chains, Safe account on non-7702 chains.
+   */
   ephemeralBalance: Decimal;
 };
 
@@ -41,6 +45,59 @@ export type SBCTx = {
   revert_on_failure: boolean;
   signature: Uint8Array;
   universe: Universe;
+};
+
+export type SafeExecuteTx = {
+  baseGas: bigint;
+  chainId: number;
+  data: Hex;
+  gasPrice: bigint;
+  gasToken: Hex;
+  nonce: bigint;
+  operation: number;
+  refundReceiver: Hex;
+  safeAddress: Hex;
+  safeTxGas: bigint;
+  signature: Hex;
+  to: Hex;
+  value: bigint;
+};
+
+export type SafeAccountAddress = {
+  address: Hex;
+  exists: boolean;
+  factoryAddress: Hex;
+};
+
+export type EnsureSafeAccountInput = {
+  chainId: number;
+  deadline: bigint;
+  owner: Hex;
+  safeAddress: Hex;
+  saltNonce: bigint;
+  signature: Hex;
+};
+
+export type EnsureSafeAccountResult = {
+  address: Hex;
+  deployTxHash: Hex | null;
+  exists: boolean;
+};
+
+export type DestinationExecution = {
+  address: Hex;
+  entryPoint: Hex | null;
+  factoryAddress?: Hex | null;
+  /** Destination-only mode for direct COT handoff; source execution always uses 7702 or Safe. */
+  mode: '7702' | 'safe_account' | 'direct_eoa';
+};
+
+export type SourceExecution = {
+  address: Hex;
+  entryPoint: Hex | null;
+  factoryAddress?: Hex | null;
+  /** Source execution always uses either the 7702-delegated ephemeral account or Safe. */
+  mode: '7702' | 'safe_account';
 };
 
 type BaseSwapInput = {

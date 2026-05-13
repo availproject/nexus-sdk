@@ -1,24 +1,23 @@
 import {
-  type Currency,
   ERC20ABI as ERC20ABIC,
   PermitCreationError,
   PermitVariant,
 } from '@avail-project/ca-common';
 import {
-  type Account,
   type Address,
-  bytesToHex,
   createPublicClient,
   decodeFunctionData,
   encodeFunctionData,
   fallback,
   getContract,
   type Hex,
-  hexToBigInt,
   http,
   maxUint256,
+  type PrivateKeyAccount,
   type PublicClient,
   pad,
+  type TypedDataDefinition,
+  toHex,
   type WalletClient,
   type WebSocketTransport,
 } from 'viem';
@@ -280,44 +279,73 @@ const PolygonDomain = [
   { name: 'salt', type: 'bytes32' },
 ] as const;
 
-async function signPermitForAddressAndValue(
-  cur: Currency,
-  client: WalletClient,
-  publicClient: PublicClient,
-  account: Account,
-  spender: Address,
-  value: bigint,
-  ddl?: bigint
-) {
+// Discriminate WalletClient (browser/RPC wallet — needs chain switch, signTypedData requires
+// an explicit `account` field) from PrivateKeyAccount (local key, no chain switch, no account
+// field needed since the account is built in).
+const isWalletClient = (signer: WalletClient | PrivateKeyAccount): signer is WalletClient =>
+  'sendTransaction' in signer;
+
+async function signPermitForAddressAndValue({
+  chain,
+  client,
+  deadline,
+  permitContractVersion,
+  permitVariant,
+  publicClient,
+  spender,
+  tokenAddress,
+  value,
+  walletAddress,
+}: {
+  chain: Chain;
+  client: WalletClient | PrivateKeyAccount;
+  deadline?: bigint;
+  permitContractVersion: number;
+  permitVariant: PermitVariant;
+  publicClient: PublicClient;
+  spender: Address;
+  tokenAddress: Address;
+  value: bigint;
+  walletAddress: Address;
+}) {
+  const clientIsWallet = isWalletClient(client);
+  if (clientIsWallet) {
+    await switchChain(client, chain);
+  }
+
+  // Unified signer: dispatches typed-data to whichever signer the caller passed. WalletClient
+  // requires `account` in the call; PrivateKeyAccount uses its built-in address.
+  const signTypedData = (args: TypedDataDefinition): Promise<Hex> =>
+    clientIsWallet
+      ? client.signTypedData({ ...args, account: walletAddress })
+      : client.signTypedData(args);
+
   const contract = getContract({
     abi: ERC20ABIC,
-    address: bytesToHex(cur.tokenAddress.subarray(12)),
+    address: tokenAddress,
     client: { public: publicClient },
   });
 
-  const walletAddress = account.address;
-  const deadline = ddl ?? 2n ** 256n - 1n;
+  const effectiveDeadline = deadline ?? 2n ** 256n - 1n;
+  const versionString = permitContractVersion.toString(10);
+  const chainIdHex = toHex(chain.id);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const requestsToBeMade: Promise<unknown>[] = [
-    (() => {
-      // Hack for sophon ETH
-      return contract.read.name().catch(() => {
-        return '';
-      });
-    })(),
-    client.request({ method: 'eth_chainId' }),
+    // Hack for sophon ETH
+    contract.read
+      .name()
+      .catch(() => ''),
   ];
 
-  switch (cur.permitVariant) {
+  switch (permitVariant) {
     case PermitVariant.DAI:
     case PermitVariant.EIP2612Canonical:
     case PermitVariant.Polygon2612: {
-      requestsToBeMade[2] = contract.read.nonces([walletAddress]);
+      requestsToBeMade[1] = contract.read.nonces([walletAddress]);
       break;
     }
     case PermitVariant.PolygonEMT: {
-      requestsToBeMade[2] = contract.read.getNonce([walletAddress]);
+      requestsToBeMade[1] = contract.read.getNonce([walletAddress]);
       break;
     }
     default: {
@@ -325,26 +353,23 @@ async function signPermitForAddressAndValue(
     }
   }
 
-  const [name, chainID, nonce] = await Promise.all(
-    requestsToBeMade as [Promise<string>, Promise<Hex>, Promise<bigint>]
-  );
+  const [name, nonce] = await Promise.all(requestsToBeMade as [Promise<string>, Promise<bigint>]);
 
-  switch (cur.permitVariant) {
+  switch (permitVariant) {
     case PermitVariant.DAI: {
-      return client.signTypedData({
-        account,
+      return signTypedData({
         domain: {
-          chainId: hexToBigInt(chainID),
+          chainId: BigInt(chain.id),
           name,
-          verifyingContract: contract.address,
-          version: cur.permitContractVersion.toString(10),
+          verifyingContract: tokenAddress,
+          version: versionString,
         },
         message: {
           allowed: true,
-          expiry: deadline,
+          expiry: effectiveDeadline,
           holder: walletAddress,
           nonce,
-          spender: spender,
+          spender,
         },
         primaryType: 'Permit',
         types: {
@@ -360,16 +385,15 @@ async function signPermitForAddressAndValue(
       });
     }
     case PermitVariant.EIP2612Canonical: {
-      return client.signTypedData({
-        account,
+      return signTypedData({
         domain: {
-          chainId: hexToBigInt(chainID),
+          chainId: BigInt(chain.id),
           name,
-          verifyingContract: contract.address,
-          version: cur.permitContractVersion.toString(10),
+          verifyingContract: tokenAddress,
+          version: versionString,
         },
         message: {
-          deadline,
+          deadline: effectiveDeadline,
           nonce,
           owner: walletAddress,
           spender,
@@ -389,23 +413,22 @@ async function signPermitForAddressAndValue(
       });
     }
     case PermitVariant.Polygon2612: {
-      return client.signTypedData({
-        account,
+      return signTypedData({
         domain: {
           name,
-          salt: pad(chainID, {
+          salt: pad(chainIdHex, {
             dir: 'left',
             size: 32,
           }),
-          verifyingContract: contract.address,
-          version: cur.permitContractVersion.toString(10),
+          verifyingContract: tokenAddress,
+          version: versionString,
         },
         message: {
           allowed: true,
-          expiry: deadline,
+          expiry: effectiveDeadline,
           holder: walletAddress,
           nonce,
-          spender: spender,
+          spender,
         },
         primaryType: 'Permit',
         types: {
@@ -426,16 +449,15 @@ async function signPermitForAddressAndValue(
         args: [spender, value],
         functionName: 'approve',
       });
-      return client.signTypedData({
-        account,
+      return signTypedData({
         domain: {
           name,
-          salt: pad(chainID, {
+          salt: pad(chainIdHex, {
             dir: 'left',
             size: 32,
           }),
-          verifyingContract: contract.address,
-          version: cur.permitContractVersion.toString(10),
+          verifyingContract: tokenAddress,
+          version: versionString,
         },
         message: {
           from: walletAddress,

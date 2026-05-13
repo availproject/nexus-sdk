@@ -10,6 +10,7 @@ import type { Hex } from 'viem';
 import {
   getLogger,
   NEXUS_EVENTS,
+  type SourceExecution,
   type SuccessfulSwapResult,
   SWAP_STEPS,
   type SwapData,
@@ -22,32 +23,33 @@ import { BEBOP_API_KEY, LIFI_API_KEY, ZERO_BYTES_32 } from '../swap/constants';
 import { createSwapIntent } from '../swap/intent';
 import { BridgeHandler, DestinationSwapHandler, SourceSwapsHandler } from '../swap/ob';
 import { determineSwapRoute, type SwapRoute } from '../swap/route';
+import { SAFE_SALT_NONCE } from '../swap/safe.constants';
+import { hashEnsureAuthorization, predictSafeAccountAddress } from '../swap/safetx';
 import {
   Cache,
   convertMetadataToSwapResult,
   convertTo32Bytes,
   PublicClientList,
   type SwapMetadata,
+  validateDestinationChainForSwap,
 } from '../swap/utils';
 
 const logger = getLogger();
 
 const ErrorUserDeniedIntent = new Error('User denied swap');
+const ENSURE_AUTH_DEADLINE_SECONDS = 30 * 60;
 
 export const swap = async (
   input: SwapData,
   options: SwapParams,
   COT = CurrencyID.USDC
 ): Promise<SuccessfulSwapResult> => {
+  validateDestinationChainForSwap(options.chainList, input.data.toChainId);
   performance.clearMarks();
   performance.clearMeasures();
 
   const publicClientList = new PublicClientList(options.chainList);
   const cache = new Cache(publicClientList);
-  const dstChain = options.chainList.getChainByID(input.data.toChainId);
-  if (!dstChain) {
-    throw Errors.chainNotFound(input.data.toChainId);
-  }
 
   performance.mark('swap-start');
   const emitter = {
@@ -111,12 +113,21 @@ export const swap = async (
   });
 
   const srcSwapsHandler = new SourceSwapsHandler(swapRoute, opt);
-  const bridgeHandler = new BridgeHandler(bridge, opt);
+  const bridgeHandler = new BridgeHandler(bridge, opt, source.executions);
   const dstSwapHandler = new DestinationSwapHandler(swapRoute, opt);
 
   performance.mark('allowance-cache-start');
   await cache.process();
   performance.mark('allowance-cache-end');
+
+  await ensureSafeAccountsBeforeExecution({
+    bridgeHandler,
+    destinationChainID: destination.chainId,
+    destinationExecution: destination.execution,
+    options,
+    sourceExecutions: source.executions,
+    sourceHandler: srcSwapsHandler,
+  });
 
   // 0.5: Destination swap: create permit
   await dstSwapHandler.createPermit();
@@ -249,6 +260,77 @@ const createSwapHandlerOptions = ({
   cosmosQueryClient: options.cosmosQueryClient,
   vscClient: options.vscClient,
 });
+
+const ensureSafeAccountsBeforeExecution = async ({
+  bridgeHandler,
+  destinationChainID,
+  destinationExecution,
+  options,
+  sourceExecutions,
+  sourceHandler,
+}: {
+  bridgeHandler: BridgeHandler;
+  destinationChainID: number;
+  destinationExecution: SwapRoute['destination']['execution'];
+  options: SwapParams;
+  sourceExecutions: Record<number, SourceExecution>;
+  sourceHandler: SourceSwapsHandler;
+}) => {
+  const executionsByChain = new Map<number, SourceExecution | typeof destinationExecution>();
+  const addExecution = (
+    chainID: number,
+    execution: SourceExecution | typeof destinationExecution | undefined
+  ) => {
+    if (!execution || execution.mode !== 'safe_account') {
+      return;
+    }
+    executionsByChain.set(chainID, execution);
+  };
+
+  for (const chainID of sourceHandler.getPlannedSafeChains()) {
+    addExecution(chainID, sourceExecutions[chainID]);
+  }
+  for (const chainID of bridgeHandler.getPlannedSafeDepositChains()) {
+    addExecution(chainID, sourceExecutions[chainID]);
+  }
+  addExecution(destinationChainID, destinationExecution);
+
+  await Promise.all(
+    [...executionsByChain.entries()].map(async ([chainID, execution]) => {
+      const owner = options.address.ephemeral;
+      const safeAddress = predictSafeAccountAddress(owner);
+      if (safeAddress.toLowerCase() !== execution.address.toLowerCase()) {
+        throw Errors.internal(`Safe address mismatch for chain ${chainID}`);
+      }
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + ENSURE_AUTH_DEADLINE_SECONDS);
+      const signature = await options.wallet.ephemeral.sign({
+        hash: hashEnsureAuthorization({
+          chainId: chainID,
+          deadline,
+          owner,
+          safeAddress,
+          saltNonce: SAFE_SALT_NONCE,
+        }),
+      });
+
+      const result = await options.vscClient.vscEnsureSafeAccount({
+        chainId: chainID,
+        deadline,
+        owner,
+        safeAddress,
+        saltNonce: SAFE_SALT_NONCE,
+        signature,
+      });
+      if (!result.exists) {
+        throw Errors.internal(`Safe ensure returned exists=false for chain ${chainID}`);
+      }
+      if (result.deployTxHash) {
+        logger.debug('safe-ensure-deployed', { chainID, deployTxHash: result.deployTxHash });
+      }
+      return result;
+    })
+  );
+};
 
 type IntentApprovalContext = {
   input: SwapData;

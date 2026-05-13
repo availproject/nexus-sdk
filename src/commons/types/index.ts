@@ -16,7 +16,16 @@ import type { SUPPORTED_CHAINS } from '../constants';
 import type { FormatTokenBalanceOptions, FormattedParts } from '../utils/format';
 import type { BridgeStepType } from './bridge-steps';
 import type { SwapStepType } from './swap-steps';
-import type { SBCTx, Source, SuccessfulSwapResult, SwapIntent } from './swap-types';
+import type {
+  EnsureSafeAccountInput,
+  EnsureSafeAccountResult,
+  SafeAccountAddress,
+  SafeExecuteTx,
+  SBCTx,
+  Source,
+  SuccessfulSwapResult,
+  SwapIntent,
+} from './swap-types';
 
 type TokenInfo = {
   contractAddress: `0x${string}`;
@@ -384,6 +393,7 @@ export type Chain = {
   };
   universe: Universe;
   swapSupported: boolean;
+  pectraUpgradeSupport: boolean;
 };
 
 interface EthereumProvider {
@@ -856,6 +866,9 @@ type VSCClient = {
     msd: (s: { current: number; total: number; txHash: Hex; chainId: number }) => void,
     expectedCollections: { index: number; chainId: number }[]
   ) => Promise<void>;
+  vscGetSafeAccountAddress: (chainId: number, owner: Hex) => Promise<SafeAccountAddress>;
+  vscEnsureSafeAccount: (input: EnsureSafeAccountInput) => Promise<EnsureSafeAccountResult>;
+  vscCreateSafeExecuteTx: (input: SafeExecuteTx) => Promise<[bigint, `0x${string}`]>;
   vscSBCTx: (input: SBCTx[]) => Promise<[bigint, `0x${string}`][]>;
 };
 

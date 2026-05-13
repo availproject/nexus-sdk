@@ -1,4 +1,10 @@
-import { DepositVEPacket, EVMVaultABI, MsgDoubleCheckTx, Universe } from '@avail-project/ca-common';
+import {
+  DepositVEPacket,
+  ERC20ABI,
+  EVMVaultABI,
+  MsgDoubleCheckTx,
+  Universe,
+} from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
 import Long from 'long';
 import {
@@ -21,6 +27,7 @@ import {
   MAINNET_CHAIN_IDS,
   type QueryClients,
   type RFFDepositCallMap,
+  type SourceExecution,
   type Tx,
 } from '../commons';
 import { Errors } from '../core/errors';
@@ -28,6 +35,7 @@ import {
   convertAddressByUniverse,
   cosmosCreateDoubleCheckTx,
   cosmosCreateRFF,
+  createDeadlineFromNow,
   createRFFromIntent,
   evmWaitForFill,
   type FeeStore,
@@ -37,9 +45,21 @@ import {
   removeIntentHashFromStore,
   storeIntentHashToStore,
 } from '../core/utils';
-import { packERC20Approve } from './utils';
+import { createPermitOnlyApprovalTx, type PublicClientList, packERC20Approve } from './utils';
 
 const logger = getLogger();
+const BRIDGE_VAULT_PERMIT_DEADLINE_MINUTES = 15n;
+
+const getSourceExecutionOrThrow = (
+  sourceExecutions: Record<number, SourceExecution> | undefined,
+  chainID: number
+): SourceExecution => {
+  const execution = sourceExecutions?.[chainID];
+  if (!execution) {
+    throw Errors.internal(`source execution not found for chain ${chainID}`);
+  }
+  return execution;
+};
 
 export const estimateCollectionFee = (
   assets: (Pick<BridgeAsset, 'chainID' | 'contractAddress' | 'decimals'> & { value: number })[],
@@ -280,10 +300,78 @@ export const createIntent = ({
   return { eoaToEphemeralCalls, intent };
 };
 
+export const createVaultFundingAndAllowanceCalls = async ({
+  allowance,
+  chain,
+  deadline,
+  evm,
+  publicClientList,
+  sourceExecution,
+  tokenAddress,
+  valueRaw,
+  vaultAddress,
+}: {
+  allowance: bigint;
+  chain: Chain;
+  deadline: bigint;
+  evm: {
+    address: Hex;
+    client: PrivateKeyAccount;
+  };
+  publicClientList: PublicClientList;
+  sourceExecution: SourceExecution;
+  tokenAddress: Hex;
+  valueRaw: bigint;
+  vaultAddress: Hex;
+}): Promise<Tx[]> => {
+  const tx: Tx[] = [];
+
+  if (sourceExecution.mode === 'safe_account') {
+    tx.push({
+      data: encodeFunctionData({
+        abi: ERC20ABI,
+        args: [evm.address, valueRaw],
+        functionName: 'transfer',
+      }),
+      to: tokenAddress,
+      value: 0n,
+    });
+  }
+
+  if (allowance >= valueRaw) {
+    return tx;
+  }
+
+  if (sourceExecution.mode === 'safe_account') {
+    tx.push(
+      await createPermitOnlyApprovalTx({
+        amount: valueRaw,
+        chain,
+        contractAddress: tokenAddress,
+        deadline,
+        owner: evm.address,
+        publicClient: publicClientList.get(chain.id),
+        signerWallet: evm.client,
+        spender: vaultAddress,
+      })
+    );
+    return tx;
+  }
+
+  tx.push({
+    data: packERC20Approve(vaultAddress, valueRaw),
+    to: tokenAddress,
+    value: 0n,
+  });
+
+  return tx;
+};
+
 export const createBridgeRFF = async ({
   config,
   input,
   output,
+  recipientAddress,
 }: {
   config: {
     chainList: ChainListType;
@@ -293,6 +381,8 @@ export const createBridgeRFF = async ({
       client: PrivateKeyAccount;
       eoaAddress: `0x${string}`;
     };
+    publicClientList: PublicClientList;
+    sourceExecutions?: Record<number, SourceExecution>;
   } & QueryClients;
   input: {
     assets: BridgeAsset[];
@@ -303,6 +393,7 @@ export const createBridgeRFF = async ({
     decimals: number;
     tokenAddress: `0x${string}`;
   };
+  recipientAddress: `0x${string}`;
 }) => {
   const dstChain = config.chainList.getChainByID(Number(output.chainID));
   if (!dstChain) {
@@ -319,7 +410,7 @@ export const createBridgeRFF = async ({
     assets: input.assets,
     feeStore,
     output,
-    address: config.evm.address,
+    address: recipientAddress,
   });
 
   const { msgBasicCosmos, omniversalRFF, signatureData, sources } = await createRFFromIntent(
@@ -378,6 +469,7 @@ export const createBridgeRFF = async ({
     })),
     config.chainList
   );
+  const permitDeadline = createDeadlineFromNow(BRIDGE_VAULT_PERMIT_DEADLINE_MINUTES);
 
   for (const [index, source] of sources.entries()) {
     const evmSignatureData = signatureData.find((s) => s.universe === Universe.ETHEREUM);
@@ -396,26 +488,17 @@ export const createBridgeRFF = async ({
       throw Errors.internal('Allowance not applicable');
     }
 
-    const tx: Tx[] = [];
-
-    if (allowance < source.valueRaw) {
-      const allowanceTx = {
-        data: packERC20Approve(
-          config.chainList.getVaultContractAddress(Number(source.chainID)),
-          source.valueRaw
-        ),
-        to: convertAddressByUniverse(source.tokenAddress, Universe.ETHEREUM),
-        value: 0n,
-      };
-      tx.push(allowanceTx);
-    }
-
-    console.log({
-      argsForRFFDeposit: [
-        omniversalRFF.asEVMRFF(),
-        toHex(evmSignatureData.signature),
-        BigInt(index),
-      ],
+    const tokenAddress = convertAddressByUniverse(source.tokenAddress, Universe.ETHEREUM);
+    const tx = await createVaultFundingAndAllowanceCalls({
+      allowance,
+      chain,
+      deadline: permitDeadline,
+      evm: config.evm,
+      publicClientList: config.publicClientList,
+      sourceExecution: getSourceExecutionOrThrow(config.sourceExecutions, Number(source.chainID)),
+      tokenAddress,
+      valueRaw: source.valueRaw,
+      vaultAddress: config.chainList.getVaultContractAddress(Number(source.chainID)),
     });
 
     tx.push({
@@ -430,7 +513,7 @@ export const createBridgeRFF = async ({
 
     depositCalls[Number(source.chainID)] = {
       amount: source.valueRaw,
-      tokenAddress: convertAddressByUniverse(source.tokenAddress, source.universe),
+      tokenAddress,
       tx: tx,
     };
   }

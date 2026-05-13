@@ -59,7 +59,7 @@ describe('estimateRepresentativeSwapNativeReserveFee', () => {
     ]);
   });
 
-  it('prices a representative raw calibur execute tx with fixed gas and synthetic buffering', async () => {
+  it('prices a representative raw source-execution tx with fixed gas and synthetic buffering', async () => {
     const result = await estimateRepresentativeSwapNativeReserveFee({
       chain,
     });

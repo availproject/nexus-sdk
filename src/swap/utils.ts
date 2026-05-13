@@ -19,9 +19,7 @@ import {
   concat,
   createPublicClient,
   encodeFunctionData,
-  getContract,
   type Hex,
-  hexToBigInt,
   http,
   maxUint256,
   type PrivateKeyAccount,
@@ -32,19 +30,14 @@ import {
   toHex,
   type WalletClient,
 } from 'viem';
-import CaliburABI from '../abi/calibur.abi';
-import {
-  ERC20PermitABI,
-  ERC20PermitEIP712Type,
-  ERC20PermitEIP2612PolygonType,
-  ETHEREUM_USDT_APPROVE_ABI,
-} from '../abi/erc20';
+import { ERC20PermitABI, ETHEREUM_USDT_APPROVE_ABI } from '../abi/erc20';
 import { SWEEP_ABI } from '../abi/sweep';
 import {
   type AnkrAsset,
   type AnkrBalances,
   type Chain,
   type ChainListType,
+  type DestinationExecution,
   getLogger,
   type SBCTx,
   type Source,
@@ -67,16 +60,42 @@ import {
   divDecimals,
   equalFold,
   getExplorerURL,
+  signPermitForAddressAndValue,
   switchChain,
   waitForTxReceipt,
 } from '../core/utils';
 import { estimateRepresentativeSwapNativeReserveFee } from '../services/swapNativeReserveFee';
 import { CALIBUR_ADDRESS, EADDRESS, SWEEPER_ADDRESS } from './constants';
 import { type FlatBalance, getPermitVariantAndVersion, isTokenSupported } from './data';
+import { createSafeExecuteTxFromCalls } from './safetx';
 import { createSBCTxFromCalls, waitForSBCTxReceipt } from './sbc';
 
 const USD_DECIMAL_PLACES = 6;
 const logger = getLogger();
+
+/**
+ * Boundary check for any SDK entry point that swaps to a given destination chain. Throws
+ * `chainNotFound` if the chain isn't in the registry, or `swapNotSupportedOnChain` if the chain
+ * exists but doesn't have swaps enabled. Returns the resolved Chain on success so callers can
+ * reuse it without a second lookup.
+ *
+ * Call this at the SDK entry point (e.g., `swap()`, `calculateMaxForSwap`, `swapAndExecute`)
+ * — not deep in the pipeline. Failing fast here avoids wasted balance fetches, fee-store calls,
+ * and aggregator quotes for a request we already know we can't fulfill.
+ */
+export const validateDestinationChainForSwap = (
+  chainList: ChainListType,
+  toChainId: number
+): Chain => {
+  const chain = chainList.getChainByID(toChainId);
+  if (!chain) {
+    throw Errors.chainNotFound(toChainId);
+  }
+  if (!chain.swapSupported) {
+    throw Errors.swapNotSupportedOnChain(chain.id, chain.name);
+  }
+  return chain;
+};
 
 export const convertTo32Bytes = (
   input: `0x${string}` | bigint | ByteArray | number
@@ -158,101 +177,6 @@ const AnkrChainIdMapping = new Map([
   ['xai', 660279],
   ['xlayer', 196],
 ]);
-
-export const createPermitSignature = async (
-  contractAddress: Hex,
-  client: WalletClient,
-  spender: Hex,
-  walletAddress: Hex,
-  variant: PermitVariant,
-  version: number,
-  deadline: bigint,
-  amount: bigint
-) => {
-  const contract = getContract({
-    abi: ERC20ABI,
-    address: contractAddress,
-    client,
-  });
-
-  const [name, chainID, nonce] = await Promise.all([
-    contract.read.name(),
-    client.request({ method: 'eth_chainId' }, { dedupe: true }),
-    contract.read.nonces([walletAddress]),
-  ]);
-
-  logger.debug('createPermitSigParams', {
-    account: walletAddress,
-    domain: {
-      chainId: hexToBigInt(chainID),
-      name,
-      verifyingContract: contractAddress,
-      version,
-    },
-    message: {
-      deadline,
-      nonce,
-      owner: walletAddress,
-      spender: spender,
-      value: amount,
-    },
-    primaryType: 'Permit',
-    types: ERC20PermitEIP712Type,
-  });
-
-  switch (variant) {
-    case PermitVariant.EIP2612Canonical: {
-      return {
-        signature: await client.signTypedData({
-          account: walletAddress,
-          domain: {
-            chainId: hexToBigInt(chainID),
-            name,
-            verifyingContract: contractAddress,
-            version: version.toString(),
-          },
-          message: {
-            deadline,
-            nonce,
-            owner: walletAddress,
-            spender: spender,
-            value: amount,
-          },
-          primaryType: 'Permit',
-          types: ERC20PermitEIP712Type,
-        }),
-        variant,
-      };
-    }
-    case PermitVariant.PolygonEMT: {
-      return {
-        signature: await client.signTypedData({
-          account: walletAddress,
-          domain: {
-            name,
-            salt: pad(chainID, {
-              dir: 'left',
-              size: 32,
-            }),
-            verifyingContract: contract.address,
-            version: version.toString(10),
-          },
-          message: {
-            from: walletAddress,
-            functionSignature: packERC20Approve(spender, amount),
-            nonce,
-          },
-          primaryType: 'MetaTransaction',
-          types: ERC20PermitEIP2612PolygonType,
-        }),
-        variant,
-      };
-    }
-    default: {
-      throw Errors.tokenNotSupported(undefined, undefined, '(2612 details not found)');
-    }
-  }
-};
 
 export const EXPECTED_CALIBUR_CODE = concat(['0xef0100', CALIBUR_ADDRESS]);
 const EIP7702_DELEGATION_PREFIX = '0xef0100';
@@ -391,13 +315,15 @@ export const createPermitAndTransferFromTx = async ({
       const approvalTx =
         approval ??
         (await createPermitApprovalTx({
+          amount,
+          chain,
           contractAddress,
           owner,
           ownerWallet,
+          publicClient,
           spender,
           variant,
           version,
-          amount,
         }));
       txList.push(approvalTx);
     }
@@ -494,33 +420,39 @@ async function getVersion(client: PublicClient, token: `0x${string}`): Promise<s
 }
 
 export const createPermitApprovalTx = async ({
+  amount,
+  chain,
   contractAddress,
   owner,
   ownerWallet,
+  publicClient,
   spender,
   variant,
   version,
-  amount,
 }: {
+  amount: bigint;
+  chain: Chain;
   contractAddress: Hex;
   owner: Hex;
   ownerWallet: WalletClient;
+  publicClient: PublicClient;
   spender: Hex;
   variant: PermitVariant;
   version: number;
-  amount: bigint;
 }) => {
   const deadline = createDeadlineFromNow(3n);
-  const { signature } = await createPermitSignature(
-    contractAddress,
-    ownerWallet,
-    spender,
-    owner,
-    variant,
-    version,
+  const signature = await signPermitForAddressAndValue({
+    chain,
+    client: ownerWallet,
     deadline,
-    amount
-  );
+    permitContractVersion: version,
+    permitVariant: variant,
+    publicClient,
+    spender,
+    tokenAddress: contractAddress,
+    value: amount,
+    walletAddress: owner,
+  });
 
   const { r, s, v } = parseSignature(signature);
   if (!v) {
@@ -540,6 +472,63 @@ export const createPermitApprovalTx = async ({
             args: [owner, spender, amount, deadline, Number(v), r, s],
             functionName: 'permit',
           }),
+    to: contractAddress,
+    value: 0n,
+  };
+};
+
+export const createPermitOnlyApprovalTx = async ({
+  amount,
+  chain,
+  contractAddress,
+  deadline,
+  owner,
+  publicClient,
+  signerWallet,
+  spender,
+}: {
+  amount: bigint;
+  chain: Chain;
+  contractAddress: Hex;
+  deadline: bigint;
+  owner: Hex;
+  publicClient: PublicClient;
+  signerWallet: PrivateKeyAccount;
+  spender: Hex;
+}): Promise<Tx> => {
+  if (!equalFold(owner, signerWallet.address)) {
+    throw Errors.internal('permit signer must match permit owner');
+  }
+
+  const { variant, version } = await getPermitVariantAndVersion(contractAddress, publicClient);
+  if (variant !== PermitVariant.EIP2612Canonical) {
+    throw Errors.tokenNotSupported(undefined, undefined, '(2612 details not found)');
+  }
+
+  const signature = await signPermitForAddressAndValue({
+    chain,
+    client: signerWallet,
+    deadline,
+    permitContractVersion: version,
+    permitVariant: variant,
+    publicClient,
+    spender,
+    tokenAddress: contractAddress,
+    value: amount,
+    walletAddress: owner,
+  });
+
+  const { r, s, v } = parseSignature(signature);
+  if (!v) {
+    throw Errors.internal('invalid signature: v is not present');
+  }
+
+  return {
+    data: encodeFunctionData({
+      abi: ERC20PermitABI,
+      args: [owner, spender, amount, deadline, Number(v), r, s],
+      functionName: 'permit',
+    }),
     to: contractAddress,
     value: 0n,
   };
@@ -887,7 +876,6 @@ export class Cache {
   public allowanceValues: Map<string, bigint> = new Map();
   public setCodeValues: Map<string, Hex | undefined> = new Map();
   private readonly allowanceQueries: Map<string, AllowanceInput> = new Map();
-  private readonly nativeAllowanceQueries: Map<string, AllowanceInput> = new Map();
   private readonly setCodeQueries: Map<string, SetCodeInput> = new Map();
   private readonly permitQueries: Map<string, PermitQueryInput> = new Map();
   private readonly permitValues: Map<string, { variant: PermitVariant; version: number }> =
@@ -901,10 +889,6 @@ export class Cache {
 
   addAllowanceValue(input: AllowanceInput, value: bigint) {
     this.allowanceValues.set(getAllowanceCacheKey(input), value);
-  }
-
-  addNativeAllowanceQuery(input: AllowanceInput) {
-    this.nativeAllowanceQueries.set(getAllowanceCacheKey(input), input);
   }
 
   addSetCodeQuery(input: SetCodeInput) {
@@ -933,40 +917,10 @@ export class Cache {
 
   async process() {
     await Promise.all([
-      this.processNativeAllowanceRequests(),
       this.processAllowanceRequests(),
       this.processGetCodeRequests(),
       this.processPermitRequests(),
     ]);
-  }
-
-  private async processNativeAllowanceRequests() {
-    const requests: Promise<void>[] = [];
-    for (const input of this.nativeAllowanceQueries.values()) {
-      const publicClient = this.publicClientList.get(input.chainID);
-      // Fire getCode and nativeAllowance simultaneously so both land in the same
-      // multicall batch as the ERC20 allowance reads. nativeAllowance may revert
-      // if the account isn't delegated to Calibur yet, so we catch and default to 0n.
-      requests.push(
-        Promise.all([
-          publicClient.getCode({ address: input.contractAddress }),
-          publicClient
-            .readContract({
-              address: input.contractAddress,
-              abi: CaliburABI,
-              functionName: 'nativeAllowance',
-              args: [input.spender],
-            })
-            .catch(() => 0n),
-        ]).then(([code, allowance]) => {
-          this.allowanceValues.set(
-            getAllowanceCacheKey(input),
-            equalFold(code, EXPECTED_CALIBUR_CODE) ? allowance : 0n
-          );
-        })
-      );
-    }
-    await Promise.all(requests);
   }
 
   private async processAllowanceRequests() {
@@ -1321,6 +1275,20 @@ export const postSwap = async ({
   return rffIDN === 0 ? res.data.value : rffIDN;
 };
 
+/**
+ * Builds an ERC20 sweep batch: approve the Sweeper for `tokenAddress` (if not already
+ * approved), then call `Sweeper.sweepERC20(tokenAddress, receiver)` to drain the sender's
+ * balance to the receiver. The Sweeper at SWEEPER_ADDRESS pulls from `msg.sender`, so the
+ * sender at execution time must equal `sender` in the cache lookup (Calibur wrapper on 7702
+ * chains, Safe proxy on non-Pectra chains — both work because the call chain
+ * `Safe.execTransaction → MultiSendCallOnly DELEGATECALL → CALL Sweeper` results in
+ * `msg.sender` at the Sweeper being the wrapper address).
+ *
+ * Native sweeping is intentionally not supported here. The destination-swap path routes
+ * aggregator output directly to the user's EOA (see route.ts `dstSwapRecipientInBytes`), so
+ * native dust never accrues at the wrapper. If `tokenAddress` resolves to a native address,
+ * we throw — that indicates a caller bug; the caller should not be sweeping native.
+ */
 export const createSweeperTxs = ({
   cache,
   chainID,
@@ -1336,7 +1304,6 @@ export const createSweeperTxs = ({
   sender: Hex;
   tokenAddress?: Hex;
 }) => {
-  const txs: Tx[] = [];
   if (!tokenAddress) {
     const currency = ChaindataMap.get(
       new OmniversalChainID(Universe.ETHEREUM, chainID)
@@ -1350,62 +1317,35 @@ export const createSweeperTxs = ({
   }
 
   if (isNativeAddress(tokenAddress)) {
-    const nativeAllowance = cache.getAllowance({
-      chainID: Number(chainID),
-      contractAddress: sender,
-      owner: sender,
-      spender: SWEEPER_ADDRESS,
-    });
-    logger.debug('createSweeperTxs', {
-      nativeAllowance,
-    });
+    throw Errors.internal(
+      'createSweeperTxs called with native token address; native sweeping is not supported (aggregator should deliver native output directly to EOA)'
+    );
+  }
 
-    if (!nativeAllowance || nativeAllowance === 0n) {
-      txs.push({
-        to: sender,
-        data: encodeFunctionData({
-          abi: CaliburABI,
-          functionName: 'approveNative',
-          args: [SWEEPER_ADDRESS, maxUint256],
-        }),
-        value: 0n,
-      });
-    }
+  const txs: Tx[] = [];
+  const sweeperAllowance = cache.getAllowance({
+    chainID: Number(chainID),
+    contractAddress: convertToEVMAddress(tokenAddress),
+    owner: sender,
+    spender: SWEEPER_ADDRESS,
+  });
 
+  if (!sweeperAllowance || sweeperAllowance === 0n) {
     txs.push({
-      data: encodeFunctionData({
-        abi: SWEEP_ABI,
-        args: [receiver],
-        functionName: 'sweepERC7914',
-      }),
-      to: SWEEPER_ADDRESS,
-      value: 0n,
-    });
-  } else {
-    const sweeperAllowance = cache.getAllowance({
-      chainID: Number(chainID),
-      contractAddress: convertToEVMAddress(tokenAddress),
-      owner: sender,
-      spender: SWEEPER_ADDRESS,
-    });
-
-    if (!sweeperAllowance || sweeperAllowance === 0n) {
-      txs.push({
-        data: packERC20Approve(SWEEPER_ADDRESS, maxUint256),
-        to: convertToEVMAddress(tokenAddress),
-        value: 0n,
-      });
-    }
-    txs.push({
-      data: encodeFunctionData({
-        abi: SWEEP_ABI,
-        args: [convertToEVMAddress(tokenAddress), receiver],
-        functionName: 'sweepERC20',
-      }),
-      to: SWEEPER_ADDRESS,
+      data: packERC20Approve(SWEEPER_ADDRESS, maxUint256),
+      to: convertToEVMAddress(tokenAddress),
       value: 0n,
     });
   }
+  txs.push({
+    data: encodeFunctionData({
+      abi: SWEEP_ABI,
+      args: [convertToEVMAddress(tokenAddress), receiver],
+      functionName: 'sweepERC20',
+    }),
+    to: SWEEPER_ADDRESS,
+    value: 0n,
+  });
 
   return txs;
 };
@@ -1417,11 +1357,11 @@ export const performDestinationSwap = async ({
   chain,
   chainList,
   COT,
+  destinationExecution,
   emitter,
-  ephemeralAddress,
-  ephemeralWallet,
   hasDestinationSwap,
   publicClientList,
+  signerWallet,
   vscClient,
 }: {
   actualAddress: Hex;
@@ -1430,35 +1370,58 @@ export const performDestinationSwap = async ({
   chain: Chain;
   chainList: ChainListType;
   COT: CurrencyID;
+  destinationExecution: DestinationExecution;
   emitter: {
     emit: (step: SwapStepType) => void;
   };
-  ephemeralAddress: Hex;
-  ephemeralWallet: PrivateKeyAccount;
   hasDestinationSwap: boolean;
   publicClientList: PublicClientList;
+  signerWallet: PrivateKeyAccount;
   vscClient: VSCClient;
 }) => {
+  if (destinationExecution.mode === 'direct_eoa') {
+    throw new Error(
+      'performDestinationSwap must not be called for direct_eoa destination execution'
+    );
+  }
+
   // If destination swap token is COT then calls is an empty array,
-  // sweeper txs will send from ephemeral -> eoa, other cases it sweeps the dust
-  const sbcTx = await createSBCTxFromCalls({
-    cache,
-    calls: calls.concat(
-      createSweeperTxs({
-        cache,
-        chainID: chain.id,
-        COTCurrencyID: COT,
-        receiver: actualAddress,
-        sender: ephemeralAddress,
-      })
-    ),
-    chainID: chain.id,
-    ephemeralAddress,
-    ephemeralWallet,
-    publicClient: publicClientList.get(chain.id),
-  });
+  // sweeper txs will send from destination execution account -> eoa, other cases it sweeps the dust
+  const batchCalls = calls.concat(
+    createSweeperTxs({
+      cache,
+      chainID: chain.id,
+      COTCurrencyID: COT,
+      receiver: actualAddress,
+      sender: destinationExecution.address,
+    })
+  );
   performance.mark('destination-swap-start');
-  const ops = await vscClient.vscSBCTx([sbcTx]);
+  const ops =
+    destinationExecution.mode === 'safe_account'
+      ? [
+          await (async () => {
+            return vscClient.vscCreateSafeExecuteTx(
+              await createSafeExecuteTxFromCalls({
+                calls: batchCalls,
+                chainId: chain.id,
+                ephemeralWallet: signerWallet,
+                publicClient: publicClientList.get(chain.id),
+                safeAddress: destinationExecution.address,
+              })
+            );
+          })(),
+        ]
+      : await vscClient.vscSBCTx([
+          await createSBCTxFromCalls({
+            cache,
+            calls: batchCalls,
+            chainID: chain.id,
+            ephemeralAddress: destinationExecution.address,
+            ephemeralWallet: signerWallet,
+            publicClient: publicClientList.get(chain.id),
+          }),
+        ]);
   performance.mark('destination-swap-end');
 
   if (hasDestinationSwap) {
