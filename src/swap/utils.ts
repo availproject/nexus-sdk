@@ -73,6 +73,30 @@ import { createSBCTxFromCalls, waitForSBCTxReceipt } from './sbc';
 const USD_DECIMAL_PLACES = 6;
 const logger = getLogger();
 
+/**
+ * Boundary check for any SDK entry point that swaps to a given destination chain. Throws
+ * `chainNotFound` if the chain isn't in the registry, or `swapNotSupportedOnChain` if the chain
+ * exists but doesn't have swaps enabled. Returns the resolved Chain on success so callers can
+ * reuse it without a second lookup.
+ *
+ * Call this at the SDK entry point (e.g., `swap()`, `calculateMaxForSwap`, `swapAndExecute`)
+ * — not deep in the pipeline. Failing fast here avoids wasted balance fetches, fee-store calls,
+ * and aggregator quotes for a request we already know we can't fulfill.
+ */
+export const validateDestinationChainForSwap = (
+  chainList: ChainListType,
+  toChainId: number
+): Chain => {
+  const chain = chainList.getChainByID(toChainId);
+  if (!chain) {
+    throw Errors.chainNotFound(toChainId);
+  }
+  if (!chain.swapSupported) {
+    throw Errors.swapNotSupportedOnChain(chain.id, chain.name);
+  }
+  return chain;
+};
+
 export const convertTo32Bytes = (
   input: `0x${string}` | bigint | ByteArray | number
 ): Uint8Array => {

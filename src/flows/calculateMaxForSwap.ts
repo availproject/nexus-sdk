@@ -7,19 +7,18 @@ import {
 } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
 import { type MaxSwapInput, type MaxSwapResult, SwapMode, type SwapParams } from '../commons';
-import { Errors } from '../core/errors';
 import { mulDecimals } from '../core/utils';
 import { BEBOP_API_KEY, LIFI_API_KEY } from '../swap/constants';
 import { determineSwapRoute } from '../swap/route';
-import { PublicClientList } from '../swap/utils';
+import { PublicClientList, validateDestinationChainForSwap } from '../swap/utils';
 
 export const calculateMaxForSwap = async (
   input: MaxSwapInput,
   options: SwapParams,
   COT = CurrencyID.USDC
 ): Promise<MaxSwapResult> => {
+  validateDestinationChainForSwap(options.chainList, input.toChainId);
   const publicClientList = new PublicClientList(options.chainList);
-  if (!options.chainList.getChainByID(input.toChainId)) throw Errors.chainNotFound(input.toChainId);
 
   const aggregators: Aggregator[] = [
     new LiFiAggregator(LIFI_API_KEY),

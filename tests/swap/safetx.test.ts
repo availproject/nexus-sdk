@@ -14,7 +14,7 @@ vi.mock('../../src/core/utils', async () => {
 
 vi.mock('../../src/services/feeEstimation', async () => {
   const actual = await vi.importActual<typeof import('../../src/services/feeEstimation')>(
-    '../services/feeEstimation'
+    '../../src/services/feeEstimation'
   );
   return {
     ...actual,

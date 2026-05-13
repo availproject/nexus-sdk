@@ -31,6 +31,7 @@ import {
   convertTo32Bytes,
   PublicClientList,
   type SwapMetadata,
+  validateDestinationChainForSwap,
 } from '../swap/utils';
 
 const logger = getLogger();
@@ -43,15 +44,12 @@ export const swap = async (
   options: SwapParams,
   COT = CurrencyID.USDC
 ): Promise<SuccessfulSwapResult> => {
+  validateDestinationChainForSwap(options.chainList, input.data.toChainId);
   performance.clearMarks();
   performance.clearMeasures();
 
   const publicClientList = new PublicClientList(options.chainList);
   const cache = new Cache(publicClientList);
-  const dstChain = options.chainList.getChainByID(input.data.toChainId);
-  if (!dstChain) {
-    throw Errors.chainNotFound(input.data.toChainId);
-  }
 
   performance.mark('swap-start');
   const emitter = {

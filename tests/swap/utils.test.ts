@@ -2,13 +2,14 @@ import { CurrencyID, ERC20ABI, Universe } from '@avail-project/ca-common';
 import { decodeFunctionData } from 'viem';
 import { describe, expect, it, vi } from 'vitest';
 import { SWEEP_ABI } from '../../src/abi/sweep';
-import { MAINNET_CHAIN_IDS } from '../../src/commons';
+import { type Chain, type ChainListType, MAINNET_CHAIN_IDS } from '../../src/commons';
 import { SWEEPER_ADDRESS } from '../../src/swap/constants';
 import type { FlatBalance } from '../../src/swap/data';
 import {
   createPermitOnlyApprovalTx,
   createSweeperTxs,
   sortSourcesByPriority,
+  validateDestinationChainForSwap,
 } from '../../src/swap/utils';
 
 vi.mock('../../src/core/constants', () => ({
@@ -549,5 +550,41 @@ describe('sortSourcesByPriority', () => {
       expect(sorted[1].value).toBe(100);
       expect(sorted[2].value).toBe(50);
     });
+  });
+});
+
+describe('validateDestinationChainForSwap', () => {
+  // Only the three fields the validator actually reads. Cast as `Chain` since the helper's
+  // return type is `Chain`; the unused Chain fields are out of scope for this unit.
+  const fakeChain = (overrides: Partial<Chain>): Chain =>
+    ({ id: 0, name: '', swapSupported: false, ...overrides }) as Chain;
+
+  it('throws SWAP_NOT_SUPPORTED_ON_CHAIN when the destination chain exists but has swaps disabled', () => {
+    const chainList = {
+      getChainByID: vi.fn(() => fakeChain({ id: 12345, name: 'NoSwap', swapSupported: false })),
+    } as Partial<ChainListType> as ChainListType;
+
+    expect(() => validateDestinationChainForSwap(chainList, 12345)).toThrowError(
+      expect.objectContaining({ code: 'SWAP_NOT_SUPPORTED_ON_CHAIN' })
+    );
+  });
+
+  it('throws CHAIN_NOT_FOUND when the destination chain id is unknown', () => {
+    const chainList = {
+      getChainByID: vi.fn((): Chain | undefined => undefined),
+    } as Partial<ChainListType> as ChainListType;
+
+    expect(() => validateDestinationChainForSwap(chainList, 99_999_999)).toThrowError(
+      expect.objectContaining({ code: 'CHAIN_NOT_FOUND' })
+    );
+  });
+
+  it('returns the chain on success', () => {
+    const chain = fakeChain({ id: 999, name: 'HyperEVM', swapSupported: true });
+    const chainList = {
+      getChainByID: vi.fn(() => chain),
+    } as Partial<ChainListType> as ChainListType;
+
+    expect(validateDestinationChainForSwap(chainList, 999)).toBe(chain);
   });
 });
