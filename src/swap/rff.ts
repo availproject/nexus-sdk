@@ -302,7 +302,7 @@ export const createIntent = ({
 
 export const createVaultFundingAndAllowanceCalls = async ({
   allowance,
-  chainID,
+  chain,
   deadline,
   evm,
   publicClientList,
@@ -312,7 +312,7 @@ export const createVaultFundingAndAllowanceCalls = async ({
   vaultAddress,
 }: {
   allowance: bigint;
-  chainID: number;
+  chain: Chain;
   deadline: bigint;
   evm: {
     address: Hex;
@@ -346,11 +346,11 @@ export const createVaultFundingAndAllowanceCalls = async ({
     tx.push(
       await createPermitOnlyApprovalTx({
         amount: valueRaw,
-        chainId: chainID,
+        chain,
         contractAddress: tokenAddress,
         deadline,
         owner: evm.address,
-        publicClient: publicClientList.get(chainID),
+        publicClient: publicClientList.get(chain.id),
         signerWallet: evm.client,
         spender: vaultAddress,
       })
@@ -491,7 +491,7 @@ export const createBridgeRFF = async ({
     const tokenAddress = convertAddressByUniverse(source.tokenAddress, Universe.ETHEREUM);
     const tx = await createVaultFundingAndAllowanceCalls({
       allowance,
-      chainID: Number(source.chainID),
+      chain,
       deadline: permitDeadline,
       evm: config.evm,
       publicClientList: config.publicClientList,

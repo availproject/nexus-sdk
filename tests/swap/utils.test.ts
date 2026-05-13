@@ -62,7 +62,7 @@ describe('createPermitOnlyApprovalTx', () => {
 
     const tx = await createPermitOnlyApprovalTx({
       amount: 1_000_000n,
-      chainId: 999,
+      chain: { id: 999 } as never,
       contractAddress: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
       deadline: 123456789n,
       owner: '0x2222222222222222222222222222222222222222',

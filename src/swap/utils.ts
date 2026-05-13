@@ -30,7 +30,7 @@ import {
   toHex,
   type WalletClient,
 } from 'viem';
-import { ERC20PermitABI, ERC20PermitEIP712Type, ETHEREUM_USDT_APPROVE_ABI } from '../abi/erc20';
+import { ERC20PermitABI, ETHEREUM_USDT_APPROVE_ABI } from '../abi/erc20';
 import { SWEEP_ABI } from '../abi/sweep';
 import {
   type AnkrAsset,
@@ -455,7 +455,7 @@ export const createPermitApprovalTx = async ({
 
 export const createPermitOnlyApprovalTx = async ({
   amount,
-  chainId,
+  chain,
   contractAddress,
   deadline,
   owner,
@@ -464,7 +464,7 @@ export const createPermitOnlyApprovalTx = async ({
   spender,
 }: {
   amount: bigint;
-  chainId: number;
+  chain: Chain;
   contractAddress: Hex;
   deadline: bigint;
   owner: Hex;
@@ -481,36 +481,17 @@ export const createPermitOnlyApprovalTx = async ({
     throw Errors.tokenNotSupported(undefined, undefined, '(2612 details not found)');
   }
 
-  const [name, nonce] = await Promise.all([
-    publicClient.readContract({
-      abi: ERC20ABI,
-      address: contractAddress,
-      functionName: 'name',
-    }),
-    publicClient.readContract({
-      abi: ERC20ABI,
-      address: contractAddress,
-      args: [owner],
-      functionName: 'nonces',
-    }),
-  ]);
-
-  const signature = await signerWallet.signTypedData({
-    domain: {
-      chainId: BigInt(chainId),
-      name,
-      verifyingContract: contractAddress,
-      version: version.toString(),
-    },
-    message: {
-      deadline,
-      nonce,
-      owner,
-      spender,
-      value: amount,
-    },
-    primaryType: 'Permit',
-    types: ERC20PermitEIP712Type,
+  const signature = await signPermitForAddressAndValue({
+    chain,
+    client: signerWallet,
+    deadline,
+    permitContractVersion: version,
+    permitVariant: variant,
+    publicClient,
+    spender,
+    tokenAddress: contractAddress,
+    value: amount,
+    walletAddress: owner,
   });
 
   const { r, s, v } = parseSignature(signature);

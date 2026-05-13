@@ -54,7 +54,7 @@ describe('createVaultFundingAndAllowanceCalls', () => {
   it('funds ephemeral from the Safe and signs an ephemeral vault permit', async () => {
     const calls = await createVaultFundingAndAllowanceCalls({
       allowance: 0n,
-      chainID: 999,
+      chain: { id: 999 } as never,
       deadline: 123456789n,
       evm: {
         address: '0x2222222222222222222222222222222222222222',
@@ -88,7 +88,7 @@ describe('createVaultFundingAndAllowanceCalls', () => {
     ]);
     expect(createPermitOnlyApprovalTxMock).toHaveBeenCalledWith({
       amount: 1_000_000n,
-      chainId: 999,
+      chain: { id: 999 },
       contractAddress: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
       deadline: 123456789n,
       owner: '0x2222222222222222222222222222222222222222',
@@ -106,7 +106,7 @@ describe('createVaultFundingAndAllowanceCalls', () => {
   it('skips the permit step when the ephemeral already has enough vault allowance', async () => {
     const calls = await createVaultFundingAndAllowanceCalls({
       allowance: 1_000_000n,
-      chainID: 999,
+      chain: { id: 999 } as never,
       deadline: 123456789n,
       evm: {
         address: '0x2222222222222222222222222222222222222222',
@@ -135,7 +135,7 @@ describe('createVaultFundingAndAllowanceCalls', () => {
   it('keeps the existing approve call for 7702 bridge deposits', async () => {
     const calls = await createVaultFundingAndAllowanceCalls({
       allowance: 0n,
-      chainID: 1,
+      chain: { id: 1 } as never,
       deadline: 123456789n,
       evm: {
         address: '0x2222222222222222222222222222222222222222',
