@@ -21,21 +21,6 @@ type ExecuteSendResult = {
   approvalHash: Hex | undefined;
 };
 
-const spreadFeeParams = (feeParams?: ExecuteFeeParams) => {
-  if (!feeParams) {
-    return {};
-  }
-
-  if (feeParams.type === 'legacy') {
-    return { gasPrice: feeParams.gasPrice };
-  }
-
-  return {
-    maxFeePerGas: feeParams.maxFeePerGas,
-    maxPriorityFeePerGas: feeParams.maxPriorityFeePerGas,
-  };
-};
-
 export const sendExecuteTransactions = async (
   params: {
     tx: Tx;
@@ -136,7 +121,6 @@ export const sendExecuteTransactions = async (
       ...params.approvalTx,
       account: options.address,
       chain: options.chain,
-      ...spreadFeeParams(params.feeParams),
     });
 
     await waitForTxReceipt(approvalHash, options.dstPublicClient, 1);
@@ -152,7 +136,6 @@ export const sendExecuteTransactions = async (
     ...params.tx,
     account: options.address,
     chain: options.chain,
-    ...spreadFeeParams(params.feeParams),
   });
 
   if (options.emit) {
