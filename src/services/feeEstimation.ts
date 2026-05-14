@@ -298,7 +298,7 @@ const FEE_MODEL_CONFIGS: Record<FeeModel, FeeModelConfig> = {
   },
   [FeeModel.ARBITRUM]: {
     buffers: BUFFER_CONFIGS[FeeModel.ARBITRUM],
-    useLegacyPricing: true,
+    useLegacyPricing: false,
     strategy: arbitrumStrategy,
   },
   [FeeModel.CITREA]: {
