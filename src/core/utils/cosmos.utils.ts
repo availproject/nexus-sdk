@@ -32,6 +32,42 @@ const cosmosFeeGrant = async (
   }
 };
 
+const CHECK_INTENT_FILLED_POLL_INTERVAL_MS = 5_000;
+
+const abortableSleep = (ms: number, signal: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+
+const pollCheckIntentFilled = async (
+  intentID: Long,
+  cosmosClient: CosmosQueryClient,
+  signal: AbortSignal
+): Promise<string> => {
+  while (!signal.aborted) {
+    try {
+      return await cosmosClient.checkIntentFilled(intentID);
+    } catch {
+      // not filled yet
+    }
+    if (signal.aborted) break;
+    await abortableSleep(CHECK_INTENT_FILLED_POLL_INTERVAL_MS, signal);
+  }
+  throw Errors.internal('checkIntentFilled aborted');
+};
+
 const cosmosFillCheck = async (
   intentID: Long,
   cosmosClient: CosmosQueryClient,
@@ -39,7 +75,7 @@ const cosmosFillCheck = async (
 ) => {
   return Promise.any([
     cosmosClient.waitForCosmosFillEvent(intentID, ac),
-    cosmosClient.checkIntentFilled(intentID),
+    pollCheckIntentFilled(intentID, cosmosClient, ac.signal),
   ]);
 };
 
