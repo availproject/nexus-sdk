@@ -317,8 +317,7 @@ export const generateStateOverride = (params: {
   amount: bigint;
 }) => {
   const amountInHex = toHex(params.amount * 2n);
-  // FIXME: it should estimate for any other native token also
-  if (equalFold(params.tokenSymbol, 'ETH')) {
+  if (equalFold(params.tokenAddress, ZERO_ADDRESS)) {
     return {
       [params.userAddress]: {
         balance: amountInHex,
