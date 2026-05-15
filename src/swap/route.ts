@@ -274,6 +274,12 @@ enum BUFFER_EXACT_OUT {
   SOURCE_SWAP_MAX_IN_USD = 1, // <-- another magic
 }
 
+// Headroom on the destination-swap input when source and destination collapse into a single
+// same-wrapper batch. Absorbs aggregator slippage between the source quote (which lands COT at
+// the wrapper) and the destination quote (which spends that COT) inside one atomic execution.
+// Leftover COT is swept back to the EOA by the existing destination sweeper.
+export const COMBINED_SAME_CHAIN_BUFFER_PCT = 0.5;
+
 const getCOTForChainId = (chainId: number | bigint, cotCurrencyID = CurrencyID.USDC) => {
   const chainData = ChaindataMap.get(new OmniversalChainID(Universe.ETHEREUM, chainId));
   if (!chainData) {
@@ -431,10 +437,30 @@ const buildSwapRouteResult = ({
   source,
   bridge,
   destination,
+  combined: isCombinedSameChainRoute({ source, bridge, destination }),
   dstTokenInfo,
   extras: { aggregators, oraclePrices, balances, assetsUsed },
   buffer: { amount: buffer },
 });
+
+// A route is "combined" when source and destination resolve to the same wrapper on the same
+// chain with no bridge in between: every source swap lands on the dst chain, the dst-chain
+// source execution exists, and its address equals the destination execution address.
+//
+// Pure-COT-source-on-dst (no source swaps) is out of scope for v1 — only one VSC tx today and
+// existing dst handler already batches the EOA→wrapper transfer with the dst swap.
+const isCombinedSameChainRoute = ({
+  source,
+  bridge,
+  destination,
+}: Pick<SwapRoute, 'source' | 'bridge' | 'destination'>): boolean => {
+  if (bridge !== null) return false;
+  if (source.swaps.length === 0) return false;
+  if (!source.swaps.every((s) => Number(s.chainID) === destination.chainId)) return false;
+  const srcExec = source.executions[destination.chainId];
+  if (!srcExec) return false;
+  return equalFold(srcExec.address, destination.execution.address);
+};
 
 /** Creates a blank destination object seeded with the given inputAmount for both min and max. */
 const createDestination = (
@@ -977,6 +1003,10 @@ export type SwapRoute = {
     swap: DestinationSwap;
     getDstSwap: () => Promise<DestinationSwap | null>;
   };
+  // True when the route's source legs and destination leg can be executed as a single batched
+  // transaction on one same-chain wrapper (no bridge, every source swap lands on the dst chain,
+  // and the source wrapper IS the destination wrapper).
+  combined: boolean;
   buffer: {
     amount: string;
   };
@@ -1184,11 +1214,6 @@ const _exactInRoute = async (
     dstSwapInputAmountInDecimal: dstSwapInputAmountInDecimal.toFixed(),
   });
 
-  dstSwapInputAmountInDecimal = dstSwapInputAmountInDecimal.toDP(
-    dstChainCOT.decimals,
-    Decimal.ROUND_FLOOR
-  );
-
   const needsDstSwap = !equalFold(input.toTokenAddress, dstChainCOTAddress);
   const hasDestinationChainSourceOutput = hasDestinationChainSourceSwapOutput(
     sourceSwaps,
@@ -1203,6 +1228,28 @@ const _exactInRoute = async (
     needsDestinationExecution: needsDstSwap || hasDestinationChainSourceOutput,
     vscClient: params.vscClient,
   });
+
+  // If the source swap(s) and the destination swap collapse to one same-wrapper batch (no
+  // bridge in between), the dst aggregator will pull COT from the same wrapper the source
+  // swap just deposited it into. Apply headroom on the dst input so per-leg slippage
+  // between the two aggregator quotes can't strand the dst transferFrom on an under-supplied
+  // wrapper. Leftover COT is swept back to the EOA by the existing dst sweeper.
+  const willBeCombined =
+    !isBridgeRequired &&
+    sourceSwaps.length > 0 &&
+    sourceSwaps.every((s) => Number(s.chainID) === input.toChainId) &&
+    !!sourceExecutions[input.toChainId] &&
+    equalFold(sourceExecutions[input.toChainId].address, destinationExecution.address);
+  if (willBeCombined && needsDstSwap) {
+    dstSwapInputAmountInDecimal = dstSwapInputAmountInDecimal.mul(
+      1 - COMBINED_SAME_CHAIN_BUFFER_PCT / 100
+    );
+  }
+
+  dstSwapInputAmountInDecimal = dstSwapInputAmountInDecimal.toDP(
+    dstChainCOT.decimals,
+    Decimal.ROUND_FLOOR
+  );
   // See exact-out path: aggregator simulates as the wrapper (it's the on-chain executor) but
   // delivers swap output directly to the user's EOA. Wrapper holds the COT input; the EOA
   // receives the output. Splitting userAddress (taker) and receiverAddress prevents simulation

@@ -548,3 +548,168 @@ describe('aggregator address routing through determineSwapRoute', () => {
     assertDestinationCalls(destinationCalls, TEST_EPHEMERAL, TEST_EOA);
   });
 });
+
+// Helper: pluck the destination EXACT_IN buy quote (input == COT on dst chain).
+const findDstExactInBuyQuote = (calls: ReturnType<typeof partitionCalls>['destinationCalls']) =>
+  calls.find((c) => c.type === 0 /* EXACT_IN */) as
+    | ((typeof calls)[number] & { type: 0; inputAmount: bigint })
+    | undefined;
+
+describe('SwapRoute.combined flag', () => {
+  // Alt non-COT token on each chain to use as a destination (kHYPE → USDH equivalent).
+  const ALT_HYPEREVM: Hex = '0xeeee0000000000000000000000000000face0002';
+  const ALT_ARBITRUM: Hex = '0xeeee00000000000000000000000000000abb0002';
+
+  const oraclePricesWithAlts = [
+    ...oraclePrices,
+    makeOraclePrice(SUPPORTED_CHAINS.HYPEREVM, ALT_HYPEREVM),
+    makeOraclePrice(SUPPORTED_CHAINS.ARBITRUM, ALT_ARBITRUM),
+  ];
+
+  it('flags same-chain Safe-wrapper case as combined (HyperEVM non-COT → HyperEVM alt)', async () => {
+    const { route } = await runDetermineSwapRoute({
+      input: exactInInput({
+        from: [{ chainId: SUPPORTED_CHAINS.HYPEREVM, tokenAddress: NONCOT_HYPEREVM }],
+        toChainId: SUPPORTED_CHAINS.HYPEREVM,
+        toTokenAddress: ALT_HYPEREVM,
+      }),
+      preloadedBalances: [makeBalance(SUPPORTED_CHAINS.HYPEREVM, NONCOT_HYPEREVM, '100')],
+      oraclePrices: oraclePricesWithAlts,
+    });
+
+    expect(route.bridge).toBeNull();
+    expect(route.combined).toBe(true);
+    // Source produced output to the same wrapper that the destination swap pulls from.
+    const srcExec = route.source.executions[SUPPORTED_CHAINS.HYPEREVM];
+    expect(srcExec).toBeDefined();
+    expect(srcExec.address.toLowerCase()).toBe(route.destination.execution.address.toLowerCase());
+  });
+
+  it('flags same-chain 7702 case as combined (Arbitrum non-COT → Arbitrum alt)', async () => {
+    const { route } = await runDetermineSwapRoute({
+      input: exactInInput({
+        from: [{ chainId: SUPPORTED_CHAINS.ARBITRUM, tokenAddress: NONCOT_ARBITRUM }],
+        toChainId: SUPPORTED_CHAINS.ARBITRUM,
+        toTokenAddress: ALT_ARBITRUM,
+      }),
+      preloadedBalances: [makeBalance(SUPPORTED_CHAINS.ARBITRUM, NONCOT_ARBITRUM, '100')],
+      oraclePrices: oraclePricesWithAlts,
+    });
+
+    expect(route.bridge).toBeNull();
+    expect(route.combined).toBe(true);
+    expect(route.source.executions[SUPPORTED_CHAINS.ARBITRUM].address.toLowerCase()).toBe(
+      route.destination.execution.address.toLowerCase()
+    );
+  });
+
+  it('flags same-chain dst==COT (source swap + sweep only) as combined', async () => {
+    // kHYPE → USDC on HyperEVM: source produces COT at wrapper, no dst aggregator call,
+    // dst handler just sweeps. Whole flow stays on one wrapper → still combinable.
+    const { route } = await runDetermineSwapRoute({
+      input: exactInInput({
+        from: [{ chainId: SUPPORTED_CHAINS.HYPEREVM, tokenAddress: NONCOT_HYPEREVM }],
+        toChainId: SUPPORTED_CHAINS.HYPEREVM,
+        toTokenAddress: USDC_HYPEREVM,
+      }),
+      preloadedBalances: [makeBalance(SUPPORTED_CHAINS.HYPEREVM, NONCOT_HYPEREVM, '100')],
+      oraclePrices: oraclePricesWithAlts,
+    });
+
+    expect(route.bridge).toBeNull();
+    expect(route.combined).toBe(true);
+    expect(route.destination.swap.tokenSwap).toBeNull();
+  });
+
+  it('does NOT flag bridge-required case as combined (Base → Arbitrum)', async () => {
+    const { route } = await runDetermineSwapRoute({
+      input: exactInInput({
+        from: [{ chainId: SUPPORTED_CHAINS.BASE, tokenAddress: NONCOT_BASE }],
+        toChainId: SUPPORTED_CHAINS.ARBITRUM,
+        toTokenAddress: NONCOT_ARBITRUM,
+      }),
+      preloadedBalances: [makeBalance(SUPPORTED_CHAINS.BASE, NONCOT_BASE, '100')],
+      oraclePrices,
+    });
+
+    expect(route.bridge).not.toBeNull();
+    expect(route.combined).toBe(false);
+  });
+
+  it('does NOT flag pure-COT-source-on-dst-chain (no source swap) as combined', async () => {
+    // USDC HyperEVM → ALT_HYPEREVM: no source swap (src token is COT). Falls outside v1 scope —
+    // single dst swap is already one VSC tx; existing dst handler is sufficient.
+    const { route } = await runDetermineSwapRoute({
+      input: exactInInput({
+        from: [{ chainId: SUPPORTED_CHAINS.HYPEREVM, tokenAddress: USDC_HYPEREVM }],
+        toChainId: SUPPORTED_CHAINS.HYPEREVM,
+        toTokenAddress: ALT_HYPEREVM,
+      }),
+      preloadedBalances: [makeBalance(SUPPORTED_CHAINS.HYPEREVM, USDC_HYPEREVM, '100')],
+      oraclePrices: oraclePricesWithAlts,
+    });
+
+    expect(route.bridge).toBeNull();
+    expect(route.source.swaps.length).toBe(0);
+    expect(route.combined).toBe(false);
+  });
+});
+
+describe('Combined-swap destination input buffer', () => {
+  const ALT_HYPEREVM: Hex = '0xeeee0000000000000000000000000000face0003';
+
+  const oraclePricesWithAlt = [
+    ...oraclePrices,
+    makeOraclePrice(SUPPORTED_CHAINS.HYPEREVM, ALT_HYPEREVM),
+  ];
+
+  it('reduces dst aggregator input by 0.5% when combined=true (EXACT_IN)', async () => {
+    // Source NONCOT_HYPEREVM 100 → identity quote → 100 USDC at wrapper.
+    // Combined buffer 0.5% → dst aggregator is asked to swap 99.5 USDC.
+    const { aggregator } = await runDetermineSwapRoute({
+      input: exactInInput({
+        from: [{ chainId: SUPPORTED_CHAINS.HYPEREVM, tokenAddress: NONCOT_HYPEREVM }],
+        toChainId: SUPPORTED_CHAINS.HYPEREVM,
+        toTokenAddress: ALT_HYPEREVM,
+      }),
+      preloadedBalances: [makeBalance(SUPPORTED_CHAINS.HYPEREVM, NONCOT_HYPEREVM, '100')],
+      oraclePrices: oraclePricesWithAlt,
+    });
+
+    const { destinationCalls } = partitionCalls(aggregator.calls, {
+      destChainId: SUPPORTED_CHAINS.HYPEREVM,
+      destToken: ALT_HYPEREVM,
+      cotPerChain: COT_PER_CHAIN,
+    });
+    const buyQuote = findDstExactInBuyQuote(destinationCalls);
+    expect(buyQuote).toBeDefined();
+    // 100 * 10^6 * (1 - 0.005) = 99_500_000
+    expect(buyQuote!.inputAmount).toBe(99_500_000n);
+  });
+
+  it('does NOT apply combined buffer when combined=false (bridge case)', async () => {
+    // Base NONCOT 100 → bridge → Arbitrum: dst input is sourceOutput minus bridge fee.
+    // The combined buffer must NOT be applied here. We assert the input is not the
+    // 99.5% multiple that the combined path would produce.
+    const { aggregator } = await runDetermineSwapRoute({
+      input: exactInInput({
+        from: [{ chainId: SUPPORTED_CHAINS.BASE, tokenAddress: NONCOT_BASE }],
+        toChainId: SUPPORTED_CHAINS.ARBITRUM,
+        toTokenAddress: NONCOT_ARBITRUM,
+      }),
+      preloadedBalances: [makeBalance(SUPPORTED_CHAINS.BASE, NONCOT_BASE, '100')],
+      oraclePrices,
+    });
+
+    const { destinationCalls } = partitionCalls(aggregator.calls, {
+      destChainId: SUPPORTED_CHAINS.ARBITRUM,
+      destToken: NONCOT_ARBITRUM,
+      cotPerChain: COT_PER_CHAIN,
+    });
+    const buyQuote = findDstExactInBuyQuote(destinationCalls);
+    expect(buyQuote).toBeDefined();
+    // Whatever the bridge-fee math produces, it must not coincidentally equal the combined
+    // buffer's 99_500_000n. (If feeStore mock returns zero fee the input would be 100_000_000n.)
+    expect(buyQuote!.inputAmount).not.toBe(99_500_000n);
+  });
+});
