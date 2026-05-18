@@ -30,6 +30,7 @@ import {
 import { determineSwapRoute, type SwapRoute } from '../swap/route';
 import { SAFE_SALT_NONCE } from '../swap/safe.constants';
 import { hashEnsureAuthorization, predictSafeAccountAddress } from '../swap/safetx';
+import { createSwapSteps } from '../swap/steps';
 import {
   Cache,
   convertMetadataToSwapResult,
@@ -61,6 +62,11 @@ export const swap = async (
     emit: (step: SwapStepType) => {
       if (options.onEvent) {
         options.onEvent({ name: NEXUS_EVENTS.SWAP_STEP_COMPLETE, args: step });
+      }
+    },
+    emitList: (steps: SwapStepType[]) => {
+      if (options.onEvent) {
+        options.onEvent({ name: NEXUS_EVENTS.SWAP_STEPS_LIST, args: steps });
       }
     },
   };
@@ -95,6 +101,8 @@ export const swap = async (
   emitter.emit(SWAP_STEPS.DETERMINING_SWAP(true));
   performance.mark('determine-swaps-end');
 
+  emitter.emitList(createSwapSteps(swapRoute, options.chainList));
+
   performance.mark('xcs-ops-start');
 
   swapRoute = await waitForIntentApproval(swapRoute, {
@@ -102,6 +110,7 @@ export const swap = async (
     swapRouteParams,
     onSwapIntent: options.onSwapIntent,
     chainList: options.chainList,
+    emitList: emitter.emitList,
   });
 
   ({ source, destination, bridge, extras } = swapRoute);
@@ -351,6 +360,7 @@ const ensureSafeAccountsBeforeExecution = async ({
 type IntentApprovalContext = {
   input: SwapData;
   swapRouteParams: Parameters<typeof determineSwapRoute>[1];
+  emitList: (steps: SwapStepType[]) => void;
 } & Pick<SwapParams, 'onSwapIntent' | 'chainList'>;
 
 const waitForIntentApproval = async (
@@ -374,6 +384,8 @@ const waitForIntentApproval = async (
 
     currentRoute = await determineSwapRoute(updatedInput, ctx.swapRouteParams);
     logger.debug('refresh-swap-route', { swapRoute: currentRoute });
+
+    ctx.emitList(createSwapSteps(currentRoute, ctx.chainList));
 
     const swapIntent = createSwapIntent(currentRoute, ctx.input, ctx.chainList);
     logger.debug('onIntentHook:refresh', { swapIntent });

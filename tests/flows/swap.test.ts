@@ -105,9 +105,17 @@ const baseInput = () => ({
   mode: 0 as const,
 });
 
+const stubChain = {
+  id: DST_CHAIN,
+  name: 'Stub',
+  blockExplorers: { default: { url: 'https://example.test' } },
+};
+
 const baseOptions = () => ({
   address: { cosmos: '', eoa: EOA, ephemeral: EPHEMERAL },
-  chainList: {} as never,
+  chainList: {
+    getChainByID: () => stubChain,
+  } as never,
   cosmosQueryClient: {} as never,
   intentExplorerUrl: '',
   onSwapIntent: ({ allow }: { allow: () => void }) => allow(),

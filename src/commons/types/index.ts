@@ -673,6 +673,7 @@ export type ChainListType = {
 
 type EventUnion =
   | { name: 'STEPS_LIST'; args: BridgeStepType[] }
+  | { name: 'SWAP_STEPS_LIST'; args: SwapStepType[] }
   | { name: 'SWAP_STEP_COMPLETE'; args: SwapStepType }
   | { name: 'STEP_COMPLETE'; args: BridgeStepType };
 
