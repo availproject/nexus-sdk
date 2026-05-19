@@ -9,7 +9,6 @@ import {
   type QuoteResponse,
   Universe,
 } from '@avail-project/ca-common';
-import axios from 'axios';
 import Decimal from 'decimal.js';
 import Long from 'long';
 import {
@@ -33,7 +32,6 @@ import {
 import { ERC20PermitABI, ETHEREUM_USDT_APPROVE_ABI } from '../abi/erc20';
 import { SWEEP_ABI } from '../abi/sweep';
 import {
-  type AnkrAsset,
   type AnkrBalances,
   type Chain,
   type ChainListType,
@@ -148,35 +146,6 @@ export const bytesEqual = (bytes1: Uint8Array, bytes2: Uint8Array): boolean => {
 
   return true;
 };
-
-const AnkrChainIdMapping = new Map([
-  ['arbitrum', 42161],
-  ['avalanche_fuji', 43113],
-  ['avalanche', 43114],
-  ['base_sepolia', 84532],
-  ['base', 8453],
-  ['bsc', 56],
-  ['eth_holesky', 17000],
-  ['eth_sepolia', 11155111],
-  ['eth', 1],
-  ['fantom', 250],
-  ['flare', 14],
-  ['gnosis', 100],
-  ['linea', 59144],
-  ['optimism_testnet', 11155420],
-  ['optimism', 10],
-  ['polygon_amoy', 80002],
-  ['polygon_zkevm', 1101],
-  ['polygon', 137],
-  ['rollux', 570],
-  ['scroll', 534352],
-  ['story_testnet', 1513],
-  ['story', 1514],
-  ['syscoin', 57],
-  ['telos', 40],
-  ['xai', 660279],
-  ['xlayer', 196],
-]);
 
 export const EXPECTED_CALIBUR_CODE = concat(['0xef0100', CALIBUR_ADDRESS]);
 const EIP7702_DELEGATION_PREFIX = '0xef0100';
@@ -540,52 +509,6 @@ export const packERC20Approve = (spender: Hex, amount: bigint) => {
     args: [spender, amount],
     functionName: 'approve',
   });
-};
-
-export const getAnkrBalances = async (
-  walletAddress: `0x${string}`,
-  chainList: ChainListType
-): Promise<AnkrBalances> => {
-  const res = await axios.post<{
-    id: number;
-    jsonrpc: '2.0';
-    result: {
-      assets: AnkrAsset[];
-      totalBalanceUsd: string;
-      totalCount: number;
-    };
-  }>('https://rpcs.avail.so/multichain', {
-    id: Decimal.random(2).mul(100).toNumber(),
-    jsonrpc: '2.0',
-    method: 'ankr_getAccountBalance',
-    params: {
-      blockchain: chainList.getAnkrNameList(),
-      onlyWhitelisted: true,
-      pageSize: 500,
-      walletAddress: walletAddress,
-    },
-  });
-  if (!res.data?.result) throw Errors.internal('balances cannot be retrieved');
-
-  return res.data.result.assets
-    .filter(
-      (asset) =>
-        AnkrChainIdMapping.has(asset.blockchain) &&
-        !new Decimal(asset.tokenPrice?.trim() || 0).equals(0)
-    )
-    .map((asset) => ({
-      balance: asset.balance,
-      balanceUSD: asset.balanceUsd,
-      chainID: AnkrChainIdMapping.get(asset.blockchain)!,
-      tokenAddress: (asset.tokenType === 'ERC20' ? asset.contractAddress : ZERO_ADDRESS) as Hex,
-      tokenData: {
-        decimals: asset.tokenDecimals,
-        icon: asset.thumbnail,
-        name: asset.tokenName,
-        symbol: getTokenSymbol(asset.tokenSymbol),
-      },
-      universe: Universe.ETHEREUM,
-    }));
 };
 
 export const fetchTransferFees = async (chains: Chain[]): Promise<Map<number, Decimal>> => {

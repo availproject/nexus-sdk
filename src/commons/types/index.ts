@@ -851,6 +851,7 @@ type CosmosQueryClient = {
 type VSCClient = {
   getEVMBalancesForAddress: (address: `0x${string}`) => Promise<UnifiedBalanceResponseData[]>;
   getTronBalancesForAddress: (address: `0x${string}`) => Promise<UnifiedBalanceResponseData[]>;
+  getSwapBalances: (address: `0x${string}`) => Promise<import('./swap-types').AnkrAsset[]>;
   vscCreateFeeGrant: (address: string) => Promise<unknown>;
   vscPublishRFF: (id: Long) => Promise<{
     id: Long;

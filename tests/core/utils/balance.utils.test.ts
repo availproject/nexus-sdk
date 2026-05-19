@@ -4,12 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const ankrBalanceToAssetsMock = vi.hoisted(() => vi.fn());
 const fetchTransferFeesMock = vi.hoisted(() => vi.fn());
-const getAnkrBalancesMock = vi.hoisted(() => vi.fn());
 const toFlatBalanceMock = vi.hoisted(() => vi.fn());
 const vscBalancesToAssetsMock = vi.hoisted(() => vi.fn());
-const createPublicClientWithFallbackMock = vi.hoisted(() => vi.fn());
-const multicallMock = vi.hoisted(() => vi.fn());
-const estimateFeesPerGasMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../../../src/swap/utils', async () => {
   const actual =
@@ -18,15 +14,10 @@ vi.mock('../../../src/swap/utils', async () => {
     ...actual,
     ankrBalanceToAssets: ankrBalanceToAssetsMock,
     fetchTransferFees: fetchTransferFeesMock,
-    getAnkrBalances: getAnkrBalancesMock,
     toFlatBalance: toFlatBalanceMock,
     vscBalancesToAssets: vscBalancesToAssetsMock,
   };
 });
-
-vi.mock('../../../src/core/utils/contract.utils', () => ({
-  createPublicClientWithFallback: createPublicClientWithFallbackMock,
-}));
 
 import { ZERO_ADDRESS } from '../../../src/core/constants';
 import { getBalancesForSwap } from '../../../src/core/utils/balance.utils';
@@ -34,21 +25,7 @@ import { getBalancesForSwap } from '../../../src/core/utils/balance.utils';
 describe('getBalancesForSwap', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    createPublicClientWithFallbackMock.mockReturnValue({
-      multicall: multicallMock,
-      estimateFeesPerGas: estimateFeesPerGasMock,
-    });
-    multicallMock.mockResolvedValue([
-      {
-        status: 'success',
-        result: 3_000_000_000_000_000_000n,
-      },
-    ]);
-    estimateFeesPerGasMock.mockResolvedValue({
-      maxFeePerGas: 222_222_222_222n,
-    });
     fetchTransferFeesMock.mockResolvedValue(new Map([[1, new Decimal(1)]]));
-    getAnkrBalancesMock.mockResolvedValue([]);
     ankrBalanceToAssetsMock.mockReturnValue([]);
     toFlatBalanceMock.mockReturnValue([]);
     vscBalancesToAssetsMock.mockReturnValue([]);
@@ -57,32 +34,46 @@ describe('getBalancesForSwap', () => {
   it('deducts the swap native reserve once after merging balances', async () => {
     const chain = {
       ankrName: '',
-      custom: {
-        icon: '',
-        knownTokens: [],
-      },
+      custom: { icon: '', knownTokens: [] },
       id: 1,
       name: 'Ethereum',
-      nativeCurrency: {
-        decimals: 18,
-        name: 'Ether',
-        symbol: 'ETH',
-      },
+      nativeCurrency: { decimals: 18, name: 'Ether', symbol: 'ETH' },
       swapSupported: true,
       universe: Universe.ETHEREUM,
     } as never;
 
-    const chainList = {
-      chains: [chain],
+    const chainList = { chains: [chain] } as never;
+
+    // vservice returns the merged ankr+multicall result; 3 ETH native on chain 1.
+    const vscClient = {
+      getSwapBalances: vi.fn().mockResolvedValue([
+        {
+          balance: '3',
+          balanceRawInteger: '3000000000000000000',
+          balanceUsd: '0',
+          blockchain: '1',
+          contractAddress: '0x0000000000000000000000000000000000000000' as const,
+          holderAddress: '0x1111111111111111111111111111111111111111' as const,
+          thumbnail: '',
+          tokenDecimals: 18,
+          tokenName: 'Ether',
+          tokenPrice: '0',
+          tokenSymbol: 'ETH',
+          tokenType: 'NATIVE' as const,
+        },
+      ]),
     } as never;
 
     await getBalancesForSwap({
       evmAddress: '0x1111111111111111111111111111111111111111',
       chainList,
+      vscClient,
       filterWithSupportedTokens: false,
     });
 
-    expect(estimateFeesPerGasMock).not.toHaveBeenCalled();
+    expect(vscClient.getSwapBalances).toHaveBeenCalledWith(
+      '0x1111111111111111111111111111111111111111'
+    );
     expect(fetchTransferFeesMock).toHaveBeenCalledWith([chain]);
     expect(ankrBalanceToAssetsMock).toHaveBeenCalledWith(
       chainList,
@@ -93,6 +84,46 @@ describe('getBalancesForSwap', () => {
           balance: '2.000000000000000000',
         }),
       ],
+      false,
+      undefined,
+      undefined
+    );
+  });
+
+  it('skips assets whose blockchain field is not a numeric chain id', async () => {
+    const chainList = { chains: [] } as never;
+
+    const vscClient = {
+      getSwapBalances: vi.fn().mockResolvedValue([
+        {
+          balance: '1',
+          balanceRawInteger: '1',
+          balanceUsd: '0',
+          blockchain: 'not-a-number',
+          contractAddress: '0x0000000000000000000000000000000000000000' as const,
+          holderAddress: '0x1111111111111111111111111111111111111111' as const,
+          thumbnail: '',
+          tokenDecimals: 18,
+          tokenName: 'Bogus',
+          tokenPrice: '0',
+          tokenSymbol: 'BOGUS',
+          tokenType: 'NATIVE' as const,
+        },
+      ]),
+    } as never;
+
+    fetchTransferFeesMock.mockResolvedValue(new Map());
+
+    await getBalancesForSwap({
+      evmAddress: '0x1111111111111111111111111111111111111111',
+      chainList,
+      vscClient,
+      filterWithSupportedTokens: false,
+    });
+
+    expect(ankrBalanceToAssetsMock).toHaveBeenCalledWith(
+      chainList,
+      [],
       false,
       undefined,
       undefined

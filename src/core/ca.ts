@@ -241,8 +241,8 @@ export class CA {
       return getBalancesForSwap({
         evmAddress: this._evm!.address,
         chainList: this.chainList,
+        vscClient: this._queryClients!.vscClient,
         filterWithSupportedTokens: onlyNativesAndStables,
-        oraclePrices: this._queryClients?.cosmosQueryClient.fetchPriceOracle(),
       });
     });
   };
@@ -587,8 +587,8 @@ export class CA {
       const { balances } = await getBalancesForSwap({
         evmAddress: ephemeralAddress,
         chainList: this.chainList,
+        vscClient: this._queryClients.vscClient,
         filterWithSupportedTokens: true,
-        oraclePrices: this._queryClients.cosmosQueryClient.fetchPriceOracle(),
       });
 
       if (balances.length === 0) {

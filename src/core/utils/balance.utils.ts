@@ -1,9 +1,9 @@
-import { ERC20ABI, Universe } from '@avail-project/ca-common';
+import { Universe } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
-import { encodePacked, type Hex, isAddress, keccak256, pad, toHex } from 'viem';
+import { encodePacked, type Hex, keccak256, pad, toHex } from 'viem';
 import {
+  type AnkrAsset,
   type AnkrBalance,
-  type Chain,
   type ChainListType,
   logger,
   type OraclePriceResponse,
@@ -14,169 +14,12 @@ import {
 import {
   ankrBalanceToAssets,
   fetchTransferFees,
-  getAnkrBalances,
+  getTokenSymbol,
   toFlatBalance,
   vscBalancesToAssets,
 } from '../../swap/utils';
 import { ZERO_ADDRESS } from '../constants';
-import { Errors } from '../errors';
-import { divDecimals, equalFold } from '.';
-import { createPublicClientWithFallback } from './contract.utils';
-import { TOKENS_BY_CHAIN } from './swap-tokens.utils';
-
-const MULTICALL3_ADDRESS = '0xcA11bde05977b3631167028862bE2a173976CA11' as const;
-const CITREA_MULTICALL3_ADDRESS = '0xA738e84fdE890Bc60b99AF7ccE43990E534304de' as const;
-const STABLE_SYMBOLS = new Set(['USDC', 'USDT', 'USDM', 'CTUSD']);
-
-const MULTICALL3_ABI = [
-  {
-    inputs: [{ internalType: 'address', name: 'addr', type: 'address' }],
-    name: 'getEthBalance',
-    outputs: [{ internalType: 'uint256', name: 'balance', type: 'uint256' }],
-    stateMutability: 'view',
-    type: 'function',
-  },
-] as const;
-
-const mapMulticallResultToBalance = (input: {
-  chain: Chain;
-  balance: string;
-  balanceUSD?: string;
-  tokenAddress: Hex;
-  tokenData: {
-    decimals: number;
-    icon: string;
-    name: string;
-    symbol: string;
-  };
-  error?: boolean;
-}): AnkrBalance => ({
-  balance: input.balance,
-  balanceUSD: input.balanceUSD ?? '0',
-  chainID: input.chain.id,
-  tokenAddress: input.tokenAddress,
-  tokenData: input.tokenData,
-  universe: input.chain.universe,
-  error: input.error,
-});
-
-export const getBalance = async (chain: Chain, address: Hex): Promise<AnkrBalance[]> => {
-  if (!isAddress(address)) {
-    throw Errors.invalidInput(`invalid evm address: ${address}`);
-  }
-  if (chain.universe !== Universe.ETHEREUM) {
-    throw Errors.invalidInput(`multicall3 balance is only supported for EVM chains: ${chain.name}`);
-  }
-
-  const publicClient = createPublicClientWithFallback(chain);
-  const multicall3Address =
-    chain.id === SUPPORTED_CHAINS.CITREA ? CITREA_MULTICALL3_ADDRESS : MULTICALL3_ADDRESS;
-  const extraKnownTokens =
-    TOKENS_BY_CHAIN.find((tokenByChain) => tokenByChain.chainId === chain.id)?.tokens ?? [];
-  const tokenInfos = [...chain.custom.knownTokens, ...extraKnownTokens];
-  const contracts = [
-    {
-      abi: MULTICALL3_ABI,
-      address: multicall3Address,
-      args: [address],
-      functionName: 'getEthBalance',
-    },
-    ...tokenInfos.map((token) => ({
-      abi: ERC20ABI,
-      address: token.contractAddress,
-      args: [address] as const,
-      functionName: 'balanceOf' as const,
-    })),
-  ];
-
-  const multicallPromise = publicClient.multicall({
-    allowFailure: true,
-    contracts: contracts as Parameters<typeof publicClient.multicall>[0]['contracts'],
-    multicallAddress: multicall3Address,
-  });
-  const rawResponses = await multicallPromise;
-  const responses = rawResponses as Array<
-    { status: 'success'; result: bigint } | { status: 'failure'; error: Error }
-  >;
-
-  const nativeResult = responses[0];
-  const nativeBalance = nativeResult.status === 'success' ? nativeResult.result : 0n;
-  const balances: AnkrBalance[] = [
-    mapMulticallResultToBalance({
-      balance: divDecimals(nativeBalance, chain.nativeCurrency.decimals).toFixed(),
-      balanceUSD: '0',
-      chain,
-      tokenAddress: ZERO_ADDRESS,
-      tokenData: {
-        decimals: chain.nativeCurrency.decimals,
-        icon: chain.custom.icon,
-        name: chain.nativeCurrency.name,
-        symbol: chain.nativeCurrency.symbol,
-      },
-      error: nativeResult.status !== 'success',
-    }),
-  ];
-
-  for (let i = 0; i < tokenInfos.length; i++) {
-    const token = tokenInfos[i];
-    const result = responses[i + 1];
-    const tokenBalance = result.status === 'success' ? result.result : 0n;
-    const isStable = STABLE_SYMBOLS.has(token.symbol.toUpperCase());
-    const tokenBalancesInDecimal = divDecimals(tokenBalance, token.decimals).toFixed();
-    balances.push(
-      mapMulticallResultToBalance({
-        balance: tokenBalancesInDecimal,
-        balanceUSD: isStable ? tokenBalancesInDecimal : '0',
-        chain,
-        tokenAddress: token.contractAddress,
-        tokenData: {
-          decimals: token.decimals,
-          icon: token.logo,
-          name: token.name,
-          symbol: token.symbol,
-        },
-        error: result.status !== 'success',
-      })
-    );
-  }
-
-  return balances;
-};
-
-export const getBalances = async (chains: Chain[], address: Hex): Promise<AnkrBalance[]> => {
-  if (!isAddress(address)) {
-    throw Errors.invalidInput(`invalid evm address: ${address}`);
-  }
-
-  const chainBalances = await Promise.all(chains.map((chain) => getBalance(chain, address)));
-  return chainBalances.flat();
-};
-
-const enrichBalancesWithOracleUSD = (
-  balances: AnkrBalance[],
-  oraclePrices: OraclePriceResponse
-): AnkrBalance[] => {
-  if (oraclePrices.length === 0) {
-    return balances;
-  }
-
-  return balances.map((balance) => {
-    const tokenAddress = equalFold(balance.tokenAddress, ZERO_ADDRESS)
-      ? ZERO_ADDRESS
-      : balance.tokenAddress;
-    const oracleRate = oraclePrices.find(
-      (rate) => rate.chainId === balance.chainID && equalFold(rate.tokenAddress, tokenAddress)
-    );
-    if (!oracleRate) {
-      return balance;
-    }
-
-    return {
-      ...balance,
-      balanceUSD: new Decimal(balance.balance).mul(oracleRate.priceUsd).toFixed(),
-    };
-  });
-};
+import { equalFold } from '.';
 
 const deductTransferFees = (
   balances: AnkrBalance[],
@@ -195,48 +38,53 @@ const deductTransferFees = (
     return { ...balance, balance: adjusted };
   });
 
+// vservice /swap-balances returns Ankr-shaped assets already merged across ankr + multicall
+// chains. Map them into the existing AnkrBalance shape so the downstream pipeline
+// (ankrBalanceToAssets, toFlatBalance) is unchanged.
+const swapAssetsToAnkrBalances = (assets: AnkrAsset[]): AnkrBalance[] => {
+  const out: AnkrBalance[] = [];
+  for (const asset of assets) {
+    const chainID = Number.parseInt(asset.blockchain, 10);
+    if (!Number.isFinite(chainID)) continue;
+    out.push({
+      balance: asset.balance,
+      balanceUSD: asset.balanceUsd,
+      chainID,
+      tokenAddress: (asset.tokenType === 'ERC20' ? asset.contractAddress : ZERO_ADDRESS) as Hex,
+      tokenData: {
+        decimals: asset.tokenDecimals,
+        icon: asset.thumbnail,
+        name: asset.tokenName,
+        symbol: getTokenSymbol(asset.tokenSymbol),
+      },
+      universe: Universe.ETHEREUM,
+    });
+  }
+  return out;
+};
+
 export const getBalancesForSwap = async (input: {
   evmAddress: Hex;
   chainList: ChainListType;
+  vscClient: VSCClient;
   filterWithSupportedTokens: boolean;
+  /** Unused since vservice provides USD pricing; kept for API stability. */
   oraclePrices?: OraclePriceResponse | Promise<OraclePriceResponse>;
   allowedSources?: Source[];
   removeSources?: Source[];
 }) => {
-  const ankrChains = input.chainList.chains.filter((chain) => chain.ankrName !== '');
-  const multicallChains = input.chainList.chains.filter(
-    (chain) => chain.ankrName === '' && chain.swapSupported && chain.universe === Universe.ETHEREUM
+  const swapSupportedChains = input.chainList.chains.filter(
+    (chain) =>
+      chain.universe === Universe.ETHEREUM && (chain.ankrName !== '' || chain.swapSupported)
   );
-  const allChains = [...ankrChains, ...multicallChains];
 
-  const [ankrBalances, multicallBalances, oraclePrices, transferFeesByChain] = await Promise.all([
-    ankrChains.length > 0
-      ? getAnkrBalances(input.evmAddress, input.chainList)
-      : Promise.resolve([]),
-    multicallChains.length > 0
-      ? getBalances(multicallChains, input.evmAddress)
-      : Promise.resolve([]),
-    input.oraclePrices ? Promise.resolve(input.oraclePrices) : Promise.resolve([]),
-    fetchTransferFees(allChains),
+  const [swapAssets, transferFeesByChain] = await Promise.all([
+    input.vscClient.getSwapBalances(input.evmAddress),
+    fetchTransferFees(swapSupportedChains),
   ]);
-  const multicallBalancesWithOracleUSD = enrichBalancesWithOracleUSD(
-    multicallBalances,
-    oraclePrices
-  );
 
-  const tfbc: string[] = [];
-  transferFeesByChain.forEach((v, k) => {
-    tfbc.push(`${k}: ${v.toFixed()}`);
-  });
-
-  logger.debug('getBalancesForSwap', {
-    ankrBalances,
-    multicallBalances: multicallBalancesWithOracleUSD,
-    oraclePrices,
-    transferFeesByChain: tfbc,
-  });
   const mergedBalances = deductTransferFees(
-    [...ankrBalances, ...multicallBalancesWithOracleUSD],
+    swapAssetsToAnkrBalances(swapAssets),
     transferFeesByChain
   );
 
@@ -248,19 +96,14 @@ export const getBalancesForSwap = async (input: {
     input.removeSources
   );
   const balances = toFlatBalance(assets);
-  logger.debug('getBalancesForSwap', {
-    input,
-    ankrBalances,
-    multicallBalances: multicallBalancesWithOracleUSD,
-    mergedBalances,
-    oraclePrices,
-    assets,
-    balances,
-  });
 
-  // if (input.filterWithSupportedTokens) {
-  //   balances = filterSupportedTokens(balances);
-  // }
+  logger.debug('getBalancesForSwap', {
+    input: { evmAddress: input.evmAddress, filter: input.filterWithSupportedTokens },
+    swapAssetCount: swapAssets.length,
+    mergedBalanceCount: mergedBalances.length,
+    assetCount: assets.length,
+    balanceCount: balances.length,
+  });
 
   return { assets, balances };
 };

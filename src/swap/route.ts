@@ -355,10 +355,10 @@ const fetchRouteData = async (
       : getBalancesForSwap({
           evmAddress: params.address.eoa,
           chainList: params.chainList,
+          vscClient: params.vscClient,
           filterWithSupportedTokens: false,
           allowedSources: opts.allowedSources,
           removeSources: opts.removeSources,
-          oraclePrices: oraclePricesPromise,
         }).then((r) => r.balances),
     oraclePricesPromise,
     getTokenInfo(opts.toTokenAddress, params.publicClientList.get(opts.toChainId), opts.dstChain),
