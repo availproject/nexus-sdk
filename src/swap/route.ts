@@ -885,7 +885,7 @@ const _exactOutRoute = async (
     params,
   });
 
-  const { quoteResponses: sourceSwapQuotes, usedCOTs } = await autoSelectSources({
+  const { quoteResponses: rawSourceSwapQuotes, usedCOTs: rawUsedCOTs } = await autoSelectSources({
     holdings: toAggregatorInputsWithSwapAddresses(sortedBalances, sourceExecutions),
     outputRequired: sourceSwapOutputRequired,
     aggregators: params.aggregators,
@@ -896,6 +896,46 @@ const _exactOutRoute = async (
     }
     throw e;
   });
+
+  // autoSelectSources is sized against sourceSwapOutputRequired (= bridgeOutput +
+  // bridgeFees + srcBuffer). When dst-chain holdings sit in the
+  // (bridgeOutput, sourceSwapOutputRequired) window, they get fully consumed and a tiny
+  // non-dst source is selected to cover the fee/buffer headroom. That non-dst contribution
+  // isn't actually needed — dst-chain alone already covers bridgeOutput — and if left in
+  // place it both drives `bridgeAmount` negative below and strands the non-dst source-swap
+  // output at the source-chain wrapper (no bridge step would pick it up). Drop non-dst
+  // selections in that case; the existing isBridgeRequired check then naturally evaluates
+  // to false.
+  const dstContribution = rawUsedCOTs
+    .reduce(
+      (sum, c) =>
+        Number(c.originalHolding.chainID.chainID) === input.toChainId
+          ? sum.plus(c.amountUsed)
+          : sum,
+      new Decimal(0)
+    )
+    .plus(
+      rawSourceSwapQuotes.reduce(
+        (sum, q) => (q.chainID === input.toChainId ? sum.plus(q.quote.output.amount) : sum),
+        new Decimal(0)
+      )
+    );
+
+  const dropNonDst = dstContribution.gte(bridgeOutput);
+  const sourceSwapQuotes = dropNonDst
+    ? rawSourceSwapQuotes.filter((q) => q.chainID === input.toChainId)
+    : rawSourceSwapQuotes;
+  const usedCOTs = dropNonDst
+    ? rawUsedCOTs.filter((c) => Number(c.originalHolding.chainID.chainID) === input.toChainId)
+    : rawUsedCOTs;
+  if (dropNonDst) {
+    logger.debug('exact-out: dst-chain covers bridgeOutput, dropping non-dst selections', {
+      dstContribution: dstContribution.toFixed(),
+      bridgeOutput: bridgeOutput.toFixed(),
+      droppedQuotes: rawSourceSwapQuotes.length - sourceSwapQuotes.length,
+      droppedCOTs: rawUsedCOTs.length - usedCOTs.length,
+    });
+  }
 
   logger.debug('sourceSwap', {
     sourceSwapQuotes,
@@ -938,24 +978,37 @@ const _exactOutRoute = async (
 
   let bridgeInput: BridgeInput = null;
   if (isBridgeRequired) {
-    // Deduct dst-chain COT (already on destination, doesn't need bridging)
+    // Deduct dst-chain COT (already on destination, doesn't need bridging).
     const bridgeAmount = bridgeOutput.minus(dstTotalCOTAmount);
-    const pendingBridge: PendingBridgeInput = {
-      amount: bridgeAmount,
-      assets: bridgeAssets,
-      chainID: input.toChainId,
-      decimals: dstChainCOT.decimals,
-      recipientAddress: destination.execution.address,
-      tokenAddress: convertToEVMAddress(dstChainCOT.tokenAddress),
-    };
-    const intentResponse = createIntent({
-      dstChain,
-      assets: bridgeAssets,
-      feeStore,
-      output: pendingBridge,
-      address: pendingBridge.recipientAddress,
-    });
-    bridgeInput = { ...pendingBridge, estimatedFees: intentResponse.intent.fees };
+    if (bridgeAmount.lte(0)) {
+      // Invariant: the dst-chain drop above guarantees dstTotalCOTAmount ≤ bridgeOutput
+      // whenever isBridgeRequired is true. Reaching this branch means the invariant was
+      // violated (e.g. a future change to autoSelectSources or buildExactOutSourceAssets
+      // breaks the accounting). Log so the regression is visible, but skip the bridge
+      // rather than build a degenerate zero/negative-amount intent.
+      logger.warn('exact-out: non-positive bridgeAmount after dst-chain drop, skipping bridge', {
+        bridgeAmount: bridgeAmount.toFixed(),
+        bridgeOutput: bridgeOutput.toFixed(),
+        dstTotalCOTAmount: dstTotalCOTAmount.toFixed(),
+      });
+    } else {
+      const pendingBridge: PendingBridgeInput = {
+        amount: bridgeAmount,
+        assets: bridgeAssets,
+        chainID: input.toChainId,
+        decimals: dstChainCOT.decimals,
+        recipientAddress: destination.execution.address,
+        tokenAddress: convertToEVMAddress(dstChainCOT.tokenAddress),
+      };
+      const intentResponse = createIntent({
+        dstChain,
+        assets: bridgeAssets,
+        feeStore,
+        output: pendingBridge,
+        address: pendingBridge.recipientAddress,
+      });
+      bridgeInput = { ...pendingBridge, estimatedFees: intentResponse.intent.fees };
+    }
   }
 
   logger.debug('exact-out: bridge', { bridgeAssets, bridgeInput, assetsUsed, dstEOAToEphTx });

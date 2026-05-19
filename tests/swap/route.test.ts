@@ -713,3 +713,72 @@ describe('Combined-swap destination input buffer', () => {
     expect(buyQuote!.inputAmount).not.toBe(99_500_000n);
   });
 });
+
+// Regression: in _exactOutRoute, autoSelectSources is sized against sourceSwapOutputRequired
+// (= bridgeOutput + estimatedBridgeFees + srcBuffer). When the user holds dst-chain COT in the
+// (bridgeOutput, sourceSwapOutputRequired) window, autoSelectSources eats the whole dst-chain
+// holding (it's less than the over-budget target) and selects a tiny non-dst top-up to cover the
+// fee + buffer headroom. dst-chain COT then exceeds bridgeOutput, and the calc
+//   bridgeAmount = bridgeOutput - dstTotalCOTAmount
+// produces a NEGATIVE bridgeAmount that propagates into the bridge intent.
+//
+// Numeric setup (USDC = COT, 6-dec dest token):
+//   toAmount = 50_000_000  (50 USDC equivalent)
+//   determineDestinationSwaps multiplies by safetyMultiplier=1.025:
+//     tokenSwap.quote.input.amount = 50 * 1.025 = 51.25
+//   destination.inputAmount.min = 51.25
+//   destBuffer = min(51.25 * 10%, $2) = $2     → bridgeOutput = 53.25
+//   estimatedBridgeFees = 0 (mock feeStore returns zero)
+//   srcBuffer = min(53.25 * 2%, $1) = $1       → sourceSwapOutputRequired = 54.25
+// dst-chain USDC = 53.5 sits inside (53.25, 54.25). A non-dst COT with any spare amount
+// forces `isBridgeRequired` to become true after the buggy over-pull, which triggers the
+// negative bridgeAmount.
+describe('EXACT_OUT bridge amount sanity (negative-bridge regression)', () => {
+  it('skips the bridge when dst-chain COT alone covers bridgeOutput', async () => {
+    const { route } = await runDetermineSwapRoute({
+      input: exactOutInput({
+        toChainId: SUPPORTED_CHAINS.HYPEREVM,
+        toTokenAddress: NONCOT_HYPEREVM,
+        toAmount: 50_000_000n,
+      }),
+      preloadedBalances: [
+        // dst-chain COT in the unsafe (bridgeOutput, sourceSwapOutputRequired) window
+        makeBalance(SUPPORTED_CHAINS.HYPEREVM, USDC_HYPEREVM, '53.5', 6, 'USDC'),
+        // non-dst COT that should NOT end up in the route once the fix lands
+        makeBalance(SUPPORTED_CHAINS.ARBITRUM, USDC_ARBITRUM, '50', 6, 'USDC'),
+      ],
+      oraclePrices,
+    });
+
+    // dst-chain alone covers bridgeOutput — no bridge step should be built.
+    expect(route.bridge).toBeNull();
+
+    // No non-dst entries should remain in assetsUsed: the tiny Arbitrum top-up was an
+    // artifact of autoSelectSources over-budgeting and must be dropped.
+    const nonDstAssets = route.extras.assetsUsed.filter(
+      (a) => a.chainID !== SUPPORTED_CHAINS.HYPEREVM
+    );
+    expect(nonDstAssets).toEqual([]);
+  });
+
+  it('still bridges when dst-chain COT is below bridgeOutput', async () => {
+    // Sanity: the fix must not regress the common case where dst-chain genuinely can't
+    // cover bridgeOutput. Bridge should be produced with a positive amount.
+    const { route } = await runDetermineSwapRoute({
+      input: exactOutInput({
+        toChainId: SUPPORTED_CHAINS.HYPEREVM,
+        toTokenAddress: NONCOT_HYPEREVM,
+        toAmount: 50_000_000n,
+      }),
+      preloadedBalances: [
+        makeBalance(SUPPORTED_CHAINS.HYPEREVM, USDC_HYPEREVM, '10', 6, 'USDC'),
+        makeBalance(SUPPORTED_CHAINS.ARBITRUM, USDC_ARBITRUM, '100', 6, 'USDC'),
+      ],
+      oraclePrices,
+    });
+
+    expect(route.bridge).not.toBeNull();
+    expect(route.bridge!.amount.isNegative()).toBe(false);
+    expect(route.bridge!.amount.gt(0)).toBe(true);
+  });
+});
