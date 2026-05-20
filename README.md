@@ -1477,7 +1477,7 @@ import { CHAIN_METADATA, getSupportedChains } from '@avail-project/nexus-core';
 // Get chain metadata
 const polygon = CHAIN_METADATA[137];
 console.log(polygon.name);        // "Polygon"
-console.log(polygon.nativeCurrency); // { name: "MATIC", symbol: "MATIC", decimals: 18 }
+console.log(polygon.nativeCurrency); // { name: "POL", symbol: "POL", decimals: 18 }
 
 // Get all supported chains and tokens
 const mainnet = getSupportedChains('mainnet');
@@ -1530,7 +1530,7 @@ For transfers, the SDK automatically chooses the most efficient execution path:
 - **Local balance checking** — Confirms token and gas availability on the target chain
 - **Direct EVM transfers** — Uses native transfers where possible (faster, cheaper)
 - **Chain abstraction fallback** — Uses CA routing only when required
-- **Universal compatibility** — Works with both native tokens (ETH, MATIC) and ERC-20s (USDC, USDT)
+- **Universal compatibility** — Works with both native tokens (ETH, POL) and ERC-20s (USDC, USDT)
 
 ---
 
@@ -1617,35 +1617,37 @@ sdk.analytics.enable();
 
 ## Supported Networks
 
+All listed networks are bridge-enabled. The **Supported Tokens** column lists the assets that can be bridged into or out of each chain. **Swaps** indicates whether on-chain swaps are available in addition to bridging.
+
 ### Mainnets
 
-| Network | Chain ID | Native | Bridge | Swap |
-|---------|----------|--------|--------|------|
-| Ethereum | 1 | ETH | ✅ | ✅ |
-| Citrea Mainnet | 4114 | cBTC | ✅ | ✅ |
-| Monad | 143 | MON | ✅ | ✅ |
-| Base | 8453 | ETH | ✅ | ✅ |
-| Arbitrum One | 42161 | ETH | ✅ | ✅ |
-| Optimism | 10 | ETH | ✅ | ✅ |
-| Polygon | 137 | MATIC | ✅ | ✅ |
-| Avalanche | 43114 | AVAX | ✅ | ❌ |
-| Scroll | 534352 | ETH | ✅ | ✅ |
-| Kaia Mainnet | 8217 | KAIA | ✅ | ❌ |
-| BNB Smart Chain | 56 | BNB | ✅ | ✅ |
-| Hyper EVM | 999 | HYPE | ✅ | ✅ |
-| MegaETH | 4326 | ETH | ✅ | ✅ |
+| Network | Chain ID | Native | Supported Tokens | Swaps |
+|---------|----------|--------|------------------|-------|
+| Ethereum | 1 | `ETH` | `ETH` `USDC` `USDT` | Enabled |
+| Optimism | 10 | `ETH` | `ETH` `USDC` `USDT` | Enabled |
+| Polygon | 137 | `POL` | `POL` `USDC` `USDT` | Enabled |
+| Arbitrum One | 42161 | `ETH` | `ETH` `USDC` `USDT` | Enabled |
+| Avalanche C-Chain | 43114 | `AVAX` | `AVAX` `USDC` `USDT` | — |
+| Scroll | 534352 | `ETH` | `ETH` `USDC` `USDT` | Enabled |
+| Base | 8453 | `ETH` | `ETH` `USDC` | Enabled |
+| Kaia | 8217 | `KAIA` | `KAIA` `USDT` | — |
+| BNB Chain | 56 | `BNB` | `BNB` `ETH` `USDC` `USDT` | Enabled |
+| HyperEVM | 999 | `HYPE` | `HYPE` `USDC` `USDT` | Enabled |
+| Monad | 143 | `MON` | `MON` `USDC` | Enabled |
+| Citrea | 4114 | `cBTC` | `cBTC` `USDC` `USDT` | Enabled |
+| MegaETH | 4326 | `ETH` | `ETH` `USDM` `USDT` | Enabled |
 
 ### Testnets
 
-| Network | Chain ID | Native | Bridge | Swap |
-|---------|----------|--------|--------|------|
-| Sepolia | 11155111 | ETH | ✅ | ❌ |
-| Base Sepolia | 84532 | ETH | ✅ | ❌ |
-| Arbitrum Sepolia | 421614 | ETH | ✅ | ❌ |
-| Optimism Sepolia | 11155420 | ETH | ✅ | ❌ |
-| Polygon Amoy | 80002 | MATIC | ✅ | ❌ |
-| Monad Testnet | 10143 | MON | ✅ | ❌ |
-| Citrea Testnet | 5115 | cBTC | ✅ | ❌ |
+| Network | Chain ID | Native | Supported Tokens | Swaps |
+|---------|----------|--------|------------------|-------|
+| Ethereum Sepolia | 11155111 | `ETH` | `ETH` `USDC` | — |
+| Optimism Sepolia | 11155420 | `ETH` | `ETH` `USDC` `USDT` | — |
+| Polygon Amoy | 80002 | `POL` | `POL` `USDC` | — |
+| Arbitrum Sepolia | 421614 | `ETH` | `ETH` `USDC` `USDT` | — |
+| Base Sepolia | 84532 | `ETH` | `ETH` `USDC` | — |
+| Monad Testnet | 10143 | `MON` | `MON` `USDC` `USDT` | — |
+| Citrea Testnet | 5115 | `cBTC` | `cBTC` `USDC` | — |
 
 ---
 
