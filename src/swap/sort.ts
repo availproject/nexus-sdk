@@ -47,10 +47,7 @@ const toFlatBalanceForSort = (assets: UserAssetDatum[]): FlatBalance[] => {
       })
     )
     .filter(
-      (balance) =>
-        balance.universe === Universe.ETHEREUM &&
-        new Decimal(balance.amount).gt(0) &&
-        new Decimal(balance.value).gt(0)
+      (balance) => balance.universe === Universe.ETHEREUM && new Decimal(balance.amount).gt(0)
     );
 };
 

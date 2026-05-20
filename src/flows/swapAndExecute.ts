@@ -335,9 +335,9 @@ class SwapAndExecuteQuery {
         {
           fromSources: params.fromSources,
           toTokenAddress: params.toTokenAddress,
-          toAmount: amount.token,
-          // Positive: shortfall to source. Negative: reserve abs(value) from native balance.
-          // -1n: exactly enough gas — remove native from sources entirely.
+          // Same sentinel shape for both: >0n shortfall, <-1n surplus (reserve abs(value)),
+          // -1n exactly enough — remove the token/native from dst-chain sources.
+          toAmount: amount.token === 0n ? -1n : amount.token,
           toNativeAmount: amount.gas === 0n ? -1n : amount.gas,
           toChainId: params.toChainId,
         },
@@ -440,19 +440,23 @@ class SwapAndExecuteQuery {
       if (isGasBridgeRequired || isTokenBridgeRequired) {
         skipSwap = false;
 
-        tokenAmount =
-          destinationTokenAmount < requiredTokenAmount
-            ? requiredTokenAmount - destinationTokenAmount
-            : 0n;
+        // 3-case sentinel (same shape for token and gas):
+        //   shortfall  -> positive (req - dst)
+        //   surplus    -> -required (reserve this, use the rest as source)
+        //   exact      -> 0n (caller converts to -1n sentinel)
+        if (destinationTokenAmount < requiredTokenAmount) {
+          tokenAmount = requiredTokenAmount - destinationTokenAmount;
+        } else if (destinationTokenAmount > requiredTokenAmount) {
+          tokenAmount = -requiredTokenAmount;
+        } else {
+          tokenAmount = 0n;
+        }
 
         if (destinationGasAmount < requiredGasAmount) {
-          // Case 1: need more gas — positive shortfall
           gasAmount = requiredGasAmount - destinationGasAmount;
         } else if (destinationGasAmount > requiredGasAmount) {
-          // Case 2: surplus gas — negative required amount signals "reserve this, use the rest"
           gasAmount = -requiredGasAmount;
         } else {
-          // Case 3: exactly enough — 0n, caller converts to -1n sentinel
           gasAmount = 0n;
         }
       }

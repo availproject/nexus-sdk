@@ -15,10 +15,15 @@ export const createSwapIntent = (
   const dstChain = chainList.getChainByID(input.data.toChainId);
   if (!dstChain) throw Errors.chainNotFound(input.data.toChainId);
 
-  // Destination token amount
+  // Destination token amount. For EXACT_OUT, input.data.toAmount can be a sentinel
+  // (-1n exact, <-1n surplus) meaning "no bridging for toToken" — clamp to 0n for display,
+  // matching the gas side (which shows '0' when no gas swap is needed).
   const dstAmount =
     input.mode === SwapMode.EXACT_OUT
-      ? divDecimals(input.data.toAmount, dstTokenInfo.decimals).toFixed()
+      ? divDecimals(
+          input.data.toAmount > 0n ? input.data.toAmount : 0n,
+          dstTokenInfo.decimals
+        ).toFixed()
       : (destination.swap.tokenSwap?.quote.output.amount ?? destination.inputAmount.min.toFixed());
 
   // Destination USD value — COT input to the token swap is the USDC cost.

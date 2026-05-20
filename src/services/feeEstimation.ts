@@ -123,6 +123,12 @@ type FeeModelConfig = {
   buffers: BufferConfig;
   useLegacyPricing: boolean;
   strategy: FeeStrategy;
+  // Set maxPriorityFeePerGas equal to maxFeePerGas. For Arbitrum: the sequencer
+  // refunds the tip to the sender, so this raises the wallet-displayed priority
+  // without changing net cost. Fixes wallets (Rabby) that read priority as
+  // "gas price" in custom tier and bump-on-retry the priority field — with
+  // priority=0 the retry bump is 30%×0=0 and never escapes "gas price too low".
+  priorityFeeEqualsMaxFee?: boolean;
 };
 
 function serializeTxForOracle(chainId: number, tx: TxRequest): `0x${string}` {
@@ -177,11 +183,13 @@ function buildFeeEstimate(
   raw: RawFeeResult,
   buffers: BufferConfig,
   useLegacyPricing: boolean,
-  priorityFee: bigint
+  priorityFee: bigint,
+  priorityFeeEqualsMaxFee?: boolean
 ): FeeEstimate {
   const bufferedGasLimit = applyBuffer(raw.gasEstimate, buffers.gasEstimate);
   const bufferedGasPrice = applyBuffer(raw.gasPrice, buffers.gasPrice);
   const bufferedL1Fee = applyBuffer(raw.l1Fee, buffers.l1Fee);
+  const finalPriorityFee = priorityFeeEqualsMaxFee ? bufferedGasPrice : priorityFee;
 
   return {
     l1Fee: raw.l1Fee,
@@ -190,7 +198,7 @@ function buildFeeEstimate(
     recommended: {
       gasLimit: bufferedGasLimit,
       maxFeePerGas: bufferedGasPrice,
-      maxPriorityFeePerGas: priorityFee,
+      maxPriorityFeePerGas: finalPriorityFee,
       totalMaxCost: bufferedGasLimit * bufferedGasPrice + bufferedL1Fee,
       useLegacyPricing,
     },
@@ -298,8 +306,9 @@ const FEE_MODEL_CONFIGS: Record<FeeModel, FeeModelConfig> = {
   },
   [FeeModel.ARBITRUM]: {
     buffers: BUFFER_CONFIGS[FeeModel.ARBITRUM],
-    useLegacyPricing: true,
+    useLegacyPricing: false,
     strategy: arbitrumStrategy,
+    priorityFeeEqualsMaxFee: true,
   },
   [FeeModel.CITREA]: {
     buffers: BUFFER_CONFIGS[FeeModel.CITREA],
@@ -341,7 +350,8 @@ export function finalizeFeeEstimates(items: TxWithGas[], context: FeeContext): F
     throw new Error('finalizeFeeEstimates requires overheads for every transaction');
   }
 
-  const { buffers, useLegacyPricing } = FEE_MODEL_CONFIGS[getFeeModel(context.chainId)];
+  const { buffers, useLegacyPricing, priorityFeeEqualsMaxFee } =
+    FEE_MODEL_CONFIGS[getFeeModel(context.chainId)];
 
   return items.map((item, index) => {
     const overhead = context.overheads[index];
@@ -356,7 +366,8 @@ export function finalizeFeeEstimates(items: TxWithGas[], context: FeeContext): F
       },
       buffers,
       useLegacyPricing,
-      context.recommendation.maxPriorityFeePerGas
+      context.recommendation.maxPriorityFeePerGas,
+      priorityFeeEqualsMaxFee
     );
   });
 }

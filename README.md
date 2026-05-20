@@ -640,6 +640,11 @@ const result = await sdk.swapWithExactIn(
   },
   {
     onEvent: (event) => {
+      if (event.name === NEXUS_EVENTS.SWAP_STEPS_LIST) {
+        // Full expected sequence of swap steps, published once after the route is resolved
+        // (and re-published when the user refreshes the intent).
+        console.log('Expected swap steps:', event.args);
+      }
       if (event.name === NEXUS_EVENTS.SWAP_STEP_COMPLETE) {
         console.log('Swap step:', event.args);
       }

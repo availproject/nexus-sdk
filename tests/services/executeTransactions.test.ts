@@ -64,7 +64,7 @@ describe('sendExecuteTransactions', () => {
     vi.clearAllMocks();
   });
 
-  it('spreads EIP-1559 fee fields and gas onto sendTransaction', async () => {
+  it('passes gas limit but no fee fields onto sendTransaction for EIP-1559 feeParams', async () => {
     const client = makeClient(false);
     const feeParams: ExecuteFeeParams = {
       type: 'eip1559',
@@ -87,21 +87,14 @@ describe('sendExecuteTransactions', () => {
       }
     );
 
-    expect(client.sendTransaction).toHaveBeenCalledWith(
-      expect.objectContaining({
-        gas: 123_456n,
-        maxFeePerGas: 2_000_000_000n,
-        maxPriorityFeePerGas: 100_000_000n,
-      })
-    );
-    expect(client.sendTransaction).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        gasPrice: expect.anything(),
-      })
-    );
+    expect(client.sendTransaction).toHaveBeenCalledWith(expect.objectContaining({ gas: 123_456n }));
+    const call = (client.sendTransaction as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    expect(call).not.toHaveProperty('maxFeePerGas');
+    expect(call).not.toHaveProperty('maxPriorityFeePerGas');
+    expect(call).not.toHaveProperty('gasPrice');
   });
 
-  it('spreads legacy gasPrice and gas onto sendTransaction', async () => {
+  it('passes gas limit but no fee fields onto sendTransaction for legacy feeParams', async () => {
     const client = makeClient(false);
     const feeParams: ExecuteFeeParams = {
       type: 'legacy',
@@ -123,17 +116,10 @@ describe('sendExecuteTransactions', () => {
       }
     );
 
-    expect(client.sendTransaction).toHaveBeenCalledWith(
-      expect.objectContaining({
-        gas: 123_456n,
-        gasPrice: 500_000_000n,
-      })
-    );
-    expect(client.sendTransaction).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        maxFeePerGas: expect.anything(),
-      })
-    );
+    expect(client.sendTransaction).toHaveBeenCalledWith(expect.objectContaining({ gas: 123_456n }));
+    const call = (client.sendTransaction as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    expect(call).not.toHaveProperty('gasPrice');
+    expect(call).not.toHaveProperty('maxFeePerGas');
   });
 
   it('uses wallet_sendCalls when approval batching is supported', async () => {
@@ -212,17 +198,14 @@ describe('sendExecuteTransactions', () => {
     expect(client.sendTransaction).toHaveBeenCalledTimes(2);
     expect(client.sendTransaction).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({
-        gas: 65_000n,
-        gasPrice: 500_000_000n,
-      })
+      expect.objectContaining({ gas: 65_000n })
     );
     expect(client.sendTransaction).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({
-        gas: 123_456n,
-        gasPrice: 500_000_000n,
-      })
+      expect.objectContaining({ gas: 123_456n })
     );
+    const calls = (client.sendTransaction as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls[0]?.[0]).not.toHaveProperty('gasPrice');
+    expect(calls[1]?.[0]).not.toHaveProperty('gasPrice');
   });
 });

@@ -21,10 +21,16 @@ import {
 import { Errors } from '../core/errors';
 import { BEBOP_API_KEY, LIFI_API_KEY, ZERO_BYTES_32 } from '../swap/constants';
 import { createSwapIntent } from '../swap/intent';
-import { BridgeHandler, DestinationSwapHandler, SourceSwapsHandler } from '../swap/ob';
+import {
+  BridgeHandler,
+  CombinedSwapHandler,
+  DestinationSwapHandler,
+  SourceSwapsHandler,
+} from '../swap/ob';
 import { determineSwapRoute, type SwapRoute } from '../swap/route';
 import { SAFE_SALT_NONCE } from '../swap/safe.constants';
 import { hashEnsureAuthorization, predictSafeAccountAddress } from '../swap/safetx';
+import { createSwapSteps } from '../swap/steps';
 import {
   Cache,
   convertMetadataToSwapResult,
@@ -56,6 +62,11 @@ export const swap = async (
     emit: (step: SwapStepType) => {
       if (options.onEvent) {
         options.onEvent({ name: NEXUS_EVENTS.SWAP_STEP_COMPLETE, args: step });
+      }
+    },
+    emitList: (steps: SwapStepType[]) => {
+      if (options.onEvent) {
+        options.onEvent({ name: NEXUS_EVENTS.SWAP_STEPS_LIST, args: steps });
       }
     },
   };
@@ -90,6 +101,8 @@ export const swap = async (
   emitter.emit(SWAP_STEPS.DETERMINING_SWAP(true));
   performance.mark('determine-swaps-end');
 
+  emitter.emitList(createSwapSteps(swapRoute, options.chainList));
+
   performance.mark('xcs-ops-start');
 
   swapRoute = await waitForIntentApproval(swapRoute, {
@@ -97,6 +110,7 @@ export const swap = async (
     swapRouteParams,
     onSwapIntent: options.onSwapIntent,
     chainList: options.chainList,
+    emitList: emitter.emitList,
   });
 
   ({ source, destination, bridge, extras } = swapRoute);
@@ -129,18 +143,29 @@ export const swap = async (
     sourceHandler: srcSwapsHandler,
   });
 
-  // 0.5: Destination swap: create permit
-  await dstSwapHandler.createPermit();
+  // 0.5: Destination swap: create permit (skipped in combined mode — the EOA→wrapper
+  // permit/transferFrom is built into the single batched tx by CombinedSwapHandler).
+  if (!swapRoute.combined) {
+    await dstSwapHandler.createPermit();
+  }
 
-  // 1: Source swap
-  const assets = await srcSwapsHandler.process(metadata);
+  if (swapRoute.combined) {
+    // Source legs and destination leg execute on the same wrapper on the same chain with no
+    // bridge in between — fuse into one atomic on-chain tx so a partial fill can't strand
+    // intermediate COT at the wrapper.
+    const combinedHandler = new CombinedSwapHandler(swapRoute, opt);
+    await combinedHandler.process(metadata);
+  } else {
+    // 1: Source swap
+    const assets = await srcSwapsHandler.process(metadata);
 
-  // 2: Bridge, takes source swap output as input so bridge assets are adjusted accordingly
-  // wait for RFF Fill (if RFF required)
-  await bridgeHandler.process(metadata, assets);
+    // 2: Bridge, takes source swap output as input so bridge assets are adjusted accordingly
+    // wait for RFF Fill (if RFF required)
+    await bridgeHandler.process(metadata, assets);
 
-  // 3: Destination swap
-  await dstSwapHandler.process(metadata);
+    // 3: Destination swap
+    await dstSwapHandler.process(metadata);
+  }
 
   const result = convertMetadataToSwapResult(metadata, options.intentExplorerUrl);
   result.swapRoute = swapRoute;
@@ -335,6 +360,7 @@ const ensureSafeAccountsBeforeExecution = async ({
 type IntentApprovalContext = {
   input: SwapData;
   swapRouteParams: Parameters<typeof determineSwapRoute>[1];
+  emitList: (steps: SwapStepType[]) => void;
 } & Pick<SwapParams, 'onSwapIntent' | 'chainList'>;
 
 const waitForIntentApproval = async (
@@ -358,6 +384,8 @@ const waitForIntentApproval = async (
 
     currentRoute = await determineSwapRoute(updatedInput, ctx.swapRouteParams);
     logger.debug('refresh-swap-route', { swapRoute: currentRoute });
+
+    ctx.emitList(createSwapSteps(currentRoute, ctx.chainList));
 
     const swapIntent = createSwapIntent(currentRoute, ctx.input, ctx.chainList);
     logger.debug('onIntentHook:refresh', { swapIntent });

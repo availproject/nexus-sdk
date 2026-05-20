@@ -640,12 +640,7 @@ export const toFlatBalance = (
     .filter((b) => {
       return !(b.chainID === currentChainID && equalFold(b.tokenAddress, selectedTokenAddress));
     })
-    .filter(
-      (b) =>
-        b.universe === Universe.ETHEREUM &&
-        new Decimal(b.amount).gt(0) &&
-        new Decimal(b.value).gt(0)
-    );
+    .filter((b) => b.universe === Universe.ETHEREUM && new Decimal(b.amount).gt(0));
 };
 
 export const vscBalancesToAssets = (

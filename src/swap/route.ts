@@ -274,6 +274,12 @@ enum BUFFER_EXACT_OUT {
   SOURCE_SWAP_MAX_IN_USD = 1, // <-- another magic
 }
 
+// Headroom on the destination-swap input when source and destination collapse into a single
+// same-wrapper batch. Absorbs aggregator slippage between the source quote (which lands COT at
+// the wrapper) and the destination quote (which spends that COT) inside one atomic execution.
+// Leftover COT is swept back to the EOA by the existing destination sweeper.
+export const COMBINED_SAME_CHAIN_BUFFER_PCT = 0.5;
+
 const getCOTForChainId = (chainId: number | bigint, cotCurrencyID = CurrencyID.USDC) => {
   const chainData = ChaindataMap.get(new OmniversalChainID(Universe.ETHEREUM, chainId));
   if (!chainData) {
@@ -431,10 +437,30 @@ const buildSwapRouteResult = ({
   source,
   bridge,
   destination,
+  combined: isCombinedSameChainRoute({ source, bridge, destination }),
   dstTokenInfo,
   extras: { aggregators, oraclePrices, balances, assetsUsed },
   buffer: { amount: buffer },
 });
+
+// A route is "combined" when source and destination resolve to the same wrapper on the same
+// chain with no bridge in between: every source swap lands on the dst chain, the dst-chain
+// source execution exists, and its address equals the destination execution address.
+//
+// Pure-COT-source-on-dst (no source swaps) is out of scope for v1 — only one VSC tx today and
+// existing dst handler already batches the EOA→wrapper transfer with the dst swap.
+const isCombinedSameChainRoute = ({
+  source,
+  bridge,
+  destination,
+}: Pick<SwapRoute, 'source' | 'bridge' | 'destination'>): boolean => {
+  if (bridge !== null) return false;
+  if (source.swaps.length === 0) return false;
+  if (!source.swaps.every((s) => Number(s.chainID) === destination.chainId)) return false;
+  const srcExec = source.executions[destination.chainId];
+  if (!srcExec) return false;
+  return equalFold(srcExec.address, destination.execution.address);
+};
 
 /** Creates a blank destination object seeded with the given inputAmount for both min and max. */
 const createDestination = (
@@ -610,18 +636,18 @@ const _exactOutRoute = async (
     throw Errors.chainNotFound(input.toChainId);
   }
 
-  const removeSources: Source[] = [
-    {
+  // toAmount / toNativeAmount sentinel semantics (same shape for both):
+  //   > 0n   : shortfall — bridge this amount. Remove from dst-chain sources entirely.
+  //   < -1n  : surplus — reserve abs(value) from dst balance, use the rest as a swap source.
+  //   === -1n: exactly enough — remove from dst-chain sources entirely.
+  const removeSources: Source[] = [];
+  if (input.toAmount === -1n || input.toAmount > 0n) {
+    removeSources.push({
       chainId: input.toChainId,
       tokenAddress: input.toTokenAddress,
-    },
-  ];
-  // 1) Required: 1 KAITO and 0.0004 ETH, Have: 0.2 KAITO and 0.0002 ETH => toNativeAmount = 0.0002 * 10**18
-  //    Need more gas — positive shortfall. Remove native from sources entirely.
-  // 2) Required: 1 KAITO and 0.0004 ETH, Have: 0.2 KAITO and 0.0006 ETH => toNativeAmount = -(0.0004 * 10**18)
-  //    Surplus gas — reserve abs(value) from native balance, allow the rest as swap source.
-  // 3) Required: 1 KAITO and 0.0004 ETH, Have: 0.2 KAITO and 0.0004 ETH => toNativeAmount = -1
-  //    Exactly enough gas — remove native from sources entirely.
+    });
+  }
+  const reserveTokenAmount = input.toAmount < -1n ? -input.toAmount : undefined;
   const reserveNativeAmount =
     input.toNativeAmount && input.toNativeAmount < -1n ? -input.toNativeAmount : undefined;
   if (input.toNativeAmount === -1n || (input.toNativeAmount && input.toNativeAmount > 0n)) {
@@ -653,8 +679,17 @@ const _exactOutRoute = async (
     balances = filterRemoveSources(balances, removeSources);
   }
 
-  // Case 2: deduct reserved native amount from the dst chain native balance so the
-  // surplus can still be used as a swap source.
+  // Surplus case: reserve the required amount from dst-chain balance so only the
+  // surplus is available as a swap source.
+  if (reserveTokenAmount) {
+    balances = deductReservedBalance(
+      balances,
+      input.toChainId,
+      normalizeToComparisonAddr(input.toTokenAddress),
+      reserveTokenAmount,
+      dstTokenInfo.decimals
+    );
+  }
   if (reserveNativeAmount) {
     balances = deductReservedBalance(
       balances,
@@ -711,10 +746,12 @@ const _exactOutRoute = async (
   const dstSwapTakerInBytes = convertTo32Bytes(destinationExecution.address);
   const dstSwapReceiverInBytes = convertTo32Bytes(params.address.eoa);
 
-  // COT required for direct transfer when toToken IS COT. Zero when a swap resolves it.
-  const cotTransferAmount = needsTokenSwap
-    ? new Decimal(0)
-    : divDecimals(input.toAmount, dstChainCOT.decimals);
+  // COT required for direct transfer when toToken IS COT and toAmount is a positive
+  // shortfall. Zero when a swap resolves it, or under sentinel toAmount (-1n / <-1n).
+  const cotTransferAmount =
+    input.toAmount > 0n && !needsTokenSwap
+      ? divDecimals(input.toAmount, dstChainCOT.decimals)
+      : new Decimal(0);
 
   const destination = createDestination(
     input.toChainId,
@@ -848,7 +885,7 @@ const _exactOutRoute = async (
     params,
   });
 
-  const { quoteResponses: sourceSwapQuotes, usedCOTs } = await autoSelectSources({
+  const { quoteResponses: rawSourceSwapQuotes, usedCOTs: rawUsedCOTs } = await autoSelectSources({
     holdings: toAggregatorInputsWithSwapAddresses(sortedBalances, sourceExecutions),
     outputRequired: sourceSwapOutputRequired,
     aggregators: params.aggregators,
@@ -859,6 +896,46 @@ const _exactOutRoute = async (
     }
     throw e;
   });
+
+  // autoSelectSources is sized against sourceSwapOutputRequired (= bridgeOutput +
+  // bridgeFees + srcBuffer). When dst-chain holdings sit in the
+  // (bridgeOutput, sourceSwapOutputRequired) window, they get fully consumed and a tiny
+  // non-dst source is selected to cover the fee/buffer headroom. That non-dst contribution
+  // isn't actually needed — dst-chain alone already covers bridgeOutput — and if left in
+  // place it both drives `bridgeAmount` negative below and strands the non-dst source-swap
+  // output at the source-chain wrapper (no bridge step would pick it up). Drop non-dst
+  // selections in that case; the existing isBridgeRequired check then naturally evaluates
+  // to false.
+  const dstContribution = rawUsedCOTs
+    .reduce(
+      (sum, c) =>
+        Number(c.originalHolding.chainID.chainID) === input.toChainId
+          ? sum.plus(c.amountUsed)
+          : sum,
+      new Decimal(0)
+    )
+    .plus(
+      rawSourceSwapQuotes.reduce(
+        (sum, q) => (q.chainID === input.toChainId ? sum.plus(q.quote.output.amount) : sum),
+        new Decimal(0)
+      )
+    );
+
+  const dropNonDst = dstContribution.gte(bridgeOutput);
+  const sourceSwapQuotes = dropNonDst
+    ? rawSourceSwapQuotes.filter((q) => q.chainID === input.toChainId)
+    : rawSourceSwapQuotes;
+  const usedCOTs = dropNonDst
+    ? rawUsedCOTs.filter((c) => Number(c.originalHolding.chainID.chainID) === input.toChainId)
+    : rawUsedCOTs;
+  if (dropNonDst) {
+    logger.debug('exact-out: dst-chain covers bridgeOutput, dropping non-dst selections', {
+      dstContribution: dstContribution.toFixed(),
+      bridgeOutput: bridgeOutput.toFixed(),
+      droppedQuotes: rawSourceSwapQuotes.length - sourceSwapQuotes.length,
+      droppedCOTs: rawUsedCOTs.length - usedCOTs.length,
+    });
+  }
 
   logger.debug('sourceSwap', {
     sourceSwapQuotes,
@@ -901,24 +978,37 @@ const _exactOutRoute = async (
 
   let bridgeInput: BridgeInput = null;
   if (isBridgeRequired) {
-    // Deduct dst-chain COT (already on destination, doesn't need bridging)
+    // Deduct dst-chain COT (already on destination, doesn't need bridging).
     const bridgeAmount = bridgeOutput.minus(dstTotalCOTAmount);
-    const pendingBridge: PendingBridgeInput = {
-      amount: bridgeAmount,
-      assets: bridgeAssets,
-      chainID: input.toChainId,
-      decimals: dstChainCOT.decimals,
-      recipientAddress: destination.execution.address,
-      tokenAddress: convertToEVMAddress(dstChainCOT.tokenAddress),
-    };
-    const intentResponse = createIntent({
-      dstChain,
-      assets: bridgeAssets,
-      feeStore,
-      output: pendingBridge,
-      address: pendingBridge.recipientAddress,
-    });
-    bridgeInput = { ...pendingBridge, estimatedFees: intentResponse.intent.fees };
+    if (bridgeAmount.lte(0)) {
+      // Invariant: the dst-chain drop above guarantees dstTotalCOTAmount ≤ bridgeOutput
+      // whenever isBridgeRequired is true. Reaching this branch means the invariant was
+      // violated (e.g. a future change to autoSelectSources or buildExactOutSourceAssets
+      // breaks the accounting). Log so the regression is visible, but skip the bridge
+      // rather than build a degenerate zero/negative-amount intent.
+      logger.warn('exact-out: non-positive bridgeAmount after dst-chain drop, skipping bridge', {
+        bridgeAmount: bridgeAmount.toFixed(),
+        bridgeOutput: bridgeOutput.toFixed(),
+        dstTotalCOTAmount: dstTotalCOTAmount.toFixed(),
+      });
+    } else {
+      const pendingBridge: PendingBridgeInput = {
+        amount: bridgeAmount,
+        assets: bridgeAssets,
+        chainID: input.toChainId,
+        decimals: dstChainCOT.decimals,
+        recipientAddress: destination.execution.address,
+        tokenAddress: convertToEVMAddress(dstChainCOT.tokenAddress),
+      };
+      const intentResponse = createIntent({
+        dstChain,
+        assets: bridgeAssets,
+        feeStore,
+        output: pendingBridge,
+        address: pendingBridge.recipientAddress,
+      });
+      bridgeInput = { ...pendingBridge, estimatedFees: intentResponse.intent.fees };
+    }
   }
 
   logger.debug('exact-out: bridge', { bridgeAssets, bridgeInput, assetsUsed, dstEOAToEphTx });
@@ -966,6 +1056,10 @@ export type SwapRoute = {
     swap: DestinationSwap;
     getDstSwap: () => Promise<DestinationSwap | null>;
   };
+  // True when the route's source legs and destination leg can be executed as a single batched
+  // transaction on one same-chain wrapper (no bridge, every source swap lands on the dst chain,
+  // and the source wrapper IS the destination wrapper).
+  combined: boolean;
   buffer: {
     amount: string;
   };
@@ -1173,11 +1267,6 @@ const _exactInRoute = async (
     dstSwapInputAmountInDecimal: dstSwapInputAmountInDecimal.toFixed(),
   });
 
-  dstSwapInputAmountInDecimal = dstSwapInputAmountInDecimal.toDP(
-    dstChainCOT.decimals,
-    Decimal.ROUND_FLOOR
-  );
-
   const needsDstSwap = !equalFold(input.toTokenAddress, dstChainCOTAddress);
   const hasDestinationChainSourceOutput = hasDestinationChainSourceSwapOutput(
     sourceSwaps,
@@ -1192,6 +1281,28 @@ const _exactInRoute = async (
     needsDestinationExecution: needsDstSwap || hasDestinationChainSourceOutput,
     vscClient: params.vscClient,
   });
+
+  // If the source swap(s) and the destination swap collapse to one same-wrapper batch (no
+  // bridge in between), the dst aggregator will pull COT from the same wrapper the source
+  // swap just deposited it into. Apply headroom on the dst input so per-leg slippage
+  // between the two aggregator quotes can't strand the dst transferFrom on an under-supplied
+  // wrapper. Leftover COT is swept back to the EOA by the existing dst sweeper.
+  const willBeCombined =
+    !isBridgeRequired &&
+    sourceSwaps.length > 0 &&
+    sourceSwaps.every((s) => Number(s.chainID) === input.toChainId) &&
+    !!sourceExecutions[input.toChainId] &&
+    equalFold(sourceExecutions[input.toChainId].address, destinationExecution.address);
+  if (willBeCombined && needsDstSwap) {
+    dstSwapInputAmountInDecimal = dstSwapInputAmountInDecimal.mul(
+      1 - COMBINED_SAME_CHAIN_BUFFER_PCT / 100
+    );
+  }
+
+  dstSwapInputAmountInDecimal = dstSwapInputAmountInDecimal.toDP(
+    dstChainCOT.decimals,
+    Decimal.ROUND_FLOOR
+  );
   // See exact-out path: aggregator simulates as the wrapper (it's the on-chain executor) but
   // delivers swap output directly to the user's EOA. Wrapper holds the COT input; the EOA
   // receives the output. Splitting userAddress (taker) and receiverAddress prevents simulation

@@ -1,10 +1,15 @@
 import {
   type Aggregator,
+  autoSelectSources,
+  type Bytes,
   ChaindataMap,
   type CurrencyID,
+  getDestinationExactInSwap,
   liquidateInputHoldings,
+  liquidateSourceHoldings,
   OmniversalChainID,
   type Quote,
+  type QuoteResponse,
   Universe,
 } from '@avail-project/ca-common';
 import type { SigningStargateClient } from '@cosmjs/stargate';
@@ -26,10 +31,10 @@ import {
   type Tx,
 } from '../commons';
 import { Errors } from '../core/errors';
-import { equalFold, minutesToMs, switchChain, waitForTxReceipt } from '../core/utils';
+import { divDecimals, equalFold, minutesToMs, switchChain, waitForTxReceipt } from '../core/utils';
 import { EADDRESS, SWEEPER_ADDRESS } from './constants';
 import { createBridgeRFF } from './rff';
-import type { SwapRoute } from './route';
+import { COMBINED_SAME_CHAIN_BUFFER_PCT, type SwapRoute } from './route';
 import { createSafeExecuteEOASubmittedTx, createSafeExecuteTxFromCalls } from './safetx';
 import { caliburExecute, checkAuthCodeSet, createSBCTxFromCalls, waitForSBCTxReceipt } from './sbc';
 import {
@@ -1157,4 +1162,480 @@ const wrap = async (chainID: number, promise: Promise<unknown>) => {
   return chainID;
 };
 
-export { BridgeHandler, DestinationSwapHandler, SourceSwapsHandler };
+const COMBINED_MAX_RETRIES = 2;
+
+/**
+ * Executes a same-chain same-wrapper source+destination swap atomically as ONE batched
+ * transaction. Used when `route.combined === true`.
+ *
+ * Layout (in order):
+ *   [src: permit/transferFrom EOA→wrapper for each ERC20 source]
+ *   [src: aggregator approval + swap calldata for each source quote]
+ *   [dst: permit/transferFrom EOA→wrapper for any pre-existing dst-chain COT, if set]
+ *   [dst: aggregator approval + swap calldata for tokenSwap and gasSwap]
+ *   [sweep COT dust → EOA]
+ *
+ * On revert, re-quotes both legs and retries up to {@link COMBINED_MAX_RETRIES} times. The
+ * batch is atomic: a partial failure reverts everything and the user's input stays at the EOA.
+ */
+class CombinedSwapHandler {
+  private readonly initialDstOutputAmountRaw: bigint;
+  constructor(
+    private route: SwapRoute,
+    private readonly options: Options
+  ) {
+    this.initialDstOutputAmountRaw = route.destination.swap.tokenSwap?.quote.output.amountRaw ?? 0n;
+  }
+
+  async process(metadata: SwapMetadata): Promise<void> {
+    const chain = this.options.chainList.getChainByID(this.route.destination.chainId);
+    if (!chain) {
+      throw Errors.chainNotFound(this.route.destination.chainId);
+    }
+    const execution = this.route.destination.execution;
+    if (execution.mode === 'direct_eoa') {
+      throw Errors.internal('CombinedSwapHandler called with direct_eoa execution');
+    }
+
+    await switchChain(this.options.wallet.eoa, chain);
+
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= COMBINED_MAX_RETRIES; attempt++) {
+      if (attempt > 0) {
+        logger.warn('combined swap retry', { attempt });
+        await this.requoteBothLegs();
+      }
+      try {
+        const { calls, nativeValue } = await this.buildBatch(chain);
+        const hash = await this.submitBatch({
+          calls,
+          chain,
+          execution,
+          nativeValue,
+        });
+        this.emitHashes(hash, chain);
+        this.recordMetadata(metadata, hash);
+        return;
+      } catch (error) {
+        lastError = error;
+        logger.warn('combined swap attempt failed', {
+          attempt,
+          error: (error as Error)?.message ?? String(error),
+        });
+      }
+    }
+
+    throw lastError;
+  }
+
+  private async buildBatch(chain: import('../commons').Chain): Promise<{
+    calls: Tx[];
+    nativeValue: bigint;
+  }> {
+    const calls: Tx[] = [];
+    let nativeValue = 0n;
+    const execAddr = this.route.destination.execution.address;
+    const publicClient = this.options.publicClientList.get(chain.id);
+
+    const disablePermit = (): boolean => {
+      if (this.route.destination.execution.mode !== '7702') return false;
+      return isEip7702DelegatedCode(
+        this.options.cache.getCode({
+          address: this.options.address.eoa,
+          chainID: chain.id,
+        })
+      );
+    };
+
+    for (const swap of this.route.source.swaps) {
+      const inputAddress = swap.quote.input.contractAddress;
+      if (isNativeAddress(inputAddress)) {
+        nativeValue += swap.quote.input.amountRaw;
+      } else {
+        const txs = await createPermitAndTransferFromTx({
+          amount: swap.quote.input.amountRaw,
+          cache: this.options.cache,
+          chain,
+          contractAddress: inputAddress,
+          disablePermit: disablePermit(),
+          owner: this.options.address.eoa,
+          ownerWallet: this.options.wallet.eoa,
+          publicClient,
+          spender: execAddr,
+        });
+        calls.push(...txs);
+      }
+      const parsed = parseQuote(swap, !isNativeAddress(inputAddress));
+      if (parsed.approval) calls.push(parsed.approval);
+      calls.push(parsed.tx);
+    }
+
+    if (this.route.destination.eoaToDestinationAccount) {
+      const txs = await createPermitAndTransferFromTx({
+        amount: this.route.destination.eoaToDestinationAccount.amount,
+        cache: this.options.cache,
+        chain,
+        contractAddress: this.route.destination.eoaToDestinationAccount.contractAddress,
+        disablePermit: disablePermit(),
+        owner: this.options.address.eoa,
+        ownerWallet: this.options.wallet.eoa,
+        publicClient,
+        spender: execAddr,
+      });
+      calls.push(...txs);
+    }
+
+    const dstSwap = this.route.destination.swap;
+    if (dstSwap.tokenSwap) {
+      const parsed = parseQuote(dstSwap.tokenSwap, true);
+      if (parsed.approval) calls.push(parsed.approval);
+      calls.push(parsed.tx);
+    }
+    if (dstSwap.gasSwap) {
+      const parsed = parseQuote(dstSwap.gasSwap, true);
+      if (parsed.approval) calls.push(parsed.approval);
+      calls.push(parsed.tx);
+    }
+
+    calls.push(
+      ...createSweeperTxs({
+        cache: this.options.cache,
+        chainID: chain.id,
+        COTCurrencyID: this.options.cot.currencyID,
+        receiver: this.options.address.eoa,
+        sender: execAddr,
+      })
+    );
+
+    return { calls, nativeValue };
+  }
+
+  private async submitBatch({
+    calls,
+    chain,
+    execution,
+    nativeValue,
+  }: {
+    calls: Tx[];
+    chain: import('../commons').Chain;
+    execution: SwapRoute['destination']['execution'];
+    nativeValue: bigint;
+  }): Promise<Hex> {
+    const publicClient = this.options.publicClientList.get(chain.id);
+
+    if (execution.mode === 'safe_account') {
+      if (nativeValue > 0n) {
+        const hash = await createSafeExecuteEOASubmittedTx({
+          actualAddress: this.options.address.eoa,
+          calls,
+          chain,
+          ephemeralWallet: this.options.wallet.ephemeral,
+          eoaWallet: this.options.wallet.eoa,
+          nativeValue,
+          publicClient,
+          safeAddress: execution.address,
+        });
+        await waitForTxReceipt(hash, publicClient, 1);
+        return hash;
+      }
+      const [, hash] = await this.options.vscClient.vscCreateSafeExecuteTx(
+        await createSafeExecuteTxFromCalls({
+          calls,
+          chainId: chain.id,
+          ephemeralWallet: this.options.wallet.ephemeral,
+          publicClient,
+          safeAddress: execution.address,
+        })
+      );
+      await waitForTxReceipt(hash, publicClient, 1);
+      return hash;
+    }
+
+    // 7702 / Calibur mode
+    if (nativeValue > 0n) {
+      if (!(await checkAuthCodeSet(chain.id, this.options.address.ephemeral, this.options.cache))) {
+        const ops = await this.options.vscClient.vscSBCTx([
+          await createSBCTxFromCalls({
+            cache: this.options.cache,
+            calls: [],
+            chainID: chain.id,
+            ephemeralAddress: this.options.address.ephemeral,
+            ephemeralWallet: this.options.wallet.ephemeral,
+            publicClient,
+          }),
+        ]);
+        await waitForSBCTxReceipt(ops, this.options.chainList, this.options.publicClientList);
+        this.options.cache.addSetCodeValue(
+          {
+            address: this.options.address.ephemeral,
+            chainID: chain.id,
+          },
+          EXPECTED_CALIBUR_CODE
+        );
+      }
+      const hash = await caliburExecute({
+        actualAddress: this.options.address.eoa,
+        actualWallet: this.options.wallet.eoa,
+        calls,
+        chain,
+        publicClient,
+        signerWallet: this.options.wallet.ephemeral,
+        targetAddress: execution.address,
+        value: nativeValue,
+      });
+      await waitForTxReceipt(hash, publicClient, 1);
+      return hash;
+    }
+
+    const ops = await this.options.vscClient.vscSBCTx([
+      await createSBCTxFromCalls({
+        cache: this.options.cache,
+        calls,
+        chainID: chain.id,
+        ephemeralAddress: execution.address,
+        ephemeralWallet: this.options.wallet.ephemeral,
+        publicClient,
+      }),
+    ]);
+    await waitForSBCTxReceipt(ops, this.options.chainList, this.options.publicClientList);
+    return ops[0][1];
+  }
+
+  private async requoteBothLegs(): Promise<void> {
+    const execAddr = this.route.destination.execution.address;
+    const dstChainId = this.route.destination.chainId;
+
+    const holdings = this.route.source.swaps.map((swap) => {
+      const execution = this.route.source.executions[Number(swap.chainID)];
+      if (!execution) {
+        throw Errors.internal(`combined retry: source execution missing for chain ${swap.chainID}`);
+      }
+      const swapAddress = convertTo32Bytes(execution.address);
+      return {
+        chainID: swap.holding.chainID,
+        tokenAddress: swap.holding.tokenAddress,
+        amountRaw: swap.quote.input.amountRaw,
+        takerAddress: swapAddress as Bytes,
+        receiverAddress: swapAddress as Bytes,
+      };
+    });
+
+    const dstOmni = new OmniversalChainID(Universe.ETHEREUM, dstChainId);
+    const dstSwapTakerInBytes = convertTo32Bytes(execAddr);
+    const dstSwapReceiverInBytes = convertTo32Bytes(this.options.address.eoa);
+
+    if (this.route.type === 'EXACT_IN') {
+      // EXACT_IN: source produces COT, dst consumes (source output * (1 - buffer)).
+      // Order: re-quote source → guard source-output slippage → re-quote dst with fresh
+      // buffered input → guard dst-output slippage.
+
+      const oldSrcOutputRaw = this.route.source.swaps.reduce(
+        (acc, q) => acc + q.quote.output.amountRaw,
+        0n
+      );
+
+      const newSrcSwaps = await liquidateSourceHoldings({
+        holdings,
+        aggregators: this.route.extras.aggregators,
+        commonCurrencyID: this.options.cot.currencyID,
+      });
+      if (newSrcSwaps.length === 0) {
+        throw Errors.quoteFailed('combined retry: source re-quote returned no quotes');
+      }
+
+      const newSrcOutputRaw = newSrcSwaps.reduce((acc, q) => acc + q.quote.output.amountRaw, 0n);
+
+      // Source slippage guard. Runs unconditionally, including the toToken == COT case
+      // where there is no dst tokenSwap to absorb a worse source quote downstream.
+      if (oldSrcOutputRaw > 0n) {
+        const minAcceptableSrc =
+          (oldSrcOutputRaw * BigInt(Math.round((1 - this.options.slippage) * 1_000_000))) /
+          1_000_000n;
+        if (newSrcOutputRaw < minAcceptableSrc) {
+          throw Errors.slippageError(
+            `combined retry: source COT output dropped from ${oldSrcOutputRaw} to ${newSrcOutputRaw} (>${this.options.slippage} slippage)`
+          );
+        }
+      }
+
+      let newDst: QuoteResponse | null = null;
+      if (this.route.destination.swap.tokenSwap) {
+        // The batch transfers any pre-existing dst-chain COT from the EOA into the wrapper
+        // alongside the source-swap output. The dst aggregator can spend all of it, so
+        // include both in availableCotRaw before applying the slippage buffer. The source
+        // slippage guard above intentionally ignores this fixed credit — it's not source
+        // quote performance.
+        const directCotRaw = this.route.destination.eoaToDestinationAccount?.amount ?? 0n;
+        const availableCotRaw = newSrcOutputRaw + directCotRaw;
+        const bufferedInput =
+          (availableCotRaw * BigInt(Math.round((100 - COMBINED_SAME_CHAIN_BUFFER_PCT) * 1000))) /
+          100_000n;
+        const outputTokenBytes = convertTo32Bytes(
+          this.route.destination.swap.tokenSwap.quote.output.contractAddress
+        );
+        newDst = await getDestinationExactInSwap({
+          takerAddress: dstSwapTakerInBytes,
+          receiverAddress: dstSwapReceiverInBytes,
+          chain: dstOmni,
+          inputAmount: bufferedInput,
+          outputToken: outputTokenBytes,
+          aggregators: this.route.extras.aggregators,
+          inputCurrency: this.options.cot.currencyID,
+        });
+
+        if (this.initialDstOutputAmountRaw > 0n) {
+          const minAcceptableDst =
+            (this.initialDstOutputAmountRaw *
+              BigInt(Math.round((1 - this.options.slippage) * 1_000_000))) /
+            1_000_000n;
+          if (newDst.quote.output.amountRaw < minAcceptableDst) {
+            throw Errors.slippageError(
+              `combined retry: dst output dropped from ${this.initialDstOutputAmountRaw} to ${newDst.quote.output.amountRaw} (>${this.options.slippage} slippage)`
+            );
+          }
+        }
+      }
+
+      this.route.source.swaps = newSrcSwaps;
+      if (newDst) {
+        this.route.destination.swap = {
+          creationTime: Date.now(),
+          gasSwap: this.route.destination.swap.gasSwap,
+          tokenSwap: newDst,
+        };
+      }
+      return;
+    }
+
+    // EXACT_OUT: dst legs (tokenSwap + gasSwap + direct COT transfer) define the COT
+    // requirement that source must satisfy. Re-quote dst first via the route closure so
+    // its rate/max-input guard runs (throws ratesChangedBeyondTolerance when the new dst
+    // input exceeds the originally approved max). Only then size the source re-selection
+    // off the refreshed dst requirement so we never carry forward a stale gasSwap or a
+    // mismatched outputRequired.
+    const newDstSwap = await this.route.destination.getDstSwap();
+    if (!newDstSwap) {
+      throw Errors.quoteFailed('combined retry: getDstSwap returned null');
+    }
+
+    // Fresh COT requirement at the wrapper. When tokenSwap is null (toToken == COT and
+    // the user wants exact-COT delivered), the closure encodes the direct-transfer amount
+    // into inputAmount.max already, so we fall back to that.
+    let outputRequired: Decimal;
+    if (newDstSwap.tokenSwap) {
+      outputRequired = new Decimal(newDstSwap.tokenSwap.quote.input.amount);
+      if (newDstSwap.gasSwap) {
+        outputRequired = outputRequired.add(newDstSwap.gasSwap.quote.input.amount);
+      }
+    } else {
+      outputRequired = this.route.destination.inputAmount.max;
+    }
+
+    // Credit any dst-chain COT the batch pulls in from the user's EOA. autoSelectSources
+    // only sees the prior source holdings — without this credit it would size the source
+    // legs to produce the full requirement again, over-spending the user's source input.
+    if (this.route.destination.eoaToDestinationAccount) {
+      const cotDecimals =
+        newDstSwap.tokenSwap?.quote.input.decimals ??
+        newDstSwap.gasSwap?.quote.input.decimals ??
+        ChaindataMap.get(new OmniversalChainID(Universe.ETHEREUM, dstChainId))?.Currencies.find(
+          (c) => c.currencyID === this.options.cot.currencyID
+        )?.decimals;
+      if (cotDecimals === undefined) {
+        throw Errors.internal(
+          `combined retry: COT decimals not resolvable for chain ${dstChainId}`
+        );
+      }
+      const directCotAmount = divDecimals(
+        this.route.destination.eoaToDestinationAccount.amount,
+        cotDecimals
+      );
+      outputRequired = Decimal.max(outputRequired.minus(directCotAmount), new Decimal(0));
+    }
+
+    const { quoteResponses } = await autoSelectSources({
+      holdings,
+      outputRequired,
+      aggregators: this.route.extras.aggregators,
+      commonCurrencyID: this.options.cot.currencyID,
+    });
+    if (quoteResponses.length === 0) {
+      throw Errors.quoteFailed('combined retry: source re-quote returned no quotes');
+    }
+
+    // Dst output slippage guard against the user-visible toAmount. Cheap belt-and-braces
+    // on top of the closure's own rate guard.
+    if (newDstSwap.tokenSwap && this.initialDstOutputAmountRaw > 0n) {
+      const minAcceptableDst =
+        (this.initialDstOutputAmountRaw *
+          BigInt(Math.round((1 - this.options.slippage) * 1_000_000))) /
+        1_000_000n;
+      if (newDstSwap.tokenSwap.quote.output.amountRaw < minAcceptableDst) {
+        throw Errors.slippageError(
+          `combined retry: dst output dropped from ${this.initialDstOutputAmountRaw} to ${newDstSwap.tokenSwap.quote.output.amountRaw} (>${this.options.slippage} slippage)`
+        );
+      }
+    }
+
+    this.route.source.swaps = quoteResponses;
+    this.route.destination.swap = newDstSwap;
+  }
+
+  private emitHashes(hash: Hex, chain: import('../commons').Chain): void {
+    this.options.emitter.emit(
+      SWAP_STEPS.SOURCE_SWAP_HASH([BigInt(chain.id), hash], this.options.chainList)
+    );
+    this.options.emitter.emit(
+      SWAP_STEPS.DESTINATION_SWAP_HASH([BigInt(chain.id), hash], this.options.chainList)
+    );
+    this.options.emitter.emit(SWAP_STEPS.DESTINATION_SWAP_BATCH_TX(true));
+    this.options.emitter.emit(SWAP_STEPS.SWAP_COMPLETE);
+  }
+
+  private recordMetadata(metadata: SwapMetadata, hash: Hex): void {
+    const chainId = this.route.destination.chainId;
+    const hashBytes = convertTo32Bytes(hash);
+    metadata.dst.tx_hash = hashBytes;
+    metadata.dst.chid = convertTo32Bytes(chainId);
+    metadata.dst.univ = Universe.ETHEREUM;
+    const dstSwap = this.route.destination.swap;
+    if (dstSwap.tokenSwap) {
+      metadata.dst.swaps.push({
+        agg: 0,
+        input_amt: convertTo32Bytes(dstSwap.tokenSwap.quote.input.amountRaw),
+        input_contract: convertTo32Bytes(dstSwap.tokenSwap.quote.input.contractAddress),
+        input_decimals: dstSwap.tokenSwap.quote.input.decimals,
+        output_amt: convertTo32Bytes(dstSwap.tokenSwap.quote.output.amountRaw),
+        output_contract: convertTo32Bytes(dstSwap.tokenSwap.quote.output.contractAddress),
+        output_decimals: dstSwap.tokenSwap.quote.output.decimals,
+      });
+    }
+    if (dstSwap.gasSwap) {
+      metadata.dst.swaps.push({
+        agg: 0,
+        input_amt: convertTo32Bytes(dstSwap.gasSwap.quote.input.amountRaw),
+        input_contract: convertTo32Bytes(dstSwap.gasSwap.quote.input.contractAddress),
+        input_decimals: dstSwap.gasSwap.quote.input.decimals,
+        output_amt: convertTo32Bytes(dstSwap.gasSwap.quote.output.amountRaw),
+        output_contract: convertTo32Bytes(dstSwap.gasSwap.quote.output.contractAddress),
+        output_decimals: dstSwap.gasSwap.quote.output.decimals,
+      });
+    }
+    metadata.src.push({
+      chid: convertTo32Bytes(chainId),
+      swaps: this.route.source.swaps.map((s) => ({
+        agg: 0,
+        input_amt: convertTo32Bytes(s.quote.input.amountRaw),
+        input_contract: convertTo32Bytes(s.quote.input.contractAddress),
+        input_decimals: s.quote.input.decimals,
+        output_amt: convertTo32Bytes(s.quote.output.amountRaw),
+        output_contract: convertTo32Bytes(s.quote.output.contractAddress),
+        output_decimals: s.quote.output.decimals,
+      })),
+      tx_hash: hashBytes,
+      univ: Universe.ETHEREUM,
+    });
+  }
+}
+
+export { BridgeHandler, CombinedSwapHandler, DestinationSwapHandler, SourceSwapsHandler };
