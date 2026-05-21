@@ -38,7 +38,6 @@ import {
   type DestinationExecution,
   getLogger,
   type SBCTx,
-  type Source,
   SUPPORTED_CHAINS,
   type SuccessfulSwapResult,
   SWAP_STEPS,
@@ -664,21 +663,9 @@ export const vscBalancesToAssets = (
 export const ankrBalanceToAssets = (
   chainList: ChainListType,
   ankrBalances: AnkrBalances,
-  filterWithSupportedTokens: boolean,
-  allowedSources: Source[] = [],
-  removeSources: Source[] = []
+  filterWithSupportedTokens: boolean
 ) => {
   const assets: UserAssetDatum[] = [];
-
-  const allowed = (chainId: number, tokenAddress: Hex) => {
-    if (allowedSources.length === 0) {
-      return true;
-    }
-
-    return !!allowedSources.find(
-      (s) => s.chainId === chainId && equalFold(s.tokenAddress, tokenAddress)
-    );
-  };
 
   for (const asset of ankrBalances) {
     if (new Decimal(asset.balance).equals(0)) {
@@ -691,18 +678,7 @@ export const ankrBalanceToAssets = (
       convertTo32BytesHex(asset.tokenAddress)
     );
 
-    // Check if user has allowed this source to be used - defaults to all being allowed
-    const isAllowed = allowed(asset.chainID, asset.tokenAddress);
-
-    const removeSource = !!removeSources.find(
-      (rs) => rs.chainId === asset.chainID && equalFold(rs.tokenAddress, asset.tokenAddress)
-    );
-
-    if ((filterWithSupportedTokens && !isSupportedToken) || !isAllowed) {
-      continue;
-    }
-
-    if (removeSource) {
+    if (filterWithSupportedTokens && !isSupportedToken) {
       continue;
     }
 

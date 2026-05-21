@@ -138,7 +138,8 @@ describe('swap() orchestrator dispatch', () => {
   });
 
   it('routes through CombinedSwapHandler when route.combined === true', async () => {
-    determineSwapRouteMock.mockResolvedValue(makeRoute(true));
+    const route = makeRoute(true);
+    determineSwapRouteMock.mockResolvedValue({ route, refresh: vi.fn().mockResolvedValue(route) });
 
     await swap(baseInput() as never, baseOptions() as never, CurrencyID.USDC);
 
@@ -149,7 +150,8 @@ describe('swap() orchestrator dispatch', () => {
   });
 
   it('routes through Source/Bridge/Destination handlers when route.combined === false', async () => {
-    determineSwapRouteMock.mockResolvedValue(makeRoute(false));
+    const route = makeRoute(false);
+    determineSwapRouteMock.mockResolvedValue({ route, refresh: vi.fn().mockResolvedValue(route) });
 
     await swap(baseInput() as never, baseOptions() as never, CurrencyID.USDC);
 
