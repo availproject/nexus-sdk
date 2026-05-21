@@ -650,6 +650,7 @@ class SourceSwapsHandler {
   private disposableCache: { [k: string]: Tx } = {};
   private readonly sourceExecutionsByChain: Map<number, SourceExecution>;
   private readonly swapsData: Map<number, SwapRoute['source']['swaps']>;
+  private readonly srcBuffer: Decimal;
   constructor(
     route: SwapRoute,
     private readonly options: Options
@@ -660,6 +661,7 @@ class SourceSwapsHandler {
         execution,
       ])
     );
+    this.srcBuffer = route.source.srcBuffer ?? new Decimal(0);
     this.swapsData = this.groupAndOrder(route.source.swaps);
     for (const [chainID, swapQuotes] of this.swapsData) {
       const execution = this.getSourceExecution(chainID);
@@ -1021,18 +1023,25 @@ class SourceSwapsHandler {
     }
   }
 
+  // Re-quote source legs that reverted, then enforce that the combined output drop fits
+  // inside the route's pre-allocated source buffer. The buffer (srcBuffer in COT units,
+  // sized as `min(2%, $1)` of bridgeOutputWithFees for EXACT_OUT, 0 for EXACT_IN) is the
+  // only headroom the bridge step has — re-quote drops larger than that would underflow
+  // the bridge's input requirement. A static slippage % is unrelated to that requirement
+  // and was previously over- or under-strict depending on the failed-leg output size.
   async retryWithSlippageCheck(metadata: SwapMetadata, failedChains: number[]) {
-    let oldTotalOutputAmount = 0n;
+    let oldTotalOutput = new Decimal(0);
 
     logger.debug('sourceSwapsHandler:retryWithSlippageCheck:0', {
       failedChains,
+      srcBuffer: this.srcBuffer.toFixed(),
     });
 
     const quoteResponses = await retry(
       () => {
         const quoteRequests = [];
         // if it comes to retry it should be set to 0
-        oldTotalOutputAmount = 0n;
+        oldTotalOutput = new Decimal(0);
         for (const fChain of failedChains) {
           const oldSwaps = this.swapsData.get(fChain);
           if (!oldSwaps) {
@@ -1040,7 +1049,9 @@ class SourceSwapsHandler {
             continue;
           }
           for (const oldSwap of oldSwaps) {
-            oldTotalOutputAmount += oldSwap.quote.output.amountRaw;
+            oldTotalOutput = oldTotalOutput.add(
+              divDecimals(oldSwap.quote.output.amountRaw, oldSwap.quote.output.decimals)
+            );
             logger.debug('retryWithSlippage:quoteRequests:1', {
               holding: {
                 amount: oldSwap.quote.input.amountRaw,
@@ -1076,33 +1087,26 @@ class SourceSwapsHandler {
       { retries: 2 }
     );
 
-    logger.debug('sourceSwapsHandler:retryWithSlippageCheck:1', {
-      oldTotalOutputAmount,
-      quoteResponses,
-    });
-    let newTotalOutputAmount = 0n;
+    let newTotalOutput = new Decimal(0);
     for (const q of quoteResponses) {
-      newTotalOutputAmount += q.quote.output.amountRaw;
+      newTotalOutput = newTotalOutput.add(
+        divDecimals(q.quote.output.amountRaw, q.quote.output.decimals)
+      );
     }
 
-    const diff = oldTotalOutputAmount - newTotalOutputAmount;
-    if (diff > 0) {
-      if (
-        !this.isSwapQuoteValid({
-          newAmount: newTotalOutputAmount,
-          oldAmount: oldTotalOutputAmount,
-          slippage: this.options.slippage,
-        })
-      ) {
-        throw Errors.slippageError('source swap retry slippage exceeded max');
-      }
-    }
-
-    logger.debug('sourceSwapsHandler:retryWithSlippageCheck:2', {
-      diff,
-      newTotalOutputAmount,
-      oldTotalOutputAmount,
+    const minAcceptable = oldTotalOutput.sub(this.srcBuffer);
+    logger.debug('sourceSwapsHandler:retryWithSlippageCheck:1', {
+      minAcceptable: minAcceptable.toFixed(),
+      newTotalOutput: newTotalOutput.toFixed(),
+      oldTotalOutput: oldTotalOutput.toFixed(),
+      quoteResponses,
+      srcBuffer: this.srcBuffer.toFixed(),
     });
+    if (newTotalOutput.lt(minAcceptable)) {
+      throw Errors.slippageError(
+        `source swap retry exceeded srcBuffer: dropped from ${oldTotalOutput.toFixed()} to ${newTotalOutput.toFixed()} (>${this.srcBuffer.toFixed()} buffer)`
+      );
+    }
 
     return this.process(metadata, this.groupAndOrder(quoteResponses), false);
   }
@@ -1136,24 +1140,6 @@ class SourceSwapsHandler {
       ),
       (s) => s.chainID
     );
-  }
-
-  private isSwapQuoteValid({
-    newAmount,
-    oldAmount,
-    slippage,
-  }: {
-    newAmount: bigint;
-    oldAmount: bigint;
-    slippage: number;
-  }) {
-    const minAcceptable = Decimal.mul(oldAmount, Decimal.sub(1, slippage));
-    logger.debug('isSwapQuoteValid', {
-      minAcceptable: minAcceptable.toFixed(),
-      newAmount,
-      oldAmount,
-    });
-    return new Decimal(newAmount).gte(minAcceptable);
   }
 }
 

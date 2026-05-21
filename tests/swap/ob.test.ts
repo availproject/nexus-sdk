@@ -17,6 +17,17 @@ const caliburExecuteMock = vi.hoisted(() => vi.fn());
 const checkAuthCodeSetMock = vi.hoisted(() => vi.fn());
 const waitForSBCTxReceiptMock = vi.hoisted(() => vi.fn());
 const createBridgeRFFMock = vi.hoisted(() => vi.fn());
+const liquidateInputHoldingsMock = vi.hoisted(() => vi.fn());
+
+vi.mock('@avail-project/ca-common', async () => {
+  const actual = await vi.importActual<typeof import('@avail-project/ca-common')>(
+    '@avail-project/ca-common'
+  );
+  return {
+    ...actual,
+    liquidateInputHoldings: liquidateInputHoldingsMock,
+  };
+});
 
 vi.mock('../../src/core/utils', async () => {
   const actual =
@@ -583,6 +594,222 @@ describe('SourceSwapsHandler', () => {
     );
 
     expect(handler.getPlannedSafeChains()).toEqual(new Set([999]));
+  });
+
+  describe('retryWithSlippageCheck (buffer-based guard)', () => {
+    type SwapSpec = {
+      chainID: number;
+      outputAmountRaw: bigint;
+      outputDecimals: number;
+    };
+
+    const makeQuote = (s: SwapSpec) =>
+      ({
+        chainID: s.chainID,
+        holding: {
+          amountRaw: 1_000_000n,
+          tokenAddress: convertTo32Bytes('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'),
+        },
+        quote: {
+          input: {
+            amount: '1',
+            amountRaw: 1_000_000n,
+            contractAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            decimals: 6,
+            symbol: 'TOKEN',
+          },
+          output: {
+            amount: new Decimal(s.outputAmountRaw.toString())
+              .div(new Decimal(10).pow(s.outputDecimals))
+              .toFixed(),
+            amountRaw: s.outputAmountRaw,
+            contractAddress: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+            decimals: s.outputDecimals,
+            symbol: 'USDC',
+          },
+          txData: {
+            approvalAddress: '0xcccccccccccccccccccccccccccccccccccccccc',
+            tx: {
+              data: '0x1234',
+              to: '0xdddddddddddddddddddddddddddddddddddddddd',
+              value: '0',
+            },
+          },
+        },
+      }) as never;
+
+    const buildHandler = ({
+      srcBuffer,
+      initialSwaps,
+    }: {
+      srcBuffer: Decimal;
+      initialSwaps: SwapSpec[];
+    }) => {
+      const executions = Object.fromEntries(
+        Array.from(new Set(initialSwaps.map((s) => s.chainID))).map((chainID) => [
+          chainID,
+          {
+            address: '0x3333333333333333333333333333333333333333',
+            entryPoint: null,
+            mode: 'safe_account',
+          },
+        ])
+      );
+
+      return new SourceSwapsHandler(
+        {
+          source: {
+            swaps: initialSwaps.map(makeQuote),
+            executions,
+            srcBuffer,
+          },
+        } as never,
+        {
+          address: {
+            cosmos: '',
+            eoa: '0x1111111111111111111111111111111111111111',
+            ephemeral: '0x2222222222222222222222222222222222222222',
+          },
+          aggregators: [],
+          cache: {
+            addAllowanceQuery: vi.fn(),
+            addPermitQuery: vi.fn(),
+            addSetCodeQuery: vi.fn(),
+          },
+          chainList: {
+            getChainByID: vi.fn(() => ({
+              blockExplorers: { default: { url: 'https://example.com' } },
+              id: 1,
+              name: 'Mock',
+            })),
+          },
+          cot: {
+            currencyID: CurrencyID.USDC,
+            symbol: 'USDC',
+          },
+          emitter: { emit: vi.fn() },
+          publicClientList: { get: vi.fn(() => ({})) },
+          slippage: 0.005,
+          vscClient: {
+            vscCreateSafeExecuteTx: vi.fn(),
+            vscSBCTx: vi.fn(),
+          },
+          wallet: {
+            eoa: {} as never,
+            ephemeral: { address: '0x2222222222222222222222222222222222222222' } as never,
+          },
+        } as never
+      );
+    };
+
+    const metadata = {
+      dst: { chid: ZERO_BYTES_32, swaps: [], tx_hash: ZERO_BYTES_32, univ: 1 },
+      has_xcs: true,
+      rff_id: 0n,
+      src: [],
+    } as never;
+
+    const queueRequotes = (specs: SwapSpec[]) => {
+      for (const s of specs) {
+        liquidateInputHoldingsMock.mockResolvedValueOnce([makeQuote(s)]);
+      }
+    };
+
+    beforeEach(() => {
+      liquidateInputHoldingsMock.mockReset();
+    });
+
+    it('accepts retry when new total drops within srcBuffer', async () => {
+      // Old failed total = 1.0 + 1.0 = 2.0 USDC.
+      // New failed total = 0.8 + 0.8 = 1.6 USDC. Drop = 0.4.
+      // srcBuffer = 1.0. Drop < buffer -> PASS.
+      const handler = buildHandler({
+        srcBuffer: new Decimal('1'),
+        initialSwaps: [
+          { chainID: 1, outputAmountRaw: 1_000_000n, outputDecimals: 6 },
+          { chainID: 56, outputAmountRaw: 1_000_000n, outputDecimals: 6 },
+        ],
+      });
+      queueRequotes([
+        { chainID: 1, outputAmountRaw: 800_000n, outputDecimals: 6 },
+        { chainID: 56, outputAmountRaw: 800_000n, outputDecimals: 6 },
+      ]);
+      const processSpy = vi.spyOn(handler, 'process').mockResolvedValue([] as never);
+
+      await expect(handler.retryWithSlippageCheck(metadata, [1, 56])).resolves.not.toThrow();
+      expect(processSpy).toHaveBeenCalledWith(metadata, expect.any(Map), false);
+    });
+
+    it('accepts retry at the srcBuffer boundary', async () => {
+      // Old = 2.0, new = 1.0, drop = 1.0, srcBuffer = 1.0 -> PASS (>=).
+      const handler = buildHandler({
+        srcBuffer: new Decimal('1'),
+        initialSwaps: [
+          { chainID: 1, outputAmountRaw: 1_000_000n, outputDecimals: 6 },
+          { chainID: 56, outputAmountRaw: 1_000_000n, outputDecimals: 6 },
+        ],
+      });
+      queueRequotes([
+        { chainID: 1, outputAmountRaw: 500_000n, outputDecimals: 6 },
+        { chainID: 56, outputAmountRaw: 500_000n, outputDecimals: 6 },
+      ]);
+      vi.spyOn(handler, 'process').mockResolvedValue([] as never);
+
+      await expect(handler.retryWithSlippageCheck(metadata, [1, 56])).resolves.not.toThrow();
+    });
+
+    it('rejects retry when new total drops beyond srcBuffer', async () => {
+      // Old = 2.0, new = 0.8, drop = 1.2, srcBuffer = 1.0 -> THROW.
+      const handler = buildHandler({
+        srcBuffer: new Decimal('1'),
+        initialSwaps: [
+          { chainID: 1, outputAmountRaw: 1_000_000n, outputDecimals: 6 },
+          { chainID: 56, outputAmountRaw: 1_000_000n, outputDecimals: 6 },
+        ],
+      });
+      queueRequotes([
+        { chainID: 1, outputAmountRaw: 400_000n, outputDecimals: 6 },
+        { chainID: 56, outputAmountRaw: 400_000n, outputDecimals: 6 },
+      ]);
+      const processSpy = vi.spyOn(handler, 'process').mockResolvedValue([] as never);
+
+      await expect(handler.retryWithSlippageCheck(metadata, [1, 56])).rejects.toThrow(/buffer/);
+      expect(processSpy).not.toHaveBeenCalled();
+    });
+
+    it('accepts retry when new total exceeds old total (no drop)', async () => {
+      const handler = buildHandler({
+        srcBuffer: new Decimal('0'),
+        initialSwaps: [{ chainID: 1, outputAmountRaw: 1_000_000n, outputDecimals: 6 }],
+      });
+      queueRequotes([{ chainID: 1, outputAmountRaw: 1_100_000n, outputDecimals: 6 }]);
+      vi.spyOn(handler, 'process').mockResolvedValue([] as never);
+
+      await expect(handler.retryWithSlippageCheck(metadata, [1])).resolves.not.toThrow();
+    });
+
+    it('uses a fractional srcBuffer correctly (sub-dollar headroom)', async () => {
+      // Old = 100 USDC, new = 99.5 USDC, drop = 0.5, srcBuffer = 0.8 -> PASS.
+      const handler = buildHandler({
+        srcBuffer: new Decimal('0.8'),
+        initialSwaps: [{ chainID: 1, outputAmountRaw: 100_000_000n, outputDecimals: 6 }],
+      });
+      queueRequotes([{ chainID: 1, outputAmountRaw: 99_500_000n, outputDecimals: 6 }]);
+      vi.spyOn(handler, 'process').mockResolvedValue([] as never);
+
+      await expect(handler.retryWithSlippageCheck(metadata, [1])).resolves.not.toThrow();
+    });
+
+    it('rejects when fractional srcBuffer is exceeded', async () => {
+      // Old = 100 USDC, new = 99 USDC, drop = 1, srcBuffer = 0.8 -> THROW.
+      const handler = buildHandler({
+        srcBuffer: new Decimal('0.8'),
+        initialSwaps: [{ chainID: 1, outputAmountRaw: 100_000_000n, outputDecimals: 6 }],
+      });
+      queueRequotes([{ chainID: 1, outputAmountRaw: 99_000_000n, outputDecimals: 6 }]);
+
+      await expect(handler.retryWithSlippageCheck(metadata, [1])).rejects.toThrow(/buffer/);
+    });
   });
 });
 
