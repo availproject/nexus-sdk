@@ -511,12 +511,21 @@ export const packERC20Approve = (spender: Hex, amount: bigint) => {
   });
 };
 
-export const fetchTransferFees = async (chains: Chain[]): Promise<Map<number, Decimal>> => {
+export const fetchTransferFees = async (
+  chains: Chain[],
+  publicClientList?: PublicClientList
+): Promise<Map<number, Decimal>> => {
   const feeByChainID = new Map<number, Decimal>();
   await Promise.all(
     chains.map(async (chain) => {
       try {
-        const fee = await estimateRepresentativeSwapNativeReserveFee({ chain });
+        // Reuse the cached, multicall-batched PublicClient when the caller supplies a
+        // PublicClientList. Falls back to a fresh fallback client so legacy call sites
+        // (and unit tests) keep working without threading it through.
+        const fee = await estimateRepresentativeSwapNativeReserveFee({
+          chain,
+          publicClient: publicClientList?.get(chain.id),
+        });
         feeByChainID.set(chain.id, divDecimals(fee, chain.nativeCurrency.decimals));
       } catch (e) {
         logger.error('fetchTransferFees', e, { chainID: chain.id });

@@ -17,6 +17,7 @@ import { type Hex, toBytes } from 'viem';
 import {
   type BridgeAsset,
   type Chain,
+  type ChainListType,
   type DestinationExecution,
   type ExactInSwapInput,
   type ExactOutSwapInput,
@@ -43,6 +44,8 @@ import {
 import { EADDRESS, EADDRESS_32_BYTES } from './constants';
 import type { FlatBalance } from './data';
 import { createIntent, estimateCollectionFee } from './rff';
+import { SAFE_PROXY_FACTORY } from './safe.constants';
+import { predictSafeAccountAddress } from './safetx';
 import {
   calculateValue,
   convertTo32Bytes,
@@ -57,69 +60,84 @@ const logger = getLogger();
 export const requiresSafeAccount = (chain: Chain | undefined): boolean =>
   !!chain && chain.swapSupported && !chain.pectraUpgradeSupport;
 
-export const resolveSourceExecution = async ({
-  chain,
-  eoaAddress: _eoaAddress,
-  ephemeralAddress,
-  vscClient,
-}: {
-  chain: Chain;
-  eoaAddress: Hex;
-  ephemeralAddress: Hex;
-  vscClient: SwapParams['vscClient'];
-}): Promise<SourceExecution> => {
-  if (!requiresSafeAccount(chain)) {
-    return {
-      address: ephemeralAddress,
-      entryPoint: null,
-      mode: '7702',
-    };
-  }
-
-  const account = await vscClient.vscGetSafeAccountAddress(chain.id, ephemeralAddress);
-  return {
-    address: account.address,
-    entryPoint: null,
-    factoryAddress: account.factoryAddress,
-    mode: 'safe_account',
-  };
+// Source and destination wrappers on the same chain resolve to the same on-chain executor —
+// it's purely chain-dependent, not src/dst-dependent. The only divergence is the optional
+// `direct_eoa` dst mode applied at the call site via {@link buildDirectEoaDestinationExecution}.
+//
+// The Safe address is computed locally via CREATE2 (see `predictSafeAccountAddress`). We DO
+// still fire `vscGetSafeAccountAddress` per non-pectra chain — but only as a background
+// sanity check that catches SDK ↔ server config drift (different salt/init code). The
+// returned promise is awaited via `verification` just before the SwapRoute is returned;
+// it does NOT block aggregator quotes or any other route step.
+type ChainExecution = {
+  address: Hex;
+  entryPoint: Hex | null;
+  factoryAddress?: Hex;
+  mode: '7702' | 'safe_account';
 };
 
-export const resolveDestinationExecution = async ({
-  chain,
-  eoaAddress,
+const buildDirectEoaDestinationExecution = (eoaAddress: Hex): DestinationExecution => ({
+  address: eoaAddress,
+  entryPoint: null,
+  mode: 'direct_eoa',
+});
+
+export const resolveChainExecutions = ({
+  chainIds,
   ephemeralAddress,
-  needsDestinationExecution,
+  chainList,
   vscClient,
 }: {
-  chain: Chain;
-  eoaAddress: Hex;
+  chainIds: Iterable<number>;
   ephemeralAddress: Hex;
-  needsDestinationExecution: boolean;
+  chainList: ChainListType;
   vscClient: SwapParams['vscClient'];
-}): Promise<DestinationExecution> => {
-  if (!needsDestinationExecution) {
-    return {
-      address: eoaAddress,
+}): {
+  executions: Record<number, ChainExecution>;
+  verification: Promise<void>;
+} => {
+  const executions: Record<number, ChainExecution> = {};
+  const verificationPromises: Promise<void>[] = [];
+
+  for (const chainId of new Set(chainIds)) {
+    const chain = chainList.getChainByID(chainId);
+    if (!chain) {
+      throw Errors.chainNotFound(chainId);
+    }
+
+    if (!requiresSafeAccount(chain)) {
+      executions[chainId] = {
+        address: ephemeralAddress,
+        entryPoint: null,
+        mode: '7702',
+      };
+      continue;
+    }
+
+    const safeAddress = predictSafeAccountAddress(ephemeralAddress);
+    executions[chainId] = {
+      address: safeAddress,
       entryPoint: null,
-      mode: 'direct_eoa',
+      factoryAddress: SAFE_PROXY_FACTORY,
+      mode: 'safe_account',
     };
+
+    verificationPromises.push(
+      vscClient.vscGetSafeAccountAddress(chainId, ephemeralAddress).then((account) => {
+        if (account.address.toLowerCase() !== safeAddress.toLowerCase()) {
+          throw Errors.internal(
+            `Safe address mismatch on chain ${chainId}: local=${safeAddress} server=${account.address}`
+          );
+        }
+      })
+    );
   }
 
-  if (!requiresSafeAccount(chain)) {
-    return {
-      address: ephemeralAddress,
-      entryPoint: null,
-      mode: '7702',
-    };
-  }
-
-  const account = await vscClient.vscGetSafeAccountAddress(chain.id, ephemeralAddress);
   return {
-    address: account.address,
-    entryPoint: null,
-    factoryAddress: account.factoryAddress,
-    mode: 'safe_account',
+    executions,
+    verification: Promise.all(verificationPromises).then(() => {
+      // Promise<void[]> → Promise<void>
+    }),
   };
 };
 
@@ -136,36 +154,22 @@ type AggregatorInputWithSwapAddresses = AggregatorInput & {
 };
 type SourceExecutionRecord = Record<number, SourceExecution>;
 
-const resolveSourceExecutions = async ({
-  eoaAddress,
-  ephemeralAddress,
-  sourceBalances,
-  params,
-}: {
-  eoaAddress: Hex;
-  ephemeralAddress: Hex;
-  sourceBalances: FlatBalance[];
-  params: SwapParams & { publicClientList: PublicClientList };
-}): Promise<SourceExecutionRecord> => {
-  const uniqueSourceChains = uniqBy(sourceBalances, (balance) => balance.chainID);
-  const entries = await Promise.all(
-    uniqueSourceChains.map(async (balance) => {
-      const chain = params.chainList.getChainByID(balance.chainID);
-      if (!chain) {
-        throw Errors.chainNotFound(balance.chainID);
-      }
-
-      const execution = await resolveSourceExecution({
-        chain,
-        eoaAddress,
-        ephemeralAddress,
-        vscClient: params.vscClient,
-      });
-      return [balance.chainID, execution] as const;
-    })
-  );
-
-  return Object.fromEntries(entries) as SourceExecutionRecord;
+// Source executions are just the per-source-chain slice of the combined chain-execution map.
+// Kept as a tiny helper so the call sites stay symmetric with the legacy shape, but no
+// async work happens here — everything sources from {@link resolveChainExecutions}.
+const pickSourceExecutions = (
+  chainExecutions: Record<number, ChainExecution>,
+  sourceBalances: FlatBalance[]
+): SourceExecutionRecord => {
+  const out: SourceExecutionRecord = {};
+  for (const chainId of new Set(sourceBalances.map((b) => b.chainID))) {
+    const execution = chainExecutions[chainId];
+    if (!execution) {
+      throw Errors.internal(`source execution not resolved for chain ${chainId}`);
+    }
+    out[chainId] = execution;
+  }
+  return out;
 };
 
 export const toAggregatorInputsWithSwapAddresses = (
@@ -359,6 +363,7 @@ const fetchRouteData = async (
           filterWithSupportedTokens: false,
           allowedSources: opts.allowedSources,
           removeSources: opts.removeSources,
+          publicClientList: params.publicClientList,
         }).then((r) => r.balances),
     oraclePricesPromise,
     getTokenInfo(opts.toTokenAddress, params.publicClientList.get(opts.toChainId), opts.dstChain),
@@ -729,13 +734,26 @@ const _exactOutRoute = async (
   const needsTokenSwap =
     input.toAmount > 0n && !equalFold(input.toTokenAddress, dstChainCOTAddress);
   const needsGasSwap = !gasInCOT.isZero();
-  const destinationExecution = await resolveDestinationExecution({
-    chain: dstChain,
-    eoaAddress: params.address.eoa,
-    ephemeralAddress: params.address.ephemeral,
-    needsDestinationExecution: needsTokenSwap || needsGasSwap,
-    vscClient: params.vscClient,
+
+  // Resolve every chain we'll need a wrapper on in a single sync pass:
+  //   dst + every source chain (deduped). Safe addresses are computed locally; the only
+  //   async piece (`verification`) is awaited at the very end before the route returns.
+  const sortedBalances = sortSourcesByPriority(balances, {
+    tokenAddress: input.toTokenAddress,
+    symbol: dstTokenInfo.symbol,
+    chainID: dstChain.id,
   });
+  const { executions: chainExecutions, verification: executionsVerification } =
+    resolveChainExecutions({
+      chainIds: [input.toChainId, ...sortedBalances.map((b) => b.chainID)],
+      ephemeralAddress: params.address.ephemeral,
+      chainList: params.chainList,
+      vscClient: params.vscClient,
+    });
+  const destinationExecution: DestinationExecution =
+    needsTokenSwap || needsGasSwap
+      ? chainExecutions[input.toChainId]
+      : buildDirectEoaDestinationExecution(params.address.eoa);
   // Aggregator simulation context (taker_address / fromAddress) must be the wrapper — that's
   // the on-chain executor at runtime, so the aggregator's permit/approval routing has to match.
   // Output recipient is the user's EOA so we never need to sweep token or native dust out of
@@ -878,17 +896,7 @@ const _exactOutRoute = async (
     sourceSwapOutputRequired: sourceSwapOutputRequired.toFixed(),
   });
 
-  const sortedBalances = sortSourcesByPriority(balances, {
-    tokenAddress: input.toTokenAddress,
-    symbol: dstTokenInfo.symbol,
-    chainID: dstChain.id,
-  });
-  const sourceExecutions = await resolveSourceExecutions({
-    eoaAddress: params.address.eoa,
-    ephemeralAddress: params.address.ephemeral,
-    sourceBalances: sortedBalances,
-    params,
-  });
+  const sourceExecutions = pickSourceExecutions(chainExecutions, sortedBalances);
 
   const { quoteResponses: rawSourceSwapQuotes, usedCOTs: rawUsedCOTs } = await autoSelectSources({
     holdings: toAggregatorInputsWithSwapAddresses(sortedBalances, sourceExecutions),
@@ -967,13 +975,10 @@ const _exactOutRoute = async (
       params.address.eoa
     )
   ) {
-    destination.execution = await resolveDestinationExecution({
-      chain: dstChain,
-      eoaAddress: params.address.eoa,
-      ephemeralAddress: params.address.ephemeral,
-      needsDestinationExecution: true,
-      vscClient: params.vscClient,
-    });
+    // Source swaps land COT on the dst chain at a non-EOA wrapper, so the dst leg can't
+    // stay as `direct_eoa` after all. The wrapper was already resolved up-front (same
+    // chain, same ephemeral) — flip is a sync lookup, no extra VSC roundtrip.
+    destination.execution = chainExecutions[input.toChainId];
   }
 
   const isBridgeRequired = !(
@@ -1017,6 +1022,10 @@ const _exactOutRoute = async (
   }
 
   logger.debug('exact-out: bridge', { bridgeAssets, bridgeInput, assetsUsed, dstEOAToEphTx });
+
+  // VSC verification is fire-and-forget during the rest of route calc; resolve it now
+  // before returning so any SDK ↔ server config drift surfaces here instead of mid-execution.
+  await executionsVerification;
 
   return buildSwapRouteResult({
     type: 'EXACT_OUT',
@@ -1156,12 +1165,18 @@ const _exactInRoute = async (
   );
 
   const dstOmniversalChainID = new OmniversalChainID(Universe.ETHEREUM, input.toChainId);
-  const sourceExecutions = await resolveSourceExecutions({
-    eoaAddress: params.address.eoa,
-    ephemeralAddress: params.address.ephemeral,
-    sourceBalances: srcBalances,
-    params,
-  });
+
+  // Resolve every chain we'll need a wrapper on (dst + every source chain) in a single
+  // sync pass. VSC verification fires in the background via `executionsVerification` and
+  // is awaited right before the route returns.
+  const { executions: chainExecutions, verification: executionsVerification } =
+    resolveChainExecutions({
+      chainIds: [input.toChainId, ...srcBalances.map((b) => b.chainID)],
+      ephemeralAddress: params.address.ephemeral,
+      chainList: params.chainList,
+      vscClient: params.vscClient,
+    });
+  const sourceExecutions = pickSourceExecutions(chainExecutions, srcBalances);
 
   const bridgeAssets: BridgeAsset[] = [];
 
@@ -1285,13 +1300,11 @@ const _exactInRoute = async (
     input.toChainId,
     params.address.eoa
   );
-  const destinationExecution = await resolveDestinationExecution({
-    chain: dstChain,
-    eoaAddress: params.address.eoa,
-    ephemeralAddress: params.address.ephemeral,
-    needsDestinationExecution: needsDstSwap || hasDestinationChainSourceOutput,
-    vscClient: params.vscClient,
-  });
+  // Same chain executions resolved up-front; just pick (or downgrade to direct_eoa).
+  const destinationExecution: DestinationExecution =
+    needsDstSwap || hasDestinationChainSourceOutput
+      ? chainExecutions[input.toChainId]
+      : buildDirectEoaDestinationExecution(params.address.eoa);
 
   // If the source swap(s) and the destination swap collapse to one same-wrapper batch (no
   // bridge in between), the dst aggregator will pull COT from the same wrapper the source
@@ -1370,6 +1383,9 @@ const _exactInRoute = async (
 
   destination.swap = await getDstSwap();
   destination.getDstSwap = getDstSwap;
+
+  // VSC verification fired in the background while quotes ran; resolve it before returning.
+  await executionsVerification;
 
   return buildSwapRouteResult({
     type: 'EXACT_IN',

@@ -15,6 +15,7 @@ import {
   ankrBalanceToAssets,
   fetchTransferFees,
   getTokenSymbol,
+  type PublicClientList,
   toFlatBalance,
   vscBalancesToAssets,
 } from '../../swap/utils';
@@ -80,21 +81,31 @@ export const getBalancesForSwap = async (input: {
   oraclePrices?: OraclePriceResponse | Promise<OraclePriceResponse>;
   allowedSources?: Source[];
   removeSources?: Source[];
+  /** When supplied, fetchTransferFees reuses the cached batched clients (no fresh client per chain). */
+  publicClientList?: PublicClientList;
 }) => {
   const swapSupportedChains = input.chainList.chains.filter(
     (chain) =>
       chain.universe === Universe.ETHEREUM && (chain.ankrName !== '' || chain.swapSupported)
   );
 
-  const [swapAssets, transferFeesByChain] = await Promise.all([
-    input.vscClient.getSwapBalances(input.evmAddress),
-    fetchTransferFees(swapSupportedChains),
-  ]);
-
-  const mergedBalances = deductTransferFees(
-    swapAssetsToAnkrBalances(swapAssets),
-    transferFeesByChain
+  // Sequencing: balances first, transfer fees second. `fetchTransferFees` was previously
+  // fanned out across every swap-supported chain on every route calc — typically 11+ RPC
+  // batches just to estimate a fee that's only ever deducted from *native* balances
+  // (deductTransferFees skips non-native). Scoping the fanout to chains the user actually
+  // holds native on drops typical 11-chain fanout to 0–2. Wall clock difference is small;
+  // RPC-cost / throttling reduction is the win.
+  const swapAssets = await input.vscClient.getSwapBalances(input.evmAddress);
+  const ankrBalances = swapAssetsToAnkrBalances(swapAssets);
+  const nativeChainIds = new Set(
+    ankrBalances
+      .filter((b) => equalFold(b.tokenAddress, ZERO_ADDRESS) && new Decimal(b.balance).gt(0))
+      .map((b) => b.chainID)
   );
+  const chainsNeedingFees = swapSupportedChains.filter((c) => nativeChainIds.has(c.id));
+  const transferFeesByChain = await fetchTransferFees(chainsNeedingFees, input.publicClientList);
+
+  const mergedBalances = deductTransferFees(ankrBalances, transferFeesByChain);
 
   const assets = ankrBalanceToAssets(
     input.chainList,
