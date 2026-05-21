@@ -7,7 +7,6 @@ import {
   type ChainListType,
   logger,
   type OraclePriceResponse,
-  type Source,
   SUPPORTED_CHAINS,
   type VSCClient,
 } from '../../commons';
@@ -79,8 +78,6 @@ export const getBalancesForSwap = async (input: {
   filterWithSupportedTokens: boolean;
   /** Unused since vservice provides USD pricing; kept for API stability. */
   oraclePrices?: OraclePriceResponse | Promise<OraclePriceResponse>;
-  allowedSources?: Source[];
-  removeSources?: Source[];
   /** When supplied, fetchTransferFees reuses the cached batched clients (no fresh client per chain). */
   publicClientList?: PublicClientList;
 }) => {
@@ -95,6 +92,10 @@ export const getBalancesForSwap = async (input: {
   // (deductTransferFees skips non-native). Scoping the fanout to chains the user actually
   // holds native on drops typical 11-chain fanout to 0–2. Wall clock difference is small;
   // RPC-cost / throttling reduction is the win.
+  //
+  // Note: `allowedSources` / `removeSources` filtering used to live here — it now lives
+  // in `_exactOutRoute`'s refresh body so a refresh with a different fromSources doesn't
+  // have to refetch balances. This function always returns the unfiltered set.
   const swapAssets = await input.vscClient.getSwapBalances(input.evmAddress);
   const ankrBalances = swapAssetsToAnkrBalances(swapAssets);
   const nativeChainIds = new Set(
@@ -110,9 +111,7 @@ export const getBalancesForSwap = async (input: {
   const assets = ankrBalanceToAssets(
     input.chainList,
     mergedBalances,
-    input.filterWithSupportedTokens,
-    input.allowedSources,
-    input.removeSources
+    input.filterWithSupportedTokens
   );
   const balances = toFlatBalance(assets);
 

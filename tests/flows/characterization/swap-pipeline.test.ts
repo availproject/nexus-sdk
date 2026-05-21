@@ -317,7 +317,10 @@ describe('swap pipeline characterization', () => {
     allowanceByChain: Record<number, bigint>,
     vscClientOverrides: Record<string, unknown> = {}
   ) => {
-    determineSwapRouteMock.mockResolvedValue(route);
+    // determineSwapRoute now returns { route, refresh }. Stub refresh as a constant
+    // resolver returning the same route — the characterization scenarios don't exercise
+    // intent-refresh paths, so the function never actually fires.
+    determineSwapRouteMock.mockResolvedValue({ route, refresh: vi.fn().mockResolvedValue(route) });
     getAllowancesMock.mockResolvedValue(allowanceByChain);
     createRFFromIntentMock.mockImplementation(async () => ({
       msgBasicCosmos: {},

@@ -223,7 +223,9 @@ export const runDetermineSwapRoute = async (
     cotCurrencyID: CurrencyID.USDC,
   } as never;
 
-  const route = await determineSwapRoute(params.input, options);
+  // determineSwapRoute now returns { route, refresh }. The integration fixtures only
+  // care about the initial route — refresh is exercised by the dedicated win-5 tests.
+  const { route } = await determineSwapRoute(params.input, options);
   return { route, aggregator, vscClient };
 };
 

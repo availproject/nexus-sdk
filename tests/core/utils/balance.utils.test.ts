@@ -77,6 +77,9 @@ describe('getBalancesForSwap', () => {
     // Only chains with positive native balance are fanned out to fee estimation;
     // the second arg is the optional shared PublicClientList (undefined in this test).
     expect(fetchTransferFeesMock).toHaveBeenCalledWith([chain], undefined);
+    // ankrBalanceToAssets no longer receives allowedSources/removeSources — fromSources
+    // filtering moved into _exactOutRoute's refresh body so a refresh with a different
+    // fromSources doesn't have to refetch balances.
     expect(ankrBalanceToAssetsMock).toHaveBeenCalledWith(
       chainList,
       [
@@ -86,9 +89,7 @@ describe('getBalancesForSwap', () => {
           balance: '2.000000000000000000',
         }),
       ],
-      false,
-      undefined,
-      undefined
+      false
     );
   });
 
@@ -123,12 +124,6 @@ describe('getBalancesForSwap', () => {
       filterWithSupportedTokens: false,
     });
 
-    expect(ankrBalanceToAssetsMock).toHaveBeenCalledWith(
-      chainList,
-      [],
-      false,
-      undefined,
-      undefined
-    );
+    expect(ankrBalanceToAssetsMock).toHaveBeenCalledWith(chainList, [], false);
   });
 });
