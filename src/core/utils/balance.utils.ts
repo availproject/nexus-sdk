@@ -38,6 +38,14 @@ const deductTransferFees = (
     return { ...balance, balance: adjusted };
   });
 
+// vservice /swap-balances returns `""` for balanceUsd (and tokenPrice) on unpriced long-tail
+// tokens — `new Decimal("")` throws downstream and rejects the whole route fetch. Coerce
+// empty/missing numeric strings to "0" at this boundary so the rest of the pipeline can
+// trust the values it sees. We don't want to *drop* unpriced assets: the user still holds
+// the balance, and surfacing it at $0 is more useful than hiding it.
+const normalizeDecimalString = (value: string | undefined | null): string =>
+  typeof value === 'string' && value.length > 0 ? value : '0';
+
 // vservice /swap-balances returns Ankr-shaped assets already merged across ankr + multicall
 // chains. Map them into the existing AnkrBalance shape so the downstream pipeline
 // (ankrBalanceToAssets, toFlatBalance) is unchanged.
@@ -47,8 +55,8 @@ const swapAssetsToAnkrBalances = (assets: AnkrAsset[]): AnkrBalance[] => {
     const chainID = Number.parseInt(asset.blockchain, 10);
     if (!Number.isFinite(chainID)) continue;
     out.push({
-      balance: asset.balance,
-      balanceUSD: asset.balanceUsd,
+      balance: normalizeDecimalString(asset.balance),
+      balanceUSD: normalizeDecimalString(asset.balanceUsd),
       chainID,
       tokenAddress: (asset.tokenType === 'ERC20' ? asset.contractAddress : ZERO_ADDRESS) as Hex,
       tokenData: {
