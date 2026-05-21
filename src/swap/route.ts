@@ -795,25 +795,30 @@ const _exactOutRoute = async (
       tokenSwap?.quote.input.amount ?? cotTransferAmount
     ).add(gasInCOT);
 
-    // Apply min(5%, $2) buffer to destination input amount — leftover is returned in COT.
-    const { amountWithBuffer, buffer: dstBuffer } = applyBufferWithCap(
-      destination.inputAmount.min,
-      BUFFER_EXACT_OUT.DESTINATION_SWAP_BUFFER_PCT,
-      BUFFER_EXACT_OUT.DESTINATION_SWAP_MAX_IN_USD
-    );
-    const rounded = amountWithBuffer.toDP(dstChainCOT.decimals, Decimal.ROUND_CEIL);
-
     if (originalMax === null) {
+      // First call: size the bridge by adding the destination buffer (min(10%, $2)).
+      // Leftover COT at the wrapper post-swap is swept back to the EOA.
+      const { amountWithBuffer, buffer: dstBuffer } = applyBufferWithCap(
+        destination.inputAmount.min,
+        BUFFER_EXACT_OUT.DESTINATION_SWAP_BUFFER_PCT,
+        BUFFER_EXACT_OUT.DESTINATION_SWAP_MAX_IN_USD
+      );
+      const rounded = amountWithBuffer.toDP(dstChainCOT.decimals, Decimal.ROUND_CEIL);
       originalMax = rounded;
-    } else if (rounded.gt(originalMax)) {
+      destination.inputAmount.max = rounded;
+      buffer = buffer.add(dstBuffer);
+    } else if (destination.inputAmount.min.gt(originalMax)) {
+      // Requote: the bridge has already been sized for `originalMax`. A requote whose
+      // input requirement still fits inside that budget is fine — leftover gets swept.
+      // Only reject when the requote genuinely outgrows what the bridge funded; do NOT
+      // re-add the buffer on top of newInputMin (that would shrink the usable budget
+      // and reject valid requotes that actually fit). inputAmount.max stays pinned at
+      // originalMax — the bridge already happened, the budget is fixed.
       throw Errors.ratesChangedBeyondTolerance(
-        Number(rounded.toFixed()),
+        Number(destination.inputAmount.min.toFixed()),
         `max budget: ${originalMax.toFixed()}`
       );
     }
-
-    destination.inputAmount.max = rounded;
-    buffer = buffer.add(dstBuffer);
 
     return { creationTime: Date.now(), tokenSwap, gasSwap };
   };
@@ -1019,6 +1024,7 @@ const _exactOutRoute = async (
       swaps: sourceSwapQuotes,
       creationTime: sourceSwapCreationTime,
       executions: sourceExecutions,
+      srcBuffer,
     },
     bridge: bridgeInput,
     destination,
@@ -1043,6 +1049,11 @@ export type SwapRoute = {
     swaps: QuoteResponse[];
     creationTime: number;
     executions: SourceExecutionRecord;
+    // Headroom in COT units that source swaps are allowed to lose on a re-quote when one
+    // or more source legs revert. EXACT_OUT carries `min(2%, $1)` of bridgeOutputWithFees
+    // (see SOURCE_SWAP_BUFFER_PCT / SOURCE_SWAP_MAX_IN_USD). EXACT_IN has no source-side
+    // headroom, so this is 0.
+    srcBuffer: Decimal;
   };
   bridge: BridgeInput;
   destination: {
@@ -1366,6 +1377,7 @@ const _exactInRoute = async (
       swaps: sourceSwaps,
       creationTime: sourceSwapCreationTime,
       executions: sourceExecutions,
+      srcBuffer: new Decimal(0),
     },
     bridge: bridgeInput,
     destination,
