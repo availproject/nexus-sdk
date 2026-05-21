@@ -13,6 +13,7 @@ import type Long from 'long';
 import { pack, unpack } from 'msgpackr';
 import { bytesToBigInt, bytesToNumber, type Hex, toBytes, toHex } from 'viem';
 import {
+  type AnkrAsset,
   type Chain,
   type ChainListType,
   type CosmosQueryClient,
@@ -519,6 +520,9 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
     getTronBalancesForAddress: async (address: `0x${string}`) => {
       return getBalancesFromVSC(instance, address, 'TRON');
     },
+    getSwapBalances: async (address: `0x${string}`) => {
+      return getSwapBalancesFromVSC(instance, address);
+    },
     vscCreateFeeGrant: async (address: string) => {
       const response = await instance.post('/create-feegrant', {
         cosmos_address: address,
@@ -795,6 +799,39 @@ export const getBalancesFromVSC = async (
   }>(`/get-balance/${namespace}/${address}`);
   logger.debug('getBalancesFromVSC', { address, namespace, response });
   return response.data.balances.filter((b) => b.errored !== true);
+};
+
+// vservice returns TypedError on non-2xx; axios's transformResponse runs on errors too,
+// so `err.response.data` is the decoded object. Translate to NexusError before throwing
+// so callers see code/msg, not a raw axios stacktrace.
+const isTypedError = (
+  body: unknown
+): body is { error: true; code: number; http_code: number; msg: string } =>
+  !!body &&
+  typeof body === 'object' &&
+  (body as { error?: unknown }).error === true &&
+  typeof (body as { code?: unknown }).code === 'number';
+
+export const getSwapBalancesFromVSC = async (
+  instance: AxiosInstance,
+  address: `0x${string}`
+): Promise<AnkrAsset[]> => {
+  try {
+    const response = await instance.get<{ assets: AnkrAsset[] }>(
+      `/swap-balances/ETHEREUM/${address}`
+    );
+    logger.debug('getSwapBalancesFromVSC', { address, count: response.data.assets?.length ?? 0 });
+    return response.data.assets ?? [];
+  } catch (err) {
+    const body = axios.isAxiosError(err) ? err.response?.data : undefined;
+    if (isTypedError(body)) {
+      throw Errors.internal(`swap-balances upstream error: ${body.msg}`, {
+        code: body.code,
+        httpCode: body.http_code,
+      });
+    }
+    throw err;
+  }
 };
 
 export { getCoinbasePrices, getFeeStore, createCosmosQueryClient, createVSCClient };
