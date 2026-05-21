@@ -1,4 +1,4 @@
-import { encodeAbiParameters, encodeFunctionData, type Hex } from 'viem';
+import { encodeAbiParameters, encodeFunctionData, type Hex, type PublicClient } from 'viem';
 import CaliburABI from '../abi/calibur.abi';
 import type { Chain } from '../commons';
 import { SUPPORTED_CHAINS } from '../commons/constants';
@@ -108,13 +108,17 @@ export const estimateRepresentativeSwapNativeReserveFee = async ({
   gasEstimate = DEFAULT_SWAP_NATIVE_RESERVE_GAS,
   priceTier = DEFAULT_PRICE_TIER,
   syntheticBufferMultiplier = DEFAULT_SYNTHETIC_SWAP_BUFFER,
+  publicClient,
 }: {
   chain: Chain;
   gasEstimate?: bigint;
   priceTier?: PriceTier;
   syntheticBufferMultiplier?: bigint;
+  // Optional: reuse a cached PublicClient (typically from `PublicClientList`) to avoid
+  // re-handshaking on every route calc. Falls back to a fresh fallback-RPC client.
+  publicClient?: PublicClient;
 }): Promise<bigint> => {
-  const client = createPublicClientWithFallback(chain);
+  const client = publicClient ?? createPublicClientWithFallback(chain);
   const tx = buildRepresentativeSourceExecutionTx();
   const feeContext = await estimateFeeContext(
     client,

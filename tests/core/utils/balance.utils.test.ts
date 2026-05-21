@@ -74,7 +74,9 @@ describe('getBalancesForSwap', () => {
     expect(vscClient.getSwapBalances).toHaveBeenCalledWith(
       '0x1111111111111111111111111111111111111111'
     );
-    expect(fetchTransferFeesMock).toHaveBeenCalledWith([chain]);
+    // Only chains with positive native balance are fanned out to fee estimation;
+    // the second arg is the optional shared PublicClientList (undefined in this test).
+    expect(fetchTransferFeesMock).toHaveBeenCalledWith([chain], undefined);
     expect(ankrBalanceToAssetsMock).toHaveBeenCalledWith(
       chainList,
       [

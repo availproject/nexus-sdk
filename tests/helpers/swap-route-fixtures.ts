@@ -26,14 +26,18 @@ import { ChainList } from '../../src/core/chains';
 import { equalFold } from '../../src/core/utils';
 import type { FlatBalance } from '../../src/swap/data';
 import { determineSwapRoute, type SwapRoute } from '../../src/swap/route';
+import { SAFE_PROXY_FACTORY } from '../../src/swap/safe.constants';
+import { predictSafeAccountAddress } from '../../src/swap/safetx';
 import { PublicClientList } from '../../src/swap/utils';
 
 export const TEST_EOA: Hex = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 export const TEST_EPHEMERAL: Hex = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
-export const TEST_SAFE_FACTORY: Hex = '0x4444444444444444444444444444444444444444';
 
-const safeAddressForChain = (chainId: number): Hex =>
-  `0x${chainId.toString(16).padStart(40, '0')}`.replace('0x', '0xc0c0').slice(0, 42) as Hex;
+// VSC mock: the SDK now derives the Safe address locally via CREATE2 and asserts the
+// server-returned address matches before the route is returned. The mock must therefore
+// echo back the same locally-computed address; returning anything else would trip the
+// verification check.
+export const TEST_SAFE_FACTORY: Hex = SAFE_PROXY_FACTORY;
 
 export const mainnetChainList = (): ChainListType => new ChainList(Environment.JADE);
 
@@ -109,13 +113,13 @@ export const makeMockVscClient = (): VSCClient =>
     vscPublishRFF: vi.fn().mockResolvedValue({ id: Long.fromNumber(0) }),
     vscCreateSponsoredApprovals: vi.fn().mockResolvedValue({ approvals: [], failedChainIds: [] }),
     vscCreateRFF: vi.fn().mockResolvedValue(undefined),
-    vscGetSafeAccountAddress: vi.fn(async (chainId: number, _owner: Hex) => ({
-      address: safeAddressForChain(chainId),
+    vscGetSafeAccountAddress: vi.fn(async (_chainId: number, owner: Hex) => ({
+      address: predictSafeAccountAddress(owner),
       factoryAddress: TEST_SAFE_FACTORY,
       exists: true,
     })),
-    vscEnsureSafeAccount: vi.fn(async ({ chainId }) => ({
-      address: safeAddressForChain(chainId),
+    vscEnsureSafeAccount: vi.fn(async ({ owner }) => ({
+      address: predictSafeAccountAddress(owner),
       deployTxHash: null,
       exists: true,
     })),

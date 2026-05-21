@@ -1,11 +1,10 @@
 import { type Hex, toHex } from 'viem';
-import { describe, expect, it, vi } from 'vitest';
-import { type Chain, SUPPORTED_CHAINS, type VSCClient } from '../../src/commons';
+import { describe, expect, it } from 'vitest';
+import { type Chain, SUPPORTED_CHAINS } from '../../src/commons';
 import type { FlatBalance } from '../../src/swap/data';
 import {
   hasDestinationChainSourceSwapOutput,
   requiresSafeAccount,
-  resolveDestinationExecution,
   toAggregatorInputsWithSwapAddresses,
 } from '../../src/swap/route';
 import {
@@ -47,108 +46,10 @@ describe('requiresSafeAccount', () => {
   });
 });
 
-describe('resolveDestinationExecution', () => {
-  it('uses the deterministic Safe account on HyperEVM when a destination swap is required', async () => {
-    const vscClient = {
-      vscGetSafeAccountAddress: vi.fn().mockResolvedValue({
-        address: '0x3333333333333333333333333333333333333333',
-        factoryAddress: '0x4444444444444444444444444444444444444444',
-      }),
-    } as Partial<VSCClient> as VSCClient;
-
-    const result = await resolveDestinationExecution({
-      chain: {
-        ...baseChain,
-        id: SUPPORTED_CHAINS.HYPEREVM,
-        name: 'HyperEVM',
-        pectraUpgradeSupport: false,
-      },
-      eoaAddress: '0x1111111111111111111111111111111111111111',
-      ephemeralAddress: '0x2222222222222222222222222222222222222222',
-      needsDestinationExecution: true,
-      vscClient,
-    });
-
-    expect(vscClient.vscGetSafeAccountAddress).toHaveBeenCalledWith(
-      SUPPORTED_CHAINS.HYPEREVM,
-      '0x2222222222222222222222222222222222222222'
-    );
-    expect(result).toEqual({
-      address: '0x3333333333333333333333333333333333333333',
-      entryPoint: null,
-      factoryAddress: '0x4444444444444444444444444444444444444444',
-      mode: 'safe_account',
-    });
-  });
-
-  it('keeps the ephemeral executor on 7702 destination paths', async () => {
-    const vscClient = {
-      vscGetSafeAccountAddress: vi.fn(),
-    } as Partial<VSCClient> as VSCClient;
-
-    const result = await resolveDestinationExecution({
-      chain: baseChain,
-      eoaAddress: '0x1111111111111111111111111111111111111111',
-      ephemeralAddress: '0x2222222222222222222222222222222222222222',
-      needsDestinationExecution: true,
-      vscClient,
-    });
-
-    expect(vscClient.vscGetSafeAccountAddress).not.toHaveBeenCalled();
-    expect(result).toEqual({
-      address: '0x2222222222222222222222222222222222222222',
-      entryPoint: null,
-      mode: '7702',
-    });
-  });
-
-  it('keeps direct-to-eoa destination transfers off the smart-account path when no destination swap is needed', async () => {
-    const vscClient = {
-      vscGetSafeAccountAddress: vi.fn(),
-    } as Partial<VSCClient> as VSCClient;
-
-    const result = await resolveDestinationExecution({
-      chain: {
-        ...baseChain,
-        id: SUPPORTED_CHAINS.HYPEREVM,
-        name: 'HyperEVM',
-        pectraUpgradeSupport: false,
-      },
-      eoaAddress: '0x1111111111111111111111111111111111111111',
-      ephemeralAddress: '0x2222222222222222222222222222222222222222',
-      needsDestinationExecution: false,
-      vscClient,
-    });
-
-    expect(vscClient.vscGetSafeAccountAddress).not.toHaveBeenCalled();
-    expect(result).toEqual({
-      address: '0x1111111111111111111111111111111111111111',
-      entryPoint: null,
-      mode: 'direct_eoa',
-    });
-  });
-
-  it('routes no-destination-execution transfers directly to the EOA on 7702 chains as well', async () => {
-    const vscClient = {
-      vscGetSafeAccountAddress: vi.fn(),
-    } as Partial<VSCClient> as VSCClient;
-
-    const result = await resolveDestinationExecution({
-      chain: baseChain,
-      eoaAddress: '0x1111111111111111111111111111111111111111',
-      ephemeralAddress: '0x2222222222222222222222222222222222222222',
-      needsDestinationExecution: false,
-      vscClient,
-    });
-
-    expect(vscClient.vscGetSafeAccountAddress).not.toHaveBeenCalled();
-    expect(result).toEqual({
-      address: '0x1111111111111111111111111111111111111111',
-      entryPoint: null,
-      mode: 'direct_eoa',
-    });
-  });
-});
+// Per-chain Safe-vs-7702 selection is covered by tests/swap/sourceExecution.test.ts
+// (which now targets the combined `resolveChainExecutions` helper). The dst-specific
+// `direct_eoa` downgrade is exercised end-to-end by the integration scenarios below
+// (`assertNoDestinationCalls`, the `combined` flag tests, etc.).
 
 describe('toAggregatorInputsWithSwapAddresses', () => {
   it('populates both takerAddress and receiverAddress with the execution address per source chain', () => {
