@@ -38,6 +38,7 @@ import {
   PublicClientList,
   type SwapMetadata,
   validateDestinationChainForSwap,
+  withAggregatorTiming,
 } from '../swap/utils';
 
 const logger = getLogger();
@@ -79,10 +80,14 @@ export const swap = async (
 
   emitter.emit(SWAP_STEPS.DETERMINING_SWAP());
 
+  // Each aggregator is wrapped so every getQuotes call logs `agg:<name> chains=[...]
+  // requests=N ms=...`. That attribution shows which aggregator × which chain combo is
+  // dominating wall clock inside autoSelectSources / getDstSwap (quote latency varies
+  // significantly by chain).
   const aggregators: Aggregator[] = [
-    new LiFiAggregator(LIFI_API_KEY),
-    new BebopAggregator(BEBOP_API_KEY),
-    new FibrousAggregator(),
+    withAggregatorTiming(new LiFiAggregator(LIFI_API_KEY), 'lifi'),
+    withAggregatorTiming(new BebopAggregator(BEBOP_API_KEY), 'bebop'),
+    withAggregatorTiming(new FibrousAggregator(), 'fibrous'),
   ];
 
   const swapRouteParams = { ...options, publicClientList, aggregators, cotCurrencyID: COT };
@@ -205,6 +210,11 @@ const calculatePerformance = () => {
     );
 
     const entries = performance.getEntries();
+
+    // Route-phase measures (route-fetch, route-dst-quote, route-source-quote,
+    // route-max-bridge-fee, route-verify) are printed inline by `printRouteTimings`
+    // in src/swap/route.ts — once per route call (initial + each refresh) — so they
+    // surface without having to complete the full swap flow.
 
     if (entries.some((entry) => entry.name === 'source-swap-tx-start')) {
       measures.push(

@@ -143,6 +143,9 @@ describe('SwapAndExecuteQuery fee estimation', () => {
       {
         getAddresses: vi.fn().mockResolvedValue([USER_ADDRESS]),
       } as never,
+      // EOA address is now passed in by the caller (already synced by `withReinit`),
+      // so the query no longer re-issues `getAddresses()` on entry.
+      USER_ADDRESS,
       vi.fn().mockResolvedValue({
         assets: [],
         balances: [],
