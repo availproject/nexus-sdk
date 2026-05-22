@@ -1,7 +1,5 @@
 import {
   type Aggregator,
-  autoSelectSources,
-  type Bytes,
   ChaindataMap,
   CurrencyID,
   getDestinationExactInSwap,
@@ -9,6 +7,8 @@ import {
   liquidateSourceHoldings,
   OmniversalChainID,
   type QuoteResponse,
+  type SourceWithValue,
+  selectSources,
   Universe,
 } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
@@ -56,6 +56,69 @@ import {
 } from './utils';
 
 const logger = getLogger();
+
+// Collect and print every route-phase `performance.measure` we can find. Called before
+// each route returns (initial + every refresh) so timings are visible without having to
+// complete the full swap flow — `calculatePerformance` in flows/swap.ts only fires after
+// the user approves the intent and execution finishes, which is too late for diagnosing
+// route latency in isolation.
+//
+// Each phase is gated on its start-mark existing so an exact-out path doesn't blow up
+// looking for `route-max-bridge-fee-start` (exact-in-only). Marks are NOT cleared here;
+// calculatePerformance handles cleanup at end-of-swap. On refresh, each pair is
+// overwritten by the new call's marks, so the print reflects the latest run.
+const printRouteTimings = () => {
+  try {
+    const measures: PerformanceMeasure[] = [];
+    const entries = performance.getEntries();
+    const has = (name: string) => entries.some((e) => e.name === name);
+
+    if (has('route-fetch-start')) {
+      measures.push(
+        performance.measure('route-fetch-duration', 'route-fetch-start', 'route-fetch-end')
+      );
+    }
+    if (has('route-dst-quote-start')) {
+      measures.push(
+        performance.measure(
+          'route-dst-quote-duration',
+          'route-dst-quote-start',
+          'route-dst-quote-end'
+        )
+      );
+    }
+    if (has('route-source-quote-start')) {
+      measures.push(
+        performance.measure(
+          'route-source-quote-duration',
+          'route-source-quote-start',
+          'route-source-quote-end'
+        )
+      );
+    }
+    if (has('route-max-bridge-fee-start')) {
+      measures.push(
+        performance.measure(
+          'route-max-bridge-fee-duration',
+          'route-max-bridge-fee-start',
+          'route-max-bridge-fee-end'
+        )
+      );
+    }
+    if (has('route-verify-start')) {
+      measures.push(
+        performance.measure('route-verify-duration', 'route-verify-start', 'route-verify-end')
+      );
+    }
+
+    console.log('Timings for route:');
+    for (const measure of measures) {
+      console.log(`${measure.name}: ${measure.duration}`);
+    }
+  } catch (e) {
+    logger.error('printRouteTimings', e);
+  }
+};
 
 export const requiresSafeAccount = (chain: Chain | undefined): boolean =>
   !!chain && chain.swapSupported && !chain.pectraUpgradeSupport;
@@ -141,17 +204,13 @@ export const resolveChainExecutions = ({
   };
 };
 
-type AggregatorInput = ReturnType<typeof toAggregatorInputs>[number];
 // Per-holding shape carrying both the swap *taker* (on-chain executor — Calibur ephemeral on
 // 7702 chains, Safe contract on non-Pectra chains) and the *receiver* (output recipient). For
 // source-side swaps the two are always equal — output stays at the wrapper for the bridge step
 // to consume — but they're stored as distinct fields so every call site has to acknowledge
-// each role explicitly. Names mirror the ca-common wrapper vocabulary
-// (`HoldingWithSwapAddresses`).
-type AggregatorInputWithSwapAddresses = AggregatorInput & {
-  takerAddress: Bytes;
-  receiverAddress: Bytes;
-};
+// each role explicitly. Matches ca-common's `SourceWithValue` exactly — re-exported under the
+// SDK-flavored name so older test imports keep working.
+type AggregatorInputWithSwapAddresses = SourceWithValue;
 type SourceExecutionRecord = Record<number, SourceExecution>;
 
 // Source executions are just the per-source-chain slice of the combined chain-execution map.
@@ -590,11 +649,11 @@ const resolveSourceBalances = (
 
 /**
  * Builds assetsUsed, bridgeAssets, dstEOAToEphTx, and dstTotalCOTAmount from
- * autoSelectSources results. Skips dst-chain entries from bridgeAssets and
+ * `selectSources` results. Skips dst-chain entries from bridgeAssets and
  * tracks dst COT for bridge amount deduction.
  */
 const buildExactOutSourceAssets = (
-  usedCOTs: Awaited<ReturnType<typeof autoSelectSources>>['usedCOTs'],
+  usedCOTs: Awaited<ReturnType<typeof selectSources>>['usedCOTs'],
   sourceSwapQuotes: QuoteResponse[],
   dstChainId: number,
   dstCOTDecimals: number
@@ -693,6 +752,7 @@ const _exactOutRoute = async (
   // Fetch unfiltered balances. allowedSources/removeSources were previously passed
   // here so getBalancesForSwap could pre-filter; we now apply both per-call in refresh
   // (so a refresh with a different fromSources doesn't have to re-fetch).
+  performance.mark('route-fetch-start');
   const {
     feeStore,
     balances: rawBalances,
@@ -703,6 +763,7 @@ const _exactOutRoute = async (
     toTokenAddress: input.toTokenAddress,
     dstChain,
   });
+  performance.mark('route-fetch-end');
 
   const { cot: dstChainCOT, address: dstChainCOTAddress } = getCOTForChainId(
     input.toChainId,
@@ -903,7 +964,9 @@ const _exactOutRoute = async (
       return { creationTime: Date.now(), tokenSwap, gasSwap };
     };
 
+    performance.mark('route-dst-quote-start');
     destination.swap = await getDstSwap();
+    performance.mark('route-dst-quote-end');
     destination.getDstSwap = getDstSwap;
 
     logger.debug('destination swaps', destination.swap);
@@ -960,8 +1023,15 @@ const _exactOutRoute = async (
 
     const sourceExecutions = pickSourceExecutions(chainExecutions, sortedBalances);
 
-    const { quoteResponses: rawSourceSwapQuotes, usedCOTs: rawUsedCOTs } = await autoSelectSources({
-      holdings: toAggregatorInputsWithSwapAddresses(sortedBalances, sourceExecutions),
+    // Hands the priority-ordered holdings (each carrying `value` in USD) to ca-common's
+    // `selectSources`. That implementation only surveys the priority-ordered prefix whose
+    // cumulative USD value covers `outputRequired × prefixHeadroom` (default 1.25), and
+    // expands to additional holdings only if the prefix under-delivers — so the typical
+    // route surveys a handful of holdings instead of every dust balance across 10+
+    // chains.
+    performance.mark('route-source-quote-start');
+    const { quoteResponses: rawSourceSwapQuotes, usedCOTs: rawUsedCOTs } = await selectSources({
+      sources: toAggregatorInputsWithSwapAddresses(sortedBalances, sourceExecutions),
       outputRequired: sourceSwapOutputRequired,
       aggregators: params.aggregators,
       commonCurrencyID: params.cotCurrencyID,
@@ -971,6 +1041,7 @@ const _exactOutRoute = async (
       }
       throw e;
     });
+    performance.mark('route-source-quote-end');
 
     // autoSelectSources is sized against sourceSwapOutputRequired (= bridgeOutput +
     // bridgeFees + srcBuffer). When dst-chain holdings sit in the
@@ -1094,7 +1165,11 @@ const _exactOutRoute = async (
     // before returning so any SDK ↔ server config drift surfaces here instead of mid-execution.
     // After the first refresh resolves it, subsequent refreshes just hit the already-settled
     // microtask.
+    performance.mark('route-verify-start');
     await executionsVerification;
+    performance.mark('route-verify-end');
+
+    printRouteTimings();
 
     return buildSwapRouteResult({
       type: 'EXACT_OUT',
@@ -1227,6 +1302,7 @@ const _exactInRoute = async (
     throw Errors.chainNotFound(input.toChainId);
   }
 
+  performance.mark('route-fetch-start');
   const {
     feeStore,
     balances: rawBalances,
@@ -1237,6 +1313,7 @@ const _exactInRoute = async (
     toTokenAddress: input.toTokenAddress,
     dstChain,
   });
+  performance.mark('route-fetch-end');
 
   if (rawBalances.length === 0) {
     throw Errors.noBalanceForAddress(params.address.eoa);
@@ -1306,11 +1383,13 @@ const _exactInRoute = async (
 
     let sourceSwaps: QuoteResponse[] = [];
     if (isSrcSwapRequired) {
+      performance.mark('route-source-quote-start');
       const response = await liquidateSourceHoldings({
         holdings: toAggregatorInputsWithSwapAddresses(srcBalances, sourceExecutions),
         aggregators: params.aggregators,
         commonCurrencyID: params.cotCurrencyID,
       });
+      performance.mark('route-source-quote-end');
 
       if (!response.length) {
         throw Errors.quoteFailed('source swap returned no quotes');
@@ -1335,6 +1414,7 @@ const _exactInRoute = async (
 
     let bridgeInput: BridgeInput = null;
     if (isBridgeRequired) {
+      performance.mark('route-max-bridge-fee-start');
       const { fee: maxFee } = await calculateMaxBridgeFee({
         assets: toBridgeAssetInputs(bridgeAssets),
         dst: {
@@ -1345,6 +1425,7 @@ const _exactInRoute = async (
         feeStore,
         chainList: params.chainList,
       });
+      performance.mark('route-max-bridge-fee-end');
 
       dstSwapInputAmountInDecimal = dstSwapInputAmountInDecimal.minus(maxFee);
       logger.debug('exact-in: after bridge fee deduction', {
@@ -1469,13 +1550,19 @@ const _exactInRoute = async (
       return { gasSwap: null, tokenSwap, creationTime: Date.now() };
     };
 
+    performance.mark('route-dst-quote-start');
     destination.swap = await getDstSwap();
+    performance.mark('route-dst-quote-end');
     destination.getDstSwap = getDstSwap;
 
     // VSC verification fired in the background while quotes ran; resolve it before returning.
     // After the first refresh resolves it, subsequent refreshes just hit the already-settled
     // microtask.
+    performance.mark('route-verify-start');
     await executionsVerification;
+    performance.mark('route-verify-end');
+
+    printRouteTimings();
 
     return buildSwapRouteResult({
       type: 'EXACT_IN',

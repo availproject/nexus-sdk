@@ -1,4 +1,5 @@
 import {
+  type Aggregator,
   type Bytes,
   ChaindataMap,
   CurrencyID,
@@ -509,6 +510,36 @@ export const packERC20Approve = (spender: Hex, amount: bigint) => {
     functionName: 'approve',
   });
 };
+
+/**
+ * Wraps an aggregator so every `getQuotes` call logs its wall clock + the set of chains
+ * the requests target. Quote latency varies a lot by chain (HyperEVM/Citrea are typically
+ * slower than Base/Arbitrum) and by aggregator (LiFi vs Bebop vs Fibrous), so per-call
+ * attribution is what lets us see which combination is the bottleneck inside
+ * `autoSelectSources` / `getDstSwap`.
+ *
+ * Wrap at SDK entry where the Aggregator list is constructed (`flows/swap.ts`,
+ * `flows/calculateMaxForSwap.ts`). The print fails silently — telemetry must not be
+ * load-bearing.
+ */
+export const withAggregatorTiming = (inner: Aggregator, name: string): Aggregator => ({
+  getQuotes: async (requests) => {
+    const t0 = performance.now();
+    try {
+      return await inner.getQuotes(requests);
+    } finally {
+      try {
+        const chainIds = [...new Set(requests.map((r) => Number(r.chain.chainID)))];
+        const ms = (performance.now() - t0).toFixed(0);
+        console.log(
+          `agg:${name} chains=[${chainIds.join(',')}] requests=${requests.length} ms=${ms}`
+        );
+      } catch {
+        // ignore — telemetry is not load-bearing
+      }
+    }
+  },
+});
 
 export const fetchTransferFees = async (
   chains: Chain[],

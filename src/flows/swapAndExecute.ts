@@ -29,6 +29,11 @@ class SwapAndExecuteQuery {
   constructor(
     private chainList: ChainListType,
     private evmClient: WalletClient,
+    // EOA address resolved up-front by the caller (via `withReinit`, which already syncs
+    // `_evm.address` from the wallet). Avoids re-issuing `getAddresses()` on every entry
+    // point — wallet RPCs can add 50–200ms each and the value can't have changed in this
+    // window (`withReinit` already aborted/reinit'd on account change).
+    private address: Hex,
     private getBalancesForSwap: () => Promise<{
       assets: UserAssetDatum[];
       balances: FlatBalance[];
@@ -45,71 +50,106 @@ class SwapAndExecuteQuery {
 
     validateDestinationChainForSwap(this.chainList, toChainId);
 
-    const address = (await this.evmClient.getAddresses())[0];
-    const txs: Tx[] = [];
+    const address = this.address;
 
-    const { tx, approvalTx, dstChain, dstPublicClient } = await this.createTxsForExecute(
-      execute,
-      toChainId,
-      address
-    );
+    // `createTxsForExecute` is now sync — it builds a *speculative* approvalTx
+    // unconditionally (when params.tokenApproval is set) and surfaces the allowance-check
+    // params separately. The actual allowance read is run in parallel with everything else
+    // below, so it no longer blocks the parallel batch.
+    const { tx, speculativeApprovalTx, dstChain, dstPublicClient, allowanceCheck } =
+      this.createTxsForExecute(execute, toChainId);
 
     logger.debug('SwapAndExecute:2', {
       tx,
       dstPublicClient,
-      approvalTx,
+      speculativeApprovalTx,
     });
 
-    if (approvalTx) {
-      txs.push(approvalTx);
-    }
+    // Speculative: every parallel arm assumes the approval *might* be needed.
+    // - approvalGasPromise: estimateGas for the speculative approvalTx. Wasted if allowance
+    //   turns out to be sufficient, but the call runs in parallel either way.
+    // - feeContextPromise: includes the speculative approval in its items list. If approval
+    //   isn't actually needed, we trim `feeContext.overheads[0]` after Promise.all.
+    // - allowancePromise: the deciding read.
+    const allowancePromise = allowanceCheck
+      ? erc20GetAllowance(
+          {
+            contractAddress: allowanceCheck.token,
+            spender: allowanceCheck.spender,
+            owner: address,
+          },
+          dstPublicClient
+        )
+      : Promise.resolve(null);
 
-    txs.push(tx);
-
-    const approvalGasPromise = approvalTx
+    const approvalGasPromise = speculativeApprovalTx
       ? dstPublicClient
           .estimateGas({
-            to: approvalTx.to,
-            data: approvalTx.data,
-            value: approvalTx.value,
+            to: speculativeApprovalTx.to,
+            data: speculativeApprovalTx.data,
+            value: speculativeApprovalTx.value,
             account: address,
           })
           .catch(() => 70_000n)
       : Promise.resolve(0n);
 
+    const feeContextItems = [
+      ...(speculativeApprovalTx
+        ? [
+            {
+              tx: {
+                to: speculativeApprovalTx.to,
+                data: speculativeApprovalTx.data,
+                value: speculativeApprovalTx.value,
+              },
+              gasEstimateKind: 'final' as const,
+            },
+          ]
+        : []),
+      {
+        tx: {
+          to: tx.to,
+          data: tx.data,
+          value: tx.value,
+        },
+      },
+    ];
     const feeContextPromise = estimateFeeContext(
       dstPublicClient,
       toChainId,
-      [
-        ...(approvalTx
-          ? [
-              {
-                tx: {
-                  to: approvalTx.to,
-                  data: approvalTx.data,
-                  value: approvalTx.value,
-                },
-                gasEstimateKind: 'final' as const,
-              },
-            ]
-          : []),
-        {
-          tx: {
-            to: tx.to,
-            data: tx.data,
-            value: tx.value,
-          },
-        },
-      ],
+      feeContextItems,
       params.execute.gasPrice ?? 'medium'
     );
 
-    const [approvalGas, balances, dstTokenInfo, feeContext] = await Promise.all([
+    const [currentAllowance, approvalGas, balances, dstTokenInfo, feeContext] = await Promise.all([
+      allowancePromise,
       approvalGasPromise,
       this.getBalancesForSwap(),
       getTokenInfo(params.toTokenAddress, dstPublicClient, dstChain),
       feeContextPromise,
     ]);
+
+    // Decide whether approval is actually required now that we have the on-chain allowance.
+    const approvalTx: Tx | null =
+      allowanceCheck &&
+      currentAllowance !== null &&
+      currentAllowance < allowanceCheck.requiredAllowance
+        ? speculativeApprovalTx
+        : null;
+
+    // If we built feeContext with a speculative approval but the real allowance covers it,
+    // drop the leading overhead so `overheads` aligns with the real items list (one entry).
+    const effectiveFeeContext =
+      speculativeApprovalTx && !approvalTx
+        ? { ...feeContext, overheads: feeContext.overheads.slice(1) }
+        : feeContext;
+
+    const txs: Tx[] = [];
+    if (approvalTx) {
+      txs.push(approvalTx);
+    }
+    txs.push(tx);
+
     const fees = finalizeFeeEstimates(
       [
         ...(approvalTx
@@ -134,7 +174,7 @@ class SwapAndExecuteQuery {
           gasEstimate: params.execute.gas,
         },
       ],
-      feeContext
+      effectiveFeeContext
     );
     const approvalFee = approvalTx ? fees[0] : null;
     const txFee = fees[approvalTx ? 1 : 0];
@@ -164,7 +204,7 @@ class SwapAndExecuteQuery {
     });
 
     // 6. Determine gas or token needed via bridge
-    const { skipSwap, tokenAmount, gasAmount } = await this.calculateOptimalSwapAmount(
+    const { skipSwap, tokenAmount, gasAmount } = this.calculateOptimalSwapAmount(
       toChainId,
       dstTokenInfo.contractAddress,
       dstTokenInfo.decimals,
@@ -205,8 +245,21 @@ class SwapAndExecuteQuery {
     };
   }
 
-  private async createTxsForExecute(params: SwapExecuteParams, chainId: number, address: Hex) {
-    // 1. Check if dst chain data is available
+  // Sync — does no I/O. The allowance read used to live here, gating every parallel
+  // step downstream; the caller now runs it in parallel with balances / tokenInfo /
+  // feeContext via `allowanceCheck`. We always build the speculative approvalTx when
+  // `params.tokenApproval` is set so callers can both speculate (estimate gas, fold into
+  // feeContext) in parallel with the allowance check itself.
+  private createTxsForExecute(
+    params: SwapExecuteParams,
+    chainId: number
+  ): {
+    tx: Tx;
+    speculativeApprovalTx: Tx | null;
+    dstChain: Chain;
+    dstPublicClient: PublicClient;
+    allowanceCheck: { token: Hex; spender: Hex; requiredAllowance: bigint } | null;
+  } {
     const dstChain = this.chainList.getChainByID(chainId);
     if (!dstChain) {
       throw Errors.chainNotFound(chainId);
@@ -216,43 +269,29 @@ class SwapAndExecuteQuery {
       transport: http(dstChain.rpcUrls.default.http[0]),
     });
 
-    // 2. Check if token is supported
-    let approvalTx: Tx | null = null;
+    let speculativeApprovalTx: Tx | null = null;
+    let allowanceCheck: { token: Hex; spender: Hex; requiredAllowance: bigint } | null = null;
     if (params.tokenApproval) {
-      const spender = params.tokenApproval.spender;
-      const currentAllowance = await erc20GetAllowance(
-        {
-          contractAddress: params.tokenApproval.token,
-          spender: params.tokenApproval.spender,
-          owner: address,
-        },
-        dstPublicClient
-      );
-
       const requiredAllowance = BigInt(params.tokenApproval.amount);
-
-      logger.debug('SwapAndExecute:createTxsForExecute', {
+      speculativeApprovalTx = {
+        to: params.tokenApproval.token,
+        data: packERC20Approve(params.tokenApproval.spender, requiredAllowance),
+        value: 0n,
+      };
+      allowanceCheck = {
+        token: params.tokenApproval.token,
+        spender: params.tokenApproval.spender,
         requiredAllowance,
-        currentAllowance,
-        skipApproval: currentAllowance > requiredAllowance,
-      });
-      if (currentAllowance < requiredAllowance) {
-        approvalTx = {
-          to: params.tokenApproval.token,
-          data: packERC20Approve(spender, requiredAllowance),
-          value: 0n,
-        };
-      }
+      };
     }
 
-    // 4. Encode execute tx
     const tx: Tx = {
       to: params.to,
       value: params.value ?? 0n,
       data: params.data ?? '0x',
     };
 
-    return { tx, approvalTx, dstChain, dstPublicClient };
+    return { tx, speculativeApprovalTx, dstChain, dstPublicClient, allowanceCheck };
   }
 
   public async swapAndExecute(
@@ -380,14 +419,14 @@ class SwapAndExecuteQuery {
    * Calculate optimal bridge amount based on destination chain balance
    * Returns the exact amount needed to bridge, or indicates if bridge can be skipped entirely
    */
-  private async calculateOptimalSwapAmount(
+  private calculateOptimalSwapAmount(
     toChainId: number,
     tokenAddress: Hex,
     tokenDecimals: number,
     requiredTokenAmount: bigint,
     requiredGasAmount: bigint,
     balances: FlatBalance[]
-  ): Promise<{ skipSwap: boolean; tokenAmount: bigint; gasAmount: bigint }> {
+  ): { skipSwap: boolean; tokenAmount: bigint; gasAmount: bigint } {
     let skipSwap = true;
     let tokenAmount = requiredTokenAmount;
     let gasAmount = requiredGasAmount;
