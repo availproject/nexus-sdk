@@ -365,9 +365,9 @@ source amount will be like max + (s1 + s2)sF + (s1 + s2)cF + fF
 
 enum BUFFER_EXACT_OUT {
   DESTINATION_SWAP_BUFFER_PCT = 10,
-  DESTINATION_SWAP_MAX_IN_USD = 2, // <-- magic number ???
+  DESTINATION_SWAP_MAX_IN_USD = 2,
   SOURCE_SWAP_BUFFER_PCT = 2,
-  SOURCE_SWAP_MAX_IN_USD = 1, // <-- another magic
+  SOURCE_SWAP_MAX_IN_USD = 1,
 }
 
 // EXACT_IN: source swaps run with the user's exact input, so we can't oversize them like
@@ -1098,6 +1098,26 @@ const _exactOutRoute = async (
 
     logger.debug('sourceSwap', {
       sourceSwapQuotes,
+    });
+
+    // selectSources' partial-quote loop overshoots by ~2.5%+ (safetyMultiplier=1.025 then
+    // accepts the first quote where output ≥ remainder), so the final source-swap quote
+    // typically delivers more COT than the target sourceSwapOutputRequired. The overshoot
+    // lands at the wrapper / bridged forward and ultimately sweeps back to the user, so
+    // surface it as additional buffer alongside srcBuffer / dstBuffer. Clamped at 0 because
+    // the dropNonDst branch above may legitimately under-deliver vs sourceSwapOutputRequired
+    // (dst-chain alone covers bridgeOutput, fees/srcBuffer are no longer needed).
+    const actualSourceOutput = usedCOTs
+      .reduce((sum, c) => sum.plus(c.amountUsed), new Decimal(0))
+      .plus(sourceSwapQuotes.reduce((sum, q) => sum.plus(q.quote.output.amount), new Decimal(0)));
+    const convergenceExcess = Decimal.max(0, actualSourceOutput.minus(sourceSwapOutputRequired));
+    buffer = buffer.add(convergenceExcess);
+
+    logger.debug('exact-out: loose-convergence excess', {
+      actualSourceOutput: actualSourceOutput.toFixed(),
+      sourceSwapOutputRequired: sourceSwapOutputRequired.toFixed(),
+      convergenceExcess: convergenceExcess.toFixed(),
+      buffer: buffer.toFixed(),
     });
 
     const sourceSwapCreationTime = Date.now();
