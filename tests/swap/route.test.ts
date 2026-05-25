@@ -588,10 +588,10 @@ describe('Combined-swap destination input buffer', () => {
     expect(buyQuote!.inputAmount).toBe(99_500_000n);
   });
 
-  it('does NOT apply combined buffer when combined=false (bridge case)', async () => {
-    // Base NONCOT 100 → bridge → Arbitrum: dst input is sourceOutput minus bridge fee.
-    // The combined buffer must NOT be applied here. We assert the input is not the
-    // 99.5% multiple that the combined path would produce.
+  it('applies EXACT_IN srcBuffer (0.5%, capped at $1) when combined=false (bridge case)', async () => {
+    // Base NONCOT 100 → bridge → Arbitrum: source produces 100 USDC, mock bridge fee = 0,
+    // srcBuffer = min(100 * 0.005, $1) = 0.5 → dst aggregator input = 99.5 USDC. The
+    // under-sized dst input keeps the dst swap funded if a source leg re-quotes lower.
     const { aggregator } = await runDetermineSwapRoute({
       input: exactInInput({
         from: [{ chainId: SUPPORTED_CHAINS.BASE, tokenAddress: NONCOT_BASE }],
@@ -609,9 +609,32 @@ describe('Combined-swap destination input buffer', () => {
     });
     const buyQuote = findDstExactInBuyQuote(destinationCalls);
     expect(buyQuote).toBeDefined();
-    // Whatever the bridge-fee math produces, it must not coincidentally equal the combined
-    // buffer's 99_500_000n. (If feeStore mock returns zero fee the input would be 100_000_000n.)
-    expect(buyQuote!.inputAmount).not.toBe(99_500_000n);
+    // 100 USDC - 0.5 USDC (srcBuffer) = 99.5 USDC
+    expect(buyQuote!.inputAmount).toBe(99_500_000n);
+  });
+
+  it('caps EXACT_IN srcBuffer at $1 for large source amounts', async () => {
+    // Base NONCOT 500 → bridge → Arbitrum: 0.5% would be $2.50 but the cap is $1, so
+    // srcBuffer = $1 → dst aggregator input = 499 USDC.
+    const { aggregator } = await runDetermineSwapRoute({
+      input: exactInInput({
+        from: [{ chainId: SUPPORTED_CHAINS.BASE, tokenAddress: NONCOT_BASE }],
+        toChainId: SUPPORTED_CHAINS.ARBITRUM,
+        toTokenAddress: NONCOT_ARBITRUM,
+      }),
+      preloadedBalances: [makeBalance(SUPPORTED_CHAINS.BASE, NONCOT_BASE, '500')],
+      oraclePrices,
+    });
+
+    const { destinationCalls } = partitionCalls(aggregator.calls, {
+      destChainId: SUPPORTED_CHAINS.ARBITRUM,
+      destToken: NONCOT_ARBITRUM,
+      cotPerChain: COT_PER_CHAIN,
+    });
+    const buyQuote = findDstExactInBuyQuote(destinationCalls);
+    expect(buyQuote).toBeDefined();
+    // 500 USDC - $1 (srcBuffer cap) = 499 USDC
+    expect(buyQuote!.inputAmount).toBe(499_000_000n);
   });
 });
 
