@@ -370,6 +370,16 @@ enum BUFFER_EXACT_OUT {
   SOURCE_SWAP_MAX_IN_USD = 1, // <-- another magic
 }
 
+// EXACT_IN: source swaps run with the user's exact input, so we can't oversize them like
+// EXACT_OUT does. Instead we under-size the dst-swap input by `srcBuffer` and let leftover
+// COT sweep back to the EOA. That keeps the dst swap funded if a source leg reverts and
+// re-quotes up to `srcBuffer` lower; `retryWithSlippageCheck` uses the same value as its
+// retry tolerance.
+enum BUFFER_EXACT_IN {
+  SOURCE_SWAP_BUFFER_PCT = 0.5,
+  SOURCE_SWAP_MAX_IN_USD = 1,
+}
+
 // Headroom on the destination-swap input when source and destination collapse into a single
 // same-wrapper batch. Absorbs aggregator slippage between the source quote (which lands COT at
 // the wrapper) and the destination quote (which spends that COT) inside one atomic execution.
@@ -1207,8 +1217,10 @@ export type SwapRoute = {
     executions: SourceExecutionRecord;
     // Headroom in COT units that source swaps are allowed to lose on a re-quote when one
     // or more source legs revert. EXACT_OUT carries `min(2%, $1)` of bridgeOutputWithFees
-    // (see SOURCE_SWAP_BUFFER_PCT / SOURCE_SWAP_MAX_IN_USD). EXACT_IN has no source-side
-    // headroom, so this is 0.
+    // (see BUFFER_EXACT_OUT). EXACT_IN carries `min(0.5%, $1)` of swapCombinedBalance
+    // (see BUFFER_EXACT_IN) and also subtracts the same amount from the dst-swap input so
+    // the under-sized dst swap stays funded if a source leg re-quotes lower; combined-batch
+    // routes leave this at 0 since CombinedSwapHandler re-quotes both legs together.
     srcBuffer: Decimal;
   };
   bridge: BridgeInput;
@@ -1486,10 +1498,28 @@ const _exactInRoute = async (
       sourceSwaps.every((s) => Number(s.chainID) === currentInput.toChainId) &&
       !!sourceExecutions[currentInput.toChainId] &&
       equalFold(sourceExecutions[currentInput.toChainId].address, destinationExecution.address);
+
+    // Source-retry headroom. Only meaningful when there's an actual source swap that could
+    // revert and re-quote. Combined case uses CombinedSwapHandler (which re-quotes both legs
+    // together) and already applies COMBINED_SAME_CHAIN_BUFFER_PCT below — leave srcBuffer
+    // at 0 there to avoid double-reducing the dst input.
+    const srcBuffer =
+      isSrcSwapRequired && !willBeCombined
+        ? Decimal.min(
+            swapCombinedBalance.mul(BUFFER_EXACT_IN.SOURCE_SWAP_BUFFER_PCT / 100),
+            BUFFER_EXACT_IN.SOURCE_SWAP_MAX_IN_USD
+          )
+        : new Decimal(0);
+
     if (willBeCombined && needsDstSwap) {
       dstSwapInputAmountInDecimal = dstSwapInputAmountInDecimal.mul(
         1 - COMBINED_SAME_CHAIN_BUFFER_PCT / 100
       );
+    } else if (srcBuffer.gt(0) && needsDstSwap) {
+      // Under-size the dst-swap input by srcBuffer so a source re-quote drop up to that
+      // amount doesn't strand the dst-swap transferFrom on an under-supplied wrapper.
+      // Leftover COT post-swap is swept back to the EOA by the existing dst sweeper.
+      dstSwapInputAmountInDecimal = dstSwapInputAmountInDecimal.minus(srcBuffer);
     }
 
     dstSwapInputAmountInDecimal = dstSwapInputAmountInDecimal.toDP(
@@ -1570,7 +1600,7 @@ const _exactInRoute = async (
         swaps: sourceSwaps,
         creationTime: sourceSwapCreationTime,
         executions: sourceExecutions,
-        srcBuffer: new Decimal(0),
+        srcBuffer,
       },
       bridge: bridgeInput,
       destination,
