@@ -15,25 +15,30 @@ export const createSwapIntent = (
   const dstChain = chainList.getChainByID(input.data.toChainId);
   if (!dstChain) throw Errors.chainNotFound(input.data.toChainId);
 
-  // Destination token amount. For EXACT_OUT, input.data.toAmount can be a sentinel
-  // (-1n exact, <-1n surplus) meaning "no bridging for toToken" — clamp to 0n for display,
-  // matching the gas side (which shows '0' when no gas swap is needed).
+  // Destination token amount. Prefer the aggregator's quoted output — it's the guaranteed
+  // floor (on-chain actual ≥ quote), so for EXACT_OUT it's ≥ the user-requested toAmount
+  // and reflects what the user will actually receive. Fallback applies when there's no
+  // tokenSwap: EXACT_OUT direct COT transfer or sentinel toAmount (-1n exact, <-1n surplus)
+  // shows the user-requested amount (clamped to 0n for sentinels, matching gas side);
+  // EXACT_IN with no swap means dst token IS COT, so the COT input amount is the output.
   const dstAmount =
-    input.mode === SwapMode.EXACT_OUT
+    destination.swap.tokenSwap?.quote.output.amount ??
+    (input.mode === SwapMode.EXACT_OUT
       ? divDecimals(
           input.data.toAmount > 0n ? input.data.toAmount : 0n,
           dstTokenInfo.decimals
         ).toFixed()
-      : (destination.swap.tokenSwap?.quote.output.amount ?? destination.inputAmount.min.toFixed());
+      : destination.inputAmount.min.toFixed());
 
-  // Destination USD value — COT input to the token swap is the USDC cost.
-  // If there's no token swap the destination token is already COT (USDC), so amount ≈ USD.
+  // Destination USD value — the aggregator's quote carries an explicit USD `value` for both
+  // sides; use the output's value since it pairs with the output amount shown above. Fallback
+  // when there's no tokenSwap: the destination token is already COT (USDC), so amount ≈ USD.
   const dstValue = destination.swap.tokenSwap
-    ? destination.swap.tokenSwap.quote.input.amount
+    ? destination.swap.tokenSwap.quote.output.value.toString()
     : dstAmount;
 
   const gasAmount = destination.swap.gasSwap?.quote?.output.amount ?? '0';
-  const gasValue = destination.swap.gasSwap?.quote?.input.amount ?? '0';
+  const gasValue = destination.swap.gasSwap?.quote?.output.value.toString() ?? '0';
 
   // Bridge fees
   let totalBridgeFee = new Decimal(0);
