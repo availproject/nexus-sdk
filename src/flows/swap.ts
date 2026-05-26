@@ -294,7 +294,6 @@ const createSwapHandlerOptions = ({
   destinationChainID: input.data.toChainId,
   emitter,
   publicClientList,
-  slippage: 0.005,
   wallet: options.wallet,
   cosmosQueryClient: options.cosmosQueryClient,
   vscClient: options.vscClient,

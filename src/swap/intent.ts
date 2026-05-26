@@ -38,7 +38,7 @@ export const createSwapIntent = (
     : dstAmount;
 
   const gasAmount = destination.swap.gasSwap?.quote?.output.amount ?? '0';
-  const gasValue = destination.swap.gasSwap?.quote?.output.value.toString() ?? '0';
+  const gasValue = destination.swap.gasSwap?.quote?.output.value?.toString() ?? '0';
 
   // Bridge fees
   let totalBridgeFee = new Decimal(0);

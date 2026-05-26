@@ -17,7 +17,7 @@ const caliburExecuteMock = vi.hoisted(() => vi.fn());
 const checkAuthCodeSetMock = vi.hoisted(() => vi.fn());
 const waitForSBCTxReceiptMock = vi.hoisted(() => vi.fn());
 const createBridgeRFFMock = vi.hoisted(() => vi.fn());
-const liquidateInputHoldingsMock = vi.hoisted(() => vi.fn());
+const liquidateSourceHoldingsMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@avail-project/ca-common', async () => {
   const actual = await vi.importActual<typeof import('@avail-project/ca-common')>(
@@ -25,7 +25,7 @@ vi.mock('@avail-project/ca-common', async () => {
   );
   return {
     ...actual,
-    liquidateInputHoldings: liquidateInputHoldingsMock,
+    liquidateSourceHoldings: liquidateSourceHoldingsMock,
   };
 });
 
@@ -201,7 +201,6 @@ describe('DestinationSwapHandler', () => {
         destinationChainID: 999,
         emitter,
         publicClientList: { get: vi.fn() },
-        slippage: 0.005,
         vscClient,
         wallet: {
           cosmos: {} as never,
@@ -285,7 +284,6 @@ describe('DestinationSwapHandler', () => {
         destinationChainID: 999,
         emitter,
         publicClientList: { get: vi.fn() },
-        slippage: 0.005,
         vscClient,
         wallet: {
           cosmos: {} as never,
@@ -416,7 +414,6 @@ describe('SourceSwapsHandler', () => {
         },
         emitter: { emit: vi.fn() },
         publicClientList: { get: vi.fn(() => ({})) },
-        slippage: 0.005,
         vscClient,
         wallet: {
           eoa: {} as never,
@@ -534,7 +531,6 @@ describe('SourceSwapsHandler', () => {
         },
         emitter: { emit: vi.fn() },
         publicClientList: { get: vi.fn(() => ({})) },
-        slippage: 0.005,
         vscClient,
         wallet: {
           eoa: {} as never,
@@ -689,7 +685,6 @@ describe('SourceSwapsHandler', () => {
           },
           emitter: { emit: vi.fn() },
           publicClientList: { get: vi.fn(() => ({})) },
-          slippage: 0.005,
           vscClient: {
             vscCreateSafeExecuteTx: vi.fn(),
             vscSBCTx: vi.fn(),
@@ -710,13 +705,11 @@ describe('SourceSwapsHandler', () => {
     } as never;
 
     const queueRequotes = (specs: SwapSpec[]) => {
-      for (const s of specs) {
-        liquidateInputHoldingsMock.mockResolvedValueOnce([makeQuote(s)]);
-      }
+      liquidateSourceHoldingsMock.mockResolvedValueOnce(specs.map(makeQuote));
     };
 
     beforeEach(() => {
-      liquidateInputHoldingsMock.mockReset();
+      liquidateSourceHoldingsMock.mockReset();
     });
 
     it('accepts retry when new total drops within srcBuffer', async () => {
@@ -798,6 +791,26 @@ describe('SourceSwapsHandler', () => {
       vi.spyOn(handler, 'process').mockResolvedValue([] as never);
 
       await expect(handler.retryWithSlippageCheck(metadata, [1])).resolves.not.toThrow();
+    });
+
+    it('normalizes mixed COT decimals before applying srcBuffer', async () => {
+      // Old = 100 + 100 USDC. New = 99.75 + 99.75 USDC.
+      // Normalized drop = 0.5, srcBuffer = 1.0 -> PASS.
+      // A raw bigint sum incorrectly treats the 18-decimal leg as a huge raw drop.
+      const handler = buildHandler({
+        srcBuffer: new Decimal('1'),
+        initialSwaps: [
+          { chainID: 1, outputAmountRaw: 100_000_000n, outputDecimals: 6 },
+          { chainID: 56, outputAmountRaw: 100_000_000_000_000_000_000n, outputDecimals: 18 },
+        ],
+      });
+      queueRequotes([
+        { chainID: 1, outputAmountRaw: 99_750_000n, outputDecimals: 6 },
+        { chainID: 56, outputAmountRaw: 99_750_000_000_000_000_000n, outputDecimals: 18 },
+      ]);
+      vi.spyOn(handler, 'process').mockResolvedValue([] as never);
+
+      await expect(handler.retryWithSlippageCheck(metadata, [1, 56])).resolves.not.toThrow();
     });
 
     it('rejects when fractional srcBuffer is exceeded', async () => {

@@ -235,6 +235,7 @@ const makeRoute = (overrides?: {
   type?: 'EXACT_IN' | 'EXACT_OUT';
   srcInputAddr?: Hex;
   srcOutputAmountRaw?: bigint;
+  srcBuffer?: Decimal;
   destinationMode?: 'safe_account' | '7702';
   dstSwap?: ReturnType<typeof makeDstQuote> | null;
   gasSwap?: ReturnType<typeof makeGasSwap> | null;
@@ -266,6 +267,7 @@ const makeRoute = (overrides?: {
           mode,
         },
       },
+      srcBuffer: overrides?.srcBuffer ?? new Decimal(0),
     },
     bridge: null,
     destination: {
@@ -338,7 +340,6 @@ const baseOptions = () => {
       destinationChainID: CHAIN_ID,
       emitter,
       publicClientList: { get: vi.fn(() => publicClient) },
-      slippage: 0.005,
       vscClient,
       wallet: { cosmos: {} as never, eoa: {} as never, ephemeral: {} as never },
     } as never,
@@ -545,90 +546,128 @@ describe('CombinedSwapHandler.requoteBothLegs (retry on revert)', () => {
     createSBCTxFromCallsMock.mockResolvedValue({ kind: 'sbc' });
     checkAuthCodeSetMock.mockResolvedValue(true);
     waitForSBCTxReceiptMock.mockResolvedValue(undefined);
-    // Re-quoted source returns the same shape (identity output of 100 USDC).
+    // Default: source re-quote returns same output (no drop).
     liquidateSourceHoldingsMock.mockResolvedValue([makeSourceQuote()]);
-    autoSelectSourcesMock.mockResolvedValue({
-      quoteResponses: [makeSourceQuote()],
-      usedCOTs: [],
-    });
-    // Re-quoted dst returns same output (no slippage).
-    getDestinationExactInSwapMock.mockResolvedValue(makeDstQuote());
-    getDestinationExactOutSwapMock.mockResolvedValue(makeDstQuote());
   });
 
-  it('on revert, re-quotes EXACT_IN via liquidateSourceHoldings + getDestinationExactInSwap then retries', async () => {
+  it('on revert (EXACT_IN), re-quotes source via liquidateSourceHoldings, dst via route.destination.getDstSwap, then retries', async () => {
     const { options, vscClient } = baseOptions();
     vscClient.vscCreateSafeExecuteTx
       .mockRejectedValueOnce(new Error('execution reverted'))
       .mockResolvedValueOnce([BigInt(CHAIN_ID), SAFE_HASH]);
 
+    const route = makeRoute({ type: 'EXACT_IN' });
+    await new CombinedSwapHandler(route, options).process(makeMetadata() as never);
+
+    expect(liquidateSourceHoldingsMock).toHaveBeenCalledTimes(1);
+    expect(
+      (route as never as { destination: { getDstSwap: ReturnType<typeof vi.fn> } }).destination
+        .getDstSwap
+    ).toHaveBeenCalled();
+    // No direct getDestinationExactInSwap call — dst quoting is delegated to the closure.
+    expect(getDestinationExactInSwapMock).not.toHaveBeenCalled();
+    expect(vscClient.vscCreateSafeExecuteTx).toHaveBeenCalledTimes(2);
+  });
+
+  it('re-quotes source with the SAME input amounts as the initial swaps (no re-approval/permit prompt)', async () => {
+    const { options, vscClient } = baseOptions();
+    vscClient.vscCreateSafeExecuteTx
+      .mockRejectedValueOnce(new Error('execution reverted'))
+      .mockResolvedValueOnce([BigInt(CHAIN_ID), SAFE_HASH]);
+
+    // Initial source input is 100_000_000n via makeSourceQuote default.
     await new CombinedSwapHandler(makeRoute({ type: 'EXACT_IN' }), options).process(
       makeMetadata() as never
     );
 
-    expect(liquidateSourceHoldingsMock).toHaveBeenCalledTimes(1);
-    expect(getDestinationExactInSwapMock).toHaveBeenCalledTimes(1);
+    const callArgs = liquidateSourceHoldingsMock.mock.calls[0][0] as {
+      holdings: { amountRaw: bigint }[];
+    };
+    expect(callArgs.holdings).toHaveLength(1);
+    expect(callArgs.holdings[0].amountRaw).toBe(100_000_000n);
+  });
+
+  it('on revert (EXACT_OUT), re-quotes dst FIRST (so getDstSwap rate guard fails fast), then source', async () => {
+    const { options, vscClient } = baseOptions();
+    vscClient.vscCreateSafeExecuteTx
+      .mockRejectedValueOnce(new Error('execution reverted'))
+      .mockResolvedValueOnce([BigInt(CHAIN_ID), SAFE_HASH]);
+
+    const callOrder: string[] = [];
+    const route = makeRoute({
+      type: 'EXACT_OUT',
+      getDstSwapImpl: async () => {
+        callOrder.push('getDstSwap');
+        return { creationTime: Date.now(), gasSwap: null, tokenSwap: makeDstQuote() };
+      },
+    });
+    liquidateSourceHoldingsMock.mockImplementation(async () => {
+      callOrder.push('liquidateSourceHoldings');
+      return [makeSourceQuote()];
+    });
+
+    await new CombinedSwapHandler(route, options).process(makeMetadata() as never);
+
+    expect(callOrder).toEqual(['getDstSwap', 'liquidateSourceHoldings']);
+  });
+
+  it('accepts retry when source-output drop is within srcBuffer', async () => {
+    // srcBuffer = 1 USDC (1_000_000 raw). New source produces 99.5 USDC (drop = 0.5) →
+    // within buffer → retry succeeds.
+    const { options, vscClient } = baseOptions();
+    vscClient.vscCreateSafeExecuteTx
+      .mockRejectedValueOnce(new Error('execution reverted'))
+      .mockResolvedValueOnce([BigInt(CHAIN_ID), SAFE_HASH]);
+
+    liquidateSourceHoldingsMock.mockResolvedValue([
+      makeSourceQuote({ outputAmountRaw: 99_500_000n }),
+    ]);
+
+    await expect(
+      new CombinedSwapHandler(
+        makeRoute({ type: 'EXACT_IN', srcBuffer: new Decimal(1) }),
+        options
+      ).process(makeMetadata() as never)
+    ).resolves.toBeUndefined();
     expect(vscClient.vscCreateSafeExecuteTx).toHaveBeenCalledTimes(2);
   });
 
-  it('on revert (EXACT_OUT), requotes destination via route.destination.getDstSwap FIRST, then reselects source via autoSelectSources', async () => {
+  it('throws slippage error when source-output drop exceeds srcBuffer', async () => {
+    // srcBuffer = 0.5 USDC (500_000 raw). New source produces 98 USDC (drop = 2) → exceeds
+    // buffer → throws.
     const { options, vscClient } = baseOptions();
-    vscClient.vscCreateSafeExecuteTx
-      .mockRejectedValueOnce(new Error('execution reverted'))
-      .mockResolvedValueOnce([BigInt(CHAIN_ID), SAFE_HASH]);
+    vscClient.vscCreateSafeExecuteTx.mockRejectedValue(new Error('execution reverted'));
 
-    const route = makeRoute({ type: 'EXACT_OUT' });
-    // Track call order across both mocks.
-    const callOrder: string[] = [];
-    (
-      route as never as { destination: { getDstSwap: ReturnType<typeof vi.fn> } }
-    ).destination.getDstSwap = vi.fn().mockImplementation(async () => {
-      callOrder.push('getDstSwap');
-      return {
-        creationTime: Date.now(),
-        gasSwap: null,
-        tokenSwap: makeDstQuote(),
-      };
-    });
-    autoSelectSourcesMock.mockImplementation(async () => {
-      callOrder.push('autoSelectSources');
-      return { quoteResponses: [makeSourceQuote()], usedCOTs: [] };
-    });
+    liquidateSourceHoldingsMock.mockResolvedValue([
+      makeSourceQuote({ outputAmountRaw: 98_000_000n }),
+    ]);
 
-    await new CombinedSwapHandler(route, options).process(makeMetadata() as never);
-
-    expect(callOrder).toEqual(['getDstSwap', 'autoSelectSources']);
-    // Direct call to getDestinationExactOutSwap should NOT happen — closure handles it.
-    expect(getDestinationExactOutSwapMock).not.toHaveBeenCalled();
+    await expect(
+      new CombinedSwapHandler(
+        makeRoute({ type: 'EXACT_IN', srcBuffer: new Decimal('0.5') }),
+        options
+      ).process(makeMetadata() as never)
+    ).rejects.toThrow(/buffer/i);
   });
 
-  it('on EXACT_OUT retry with gasSwap present, autoSelectSources outputRequired includes tokenSwap.input + gasSwap.input', async () => {
+  it('source buffer check applies to EXACT_OUT as well', async () => {
+    // srcBuffer = 0.5 USDC. New source produces 98 USDC (drop = 2) → exceeds → throws.
     const { options, vscClient } = baseOptions();
-    vscClient.vscCreateSafeExecuteTx
-      .mockRejectedValueOnce(new Error('execution reverted'))
-      .mockResolvedValueOnce([BigInt(CHAIN_ID), SAFE_HASH]);
+    vscClient.vscCreateSafeExecuteTx.mockRejectedValue(new Error('execution reverted'));
 
-    // Refreshed dst on retry: tokenSwap pulls 45 USDC, gasSwap pulls 4 USDC. Source must
-    // produce ≥ 49 USDC (sum) to cover both legs.
-    const route = makeRoute({
-      type: 'EXACT_OUT',
-      gasSwap: makeGasSwap({ inputAmountRaw: 5_000_000n }),
-      dstSwap: makeDstQuote({ inputAmountRaw: 50_000_000n }),
-      getDstSwapImpl: async () => ({
-        creationTime: Date.now(),
-        tokenSwap: makeDstQuote({ inputAmountRaw: 45_000_000n }),
-        gasSwap: makeGasSwap({ inputAmountRaw: 4_000_000n }),
-      }),
-    });
+    liquidateSourceHoldingsMock.mockResolvedValue([
+      makeSourceQuote({ outputAmountRaw: 98_000_000n }),
+    ]);
 
-    await new CombinedSwapHandler(route, options).process(makeMetadata() as never);
-
-    expect(autoSelectSourcesMock).toHaveBeenCalledTimes(1);
-    const callArgs = autoSelectSourcesMock.mock.calls[0][0] as { outputRequired: Decimal };
-    expect(callArgs.outputRequired.toFixed()).toBe('49');
+    await expect(
+      new CombinedSwapHandler(
+        makeRoute({ type: 'EXACT_OUT', srcBuffer: new Decimal('0.5') }),
+        options
+      ).process(makeMetadata() as never)
+    ).rejects.toThrow(/buffer/i);
   });
 
-  it('on EXACT_OUT retry, getDstSwap rate-guard throw propagates after MAX_RETRIES', async () => {
+  it('propagates getDstSwap throw (e.g. rate guard) without falling through to a source re-quote', async () => {
     const { options, vscClient } = baseOptions();
     vscClient.vscCreateSafeExecuteTx.mockRejectedValue(new Error('execution reverted'));
 
@@ -643,140 +682,47 @@ describe('CombinedSwapHandler.requoteBothLegs (retry on revert)', () => {
     await expect(
       new CombinedSwapHandler(route, options).process(makeMetadata() as never)
     ).rejects.toThrow();
-    // Initial attempt + retries: initial submit failed, then 2 retries each blocked by
-    // getDstSwap throwing. Submit is only called once (initial attempt) because each retry
-    // throws before reaching submit.
+    // Initial attempt submits once, fails, then each retry throws inside getDstSwap before
+    // reaching submit or source re-quote.
     expect(vscClient.vscCreateSafeExecuteTx).toHaveBeenCalledTimes(1);
+    expect(liquidateSourceHoldingsMock).not.toHaveBeenCalled();
   });
 
-  it('on EXACT_OUT retry with eoaToDestinationAccount set, autoSelectSources outputRequired subtracts the direct COT credit', async () => {
+  it('updates route.source.swaps and route.destination.swap after a successful retry', async () => {
     const { options, vscClient } = baseOptions();
     vscClient.vscCreateSafeExecuteTx
       .mockRejectedValueOnce(new Error('execution reverted'))
       .mockResolvedValueOnce([BigInt(CHAIN_ID), SAFE_HASH]);
 
-    // Refreshed dst: tokenSwap pulls 45 USDC + gasSwap pulls 4 USDC = 49 USDC total at the
-    // wrapper. EOA already supplies 20 USDC via the batched transferFrom — source must
-    // produce only 49 - 20 = 29 USDC.
+    // The retry path replaces source.swaps with the liquidate result; identify by a
+    // distinct output amount that doesn't match the initial.
+    const refreshedSrc = makeSourceQuote({ outputAmountRaw: 99_900_000n });
+    const refreshedDst = makeDstQuote({ inputAmountRaw: 99_400_000n });
+    liquidateSourceHoldingsMock.mockResolvedValue([refreshedSrc]);
+
     const route = makeRoute({
-      type: 'EXACT_OUT',
-      gasSwap: makeGasSwap({ inputAmountRaw: 5_000_000n }),
-      dstSwap: makeDstQuote({ inputAmountRaw: 50_000_000n }),
-      eoaToDestinationAccount: { amount: 20_000_000n, contractAddress: USDC },
+      type: 'EXACT_IN',
+      srcBuffer: new Decimal(1),
       getDstSwapImpl: async () => ({
         creationTime: Date.now(),
-        tokenSwap: makeDstQuote({ inputAmountRaw: 45_000_000n }),
-        gasSwap: makeGasSwap({ inputAmountRaw: 4_000_000n }),
+        gasSwap: null,
+        tokenSwap: refreshedDst,
       }),
     });
 
     await new CombinedSwapHandler(route, options).process(makeMetadata() as never);
 
-    expect(autoSelectSourcesMock).toHaveBeenCalledTimes(1);
-    const callArgs = autoSelectSourcesMock.mock.calls[0][0] as { outputRequired: Decimal };
-    expect(callArgs.outputRequired.toFixed()).toBe('29');
-  });
-
-  it('on EXACT_OUT retry, autoSelectSources outputRequired clamps to zero when direct COT credit >= dst requirement', async () => {
-    const { options, vscClient } = baseOptions();
-    vscClient.vscCreateSafeExecuteTx
-      .mockRejectedValueOnce(new Error('execution reverted'))
-      .mockResolvedValueOnce([BigInt(CHAIN_ID), SAFE_HASH]);
-
-    // EOA holds 100 USDC; refreshed dst needs only 49 USDC. Source needs 0 USDC — clamp.
-    const route = makeRoute({
-      type: 'EXACT_OUT',
-      gasSwap: makeGasSwap({ inputAmountRaw: 5_000_000n }),
-      dstSwap: makeDstQuote({ inputAmountRaw: 50_000_000n }),
-      eoaToDestinationAccount: { amount: 100_000_000n, contractAddress: USDC },
-      getDstSwapImpl: async () => ({
-        creationTime: Date.now(),
-        tokenSwap: makeDstQuote({ inputAmountRaw: 45_000_000n }),
-        gasSwap: makeGasSwap({ inputAmountRaw: 4_000_000n }),
-      }),
-    });
-
-    await new CombinedSwapHandler(route, options).process(makeMetadata() as never);
-
-    const callArgs = autoSelectSourcesMock.mock.calls[0][0] as { outputRequired: Decimal };
-    expect(callArgs.outputRequired.toFixed()).toBe('0');
-  });
-
-  it('on EXACT_IN retry with eoaToDestinationAccount set, getDestinationExactInSwap inputAmount includes the direct dst-chain COT credit (buffered)', async () => {
-    const { options, vscClient } = baseOptions();
-    vscClient.vscCreateSafeExecuteTx
-      .mockRejectedValueOnce(new Error('execution reverted'))
-      .mockResolvedValueOnce([BigInt(CHAIN_ID), SAFE_HASH]);
-
-    // Source re-quote returns 100 USDC; eoaToDestinationAccount adds 20 USDC via the
-    // batched transferFrom. Wrapper holds 120 USDC; dst should be quoted for
-    // 120 USDC * (1 - 0.5%) = 119.4 USDC = 119_400_000n.
-    const route = makeRoute({
-      type: 'EXACT_IN',
-      eoaToDestinationAccount: { amount: 20_000_000n, contractAddress: USDC },
-    });
-
-    await new CombinedSwapHandler(route, options).process(makeMetadata() as never);
-
-    expect(getDestinationExactInSwapMock).toHaveBeenCalledTimes(1);
-    const args = getDestinationExactInSwapMock.mock.calls[0][0] as { inputAmount: bigint };
-    expect(args.inputAmount).toBe(119_400_000n);
-  });
-
-  it('source slippage guard ignores the fixed direct-COT credit (only source-swap output counts)', async () => {
-    const { options, vscClient } = baseOptions();
-    vscClient.vscCreateSafeExecuteTx
-      .mockRejectedValueOnce(new Error('execution reverted'))
-      .mockResolvedValueOnce([BigInt(CHAIN_ID), SAFE_HASH]);
-
-    // Old source output 100 USDC. EOA contributes a fixed 50 USDC, but that is not
-    // source-quote performance and must not blunt the slippage guard. New source output
-    // drops to 99.7 USDC — within 0.5% slippage of the OLD source amount alone, so the
-    // retry should still proceed (no throw).
-    liquidateSourceHoldingsMock.mockResolvedValue([
-      makeSourceQuote({ outputAmountRaw: 99_700_000n }),
-    ]);
-
-    const route = makeRoute({
-      type: 'EXACT_IN',
-      eoaToDestinationAccount: { amount: 50_000_000n, contractAddress: USDC },
-    });
-
-    // Should not throw. Wrapper total: 99.7 + 50 = 149.7 USDC; dst input = 149.7 * 0.995.
-    await new CombinedSwapHandler(route, options).process(makeMetadata() as never);
-    const args = getDestinationExactInSwapMock.mock.calls[0][0] as { inputAmount: bigint };
-    expect(args.inputAmount).toBe(148_951_500n);
-  });
-
-  it('throws slippage error on EXACT_IN combined retry when source output drops > options.slippage even with no dst tokenSwap', async () => {
-    const { options, vscClient } = baseOptions();
-    vscClient.vscCreateSafeExecuteTx.mockRejectedValue(new Error('execution reverted'));
-
-    // Re-quoted source drops 20% — way beyond the 0.5% options.slippage. Even with no dst
-    // tokenSwap (toToken == COT case), this must still throw.
-    const degradedSrc = makeSourceQuote({ outputAmountRaw: 80_000_000n });
-    liquidateSourceHoldingsMock.mockResolvedValue([degradedSrc]);
-
-    await expect(
-      new CombinedSwapHandler(makeRoute({ dstSwap: null }), options).process(
-        makeMetadata() as never
-      )
-    ).rejects.toThrow(/slippage/i);
-  });
-
-  it('throws slippage error if re-quoted dst output drops more than options.slippage', async () => {
-    const { options, vscClient } = baseOptions();
-    vscClient.vscCreateSafeExecuteTx.mockRejectedValue(new Error('execution reverted'));
-    // Re-quoted dst output dropped from 90 USDH to 70 USDH — way over the 0.5% allowance.
-    getDestinationExactInSwapMock.mockResolvedValue(makeDstQuote({ inputAmountRaw: 99_500_000n }));
-    getDestinationExactInSwapMock.mockReset();
-    const degradedDst = makeDstQuote();
-    degradedDst.quote.output.amountRaw = 70_000_000n;
-    getDestinationExactInSwapMock.mockResolvedValue(degradedDst);
-
-    await expect(
-      new CombinedSwapHandler(makeRoute(), options).process(makeMetadata() as never)
-    ).rejects.toThrow();
+    expect(
+      (route as never as { source: { swaps: { quote: { output: { amountRaw: bigint } } }[] } })
+        .source.swaps[0].quote.output.amountRaw
+    ).toBe(99_900_000n);
+    expect(
+      (
+        route as never as {
+          destination: { swap: { tokenSwap: { quote: { input: { amountRaw: bigint } } } } };
+        }
+      ).destination.swap.tokenSwap.quote.input.amountRaw
+    ).toBe(99_400_000n);
   });
 
   it('caps retries at MAX_RETRIES (2) and propagates final failure', async () => {

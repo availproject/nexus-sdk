@@ -1,15 +1,11 @@
 import {
   type Aggregator,
-  autoSelectSources,
   type Bytes,
   ChaindataMap,
   type CurrencyID,
-  getDestinationExactInSwap,
-  liquidateInputHoldings,
   liquidateSourceHoldings,
   OmniversalChainID,
   type Quote,
-  type QuoteResponse,
   Universe,
 } from '@avail-project/ca-common';
 import type { SigningStargateClient } from '@cosmjs/stargate';
@@ -34,7 +30,7 @@ import { Errors } from '../core/errors';
 import { divDecimals, equalFold, minutesToMs, switchChain, waitForTxReceipt } from '../core/utils';
 import { EADDRESS, SWEEPER_ADDRESS } from './constants';
 import { createBridgeRFF } from './rff';
-import { COMBINED_SAME_CHAIN_BUFFER_PCT, type SwapRoute } from './route';
+import type { SwapRoute } from './route';
 import { createSafeExecuteEOASubmittedTx, createSafeExecuteTxFromCalls } from './safetx';
 import { caliburExecute, checkAuthCodeSet, createSBCTxFromCalls, waitForSBCTxReceipt } from './sbc';
 import {
@@ -73,7 +69,6 @@ type Options = {
     emit: (step: SwapStepType) => void;
   };
   publicClientList: PublicClientList;
-  slippage: number;
   wallet: {
     cosmos: SigningStargateClient;
     eoa: WalletClient;
@@ -82,6 +77,63 @@ type Options = {
 } & QueryClients;
 
 const logger = getLogger();
+
+/**
+ * Re-quote the given source-leg holdings with their original input amounts (so no
+ * re-approval/permit is needed) and verify the combined new COT output stays within
+ * `srcBuffer` of the old total. Shared by SourceSwapsHandler.retryWithSlippageCheck
+ * (partial retry — failed-chain subset) and CombinedSwapHandler.requoteBothLegs
+ * (full retry — atomic batch). Wraps the aggregator call in `retry` to absorb
+ * transient quote failures. Throws on no quotes or buffer breach.
+ */
+const liquidateAndCheckSrcBuffer = async ({
+  oldSwaps,
+  holdings,
+  srcBuffer,
+  aggregators,
+  commonCurrencyID,
+  errorPrefix,
+}: {
+  oldSwaps: SwapRoute['source']['swaps'];
+  holdings: Parameters<typeof liquidateSourceHoldings>[0]['holdings'];
+  srcBuffer: Decimal;
+  aggregators: Aggregator[];
+  commonCurrencyID: CurrencyID;
+  errorPrefix: string;
+}): Promise<SwapRoute['source']['swaps']> => {
+  const newSwaps = await retry(
+    () => liquidateSourceHoldings({ holdings, aggregators, commonCurrencyID }),
+    { retries: 2 }
+  );
+  if (newSwaps.length === 0) {
+    throw Errors.quoteFailed(`${errorPrefix}: source re-quote returned no quotes`);
+  }
+
+  const oldTotal = oldSwaps.reduce(
+    (acc, q) => acc.add(divDecimals(q.quote.output.amountRaw, q.quote.output.decimals)),
+    new Decimal(0)
+  );
+  const newTotal = newSwaps.reduce(
+    (acc, q) => acc.add(divDecimals(q.quote.output.amountRaw, q.quote.output.decimals)),
+    new Decimal(0)
+  );
+
+  if (oldTotal.gt(0)) {
+    const minAcceptable = Decimal.max(oldTotal.sub(srcBuffer), 0);
+    logger.debug(`${errorPrefix}: source buffer check`, {
+      oldTotal: oldTotal.toFixed(),
+      newTotal: newTotal.toFixed(),
+      srcBuffer: srcBuffer.toFixed(),
+    });
+    if (newTotal.lt(minAcceptable)) {
+      throw Errors.slippageError(
+        `${errorPrefix}: source COT output dropped from ${oldTotal.toFixed()} to ${newTotal.toFixed()} (>${srcBuffer.toFixed()} buffer)`
+      );
+    }
+  }
+
+  return newSwaps;
+};
 
 class BridgeHandler {
   private depositCalls: RFFDepositCallMap = {};
@@ -1023,90 +1075,41 @@ class SourceSwapsHandler {
     }
   }
 
-  // Re-quote source legs that reverted, then enforce that the combined output drop fits
-  // inside the route's pre-allocated source buffer. The buffer (srcBuffer in COT units,
-  // sized as `min(2%, $1)` of bridgeOutputWithFees for EXACT_OUT, 0 for EXACT_IN) is the
-  // only headroom the bridge step has — re-quote drops larger than that would underflow
-  // the bridge's input requirement. A static slippage % is unrelated to that requirement
-  // and was previously over- or under-strict depending on the failed-leg output size.
+  // Re-quote source legs on the failed chains via the shared `liquidateAndCheckSrcBuffer`
+  // helper, then re-enter `process`. The buffer (sized as `min(2%, $1)` of
+  // bridgeOutputWithFees for EXACT_OUT, `min(0.5%, $1)` of swapCombinedBalance for
+  // EXACT_IN) is the headroom the bridge step has — re-quote drops larger than that
+  // would underflow the bridge's input requirement.
   async retryWithSlippageCheck(metadata: SwapMetadata, failedChains: number[]) {
-    let oldTotalOutput = new Decimal(0);
-
-    logger.debug('sourceSwapsHandler:retryWithSlippageCheck:0', {
-      failedChains,
-      srcBuffer: this.srcBuffer.toFixed(),
-    });
-
-    const quoteResponses = await retry(
-      () => {
-        const quoteRequests = [];
-        // if it comes to retry it should be set to 0
-        oldTotalOutput = new Decimal(0);
-        for (const fChain of failedChains) {
-          const oldSwaps = this.swapsData.get(fChain);
-          if (!oldSwaps) {
-            logger.debug('how can old quote not be there???? we are iterating on it');
-            continue;
-          }
-          for (const oldSwap of oldSwaps) {
-            oldTotalOutput = oldTotalOutput.add(
-              divDecimals(oldSwap.quote.output.amountRaw, oldSwap.quote.output.decimals)
-            );
-            logger.debug('retryWithSlippage:quoteRequests:1', {
-              holding: {
-                amount: oldSwap.quote.input.amountRaw,
-                tokenAddress: oldSwap.quote.input.contractAddress,
-              },
-            });
-            quoteRequests.push(
-              liquidateInputHoldings(
-                convertTo32Bytes(this.getSourceExecution(fChain).address),
-                [
-                  {
-                    ...oldSwap.holding,
-                    amountRaw: oldSwap.quote.input.amountRaw,
-                    tokenAddress: convertTo32Bytes(oldSwap.quote.input.contractAddress),
-                  },
-                ],
-                this.options.aggregators,
-                this.options.cot.currencyID
-              ).then((nq) => {
-                logger.debug('retryWithSlippage:quoteRequests:2', {
-                  newQuote: nq[0],
-                });
-
-                const q = nq[0];
-                return q;
-              })
-            );
-          }
-        }
-
-        return Promise.all(quoteRequests);
-      },
-      { retries: 2 }
-    );
-
-    let newTotalOutput = new Decimal(0);
-    for (const q of quoteResponses) {
-      newTotalOutput = newTotalOutput.add(
-        divDecimals(q.quote.output.amountRaw, q.quote.output.decimals)
-      );
+    const oldSwaps: SwapRoute['source']['swaps'] = [];
+    const holdings: Parameters<typeof liquidateSourceHoldings>[0]['holdings'] = [];
+    for (const fChain of failedChains) {
+      const chainSwaps = this.swapsData.get(fChain);
+      if (!chainSwaps) {
+        logger.debug('how can old quote not be there???? we are iterating on it');
+        continue;
+      }
+      const swapAddress = convertTo32Bytes(this.getSourceExecution(fChain).address);
+      for (const oldSwap of chainSwaps) {
+        oldSwaps.push(oldSwap);
+        holdings.push({
+          ...oldSwap.holding,
+          amountRaw: oldSwap.quote.input.amountRaw,
+          tokenAddress: convertTo32Bytes(oldSwap.quote.input.contractAddress),
+          takerAddress: swapAddress,
+          receiverAddress: swapAddress,
+        });
+      }
     }
 
-    const minAcceptable = oldTotalOutput.sub(this.srcBuffer);
-    logger.debug('sourceSwapsHandler:retryWithSlippageCheck:1', {
-      minAcceptable: minAcceptable.toFixed(),
-      newTotalOutput: newTotalOutput.toFixed(),
-      oldTotalOutput: oldTotalOutput.toFixed(),
-      quoteResponses,
-      srcBuffer: this.srcBuffer.toFixed(),
+    const quoteResponses = await liquidateAndCheckSrcBuffer({
+      oldSwaps,
+      holdings,
+      srcBuffer: this.srcBuffer,
+      aggregators: this.options.aggregators,
+      commonCurrencyID: this.options.cot.currencyID,
+      errorPrefix: 'source swap retry',
     });
-    if (newTotalOutput.lt(minAcceptable)) {
-      throw Errors.slippageError(
-        `source swap retry exceeded srcBuffer: dropped from ${oldTotalOutput.toFixed()} to ${newTotalOutput.toFixed()} (>${this.srcBuffer.toFixed()} buffer)`
-      );
-    }
 
     return this.process(metadata, this.groupAndOrder(quoteResponses), false);
   }
@@ -1165,12 +1168,12 @@ const COMBINED_MAX_RETRIES = 2;
  * batch is atomic: a partial failure reverts everything and the user's input stays at the EOA.
  */
 class CombinedSwapHandler {
-  private readonly initialDstOutputAmountRaw: bigint;
+  private readonly srcBuffer: Decimal;
   constructor(
     private route: SwapRoute,
     private readonly options: Options
   ) {
-    this.initialDstOutputAmountRaw = route.destination.swap.tokenSwap?.quote.output.amountRaw ?? 0n;
+    this.srcBuffer = route.source.srcBuffer ?? new Decimal(0);
   }
 
   async process(metadata: SwapMetadata): Promise<void> {
@@ -1388,9 +1391,6 @@ class CombinedSwapHandler {
   }
 
   private async requoteBothLegs(): Promise<void> {
-    const execAddr = this.route.destination.execution.address;
-    const dstChainId = this.route.destination.chainId;
-
     const holdings = this.route.source.swaps.map((swap) => {
       const execution = this.route.source.executions[Number(swap.chainID)];
       if (!execution) {
@@ -1406,164 +1406,42 @@ class CombinedSwapHandler {
       };
     });
 
-    const dstOmni = new OmniversalChainID(Universe.ETHEREUM, dstChainId);
-    const dstSwapTakerInBytes = convertTo32Bytes(execAddr);
-    const dstSwapReceiverInBytes = convertTo32Bytes(this.options.address.eoa);
-
-    if (this.route.type === 'EXACT_IN') {
-      // EXACT_IN: source produces COT, dst consumes (source output * (1 - buffer)).
-      // Order: re-quote source → guard source-output slippage → re-quote dst with fresh
-      // buffered input → guard dst-output slippage.
-
-      const oldSrcOutputRaw = this.route.source.swaps.reduce(
-        (acc, q) => acc + q.quote.output.amountRaw,
-        0n
-      );
-
-      const newSrcSwaps = await liquidateSourceHoldings({
+    // Source-leg re-quote + buffer check is the same for both directions (mirrors
+    // SourceSwapsHandler.retryWithSlippageCheck via the shared helper). The dst re-quote
+    // delegates to the route closure's `getDstSwap` (which carries its own rate guard,
+    // mirroring DestinationSwapHandler.requoteIfRequired). For EXACT_OUT we re-quote dst
+    // first so its `ratesChangedBeyondTolerance` against `originalMax` fails fast before
+    // we spend a source quote; EXACT_IN's closure uses a fixed dst input from initial
+    // routing so order doesn't matter and we use the same shape.
+    const requoteSource = () =>
+      liquidateAndCheckSrcBuffer({
+        oldSwaps: this.route.source.swaps,
         holdings,
+        srcBuffer: this.srcBuffer,
         aggregators: this.route.extras.aggregators,
         commonCurrencyID: this.options.cot.currencyID,
+        errorPrefix: 'combined retry',
       });
-      if (newSrcSwaps.length === 0) {
-        throw Errors.quoteFailed('combined retry: source re-quote returned no quotes');
+
+    let newDstSwap: SwapRoute['destination']['swap'];
+    let newSrcSwaps: SwapRoute['source']['swaps'];
+    if (this.route.type === 'EXACT_OUT') {
+      const dstSwap = await this.route.destination.getDstSwap();
+      if (!dstSwap) {
+        throw Errors.quoteFailed('combined retry: getDstSwap returned null');
       }
-
-      const newSrcOutputRaw = newSrcSwaps.reduce((acc, q) => acc + q.quote.output.amountRaw, 0n);
-
-      // Source slippage guard. Runs unconditionally, including the toToken == COT case
-      // where there is no dst tokenSwap to absorb a worse source quote downstream.
-      if (oldSrcOutputRaw > 0n) {
-        const minAcceptableSrc =
-          (oldSrcOutputRaw * BigInt(Math.round((1 - this.options.slippage) * 1_000_000))) /
-          1_000_000n;
-        if (newSrcOutputRaw < minAcceptableSrc) {
-          throw Errors.slippageError(
-            `combined retry: source COT output dropped from ${oldSrcOutputRaw} to ${newSrcOutputRaw} (>${this.options.slippage} slippage)`
-          );
-        }
-      }
-
-      let newDst: QuoteResponse | null = null;
-      if (this.route.destination.swap.tokenSwap) {
-        // The batch transfers any pre-existing dst-chain COT from the EOA into the wrapper
-        // alongside the source-swap output. The dst aggregator can spend all of it, so
-        // include both in availableCotRaw before applying the slippage buffer. The source
-        // slippage guard above intentionally ignores this fixed credit — it's not source
-        // quote performance.
-        const directCotRaw = this.route.destination.eoaToDestinationAccount?.amount ?? 0n;
-        const availableCotRaw = newSrcOutputRaw + directCotRaw;
-        const bufferedInput =
-          (availableCotRaw * BigInt(Math.round((100 - COMBINED_SAME_CHAIN_BUFFER_PCT) * 1000))) /
-          100_000n;
-        const outputTokenBytes = convertTo32Bytes(
-          this.route.destination.swap.tokenSwap.quote.output.contractAddress
-        );
-        newDst = await getDestinationExactInSwap({
-          takerAddress: dstSwapTakerInBytes,
-          receiverAddress: dstSwapReceiverInBytes,
-          chain: dstOmni,
-          inputAmount: bufferedInput,
-          outputToken: outputTokenBytes,
-          aggregators: this.route.extras.aggregators,
-          inputCurrency: this.options.cot.currencyID,
-        });
-
-        if (this.initialDstOutputAmountRaw > 0n) {
-          const minAcceptableDst =
-            (this.initialDstOutputAmountRaw *
-              BigInt(Math.round((1 - this.options.slippage) * 1_000_000))) /
-            1_000_000n;
-          if (newDst.quote.output.amountRaw < minAcceptableDst) {
-            throw Errors.slippageError(
-              `combined retry: dst output dropped from ${this.initialDstOutputAmountRaw} to ${newDst.quote.output.amountRaw} (>${this.options.slippage} slippage)`
-            );
-          }
-        }
-      }
-
-      this.route.source.swaps = newSrcSwaps;
-      if (newDst) {
-        this.route.destination.swap = {
-          creationTime: Date.now(),
-          gasSwap: this.route.destination.swap.gasSwap,
-          tokenSwap: newDst,
-        };
-      }
-      return;
-    }
-
-    // EXACT_OUT: dst legs (tokenSwap + gasSwap + direct COT transfer) define the COT
-    // requirement that source must satisfy. Re-quote dst first via the route closure so
-    // its rate/max-input guard runs (throws ratesChangedBeyondTolerance when the new dst
-    // input exceeds the originally approved max). Only then size the source re-selection
-    // off the refreshed dst requirement so we never carry forward a stale gasSwap or a
-    // mismatched outputRequired.
-    const newDstSwap = await this.route.destination.getDstSwap();
-    if (!newDstSwap) {
-      throw Errors.quoteFailed('combined retry: getDstSwap returned null');
-    }
-
-    // Fresh COT requirement at the wrapper. When tokenSwap is null (toToken == COT and
-    // the user wants exact-COT delivered), the closure encodes the direct-transfer amount
-    // into inputAmount.max already, so we fall back to that.
-    let outputRequired: Decimal;
-    if (newDstSwap.tokenSwap) {
-      outputRequired = new Decimal(newDstSwap.tokenSwap.quote.input.amount);
-      if (newDstSwap.gasSwap) {
-        outputRequired = outputRequired.add(newDstSwap.gasSwap.quote.input.amount);
-      }
+      newDstSwap = dstSwap;
+      newSrcSwaps = await requoteSource();
     } else {
-      outputRequired = this.route.destination.inputAmount.max;
-    }
-
-    // Credit any dst-chain COT the batch pulls in from the user's EOA. autoSelectSources
-    // only sees the prior source holdings — without this credit it would size the source
-    // legs to produce the full requirement again, over-spending the user's source input.
-    if (this.route.destination.eoaToDestinationAccount) {
-      const cotDecimals =
-        newDstSwap.tokenSwap?.quote.input.decimals ??
-        newDstSwap.gasSwap?.quote.input.decimals ??
-        ChaindataMap.get(new OmniversalChainID(Universe.ETHEREUM, dstChainId))?.Currencies.find(
-          (c) => c.currencyID === this.options.cot.currencyID
-        )?.decimals;
-      if (cotDecimals === undefined) {
-        throw Errors.internal(
-          `combined retry: COT decimals not resolvable for chain ${dstChainId}`
-        );
+      newSrcSwaps = await requoteSource();
+      const dstSwap = await this.route.destination.getDstSwap();
+      if (!dstSwap) {
+        throw Errors.quoteFailed('combined retry: getDstSwap returned null');
       }
-      const directCotAmount = divDecimals(
-        this.route.destination.eoaToDestinationAccount.amount,
-        cotDecimals
-      );
-      outputRequired = Decimal.max(outputRequired.minus(directCotAmount), new Decimal(0));
+      newDstSwap = dstSwap;
     }
 
-    const { quoteResponses } = await autoSelectSources({
-      holdings,
-      outputRequired,
-      aggregators: this.route.extras.aggregators,
-      commonCurrencyID: this.options.cot.currencyID,
-    });
-    if (quoteResponses.length === 0) {
-      throw Errors.quoteFailed('combined retry: source re-quote returned no quotes');
-    }
-
-    // Dst output slippage guard against the user-visible toAmount. Cheap belt-and-braces
-    // on top of the closure's own rate guard.
-    if (newDstSwap.tokenSwap && this.initialDstOutputAmountRaw > 0n) {
-      const minAcceptableDst =
-        (this.initialDstOutputAmountRaw *
-          BigInt(Math.round((1 - this.options.slippage) * 1_000_000))) /
-        1_000_000n;
-      if (newDstSwap.tokenSwap.quote.output.amountRaw < minAcceptableDst) {
-        throw Errors.slippageError(
-          `combined retry: dst output dropped from ${this.initialDstOutputAmountRaw} to ${newDstSwap.tokenSwap.quote.output.amountRaw} (>${this.options.slippage} slippage)`
-        );
-      }
-    }
-
-    this.route.source.swaps = quoteResponses;
+    this.route.source.swaps = newSrcSwaps;
     this.route.destination.swap = newDstSwap;
   }
 

@@ -1238,9 +1238,10 @@ export type SwapRoute = {
     // Headroom in COT units that source swaps are allowed to lose on a re-quote when one
     // or more source legs revert. EXACT_OUT carries `min(2%, $1)` of bridgeOutputWithFees
     // (see BUFFER_EXACT_OUT). EXACT_IN carries `min(0.5%, $1)` of swapCombinedBalance
-    // (see BUFFER_EXACT_IN) and also subtracts the same amount from the dst-swap input so
-    // the under-sized dst swap stays funded if a source leg re-quotes lower; combined-batch
-    // routes leave this at 0 since CombinedSwapHandler re-quotes both legs together.
+    // (see BUFFER_EXACT_IN). Non-combined EXACT_IN also subtracts this from the dst-swap
+    // input so the dst swap stays funded if a source leg re-quotes lower; combined routes
+    // under-size the dst-swap input by `COMBINED_SAME_CHAIN_BUFFER_PCT` instead, but still
+    // carry `srcBuffer` as the retry tolerance consumed by CombinedSwapHandler.
     srcBuffer: Decimal;
   };
   bridge: BridgeInput;
@@ -1519,17 +1520,17 @@ const _exactInRoute = async (
       !!sourceExecutions[currentInput.toChainId] &&
       equalFold(sourceExecutions[currentInput.toChainId].address, destinationExecution.address);
 
-    // Source-retry headroom. Only meaningful when there's an actual source swap that could
-    // revert and re-quote. Combined case uses CombinedSwapHandler (which re-quotes both legs
-    // together) and already applies COMBINED_SAME_CHAIN_BUFFER_PCT below — leave srcBuffer
-    // at 0 there to avoid double-reducing the dst input.
-    const srcBuffer =
-      isSrcSwapRequired && !willBeCombined
-        ? Decimal.min(
-            swapCombinedBalance.mul(BUFFER_EXACT_IN.SOURCE_SWAP_BUFFER_PCT / 100),
-            BUFFER_EXACT_IN.SOURCE_SWAP_MAX_IN_USD
-          )
-        : new Decimal(0);
+    // Source-retry headroom in COT units. Consumed by SourceSwapsHandler /
+    // CombinedSwapHandler on revert+re-quote as the absolute amount of source-output drop
+    // they tolerate. Combined routes use COMBINED_SAME_CHAIN_BUFFER_PCT for the dst-input
+    // under-sizing (via the `willBeCombined` branch below); srcBuffer here is only the
+    // retry tolerance.
+    const srcBuffer = isSrcSwapRequired
+      ? Decimal.min(
+          swapCombinedBalance.mul(BUFFER_EXACT_IN.SOURCE_SWAP_BUFFER_PCT / 100),
+          BUFFER_EXACT_IN.SOURCE_SWAP_MAX_IN_USD
+        )
+      : new Decimal(0);
 
     if (willBeCombined && needsDstSwap) {
       dstSwapInputAmountInDecimal = dstSwapInputAmountInDecimal.mul(
