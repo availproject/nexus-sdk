@@ -3,11 +3,9 @@ import {
   createCosmosClient,
   createCosmosWallet,
   Environment,
-  Universe,
 } from '@avail-project/ca-common';
 import type { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import { keyDerivation } from '@starkware-industries/starkware-crypto-utils';
-import { utils } from 'tronweb';
 import {
   createWalletClient,
   custom,
@@ -25,7 +23,6 @@ import {
   type BeforeExecuteHook,
   type BridgeAndExecuteParams,
   type BridgeParams,
-  type Chain,
   type ChainListType,
   type CosmosOptions,
   type EthereumProvider,
@@ -48,7 +45,6 @@ import {
   type SwapParams,
   setLogLevel,
   type TransferParams,
-  type TronAdapter,
 } from '../commons';
 import BridgeHandler from '../flows/bridge';
 import { BridgeAndExecuteQuery } from '../flows/bridgeAndExecute';
@@ -82,7 +78,6 @@ import {
   retrieveSIWESignatureFromLocalStorage,
   storeSIWESignatureToLocalStorage,
   switchChain,
-  tronHexToEvmAddress,
 } from './utils';
 import { PlatformUtils } from './utils/platform.utils';
 
@@ -109,10 +104,6 @@ export class CA {
     client: WalletClient;
     provider: EthereumProvider;
     address: Hex;
-  };
-  protected _tron?: {
-    address: string;
-    adapter: TronAdapter;
   };
   protected _queryClients?: QueryClients;
   protected _hooks: {
@@ -164,7 +155,6 @@ export class CA {
     }
 
     const params = createBridgeParams(input, this.chainList);
-    this.universeCheck(params.dstChain);
 
     return this.withReinit(async () => {
       return new BridgeHandler(params, {
@@ -172,7 +162,6 @@ export class CA {
         cosmos: this.#cosmos!,
         evm: this._evm!,
         hooks: this._hooks,
-        tron: this._tron,
         ...this._queryClients!, // reinit does initialize
         intentExplorerUrl: this._networkConfig.INTENT_EXPLORER_URL,
         emit: options?.onEvent,
@@ -189,7 +178,6 @@ export class CA {
       return getMaxValueForBridge(params, {
         chainList: this.chainList,
         evm: this._evm!,
-        tron: this._tron,
         intentExplorerUrl: this._networkConfig.INTENT_EXPLORER_URL,
         ...this._queryClients!,
       });
@@ -468,30 +456,6 @@ export class CA {
       throw error;
     }
   }
-
-  protected _setTronAdapter = async (adapter: TronAdapter) => {
-    if (this._tron) {
-      logger.debug('Already has tron adapter, so skip', {
-        adapter,
-        classVal: this._tron,
-      });
-      return;
-    }
-
-    if (!adapter.connected) {
-      await adapter.connect();
-    }
-
-    logger.debug('setTronAdapter', {
-      address: adapter.address,
-      classVal: this._tron,
-    });
-
-    this._tron = {
-      adapter,
-      address: tronHexToEvmAddress(utils.address.toHex(adapter.address as string)),
-    };
-  };
 
   protected _setOnAllowanceHook = (hook: OnAllowanceHook) => {
     this._hooks.onAllowance = hook;
@@ -786,12 +750,6 @@ export class CA {
 
   protected _triggerAccountChange = async () => {
     await this.reinitOnAccountChange();
-  };
-
-  private readonly universeCheck = (dstChain: Chain) => {
-    if (dstChain.universe === Universe.TRON && !this._tron) {
-      throw Errors.walletNotConnected('Tron');
-    }
   };
 
   private readonly reinitOnAccountChange = async () => {

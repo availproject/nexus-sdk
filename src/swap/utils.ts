@@ -568,15 +568,13 @@ export const toFlatBalance = (
 
 export const vscBalancesToAssets = (
   chainList: ChainListType,
-  evmBalances: UnifiedBalanceResponseData[] = [],
-  tronBalances: UnifiedBalanceResponseData[] = []
+  evmBalances: UnifiedBalanceResponseData[] = []
 ) => {
   const assets: UserAssetDatum[] = [];
-  const vscBalances = evmBalances.concat(tronBalances);
+  const vscBalances = evmBalances;
 
   logger.debug('balanceToAssets', {
     evmBalances,
-    tronBalances,
   });
   for (const balance of vscBalances) {
     for (const currency of balance.currencies) {

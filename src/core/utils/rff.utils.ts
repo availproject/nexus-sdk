@@ -1,7 +1,6 @@
 import { MsgCreateRequestForFunds, OmniversalRFF, Universe } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
 import Long from 'long';
-import { TronWeb } from 'tronweb';
 import { type Hex, type PrivateKeyAccount, toBytes, type WalletClient } from 'viem';
 import { type ChainListType, getLogger, type IBridgeOptions, type Intent } from '../../commons';
 import { convertToEVMAddress } from '../../swap/utils';
@@ -13,11 +12,9 @@ import {
   convertTo32Bytes,
   convertTo32BytesHex,
   createRequestEVMSignature,
-  createRequestTronSignature,
   mulDecimals,
 } from './common.utils';
 import { PlatformUtils } from './platform.utils';
-import { tronHexToEvmAddress } from './tron.utils';
 
 type Destination = {
   tokenAddress: Hex;
@@ -88,7 +85,7 @@ const getSourcesAndDestinationsForRFF = (intent: Intent, chainList: ChainListTyp
 
 const createRFFromIntent = async (
   intent: Intent,
-  options: Pick<IBridgeOptions, 'chainList' | 'cosmos' | 'tron'> & {
+  options: Pick<IBridgeOptions, 'chainList' | 'cosmos'> & {
     evm: {
       address: `0x${string}`;
       client: WalletClient | PrivateKeyAccount;
@@ -108,18 +105,6 @@ const createRFFromIntent = async (
       parties.push({
         address: convertTo32BytesHex(options.evm.address),
         universe: universe,
-      });
-    }
-
-    if (universe === Universe.TRON) {
-      logger.debug('createRFFFromIntent: Tron', {
-        tronAddress: TronWeb.address.toHex(options.tron!.address),
-      });
-      parties.push({
-        address: convertTo32BytesHex(
-          tronHexToEvmAddress(TronWeb.address.toHex(options.tron!.address))
-        ),
-        universe,
       });
     }
   }
@@ -175,26 +160,6 @@ const createRFFromIntent = async (
         requestHash,
         signature,
         universe: Universe.ETHEREUM,
-      });
-    }
-
-    if (universe === Universe.TRON) {
-      if (!options.tron) {
-        logger.error('universe has tron but not expected input', {
-          tronInput: options.tron,
-        });
-        throw Errors.internal('universe has tron but not expected input');
-      }
-      const { requestHash, signature } = await createRequestTronSignature(
-        omniversalRFF.asEVMRFF(),
-        options.tron.adapter
-      );
-
-      signatureData.push({
-        address: convertTo32Bytes(tronHexToEvmAddress(TronWeb.address.toHex(options.tron.address))),
-        requestHash,
-        signature,
-        universe,
       });
     }
   }

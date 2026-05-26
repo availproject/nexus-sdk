@@ -2,26 +2,20 @@ import {
   type Bytes,
   DepositVEPacket,
   Environment,
-  ERC20ABI,
   type EVMRFF,
   EVMVaultABI,
   MsgDoubleCheckTx,
   Universe,
 } from '@avail-project/ca-common';
-import type { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 import Decimal from 'decimal.js';
 import type Long from 'long';
-import { type TronWeb, utils } from 'tronweb';
 import {
   type ByteArray,
   bytesToHex,
-  bytesToNumber,
   encodeAbiParameters,
-  encodeFunctionData,
   getAbiItem,
   type Hex,
   hashMessage,
-  hexToBigInt,
   keccak256,
   type PrivateKeyAccount,
   type PublicClient,
@@ -65,7 +59,7 @@ function convertAddressByUniverse(input: ByteArray | Hex, universe: Universe) {
   const inputIsString = typeof input === 'string';
   const bytes = inputIsString ? toBytes(input) : input;
 
-  if (universe === Universe.ETHEREUM || universe === Universe.TRON) {
+  if (universe === Universe.ETHEREUM) {
     if (bytes.length === 20) {
       return inputIsString ? input : bytes;
     }
@@ -73,7 +67,7 @@ function convertAddressByUniverse(input: ByteArray | Hex, universe: Universe) {
       return inputIsString ? toHex(bytes.subarray(12)) : bytes.subarray(12);
     }
 
-    throw Errors.invalidAddressLength('evm|tron');
+    throw Errors.invalidAddressLength('evm');
   }
 
   return toHex(input);
@@ -373,30 +367,6 @@ const createRequestEVMSignature = async (
   return { requestHash: hashMessage({ raw: hash }), signature };
 };
 
-const createRequestTronSignature = async (evmRFF: EVMRFF, client: AdapterProps) => {
-  logger.debug('createReqEVMSignature', { evmRFF });
-  const abi = getAbiItem({ abi: EVMVaultABI, name: 'deposit' });
-  const msg = encodeAbiParameters(abi.inputs[0].components, [
-    evmRFF.sources,
-    evmRFF.destinationUniverse,
-    evmRFF.destinationChainID,
-    evmRFF.recipientAddress,
-    evmRFF.destinations,
-    evmRFF.nonce,
-    evmRFF.expiry,
-    evmRFF.parties,
-  ]);
-  const hash = toHex(keccak256(msg, 'bytes'));
-
-  // FIXME: Hack - since tron doesn't supports binary decode of hex before signing
-  // const uppercaseHash = convertToUpperCaseHash(toHex(hash));
-  const sig = await client.signMessage(hash);
-  return {
-    requestHash: utils.message.hashMessage(hash) as Hex,
-    signature: toBytes(sig),
-  };
-};
-
 // const convertToUpperCaseHash = (input: Hex) => {
 //   return `0x${input.substring(2).toUpperCase()}`;
 // };
@@ -478,7 +448,7 @@ const convertTo32BytesHex = (value: Hex | Bytes) => {
 };
 
 const convertToHexAddressByUniverse = (address: Uint8Array, universe: Universe) => {
-  if (universe === Universe.ETHEREUM || universe === Universe.TRON) {
+  if (universe === Universe.ETHEREUM) {
     if (address.length === 20) {
       return bytesToHex(address);
     } else if (address.length === 32) {
@@ -724,63 +694,6 @@ class UserAssets {
   }
 }
 
-async function waitForTronDepositTxConfirmation(
-  hash: Hex,
-  vaultContractAddress: Hex,
-  tronWeb: TronWeb,
-  owner: Hex,
-  options: { timeout?: number; interval?: number } = {}
-): Promise<void> {
-  const { timeout = 120000, interval = 3000 } = options;
-
-  const startTime = Date.now();
-
-  logger.debug('Waiting for confirmation of tron tx');
-
-  const input = encodeFunctionData({
-    abi: EVMVaultABI,
-    functionName: 'requestState',
-    args: [hash],
-  });
-  while (Date.now() - startTime < timeout) {
-    try {
-      const result = await tronWeb.transactionBuilder.triggerConstantContract(
-        tronWeb.utils.address.fromHex(vaultContractAddress),
-        '',
-        {
-          input,
-        },
-        [],
-        tronWeb.utils.address.fromHex(owner)
-      );
-
-      logger.debug('requestHashWitnessedOnTron', {
-        result,
-      });
-      if (result.Error) {
-        throw Errors.internal(result.Error);
-      }
-
-      const requestState = bytesToNumber(result.constant_result[0]);
-      if (requestState === 0) {
-        throw Errors.internal('Request not witnessed yet.');
-      }
-
-      return;
-    } catch (err) {
-      logger.error('Error while checking transaction:', err, {
-        cause: 'TRANSACTION_CHECK_ERROR',
-      });
-      // Don’t throw yet; continue polling
-    }
-
-    logger.debug('⏳ Still waiting...');
-    await new Promise((resolve) => setTimeout(resolve, interval));
-  }
-
-  throw Errors.transactionTimeout(timeout / 1000);
-}
-
 function pctAdditionWithSuggestion(base: bigint, percentage: number) {
   const pctAmount = BigInt(new Decimal(base).mul(percentage).toFixed(0, Decimal.ROUND_CEIL));
   const value = base + pctAmount;
@@ -796,79 +709,13 @@ function divideBigInt(base: bigint, divisor: number) {
   return BigInt(new Decimal(base).div(divisor).toFixed(0));
 }
 
-async function waitForTronApprovalTxConfirmation(
-  amount: bigint,
-  owner: Hex,
-  spender: Hex,
-  contractAddress: Hex,
-  tronWeb: TronWeb,
-  options: { timeout?: number; interval?: number } = {}
-): Promise<void> {
-  const { timeout = 120000, interval = 3000 } = options;
-
-  const startTime = Date.now();
-
-  logger.debug('Waiting for confirmation of tron approval tx');
-
-  const input = encodeFunctionData({
-    abi: ERC20ABI,
-    functionName: 'allowance',
-    args: [owner, spender],
-  });
-
-  while (Date.now() - startTime < timeout) {
-    try {
-      const result = await tronWeb.transactionBuilder.triggerConstantContract(
-        tronWeb.utils.address.fromHex(contractAddress),
-        '',
-        {
-          input,
-        },
-        [],
-        tronWeb.utils.address.fromHex(owner)
-      );
-
-      logger.debug('waitForTronApprovalTxConfirmation', {
-        result,
-      });
-
-      if (result.Error) {
-        throw Errors.internal(result.Error);
-      }
-
-      const allowance = hexToBigInt(`0x${result.constant_result[0]}`);
-      if (allowance < amount) {
-        throw Errors.internal('Allowance not set yet.');
-      }
-
-      return;
-    } catch (err) {
-      logger.error('Error while checking transaction', err, {
-        cause: 'TRANSACTION_CHECK_ERROR',
-      });
-      // Don’t throw yet; continue polling
-    }
-
-    logger.debug('⏳ Still waiting...');
-    await new Promise((resolve) => setTimeout(resolve, interval));
-  }
-
-  throw Errors.transactionTimeout(timeout / 1000);
-}
-
 const createExplorerTxURL = (txHash: Hex, explorerURL: string) => {
   return new URL(`/tx/${txHash}`, explorerURL).href;
 };
 
-const retrieveAddress = (universe: Universe, input: Pick<IBridgeOptions, 'evm' | 'tron'>): Hex => {
+const retrieveAddress = (universe: Universe, input: Pick<IBridgeOptions, 'evm'>): Hex => {
   if (universe === Universe.ETHEREUM) {
     return input.evm.address;
-  } else if (universe === Universe.TRON) {
-    if (!input.tron) {
-      throw Errors.internal('tron source but no tron input');
-    }
-
-    return input.tron.address as Hex;
   }
 
   throw Errors.internal('unknown universe');
@@ -897,8 +744,6 @@ export {
   storeSIWESignatureToLocalStorage,
   retrieveAddress,
   createExplorerTxURL,
-  waitForTronApprovalTxConfirmation,
-  waitForTronDepositTxConfirmation,
   UserAsset,
   UserAssets,
   convertAddressByUniverse,
@@ -921,6 +766,5 @@ export {
   refundExpiredIntents,
   removeIntentHashFromStore,
   storeIntentHashToStore,
-  createRequestTronSignature,
   assetListWithDepositDeducted,
 };

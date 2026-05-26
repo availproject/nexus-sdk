@@ -243,8 +243,7 @@ nexus-sdk/
 │   │           ├── contract.utils.ts # Contract interaction helpers
 │   │           ├── cosmos.utils.ts   # Cosmos-specific utilities
 │   │           ├── platform.utils.ts # Platform detection (browser/node)
-│   │           ├── rff.utils.ts      # RFF utilities
-│   │           └── tron.utils.ts     # TRON-specific utilities
+│   │           └── rff.utils.ts      # RFF utilities
 │   │
 │   ├── analytics/                    # Analytics system
 │   │   ├── AnalyticsManager.ts       # Main analytics orchestrator
@@ -312,9 +311,6 @@ import { WalletClient, PublicClient, createWalletClient, createPublicClient } fr
 import { SigningStargateClient } from '@cosmjs/stargate';
 import { DirectSecp256k1HdWallet } from '@cosmjs/proto-signing';
 
-// TRON interactions (optional)
-import TronWeb from 'tronweb';
-import type { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 
 // Chain Abstraction Common (Avail's shared library)
 import {
@@ -1654,7 +1650,6 @@ const status = await cosmosQueryClient.checkIntentFilled(intentID);
 type VSCClient = {
   // Balance fetching
   getEVMBalancesForAddress: (address: Hex) => Promise<UnifiedBalanceResponseData[]>;
-  getTronBalancesForAddress: (address: Hex) => Promise<UnifiedBalanceResponseData[]>;
 
   // Fee grants
   vscCreateFeeGrant: (address: string) => Promise<unknown>;
@@ -2248,10 +2243,6 @@ export const ERROR_CODES = {
   SIMULATION_FAILED: 'SIMULATION_FAILED',
   QUOTE_FAILED: 'QUOTE_FAILED',
   SWAP_FAILED: 'SWAP_FAILED',
-
-  // === TRON-Specific Errors ===
-  TRON_DEPOSIT_FAIL: 'TRON_DEPOSIT_FAIL',
-  TRON_APPROVAL_FAIL: 'TRON_APPROVAL_FAIL',
 
   // === Intent/RFF Errors ===
   LIQUIDITY_TIMEOUT: 'LIQUIDITY_TIMEOUT',

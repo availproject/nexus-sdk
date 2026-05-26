@@ -111,17 +111,13 @@ export const getBalancesForSwap = async (input: {
 export const getBalancesForBridge = async (input: {
   vscClient: VSCClient;
   evmAddress: Hex;
-  tronAddress?: string;
   chainList: ChainListType;
 }) => {
-  const [evmBalances, tronBalances] = await Promise.all([
+  const [evmBalances] = await Promise.all([
     input.vscClient.getEVMBalancesForAddress(input.evmAddress),
-    input.tronAddress
-      ? input.vscClient.getTronBalancesForAddress(input.tronAddress as Hex)
-      : Promise.resolve([]),
   ]);
 
-  const assets = vscBalancesToAssets(input.chainList, evmBalances, tronBalances);
+  const assets = vscBalancesToAssets(input.chainList, evmBalances);
 
   return assets;
 };

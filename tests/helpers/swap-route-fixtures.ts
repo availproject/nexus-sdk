@@ -104,7 +104,6 @@ export const makeMockCosmosQueryClient = (
 export const makeMockVscClient = (): VSCClient =>
   ({
     getEVMBalancesForAddress: vi.fn().mockResolvedValue([]),
-    getTronBalancesForAddress: vi.fn().mockResolvedValue([]),
     vscCreateFeeGrant: vi.fn().mockResolvedValue({}),
     vscPublishRFF: vi.fn().mockResolvedValue({ id: Long.fromNumber(0) }),
     vscCreateSponsoredApprovals: vi.fn().mockResolvedValue({ approvals: [], failedChainIds: [] }),

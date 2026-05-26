@@ -394,10 +394,6 @@ export class NexusSDK extends CA {
     this._setOnSwapIntentHook(callback);
   }
 
-  // public addTron(adapter: AdapterProps) {
-  //   this._setTronAdapter(adapter);
-  // }
-
   /**
    * Set callback for allowance approval events
    * Useful for capturing allowance approval and displaying information to the user

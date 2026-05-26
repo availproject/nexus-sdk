@@ -154,43 +154,6 @@ class ChainList {
 }
 
 const TESTNET_CHAINS: Chain[] = [
-  // {
-  //   blockExplorers: {
-  //     default: {
-  //       name: 'TronScan',
-  //       url: 'https://shasta.tronscan.org',
-  //     },
-  //   },
-  //   custom: {
-  //     icon: 'https://assets.coingecko.com/asset_platforms/images/1094/large/TRON_LOGO.png',
-  //     knownTokens: [
-  //       {
-  //         contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.TRON_SHASTA],
-  //         decimals: 6,
-  //         logo: getLogoFromSymbol('USDT'),
-  //         name: 'Tether USD',
-  //         symbol: 'USDT',
-  //       },
-  //     ],
-  //   },
-  //   id: SUPPORTED_CHAINS.TRON_SHASTA,
-  //   ankrName: '',
-  //   name: 'Tron Shasta',
-  //   nativeCurrency: {
-  //     decimals: 6,
-  //     name: 'TRX',
-  //     symbol: 'TRX',
-  //   },
-  //   rpcUrls: {
-  //     default: {
-  //       http: ['https://api.shasta.trongrid.io/jsonrpc'],
-  //       grpc: ['https://api.shasta.trongrid.io'],
-  //       publicHttp: ['https://api.shasta.trongrid.io/jsonrpc'],
-  //       webSocket: [],
-  //     },
-  //   },
-  //   universe: Universe.TRON,
-  // },
   {
     swapSupported: false,
     pectraUpgradeSupport: true,
@@ -1068,43 +1031,6 @@ const MAINNET_CHAINS: Chain[] = [
     },
     universe: Universe.ETHEREUM,
   },
-  // {
-  //   blockExplorers: {
-  //     default: {
-  //       name: 'TronScan',
-  //       url: 'https://tronscan.org',
-  //     },
-  //   },
-  //   custom: {
-  //     icon: 'https://assets.coingecko.com/asset_platforms/images/1094/large/TRON_LOGO.png',
-  //     knownTokens: [
-  //       {
-  //         contractAddress: TOKEN_CONTRACT_ADDRESSES['USDT'][SUPPORTED_CHAINS.TRON],
-  //         decimals: 6,
-  //         logo: getLogoFromSymbol('USDT'),
-  //         name: 'Tether USD',
-  //         symbol: 'USDT',
-  //       },
-  //     ],
-  //   },
-  //   id: SUPPORTED_CHAINS.TRON,
-  //   ankrName: '',
-  //   name: 'Tron mainnet',
-  //   nativeCurrency: {
-  //     decimals: 6,
-  //     name: 'TRX',
-  //     symbol: 'TRX',
-  //   },
-  //   rpcUrls: {
-  //     default: {
-  //       http: ['https://api.trongrid.io/jsonrpc'],
-  //       grpc: ['https://api.trongrid.io'],
-  //       publicHttp: ['https://api.trongrid.io/jsonrpc', 'https://tron.therpc.io/jsonrpc'],
-  //       webSocket: ['wss://tron.drpc.org'],
-  //     },
-  //   },
-  //   universe: Universe.TRON,
-  // },
 ];
 
 export { ChainList };

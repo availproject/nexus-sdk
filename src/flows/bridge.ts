@@ -9,12 +9,10 @@ import {
 import Decimal from 'decimal.js';
 import { attemptAsync } from 'es-toolkit';
 import type Long from 'long';
-import { TronWeb } from 'tronweb';
 import {
   bytesToHex,
   ContractFunctionExecutionError,
   createPublicClient,
-  encodeFunctionData,
   type Hex,
   hexToBytes,
   maxUint256,
@@ -70,9 +68,7 @@ import {
   switchChain,
   UserAssets,
   waitForIntentFulfilment,
-  waitForTronDepositTxConfirmation,
   waitForTxReceipt,
-  // createDeadlineFromNow,
 } from '../core/utils';
 
 type Params = {
@@ -120,7 +116,6 @@ class BridgeHandler {
         vscClient: this.options.vscClient,
         evmAddress: this.options.evm.address,
         chainList: this.options.chainList,
-        tronAddress: this.options.tron?.address,
       }),
       this.options.cosmosQueryClient.fetchPriceOracle(),
       getFeeStore(this.options.cosmosQueryClient),
@@ -427,18 +422,11 @@ class BridgeHandler {
     }[] = [];
 
     const evmDeposits: Promise<unknown>[] = [];
-    const tronDeposits: Promise<unknown>[] = [];
 
     const evmSignatureData = signatureData.find((d) => d.universe === Universe.ETHEREUM);
 
     if (!evmSignatureData && universes.has(Universe.ETHEREUM)) {
       throw Errors.internal('ethereum in universe list but no signature data present');
-    }
-
-    const tronSignatureData = signatureData.find((d) => d.universe === Universe.TRON);
-
-    if (!tronSignatureData && universes.has(Universe.TRON)) {
-      throw Errors.internal('tron in universe list but no signature data present');
     }
 
     const doubleCheckTxs = [];
@@ -475,63 +463,14 @@ class BridgeHandler {
           explorerUrl: createExplorerTxURL(hash, chain.blockExplorers!.default.url),
         });
         evmDeposits.push(waitForTxReceipt(hash, publicClient));
-      } else if (s.universe === Universe.TRON) {
-        const provider = new TronWeb({
-          fullHost: chain.rpcUrls.default.grpc![0],
-        });
-        const vaultContractAddress = this.options.chainList.getVaultContractAddress(
-          Number(s.chainID)
-        );
-        const txWrap = await provider.transactionBuilder.triggerSmartContract(
-          TronWeb.address.fromHex(vaultContractAddress),
-          '',
-          {
-            txLocal: true,
-            input: encodeFunctionData({
-              abi: EVMVaultABI,
-              functionName: 'deposit',
-              args: [omniversalRFF.asEVMRFF(), toHex(tronSignatureData!.signature), BigInt(i)],
-            }),
-          },
-          [],
-          TronWeb.address.fromHex(this.options.tron!.address)
-        );
-
-        const signedTx = await this.options.tron!.adapter.signTransaction(txWrap.transaction);
-
-        logger.debug('tron deposit signTransaction result', {
-          signedTx,
-        });
-
-        if (!this.options.tron!.adapter.isMobile) {
-          const txResult = await provider.trx.sendRawTransaction(signedTx);
-
-          logger.debug('tron deposit tx result', {
-            txResult,
-          });
-          if (!txResult.result) {
-            throw Errors.tronDepositFailed(txResult);
-          }
-        }
-
-        tronDeposits.push(
-          (async () => {
-            await waitForTronDepositTxConfirmation(
-              tronSignatureData!.requestHash,
-              vaultContractAddress,
-              provider,
-              this.options.tron!.address as Hex
-            );
-          })()
-        );
       }
       doubleCheckTxs.push(
         createDepositDoubleCheckTx(convertTo32Bytes(chain.id), this.options.cosmos, intentID)
       );
     }
 
-    if (evmDeposits.length || tronDeposits.length) {
-      await Promise.all([Promise.all(evmDeposits), Promise.all(tronDeposits)]);
+    if (evmDeposits.length) {
+      await Promise.all(evmDeposits);
       this.markStepDone(BRIDGE_STEPS.INTENT_DEPOSITS_CONFIRMED);
     }
 
