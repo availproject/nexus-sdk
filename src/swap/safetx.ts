@@ -10,7 +10,7 @@ import {
   type PublicClient,
   type WalletClient,
 } from 'viem';
-import type { Chain } from '../commons';
+import { type Chain, getLogger } from '../commons';
 import type { Tx } from '../commons/types/swap-types';
 import { Errors } from '../core/errors';
 import { switchChain } from '../core/utils';
@@ -31,6 +31,8 @@ import {
   SAFE_ZERO_ADDRESS,
   type SafeOperation,
 } from './safe.constants';
+
+const logger = getLogger();
 
 export type SafeTxFields = {
   baseGas: bigint;
@@ -455,30 +457,81 @@ export const createSafeExecuteEOASubmittedTx = async ({
     value: nativeValue,
   });
 
-  const submitAndWait = async (txFields: SafeTxFields, txSignature: Hex) => {
-    const hash = await eoaWallet.writeContract({
-      abi: SAFE_ABI,
-      account: actualAddress,
-      address: safeAddress,
-      args: [
-        txFields.to,
-        txFields.value,
-        txFields.data,
-        txFields.operation,
-        txFields.safeTxGas,
-        txFields.baseGas,
-        txFields.gasPrice,
-        txFields.gasToken,
-        txFields.refundReceiver,
-        txSignature,
-      ],
-      chain,
-      functionName: 'execTransaction',
-      gas,
+  const buildMetadata = (hash?: Hex) => ({
+    chainId: chain.id,
+    from: actualAddress,
+    safeAddress,
+    hash,
+  });
+
+  const buildDetail = (txFields: SafeTxFields, txSignature: Hex, hash?: Hex) => ({
+    ...buildMetadata(hash),
+    calls,
+    executeData: {
+      to: safeAddress,
       value: nativeValue,
-      ...spreadFeeParams(feeParams),
-    });
+      data: encodeFunctionData({
+        abi: SAFE_ABI,
+        functionName: 'execTransaction',
+        args: [
+          txFields.to,
+          txFields.value,
+          txFields.data,
+          txFields.operation,
+          txFields.safeTxGas,
+          txFields.baseGas,
+          txFields.gasPrice,
+          txFields.gasToken,
+          txFields.refundReceiver,
+          txSignature,
+        ],
+      }),
+    },
+  });
+
+  const submitAndWait = async (txFields: SafeTxFields, txSignature: Hex) => {
+    let hash: Hex;
+    try {
+      hash = await eoaWallet.writeContract({
+        abi: SAFE_ABI,
+        account: actualAddress,
+        address: safeAddress,
+        args: [
+          txFields.to,
+          txFields.value,
+          txFields.data,
+          txFields.operation,
+          txFields.safeTxGas,
+          txFields.baseGas,
+          txFields.gasPrice,
+          txFields.gasToken,
+          txFields.refundReceiver,
+          txSignature,
+        ],
+        chain,
+        functionName: 'execTransaction',
+        gas,
+        value: nativeValue,
+        ...spreadFeeParams(feeParams),
+      });
+    } catch (error) {
+      logger.error('[TX_FAIL] safe_execute_eoa_error', error, buildMetadata());
+      // Detail at debug level: calldata embeds the user's signature, must not leave the console.
+      logger.debug('[TX_FAIL] safe_execute_eoa_error:detail', buildDetail(txFields, txSignature));
+      throw error;
+    }
     const receipt = await publicClient.waitForTransactionReceipt({ hash });
+    if (receipt.status !== 'success') {
+      logger.error(
+        '[TX_FAIL] safe_execute_eoa_error',
+        new Error(`Safe execTransaction reverted: ${hash}`),
+        buildMetadata(hash)
+      );
+      logger.debug(
+        '[TX_FAIL] safe_execute_eoa_error:detail',
+        buildDetail(txFields, txSignature, hash)
+      );
+    }
     return { hash, receipt };
   };
 
