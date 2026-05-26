@@ -111,9 +111,9 @@ const printRouteTimings = () => {
       );
     }
 
-    console.log('Timings for route:');
+    logger.debug('Timings for route:');
     for (const measure of measures) {
-      console.log(`${measure.name}: ${measure.duration}`);
+      logger.debug(`${measure.name}: ${measure.duration}`);
     }
   } catch (e) {
     logger.error('printRouteTimings', e);

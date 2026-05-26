@@ -776,24 +776,9 @@ export class CA {
     await this._init();
   };
 
-  // Re-entrancy guard: nested `withReinit` calls (e.g. swap-and-execute calls
-  // `_getBalancesForSwap` which also calls `withReinit`) used to re-issue
-  // `wallet.getAddresses()` each time. Within a single in-flight outer call the EOA
-  // can't have changed under us, so subsequent reentrant calls skip the wallet RPC.
-  // Counter increments/decrements bracket each call, including parallel arms, so a
-  // `Promise.all` of nested withReinit'd ops all see depth > 0 and short-circuit.
-  private _withReinitDepth = 0;
-
   private async withReinit<T>(fn: () => Promise<T>): Promise<T> {
-    if (this._withReinitDepth === 0) {
-      await this.reinitOnAccountChange();
-    }
-    this._withReinitDepth++;
-    try {
-      return await fn();
-    } finally {
-      this._withReinitDepth--;
-    }
+    await this.reinitOnAccountChange();
+    return fn();
   }
 
   protected _convertTokenReadableAmountToBigInt = (

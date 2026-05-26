@@ -10,11 +10,7 @@ import { type MaxSwapInput, type MaxSwapResult, SwapMode, type SwapParams } from
 import { mulDecimals } from '../core/utils';
 import { BEBOP_API_KEY, LIFI_API_KEY } from '../swap/constants';
 import { determineSwapRoute } from '../swap/route';
-import {
-  PublicClientList,
-  validateDestinationChainForSwap,
-  withAggregatorTiming,
-} from '../swap/utils';
+import { PublicClientList, validateDestinationChainForSwap } from '../swap/utils';
 
 export const calculateMaxForSwap = async (
   input: MaxSwapInput,
@@ -25,9 +21,9 @@ export const calculateMaxForSwap = async (
   const publicClientList = new PublicClientList(options.chainList);
 
   const aggregators: Aggregator[] = [
-    withAggregatorTiming(new LiFiAggregator(LIFI_API_KEY), 'lifi'),
-    withAggregatorTiming(new BebopAggregator(BEBOP_API_KEY), 'bebop'),
-    withAggregatorTiming(new FibrousAggregator(), 'fibrous'),
+    new LiFiAggregator(LIFI_API_KEY),
+    new BebopAggregator(BEBOP_API_KEY),
+    new FibrousAggregator(),
   ];
   const swapRouteParams = { ...options, publicClientList, aggregators, cotCurrencyID: COT };
 
