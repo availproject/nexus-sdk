@@ -304,13 +304,37 @@ export const caliburExecute = async ({
     request,
   });
 
-  return actualWallet.writeContract({
-    ...request,
-    account: actualAddress,
-    chain,
-    gas,
-    ...spreadFeeParams(feeParams),
-  });
+  try {
+    return await actualWallet.writeContract({
+      ...request,
+      account: actualAddress,
+      chain,
+      gas,
+      ...spreadFeeParams(feeParams),
+    });
+  } catch (error) {
+    logger.error('[TX_FAIL] calibur_execute_eoa_error', error, {
+      chainId: chain.id,
+      from: actualAddress,
+      targetAddress,
+    });
+    // Detail at debug level: calldata embeds the user's signature, must not leave the console.
+    logger.debug('[TX_FAIL] calibur_execute_eoa_error:detail', {
+      chainId: chain.id,
+      from: actualAddress,
+      calls,
+      executeData: {
+        to: targetAddress,
+        value,
+        data: encodeFunctionData({
+          abi: request.abi,
+          functionName: request.functionName,
+          args: request.args,
+        }),
+      },
+    });
+    throw error;
+  }
 };
 
 const packSignatureAndHookData = (signature: Hex, hookData: Hex = '0x') => {

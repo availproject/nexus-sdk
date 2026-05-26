@@ -11,7 +11,17 @@ import { remove, retry } from 'es-toolkit';
 import { connect } from 'it-ws/client';
 import type Long from 'long';
 import { pack, unpack } from 'msgpackr';
-import { bytesToBigInt, bytesToNumber, type Hex, toBytes, toHex } from 'viem';
+import {
+  bytesToBigInt,
+  bytesToHex,
+  bytesToNumber,
+  encodeFunctionData,
+  type Hex,
+  toBytes,
+  toHex,
+  zeroAddress,
+} from 'viem';
+import caliburAbi from '../../abi/calibur.abi';
 import {
   type AnkrAsset,
   type Chain,
@@ -734,23 +744,32 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
       };
     },
     vscCreateSafeExecuteTx: async (input: SafeExecuteTx) => {
-      const response = await instance.post<TransactionHashResponse>('/create-safe-execute-tx', {
-        base_gas: convertTo32Bytes(input.baseGas),
-        chain_id: convertTo32Bytes(input.chainId),
-        data: toBytes(input.data),
-        gas_price: convertTo32Bytes(input.gasPrice),
-        gas_token: toBytes(input.gasToken),
-        nonce: convertTo32Bytes(input.nonce),
-        operation: input.operation,
-        refund_receiver: toBytes(input.refundReceiver),
-        safe_address: convertTo32Bytes(input.safeAddress),
-        safe_tx_gas: convertTo32Bytes(input.safeTxGas),
-        signature: toBytes(input.signature),
-        to: toBytes(input.to),
-        universe: Universe.ETHEREUM,
-        value: convertTo32Bytes(input.value),
-      });
-      return [BigInt(input.chainId), toHex(response.data.tx_hash)];
+      try {
+        const response = await instance.post<TransactionHashResponse>('/create-safe-execute-tx', {
+          base_gas: convertTo32Bytes(input.baseGas),
+          chain_id: convertTo32Bytes(input.chainId),
+          data: toBytes(input.data),
+          gas_price: convertTo32Bytes(input.gasPrice),
+          gas_token: toBytes(input.gasToken),
+          nonce: convertTo32Bytes(input.nonce),
+          operation: input.operation,
+          refund_receiver: toBytes(input.refundReceiver),
+          safe_address: convertTo32Bytes(input.safeAddress),
+          safe_tx_gas: convertTo32Bytes(input.safeTxGas),
+          signature: toBytes(input.signature),
+          to: toBytes(input.to),
+          universe: Universe.ETHEREUM,
+          value: convertTo32Bytes(input.value),
+        });
+        return [BigInt(input.chainId), toHex(response.data.tx_hash)];
+      } catch (error) {
+        logger.error('[TX_FAIL] safe_execute_relay_error', error, {
+          chainId: input.chainId,
+          safeAddress: input.safeAddress,
+        });
+        logger.debug('[TX_FAIL] safe_execute_relay_error:detail', safeExecuteTxToLogValue(input));
+        throw error;
+      }
     },
     vscSBCTx: async (input: SBCTx[]) => {
       const ops: [bigint, Hex][] = [];
@@ -767,9 +786,16 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
             tx_hash: Uint8Array;
           } = unpack(response);
 
-          logger.debug('vscSBCTx', { data });
-
           if (data.errored) {
+            logger.error(
+              '[TX_FAIL] calibur_execute_relay_error',
+              new Error('Error in VSC SBC Tx'),
+              { chainIds: input.map((i) => bytesToNumber(i.chain_id)) }
+            );
+            // Detail at debug level: calldata contains the user's signature, must not leave the console.
+            logger.debug('[TX_FAIL] calibur_execute_relay_error:detail', {
+              txs: input.map(sbcTxToLogValue),
+            });
             throw Errors.internal('Error in VSC SBC Tx');
           }
 
@@ -785,6 +811,93 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
         await connection.close();
       }
       return ops;
+    },
+  };
+};
+
+// Inlined to avoid a cross-layer import of SAFE_ABI from src/swap/.
+const SAFE_EXEC_TRANSACTION_ABI = [
+  {
+    inputs: [
+      { internalType: 'address', name: 'to', type: 'address' },
+      { internalType: 'uint256', name: 'value', type: 'uint256' },
+      { internalType: 'bytes', name: 'data', type: 'bytes' },
+      { internalType: 'uint8', name: 'operation', type: 'uint8' },
+      { internalType: 'uint256', name: 'safeTxGas', type: 'uint256' },
+      { internalType: 'uint256', name: 'baseGas', type: 'uint256' },
+      { internalType: 'uint256', name: 'gasPrice', type: 'uint256' },
+      { internalType: 'address', name: 'gasToken', type: 'address' },
+      { internalType: 'address', name: 'refundReceiver', type: 'address' },
+      { internalType: 'bytes', name: 'signatures', type: 'bytes' },
+    ],
+    name: 'execTransaction',
+    outputs: [{ internalType: 'bool', name: 'success', type: 'bool' }],
+    stateMutability: 'payable',
+    type: 'function',
+  },
+] as const;
+
+const safeExecuteTxToLogValue = (input: SafeExecuteTx) => ({
+  chainId: input.chainId,
+  executeData: {
+    to: input.safeAddress,
+    // Relay submits with value=0; inner SafeTx value is in the encoded execTransaction args.
+    value: 0n,
+    data: encodeFunctionData({
+      abi: SAFE_EXEC_TRANSACTION_ABI,
+      functionName: 'execTransaction',
+      args: [
+        input.to,
+        input.value,
+        input.data,
+        input.operation,
+        input.safeTxGas,
+        input.baseGas,
+        input.gasPrice,
+        input.gasToken,
+        input.refundReceiver,
+        input.signature,
+      ],
+    }),
+  },
+});
+
+const sbcTxToLogValue = (input: SBCTx) => {
+  const calls = input.calls.map((c) => ({
+    to: bytesToHex(c.to_addr),
+    value: bytesToBigInt(c.value),
+    data: bytesToHex(c.data),
+  }));
+  const value = calls.reduce((acc, c) => acc + c.value, 0n);
+  return {
+    chainId: bytesToNumber(input.chain_id),
+    calls,
+    // For 7702 cold-start: apply these authorizations before simulating execute.
+    authorizationList: input.authorization_list.map((a) => ({
+      address: bytesToHex(a.address),
+      chainId: bytesToNumber(a.chain_id),
+      nonce: a.nonce,
+      r: bytesToHex(a.sig_r),
+      s: bytesToHex(a.sig_s),
+      v: a.sig_v,
+    })),
+    executeData: {
+      to: convertToHexAddressByUniverse(input.address, input.universe),
+      value,
+      data: encodeFunctionData({
+        abi: caliburAbi,
+        functionName: 'execute',
+        args: [
+          {
+            batchedCall: { calls, revertOnFailure: input.revert_on_failure },
+            nonce: bytesToBigInt(input.nonce),
+            keyHash: bytesToHex(input.key_hash),
+            executor: zeroAddress,
+            deadline: bytesToBigInt(input.deadline),
+          },
+          bytesToHex(input.signature),
+        ],
+      }),
     },
   };
 };
