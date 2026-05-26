@@ -5,7 +5,6 @@ import {
   Environment,
 } from '@avail-project/ca-common';
 import type { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
-import { keyDerivation } from '@starkware-industries/starkware-crypto-utils';
 import {
   createWalletClient,
   custom,
@@ -80,6 +79,7 @@ import {
   switchChain,
 } from './utils';
 import { PlatformUtils } from './utils/platform.utils';
+import { getPrivateKeyFromEthSignature } from './utils/stark';
 
 setLogLevel(LOG_LEVEL.NOLOGS);
 const logger = getLogger();
@@ -587,7 +587,7 @@ export class CA {
       storeSIWESignatureToLocalStorage(this._evm!.address, this._siweChain, sig);
     }
 
-    const pvtKey = keyDerivation.getPrivateKeyFromEthSignature(sig);
+    const pvtKey = getPrivateKeyFromEthSignature(sig);
     const wallet = await createCosmosWallet(`0x${pvtKey.padStart(64, '0')}`);
 
     this.#ephemeralWallet = privateKeyToAccount(`0x${pvtKey.padStart(64, '0')}`);
