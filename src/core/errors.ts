@@ -66,17 +66,6 @@ export const Errors = {
         details: { symbol, chainId },
       }
     ),
-
-  tronDepositFailed: (result: unknown) =>
-    createError(ERROR_CODES.TRON_DEPOSIT_FAIL, 'Tron deposit transaction failed.', {
-      details: { result },
-    }),
-
-  tronApprovalFailed: (result: unknown) =>
-    createError(ERROR_CODES.TRON_APPROVAL_FAIL, 'Tron approval transaction failed.', {
-      details: { result },
-    }),
-
   liquidityTimeout: () =>
     createError(ERROR_CODES.LIQUIDITY_TIMEOUT, 'Timed out waiting for fulfilment.'),
 

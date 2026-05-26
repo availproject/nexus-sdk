@@ -8,7 +8,6 @@ import type {
   Universe,
 } from '@avail-project/ca-common';
 import type { SigningStargateClient } from '@cosmjs/stargate';
-import type { AdapterProps } from '@tronweb3/tronwallet-abstract-adapter';
 import type Decimal from 'decimal.js';
 import type Long from 'long';
 import type { ByteArray, Hex, TransactionReceipt, WalletClient } from 'viem';
@@ -164,10 +163,6 @@ export interface SimulationResult {
   token: TokenInfo;
 }
 
-export type TronAdapter = AdapterProps & {
-  isMobile?: boolean;
-};
-
 /**
  * Parameters for transferring tokens.
  */
@@ -317,10 +312,6 @@ export type IBridgeOptions = {
     address: `0x${string}`;
     client: WalletClient;
     provider: EthereumProvider;
-  };
-  tron?: {
-    address: string;
-    adapter: TronAdapter;
   };
   hooks: {
     onAllowance: OnAllowanceHook;
@@ -850,7 +841,6 @@ type CosmosQueryClient = {
 
 type VSCClient = {
   getEVMBalancesForAddress: (address: `0x${string}`) => Promise<UnifiedBalanceResponseData[]>;
-  getTronBalancesForAddress: (address: `0x${string}`) => Promise<UnifiedBalanceResponseData[]>;
   getSwapBalances: (address: `0x${string}`) => Promise<import('./swap-types').AnkrAsset[]>;
   vscCreateFeeGrant: (address: string) => Promise<unknown>;
   vscPublishRFF: (id: Long) => Promise<{

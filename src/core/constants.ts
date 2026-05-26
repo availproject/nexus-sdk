@@ -34,7 +34,7 @@ const equalFold = (a?: string, b?: string) => {
 };
 
 const isNativeAddress = (universe: Universe, address: `0x${string}`) => {
-  if (universe === Universe.ETHEREUM || universe === Universe.TRON) {
+  if (universe === Universe.ETHEREUM) {
     return equalFold(address, ZERO_ADDRESS) || equalFold(address, ZERO_ADDRESS_BYTES_32);
   }
 

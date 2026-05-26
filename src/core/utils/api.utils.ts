@@ -517,9 +517,6 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
     getEVMBalancesForAddress: async (address: `0x${string}`) => {
       return getBalancesFromVSC(instance, address);
     },
-    getTronBalancesForAddress: async (address: `0x${string}`) => {
-      return getBalancesFromVSC(instance, address, 'TRON');
-    },
     getSwapBalances: async (address: `0x${string}`) => {
       return getSwapBalancesFromVSC(instance, address);
     },
@@ -792,7 +789,7 @@ const createVSCClient = ({ vscWsUrl, vscUrl }: { vscWsUrl: string; vscUrl: strin
 export const getBalancesFromVSC = async (
   instance: AxiosInstance,
   address: `0x${string}`,
-  namespace: 'ETHEREUM' | 'TRON' = 'ETHEREUM'
+  namespace: 'ETHEREUM' = 'ETHEREUM'
 ) => {
   const response = await instance.get<{
     balances: UnifiedBalanceResponseData[];

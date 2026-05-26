@@ -44,8 +44,6 @@ export const ERROR_CODES = {
   ENVIRONMENT_NOT_SUPPORTED: 'ENVIRONMENT_NOT_SUPPORTED',
   ENVIRONMENT_NOT_KNOWN: 'ENVIRONMENT_NOT_KNOWN',
   UNKNOWN_SIGNATURE: 'UNKNOWN_SIGNATURE',
-  TRON_DEPOSIT_FAIL: 'TRON_DEPOSIT_FAIL',
-  TRON_APPROVAL_FAIL: 'TRON_APPROVAL_FAIL',
   LIQUIDITY_TIMEOUT: 'LIQUIDITY_TIMEOUT',
   USER_DENIED_INTENT: 'USER_DENIED_INTENT',
   USER_DENIED_ALLOWANCE: 'USER_DENIED_ALLOWANCE',
@@ -118,11 +116,6 @@ function handleNexusError(err: unknown) {
 
       case ERROR_CODES.INSUFFICIENT_BALANCE:
         alert('Your wallet does not have enough funds.');
-        break;
-
-      case ERROR_CODES.TRON_DEPOSIT_FAIL:
-        console.warn('Deposit failed');
-        // Possibly ask user to retry
         break;
 
       default:

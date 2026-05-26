@@ -23,7 +23,6 @@ const getMaxValueForBridge = async (
       vscClient: options.vscClient,
       evmAddress: options.evm.address,
       chainList: options.chainList,
-      tronAddress: options.tron?.address,
     }),
     getFeeStore(options.cosmosQueryClient),
   ]);
