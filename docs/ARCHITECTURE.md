@@ -2,7 +2,7 @@
 
 > **Purpose**: Comprehensive technical documentation for SDK contributors and LLMs working on the codebase.
 >
-> **Version**: 1.0.0-beta.63
+> **Version**: 1.4.0
 > **Repository**: https://github.com/availproject/nexus-sdk
 
 ---
@@ -29,7 +29,7 @@
 
 The Nexus SDK is a **headless TypeScript SDK** for cross-chain operations built on Avail's Chain Abstraction (CA) infrastructure. It enables:
 
-- **Cross-chain token bridging** - Move tokens between 17+ blockchains
+- **Cross-chain token bridging** - Move tokens between 13 mainnet chains (+ 7 testnets)
 - **Cross-chain swaps** - Swap any token on any chain to any other token on any chain
 - **Contract execution** - Execute arbitrary smart contract calls with automatic bridging
 - **Unified balance aggregation** - View balances across all supported chains
@@ -63,11 +63,13 @@ The system supports multiple blockchain "universes" - distinct blockchain ecosys
 // From ca-common: src/proto/definition.ts
 enum Universe {
   ETHEREUM = 0,  // All EVM chains (Ethereum, Arbitrum, Polygon, etc.)
-  FUEL = 1,      // Fuel Network
-  SOLANA = 2,    // Solana
-  TRON = 3,      // TRON
+  FUEL = 1,      // Fuel Network    (defined upstream; not currently used by this SDK)
+  SOLANA = 2,    // Solana          (defined upstream; not currently used by this SDK)
+  TRON = 3,      // TRON            (defined upstream; not currently used by this SDK)
 }
 ```
+
+In practice every chain registered in `src/core/chains.ts` is `Universe.ETHEREUM`; the SDK code paths assume EVM throughout.
 
 #### OmniversalChainID
 A unique identifier for any chain across all universes. Uses 36-byte binary format:
@@ -117,14 +119,17 @@ interface RequestForFunds {
 | Class | File | Purpose |
 |-------|------|---------|
 | `NexusSDK` | `src/sdk/index.ts` | Main SDK entry point - extends CA |
-| `CA` | `src/sdk/ca-base/ca.ts` | Chain Abstraction base layer |
-| `ChainList` | `src/sdk/ca-base/chains.ts` | Chain registry and metadata |
-| `BridgeHandler` | `src/sdk/ca-base/requestHandlers/bridge.ts` | Bridge operation handler |
-| `BridgeAndExecuteQuery` | `src/sdk/ca-base/query/bridgeAndExecute.ts` | Bridge + execute operations |
-| `SwapAndExecuteQuery` | `src/sdk/ca-base/query/swapAndExecute.ts` | Swap + execute operations |
+| `NexusUtils` | `src/sdk/utils.ts` | Stateless helpers (formatting, address utils) |
+| `CA` | `src/core/ca.ts` | Chain Abstraction base layer (protected) |
+| `ChainList` | `src/core/chains.ts` | Chain registry and metadata |
+| `BridgeHandler` (bridge flow) | `src/flows/bridge.ts` | Bridge operation handler |
+| `BridgeAndExecuteQuery` | `src/flows/bridgeAndExecute.ts` | Bridge + execute orchestrator |
+| `SwapAndExecuteQuery` | `src/flows/swapAndExecute.ts` | Swap + execute orchestrator |
+| `BridgeHandler` / `SourceSwapsHandler` / `DestinationSwapHandler` / `CombinedSwapHandler` | `src/swap/ob.ts` | Swap operation builders (per-leg + combined Safe batch) |
+| `BackendSimulationClient` | `src/services/backendSimulation.ts` | Gas-estimation bundle API client |
 | `AnalyticsManager` | `src/analytics/AnalyticsManager.ts` | Telemetry and analytics |
-| `NexusError` | `src/sdk/ca-base/nexusError.ts` | Custom error class |
-| `Errors` | `src/sdk/ca-base/errors.ts` | Error factory functions |
+| `NexusError` | `src/core/nexusError.ts` | Custom error class & `ERROR_CODES` |
+| `Errors` | `src/core/errors.ts` | Error factory functions |
 
 #### ca-common Classes (shared library)
 
@@ -137,7 +142,8 @@ interface RequestForFunds {
 | `QueryClientImpl` | `src/proto/grpc.ts` | gRPC client for Cosmos queries |
 | `Aggregator` | `src/xcs/iface.ts` | DEX aggregator interface |
 | `LiFiAggregator` | `src/xcs/lifi-agg.ts` | LiFi DEX aggregator |
-| `BebopAggregator` | `src/xcs/bebop-agg.ts` | Bebop/CoW Swap aggregator |
+| `BebopAggregator` | `src/xcs/bebop-agg.ts` | Bebop DEX aggregator |
+| `FibrousAggregator` | `src/xcs/fibrous-agg.ts` | Fibrous DEX aggregator |
 
 ### Quick Lookup: Common Tasks
 
@@ -150,7 +156,7 @@ interface RequestForFunds {
 | Bridge + Execute | `sdk.bridgeAndExecute({ token, amount, toChainId, execute: {...} })` |
 | Swap + Execute | `sdk.swapAndExecute({ toChainId, toTokenAddress, toAmount, execute: {...} })` |
 | Get balances | `sdk.getBalancesForBridge()` or `sdk.getBalancesForSwap()` |
-| Add new chain | Modify `src/sdk/ca-base/chains.ts` and `src/commons/constants/index.ts` |
+| Add new chain | Modify `src/core/chains.ts` and `src/commons/constants/index.ts` |
 | Add new token | Modify `TOKEN_CONTRACT_ADDRESSES` in `src/commons/constants/index.ts` |
 | Handle errors | Catch `NexusError` and check `.code` property |
 
@@ -197,84 +203,107 @@ interface RequestForFunds {
 nexus-sdk/
 ├── src/                              # Source code
 │   ├── index.ts                      # Main exports
-│   ├── _polyfill.ts                  # Browser polyfills
+│   ├── _polyfill.ts                  # Buffer / process polyfills (must import first)
 │   │
-│   ├── sdk/                          # Core SDK implementation
-│   │   ├── index.ts                  # NexusSDK class
-│   │   ├── utils.ts                  # Utility exports (NexusUtils)
-│   │   │
-│   │   └── ca-base/                  # Chain Abstraction base layer
-│   │       ├── ca.ts                 # CA class (base for NexusSDK)
-│   │       ├── chains.ts             # ChainList class & chain configs
-│   │       ├── config.ts             # Network configuration (Coral/Folly)
-│   │       ├── constants.ts          # CA-specific constants
-│   │       ├── errors.ts             # Error factory functions
-│   │       ├── nexusError.ts         # NexusError class & ERROR_CODES
-│   │       ├── telemetry.ts          # OpenTelemetry setup
-│   │       │
-│   │       ├── abi/                  # Smart contract ABIs
-│   │       │   └── (imported from @avail-project/ca-common)
-│   │       │
-│   │       ├── query/                # Query handlers
-│   │       │   ├── bridgeAndExecute.ts   # BridgeAndExecuteQuery class
-│   │       │   └── gasFeeHistory.ts      # Gas price recommendations
-│   │       │
-│   │       ├── requestHandlers/      # Operation handlers
-│   │       │   └── bridge.ts         # BridgeHandler class
-│   │       │
-│   │       ├── swap/                 # Swap implementation
-│   │       │   ├── swap.ts           # Main swap function
-│   │       │   ├── route.ts          # Route determination logic
-│   │       │   ├── data.ts           # Swap data types & filters
-│   │       │   ├── constants.ts      # Swap constants (API keys)
-│   │       │   ├── rff.ts            # Request For Funds logic
-│   │       │   ├── utils.ts          # Swap utilities
-│   │       │   └── ob/               # Order book handlers
-│   │       │       ├── index.ts
-│   │       │       ├── bridge.ts         # BridgeHandler
-│   │       │       ├── destinationSwap.ts # DestinationSwapHandler
-│   │       │       └── sourceSwaps.ts    # SourceSwapsHandler
-│   │       │
-│   │       └── utils/                # Utility functions
-│   │           ├── index.ts          # Re-exports all utils
-│   │           ├── api.utils.ts      # API helpers (Coinbase, Ankr)
-│   │           ├── balance.utils.ts  # Balance fetching
-│   │           ├── common.utils.ts   # Common utilities
-│   │           ├── contract.utils.ts # Contract interaction helpers
-│   │           ├── cosmos.utils.ts   # Cosmos-specific utilities
-│   │           ├── platform.utils.ts # Platform detection (browser/node)
-│   │           └── rff.utils.ts      # RFF utilities
+│   ├── sdk/                          # Public SDK surface
+│   │   ├── index.ts                  # NexusSDK class (extends CA)
+│   │   └── utils.ts                  # NexusUtils + stateless helpers
+│   │
+│   ├── core/                         # Chain Abstraction base layer
+│   │   ├── index.ts                  # Re-exports
+│   │   ├── ca.ts                     # CA class (protected base for NexusSDK)
+│   │   ├── chains.ts                 # ChainList class & MAINNET/TESTNET arrays
+│   │   ├── config.ts                 # Network configuration (CORAL / FOLLY)
+│   │   ├── constants.ts              # ZERO_ADDRESS, addressIsZero, etc.
+│   │   ├── errors.ts                 # Error factory functions (Errors object)
+│   │   ├── nexusError.ts             # NexusError class & ERROR_CODES
+│   │   ├── telemetry.ts              # OpenTelemetry setup
+│   │   └── utils/
+│   │       ├── index.ts              # Re-exports all utils
+│   │       ├── api.utils.ts          # VSC + Coinbase + Ankr API helpers
+│   │       ├── balance.utils.ts      # Balance fetch / aggregation
+│   │       ├── common.utils.ts       # Encoding, equality, intent transforms
+│   │       ├── contract.utils.ts     # Public client creation with RPC fallbacks
+│   │       ├── cosmos.utils.ts       # Cosmos wallet, SIWE, fee-grants, refunds
+│   │       ├── platform.utils.ts     # PlatformUtils (device/OS detection)
+│   │       └── rff.utils.ts          # RFF (Request For Funds) builders
+│   │
+│   ├── flows/                        # High-level operation orchestrators
+│   │   ├── index.ts                  # Re-exports
+│   │   ├── bridge.ts                 # BridgeHandler class (.execute / .simulate)
+│   │   ├── bridgeAndExecute.ts       # BridgeAndExecuteQuery class
+│   │   ├── bridgeAndTransfer.ts      # createBridgeAndTransferParams() adapter
+│   │   ├── calculateMaxForBridge.ts  # getMaxValueForBridge() (2% haircut)
+│   │   ├── calculateMaxForSwap.ts    # calculateMaxForSwap() (min(3%,3 USDC) haircut)
+│   │   ├── swap.ts                   # swap() core orchestration
+│   │   └── swapAndExecute.ts         # SwapAndExecuteQuery class
+│   │
+│   ├── bridge/                       # Bridge helpers
+│   │   ├── helpers.ts                # createBridgeParams() (param normalization)
+│   │   └── steps.ts                  # createSteps() (BridgeStepType[] generator)
+│   │
+│   ├── swap/                         # Swap routing & execution
+│   │   ├── constants.ts              # EADDRESS, SWEEPER_ADDRESS, CALIBUR_ADDRESS, API keys
+│   │   ├── data.ts                   # FlatBalance, SwapSourceData
+│   │   ├── intent.ts                 # Cosmos RFF intent for bridge asset
+│   │   ├── ob.ts                     # Operation builders: BridgeHandler,
+│   │   │                             #   SourceSwapsHandler, DestinationSwapHandler,
+│   │   │                             #   CombinedSwapHandler (Safe / EIP-7702 batch)
+│   │   ├── rff.ts                    # createBridgeRFF() for swaps
+│   │   ├── route.ts                  # determineSwapRoute() (aggregator selection)
+│   │   ├── safe.abi.ts               # Safe contract ABI re-export
+│   │   ├── safe.constants.ts         # Safe salt nonce, version
+│   │   ├── safetx.ts                 # Safe (EIP-7702) tx builders
+│   │   ├── sbc.ts                    # Signed Bundle Call helpers (Calibur execute)
+│   │   ├── sort.ts                   # Swap-result sorting
+│   │   ├── steps.ts                  # createSwapSteps() (SwapStepType[] generator)
+│   │   └── utils.ts                  # PublicClientList, Cache, quote/allowance helpers
+│   │
+│   ├── services/                     # External integrations & gas/fee services
+│   │   ├── backendSimulation.ts      # BackendSimulationClient (gas-estimation/bundleV2)
+│   │   ├── depositFeeEstimation.ts   # estimateRepresentativeDepositTxFee()
+│   │   ├── executeTransactions.ts    # sendExecuteTransactions() (atomic batch / sequential)
+│   │   ├── feeEstimation.ts          # estimateFeeContext() / finalizeFeeEstimates()
+│   │   ├── gasFeeHistory.ts          # getGasPriceRecommendations() (low/med/high)
+│   │   ├── swapNativeReserveFee.ts   # estimateSwapNativeReserveFee()
+│   │   └── walletCapabilities.ts     # getAtomicBatchSupport() (EIP-5792 / 4337)
+│   │
+│   ├── abi/                          # Contract ABIs (local copies)
+│   │   ├── calibur.abi.ts            # Calibur (Safe-style account) ABI
+│   │   ├── erc20.ts                  # ERC20 transfer/allowance/permit (+EIP-2612)
+│   │   ├── gasOracle.ts              # OP Stack & Arbitrum gas oracle ABIs
+│   │   ├── misc.ts                   # ApproveABI
+│   │   ├── sweep.ts                  # SWEEP_ABI (token sweeper helper)
+│   │   └── vault.ts                  # Avail Nexus Vault FillEvent
 │   │
 │   ├── analytics/                    # Analytics system
+│   │   ├── index.ts                  # Re-exports
 │   │   ├── AnalyticsManager.ts       # Main analytics orchestrator
-│   │   ├── events.ts                 # Event name constants
+│   │   ├── events.ts                 # NexusAnalyticsEvents constants
 │   │   ├── performance.ts            # Performance tracking
 │   │   ├── session.ts                # Session management
 │   │   ├── types.ts                  # Analytics types
-│   │   ├── utils.ts                  # Analytics utilities
+│   │   ├── utils.ts                  # extract{Bridge,Swap}Properties, getWalletType
 │   │   └── providers/                # Analytics providers
 │   │       ├── AnalyticsProvider.ts  # Provider interface
 │   │       ├── NoOpProvider.ts       # No-op provider (disabled)
 │   │       └── PostHogProvider.ts    # PostHog implementation
 │   │
-│   ├── commons/                      # Shared utilities & types
-│   │   ├── index.ts                  # Re-exports
-│   │   ├── types/                    # Type definitions
-│   │   │   ├── index.ts              # Main types
-│   │   │   ├── bridge-steps.ts       # Bridge step definitions
-│   │   │   ├── swap-steps.ts         # Swap step definitions
-│   │   │   ├── swap-types.ts         # Swap-specific types
-│   │   │   ├── contract-types.ts     # Contract types
-│   │   │   └── integration-types.ts  # Integration types
-│   │   ├── constants/                # Constants
-│   │   │   └── index.ts              # SUPPORTED_CHAINS, TOKEN_*, etc.
-│   │   └── utils/                    # Common utilities
-│   │       ├── format.ts             # Token formatting
-│   │       └── logger.ts             # Logging utilities
-│   │
-│   └── integrations/                 # External integrations
-│       ├── tenderly.ts               # Tenderly simulation client
-│       └── types.ts                  # Integration types
+│   └── commons/                      # Shared utilities & types
+│       ├── index.ts                  # Re-exports
+│       ├── types/
+│       │   ├── index.ts              # Main types
+│       │   ├── bridge-steps.ts       # BRIDGE_STEPS factory
+│       │   ├── swap-steps.ts         # SWAP_STEPS factory
+│       │   ├── swap-types.ts         # Swap input/output types
+│       │   ├── contract-types.ts     # Chain, Token, Intent, Tx types
+│       │   └── integration-types.ts  # Integration config types
+│       ├── constants/
+│       │   └── index.ts              # SUPPORTED_CHAINS, TOKEN_*, CHAIN_METADATA, NEXUS_EVENTS
+│       └── utils/
+│           ├── index.ts              # Re-exports
+│           ├── format.ts             # Token formatting helpers
+│           └── logger.ts             # Logger instance
 │
 ├── examples/                         # Usage examples
 │   ├── node/                         # Node.js examples
@@ -298,6 +327,8 @@ nexus-sdk/
 ├── rollup.config.mjs                 # Build configuration
 └── biome.jsonc                       # Linter/formatter config
 ```
+
+> Note: prior versions of this doc described a `src/sdk/ca-base/...` layout and a separate `src/integrations/tenderly.ts`. Both were removed by the refactor in PR #188 / commit `281a857d`. `core/`, `flows/`, `bridge/`, `swap/`, `services/`, and `abi/` are the current top-level groupings under `src/`. Tenderly simulation now lives behind the backend service in `src/services/backendSimulation.ts`.
 
 ### Key Dependencies
 
@@ -373,13 +404,29 @@ public async bridge(
   params: BridgeParams,
   options?: OnEventParam
 ): Promise<BridgeResult> {
-  // Validation
-  if (!this._isInitialized()) {
-    throw Errors.sdkNotInitialized();
-  }
+  this.analytics.track(NexusAnalyticsEvents.BRIDGE_INITIATED, {
+    toChainId: params.toChainId,
+    tokenSymbol: params.token,
+    sourceChains: params.sourceChains,
+  });
+  const opId = this.analytics.startOperation(NexusAnalyticsEvents.BRIDGE_TRANSACTION_SUCCESS);
 
-  // Delegate to CA base class
-  return this._bridge(params, options);
+  try {
+    const result = await (await this._createBridgeHandler(params, options)).execute();
+    this.analytics.endOperation(opId, { success: true });
+    return {
+      explorerUrl: result.explorerURL,
+      sourceTxs: result.sourceTxs,
+      intent: result.intent,
+    };
+  } catch (error) {
+    this.analytics.trackError('bridge', error, {
+      toChainId: params.toChainId,
+      tokenSymbol: params.token,
+    });
+    this.analytics.endOperation(opId, { success: false, error: error as Error });
+    throw error;
+  }
 }
 ```
 
@@ -387,7 +434,7 @@ public async bridge(
 ```typescript
 interface BridgeParams {
   recipient?: Hex;           // Optional: defaults to user's address
-  token: string;             // 'ETH' | 'USDC' | 'USDT'
+  token: string;             // Token symbol supported on destination chain
   amount: bigint;            // Amount in smallest units (wei, etc.)
   toChainId: number;         // Destination chain ID
   gas?: bigint;              // Optional: gas to supply on destination
@@ -493,21 +540,35 @@ interface BridgeParams {
 
 #### Step-by-Step Code Walkthrough
 
-**Step 1: Validation** (`src/sdk/index.ts`)
+**Step 1: Validation & handler construction** (`src/sdk/index.ts` → `src/core/ca.ts`)
 
 ```typescript
-public async bridge(
-  params: BridgeParams,
-  options?: OnEventParam
-): Promise<BridgeResult> {
-  if (!this._isInitialized()) {
-    throw Errors.sdkNotInitialized();
-  }
-  return this._bridge(params, options);
+// src/sdk/index.ts
+public async bridge(params: BridgeParams, options?: OnEventParam): Promise<BridgeResult> {
+  // analytics.startOperation(...)
+  const result = await (await this._createBridgeHandler(params, options)).execute();
+  return { explorerUrl: result.explorerURL, sourceTxs: result.sourceTxs, intent: result.intent };
 }
+
+// src/core/ca.ts
+protected _createBridgeHandler = (input: BridgeParams, options?: OnEventParam) => {
+  if (!this._evm) throw Errors.sdkNotInitialized();
+  const params = createBridgeParams(input, this.chainList); // src/bridge/helpers.ts
+  return this.withReinit(async () =>
+    new BridgeHandler(params, {
+      chainList: this.chainList,
+      cosmos: this.#cosmos!,
+      evm: this._evm!,
+      hooks: this._hooks,
+      ...this._queryClients!,
+      intentExplorerUrl: this._networkConfig.INTENT_EXPLORER_URL,
+      emit: options?.onEvent,
+    })
+  );
+};
 ```
 
-**Step 2-3: Balance Check & Intent Creation** (`src/sdk/ca-base/requestHandlers/bridge.ts`)
+**Step 2-3: Balance Check & Intent Creation** (`src/flows/bridge.ts`)
 
 ```typescript
 export default class BridgeHandler {
@@ -554,7 +615,7 @@ export default class BridgeHandler {
 }
 ```
 
-**Step 4: Intent Hook** (`src/sdk/ca-base/ca.ts`)
+**Step 4: Intent Hook** (`src/core/ca.ts` / `src/flows/bridge.ts`)
 
 ```typescript
 // In CA base class
@@ -579,7 +640,7 @@ private async waitForIntentApproval(intent: Intent): Promise<void> {
 }
 ```
 
-**Step 5: Allowance Handling** (`src/sdk/ca-base/requestHandlers/bridge.ts`)
+**Step 5: Allowance Handling** (`src/flows/bridge.ts`)
 
 ```typescript
 private async handleAllowances(intent: Intent): Promise<void> {
@@ -618,7 +679,7 @@ private async handleAllowances(intent: Intent): Promise<void> {
 }
 ```
 
-**Step 6: Intent Signature** (`src/sdk/ca-base/utils/common.utils.ts`)
+**Step 6: Intent Signature** (`src/core/utils/common.utils.ts`)
 
 ```typescript
 const createRequestEVMSignature = async (
@@ -687,7 +748,7 @@ for (const source of intent.sources) {
 }
 ```
 
-**Step 9: Wait for Fulfillment** (`src/sdk/ca-base/utils/common.utils.ts`)
+**Step 9: Wait for Fulfillment** (`src/core/utils/common.utils.ts`)
 
 ```typescript
 const evmWaitForFill = async (
@@ -734,7 +795,7 @@ const evmWaitForFill = async (
 |-----------|------------|----------|
 | SDK not initialized | `SDK_NOT_INITIALIZED` | Call `initialize()` first |
 | Invalid chain ID | `CHAIN_NOT_FOUND` | Check `SUPPORTED_CHAINS` |
-| Token not supported | `TOKEN_NOT_SUPPORTED` | Use ETH, USDC, or USDT |
+| Token not supported | `TOKEN_NOT_SUPPORTED` | Use a token symbol registered for the destination chain |
 | Insufficient balance | `INSUFFICIENT_BALANCE` | Add funds or reduce amount |
 | User denies intent | `USER_DENIED_INTENT` | User must approve in hook |
 | User denies allowance | `USER_DENIED_ALLOWANCE` | User must approve in hook |
@@ -745,7 +806,7 @@ const evmWaitForFill = async (
 
 ### 3.2 Swap Operation
 
-The swap operation converts tokens on any source chain(s) to any token on any destination chain using aggregators (LiFi, Bebop).
+The swap operation converts tokens on any source chain(s) to any token on any destination chain using aggregators (LiFi, Bebop, Fibrous).
 
 #### Entry Point
 
@@ -759,10 +820,29 @@ public async swapWithExactIn(
   input: ExactInSwapInput,
   options?: OnEventParam
 ): Promise<SwapResult> {
-  if (!this._isInitialized()) {
-    throw Errors.sdkNotInitialized();
+  this.analytics.track(NexusAnalyticsEvents.SWAP_INITIATED, {
+    swapType: 'exactIn',
+    toChainId: input.toChainId,
+    toTokenAddress: input.toTokenAddress,
+    sourceChains: input.from.map((f) => f.chainId),
+  });
+  const opId = this.analytics.startOperation(NexusAnalyticsEvents.SWAP_TRANSACTION_SUCCESS, {
+    swapType: 'exactIn',
+  });
+
+  try {
+    const result = await this._swapWithExactIn(input, options);
+    this.analytics.endOperation(opId, { success: true });
+    return { success: true, result };
+  } catch (error) {
+    this.analytics.trackError('swap', error, {
+      swapType: 'exactIn',
+      toChainId: input.toChainId,
+      toTokenAddress: input.toTokenAddress,
+    });
+    this.analytics.endOperation(opId, { success: false, error: error as Error });
+    throw error;
   }
-  return this._swapWithExactIn(input, options);
 }
 
 /**
@@ -772,10 +852,28 @@ public async swapWithExactOut(
   input: ExactOutSwapInput,
   options?: OnEventParam
 ): Promise<SwapResult> {
-  if (!this._isInitialized()) {
-    throw Errors.sdkNotInitialized();
+  this.analytics.track(NexusAnalyticsEvents.SWAP_INITIATED, {
+    swapType: 'exactOut',
+    toChainId: input.toChainId,
+    toTokenAddress: input.toTokenAddress,
+  });
+  const opId = this.analytics.startOperation(NexusAnalyticsEvents.SWAP_TRANSACTION_SUCCESS, {
+    swapType: 'exactOut',
+  });
+
+  try {
+    const result = await this._swapWithExactOut(input, options);
+    this.analytics.endOperation(opId, { success: true });
+    return { success: true, result };
+  } catch (error) {
+    this.analytics.trackError('swap', error, {
+      swapType: 'exactOut',
+      toChainId: input.toChainId,
+      toTokenAddress: input.toTokenAddress,
+    });
+    this.analytics.endOperation(opId, { success: false, error: error as Error });
+    throw error;
   }
-  return this._swapWithExactOut(input, options);
 }
 ```
 
@@ -812,7 +910,7 @@ type ExactOutSwapInput = {
 │                                ▼                                        │
 │    ┌───────────────────────────────────────────────────────┐            │
 │    │  1. DETERMINE SWAP ROUTE                              │            │
-│    │     File: src/sdk/ca-base/swap/route.ts               │            │
+│    │     File: src/swap/route.ts                           │            │
 │    │                                                       │            │
 │    │     - Fetch user balances                             │            │
 │    │     - Fetch fee store & oracle prices                 │            │
@@ -833,10 +931,10 @@ type ExactOutSwapInput = {
 │                                ▼ (allowed)                              │
 │    ┌───────────────────────────────────────────────────────┐            │
 │    │  3. SOURCE SWAPS (if needed)                          │            │
-│    │     File: src/sdk/ca-base/swap/ob/sourceSwaps.ts      │            │
+│    │     File: src/swap/ob.ts (SourceSwapsHandler)         │            │
 │    │                                                       │            │
 │    │     - For each source token not already COT:          │            │
-│    │       - Get quote from aggregator (LiFi/Bebop)        │            │
+│    │       - Get quote from aggregator (LiFi/Bebop/Fibrous)│            │
 │    │       - Execute swap on source chain                  │            │
 │    │       - Result: all sources now in COT (USDC)         │            │
 │    └───────────────────────────────────────────────────────┘            │
@@ -844,7 +942,7 @@ type ExactOutSwapInput = {
 │                                ▼                                        │
 │    ┌───────────────────────────────────────────────────────┐            │
 │    │  4. BRIDGE (if cross-chain)                           │            │
-│    │     File: src/sdk/ca-base/swap/ob/bridge.ts           │            │
+│    │     File: src/swap/ob.ts (BridgeHandler)              │            │
 │    │                                                       │            │
 │    │     - Create RFF with COT amounts from each source    │            │
 │    │     - Execute deposits on each source chain           │            │
@@ -855,7 +953,7 @@ type ExactOutSwapInput = {
 │                                ▼                                        │
 │    ┌───────────────────────────────────────────────────────┐            │
 │    │  5. DESTINATION SWAP                                  │            │
-│    │     File: src/sdk/ca-base/swap/ob/destinationSwap.ts  │            │
+│    │     File: src/swap/ob.ts (DestinationSwapHandler)     │            │
 │    │                                                       │            │
 │    │     - Create permit for ephemeral wallet              │            │
 │    │     - Get quote from aggregator for COT → target      │            │
@@ -876,9 +974,14 @@ type ExactOutSwapInput = {
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
+> When all legs can execute atomically (e.g. all sources are on the destination
+> chain and the wallet supports atomic batches), `CombinedSwapHandler` collapses
+> source swaps + destination swap into a single Safe / EIP-7702 transaction —
+> see `src/swap/ob.ts` and `src/swap/safetx.ts`.
+
 #### Route Determination Logic
 
-**File**: `src/sdk/ca-base/swap/route.ts`
+**File**: `src/swap/route.ts`
 
 ```typescript
 export const determineSwapRoute = async (
@@ -958,20 +1061,22 @@ const _exactOutRoute = async (
 
 #### Swap Aggregators
 
-**File**: `src/sdk/ca-base/swap/constants.ts`
+**File**: `src/swap/constants.ts`
 
 ```typescript
 // API keys (public, rate-limited)
 export const LIFI_API_KEY = '...';
 export const BEBOP_API_KEY = '...';
+// FibrousAggregator does not require an API key.
 ```
 
-**Aggregator initialization** (`src/sdk/ca-base/swap/swap.ts`):
+**Aggregator initialization** (`src/flows/swap.ts`):
 
 ```typescript
 const aggregators: Aggregator[] = [
   new LiFiAggregator(LIFI_API_KEY),
   new BebopAggregator(BEBOP_API_KEY),
+  new FibrousAggregator(),
 ];
 ```
 
@@ -979,8 +1084,9 @@ The aggregators implement a common interface from `@avail-project/ca-common`:
 
 ```typescript
 interface Aggregator {
-  getQuote(request: QuoteRequest): Promise<Quote>;
-  executeSwap(quote: Quote, wallet: WalletClient): Promise<Hex>;
+  getQuotes(
+    requests: (QuoteRequestExactInput | QuoteRequestExactOutput)[],
+  ): Promise<(Quote | null)[]>;
 }
 ```
 
@@ -1016,10 +1122,24 @@ public async execute(
   params: ExecuteParams,
   options?: OnEventParam
 ): Promise<ExecuteResult> {
-  if (!this._isInitialized()) {
-    throw Errors.sdkNotInitialized();
+  this.analytics.track(NexusAnalyticsEvents.EXECUTE_INITIATED, {
+    toChainId: params.toChainId,
+    contractAddress: params.to,
+  });
+  const opId = this.analytics.startOperation(NexusAnalyticsEvents.EXECUTE_TRANSACTION_SUCCESS);
+
+  try {
+    const result = await this._execute(params, options);
+    this.analytics.endOperation(opId, { success: true });
+    return result;
+  } catch (error) {
+    this.analytics.trackError('execute', error, {
+      toChainId: params.toChainId,
+      contractAddress: params.to,
+    });
+    this.analytics.endOperation(opId, { success: false, error: error as Error });
+    throw error;
   }
-  return this._execute(params, options);
 }
 ```
 
@@ -1046,7 +1166,7 @@ interface ExecuteParams {
 
 #### Execute Flow
 
-**File**: `src/sdk/ca-base/query/bridgeAndExecute.ts`
+**File**: `src/flows/bridgeAndExecute.ts` (the `execute` path), with transaction sending delegated to `src/services/executeTransactions.ts`
 
 ```typescript
 public async execute(params: ExecuteParams, options?: OnEventParam) {
@@ -1159,10 +1279,28 @@ public async bridgeAndExecute(
   params: BridgeAndExecuteParams,
   options?: OnEventParam & BeforeExecuteHook
 ): Promise<BridgeAndExecuteResult> {
-  if (!this._isInitialized()) {
-    throw Errors.sdkNotInitialized();
+  this.analytics.track(NexusAnalyticsEvents.BRIDGE_AND_EXECUTE_INITIATED, {
+    toChainId: params.toChainId,
+    tokenSymbol: params.token,
+    contractAddress: params.execute?.to,
+  });
+  const opId = this.analytics.startOperation(
+    NexusAnalyticsEvents.BRIDGE_AND_EXECUTE_TRANSACTION_SUCCESS
+  );
+
+  try {
+    const result = await this._bridgeAndExecute(params, options);
+    this.analytics.endOperation(opId, { success: true });
+    return result;
+  } catch (error) {
+    this.analytics.trackError('bridgeAndExecute', error, {
+      toChainId: params.toChainId,
+      tokenSymbol: params.token,
+      contractAddress: params.execute?.to,
+    });
+    this.analytics.endOperation(opId, { success: false, error: error as Error });
+    throw error;
   }
-  return this._bridgeAndExecute(params, options);
 }
 ```
 
@@ -1183,7 +1321,7 @@ interface BridgeAndExecuteParams {
 
 #### Flow
 
-**File**: `src/sdk/ca-base/query/bridgeAndExecute.ts`
+**File**: `src/flows/bridgeAndExecute.ts`
 
 ```typescript
 public async bridgeAndExecute(
@@ -1326,7 +1464,7 @@ The `swapAndExecute` operation combines a cross-chain swap with arbitrary contra
 public swapAndExecute = this._swapAndExecute;
 ```
 
-**Delegates to**: `src/sdk/ca-base/ca.ts:_swapAndExecute()`
+**Delegates to**: `src/core/ca.ts:_swapAndExecute()`
 
 ```typescript
 protected _swapAndExecute = async (input: SwapAndExecuteParams, options?: OnEventParam) => {
@@ -1419,7 +1557,7 @@ interface SwapExecuteParams {
 
 #### Implementation Details
 
-**File**: `src/sdk/ca-base/query/swapAndExecute.ts`
+**File**: `src/flows/swapAndExecute.ts`
 
 **Step 1-2: Estimation and Optimal Amount Calculation**
 
@@ -1556,21 +1694,22 @@ The SDK interacts with multiple backend services:
               │              │              │              │
               ▼              ▼              ▼              ▼
      ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐
-     │   Cosmos   │  │    VSC     │  │  Tenderly  │  │ Aggregators│
-     │ Query API  │  │  Backend   │  │ Simulation │  │ LiFi/Bebop │
+     │   Cosmos   │  │    VSC     │  │   Nexus    │  │ Aggregators│
+     │ Query API  │  │  Backend   │  │  Backend   │  │  LiFi /    │
+     │            │  │            │  │ Simulation │  │  Bebop     │
      └────────────┘  └────────────┘  └────────────┘  └────────────┘
            │              │              │              │
            ▼              ▼              ▼              ▼
      ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐
-     │ Fees, RFF  │  │ Balances,  │  │ Gas Est,   │  │ Swap       │
-     │ Intent     │  │ Sponsored  │  │ Tx Sim     │  │ Quotes     │
-     │ Status     │  │ Tx         │  │            │  │            │
+     │ Fees, RFF  │  │ Balances,  │  │ Bundle gas │  │ Swap       │
+     │ Intent     │  │ Sponsored  │  │ estimation │  │ Quotes     │
+     │ Status     │  │ Tx         │  │ (bundleV2) │  │            │
      └────────────┘  └────────────┘  └────────────┘  └────────────┘
 ```
 
 ### 4.2 Network Configuration
 
-**File**: `src/sdk/ca-base/config.ts`
+**File**: `src/core/config.ts`
 
 ```typescript
 // Mainnet (Coral)
@@ -1684,16 +1823,20 @@ type UnifiedBalanceResponseData = {
 };
 ```
 
-### 4.5 Tenderly Simulation
+### 4.5 Backend Simulation (gas estimation)
 
-**File**: `src/integrations/tenderly.ts`
+**File**: `src/services/backendSimulation.ts`
+
+Bundle-style gas estimation lives behind a Nexus-managed backend endpoint
+(`/api/gas-estimation/bundleV2`). The endpoint may use Tenderly or another
+simulator internally; from the SDK's perspective it's an opaque `POST` API.
 
 ```typescript
 export class BackendSimulationClient {
   private readonly baseUrl: string;
 
   constructor(config: BackendConfig) {
-    this.baseUrl = config.baseUrl;  // https://nexus-backend.avail.so
+    this.baseUrl = config.baseUrl;  // e.g. https://nexus-backend.avail.so
   }
 
   async simulateBundleV2(request: BundleSimulationRequest) {
@@ -1711,21 +1854,21 @@ export class BackendSimulationClient {
 }
 ```
 
-**Request Format**:
+**Request Format** (see `BundleSimulationRequest` / `StateOverride` exports
+in the same file):
 
 ```typescript
 interface BundleSimulationRequest {
   chainId: string;
-  simulations: {
-    type: string;
-    from: Hex;
-    to: Hex;
-    data: Hex;
-    value: Hex;
+  simulations: Array<{
     stepId: string;
-    enableStateOverride: boolean;
-    stateOverride: StateOverride;
-  }[];
+    type: string;
+    from: string;
+    to: string;
+    data?: string;
+    value?: string;
+    stateOverride?: StateOverride;   // per-address balance/storage/code/nonce overrides
+  }>;
 }
 ```
 
@@ -1740,26 +1883,28 @@ interface BundleSimulationRequest {
 // - /status: Check transaction status
 
 const lifiAggregator = new LiFiAggregator(LIFI_API_KEY);
-const quote = await lifiAggregator.getQuote({
-  fromChain: chainId,
-  toChain: chainId,
-  fromToken: inputToken,
-  toToken: outputToken,
-  fromAmount: amount,
-  fromAddress: userAddress,
-});
+const quotes = await lifiAggregator.getQuotes([{
+  userAddress: userAddressBytes,
+  chain: new OmniversalChainID(Universe.ETHEREUM, chainId),
+  inputToken,
+  outputToken,
+  seriousness: QuoteSeriousness.SERIOUS,
+  type: QuoteType.EXACT_IN,
+  inputAmount: amount,
+}]);
 ```
 
-**Bebop API** (via `@avail-project/ca-common`):
+**Bebop / Fibrous APIs** (via `@avail-project/ca-common`):
 
 ```typescript
-// Similar interface to LiFi
+// Same Aggregator.getQuotes(...) interface
 const bebopAggregator = new BebopAggregator(BEBOP_API_KEY);
+const fibrousAggregator = new FibrousAggregator();
 ```
 
 ### 4.7 Chain RPC Endpoints
 
-**File**: `src/sdk/ca-base/chains.ts`
+**File**: `src/core/chains.ts`
 
 Each chain has multiple RPC endpoints for redundancy:
 
@@ -1806,15 +1951,23 @@ To add support for a new EVM chain, follow these steps:
 **File**: `src/commons/constants/index.ts`
 
 ```typescript
-export const SUPPORTED_CHAINS = {
-  // Existing chains...
+export const MAINNET_CHAIN_IDS = {
   ETHEREUM: 1,
   BASE: 8453,
   ARBITRUM: 42161,
   // ... etc
 
-  // Add your new chain
+  // Add your new mainnet chain
   MY_NEW_CHAIN: 12345,  // Replace with actual chain ID
+} as const;
+
+export const TESTNET_CHAIN_IDS = {
+  // Add testnet chains here instead.
+} as const;
+
+export const SUPPORTED_CHAINS = {
+  ...MAINNET_CHAIN_IDS,
+  ...TESTNET_CHAIN_IDS,
 } as const;
 ```
 
@@ -1842,7 +1995,7 @@ export const TOKEN_CONTRACT_ADDRESSES = {
 
 #### Step 3: Add Chain Configuration
 
-**File**: `src/sdk/ca-base/chains.ts`
+**File**: `src/core/chains.ts`
 
 Add to `MAINNET_CHAINS` or `TESTNET_CHAINS` array:
 
@@ -1898,7 +2051,7 @@ const MAINNET_CHAINS: Chain[] = [
 
 #### Step 4: Add Balance Storage Slot (for simulation)
 
-**File**: `src/sdk/ca-base/utils/balance.utils.ts`
+**File**: `src/core/utils/balance.utils.ts`
 
 If the new chain has different storage slots for token balances:
 
@@ -1920,21 +2073,22 @@ const storageSlotMapping: Record<number, Record<string, number>> = {
 
 #### Step 5: Update Gas Buffer (if needed)
 
-**File**: `src/sdk/ca-base/utils/contract.utils.ts`
+**File**: `src/core/utils/contract.utils.ts`
 
 If the chain needs different gas estimation buffers:
 
 ```typescript
 export const getPctGasBufferByChain = (chainId: number): number => {
-  // Some chains need higher gas buffers
-  switch (chainId) {
-    case SUPPORTED_CHAINS.SCROLL:
-      return 0.5;  // 50% buffer for Scroll
-    case SUPPORTED_CHAINS.MY_NEW_CHAIN:
-      return 0.3;  // 30% buffer for new chain
-    default:
-      return 0.3;  // Default 30%
+  // Arbitrum needs a larger buffer.
+  if (chainId === MAINNET_CHAIN_IDS.ARBITRUM) {
+    return 1; // 100%
   }
+
+  if (chainId === MAINNET_CHAIN_IDS.MY_NEW_CHAIN) {
+    return 0.75; // Override only if the default is insufficient
+  }
+
+  return 0.5; // Default 50%
 };
 ```
 
@@ -1976,7 +2130,7 @@ export const TOKEN_CONTRACT_ADDRESSES = {
 **File**: `src/commons/constants/index.ts`
 
 ```typescript
-export const TOKEN_METADATA = {
+const BASE_TOKEN_METADATA = {
   // Existing tokens...
   USDC: {
     symbol: 'USDC',
@@ -1995,11 +2149,13 @@ export const TOKEN_METADATA = {
     coingeckoId: 'dai',
   },
 } as const;
+
+export const TOKEN_METADATA: Record<string, TokenMetadata> = BASE_TOKEN_METADATA;
 ```
 
 #### Step 3: Add to Chain's Known Tokens
 
-**File**: `src/sdk/ca-base/chains.ts`
+**File**: `src/core/chains.ts`
 
 For each chain that supports the token:
 
@@ -2031,18 +2187,19 @@ For each chain that supports the token:
 
 #### Step 4: Add Logo Helper
 
-**File**: `src/sdk/ca-base/constants.ts`
+**File**: `src/core/constants.ts`
 
 ```typescript
 export const getLogoFromSymbol = (symbol: string): string => {
-  const logos: Record<string, string> = {
-    ETH: 'https://assets.coingecko.com/coins/images/279/large/ethereum.png',
-    USDC: 'https://assets.coingecko.com/coins/images/6319/large/usdc.png',
-    USDT: 'https://assets.coingecko.com/coins/images/325/large/Tether.png',
-    // Add your token
-    DAI: 'https://assets.coingecko.com/coins/images/9956/large/dai-multi-collateral-mcd.png',
-  };
-  return logos[symbol.toUpperCase()] ?? '';
+  return SymbolToLogo[symbol.toUpperCase()] ?? '';
+};
+
+const SymbolToLogo: { [k: string]: string } = {
+  ETH: `${NEXUS_ASSETS_BASE_URL}/eth/logo.png`,
+  USDC: `${NEXUS_ASSETS_BASE_URL}/usdc/logo.png`,
+  USDT: `${NEXUS_ASSETS_BASE_URL}/usdt/logo.png`,
+  USDM: 'https://assets.coingecko.com/coins/images/31719/large/usdm.png',
+  DAI: 'https://assets.coingecko.com/coins/images/9956/large/dai-multi-collateral-mcd.png',
 };
 ```
 
@@ -2051,7 +2208,7 @@ export const getLogoFromSymbol = (symbol: string): string => {
 **File**: `src/commons/types/index.ts`
 
 ```typescript
-export type SUPPORTED_TOKENS = 'ETH' | 'USDC' | 'USDT' | 'DAI';  // Add DAI
+export type SUPPORTED_TOKENS = 'ETH' | 'USDC' | 'USDT' | 'USDM' | 'DAI';  // Add DAI
 ```
 
 #### Step 6: Update Token Validation
@@ -2060,7 +2217,7 @@ export type SUPPORTED_TOKENS = 'ETH' | 'USDC' | 'USDT' | 'DAI';  // Add DAI
 
 ```typescript
 export const isSupportedToken = (token: string): boolean => {
-  const supportedTokens = ['ETH', 'USDC', 'USDT', 'DAI'];  // Add DAI
+  const supportedTokens = ['ETH', 'USDC', 'USDT', 'USDM', 'DAI'];  // Add DAI
   return supportedTokens.includes(token.toUpperCase());
 };
 ```
@@ -2074,9 +2231,14 @@ export const isSupportedToken = (token: string): boolean => {
 Create a new file following the pattern in `@avail-project/ca-common`:
 
 ```typescript
-// src/sdk/ca-base/swap/aggregators/myAggregator.ts
+// src/swap/aggregators/myAggregator.ts (create folder if it doesn't exist)
 
-import { Aggregator, Quote, QuoteRequest } from '@avail-project/ca-common';
+import {
+  Aggregator,
+  Quote,
+  QuoteRequestExactInput,
+  QuoteRequestExactOutput,
+} from '@avail-project/ca-common';
 
 export class MyAggregator implements Aggregator {
   private readonly apiKey: string;
@@ -2086,52 +2248,24 @@ export class MyAggregator implements Aggregator {
     this.apiKey = apiKey;
   }
 
-  async getQuote(request: QuoteRequest): Promise<Quote> {
-    const response = await fetch(`${this.baseUrl}/quote`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-API-Key': this.apiKey,
-      },
-      body: JSON.stringify({
-        fromChainId: request.fromChain,
-        toChainId: request.toChain,
-        fromToken: request.fromToken,
-        toToken: request.toToken,
-        amount: request.fromAmount.toString(),
-        slippage: request.slippage || 0.5,
-      }),
-    });
-
-    const data = await response.json();
-
-    return {
-      inputAmount: BigInt(data.inputAmount),
-      outputAmountMinimum: BigInt(data.minOutput),
-      outputAmountLikely: BigInt(data.expectedOutput),
-      route: data.route,
-      aggregatorData: data,
-    };
+  async getQuotes(
+    requests: (QuoteRequestExactInput | QuoteRequestExactOutput)[]
+  ): Promise<(Quote | null)[]> {
+    return Promise.all(requests.map((request) => this.getSingleQuote(request)));
   }
 
-  async executeSwap(quote: Quote, wallet: WalletClient): Promise<Hex> {
-    // Implementation depends on aggregator's API
-    const txData = quote.aggregatorData.tx;
-
-    const txHash = await wallet.sendTransaction({
-      to: txData.to,
-      data: txData.data,
-      value: BigInt(txData.value),
-    });
-
-    return txHash;
+  private async getSingleQuote(
+    request: QuoteRequestExactInput | QuoteRequestExactOutput
+  ): Promise<Quote | null> {
+    // Call the aggregator API and normalize the response into ca-common's Quote shape.
+    return null;
   }
 }
 ```
 
 #### Step 2: Add API Key
 
-**File**: `src/sdk/ca-base/swap/constants.ts`
+**File**: `src/swap/constants.ts`
 
 ```typescript
 export const LIFI_API_KEY = '...';
@@ -2141,21 +2275,25 @@ export const MY_AGGREGATOR_API_KEY = '...';  // Add your key
 
 #### Step 3: Register Aggregator
 
-**File**: `src/sdk/ca-base/swap/swap.ts`
+**File**: `src/flows/swap.ts`
 
 ```typescript
-import { MyAggregator } from './aggregators/myAggregator';
+import { MyAggregator } from '../swap/aggregators/myAggregator';
 
 const aggregators: Aggregator[] = [
   new LiFiAggregator(LIFI_API_KEY),
   new BebopAggregator(BEBOP_API_KEY),
+  new FibrousAggregator(),
   new MyAggregator(MY_AGGREGATOR_API_KEY),  // Add your aggregator
 ];
 ```
 
+Apply the same registration in `src/flows/calculateMaxForSwap.ts`, which builds
+its own aggregator list for max-swap route calculation.
+
 #### Step 4: Handle Aggregator-Specific Errors
 
-**File**: `src/sdk/ca-base/errors.ts`
+**File**: `src/core/errors.ts`
 
 ```typescript
 export const Errors = {
@@ -2172,7 +2310,7 @@ export const Errors = {
 
 ### 6.1 NexusError Class
 
-**File**: `src/sdk/ca-base/nexusError.ts`
+**File**: `src/core/nexusError.ts`
 
 ```typescript
 export interface NexusErrorData {
@@ -2205,7 +2343,7 @@ export class NexusError extends Error {
 
 ### 6.2 Complete Error Code Reference
 
-**File**: `src/sdk/ca-base/nexusError.ts`
+**File**: `src/core/nexusError.ts`
 
 ```typescript
 export const ERROR_CODES = {
@@ -2216,6 +2354,7 @@ export const ERROR_CODES = {
   // === Chain/Token Errors ===
   CHAIN_NOT_FOUND: 'CHAIN_NOT_FOUND',
   CHAIN_DATA_NOT_FOUND: 'CHAIN_DATA_NOT_FOUND',
+  SWAP_NOT_SUPPORTED_ON_CHAIN: 'SWAP_NOT_SUPPORTED_ON_CHAIN',
   TOKEN_NOT_SUPPORTED: 'TOKEN_NOT_SUPPORTED',
   ASSET_NOT_FOUND: 'ASSET_NOT_FOUND',
 
@@ -2242,6 +2381,7 @@ export const ERROR_CODES = {
   FETCH_GAS_PRICE_FAILED: 'FETCH_GAS_PRICE_FAILED',
   SIMULATION_FAILED: 'SIMULATION_FAILED',
   QUOTE_FAILED: 'QUOTE_FAILED',
+  QUOTE_ERROR: 'QUOTE_ERROR',
   SWAP_FAILED: 'SWAP_FAILED',
 
   // === Intent/RFF Errors ===
@@ -2249,6 +2389,7 @@ export const ERROR_CODES = {
   REFUND_FAILED: 'REFUND_FAILED',
   REFUND_CHECK_ERROR: 'REFUND_CHECK_ERROR',
   RFF_FEE_EXPIRED: 'RFF_FEE_EXPIRED',
+  FEE_GRANT_REQUESTED: 'FEE_GRANT_REQUESTED',
   DESTINATION_REQUEST_HASH_NOT_FOUND: 'DESTINATION_REQUEST_HASH_NOT_FOUND',
   DESTINATION_SWEEP_ERROR: 'DESTINATION_SWEEP_ERROR',
 
@@ -2277,7 +2418,7 @@ export const ERROR_CODES = {
 
 ### 6.3 Error Factory Functions
 
-**File**: `src/sdk/ca-base/errors.ts`
+**File**: `src/core/errors.ts`
 
 ```typescript
 export const Errors = {
@@ -2745,7 +2886,7 @@ type OnSwapIntentHook = (data: {
 
 ### 7.4 Telemetry (OpenTelemetry)
 
-**File**: `src/sdk/ca-base/telemetry.ts`
+**File**: `src/core/telemetry.ts`
 
 The SDK includes optional OpenTelemetry logging:
 
@@ -3332,9 +3473,15 @@ type SwapStepType = {
 
 ## Appendix A: Supported Chains
 
+> Source of truth: `MAINNET_CHAIN_IDS` / `TESTNET_CHAIN_IDS` in
+> `src/commons/constants/index.ts` and each chain's `custom.knownTokens` in
+> `src/core/chains.ts`. `TOKEN_CONTRACT_ADDRESSES` backs most ERC20 entries,
+> but some supported tokens are chain-specific hard-coded entries, such as ETH
+> on BNB Smart Chain.
+
 ### Mainnet
 
-| Chain | ID | Native | Tokens |
+| Chain | ID | Native | Bridgeable tokens |
 |-------|-----|--------|--------|
 | Ethereum | 1 | ETH | USDC, USDT |
 | Base | 8453 | ETH | USDC |
@@ -3343,14 +3490,16 @@ type SwapStepType = {
 | Polygon | 137 | POL | USDC, USDT |
 | Avalanche | 43114 | AVAX | USDC, USDT |
 | Scroll | 534352 | ETH | USDC, USDT |
-| BNB | 56 | BNB | USDC, USDT, ETH |
 | Kaia | 8217 | KAIA | USDT |
+| Citrea | 4114 | cBTC | USDC, USDT |
+| BNB Smart Chain | 56 | BNB | USDC, USDT, ETH |
 | HyperEVM | 999 | HYPE | USDC, USDT |
-| Monad | TBD | MON | USDC |
+| MegaETH | 4326 | ETH | USDT, USDM |
+| Monad | 143 | MON | USDC |
 
 ### Testnet
 
-| Chain | ID | Native | Tokens |
+| Chain | ID | Native | Bridgeable tokens |
 |-------|-----|--------|--------|
 | Sepolia | 11155111 | ETH | USDC |
 | Base Sepolia | 84532 | ETH | USDC |
@@ -3358,6 +3507,7 @@ type SwapStepType = {
 | Optimism Sepolia | 11155420 | ETH | USDC, USDT |
 | Polygon Amoy | 80002 | POL | USDC |
 | Monad Testnet | 10143 | MON | USDC, USDT |
+| Citrea Testnet | 5115 | cBTC | USDC |
 
 ---
 
@@ -3391,7 +3541,7 @@ The `@avail-project/ca-common` package provides the foundational layer for the N
 ### 9.1 Package Overview
 
 **Package**: `@avail-project/ca-common`
-**Version**: 1.0.0-beta.9
+**Version**: 2.2.1
 **Repository**: https://github.com/availproject/ca-common
 
 **What ca-common provides:**
@@ -3592,22 +3742,39 @@ const rpcUrl: string = RPCURLMap.get(arbitrumChainId);
 // "https://rpcs.avail.so/arbitrum"
 ```
 
-**Supported Networks in Chaindata:**
+**Supported Networks in Chaindata (ca-common 2.2.1):**
+
+> `Chaindata` stores protocol chain IDs and `CurrencyID` values, not SDK display
+> names. Some ca-common chains are not registered in this SDK's `ChainList`.
+> MegaETH's `USDC` currency maps to the USDM contract in this SDK.
 
 | Network | Chain ID | Universe | Tokens |
 |---------|----------|----------|--------|
 | Ethereum Mainnet | 1 | ETHEREUM | USDC, USDT, ETH |
 | Arbitrum One | 42161 | ETHEREUM | USDC, USDT, ETH |
 | Optimism | 10 | ETHEREUM | USDC, USDT, ETH |
-| Base | 8453 | ETHEREUM | USDC, USDT, ETH |
 | Polygon | 137 | ETHEREUM | USDC, USDT, POL, ETH |
 | Avalanche | 43114 | ETHEREUM | USDC, USDT, AVAX |
-| BSC | 56 | ETHEREUM | USDC, USDT, BNB |
+| Linea | 59144 | ETHEREUM | USDC, USDT, ETH |
 | Scroll | 534352 | ETHEREUM | USDC, USDT, ETH |
-| Kaia | 8217 | ETHEREUM | USDC, USDT, KAIA |
+| Base | 8453 | ETHEREUM | USDC, USDT, ETH |
 | HyperEVM | 999 | ETHEREUM | USDC, USDT, HYPE |
-| Monad | 143 | ETHEREUM | USDC, USDT, MON |
-| MegaETH | 4326 | ETHEREUM | USDC, USDT, ETH |
+| Kaia | 8217 | ETHEREUM | USDC, USDT, KAIA |
+| Sophon | 50104 | ETHEREUM | USDC, USDT, ETH, SOPH |
+| BNB Smart Chain | 56 | ETHEREUM | USDC, USDT, ETH, BNB |
+| Fuel | 9889 | FUEL | USDC, USDT, ETH |
+| Arbitrum Sepolia | 421614 | ETHEREUM | USDC, USDT, ETH |
+| Optimism Sepolia | 11155420 | ETHEREUM | USDC, USDT, ETH |
+| Polygon Amoy | 80002 | ETHEREUM | USDC, POL |
+| Base Sepolia | 84532 | ETHEREUM | USDC, ETH |
+| Sepolia | 11155111 | ETHEREUM | USDC, ETH |
+| Monad Testnet | 10143 | ETHEREUM | USDC, USDT, MON |
+| Monad | 143 | ETHEREUM | USDC, MON |
+| TRON network | 2494104990 | TRON | USDT, TRX |
+| TRON network | 728126428 | TRON | USDT, TRX |
+| MegaETH | 4326 | ETHEREUM | USDC, ETH, USDT |
+| Citrea | 4114 | ETHEREUM | USDC, USDT, CBTC |
+| Citrea Testnet | 5115 | ETHEREUM | USDC, CBTC |
 
 ### 9.7 Vault Contracts
 
@@ -3946,6 +4113,7 @@ enum QuoteSeriousness {
 // Quote request for exact input
 interface QuoteRequestExactInput {
   userAddress: Bytes;
+  receiverAddress?: Bytes;
   chain: OmniversalChainID;
   inputToken: Bytes;           // Token address (32 bytes)
   outputToken: Bytes;          // Token address (32 bytes)
@@ -3957,6 +4125,7 @@ interface QuoteRequestExactInput {
 // Quote request for exact output
 interface QuoteRequestExactOutput {
   userAddress: Bytes;
+  receiverAddress?: Bytes;
   chain: OmniversalChainID;
   inputToken: Bytes;
   outputToken: Bytes;
@@ -3967,11 +4136,27 @@ interface QuoteRequestExactOutput {
 
 // Quote response
 interface Quote {
-  originalResponse: unknown;   // Raw aggregator response
-  type: QuoteType;
-  inputAmount: bigint;
-  outputAmountMinimum: bigint; // Worst case (with slippage)
-  outputAmountLikely: bigint;  // Expected output
+  expiry?: number;
+  input: {
+    contractAddress: Hex;
+    amount: string;
+    amountRaw: bigint;
+    decimals: number;
+    value: number;
+    symbol: string;
+  };
+  output: {
+    contractAddress: Hex;
+    amount: string;
+    amountRaw: bigint;
+    decimals: number;
+    value: number;
+    symbol: string;
+  };
+  txData: {
+    approvalAddress: Hex;
+    tx: { to: Hex; data: Hex; value: Hex };
+  };
 }
 
 // Aggregator interface
@@ -3987,9 +4172,8 @@ interface Aggregator {
 | Aggregator | File | Supported Chains | Best For |
 |------------|------|------------------|----------|
 | LiFi | `lifi-agg.ts` | All EVM chains | General swaps, cross-chain |
-| Bebop | `bebop-agg.ts` | Major EVM chains | Intent-based swaps |
-| 0x | `0x-agg.ts` | Major EVM chains | DEX aggregation |
-| Yield Yak | `yieldyak-agg.ts` | Avalanche only | Avalanche-specific |
+| Bebop | `bebop-agg.ts` | Bebop-supported chains | PMM/JAM quotes |
+| Fibrous | `fibrous-agg.ts` | Fibrous-supported chains | Additional DEX aggregation |
 
 ### 10.3 LiFi Aggregator
 
@@ -4015,8 +4199,8 @@ const quotes = await lifi.getQuotes([
 // Returns swap calldata for execution
 const quote = quotes[0];
 if (quote) {
-  console.log("Output:", quote.outputAmountLikely);
-  // originalResponse contains LiFi-specific transaction data
+  console.log("Output:", quote.output.amountRaw);
+  // txData contains executable swap calldata
 }
 ```
 
@@ -4029,7 +4213,7 @@ import { BebopAggregator } from '@avail-project/ca-common';
 
 const bebop = new BebopAggregator(apiKey);
 
-// Bebop uses intent-based trading (CoW Swap style)
+// Bebop implements the same Aggregator.getQuotes(...) interface.
 const quotes = await bebop.getQuotes([...requests]);
 ```
 
@@ -4045,25 +4229,27 @@ import {
   AggregateAggregatorsMode,
   LiFiAggregator,
   BebopAggregator,
+  FibrousAggregator,
 } from '@avail-project/ca-common';
 
 // Create aggregators
 const aggregators = [
   new LiFiAggregator(lifiKey),
   new BebopAggregator(bebopKey),
+  new FibrousAggregator(),
 ];
 
 // Get best quotes from all aggregators
 const results = await aggregateAggregators(
   requests,
   aggregators,
-  AggregateAggregatorsMode.BEST  // Select best per request
+  AggregateAggregatorsMode.MaximizeOutput  // Or MinimizeInput for exact-out
 );
 
 // Results include which aggregator won
 for (const { quote, aggregator } of results) {
   if (quote) {
-    console.log("Best output:", quote.outputAmountLikely);
+    console.log("Best output:", quote.output.amountRaw);
     console.log("From:", aggregator.constructor.name);
   }
 }
@@ -4079,7 +4265,7 @@ for (const { quote, aggregator } of results) {
 The SDK's swap operations use XCS aggregators internally:
 
 ```typescript
-// In nexus-sdk: src/sdk/ca-base/swap/route.ts
+// In nexus-sdk: src/swap/route.ts
 
 async function _exactInRoute(params, options) {
   // 1. Determine if source swap needed
@@ -4087,7 +4273,8 @@ async function _exactInRoute(params, options) {
 
   // 2. Get quote from aggregator
   if (needsSourceSwap) {
-    const quote = await aggregator.getQuotes([{
+    const [quote] = await aggregator.getQuotes([{
+      userAddress,
       type: QuoteType.EXACT_IN,
       chain: sourceChainId,
       inputToken: fromTokenAddress,
@@ -4096,7 +4283,7 @@ async function _exactInRoute(params, options) {
       seriousness: QuoteSeriousness.SERIOUS,
     }]);
 
-    // Use quote.originalResponse for swap calldata
+    // Use quote.txData for swap calldata
   }
 
   // 3. Bridge USDC via RFF
@@ -4378,8 +4565,10 @@ import {
   Aggregator,
   Quote,
   QuoteType,
+  QuoteSeriousness,
   LiFiAggregator,
   BebopAggregator,
+  FibrousAggregator,
   aggregateAggregators
 } from '@avail-project/ca-common';
 
@@ -4414,12 +4603,10 @@ LIFI_API_KEY=your_lifi_api_key
 # For Bebop aggregator
 BEBOP_API_KEY=your_bebop_api_key
 
-# For 0x aggregator
-ZEROX_API_KEY=your_0x_api_key
 ```
 
 ---
 
-*Last updated: 2026-01-13*
-*SDK Version: 1.0.0-beta.63*
-*ca-common Version: 1.0.0-beta.9*
+*Last updated: 2026-05-26*
+*SDK Version: 1.4.0*
+*ca-common Version: 2.2.1*
