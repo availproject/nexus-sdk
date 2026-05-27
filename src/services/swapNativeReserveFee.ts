@@ -11,6 +11,18 @@ import {
 } from './feeEstimation';
 
 export const DEFAULT_SWAP_NATIVE_RESERVE_GAS = 1_500_000n;
+// Safe-mode chains (non-pectra, e.g. HyperEVM) execute via `Safe.execTransaction`, which adds
+// signature verification + `multiSend` DELEGATECALL fan-out on top of the inner aggregator
+// calls. Empirically the live submission on HyperEVM consumes ~6× the Calibur representative
+// gas — and HyperEVM's small-block limit is 3M, so anything above that wouldn't even fit a
+// small block. Reserve against the 3M ceiling so the EOA always retains enough native for the
+// worst small-block-sized Safe execution. Production failure that motivated this: chainId 999,
+// `value+gas` 849,636,684,432,245 vs EOA balance 529,093,107,360,245.
+export const SAFE_ACCOUNT_SWAP_NATIVE_RESERVE_GAS = 3_000_000n;
+
+// Inlined to avoid pulling `swap/route` (and its transitive ca-common surface) into the
+// services layer. Mirrors `requiresSafeAccount` in src/swap/route.ts:123.
+const usesSafeExecution = (chain: Chain) => chain.swapSupported && !chain.pectraUpgradeSupport;
 
 const DEFAULT_PRICE_TIER: PriceTier = 'medium';
 const DEFAULT_SYNTHETIC_SWAP_BUFFER = 120n;
@@ -105,7 +117,7 @@ const buildRepresentativeSourceExecutionTx = (): TxRequest => {
 
 export const estimateRepresentativeSwapNativeReserveFee = async ({
   chain,
-  gasEstimate = DEFAULT_SWAP_NATIVE_RESERVE_GAS,
+  gasEstimate,
   priceTier = DEFAULT_PRICE_TIER,
   syntheticBufferMultiplier = DEFAULT_SYNTHETIC_SWAP_BUFFER,
   publicClient,
@@ -119,6 +131,11 @@ export const estimateRepresentativeSwapNativeReserveFee = async ({
   publicClient?: PublicClient;
 }): Promise<bigint> => {
   const client = publicClient ?? createPublicClientWithFallback(chain);
+  const effectiveGasEstimate =
+    gasEstimate ??
+    (usesSafeExecution(chain)
+      ? SAFE_ACCOUNT_SWAP_NATIVE_RESERVE_GAS
+      : DEFAULT_SWAP_NATIVE_RESERVE_GAS);
   const tx = buildRepresentativeSourceExecutionTx();
   const feeContext = await estimateFeeContext(
     client,
@@ -133,7 +150,7 @@ export const estimateRepresentativeSwapNativeReserveFee = async ({
     priceTier
   );
   const [feeEstimate] = finalizeFeeEstimates(
-    [{ tx, gasEstimate, gasEstimateKind: 'raw' }],
+    [{ tx, gasEstimate: effectiveGasEstimate, gasEstimateKind: 'raw' }],
     feeContext
   );
 
