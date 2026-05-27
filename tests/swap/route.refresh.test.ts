@@ -199,4 +199,39 @@ describe('determineSwapRoute → { route, refresh } (Win 5 closure reuse)', () =
       )
     ).rejects.toThrow(/cannot switch swap mode/i);
   });
+
+  // Regression: CombinedSwapHandler.requoteBothLegs invokes `route.destination.getDstSwap`
+  // with `{ skipRateGuard: true }` to bypass the 0.5% output-drop guard on combined
+  // retries (the combined batch enforces its own `src.output ≥ dst.input` invariant).
+  // The mocked closure in combinedSwap.test.ts proved the handler passes the flag — this
+  // test proves the REAL EXACT_IN closure honors it, by inflating the stored baseline
+  // beyond the 0.5% tolerance and observing throw-vs-no-throw across the two call shapes.
+  it('EXACT_IN getDstSwap: skipRateGuard bypasses the 0.5% output-drop guard', async () => {
+    const { options } = setup([makeBalance(SUPPORTED_CHAINS.BASE, NONCOT_BASE, '100')]);
+    const { route } = await determineSwapRoute(
+      exactInInput({
+        from: [{ chainId: SUPPORTED_CHAINS.BASE, tokenAddress: NONCOT_BASE }],
+        toChainId: SUPPORTED_CHAINS.ARBITRUM,
+        toTokenAddress: NONCOT_ARBITRUM,
+      }),
+      options
+    );
+
+    expect(route.destination.swap.tokenSwap).not.toBeNull();
+    const original = route.destination.swap.tokenSwap;
+    if (!original) throw new Error('precondition: tokenSwap must exist');
+
+    // Inflate the stored baseline so that the recording aggregator's next identity
+    // response will look like a >0.5% drop. The guard compares against
+    // `destination.swap.tokenSwap.quote.output.amountRaw`.
+    original.quote.output.amountRaw = original.quote.output.amountRaw * 10n;
+
+    // Default: rate guard active → throw.
+    await expect(route.destination.getDstSwap()).rejects.toThrow(/Rates changed/i);
+
+    // Combined retry path: skipRateGuard → pass through, return the fresh quote.
+    const result = await route.destination.getDstSwap({ skipRateGuard: true });
+    expect(result).not.toBeNull();
+    expect(result?.tokenSwap?.quote.output.amountRaw).toBeGreaterThan(0n);
+  });
 });

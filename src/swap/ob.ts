@@ -81,10 +81,15 @@ const logger = getLogger();
 /**
  * Re-quote the given source-leg holdings with their original input amounts (so no
  * re-approval/permit is needed) and verify the combined new COT output stays within
- * `srcBuffer` of the old total. Shared by SourceSwapsHandler.retryWithSlippageCheck
- * (partial retry — failed-chain subset) and CombinedSwapHandler.requoteBothLegs
- * (full retry — atomic batch). Wraps the aggregator call in `retry` to absorb
- * transient quote failures. Throws on no quotes or buffer breach.
+ * `srcBuffer` of the old total. Used by SourceSwapsHandler.retryWithSlippageCheck
+ * on partial source-leg retries where the bridge step has already been sized against
+ * the old total — `srcBuffer` is the headroom the bridge can absorb. Wraps the
+ * aggregator call in `retry` to absorb transient quote failures. Throws on no quotes
+ * or buffer breach.
+ *
+ * NOTE: Not used by CombinedSwapHandler.requoteBothLegs. Combined batches are atomic
+ * (no pre-committed bridge), so they re-quote directly and enforce a different
+ * invariant (`availableCOT ≥ dst.input`) inline.
  */
 const liquidateAndCheckSrcBuffer = async ({
   oldSwaps,
@@ -1168,13 +1173,10 @@ const COMBINED_MAX_RETRIES = 2;
  * batch is atomic: a partial failure reverts everything and the user's input stays at the EOA.
  */
 class CombinedSwapHandler {
-  private readonly srcBuffer: Decimal;
   constructor(
     private route: SwapRoute,
     private readonly options: Options
-  ) {
-    this.srcBuffer = route.source.srcBuffer ?? new Decimal(0);
-  }
+  ) {}
 
   async process(metadata: SwapMetadata): Promise<void> {
     const chain = this.options.chainList.getChainByID(this.route.destination.chainId);
@@ -1406,27 +1408,38 @@ class CombinedSwapHandler {
       };
     });
 
-    // Source-leg re-quote + buffer check is the same for both directions (mirrors
-    // SourceSwapsHandler.retryWithSlippageCheck via the shared helper). The dst re-quote
-    // delegates to the route closure's `getDstSwap` (which carries its own rate guard,
-    // mirroring DestinationSwapHandler.requoteIfRequired). For EXACT_OUT we re-quote dst
-    // first so its `ratesChangedBeyondTolerance` against `originalMax` fails fast before
-    // we spend a source quote; EXACT_IN's closure uses a fixed dst input from initial
-    // routing so order doesn't matter and we use the same shape.
-    const requoteSource = () =>
-      liquidateAndCheckSrcBuffer({
-        oldSwaps: this.route.source.swaps,
-        holdings,
-        srcBuffer: this.srcBuffer,
-        aggregators: this.route.extras.aggregators,
-        commonCurrencyID: this.options.cot.currencyID,
-        errorPrefix: 'combined retry',
-      });
+    // Combined batches are atomic on a single wrapper: src outputs land at the wrapper that
+    // dst pulls from, all in one tx. The bridge-style buffer check (newTotal < oldTotal -
+    // srcBuffer) doesn't apply — nothing was pre-committed for old totals to anchor against.
+    // Likewise the dst rate guard (`ratesChangedBeyondTolerance` against `originalMax`)
+    // protects bridge flows whose budget was fixed when the bridge was sent; here both legs
+    // re-quote together inside the retry, so we pass `skipRateGuard: true`.
+    //
+    // The only invariant that matters is `availableCOT ≥ sum(dst.input)`, where
+    // `availableCOT = sum(src.output) + eoaToDestinationAccount.amount` (the EOA-held dst-COT
+    // term contributes when `buildBatch` permits/transfers it to the wrapper before the dst
+    // swap pulls; see the check below). If that holds, the atomic batch funds itself; any
+    // surplus sweeps back to the EOA via the existing sweeper appended in `buildBatch`.
+    const requoteSource = async (): Promise<SwapRoute['source']['swaps']> => {
+      const newSwaps = await retry(
+        () =>
+          liquidateSourceHoldings({
+            holdings,
+            aggregators: this.route.extras.aggregators,
+            commonCurrencyID: this.options.cot.currencyID,
+          }),
+        { retries: 2 }
+      );
+      if (newSwaps.length === 0) {
+        throw Errors.quoteFailed('combined retry: source re-quote returned no quotes');
+      }
+      return newSwaps;
+    };
 
     let newDstSwap: SwapRoute['destination']['swap'];
     let newSrcSwaps: SwapRoute['source']['swaps'];
     if (this.route.type === 'EXACT_OUT') {
-      const dstSwap = await this.route.destination.getDstSwap();
+      const dstSwap = await this.route.destination.getDstSwap({ skipRateGuard: true });
       if (!dstSwap) {
         throw Errors.quoteFailed('combined retry: getDstSwap returned null');
       }
@@ -1434,11 +1447,48 @@ class CombinedSwapHandler {
       newSrcSwaps = await requoteSource();
     } else {
       newSrcSwaps = await requoteSource();
-      const dstSwap = await this.route.destination.getDstSwap();
+      const dstSwap = await this.route.destination.getDstSwap({ skipRateGuard: true });
       if (!dstSwap) {
         throw Errors.quoteFailed('combined retry: getDstSwap returned null');
       }
       newDstSwap = dstSwap;
+    }
+
+    // Sole invariant: COT available at the wrapper covers dst COT input within the same
+    // atomic batch. Both contributions land/pull at the same wrapper, so decimals match —
+    // raw bigint compare is safe.
+    //
+    // Available COT at the wrapper:
+    //   1. sum of src swap outputs (each swap deposits its COT output at the wrapper)
+    //   2. plus `eoaToDestinationAccount.amount` when set (pre-existing dst-chain COT that
+    //      `buildBatch` permits/transfers from the EOA to the wrapper before the dst swap).
+    //      Only counted when its token matches the dst swap's input token (the COT).
+    const srcOutputTotal = newSrcSwaps.reduce((acc, q) => acc + q.quote.output.amountRaw, 0n);
+    const dstInputContract =
+      newDstSwap.tokenSwap?.quote.input.contractAddress ??
+      newDstSwap.gasSwap?.quote.input.contractAddress;
+    const eoaContribution =
+      this.route.destination.eoaToDestinationAccount &&
+      dstInputContract &&
+      equalFold(this.route.destination.eoaToDestinationAccount.contractAddress, dstInputContract)
+        ? this.route.destination.eoaToDestinationAccount.amount
+        : 0n;
+    const availableCOT = srcOutputTotal + eoaContribution;
+    const dstInputTotal =
+      (newDstSwap.tokenSwap?.quote.input.amountRaw ?? 0n) +
+      (newDstSwap.gasSwap?.quote.input.amountRaw ?? 0n);
+
+    logger.debug('combined retry: available COT vs dst input', {
+      srcOutputTotal: srcOutputTotal.toString(),
+      eoaContribution: eoaContribution.toString(),
+      availableCOT: availableCOT.toString(),
+      dstInputTotal: dstInputTotal.toString(),
+    });
+
+    if (availableCOT < dstInputTotal) {
+      throw Errors.slippageError(
+        `combined retry: source output ${srcOutputTotal} (+ EOA→dst ${eoaContribution}) cannot fund destination input ${dstInputTotal}`
+      );
     }
 
     this.route.source.swaps = newSrcSwaps;

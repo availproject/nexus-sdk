@@ -911,7 +911,15 @@ const _exactOutRoute = async (
     );
 
     let originalMax: Decimal | null = null;
-    const getDstSwap = async (): Promise<DestinationSwap> => {
+    // `skipRateGuard` is set by combined retries (CombinedSwapHandler.requoteBothLegs).
+    // The originalMax rate-tolerance check exists to protect bridge flows where the bridge
+    // was already sized against the first dst quote — a requote whose input requirement
+    // outgrows that fixed budget cannot be funded. Combined batches are atomic on a single
+    // wrapper: src outputs and dst inputs balance in the same tx, with no pre-committed
+    // bridge to underfund. The combined handler enforces its own funding invariant
+    // (`availableCOT ≥ dst.input`, where `availableCOT = src.output + eoaToDestinationAccount`)
+    // instead, so this guard must not fire there.
+    const getDstSwap = async (opts: { skipRateGuard?: boolean } = {}): Promise<DestinationSwap> => {
       if (!needsTokenSwap && !needsGasSwap) {
         return { creationTime: Date.now(), tokenSwap: null, gasSwap: null };
       }
@@ -958,7 +966,7 @@ const _exactOutRoute = async (
         originalMax = rounded;
         destination.inputAmount.max = rounded;
         buffer = buffer.add(dstBuffer);
-      } else if (destination.inputAmount.min.gt(originalMax)) {
+      } else if (destination.inputAmount.min.gt(originalMax) && !opts.skipRateGuard) {
         // Requote: the bridge has already been sized for `originalMax`. A requote whose
         // input requirement still fits inside that budget is fine — leftover gets swept.
         // Only reject when the requote genuinely outgrows what the bridge funded; do NOT
@@ -1240,8 +1248,12 @@ export type SwapRoute = {
     // (see BUFFER_EXACT_OUT). EXACT_IN carries `min(0.5%, $1)` of swapCombinedBalance
     // (see BUFFER_EXACT_IN). Non-combined EXACT_IN also subtracts this from the dst-swap
     // input so the dst swap stays funded if a source leg re-quotes lower; combined routes
-    // under-size the dst-swap input by `COMBINED_SAME_CHAIN_BUFFER_PCT` instead, but still
-    // carry `srcBuffer` as the retry tolerance consumed by CombinedSwapHandler.
+    // under-size the dst-swap input by `COMBINED_SAME_CHAIN_BUFFER_PCT` instead.
+    //
+    // Consumed by SourceSwapsHandler.retryWithSlippageCheck (via `liquidateAndCheckSrcBuffer`)
+    // on bridge-flow retries. NOT consumed by CombinedSwapHandler — combined retries enforce
+    // `availableCOT ≥ dst.input` inline instead, where `availableCOT = src.output +
+    // eoaToDestinationAccount`.
     srcBuffer: Decimal;
   };
   bridge: BridgeInput;
@@ -1254,7 +1266,7 @@ export type SwapRoute = {
     execution: DestinationExecution;
     inputAmount: { min: Decimal; max: Decimal }; // This is input of tokenSwap + gasSwap + buffer
     swap: DestinationSwap;
-    getDstSwap: () => Promise<DestinationSwap | null>;
+    getDstSwap: (opts?: { skipRateGuard?: boolean }) => Promise<DestinationSwap | null>;
   };
   // True when the route's source legs and destination leg can be executed as a single batched
   // transaction on one same-chain wrapper (no bridge, every source swap lands on the dst chain,
@@ -1575,7 +1587,12 @@ const _exactInRoute = async (
       };
     }
 
-    const getDstSwap = async () => {
+    // `skipRateGuard` is set by combined retries (CombinedSwapHandler.requoteBothLegs).
+    // The 0.5% output-drop rate guard exists to protect bridge flows that committed an
+    // input budget at quote time. Combined batches re-quote both legs together and enforce
+    // their own funding invariant (`availableCOT ≥ dst.input`, where `availableCOT =
+    // src.output + eoaToDestinationAccount`), so the guard must not fire there.
+    const getDstSwap = async (opts: { skipRateGuard?: boolean } = {}) => {
       let tokenSwap = null;
       if (needsDstSwap) {
         tokenSwap = await getDestinationExactInSwap({
@@ -1589,7 +1606,7 @@ const _exactInRoute = async (
         });
 
         // Rate guard on requote: check output didn't drop beyond 0.5% tolerance
-        if (destination.swap.tokenSwap) {
+        if (destination.swap.tokenSwap && !opts.skipRateGuard) {
           const prevAmountRaw = destination.swap.tokenSwap.quote.output.amountRaw;
           const newAmountRaw = tokenSwap.quote.output.amountRaw;
           if (newAmountRaw < (prevAmountRaw * 995n) / 1000n) {

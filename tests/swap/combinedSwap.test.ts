@@ -611,9 +611,13 @@ describe('CombinedSwapHandler.requoteBothLegs (retry on revert)', () => {
     expect(callOrder).toEqual(['getDstSwap', 'liquidateSourceHoldings']);
   });
 
-  it('accepts retry when source-output drop is within srcBuffer', async () => {
-    // srcBuffer = 1 USDC (1_000_000 raw). New source produces 99.5 USDC (drop = 0.5) →
-    // within buffer → retry succeeds.
+  // Combined batches are atomic: src outputs and dst inputs balance on the same wrapper
+  // inside one tx. The only invariant the retry must enforce is `sum(src.output) ≥
+  // sum(dst.input)`. The bridge-style buffer check (newTotal < oldTotal − srcBuffer) used
+  // to protect bridges where the bridge was already sized against the OLD src total; for
+  // combined there's no pre-commit to anchor against, so that check has been removed.
+  it('accepts retry when source output covers dst input (exact-fit)', async () => {
+    // New src output 99.5 USDC == dst input 99.5 USDC → exactly funded → retry succeeds.
     const { options, vscClient } = baseOptions();
     vscClient.vscCreateSafeExecuteTx
       .mockRejectedValueOnce(new Error('execution reverted'))
@@ -624,17 +628,17 @@ describe('CombinedSwapHandler.requoteBothLegs (retry on revert)', () => {
     ]);
 
     await expect(
-      new CombinedSwapHandler(
-        makeRoute({ type: 'EXACT_IN', srcBuffer: new Decimal(1) }),
-        options
-      ).process(makeMetadata() as never)
+      new CombinedSwapHandler(makeRoute({ type: 'EXACT_IN' }), options).process(
+        makeMetadata() as never
+      )
     ).resolves.toBeUndefined();
     expect(vscClient.vscCreateSafeExecuteTx).toHaveBeenCalledTimes(2);
   });
 
-  it('throws slippage error when source-output drop exceeds srcBuffer', async () => {
-    // srcBuffer = 0.5 USDC (500_000 raw). New source produces 98 USDC (drop = 2) → exceeds
-    // buffer → throws.
+  it('throws when source output cannot fund dst input', async () => {
+    // New src output 98 USDC < dst input 99.5 USDC → unfundable → throw.
+    // Old test used srcBuffer as the threshold; new logic compares src.output to dst.input
+    // directly, so `srcBuffer` is irrelevant here.
     const { options, vscClient } = baseOptions();
     vscClient.vscCreateSafeExecuteTx.mockRejectedValue(new Error('execution reverted'));
 
@@ -643,15 +647,13 @@ describe('CombinedSwapHandler.requoteBothLegs (retry on revert)', () => {
     ]);
 
     await expect(
-      new CombinedSwapHandler(
-        makeRoute({ type: 'EXACT_IN', srcBuffer: new Decimal('0.5') }),
-        options
-      ).process(makeMetadata() as never)
-    ).rejects.toThrow(/buffer/i);
+      new CombinedSwapHandler(makeRoute({ type: 'EXACT_IN' }), options).process(
+        makeMetadata() as never
+      )
+    ).rejects.toThrow(/source output .* cannot fund destination input/);
   });
 
-  it('source buffer check applies to EXACT_OUT as well', async () => {
-    // srcBuffer = 0.5 USDC. New source produces 98 USDC (drop = 2) → exceeds → throws.
+  it('src.output ≥ dst.input invariant applies to EXACT_OUT as well', async () => {
     const { options, vscClient } = baseOptions();
     vscClient.vscCreateSafeExecuteTx.mockRejectedValue(new Error('execution reverted'));
 
@@ -660,11 +662,99 @@ describe('CombinedSwapHandler.requoteBothLegs (retry on revert)', () => {
     ]);
 
     await expect(
-      new CombinedSwapHandler(
-        makeRoute({ type: 'EXACT_OUT', srcBuffer: new Decimal('0.5') }),
-        options
-      ).process(makeMetadata() as never)
-    ).rejects.toThrow(/buffer/i);
+      new CombinedSwapHandler(makeRoute({ type: 'EXACT_OUT' }), options).process(
+        makeMetadata() as never
+      )
+    ).rejects.toThrow(/source output .* cannot fund destination input/);
+  });
+
+  // Regression for "few failures, no TX_FAIL, oldTotal == newTotal exactly" pattern: on a
+  // combined retry, an aggregator that returns identical src quotes used to trip the dst
+  // rate-tolerance guard (`ratesChangedBeyondTolerance`) when the dst pool drifted. Combined
+  // retries now skip that guard — the only thing that matters is whether the requoted src
+  // output funds the requoted dst input.
+  it('skips dst rate guard on combined retry when src is stable and dst still funds', async () => {
+    const { options, vscClient } = baseOptions();
+    vscClient.vscCreateSafeExecuteTx
+      .mockRejectedValueOnce(new Error('execution reverted'))
+      .mockResolvedValueOnce([BigInt(CHAIN_ID), SAFE_HASH]);
+
+    // Mirror of the production pattern: identical src quote across attempts, dst quote
+    // requires slightly more input than the original max (which would have thrown
+    // ratesChangedBeyondTolerance with the old behavior) — but src still covers it.
+    liquidateSourceHoldingsMock.mockResolvedValue([
+      makeSourceQuote({ outputAmountRaw: 100_000_000n }), // unchanged
+    ]);
+    const dstAfterDrift = makeDstQuote({ inputAmountRaw: 99_900_000n }); // dst wants 99.9
+    const route = makeRoute({
+      type: 'EXACT_IN',
+      getDstSwapImpl: async () => ({
+        creationTime: Date.now(),
+        tokenSwap: dstAfterDrift,
+        gasSwap: null,
+      }),
+    });
+
+    await expect(
+      new CombinedSwapHandler(route, options).process(makeMetadata() as never)
+    ).resolves.toBeUndefined();
+
+    // Verify the dst closure was called with the skip-guard hint.
+    const dstCalls = (
+      route as never as {
+        destination: { getDstSwap: ReturnType<typeof vi.fn> };
+      }
+    ).destination.getDstSwap.mock.calls;
+    expect(dstCalls.length).toBeGreaterThan(0);
+    expect(dstCalls.at(-1)?.[0]).toEqual({ skipRateGuard: true });
+  });
+
+  // Funding invariant must account for `eoaToDestinationAccount` — pre-existing dst-chain
+  // COT that buildBatch permits/transfers from the EOA to the wrapper BEFORE the dst swap
+  // pulls. A route where src.output alone < dst.input but src.output + EOA→dst ≥ dst.input
+  // is valid on-chain, and the retry check must not falsely reject it.
+  it('counts eoaToDestinationAccount toward available COT when it matches the dst input token', async () => {
+    const { options, vscClient } = baseOptions();
+    vscClient.vscCreateSafeExecuteTx
+      .mockRejectedValueOnce(new Error('execution reverted'))
+      .mockResolvedValueOnce([BigInt(CHAIN_ID), SAFE_HASH]);
+
+    // dst input is 99.5 USDC; src output requoted to 60 USDC. Alone, this would fail the
+    // invariant. With a 40 USDC EOA→dst contribution (same USDC contract), the wrapper has
+    // 100 USDC total, comfortably covering the dst input.
+    liquidateSourceHoldingsMock.mockResolvedValue([
+      makeSourceQuote({ outputAmountRaw: 60_000_000n }),
+    ]);
+
+    const route = makeRoute({
+      type: 'EXACT_IN',
+      eoaToDestinationAccount: { amount: 40_000_000n, contractAddress: USDC },
+    });
+
+    await expect(
+      new CombinedSwapHandler(route, options).process(makeMetadata() as never)
+    ).resolves.toBeUndefined();
+    expect(vscClient.vscCreateSafeExecuteTx).toHaveBeenCalledTimes(2);
+  });
+
+  it('ignores eoaToDestinationAccount when its token does not match dst input', async () => {
+    const { options, vscClient } = baseOptions();
+    vscClient.vscCreateSafeExecuteTx.mockRejectedValue(new Error('execution reverted'));
+
+    // Same setup as above, but the EOA contribution is in a DIFFERENT token (KHYPE, not
+    // USDC). It can't fund the USDC dst input → invariant check still fails.
+    liquidateSourceHoldingsMock.mockResolvedValue([
+      makeSourceQuote({ outputAmountRaw: 60_000_000n }),
+    ]);
+
+    const route = makeRoute({
+      type: 'EXACT_IN',
+      eoaToDestinationAccount: { amount: 40_000_000n, contractAddress: KHYPE },
+    });
+
+    await expect(
+      new CombinedSwapHandler(route, options).process(makeMetadata() as never)
+    ).rejects.toThrow(/source output .* cannot fund destination input/);
   });
 
   it('propagates getDstSwap throw (e.g. rate guard) without falling through to a source re-quote', async () => {
