@@ -1,7 +1,5 @@
 import {
   type Aggregator,
-  autoSelectSources,
-  type Bytes,
   ChaindataMap,
   CurrencyID,
   getDestinationExactInSwap,
@@ -9,6 +7,8 @@ import {
   liquidateSourceHoldings,
   OmniversalChainID,
   type QuoteResponse,
+  type SourceWithValue,
+  selectSources,
   Universe,
 } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
@@ -17,6 +17,7 @@ import { type Hex, toBytes } from 'viem';
 import {
   type BridgeAsset,
   type Chain,
+  type ChainListType,
   type DestinationExecution,
   type ExactInSwapInput,
   type ExactOutSwapInput,
@@ -43,6 +44,8 @@ import {
 import { EADDRESS, EADDRESS_32_BYTES } from './constants';
 import type { FlatBalance } from './data';
 import { createIntent, estimateCollectionFee } from './rff';
+import { SAFE_PROXY_FACTORY } from './safe.constants';
+import { predictSafeAccountAddress } from './safetx';
 import {
   calculateValue,
   convertTo32Bytes,
@@ -54,118 +57,178 @@ import {
 
 const logger = getLogger();
 
+// Collect and print every route-phase `performance.measure` we can find. Called before
+// each route returns (initial + every refresh) so timings are visible without having to
+// complete the full swap flow — `calculatePerformance` in flows/swap.ts only fires after
+// the user approves the intent and execution finishes, which is too late for diagnosing
+// route latency in isolation.
+//
+// Each phase is gated on its start-mark existing so an exact-out path doesn't blow up
+// looking for `route-max-bridge-fee-start` (exact-in-only). Marks are NOT cleared here;
+// calculatePerformance handles cleanup at end-of-swap. On refresh, each pair is
+// overwritten by the new call's marks, so the print reflects the latest run.
+const printRouteTimings = () => {
+  try {
+    const measures: PerformanceMeasure[] = [];
+    const entries = performance.getEntries();
+    const has = (name: string) => entries.some((e) => e.name === name);
+
+    if (has('route-fetch-start')) {
+      measures.push(
+        performance.measure('route-fetch-duration', 'route-fetch-start', 'route-fetch-end')
+      );
+    }
+    if (has('route-dst-quote-start')) {
+      measures.push(
+        performance.measure(
+          'route-dst-quote-duration',
+          'route-dst-quote-start',
+          'route-dst-quote-end'
+        )
+      );
+    }
+    if (has('route-source-quote-start')) {
+      measures.push(
+        performance.measure(
+          'route-source-quote-duration',
+          'route-source-quote-start',
+          'route-source-quote-end'
+        )
+      );
+    }
+    if (has('route-max-bridge-fee-start')) {
+      measures.push(
+        performance.measure(
+          'route-max-bridge-fee-duration',
+          'route-max-bridge-fee-start',
+          'route-max-bridge-fee-end'
+        )
+      );
+    }
+    if (has('route-verify-start')) {
+      measures.push(
+        performance.measure('route-verify-duration', 'route-verify-start', 'route-verify-end')
+      );
+    }
+
+    logger.debug('Timings for route:');
+    for (const measure of measures) {
+      logger.debug(`${measure.name}: ${measure.duration}`);
+    }
+  } catch (e) {
+    logger.error('printRouteTimings', e);
+  }
+};
+
 export const requiresSafeAccount = (chain: Chain | undefined): boolean =>
   !!chain && chain.swapSupported && !chain.pectraUpgradeSupport;
 
-export const resolveSourceExecution = async ({
-  chain,
-  eoaAddress: _eoaAddress,
+// Source and destination wrappers on the same chain resolve to the same on-chain executor —
+// it's purely chain-dependent, not src/dst-dependent. The only divergence is the optional
+// `direct_eoa` dst mode applied at the call site via {@link buildDirectEoaDestinationExecution}.
+//
+// The Safe address is computed locally via CREATE2 (see `predictSafeAccountAddress`). We DO
+// still fire `vscGetSafeAccountAddress` per non-pectra chain — but only as a background
+// sanity check that catches SDK ↔ server config drift (different salt/init code). The
+// returned promise is awaited via `verification` just before the SwapRoute is returned;
+// it does NOT block aggregator quotes or any other route step.
+type ChainExecution = {
+  address: Hex;
+  entryPoint: Hex | null;
+  factoryAddress?: Hex;
+  mode: '7702' | 'safe_account';
+};
+
+const buildDirectEoaDestinationExecution = (eoaAddress: Hex): DestinationExecution => ({
+  address: eoaAddress,
+  entryPoint: null,
+  mode: 'direct_eoa',
+});
+
+export const resolveChainExecutions = ({
+  chainIds,
   ephemeralAddress,
+  chainList,
   vscClient,
 }: {
-  chain: Chain;
-  eoaAddress: Hex;
+  chainIds: Iterable<number>;
   ephemeralAddress: Hex;
+  chainList: ChainListType;
   vscClient: SwapParams['vscClient'];
-}): Promise<SourceExecution> => {
-  if (!requiresSafeAccount(chain)) {
-    return {
-      address: ephemeralAddress,
+}): {
+  executions: Record<number, ChainExecution>;
+  verification: Promise<void>;
+} => {
+  const executions: Record<number, ChainExecution> = {};
+  const verificationPromises: Promise<void>[] = [];
+
+  for (const chainId of new Set(chainIds)) {
+    const chain = chainList.getChainByID(chainId);
+    if (!chain) {
+      throw Errors.chainNotFound(chainId);
+    }
+
+    if (!requiresSafeAccount(chain)) {
+      executions[chainId] = {
+        address: ephemeralAddress,
+        entryPoint: null,
+        mode: '7702',
+      };
+      continue;
+    }
+
+    const safeAddress = predictSafeAccountAddress(ephemeralAddress);
+    executions[chainId] = {
+      address: safeAddress,
       entryPoint: null,
-      mode: '7702',
+      factoryAddress: SAFE_PROXY_FACTORY,
+      mode: 'safe_account',
     };
+
+    verificationPromises.push(
+      vscClient.vscGetSafeAccountAddress(chainId, ephemeralAddress).then((account) => {
+        if (account.address.toLowerCase() !== safeAddress.toLowerCase()) {
+          throw Errors.internal(
+            `Safe address mismatch on chain ${chainId}: local=${safeAddress} server=${account.address}`
+          );
+        }
+      })
+    );
   }
 
-  const account = await vscClient.vscGetSafeAccountAddress(chain.id, ephemeralAddress);
   return {
-    address: account.address,
-    entryPoint: null,
-    factoryAddress: account.factoryAddress,
-    mode: 'safe_account',
+    executions,
+    verification: Promise.all(verificationPromises).then(() => {
+      // Promise<void[]> → Promise<void>
+    }),
   };
 };
 
-export const resolveDestinationExecution = async ({
-  chain,
-  eoaAddress,
-  ephemeralAddress,
-  needsDestinationExecution,
-  vscClient,
-}: {
-  chain: Chain;
-  eoaAddress: Hex;
-  ephemeralAddress: Hex;
-  needsDestinationExecution: boolean;
-  vscClient: SwapParams['vscClient'];
-}): Promise<DestinationExecution> => {
-  if (!needsDestinationExecution) {
-    return {
-      address: eoaAddress,
-      entryPoint: null,
-      mode: 'direct_eoa',
-    };
-  }
-
-  if (!requiresSafeAccount(chain)) {
-    return {
-      address: ephemeralAddress,
-      entryPoint: null,
-      mode: '7702',
-    };
-  }
-
-  const account = await vscClient.vscGetSafeAccountAddress(chain.id, ephemeralAddress);
-  return {
-    address: account.address,
-    entryPoint: null,
-    factoryAddress: account.factoryAddress,
-    mode: 'safe_account',
-  };
-};
-
-type AggregatorInput = ReturnType<typeof toAggregatorInputs>[number];
 // Per-holding shape carrying both the swap *taker* (on-chain executor — Calibur ephemeral on
 // 7702 chains, Safe contract on non-Pectra chains) and the *receiver* (output recipient). For
 // source-side swaps the two are always equal — output stays at the wrapper for the bridge step
 // to consume — but they're stored as distinct fields so every call site has to acknowledge
-// each role explicitly. Names mirror the ca-common wrapper vocabulary
-// (`HoldingWithSwapAddresses`).
-type AggregatorInputWithSwapAddresses = AggregatorInput & {
-  takerAddress: Bytes;
-  receiverAddress: Bytes;
-};
+// each role explicitly. Matches ca-common's `SourceWithValue` exactly — re-exported under the
+// SDK-flavored name so older test imports keep working.
+type AggregatorInputWithSwapAddresses = SourceWithValue;
 type SourceExecutionRecord = Record<number, SourceExecution>;
 
-const resolveSourceExecutions = async ({
-  eoaAddress,
-  ephemeralAddress,
-  sourceBalances,
-  params,
-}: {
-  eoaAddress: Hex;
-  ephemeralAddress: Hex;
-  sourceBalances: FlatBalance[];
-  params: SwapParams & { publicClientList: PublicClientList };
-}): Promise<SourceExecutionRecord> => {
-  const uniqueSourceChains = uniqBy(sourceBalances, (balance) => balance.chainID);
-  const entries = await Promise.all(
-    uniqueSourceChains.map(async (balance) => {
-      const chain = params.chainList.getChainByID(balance.chainID);
-      if (!chain) {
-        throw Errors.chainNotFound(balance.chainID);
-      }
-
-      const execution = await resolveSourceExecution({
-        chain,
-        eoaAddress,
-        ephemeralAddress,
-        vscClient: params.vscClient,
-      });
-      return [balance.chainID, execution] as const;
-    })
-  );
-
-  return Object.fromEntries(entries) as SourceExecutionRecord;
+// Source executions are just the per-source-chain slice of the combined chain-execution map.
+// Kept as a tiny helper so the call sites stay symmetric with the legacy shape, but no
+// async work happens here — everything sources from {@link resolveChainExecutions}.
+const pickSourceExecutions = (
+  chainExecutions: Record<number, ChainExecution>,
+  sourceBalances: FlatBalance[]
+): SourceExecutionRecord => {
+  const out: SourceExecutionRecord = {};
+  for (const chainId of new Set(sourceBalances.map((b) => b.chainID))) {
+    const execution = chainExecutions[chainId];
+    if (!execution) {
+      throw Errors.internal(`source execution not resolved for chain ${chainId}`);
+    }
+    out[chainId] = execution;
+  }
+  return out;
 };
 
 export const toAggregatorInputsWithSwapAddresses = (
@@ -211,18 +274,51 @@ export const determineSwapRoute = async (
     aggregators: Aggregator[];
     cotCurrencyID: CurrencyID;
   }
-): Promise<SwapRoute> => {
+): Promise<{
+  route: SwapRoute;
+  refresh: (input: SwapData) => Promise<SwapRoute>;
+}> => {
   logger.debug('determineSwapRoute', {
     input,
     options,
   });
   console.time('swap-route-time');
-  const response = await (input.mode === SwapMode.EXACT_OUT
-    ? _exactOutRoute(input.data, options)
-    : _exactInRoute(input.data, options));
-  console.timeEnd('swap-route-time');
 
-  return response;
+  // Each inner route returns { route, refresh } with `refresh` accepting the unwrapped
+  // mode-specific data. We wrap that here so the outer refresh accepts the discriminated
+  // `SwapData` and rejects mode mismatches at runtime — refresh is a within-session
+  // operation, switching modes mid-session is a caller bug.
+  if (input.mode === SwapMode.EXACT_OUT) {
+    const { route, refresh: innerRefresh } = await _exactOutRoute(input.data, options);
+    console.timeEnd('swap-route-time');
+    return {
+      route,
+      // Marked async so the mode-check throw becomes a rejection instead of a synchronous
+      // exception (callers `await` the result and expect Promise semantics for errors).
+      refresh: async (next: SwapData) => {
+        if (next.mode !== SwapMode.EXACT_OUT) {
+          throw Errors.internal(
+            `refresh cannot switch swap mode (got ${next.mode}, expected EXACT_OUT)`
+          );
+        }
+        return innerRefresh(next.data);
+      },
+    };
+  }
+
+  const { route, refresh: innerRefresh } = await _exactInRoute(input.data, options);
+  console.timeEnd('swap-route-time');
+  return {
+    route,
+    refresh: async (next: SwapData) => {
+      if (next.mode !== SwapMode.EXACT_IN) {
+        throw Errors.internal(
+          `refresh cannot switch swap mode (got ${next.mode}, expected EXACT_IN)`
+        );
+      }
+      return innerRefresh(next.data);
+    },
+  };
 };
 
 export const applyBuffer = (amount: Decimal, bufferPercent: number): Decimal =>
@@ -269,9 +365,19 @@ source amount will be like max + (s1 + s2)sF + (s1 + s2)cF + fF
 
 enum BUFFER_EXACT_OUT {
   DESTINATION_SWAP_BUFFER_PCT = 10,
-  DESTINATION_SWAP_MAX_IN_USD = 2, // <-- magic number ???
+  DESTINATION_SWAP_MAX_IN_USD = 2,
   SOURCE_SWAP_BUFFER_PCT = 2,
-  SOURCE_SWAP_MAX_IN_USD = 1, // <-- another magic
+  SOURCE_SWAP_MAX_IN_USD = 1,
+}
+
+// EXACT_IN: source swaps run with the user's exact input, so we can't oversize them like
+// EXACT_OUT does. Instead we under-size the dst-swap input by `srcBuffer` and let leftover
+// COT sweep back to the EOA. That keeps the dst swap funded if a source leg reverts and
+// re-quotes up to `srcBuffer` lower; `retryWithSlippageCheck` uses the same value as its
+// retry tolerance.
+enum BUFFER_EXACT_IN {
+  SOURCE_SWAP_BUFFER_PCT = 0.5,
+  SOURCE_SWAP_MAX_IN_USD = 1,
 }
 
 // Headroom on the destination-swap input when source and destination collapse into a single
@@ -335,15 +441,16 @@ const deductReservedBalance = (
   });
 };
 
-/** Fetches fee store, balances, oracle prices, and destination token info in parallel. */
+/** Fetches fee store, balances, oracle prices, and destination token info in parallel.
+ *  Returns the *unfiltered* balance set — `fromSources` / `removeSources` are now
+ *  applied by `_exactOutRoute`'s refresh body so a refresh with a different
+ *  fromSources doesn't have to refetch. */
 const fetchRouteData = async (
   params: SwapParams & { publicClientList: PublicClientList },
   opts: {
     toChainId: number;
     toTokenAddress: Hex;
     dstChain: ReturnType<SwapParams['chainList']['getChainByID']> & {};
-    allowedSources?: Source[];
-    removeSources?: Source[];
   }
 ) => {
   const oraclePricesPromise = params.cosmosQueryClient.fetchPriceOracle();
@@ -357,8 +464,7 @@ const fetchRouteData = async (
           chainList: params.chainList,
           vscClient: params.vscClient,
           filterWithSupportedTokens: false,
-          allowedSources: opts.allowedSources,
-          removeSources: opts.removeSources,
+          publicClientList: params.publicClientList,
         }).then((r) => r.balances),
     oraclePricesPromise,
     getTokenInfo(opts.toTokenAddress, params.publicClientList.get(opts.toChainId), opts.dstChain),
@@ -553,11 +659,11 @@ const resolveSourceBalances = (
 
 /**
  * Builds assetsUsed, bridgeAssets, dstEOAToEphTx, and dstTotalCOTAmount from
- * autoSelectSources results. Skips dst-chain entries from bridgeAssets and
+ * `selectSources` results. Skips dst-chain entries from bridgeAssets and
  * tracks dst COT for bridge amount deduction.
  */
 const buildExactOutSourceAssets = (
-  usedCOTs: Awaited<ReturnType<typeof autoSelectSources>>['usedCOTs'],
+  usedCOTs: Awaited<ReturnType<typeof selectSources>>['usedCOTs'],
   sourceSwapQuotes: QuoteResponse[],
   dstChainId: number,
   dstCOTDecimals: number
@@ -630,33 +736,33 @@ const _exactOutRoute = async (
     aggregators: Aggregator[];
     cotCurrencyID: CurrencyID;
   }
-): Promise<SwapRoute> => {
+): Promise<{
+  route: SwapRoute;
+  refresh: (input: ExactOutSwapInput) => Promise<SwapRoute>;
+}> => {
+  // === CLOSURE: computed once per swap() session, reused on every refresh ===========
+  //
+  // Stable across refresh: dst chain identity, oracle prices, fee store, dst-token
+  // metadata, the unfiltered raw balance set, and chain-level wrapper executions. The
+  // refresh body re-applies fromSources / removeSources filters against `rawBalances`,
+  // re-runs the aggregator quotes, and rebuilds the bridge intent. Balances are NOT
+  // re-fetched — refresh latency drops by the fetch round-trip + the fanout that
+  // getBalancesForSwap incurs on its own (vservice + transfer-fee per native chain).
+  //
+  // Caveat: a user who moves funds during the intent-approval window will see the
+  // pre-move balance set in subsequent refreshes. The aggregator quote at execution
+  // time will catch any actual insufficiency; we accept the small stale-state window
+  // in exchange for the latency win.
+
   const dstChain = params.chainList.getChainByID(input.toChainId);
   if (!dstChain) {
     throw Errors.chainNotFound(input.toChainId);
   }
 
-  // toAmount / toNativeAmount sentinel semantics (same shape for both):
-  //   > 0n   : shortfall — bridge this amount. Remove from dst-chain sources entirely.
-  //   < -1n  : surplus — reserve abs(value) from dst balance, use the rest as a swap source.
-  //   === -1n: exactly enough — remove from dst-chain sources entirely.
-  const removeSources: Source[] = [];
-  if (input.toAmount === -1n || input.toAmount > 0n) {
-    removeSources.push({
-      chainId: input.toChainId,
-      tokenAddress: input.toTokenAddress,
-    });
-  }
-  const reserveTokenAmount = input.toAmount < -1n ? -input.toAmount : undefined;
-  const reserveNativeAmount =
-    input.toNativeAmount && input.toNativeAmount < -1n ? -input.toNativeAmount : undefined;
-  if (input.toNativeAmount === -1n || (input.toNativeAmount && input.toNativeAmount > 0n)) {
-    removeSources.push({
-      chainId: input.toChainId,
-      tokenAddress: ZERO_ADDRESS,
-    });
-  }
-
+  // Fetch unfiltered balances. allowedSources/removeSources were previously passed
+  // here so getBalancesForSwap could pre-filter; we now apply both per-call in refresh
+  // (so a refresh with a different fromSources doesn't have to re-fetch).
+  performance.mark('route-fetch-start');
   const {
     feeStore,
     balances: rawBalances,
@@ -666,369 +772,463 @@ const _exactOutRoute = async (
     toChainId: input.toChainId,
     toTokenAddress: input.toTokenAddress,
     dstChain,
-    allowedSources: input.fromSources,
-    removeSources,
   });
-
-  // When using preloaded balances, apply the allowedSources/removeSources filters inline.
-  let balances = rawBalances;
-  if (params.preloadedBalances) {
-    if (input.fromSources?.length) {
-      balances = filterAllowedSources(balances, input.fromSources);
-    }
-    balances = filterRemoveSources(balances, removeSources);
-  }
-
-  // Surplus case: reserve the required amount from dst-chain balance so only the
-  // surplus is available as a swap source.
-  if (reserveTokenAmount) {
-    balances = deductReservedBalance(
-      balances,
-      input.toChainId,
-      normalizeToComparisonAddr(input.toTokenAddress),
-      reserveTokenAmount,
-      dstTokenInfo.decimals
-    );
-  }
-  if (reserveNativeAmount) {
-    balances = deductReservedBalance(
-      balances,
-      input.toChainId,
-      normalizeToComparisonAddr(ZERO_ADDRESS),
-      reserveNativeAmount,
-      dstChain.nativeCurrency.decimals
-    );
-  }
-
-  const dstOmniversalChainID = new OmniversalChainID(Universe.ETHEREUM, input.toChainId);
-
-  logger.debug('exact-out: fetched balances', { balances, input });
+  performance.mark('route-fetch-end');
 
   const { cot: dstChainCOT, address: dstChainCOTAddress } = getCOTForChainId(
     input.toChainId,
     params.cotCurrencyID
   );
+  const dstOmniversalChainID = new OmniversalChainID(Universe.ETHEREUM, input.toChainId);
 
-  let gasInCOT = new Decimal(0);
-  if (input.toNativeAmount && input.toNativeAmount > 0n) {
-    // Convert to COT
-    gasInCOT = convertGasToToken(
-      {
-        contractAddress: dstChainCOTAddress,
-        decimals: dstChainCOT.decimals,
-      },
-      oraclePrices,
-      dstChain.id,
-      dstChain.universe,
-      divDecimals(input.toNativeAmount, dstChain.nativeCurrency.decimals)
-    ).mul(1.02);
-  }
+  // Chain-level Safe addresses are deterministic from the ephemeral, so resolve once
+  // across the dst chain plus every chain that appears in the unfiltered balance set.
+  // Any fromSources used in refresh is necessarily a subset.
+  const { executions: chainExecutions, verification: executionsVerification } =
+    resolveChainExecutions({
+      chainIds: [input.toChainId, ...rawBalances.map((b) => b.chainID)],
+      ephemeralAddress: params.address.ephemeral,
+      chainList: params.chainList,
+      vscClient: params.vscClient,
+    });
 
-  let buffer = new Decimal(0);
-
-  const needsTokenSwap =
-    input.toAmount > 0n && !equalFold(input.toTokenAddress, dstChainCOTAddress);
-  const needsGasSwap = !gasInCOT.isZero();
-  const destinationExecution = await resolveDestinationExecution({
-    chain: dstChain,
-    eoaAddress: params.address.eoa,
-    ephemeralAddress: params.address.ephemeral,
-    needsDestinationExecution: needsTokenSwap || needsGasSwap,
-    vscClient: params.vscClient,
-  });
-  // Aggregator simulation context (taker_address / fromAddress) must be the wrapper — that's
-  // the on-chain executor at runtime, so the aggregator's permit/approval routing has to match.
-  // Output recipient is the user's EOA so we never need to sweep token or native dust out of
-  // the wrapper post-swap. Safe doesn't implement ERC-7914, so the previous
-  // wrapper-as-recipient + sweep pattern broke `approveNative`. Splitting these two roles
-  // (userAddress vs receiverAddress) lets the aggregator simulate as the wrapper but deliver
-  // output to the EOA. Applies uniformly to 7702 (Calibur) and `safe_account` modes.
-  const dstSwapTakerInBytes = convertTo32Bytes(destinationExecution.address);
-  const dstSwapReceiverInBytes = convertTo32Bytes(params.address.eoa);
-
-  // COT required for direct transfer when toToken IS COT and toAmount is a positive
-  // shortfall. Zero when a swap resolves it, or under sentinel toAmount (-1n / <-1n).
-  const cotTransferAmount =
-    input.toAmount > 0n && !needsTokenSwap
-      ? divDecimals(input.toAmount, dstChainCOT.decimals)
-      : new Decimal(0);
-
-  const destination = createDestination(
-    input.toChainId,
-    destinationExecution,
-    cotTransferAmount.add(gasInCOT)
-  );
-
-  let originalMax: Decimal | null = null;
-  const getDstSwap = async (): Promise<DestinationSwap> => {
-    if (!needsTokenSwap && !needsGasSwap) {
-      return { creationTime: Date.now(), tokenSwap: null, gasSwap: null };
+  // === REFRESH: re-runs per call ===================================================
+  //
+  // toChainId / toTokenAddress are immutable across refresh (they're the destination
+  // identity — refresh re-quoting against a different destination is a different swap).
+  // toAmount / toNativeAmount sentinels and fromSources MAY change between calls, so
+  // every dependent value (removeSources, gasInCOT, needsTokenSwap, …) is recomputed
+  // here from `currentInput`, not closed over the initial input.
+  const refresh = async (currentInput: ExactOutSwapInput): Promise<SwapRoute> => {
+    // toAmount / toNativeAmount sentinel semantics (same shape for both):
+    //   > 0n   : shortfall — bridge this amount. Remove from dst-chain sources entirely.
+    //   < -1n  : surplus — reserve abs(value) from dst balance, use the rest as a swap source.
+    //   === -1n: exactly enough — remove from dst-chain sources entirely.
+    const removeSources: Source[] = [];
+    if (currentInput.toAmount === -1n || currentInput.toAmount > 0n) {
+      removeSources.push({
+        chainId: currentInput.toChainId,
+        tokenAddress: currentInput.toTokenAddress,
+      });
+    }
+    const reserveTokenAmount = currentInput.toAmount < -1n ? -currentInput.toAmount : undefined;
+    const reserveNativeAmount =
+      currentInput.toNativeAmount && currentInput.toNativeAmount < -1n
+        ? -currentInput.toNativeAmount
+        : undefined;
+    if (
+      currentInput.toNativeAmount === -1n ||
+      (currentInput.toNativeAmount && currentInput.toNativeAmount > 0n)
+    ) {
+      removeSources.push({
+        chainId: currentInput.toChainId,
+        tokenAddress: ZERO_ADDRESS,
+      });
     }
 
-    const [tokenSwap, gasSwap] = await Promise.all([
-      needsTokenSwap
-        ? getDestinationExactOutSwap({
-            takerAddress: dstSwapTakerInBytes,
-            receiverAddress: dstSwapReceiverInBytes,
-            requirement: {
-              chainID: dstOmniversalChainID,
-              amountRaw: BigInt(input.toAmount),
-              tokenAddress: convertTo32Bytes(input.toTokenAddress),
-            },
-            aggregators: params.aggregators,
-          })
-        : null,
-      needsGasSwap
-        ? getDestinationExactInSwap({
-            takerAddress: dstSwapTakerInBytes,
-            receiverAddress: dstSwapReceiverInBytes,
-            chain: dstOmniversalChainID,
-            inputAmount: mulDecimals(gasInCOT, dstChainCOT.decimals),
-            outputToken: EADDRESS_32_BYTES,
-            aggregators: params.aggregators,
-          })
-        : null,
-    ]);
+    // Always apply filters against the closure's unfiltered set so a refresh with a
+    // different fromSources doesn't carry over a previous filter.
+    let balances = rawBalances;
+    if (currentInput.fromSources?.length) {
+      balances = filterAllowedSources(balances, currentInput.fromSources);
+    }
+    balances = filterRemoveSources(balances, removeSources);
 
-    // COT input = swap quote input (or direct COT transfer) + gas
-    destination.inputAmount.min = new Decimal(
-      tokenSwap?.quote.input.amount ?? cotTransferAmount
-    ).add(gasInCOT);
-
-    // Apply min(5%, $2) buffer to destination input amount — leftover is returned in COT.
-    const { amountWithBuffer, buffer: dstBuffer } = applyBufferWithCap(
-      destination.inputAmount.min,
-      BUFFER_EXACT_OUT.DESTINATION_SWAP_BUFFER_PCT,
-      BUFFER_EXACT_OUT.DESTINATION_SWAP_MAX_IN_USD
-    );
-    const rounded = amountWithBuffer.toDP(dstChainCOT.decimals, Decimal.ROUND_CEIL);
-
-    if (originalMax === null) {
-      originalMax = rounded;
-    } else if (rounded.gt(originalMax)) {
-      throw Errors.ratesChangedBeyondTolerance(
-        Number(rounded.toFixed()),
-        `max budget: ${originalMax.toFixed()}`
+    // Surplus case: reserve the required amount from dst-chain balance so only the
+    // surplus is available as a swap source.
+    if (reserveTokenAmount) {
+      balances = deductReservedBalance(
+        balances,
+        currentInput.toChainId,
+        normalizeToComparisonAddr(currentInput.toTokenAddress),
+        reserveTokenAmount,
+        dstTokenInfo.decimals
+      );
+    }
+    if (reserveNativeAmount) {
+      balances = deductReservedBalance(
+        balances,
+        currentInput.toChainId,
+        normalizeToComparisonAddr(ZERO_ADDRESS),
+        reserveNativeAmount,
+        dstChain.nativeCurrency.decimals
       );
     }
 
-    destination.inputAmount.max = rounded;
-    buffer = buffer.add(dstBuffer);
+    logger.debug('exact-out: fetched balances', { balances, input: currentInput });
 
-    return { creationTime: Date.now(), tokenSwap, gasSwap };
-  };
-
-  destination.swap = await getDstSwap();
-  destination.getDstSwap = getDstSwap;
-
-  logger.debug('destination swaps', destination.swap);
-
-  // One balance per chain, mapped to its COT for collection fee estimation
-  const cotBalancesPerChain = uniqBy(
-    balances.filter((b) => new Decimal(b.amount).gt(0)),
-    (b) => b.chainID
-  ).map((b) => {
-    const { cot: chainCOT, address: cotAddress } = getCOTForChainId(
-      b.chainID,
-      params.cotCurrencyID
-    );
-    return {
-      value: b.value,
-      chainID: b.chainID,
-      contractAddress: cotAddress,
-      decimals: chainCOT.decimals,
-    };
-  });
-
-  const estimatedCollectionFee = estimateCollectionFee(
-    cotBalancesPerChain,
-    destination.inputAmount.max,
-    feeStore
-  );
-  const estimatedBridgeFees = feeStore
-    .calculateFulfilmentFee({
-      decimals: dstChainCOT.decimals,
-      destinationChainID: Number(input.toChainId),
-      destinationTokenAddress: dstChainCOTAddress,
-    })
-    .add(estimatedCollectionFee);
-
-  const bridgeOutput = destination.inputAmount.max;
-  const bridgeOutputWithFees = bridgeOutput.add(estimatedBridgeFees);
-
-  const { amountWithBuffer: sourceSwapOutputRequired, buffer: srcBuffer } = applyBufferWithCap(
-    bridgeOutputWithFees,
-    BUFFER_EXACT_OUT.SOURCE_SWAP_BUFFER_PCT,
-    BUFFER_EXACT_OUT.SOURCE_SWAP_MAX_IN_USD
-  );
-
-  buffer = buffer.add(srcBuffer);
-
-  logger.debug('exact-out: source swap requirements', {
-    dstChainCOTAddress,
-    srcBuffer: srcBuffer.toFixed(),
-    buffer: buffer.toFixed(),
-    estimatedBridgeFees: estimatedBridgeFees.toFixed(),
-    bridgeOutput: bridgeOutput.toFixed(),
-    sourceSwapOutputRequired: sourceSwapOutputRequired.toFixed(),
-  });
-
-  const sortedBalances = sortSourcesByPriority(balances, {
-    tokenAddress: input.toTokenAddress,
-    symbol: dstTokenInfo.symbol,
-    chainID: dstChain.id,
-  });
-  const sourceExecutions = await resolveSourceExecutions({
-    eoaAddress: params.address.eoa,
-    ephemeralAddress: params.address.ephemeral,
-    sourceBalances: sortedBalances,
-    params,
-  });
-
-  const { quoteResponses: rawSourceSwapQuotes, usedCOTs: rawUsedCOTs } = await autoSelectSources({
-    holdings: toAggregatorInputsWithSwapAddresses(sortedBalances, sourceExecutions),
-    outputRequired: sourceSwapOutputRequired,
-    aggregators: params.aggregators,
-    commonCurrencyID: params.cotCurrencyID,
-  }).catch((e) => {
-    if (e instanceof Error && e.message === 'NOT_ENOUGH_SWAP_FOR_REQUIREMENT') {
-      throw Errors.quoteError();
+    let gasInCOT = new Decimal(0);
+    if (currentInput.toNativeAmount && currentInput.toNativeAmount > 0n) {
+      // Convert to COT
+      gasInCOT = convertGasToToken(
+        {
+          contractAddress: dstChainCOTAddress,
+          decimals: dstChainCOT.decimals,
+        },
+        oraclePrices,
+        dstChain.id,
+        dstChain.universe,
+        divDecimals(currentInput.toNativeAmount, dstChain.nativeCurrency.decimals)
+      ).mul(1.02);
     }
-    throw e;
-  });
 
-  // autoSelectSources is sized against sourceSwapOutputRequired (= bridgeOutput +
-  // bridgeFees + srcBuffer). When dst-chain holdings sit in the
-  // (bridgeOutput, sourceSwapOutputRequired) window, they get fully consumed and a tiny
-  // non-dst source is selected to cover the fee/buffer headroom. That non-dst contribution
-  // isn't actually needed — dst-chain alone already covers bridgeOutput — and if left in
-  // place it both drives `bridgeAmount` negative below and strands the non-dst source-swap
-  // output at the source-chain wrapper (no bridge step would pick it up). Drop non-dst
-  // selections in that case; the existing isBridgeRequired check then naturally evaluates
-  // to false.
-  const dstContribution = rawUsedCOTs
-    .reduce(
-      (sum, c) =>
-        Number(c.originalHolding.chainID.chainID) === input.toChainId
-          ? sum.plus(c.amountUsed)
-          : sum,
-      new Decimal(0)
-    )
-    .plus(
-      rawSourceSwapQuotes.reduce(
-        (sum, q) => (q.chainID === input.toChainId ? sum.plus(q.quote.output.amount) : sum),
+    let buffer = new Decimal(0);
+
+    const needsTokenSwap =
+      currentInput.toAmount > 0n && !equalFold(currentInput.toTokenAddress, dstChainCOTAddress);
+    const needsGasSwap = !gasInCOT.isZero();
+
+    const sortedBalances = sortSourcesByPriority(balances, {
+      tokenAddress: currentInput.toTokenAddress,
+      symbol: dstTokenInfo.symbol,
+      chainID: dstChain.id,
+    });
+    let destinationExecution: DestinationExecution =
+      needsTokenSwap || needsGasSwap
+        ? chainExecutions[currentInput.toChainId]
+        : buildDirectEoaDestinationExecution(params.address.eoa);
+    // Aggregator simulation context (taker_address / fromAddress) must be the wrapper —
+    // that's the on-chain executor at runtime, so the aggregator's permit/approval routing
+    // has to match. Output recipient is the user's EOA so we never need to sweep token or
+    // native dust out of the wrapper post-swap. Safe doesn't implement ERC-7914, so the
+    // previous wrapper-as-recipient + sweep pattern broke `approveNative`. Splitting these
+    // two roles (userAddress vs receiverAddress) lets the aggregator simulate as the wrapper
+    // but deliver output to the EOA. Applies uniformly to 7702 (Calibur) and `safe_account`.
+    const dstSwapTakerInBytes = convertTo32Bytes(destinationExecution.address);
+    const dstSwapReceiverInBytes = convertTo32Bytes(params.address.eoa);
+
+    // COT required for direct transfer when toToken IS COT and toAmount is a positive
+    // shortfall. Zero when a swap resolves it, or under sentinel toAmount (-1n / <-1n).
+    const cotTransferAmount =
+      currentInput.toAmount > 0n && !needsTokenSwap
+        ? divDecimals(currentInput.toAmount, dstChainCOT.decimals)
+        : new Decimal(0);
+
+    const destination = createDestination(
+      currentInput.toChainId,
+      destinationExecution,
+      cotTransferAmount.add(gasInCOT)
+    );
+
+    let originalMax: Decimal | null = null;
+    // `skipRateGuard` is set by combined retries (CombinedSwapHandler.requoteBothLegs).
+    // The originalMax rate-tolerance check exists to protect bridge flows where the bridge
+    // was already sized against the first dst quote — a requote whose input requirement
+    // outgrows that fixed budget cannot be funded. Combined batches are atomic on a single
+    // wrapper: src outputs and dst inputs balance in the same tx, with no pre-committed
+    // bridge to underfund. The combined handler enforces its own funding invariant
+    // (`availableCOT ≥ dst.input`, where `availableCOT = src.output + eoaToDestinationAccount`)
+    // instead, so this guard must not fire there.
+    const getDstSwap = async (opts: { skipRateGuard?: boolean } = {}): Promise<DestinationSwap> => {
+      if (!needsTokenSwap && !needsGasSwap) {
+        return { creationTime: Date.now(), tokenSwap: null, gasSwap: null };
+      }
+
+      const [tokenSwap, gasSwap] = await Promise.all([
+        needsTokenSwap
+          ? getDestinationExactOutSwap({
+              takerAddress: dstSwapTakerInBytes,
+              receiverAddress: dstSwapReceiverInBytes,
+              requirement: {
+                chainID: dstOmniversalChainID,
+                amountRaw: BigInt(currentInput.toAmount),
+                tokenAddress: convertTo32Bytes(currentInput.toTokenAddress),
+              },
+              aggregators: params.aggregators,
+            })
+          : null,
+        needsGasSwap
+          ? getDestinationExactInSwap({
+              takerAddress: dstSwapTakerInBytes,
+              receiverAddress: dstSwapReceiverInBytes,
+              chain: dstOmniversalChainID,
+              inputAmount: mulDecimals(gasInCOT, dstChainCOT.decimals),
+              outputToken: EADDRESS_32_BYTES,
+              aggregators: params.aggregators,
+            })
+          : null,
+      ]);
+
+      // COT input = swap quote input (or direct COT transfer) + gas
+      destination.inputAmount.min = new Decimal(
+        tokenSwap?.quote.input.amount ?? cotTransferAmount
+      ).add(gasInCOT);
+
+      if (originalMax === null) {
+        // First call: size the bridge by adding the destination buffer (min(10%, $2)).
+        // Leftover COT at the wrapper post-swap is swept back to the EOA.
+        const { amountWithBuffer, buffer: dstBuffer } = applyBufferWithCap(
+          destination.inputAmount.min,
+          BUFFER_EXACT_OUT.DESTINATION_SWAP_BUFFER_PCT,
+          BUFFER_EXACT_OUT.DESTINATION_SWAP_MAX_IN_USD
+        );
+        const rounded = amountWithBuffer.toDP(dstChainCOT.decimals, Decimal.ROUND_CEIL);
+        originalMax = rounded;
+        destination.inputAmount.max = rounded;
+        buffer = buffer.add(dstBuffer);
+      } else if (destination.inputAmount.min.gt(originalMax) && !opts.skipRateGuard) {
+        // Requote: the bridge has already been sized for `originalMax`. A requote whose
+        // input requirement still fits inside that budget is fine — leftover gets swept.
+        // Only reject when the requote genuinely outgrows what the bridge funded; do NOT
+        // re-add the buffer on top of newInputMin (that would shrink the usable budget
+        // and reject valid requotes that actually fit). inputAmount.max stays pinned at
+        // originalMax — the bridge already happened, the budget is fixed.
+        throw Errors.ratesChangedBeyondTolerance(
+          Number(destination.inputAmount.min.toFixed()),
+          `max budget: ${originalMax.toFixed()}`
+        );
+      }
+
+      return { creationTime: Date.now(), tokenSwap, gasSwap };
+    };
+
+    performance.mark('route-dst-quote-start');
+    destination.swap = await getDstSwap();
+    performance.mark('route-dst-quote-end');
+    destination.getDstSwap = getDstSwap;
+
+    logger.debug('destination swaps', destination.swap);
+
+    // One balance per chain, mapped to its COT for collection fee estimation
+    const cotBalancesPerChain = uniqBy(
+      balances.filter((b) => new Decimal(b.amount).gt(0)),
+      (b) => b.chainID
+    ).map((b) => {
+      const { cot: chainCOT, address: cotAddress } = getCOTForChainId(
+        b.chainID,
+        params.cotCurrencyID
+      );
+      return {
+        value: b.value,
+        chainID: b.chainID,
+        contractAddress: cotAddress,
+        decimals: chainCOT.decimals,
+      };
+    });
+
+    const estimatedCollectionFee = estimateCollectionFee(
+      cotBalancesPerChain,
+      destination.inputAmount.max,
+      feeStore
+    );
+    const estimatedBridgeFees = feeStore
+      .calculateFulfilmentFee({
+        decimals: dstChainCOT.decimals,
+        destinationChainID: Number(currentInput.toChainId),
+        destinationTokenAddress: dstChainCOTAddress,
+      })
+      .add(estimatedCollectionFee);
+
+    const bridgeOutput = destination.inputAmount.max;
+    const bridgeOutputWithFees = bridgeOutput.add(estimatedBridgeFees);
+
+    const { amountWithBuffer: sourceSwapOutputRequired, buffer: srcBuffer } = applyBufferWithCap(
+      bridgeOutputWithFees,
+      BUFFER_EXACT_OUT.SOURCE_SWAP_BUFFER_PCT,
+      BUFFER_EXACT_OUT.SOURCE_SWAP_MAX_IN_USD
+    );
+
+    buffer = buffer.add(srcBuffer);
+
+    logger.debug('exact-out: source swap requirements', {
+      dstChainCOTAddress,
+      srcBuffer: srcBuffer.toFixed(),
+      buffer: buffer.toFixed(),
+      estimatedBridgeFees: estimatedBridgeFees.toFixed(),
+      bridgeOutput: bridgeOutput.toFixed(),
+      sourceSwapOutputRequired: sourceSwapOutputRequired.toFixed(),
+    });
+
+    const sourceExecutions = pickSourceExecutions(chainExecutions, sortedBalances);
+
+    // Hands the priority-ordered holdings (each carrying `value` in USD) to ca-common's
+    // `selectSources`. That implementation only surveys the priority-ordered prefix whose
+    // cumulative USD value covers `outputRequired × prefixHeadroom` (default 1.25), and
+    // expands to additional holdings only if the prefix under-delivers — so the typical
+    // route surveys a handful of holdings instead of every dust balance across 10+
+    // chains.
+    performance.mark('route-source-quote-start');
+    const { quoteResponses: rawSourceSwapQuotes, usedCOTs: rawUsedCOTs } = await selectSources({
+      sources: toAggregatorInputsWithSwapAddresses(sortedBalances, sourceExecutions),
+      outputRequired: sourceSwapOutputRequired,
+      aggregators: params.aggregators,
+      commonCurrencyID: params.cotCurrencyID,
+    }).catch((e) => {
+      if (e instanceof Error && e.message === 'NOT_ENOUGH_SWAP_FOR_REQUIREMENT') {
+        throw Errors.quoteError();
+      }
+      throw e;
+    });
+    performance.mark('route-source-quote-end');
+
+    // autoSelectSources is sized against sourceSwapOutputRequired (= bridgeOutput +
+    // bridgeFees + srcBuffer). When dst-chain holdings sit in the
+    // (bridgeOutput, sourceSwapOutputRequired) window, they get fully consumed and a tiny
+    // non-dst source is selected to cover the fee/buffer headroom. That non-dst contribution
+    // isn't actually needed — dst-chain alone already covers bridgeOutput — and if left in
+    // place it both drives `bridgeAmount` negative below and strands the non-dst source-swap
+    // output at the source-chain wrapper (no bridge step would pick it up). Drop non-dst
+    // selections in that case; the existing isBridgeRequired check then naturally evaluates
+    // to false.
+    const dstContribution = rawUsedCOTs
+      .reduce(
+        (sum, c) =>
+          Number(c.originalHolding.chainID.chainID) === currentInput.toChainId
+            ? sum.plus(c.amountUsed)
+            : sum,
         new Decimal(0)
       )
+      .plus(
+        rawSourceSwapQuotes.reduce(
+          (sum, q) =>
+            q.chainID === currentInput.toChainId ? sum.plus(q.quote.output.amount) : sum,
+          new Decimal(0)
+        )
+      );
+
+    const dropNonDst = dstContribution.gte(bridgeOutput);
+    const sourceSwapQuotes = dropNonDst
+      ? rawSourceSwapQuotes.filter((q) => q.chainID === currentInput.toChainId)
+      : rawSourceSwapQuotes;
+    const usedCOTs = dropNonDst
+      ? rawUsedCOTs.filter(
+          (c) => Number(c.originalHolding.chainID.chainID) === currentInput.toChainId
+        )
+      : rawUsedCOTs;
+    if (dropNonDst) {
+      logger.debug('exact-out: dst-chain covers bridgeOutput, dropping non-dst selections', {
+        dstContribution: dstContribution.toFixed(),
+        bridgeOutput: bridgeOutput.toFixed(),
+        droppedQuotes: rawSourceSwapQuotes.length - sourceSwapQuotes.length,
+        droppedCOTs: rawUsedCOTs.length - usedCOTs.length,
+      });
+    }
+
+    logger.debug('sourceSwap', {
+      sourceSwapQuotes,
+    });
+
+    // selectSources' partial-quote loop overshoots by ~2.5%+ (safetyMultiplier=1.025 then
+    // accepts the first quote where output ≥ remainder), so the final source-swap quote
+    // typically delivers more COT than the target sourceSwapOutputRequired. The overshoot
+    // lands at the wrapper / bridged forward and ultimately sweeps back to the user, so
+    // surface it as additional buffer alongside srcBuffer / dstBuffer. Clamped at 0 because
+    // the dropNonDst branch above may legitimately under-deliver vs sourceSwapOutputRequired
+    // (dst-chain alone covers bridgeOutput, fees/srcBuffer are no longer needed).
+    const actualSourceOutput = usedCOTs
+      .reduce((sum, c) => sum.plus(c.amountUsed), new Decimal(0))
+      .plus(sourceSwapQuotes.reduce((sum, q) => sum.plus(q.quote.output.amount), new Decimal(0)));
+    const convergenceExcess = Decimal.max(0, actualSourceOutput.minus(sourceSwapOutputRequired));
+    buffer = buffer.add(convergenceExcess);
+
+    logger.debug('exact-out: loose-convergence excess', {
+      actualSourceOutput: actualSourceOutput.toFixed(),
+      sourceSwapOutputRequired: sourceSwapOutputRequired.toFixed(),
+      convergenceExcess: convergenceExcess.toFixed(),
+      buffer: buffer.toFixed(),
+    });
+
+    const sourceSwapCreationTime = Date.now();
+
+    const { assetsUsed, bridgeAssets, dstTotalCOTAmount, dstEOAToEphTx } =
+      buildExactOutSourceAssets(
+        usedCOTs,
+        sourceSwapQuotes,
+        currentInput.toChainId,
+        dstChainCOT.decimals
+      );
+
+    destination.eoaToDestinationAccount = dstEOAToEphTx;
+
+    if (
+      !needsTokenSwap &&
+      !needsGasSwap &&
+      hasDestinationChainSourceSwapOutput(
+        sourceSwapQuotes,
+        sourceExecutions,
+        currentInput.toChainId,
+        params.address.eoa
+      )
+    ) {
+      // Source swaps land COT on the dst chain at a non-EOA wrapper, so the dst leg can't
+      // stay as `direct_eoa` after all. The wrapper was already resolved up-front (same
+      // chain, same ephemeral) — flip is a sync lookup, no extra VSC roundtrip.
+      destinationExecution = chainExecutions[currentInput.toChainId];
+      destination.execution = destinationExecution;
+    }
+
+    const isBridgeRequired = !(
+      sourceSwapQuotes.every((q) => q.chainID === currentInput.toChainId) &&
+      usedCOTs.every((q) => Number(q.originalHolding.chainID.chainID) === currentInput.toChainId)
     );
 
-  const dropNonDst = dstContribution.gte(bridgeOutput);
-  const sourceSwapQuotes = dropNonDst
-    ? rawSourceSwapQuotes.filter((q) => q.chainID === input.toChainId)
-    : rawSourceSwapQuotes;
-  const usedCOTs = dropNonDst
-    ? rawUsedCOTs.filter((c) => Number(c.originalHolding.chainID.chainID) === input.toChainId)
-    : rawUsedCOTs;
-  if (dropNonDst) {
-    logger.debug('exact-out: dst-chain covers bridgeOutput, dropping non-dst selections', {
-      dstContribution: dstContribution.toFixed(),
-      bridgeOutput: bridgeOutput.toFixed(),
-      droppedQuotes: rawSourceSwapQuotes.length - sourceSwapQuotes.length,
-      droppedCOTs: rawUsedCOTs.length - usedCOTs.length,
-    });
-  }
-
-  logger.debug('sourceSwap', {
-    sourceSwapQuotes,
-  });
-
-  const sourceSwapCreationTime = Date.now();
-
-  const { assetsUsed, bridgeAssets, dstTotalCOTAmount, dstEOAToEphTx } = buildExactOutSourceAssets(
-    usedCOTs,
-    sourceSwapQuotes,
-    input.toChainId,
-    dstChainCOT.decimals
-  );
-
-  destination.eoaToDestinationAccount = dstEOAToEphTx;
-
-  if (
-    !needsTokenSwap &&
-    !needsGasSwap &&
-    hasDestinationChainSourceSwapOutput(
-      sourceSwapQuotes,
-      sourceExecutions,
-      input.toChainId,
-      params.address.eoa
-    )
-  ) {
-    destination.execution = await resolveDestinationExecution({
-      chain: dstChain,
-      eoaAddress: params.address.eoa,
-      ephemeralAddress: params.address.ephemeral,
-      needsDestinationExecution: true,
-      vscClient: params.vscClient,
-    });
-  }
-
-  const isBridgeRequired = !(
-    sourceSwapQuotes.every((q) => q.chainID === input.toChainId) &&
-    usedCOTs.every((q) => Number(q.originalHolding.chainID.chainID) === input.toChainId)
-  );
-
-  let bridgeInput: BridgeInput = null;
-  if (isBridgeRequired) {
-    // Deduct dst-chain COT (already on destination, doesn't need bridging).
-    const bridgeAmount = bridgeOutput.minus(dstTotalCOTAmount);
-    if (bridgeAmount.lte(0)) {
-      // Invariant: the dst-chain drop above guarantees dstTotalCOTAmount ≤ bridgeOutput
-      // whenever isBridgeRequired is true. Reaching this branch means the invariant was
-      // violated (e.g. a future change to autoSelectSources or buildExactOutSourceAssets
-      // breaks the accounting). Log so the regression is visible, but skip the bridge
-      // rather than build a degenerate zero/negative-amount intent.
-      logger.warn('exact-out: non-positive bridgeAmount after dst-chain drop, skipping bridge', {
-        bridgeAmount: bridgeAmount.toFixed(),
-        bridgeOutput: bridgeOutput.toFixed(),
-        dstTotalCOTAmount: dstTotalCOTAmount.toFixed(),
-      });
-    } else {
-      const pendingBridge: PendingBridgeInput = {
-        amount: bridgeAmount,
-        assets: bridgeAssets,
-        chainID: input.toChainId,
-        decimals: dstChainCOT.decimals,
-        recipientAddress: destination.execution.address,
-        tokenAddress: convertToEVMAddress(dstChainCOT.tokenAddress),
-      };
-      const intentResponse = createIntent({
-        dstChain,
-        assets: bridgeAssets,
-        feeStore,
-        output: pendingBridge,
-        address: pendingBridge.recipientAddress,
-      });
-      bridgeInput = { ...pendingBridge, estimatedFees: intentResponse.intent.fees };
+    let bridgeInput: BridgeInput = null;
+    if (isBridgeRequired) {
+      // Deduct dst-chain COT (already on destination, doesn't need bridging).
+      const bridgeAmount = bridgeOutput.minus(dstTotalCOTAmount);
+      if (bridgeAmount.lte(0)) {
+        // Invariant: the dst-chain drop above guarantees dstTotalCOTAmount ≤ bridgeOutput
+        // whenever isBridgeRequired is true. Reaching this branch means the invariant was
+        // violated (e.g. a future change to autoSelectSources or buildExactOutSourceAssets
+        // breaks the accounting). Log so the regression is visible, but skip the bridge
+        // rather than build a degenerate zero/negative-amount intent.
+        logger.warn('exact-out: non-positive bridgeAmount after dst-chain drop, skipping bridge', {
+          bridgeAmount: bridgeAmount.toFixed(),
+          bridgeOutput: bridgeOutput.toFixed(),
+          dstTotalCOTAmount: dstTotalCOTAmount.toFixed(),
+        });
+      } else {
+        const pendingBridge: PendingBridgeInput = {
+          amount: bridgeAmount,
+          assets: bridgeAssets,
+          chainID: currentInput.toChainId,
+          decimals: dstChainCOT.decimals,
+          recipientAddress: destination.execution.address,
+          tokenAddress: convertToEVMAddress(dstChainCOT.tokenAddress),
+        };
+        const intentResponse = createIntent({
+          dstChain,
+          assets: bridgeAssets,
+          feeStore,
+          output: pendingBridge,
+          address: pendingBridge.recipientAddress,
+        });
+        bridgeInput = { ...pendingBridge, estimatedFees: intentResponse.intent.fees };
+      }
     }
-  }
 
-  logger.debug('exact-out: bridge', { bridgeAssets, bridgeInput, assetsUsed, dstEOAToEphTx });
+    logger.debug('exact-out: bridge', { bridgeAssets, bridgeInput, assetsUsed, dstEOAToEphTx });
 
-  return buildSwapRouteResult({
-    type: 'EXACT_OUT',
-    source: {
-      swaps: sourceSwapQuotes,
-      creationTime: sourceSwapCreationTime,
-      executions: sourceExecutions,
-    },
-    bridge: bridgeInput,
-    destination,
-    dstTokenInfo,
-    aggregators: params.aggregators,
-    oraclePrices,
-    balances,
-    assetsUsed,
-    buffer: buffer.toFixed(),
-  });
+    // VSC verification is fire-and-forget during the rest of route calc; resolve it now
+    // before returning so any SDK ↔ server config drift surfaces here instead of mid-execution.
+    // After the first refresh resolves it, subsequent refreshes just hit the already-settled
+    // microtask.
+    performance.mark('route-verify-start');
+    await executionsVerification;
+    performance.mark('route-verify-end');
+
+    printRouteTimings();
+
+    return buildSwapRouteResult({
+      type: 'EXACT_OUT',
+      source: {
+        swaps: sourceSwapQuotes,
+        creationTime: sourceSwapCreationTime,
+        executions: sourceExecutions,
+        srcBuffer,
+      },
+      bridge: bridgeInput,
+      destination,
+      dstTokenInfo,
+      aggregators: params.aggregators,
+      oraclePrices,
+      balances,
+      assetsUsed,
+      buffer: buffer.toFixed(),
+    });
+  };
+
+  return { route: await refresh(input), refresh };
 };
 
 type DestinationSwap = {
@@ -1043,6 +1243,18 @@ export type SwapRoute = {
     swaps: QuoteResponse[];
     creationTime: number;
     executions: SourceExecutionRecord;
+    // Headroom in COT units that source swaps are allowed to lose on a re-quote when one
+    // or more source legs revert. EXACT_OUT carries `min(2%, $1)` of bridgeOutputWithFees
+    // (see BUFFER_EXACT_OUT). EXACT_IN carries `min(0.5%, $1)` of swapCombinedBalance
+    // (see BUFFER_EXACT_IN). Non-combined EXACT_IN also subtracts this from the dst-swap
+    // input so the dst swap stays funded if a source leg re-quotes lower; combined routes
+    // under-size the dst-swap input by `COMBINED_SAME_CHAIN_BUFFER_PCT` instead.
+    //
+    // Consumed by SourceSwapsHandler.retryWithSlippageCheck (via `liquidateAndCheckSrcBuffer`)
+    // on bridge-flow retries. NOT consumed by CombinedSwapHandler — combined retries enforce
+    // `availableCOT ≥ dst.input` inline instead, where `availableCOT = src.output +
+    // eoaToDestinationAccount`.
+    srcBuffer: Decimal;
   };
   bridge: BridgeInput;
   destination: {
@@ -1054,7 +1266,7 @@ export type SwapRoute = {
     execution: DestinationExecution;
     inputAmount: { min: Decimal; max: Decimal }; // This is input of tokenSwap + gasSwap + buffer
     swap: DestinationSwap;
-    getDstSwap: () => Promise<DestinationSwap | null>;
+    getDstSwap: (opts?: { skipRateGuard?: boolean }) => Promise<DestinationSwap | null>;
   };
   // True when the route's source legs and destination leg can be executed as a single batched
   // transaction on one same-chain wrapper (no bridge, every source swap lands on the dst chain,
@@ -1114,7 +1326,17 @@ const _exactInRoute = async (
     publicClientList: PublicClientList;
     cotCurrencyID: CurrencyID;
   }
-): Promise<SwapRoute> => {
+): Promise<{
+  route: SwapRoute;
+  refresh: (input: ExactInSwapInput) => Promise<SwapRoute>;
+}> => {
+  // === CLOSURE: computed once per swap() session, reused on every refresh ===========
+  //
+  // Stable: dst chain identity, raw balance set, oracle prices, fee store, dst token
+  // metadata, and chain-level wrapper executions. The closure does NOT pre-apply
+  // `input.from` filtering — that may change across refresh and is recomputed per call
+  // via `resolveSourceBalances` inside refresh.
+
   logger.debug('exactInRoute', {
     input,
     params,
@@ -1125,255 +1347,309 @@ const _exactInRoute = async (
     throw Errors.chainNotFound(input.toChainId);
   }
 
-  const { feeStore, balances, oraclePrices, dstTokenInfo } = await fetchRouteData(params, {
+  performance.mark('route-fetch-start');
+  const {
+    feeStore,
+    balances: rawBalances,
+    oraclePrices,
+    dstTokenInfo,
+  } = await fetchRouteData(params, {
     toChainId: input.toChainId,
     toTokenAddress: input.toTokenAddress,
     dstChain,
   });
+  performance.mark('route-fetch-end');
 
-  if (balances.length === 0) {
+  if (rawBalances.length === 0) {
     throw Errors.noBalanceForAddress(params.address.eoa);
   }
-
-  logger.debug('exact-in: fetched balances', { balances });
-
-  const { srcBalances, assetsUsed } = resolveSourceBalances(input.from, balances);
 
   const { cot: dstChainCOT, address: dstChainCOTAddress } = getCOTForChainId(
     input.toChainId,
     params.cotCurrencyID
   );
-
   const dstOmniversalChainID = new OmniversalChainID(Universe.ETHEREUM, input.toChainId);
-  const sourceExecutions = await resolveSourceExecutions({
-    eoaAddress: params.address.eoa,
-    ephemeralAddress: params.address.ephemeral,
-    sourceBalances: srcBalances,
-    params,
-  });
 
-  const bridgeAssets: BridgeAsset[] = [];
-
-  // Filter out COT's in sources
-  const cotSources: FlatBalance[] = [];
-  let cotCombinedBalance = new Decimal(0);
-
-  for (const source of srcBalances) {
-    const { address: cotAddress } = getCOTForChainId(source.chainID, params.cotCurrencyID);
-    if (equalFold(convertToEVMAddress(source.tokenAddress), cotAddress)) {
-      cotSources.push(source);
-      cotCombinedBalance = cotCombinedBalance.add(source.amount);
-
-      bridgeAssets.push({
-        chainID: source.chainID,
-        contractAddress: convertToEVMAddress(source.tokenAddress),
-        decimals: source.decimals,
-        eoaBalance: new Decimal(source.amount),
-        ephemeralBalance: new Decimal(0),
-      });
-    }
-  }
-
-  logger.debug('exact-in: cot sources', {
-    cotCombinedBalance,
-    cotSources,
-    bridgeAssets,
-  });
-
-  // Check if source swap is required (if all source balances are not COT currencyID)
-  const isSrcSwapRequired = cotSources.length !== srcBalances.length;
-  // Check if bridge is required (if all source balances are not on destination chain)
-  const isBridgeRequired = !srcBalances.every((b) => b.chainID === input.toChainId);
-
-  logger.debug('exact-in: swap flags', {
-    isSrcSwapRequired,
-    isBridgeRequired,
-  });
-
-  let sourceSwaps: QuoteResponse[] = [];
-  if (isSrcSwapRequired) {
-    const response = await liquidateSourceHoldings({
-      holdings: toAggregatorInputsWithSwapAddresses(srcBalances, sourceExecutions),
-      aggregators: params.aggregators,
-      commonCurrencyID: params.cotCurrencyID,
-    });
-
-    if (!response.length) {
-      throw Errors.quoteFailed('source swap returned no quotes');
-    }
-
-    sourceSwaps = response;
-  }
-  const sourceSwapCreationTime = Date.now();
-
-  let swapCombinedBalance = new Decimal(0);
-  for (const swap of sourceSwaps) {
-    accumulateSwapIntoBridgeAssets(bridgeAssets, swap);
-    swapCombinedBalance = swapCombinedBalance.add(swap.quote.output.amount);
-  }
-
-  let dstSwapInputAmountInDecimal = Decimal.add(cotCombinedBalance, swapCombinedBalance);
-
-  logger.debug('exact-in: combined cot after source swaps', {
-    dstSwapInputAmountInDecimal: dstSwapInputAmountInDecimal.toFixed(),
-    bridgeAssets,
-  });
-
-  let bridgeInput: BridgeInput = null;
-  if (isBridgeRequired) {
-    const { fee: maxFee } = await calculateMaxBridgeFee({
-      assets: toBridgeAssetInputs(bridgeAssets),
-      dst: {
-        chainId: input.toChainId,
-        tokenAddress: dstChainCOTAddress,
-        decimals: dstChainCOT.decimals,
-      },
-      feeStore,
+  // Resolve every chain we'll need a wrapper on across the full unfiltered balance set
+  // (any refresh `from` is necessarily a subset). VSC verification fires in the
+  // background and is awaited inside refresh just before the route returns.
+  const { executions: chainExecutions, verification: executionsVerification } =
+    resolveChainExecutions({
+      chainIds: [input.toChainId, ...rawBalances.map((b) => b.chainID)],
+      ephemeralAddress: params.address.ephemeral,
       chainList: params.chainList,
+      vscClient: params.vscClient,
     });
 
-    dstSwapInputAmountInDecimal = dstSwapInputAmountInDecimal.minus(maxFee);
-    logger.debug('exact-in: after bridge fee deduction', {
-      dstSwapInputAmountInDecimal: dstSwapInputAmountInDecimal.toFixed(),
-      maxFee: maxFee.toFixed(),
-    });
-    if (dstSwapInputAmountInDecimal.isNegative()) {
-      throw Errors.internal('bridge fees exceeds source amount');
-    }
+  // === REFRESH: re-runs per call ===================================================
+  const refresh = async (currentInput: ExactInSwapInput): Promise<SwapRoute> => {
+    logger.debug('exact-in: fetched balances', { balances: rawBalances });
 
-    bridgeInput = {
-      amount: dstSwapInputAmountInDecimal,
-      assets: bridgeAssets,
-      chainID: input.toChainId,
-      decimals: dstChainCOT.decimals,
-      recipientAddress: params.address.ephemeral,
-      tokenAddress: convertToEVMAddress(dstChainCOT.tokenAddress),
-      estimatedFees: createIntent({
-        dstChain,
-        assets: bridgeAssets,
-        feeStore,
-        output: {
-          chainID: input.toChainId,
-          tokenAddress: dstChainCOTAddress,
-          decimals: dstChainCOT.decimals,
-          amount: new Decimal(0),
-        },
-        address: params.address.ephemeral,
-      }).intent.fees,
-    };
-  }
+    const { srcBalances, assetsUsed } = resolveSourceBalances(currentInput.from, rawBalances);
+    const sourceExecutions = pickSourceExecutions(chainExecutions, srcBalances);
 
-  logger.debug('exact-in: before destination swap', {
-    dstSwapInputAmountInDecimal: dstSwapInputAmountInDecimal.toFixed(),
-  });
+    const bridgeAssets: BridgeAsset[] = [];
 
-  const needsDstSwap = !equalFold(input.toTokenAddress, dstChainCOTAddress);
-  const hasDestinationChainSourceOutput = hasDestinationChainSourceSwapOutput(
-    sourceSwaps,
-    sourceExecutions,
-    input.toChainId,
-    params.address.eoa
-  );
-  const destinationExecution = await resolveDestinationExecution({
-    chain: dstChain,
-    eoaAddress: params.address.eoa,
-    ephemeralAddress: params.address.ephemeral,
-    needsDestinationExecution: needsDstSwap || hasDestinationChainSourceOutput,
-    vscClient: params.vscClient,
-  });
+    // Filter out COT's in sources
+    const cotSources: FlatBalance[] = [];
+    let cotCombinedBalance = new Decimal(0);
 
-  // If the source swap(s) and the destination swap collapse to one same-wrapper batch (no
-  // bridge in between), the dst aggregator will pull COT from the same wrapper the source
-  // swap just deposited it into. Apply headroom on the dst input so per-leg slippage
-  // between the two aggregator quotes can't strand the dst transferFrom on an under-supplied
-  // wrapper. Leftover COT is swept back to the EOA by the existing dst sweeper.
-  const willBeCombined =
-    !isBridgeRequired &&
-    sourceSwaps.length > 0 &&
-    sourceSwaps.every((s) => Number(s.chainID) === input.toChainId) &&
-    !!sourceExecutions[input.toChainId] &&
-    equalFold(sourceExecutions[input.toChainId].address, destinationExecution.address);
-  if (willBeCombined && needsDstSwap) {
-    dstSwapInputAmountInDecimal = dstSwapInputAmountInDecimal.mul(
-      1 - COMBINED_SAME_CHAIN_BUFFER_PCT / 100
-    );
-  }
+    for (const source of srcBalances) {
+      const { address: cotAddress } = getCOTForChainId(source.chainID, params.cotCurrencyID);
+      if (equalFold(convertToEVMAddress(source.tokenAddress), cotAddress)) {
+        cotSources.push(source);
+        cotCombinedBalance = cotCombinedBalance.add(source.amount);
 
-  dstSwapInputAmountInDecimal = dstSwapInputAmountInDecimal.toDP(
-    dstChainCOT.decimals,
-    Decimal.ROUND_FLOOR
-  );
-  // See exact-out path: aggregator simulates as the wrapper (it's the on-chain executor) but
-  // delivers swap output directly to the user's EOA. Wrapper holds the COT input; the EOA
-  // receives the output. Splitting userAddress (taker) and receiverAddress prevents simulation
-  // mismatches that previously caused GS013 reverts on Safe-mode chains.
-  const dstSwapTakerInBytes = convertTo32Bytes(destinationExecution.address);
-  const dstSwapReceiverInBytes = convertTo32Bytes(params.address.eoa);
-  const destination = createDestination(
-    input.toChainId,
-    destinationExecution,
-    dstSwapInputAmountInDecimal
-  );
-
-  if (bridgeInput) {
-    bridgeInput.recipientAddress = destinationExecution.address;
-  }
-
-  // If dst token isn't COT and user holds COT on the dst chain,
-  // that COT must be moved from EOA → destination execution account for the destination swap.
-  const dstChainCOTSource = cotSources.find((c) =>
-    equalFold(convertToEVMAddress(c.tokenAddress), dstChainCOTAddress)
-  );
-  if (needsDstSwap && dstChainCOTSource) {
-    destination.eoaToDestinationAccount = {
-      amount: mulDecimals(dstChainCOTSource.amount, dstChainCOTSource.decimals),
-      contractAddress: dstChainCOTAddress,
-    };
-  }
-
-  const getDstSwap = async () => {
-    let tokenSwap = null;
-    if (needsDstSwap) {
-      tokenSwap = await getDestinationExactInSwap({
-        takerAddress: dstSwapTakerInBytes,
-        receiverAddress: dstSwapReceiverInBytes,
-        chain: dstOmniversalChainID,
-        inputAmount: mulDecimals(dstSwapInputAmountInDecimal, dstChainCOT.decimals),
-        outputToken: convertTo32Bytes(input.toTokenAddress),
-        aggregators: params.aggregators,
-        inputCurrency: dstChainCOT.currencyID,
-      });
-
-      // Rate guard on requote: check output didn't drop beyond 0.5% tolerance
-      if (destination.swap.tokenSwap) {
-        const prevAmountRaw = destination.swap.tokenSwap.quote.output.amountRaw;
-        const newAmountRaw = tokenSwap.quote.output.amountRaw;
-        if (newAmountRaw < (prevAmountRaw * 995n) / 1000n) {
-          throw Errors.ratesChangedBeyondTolerance(newAmountRaw, '0.5%');
-        }
+        bridgeAssets.push({
+          chainID: source.chainID,
+          contractAddress: convertToEVMAddress(source.tokenAddress),
+          decimals: source.decimals,
+          eoaBalance: new Decimal(source.amount),
+          ephemeralBalance: new Decimal(0),
+        });
       }
     }
 
-    return { gasSwap: null, tokenSwap, creationTime: Date.now() };
+    logger.debug('exact-in: cot sources', {
+      cotCombinedBalance,
+      cotSources,
+      bridgeAssets,
+    });
+
+    // Check if source swap is required (if all source balances are not COT currencyID)
+    const isSrcSwapRequired = cotSources.length !== srcBalances.length;
+    // Check if bridge is required (if all source balances are not on destination chain)
+    const isBridgeRequired = !srcBalances.every((b) => b.chainID === currentInput.toChainId);
+
+    logger.debug('exact-in: swap flags', {
+      isSrcSwapRequired,
+      isBridgeRequired,
+    });
+
+    let sourceSwaps: QuoteResponse[] = [];
+    if (isSrcSwapRequired) {
+      performance.mark('route-source-quote-start');
+      const response = await liquidateSourceHoldings({
+        holdings: toAggregatorInputsWithSwapAddresses(srcBalances, sourceExecutions),
+        aggregators: params.aggregators,
+        commonCurrencyID: params.cotCurrencyID,
+      });
+      performance.mark('route-source-quote-end');
+
+      if (!response.length) {
+        throw Errors.quoteFailed('source swap returned no quotes');
+      }
+
+      sourceSwaps = response;
+    }
+    const sourceSwapCreationTime = Date.now();
+
+    let swapCombinedBalance = new Decimal(0);
+    for (const swap of sourceSwaps) {
+      accumulateSwapIntoBridgeAssets(bridgeAssets, swap);
+      swapCombinedBalance = swapCombinedBalance.add(swap.quote.output.amount);
+    }
+
+    let dstSwapInputAmountInDecimal = Decimal.add(cotCombinedBalance, swapCombinedBalance);
+
+    logger.debug('exact-in: combined cot after source swaps', {
+      dstSwapInputAmountInDecimal: dstSwapInputAmountInDecimal.toFixed(),
+      bridgeAssets,
+    });
+
+    let bridgeInput: BridgeInput = null;
+    if (isBridgeRequired) {
+      performance.mark('route-max-bridge-fee-start');
+      const { fee: maxFee } = await calculateMaxBridgeFee({
+        assets: toBridgeAssetInputs(bridgeAssets),
+        dst: {
+          chainId: currentInput.toChainId,
+          tokenAddress: dstChainCOTAddress,
+          decimals: dstChainCOT.decimals,
+        },
+        feeStore,
+        chainList: params.chainList,
+      });
+      performance.mark('route-max-bridge-fee-end');
+
+      dstSwapInputAmountInDecimal = dstSwapInputAmountInDecimal.minus(maxFee);
+      logger.debug('exact-in: after bridge fee deduction', {
+        dstSwapInputAmountInDecimal: dstSwapInputAmountInDecimal.toFixed(),
+        maxFee: maxFee.toFixed(),
+      });
+      if (dstSwapInputAmountInDecimal.isNegative()) {
+        throw Errors.internal('bridge fees exceeds source amount');
+      }
+
+      bridgeInput = {
+        amount: dstSwapInputAmountInDecimal,
+        assets: bridgeAssets,
+        chainID: currentInput.toChainId,
+        decimals: dstChainCOT.decimals,
+        recipientAddress: params.address.ephemeral,
+        tokenAddress: convertToEVMAddress(dstChainCOT.tokenAddress),
+        estimatedFees: createIntent({
+          dstChain,
+          assets: bridgeAssets,
+          feeStore,
+          output: {
+            chainID: currentInput.toChainId,
+            tokenAddress: dstChainCOTAddress,
+            decimals: dstChainCOT.decimals,
+            amount: new Decimal(0),
+          },
+          address: params.address.ephemeral,
+        }).intent.fees,
+      };
+    }
+
+    logger.debug('exact-in: before destination swap', {
+      dstSwapInputAmountInDecimal: dstSwapInputAmountInDecimal.toFixed(),
+    });
+
+    const needsDstSwap = !equalFold(currentInput.toTokenAddress, dstChainCOTAddress);
+    const hasDestinationChainSourceOutput = hasDestinationChainSourceSwapOutput(
+      sourceSwaps,
+      sourceExecutions,
+      currentInput.toChainId,
+      params.address.eoa
+    );
+    // Same chain executions resolved up-front; just pick (or downgrade to direct_eoa).
+    const destinationExecution: DestinationExecution =
+      needsDstSwap || hasDestinationChainSourceOutput
+        ? chainExecutions[currentInput.toChainId]
+        : buildDirectEoaDestinationExecution(params.address.eoa);
+
+    // If the source swap(s) and the destination swap collapse to one same-wrapper batch (no
+    // bridge in between), the dst aggregator will pull COT from the same wrapper the source
+    // swap just deposited it into. Apply headroom on the dst input so per-leg slippage
+    // between the two aggregator quotes can't strand the dst transferFrom on an under-supplied
+    // wrapper. Leftover COT is swept back to the EOA by the existing dst sweeper.
+    const willBeCombined =
+      !isBridgeRequired &&
+      sourceSwaps.length > 0 &&
+      sourceSwaps.every((s) => Number(s.chainID) === currentInput.toChainId) &&
+      !!sourceExecutions[currentInput.toChainId] &&
+      equalFold(sourceExecutions[currentInput.toChainId].address, destinationExecution.address);
+
+    // Source-retry headroom in COT units. Consumed by SourceSwapsHandler /
+    // CombinedSwapHandler on revert+re-quote as the absolute amount of source-output drop
+    // they tolerate. Combined routes use COMBINED_SAME_CHAIN_BUFFER_PCT for the dst-input
+    // under-sizing (via the `willBeCombined` branch below); srcBuffer here is only the
+    // retry tolerance.
+    const srcBuffer = isSrcSwapRequired
+      ? Decimal.min(
+          swapCombinedBalance.mul(BUFFER_EXACT_IN.SOURCE_SWAP_BUFFER_PCT / 100),
+          BUFFER_EXACT_IN.SOURCE_SWAP_MAX_IN_USD
+        )
+      : new Decimal(0);
+
+    if (willBeCombined && needsDstSwap) {
+      dstSwapInputAmountInDecimal = dstSwapInputAmountInDecimal.mul(
+        1 - COMBINED_SAME_CHAIN_BUFFER_PCT / 100
+      );
+    } else if (srcBuffer.gt(0) && needsDstSwap) {
+      // Under-size the dst-swap input by srcBuffer so a source re-quote drop up to that
+      // amount doesn't strand the dst-swap transferFrom on an under-supplied wrapper.
+      // Leftover COT post-swap is swept back to the EOA by the existing dst sweeper.
+      dstSwapInputAmountInDecimal = dstSwapInputAmountInDecimal.minus(srcBuffer);
+    }
+
+    dstSwapInputAmountInDecimal = dstSwapInputAmountInDecimal.toDP(
+      dstChainCOT.decimals,
+      Decimal.ROUND_FLOOR
+    );
+    // See exact-out path: aggregator simulates as the wrapper (it's the on-chain executor) but
+    // delivers swap output directly to the user's EOA. Wrapper holds the COT input; the EOA
+    // receives the output. Splitting userAddress (taker) and receiverAddress prevents simulation
+    // mismatches that previously caused GS013 reverts on Safe-mode chains.
+    const dstSwapTakerInBytes = convertTo32Bytes(destinationExecution.address);
+    const dstSwapReceiverInBytes = convertTo32Bytes(params.address.eoa);
+    const destination = createDestination(
+      currentInput.toChainId,
+      destinationExecution,
+      dstSwapInputAmountInDecimal
+    );
+
+    if (bridgeInput) {
+      bridgeInput.recipientAddress = destinationExecution.address;
+    }
+
+    // If dst token isn't COT and user holds COT on the dst chain,
+    // that COT must be moved from EOA → destination execution account for the destination swap.
+    const dstChainCOTSource = cotSources.find((c) =>
+      equalFold(convertToEVMAddress(c.tokenAddress), dstChainCOTAddress)
+    );
+    if (needsDstSwap && dstChainCOTSource) {
+      destination.eoaToDestinationAccount = {
+        amount: mulDecimals(dstChainCOTSource.amount, dstChainCOTSource.decimals),
+        contractAddress: dstChainCOTAddress,
+      };
+    }
+
+    // `skipRateGuard` is set by combined retries (CombinedSwapHandler.requoteBothLegs).
+    // The 0.5% output-drop rate guard exists to protect bridge flows that committed an
+    // input budget at quote time. Combined batches re-quote both legs together and enforce
+    // their own funding invariant (`availableCOT ≥ dst.input`, where `availableCOT =
+    // src.output + eoaToDestinationAccount`), so the guard must not fire there.
+    const getDstSwap = async (opts: { skipRateGuard?: boolean } = {}) => {
+      let tokenSwap = null;
+      if (needsDstSwap) {
+        tokenSwap = await getDestinationExactInSwap({
+          takerAddress: dstSwapTakerInBytes,
+          receiverAddress: dstSwapReceiverInBytes,
+          chain: dstOmniversalChainID,
+          inputAmount: mulDecimals(dstSwapInputAmountInDecimal, dstChainCOT.decimals),
+          outputToken: convertTo32Bytes(currentInput.toTokenAddress),
+          aggregators: params.aggregators,
+          inputCurrency: dstChainCOT.currencyID,
+        });
+
+        // Rate guard on requote: check output didn't drop beyond 0.5% tolerance
+        if (destination.swap.tokenSwap && !opts.skipRateGuard) {
+          const prevAmountRaw = destination.swap.tokenSwap.quote.output.amountRaw;
+          const newAmountRaw = tokenSwap.quote.output.amountRaw;
+          if (newAmountRaw < (prevAmountRaw * 995n) / 1000n) {
+            throw Errors.ratesChangedBeyondTolerance(newAmountRaw, '0.5%');
+          }
+        }
+      }
+
+      return { gasSwap: null, tokenSwap, creationTime: Date.now() };
+    };
+
+    performance.mark('route-dst-quote-start');
+    destination.swap = await getDstSwap();
+    performance.mark('route-dst-quote-end');
+    destination.getDstSwap = getDstSwap;
+
+    // VSC verification fired in the background while quotes ran; resolve it before returning.
+    // After the first refresh resolves it, subsequent refreshes just hit the already-settled
+    // microtask.
+    performance.mark('route-verify-start');
+    await executionsVerification;
+    performance.mark('route-verify-end');
+
+    printRouteTimings();
+
+    return buildSwapRouteResult({
+      type: 'EXACT_IN',
+      source: {
+        swaps: sourceSwaps,
+        creationTime: sourceSwapCreationTime,
+        executions: sourceExecutions,
+        srcBuffer,
+      },
+      bridge: bridgeInput,
+      destination,
+      dstTokenInfo,
+      aggregators: params.aggregators,
+      oraclePrices,
+      balances: rawBalances,
+      assetsUsed,
+      buffer: '0',
+    });
   };
 
-  destination.swap = await getDstSwap();
-  destination.getDstSwap = getDstSwap;
-
-  return buildSwapRouteResult({
-    type: 'EXACT_IN',
-    source: {
-      swaps: sourceSwaps,
-      creationTime: sourceSwapCreationTime,
-      executions: sourceExecutions,
-    },
-    bridge: bridgeInput,
-    destination,
-    dstTokenInfo,
-    aggregators: params.aggregators,
-    oraclePrices,
-    balances,
-    assetsUsed,
-    buffer: '0',
-  });
+  return { route: await refresh(input), refresh };
 };

@@ -7,7 +7,6 @@ import {
   type ChainListType,
   logger,
   type OraclePriceResponse,
-  type Source,
   SUPPORTED_CHAINS,
   type VSCClient,
 } from '../../commons';
@@ -15,6 +14,7 @@ import {
   ankrBalanceToAssets,
   fetchTransferFees,
   getTokenSymbol,
+  type PublicClientList,
   toFlatBalance,
   vscBalancesToAssets,
 } from '../../swap/utils';
@@ -38,6 +38,14 @@ const deductTransferFees = (
     return { ...balance, balance: adjusted };
   });
 
+// vservice /swap-balances returns `""` for balanceUsd (and tokenPrice) on unpriced long-tail
+// tokens — `new Decimal("")` throws downstream and rejects the whole route fetch. Coerce
+// empty/missing numeric strings to "0" at this boundary so the rest of the pipeline can
+// trust the values it sees. We don't want to *drop* unpriced assets: the user still holds
+// the balance, and surfacing it at $0 is more useful than hiding it.
+const normalizeDecimalString = (value: string | undefined | null): string =>
+  typeof value === 'string' && value.length > 0 ? value : '0';
+
 // vservice /swap-balances returns Ankr-shaped assets already merged across ankr + multicall
 // chains. Map them into the existing AnkrBalance shape so the downstream pipeline
 // (ankrBalanceToAssets, toFlatBalance) is unchanged.
@@ -47,8 +55,8 @@ const swapAssetsToAnkrBalances = (assets: AnkrAsset[]): AnkrBalance[] => {
     const chainID = Number.parseInt(asset.blockchain, 10);
     if (!Number.isFinite(chainID)) continue;
     out.push({
-      balance: asset.balance,
-      balanceUSD: asset.balanceUsd,
+      balance: normalizeDecimalString(asset.balance),
+      balanceUSD: normalizeDecimalString(asset.balanceUsd),
       chainID,
       tokenAddress: (asset.tokenType === 'ERC20' ? asset.contractAddress : ZERO_ADDRESS) as Hex,
       tokenData: {
@@ -70,30 +78,40 @@ export const getBalancesForSwap = async (input: {
   filterWithSupportedTokens: boolean;
   /** Unused since vservice provides USD pricing; kept for API stability. */
   oraclePrices?: OraclePriceResponse | Promise<OraclePriceResponse>;
-  allowedSources?: Source[];
-  removeSources?: Source[];
+  /** When supplied, fetchTransferFees reuses the cached batched clients (no fresh client per chain). */
+  publicClientList?: PublicClientList;
 }) => {
   const swapSupportedChains = input.chainList.chains.filter(
     (chain) =>
       chain.universe === Universe.ETHEREUM && (chain.ankrName !== '' || chain.swapSupported)
   );
 
-  const [swapAssets, transferFeesByChain] = await Promise.all([
-    input.vscClient.getSwapBalances(input.evmAddress),
-    fetchTransferFees(swapSupportedChains),
-  ]);
-
-  const mergedBalances = deductTransferFees(
-    swapAssetsToAnkrBalances(swapAssets),
-    transferFeesByChain
+  // Sequencing: balances first, transfer fees second. `fetchTransferFees` was previously
+  // fanned out across every swap-supported chain on every route calc — typically 11+ RPC
+  // batches just to estimate a fee that's only ever deducted from *native* balances
+  // (deductTransferFees skips non-native). Scoping the fanout to chains the user actually
+  // holds native on drops typical 11-chain fanout to 0–2. Wall clock difference is small;
+  // RPC-cost / throttling reduction is the win.
+  //
+  // Note: `allowedSources` / `removeSources` filtering used to live here — it now lives
+  // in `_exactOutRoute`'s refresh body so a refresh with a different fromSources doesn't
+  // have to refetch balances. This function always returns the unfiltered set.
+  const swapAssets = await input.vscClient.getSwapBalances(input.evmAddress);
+  const ankrBalances = swapAssetsToAnkrBalances(swapAssets);
+  const nativeChainIds = new Set(
+    ankrBalances
+      .filter((b) => equalFold(b.tokenAddress, ZERO_ADDRESS) && new Decimal(b.balance).gt(0))
+      .map((b) => b.chainID)
   );
+  const chainsNeedingFees = swapSupportedChains.filter((c) => nativeChainIds.has(c.id));
+  const transferFeesByChain = await fetchTransferFees(chainsNeedingFees, input.publicClientList);
+
+  const mergedBalances = deductTransferFees(ankrBalances, transferFeesByChain);
 
   const assets = ankrBalanceToAssets(
     input.chainList,
     mergedBalances,
-    input.filterWithSupportedTokens,
-    input.allowedSources,
-    input.removeSources
+    input.filterWithSupportedTokens
   );
   const balances = toFlatBalance(assets);
 

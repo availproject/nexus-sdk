@@ -263,7 +263,7 @@ export class CA {
             mode: SwapMode.EXACT_IN,
             data: input,
           },
-          await this._getSwapOptions(options)
+          this._getSwapOptions(options)
         );
       } catch (e) {
         swapFailed = true;
@@ -290,7 +290,7 @@ export class CA {
             mode: SwapMode.EXACT_OUT,
             data: input,
           },
-          { ...(await this._getSwapOptions(options)), preloadedBalances }
+          { ...this._getSwapOptions(options), preloadedBalances }
         );
       } catch (e) {
         swapFailed = true;
@@ -304,29 +304,36 @@ export class CA {
 
   protected _calculateMaxForSwap = async (input: MaxSwapInput) => {
     return this.withReinit(async () => {
-      return calculateMaxForSwap(input, await this._getSwapOptions());
+      return calculateMaxForSwap(input, this._getSwapOptions());
     });
   };
 
   protected _swapAndExecute = async (input: SwapAndExecuteParams, options?: OnEventParam) => {
     return this.withReinit(async () => {
+      // `withReinit` has already synced `_evm.address` from the wallet; pass it through
+      // so SwapAndExecuteQuery doesn't re-issue `getAddresses()`.
       return new SwapAndExecuteQuery(
         this.chainList,
         this._evm!.client,
+        this._evm!.address,
         this._getBalancesForSwap,
         this._swapWithExactOut
       ).swapAndExecute(input, options);
     });
   };
 
-  private readonly _getSwapOptions = async (options?: OnEventParam): Promise<SwapParams> => {
+  // Only `withReinit`'s `reinitOnAccountChange` is allowed to call `wallet.getAddresses()`
+  // — it syncs the result into `_evm.address`. Every caller below `withReinit` reads the
+  // cached field instead; otherwise the same EOA is asked of the wallet 4–5 times per
+  // swap flow, each round-trip 50–200ms in some wallets.
+  private readonly _getSwapOptions = (options?: OnEventParam): SwapParams => {
     return {
       onSwapIntent: this._hooks.onSwapIntent,
       onEvent: options?.onEvent,
       chainList: this.chainList,
       address: {
         cosmos: this.#cosmos!.address,
-        eoa: (await this._evm!.client.getAddresses())[0],
+        eoa: this._evm!.address,
         ephemeral: this.#ephemeralWallet!.address,
       },
       wallet: {

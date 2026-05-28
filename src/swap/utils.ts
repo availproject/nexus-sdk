@@ -38,7 +38,6 @@ import {
   type DestinationExecution,
   getLogger,
   type SBCTx,
-  type Source,
   SUPPORTED_CHAINS,
   type SuccessfulSwapResult,
   SWAP_STEPS,
@@ -511,12 +510,21 @@ export const packERC20Approve = (spender: Hex, amount: bigint) => {
   });
 };
 
-export const fetchTransferFees = async (chains: Chain[]): Promise<Map<number, Decimal>> => {
+export const fetchTransferFees = async (
+  chains: Chain[],
+  publicClientList?: PublicClientList
+): Promise<Map<number, Decimal>> => {
   const feeByChainID = new Map<number, Decimal>();
   await Promise.all(
     chains.map(async (chain) => {
       try {
-        const fee = await estimateRepresentativeSwapNativeReserveFee({ chain });
+        // Reuse the cached, multicall-batched PublicClient when the caller supplies a
+        // PublicClientList. Falls back to a fresh fallback client so legacy call sites
+        // (and unit tests) keep working without threading it through.
+        const fee = await estimateRepresentativeSwapNativeReserveFee({
+          chain,
+          publicClient: publicClientList?.get(chain.id),
+        });
         feeByChainID.set(chain.id, divDecimals(fee, chain.nativeCurrency.decimals));
       } catch (e) {
         logger.error('fetchTransferFees', e, { chainID: chain.id });
@@ -655,21 +663,9 @@ export const vscBalancesToAssets = (
 export const ankrBalanceToAssets = (
   chainList: ChainListType,
   ankrBalances: AnkrBalances,
-  filterWithSupportedTokens: boolean,
-  allowedSources: Source[] = [],
-  removeSources: Source[] = []
+  filterWithSupportedTokens: boolean
 ) => {
   const assets: UserAssetDatum[] = [];
-
-  const allowed = (chainId: number, tokenAddress: Hex) => {
-    if (allowedSources.length === 0) {
-      return true;
-    }
-
-    return !!allowedSources.find(
-      (s) => s.chainId === chainId && equalFold(s.tokenAddress, tokenAddress)
-    );
-  };
 
   for (const asset of ankrBalances) {
     if (new Decimal(asset.balance).equals(0)) {
@@ -682,18 +678,7 @@ export const ankrBalanceToAssets = (
       convertTo32BytesHex(asset.tokenAddress)
     );
 
-    // Check if user has allowed this source to be used - defaults to all being allowed
-    const isAllowed = allowed(asset.chainID, asset.tokenAddress);
-
-    const removeSource = !!removeSources.find(
-      (rs) => rs.chainId === asset.chainID && equalFold(rs.tokenAddress, asset.tokenAddress)
-    );
-
-    if ((filterWithSupportedTokens && !isSupportedToken) || !isAllowed) {
-      continue;
-    }
-
-    if (removeSource) {
+    if (filterWithSupportedTokens && !isSupportedToken) {
       continue;
     }
 

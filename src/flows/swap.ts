@@ -87,7 +87,16 @@ export const swap = async (
 
   const swapRouteParams = { ...options, publicClientList, aggregators, cotCurrencyID: COT };
 
-  let swapRoute = await determineSwapRoute(input, swapRouteParams);
+  // `determineSwapRoute` now returns `{ route, refresh }` where `refresh` re-runs the
+  // per-call work (aggregator quotes, intent build) against the closure-cached fee
+  // store / oracle prices / balances / chain executions. Hand `refresh` to
+  // `waitForIntentApproval` so user-driven refreshes skip the balance + slow-state
+  // refetches.
+  const { route: initialRoute, refresh: routeRefresh } = await determineSwapRoute(
+    input,
+    swapRouteParams
+  );
+  let swapRoute = initialRoute;
   let { source, destination, bridge, extras } = swapRoute;
 
   logger.debug('initial-swap-route', {
@@ -107,7 +116,7 @@ export const swap = async (
 
   swapRoute = await waitForIntentApproval(swapRoute, {
     input,
-    swapRouteParams,
+    routeRefresh,
     onSwapIntent: options.onSwapIntent,
     chainList: options.chainList,
     emitList: emitter.emitList,
@@ -197,6 +206,11 @@ const calculatePerformance = () => {
 
     const entries = performance.getEntries();
 
+    // Route-phase measures (route-fetch, route-dst-quote, route-source-quote,
+    // route-max-bridge-fee, route-verify) are printed inline by `printRouteTimings`
+    // in src/swap/route.ts — once per route call (initial + each refresh) — so they
+    // surface without having to complete the full swap flow.
+
     if (entries.some((entry) => entry.name === 'source-swap-tx-start')) {
       measures.push(
         performance.measure(
@@ -280,7 +294,6 @@ const createSwapHandlerOptions = ({
   destinationChainID: input.data.toChainId,
   emitter,
   publicClientList,
-  slippage: 0.005,
   wallet: options.wallet,
   cosmosQueryClient: options.cosmosQueryClient,
   vscClient: options.vscClient,
@@ -359,7 +372,7 @@ const ensureSafeAccountsBeforeExecution = async ({
 
 type IntentApprovalContext = {
   input: SwapData;
-  swapRouteParams: Parameters<typeof determineSwapRoute>[1];
+  routeRefresh: (input: SwapData) => Promise<SwapRoute>;
   emitList: (steps: SwapStepType[]) => void;
 } & Pick<SwapParams, 'onSwapIntent' | 'chainList'>;
 
@@ -382,7 +395,9 @@ const waitForIntentApproval = async (
       updatedInput.data.fromSources = fromSources;
     }
 
-    currentRoute = await determineSwapRoute(updatedInput, ctx.swapRouteParams);
+    // Reuses the closure-cached fee store / oracle prices / balances / chain executions
+    // and only re-runs the per-call work (aggregator quotes, intent build).
+    currentRoute = await ctx.routeRefresh(updatedInput);
     logger.debug('refresh-swap-route', { swapRoute: currentRoute });
 
     ctx.emitList(createSwapSteps(currentRoute, ctx.chainList));

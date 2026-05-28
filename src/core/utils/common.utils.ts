@@ -1,3 +1,4 @@
+import '../decimal-precision'; // side-effect: sets Decimal.precision before any arithmetic
 import {
   type Bytes,
   DepositVEPacket,

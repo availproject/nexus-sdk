@@ -27,7 +27,9 @@ export const calculateMaxForSwap = async (
   ];
   const swapRouteParams = { ...options, publicClientList, aggregators, cotCurrencyID: COT };
 
-  const swapRoute = await determineSwapRoute(
+  // One-shot consumer: ignore the `refresh` half of the result — `calculateMaxForSwap`
+  // has no intent-approval loop to feed.
+  const { route: swapRoute } = await determineSwapRoute(
     {
       mode: SwapMode.EXACT_IN,
       data: {

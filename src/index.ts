@@ -1,4 +1,5 @@
 import './_polyfill';
+import './core/decimal-precision'; // must run before any Decimal arithmetic
 
 export { Environment } from '@avail-project/ca-common';
 // Analytics exports

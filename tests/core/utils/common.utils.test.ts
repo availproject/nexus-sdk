@@ -12,7 +12,11 @@ vi.mock('../../../src/core/chains', () => ({
 }));
 
 import { ZERO_ADDRESS } from '../../../src/core/constants';
-import { assetListWithDepositDeducted } from '../../../src/core/utils/common.utils';
+import {
+  assetListWithDepositDeducted,
+  divDecimals,
+  mulDecimals,
+} from '../../../src/core/utils/common.utils';
 
 describe('assetListWithDepositDeducted', () => {
   beforeEach(() => {
@@ -142,5 +146,42 @@ describe('assetListWithDepositDeducted', () => {
     );
 
     expect(result[0]?.balance.toFixed()).toBe('0');
+  });
+});
+
+// Regression: failed swap of PEPE → USDC (Arbitrum, exact-out) demanded transferFrom of
+// 266_077_560_050_515_585_070 wei from an EOA holding 266_077_560_050_515_585_065 — exactly
+// 5 wei over balance. Root cause: Decimal.js default precision is 20 significant figures
+// with ROUND_HALF_UP, so any raw → Decimal → raw round-trip through divDecimals/mulDecimals
+// rounds up at the 21st digit. Any 18-decimal token balance ≥ ~100 tokens (21+ digits raw)
+// is vulnerable.
+describe('divDecimals / mulDecimals raw round-trip (regression: 5-wei PEPE overshoot)', () => {
+  it('does not overshoot a 21-digit raw balance through divDecimals → mulDecimals', () => {
+    // Actual on-chain EOA PEPE balance from the failed tx (21 digits, 18 decimals).
+    const rawBalance = 266_077_560_050_515_585_065n;
+    const decimals = 18;
+
+    const human = divDecimals(rawBalance, decimals);
+    const roundtrip = mulDecimals(human, decimals);
+
+    // Must never exceed the original balance — that's what makes the transferFrom revert.
+    expect(roundtrip <= rawBalance).toBe(true);
+    // Stronger: a faithful round-trip returns the exact original.
+    expect(roundtrip).toBe(rawBalance);
+  });
+
+  it('preserves exact 18-decimal raw amounts at and beyond 20 significant figures', () => {
+    // Smallest 21-digit raw amount (100 tokens at 18 decimals, exactly representable in 21 digits).
+    const cases: bigint[] = [
+      100_000_000_000_000_000_000n, // 100.0 — boundary (21 digits, but trailing zeros, safe)
+      100_000_000_000_000_000_001n, // 100.0…01 — first 21-digit value that can drift
+      999_999_999_999_999_999_999n, // 999.999… — max 21-digit
+      266_077_560_050_515_585_065n, // the failing PEPE balance
+      1_000_000_000_000_000_000_000n, // 1_000 tokens (22 digits) — even more vulnerable
+    ];
+    for (const raw of cases) {
+      const roundtrip = mulDecimals(divDecimals(raw, 18), 18);
+      expect(roundtrip).toBe(raw);
+    }
   });
 });
