@@ -2,9 +2,9 @@ import {
   CurrencyID,
   createCosmosClient,
   createCosmosWallet,
+  type DirectSecp256k1Wallet,
   Environment,
 } from '@avail-project/ca-common';
-import type { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import {
   createWalletClient,
   custom,

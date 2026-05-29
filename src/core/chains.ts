@@ -19,7 +19,7 @@ import { convertToHexAddressByUniverse, equalFold } from './utils/common.utils';
 
 class ChainList {
   public chains: Chain[];
-  private readonly vcm: ChainIDKeyedMap<Buffer<ArrayBufferLike>>;
+  private readonly vcm: ChainIDKeyedMap<Uint8Array>;
 
   constructor(env: Environment) {
     switch (env) {

@@ -1,6 +1,9 @@
-import type { Quote, Universe } from '@avail-project/ca-common';
-import type { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
-import type { SigningStargateClient } from '@cosmjs/stargate';
+import type {
+  DirectSecp256k1Wallet,
+  Quote,
+  SigningStargateClient,
+  Universe,
+} from '@avail-project/ca-common';
 import type Decimal from 'decimal.js';
 import type { Hex, PrivateKeyAccount, WalletClient } from 'viem';
 import type { FlatBalance } from '../../swap/data';

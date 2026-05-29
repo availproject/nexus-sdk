@@ -6,9 +6,9 @@ import {
   liquidateSourceHoldings,
   OmniversalChainID,
   type Quote,
+  type SigningStargateClient,
   Universe,
 } from '@avail-project/ca-common';
-import type { SigningStargateClient } from '@cosmjs/stargate';
 import Decimal from 'decimal.js';
 import { orderBy, retry } from 'es-toolkit';
 import Long from 'long';

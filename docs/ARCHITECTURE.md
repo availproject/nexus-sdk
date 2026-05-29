@@ -50,7 +50,7 @@ The SDK is built on a layered architecture:
 │   Shared types, protocol definitions, ABIs, aggregators, permits    │
 ├─────────────────────────────────────────────────────────────────────┤
 │                         External Libraries                          │
-│  viem (EVM) | @cosmjs (Cosmos) | Protobuf | DEX Aggregator APIs    │
+│  viem (EVM) | @noble (Cosmos) | Protobuf | DEX Aggregator APIs     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -338,9 +338,12 @@ nexus-sdk/
 // EVM interactions (primary)
 import { WalletClient, PublicClient, createWalletClient, createPublicClient } from 'viem';
 
-// Cosmos interactions
-import { SigningStargateClient } from '@cosmjs/stargate';
-import { DirectSecp256k1HdWallet } from '@cosmjs/proto-signing';
+// Cosmos interactions (lightweight signer in ca-common — no @cosmjs dependency)
+import {
+  SigningStargateClient,
+  createCosmosWallet,
+  createCosmosClient,
+} from '@avail-project/ca-common';
 
 
 // Chain Abstraction Common (Avail's shared library)
