@@ -51,7 +51,7 @@
     "npm": ">=9.0.0"
   },
   "dependencies": {
-    "@avail-project/ca-common": "github:availproject/ca-common#373faa1a14b2e33aaeadcd1c83ed8bff9d2ac15b",
+    "@avail-project/ca-common": "github:availproject/ca-common#5be7c9123859eaf9c055cd459b1b612ec638b470",
     "@metamask/safe-event-emitter": "3.1.2",
     "@opentelemetry/api-logs": "0.208.0",
     "@opentelemetry/exporter-logs-otlp-http": "0.208.0",
