@@ -10,6 +10,8 @@ const waitForTxReceiptMock = vi.hoisted(() => vi.fn());
 const performDestinationSwapMock = vi.hoisted(() => vi.fn());
 const createPermitAndTransferFromTxMock = vi.hoisted(() => vi.fn());
 const createPermitAndTransferFromTxNoSendCallsMock = vi.hoisted(() => vi.fn());
+const createPermitAndTransferFromCallsWithSendCallsMock = vi.hoisted(() => vi.fn());
+const getAtomicBatchSupportMock = vi.hoisted(() => vi.fn());
 const createSweeperTxsMock = vi.hoisted(() => vi.fn());
 const createSafeExecuteEOASubmittedTxMock = vi.hoisted(() => vi.fn());
 const createSafeExecuteTxFromCallsMock = vi.hoisted(() => vi.fn());
@@ -47,6 +49,8 @@ vi.mock('../../src/swap/utils', async () => {
     ...actual,
     createPermitAndTransferFromTx: createPermitAndTransferFromTxMock,
     createPermitAndTransferFromTxNoSendCalls: createPermitAndTransferFromTxNoSendCallsMock,
+    createPermitAndTransferFromCallsWithSendCalls:
+      createPermitAndTransferFromCallsWithSendCallsMock,
     createSweeperTxs: createSweeperTxsMock,
     performDestinationSwap: performDestinationSwapMock,
   };
@@ -80,6 +84,10 @@ vi.mock('../../src/swap/safetx', async () => {
     createSafeExecuteTxFromCalls: createSafeExecuteTxFromCallsMock,
   };
 });
+
+vi.mock('../../src/services/walletCapabilities', () => ({
+  getAtomicBatchSupport: getAtomicBatchSupportMock,
+}));
 
 import { BridgeHandler, DestinationSwapHandler, SourceSwapsHandler } from '../../src/swap/ob';
 import { convertTo32Bytes } from '../../src/swap/utils';
@@ -316,6 +324,13 @@ describe('SourceSwapsHandler', () => {
         },
       ],
     });
+    createPermitAndTransferFromCallsWithSendCallsMock.mockResolvedValue({
+      txsPerSwap: [],
+    });
+    // Default: no atomic-batch support → legacy per-tx approval path.
+    getAtomicBatchSupportMock.mockImplementation(
+      async (_w, _a, chainIds: number[]) => new Map(chainIds.map((id) => [id, false]))
+    );
     createSafeExecuteEOASubmittedTxMock.mockResolvedValue('0xhash');
     createSafeExecuteTxFromCallsMock.mockResolvedValue({ kind: 'safe' });
     createSBCTxFromCallsMock.mockResolvedValue({ kind: 'sbc' });
@@ -441,6 +456,153 @@ describe('SourceSwapsHandler', () => {
     );
     expect(vscClient.vscCreateSafeExecuteTx).toHaveBeenCalledWith({ kind: 'safe' });
     expect(vscClient.vscSBCTx).not.toHaveBeenCalled();
+    expect(createPermitAndTransferFromCallsWithSendCallsMock).not.toHaveBeenCalled();
+  });
+
+  it('bundles direct approvals through wallet_sendCalls when the chain has 2+ swaps and atomic batch support', async () => {
+    getAtomicBatchSupportMock.mockResolvedValueOnce(new Map([[999, true]]));
+    createPermitAndTransferFromCallsWithSendCallsMock.mockResolvedValue({
+      txsPerSwap: [
+        [{ data: '0xtransfer0', to: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', value: 0n }],
+        [{ data: '0xtransfer1', to: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', value: 0n }],
+      ],
+    });
+
+    const vscClient = {
+      vscCreateSafeExecuteTx: vi.fn().mockResolvedValue([999n, `0x${'11'.repeat(32)}`]),
+      vscSBCTx: vi.fn(),
+    };
+    const handler = new SourceSwapsHandler(
+      {
+        source: {
+          swaps: [makeSourceQuote(999), makeSourceQuote(999)],
+          executions: {
+            999: {
+              address: '0x3333333333333333333333333333333333333333',
+              entryPoint: null,
+              mode: 'safe_account',
+            },
+          },
+        },
+      } as never,
+      {
+        address: {
+          cosmos: '',
+          eoa: '0x1111111111111111111111111111111111111111',
+          ephemeral: '0x2222222222222222222222222222222222222222',
+        },
+        aggregators: [],
+        cache: {
+          addAllowanceQuery: vi.fn(),
+          addPermitQuery: vi.fn(),
+          addSetCodeQuery: vi.fn(),
+          getCode: vi.fn(() => '0x'),
+        },
+        chainList: {
+          getChainByID: vi.fn(() => ({
+            blockExplorers: { default: { url: 'https://example.com' } },
+            id: 999,
+            name: 'HyperEVM',
+          })),
+        },
+        cot: {
+          currencyID: CurrencyID.USDC,
+          symbol: 'USDC',
+        },
+        emitter: { emit: vi.fn() },
+        publicClientList: { get: vi.fn(() => ({})) },
+        vscClient,
+        wallet: {
+          eoa: {} as never,
+          ephemeral: { address: '0x2222222222222222222222222222222222222222' } as never,
+        },
+      } as never
+    );
+
+    await handler.process({
+      dst: { chid: ZERO_BYTES_32, swaps: [], tx_hash: ZERO_BYTES_32, univ: 1 },
+      has_xcs: true,
+      rff_id: 0n,
+      src: [],
+    });
+
+    expect(createPermitAndTransferFromCallsWithSendCallsMock).toHaveBeenCalledTimes(1);
+    expect(createPermitAndTransferFromCallsWithSendCallsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        spender: '0x3333333333333333333333333333333333333333',
+        swaps: expect.arrayContaining([
+          expect.objectContaining({
+            contractAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          }),
+        ]),
+      })
+    );
+    expect(createPermitAndTransferFromTxNoSendCallsMock).not.toHaveBeenCalled();
+  });
+
+  it('falls back to per-swap approvals when atomic batch is unsupported even with 2+ swaps', async () => {
+    getAtomicBatchSupportMock.mockResolvedValueOnce(new Map([[999, false]]));
+
+    const vscClient = {
+      vscCreateSafeExecuteTx: vi.fn().mockResolvedValue([999n, `0x${'11'.repeat(32)}`]),
+      vscSBCTx: vi.fn(),
+    };
+    const handler = new SourceSwapsHandler(
+      {
+        source: {
+          swaps: [makeSourceQuote(999), makeSourceQuote(999)],
+          executions: {
+            999: {
+              address: '0x3333333333333333333333333333333333333333',
+              entryPoint: null,
+              mode: 'safe_account',
+            },
+          },
+        },
+      } as never,
+      {
+        address: {
+          cosmos: '',
+          eoa: '0x1111111111111111111111111111111111111111',
+          ephemeral: '0x2222222222222222222222222222222222222222',
+        },
+        aggregators: [],
+        cache: {
+          addAllowanceQuery: vi.fn(),
+          addPermitQuery: vi.fn(),
+          addSetCodeQuery: vi.fn(),
+          getCode: vi.fn(() => '0x'),
+        },
+        chainList: {
+          getChainByID: vi.fn(() => ({
+            blockExplorers: { default: { url: 'https://example.com' } },
+            id: 999,
+            name: 'HyperEVM',
+          })),
+        },
+        cot: {
+          currencyID: CurrencyID.USDC,
+          symbol: 'USDC',
+        },
+        emitter: { emit: vi.fn() },
+        publicClientList: { get: vi.fn(() => ({})) },
+        vscClient,
+        wallet: {
+          eoa: {} as never,
+          ephemeral: { address: '0x2222222222222222222222222222222222222222' } as never,
+        },
+      } as never
+    );
+
+    await handler.process({
+      dst: { chid: ZERO_BYTES_32, swaps: [], tx_hash: ZERO_BYTES_32, univ: 1 },
+      has_xcs: true,
+      rff_id: 0n,
+      src: [],
+    });
+
+    expect(createPermitAndTransferFromCallsWithSendCallsMock).not.toHaveBeenCalled();
+    expect(createPermitAndTransferFromTxNoSendCallsMock).toHaveBeenCalledTimes(2);
   });
 
   it('submits native-value Safe source swaps directly through Safe execute without pre-auth', async () => {

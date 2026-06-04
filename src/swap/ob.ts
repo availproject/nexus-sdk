@@ -28,6 +28,7 @@ import {
 } from '../commons';
 import { Errors } from '../core/errors';
 import { divDecimals, equalFold, minutesToMs, switchChain, waitForTxReceipt } from '../core/utils';
+import { getAtomicBatchSupport } from '../services/walletCapabilities';
 import { EADDRESS, SWEEPER_ADDRESS } from './constants';
 import { createBridgeRFF } from './rff';
 import type { SwapRoute } from './route';
@@ -37,6 +38,7 @@ import {
   type Cache,
   convertTo32Bytes,
   convertToEVMAddress,
+  createPermitAndTransferFromCallsWithSendCalls,
   createPermitAndTransferFromTx,
   createPermitAndTransferFromTxNoSendCalls,
   createSweeperTxs,
@@ -727,6 +729,9 @@ class SourceSwapsHandler {
   private readonly sourceExecutionsByChain: Map<number, SourceExecution>;
   private readonly swapsData: Map<number, SwapRoute['source']['swaps']>;
   private readonly srcBuffer: Decimal;
+  // Per-chain memo of EIP-5792 atomic-batch support (populated lazily on first
+  // process() call) so retry passes don't re-probe the wallet.
+  private atomicBatchSupportByChain: Map<number, boolean> | null = null;
   constructor(
     route: SwapRoute,
     private readonly options: Options
@@ -814,72 +819,139 @@ class SourceSwapsHandler {
         throw Errors.chainNotFound(chainID);
       }
       const execution = this.getSourceExecution(chainID);
+      const disablePermit =
+        execution.mode === '7702' &&
+        isEip7702DelegatedCode(
+          this.options.cache.getCode({
+            address: this.options.address.eoa,
+            chainID: Number(chainID),
+          })
+        );
+
+      // Use EIP-5792 wallet_sendCalls to bundle direct-approval prompts into one
+      // wallet confirmation when (a) the chain has 2+ source swaps (single-swap chains
+      // gain nothing from bundling) AND (b) the connected wallet advertises atomic
+      // batch support for this chain (capability status of 'supported' or 'ready').
+      const useSendCalls = swaps.length > 1 && (await this.chainHasAtomicBatchSupport(chain.id));
 
       // 1. Source swap calls
       let amount = new Decimal(0);
-      for (const swap of swaps) {
-        amount = amount.add(swap.quote.output.amount);
-        if (isNativeAddress(swap.quote.input.contractAddress)) {
-          sbcCalls.value += swap.quote.input.amountRaw;
-        } else {
-          this.options.emitter.emit(
-            SWAP_STEPS.CREATE_PERMIT_FOR_SOURCE_SWAP(false, swap.quote.input.symbol, chain)
-          );
-          const allowanceCacheKey = getAllowanceCacheKey({
-            chainID: chain.id,
-            contractAddress: swap.quote.input.contractAddress,
-            owner: this.options.address.eoa,
-            spender: execution.address,
-          });
 
-          // EOA --> Ephemeral transfer
-          const { txs, pending } = await createPermitAndTransferFromTxNoSendCalls({
-            amount: swap.quote.input.amountRaw,
-            approval: this.disposableCache[allowanceCacheKey],
-            cache: this.options.cache,
-            chain,
-            contractAddress: swap.quote.input.contractAddress,
-            disablePermit:
-              execution.mode === '7702' &&
-              isEip7702DelegatedCode(
-                this.options.cache.getCode({
-                  address: this.options.address.eoa,
-                  chainID: Number(chainID),
-                })
-              ),
-            owner: this.options.address.eoa,
-            ownerWallet: this.options.wallet.eoa,
-            publicClient,
-            spender: execution.address,
-          });
-
-          if (pending) {
-            approvalMiningPromises.push(pending);
+      if (useSendCalls) {
+        for (const swap of swaps) {
+          if (!isNativeAddress(swap.quote.input.contractAddress)) {
+            this.options.emitter.emit(
+              SWAP_STEPS.CREATE_PERMIT_FOR_SOURCE_SWAP(false, swap.quote.input.symbol, chain)
+            );
           }
-
-          // Approval & transferFrom
-          if (txs.length === 2) {
-            const approvalTx = txs[0];
-            this.disposableCache[allowanceCacheKey] = approvalTx;
-          }
-
-          this.options.emitter.emit(
-            SWAP_STEPS.CREATE_PERMIT_FOR_SOURCE_SWAP(true, swap.quote.input.symbol, chain)
-          );
-          logger.debug('sourceSwap', {
-            chainID,
-            permitCalls: txs,
-            quote: swap.quote,
-          });
-          sbcCalls.calls.push(...txs);
         }
 
-        const parsed = parseQuote(swap, !isNativeAddress(swap.quote.input.contractAddress));
+        const nonNativeSwapInputs = swaps
+          .filter((s) => !isNativeAddress(s.quote.input.contractAddress))
+          .map((s) => ({
+            amountRaw: s.quote.input.amountRaw,
+            contractAddress: s.quote.input.contractAddress,
+            symbol: s.quote.input.symbol,
+          }));
 
-        if (parsed.approval) {
-          sbcCalls.calls.push(parsed.approval);
+        const { txsPerSwap, pending } = await createPermitAndTransferFromCallsWithSendCalls({
+          swaps: nonNativeSwapInputs,
+          cache: this.options.cache,
+          chain,
+          disablePermit,
+          owner: this.options.address.eoa,
+          ownerWallet: this.options.wallet.eoa,
+          publicClient,
+          spender: execution.address,
+        });
+
+        if (pending) {
+          approvalMiningPromises.push(pending);
         }
-        sbcCalls.calls.push(parsed.tx);
+
+        let nonNativeIdx = 0;
+        for (const swap of swaps) {
+          amount = amount.add(swap.quote.output.amount);
+          if (isNativeAddress(swap.quote.input.contractAddress)) {
+            sbcCalls.value += swap.quote.input.amountRaw;
+          } else {
+            const txs = txsPerSwap[nonNativeIdx++];
+            sbcCalls.calls.push(...txs);
+            this.options.emitter.emit(
+              SWAP_STEPS.CREATE_PERMIT_FOR_SOURCE_SWAP(true, swap.quote.input.symbol, chain)
+            );
+            logger.debug('sourceSwap', {
+              chainID,
+              permitCalls: txs,
+              quote: swap.quote,
+            });
+          }
+
+          const parsed = parseQuote(swap, !isNativeAddress(swap.quote.input.contractAddress));
+
+          if (parsed.approval) {
+            sbcCalls.calls.push(parsed.approval);
+          }
+          sbcCalls.calls.push(parsed.tx);
+        }
+      } else {
+        for (const swap of swaps) {
+          amount = amount.add(swap.quote.output.amount);
+          if (isNativeAddress(swap.quote.input.contractAddress)) {
+            sbcCalls.value += swap.quote.input.amountRaw;
+          } else {
+            this.options.emitter.emit(
+              SWAP_STEPS.CREATE_PERMIT_FOR_SOURCE_SWAP(false, swap.quote.input.symbol, chain)
+            );
+            const allowanceCacheKey = getAllowanceCacheKey({
+              chainID: chain.id,
+              contractAddress: swap.quote.input.contractAddress,
+              owner: this.options.address.eoa,
+              spender: execution.address,
+            });
+
+            // EOA --> Ephemeral transfer
+            const { txs, pending } = await createPermitAndTransferFromTxNoSendCalls({
+              amount: swap.quote.input.amountRaw,
+              approval: this.disposableCache[allowanceCacheKey],
+              cache: this.options.cache,
+              chain,
+              contractAddress: swap.quote.input.contractAddress,
+              disablePermit,
+              owner: this.options.address.eoa,
+              ownerWallet: this.options.wallet.eoa,
+              publicClient,
+              spender: execution.address,
+            });
+
+            if (pending) {
+              approvalMiningPromises.push(pending);
+            }
+
+            // Approval & transferFrom
+            if (txs.length === 2) {
+              const approvalTx = txs[0];
+              this.disposableCache[allowanceCacheKey] = approvalTx;
+            }
+
+            this.options.emitter.emit(
+              SWAP_STEPS.CREATE_PERMIT_FOR_SOURCE_SWAP(true, swap.quote.input.symbol, chain)
+            );
+            logger.debug('sourceSwap', {
+              chainID,
+              permitCalls: txs,
+              quote: swap.quote,
+            });
+            sbcCalls.calls.push(...txs);
+          }
+
+          const parsed = parseQuote(swap, !isNativeAddress(swap.quote.input.contractAddress));
+
+          if (parsed.approval) {
+            sbcCalls.calls.push(parsed.approval);
+          }
+          sbcCalls.calls.push(parsed.tx);
+        }
       }
       // All direct-approval txs have been signed and broadcast; wait for them to mine
       // before the Safe/Calibur batch (which depends on the allowance) executes.
@@ -1183,6 +1255,17 @@ class SourceSwapsHandler {
       ),
       (s) => s.chainID
     );
+  }
+
+  private async chainHasAtomicBatchSupport(chainId: number): Promise<boolean> {
+    if (!this.atomicBatchSupportByChain) {
+      this.atomicBatchSupportByChain = await getAtomicBatchSupport(
+        this.options.wallet.eoa,
+        this.options.address.eoa,
+        [...this.sourceExecutionsByChain.keys()]
+      );
+    }
+    return this.atomicBatchSupportByChain.get(chainId) ?? false;
   }
 }
 
