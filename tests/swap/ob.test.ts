@@ -9,6 +9,7 @@ const switchChainMock = vi.hoisted(() => vi.fn());
 const waitForTxReceiptMock = vi.hoisted(() => vi.fn());
 const performDestinationSwapMock = vi.hoisted(() => vi.fn());
 const createPermitAndTransferFromTxMock = vi.hoisted(() => vi.fn());
+const createPermitAndTransferFromTxNoSendCallsMock = vi.hoisted(() => vi.fn());
 const createSweeperTxsMock = vi.hoisted(() => vi.fn());
 const createSafeExecuteEOASubmittedTxMock = vi.hoisted(() => vi.fn());
 const createSafeExecuteTxFromCallsMock = vi.hoisted(() => vi.fn());
@@ -45,6 +46,7 @@ vi.mock('../../src/swap/utils', async () => {
   return {
     ...actual,
     createPermitAndTransferFromTx: createPermitAndTransferFromTxMock,
+    createPermitAndTransferFromTxNoSendCalls: createPermitAndTransferFromTxNoSendCallsMock,
     createSweeperTxs: createSweeperTxsMock,
     performDestinationSwap: performDestinationSwapMock,
   };
@@ -305,13 +307,15 @@ describe('SourceSwapsHandler', () => {
     vi.clearAllMocks();
     switchChainMock.mockResolvedValue(undefined);
     waitForTxReceiptMock.mockResolvedValue(undefined);
-    createPermitAndTransferFromTxMock.mockResolvedValue([
-      {
-        data: '0xpermit',
-        to: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-        value: 0n,
-      },
-    ]);
+    createPermitAndTransferFromTxNoSendCallsMock.mockResolvedValue({
+      txs: [
+        {
+          data: '0xpermit',
+          to: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          value: 0n,
+        },
+      ],
+    });
     createSafeExecuteEOASubmittedTxMock.mockResolvedValue('0xhash');
     createSafeExecuteTxFromCallsMock.mockResolvedValue({ kind: 'safe' });
     createSBCTxFromCallsMock.mockResolvedValue({ kind: 'sbc' });

@@ -180,9 +180,19 @@ export const isNativeAddress = (contractAddress: Hex) =>
   equalFold(contractAddress, ZERO_ADDRESS) || equalFold(contractAddress, EADDRESS);
 
 /**
- * Creates EIP2612 signature or executes non sponsored approval and transferFrom Tx
+ * Creates EIP2612 signature or executes non sponsored approval and transferFrom Tx.
+ *
+ * Direct-approval (non-permit) branch: `writeContract` fires the on-chain approve
+ * synchronously (wallet signature happens before this function returns), but the
+ * receipt wait + cache update are returned as `pending` so callers can batch
+ * multiple approvals' mining waits in parallel (e.g. via `Promise.all`) instead
+ * of blocking the loop on each one.
+ *
+ * Today only `SourceSwapsHandler.process` consumes `pending` directly. Other
+ * callers use the {@link createPermitAndTransferFromTx} wrapper below which
+ * awaits `pending` inline, preserving the original sequential semantics.
  */
-export const createPermitAndTransferFromTx = async ({
+export const createPermitAndTransferFromTxNoSendCalls = async ({
   amount,
   approval,
   cache,
@@ -204,8 +214,9 @@ export const createPermitAndTransferFromTx = async ({
   ownerWallet: WalletClient;
   publicClient: PublicClient;
   spender: Hex;
-}) => {
+}): Promise<{ txs: Tx[]; pending?: Promise<void> }> => {
   const txList: Tx[] = [];
+  let pending: Promise<void> | undefined;
   await switchChain(ownerWallet, chain);
 
   logger.debug('createPermitCalls', {
@@ -268,17 +279,18 @@ export const createPermitAndTransferFromTx = async ({
         functionName: 'approve',
       });
       const hash = await ownerWallet.writeContract(request);
-      await waitForTxReceipt(hash, publicClient, 1);
-      // On retry the value will be present, so no need to refetch allowance
-      cache.addAllowanceValue(
-        {
-          chainID: chain.id,
-          contractAddress,
-          owner,
-          spender,
-        },
-        amount
-      );
+      pending = waitForTxReceipt(hash, publicClient, 1).then(() => {
+        // On retry the value will be present, so no need to refetch allowance
+        cache.addAllowanceValue(
+          {
+            chainID: chain.id,
+            contractAddress,
+            owner,
+            spender,
+          },
+          amount
+        );
+      });
     } else {
       const approvalTx =
         approval ??
@@ -307,7 +319,23 @@ export const createPermitAndTransferFromTx = async ({
     value: 0n,
   });
 
-  return txList;
+  return { txs: txList, pending };
+};
+
+/**
+ * Backwards-compatible wrapper around {@link createPermitAndTransferFromTxNoSendCalls}
+ * that awaits the on-chain approval mining inline before returning. Existing callers
+ * (BridgeHandler, DestinationSwapHandler, CombinedSwapHandler) keep their sequential
+ * "approve → mine → continue" semantics.
+ */
+export const createPermitAndTransferFromTx = async (
+  params: Parameters<typeof createPermitAndTransferFromTxNoSendCalls>[0]
+): Promise<Tx[]> => {
+  const { txs, pending } = await createPermitAndTransferFromTxNoSendCalls(params);
+  if (pending) {
+    await pending;
+  }
+  return txs;
 };
 
 const domainSeparatorAbi = [

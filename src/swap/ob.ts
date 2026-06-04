@@ -38,6 +38,7 @@ import {
   convertTo32Bytes,
   convertToEVMAddress,
   createPermitAndTransferFromTx,
+  createPermitAndTransferFromTxNoSendCalls,
   createSweeperTxs,
   EXPECTED_CALIBUR_CODE,
   getAllowanceCacheKey,
@@ -802,6 +803,10 @@ class SourceSwapsHandler {
         calls: [] as Tx[],
         value: 0n,
       };
+      // Direct-approval mining waits queued per-chain so we can Promise.all them after
+      // the user has signed every approve in the loop. The wallet step is sequential
+      // (one signature at a time) but the network confirmation can overlap.
+      const approvalMiningPromises: Promise<void>[] = [];
 
       const publicClient = this.options.publicClientList.get(chainID);
       const chain = this.options.chainList.getChainByID(Number(chainID));
@@ -828,7 +833,7 @@ class SourceSwapsHandler {
           });
 
           // EOA --> Ephemeral transfer
-          const txs = await createPermitAndTransferFromTx({
+          const { txs, pending } = await createPermitAndTransferFromTxNoSendCalls({
             amount: swap.quote.input.amountRaw,
             approval: this.disposableCache[allowanceCacheKey],
             cache: this.options.cache,
@@ -847,6 +852,10 @@ class SourceSwapsHandler {
             publicClient,
             spender: execution.address,
           });
+
+          if (pending) {
+            approvalMiningPromises.push(pending);
+          }
 
           // Approval & transferFrom
           if (txs.length === 2) {
@@ -871,6 +880,11 @@ class SourceSwapsHandler {
           sbcCalls.calls.push(parsed.approval);
         }
         sbcCalls.calls.push(parsed.tx);
+      }
+      // All direct-approval txs have been signed and broadcast; wait for them to mine
+      // before the Safe/Calibur batch (which depends on the allowance) executes.
+      if (approvalMiningPromises.length > 0) {
+        await Promise.all(approvalMiningPromises);
       }
       if (sbcCalls.value > 0n) {
         if (

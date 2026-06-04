@@ -14,6 +14,7 @@ import { convertTo32Bytes } from '../../../src/swap/utils';
 
 const determineSwapRouteMock = vi.hoisted(() => vi.fn());
 const createPermitAndTransferFromTxMock = vi.hoisted(() => vi.fn());
+const createPermitAndTransferFromTxNoSendCallsMock = vi.hoisted(() => vi.fn());
 const createPermitOnlyApprovalTxMock = vi.hoisted(() => vi.fn());
 const createSweeperTxsMock = vi.hoisted(() => vi.fn());
 const performDestinationSwapMock = vi.hoisted(() => vi.fn());
@@ -51,6 +52,7 @@ vi.mock('../../../src/swap/utils', async () => {
   return {
     ...actual,
     createPermitAndTransferFromTx: createPermitAndTransferFromTxMock,
+    createPermitAndTransferFromTxNoSendCalls: createPermitAndTransferFromTxNoSendCallsMock,
     createPermitOnlyApprovalTx: createPermitOnlyApprovalTxMock,
     createSweeperTxs: createSweeperTxsMock,
     performDestinationSwap: performDestinationSwapMock,
@@ -428,6 +430,18 @@ describe('swap pipeline characterization', () => {
           value: 0n,
         },
       ];
+    });
+    createPermitAndTransferFromTxNoSendCallsMock.mockImplementation(async () => {
+      pipelineEvents.push('permitTransfer');
+      return {
+        txs: [
+          {
+            data: '0xpermittransfer',
+            to: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            value: 0n,
+          },
+        ],
+      };
     });
     createPermitOnlyApprovalTxMock.mockImplementation(async () => {
       pipelineEvents.push('permitOnly');
