@@ -239,6 +239,12 @@ class BridgeHandler {
         });
 
         if (e2e) {
+          // Mirrors the SourceSwapsHandler emit pattern so devs see a permit step for
+          // COT bridge assets that need to move from EOA → source execution address,
+          // not just for ERC20 source-swap inputs.
+          this.options.emitter.emit(
+            SWAP_STEPS.CREATE_PERMIT_FOR_SOURCE_SWAP(false, this.options.cot.symbol, chain)
+          );
           await switchChain(this.options.wallet.eoa, chain);
           const txs = await createPermitAndTransferFromTx({
             amount: e2e.amount,
@@ -259,6 +265,9 @@ class BridgeHandler {
             spender: execution.address,
           });
           calls.push(...txs);
+          this.options.emitter.emit(
+            SWAP_STEPS.CREATE_PERMIT_FOR_SOURCE_SWAP(true, this.options.cot.symbol, chain)
+          );
         }
         const batchCalls = calls.concat(this.depositCalls[c].tx).concat(
           createSweeperTxs({
@@ -910,7 +919,6 @@ class SourceSwapsHandler {
                   actualWallet: this.options.wallet.eoa,
                   calls: sbcCalls.calls,
                   chain,
-                  publicClient,
                   signerWallet: this.options.wallet.ephemeral,
                   targetAddress: execution.address,
                   value: sbcCalls.value,
@@ -1369,7 +1377,6 @@ class CombinedSwapHandler {
         actualWallet: this.options.wallet.eoa,
         calls,
         chain,
-        publicClient,
         signerWallet: this.options.wallet.ephemeral,
         targetAddress: execution.address,
         value: nativeValue,

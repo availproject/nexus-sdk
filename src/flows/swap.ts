@@ -110,7 +110,7 @@ export const swap = async (
   emitter.emit(SWAP_STEPS.DETERMINING_SWAP(true));
   performance.mark('determine-swaps-end');
 
-  emitter.emitList(createSwapSteps(swapRoute, options.chainList));
+  emitter.emitList(createSwapSteps(swapRoute, options.chainList, CurrencyID[COT]));
 
   performance.mark('xcs-ops-start');
 
@@ -120,6 +120,7 @@ export const swap = async (
     onSwapIntent: options.onSwapIntent,
     chainList: options.chainList,
     emitList: emitter.emitList,
+    cotSymbol: CurrencyID[COT],
   });
 
   ({ source, destination, bridge, extras } = swapRoute);
@@ -374,6 +375,7 @@ type IntentApprovalContext = {
   input: SwapData;
   routeRefresh: (input: SwapData) => Promise<SwapRoute>;
   emitList: (steps: SwapStepType[]) => void;
+  cotSymbol: string;
 } & Pick<SwapParams, 'onSwapIntent' | 'chainList'>;
 
 const waitForIntentApproval = async (
@@ -400,7 +402,7 @@ const waitForIntentApproval = async (
     currentRoute = await ctx.routeRefresh(updatedInput);
     logger.debug('refresh-swap-route', { swapRoute: currentRoute });
 
-    ctx.emitList(createSwapSteps(currentRoute, ctx.chainList));
+    ctx.emitList(createSwapSteps(currentRoute, ctx.chainList, ctx.cotSymbol));
 
     const swapIntent = createSwapIntent(currentRoute, ctx.input, ctx.chainList);
     logger.debug('onIntentHook:refresh', { swapIntent });

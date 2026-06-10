@@ -14,8 +14,6 @@ import { type Chain, getLogger } from '../commons';
 import type { Tx } from '../commons/types/swap-types';
 import { Errors } from '../core/errors';
 import { switchChain } from '../core/utils';
-import type { ExecuteFeeParams } from '../services/executeTransactions';
-import { estimateFeeContext, finalizeFeeEstimates } from '../services/feeEstimation';
 import { MULTI_SEND_ABI, SAFE_ABI } from './safe.abi';
 import {
   COMPAT_FALLBACK_HANDLER,
@@ -51,21 +49,6 @@ export type SafeExecuteTx = SafeTxFields & {
   chainId: number;
   safeAddress: Hex;
   signature: Hex;
-};
-
-const spreadFeeParams = (feeParams?: ExecuteFeeParams) => {
-  if (!feeParams) {
-    return {};
-  }
-
-  if (feeParams.type === 'legacy') {
-    return { gasPrice: feeParams.gasPrice };
-  }
-
-  return {
-    maxFeePerGas: feeParams.maxFeePerGas,
-    maxPriorityFeePerGas: feeParams.maxPriorityFeePerGas,
-  };
 };
 
 export const buildSafeInitializer = (owner: Hex): Hex =>
@@ -290,75 +273,6 @@ export const createSafeExecuteTxFromCalls = async ({
   };
 };
 
-const estimateSafeExecuteFee = async ({
-  actualAddress,
-  chainId,
-  fields,
-  publicClient,
-  safeAddress,
-  signature,
-  value,
-}: {
-  actualAddress: Hex;
-  chainId: number;
-  fields: SafeTxFields;
-  publicClient: PublicClient;
-  safeAddress: Hex;
-  // The real, signed `signatures` blob for the SafeTx. Passing `'0x'` here causes
-  // `Safe.checkSignatures` to revert before the inner batch ever runs (threshold-1 Safes
-  // require 65 bytes of signature data), so estimateGas would always fall back to the
-  // 1.5M default. Threading the actual signature lets estimateGas execute the full inner
-  // call and return a real estimate.
-  signature: Hex;
-  value: bigint;
-}) => {
-  const tx = {
-    data: encodeFunctionData({
-      abi: SAFE_ABI,
-      args: [
-        fields.to,
-        fields.value,
-        fields.data,
-        fields.operation,
-        fields.safeTxGas,
-        fields.baseGas,
-        fields.gasPrice,
-        fields.gasToken,
-        fields.refundReceiver,
-        signature,
-      ],
-      functionName: 'execTransaction',
-    }),
-    to: safeAddress,
-    value,
-  };
-  const gasEstimatePromise = publicClient
-    .estimateGas({
-      account: actualAddress,
-      data: tx.data,
-      to: tx.to,
-      value: tx.value,
-    })
-    .catch(() => 1_500_000n);
-  const feeContextPromise = estimateFeeContext(publicClient, chainId, [{ tx }], 'medium');
-  const [gasEstimate, feeContext] = await Promise.all([gasEstimatePromise, feeContextPromise]);
-  const [feeEstimate] = finalizeFeeEstimates([{ tx, gasEstimate }], feeContext);
-
-  return {
-    feeParams: feeEstimate.recommended.useLegacyPricing
-      ? ({
-          gasPrice: feeEstimate.recommended.maxFeePerGas,
-          type: 'legacy',
-        } satisfies ExecuteFeeParams)
-      : ({
-          maxFeePerGas: feeEstimate.recommended.maxFeePerGas,
-          maxPriorityFeePerGas: feeEstimate.recommended.maxPriorityFeePerGas,
-          type: 'eip1559',
-        } satisfies ExecuteFeeParams),
-    gas: feeEstimate.recommended.gasLimit,
-  };
-};
-
 // `actualAddress` is split from `eoaWallet` because viem's WalletClient does not always have an
 // `.account` configured (e.g., JSON-RPC accounts where the upstream wallet owns the key). We pass
 // the EOA address explicitly into `writeContract`'s `account` parameter to match the convention
@@ -444,18 +358,6 @@ export const createSafeExecuteEOASubmittedTx = async ({
     fields: initialFields,
     safeAddress,
   });
-  // Pass the real signature so `estimateGas` runs the inner batch instead of reverting in
-  // checkSignatures and falling back to the 1.5M default — complex source batches can exceed
-  // that ceiling and OOG mid-execution.
-  const { feeParams, gas } = await estimateSafeExecuteFee({
-    actualAddress,
-    chainId: chain.id,
-    fields: initialFields,
-    publicClient,
-    safeAddress,
-    signature: initialSignature,
-    value: nativeValue,
-  });
 
   const buildMetadata = (hash?: Hex) => ({
     chainId: chain.id,
@@ -492,6 +394,9 @@ export const createSafeExecuteEOASubmittedTx = async ({
   const submitAndWait = async (txFields: SafeTxFields, txSignature: Hex) => {
     let hash: Hex;
     try {
+      // No gas/fee params: the user's wallet estimates against the signed payload at
+      // submit time and applies its own buffer, which is more accurate than our
+      // pre-flight `eth_estimateGas` for Safe-wrapped aggregator calls.
       hash = await eoaWallet.writeContract({
         abi: SAFE_ABI,
         account: actualAddress,
@@ -510,9 +415,7 @@ export const createSafeExecuteEOASubmittedTx = async ({
         ],
         chain,
         functionName: 'execTransaction',
-        gas,
         value: nativeValue,
-        ...spreadFeeParams(feeParams),
       });
     } catch (error) {
       logger.error('[TX_FAIL] safe_execute_eoa_error', error, buildMetadata());

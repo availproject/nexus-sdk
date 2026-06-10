@@ -9,7 +9,11 @@ import { isNativeAddress } from './utils';
 // by typeID (which is chain-derived, not hash-derived) and replace the placeholder entry.
 const PLACEHOLDER_HASH: Hex = '0x0';
 
-export const createSwapSteps = (route: SwapRoute, chainList: ChainListType): SwapStepType[] => {
+export const createSwapSteps = (
+  route: SwapRoute,
+  chainList: ChainListType,
+  cotSymbol: string
+): SwapStepType[] => {
   const steps: SwapStepType[] = [SWAP_STEPS.SWAP_START, SWAP_STEPS.DETERMINING_SWAP(true)];
 
   if (route.combined) {
@@ -48,10 +52,20 @@ export const createSwapSteps = (route: SwapRoute, chainList: ChainListType): Swa
   }
 
   // Bridge-side: one BRIDGE_DEPOSIT per source-asset chain that needs a deposit, then RFF_ID.
+  // Bridge assets with a positive EOA balance also need an EOA→ephemeral COT permit before
+  // deposit (see BridgeHandler.createRFFDeposits — matches the rff.ts branch that sets
+  // eoaToEphemeralCalls when asset.eoaBalance > 0).
   if (route.bridge) {
     const depositChainIDs = new Set<number>();
     for (const asset of route.bridge.assets) {
       depositChainIDs.add(asset.chainID);
+      if (asset.eoaBalance.gt(0)) {
+        const chain = chainList.getChainByID(asset.chainID);
+        if (!chain) {
+          throw Errors.chainNotFound(asset.chainID);
+        }
+        steps.push(SWAP_STEPS.CREATE_PERMIT_FOR_SOURCE_SWAP(false, cotSymbol, chain));
+      }
     }
     for (const chainID of depositChainIDs) {
       const chain = chainList.getChainByID(chainID);

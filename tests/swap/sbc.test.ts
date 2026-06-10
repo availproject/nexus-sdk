@@ -1,22 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const estimateFeeContextMock = vi.hoisted(() => vi.fn());
-const finalizeFeeEstimatesMock = vi.hoisted(() => vi.fn());
-
-vi.mock('../../src/services/feeEstimation', () => ({
-  estimateFeeContext: estimateFeeContextMock,
-  finalizeFeeEstimates: finalizeFeeEstimatesMock,
-}));
-
 import { caliburExecute } from '../../src/swap/sbc';
 
 describe('caliburExecute', () => {
-  const estimateGasMock = vi.fn();
   const writeContractMock = vi.fn();
   const signTypedDataMock = vi.fn();
-  const publicClient = {
-    estimateGas: estimateGasMock,
-  } as never;
   const wallet = {
     writeContract: writeContractMock,
   } as never;
@@ -30,33 +18,10 @@ describe('caliburExecute', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     signTypedDataMock.mockResolvedValue(`0x${'11'.repeat(65)}`);
-    estimateGasMock.mockResolvedValue(1_100_000n);
-    estimateFeeContextMock.mockResolvedValue({
-      chainId: 534352,
-      recommendation: {
-        maxFeePerGas: 10n,
-        maxPriorityFeePerGas: 2n,
-      },
-      overheads: [{ l1Fee: 25n, extraGas: 0n }],
-    });
-    finalizeFeeEstimatesMock.mockReturnValue([
-      {
-        l1Fee: 25n,
-        l2Fee: 75n,
-        total: 100n,
-        recommended: {
-          gasLimit: 1_320_000n,
-          maxFeePerGas: 11n,
-          maxPriorityFeePerGas: 2n,
-          totalMaxCost: 14_520_025n,
-          useLegacyPricing: false,
-        },
-      },
-    ]);
     writeContractMock.mockResolvedValue('0xhash');
   });
 
-  it('estimates the exact execute request and passes explicit gas and fee params to the wallet', async () => {
+  it('forwards the execute request to the wallet without gas/fee params (wallet estimates)', async () => {
     const result = await caliburExecute({
       actualAddress: '0x1111111111111111111111111111111111111111',
       actualWallet: wallet,
@@ -68,26 +33,26 @@ describe('caliburExecute', () => {
         },
       ],
       chain,
-      publicClient,
       signerWallet: ephemeralWallet,
       targetAddress: '0x3333333333333333333333333333333333333333',
       value: 1n,
     });
 
-    expect(estimateGasMock).toHaveBeenCalledTimes(1);
-    expect(estimateFeeContextMock).toHaveBeenCalledTimes(1);
-    expect(finalizeFeeEstimatesMock).toHaveBeenCalledTimes(1);
-    expect(writeContractMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        account: '0x1111111111111111111111111111111111111111',
-        address: '0x3333333333333333333333333333333333333333',
-        chain,
-        functionName: 'execute',
-        gas: 1_320_000n,
-        maxFeePerGas: 11n,
-        maxPriorityFeePerGas: 2n,
-      })
-    );
+    expect(writeContractMock).toHaveBeenCalledTimes(1);
+    const callArgs = writeContractMock.mock.calls[0][0];
+    expect(callArgs).toMatchObject({
+      account: '0x1111111111111111111111111111111111111111',
+      address: '0x3333333333333333333333333333333333333333',
+      chain,
+      functionName: 'execute',
+      value: 1n,
+    });
+    // Explicitly verify the wallet-managed-gas contract: no preset gas limit, no preset
+    // fee params. The user's wallet estimates against the signed payload at submit time.
+    expect(callArgs.gas).toBeUndefined();
+    expect(callArgs.gasPrice).toBeUndefined();
+    expect(callArgs.maxFeePerGas).toBeUndefined();
+    expect(callArgs.maxPriorityFeePerGas).toBeUndefined();
     expect(result).toBe('0xhash');
   });
 });
