@@ -64,7 +64,7 @@ import {
 import { estimateRepresentativeSwapNativeReserveFee } from '../services/swapNativeReserveFee';
 import { CALIBUR_ADDRESS, EADDRESS, SWEEPER_ADDRESS } from './constants';
 import { type FlatBalance, getPermitVariantAndVersion, isTokenSupported } from './data';
-import { createSafeExecuteTxFromCalls } from './safetx';
+import { createSafeExecuteTxFromCalls, type SafeExecuteTx } from './safetx';
 import { createSBCTxFromCalls, waitForSBCTxReceipt } from './sbc';
 
 const USD_DECIMAL_PLACES = 6;
@@ -1335,39 +1335,102 @@ export const performDestinationSwap = async ({
   return ops[0][1];
 };
 
+export type SafeCotBalance = {
+  chainID: number;
+  tokenAddress: Hex;
+};
+
+/**
+ * Direct balanceOf reads of the COT token on every Safe-mode chain (swap-supported but
+ * pre-Pectra, so no 7702 → execution lives on a Safe). Cheaper than calling the VSC
+ * `/swap-balances` endpoint, which fans out across all chains and tokens just so we can
+ * throw most of it away. Returns one entry per chain where the Safe has non-zero COT.
+ */
+export const getSafeCotBalances = async ({
+  chainList,
+  COTCurrencyID,
+  publicClientList,
+  safeAddress,
+}: {
+  chainList: ChainListType;
+  COTCurrencyID: CurrencyID;
+  publicClientList: PublicClientList;
+  safeAddress: Hex;
+}): Promise<SafeCotBalance[]> => {
+  const safeModeChains = chainList.chains.filter((c) => c.swapSupported && !c.pectraUpgradeSupport);
+
+  const reads = await Promise.all(
+    safeModeChains.map(async (chain) => {
+      const currency = ChaindataMap.get(
+        new OmniversalChainID(Universe.ETHEREUM, chain.id)
+      )?.Currencies.find((c) => c.currencyID === COTCurrencyID);
+      if (!currency) {
+        return null;
+      }
+      const tokenAddress = convertToEVMAddress(currency.tokenAddress);
+      try {
+        const balance = await publicClientList.get(chain.id).readContract({
+          abi: ERC20ABI,
+          address: tokenAddress,
+          functionName: 'balanceOf',
+          args: [safeAddress],
+        });
+        if (balance === 0n) {
+          return null;
+        }
+        return { chainID: chain.id, tokenAddress };
+      } catch (e) {
+        logger.error('error reading COT balance on safe chain', e, {
+          cause: 'SAFE_COT_BALANCE_READ_ERROR',
+          chainID: chain.id,
+        });
+        return null;
+      }
+    })
+  );
+
+  return reads.filter((b): b is SafeCotBalance => b !== null);
+};
+
 export const sweepCotBalancesToEoa = async ({
-  balances,
+  ephemeralBalances,
+  safeCotBalances,
   chainList,
   COTCurrencyID,
   eoaAddress,
   ephemeralAddress,
+  safeAddress,
   ephemeralWallet,
   publicClientList,
   vscClient,
 }: {
-  balances: FlatBalance[];
+  ephemeralBalances: FlatBalance[];
+  safeCotBalances: SafeCotBalance[];
   chainList: ChainListType;
   COTCurrencyID: CurrencyID;
   eoaAddress: Hex;
   ephemeralAddress: Hex;
+  safeAddress: Hex;
   ephemeralWallet: PrivateKeyAccount;
   publicClientList: PublicClientList;
   vscClient: VSCClient;
 }) => {
   const cotSymbol = CurrencyID[COTCurrencyID];
-  const cotBalances = balances.filter(
+  // SBC/7702 chains: COT sits on the ephemeral wallet. Re-filter here because the caller
+  // passes the full ephemeral balance set.
+  const sbcCotBalances = ephemeralBalances.filter(
     (b) =>
       b.universe === Universe.ETHEREUM &&
       equalFold(b.symbol, cotSymbol) &&
       new Decimal(b.amount).gt(0)
   );
 
-  if (cotBalances.length === 0) {
+  if (sbcCotBalances.length === 0 && safeCotBalances.length === 0) {
     return;
   }
 
   const cache = new Cache(publicClientList);
-  for (const balance of cotBalances) {
+  for (const balance of sbcCotBalances) {
     const tokenAddress = convertToEVMAddress(balance.tokenAddress);
     cache.addSetCodeQuery({
       address: ephemeralAddress,
@@ -1380,12 +1443,20 @@ export const sweepCotBalancesToEoa = async ({
       spender: SWEEPER_ADDRESS,
     });
   }
+  for (const balance of safeCotBalances) {
+    cache.addAllowanceQuery({
+      chainID: balance.chainID,
+      contractAddress: balance.tokenAddress,
+      owner: safeAddress,
+      spender: SWEEPER_ADDRESS,
+    });
+  }
 
   await cache.process();
 
   const sbcTxs = (
     await Promise.all(
-      cotBalances.map(async (balance) => {
+      sbcCotBalances.map(async (balance) => {
         const tokenAddress = convertToEVMAddress(balance.tokenAddress);
         try {
           return await createSBCTxFromCalls({
@@ -1415,12 +1486,62 @@ export const sweepCotBalancesToEoa = async ({
     )
   ).filter((tx): tx is SBCTx => tx !== null);
 
-  if (sbcTxs.length === 0) {
-    return;
+  const safeTxs = (
+    await Promise.all(
+      safeCotBalances.map(async (balance) => {
+        try {
+          return await createSafeExecuteTxFromCalls({
+            calls: createSweeperTxs({
+              cache,
+              chainID: balance.chainID,
+              COTCurrencyID,
+              receiver: eoaAddress,
+              sender: safeAddress,
+              tokenAddress: balance.tokenAddress,
+            }),
+            chainId: balance.chainID,
+            ephemeralWallet,
+            publicClient: publicClientList.get(balance.chainID),
+            safeAddress,
+          });
+        } catch (e) {
+          logger.error('error creating safe cot sweep tx', e, {
+            cause: 'COT_SWEEP_TX_BUILD_ERROR',
+            chainID: balance.chainID,
+            tokenAddress: balance.tokenAddress,
+          });
+          return null;
+        }
+      })
+    )
+  ).filter((tx): tx is SafeExecuteTx => tx !== null);
+
+  // SBC sweeps go in a single batched VSC call; each Safe sweep is its own VSC call
+  // (vscCreateSafeExecuteTx is not batched). Run them concurrently with allSettled so a
+  // single chain failure doesn't drop the rest.
+  const sendPromises: Promise<[bigint, Hex][]>[] = [];
+  if (sbcTxs.length > 0) {
+    sendPromises.push(vscClient.vscSBCTx(sbcTxs));
+  }
+  for (const tx of safeTxs) {
+    sendPromises.push(vscClient.vscCreateSafeExecuteTx(tx).then((op) => [op]));
   }
 
-  const ops = await vscClient.vscSBCTx(sbcTxs);
-  await waitForSBCTxReceipt(ops, chainList, publicClientList);
+  const settled = await Promise.allSettled(sendPromises);
+  const allOps: [bigint, Hex][] = [];
+  for (const r of settled) {
+    if (r.status === 'fulfilled') {
+      allOps.push(...r.value);
+    } else {
+      logger.error('cot sweep send failed', r.reason, {
+        cause: 'COT_SWEEP_SEND_ERROR',
+      });
+    }
+  }
+
+  if (allOps.length > 0) {
+    await waitForSBCTxReceipt(allOps, chainList, publicClientList);
+  }
 };
 
 export const getSwapSupportedChains = (chainList: ChainListType) => {
