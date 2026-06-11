@@ -706,3 +706,98 @@ describe('EXACT_OUT bridge amount sanity (negative-bridge regression)', () => {
     expect(route.bridge!.amount.gt(0)).toBe(true);
   });
 });
+
+// Regression: EXACT_IN multi-source COT where one source sits on the destination chain.
+// Scenario: user holds USDC on Arbitrum (dst chain) + USDC on Base, wants ETH-like on Arbitrum.
+// The dst-chain USDC lands at the destination wrapper via `eoaToDestinationAccount` and must
+// NOT be included in the bridge output target. createBridgeRFF skips dst-chain assets when
+// sourcing the borrow, so a bridge whose `amount` includes the dst-chain portion can never
+// be fully sourced and throws "Insufficient balance to proceed" at execution time (after the
+// dst permit signature is already collected — matches the reported "1 approval then fails").
+describe('EXACT_IN bridge amount excludes dst-chain COT', () => {
+  it('bridge.amount = non-dst COT only (not total COT) for multi-source with dst-chain COT', async () => {
+    const { route } = await runDetermineSwapRoute({
+      input: exactInInput({
+        from: [
+          { chainId: SUPPORTED_CHAINS.ARBITRUM, tokenAddress: USDC_ARBITRUM },
+          { chainId: SUPPORTED_CHAINS.BASE, tokenAddress: USDC_BASE },
+        ],
+        toChainId: SUPPORTED_CHAINS.ARBITRUM,
+        toTokenAddress: NONCOT_ARBITRUM,
+      }),
+      preloadedBalances: [
+        makeBalance(SUPPORTED_CHAINS.ARBITRUM, USDC_ARBITRUM, '5', 6, 'USDC'),
+        makeBalance(SUPPORTED_CHAINS.BASE, USDC_BASE, '5', 6, 'USDC'),
+      ],
+      oraclePrices,
+    });
+
+    expect(route.bridge).not.toBeNull();
+    // Mock fee store is zero. Bridge should deliver only the Base portion (5) to the dst
+    // wrapper; the Arb portion (5) goes via eoaToDestinationAccount and must NOT be counted
+    // in the bridge output target.
+    expect(route.bridge!.amount.toFixed()).toBe('5');
+    // eoaToDestinationAccount must transfer the user's dst-chain USDC to the wrapper so the
+    // dst swap can consume both the EOA's dst-chain USDC and the bridged Base USDC.
+    expect(route.destination.eoaToDestinationAccount).not.toBeNull();
+    expect(route.destination.eoaToDestinationAccount!.amount).toBe(5_000_000n);
+    // The dst swap must consume the full combined COT (Arb + Base) — verifying the
+    // dst-chain COT is still surfaced for use downstream, not silently dropped by the fix.
+    //   wrapper input = eoaToDestinationAccount (5 USDC_arb) + bridge output (5 USDC_base)
+    //                 = 10 USDC → dst aggregator is asked to swap 10 USDC.
+    expect(route.destination.swap.tokenSwap).not.toBeNull();
+    expect(route.destination.swap.tokenSwap!.quote.input.amountRaw).toBe(10_000_000n);
+  });
+});
+
+// EXACT_OUT counterpart: verify the symmetric multi-source-with-dst-chain-COT scenario also
+// produces a bridge amount that EXCLUDES the dst-chain USDC. `_exactOutRoute` already has the
+// deduction via `bridgeOutput.minus(dstTotalCOTAmount)` and `buildExactOutSourceAssets` keeps
+// dst-chain entries out of bridgeAssets; this test pins that behavior so a future refactor
+// doesn't regress it back into the same bug class as EXACT_IN.
+describe('EXACT_OUT bridge amount excludes dst-chain COT', () => {
+  it('bridge.amount = non-dst portion only when both dst-chain and non-dst COT are sourced', async () => {
+    // toAmount = 8 NONCOT (8 * 10^6). With mock identity quotes:
+    //   destination.inputAmount.min = 8 * 1.025 (safetyMultiplier) = 8.2 USDC
+    //   destBuffer = min(8.2 * 10%, $2) = $0.82 → bridgeOutput = 9.02 USDC
+    // selectSources prefers dst-chain stablecoins (priority 2) → eats all 5 USDC_ARB, then
+    // tops up the remaining ~4 USDC from USDC_BASE.
+    //   bridgeAmount = bridgeOutput (9.02) − dstTotalCOTAmount (5) ≈ 4.02 USDC
+    const { route } = await runDetermineSwapRoute({
+      input: exactOutInput({
+        fromSources: [
+          { chainId: SUPPORTED_CHAINS.ARBITRUM, tokenAddress: USDC_ARBITRUM },
+          { chainId: SUPPORTED_CHAINS.BASE, tokenAddress: USDC_BASE },
+        ],
+        toChainId: SUPPORTED_CHAINS.ARBITRUM,
+        toTokenAddress: NONCOT_ARBITRUM,
+        toAmount: 8_000_000n,
+      }),
+      preloadedBalances: [
+        makeBalance(SUPPORTED_CHAINS.ARBITRUM, USDC_ARBITRUM, '5', 6, 'USDC'),
+        makeBalance(SUPPORTED_CHAINS.BASE, USDC_BASE, '100', 6, 'USDC'),
+      ],
+      oraclePrices,
+    });
+
+    expect(route.bridge).not.toBeNull();
+    // The bridged amount must be strictly less than the user's USDC_BASE balance: if the
+    // dst-chain USDC_ARB were (incorrectly) counted in the bridge output target the value
+    // would balloon past what Base alone can supply and createBridgeRFF would throw.
+    expect(route.bridge!.amount.gt(0)).toBe(true);
+    expect(route.bridge!.amount.lt(5)).toBe(true);
+    // eoaToDestinationAccount must carry the full USDC_ARB balance that selectSources used.
+    expect(route.destination.eoaToDestinationAccount).not.toBeNull();
+    expect(route.destination.eoaToDestinationAccount!.amount).toBe(5_000_000n);
+    // Sanity: bridgeAssets must not include the dst-chain entry — only Base should remain.
+    expect(route.bridge!.assets.every((a) => a.chainID !== SUPPORTED_CHAINS.ARBITRUM)).toBe(true);
+    // Dst-chain COT must end up at the destination wrapper and feed the dst swap.
+    // EXACT_OUT sizes the bridge output to `inputAmount.max` = dst aggregator input +
+    // destBuffer (min 10%, capped at $2). Total COT landing at the wrapper is therefore
+    //   bridgeAmount (from bridge) + eoaToDestinationAccount (from dst-chain) = inputAmount.max
+    // — i.e. the dst-chain USDC_ARB IS being consumed downstream, not silently dropped.
+    expect(route.destination.swap.tokenSwap).not.toBeNull();
+    const wrapperTotal = route.bridge!.amount.plus(5);
+    expect(wrapperTotal.toFixed()).toBe(route.destination.inputAmount.max.toFixed());
+  });
+});

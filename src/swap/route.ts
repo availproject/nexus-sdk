@@ -1481,8 +1481,30 @@ const _exactInRoute = async (
         throw Errors.internal('bridge fees exceeds source amount');
       }
 
+      // Deduct dst-chain COT from the bridge output target. The user's dst-chain COT lands
+      // at the destination wrapper via `eoaToDestinationAccount`, and any source swap whose
+      // output sits on the dst chain is already at the wrapper (source wrapper == dst wrapper
+      // on the same chain). The bridge only sources non-dst chains — including the dst-chain
+      // portion in `bridgeInput.amount` makes createBridgeRFF try to borrow more than the
+      // non-dst sources can supply and throws "Insufficient balance to proceed" at execution
+      // time. Mirrors `_exactOutRoute`'s `bridgeAmount = bridgeOutput.minus(dstTotalCOTAmount)`.
+      const dstChainCotAmount = cotSources
+        .filter((s) => s.chainID === currentInput.toChainId)
+        .reduce((sum, s) => sum.plus(s.amount), new Decimal(0));
+      const dstChainSrcSwapAmount = sourceSwaps
+        .filter((s) => Number(s.chainID) === currentInput.toChainId)
+        .reduce((sum, s) => sum.plus(s.quote.output.amount), new Decimal(0));
+      const bridgeAmount = dstSwapInputAmountInDecimal
+        .minus(dstChainCotAmount)
+        .minus(dstChainSrcSwapAmount);
+      if (bridgeAmount.lte(0)) {
+        throw Errors.internal(
+          `bridge amount non-positive after dst-chain COT deduction: ${bridgeAmount.toFixed()}`
+        );
+      }
+
       bridgeInput = {
-        amount: dstSwapInputAmountInDecimal,
+        amount: bridgeAmount,
         assets: bridgeAssets,
         chainID: currentInput.toChainId,
         decimals: dstChainCOT.decimals,
