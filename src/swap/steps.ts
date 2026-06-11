@@ -9,12 +9,27 @@ import { isNativeAddress } from './utils';
 // by typeID (which is chain-derived, not hash-derived) and replace the placeholder entry.
 const PLACEHOLDER_HASH: Hex = '0x0';
 
+const executionModeToStepMode = (mode: '7702' | 'safe_account'): 'safe' | 'calibur' =>
+  mode === 'safe_account' ? 'safe' : 'calibur';
+
 export const createSwapSteps = (
   route: SwapRoute,
   chainList: ChainListType,
   cotSymbol: string
 ): SwapStepType[] => {
   const steps: SwapStepType[] = [SWAP_STEPS.SWAP_START, SWAP_STEPS.DETERMINING_SWAP(true)];
+
+  // Destination-side EOA → wrapper COT permit/transferFrom for any pre-existing dst-chain COT.
+  // Built at the START of the flow (flows/swap.ts) — non-combined: by dstSwapHandler.createPermit();
+  // combined: inlined into CombinedSwapHandler.buildBatch. Always listed when present so the UI
+  // can show progress for the permit-creation work (which used to fire silently).
+  if (route.destination.eoaToDestinationAccount) {
+    const dstChain = chainList.getChainByID(route.destination.chainId);
+    if (!dstChain) {
+      throw Errors.chainNotFound(route.destination.chainId);
+    }
+    steps.push(SWAP_STEPS.CREATE_PERMIT_EOA_TO_EPHEMERAL(false, cotSymbol, dstChain));
+  }
 
   if (route.combined) {
     // CombinedSwapHandler batches source + destination + sweep into one tx and emits
@@ -23,6 +38,21 @@ export const createSwapSteps = (
     const chain = chainList.getChainByID(route.destination.chainId);
     if (!chain) {
       throw Errors.chainNotFound(route.destination.chainId);
+    }
+
+    // EOA execTransaction for combined fires only when the batch carries native value
+    // (CombinedSwapHandler.submitBatch routes the no-native case through the VSC relay).
+    const hasNativeSourceInput = route.source.swaps.some((swap) =>
+      isNativeAddress(swap.quote.input.contractAddress)
+    );
+    if (hasNativeSourceInput && route.destination.execution.mode !== 'direct_eoa') {
+      steps.push(
+        SWAP_STEPS.EOA_EXECUTE_CALL(
+          false,
+          chain,
+          executionModeToStepMode(route.destination.execution.mode)
+        )
+      );
     }
 
     steps.push(
@@ -34,12 +64,18 @@ export const createSwapSteps = (
     return steps;
   }
 
-  // Source-side: permit-per-ERC20-input, then one hash per source chain.
+  // Source-side: permit-per-ERC20-input, EOA execTransaction per chain with native value, then
+  // one hash per source chain. The EOA execTransaction only fires when SourceSwapsHandler has
+  // native value to send (sbcCalls.value > 0n); the no-native case goes through the VSC relay
+  // and emits no EOA_EXECUTE_CALL.
   const sourceChainIDs = new Set<number>();
+  const chainHasNativeInput = new Map<number, boolean>();
   for (const swap of route.source.swaps) {
     const chainID = Number(swap.chainID);
     sourceChainIDs.add(chainID);
-    if (!isNativeAddress(swap.quote.input.contractAddress)) {
+    if (isNativeAddress(swap.quote.input.contractAddress)) {
+      chainHasNativeInput.set(chainID, true);
+    } else {
       const chain = chainList.getChainByID(chainID);
       if (!chain) {
         throw Errors.chainNotFound(chainID);
@@ -48,6 +84,18 @@ export const createSwapSteps = (
     }
   }
   for (const chainID of sourceChainIDs) {
+    if (chainHasNativeInput.get(chainID)) {
+      const chain = chainList.getChainByID(chainID);
+      if (!chain) {
+        throw Errors.chainNotFound(chainID);
+      }
+      const execution = route.source.executions[chainID];
+      if (execution) {
+        steps.push(
+          SWAP_STEPS.EOA_EXECUTE_CALL(false, chain, executionModeToStepMode(execution.mode))
+        );
+      }
+    }
     steps.push(SWAP_STEPS.SOURCE_SWAP_HASH([BigInt(chainID), PLACEHOLDER_HASH], chainList));
   }
 

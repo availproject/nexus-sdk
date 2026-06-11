@@ -492,10 +492,16 @@ class DestinationSwapHandler {
     }
 
     if (this.destinationData.eoaToDestinationAccount) {
+      const chain = this.options.chainList.getChainByID(this.destinationData.chainId)!;
+      // Bracket the permit work so the UI can render a step for the dst-COT permit creation.
+      // The step is published in the expected list when eoaToDestinationAccount is set.
+      this.options.emitter.emit(
+        SWAP_STEPS.CREATE_PERMIT_EOA_TO_EPHEMERAL(false, this.options.cot.symbol, chain)
+      );
       const txs = await createPermitAndTransferFromTx({
         amount: this.destinationData.eoaToDestinationAccount.amount,
         cache: this.options.cache,
-        chain: this.options.chainList.getChainByID(this.destinationData.chainId)!,
+        chain,
         contractAddress: this.destinationData.eoaToDestinationAccount.contractAddress,
         disablePermit:
           this.destinationData.execution.mode === '7702'
@@ -512,6 +518,9 @@ class DestinationSwapHandler {
         spender: this.destinationData.execution.address,
       });
       this.eoaToDestinationAccountCalls = txs;
+      this.options.emitter.emit(
+        SWAP_STEPS.CREATE_PERMIT_EOA_TO_EPHEMERAL(true, this.options.cot.symbol, chain)
+      );
     }
   }
 
@@ -900,6 +909,8 @@ class SourceSwapsHandler {
           );
         }
 
+        const executeMode = execution.mode === 'safe_account' ? 'safe' : 'calibur';
+        this.options.emitter.emit(SWAP_STEPS.EOA_EXECUTE_CALL(false, chain, executeMode));
         const hash =
           execution.mode === 'safe_account'
             ? await createSafeExecuteEOASubmittedTx({
@@ -925,6 +936,7 @@ class SourceSwapsHandler {
                   value: sbcCalls.value,
                 });
               })();
+        this.options.emitter.emit(SWAP_STEPS.EOA_EXECUTE_CALL(true, chain, executeMode));
 
         this.options.emitter.emit(
           SWAP_STEPS.SOURCE_SWAP_HASH([BigInt(chain.id), hash], this.options.chainList)
@@ -1271,6 +1283,12 @@ class CombinedSwapHandler {
     }
 
     if (this.route.destination.eoaToDestinationAccount) {
+      // Combined mode folds the dst-COT permit into the batch tx rather than submitting it
+      // separately. Emit the step anyway so the UI shows it; the matching expected list entry
+      // is set up in createSwapSteps.
+      this.options.emitter.emit(
+        SWAP_STEPS.CREATE_PERMIT_EOA_TO_EPHEMERAL(false, this.options.cot.symbol, chain)
+      );
       const txs = await createPermitAndTransferFromTx({
         amount: this.route.destination.eoaToDestinationAccount.amount,
         cache: this.options.cache,
@@ -1283,6 +1301,9 @@ class CombinedSwapHandler {
         spender: execAddr,
       });
       calls.push(...txs);
+      this.options.emitter.emit(
+        SWAP_STEPS.CREATE_PERMIT_EOA_TO_EPHEMERAL(true, this.options.cot.symbol, chain)
+      );
     }
 
     const dstSwap = this.route.destination.swap;
@@ -1325,6 +1346,7 @@ class CombinedSwapHandler {
 
     if (execution.mode === 'safe_account') {
       if (nativeValue > 0n) {
+        this.options.emitter.emit(SWAP_STEPS.EOA_EXECUTE_CALL(false, chain, 'safe'));
         const hash = await createSafeExecuteEOASubmittedTx({
           actualAddress: this.options.address.eoa,
           calls,
@@ -1335,6 +1357,7 @@ class CombinedSwapHandler {
           publicClient,
           safeAddress: execution.address,
         });
+        this.options.emitter.emit(SWAP_STEPS.EOA_EXECUTE_CALL(true, chain, 'safe'));
         await waitForTxReceipt(hash, publicClient, 1);
         return hash;
       }
@@ -1373,6 +1396,7 @@ class CombinedSwapHandler {
           EXPECTED_CALIBUR_CODE
         );
       }
+      this.options.emitter.emit(SWAP_STEPS.EOA_EXECUTE_CALL(false, chain, 'calibur'));
       const hash = await caliburExecute({
         actualAddress: this.options.address.eoa,
         actualWallet: this.options.wallet.eoa,
@@ -1383,6 +1407,7 @@ class CombinedSwapHandler {
         targetAddress: execution.address,
         value: nativeValue,
       });
+      this.options.emitter.emit(SWAP_STEPS.EOA_EXECUTE_CALL(true, chain, 'calibur'));
       await waitForTxReceipt(hash, publicClient, 1);
       return hash;
     }
