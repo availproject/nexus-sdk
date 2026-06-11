@@ -195,6 +195,7 @@ export const caliburExecute = async ({
   actualWallet,
   calls,
   chain,
+  publicClient,
   signerWallet,
   targetAddress,
   value,
@@ -203,6 +204,7 @@ export const caliburExecute = async ({
   actualWallet: WalletClient;
   calls: Tx[];
   chain: Chain;
+  publicClient: PublicClient;
   signerWallet: PrivateKeyAccount;
   targetAddress: Hex;
   value: bigint;
@@ -231,15 +233,26 @@ export const caliburExecute = async ({
   });
 
   try {
-    // No gas/fee params: the user's wallet estimates against the signed payload at
-    // submit time and applies its own buffer, which is more accurate than our
-    // pre-flight `eth_estimateGas` for Calibur-wrapped aggregator calls (the inner
-    // script's gas can swing with cold/warm storage and route specifics, and our
-    // 1.2x buffer was producing under-budgeted txs that reverted with "out of gas").
+    // Aggregator routes inside Calibur (e.g. LI.FI multi-hop swaps) have gas use that
+    // shifts between estimation and inclusion (V3 tick paths, cold/warm storage). viem's
+    // raw `eth_estimateGas` returns zero-headroom; without our own buffer the inner
+    // script OOGs deep in the tree and unwinds opaquely. Estimate ourselves and apply a
+    // 50% buffer on the gas limit only. NOTE: we deliberately do NOT override fee params
+    // here — earlier attempts to set gasPrice/maxFeePerGas were inaccurate on chains
+    // like Scroll. Let the wallet pick the fees. 1.5M fallback covers estimation reverts.
+    const gasEstimate = await publicClient
+      .estimateContractGas({
+        ...request,
+        account: actualAddress,
+      })
+      .catch(() => 1_500_000n);
+    const gas = (gasEstimate * 150n) / 100n;
+
     return await actualWallet.writeContract({
       ...request,
       account: actualAddress,
       chain,
+      gas,
     });
   } catch (error) {
     logger.error('[TX_FAIL] calibur_execute_eoa_error', error, {

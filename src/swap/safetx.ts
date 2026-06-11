@@ -394,27 +394,46 @@ export const createSafeExecuteEOASubmittedTx = async ({
   const submitAndWait = async (txFields: SafeTxFields, txSignature: Hex) => {
     let hash: Hex;
     try {
-      // No gas/fee params: the user's wallet estimates against the signed payload at
-      // submit time and applies its own buffer, which is more accurate than our
-      // pre-flight `eth_estimateGas` for Safe-wrapped aggregator calls.
+      const execArgs = [
+        txFields.to,
+        txFields.value,
+        txFields.data,
+        txFields.operation,
+        txFields.safeTxGas,
+        txFields.baseGas,
+        txFields.gasPrice,
+        txFields.gasToken,
+        txFields.refundReceiver,
+        txSignature,
+      ] as const;
+
+      // Aggregator routes (e.g. LI.FI on HyperEVM via Eisen) iterate over V3 pools whose
+      // tick-crossing path shifts gas use between estimation and inclusion blocks. viem's
+      // `writeContract` uses raw `eth_estimateGas` with zero headroom; a small state shift
+      // OOGs deep in the inner call tree and unwinds opaquely as Safe GS013. Estimate
+      // ourselves and apply a 50% buffer. Pass the real signature so estimateGas executes
+      // the inner batch instead of reverting in `checkSignatures`. 1.5M fallback covers
+      // the rare estimation revert.
+      const gasEstimate = await publicClient
+        .estimateContractGas({
+          abi: SAFE_ABI,
+          account: actualAddress,
+          address: safeAddress,
+          args: execArgs,
+          functionName: 'execTransaction',
+          value: nativeValue,
+        })
+        .catch(() => 1_500_000n);
+      const gas = (gasEstimate * 150n) / 100n;
+
       hash = await eoaWallet.writeContract({
         abi: SAFE_ABI,
         account: actualAddress,
         address: safeAddress,
-        args: [
-          txFields.to,
-          txFields.value,
-          txFields.data,
-          txFields.operation,
-          txFields.safeTxGas,
-          txFields.baseGas,
-          txFields.gasPrice,
-          txFields.gasToken,
-          txFields.refundReceiver,
-          txSignature,
-        ],
+        args: execArgs,
         chain,
         functionName: 'execTransaction',
+        gas,
         value: nativeValue,
       });
     } catch (error) {
