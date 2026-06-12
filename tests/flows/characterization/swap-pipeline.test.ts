@@ -203,7 +203,7 @@ describe('swap pipeline characterization', () => {
         aggregators: [],
         assetsUsed: [],
         balances: [],
-        oraclePrices: {},
+        oraclePrices: [],
       },
       ...overrides,
     }) as never;
@@ -523,7 +523,7 @@ describe('swap pipeline characterization', () => {
         balances: [
           makeBalance(SUPPORTED_CHAINS.HYPEREVM, '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'),
         ],
-        oraclePrices: {},
+        oraclePrices: [],
       },
     });
 
@@ -671,7 +671,7 @@ describe('swap pipeline characterization', () => {
         balances: [
           makeBalance(SUPPORTED_CHAINS.HYPEREVM, '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'),
         ],
-        oraclePrices: {},
+        oraclePrices: [],
       },
     });
     createPermitOnlyApprovalTxMock.mockRejectedValueOnce(new Error('permit failed'));
@@ -732,7 +732,7 @@ describe('swap pipeline characterization', () => {
         balances: [
           makeBalance(SUPPORTED_CHAINS.HYPEREVM, '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'),
         ],
-        oraclePrices: {},
+        oraclePrices: [],
       },
     });
 
@@ -835,7 +835,7 @@ describe('swap pipeline characterization', () => {
         balances: [
           makeBalance(SUPPORTED_CHAINS.HYPEREVM, '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'),
         ],
-        oraclePrices: {},
+        oraclePrices: [],
       },
     });
 
@@ -900,7 +900,7 @@ describe('swap pipeline characterization', () => {
           makeBalance(SUPPORTED_CHAINS.HYPEREVM, '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'),
           makeBalance(SUPPORTED_CHAINS.ARBITRUM, '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'),
         ],
-        oraclePrices: {},
+        oraclePrices: [],
       },
     });
 
