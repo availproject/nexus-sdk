@@ -51,7 +51,7 @@
     "npm": ">=9.0.0"
   },
   "dependencies": {
-    "@avail-project/ca-common": "github:availproject/ca-common#eb657d4a385e3cb8fe4add30b2f32ec150a78a1d",
+    "@avail-project/ca-common": "github:availproject/ca-common#a4b2a981ab4fa3798d518ddb887060b992dc5e4b",
     "@metamask/safe-event-emitter": "3.1.2",
     "@opentelemetry/api-logs": "0.208.0",
     "@opentelemetry/exporter-logs-otlp-http": "0.208.0",
@@ -86,7 +86,7 @@
     "typedoc-plugin-rename-defaults": "0.7.3",
     "typedoc-theme-fresh": "0.2.1",
     "typescript": "^5.9.3",
-    "vitest": "4.0.15"
+    "vitest": "4.1.8"
   },
   "publishConfig": {
     "access": "public"
