@@ -51,7 +51,7 @@
     "npm": ">=9.0.0"
   },
   "dependencies": {
-    "@avail-project/ca-common": "github:availproject/ca-common#a4b2a981ab4fa3798d518ddb887060b992dc5e4b",
+    "@avail-project/ca-common": "3.0.0",
     "@metamask/safe-event-emitter": "3.1.2",
     "@opentelemetry/api-logs": "0.208.0",
     "@opentelemetry/exporter-logs-otlp-http": "0.208.0",
@@ -70,22 +70,22 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.3.8",
-    "@rollup/plugin-commonjs": "^25.0.8",
+    "@rollup/plugin-commonjs": "25.0.8",
     "@rollup/plugin-json": "6.1.0",
-    "@rollup/plugin-node-resolve": "^15.3.1",
-    "@rollup/plugin-typescript": "^11.1.6",
+    "@rollup/plugin-node-resolve": "15.3.1",
+    "@rollup/plugin-typescript": "11.1.6",
     "husky": "9.1.7",
     "lint-staged": "16.2.7",
     "release-it": "20.0.1",
-    "rollup": "^4.52.4",
-    "rollup-plugin-dts": "^6.2.3",
+    "rollup": "4.60.1",
+    "rollup-plugin-dts": "6.3.0",
     "rollup-plugin-typescript2": "0.37.0",
     "typedoc": "0.28.14",
     "typedoc-plugin-extras": "4.0.1",
     "typedoc-plugin-missing-exports": "4.1.2",
     "typedoc-plugin-rename-defaults": "0.7.3",
     "typedoc-theme-fresh": "0.2.1",
-    "typescript": "^5.9.3",
+    "typescript": "5.9.3",
     "vitest": "4.1.8"
   },
   "publishConfig": {
