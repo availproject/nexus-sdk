@@ -105,6 +105,22 @@ const SWAP_COMPLETE = {
   typeID: 'SWAP_COMPLETE',
 } as const;
 
+const EOA_EXECUTE_CALL = (
+  completed: boolean,
+  chain: { id: number; name?: string },
+  mode: 'safe' | 'calibur'
+) =>
+  ({
+    chain: {
+      id: chain.id,
+      name: chain.name,
+    },
+    completed,
+    mode,
+    type: 'EOA_EXECUTE_CALL',
+    typeID: `EOA_EXECUTE_CALL_${chain.id}`,
+  }) as const;
+
 /**
  * Event emitted when a swap is skipped in swapAndExecute because the user
  * already has sufficient balance on the destination chain.
@@ -186,6 +202,7 @@ export const SWAP_STEPS = {
   DESTINATION_SWAP_BATCH_TX,
   DESTINATION_SWAP_HASH,
   DETERMINING_SWAP,
+  EOA_EXECUTE_CALL,
   RFF_ID,
   SOURCE_SWAP_BATCH_TX,
   SOURCE_SWAP_HASH,
@@ -200,6 +217,7 @@ export type SwapStepType =
   | ReturnType<typeof SWAP_STEPS.DESTINATION_SWAP_BATCH_TX>
   | ReturnType<typeof SWAP_STEPS.DESTINATION_SWAP_HASH>
   | ReturnType<typeof SWAP_STEPS.DETERMINING_SWAP>
+  | ReturnType<typeof SWAP_STEPS.EOA_EXECUTE_CALL>
   | ReturnType<typeof SWAP_STEPS.RFF_ID>
   | ReturnType<typeof SWAP_STEPS.SOURCE_SWAP_BATCH_TX>
   | ReturnType<typeof SWAP_STEPS.SOURCE_SWAP_HASH>

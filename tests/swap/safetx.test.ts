@@ -111,6 +111,7 @@ describe('createSafeExecuteEOASubmittedTx', () => {
       readContract,
       waitForTransactionReceipt,
       estimateGas: vi.fn().mockResolvedValue(1_000_000n),
+      estimateContractGas: vi.fn().mockResolvedValue(1_000_000n),
     } as never;
 
     // calls[0].value === nativeValue — invariant holds, single-call path runs.
@@ -143,6 +144,7 @@ describe('createSafeExecuteEOASubmittedTx', () => {
       readContract,
       waitForTransactionReceipt,
       estimateGas: vi.fn().mockResolvedValue(1_000_000n),
+      estimateContractGas: vi.fn().mockResolvedValue(1_000_000n),
     } as never;
 
     const hash = await createSafeExecuteEOASubmittedTx({
@@ -180,6 +182,7 @@ describe('createSafeExecuteEOASubmittedTx', () => {
       readContract,
       waitForTransactionReceipt,
       estimateGas: vi.fn().mockResolvedValue(1_000_000n),
+      estimateContractGas: vi.fn().mockResolvedValue(1_000_000n),
     } as never;
 
     const hash = await createSafeExecuteEOASubmittedTx({
@@ -214,6 +217,7 @@ describe('createSafeExecuteEOASubmittedTx', () => {
       readContract,
       waitForTransactionReceipt,
       estimateGas: vi.fn().mockResolvedValue(1_000_000n),
+      estimateContractGas: vi.fn().mockResolvedValue(1_000_000n),
     } as never;
 
     await expect(
@@ -247,6 +251,7 @@ describe('createSafeExecuteEOASubmittedTx', () => {
       readContract,
       waitForTransactionReceipt,
       estimateGas: vi.fn().mockResolvedValue(1_000_000n),
+      estimateContractGas: vi.fn().mockResolvedValue(1_000_000n),
     } as never;
 
     await expect(

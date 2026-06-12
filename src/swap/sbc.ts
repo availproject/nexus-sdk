@@ -18,8 +18,6 @@ import { Errors } from '../core/errors';
 import { createDeadlineFromNow, waitForTxReceipt } from '../core/utils';
 import { PlatformUtils } from '../core/utils/platform.utils';
 
-import type { ExecuteFeeParams } from '../services/executeTransactions';
-import { estimateFeeContext, finalizeFeeEstimates } from '../services/feeEstimation';
 import { CALIBUR_ADDRESS, CALIBUR_EIP712, ZERO_BYTES_20, ZERO_BYTES_32 } from './constants';
 import {
   type Cache,
@@ -29,21 +27,6 @@ import {
 } from './utils';
 
 const logger = getLogger();
-
-const spreadFeeParams = (feeParams?: ExecuteFeeParams) => {
-  if (!feeParams) {
-    return {};
-  }
-
-  if (feeParams.type === 'legacy') {
-    return { gasPrice: feeParams.gasPrice };
-  }
-
-  return {
-    maxFeePerGas: feeParams.maxFeePerGas,
-    maxPriorityFeePerGas: feeParams.maxPriorityFeePerGas,
-  };
-};
 
 const buildCaliburExecuteRequest = (input: {
   calls: Tx[];
@@ -74,55 +57,6 @@ const buildCaliburExecuteRequest = (input: {
     args,
     functionName: 'execute' as const,
     value: input.value,
-  };
-};
-
-const estimateCaliburExecuteFee = async (input: {
-  actualAddress: Hex;
-  chain: Chain;
-  publicClient: PublicClient;
-  request: ReturnType<typeof buildCaliburExecuteRequest>;
-}) => {
-  const tx = {
-    to: input.request.address,
-    data: encodeFunctionData({
-      abi: input.request.abi,
-      functionName: input.request.functionName,
-      args: input.request.args,
-    }),
-    value: input.request.value,
-  };
-
-  const gasEstimatePromise = input.publicClient
-    .estimateGas({
-      account: input.actualAddress,
-      to: tx.to,
-      data: tx.data,
-      value: tx.value,
-    })
-    .catch(() => 1_500_000n);
-  const feeContextPromise = estimateFeeContext(
-    input.publicClient,
-    input.chain.id,
-    [{ tx }],
-    'medium'
-  );
-
-  const [gasEstimate, feeContext] = await Promise.all([gasEstimatePromise, feeContextPromise]);
-  const [feeEstimate] = finalizeFeeEstimates([{ tx, gasEstimate }], feeContext);
-
-  return {
-    gas: feeEstimate.recommended.gasLimit,
-    feeParams: feeEstimate.recommended.useLegacyPricing
-      ? ({
-          type: 'legacy',
-          gasPrice: feeEstimate.recommended.maxFeePerGas,
-        } satisfies ExecuteFeeParams)
-      : ({
-          type: 'eip1559',
-          maxFeePerGas: feeEstimate.recommended.maxFeePerGas,
-          maxPriorityFeePerGas: feeEstimate.recommended.maxPriorityFeePerGas,
-        } satisfies ExecuteFeeParams),
   };
 };
 
@@ -297,20 +231,28 @@ export const caliburExecute = async ({
     targetAddress,
     value,
   });
-  const { gas, feeParams } = await estimateCaliburExecuteFee({
-    actualAddress,
-    chain,
-    publicClient,
-    request,
-  });
 
   try {
+    // Aggregator routes inside Calibur (e.g. LI.FI multi-hop swaps) have gas use that
+    // shifts between estimation and inclusion (V3 tick paths, cold/warm storage). viem's
+    // raw `eth_estimateGas` returns zero-headroom; without our own buffer the inner
+    // script OOGs deep in the tree and unwinds opaquely. Estimate ourselves and apply a
+    // 50% buffer on the gas limit only. NOTE: we deliberately do NOT override fee params
+    // here — earlier attempts to set gasPrice/maxFeePerGas were inaccurate on chains
+    // like Scroll. Let the wallet pick the fees. 1.5M fallback covers estimation reverts.
+    const gasEstimate = await publicClient
+      .estimateContractGas({
+        ...request,
+        account: actualAddress,
+      })
+      .catch(() => 1_500_000n);
+    const gas = (gasEstimate * 150n) / 100n;
+
     return await actualWallet.writeContract({
       ...request,
       account: actualAddress,
       chain,
       gas,
-      ...spreadFeeParams(feeParams),
     });
   } catch (error) {
     logger.error('[TX_FAIL] calibur_execute_eoa_error', error, {

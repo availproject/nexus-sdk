@@ -56,7 +56,13 @@ import {
   type BackendSimulationClient,
   createBackendSimulationClient,
 } from '../services/backendSimulation';
-import { getSwapSupportedChains, PublicClientList, sweepCotBalancesToEoa } from '../swap/utils';
+import { predictSafeAccountAddress } from '../swap/safetx';
+import {
+  getSafeCotBalances,
+  getSwapSupportedChains,
+  PublicClientList,
+  sweepCotBalancesToEoa,
+} from '../swap/utils';
 import { ChainList } from './chains';
 import { getNetworkConfig } from './config';
 import { Errors } from './errors';
@@ -553,33 +559,47 @@ export class CA {
     this._isCotSweepRunning = true;
     try {
       const ephemeralAddress = this.#ephemeralWallet.address;
+      // Same ephemeral key is the Safe owner across all Safe-mode chains, so a single
+      // predicted address covers them all.
+      const safeAddress = predictSafeAccountAddress(ephemeralAddress);
       const eoaAddress = await this._getEVMAddress();
+      const publicClientList = new PublicClientList(this.chainList);
 
-      const { balances } = await getBalancesForSwap({
-        evmAddress: ephemeralAddress,
-        chainList: this.chainList,
-        vscClient: this._queryClients.vscClient,
-        filterWithSupportedTokens: true,
-      });
+      // Ephemeral: full VSC swap-balances fetch (covers SBC/7702 chains + whatever else
+      // landed there). Safe: targeted balanceOf reads on COT only, just for Safe-mode chains.
+      const [ephemeralResp, safeCotBalances] = await Promise.all([
+        getBalancesForSwap({
+          evmAddress: ephemeralAddress,
+          chainList: this.chainList,
+          vscClient: this._queryClients.vscClient,
+          filterWithSupportedTokens: true,
+        }),
+        getSafeCotBalances({
+          chainList: this.chainList,
+          COTCurrencyID: cotCurrencyID,
+          publicClientList,
+          safeAddress,
+        }),
+      ]);
 
-      if (balances.length === 0) {
+      if (ephemeralResp.balances.length === 0 && safeCotBalances.length === 0) {
         return;
       }
 
-      const publicClientList = new PublicClientList(this.chainList);
-
       await sweepCotBalancesToEoa({
-        balances,
+        ephemeralBalances: ephemeralResp.balances,
+        safeCotBalances,
         chainList: this.chainList,
         COTCurrencyID: cotCurrencyID,
         eoaAddress,
         ephemeralAddress,
+        safeAddress,
         ephemeralWallet: this.#ephemeralWallet,
         publicClientList,
         vscClient: this._queryClients.vscClient,
       });
     } catch (e) {
-      logger.error('Error sweeping COT from ephemeral to EOA', e, {
+      logger.error('Error sweeping COT to EOA', e, {
         cause: 'COT_SWEEP_INTERVAL_ERROR',
       });
     } finally {
