@@ -1014,7 +1014,7 @@ export class Cache {
 
       for (const input of inputs) {
         requests.push(
-          equalFold(input.contractAddress, EADDRESS)
+          isNativeAddress(input.contractAddress)
             ? Promise.resolve(this.allowanceValues.set(getAllowanceCacheKey(input), maxUint256))
             : publicClient
                 .readContract({

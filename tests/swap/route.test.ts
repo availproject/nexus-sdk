@@ -874,6 +874,13 @@ describe('EXACT_IN same-token bridge (skip COT round-trip)', () => {
     expect(route.bridge!.assets).toHaveLength(2);
     expect(route.bridge!.amount.toFixed()).toBe('2');
     expect(route.bridge!.recipientAddress.toLowerCase()).toBe(TEST_EOA.toLowerCase());
+    // Downstream bridge code (chainList.getTokenByAddress / createRFFromIntent) only
+    // recognizes ZERO_ADDRESS as native. Sources stored under EADDRESS — the swap
+    // internal convention — must be normalized to ZERO_ADDRESS here, otherwise the
+    // intent's token lookup fails with "Token/Asset is not supported on chain".
+    for (const asset of route.bridge!.assets) {
+      expect(asset.contractAddress.toLowerCase()).toBe(NATIVE);
+    }
   });
 
   it('mixed family (USDT + USDC → USDT) falls back to COT flow with source swap', async () => {

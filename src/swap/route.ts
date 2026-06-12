@@ -1390,9 +1390,15 @@ const buildSameTokenBridgeRoute = async ({
       dstChainBalance = dstChainBalance.add(source.amount);
       continue;
     }
+    // Normalize EADDRESS → ZERO_ADDRESS. Swap internals carry native as EADDRESS (see
+    // swap/sort.ts), but the bridge intent's `chainList.getTokenByAddress` lookup only
+    // resolves ZERO_ADDRESS as native — passing EADDRESS through causes the RFF builder
+    // to throw `Token/Asset … is not supported on chain`.
+    const evmAddress = convertToEVMAddress(source.tokenAddress);
+    const sourceContractAddress: Hex = equalFold(evmAddress, EADDRESS) ? ZERO_ADDRESS : evmAddress;
     bridgeAssets.push({
       chainID: source.chainID,
-      contractAddress: convertToEVMAddress(source.tokenAddress),
+      contractAddress: sourceContractAddress,
       decimals: source.decimals,
       eoaBalance: new Decimal(source.amount),
       ephemeralBalance: new Decimal(0),
