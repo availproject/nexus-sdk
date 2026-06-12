@@ -1190,4 +1190,116 @@ describe('BridgeHandler', () => {
         )
     ).toThrow('source execution not found for chain 999');
   });
+
+  it('uses caliburExecute (EOA-submitted) for native 7702 deposits, NOT the SBC relay', async () => {
+    // Native bridge deposit must be EOA-submitted: relay can't pay user value. Same
+    // pattern as SourceSwapsHandler: when any inner call carries value, route through
+    // caliburExecute(targetAddress=ephemeral, value=depositValue) instead of vscSBCTx.
+    const nativeDepositValue = 1_000_000_000_000_000_000n;
+    createBridgeRFFMock.mockResolvedValueOnce({
+      createRFF: vi.fn().mockResolvedValue({
+        createDoubleCheckTx: vi.fn(),
+        intentID: Long.fromNumber(123),
+      }),
+      depositCalls: {
+        42161: {
+          amount: nativeDepositValue,
+          tokenAddress: '0x0000000000000000000000000000000000000000',
+          tx: [
+            {
+              data: '0xdeposit',
+              to: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+              value: nativeDepositValue,
+            },
+          ],
+        },
+      },
+      eoaToEphemeralCalls: {},
+      waitForFill: () => ({
+        filled: true,
+        intentID: Long.fromNumber(123),
+        promise: Promise.resolve(),
+      }),
+    });
+    caliburExecuteMock.mockResolvedValue(`0x${'ab'.repeat(32)}`);
+    checkAuthCodeSetMock.mockResolvedValue(true);
+
+    const vscClient = {
+      vscCreateSafeExecuteTx: vi.fn(),
+      vscSBCTx: vi.fn(),
+    };
+    const handler = new BridgeHandler(
+      {
+        ...bridgeInput,
+        assets: [
+          {
+            chainID: 42161,
+            contractAddress: '0x0000000000000000000000000000000000000000' as `0x${string}`,
+            decimals: 18,
+            eoaBalance: new Decimal(1),
+            ephemeralBalance: new Decimal(0),
+          },
+        ],
+        tokenAddress: '0x0000000000000000000000000000000000000000' as `0x${string}`,
+      },
+      {
+        address: {
+          cosmos: 'cosmos1',
+          eoa: '0x1111111111111111111111111111111111111111',
+          ephemeral: '0x2222222222222222222222222222222222222222',
+        },
+        cache: {
+          addAllowanceQuery: vi.fn(),
+          addSetCodeQuery: vi.fn(),
+          getCode: vi.fn(),
+        },
+        chainList: {
+          getChainByID: vi.fn(() => ({
+            blockExplorers: { default: { url: 'https://example.com' } },
+            id: 42161,
+            name: 'Arbitrum',
+          })),
+          getVaultContractAddress: vi.fn(() => '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'),
+        },
+        cosmosQueryClient: {} as never,
+        emitter: { emit: vi.fn() },
+        publicClientList: { get: vi.fn(() => ({})) },
+        vscClient,
+        wallet: {
+          cosmos: {} as never,
+          eoa: {} as never,
+          ephemeral: { address: '0x2222222222222222222222222222222222222222' } as never,
+        },
+        cot: {
+          currencyID: CurrencyID.USDC,
+          symbol: 'USDC',
+        },
+      } as never,
+      {
+        42161: {
+          address: '0x1111111111111111111111111111111111111111',
+          entryPoint: null,
+          mode: '7702',
+        },
+      }
+    );
+
+    await handler.process(
+      {
+        dst: { chid: ZERO_BYTES_32, swaps: [], tx_hash: ZERO_BYTES_32, univ: 1 },
+        has_xcs: true,
+        rff_id: 0n,
+        src: [],
+      },
+      []
+    );
+
+    expect(caliburExecuteMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetAddress: '0x1111111111111111111111111111111111111111',
+        value: nativeDepositValue,
+      })
+    );
+    expect(vscClient.vscSBCTx).not.toHaveBeenCalled();
+  });
 });

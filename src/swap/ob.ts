@@ -12,9 +12,10 @@ import {
 import Decimal from 'decimal.js';
 import { orderBy, retry } from 'es-toolkit';
 import Long from 'long';
-import type { Hex, PrivateKeyAccount, WalletClient } from 'viem';
+import type { Hex, PrivateKeyAccount, PublicClient, WalletClient } from 'viem';
 import {
   type BridgeAsset,
+  type Chain,
   type ChainListType,
   type EoaToEphemeralCallMap,
   getLogger,
@@ -225,85 +226,68 @@ class BridgeHandler {
       };
 
       for (const c in this.depositCalls) {
-        const chain = this.options.chainList.getChainByID(Number(c));
+        const chainID = Number(c);
+        const chain = this.options.chainList.getChainByID(chainID);
         if (!chain) {
-          throw Errors.chainNotFound(Number(c));
+          throw Errors.chainNotFound(chainID);
         }
         const publicClient = this.options.publicClientList.get(c);
-        const execution = this.getSourceExecution(Number(c));
+        const execution = this.getSourceExecution(chainID);
 
-        const calls = [];
-        const e2e = this.eoaToEphCalls[Number(c)];
-        logger.debug('Eoa->Eph and deposit calls', {
-          allEoAToEphemeralCalls: this.eoaToEphCalls,
-          chain: c,
-          eoAToEphemeralCalls: e2e,
-          rffDepositCalls: { ...this.depositCalls },
+        // Per-chain dispatch: native deposits carry value in the deposit call → the
+        // EOA pays gas AND value (relay can't), so route through caliburExecute (7702)
+        // or createSafeExecuteEOASubmittedTx (Safe). ERC20 deposits are gas-sponsored
+        // via the VSC relay (vscSBCTx / vscCreateSafeExecuteTx).
+        const depositValue = this.depositCalls[c].tx.reduce((sum, t) => sum + t.value, 0n);
+        const bridgeType: 'native' | 'erc20' = depositValue > 0n ? 'native' : 'erc20';
+
+        logger.debug('createRFFDeposits: per-chain dispatch', {
+          chainID,
+          bridgeType,
+          depositValue: depositValue.toString(),
+          executionMode: execution.mode,
         });
 
-        if (e2e) {
-          // Mirrors the SourceSwapsHandler emit pattern so devs see a permit step for
-          // COT bridge assets that need to move from EOA → source execution address,
-          // not just for ERC20 source-swap inputs.
-          this.options.emitter.emit(
-            SWAP_STEPS.CREATE_PERMIT_FOR_SOURCE_SWAP(false, this.options.cot.symbol, chain)
-          );
-          await switchChain(this.options.wallet.eoa, chain);
-          const txs = await createPermitAndTransferFromTx({
-            amount: e2e.amount,
-            cache: this.options.cache,
+        if (bridgeType === 'native') {
+          const hash = await this.executeNativeDeposit({
             chain,
-            contractAddress: e2e.tokenAddress,
-            disablePermit:
-              execution.mode === '7702' &&
-              isEip7702DelegatedCode(
-                this.options.cache.getCode({
-                  address: this.options.address.eoa,
-                  chainID: Number(c),
-                })
-              ),
-            owner: this.options.address.eoa,
-            ownerWallet: this.options.wallet.eoa,
             publicClient,
-            spender: execution.address,
+            execution,
+            depositValue,
+            calls: this.depositCalls[c].tx,
           });
-          calls.push(...txs);
-          this.options.emitter.emit(
-            SWAP_STEPS.CREATE_PERMIT_FOR_SOURCE_SWAP(true, this.options.cot.symbol, chain)
-          );
-        }
-        const batchCalls = calls.concat(this.depositCalls[c].tx).concat(
-          createSweeperTxs({
-            cache: this.options.cache,
-            chainID: chain.id,
-            COTCurrencyID: this.options.cot.currencyID,
-            receiver: this.options.address.eoa,
-            sender: execution.address,
-          })
-        );
-        if (execution.mode === 'safe_account') {
-          queueDepositReceipt(
-            await this.options.vscClient.vscCreateSafeExecuteTx(
-              await createSafeExecuteTxFromCalls({
+          queueDepositReceipt([BigInt(chain.id), hash]);
+        } else {
+          const batchCalls = await this.buildErc20BatchCalls({
+            chainID,
+            chain,
+            publicClient,
+            execution,
+          });
+          if (execution.mode === 'safe_account') {
+            queueDepositReceipt(
+              await this.options.vscClient.vscCreateSafeExecuteTx(
+                await createSafeExecuteTxFromCalls({
+                  calls: batchCalls,
+                  chainId: chain.id,
+                  ephemeralWallet: this.options.wallet.ephemeral,
+                  publicClient,
+                  safeAddress: execution.address,
+                })
+              )
+            );
+          } else {
+            sbcTx.push(
+              await createSBCTxFromCalls({
+                cache: this.options.cache,
                 calls: batchCalls,
-                chainId: chain.id,
+                chainID: chain.id,
+                ephemeralAddress: this.options.address.ephemeral,
                 ephemeralWallet: this.options.wallet.ephemeral,
                 publicClient,
-                safeAddress: execution.address,
               })
-            )
-          );
-        } else {
-          sbcTx.push(
-            await createSBCTxFromCalls({
-              cache: this.options.cache,
-              calls: batchCalls,
-              chainID: chain.id,
-              ephemeralAddress: this.options.address.ephemeral,
-              ephemeralWallet: this.options.wallet.ephemeral,
-              publicClient,
-            })
-          );
+            );
+          }
         }
       }
       if (sbcTx.length) {
@@ -427,6 +411,129 @@ class BridgeHandler {
         })
         .map((asset) => asset.chainID)
     );
+  }
+
+  private async buildErc20BatchCalls({
+    chainID,
+    chain,
+    publicClient,
+    execution,
+  }: {
+    chainID: number;
+    chain: Chain;
+    publicClient: PublicClient;
+    execution: SourceExecution;
+  }): Promise<Tx[]> {
+    const calls: Tx[] = [];
+    const e2e = this.eoaToEphCalls[chainID];
+    logger.debug('Eoa->Eph and deposit calls', {
+      allEoAToEphemeralCalls: this.eoaToEphCalls,
+      chain: chainID,
+      eoAToEphemeralCalls: e2e,
+      rffDepositCalls: { ...this.depositCalls },
+    });
+
+    if (e2e) {
+      // Mirrors the SourceSwapsHandler emit pattern so devs see a permit step for
+      // COT bridge assets that need to move from EOA → source execution address,
+      // not just for ERC20 source-swap inputs.
+      this.options.emitter.emit(
+        SWAP_STEPS.CREATE_PERMIT_FOR_SOURCE_SWAP(false, this.options.cot.symbol, chain)
+      );
+      await switchChain(this.options.wallet.eoa, chain);
+      const txs = await createPermitAndTransferFromTx({
+        amount: e2e.amount,
+        cache: this.options.cache,
+        chain,
+        contractAddress: e2e.tokenAddress,
+        disablePermit:
+          execution.mode === '7702' &&
+          isEip7702DelegatedCode(
+            this.options.cache.getCode({
+              address: this.options.address.eoa,
+              chainID,
+            })
+          ),
+        owner: this.options.address.eoa,
+        ownerWallet: this.options.wallet.eoa,
+        publicClient,
+        spender: execution.address,
+      });
+      calls.push(...txs);
+      this.options.emitter.emit(
+        SWAP_STEPS.CREATE_PERMIT_FOR_SOURCE_SWAP(true, this.options.cot.symbol, chain)
+      );
+    }
+
+    return calls.concat(this.depositCalls[chainID].tx).concat(
+      createSweeperTxs({
+        cache: this.options.cache,
+        chainID: chain.id,
+        COTCurrencyID: this.options.cot.currencyID,
+        receiver: this.options.address.eoa,
+        sender: execution.address,
+      })
+    );
+  }
+
+  private async executeNativeDeposit({
+    chain,
+    publicClient,
+    execution,
+    depositValue,
+    calls,
+  }: {
+    chain: Chain;
+    publicClient: PublicClient;
+    execution: SourceExecution;
+    depositValue: bigint;
+    calls: Tx[];
+  }): Promise<Hex> {
+    // 7702: ensure the ephemeral's auth code is set before caliburExecute; otherwise
+    // the delegated execution can't dispatch. Same pre-step SourceSwapsHandler uses.
+    if (
+      execution.mode === '7702' &&
+      !(await checkAuthCodeSet(chain.id, this.options.address.ephemeral, this.options.cache))
+    ) {
+      const ops = await this.options.vscClient.vscSBCTx([
+        await createSBCTxFromCalls({
+          cache: this.options.cache,
+          calls: [],
+          chainID: chain.id,
+          ephemeralAddress: this.options.address.ephemeral,
+          ephemeralWallet: this.options.wallet.ephemeral,
+          publicClient,
+        }),
+      ]);
+      await waitForSBCTxReceipt(ops, this.options.chainList, this.options.publicClientList);
+      this.options.cache.addSetCodeValue(
+        { address: this.options.address.ephemeral, chainID: chain.id },
+        EXPECTED_CALIBUR_CODE
+      );
+    }
+
+    await switchChain(this.options.wallet.eoa, chain);
+    return execution.mode === 'safe_account'
+      ? createSafeExecuteEOASubmittedTx({
+          actualAddress: this.options.address.eoa,
+          calls,
+          chain,
+          eoaWallet: this.options.wallet.eoa,
+          ephemeralWallet: this.options.wallet.ephemeral,
+          nativeValue: depositValue,
+          publicClient,
+          safeAddress: execution.address,
+        })
+      : caliburExecute({
+          actualAddress: this.options.address.eoa,
+          actualWallet: this.options.wallet.eoa,
+          calls,
+          chain,
+          publicClient,
+          signerWallet: this.options.wallet.ephemeral,
+          targetAddress: execution.address,
+          value: depositValue,
+        });
   }
 
   private getSourceExecution(chainID: number): SourceExecution {
