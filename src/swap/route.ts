@@ -1400,6 +1400,20 @@ const buildSameTokenBridgeRoute = async ({
     bridgeBalance = bridgeBalance.add(source.amount);
   }
 
+  logger.debug('same-token bridge: route inputs', {
+    dstChainId: currentInput.toChainId,
+    dstTokenAddress,
+    dstTokenIsNative,
+    dstTokenDecimals,
+    bridgeAssets: bridgeAssets.map((a) => ({
+      ...a,
+      eoaBalance: a.eoaBalance.toFixed(),
+      ephemeralBalance: a.ephemeralBalance.toFixed(),
+    })),
+    bridgeBalance: bridgeBalance.toFixed(),
+    dstChainBalance: dstChainBalance.toFixed(),
+  });
+
   let bridgeInput: BridgeInput = null;
   if (bridgeAssets.length > 0) {
     // Known sources → `maxAmount` IS the exact destination amount. Skip the deposit-gas
@@ -1417,6 +1431,12 @@ const buildSameTokenBridgeRoute = async ({
       skipDepositGasDeduction: true,
     });
     const bridgeAmount = new Decimal(maxAmount);
+    logger.debug('same-token bridge: maxAmount computed', {
+      bridgeBalance: bridgeBalance.toFixed(),
+      maxAmount,
+      bridgeAmount: bridgeAmount.toFixed(),
+      impliedFee: bridgeBalance.minus(bridgeAmount).toFixed(),
+    });
     if (bridgeAmount.lte(0)) {
       throw Errors.internal(
         `same-token bridge: bridge amount non-positive after fees: ${bridgeAmount.toFixed()}`
@@ -1447,6 +1467,16 @@ const buildSameTokenBridgeRoute = async ({
   const destinationExecution = buildDirectEoaDestinationExecution(eoaAddress);
   const finalAmount = (bridgeInput?.amount ?? new Decimal(0)).plus(dstChainBalance);
   const destination = createDestination(currentInput.toChainId, destinationExecution, finalAmount);
+
+  logger.debug('same-token bridge: route built', {
+    bridgeAmount: bridgeInput?.amount.toFixed() ?? '0',
+    bridgeTokenAddress: bridgeInput?.tokenAddress,
+    bridgeRecipient: bridgeInput?.recipientAddress,
+    dstChainBalance: dstChainBalance.toFixed(),
+    finalAmount: finalAmount.toFixed(),
+    destinationExecutionMode: destinationExecution.mode,
+    bridgeNull: bridgeInput === null,
+  });
 
   await executionsVerification;
   printRouteTimings();
@@ -1534,10 +1564,24 @@ const _exactInRoute = async (
 
   // === REFRESH: re-runs per call ===================================================
   const refresh = async (currentInput: ExactInSwapInput): Promise<SwapRoute> => {
-    logger.debug('exact-in: fetched balances', { balances: rawBalances });
+    logger.debug('exact-in: refresh start', {
+      from: currentInput.from,
+      toChainId: currentInput.toChainId,
+      toTokenAddress: currentInput.toTokenAddress,
+      rawBalanceCount: rawBalances.length,
+    });
 
     const { srcBalances, assetsUsed } = resolveSourceBalances(currentInput.from, rawBalances);
     const sourceExecutions = pickSourceExecutions(chainExecutions, srcBalances);
+
+    logger.debug('exact-in: resolved srcBalances', {
+      srcBalances: srcBalances.map((b) => ({
+        chainID: b.chainID,
+        tokenAddress: b.tokenAddress,
+        symbol: b.symbol,
+        amount: b.amount,
+      })),
+    });
 
     // Same-token bridgeable fast-path: when dst is a non-COT knownToken/native AND every
     // source resolves to the same canonical symbol, skip the COT round-trip and bridge the
@@ -1549,16 +1593,31 @@ const _exactInRoute = async (
       currentInput.toChainId,
       currentInput.toTokenAddress
     );
-    if (
-      dstSymbol &&
-      dstSymbol !== cotSymbol &&
-      srcBalances.every((b) =>
-        equalFold(
-          getBridgeableSymbol(params.chainList, b.chainID, convertToEVMAddress(b.tokenAddress)),
-          dstSymbol
-        )
-      )
-    ) {
+    const sourceSymbols = srcBalances.map((b) => ({
+      chainID: b.chainID,
+      tokenAddress: convertToEVMAddress(b.tokenAddress),
+      symbol: getBridgeableSymbol(params.chainList, b.chainID, convertToEVMAddress(b.tokenAddress)),
+    }));
+    const dstSymbolMissing = !dstSymbol;
+    const dstIsCot = !!dstSymbol && equalFold(dstSymbol, cotSymbol);
+    const sourcesMatchDst =
+      !!dstSymbol && sourceSymbols.every((s) => !!s.symbol && equalFold(s.symbol, dstSymbol));
+    const sameTokenEligible = !dstSymbolMissing && !dstIsCot && sourcesMatchDst;
+    logger.debug('exact-in: same-token bridgeable check', {
+      dstChainId: currentInput.toChainId,
+      dstTokenAddress: currentInput.toTokenAddress,
+      dstSymbol,
+      cotSymbol,
+      sourceSymbols,
+      reason: sameTokenEligible
+        ? 'taking same-token fast-path'
+        : dstSymbolMissing
+          ? 'dst token not in knownTokens / not native — falling back to COT'
+          : dstIsCot
+            ? 'dst symbol matches COT — existing COT path handles this efficiently'
+            : 'one or more sources do not match dst symbol — falling back to COT',
+    });
+    if (sameTokenEligible) {
       return await buildSameTokenBridgeRoute({
         currentInput,
         srcBalances,
