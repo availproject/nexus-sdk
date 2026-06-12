@@ -37,6 +37,7 @@ import {
   convertTo32BytesHex,
   divDecimals,
   equalFold,
+  type FeeStore,
   getBalancesForSwap,
   getFeeStore,
   mulDecimals,
@@ -252,6 +253,27 @@ export const toAggregatorInputsWithSwapAddresses = (
       receiverAddress: swapAddress,
     };
   });
+
+/**
+ * Resolves a (chain, token) pair to its canonical bridgeable symbol — `equivalentCurrency`
+ * if set, else `symbol`, or the chain's native symbol for ZERO_ADDRESS / EADDRESS. Returns
+ * undefined when the token isn't in the chain's `knownTokens` and isn't native. Two tokens
+ * are bridgeable as a same-family pair iff their canonical symbols match.
+ */
+export const getBridgeableSymbol = (
+  chainList: ChainListType,
+  chainId: number,
+  tokenAddress: Hex
+): string | undefined => {
+  const chain = chainList.getChainByID(chainId);
+  if (!chain) return undefined;
+  if (equalFold(tokenAddress, ZERO_ADDRESS) || equalFold(tokenAddress, EADDRESS)) {
+    return chain.nativeCurrency.symbol;
+  }
+  const token = chain.custom.knownTokens.find((t) => equalFold(t.contractAddress, tokenAddress));
+  if (!token) return undefined;
+  return token.equivalentCurrency ?? token.symbol;
+};
 
 export const hasDestinationChainSourceSwapOutput = (
   sourceSwaps: Pick<QuoteResponse, 'chainID'>[],
@@ -1319,6 +1341,171 @@ type BridgeInput =
     })
   | null;
 
+/**
+ * Builds an EXACT_IN SwapRoute for the same-token bridgeable family case (USDT → USDT,
+ * ETH → ETH, etc.). No source swap, no destination swap; the bridge moves the token directly
+ * from non-dst sources to the user's EOA on the destination chain. Dst-chain sources stay at
+ * the EOA (nothing to bridge for them).
+ */
+const buildSameTokenBridgeRoute = async ({
+  currentInput,
+  srcBalances,
+  sourceExecutions,
+  assetsUsed,
+  dstChain,
+  dstTokenInfo,
+  feeStore,
+  rawBalances,
+  oraclePrices,
+  executionsVerification,
+  aggregators,
+  eoaAddress,
+  chainList,
+}: {
+  currentInput: ExactInSwapInput;
+  srcBalances: FlatBalance[];
+  sourceExecutions: SourceExecutionRecord;
+  assetsUsed: AssetUsed;
+  dstChain: Chain;
+  dstTokenInfo: Awaited<ReturnType<typeof getTokenInfo>>;
+  feeStore: FeeStore;
+  rawBalances: FlatBalance[];
+  oraclePrices: OraclePriceResponse;
+  executionsVerification: Promise<void>;
+  aggregators: Aggregator[];
+  eoaAddress: Hex;
+  chainList: ChainListType;
+}): Promise<SwapRoute> => {
+  const dstTokenIsNative =
+    equalFold(currentInput.toTokenAddress, ZERO_ADDRESS) ||
+    equalFold(currentInput.toTokenAddress, EADDRESS);
+  const dstTokenAddress: Hex = dstTokenIsNative ? ZERO_ADDRESS : currentInput.toTokenAddress;
+  const dstTokenDecimals = dstTokenInfo.decimals;
+
+  const bridgeAssets: BridgeAsset[] = [];
+  let bridgeBalance = new Decimal(0);
+  let dstChainBalance = new Decimal(0);
+  for (const source of srcBalances) {
+    if (source.chainID === currentInput.toChainId) {
+      dstChainBalance = dstChainBalance.add(source.amount);
+      continue;
+    }
+    // Normalize EADDRESS → ZERO_ADDRESS. Swap internals carry native as EADDRESS (see
+    // swap/sort.ts), but the bridge intent's `chainList.getTokenByAddress` lookup only
+    // resolves ZERO_ADDRESS as native — passing EADDRESS through causes the RFF builder
+    // to throw `Token/Asset … is not supported on chain`.
+    const evmAddress = convertToEVMAddress(source.tokenAddress);
+    const sourceContractAddress: Hex = equalFold(evmAddress, EADDRESS) ? ZERO_ADDRESS : evmAddress;
+    bridgeAssets.push({
+      chainID: source.chainID,
+      contractAddress: sourceContractAddress,
+      decimals: source.decimals,
+      eoaBalance: new Decimal(source.amount),
+      ephemeralBalance: new Decimal(0),
+    });
+    bridgeBalance = bridgeBalance.add(source.amount);
+  }
+
+  logger.debug('same-token bridge: route inputs', {
+    dstChainId: currentInput.toChainId,
+    dstTokenAddress,
+    dstTokenIsNative,
+    dstTokenDecimals,
+    bridgeAssets: bridgeAssets.map((a) => ({
+      ...a,
+      eoaBalance: a.eoaBalance.toFixed(),
+      ephemeralBalance: a.ephemeralBalance.toFixed(),
+    })),
+    bridgeBalance: bridgeBalance.toFixed(),
+    dstChainBalance: dstChainBalance.toFixed(),
+  });
+
+  let bridgeInput: BridgeInput = null;
+  if (bridgeAssets.length > 0) {
+    // Known sources → `maxAmount` IS the exact destination amount. Skip the deposit-gas
+    // haircut: deposits go through the ephemeral pipeline (Calibur / Safe via VSC), so
+    // gas is sponsored — the user's full native balance is bridgeable.
+    const { maxAmount } = await calculateMaxBridgeFee({
+      assets: toBridgeAssetInputs(bridgeAssets),
+      dst: {
+        chainId: currentInput.toChainId,
+        tokenAddress: dstTokenAddress,
+        decimals: dstTokenDecimals,
+      },
+      feeStore,
+      chainList,
+      skipDepositGasDeduction: true,
+    });
+    const bridgeAmount = new Decimal(maxAmount);
+    logger.debug('same-token bridge: maxAmount computed', {
+      bridgeBalance: bridgeBalance.toFixed(),
+      maxAmount,
+      bridgeAmount: bridgeAmount.toFixed(),
+      impliedFee: bridgeBalance.minus(bridgeAmount).toFixed(),
+    });
+    if (bridgeAmount.lte(0)) {
+      throw Errors.internal(
+        `same-token bridge: bridge amount non-positive after fees: ${bridgeAmount.toFixed()}`
+      );
+    }
+    bridgeInput = {
+      amount: bridgeAmount,
+      assets: bridgeAssets,
+      chainID: currentInput.toChainId,
+      decimals: dstTokenDecimals,
+      recipientAddress: eoaAddress,
+      tokenAddress: dstTokenAddress,
+      estimatedFees: createIntent({
+        dstChain,
+        assets: bridgeAssets,
+        feeStore,
+        output: {
+          chainID: currentInput.toChainId,
+          tokenAddress: dstTokenAddress,
+          decimals: dstTokenDecimals,
+          amount: bridgeAmount,
+        },
+        address: eoaAddress,
+      }).intent.fees,
+    };
+  }
+
+  const destinationExecution = buildDirectEoaDestinationExecution(eoaAddress);
+  const finalAmount = (bridgeInput?.amount ?? new Decimal(0)).plus(dstChainBalance);
+  const destination = createDestination(currentInput.toChainId, destinationExecution, finalAmount);
+
+  logger.debug('same-token bridge: route built', {
+    bridgeAmount: bridgeInput?.amount.toFixed() ?? '0',
+    bridgeTokenAddress: bridgeInput?.tokenAddress,
+    bridgeRecipient: bridgeInput?.recipientAddress,
+    dstChainBalance: dstChainBalance.toFixed(),
+    finalAmount: finalAmount.toFixed(),
+    destinationExecutionMode: destinationExecution.mode,
+    bridgeNull: bridgeInput === null,
+  });
+
+  await executionsVerification;
+  printRouteTimings();
+
+  return buildSwapRouteResult({
+    type: 'EXACT_IN',
+    source: {
+      swaps: [],
+      creationTime: Date.now(),
+      executions: sourceExecutions,
+      srcBuffer: new Decimal(0),
+    },
+    bridge: bridgeInput,
+    destination,
+    dstTokenInfo,
+    aggregators,
+    oraclePrices,
+    balances: rawBalances,
+    assetsUsed,
+    buffer: '0',
+  });
+};
+
 const _exactInRoute = async (
   input: ExactInSwapInput,
   params: SwapParams & {
@@ -1383,10 +1570,76 @@ const _exactInRoute = async (
 
   // === REFRESH: re-runs per call ===================================================
   const refresh = async (currentInput: ExactInSwapInput): Promise<SwapRoute> => {
-    logger.debug('exact-in: fetched balances', { balances: rawBalances });
+    logger.debug('exact-in: refresh start', {
+      from: currentInput.from,
+      toChainId: currentInput.toChainId,
+      toTokenAddress: currentInput.toTokenAddress,
+      rawBalanceCount: rawBalances.length,
+    });
 
     const { srcBalances, assetsUsed } = resolveSourceBalances(currentInput.from, rawBalances);
     const sourceExecutions = pickSourceExecutions(chainExecutions, srcBalances);
+
+    logger.debug('exact-in: resolved srcBalances', {
+      srcBalances: srcBalances.map((b) => ({
+        chainID: b.chainID,
+        tokenAddress: b.tokenAddress,
+        symbol: b.symbol,
+        amount: b.amount,
+      })),
+    });
+
+    // Same-token bridgeable fast-path: when dst is a non-COT knownToken/native AND every
+    // source resolves to the same canonical symbol, skip the COT round-trip and bridge the
+    // token directly EOA → EOA. USDC family stays in the existing path (the COT === USDC
+    // bridge already handles it efficiently).
+    const cotSymbol = CurrencyID[params.cotCurrencyID];
+    const dstSymbol = getBridgeableSymbol(
+      params.chainList,
+      currentInput.toChainId,
+      currentInput.toTokenAddress
+    );
+    const sourceSymbols = srcBalances.map((b) => ({
+      chainID: b.chainID,
+      tokenAddress: convertToEVMAddress(b.tokenAddress),
+      symbol: getBridgeableSymbol(params.chainList, b.chainID, convertToEVMAddress(b.tokenAddress)),
+    }));
+    const dstSymbolMissing = !dstSymbol;
+    const dstIsCot = !!dstSymbol && equalFold(dstSymbol, cotSymbol);
+    const sourcesMatchDst =
+      !!dstSymbol && sourceSymbols.every((s) => !!s.symbol && equalFold(s.symbol, dstSymbol));
+    const sameTokenEligible = !dstSymbolMissing && !dstIsCot && sourcesMatchDst;
+    logger.debug('exact-in: same-token bridgeable check', {
+      dstChainId: currentInput.toChainId,
+      dstTokenAddress: currentInput.toTokenAddress,
+      dstSymbol,
+      cotSymbol,
+      sourceSymbols,
+      reason: sameTokenEligible
+        ? 'taking same-token fast-path'
+        : dstSymbolMissing
+          ? 'dst token not in knownTokens / not native — falling back to COT'
+          : dstIsCot
+            ? 'dst symbol matches COT — existing COT path handles this efficiently'
+            : 'one or more sources do not match dst symbol — falling back to COT',
+    });
+    if (sameTokenEligible) {
+      return await buildSameTokenBridgeRoute({
+        currentInput,
+        srcBalances,
+        sourceExecutions,
+        assetsUsed,
+        dstChain,
+        dstTokenInfo,
+        feeStore,
+        rawBalances,
+        oraclePrices,
+        executionsVerification,
+        aggregators: params.aggregators,
+        eoaAddress: params.address.eoa,
+        chainList: params.chainList,
+      });
+    }
 
     const bridgeAssets: BridgeAsset[] = [];
 

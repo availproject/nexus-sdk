@@ -45,7 +45,12 @@ import {
   removeIntentHashFromStore,
   storeIntentHashToStore,
 } from '../core/utils';
-import { createPermitOnlyApprovalTx, type PublicClientList, packERC20Approve } from './utils';
+import {
+  createPermitOnlyApprovalTx,
+  isNativeAddress,
+  type PublicClientList,
+  packERC20Approve,
+} from './utils';
 
 const logger = getLogger();
 const BRIDGE_VAULT_PERMIT_DEADLINE_MINUTES = 15n;
@@ -243,8 +248,10 @@ export const createIntent = ({
         asset.ephemeralBalance.toString()
       );
 
-      // Create allowance and deposit tx for (asset.eoaBalance) from usdc(eoa) -> usdc(eph)
-      if (!asset.eoaBalance.eq(0)) {
+      // Native assets skip permit/transferFrom — the deposit's `value` field delivers
+      // the native inline (set in createBridgeRFF). On 7702 the EOA-as-Calibur already
+      // holds the native; createPermitAndTransferFromTx would fail on ZERO_ADDRESS.
+      if (!asset.eoaBalance.eq(0) && !isNativeAddress(asset.contractAddress)) {
         eoaToEphemeralCalls[asset.chainID] = {
           amount: mulDecimals(asset.eoaBalance, asset.decimals),
           decimals: asset.decimals,
@@ -254,7 +261,10 @@ export const createIntent = ({
     } else {
       borrowFromThisChain = unaccountedBalance2;
 
-      if (borrowFromThisChain.gt(asset.ephemeralBalance.toString())) {
+      if (
+        borrowFromThisChain.gt(asset.ephemeralBalance.toString()) &&
+        !isNativeAddress(asset.contractAddress)
+      ) {
         logger.debug('createBridgeRFF:2.2', {
           assetEphemeral: asset.ephemeralBalance.toFixed(),
           borrowFromThisChain: borrowFromThisChain.toFixed(),
@@ -325,6 +335,13 @@ export const createVaultFundingAndAllowanceCalls = async ({
   vaultAddress: Hex;
 }): Promise<Tx[]> => {
   const tx: Tx[] = [];
+
+  // Native sources skip transferFrom/approve entirely — the deposit call itself carries
+  // the value (set in createBridgeRFF). Native funding is handled by the executor having
+  // the native balance directly (7702: EOA-as-Calibur; safe_account: pre-funded Safe).
+  if (isNativeAddress(tokenAddress)) {
+    return tx;
+  }
 
   if (sourceExecution.mode === 'safe_account') {
     tx.push({
@@ -508,7 +525,9 @@ export const createBridgeRFF = async ({
         functionName: 'deposit',
       }),
       to: config.chainList.getVaultContractAddress(Number(source.chainID)),
-      value: 0n,
+      // Native sources pay the deposit inline via `value`; ERC20 sources transferred
+      // ahead of time via createVaultFundingAndAllowanceCalls and use value: 0.
+      value: isNativeAddress(tokenAddress) ? source.valueRaw : 0n,
     });
 
     depositCalls[Number(source.chainID)] = {

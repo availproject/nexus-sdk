@@ -1,8 +1,10 @@
 import { ERC20ABI, Universe } from '@avail-project/ca-common';
 import Decimal from 'decimal.js';
-import { decodeFunctionData } from 'viem';
+import { decodeFunctionData, type Hex, pad } from 'viem';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SUPPORTED_CHAINS } from '../../src/commons';
+
+const pad32 = (h: Hex) => pad(h, { size: 32, dir: 'left' });
 
 const createPermitOnlyApprovalTxMock = vi.hoisted(() => vi.fn());
 const cosmosCreateRFFMock = vi.hoisted(() => vi.fn());
@@ -161,6 +163,32 @@ describe('createVaultFundingAndAllowanceCalls', () => {
       })
     );
   });
+
+  it('returns no funding/allowance calls for native sources (no transfer/approve needed)', async () => {
+    // Native sources don't go through ERC20 transferFrom/approve. The deposit itself
+    // carries the value (added in createBridgeRFF). Funding/allowance phase is a no-op.
+    const calls = await createVaultFundingAndAllowanceCalls({
+      allowance: 0n,
+      chain: { id: 1 } as never,
+      deadline: 123456789n,
+      evm: {
+        address: '0x2222222222222222222222222222222222222222',
+        client: { address: '0x2222222222222222222222222222222222222222' } as never,
+      },
+      publicClientList: { get: vi.fn(() => ({})) } as never,
+      sourceExecution: {
+        address: '0x2222222222222222222222222222222222222222',
+        entryPoint: null,
+        mode: '7702',
+      },
+      tokenAddress: '0x0000000000000000000000000000000000000000',
+      valueRaw: 1_000_000_000_000_000_000n,
+      vaultAddress: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+    });
+
+    expect(createPermitOnlyApprovalTxMock).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+  });
 });
 
 describe('createBridgeRFF', () => {
@@ -305,5 +333,97 @@ describe('createBridgeRFF', () => {
     ).rejects.toThrow('permit failed');
 
     expect(cosmosCreateRFFMock).not.toHaveBeenCalled();
+  });
+
+  it('native source deposit call carries the source value (no transfer/approve pre-calls)', async () => {
+    // Native source: createBridgeRFF must emit ONLY the vault.deposit call, with
+    // `value: source.valueRaw` so the executor (Calibur on 7702, Safe on safe_account)
+    // sends ETH inline with the deposit.
+    createRFFromIntentMock.mockResolvedValueOnce({
+      msgBasicCosmos: {},
+      omniversalRFF: {
+        asEVMRFF: () => ({
+          sources: [
+            {
+              universe: Universe.ETHEREUM,
+              chainID: BigInt(SUPPORTED_CHAINS.BASE),
+              contractAddress: pad32('0x0000000000000000000000000000000000000000'),
+              value: 1_000_000_000_000_000_000n,
+            },
+          ],
+          destinationUniverse: Universe.ETHEREUM,
+          destinationChainID: BigInt(SUPPORTED_CHAINS.HYPEREVM),
+          recipientAddress: pad32('0x4444444444444444444444444444444444444444'),
+          destinations: [
+            {
+              contractAddress: pad32('0x0000000000000000000000000000000000000000'),
+              value: 1_000_000n,
+            },
+          ],
+          nonce: 1n,
+          expiry: 1n,
+          parties: [
+            {
+              universe: Universe.ETHEREUM,
+              address_: pad32('0x4444444444444444444444444444444444444444'),
+            },
+          ],
+        }),
+        protobufRFF: {
+          sources: [{ chainID: new Uint8Array([SUPPORTED_CHAINS.BASE]) }],
+        },
+      },
+      signatureData: [
+        {
+          requestHash: new Uint8Array(32),
+          signature: new Uint8Array([1, 2, 3]),
+          universe: Universe.ETHEREUM,
+        },
+      ],
+      sources: [
+        {
+          chainID: SUPPORTED_CHAINS.BASE,
+          tokenAddress: '0x0000000000000000000000000000000000000000',
+          valueRaw: 1_000_000_000_000_000_000n,
+        },
+      ],
+    });
+    getAllowancesMock.mockResolvedValueOnce({ [SUPPORTED_CHAINS.BASE]: 0n });
+
+    const result = await createBridgeRFF({
+      config: makeConfig({
+        [SUPPORTED_CHAINS.BASE]: {
+          address: '0x2222222222222222222222222222222222222222',
+          entryPoint: null,
+          mode: '7702',
+        },
+      }),
+      input: {
+        assets: [
+          {
+            chainID: SUPPORTED_CHAINS.BASE,
+            contractAddress: '0x0000000000000000000000000000000000000000',
+            decimals: 18,
+            eoaBalance: new Decimal(1),
+            ephemeralBalance: new Decimal(0),
+          },
+        ],
+      },
+      output: {
+        amount: new Decimal(1),
+        chainID: SUPPORTED_CHAINS.HYPEREVM,
+        decimals: 18,
+        tokenAddress: '0x0000000000000000000000000000000000000000',
+      },
+      recipientAddress: '0x4444444444444444444444444444444444444444',
+    });
+
+    const depositTxs = result.depositCalls[SUPPORTED_CHAINS.BASE].tx;
+    expect(depositTxs).toHaveLength(1);
+    expect(depositTxs[0].value).toBe(1_000_000_000_000_000_000n);
+    // Native funding must NOT route through eoaToEphemeralCalls (no permit possible).
+    // On 7702 the EOA-as-Calibur already holds the native; the deposit's `value` field
+    // delivers it inline. createPermitAndTransferFromTx would fail on ZERO_ADDRESS.
+    expect(result.eoaToEphemeralCalls).toEqual({});
   });
 });

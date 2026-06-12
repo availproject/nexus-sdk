@@ -1,11 +1,12 @@
 import {
+  isDeliverTxFailure,
+  isDeliverTxSuccess,
   type MsgCreateRequestForFunds,
   MsgCreateRequestForFundsResponse,
   type MsgDoubleCheckTx,
   MsgRefundReq,
   MsgRefundReqResponse,
 } from '@avail-project/ca-common';
-import { isDeliverTxFailure, isDeliverTxSuccess } from '@cosmjs/stargate';
 import type Long from 'long';
 import {
   type CosmosOptions,

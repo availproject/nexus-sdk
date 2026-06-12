@@ -14,6 +14,7 @@ import { convertTo32Bytes } from '../../../src/swap/utils';
 
 const determineSwapRouteMock = vi.hoisted(() => vi.fn());
 const createPermitAndTransferFromTxMock = vi.hoisted(() => vi.fn());
+const createPermitAndTransferFromTxNoSendCallsMock = vi.hoisted(() => vi.fn());
 const createPermitOnlyApprovalTxMock = vi.hoisted(() => vi.fn());
 const createSweeperTxsMock = vi.hoisted(() => vi.fn());
 const performDestinationSwapMock = vi.hoisted(() => vi.fn());
@@ -51,6 +52,7 @@ vi.mock('../../../src/swap/utils', async () => {
   return {
     ...actual,
     createPermitAndTransferFromTx: createPermitAndTransferFromTxMock,
+    createPermitAndTransferFromTxNoSendCalls: createPermitAndTransferFromTxNoSendCallsMock,
     createPermitOnlyApprovalTx: createPermitOnlyApprovalTxMock,
     createSweeperTxs: createSweeperTxsMock,
     performDestinationSwap: performDestinationSwapMock,
@@ -201,7 +203,7 @@ describe('swap pipeline characterization', () => {
         aggregators: [],
         assetsUsed: [],
         balances: [],
-        oraclePrices: {},
+        oraclePrices: [],
       },
       ...overrides,
     }) as never;
@@ -429,6 +431,18 @@ describe('swap pipeline characterization', () => {
         },
       ];
     });
+    createPermitAndTransferFromTxNoSendCallsMock.mockImplementation(async () => {
+      pipelineEvents.push('permitTransfer');
+      return {
+        txs: [
+          {
+            data: '0xpermittransfer',
+            to: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            value: 0n,
+          },
+        ],
+      };
+    });
     createPermitOnlyApprovalTxMock.mockImplementation(async () => {
       pipelineEvents.push('permitOnly');
       return {
@@ -509,7 +523,7 @@ describe('swap pipeline characterization', () => {
         balances: [
           makeBalance(SUPPORTED_CHAINS.HYPEREVM, '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'),
         ],
-        oraclePrices: {},
+        oraclePrices: [],
       },
     });
 
@@ -657,7 +671,7 @@ describe('swap pipeline characterization', () => {
         balances: [
           makeBalance(SUPPORTED_CHAINS.HYPEREVM, '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'),
         ],
-        oraclePrices: {},
+        oraclePrices: [],
       },
     });
     createPermitOnlyApprovalTxMock.mockRejectedValueOnce(new Error('permit failed'));
@@ -718,7 +732,7 @@ describe('swap pipeline characterization', () => {
         balances: [
           makeBalance(SUPPORTED_CHAINS.HYPEREVM, '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'),
         ],
-        oraclePrices: {},
+        oraclePrices: [],
       },
     });
 
@@ -821,7 +835,7 @@ describe('swap pipeline characterization', () => {
         balances: [
           makeBalance(SUPPORTED_CHAINS.HYPEREVM, '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'),
         ],
-        oraclePrices: {},
+        oraclePrices: [],
       },
     });
 
@@ -886,7 +900,7 @@ describe('swap pipeline characterization', () => {
           makeBalance(SUPPORTED_CHAINS.HYPEREVM, '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'),
           makeBalance(SUPPORTED_CHAINS.ARBITRUM, '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'),
         ],
-        oraclePrices: {},
+        oraclePrices: [],
       },
     });
 

@@ -5,9 +5,9 @@ import type {
   QueryAllSolverDataResponse,
   QueryGetProtocolFeesResponse,
   RequestForFunds,
+  SigningStargateClient,
   Universe,
 } from '@avail-project/ca-common';
-import type { SigningStargateClient } from '@cosmjs/stargate';
 import type Decimal from 'decimal.js';
 import type Long from 'long';
 import type { ByteArray, Hex, TransactionReceipt, WalletClient } from 'viem';

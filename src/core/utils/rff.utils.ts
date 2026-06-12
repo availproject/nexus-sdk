@@ -200,6 +200,7 @@ const calculateMaxBridgeFee = async ({
   feeStore,
   dst,
   chainList,
+  skipDepositGasDeduction = false,
 }: {
   dst: {
     chainId: number;
@@ -215,18 +216,32 @@ const calculateMaxBridgeFee = async ({
   }[];
   feeStore: FeeStore;
   chainList: ChainListType;
+  /**
+   * When true, skip the per-native-source deposit-gas haircut. Use for flows where
+   * deposits are gas-sponsored (Calibur / Safe via VSC) and the user's full native
+   * balance can be bridged. Default keeps the haircut for EOA-driven deposits.
+   */
+  skipDepositGasDeduction?: boolean;
 }) => {
   logger.debug('calcumateMaxBridgeFee', {
     'dst.chainId': dst.chainId,
   });
-  const assetsWithDepositRemoved = await assetListWithDepositDeducted(
-    assets,
-    chainList,
-    {
-      destinationChainId: dst.chainId,
-      feeMultiplier: 120n,
-    } // 20% explicit fee buffer, plus internal representative deposit buffer
-  );
+  const assetsWithDepositRemoved = skipDepositGasDeduction
+    ? assets.map((a) => ({
+        balance: new Decimal(a.balance),
+        chainID: a.chainId,
+        decimals: a.decimals,
+        tokenContract: a.contractAddress,
+        universe: a.universe,
+      }))
+    : await assetListWithDepositDeducted(
+        assets,
+        chainList,
+        {
+          destinationChainId: dst.chainId,
+          feeMultiplier: 120n,
+        } // 20% explicit fee buffer, plus internal representative deposit buffer
+      );
   const borrow = assetsWithDepositRemoved.reduce((accumulator, asset) => {
     if (asset.chainID === dst.chainId) {
       return accumulator;

@@ -31,11 +31,25 @@ export const createSwapIntent = (
       : destination.inputAmount.min.toFixed());
 
   // Destination USD value — the aggregator's quote carries an explicit USD `value` for both
-  // sides; use the output's value since it pairs with the output amount shown above. Fallback
-  // when there's no tokenSwap: the destination token is already COT (USDC), so amount ≈ USD.
+  // sides; use the output's value since it pairs with the output amount shown above. With no
+  // tokenSwap (dst is COT, or same-token bridge like USDT→USDT / ETH→ETH), look up the dst
+  // token's oracle price and convert. Falls back to dstAmount only if no oracle price exists —
+  // historical behavior, ≈ correct for stables but wildly wrong for ETH/etc, so log the miss.
+  const dstOraclePrice = extras.oraclePrices.find(
+    (p) =>
+      p.chainId === input.data.toChainId &&
+      equalFold(
+        equalFold(p.tokenAddress, ZERO_ADDRESS) ? ZERO_ADDRESS : p.tokenAddress,
+        equalFold(input.data.toTokenAddress, ZERO_ADDRESS)
+          ? ZERO_ADDRESS
+          : input.data.toTokenAddress
+      )
+  );
   const dstValue = destination.swap.tokenSwap
     ? destination.swap.tokenSwap.quote.output.value.toString()
-    : dstAmount;
+    : dstOraclePrice
+      ? new Decimal(dstAmount).mul(dstOraclePrice.priceUsd).toFixed()
+      : dstAmount;
 
   const gasAmount = destination.swap.gasSwap?.quote?.output.amount ?? '0';
   const gasValue = destination.swap.gasSwap?.quote?.output.value?.toString() ?? '0';

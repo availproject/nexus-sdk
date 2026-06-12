@@ -180,9 +180,19 @@ export const isNativeAddress = (contractAddress: Hex) =>
   equalFold(contractAddress, ZERO_ADDRESS) || equalFold(contractAddress, EADDRESS);
 
 /**
- * Creates EIP2612 signature or executes non sponsored approval and transferFrom Tx
+ * Creates EIP2612 signature or executes non sponsored approval and transferFrom Tx.
+ *
+ * Direct-approval (non-permit) branch: `writeContract` fires the on-chain approve
+ * synchronously (wallet signature happens before this function returns), but the
+ * receipt wait + cache update are returned as `pending` so callers can batch
+ * multiple approvals' mining waits in parallel (e.g. via `Promise.all`) instead
+ * of blocking the loop on each one.
+ *
+ * Today only `SourceSwapsHandler.process` consumes `pending` directly. Other
+ * callers use the {@link createPermitAndTransferFromTx} wrapper below which
+ * awaits `pending` inline, preserving the original sequential semantics.
  */
-export const createPermitAndTransferFromTx = async ({
+export const createPermitAndTransferFromTxNoSendCalls = async ({
   amount,
   approval,
   cache,
@@ -204,8 +214,9 @@ export const createPermitAndTransferFromTx = async ({
   ownerWallet: WalletClient;
   publicClient: PublicClient;
   spender: Hex;
-}) => {
+}): Promise<{ txs: Tx[]; pending?: Promise<void> }> => {
   const txList: Tx[] = [];
+  let pending: Promise<void> | undefined;
   await switchChain(ownerWallet, chain);
 
   logger.debug('createPermitCalls', {
@@ -268,17 +279,18 @@ export const createPermitAndTransferFromTx = async ({
         functionName: 'approve',
       });
       const hash = await ownerWallet.writeContract(request);
-      await waitForTxReceipt(hash, publicClient, 1);
-      // On retry the value will be present, so no need to refetch allowance
-      cache.addAllowanceValue(
-        {
-          chainID: chain.id,
-          contractAddress,
-          owner,
-          spender,
-        },
-        amount
-      );
+      pending = waitForTxReceipt(hash, publicClient, 1).then(() => {
+        // On retry the value will be present, so no need to refetch allowance
+        cache.addAllowanceValue(
+          {
+            chainID: chain.id,
+            contractAddress,
+            owner,
+            spender,
+          },
+          amount
+        );
+      });
     } else {
       const approvalTx =
         approval ??
@@ -307,7 +319,173 @@ export const createPermitAndTransferFromTx = async ({
     value: 0n,
   });
 
-  return txList;
+  return { txs: txList, pending };
+};
+
+/**
+ * Backwards-compatible wrapper around {@link createPermitAndTransferFromTxNoSendCalls}
+ * that awaits the on-chain approval mining inline before returning. Existing callers
+ * (BridgeHandler, DestinationSwapHandler, CombinedSwapHandler) keep their sequential
+ * "approve → mine → continue" semantics.
+ */
+export const createPermitAndTransferFromTx = async (
+  params: Parameters<typeof createPermitAndTransferFromTxNoSendCalls>[0]
+): Promise<Tx[]> => {
+  const { txs, pending } = await createPermitAndTransferFromTxNoSendCalls(params);
+  if (pending) {
+    await pending;
+  }
+  return txs;
+};
+
+type SourceSwapApprovalInput = {
+  amountRaw: bigint;
+  contractAddress: Hex;
+  symbol: string;
+};
+
+/**
+ * Per-chain EIP-5792 variant of {@link createPermitAndTransferFromTxNoSendCalls}.
+ *
+ * Iterates the chain's non-native source swaps and produces a per-swap `txs` array
+ * matching the per-swap call shape consumed by `SourceSwapsHandler.process`:
+ *   - permit-supported tokens → `[permit, transferFrom]`
+ *   - direct-approval tokens with sufficient cached allowance → `[transferFrom]`
+ *   - direct-approval tokens needing approval → `[transferFrom]`, with the `approve`
+ *     call queued and sent as ONE `wallet_sendCalls` bundle after the loop. The
+ *     bundle's mining wait + cache updates are returned as `pending` so the caller
+ *     can defer awaiting until just before the Safe/Calibur batch is submitted.
+ *
+ * Callers must first verify {@link hasSendCallsSupport} for the chain. Bundling a
+ * single approve has no UX benefit over `writeContract`, so dispatch to this path
+ * only when the chain has 2+ source swaps.
+ */
+export const createPermitAndTransferFromCallsWithSendCalls = async ({
+  swaps,
+  cache,
+  chain,
+  disablePermit,
+  owner,
+  ownerWallet,
+  publicClient,
+  spender,
+}: {
+  swaps: SourceSwapApprovalInput[];
+  cache: Cache;
+  chain: Chain;
+  disablePermit?: boolean;
+  owner: Hex;
+  ownerWallet: WalletClient;
+  publicClient: PublicClient;
+  spender: Hex;
+}): Promise<{ txsPerSwap: Tx[][]; pending?: Promise<void> }> => {
+  await switchChain(ownerWallet, chain);
+
+  const txsPerSwap: Tx[][] = [];
+  const queuedApproves: {
+    call: { to: Hex; data: Hex; value: bigint };
+    allowanceKey: Parameters<Cache['addAllowanceValue']>[0];
+    amount: bigint;
+  }[] = [];
+
+  for (const swap of swaps) {
+    const { amountRaw: amount, contractAddress } = swap;
+    const txList: Tx[] = [];
+
+    let allowance = cache.getAllowance({
+      chainID: chain.id,
+      contractAddress,
+      owner,
+      spender,
+    });
+
+    if (allowance === undefined) {
+      allowance = await publicClient.readContract({
+        abi: ERC20ABI,
+        address: contractAddress,
+        args: [owner, spender],
+        functionName: 'allowance',
+      });
+    }
+
+    if (allowance < amount) {
+      let shouldUseDirectApproval = disablePermit === true;
+      let variant = PermitVariant.Unsupported;
+      let version = 0;
+
+      if (!shouldUseDirectApproval) {
+        const permitDetails =
+          cache.getPermit({ chainID: chain.id, contractAddress }) ??
+          (await getPermitVariantAndVersion(contractAddress, publicClient));
+        variant = permitDetails.variant;
+        version = permitDetails.version;
+        shouldUseDirectApproval = variant === PermitVariant.Unsupported;
+      }
+
+      if (shouldUseDirectApproval) {
+        const abi = equalFold(
+          TOKEN_CONTRACT_ADDRESSES.USDT[SUPPORTED_CHAINS.ETHEREUM],
+          contractAddress
+        )
+          ? [ETHEREUM_USDT_APPROVE_ABI]
+          : ERC20ABI;
+        const data = encodeFunctionData({
+          abi,
+          args: [spender, amount],
+          functionName: 'approve',
+        });
+        queuedApproves.push({
+          call: { to: contractAddress, data, value: 0n },
+          allowanceKey: { chainID: chain.id, contractAddress, owner, spender },
+          amount,
+        });
+      } else {
+        const approvalTx = await createPermitApprovalTx({
+          amount,
+          chain,
+          contractAddress,
+          owner,
+          ownerWallet,
+          publicClient,
+          spender,
+          variant,
+          version,
+        });
+        txList.push(approvalTx);
+      }
+    }
+
+    txList.push({
+      data: encodeFunctionData({
+        abi: ERC20ABI,
+        args: [owner, spender, amount],
+        functionName: 'transferFrom',
+      }),
+      to: contractAddress,
+      value: 0n,
+    });
+
+    txsPerSwap.push(txList);
+  }
+
+  let pending: Promise<void> | undefined;
+  if (queuedApproves.length > 0) {
+    const { id } = await ownerWallet.sendCalls({
+      account: owner,
+      chain,
+      calls: queuedApproves.map((q) => q.call),
+    });
+    pending = ownerWallet.waitForCallsStatus({ id }).then((result) => {
+      if (result.status !== 'success') {
+        throw Errors.internal(`wallet_sendCalls bundle ${id} ended with status ${result.status}`);
+      }
+      for (const q of queuedApproves) {
+        cache.addAllowanceValue(q.allowanceKey, q.amount);
+      }
+    });
+  }
+
+  return { txsPerSwap, pending };
 };
 
 const domainSeparatorAbi = [
@@ -836,7 +1014,7 @@ export class Cache {
 
       for (const input of inputs) {
         requests.push(
-          equalFold(input.contractAddress, EADDRESS)
+          isNativeAddress(input.contractAddress)
             ? Promise.resolve(this.allowanceValues.set(getAllowanceCacheKey(input), maxUint256))
             : publicClient
                 .readContract({

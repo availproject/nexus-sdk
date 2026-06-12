@@ -146,6 +146,15 @@ const USDC_BASE: Hex = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
 const USDC_ARBITRUM: Hex = '0xaf88d065e77c8cc2239327c5edb3a432268e5831';
 const USDC_HYPEREVM: Hex = '0xb88339CB7199b77E23DB6E890353E22632Ba630f';
 
+// USDT addresses (bridgeable knownToken family — same canonical symbol across chains).
+const USDT_ARBITRUM: Hex = '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9';
+const USDT_OPTIMISM: Hex = '0x94b008aa00579c1307b0ef2c499ad98a8ce58e58';
+
+// Production stores native balances under EADDRESS (see swap/sort.ts) — match the convention
+// in fixtures so resolveSourceBalances finds the source.
+const NATIVE: Hex = '0x0000000000000000000000000000000000000000';
+const NATIVE_EADDRESS: Hex = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
+
 // Non-COT placeholder ERC20 addresses (valid hex, distinct per chain).
 const NONCOT_BASE: Hex = '0xeeee0000000000000000000000000000babe0001';
 const NONCOT_ARBITRUM: Hex = '0xeeee00000000000000000000000000000abb0001';
@@ -799,5 +808,107 @@ describe('EXACT_OUT bridge amount excludes dst-chain COT', () => {
     expect(route.destination.swap.tokenSwap).not.toBeNull();
     const wrapperTotal = route.bridge!.amount.plus(5);
     expect(wrapperTotal.toFixed()).toBe(route.destination.inputAmount.max.toFixed());
+  });
+});
+
+// EXACT_IN same-token bridge: when source(s) and destination share a canonical bridgeable
+// token symbol (e.g. USDT → USDT, ETH → ETH), skip the COT round-trip entirely. The bridge
+// moves the token directly via the ephemeral pipeline; no source swap, no destination swap.
+describe('EXACT_IN same-token bridge (skip COT round-trip)', () => {
+  it('USDT_arb → USDT_op: bridges USDT directly with no swaps', async () => {
+    const { route } = await runDetermineSwapRoute({
+      input: exactInInput({
+        from: [{ chainId: SUPPORTED_CHAINS.ARBITRUM, tokenAddress: USDT_ARBITRUM }],
+        toChainId: SUPPORTED_CHAINS.OPTIMISM,
+        toTokenAddress: USDT_OPTIMISM,
+      }),
+      preloadedBalances: [makeBalance(SUPPORTED_CHAINS.ARBITRUM, USDT_ARBITRUM, '10', 6, 'USDT')],
+      oraclePrices: [
+        ...oraclePrices,
+        makeOraclePrice(SUPPORTED_CHAINS.ARBITRUM, USDT_ARBITRUM),
+        makeOraclePrice(SUPPORTED_CHAINS.OPTIMISM, USDT_OPTIMISM),
+      ],
+    });
+
+    expect(route.source.swaps).toEqual([]);
+    expect(route.destination.swap.tokenSwap).toBeNull();
+    expect(route.destination.swap.gasSwap).toBeNull();
+    expect(route.bridge).not.toBeNull();
+    // Bridge moves USDT, not COT (USDC).
+    expect(route.bridge!.tokenAddress.toLowerCase()).toBe(USDT_OPTIMISM.toLowerCase());
+    // Bridge sources the USDT on Arbitrum.
+    expect(route.bridge!.assets).toHaveLength(1);
+    expect(route.bridge!.assets[0].contractAddress.toLowerCase()).toBe(USDT_ARBITRUM.toLowerCase());
+    expect(route.bridge!.assets[0].eoaBalance.toFixed()).toBe('10');
+    // Recipient = EOA (direct delivery, no sweep needed).
+    expect(route.bridge!.recipientAddress.toLowerCase()).toBe(TEST_EOA.toLowerCase());
+    expect(route.destination.execution.mode).toBe('direct_eoa');
+  });
+
+  it('native ETH multi-source (Arb + Base) → native ETH on Optimism: bridges native, no swaps', async () => {
+    const { route } = await runDetermineSwapRoute({
+      input: exactInInput({
+        from: [
+          { chainId: SUPPORTED_CHAINS.ARBITRUM, tokenAddress: NATIVE },
+          { chainId: SUPPORTED_CHAINS.BASE, tokenAddress: NATIVE },
+        ],
+        toChainId: SUPPORTED_CHAINS.OPTIMISM,
+        toTokenAddress: NATIVE,
+      }),
+      preloadedBalances: [
+        makeBalance(SUPPORTED_CHAINS.ARBITRUM, NATIVE_EADDRESS, '1', 18, 'ETH'),
+        makeBalance(SUPPORTED_CHAINS.BASE, NATIVE_EADDRESS, '1', 18, 'ETH'),
+      ],
+      oraclePrices: [
+        ...oraclePrices,
+        makeOraclePrice(SUPPORTED_CHAINS.ARBITRUM, NATIVE),
+        makeOraclePrice(SUPPORTED_CHAINS.BASE, NATIVE),
+        makeOraclePrice(SUPPORTED_CHAINS.OPTIMISM, NATIVE),
+      ],
+    });
+
+    expect(route.source.swaps).toEqual([]);
+    expect(route.destination.swap.tokenSwap).toBeNull();
+    expect(route.bridge).not.toBeNull();
+    expect(route.bridge!.tokenAddress.toLowerCase()).toBe(NATIVE);
+    expect(route.bridge!.assets).toHaveLength(2);
+    expect(route.bridge!.amount.toFixed()).toBe('2');
+    expect(route.bridge!.recipientAddress.toLowerCase()).toBe(TEST_EOA.toLowerCase());
+    // Downstream bridge code (chainList.getTokenByAddress / createRFFromIntent) only
+    // recognizes ZERO_ADDRESS as native. Sources stored under EADDRESS — the swap
+    // internal convention — must be normalized to ZERO_ADDRESS here, otherwise the
+    // intent's token lookup fails with "Token/Asset is not supported on chain".
+    for (const asset of route.bridge!.assets) {
+      expect(asset.contractAddress.toLowerCase()).toBe(NATIVE);
+    }
+  });
+
+  it('mixed family (USDT + USDC → USDT) falls back to COT flow with source swap', async () => {
+    // Sources span two canonical symbols (USDT, USDC). The same-token fast-path requires
+    // every source to share the dst symbol — so this must fall back to the COT pipeline,
+    // which swaps USDC → USDT at the dst chain (or USDT → USDC at the source).
+    const { route } = await runDetermineSwapRoute({
+      input: exactInInput({
+        from: [
+          { chainId: SUPPORTED_CHAINS.ARBITRUM, tokenAddress: USDT_ARBITRUM },
+          { chainId: SUPPORTED_CHAINS.ARBITRUM, tokenAddress: USDC_ARBITRUM },
+        ],
+        toChainId: SUPPORTED_CHAINS.OPTIMISM,
+        toTokenAddress: USDT_OPTIMISM,
+      }),
+      preloadedBalances: [
+        makeBalance(SUPPORTED_CHAINS.ARBITRUM, USDT_ARBITRUM, '5', 6, 'USDT'),
+        makeBalance(SUPPORTED_CHAINS.ARBITRUM, USDC_ARBITRUM, '5', 6, 'USDC'),
+      ],
+      oraclePrices: [
+        ...oraclePrices,
+        makeOraclePrice(SUPPORTED_CHAINS.ARBITRUM, USDT_ARBITRUM),
+        makeOraclePrice(SUPPORTED_CHAINS.OPTIMISM, USDT_OPTIMISM),
+      ],
+    });
+
+    // USDT source must be swapped to USDC; bridge runs in USDC; dst swap converts back to USDT.
+    expect(route.source.swaps.length).toBeGreaterThan(0);
+    expect(route.destination.swap.tokenSwap).not.toBeNull();
   });
 });

@@ -36,11 +36,8 @@ const baseConfig = {
     // Peer dependencies that consumers should install
     ...Object.keys(packageJson.peerDependencies || {}),
     /^viem/,
-    'buffer',
     // External dependencies that consumers should install
     '@avail-project/ca-common',
-    '@cosmjs/proto-signing',
-    '@cosmjs/stargate',
     '@metamask/safe-event-emitter',
     'decimal.js',
     'long',
@@ -88,7 +85,6 @@ export default defineConfig([
       ...Object.keys(packageJson.peerDependencies || {}),
       /^viem/,
       /^@arcana/,
-      /^@cosmjs/,
       '@metamask/safe-event-emitter',
       'decimal.js',
       'long',
