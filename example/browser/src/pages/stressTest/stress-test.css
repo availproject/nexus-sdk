@@ -1,0 +1,905 @@
+/* ═══════════════════════════════════════════════════════════════════
+   STRESS TEST — layout-only styles.
+   All colors come from App.css tokens (--primary, --accent, --panel,
+   --line, --success, --warning, --danger, etc.). No parallel palette.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Page shell ── */
+.stress-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.stress-layout .status {
+  color: var(--muted);
+  text-align: center;
+  font-size: var(--text-base);
+  margin: 0;
+  padding: 24px 0;
+}
+
+.stress-layout .status.error {
+  color: var(--danger);
+}
+
+/* ── Hero card body — extends .hero-card from App.css ── */
+.stress-hero-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 24px;
+  align-items: start;
+}
+
+.stress-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+.stress-disclaimer {
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid oklch(from var(--warning) l c h / 0.32);
+  background: var(--warning-soft);
+  color: oklch(from var(--warning) 0.92 c h);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+:root[data-theme="light"] .stress-disclaimer {
+  color: oklch(from var(--warning) 0.32 c h);
+}
+
+.stress-disclaimer-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--warning);
+}
+
+.stress-disclaimer strong {
+  color: var(--warning);
+}
+
+/* ── Form sections (no nested cards) ── */
+.field-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.field-section:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.field-section-label {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--muted);
+}
+
+.field-section .form-grid {
+  gap: 14px;
+}
+
+.field-helper {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  margin: 4px 0 0;
+  word-break: break-all;
+}
+
+/* ── Token & Destination collapsible (uses .intent-box pattern) ── */
+.stress-collapsible {
+  border: 1px solid oklch(from var(--accent) l c h / 0.12);
+  border-radius: var(--radius-md);
+  background: var(--panel-2);
+  overflow: hidden;
+}
+
+.stress-collapsible-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 12px 14px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-base);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.stress-collapsible-toggle:hover {
+  background: oklch(from var(--accent) l c h / 0.05);
+}
+
+.stress-collapsible-toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.stress-collapsible-title {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--muted);
+}
+
+.stress-collapsible-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.stress-collapsible-tag {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--panel);
+  font-size: var(--text-xs);
+  color: var(--text);
+}
+
+.stress-collapsible-chevron {
+  flex-shrink: 0;
+  color: var(--muted);
+  transition: transform 0.2s ease;
+}
+
+.stress-collapsible-chevron.open {
+  transform: rotate(180deg);
+}
+
+.stress-collapsible-body {
+  padding: 14px;
+  border-top: 1px solid var(--line);
+}
+
+/* ── Action row ── */
+.stress-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.stress-actions .intent-button-deny,
+.stress-actions .intent-button-stop {
+  flex: 0 0 auto;
+}
+
+/* ── Model explainer aside ── */
+.stress-explainer {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  min-width: 0;
+}
+
+.stress-explainer-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stress-explainer-eyebrow {
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--accent-light);
+}
+
+.stress-explainer-title {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.stress-explainer-copy {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.stress-explainer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stress-explainer-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.stress-explainer-item-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.stress-explainer-item-row strong {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.stress-explainer-item-desc {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* ── Run section (flat, divider above) ── */
+.stress-run {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.stress-run-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.stress-run-head-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.stress-run-head-text h3 {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.stress-run-head-text p {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.stress-run-status-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.stress-run-status-strip .meta-pill {
+  margin-left: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.stress-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.stress-progress-track {
+  flex: 1;
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: oklch(from var(--accent) l c h / 0.1);
+  overflow: hidden;
+}
+
+.stress-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.stress-progress-fill--tier-0 {
+  background: var(--accent);
+  opacity: 0.6;
+}
+
+.stress-progress-fill--tier-1 {
+  background: var(--accent);
+  opacity: 0.9;
+  box-shadow: 0 0 8px oklch(from var(--accent) l c h / 0.4);
+}
+
+.stress-progress-fill--tier-2 {
+  background: linear-gradient(90deg, var(--accent), var(--success));
+  box-shadow: 0 0 14px oklch(from var(--accent) l c h / 0.5);
+  animation: progress-pulse-hot 1.5s ease-in-out infinite;
+}
+
+.stress-progress-fill--tier-3 {
+  background: var(--success);
+  box-shadow: 0 0 14px oklch(from var(--success) l c h / 0.55);
+}
+
+.stress-progress-label {
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--muted);
+  min-width: 44px;
+  text-align: right;
+}
+
+/* ── Op rows ── */
+.stress-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 4px 4px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 540px;
+  overflow-y: auto;
+}
+
+.stress-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--muted);
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.stress-row:hover {
+  border-color: var(--line-strong);
+}
+
+.stress-row--queued    { border-left-color: oklch(from var(--muted) l c h / 0.6); }
+.stress-row--running   { border-left-color: var(--accent); }
+.stress-row--approved  { border-left-color: var(--accent); }
+.stress-row--signed    { border-left-color: var(--accent); }
+.stress-row--deposited { border-left-color: var(--accent-light); }
+.stress-row--fulfilled { border-left-color: var(--success); }
+.stress-row--failed    { border-left-color: var(--danger); }
+
+.stress-row-id {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.stress-row-num {
+  font-weight: 600;
+  font-size: var(--text-base);
+  font-variant-numeric: tabular-nums;
+}
+
+.stress-row-meta {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stress-row-side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.stress-row-links {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.stress-row-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background: oklch(from var(--accent) l c h / 0.08);
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  font-family: var(--font-mono);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.15s, background 0.15s;
+}
+
+.stress-row-link:hover {
+  color: var(--accent-light);
+  background: oklch(from var(--accent) l c h / 0.16);
+}
+
+.stress-row-duration {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.stress-row-error,
+.stress-row-note {
+  grid-column: 1 / -1;
+  font-size: var(--text-sm);
+  margin-top: 4px;
+}
+
+.stress-row-note {
+  color: var(--warning);
+}
+
+/* ── Report (flat, divider above) ── */
+.stress-report {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.stress-report-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.stress-report-head-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.stress-report-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stress-report-title {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.stress-report-time {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Headline metric strip ── */
+.metric-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 18px;
+  padding: 18px 20px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.metric-label {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.metric-value {
+  font-size: 1.6rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  line-height: 1.1;
+}
+
+.metric-value--small {
+  font-size: 1.25rem;
+}
+
+.metric-sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-sub-good { color: var(--success); }
+.metric-sub-bad  { color: var(--danger); }
+
+/* "All metrics" disclosure */
+.metric-extras {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--panel-2);
+  overflow: hidden;
+}
+
+.metric-extras > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--muted);
+  transition: background 0.15s;
+}
+
+.metric-extras > summary::-webkit-details-marker { display: none; }
+
+.metric-extras > summary:hover {
+  background: oklch(from var(--accent) l c h / 0.04);
+  color: var(--text);
+}
+
+.metric-extras-chevron {
+  transition: transform 0.2s ease;
+}
+
+.metric-extras[open] .metric-extras-chevron {
+  transform: rotate(180deg);
+}
+
+.metric-extras-grid {
+  padding: 4px 16px 16px;
+  display: grid;
+  gap: 12px 20px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  margin-top: 0;
+}
+
+.metric-extras-grid .metric-value {
+  font-size: var(--text-md);
+}
+
+/* ── Report block (titled section) ── */
+.stress-report-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.stress-report-block-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--muted);
+}
+
+.stress-report-block-head-bar {
+  display: inline-block;
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+/* ── Charts ── */
+.report-charts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.report-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+}
+
+.report-chart-title {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.report-chart-canvas {
+  width: 100%;
+  height: 240px;
+}
+
+.report-chart-canvas--trend {
+  height: 220px;
+}
+
+.report-chart-summary {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Recharts overrides for tooltip readability */
+.report-chart-canvas .recharts-default-tooltip {
+  background: var(--panel) !important;
+  border: 1px solid var(--line-strong) !important;
+  border-radius: var(--radius-sm) !important;
+  color: var(--text) !important;
+}
+
+.report-chart-canvas .recharts-tooltip-label {
+  color: var(--text) !important;
+  font-weight: 600;
+}
+
+.report-chart-canvas .recharts-tooltip-item {
+  color: var(--muted) !important;
+}
+
+/* ── Comparison controls ── */
+.stress-comparison-controls {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.stress-comparison-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* ── Subrun comparison table (sticky first column) ── */
+.subrun-table-scroll {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 540px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--panel-2);
+}
+
+.subrun-table {
+  display: grid;
+  grid-auto-rows: auto;
+  min-width: 920px;
+  font-variant-numeric: tabular-nums;
+}
+
+.subrun-table-row {
+  display: grid;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--text-sm);
+  color: var(--text);
+}
+
+.subrun-table-row:last-child {
+  border-bottom: 0;
+}
+
+.subrun-table-row span:not(:first-child) {
+  text-align: right;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.subrun-table-row--header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line-strong);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--muted);
+}
+
+.subrun-table-row--header span:not(:first-child) {
+  color: var(--muted);
+}
+
+.subrun-table-row > span:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  background: var(--panel-2);
+  padding: 0 8px 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.subrun-table-row--header > span:first-child {
+  z-index: 6;
+  color: var(--muted);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.subrun-delta-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+/* ── Config chip cloud ── */
+.config-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.config-chip {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.config-chip strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* ── Generic two-col table for chains/errors ── */
+.report-table {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--panel-2);
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+
+.report-table-row {
+  display: grid;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--text-sm);
+  color: var(--text);
+}
+
+.report-table-row:last-child {
+  border-bottom: 0;
+}
+
+.report-table-row--header {
+  background: oklch(from var(--accent) l c h / 0.04);
+  border-bottom: 1px solid var(--line-strong);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--muted);
+}
+
+.report-table-row--chains {
+  grid-template-columns: minmax(140px, 1.6fr) repeat(4, minmax(60px, 0.6fr));
+}
+
+.report-table-row--chains span:nth-child(n + 2) {
+  text-align: right;
+  color: var(--muted);
+}
+
+.report-table-row--errors {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.report-table-row--errors span:last-child {
+  color: var(--muted);
+  text-align: right;
+}
+
+/* ── Shared-report mode (no run/form) ── */
+.stress-layout--shared {
+  max-width: 1020px;
+  margin: 0 auto;
+}
+
+.stress-shared-back {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ── Responsive ── */
+@media (max-width: 1100px) {
+  .stress-hero-body {
+    grid-template-columns: 1fr;
+  }
+
+  .report-charts {
+    grid-template-columns: 1fr;
+  }
+
+  .stress-comparison-controls {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .stress-row {
+    grid-template-columns: 1fr;
+  }
+
+  .stress-row-side {
+    justify-content: flex-start;
+  }
+}

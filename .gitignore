@@ -1,0 +1,54 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Production
+dist/
+build/
+
+# Testing
+coverage/
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# CI Test Artifacts
+.ci-tests/**/node_modules
+.ci-tests/**/dist
+.ci-tests/**/.next
+.ci-tests/**/pnpm-lock.yaml
+.ci-tests/**/package-lock.json
+.ci-tests/**/bun.lockb
+
+# OS
+.DS_Store
+Thumbs.db
+
+*.tgz
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+/dist-tarballs
+html_docs/
+.claude
+ai*
+
+tsconfig.tsbuildinfo
+.worktrees
+
+# stress-test local secrets
+.secrets/stress.key
+stress.key

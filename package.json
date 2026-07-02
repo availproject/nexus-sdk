@@ -1,0 +1,110 @@
+{
+  "name": "@avail-project/nexus-core",
+  "version": "1.6.0",
+  "description": "Nexus headless SDK for cross-chain transactions",
+  "main": "./dist/index.js",
+  "module": "./dist/index.esm.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "rollup -c",
+    "stress": "npm --prefix packages/tools run stress --",
+    "stress:help": "npm --prefix packages/tools run stress:help",
+    "test": "vitest run",
+    "test:coverage": "vitest --coverage",
+    "buildAndPack": "rollup -c && npm pack",
+    "dev": "rollup -c -w",
+    "docs": "typedoc --plugin typedoc-theme-fresh --theme fresh --options typedoc_html.json",
+    "clean": "rimraf dist dist-tarballs html_docs",
+    "typecheck": "tsc --noEmit",
+    "typecheck:tests": "tsc --noEmit -p tsconfig.tests.json",
+    "lint": "biome lint ./src",
+    "lint:fix": "biome lint --write ./src",
+    "lint:deps": "node scripts/check-dependency-direction.mjs",
+    "format": "biome format --write .",
+    "check": "biome check --write .",
+    "prepublishOnly": "npm run build",
+    "release": "release-it",
+    "prepare": "npm run build && (husky || true)"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.esm.js",
+      "require": "./dist/index.js"
+    },
+    "./utils": {
+      "types": "./dist/utils.d.ts",
+      "import": "./dist/utils.esm.js",
+      "require": "./dist/utils.js"
+    }
+  },
+  "keywords": [
+    "nexus",
+    "sdk",
+    "blockchain",
+    "bridge",
+    "swap",
+    "web3",
+    "chain",
+    "abstraction",
+    "headless"
+  ],
+  "author": "decocereus<amartya@availproject.org>, makyl<abhishek@availproject.org>",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@avail-project/nexus-types": "0.1.21",
+    "@opentelemetry/api-logs": "0.219.0",
+    "@opentelemetry/exporter-logs-otlp-http": "0.219.0",
+    "@opentelemetry/resources": "2.8.0",
+    "@opentelemetry/sdk-logs": "0.219.0",
+    "axios": "1.16.1",
+    "decimal.js": "10.6.0",
+    "es-toolkit": "1.46.1",
+    "posthog-js": "1.379.3",
+    "viem": "2.51.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.3.8",
+    "@rollup/plugin-commonjs": "25.0.8",
+    "@rollup/plugin-json": "6.1.0",
+    "@rollup/plugin-node-resolve": "15.3.1",
+    "@rollup/plugin-terser": "1.0.0",
+    "@rollup/plugin-typescript": "12.3.0",
+    "@vitest/coverage-v8": "4.1.8",
+    "hardhat": "3.7.0",
+    "husky": "9.1.7",
+    "lint-staged": "16.2.7",
+    "release-it": "20.2.1",
+    "rollup": "4.61.1",
+    "rollup-plugin-dts": "6.3.0",
+    "solc": "0.8.35",
+    "tsx": "4.22.4",
+    "typescript": "5.9.3",
+    "vitest": "4.1.8"
+  },
+  "overrides": {
+    "tmp": "0.2.7",
+    "ws": "8.21.0",
+    "uuid": "11.1.1"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/availproject/nexus-sdk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/availproject/nexus-sdk/issues"
+  },
+  "homepage": "https://github.com/availproject/nexus-sdk#readme"
+}

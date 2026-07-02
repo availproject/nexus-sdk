@@ -1,0 +1,68 @@
+const MEMORYMAP: Map<string, string> = new Map();
+
+export const storageSetItem = (key: string, value: string) => {
+  if (typeof window === 'undefined') {
+    MEMORYMAP.set(key, value);
+    return;
+  }
+
+  window.localStorage.setItem(key, value);
+};
+
+export const storageGetItem = (key: string): string | null => {
+  if (typeof window === 'undefined') {
+    const v = MEMORYMAP.get(key);
+    return v ? v : null;
+  }
+
+  return window.localStorage.getItem(key);
+};
+
+export const storageRemoveItem = (key: string) => {
+  if (typeof window === 'undefined') {
+    MEMORYMAP.delete(key);
+    return;
+  }
+
+  window.localStorage.removeItem(key);
+};
+
+export const cryptoGetRandomValues = async (
+  bytes: Uint8Array<ArrayBuffer>
+): Promise<Uint8Array<ArrayBuffer>> => {
+  if (typeof window === 'undefined') {
+    // biome-ignore lint/style/useNodejsImportProtocol: cannot externalize node:crypto
+    const crypto = await import('crypto');
+    return crypto.getRandomValues(bytes);
+  }
+
+  return window.crypto.getRandomValues(bytes);
+};
+
+export const locationProtocol = (): string => {
+  if (typeof window === 'undefined') {
+    return 'https';
+  }
+
+  return window.location.protocol;
+};
+
+export const locationHost = (): string => {
+  if (typeof window === 'undefined') {
+    return 'localhost';
+  }
+
+  return window.location.host;
+};
+
+export const locationOrigin = (): string => {
+  if (typeof window === 'undefined') {
+    return 'https://localhost';
+  }
+
+  return window.location.origin;
+};
+
+export const isBrowser = (): boolean => {
+  return typeof window !== 'undefined';
+};

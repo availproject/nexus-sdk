@@ -1,0 +1,112 @@
+import type { Hex, PublicClient, WalletClient } from 'viem';
+import { type Chain, getLogger } from '../../domain';
+import { confirmStepReceipt, switchChain } from '../../services/evm';
+import type { SBCCall } from '../../services/sbc';
+import { createEoaToEphemeralTransferStepId } from '../../services/step-ids';
+import type { PreparedEoaToEphemeralTransfer } from '../types';
+import {
+  buildDirectApprovalRequest,
+  materializePermitAuthorizationCall,
+} from '../wallet/transfer-authorization';
+
+const logger = getLogger();
+
+type ResolvePreparedFundingTransferCallsInput = {
+  transfer: PreparedEoaToEphemeralTransfer;
+  tokenDecimals: number;
+  chain: Chain;
+  eoaAddress: Hex;
+  eoaWallet: WalletClient;
+  publicClient: Pick<PublicClient, 'waitForTransactionReceipt' | 'readContract'>;
+};
+
+const ensureDirectApproval = async (
+  input: ResolvePreparedFundingTransferCallsInput
+): Promise<void> => {
+  logger.debug('resolvePreparedFundingTransferCalls:approval:start', {
+    chainId: input.chain.id,
+    tokenAddress: input.transfer.tokenAddress,
+    amount: input.transfer.amount.toString(),
+  });
+  await switchChain(input.eoaWallet, input.chain);
+  const txHash = await input.eoaWallet.writeContract(
+    buildDirectApprovalRequest({
+      tokenAddress: input.transfer.tokenAddress,
+      amount: input.transfer.amount,
+      eoaAddress: input.eoaAddress,
+      // Executor (Safe on non-7702, ephemeral on 7702) is the approved spender.
+      ephemeralAddress: input.transfer.targetAddress,
+      chain: input.chain,
+    })
+  );
+  logger.debug('resolvePreparedFundingTransferCalls:approval:submitted', {
+    chainId: input.chain.id,
+    tokenAddress: input.transfer.tokenAddress,
+    txHash,
+  });
+  await confirmStepReceipt(input.publicClient, txHash, input.chain.id, {
+    stepId: createEoaToEphemeralTransferStepId(input.chain.id),
+    stepType: 'eoa_to_ephemeral_transfer',
+    label: 'EOA approval',
+  });
+  logger.debug('resolvePreparedFundingTransferCalls:approval:confirmed', {
+    chainId: input.chain.id,
+    tokenAddress: input.transfer.tokenAddress,
+    txHash,
+  });
+};
+
+export const resolvePreparedFundingTransferCalls = async (
+  input: ResolvePreparedFundingTransferCallsInput
+): Promise<SBCCall[]> => {
+  const calls: SBCCall[] = [];
+  const authorizationKind = input.transfer.authorization?.kind ?? 'none';
+
+  logger.debug('resolvePreparedFundingTransferCalls:start', {
+    chainId: input.chain.id,
+    tokenAddress: input.transfer.tokenAddress,
+    authorizationKind,
+    amount: input.transfer.amount.toString(),
+  });
+
+  if (input.transfer.authorization?.kind === 'permit') {
+    logger.debug('resolvePreparedFundingTransferCalls:permit:start', {
+      chainId: input.chain.id,
+      tokenAddress: input.transfer.tokenAddress,
+      amount: input.transfer.amount.toString(),
+    });
+    const permitCall = await materializePermitAuthorizationCall({
+      chain: input.chain,
+      authorization: input.transfer.authorization,
+      tokenAddress: input.transfer.tokenAddress,
+      tokenDecimals: input.tokenDecimals,
+      amount: input.transfer.amount,
+      eoaAddress: input.eoaAddress,
+      eoaWallet: input.eoaWallet,
+      // Executor (Safe on non-7702, ephemeral on 7702) is the permit spender.
+      ephemeralAddress: input.transfer.targetAddress,
+      publicClient: input.publicClient as PublicClient,
+    });
+    if (!permitCall) {
+      throw new Error(`Missing permit calldata for ${input.transfer.tokenAddress}`);
+    }
+    calls.push(permitCall);
+    logger.debug('resolvePreparedFundingTransferCalls:permit:complete', {
+      chainId: input.chain.id,
+      tokenAddress: input.transfer.tokenAddress,
+    });
+  }
+
+  if (input.transfer.authorization?.kind === 'approve') {
+    await ensureDirectApproval(input);
+  }
+
+  calls.push(input.transfer.transferCall);
+  logger.debug('resolvePreparedFundingTransferCalls:complete', {
+    chainId: input.chain.id,
+    tokenAddress: input.transfer.tokenAddress,
+    authorizationKind,
+    callCount: calls.length,
+  });
+  return calls;
+};

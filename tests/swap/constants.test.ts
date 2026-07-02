@@ -1,0 +1,67 @@
+import Decimal from 'decimal.js';
+import { describe, expect, it } from 'vitest';
+import {
+  DST_BUFFER_MAX_USD,
+  DST_BUFFER_PCT,
+  DST_RECLAIM_DEDUCTION_PCT,
+  GAS_TO_COT_BUFFER,
+  MAX_RETRIES,
+  MAX_SWAP_HAIRCUT_MIN_USDC,
+  MAX_SWAP_HAIRCUT_PCT,
+  SBC_DEADLINE_MINUTES,
+  SLIPPAGE_DEFAULT,
+  SRC_BUFFER_EXACT_IN_MAX_USD,
+  SRC_BUFFER_EXACT_IN_PCT,
+  SRC_BUFFER_MAX_USD,
+  SRC_BUFFER_PCT,
+} from '../../src/swap/constants';
+import {
+  MAX_CONVERGENCE_EXTRA_COT,
+  MAX_CONVERGENCE_ITERATIONS,
+  SAFETY_MULTIPLIER,
+} from '../../src/swap/algorithms/convergence';
+
+// Tripwire for the economically significant swap constants. Behavioural tests
+// (route/autoSelect/destination/max) assert outcomes derived from these, but several worked
+// examples can't distinguish, say, a 2% from a 0.5% source buffer because both clamp to the
+// same $1 cap. Pinning the raw values here forces any change to a fee/buffer/haircut/drift
+// budget to be a deliberate, reviewed product decision rather than something that slips through
+// behind an ambiguous numeric example. Keep this in lockstep with src/swap/swap.md §12.
+describe('swap economic constants', () => {
+  it('destination buffer = min(10%, $2)', () => {
+    expect(DST_BUFFER_PCT).toBe(0.1);
+    expect(DST_BUFFER_MAX_USD).toBe(2);
+  });
+
+  it('EXACT_OUT source buffer = min(2%, $1)', () => {
+    expect(SRC_BUFFER_PCT).toBe(0.02);
+    expect(SRC_BUFFER_MAX_USD).toBe(1);
+  });
+
+  it('EXACT_IN source drift budget = min(0.5%, $1)', () => {
+    expect(SRC_BUFFER_EXACT_IN_PCT).toBe(0.005);
+    expect(SRC_BUFFER_EXACT_IN_MAX_USD).toBe(1);
+  });
+
+  it('EXACT_IN dst reclaim deduction = 1 bp', () => {
+    expect(DST_RECLAIM_DEDUCTION_PCT).toBe(0.0001);
+  });
+
+  it('max-amount haircut = max(3%, $3)', () => {
+    expect(MAX_SWAP_HAIRCUT_PCT).toBe(0.03);
+    expect(MAX_SWAP_HAIRCUT_MIN_USDC).toBe(3);
+  });
+
+  it('convergence: ×1.01 safety, +0.5 COT input cap, ≤10 iterations', () => {
+    expect(SAFETY_MULTIPLIER.eq(new Decimal('1.01'))).toBe(true);
+    expect(MAX_CONVERGENCE_EXTRA_COT.eq(new Decimal('0.5'))).toBe(true);
+    expect(MAX_CONVERGENCE_ITERATIONS).toBe(10);
+  });
+
+  it('execution thresholds: 0.5% default slippage, gas×1.02, 2 retries, 15-minute SBC deadline', () => {
+    expect(SLIPPAGE_DEFAULT).toBe(0.005);
+    expect(GAS_TO_COT_BUFFER).toBe(1.02);
+    expect(MAX_RETRIES).toBe(2);
+    expect(SBC_DEADLINE_MINUTES).toBe(15n);
+  });
+});

@@ -1,0 +1,9 @@
+export const ZERO_ADDRESS: `0x${string}` = '0x0000000000000000000000000000000000000000';
+
+export const ZERO_ADDRESS_BYTES_32: `0x${string}` =
+  '0x0000000000000000000000000000000000000000000000000000000000000000';
+
+export const EADDRESS: `0x${string}` = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
+
+export const EADDRESS_BYTES_32: `0x${string}` =
+  '0x000000000000000000000000EeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';

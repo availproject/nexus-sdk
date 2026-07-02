@@ -1,0 +1,7 @@
+{
+  "flow.bridge.prepare_intent": {
+    "p50": 10,
+    "p95": 20,
+    "p99": 30
+  }
+}
