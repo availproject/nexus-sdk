@@ -164,12 +164,13 @@ describe('LiFiAggregator', () => {
     expect(getQuoteFn.mock.calls[0]).toHaveLength(2);
   });
 
-  it('includes denyExchanges and skipSimulation in params', async () => {
+  it('includes denyExchanges, skipSimulation, and slippage in params', async () => {
     await agg.getQuotes([makeRequest()]);
 
     const [params] = getQuoteFn.mock.calls[0];
     expect(params.denyExchanges).toBe('openocean');
     expect(params.skipSimulation).toBe(true);
+    expect(params.slippage).toBe('0.0025'); // 25 bps as a fraction
   });
 
   it('denies HyperEVM-specific exchanges in addition to openocean on chain 999', async () => {

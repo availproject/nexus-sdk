@@ -74,6 +74,11 @@ export type MiddlewareClient = {
   getBebopQuote: (params: Record<string, string>) => Promise<unknown>;
   getFibrousQuote: (params: Record<string, string>) => Promise<unknown>;
   getZeroExQuote: (params: Record<string, string>) => Promise<unknown>;
+  // Mystic is a multi-endpoint POST/JSON API (quote → build); one proxy, the aggregator supplies the
+  // versioned path. Bodies carry mixed types (numeric chainId/slippageBps + string amounts) rather
+  // than the string-only GET query maps above.
+  postMystic: (path: string, body: Record<string, unknown>) => Promise<unknown>;
+  getRelayQuote: (params: Record<string, string>) => Promise<unknown>;
   getSwapBalances: (address: Hex) => Promise<FlatBalance[]>;
   getQuote: (request: QuoteRequest) => Promise<QuoteResponse>;
   getMayanQuotes: (request: MayanQuoteRequest) => Promise<MayanQuoteResponse>;
@@ -96,7 +101,12 @@ export type MiddlewareMayanQuoteClient = Pick<MiddlewareClient, 'getMayanQuotes'
 export type MiddlewareBridgeProviderClient = Pick<MiddlewareClient, 'getBridgeProvider'>;
 export type MiddlewareAggregatorQuoteClient = Pick<
   MiddlewareClient,
-  'getLiFiQuote' | 'getBebopQuote' | 'getFibrousQuote' | 'getZeroExQuote'
+  | 'getLiFiQuote'
+  | 'getBebopQuote'
+  | 'getFibrousQuote'
+  | 'getZeroExQuote'
+  | 'postMystic'
+  | 'getRelayQuote'
 >;
 export type MiddlewareRffClient = Pick<MiddlewareClient, 'getRFF'>;
 export type MiddlewareRffStatusClient = Pick<MiddlewareClient, 'getRFFStatus'>;
@@ -946,6 +956,25 @@ export const createMiddlewareClient = (
     return response.data;
   };
 
+  // Mystic's `/mystic/*` proxy forwards method + body to router.mysticfinance.xyz, so endpoints are
+  // POSTs with a JSON body (not GET query params like the aggregators above). One proxy for all
+  // Mystic endpoints — the aggregator passes the versioned path (e.g. 'v1/swap/quote').
+  const postMystic = async (path: string, body: Record<string, unknown>): Promise<unknown> => {
+    const response = await client.post(`/api/v1/proxy/mystic/${path}`, body);
+    return response.data;
+  };
+
+  // Relay is a POST /quote/v2 with a JSON body (chain ids as numbers), unlike the GET aggregators.
+  const getRelayQuote = async (params: Record<string, string>): Promise<unknown> => {
+    const { originChainId, destinationChainId, ...rest } = params;
+    const response = await client.post('/api/v1/proxy/relay/quote/v2', {
+      ...rest,
+      originChainId: Number(originChainId),
+      destinationChainId: Number(destinationChainId),
+    });
+    return response.data;
+  };
+
   const getSwapBalances = async (address: Hex): Promise<FlatBalance[]> => {
     try {
       const response = await client.get<BalancesByChain>(`/api/v1/swap-balance/EVM/${address}`);
@@ -1085,6 +1114,8 @@ export const createMiddlewareClient = (
     getBebopQuote,
     getFibrousQuote,
     getZeroExQuote,
+    postMystic,
+    getRelayQuote,
     getSwapBalances,
     getQuote,
     getMayanQuotes,

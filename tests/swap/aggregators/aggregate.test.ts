@@ -286,15 +286,37 @@ describe('aggregateAggregators — native token normalization', () => {
 });
 
 describe('createAggregators', () => {
-  it('returns LiFi, Bebop, Fibrous, and 0x aggregators when given a MiddlewareClient', () => {
+  it('returns LiFi, Bebop, Fibrous, 0x, Mystic, and Relay aggregators when given a MiddlewareClient', () => {
     const mockMiddlewareClient = {
       getLiFiQuote: vi.fn(),
       getBebopQuote: vi.fn(),
       getFibrousQuote: vi.fn(),
       getZeroExQuote: vi.fn(),
+      postMystic: vi.fn(),
+      getRelayQuote: vi.fn(),
     } as any;
     const aggs = createAggregators(mockMiddlewareClient);
-    expect(aggs).toHaveLength(4);
+    expect(aggs).toHaveLength(6);
+  });
+
+  it('wires Relay aggregator to mw.getRelayQuote', async () => {
+    const getRelayQuote = vi.fn().mockResolvedValue({});
+    const mw = {
+      getLiFiQuote: vi.fn(),
+      getBebopQuote: vi.fn(),
+      getFibrousQuote: vi.fn(),
+      getZeroExQuote: vi.fn(),
+      postMystic: vi.fn(),
+      getRelayQuote,
+    } as any;
+
+    const aggs = createAggregators(mw);
+    const relay = aggs[5];
+    await relay.getQuotes([makeRequest()]);
+
+    expect(getRelayQuote).toHaveBeenCalledTimes(1);
+    expect(mw.getLiFiQuote).not.toHaveBeenCalled();
+    expect(mw.getZeroExQuote).not.toHaveBeenCalled();
   });
 
   it('wires 0x aggregator to mw.getZeroExQuote', async () => {

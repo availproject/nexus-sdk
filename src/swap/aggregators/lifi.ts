@@ -1,6 +1,7 @@
 import Decimal from 'decimal.js';
 import type { Hex } from 'viem';
 import { divDecimals } from '../../services/math';
+import { SLIPPAGE_FRACTION } from './constants';
 import type { Aggregator, Quote, QuoteRequest } from './types';
 import { QuoteType } from './types';
 
@@ -60,7 +61,7 @@ export class LiFiAggregator implements Aggregator {
         fromAddress: req.userAddress,
         toAddress,
         denyExchanges: denyExchangesFor(req.chainId),
-        slippage: '0.01',
+        slippage: SLIPPAGE_FRACTION,
         skipSimulation: true,
       };
 

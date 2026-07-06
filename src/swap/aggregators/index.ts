@@ -8,6 +8,8 @@ import { EADDRESS } from '../constants';
 import { BebopAggregator } from './bebop';
 import { FibrousAggregator } from './fibrous';
 import { LiFiAggregator } from './lifi';
+import { MysticAggregator } from './mystic';
+import { RelayAggregator } from './relay';
 import type { Aggregator, Quote, QuoteRequest } from './types';
 import { ZeroExAggregator } from './zerox';
 
@@ -21,6 +23,8 @@ export const aggregatorService = (aggregator: Aggregator): ExternalServiceServic
   if (aggregator instanceof BebopAggregator) return 'bebop';
   if (aggregator instanceof FibrousAggregator) return 'fibrous';
   if (aggregator instanceof ZeroExAggregator) return 'zerox';
+  if (aggregator instanceof MysticAggregator) return 'mystic';
+  if (aggregator instanceof RelayAggregator) return 'relay';
   if (aggregator instanceof LiFiAggregator) return 'lifi';
   return 'lifi';
 };
@@ -34,6 +38,8 @@ export const createAggregators = (mw: MiddlewareAggregatorQuoteClient): Aggregat
   new BebopAggregator(mw.getBebopQuote),
   new FibrousAggregator(mw.getFibrousQuote),
   new ZeroExAggregator(mw.getZeroExQuote),
+  new MysticAggregator(mw.postMystic),
+  new RelayAggregator(mw.getRelayQuote),
 ];
 
 // ---------------------------------------------------------------------------
@@ -163,7 +169,8 @@ const backfillFromSiblings = (
   reqIdx: number,
   selfIdx: number
 ): Quote | null => {
-  const needsDecimals = aggregator instanceof ZeroExAggregator;
+  const needsDecimals =
+    aggregator instanceof ZeroExAggregator || aggregator instanceof MysticAggregator;
   for (const side of ['input', 'output'] as const) {
     const leg = quote[side];
     if (needsDecimals) {
@@ -203,6 +210,8 @@ const siblingField = (
 export { BebopAggregator } from './bebop';
 export { FibrousAggregator } from './fibrous';
 export { LiFiAggregator } from './lifi';
+export { MysticAggregator } from './mystic';
+export { RelayAggregator } from './relay';
 // Re-exports
 export type { Aggregator, Holding, Quote, QuoteRequest, QuoteResponse } from './types';
 export { QuoteSeriousness, QuoteType } from './types';

@@ -1,5 +1,6 @@
 import Decimal from 'decimal.js';
 import { encodeFunctionData, getAddress, type Hex, toHex, zeroAddress } from 'viem';
+import { SLIPPAGE_PERCENT } from './constants';
 import type { Aggregator, Quote, QuoteRequest } from './types';
 import { QuoteType } from './types';
 
@@ -10,7 +11,6 @@ const CHAIN_NAME_MAP: Record<number, string> = {
 };
 
 const DEFAULT_EXCLUDE_PROTOCOLS = '3';
-const DEFAULT_SLIPPAGE = '0.5';
 
 export type FibrousAggregatorOptions = {
   excludeProtocols?: string;
@@ -43,7 +43,7 @@ export class FibrousAggregator implements Aggregator {
         amount: req.inputAmount.toString(),
         tokenInAddress: req.inputToken,
         tokenOutAddress: req.outputToken,
-        slippage: DEFAULT_SLIPPAGE,
+        slippage: SLIPPAGE_PERCENT,
         destination: req.recipientAddress,
         excludeProtocols: this.excludeProtocols,
       };
