@@ -1,4 +1,5 @@
 import { type Hex, zeroAddress } from 'viem';
+import { SLIPPAGE_BPS_STRING } from './constants';
 import type { Aggregator, Quote, QuoteRequest } from './types';
 import { QuoteType } from './types';
 
@@ -41,7 +42,7 @@ export class ZeroExAggregator implements Aggregator {
         buyToken: req.outputToken,
         taker: req.userAddress,
         recipient: req.recipientAddress,
-        slippageBps: '100', // 1%, matches the LiFi adapter's slippage
+        slippageBps: SLIPPAGE_BPS_STRING,
       };
       if (isExactOut && 'outputAmount' in req) {
         params.buyAmount = req.outputAmount.toString();

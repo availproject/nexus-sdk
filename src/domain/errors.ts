@@ -54,7 +54,14 @@ export type UserActionService = 'wallet' | 'hook';
 export type SimulationService = 'rpc';
 export type ExecutionService = 'wallet' | 'rpc';
 export type BackendService = 'middleware';
-export type ExternalServiceService = 'lifi' | 'bebop' | 'fibrous' | 'zerox' | 'coinbase';
+export type ExternalServiceService =
+  | 'lifi'
+  | 'bebop'
+  | 'fibrous'
+  | 'zerox'
+  | 'mystic'
+  | 'relay'
+  | 'coinbase';
 export type InternalService = never;
 
 /**

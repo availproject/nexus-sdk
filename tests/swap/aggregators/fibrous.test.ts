@@ -130,7 +130,7 @@ describe('FibrousAggregator', () => {
     expect(params.amount).toBe('1000000');
     expect(params.tokenInAddress).toBe(INPUT_TOKEN);
     expect(params.tokenOutAddress).toBe(OUTPUT_TOKEN);
-    expect(params.slippage).toBe('0.5');
+    expect(params.slippage).toBe('0.25');
   });
 
   it('returns null for EXACT_OUT without calling getQuote (Fibrous is EXACT_IN only)', async () => {
