@@ -25,6 +25,10 @@ export class BebopAggregator implements Aggregator {
     this.getQuote = getQuote;
   }
 
+  supportsChain(chainId: number): boolean {
+    return chainId in CHAIN_NAME_MAP;
+  }
+
   async getQuotes(requests: QuoteRequest[]): Promise<(Quote | null)[]> {
     return Promise.all(requests.map((req) => this.fetchQuote(req)));
   }

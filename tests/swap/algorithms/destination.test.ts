@@ -8,6 +8,7 @@ import {
 } from '../../../src/swap/algorithms/destination';
 import type { Aggregator, Quote, QuoteRequest } from '../../../src/swap/aggregators/types';
 import { QuoteType } from '../../../src/swap/aggregators/types';
+import { SAFETY_MULTIPLIER } from '../../../src/swap/algorithms/convergence';
 import { EADDRESS } from '../../../src/swap/constants';
 import { CurrencyID } from '../../../src/swap/cot';
 import { BASE_CHAIN, USDC_BASE, WETH, makeSwapChainList } from '../../helpers/swap';
@@ -49,6 +50,13 @@ const makeQuote = (
   };
 };
 
+// First (uncapped) convergence step = ceil(seed × SAFETY_MULTIPLIER), mirroring convergence.ts.
+// Derived from the constant so the assertion tracks it instead of pinning a magic number.
+const firstConvergenceStep = (seedRaw: bigint): bigint =>
+  BigInt(new Decimal(seedRaw.toString()).mul(SAFETY_MULTIPLIER).toFixed(0, Decimal.ROUND_CEIL));
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 // Request-aware mock: dispatches by request type/direction so tests don't depend on
 // fragile call ordering between the EXACT_OUT direct attempt and the EXACT_IN
 // convergence loop (which now run in parallel).
@@ -59,6 +67,7 @@ const makeRequestAwareAggregator = (
     convergenceExactIn?: (req: QuoteRequest) => Quote | null;
   } = {}
 ): Aggregator => ({
+  supportsChain: () => true,
   getQuotes: vi.fn(async (reqs: QuoteRequest[]) =>
     reqs.map((req) => {
       if (req.type === QuoteType.EXACT_OUT) {
@@ -75,13 +84,24 @@ const makeRequestAwareAggregator = (
 });
 
 describe('determineDestinationSwaps', () => {
-  it('returns the EXACT_OUT direct quote when the aggregator supports it', async () => {
-    const agg = makeRequestAwareAggregator({
-      exactOutDirect: () => makeQuote(1000000000000000000n, 1985000000n),
-      // Reverse + convergence still wired up so the parallel branch can race fairly.
-      reverseExactIn: () => makeQuote(2000000000n, 1000000000000000000n, WETH, USDC_BASE),
-      convergenceExactIn: () => makeQuote(1000000000000000000n, 2050000000n),
-    });
+  it('returns the EXACT_OUT direct quote when it settles first', async () => {
+    // Convergence quotes are delayed so the precise EXACT_OUT input deterministically
+    // settles first and wins the race.
+    const agg: Aggregator = {
+      supportsChain: () => true,
+      getQuotes: vi.fn(async (reqs: QuoteRequest[]) =>
+        Promise.all(
+          reqs.map(async (req) => {
+            if (req.type === QuoteType.EXACT_OUT) {
+              return makeQuote(1000000000000000000n, 1985000000n);
+            }
+            await delay(30);
+            if (req.inputToken === USDC_BASE) return makeQuote(1000000000000000000n, 2050000000n);
+            return makeQuote(2000000000n, 1000000000000000000n, WETH, USDC_BASE);
+          })
+        )
+      ),
+    };
 
     const result = await determineDestinationSwaps({
       dst: {
@@ -100,6 +120,43 @@ describe('determineDestinationSwaps', () => {
     expect(result).not.toBeNull();
     expect(result!.quote.input.amountRaw).toBe(1985000000n);
     expect(result!.quote.output.amountRaw).toBe(1000000000000000000n);
+  });
+
+  it('returns the convergence quote when EXACT_OUT settles later — first success wins the race', async () => {
+    // EXACT_OUT is slow; the reverse quote + first convergence attempt succeed instantly.
+    // The race must NOT wait for the more precise EXACT_OUT input (1985 vs 2020 USDC).
+    const agg: Aggregator = {
+      supportsChain: () => true,
+      getQuotes: vi.fn(async (reqs: QuoteRequest[]) =>
+        Promise.all(
+          reqs.map(async (req) => {
+            if (req.type === QuoteType.EXACT_OUT) {
+              await delay(30);
+              return makeQuote(1000000000000000000n, 1985000000n);
+            }
+            if (req.inputToken === USDC_BASE) return makeQuote(1000000000000000000n, 2020000000n);
+            return makeQuote(2000000000n, 1000000000000000000n, WETH, USDC_BASE);
+          })
+        )
+      ),
+    };
+
+    const result = await determineDestinationSwaps({
+      dst: {
+        chainId: BASE_CHAIN,
+        token: { contractAddress: WETH, amountRaw: 1000000000000000000n },
+      },
+      options: {
+        chainList: makeSwapChainList(),
+        aggregators: [agg],
+        cotCurrencyID: CurrencyID.USDC,
+        userAddress: '0xexec00000000000000000000000000000000ec01' as Hex,
+        recipientAddress: '0xe0a0000000000000000000000000000000000a02' as Hex,
+      },
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.quote.input.amountRaw).toBe(2020000000n);
   });
 
   it('falls back to convergence when EXACT_OUT direct is unsupported', async () => {
@@ -230,7 +287,7 @@ describe('determineDestinationSwaps', () => {
   });
 
   it('returns null when destination token IS COT (no swap needed)', async () => {
-    const agg: Aggregator = { getQuotes: vi.fn() };
+    const agg: Aggregator = { supportsChain: () => true, getQuotes: vi.fn() };
 
     const result = await determineDestinationSwaps({
       dst: {
@@ -255,6 +312,7 @@ describe('determineDestinationSwaps', () => {
 
   it('returns null when no aggregator can provide quotes', async () => {
     const agg: Aggregator = {
+      supportsChain: () => true,
       getQuotes: vi.fn().mockResolvedValue([null]),
     };
 
@@ -279,8 +337,7 @@ describe('determineDestinationSwaps', () => {
   });
 
   it('rounds estimated COT input up via mulDecimals semantics', async () => {
-    // With the 1% safety multiplier, the first convergence iteration asks for
-    // ceil(1000001 * 1.01) = 1010002 raw USDC.
+    // The first convergence iteration asks for ceil(reverseSeed × SAFETY_MULTIPLIER) raw USDC.
     const convergenceRequests: bigint[] = [];
     const agg = makeRequestAwareAggregator({
       exactOutDirect: () => null,
@@ -310,13 +367,14 @@ describe('determineDestinationSwaps', () => {
     });
 
     expect(result).not.toBeNull();
-    expect(convergenceRequests[0]).toBe(1010002n);
+    expect(convergenceRequests[0]).toBe(firstConvergenceStep(1000001n));
   });
 });
 
 describe('destinationSwapWithExactIn', () => {
   it('returns single EXACT_IN quote: COT → output token', async () => {
     const agg: Aggregator = {
+      supportsChain: () => true,
       getQuotes: vi.fn().mockResolvedValue([makeQuote(500000000000000000n, 1000000000n)]),
     };
 
@@ -342,6 +400,7 @@ describe('destinationSwapWithExactIn', () => {
 
   it('returns null when quote fails', async () => {
     const agg: Aggregator = {
+      supportsChain: () => true,
       getQuotes: vi.fn().mockResolvedValue([null]),
     };
 
@@ -368,6 +427,7 @@ describe('destinationGasSwapExactIn', () => {
   it('quotes COT → EADDRESS using the dst-chain COT address as input', async () => {
     // 1 USDC -> 0.0005 ETH at $2000/ETH
     const agg: Aggregator = {
+      supportsChain: () => true,
       getQuotes: vi.fn().mockResolvedValue([
         {
           input: {
@@ -421,6 +481,7 @@ describe('destinationGasSwapExactIn', () => {
 
   it('returns null when no aggregator can quote', async () => {
     const agg: Aggregator = {
+      supportsChain: () => true,
       getQuotes: vi.fn().mockResolvedValue([null]),
     };
 

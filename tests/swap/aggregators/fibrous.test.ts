@@ -231,3 +231,15 @@ describe('FibrousAggregator', () => {
     expect(params.excludeProtocols).toBe('3,5');
   });
 });
+
+describe('FibrousAggregator supportsChain', () => {
+  const agg = new FibrousAggregator(vi.fn());
+
+  it('reports Citrea as supported', () => {
+    expect(agg.supportsChain(4114)).toBe(true);
+  });
+
+  it('reports an unlisted chain as unsupported', () => {
+    expect(agg.supportsChain(8453)).toBe(false);
+  });
+});

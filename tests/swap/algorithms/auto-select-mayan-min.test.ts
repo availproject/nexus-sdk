@@ -211,6 +211,7 @@ describe('autoSelectSources — Mayan per-source USD minimum', () => {
     };
     const seriousInputs: bigint[] = [];
     const aggregator: Aggregator = {
+      supportsChain: () => true,
       getQuotes: vi.fn(async (requests: QuoteRequest[]) =>
         requests.map((req) => {
           if (req.type !== QuoteType.EXACT_IN) return null;

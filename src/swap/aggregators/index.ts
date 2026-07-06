@@ -52,6 +52,54 @@ export enum AggregateMode {
 }
 
 // ---------------------------------------------------------------------------
+// Per-chain tiered selection
+// ---------------------------------------------------------------------------
+
+// Tier-1 adapters quote fast; tier 2 only tops the pool up to the competition cap.
+// Array order is priority order within a tier.
+const TIER_1 = [RelayAggregator, BebopAggregator, FibrousAggregator, MysticAggregator];
+const TIER_2 = [ZeroExAggregator, LiFiAggregator];
+const MAX_AGGREGATORS_PER_REQUEST = 2;
+
+const tierRank = (aggregator: Aggregator): number => {
+  const t1 = TIER_1.findIndex((cls) => aggregator instanceof cls);
+  if (t1 >= 0) return t1;
+  const t2 = TIER_2.findIndex((cls) => aggregator instanceof cls);
+  if (t2 >= 0) return TIER_1.length + t2;
+  return 0; // unknown implementations (tests, future adapters) compete as tier 1
+};
+
+// Pick the ≤2 aggregators that quote this chain: tier-1 supporters first, topped up from
+// tier 2. Selection is chain-only on purpose — request-type quirks (e.g. Fibrous nulling
+// EXACT_OUT) resolve locally in the adapter for free, whereas excluding the sole supporter
+// here would fire a doomed fallback probe instead.
+const selectForChain = (aggregators: Aggregator[], chainId: number): number[] => {
+  const supporters = aggregators
+    .map((agg, idx) => ({ agg, idx }))
+    .filter(({ agg }) => agg.supportsChain(chainId));
+  // No adapter claims the chain: the static lists are stale for it — fall back to full
+  // fan-out. Gated adapters still null locally without HTTP; only ungated Relay probes live.
+  if (supporters.length === 0) return aggregators.map((_, idx) => idx);
+
+  const ordered = supporters
+    .map(({ agg, idx }) => ({ idx, rank: tierRank(agg) }))
+    .sort((a, b) => a.rank - b.rank || a.idx - b.idx);
+  const selected = ordered.slice(0, MAX_AGGREGATORS_PER_REQUEST);
+
+  // 0x and Mystic never alone: their quotes carry no decimals/symbol, so backfillFromSiblings
+  // drops a metadata-less winner with no sibling quote. Pull in the best metadata-carrying
+  // supporter, or skip the doomed call.
+  const needsSibling = (i: number) =>
+    aggregators[i] instanceof ZeroExAggregator || aggregators[i] instanceof MysticAggregator;
+  if (selected.every(({ idx }) => needsSibling(idx))) {
+    const sibling = ordered.slice(selected.length).find(({ idx }) => !needsSibling(idx));
+    if (!sibling) return [];
+    selected.push(sibling);
+  }
+  return selected.map(({ idx }) => idx);
+};
+
+// ---------------------------------------------------------------------------
 // aggregateAggregators
 // ---------------------------------------------------------------------------
 
@@ -75,17 +123,55 @@ export const aggregateAggregators = async (
   // silently drop out, leaving a worse single-source quote.
   const normalized = requests.map(normalizeNativeTokens);
 
-  // Get quotes from all aggregators in parallel
-  const allResults = await Promise.all(
-    aggregators.map(async (agg) => {
+  // Per-request tiered selection, inverted into per-aggregator request subsets: each aggregator
+  // is called once with only the requests that selected it — that's the network-call reduction.
+  // Results scatter back into the full aggregators × requests matrix so the pick loop, sibling
+  // backfill, and tie-break below are untouched (non-selected cells stay null).
+  const selectedPerRequest = normalized.map((req) => selectForChain(aggregators, req.chainId));
+  const reqIdxsPerAgg: number[][] = aggregators.map(() => []);
+  selectedPerRequest.forEach((selected, reqIdx) => {
+    for (const aggIdx of selected) reqIdxsPerAgg[aggIdx].push(reqIdx);
+  });
+
+  const allResults: (Quote | null)[][] = aggregators.map(() => normalized.map(() => null));
+  const aggregateStartedAt = Date.now();
+  await Promise.all(
+    aggregators.map(async (agg, aggIdx) => {
+      const reqIdxs = reqIdxsPerAgg[aggIdx];
+      if (reqIdxs.length === 0) return;
+      const startedAt = Date.now();
+      let failed = false;
+      let quoted = 0;
       try {
-        return await agg.getQuotes(normalized);
+        const quotes = await agg.getQuotes(reqIdxs.map((reqIdx) => normalized[reqIdx]));
+        reqIdxs.forEach((reqIdx, k) => {
+          allResults[aggIdx][reqIdx] = quotes[k] ?? null;
+          if (quotes[k]) quoted++;
+        });
       } catch {
-        // On aggregator failure, fill with nulls
-        return normalized.map(() => null);
+        // On aggregator failure, its row stays all-null
+        failed = true;
       }
+      // Per-adapter wall time — the primary "which aggregator is slow" signal.
+      logger.debug('swap:timing', {
+        op: 'aggregator.getQuotes',
+        aggregator: aggregatorService(agg),
+        requests: reqIdxs.length,
+        quoted,
+        failed,
+        chainIds: [...new Set(reqIdxs.map((reqIdx) => normalized[reqIdx].chainId))],
+        types: [...new Set(reqIdxs.map((reqIdx) => normalized[reqIdx].type))],
+        seriousness: [...new Set(reqIdxs.map((reqIdx) => normalized[reqIdx].seriousness))],
+        ms: Date.now() - startedAt,
+      });
     })
   );
+  logger.debug('swap:timing', {
+    op: 'aggregate_total',
+    requests: normalized.length,
+    mode,
+    ms: Date.now() - aggregateStartedAt,
+  });
 
   // Per request, pick the best quote, then backfill any fields the winning aggregator can't report
   // (0x has no decimals/symbol/price) from a sibling that quoted the same token.
@@ -124,10 +210,10 @@ export const aggregateAggregators = async (
       outputToken: req.outputToken,
       mode,
       metric: mode === AggregateMode.MaximizeOutput ? 'output.amountRaw' : 'input.amountRaw',
-      candidates: aggregators.map((agg, i) => {
-        const candidate = allResults[i][reqIdx];
+      candidates: selectedPerRequest[reqIdx].map((aggIdx) => {
+        const candidate = allResults[aggIdx][reqIdx];
         return {
-          aggregator: aggregatorService(agg),
+          aggregator: aggregatorService(aggregators[aggIdx]),
           output: candidate ? candidate.output.amountRaw.toString() : null,
           input: candidate ? candidate.input.amountRaw.toString() : null,
         };

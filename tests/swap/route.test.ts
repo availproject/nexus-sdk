@@ -134,6 +134,7 @@ const makeBridgeQuoteResponse = () => ({
 });
 const mockOraclePrices: OraclePriceResponse = [] as OraclePriceResponse;
 const mockAggregators: Aggregator[] = [{
+  supportsChain: () => true,
   getQuotes: vi.fn().mockResolvedValue([]),
 }];
 

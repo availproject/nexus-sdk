@@ -141,7 +141,7 @@ swap(input = {mode: EXACT_OUT, data:{toChainId:Base, toTokenAddress:WETH, toAmou
 
   # ── Step 1: preflight ─────────────────────────────  emit {status:route_building}   (§4-style, §preflight)
   pf = buildSwapPreflight(input, {chainList, cotCurrencyId, eoaAddress, middlewareClient})
-    aggregators      = createAggregators(mw)               # → [LiFi, Bebop, Fibrous]
+    aggregators      = createAggregators(mw)               # → [LiFi, Bebop, Fibrous, 0x, Mystic, Relay]
     publicClientList = createPublicClientList(chainList)
     balances         = getBalancesForSwap(                 # preloaded? then skip getSwapBalances
                          preloaded ?? getSwapBalances(eoa))      # → positive-only, same-chain-first
@@ -388,10 +388,11 @@ autoSelectSources(holdings, outputRequired, minOutputUsdPerSource?) -> {quoteRes
   rank non-COT holdings by USD value (desc)
   prefix = smallest set whose Σvalue ≥ outputRequired × PREFIX_HEADROOM (1.25)   # dust beyond prefix is never quoted
   for holding in prefix (then extend if realized output is short):
-    q = EXACT_OUT direct quote (if the aggregator supports it)    # precise input
-        else EXACT_IN convergence (SAFETY_MULTIPLIER each step, cap initial + MAX_CONVERGENCE_EXTRA_COT):
+    q = RACE (firstSuccess): EXACT_OUT direct quote (precise input)
+        vs EXACT_IN convergence (seed × SAFETY_MULTIPLIER each step, cap initial + MAX_CONVERGENCE_EXTRA_COT)
+        # first non-null settlement wins — the ~0.2% seed keeps a convergence win ≈ the EXACT_OUT input
           if minOutputUsdPerSource: lift the leg's target to ≥ minOutputUsdPerSource + chainFee  # no sub-floor partial
-          can't reach output under the cap → throw "… converge …"
+          both candidates null → throw "… converge …"
     quoteResponses += q
   if minOutputUsdPerSource ∧ still short ∧ chains were dropped → throw "Mayan bridge requires ≥ $X per source …"
 
@@ -403,9 +404,10 @@ liquidateInputHoldings(holdings) -> QuoteResponse[]:              # EXACT_IN
 
 determineDestinationSwaps(cot → toToken, receiver=EOA, taker=executor) -> QuoteResponse | null:
   if toToken == cot: return null                                  # no aggregator call
-  return EXACT_OUT direct (if supported)
-         else convergence(indicative reverse × SAFETY_MULTIPLIER, round UP;
-                          cap initial + MAX_CONVERGENCE_EXTRA_COT)    # → null if it can't converge
+  return RACE (firstSuccess): EXACT_OUT direct
+         vs convergence(indicative reverse × SAFETY_MULTIPLIER, round UP;
+                        cap initial + MAX_CONVERGENCE_EXTRA_COT)
+         # first non-null settlement wins → null only when both can't converge
 
 destinationSwapWithExactIn(cot → outToken, EXACT_IN) -> QuoteResponse | null    # a single quote
 destinationGasSwapExactIn(cot → EADDRESS, EXACT_IN, input=gasAmountInCotRaw)     # native gas, receiver=EOA
@@ -417,23 +419,30 @@ destinationGasSwapExactIn(cot → EADDRESS, EXACT_IN, input=gasAmountInCotRaw)  
 
 ```text
 aggregateAggregators(requests, aggregators, mode):
-  per request: pick the best non-null quote across aggregators
+  per request: selectForChain picks ≤ 2 aggregators by TIER (supportsChain static lists):
+    TIER_1 = [Relay, Bebop, Fibrous, Mystic]; TIER_2 = [0x, LiFi]      # priority = array order
+    tier-1 supporters first, top up from tier 2 to reach 2 (Citrea → Fibrous + Mystic, both tier-1); a lone supporter runs alone
+    0x/Mystic never alone (their quotes need a sibling for decimals) — pull a metadata-carrying supporter or skip the call
+    NO adapter claims the chain → full fan-out fallback (gated adapters null locally; only Relay,
+      deliberately ungated in fetchQuote, probes live)
+  each aggregator receives ONLY its selected requests (the network-call reduction); results scatter
+  back into the full matrix, then per request pick the best non-null quote among the selected:
     MaximizeOutput → max output.amountRaw   (tie → first aggregator)
     MinimizeInput  → min input.amountRaw
   a throwing aggregator is skipped; all-throw / all-null → {quote:null, aggregator:first}
   then BACKFILL the winner from a sibling (same request ⇒ same token):
-    priceUsd missing on a leg → value = amount × sibling.priceUsd     # fixes 0x AND Bebop value=0
+    priceUsd missing on a leg → value = amount × sibling.priceUsd     # fixes 0x/Mystic AND Bebop value=0
     0x winner (no decimals/symbol) → borrow sibling.decimals (exact) + symbol, recompute amount;
       no sibling for a side → DROP the quote (null) — a 0x-only leg falls back to no-0x coverage
 
-createAggregators(mw) → [LiFi, Bebop, Fibrous, 0x]
+createAggregators(mw) → [LiFi, Bebop, Fibrous, 0x, Mystic, Relay]
 ```
 
 All adapters map a middleware response to a `Quote`, use the **slippage‑protected** output amount,
 return `null` on throw/timeout, short‑circuit unsupported chains **without firing a request**, and
 send **no API‑key headers** (the proxy handles auth). LiFi/Bebop surface a per‑token `priceUsd`;
-**0x reports amounts + tx only (no decimals/symbol/price)** — those are backfilled from a sibling
-quote in `aggregateAggregators`, so a leg only 0x quotes is dropped (falls back to no‑0x coverage).
+**0x and Mystic report amounts + tx only (no decimals/symbol/price)** — those are backfilled from a sibling
+quote in `aggregateAggregators`, so a leg only 0x/Mystic quotes is dropped (falls back to no‑0x coverage).
 
 | Adapter | Output amount | Recipient param | Notable params | Chains / notes |
 |---|---|---|---|---|
@@ -441,6 +450,7 @@ quote in `aggregateAggregators`, so a leg only 0x quotes is dropped (falls back 
 | **Bebop** | `route.quote.buyTokens.minimumAmount` | `receiver_address` | `taker_address=userAddress`; `source='arcana'`; EXACT_OUT uses `buy_amounts`; addresses **checksummed** (`getAddress`) | response nests `{tx, approvalTarget, expiry, buyTokens, sellTokens}` under `route.quote`; **picks the best of `routes[]`** (max output / min input), not `routes[0]`; missing `priceUsd` ⇒ `value=0`, backfilled from a sibling |
 | **Fibrous** | `min_received` | `destination` | `excludeProtocols='3'` | **EXACT_IN only** (EXACT_OUT → `null`); HyperEVM 999 / Monad 143 / Citrea 4114; native input (`swap_type===0`) → `approvalAddress=zeroAddress`, `tx.value=amount_in` |
 | **0x** | `minBuyAmount` (EXACT_IN) / exact `buyAmount`, input capped at `maxSellAmount` (EXACT_OUT) | `recipient` | allowance‑holder via proxy `/zerox/swap/allowance-holder/quote`; `taker=userAddress`; `slippageBps='100'`; `allowanceTarget` → `approvalAddress` (`zeroAddress` when null/native) | EXACT_IN **and** EXACT_OUT; `liquidityAvailable=false` → `null`; **no decimals/symbol/price** (backfilled from a sibling) |
+| **Mystic** | `minBuyAmount` (slippage‑protected floor, like 0x) | `recipient` | two‑step: POST `/v1/swap/quote` then `/v1/swap/build`; `slippageBps`; survey (`!SERIOUS`) skips the simulating build call; native sell → `approvalAddress=zeroAddress` | **EXACT_IN only**; Citrea 4114 only; **no decimals/symbol/price** (backfilled from a sibling, mirrors 0x) |
 
 ---
 
@@ -732,7 +742,7 @@ a formula over the (already‑updated) inputs, so it tracks them automatically.
   chosen amount** (`holdingUsd`, not the full wallet balance); EXACT_OUT hands the floor to
   `autoSelectSources`. A native fast-path destination defaults to `nexus` (the server can't price a
   zero-address token).
-- **Convergence bounded** — `SAFETY_MULTIPLIER` (1.01); input growth capped at initial +
+- **Convergence bounded** — `SAFETY_MULTIPLIER` (1.002); input growth capped at initial +
   `MAX_CONVERGENCE_EXTRA_COT` (0.5); non‑convergence throws (source) / returns null (destination).
 - **Source re‑quote once.** EXACT_OUT: summed leg drops ≤ `srcBuffer` (boundary inclusive), else
   `EXTERNAL_RATES_DRIFT_EXCEEDED`. EXACT_IN: no guard — accept the re‑quote and proceed. Still failing

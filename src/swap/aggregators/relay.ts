@@ -14,11 +14,33 @@ const ERC20_APPROVE_ABI = parseAbi(['function approve(address spender, uint256 v
 // native → zero on the request and keep the SDK-canonical token on the returned quote.
 const relayCurrency = (token: Hex): Hex => (isNativeAddress(token) ? ZERO_ADDRESS : token);
 
+// Chains Relay serves — LiFi's list minus Kaia (8217). Confirm/expand against
+// https://docs.relay.link/resources/supported-chains. Unlike the other adapters there is
+// deliberately NO local gate in fetchQuote: Relay is the probe for the zero-supporter
+// selection fallback, so a chain missing from every static list still reaches a live endpoint.
+const SUPPORTED_CHAINS = new Set<number>([
+  1, // Ethereum
+  10, // Optimism
+  56, // BSC
+  137, // Polygon
+  143, // Monad
+  999, // HyperEVM
+  4326, // MegaETH
+  8453, // Base
+  42161, // Arbitrum
+  43114, // Avalanche
+  534352, // Scroll
+]);
+
 export class RelayAggregator implements Aggregator {
   private readonly getQuote: (params: Record<string, string>) => Promise<unknown>;
 
   constructor(getQuote: (params: Record<string, string>) => Promise<unknown>) {
     this.getQuote = getQuote;
+  }
+
+  supportsChain(chainId: number): boolean {
+    return SUPPORTED_CHAINS.has(chainId);
   }
 
   async getQuotes(requests: QuoteRequest[]): Promise<(Quote | null)[]> {

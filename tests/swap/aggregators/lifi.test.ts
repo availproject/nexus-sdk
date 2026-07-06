@@ -253,3 +253,15 @@ describe('LiFiAggregator', () => {
     expect(getQuoteFn).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('LiFiAggregator supportsChain', () => {
+  const agg = new LiFiAggregator(vi.fn());
+
+  it('reports a listed chain as supported', () => {
+    expect(agg.supportsChain(8453)).toBe(true);
+  });
+
+  it('reports an unlisted chain as unsupported', () => {
+    expect(agg.supportsChain(4114)).toBe(false);
+  });
+});

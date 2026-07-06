@@ -28,6 +28,10 @@ export class FibrousAggregator implements Aggregator {
     this.excludeProtocols = options.excludeProtocols ?? DEFAULT_EXCLUDE_PROTOCOLS;
   }
 
+  supportsChain(chainId: number): boolean {
+    return chainId in CHAIN_NAME_MAP;
+  }
+
   async getQuotes(requests: QuoteRequest[]): Promise<(Quote | null)[]> {
     return Promise.all(requests.map((req) => this.fetchQuote(req)));
   }

@@ -85,4 +85,6 @@ export type QuoteResponse = {
 
 export interface Aggregator {
   getQuotes(requests: QuoteRequest[]): Promise<(Quote | null)[]>;
+  // Static chain gate consulted by aggregateAggregators' per-request tiered selection.
+  supportsChain(chainId: number): boolean;
 }

@@ -148,3 +148,15 @@ describe('ZeroExAggregator', () => {
     expect(getQuoteFn.mock.calls[0]).toHaveLength(1); // (params) only
   });
 });
+
+describe('ZeroExAggregator supportsChain', () => {
+  const agg = new ZeroExAggregator(vi.fn());
+
+  it('reports a listed chain as supported', () => {
+    expect(agg.supportsChain(5000)).toBe(true);
+  });
+
+  it('reports an unlisted chain as unsupported', () => {
+    expect(agg.supportsChain(4114)).toBe(false);
+  });
+});

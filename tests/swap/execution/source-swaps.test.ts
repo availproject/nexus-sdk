@@ -467,6 +467,7 @@ describe('executeSourceSwaps', () => {
 
     const quote = makeQuoteResponse();
     quote.aggregator = {
+      supportsChain: () => true,
       getQuotes: vi.fn().mockResolvedValue([quote.quote]),
     } as unknown as Aggregator;
 
@@ -1083,6 +1084,7 @@ describe('executeSourceSwaps', () => {
       },
     });
     const aggregatorB = {
+      supportsChain: () => true,
       getQuotes: vi.fn().mockResolvedValue([requotedQuoteB.quote]),
     } as unknown as Aggregator;
     const quoteB = makeQuoteResponse(chainB, { aggregator: aggregatorB });
@@ -1153,6 +1155,7 @@ describe('executeSourceSwaps', () => {
       },
     });
     const aggregator = {
+      supportsChain: () => true,
       getQuotes: vi.fn().mockResolvedValue([requotedQuote.quote]),
     } as unknown as Aggregator;
     const quote = makeQuoteResponse(ARB_CHAIN, { aggregator });
@@ -1205,6 +1208,7 @@ describe('executeSourceSwaps', () => {
       },
     });
     const aggregator = {
+      supportsChain: () => true,
       getQuotes: vi.fn().mockResolvedValue([requotedQuote.quote]),
     } as unknown as Aggregator;
     quote.aggregator = aggregator;
@@ -1257,6 +1261,7 @@ describe('executeSourceSwaps', () => {
       },
     });
     const aggregator = {
+      supportsChain: () => true,
       getQuotes: vi.fn().mockResolvedValue([requotedQuote.quote]),
     } as unknown as Aggregator;
     quote.aggregator = aggregator;
@@ -1299,6 +1304,7 @@ describe('executeSourceSwaps', () => {
       },
     });
     const aggregator = {
+      supportsChain: () => true,
       getQuotes: vi.fn().mockResolvedValue([requotedQuote.quote]),
     } as unknown as Aggregator;
     quote.aggregator = aggregator;
@@ -1349,9 +1355,11 @@ describe('executeSourceSwaps', () => {
       },
     });
     const aggregatorA = {
+      supportsChain: () => true,
       getQuotes: vi.fn().mockResolvedValue([requotedA.quote]),
     } as unknown as Aggregator;
     const aggregatorB = {
+      supportsChain: () => true,
       getQuotes: vi.fn().mockResolvedValue([requotedB.quote]),
     } as unknown as Aggregator;
     const quoteA = makeQuoteResponse(chainA, { aggregator: aggregatorA });
@@ -1415,9 +1423,11 @@ describe('executeSourceSwaps', () => {
       },
     });
     const aggregatorA = {
+      supportsChain: () => true,
       getQuotes: vi.fn().mockResolvedValue([requotedA.quote]),
     } as unknown as Aggregator;
     const aggregatorB = {
+      supportsChain: () => true,
       getQuotes: vi.fn().mockResolvedValue([requotedB.quote]),
     } as unknown as Aggregator;
     const quoteA = makeQuoteResponse(chainA, { aggregator: aggregatorA });
@@ -1468,6 +1478,7 @@ describe('executeSourceSwaps', () => {
       },
     });
     const aggregator = {
+      supportsChain: () => true,
       getQuotes: vi.fn().mockResolvedValue([requotedQuote.quote]),
     } as unknown as Aggregator;
     quote.aggregator = aggregator;
@@ -1497,6 +1508,7 @@ describe('executeSourceSwaps', () => {
     const chainB = 10;
     const quoteA = makeQuoteResponse(chainA);
     const aggregatorB = {
+      supportsChain: () => true,
       getQuotes: vi.fn().mockResolvedValue([makeQuoteResponse(chainB).quote]),
     } as unknown as Aggregator;
     const quoteB = makeQuoteResponse(chainB, { aggregator: aggregatorB });

@@ -307,3 +307,15 @@ describe('BebopAggregator', () => {
     expect(getQuoteFn).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('BebopAggregator supportsChain', () => {
+  const agg = new BebopAggregator(vi.fn());
+
+  it('reports a listed chain as supported', () => {
+    expect(agg.supportsChain(999)).toBe(true);
+  });
+
+  it('reports an unlisted chain as unsupported', () => {
+    expect(agg.supportsChain(4114)).toBe(false);
+  });
+});

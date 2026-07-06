@@ -1,6 +1,7 @@
 import Decimal from 'decimal.js';
 import type { Hex } from 'viem';
 import type { ChainListType } from '../../domain/types';
+import { logger } from '../../domain/utils';
 import { equalFold } from '../../services/strings';
 import {
   AggregateMode,
@@ -14,8 +15,9 @@ import { EADDRESS } from '../constants';
 import { CurrencyID } from '../cot';
 import {
   convergeExactIn,
+  firstSuccess,
   maxConvergenceExtraAmountRaw,
-  preferredOrFallback,
+  timedCandidate,
   tryExactOutDirect,
 } from './convergence';
 
@@ -47,8 +49,8 @@ type DetermineInput = {
  *
  * Races two candidates in parallel: an EXACT_OUT direct quote (where the aggregator
  * picks the input for a given output) and an EXACT_IN convergence loop (priced off a
- * reverse quote, then iteratively bumped under a USD cap). First success wins; v1
- * pattern. Returns null if destination token IS COT (no swap needed) or neither
+ * reverse quote, then iteratively bumped under a USD cap). Whichever settles non-null
+ * first wins. Returns null if destination token IS COT (no swap needed) or neither
  * candidate covers the requirement.
  */
 export const determineDestinationSwaps = async ({
@@ -64,6 +66,7 @@ export const determineDestinationSwaps = async ({
     return null;
   }
 
+  const startedAt = Date.now();
   const exactOutPromise = tryExactOutDirect({
     request: {
       userAddress: options.userAddress,
@@ -80,6 +83,7 @@ export const determineDestinationSwaps = async ({
   });
 
   const convergedPromise = (async () => {
+    const reverseStartedAt = Date.now();
     const reverseResults = await aggregateAggregators(
       [
         {
@@ -97,6 +101,12 @@ export const determineDestinationSwaps = async ({
       AggregateMode.MaximizeOutput
     );
     const reverseQuote = reverseResults[0]?.quote;
+    logger.debug('swap:timing', {
+      op: 'dst_reverse_quote',
+      chainId: dst.chainId,
+      hit: reverseQuote != null,
+      ms: Date.now() - reverseStartedAt,
+    });
     if (!reverseQuote) return null;
 
     const cotOutputHuman = new Decimal(reverseQuote.output.amount);
@@ -123,9 +133,16 @@ export const determineDestinationSwaps = async ({
     return converged;
   })();
 
-  const winner = await preferredOrFallback({
-    preferred: exactOutPromise,
-    fallback: convergedPromise,
+  const raceContext = { chainId: dst.chainId, side: 'destination' };
+  const winner = await firstSuccess([
+    timedCandidate('race.exact_out', raceContext, exactOutPromise),
+    timedCandidate('race.convergence', raceContext, convergedPromise),
+  ]);
+  logger.debug('swap:timing', {
+    op: 'destination_swap',
+    chainId: dst.chainId,
+    hit: winner != null,
+    ms: Date.now() - startedAt,
   });
 
   if (!winner) return null;

@@ -43,6 +43,10 @@ export class LiFiAggregator implements Aggregator {
     this.getQuote = getQuote;
   }
 
+  supportsChain(chainId: number): boolean {
+    return ALLOWED_CHAINS.has(chainId);
+  }
+
   async getQuotes(requests: QuoteRequest[]): Promise<(Quote | null)[]> {
     return Promise.all(requests.map((req) => this.fetchQuote(req)));
   }

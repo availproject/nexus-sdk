@@ -99,7 +99,7 @@ const REAL_SRC_BUFFER = new Decimal(0.225);
 describe('native EOA source swap dispatches the fresh re-quote on retry', () => {
   it('WITH preparedExecution: a re-quote is dispatched, not the stale prepared order', async () => {
     const requoted = makeNativeQuote('0xbbbbbbbb', 45000000n); // fresh order, EQUAL output (inside buffer)
-    const aggregator = { getQuotes: vi.fn().mockResolvedValue([requoted.quote]) } as unknown as Aggregator;
+    const aggregator = { supportsChain: () => true, getQuotes: vi.fn().mockResolvedValue([requoted.quote]) } as unknown as Aggregator;
     const original = makeNativeQuote('0xaaaaaaaa', 45000000n, aggregator);
 
     // prepared parsedQuote mirrors what prepare() builds from the ORIGINAL quote
@@ -133,7 +133,7 @@ describe('native EOA source swap dispatches the fresh re-quote on retry', () => 
 
   it('WITHOUT preparedExecution: a re-quote is dispatched (control)', async () => {
     const requoted = makeNativeQuote('0xbbbbbbbb', 45000000n);
-    const aggregator = { getQuotes: vi.fn().mockResolvedValue([requoted.quote]) } as unknown as Aggregator;
+    const aggregator = { supportsChain: () => true, getQuotes: vi.fn().mockResolvedValue([requoted.quote]) } as unknown as Aggregator;
     const original = makeNativeQuote('0xaaaaaaaa', 45000000n, aggregator);
 
     const { ctx, sendTransaction } = makeCtx({ receiptStatuses: ['reverted', 'success'] });

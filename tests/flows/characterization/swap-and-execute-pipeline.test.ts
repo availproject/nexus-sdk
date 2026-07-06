@@ -128,7 +128,10 @@ const RATES: Record<'lifi' | 'bebop', Record<string, Decimal>> = {
   },
   bebop: {
     [rateKey(SOURCE_DAI, USDC_ARB)]: new Decimal('0.8'),
-    [rateKey(NATIVE, USDC_ARB)]: new Decimal('2900'),
+    // Tiered selection consults only Relay + Bebop (LiFi is tier 2, Relay has no responder), so
+    // Bebop carries LiFi's old winning native rate — the reserved-gas test's 2996.5-USDC target
+    // was sized against it (1 ETH covers it only until the gas reserve is deducted).
+    [rateKey(NATIVE, USDC_ARB)]: new Decimal('3000'),
   },
 };
 
@@ -238,10 +241,13 @@ const makeBebopResponse = (params: Record<string, string>) => {
   const inputMeta = inputToken.toLowerCase() === SOURCE_DAI.toLowerCase() ? daiToken : nativeToken;
   const outputMeta = usdcToken;
   const rate = getRate('bebop', inputToken, outputToken);
-  const isExactOut = params.buy_tokens_amounts !== undefined;
+  // bebop.ts sends `buy_amounts` for EXACT_OUT and parses approvalTarget/tx from INSIDE
+  // `routes[0].quote` — the earlier shape had them at the route level, so every Bebop echo
+  // parsed to null and LiFi silently carried this file (masked while LiFi was still consulted).
+  const isExactOut = params.buy_amounts !== undefined;
 
   const outputAmountHuman = isExactOut
-    ? fromRawAmount(BigInt(params.buy_tokens_amounts), outputMeta.decimals)
+    ? fromRawAmount(BigInt(params.buy_amounts), outputMeta.decimals)
     : fromRawAmount(BigInt(params.sell_amounts), inputMeta.decimals).mul(rate);
   const inputAmountHuman = isExactOut
     ? outputAmountHuman.div(rate)
@@ -270,14 +276,14 @@ const makeBebopResponse = (params: Record<string, string>) => {
               decimals: inputMeta.decimals,
             },
           },
+          approvalTarget: '0x2222222222222222222222222222222222221111',
+          tx: {
+            to: '0x2222222222222222222222222222222222222222',
+            data: '0xfedcba',
+            value: '0x0',
+          },
+          expiry: Math.floor(Date.now() / 1000) + 60,
         },
-        approvalTarget: '0x2222222222222222222222222222222222221111',
-        tx: {
-          to: '0x2222222222222222222222222222222222222222',
-          data: '0xfedcba',
-          value: '0x0',
-        },
-        expiry: Math.floor(Date.now() / 1000) + 60,
       },
     ],
   };
@@ -583,8 +589,9 @@ describe('swapAndExecute pipeline characterization', () => {
         txHash: EXECUTE_TX_HASH,
       }),
     });
-    expect(middlewareClient.getLiFiQuote).toHaveBeenCalled();
+    // Tiered selection: LiFi (tier 2) is not consulted — Bebop carries the funding swap.
     expect(middlewareClient.getBebopQuote).toHaveBeenCalled();
+    expect(middlewareClient.getLiFiQuote).not.toHaveBeenCalled();
     // Smart-account-only: source swap dispatches via ephemeral SBC (middleware submitSBCs),
     // not EOA sendCalls. Only the final execute lands on the EOA wallet.
     expect(middlewareClient.submitSBCs).toHaveBeenCalled();
@@ -679,6 +686,6 @@ describe('swapAndExecute pipeline characterization', () => {
       })
     ).rejects.toThrow(/insufficient balance/i);
 
-    expect(middlewareClient.getLiFiQuote).toHaveBeenCalled();
+    expect(middlewareClient.getBebopQuote).toHaveBeenCalled();
   });
 });
