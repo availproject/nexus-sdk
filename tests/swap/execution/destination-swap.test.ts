@@ -386,12 +386,22 @@ describe('executeDestinationSwap', () => {
     expect(metadata.dst?.swaps[0].outputAmount).toBe(1050000000000000000n);
   });
 
-  it('EXACT_IN reclaim: skips the grow when the actual balance is not above the planned input', async () => {
-    const planned = makeQuoteResponse();
+  it('EXACT_IN reclaim: re-sizes even when the actual balance equals the planned input (applies the deduction)', async () => {
+    // No source buffer: the dst swap re-sizes from the actual balance in BOTH directions. Even when
+    // balanceOf equals the route-time input, getDstSwap runs so the reclaim deduction applies and a
+    // leftover survives — the swap never consumes 100% of the wrapper balance.
+    const planned = makeQuoteResponse(); // route-time input = 3000 USDC
+    const resized = makeQuoteResponse({
+      quote: {
+        ...planned.quote,
+        input: { ...planned.quote.input, amount: '2999.7', amountRaw: 2999700000n }, // 3000 − 1bp
+      },
+    });
     const destination = makeDestination({ tokenSwap: planned });
+    destination.getDstSwap = vi.fn().mockResolvedValue({ tokenSwap: resized, gasSwap: null });
 
     const ctx = makeCtx('ephemeral');
-    withReclaimClient(ctx, 3000000000n); // equal to planned → grow gate stays closed
+    withReclaimClient(ctx, 3000000000n); // actual COT at wrapper == planned
     const metadata: SwapMetadata = { src: [], dst: null, has_xcs: false, intent_request_hash: null };
 
     await executeDestinationSwap(
@@ -401,8 +411,36 @@ describe('executeDestinationSwap', () => {
       metadata
     );
 
-    expect(destination.getDstSwap).not.toHaveBeenCalled();
-    expect(metadata.dst?.swaps[0].inputAmount).toBe(3000000000n); // original quote
+    expect(destination.getDstSwap).toHaveBeenCalledWith(3000000000n);
+    expect(metadata.dst?.swaps[0].inputAmount).toBe(2999700000n); // deducted → a leftover remains
+  });
+
+  it('EXACT_IN reclaim: shrinks the destination swap when the actual balance is BELOW the planned input', async () => {
+    // A down-drifted source delivers less COT than the route estimated. With no source buffer the dst
+    // swap must shrink to the actual balance, or it would try to pull more COT than the wrapper holds.
+    const planned = makeQuoteResponse(); // route-time input = 3000 USDC
+    const resized = makeQuoteResponse({
+      quote: {
+        ...planned.quote,
+        input: { ...planned.quote.input, amount: '2499.75', amountRaw: 2499750000n }, // 2500 − 1bp
+      },
+    });
+    const destination = makeDestination({ tokenSwap: planned });
+    destination.getDstSwap = vi.fn().mockResolvedValue({ tokenSwap: resized, gasSwap: null });
+
+    const ctx = makeCtx('ephemeral');
+    withReclaimClient(ctx, 2500000000n); // actual COT at wrapper < planned 3000
+    const metadata: SwapMetadata = { src: [], dst: null, has_xcs: false, intent_request_hash: null };
+
+    await executeDestinationSwap(
+      destination as unknown as SwapRoute['destination'],
+      SwapMode.EXACT_IN, makeDstTokenInfo(),
+      ctx,
+      metadata
+    );
+
+    expect(destination.getDstSwap).toHaveBeenCalledWith(2500000000n);
+    expect(metadata.dst?.swaps[0].inputAmount).toBe(2499750000n); // shrank to actual − 1bp
   });
 
   it('EXACT_IN reclaim: falls back to the route-time quote when the grow re-quote fails', async () => {

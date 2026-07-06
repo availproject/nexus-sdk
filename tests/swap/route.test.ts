@@ -535,11 +535,10 @@ describe('determineSwapRoute', () => {
     expect(route.type).toBe(SwapMode.EXACT_IN);
     expect(route.source.swaps).toHaveLength(1);
     expect(liquidateInputHoldings).toHaveBeenCalled();
-    // EXACT_IN srcBuffer = min(0.5% × totalSourceSwapOutput, $1 / USDC price).
-    // Here: 3000 USDC × 0.005 = 15, capped to 1.
-    expect(route.source.srcBuffer.toFixed()).toBe('1');
-    // The same buffer is surfaced in route.buffer.amount so the swap intent can show it.
-    expect(route.buffer.amount).toBe('1');
+    // EXACT_IN has no source buffer: a failed leg re-quotes and proceeds with no drift guard.
+    expect(route.source.srcBuffer).toBeNull();
+    // No buffer to surface in the intent.
+    expect(route.buffer.amount).toBe('0');
   });
   it('EXACT_IN same-family non-COT sources bridge directly with no swaps (USDT→USDT)', async () => {
     const input: SwapData = {
@@ -711,10 +710,10 @@ describe('determineSwapRoute', () => {
 
     // A dst swap runs → the local COT is NOT delivered direct-to-EOA; it must be swapped here.
     expect(route.destination.swap.tokenSwap).not.toBeNull();
-    // srcBuffer = min(3 * 0.5%, $1) = 0.015. Correct dst input = (1 local + 2 bridged) - 0.015 = 2.985.
-    // Bug drops the local 1 → 2 - 0.015 = 1.985, so 1 USDC of value never reaches the dst swap.
+    // No source buffer: the dst swap is quoted at the full available COT = 1 local + 2 bridged = 3.
+    // The regression this guards is dropping the local 1 (which would give 2, not 3).
     expect(vi.mocked(destinationSwapWithExactIn)).toHaveBeenCalledWith(
-      expect.objectContaining({ input: expect.objectContaining({ amountRaw: 2985000n }) })
+      expect.objectContaining({ input: expect.objectContaining({ amountRaw: 3000000n }) })
     );
   });
   it('EXACT_IN mixed family (USDT + DAI → USDT) falls back to the COT flow', async () => {
@@ -898,7 +897,7 @@ describe('determineSwapRoute', () => {
       expect(equalFold(asset.contractAddress, ZERO_ADDRESS)).toBe(true);
     }
   });
-  it('EXACT_IN dst quote spends (cotAvailable - srcBuffer) so source drift cannot underflow', async () => {
+  it('EXACT_IN dst quote spends the full cotAvailable (no source buffer); getDstSwap floor is 0', async () => {
     const input: SwapData = {
       mode: SwapMode.EXACT_IN,
       data: {
@@ -917,29 +916,28 @@ describe('determineSwapRoute', () => {
         ],
       })
     );
-    // totalSourceSwapOutput = 3000 USDC → srcBuffer = min(15, 1) = 1.
-    // cotAvailableForDestination = 3000 (all same chain, no bridge fees).
-    // bufferedDstInput = 3000 - 1 = 2999 → 2999000000n raw.
-    expect(route.source.srcBuffer.toFixed()).toBe('1');
+    // cotAvailableForDestination = 3000 (all same chain, no bridge fees). No source buffer →
+    // the dst swap is quoted at the full 3000; the getDstSwap floor (`min`) is 0.
+    expect(route.source.srcBuffer).toBeNull();
     // COT round-trip: settles in the COT (USDC), not a same-token bridge.
     expect(route.sameTokenBridge).toBe(false);
     expect(route.settlementCurrencyId).toBe(CurrencyID.USDC);
-    // `min` stays the conservative drift floor; `max` lifts to the full unbuffered COT so the
-    // execution-time reclaim may spend up to what actually lands.
-    expect(route.destination.inputAmount.min.toFixed()).toBe('2999');
+    // `min` is 0 (the reclaim floor) so a down-drifted source can't over-size the dst swap; `max`
+    // is the full COT the execution-time reclaim may spend up to.
+    expect(route.destination.inputAmount.min.toFixed()).toBe('0');
     expect(route.destination.inputAmount.max.toFixed()).toBe('3000');
     // No bridge (same-chain) → nothing to reclaim from a bridged balance.
     expect(route.bridge).toBeNull();
     expect(route.source.reclaimFromActualBalance).toBe(false);
-    // The route-time quote still uses the conservative `min`.
+    // The route-time quote uses the full cotAvailable.
     expect(vi.mocked(destinationSwapWithExactIn)).toHaveBeenCalledWith(
       expect.objectContaining({
-        input: expect.objectContaining({ amountRaw: 2999000000n }),
+        input: expect.objectContaining({ amountRaw: 3000000000n }),
       })
     );
   });
 
-  it('EXACT_IN getDstSwap grows the input to max(actual - deduction, min)', async () => {
+  it('EXACT_IN getDstSwap sizes the input to actual - deduction (floor 0)', async () => {
     const input: SwapData = {
       mode: SwapMode.EXACT_IN,
       data: {
@@ -958,9 +956,9 @@ describe('determineSwapRoute', () => {
         ],
       })
     );
-    // min = cotAvailable - srcBuffer = 2999, max = cotAvailable = 3000.
+    // No source buffer: floor = 0, max = cotAvailable = 3000.
     // Full delivery, no drift: actual COT at the wrapper = 3000. deduction = 1bp of 3000 = 0.3.
-    // execInput = clamp(3000 - 0.3, [2999, 3000]) = 2999.7 → 2999700000n raw (reclaims the buffer).
+    // execInput = 3000 - 0.3 = 2999.7 → 2999700000n raw.
     const resized = await route.destination.getDstSwap(3000000000n);
     expect(resized).not.toBeNull();
     expect(vi.mocked(destinationSwapWithExactIn)).toHaveBeenLastCalledWith(
@@ -1033,11 +1031,11 @@ describe('determineSwapRoute', () => {
     );
 
     expect(route.bridge?.provider).toBe('mayan');
-    // Mayan delivers 2900 on BASE; exact-in srcBuffer = min(0.5%*3000, $1) = 1.
-    // Correct dst-swap input = delivered - buffer = 2900 - 1 = 2899 (NOT 3000 - 1 = 2999).
-    expect(route.destination.inputAmount.min.toFixed()).toBe('2899');
+    // Mayan delivers 2900 on BASE (not the 3000 bridged) — the dst swap is sized off 2900, with no
+    // source buffer. `min` is the reclaim floor (0).
+    expect(route.destination.inputAmount.min.toFixed()).toBe('0');
     expect(vi.mocked(destinationSwapWithExactIn)).toHaveBeenCalledWith(
-      expect.objectContaining({ input: expect.objectContaining({ amountRaw: 2899000000n }) })
+      expect.objectContaining({ input: expect.objectContaining({ amountRaw: 2900000000n }) })
     );
   });
   it('destination token IS COT → no token swap needed', async () => {
@@ -2797,7 +2795,7 @@ describe('determineSwapRoute', () => {
     expect(route.destination.inputAmount.min.toString()).toBe('3124');
     expect(route.destination.inputAmount.max.toString()).toBe('3124');
   });
-  it('EXACT_IN getDstSwap rejects when a requote output worsens beyond the tolerance', async () => {
+  it('EXACT_IN getDstSwap accepts a worsened requote (no rate tolerance guard)', async () => {
     const input: SwapData = {
       mode: SwapMode.EXACT_IN,
       data: {
@@ -2876,7 +2874,9 @@ describe('determineSwapRoute', () => {
         balances: [{ amount: '5', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDC', tokenAddress: USDC_ARB, value: 5, logo: '', name: 'USDC' }],
       })
     );
-    await expect(route.destination.getDstSwap(0n)).rejects.toThrow(/tolerance/i);
+    // No rate guard for EXACT_IN: a requote 1% worse than the route-time quote is accepted, not thrown.
+    const resized = await route.destination.getDstSwap(0n);
+    expect(resized?.tokenSwap?.quote.output.amountRaw).toBe(990000000000000000n);
   });
   it('EXACT_OUT passes currencyId to resolveCOT via chainList.getTokenByCurrencyId', async () => {
     const customToken: TokenInfo = {

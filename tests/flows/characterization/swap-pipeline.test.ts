@@ -1914,8 +1914,8 @@ const EXACT_IN_SCENARIOS: ExactInScenario[] = [
       expectedSubmitSbcChainIds: [ARB_CHAIN, OP_CHAIN, BASE_CHAIN],
       expectedBridgeRecipient: EPH,
       expectedBridgeAmountHuman: '2100',
-      // 2100 source-swap output × 0.005 = 10.5, capped to $1 → dst quote runs on 2099.
-      expectedDestinationInputHuman: '2099',
+      // No source buffer: the dst quote runs on the full bridged 2100; `min` is the getDstSwap floor (0).
+      expectedDestinationInputHuman: '0',
       sourceQuoteExpectations: [
         { chainId: ARB_CHAIN, executor: EPH, recipient: EPH },
         { chainId: OP_CHAIN, executor: EPH, recipient: EPH },
@@ -2223,8 +2223,8 @@ const assertExactInScenario = (scenario: ExactInScenario, result: ExactInHarness
   expect(result.previewState.route.destination.inputAmount.min.toFixed()).toBe(
     scenario.expected.expectedDestinationInputHuman
   );
-  // EXACT_IN reclaim lifts `max` to the full unbuffered COT (= the bridged amount) so the
-  // execution-time re-size can spend up to what actually lands; `min` stays the buffered floor.
+  // EXACT_IN: `max` is the full COT (= the bridged amount) the execution-time re-size can spend up to;
+  // `min` is the getDstSwap floor (0), so a down-drifted source can't over-size the dst swap.
   expect(result.previewState.route.destination.inputAmount.max.toFixed()).toBe(
     scenario.expected.expectedBridgeAmountHuman
   );

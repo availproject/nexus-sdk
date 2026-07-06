@@ -721,11 +721,12 @@ describe('swap execution characterization', () => {
     // No bridge at all.
     expect(middlewareClient.submitRFF).not.toHaveBeenCalled();
 
-    // Single BASE batch: fund EOA→EPH (handoff), then the dst swap. No bridge → no surplus, the swap
-    // consumes the full handed-off COT, so there is no leftover to transfer.
+    // Single BASE batch: fund EOA→EPH (handoff of the full local COT), the dst swap (its input the
+    // handoff less the 1bp reclaim deduction), then the tiny remainder returned to the EOA — the same
+    // Seam-2 shape as every other EXACT_IN dst swap.
     const base = sbcBatchesForChain(middlewareClient, BASE_CHAIN);
     expect(base.length).toBe(1);
-    expect(base[0].map((c) => c.fn)).toEqual(['permit', 'transferFrom', 'approve', 'swap']);
+    expect(base[0].map((c) => c.fn)).toEqual(['permit', 'transferFrom', 'approve', 'swap', 'transfer']);
     permitOwnerSpender(EOA, EPH)(base[0][0].args);
     eq(EPH)(base[0][1].args[1]); // transferFrom EOA→EPH
     const swp = base[0][3];
@@ -733,10 +734,16 @@ describe('swap execution characterization', () => {
     eq(WETH)(swp.args[1]);
     eq(EPH)(swp.args[4]); // taker = wrapper
     eq(EOA)(swp.args[5]); // receiver = EOA
-    // funding/approve/swap input all consistent.
-    const fundAmt = base[0][1].args[2] as bigint;
-    expect(base[0][2].args[1]).toBe(fundAmt); // approve(router) == funded
-    expect(swp.args[2]).toBe(fundAmt); // swap input == funded
+    // The handoff moves the full local COT; the swap consumes it less the 1bp margin; approve matches
+    // the swap input; the un-consumed remainder is returned to the EOA.
+    const fundAmt = base[0][1].args[2] as bigint; // transferFrom = full handoff
+    const swapInput = swp.args[2] as bigint;
+    expect(base[0][2].args[1]).toBe(swapInput); // approve(router) == swap input
+    expect(swapInput).toBeLessThanOrEqual(fundAmt); // input ≤ handoff (1bp deduction)
+    const leftover = base[0][4];
+    eq(USDC_BASE)(leftover.to); // leftover COT → EOA
+    eq(EOA)(leftover.args[0]);
+    expect(leftover.args[1] as bigint).toBe(fundAmt - swapInput); // exactly the remainder
   });
 
   it('EXACT_IN · Nexus · mixed native + ERC20 sources → COT dst', async () => {
@@ -1492,9 +1499,9 @@ describe('swap execution characterization', () => {
 //     re-derivation, and the Mayan refresh / value-match. Realized positive slippage = balanceOf > the
 //     quote's minReceived floor. (The global harness stubs balanceOf=0, which zeroes the reclaim'd
 //     bridge — F1 — so each scenario self-provides a realistic wrapper balance.)
-//   • the requote (a failed source dispatch → requoteFailedChains). Its re-quoted quote.output feeds
-//     ONLY the pooled-buffer guard (Σnew ≥ Σold − srcBuffer); the dispatched calldata is reused from
-//     the prepared cache (F2.1), so the requote drives abort-vs-tolerate, not the bridged amount.
+//   • the requote (a failed source dispatch → requoteFailedChains). The re-dispatched calldata carries
+//     the FRESH re-quote (the echo stamps quote.output into the swap). EXACT_IN accepts it
+//     unconditionally — the pooled srcBuffer guard is removed (EXACT_OUT keeps it).
 // All of requoteFailedChains, the guard, mergeBridgeAssets, the Nexus re-derivation, and
 // refreshMayanQuotesForExecution run UNMOCKED; only the external edges (balanceOf, tx dispatch, the
 // aggregator rate) are fed.
@@ -1610,18 +1617,7 @@ describe('amount flow under a source drift', () => {
 
   // ── requote lever: a failed source dispatch re-quotes; the pooled srcBuffer guards DOWNWARD drift ──
 
-  it('requote DOWN within srcBuffer · EXACT_IN · Nexus — guard passes, swap completes', async () => {
-    // dst swap present → srcBuffer is nonzero. The re-quote drops the QUOTE 0.05% (< the ~$1 buffer),
-    // so the pooled guard (Σnew ≥ Σold − srcBuffer) passes and the swap completes.
-    const drift = makeRequoteDrift({ chainId: ARB_CHAIN, sourceToken: SOURCE_DAI, factor: 0.9995 });
-    const { promise, middlewareClient: mw } = runExactIn({ provider: 'nexus', toTokenAddress: WETH, wrapperCot: PLANNED, drift });
-    await promise;
-
-    expect(sourceSwapCount(mw), 'source swap retried once').toBe(2);
-    expect(vaultApprovedCot(mw), 'completes; bridge deposits the produced COT').toBe(PLANNED);
-  });
-
-  it('requote DOWN within srcBuffer · EXACT_IN · Nexus — the re-dispatch carries the FRESH re-quote, not the stale prepared order', async () => {
+  it('requote DOWN · EXACT_IN · Nexus — the re-dispatch carries the FRESH re-quote, not the stale prepared order', async () => {
     // Regression: on a failed source dispatch the leg re-quotes (output drifts 0.05% DOWN). The
     // RE-DISPATCHED swap must carry that fresh order — the echo stamps the quote's outputAmount into
     // the swap calldata, so a stale prepared-cache reuse shows the ORIGINAL output on attempt-1.
@@ -1639,9 +1635,15 @@ describe('amount flow under a source drift', () => {
     expect(attempt1.args[3], 're-dispatch carries the FRESH (drifted) output, not the stale one').toBe(DRIFTED);
   });
 
-  it('requote DOWN beyond srcBuffer · EXACT_IN · Nexus — pooled guard aborts the swap', async () => {
-    const drift = makeRequoteDrift({ chainId: ARB_CHAIN, sourceToken: SOURCE_DAI, factor: 0.95 }); // −5% ≫ $1 buffer
-    const { promise } = runExactIn({ provider: 'nexus', toTokenAddress: WETH, wrapperCot: PLANNED, drift });
-    await expect(promise, 'drop exceeds srcBuffer → EXTERNAL_RATES_DRIFT_EXCEEDED').rejects.toThrow(/srcBuffer/);
+  it('requote DOWN far · EXACT_IN · Nexus — no drift guard, re-dispatches and completes', async () => {
+    // −5% re-quote: with the EXACT_IN srcBuffer guard removed this no longer aborts. The leg
+    // re-quotes, re-dispatches, and the swap completes; the bridge deposits the COT that actually
+    // landed (balanceOf = PLANNED, unaffected by the quote-only drift).
+    const drift = makeRequoteDrift({ chainId: ARB_CHAIN, sourceToken: SOURCE_DAI, factor: 0.95 });
+    const { promise, middlewareClient: mw } = runExactIn({ provider: 'nexus', toTokenAddress: WETH, wrapperCot: PLANNED, drift });
+    await promise;
+
+    expect(sourceSwapCount(mw), 'source swap retried once').toBe(2);
+    expect(vaultApprovedCot(mw), 'completes; bridge deposits the produced COT').toBe(PLANNED);
   });
 });

@@ -63,6 +63,7 @@ export class LiFiAggregator implements Aggregator {
         denyExchanges: denyExchangesFor(req.chainId),
         slippage: SLIPPAGE_FRACTION,
         skipSimulation: true,
+        order: 'CHEAPEST',
       };
 
       if (isExactOut && 'outputAmount' in req) {

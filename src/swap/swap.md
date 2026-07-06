@@ -217,7 +217,7 @@ swap(input = {mode: EXACT_OUT, data:{toChainId:Base, toTokenAddress:WETH, toAmou
 > non‑7702 → Safe)**, receive **USDC on Base (8453, 7702)**. COT = USDC. Exercises liquidation, a
 > destination that **is** COT, and the **Safe path as a first‑class execution path**. Grounded in
 > `route.test.ts` (`EXACT_IN liquidates …`, `… routes source-swap recipient on non-7702 chains to
-> the predicted Safe address`, `EXACT_IN dst quote spends (cotAvailable - srcBuffer) …`),
+> the predicted Safe address`, `EXACT_IN dst quote spends the full cotAvailable (no source buffer) …`),
 > `execution/bridge.test.ts` (Safe deposit batch), `execution/destination-swap.test.ts` (COT
 > no‑op), and `safe-dispatch.test.ts`.
 
@@ -237,8 +237,8 @@ swap(input = {mode: EXACT_IN, data:{sources:[{Arb, WETH}], toChainId:Base, toTok
   # quote-address resolution — the seam, pre-execution:
   quote.userAddress = quote.recipientAddress = predictedSafe(Arb)   # because path=safe (else eph)  ◄ seam
   source = liquidateInputHoldings(holdings)  # WETH non-COT → quote WETH→USDC @ Arb (COT skipped)  (§6)
-  srcBuffer = min(SRC_BUFFER_EXACT_IN_PCT·out, SRC_BUFFER_EXACT_IN_MAX_USD)        # min(0.5%, $1)
-  dstQuoteInput = cotAvailable − srcBuffer  # a FLOOR — Seam 2 re-sizes it UP from the actual delivered COT at execution (pre-reclaim it was pinned min == max)
+  # no source buffer — a failed source leg re-quotes and proceeds (no drift guard)
+  dstQuoteInput = cotAvailable  # full; Seam 2 re-sizes the dst swap to the actual delivered COT (both ways), floor 0
   bridge = buildBridge(…)                   # Arb→Base; swap-produced COT → ephemeralBalance
                                             # (EXACT_IN excludes dst-chain source-swap COT from totals)
   dst.tokenSwap = null                      # destination IS COT → bridge delivers USDC directly
@@ -328,9 +328,9 @@ determineSwapRoute(input, opts) -> SwapRoute:
       holdings = dropSubFloorMayanChains(rawHoldings)                # drop chains whose SELECTED USD < floor
       if holdings empty: throw "Mayan bridge requires ≥ $MAYAN_MIN_USD_PER_LEG per source …"
     source        = liquidateInputHoldings(holdings)                 # §6 (COT holdings skipped)
-    srcBuffer     = min(SRC_BUFFER_EXACT_IN_PCT·out, SRC_BUFFER_EXACT_IN_MAX_USD)
-    dstQuoteInput = cotAvailable − srcBuffer
-    buffer.amount = srcBuffer                # surfaced into the intent (feesAndBuffer.buffer); EXACT_IN has no dst buffer
+    # no source buffer: source.srcBuffer = null (a failed leg re-quotes and proceeds, no drift guard)
+    dstQuoteInput = cotAvailable            # full; dst-swap floor (inputAmount.min) = 0 — Seam 2 tracks actuals
+    buffer.amount = 0                        # EXACT_IN has no buffer (no source, no dst)
 
   # ── bridge ──
   bridge = (all source COT on toChainId) ? null : buildBridge(…, provider)
@@ -367,7 +367,7 @@ determineSwapRoute(input, opts) -> SwapRoute:
 
 # getDstSwap() requote guards (execution-time, frozen bounds):
 #   EXACT_OUT: require (tokenInput + gasInput) ≤ originalBufferedMax   # max pinned, never creeps; accepted requote moves `min`
-#   EXACT_IN:  require requoteOutput within tolerance of original      # else throw "… tolerance …"
+#   EXACT_IN:  no guard — the requote is accepted whatever it returns (no rate tolerance)
 ```
 
 Balance→holding conversion uses `parseUnits` precision (no `Number()` rounding). `cotByChain`
@@ -511,8 +511,9 @@ executeSourceSwaps(source, ctx, meta) -> BridgeAsset[]:
   await all receipts                                   # only AFTER every chain is dispatched
   on chain failure: requote that chain ONCE (EXACT_IN; taker=receiver = that chain's executor —
                     EOA for the direct-COT dst chain, predictedSafe on non-7702, else ephemeral)
-    require Σ(output drop over all legs) ≤ srcBuffer   # else EXTERNAL_RATES_DRIFT_EXCEEDED
-    # pooled, not per-leg: an over-quote can offset an under-quote; the budget defends the bridge total
+    # EXACT_OUT: require Σ(output drop over all legs) ≤ srcBuffer  # else EXTERNAL_RATES_DRIFT_EXCEEDED
+    #   pooled, not per-leg: an over-quote can offset an under-quote; the budget defends the bridge total
+    # EXACT_IN:  srcBuffer = null → no guard; accept the re-quote and proceed (Seam 2 re-sizes the dst swap)
     still failing → rethrow                            # no sweep here — cleanup is the orchestrator's job (§11)
   # SEAM 1 (reclaim, when bridge ≠ null): read balanceOf(COT, wrapper) per chain → bridge the ACTUAL
   #   landed COT, not the quote floor (captures positive source slippage; best-effort — on a read
@@ -559,8 +560,9 @@ executeDestinationSwap(destination, dstTokenInfo, ctx, meta):
   if tokenSwap == null: return           # destination IS COT — bridge fill already delivered to EOA
                                          # (no tx, meta.dst stays null, no progress emitted)
   # SEAM 2 (reclaim): read balanceOf(COT, dstWrapper) → re-size the dst swap input from the ACTUAL
-  #   delivered COT. EXACT_IN grows the input to consume the surplus (more output); EXACT_OUT keeps the
-  #   exact output. getDstSwap re-quotes within [floor, ceiling] (also on quote expiry, §5).
+  #   delivered COT. EXACT_IN re-sizes BOTH ways — grows on surplus (more output), shrinks when a
+  #   down-drifted source delivered less (never over-size, floor 0); EXACT_OUT keeps the exact output.
+  #   getDstSwap re-quotes with no tolerance guard (EXACT_IN) / within [floor, ceiling] (EXACT_OUT); also on expiry.
   direct EOA COT on the dst chain (destination.eoaToEphemeral) → [permit?, transferFrom](eoa→executor) prepended (BOTH paths)
   path(dstChain):
     ephemeral → SBC [permit?, transferFrom?, approve, swap, transfer(leftover COT → EOA)?]
@@ -664,9 +666,10 @@ principle is *execution tracks actuals, while route‑time quotes/buffers are co
 holding.amountRaw (route)
    │  aggregator @ route → quote.output            # the minReceived FLOOR shown to the user
    ▼
-source swap executes ──[attempt-0 dispatch fail]──⟳ requoteFailedChains (ONCE, EXACT_IN @ holding)
-   │                       ▣ Σnew ≥ Σold − srcBuffer  (POOLED, downward only; an over-leg offsets an
-   │                            under-leg) — else EXTERNAL_RATES_DRIFT_EXCEEDED → abort
+source swap executes ──[attempt-0 dispatch fail]──⟳ requoteFailedChains (ONCE, re-quote @ holding)
+   │                       ▣ EXACT_OUT: Σnew ≥ Σold − srcBuffer (POOLED; an over-leg offsets an under-leg)
+   │                            else EXTERNAL_RATES_DRIFT_EXCEEDED → abort
+   │                          EXACT_IN: no guard — accept the re-quote and proceed
    ▼
 SEAM 1  balanceOf(COT, sourceWrapper)              ◄ the COT that ACTUALLY landed (≥ floor: realized slippage)
    │  reclaimFromActualBalance = bridge ≠ null → bridge the ACTUAL, not the quote (best-effort)
@@ -682,9 +685,9 @@ RFF source.value = executed       MAYAN: refresh effectiveAmountIn64       NEXUS
 bridge fill → COT at dstWrapper
    ▼
 SEAM 2  balanceOf(COT, dstWrapper)                 ◄ the COT that ACTUALLY arrived
-   │  dst swap re-sized: EXACT_IN GROWS the input to consume the surplus → MORE output;
-   │  EXACT_OUT keeps the EXACT output. getDstSwap ⟳ re-quote within [floor, ceiling] (≤3 attempts);
-   │  beyond tolerance → ratesChangedBeyondTolerance
+   │  dst swap re-sized: EXACT_IN tracks the actual balance BOTH ways (grow on surplus → MORE output,
+   │  shrink on a short source → no over-size, floor 0); EXACT_OUT keeps the EXACT output.
+   │  getDstSwap ⟳ re-quote: EXACT_IN no tolerance guard; EXACT_OUT within [floor, ceiling] (≤3 attempts)
    ▼
 leftover = balanceOf − consumed → ONE transfer(→ EOA)   ◄ skipped if ≤ 0 (replaces the blind Sweeper drain)
 ```
@@ -699,12 +702,12 @@ a formula over the (already‑updated) inputs, so it tracks them automatically.
 ### 12.2 Invariants
 
 - **Buffers applied once.** EXACT_OUT dst buffer `min(10%, $2)` + source buffer `min(2%, $1)`;
-  EXACT_IN `srcBuffer = min(0.5% × output, $1/USDC)`. (Values: `DST_BUFFER_PCT`/`DST_BUFFER_MAX_USD`,
-  `SRC_BUFFER_PCT`/`SRC_BUFFER_MAX_USD`, `SRC_BUFFER_EXACT_IN_PCT`/`SRC_BUFFER_EXACT_IN_MAX_USD` —
+  EXACT_IN has **no buffer** (no source buffer, no dst buffer). (Values: `DST_BUFFER_PCT`/`DST_BUFFER_MAX_USD`,
+  `SRC_BUFFER_PCT`/`SRC_BUFFER_MAX_USD` —
   pinned in `tests/swap/constants.test.ts`.) `getDstSwap` never lets the EXACT_OUT max ceiling
   creep upward. **`route.buffer.amount`** (→ intent `feesAndBuffer.buffer`) carries the whole
-  buffer in COT units: EXACT_OUT `outputRequired − dstInput` (dst + source combined); EXACT_IN the
-  `srcBuffer` (no dst buffer); `0` only on the same-token direct bridge (no swap to defend).
+  buffer in COT units: EXACT_OUT `outputRequired − dstInput` (dst + source combined); `0` on EXACT_IN
+  and on the same-token direct bridge (no swap buffer to defend).
 - **Same-token direct bridge skips swaps AND buffers** (EXACT_IN). When every source is the same
   non-COT bridgeable mesh family as the destination token — **ERC-20 or native** (native normalized
   EADDRESS→ZERO) — the route bridges the token directly EOA→EOA: no source/destination swap,
@@ -731,9 +734,11 @@ a formula over the (already‑updated) inputs, so it tracks them automatically.
   zero-address token).
 - **Convergence bounded** — `SAFETY_MULTIPLIER` (1.01); input growth capped at initial +
   `MAX_CONVERGENCE_EXTRA_COT` (0.5); non‑convergence throws (source) / returns null (destination).
-- **Source re‑quote once, pooled drift.** Summed leg drops ≤ `srcBuffer` (boundary inclusive), else
-  `EXTERNAL_RATES_DRIFT_EXCEEDED`; still failing → re‑throw, no sweep at this layer.
+- **Source re‑quote once.** EXACT_OUT: summed leg drops ≤ `srcBuffer` (boundary inclusive), else
+  `EXTERNAL_RATES_DRIFT_EXCEEDED`. EXACT_IN: no guard — accept the re‑quote and proceed. Still failing
+  → re‑throw, no sweep at this layer.
 - **Destination re‑quote twice** (`MAX_RETRIES`; 3 attempts), then re‑throw without a fallback sweep.
+  EXACT_IN has no rate‑tolerance guard on the re‑quote; EXACT_OUT keeps its frozen `[floor, ceiling]`.
 - **Aggregator failures non‑fatal** at the aggregation layer.
 - **EOA single‑chain & serialized**; **all chains dispatched before receipts** (source stage).
 - **Fail loud at routing** (see §5) — never emit an inconsistent plan.

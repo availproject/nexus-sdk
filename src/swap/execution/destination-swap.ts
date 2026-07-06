@@ -329,27 +329,25 @@ export const executeDestinationSwap = async (
     });
   }
 
-  // EXACT_IN grows the dst input to swallow the surplus into more output, so requote up-front when the
-  // actual balance exceeds the route-time estimate. EXACT_OUT keeps the output fixed — it tries the
+  // EXACT_IN re-sizes the dst input to the COT that ACTUALLY landed, in BOTH directions: grow on
+  // positive slippage (swallow the surplus into more output), shrink when a down-drifted source
+  // delivered less (there's no source buffer guaranteeing balanceOf ≥ the route estimate). getDstSwap
+  // applies the reclaim deduction, so the swap always pulls ≤ the balance — a leftover survives for
+  // the refund transfer and it can never underflow. EXACT_OUT keeps the output fixed — it tries the
   // existing quote first and only re-prices (at the lifted budget) on a retry/expiry below.
-  if (
-    mode === SwapMode.EXACT_IN &&
-    wrapperCotBalance !== null &&
-    currentSwap.tokenSwap &&
-    wrapperCotBalance > currentSwap.tokenSwap.quote.input.amountRaw
-  ) {
+  if (mode === SwapMode.EXACT_IN && wrapperCotBalance !== null && currentSwap.tokenSwap) {
     try {
-      const grown = await destination.getDstSwap(wrapperCotBalance);
-      if (grown?.tokenSwap) {
-        currentSwap = grown;
-        logger.debug('executeDestinationSwap:grow', {
+      const resized = await destination.getDstSwap(wrapperCotBalance);
+      if (resized?.tokenSwap) {
+        currentSwap = resized;
+        logger.debug('executeDestinationSwap:resize', {
           chainId: destination.chainId,
           actual: wrapperCotBalance.toString(),
-          input: grown.tokenSwap.quote.input.amountRaw.toString(),
+          input: resized.tokenSwap.quote.input.amountRaw.toString(),
         });
       }
     } catch (error) {
-      logger.debug('executeDestinationSwap:grow_skipped', {
+      logger.debug('executeDestinationSwap:resize_skipped', {
         chainId: destination.chainId,
         error: error instanceof Error ? error.message : String(error),
       });

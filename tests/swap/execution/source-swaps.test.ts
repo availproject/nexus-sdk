@@ -1282,6 +1282,48 @@ describe('executeSourceSwaps', () => {
     ).rejects.toThrow(/srcBuffer|drift/i);
   });
 
+  it('srcBuffer null (EXACT_IN) requotes a drifted-down leg and proceeds with no drift guard', async () => {
+    // EXACT_IN passes srcBuffer=null: a failed leg is re-quoted and the swap proceeds no matter how
+    // far the re-quote drops — there is no pooled buffer check at all. (EXACT_OUT keeps the guard.)
+    const quote = makeQuoteResponse(ARB_CHAIN, {
+      quote: {
+        ...makeQuoteResponse().quote,
+        output: { ...makeQuoteResponse().quote.output, amount: '3000', amountRaw: 3000000000n, decimals: 6 },
+      },
+    });
+    const requotedQuote = makeQuoteResponse(ARB_CHAIN, {
+      quote: {
+        ...quote.quote,
+        // −1000: a drop any finite buffer would reject.
+        output: { ...quote.quote.output, amount: '2000', amountRaw: 2000000000n, decimals: 6 },
+      },
+    });
+    const aggregator = {
+      getQuotes: vi.fn().mockResolvedValue([requotedQuote.quote]),
+    } as unknown as Aggregator;
+    quote.aggregator = aggregator;
+
+    const ctx: SrcCtx = {
+      ...makeCtx('ephemeral'),
+      middlewareClient: makeSwapExecutionMiddlewareClient({
+        submitSBCs: vi
+          .fn()
+          .mockResolvedValueOnce([makeSbcFailure(ARB_CHAIN, 'retry me')])
+          .mockResolvedValueOnce([makeSbcSuccess(ARB_CHAIN, '0xbbb' as Hex)]),
+      }),
+    };
+    const metadata: SwapMetadata = { src: [], dst: null, has_xcs: false, intent_request_hash: null };
+
+    await expect(
+      executeSourceSwaps(
+        { swaps: [quote], creationTime: Date.now(), srcBuffer: null },
+        ctx,
+        metadata
+      )
+    ).resolves.toHaveLength(1);
+    expect(aggregator.getQuotes).toHaveBeenCalledTimes(1);
+  });
+
   it('rejects when per-leg drops are each within srcBuffer but pool exceeds it', async () => {
     const chainA = 42161;
     const chainB = 10;

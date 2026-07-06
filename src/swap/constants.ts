@@ -36,11 +36,6 @@ export const DST_BUFFER_PCT = 0.1;
 export const DST_BUFFER_MAX_USD = 2;
 export const SRC_BUFFER_PCT = 0.02;
 export const SRC_BUFFER_MAX_USD = 1;
-// EXACT_IN has no fixed bridge funding target to defend, but the pre-refactor code
-// allowed roughly 0.5% per-leg drift on requote. We mirror that as an aggregate budget,
-// capped in USD so a $100K swap doesn't get a $500 drift allowance.
-export const SRC_BUFFER_EXACT_IN_PCT = 0.005;
-export const SRC_BUFFER_EXACT_IN_MAX_USD = 1;
 // EXACT_IN dst reclaim: when the destination swap is re-sized from the COT that actually landed
 // at the wrapper, shave this off as a safety margin (raw rounding + the swap's own input-side
 // behaviour) so the sized input can never exceed the on-chain balance.

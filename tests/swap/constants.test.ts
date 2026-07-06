@@ -10,8 +10,6 @@ import {
   MAX_SWAP_HAIRCUT_PCT,
   SBC_DEADLINE_MINUTES,
   SLIPPAGE_DEFAULT,
-  SRC_BUFFER_EXACT_IN_MAX_USD,
-  SRC_BUFFER_EXACT_IN_PCT,
   SRC_BUFFER_MAX_USD,
   SRC_BUFFER_PCT,
 } from '../../src/swap/constants';
@@ -36,11 +34,6 @@ describe('swap economic constants', () => {
   it('EXACT_OUT source buffer = min(2%, $1)', () => {
     expect(SRC_BUFFER_PCT).toBe(0.02);
     expect(SRC_BUFFER_MAX_USD).toBe(1);
-  });
-
-  it('EXACT_IN source drift budget = min(0.5%, $1)', () => {
-    expect(SRC_BUFFER_EXACT_IN_PCT).toBe(0.005);
-    expect(SRC_BUFFER_EXACT_IN_MAX_USD).toBe(1);
   });
 
   it('EXACT_IN dst reclaim deduction = 1 bp', () => {
