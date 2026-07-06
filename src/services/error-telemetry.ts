@@ -207,6 +207,14 @@ const extractErrorAttrs = (attrs: Attrs, error: unknown): void => {
     }
     if (error.details !== undefined) {
       attrs['error.details'] = safeStringify(sanitize(error.details));
+      // Promote the middleware error envelope to first-class attributes so SigNoz can filter/alert
+      // without parsing the stringified details blob. `errorId` correlates SDK ↔ middleware logs.
+      const d = error.details as Record<string, unknown>;
+      if (typeof d.errorId === 'string') attrs['error.middleware.errorId'] = d.errorId;
+      if (typeof d.middlewareCode === 'string') attrs['error.middleware.code'] = d.middlewareCode;
+      if (typeof d.middlewareSubcode === 'string') {
+        attrs['error.middleware.subcode'] = d.middlewareSubcode;
+      }
     }
   }
 

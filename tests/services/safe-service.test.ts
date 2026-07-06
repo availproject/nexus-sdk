@@ -3,9 +3,11 @@ import type { Hex, PublicClient } from 'viem';
 import { recoverTypedDataAddress, zeroAddress } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import {
+  buildSafeExecuteEOACall,
   createSafeExecuteTxFromCalls,
   type SafeCall,
 } from '../../src/services/safe';
+import { ValidationError } from '../../src/domain/errors';
 import { predictSafeAccountAddress } from '../../src/swap/safe/predict';
 import {
   SAFE_MULTI_SEND_CALL_ONLY_ADDRESS,
@@ -146,5 +148,32 @@ describe('createSafeExecuteTxFromCalls', () => {
     expect(result.safeTxGas.length).toBe(66);
     expect(result.baseGas.length).toBe(66);
     expect(result.gasPrice.length).toBe(66);
+  });
+
+  it('throws a ValidationError when calls is empty', async () => {
+    await expect(
+      createSafeExecuteTxFromCalls({
+        calls: [],
+        chainId,
+        ephemeralWallet,
+        publicClient: makePublicClient(),
+        safeAddress,
+      })
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+});
+
+describe('buildSafeExecuteEOACall native-value invariants', () => {
+  it('throws a ValidationError on a single-call native value mismatch', async () => {
+    await expect(
+      buildSafeExecuteEOACall({
+        calls: [{ ...sampleCall, value: 5n }],
+        chainId,
+        ephemeralWallet,
+        publicClient: makePublicClient(),
+        safeAddress,
+        nativeValue: 7n,
+      })
+    ).rejects.toBeInstanceOf(ValidationError);
   });
 });

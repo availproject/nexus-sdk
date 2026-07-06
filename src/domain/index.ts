@@ -5,4 +5,5 @@ export * from './permits';
 export * from './types';
 export * from './types/contract-types';
 export * from './types/deployment-types';
+export * from './types/middleware-error';
 export * from './utils';

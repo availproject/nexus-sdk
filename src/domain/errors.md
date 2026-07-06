@@ -52,7 +52,7 @@ hierarchy. Each pins a `category` and a `name`, and narrows
 - `UserActionError` — explicit user rejection (`service: 'wallet' | 'hook'`)
 - `SimulationError` — pre-execution simulate path (`service: 'rpc'`)
 - `ExecutionError` — runtime failure (`service: 'wallet' | 'rpc'`)
-- `BackendError` — Avail middleware HTTP/WS (`service: 'middleware'`)
+- `BackendError` — Avail middleware HTTP (`service: 'middleware'`)
 - `ExternalServiceError` — third-party deps (`service: 'lifi' | 'bebop' | 'coinbase'`)
 - `InternalError` — true SDK invariants only (no service)
 
@@ -219,6 +219,13 @@ honest.
 `error.details` still runs through the recursive sanitizer before emission
 (bigint→string, long-hex truncation, `[redacted]` for
 `signature`/`privateKey`/`mnemonic`).
+
+For middleware failures, the transport boundary stashes the server's typed error envelope into
+`error.details` (`middlewareCode`, `middlewareSubcode`, `errorId`, `middlewareDetails`), and
+`extractErrorAttrs` promotes them to first-class `error.middleware.code`, `error.middleware.subcode`,
+and `error.middleware.errorId` attributes so SigNoz can filter/alert without parsing the details blob.
+`errorId` is the correlation key: the middleware logs the same id, so a user-reported id maps to both
+SDK and middleware log lines. Envelope model: `src/domain/types/middleware-error.ts`.
 
 ## Throwing rules (quick reference)
 

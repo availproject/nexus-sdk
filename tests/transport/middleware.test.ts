@@ -488,116 +488,72 @@ describe('createMiddlewareClient', () => {
     );
   });
 
-  it('submitSBCs groups requests by chain and parses middleware results', async () => {
+  it('submitSBCs posts grouped-by-chain requests to /api/v2/create-sbc-tx and parses results', async () => {
     const axiosClient = makeClient();
     axiosRootMock.create.mockReturnValue(axiosClient);
 
-    const sentPayloads: unknown[] = [];
     const txHash =
       '0x1111111111111111111111111111111111111111111111111111111111111111' as Hex;
     const address = '0x0000000000000000000000000000000000000aaa' as Hex;
 
-    class MockWebSocket {
-      static CLOSED = 3;
+    const sbcTx = {
+      chainId: 42161,
+      address,
+      nonce: '0x0000000000000000000000000000000000000000000000000000000000000001',
+      keyHash: '0x0000000000000000000000000000000000000000000000000000000000000000',
+      deadline: '0x00000000000000000000000000000000000000000000000000000000000000ff',
+      calls: [
+        {
+          to: '0x0000000000000000000000000000000000000bbb',
+          value: '0x0000000000000000000000000000000000000000000000000000000000000001',
+          data: '0xabcdef',
+        },
+      ],
+      revertOnFailure: true,
+      signature: '0x1234',
+    };
 
-      readyState = 0;
-      onopen: (() => void) | null = null;
-      onmessage: ((event: { data: string }) => void) | null = null;
-      onclose: (() => void) | null = null;
-      onerror: (() => void) | null = null;
-
-      constructor(_url: string) {
-        queueMicrotask(() => {
-          this.readyState = 1;
-          this.onopen?.();
-        });
-      }
-
-      send(data: string) {
-        sentPayloads.push(JSON.parse(data));
-        queueMicrotask(() => {
-          this.onmessage?.({
-            data: JSON.stringify({
-              chainId: 42161,
-              address,
-              errored: false,
-              txHash,
-            }),
-          });
-        });
-      }
-
-      close() {
-        this.readyState = MockWebSocket.CLOSED;
-        this.onclose?.();
-      }
-    }
-
-    vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket);
+    axiosClient.post.mockResolvedValue({
+      data: [{ chainId: 42161, address, errored: false, txHash }],
+    });
 
     const client = createMiddlewareClient('https://mw.example', 'wss://mw.example');
-    const results = await client.submitSBCs([
-      {
-        chainId: 42161,
-        address,
-        nonce: '0x0000000000000000000000000000000000000000000000000000000000000001',
-        keyHash: '0x0000000000000000000000000000000000000000000000000000000000000000',
-        deadline: '0x00000000000000000000000000000000000000000000000000000000000000ff',
-        calls: [
-          {
-            to: '0x0000000000000000000000000000000000000bbb',
-            value: '0x0000000000000000000000000000000000000000000000000000000000000001',
-            data: '0xabcdef',
-          },
-        ],
-        revertOnFailure: true,
-        signature: '0x1234',
-        authorizationList: [
-          {
-            chainId: '0x000000000000000000000000000000000000000000000000000000000000a4b1',
-            address: '0x0000000000000000000000000000000000000ccc',
-            nonce: 7,
-            v: 1,
-            r: '0x0000000000000000000000000000000000000000000000000000000000000001',
-            s: '0x0000000000000000000000000000000000000000000000000000000000000002',
-          },
-        ],
-      } as any,
-    ]);
+    const results = await client.submitSBCs([sbcTx as any]);
 
-    expect(sentPayloads).toEqual([
-      {
-        42161: [
-          {
-            chainId: 42161,
-            address,
-            nonce: '0x0000000000000000000000000000000000000000000000000000000000000001',
-            keyHash: '0x0000000000000000000000000000000000000000000000000000000000000000',
-            deadline: '0x00000000000000000000000000000000000000000000000000000000000000ff',
-            calls: [
-              {
-                to: '0x0000000000000000000000000000000000000bbb',
-                value: '0x0000000000000000000000000000000000000000000000000000000000000001',
-                data: '0xabcdef',
-              },
-            ],
-            revertOnFailure: true,
-            signature: '0x1234',
-            authorizationList: [
-              {
-                chainId: '0x000000000000000000000000000000000000000000000000000000000000a4b1',
-                address: '0x0000000000000000000000000000000000000ccc',
-                nonce: 7,
-                v: 1,
-                r: '0x0000000000000000000000000000000000000000000000000000000000000001',
-                s: '0x0000000000000000000000000000000000000000000000000000000000000002',
-              },
-            ],
-          },
-        ],
-      },
-    ]);
+    expect(axiosClient.post).toHaveBeenCalledWith('/api/v2/create-sbc-tx', { 42161: [sbcTx] });
     expect(results).toEqual([{ chainId: 42161, address, errored: false, txHash }]);
+  });
+
+  it('submitSBCs parses a per-chain errored result carrying the typed envelope', async () => {
+    const axiosClient = makeClient();
+    axiosRootMock.create.mockReturnValue(axiosClient);
+    const address = '0x0000000000000000000000000000000000000aaa' as Hex;
+
+    axiosClient.post.mockResolvedValue({
+      data: [
+        {
+          chainId: 42161,
+          address,
+          errored: true,
+          message: 'SBC internal call failed: TRANSFER_FROM_FAILED',
+          code: 'TRANSACTION_REVERTED',
+          subcode: 'TRANSFER_FROM_FAILED',
+          errorId: 'err-uuid-9',
+          details: { source: 'inner-call' },
+        },
+      ],
+    });
+
+    const client = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+    const results = await client.submitSBCs([{ chainId: 42161, address } as any]);
+
+    expect(results[0]).toMatchObject({
+      chainId: 42161,
+      errored: true,
+      code: 'TRANSACTION_REVERTED',
+      subcode: 'TRANSFER_FROM_FAILED',
+      errorId: 'err-uuid-9',
+    });
   });
 
   it('getQuote posts to /api/v1/quote and parses response', async () => {
