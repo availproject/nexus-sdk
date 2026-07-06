@@ -37,7 +37,7 @@ export const createAggregators = (mw: MiddlewareAggregatorQuoteClient): Aggregat
   new LiFiAggregator(mw.getLiFiQuote),
   new BebopAggregator(mw.getBebopQuote),
   new FibrousAggregator(mw.getFibrousQuote),
-  new ZeroExAggregator(mw.getZeroExQuote),
+  new ZeroExAggregator(mw.getZeroExPrice, mw.getZeroExQuote),
   new MysticAggregator(mw.postMystic),
   new RelayAggregator(mw.getRelayQuote),
 ];

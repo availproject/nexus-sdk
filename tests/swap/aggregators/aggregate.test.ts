@@ -186,7 +186,7 @@ const lifiResponse = () => ({
 describe('aggregateAggregators — sibling backfill (price-less 0x)', () => {
   it('backfills a winning 0x quote with decimals/symbol/amount/value from a sibling', async () => {
     const lifi = new LiFiAggregator(vi.fn().mockResolvedValue(lifiResponse()) as any);
-    const zerox = new ZeroExAggregator(vi.fn().mockResolvedValue(zeroExResponse()) as any);
+    const zerox = new ZeroExAggregator(vi.fn() as any, vi.fn().mockResolvedValue(zeroExResponse()) as any);
 
     const [res] = await aggregateAggregators([makeRequest()], [lifi, zerox], AggregateMode.MaximizeOutput);
 
@@ -202,7 +202,7 @@ describe('aggregateAggregators — sibling backfill (price-less 0x)', () => {
   });
 
   it('drops a winning 0x quote when no sibling can supply decimals', async () => {
-    const zerox = new ZeroExAggregator(vi.fn().mockResolvedValue(zeroExResponse()) as any);
+    const zerox = new ZeroExAggregator(vi.fn() as any, vi.fn().mockResolvedValue(zeroExResponse()) as any);
     const none = makeAggregator([null]);
 
     const [res] = await aggregateAggregators([makeRequest()], [zerox, none], AggregateMode.MaximizeOutput);
@@ -308,7 +308,7 @@ describe('aggregateAggregators — per-chain tiered selection', () => {
     new LiFiAggregator(p.lifi as any),
     new BebopAggregator(p.bebop as any),
     new FibrousAggregator(p.fibrous as any),
-    new ZeroExAggregator(p.zerox as any),
+    new ZeroExAggregator(p.zerox as any, p.zerox as any),
     new RelayAggregator(p.relay as any),
   ];
   const chainRequest = (chainId: number): QuoteRequest => ({ ...makeRequest(), chainId });
@@ -339,7 +339,7 @@ describe('aggregateAggregators — per-chain tiered selection', () => {
     const p = proxies();
     const aggs = [
       new RelayAggregator(p.relay as any),
-      new ZeroExAggregator(p.zerox as any),
+      new ZeroExAggregator(p.zerox as any, p.zerox as any),
       new LiFiAggregator(p.lifi as any),
     ];
     await aggregateAggregators([chainRequest(8453)], aggs, AggregateMode.MaximizeOutput);

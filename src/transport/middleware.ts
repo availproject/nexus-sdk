@@ -74,6 +74,9 @@ export type MiddlewareClient = {
   getBebopQuote: (params: Record<string, string>) => Promise<unknown>;
   getFibrousQuote: (params: Record<string, string>) => Promise<unknown>;
   getZeroExQuote: (params: Record<string, string>) => Promise<unknown>;
+  // 0x's indicative /price endpoint (amounts only, no calldata) — used for price surveys; /quote
+  // stays for SERIOUS/executable quotes.
+  getZeroExPrice: (params: Record<string, string>) => Promise<unknown>;
   // Mystic is a multi-endpoint POST/JSON API (quote → build); one proxy, the aggregator supplies the
   // versioned path. Bodies carry mixed types (numeric chainId/slippageBps + string amounts) rather
   // than the string-only GET query maps above.
@@ -105,6 +108,7 @@ export type MiddlewareAggregatorQuoteClient = Pick<
   | 'getBebopQuote'
   | 'getFibrousQuote'
   | 'getZeroExQuote'
+  | 'getZeroExPrice'
   | 'postMystic'
   | 'getRelayQuote'
 >;
@@ -956,6 +960,13 @@ export const createMiddlewareClient = (
     return response.data;
   };
 
+  const getZeroExPrice = async (params: Record<string, string>): Promise<unknown> => {
+    const response = await client.get('/api/v1/proxy/zerox/swap/allowance-holder/price', {
+      params,
+    });
+    return response.data;
+  };
+
   // Mystic's `/mystic/*` proxy forwards method + body to router.mysticfinance.xyz, so endpoints are
   // POSTs with a JSON body (not GET query params like the aggregators above). One proxy for all
   // Mystic endpoints — the aggregator passes the versioned path (e.g. 'v1/swap/quote').
@@ -1114,6 +1125,7 @@ export const createMiddlewareClient = (
     getBebopQuote,
     getFibrousQuote,
     getZeroExQuote,
+    getZeroExPrice,
     postMystic,
     getRelayQuote,
     getSwapBalances,
