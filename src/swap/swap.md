@@ -349,8 +349,9 @@ determineSwapRoute(input, opts) -> SwapRoute:
     dst.tokenSwap = null                                                   # destination IS COT
 
   # direct EOA COT on the dst chain → destination.eoaToEphemeral, moved EOA→executor before the dst swap.
-  #   Set whenever needTokenSwap ∧ dstChainDirectCot>0, for BOTH wrappers (Safe & ephemeral). Same-chain
-  #   COT-input swaps depend on this — there's no bridge to deliver the COT.
+  #   Set whenever (needTokenSwap ∨ needGasSwap) ∧ dstChainDirectCot>0, for BOTH wrappers (Safe &
+  #   ephemeral). Same-chain COT-input swaps and gas-only funding depend on this — there's no bridge
+  #   to deliver the COT.
   paths = resolveWalletDecisions({sourceChainIds, walletPathHints})        # ◄ seam (default ephemeral)
   return { type, source, bridge, destination:{…, getDstSwap}, buffer, dstTokenInfo, extras, paths }
 

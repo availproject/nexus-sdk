@@ -1059,8 +1059,10 @@ async function _exactOutRoute(
     bridge,
     destination: {
       chainId: data.toChainId,
+      // The gas swap also runs on the wrapper, so direct dst-chain COT must be handed off even
+      // when there is no token swap (gas-only funding has no bridge to deliver the COT).
       eoaToEphemeral:
-        needsTokenSwap && destinationChainDirectCot.gt(0)
+        (needsTokenSwap || needsGasSwap) && destinationChainDirectCot.gt(0)
           ? {
               amount: mulDecimals(destinationChainDirectCot, dstCOT.decimals),
               contractAddress: dstCOT.address as Hex,
