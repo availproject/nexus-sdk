@@ -185,7 +185,7 @@ const lifiResponse = () => ({
 
 describe('aggregateAggregators — sibling backfill (price-less 0x)', () => {
   it('backfills a winning 0x quote with decimals/symbol/amount/value from a sibling', async () => {
-    const lifi = new LiFiAggregator(vi.fn().mockResolvedValue(lifiResponse()) as any);
+    const lifi = new LiFiAggregator(vi.fn().mockResolvedValue(lifiResponse()) as any, vi.fn() as any);
     const zerox = new ZeroExAggregator(vi.fn() as any, vi.fn().mockResolvedValue(zeroExResponse()) as any);
 
     const [res] = await aggregateAggregators([makeRequest()], [lifi, zerox], AggregateMode.MaximizeOutput);
@@ -201,13 +201,13 @@ describe('aggregateAggregators — sibling backfill (price-less 0x)', () => {
     expect(res.quote!.input.value).toBe(1); // 1 USDC × $1
   });
 
-  it('drops a winning 0x quote when no sibling can supply decimals', async () => {
+  it('drops a winning 0x quote when no sibling and no LiFi provider can enrich it', async () => {
     const zerox = new ZeroExAggregator(vi.fn() as any, vi.fn().mockResolvedValue(zeroExResponse()) as any);
     const none = makeAggregator([null]);
 
     const [res] = await aggregateAggregators([makeRequest()], [zerox, none], AggregateMode.MaximizeOutput);
 
-    expect(res.quote).toBeNull(); // 0x-only leg → falls back to no-0x coverage
+    expect(res.quote).toBeNull(); // no sibling + no LiFiAggregator in the set → can't enrich → drop
   });
 
   it('backfills value for a price-less but decimal-ed winner without touching decimals', async () => {
@@ -302,10 +302,12 @@ describe('aggregateAggregators — per-chain tiered selection', () => {
     fibrous: vi.fn().mockResolvedValue({}),
     zerox: vi.fn().mockResolvedValue({}),
     relay: vi.fn().mockResolvedValue({}),
+    // LiFi /v1/token used to enrich a lone 0x quote (decimals/symbol/priceUSD).
+    lifiToken: vi.fn().mockResolvedValue({ decimals: 18, symbol: 'WETH', priceUSD: '2' }),
   });
   // Real adapters in createAggregators order (minus Mystic — see the Mystic tier-1 describe below).
   const realAggregators = (p: ReturnType<typeof proxies>): Aggregator[] => [
-    new LiFiAggregator(p.lifi as any),
+    new LiFiAggregator(p.lifi as any, p.lifiToken as any),
     new BebopAggregator(p.bebop as any),
     new FibrousAggregator(p.fibrous as any),
     new ZeroExAggregator(p.zerox as any, p.zerox as any),
@@ -313,15 +315,26 @@ describe('aggregateAggregators — per-chain tiered selection', () => {
   ];
   const chainRequest = (chainId: number): QuoteRequest => ({ ...makeRequest(), chainId });
 
-  it('quotes only the two tier-1 supporters on a well-supported chain (Base → Relay + Bebop)', async () => {
+  // Real adapter instance with supportsChain + getQuotes stubbed, so a test can drive the primary /
+  // fallback rounds without mocking each adapter's proxy response shape or real chain lists.
+  const stubAgg = (agg: Aggregator, result: (Quote | null)[] | Error) => {
+    vi.spyOn(agg, 'supportsChain').mockReturnValue(true);
+    const spy = vi.spyOn(agg, 'getQuotes');
+    if (result instanceof Error) spy.mockRejectedValue(result);
+    else spy.mockResolvedValue(result);
+    return spy;
+  };
+
+  it('quotes tier-1 (Relay+Bebop) first, then falls back to the remaining 0x+LiFi when tier-1 is dry (Base)', async () => {
     const p = proxies();
     await aggregateAggregators([chainRequest(8453)], realAggregators(p), AggregateMode.MaximizeOutput);
 
+    // primary = [Relay, Bebop] (both null) → fallback quotes the remaining supporters [0x, LiFi].
     expect(p.relay).toHaveBeenCalledTimes(1);
     expect(p.bebop).toHaveBeenCalledTimes(1);
-    expect(p.lifi).not.toHaveBeenCalled();
-    expect(p.zerox).not.toHaveBeenCalled();
-    expect(p.fibrous).not.toHaveBeenCalled();
+    expect(p.zerox).toHaveBeenCalledTimes(1);
+    expect(p.lifi).toHaveBeenCalledTimes(1);
+    expect(p.fibrous).not.toHaveBeenCalled(); // doesn't serve Base
   });
 
   it('quotes only Fibrous on Citrea (single supporter, no top-up)', async () => {
@@ -335,39 +348,42 @@ describe('aggregateAggregators — per-chain tiered selection', () => {
     expect(p.zerox).not.toHaveBeenCalled();
   });
 
-  it('tops up a lone tier-1 supporter from tier 2 in tier order (Relay + 0x, LiFi skipped)', async () => {
+  it('primary tops up a lone tier-1 with 0x (higher tier-2 priority); LiFi is the fallback', async () => {
     const p = proxies();
     const aggs = [
       new RelayAggregator(p.relay as any),
       new ZeroExAggregator(p.zerox as any, p.zerox as any),
-      new LiFiAggregator(p.lifi as any),
+      new LiFiAggregator(p.lifi as any, p.lifiToken as any),
     ];
     await aggregateAggregators([chainRequest(8453)], aggs, AggregateMode.MaximizeOutput);
 
+    // primary = [Relay, 0x] (0x tops up over LiFi); all null → fallback quotes the remainder [LiFi].
     expect(p.relay).toHaveBeenCalledTimes(1);
     expect(p.zerox).toHaveBeenCalledTimes(1);
-    expect(p.lifi).not.toHaveBeenCalled();
+    expect(p.lifi).toHaveBeenCalledTimes(1);
   });
 
   it('runs a lone tier-2 supporter alone (Kaia → LiFi only)', async () => {
     const p = proxies();
-    const aggs = [new LiFiAggregator(p.lifi as any), new BebopAggregator(p.bebop as any)];
+    const aggs = [new LiFiAggregator(p.lifi as any, p.lifiToken as any), new BebopAggregator(p.bebop as any)];
     await aggregateAggregators([chainRequest(8217)], aggs, AggregateMode.MaximizeOutput);
 
     expect(p.lifi).toHaveBeenCalledTimes(1);
     expect(p.bebop).not.toHaveBeenCalled();
   });
 
-  it('skips the call entirely when 0x is the sole supporter (Mantle) — a lone 0x win would be dropped anyway', async () => {
-    const p = proxies();
-    const [res] = await aggregateAggregators(
-      [chainRequest(5000)],
-      realAggregators(p),
-      AggregateMode.MaximizeOutput
-    );
+  it('enriches a lone 0x quote on a 0x-only chain (Mantle) from LiFi token info instead of dropping', async () => {
+    const zerox = new ZeroExAggregator(vi.fn() as any, vi.fn().mockResolvedValue(zeroExResponse()) as any);
+    const lifiToken = vi.fn().mockResolvedValue({ decimals: 6, symbol: 'USDC', priceUSD: '1' });
+    // LiFi does not serve Mantle (not selected) but its token endpoint covers it → used for enrichment.
+    const lifi = new LiFiAggregator(vi.fn() as any, lifiToken as any);
 
-    expect(p.zerox).not.toHaveBeenCalled();
-    expect(res.quote).toBeNull();
+    const [res] = await aggregateAggregators([chainRequest(5000)], [zerox, lifi], AggregateMode.MaximizeOutput);
+
+    expect(res.aggregator).toBe(zerox);
+    expect(res.quote).not.toBeNull();
+    expect(res.quote!.output.decimals).toBe(6); // from LiFi /v1/token
+    expect(lifiToken).toHaveBeenCalledWith(5000, expect.any(String));
   });
 
   it('falls back to full fan-out on a chain no adapter claims (only ungated Relay actually fires)', async () => {
@@ -426,6 +442,71 @@ describe('aggregateAggregators — per-chain tiered selection', () => {
     expect(results[1].aggregator).toBe(b);
   });
 
+  it('does NOT quote the remaining supporters when the primary selection returns a quote', async () => {
+    const relay = new RelayAggregator(vi.fn() as any);
+    const bebop = new BebopAggregator(vi.fn() as any);
+    const zerox = new ZeroExAggregator(vi.fn() as any, vi.fn() as any);
+    const lifi = new LiFiAggregator(vi.fn() as any, vi.fn() as any);
+    const relaySpy = stubAgg(relay, [makeQuote(1_000_000n)]); // tier-1 quotes
+    const bebopSpy = stubAgg(bebop, [null]); // tier-1
+    const zeroxSpy = stubAgg(zerox, [makeQuote(9_000_000n)]); // remainder — higher output, but not tried
+    const lifiSpy = stubAgg(lifi, [makeQuote(9_000_000n)]); // remainder
+
+    const [res] = await aggregateAggregators(
+      [makeRequest()],
+      [relay, bebop, zerox, lifi],
+      AggregateMode.MaximizeOutput
+    );
+
+    // primary = [Relay, Bebop]; Relay produced a quote, so the remaining tier-2 pool is never tried.
+    expect(relaySpy).toHaveBeenCalledTimes(1);
+    expect(bebopSpy).toHaveBeenCalledTimes(1);
+    expect(zeroxSpy).not.toHaveBeenCalled();
+    expect(lifiSpy).not.toHaveBeenCalled();
+    expect(res.aggregator).toBe(relay); // primary winner, even though 0x/LiFi output is higher
+  });
+
+  it('falls back to the remaining supporters when every primary adapter returns null', async () => {
+    const relay = new RelayAggregator(vi.fn() as any);
+    const bebop = new BebopAggregator(vi.fn() as any);
+    const zerox = new ZeroExAggregator(vi.fn() as any, vi.fn() as any);
+    const lifi = new LiFiAggregator(vi.fn() as any, vi.fn() as any);
+    const relaySpy = stubAgg(relay, [null]);
+    const bebopSpy = stubAgg(bebop, [null]);
+    const zeroxSpy = stubAgg(zerox, [makeQuote(9_000_000n)]);
+    const lifiSpy = stubAgg(lifi, [makeQuote(8_000_000n)]);
+
+    const [res] = await aggregateAggregators(
+      [makeRequest()],
+      [relay, bebop, zerox, lifi],
+      AggregateMode.MaximizeOutput
+    );
+
+    expect(relaySpy).toHaveBeenCalledTimes(1);
+    expect(bebopSpy).toHaveBeenCalledTimes(1);
+    expect(zeroxSpy).toHaveBeenCalledTimes(1); // fallback fired — primary was all null
+    expect(lifiSpy).toHaveBeenCalledTimes(1);
+    expect(res.aggregator).toBe(zerox); // 0x wins the fallback (9M > 8M), backfilling decimals from LiFi
+  });
+
+  it('treats a thrown primary adapter as null and falls back', async () => {
+    const relay = new RelayAggregator(vi.fn() as any);
+    const bebop = new BebopAggregator(vi.fn() as any);
+    const lifi = new LiFiAggregator(vi.fn() as any, vi.fn() as any);
+    stubAgg(relay, new Error('relay down'));
+    stubAgg(bebop, new Error('bebop down'));
+    const lifiSpy = stubAgg(lifi, [makeQuote(5_000_000n)]);
+
+    const [res] = await aggregateAggregators(
+      [makeRequest()],
+      [relay, bebop, lifi],
+      AggregateMode.MaximizeOutput
+    );
+
+    expect(lifiSpy).toHaveBeenCalledTimes(1); // both tier-1 threw → fallback to the remainder
+    expect(res.aggregator).toBe(lifi);
+  });
+
   it('logs per-aggregator swap:timing entries with duration and request count', async () => {
     const debugSpy = vi.spyOn(logger, 'debug');
     const p = proxies();
@@ -435,7 +516,7 @@ describe('aggregateAggregators — per-chain tiered selection', () => {
       .filter(([msg]) => msg === 'swap:timing')
       .map(([, payload]) => payload as { op: string; aggregator?: string; requests?: number; ms?: number });
     const perAggregator = timings.filter((t) => t.op === 'aggregator.getQuotes');
-    expect(perAggregator.map((t) => t.aggregator).sort()).toEqual(['bebop', 'relay']);
+    expect(perAggregator.map((t) => t.aggregator).sort()).toEqual(['bebop', 'lifi', 'relay', 'zerox']);
     for (const entry of perAggregator) {
       expect(entry.requests).toBe(1);
       expect(entry.ms).toBeGreaterThanOrEqual(0);
@@ -451,7 +532,7 @@ describe('aggregateAggregators — per-chain tiered selection', () => {
     const entry = debugSpy.mock.calls.find(([msg]) => msg === 'swap:aggregator-selection');
     expect(entry).toBeDefined();
     const payload = entry![1] as { candidates: { aggregator: string }[] };
-    expect(payload.candidates.map((c) => c.aggregator).sort()).toEqual(['bebop', 'relay']);
+    expect(payload.candidates.map((c) => c.aggregator).sort()).toEqual(['lifi', 'zerox']);
     debugSpy.mockRestore();
   });
 });
@@ -467,7 +548,7 @@ describe('aggregateAggregators — Mystic tier-1 selection', () => {
     const relay = vi.fn().mockResolvedValue({});
     const aggs = [
       new FibrousAggregator(fibrous as any),
-      new MysticAggregator(mystic as any),
+      new MysticAggregator(mystic as any, vi.fn() as any),
       new RelayAggregator(relay as any),
     ];
     await aggregateAggregators([chainRequest(4114)], aggs, AggregateMode.MaximizeOutput);
@@ -477,18 +558,24 @@ describe('aggregateAggregators — Mystic tier-1 selection', () => {
     expect(relay).not.toHaveBeenCalled(); // Relay does not serve Citrea
   });
 
-  // Generalizes the "0x never alone" guard: a lone Mystic win would be dropped by backfill (no
-  // sibling for decimals/symbol), so selection skips the doomed call instead.
-  it('skips the call when Mystic is the sole supporter', async () => {
-    const mystic = vi.fn().mockResolvedValue({});
+  // Mystic is metadata-less; a lone Mystic win is enriched from its OWN /v1/tokens/resolve endpoint
+  // (decimals/symbol, no USD price → value 0) rather than dropped.
+  it('enriches a lone Mystic quote from its own token resolve instead of dropping it', async () => {
+    const mysticToken = vi.fn().mockResolvedValue({ symbol: 'USDC', decimals: 6, name: 'USD Coin' });
+    const mystic = new MysticAggregator(vi.fn() as any, mysticToken as any);
+    vi.spyOn(mystic, 'getQuotes').mockResolvedValue([makeQuote(900_000n)]);
+
     const [res] = await aggregateAggregators(
       [chainRequest(4114)],
-      [new MysticAggregator(mystic as any)],
+      [mystic],
       AggregateMode.MaximizeOutput
     );
 
-    expect(mystic).not.toHaveBeenCalled();
-    expect(res.quote).toBeNull();
+    expect(res.aggregator).toBe(mystic);
+    expect(res.quote).not.toBeNull();
+    expect(res.quote!.output.decimals).toBe(6); // from Mystic /v1/tokens/resolve
+    expect(res.quote!.output.value).toBe(0); // Mystic reports no USD price
+    expect(mysticToken).toHaveBeenCalled();
   });
 });
 

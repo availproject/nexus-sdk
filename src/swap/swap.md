@@ -422,18 +422,21 @@ aggregateAggregators(requests, aggregators, mode):
   per request: selectForChain picks ≤ 2 aggregators by TIER (supportsChain static lists):
     TIER_1 = [Relay, Bebop, Fibrous, Mystic]; TIER_2 = [0x, LiFi]      # priority = array order
     tier-1 supporters first, top up from tier 2 to reach 2 (Citrea → Fibrous + Mystic, both tier-1); a lone supporter runs alone
-    0x/Mystic never alone (their quotes need a sibling for decimals) — pull a metadata-carrying supporter or skip the call
+    a lone 0x/Mystic pick is KEPT — with no sibling, aggregateAggregators enriches it from a token endpoint (below)
     NO adapter claims the chain → full fan-out fallback (gated adapters null locally; only Relay,
       deliberately ungated in fetchQuote, probes live)
+  round 1 quotes the PRIMARY selection; if every primary adapter returns null/error for a request, a
+    round 2 FALLBACK quotes the REMAINING supporters (next ≤ 2 by tier)
   each aggregator receives ONLY its selected requests (the network-call reduction); results scatter
   back into the full matrix, then per request pick the best non-null quote among the selected:
     MaximizeOutput → max output.amountRaw   (tie → first aggregator)
     MinimizeInput  → min input.amountRaw
   a throwing aggregator is skipped; all-throw / all-null → {quote:null, aggregator:first}
-  then BACKFILL the winner from a sibling (same request ⇒ same token):
+  then ENRICH the winner (backfillFromSiblings first, then a token endpoint if needed):
     priceUsd missing on a leg → value = amount × sibling.priceUsd     # fixes 0x/Mystic AND Bebop value=0
-    0x winner (no decimals/symbol) → borrow sibling.decimals (exact) + symbol, recompute amount;
-      no sibling for a side → DROP the quote (null) — a 0x-only leg falls back to no-0x coverage
+    0x/Mystic winner (no decimals/symbol) → borrow sibling.decimals (exact) + symbol, recompute amount;
+      NO sibling → token endpoint: 0x → LiFi /v1/token (decimals+symbol+USD price), Mystic → its own
+      /v1/tokens/resolve (decimals+symbol, no price → value 0); DROP only if that too yields no decimals
 
 createAggregators(mw) → [LiFi, Bebop, Fibrous, 0x, Mystic, Relay]
 ```
@@ -441,8 +444,9 @@ createAggregators(mw) → [LiFi, Bebop, Fibrous, 0x, Mystic, Relay]
 All adapters map a middleware response to a `Quote`, use the **slippage‑protected** output amount,
 return `null` on throw/timeout, short‑circuit unsupported chains **without firing a request**, and
 send **no API‑key headers** (the proxy handles auth). LiFi/Bebop surface a per‑token `priceUsd`;
-**0x and Mystic report amounts + tx only (no decimals/symbol/price)** — those are backfilled from a sibling
-quote in `aggregateAggregators`, so a leg only 0x/Mystic quotes is dropped (falls back to no‑0x coverage).
+**0x and Mystic report amounts + tx only (no decimals/symbol/price)** — filled from a sibling quote in
+`aggregateAggregators`, or, when a leg is only 0x/Mystic, from a token endpoint (0x → LiFi `/v1/token`;
+Mystic → its `/v1/tokens/resolve`, no price → value 0); dropped only if neither can supply decimals.
 
 | Adapter | Output amount | Recipient param | Notable params | Chains / notes |
 |---|---|---|---|---|

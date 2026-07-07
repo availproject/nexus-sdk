@@ -82,6 +82,10 @@ export type MiddlewareClient = {
   // than the string-only GET query maps above.
   postMystic: (path: string, body: Record<string, unknown>) => Promise<unknown>;
   getRelayQuote: (params: Record<string, string>) => Promise<unknown>;
+  // Token-metadata lookups (raw responses) used to enrich a metadata-less winner (0x/Mystic) when no
+  // sibling quote supplies decimals: LiFi for non-Citrea (+USD price), Mystic-resolve for Citrea.
+  getLiFiToken: (chainId: number, token: string) => Promise<unknown>;
+  getMysticToken: (chainId: number, address: string) => Promise<unknown>;
   getSwapBalances: (address: Hex) => Promise<FlatBalance[]>;
   getQuote: (request: QuoteRequest) => Promise<QuoteResponse>;
   getMayanQuotes: (request: MayanQuoteRequest) => Promise<MayanQuoteResponse>;
@@ -111,6 +115,8 @@ export type MiddlewareAggregatorQuoteClient = Pick<
   | 'getZeroExPrice'
   | 'postMystic'
   | 'getRelayQuote'
+  | 'getLiFiToken'
+  | 'getMysticToken'
 >;
 export type MiddlewareRffClient = Pick<MiddlewareClient, 'getRFF'>;
 export type MiddlewareRffStatusClient = Pick<MiddlewareClient, 'getRFFStatus'>;
@@ -953,6 +959,23 @@ export const createMiddlewareClient = (
     return response.data;
   };
 
+  // LiFi token metadata (decimals/symbol/priceUSD) — enriches a lone 0x quote. `chain` accepts a
+  // chain id; covers all non-Citrea chains (broader than LiFi's swap chain list).
+  const getLiFiToken = async (chainId: number, token: string): Promise<unknown> => {
+    const response = await client.get('/api/v1/proxy/lifi/token', {
+      params: { chain: chainId.toString(), token },
+    });
+    return response.data;
+  };
+
+  // Mystic on-chain ERC-20 resolve (decimals/symbol/name, no price) — enriches a lone Mystic quote.
+  const getMysticToken = async (chainId: number, address: string): Promise<unknown> => {
+    const response = await client.get('/api/v1/proxy/mystic/v1/tokens/resolve', {
+      params: { chainId: chainId.toString(), address },
+    });
+    return response.data;
+  };
+
   const getZeroExQuote = async (params: Record<string, string>): Promise<unknown> => {
     const response = await client.get('/api/v1/proxy/zerox/swap/allowance-holder/quote', {
       params,
@@ -1126,6 +1149,8 @@ export const createMiddlewareClient = (
     getFibrousQuote,
     getZeroExQuote,
     getZeroExPrice,
+    getLiFiToken,
+    getMysticToken,
     postMystic,
     getRelayQuote,
     getSwapBalances,

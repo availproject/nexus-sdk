@@ -88,3 +88,19 @@ export interface Aggregator {
   // Static chain gate consulted by aggregateAggregators' per-request tiered selection.
   supportsChain(chainId: number): boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Token metadata enrichment
+// ---------------------------------------------------------------------------
+
+// Token metadata used to enrich a metadata-less quote (0x/Mystic report no decimals/symbol/price).
+// A TokenInfoProvider fetches it from a token endpoint when no sibling quote can supply decimals.
+export type TokenInfo = {
+  decimals: number;
+  symbol: string;
+  priceUsd?: number; // absent for providers without USD prices (Mystic) → `value` falls to 0
+};
+
+export interface TokenInfoProvider {
+  getTokenInfo(chainId: number, token: Hex): Promise<TokenInfo | null>;
+}

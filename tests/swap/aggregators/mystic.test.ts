@@ -44,7 +44,8 @@ describe('MysticAggregator', () => {
       path === 'v1/swap/build' ? buildResponse() : quoteResponse()
     );
     agg = new MysticAggregator(
-      postFn as unknown as (path: string, body: Record<string, unknown>) => Promise<unknown>
+      postFn as unknown as (path: string, body: Record<string, unknown>) => Promise<unknown>,
+      vi.fn() as unknown as (chainId: number, address: string) => Promise<unknown>
     );
   });
 

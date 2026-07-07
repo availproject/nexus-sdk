@@ -2,7 +2,7 @@ import Decimal from 'decimal.js';
 import type { Hex } from 'viem';
 import { divDecimals } from '../../services/math';
 import { SLIPPAGE_FRACTION } from './constants';
-import type { Aggregator, Quote, QuoteRequest } from './types';
+import type { Aggregator, Quote, QuoteRequest, TokenInfo, TokenInfoProvider } from './types';
 import { QuoteType } from './types';
 
 // LiFi exchanges to deny. openocean over-quotes everywhere; on HyperEVM (999)
@@ -33,18 +33,41 @@ const ALLOWED_CHAINS = new Set<number>([
   534352, // Scroll
 ]);
 
-export class LiFiAggregator implements Aggregator {
+export class LiFiAggregator implements Aggregator, TokenInfoProvider {
   private readonly getQuote: (
     params: Record<string, string>,
     exactOut?: boolean
   ) => Promise<unknown>;
+  private readonly getToken: (chainId: number, token: string) => Promise<unknown>;
 
-  constructor(getQuote: (params: Record<string, string>, exactOut?: boolean) => Promise<unknown>) {
+  constructor(
+    getQuote: (params: Record<string, string>, exactOut?: boolean) => Promise<unknown>,
+    getToken: (chainId: number, token: string) => Promise<unknown>
+  ) {
     this.getQuote = getQuote;
+    this.getToken = getToken;
   }
 
   supportsChain(chainId: number): boolean {
     return ALLOWED_CHAINS.has(chainId);
+  }
+
+  // Token metadata to enrich a lone 0x quote (aggregateAggregators). LiFi's /v1/token covers all
+  // non-Citrea chains (deliberately not gated by ALLOWED_CHAINS) and reports a USD price.
+  async getTokenInfo(chainId: number, token: Hex): Promise<TokenInfo | null> {
+    try {
+      const data = await this.getToken(chainId, token);
+      const raw = (Array.isArray(data) ? data[0] : data) as LiFiTokenResponse | undefined;
+      if (!raw || typeof raw.decimals !== 'number') return null;
+      const priceUsd = raw.priceUSD != null ? Number(raw.priceUSD) : undefined;
+      return {
+        decimals: raw.decimals,
+        symbol: raw.symbol ?? '',
+        priceUsd: priceUsd != null && !Number.isNaN(priceUsd) ? priceUsd : undefined,
+      };
+    } catch {
+      return null;
+    }
   }
 
   async getQuotes(requests: QuoteRequest[]): Promise<(Quote | null)[]> {
@@ -127,6 +150,13 @@ export class LiFiAggregator implements Aggregator {
 // ---------------------------------------------------------------------------
 // LiFi response types (internal)
 // ---------------------------------------------------------------------------
+
+// /v1/token — a single token's on-chain metadata + USD price (LiFi may wrap it in an array).
+type LiFiTokenResponse = {
+  decimals: number;
+  symbol: string;
+  priceUSD?: string;
+};
 
 type LiFiQuoteResponse = {
   estimate: {

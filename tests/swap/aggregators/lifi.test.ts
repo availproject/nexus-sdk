@@ -59,7 +59,8 @@ describe('LiFiAggregator', () => {
       getQuoteFn as unknown as (
         params: Record<string, string>,
         exactOut?: boolean
-      ) => Promise<unknown>
+      ) => Promise<unknown>,
+      vi.fn() as unknown as (chainId: number, token: string) => Promise<unknown>
     );
   });
 
@@ -255,7 +256,7 @@ describe('LiFiAggregator', () => {
 });
 
 describe('LiFiAggregator supportsChain', () => {
-  const agg = new LiFiAggregator(vi.fn());
+  const agg = new LiFiAggregator(vi.fn(), vi.fn());
 
   it('reports a listed chain as supported', () => {
     expect(agg.supportsChain(8453)).toBe(true);
