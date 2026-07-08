@@ -1,4 +1,5 @@
 import Decimal from 'decimal.js';
+import { logger } from '../../domain/utils';
 import {
   AggregateMode,
   type Aggregator,
@@ -8,9 +9,11 @@ import {
   type QuoteType,
 } from '../aggregators';
 
-// 1% per-iteration step. v1 lowered this from 2.5% so the convergence overshoots
-// the actual required input by less, leaving less stranded COT to sweep back.
-export const SAFETY_MULTIPLIER = new Decimal('1.01');
+// 0.2% per-iteration step (v1 used 2.5%, then 1%, then 0.1%). Kept tight so the EXACT_IN race
+// candidate prices ≈ the true EXACT_OUT input — the seed already rides a slippage-protected
+// indicative minimum, so the first attempt usually covers; under-delivery costs extra
+// iterations instead of stranded COT. Tunable if quotes start needing too many rounds.
+export const SAFETY_MULTIPLIER = new Decimal('1.002');
 
 // Per-iteration cap (in COT raw units) above the initial input estimate. Stops the
 // convergence loop from drifting more than `extra` over the initial reverse-quote
@@ -69,17 +72,24 @@ export const applyCappedSafetyMargin = (args: {
 export const tryExactOutDirect = async (
   args: ExactOutDirectArgs
 ): Promise<{ quote: Quote; aggregator: Aggregator } | null> => {
+  const startedAt = Date.now();
   const results = await aggregateAggregators(
     [args.request],
     args.aggregators,
     AggregateMode.MinimizeInput
   );
   const best = results[0];
-  if (!best?.quote) return null;
-  if (best.quote.output.amountRaw < args.requiredOutputAmountRaw) return null;
-  if (args.maxInputAmountRaw != null && best.quote.input.amountRaw > args.maxInputAmountRaw) {
-    return null;
-  }
+  const hit =
+    best?.quote != null &&
+    best.quote.output.amountRaw >= args.requiredOutputAmountRaw &&
+    (args.maxInputAmountRaw == null || best.quote.input.amountRaw <= args.maxInputAmountRaw);
+  logger.debug('swap:timing', {
+    op: 'exact_out_direct',
+    chainId: args.request.chainId,
+    hit,
+    ms: Date.now() - startedAt,
+  });
+  if (!hit || !best?.quote) return null;
   return { quote: best.quote, aggregator: best.aggregator };
 };
 
@@ -92,6 +102,7 @@ export const tryExactOutDirect = async (
 export const convergeExactIn = async (
   args: ExactOutConvergenceArgs
 ): Promise<{ quote: Quote; aggregator: Aggregator } | null> => {
+  const startedAt = Date.now();
   const baseInputAmountRaw = args.initialInputAmountRaw;
   let inputAmountRaw = applyCappedSafetyMargin({
     baseInputAmountRaw,
@@ -100,6 +111,14 @@ export const convergeExactIn = async (
     maxInputAmountRaw: args.maxInputAmountRaw,
   });
   const maxAttempts = args.maxAttempts ?? MAX_CONVERGENCE_ITERATIONS;
+  const logOutcome = (attempts: number, converged: boolean, cappedOut: boolean) =>
+    logger.debug('swap:timing', {
+      op: 'converge_exact_in',
+      attempts,
+      converged,
+      cappedOut,
+      ms: Date.now() - startedAt,
+    });
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const requestInputRaw = BigInt(inputAmountRaw.toFixed(0, Decimal.ROUND_CEIL));
@@ -111,6 +130,7 @@ export const convergeExactIn = async (
     );
     const best = results[0];
     if (best?.quote && best.quote.output.amountRaw >= args.requiredOutputAmountRaw) {
+      logOutcome(attempt + 1, true, false);
       return { quote: best.quote, aggregator: best.aggregator };
     }
 
@@ -122,30 +142,59 @@ export const convergeExactIn = async (
     });
     if (nextInputAmountRaw.eq(inputAmountRaw)) {
       // Cap pinned — further iterations would request the same input.
+      logOutcome(attempt + 1, false, true);
       return null;
     }
     inputAmountRaw = nextInputAmountRaw;
   }
 
+  logOutcome(maxAttempts, false, false);
   return null;
 };
 
 /**
- * Returns the resolved value of `preferred` if it's non-null, otherwise the resolved
- * value of `fallback`. Both promises kick off concurrently before this call (so they
- * race for compute), but `preferred` is always checked first regardless of which
- * actually settles first in time — for the EXACT_OUT-vs-convergence race that means
- * the more precise EXACT_OUT direct quote always wins when supported, even if
- * convergence happens to come back sooner. Encoded as named args so reorganising
- * the call site can never accidentally flip the priority.
+ * Resolve with the first candidate to settle non-null; resolve null only once every
+ * candidate has settled null (rejections count as null; an empty list resolves null).
+ *
+ * Used for the EXACT_OUT-direct vs EXACT_IN-convergence race: the convergence seed sits
+ * within ~SAFETY_MULTIPLIER of the EXACT_OUT-minimized input (still capped by
+ * `maxExtraInputAmountRaw` / the holding balance), so letting whichever settles first win
+ * costs at most that sliver of input precision while often returning much sooner —
+ * EXACT_IN endpoints are faster and more widely supported than EXACT_OUT.
  */
-export const preferredOrFallback = async <T>(args: {
-  preferred: Promise<T | null>;
-  fallback: Promise<T | null>;
-}): Promise<T | null> => {
-  const preferred = await args.preferred;
-  if (preferred != null) return preferred;
-  return args.fallback;
+/**
+ * Passthrough that logs a candidate's settle time and hit/miss under `swap:timing` when it
+ * eventually settles — including a race LOSER that lands after `firstSuccess` already resolved,
+ * so the logs show what racing actually saved. Never affects the candidate's outcome.
+ */
+export const timedCandidate = <T>(
+  op: string,
+  context: Record<string, unknown>,
+  candidate: Promise<T | null>
+): Promise<T | null> => {
+  const startedAt = Date.now();
+  candidate
+    .then((value) =>
+      logger.debug('swap:timing', { op, ...context, hit: value != null, ms: Date.now() - startedAt })
+    )
+    .catch(() =>
+      logger.debug('swap:timing', { op, ...context, hit: false, ms: Date.now() - startedAt })
+    );
+  return candidate;
+};
+
+export const firstSuccess = async <T>(candidates: Promise<T | null>[]): Promise<T | null> => {
+  try {
+    return await Promise.any(
+      candidates.map(async (candidate) => {
+        const value = await candidate;
+        if (value == null) throw new Error('candidate settled null');
+        return value;
+      })
+    );
+  } catch {
+    return null; // AggregateError: every candidate null/rejected, or no candidates
+  }
 };
 
 /**

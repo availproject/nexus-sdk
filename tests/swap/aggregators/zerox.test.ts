@@ -34,6 +34,18 @@ const makeExactInResponse = () => ({
   zid: '0xzid',
 });
 
+// 0x /price (indicative) response — same amounts as /quote but NO transaction/calldata.
+const makeExactInPriceResponse = () => ({
+  liquidityAvailable: true,
+  sellToken: INPUT,
+  buyToken: OUTPUT,
+  sellAmount: '1000000',
+  buyAmount: '990000000000000000',
+  minBuyAmount: '980100000000000000',
+  allowanceTarget: ALLOWANCE_TARGET,
+  zid: '0xzid',
+});
+
 // 0x allowance-holder EXACT_OUT response (Response20001): exact buyAmount, protected maxSellAmount.
 const makeExactOutResponse = () => ({
   liquidityAvailable: true,
@@ -49,12 +61,15 @@ const makeExactOutResponse = () => ({
 
 describe('ZeroExAggregator', () => {
   let agg: ZeroExAggregator;
+  let getPriceFn: ReturnType<typeof vi.fn>;
   let getQuoteFn: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    getPriceFn = vi.fn().mockResolvedValue(makeExactInPriceResponse());
     getQuoteFn = vi.fn().mockResolvedValue(makeExactInResponse());
     agg = new ZeroExAggregator(
+      getPriceFn as unknown as (params: Record<string, string>) => Promise<unknown>,
       getQuoteFn as unknown as (params: Record<string, string>) => Promise<unknown>
     );
   });
@@ -71,6 +86,19 @@ describe('ZeroExAggregator', () => {
     expect(quote!.txData.tx.to).toBe(SETTLER);
     expect(quote!.txData.tx.data).toBe('0xabcdef');
     expect(quote!.txData.tx.value).toBe('0x0');
+  });
+
+  it('surveys via /price (indicative, no calldata); SERIOUS uses /quote', async () => {
+    const [survey] = await agg.getQuotes([
+      makeRequest({ seriousness: QuoteSeriousness.PRICE_SURVEY }),
+    ]);
+    expect(getPriceFn).toHaveBeenCalledTimes(1);
+    expect(getQuoteFn).not.toHaveBeenCalled();
+    expect(survey!.output.amountRaw).toBe(980100000000000000n); // minBuyAmount, parsed from /price
+    expect(survey!.txData.tx.data).toBe('0x'); // non-executable placeholder (no calldata)
+
+    await agg.getQuotes([makeRequest()]); // SERIOUS → /quote
+    expect(getQuoteFn).toHaveBeenCalledTimes(1);
   });
 
   it('reports no USD price (priceUsd undefined, value 0) — enrichment fills it from a sibling', async () => {
@@ -146,5 +174,17 @@ describe('ZeroExAggregator', () => {
 
     expect(getQuoteFn).toHaveBeenCalledTimes(1);
     expect(getQuoteFn.mock.calls[0]).toHaveLength(1); // (params) only
+  });
+});
+
+describe('ZeroExAggregator supportsChain', () => {
+  const agg = new ZeroExAggregator(vi.fn(), vi.fn());
+
+  it('reports a listed chain as supported', () => {
+    expect(agg.supportsChain(5000)).toBe(true);
+  });
+
+  it('reports an unlisted chain as unsupported', () => {
+    expect(agg.supportsChain(4114)).toBe(false);
   });
 });

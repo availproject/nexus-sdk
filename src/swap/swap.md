@@ -141,7 +141,7 @@ swap(input = {mode: EXACT_OUT, data:{toChainId:Base, toTokenAddress:WETH, toAmou
 
   # ── Step 1: preflight ─────────────────────────────  emit {status:route_building}   (§4-style, §preflight)
   pf = buildSwapPreflight(input, {chainList, cotCurrencyId, eoaAddress, middlewareClient})
-    aggregators      = createAggregators(mw)               # → [LiFi, Bebop, Fibrous]
+    aggregators      = createAggregators(mw)               # → [LiFi, Bebop, Fibrous, 0x, Mystic, Relay]
     publicClientList = createPublicClientList(chainList)
     balances         = getBalancesForSwap(                 # preloaded? then skip getSwapBalances
                          preloaded ?? getSwapBalances(eoa))      # → positive-only, same-chain-first
@@ -217,7 +217,7 @@ swap(input = {mode: EXACT_OUT, data:{toChainId:Base, toTokenAddress:WETH, toAmou
 > non‑7702 → Safe)**, receive **USDC on Base (8453, 7702)**. COT = USDC. Exercises liquidation, a
 > destination that **is** COT, and the **Safe path as a first‑class execution path**. Grounded in
 > `route.test.ts` (`EXACT_IN liquidates …`, `… routes source-swap recipient on non-7702 chains to
-> the predicted Safe address`, `EXACT_IN dst quote spends (cotAvailable - srcBuffer) …`),
+> the predicted Safe address`, `EXACT_IN dst quote spends the full cotAvailable (no source buffer) …`),
 > `execution/bridge.test.ts` (Safe deposit batch), `execution/destination-swap.test.ts` (COT
 > no‑op), and `safe-dispatch.test.ts`.
 
@@ -237,8 +237,8 @@ swap(input = {mode: EXACT_IN, data:{sources:[{Arb, WETH}], toChainId:Base, toTok
   # quote-address resolution — the seam, pre-execution:
   quote.userAddress = quote.recipientAddress = predictedSafe(Arb)   # because path=safe (else eph)  ◄ seam
   source = liquidateInputHoldings(holdings)  # WETH non-COT → quote WETH→USDC @ Arb (COT skipped)  (§6)
-  srcBuffer = min(SRC_BUFFER_EXACT_IN_PCT·out, SRC_BUFFER_EXACT_IN_MAX_USD)        # min(0.5%, $1)
-  dstQuoteInput = cotAvailable − srcBuffer  # a FLOOR — Seam 2 re-sizes it UP from the actual delivered COT at execution (pre-reclaim it was pinned min == max)
+  # no source buffer — a failed source leg re-quotes and proceeds (no drift guard)
+  dstQuoteInput = cotAvailable  # full; Seam 2 re-sizes the dst swap to the actual delivered COT (both ways), floor 0
   bridge = buildBridge(…)                   # Arb→Base; swap-produced COT → ephemeralBalance
                                             # (EXACT_IN excludes dst-chain source-swap COT from totals)
   dst.tokenSwap = null                      # destination IS COT → bridge delivers USDC directly
@@ -328,9 +328,9 @@ determineSwapRoute(input, opts) -> SwapRoute:
       holdings = dropSubFloorMayanChains(rawHoldings)                # drop chains whose SELECTED USD < floor
       if holdings empty: throw "Mayan bridge requires ≥ $MAYAN_MIN_USD_PER_LEG per source …"
     source        = liquidateInputHoldings(holdings)                 # §6 (COT holdings skipped)
-    srcBuffer     = min(SRC_BUFFER_EXACT_IN_PCT·out, SRC_BUFFER_EXACT_IN_MAX_USD)
-    dstQuoteInput = cotAvailable − srcBuffer
-    buffer.amount = srcBuffer                # surfaced into the intent (feesAndBuffer.buffer); EXACT_IN has no dst buffer
+    # no source buffer: source.srcBuffer = null (a failed leg re-quotes and proceeds, no drift guard)
+    dstQuoteInput = cotAvailable            # full; dst-swap floor (inputAmount.min) = 0 — Seam 2 tracks actuals
+    buffer.amount = 0                        # EXACT_IN has no buffer (no source, no dst)
 
   # ── bridge ──
   bridge = (all source COT on toChainId) ? null : buildBridge(…, provider)
@@ -349,8 +349,9 @@ determineSwapRoute(input, opts) -> SwapRoute:
     dst.tokenSwap = null                                                   # destination IS COT
 
   # direct EOA COT on the dst chain → destination.eoaToEphemeral, moved EOA→executor before the dst swap.
-  #   Set whenever needTokenSwap ∧ dstChainDirectCot>0, for BOTH wrappers (Safe & ephemeral). Same-chain
-  #   COT-input swaps depend on this — there's no bridge to deliver the COT.
+  #   Set whenever (needTokenSwap ∨ needGasSwap) ∧ dstChainDirectCot>0, for BOTH wrappers (Safe &
+  #   ephemeral). Same-chain COT-input swaps and gas-only funding depend on this — there's no bridge
+  #   to deliver the COT.
   paths = resolveWalletDecisions({sourceChainIds, walletPathHints})        # ◄ seam (default ephemeral)
   return { type, source, bridge, destination:{…, getDstSwap}, buffer, dstTokenInfo, extras, paths }
 
@@ -367,7 +368,7 @@ determineSwapRoute(input, opts) -> SwapRoute:
 
 # getDstSwap() requote guards (execution-time, frozen bounds):
 #   EXACT_OUT: require (tokenInput + gasInput) ≤ originalBufferedMax   # max pinned, never creeps; accepted requote moves `min`
-#   EXACT_IN:  require requoteOutput within tolerance of original      # else throw "… tolerance …"
+#   EXACT_IN:  no guard — the requote is accepted whatever it returns (no rate tolerance)
 ```
 
 Balance→holding conversion uses `parseUnits` precision (no `Number()` rounding). `cotByChain`
@@ -388,10 +389,11 @@ autoSelectSources(holdings, outputRequired, minOutputUsdPerSource?) -> {quoteRes
   rank non-COT holdings by USD value (desc)
   prefix = smallest set whose Σvalue ≥ outputRequired × PREFIX_HEADROOM (1.25)   # dust beyond prefix is never quoted
   for holding in prefix (then extend if realized output is short):
-    q = EXACT_OUT direct quote (if the aggregator supports it)    # precise input
-        else EXACT_IN convergence (SAFETY_MULTIPLIER each step, cap initial + MAX_CONVERGENCE_EXTRA_COT):
+    q = RACE (firstSuccess): EXACT_OUT direct quote (precise input)
+        vs EXACT_IN convergence (seed × SAFETY_MULTIPLIER each step, cap initial + MAX_CONVERGENCE_EXTRA_COT)
+        # first non-null settlement wins — the ~0.2% seed keeps a convergence win ≈ the EXACT_OUT input
           if minOutputUsdPerSource: lift the leg's target to ≥ minOutputUsdPerSource + chainFee  # no sub-floor partial
-          can't reach output under the cap → throw "… converge …"
+          both candidates null → throw "… converge …"
     quoteResponses += q
   if minOutputUsdPerSource ∧ still short ∧ chains were dropped → throw "Mayan bridge requires ≥ $X per source …"
 
@@ -403,9 +405,10 @@ liquidateInputHoldings(holdings) -> QuoteResponse[]:              # EXACT_IN
 
 determineDestinationSwaps(cot → toToken, receiver=EOA, taker=executor) -> QuoteResponse | null:
   if toToken == cot: return null                                  # no aggregator call
-  return EXACT_OUT direct (if supported)
-         else convergence(indicative reverse × SAFETY_MULTIPLIER, round UP;
-                          cap initial + MAX_CONVERGENCE_EXTRA_COT)    # → null if it can't converge
+  return RACE (firstSuccess): EXACT_OUT direct
+         vs convergence(indicative reverse × SAFETY_MULTIPLIER, round UP;
+                        cap initial + MAX_CONVERGENCE_EXTRA_COT)
+         # first non-null settlement wins → null only when both can't converge
 
 destinationSwapWithExactIn(cot → outToken, EXACT_IN) -> QuoteResponse | null    # a single quote
 destinationGasSwapExactIn(cot → EADDRESS, EXACT_IN, input=gasAmountInCotRaw)     # native gas, receiver=EOA
@@ -417,30 +420,42 @@ destinationGasSwapExactIn(cot → EADDRESS, EXACT_IN, input=gasAmountInCotRaw)  
 
 ```text
 aggregateAggregators(requests, aggregators, mode):
-  per request: pick the best non-null quote across aggregators
+  per request: selectForChain picks ≤ 2 aggregators by TIER (supportsChain static lists):
+    TIER_1 = [Relay, Bebop, Fibrous, Mystic]; TIER_2 = [0x, LiFi]      # priority = array order
+    tier-1 supporters first, top up from tier 2 to reach 2 (Citrea → Fibrous + Mystic, both tier-1); a lone supporter runs alone
+    a lone 0x/Mystic pick is KEPT — with no sibling, aggregateAggregators enriches it from a token endpoint (below)
+    NO adapter claims the chain → full fan-out fallback (gated adapters null locally; only Relay,
+      deliberately ungated in fetchQuote, probes live)
+  round 1 quotes the PRIMARY selection; if every primary adapter returns null/error for a request, a
+    round 2 FALLBACK quotes the REMAINING supporters (next ≤ 2 by tier)
+  each aggregator receives ONLY its selected requests (the network-call reduction); results scatter
+  back into the full matrix, then per request pick the best non-null quote among the selected:
     MaximizeOutput → max output.amountRaw   (tie → first aggregator)
     MinimizeInput  → min input.amountRaw
   a throwing aggregator is skipped; all-throw / all-null → {quote:null, aggregator:first}
-  then BACKFILL the winner from a sibling (same request ⇒ same token):
-    priceUsd missing on a leg → value = amount × sibling.priceUsd     # fixes 0x AND Bebop value=0
-    0x winner (no decimals/symbol) → borrow sibling.decimals (exact) + symbol, recompute amount;
-      no sibling for a side → DROP the quote (null) — a 0x-only leg falls back to no-0x coverage
+  then ENRICH the winner (backfillFromSiblings first, then a token endpoint if needed):
+    priceUsd missing on a leg → value = amount × sibling.priceUsd     # fixes 0x/Mystic AND Bebop value=0
+    0x/Mystic winner (no decimals/symbol) → borrow sibling.decimals (exact) + symbol, recompute amount;
+      NO sibling → token endpoint: 0x → LiFi /v1/token (decimals+symbol+USD price), Mystic → its own
+      /v1/tokens/resolve (decimals+symbol, no price → value 0); DROP only if that too yields no decimals
 
-createAggregators(mw) → [LiFi, Bebop, Fibrous, 0x]
+createAggregators(mw) → [LiFi, Bebop, Fibrous, 0x, Mystic, Relay]
 ```
 
 All adapters map a middleware response to a `Quote`, use the **slippage‑protected** output amount,
 return `null` on throw/timeout, short‑circuit unsupported chains **without firing a request**, and
 send **no API‑key headers** (the proxy handles auth). LiFi/Bebop surface a per‑token `priceUsd`;
-**0x reports amounts + tx only (no decimals/symbol/price)** — those are backfilled from a sibling
-quote in `aggregateAggregators`, so a leg only 0x quotes is dropped (falls back to no‑0x coverage).
+**0x and Mystic report amounts + tx only (no decimals/symbol/price)** — filled from a sibling quote in
+`aggregateAggregators`, or, when a leg is only 0x/Mystic, from a token endpoint (0x → LiFi `/v1/token`;
+Mystic → its `/v1/tokens/resolve`, no price → value 0); dropped only if neither can supply decimals.
 
 | Adapter | Output amount | Recipient param | Notable params | Chains / notes |
 |---|---|---|---|---|
 | **LiFi** | `estimate.toAmountMin` | `toAddress` | `skipSimulation=true`; `denyExchanges='openocean'` (+`fly,hyperflow,liquidswap` on 999); `exactOut=true` for EXACT_OUT | short‑circuits chains it doesn't support (e.g. Citrea/4114); surfaces per‑token `priceUsd` |
 | **Bebop** | `route.quote.buyTokens.minimumAmount` | `receiver_address` | `taker_address=userAddress`; `source='arcana'`; EXACT_OUT uses `buy_amounts`; addresses **checksummed** (`getAddress`) | response nests `{tx, approvalTarget, expiry, buyTokens, sellTokens}` under `route.quote`; **picks the best of `routes[]`** (max output / min input), not `routes[0]`; missing `priceUsd` ⇒ `value=0`, backfilled from a sibling |
 | **Fibrous** | `min_received` | `destination` | `excludeProtocols='3'` | **EXACT_IN only** (EXACT_OUT → `null`); HyperEVM 999 / Monad 143 / Citrea 4114; native input (`swap_type===0`) → `approvalAddress=zeroAddress`, `tx.value=amount_in` |
-| **0x** | `minBuyAmount` (EXACT_IN) / exact `buyAmount`, input capped at `maxSellAmount` (EXACT_OUT) | `recipient` | allowance‑holder via proxy `/zerox/swap/allowance-holder/quote`; `taker=userAddress`; `slippageBps='100'`; `allowanceTarget` → `approvalAddress` (`zeroAddress` when null/native) | EXACT_IN **and** EXACT_OUT; `liquidityAvailable=false` → `null`; **no decimals/symbol/price** (backfilled from a sibling) |
+| **0x** | `minBuyAmount` (EXACT_IN) / exact `buyAmount`, input capped at `maxSellAmount` (EXACT_OUT) | `recipient` | allowance‑holder via proxy; survey (`!SERIOUS`) → indicative `/price`, SERIOUS → `/quote` (executable tx); `taker=userAddress`; `slippageBps`; `allowanceTarget` → `approvalAddress` (`zeroAddress` when null/native) | EXACT_IN **and** EXACT_OUT; `liquidityAvailable=false` → `null`; **no decimals/symbol/price** (backfilled from a sibling) |
+| **Mystic** | `minBuyAmount` (slippage‑protected floor, like 0x) | `recipient` | two‑step: POST `/v1/swap/quote` then `/v1/swap/build`; `slippageBps`; survey (`!SERIOUS`) skips the simulating build call; native sell → `approvalAddress=zeroAddress` | **EXACT_IN only**; Citrea 4114 only; **no decimals/symbol/price** (backfilled from a sibling, mirrors 0x) |
 
 ---
 
@@ -511,8 +526,9 @@ executeSourceSwaps(source, ctx, meta) -> BridgeAsset[]:
   await all receipts                                   # only AFTER every chain is dispatched
   on chain failure: requote that chain ONCE (EXACT_IN; taker=receiver = that chain's executor —
                     EOA for the direct-COT dst chain, predictedSafe on non-7702, else ephemeral)
-    require Σ(output drop over all legs) ≤ srcBuffer   # else EXTERNAL_RATES_DRIFT_EXCEEDED
-    # pooled, not per-leg: an over-quote can offset an under-quote; the budget defends the bridge total
+    # EXACT_OUT: require Σ(output drop over all legs) ≤ srcBuffer  # else EXTERNAL_RATES_DRIFT_EXCEEDED
+    #   pooled, not per-leg: an over-quote can offset an under-quote; the budget defends the bridge total
+    # EXACT_IN:  srcBuffer = null → no guard; accept the re-quote and proceed (Seam 2 re-sizes the dst swap)
     still failing → rethrow                            # no sweep here — cleanup is the orchestrator's job (§11)
   # SEAM 1 (reclaim, when bridge ≠ null): read balanceOf(COT, wrapper) per chain → bridge the ACTUAL
   #   landed COT, not the quote floor (captures positive source slippage; best-effort — on a read
@@ -559,8 +575,9 @@ executeDestinationSwap(destination, dstTokenInfo, ctx, meta):
   if tokenSwap == null: return           # destination IS COT — bridge fill already delivered to EOA
                                          # (no tx, meta.dst stays null, no progress emitted)
   # SEAM 2 (reclaim): read balanceOf(COT, dstWrapper) → re-size the dst swap input from the ACTUAL
-  #   delivered COT. EXACT_IN grows the input to consume the surplus (more output); EXACT_OUT keeps the
-  #   exact output. getDstSwap re-quotes within [floor, ceiling] (also on quote expiry, §5).
+  #   delivered COT. EXACT_IN re-sizes BOTH ways — grows on surplus (more output), shrinks when a
+  #   down-drifted source delivered less (never over-size, floor 0); EXACT_OUT keeps the exact output.
+  #   getDstSwap re-quotes with no tolerance guard (EXACT_IN) / within [floor, ceiling] (EXACT_OUT); also on expiry.
   direct EOA COT on the dst chain (destination.eoaToEphemeral) → [permit?, transferFrom](eoa→executor) prepended (BOTH paths)
   path(dstChain):
     ephemeral → SBC [permit?, transferFrom?, approve, swap, transfer(leftover COT → EOA)?]
@@ -664,9 +681,10 @@ principle is *execution tracks actuals, while route‑time quotes/buffers are co
 holding.amountRaw (route)
    │  aggregator @ route → quote.output            # the minReceived FLOOR shown to the user
    ▼
-source swap executes ──[attempt-0 dispatch fail]──⟳ requoteFailedChains (ONCE, EXACT_IN @ holding)
-   │                       ▣ Σnew ≥ Σold − srcBuffer  (POOLED, downward only; an over-leg offsets an
-   │                            under-leg) — else EXTERNAL_RATES_DRIFT_EXCEEDED → abort
+source swap executes ──[attempt-0 dispatch fail]──⟳ requoteFailedChains (ONCE, re-quote @ holding)
+   │                       ▣ EXACT_OUT: Σnew ≥ Σold − srcBuffer (POOLED; an over-leg offsets an under-leg)
+   │                            else EXTERNAL_RATES_DRIFT_EXCEEDED → abort
+   │                          EXACT_IN: no guard — accept the re-quote and proceed
    ▼
 SEAM 1  balanceOf(COT, sourceWrapper)              ◄ the COT that ACTUALLY landed (≥ floor: realized slippage)
    │  reclaimFromActualBalance = bridge ≠ null → bridge the ACTUAL, not the quote (best-effort)
@@ -682,9 +700,9 @@ RFF source.value = executed       MAYAN: refresh effectiveAmountIn64       NEXUS
 bridge fill → COT at dstWrapper
    ▼
 SEAM 2  balanceOf(COT, dstWrapper)                 ◄ the COT that ACTUALLY arrived
-   │  dst swap re-sized: EXACT_IN GROWS the input to consume the surplus → MORE output;
-   │  EXACT_OUT keeps the EXACT output. getDstSwap ⟳ re-quote within [floor, ceiling] (≤3 attempts);
-   │  beyond tolerance → ratesChangedBeyondTolerance
+   │  dst swap re-sized: EXACT_IN tracks the actual balance BOTH ways (grow on surplus → MORE output,
+   │  shrink on a short source → no over-size, floor 0); EXACT_OUT keeps the EXACT output.
+   │  getDstSwap ⟳ re-quote: EXACT_IN no tolerance guard; EXACT_OUT within [floor, ceiling] (≤3 attempts)
    ▼
 leftover = balanceOf − consumed → ONE transfer(→ EOA)   ◄ skipped if ≤ 0 (replaces the blind Sweeper drain)
 ```
@@ -699,12 +717,12 @@ a formula over the (already‑updated) inputs, so it tracks them automatically.
 ### 12.2 Invariants
 
 - **Buffers applied once.** EXACT_OUT dst buffer `min(10%, $2)` + source buffer `min(2%, $1)`;
-  EXACT_IN `srcBuffer = min(0.5% × output, $1/USDC)`. (Values: `DST_BUFFER_PCT`/`DST_BUFFER_MAX_USD`,
-  `SRC_BUFFER_PCT`/`SRC_BUFFER_MAX_USD`, `SRC_BUFFER_EXACT_IN_PCT`/`SRC_BUFFER_EXACT_IN_MAX_USD` —
+  EXACT_IN has **no buffer** (no source buffer, no dst buffer). (Values: `DST_BUFFER_PCT`/`DST_BUFFER_MAX_USD`,
+  `SRC_BUFFER_PCT`/`SRC_BUFFER_MAX_USD` —
   pinned in `tests/swap/constants.test.ts`.) `getDstSwap` never lets the EXACT_OUT max ceiling
   creep upward. **`route.buffer.amount`** (→ intent `feesAndBuffer.buffer`) carries the whole
-  buffer in COT units: EXACT_OUT `outputRequired − dstInput` (dst + source combined); EXACT_IN the
-  `srcBuffer` (no dst buffer); `0` only on the same-token direct bridge (no swap to defend).
+  buffer in COT units: EXACT_OUT `outputRequired − dstInput` (dst + source combined); `0` on EXACT_IN
+  and on the same-token direct bridge (no swap buffer to defend).
 - **Same-token direct bridge skips swaps AND buffers** (EXACT_IN). When every source is the same
   non-COT bridgeable mesh family as the destination token — **ERC-20 or native** (native normalized
   EADDRESS→ZERO) — the route bridges the token directly EOA→EOA: no source/destination swap,
@@ -729,11 +747,13 @@ a formula over the (already‑updated) inputs, so it tracks them automatically.
   chosen amount** (`holdingUsd`, not the full wallet balance); EXACT_OUT hands the floor to
   `autoSelectSources`. A native fast-path destination defaults to `nexus` (the server can't price a
   zero-address token).
-- **Convergence bounded** — `SAFETY_MULTIPLIER` (1.01); input growth capped at initial +
+- **Convergence bounded** — `SAFETY_MULTIPLIER` (1.002); input growth capped at initial +
   `MAX_CONVERGENCE_EXTRA_COT` (0.5); non‑convergence throws (source) / returns null (destination).
-- **Source re‑quote once, pooled drift.** Summed leg drops ≤ `srcBuffer` (boundary inclusive), else
-  `EXTERNAL_RATES_DRIFT_EXCEEDED`; still failing → re‑throw, no sweep at this layer.
+- **Source re‑quote once.** EXACT_OUT: summed leg drops ≤ `srcBuffer` (boundary inclusive), else
+  `EXTERNAL_RATES_DRIFT_EXCEEDED`. EXACT_IN: no guard — accept the re‑quote and proceed. Still failing
+  → re‑throw, no sweep at this layer.
 - **Destination re‑quote twice** (`MAX_RETRIES`; 3 attempts), then re‑throw without a fallback sweep.
+  EXACT_IN has no rate‑tolerance guard on the re‑quote; EXACT_OUT keeps its frozen `[floor, ceiling]`.
 - **Aggregator failures non‑fatal** at the aggregation layer.
 - **EOA single‑chain & serialized**; **all chains dispatched before receipts** (source stage).
 - **Fail loud at routing** (see §5) — never emit an inconsistent plan.

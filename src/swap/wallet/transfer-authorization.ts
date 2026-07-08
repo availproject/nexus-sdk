@@ -194,10 +194,15 @@ export const buildTransferAuthorization = async (input: {
     chainId
   );
   const permit = input.cache.getPermit(input.tokenAddress, chainId);
+  // A delegated (EIP-7702 / smart-account) funding EOA can't produce a plain EIP-2612 permit:
+  // tokens like USDC route code-bearing owners through ERC-1271, which rejects the raw permit
+  // digest. Fall back to a paid on-chain approve, same as an unsupported-permit token.
+  const eoaIsDelegated = input.cache.hasAuthCodeSet(input.eoaAddress, chainId);
+  const permitUnsupported = !permit || permit.permitVariant === PermitVariant.Unsupported;
   const decision =
     currentAllowance >= input.amount
       ? 'none'
-      : !permit || permit.permitVariant === PermitVariant.Unsupported
+      : permitUnsupported || eoaIsDelegated
         ? 'approve'
         : 'permit';
 
@@ -210,6 +215,7 @@ export const buildTransferAuthorization = async (input: {
     requiredAllowance: input.amount.toString(),
     permitVariant: permit?.permitVariant ?? PermitVariant.Unsupported,
     permitContractVersion: permit?.permitContractVersion ?? 0,
+    eoaIsDelegated,
     eagerPermit: input.eagerPermit,
     decision,
   });
@@ -217,10 +223,10 @@ export const buildTransferAuthorization = async (input: {
   if (currentAllowance >= input.amount) {
     return null;
   }
-  if (!permit || permit.permitVariant === PermitVariant.Unsupported) {
+  if (permitUnsupported || eoaIsDelegated) {
     return {
-      // Marker: unsupported permits require a paid EOA approve(spender=ephemeral)
-      // before the SBC transferFrom path can execute.
+      // Marker: unsupported permits (or a delegated funding EOA) require a paid EOA
+      // approve(spender=ephemeral) before the SBC transferFrom path can execute.
       kind: 'approve',
       call: {
         to: input.tokenAddress,

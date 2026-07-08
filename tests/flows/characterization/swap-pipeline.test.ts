@@ -127,6 +127,8 @@ const ARB_BEBOP_APPROVAL = '0x1111111111111111111111111111111111111111' as Hex;
 const ARB_BEBOP_ROUTER = '0x1111111111111111111111111111111111112222' as Hex;
 const OP_LIFI_APPROVAL = '0x2222222222222222222222222222222222221111' as Hex;
 const OP_LIFI_ROUTER = '0x2222222222222222222222222222222222222222' as Hex;
+const OP_BEBOP_APPROVAL = '0x5555555555555555555555555555555555555551' as Hex;
+const OP_BEBOP_ROUTER = '0x5555555555555555555555555555555555555552' as Hex;
 const BASE_LIFI_APPROVAL = '0x3333333333333333333333333333333333331111' as Hex;
 const BASE_LIFI_ROUTER = '0x3333333333333333333333333333333333332222' as Hex;
 const BASE_BEBOP_APPROVAL = '0x3333333333333333333333333333333333333331' as Hex;
@@ -283,7 +285,7 @@ const SCENARIOS: ExactOutScenario[] = [
       sourceSwapChainIds: [ARB_CHAIN, OP_CHAIN],
       sourceSwapAggregators: [
         { chainId: ARB_CHAIN, aggregator: 'BebopAggregator' },
-        { chainId: OP_CHAIN, aggregator: 'LiFiAggregator' },
+        { chainId: OP_CHAIN, aggregator: 'BebopAggregator' },
       ],
       directCotChains: [],
       sourceExecutionPaths: [
@@ -322,7 +324,7 @@ const SCENARIOS: ExactOutScenario[] = [
       sourceSwapChainIds: [ARB_CHAIN, OP_CHAIN],
       sourceSwapAggregators: [
         { chainId: ARB_CHAIN, aggregator: 'BebopAggregator' },
-        { chainId: OP_CHAIN, aggregator: 'LiFiAggregator' },
+        { chainId: OP_CHAIN, aggregator: 'BebopAggregator' },
       ],
       directCotChains: [],
       sourceExecutionPaths: [
@@ -361,7 +363,7 @@ const SCENARIOS: ExactOutScenario[] = [
       sourceSwapChainIds: [ARB_CHAIN, OP_CHAIN],
       sourceSwapAggregators: [
         { chainId: ARB_CHAIN, aggregator: 'BebopAggregator' },
-        { chainId: OP_CHAIN, aggregator: 'LiFiAggregator' },
+        { chainId: OP_CHAIN, aggregator: 'BebopAggregator' },
       ],
       directCotChains: [],
       sourceExecutionPaths: [
@@ -405,7 +407,7 @@ const SCENARIOS: ExactOutScenario[] = [
       sourceSwapChainIds: [ARB_CHAIN, OP_CHAIN],
       sourceSwapAggregators: [
         { chainId: ARB_CHAIN, aggregator: 'BebopAggregator' },
-        { chainId: OP_CHAIN, aggregator: 'LiFiAggregator' },
+        { chainId: OP_CHAIN, aggregator: 'BebopAggregator' },
       ],
       directCotChains: [],
       sourceExecutionPaths: [
@@ -605,7 +607,7 @@ const SCENARIOS: ExactOutScenario[] = [
       sourceSwapChainIds: [ARB_CHAIN, OP_CHAIN],
       sourceSwapAggregators: [
         { chainId: ARB_CHAIN, aggregator: 'BebopAggregator' },
-        { chainId: OP_CHAIN, aggregator: 'LiFiAggregator' },
+        { chainId: OP_CHAIN, aggregator: 'BebopAggregator' },
       ],
       directCotChains: [],
       sourceExecutionPaths: [
@@ -647,7 +649,7 @@ const SCENARIOS: ExactOutScenario[] = [
       sourceSwapChainIds: [ARB_CHAIN, OP_CHAIN],
       sourceSwapAggregators: [
         { chainId: ARB_CHAIN, aggregator: 'BebopAggregator' },
-        { chainId: OP_CHAIN, aggregator: 'LiFiAggregator' },
+        { chainId: OP_CHAIN, aggregator: 'BebopAggregator' },
       ],
       directCotChains: [],
       sourceExecutionPaths: [
@@ -747,7 +749,7 @@ const SCENARIOS: ExactOutScenario[] = [
       sourceSwapChainIds: [ARB_CHAIN, OP_CHAIN],
       sourceSwapAggregators: [
         { chainId: ARB_CHAIN, aggregator: 'BebopAggregator' },
-        { chainId: OP_CHAIN, aggregator: 'LiFiAggregator' },
+        { chainId: OP_CHAIN, aggregator: 'BebopAggregator' },
       ],
       directCotChains: [],
       sourceExecutionPaths: [
@@ -769,9 +771,9 @@ const SCENARIOS: ExactOutScenario[] = [
       ],
       destinationQuoteExpectation: { executor: EPH, recipient: EOA },
       eoaToEphemeralTransfers: [
-        // ARB source swaps via Bebop, whose quote carries the checksummed token address
-        // (matches ca-common); OP swaps via LiFi, which still returns the lowercase form.
-        { reason: 'source', chainId: ARB_CHAIN, tokenAddress: getAddress(SOURCE_DAI) },
+        // Both legs swap via Bebop under tiered selection; the assert lowercases the
+        // quote-carried address (Bebop checksums it), so expectations stay lowercase.
+        { reason: 'source', chainId: ARB_CHAIN, tokenAddress: SOURCE_DAI },
         { reason: 'source', chainId: OP_CHAIN, tokenAddress: SOURCE_DAI },
       ],
       bridgeAssetOwnership: [
@@ -950,13 +952,19 @@ const RATE_BY_AGGREGATOR: Record<string, Record<string, Decimal>> = {
     [`${OP_CHAIN}:${SOURCE_DAI.toLowerCase()}:${USDC_OP.toLowerCase()}`]: new Decimal('0.95'),
   },
   bebop: {
-    [`${BASE_CHAIN}:${EADDRESS.toLowerCase()}:${USDC_BASE.toLowerCase()}`]: new Decimal('2900'),
+    // Tiered selection consults only Relay + Bebop here (LiFi is tier 2, Relay has no responder),
+    // so Bebop carries LiFi's old winning ETH→USDC rate — the negative-gas-reserve scenario's
+    // 2996-USDC target was sized against it.
+    [`${BASE_CHAIN}:${EADDRESS.toLowerCase()}:${USDC_BASE.toLowerCase()}`]: new Decimal('3000'),
     [`${BASE_CHAIN}:${USDC_BASE.toLowerCase()}:${EADDRESS.toLowerCase()}`]: new Decimal('0.000344827586206896'),
     [`${BASE_CHAIN}:${WETH.toLowerCase()}:${USDC_BASE.toLowerCase()}`]: new Decimal('1450'),
     [`${BASE_CHAIN}:${USDC_BASE.toLowerCase()}:${WETH.toLowerCase()}`]: new Decimal('0.000689655172413793'),
     [`${ARB_CHAIN}:${USDC_ARB.toLowerCase()}:${EADDRESS.toLowerCase()}`]: new Decimal('0.000344827586206896'),
     [`${ARB_CHAIN}:${SOURCE_DAI.toLowerCase()}:${USDC_ARB.toLowerCase()}`]: new Decimal('0.8'),
-    [`${OP_CHAIN}:${SOURCE_DAI.toLowerCase()}:${USDC_OP.toLowerCase()}`]: new Decimal('0.85'),
+    // Tiered selection consults only Relay + Bebop on OP (LiFi is tier 2, Relay has no responder
+    // here), so Bebop carries the OP leg at LiFi's old winning rate to keep every pinned amount
+    // downstream identical.
+    [`${OP_CHAIN}:${SOURCE_DAI.toLowerCase()}:${USDC_OP.toLowerCase()}`]: new Decimal('0.95'),
   },
 };
 
@@ -1059,8 +1067,10 @@ const makeBebopResponse = (params: Record<string, string>) => {
 
   const inputAmountRaw = toRawAmount(inputAmountHuman, inputMeta.decimals);
   const outputAmountRaw = toRawAmount(outputAmountHuman, outputMeta.decimals);
-  const approvalAddress = chainId === ARB_CHAIN ? ARB_BEBOP_APPROVAL : BASE_BEBOP_APPROVAL;
-  const router = chainId === ARB_CHAIN ? ARB_BEBOP_ROUTER : BASE_BEBOP_ROUTER;
+  const approvalAddress =
+    chainId === ARB_CHAIN ? ARB_BEBOP_APPROVAL : chainId === OP_CHAIN ? OP_BEBOP_APPROVAL : BASE_BEBOP_APPROVAL;
+  const router =
+    chainId === ARB_CHAIN ? ARB_BEBOP_ROUTER : chainId === OP_CHAIN ? OP_BEBOP_ROUTER : BASE_BEBOP_ROUTER;
 
   return {
     routes: [
@@ -1624,7 +1634,9 @@ const assertScenario = (scenario: ExactOutScenario, result: HarnessResult) => {
       aggregator === 'BebopAggregator'
         ? chainId === ARB_CHAIN
           ? ARB_BEBOP_ROUTER
-          : BASE_BEBOP_ROUTER
+          : chainId === OP_CHAIN
+            ? OP_BEBOP_ROUTER
+            : BASE_BEBOP_ROUTER
         : chainId === OP_CHAIN
           ? OP_LIFI_ROUTER
           : BASE_LIFI_ROUTER
@@ -1644,7 +1656,8 @@ const assertScenario = (scenario: ExactOutScenario, result: HarnessResult) => {
     result.preparedExecution.eoaToEphemeralTransfers.map((transfer) => ({
       reason: transfer.reason,
       chainId: transfer.chainId,
-      tokenAddress: transfer.tokenAddress,
+      // lowercase: the winning aggregator's echo decides the case (Bebop checksums, LiFi doesn't)
+      tokenAddress: transfer.tokenAddress.toLowerCase(),
     }))
   ).toEqual(expect.arrayContaining(scenario.expected.eoaToEphemeralTransfers));
 
@@ -1663,7 +1676,7 @@ const assertScenario = (scenario: ExactOutScenario, result: HarnessResult) => {
   const eoaCalls = flattenEoaCalls(result.eoaWallet);
   const eoaCallTargets = eoaCalls.map((call) => call.to);
   expect(eoaCallTargets).not.toEqual(
-    expect.arrayContaining([ARB_BEBOP_ROUTER, OP_LIFI_ROUTER, BASE_BEBOP_ROUTER])
+    expect.arrayContaining([ARB_BEBOP_ROUTER, OP_BEBOP_ROUTER, BASE_BEBOP_ROUTER])
   );
 
   // Source SBC chains = each ephemeral source chain, plus the dst chain if any dst swap runs.
@@ -1901,7 +1914,7 @@ const EXACT_IN_SCENARIOS: ExactInScenario[] = [
       sourceSwapChainIds: [ARB_CHAIN, OP_CHAIN],
       sourceSwapAggregators: [
         { chainId: ARB_CHAIN, aggregator: 'BebopAggregator' },
-        { chainId: OP_CHAIN, aggregator: 'LiFiAggregator' },
+        { chainId: OP_CHAIN, aggregator: 'BebopAggregator' },
       ],
       sourceExecutionPaths: [
         [ARB_CHAIN, 'ephemeral'],
@@ -1914,8 +1927,8 @@ const EXACT_IN_SCENARIOS: ExactInScenario[] = [
       expectedSubmitSbcChainIds: [ARB_CHAIN, OP_CHAIN, BASE_CHAIN],
       expectedBridgeRecipient: EPH,
       expectedBridgeAmountHuman: '2100',
-      // 2100 source-swap output × 0.005 = 10.5, capped to $1 → dst quote runs on 2099.
-      expectedDestinationInputHuman: '2099',
+      // No source buffer: the dst quote runs on the full bridged 2100; `min` is the getDstSwap floor (0).
+      expectedDestinationInputHuman: '0',
       sourceQuoteExpectations: [
         { chainId: ARB_CHAIN, executor: EPH, recipient: EPH },
         { chainId: OP_CHAIN, executor: EPH, recipient: EPH },
@@ -2223,8 +2236,8 @@ const assertExactInScenario = (scenario: ExactInScenario, result: ExactInHarness
   expect(result.previewState.route.destination.inputAmount.min.toFixed()).toBe(
     scenario.expected.expectedDestinationInputHuman
   );
-  // EXACT_IN reclaim lifts `max` to the full unbuffered COT (= the bridged amount) so the
-  // execution-time re-size can spend up to what actually lands; `min` stays the buffered floor.
+  // EXACT_IN: `max` is the full COT (= the bridged amount) the execution-time re-size can spend up to;
+  // `min` is the getDstSwap floor (0), so a down-drifted source can't over-size the dst swap.
   expect(result.previewState.route.destination.inputAmount.max.toFixed()).toBe(
     scenario.expected.expectedBridgeAmountHuman
   );
@@ -2299,7 +2312,8 @@ const assertExactInScenario = (scenario: ExactInScenario, result: ExactInHarness
     result.preparedExecution.eoaToEphemeralTransfers.map((transfer) => ({
       reason: transfer.reason,
       chainId: transfer.chainId,
-      tokenAddress: transfer.tokenAddress,
+      // lowercase: the winning aggregator's echo decides the case (Bebop checksums, LiFi doesn't)
+      tokenAddress: transfer.tokenAddress.toLowerCase(),
     }))
   ).toEqual(expect.arrayContaining(scenario.expected.eoaToEphemeralTransfers));
   expectStatusSequence(result.emittedEvents);
@@ -2307,7 +2321,7 @@ const assertExactInScenario = (scenario: ExactInScenario, result: ExactInHarness
   const eoaCalls = flattenEoaCalls(result.eoaWallet);
   const eoaCallTargets = eoaCalls.map((call) => call.to);
   expect(eoaCallTargets).not.toEqual(
-    expect.arrayContaining([ARB_BEBOP_ROUTER, OP_LIFI_ROUTER, BASE_BEBOP_ROUTER])
+    expect.arrayContaining([ARB_BEBOP_ROUTER, OP_BEBOP_ROUTER, BASE_BEBOP_ROUTER])
   );
   // SBC chains = each ephemeral source chain + dst chain.
   const exactInExpectedSbcChainIds = new Set<number>(

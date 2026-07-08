@@ -21,14 +21,21 @@ vi.mock('viem', async (importOriginal) => {
   };
 });
 
-import { materializePermitAuthorizationCall } from '../../../src/swap/wallet/transfer-authorization';
+import {
+  buildTransferAuthorization,
+  materializePermitAuthorizationCall,
+} from '../../../src/swap/wallet/transfer-authorization';
+import { SwapCache } from '../../../src/swap/wallet/cache';
 import { makeChain } from '../../helpers/chains';
 import { signPermitForAddressAndValue } from '../../../src/services/allowance-utils';
+import type { ChainListType, TokenInfo } from '../../../src/domain';
+import type { PublicClientList } from '../../../src/swap/types';
 
 const TOKEN = '0x0000000000000000000000000000000000000001' as Hex;
 const EOA = '0x0000000000000000000000000000000000000002' as Hex;
 const EPH = '0x0000000000000000000000000000000000000003' as Hex;
-const CHAIN = makeChain(42161, 'Arbitrum');
+const CHAIN_ID = 42161;
+const CHAIN = makeChain(CHAIN_ID, 'Arbitrum');
 
 describe('materializePermitAuthorizationCall', () => {
   beforeEach(() => {
@@ -99,5 +106,70 @@ describe('materializePermitAuthorizationCall', () => {
       EPH,
       1n
     );
+  });
+});
+
+describe('buildTransferAuthorization', () => {
+  const PERMIT_TOKEN: TokenInfo = {
+    contractAddress: TOKEN,
+    decimals: 6,
+    logo: '',
+    name: 'USD Coin',
+    symbol: 'USDC',
+    permitVariant: PermitVariant.EIP2612Canonical,
+    permitVersion: 2,
+  };
+
+  // Seed a cache whose token supports EIP-2612 permit (so the default decision is 'permit').
+  const makeCacheWithPermit = async (): Promise<SwapCache> => {
+    const chainList = {
+      getChainByID: vi
+        .fn()
+        .mockReturnValue({ id: CHAIN_ID, multicallAddress: CHAIN.multicallAddress }),
+      getTokenByAddress: vi.fn().mockReturnValue(PERMIT_TOKEN),
+    } as unknown as ChainListType;
+    const cache = new SwapCache(chainList);
+    cache.addPermitQuery(TOKEN, CHAIN_ID);
+    await cache.process({
+      [CHAIN_ID]: { multicall: vi.fn(), getCode: vi.fn(), readContract: vi.fn() },
+    } as unknown as Parameters<SwapCache['process']>[0]);
+    return cache;
+  };
+
+  const clientList = { get: () => ({}) } as unknown as PublicClientList;
+
+  const build = (cache: SwapCache) =>
+    buildTransferAuthorization({
+      chain: CHAIN,
+      tokenAddress: TOKEN,
+      tokenDecimals: 6,
+      amount: 5_000_000n,
+      eoaAddress: EOA,
+      eoaWallet: {} as WalletClient,
+      ephemeralAddress: EPH,
+      publicClientList: clientList,
+      cache,
+      eagerPermit: false,
+    });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('chooses approve over permit when the funding EOA has 7702 auth code set', async () => {
+    const cache = await makeCacheWithPermit();
+    cache.markAuthCodeSet(EOA, CHAIN_ID); // funding EOA is a delegated smart account
+
+    const result = await build(cache);
+
+    expect(result?.kind).toBe('approve');
+  });
+
+  it('still chooses permit for a non-delegated funding EOA', async () => {
+    const cache = await makeCacheWithPermit();
+
+    const result = await build(cache);
+
+    expect(result?.kind).toBe('permit');
   });
 });

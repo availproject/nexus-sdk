@@ -29,8 +29,6 @@ import {
   DST_RECLAIM_DEDUCTION_PCT,
   EADDRESS,
   EXACT_OUT_PROVIDER_BUFFER,
-  SRC_BUFFER_EXACT_IN_MAX_USD,
-  SRC_BUFFER_EXACT_IN_PCT,
   SRC_BUFFER_MAX_USD,
   SRC_BUFFER_PCT,
 } from './constants';
@@ -1061,8 +1059,10 @@ async function _exactOutRoute(
     bridge,
     destination: {
       chainId: data.toChainId,
+      // The gas swap also runs on the wrapper, so direct dst-chain COT must be handed off even
+      // when there is no token swap (gas-only funding has no bridge to deliver the COT).
       eoaToEphemeral:
-        needsTokenSwap && destinationChainDirectCot.gt(0)
+        (needsTokenSwap || needsGasSwap) && destinationChainDirectCot.gt(0)
           ? {
               amount: mulDecimals(destinationChainDirectCot, dstCOT.decimals),
               contractAddress: dstCOT.address as Hex,
@@ -1470,22 +1470,6 @@ async function _exactInRoute(
         })
       : [];
 
-  // Source-side requote headroom: applied symmetrically with EXACT_OUT — we quote the
-  // destination swap for `cotAvailable - srcBuffer` so a source leg that requotes lower
-  // (within the buffer) still leaves enough COT at the destination wrapper for the swap
-  // calldata to execute. Anything not consumed (when source delivered fully) gets swept.
-  const totalSourceSwapOutput = sourceSwaps.reduce(
-    (sum, sw) => sum.plus(divDecimals(sw.quote.output.amountRaw, sw.quote.output.decimals)),
-    new Decimal(0)
-  );
-  const exactInSrcBuffer = applyBuffer(
-    totalSourceSwapOutput,
-    SRC_BUFFER_EXACT_IN_PCT,
-    SRC_BUFFER_EXACT_IN_MAX_USD,
-    oraclePrices,
-    dstCOT.address as Hex
-  );
-
   // Combined COT from direct + swap outputs
   let totalCOT = new Decimal(0);
   for (const c of cotHoldings) {
@@ -1497,7 +1481,6 @@ async function _exactInRoute(
   }
 
   let dstSwap: DestinationSwap = { tokenSwap: null, gasSwap: null };
-  let originalExactInOutput: bigint | null = null;
 
   const destinationChainDirectCot = cotHoldings
     .filter((holding) => holding.chainID === data.toChainId)
@@ -1608,18 +1591,14 @@ async function _exactInRoute(
     }
   }
 
-  // Only under-size the dst-swap input when a dst swap actually runs. If toToken IS COT
-  // there's no swap calldata to underflow, so the user receives the full bridged amount.
-  // srcBuffer still travels on `source.srcBuffer` for the retry tolerance regardless.
-  const dstInputAmount = needsTokenSwap
-    ? Decimal.max(cotAvailableForDestination.minus(exactInSrcBuffer), new Decimal(0))
-    : cotAvailableForDestination;
-
-  if (needsTokenSwap && dstInputAmount.gt(0)) {
+  // EXACT_IN quotes the destination swap at the FULL available COT — there is no source buffer.
+  // A source leg that requotes lower simply delivers less COT; Seam 2 (getDstSwap) re-sizes the
+  // dst swap down to whatever actually lands, so there is no floor to reserve here.
+  if (needsTokenSwap && cotAvailableForDestination.gt(0)) {
     const dstQuote = await destinationSwapWithExactIn({
       chainId: data.toChainId,
       input: {
-        amountRaw: mulDecimals(dstInputAmount, dstCOT.decimals),
+        amountRaw: mulDecimals(cotAvailableForDestination, dstCOT.decimals),
         tokenAddress: dstCOT.address,
       },
       outputToken: data.toTokenAddress,
@@ -1636,12 +1615,10 @@ async function _exactInRoute(
       );
     }
     dstSwap = { tokenSwap: dstQuote, gasSwap: null };
-    originalExactInOutput = dstQuote.quote.output.amountRaw;
   }
 
   // Shared EXACT_IN destination-swap quote at a given COT input (human units), used by both
-  // execution-time requote paths. The rate guard is a no-op until the route-time quote above has
-  // pinned `originalExactInOutput`.
+  // execution-time requote paths. No rate-tolerance guard — a requote is accepted whatever it returns.
   const quoteDstSwapAtInput = async (inputHuman: Decimal): Promise<DestinationSwap | null> => {
     if (!needsTokenSwap) return null;
     const q = await destinationSwapWithExactIn({
@@ -1658,9 +1635,6 @@ async function _exactInRoute(
         recipientAddress: options.eoaAddress,
       },
     });
-    if (originalExactInOutput && q) {
-      assertExactInRateGuard(originalExactInOutput, q.quote.output.amountRaw);
-    }
     if (!q) return null;
     return { tokenSwap: q, gasSwap: null };
   };
@@ -1683,7 +1657,8 @@ async function _exactInRoute(
       swaps: sourceSwaps,
       creationTime: Date.now(),
       cotByChain: buildSourceCotByChain(sourceSwaps, chainList, currencyId),
-      srcBuffer: exactInSrcBuffer,
+      // EXACT_IN: no source buffer — a failed leg re-quotes and proceeds with no drift guard.
+      srcBuffer: null,
       // Only meaningful when a bridge runs — execution bridges the actual wrapper balance so
       // positive source slippage reaches the destination instead of being swept at the source.
       reclaimFromActualBalance: bridge !== null,
@@ -1703,25 +1678,27 @@ async function _exactInRoute(
               contractAddress: dstCOT.address as Hex,
             }
           : null,
-      // `min` is the conservative drift floor (quoted at route time); `max` lifts to the full
-      // unbuffered COT so the execution-time reclaim can spend up to what actually lands.
-      inputAmount: { min: dstInputAmount, max: cotAvailableForDestination },
+      // `min` is the getDstSwap floor: 0 when a dst swap runs, so a down-drifted source can never
+      // over-size the dst swap (Seam 2 tracks the actual landed COT). With no dst swap (COT dst) it
+      // collapses to the full available COT — the delivered amount the intent shows. `max` is the
+      // full COT the execution-time reclaim may spend up to.
+      inputAmount: {
+        min: needsTokenSwap ? new Decimal(0) : cotAvailableForDestination,
+        max: cotAvailableForDestination,
+      },
       swap: dstSwap,
-      // Re-size the dst swap from the COT that actually landed at the wrapper (`actualCotRaw`): grow
-      // the input up to that balance (less a small deduction), floored at the conservative `min`. No
-      // upper clamp — `actual` IS the real on-chain balance and `deducted < actual`, so it can never
-      // over-spend; the source reclaim can deliver above the route estimate and that surplus is spent
-      // here, not swept. Passing `min` (or 0) reproduces the route-time quote, so it's the only entry.
+      // Re-size the dst swap from the COT that actually landed at the wrapper (`actualCotRaw`): the
+      // input tracks that balance (less a small deduction). No floor and no upper clamp — `actual` IS
+      // the real on-chain balance and `deducted < actual`, so it can never over-spend; the source
+      // reclaim can deliver above the route estimate and that surplus is spent here, not swept.
       getDstSwap: (actualCotRaw: bigint) => {
         const actual = divDecimals(actualCotRaw, dstCOT.decimals);
-        const deducted = actual.mul(new Decimal(1).minus(DST_RECLAIM_DEDUCTION_PCT));
-        const execInput = Decimal.max(deducted, dstInputAmount);
+        const execInput = actual.mul(new Decimal(1).minus(DST_RECLAIM_DEDUCTION_PCT));
         return quoteDstSwapAtInput(execInput);
       },
     },
-    // Surface the source buffer (COT units) so the intent's feesAndBuffer.buffer reflects the real
-    // EXACT_IN headroom; EXACT_IN has no dst buffer, so this IS the whole buffer.
-    buffer: { amount: exactInSrcBuffer.toString() },
+    // EXACT_IN has no buffer (no source buffer, no dst buffer).
+    buffer: { amount: '0' },
     dstTokenInfo: dstTokenInfo,
     extras: {
       aggregators,
@@ -2006,11 +1983,4 @@ function resolveExactInHoldings(
         ]
       : [];
   });
-}
-
-function assertExactInRateGuard(originalOutput: bigint, nextOutput: bigint): void {
-  const minAllowed = (originalOutput * 995n) / 1000n;
-  if (nextOutput < minAllowed) {
-    throw Errors.ratesChangedBeyondTolerance(nextOutput, '0.5%');
-  }
 }

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { autoSelectSources, type SourceHolding } from '../../../src/swap/algorithms/auto-select';
 import type { Aggregator, Quote, QuoteRequest, QuoteResponse } from '../../../src/swap/aggregators/types';
 import { QuoteSeriousness, QuoteType } from '../../../src/swap/aggregators/types';
+import { SAFETY_MULTIPLIER } from '../../../src/swap/algorithms/convergence';
 import { CurrencyID } from '../../../src/swap/cot';
 import { ARB_CHAIN, OP_CHAIN, USDC_ARB, USDC_OP, WETH, makeSwapChainList } from '../../helpers/swap';
 
@@ -50,7 +51,13 @@ const makeQuote = (outputAmountRaw: bigint, inputAmountRaw: bigint): Quote => ({
   },
 });
 
+// First (uncapped) convergence step = ceil(seed × SAFETY_MULTIPLIER), mirroring convergence.ts.
+// Derived from the constant so the assertion tracks it instead of pinning a magic number.
+const firstConvergenceStep = (seedRaw: bigint): bigint =>
+  BigInt(new Decimal(seedRaw.toString()).mul(SAFETY_MULTIPLIER).toFixed(0, Decimal.ROUND_CEIL));
+
 const makeAggregator = (quoteFn?: (reqs: QuoteRequest[]) => Promise<(Quote | null)[]>): Aggregator => ({
+  supportsChain: () => true,
   getQuotes: quoteFn ?? vi.fn().mockResolvedValue([makeQuote(1000000n, 500000000000000000n)]),
 });
 
@@ -65,6 +72,8 @@ const requestAddresses = {
     [OP_CHAIN, '0xRecv000000000000000000000000000000000002'],
   ]),
 };
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -207,21 +216,24 @@ describe('autoSelectSources', () => {
     ).rejects.toThrow(/converge/i);
   });
 
-  it('uses EXACT_OUT direct quote when aggregator supports it for partial source selection', async () => {
-    // Holding worth 10 USDC; requirement 5 USDC → partial path → convergenceQuote.
-    // EXACT_OUT direct returns precise input (0.247 WETH); convergence would have
-    // returned a coarser ~0.2525 WETH. EXACT_OUT wins because we await it first.
+  it('uses the EXACT_OUT direct quote when it settles first for partial source selection', async () => {
+    // Holding worth 10 USDC; requirement 5 USDC → partial path → convergenceQuote races
+    // EXACT_OUT direct against EXACT_IN convergence. The convergence quotes are delayed so
+    // the precise EXACT_OUT input (0.247 WETH) deterministically settles first and wins.
     const holdings = [makeHolding(ARB_CHAIN, WETH, 500000000000000000n, { value: 10 })];
     const agg = makeAggregator(async (reqs) =>
-      reqs.map((req) => {
-        if (req.type === QuoteType.EXACT_OUT) {
-          return makeQuote(5000000n, 247000000000000000n);
-        }
-        if (req.seriousness === QuoteSeriousness.PRICE_SURVEY) {
-          return makeQuote(10000000n, 500000000000000000n);
-        }
-        return makeQuote(5000000n, req.inputAmount);
-      })
+      Promise.all(
+        reqs.map(async (req) => {
+          if (req.type === QuoteType.EXACT_OUT) {
+            return makeQuote(5000000n, 247000000000000000n);
+          }
+          if (req.seriousness === QuoteSeriousness.PRICE_SURVEY) {
+            return makeQuote(10000000n, 500000000000000000n);
+          }
+          await delay(30);
+          return makeQuote(5000000n, req.inputAmount);
+        })
+      )
     );
 
     const result = await autoSelectSources({
@@ -238,9 +250,43 @@ describe('autoSelectSources', () => {
     expect(result.quoteResponses[0].quote.output.amountRaw).toBe(5000000n);
   });
 
+  it('uses the convergence quote when EXACT_OUT settles later — first success wins the race', async () => {
+    // Same setup, but EXACT_OUT is slow while convergence succeeds instantly off the
+    // indicative seed (0.25 WETH × SAFETY_MULTIPLIER). The race must NOT wait for the
+    // more precise EXACT_OUT quote.
+    const holdings = [makeHolding(ARB_CHAIN, WETH, 500000000000000000n, { value: 10 })];
+    const agg = makeAggregator(async (reqs) =>
+      Promise.all(
+        reqs.map(async (req) => {
+          if (req.type === QuoteType.EXACT_OUT) {
+            await delay(30);
+            return makeQuote(5000000n, 247000000000000000n);
+          }
+          if (req.seriousness === QuoteSeriousness.PRICE_SURVEY) {
+            return makeQuote(10000000n, 500000000000000000n);
+          }
+          return makeQuote(5000000n, req.inputAmount);
+        })
+      )
+    );
+
+    const result = await autoSelectSources({
+      holdings,
+      outputRequired: new Decimal(5),
+      aggregators: [agg],
+      chainList: makeSwapChainList(),
+      cotCurrencyId: CurrencyID.USDC,
+      ...requestAddresses,
+    });
+
+    expect(result.quoteResponses).toHaveLength(1);
+    expect(result.quoteResponses[0].quote.input.amountRaw).toBe(firstConvergenceStep(250000000000000000n));
+    expect(result.quoteResponses[0].quote.output.amountRaw).toBe(5000000n);
+  });
+
   it('falls back to convergence when EXACT_OUT direct is unsupported for partial source selection', async () => {
-    // EXACT_OUT direct returns null; convergence builds from indicative ratio + 1% safety.
-    // Indicative: 0.5 WETH → 10 USDC. Requirement 5 USDC → initial 0.25 WETH → with 1.01 → 0.2525 WETH.
+    // EXACT_OUT direct returns null; convergence builds from indicative ratio + 0.1% safety.
+    // Indicative: 0.5 WETH → 10 USDC. Requirement 5 USDC → initial 0.25 WETH → × SAFETY_MULTIPLIER.
     const seriousInputs: bigint[] = [];
     const holdings = [makeHolding(ARB_CHAIN, WETH, 500000000000000000n, { value: 10 })];
     const agg = makeAggregator(async (reqs) =>
@@ -264,7 +310,7 @@ describe('autoSelectSources', () => {
     });
 
     expect(result.quoteResponses).toHaveLength(1);
-    expect(seriousInputs[0]).toBe(252500000000000000n);
+    expect(seriousInputs[0]).toBe(firstConvergenceStep(250000000000000000n));
     expect(result.quoteResponses[0].quote.output.amountRaw).toBe(5000000n);
   });
 

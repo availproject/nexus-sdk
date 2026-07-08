@@ -59,7 +59,8 @@ describe('LiFiAggregator', () => {
       getQuoteFn as unknown as (
         params: Record<string, string>,
         exactOut?: boolean
-      ) => Promise<unknown>
+      ) => Promise<unknown>,
+      vi.fn() as unknown as (chainId: number, token: string) => Promise<unknown>
     );
   });
 
@@ -251,5 +252,17 @@ describe('LiFiAggregator', () => {
     expect(results[0]).toBeNull();
     expect(results[1]).not.toBeNull();
     expect(getQuoteFn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('LiFiAggregator supportsChain', () => {
+  const agg = new LiFiAggregator(vi.fn(), vi.fn());
+
+  it('reports a listed chain as supported', () => {
+    expect(agg.supportsChain(8453)).toBe(true);
+  });
+
+  it('reports an unlisted chain as unsupported', () => {
+    expect(agg.supportsChain(4114)).toBe(false);
   });
 });

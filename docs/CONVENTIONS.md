@@ -102,6 +102,10 @@ and bug-prone areas that are easy to miss in review.
 - Never do percentage or fee math directly on raw `bigint` values unless the logic is intentionally
   integer-safe.
 - Never pass `Decimal` values into public params or blockchain calls.
+- Never stringify a `Decimal` with `.toString()`: it emits exponential notation for very large or
+  small values (e.g. `1e+21`, `1e-8`). Use `.toFixed()` for a plain decimal string — everywhere,
+  including logs. The same hazard applies to implicit coercion (`` `${d}` ``, `String(d)`), so
+  convert with `.toFixed()` first.
 - Never mix raw and human units in the same calculation without an explicit conversion.
 
 ### Token Decimals And Chain Metadata

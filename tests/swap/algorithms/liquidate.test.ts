@@ -57,6 +57,7 @@ describe('liquidateInputHoldings', () => {
       makeHolding(42161, WETH, 500000000000000000n, 18, 'WETH'), // 0.5 WETH on Arb
     ];
     const agg: Aggregator = {
+      supportsChain: () => true,
       getQuotes: vi.fn().mockResolvedValue([makeQuote(5000000n)]),
     };
 
@@ -79,6 +80,7 @@ describe('liquidateInputHoldings', () => {
       makeHolding(42161, WETH, 500000000000000000n, 18, 'WETH'), // non-COT — liquidate
     ];
     const agg: Aggregator = {
+      supportsChain: () => true,
       getQuotes: vi.fn().mockResolvedValue([makeQuote(5000000n)]),
     };
 
@@ -101,6 +103,7 @@ describe('liquidateInputHoldings', () => {
       makeHolding(10, USDC_OP, 3000000n, 6, 'USDC'),
     ];
     const agg: Aggregator = {
+      supportsChain: () => true,
       getQuotes: vi.fn().mockResolvedValue([]),
     };
 
@@ -123,6 +126,7 @@ describe('liquidateInputHoldings', () => {
       makeHolding(42161, DAI, 1000000000000000000n, 18, 'DAI'),
     ];
     const agg: Aggregator = {
+      supportsChain: () => true,
       getQuotes: vi.fn().mockResolvedValue([makeQuote(5000000n), null]),
     };
 
@@ -145,6 +149,7 @@ describe('liquidateInputHoldings', () => {
       makeHolding(10, DAI, 1000000000000000000n, 18, 'DAI'),
     ];
     const agg: Aggregator = {
+      supportsChain: () => true,
       getQuotes: vi.fn().mockResolvedValue([makeQuote(5000000n), makeQuote(990000n, DAI)]),
     };
 
@@ -164,7 +169,7 @@ describe('liquidateInputHoldings', () => {
   it('passes recipientAddressByChain through to liquidation quotes', async () => {
     const holdings = [makeHolding(ARB_CHAIN, WETH, 500000000000000000n, 18, 'WETH')];
     const getQuotes = vi.fn().mockResolvedValue([makeQuote(5000000n)]);
-    const agg: Aggregator = { getQuotes };
+    const agg: Aggregator = { getQuotes, supportsChain: () => true };
     const recipient = '0xRecipient00000000000000000000000000000001' as `0x${string}`;
 
     await liquidateInputHoldings({

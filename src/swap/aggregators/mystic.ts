@@ -1,6 +1,6 @@
 import { type Hex, toHex, zeroAddress } from 'viem';
 import { SLIPPAGE_BPS } from './constants';
-import type { Aggregator, Quote, QuoteRequest } from './types';
+import type { Aggregator, Quote, QuoteRequest, TokenInfo, TokenInfoProvider } from './types';
 import { QuoteSeriousness, QuoteType } from './types';
 
 // Chains Mystic Router serves in this SDK. Citrea-only for now (co-located with Fibrous); add
@@ -16,12 +16,34 @@ const ALLOWED_CHAINS = new Set<number>([
  * backfill from a sibling quote. EXACT_IN only — the quote endpoint takes `sellAmount`, not a buy
  * target.
  */
-export class MysticAggregator implements Aggregator {
+export class MysticAggregator implements Aggregator, TokenInfoProvider {
   // One POST proxy to the Mystic router; the adapter supplies the versioned path per endpoint.
   private readonly post: (path: string, body: Record<string, unknown>) => Promise<unknown>;
+  private readonly getToken: (chainId: number, address: string) => Promise<unknown>;
 
-  constructor(post: (path: string, body: Record<string, unknown>) => Promise<unknown>) {
+  constructor(
+    post: (path: string, body: Record<string, unknown>) => Promise<unknown>,
+    getToken: (chainId: number, address: string) => Promise<unknown>
+  ) {
     this.post = post;
+    this.getToken = getToken;
+  }
+
+  supportsChain(chainId: number): boolean {
+    return ALLOWED_CHAINS.has(chainId);
+  }
+
+  // Token metadata to enrich a lone Mystic quote (aggregateAggregators). Mystic's /v1/tokens/resolve
+  // reads on-chain ERC-20 decimals/symbol; it reports no USD price, so `value` falls to 0.
+  async getTokenInfo(chainId: number, token: Hex): Promise<TokenInfo | null> {
+    try {
+      const raw = (await this.getToken(chainId, token)) as MysticTokenResponse | undefined;
+      const decimals = raw ? Number(raw.decimals) : Number.NaN;
+      if (!raw || Number.isNaN(decimals)) return null;
+      return { decimals, symbol: raw.symbol ?? '' };
+    } catch {
+      return null;
+    }
   }
 
   async getQuotes(requests: QuoteRequest[]): Promise<(Quote | null)[]> {
@@ -110,6 +132,13 @@ const SURVEY_TX_PLACEHOLDER: Quote['txData'] = {
 // ---------------------------------------------------------------------------
 // Mystic response types (internal) — only the fields the adapter reads
 // ---------------------------------------------------------------------------
+
+// /v1/tokens/resolve — on-chain ERC-20 metadata (no USD price).
+type MysticTokenResponse = {
+  symbol: string;
+  decimals: number | string;
+  name?: string;
+};
 
 type MysticQuoteResponse = {
   quoteSetId: string;

@@ -155,3 +155,24 @@ describe('RelayAggregator', () => {
     expect(quote).toBeNull();
   });
 });
+
+describe('RelayAggregator supportsChain', () => {
+  const agg = new RelayAggregator(vi.fn());
+
+  it('reports listed chains as supported', () => {
+    expect(agg.supportsChain(1)).toBe(true);
+    expect(agg.supportsChain(8453)).toBe(true);
+    expect(agg.supportsChain(42161)).toBe(true);
+  });
+
+  it('reports Citrea and Kaia as unsupported', () => {
+    expect(agg.supportsChain(4114)).toBe(false);
+    expect(agg.supportsChain(8217)).toBe(false);
+  });
+
+  it('still fires the proxy for a chain outside SUPPORTED_CHAINS (no local gate — Relay is the zero-supporter fallback probe)', async () => {
+    const getQuote = vi.fn().mockResolvedValue(makeResponse());
+    await new RelayAggregator(asProxy(getQuote)).getQuotes([makeRequest({ chainId: 777777 })]);
+    expect(getQuote).toHaveBeenCalledTimes(1);
+  });
+});

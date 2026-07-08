@@ -184,15 +184,13 @@ const sourceSwapStep = (chainId: number) => ({
   label: 'Source swap',
 });
 
-// Re-quote source legs that reverted, then enforce that the combined output drop fits
-// inside the route's pre-allocated source buffer. `srcBuffer` (COT units) sizes
-// `min(SRC_BUFFER_PCT, SRC_BUFFER_MAX_USD)` of the destination-buffered input for
-// EXACT_OUT; EXACT_IN passes 0. A per-swap static tolerance is unrelated to the bridge's
-// actual input requirement and was previously over-strict on small legs / under-strict
-// on large ones.
+// Re-quote source legs that reverted. For EXACT_OUT (`srcBuffer` non-null, COT units sizing
+// `min(SRC_BUFFER_PCT, SRC_BUFFER_MAX_USD)` of the destination-buffered input) the combined
+// output drop must fit inside that budget. EXACT_IN passes `null`: re-quote and proceed with
+// no drift guard — Seam 2 re-sizes the dst swap to whatever COT actually lands.
 const requoteFailedChains = async (
   failedChains: Array<{ chainId: number; chainSwaps: QuoteResponse[] }>,
-  srcBuffer: Decimal,
+  srcBuffer: Decimal | null,
   ctx: Pick<
     ExecutionContext,
     'sourceExecutionPaths' | 'eoaAddress' | 'ephemeralWallet' | 'destinationDirectEoa'
@@ -266,6 +264,9 @@ const requoteFailedChains = async (
     })
   );
 
+  // EXACT_IN (null buffer): accept the re-quote unconditionally — no pooled drift check.
+  if (srcBuffer === null) return perChainResults;
+
   let newTotalOutput = new Decimal(0);
   for (const [, requoted] of perChainResults) {
     for (const swap of requoted) {
@@ -329,7 +330,7 @@ export const executeSourceSwaps = async (
     swaps: QuoteResponse[];
     creationTime: number;
     cotByChain?: Map<number, SourceChainCOT>;
-    srcBuffer: Decimal;
+    srcBuffer: Decimal | null;
     reclaimFromActualBalance?: boolean;
   },
   ctx: Pick<

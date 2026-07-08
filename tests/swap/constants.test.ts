@@ -10,8 +10,6 @@ import {
   MAX_SWAP_HAIRCUT_PCT,
   SBC_DEADLINE_MINUTES,
   SLIPPAGE_DEFAULT,
-  SRC_BUFFER_EXACT_IN_MAX_USD,
-  SRC_BUFFER_EXACT_IN_PCT,
   SRC_BUFFER_MAX_USD,
   SRC_BUFFER_PCT,
 } from '../../src/swap/constants';
@@ -38,11 +36,6 @@ describe('swap economic constants', () => {
     expect(SRC_BUFFER_MAX_USD).toBe(1);
   });
 
-  it('EXACT_IN source drift budget = min(0.5%, $1)', () => {
-    expect(SRC_BUFFER_EXACT_IN_PCT).toBe(0.005);
-    expect(SRC_BUFFER_EXACT_IN_MAX_USD).toBe(1);
-  });
-
   it('EXACT_IN dst reclaim deduction = 1 bp', () => {
     expect(DST_RECLAIM_DEDUCTION_PCT).toBe(0.0001);
   });
@@ -52,8 +45,8 @@ describe('swap economic constants', () => {
     expect(MAX_SWAP_HAIRCUT_MIN_USDC).toBe(3);
   });
 
-  it('convergence: ×1.01 safety, +0.5 COT input cap, ≤10 iterations', () => {
-    expect(SAFETY_MULTIPLIER.eq(new Decimal('1.01'))).toBe(true);
+  it('convergence: ×1.002 safety, +0.5 COT input cap, ≤10 iterations', () => {
+    expect(SAFETY_MULTIPLIER.eq(new Decimal('1.002'))).toBe(true);
     expect(MAX_CONVERGENCE_EXTRA_COT.eq(new Decimal('0.5'))).toBe(true);
     expect(MAX_CONVERGENCE_ITERATIONS).toBe(10);
   });

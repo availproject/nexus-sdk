@@ -663,4 +663,71 @@ describe('prepareSwapExecution', () => {
     expect(bridgeTransfer?.authorization).toBeNull();
     expect(signPermitForAddressAndValue).not.toHaveBeenCalled();
   });
+
+  it('chooses approve over permit for a bridge COT transfer when the funding EOA is delegated', async () => {
+    const route = makeRoute();
+    route.sourceExecutionPaths = new Map([[ARB_CHAIN, 'ephemeral']]);
+    // Isolate the bridge: no source swap, so the only setCode query is the funding EOA's.
+    route.source = { ...route.source, swaps: [] };
+    route.destination = {
+      ...route.destination,
+      eoaToEphemeral: null,
+      swap: { tokenSwap: null, gasSwap: null },
+    };
+    route.bridge = {
+      amount: new Decimal('5'),
+      amounts: {
+        tokenAmount: new Decimal('5'),
+        gasInCot: new Decimal(0),
+        totalAmount: new Decimal('5'),
+      },
+      assets: [
+        {
+          chainID: ARB_CHAIN,
+          contractAddress: USDC_ARB,
+          decimals: 6,
+          eoaBalance: new Decimal('5'),
+          ephemeralBalance: new Decimal(0),
+        },
+      ],
+      chainID: ARB_CHAIN,
+      decimals: 6,
+      tokenAddress: USDC_ARB,
+      estimatedFees: {
+        collection: new Decimal(0),
+        fulfilment: new Decimal(0),
+        caGas: new Decimal(0),
+        protocol: new Decimal(0),
+        solver: new Decimal(0),
+      },
+    };
+
+    // Allowance below the amount (would normally trigger a permit), and the funding EOA carries
+    // an EIP-7702 delegation designator, so permit must be swapped for a paid approve.
+    const publicClient = {
+      multicall: vi.fn().mockResolvedValue([{ result: 0n, status: 'success' }]),
+      getCode: vi.fn().mockResolvedValue(`0xef0100${'ab'.repeat(20)}`),
+      readContract: vi.fn().mockResolvedValue(0n),
+    };
+
+    const prepared = await prepareSwapExecution({
+      chainList: makeSupportedChainList(),
+      route,
+      source: route.source,
+      destination: route.destination,
+      eoaAddress: EOA,
+      eoaWallet: {} as WalletClient,
+      ephemeralWallet: { address: EPH } as PrivateKeyAccount,
+      publicClientList: { get: vi.fn().mockReturnValue(publicClient) },
+      cache: makeCache(),
+    });
+
+    const bridgeTransfer = prepared.eoaToEphemeralTransfers.find(
+      (entry) => entry.reason === 'bridge'
+    );
+
+    expect(publicClient.getCode).toHaveBeenCalledWith({ address: EOA });
+    expect(bridgeTransfer?.authorization?.kind).toBe('approve');
+    expect(signPermitForAddressAndValue).not.toHaveBeenCalled();
+  });
 });

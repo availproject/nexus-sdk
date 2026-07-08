@@ -30,7 +30,7 @@ import {
   makeSwapChainList,
 } from '../helpers/swap';
 
-const aggregators: Aggregator[] = [{ getQuotes: vi.fn().mockResolvedValue([]) }];
+const aggregators: Aggregator[] = [{ supportsChain: () => true, getQuotes: vi.fn().mockResolvedValue([]) }];
 
 const makeOptions = (overrides?: Partial<RouteOptions>): RouteOptions => ({
   aggregators,

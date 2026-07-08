@@ -16,7 +16,8 @@ import {
 } from '../aggregators';
 import type { CurrencyID } from '../cot';
 import type { BridgeQuoteResponse } from '../types';
-import { convergeExactIn, preferredOrFallback, tryExactOutDirect } from './convergence';
+import { logger } from '../../domain/utils';
+import { convergeExactIn, firstSuccess, timedCandidate, tryExactOutDirect } from './convergence';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -490,9 +491,18 @@ async function convergenceQuote(
     }),
   });
 
-  const winner = await preferredOrFallback({
-    preferred: exactOutPromise,
-    fallback: convergedPromise,
+  const raceStartedAt = Date.now();
+  const raceContext = { chainId: item.holding.chainID, side: 'source' };
+  const winner = await firstSuccess([
+    timedCandidate('race.exact_out', raceContext, exactOutPromise),
+    timedCandidate('race.convergence', raceContext, convergedPromise),
+  ]);
+  logger.debug('swap:timing', {
+    op: 'source_convergence_race',
+    chainId: item.holding.chainID,
+    tokenAddress: item.holding.tokenAddress,
+    hit: winner != null,
+    ms: Date.now() - raceStartedAt,
   });
 
   if (!winner) {

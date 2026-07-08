@@ -1,7 +1,7 @@
 import { type Hex, zeroAddress } from 'viem';
 import { SLIPPAGE_BPS_STRING } from './constants';
 import type { Aggregator, Quote, QuoteRequest } from './types';
-import { QuoteType } from './types';
+import { QuoteSeriousness, QuoteType } from './types';
 
 // Chains 0x's Swap API serves. Best-effort mainnet set; outside it we return null without a
 // round-trip (mirrors LiFi's ALLOWED_CHAINS). Confirm/expand against
@@ -21,10 +21,21 @@ const ALLOWED_CHAINS = new Set<number>([
 ]);
 
 export class ZeroExAggregator implements Aggregator {
+  // Surveys hit 0x's indicative /price endpoint (amounts only, no calldata); SERIOUS quotes hit
+  // /quote for the executable transaction.
+  private readonly getPrice: (params: Record<string, string>) => Promise<unknown>;
   private readonly getQuote: (params: Record<string, string>) => Promise<unknown>;
 
-  constructor(getQuote: (params: Record<string, string>) => Promise<unknown>) {
+  constructor(
+    getPrice: (params: Record<string, string>) => Promise<unknown>,
+    getQuote: (params: Record<string, string>) => Promise<unknown>
+  ) {
+    this.getPrice = getPrice;
     this.getQuote = getQuote;
+  }
+
+  supportsChain(chainId: number): boolean {
+    return ALLOWED_CHAINS.has(chainId);
   }
 
   async getQuotes(requests: QuoteRequest[]): Promise<(Quote | null)[]> {
@@ -50,8 +61,11 @@ export class ZeroExAggregator implements Aggregator {
         params.sellAmount = req.inputAmount.toString();
       }
 
-      const data = (await this.getQuote(params)) as ZeroExResponse;
-      return parseResponse(data, req, isExactOut);
+      // Price surveys only compare amounts and are always re-quoted SERIOUS before execution, so use
+      // 0x's indicative /price endpoint (no calldata, no enhanced simulation) instead of /quote.
+      const isSurvey = req.seriousness !== QuoteSeriousness.SERIOUS;
+      const data = (await (isSurvey ? this.getPrice : this.getQuote)(params)) as ZeroExResponse;
+      return parseResponse(data, req, isExactOut, isSurvey);
     } catch {
       return null;
     }
@@ -65,9 +79,12 @@ export class ZeroExAggregator implements Aggregator {
 const parseResponse = (
   data: ZeroExResponse,
   req: QuoteRequest,
-  isExactOut: boolean
+  isExactOut: boolean,
+  isSurvey: boolean
 ): Quote | null => {
-  if (data.liquidityAvailable === false || !data.transaction) return null;
+  if (data.liquidityAvailable === false) return null;
+  // SERIOUS quotes need executable calldata; survey /price responses carry amounts only (no tx).
+  if (!isSurvey && !data.transaction) return null;
 
   // Both modes use the slippage-protected bound: EXACT_IN floors the output (minBuyAmount),
   // EXACT_OUT caps the input (maxSellAmount) and delivers exactly buyAmount.
@@ -77,10 +94,14 @@ const parseResponse = (
   return {
     input: placeholderSide(req.inputToken, inputAmountRaw),
     output: placeholderSide(req.outputToken, outputAmountRaw),
-    txData: {
-      approvalAddress: data.allowanceTarget ?? zeroAddress, // null for native sells (no approval)
-      tx: { to: data.transaction.to, data: data.transaction.data, value: data.transaction.value },
-    },
+    // /quote carries the executable tx; /price (survey) carries none, so use a placeholder that is
+    // never executed (surveys are always re-quoted SERIOUS first).
+    txData: data.transaction
+      ? {
+          approvalAddress: data.allowanceTarget ?? zeroAddress, // null for native sells (no approval)
+          tx: { to: data.transaction.to, data: data.transaction.data, value: data.transaction.value },
+        }
+      : SURVEY_TX_PLACEHOLDER,
   };
 };
 
@@ -93,6 +114,13 @@ const placeholderSide = (contractAddress: Hex, amountRaw: bigint): Quote['input'
   value: 0,
   symbol: '',
 });
+
+// Survey quotes are indicative (amounts only) and never executed — /price returns no calldata, so
+// txData is a non-executable placeholder. Mirrors the Mystic adapter.
+const SURVEY_TX_PLACEHOLDER: Quote['txData'] = {
+  approvalAddress: zeroAddress,
+  tx: { to: zeroAddress, data: '0x', value: '0x0' },
+};
 
 // ---------------------------------------------------------------------------
 // 0x response types (internal) — only the fields the adapter reads

@@ -174,6 +174,19 @@ const RATES: Record<Agg, Record<string, Decimal>> = {
   },
 };
 
+// Register a token the chainList (deployment) has never heard of but the aggregators support —
+// the "unknown destination token" cells. Adds echo metadata (also served as on-chain erc20 reads
+// by readContractStub) + USDC rates (bebop strictly better, so it deterministically wins).
+export const registerAggregatorOnlyToken = (
+  address: Hex,
+  meta: { symbol: string; decimals: number; name: string },
+  usdcRate: number
+) => {
+  TOKEN_META[address.toLowerCase()] = meta;
+  RATES.bebop[`USDC>${meta.symbol}`] = new Decimal(usdcRate);
+  RATES.lifi[`USDC>${meta.symbol}`] = new Decimal(usdcRate).mul(0.98);
+};
+
 const rate = (agg: Agg, inputToken: Hex, outputToken: Hex): Decimal => {
   const a = tokenMeta(inputToken).symbol;
   const b = tokenMeta(outputToken).symbol;
@@ -647,7 +660,11 @@ export const makeCharChainList = (opts: { non7702?: number[] } = {}): ChainListT
       return { contractAddress: tokenAddress, decimals: 18, symbol: 'ETH', name: 'Ether', logo: '', currencyId: 3, mayanEnabled: true };
     const extra = EXTRA_TOKENS[tokenAddress.toLowerCase()];
     if (extra) return { ...extra, mayanEnabled: true };
-    return coerceUsdcPermit(baseGetToken(chainId, tokenAddress));
+    const known = coerceUsdcPermit(baseGetToken(chainId, tokenAddress));
+    // Production createChainList THROWS tokenNotSupported for unknown tokens; the base fixture
+    // returns undefined. Mirror production so unknown-token cells fail the way the SDK really does.
+    if (!known) throw new Error(`Token ${tokenAddress} not supported on chain ${chainId}`);
+    return known;
   });
 
   // The base fixture leaves getTokenInfoBySymbol unimplemented; buildQuoteRequest (same-token bridge

@@ -13,7 +13,6 @@ const CHAIN_NAME_MAP: Record<number, string> = {
   8453: 'base',
   56: 'bsc',
   137: 'polygon',
-  534352: 'scroll',
   999: 'hyperevm',
   43114: 'avalanche',
 };
@@ -23,6 +22,10 @@ export class BebopAggregator implements Aggregator {
 
   constructor(getQuote: (params: Record<string, string>) => Promise<unknown>) {
     this.getQuote = getQuote;
+  }
+
+  supportsChain(chainId: number): boolean {
+    return chainId in CHAIN_NAME_MAP;
   }
 
   async getQuotes(requests: QuoteRequest[]): Promise<(Quote | null)[]> {

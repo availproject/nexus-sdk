@@ -225,9 +225,9 @@ export type SwapRoute = {
     cotByChain?: Map<number, SourceChainCOT>;
     // Headroom in COT units that source swaps may lose on a re-quote when legs revert.
     // EXACT_OUT carries `min(SRC_BUFFER_PCT, SRC_BUFFER_MAX_USD)` of the destination-
-    // buffered input. EXACT_IN carries `SRC_BUFFER_EXACT_IN_PCT` of the total source
-    // swap output (no USD cap), preserving the pre-refactor 0.5% drift tolerance.
-    srcBuffer: Decimal;
+    // buffered input. EXACT_IN carries `null` — it re-quotes a failed leg and proceeds
+    // with no drift guard (Seam 2 re-sizes the dst swap to whatever COT actually lands).
+    srcBuffer: Decimal | null;
     // EXACT_IN reclaim (set only when a bridge runs): execution bridges the COT that actually
     // landed at the source wrapper (`balanceOf`) rather than the conservative quote floor, so
     // positive source slippage reaches the destination instead of being swept at the source.
