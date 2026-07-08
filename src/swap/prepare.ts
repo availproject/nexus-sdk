@@ -78,6 +78,9 @@ const queueDeterministicTransferQueries = (
     }
     cache.addPermitQuery(transfer.tokenAddress, transfer.chainId);
     cache.addAllowanceQuery(transfer.tokenAddress, eoaAddress, transfer.spender, transfer.chainId);
+    // A delegated (EIP-7702) funding EOA can't sign a usable EIP-2612 permit — ERC-1271 rejects
+    // the raw digest — so fetch its code and let buildTransferAuthorization fall back to approve.
+    cache.addSetCodeQuery(eoaAddress, transfer.chainId);
   }
 };
 
