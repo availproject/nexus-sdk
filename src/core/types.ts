@@ -85,6 +85,18 @@ export type NexusClient = {
   listIntents: (params?: ListIntentsParams) => Promise<ListIntentsResult>;
   execute: (params: ExecuteParams, options?: OnEventParam) => Promise<ExecuteResult>;
   simulateExecute: (params: ExecuteParams) => Promise<ExecuteSimulation>;
+  /**
+   * Orchestrates two distinct operations in sequence — NOT a single atomic transaction:
+   *
+   * 1. Bridge (conditional) — funds the shortfall on the destination chain. Skipped when the
+   *    destination already holds enough of the token (`result.bridgeSkipped === true`).
+   * 2. Execute + approval (execute always, approval optional) — the contract call, preceded by
+   *    an optional token approval, is always sent from the user's connected wallet on the
+   *    destination chain.
+   *
+   * The steps succeed or fail independently: a failed execute does not roll back the bridge —
+   * the bridged funds remain in the user's wallet on the destination chain.
+   */
   bridgeAndExecute: (
     params: BridgeAndExecuteParams,
     options?: BridgeAndExecuteOptions
@@ -102,6 +114,18 @@ export type NexusClient = {
     input: SwapExactOutParams,
     options?: SwapOperationOptions
   ) => Promise<SwapResult>;
+  /**
+   * Orchestrates two distinct operations in sequence — NOT a single atomic transaction:
+   *
+   * 1. Swap (conditional) — funds the shortfall on the destination chain. Skipped when the
+   *    destination already holds enough of the token (`result.swapSkipped === true`).
+   * 2. Execute + approval (execute always, approval optional) — the contract call, preceded by
+   *    an optional token approval, is always sent from the user's connected wallet on the
+   *    destination chain.
+   *
+   * The steps succeed or fail independently: a failed execute does not roll back the swap —
+   * the swapped funds remain in the user's wallet on the destination chain.
+   */
   swapAndExecute: (
     input: SwapAndExecuteParams,
     options?: SwapAndExecuteOptions

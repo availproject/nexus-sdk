@@ -167,7 +167,7 @@ const result = await client.execute(
 
 ### Bridge + Execute (Composite)
 
-Bridge tokens then execute a contract call on the destination chain.
+**Two operations orchestrated in sequence, NOT one atomic transaction:** (1) a bridge that funds the shortfall on the destination chain — skipped when the destination already holds enough (`bridgeSkipped: true`); then (2) the execute (plus an optional token approval), which **always** runs from the user's connected wallet on the destination chain. The two steps succeed/fail independently — a failed execute does not roll back the bridge; the bridged funds stay in the user's wallet on the destination chain.
 
 ```ts
 const result = await client.bridgeAndExecute(
@@ -273,6 +273,8 @@ const max = await client.calculateMaxForBridge({
 ```
 
 ### Swap + Execute (Composite)
+
+**Two operations orchestrated in sequence, NOT one atomic transaction:** (1) a swap that funds the shortfall on the destination chain — skipped when the destination already holds enough (`swapSkipped: true`); then (2) the execute (plus an optional token approval), which **always** runs from the user's connected wallet on the destination chain. The two steps succeed/fail independently — a failed execute does not roll back the swap; the swapped funds stay in the user's wallet on the destination chain.
 
 ```ts
 const result = await client.swapAndExecute(
