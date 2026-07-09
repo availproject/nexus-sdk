@@ -1,6 +1,6 @@
 import Decimal from 'decimal.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { autoSelectSources, type SourceHolding } from '../../../src/swap/algorithms/auto-select';
+import { autoSelectSources, selectDirectDestinationSwaps, type SourceHolding } from '../../../src/swap/algorithms/auto-select';
 import type { Aggregator, Quote, QuoteRequest, QuoteResponse } from '../../../src/swap/aggregators/types';
 import { QuoteSeriousness, QuoteType } from '../../../src/swap/aggregators/types';
 import { SAFETY_MULTIPLIER } from '../../../src/swap/algorithms/convergence';
@@ -487,119 +487,143 @@ describe('autoSelectSources', () => {
     expect(totalQuoted.gte(1000)).toBe(true);
   });
 
-  // ── Path A: a fixed destination outputToken instead of the per-chain COT ──
-  describe('outputToken (Path A direct destination)', () => {
-    const PEPE = '0x00000000000000000000000000000000000pepe01' as `0x${string}`;
-    const divRaw = (raw: bigint, decimals: number) =>
-      new Decimal(raw.toString()).div(new Decimal(10).pow(decimals)).toString();
-    const makeQuoteTo = (
-      outputAmountRaw: bigint,
-      inputAmountRaw: bigint,
-      outputContract: `0x${string}`,
-      outputDecimals: number
-    ): Quote => ({
-      input: { contractAddress: WETH, amount: divRaw(inputAmountRaw, 18), amountRaw: inputAmountRaw, decimals: 18, value: 1, symbol: 'WETH' },
-      output: { contractAddress: outputContract, amount: divRaw(outputAmountRaw, outputDecimals), amountRaw: outputAmountRaw, decimals: outputDecimals, value: 1, symbol: 'PEPE' },
-      txData: { approvalAddress: '0x03' as `0x${string}`, tx: { to: '0x04' as `0x${string}`, data: '0x05' as `0x${string}`, value: '0x0' as `0x${string}` } },
+});
+
+// ── Path A: standalone direct-destination selection (fixed target token, no COT/bridge machinery) ──
+describe('selectDirectDestinationSwaps', () => {
+  const PEPE = '0x00000000000000000000000000000000000pepe01' as `0x${string}`;
+  const divRaw = (raw: bigint, decimals: number) =>
+    new Decimal(raw.toString()).div(new Decimal(10).pow(decimals)).toString();
+  const makeQuoteTo = (
+    outputAmountRaw: bigint,
+    inputAmountRaw: bigint,
+    outputContract: `0x${string}`,
+    outputDecimals: number
+  ): Quote => ({
+    input: { contractAddress: WETH, amount: divRaw(inputAmountRaw, 18), amountRaw: inputAmountRaw, decimals: 18, value: 1, symbol: 'WETH' },
+    output: { contractAddress: outputContract, amount: divRaw(outputAmountRaw, outputDecimals), amountRaw: outputAmountRaw, decimals: outputDecimals, value: 1, symbol: 'PEPE' },
+    txData: { approvalAddress: '0x03' as `0x${string}`, tx: { to: '0x04' as `0x${string}`, data: '0x05' as `0x${string}`, value: '0x0' as `0x${string}` } },
+  });
+
+  it('routes quotes to the target token and converges with EXACT_IN-only aggregators', async () => {
+    // The core Path A EXACT_OUT bet: Fibrous/Mystic are EXACT_IN-only (EXACT_OUT → null), so the
+    // route rides the convergence race alone. Indicative 0.5 WETH → 10 PEPE, need 5 PEPE.
+    const captured: QuoteRequest[] = [];
+    const seriousInputs: bigint[] = [];
+    const holdings = [makeHolding(ARB_CHAIN, WETH, 500000000000000000n, { value: 10 })];
+    const agg = makeAggregator(async (reqs) =>
+      reqs.map((req) => {
+        captured.push(req);
+        if (req.type === QuoteType.EXACT_OUT) return null; // EXACT_IN-only aggregator
+        if (req.seriousness === QuoteSeriousness.PRICE_SURVEY) return makeQuoteTo(10000000000000000000n, 500000000000000000n, PEPE, 18);
+        seriousInputs.push(req.inputAmount);
+        return makeQuoteTo(5000000000000000000n, req.inputAmount, PEPE, 18); // delivers exactly 5 PEPE
+      })
+    );
+
+    const result = await selectDirectDestinationSwaps({
+      holdings,
+      outputRequired: new Decimal(5),
+      target: { contractAddress: PEPE, decimals: 18 },
+      aggregators: [agg],
+      ...requestAddresses,
     });
 
-    it('routes quotes to the destination token and converges with EXACT_IN-only aggregators', async () => {
-      // The core Path A EXACT_OUT bet: Fibrous/Mystic are EXACT_IN-only (EXACT_OUT → null), so the
-      // route rides the convergence race alone. Indicative 0.5 WETH → 10 PEPE, need 5 PEPE.
-      const captured: QuoteRequest[] = [];
-      const seriousInputs: bigint[] = [];
-      const holdings = [makeHolding(ARB_CHAIN, WETH, 500000000000000000n, { value: 10 })];
-      const agg = makeAggregator(async (reqs) =>
-        reqs.map((req) => {
-          captured.push(req);
-          if (req.type === QuoteType.EXACT_OUT) return null; // EXACT_IN-only aggregator
-          if (req.seriousness === QuoteSeriousness.PRICE_SURVEY) return makeQuoteTo(10000000000000000000n, 500000000000000000n, PEPE, 18);
-          seriousInputs.push(req.inputAmount);
-          return makeQuoteTo(5000000000000000000n, req.inputAmount, PEPE, 18); // delivers exactly 5 PEPE
-        })
-      );
+    expect(result.quoteResponses).toHaveLength(1);
+    expect(result.quoteResponses[0].quote.output.contractAddress).toBe(PEPE);
+    expect(result.quoteResponses[0].quote.output.amountRaw).toBe(5000000000000000000n);
+    // Every quote request targets the destination token.
+    expect(captured.length).toBeGreaterThan(0);
+    expect(captured.every((r) => r.outputToken.toLowerCase() === PEPE.toLowerCase())).toBe(true);
+    expect(seriousInputs.length).toBeGreaterThan(0);
+  });
 
-      const result = await autoSelectSources({
+  it('treats a holding already in the target token as an identity (used directly, not swapped)', async () => {
+    // A PEPE holding on the dst chain covers part of the requirement directly; the WETH holding is swapped.
+    const holdings = [
+      makeHolding(ARB_CHAIN, PEPE, 3000000000000000000n, { value: 3, decimals: 18, symbol: 'PEPE' }), // 3 PEPE identity
+      makeHolding(ARB_CHAIN, WETH, 500000000000000000n, { value: 10 }),
+    ];
+    const agg = makeAggregator(async (reqs) =>
+      reqs.map((req) => {
+        if (req.type === QuoteType.EXACT_OUT) return null;
+        if (req.seriousness === QuoteSeriousness.PRICE_SURVEY) return makeQuoteTo(10000000000000000000n, 500000000000000000n, PEPE, 18);
+        return makeQuoteTo(2000000000000000000n, req.inputAmount, PEPE, 18); // remaining 2 PEPE
+      })
+    );
+
+    const result = await selectDirectDestinationSwaps({
+      holdings,
+      outputRequired: new Decimal(5), // 3 from identity PEPE + 2 swapped from WETH
+      target: { contractAddress: PEPE, decimals: 18 },
+      aggregators: [agg],
+      ...requestAddresses,
+    });
+
+    // The PEPE holding is used directly (identity), WETH is swapped.
+    expect(result.usedCOTs).toHaveLength(1);
+    expect(result.usedCOTs[0].holding.tokenAddress).toBe(PEPE);
+    expect(result.quoteResponses).toHaveLength(1);
+    expect(result.quoteResponses[0].holding.tokenAddress).toBe(WETH);
+  });
+
+  it('does NOT run a USD-value prefix survey — sizes the walk in target-token units (fixes 6b)', async () => {
+    // Two holdings; the first alone covers the 5-PEPE target. A USD-value prefix survey (comparing
+    // $-value against a PEPE-denominated target) would mis-size the batch. Here the walk is purely in
+    // PEPE units: after the first holding covers 5 PEPE, the second is never consumed.
+    const holdings = [
+      makeHolding(ARB_CHAIN, WETH, 500000000000000000n, { value: 10 }),
+      makeHolding(ARB_CHAIN, WETH, 500000000000000000n, { value: 10 }),
+    ];
+    const agg = makeAggregator(async (reqs) =>
+      reqs.map((req) => {
+        if (req.type === QuoteType.EXACT_OUT) return null;
+        return makeQuoteTo(5000000000000000000n, req.inputAmount, PEPE, 18); // each holding surveys to 5 PEPE
+      })
+    );
+
+    const result = await selectDirectDestinationSwaps({
+      holdings,
+      outputRequired: new Decimal(5),
+      target: { contractAddress: PEPE, decimals: 18 },
+      aggregators: [agg],
+      ...requestAddresses,
+    });
+
+    // First holding's 5 PEPE covers the target exactly → only one leg consumed.
+    expect(result.quoteResponses).toHaveLength(1);
+    expect(result.quoteResponses[0].quote.output.amountRaw).toBe(5000000000000000000n);
+  });
+
+  it('caps convergence input growth at maxConvergenceExtraRaw (target-token units)', async () => {
+    // Indicative 0.5 WETH → 10 PEPE. Initial estimate for 5 PEPE = 0.25 WETH. Cap extra = 1 PEPE worth
+    // of WETH = (1e18 PEPE * 0.5e18 WETH) / 10e18 PEPE = 5e16 WETH. Max input = 2.5e17 + 5e16 = 3e17.
+    const seriousInputs: bigint[] = [];
+    const holdings = [makeHolding(ARB_CHAIN, WETH, 500000000000000000n, { value: 10 })];
+    const agg = makeAggregator(async (reqs) =>
+      reqs.map((req) => {
+        if (req.type === QuoteType.EXACT_OUT) return null;
+        if (req.seriousness === QuoteSeriousness.PRICE_SURVEY) return makeQuoteTo(10000000000000000000n, 500000000000000000n, PEPE, 18);
+        seriousInputs.push(req.inputAmount);
+        return makeQuoteTo(4000000000000000000n, req.inputAmount, PEPE, 18); // always under-delivers → drives to cap
+      })
+    );
+
+    await expect(
+      selectDirectDestinationSwaps({
         holdings,
         outputRequired: new Decimal(5),
+        target: { contractAddress: PEPE, decimals: 18 },
         aggregators: [agg],
-        chainList: makeSwapChainList(),
-        cotCurrencyId: CurrencyID.USDC,
-        outputToken: { contractAddress: PEPE, decimals: 18 },
+        maxConvergenceExtraRaw: new Decimal('1000000000000000000'), // 1 PEPE
         ...requestAddresses,
-      });
+      })
+    ).rejects.toThrow(/converge/i);
 
-      expect(result.quoteResponses).toHaveLength(1);
-      expect(result.quoteResponses[0].quote.output.contractAddress).toBe(PEPE);
-      expect(result.quoteResponses[0].quote.output.amountRaw).toBe(5000000000000000000n);
-      // Every quote request targets the destination token, NOT the COT.
-      expect(captured.length).toBeGreaterThan(0);
-      expect(captured.every((r) => r.outputToken.toLowerCase() === PEPE.toLowerCase())).toBe(true);
-      expect(seriousInputs.length).toBeGreaterThan(0);
-    });
-
-    it('treats a holding already in the destination token as an identity (used directly, not swapped)', async () => {
-      // A PEPE holding on the dst chain covers part of the requirement directly; the WETH holding is swapped.
-      const holdings = [
-        makeHolding(ARB_CHAIN, PEPE, 3000000000000000000n, { value: 3, decimals: 18, symbol: 'PEPE' }), // 3 PEPE identity
-        makeHolding(ARB_CHAIN, WETH, 500000000000000000n, { value: 10 }),
-      ];
-      const agg = makeAggregator(async (reqs) =>
-        reqs.map((req) => {
-          if (req.type === QuoteType.EXACT_OUT) return null;
-          if (req.seriousness === QuoteSeriousness.PRICE_SURVEY) return makeQuoteTo(10000000000000000000n, 500000000000000000n, PEPE, 18);
-          return makeQuoteTo(2000000000000000000n, req.inputAmount, PEPE, 18); // remaining 2 PEPE
-        })
-      );
-
-      const result = await autoSelectSources({
-        holdings,
-        outputRequired: new Decimal(5), // 3 from identity PEPE + 2 swapped from WETH
-        aggregators: [agg],
-        chainList: makeSwapChainList(),
-        cotCurrencyId: CurrencyID.USDC,
-        outputToken: { contractAddress: PEPE, decimals: 18 },
-        ...requestAddresses,
-      });
-
-      // The PEPE holding is used directly (identity), WETH is swapped.
-      expect(result.usedCOTs).toHaveLength(1);
-      expect(result.usedCOTs[0].holding.tokenAddress).toBe(PEPE);
-      expect(result.quoteResponses).toHaveLength(1);
-      expect(result.quoteResponses[0].holding.tokenAddress).toBe(WETH);
-    });
-
-    it('caps convergence input growth at maxConvergenceExtraRaw (destination-token units)', async () => {
-      // Indicative 0.5 WETH → 10 PEPE. Initial estimate for 5 PEPE = 0.25 WETH. Cap extra = 1 PEPE worth
-      // of WETH = (1e18 PEPE * 0.5e18 WETH) / 10e18 PEPE = 5e16 WETH. Max input = 2.5e17 + 5e16 = 3e17.
-      const seriousInputs: bigint[] = [];
-      const holdings = [makeHolding(ARB_CHAIN, WETH, 500000000000000000n, { value: 10 })];
-      const agg = makeAggregator(async (reqs) =>
-        reqs.map((req) => {
-          if (req.type === QuoteType.EXACT_OUT) return null;
-          if (req.seriousness === QuoteSeriousness.PRICE_SURVEY) return makeQuoteTo(10000000000000000000n, 500000000000000000n, PEPE, 18);
-          seriousInputs.push(req.inputAmount);
-          return makeQuoteTo(4000000000000000000n, req.inputAmount, PEPE, 18); // always under-delivers → drives to cap
-        })
-      );
-
-      await expect(
-        autoSelectSources({
-          holdings,
-          outputRequired: new Decimal(5),
-          aggregators: [agg],
-          chainList: makeSwapChainList(),
-          cotCurrencyId: CurrencyID.USDC,
-          outputToken: { contractAddress: PEPE, decimals: 18, maxConvergenceExtraRaw: new Decimal('1000000000000000000') }, // 1 PEPE
-          ...requestAddresses,
-        })
-      ).rejects.toThrow(/converge/i);
-
-      expect(seriousInputs.length).toBeGreaterThan(0);
-      const maxAllowed = 300_000_000_000_000_000n; // 0.3 WETH
-      for (const input of seriousInputs) {
-        expect(input).toBeLessThanOrEqual(maxAllowed);
-      }
-    });
+    expect(seriousInputs.length).toBeGreaterThan(0);
+    const maxAllowed = 300_000_000_000_000_000n; // 0.3 WETH
+    for (const input of seriousInputs) {
+      expect(input).toBeLessThanOrEqual(maxAllowed);
+    }
   });
 });

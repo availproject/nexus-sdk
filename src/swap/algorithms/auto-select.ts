@@ -54,11 +54,6 @@ type AutoSelectInput = {
   // USD value must clear this floor or the chain is dropped from selection.
   // Mayan rejects quotes for legs below ~$1.10 USD output.
   minOutputUsdPerSource?: Decimal;
-  // Path A (direct destination): select toward a FIXED destination token on every chain instead of
-  // the per-chain COT. Holdings already in this token become identities (used directly, not swapped);
-  // all quotes/convergence target it. `maxConvergenceExtraRaw` caps convergence input growth in this
-  // token's raw units (default: 0.5 whole tokens). Absent ⇒ the default per-chain COT selection.
-  outputToken?: { contractAddress: Hex; decimals: number; maxConvergenceExtraRaw?: Decimal };
 };
 
 // ---------------------------------------------------------------------------
@@ -181,11 +176,9 @@ export const autoSelectSources = async (input: AutoSelectInput): Promise<AutoSel
   const getRequestAddresses = (chainId: number) =>
     requireRequestAddresses(chainId, userAddressByChain, recipientAddressByChain);
 
-  // The token each holding is selected toward: a fixed destination token (Path A) or the chain's COT.
+  // The COT each holding is liquidated toward (per-chain). Path A's fixed-destination selection lives
+  // in selectDirectDestinationSwaps, not here.
   const targetTokenFor = (chainID: number): { contractAddress: Hex; decimals: number } => {
-    if (input.outputToken) {
-      return { contractAddress: input.outputToken.contractAddress, decimals: input.outputToken.decimals };
-    }
     const cot = input.chainList.getTokenByCurrencyId(chainID, input.cotCurrencyId);
     return { contractAddress: cot.contractAddress as Hex, decimals: cot.decimals };
   };
@@ -401,7 +394,7 @@ export const autoSelectSources = async (input: AutoSelectInput): Promise<AutoSel
         indicative,
         aggregators,
         targetTokenFor(item.holding.chainID),
-        input.outputToken?.maxConvergenceExtraRaw,
+        undefined,
         userAddressByChain,
         recipientAddressByChain
       );
@@ -419,6 +412,123 @@ export const autoSelectSources = async (input: AutoSelectInput): Promise<AutoSel
       outputRequired,
       input.minOutputUsdPerSource
     );
+  }
+
+  return { quoteResponses, usedCOTs };
+};
+
+// ---------------------------------------------------------------------------
+// Path A — direct destination selection
+// ---------------------------------------------------------------------------
+
+export type DirectSelectInput = {
+  holdings: SourceHolding[];
+  // In the target token's units (toToken or native gas), NOT USD.
+  outputRequired: Decimal;
+  target: { contractAddress: Hex; decimals: number };
+  aggregators: Aggregator[];
+  userAddressByChain: Map<number, `0x${string}`>;
+  recipientAddressByChain: Map<number, Hex>;
+  // Caps convergence input growth in the target token's raw units (Path A passes ≈$0.50 via oracle;
+  // absent ⇒ convergenceQuote's default of 0.5 whole output tokens).
+  maxConvergenceExtraRaw?: Decimal;
+};
+
+/**
+ * Path A (direct destination-chain swap) source selection — the standalone twin of autoSelectSources'
+ * COT round-trip. Every holding is selected toward one FIXED target token (the toToken or native gas)
+ * on the dst chain, with none of the bridge machinery (no Mayan floor, collection fees, COT resolution,
+ * or USD-value prefix survey). Holdings already in the target token are used directly (identities); the
+ * rest are quoted input→target via the shared EXACT_OUT-direct vs EXACT_IN convergence race.
+ *
+ * Path A's holdings are dst-chain-only (a handful), so every swappable holding is quoted up front —
+ * there is no value-prefix survey, which would compare USD `value` against a token-denominated target
+ * and mis-batch. Partial coverage returns without throwing; the builder enforces the buffered target
+ * and falls back on a shortfall.
+ */
+export const selectDirectDestinationSwaps = async (
+  input: DirectSelectInput
+): Promise<AutoSelectResult> => {
+  const { outputRequired, target, aggregators, userAddressByChain, recipientAddressByChain } = input;
+  if (outputRequired.lte(0)) return { quoteResponses: [], usedCOTs: [] };
+
+  // Classify: identity (already the target token) vs swappable.
+  const items: QueueItem[] = input.holdings.map((h, idx) => ({
+    holding: h,
+    idx,
+    isCOT: equalFold(h.tokenAddress, target.contractAddress),
+    amount: divDecimals(h.amountRaw, h.decimals),
+    value: h.value,
+  }));
+
+  // Quote every swappable holding up front (no prefix survey — see the docblock).
+  const swappable = items.filter((item) => !item.isCOT);
+  const indicativeByIdx = new Map<number, { quote: Quote; aggregator: Aggregator }>();
+  if (swappable.length > 0) {
+    const requests = swappable.map((item) => {
+      const addresses = requireRequestAddresses(
+        item.holding.chainID,
+        userAddressByChain,
+        recipientAddressByChain
+      );
+      return {
+        userAddress: addresses.userAddress,
+        recipientAddress: addresses.recipientAddress,
+        chainId: item.holding.chainID,
+        inputToken: item.holding.tokenAddress,
+        outputToken: target.contractAddress,
+        seriousness: QuoteSeriousness.PRICE_SURVEY,
+        type: QuoteType.EXACT_IN as const,
+        inputAmount: item.holding.amountRaw,
+      };
+    });
+    const results = await aggregateAggregators(requests, aggregators, AggregateMode.MaximizeOutput);
+    swappable.forEach((item, i) => {
+      const r = results[i];
+      if (r?.quote) indicativeByIdx.set(item.idx, { quote: r.quote, aggregator: r.aggregator });
+    });
+  }
+
+  // Walk in priority order: identities used directly; swappable consumed full (indicative survey quote)
+  // or partial (convergence race), until the target is covered.
+  let remaining = outputRequired;
+  const usedCOTs: UsedCOT[] = [];
+  const quoteResponses: QuoteResponse[] = [];
+  for (const item of items) {
+    if (remaining.lte(0)) break;
+    if (item.isCOT) {
+      const use = Decimal.min(item.amount, remaining);
+      if (use.lte(0)) continue;
+      usedCOTs.push({ holding: item.holding, amountUsed: use, idx: item.idx });
+      remaining = remaining.minus(use);
+      continue;
+    }
+    const indicative = indicativeByIdx.get(item.idx);
+    if (!indicative) continue;
+    const outputAmount = new Decimal(indicative.quote.output.amount);
+    if (outputAmount.lte(0)) continue;
+    if (outputAmount.lte(remaining)) {
+      quoteResponses.push({
+        chainID: item.holding.chainID,
+        quote: indicative.quote,
+        holding: item.holding,
+        aggregator: indicative.aggregator,
+      });
+      remaining = remaining.minus(outputAmount);
+    } else {
+      const serious = await convergenceQuote(
+        item,
+        remaining,
+        indicative,
+        aggregators,
+        target,
+        input.maxConvergenceExtraRaw,
+        userAddressByChain,
+        recipientAddressByChain
+      );
+      quoteResponses.push(serious);
+      remaining = remaining.minus(new Decimal(serious.quote.output.amount));
+    }
   }
 
   return { quoteResponses, usedCOTs };

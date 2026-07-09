@@ -4,6 +4,7 @@ import { toHex, type Hex } from 'viem';
 // Mock algorithms
 vi.mock('../../src/swap/algorithms/auto-select', () => ({
   autoSelectSources: vi.fn(),
+  selectDirectDestinationSwaps: vi.fn(),
 }));
 vi.mock('../../src/swap/algorithms/liquidate', () => ({
   liquidateInputHoldings: vi.fn(),
@@ -33,7 +34,7 @@ import { QuoteSeriousness, QuoteType } from '../../src/swap/aggregators/types';
 import type { ChainListType, TokenInfo } from '../../src/domain';
 import { ZERO_ADDRESS } from '../../src/domain/constants/addresses';
 import { EADDRESS } from '../../src/swap/constants';
-import { autoSelectSources } from '../../src/swap/algorithms/auto-select';
+import { autoSelectSources, selectDirectDestinationSwaps } from '../../src/swap/algorithms/auto-select';
 import { liquidateInputHoldings } from '../../src/swap/algorithms/liquidate';
 import { destinationGasSwapExactIn, determineDestinationSwaps, destinationSwapWithExactIn } from '../../src/swap/algorithms/destination';
 import { CurrencyID } from '../../src/swap/cot';
@@ -199,6 +200,11 @@ describe('resolveWalletDecisions', () => {
 describe('determineSwapRoute', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Path A EXACT_OUT selection is mocked per-test; default it to "found nothing" so that
+    // default-flow tests whose sources happen to satisfy Path A's classifier fall through to the
+    // COT flow (autoSelectSources) deterministically. mockReset clears any leaked once-queue too.
+    vi.mocked(selectDirectDestinationSwaps).mockReset();
+    vi.mocked(selectDirectDestinationSwaps).mockResolvedValue({ quoteResponses: [], usedCOTs: [] });
   });
   it('EXACT_OUT single-chain → bridge is null', async () => {
     const input: SwapData = {
@@ -2591,7 +2597,7 @@ describe('determineSwapRoute', () => {
     it('fires: swaps dst-chain sources → toToken directly, no bridge, no dst swap', async () => {
       const input: SwapData = { mode: SwapMode.EXACT_OUT, data: { toChainId: ARB_CHAIN, toTokenAddress: PEPE, toAmountRaw: 100000000000000000000n } };
       vi.mocked(determineDestinationSwaps).mockResolvedValue(sizingQuote());
-      vi.mocked(autoSelectSources).mockResolvedValue({
+      vi.mocked(selectDirectDestinationSwaps).mockResolvedValue({
         quoteResponses: [leg(WETH, 1000000000000000000n, 18, PEPE, 101000000000000000000n, 18)], // delivers 101 PEPE
         usedCOTs: [],
       });
@@ -2602,9 +2608,9 @@ describe('determineSwapRoute', () => {
       expect(route.bridge).toBeNull();
       expect(route.destination.swap.tokenSwap).toBeNull(); // sizing quote discarded
       expect(route.source.swaps).toHaveLength(1);
-      // Path A calls autoSelect with outputToken = toToken and target = toAmount + srcBuffer(min 2%/$1 → $1 → 1 PEPE) = 101.
-      const arg = vi.mocked(autoSelectSources).mock.calls[0][0];
-      expect(arg.outputToken).toEqual(expect.objectContaining({ contractAddress: PEPE, decimals: 18 }));
+      // Path A selects toward target = toToken with outputRequired = toAmount + srcBuffer(min 2%/$1 → $1 → 1 PEPE) = 101.
+      const arg = vi.mocked(selectDirectDestinationSwaps).mock.calls[0][0];
+      expect(arg.target).toEqual(expect.objectContaining({ contractAddress: PEPE, decimals: 18 }));
       expect(arg.outputRequired.toString()).toBe('101');
       expect(route.source.srcBuffer?.toString()).toBe('1');
     });
@@ -2616,7 +2622,7 @@ describe('determineSwapRoute', () => {
       const input: SwapData = { mode: SwapMode.EXACT_OUT, data: { toChainId: ARB_CHAIN, toTokenAddress: PEPE, toAmountRaw: 100000000000000000000n, toNativeAmountRaw: 1000000000000000000n } };
       vi.mocked(determineDestinationSwaps).mockResolvedValue(sizingQuote());
       vi.mocked(destinationGasSwapExactIn).mockResolvedValue(makeGasQuoteResponse({ chainID: ARB_CHAIN, inputContract: USDC_ARB }));
-      vi.mocked(autoSelectSources)
+      vi.mocked(selectDirectDestinationSwaps)
         .mockResolvedValueOnce({ // token pass: consume S1 fully (A1) + S2 partially (0.7·A2)
           quoteResponses: [leg(WETH, A1, 18, PEPE, 60000000000000000000n, 18), leg(DAI, 700000000000000000000n, 18, PEPE, 41000000000000000000n, 18)],
           usedCOTs: [],
@@ -2636,11 +2642,11 @@ describe('determineSwapRoute', () => {
         ] as OraclePriceResponse,
       }));
 
-      expect(autoSelectSources).toHaveBeenCalledTimes(2);
+      expect(selectDirectDestinationSwaps).toHaveBeenCalledTimes(2);
       // Pass 1 targets the token; pass 2 targets native (EADDRESS) with the leftover holdings.
-      expect(vi.mocked(autoSelectSources).mock.calls[0][0].outputToken?.contractAddress).toBe(PEPE);
-      const gasArg = vi.mocked(autoSelectSources).mock.calls[1][0];
-      expect(gasArg.outputToken?.contractAddress).toBe(EADDRESS);
+      expect(vi.mocked(selectDirectDestinationSwaps).mock.calls[0][0].target.contractAddress).toBe(PEPE);
+      const gasArg = vi.mocked(selectDirectDestinationSwaps).mock.calls[1][0];
+      expect(gasArg.target.contractAddress).toBe(EADDRESS);
       expect(gasArg.holdings.map((h) => [h.tokenAddress, h.amountRaw])).toEqual([
         [DAI, 300000000000000000000n], // 0.3·A2 remainder
         [USDC_ARB, A3], // untouched
@@ -2654,9 +2660,8 @@ describe('determineSwapRoute', () => {
     it('falls back to the default flow when the direct selection cannot cover toAmount', async () => {
       const input: SwapData = { mode: SwapMode.EXACT_OUT, data: { toChainId: ARB_CHAIN, toTokenAddress: PEPE, toAmountRaw: 100000000000000000000n } };
       vi.mocked(determineDestinationSwaps).mockResolvedValue(sizingQuote());
-      vi.mocked(autoSelectSources)
-        .mockResolvedValueOnce({ quoteResponses: [leg(WETH, 1000000000000000000n, 18, PEPE, 50000000000000000000n, 18)], usedCOTs: [] }) // only 50 PEPE — short
-        .mockResolvedValue({ quoteResponses: [leg(WETH, 1000000000000000000n, 18, USDC_ARB, 200000000n, 6)], usedCOTs: [] }); // default COT selection
+      vi.mocked(selectDirectDestinationSwaps).mockResolvedValue({ quoteResponses: [leg(WETH, 1000000000000000000n, 18, PEPE, 50000000000000000000n, 18)], usedCOTs: [] }); // only 50 PEPE — short → builder throws
+      vi.mocked(autoSelectSources).mockResolvedValue({ quoteResponses: [leg(WETH, 1000000000000000000n, 18, USDC_ARB, 200000000n, 6)], usedCOTs: [] }); // default COT selection
 
       const route = await determineSwapRoute(input, makeRouteOptions({ dstTokenInfo: pepeInfo, balances: [bal(WETH, '1', 18, 3000, 'WETH')] }));
 
@@ -2672,19 +2677,19 @@ describe('determineSwapRoute', () => {
       const route = await determineSwapRoute(input, makeRouteOptions({ dstTokenInfo: pepeInfo, balances: [bal(WETH, '1', 18, 3000, 'WETH')], skipFastPaths: true }));
 
       expect(route.directDestination).toBeFalsy();
-      // Default selection targets the COT, not PEPE.
-      expect(vi.mocked(autoSelectSources).mock.calls[0][0].outputToken).toBeUndefined();
+      // Path A never runs — the default COT selection (autoSelectSources) does.
+      expect(selectDirectDestinationSwaps).not.toHaveBeenCalled();
+      expect(autoSelectSources).toHaveBeenCalled();
     });
 
     it('falls back when the direct selection covers toAmount but NOT the buffer (no drift margin)', async () => {
-      // Regression: autoSelectSources returns partial coverage WITHOUT throwing. Delivering exactly
-      // toAmount (100 PEPE) would leave srcBuffer(1) as a phantom drift budget a requote could spend
-      // below toAmount. The builder must require the BUFFERED target (101), so this falls back.
+      // Regression: selectDirectDestinationSwaps returns partial coverage WITHOUT throwing. Delivering
+      // exactly toAmount (100 PEPE) would leave srcBuffer(1) as a phantom drift budget a requote could
+      // spend below toAmount. The builder must require the BUFFERED target (101), so this falls back.
       const input: SwapData = { mode: SwapMode.EXACT_OUT, data: { toChainId: ARB_CHAIN, toTokenAddress: PEPE, toAmountRaw: 100000000000000000000n } };
       vi.mocked(determineDestinationSwaps).mockResolvedValue(sizingQuote());
-      vi.mocked(autoSelectSources)
-        .mockResolvedValueOnce({ quoteResponses: [leg(WETH, 1000000000000000000n, 18, PEPE, 100000000000000000000n, 18)], usedCOTs: [] }) // exactly 100 PEPE = toAmount, < 101 buffered
-        .mockResolvedValue({ quoteResponses: [leg(WETH, 1000000000000000000n, 18, USDC_ARB, 200000000n, 6)], usedCOTs: [] }); // default fallback
+      vi.mocked(selectDirectDestinationSwaps).mockResolvedValue({ quoteResponses: [leg(WETH, 1000000000000000000n, 18, PEPE, 100000000000000000000n, 18)], usedCOTs: [] }); // exactly 100 PEPE = toAmount, < 101 buffered
+      vi.mocked(autoSelectSources).mockResolvedValue({ quoteResponses: [leg(WETH, 1000000000000000000n, 18, USDC_ARB, 200000000n, 6)], usedCOTs: [] }); // default fallback
       const route = await determineSwapRoute(input, makeRouteOptions({ dstTokenInfo: pepeInfo, balances: [bal(WETH, '1', 18, 3000, 'WETH')] }));
       expect(route.directDestination).toBeFalsy();
       expect(route.destination.swap.tokenSwap).not.toBeNull(); // fell through to the default double-hop
@@ -2699,7 +2704,7 @@ describe('determineSwapRoute', () => {
       const input: SwapData = { mode: SwapMode.EXACT_OUT, data: { toChainId: ARB_CHAIN, toTokenAddress: PEPE, toAmountRaw: 100000000000000000000n, toNativeAmountRaw: 100000000000000000n } }; // 0.1 ETH
       vi.mocked(determineDestinationSwaps).mockResolvedValue(sizingQuote());
       vi.mocked(destinationGasSwapExactIn).mockResolvedValue(makeGasQuoteResponse({ chainID: ARB_CHAIN, inputContract: USDC_ARB }));
-      vi.mocked(autoSelectSources)
+      vi.mocked(selectDirectDestinationSwaps)
         .mockResolvedValueOnce({ quoteResponses: [leg(WETH, 1000000000000000000n, 18, PEPE, 101000000000000000000n, 18)], usedCOTs: [] })
         .mockResolvedValueOnce({ quoteResponses: [leg(USDC_ARB, 300000000n, 6, EADDRESS, 110000000000000000n, 18)], usedCOTs: [] }); // delivers 0.11 ETH ≥ 0.1004 buffered
       const route = await determineSwapRoute(input, makeRouteOptions({
@@ -2711,8 +2716,8 @@ describe('determineSwapRoute', () => {
           { universe: 'EVM' as const, chainId: ARB_CHAIN, tokenAddress: USDC_ARB, tokenSymbol: 'USDC', tokenDecimals: 6, priceUsd: new Decimal(1), timestamp: 1 },
         ] as OraclePriceResponse,
       }));
-      const gasArg = vi.mocked(autoSelectSources).mock.calls[1][0];
-      expect(gasArg.outputToken?.maxConvergenceExtraRaw?.toString()).toBe('200000000000000'); // priceUsdFor: ARB price wins
+      const gasArg = vi.mocked(selectDirectDestinationSwaps).mock.calls[1][0];
+      expect(gasArg.maxConvergenceExtraRaw?.toString()).toBe('200000000000000'); // priceUsdFor: ARB price wins
       expect(route.source.gasSrcBuffer?.toString()).toBe('0.0004'); // applyBuffer: ARB price wins ($1 cap at 2500)
     });
   });

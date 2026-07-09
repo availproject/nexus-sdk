@@ -18,7 +18,11 @@ import { MAYAN_MIN_USD_PER_LEG, quoteMayanLegs } from '../services/mayan';
 import { equalFold } from '../services/strings';
 import type { MiddlewareSwapPreflightClient } from '../transport';
 import type { Aggregator, Holding, QuoteResponse } from './aggregators/types';
-import { autoSelectSources, type SourceHolding } from './algorithms/auto-select';
+import {
+  autoSelectSources,
+  selectDirectDestinationSwaps,
+  type SourceHolding,
+} from './algorithms/auto-select';
 import {
   destinationGasSwapExactIn,
   destinationSwapWithExactIn,
@@ -1569,19 +1573,14 @@ async function buildDirectDestinationExactOutRoute(
     dstChainId,
     oracleKey(toTokenAddress)
   );
-  const tokenResult = await autoSelectSources({
+  const tokenResult = await selectDirectDestinationSwaps({
     holdings: dstHoldings,
     outputRequired: toTokenHuman.plus(srcBuffer),
+    target: { contractAddress: toTokenAddress, decimals: dstTokenInfo.decimals },
     aggregators,
-    chainList,
-    cotCurrencyId,
-    outputToken: {
-      contractAddress: toTokenAddress,
-      decimals: dstTokenInfo.decimals,
-      maxConvergenceExtraRaw: convergenceExtraRaw(toTokenAddress, dstTokenInfo.decimals),
-    },
     userAddressByChain,
     recipientAddressByChain,
+    maxConvergenceExtraRaw: convergenceExtraRaw(toTokenAddress, dstTokenInfo.decimals),
   });
   const tokenDeliveredRaw =
     tokenResult.quoteResponses.reduce((sum, quote) => sum + quote.quote.output.amountRaw, 0n) +
@@ -1613,19 +1612,14 @@ async function buildDirectDestinationExactOutRoute(
       dstChainId,
       ZERO_ADDRESS
     );
-    const gasResult = await autoSelectSources({
+    const gasResult = await selectDirectDestinationSwaps({
       holdings: remainderHoldings,
       outputRequired: toNativeHuman.plus(gasSrcBuffer),
+      target: { contractAddress: EADDRESS as Hex, decimals: nativeDecimals },
       aggregators,
-      chainList,
-      cotCurrencyId,
-      outputToken: {
-        contractAddress: EADDRESS as Hex,
-        decimals: nativeDecimals,
-        maxConvergenceExtraRaw: convergenceExtraRaw(ZERO_ADDRESS, nativeDecimals),
-      },
       userAddressByChain,
       recipientAddressByChain,
+      maxConvergenceExtraRaw: convergenceExtraRaw(ZERO_ADDRESS, nativeDecimals),
     });
     gasSwaps = gasResult.quoteResponses;
     const gasDeliveredRaw = gasSwaps.reduce((sum, quote) => sum + quote.quote.output.amountRaw, 0n);
