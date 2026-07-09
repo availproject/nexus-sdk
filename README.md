@@ -113,7 +113,7 @@ console.log('Bridge complete:', result.intentExplorerUrl);
 - **Cross-chain swaps** — Execute EXACT_IN and EXACT_OUT swaps between any supported networks via LiFi, Bebop, and Fibrous aggregators
 - **Unified balances** — Aggregate user assets and balances across all connected chains
 - **Contract execution** — Call smart contracts with automatic bridging or swap funding logic
-- **Composite operations** — Bridge + Execute or Swap + Execute atomically
+- **Composite operations** — Bridge + Execute or Swap + Execute, orchestrated as two sequenced operations (funding, then execution) — not a single atomic transaction
 - **Transaction simulation** — Estimate gas, fees, and required approvals before sending
 - **Real-time progress** — Typed event system for plan previews, step-by-step progress, and status updates
 - **Complete testnet coverage** — Full multi-chain test environment
@@ -606,7 +606,12 @@ type ExecuteSimulation = {
 
 #### `bridgeAndExecute(params, options?)`
 
-Bridge tokens to a destination chain and execute a contract call. Automatically detects if sufficient funds already exist on the destination and skips the bridge when possible.
+Orchestrates **two distinct operations in sequence — not a single atomic transaction**:
+
+1. **Bridge (conditional)** — funds the shortfall on the destination chain. Automatically skipped when the destination already holds enough of the token (`result.bridgeSkipped === true`).
+2. **Execute + approval (execute always, approval optional)** — the contract call, preceded by an optional token approval, is **always** sent from the user's connected wallet on the destination chain.
+
+Because the two steps run one after the other, they succeed or fail independently. This is **not** atomic: if the execute fails after a bridge, the bridged funds remain in the user's wallet on the destination chain (they are not rolled back).
 
 ```typescript
 const result = await client.bridgeAndExecute(
@@ -952,7 +957,12 @@ type BridgeMaxResult = {
 
 #### `swapAndExecute(params, options?)`
 
-Swap tokens to a destination chain and execute a contract call atomically. Automatically skips the swap if sufficient funds already exist on the destination.
+Orchestrates **two distinct operations in sequence — not a single atomic transaction**:
+
+1. **Swap (conditional)** — funds the shortfall on the destination chain. Automatically skipped when the destination already holds enough of the token (`result.swapSkipped === true`).
+2. **Execute + approval (execute always, approval optional)** — the contract call, preceded by an optional token approval, is **always** sent from the user's connected wallet on the destination chain.
+
+Because the two steps run one after the other, they succeed or fail independently. This is **not** atomic: if the execute fails after a swap, the swapped funds remain in the user's wallet on the destination chain (they are not rolled back).
 
 ```typescript
 const result = await client.swapAndExecute(
