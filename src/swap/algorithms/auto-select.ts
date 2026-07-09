@@ -54,6 +54,11 @@ type AutoSelectInput = {
   // USD value must clear this floor or the chain is dropped from selection.
   // Mayan rejects quotes for legs below ~$1.10 USD output.
   minOutputUsdPerSource?: Decimal;
+  // Path A (direct destination): select toward a FIXED destination token on every chain instead of
+  // the per-chain COT. Holdings already in this token become identities (used directly, not swapped);
+  // all quotes/convergence target it. `maxConvergenceExtraRaw` caps convergence input growth in this
+  // token's raw units (default: 0.5 whole tokens). Absent ⇒ the default per-chain COT selection.
+  outputToken?: { contractAddress: Hex; decimals: number; maxConvergenceExtraRaw?: Decimal };
 };
 
 // ---------------------------------------------------------------------------
@@ -176,14 +181,23 @@ export const autoSelectSources = async (input: AutoSelectInput): Promise<AutoSel
   const getRequestAddresses = (chainId: number) =>
     requireRequestAddresses(chainId, userAddressByChain, recipientAddressByChain);
 
+  // The token each holding is selected toward: a fixed destination token (Path A) or the chain's COT.
+  const targetTokenFor = (chainID: number): { contractAddress: Hex; decimals: number } => {
+    if (input.outputToken) {
+      return { contractAddress: input.outputToken.contractAddress, decimals: input.outputToken.decimals };
+    }
+    const cot = input.chainList.getTokenByCurrencyId(chainID, input.cotCurrencyId);
+    return { contractAddress: cot.contractAddress as Hex, decimals: cot.decimals };
+  };
+
   if (outputRequired.lte(0)) {
     return { quoteResponses: [], usedCOTs: [] };
   }
 
-  // Phase 1: Classify holdings as COT or non-COT
+  // Phase 1: Classify holdings as target-token (identity, used directly) vs swappable
   const items: QueueItem[] = holdings.map((h, idx) => {
-    const cot = input.chainList.getTokenByCurrencyId(h.chainID, input.cotCurrencyId);
-    const isCOT = cot && equalFold(h.tokenAddress, cot.contractAddress);
+    const target = targetTokenFor(h.chainID);
+    const isCOT = equalFold(h.tokenAddress, target.contractAddress);
     const amount = divDecimals(h.amountRaw, h.decimals);
     return { holding: h, idx, isCOT, amount, value: h.value };
   });
@@ -273,14 +287,14 @@ export const autoSelectSources = async (input: AutoSelectInput): Promise<AutoSel
   const quoteBatch = async (batch: QueueItem[]): Promise<void> => {
     if (batch.length === 0) return;
     const requests = batch.map((item) => {
-      const cot = input.chainList.getTokenByCurrencyId(item.holding.chainID, input.cotCurrencyId);
+      const target = targetTokenFor(item.holding.chainID);
       const addresses = getRequestAddresses(item.holding.chainID);
       return {
         userAddress: addresses.userAddress,
         recipientAddress: addresses.recipientAddress,
         chainId: item.holding.chainID,
         inputToken: item.holding.tokenAddress,
-        outputToken: cot.contractAddress,
+        outputToken: target.contractAddress,
         seriousness: QuoteSeriousness.PRICE_SURVEY,
         type: QuoteType.EXACT_IN as const,
         inputAmount: item.holding.amountRaw,
@@ -386,8 +400,8 @@ export const autoSelectSources = async (input: AutoSelectInput): Promise<AutoSel
         convergenceTarget,
         indicative,
         aggregators,
-        input.chainList,
-        input.cotCurrencyId,
+        targetTokenFor(item.holding.chainID),
+        input.outputToken?.maxConvergenceExtraRaw,
         userAddressByChain,
         recipientAddressByChain
       );
@@ -419,13 +433,11 @@ async function convergenceQuote(
   needed: Decimal,
   indicative: { quote: Quote; aggregator: Aggregator },
   aggregators: Aggregator[],
-  chainList: ChainListType,
-  cotCurrencyId: CurrencyID,
+  target: { contractAddress: Hex; decimals: number },
+  maxConvergenceExtraRaw: Decimal | undefined,
   userAddressByChain: Map<number, `0x${string}`>,
   recipientAddressByChain: Map<number, Hex>
 ): Promise<QuoteResponse> {
-  const cot = chainList.getTokenByCurrencyId(item.holding.chainID, cotCurrencyId);
-
   const indicativeInputHuman = new Decimal(indicative.quote.input.amount);
   const indicativeOutputHuman = new Decimal(indicative.quote.output.amount);
 
@@ -447,10 +459,12 @@ async function convergenceQuote(
   );
   const initialInputDecimal = new Decimal(initialInputAmountRaw.toString());
   const holdingBalanceDecimal = new Decimal(item.holding.amountRaw.toString());
-  // Cap the extra input in COT-USD terms, converted back to source-token raw via the
-  // indicative price ratio. Mirrors v1's inputRawForOutputRaw(indicative, 0.5 COT).
-  const cotExtraRaw = new Decimal('0.5').mul(Decimal.pow(10, cot.decimals));
-  const maxExtraInputAmountRaw = cotExtraRaw
+  // Cap the extra input in output-token terms, converted back to source-token raw via the indicative
+  // price ratio. Mirrors v1's inputRawForOutputRaw(indicative, 0.5 COT). Path A can pass a USD-derived
+  // cap (≈$0.50 of the destination token); default is 0.5 whole output tokens.
+  const extraOutputRaw =
+    maxConvergenceExtraRaw ?? new Decimal('0.5').mul(Decimal.pow(10, target.decimals));
+  const maxExtraInputAmountRaw = extraOutputRaw
     .mul(new Decimal(indicative.quote.input.amountRaw.toString()))
     .div(new Decimal(indicative.quote.output.amountRaw.toString()));
   const requiredOutputAmountRaw = BigInt(
@@ -463,7 +477,7 @@ async function convergenceQuote(
       recipientAddress: addresses.recipientAddress,
       chainId: item.holding.chainID,
       inputToken: item.holding.tokenAddress,
-      outputToken: cot.contractAddress,
+      outputToken: target.contractAddress,
       seriousness: QuoteSeriousness.SERIOUS,
       type: QuoteType.EXACT_OUT,
       outputAmount: requiredOutputAmountRaw,
@@ -484,7 +498,7 @@ async function convergenceQuote(
       recipientAddress: addresses.recipientAddress,
       chainId: item.holding.chainID,
       inputToken: item.holding.tokenAddress,
-      outputToken: cot.contractAddress,
+      outputToken: target.contractAddress,
       seriousness: QuoteSeriousness.SERIOUS,
       type: QuoteType.EXACT_IN,
       inputAmount: inputAmountRaw,

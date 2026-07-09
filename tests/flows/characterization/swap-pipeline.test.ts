@@ -497,7 +497,10 @@ const SCENARIOS: ExactOutScenario[] = [
     },
   },
   {
-    name: 'same-chain direct COT exact-out does destination handoff without bridge',
+    // Every source already on the dst chain (COT@Base → WETH@Base) → Path A: one direct SOURCE swap
+    // input→toToken delivered to the EOA, no bridge and no destination swap. The direct-COT handoff
+    // (dst-chain COT feeding a dst swap) is still covered by the cross-chain scenario below.
+    name: 'same-chain Path A exact-out — direct source swap, no bridge, no dst swap',
     destinationHas7702: true,
     balances: [
       {
@@ -513,26 +516,28 @@ const SCENARIOS: ExactOutScenario[] = [
     ],
     sources: [{ chainId: BASE_CHAIN, tokenAddress: USDC_BASE }],
     destinationTokenAddress: WETH,
-    destinationAmountRaw: parseUnits('1', 18),
+    destinationAmountRaw: parseUnits('0.5', 18),
     toNativeAmountRaw: 0n,
     expected: {
-      sourceSwapChainIds: [],
-      sourceSwapAggregators: [],
+      sourceSwapChainIds: [BASE_CHAIN],
+      sourceSwapAggregators: [{ chainId: BASE_CHAIN, aggregator: 'BebopAggregator' }],
+      // The assertion derives this from USDC tokens in `assetsUsed`; here USDC is the Path A swap
+      // INPUT (not a direct COT delivery), so BASE appears — no handoff is actually emitted.
       directCotChains: [BASE_CHAIN],
       sourceExecutionPaths: [[BASE_CHAIN, 'ephemeral']],
       hasBridge: false,
-      expectsDestinationSwap: true,
-      expectedDestinationAggregator: 'BebopAggregator',
+      expectsDestinationSwap: false,
+      expectedDestinationAggregator: null,
       expectedSendCallsCount: 0,
       expectedWriteContractCount: 0,
       expectedEoaRouters: [],
       expectedSubmitSbcChainIds: [BASE_CHAIN],
       expectedBridgeRecipient: null,
       expectsNativeSweep: false,
-      sourceQuoteExpectations: [],
-      destinationQuoteExpectation: { executor: EPH, recipient: EOA },
+      // Path A source swap delivers straight to the EOA (no dst swap follows).
+      sourceQuoteExpectations: [{ chainId: BASE_CHAIN, executor: EPH, recipient: EOA }],
       eoaToEphemeralTransfers: [
-        { reason: 'destination', chainId: BASE_CHAIN, tokenAddress: USDC_BASE },
+        { reason: 'source', chainId: BASE_CHAIN, tokenAddress: USDC_BASE },
       ],
       bridgeAssetOwnership: [],
     },
@@ -1560,9 +1565,13 @@ const assertScenario = (scenario: ExactOutScenario, result: HarnessResult) => {
   const baseLiFiCalls = getLiFiCallsForChain(result.middlewareClient, BASE_CHAIN);
   const baseBebopCalls = getBebopCallsForChain(result.middlewareClient, BASE_CHAIN);
 
+  // A Path A source swap runs on the destination chain, so BASE aggregator calls can come from the
+  // SOURCE swap (not a dst swap). Only assert "no BASE aggregator activity" when no source swap is on
+  // BASE either.
+  const hasSourceSwapOnBase = scenario.expected.sourceSwapChainIds.includes(BASE_CHAIN);
   if (expectsAnyDestinationSwap) {
     expect(baseLiFiCalls.length + baseBebopCalls.length).toBeGreaterThan(0);
-  } else {
+  } else if (!hasSourceSwapOnBase) {
     expect(baseLiFiCalls).toHaveLength(0);
     expect(baseBebopCalls).toHaveLength(0);
   }
@@ -1743,7 +1752,7 @@ describe('swap pipeline characterization', () => {
 
   it('normalizes a negative destination gas reserve and deducts the reserved native balance before source selection', async () => {
     const placeholder = SCENARIOS.find(
-      (entry) => entry.name === 'same-chain direct COT exact-out does destination handoff without bridge'
+      (entry) => entry.name === 'same-chain Path A exact-out — direct source swap, no bridge, no dst swap'
     );
     if (!placeholder) {
       throw new Error('same-chain destination scenario not found');
@@ -1819,12 +1828,15 @@ describe('swap pipeline characterization', () => {
     expect(result.eoaWallet.writeContract).not.toHaveBeenCalled();
   });
 
-  it('same-chain direct COT exact-out keeps the destination permit and transferFrom inside the destination SBC batch', async () => {
+  it('direct dst-chain COT handoff keeps the destination permit and transferFrom inside the destination SBC batch', async () => {
+    // The direct dst-chain COT handoff feeding a destination swap now lives on the cross-chain
+    // scenario (same-chain COT→token routes take Path A). This still exercises the destination
+    // eoaToEphemeral permit/transferFrom inside the dst SBC batch.
     const scenario = SCENARIOS.find(
-      (entry) => entry.name === 'same-chain direct COT exact-out does destination handoff without bridge'
+      (entry) => entry.name === 'destination local COT plus bridged swap source on 7702 destination'
     );
     if (!scenario) {
-      throw new Error('same-chain destination scenario not found');
+      throw new Error('destination handoff scenario not found');
     }
 
     const result = await runScenario(scenario);

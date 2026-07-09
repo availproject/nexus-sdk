@@ -1,6 +1,7 @@
 import Decimal from 'decimal.js';
 import type { Hex } from 'viem';
 import type { ChainListType } from '../domain';
+import { isNativeAddress } from '../services/addresses';
 import { equalFold } from '../services/strings';
 import { type SwapData, type SwapIntent, SwapMode, type SwapRoute } from './types';
 
@@ -58,9 +59,19 @@ export const createSwapIntent = (
       : destinationAmount;
   }
 
-  // Gas info — sourced from the destination gas swap's output (native delivered to EOA).
+  // Gas info — sourced from the destination gas swap's output (native delivered to EOA). Path A has
+  // no dst swap; it delivers gas via native-output SOURCE swaps on the dst chain, so fall back to the
+  // sum of those legs when `gasSwap` is null.
   const nativeCurrency = dstChainData.nativeCurrency ?? { symbol: 'ETH', decimals: 18 };
-  const gasOutputRaw = route.destination.swap.gasSwap?.quote.output.amountRaw ?? 0n;
+  const gasOutputRaw =
+    route.destination.swap.gasSwap?.quote.output.amountRaw ??
+    route.source.swaps
+      .filter(
+        (swap) =>
+          swap.chainID === route.destination.chainId &&
+          isNativeAddress(swap.quote.output.contractAddress)
+      )
+      .reduce((sum, swap) => sum + swap.quote.output.amountRaw, 0n);
   const gasAmount =
     gasOutputRaw > 0n ? formatTokenAmount(gasOutputRaw, nativeCurrency.decimals) : '0';
   const gasValue = undefined;

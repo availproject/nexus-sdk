@@ -440,9 +440,10 @@ describe('buildSwapPreflight', () => {
         })
       );
     });
-    it('quotes the COT for a mesh destination in EXACT_OUT (no same-token fast-path exists)', async () => {
-      // Even with all-ETH sources, EXACT_OUT never takes the same-token direct bridge, so the
-      // fee quote must be the COT.
+    it('quotes the COT for a mesh destination in EXACT_OUT (B1 self-quotes its F token mid-route)', async () => {
+      // The EXACT_OUT same-token direct bridge (B1) exists, but it resolves its OWN F-denominated fee
+      // quote mid-route (fetchBridgeQuoteForCurrency) — resolveSwapSettlement only detects same-token
+      // for EXACT_IN, so at PREFLIGHT the fee quote is still the COT even with all-ETH sources.
       const middlewareClient = makeMiddlewareClient();
 
       await buildSwapPreflight(

@@ -191,6 +191,7 @@ const sourceSwapStep = (chainId: number) => ({
 const requoteFailedChains = async (
   failedChains: Array<{ chainId: number; chainSwaps: QuoteResponse[] }>,
   srcBuffer: Decimal | null,
+  gasSrcBuffer: Decimal | undefined,
   ctx: Pick<
     ExecutionContext,
     'sourceExecutionPaths' | 'eoaAddress' | 'ephemeralWallet' | 'destinationDirectEoa'
@@ -205,14 +206,6 @@ const requoteFailedChains = async (
       ? predictSafeAccountAddress(ctx.ephemeralWallet.address).address
       : ctx.ephemeralWallet.address;
   };
-  let oldTotalOutput = new Decimal(0);
-  for (const { chainSwaps } of failedChains) {
-    for (const swap of chainSwaps) {
-      oldTotalOutput = oldTotalOutput.add(
-        divDecimals(swap.quote.output.amountRaw, swap.quote.output.decimals)
-      );
-    }
-  }
 
   const perChainResults = await Promise.all(
     failedChains.map(async ({ chainId, chainSwaps }) => {
@@ -267,45 +260,72 @@ const requoteFailedChains = async (
   // EXACT_IN (null buffer): accept the re-quote unconditionally — no pooled drift check.
   if (srcBuffer === null) return perChainResults;
 
-  let newTotalOutput = new Decimal(0);
-  for (const [, requoted] of perChainResults) {
-    for (const swap of requoted) {
-      newTotalOutput = newTotalOutput.add(
-        divDecimals(swap.quote.output.amountRaw, swap.quote.output.decimals)
+  // Pooled drift check, grouped per output token. A Path A batch mixes toToken legs (checked against
+  // srcBuffer) and native gas legs (checked against gasSrcBuffer); a single native/gas token can't be
+  // offset by a toToken over-quote. Every non-Path-A route has a single output token → one group,
+  // reducing to the original `Σnew ≥ Σold − srcBuffer` check (byte-identical).
+  const bufferForToken = (contractAddress: Hex): Decimal | null =>
+    isNativeAddress(contractAddress) ? (gasSrcBuffer ?? null) : srcBuffer;
+
+  const sumByToken = (
+    groups: Iterable<QuoteResponse[]>
+  ): Map<string, { total: Decimal; contractAddress: Hex }> => {
+    const totals = new Map<string, { total: Decimal; contractAddress: Hex }>();
+    for (const swaps of groups) {
+      for (const swap of swaps) {
+        const key = swap.quote.output.contractAddress.toLowerCase();
+        const entry = totals.get(key) ?? {
+          total: new Decimal(0),
+          contractAddress: swap.quote.output.contractAddress,
+        };
+        entry.total = entry.total.add(
+          divDecimals(swap.quote.output.amountRaw, swap.quote.output.decimals)
+        );
+        totals.set(key, entry);
+      }
+    }
+    return totals;
+  };
+
+  const oldByToken = sumByToken(failedChains.map((chain) => chain.chainSwaps));
+  const newByToken = sumByToken(perChainResults.map(([, requoted]) => requoted));
+
+  for (const [key, { total: oldTotal, contractAddress }] of oldByToken) {
+    const buffer = bufferForToken(contractAddress);
+    if (buffer === null) continue; // no buffer for this output token → accept (e.g. an unbudgeted group)
+    const newTotal = newByToken.get(key)?.total ?? new Decimal(0);
+    const minAcceptable = oldTotal.minus(buffer);
+    logger.debug('requoteFailedChains:bufferCheck', {
+      outputToken: contractAddress,
+      oldTotal: oldTotal.toFixed(),
+      newTotal: newTotal.toFixed(),
+      buffer: buffer.toFixed(),
+      minAcceptable: minAcceptable.toFixed(),
+    });
+    if (newTotal.lt(minAcceptable)) {
+      const firstFailedChain = failedChains[0];
+      const firstSwap = firstFailedChain?.chainSwaps[0];
+      throw new ExternalServiceError(
+        ERROR_CODES.EXTERNAL_RATES_DRIFT_EXCEEDED,
+        `Source requote exceeded the drift budget for ${contractAddress}: dropped from ${oldTotal.toFixed()} to ${newTotal.toFixed()} (buffer ${buffer.toFixed()})`,
+        {
+          context: {
+            service: firstSwap ? aggregatorService(firstSwap.aggregator) : 'lifi',
+            stepId: createSourceSwapStepId(firstFailedChain?.chainId ?? 0),
+            stepType: 'source_swap',
+            chainId: firstFailedChain?.chainId,
+          },
+          details: {
+            outputToken: contractAddress,
+            oldTotalOutput: oldTotal.toFixed(),
+            newTotalOutput: newTotal.toFixed(),
+            srcBuffer: buffer.toFixed(),
+            minAcceptable: minAcceptable.toFixed(),
+            failedChainIds: failedChains.map((f) => f.chainId).join(','),
+          },
+        }
       );
     }
-  }
-
-  const minAcceptable = oldTotalOutput.minus(srcBuffer);
-  logger.debug('requoteFailedChains:bufferCheck', {
-    oldTotalOutput: oldTotalOutput.toFixed(),
-    newTotalOutput: newTotalOutput.toFixed(),
-    srcBuffer: srcBuffer.toFixed(),
-    minAcceptable: minAcceptable.toFixed(),
-  });
-
-  if (newTotalOutput.lt(minAcceptable)) {
-    const firstFailedChain = failedChains[0];
-    const firstSwap = firstFailedChain?.chainSwaps[0];
-    throw new ExternalServiceError(
-      ERROR_CODES.EXTERNAL_RATES_DRIFT_EXCEEDED,
-      `Source requote exceeded srcBuffer: dropped from ${oldTotalOutput.toFixed()} to ${newTotalOutput.toFixed()} (buffer ${srcBuffer.toFixed()})`,
-      {
-        context: {
-          service: firstSwap ? aggregatorService(firstSwap.aggregator) : 'lifi',
-          stepId: createSourceSwapStepId(firstFailedChain?.chainId ?? 0),
-          stepType: 'source_swap',
-          chainId: firstFailedChain?.chainId,
-        },
-        details: {
-          oldTotalOutput: oldTotalOutput.toFixed(),
-          newTotalOutput: newTotalOutput.toFixed(),
-          srcBuffer: srcBuffer.toFixed(),
-          minAcceptable: minAcceptable.toFixed(),
-          failedChainIds: failedChains.map((f) => f.chainId).join(','),
-        },
-      }
-    );
   }
 
   return perChainResults;
@@ -331,6 +351,10 @@ export const executeSourceSwaps = async (
     creationTime: number;
     cotByChain?: Map<number, SourceChainCOT>;
     srcBuffer: Decimal | null;
+    // Path A only: the native gas legs' drift budget (native units). A Path A batch mixes toToken and
+    // native-gas legs, so the pooled re-quote guard checks each output-token group against its own
+    // buffer. Absent on every non-Path-A route (single output token → single group).
+    gasSrcBuffer?: Decimal;
     reclaimFromActualBalance?: boolean;
   },
   ctx: Pick<
@@ -620,6 +644,7 @@ export const executeSourceSwaps = async (
       const requoted = await requoteFailedChains(
         failedChains.map(({ chainId, chainSwaps }) => ({ chainId, chainSwaps })),
         source.srcBuffer,
+        source.gasSrcBuffer,
         ctx
       );
       pendingChains = new Map(requoted);

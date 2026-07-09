@@ -50,10 +50,13 @@ untested (this map exists because that scoping mistake has bitten twice):
 
 ## 1. Core model
 
-- **COT.** The intermediate settlement token, USDC by default (`CurrencyID.USDC = 1`).
-  `resolveCOT(chainId, chainList, currencyId?)` → `{address, decimals, permitVariant,
-  permitVersion, currencyId}` via `chainList.getTokenByCurrencyId`; defaults to USDC; throws
-  `No COT with currencyId=<n> on chain <chainId>` when absent.
+- **COT.** The intermediate settlement token — a **per-route** currency, USDC by default
+  (`CurrencyID.USDC = 1`). `resolveCOT(chainId, chainList, currencyId?)` → `{address, decimals,
+  permitVariant, permitVersion, currencyId}` via `chainList.getTokenByCurrencyId`; defaults to USDC;
+  throws `No COT with currencyId=<n> on chain <chainId>` when absent. The dynamic-COT fast path (B2,
+  §5/§12.2) re-enters the flow with `cotCurrencyId` overridden to a stable family F (USDC/USDT) so a
+  route whose sources are all F settles in F instead of round-tripping through USDC; every COT read
+  descends from `options.cotCurrencyId`, and `settlementCurrencyId` records the family actually used.
 - **Modes.** `EXACT_OUT` (deliver a fixed output) and `EXACT_IN` (spend fixed inputs). A
   **negative `toAmountRaw`** in EXACT_OUT is a reservation / gas‑only sentinel.
 - **Smart‑account‑only.** A swap is **never dispatched directly from the EOA**. Execution always
@@ -307,6 +310,27 @@ determineSwapRoute(input, opts) -> SwapRoute:
     if toNativeAmountRaw:  exclude dstChain native + toToken; gas → 0 # negative ⇒ reserve dst native exactly
     needTokenSwap   = (toToken ≠ cot)
     inputAmount     = tokenSwapInput + gasSwapInput                   # COT the dst wrapper must receive
+    # ── Fast paths (gated FIRST, skipped on the B2 re-entry) ── unless options.skipFastPaths:
+    #   EXACT_OUT sources aren't explicit, so classify over RES — a rough priority-ordered prefix that
+    #   covers inputAmount (selectRoughEligibleSources, KEEPS dst members — biased toward Path A firing).
+    #   Ladder A → B1 → B2, first hit wins; a builder that throws/returns null falls through (tryFastPath,
+    #   silent debug log). The sizing quotes above are DISCARDED on a Path A hit; B1/B2 proceed; the
+    #   default flow continues inline with zero waste.
+    #   Path A: classifyFastPath(RES) == 'direct' iff EVERY RES member is on toChainId ∧ toToken ≠ cot.
+    #     buildDirectDestinationExactOutRoute selects input→toToken directly on the dst chain (two-pass
+    #     token→gas, §12.1), receiver = EOA. bridge = null, dst.swap = null, directDestination = true.
+    #     STRICT-ALL: either pass short ⇒ throw ⇒ fall back.
+    #   B1 'same-token-out': every RES member ∧ the dst token share one non-COT family F (≠ cot), no gas
+    #     ⇒ buildSameTokenBridgeExactOutRoute: gross the target up through an F-denominated fee quote
+    #     (gross = (toAmount + fulfilment)/(1 − bps); never the preflight USDC quote), fund via a greedy
+    #     split over remote family holdings (native keeps a per-chain gas reserve). Delivered == toAmount
+    #     exactly, bridge EOA→EOA, no swaps. Mayan undershoot / short holdings / no F-quote ⇒ throw ⇒ fall
+    #     back.
+    #   B2 'dynamic-cot': every RES member shares a STABLE family F (USDC/USDT) ≠ dstFamily ∧ ≠ cot, F
+    #     resolves as a COT on dst ⇒ buildDynamicCotExactOutRoute re-enters _exactOutRoute with
+    #     {cotCurrencyId: F, bridgeQuoteResponse: fQuote, skipFastPaths: true, data.sources = family-F
+    #     holdings (allowlist)} → zero source swaps, bridge F, F→toToken dst swap (+ F-denominated gas swap).
+    #     Null F-quote / insufficient F ⇒ fall back to the USDC COT flow.
     provider, minOutputUsdPerSource = resolveBridgeProviderDecision(  # ← AFTER inputAmount  (provider note ↓)
                         dstCOT, roughBridgedPrefix(holdings, inputAmount))
     inputAmount.max = inputAmount + min(DST_BUFFER_PCT·in, DST_BUFFER_MAX_USD)
@@ -316,12 +340,28 @@ determineSwapRoute(input, opts) -> SwapRoute:
   # ── EXACT_IN ──
   if EXACT_IN:
     rawHoldings = resolveSources(sources)   # amountRaw absent ⇒ full balance; requested > balance ⇒ throw
+    # ── Path A: direct destination swap (fast-path, gated FIRST) ── unless options.skipFastPaths:
+    #   classifyFastPath(rawHoldings) == 'direct' iff EVERY source is already on toChainId ∧ toToken ≠ cot.
+    #   Then buildDirectDestinationExactInRoute: each non-identity holding is swapped input→toToken
+    #   directly on the dst chain (liquidateInputHoldings with outputToken = toToken), receiver = EOA;
+    #   holdings that already ARE toToken pass through untouched. bridge = null, dst.swap = null,
+    #   directDestination = true, srcBuffer = null, buffer = 0, inputAmount{min,max} = Σ delivered
+    #   (swapped outputs + identity holdings). STRICT-ALL: any leg that fails to quote ⇒ throw ⇒ the
+    #   tryFastPath envelope falls back to the same-token / COT flow below (silent, debug-logged).
+    #   Gated before same-token so a same-family-on-dst set (e.g. [WETH@Base] → native ETH@Base)
+    #   direct-quotes instead of mis-bridging. B2 (dynamic COT) gates AFTER same-token — see §5 ladder.
     # ── same-token direct bridge (fast-path) ── await tryBuildSameTokenBridgeRoute(rawHoldings):
     #   dstFamily = resolveCurrencyId(toToken); fires iff dstFamily set ∧ ≠ cot ∧ EVERY holding is that family.
     #   ERC-20 AND native both supported (native normalized EADDRESS→ZERO). Bridges the token directly
     #   EOA→EOA: source.swaps=[], dst.swap=null, srcBuffer=0, buffer=0; dst-chain holdings stay at the EOA.
     #   Resolves its OWN provider on the same-token (native dst ⇒ nexus); enrichMayanBridge only when mayan.
     #   USDC dst excluded (USDC IS cot). Mixed-family / non-mesh ⇒ fall through to the COT flow below.
+    # ── B2 dynamic COT (fast-path, AFTER same-token) ── if classifyFastPath(rawHoldings) == 'dynamic-cot':
+    #   every source shares a STABLE family F (USDC/USDT; ETH excluded) ≠ dstFamily ∧ ≠ cot, F resolves as a
+    #   COT on dst. buildDynamicCotExactInRoute re-enters THIS flow with {cotCurrencyId: F, bridgeQuoteResponse:
+    #   fQuote (F-denominated, mid-route), skipFastPaths: true} → sources ARE the COT ⇒ zero source swaps,
+    #   bridge F, one F→toToken dst swap. settlementCurrencyId = F by construction. Null F-quote / insufficient
+    #   F ⇒ fall through to the USDC COT flow below. (EXACT_OUT twin gates over RES + a family-F allowlist, §5.)
     provider, minOutputUsdPerSource = resolveBridgeProviderDecision(  # COT-route pick, on remote-holding USD
                         dstCOT, rawHoldings.filter(non-dst))
     holdings = rawHoldings
@@ -376,12 +416,25 @@ Balance→holding conversion uses `parseUnits` precision (no `Number()` rounding
 carries route‑resolved COT metadata into execution. `extras.assetsUsed` amounts are normalized to
 human strings (falls back to balance metadata for tokens absent from the deployment list).
 
+**`calculateMaxForSwap` haircut denomination.** The max‑amount safety haircut (`max(3%, $3)`) is kept
+in USD space. When a destination token swap exists, it applies in COT space and scales to the output
+token via the swap's own ratio (unchanged). When there is **no** destination swap,
+`destination.inputAmount.max` is denominated in the *destination token itself* — USDC for the default
+COT‑dst flow, but the toToken / family token for the fast paths — so the `$3` floor is converted to
+token units at that token's price (quote‑implied from the source swaps, else its oracle price; neither
+⇒ pct‑only), never subtracted as a bare `3`. For a USDC destination this is byte‑identical to the old
+`delivered − max(3%, $3)`. Pinned by `tests/swap/max.test.ts`.
+
 ---
 
 ## 6. Selection & destination algorithms
 
 ```text
-autoSelectSources(holdings, outputRequired, minOutputUsdPerSource?) -> {quoteResponses, usedCOTs}:  # EXACT_OUT
+autoSelectSources(holdings, outputRequired, minOutputUsdPerSource?, outputToken?) -> {quoteResponses, usedCOTs}:  # EXACT_OUT
+  # outputToken (Path A): select toward a FIXED dst token on EVERY chain instead of the per-chain COT —
+  #   holdings already in it are identities (used directly, no aggregator call); all quotes/convergence
+  #   target it; maxConvergenceExtraRaw caps convergence input growth in its raw units (≈$0.50 via oracle,
+  #   default 0.5 whole tokens). Absent ⇒ the default per-chain COT selection.
   if outputRequired == 0: return empty
   if minOutputUsdPerSource (Mayan):                     # per-chain floor, summed COT+non-COT per chainID
     drop every chain whose Σ USD < minOutputUsdPerSource         # sub-$1.10 legs Mayan won't quote
@@ -398,11 +451,12 @@ autoSelectSources(holdings, outputRequired, minOutputUsdPerSource?) -> {quoteRes
     quoteResponses += q
   if minOutputUsdPerSource ∧ still short ∧ chains were dropped → throw "Mayan bridge requires ≥ $X per source …"
 
-liquidateInputHoldings(holdings) -> QuoteResponse[]:              # EXACT_IN
+liquidateInputHoldings(holdings, outputToken?) -> QuoteResponse[]:  # EXACT_IN
+  target = outputToken ?? each chain's COT                         # Path A passes toToken; default = COT
   for h in holdings:
-    if h is COT: skip                                             # direct transfer, not a swap
-    else: q = quote(h → COT, EXACT_IN); if q: emit q              # null quotes filtered
-  # recipientAddressByChain threaded into every quote request
+    if h is target: skip                                          # identity (COT, or toToken on Path A) → direct transfer
+    else: q = quote(h → target, EXACT_IN); if q: emit q           # null quotes filtered
+  # recipientAddressByChain threaded into every quote request (Path A ⇒ receiver = EOA on the dst chain)
 
 determineDestinationSwaps(cot → toToken, receiver=EOA, taker=executor) -> QuoteResponse | null:
   if toToken == cot: return null                                  # no aggregator call
@@ -488,6 +542,9 @@ eoa_to_ephemeral_transfer:<chain>   # only for assets with eoaBalance>0, grouped
 bridge_fill:<chain>
 destination_swap:<chain>            # only when a dst token OR gas swap exists (COT dst ⇒ omitted)
 # No public sweep step, ever.   No-bridge COT-dst route → ['source_swap'] only.
+# Path A (directDestination) → ['source_swap'] only: no bridge, no destination_swap (the source swap
+#   already delivered toToken to the EOA). EXACT_IN sets the intent's destination amount from
+#   inputAmount.min = Σ delivered (in toToken units, since there is no dst swap output to read).
 ```
 
 **`prepareSwapExecution(route)`** → `{parsedQuotes, eoaToEphemeralTransfers}`:
@@ -527,8 +584,9 @@ executeSourceSwaps(source, ctx, meta) -> BridgeAsset[]:
   await all receipts                                   # only AFTER every chain is dispatched
   on chain failure: requote that chain ONCE (EXACT_IN; taker=receiver = that chain's executor —
                     EOA for the direct-COT dst chain, predictedSafe on non-7702, else ephemeral)
-    # EXACT_OUT: require Σ(output drop over all legs) ≤ srcBuffer  # else EXTERNAL_RATES_DRIFT_EXCEEDED
-    #   pooled, not per-leg: an over-quote can offset an under-quote; the budget defends the bridge total
+    # EXACT_OUT: require Σ(output drop) ≤ buffer, POOLED PER OUTPUT TOKEN  # else EXTERNAL_RATES_DRIFT_EXCEEDED
+    #   toToken legs vs srcBuffer, native gas legs vs gasSrcBuffer (Path A); single-output routes = one
+    #   group. An over-quote offsets an under-quote WITHIN a token; the budget defends the bridge total
     # EXACT_IN:  srcBuffer = null → no guard; accept the re-quote and proceed (Seam 2 re-sizes the dst swap)
     still failing → rethrow                            # no sweep here — cleanup is the orchestrator's job (§11)
   # SEAM 1 (reclaim, when bridge ≠ null): read balanceOf(COT, wrapper) per chain → bridge the ACTUAL
@@ -652,6 +710,7 @@ native EOA‑submit (`execTransaction`, refuses single‑call value mismatch).
 ```text
 # Caller (flows/swap.ts) decides whether to sweep, what, and where — then reads only that:
 resolveFailureSweepCurrencyId(route):                  # → currencyId | null
+  directDestination → null                             # Path A: one atomic batch on one chain, no later stage ⇒ nothing strands
   sameTokenBridge ∧ bridge.provider == 'nexus' → null  # deposits the exact amount directly; nothing strands ⇒ skip
   else → route.settlementCurrencyId                     # COT for swap routes; the bridged family for a Mayan same-token
 chainIds = reachedDestinationSwap                       # stage flag: COT moved to the dst chain once the dst swap starts,
@@ -708,6 +767,16 @@ SEAM 2  balanceOf(COT, dstWrapper)                 ◄ the COT that ACTUALLY arr
 leftover = balanceOf − consumed → ONE transfer(→ EOA)   ◄ skipped if ≤ 0 (replaces the blind Sweeper drain)
 ```
 
+**Path A (directDestination) short‑circuits this graph.** EXACT_OUT selects input→toToken *directly* on
+the dst chain in two passes — token (`toAmount + srcBuffer`), then gas over the REMAINDER of each source
+(`original − token‑pass input`, floor 0; target `toNativeAmount + gasSrcBuffer`) — so there is **no
+bridge and no dst swap**: neither Seam fires and both passes' quotes land in `source.swaps`, one atomic
+batch delivering toToken + gas to the EOA. Selection over‑delivers by construction (the buffer, plus any
+EXACT_OUT convergence over‑quote); the surplus lands at the EOA, same philosophy as the COT flow's
+returned leftover. The only execution‑time drift guard is the source re‑quote, now grouped **per output
+token** (§12.2). EXACT_IN Path A has no buffer and no gas pass — a single input→toToken pass with
+`inputAmount.min = Σ delivered`.
+
 **The asymmetry that made Mayan special.** Source drift is tolerated everywhere by a buffer/range or
 absorbed by re‑derivation — *except* the Mayan per‑leg `effectiveAmountIn64`, the one EXACT, per‑leg,
 signed value with no buffer. A drift that's harmless elsewhere (even an UPWARD drift the pooled source
@@ -732,6 +801,54 @@ a formula over the (already‑updated) inputs, so it tracks them automatically.
   mixed-family / non-mesh inputs fall back to the COT flow. The fast path resolves its **own**
   provider on the same-token (native dst ⇒ `nexus`) and calls `enrichMayanBridge` when that pick is
   Mayan, so it can route Mayan, not just Nexus.
+- **Same-token direct bridge, EXACT_OUT mirror (B1).** The EXACT_OUT twin bridges the family token F
+  directly EOA→EOA too (`sameTokenBridge: true`, `settlementCurrencyId = F`, `swaps: []`,
+  `srcBuffer`/`buffer` = 0), but sizes by **grossing the exact target up through the fee** so the
+  delivered amount is exactly `toAmount`: `gross = (toAmount + fulfilment) / (1 − fulfillmentBps/1e4)`.
+  The fee quote is **F-denominated, fetched mid-route** (`fetchBridgeQuoteForCurrency`) — never the
+  preflight USDC quote (fees follow the quoted token, a decimal trap otherwise); preflight still quotes
+  the COT because `resolveSwapSettlement` only detects same-token for EXACT_IN. Funding is a **greedy
+  split** over priority-ordered remote family holdings (`use = min(available, remaining)`); ERC-20 and
+  **native** F both supported (native holdings keep a per-chain gas reserve via
+  `estimateRepresentativeSwapNativeReserveFee` so the deposit can pay its own gas — never 100% native).
+  `filterExactOutBalances` drops the dst-chain F (= toToken), so funding is all-remote. Provider/enrich
+  is shared with EXACT_IN (`finalizeSameTokenBridge`); Mayan is allowed but, since it prices per leg and
+  can undershoot the exact target (no convergence loop in v1), a `Σ minReceived < toAmount` check throws
+  → fallback. Short holdings / no F-quote / gross-up overflow ⇒ throw ⇒ the COT flow. **Gas is
+  disqualified in v1** (the gate excludes `toNativeAmountRaw`); the future path delivers gas via the
+  RFF's native amount, which `createSwapBridgeIntent` pins to 0 today.
+- **Direct destination (Path A) skips the bridge AND buffers** (EXACT_IN). When every source is
+  already on the destination chain and `toToken ≠ cot`, the route swaps each source input→toToken
+  directly on that chain (receiver = EOA) — no bridge, no destination swap, `directDestination = true`,
+  `srcBuffer = null`, `buffer = 0`. Holdings already equal to toToken pass through untouched;
+  `inputAmount.min = inputAmount.max = Σ delivered` (swapped outputs + those identity holdings), in
+  toToken units. STRICT-ALL: any leg that can't quote makes the builder throw and the fast-path
+  envelope falls back to the same-token / COT flow. The whole route is one atomic per-chain batch
+  (`revertOnFailure`), so the failure sweep is skipped (§11).
+- **Direct destination (Path A) EXACT_OUT keeps buffers, one budget per output token.** The EXACT_OUT
+  twin swaps input→toToken directly on the dst chain too (`directDestination = true`, `bridge = null`,
+  `dst.swap = null`, receiver = EOA), but — unlike EXACT_IN — it DEFENDS the fixed output with a source
+  buffer: `srcBuffer` (toToken units, `min(SRC_BUFFER_PCT, SRC_BUFFER_MAX_USD)`) on the token pass and,
+  when `toNativeAmount` is requested, `gasSrcBuffer` (native units) on the gas pass over the remainder
+  (§12.1). `route.buffer.amount` = the USD sum of both (oracle, fallback $1/token). Because one batch
+  now mixes toToken legs and native gas legs, the source re-quote drift check is **grouped per output
+  token** — the toToken group is checked against `srcBuffer`, the native group against `gasSrcBuffer`;
+  a native under-quote can't be offset by a toToken over-quote (a single-output route is one group ⇒
+  byte-identical to the classic pooled check). Over-delivery lands at the EOA; STRICT-ALL: either pass
+  short ⇒ throw ⇒ fall back.
+- **Dynamic COT (B2) re-enters the flow with a different settlement family** (both modes). When every
+  source shares one STABLE family F (USDC/USDT — ETH excluded) that is ≠ the destination family and ≠
+  the current COT, and F resolves as a COT on the dst chain, the route would otherwise round-trip
+  source→USDC→bridge→USDC→output (two swap hops). Instead B2 re-enters `_exactInRoute`/`_exactOutRoute`
+  with `{cotCurrencyId: F, bridgeQuoteResponse: fQuote, skipFastPaths: true}` (`fQuote` an F-denominated
+  quote fetched mid-route): now the sources ARE the COT, so **zero source swaps**, the bridge carries F,
+  and a single F→output destination swap runs (gas swap, if any, denominated in F). Every COT read
+  descends from `options.cotCurrencyId`, so `settlementCurrencyId` lands as F by construction (a failed
+  route sweeps F, not USDC) and the stray `liquidateInputHoldings(cotCurrencyId: options.cotCurrencyId)`
+  is fixed to the settlement `currencyId`. `skipFastPaths` stops the recursion. EXACT_OUT additionally
+  passes `data.sources = the family-F holdings` as the allowlist so every re-entered source is a COT;
+  EXACT_IN needs none (the gate proved uniformity). A null F-quote or an insufficient-F re-entry throw ⇒
+  fall back to the USDC COT flow. F = USDC is today's flow (a no-op).
 - **Bridge provider (Mayan vs Nexus) is one decision, fed the *bridged* amount.**
   `resolveBridgeProviderDecision` asks the middleware's `getBridgeProvider` (which owns the USD
   threshold + dst `mayanEnabled` checks) about the token that actually crosses chains and how much.
@@ -750,9 +867,11 @@ a formula over the (already‑updated) inputs, so it tracks them automatically.
   zero-address token).
 - **Convergence bounded** — `SAFETY_MULTIPLIER` (1.002); input growth capped at initial +
   `MAX_CONVERGENCE_EXTRA_COT` (0.5); non‑convergence throws (source) / returns null (destination).
-- **Source re‑quote once.** EXACT_OUT: summed leg drops ≤ `srcBuffer` (boundary inclusive), else
-  `EXTERNAL_RATES_DRIFT_EXCEEDED`. EXACT_IN: no guard — accept the re‑quote and proceed. Still failing
-  → re‑throw, no sweep at this layer.
+- **Source re‑quote once.** EXACT_OUT: summed leg drops ≤ `srcBuffer` (boundary inclusive), **pooled
+  per output token** — a Path A batch checks toToken legs against `srcBuffer` and native gas legs against
+  `gasSrcBuffer` in separate groups; every single‑output route is one group (byte‑identical to the
+  classic pooled `Σnew ≥ Σold − srcBuffer`) — else `EXTERNAL_RATES_DRIFT_EXCEEDED`. EXACT_IN: no guard —
+  accept the re‑quote and proceed. Still failing → re‑throw, no sweep at this layer.
 - **Destination re‑quote twice** (`MAX_RETRIES`; 3 attempts), then re‑throw without a fallback sweep.
   EXACT_IN has no rate‑tolerance guard on the re‑quote; EXACT_OUT keeps its frozen `[floor, ceiling]`.
 - **Aggregator failures non‑fatal** at the aggregation layer.
@@ -813,7 +932,7 @@ decision §5/§6 (routing) and §9 (execution) spread across stages, distilled p
 "for *this* leg, what is the `taker`/`receiver` of the swap, and the `owner`/`spender`/recipient of
 each permit/transfer/approve?" without re‑reading the whole flow.
 
-**Pinned end‑to‑end by `tests/swap/characterization/swap.test.ts`** (25 scenarios — see its
+**Pinned end‑to‑end by `tests/swap/characterization/swap.test.ts`** (61 scenarios — see its
 [`README.md`](../../tests/swap/characterization/README.md)). That suite drives the **real** `swap()`,
 decodes every emitted SBC / Safe‑MultiSend / EOA‑signed call, and asserts these exact
 `owner`/`spender`/`taker`/`receiver`/`amount` values across both modes, both providers (Nexus /
@@ -829,6 +948,8 @@ just the token swap — §5).
 if chain == dstChain ∧ ¬destination_swap:  receiver = EOA            # COT is the final token here → deliver direct
 else:                                       receiver = WRAPPER(chain)    # output stays at the wrapper, to be bridged / dst-swapped
 # cross-chain legs IGNORE destination_swap — only the same-as-dst leg can short-circuit to the EOA.
+# Path A (directDestination): EVERY source is on dstChain with no destination_swap, so every leg takes
+#   the receiver = EOA short-circuit — the swap delivers toToken straight to the user, taker = WRAPPER.
 
 # ── source swaps (per chain; §9 for dispatch)  ERC-20 legs fund EOA→WRAPPER first, then swap ──
 (7702) → SBC  [permit/approve(owner=EOA, spender=EPH),  transferFrom(EOA→EPH),  approve(EPH→ROUTER),  swap(pullFrom=EPH,  receiver=<above>)]
@@ -839,6 +960,8 @@ else:                                       receiver = WRAPPER(chain)    # outpu
 if ¬destination_swap:  EOA                          # no dst swap → bridge delivers straight to the EOA
 elif 7702(dstChain):   EPH                          # 7702 dst + dst swap → ephemeral runs the swap
 else:                  SAFE                          # non-7702 dst + dst swap → predicted Safe runs it
+# Same-token direct bridge (EXACT_IN) AND its EXACT_OUT mirror (B1) have no dst swap → recv = EOA; the
+#   pre-bridge calls below are the fast-path funding+deposit shape (COT/token still at the EOA).
 
 # ── pre-bridge calls (per source chain ≠ dstChain; §9)  the vault is ALWAYS driven by EPH ──
 #   funding? = [permit/approve(owner=EOA, spender=WRAPPER), transferFrom(EOA→WRAPPER)] — present only on the

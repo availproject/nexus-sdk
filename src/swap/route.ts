@@ -9,14 +9,16 @@ import type { ChainListType, TokenInfo } from '../domain';
 import { ZERO_ADDRESS } from '../domain/constants/addresses';
 import { Errors } from '../domain/errors';
 import { logger } from '../domain/utils';
+import { buildQuoteRequest } from '../bridge/intent/quote-request';
 import { isNativeAddress } from '../services/addresses';
 import { convertGasToToken } from '../services/intent';
+import { estimateRepresentativeSwapNativeReserveFee } from '../services/swap-native-reserve-fee';
 import { divDecimals, mulDecimals } from '../services/math';
 import { MAYAN_MIN_USD_PER_LEG, quoteMayanLegs } from '../services/mayan';
 import { equalFold } from '../services/strings';
 import type { MiddlewareSwapPreflightClient } from '../transport';
-import type { Aggregator } from './aggregators/types';
-import { autoSelectSources } from './algorithms/auto-select';
+import type { Aggregator, Holding, QuoteResponse } from './aggregators/types';
+import { autoSelectSources, type SourceHolding } from './algorithms/auto-select';
 import {
   destinationGasSwapExactIn,
   destinationSwapWithExactIn,
@@ -24,6 +26,7 @@ import {
 } from './algorithms/destination';
 import { liquidateInputHoldings } from './algorithms/liquidate';
 import {
+  B2_STABLE_CURRENCY_IDS,
   DST_BUFFER_MAX_USD,
   DST_BUFFER_PCT,
   DST_RECLAIM_DEDUCTION_PCT,
@@ -32,7 +35,7 @@ import {
   SRC_BUFFER_MAX_USD,
   SRC_BUFFER_PCT,
 } from './constants';
-import { type CurrencyID, resolveCOT, resolveSwapSettlement } from './cot';
+import { type CurrencyID, resolveCOT, resolveCurrencyId, resolveSwapSettlement } from './cot';
 import { predictSafeAccountAddress } from './safe/predict';
 import type {
   AssetsUsedEntry,
@@ -70,6 +73,10 @@ export type RouteOptions = {
   walletPathHints: Map<number, WalletPath>;
   quoteAddressHints?: Map<number, Hex>;
   forceMayan: boolean;
+  // Recursion stop for the B2 dynamic-COT re-entry: when a fast path re-enters `_exactInRoute` /
+  // `_exactOutRoute` with an overridden `cotCurrencyId`, it sets this so the re-entered call runs
+  // the default COT flow instead of re-classifying and looping. Never set by public callers.
+  skipFastPaths?: boolean;
 };
 
 type WalletDecision = {
@@ -296,23 +303,174 @@ const sumHoldingsUsd = (
 // already on the destination chain. It deliberately overshoots by EXACT_OUT_PROVIDER_BUFFER
 // and may diverge from the real selection — the kept Mayan checks in `enrichMayanBridge`
 // are the backstop for that.
+// Greedy leading prefix of `holdings` (already priority-ordered) whose cumulative USD value first
+// reaches `targetUsd` — the shared core of the EXACT_OUT provider survey and the RES gate. Includes
+// the holding that tips the running total over the target; reads only `value`, so it preserves H.
+export const greedyUsdPrefix = <H extends { value: number }>(
+  holdings: H[],
+  targetUsd: Decimal
+): H[] => {
+  const prefix: H[] = [];
+  let accumulated = new Decimal(0);
+  for (const holding of holdings) {
+    if (accumulated.gte(targetUsd)) break;
+    accumulated = accumulated.plus(holding.value);
+    prefix.push(holding);
+  }
+  return prefix;
+};
+
+// RES — Roughly Estimated Sources. EXACT_OUT fast-path gating can't see explicit sources, so it
+// estimates them: the greedy priority-ordered prefix that covers the destination requirement (× a
+// small headroom), KEEPING dst-chain members (unlike the provider survey below, which drops them).
+// `sortSourcesByPriority` puts dst-chain holdings first, so RES is structurally biased toward Path A
+// firing, and the prefix ≈ what `autoSelectSources` would pick. It is ONLY the gate population;
+// funding walks use the full holding sets so RES headroom never starves buffers/fees.
+export const selectRoughEligibleSources = <H extends { value: number }>(
+  holdings: H[],
+  dstUsd: Decimal,
+  headroom: number = EXACT_OUT_PROVIDER_BUFFER
+): H[] => greedyUsdPrefix(holdings, dstUsd.mul(1 + headroom));
+
 const roughSelectBridgedSourcesForProviderCheck = (
   holdings: { chainID: number; tokenAddress: Hex; value: number }[],
   dstUsd: Decimal,
   dstChainId: number
 ): { bridgedAmountUsd: Decimal; roughSources: { chainID: number; tokenAddress: Hex }[] } => {
-  const target = dstUsd.mul(1 + EXACT_OUT_PROVIDER_BUFFER);
-  let accumulated = new Decimal(0);
-  let bridgedAmountUsd = new Decimal(0);
-  const roughSources: { chainID: number; tokenAddress: Hex }[] = [];
-  for (const holding of holdings) {
-    if (accumulated.gte(target)) break;
-    accumulated = accumulated.plus(holding.value);
-    if (holding.chainID === dstChainId) continue;
-    bridgedAmountUsd = bridgedAmountUsd.plus(holding.value);
-    roughSources.push({ chainID: holding.chainID, tokenAddress: holding.tokenAddress });
+  const bridged = selectRoughEligibleSources(holdings, dstUsd).filter(
+    (holding) => holding.chainID !== dstChainId
+  );
+  return {
+    bridgedAmountUsd: bridged.reduce((sum, holding) => sum.plus(holding.value), new Decimal(0)),
+    roughSources: bridged.map((holding) => ({
+      chainID: holding.chainID,
+      tokenAddress: holding.tokenAddress,
+    })),
+  };
+};
+
+// ---------------------------------------------------------------------------
+// Fast-path classification & fallback envelope
+// ---------------------------------------------------------------------------
+
+export type FastPathClass =
+  | { kind: 'direct' } // A — direct destination-chain swap (both modes)
+  | { kind: 'same-token-out'; familyId: number } // B1 — same-family direct bridge, EXACT_OUT mirror
+  | { kind: 'dynamic-cot'; familyId: number } // B2 — dynamic COT selection (both modes)
+  | null;
+
+// The single bridgeable mesh family shared by ALL members, or undefined when any member is non-mesh
+// or the families differ. Strict-ALL: one disqualifying member forces the default flow (no hybrids).
+const uniformMemberFamily = (
+  chainList: ChainListType,
+  members: { chainID: number; tokenAddress: Hex }[]
+): number | undefined => {
+  if (members.length === 0) return undefined;
+  const first = resolveCurrencyId(chainList, members[0].chainID, members[0].tokenAddress);
+  if (first == null) return undefined;
+  return members.every(
+    (member) => resolveCurrencyId(chainList, member.chainID, member.tokenAddress) === first
+  )
+    ? first
+    : undefined;
+};
+
+const cotResolvesOnChain = (
+  chainList: ChainListType,
+  chainId: number,
+  currencyId: number
+): boolean => {
+  try {
+    resolveCOT(chainId, chainList, currencyId);
+    return true;
+  } catch {
+    return false;
   }
-  return { bridgedAmountUsd, roughSources };
+};
+
+// Whether the destination token IS the COT (⇒ no destination token swap). Defensive: a chain with no
+// COT can't have toToken == COT, so treat it as needing a swap.
+const toTokenIsCot = (
+  chainList: ChainListType,
+  chainId: number,
+  toTokenAddress: Hex,
+  cotCurrencyId: number
+): boolean => {
+  try {
+    return equalFold(toTokenAddress, resolveCOT(chainId, chainList, cotCurrencyId).address);
+  } catch {
+    return false;
+  }
+};
+
+// Pure routing-time classifier for the three fast paths. `members` are the sources to judge:
+// resolved holdings for EXACT_IN, the RES prefix for EXACT_OUT. Check order encodes the product
+// decision A → B1 → B2; the first match wins and the caller gates on it (silent fallback on null).
+export const classifyFastPath = (input: {
+  chainList: ChainListType;
+  members: { chainID: number; tokenAddress: Hex }[];
+  dstChainId: number;
+  dstTokenAddress: Hex;
+  cotCurrencyId: number;
+  needsTokenSwap: boolean;
+  hasGasRequest: boolean;
+  toAmountRaw: bigint;
+  mode: SwapMode;
+}): FastPathClass => {
+  const { chainList, members, dstChainId, dstTokenAddress, cotCurrencyId } = input;
+  if (members.length === 0) return null;
+
+  // A — direct destination swap: every member already on the destination chain AND a token swap is
+  // actually needed. toToken == COT (needsTokenSwap false) is already optimal via the no-bridge
+  // COT-dst path (swap.md §8), so A stays out of its way.
+  if (input.needsTokenSwap && members.every((member) => member.chainID === dstChainId)) {
+    return { kind: 'direct' };
+  }
+
+  const familyId = uniformMemberFamily(chainList, members);
+  if (familyId == null) return null;
+  const dstFamily = resolveCurrencyId(chainList, dstChainId, dstTokenAddress);
+
+  // B1 — same-family direct bridge (EXACT_OUT mirror of buildSameTokenBridgeRoute). All members and
+  // the destination token are one non-COT family; no gas leg (disqualified in v1); positive output.
+  if (
+    input.mode === SwapMode.EXACT_OUT &&
+    familyId === dstFamily &&
+    familyId !== cotCurrencyId &&
+    !input.hasGasRequest &&
+    input.toAmountRaw > 0n
+  ) {
+    return { kind: 'same-token-out', familyId };
+  }
+
+  // B2 — dynamic COT: all members share a STABLE family F distinct from both the destination family
+  // and the current COT, and F resolves as a COT on the destination chain (the resolveCOT throw,
+  // caught here, is the guard). ETH is excluded by B2_STABLE_CURRENCY_IDS.
+  if (
+    familyId !== dstFamily &&
+    familyId !== cotCurrencyId &&
+    B2_STABLE_CURRENCY_IDS.has(familyId as CurrencyID) &&
+    cotResolvesOnChain(chainList, dstChainId, familyId)
+  ) {
+    return { kind: 'dynamic-cot', familyId };
+  }
+
+  return null;
+};
+
+// Fast-path fallback envelope: a builder that throws or returns null falls through to the next gate
+// / the default flow (silent, debug-logged). ONLY builder calls are wrapped — the default flow keeps
+// its fail-loud semantics.
+const tryFastPath = async (
+  path: NonNullable<FastPathClass>['kind'],
+  build: () => Promise<SwapRoute | null>
+): Promise<SwapRoute | null> => {
+  try {
+    return await build();
+  } catch (error) {
+    logger.debug('swap.fastpath:fallback', { path, error: String(error) });
+    return null;
+  }
 };
 
 const BRIDGE_FEE_ESTIMATE_OVERSELECT = 0.1;
@@ -620,6 +778,27 @@ const computeBridgeFees = (params: {
   };
 };
 
+// Fetch a bridge-fee quote denominated in a specific currency's token on the destination chain.
+// The fast paths bridge a NON-USDC family token, whose fees follow the quoted token — so they must
+// quote that token mid-route rather than reuse the preflight USDC quote (a decimal trap). Returns
+// null on any failure (unknown token, getQuote reject) → the caller falls back to the COT flow.
+const fetchBridgeQuoteForCurrency = async (
+  dstChainId: number,
+  currencyId: number,
+  options: Pick<RouteOptions, 'chainList' | 'middlewareClient'>
+): Promise<BridgeQuoteResponse | null> => {
+  try {
+    const token = options.chainList.getTokenByCurrencyId(dstChainId, currencyId);
+    const quoteToken = isNativeAddress(token.contractAddress)
+      ? options.chainList.getNativeToken(dstChainId)
+      : token;
+    const request = buildQuoteRequest(options.chainList, quoteToken, dstChainId);
+    return await options.middlewareClient.getQuote(request);
+  } catch {
+    return null;
+  }
+};
+
 // ---------------------------------------------------------------------------
 // EXACT_OUT route
 // ---------------------------------------------------------------------------
@@ -765,6 +944,45 @@ async function _exactOutRoute(
     gasInputAmount: gasInputAmount.toString(),
     inputAmount: inputAmount.toString(),
   });
+
+  // ── Fast paths (skipped on the B2 re-entry). Classified over RES — the rough priority-ordered
+  // prefix that covers the dst requirement — since EXACT_OUT sources aren't explicit. Path A discards
+  // the sizing quotes above and re-selects input→toToken directly; the default flow continues inline.
+  if (!options.skipFastPaths) {
+    const roughEligible = selectRoughEligibleSources(holdings, inputAmount);
+    const fastPathClass = classifyFastPath({
+      chainList,
+      members: roughEligible.map((holding) => ({
+        chainID: holding.chainID,
+        tokenAddress: holding.tokenAddress,
+      })),
+      dstChainId: data.toChainId,
+      dstTokenAddress: data.toTokenAddress,
+      cotCurrencyId,
+      needsTokenSwap,
+      hasGasRequest: needsGasSwap,
+      toAmountRaw: data.toAmountRaw,
+      mode: SwapMode.EXACT_OUT,
+    });
+    if (fastPathClass?.kind === 'direct') {
+      const direct = await tryFastPath('direct', () =>
+        buildDirectDestinationExactOutRoute(data, holdings, options)
+      );
+      if (direct) return direct;
+    }
+    if (fastPathClass?.kind === 'same-token-out') {
+      const sameToken = await tryFastPath('same-token-out', () =>
+        buildSameTokenBridgeExactOutRoute(data, holdings, options, fastPathClass.familyId)
+      );
+      if (sameToken) return sameToken;
+    }
+    if (fastPathClass?.kind === 'dynamic-cot') {
+      const b2 = await tryFastPath('dynamic-cot', () =>
+        buildDynamicCotExactOutRoute(data, holdings, options, fastPathClass.familyId)
+      );
+      if (b2) return b2;
+    }
+  }
 
   // Resolve the bridge provider now that the dst COT requirement (inputAmount, ≈ USD since the
   // COT is USDC) is known. A rough greedy survey of priority-ordered holdings tells the server
@@ -1163,6 +1381,382 @@ type ExactInHolding = {
   symbol: string;
 };
 
+// Native-normalized token equality: two addresses are the same swap token when they match, or both
+// resolve to native (swap internals carry native as EADDRESS; some balances use ZERO_ADDRESS).
+const isSameSwapToken = (a: Hex, b: Hex): boolean =>
+  equalFold(a, b) || (isNativeAddress(a) && isNativeAddress(b));
+
+/**
+ * Path A — direct destination-chain swap (EXACT_IN). Every source is already on the destination
+ * chain, so there's no bridge and no destination swap: each non-identity holding is swapped
+ * input→toToken directly (receiver = EOA), and holdings that already ARE the destination token pass
+ * through untouched. The whole route is one atomic per-chain batch delivering toToken to the EOA.
+ *
+ * Strict-ALL: if any leg fails to quote, the route can't deliver the full amount, so it throws and
+ * the fast-path envelope falls back to the default COT flow (which may bridge or double-hop instead).
+ */
+async function buildDirectDestinationExactInRoute(
+  data: { toChainId: number; toTokenAddress: Hex },
+  holdings: ExactInHolding[],
+  options: RouteOptions
+): Promise<SwapRoute> {
+  const { aggregators, chainList, oraclePrices, dstTokenInfo, walletPathHints } = options;
+  const dstChainId = data.toChainId;
+  const toTokenAddress = data.toTokenAddress;
+
+  // Split identity holdings (already the destination token) from those needing a swap.
+  const identityHoldings = holdings.filter((h) => isSameSwapToken(h.tokenAddress, toTokenAddress));
+  const swapHoldings = holdings.filter((h) => !isSameSwapToken(h.tokenAddress, toTokenAddress));
+
+  const walletDecision = resolveWalletDecisions({
+    sourceChainIds: new Set(holdings.map((h) => h.chainID)),
+    walletPathHints,
+  });
+  // No destination swap on this chain (the swap output IS the final token) → recipient = EOA.
+  const recipientAddressByChain = buildSourceRecipientAddressByChain({
+    chainIds: holdings.map((h) => h.chainID),
+    sourceExecutionPaths: walletDecision.sourceExecutionPaths,
+    destinationChainId: dstChainId,
+    destinationHasSwap: false,
+    options,
+  });
+  // Taker = the per-chain wrapper (Calibur ephemeral / predicted Safe) that executes the swap.
+  const userAddressByChain = buildExecutorAddressByChain(walletDecision.sourceExecutionPaths, options);
+
+  const swaps = await liquidateInputHoldings({
+    holdings: swapHoldings,
+    aggregators,
+    chainList,
+    cotCurrencyId: options.cotCurrencyId,
+    userAddressByChain,
+    recipientAddressByChain,
+    outputToken: { contractAddress: toTokenAddress },
+  });
+
+  if (swaps.length !== swapHoldings.length) {
+    throw Errors.quoteFailed(
+      `Direct destination swap incomplete: ${swaps.length}/${swapHoldings.length} legs quoted`
+    );
+  }
+
+  // Total delivered = Σ swap outputs (toToken) + Σ identity holdings (already toToken).
+  const swappedDelivered = swaps.reduce(
+    (sum, quote) => sum.plus(divDecimals(quote.quote.output.amountRaw, quote.quote.output.decimals)),
+    new Decimal(0)
+  );
+  const identityDelivered = identityHoldings.reduce(
+    (sum, holding) => sum.plus(divDecimals(holding.amountRaw, holding.decimals)),
+    new Decimal(0)
+  );
+  const totalDelivered = swappedDelivered.plus(identityDelivered);
+
+  const assetsUsed: AssetsUsedEntry[] = holdings.map((holding) => ({
+    chainID: holding.chainID,
+    tokenAddress: holding.tokenAddress,
+    symbol: holding.symbol,
+    decimals: holding.decimals,
+    amount: formatUnits(holding.amountRaw, holding.decimals),
+  }));
+
+  return {
+    type: SwapMode.EXACT_IN,
+    // No bridge/cleanup on Path A (directDestination skips the sweep), but keep the COT for the
+    // public surface's settlement currency.
+    settlementCurrencyId: options.cotCurrencyId,
+    sameTokenBridge: false,
+    directDestination: true,
+    source: {
+      swaps,
+      creationTime: Date.now(),
+      cotByChain: new Map<number, SourceChainCOT>(),
+      srcBuffer: null,
+      reclaimFromActualBalance: false,
+    },
+    bridge: null,
+    destination: {
+      chainId: dstChainId,
+      eoaToEphemeral: null,
+      inputAmount: { min: totalDelivered, max: totalDelivered },
+      swap: { tokenSwap: null, gasSwap: null },
+      getDstSwap: async () => null,
+    },
+    buffer: { amount: '0' },
+    dstTokenInfo,
+    extras: { aggregators, oraclePrices, balances: options.balances, assetsUsed },
+    sourceExecutionPaths: walletDecision.sourceExecutionPaths,
+  };
+}
+
+// Oracle lookups key native as ZERO_ADDRESS, but swap internals carry it as EADDRESS — normalize.
+const oracleKey = (tokenAddress: Hex): Hex =>
+  isNativeAddress(tokenAddress) ? ZERO_ADDRESS : tokenAddress;
+
+const holdingKey = (chainID: number, tokenAddress: Hex): string =>
+  `${chainID}:${tokenAddress.toLowerCase()}`;
+
+/**
+ * Path A — direct destination-chain swap (EXACT_OUT), with a two-pass carry for gas. All sources are
+ * on the destination chain, so each is swapped input→toToken directly (receiver = EOA) with no bridge
+ * and no destination swap. When a native gas amount is also requested, a second pass swaps the
+ * REMAINDER of each source (original − what the token pass consumed) input→native. Both passes'
+ * quotes land in `source.swaps` on the dst chain — one atomic batch delivering toToken + gas to the EOA.
+ *
+ * The selection target is buffered (`toAmount + srcBuffer`, `toNative + gasSrcBuffer`) so a
+ * re-quote can't drop the delivery below the requested amount; over-delivery lands at the EOA.
+ * STRICT-ALL: if either pass can't cover its target, the builder throws and the fast-path envelope
+ * falls back to the default COT flow.
+ */
+async function buildDirectDestinationExactOutRoute(
+  data: { toChainId: number; toTokenAddress: Hex; toAmountRaw: bigint; toNativeAmountRaw?: bigint },
+  holdings: SourceHolding[],
+  options: RouteOptions
+): Promise<SwapRoute> {
+  const { aggregators, chainList, oraclePrices, dstTokenInfo, walletPathHints, cotCurrencyId } =
+    options;
+  const dstChainId = data.toChainId;
+  const destinationChain = chainList.getChainByID(dstChainId);
+  const toTokenAddress = data.toTokenAddress;
+
+  // Path A executes only on the dst chain (no bridge) → only dst-chain holdings are usable.
+  const dstHoldings = holdings.filter((holding) => holding.chainID === dstChainId);
+
+  const walletDecision = resolveWalletDecisions({
+    sourceChainIds: new Set([dstChainId]),
+    walletPathHints,
+  });
+  const recipientAddressByChain = buildSourceRecipientAddressByChain({
+    chainIds: [dstChainId],
+    sourceExecutionPaths: walletDecision.sourceExecutionPaths,
+    destinationChainId: dstChainId,
+    destinationHasSwap: false,
+    options,
+  });
+  const userAddressByChain = buildExecutorAddressByChain(walletDecision.sourceExecutionPaths, options);
+
+  const priceUsdFor = (tokenAddress: Hex): Decimal | undefined =>
+    oraclePrices.find((price) => equalFold(price.tokenAddress, oracleKey(tokenAddress)))?.priceUsd;
+  // ≈$0.50 of the output token in raw units (convergence extra-input cap). No price ⇒ undefined
+  // (autoSelectSources defaults to 0.5 whole tokens).
+  const convergenceExtraRaw = (tokenAddress: Hex, decimals: number): Decimal | undefined => {
+    const price = priceUsdFor(tokenAddress);
+    if (!price || price.lte(0)) return undefined;
+    return new Decimal('0.5').div(price).mul(Decimal.pow(10, decimals));
+  };
+  const toUsd = (amountHuman: Decimal, tokenAddress: Hex): Decimal => {
+    const price = priceUsdFor(tokenAddress);
+    return price ? amountHuman.mul(price) : amountHuman; // fallback: treat as USD (≈$1)
+  };
+
+  // ── Pass 1: token ──
+  const toTokenHuman = divDecimals(data.toAmountRaw, dstTokenInfo.decimals);
+  const srcBuffer = applyBuffer(
+    toTokenHuman,
+    SRC_BUFFER_PCT,
+    SRC_BUFFER_MAX_USD,
+    oraclePrices,
+    oracleKey(toTokenAddress)
+  );
+  const tokenResult = await autoSelectSources({
+    holdings: dstHoldings,
+    outputRequired: toTokenHuman.plus(srcBuffer),
+    aggregators,
+    chainList,
+    cotCurrencyId,
+    outputToken: {
+      contractAddress: toTokenAddress,
+      decimals: dstTokenInfo.decimals,
+      maxConvergenceExtraRaw: convergenceExtraRaw(toTokenAddress, dstTokenInfo.decimals),
+    },
+    userAddressByChain,
+    recipientAddressByChain,
+  });
+  const tokenDeliveredRaw =
+    tokenResult.quoteResponses.reduce((sum, quote) => sum + quote.quote.output.amountRaw, 0n) +
+    tokenResult.usedCOTs.reduce(
+      (sum, used) => sum + mulDecimals(used.amountUsed, used.holding.decimals),
+      0n
+    );
+  if (tokenDeliveredRaw < data.toAmountRaw) {
+    throw Errors.quoteFailed('Direct destination EXACT_OUT: token selection cannot cover toAmount');
+  }
+
+  // ── Pass 2: gas (remainder-carry) ──
+  const requestedNativeAmountRaw =
+    data.toNativeAmountRaw != null && data.toNativeAmountRaw > 0n ? data.toNativeAmountRaw : 0n;
+  let gasSwaps: QuoteResponse[] = [];
+  let gasSrcBuffer: Decimal | undefined;
+  if (requestedNativeAmountRaw > 0n) {
+    const nativeDecimals = destinationChain.nativeCurrency.decimals;
+    const remainderHoldings = subtractConsumedHoldings(dstHoldings, tokenResult);
+    const toNativeHuman = divDecimals(requestedNativeAmountRaw, nativeDecimals);
+    gasSrcBuffer = applyBuffer(
+      toNativeHuman,
+      SRC_BUFFER_PCT,
+      SRC_BUFFER_MAX_USD,
+      oraclePrices,
+      ZERO_ADDRESS
+    );
+    const gasResult = await autoSelectSources({
+      holdings: remainderHoldings,
+      outputRequired: toNativeHuman.plus(gasSrcBuffer),
+      aggregators,
+      chainList,
+      cotCurrencyId,
+      outputToken: {
+        contractAddress: EADDRESS as Hex,
+        decimals: nativeDecimals,
+        maxConvergenceExtraRaw: convergenceExtraRaw(ZERO_ADDRESS, nativeDecimals),
+      },
+      userAddressByChain,
+      recipientAddressByChain,
+    });
+    gasSwaps = gasResult.quoteResponses;
+    const gasDeliveredRaw = gasSwaps.reduce((sum, quote) => sum + quote.quote.output.amountRaw, 0n);
+    if (gasDeliveredRaw < requestedNativeAmountRaw) {
+      throw Errors.quoteFailed('Direct destination EXACT_OUT: gas selection cannot cover toNativeAmount');
+    }
+  }
+
+  const swaps = [...tokenResult.quoteResponses, ...gasSwaps];
+  if (swaps.length === 0) {
+    throw Errors.quoteFailed('Direct destination EXACT_OUT produced no swap legs');
+  }
+
+  // buffer.amount = USD equivalent of both buffers (oracle, fallback $1/token).
+  const bufferUsd = toUsd(srcBuffer, toTokenAddress).plus(
+    gasSrcBuffer ? toUsd(gasSrcBuffer, ZERO_ADDRESS) : new Decimal(0)
+  );
+
+  // Consumed input per source (aggregated across both passes) → assetsUsed.
+  const consumedByKey = new Map<string, { holding: Holding; raw: bigint }>();
+  for (const swap of swaps) {
+    const key = holdingKey(swap.chainID, swap.holding.tokenAddress);
+    const prev = consumedByKey.get(key);
+    consumedByKey.set(key, {
+      holding: swap.holding,
+      raw: (prev?.raw ?? 0n) + swap.quote.input.amountRaw,
+    });
+  }
+  const assetsUsed: AssetsUsedEntry[] = [...consumedByKey.values()].map(({ holding, raw }) => ({
+    chainID: holding.chainID,
+    tokenAddress: holding.tokenAddress,
+    symbol: holding.symbol,
+    decimals: holding.decimals,
+    amount: formatUnits(raw, holding.decimals),
+  }));
+
+  return {
+    type: SwapMode.EXACT_OUT,
+    settlementCurrencyId: cotCurrencyId,
+    sameTokenBridge: false,
+    directDestination: true,
+    source: {
+      swaps,
+      creationTime: Date.now(),
+      cotByChain: new Map<number, SourceChainCOT>(),
+      srcBuffer,
+      gasSrcBuffer,
+      reclaimFromActualBalance: false,
+    },
+    bridge: null,
+    destination: {
+      chainId: dstChainId,
+      eoaToEphemeral: null,
+      // EXACT_OUT Path A delivers the exact toAmount straight from the source swaps; the dst-swap
+      // input bounds are unread for this shape.
+      inputAmount: { min: new Decimal(0), max: new Decimal(0) },
+      swap: { tokenSwap: null, gasSwap: null },
+      getDstSwap: async () => null,
+    },
+    buffer: { amount: bufferUsd.toString() },
+    dstTokenInfo,
+    extras: { aggregators, oraclePrices, balances: options.balances, assetsUsed },
+    sourceExecutionPaths: walletDecision.sourceExecutionPaths,
+  };
+}
+
+// Remainder holdings after a token pass: original − consumed input per source (floor 0), with USD
+// value scaled proportionally so the gas pass's prefix survey stays accurate.
+const subtractConsumedHoldings = (
+  holdings: SourceHolding[],
+  result: { quoteResponses: QuoteResponse[]; usedCOTs: { holding: Holding; amountUsed: Decimal }[] }
+): SourceHolding[] => {
+  const consumedByKey = new Map<string, bigint>();
+  const add = (chainID: number, tokenAddress: Hex, raw: bigint) => {
+    const key = holdingKey(chainID, tokenAddress);
+    consumedByKey.set(key, (consumedByKey.get(key) ?? 0n) + raw);
+  };
+  for (const quote of result.quoteResponses) {
+    add(quote.chainID, quote.holding.tokenAddress, quote.quote.input.amountRaw);
+  }
+  for (const used of result.usedCOTs) {
+    add(used.holding.chainID, used.holding.tokenAddress, mulDecimals(used.amountUsed, used.holding.decimals));
+  }
+  const remainders: SourceHolding[] = [];
+  for (const holding of holdings) {
+    const consumed = consumedByKey.get(holdingKey(holding.chainID, holding.tokenAddress)) ?? 0n;
+    const remainderRaw = holding.amountRaw > consumed ? holding.amountRaw - consumed : 0n;
+    if (remainderRaw > 0n) {
+      const ratio = new Decimal(remainderRaw.toString()).div(holding.amountRaw.toString());
+      remainders.push({
+        ...holding,
+        amountRaw: remainderRaw,
+        value: new Decimal(holding.value).mul(ratio).toNumber(),
+      });
+    }
+  }
+  return remainders;
+};
+
+// Resolve the bridge provider on the same-token being bridged, assemble the bridge object, and
+// enrich it when the pick is Mayan. Shared by both same-token builders — EXACT_IN derives delivery
+// from the gross, EXACT_OUT grosses up from the target, then each finalizes here. forceMayan
+// short-circuits inside resolveBridgeProviderDecision; native is priced like any token (the caller
+// already normalized it to ZERO_ADDRESS).
+const finalizeSameTokenBridge = async (
+  params: {
+    assets: BridgeAsset[];
+    grossBridged: Decimal;
+    tokenAmount: Decimal;
+    fees: NonNullable<SwapRoute['bridge']>['estimatedFees'];
+    dstChainId: number;
+    dstTokenAddress: Hex;
+    dstTokenDecimals: number;
+  },
+  options: RouteOptions
+): Promise<NonNullable<SwapRoute['bridge']>> => {
+  const provider = (
+    await resolveBridgeProviderDecision(
+      {
+        context: 'fast-path',
+        dstChainId: params.dstChainId,
+        dstTokenToCheck: params.dstTokenAddress,
+        amountRawForRequest: mulDecimals(params.grossBridged, params.dstTokenDecimals),
+        roughSources: params.assets.map((asset) => ({
+          chainID: asset.chainID,
+          tokenAddress: asset.contractAddress,
+        })),
+      },
+      options
+    )
+  ).provider;
+  const bridge: NonNullable<SwapRoute['bridge']> = {
+    amount: params.grossBridged,
+    amounts: {
+      tokenAmount: params.tokenAmount,
+      gasInCot: new Decimal(0),
+      totalAmount: params.grossBridged,
+    },
+    assets: params.assets,
+    chainID: params.dstChainId,
+    decimals: params.dstTokenDecimals,
+    tokenAddress: params.dstTokenAddress,
+    estimatedFees: params.fees,
+    provider,
+  };
+  return provider === 'mayan' ? enrichMayanBridge(bridge, options) : bridge;
+};
+
 /**
  * EXACT_IN same-token direct bridge: when `resolveSwapSettlement` reports `sameTokenBridge` (every
  * source is the same non-COT bridgeable mesh family as the destination token, ERC-20 or native),
@@ -1229,42 +1823,20 @@ async function buildSameTokenBridgeRoute(
       );
     }
     // The fast path participates in provider selection too, querying the server with the actual
-    // bridged same-token (not the COT) and its raw amount so non-$1 tokens price correctly. Native is
-    // priced like any other token (already normalized to ZERO_ADDRESS above); forceMayan still
-    // short-circuits inside resolveBridgeProviderDecision.
-    const provider = (
-      await resolveBridgeProviderDecision(
-        {
-          context: 'fast-path',
-          dstChainId,
-          dstTokenToCheck: dstTokenAddress,
-          amountRawForRequest: mulDecimals(bridgedToken, dstTokenInfo.decimals),
-          roughSources: assets.map((asset) => ({
-            chainID: asset.chainID,
-            tokenAddress: asset.contractAddress,
-          })),
-        },
-        options
-      )
-    ).provider;
-    bridge = {
-      amount: bridgedToken,
-      amounts: {
+    // bridged same-token (not the COT). Native is priced like any other token (already normalized to
+    // ZERO_ADDRESS above); forceMayan still short-circuits inside resolveBridgeProviderDecision.
+    bridge = await finalizeSameTokenBridge(
+      {
+        assets,
+        grossBridged: bridgedToken,
         tokenAmount: deliveredFromBridge,
-        gasInCot: new Decimal(0),
-        totalAmount: bridgedToken,
+        fees,
+        dstChainId,
+        dstTokenAddress,
+        dstTokenDecimals: dstTokenInfo.decimals,
       },
-      assets,
-      chainID: dstChainId,
-      decimals: dstTokenInfo.decimals,
-      tokenAddress: dstTokenAddress,
-      estimatedFees: fees,
-      provider,
-    };
-    // Mayan enrichment (per-source quotes + final validation) only for a Mayan pick.
-    if (provider === 'mayan') {
-      bridge = await enrichMayanBridge(bridge, options);
-    }
+      options
+    );
   }
 
   const finalDelivered = deliveredFromBridge.plus(dstChainBalance);
@@ -1310,6 +1882,198 @@ async function buildSameTokenBridgeRoute(
   };
 }
 
+/**
+ * B1 — EXACT_OUT same-token direct bridge (mirror of buildSameTokenBridgeRoute). Every source and the
+ * destination token share one non-COT mesh family F, so bridge F directly EOA→EOA — no swaps, no
+ * buffers. Grosses up the exact target through the bridge fee so delivered == toAmount:
+ * `gross = (toAmount + fulfilment) / (1 − fulfillmentBps/1e4)`, fees from an F-denominated quote (never
+ * the preflight USDC quote). Funds via a greedy split over priority-ordered remote family holdings
+ * (native holdings keep a per-chain gas reserve). Shortfall / Mayan undershoot / no F-quote ⇒ throw ⇒
+ * the fast-path envelope falls back to the COT flow.
+ */
+async function buildSameTokenBridgeExactOutRoute(
+  data: { toChainId: number; toTokenAddress: Hex; toAmountRaw: bigint },
+  holdings: SourceHolding[],
+  options: RouteOptions,
+  settlementCurrencyId: number
+): Promise<SwapRoute> {
+  const { chainList, oraclePrices, dstTokenInfo, walletPathHints, aggregators, publicClientList } =
+    options;
+  const dstChainId = data.toChainId;
+  const dstTokenAddress: Hex = isNativeAddress(dstTokenInfo.contractAddress)
+    ? ZERO_ADDRESS
+    : (dstTokenInfo.contractAddress as Hex);
+
+  // F-denominated bridge-fee quote (fees follow the bridged token — the preflight USDC quote would be
+  // a decimal trap). Null ⇒ fall back.
+  const fQuote = await fetchBridgeQuoteForCurrency(dstChainId, settlementCurrencyId, options);
+  if (!fQuote) {
+    throw Errors.internal('Same-token EXACT_OUT: bridge fee quote unavailable');
+  }
+
+  // Gross up the exact target so delivered == toAmount after fees.
+  const toAmountHuman = divDecimals(data.toAmountRaw, dstTokenInfo.decimals);
+  const fulfilment = divDecimals(fQuote.destination.fulfillmentFeeToken, dstTokenInfo.decimals);
+  const bpsFraction = new Decimal(fQuote.fulfillmentBps).div(10000);
+  if (bpsFraction.gte(1)) {
+    throw Errors.internal('Same-token EXACT_OUT: fulfillmentBps >= 100%');
+  }
+  const grossBridged = toAmountHuman.plus(fulfilment).div(new Decimal(1).minus(bpsFraction));
+
+  // Greedy split over priority-ordered remote family-F holdings. Native holdings keep a per-chain gas
+  // reserve so the deposit tx can pay for itself (never consume 100% native).
+  const familyHoldings = holdings.filter(
+    (holding) =>
+      holding.chainID !== dstChainId &&
+      resolveCurrencyId(chainList, holding.chainID, holding.tokenAddress) === settlementCurrencyId
+  );
+  const assets: BridgeAsset[] = [];
+  const usedHoldings: { holding: SourceHolding; used: Decimal }[] = [];
+  let remaining = grossBridged;
+  for (const holding of familyHoldings) {
+    if (remaining.lte(0)) break;
+    let available = divDecimals(holding.amountRaw, holding.decimals);
+    if (isNativeAddress(holding.tokenAddress)) {
+      const reserveRaw = await estimateRepresentativeSwapNativeReserveFee({
+        chain: chainList.getChainByID(holding.chainID),
+        publicClient: publicClientList.get(holding.chainID),
+      });
+      available = Decimal.max(
+        available.minus(divDecimals(reserveRaw, holding.decimals)),
+        new Decimal(0)
+      );
+    }
+    const use = Decimal.min(available, remaining);
+    if (use.lte(0)) continue;
+    assets.push({
+      chainID: holding.chainID,
+      contractAddress: isNativeAddress(holding.tokenAddress) ? ZERO_ADDRESS : holding.tokenAddress,
+      decimals: holding.decimals,
+      eoaBalance: use,
+      ephemeralBalance: new Decimal(0),
+    });
+    usedHoldings.push({ holding, used: use });
+    remaining = remaining.minus(use);
+  }
+  if (remaining.gt(0)) {
+    throw Errors.insufficientBalance(
+      `Same-token EXACT_OUT: family holdings cannot cover the grossed-up target (${remaining.toString()} short)`
+    );
+  }
+
+  const fees = computeBridgeFees({
+    quoteResponse: fQuote,
+    grossBridged,
+    dstCOTDecimals: dstTokenInfo.decimals,
+  });
+  const bridge = await finalizeSameTokenBridge(
+    {
+      assets,
+      grossBridged,
+      tokenAmount: toAmountHuman,
+      fees,
+      dstChainId,
+      dstTokenAddress,
+      dstTokenDecimals: dstTokenInfo.decimals,
+    },
+    options
+  );
+
+  // Mayan prices per leg and can undershoot the exact target (no convergence loop in v1). If the
+  // enriched quotes don't cover toAmount, fall back to the COT flow (which converges to it).
+  if (bridge.provider === 'mayan' && bridge.mayanQuotesBySource) {
+    const delivered = [...bridge.mayanQuotesBySource.values()].reduce(
+      (sum, quote) => sum.plus(new Decimal(quote.minReceived.toString())),
+      new Decimal(0)
+    );
+    if (delivered.lt(toAmountHuman)) {
+      throw Errors.insufficientBalance(
+        'Same-token EXACT_OUT: Mayan quotes undershoot the exact target'
+      );
+    }
+  }
+
+  const walletDecision = resolveWalletDecisions({
+    sourceChainIds: new Set(assets.map((asset) => asset.chainID)),
+    walletPathHints,
+  });
+  const assetsUsed: AssetsUsedEntry[] = usedHoldings.map(({ holding, used }) => ({
+    chainID: holding.chainID,
+    tokenAddress: holding.tokenAddress,
+    symbol: holding.symbol,
+    decimals: holding.decimals,
+    amount: used.toString(),
+  }));
+
+  return {
+    type: SwapMode.EXACT_OUT,
+    settlementCurrencyId,
+    sameTokenBridge: true,
+    source: {
+      swaps: [],
+      creationTime: Date.now(),
+      cotByChain: new Map<number, SourceChainCOT>(),
+      srcBuffer: new Decimal(0),
+    },
+    bridge,
+    destination: {
+      chainId: dstChainId,
+      eoaToEphemeral: null,
+      inputAmount: { min: toAmountHuman, max: toAmountHuman },
+      swap: { tokenSwap: null, gasSwap: null },
+      getDstSwap: async () => null,
+    },
+    buffer: { amount: '0' },
+    dstTokenInfo,
+    extras: { aggregators, oraclePrices, balances: options.balances, assetsUsed },
+    sourceExecutionPaths: walletDecision.sourceExecutionPaths,
+  };
+}
+
+/**
+ * B2 — dynamic COT (both modes). Every source shares one STABLE family F ≠ the destination family and
+ * ≠ the current COT, and F resolves as a COT on the destination chain. Rather than settle through USDC
+ * (source→USDC→bridge→USDC→output — two swap hops), re-enter the same route flow with `cotCurrencyId = F`
+ * so the sources ARE the COT: zero source swaps, bridge F, one F→output destination swap. The re-entry
+ * threads an F-denominated bridge-fee quote and sets `skipFastPaths` to stop the recursion. A null
+ * F-quote or a re-entry throw (e.g. insufficient F) ⇒ the fast-path envelope falls back to the COT flow.
+ */
+async function buildDynamicCotExactInRoute(
+  data: { sources?: { chainId: number; amountRaw?: bigint; tokenAddress: Hex }[]; toChainId: number; toTokenAddress: Hex },
+  options: RouteOptions,
+  familyId: number
+): Promise<SwapRoute | null> {
+  const fQuote = await fetchBridgeQuoteForCurrency(data.toChainId, familyId, options);
+  if (!fQuote) return null;
+  // EXACT_IN needs no source allowlist — the classifier already proved every holding is family F.
+  return _exactInRoute(data, {
+    ...options,
+    cotCurrencyId: familyId,
+    bridgeQuoteResponse: fQuote,
+    skipFastPaths: true,
+  });
+}
+
+async function buildDynamicCotExactOutRoute(
+  data: { toChainId: number; toTokenAddress: Hex; toAmountRaw: bigint; toNativeAmountRaw?: bigint; sources?: Source[] },
+  holdings: SourceHolding[],
+  options: RouteOptions,
+  familyId: number
+): Promise<SwapRoute | null> {
+  const fQuote = await fetchBridgeQuoteForCurrency(data.toChainId, familyId, options);
+  if (!fQuote) return null;
+  // EXACT_OUT sources aren't explicit, so restrict the re-entry to the family-F holdings (the allowlist
+  // `filterExactOutBalances` honors) → every source is a COT ⇒ zero source swaps. Insufficient F inside
+  // ⇒ throws `insufficientBalance` ⇒ tryFastPath falls back.
+  const sources: Source[] = holdings
+    .filter((h) => resolveCurrencyId(options.chainList, h.chainID, h.tokenAddress) === familyId)
+    .map((h) => ({ chainId: h.chainID, tokenAddress: h.tokenAddress }));
+  return _exactOutRoute(
+    { ...data, sources },
+    { ...options, cotCurrencyId: familyId, bridgeQuoteResponse: fQuote, skipFastPaths: true }
+  );
+}
+
 // ---------------------------------------------------------------------------
 // EXACT_IN route
 // ---------------------------------------------------------------------------
@@ -1332,6 +2096,31 @@ async function _exactInRoute(
     throw Errors.insufficientBalance('No usable balances for swap route');
   }
 
+  // ── Fast paths (skipped on the B2 re-entry, which sets skipFastPaths). Classified once; Path A
+  // gates before the same-token dispatch, B2 after it (see the ladder). ──
+  const fastPathClass = options.skipFastPaths
+    ? null
+    : classifyFastPath({
+        chainList,
+        members: rawHoldings.map((h) => ({ chainID: h.chainID, tokenAddress: h.tokenAddress })),
+        dstChainId: data.toChainId,
+        dstTokenAddress: data.toTokenAddress,
+        cotCurrencyId: options.cotCurrencyId,
+        needsTokenSwap: !toTokenIsCot(chainList, data.toChainId, data.toTokenAddress, options.cotCurrencyId),
+        hasGasRequest: false,
+        toAmountRaw: 0n,
+        mode: SwapMode.EXACT_IN,
+      });
+  // Path A — direct destination swap. Classified BEFORE the same-token dispatch so a
+  // same-family-on-dst-chain set (e.g. [WETH@Base] → native ETH@Base) direct-quotes input→toToken
+  // instead of hitting the same-token bridge and delivering the wrong token.
+  if (fastPathClass?.kind === 'direct') {
+    const direct = await tryFastPath('direct', () =>
+      buildDirectDestinationExactInRoute(data, rawHoldings, options)
+    );
+    if (direct) return direct;
+  }
+
   // Settlement decision — shared with preflight via `resolveSwapSettlement` so the fee-quote token
   // and the route can't drift. `sameTokenBridge` ⇒ every source is the same non-COT mesh family as
   // the destination, so bridge that token directly EOA→EOA (skips the COT round-trip + buffers and
@@ -1346,6 +2135,15 @@ async function _exactInRoute(
   );
   if (settlement.sameTokenBridge) {
     return buildSameTokenBridgeRoute(data, rawHoldings, options, settlement.currencyId);
+  }
+
+  // B2 — dynamic COT: gated AFTER the same-token dispatch (a same-family-as-dst set already returned
+  // above). Re-enters this flow with cotCurrencyId = F so the sources ARE the COT (zero source swaps).
+  if (fastPathClass?.kind === 'dynamic-cot') {
+    const b2 = await tryFastPath('dynamic-cot', () =>
+      buildDynamicCotExactInRoute(data, options, fastPathClass.familyId)
+    );
+    if (b2) return b2;
   }
 
   // COT round-trip: settle in the COT. `settlement.currencyId === options.cotCurrencyId` here (any
@@ -1464,7 +2262,10 @@ async function _exactInRoute(
           holdings: nonCotHoldings,
           aggregators,
           chainList: options.chainList,
-          cotCurrencyId: options.cotCurrencyId,
+          // Settlement currency (= options.cotCurrencyId in the default flow, = F on the B2 re-entry),
+          // NOT options.cotCurrencyId — matches the tryResolveCOT split above and keeps every COT read
+          // in this flow on one source.
+          cotCurrencyId: currencyId,
           userAddressByChain,
           recipientAddressByChain,
         })

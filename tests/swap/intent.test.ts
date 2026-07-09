@@ -533,4 +533,35 @@ describe('createSwapIntent', () => {
 
     expect(intent.destination.gas.amount).toBe('0.01');
   });
+
+  it('Path A: reads the gas amount from a native-output source swap when gasSwap is null', async () => {
+    // Path A EXACT_OUT delivers gas via a native-output SOURCE swap (not destination.swap.gasSwap),
+    // so the intent gas display sums the native-output source legs on the dst chain.
+    const NATIVE = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' as Hex;
+    const nativeGasLeg = makeQuoteResponse({
+      chainID: ARB_CHAIN,
+      quote: {
+        input: { contractAddress: USDC_ARB, amount: '50', amountRaw: 50000000n, decimals: 6, value: 50, symbol: 'USDC' },
+        output: { contractAddress: NATIVE, amount: '0.02', amountRaw: 20000000000000000n, decimals: 18, value: 50, symbol: 'ETH' },
+        txData: { approvalAddress: '0x1111111111111111111111111111111111111111' as Hex, tx: { to: '0x2222222222222222222222222222222222222222' as Hex, data: '0x' as Hex, value: '0x0' as Hex } },
+      },
+    });
+    const route = makeRoute({
+      directDestination: true,
+      // one toToken leg (USDC output, ignored for gas) + one native gas leg
+      source: { swaps: [makeQuoteResponse(), nativeGasLeg], creationTime: Date.now(), srcBuffer: new Decimal(0) },
+      destination: {
+        chainId: ARB_CHAIN,
+        eoaToEphemeral: null,
+        inputAmount: { min: new Decimal(0), max: new Decimal(0) },
+        swap: { tokenSwap: null, gasSwap: null },
+        getDstSwap: async () => null,
+      },
+    });
+    const input: SwapData = { mode: SwapMode.EXACT_OUT, data: { toChainId: ARB_CHAIN, toTokenAddress: WETH, toAmountRaw: 1000000000000000000n } };
+
+    const intent = createSwapIntent(route, input, makeChainList() as unknown as ChainListType);
+
+    expect(intent.destination.gas.amount).toBe('0.02');
+  });
 });

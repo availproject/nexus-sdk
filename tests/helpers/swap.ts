@@ -173,6 +173,35 @@ export const makeSwapChainList = (): ChainListType => {
   };
 };
 
+// The default chainList only resolves USDC via getTokenByCurrencyId (so USDT/ETH don't resolve as a
+// COT — keeping the B2 negative case honest). The same-token / dynamic-COT fast paths need the USDT
+// mesh family to resolve as a COT on the dst chain, so this variant resolves USDT too.
+export const makeSwapChainListWithUsdtCot = (): ChainListType => {
+  const chainList = makeSwapChainList();
+  const usdtByChain: Record<number, Hex> = {
+    [ARB_CHAIN]: USDT_ARB,
+    [OP_CHAIN]: USDT_OP,
+    [BASE_CHAIN]: USDT_BASE,
+  };
+  const usdcByChain: Record<number, Hex> = {
+    [ARB_CHAIN]: USDC_ARB,
+    [OP_CHAIN]: USDC_OP,
+    [BASE_CHAIN]: USDC_BASE,
+  };
+  chainList.getTokenByCurrencyId = vi
+    .fn()
+    .mockImplementation((chainId: number, currencyId: number) => {
+      if (currencyId === CurrencyID.USDT && usdtByChain[chainId]) {
+        return { contractAddress: usdtByChain[chainId], decimals: 6, symbol: 'USDT', name: 'Tether USD', logo: '', currencyId: CurrencyID.USDT, permitVariant: 2, permitVersion: 1 };
+      }
+      if (currencyId === CurrencyID.USDC && usdcByChain[chainId]) {
+        return { contractAddress: usdcByChain[chainId], decimals: 6, symbol: 'USDC', name: 'USD Coin', logo: '', currencyId: CurrencyID.USDC, permitVariant: 2, permitVersion: 1 };
+      }
+      throw new Error(`No token for currencyId=${currencyId} chainId=${chainId}`);
+    });
+  return chainList;
+};
+
 export const makeDstTokenInfo = (overrides?: Partial<TokenInfo>): TokenInfo => ({
   contractAddress: WETH,
   decimals: 18,

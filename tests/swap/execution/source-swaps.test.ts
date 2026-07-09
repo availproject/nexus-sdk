@@ -1330,6 +1330,68 @@ describe('executeSourceSwaps', () => {
     expect(aggregator.getQuotes).toHaveBeenCalledTimes(1);
   });
 
+  // Path A EXACT_OUT batches mix a toToken leg and a native gas leg on one chain. The pooled requote
+  // guard is per output token: the toToken group is checked against srcBuffer, the native group
+  // against gasSrcBuffer — a toToken over-quote can't paper over a native shortfall.
+  const makeMixedLegs = (tokenOutRaw: bigint, gasOutRaw: bigint) => {
+    const base = makeQuoteResponse().quote;
+    const tokenLeg = makeQuoteResponse(ARB_CHAIN, {
+      quote: { ...base, output: { ...base.output, contractAddress: USDC_ARB, amount: '0', amountRaw: tokenOutRaw, decimals: 6 } },
+      holding: { chainID: ARB_CHAIN, tokenAddress: WETH, amountRaw: 1000000000000000000n, decimals: 18, symbol: 'WETH' },
+    });
+    const gasLeg = makeQuoteResponse(ARB_CHAIN, {
+      quote: {
+        ...base,
+        input: { ...base.input, contractAddress: USDC_ARB, decimals: 6 },
+        output: { ...base.output, contractAddress: EADDRESS, amount: '0', amountRaw: gasOutRaw, decimals: 18, symbol: 'ETH' },
+      },
+      holding: { chainID: ARB_CHAIN, tokenAddress: USDC_ARB, amountRaw: 3000000000n, decimals: 6, symbol: 'USDC' },
+    });
+    return { tokenLeg, gasLeg };
+  };
+  const mixedCtx = () => ({
+    ...makeCtx('ephemeral'),
+    middlewareClient: makeSwapExecutionMiddlewareClient({
+      submitSBCs: vi
+        .fn()
+        .mockResolvedValueOnce([makeSbcFailure(ARB_CHAIN, 'retry me')])
+        .mockResolvedValueOnce([makeSbcSuccess(ARB_CHAIN, '0xbbb' as Hex)]),
+    }),
+  });
+  const noMeta = (): SwapMetadata => ({ src: [], dst: null, has_xcs: false, intent_request_hash: null });
+
+  it('per-output-token requote: accepts when each group drops within its own buffer', async () => {
+    // toToken (USDC) drops 5 (< srcBuffer 10); native (ETH) drops 0.005 (< gasSrcBuffer 0.01) → both ok.
+    const { tokenLeg, gasLeg } = makeMixedLegs(3000000000n, 1000000000000000000n);
+    tokenLeg.aggregator = { supportsChain: () => true, getQuotes: vi.fn().mockResolvedValue([{ ...tokenLeg.quote, output: { ...tokenLeg.quote.output, amountRaw: 2995000000n } }]) } as unknown as Aggregator;
+    gasLeg.aggregator = { supportsChain: () => true, getQuotes: vi.fn().mockResolvedValue([{ ...gasLeg.quote, output: { ...gasLeg.quote.output, amountRaw: 995000000000000000n } }]) } as unknown as Aggregator;
+
+    // Resolves = the pooled guard accepted both groups (the returned assets coalesce per chain and
+    // are unused on Path A, which has no bridge).
+    await expect(
+      executeSourceSwaps(
+        { swaps: [tokenLeg, gasLeg], creationTime: Date.now(), srcBuffer: new Decimal(10), gasSrcBuffer: new Decimal('0.01') },
+        mixedCtx(),
+        noMeta()
+      )
+    ).resolves.toBeDefined();
+  });
+
+  it('per-output-token requote: an over-budget native drop throws even when the toToken group is fine', async () => {
+    // toToken (USDC) drops 5 (< srcBuffer 10) but native (ETH) drops 0.1 (> gasSrcBuffer 0.01) → reject.
+    const { tokenLeg, gasLeg } = makeMixedLegs(3000000000n, 1000000000000000000n);
+    tokenLeg.aggregator = { supportsChain: () => true, getQuotes: vi.fn().mockResolvedValue([{ ...tokenLeg.quote, output: { ...tokenLeg.quote.output, amountRaw: 2995000000n } }]) } as unknown as Aggregator;
+    gasLeg.aggregator = { supportsChain: () => true, getQuotes: vi.fn().mockResolvedValue([{ ...gasLeg.quote, output: { ...gasLeg.quote.output, amountRaw: 900000000000000000n } }]) } as unknown as Aggregator;
+
+    await expect(
+      executeSourceSwaps(
+        { swaps: [tokenLeg, gasLeg], creationTime: Date.now(), srcBuffer: new Decimal(10), gasSrcBuffer: new Decimal('0.01') },
+        mixedCtx(),
+        noMeta()
+      )
+    ).rejects.toThrow(/drift/i);
+  });
+
   it('rejects when per-leg drops are each within srcBuffer but pool exceeds it', async () => {
     const chainA = 42161;
     const chainB = 10;

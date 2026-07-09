@@ -220,6 +220,11 @@ export type SwapRoute = {
   // True iff the same-token direct bridge fired (no source/destination swap). A Nexus same-token
   // bridge deposits the exact amount directly, so nothing strands → the failure sweep is skipped.
   sameTokenBridge: boolean;
+  // True iff the direct-destination fast path (Path A) fired: ALL sources on the destination chain,
+  // swapped input→toToken directly with no bridge and no destination swap. The whole route is one
+  // atomic batch on one chain (revertOnFailure) → nothing strands on failure, so the failure sweep
+  // is skipped (`resolveFailureSweepCurrencyId` returns null).
+  directDestination?: boolean;
   source: {
     swaps: QuoteResponse[];
     creationTime: number;
@@ -229,6 +234,11 @@ export type SwapRoute = {
     // buffered input. EXACT_IN carries `null` — it re-quotes a failed leg and proceeds
     // with no drift guard (Seam 2 re-sizes the dst swap to whatever COT actually lands).
     srcBuffer: Decimal | null;
+    // Path A only: the drift budget for the native gas legs, in native-token units (the token
+    // legs use `srcBuffer` in toToken units). A Path A batch mixes toToken legs and native gas
+    // legs, so the pooled re-quote guard is checked per output token — each group against its own
+    // buffer. Absent on every non-Path-A route (which carry a single output token).
+    gasSrcBuffer?: Decimal;
     // EXACT_IN reclaim (set only when a bridge runs): execution bridges the COT that actually
     // landed at the source wrapper (`balanceOf`) rather than the conservative quote floor, so
     // positive source slippage reaches the destination instead of being swept at the source.

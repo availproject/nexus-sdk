@@ -1,3 +1,5 @@
+import { CurrencyID } from './cot';
+
 // ---------------------------------------------------------------------------
 // Addresses
 // ---------------------------------------------------------------------------
@@ -52,6 +54,19 @@ export const GAS_TO_COT_BUFFER = 1.02;
 // little past the destination requirement so the threshold gate isn't starved by the
 // difference between the survey and the real `autoSelectSources` pick.
 export const EXACT_OUT_PROVIDER_BUFFER = 0.01;
+
+// ---------------------------------------------------------------------------
+// Fast-path settlement families
+// ---------------------------------------------------------------------------
+
+// B2 dynamic-COT selection re-settles a swap through whichever STABLE family ALL its sources already
+// hold (USDC or USDT), skipping the input↔USDC round-trip when the sources are USDT-everywhere, etc.
+// ETH is deliberately excluded: its volatility makes it a poor common settlement token for a route
+// that isn't already ETH-shaped (B1 same-token still bridges ETH↔ETH directly).
+export const B2_STABLE_CURRENCY_IDS: ReadonlySet<CurrencyID> = new Set([
+  CurrencyID.USDC,
+  CurrencyID.USDT,
+]);
 
 // ---------------------------------------------------------------------------
 // Token symbol normalization

@@ -546,6 +546,9 @@ describe('calculateMaxForSwap characterization', () => {
       },
     ]);
     expect(result.maxAmountRaw).toBeGreaterThan(0n);
-    expect(options.chainList.getTokenByAddress).not.toHaveBeenCalledWith(ARB_CHAIN, UNLISTED_ARB);
+    // Fast-path classification probes each source's mesh family via getTokenByAddress; for an
+    // unlisted token that throws, `resolveCurrencyId` swallows the error, so the lookup IS attempted
+    // now but the throw is tolerated and max stays usable (proven by the sources + positive max above).
+    expect(options.chainList.getTokenByAddress).toHaveBeenCalledWith(ARB_CHAIN, UNLISTED_ARB);
   });
 });

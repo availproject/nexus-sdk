@@ -314,6 +314,33 @@ describe('createSwapBridgeIntent', () => {
     ).toBe('3.5');
   });
 
+  it('EXACT_OUT same-token (B1): per-chain split sources, destination = the exact target, no gas', () => {
+    // B1 EXACT_OUT bridges the family token directly from EOA-held (fast-path) assets. The destination
+    // is derived as Σassets − fees; B1 grosses the split up to cover the fees, so with a zero-fee quote
+    // the delivered amount == the split sum == the exact toAmount, and there is no gas leg.
+    const bridge = makeBridge(
+      [
+        { chainID: ARB_CHAIN, contractAddress: USDC_ARB, decimals: 6, eoaBalance: new Decimal('2'), ephemeralBalance: new Decimal(0) },
+        { chainID: ETH_CHAIN, contractAddress: ETH_USDC, decimals: 6, eoaBalance: new Decimal('1'), ephemeralBalance: new Decimal(0) },
+      ],
+      { amount: new Decimal('3'), amounts: { tokenAmount: new Decimal('3'), gasInCot: new Decimal(0), totalAmount: new Decimal('3') } }
+    );
+    const intent = createSwapBridgeIntent({
+      bridge,
+      assets: bridge.assets,
+      chainList: makeChainList(),
+      recipient: EOA_ADDRESS,
+      ephemeralAddress: EPHEMERAL_ADDRESS,
+    });
+
+    const byChain = new Map(intent.selectedSources.map((s) => [s.chain.id, s.amountRaw]));
+    expect(byChain.get(ARB_CHAIN)).toBe(2_000_000n);
+    expect(byChain.get(ETH_CHAIN)).toBe(1_000_000n);
+    expect(intent.destination.amount.toString()).toBe('3'); // the exact toAmount
+    expect(intent.destination.nativeAmountRaw).toBe(0n);
+    expect(intent.recipientAddress).toBe(EOA_ADDRESS);
+  });
+
   it('marks the intent as nexus by default and does not stamp mayanQuote on sources', () => {
     const bridge = makeBridge([makeBridgeAsset(ARB_CHAIN, USDC_ARB)]);
     const chainList = makeChainList();

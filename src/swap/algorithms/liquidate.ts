@@ -24,6 +24,10 @@ type LiquidateInput = {
   cotCurrencyId: CurrencyID;
   userAddressByChain: Map<number, `0x${string}`>;
   recipientAddressByChain: Map<number, Hex>;
+  // Path A (direct destination swap): liquidate straight to a fixed destination token on every chain
+  // instead of each chain's COT. When set, the per-chain COT lookup is bypassed and holdings equal to
+  // this token are skipped as identities. Absent ⇒ the default COT round-trip (byte-identical).
+  outputToken?: { contractAddress: Hex };
 };
 
 // ---------------------------------------------------------------------------
@@ -41,20 +45,24 @@ type LiquidateInput = {
  * 5. Return QuoteResponse[]
  */
 export const liquidateInputHoldings = async (input: LiquidateInput): Promise<QuoteResponse[]> => {
-  const { holdings, aggregators, userAddressByChain, recipientAddressByChain } = input;
+  const { holdings, aggregators, userAddressByChain, recipientAddressByChain, outputToken } = input;
 
-  // Filter non-COT holdings
-  const nonCOT = holdings.filter((h) => {
+  // Filter out holdings already in the target token — the per-chain COT by default, or the fixed
+  // destination token for Path A. Those transfer directly without a swap.
+  const swappable = holdings.filter((h) => {
+    if (outputToken) return !equalFold(h.tokenAddress, outputToken.contractAddress);
     const cot = input.chainList.getTokenByCurrencyId(h.chainID, input.cotCurrencyId);
     if (!cot) return true; // no COT for chain = treat as non-COT
     return !equalFold(h.tokenAddress, cot.contractAddress);
   });
 
-  if (nonCOT.length === 0) return [];
+  if (swappable.length === 0) return [];
 
-  // Build EXACT_IN requests: each non-COT → COT on same chain
-  const requests = nonCOT.map((h) => {
-    const cot = input.chainList.getTokenByCurrencyId(h.chainID, input.cotCurrencyId);
+  // Build EXACT_IN requests: each holding → the target token on the same chain.
+  const requests = swappable.map((h) => {
+    const outputTokenAddress = outputToken
+      ? outputToken.contractAddress
+      : input.chainList.getTokenByCurrencyId(h.chainID, input.cotCurrencyId).contractAddress;
     const { userAddress, recipientAddress } = requireRequestAddresses(
       h.chainID,
       userAddressByChain,
@@ -65,7 +73,7 @@ export const liquidateInputHoldings = async (input: LiquidateInput): Promise<Quo
       recipientAddress,
       chainId: h.chainID,
       inputToken: h.tokenAddress,
-      outputToken: cot.contractAddress,
+      outputToken: outputTokenAddress,
       seriousness: QuoteSeriousness.SERIOUS,
       type: QuoteType.EXACT_IN as const,
       inputAmount: h.amountRaw,
@@ -76,13 +84,13 @@ export const liquidateInputHoldings = async (input: LiquidateInput): Promise<Quo
 
   // Build QuoteResponses, filtering out nulls
   const quoteResponses: QuoteResponse[] = [];
-  for (let i = 0; i < nonCOT.length; i++) {
+  for (let i = 0; i < swappable.length; i++) {
     const { quote, aggregator } = results[i];
     if (!quote) continue;
     quoteResponses.push({
-      chainID: nonCOT[i].chainID,
+      chainID: swappable[i].chainID,
       quote,
-      holding: nonCOT[i],
+      holding: swappable[i],
       aggregator,
     });
   }
