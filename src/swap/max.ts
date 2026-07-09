@@ -1,5 +1,7 @@
 import Decimal from 'decimal.js';
 import type { Hex } from 'viem';
+import { ZERO_ADDRESS } from '../domain/constants/addresses';
+import { isNativeAddress } from '../services/addresses';
 import { mulDecimals } from '../services/math';
 import { equalFold } from '../services/strings';
 import { MAX_SWAP_HAIRCUT_MIN_USDC, MAX_SWAP_HAIRCUT_PCT } from './constants';
@@ -156,11 +158,15 @@ function applyDeliveredTokenHaircut(route: SwapRoute): Decimal {
     return clampToPositive(delivered.mul(usdBasis.minus(haircutUsd)).div(usdBasis));
   }
 
-  // Same-token pure bridge: no quotes to imply a price → oracle price of the delivered token.
+  // Same-token pure bridge: no quotes to imply a price → oracle price of the delivered token. Oracle
+  // entries key native as ZERO_ADDRESS, but a native dst token carries EADDRESS — normalize so ETH↔ETH
+  // bridges hit the oracle floor (max(3%, $3/price)) instead of falling through to pct-only.
   const priceUsd = findOraclePriceUsd(
     route.extras.oraclePrices,
     route.destination.chainId,
-    route.dstTokenInfo.contractAddress as Hex
+    isNativeAddress(route.dstTokenInfo.contractAddress)
+      ? ZERO_ADDRESS
+      : (route.dstTokenInfo.contractAddress as Hex)
   );
   if (!priceUsd || priceUsd.lte(0)) return pctOnly();
   const floorToken = new Decimal(MAX_SWAP_HAIRCUT_MIN_USDC).div(priceUsd);

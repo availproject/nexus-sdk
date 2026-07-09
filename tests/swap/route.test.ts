@@ -2675,6 +2675,46 @@ describe('determineSwapRoute', () => {
       // Default selection targets the COT, not PEPE.
       expect(vi.mocked(autoSelectSources).mock.calls[0][0].outputToken).toBeUndefined();
     });
+
+    it('falls back when the direct selection covers toAmount but NOT the buffer (no drift margin)', async () => {
+      // Regression: autoSelectSources returns partial coverage WITHOUT throwing. Delivering exactly
+      // toAmount (100 PEPE) would leave srcBuffer(1) as a phantom drift budget a requote could spend
+      // below toAmount. The builder must require the BUFFERED target (101), so this falls back.
+      const input: SwapData = { mode: SwapMode.EXACT_OUT, data: { toChainId: ARB_CHAIN, toTokenAddress: PEPE, toAmountRaw: 100000000000000000000n } };
+      vi.mocked(determineDestinationSwaps).mockResolvedValue(sizingQuote());
+      vi.mocked(autoSelectSources)
+        .mockResolvedValueOnce({ quoteResponses: [leg(WETH, 1000000000000000000n, 18, PEPE, 100000000000000000000n, 18)], usedCOTs: [] }) // exactly 100 PEPE = toAmount, < 101 buffered
+        .mockResolvedValue({ quoteResponses: [leg(WETH, 1000000000000000000n, 18, USDC_ARB, 200000000n, 6)], usedCOTs: [] }); // default fallback
+      const route = await determineSwapRoute(input, makeRouteOptions({ dstTokenInfo: pepeInfo, balances: [bal(WETH, '1', 18, 3000, 'WETH')] }));
+      expect(route.directDestination).toBeFalsy();
+      expect(route.destination.swap.tokenSwap).not.toBeNull(); // fell through to the default double-hop
+    });
+
+    it('prices the gas pass on the DST-chain native, not the first native entry in the oracle array', async () => {
+      // Regression: BOTH priceUsdFor (convergence cap) AND applyBuffer (gasSrcBuffer) matched a native
+      // (ZERO_ADDRESS) on tokenAddress alone → a decoy chain @ $1 placed first would win over ARB @ 2500.
+      //   convergence cap (≈$0.50 of native): 0.5/2500·1e18 = 2e14  (not 5e17)
+      //   gasSrcBuffer (0.1 ETH: $1 cap binds since 2% = 0.002 ETH > $1): min(0.002, 1/2500) = 0.0004 ETH
+      //     (not min(0.002, 1/1) = 0.002 — the decoy's $1/ETH price)
+      const input: SwapData = { mode: SwapMode.EXACT_OUT, data: { toChainId: ARB_CHAIN, toTokenAddress: PEPE, toAmountRaw: 100000000000000000000n, toNativeAmountRaw: 100000000000000000n } }; // 0.1 ETH
+      vi.mocked(determineDestinationSwaps).mockResolvedValue(sizingQuote());
+      vi.mocked(destinationGasSwapExactIn).mockResolvedValue(makeGasQuoteResponse({ chainID: ARB_CHAIN, inputContract: USDC_ARB }));
+      vi.mocked(autoSelectSources)
+        .mockResolvedValueOnce({ quoteResponses: [leg(WETH, 1000000000000000000n, 18, PEPE, 101000000000000000000n, 18)], usedCOTs: [] })
+        .mockResolvedValueOnce({ quoteResponses: [leg(USDC_ARB, 300000000n, 6, EADDRESS, 110000000000000000n, 18)], usedCOTs: [] }); // delivers 0.11 ETH ≥ 0.1004 buffered
+      const route = await determineSwapRoute(input, makeRouteOptions({
+        dstTokenInfo: pepeInfo,
+        balances: [bal(WETH, '1', 18, 3000, 'WETH'), bal(USDC_ARB, '500', 6, 500, 'USDC')],
+        oraclePrices: [
+          { universe: 'EVM' as const, chainId: BASE_CHAIN, tokenAddress: ZERO_ADDRESS, tokenSymbol: 'ETH', tokenDecimals: 18, priceUsd: new Decimal(1), timestamp: 1 }, // DECOY: wrong chain, first
+          { universe: 'EVM' as const, chainId: ARB_CHAIN, tokenAddress: ZERO_ADDRESS, tokenSymbol: 'ETH', tokenDecimals: 18, priceUsd: new Decimal(2500), timestamp: 1 },
+          { universe: 'EVM' as const, chainId: ARB_CHAIN, tokenAddress: USDC_ARB, tokenSymbol: 'USDC', tokenDecimals: 6, priceUsd: new Decimal(1), timestamp: 1 },
+        ] as OraclePriceResponse,
+      }));
+      const gasArg = vi.mocked(autoSelectSources).mock.calls[1][0];
+      expect(gasArg.outputToken?.maxConvergenceExtraRaw?.toString()).toBe('200000000000000'); // priceUsdFor: ARB price wins
+      expect(route.source.gasSrcBuffer?.toString()).toBe('0.0004'); // applyBuffer: ARB price wins ($1 cap at 2500)
+    });
   });
 
   it('EXACT_IN bridge totals exclude destination-chain source-swap COT', async () => {

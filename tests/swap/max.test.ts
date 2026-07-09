@@ -19,6 +19,8 @@ vi.mock('../../src/swap/preflight', () => ({
 }));
 
 import { calculateMaxForSwap } from '../../src/swap/max';
+import { EADDRESS } from '../../src/swap/constants';
+import { ZERO_ADDRESS } from '../../src/domain/constants/addresses';
 import { determineSwapRoute } from '../../src/swap/route';
 import { buildSwapPreflight } from '../../src/swap/preflight';
 import { SwapMode } from '../../src/swap/types';
@@ -407,6 +409,23 @@ describe('calculateMaxForSwap — unit-correct haircut (tokenSwap == null)', () 
     vi.mocked(determineSwapRoute).mockResolvedValue(route);
     const result = await calculateMaxForSwap({ toChainId: ARB_CHAIN, toTokenAddress: TOKEN_X }, makeOptions());
     expect(result.maxAmountRaw).toBe(parseUnits('0.7', 18));
+  });
+
+  it('same-token bridge with a NATIVE dst token hits the oracle floor (EADDRESS normalized to ZERO_ADDRESS)', async () => {
+    // Regression: findOraclePriceUsd was called with EADDRESS, but oracle entries key native as
+    // ZERO_ADDRESS → miss → pct-only. A SMALL amount makes the miss observable (the $3 floor exceeds
+    // the 3% pct): delivered 0.02 ETH, oracle $2500/ETH → floor 3/2500 = 0.0012 > pct 0.0006 →
+    // haircut 0.0012 → adjusted 0.0188 ETH. Buggy pct-only would give 0.0194.
+    const route = makeRoute({
+      destinationMax: new Decimal('0.02'),
+      tokenSwap: null,
+      dstTokenInfo: makeDstTokenInfo({ contractAddress: EADDRESS as Hex, decimals: 18, symbol: 'ETH', name: 'Ether' }),
+      sourceSwaps: [],
+      oraclePrices: [makeOraclePrice(ARB_CHAIN, ZERO_ADDRESS, 2500)],
+    });
+    vi.mocked(determineSwapRoute).mockResolvedValue(route);
+    const result = await calculateMaxForSwap({ toChainId: ARB_CHAIN, toTokenAddress: EADDRESS as Hex }, makeOptions());
+    expect(result.maxAmountRaw).toBe(parseUnits('0.0188', 18));
   });
 
   it('falls back to a pct-only haircut when neither quote value nor oracle price is available', async () => {

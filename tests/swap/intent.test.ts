@@ -534,18 +534,22 @@ describe('createSwapIntent', () => {
     expect(intent.destination.gas.amount).toBe('0.01');
   });
 
-  it('Path A: reads the gas amount from a native-output source swap when gasSwap is null', async () => {
-    // Path A EXACT_OUT delivers gas via a native-output SOURCE swap (not destination.swap.gasSwap),
-    // so the intent gas display sums the native-output source legs on the dst chain.
+  it('Path A: reads the gas amount from a gas-tagged source swap when gasSwap is null', async () => {
+    // Path A EXACT_OUT delivers gas via a SOURCE swap tagged outputRole: 'gas' (not
+    // destination.swap.gasSwap), so the intent gas display sums the gas-tagged source legs on the dst
+    // chain — NOT every native-output leg (a native toToken's delivery legs must not count as gas).
     const NATIVE = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' as Hex;
-    const nativeGasLeg = makeQuoteResponse({
-      chainID: ARB_CHAIN,
-      quote: {
-        input: { contractAddress: USDC_ARB, amount: '50', amountRaw: 50000000n, decimals: 6, value: 50, symbol: 'USDC' },
-        output: { contractAddress: NATIVE, amount: '0.02', amountRaw: 20000000000000000n, decimals: 18, value: 50, symbol: 'ETH' },
-        txData: { approvalAddress: '0x1111111111111111111111111111111111111111' as Hex, tx: { to: '0x2222222222222222222222222222222222222222' as Hex, data: '0x' as Hex, value: '0x0' as Hex } },
-      },
-    });
+    const nativeGasLeg: QuoteResponse = {
+      ...makeQuoteResponse({
+        chainID: ARB_CHAIN,
+        quote: {
+          input: { contractAddress: USDC_ARB, amount: '50', amountRaw: 50000000n, decimals: 6, value: 50, symbol: 'USDC' },
+          output: { contractAddress: NATIVE, amount: '0.02', amountRaw: 20000000000000000n, decimals: 18, value: 50, symbol: 'ETH' },
+          txData: { approvalAddress: '0x1111111111111111111111111111111111111111' as Hex, tx: { to: '0x2222222222222222222222222222222222222222' as Hex, data: '0x' as Hex, value: '0x0' as Hex } },
+        },
+      }),
+      outputRole: 'gas',
+    };
     const route = makeRoute({
       directDestination: true,
       // one toToken leg (USDC output, ignored for gas) + one native gas leg
@@ -563,5 +567,36 @@ describe('createSwapIntent', () => {
     const intent = createSwapIntent(route, input, makeChainList() as unknown as ChainListType);
 
     expect(intent.destination.gas.amount).toBe('0.02');
+  });
+
+  it('Path A EXACT_IN delivering a native toToken does not count its delivery legs as gas', async () => {
+    // Regression: the gas fallback summed every native-output source leg. An EXACT_IN Path A that
+    // delivers native ETH has native-output DELIVERY legs (untagged — EXACT_IN has no gas pass), which
+    // must NOT surface as destination.gas.
+    const NATIVE = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' as Hex;
+    const nativeDeliveryLeg = makeQuoteResponse({
+      chainID: ARB_CHAIN,
+      quote: {
+        input: { contractAddress: USDC_ARB, amount: '50', amountRaw: 50000000n, decimals: 6, value: 50, symbol: 'USDC' },
+        output: { contractAddress: NATIVE, amount: '0.02', amountRaw: 20000000000000000n, decimals: 18, value: 50, symbol: 'ETH' },
+        txData: { approvalAddress: '0x1111111111111111111111111111111111111111' as Hex, tx: { to: '0x2222222222222222222222222222222222222222' as Hex, data: '0x' as Hex, value: '0x0' as Hex } },
+      },
+    }); // untagged → outputRole undefined → not counted as gas
+    const route = makeRoute({
+      directDestination: true,
+      source: { swaps: [nativeDeliveryLeg], creationTime: Date.now(), srcBuffer: null },
+      destination: {
+        chainId: ARB_CHAIN,
+        eoaToEphemeral: null,
+        inputAmount: { min: new Decimal('0.02'), max: new Decimal('0.02') },
+        swap: { tokenSwap: null, gasSwap: null },
+        getDstSwap: async () => null,
+      },
+    });
+    const input: SwapData = { mode: SwapMode.EXACT_IN, data: { toChainId: ARB_CHAIN, toTokenAddress: NATIVE } };
+
+    const intent = createSwapIntent(route, input, makeChainList() as unknown as ChainListType);
+
+    expect(intent.destination.gas.amount).toBe('0');
   });
 });

@@ -77,6 +77,11 @@ export type QuoteResponse = {
   quote: Quote;
   holding: Holding;
   aggregator: Aggregator;
+  // Path A two-pass tag: which delivery this source leg serves — the requested toToken ('token') or
+  // the native gas top-up ('gas'). Set only by the direct-destination EXACT_OUT builder; consumed by
+  // the per-pass source requote drift budget and the intent gas display, which otherwise can't tell a
+  // token leg from a gas leg when toToken is itself native (both output EADDRESS). Absent ⇒ 'token'.
+  outputRole?: 'token' | 'gas';
 };
 
 // ---------------------------------------------------------------------------

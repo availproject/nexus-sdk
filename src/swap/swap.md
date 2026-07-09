@@ -584,9 +584,9 @@ executeSourceSwaps(source, ctx, meta) -> BridgeAsset[]:
   await all receipts                                   # only AFTER every chain is dispatched
   on chain failure: requote that chain ONCE (EXACT_IN; taker=receiver = that chain's executor —
                     EOA for the direct-COT dst chain, predictedSafe on non-7702, else ephemeral)
-    # EXACT_OUT: require Σ(output drop) ≤ buffer, POOLED PER OUTPUT TOKEN  # else EXTERNAL_RATES_DRIFT_EXCEEDED
-    #   toToken legs vs srcBuffer, native gas legs vs gasSrcBuffer (Path A); single-output routes = one
-    #   group. An over-quote offsets an under-quote WITHIN a token; the budget defends the bridge total
+    # EXACT_OUT: require Σ(output drop) ≤ buffer, POOLED PER PASS (`outputRole`)  # else EXTERNAL_RATES_DRIFT_EXCEEDED
+    #   token-pass legs vs srcBuffer, gas-pass legs vs gasSrcBuffer (Path A); single-pass routes = one
+    #   group. An over-quote offsets an under-quote WITHIN a pass; the budget defends the bridge total
     # EXACT_IN:  srcBuffer = null → no guard; accept the re-quote and proceed (Seam 2 re-sizes the dst swap)
     still failing → rethrow                            # no sweep here — cleanup is the orchestrator's job (§11)
   # SEAM 1 (reclaim, when bridge ≠ null): read balanceOf(COT, wrapper) per chain → bridge the ACTUAL
@@ -773,8 +773,8 @@ the dst chain in two passes — token (`toAmount + srcBuffer`), then gas over th
 bridge and no dst swap**: neither Seam fires and both passes' quotes land in `source.swaps`, one atomic
 batch delivering toToken + gas to the EOA. Selection over‑delivers by construction (the buffer, plus any
 EXACT_OUT convergence over‑quote); the surplus lands at the EOA, same philosophy as the COT flow's
-returned leftover. The only execution‑time drift guard is the source re‑quote, now grouped **per output
-token** (§12.2). EXACT_IN Path A has no buffer and no gas pass — a single input→toToken pass with
+returned leftover. The only execution‑time drift guard is the source re‑quote, now grouped **per pass**
+(`outputRole`, §12.2). EXACT_IN Path A has no buffer and no gas pass — a single input→toToken pass with
 `inputAmount.min = Σ delivered`.
 
 **The asymmetry that made Mayan special.** Source drift is tolerated everywhere by a buffer/range or
@@ -825,21 +825,27 @@ a formula over the (already‑updated) inputs, so it tracks them automatically.
   toToken units. STRICT-ALL: any leg that can't quote makes the builder throw and the fast-path
   envelope falls back to the same-token / COT flow. The whole route is one atomic per-chain batch
   (`revertOnFailure`), so the failure sweep is skipped (§11).
-- **Direct destination (Path A) EXACT_OUT keeps buffers, one budget per output token.** The EXACT_OUT
+- **Direct destination (Path A) EXACT_OUT keeps buffers, one budget per pass.** The EXACT_OUT
   twin swaps input→toToken directly on the dst chain too (`directDestination = true`, `bridge = null`,
   `dst.swap = null`, receiver = EOA), but — unlike EXACT_IN — it DEFENDS the fixed output with a source
   buffer: `srcBuffer` (toToken units, `min(SRC_BUFFER_PCT, SRC_BUFFER_MAX_USD)`) on the token pass and,
   when `toNativeAmount` is requested, `gasSrcBuffer` (native units) on the gas pass over the remainder
-  (§12.1). `route.buffer.amount` = the USD sum of both (oracle, fallback $1/token). Because one batch
-  now mixes toToken legs and native gas legs, the source re-quote drift check is **grouped per output
-  token** — the toToken group is checked against `srcBuffer`, the native group against `gasSrcBuffer`;
-  a native under-quote can't be offset by a toToken over-quote (a single-output route is one group ⇒
-  byte-identical to the classic pooled check). Over-delivery lands at the EOA; STRICT-ALL: either pass
+  (§12.1). Each pass must cover its **buffered** target (`toAmount + srcBuffer`, `toNative + gasSrcBuffer`),
+  not just the bare amount — `autoSelectSources` can return partial coverage, so requiring the buffer
+  makes it real drift margin rather than a budget a requote could spend below the target (mirrors the
+  default flow). `route.buffer.amount` = the USD sum of both (oracle, fallback $1/token). Because one
+  batch now mixes token-pass and gas-pass legs, the source re-quote drift check is **grouped per pass**
+  (each leg tagged `outputRole: 'token' | 'gas'`) — the token group is checked against `srcBuffer`, the
+  gas group against `gasSrcBuffer`; a gas under-quote can't be offset by a token over-quote. Keying on
+  the pass (not the output token) keeps them separate even when toToken is itself native — both passes
+  then output EADDRESS, which an output-token key would conflate. A single-pass route is one group ⇒
+  byte-identical to the classic pooled check. Over-delivery lands at the EOA; STRICT-ALL: either pass
   short ⇒ throw ⇒ fall back.
 - **Dynamic COT (B2) re-enters the flow with a different settlement family** (both modes). When every
   source shares one STABLE family F (USDC/USDT — ETH excluded) that is ≠ the destination family and ≠
-  the current COT, and F resolves as a COT on the dst chain, the route would otherwise round-trip
-  source→USDC→bridge→USDC→output (two swap hops). Instead B2 re-enters `_exactInRoute`/`_exactOutRoute`
+  the current COT, F resolves as a COT on the dst chain, and **at least one source is off the dst chain**
+  (there's a bridge to optimize — an all-on-dst set saves nothing and is left to Path A / plain
+  liquidation), the route would otherwise round-trip source→USDC→bridge→USDC→output (two swap hops). Instead B2 re-enters `_exactInRoute`/`_exactOutRoute`
   with `{cotCurrencyId: F, bridgeQuoteResponse: fQuote, skipFastPaths: true}` (`fQuote` an F-denominated
   quote fetched mid-route): now the sources ARE the COT, so **zero source swaps**, the bridge carries F,
   and a single F→output destination swap runs (gas swap, if any, denominated in F). Every COT read
@@ -868,10 +874,11 @@ a formula over the (already‑updated) inputs, so it tracks them automatically.
 - **Convergence bounded** — `SAFETY_MULTIPLIER` (1.002); input growth capped at initial +
   `MAX_CONVERGENCE_EXTRA_COT` (0.5); non‑convergence throws (source) / returns null (destination).
 - **Source re‑quote once.** EXACT_OUT: summed leg drops ≤ `srcBuffer` (boundary inclusive), **pooled
-  per output token** — a Path A batch checks toToken legs against `srcBuffer` and native gas legs against
-  `gasSrcBuffer` in separate groups; every single‑output route is one group (byte‑identical to the
-  classic pooled `Σnew ≥ Σold − srcBuffer`) — else `EXTERNAL_RATES_DRIFT_EXCEEDED`. EXACT_IN: no guard —
-  accept the re‑quote and proceed. Still failing → re‑throw, no sweep at this layer.
+  per pass** (`outputRole`) — a Path A batch checks token‑pass legs against `srcBuffer` and gas‑pass legs
+  against `gasSrcBuffer` in separate groups (keyed on the pass, not the output token, so a native toToken
+  doesn't collapse both into one); every single‑pass route is one group (byte‑identical to the classic
+  pooled `Σnew ≥ Σold − srcBuffer`) — else `EXTERNAL_RATES_DRIFT_EXCEEDED`. EXACT_IN: no guard — accept
+  the re‑quote and proceed. Still failing → re‑throw, no sweep at this layer.
 - **Destination re‑quote twice** (`MAX_RETRIES`; 3 attempts), then re‑throw without a fallback sweep.
   EXACT_IN has no rate‑tolerance guard on the re‑quote; EXACT_OUT keeps its frozen `[floor, ceiling]`.
 - **Aggregator failures non‑fatal** at the aggregation layer.

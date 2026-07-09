@@ -260,40 +260,41 @@ const requoteFailedChains = async (
   // EXACT_IN (null buffer): accept the re-quote unconditionally — no pooled drift check.
   if (srcBuffer === null) return perChainResults;
 
-  // Pooled drift check, grouped per output token. A Path A batch mixes toToken legs (checked against
-  // srcBuffer) and native gas legs (checked against gasSrcBuffer); a single native/gas token can't be
-  // offset by a toToken over-quote. Every non-Path-A route has a single output token → one group,
+  // Pooled drift check, grouped per Path A pass (`outputRole`): token legs are budgeted by srcBuffer,
+  // native gas legs by gasSrcBuffer — a gas under-quote can't be offset by a token over-quote. Keying
+  // on the pass, not the output token, keeps them separate even when toToken is itself native (both
+  // pass outputs are then EADDRESS). Every non-Path-A leg is untagged ⇒ 'token' ⇒ one srcBuffer group,
   // reducing to the original `Σnew ≥ Σold − srcBuffer` check (byte-identical).
-  const bufferForToken = (contractAddress: Hex): Decimal | null =>
-    isNativeAddress(contractAddress) ? (gasSrcBuffer ?? null) : srcBuffer;
+  const bufferForRole = (role: 'token' | 'gas'): Decimal | null =>
+    role === 'gas' ? (gasSrcBuffer ?? null) : srcBuffer;
 
-  const sumByToken = (
+  const sumByRole = (
     groups: Iterable<QuoteResponse[]>
-  ): Map<string, { total: Decimal; contractAddress: Hex }> => {
-    const totals = new Map<string, { total: Decimal; contractAddress: Hex }>();
+  ): Map<'token' | 'gas', { total: Decimal; contractAddress: Hex }> => {
+    const totals = new Map<'token' | 'gas', { total: Decimal; contractAddress: Hex }>();
     for (const swaps of groups) {
       for (const swap of swaps) {
-        const key = swap.quote.output.contractAddress.toLowerCase();
-        const entry = totals.get(key) ?? {
+        const role = swap.outputRole ?? 'token';
+        const entry = totals.get(role) ?? {
           total: new Decimal(0),
           contractAddress: swap.quote.output.contractAddress,
         };
         entry.total = entry.total.add(
           divDecimals(swap.quote.output.amountRaw, swap.quote.output.decimals)
         );
-        totals.set(key, entry);
+        totals.set(role, entry);
       }
     }
     return totals;
   };
 
-  const oldByToken = sumByToken(failedChains.map((chain) => chain.chainSwaps));
-  const newByToken = sumByToken(perChainResults.map(([, requoted]) => requoted));
+  const oldByRole = sumByRole(failedChains.map((chain) => chain.chainSwaps));
+  const newByRole = sumByRole(perChainResults.map(([, requoted]) => requoted));
 
-  for (const [key, { total: oldTotal, contractAddress }] of oldByToken) {
-    const buffer = bufferForToken(contractAddress);
-    if (buffer === null) continue; // no buffer for this output token → accept (e.g. an unbudgeted group)
-    const newTotal = newByToken.get(key)?.total ?? new Decimal(0);
+  for (const [role, { total: oldTotal, contractAddress }] of oldByRole) {
+    const buffer = bufferForRole(role);
+    if (buffer === null) continue; // no buffer for this pass → accept (e.g. an unbudgeted group)
+    const newTotal = newByRole.get(role)?.total ?? new Decimal(0);
     const minAcceptable = oldTotal.minus(buffer);
     logger.debug('requoteFailedChains:bufferCheck', {
       outputToken: contractAddress,

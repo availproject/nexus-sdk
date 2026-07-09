@@ -445,11 +445,16 @@ export const classifyFastPath = (input: {
 
   // B2 — dynamic COT: all members share a STABLE family F distinct from both the destination family
   // and the current COT, and F resolves as a COT on the destination chain (the resolveCOT throw,
-  // caught here, is the guard). ETH is excluded by B2_STABLE_CURRENCY_IDS.
+  // caught here, is the guard). ETH is excluded by B2_STABLE_CURRENCY_IDS. Requires at least one
+  // off-dst-chain member: B2's whole benefit is skipping the F→USDC→bridge→USDC round-trip, so with
+  // everything already on the dst chain there is no bridge to optimize (a same-chain F→toToken swap is
+  // one hop either way) — firing would only add a wasted F-quote + re-entry. (toToken ≠ cot on dst is
+  // Path A's job; toToken == cot is the plain same-chain liquidation.)
   if (
     familyId !== dstFamily &&
     familyId !== cotCurrencyId &&
     B2_STABLE_CURRENCY_IDS.has(familyId as CurrencyID) &&
+    !members.every((member) => member.chainID === dstChainId) &&
     cotResolvesOnChain(chainList, dstChainId, familyId)
   ) {
     return { kind: 'dynamic-cot', familyId };
@@ -1021,6 +1026,7 @@ async function _exactOutRoute(
     DST_BUFFER_PCT,
     DST_BUFFER_MAX_USD,
     oraclePrices,
+    data.toChainId,
     dstCOT.address
   );
   const destinationBufferedInput = inputAmount.plus(destinationBuffer);
@@ -1030,6 +1036,7 @@ async function _exactOutRoute(
     SRC_BUFFER_PCT,
     SRC_BUFFER_MAX_USD,
     oraclePrices,
+    data.toChainId,
     dstCOT.address
   );
   const sourceBufferedRequired = destinationBufferedInput.plus(sourceBuffer);
@@ -1533,8 +1540,13 @@ async function buildDirectDestinationExactOutRoute(
   });
   const userAddressByChain = buildExecutorAddressByChain(walletDecision.sourceExecutionPaths, options);
 
+  // Path A executes entirely on the dst chain, so price every token on that chain — without the
+  // chainId filter a native (ZERO_ADDRESS) lookup would match the first chain's native in the array
+  // (e.g. POL vs ETH, a ~6000× miss), missizing gasSrcBuffer / the convergence cap / the USD display.
   const priceUsdFor = (tokenAddress: Hex): Decimal | undefined =>
-    oraclePrices.find((price) => equalFold(price.tokenAddress, oracleKey(tokenAddress)))?.priceUsd;
+    oraclePrices.find(
+      (price) => price.chainId === dstChainId && equalFold(price.tokenAddress, oracleKey(tokenAddress))
+    )?.priceUsd;
   // ≈$0.50 of the output token in raw units (convergence extra-input cap). No price ⇒ undefined
   // (autoSelectSources defaults to 0.5 whole tokens).
   const convergenceExtraRaw = (tokenAddress: Hex, decimals: number): Decimal | undefined => {
@@ -1554,6 +1566,7 @@ async function buildDirectDestinationExactOutRoute(
     SRC_BUFFER_PCT,
     SRC_BUFFER_MAX_USD,
     oraclePrices,
+    dstChainId,
     oracleKey(toTokenAddress)
   );
   const tokenResult = await autoSelectSources({
@@ -1576,8 +1589,11 @@ async function buildDirectDestinationExactOutRoute(
       (sum, used) => sum + mulDecimals(used.amountUsed, used.holding.decimals),
       0n
     );
-  if (tokenDeliveredRaw < data.toAmountRaw) {
-    throw Errors.quoteFailed('Direct destination EXACT_OUT: token selection cannot cover toAmount');
+  // Require the BUFFERED target (autoSelectSources may return partial coverage without throwing), so
+  // `srcBuffer` is real requote/drift margin, not a budget that can push delivery below toAmount.
+  // Mirrors the default flow's `coveredOutput < selectionTarget` check.
+  if (tokenDeliveredRaw < mulDecimals(toTokenHuman.plus(srcBuffer), dstTokenInfo.decimals)) {
+    throw Errors.quoteFailed('Direct destination EXACT_OUT: token selection cannot cover toAmount + buffer');
   }
 
   // ── Pass 2: gas (remainder-carry) ──
@@ -1594,6 +1610,7 @@ async function buildDirectDestinationExactOutRoute(
       SRC_BUFFER_PCT,
       SRC_BUFFER_MAX_USD,
       oraclePrices,
+      dstChainId,
       ZERO_ADDRESS
     );
     const gasResult = await autoSelectSources({
@@ -1612,12 +1629,18 @@ async function buildDirectDestinationExactOutRoute(
     });
     gasSwaps = gasResult.quoteResponses;
     const gasDeliveredRaw = gasSwaps.reduce((sum, quote) => sum + quote.quote.output.amountRaw, 0n);
-    if (gasDeliveredRaw < requestedNativeAmountRaw) {
-      throw Errors.quoteFailed('Direct destination EXACT_OUT: gas selection cannot cover toNativeAmount');
+    // Buffered target too (see the token pass) so `gasSrcBuffer` is real drift margin.
+    if (gasDeliveredRaw < mulDecimals(toNativeHuman.plus(gasSrcBuffer), nativeDecimals)) {
+      throw Errors.quoteFailed('Direct destination EXACT_OUT: gas selection cannot cover toNativeAmount + buffer');
     }
   }
 
-  const swaps = [...tokenResult.quoteResponses, ...gasSwaps];
+  // Tag each leg by the pass that produced it so the source requote guard and the gas display can
+  // distinguish token from gas legs even when toToken is itself native (both output EADDRESS).
+  const swaps: QuoteResponse[] = [
+    ...tokenResult.quoteResponses.map((q) => ({ ...q, outputRole: 'token' as const })),
+    ...gasSwaps.map((q) => ({ ...q, outputRole: 'gas' as const })),
+  ];
   if (swaps.length === 0) {
     throw Errors.quoteFailed('Direct destination EXACT_OUT produced no swap legs');
   }
@@ -2520,10 +2543,16 @@ function applyBuffer(
   pct: number,
   maxUsd: number,
   oraclePrices: OraclePriceResponse,
+  chainId: number,
   tokenAddress: Hex
 ): Decimal {
   const pctBuffer = amount.mul(pct);
-  const entry = oraclePrices.find((p) => equalFold(p.tokenAddress, tokenAddress));
+  // Filter by chainId: oraclePrices spans every chain, and a native (ZERO_ADDRESS) — or any token
+  // sharing an address across chains — would otherwise match the first entry, mispricing the maxUsd
+  // cap (e.g. POL vs ETH). Same reason as findOraclePriceUsd in max.ts.
+  const entry = oraclePrices.find(
+    (p) => p.chainId === chainId && equalFold(p.tokenAddress, tokenAddress)
+  );
   const tokenPrice = entry ? entry.priceUsd.toNumber() : 1;
   const maxBufferInToken = new Decimal(maxUsd).div(tokenPrice);
   return Decimal.min(pctBuffer, maxBufferInToken);

@@ -143,6 +143,20 @@ describe('classifyFastPath', () => {
     ).toEqual({ kind: 'dynamic-cot', familyId: CurrencyID.USDT });
   });
 
+  it('B2 does not fire when all members are already on the dst chain (no bridge to optimize)', () => {
+    // USDT@Base → USDC@Base: same-chain, toToken IS the COT so A/B1 skip. B2 would settle in USDT but
+    // saves nothing (a USDT→USDC swap is one hop either way) — the "some member off-chain" guard drops it.
+    expect(
+      classify({
+        chainList: makeChainListWithUsdtCot(),
+        members: [{ chainID: BASE_CHAIN, tokenAddress: USDT_BASE }],
+        dstTokenAddress: USDC_BASE, // == COT → needsTokenSwap false
+        needsTokenSwap: false,
+        mode: SwapMode.EXACT_IN,
+      })
+    ).toBeNull();
+  });
+
   it('B2 does not fire when the family COT cannot be resolved on the destination chain', () => {
     // Default chainList: USDT has no getTokenByCurrencyId entry → resolveCOT throws → null.
     expect(

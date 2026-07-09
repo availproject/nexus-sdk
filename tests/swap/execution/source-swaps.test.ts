@@ -1331,22 +1331,28 @@ describe('executeSourceSwaps', () => {
   });
 
   // Path A EXACT_OUT batches mix a toToken leg and a native gas leg on one chain. The pooled requote
-  // guard is per output token: the toToken group is checked against srcBuffer, the native group
+  // guard is per pass (`outputRole`): the token group is checked against srcBuffer, the gas group
   // against gasSrcBuffer — a toToken over-quote can't paper over a native shortfall.
   const makeMixedLegs = (tokenOutRaw: bigint, gasOutRaw: bigint) => {
     const base = makeQuoteResponse().quote;
-    const tokenLeg = makeQuoteResponse(ARB_CHAIN, {
-      quote: { ...base, output: { ...base.output, contractAddress: USDC_ARB, amount: '0', amountRaw: tokenOutRaw, decimals: 6 } },
-      holding: { chainID: ARB_CHAIN, tokenAddress: WETH, amountRaw: 1000000000000000000n, decimals: 18, symbol: 'WETH' },
-    });
-    const gasLeg = makeQuoteResponse(ARB_CHAIN, {
-      quote: {
-        ...base,
-        input: { ...base.input, contractAddress: USDC_ARB, decimals: 6 },
-        output: { ...base.output, contractAddress: EADDRESS, amount: '0', amountRaw: gasOutRaw, decimals: 18, symbol: 'ETH' },
-      },
-      holding: { chainID: ARB_CHAIN, tokenAddress: USDC_ARB, amountRaw: 3000000000n, decimals: 6, symbol: 'USDC' },
-    });
+    const tokenLeg: QuoteResponse = {
+      ...makeQuoteResponse(ARB_CHAIN, {
+        quote: { ...base, output: { ...base.output, contractAddress: USDC_ARB, amount: '0', amountRaw: tokenOutRaw, decimals: 6 } },
+        holding: { chainID: ARB_CHAIN, tokenAddress: WETH, amountRaw: 1000000000000000000n, decimals: 18, symbol: 'WETH' },
+      }),
+      outputRole: 'token',
+    };
+    const gasLeg: QuoteResponse = {
+      ...makeQuoteResponse(ARB_CHAIN, {
+        quote: {
+          ...base,
+          input: { ...base.input, contractAddress: USDC_ARB, decimals: 6 },
+          output: { ...base.output, contractAddress: EADDRESS, amount: '0', amountRaw: gasOutRaw, decimals: 18, symbol: 'ETH' },
+        },
+        holding: { chainID: ARB_CHAIN, tokenAddress: USDC_ARB, amountRaw: 3000000000n, decimals: 6, symbol: 'USDC' },
+      }),
+      outputRole: 'gas',
+    };
     return { tokenLeg, gasLeg };
   };
   const mixedCtx = () => ({
@@ -1386,6 +1392,29 @@ describe('executeSourceSwaps', () => {
     await expect(
       executeSourceSwaps(
         { swaps: [tokenLeg, gasLeg], creationTime: Date.now(), srcBuffer: new Decimal(10), gasSrcBuffer: new Decimal('0.01') },
+        mixedCtx(),
+        noMeta()
+      )
+    ).rejects.toThrow(/drift/i);
+  });
+
+  it('per-pass requote: a native TOKEN leg (native toToken, no gas) is still checked against srcBuffer', async () => {
+    // Regression: grouping by output-token native-ness skipped the drift check for a native toToken
+    // (native output → gasSrcBuffer ?? null → null → accept). Tagging by pass keeps a 'token' leg on
+    // srcBuffer even when its output is native. Drop 0.1 ETH > srcBuffer 0.01 → reject.
+    const base = makeQuoteResponse().quote;
+    const nativeTokenLeg: QuoteResponse = {
+      ...makeQuoteResponse(ARB_CHAIN, {
+        quote: { ...base, input: { ...base.input, contractAddress: USDC_ARB, decimals: 6 }, output: { ...base.output, contractAddress: EADDRESS, amount: '0', amountRaw: 1000000000000000000n, decimals: 18, symbol: 'ETH' } },
+        holding: { chainID: ARB_CHAIN, tokenAddress: USDC_ARB, amountRaw: 3000000000n, decimals: 6, symbol: 'USDC' },
+      }),
+      outputRole: 'token', // native toToken delivery, NOT gas
+    };
+    nativeTokenLeg.aggregator = { supportsChain: () => true, getQuotes: vi.fn().mockResolvedValue([{ ...nativeTokenLeg.quote, output: { ...nativeTokenLeg.quote.output, amountRaw: 900000000000000000n } }]) } as unknown as Aggregator;
+
+    await expect(
+      executeSourceSwaps(
+        { swaps: [nativeTokenLeg], creationTime: Date.now(), srcBuffer: new Decimal('0.01'), gasSrcBuffer: undefined },
         mixedCtx(),
         noMeta()
       )
