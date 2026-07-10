@@ -601,7 +601,6 @@ const groupSbcTxsByChain = (sbcTxs: SBCTx[]): Record<number, SBCTx[]> =>
  */
 export const createMiddlewareClient = (
   middlewareURL: string,
-  middlewareWSURL: string,
   timingOptions?: {
     timing?: TimingSpanHooks;
     captureNetworkTiming?: boolean;
@@ -614,15 +613,6 @@ export const createMiddlewareClient = (
     }
   } catch {
     throw Errors.invalidInput(`Invalid middleware HTTP URL: ${middlewareURL}`);
-  }
-
-  try {
-    const wsUrl = new URL(middlewareWSURL);
-    if (wsUrl.protocol !== 'ws:' && wsUrl.protocol !== 'wss:') {
-      throw new Error('Invalid protocol');
-    }
-  } catch {
-    throw Errors.invalidInput(`Invalid middleware WebSocket URL: ${middlewareWSURL}`);
   }
 
   const client = axios.create({

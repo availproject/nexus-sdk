@@ -34,7 +34,7 @@ describe('middleware error handling', () => {
     axiosRootMock.create.mockReturnValue(axiosClient);
     axiosClient.get.mockResolvedValue({ data: { rffs: [] } });
 
-    const client = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+    const client = createMiddlewareClient('https://mw.example');
     await expect(client.listRFFs()).rejects.toThrow('Failed to list RFFs from middleware');
   });
 
@@ -58,7 +58,7 @@ describe('middleware error handling', () => {
       },
     });
 
-    const client = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+    const client = createMiddlewareClient('https://mw.example');
     await expect(
       client.getBalances('0x0000000000000000000000000000000000000000', 0)
     ).rejects.toThrow('Failed to fetch balances from middleware');
@@ -97,7 +97,7 @@ describe('middleware typed error envelope capture', () => {
     axiosRootMock.create.mockReturnValue(axiosClient);
     axiosClient.post.mockRejectedValue(middlewareEnvelopeError());
 
-    const client = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+    const client = createMiddlewareClient('https://mw.example');
     await expect(client.getQuote(quoteRequest)).rejects.toMatchObject({
       code: 'backend/get_quote_failed',
       details: {
@@ -115,7 +115,7 @@ describe('middleware typed error envelope capture', () => {
     axiosRootMock.create.mockReturnValue(axiosClient);
     axiosClient.post.mockRejectedValue(new Error('socket hang up'));
 
-    const client = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+    const client = createMiddlewareClient('https://mw.example');
     const err = await client.getQuote(quoteRequest).catch((e) => e);
     expect(err.code).toBe('backend/get_quote_failed');
     expect(err.details.error).toBe('socket hang up');

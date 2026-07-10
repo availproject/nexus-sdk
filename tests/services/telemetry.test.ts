@@ -57,7 +57,6 @@ vi.mock('../../src/services/platform', () => ({
 const networkConfig = {
   NETWORK_HINT: 'testnet',
   MIDDLEWARE_HTTP_URL: 'http://example',
-  MIDDLEWARE_WS_URL: 'ws://example',
   INTENT_EXPLORER_URL: 'http://example',
 } as unknown as Parameters<
   typeof import('../../src/services/telemetry').setLoggerProvider

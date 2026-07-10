@@ -55,7 +55,7 @@ describe('createMiddlewareClient', () => {
       },
     });
 
-    const client = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+    const client = createMiddlewareClient('https://mw.example');
     const result = await client.getBalances('0x0000000000000000000000000000000000000000', 0);
 
     expect(result).toHaveLength(1);
@@ -93,7 +93,7 @@ describe('createMiddlewareClient', () => {
       },
     });
 
-    const client = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+    const client = createMiddlewareClient('https://mw.example');
     const result = await client.getBalances('0x0000000000000000000000000000000000000000', 0);
 
     expect(result).toHaveLength(1);
@@ -110,7 +110,7 @@ describe('createMiddlewareClient', () => {
       },
     });
 
-    const client = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+    const client = createMiddlewareClient('https://mw.example');
     const payload = {
       request: {
         sources: [
@@ -195,7 +195,7 @@ describe('createMiddlewareClient', () => {
       },
     });
 
-    const client = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+    const client = createMiddlewareClient('https://mw.example');
     const result = await client.getDeployment();
 
     expect(result.chains[0]?.tokens[0]?.permitVariant).toBe(1);
@@ -247,7 +247,7 @@ describe('createMiddlewareClient', () => {
       },
     });
 
-    const client = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+    const client = createMiddlewareClient('https://mw.example');
 
     await expect(client.getDeployment()).rejects.toThrow(
       /Failed to fetch deployment from middleware/
@@ -300,7 +300,7 @@ describe('createMiddlewareClient', () => {
       },
     });
 
-    const client = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+    const client = createMiddlewareClient('https://mw.example');
     const result = await client.getDeployment();
 
     expect(result.chains[0]?.tokens[0]?.currencyId).toBe(1);
@@ -361,7 +361,7 @@ describe('createMiddlewareClient', () => {
       },
     });
 
-    const client = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+    const client = createMiddlewareClient('https://mw.example');
     const result = await client.getDeployment();
 
     expect(result.chains).toHaveLength(1);
@@ -410,7 +410,7 @@ describe('createMiddlewareClient', () => {
       },
     });
 
-    const client = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+    const client = createMiddlewareClient('https://mw.example');
     const result = await client.listRFFs();
 
     expect(result.rffs).toHaveLength(1);
@@ -440,7 +440,7 @@ describe('createMiddlewareClient', () => {
       },
     });
 
-    const client = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+    const client = createMiddlewareClient('https://mw.example');
     const result = await client.getRFFStatus(`0x${'55'.repeat(32)}` as Hex);
 
     expect(result.status).toBe('fulfilled');
@@ -475,16 +475,16 @@ describe('createMiddlewareClient', () => {
       },
     });
 
-    const client = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+    const client = createMiddlewareClient('https://mw.example');
     const result = await client.getOraclePrices();
 
     expect(result).toHaveLength(1);
     expect(result[0]?.universe).toBe('EVM');
   });
 
-  it('rejects unsupported websocket protocol', () => {
-    expect(() => createMiddlewareClient('https://mw.example', 'http://mw.example')).toThrow(
-      /Invalid middleware WebSocket URL/
+  it('rejects unsupported http protocol', () => {
+    expect(() => createMiddlewareClient('wss://mw.example')).toThrow(
+      /Invalid middleware HTTP URL/
     );
   });
 
@@ -517,7 +517,7 @@ describe('createMiddlewareClient', () => {
       data: [{ chainId: 42161, address, errored: false, txHash }],
     });
 
-    const client = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+    const client = createMiddlewareClient('https://mw.example');
     const results = await client.submitSBCs([sbcTx as any]);
 
     expect(axiosClient.post).toHaveBeenCalledWith('/api/v2/create-sbc-tx', { 42161: [sbcTx] });
@@ -544,7 +544,7 @@ describe('createMiddlewareClient', () => {
       ],
     });
 
-    const client = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+    const client = createMiddlewareClient('https://mw.example');
     const results = await client.submitSBCs([{ chainId: 42161, address } as any]);
 
     expect(results[0]).toMatchObject({
@@ -582,7 +582,7 @@ describe('createMiddlewareClient', () => {
 
     axiosClient.post.mockResolvedValue({ data: quoteResponseData });
 
-    const client = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+    const client = createMiddlewareClient('https://mw.example');
     const result = await client.getQuote({
       sources: [
         {
@@ -631,7 +631,7 @@ describe('createMiddlewareClient', () => {
       },
     });
 
-    const client = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+    const client = createMiddlewareClient('https://mw.example');
     const result = await client.getQuote({
       sources: [],
       destination: {
@@ -653,7 +653,7 @@ describe('createMiddlewareClient', () => {
       data: { invalid: true },
     });
 
-    const client = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+    const client = createMiddlewareClient('https://mw.example');
     await expect(
       client.getQuote({
         sources: [],

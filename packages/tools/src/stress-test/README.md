@@ -143,7 +143,6 @@ Choose exactly one of:
 ```json
 {
   "MIDDLEWARE_HTTP_URL": "https://your-middleware.example/",
-  "MIDDLEWARE_WS_URL": "wss://your-middleware.example/",
   "INTENT_EXPLORER_URL": "https://your-explorer.example/",
   "NETWORK_HINT": "testnet"
 }
@@ -159,7 +158,6 @@ When running on local devnet, middleware may return Docker-internal RPC URLs. Us
 ```json
 {
   "MIDDLEWARE_HTTP_URL": "http://localhost:4050/",
-  "MIDDLEWARE_WS_URL": "ws://localhost:4050/",
   "INTENT_EXPLORER_URL": "http://localhost:4050/",
   "NETWORK_HINT": "devnet",
   "CHAIN_RPC_OVERRIDES": {
@@ -204,7 +202,7 @@ NEXUS_STRESS_PRIVATE_KEY=0x... npm run stress -- run \
 
 ```bash
 NEXUS_STRESS_PRIVATE_KEY=0x... npm run stress -- run \
-  --network-config-json '{"MIDDLEWARE_HTTP_URL":"https://your-middleware.example/","MIDDLEWARE_WS_URL":"wss://your-middleware.example/","INTENT_EXPLORER_URL":"https://your-explorer.example/","NETWORK_HINT":"testnet"}' \
+  --network-config-json '{"MIDDLEWARE_HTTP_URL":"https://your-middleware.example/","INTENT_EXPLORER_URL":"https://your-explorer.example/","NETWORK_HINT":"testnet"}' \
   --token USDC \
   --amount 1 \
   --destinations 421614 \
@@ -216,7 +214,7 @@ NEXUS_STRESS_PRIVATE_KEY=0x... npm run stress -- run \
 ### Custom network — from env var
 
 ```bash
-export NEXUS_NETWORK_CONFIG='{"MIDDLEWARE_HTTP_URL":"https://your-middleware.example/","MIDDLEWARE_WS_URL":"wss://your-middleware.example/","INTENT_EXPLORER_URL":"https://your-explorer.example/","NETWORK_HINT":"testnet"}'
+export NEXUS_NETWORK_CONFIG='{"MIDDLEWARE_HTTP_URL":"https://your-middleware.example/","INTENT_EXPLORER_URL":"https://your-explorer.example/","NETWORK_HINT":"testnet"}'
 NEXUS_STRESS_PRIVATE_KEY=0x... npm run stress -- run \
   --network-config-env NEXUS_NETWORK_CONFIG \
   --token USDC \

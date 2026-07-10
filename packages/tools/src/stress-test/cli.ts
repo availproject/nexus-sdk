@@ -124,7 +124,6 @@ Examples
 
 const networkConfigSchema = z.object({
   MIDDLEWARE_HTTP_URL: z.string().min(1),
-  MIDDLEWARE_WS_URL: z.string().min(1),
   INTENT_EXPLORER_URL: z.string().min(1),
   NETWORK_HINT: z.enum(['testnet', 'mainnet', 'canary', 'devnet']),
   CHAIN_RPC_OVERRIDES: z.record(z.string().regex(/^\d+$/), z.string().url()).optional(),

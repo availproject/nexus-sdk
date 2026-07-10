@@ -47,10 +47,7 @@ export const getSupportedChains = async (
 ): Promise<SupportedChainsAndTokensResult> => {
   try {
     const networkConfig = getNetworkConfig(env);
-    const middlewareClient = createMiddlewareClient(
-      networkConfig.MIDDLEWARE_HTTP_URL,
-      networkConfig.MIDDLEWARE_WS_URL
-    );
+    const middlewareClient = createMiddlewareClient(networkConfig.MIDDLEWARE_HTTP_URL);
     const deployment = await middlewareClient.getDeployment();
     // if (deployment.network !== networkConfig.NETWORK_HINT) {
     //   throw Errors.invalidInput(

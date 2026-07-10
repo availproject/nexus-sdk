@@ -133,7 +133,7 @@ export const createBase = (config?: {
   const networkConfig = getNetworkConfig(config?.network);
   const middlewareClient =
     config?.internal?.middlewareClient ??
-    createMiddlewareClient(networkConfig.MIDDLEWARE_HTTP_URL, networkConfig.MIDDLEWARE_WS_URL);
+    createMiddlewareClient(networkConfig.MIDDLEWARE_HTTP_URL);
 
   const state: BaseState = {
     chainList: null,

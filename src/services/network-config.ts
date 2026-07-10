@@ -2,21 +2,18 @@ import type { NetworkConfig, NexusNetwork } from '../domain';
 
 const TESTNET_CONFIG: NetworkConfig = {
   MIDDLEWARE_HTTP_URL: 'https://nexus-v2.testnet.avail.so/middleware/',
-  MIDDLEWARE_WS_URL: 'wss://nexus-v2.testnet.avail.so/middleware/',
   INTENT_EXPLORER_URL: 'https://nexus-v2.testnet.avail.so/',
   NETWORK_HINT: 'testnet',
 };
 
 const CANARY_MAINNET_CONFIG: NetworkConfig = {
   MIDDLEWARE_HTTP_URL: 'https://nexus-v2.canary.avail.so/middleware/',
-  MIDDLEWARE_WS_URL: 'wss://nexus-v2.canary.avail.so/middleware/',
   INTENT_EXPLORER_URL: 'https://nexus-v2.canary.avail.so/',
   NETWORK_HINT: 'canary',
 };
 
 const MAINNET_CONFIG: NetworkConfig = {
   MIDDLEWARE_HTTP_URL: 'https://nexus-v2.mainnet.avail.so/middleware/',
-  MIDDLEWARE_WS_URL: 'wss://nexus-v2.mainnet.avail.so/middleware/',
   INTENT_EXPLORER_URL: 'https://nexus-v2.mainnet.avail.so/',
   NETWORK_HINT: 'mainnet',
 };
@@ -25,7 +22,7 @@ const isNetworkConfig = (config?: NetworkConfig): config is NetworkConfig => {
   if (typeof config !== 'object') {
     return false;
   }
-  if (!(config.MIDDLEWARE_WS_URL && config.MIDDLEWARE_HTTP_URL && config.INTENT_EXPLORER_URL)) {
+  if (!(config.MIDDLEWARE_HTTP_URL && config.INTENT_EXPLORER_URL)) {
     return false;
   }
   return true;

@@ -431,7 +431,6 @@ export type IntentSourceForAllowance = {
 
 export type NetworkConfig = {
   MIDDLEWARE_HTTP_URL: string;
-  MIDDLEWARE_WS_URL: string;
   INTENT_EXPLORER_URL: string;
   NETWORK_HINT: NexusNetworkHint;
 };

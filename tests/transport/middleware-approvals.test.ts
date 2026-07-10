@@ -45,7 +45,7 @@ describe('middleware approvals', () => {
       data: [{ chainId: 1, address, errored: false, txHash }],
     });
 
-    const client = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+    const client = createMiddlewareClient('https://mw.example');
     const results = await client.createApprovals(approvals);
 
     expect(axiosClient.post).toHaveBeenCalledWith(
@@ -72,7 +72,7 @@ describe('middleware approvals', () => {
       })
     );
 
-    const client = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+    const client = createMiddlewareClient('https://mw.example');
     const err = await client.createApprovals(approvals).catch((e) => e);
     expect(err.code).toBe('backend/approvals_ws_failed');
     expect(err.details).toMatchObject({

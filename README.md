@@ -180,7 +180,6 @@ const testnetClient = createNexusClient({ network: 'testnet' });
 const customClient = createNexusClient({
   network: {
     MIDDLEWARE_HTTP_URL: 'https://your-middleware.example.com',
-    MIDDLEWARE_WS_URL: 'wss://your-middleware.example.com',
     INTENT_EXPLORER_URL: 'https://your-explorer.example.com',
     NETWORK_HINT: 'mainnet',
   },
