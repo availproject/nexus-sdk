@@ -599,4 +599,128 @@ describe('createSwapIntent', () => {
 
     expect(intent.destination.gas.amount).toBe('0');
   });
+
+  it('Path A EXACT_OUT: destinationValue sums the token-role source-swap output USD values', () => {
+    // Path A has no destination swap — the toToken is delivered by token-role SOURCE swaps. The
+    // display value must sum those legs' aggregator USD values (the analog of a dst tokenSwap's
+    // output.value), not fall to the "toToken IS COT ≈ $1" oracle path. Gas legs are excluded.
+    const NATIVE = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' as Hex;
+    const tokenLeg = (value: number): QuoteResponse => ({
+      ...makeQuoteResponse({
+        chainID: ARB_CHAIN,
+        quote: {
+          input: { contractAddress: USDC_ARB, amount: '250', amountRaw: 250000000n, decimals: 6, value, symbol: 'USDC' },
+          output: { contractAddress: WETH, amount: '0.083', amountRaw: 83000000000000000n, decimals: 18, value, symbol: 'WETH' },
+          txData: { approvalAddress: '0x1111111111111111111111111111111111111111' as Hex, tx: { to: '0x2222222222222222222222222222222222222222' as Hex, data: '0x' as Hex, value: '0x0' as Hex } },
+        },
+      }),
+      outputRole: 'token',
+    });
+    const gasLeg: QuoteResponse = {
+      ...makeQuoteResponse({
+        chainID: ARB_CHAIN,
+        quote: {
+          input: { contractAddress: USDC_ARB, amount: '50', amountRaw: 50000000n, decimals: 6, value: 50, symbol: 'USDC' },
+          output: { contractAddress: NATIVE, amount: '0.02', amountRaw: 20000000000000000n, decimals: 18, value: 50, symbol: 'ETH' },
+          txData: { approvalAddress: '0x1111111111111111111111111111111111111111' as Hex, tx: { to: '0x2222222222222222222222222222222222222222' as Hex, data: '0x' as Hex, value: '0x0' as Hex } },
+        },
+      }),
+      outputRole: 'gas',
+    };
+    const route = makeRoute({
+      directDestination: true,
+      source: { swaps: [tokenLeg(250), tokenLeg(250), gasLeg], creationTime: Date.now(), srcBuffer: new Decimal(0) },
+      destination: {
+        chainId: ARB_CHAIN,
+        eoaToEphemeral: null,
+        inputAmount: { min: new Decimal(0), max: new Decimal(0) },
+        swap: { tokenSwap: null, gasSwap: null },
+        getDstSwap: async () => null,
+      },
+      extras: { aggregators: [], oraclePrices: [], balances: [], assetsUsed: [] },
+    });
+    const input: SwapData = { mode: SwapMode.EXACT_OUT, data: { toChainId: ARB_CHAIN, toTokenAddress: WETH, toAmountRaw: 166000000000000000n } };
+
+    const intent = createSwapIntent(route, input, makeChainList() as unknown as ChainListType);
+
+    // 250 + 250 token legs; the 50 gas leg is excluded. oraclePrices empty → proves it's swap-derived.
+    expect(intent.destination.value).toBe('500');
+  });
+
+  it('Path A EXACT_IN: destinationValue derives from the token source-swap output value (no oracle needed)', () => {
+    // EXACT_IN Path A legs are untagged (no gas pass) → outputRole undefined, still token-role.
+    const route = makeRoute({
+      type: SwapMode.EXACT_IN,
+      directDestination: true,
+      source: {
+        swaps: [
+          makeQuoteResponse({
+            chainID: ARB_CHAIN,
+            quote: {
+              input: { contractAddress: USDC_ARB, amount: '3000', amountRaw: 3000000000n, decimals: 6, value: 3000, symbol: 'USDC' },
+              output: { contractAddress: WETH, amount: '1.0', amountRaw: 1000000000000000000n, decimals: 18, value: 3000, symbol: 'WETH' },
+              txData: { approvalAddress: '0x1111111111111111111111111111111111111111' as Hex, tx: { to: '0x2222222222222222222222222222222222222222' as Hex, data: '0x' as Hex, value: '0x0' as Hex } },
+            },
+          }),
+        ],
+        creationTime: Date.now(),
+        srcBuffer: null,
+      },
+      destination: {
+        chainId: ARB_CHAIN,
+        eoaToEphemeral: null,
+        inputAmount: { min: new Decimal('1.0'), max: new Decimal('1.0') },
+        swap: { tokenSwap: null, gasSwap: null },
+        getDstSwap: async () => null,
+      },
+      extras: { aggregators: [], oraclePrices: [], balances: [], assetsUsed: [] },
+    });
+    const input: SwapData = { mode: SwapMode.EXACT_IN, data: { sources: [], toChainId: ARB_CHAIN, toTokenAddress: WETH } };
+
+    const intent = createSwapIntent(route, input, makeChainList() as unknown as ChainListType);
+
+    expect(intent.destination.amount).toBe('1');
+    expect(intent.destination.value).toBe('3000');
+  });
+
+  it('Path A with zero-priced source swaps falls back to the oracle price', () => {
+    // Aggregator reported no price (value 0) → the swap-value sum is 0, so the oracle/amount path
+    // still applies. Guards the `.gt(0)` fallthrough (identity-only routes hit the same branch).
+    const zeroValueLeg: QuoteResponse = {
+      ...makeQuoteResponse({
+        chainID: ARB_CHAIN,
+        quote: {
+          input: { contractAddress: USDC_ARB, amount: '250', amountRaw: 250000000n, decimals: 6, value: 0, symbol: 'USDC' },
+          output: { contractAddress: WETH, amount: '0.083', amountRaw: 83000000000000000n, decimals: 18, value: 0, symbol: 'WETH' },
+          txData: { approvalAddress: '0x1111111111111111111111111111111111111111' as Hex, tx: { to: '0x2222222222222222222222222222222222222222' as Hex, data: '0x' as Hex, value: '0x0' as Hex } },
+        },
+      }),
+      outputRole: 'token',
+    };
+    const route = makeRoute({
+      directDestination: true,
+      source: { swaps: [zeroValueLeg], creationTime: Date.now(), srcBuffer: new Decimal(0) },
+      destination: {
+        chainId: ARB_CHAIN,
+        eoaToEphemeral: null,
+        inputAmount: { min: new Decimal(0), max: new Decimal(0) },
+        swap: { tokenSwap: null, gasSwap: null },
+        getDstSwap: async () => null,
+      },
+      extras: {
+        aggregators: [],
+        oraclePrices: [
+          { universe: 'EVM', chainId: ARB_CHAIN, priceUsd: new Decimal('3000'), tokenAddress: WETH, tokenSymbol: 'WETH', tokenDecimals: 18, timestamp: 0 },
+        ],
+        balances: [],
+        assetsUsed: [],
+      },
+    });
+    const input: SwapData = { mode: SwapMode.EXACT_OUT, data: { toChainId: ARB_CHAIN, toTokenAddress: WETH, toAmountRaw: 1000000000000000000n } };
+
+    const intent = createSwapIntent(route, input, makeChainList() as unknown as ChainListType);
+
+    // Swap legs report value 0 → fall through to oracle: amount(1) × 3000.
+    expect(intent.destination.value).toBe('3000');
+  });
 });

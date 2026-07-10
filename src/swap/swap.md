@@ -517,7 +517,9 @@ Mystic → its `/v1/tokens/resolve`, no price → value 0); dropped only if neit
 ## 8. Intent, bridge intent, plan, prepare
 
 **`createSwapIntent(route, input, chainList)`** — destination amount/value (token‑swap output
-semantics; COT destination uses `amount × oraclePriceUsd`, else `amount`); reservation
+semantics; **Path A** (`directDestination`, no dst swap) sums the token‑role source‑swap output USD
+values — oracle‑independent, the analog of a dst token‑swap's `output.value`; other no‑swap
+destinations, e.g. COT, use `amount × oraclePriceUsd`, else `amount`); reservation
 (`toAmountRaw ≤ 0`) → amount & value `"0"`; EXACT_IN w/o dst swap → human dst input directly; gas
 from the gas‑swap output; `feesAndBuffer.bridge` set iff a bridge exists; `bridgeProvider` =
 `bridge.provider` (`'nexus'`/`'mayan'`) or `null` when there's no bridge.

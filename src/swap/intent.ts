@@ -48,14 +48,31 @@ export const createSwapIntent = (
   } else if (route.destination.swap.tokenSwap) {
     destinationValue = route.destination.swap.tokenSwap.quote.output.value.toString();
   } else {
-    const oraclePrice = route.extras.oraclePrices.find(
-      (entry) =>
-        entry.chainId === route.destination.chainId &&
-        equalFold(entry.tokenAddress, route.dstTokenInfo.contractAddress)
-    );
-    destinationValue = oraclePrice
-      ? new Decimal(destinationAmount).mul(oraclePrice.priceUsd).toString()
-      : destinationAmount;
+    // No destination swap. Path A (directDestination) delivers the toToken via token-role SOURCE
+    // swaps on the dst chain, so sum their aggregator-reported USD values — the direct analog of a
+    // destination tokenSwap's `output.value`, and accurate without an oracle (the SDK never
+    // guarantees the toToken price is in `oraclePrices`). Falls through to the oracle/amount path
+    // when that's unavailable: a non-Path-A route (toToken IS COT, ≈$1), an aggregator that reported
+    // no price (value 0), or identity-only holdings with no swap leg.
+    // ponytail: EXACT_IN identity holdings (already-toToken, no quote) aren't priced into the sum —
+    // a display-only undercount; add their oracle-priced value if the intent USD must be exact there.
+    const directSwapValue = route.directDestination
+      ? route.source.swaps
+          .filter((s) => s.chainID === route.destination.chainId && s.outputRole !== 'gas')
+          .reduce((sum, s) => sum.plus(s.quote.output.value), new Decimal(0))
+      : new Decimal(0);
+    if (directSwapValue.gt(0)) {
+      destinationValue = directSwapValue.toString();
+    } else {
+      const oraclePrice = route.extras.oraclePrices.find(
+        (entry) =>
+          entry.chainId === route.destination.chainId &&
+          equalFold(entry.tokenAddress, route.dstTokenInfo.contractAddress)
+      );
+      destinationValue = oraclePrice
+        ? new Decimal(destinationAmount).mul(oraclePrice.priceUsd).toString()
+        : destinationAmount;
+    }
   }
 
   // Gas info — sourced from the destination gas swap's output (native delivered to EOA). Path A has
