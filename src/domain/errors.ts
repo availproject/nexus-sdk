@@ -1,4 +1,4 @@
-import type { Hex } from 'viem';
+import { BaseError as ViemBaseError, type Hex } from 'viem';
 
 /**
  * Categories for hierarchical errors. Drives subclass identity and `error.category`
@@ -309,6 +309,14 @@ export class InternalError extends NexusError<'internal'> {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 export const formatUnknownError = (error: unknown): string => {
+  // Viem's `message` concatenates request args, docs links, and version. Keep the one-line
+  // summary plus `details` — NexusErrors are flat (no cause chain), so this is the only place
+  // the root cause (e.g. the underlying transport error) survives.
+  if (error instanceof ViemBaseError) {
+    return error.details && error.details !== error.shortMessage
+      ? `${error.shortMessage}: ${error.details}`
+      : error.shortMessage;
+  }
   if (error instanceof Error) return error.message;
   return String(error);
 };
