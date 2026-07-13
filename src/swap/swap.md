@@ -291,7 +291,9 @@ quoteAddressHints? }`. Returned `SwapRoute`:
   bridge: null | {amount, amounts:{tokenAmount,gasInCot,totalAmount}, assets[], chainID,
                   decimals, tokenAddress, estimatedFees},
   destination:{chainId, eoaToEphemeral, inputAmount:{min,max}, swap:{tokenSwap,gasSwap}, getDstSwap()},
-  buffer:{amount}, dstTokenInfo, extras:{aggregators,oraclePrices,balances,assetsUsed},
+  buffer:{amount}, dstTokenInfo,
+  extras:{aggregators,oraclePrices,balances,assetsUsed,
+          directDestination?:{dstHoldings,toAmountRaw,toNativeAmountRaw}},
   sourceExecutionPaths: Map<chainId, WalletPath> }
 ```
 
@@ -317,9 +319,14 @@ determineSwapRoute(input, opts) -> SwapRoute:
     #   silent debug log). The sizing quotes above are DISCARDED on a Path A hit; B1/B2 proceed; the
     #   default flow continues inline with zero waste.
     #   Path A: classifyFastPath(RES) == 'direct' iff EVERY RES member is on toChainId ∧ toToken ≠ cot.
+    #     Cheap gate before quoting: filtered dst holdings must be non-empty and
+    #       Σholding.value >= inputAmount × dst-COT USD price (chain-scoped; $1 fallback).
     #     buildDirectDestinationExactOutRoute selects input→toToken directly on the dst chain (two-pass
-    #     token→gas, §12.1), receiver = EOA. bridge = null, dst.swap = null, directDestination = true.
-    #     STRICT-ALL: either pass short ⇒ throw ⇒ fall back.
+    #     token→gas, §12.1), receiver = EOA. Each pass targets the ORIGINAL raw request exactly;
+    #     bridge = null, dst.swap = null, directDestination = true, srcBuffer = null, buffer = 0.
+    #     Persist the already allowlist-filtered dstHoldings + exact raw targets for execution-time
+    #     re-sizing. STRICT-ALL: either pass short ⇒ throw. A cheap-gate miss or builder failure
+    #     re-classifies the same RES with Path A disabled so B1/B2 still get their turn.
     #   B1 'same-token-out': every RES member ∧ the dst token share one non-COT family F (≠ cot), no gas
     #     ⇒ buildSameTokenBridgeExactOutRoute: gross the target up through an F-denominated fee quote
     #     (gross = (toAmount + fulfilment)/(1 − bps); never the preflight USDC quote), fund via a greedy
@@ -563,6 +570,12 @@ per transfer (reason: source | destination | bridge):
   else: authorization = {kind:'approve'}                            # EOA approve(target), mined before the batch
   transferCall = transferFrom(eoa, target, amount)                  # permit/approve spender == target
 # bridge EOA balances converted human → raw
+
+Path A EXACT_OUT exception:
+  do not prepare per-leg source transfers                           # execution groups sibling legs by token
+  retain every parsed quote
+  warm permit capability + allowance state for EVERY persisted non-native dstHolding
+                                                                    # a fresh requote may select an initially unused allowed token
 ```
 
 ---
@@ -570,6 +583,25 @@ per transfer (reason: source | destination | bridge):
 ## 9. Execution reference (per stage, per wallet path)
 
 ```text
+executeDirectDestinationExactOut(route, ctx, meta):
+  # selected only for directDestination && EXACT_OUT
+  swaps = route.source.swaps
+  if route quote age > 45s: re-size BEFORE dispatch from persisted dstHoldings toward the ORIGINAL
+                            toAmountRaw/toNativeAmountRaw (executor=taker, EOA=recipient)
+  per attempt (at most 3 actual dispatches):
+    order native-input legs first, then ERC-20 legs in sizer order
+    per ERC-20 token:
+      needed = Σ inputRaw across that token's token/gas sibling legs
+      calls += [one permit?, one transferFrom(eoa→executor, needed)] before its first leg
+      calls += each leg's [approve(router)?, swap]
+    dispatchSourceChainBatch(one atomic dst-chain batch); reconcile a known hash; await receipt
+    confirmed → meta.src += the confirmed batch and return
+    confirmed revert / explicit no-broadcast result → fresh re-size, then retry
+    wallet rejection / ambiguous submission or receipt result → terminal; never blindly redispatch
+  cached authorization capacity is exact for canonical/Polygon-EMT permits and paid approvals,
+  MAX_UINT256 for DAI/Polygon-2612 allowed=true, or the actual pre-existing allowance. A mined paid
+  approval is never replayed. Silent per-token growth is capped against the ROUTE-TIME baseline.
+
 executeSourceSwaps(source, ctx, meta) -> BridgeAsset[]:
   for each source chain (serialized — EOA is single-chain):
     path  = ctx.sourceExecutionPaths[chain]            # ◄ resolveWalletDecisions seam
@@ -586,9 +618,8 @@ executeSourceSwaps(source, ctx, meta) -> BridgeAsset[]:
   await all receipts                                   # only AFTER every chain is dispatched
   on chain failure: requote that chain ONCE (EXACT_IN; taker=receiver = that chain's executor —
                     EOA for the direct-COT dst chain, predictedSafe on non-7702, else ephemeral)
-    # EXACT_OUT: require Σ(output drop) ≤ buffer, POOLED PER PASS (`outputRole`)  # else EXTERNAL_RATES_DRIFT_EXCEEDED
-    #   token-pass legs vs srcBuffer, gas-pass legs vs gasSrcBuffer (Path A); single-pass routes = one
-    #   group. An over-quote offsets an under-quote WITHIN a pass; the budget defends the bridge total
+    # EXACT_OUT: require Σ(output drop) ≤ srcBuffer, pooled across that route's source legs
+    #   (directDestination EXACT_OUT never reaches this shared retry; its dedicated executor is above)
     # EXACT_IN:  srcBuffer = null → no guard; accept the re-quote and proceed (Seam 2 re-sizes the dst swap)
     still failing → rethrow                            # no sweep here — cleanup is the orchestrator's job (§11)
   # SEAM 1 (reclaim, when bridge ≠ null): read balanceOf(COT, wrapper) per chain → bridge the ACTUAL
@@ -770,14 +801,24 @@ leftover = balanceOf − consumed → ONE transfer(→ EOA)   ◄ skipped if ≤
 ```
 
 **Path A (directDestination) short‑circuits this graph.** EXACT_OUT selects input→toToken *directly* on
-the dst chain in two passes — token (`toAmount + srcBuffer`), then gas over the REMAINDER of each source
-(`original − token‑pass input`, floor 0; target `toNativeAmount + gasSrcBuffer`) — so there is **no
-bridge and no dst swap**: neither Seam fires and both passes' quotes land in `source.swaps`, one atomic
-batch delivering toToken + gas to the EOA. Selection over‑delivers by construction (the buffer, plus any
-EXACT_OUT convergence over‑quote); the surplus lands at the EOA, same philosophy as the COT flow's
-returned leftover. The only execution‑time drift guard is the source re‑quote, now grouped **per pass**
-(`outputRole`, §12.2). EXACT_IN Path A has no buffer and no gas pass — a single input→toToken pass with
-`inputAmount.min = Σ delivered`.
+the dst chain in two passes — token toward the original `toAmountRaw`, then gas toward the original
+`toNativeAmountRaw` over the REMAINDER of each source (`original − token-pass input`, floor 0). There is
+**no output buffer, bridge, or destination swap**: neither Seam fires and both passes land in
+`source.swaps`, one atomic batch delivering the exact requested token and native amounts to the EOA.
+The route persists the post-allowlist `dstHoldings` universe and both raw targets; it does not reconstruct
+them from global balances or from prior leg outputs.
+
+Execution belongs to `executeDirectDestinationExactOut`, not the shared multi-chain source retry. A
+route older than 45 seconds is re-sized before its first dispatch. A confirmed atomic revert (or an
+explicit provider result proving no broadcast) re-runs the same two-pass sizer, then may retry, for at
+most three actual dispatches. Quote/sizing failure consumes no dispatch slot and is reported as
+`EXTERNAL_RATES_DRIFT_EXCEEDED` with the selected aggregator service. A known hash is reconciled; an
+ambiguous submission/receipt outcome is terminal, and wallet rejection never re-prompts. ERC-20 inputs
+are grouped by token: one authorization plus one summed `transferFrom` precedes that token's ordered
+`[approve?, swap]` legs. Silent input growth is compared to the **route-time** per-token sum (never the
+previous attempt) and capped at `min(2%, $1)` in input units; a newly selected silent token therefore
+starts at zero. Growth requiring a fresh permit/approval remains user-consented. EXACT_IN Path A is
+unchanged: no buffer and no gas pass, with `inputAmount.min = Σ delivered`.
 
 **The asymmetry that made Mayan special.** Source drift is tolerated everywhere by a buffer/range or
 absorbed by re‑derivation — *except* the Mayan per‑leg `effectiveAmountIn64`, the one EXACT, per‑leg,
@@ -827,22 +868,20 @@ a formula over the (already‑updated) inputs, so it tracks them automatically.
   toToken units. STRICT-ALL: any leg that can't quote makes the builder throw and the fast-path
   envelope falls back to the same-token / COT flow. The whole route is one atomic per-chain batch
   (`revertOnFailure`), so the failure sweep is skipped (§11).
-- **Direct destination (Path A) EXACT_OUT keeps buffers, one budget per pass.** The EXACT_OUT
-  twin swaps input→toToken directly on the dst chain too (`directDestination = true`, `bridge = null`,
-  `dst.swap = null`, receiver = EOA), but — unlike EXACT_IN — it DEFENDS the fixed output with a source
-  buffer: `srcBuffer` (toToken units, `min(SRC_BUFFER_PCT, SRC_BUFFER_MAX_USD)`) on the token pass and,
-  when `toNativeAmount` is requested, `gasSrcBuffer` (native units) on the gas pass over the remainder
-  (§12.1). Each pass must cover its **buffered** target (`toAmount + srcBuffer`, `toNative + gasSrcBuffer`),
-  not just the bare amount — `autoSelectSources` can return partial coverage, so requiring the buffer
-  makes it real drift margin rather than a budget a requote could spend below the target (mirrors the
-  default flow). `route.buffer.amount` = the USD sum of both (oracle, fallback $1/token). Because one
-  batch now mixes token-pass and gas-pass legs, the source re-quote drift check is **grouped per pass**
-  (each leg tagged `outputRole: 'token' | 'gas'`) — the token group is checked against `srcBuffer`, the
-  gas group against `gasSrcBuffer`; a gas under-quote can't be offset by a token over-quote. Keying on
-  the pass (not the output token) keeps them separate even when toToken is itself native — both passes
-  then output EADDRESS, which an output-token key would conflate. A single-pass route is one group ⇒
-  byte-identical to the classic pooled check. Over-delivery lands at the EOA; STRICT-ALL: either pass
-  short ⇒ throw ⇒ fall back.
+- **Direct destination (Path A) EXACT_OUT delivers exact outputs with a dedicated executor.** The
+  EXACT_OUT twin swaps input→toToken directly on the dst chain (`directDestination = true`,
+  `bridge = null`, `dst.swap = null`, receiver = EOA), with token and optional gas passes targeting
+  the original raw requests exactly. Its route has `srcBuffer = null`, no `gasSrcBuffer`, and
+  `route.buffer.amount = '0'`; the output-side source retry guard is not used. The cheap route gate is
+  `classifyFastPath(RES) == direct` plus non-empty filtered dst holdings whose summed USD value is
+  `>= inputAmount × destination-COT USD price` (chain-scoped, $1 fallback). The real two-pass quotes
+  and strict coverage remain authoritative; a gate miss or builder failure reclassifies the same RES
+  for B1/B2. Execution re-sizes only from persisted, allowlist-filtered `dstHoldings`, preserves the
+  route-time executor/EOA quote addresses, groups ERC-20 funding per token, and retries only after a
+  definitive failure (§12.1). The whole batch is atomic, so failure cleanup is skipped.
+  `dstHoldings.amountRaw` is an **already usable** ceiling: preflight and composite-flow balance inputs
+  must have deducted any native gas reserve before routing. This executor consumes that ceiling and
+  never estimates or deducts a second reserve.
 - **Dynamic COT (B2) re-enters the flow with a different settlement family** (both modes). When every
   source shares one STABLE family F (USDC/USDT — ETH excluded) that is ≠ the destination family and ≠
   the current COT, F resolves as a COT on the dst chain, and **at least one source is off the dst chain**
@@ -875,12 +914,11 @@ a formula over the (already‑updated) inputs, so it tracks them automatically.
   zero-address token).
 - **Convergence bounded** — `SAFETY_MULTIPLIER` (1.002); input growth capped at initial +
   `MAX_CONVERGENCE_EXTRA_COT` (0.5); non‑convergence throws (source) / returns null (destination).
-- **Source re‑quote once.** EXACT_OUT: summed leg drops ≤ `srcBuffer` (boundary inclusive), **pooled
-  per pass** (`outputRole`) — a Path A batch checks token‑pass legs against `srcBuffer` and gas‑pass legs
-  against `gasSrcBuffer` in separate groups (keyed on the pass, not the output token, so a native toToken
-  doesn't collapse both into one); every single‑pass route is one group (byte‑identical to the classic
-  pooled `Σnew ≥ Σold − srcBuffer`) — else `EXTERNAL_RATES_DRIFT_EXCEEDED`. EXACT_IN: no guard — accept
-  the re‑quote and proceed. Still failing → re‑throw, no sweep at this layer.
+- **Shared source re‑quote once (non-direct routes).** EXACT_OUT: summed leg drops must stay within
+  `srcBuffer` (boundary inclusive), pooled across the route's source legs; otherwise
+  `EXTERNAL_RATES_DRIFT_EXCEEDED`. EXACT_IN has no guard and accepts the re-quote. Still failing means
+  re-throw, with no sweep at this layer. Path A EXACT_OUT does not enter this code; its exact-target,
+  three-dispatch policy and silent-input growth guard are described above.
 - **Destination re‑quote twice** (`MAX_RETRIES`; 3 attempts), then re‑throw without a fallback sweep.
   EXACT_IN has no rate‑tolerance guard on the re‑quote; EXACT_OUT keeps its frozen `[floor, ceiling]`.
 - **Aggregator failures non‑fatal** at the aggregation layer.

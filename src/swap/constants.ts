@@ -29,6 +29,7 @@ export const SLIPPAGE_DEFAULT = 0.005;
 export const RATE_GUARD_THRESHOLD = 0.995;
 export const REQUOTE_THRESHOLD_SECONDS = 24;
 export const MAX_RETRIES = 2;
+export const DIRECT_DST_QUOTE_TTL_MS = 45_000;
 
 // ---------------------------------------------------------------------------
 // Buffers

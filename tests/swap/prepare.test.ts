@@ -20,6 +20,7 @@ import { signPermitForAddressAndValue } from '../../src/services/allowance-utils
 const ARB_CHAIN = 42161;
 const WETH = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2' as Hex;
 const USDC_ARB = '0xaf88d065e77c8cc2239327c5edb3a432268e5831' as Hex;
+const DAI_ARB = '0xda10009cbd5d07dd0cecc66161fc93d7c9000da1' as Hex;
 const EOA = '0xaaaa000000000000000000000000000000000001' as Hex;
 const EPH = '0xbbbb000000000000000000000000000000000002' as Hex;
 const APPROVAL = '0x1111111111111111111111111111111111111111' as Hex;
@@ -180,6 +181,53 @@ describe('prepareSwapExecution', () => {
     expect((transferCall.args?.[0] as Hex).toLowerCase()).toBe(EOA.toLowerCase());
     expect((transferCall.args?.[1] as Hex).toLowerCase()).toBe(EPH.toLowerCase());
     expect(transferCall.args?.[2]).toBe(3000000000n);
+  });
+
+  it('leaves direct-destination funding to the executor and warms every persisted holding', async () => {
+    const route = makeRoute();
+    route.directDestination = true;
+    route.destination = {
+      ...route.destination,
+      eoaToEphemeral: null,
+      swap: { tokenSwap: null, gasSwap: null },
+    };
+    route.extras.directDestination = {
+      dstHoldings: [
+        { ...route.source.swaps[0].holding, value: 3000 },
+        {
+          chainID: ARB_CHAIN,
+          tokenAddress: DAI_ARB,
+          amountRaw: 100000000000000000000n,
+          decimals: 18,
+          symbol: 'DAI',
+          value: 100,
+        },
+      ],
+      toAmountRaw: 1000000000000000000n,
+      toNativeAmountRaw: 0n,
+    };
+    const cache = makeCache();
+    const addPermitQuery = vi.spyOn(cache, 'addPermitQuery');
+    const addAllowanceQuery = vi.spyOn(cache, 'addAllowanceQuery');
+    vi.spyOn(cache, 'process').mockResolvedValue(undefined);
+
+    const prepared = await prepareSwapExecution({
+      chainList: makeSupportedChainList(),
+      route,
+      source: route.source,
+      destination: route.destination,
+      eoaAddress: EOA,
+      eoaWallet: {} as WalletClient,
+      ephemeralWallet: { address: EPH } as PrivateKeyAccount,
+      publicClientList: { get: vi.fn().mockReturnValue(makePublicClient()) },
+      cache,
+    });
+
+    expect(prepared.parsedQuotes).toHaveLength(1);
+    expect(prepared.eoaToEphemeralTransfers).toEqual([]);
+    expect(addPermitQuery).toHaveBeenCalledWith(USDC_ARB, ARB_CHAIN);
+    expect(addPermitQuery).toHaveBeenCalledWith(DAI_ARB, ARB_CHAIN);
+    expect(addAllowanceQuery).toHaveBeenCalledWith(DAI_ARB, EOA, EPH, ARB_CHAIN);
   });
 
   it('builds a source EOA->Safe funding transfer targeting the predicted Safe on non-7702 source chains', async () => {

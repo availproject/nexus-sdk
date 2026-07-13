@@ -54,7 +54,10 @@ vi.mock('../../../src/swap/execution/safe-dispatch', () => ({
   dispatchSafeSource: vi.fn(),
 }));
 
-import { executeSourceSwaps } from '../../../src/swap/execution/source-swaps';
+import {
+  dispatchSourceChainBatch,
+  executeSourceSwaps,
+} from '../../../src/swap/execution/source-swaps';
 import { dispatchSafeSource } from '../../../src/swap/execution/safe-dispatch';
 import { createSBCTxFromCalls } from '../../../src/services/sbc';
 import {
@@ -255,6 +258,26 @@ describe('executeSourceSwaps', () => {
       address: '0xaaaa000000000000000000000000000000000001' as Hex,
     });
     vi.mocked(waitForDispatchedEoaCalls).mockResolvedValue('0xeoa_tx' as Hex);
+  });
+
+  it('dispatches one ephemeral batch without owning chain-swap bookkeeping', async () => {
+    const ctx = makeCtx('ephemeral');
+
+    const dispatched = await dispatchSourceChainBatch({
+      chainId: ARB_CHAIN,
+      calls: [{ to: WETH, data: '0xswap', value: 0n }],
+      nativeValue: 0n,
+      ctx,
+    });
+
+    expect(ctx.middlewareClient.submitSBCs).toHaveBeenCalledTimes(1);
+    expect(dispatched).not.toHaveProperty('chainSwaps');
+    expect(dispatched.submittedTxHash).toBe('0xtx123');
+    await expect(dispatched.waitForReceipt()).resolves.toBe('0xtx123');
+    expect(vi.mocked(ctx.onProgress!).mock.calls.map(([update]) => update.state)).toEqual([
+      'started',
+      'submitted',
+    ]);
   });
 
   it('ephemeral path → creates SBC and submits via middleware', async () => {

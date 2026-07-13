@@ -808,6 +808,11 @@ const result = await client.swapWithExactOut(
 | `toAmountRaw` | `bigint` | Yes | Exact output amount desired (raw integer units) |
 | `toNativeAmountRaw` | `bigint` | No | Optional native gas amount for destination chain |
 
+When eligible sources are already on the destination chain, EXACT_OUT can use the Path A fast path:
+one atomic, bridge-less batch swaps directly to the requested token and optional native gas amounts.
+It targets those raw outputs exactly, groups same-token funding into one authorization and transfer,
+and safely re-quotes stale or definitively reverted batches without blindly replaying ambiguous ones.
+
 **SwapResult:**
 
 ```typescript

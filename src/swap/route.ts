@@ -17,12 +17,15 @@ import { divDecimals, mulDecimals } from '../services/math';
 import { MAYAN_MIN_USD_PER_LEG, quoteMayanLegs } from '../services/mayan';
 import { equalFold } from '../services/strings';
 import type { MiddlewareSwapPreflightClient } from '../transport';
-import type { Aggregator, Holding, QuoteResponse } from './aggregators/types';
+import type { Aggregator, Holding } from './aggregators/types';
 import {
   autoSelectSources,
-  selectDirectDestinationSwaps,
   type SourceHolding,
 } from './algorithms/auto-select';
+import {
+  makeConvergenceExtraRaw,
+  sizeDirectDestinationExactOut,
+} from './algorithms/direct-destination-size';
 import {
   destinationGasSwapExactIn,
   destinationSwapWithExactIn,
@@ -959,7 +962,7 @@ async function _exactOutRoute(
   // the sizing quotes above and re-selects input→toToken directly; the default flow continues inline.
   if (!options.skipFastPaths) {
     const roughEligible = selectRoughEligibleSources(holdings, inputAmount);
-    const fastPathClass = classifyFastPath({
+    const classificationInput = {
       chainList,
       members: roughEligible.map((holding) => ({
         chainID: holding.chainID,
@@ -972,12 +975,35 @@ async function _exactOutRoute(
       hasGasRequest: needsGasSwap,
       toAmountRaw: data.toAmountRaw,
       mode: SwapMode.EXACT_OUT,
-    });
+    } as const;
+    let fastPathClass = classifyFastPath(classificationInput);
     if (fastPathClass?.kind === 'direct') {
-      const direct = await tryFastPath('direct', () =>
-        buildDirectDestinationExactOutRoute(data, holdings, options)
+      const dstHoldings = holdings.filter((holding) => holding.chainID === data.toChainId);
+      const holdingsUsd = dstHoldings.reduce(
+        (sum, holding) => sum.plus(holding.value),
+        new Decimal(0)
       );
-      if (direct) return direct;
+      const dstCotOracleAddress = isNativeAddress(dstCOT.address)
+        ? ZERO_ADDRESS
+        : dstCOT.address;
+      const dstCotPriceUsd =
+        oraclePrices.find(
+          (price) =>
+            price.chainId === data.toChainId &&
+            equalFold(price.tokenAddress, dstCotOracleAddress)
+        )?.priceUsd ?? new Decimal(1);
+      const requiredUsd = inputAmount.mul(dstCotPriceUsd.gt(0) ? dstCotPriceUsd : 1);
+
+      if (dstHoldings.length > 0 && holdingsUsd.gte(requiredUsd)) {
+        const direct = await tryFastPath('direct', () =>
+          buildDirectDestinationExactOutRoute(data, holdings, options)
+        );
+        if (direct) return direct;
+      }
+
+      // Path A is only the first fast-path choice. If its cheap gate or strict builder rejects,
+      // classify the same RES again with the direct check disabled so B1/B2 still get their turn.
+      fastPathClass = classifyFastPath({ ...classificationInput, needsTokenSwap: false });
     }
     if (fastPathClass?.kind === 'same-token-out') {
       const sameToken = await tryFastPath('same-token-out', () =>
@@ -1498,10 +1524,6 @@ async function buildDirectDestinationExactInRoute(
   };
 }
 
-// Oracle lookups key native as ZERO_ADDRESS, but swap internals carry it as EADDRESS — normalize.
-const oracleKey = (tokenAddress: Hex): Hex =>
-  isNativeAddress(tokenAddress) ? ZERO_ADDRESS : tokenAddress;
-
 const holdingKey = (chainID: number, tokenAddress: Hex): string =>
   `${chainID}:${tokenAddress.toLowerCase()}`;
 
@@ -1512,10 +1534,9 @@ const holdingKey = (chainID: number, tokenAddress: Hex): string =>
  * REMAINDER of each source (original − what the token pass consumed) input→native. Both passes'
  * quotes land in `source.swaps` on the dst chain — one atomic batch delivering toToken + gas to the EOA.
  *
- * The selection target is buffered (`toAmount + srcBuffer`, `toNative + gasSrcBuffer`) so a
- * re-quote can't drop the delivery below the requested amount; over-delivery lands at the EOA.
- * STRICT-ALL: if either pass can't cover its target, the builder throws and the fast-path envelope
- * falls back to the default COT flow.
+ * Both selection passes target the requested raw amounts exactly. STRICT-ALL: if either pass can't
+ * cover its target, the builder throws and the fast-path envelope falls back to the default COT
+ * flow.
  */
 async function buildDirectDestinationExactOutRoute(
   data: { toChainId: number; toTokenAddress: Hex; toAmountRaw: bigint; toNativeAmountRaw?: bigint },
@@ -1544,105 +1565,23 @@ async function buildDirectDestinationExactOutRoute(
   });
   const userAddressByChain = buildExecutorAddressByChain(walletDecision.sourceExecutionPaths, options);
 
-  // Path A executes entirely on the dst chain, so price every token on that chain — without the
-  // chainId filter a native (ZERO_ADDRESS) lookup would match the first chain's native in the array
-  // (e.g. POL vs ETH, a ~6000× miss), missizing gasSrcBuffer / the convergence cap / the USD display.
-  const priceUsdFor = (tokenAddress: Hex): Decimal | undefined =>
-    oraclePrices.find(
-      (price) => price.chainId === dstChainId && equalFold(price.tokenAddress, oracleKey(tokenAddress))
-    )?.priceUsd;
-  // ≈$0.50 of the output token in raw units (convergence extra-input cap). No price ⇒ undefined
-  // (autoSelectSources defaults to 0.5 whole tokens).
-  const convergenceExtraRaw = (tokenAddress: Hex, decimals: number): Decimal | undefined => {
-    const price = priceUsdFor(tokenAddress);
-    if (!price || price.lte(0)) return undefined;
-    return new Decimal('0.5').div(price).mul(Decimal.pow(10, decimals));
-  };
-  const toUsd = (amountHuman: Decimal, tokenAddress: Hex): Decimal => {
-    const price = priceUsdFor(tokenAddress);
-    return price ? amountHuman.mul(price) : amountHuman; // fallback: treat as USD (≈$1)
-  };
+  const convergenceExtraRaw = makeConvergenceExtraRaw(oraclePrices, dstChainId);
 
-  // ── Pass 1: token ──
-  const toTokenHuman = divDecimals(data.toAmountRaw, dstTokenInfo.decimals);
-  const srcBuffer = applyBuffer(
-    toTokenHuman,
-    SRC_BUFFER_PCT,
-    SRC_BUFFER_MAX_USD,
-    oraclePrices,
-    dstChainId,
-    oracleKey(toTokenAddress)
-  );
-  const tokenResult = await selectDirectDestinationSwaps({
+  const requestedNativeAmountRaw =
+    data.toNativeAmountRaw != null && data.toNativeAmountRaw > 0n ? data.toNativeAmountRaw : 0n;
+  const nativeDecimals = destinationChain.nativeCurrency.decimals;
+  const swaps = await sizeDirectDestinationExactOut({
     holdings: dstHoldings,
-    outputRequired: toTokenHuman.plus(srcBuffer),
-    target: { contractAddress: toTokenAddress, decimals: dstTokenInfo.decimals },
+    tokenAddress: toTokenAddress,
+    tokenDecimals: dstTokenInfo.decimals,
+    tokenTargetRaw: data.toAmountRaw,
+    nativeDecimals,
+    gasTargetRaw: requestedNativeAmountRaw,
     aggregators,
     userAddressByChain,
     recipientAddressByChain,
-    maxConvergenceExtraRaw: convergenceExtraRaw(toTokenAddress, dstTokenInfo.decimals),
+    convergenceExtraRaw,
   });
-  const tokenDeliveredRaw =
-    tokenResult.quoteResponses.reduce((sum, quote) => sum + quote.quote.output.amountRaw, 0n) +
-    tokenResult.usedCOTs.reduce(
-      (sum, used) => sum + mulDecimals(used.amountUsed, used.holding.decimals),
-      0n
-    );
-  // Require the BUFFERED target (autoSelectSources may return partial coverage without throwing), so
-  // `srcBuffer` is real requote/drift margin, not a budget that can push delivery below toAmount.
-  // Mirrors the default flow's `coveredOutput < selectionTarget` check.
-  if (tokenDeliveredRaw < mulDecimals(toTokenHuman.plus(srcBuffer), dstTokenInfo.decimals)) {
-    throw Errors.quoteFailed('Direct destination EXACT_OUT: token selection cannot cover toAmount + buffer');
-  }
-
-  // ── Pass 2: gas (remainder-carry) ──
-  const requestedNativeAmountRaw =
-    data.toNativeAmountRaw != null && data.toNativeAmountRaw > 0n ? data.toNativeAmountRaw : 0n;
-  let gasSwaps: QuoteResponse[] = [];
-  let gasSrcBuffer: Decimal | undefined;
-  if (requestedNativeAmountRaw > 0n) {
-    const nativeDecimals = destinationChain.nativeCurrency.decimals;
-    const remainderHoldings = subtractConsumedHoldings(dstHoldings, tokenResult);
-    const toNativeHuman = divDecimals(requestedNativeAmountRaw, nativeDecimals);
-    gasSrcBuffer = applyBuffer(
-      toNativeHuman,
-      SRC_BUFFER_PCT,
-      SRC_BUFFER_MAX_USD,
-      oraclePrices,
-      dstChainId,
-      ZERO_ADDRESS
-    );
-    const gasResult = await selectDirectDestinationSwaps({
-      holdings: remainderHoldings,
-      outputRequired: toNativeHuman.plus(gasSrcBuffer),
-      target: { contractAddress: EADDRESS as Hex, decimals: nativeDecimals },
-      aggregators,
-      userAddressByChain,
-      recipientAddressByChain,
-      maxConvergenceExtraRaw: convergenceExtraRaw(ZERO_ADDRESS, nativeDecimals),
-    });
-    gasSwaps = gasResult.quoteResponses;
-    const gasDeliveredRaw = gasSwaps.reduce((sum, quote) => sum + quote.quote.output.amountRaw, 0n);
-    // Buffered target too (see the token pass) so `gasSrcBuffer` is real drift margin.
-    if (gasDeliveredRaw < mulDecimals(toNativeHuman.plus(gasSrcBuffer), nativeDecimals)) {
-      throw Errors.quoteFailed('Direct destination EXACT_OUT: gas selection cannot cover toNativeAmount + buffer');
-    }
-  }
-
-  // Tag each leg by the pass that produced it so the source requote guard and the gas display can
-  // distinguish token from gas legs even when toToken is itself native (both output EADDRESS).
-  const swaps: QuoteResponse[] = [
-    ...tokenResult.quoteResponses.map((q) => ({ ...q, outputRole: 'token' as const })),
-    ...gasSwaps.map((q) => ({ ...q, outputRole: 'gas' as const })),
-  ];
-  if (swaps.length === 0) {
-    throw Errors.quoteFailed('Direct destination EXACT_OUT produced no swap legs');
-  }
-
-  // buffer.amount = USD equivalent of both buffers (oracle, fallback $1/token).
-  const bufferUsd = toUsd(srcBuffer, toTokenAddress).plus(
-    gasSrcBuffer ? toUsd(gasSrcBuffer, ZERO_ADDRESS) : new Decimal(0)
-  );
 
   // Consumed input per source (aggregated across both passes) → assetsUsed.
   const consumedByKey = new Map<string, { holding: Holding; raw: bigint }>();
@@ -1671,8 +1610,7 @@ async function buildDirectDestinationExactOutRoute(
       swaps,
       creationTime: Date.now(),
       cotByChain: new Map<number, SourceChainCOT>(),
-      srcBuffer,
-      gasSrcBuffer,
+      srcBuffer: null,
       reclaimFromActualBalance: false,
     },
     bridge: null,
@@ -1685,45 +1623,22 @@ async function buildDirectDestinationExactOutRoute(
       swap: { tokenSwap: null, gasSwap: null },
       getDstSwap: async () => null,
     },
-    buffer: { amount: bufferUsd.toString() },
+    buffer: { amount: '0' },
     dstTokenInfo,
-    extras: { aggregators, oraclePrices, balances: options.balances, assetsUsed },
+    extras: {
+      aggregators,
+      oraclePrices,
+      balances: options.balances,
+      assetsUsed,
+      directDestination: {
+        dstHoldings,
+        toAmountRaw: data.toAmountRaw,
+        toNativeAmountRaw: requestedNativeAmountRaw,
+      },
+    },
     sourceExecutionPaths: walletDecision.sourceExecutionPaths,
   };
 }
-
-// Remainder holdings after a token pass: original − consumed input per source (floor 0), with USD
-// value scaled proportionally so the gas pass's prefix survey stays accurate.
-const subtractConsumedHoldings = (
-  holdings: SourceHolding[],
-  result: { quoteResponses: QuoteResponse[]; usedCOTs: { holding: Holding; amountUsed: Decimal }[] }
-): SourceHolding[] => {
-  const consumedByKey = new Map<string, bigint>();
-  const add = (chainID: number, tokenAddress: Hex, raw: bigint) => {
-    const key = holdingKey(chainID, tokenAddress);
-    consumedByKey.set(key, (consumedByKey.get(key) ?? 0n) + raw);
-  };
-  for (const quote of result.quoteResponses) {
-    add(quote.chainID, quote.holding.tokenAddress, quote.quote.input.amountRaw);
-  }
-  for (const used of result.usedCOTs) {
-    add(used.holding.chainID, used.holding.tokenAddress, mulDecimals(used.amountUsed, used.holding.decimals));
-  }
-  const remainders: SourceHolding[] = [];
-  for (const holding of holdings) {
-    const consumed = consumedByKey.get(holdingKey(holding.chainID, holding.tokenAddress)) ?? 0n;
-    const remainderRaw = holding.amountRaw > consumed ? holding.amountRaw - consumed : 0n;
-    if (remainderRaw > 0n) {
-      const ratio = new Decimal(remainderRaw.toString()).div(holding.amountRaw.toString());
-      remainders.push({
-        ...holding,
-        amountRaw: remainderRaw,
-        value: new Decimal(holding.value).mul(ratio).toNumber(),
-      });
-    }
-  }
-  return remainders;
-};
 
 // Resolve the bridge provider on the same-token being bridged, assemble the bridge object, and
 // enrich it when the pick is Mayan. Shared by both same-token builders — EXACT_IN derives delivery

@@ -16,7 +16,7 @@ import type {
   MiddlewareSwapClient,
   MiddlewareSwapExecutionClient,
 } from '../transport';
-import type { Aggregator, Quote, QuoteResponse } from './aggregators/types';
+import type { Aggregator, Holding, Quote, QuoteResponse } from './aggregators/types';
 import type { CurrencyID } from './cot';
 import type { SwapCache } from './wallet/cache';
 
@@ -289,6 +289,11 @@ export type SwapRoute = {
     oraclePrices: OraclePriceResponse;
     balances: FlatBalance[];
     assetsUsed: AssetsUsedEntry[];
+    directDestination?: {
+      dstHoldings: (Holding & { value: number })[];
+      toAmountRaw: bigint;
+      toNativeAmountRaw: bigint;
+    };
   };
   sourceExecutionPaths: Map<number, WalletPath>;
 };

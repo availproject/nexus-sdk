@@ -536,9 +536,9 @@ const SCENARIOS: ExactOutScenario[] = [
       expectsNativeSweep: false,
       // Path A source swap delivers straight to the EOA (no dst swap follows).
       sourceQuoteExpectations: [{ chainId: BASE_CHAIN, executor: EPH, recipient: EOA }],
-      eoaToEphemeralTransfers: [
-        { reason: 'source', chainId: BASE_CHAIN, tokenAddress: USDC_BASE },
-      ],
+      // Direct EXACT_OUT funding is grouped at execution time so sibling legs can share one
+      // authorization and transfer. Prepare warms the whole persisted holding universe instead.
+      eoaToEphemeralTransfers: [],
       bridgeAssetOwnership: [],
     },
   },

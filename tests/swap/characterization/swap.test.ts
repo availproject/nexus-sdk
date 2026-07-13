@@ -1927,11 +1927,10 @@ describe('EXACT_OUT coverage expansion', () => {
 
   // ── A · same-chain / no-bridge family ──
 
-  it('A1 · Path A: COT source on the dst chain swaps directly to toToken (over-delivers the buffer), no bridge', async () => {
+  it('A1 · Path A: COT source on the dst chain swaps directly to the exact toToken amount, no bridge', async () => {
     // Every source already on the dst chain (COT@Base → WETH@Base) → Path A: one direct SOURCE swap
-    // input→toToken, receiver = EOA. EXACT_OUT selects toAmount + srcBuffer (no WETH oracle ⇒ $1@$1
-    // ⇒ 0.004 WETH), so 0.204 WETH is delivered — the buffer over-delivers straight to the EOA. No
-    // bridge, no dst swap, no leftover-return leg.
+    // input→toToken, receiver = EOA. EXACT_OUT selects exactly 0.2 WETH. No bridge, no dst swap, no
+    // leftover-return leg.
     const middlewareClient = makeCharMiddleware({ balances: [usdc(BASE_CHAIN, USDC_BASE, '1000')], provider: 'nexus' });
     const { wallet, sentTxs } = makeRealEoaWallet();
     await flowSwap(
@@ -1950,8 +1949,8 @@ describe('EXACT_OUT coverage expansion', () => {
     eq(WETH)(swp.args[1]);
     eq(EPH)(swp.args[4]); // taker = wrapper
     eq(EOA)(swp.args[5]); // receiver = EOA (direct destination)
-    expect(swp.args[3]).toBe(204n * 10n ** 15n); // 0.204 WETH out (0.2 + 0.004 srcBuffer)
-    expect(swp.args[2]).toBe(510n * 10n ** 6n); // 0.204 @2500 → 510 USDC in
+    expect(swp.args[3]).toBe(2n * 10n ** 17n); // 0.2 WETH out
+    expect(swp.args[2]).toBe(500n * 10n ** 6n); // 0.2 @2500 → 500 USDC in
     expect(base[0][1].args[2]).toBe(swp.args[2]); // transferFrom funds exactly the swap input
     expect(base[0][2].args[1]).toBe(swp.args[2]); // approve == swap input
     expect(sentTxs).toHaveLength(0);
@@ -2055,8 +2054,8 @@ describe('EXACT_OUT coverage expansion', () => {
 
   it('A6 · Path A (+token, +gas): the two-pass carry delivers toToken AND native gas in one bridge-less batch', async () => {
     // Every source on the dst chain, toToken ≠ COT, plus a native gas request (the swapAndExecute
-    // sentinel). Path A runs TWO passes over the single USDC holding: token (USDC→WETH, 0.204 incl the
-    // 0.004 srcBuffer) then gas over the REMAINDER (USDC→native, 0.0102 incl the 0.0002 gasSrcBuffer).
+    // sentinel). Path A runs TWO exact passes over the single USDC holding: token (USDC→WETH, 0.2)
+    // then gas over the REMAINDER (USDC→native, 0.01).
     // Both legs land in ONE atomic BASE batch, each delivering straight to the EOA — no bridge, no RFF,
     // no dst swap. This is the multi-output-token sibling of A1 (which has no gas leg).
     const middlewareClient = makeCharMiddleware({ balances: [usdc(BASE_CHAIN, USDC_BASE, '1000')], provider: 'nexus' });
@@ -2070,6 +2069,19 @@ describe('EXACT_OUT coverage expansion', () => {
     expect(middlewareClient.submitRFF).not.toHaveBeenCalled();
     const base = sbcBatchesForChain(middlewareClient, BASE_CHAIN);
     expect(base.length, 'single atomic dst batch').toBe(1);
+    expect(base[0].map((call) => call.fn)).toEqual([
+      'permit',
+      'transferFrom',
+      'approve',
+      'swap',
+      'approve',
+      'swap',
+    ]);
+    permitOwnerSpender(EOA, EPH)(base[0][0].args);
+    eq(USDC_BASE)(base[0][1].to);
+    eq(EOA)(base[0][1].args[0]);
+    eq(EPH)(base[0][1].args[1]);
+    expect(base[0][1].args[2]).toBe(525n * 10n ** 6n);
     const swaps = base[0].filter((c) => c.fn === 'swap');
     expect(swaps.length, 'two-pass → one token swap + one gas swap').toBe(2);
 
@@ -2078,23 +2090,23 @@ describe('EXACT_OUT coverage expansion', () => {
     expect(tokenSwap, 'toToken leg present').toBeDefined();
     expect(gasSwap, 'native gas leg present').toBeDefined();
 
-    // Token leg: USDC→WETH, over-delivers the srcBuffer (0.2 + 0.004), taker = wrapper, receiver = EOA.
+    // Token leg: USDC→WETH exact output, taker = wrapper, receiver = EOA.
     eq(USDC_BASE)(tokenSwap!.args[0]);
     eq(EPH)(tokenSwap!.args[4]);
     eq(EOA)(tokenSwap!.args[5]);
-    expect(tokenSwap!.args[3]).toBe(204n * 10n ** 15n); // 0.204 WETH out
-    expect(tokenSwap!.args[2]).toBe(510n * 10n ** 6n); // 510 USDC in (0.204 @ 2500)
+    expect(tokenSwap!.args[3]).toBe(2n * 10n ** 17n); // 0.2 WETH out
+    expect(tokenSwap!.args[2]).toBe(500n * 10n ** 6n); // 500 USDC in (0.2 @ 2500)
 
-    // Gas leg: USDC→native, over-delivers the gasSrcBuffer (0.01 + 0.0002), receiver = EOA. Its input
-    // is drawn from what the token pass left behind — the remainder-carry.
+    // Gas leg: USDC→native exact output, receiver = EOA. Its input is drawn from what the token pass
+    // left behind — the remainder-carry.
     eq(USDC_BASE)(gasSwap!.args[0]);
     eq(EPH)(gasSwap!.args[4]);
     eq(EOA)(gasSwap!.args[5]);
-    expect(gasSwap!.args[3]).toBe(102n * 10n ** 14n); // 0.0102 ETH out
-    expect(gasSwap!.args[2]).toBe(255n * 10n ** 5n); // 25.5 USDC in (0.0102 @ 2500)
+    expect(gasSwap!.args[3]).toBe(1n * 10n ** 16n); // 0.01 ETH out
+    expect(gasSwap!.args[2]).toBe(25n * 10n ** 6n); // 25 USDC in (0.01 @ 2500)
 
     // Both legs pull USDC; the combined input fits inside the single 1000 USDC holding (remainder-carry).
-    expect((tokenSwap!.args[2] as bigint) + (gasSwap!.args[2] as bigint)).toBe(5355n * 10n ** 5n); // 535.5 USDC
+    expect((tokenSwap!.args[2] as bigint) + (gasSwap!.args[2] as bigint)).toBe(525n * 10n ** 6n);
     expect(sentTxs).toHaveLength(0); // ERC20 input → ephemeral SBC, no EOA native send
   });
 
@@ -2372,7 +2384,7 @@ describe('EXACT_OUT coverage expansion', () => {
     expect(base[0].map((c) => c.fn)).toEqual(['permit', 'transferFrom', 'approve', 'swap']);
     eq(WETH)(base[0][3].args[1]);
     eq(EOA)(base[0][3].args[5]); // direct source swap → EOA
-    expect(base[0][3].args[3]).toBe(204n * 10n ** 15n); // 0.204 WETH (0.2 + srcBuffer)
+    expect(base[0][3].args[3]).toBe(2n * 10n ** 17n); // exact 0.2 WETH
   });
 
   // ── R · destination requote (the drift lever generalizes: it fails the FIRST swap-carrying

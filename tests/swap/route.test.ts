@@ -2598,7 +2598,7 @@ describe('determineSwapRoute', () => {
       const input: SwapData = { mode: SwapMode.EXACT_OUT, data: { toChainId: ARB_CHAIN, toTokenAddress: PEPE, toAmountRaw: 100000000000000000000n } };
       vi.mocked(determineDestinationSwaps).mockResolvedValue(sizingQuote());
       vi.mocked(selectDirectDestinationSwaps).mockResolvedValue({
-        quoteResponses: [leg(WETH, 1000000000000000000n, 18, PEPE, 101000000000000000000n, 18)], // delivers 101 PEPE
+        quoteResponses: [leg(WETH, 1000000000000000000n, 18, PEPE, 100000000000000000000n, 18)],
         usedCOTs: [],
       });
 
@@ -2608,11 +2608,112 @@ describe('determineSwapRoute', () => {
       expect(route.bridge).toBeNull();
       expect(route.destination.swap.tokenSwap).toBeNull(); // sizing quote discarded
       expect(route.source.swaps).toHaveLength(1);
-      // Path A selects toward target = toToken with outputRequired = toAmount + srcBuffer(min 2%/$1 → $1 → 1 PEPE) = 101.
+      // Path A delivers the requested amount exactly; execution-time requotes target this same raw amount.
       const arg = vi.mocked(selectDirectDestinationSwaps).mock.calls[0][0];
       expect(arg.target).toEqual(expect.objectContaining({ contractAddress: PEPE, decimals: 18 }));
-      expect(arg.outputRequired.toString()).toBe('101');
-      expect(route.source.srcBuffer?.toString()).toBe('1');
+      expect(arg.outputRequired.toString()).toBe('100');
+      expect(route.source.srcBuffer).toBeNull();
+      expect(route.source.gasSrcBuffer).toBeUndefined();
+      expect(route.buffer.amount).toBe('0');
+    });
+
+    it('persists only allowlisted destination holdings with the original raw targets', async () => {
+      const input: SwapData = {
+        mode: SwapMode.EXACT_OUT,
+        data: {
+          sources: [{ chainId: ARB_CHAIN, tokenAddress: WETH }],
+          toChainId: ARB_CHAIN,
+          toTokenAddress: PEPE,
+          toAmountRaw: 100000000000000000000n,
+        },
+      };
+      vi.mocked(determineDestinationSwaps).mockResolvedValue(sizingQuote());
+      vi.mocked(selectDirectDestinationSwaps).mockResolvedValue({
+        quoteResponses: [
+          leg(WETH, 1000000000000000000n, 18, PEPE, 100000000000000000000n, 18),
+        ],
+        usedCOTs: [],
+      });
+
+      const route = await determineSwapRoute(
+        input,
+        makeRouteOptions({
+          dstTokenInfo: pepeInfo,
+          balances: [
+            bal(WETH, '1', 18, 3000, 'WETH'),
+            bal(DAI, '1000', 18, 1000, 'DAI'),
+          ],
+        })
+      );
+
+      expect(route.extras.directDestination).toEqual({
+        dstHoldings: [
+          expect.objectContaining({
+            chainID: ARB_CHAIN,
+            tokenAddress: WETH,
+            amountRaw: 1000000000000000000n,
+          }),
+        ],
+        toAmountRaw: 100000000000000000000n,
+        toNativeAmountRaw: 0n,
+      });
+    });
+
+    it('gates on chain-scoped COT USD value and accepts the equality boundary', async () => {
+      const input: SwapData = {
+        mode: SwapMode.EXACT_OUT,
+        data: {
+          toChainId: ARB_CHAIN,
+          toTokenAddress: PEPE,
+          toAmountRaw: 100000000000000000000n,
+        },
+      };
+      vi.mocked(determineDestinationSwaps).mockResolvedValue(sizingQuote());
+      vi.mocked(selectDirectDestinationSwaps).mockResolvedValue({
+        quoteResponses: [
+          leg(WETH, 1000000000000000000n, 18, PEPE, 100000000000000000000n, 18),
+        ],
+        usedCOTs: [],
+      });
+      vi.mocked(autoSelectSources).mockResolvedValue({
+        quoteResponses: [leg(WETH, 1000000000000000000n, 18, USDC_ARB, 200000000n, 6)],
+        usedCOTs: [],
+      });
+      const oraclePrices = [
+        {
+          universe: 'EVM' as const,
+          chainId: ARB_CHAIN,
+          tokenAddress: USDC_ARB,
+          tokenSymbol: 'USDC',
+          tokenDecimals: 6,
+          priceUsd: new Decimal(2),
+          timestamp: 1,
+        },
+      ] as OraclePriceResponse;
+
+      const below = await determineSwapRoute(
+        input,
+        makeRouteOptions({
+          dstTokenInfo: pepeInfo,
+          balances: [bal(WETH, '1', 18, 199, 'WETH')],
+          oraclePrices,
+        })
+      );
+
+      expect(below.directDestination).toBeFalsy();
+      expect(selectDirectDestinationSwaps).not.toHaveBeenCalled();
+
+      const equal = await determineSwapRoute(
+        input,
+        makeRouteOptions({
+          dstTokenInfo: pepeInfo,
+          balances: [bal(WETH, '1', 18, 200, 'WETH')],
+          oraclePrices,
+        })
+      );
+
+      expect(equal.directDestination).toBe(true);
+      expect(selectDirectDestinationSwaps).toHaveBeenCalledTimes(1);
     });
 
     it('gas two-pass: token pass consumes [S1, 0.7·S2], gas pass receives the remainders [0.3·S2, S3]', async () => {
@@ -2651,9 +2752,10 @@ describe('determineSwapRoute', () => {
         [DAI, 300000000000000000000n], // 0.3·A2 remainder
         [USDC_ARB, A3], // untouched
       ]);
-      // Merged source.swaps = 2 token legs + 1 gas leg; both buffers present.
+      // Merged source.swaps = 2 token legs + 1 gas leg; Path A carries no source buffers.
       expect(route.source.swaps).toHaveLength(3);
-      expect(route.source.gasSrcBuffer).toBeDefined();
+      expect(route.source.srcBuffer).toBeNull();
+      expect(route.source.gasSrcBuffer).toBeUndefined();
       expect(route.directDestination).toBe(true);
     });
 
@@ -2682,25 +2784,19 @@ describe('determineSwapRoute', () => {
       expect(autoSelectSources).toHaveBeenCalled();
     });
 
-    it('falls back when the direct selection covers toAmount but NOT the buffer (no drift margin)', async () => {
-      // Regression: selectDirectDestinationSwaps returns partial coverage WITHOUT throwing. Delivering
-      // exactly toAmount (100 PEPE) would leave srcBuffer(1) as a phantom drift budget a requote could
-      // spend below toAmount. The builder must require the BUFFERED target (101), so this falls back.
+    it('accepts direct selection that covers the exact requested amount', async () => {
       const input: SwapData = { mode: SwapMode.EXACT_OUT, data: { toChainId: ARB_CHAIN, toTokenAddress: PEPE, toAmountRaw: 100000000000000000000n } };
       vi.mocked(determineDestinationSwaps).mockResolvedValue(sizingQuote());
-      vi.mocked(selectDirectDestinationSwaps).mockResolvedValue({ quoteResponses: [leg(WETH, 1000000000000000000n, 18, PEPE, 100000000000000000000n, 18)], usedCOTs: [] }); // exactly 100 PEPE = toAmount, < 101 buffered
-      vi.mocked(autoSelectSources).mockResolvedValue({ quoteResponses: [leg(WETH, 1000000000000000000n, 18, USDC_ARB, 200000000n, 6)], usedCOTs: [] }); // default fallback
+      vi.mocked(selectDirectDestinationSwaps).mockResolvedValue({ quoteResponses: [leg(WETH, 1000000000000000000n, 18, PEPE, 100000000000000000000n, 18)], usedCOTs: [] });
       const route = await determineSwapRoute(input, makeRouteOptions({ dstTokenInfo: pepeInfo, balances: [bal(WETH, '1', 18, 3000, 'WETH')] }));
-      expect(route.directDestination).toBeFalsy();
-      expect(route.destination.swap.tokenSwap).not.toBeNull(); // fell through to the default double-hop
+      expect(route.directDestination).toBe(true);
+      expect(route.destination.swap.tokenSwap).toBeNull();
     });
 
     it('prices the gas pass on the DST-chain native, not the first native entry in the oracle array', async () => {
-      // Regression: BOTH priceUsdFor (convergence cap) AND applyBuffer (gasSrcBuffer) matched a native
-      // (ZERO_ADDRESS) on tokenAddress alone → a decoy chain @ $1 placed first would win over ARB @ 2500.
+      // Regression: convergence pricing once matched a native (ZERO_ADDRESS) on tokenAddress alone,
+      // so a decoy chain @ $1 placed first would win over ARB @ 2500.
       //   convergence cap (≈$0.50 of native): 0.5/2500·1e18 = 2e14  (not 5e17)
-      //   gasSrcBuffer (0.1 ETH: $1 cap binds since 2% = 0.002 ETH > $1): min(0.002, 1/2500) = 0.0004 ETH
-      //     (not min(0.002, 1/1) = 0.002 — the decoy's $1/ETH price)
       const input: SwapData = { mode: SwapMode.EXACT_OUT, data: { toChainId: ARB_CHAIN, toTokenAddress: PEPE, toAmountRaw: 100000000000000000000n, toNativeAmountRaw: 100000000000000000n } }; // 0.1 ETH
       vi.mocked(determineDestinationSwaps).mockResolvedValue(sizingQuote());
       vi.mocked(destinationGasSwapExactIn).mockResolvedValue(makeGasQuoteResponse({ chainID: ARB_CHAIN, inputContract: USDC_ARB }));
@@ -2718,7 +2814,7 @@ describe('determineSwapRoute', () => {
       }));
       const gasArg = vi.mocked(selectDirectDestinationSwaps).mock.calls[1][0];
       expect(gasArg.maxConvergenceExtraRaw?.toString()).toBe('200000000000000'); // priceUsdFor: ARB price wins
-      expect(route.source.gasSrcBuffer?.toString()).toBe('0.0004'); // applyBuffer: ARB price wins ($1 cap at 2500)
+      expect(route.source.gasSrcBuffer).toBeUndefined();
     });
   });
 

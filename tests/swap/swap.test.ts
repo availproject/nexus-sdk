@@ -16,6 +16,10 @@ vi.mock('../../src/swap/execution/source-swaps', () => ({
   executeSourceSwaps: vi.fn(),
 }));
 
+vi.mock('../../src/swap/execution/direct-destination', () => ({
+  executeDirectDestinationExactOut: vi.fn(),
+}));
+
 vi.mock('../../src/swap/execution/bridge', () => ({
   executeSwapBridge: vi.fn(),
 }));
@@ -64,6 +68,7 @@ import { buildSwapPreflight } from '../../src/swap/preflight';
 import { determineSwapRoute } from '../../src/swap/route';
 import { createSwapIntent } from '../../src/swap/intent';
 import { executeSourceSwaps } from '../../src/swap/execution/source-swaps';
+import { executeDirectDestinationExactOut } from '../../src/swap/execution/direct-destination';
 import { executeSwapBridge } from '../../src/swap/execution/bridge';
 import { executeDestinationSwap } from '../../src/swap/execution/destination-swap';
 import { SwapMode } from '../../src/swap/types';
@@ -198,6 +203,7 @@ describe('swap', () => {
     vi.mocked(determineSwapRoute).mockResolvedValue(makeRoute());
     vi.mocked(createSwapIntent).mockReturnValue(makeIntent());
     vi.mocked(executeSourceSwaps).mockResolvedValue([]);
+    vi.mocked(executeDirectDestinationExactOut).mockResolvedValue(undefined);
     vi.mocked(executeSwapBridge).mockResolvedValue(undefined);
     vi.mocked(executeDestinationSwap).mockResolvedValue(undefined);
   });
@@ -215,6 +221,45 @@ describe('swap', () => {
     expect(executeSourceSwaps).toHaveBeenCalled();
     expect(result).toBeDefined();
     expect(result.sourceSwaps).toBeDefined();
+  });
+
+  it('routes direct-destination EXACT_OUT through its dedicated executor', async () => {
+    const route = makeRoute();
+    route.directDestination = true;
+    route.source.srcBuffer = null;
+    route.extras.directDestination = {
+      dstHoldings: [],
+      toAmountRaw: 1_000_000_000_000_000_000n,
+      toNativeAmountRaw: 0n,
+    };
+    vi.mocked(determineSwapRoute).mockResolvedValueOnce(route);
+    vi.mocked(executeDirectDestinationExactOut).mockImplementationOnce(
+      async (_route, _ctx, metadata) => {
+        metadata.src.push({
+          chid: ARB_CHAIN,
+          swaps: [],
+          tx_hash: '0xdirect' as Hex,
+        });
+      }
+    );
+
+    const result = await swap(
+      {
+        mode: SwapMode.EXACT_OUT,
+        data: {
+          toChainId: ARB_CHAIN,
+          toTokenAddress: WETH,
+          toAmountRaw: 1_000_000_000_000_000_000n,
+        },
+      },
+      makeSwapParams()
+    );
+
+    expect(executeDirectDestinationExactOut).toHaveBeenCalledOnce();
+    expect(executeSourceSwaps).not.toHaveBeenCalled();
+    expect(result.sourceSwaps).toEqual([
+      { chainId: ARB_CHAIN, swaps: [], txHash: '0xdirect' },
+    ]);
   });
 
   it('intent hook called with allow/deny', async () => {

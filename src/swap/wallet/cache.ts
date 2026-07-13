@@ -15,6 +15,13 @@ type AllowanceKey = `${Hex}:${Hex}:${Hex}:${number}`; // token:owner:spender:cha
 type SetCodeKey = `${Hex}:${number}`; // address:chainId
 type PermitKey = `${Hex}:${number}`; // token:chainId
 
+const allowanceKey = (token: Hex, owner: Hex, spender: Hex, chainId: number): AllowanceKey =>
+  `${token.toLowerCase()}:${owner.toLowerCase()}:${spender.toLowerCase()}:${chainId}` as AllowanceKey;
+const setCodeKey = (address: Hex, chainId: number): SetCodeKey =>
+  `${address.toLowerCase()}:${chainId}` as SetCodeKey;
+const permitKey = (token: Hex, chainId: number): PermitKey =>
+  `${token.toLowerCase()}:${chainId}` as PermitKey;
+
 type AllowanceQuery = {
   type: 'allowance';
   token: Hex;
@@ -193,7 +200,7 @@ export class SwapCache {
             for (let i = 0; i < allowanceQueries.length; i++) {
               const q = allowanceQueries[i];
               const r = results[i];
-              const key: AllowanceKey = `${q.token}:${q.owner}:${q.spender}:${q.chainId}`;
+              const key = allowanceKey(q.token, q.owner, q.spender, q.chainId);
               this.allowances.set(key, typeof r?.result === 'bigint' ? r.result : 0n);
             }
           }
@@ -220,7 +227,7 @@ export class SwapCache {
                   normalizedCode === CALIBUR_DELEGATED_CODE && typeof allowance === 'bigint'
                     ? allowance
                     : 0n;
-                const key: AllowanceKey = `${EADDRESS as Hex}:${q.address}:${q.spender}:${q.chainId}`;
+                const key = allowanceKey(EADDRESS as Hex, q.address, q.spender, q.chainId);
                 this.allowances.set(key, result);
                 return {
                   address: q.address,
@@ -251,14 +258,14 @@ export class SwapCache {
             );
 
             for (const result of codeResults) {
-              const key: SetCodeKey = `${result.query.address}:${result.query.chainId}`;
+              const key = setCodeKey(result.query.address, result.query.chainId);
               this.codeResults.set(key, result.code);
             }
           }
 
           await Promise.all(
             permitQueries.map(async (q) => {
-              const key: PermitKey = `${q.token}:${q.chainId}`;
+              const key = permitKey(q.token, q.chainId);
               this.permits.set(
                 key,
                 await getPermitVariantAndVersion({
@@ -286,23 +293,23 @@ export class SwapCache {
   // ---------------------------------------------------------------------------
 
   getAllowance(token: Hex, owner: Hex, spender: Hex, chainId: number): bigint {
-    const key: AllowanceKey = `${token}:${owner}:${spender}:${chainId}`;
+    const key = allowanceKey(token, owner, spender, chainId);
     return this.allowances.get(key) ?? 0n;
   }
 
   hasAuthCodeSet(address: Hex, chainId: number): boolean {
-    const key: SetCodeKey = `${address}:${chainId}`;
+    const key = setCodeKey(address, chainId);
     const code = this.codeResults.get(key);
     return code != null && typeof code === 'string' && code.startsWith('0xef0100');
   }
 
   markAuthCodeSet(address: Hex, chainId: number): void {
-    const key: SetCodeKey = `${address}:${chainId}`;
+    const key = setCodeKey(address, chainId);
     this.codeResults.set(key, CALIBUR_DELEGATED_CODE);
   }
 
   getPermit(token: Hex, chainId: number): PermitDetails | undefined {
-    const key: PermitKey = `${token}:${chainId}`;
+    const key = permitKey(token, chainId);
     return this.permits.get(key);
   }
 }

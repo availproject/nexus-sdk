@@ -38,15 +38,18 @@ import { dispatchSafeSource } from './safe-dispatch';
 
 const logger = getLogger();
 
-type DispatchedSourceChain = {
+export type DispatchedSourceBatch = {
   chainId: number;
   chainName?: string;
-  chainSwaps: QuoteResponse[];
   walletPath: WalletPath;
   explorerBaseUrl?: string;
   submittedTxHash?: Hex;
   submittedExplorerUrl?: string;
   waitForReceipt: () => Promise<Hex>;
+};
+
+type DispatchedSourceChain = DispatchedSourceBatch & {
+  chainSwaps: QuoteResponse[];
 };
 
 type ConfirmedSourceChain = DispatchedSourceChain & {
@@ -183,6 +186,154 @@ const sourceSwapStep = (chainId: number) => ({
   stepType: 'source_swap',
   label: 'Source swap',
 });
+
+type SourceDispatchContext = Pick<
+  ExecutionContext,
+  | 'chainList'
+  | 'sourceExecutionPaths'
+  | 'eoaAddress'
+  | 'eoaWallet'
+  | 'ephemeralWallet'
+  | 'publicClientList'
+  | 'middlewareClient'
+  | 'cache'
+  | 'onProgress'
+>;
+
+export const dispatchSourceChainBatch = async (input: {
+  chainId: number;
+  calls: SBCCall[];
+  nativeValue: bigint;
+  ctx: SourceDispatchContext;
+}): Promise<DispatchedSourceBatch> => {
+  const { chainId, calls, nativeValue, ctx } = input;
+  const walletPath: WalletPath = ctx.sourceExecutionPaths.get(chainId) ?? 'ephemeral';
+  const chain = ctx.chainList.getChainByID(chainId);
+  const publicClient = ctx.publicClientList.get(chainId);
+
+  if (chain && !chainSupports7702(chain)) {
+    ctx.onProgress?.({
+      stepType: 'source_swap',
+      chainId,
+      state: nativeValue > 0n ? 'wallet_prompted' : 'started',
+    });
+    const { txHash } = await dispatchSafeSource({
+      chain,
+      chainId,
+      calls,
+      nativeValue,
+      ephemeralWallet: ctx.ephemeralWallet,
+      eoaWallet: ctx.eoaWallet,
+      eoaAddress: ctx.eoaAddress,
+      publicClient,
+      middleware: ctx.middlewareClient,
+    });
+    const explorerUrl = createExplorerTxURL(txHash, chain.blockExplorers?.default?.url);
+    ctx.onProgress?.({
+      stepType: 'source_swap',
+      chainId,
+      state: 'submitted',
+      txHash,
+      explorerUrl,
+    });
+    return {
+      chainId,
+      chainName: chain.name,
+      walletPath,
+      explorerBaseUrl: chain.blockExplorers?.default?.url,
+      submittedTxHash: txHash,
+      submittedExplorerUrl: explorerUrl,
+      waitForReceipt: () =>
+        confirmStepReceipt(publicClient, txHash, chainId, sourceSwapStep(chainId)),
+    };
+  }
+
+  if (nativeValue > 0n) {
+    const hasDelegatedAuth =
+      ctx.cache?.hasAuthCodeSet(ctx.ephemeralWallet.address, chainId) ?? false;
+    if (!hasDelegatedAuth) {
+      const bootstrapSbcTx = await createSBCTxFromCalls({
+        calls: [],
+        chainID: chainId,
+        ephemeralAddress: ctx.ephemeralWallet.address,
+        ephemeralWallet: ctx.ephemeralWallet,
+        publicClient,
+      });
+      const bootstrapResults = await ctx.middlewareClient.submitSBCs([bootstrapSbcTx]);
+      const bootstrapHash = requireSuccessfulSbcResult(
+        bootstrapResults,
+        chainId,
+        'Native source auth bootstrap'
+      );
+      await confirmStepReceipt(publicClient, bootstrapHash, chainId, sourceSwapStep(chainId));
+      ctx.cache?.markAuthCodeSet?.(ctx.ephemeralWallet.address, chainId);
+    }
+
+    ctx.onProgress?.({ stepType: 'source_swap', chainId, state: 'wallet_prompted' });
+    const tx = await createCaliburExecuteTxFromCalls({
+      calls,
+      chainID: chainId,
+      ephemeralAddress: ctx.ephemeralWallet.address,
+      ephemeralWallet: ctx.ephemeralWallet,
+      value: nativeValue,
+    });
+    await switchChain(ctx.eoaWallet, chain);
+    const txHash = await ctx.eoaWallet.sendTransaction({
+      account: ctx.eoaAddress,
+      to: tx.to,
+      data: tx.data,
+      value: tx.value,
+      chain,
+    });
+    const explorerUrl = createExplorerTxURL(txHash, chain.blockExplorers?.default?.url);
+    ctx.onProgress?.({
+      stepType: 'source_swap',
+      chainId,
+      state: 'submitted',
+      txHash,
+      explorerUrl,
+    });
+    return {
+      chainId,
+      chainName: chain.name,
+      walletPath,
+      explorerBaseUrl: chain.blockExplorers?.default?.url,
+      submittedTxHash: txHash,
+      submittedExplorerUrl: explorerUrl,
+      waitForReceipt: () =>
+        confirmStepReceipt(publicClient, txHash, chainId, sourceSwapStep(chainId)),
+    };
+  }
+
+  ctx.onProgress?.({ stepType: 'source_swap', chainId, state: 'started' });
+  const sbcTx = await createSBCTxFromCalls({
+    calls,
+    chainID: chainId,
+    ephemeralAddress: ctx.ephemeralWallet.address,
+    ephemeralWallet: ctx.ephemeralWallet,
+    publicClient,
+  });
+  const results = await ctx.middlewareClient.submitSBCs([sbcTx]);
+  const txHash = requireSuccessfulSbcResult(results, chainId, 'Source swap SBC submission');
+  const explorerUrl = createExplorerTxURL(txHash, chain.blockExplorers?.default?.url);
+  ctx.onProgress?.({
+    stepType: 'source_swap',
+    chainId,
+    state: 'submitted',
+    txHash,
+    explorerUrl,
+  });
+  return {
+    chainId,
+    chainName: chain.name,
+    walletPath,
+    explorerBaseUrl: chain.blockExplorers?.default?.url,
+    submittedTxHash: txHash,
+    submittedExplorerUrl: explorerUrl,
+    waitForReceipt: () =>
+      confirmStepReceipt(publicClient, txHash, chainId, sourceSwapStep(chainId)),
+  };
+};
 
 // Re-quote source legs that reverted. For EXACT_OUT (`srcBuffer` non-null, COT units sizing
 // `min(SRC_BUFFER_PCT, SRC_BUFFER_MAX_USD)` of the destination-buffered input) the combined
@@ -405,162 +556,12 @@ export const executeSourceSwaps = async (
 
     for (const [chainId, chainSwaps] of pendingEntries) {
       try {
-        const walletPath: WalletPath = ctx.sourceExecutionPaths.get(chainId) ?? 'ephemeral';
-        const chain = ctx.chainList.getChainByID(chainId);
         const calls = await buildSourceCalls(chainSwaps, ctx, chainId);
         const nativeValue = calls.reduce((sum, call) => sum + call.value, 0n);
-
-        // Non-7702 chains use the Safe smart-account flow instead of Calibur SBC. Sponsor pays
-        // gas via middleware when there's no native value to carry; otherwise the EOA submits
-        // directly so it can fund the native send.
-        if (chain && !chainSupports7702(chain)) {
-          const publicClient = ctx.publicClientList.get(chainId);
-          ctx.onProgress?.({
-            stepType: 'source_swap',
-            chainId,
-            state: nativeValue > 0n ? 'wallet_prompted' : 'started',
-          });
-          const { txHash } = await dispatchSafeSource({
-            chain,
-            chainId,
-            calls,
-            nativeValue,
-            ephemeralWallet: ctx.ephemeralWallet,
-            eoaWallet: ctx.eoaWallet,
-            eoaAddress: ctx.eoaAddress,
-            publicClient,
-            middleware: ctx.middlewareClient,
-          });
-          const explorerUrl = createExplorerTxURL(txHash, chain?.blockExplorers?.default?.url);
-          ctx.onProgress?.({
-            stepType: 'source_swap',
-            chainId,
-            state: 'submitted',
-            txHash,
-            explorerUrl,
-          });
-          dispatchResults.push({
-            status: 'fulfilled',
-            value: {
-              chainId,
-              chainName: chain?.name,
-              chainSwaps,
-              walletPath,
-              explorerBaseUrl: chain?.blockExplorers?.default?.url,
-              submittedTxHash: txHash,
-              submittedExplorerUrl: explorerUrl,
-              waitForReceipt: () =>
-                confirmStepReceipt(publicClient, txHash, chainId, sourceSwapStep(chainId)),
-            } satisfies DispatchedSourceChain,
-          });
-          continue;
-        }
-
-        const publicClient = ctx.publicClientList.get(chainId);
-        if (nativeValue > 0n) {
-          const hasDelegatedAuth =
-            ctx.cache?.hasAuthCodeSet(ctx.ephemeralWallet.address, chainId) ?? false;
-          if (!hasDelegatedAuth) {
-            const bootstrapSbcTx = await createSBCTxFromCalls({
-              calls: [],
-              chainID: chainId,
-              ephemeralAddress: ctx.ephemeralWallet.address,
-              ephemeralWallet: ctx.ephemeralWallet,
-              publicClient,
-            });
-            const bootstrapResults = await ctx.middlewareClient.submitSBCs([bootstrapSbcTx]);
-            const bootstrapHash = requireSuccessfulSbcResult(
-              bootstrapResults,
-              chainId,
-              'Native source auth bootstrap'
-            );
-            await confirmStepReceipt(publicClient, bootstrapHash, chainId, sourceSwapStep(chainId));
-            ctx.cache?.markAuthCodeSet?.(ctx.ephemeralWallet.address, chainId);
-          }
-
-          ctx.onProgress?.({
-            stepType: 'source_swap',
-            chainId,
-            state: 'wallet_prompted',
-          });
-          const tx = await createCaliburExecuteTxFromCalls({
-            calls,
-            chainID: chainId,
-            ephemeralAddress: ctx.ephemeralWallet.address,
-            ephemeralWallet: ctx.ephemeralWallet,
-            value: nativeValue,
-          });
-          await switchChain(ctx.eoaWallet, chain);
-          const txHash = await ctx.eoaWallet.sendTransaction({
-            account: ctx.eoaAddress,
-            to: tx.to,
-            data: tx.data,
-            value: tx.value,
-            chain,
-          });
-          const explorerUrl = createExplorerTxURL(txHash, chain?.blockExplorers?.default?.url);
-          ctx.onProgress?.({
-            stepType: 'source_swap',
-            chainId,
-            state: 'submitted',
-            txHash,
-            explorerUrl,
-          });
-
-          dispatchResults.push({
-            status: 'fulfilled',
-            value: {
-              chainId,
-              chainName: chain?.name,
-              chainSwaps,
-              walletPath,
-              explorerBaseUrl: chain?.blockExplorers?.default?.url,
-              submittedTxHash: txHash,
-              submittedExplorerUrl: explorerUrl,
-              waitForReceipt: () =>
-                confirmStepReceipt(publicClient, txHash, chainId, sourceSwapStep(chainId)),
-            } satisfies DispatchedSourceChain,
-          });
-          continue;
-        }
-
-        ctx.onProgress?.({
-          stepType: 'source_swap',
-          chainId,
-          state: 'started',
-        });
-        const sbcTx = await createSBCTxFromCalls({
-          calls,
-          chainID: chainId,
-          ephemeralAddress: ctx.ephemeralWallet.address,
-          ephemeralWallet: ctx.ephemeralWallet,
-          publicClient,
-        });
-
-        const results = await ctx.middlewareClient.submitSBCs([sbcTx]);
-        const txHash = requireSuccessfulSbcResult(results, chainId, 'Source swap SBC submission');
-        const explorerUrl = createExplorerTxURL(txHash, chain?.blockExplorers?.default?.url);
-        ctx.onProgress?.({
-          stepType: 'source_swap',
-          chainId,
-          state: 'submitted',
-          txHash,
-          explorerUrl,
-        });
-
+        const dispatched = await dispatchSourceChainBatch({ chainId, calls, nativeValue, ctx });
         dispatchResults.push({
           status: 'fulfilled',
-          value: {
-            chainId,
-            chainName: chain?.name,
-            chainSwaps,
-            walletPath,
-            explorerBaseUrl: chain?.blockExplorers?.default?.url,
-            submittedTxHash: txHash,
-            submittedExplorerUrl: explorerUrl,
-            waitForReceipt: () =>
-              confirmStepReceipt(publicClient, txHash, chainId, sourceSwapStep(chainId)),
-          } satisfies DispatchedSourceChain,
+          value: { ...dispatched, chainSwaps },
         });
       } catch (error) {
         dispatchResults.push({

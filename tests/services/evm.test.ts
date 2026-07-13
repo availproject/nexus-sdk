@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ExecutionError } from '../../src/domain/errors';
-import { confirmStepReceipt, getL1Fee } from '../../src/services/evm';
+import { UserRejectedRequestError, type WalletClient } from 'viem';
+import { ExecutionError, UserActionError } from '../../src/domain/errors';
+import { confirmStepReceipt, getL1Fee, switchChain } from '../../src/services/evm';
 import * as evmService from '../../src/services/evm';
 
 const readContract = vi.fn();
@@ -89,6 +90,23 @@ describe('confirmStepReceipt', () => {
     expect(confirmations).toBe(1);
     await confirmStepReceipt(makeClient('success', capture), TX, 42161, step);
     expect(confirmations).toBe(2);
+  });
+});
+
+describe('switchChain', () => {
+  it('stops after a rejected switch without prompting to add the chain', async () => {
+    const client = {
+      getChainId: vi.fn().mockResolvedValue(1),
+      switchChain: vi.fn().mockRejectedValue(new UserRejectedRequestError(new Error('denied'))),
+      addChain: vi.fn(),
+    } as unknown as WalletClient;
+
+    const error = await switchChain(client, { id: 8453 } as never).catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(UserActionError);
+    expect(error).toMatchObject({ code: 'user_action/tx_send_denied' });
+    expect(client.switchChain).toHaveBeenCalledTimes(1);
+    expect(client.addChain).not.toHaveBeenCalled();
   });
 });
 

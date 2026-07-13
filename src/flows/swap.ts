@@ -3,6 +3,7 @@ import { getIntentExplorerUrl } from '../services/explorer';
 import { withTimingSpan } from '../services/timing';
 import { SLIPPAGE_DEFAULT } from '../swap/constants';
 import { executeSwapBridge } from '../swap/execution/bridge';
+import { executeDirectDestinationExactOut } from '../swap/execution/direct-destination';
 import { executeDestinationSwap } from '../swap/execution/destination-swap';
 import {
   cleanupStrandedCot,
@@ -344,7 +345,13 @@ const runSwapFlow = async (
     const executedSourceAssets = await withTimingSpan(
       deps.timing,
       'flow.swap.execute_source',
-      async () => executeSourceSwaps(route.source, executionContext, metadata)
+      async () => {
+        if (route.directDestination === true && route.type === SwapMode.EXACT_OUT) {
+          await executeDirectDestinationExactOut(route, executionContext, metadata);
+          return [];
+        }
+        return executeSourceSwaps(route.source, executionContext, metadata);
+      }
     );
 
     const bridge = route.bridge;
