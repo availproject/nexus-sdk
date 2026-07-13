@@ -1,10 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
-import { getBalancesForSwap } from '../../../src/swap/balance/swap-balances';
+import { describe, expect, it } from 'vitest';
+import { selectSwapSources } from '../../../src/swap/balance/swap-balances';
 import type { FlatBalance } from '../../../src/swap/types';
 
 const ETH_ADDR = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE' as const;
 const USDC_ARB = '0xaf88d065e77c8cc2239327c5edb3a432268e5831' as const;
 const WETH_ARB = '0x82af49447d8a07e3bd95bd0d56f35241523fbab1' as const;
+const OUTPUT_TOKEN = '0x00000000000000000000000000000000000000ff' as const;
 
 const makeBalance = (
   chainID: number,
@@ -24,19 +25,15 @@ const makeBalance = (
   name: symbol,
 });
 
-describe('getBalancesForSwap', () => {
+describe('selectSwapSources', () => {
   const defaultBalances: FlatBalance[] = [
     makeBalance(42161, USDC_ARB, 'USDC', '100', 100, 6),
     makeBalance(42161, WETH_ARB, 'WETH', '0.5', 1000),
     makeBalance(42161, ETH_ADDR, 'ETH', '1.0', 2000),
   ];
 
-  it('returns filtered + sorted balances', async () => {
-    const result = await getBalancesForSwap({
-      balances: defaultBalances,
-      dstChainId: 8453,
-      dstTokenAddress: '0xOutputToken' as `0x${string}`,
-    });
+  it('returns filtered + sorted balances', () => {
+    const result = selectSwapSources(defaultBalances, 8453, OUTPUT_TOKEN);
 
     expect(result.length).toBeGreaterThan(0);
     // All balances have positive amounts
@@ -45,55 +42,21 @@ describe('getBalancesForSwap', () => {
     }
   });
 
-  it('filters by allowedSources when provided', async () => {
-    const result = await getBalancesForSwap({
-      balances: defaultBalances,
-      dstChainId: 8453,
-      dstTokenAddress: '0xOutputToken' as `0x${string}`,
-      allowedSources: [{ chainId: 42161, tokenAddress: USDC_ARB }],
-    });
-
-    expect(result).toHaveLength(1);
-    expect(result[0].symbol).toBe('USDC');
-  });
-
-  it('removes by removeSources when provided', async () => {
-    const result = await getBalancesForSwap({
-      balances: defaultBalances,
-      dstChainId: 8453,
-      dstTokenAddress: '0xOutputToken' as `0x${string}`,
-      removeSources: [{ chainId: 42161, tokenAddress: USDC_ARB }],
-    });
-
-    // USDC should be removed
-    const hasUSDC = result.some((b) => b.symbol === 'USDC');
-    expect(hasUSDC).toBe(false);
-    expect(result.length).toBe(2);
-  });
-
-  it('returns empty when all balances are zero', async () => {
+  it('returns empty when all balances are zero', () => {
     const zeroBalances = [makeBalance(42161, USDC_ARB, 'USDC', '0', 0, 6)];
 
-    const result = await getBalancesForSwap({
-      balances: zeroBalances,
-      dstChainId: 8453,
-      dstTokenAddress: '0xOutputToken' as `0x${string}`,
-    });
+    const result = selectSwapSources(zeroBalances, 8453, OUTPUT_TOKEN);
 
     expect(result).toHaveLength(0);
   });
 
-  it('sorts by priority (same chain first)', async () => {
+  it('sorts by priority (same chain first)', () => {
     const balances = [
       makeBalance(42161, WETH_ARB, 'WETH', '1', 1000),
       makeBalance(8453, USDC_ARB, 'USDC', '50', 50, 6),
     ];
 
-    const result = await getBalancesForSwap({
-      balances,
-      dstChainId: 8453,
-      dstTokenAddress: '0xOutputToken' as `0x${string}`,
-    });
+    const result = selectSwapSources(balances, 8453, OUTPUT_TOKEN);
 
     // Same chain (8453) should come first
     expect(result[0].chainID).toBe(8453);

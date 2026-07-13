@@ -31,6 +31,7 @@ vi.mock('../../src/swap/execution/failure-cleanup', async (importOriginal) => ({
 
 vi.mock('../../src/services/balances', () => ({
   getBalancesForSwap: vi.fn().mockResolvedValue([]),
+  deductSwapNativeReserveFees: vi.fn(async (_chainList, balances) => balances),
 }));
 
 vi.mock('../../src/services/sbc', () => ({

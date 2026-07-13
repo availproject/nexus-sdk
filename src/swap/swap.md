@@ -143,8 +143,9 @@ swap(input = {mode: EXACT_OUT, data:{toChainId:Base, toTokenAddress:WETH, toAmou
   pf = buildSwapPreflight(input, {chainList, cotCurrencyId, eoaAddress, middlewareClient})
     aggregators      = createAggregators(mw)               # → [LiFi, Bebop, Fibrous, 0x, Mystic, Relay]
     publicClientList = createPublicClientList(chainList)
-    balances         = getBalancesForSwap(                 # preloaded? then skip getSwapBalances
-                         preloaded ?? getSwapBalances(eoa))      # → positive-only, same-chain-first
+    raw              = preloaded ?? getSwapBalances(eoa)   # composite passes raw (keeps actuals for shortfall)
+    reserved         = deductSwapNativeReserveFees(chainList, raw)   # reserve native gas out of source sizing
+    balances         = selectSwapSources(reserved, toChainId, toToken)   # → positive-only, same-chain-first
     dstTokenInfo     = native(toToken) ? chain.nativeCurrency
                                        : fetchErc20TokenMetadata(toToken)     # → WETH/18
     quoteTok = resolveBridgeQuoteToken(input)          # the token the router will BRIDGE: the dst token
@@ -797,10 +798,11 @@ for `runMayanEphemeralBridge`'s **wait‑for‑mine‑then‑RFF ordering** and 
 gap. Mayan routing/intent/selection stay covered by `route-mayan.test.ts`, `bridge-intent.test.ts`,
 `auto-select-mayan-min.test.ts`, and `route.test.ts`'s provider‑parity block.
 
-Remaining sharp edge (by design, not a missing test): **two functions named `getBalancesForSwap`**
-— `src/swap/balance/swap-balances` (pure filter/sort of a provided `FlatBalance[]`) vs.
-`src/services/balances` (address‑driven fetch, used by the flow & cleanup). Mocked separately;
-don't conflate them. A rename is a deliberate API change, left for a separate pass.
+Source selection is `selectSwapSources` (`src/swap/balance/swap-balances`, pure filter/sort of a
+provided `FlatBalance[]`); the address‑driven fetch + display shaping is `getBalancesForSwap`
+(`src/services/balances`). The native gas reserve is deducted once, at the preflight source‑sizing
+chokepoint (`deductSwapNativeReserveFees`), so the composite flow keeps raw balances for its
+destination‑gas shortfall while the router still sizes against reserve‑adjusted balances.
 
 ---
 
