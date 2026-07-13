@@ -7,6 +7,7 @@ import {
   toHex,
   zeroAddress,
 } from 'viem';
+import { Errors } from '../domain/errors';
 import { safeExecTransactionAbi, safeNonceAbi } from '../swap/safe/abis';
 import { SAFE_MULTI_SEND_CALL_ONLY_ADDRESS, SAFE_SALT_NONCE } from '../swap/safe/constants';
 import { signEnsureAuth } from '../swap/safe/ensure-auth';
@@ -97,7 +98,7 @@ export async function createSafeExecuteTxFromCalls(input: {
   nativeValue?: bigint;
 }): Promise<CreateSafeExecuteTxRequest> {
   if (input.calls.length === 0) {
-    throw new Error('createSafeExecuteTxFromCalls: calls must not be empty');
+    throw Errors.invalidInput('createSafeExecuteTxFromCalls: calls must not be empty');
   }
   const nativeValue = input.nativeValue ?? 0n;
   const nonce = await readSafeNonce(input.publicClient, input.safeAddress);
@@ -124,7 +125,7 @@ function assertNativeValueInvariant(calls: SafeCall[], nativeValue: bigint): voi
   if (calls.length === 1) {
     const [call] = calls as [SafeCall];
     if (call.value !== nativeValue) {
-      throw new Error(
+      throw Errors.invalidInput(
         `Single-call native value mismatch: outer=${nativeValue}, calls[0].value=${call.value}`
       );
     }
@@ -132,7 +133,7 @@ function assertNativeValueInvariant(calls: SafeCall[], nativeValue: bigint): voi
   }
   const innerSum = calls.reduce((acc, c) => acc + c.value, 0n);
   if (innerSum !== nativeValue) {
-    throw new Error(
+    throw Errors.invalidInput(
       `MultiSend native value mismatch: outer=${nativeValue}, sum(inner.value)=${innerSum}`
     );
   }
@@ -158,7 +159,7 @@ export async function buildSafeExecuteEOACall(input: {
   nativeValue: bigint;
 }): Promise<SafeExecuteEOACall> {
   if (input.calls.length === 0) {
-    throw new Error('buildSafeExecuteEOACall: calls must not be empty');
+    throw Errors.invalidInput('buildSafeExecuteEOACall: calls must not be empty');
   }
   assertNativeValueInvariant(input.calls, input.nativeValue);
 

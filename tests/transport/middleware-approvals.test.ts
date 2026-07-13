@@ -1,6 +1,7 @@
 import axios from 'axios';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApprovalsByChain } from '@avail-project/nexus-types';
+import type { Hex } from 'viem';
 import { createMiddlewareClient } from '../../src/transport/middleware';
 
 vi.mock('axios', () => ({
@@ -25,52 +26,58 @@ const makeClient = (): AxiosInstanceMock => ({
   post: vi.fn(),
 });
 
-class FakeWebSocket {
-  static CONNECTING = 0;
-  static OPEN = 1;
-  static CLOSED = 3;
-
-  readyState = FakeWebSocket.CONNECTING;
-  onopen: (() => void) | null = null;
-  onmessage: ((event: { data: string }) => void) | null = null;
-  onerror: ((error: unknown) => void) | null = null;
-  onclose: (() => void) | null = null;
-  send = vi.fn();
-  close = vi.fn(() => {
-    this.readyState = FakeWebSocket.CLOSED;
-  });
-
-  constructor() {}
-}
+const address = '0x0000000000000000000000000000000000000aaa' as Hex;
+const approvals: ApprovalsByChain = {
+  1: [{ address, ops: [] } as never],
+};
 
 describe('middleware approvals', () => {
-  const realWebSocket = globalThis.WebSocket;
-
   beforeEach(() => {
-    axiosRootMock.create.mockReturnValue(makeClient());
-    globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+    axiosRootMock.create.mockReset();
   });
 
-  afterEach(() => {
-    globalThis.WebSocket = realWebSocket;
-    vi.useRealTimers();
+  it('posts to /api/v2/create-sponsored-approvals and returns parsed results', async () => {
+    const axiosClient = makeClient();
+    axiosRootMock.create.mockReturnValue(axiosClient);
+    const txHash =
+      '0x1111111111111111111111111111111111111111111111111111111111111111' as Hex;
+    axiosClient.post.mockResolvedValue({
+      data: [{ chainId: 1, address, errored: false, txHash }],
+    });
+
+    const client = createMiddlewareClient('https://mw.example');
+    const results = await client.createApprovals(approvals);
+
+    expect(axiosClient.post).toHaveBeenCalledWith(
+      '/api/v2/create-sponsored-approvals',
+      approvals
+    );
+    expect(results).toEqual([{ chainId: 1, address, errored: false, txHash }]);
   });
 
-  it('rejects when approval websocket times out', async () => {
-    vi.useFakeTimers();
-    const client = createMiddlewareClient('https://mw.example', 'wss://mw.example');
-    const approvals: ApprovalsByChain = {
-      1: [
-        {
-          address: '0x0000000000000000000000000000000000000000',
-          ops: [],
+  it('wraps a failed request as a BackendError carrying the typed envelope', async () => {
+    const axiosClient = makeClient();
+    axiosRootMock.create.mockReturnValue(axiosClient);
+    axiosClient.post.mockRejectedValue(
+      Object.assign(new Error('Request failed with status code 502'), {
+        isAxiosError: true,
+        response: {
+          status: 502,
+          data: {
+            code: 'UPSTREAM_ERROR',
+            message: 'relayer down',
+            errorId: 'err-approve-1',
+          },
         },
-      ],
-    };
+      })
+    );
 
-    const promise = client.createApprovals(approvals);
-    const assertion = expect(promise).rejects.toThrow('WebSocket timeout');
-    await vi.advanceTimersByTimeAsync(120000);
-    await assertion;
+    const client = createMiddlewareClient('https://mw.example');
+    const err = await client.createApprovals(approvals).catch((e) => e);
+    expect(err.code).toBe('backend/approvals_ws_failed');
+    expect(err.details).toMatchObject({
+      middlewareCode: 'UPSTREAM_ERROR',
+      errorId: 'err-approve-1',
+    });
   });
 });

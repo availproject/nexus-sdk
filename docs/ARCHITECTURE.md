@@ -195,8 +195,8 @@ Middleware client (`createMiddlewareClient`) validates URLs once and provides:
 - `listRFFs(params)` -> `GET /api/v1/rffs`
 - `getRFF(hash)` -> `GET /api/v1/rff/:hash`
 - `submitRFF(payload)` -> `POST /api/v1/rff`
-- `createApprovals(approvals)` -> WS `/api/v1/create-sponsored-approvals`
-- `submitSBCs(sbcTxs)` -> WS `/api/v1/create-sbc-tx`
+- `createApprovals(approvals)` -> `POST /api/v2/create-sponsored-approvals`
+- `submitSBCs(sbcTxs)` -> `POST /api/v2/create-sbc-tx`
 - `getQuote(request)` -> `POST /api/v1/quote`
 - `getSwapBalances(address)` -> `GET /api/v1/swap-balance/EVM/:address`
 - `simulateBundleV2(request)` -> `POST /api/v1/gas/bundle-v2`
@@ -204,9 +204,11 @@ Middleware client (`createMiddlewareClient`) validates URLs once and provides:
 It also exposes quote-proxy helpers (`getLiFiQuote`, `getBebopQuote`), oracle-price fetches, timing
 configuration, and `destroy()` for transport teardown.
 
-WebSocket request lifecycle is centralized in `src/transport/ws-request.ts`. Middleware-specific
-message parsing stays in `src/transport/middleware.ts`, but socket connect/timeout/close/error
-handling is shared.
+Every middleware error is normalized at this boundary: axios failures are wrapped in a `BackendError`
+whose `details` carry the middleware's typed error envelope (`middlewareCode`, `middlewareSubcode`,
+`errorId`, `middlewareDetails`) when present — see `middlewareErrorDetails` in
+`src/transport/middleware.ts` and the middleware-error model in `src/domain/types/middleware-error.ts`.
+The `errorId` is the correlation key between SDK and middleware logs.
 
 List RFFs params:
 

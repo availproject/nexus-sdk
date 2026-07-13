@@ -37,7 +37,7 @@ describe('middleware simulateBundleV2', () => {
       data: [{ gasLimit: '0x10', gasUsed: '0x00' }],
     });
 
-    const client = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+    const client = createMiddlewareClient('https://mw.example');
     const result = await client.simulateBundleV2({
       chainId: '1',
       simulations: [
@@ -63,7 +63,7 @@ describe('middleware simulateBundleV2', () => {
       data: null,
     });
 
-    const client = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+    const client = createMiddlewareClient('https://mw.example');
 
     await expect(
       client.simulateBundleV2({

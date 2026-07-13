@@ -3,6 +3,7 @@ import type Decimal from 'decimal.js';
 import type { Hex, PrivateKeyAccount, PublicClient, WalletClient } from 'viem';
 import type {
   ChainListType,
+  MiddlewareErrorCode,
   OraclePriceResponse,
   SwapEvent,
   TimingSpanHooks,
@@ -315,7 +316,17 @@ export type SBCResult<E extends boolean = boolean> = {
   chainId: number;
   address: Hex;
   errored: E;
-} & (E extends true ? { message: string } : { txHash: Hex });
+} & (E extends true
+  ? {
+      message: string;
+      // Middleware typed error envelope. `code`/`errorId` are always present on a v2 errored result;
+      // `subcode`/`details` are optional in the envelope itself (the server may omit them).
+      code: MiddlewareErrorCode;
+      errorId: string;
+      subcode?: string;
+      details?: Record<string, unknown>;
+    }
+  : { txHash: Hex });
 
 export type SwapMetadata = {
   src: Array<{ chid: number; swaps: Swap[]; tx_hash: Hex }>;

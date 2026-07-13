@@ -10,7 +10,7 @@ import {
   parseAbiParameters,
   toHex,
 } from 'viem';
-import { Errors } from '../domain/errors';
+import { BackendError, ERROR_CODES, Errors } from '../domain/errors';
 import { CALIBUR_ADDRESS, CALIBUR_EIP712_BASE, SBC_DEADLINE_MINUTES } from '../swap/constants';
 import type { AuthorizationListItem, SBCResult, SBCTx } from '../swap/types';
 
@@ -173,7 +173,21 @@ export const requireSuccessfulSbcResult = (
     throw Errors.internal(`${context}: missing SBC result for chain ${chainId}`);
   }
   if (result.errored) {
-    throw Errors.internal(`${context}: ${(result as SBCResult<true>).message}`);
+    const errored = result as SBCResult<true>;
+    throw new BackendError(
+      ERROR_CODES.BACKEND_SBC_SUBMIT_FAILED,
+      `${context}: ${errored.message}`,
+      {
+        context: { service: 'middleware', chainId: errored.chainId },
+        details: {
+          error: errored.message,
+          middlewareCode: errored.code,
+          middlewareSubcode: errored.subcode,
+          errorId: errored.errorId,
+          middlewareDetails: errored.details,
+        },
+      }
+    );
   }
   return (result as SBCResult<false>).txHash;
 };

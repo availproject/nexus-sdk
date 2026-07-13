@@ -1,3 +1,4 @@
+import { BaseError as ViemBaseError } from 'viem';
 import { describe, expect, it } from 'vitest';
 import {
   BackendError,
@@ -5,12 +6,33 @@ import {
   Errors,
   ExecutionError,
   ExternalServiceError,
+  formatUnknownError,
   InternalError,
   NexusError,
   SimulationError,
   UserActionError,
   ValidationError,
 } from '../../src/domain/errors';
+
+describe('formatUnknownError', () => {
+  it('uses shortMessage + details for viem BaseError instead of the full verbose message', () => {
+    const err = new ViemBaseError('Execution reverted', {
+      details: 'gas required exceeds allowance',
+      docsPath: '/docs/contract/simulateContract',
+    });
+    expect(formatUnknownError(err)).toBe('Execution reverted: gas required exceeds allowance');
+    expect(err.message.length).toBeGreaterThan(err.shortMessage.length);
+  });
+
+  it('returns shortMessage alone when details are absent', () => {
+    expect(formatUnknownError(new ViemBaseError('RPC unreachable'))).toBe('RPC unreachable');
+  });
+
+  it('uses message for plain Error and String() for non-errors', () => {
+    expect(formatUnknownError(new Error('boom'))).toBe('boom');
+    expect(formatUnknownError('raw')).toBe('raw');
+  });
+});
 
 describe('NexusError subclasses', () => {
   it('ValidationError carries category, code, name, and no service', () => {

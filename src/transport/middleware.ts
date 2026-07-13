@@ -27,6 +27,7 @@ import { z } from 'zod';
 import { installAxiosNetworkTiming } from '../analytics/network-timing';
 import {
   type DeploymentResponse,
+  type MiddlewareErrorEnvelope,
   type OraclePriceResponse,
   PermitVariant,
   type TimingSpanHooks,
@@ -53,7 +54,6 @@ import type {
 import type { FlatBalance, SBCResult, SBCTx } from '../swap/types';
 import { encodeChainIdToBytes32, parseHexToTokenBytes } from './encoding';
 import type { SimulationRequest, SimulationResponse } from './types';
-import { wsRequest } from './ws-request';
 
 export type MiddlewareClient = {
   getBalances: (address: Hex, universe: number) => Promise<UnifiedBalanceResponseData[]>;
@@ -386,6 +386,10 @@ const sbcResultSchema = z.union([
     address: addressString,
     errored: z.literal(true),
     message: z.string(),
+    code: z.string(),
+    errorId: z.string(),
+    subcode: z.string().optional(),
+    details: z.record(z.string(), z.unknown()).optional(),
   }),
 ]) as z.ZodType<SBCResult>;
 
@@ -551,6 +555,41 @@ const parseMiddlewareResponse = <T>(schema: z.ZodType<T>, data: unknown, context
   return result.data;
 };
 
+// Lenient: `code` is a plain string so unknown/new server codes are captured verbatim rather than
+// rejected. The middleware returns this envelope as the body of every HTTP error and per-item in
+// SBC/approval result arrays.
+const middlewareErrorEnvelopeSchema = z.object({
+  code: z.string(),
+  message: z.string(),
+  errorId: z.string(),
+  subcode: z.string().optional(),
+  details: z.record(z.string(), z.unknown()).optional(),
+});
+
+const extractMiddlewareError = (error: unknown): MiddlewareErrorEnvelope | undefined => {
+  const data = (error as { response?: { data?: unknown } } | null | undefined)?.response?.data;
+  const result = middlewareErrorEnvelopeSchema.safeParse(data);
+  return result.success ? (result.data as MiddlewareErrorEnvelope) : undefined;
+};
+
+// Detail bag threaded into every middleware BackendError. When the failure carries the typed
+// envelope, surface code/subcode/errorId/details as first-class detail fields (SigNoz correlation +
+// frontend branching); otherwise fall back to the raw message.
+const middlewareErrorDetails = (error: unknown): Record<string, unknown> => {
+  const envelope = extractMiddlewareError(error);
+  if (!envelope) {
+    const message = formatUnknownError(error);
+    return { error: message };
+  }
+  return {
+    error: envelope.message,
+    middlewareCode: envelope.code,
+    middlewareSubcode: envelope.subcode,
+    errorId: envelope.errorId,
+    middlewareDetails: envelope.details,
+  };
+};
+
 const groupSbcTxsByChain = (sbcTxs: SBCTx[]): Record<number, SBCTx[]> =>
   sbcTxs.reduce<Record<number, SBCTx[]>>((acc, tx) => {
     (acc[tx.chainId] ??= []).push(tx);
@@ -562,7 +601,6 @@ const groupSbcTxsByChain = (sbcTxs: SBCTx[]): Record<number, SBCTx[]> =>
  */
 export const createMiddlewareClient = (
   middlewareURL: string,
-  middlewareWSURL: string,
   timingOptions?: {
     timing?: TimingSpanHooks;
     captureNetworkTiming?: boolean;
@@ -575,15 +613,6 @@ export const createMiddlewareClient = (
     }
   } catch {
     throw Errors.invalidInput(`Invalid middleware HTTP URL: ${middlewareURL}`);
-  }
-
-  try {
-    const wsUrl = new URL(middlewareWSURL);
-    if (wsUrl.protocol !== 'ws:' && wsUrl.protocol !== 'wss:') {
-      throw new Error('Invalid protocol');
-    }
-  } catch {
-    throw Errors.invalidInput(`Invalid middleware WebSocket URL: ${middlewareWSURL}`);
   }
 
   const client = axios.create({
@@ -637,7 +666,7 @@ export const createMiddlewareClient = (
         'Failed to fetch balances from middleware',
         {
           context: { service: 'middleware' },
-          details: { address, universe, error: formatUnknownError(error) },
+          details: { address, universe, ...middlewareErrorDetails(error) },
         }
       );
     }
@@ -662,7 +691,7 @@ export const createMiddlewareClient = (
         'Failed to fetch deployment from middleware',
         {
           context: { service: 'middleware' },
-          details: { error: formatUnknownError(error) },
+          details: { ...middlewareErrorDetails(error) },
         }
       );
     }
@@ -683,7 +712,7 @@ export const createMiddlewareClient = (
         'Failed to submit RFF to middleware',
         {
           context: { service: 'middleware' },
-          details: { error: formatUnknownError(error) },
+          details: { ...middlewareErrorDetails(error) },
         }
       );
     }
@@ -716,7 +745,7 @@ export const createMiddlewareClient = (
           context: { service: 'middleware' },
           details: {
             endpoint: 'reportMayanNativeTxToMiddleware',
-            error: formatUnknownError(error),
+            ...middlewareErrorDetails(error),
           },
         }
       );
@@ -740,7 +769,7 @@ export const createMiddlewareClient = (
         'Failed to fetch oracle prices from middleware',
         {
           context: { service: 'middleware' },
-          details: { error: formatUnknownError(error) },
+          details: { ...middlewareErrorDetails(error) },
         }
       );
     }
@@ -761,7 +790,7 @@ export const createMiddlewareClient = (
         'Failed to fetch RFF from middleware',
         {
           context: { service: 'middleware' },
-          details: { hash, error: formatUnknownError(error) },
+          details: { hash, ...middlewareErrorDetails(error) },
         }
       );
     }
@@ -782,7 +811,7 @@ export const createMiddlewareClient = (
         'Failed to fetch RFF status from middleware',
         {
           context: { service: 'middleware' },
-          details: { hash, error: formatUnknownError(error) },
+          details: { hash, ...middlewareErrorDetails(error) },
         }
       );
     }
@@ -808,56 +837,34 @@ export const createMiddlewareClient = (
         'Failed to list RFFs from middleware',
         {
           context: { service: 'middleware' },
-          details: { params, error: formatUnknownError(error) },
+          details: { params, ...middlewareErrorDetails(error) },
         }
       );
     }
   };
   const createApprovals = async (approvals: ApprovalsByChain): Promise<ApprovalResult[]> => {
-    const expectedChains = Object.keys(approvals).length;
-    logger.debug('createApprovalsViaMiddleware', { expectedChains, approvals });
-
-    return wsRequest({
-      errors: {
-        connectionFailed: 'WebSocket connection failed',
-        invalidResponse: 'Invalid approval response from middleware',
-        setup: 'Failed to create approvals via middleware',
-        socketError: 'WebSocket error during approval creation',
-        timeout: 'WebSocket timeout waiting for approval responses',
-      },
-      label: 'createApprovalsViaMiddleware',
-      onMessage: (message, { close, pushResult, reject, results }) => {
-        if (message.status === 'connected') {
-          return;
+    try {
+      logger.debug('createApprovalsViaMiddleware', {
+        expectedChains: Object.keys(approvals).length,
+        approvals,
+      });
+      const response = await client.post<ApprovalResult[]>(
+        '/api/v2/create-sponsored-approvals',
+        approvals
+      );
+      logger.debug('createApprovalsViaMiddleware:response', { data: response.data });
+      return parseMiddlewareResponse(z.array(approvalResultSchema), response.data, 'approvals');
+    } catch (error) {
+      logger.error('createApprovalsViaMiddleware:error', error);
+      throw new BackendError(
+        ERROR_CODES.BACKEND_APPROVALS_WS_FAILED,
+        'Failed to create approvals via middleware',
+        {
+          context: { service: 'middleware' },
+          details: { ...middlewareErrorDetails(error) },
         }
-
-        if (message.status === 'done' || message.status === 'complete') {
-          close();
-          return;
-        }
-
-        if (message.errored && message.chainId === undefined) {
-          logger.error('createApprovalsViaMiddleware:middlewareError', {
-            message: message.message,
-          });
-          close();
-          reject(
-            Errors.internal(`Middleware approval error: ${message.message || 'unknown error'}`)
-          );
-          return;
-        }
-
-        if (message.chainId !== undefined) {
-          const approval = parseMiddlewareResponse(approvalResultSchema, message, 'approval');
-          pushResult(approval);
-          if (results.length >= expectedChains) {
-            close();
-          }
-        }
-      },
-      payload: approvals,
-      url: new URL('api/v1/create-sponsored-approvals', middlewareWSURL).toString(),
-    });
+      );
+    }
   };
 
   const simulateBundleV2 = async (request: SimulationRequest): Promise<{ gas: bigint[] }> => {
@@ -889,49 +896,32 @@ export const createMiddlewareClient = (
         'Failed to call simulation middleware',
         {
           context: { service: 'middleware' },
-          details: { chainId: request.chainId, error: formatUnknownError(error) },
+          details: { chainId: request.chainId, ...middlewareErrorDetails(error) },
         }
       );
     }
   };
 
   const submitSBCs = async (sbcTxs: SBCTx[]): Promise<SBCResult[]> => {
-    const expectedCount = sbcTxs.length;
-    logger.debug('submitSBCs', { expectedCount });
-
-    return wsRequest({
-      errors: {
-        connectionFailed: 'WebSocket connection failed',
-        invalidResponse: 'Invalid SBC response from middleware',
-        setup: 'Failed to submit SBCs via middleware',
-        socketError: 'WebSocket error during SBC submission',
-        timeout: 'WebSocket timeout waiting for SBC responses',
-      },
-      label: 'submitSBCs',
-      onMessage: (message, { close, pushResult, reject, results }) => {
-        if (message.status === 'connected') {
-          return;
+    try {
+      logger.debug('submitSBCs', { expectedCount: sbcTxs.length });
+      const response = await client.post<SBCResult[]>(
+        '/api/v2/create-sbc-tx',
+        groupSbcTxsByChain(sbcTxs)
+      );
+      logger.debug('submitSBCs:response', { data: response.data });
+      return parseMiddlewareResponse(z.array(sbcResultSchema), response.data, 'sbc results');
+    } catch (error) {
+      logger.error('submitSBCs:error', error);
+      throw new BackendError(
+        ERROR_CODES.BACKEND_SBC_SUBMIT_FAILED,
+        'Failed to submit SBCs via middleware',
+        {
+          context: { service: 'middleware' },
+          details: { ...middlewareErrorDetails(error) },
         }
-
-        if (message.errored && message.chainId === undefined) {
-          logger.error('submitSBCs:middlewareError', {
-            message: message.message,
-          });
-          close();
-          reject(Errors.internal(`Middleware SBC error: ${message.message || 'unknown error'}`));
-          return;
-        }
-
-        if (message.chainId !== undefined) {
-          pushResult(parseMiddlewareResponse(sbcResultSchema, message, 'sbc result'));
-          if (results.length >= expectedCount) {
-            close();
-          }
-        }
-      },
-      payload: groupSbcTxsByChain(sbcTxs),
-      url: new URL('api/v1/create-sbc-tx', middlewareWSURL).toString(),
-    });
+      );
+    }
   };
 
   const getLiFiQuote = async (
@@ -1033,7 +1023,7 @@ export const createMiddlewareClient = (
         'Failed to get quote from middleware',
         {
           context: { service: 'middleware' },
-          details: { endpoint: 'getQuote', error: formatUnknownError(error) },
+          details: { endpoint: 'getQuote', ...middlewareErrorDetails(error) },
         }
       );
     }
@@ -1052,7 +1042,7 @@ export const createMiddlewareClient = (
         'Failed to get Mayan quotes from middleware',
         {
           context: { service: 'middleware' },
-          details: { endpoint: 'getMayanQuotes', error: formatUnknownError(error) },
+          details: { endpoint: 'getMayanQuotes', ...middlewareErrorDetails(error) },
         }
       );
     }
@@ -1080,7 +1070,7 @@ export const createMiddlewareClient = (
         'Failed to get bridge provider from middleware',
         {
           context: { service: 'middleware' },
-          details: { endpoint: 'getBridgeProvider', error: formatUnknownError(error) },
+          details: { endpoint: 'getBridgeProvider', ...middlewareErrorDetails(error) },
         }
       );
     }
@@ -1103,7 +1093,7 @@ export const createMiddlewareClient = (
       logger.error(`${label}:error`, error);
       throw new BackendError(errorCode, `Failed to ${label} via middleware`, {
         context: { service: 'middleware' },
-        details: { endpoint: label, error: formatUnknownError(error), ...detail },
+        details: { endpoint: label, ...middlewareErrorDetails(error), ...detail },
       });
     }
   };

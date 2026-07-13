@@ -41,7 +41,7 @@ describe('MiddlewareClient swap proxy methods', () => {
       const quoteResponse = { estimate: { toAmount: '1000000' } };
       axiosClient.get.mockResolvedValue({ data: quoteResponse });
 
-      const mw = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+      const mw = createMiddlewareClient('https://mw.example');
       const params = { fromChain: '1', toChain: '42161', fromToken: '0xaaa', toToken: '0xbbb', fromAmount: '1000000' };
       const result = await mw.getLiFiQuote(params);
 
@@ -56,7 +56,7 @@ describe('MiddlewareClient swap proxy methods', () => {
       const quoteResponse = { estimate: { fromAmount: '2000000' } };
       axiosClient.get.mockResolvedValue({ data: quoteResponse });
 
-      const mw = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+      const mw = createMiddlewareClient('https://mw.example');
       const params = { fromChain: '1', toChain: '42161' };
       const result = await mw.getLiFiQuote(params, true);
 
@@ -77,7 +77,7 @@ describe('MiddlewareClient swap proxy methods', () => {
       const quoteResponse = { routes: [{ quote: {} }] };
       axiosClient.get.mockResolvedValue({ data: quoteResponse });
 
-      const mw = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+      const mw = createMiddlewareClient('https://mw.example');
       const params = { chain: 'ethereum', sell_tokens: '0xaaa', buy_tokens: '0xbbb' };
       const result = await mw.getBebopQuote(params);
 
@@ -120,7 +120,7 @@ describe('MiddlewareClient swap proxy methods', () => {
         },
       });
 
-      const mw = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+      const mw = createMiddlewareClient('https://mw.example');
       const result = await mw.getSwapBalances('0x1234567890abcdef1234567890abcdef12345678');
 
       expect(result).toEqual([
@@ -163,7 +163,7 @@ describe('MiddlewareClient swap proxy methods', () => {
         },
       });
 
-      const mw = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+      const mw = createMiddlewareClient('https://mw.example');
       const result = await mw.getSwapBalances('0x1234567890abcdef1234567890abcdef12345678');
 
       expect(result).toHaveLength(1);
@@ -195,7 +195,7 @@ describe('MiddlewareClient swap proxy methods', () => {
         },
       });
 
-      const mw = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+      const mw = createMiddlewareClient('https://mw.example');
       const result = await mw.getSwapBalances('0x1234567890abcdef1234567890abcdef12345678');
 
       expect(result).toHaveLength(1);
@@ -234,7 +234,7 @@ describe('MiddlewareClient swap proxy methods', () => {
         },
       });
 
-      const mw = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+      const mw = createMiddlewareClient('https://mw.example');
       const result = await mw.getSwapBalances('0x1234567890abcdef1234567890abcdef12345678');
 
       expect(result).toHaveLength(1);
@@ -266,7 +266,7 @@ describe('MiddlewareClient swap proxy methods', () => {
         },
       });
 
-      const mw = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+      const mw = createMiddlewareClient('https://mw.example');
       const result = await mw.getSwapBalances('0x1234567890abcdef1234567890abcdef12345678');
 
       expect(result).toEqual([]);
@@ -297,7 +297,7 @@ describe('MiddlewareClient swap proxy methods', () => {
         },
       });
 
-      const mw = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+      const mw = createMiddlewareClient('https://mw.example');
       const result = await mw.getSwapBalances('0x1234567890abcdef1234567890abcdef12345678');
 
       expect(result).toHaveLength(1);
@@ -311,7 +311,7 @@ describe('MiddlewareClient swap proxy methods', () => {
 
       axiosClient.get.mockRejectedValue(new Error('Network error'));
 
-      const mw = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+      const mw = createMiddlewareClient('https://mw.example');
       const result = await mw.getSwapBalances('0x1234567890abcdef1234567890abcdef12345678');
 
       expect(result).toEqual([]);
@@ -340,7 +340,7 @@ describe('MiddlewareClient swap proxy methods', () => {
         },
       });
 
-      const mw = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+      const mw = createMiddlewareClient('https://mw.example');
       const result = await mw.getSwapBalances('0x1234567890abcdef1234567890abcdef12345678');
 
       expect(result).toEqual([

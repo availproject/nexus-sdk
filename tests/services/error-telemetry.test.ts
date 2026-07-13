@@ -437,6 +437,37 @@ describe('allow-list constants — guard the contract', () => {
   });
 });
 
+describe('reportOperationError — middleware error correlation attributes', () => {
+  it('promotes errorId/middlewareCode/middlewareSubcode from details to error.middleware.*', () => {
+    const err = new BackendError(ERROR_CODES.BACKEND_SBC_SUBMIT_FAILED, 'sbc failed', {
+      context: { service: 'middleware' },
+      details: {
+        error: 'sbc failed',
+        middlewareCode: 'TRANSACTION_REVERTED',
+        middlewareSubcode: 'TRANSFER_FROM_FAILED',
+        errorId: 'err-uuid-1',
+      },
+    });
+    reportOperationError({ operation: 'swapWithExactIn', operationId: 'op_1', error: err });
+    const attrs = getAttributes();
+    expect(attrs['error.middleware.errorId']).toBe('err-uuid-1');
+    expect(attrs['error.middleware.code']).toBe('TRANSACTION_REVERTED');
+    expect(attrs['error.middleware.subcode']).toBe('TRANSFER_FROM_FAILED');
+  });
+
+  it('omits error.middleware.* when the details carry no middleware fields', () => {
+    const err = new BackendError(ERROR_CODES.BACKEND_BALANCES_FETCH_FAILED, 'fetch failed', {
+      context: { service: 'middleware' },
+      details: { error: 'boom' },
+    });
+    reportOperationError({ operation: 'getBalancesForBridge', operationId: 'op_1', error: err });
+    const attrs = getAttributes();
+    expect(attrs['error.middleware.errorId']).toBeUndefined();
+    expect(attrs['error.middleware.code']).toBeUndefined();
+    expect(attrs['error.middleware.subcode']).toBeUndefined();
+  });
+});
+
 describe('reportOperationError — error.service propagation for ExternalServiceError', () => {
   it('lifts service=coinbase for Coinbase pricing failures', () => {
     const err = new ExternalServiceError(
