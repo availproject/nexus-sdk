@@ -24,7 +24,14 @@ vi.mock('../../src/swap/aggregators', () => ({
 }));
 
 vi.mock('../../src/swap/balance/swap-balances', () => ({
-  getBalancesForSwap: vi.fn(),
+  selectSwapSources: vi.fn(),
+}));
+
+vi.mock('../../src/services/balances', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/services/balances')>()),
+  // Passthrough: preflight's reserve deduction is exercised in preflight-native-reserve.test.ts;
+  // here it must not alter balances or hit RPC so these assertions stay focused on preflight wiring.
+  deductSwapNativeReserveFees: vi.fn(async (_chainList, balances) => balances),
 }));
 
 vi.mock('../../src/services/token-metadata', () => ({
@@ -36,7 +43,7 @@ vi.mock('../../src/services/token-metadata', () => ({
 }));
 
 import { createAggregators } from '../../src/swap/aggregators';
-import { getBalancesForSwap } from '../../src/swap/balance/swap-balances';
+import { selectSwapSources } from '../../src/swap/balance/swap-balances';
 import { buildSwapPreflight } from '../../src/swap/preflight';
 import { fetchErc20TokenMetadata } from '../../src/services/token-metadata';
 import { EADDRESS } from '../../src/swap/constants';
@@ -165,7 +172,7 @@ const sortedBalances = [
 describe('buildSwapPreflight', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(getBalancesForSwap).mockResolvedValue(sortedBalances);
+    vi.mocked(selectSwapSources).mockReturnValue(sortedBalances);
   });
 
   it('loads oracle prices and balances in parallel before sorting balances', async () => {
@@ -193,14 +200,14 @@ describe('buildSwapPreflight', () => {
 
     expect(middlewareClient.getSwapBalances).toHaveBeenCalledTimes(1);
     expect(middlewareClient.getOraclePrices).toHaveBeenCalledTimes(1);
-    expect(getBalancesForSwap).not.toHaveBeenCalled();
+    expect(selectSwapSources).not.toHaveBeenCalled();
 
     resolveOraclePrices!([]);
     resolveBalances!([]);
 
     await preflightPromise;
 
-    expect(getBalancesForSwap).toHaveBeenCalledTimes(1);
+    expect(selectSwapSources).toHaveBeenCalledTimes(1);
   });
 
   it('reuses preloaded balances instead of refetching swap balances', async () => {
@@ -227,11 +234,7 @@ describe('buildSwapPreflight', () => {
     });
 
     expect(middlewareClient.getSwapBalances).not.toHaveBeenCalled();
-    expect(getBalancesForSwap).toHaveBeenCalledWith({
-      balances: rawBalances,
-      dstChainId: OP_CHAIN,
-      dstTokenAddress: WETH,
-    });
+    expect(selectSwapSources).toHaveBeenCalledWith(rawBalances, OP_CHAIN, WETH);
   });
 
   it('builds wallet path hints from each chain\'s 7702 support', async () => {

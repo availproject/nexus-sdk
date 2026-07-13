@@ -11,7 +11,7 @@ vi.mock('../../src/swap/aggregators', () => ({
 }));
 
 vi.mock('../../src/swap/balance/swap-balances', () => ({
-  getBalancesForSwap: vi.fn().mockResolvedValue([]),
+  selectSwapSources: vi.fn().mockReturnValue([]),
 }));
 
 vi.mock('../../src/swap/preflight', () => ({

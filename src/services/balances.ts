@@ -157,7 +157,7 @@ export const getBalancesForSwap = async (input: {
 // Scope: chains the user actually holds positive native (EADDRESS) balance on.
 // Anything else doesn't need a fee estimate — drops the typical fanout from
 // every-swap-supported-chain to 0-2 chains.
-const deductSwapNativeReserveFees = async (
+export const deductSwapNativeReserveFees = async (
   chainList: ChainListType,
   balances: FlatBalance[]
 ): Promise<FlatBalance[]> => {
@@ -189,6 +189,13 @@ const deductSwapNativeReserveFees = async (
     if (!fee) return b;
     const amount = new Decimal(b.amount);
     const remaining = amount.sub(fee);
+    // Actual amount removed from this native balance — the reserve fee, or the whole balance
+    // when the fee exceeds it.
+    const deducted = amount.sub(Decimal.max(remaining, 0));
+    logger.debug('swap-native-reserve-deducted', {
+      chainId: b.chainID,
+      deductedNativeAmount: `${deducted.toString()} ${b.symbol}`,
+    });
     if (remaining.lte(0)) {
       return { ...b, amount: '0', value: 0 };
     }

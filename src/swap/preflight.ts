@@ -4,8 +4,9 @@ import { type ChainListType, getLogger, type TokenInfo } from '../domain';
 import { isNativeAddress } from '../services/addresses';
 import { fetchErc20TokenMetadata } from '../services/token-metadata';
 import type { MiddlewareSwapPreflightClient } from '../transport';
+import { deductSwapNativeReserveFees } from '../services/balances';
 import { createAggregators } from './aggregators';
-import { getBalancesForSwap } from './balance/swap-balances';
+import { selectSwapSources } from './balance/swap-balances';
 import { type CurrencyID, resolveSwapSettlement } from './cot';
 import type {
   BridgeQuoteResponse,
@@ -153,11 +154,16 @@ export const buildSwapPreflight = async (
     quotePromise,
   ]);
 
-  const balances = await getBalancesForSwap({
-    balances: rawBalances,
-    dstChainId: input.data.toChainId,
-    dstTokenAddress: input.data.toTokenAddress,
-  });
+  // Reserve a representative gas amount out of native balances before source selection, so the
+  // router never sizes a swap against native it needs to execute. Applied here — the single swap
+  // source-sizing chokepoint — regardless of whether balances were preloaded (composite flow
+  // passes raw, keeping actual values for its own destination-gas shortfall) or freshly fetched.
+  const reserved = await deductSwapNativeReserveFees(options.chainList, rawBalances);
+  const balances = selectSwapSources(
+    reserved,
+    input.data.toChainId,
+    input.data.toTokenAddress
+  );
 
   const candidateChainIds = getCandidateChainIds(input, balances);
   const walletPathHints = new Map<number, WalletPath>(
