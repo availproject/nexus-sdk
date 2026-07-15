@@ -116,11 +116,13 @@ export const classifyFastPath = (input: {
   const dstFamily = resolveCurrencyId(chainList, dstChainId, dstTokenAddress);
 
   // B1 — same-family direct bridge (EXACT_OUT mirror of buildSameTokenBridgeRoute). All members and
-  // the destination token are one non-COT family; no gas leg (disqualified in v1); positive output.
+  // the destination token are one family, including the current COT; at least one source needs a
+  // bridge; no gas leg (disqualified in v1); positive output. A current-COT match belongs here too:
+  // it has no swap drift to buffer.
   if (
     input.mode === SwapMode.EXACT_OUT &&
     familyId === dstFamily &&
-    familyId !== cotCurrencyId &&
+    members.some((member) => member.chainID !== dstChainId) &&
     !input.hasGasRequest &&
     input.toAmountRaw > 0n
   ) {
@@ -661,12 +663,13 @@ export async function buildSameTokenBridgeRoute(
 
 /**
  * B1 — EXACT_OUT same-token direct bridge (mirror of buildSameTokenBridgeRoute). Every source and the
- * destination token share one non-COT mesh family F, so bridge F directly EOA→EOA — no swaps, no
- * buffers. Grosses up the exact target through the bridge fee so delivered == toAmount:
- * `gross = (toAmount + fulfilment) / (1 − fulfillmentBps/1e4)`, fees from an F-denominated quote (never
- * the preflight USDC quote). Funds via a greedy split over priority-ordered remote family holdings
- * (native holdings keep a per-chain gas reserve). Shortfall / Mayan undershoot / no F-quote ⇒ throw ⇒
- * the fast-path envelope falls back to the COT flow.
+ * destination token share one mesh family F, so bridge F directly EOA→EOA — no swaps, no buffers.
+ * This includes the current COT family. Grosses up the exact target through the bridge fee so
+ * delivered == toAmount:
+ * `gross = (toAmount + fulfilment) / (1 − fulfillmentBps/1e4)`, using a correctly F-denominated
+ * quote. Funds via a greedy split over priority-ordered remote family holdings (native holdings keep
+ * a per-chain gas reserve). Shortfall / Mayan undershoot / no F-quote ⇒ throw ⇒ the fast-path
+ * envelope falls back to the COT flow.
  */
 export async function buildSameTokenBridgeExactOutRoute(
   data: { toChainId: number; toTokenAddress: Hex; toAmountRaw: bigint },
@@ -686,7 +689,10 @@ export async function buildSameTokenBridgeExactOutRoute(
   const fQuote = await withTimingSpan(
     options.timing,
     'flow.swap.route.resolve_settlement',
-    async () => fetchBridgeQuoteForCurrency(dstChainId, settlementCurrencyId, options),
+    async () =>
+      settlementCurrencyId === options.cotCurrencyId && options.bridgeQuoteResponse
+        ? options.bridgeQuoteResponse
+        : fetchBridgeQuoteForCurrency(dstChainId, settlementCurrencyId, options),
     { tags: { mode: SwapMode.EXACT_OUT, route_path: 'same_token' } }
   );
   if (!fQuote) {

@@ -356,9 +356,10 @@ determineSwapRoute(input, opts) -> SwapRoute:
     #     bridge = null, dst.swap = null, directDestination = true, srcBuffer = null, buffer = 0.
     #     Persist the already allowlist-filtered dstHoldings + exact raw targets for execution-time
     #     re-sizing. STRICT-ALL: either pass short ⇒ throw; B1/B2 still get their turn after fallback.
-    #   B1 'same-token-out': every RES member ∧ the dst token share one non-COT family F (≠ cot), no gas
+    #   B1 'same-token-out': every RES member ∧ the dst token share one family F (including cot), at
+    #     least one RES member is remote, no gas
     #     ⇒ buildSameTokenBridgeExactOutRoute: gross the target up through an F-denominated fee quote
-    #     (gross = (toAmount + fulfilment)/(1 − bps); never the preflight USDC quote), fund via a greedy
+    #     (gross = (toAmount + fulfilment)/(1 − bps); current cot reuses the preflight quote), fund greedily
     #     split over remote family holdings (native keeps a per-chain gas reserve). Delivered == toAmount
     #     exactly, bridge EOA→EOA, no swaps. Mayan undershoot / short holdings / no F-quote ⇒ throw ⇒ fall
     #     back.
@@ -896,7 +897,8 @@ a formula over the (already‑updated) inputs, so it tracks them automatically.
 
 ### 12.2 Invariants
 
-- **Buffers applied once.** EXACT_OUT dst buffer `min(10%, $2)` + source buffer `min(2%, $1)`;
+- **Buffers applied once.** The default EXACT_OUT swap path has a dst buffer `min(10%, $2)` +
+  source buffer `min(2%, $1)`;
   EXACT_IN has **no buffer** (no source buffer, no dst buffer). (Values: `DST_BUFFER_PCT`/`DST_BUFFER_MAX_USD`,
   `SRC_BUFFER_PCT`/`SRC_BUFFER_MAX_USD` —
   pinned in `tests/swap/constants.test.ts`.) `getDstSwap` never lets the EXACT_OUT max ceiling
@@ -911,14 +913,15 @@ a formula over the (already‑updated) inputs, so it tracks them automatically.
   mixed-family / non-mesh inputs fall back to the COT flow. The fast path resolves its **own**
   provider on the same-token (native dst ⇒ `nexus`) and calls `enrichMayanBridge` when that pick is
   Mayan, so it can route Mayan, not just Nexus.
-- **Same-token direct bridge, EXACT_OUT mirror (B1).** The EXACT_OUT twin bridges the family token F
-  directly EOA→EOA too (`sameTokenBridge: true`, `settlementCurrencyId = F`, `swaps: []`,
+- **Same-token direct bridge, EXACT_OUT mirror (B1).** The EXACT_OUT twin bridges the family token F,
+  including the current COT family, directly EOA→EOA too when at least one source is remote
+  (`sameTokenBridge: true`,
+  `settlementCurrencyId = F`, `swaps: []`,
   `srcBuffer`/`buffer` = 0), but sizes by **grossing the exact target up through the fee** so the
   delivered amount is exactly `toAmount`: `gross = (toAmount + fulfilment) / (1 − fulfillmentBps/1e4)`.
-  The fee quote is **F-denominated, fetched mid-route** (`fetchBridgeQuoteForCurrency`) — never the
-  preflight USDC quote (fees follow the quoted token, a decimal trap otherwise); preflight still quotes
-  the COT because `resolveSwapSettlement` only detects same-token for EXACT_IN. Funding is a **greedy
-  split** over priority-ordered remote family holdings (`use = min(available, remaining)`); ERC-20 and
+  The fee quote is **F-denominated**: the current COT reuses its preflight quote, while a non-COT F is
+  fetched mid-route (`fetchBridgeQuoteForCurrency`) rather than using a mismatched COT quote. Funding
+  is a **greedy split** over priority-ordered remote family holdings (`use = min(available, remaining)`); ERC-20 and
   **native** F both supported (native holdings keep a per-chain gas reserve via
   `estimateRepresentativeSwapNativeReserveFee` so the deposit can pay its own gas — never 100% native).
   `filterExactOutBalances` drops the dst-chain F (= toToken), so funding is all-remote. Provider/enrich

@@ -326,6 +326,9 @@ describe('determineSwapRoute', () => {
     await determineSwapRoute(
       input,
       makeRouteOptions({
+        // This test isolates the default selector's filtered holdings; the bridge-only fast path
+        // correctly bypasses autoSelectSources for the same COT-only shape.
+        skipFastPaths: true,
         dstTokenInfo: makeDstTokenInfo({ contractAddress: USDC_ARB, decimals: 6, symbol: 'USDC', name: 'USD Coin' }),
         balances: [
           { amount: '3', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDC', tokenAddress: USDC_ARB, value: 3, logo: '', name: 'USDC' },
@@ -751,6 +754,65 @@ describe('determineSwapRoute', () => {
     expect(route.destination.inputAmount.max.toString()).toBe('1.5');
     // The F-quote was fetched via getQuote.
     expect(getQuote).toHaveBeenCalled();
+  });
+  it('B1 EXACT_OUT current-COT sources bridge directly with no swap buffer (USDC→USDC)', async () => {
+    const input: SwapData = {
+      mode: SwapMode.EXACT_OUT,
+      data: {
+        sources: [{ chainId: ARB_CHAIN, tokenAddress: USDC_ARB }],
+        toChainId: BASE_CHAIN,
+        toTokenAddress: USDC_BASE,
+        toAmountRaw: 1_000_000n,
+      },
+    };
+    vi.mocked(autoSelectSources).mockResolvedValue({
+      quoteResponses: [],
+      usedCOTs: [
+        {
+          holding: {
+            chainID: ARB_CHAIN,
+            tokenAddress: USDC_ARB,
+            amountRaw: 2_000_000n,
+            decimals: 6,
+            symbol: 'USDC',
+          },
+          amountUsed: new Decimal(2),
+          idx: 0,
+        },
+      ],
+    });
+
+    const route = await determineSwapRoute(
+      input,
+      makeRouteOptions({
+        balances: [
+          {
+            amount: '2',
+            chainID: ARB_CHAIN,
+            decimals: 6,
+            symbol: 'USDC',
+            tokenAddress: USDC_ARB,
+            value: 2,
+            logo: '',
+            name: 'USD Coin',
+          },
+        ],
+        dstTokenInfo: makeDstTokenInfo({
+          contractAddress: USDC_BASE,
+          decimals: 6,
+          symbol: 'USDC',
+          name: 'USD Coin',
+        }),
+      })
+    );
+
+    expect(autoSelectSources).not.toHaveBeenCalled();
+    expect(route.sameTokenBridge).toBe(true);
+    expect(route.source.swaps).toHaveLength(0);
+    expect(route.source.srcBuffer?.toString()).toBe('0');
+    expect(route.buffer.amount).toBe('0');
+    expect(route.bridge?.amounts.tokenAmount.toString()).toBe('1');
+    expect(route.destination.inputAmount).toEqual({ min: new Decimal(1), max: new Decimal(1) });
   });
   it('B1 EXACT_OUT grosses up the exact target through the bridge fee (inversion)', async () => {
     const input: SwapData = {
@@ -2239,6 +2301,9 @@ describe('determineSwapRoute', () => {
     const route = await determineSwapRoute(
       input,
       makeRouteOptions({
+        // Keep this assertion on the default bridge builder; the direct-COT fast path intentionally
+        // grosses only the exact target instead of bridging the mocked selector's full 150 USDC.
+        skipFastPaths: true,
         dstTokenInfo: makeDstTokenInfo({ contractAddress: USDC_ARB, decimals: 6, symbol: 'USDC', name: 'USD Coin' }),
         bridgeQuoteResponse: {
           fulfillmentBps: 100,

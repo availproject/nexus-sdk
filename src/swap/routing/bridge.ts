@@ -385,9 +385,9 @@ export const computeBridgeFees = (params: {
 };
 
 // Fetch a bridge-fee quote denominated in a specific currency's token on the destination chain.
-// The fast paths bridge a NON-USDC family token, whose fees follow the quoted token — so they must
-// quote that token mid-route rather than reuse the preflight USDC quote (a decimal trap). Returns
-// null on any failure (unknown token, getQuote reject) → the caller falls back to the COT flow.
+// Non-COT fast paths call this mid-route because their fees follow the bridged token and reusing the
+// preflight COT quote would be a decimal trap. Returns null on any failure (unknown token, getQuote
+// reject) so the caller can fall back to the COT flow.
 export const fetchBridgeQuoteForCurrency = async (
   dstChainId: number,
   currencyId: number,

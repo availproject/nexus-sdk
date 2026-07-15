@@ -101,6 +101,17 @@ describe('classifyFastPath', () => {
     ).toEqual({ kind: 'same-token-out', familyId: CurrencyID.USDT });
   });
 
+  it('B1 includes the current COT when a source must bridge', () => {
+    expect(
+      classify({
+        members: [{ chainID: ARB_CHAIN, tokenAddress: USDC_ARB }],
+        dstTokenAddress: USDC_BASE,
+        needsTokenSwap: false,
+        mode: SwapMode.EXACT_OUT,
+      })
+    ).toEqual({ kind: 'same-token-out', familyId: CurrencyID.USDC });
+  });
+
   it('B1 is disqualified by a gas request → falls back to the default flow (null)', () => {
     expect(
       classify({
