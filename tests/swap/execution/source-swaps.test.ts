@@ -77,6 +77,7 @@ import type {
 } from '../../../src/swap/types';
 import { QuoteSeriousness, QuoteType } from '../../../src/swap/aggregators/types';
 import { EADDRESS } from '../../../src/swap/constants';
+import { makeTimingHooks } from '../../helpers/timing';
 
 const USDC_ARB = '0xaf88d065e77c8cc2239327c5edb3a432268e5831' as Hex;
 const WETH = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2' as Hex;
@@ -140,6 +141,7 @@ type SrcCtx = Pick<
   | 'cache'
   | 'preparedExecution'
   | 'onProgress'
+  | 'timing'
   | 'slippage'
 > & { destinationChainId: number };
 
@@ -282,6 +284,8 @@ describe('executeSourceSwaps', () => {
 
   it('ephemeral path → creates SBC and submits via middleware', async () => {
     const ctx = makeCtx('ephemeral');
+    const timing = makeTimingHooks();
+    ctx.timing = timing;
     const source = { swaps: [makeQuoteResponse()], creationTime: Date.now(), srcBuffer: new Decimal(0) };
     const metadata: SwapMetadata = { src: [], dst: null, has_xcs: false, intent_request_hash: null };
 
@@ -291,6 +295,13 @@ describe('executeSourceSwaps', () => {
     expect(ctx.middlewareClient.submitSBCs).toHaveBeenCalled();
     expect(assets.length).toBeGreaterThan(0);
     expect(metadata.src.length).toBe(1);
+    expect(timing.startSpan.mock.calls.map(([name]) => name)).toEqual(
+      expect.arrayContaining([
+        'flow.swap.execute.source.build_calls',
+        'flow.swap.execute.source.dispatch',
+        'flow.swap.execute.source.wait_receipt',
+      ])
+    );
   });
 
   it('metadata populated with chain and txHash', async () => {

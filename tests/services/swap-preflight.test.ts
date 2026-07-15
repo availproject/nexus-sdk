@@ -282,7 +282,7 @@ describe('buildSwapPreflight', () => {
 
     expect(hoisted.debug).toHaveBeenNthCalledWith(
       1,
-      'buildSwapPreflight:start',
+      'swap.preflight.operation.started',
       expect.objectContaining({
         mode: SwapMode.EXACT_OUT,
         toChainId: OP_CHAIN,
@@ -291,7 +291,7 @@ describe('buildSwapPreflight', () => {
     );
     expect(hoisted.debug).toHaveBeenNthCalledWith(
       2,
-      'buildSwapPreflight:complete',
+      'swap.preflight.operation.completed',
       expect.objectContaining({
         toChainId: OP_CHAIN,
         balanceCount: sortedBalances.length,

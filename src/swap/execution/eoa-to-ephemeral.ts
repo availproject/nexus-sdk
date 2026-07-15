@@ -23,10 +23,10 @@ type ResolvePreparedFundingTransferCallsInput = {
 const ensureDirectApproval = async (
   input: ResolvePreparedFundingTransferCallsInput
 ): Promise<void> => {
-  logger.debug('resolvePreparedFundingTransferCalls:approval:start', {
+  logger.debug('swap.execute.funding.approval_started', {
     chainId: input.chain.id,
     tokenAddress: input.transfer.tokenAddress,
-    amount: input.transfer.amount.toString(),
+    amountRaw: input.transfer.amount.toString(),
   });
   await switchChain(input.eoaWallet, input.chain);
   const txHash = await input.eoaWallet.writeContract(
@@ -39,7 +39,7 @@ const ensureDirectApproval = async (
       chain: input.chain,
     })
   );
-  logger.debug('resolvePreparedFundingTransferCalls:approval:submitted', {
+  logger.debug('swap.execute.funding.approval_submitted', {
     chainId: input.chain.id,
     tokenAddress: input.transfer.tokenAddress,
     txHash,
@@ -49,7 +49,7 @@ const ensureDirectApproval = async (
     stepType: 'eoa_to_ephemeral_transfer',
     label: 'EOA approval',
   });
-  logger.debug('resolvePreparedFundingTransferCalls:approval:confirmed', {
+  logger.debug('swap.execute.funding.approval_confirmed', {
     chainId: input.chain.id,
     tokenAddress: input.transfer.tokenAddress,
     txHash,
@@ -62,18 +62,18 @@ export const resolvePreparedFundingTransferCalls = async (
   const calls: SBCCall[] = [];
   const authorizationKind = input.transfer.authorization?.kind ?? 'none';
 
-  logger.debug('resolvePreparedFundingTransferCalls:start', {
+  logger.debug('swap.execute.funding.calls_started', {
     chainId: input.chain.id,
     tokenAddress: input.transfer.tokenAddress,
     authorizationKind,
-    amount: input.transfer.amount.toString(),
+    amountRaw: input.transfer.amount.toString(),
   });
 
   if (input.transfer.authorization?.kind === 'permit') {
-    logger.debug('resolvePreparedFundingTransferCalls:permit:start', {
+    logger.debug('swap.execute.funding.permit_started', {
       chainId: input.chain.id,
       tokenAddress: input.transfer.tokenAddress,
-      amount: input.transfer.amount.toString(),
+      amountRaw: input.transfer.amount.toString(),
     });
     const permitCall = await materializePermitAuthorizationCall({
       chain: input.chain,
@@ -91,7 +91,7 @@ export const resolvePreparedFundingTransferCalls = async (
       throw new Error(`Missing permit calldata for ${input.transfer.tokenAddress}`);
     }
     calls.push(permitCall);
-    logger.debug('resolvePreparedFundingTransferCalls:permit:complete', {
+    logger.debug('swap.execute.funding.permit_completed', {
       chainId: input.chain.id,
       tokenAddress: input.transfer.tokenAddress,
     });
@@ -102,7 +102,7 @@ export const resolvePreparedFundingTransferCalls = async (
   }
 
   calls.push(input.transfer.transferCall);
-  logger.debug('resolvePreparedFundingTransferCalls:complete', {
+  logger.debug('swap.execute.funding.calls_completed', {
     chainId: input.chain.id,
     tokenAddress: input.transfer.tokenAddress,
     authorizationKind,

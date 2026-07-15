@@ -309,7 +309,7 @@ describe('aggregateAggregators — per-chain tiered selection', () => {
   const realAggregators = (p: ReturnType<typeof proxies>): Aggregator[] => [
     new LiFiAggregator(p.lifi as any, p.lifiToken as any),
     new BebopAggregator(p.bebop as any),
-    new FibrousAggregator(p.fibrous as any),
+    new FibrousAggregator(p.fibrous as any, vi.fn() as any),
     new ZeroExAggregator(p.zerox as any, p.zerox as any),
     new RelayAggregator(p.relay as any),
   ];
@@ -507,29 +507,30 @@ describe('aggregateAggregators — per-chain tiered selection', () => {
     expect(res.aggregator).toBe(lifi);
   });
 
-  it('logs per-aggregator swap:timing entries with duration and request count', async () => {
+  it('logs per-aggregator quote-round entries with duration and request count', async () => {
     const debugSpy = vi.spyOn(logger, 'debug');
     const p = proxies();
     await aggregateAggregators([chainRequest(8453)], realAggregators(p), AggregateMode.MaximizeOutput);
 
-    const timings = debugSpy.mock.calls
-      .filter(([msg]) => msg === 'swap:timing')
-      .map(([, payload]) => payload as { op: string; aggregator?: string; requests?: number; ms?: number });
-    const perAggregator = timings.filter((t) => t.op === 'aggregator.getQuotes');
+    const perAggregator = debugSpy.mock.calls
+      .filter(([msg]) => msg === 'swap.route.aggregator.quote_round.completed')
+      .map(([, payload]) => payload as { aggregator?: string; requestCount?: number; durationMs?: number });
     expect(perAggregator.map((t) => t.aggregator).sort()).toEqual(['bebop', 'lifi', 'relay', 'zerox']);
     for (const entry of perAggregator) {
-      expect(entry.requests).toBe(1);
-      expect(entry.ms).toBeGreaterThanOrEqual(0);
+      expect(entry.requestCount).toBe(1);
+      expect(entry.durationMs).toBeGreaterThanOrEqual(0);
     }
     debugSpy.mockRestore();
   });
 
-  it('logs only the selected candidates in swap:aggregator-selection', async () => {
+  it('logs only the selected candidates in the aggregator selection event', async () => {
     const debugSpy = vi.spyOn(logger, 'debug');
     const p = proxies();
     await aggregateAggregators([chainRequest(8453)], realAggregators(p), AggregateMode.MaximizeOutput);
 
-    const entry = debugSpy.mock.calls.find(([msg]) => msg === 'swap:aggregator-selection');
+    const entry = debugSpy.mock.calls.find(
+      ([msg]) => msg === 'swap.route.aggregator.selection.completed'
+    );
     expect(entry).toBeDefined();
     const payload = entry![1] as { candidates: { aggregator: string }[] };
     expect(payload.candidates.map((c) => c.aggregator).sort()).toEqual(['lifi', 'zerox']);
@@ -547,7 +548,7 @@ describe('aggregateAggregators — Mystic tier-1 selection', () => {
     const mystic = vi.fn().mockResolvedValue({});
     const relay = vi.fn().mockResolvedValue({});
     const aggs = [
-      new FibrousAggregator(fibrous as any),
+      new FibrousAggregator(fibrous as any, vi.fn() as any),
       new MysticAggregator(mystic as any, vi.fn() as any),
       new RelayAggregator(relay as any),
     ];
@@ -585,6 +586,7 @@ describe('createAggregators', () => {
       getLiFiQuote: vi.fn(),
       getBebopQuote: vi.fn(),
       getFibrousQuote: vi.fn(),
+      getFibrousRoute: vi.fn(),
       getZeroExQuote: vi.fn(),
       postMystic: vi.fn(),
       getRelayQuote: vi.fn(),
@@ -599,6 +601,7 @@ describe('createAggregators', () => {
       getLiFiQuote: vi.fn(),
       getBebopQuote: vi.fn(),
       getFibrousQuote: vi.fn(),
+      getFibrousRoute: vi.fn(),
       getZeroExQuote: vi.fn(),
       postMystic: vi.fn(),
       getRelayQuote,
@@ -615,7 +618,7 @@ describe('createAggregators', () => {
 
   it('wires 0x aggregator to mw.getZeroExQuote', async () => {
     const getZeroExQuote = vi.fn().mockResolvedValue(zeroExResponse());
-    const mw = { getLiFiQuote: vi.fn(), getBebopQuote: vi.fn(), getFibrousQuote: vi.fn(), getZeroExQuote } as any;
+    const mw = { getLiFiQuote: vi.fn(), getBebopQuote: vi.fn(), getFibrousQuote: vi.fn(), getFibrousRoute: vi.fn(), getZeroExQuote } as any;
 
     const aggs = createAggregators(mw);
     const zerox = aggs[3];
@@ -634,7 +637,7 @@ describe('createAggregators', () => {
       transactionRequest: { to: '0x04', data: '0x05', value: '0x0' },
     };
     const getLiFiQuote = vi.fn().mockResolvedValue(lifiResponse);
-    const mw = { getLiFiQuote, getBebopQuote: vi.fn(), getFibrousQuote: vi.fn() } as any;
+    const mw = { getLiFiQuote, getBebopQuote: vi.fn(), getFibrousQuote: vi.fn(), getFibrousRoute: vi.fn() } as any;
 
     const [lifi] = createAggregators(mw);
     await lifi.getQuotes([makeRequest()]);
@@ -655,7 +658,7 @@ describe('createAggregators', () => {
       }],
     };
     const getBebopQuote = vi.fn().mockResolvedValue(bebopResponse);
-    const mw = { getLiFiQuote: vi.fn(), getBebopQuote, getFibrousQuote: vi.fn() } as any;
+    const mw = { getLiFiQuote: vi.fn(), getBebopQuote, getFibrousQuote: vi.fn(), getFibrousRoute: vi.fn() } as any;
 
     const [, bebop] = createAggregators(mw);
     await bebop.getQuotes([makeRequest()]);
@@ -696,7 +699,12 @@ describe('createAggregators', () => {
       router_address: '0x0000000000000000000000000000000000000005',
     };
     const getFibrousQuote = vi.fn().mockResolvedValue(fibrousResponse);
-    const mw = { getLiFiQuote: vi.fn(), getBebopQuote: vi.fn(), getFibrousQuote } as any;
+    const mw = {
+      getLiFiQuote: vi.fn(),
+      getBebopQuote: vi.fn(),
+      getFibrousQuote,
+      getFibrousRoute: vi.fn(),
+    } as any;
 
     // Use Citrea (4114) — the only Fibrous-supported chain.
     const [, , fibrous] = createAggregators(mw);

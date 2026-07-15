@@ -8,13 +8,14 @@ import { deductSwapNativeReserveFees } from '../services/balances';
 import { createAggregators } from './aggregators';
 import { selectSwapSources } from './balance/swap-balances';
 import { type CurrencyID, resolveSwapSettlement } from './cot';
-import type {
-  BridgeQuoteResponse,
-  FlatBalance,
-  OraclePriceResponse,
-  PublicClientList,
-  SwapData,
-  WalletPath,
+import {
+  SwapMode,
+  type BridgeQuoteResponse,
+  type FlatBalance,
+  type OraclePriceResponse,
+  type PublicClientList,
+  type SwapData,
+  type WalletPath,
 } from './types';
 import { chainSupports7702, resolveWalletPath } from './wallet/capabilities';
 import { createPublicClientList } from './wallet/public-client-list';
@@ -50,14 +51,8 @@ const getCandidateChainIds = (input: SwapData, balances: FlatBalance[]): number[
     chainIds.add(balance.chainID);
   }
 
-  if (input.mode === 'EXACT_IN') {
-    for (const source of input.data.sources ?? []) {
-      chainIds.add(source.chainId);
-    }
-  } else {
-    for (const source of input.data.sources ?? []) {
-      chainIds.add(source.chainId);
-    }
+  for (const source of input.data.sources ?? []) {
+    chainIds.add(source.chainId);
   }
 
   return [...chainIds];
@@ -115,10 +110,15 @@ export const buildSwapPreflight = async (
   input: SwapData,
   options: BuildSwapPreflightOptions
 ): Promise<SwapPreflight> => {
-  logger.debug('buildSwapPreflight:start', {
+  logger.debug('swap.preflight.operation.started', {
     mode: input.mode,
     toChainId: input.data.toChainId,
-    rawInputData: input,
+    toTokenAddress: input.data.toTokenAddress,
+    sourceCount: input.data.sources?.length ?? 0,
+    hasNativeRequest:
+      input.mode === SwapMode.EXACT_OUT &&
+      input.data.toNativeAmountRaw !== undefined &&
+      input.data.toNativeAmountRaw !== 0n,
     hasPreloadedBalances: options.preloadedBalances !== undefined,
   });
 
@@ -173,7 +173,7 @@ export const buildSwapPreflight = async (
     })
   );
 
-  logger.debug('buildSwapPreflight:complete', {
+  logger.debug('swap.preflight.operation.completed', {
     toChainId: input.data.toChainId,
     balanceCount: balances.length,
     candidateChainIds,

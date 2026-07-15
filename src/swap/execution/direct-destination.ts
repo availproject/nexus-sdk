@@ -1,5 +1,6 @@
 import Decimal from 'decimal.js';
 import { maxUint256, type Hex } from 'viem';
+import { getLogger } from '../../domain';
 import { ZERO_ADDRESS } from '../../domain/constants/addresses';
 import {
   ERROR_CODES,
@@ -16,17 +17,14 @@ import { mulDecimals } from '../../services/math';
 import type { SBCCall } from '../../services/sbc';
 import { createSourceSwapStepId } from '../../services/step-ids';
 import { equalFold } from '../../services/strings';
+import { withTimingSpan } from '../../services/timing';
 import {
   makeConvergenceExtraRaw,
   sizeDirectDestinationExactOut,
 } from '../algorithms/direct-destination-size';
 import { aggregatorService } from '../aggregators';
 import type { QuoteResponse } from '../aggregators/types';
-import {
-  DIRECT_DST_QUOTE_TTL_MS,
-  SRC_BUFFER_MAX_USD,
-  SRC_BUFFER_PCT,
-} from '../constants';
+import { DIRECT_DST_QUOTE_TTL_MS, SRC_BUFFER_MAX_USD, SRC_BUFFER_PCT } from '../constants';
 import { predictSafeAccountAddress } from '../safe/predict';
 import type {
   ExecutionContext,
@@ -40,6 +38,8 @@ import { buildPreparedTransfer } from '../wallet/prepared-transfer';
 import { resolvePreparedFundingTransferCalls } from './eoa-to-ephemeral';
 import { getParsedQuote } from './parsed-quote';
 import { dispatchSourceChainBatch, type DispatchedSourceBatch } from './source-swaps';
+
+const logger = getLogger();
 
 const MAX_DISPATCH_ATTEMPTS = 3;
 
@@ -88,9 +88,7 @@ const assertSilentGrowthWithinCap = (input: {
 }) => {
   if (input.neededRaw <= input.baselineRaw) return;
   const pctCapRaw = BigInt(
-    new Decimal(input.baselineRaw.toString())
-      .mul(SRC_BUFFER_PCT)
-      .toFixed(0, Decimal.ROUND_CEIL)
+    new Decimal(input.baselineRaw.toString()).mul(SRC_BUFFER_PCT).toFixed(0, Decimal.ROUND_CEIL)
   );
   const price = input.oraclePrices.find(
     (entry) =>
@@ -348,24 +346,41 @@ export const executeDirectDestinationExactOut = async (
     routeTimeInputs.set(key, (routeTimeInputs.get(key) ?? 0n) + swap.quote.input.amountRaw);
   }
   let swaps = route.source.swaps;
-  let forceRequote = Date.now() - route.source.creationTime > DIRECT_DST_QUOTE_TTL_MS;
+  const currentTimeMs = Date.now();
+  const quoteAgeMs = currentTimeMs - route.source.creationTime;
+  let forceRequote = quoteAgeMs > DIRECT_DST_QUOTE_TTL_MS;
+  logger.debug('swap.execute.source.quote_freshness.decision', {
+    chainId,
+    routePath: 'direct_destination',
+    quoteCreationTimeMs: route.source.creationTime,
+    currentTimeMs,
+    quoteAgeMs,
+    quoteTtlMs: DIRECT_DST_QUOTE_TTL_MS,
+    forceRequote,
+  });
   let dispatchAttempts = 0;
 
   while (dispatchAttempts < MAX_DISPATCH_ATTEMPTS) {
     if (forceRequote) {
       try {
-        swaps = await sizeDirectDestinationExactOut({
-          holdings: direct.dstHoldings,
-          tokenAddress: route.dstTokenInfo.contractAddress,
-          tokenDecimals: route.dstTokenInfo.decimals,
-          tokenTargetRaw: direct.toAmountRaw,
-          nativeDecimals: chain.nativeCurrency?.decimals ?? 18,
-          gasTargetRaw: direct.toNativeAmountRaw,
-          aggregators: route.extras.aggregators,
-          userAddressByChain: new Map([[chainId, targetAddress]]),
-          recipientAddressByChain: new Map([[chainId, ctx.eoaAddress]]),
-          convergenceExtraRaw: makeConvergenceExtraRaw(route.extras.oraclePrices, chainId),
-        });
+        swaps = await withTimingSpan(
+          ctx.timing,
+          'flow.swap.execute.source.requote',
+          async () =>
+            sizeDirectDestinationExactOut({
+              holdings: direct.dstHoldings,
+              tokenAddress: route.dstTokenInfo.contractAddress,
+              tokenDecimals: route.dstTokenInfo.decimals,
+              tokenTargetRaw: direct.toAmountRaw,
+              nativeDecimals: chain.nativeCurrency?.decimals ?? 18,
+              gasTargetRaw: direct.toNativeAmountRaw,
+              aggregators: route.extras.aggregators,
+              userAddressByChain: new Map([[chainId, targetAddress]]),
+              recipientAddressByChain: new Map([[chainId, ctx.eoaAddress]]),
+              convergenceExtraRaw: makeConvergenceExtraRaw(route.extras.oraclePrices, chainId),
+            }),
+          { tags: { attempt: dispatchAttempts + 1, route_path: 'direct_destination' } }
+        );
         forceRequote = false;
       } catch (error) {
         const normalized = normalizeRequoteFailure(error, swaps, chainId);
@@ -376,15 +391,27 @@ export const executeDirectDestinationExactOut = async (
 
     let calls: SBCCall[];
     try {
-      calls = await buildCalls({
-        swaps,
-        chainId,
-        targetAddress,
-        ctx: executorCtx,
-        authorizations,
-        routeTimeInputs,
-        oraclePrices: route.extras.oraclePrices,
-      });
+      calls = await withTimingSpan(
+        ctx.timing,
+        'flow.swap.execute.source.build_calls',
+        async () =>
+          buildCalls({
+            swaps,
+            chainId,
+            targetAddress,
+            ctx: executorCtx,
+            authorizations,
+            routeTimeInputs,
+            oraclePrices: route.extras.oraclePrices,
+          }),
+        {
+          tags: {
+            attempt: dispatchAttempts + 1,
+            route_path: 'direct_destination',
+            source_leg_count: swaps.length,
+          },
+        }
+      );
     } catch (error) {
       const normalized = isUserRejectedRequest(error) ? Errors.userRejectedAllowance() : error;
       emitFailed(ctx, chainId, normalized);
@@ -394,17 +421,29 @@ export const executeDirectDestinationExactOut = async (
     let dispatched: DispatchedSourceBatch | undefined;
     try {
       dispatchAttempts += 1;
-      dispatched = await dispatchSourceChainBatch({
-        chainId,
-        calls,
-        nativeValue: calls.reduce((total, call) => total + call.value, 0n),
-        ctx,
-      });
-      const txHash = await dispatched.waitForReceipt();
+      const submitted = await withTimingSpan(
+        ctx.timing,
+        'flow.swap.execute.source.dispatch',
+        async () =>
+          dispatchSourceChainBatch({
+            chainId,
+            calls,
+            nativeValue: calls.reduce((total, call) => total + call.value, 0n),
+            ctx,
+        }),
+        { tags: { attempt: dispatchAttempts, route_path: 'direct_destination' } }
+      );
+      dispatched = submitted;
+      const txHash = await withTimingSpan(
+        ctx.timing,
+        'flow.swap.execute.source.wait_receipt',
+        async () => submitted.waitForReceipt(),
+        { tags: { attempt: dispatchAttempts, route_path: 'direct_destination' } }
+      );
       const explorerUrl =
-        txHash === dispatched.submittedTxHash && dispatched.submittedExplorerUrl !== undefined
-          ? dispatched.submittedExplorerUrl
-          : createExplorerTxURL(txHash, dispatched.explorerBaseUrl);
+        txHash === submitted.submittedTxHash && submitted.submittedExplorerUrl !== undefined
+          ? submitted.submittedExplorerUrl
+          : createExplorerTxURL(txHash, submitted.explorerBaseUrl);
       ctx.onProgress?.({
         stepType: 'source_swap',
         chainId,

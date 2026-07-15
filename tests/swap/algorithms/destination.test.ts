@@ -184,6 +184,80 @@ describe('determineDestinationSwaps', () => {
     expect(result!.quote.input.amountRaw).toBe(2020000000n);
   });
 
+  it('uses a price-derived COT seed without making the reverse survey request', async () => {
+    const convergenceInputs: bigint[] = [];
+    const reverseRequests: QuoteRequest[] = [];
+    const agg = makeRequestAwareAggregator({
+      exactOutDirect: () => null,
+      reverseExactIn: (req) => {
+        reverseRequests.push(req);
+        return makeQuote(2000000000n, 1000000000000000000n, WETH, USDC_BASE);
+      },
+      convergenceExactIn: (req) => {
+        if (req.type !== QuoteType.EXACT_IN) return null;
+        convergenceInputs.push(req.inputAmount);
+        return makeQuote(1000000000000000000n, req.inputAmount);
+      },
+    });
+
+    const result = await determineDestinationSwaps({
+      dst: {
+        chainId: BASE_CHAIN,
+        token: { contractAddress: WETH, amountRaw: 1000000000000000000n },
+      },
+      options: {
+        chainList: makeSwapChainList(),
+        aggregators: [agg],
+        cotCurrencyID: CurrencyID.USDC,
+        estimatedInputAmountRaw: new Decimal('100000000'),
+        userAddress: '0xexec00000000000000000000000000000000ec01' as Hex,
+        recipientAddress: '0xe0a0000000000000000000000000000000000a02' as Hex,
+      },
+    });
+
+    expect(result).not.toBeNull();
+    expect(convergenceInputs[0]).toBe(firstConvergenceStep(100000000n));
+    expect(reverseRequests).toHaveLength(0);
+  });
+
+  it('falls back to the reverse survey when the first price-seeded forward quote is unavailable', async () => {
+    let convergenceAttempt = 0;
+    let reverseAttempts = 0;
+    const agg = makeRequestAwareAggregator({
+      exactOutDirect: () => null,
+      reverseExactIn: () => {
+        reverseAttempts++;
+        return makeQuote(200000000n, 1000000000000000000n, WETH, USDC_BASE);
+      },
+      convergenceExactIn: (req) => {
+        if (req.type !== QuoteType.EXACT_IN) return null;
+        convergenceAttempt++;
+        return convergenceAttempt === 1
+          ? null
+          : makeQuote(1000000000000000000n, req.inputAmount);
+      },
+    });
+
+    const result = await determineDestinationSwaps({
+      dst: {
+        chainId: BASE_CHAIN,
+        token: { contractAddress: WETH, amountRaw: 1000000000000000000n },
+      },
+      options: {
+        chainList: makeSwapChainList(),
+        aggregators: [agg],
+        cotCurrencyID: CurrencyID.USDC,
+        estimatedInputAmountRaw: new Decimal('100000000'),
+        userAddress: '0xexec00000000000000000000000000000000ec01' as Hex,
+        recipientAddress: '0xe0a0000000000000000000000000000000000a02' as Hex,
+      },
+    });
+
+    expect(result).not.toBeNull();
+    expect(convergenceAttempt).toBe(2);
+    expect(reverseAttempts).toBe(1);
+  });
+
   it('stops convergence input growth at the per-COT USD cap (initial + 0.5 USDC)', async () => {
     // Reverse quote suggests 1000 USDC needed for 1e18 WETH. With 1% safety the
     // first attempt requests ~1.01 USDC over the estimate; the cap is 0.5 USDC

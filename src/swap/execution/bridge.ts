@@ -39,6 +39,7 @@ import {
   createBridgeDepositStepId,
   createEoaToEphemeralTransferStepId,
 } from '../../services/step-ids';
+import { withTimingSpan } from '../../services/timing';
 import { createSwapBridgeIntent } from '../bridge-intent';
 import { predictSafeAccountAddress } from '../safe/predict';
 import type { BridgeAsset, ExecutionContext, SwapMetadata, SwapRoute } from '../types';
@@ -48,8 +49,8 @@ import { dispatchSafeSource } from './safe-dispatch';
 
 const logger = getLogger();
 
-// Loose view of a Mayan quote for [DEBUG-LOG] tracing (effectiveAmountIn / minReceived live on the
-// vendored Mayan Quote type and aren't worth importing just to log).
+// Loose view of a Mayan quote for tracing (effectiveAmountIn / minReceived live on the vendored
+// Mayan Quote type and aren't worth importing just to log).
 const asRecord = (v: unknown): Record<string, unknown> => (v ?? {}) as Record<string, unknown>;
 
 const resolveChain = (chainList: ExecutionContext['chainList'], chainId: number): Chain =>
@@ -243,10 +244,11 @@ const resolveFundingTransferCalls = async (
     | 'onProgress'
     | 'preparedExecution'
     | 'publicClientList'
+    | 'timing'
   >
 ) => {
   if (asset.eoaBalance.lte(0)) {
-    logger.debug('executeSwapBridge:funding_transfer:skip_no_eoa_balance', {
+    logger.debug('swap.execute.bridge.funding.skipped', {
       chainId: asset.chainID,
       tokenAddress: asset.contractAddress,
     });
@@ -262,7 +264,7 @@ const resolveFundingTransferCalls = async (
 
   if (!transfer) {
     const message = `Missing bridge funding transfer for chain ${asset.chainID}`;
-    logger.debug('executeSwapBridge:funding_transfer:missing', {
+    logger.debug('swap.execute.bridge.funding.missing', {
       chainId: asset.chainID,
       tokenAddress: asset.contractAddress,
     });
@@ -286,11 +288,11 @@ const resolveFundingTransferCalls = async (
   const publicClient = ctx.publicClientList.get(asset.chainID);
   const authorizationKind = transfer.authorization?.kind ?? 'none';
 
-  logger.debug('executeSwapBridge:funding_transfer:start', {
+  logger.debug('swap.execute.bridge.funding.started', {
     chainId: asset.chainID,
     tokenAddress: asset.contractAddress,
     authorizationKind,
-    amount: transfer.amount.toString(),
+    amountRaw: transfer.amount.toString(),
   });
   if (transfer.authorization) {
     ctx.onProgress?.({
@@ -309,7 +311,7 @@ const resolveFundingTransferCalls = async (
       eoaWallet: ctx.eoaWallet,
       publicClient,
     });
-    logger.debug('executeSwapBridge:funding_transfer:complete', {
+    logger.debug('swap.execute.bridge.funding.completed', {
       chainId: asset.chainID,
       tokenAddress: asset.contractAddress,
       authorizationKind,
@@ -452,16 +454,16 @@ const runMayanEphemeralBridge = async (
     | 'onProgress'
     | 'preparedExecution'
     | 'publicClientList'
+    | 'timing'
   >,
   metadata: SwapMetadata
 ): Promise<void> => {
-  logger.debug('executeSwapBridge:mayan:approve_sbcs:start', {
+  logger.debug('swap.execute.bridge.mayan_approval.started', {
     chains: bridgedAssets.map((asset) => asset.chainID),
   });
 
-  // [DEBUG-LOG] Per-leg amounts the RFF will deposit vs the Mayan quote they were sized against —
-  // compare against :mayan:approve below to catch an approve/deposit-value divergence.
-  logger.debug('[DEBUG-LOG] executeSwapBridge:mayan:legs', {
+  // Per-leg amounts the RFF will deposit versus the Mayan quote they were sized against.
+  logger.debug('swap.execute.bridge.mayan_legs.resolved', {
     destinationChainId: bridge.chainID,
     legs: intent.selectedSources.map((s) => ({
       chainId: s.chain.id,
@@ -481,15 +483,15 @@ const runMayanEphemeralBridge = async (
         asset.decimals
       );
       const vaultAddress = ctx.chainList.getVaultContractAddress(asset.chainID);
-      // [DEBUG-LOG] The exact allowance this leg grants the vault. If approveRaw < the matching
+      // The exact allowance this leg grants the vault. If approveRaw < the matching
       // :mayan:legs rffValueRaw, the sponsored depositMayan() will revert "exceeds allowance".
-      logger.debug('[DEBUG-LOG] executeSwapBridge:mayan:approve', {
+      logger.debug('swap.execute.bridge.mayan_allowance.resolved', {
         chainId: asset.chainID,
         token: asset.contractAddress,
         vault: vaultAddress,
         approveRaw: totalBalanceRaw.toString(),
-        eoaBalance: asset.eoaBalance.toString(),
-        ephemeralBalance: asset.ephemeralBalance.toString(),
+        eoaBalance: asset.eoaBalance.toFixed(),
+        ephemeralBalance: asset.ephemeralBalance.toFixed(),
       });
       const chain = resolveChain(ctx.chainList, asset.chainID);
       let txHash: Hex;
@@ -606,8 +608,21 @@ const runMayanEphemeralBridge = async (
     // them below (and reports the tx), so skip the approve here.
     if (isNativeAddress(asset.contractAddress)) continue;
     try {
-      const fundingCalls = await resolveFundingTransferCalls(asset, ctx);
-      approveTasks.push({ chainId: asset.chainID, task: runApprove(asset, fundingCalls) });
+      const fundingCalls = await withTimingSpan(
+        ctx.timing,
+        'flow.swap.execute.bridge.prepare_funding',
+        async () => resolveFundingTransferCalls(asset, ctx),
+        { tags: { provider: 'mayan' } }
+      );
+      approveTasks.push({
+        chainId: asset.chainID,
+        task: withTimingSpan(
+          ctx.timing,
+          'flow.swap.execute.bridge.deposit',
+          async () => runApprove(asset, fundingCalls),
+          { tags: { provider: 'mayan' } }
+        ),
+      });
     } catch (error) {
       fundingError = error;
       break;
@@ -625,39 +640,48 @@ const runMayanEphemeralBridge = async (
   // this point until the fill arrives).
   ctx.onProgress?.({ stepType: 'bridge_intent_submission', state: 'started' });
 
-  const { depositRequest, rffRequest, signature, requestHash } = await createRequestFromIntent(
-    intent,
-    {
-      evm: { address: ctx.ephemeralWallet.address, client: ctx.ephemeralWallet },
-    }
-  ).catch((error) => {
-    ctx.onProgress?.({
-      stepType: 'bridge_intent_submission',
-      state: 'failed',
-      error: formatUnknownError(error),
-    });
-    throw error;
-  });
+  const { depositRequest, rffRequest, signature, requestHash } = await withTimingSpan(
+    ctx.timing,
+    'flow.swap.execute.bridge.submit_intent',
+    async () =>
+      createRequestFromIntent(intent, {
+        evm: { address: ctx.ephemeralWallet.address, client: ctx.ephemeralWallet },
+      }).catch((error) => {
+        ctx.onProgress?.({
+          stepType: 'bridge_intent_submission',
+          state: 'failed',
+          error: formatUnknownError(error),
+        });
+        throw error;
+      }),
+    { tags: { provider: 'mayan' } }
+  );
 
   const mayanQuotes = intent.selectedSources.flatMap((source) =>
     source.mayanQuote ? [source.mayanQuote] : []
   );
 
-  await submitRFFToMiddleware(
-    rffRequest,
-    signature,
-    ctx.middlewareClient,
-    requestHash,
-    mayanQuotes
-  ).catch((error) => {
-    ctx.onProgress?.({
-      stepType: 'bridge_intent_submission',
-      state: 'failed',
-      intentRequestHash: requestHash,
-      error: formatUnknownError(error),
-    });
-    throw error;
-  });
+  await withTimingSpan(
+    ctx.timing,
+    'flow.swap.execute.bridge.submit_intent',
+    async () =>
+      submitRFFToMiddleware(
+        rffRequest,
+        signature,
+        ctx.middlewareClient,
+        requestHash,
+        mayanQuotes
+      ).catch((error) => {
+        ctx.onProgress?.({
+          stepType: 'bridge_intent_submission',
+          state: 'failed',
+          intentRequestHash: requestHash,
+          error: formatUnknownError(error),
+        });
+        throw error;
+      }),
+    { tags: { provider: 'mayan' } }
+  );
 
   ctx.onProgress?.({
     stepType: 'bridge_intent_submission',
@@ -699,22 +723,35 @@ const runMayanEphemeralBridge = async (
         ],
       }),
     };
-    const txHash = await submitNativeBridgeDepositViaEoa({
-      asset,
-      chain,
-      depositCall,
-      depositValue,
-      ctx,
-    });
-    await confirmStepReceipt(ctx.publicClientList.get(asset.chainID), txHash, asset.chainID, {
-      stepId: createBridgeDepositStepId(asset.chainID),
-      stepType: 'bridge_deposit',
-      label: 'Mayan native bridge deposit',
-    });
-    await ctx.middlewareClient.reportMayanNativeTx(requestHash, {
-      source_index: chainIndex,
-      tx_hash: txHash,
-    });
+    const txHash = await withTimingSpan(
+      ctx.timing,
+      'flow.swap.execute.bridge.deposit',
+      async () => {
+        const submittedTxHash = await submitNativeBridgeDepositViaEoa({
+          asset,
+          chain,
+          depositCall,
+          depositValue,
+          ctx,
+        });
+        await confirmStepReceipt(
+          ctx.publicClientList.get(asset.chainID),
+          submittedTxHash,
+          asset.chainID,
+          {
+            stepId: createBridgeDepositStepId(asset.chainID),
+            stepType: 'bridge_deposit',
+            label: 'Mayan native bridge deposit',
+          }
+        );
+        await ctx.middlewareClient.reportMayanNativeTx(requestHash, {
+          source_index: chainIndex,
+          tx_hash: submittedTxHash,
+        });
+        return submittedTxHash;
+      },
+      { tags: { provider: 'mayan' } }
+    );
     const explorerUrl = createExplorerTxURL(txHash, chain.blockExplorers?.default?.url ?? '');
     ctx.onProgress?.({
       stepType: 'bridge_deposit',
@@ -731,47 +768,53 @@ const runMayanEphemeralBridge = async (
     intentRequestHash: requestHash,
   });
 
-  await waitForFill({
-    requestHash,
-    middlewareClient: ctx.middlewareClient,
-    dstChain: resolveChain(ctx.chainList, bridge.chainID),
-    chainList: ctx.chainList,
-    fillTimeoutMinutes: 2,
-  }).catch(async (error) => {
-    // [DEBUG-LOG] Pull the RFF's per-leg status so the failing leg's depositMayan calldata +
-    // revert reason land in the logs alongside the amounts this SDK sized — best-effort.
-    let bridgeLegs: unknown;
-    try {
-      const rff = await ctx.middlewareClient.getRFF(requestHash);
-      bridgeLegs = rff.bridgeLegs?.map((leg) => ({
-        sourceIndex: leg.sourceIndex,
-        status: leg.status,
-        txHash: leg.txHash,
-        error: leg.error,
-      }));
-    } catch (fetchError) {
-      bridgeLegs = `getRFF failed: ${formatUnknownError(fetchError)}`;
-    }
-    logger.error('[DEBUG-LOG] executeSwapBridge:mayan:fill_failed', {
-      requestHash,
-      destinationChainId: bridge.chainID,
-      sdkLegs: intent.selectedSources.map((s) => ({
-        chainId: s.chain.id,
-        token: s.token.contractAddress,
-        rffValueRaw: s.amountRaw.toString(),
-        mayanMinReceived: asRecord(s.mayanQuote).minReceived,
-      })),
-      bridgeLegs,
-      error: formatUnknownError(error),
-    });
-    ctx.onProgress?.({
-      stepType: 'bridge_fill',
-      state: 'failed',
-      intentRequestHash: requestHash,
-      error: formatUnknownError(error),
-    });
-    throw error;
-  });
+  await withTimingSpan(
+    ctx.timing,
+    'flow.swap.execute.bridge.wait_fill',
+    async () =>
+      waitForFill({
+        requestHash,
+        middlewareClient: ctx.middlewareClient,
+        dstChain: resolveChain(ctx.chainList, bridge.chainID),
+        chainList: ctx.chainList,
+        fillTimeoutMinutes: 2,
+      }).catch(async (error) => {
+        // [DEBUG-LOG] Pull the RFF's per-leg status so the failing leg's depositMayan calldata +
+        // revert reason land in the logs alongside the amounts this SDK sized — best-effort.
+        let bridgeLegs: unknown;
+        try {
+          const rff = await ctx.middlewareClient.getRFF(requestHash);
+          bridgeLegs = rff.bridgeLegs?.map((leg) => ({
+            sourceIndex: leg.sourceIndex,
+            status: leg.status,
+            txHash: leg.txHash,
+            error: leg.error,
+          }));
+        } catch (fetchError) {
+          bridgeLegs = `getRFF failed: ${formatUnknownError(fetchError)}`;
+        }
+        logger.error('[DEBUG-LOG] executeSwapBridge:mayan:fill_failed', {
+          requestHash,
+          destinationChainId: bridge.chainID,
+          sdkLegs: intent.selectedSources.map((s) => ({
+            chainId: s.chain.id,
+            token: s.token.contractAddress,
+            rffValueRaw: s.amountRaw.toString(),
+            mayanMinReceived: asRecord(s.mayanQuote).minReceived,
+          })),
+          bridgeLegs,
+          error: formatUnknownError(error),
+        });
+        ctx.onProgress?.({
+          stepType: 'bridge_fill',
+          state: 'failed',
+          intentRequestHash: requestHash,
+          error: formatUnknownError(error),
+        });
+        throw error;
+      }),
+    { tags: { provider: 'mayan' } }
+  );
 
   ctx.onProgress?.({
     stepType: 'bridge_fill',
@@ -829,6 +872,7 @@ const executeEphemeralBridgePath = async (
     | 'onProgress'
     | 'preparedExecution'
     | 'publicClientList'
+    | 'timing'
   >,
   metadata: SwapMetadata
 ) => {
@@ -844,7 +888,12 @@ const executeEphemeralBridgePath = async (
   // source-swap retry). Nexus deposits whatever the executed amount is — no signed quote, no drift.
   const intentBridge =
     bridge.provider === 'mayan'
-      ? await refreshMayanQuotesForExecution(bridge, bridgedAssets, ctx.middlewareClient)
+      ? await withTimingSpan(
+          ctx.timing,
+          'flow.swap.execute.bridge.refresh_mayan_quotes',
+          async () => refreshMayanQuotesForExecution(bridge, bridgedAssets, ctx.middlewareClient),
+          { tags: { provider: 'mayan', source_chain_count: bridgedAssets.length } }
+        )
       : bridge;
   const intent = createSwapBridgeIntent({
     bridge: intentBridge,
@@ -864,30 +913,39 @@ const executeEphemeralBridgePath = async (
     state: 'started',
   });
 
-  const { depositRequest, rffRequest, signature, requestHash } = await createRequestFromIntent(
-    intent,
-    {
-      evm: { address: ctx.ephemeralWallet.address, client: ctx.ephemeralWallet },
-    }
-  ).catch((error) => {
-    ctx.onProgress?.({
-      stepType: 'bridge_intent_submission',
-      state: 'failed',
-      error: formatUnknownError(error),
-    });
-    throw error;
-  });
+  const { depositRequest, rffRequest, signature, requestHash } = await withTimingSpan(
+    ctx.timing,
+    'flow.swap.execute.bridge.submit_intent',
+    async () =>
+      createRequestFromIntent(intent, {
+        evm: { address: ctx.ephemeralWallet.address, client: ctx.ephemeralWallet },
+      }).catch((error) => {
+        ctx.onProgress?.({
+          stepType: 'bridge_intent_submission',
+          state: 'failed',
+          error: formatUnknownError(error),
+        });
+        throw error;
+      }),
+    { tags: { provider: 'nexus' } }
+  );
 
-  await submitRFFToMiddleware(rffRequest, signature, ctx.middlewareClient, requestHash).catch(
-    (error) => {
-      ctx.onProgress?.({
-        stepType: 'bridge_intent_submission',
-        state: 'failed',
-        intentRequestHash: requestHash,
-        error: formatUnknownError(error),
-      });
-      throw error;
-    }
+  await withTimingSpan(
+    ctx.timing,
+    'flow.swap.execute.bridge.submit_intent',
+    async () =>
+      submitRFFToMiddleware(rffRequest, signature, ctx.middlewareClient, requestHash).catch(
+        (error) => {
+          ctx.onProgress?.({
+            stepType: 'bridge_intent_submission',
+            state: 'failed',
+            intentRequestHash: requestHash,
+            error: formatUnknownError(error),
+          });
+          throw error;
+        }
+      ),
+    { tags: { provider: 'nexus' } }
   );
 
   ctx.onProgress?.({
@@ -896,7 +954,7 @@ const executeEphemeralBridgePath = async (
     intentRequestHash: requestHash,
   });
 
-  logger.debug('executeSwapBridge:bridge_deposits:funding:start', {
+  logger.debug('swap.execute.bridge.funding_batch.started', {
     chains: bridgedAssets.map((asset) => asset.chainID),
     eoaFundedChains: bridgedAssets.filter(hasEoaFunding).map((asset) => asset.chainID),
   });
@@ -905,7 +963,7 @@ const executeEphemeralBridgePath = async (
 
   const startBridgeDepositTask = (asset: BridgeAsset, fundingCalls: SBCCall[]) =>
     (async () => {
-      logger.debug('executeSwapBridge:bridge_deposit:sbc_build:start', {
+      logger.debug('swap.execute.bridge.deposit_sbc_build.started', {
         chainId: asset.chainID,
       });
       ctx.onProgress?.({
@@ -1027,16 +1085,16 @@ const executeEphemeralBridgePath = async (
           publicClient: ctx.publicClientList.get(asset.chainID),
         });
 
-        logger.debug('executeSwapBridge:bridge_deposit:sbc_build:complete', {
+        logger.debug('swap.execute.bridge.deposit_sbc_build.completed', {
           chainId: asset.chainID,
         });
-        logger.debug('executeSwapBridge:bridge_deposit:submit_sbc:start', {
+        logger.debug('swap.execute.bridge.deposit_sbc_dispatch.started', {
           chainId: asset.chainID,
         });
 
         const sbcResults = await ctx.middlewareClient.submitSBCs([sbcTx]);
 
-        logger.debug('executeSwapBridge:bridge_deposit:submit_sbc:complete', {
+        logger.debug('swap.execute.bridge.deposit_sbc_dispatch.completed', {
           chainId: asset.chainID,
         });
 
@@ -1094,11 +1152,21 @@ const executeEphemeralBridgePath = async (
       // Native bridge sources are EOA-submitted payable deposits — no EOA→ephemeral transfer.
       const fundingCalls = isNativeAddress(asset.contractAddress)
         ? []
-        : await resolveFundingTransferCalls(asset, ctx);
+        : await withTimingSpan(
+            ctx.timing,
+            'flow.swap.execute.bridge.prepare_funding',
+            async () => resolveFundingTransferCalls(asset, ctx),
+            { tags: { provider: 'nexus' } }
+          );
       fundedChains.push(asset.chainID);
       bridgeDepositTasks.push({
         chainId: asset.chainID,
-        task: startBridgeDepositTask(asset, fundingCalls),
+        task: withTimingSpan(
+          ctx.timing,
+          'flow.swap.execute.bridge.deposit',
+          async () => startBridgeDepositTask(asset, fundingCalls),
+          { tags: { provider: 'nexus' } }
+        ),
       });
     } catch (error) {
       fundingError = error;
@@ -1106,7 +1174,7 @@ const executeEphemeralBridgePath = async (
     }
   }
 
-  logger.debug('executeSwapBridge:bridge_deposits:funding:complete', {
+  logger.debug('swap.execute.bridge.funding_batch.completed', {
     chains: fundedChains,
   });
 
@@ -1138,21 +1206,27 @@ const executeEphemeralBridgePath = async (
     intentRequestHash: requestHash,
   });
 
-  await waitForFill({
-    requestHash,
-    middlewareClient: ctx.middlewareClient,
-    dstChain: resolveChain(ctx.chainList, bridge.chainID),
-    chainList: ctx.chainList,
-    fillTimeoutMinutes: DEFAULT_FILL_TIMEOUT_MINUTES,
-  }).catch((error) => {
-    ctx.onProgress?.({
-      stepType: 'bridge_fill',
-      state: 'failed',
-      intentRequestHash: requestHash,
-      error: formatUnknownError(error),
-    });
-    throw error;
-  });
+  await withTimingSpan(
+    ctx.timing,
+    'flow.swap.execute.bridge.wait_fill',
+    async () =>
+      waitForFill({
+        requestHash,
+        middlewareClient: ctx.middlewareClient,
+        dstChain: resolveChain(ctx.chainList, bridge.chainID),
+        chainList: ctx.chainList,
+        fillTimeoutMinutes: DEFAULT_FILL_TIMEOUT_MINUTES,
+      }).catch((error) => {
+        ctx.onProgress?.({
+          stepType: 'bridge_fill',
+          state: 'failed',
+          intentRequestHash: requestHash,
+          error: formatUnknownError(error),
+        });
+        throw error;
+      }),
+    { tags: { provider: 'nexus' } }
+  );
 
   ctx.onProgress?.({
     stepType: 'bridge_fill',
@@ -1181,6 +1255,7 @@ export const executeSwapBridge = async (
     | 'onProgress'
     | 'preparedExecution'
     | 'publicClientList'
+    | 'timing'
   >,
   metadata: SwapMetadata
 ): Promise<void> => {

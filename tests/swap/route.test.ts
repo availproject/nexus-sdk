@@ -14,6 +14,13 @@ vi.mock('../../src/swap/algorithms/destination', () => ({
   destinationSwapWithExactIn: vi.fn(),
   destinationGasSwapExactIn: vi.fn(),
 }));
+vi.mock('../../src/swap/routing/holdings', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/swap/routing/holdings')>();
+  return {
+    ...actual,
+    selectRoughEligibleSources: vi.fn(actual.selectRoughEligibleSources),
+  };
+});
 // B1 EXACT_OUT native-family reserve cap: keep it a fixed value (no RPC) so the deducted-native
 // assertions are deterministic. Default 0.001 ETH; tests override per case.
 vi.mock('../../src/services/swap-native-reserve-fee', () => ({
@@ -40,6 +47,7 @@ import { destinationGasSwapExactIn, determineDestinationSwaps, destinationSwapWi
 import { CurrencyID } from '../../src/swap/cot';
 import { estimateRepresentativeSwapNativeReserveFee } from '../../src/services/swap-native-reserve-fee';
 import { equalFold } from '../../src/services/strings';
+import { selectRoughEligibleSources } from '../../src/swap/routing/holdings';
 import {
   ARB_CHAIN,
   BASE_CHAIN,
@@ -58,6 +66,7 @@ import {
   makeSwapChainList,
   makeSwapChainListWithUsdtCot,
 } from '../helpers/swap';
+import { makeTimingHooks } from '../helpers/timing';
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -220,16 +229,79 @@ describe('determineSwapRoute', () => {
     vi.mocked(determineDestinationSwaps).mockResolvedValue(
       makeDestinationQuoteResponse({ chainID: ARB_CHAIN }),
     );
+    const timing = makeTimingHooks();
     const route = await determineSwapRoute(
       input,
       makeRouteOptions({
         balances: [{ amount: '3100', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDC', tokenAddress: USDC_ARB, value: 3100, logo: '', name: 'USDC' }],
+        timing,
         
       })
     );
     expect(route.type).toBe(SwapMode.EXACT_OUT);
     expect(route.bridge).toBeNull();
     expect(route.destination.chainId).toBe(ARB_CHAIN);
+    expect(timing.startSpan.mock.calls.map(([name]) => name)).toEqual(
+      expect.arrayContaining([
+        'flow.swap.route.resolve_settlement',
+        'flow.swap.route.resolve_sources',
+        'flow.swap.route.quote_destination_requirement',
+        'flow.swap.route.classify_path',
+        'flow.swap.route.resolve_provider',
+        'flow.swap.route.select_sources',
+        'flow.swap.route.assemble',
+      ])
+    );
+  });
+
+  it('computes Exact Out RES once and projects provider sources without selecting again', async () => {
+    const input: SwapData = {
+      mode: SwapMode.EXACT_OUT,
+      data: {
+        toChainId: ARB_CHAIN,
+        toTokenAddress: WETH,
+        toAmountRaw: 1_000_000_000_000_000_000n,
+      },
+    };
+    vi.mocked(autoSelectSources).mockResolvedValue({
+      quoteResponses: [],
+      usedCOTs: [
+        {
+          holding: {
+            chainID: ARB_CHAIN,
+            tokenAddress: USDC_ARB,
+            amountRaw: 3_255_000_000n,
+            decimals: 6,
+            symbol: 'USDC',
+          },
+          amountUsed: new Decimal('3255'),
+          idx: 0,
+        },
+      ],
+    });
+    vi.mocked(determineDestinationSwaps).mockResolvedValue(
+      makeDestinationQuoteResponse({ chainID: ARB_CHAIN })
+    );
+
+    await determineSwapRoute(
+      input,
+      makeRouteOptions({
+        balances: [
+          {
+            amount: '3100',
+            chainID: ARB_CHAIN,
+            decimals: 6,
+            symbol: 'USDC',
+            tokenAddress: USDC_ARB,
+            value: 3100,
+            logo: '',
+            name: 'USDC',
+          },
+        ],
+      })
+    );
+
+    expect(selectRoughEligibleSources).toHaveBeenCalledTimes(1);
   });
   it('EXACT_OUT toToken=COT removes the dst-chain toToken from autoSelect holdings', async () => {
     // Regression: when toToken IS the destination COT (USDC on ARB), the dst-chain USDC
@@ -542,9 +614,12 @@ describe('determineSwapRoute', () => {
     };
     vi.mocked(liquidateInputHoldings).mockResolvedValue([makeQuoteResponse()]);
     vi.mocked(destinationSwapWithExactIn).mockResolvedValue(null);
+    const timing = makeTimingHooks();
     const route = await determineSwapRoute(input, makeRouteOptions({
       balances: [{ amount: '1', chainID: ARB_CHAIN, decimals: 18, symbol: 'WETH', tokenAddress: WETH, value: 3000, logo: '', name: 'WETH' }],
       dstTokenInfo: makeDstTokenInfo({ contractAddress: USDC_ARB, decimals: 6, symbol: 'USDC', name: 'USD Coin' }),
+      skipFastPaths: true,
+      timing,
     }));
     expect(route.type).toBe(SwapMode.EXACT_IN);
     expect(route.source.swaps).toHaveLength(1);
@@ -553,6 +628,15 @@ describe('determineSwapRoute', () => {
     expect(route.source.srcBuffer).toBeNull();
     // No buffer to surface in the intent.
     expect(route.buffer.amount).toBe('0');
+    expect(timing.startSpan.mock.calls.map(([name]) => name)).toEqual(
+      expect.arrayContaining([
+        'flow.swap.route.resolve_sources',
+        'flow.swap.route.resolve_settlement',
+        'flow.swap.route.resolve_provider',
+        'flow.swap.route.select_sources',
+        'flow.swap.route.assemble',
+      ])
+    );
   });
   it('EXACT_IN same-family non-COT sources bridge directly with no swaps (USDT→USDT)', async () => {
     const input: SwapData = {
@@ -2602,7 +2686,21 @@ describe('determineSwapRoute', () => {
         usedCOTs: [],
       });
 
-      const route = await determineSwapRoute(input, makeRouteOptions({ dstTokenInfo: pepeInfo, balances: [bal(WETH, '1', 18, 3000, 'WETH')] }));
+      const route = await determineSwapRoute(input, makeRouteOptions({
+        dstTokenInfo: pepeInfo,
+        balances: [bal(WETH, '1', 18, 3000, 'WETH')],
+        oraclePrices: [
+          {
+            universe: 'EVM',
+            chainId: ARB_CHAIN,
+            tokenAddress: PEPE,
+            tokenSymbol: 'PEPE',
+            tokenDecimals: 18,
+            priceUsd: new Decimal(1),
+            timestamp: 1,
+          },
+        ],
+      }));
 
       expect(route.directDestination).toBe(true);
       expect(route.bridge).toBeNull();
@@ -2615,6 +2713,55 @@ describe('determineSwapRoute', () => {
       expect(route.source.srcBuffer).toBeNull();
       expect(route.source.gasSrcBuffer).toBeUndefined();
       expect(route.buffer.amount).toBe('0');
+      expect(determineDestinationSwaps).not.toHaveBeenCalled();
+    });
+
+    it('passes the cached destination/COT price estimate into destination convergence', async () => {
+      const input: SwapData = {
+        mode: SwapMode.EXACT_OUT,
+        data: {
+          toChainId: ARB_CHAIN,
+          toTokenAddress: PEPE,
+          toAmountRaw: 100000000000000000000n,
+        },
+      };
+      vi.mocked(determineDestinationSwaps).mockResolvedValue(sizingQuote());
+      vi.mocked(autoSelectSources).mockResolvedValue({
+        quoteResponses: [leg(WETH, 1000000000000000000n, 18, USDC_ARB, 500000000n, 6)],
+        usedCOTs: [],
+      });
+
+      await determineSwapRoute(
+        input,
+        makeRouteOptions({
+          dstTokenInfo: pepeInfo,
+          balances: [bal(WETH, '1', 18, 3000, 'WETH')],
+          oraclePrices: [
+            {
+              universe: 'EVM',
+              chainId: ARB_CHAIN,
+              tokenAddress: PEPE,
+              tokenSymbol: 'PEPE',
+              tokenDecimals: 18,
+              priceUsd: new Decimal(2),
+              timestamp: 1,
+            },
+            {
+              universe: 'EVM',
+              chainId: ARB_CHAIN,
+              tokenAddress: USDC_ARB,
+              tokenSymbol: 'USDC',
+              tokenDecimals: 6,
+              priceUsd: new Decimal(1),
+              timestamp: 1,
+            },
+          ],
+          skipFastPaths: true,
+        })
+      );
+
+      const destinationOptions = vi.mocked(determineDestinationSwaps).mock.calls[0][0].options;
+      expect(destinationOptions.estimatedInputAmountRaw?.eq('200000000')).toBe(true);
     });
 
     it('persists only allowlisted destination holdings with the original raw targets', async () => {
@@ -2659,7 +2806,7 @@ describe('determineSwapRoute', () => {
       });
     });
 
-    it('gates on chain-scoped COT USD value and accepts the equality boundary', async () => {
+    it('gates on chain-scoped destination-token USD value and accepts the equality boundary', async () => {
       const input: SwapData = {
         mode: SwapMode.EXACT_OUT,
         data: {
@@ -2683,9 +2830,9 @@ describe('determineSwapRoute', () => {
         {
           universe: 'EVM' as const,
           chainId: ARB_CHAIN,
-          tokenAddress: USDC_ARB,
-          tokenSymbol: 'USDC',
-          tokenDecimals: 6,
+          tokenAddress: PEPE,
+          tokenSymbol: 'PEPE',
+          tokenDecimals: 18,
           priceUsd: new Decimal(2),
           timestamp: 1,
         },

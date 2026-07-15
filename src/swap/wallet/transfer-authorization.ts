@@ -206,13 +206,11 @@ export const buildTransferAuthorization = async (input: {
         ? 'approve'
         : 'permit';
 
-  logger.debug('buildTransferAuthorization:decision', {
+  logger.debug('swap.prepare.transfer_authorization.decision', {
     chainId,
     tokenAddress: input.tokenAddress,
-    eoaAddress: input.eoaAddress,
-    ephemeralAddress: input.ephemeralAddress,
-    currentAllowance: currentAllowance.toString(),
-    requiredAllowance: input.amount.toString(),
+    currentAllowanceRaw: currentAllowance.toString(),
+    requiredAllowanceRaw: input.amount.toString(),
     permitVariant: permit?.permitVariant ?? PermitVariant.Unsupported,
     permitContractVersion: permit?.permitContractVersion ?? 0,
     eoaIsDelegated,

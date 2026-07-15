@@ -69,7 +69,7 @@ export class BebopAggregator implements Aggregator {
         req.type === QuoteType.EXACT_OUT
       );
     } catch (error) {
-      logger.debug('bebop:quote-failed', {
+      logger.debug('swap.route.aggregator.bebop_quote.failed', {
         chainId: req.chainId,
         message: error instanceof Error ? error.message : String(error),
       });

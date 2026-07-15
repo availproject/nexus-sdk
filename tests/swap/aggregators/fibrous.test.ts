@@ -79,13 +79,59 @@ const makeFibrousResponse = (overrides: { swap_type?: number; success?: boolean;
 describe('FibrousAggregator', () => {
   let agg: FibrousAggregator;
   let getQuoteFn: ReturnType<typeof vi.fn>;
+  let getRouteFn: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.clearAllMocks();
     getQuoteFn = vi.fn().mockResolvedValue(makeFibrousResponse());
+    getRouteFn = vi.fn().mockResolvedValue(makeFibrousResponse().route);
     agg = new FibrousAggregator(
-      getQuoteFn as unknown as (params: Record<string, string>) => Promise<unknown>
+      getQuoteFn as unknown as (params: Record<string, string>) => Promise<unknown>,
+      getRouteFn as unknown as (params: Record<string, string>) => Promise<unknown>
     );
+  });
+
+  it('uses only the route endpoint for a price survey', async () => {
+    const response = makeFibrousResponse();
+    const getRoute = vi.fn().mockResolvedValue(response.route);
+    const getQuote = vi.fn();
+    const splitAggregator = new (FibrousAggregator as any)(getQuote, getRoute);
+
+    const [quote] = await splitAggregator.getQuotes([
+      makeRequest({ seriousness: QuoteSeriousness.PRICE_SURVEY }),
+    ]);
+
+    expect(quote).not.toBeNull();
+    // /route has no min_received, so surveys apply the configured 0.25% floor locally.
+    expect(quote!.output.amountRaw).toBe(39_900_000_000_000_000n);
+    expect(quote!.txData).toEqual({
+      approvalAddress: zeroAddress,
+      tx: { to: zeroAddress, data: '0x', value: '0x0' },
+    });
+    expect(getRoute).toHaveBeenCalledTimes(1);
+    expect(getRoute.mock.calls[0][0]).not.toHaveProperty('slippage');
+    expect(getRoute.mock.calls[0][0]).not.toHaveProperty('destination');
+    expect(getQuote).not.toHaveBeenCalled();
+  });
+
+  it('uses routeAndCallData directly for a serious quote', async () => {
+    const response = makeFibrousResponse();
+    const getQuote = vi.fn().mockResolvedValue(response);
+    const getRoute = vi.fn();
+    const splitAggregator = new (FibrousAggregator as any)(getQuote, getRoute);
+
+    const [quote] = await splitAggregator.getQuotes([makeRequest()]);
+
+    expect(quote).not.toBeNull();
+    expect(quote!.output.amountRaw).toBe(39_800_000_000_000_000n);
+    expect(getQuote).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chain: 'citrea',
+        slippage: '0.25',
+        destination: RECIPIENT,
+      })
+    );
+    expect(getRoute).not.toHaveBeenCalled();
   });
 
   it('returns a Quote for EXACT_IN on a supported chain', async () => {
@@ -224,6 +270,7 @@ describe('FibrousAggregator', () => {
   it('supports overriding excludeProtocols via constructor option', async () => {
     const custom = new FibrousAggregator(
       getQuoteFn as unknown as (params: Record<string, string>) => Promise<unknown>,
+      getRouteFn as unknown as (params: Record<string, string>) => Promise<unknown>,
       { excludeProtocols: '3,5' }
     );
     await custom.getQuotes([makeRequest()]);
@@ -233,7 +280,7 @@ describe('FibrousAggregator', () => {
 });
 
 describe('FibrousAggregator supportsChain', () => {
-  const agg = new FibrousAggregator(vi.fn());
+  const agg = new FibrousAggregator(vi.fn(), vi.fn());
 
   it('reports Citrea as supported', () => {
     expect(agg.supportsChain(4114)).toBe(true);

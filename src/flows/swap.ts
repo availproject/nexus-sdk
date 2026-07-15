@@ -2,14 +2,7 @@ import { getLogger, type SwapPlan } from '../domain';
 import { getIntentExplorerUrl } from '../services/explorer';
 import { withTimingSpan } from '../services/timing';
 import { SLIPPAGE_DEFAULT } from '../swap/constants';
-import { executeSwapBridge } from '../swap/execution/bridge';
-import { executeDirectDestinationExactOut } from '../swap/execution/direct-destination';
-import { executeDestinationSwap } from '../swap/execution/destination-swap';
-import {
-  cleanupStrandedCot,
-  resolveFailureSweepCurrencyId,
-} from '../swap/execution/failure-cleanup';
-import { executeSourceSwaps } from '../swap/execution/source-swaps';
+import { executeSwapRoute } from '../swap/execution/orchestrator';
 import { createSwapIntent } from '../swap/intent';
 import { buildSwapPreflight, type SwapPreflight } from '../swap/preflight';
 import { prepareSwapExecution } from '../swap/prepare';
@@ -18,11 +11,9 @@ import type { RouteOptions } from '../swap/route';
 import { determineSwapRoute } from '../swap/route';
 import { createSwapPlan } from '../swap/swap-steps-builder';
 import type {
-  BridgeAsset,
   Source,
   SwapData,
   SwapIntent,
-  SwapMetadata,
   SwapParams,
   SwapResult,
   SwapRoute,
@@ -48,53 +39,8 @@ type SwapPreviewContext = {
   cotCurrencyId: SwapDeps['swap']['cotCurrencyId'];
   middlewareClient: SwapDeps['middlewareClient'];
   forceMayan: SwapDeps['forceMayan'];
+  timing?: SwapDeps['timing'];
   preflight: SwapPreflight;
-};
-
-// Bridge funding always flows through the ephemeral identity, so executed swap output is the
-// authoritative ephemeralBalance and planned eoaBalance carries direct-COT holdings into the
-// merge.
-const mergeBridgeAssets = (
-  plannedAssets: BridgeAsset[],
-  executedAssets: BridgeAsset[]
-): BridgeAsset[] => {
-  const plannedByKey = new Map(
-    plannedAssets.map((asset) => [
-      `${asset.chainID}:${asset.contractAddress.toLowerCase()}:${asset.decimals}`,
-      asset,
-    ])
-  );
-  const executedByKey = new Map(
-    executedAssets.map((asset) => [
-      `${asset.chainID}:${asset.contractAddress.toLowerCase()}:${asset.decimals}`,
-      asset,
-    ])
-  );
-
-  const keys = new Set([...plannedByKey.keys(), ...executedByKey.keys()]);
-  const merged: BridgeAsset[] = [];
-
-  for (const key of keys) {
-    const planned = plannedByKey.get(key);
-    const executed = executedByKey.get(key);
-
-    if (!planned) {
-      // key came from executedByKey since plannedByKey doesn't have it
-      if (executed) merged.push(executed);
-      continue;
-    }
-    if (!executed) {
-      merged.push(planned);
-      continue;
-    }
-    merged.push({
-      ...executed,
-      eoaBalance: planned.eoaBalance,
-      ephemeralBalance: executed.ephemeralBalance,
-    });
-  }
-
-  return merged.sort((left, right) => left.chainID - right.chainID);
 };
 
 const createRouteOptions = (
@@ -106,6 +52,7 @@ const createRouteOptions = (
     | 'ephemeralWallet'
     | 'middlewareClient'
     | 'forceMayan'
+    | 'timing'
   >,
   preflight: SwapPreflight
 ): RouteOptions => ({
@@ -128,6 +75,7 @@ const createRouteOptions = (
     ])
   ),
   forceMayan: context.forceMayan,
+  timing: context.timing,
 });
 
 export type SwapPreviewState = {
@@ -185,7 +133,7 @@ const waitForIntentApproval = (
             }
           : input;
 
-      logger.debug('SwapFlow:refresh', {
+      logger.debug('swap.flow.route_refresh.started', {
         mode: refreshedInput.mode,
         toChainId: refreshedInput.data.toChainId,
       });
@@ -204,6 +152,7 @@ const waitForIntentApproval = (
         cotCurrencyId: deps.swap.cotCurrencyId,
         middlewareClient: deps.middlewareClient,
         forceMayan: deps.forceMayan,
+        timing: deps.timing,
         preflight,
       });
       onPreviewStateUpdated?.(currentPreviewState);
@@ -238,7 +187,10 @@ const runSwapFlow = async (
   const { emitStatus, emitPlanPreview, emitPlanConfirmed, emitExecutionProgress } =
     createSwapProgressEmitter(options?.onEvent);
 
-  logger.debug('SwapFlow:init', { mode: input.mode, toChainId: input.data.toChainId });
+  logger.debug('swap.flow.operation.started', {
+    mode: input.mode,
+    toChainId: input.data.toChainId,
+  });
 
   emitStatus('route_building');
   const preflight = await withTimingSpan(deps.timing, 'flow.swap.preflight', async () =>
@@ -263,6 +215,7 @@ const runSwapFlow = async (
           cotCurrencyId: deps.swap.cotCurrencyId,
           middlewareClient: deps.middlewareClient,
           forceMayan: deps.forceMayan,
+          timing: deps.timing,
         },
         preflight
       )
@@ -292,15 +245,27 @@ const runSwapFlow = async (
 
   emitStatus('approved');
   emitPlanConfirmed(previewState.plan);
+  const routePath = route.directDestination
+    ? 'direct_destination'
+    : route.sameTokenBridge
+      ? 'same_token'
+      : 'cot';
+  logger.debug('swap.flow.intent.approved', {
+    mode: input.mode,
+    routePath,
+    provider: route.bridge?.provider ?? 'none',
+    sourceLegCount: route.source.swaps.length,
+  });
   emitStatus('executing');
+  logger.debug('swap.flow.execution.started', {
+    mode: input.mode,
+    routePath,
+    hasBridge: route.bridge !== null,
+    hasDestinationSwap:
+      route.destination.swap.tokenSwap !== null || route.destination.swap.gasSwap !== null,
+  });
 
   const cache = new SwapCache(deps.chainList);
-  const metadata: SwapMetadata = {
-    src: [],
-    dst: null,
-    has_xcs: route.bridge !== null,
-    intent_request_hash: null,
-  };
 
   const preparedExecution = await withTimingSpan(
     deps.timing,
@@ -316,6 +281,7 @@ const runSwapFlow = async (
         ephemeralWallet: deps.swap.ephemeralWallet,
         publicClientList: preflight.publicClientList,
         cache,
+        timing: deps.timing,
       })
   );
 
@@ -335,56 +301,11 @@ const runSwapFlow = async (
     cache,
     preparedExecution,
     onProgress: emitExecutionProgress,
+    timing: deps.timing,
     slippage,
   } as const;
 
-  // Source/bridge stages strand the COT on the source chains; once we enter the destination swap
-  // it sits on the destination chain. The flag picks which side the cleanup reads.
-  let reachedDestinationSwap = false;
-  try {
-    const executedSourceAssets = await withTimingSpan(
-      deps.timing,
-      'flow.swap.execute_source',
-      async () => {
-        if (route.directDestination === true && route.type === SwapMode.EXACT_OUT) {
-          await executeDirectDestinationExactOut(route, executionContext, metadata);
-          return [];
-        }
-        return executeSourceSwaps(route.source, executionContext, metadata);
-      }
-    );
-
-    const bridge = route.bridge;
-    if (bridge) {
-      const bridgeAssets = mergeBridgeAssets(bridge.assets, executedSourceAssets);
-      await withTimingSpan(deps.timing, 'flow.swap.execute_bridge', async () =>
-        executeSwapBridge(bridge, bridgeAssets, executionContext, metadata)
-      );
-    }
-
-    reachedDestinationSwap = true;
-    await withTimingSpan(deps.timing, 'flow.swap.execute_destination', async () =>
-      executeDestinationSwap(
-        route.destination,
-        route.type,
-        route.dstTokenInfo,
-        executionContext,
-        metadata
-      )
-    );
-  } catch (error) {
-    // Fast same-token Nexus bridges deposit the exact amount directly (nothing strands) → skip.
-    // Otherwise sweep the route's settlement currency on just the chains the failure stranded it:
-    // the destination chain if the destination swap failed, else the executed source chains.
-    const sweepCurrencyId = resolveFailureSweepCurrencyId(route);
-    if (sweepCurrencyId !== null) {
-      const chainIds = reachedDestinationSwap
-        ? [route.destination.chainId]
-        : metadata.src.map((entry) => entry.chid);
-      await cleanupStrandedCot({ currencyId: sweepCurrencyId, chainIds, ctx: executionContext });
-    }
-    throw error;
-  }
+  const metadata = await executeSwapRoute(route, executionContext);
 
   const sourceSwaps = metadata.src.map((entry) => ({
     chainId: entry.chid,
@@ -401,7 +322,7 @@ const runSwapFlow = async (
     ? getIntentExplorerUrl(deps.intentExplorerUrl, metadata.intent_request_hash)
     : '';
 
-  logger.debug('SwapFlow:complete', {
+  logger.debug('swap.flow.operation.completed', {
     sourceChains: sourceSwaps.map((entry) => entry.chainId),
     hasBridge: route.bridge !== null,
     hasDestinationSwap: destinationSwap !== null,

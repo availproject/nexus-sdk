@@ -1,5 +1,5 @@
 import Decimal from 'decimal.js';
-import { erc20Abi, type Hex } from 'viem';
+import type { Hex } from 'viem';
 import { getLogger } from '../../domain';
 import {
   ERROR_CODES,
@@ -20,6 +20,7 @@ import {
 } from '../../services/sbc';
 import { createSourceSwapStepId } from '../../services/step-ids';
 import { equalFold } from '../../services/strings';
+import { withTimingSpan } from '../../services/timing';
 import { aggregatorService } from '../aggregators';
 import { type QuoteResponse, QuoteSeriousness, QuoteType } from '../aggregators/types';
 import { predictSafeAccountAddress } from '../safe/predict';
@@ -35,6 +36,7 @@ import { chainSupports7702 } from '../wallet/capabilities';
 import { resolvePreparedFundingTransferCalls } from './eoa-to-ephemeral';
 import { getParsedQuote } from './parsed-quote';
 import { dispatchSafeSource } from './safe-dispatch';
+import { readSettlementBalanceRaw } from './settlement-balance';
 
 const logger = getLogger();
 
@@ -170,15 +172,12 @@ const readWrapperCotBalanceRaw = async (
   const holder = is7702
     ? ctx.ephemeralWallet.address
     : predictSafeAccountAddress(ctx.ephemeralWallet.address).address;
-  const publicClient = ctx.publicClientList.get(chainId);
-  return isNativeAddress(cotAddress)
-    ? publicClient.getBalance({ address: holder })
-    : publicClient.readContract({
-        address: cotAddress,
-        abi: erc20Abi,
-        functionName: 'balanceOf',
-        args: [holder],
-      });
+  return readSettlementBalanceRaw({
+    chainId,
+    tokenAddress: cotAddress,
+    holderAddress: holder,
+    publicClientList: ctx.publicClientList,
+  });
 };
 
 const sourceSwapStep = (chainId: number) => ({
@@ -447,7 +446,7 @@ const requoteFailedChains = async (
     if (buffer === null) continue; // no buffer for this pass → accept (e.g. an unbudgeted group)
     const newTotal = newByRole.get(role)?.total ?? new Decimal(0);
     const minAcceptable = oldTotal.minus(buffer);
-    logger.debug('requoteFailedChains:bufferCheck', {
+    logger.debug('swap.execute.source.requote_buffer.checked', {
       outputToken: contractAddress,
       oldTotal: oldTotal.toFixed(),
       newTotal: newTotal.toFixed(),
@@ -522,6 +521,7 @@ export const executeSourceSwaps = async (
     | 'cache'
     | 'preparedExecution'
     | 'onProgress'
+    | 'timing'
     | 'slippage'
   > & { destinationChainId: number },
   metadata: SwapMetadata
@@ -546,7 +546,7 @@ export const executeSourceSwaps = async (
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt < 2 && pendingChains.size > 0; attempt++) {
-    logger.debug('executeSourceSwaps:attempt', {
+    logger.debug('swap.execute.source.attempt.started', {
       attempt,
       chains: [...pendingChains.keys()],
     });
@@ -556,9 +556,26 @@ export const executeSourceSwaps = async (
 
     for (const [chainId, chainSwaps] of pendingEntries) {
       try {
-        const calls = await buildSourceCalls(chainSwaps, ctx, chainId);
+        const walletPath = ctx.sourceExecutionPaths.get(chainId) ?? 'ephemeral';
+        const calls = await withTimingSpan(
+          ctx.timing,
+          'flow.swap.execute.source.build_calls',
+          async () => buildSourceCalls(chainSwaps, ctx, chainId),
+          {
+            tags: {
+              attempt,
+              wallet_path: walletPath,
+              source_leg_count: chainSwaps.length,
+            },
+          }
+        );
         const nativeValue = calls.reduce((sum, call) => sum + call.value, 0n);
-        const dispatched = await dispatchSourceChainBatch({ chainId, calls, nativeValue, ctx });
+        const dispatched = await withTimingSpan(
+          ctx.timing,
+          'flow.swap.execute.source.dispatch',
+          async () => dispatchSourceChainBatch({ chainId, calls, nativeValue, ctx }),
+          { tags: { attempt, wallet_path: walletPath } }
+        );
         dispatchResults.push({
           status: 'fulfilled',
           value: { ...dispatched, chainSwaps },
@@ -587,11 +604,17 @@ export const executeSourceSwaps = async (
       });
     });
 
-    const receiptResults = await Promise.allSettled(
-      dispatchedChains.map(async (entry) => ({
-        ...entry,
-        txHash: await entry.waitForReceipt(),
-      }))
+    const receiptResults = await withTimingSpan(
+      ctx.timing,
+      'flow.swap.execute.source.wait_receipt',
+      async () =>
+        Promise.allSettled(
+          dispatchedChains.map(async (entry) => ({
+            ...entry,
+            txHash: await entry.waitForReceipt(),
+          }))
+        ),
+      { tags: { attempt, source_chain_count: dispatchedChains.length } }
     );
 
     receiptResults.forEach((result, index) => {
@@ -643,11 +666,17 @@ export const executeSourceSwaps = async (
     lastError = failedChains[0].error;
 
     if (attempt === 0) {
-      const requoted = await requoteFailedChains(
-        failedChains.map(({ chainId, chainSwaps }) => ({ chainId, chainSwaps })),
-        source.srcBuffer,
-        source.gasSrcBuffer,
-        ctx
+      const requoted = await withTimingSpan(
+        ctx.timing,
+        'flow.swap.execute.source.requote',
+        async () =>
+          requoteFailedChains(
+            failedChains.map(({ chainId, chainSwaps }) => ({ chainId, chainSwaps })),
+            source.srcBuffer,
+            source.gasSrcBuffer,
+            ctx
+          ),
+        { tags: { attempt, source_chain_count: failedChains.length } }
       );
       pendingChains = new Map(requoted);
       continue;
@@ -732,13 +761,23 @@ export const executeSourceSwaps = async (
       let overrideBalanceRaw: bigint | undefined;
       if (source.reclaimFromActualBalance) {
         try {
-          overrideBalanceRaw = await readWrapperCotBalanceRaw(
-            entry.chainId,
-            cot?.contractAddress ?? entry.chainSwaps[0].quote.output.contractAddress,
-            ctx
+          overrideBalanceRaw = await withTimingSpan(
+            ctx.timing,
+            'flow.swap.execute.source.read_actual_balance',
+            async () =>
+              readWrapperCotBalanceRaw(
+                entry.chainId,
+                cot?.contractAddress ?? entry.chainSwaps[0].quote.output.contractAddress,
+                ctx
+              ),
+            {
+              tags: {
+                wallet_path: ctx.sourceExecutionPaths.get(entry.chainId) ?? 'ephemeral',
+              },
+            }
           );
         } catch (error) {
-          logger.debug('executeSourceSwaps:reclaim_skipped', {
+          logger.debug('swap.execute.source.actual_balance.skipped', {
             chainId: entry.chainId,
             error: error instanceof Error ? error.message : String(error),
           });

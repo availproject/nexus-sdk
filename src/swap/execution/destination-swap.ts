@@ -1,4 +1,4 @@
-import { erc20Abi, type Hex } from 'viem';
+import type { Hex } from 'viem';
 import { getLogger, type TokenInfo } from '../../domain';
 import {
   BackendError,
@@ -10,7 +10,6 @@ import {
   SimulationError,
   UserActionError,
 } from '../../domain/errors';
-import { isNativeAddress } from '../../services/addresses';
 import { confirmStepReceipt } from '../../services/evm';
 import { createExplorerTxURL } from '../../services/explorer';
 import { buildRefundSweepCall } from '../../services/init-refund-sweep';
@@ -21,6 +20,7 @@ import {
 } from '../../services/safe';
 import { createSBCTxFromCalls, requireSuccessfulSbcResult, type SBCCall } from '../../services/sbc';
 import { createDestinationSwapStepId } from '../../services/step-ids';
+import { withTimingSpan } from '../../services/timing';
 import { aggregatorService } from '../aggregators';
 import { predictSafeAccountAddress } from '../safe/predict';
 import { createSweeperTxs } from '../sweep';
@@ -35,6 +35,7 @@ import {
 import { chainSupports7702 } from '../wallet/capabilities';
 import { resolvePreparedFundingTransferCalls } from './eoa-to-ephemeral';
 import { getParsedQuote } from './parsed-quote';
+import { readSettlementBalanceRaw } from './settlement-balance';
 
 const logger = getLogger();
 
@@ -62,27 +63,6 @@ const isQuoteExpired = (swap: SwapRoute['destination']['swap']) => {
 // Read the COT held at the destination wrapper (ephemeral on 7702, predicted Safe otherwise).
 // Shared by the EXACT_IN reclaim (size the swap up) and the EXACT_OUT surplus return (size the
 // transfer). Mirrors the targeted read in failure-cleanup.
-const readWrapperCotBalance = async (
-  cotAddress: Hex,
-  wrapper: WalletPath,
-  ctx: Pick<ExecutionContext, 'ephemeralWallet' | 'publicClientList'>,
-  chainId: number
-): Promise<bigint> => {
-  const holder =
-    wrapper === 'safe'
-      ? predictSafeAccountAddress(ctx.ephemeralWallet.address).address
-      : ctx.ephemeralWallet.address;
-  const publicClient = ctx.publicClientList.get(chainId);
-  return isNativeAddress(cotAddress)
-    ? publicClient.getBalance({ address: holder })
-    : publicClient.readContract({
-        address: cotAddress,
-        abi: erc20Abi,
-        functionName: 'balanceOf',
-        args: [holder],
-      });
-};
-
 const buildDestinationCalls = async (
   currentSwap: SwapRoute['destination']['swap'],
   destination: SwapRoute['destination'],
@@ -192,20 +172,17 @@ const buildDestinationCalls = async (
   const uniqueSweepTokens = [
     ...new Map(sweepTokens.map((token) => [token.toLowerCase(), token] as const)).values(),
   ];
-  const publicClient = ctx.publicClientList.get(destination.chainId);
   for (const tokenAddress of uniqueSweepTokens) {
     // Skip a dust sweep we can confirm is empty (saves the approve + external Sweeper CALL). The
     // output token usually lands at the EOA, leaving 0 at the wrapper. Best-effort: on a read failure
     // sweep anyway, so we never strand funds.
     try {
-      const balance = isNativeAddress(tokenAddress)
-        ? await publicClient.getBalance({ address: senderAddress })
-        : await publicClient.readContract({
-            address: tokenAddress,
-            abi: erc20Abi,
-            functionName: 'balanceOf',
-            args: [senderAddress],
-          });
+      const balance = await readSettlementBalanceRaw({
+        chainId: destination.chainId,
+        tokenAddress,
+        holderAddress: senderAddress,
+        publicClientList: ctx.publicClientList,
+      });
       if (balance === 0n) continue;
     } catch {
       // read failed — fall through and sweep
@@ -286,6 +263,7 @@ export const executeDestinationSwap = async (
     | 'cache'
     | 'preparedExecution'
     | 'onProgress'
+    | 'timing'
     | 'slippage'
   >,
   metadata: SwapMetadata
@@ -295,7 +273,7 @@ export const executeDestinationSwap = async (
   let lastError: unknown;
 
   if (!currentSwap.tokenSwap && !currentSwap.gasSwap) {
-    logger.debug('executeDestinationSwap:skip_noop_no_swap', {
+    logger.debug('swap.execute.destination.noop.skipped', {
       chainId: destination.chainId,
     });
     return;
@@ -303,7 +281,7 @@ export const executeDestinationSwap = async (
 
   const wrapper: WalletPath = chainSupports7702(chain) ? 'ephemeral' : 'safe';
 
-  logger.debug('executeDestinationSwap:start', {
+  logger.debug('swap.execute.destination.operation.started', {
     chainId: destination.chainId,
     walletPath: wrapper,
   });
@@ -319,11 +297,26 @@ export const executeDestinationSwap = async (
       currentSwap.tokenSwap?.quote.input.contractAddress ??
       currentSwap.gasSwap?.quote.input.contractAddress;
     if (cotAddress) {
-      const balance = await readWrapperCotBalance(cotAddress, wrapper, ctx, destination.chainId);
+      const holderAddress =
+        wrapper === 'safe'
+          ? predictSafeAccountAddress(ctx.ephemeralWallet.address).address
+          : ctx.ephemeralWallet.address;
+      const balance = await withTimingSpan(
+        ctx.timing,
+        'flow.swap.execute.destination.read_balance',
+        async () =>
+          readSettlementBalanceRaw({
+            chainId: destination.chainId,
+            tokenAddress: cotAddress,
+            holderAddress,
+            publicClientList: ctx.publicClientList,
+          }),
+        { tags: { mode, wallet_path: wrapper } }
+      );
       wrapperCotBalance = balance + (destination.eoaToEphemeral?.amount ?? 0n);
     }
   } catch (error) {
-    logger.debug('executeDestinationSwap:balance_read_skipped', {
+    logger.debug('swap.execute.destination.balance_read.skipped', {
       chainId: destination.chainId,
       error: error instanceof Error ? error.message : String(error),
     });
@@ -337,17 +330,22 @@ export const executeDestinationSwap = async (
   // existing quote first and only re-prices (at the lifted budget) on a retry/expiry below.
   if (mode === SwapMode.EXACT_IN && wrapperCotBalance !== null && currentSwap.tokenSwap) {
     try {
-      const resized = await destination.getDstSwap(wrapperCotBalance);
+      const resized = await withTimingSpan(
+        ctx.timing,
+        'flow.swap.execute.destination.resize_or_requote',
+        async () => destination.getDstSwap(wrapperCotBalance),
+        { tags: { mode, wallet_path: wrapper, attempt: 0 } }
+      );
       if (resized?.tokenSwap) {
         currentSwap = resized;
-        logger.debug('executeDestinationSwap:resize', {
+        logger.debug('swap.execute.destination.resize.completed', {
           chainId: destination.chainId,
-          actual: wrapperCotBalance.toString(),
-          input: resized.tokenSwap.quote.input.amountRaw.toString(),
+          actualBalanceRaw: wrapperCotBalance.toString(),
+          inputAmountRaw: resized.tokenSwap.quote.input.amountRaw.toString(),
         });
       }
     } catch (error) {
-      logger.debug('executeDestinationSwap:resize_skipped', {
+      logger.debug('swap.execute.destination.resize.skipped', {
         chainId: destination.chainId,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -368,7 +366,12 @@ export const executeDestinationSwap = async (
       // re-prices against the actual balance (EXACT_OUT lifts its budget to it; an EXACT_IN retry
       // re-grows).
       if (attempt > 0 || isQuoteExpired(currentSwap)) {
-        const requoted = await destination.getDstSwap(wrapperCotBalance ?? 0n);
+        const requoted = await withTimingSpan(
+          ctx.timing,
+          'flow.swap.execute.destination.resize_or_requote',
+          async () => destination.getDstSwap(wrapperCotBalance ?? 0n),
+          { tags: { mode, wallet_path: wrapper, attempt } }
+        );
         if (requoted?.tokenSwap || requoted?.gasSwap) {
           currentSwap = requoted;
         } else if (attempt > 0) {
@@ -389,13 +392,19 @@ export const executeDestinationSwap = async (
         }
       }
 
-      const calls = await buildDestinationCalls(
-        currentSwap,
-        destination,
-        dstTokenInfo,
-        ctx,
-        wrapper,
-        wrapperCotBalance
+      const calls = await withTimingSpan(
+        ctx.timing,
+        'flow.swap.execute.destination.build_calls',
+        async () =>
+          buildDestinationCalls(
+            currentSwap,
+            destination,
+            dstTokenInfo,
+            ctx,
+            wrapper,
+            wrapperCotBalance
+          ),
+        { tags: { mode, wallet_path: wrapper, attempt } }
       );
       let txHash: Hex;
       const explorerBaseUrl = chain?.blockExplorers?.default?.url;
@@ -412,25 +421,32 @@ export const executeDestinationSwap = async (
         });
         const publicClient = ctx.publicClientList.get(destination.chainId);
         const { address: safeAddress } = predictSafeAccountAddress(ctx.ephemeralWallet.address);
-        await ensureSafeForEphemeral({
-          chainId: destination.chainId,
-          ephemeralWallet: ctx.ephemeralWallet,
-          publicClient,
-          middleware: ctx.middlewareClient,
-        });
-        const safeCalls: SafeCall[] = calls.map((c) => ({
-          to: c.to,
-          value: c.value,
-          data: c.data,
-        }));
-        const request = await createSafeExecuteTxFromCalls({
-          calls: safeCalls,
-          chainId: destination.chainId,
-          ephemeralWallet: ctx.ephemeralWallet,
-          publicClient,
-          safeAddress,
-        });
-        const result = await ctx.middlewareClient.createSafeExecuteTx(request);
+        const result = await withTimingSpan(
+          ctx.timing,
+          'flow.swap.execute.destination.dispatch',
+          async () => {
+            await ensureSafeForEphemeral({
+              chainId: destination.chainId,
+              ephemeralWallet: ctx.ephemeralWallet,
+              publicClient,
+              middleware: ctx.middlewareClient,
+            });
+            const safeCalls: SafeCall[] = calls.map((c) => ({
+              to: c.to,
+              value: c.value,
+              data: c.data,
+            }));
+            const request = await createSafeExecuteTxFromCalls({
+              calls: safeCalls,
+              chainId: destination.chainId,
+              ephemeralWallet: ctx.ephemeralWallet,
+              publicClient,
+              safeAddress,
+            });
+            return ctx.middlewareClient.createSafeExecuteTx(request);
+          },
+          { tags: { mode, wallet_path: wrapper, attempt } }
+        );
         txHash = result.txHash;
         const explorerUrl = createExplorerTxURL(txHash, explorerBaseUrl);
         lastSubmitted = { txHash, explorerUrl };
@@ -441,11 +457,17 @@ export const executeDestinationSwap = async (
           txHash,
           explorerUrl,
         });
-        await confirmStepReceipt(
-          publicClient,
-          txHash,
-          destination.chainId,
-          destinationSwapStep(destination.chainId)
+        await withTimingSpan(
+          ctx.timing,
+          'flow.swap.execute.destination.wait_receipt',
+          async () =>
+            confirmStepReceipt(
+              publicClient,
+              txHash,
+              destination.chainId,
+              destinationSwapStep(destination.chainId)
+            ),
+          { tags: { mode, wallet_path: wrapper, attempt } }
         );
         ctx.onProgress?.({
           stepType: 'destination_swap',
@@ -460,15 +482,22 @@ export const executeDestinationSwap = async (
           chainId: destination.chainId,
           state: 'started',
         });
-        const sbcTx = await createSBCTxFromCalls({
-          calls,
-          chainID: destination.chainId,
-          ephemeralAddress: ctx.ephemeralWallet.address,
-          ephemeralWallet: ctx.ephemeralWallet,
-          publicClient: ctx.publicClientList.get(destination.chainId),
-        });
+        const results = await withTimingSpan(
+          ctx.timing,
+          'flow.swap.execute.destination.dispatch',
+          async () => {
+            const sbcTx = await createSBCTxFromCalls({
+              calls,
+              chainID: destination.chainId,
+              ephemeralAddress: ctx.ephemeralWallet.address,
+              ephemeralWallet: ctx.ephemeralWallet,
+              publicClient: ctx.publicClientList.get(destination.chainId),
+            });
 
-        const results = await ctx.middlewareClient.submitSBCs([sbcTx]);
+            return ctx.middlewareClient.submitSBCs([sbcTx]);
+          },
+          { tags: { mode, wallet_path: wrapper, attempt } }
+        );
         txHash = requireSuccessfulSbcResult(
           results,
           destination.chainId,
@@ -486,11 +515,17 @@ export const executeDestinationSwap = async (
           txHash,
           explorerUrl,
         });
-        await confirmStepReceipt(
-          ctx.publicClientList.get(destination.chainId),
-          txHash,
-          destination.chainId,
-          destinationSwapStep(destination.chainId)
+        await withTimingSpan(
+          ctx.timing,
+          'flow.swap.execute.destination.wait_receipt',
+          async () =>
+            confirmStepReceipt(
+              ctx.publicClientList.get(destination.chainId),
+              txHash,
+              destination.chainId,
+              destinationSwapStep(destination.chainId)
+            ),
+          { tags: { mode, wallet_path: wrapper, attempt } }
         );
         ctx.onProgress?.({
           stepType: 'destination_swap',
@@ -502,7 +537,7 @@ export const executeDestinationSwap = async (
       }
 
       updateDestinationMetadata(currentSwap, destination.chainId, txHash, metadata);
-      logger.debug('executeDestinationSwap:complete', {
+      logger.debug('swap.execute.destination.operation.completed', {
         chainId: destination.chainId,
         txHash,
         swapCount: metadata.dst?.swaps.length ?? 0,
@@ -510,7 +545,7 @@ export const executeDestinationSwap = async (
       return;
     } catch (error) {
       lastError = error;
-      logger.debug('executeDestinationSwap:attempt_failed', {
+      logger.debug('swap.execute.destination.attempt.failed', {
         chainId: destination.chainId,
         attempt,
         error: error instanceof Error ? error.message : String(error),

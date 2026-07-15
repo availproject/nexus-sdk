@@ -390,6 +390,7 @@ export type ExecutionContext = {
   cache: SwapCache | undefined;
   preparedExecution?: PreparedSwapExecution;
   onProgress?: (update: SwapExecutionProgressUpdate) => void;
+  timing?: TimingSpanHooks;
   slippage: number;
 };
 

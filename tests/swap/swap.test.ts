@@ -83,6 +83,7 @@ import {
   makeSwapChainList,
   makeSwapPreflight,
 } from '../helpers/swap';
+import { makeTimingHooks } from '../helpers/timing';
 
 const makeBridge = (
   overrides?: Partial<NonNullable<SwapRoute['bridge']>>
@@ -565,10 +566,14 @@ describe('swap', () => {
     };
 
     vi.mocked(executeSourceSwaps).mockRejectedValueOnce(new Error('source failed'));
+    const timing = makeTimingHooks();
 
-    await expect(swap(input, makeSwapParams())).rejects.toThrow('source failed');
+    await expect(swap(input, makeSwapParams({ timing }))).rejects.toThrow('source failed');
 
     expect(cleanupStrandedCot).toHaveBeenCalledTimes(1);
+    expect(timing.startSpan.mock.calls.map(([name]) => name)).toContain(
+      'flow.swap.execute.cleanup'
+    );
   });
 
   it('bridge failure triggers best-effort cleanup', async () => {

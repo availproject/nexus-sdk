@@ -106,14 +106,15 @@ export class SwapCache {
   // ---------------------------------------------------------------------------
 
   async process(clients: PublicClientMap): Promise<void> {
-    logger.debug('swapCache:processStart', {
+    logger.debug('swap.cache.process.started', {
       queuedQueryCount: this.queries.length,
-      clientChainIds: Object.keys(clients).map(Number),
+      chainIds: Object.keys(clients).map(Number),
     });
 
     if (this.queries.length === 0) {
-      logger.debug('swapCache:skip_no_queries', {
-        clientChainIds: Object.keys(clients).map(Number),
+      logger.debug('swap.cache.process.skipped', {
+        reason: 'no_queries',
+        chainIds: Object.keys(clients).map(Number),
       });
       return;
     }
@@ -135,10 +136,11 @@ export class SwapCache {
       [...byChain.entries()].map(async ([chainId, chainQueries]) => {
         const client = clients[chainId];
         if (!client) {
-          logger.debug('swapCache:skip_missing_client', {
+          logger.debug('swap.cache.client.missing', {
             chainId,
-            availableClientChainIds: Object.keys(clients).map(Number),
-            chainQueries,
+            availableChainIds: Object.keys(clients).map(Number),
+            queryCount: chainQueries.length,
+            queryKinds: [...new Set(chainQueries.map((query) => query.type))],
           });
           return;
         }
@@ -173,28 +175,19 @@ export class SwapCache {
               };
             });
 
-            logger.debug('swapCache:allowanceQueries', {
+            logger.debug('swap.cache.allowance.query_started', {
               chainId,
-              queries: allowanceQueries.map((q) => ({
-                type: q.type,
-                token: q.token,
-                owner: q.owner,
-                spender: q.spender,
-              })),
-              contracts,
+              queryCount: allowanceQueries.length,
             });
 
             const multicallAddress = this.chainList.getChainByID(chainId).multicallAddress;
             const results = await client.multicall({ multicallAddress, contracts });
 
-            logger.debug('swapCache:allowanceResults', {
+            logger.debug('swap.cache.allowance.query_completed', {
               chainId,
-              results: results.map((r, i) => ({
-                query: allowanceQueries[i],
-                status: r?.status,
-                result: typeof r?.result === 'bigint' ? r.result.toString() : r?.result,
-                error: r && 'error' in r && r.error instanceof Error ? r.error.message : undefined,
-              })),
+              queryCount: allowanceQueries.length,
+              successCount: results.filter((result) => result?.status === 'success').length,
+              failureCount: results.filter((result) => result?.status !== 'success').length,
             });
 
             for (let i = 0; i < allowanceQueries.length; i++) {
@@ -238,14 +231,10 @@ export class SwapCache {
               })
             );
 
-            logger.debug('swapCache:nativeAllowanceResults', {
+            logger.debug('swap.cache.native_allowance.query_completed', {
               chainId,
-              results: nativeResults.map((result) => ({
-                address: result.address,
-                spender: result.spender,
-                code: result.code,
-                result: result.result.toString(),
-              })),
+              queryCount: nativeAllowanceQueries.length,
+              nonzeroCount: nativeResults.filter((result) => result.result > 0n).length,
             });
           }
 

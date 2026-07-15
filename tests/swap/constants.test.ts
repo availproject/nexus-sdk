@@ -47,8 +47,8 @@ describe('swap economic constants', () => {
     expect(MAX_SWAP_HAIRCUT_MIN_USDC).toBe(3);
   });
 
-  it('convergence: ×1.002 safety, +0.5 COT input cap, ≤10 iterations', () => {
-    expect(SAFETY_MULTIPLIER.eq(new Decimal('1.002'))).toBe(true);
+  it('convergence: ×1.005 safety, +0.5 COT input cap, ≤10 iterations', () => {
+    expect(SAFETY_MULTIPLIER.eq(new Decimal('1.005'))).toBe(true);
     expect(MAX_CONVERGENCE_EXTRA_COT.eq(new Decimal('0.5'))).toBe(true);
     expect(MAX_CONVERGENCE_ITERATIONS).toBe(10);
   });

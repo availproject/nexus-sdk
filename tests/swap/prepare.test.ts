@@ -10,6 +10,7 @@ import { SwapCache } from '../../src/swap/wallet/cache';
 import type { Aggregator } from '../../src/swap/aggregators/types';
 import type { TokenInfo } from '../../src/domain';
 import { makeChain, makeChainList } from '../helpers/chains';
+import { makeTimingHooks } from '../helpers/timing';
 
 vi.mock('../../src/services/allowance-utils', () => ({
   signPermitForAddressAndValue: vi.fn(),
@@ -131,6 +132,7 @@ describe('prepareSwapExecution', () => {
     const route = makeRoute();
     const cache = makeCache();
     const publicClient = makePublicClient();
+    const timing = makeTimingHooks();
 
     const prepared = await prepareSwapExecution({
       chainList: makeSupportedChainList(),
@@ -142,11 +144,21 @@ describe('prepareSwapExecution', () => {
       ephemeralWallet: { address: EPH } as PrivateKeyAccount,
       publicClientList: { get: vi.fn().mockReturnValue(publicClient) },
       cache,
+      timing,
     });
 
     expect(publicClient.multicall).toHaveBeenCalled();
     expect(prepared.parsedQuotes).toHaveLength(2);
     expect(prepared.parsedQuotes[0]?.approval).not.toBeNull();
+    expect(timing.startSpan.mock.calls.map(([name]) => name)).toEqual(
+      expect.arrayContaining([
+        'flow.swap.prepare.queue_cache',
+        'flow.swap.prepare.cache_start',
+        'flow.swap.prepare.cache_wait',
+        'flow.swap.prepare.parse_quotes',
+        'flow.swap.prepare.build_transfers',
+      ])
+    );
   });
 
   it('records source permit support without eagerly building the permit call', async () => {

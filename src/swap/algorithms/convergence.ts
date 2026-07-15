@@ -9,11 +9,10 @@ import {
   type QuoteType,
 } from '../aggregators';
 
-// 0.2% per-iteration step (v1 used 2.5%, then 1%, then 0.1%). Kept tight so the EXACT_IN race
-// candidate prices ≈ the true EXACT_OUT input — the seed already rides a slippage-protected
-// indicative minimum, so the first attempt usually covers; under-delivery costs extra
-// iterations instead of stranded COT. Tunable if quotes start needing too many rounds.
-export const SAFETY_MULTIPLIER = new Decimal('1.002');
+// 0.5% safety on each proposed input. A usable under-delivering quote is corrected by its observed
+// output ratio before this margin is applied, so this is primarily headroom for price movement and
+// the no-quote geometric fallback rather than the convergence mechanism itself.
+export const SAFETY_MULTIPLIER = new Decimal('1.005');
 
 // Per-iteration cap (in COT raw units) above the initial input estimate. Stops the
 // convergence loop from drifting more than `extra` over the initial reverse-quote
@@ -28,9 +27,11 @@ export type ExactOutConvergenceArgs = {
   // loop owns the input sizing — the callback is just the per-iteration request
   // shape.
   makeRequest: (inputAmountRaw: bigint) => QuoteRequest & { type: QuoteType.EXACT_IN };
-  // Initial input estimate in raw units (caller is responsible for the reverse
-  // quote that produces this).
+  // Initial input estimate in raw units, produced by either cached token prices or a reverse quote.
   initialInputAmountRaw: Decimal;
+  // Price-derived seeds can fail on a forward route that has no quote. Resolve the old reverse-quote
+  // seed lazily in that case; source-selection convergence leaves this unset.
+  getFallbackInitialInputAmountRaw?: () => Promise<Decimal | null>;
   requiredOutputAmountRaw: bigint;
   maxExtraInputAmountRaw: Decimal;
   // Optional absolute upper bound (e.g. holding balance for source swaps; no cap
@@ -83,27 +84,32 @@ export const tryExactOutDirect = async (
     best?.quote != null &&
     best.quote.output.amountRaw >= args.requiredOutputAmountRaw &&
     (args.maxInputAmountRaw == null || best.quote.input.amountRaw <= args.maxInputAmountRaw);
-  logger.debug('swap:timing', {
-    op: 'exact_out_direct',
+  logger.debug('swap.route.convergence.exact_out_direct.completed', {
+    operation: 'exact_out_direct',
     chainId: args.request.chainId,
     hit,
-    ms: Date.now() - startedAt,
+    durationMs: Date.now() - startedAt,
   });
   if (!hit || !best?.quote) return null;
   return { quote: best.quote, aggregator: best.aggregator };
 };
 
 /**
- * Iterative EXACT_IN convergence: keep bumping input by `SAFETY_MULTIPLIER` (capped
- * by `maxExtraInputAmountRaw` / `maxInputAmountRaw`) until output covers requirement
- * or the cap pins the input. Returns null if the loop exhausts attempts or hits the
- * cap without finding a covering quote.
+ * Iterative EXACT_IN convergence: correct a usable under-delivering quote by its observed
+ * required/output ratio, then apply `SAFETY_MULTIPLIER`. No-quote attempts retain geometric growth,
+ * and a caller may supply one lazy fallback seed. Every proposal is capped by
+ * `maxExtraInputAmountRaw` / `maxInputAmountRaw`. A price-seeded caller can replace that seed lazily
+ * when the first result is unusable or the observed correction exceeds its cap. Returns null if the
+ * loop exhausts attempts or hits the cap without finding a covering quote; it never repeats an API
+ * request whose rounded raw input is unchanged.
  */
 export const convergeExactIn = async (
   args: ExactOutConvergenceArgs
 ): Promise<{ quote: Quote; aggregator: Aggregator } | null> => {
   const startedAt = Date.now();
-  const baseInputAmountRaw = args.initialInputAmountRaw;
+  let baseInputAmountRaw = args.initialInputAmountRaw;
+  let usedFallbackSeed = false;
+  let sawUsableQuote = false;
   let inputAmountRaw = applyCappedSafetyMargin({
     baseInputAmountRaw,
     inputAmountRaw: baseInputAmountRaw,
@@ -112,13 +118,28 @@ export const convergeExactIn = async (
   });
   const maxAttempts = args.maxAttempts ?? MAX_CONVERGENCE_ITERATIONS;
   const logOutcome = (attempts: number, converged: boolean, cappedOut: boolean) =>
-    logger.debug('swap:timing', {
-      op: 'converge_exact_in',
+    logger.debug('swap.route.convergence.exact_in.completed', {
+      operation: 'converge_exact_in',
       attempts,
       converged,
       cappedOut,
-      ms: Date.now() - startedAt,
+      usedFallbackSeed,
+      durationMs: Date.now() - startedAt,
     });
+  const resetFromFallbackSeed = async (): Promise<boolean> => {
+    if (usedFallbackSeed || !args.getFallbackInitialInputAmountRaw) return false;
+    usedFallbackSeed = true;
+    const fallbackInputAmountRaw = await args.getFallbackInitialInputAmountRaw();
+    if (!fallbackInputAmountRaw?.isFinite() || fallbackInputAmountRaw.lte(0)) return false;
+    baseInputAmountRaw = fallbackInputAmountRaw;
+    inputAmountRaw = applyCappedSafetyMargin({
+      baseInputAmountRaw,
+      inputAmountRaw: baseInputAmountRaw,
+      maxExtraInputAmountRaw: args.maxExtraInputAmountRaw,
+      maxInputAmountRaw: args.maxInputAmountRaw,
+    });
+    return true;
+  };
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const requestInputRaw = BigInt(inputAmountRaw.toFixed(0, Decimal.ROUND_CEIL));
@@ -134,14 +155,39 @@ export const convergeExactIn = async (
       return { quote: best.quote, aggregator: best.aggregator };
     }
 
+    const usableQuote = best?.quote != null && best.quote.output.amountRaw > 0n ? best.quote : null;
+    if (usableQuote) sawUsableQuote = true;
+    if (!usableQuote && !sawUsableQuote && args.getFallbackInitialInputAmountRaw) {
+      if (!(await resetFromFallbackSeed())) {
+        logOutcome(attempt + 1, false, false);
+        return null;
+      }
+      continue;
+    }
+
+    const correctedInputAmountRaw = usableQuote
+      ? new Decimal(requestInputRaw.toString())
+          .mul(args.requiredOutputAmountRaw.toString())
+          .div(usableQuote.output.amountRaw.toString())
+      : inputAmountRaw;
+
     const nextInputAmountRaw = applyCappedSafetyMargin({
       baseInputAmountRaw,
-      inputAmountRaw,
+      inputAmountRaw: correctedInputAmountRaw,
       maxExtraInputAmountRaw: args.maxExtraInputAmountRaw,
       maxInputAmountRaw: args.maxInputAmountRaw,
     });
-    if (nextInputAmountRaw.eq(inputAmountRaw)) {
-      // Cap pinned — further iterations would request the same input.
+    const uncappedNextInputAmountRaw = correctedInputAmountRaw.mul(SAFETY_MULTIPLIER);
+    if (
+      usableQuote &&
+      nextInputAmountRaw.lt(uncappedNextInputAmountRaw) &&
+      (await resetFromFallbackSeed())
+    ) {
+      continue;
+    }
+    const nextRequestInputRaw = BigInt(nextInputAmountRaw.toFixed(0, Decimal.ROUND_CEIL));
+    if (nextRequestInputRaw === requestInputRaw) {
+      // Cap/rounding pinned — further iterations would repeat the same API request.
       logOutcome(attempt + 1, false, true);
       return null;
     }
@@ -163,9 +209,9 @@ export const convergeExactIn = async (
  * EXACT_IN endpoints are faster and more widely supported than EXACT_OUT.
  */
 /**
- * Passthrough that logs a candidate's settle time and hit/miss under `swap:timing` when it
- * eventually settles — including a race LOSER that lands after `firstSuccess` already resolved,
- * so the logs show what racing actually saved. Never affects the candidate's outcome.
+ * Passthrough that logs a candidate's settle time and hit/miss after it eventually settles —
+ * including a race loser that lands after `firstSuccess` already resolved, so the logs show what
+ * racing actually saved. Never affects the candidate's outcome.
  */
 export const timedCandidate = <T>(
   op: string,
@@ -175,10 +221,20 @@ export const timedCandidate = <T>(
   const startedAt = Date.now();
   candidate
     .then((value) =>
-      logger.debug('swap:timing', { op, ...context, hit: value != null, ms: Date.now() - startedAt })
+      logger.debug('swap.route.convergence.candidate.completed', {
+        candidate: op,
+        ...context,
+        hit: value != null,
+        durationMs: Date.now() - startedAt,
+      })
     )
     .catch(() =>
-      logger.debug('swap:timing', { op, ...context, hit: false, ms: Date.now() - startedAt })
+      logger.debug('swap.route.convergence.candidate.failed', {
+        candidate: op,
+        ...context,
+        hit: false,
+        durationMs: Date.now() - startedAt,
+      })
     );
   return candidate;
 };

@@ -88,12 +88,12 @@ export const createSwapBridgeIntent = (params: {
     !totalBridgedAmount.eq(bridge.amounts.totalAmount) ||
     !executionTokenAmount.eq(expectedExecutionCot)
   ) {
-    logger.debug('createSwapBridgeIntent:amount_mismatch', {
-      routeTokenAmount: bridge.amounts.tokenAmount.toString(),
-      routeGasInCot: bridge.amounts.gasInCot.toString(),
-      routeTotalAmount: bridge.amounts.totalAmount.toString(),
-      executionTokenAmount: executionTokenAmount.toString(),
-      executionTotalAmount: totalBridgedAmount.toString(),
+    logger.debug('swap.route.bridge_intent.amount_mismatch', {
+      routeTokenAmount: bridge.amounts.tokenAmount.toFixed(),
+      routeGasInCot: bridge.amounts.gasInCot.toFixed(),
+      routeTotalAmount: bridge.amounts.totalAmount.toFixed(),
+      executionTokenAmount: executionTokenAmount.toFixed(),
+      executionTotalAmount: totalBridgedAmount.toFixed(),
     });
   }
 

@@ -7,6 +7,7 @@ import {
   UserRejectedRequestError,
 } from 'viem';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { getLogger } from '../../../src/domain';
 import { Errors } from '../../../src/domain/errors';
 import { PermitVariant } from '../../../src/domain/permits';
 import { BebopAggregator } from '../../../src/swap/aggregators/bebop';
@@ -230,6 +231,28 @@ describe('executeDirectDestinationExactOut', () => {
       walletPath: 'ephemeral',
       submittedTxHash: TX_HASH,
       waitForReceipt: vi.fn().mockResolvedValue(TX_HASH),
+    });
+  });
+
+  it('logs the quote timestamps used for the initial freshness decision', async () => {
+    const currentTimeMs = 1_750_000_000_000;
+    const quoteCreationTimeMs = currentTimeMs - 1_234;
+    vi.spyOn(Date, 'now').mockReturnValue(currentTimeMs);
+    const debugSpy = vi.spyOn(getLogger(), 'debug').mockImplementation(() => {});
+    const swap = makeSwap(500_000_000n, WETH, 200_000_000_000_000_000n, 'token');
+    const route = makeRoute([swap]);
+    route.source.creationTime = quoteCreationTimeMs;
+
+    await executeDirectDestinationExactOut(route, makeContext(makePreparedExecution([swap])), makeMetadata());
+
+    expect(debugSpy).toHaveBeenCalledWith('swap.execute.source.quote_freshness.decision', {
+      chainId: CHAIN_ID,
+      routePath: 'direct_destination',
+      quoteCreationTimeMs,
+      currentTimeMs,
+      quoteAgeMs: 1_234,
+      quoteTtlMs: DIRECT_DST_QUOTE_TTL_MS,
+      forceRequote: false,
     });
   });
 

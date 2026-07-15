@@ -1,8 +1,8 @@
 import Decimal from 'decimal.js';
 import { encodeFunctionData, getAddress, type Hex, toHex, zeroAddress } from 'viem';
-import { SLIPPAGE_PERCENT } from './constants';
+import { SLIPPAGE_BPS, SLIPPAGE_PERCENT } from './constants';
 import type { Aggregator, Quote, QuoteRequest } from './types';
-import { QuoteType } from './types';
+import { QuoteSeriousness, QuoteType } from './types';
 
 const CHAIN_NAME_MAP: Record<number, string> = {
   // 999: 'hyperevm', // Causing issue
@@ -18,13 +18,16 @@ export type FibrousAggregatorOptions = {
 
 export class FibrousAggregator implements Aggregator {
   private readonly getQuote: (params: Record<string, string>) => Promise<unknown>;
+  private readonly getRoute: (params: Record<string, string>) => Promise<unknown>;
   private readonly excludeProtocols: string;
 
   constructor(
     getQuote: (params: Record<string, string>) => Promise<unknown>,
+    getRoute: (params: Record<string, string>) => Promise<unknown>,
     options: FibrousAggregatorOptions = {}
   ) {
     this.getQuote = getQuote;
+    this.getRoute = getRoute;
     this.excludeProtocols = options.excludeProtocols ?? DEFAULT_EXCLUDE_PROTOCOLS;
   }
 
@@ -42,18 +45,25 @@ export class FibrousAggregator implements Aggregator {
     if (!chainName) return null;
 
     try {
-      const params: Record<string, string> = {
+      const routeParams: Record<string, string> = {
         chain: chainName,
         amount: req.inputAmount.toString(),
         tokenInAddress: req.inputToken,
         tokenOutAddress: req.outputToken,
-        slippage: SLIPPAGE_PERCENT,
-        destination: req.recipientAddress,
         excludeProtocols: this.excludeProtocols,
       };
 
-      const data = await this.getQuote(params);
-      return this.parseResponse(data as FibrousResponse, req);
+      if (req.seriousness !== QuoteSeriousness.SERIOUS) {
+        const route = await this.getRoute(routeParams);
+        return this.parseSurveyResponse(route as FibrousRouteResponse, req);
+      }
+
+      const data = (await this.getQuote({
+        ...routeParams,
+        slippage: SLIPPAGE_PERCENT,
+        destination: req.recipientAddress,
+      })) as FibrousResponse;
+      return this.parseResponse(data, req);
     } catch {
       return null;
     }
@@ -129,7 +139,46 @@ export class FibrousAggregator implements Aggregator {
       },
     };
   }
+
+  private parseSurveyResponse(data: FibrousRouteResponse, req: QuoteRequest): Quote | null {
+    if (!data.success) return null;
+
+    const inputAmountRaw = BigInt(data.inputAmount);
+    const outputAmountRaw =
+      (BigInt(data.outputAmount) * BigInt(10_000 - SLIPPAGE_BPS)) / 10_000n;
+    const inputAmount = new Decimal(data.inputAmount)
+      .div(Decimal.pow(10, data.inputToken.decimals))
+      .toFixed(data.inputToken.decimals);
+    const outputAmount = new Decimal(outputAmountRaw.toString())
+      .div(Decimal.pow(10, data.outputToken.decimals))
+      .toFixed(data.outputToken.decimals);
+
+    return {
+      input: {
+        contractAddress: req.inputToken,
+        amount: inputAmount,
+        amountRaw: inputAmountRaw,
+        decimals: data.inputToken.decimals,
+        value: Decimal.mul(inputAmount, data.inputToken.price ?? 0).toNumber(),
+        symbol: data.inputToken.symbol ?? data.inputToken.name,
+      },
+      output: {
+        contractAddress: req.outputToken,
+        amount: outputAmount,
+        amountRaw: outputAmountRaw,
+        decimals: data.outputToken.decimals,
+        value: Decimal.mul(outputAmount, data.outputToken.price ?? 0).toNumber(),
+        symbol: data.outputToken.symbol ?? data.outputToken.name,
+      },
+      txData: SURVEY_TX_PLACEHOLDER,
+    };
+  }
 }
+
+const SURVEY_TX_PLACEHOLDER: Quote['txData'] = {
+  approvalAddress: zeroAddress,
+  tx: { to: zeroAddress, data: '0x', value: '0x0' },
+};
 
 // ---------------------------------------------------------------------------
 // Fibrous response types (internal)
@@ -143,15 +192,17 @@ type FibrousToken = {
   price: number | string | null;
 };
 
+type FibrousRouteResponse = {
+  success: boolean;
+  routeSwapType: number;
+  inputToken: FibrousToken;
+  inputAmount: string;
+  outputToken: FibrousToken;
+  outputAmount: string;
+};
+
 type FibrousResponse = {
-  route: {
-    success: boolean;
-    routeSwapType: number;
-    inputToken: FibrousToken;
-    inputAmount: string;
-    outputToken: FibrousToken;
-    outputAmount: string;
-  };
+  route: FibrousRouteResponse;
   calldata: {
     route: {
       token_in: Hex;

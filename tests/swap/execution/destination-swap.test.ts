@@ -67,6 +67,7 @@ import { createSafeExecuteTxFromCalls } from '../../../src/services/safe';
 import { executeViaEoa } from '../../../src/swap/wallet/eoa-executor';
 import { createSweeperTxs } from '../../../src/swap/sweep';
 import { makeSwapExecutionMiddlewareClient } from '../../helpers/middleware-client';
+import { makeTimingHooks } from '../../helpers/timing';
 import {
   type DestinationSwap,
   type ExecutionContext,
@@ -134,6 +135,7 @@ type DstCtx = Pick<
   | 'cache'
   | 'preparedExecution'
   | 'onProgress'
+  | 'timing'
   | 'slippage'
 >;
 
@@ -313,6 +315,8 @@ describe('executeDestinationSwap', () => {
     });
 
     const ctx = makeCtx('ephemeral');
+    const timing = makeTimingHooks();
+    ctx.timing = timing;
     const metadata: SwapMetadata = { src: [], dst: null, has_xcs: false, intent_request_hash: null };
 
     await executeDestinationSwap(
@@ -323,6 +327,15 @@ describe('executeDestinationSwap', () => {
     );
 
     expect(destination.getDstSwap).toHaveBeenCalledTimes(1);
+    expect(timing.startSpan.mock.calls.map(([name]) => name)).toEqual(
+      expect.arrayContaining([
+        'flow.swap.execute.destination.read_balance',
+        'flow.swap.execute.destination.resize_or_requote',
+        'flow.swap.execute.destination.build_calls',
+        'flow.swap.execute.destination.dispatch',
+        'flow.swap.execute.destination.wait_receipt',
+      ])
+    );
     const sbcInput = vi.mocked(createSBCTxFromCalls).mock.calls[0]?.[0];
     expect(sbcInput.calls).toEqual(
       expect.arrayContaining([
