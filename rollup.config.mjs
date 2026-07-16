@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { isBuiltin } from 'node:module';
 import commonjs from '@rollup/plugin-commonjs';
 import json from '@rollup/plugin-json';
 import resolve from '@rollup/plugin-node-resolve';
@@ -8,24 +10,17 @@ import dts from 'rollup-plugin-dts';
 
 const shouldMinify = process.env.NODE_ENV !== 'development';
 const shouldGenerateSourceMaps = false;
+const packageJson = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 
 // Polyfill `globalThis.process` so the SDK can run in non-Node environments
 // (browsers, edge runtimes) without crashing on `process.env`/`process.nextTick`.
 const processPolyfillIntro =
   'if(typeof globalThis.process==="undefined"){globalThis.process={env:{},version:"",nextTick:function(cb){Promise.resolve().then(cb)},stderr:{isTTY:false},stdout:{isTTY:false},pid:0,versions:{node:""}}}';
 
-const external = [
-  /^viem/,
-  'decimal.js',
-  'es-toolkit',
-  'posthog-js',
-  'zod',
-  'axios',
-  '@opentelemetry/api-logs',
-  '@opentelemetry/exporter-logs-otlp-http',
-  '@opentelemetry/resources',
-  '@opentelemetry/sdk-logs',
-];
+const dependencyIds = Object.keys(packageJson.dependencies ?? {});
+const external = (id) =>
+  isBuiltin(id) ||
+  dependencyIds.some((dependency) => id === dependency || id.startsWith(`${dependency}/`));
 
 const baseConfig = {
   input: 'src/index.ts',
