@@ -327,6 +327,10 @@ determineSwapRoute(input, opts) -> SwapRoute:
     if toAmountRaw > 0:    drop dstChain.toToken from holdings        # always (even if = COT)
     if toAmountRaw < 0:    keep dstChain.toToken, reserve abs(value)  # only surplus is usable
     if toNativeAmountRaw:  exclude dstChain native + toToken; gas → 0 # negative ⇒ reserve dst native exactly
+    if sources non-empty ∧ every source.chainId == toChainId ∧ toAmountRaw >= 0 ∧
+       (toNativeAmountRaw ?? 0) >= 0 ∧ !skipFastPaths:
+      buildDirectDestinationExactOutRoute                            # authoritative user constraint
+      success → return; quote/value failure → propagate              # no pricing gate or fallback ladder
     needTokenSwap   = (toToken ≠ cot)
     prices = route-scoped keyed promises                            # chainId + normalized token address
       oracle → balance-implied (value / amount) → provider API
@@ -355,7 +359,8 @@ determineSwapRoute(input, opts) -> SwapRoute:
     #     token→gas, §12.1), receiver = EOA. Each pass targets the ORIGINAL raw request exactly;
     #     bridge = null, dst.swap = null, directDestination = true, srcBuffer = null, buffer = 0.
     #     Persist the already allowlist-filtered dstHoldings + exact raw targets for execution-time
-    #     re-sizing. STRICT-ALL: either pass short ⇒ throw; B1/B2 still get their turn after fallback.
+    #     re-sizing. STRICT-ALL: either pass short ⇒ throw. The explicit destination-only branch
+    #     propagates; an opportunistic attempt lets B1/B2 continue after fallback.
     #   B1 'same-token-out': every RES member ∧ the dst token share one family F (including cot), at
     #     least one RES member is remote, no gas
     #     ⇒ buildSameTokenBridgeExactOutRoute: gross the target up through an F-denominated fee quote
@@ -943,15 +948,20 @@ a formula over the (already‑updated) inputs, so it tracks them automatically.
   `bridge = null`, `dst.swap = null`, receiver = EOA), with token and optional gas passes targeting
   the original raw requests exactly. Its route has `srcBuffer = null`, no `gasSrcBuffer`, and
   `route.buffer.amount = '0'`; the output-side source retry guard is not used. Before destination
-  requirement quoting, the loose gate compares the requested token/native USD value against filtered
-  destination-holding USD capacity using the route-scoped price cache. Missing prices mean “unknown”
+  pricing or settlement work, a non-empty explicit `sources` allowlist whose members are all on the
+  destination chain is authoritative for non-negative token requests: Path A returns on success and
+  propagates quote/value failure without trying RES, B1/B2, or the default COT route. This also covers
+  COT destinations and gas-only requests. Negative reservation sentinels retain the composite-flow
+  routing behavior below. For auto-selected or mixed-chain sources, the loose gate compares the
+  requested token/native USD value against filtered destination-holding USD capacity using the
+  route-scoped price cache. Missing prices mean “unknown”
   and allow the authoritative direct quote attempt; only a clear priced shortfall skips it. A direct
   hit therefore never pays for the discarded COT→destination sizing/convergence sequence. The real
   two-pass quotes and strict coverage remain authoritative; a gate miss or builder failure lets B1/B2
   and the default route continue. Execution re-sizes only from persisted, allowlist-filtered
-  `dstHoldings`, preserves the
-  route-time executor/EOA quote addresses, groups ERC-20 funding per token, and retries only after a
-  definitive failure (§12.1). The whole batch is atomic, so failure cleanup is skipped.
+  `dstHoldings`, preserves the route-time executor/EOA quote addresses, groups ERC-20 funding per
+  token, and retries only after a definitive failure (§12.1). The whole batch is atomic, so failure
+  cleanup is skipped.
   `dstHoldings.amountRaw` is an **already usable** ceiling: preflight and composite-flow balance inputs
   must have deducted any native gas reserve before routing. This executor consumes that ceiling and
   never estimates or deducts a second reserve.

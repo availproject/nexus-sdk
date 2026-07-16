@@ -429,6 +429,25 @@ export async function _exactOutRoute(
     options;
   const destinationChain = chainList.getChainByID(data.toChainId);
 
+  const requestedSources = data.sources;
+  const hasExplicitDestinationOnlySources =
+    !options.skipFastPaths &&
+    data.toAmountRaw >= 0n &&
+    (data.toNativeAmountRaw ?? 0n) >= 0n &&
+    requestedSources != null &&
+    requestedSources.length > 0 &&
+    requestedSources.every((source) => source.chainId === data.toChainId);
+  if (hasExplicitDestinationOnlySources) {
+    const { holdings } = await resolveExactOutSources(data, options, destinationChain);
+    logger.debug('swap.route.exact_out.path.selected', {
+      routePath: 'direct_destination',
+      reason: 'explicit_destination_only_sources',
+      chainId: data.toChainId,
+      sourceCount: requestedSources.length,
+    });
+    return buildDirectDestinationExactOutRoute(data, holdings, options);
+  }
+
   const dstCOT = await withTimingSpan(
     options.timing,
     'flow.swap.route.resolve_settlement',

@@ -103,9 +103,12 @@ export const sizeDirectDestinationExactOut = async (
   });
 
   if (deliveredRaw(tokenResult) < input.tokenTargetRaw) {
-    throw Errors.quoteFailed(
-      'Direct destination EXACT_OUT: token selection cannot cover toAmount + buffer'
-    );
+    if (tokenResult.quoteResponses.length > 0 || tokenResult.usedCOTs.length > 0) {
+      throw Errors.insufficientBalance(
+        'Direct destination EXACT_OUT: quoted token output cannot cover toAmount'
+      );
+    }
+    throw Errors.quoteFailed('Direct destination EXACT_OUT: token selection cannot cover toAmount');
   }
   let gasSwaps: QuoteResponse[] = [];
   if (input.gasTargetRaw > 0n) {
@@ -124,8 +127,13 @@ export const sizeDirectDestinationExactOut = async (
       0n
     );
     if (gasDeliveredRaw < input.gasTargetRaw) {
+      if (gasResult.quoteResponses.length > 0 || gasResult.usedCOTs.length > 0) {
+        throw Errors.insufficientBalance(
+          'Direct destination EXACT_OUT: quoted gas output cannot cover toNativeAmount'
+        );
+      }
       throw Errors.quoteFailed(
-        'Direct destination EXACT_OUT: gas selection cannot cover toNativeAmount + buffer'
+        'Direct destination EXACT_OUT: gas selection cannot cover toNativeAmount'
       );
     }
   }

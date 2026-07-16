@@ -141,6 +141,28 @@ describe('sizeDirectDestinationExactOut', () => {
     );
     expect(swaps.map((swap) => swap.outputRole)).toEqual(['token', 'gas']);
   });
+
+  it('reports insufficient balance when quoted token output cannot cover the target', async () => {
+    vi.mocked(selectDirectDestinationSwaps).mockResolvedValue({
+      quoteResponses: [quote(50_000_000n)],
+      usedCOTs: [],
+    });
+
+    await expect(
+      sizeDirectDestinationExactOut({
+        holdings: [holding],
+        tokenAddress: OUTPUT_TOKEN,
+        tokenDecimals: 6,
+        tokenTargetRaw: 100_000_000n,
+        nativeDecimals: 18,
+        gasTargetRaw: 0n,
+        aggregators: [],
+        userAddressByChain: new Map([[CHAIN_ID, USER]]),
+        recipientAddressByChain: new Map([[CHAIN_ID, RECIPIENT]]),
+        convergenceExtraRaw: () => undefined,
+      })
+    ).rejects.toThrow(/insufficient balance/i);
+  });
 });
 
 describe('makeConvergenceExtraRaw', () => {

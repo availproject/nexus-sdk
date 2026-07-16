@@ -846,12 +846,11 @@ describe('swap execution characterization', () => {
     eq(EOA)(refund.args[0]);
   });
 
-  it('EXACT_OUT · Nexus · gas-only funding from same-chain COT → handoff funds the wrapper gas swap', async () => {
+  it('EXACT_OUT · Nexus · explicit same-chain COT funds the gas swap directly with no buffered remainder', async () => {
     // The only requirement is destination gas (toTokenAddress == COT, toAmountRaw = 0n — the
     // gas-only sentinel — plus toNativeAmountRaw), funded from USDC already ON the destination
-    // chain. Nothing bridges, so the ONLY way the gas swap's COT can reach the wrapper (taker =
-    // EPH) is the same-chain EOA→wrapper handoff. Regression: the `eoaToEphemeral` gate ignored
-    // `needsGasSwap` and dispatched a bare [approve, swap] the wrapper couldn't pay for.
+    // chain. The explicit destination-only allowlist selects terminal Path A, which funds the
+    // wrapper with the exact direct-swap input and delivers native straight to the EOA.
     const balances: FlatBalance[] = [
       { amount: '1000', chainID: BASE_CHAIN, decimals: 6, symbol: 'USDC', tokenAddress: USDC_BASE, value: 1000, name: 'USD Coin', logo: '' },
     ];
@@ -884,15 +883,14 @@ describe('swap execution characterization', () => {
     // Everything already sits on the destination chain → no bridge.
     expect(middlewareClient.submitRFF).not.toHaveBeenCalled();
 
-    // Single BASE batch with the same Seam-2 handoff shape as the EXACT_IN same-chain spec:
-    // fund EOA→EPH (permit+transferFrom of the selected COT), gas swap (COT→native, taker=EPH,
-    // recv=EOA), then the un-consumed remainder returned to the EOA.
+    // Single BASE batch: fund EOA→EPH with exactly the selected COT input, then execute the direct
+    // gas swap. Path A has no buffers, so there is no unconsumed remainder to return.
     const base = sbcBatchesForChain(middlewareClient, BASE_CHAIN);
     expect(base.length, 'dst SBC batch count').toBe(1);
-    expect(base[0].map((c) => c.fn)).toEqual(['permit', 'transferFrom', 'approve', 'swap', 'transfer']);
+    expect(base[0].map((c) => c.fn)).toEqual(['permit', 'transferFrom', 'approve', 'swap']);
     permitOwnerSpender(EOA, EPH)(base[0][0].args);
     eq(EPH)(base[0][1].args[1]); // transferFrom EOA→EPH
-    const handoff = base[0][1].args[2] as bigint; // buffer-derived (gas budget + dst/src buffers)
+    const funded = base[0][1].args[2] as bigint;
     const swp = base[0][3];
     eq(USDC_BASE)(swp.args[0]); // input = COT
     eq(EADDRESS as Hex)(swp.args[1]); // output = native
@@ -901,11 +899,7 @@ describe('swap execution characterization', () => {
     eq(EPH)(swp.args[4]); // taker = wrapper
     eq(EOA)(swp.args[5]); // receiver = EOA
     expect(base[0][2].args[1]).toBe(swp.args[2]); // approve(router) == swap input
-    expect(handoff).toBeGreaterThanOrEqual(swp.args[2] as bigint); // handoff covers the swap input
-    const leftover = base[0][4];
-    eq(USDC_BASE)(leftover.to); // remainder COT → EOA
-    eq(EOA)(leftover.args[0]);
-    expect(leftover.args[1] as bigint).toBe(handoff - (swp.args[2] as bigint));
+    expect(funded).toBe(swp.args[2]);
   });
 
   it('EXACT_IN · Nexus · 7702 source → non-7702 Safe destination swap (recv=SAFE, direct output)', async () => {
@@ -1956,27 +1950,19 @@ describe('EXACT_OUT coverage expansion', () => {
     expect(sentTxs).toHaveLength(0);
   });
 
-  it('A2 · non-COT source swap on the dst chain → wrapper recipient, dst swap, no handoff', async () => {
+  it('A2 · explicit destination-only source fails when its direct pair cannot quote', async () => {
     const middlewareClient = makeCharMiddleware({ balances: [dai(BASE_CHAIN, '1000')], provider: 'nexus' });
     const { wallet } = makeRealEoaWallet();
-    await flowSwap(
-      { mode: SwapMode.EXACT_OUT as const, data: { sources: [{ chainId: BASE_CHAIN, tokenAddress: SOURCE_DAI }], toChainId: BASE_CHAIN, toTokenAddress: WETH, toAmountRaw: 2n * 10n ** 17n } },
-      deps(middlewareClient, wallet),
-      allow
-    );
+    await expect(
+      flowSwap(
+        { mode: SwapMode.EXACT_OUT as const, data: { sources: [{ chainId: BASE_CHAIN, tokenAddress: SOURCE_DAI }], toChainId: BASE_CHAIN, toTokenAddress: WETH, toAmountRaw: 2n * 10n ** 17n } },
+        deps(middlewareClient, wallet),
+        allow
+      )
+    ).rejects.toThrow('Direct destination EXACT_OUT: token selection cannot cover');
 
     expect(middlewareClient.submitRFF).not.toHaveBeenCalled();
-    const base = sbcBatchesForChain(middlewareClient, BASE_CHAIN);
-    expect(base.length, 'source-swap batch + dst batch').toBe(2);
-    // Source swap: DAI funded EOA→EPH, output COT stays at the wrapper (destinationHasSwap).
-    expect(base[0].map((c) => c.fn)).toEqual(['permit', 'transferFrom', 'approve', 'swap']);
-    eq(SOURCE_DAI)(base[0][3].args[0]);
-    eq(USDC_BASE)(base[0][3].args[1]);
-    eq(EPH)(base[0][3].args[5]); // recipient = wrapper (a dst swap follows)
-    // Dst swap consumes the swap-produced COT — no handoff leg (no direct COT was selected).
-    expect(base[1].map((c) => c.fn)).toEqual(['approve', 'swap', 'transfer']);
-    expect(base[1][1].args[3]).toBe(2n * 10n ** 17n);
-    eq(EOA)(base[1][1].args[5]);
+    expect(sbcBatchesForChain(middlewareClient, BASE_CHAIN)).toEqual([]);
   });
 
   it('A3 · same-chain source → COT delivery (no dst swap) → source swap delivers straight to the EOA', async () => {
@@ -1998,7 +1984,7 @@ describe('EXACT_OUT coverage expansion', () => {
     expect(swp.args[3] as bigint, 'delivers at least the requested amount').toBeGreaterThanOrEqual(500n * 10n ** 6n);
   });
 
-  it('A4 · gas-only same-chain COT on a non-7702 Safe destination → handoff targets the SAFE', async () => {
+  it('A4 · explicit gas-only same-chain COT funds the non-7702 Safe directly', async () => {
     const chainList = makeCharChainList({ non7702: [BASE_CHAIN] });
     const middlewareClient = makeCharMiddleware({ balances: [usdc(BASE_CHAIN, USDC_BASE, '1000')], provider: 'nexus' });
     const { wallet } = makeRealEoaWallet();
@@ -2011,12 +1997,13 @@ describe('EXACT_OUT coverage expansion', () => {
     expect(middlewareClient.submitRFF).not.toHaveBeenCalled();
     const dst = safeBatchesForChain(middlewareClient, BASE_CHAIN);
     expect(dst.length, 'single Safe batch').toBe(1);
-    expect(dst[0].map((c) => c.fn)).toEqual(['permit', 'transferFrom', 'approve', 'swap', 'transfer']);
+    expect(dst[0].map((c) => c.fn)).toEqual(['permit', 'transferFrom', 'approve', 'swap']);
     permitOwnerSpender(EOA, PREDICTED_SAFE)(dst[0][0].args); // funding targets the Safe wrapper
     eq(PREDICTED_SAFE)(dst[0][1].args[1]);
     const swp = dst[0][3];
     eq(EADDRESS as Hex)(swp.args[1]);
     expect(swp.args[2]).toBe(25n * 10n ** 6n);
+    expect(dst[0][1].args[2]).toBe(swp.args[2]);
     eq(PREDICTED_SAFE)(swp.args[4]); // taker = Safe
     eq(EOA)(swp.args[5]);
   });

@@ -321,8 +321,8 @@ const holdingKey = (chainID: number, tokenAddress: Hex): string =>
  * quotes land in `source.swaps` on the dst chain — one atomic batch delivering toToken + gas to the EOA.
  *
  * Both selection passes target the requested raw amounts exactly. STRICT-ALL: if either pass can't
- * cover its target, the builder throws and the fast-path envelope falls back to the default COT
- * flow.
+ * cover its target, the builder throws. The explicit destination-only caller propagates that error;
+ * the opportunistic fast-path caller falls back to the default COT flow.
  */
 export async function buildDirectDestinationExactOutRoute(
   data: { toChainId: number; toTokenAddress: Hex; toAmountRaw: bigint; toNativeAmountRaw?: bigint },

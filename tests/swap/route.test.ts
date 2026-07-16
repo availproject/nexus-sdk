@@ -1773,6 +1773,9 @@ describe('determineSwapRoute', () => {
     await determineSwapRoute(
       input,
       makeRouteOptions({
+        // This test isolates allowlist filtering in the default selector; explicit destination-only
+        // sources now terminate in Path A when fast paths are enabled.
+        skipFastPaths: true,
         balances: [
           { amount: '0.5', chainID: ARB_CHAIN, decimals: 18, symbol: 'WETH', tokenAddress: WETH, value: 1500, logo: '', name: 'WETH' },
           { amount: '4000', chainID: BASE_CHAIN, decimals: 6, symbol: 'USDC', tokenAddress: USDC_BASE, value: 4000, logo: '', name: 'USDC' },
@@ -2869,6 +2872,99 @@ describe('determineSwapRoute', () => {
         toAmountRaw: 100000000000000000000n,
         toNativeAmountRaw: 0n,
       });
+    });
+
+    it('routes explicit destination-only sources directly without the USD price gate', async () => {
+      const input: SwapData = {
+        mode: SwapMode.EXACT_OUT,
+        data: {
+          sources: [{ chainId: ARB_CHAIN, tokenAddress: WETH }],
+          toChainId: ARB_CHAIN,
+          toTokenAddress: PEPE,
+          toAmountRaw: 100000000000000000000n,
+        },
+      };
+      vi.mocked(selectDirectDestinationSwaps).mockResolvedValue({
+        quoteResponses: [
+          leg(WETH, 1000000000000000000n, 18, PEPE, 100000000000000000000n, 18),
+        ],
+        usedCOTs: [],
+      });
+      vi.mocked(determineDestinationSwaps).mockResolvedValue(sizingQuote());
+      vi.mocked(autoSelectSources).mockResolvedValue({
+        quoteResponses: [leg(WETH, 1000000000000000000n, 18, USDC_ARB, 500000000n, 6)],
+        usedCOTs: [],
+      });
+
+      const route = await determineSwapRoute(
+        input,
+        makeRouteOptions({
+          dstTokenInfo: pepeInfo,
+          balances: [bal(WETH, '1', 18, 1, 'WETH')],
+          oraclePrices: [
+            {
+              universe: 'EVM',
+              chainId: ARB_CHAIN,
+              tokenAddress: PEPE,
+              tokenSymbol: 'PEPE',
+              tokenDecimals: 18,
+              priceUsd: new Decimal(2),
+              timestamp: 1,
+            },
+            {
+              universe: 'EVM',
+              chainId: ARB_CHAIN,
+              tokenAddress: WETH,
+              tokenSymbol: 'WETH',
+              tokenDecimals: 18,
+              priceUsd: new Decimal(1),
+              timestamp: 1,
+            },
+          ],
+        })
+      );
+
+      expect(route.directDestination).toBe(true);
+      expect(selectDirectDestinationSwaps).toHaveBeenCalledOnce();
+      expect(determineDestinationSwaps).not.toHaveBeenCalled();
+      expect(autoSelectSources).not.toHaveBeenCalled();
+    });
+
+    it('does not fall back when explicit destination-only sources cannot cover the direct quote', async () => {
+      const input: SwapData = {
+        mode: SwapMode.EXACT_OUT,
+        data: {
+          sources: [{ chainId: ARB_CHAIN, tokenAddress: WETH }],
+          toChainId: ARB_CHAIN,
+          toTokenAddress: PEPE,
+          toAmountRaw: 100000000000000000000n,
+        },
+      };
+      vi.mocked(selectDirectDestinationSwaps).mockResolvedValue({
+        quoteResponses: [
+          leg(WETH, 1000000000000000000n, 18, PEPE, 50000000000000000000n, 18),
+        ],
+        usedCOTs: [],
+      });
+      vi.mocked(determineDestinationSwaps).mockResolvedValue(sizingQuote());
+      vi.mocked(autoSelectSources).mockResolvedValue({
+        quoteResponses: [leg(WETH, 1000000000000000000n, 18, USDC_ARB, 500000000n, 6)],
+        usedCOTs: [],
+      });
+
+      await expect(
+        determineSwapRoute(
+          input,
+          makeRouteOptions({
+            dstTokenInfo: pepeInfo,
+            balances: [bal(WETH, '1', 18, 3000, 'WETH')],
+          })
+        )
+      ).rejects.toThrow(/insufficient balance/i);
+
+      expect(selectDirectDestinationSwaps).toHaveBeenCalledOnce();
+      expect(determineDestinationSwaps).not.toHaveBeenCalled();
+      expect(autoSelectSources).not.toHaveBeenCalled();
     });
 
     it('gates on chain-scoped destination-token USD value and accepts the equality boundary', async () => {
