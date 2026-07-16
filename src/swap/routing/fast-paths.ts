@@ -88,15 +88,15 @@ export const toTokenIsCot = (
 };
 
 // Pure routing-time classifier for the three fast paths. `members` are the sources to judge:
-// resolved holdings for EXACT_IN, the RES prefix for EXACT_OUT. Check order encodes the product
-// decision A → B1 → B2; the first match wins and the caller gates on it (silent fallback on null).
+// resolved holdings for EXACT_IN, the full resolved holdings or RES prefix for EXACT_OUT. Check order
+// encodes the product decision A → B1 → B2; the first match wins and the caller gates on it.
 export const classifyFastPath = (input: {
   chainList: ChainListType;
   members: { chainID: number; tokenAddress: Hex }[];
   dstChainId: number;
   dstTokenAddress: Hex;
   cotCurrencyId: number;
-  needsTokenSwap: boolean;
+  allowDirectDestination: boolean;
   hasGasRequest: boolean;
   toAmountRaw: bigint;
   mode: SwapMode;
@@ -104,10 +104,11 @@ export const classifyFastPath = (input: {
   const { chainList, members, dstChainId, dstTokenAddress, cotCurrencyId } = input;
   if (members.length === 0) return null;
 
-  // A — direct destination swap: every member already on the destination chain AND a token swap is
-  // actually needed. toToken == COT (needsTokenSwap false) is already optimal via the no-bridge
-  // COT-dst path (swap.md §8), so A stays out of its way.
-  if (input.needsTokenSwap && members.every((member) => member.chainID === dstChainId)) {
+  // A — direct destination swap: every member is already on the destination chain and the caller
+  // has authorized this terminal path. Ordinary routes authorize it only when a token swap is
+  // needed; the initial EXACT_OUT holdings classification also authorizes gas-only and
+  // COT-destination requests.
+  if (input.allowDirectDestination && members.every((member) => member.chainID === dstChainId)) {
     return { kind: 'direct' };
   }
 
@@ -321,8 +322,8 @@ const holdingKey = (chainID: number, tokenAddress: Hex): string =>
  * quotes land in `source.swaps` on the dst chain — one atomic batch delivering toToken + gas to the EOA.
  *
  * Both selection passes target the requested raw amounts exactly. STRICT-ALL: if either pass can't
- * cover its target, the builder throws. The explicit destination-only caller propagates that error;
- * the opportunistic fast-path caller falls back to the default COT flow.
+ * cover its target, the builder throws. The full-holdings caller propagates that error; the
+ * opportunistic fast-path caller falls back to the default COT flow.
  */
 export async function buildDirectDestinationExactOutRoute(
   data: { toChainId: number; toTokenAddress: Hex; toAmountRaw: bigint; toNativeAmountRaw?: bigint },
@@ -668,8 +669,8 @@ export async function buildSameTokenBridgeRoute(
  * delivered == toAmount:
  * `gross = (toAmount + fulfilment) / (1 − fulfillmentBps/1e4)`, using a correctly F-denominated
  * quote. Funds via a greedy split over priority-ordered remote family holdings (native holdings keep
- * a per-chain gas reserve). Shortfall / Mayan undershoot / no F-quote ⇒ throw ⇒ the fast-path
- * envelope falls back to the COT flow.
+ * a per-chain gas reserve). Shortfall / Mayan undershoot / no F-quote throws; the full-holdings
+ * caller propagates that error, while the RES fast-path envelope falls back to the COT flow.
  */
 export async function buildSameTokenBridgeExactOutRoute(
   data: { toChainId: number; toTokenAddress: Hex; toAmountRaw: bigint },

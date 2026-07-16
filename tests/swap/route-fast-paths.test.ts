@@ -31,7 +31,7 @@ const classify = (over: {
   chainList?: ChainListType;
   members: Member[];
   dstTokenAddress: Hex;
-  needsTokenSwap: boolean;
+  allowDirectDestination: boolean;
   hasGasRequest?: boolean;
   toAmountRaw?: bigint;
   mode?: SwapMode;
@@ -43,7 +43,7 @@ const classify = (over: {
     dstChainId: BASE_CHAIN,
     dstTokenAddress: over.dstTokenAddress,
     cotCurrencyId: over.cotCurrencyId ?? CurrencyID.USDC,
-    needsTokenSwap: over.needsTokenSwap,
+    allowDirectDestination: over.allowDirectDestination,
     hasGasRequest: over.hasGasRequest ?? false,
     toAmountRaw: over.toAmountRaw ?? 1_000_000n,
     mode: over.mode ?? SwapMode.EXACT_OUT,
@@ -58,7 +58,7 @@ describe('classifyFastPath', () => {
           { chainID: BASE_CHAIN, tokenAddress: USDC_BASE },
         ],
         dstTokenAddress: WETH,
-        needsTokenSwap: true,
+        allowDirectDestination: true,
       })
     ).toEqual({ kind: 'direct' });
   });
@@ -72,17 +72,17 @@ describe('classifyFastPath', () => {
           { chainID: ARB_CHAIN, tokenAddress: WETH },
         ],
         dstTokenAddress: WETH,
-        needsTokenSwap: true,
+        allowDirectDestination: true,
       })
     ).toBeNull();
   });
 
-  it('A does not fire when toToken IS the COT (needsTokenSwap false) — the no-bridge COT-dst path owns it', () => {
+  it('A does not fire when the caller disallows direct destination routing', () => {
     expect(
       classify({
         members: [{ chainID: BASE_CHAIN, tokenAddress: USDC_BASE }],
         dstTokenAddress: USDC_BASE,
-        needsTokenSwap: false,
+        allowDirectDestination: false,
       })
     ).toBeNull();
   });
@@ -95,7 +95,7 @@ describe('classifyFastPath', () => {
           { chainID: OP_CHAIN, tokenAddress: USDT_OP },
         ],
         dstTokenAddress: USDT_BASE,
-        needsTokenSwap: true,
+        allowDirectDestination: true,
         mode: SwapMode.EXACT_OUT,
       })
     ).toEqual({ kind: 'same-token-out', familyId: CurrencyID.USDT });
@@ -106,7 +106,7 @@ describe('classifyFastPath', () => {
       classify({
         members: [{ chainID: ARB_CHAIN, tokenAddress: USDC_ARB }],
         dstTokenAddress: USDC_BASE,
-        needsTokenSwap: false,
+        allowDirectDestination: false,
         mode: SwapMode.EXACT_OUT,
       })
     ).toEqual({ kind: 'same-token-out', familyId: CurrencyID.USDC });
@@ -120,7 +120,7 @@ describe('classifyFastPath', () => {
           { chainID: OP_CHAIN, tokenAddress: USDT_OP },
         ],
         dstTokenAddress: USDT_BASE,
-        needsTokenSwap: true,
+        allowDirectDestination: true,
         hasGasRequest: true,
         mode: SwapMode.EXACT_OUT,
       })
@@ -133,7 +133,7 @@ describe('classifyFastPath', () => {
       classify({
         members: [{ chainID: ARB_CHAIN, tokenAddress: USDT_ARB }],
         dstTokenAddress: USDT_BASE,
-        needsTokenSwap: true,
+        allowDirectDestination: true,
         mode: SwapMode.EXACT_IN,
       })
     ).toBeNull();
@@ -148,7 +148,7 @@ describe('classifyFastPath', () => {
           { chainID: OP_CHAIN, tokenAddress: USDT_OP },
         ],
         dstTokenAddress: WETH, // non-mesh destination
-        needsTokenSwap: true,
+        allowDirectDestination: true,
         mode: SwapMode.EXACT_IN,
       })
     ).toEqual({ kind: 'dynamic-cot', familyId: CurrencyID.USDT });
@@ -161,8 +161,8 @@ describe('classifyFastPath', () => {
       classify({
         chainList: makeChainListWithUsdtCot(),
         members: [{ chainID: BASE_CHAIN, tokenAddress: USDT_BASE }],
-        dstTokenAddress: USDC_BASE, // == COT → needsTokenSwap false
-        needsTokenSwap: false,
+        dstTokenAddress: USDC_BASE, // == COT → ordinary routing disallows Path A
+        allowDirectDestination: false,
         mode: SwapMode.EXACT_IN,
       })
     ).toBeNull();
@@ -177,7 +177,7 @@ describe('classifyFastPath', () => {
           { chainID: OP_CHAIN, tokenAddress: USDT_OP },
         ],
         dstTokenAddress: WETH,
-        needsTokenSwap: true,
+        allowDirectDestination: true,
         mode: SwapMode.EXACT_IN,
       })
     ).toBeNull();
@@ -192,7 +192,7 @@ describe('classifyFastPath', () => {
           { chainID: OP_CHAIN, tokenAddress: EADDRESS as Hex },
         ],
         dstTokenAddress: WETH,
-        needsTokenSwap: true,
+        allowDirectDestination: true,
         mode: SwapMode.EXACT_IN,
       })
     ).toBeNull();
@@ -206,7 +206,7 @@ describe('classifyFastPath', () => {
           { chainID: OP_CHAIN, tokenAddress: USDC_OP },
         ],
         dstTokenAddress: WETH,
-        needsTokenSwap: true,
+        allowDirectDestination: true,
         mode: SwapMode.EXACT_IN,
       })
     ).toBeNull();
@@ -221,7 +221,7 @@ describe('classifyFastPath', () => {
           { chainID: OP_CHAIN, tokenAddress: USDC_OP },
         ],
         dstTokenAddress: WETH,
-        needsTokenSwap: true,
+        allowDirectDestination: true,
         mode: SwapMode.EXACT_IN,
       })
     ).toBeNull();
@@ -232,7 +232,7 @@ describe('classifyFastPath', () => {
       classify({
         members: [{ chainID: ARB_CHAIN, tokenAddress: WETH }],
         dstTokenAddress: WETH,
-        needsTokenSwap: true,
+        allowDirectDestination: true,
         mode: SwapMode.EXACT_IN,
       })
     ).toBeNull();

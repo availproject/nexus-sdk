@@ -319,7 +319,6 @@ determineSwapRoute(input, opts) -> SwapRoute:
   gate: chain = getChainByID(toChainId)               # unknown → rethrow lookup error
         require chain.swapSupported ≠ false            # else throw "does not support swap"
   if forceMayan: assertMayanSupportedDestination(dstCOT)   # fail fast before any planning work
-  cot = resolveCOT(toChainId, chainList, cotCurrencyId)
 
   # ── EXACT_OUT ──
   if EXACT_OUT:
@@ -327,10 +326,17 @@ determineSwapRoute(input, opts) -> SwapRoute:
     if toAmountRaw > 0:    drop dstChain.toToken from holdings        # always (even if = COT)
     if toAmountRaw < 0:    keep dstChain.toToken, reserve abs(value)  # only surplus is usable
     if toNativeAmountRaw:  exclude dstChain native + toToken; gas → 0 # negative ⇒ reserve dst native exactly
-    if sources non-empty ∧ every source.chainId == toChainId ∧ toAmountRaw >= 0 ∧
-       (toNativeAmountRaw ?? 0) >= 0 ∧ !skipFastPaths:
-      buildDirectDestinationExactOutRoute                            # authoritative user constraint
+    fastPathClass = !skipFastPaths
+      ? classifyFastPath(holdings,                                   # canonical filtered source population
+          allowDirectDestination = toAmountRaw >= 0 ∧ (toNativeAmountRaw ?? 0) >= 0)
+      : null
+    if fastPathClass == direct:                                      # all holdings on destination
+      buildDirectDestinationExactOutRoute                            # authoritative full-source shape
       success → return; quote/value failure → propagate              # no pricing gate or fallback ladder
+    if fastPathClass == same-token-out(F):                           # holdings + destination share F
+      buildSameTokenBridgeExactOutRoute(F)                           # authoritative direct bridge
+      success → return; quote/value/provider failure → propagate     # no pricing gate or fallback ladder
+    cot = resolveCOT(toChainId, chainList, cotCurrencyId)
     needTokenSwap   = (toToken ≠ cot)
     prices = route-scoped keyed promises                            # chainId + normalized token address
       oracle → balance-implied (value / amount) → provider API
@@ -348,8 +354,8 @@ determineSwapRoute(input, opts) -> SwapRoute:
     inputAmount     = tokenSwapInput + gasSwapInput                   # COT the dst wrapper must receive
     RES = selectRoughEligibleSources(holdings, inputAmount)           # computed exactly once
     # ── Remaining fast paths (skipped on the B2 re-entry) ── unless options.skipFastPaths:
-    #   EXACT_OUT sources aren't explicit, so classify over RES — a rough priority-ordered prefix that
-    #   covers inputAmount (selectRoughEligibleSources, KEEPS dst members — biased toward Path A firing).
+    #   Classify remaining routes over RES — a rough priority-ordered prefix that covers inputAmount
+    #   (selectRoughEligibleSources, KEEPS dst members — biased toward Path A firing).
     #   Ladder B1 → B2 after the early Path-A attempt; a builder that throws/returns null falls through
     #   (tryFastPath, silent debug log), and the default flow continues inline.
     #   If RES classifies as Path A here, reclassify the same snapshot with A disabled: A was already
@@ -358,16 +364,16 @@ determineSwapRoute(input, opts) -> SwapRoute:
     #     buildDirectDestinationExactOutRoute selects input→toToken directly on the dst chain (two-pass
     #     token→gas, §12.1), receiver = EOA. Each pass targets the ORIGINAL raw request exactly;
     #     bridge = null, dst.swap = null, directDestination = true, srcBuffer = null, buffer = 0.
-    #     Persist the already allowlist-filtered dstHoldings + exact raw targets for execution-time
-    #     re-sizing. STRICT-ALL: either pass short ⇒ throw. The explicit destination-only branch
+    #     Persist the already filtered dstHoldings + exact raw targets for execution-time
+    #     re-sizing. STRICT-ALL: either pass short ⇒ throw. The full-holdings terminal branch
     #     propagates; an opportunistic attempt lets B1/B2 continue after fallback.
     #   B1 'same-token-out': every RES member ∧ the dst token share one family F (including cot), at
     #     least one RES member is remote, no gas
     #     ⇒ buildSameTokenBridgeExactOutRoute: gross the target up through an F-denominated fee quote
     #     (gross = (toAmount + fulfilment)/(1 − bps); current cot reuses the preflight quote), fund greedily
     #     split over remote family holdings (native keeps a per-chain gas reserve). Delivered == toAmount
-    #     exactly, bridge EOA→EOA, no swaps. Mayan undershoot / short holdings / no F-quote ⇒ throw ⇒ fall
-    #     back.
+    #     exactly, bridge EOA→EOA, no swaps. Uniform full holdings use the terminal branch above;
+    #     RES-derived B1 failures (Mayan undershoot / short holdings / no F-quote) fall back.
     #   B2 'dynamic-cot': every RES member shares a STABLE family F (USDC/USDT) ≠ dstFamily ∧ ≠ cot, F
     #     resolves as a COT on dst ⇒ buildDynamicCotExactOutRoute re-enters _exactOutRoute with
     #     {cotCurrencyId: F, bridgeQuoteResponse: fQuote, skipFastPaths: true, data.sources = family-F
@@ -382,6 +388,7 @@ determineSwapRoute(input, opts) -> SwapRoute:
   # ── EXACT_IN ──
   if EXACT_IN:
     rawHoldings = resolveSources(sources)   # amountRaw absent ⇒ full balance; requested > balance ⇒ throw
+    cot = resolveCOT(toChainId, chainList, cotCurrencyId)
     # ── Path A: direct destination swap (fast-path, gated FIRST) ── unless options.skipFastPaths:
     #   classifyFastPath(rawHoldings) == 'direct' iff EVERY source is already on toChainId ∧ toToken ≠ cot.
     #   Then buildDirectDestinationExactInRoute: each non-identity holding is swapped input→toToken
@@ -931,10 +938,12 @@ a formula over the (already‑updated) inputs, so it tracks them automatically.
   `estimateRepresentativeSwapNativeReserveFee` so the deposit can pay its own gas — never 100% native).
   `filterExactOutBalances` drops the dst-chain F (= toToken), so funding is all-remote. Provider/enrich
   is shared with EXACT_IN (`finalizeSameTokenBridge`); Mayan is allowed but, since it prices per leg and
-  can undershoot the exact target (no convergence loop in v1), a `Σ minReceived < toAmount` check throws
-  → fallback. Short holdings / no F-quote / gross-up overflow ⇒ throw ⇒ the COT flow. **Gas is
-  disqualified in v1** (the gate excludes `toNativeAmountRaw`); the future path delivers gas via the
-  RFF's native amount, which `createSwapBridgeIntent` pins to 0 today.
+  can undershoot the exact target (no convergence loop in v1), a `Σ minReceived < toAmount` check
+  throws. When the full filtered holdings and destination share F, B1 runs before COT
+  settlement/pricing and is terminal: builder failures propagate. RES-derived B1 remains
+  opportunistic and falls back to the COT flow. **Positive gas requests are disqualified in v1**;
+  the future path delivers gas via the RFF's native amount, which `createSwapBridgeIntent` pins to 0
+  today.
 - **Direct destination (Path A) skips the bridge AND buffers** (EXACT_IN). When every source is
   already on the destination chain and `toToken ≠ cot`, the route swaps each source input→toToken
   directly on that chain (receiver = EOA) — no bridge, no destination swap, `directDestination = true`,
@@ -948,17 +957,18 @@ a formula over the (already‑updated) inputs, so it tracks them automatically.
   `bridge = null`, `dst.swap = null`, receiver = EOA), with token and optional gas passes targeting
   the original raw requests exactly. Its route has `srcBuffer = null`, no `gasSrcBuffer`, and
   `route.buffer.amount = '0'`; the output-side source retry guard is not used. Before destination
-  pricing or settlement work, a non-empty explicit `sources` allowlist whose members are all on the
-  destination chain is authoritative for non-negative token requests: Path A returns on success and
-  propagates quote/value failure without trying RES, B1/B2, or the default COT route. This also covers
-  COT destinations and gas-only requests. Negative reservation sentinels retain the composite-flow
-  routing behavior below. For auto-selected or mixed-chain sources, the loose gate compares the
-  requested token/native USD value against filtered destination-holding USD capacity using the
-  route-scoped price cache. Missing prices mean “unknown”
+  pricing or settlement work, the canonical filtered holdings are classified. If they are all on the
+  destination chain, Path A is authoritative for non-negative token requests: it returns on success
+  and propagates quote/value failure without trying RES, B1/B2, or the default COT route. This applies
+  whether holdings came from all balances or a user `sources` allowlist, and also covers COT
+  destinations and gas-only requests. Negative reservation sentinels retain the composite-flow
+  routing behavior below. For mixed-chain holdings, the loose gate compares the requested
+  token/native USD value against filtered destination-holding USD capacity using the route-scoped
+  price cache. Missing prices mean “unknown”
   and allow the authoritative direct quote attempt; only a clear priced shortfall skips it. A direct
   hit therefore never pays for the discarded COT→destination sizing/convergence sequence. The real
   two-pass quotes and strict coverage remain authoritative; a gate miss or builder failure lets B1/B2
-  and the default route continue. Execution re-sizes only from persisted, allowlist-filtered
+  and the default route continue. Execution re-sizes only from persisted, filtered
   `dstHoldings`, preserves the route-time executor/EOA quote addresses, groups ERC-20 funding per
   token, and retries only after a definitive failure (§12.1). The whole batch is atomic, so failure
   cleanup is skipped.

@@ -313,7 +313,7 @@ export async function _exactInRoute(data: ExactInData, options: RouteOptions): P
             dstChainId: data.toChainId,
             dstTokenAddress: data.toTokenAddress,
             cotCurrencyId: options.cotCurrencyId,
-            needsTokenSwap: !toTokenIsCot(
+            allowDirectDestination: !toTokenIsCot(
               chainList,
               data.toChainId,
               data.toTokenAddress,

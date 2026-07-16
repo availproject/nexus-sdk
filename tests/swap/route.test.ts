@@ -209,49 +209,42 @@ describe('resolveWalletDecisions', () => {
 describe('determineSwapRoute', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Path A EXACT_OUT selection is mocked per-test; default it to "found nothing" so that
-    // default-flow tests whose sources happen to satisfy Path A's classifier fall through to the
-    // COT flow (autoSelectSources) deterministically. mockReset clears any leaked once-queue too.
+    // Path A EXACT_OUT selection is mocked per-test. Default it to "found nothing" so tests that
+    // unintentionally enter the terminal full-holdings path fail instead of silently exercising a
+    // different route. Default-flow tests opt out of fast paths explicitly.
     vi.mocked(selectDirectDestinationSwaps).mockReset();
     vi.mocked(selectDirectDestinationSwaps).mockResolvedValue({ quoteResponses: [], usedCOTs: [] });
   });
-  it('EXACT_OUT single-chain → bridge is null', async () => {
+  it('EXACT_OUT destination-only holdings route directly with no bridge', async () => {
     const input: SwapData = {
       mode: SwapMode.EXACT_OUT,
       data: { toChainId: ARB_CHAIN, toTokenAddress: WETH, toAmountRaw: 1000000000000000000n },
     };
-    // All sources on destination chain — autoSelect returns COTs from same chain
-    vi.mocked(autoSelectSources).mockResolvedValue({
-      quoteResponses: [],
-      usedCOTs: [{ holding: { chainID: ARB_CHAIN, tokenAddress: USDC_ARB, amountRaw: 3255000000n, decimals: 6, symbol: 'USDC' }, amountUsed: new Decimal('3255'), idx: 0 }],
+    vi.mocked(selectDirectDestinationSwaps).mockResolvedValue({
+      quoteResponses: [makeDestinationQuoteResponse({ chainID: ARB_CHAIN })],
+      usedCOTs: [],
     });
-    // determineDestinationSwaps returns QuoteResponse | null
-    vi.mocked(determineDestinationSwaps).mockResolvedValue(
-      makeDestinationQuoteResponse({ chainID: ARB_CHAIN }),
-    );
     const timing = makeTimingHooks();
     const route = await determineSwapRoute(
       input,
       makeRouteOptions({
         balances: [{ amount: '3100', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDC', tokenAddress: USDC_ARB, value: 3100, logo: '', name: 'USDC' }],
         timing,
-        
       })
     );
     expect(route.type).toBe(SwapMode.EXACT_OUT);
+    expect(route.directDestination).toBe(true);
     expect(route.bridge).toBeNull();
     expect(route.destination.chainId).toBe(ARB_CHAIN);
     expect(timing.startSpan.mock.calls.map(([name]) => name)).toEqual(
       expect.arrayContaining([
-        'flow.swap.route.resolve_settlement',
         'flow.swap.route.resolve_sources',
-        'flow.swap.route.quote_destination_requirement',
-        'flow.swap.route.classify_path',
-        'flow.swap.route.resolve_provider',
         'flow.swap.route.select_sources',
         'flow.swap.route.assemble',
       ])
     );
+    expect(determineDestinationSwaps).not.toHaveBeenCalled();
+    expect(autoSelectSources).not.toHaveBeenCalled();
   });
 
   it('computes Exact Out RES once and projects provider sources without selecting again', async () => {
@@ -286,6 +279,7 @@ describe('determineSwapRoute', () => {
     await determineSwapRoute(
       input,
       makeRouteOptions({
+        skipFastPaths: true,
         balances: [
           {
             amount: '3100',
@@ -709,20 +703,17 @@ describe('determineSwapRoute', () => {
     // Delivered = bridged ARB (1, fees 0) + dst-chain BASE (2) = 3.
     expect(route.destination.inputAmount.min.toFixed()).toBe('3');
   });
-  it('B1 EXACT_OUT same-family non-COT sources bridge directly with no swaps (USDT→USDT)', async () => {
+  it('B1 EXACT_OUT same-family full holdings bridge directly with no swaps (USDT→USDT)', async () => {
     const input: SwapData = {
       mode: SwapMode.EXACT_OUT,
       data: {
-        sources: [
-          { chainId: ARB_CHAIN, tokenAddress: USDT_ARB },
-          { chainId: OP_CHAIN, tokenAddress: USDT_OP },
-        ],
         toChainId: BASE_CHAIN,
         toTokenAddress: USDT_BASE,
         toAmountRaw: 1_500_000n, // 1.5 USDT
       },
     };
-    // The dst-COT sizing quote (USDC→USDT) runs before the gate; B1 discards it when it fires.
+    // A default-flow sizing quote is available, but uniform full holdings must terminate in B1
+    // before destination sizing starts even when the user did not supply a sources allowlist.
     vi.mocked(determineDestinationSwaps).mockResolvedValue(makeDestinationQuoteResponse({ chainID: BASE_CHAIN }));
     // B1 fetches its OWN F-denominated bridge-fee quote (never the preflight USDC quote).
     const getQuote = vi.fn().mockResolvedValue(makeBridgeQuoteResponse());
@@ -741,6 +732,7 @@ describe('determineSwapRoute', () => {
 
     // Pure bridge: no autoSelect, no swaps, no dst swap.
     expect(autoSelectSources).not.toHaveBeenCalled();
+    expect(determineDestinationSwaps).not.toHaveBeenCalled();
     expect(route.source.swaps).toHaveLength(0);
     expect(route.destination.swap.tokenSwap).toBeNull();
     expect(route.type).toBe(SwapMode.EXACT_OUT);
@@ -874,28 +866,28 @@ describe('determineSwapRoute', () => {
     expect(route.bridge!.assets.find((a) => a.chainID === ARB_CHAIN)!.eoaBalance.toString()).toBe('2');
     expect(route.bridge!.assets.find((a) => a.chainID === OP_CHAIN)!.eoaBalance.toString()).toBe('1');
   });
-  it('B1 EXACT_OUT falls back to the COT flow when the F-quote is unavailable', async () => {
+  it('B1 EXACT_OUT explicit same-family sources fail terminally when the F-quote is unavailable', async () => {
     const input: SwapData = {
       mode: SwapMode.EXACT_OUT,
       data: { sources: [{ chainId: ARB_CHAIN, tokenAddress: USDT_ARB }], toChainId: BASE_CHAIN, toTokenAddress: USDT_BASE, toAmountRaw: 1_000_000n },
     };
     vi.mocked(determineDestinationSwaps).mockResolvedValue(makeDestinationQuoteResponse({ chainID: BASE_CHAIN }));
-    // COT-fallback mocks so the fell-through route completes (covering usedCOTs).
+    // Default-flow mocks would make a fallback succeed; the explicit terminal branch must ignore them.
     vi.mocked(autoSelectSources).mockResolvedValue({
       quoteResponses: [],
       usedCOTs: [{ holding: { chainID: BASE_CHAIN, tokenAddress: USDC_BASE, amountRaw: 100_000_000n, decimals: 6, symbol: 'USDC' }, amountUsed: new Decimal('3255'), idx: 0 }],
     });
-    const getQuote = vi.fn().mockResolvedValue(null); // F-quote fails → builder throws → fallback
-    const route = await determineSwapRoute(input, makeRouteOptions({
+    const getQuote = vi.fn().mockResolvedValue(null); // F-quote fails → terminal builder error
+    await expect(determineSwapRoute(input, makeRouteOptions({
       chainList: makeSwapChainListWithUsdtCot(),
       middlewareClient: { ...mockMiddleware, getQuote } as never,
       balances: [{ amount: '5', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDT', tokenAddress: USDT_ARB, value: 5, logo: '', name: 'Tether USD' }],
       dstTokenInfo: makeDstTokenInfo({ contractAddress: USDT_BASE, decimals: 6, symbol: 'USDT', name: 'Tether USD' }),
-    }));
-    expect(route.sameTokenBridge).toBe(false);
-    expect(autoSelectSources).toHaveBeenCalled();
+    }))).rejects.toThrow(/bridge fee quote unavailable/i);
+    expect(determineDestinationSwaps).not.toHaveBeenCalled();
+    expect(autoSelectSources).not.toHaveBeenCalled();
   });
-  it('B1 EXACT_OUT falls back when family holdings cannot cover the grossed-up target', async () => {
+  it('B1 EXACT_OUT explicit same-family sources fail terminally on insufficient family holdings', async () => {
     const input: SwapData = {
       mode: SwapMode.EXACT_OUT,
       data: { sources: [{ chainId: ARB_CHAIN, tokenAddress: USDT_ARB }], toChainId: BASE_CHAIN, toTokenAddress: USDT_BASE, toAmountRaw: 5_000_000n },
@@ -906,14 +898,14 @@ describe('determineSwapRoute', () => {
       usedCOTs: [{ holding: { chainID: BASE_CHAIN, tokenAddress: USDC_BASE, amountRaw: 100_000_000n, decimals: 6, symbol: 'USDC' }, amountUsed: new Decimal('3255'), idx: 0 }],
     });
     const getQuote = vi.fn().mockResolvedValue(makeBridgeQuoteResponse());
-    const route = await determineSwapRoute(input, makeRouteOptions({
+    await expect(determineSwapRoute(input, makeRouteOptions({
       chainList: makeSwapChainListWithUsdtCot(),
       middlewareClient: { ...mockMiddleware, getQuote } as never,
       balances: [{ amount: '1', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDT', tokenAddress: USDT_ARB, value: 1, logo: '', name: 'Tether USD' }],
       dstTokenInfo: makeDstTokenInfo({ contractAddress: USDT_BASE, decimals: 6, symbol: 'USDT', name: 'Tether USD' }),
-    }));
-    expect(route.sameTokenBridge).toBe(false);
-    expect(autoSelectSources).toHaveBeenCalled();
+    }))).rejects.toThrow(/insufficient balance/i);
+    expect(determineDestinationSwaps).not.toHaveBeenCalled();
+    expect(autoSelectSources).not.toHaveBeenCalled();
   });
   it('B1 EXACT_OUT (native/ETH family) caps each source at balance − native reserve', async () => {
     // 1 ETH balance, 0.001 ETH reserve → 0.999 usable; target 0.999 forces the FULL reserve-adjusted
@@ -972,7 +964,7 @@ describe('determineSwapRoute', () => {
     expect(route.bridge!.provider).toBe('mayan');
     expect(route.bridge!.mayanQuotesBySource).toBeDefined();
   });
-  it('B1 EXACT_OUT falls back to the COT flow when Mayan quotes undershoot the target', async () => {
+  it('B1 EXACT_OUT explicit same-family sources fail terminally when Mayan undershoots', async () => {
     const input: SwapData = {
       mode: SwapMode.EXACT_OUT,
       data: { sources: [{ chainId: ARB_CHAIN, tokenAddress: USDT_ARB }], toChainId: BASE_CHAIN, toTokenAddress: USDT_BASE, toAmountRaw: 5_000_000n },
@@ -983,15 +975,15 @@ describe('determineSwapRoute', () => {
       usedCOTs: [{ holding: { chainID: BASE_CHAIN, tokenAddress: USDC_BASE, amountRaw: 100_000_000n, decimals: 6, symbol: 'USDC' }, amountUsed: new Decimal('3255'), idx: 0 }],
     });
     vi.mocked(destinationSwapWithExactIn).mockResolvedValue(makeDestinationQuoteResponse({ chainID: BASE_CHAIN }));
-    // Σ minReceived = 2 < toAmount 5 → B1 undershoots → fall back to the COT flow.
-    const route = await determineSwapRoute(input, makeRouteOptions({
+    // Σ minReceived = 2 < toAmount 5 → the explicit B1 route fails without COT fallback.
+    await expect(determineSwapRoute(input, makeRouteOptions({
       chainList: makeSwapChainListWithUsdtCot(),
       middlewareClient: mayanMiddleware(2, vi.fn().mockResolvedValue(makeBridgeQuoteResponse())) as never,
       balances: [{ amount: '6', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDT', tokenAddress: USDT_ARB, value: 6, logo: '', name: 'Tether USD' }],
       dstTokenInfo: makeDstTokenInfo({ contractAddress: USDT_BASE, decimals: 6, symbol: 'USDT', name: 'Tether USD' }),
-    }));
-    expect(route.sameTokenBridge).toBe(false);
-    expect(autoSelectSources).toHaveBeenCalled();
+    }))).rejects.toThrow(/undershoot/i);
+    expect(determineDestinationSwaps).not.toHaveBeenCalled();
+    expect(autoSelectSources).not.toHaveBeenCalled();
   });
   it('B2 EXACT_OUT dynamic-COT: USDT sources → WETH re-enters (allowlisted) settling in USDT, zero source swaps', async () => {
     const input: SwapData = {
@@ -1593,6 +1585,7 @@ describe('determineSwapRoute', () => {
       determineSwapRoute(
         input,
         makeRouteOptions({
+          skipFastPaths: true,
           balances: [{ amount: '3255', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDC', tokenAddress: USDC_ARB, value: 3255, logo: '', name: 'USDC' }],
         })
       )
@@ -1638,6 +1631,7 @@ describe('determineSwapRoute', () => {
     const route = await determineSwapRoute(
       input,
       makeRouteOptions({
+        skipFastPaths: true,
         balances: [{ amount: '5000', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDC', tokenAddress: USDC_ARB, value: 5000, logo: '', name: 'USDC' }],
       })
     );
@@ -1849,6 +1843,7 @@ describe('determineSwapRoute', () => {
     const route = await determineSwapRoute(
       input,
       makeRouteOptions({
+        skipFastPaths: true,
         oraclePrices: [
           { universe: 'EVM', chainId: ARB_CHAIN, priceUsd: new Decimal('2500'), tokenAddress: ZERO_ADDRESS, tokenSymbol: 'ETH', tokenDecimals: 18, timestamp: 0 },
           { universe: 'EVM', chainId: ARB_CHAIN, priceUsd: new Decimal('1'), tokenAddress: USDC_ARB, tokenSymbol: 'USDC', tokenDecimals: 6, timestamp: 0 },
@@ -2487,7 +2482,8 @@ describe('determineSwapRoute', () => {
           balances: [{ amount: '1', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDC', tokenAddress: USDC_ARB, value: 1, logo: '', name: 'USDC' }],
         })
       )
-    ).rejects.toThrow(/Insufficient balance|cover required output/i);
+    ).rejects.toThrow(/Insufficient balance|cover required output|cannot cover/i);
+    expect(autoSelectSources).not.toHaveBeenCalled();
   });
   it('normalizes EXACT_IN assetsUsed amounts to human-decimal strings', async () => {
     const input: SwapData = {
@@ -2967,7 +2963,7 @@ describe('determineSwapRoute', () => {
       expect(autoSelectSources).not.toHaveBeenCalled();
     });
 
-    it('gates on chain-scoped destination-token USD value and accepts the equality boundary', async () => {
+    it('routes destination-only holdings directly before the USD price gate', async () => {
       const input: SwapData = {
         mode: SwapMode.EXACT_OUT,
         data: {
@@ -2999,7 +2995,7 @@ describe('determineSwapRoute', () => {
         },
       ] as OraclePriceResponse;
 
-      const below = await determineSwapRoute(
+      const route = await determineSwapRoute(
         input,
         makeRouteOptions({
           dstTokenInfo: pepeInfo,
@@ -3008,20 +3004,10 @@ describe('determineSwapRoute', () => {
         })
       );
 
-      expect(below.directDestination).toBeFalsy();
-      expect(selectDirectDestinationSwaps).not.toHaveBeenCalled();
-
-      const equal = await determineSwapRoute(
-        input,
-        makeRouteOptions({
-          dstTokenInfo: pepeInfo,
-          balances: [bal(WETH, '1', 18, 200, 'WETH')],
-          oraclePrices,
-        })
-      );
-
-      expect(equal.directDestination).toBe(true);
-      expect(selectDirectDestinationSwaps).toHaveBeenCalledTimes(1);
+      expect(route.directDestination).toBe(true);
+      expect(selectDirectDestinationSwaps).toHaveBeenCalledOnce();
+      expect(determineDestinationSwaps).not.toHaveBeenCalled();
+      expect(autoSelectSources).not.toHaveBeenCalled();
     });
 
     it('gas two-pass: token pass consumes [S1, 0.7·S2], gas pass receives the remainders [0.3·S2, S3]', async () => {
@@ -3067,16 +3053,24 @@ describe('determineSwapRoute', () => {
       expect(route.directDestination).toBe(true);
     });
 
-    it('falls back to the default flow when the direct selection cannot cover toAmount', async () => {
+    it('fails terminally when destination-only holdings cannot cover toAmount', async () => {
       const input: SwapData = { mode: SwapMode.EXACT_OUT, data: { toChainId: ARB_CHAIN, toTokenAddress: PEPE, toAmountRaw: 100000000000000000000n } };
       vi.mocked(determineDestinationSwaps).mockResolvedValue(sizingQuote());
       vi.mocked(selectDirectDestinationSwaps).mockResolvedValue({ quoteResponses: [leg(WETH, 1000000000000000000n, 18, PEPE, 50000000000000000000n, 18)], usedCOTs: [] }); // only 50 PEPE — short → builder throws
       vi.mocked(autoSelectSources).mockResolvedValue({ quoteResponses: [leg(WETH, 1000000000000000000n, 18, USDC_ARB, 200000000n, 6)], usedCOTs: [] }); // default COT selection
 
-      const route = await determineSwapRoute(input, makeRouteOptions({ dstTokenInfo: pepeInfo, balances: [bal(WETH, '1', 18, 3000, 'WETH')] }));
+      await expect(
+        determineSwapRoute(
+          input,
+          makeRouteOptions({
+            dstTokenInfo: pepeInfo,
+            balances: [bal(WETH, '1', 18, 3000, 'WETH')],
+          })
+        )
+      ).rejects.toThrow(/insufficient balance/i);
 
-      expect(route.directDestination).toBeFalsy();
-      expect(route.destination.swap.tokenSwap).not.toBeNull(); // default double-hop dst swap (the discarded sizing quote)
+      expect(determineDestinationSwaps).not.toHaveBeenCalled();
+      expect(autoSelectSources).not.toHaveBeenCalled();
     });
 
     it('is skipped when skipFastPaths is set', async () => {
@@ -3634,6 +3628,7 @@ describe('determineSwapRoute', () => {
     const route = await determineSwapRoute(
       input,
       makeRouteOptions({
+        skipFastPaths: true,
         balances: [{ amount: '4000', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDC', tokenAddress: USDC_ARB, value: 4000, logo: '', name: 'USDC' }],
       })
     );
@@ -3694,6 +3689,7 @@ describe('determineSwapRoute', () => {
     const route = await determineSwapRoute(
       input,
       makeRouteOptions({
+        skipFastPaths: true,
         balances: [{ amount: '4000', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDC', tokenAddress: USDC_ARB, value: 4000, logo: '', name: 'USDC' }],
       })
     );
@@ -3758,6 +3754,7 @@ describe('determineSwapRoute', () => {
     const route = await determineSwapRoute(
       input,
       makeRouteOptions({
+        skipFastPaths: true,
         oraclePrices: [
           { universe: 'EVM', chainId: ARB_CHAIN, priceUsd: new Decimal('2500'), tokenAddress: ZERO_ADDRESS, tokenSymbol: 'ETH', tokenDecimals: 18, timestamp: 0 },
           { universe: 'EVM', chainId: ARB_CHAIN, priceUsd: new Decimal('1'), tokenAddress: USDC_ARB, tokenSymbol: 'USDC', tokenDecimals: 6, timestamp: 0 },
@@ -3825,6 +3822,7 @@ describe('determineSwapRoute', () => {
     const route = await determineSwapRoute(
       input,
       makeRouteOptions({
+        skipFastPaths: true,
         oraclePrices: [
           { universe: 'EVM', chainId: ARB_CHAIN, priceUsd: new Decimal('2500'), tokenAddress: ZERO_ADDRESS, tokenSymbol: 'ETH', tokenDecimals: 18, timestamp: 0 },
           { universe: 'EVM', chainId: ARB_CHAIN, priceUsd: new Decimal('1'), tokenAddress: USDC_ARB, tokenSymbol: 'USDC', tokenDecimals: 6, timestamp: 0 },
@@ -3975,6 +3973,7 @@ describe('determineSwapRoute', () => {
       })
     );
     const route = await determineSwapRoute(input, makeRouteOptions({
+      skipFastPaths: true,
       chainList: chainListMock as unknown as ChainListType,
       cotCurrencyId: 42 as CurrencyID,
         balances: [{ amount: '50', chainID: ARB_CHAIN, decimals: 8, symbol: 'XCOT', tokenAddress: USDC_ARB, value: 50, logo: '', name: 'XCOT' }],
@@ -4035,7 +4034,10 @@ describe('determineSwapRoute', () => {
       mode: SwapMode.EXACT_OUT,
       data: { toChainId: ARB_CHAIN, toTokenAddress: WETH, toAmountRaw: 1000000000000000000n },
     };
-    await determineSwapRoute(input, makeRouteOptions({ balances: [largeBalance] }));
+    await determineSwapRoute(
+      input,
+      makeRouteOptions({ skipFastPaths: true, balances: [largeBalance] })
+    );
     // Verify autoSelectSources received the precise raw amount, not Number()-rounded
     const call = vi.mocked(autoSelectSources).mock.calls[0][0];
     const holding = call.holdings[0];
@@ -4598,6 +4600,7 @@ describe('determineSwapRoute — bridge provider parity', () => {
     await determineSwapRoute(
       input,
       makeRouteOptions({
+        skipFastPaths: true,
         middlewareClient: mayanMw as never,
         dstTokenInfo: makeDstTokenInfo({ contractAddress: USDC_ARB, decimals: 6, symbol: 'USDC', name: 'USD Coin' }),
         balances: [
@@ -4647,6 +4650,7 @@ describe('determineSwapRoute — bridge provider parity', () => {
     const route = await determineSwapRoute(
       input,
       makeRouteOptions({
+        skipFastPaths: true,
         middlewareClient: mayanMw as never,
         dstTokenInfo: makeDstTokenInfo({ contractAddress: USDC_ARB, decimals: 6, symbol: 'USDC', name: 'USD Coin' }),
         balances: [

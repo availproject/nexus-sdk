@@ -231,7 +231,7 @@ const tryExactOutFastPaths = async (
     dstChainId: data.toChainId,
     dstTokenAddress: data.toTokenAddress,
     cotCurrencyId: options.cotCurrencyId,
-    needsTokenSwap,
+    allowDirectDestination: needsTokenSwap,
     hasGasRequest: needsGasSwap,
     toAmountRaw: data.toAmountRaw,
     mode: SwapMode.EXACT_OUT,
@@ -252,7 +252,7 @@ const tryExactOutFastPaths = async (
     fastPathClass = await withTimingSpan(
       options.timing,
       'flow.swap.route.classify_path',
-      async () => classifyFastPath({ ...classificationInput, needsTokenSwap: false }),
+      async () => classifyFastPath({ ...classificationInput, allowDirectDestination: false }),
       { tags: { mode: SwapMode.EXACT_OUT } }
     );
     logger.debug('swap.route.exact_out.fast_path.reclassified', {
@@ -428,24 +428,42 @@ export async function _exactOutRoute(
   const { cotCurrencyId, aggregators, chainList, oraclePrices, dstTokenInfo, walletPathHints } =
     options;
   const destinationChain = chainList.getChainByID(data.toChainId);
+  const { balances, holdings } = await resolveExactOutSources(data, options, destinationChain);
 
-  const requestedSources = data.sources;
-  const hasExplicitDestinationOnlySources =
-    !options.skipFastPaths &&
-    data.toAmountRaw >= 0n &&
-    (data.toNativeAmountRaw ?? 0n) >= 0n &&
-    requestedSources != null &&
-    requestedSources.length > 0 &&
-    requestedSources.every((source) => source.chainId === data.toChainId);
-  if (hasExplicitDestinationOnlySources) {
-    const { holdings } = await resolveExactOutSources(data, options, destinationChain);
+  const fastPathClass = options.skipFastPaths
+    ? null
+    : classifyFastPath({
+        chainList,
+        members: holdings,
+        dstChainId: data.toChainId,
+        dstTokenAddress: data.toTokenAddress,
+        cotCurrencyId,
+        allowDirectDestination:
+          data.toAmountRaw >= 0n && (data.toNativeAmountRaw ?? 0n) >= 0n,
+        hasGasRequest: (data.toNativeAmountRaw ?? 0n) > 0n,
+        toAmountRaw: data.toAmountRaw,
+        mode: SwapMode.EXACT_OUT,
+      });
+
+  if (fastPathClass?.kind === 'direct') {
     logger.debug('swap.route.exact_out.path.selected', {
       routePath: 'direct_destination',
-      reason: 'explicit_destination_only_sources',
+      reason: 'destination_only_holdings',
       chainId: data.toChainId,
-      sourceCount: requestedSources.length,
+      sourceCount: holdings.length,
     });
     return buildDirectDestinationExactOutRoute(data, holdings, options);
+  }
+
+  if (fastPathClass?.kind === 'same-token-out') {
+    logger.debug('swap.route.exact_out.same_token.selected', {
+      routePath: 'same_token',
+      reason: 'same_currency_holdings',
+      chainId: data.toChainId,
+      sourceCount: holdings.length,
+      settlementCurrencyId: fastPathClass.familyId,
+    });
+    return buildSameTokenBridgeExactOutRoute(data, holdings, options, fastPathClass.familyId);
   }
 
   const dstCOT = await withTimingSpan(
@@ -465,7 +483,6 @@ export async function _exactOutRoute(
     !options.skipFastPaths && directNeedsTokenSwap && requestedNativeAmountRaw > 0n
       ? priceResolver.resolve(data.toChainId, EADDRESS)
       : Promise.resolve<ResolvedTokenPrice | null>(null);
-  const { balances, holdings } = await resolveExactOutSources(data, options, destinationChain);
   const dstHoldings = holdings.filter((holding) => holding.chainID === data.toChainId);
   const dstHoldingPricePromises =
     !options.skipFastPaths && directNeedsTokenSwap
@@ -907,9 +924,9 @@ async function buildDynamicCotExactOutRoute(
 ): Promise<SwapRoute | null> {
   const fQuote = await fetchBridgeQuoteForCurrency(data.toChainId, familyId, options);
   if (!fQuote) return null;
-  // EXACT_OUT sources aren't explicit, so restrict the re-entry to the family-F holdings (the allowlist
-  // `filterExactOutBalances` honors) → every source is a COT ⇒ zero source swaps. Insufficient F inside
-  // ⇒ throws `insufficientBalance` ⇒ tryFastPath falls back.
+  // Restrict the re-entry to the family-F holdings (the allowlist `filterExactOutBalances` honors) →
+  // every source is a COT ⇒ zero source swaps. Insufficient F inside throws `insufficientBalance` ⇒
+  // tryFastPath falls back.
   const sources: Source[] = holdings
     .filter((h) => resolveCurrencyId(options.chainList, h.chainID, h.tokenAddress) === familyId)
     .map((h) => ({ chainId: h.chainID, tokenAddress: h.tokenAddress }));
