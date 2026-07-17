@@ -67,6 +67,7 @@ import { createSafeExecuteTxFromCalls } from '../../../src/services/safe';
 import { executeViaEoa } from '../../../src/swap/wallet/eoa-executor';
 import { createSweeperTxs } from '../../../src/swap/sweep';
 import { makeSwapExecutionMiddlewareClient } from '../../helpers/middleware-client';
+import { makeTimingHooks } from '../../helpers/timing';
 import {
   type DestinationSwap,
   type ExecutionContext,
@@ -77,6 +78,7 @@ import {
 } from '../../../src/swap/types';
 import type { QuoteResponse, Aggregator } from '../../../src/swap/aggregators/types';
 import type { TokenInfo } from '../../../src/domain';
+import { ERROR_CODES } from '../../../src/domain/errors';
 
 const USDC_ARB = '0xaf88d065e77c8cc2239327c5edb3a432268e5831' as Hex;
 const WETH = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2' as Hex;
@@ -134,6 +136,7 @@ type DstCtx = Pick<
   | 'cache'
   | 'preparedExecution'
   | 'onProgress'
+  | 'timing'
   | 'slippage'
 >;
 
@@ -313,6 +316,8 @@ describe('executeDestinationSwap', () => {
     });
 
     const ctx = makeCtx('ephemeral');
+    const timing = makeTimingHooks();
+    ctx.timing = timing;
     const metadata: SwapMetadata = { src: [], dst: null, has_xcs: false, intent_request_hash: null };
 
     await executeDestinationSwap(
@@ -323,6 +328,15 @@ describe('executeDestinationSwap', () => {
     );
 
     expect(destination.getDstSwap).toHaveBeenCalledTimes(1);
+    expect(timing.startSpan.mock.calls.map(([name]) => name)).toEqual(
+      expect.arrayContaining([
+        'flow.swap.execute.destination.read_balance',
+        'flow.swap.execute.destination.resize_or_requote',
+        'flow.swap.execute.destination.build_calls',
+        'flow.swap.execute.destination.dispatch',
+        'flow.swap.execute.destination.wait_receipt',
+      ])
+    );
     const sbcInput = vi.mocked(createSBCTxFromCalls).mock.calls[0]?.[0];
     expect(sbcInput.calls).toEqual(
       expect.arrayContaining([
@@ -333,6 +347,56 @@ describe('executeDestinationSwap', () => {
       ])
     );
   });
+
+  it.each(['token', 'gas'] as const)(
+    'EXACT_OUT rejects an expired requote that drops the required %s leg',
+    async (missingLeg) => {
+      const expiry = Math.floor(Date.now() / 1000) - 60;
+      const tokenSwap = makeQuoteResponse({
+        quote: { ...makeQuoteResponse().quote, expiry },
+      });
+      const gasSwap = makeQuoteResponse({
+        quote: {
+          ...makeQuoteResponse().quote,
+          output: {
+            contractAddress: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+            amount: '0.001',
+            amountRaw: 1_000_000_000_000_000n,
+            decimals: 18,
+            value: 25,
+            symbol: 'ETH',
+          },
+          expiry,
+        },
+      });
+      const destination = makeDestination({ tokenSwap, gasSwap });
+      destination.getDstSwap = vi.fn().mockResolvedValue({
+        tokenSwap: missingLeg === 'token' ? null : makeQuoteResponse(),
+        gasSwap: missingLeg === 'gas' ? null : gasSwap,
+      });
+      const ctx = makeCtx('ephemeral');
+      const metadata: SwapMetadata = {
+        src: [],
+        dst: null,
+        has_xcs: false,
+        intent_request_hash: null,
+      };
+
+      await expect(
+        executeDestinationSwap(
+          destination as unknown as SwapRoute['destination'],
+          SwapMode.EXACT_OUT,
+          makeDstTokenInfo(),
+          ctx,
+          metadata
+        )
+      ).rejects.toMatchObject({
+        code: ERROR_CODES.EXTERNAL_DESTINATION_SWAP_QUOTE_FAILED,
+      });
+      expect(ctx.middlewareClient.submitSBCs).not.toHaveBeenCalled();
+      expect(metadata.dst).toBeNull();
+    }
+  );
 
   // EXACT_IN destination reclaim (Seam 2): size the dst swap from the COT that actually landed at
   // the wrapper, not the route-time conservative `cotAvailable - srcBuffer`.

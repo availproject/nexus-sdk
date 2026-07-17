@@ -50,6 +50,9 @@ import {
   USDC_ARB,
   USDC_BASE,
   USDC_OP,
+  USDT_ARB,
+  USDT_BASE,
+  USDT_OP,
   WETH,
 } from './swap';
 
@@ -139,6 +142,9 @@ const TOKEN_META: Record<string, TokenMeta> = {
   [USDC_ARB.toLowerCase()]: { symbol: 'USDC', decimals: 6, name: 'USD Coin' },
   [USDC_OP.toLowerCase()]: { symbol: 'USDC', decimals: 6, name: 'USD Coin' },
   [USDC_BASE.toLowerCase()]: { symbol: 'USDC', decimals: 6, name: 'USD Coin' },
+  [USDT_ARB.toLowerCase()]: { symbol: 'USDT', decimals: 6, name: 'Tether USD' },
+  [USDT_OP.toLowerCase()]: { symbol: 'USDT', decimals: 6, name: 'Tether USD' },
+  [USDT_BASE.toLowerCase()]: { symbol: 'USDT', decimals: 6, name: 'Tether USD' },
   [WETH.toLowerCase()]: { symbol: 'WETH', decimals: 18, name: 'Wrapped Ether' },
   [SOURCE_DAI.toLowerCase()]: { symbol: 'DAI', decimals: 18, name: 'Dai Stablecoin' },
   [EADDRESS.toLowerCase()]: { symbol: 'ETH', decimals: 18, name: 'Ether' },
@@ -164,6 +170,10 @@ const RATES: Record<Agg, Record<string, Decimal>> = {
     'WETH>USDC': new Decimal('2500'),
     'USDC>ETH': new Decimal('0.0004'),
     'ETH>USDC': new Decimal('2500'),
+    'USDC>USDT': new Decimal('1'), // 1:1 stable (dst-swap sizing for B1/B2 EXACT_OUT)
+    'USDT>USDC': new Decimal('1'),
+    'USDT>WETH': new Decimal('0.0004'), // USDT priced like USDC (B2 settles the dst swap in USDT)
+    'USDT>ETH': new Decimal('0.0004'),
   },
   lifi: {
     'DAI>USDC': new Decimal('0.98'),
@@ -171,6 +181,10 @@ const RATES: Record<Agg, Record<string, Decimal>> = {
     'WETH>USDC': new Decimal('2450'),
     'USDC>ETH': new Decimal('0.00039'),
     'ETH>USDC': new Decimal('2450'),
+    'USDC>USDT': new Decimal('0.98'),
+    'USDT>USDC': new Decimal('0.98'),
+    'USDT>WETH': new Decimal('0.00039'),
+    'USDT>ETH': new Decimal('0.00039'),
   },
 };
 
@@ -628,11 +642,19 @@ export const makeCharChainList = (opts: { non7702?: number[] } = {}): ChainListT
   const baseGetToken = chainList.getTokenByAddress;
   const baseGetTokenByCurrencyId = chainList.getTokenByCurrencyId;
 
+  const usdtByChain: Record<number, Hex> = {
+    [ARB_CHAIN]: USDT_ARB,
+    [OP_CHAIN]: USDT_OP,
+    [BASE_CHAIN]: USDT_BASE,
+  };
   chainList.getTokenByCurrencyId = vi
     .fn()
-    .mockImplementation((chainId: number, currencyId: number) =>
-      coerceUsdcPermit(baseGetTokenByCurrencyId(chainId, currencyId))
-    );
+    .mockImplementation((chainId: number, currencyId: number) => {
+      if (currencyId === 2 && usdtByChain[chainId]) {
+        return { contractAddress: usdtByChain[chainId], decimals: 6, symbol: 'USDT', name: 'Tether USD', logo: '', currencyId: 2, permitVariant: 2, permitVersion: 1, mayanEnabled: true };
+      }
+      return coerceUsdcPermit(baseGetTokenByCurrencyId(chainId, currencyId));
+    });
 
   chainList.getVaultContractAddress = vi
     .fn()
@@ -673,6 +695,7 @@ export const makeCharChainList = (opts: { non7702?: number[] } = {}): ChainListT
     if (symbol === 'ETH')
       return { contractAddress: EADDRESS as Hex, decimals: 18, symbol: 'ETH', name: 'Ether', logo: '' };
     if (symbol === 'USDC') return chainList.getTokenByCurrencyId(chainId, 1);
+    if (symbol === 'USDT') return chainList.getTokenByCurrencyId(chainId, 2);
     if (symbol === 'DAI') return { ...EXTRA_TOKENS[SOURCE_DAI.toLowerCase()], mayanEnabled: true };
     if (symbol === 'WETH') return { ...EXTRA_TOKENS[WETH.toLowerCase()], mayanEnabled: true };
     throw new Error(`no token for symbol ${symbol} on chain ${chainId}`);
@@ -763,6 +786,15 @@ export const makeCharMiddleware = (opts: {
       chainId,
       tokenAddress: ({ [ARB_CHAIN]: USDC_ARB, [OP_CHAIN]: USDC_OP, [BASE_CHAIN]: USDC_BASE }[chainId])!,
       tokenSymbol: 'USDC',
+      tokenDecimals: 6,
+      priceUsd: new Decimal(1),
+      timestamp: 1,
+    },
+    {
+      universe: 'EVM' as const,
+      chainId,
+      tokenAddress: ({ [ARB_CHAIN]: USDT_ARB, [OP_CHAIN]: USDT_OP, [BASE_CHAIN]: USDT_BASE }[chainId])!,
+      tokenSymbol: 'USDT',
       tokenDecimals: 6,
       priceUsd: new Decimal(1),
       timestamp: 1,

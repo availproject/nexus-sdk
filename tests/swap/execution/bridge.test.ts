@@ -150,6 +150,7 @@ import { executeBridgeFromIntent, submitRFFToMiddleware, waitForFill } from '../
 import { runBridgeHooks } from '../../../src/bridge/hooks/approval';
 import { prepareSwapBridgeExecution } from '../../../src/bridge/allowances/prepare-swap-sbc';
 import { makeSwapExecutionMiddlewareClient } from '../../helpers/middleware-client';
+import { makeTimingHooks } from '../../helpers/timing';
 import { createRequestFromIntent } from '../../../src/services/rff';
 import { createCaliburExecuteTxFromCalls, createSBCTxFromCalls } from '../../../src/services/sbc';
 import { dispatchSafeSource } from '../../../src/swap/execution/safe-dispatch';
@@ -231,6 +232,7 @@ type BridgeCtx = Pick<
   | 'onProgress'
   | 'preparedExecution'
   | 'publicClientList'
+  | 'timing'
 >;
 
 const makeCtx = (): BridgeCtx => ({
@@ -362,6 +364,8 @@ describe('executeSwapBridge', () => {
 
   it('submits RFF and combined SBC deposits on the ephemeral bridge path instead of using the shared executor', async () => {
     const ctx = makeCtx();
+    const timing = makeTimingHooks();
+    ctx.timing = timing;
     const bridge = makeBridge();
     const executedAssets = [makeBridgeAsset()];
     const metadata: SwapMetadata = { src: [], dst: null, has_xcs: false, intent_request_hash: null };
@@ -375,6 +379,14 @@ describe('executeSwapBridge', () => {
     expect(waitForFill).toHaveBeenCalledTimes(1);
     expect(metadata.intent_request_hash).toBe('0xabc123');
     expect(metadata.has_xcs).toBe(true);
+    expect(timing.startSpan.mock.calls.map(([name]) => name)).toEqual(
+      expect.arrayContaining([
+        'flow.swap.execute.bridge.submit_intent',
+        'flow.swap.execute.bridge.prepare_funding',
+        'flow.swap.execute.bridge.deposit',
+        'flow.swap.execute.bridge.wait_fill',
+      ])
+    );
 
     const combinedCalls = vi.mocked(createSBCTxFromCalls).mock.calls[0]?.[0].calls;
     const approveCall = decodeFunctionData({ abi: erc20Abi, data: combinedCalls[0].data });

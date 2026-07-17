@@ -63,6 +63,8 @@ src/
   flows/        Thin public orchestration entrypoints, shared deps, and composition wrappers
   services/     Cross-feature helpers only (timing, balances, intents, pricing, etc.)
   swap/         Swap-specific route, preflight, execution, progress, and wallet logic
+    routing/     Mode-owned Exact In/Exact Out routing plus shared routing mechanics
+    execution/   Feature-owned source/bridge/destination stages and their orchestrator
   transport/    Middleware + simulation clients, including shared WS request lifecycle
 ```
 
@@ -78,7 +80,9 @@ The codebase is organized as layered feature packages, not as a flat bag of help
 - `src/bridge/` owns bridge-specific internals: intent assembly, hook state, allowance
   preparation, execution, progress mapping, and bridge-only adapters.
 - `src/execute/` owns reusable execute internals shared by composed flows.
-- `src/swap/` owns swap-specific planning, preflight, execution, and progress logic.
+- `src/swap/` owns swap-specific planning, preflight, execution, and progress logic. Its
+  `route.ts` is a stable facade over `routing/exact-in.ts` and `routing/exact-out.ts`, while
+  `execution/orchestrator.ts` owns the source → bridge → destination sequence and failure cleanup.
 - `src/services/` contains cross-feature helpers only. Swap-only and bridge-only modules should not
   live there.
 - `src/transport/` and `src/domain/` must not import from `src/flows/`.
@@ -138,13 +142,16 @@ Swap flow (simplified):
 swap(params)
   -> flows/swap.ts
      -> swap/preflight.ts
-     -> determineSwapRoute(...)
+     -> swap/route.ts: determineSwapRoute(...)
+        -> swap/routing/exact-in.ts | exact-out.ts
      -> createSwapIntent(...)
      -> onIntent({ allow, deny, refresh, intent })
-     -> prepareSwapExecution(...)
-     -> executeSourceSwaps(...)
-     -> executeSwapBridge(...)
-     -> executeDestinationSwap(...)
+     -> swap/prepare.ts: prepareSwapExecution(...)
+     -> swap/execution/orchestrator.ts: executeSwapRoute(...)
+        -> executeSourceSwaps(...) | executeDirectDestinationExactOut(...)
+        -> executeSwapBridge(...) when routed
+        -> executeDestinationSwap(...)
+        -> cleanupStrandedCot(...) on stage failure
      -> finalizeSwapResult(...)
 ```
 
@@ -201,8 +208,10 @@ Middleware client (`createMiddlewareClient`) validates URLs once and provides:
 - `getSwapBalances(address)` -> `GET /api/v1/swap-balance/EVM/:address`
 - `simulateBundleV2(request)` -> `POST /api/v1/gas/bundle-v2`
 
-It also exposes quote-proxy helpers (`getLiFiQuote`, `getBebopQuote`), oracle-price fetches, timing
-configuration, and `destroy()` for transport teardown.
+It also exposes aggregator quote proxies, lightweight token-price clients used by Exact Out routing,
+oracle-price fetches, timing configuration, and `destroy()` for transport teardown. The transport
+client fetches Citrea prices directly from `graph.fibrous.finance`; Fibrous quote requests continue
+to use their separate quote API through middleware.
 
 Every middleware error is normalized at this boundary: axios failures are wrapped in a `BackendError`
 whose `details` carry the middleware's typed error envelope (`middlewareCode`, `middlewareSubcode`,

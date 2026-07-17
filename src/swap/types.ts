@@ -16,7 +16,7 @@ import type {
   MiddlewareSwapClient,
   MiddlewareSwapExecutionClient,
 } from '../transport';
-import type { Aggregator, Quote, QuoteResponse } from './aggregators/types';
+import type { Aggregator, Holding, Quote, QuoteResponse } from './aggregators/types';
 import type { CurrencyID } from './cot';
 import type { SwapCache } from './wallet/cache';
 
@@ -220,6 +220,11 @@ export type SwapRoute = {
   // True iff the same-token direct bridge fired (no source/destination swap). A Nexus same-token
   // bridge deposits the exact amount directly, so nothing strands → the failure sweep is skipped.
   sameTokenBridge: boolean;
+  // True iff the direct-destination fast path (Path A) fired: ALL sources on the destination chain,
+  // swapped input→toToken directly with no bridge and no destination swap. The whole route is one
+  // atomic batch on one chain (revertOnFailure) → nothing strands on failure, so the failure sweep
+  // is skipped (`resolveFailureSweepCurrencyId` returns null).
+  directDestination?: boolean;
   source: {
     swaps: QuoteResponse[];
     creationTime: number;
@@ -279,6 +284,11 @@ export type SwapRoute = {
     oraclePrices: OraclePriceResponse;
     balances: FlatBalance[];
     assetsUsed: AssetsUsedEntry[];
+    directDestination?: {
+      dstHoldings: (Holding & { value: number })[];
+      toAmountRaw: bigint;
+      toNativeAmountRaw: bigint;
+    };
   };
   sourceExecutionPaths: Map<number, WalletPath>;
 };
@@ -375,6 +385,7 @@ export type ExecutionContext = {
   cache: SwapCache | undefined;
   preparedExecution?: PreparedSwapExecution;
   onProgress?: (update: SwapExecutionProgressUpdate) => void;
+  timing?: TimingSpanHooks;
   slippage: number;
 };
 

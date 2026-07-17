@@ -1,10 +1,11 @@
-import { encodeFunctionData, erc20Abi, type Hex, type PublicClient, type WalletClient } from 'viem';
+import type { Hex, PublicClient, WalletClient } from 'viem';
 import type { PrivateKeyAccount } from 'viem/accounts';
-import type { ChainListType } from '../domain';
+import type { ChainListType, TimingSpanHooks } from '../domain';
 import { getLogger } from '../domain';
 import { isNativeAddress } from '../services/addresses';
 import { mulDecimals } from '../services/math';
 import { parseQuote } from '../services/quote-parser';
+import { withTimingSpan } from '../services/timing';
 import type { QuoteResponse } from './aggregators/types';
 import { SWEEPER_ADDRESS } from './constants';
 import { predictSafeAccountAddress } from './safe/predict';
@@ -16,7 +17,7 @@ import type {
 } from './types';
 import type { SwapCache } from './wallet/cache';
 import { chainSupports7702 } from './wallet/capabilities';
-import { buildTransferAuthorization } from './wallet/transfer-authorization';
+import { buildPreparedTransfer } from './wallet/prepared-transfer';
 
 const logger = getLogger();
 
@@ -30,6 +31,17 @@ type PrepareSwapExecutionInput = {
   ephemeralWallet: PrivateKeyAccount;
   publicClientList: PublicClientList;
   cache: SwapCache;
+  timing?: TimingSpanHooks;
+};
+
+type DeterministicTransferSpec = {
+  reason: PreparedEoaToEphemeralTransfer['reason'];
+  chainId: number;
+  tokenAddress: Hex;
+  tokenDecimals?: number;
+  amount: bigint;
+  eagerPermit: boolean;
+  targetAddress: Hex;
 };
 
 const getPublicClientMap = (
@@ -103,60 +115,19 @@ const getDestinationFundingTokenDecimals = (
   input.chainList.getTokenByAddress(input.destination.chainId, eoaToEphemeralContractAddress)
     .decimals;
 
-const buildPreparedTransfer = async (
-  reason: PreparedEoaToEphemeralTransfer['reason'],
-  chainId: number,
-  tokenAddress: Hex,
-  tokenDecimals: number,
-  amount: bigint,
-  eagerPermit: boolean,
-  targetAddress: Hex,
-  input: PrepareSwapExecutionInput
-): Promise<PreparedEoaToEphemeralTransfer> => {
-  const chain = input.chainList.getChainByID(chainId);
-
-  return {
-    reason,
-    chainId,
-    tokenAddress,
-    amount,
-    targetAddress,
-    authorization: await buildTransferAuthorization({
-      chain,
-      tokenAddress,
-      tokenDecimals,
-      amount,
-      eoaAddress: input.eoaAddress,
-      eoaWallet: input.eoaWallet,
-      // The executor (Safe on non-7702, ephemeral on 7702) is the approve/permit spender, so it
-      // can pull the funds via transferFrom inside its own batch.
-      ephemeralAddress: targetAddress,
-      publicClientList: input.publicClientList,
-      cache: input.cache,
-      eagerPermit,
-    }),
-    transferCall: {
-      to: tokenAddress,
-      data: encodeFunctionData({
-        abi: erc20Abi,
-        functionName: 'transferFrom',
-        args: [input.eoaAddress, targetAddress, amount],
-      }),
-      value: 0n,
-    },
-  };
-};
-
 export const prepareSwapExecution = async (
   input: PrepareSwapExecutionInput
 ): Promise<PreparedSwapExecution> => {
-  logger.debug('prepareSwapExecution:start', {
+  logger.debug('swap.prepare.execution.started', {
     sourceSwaps: input.source.swaps.length,
     hasBridge: input.route.bridge !== null,
     destinationChainId: input.destination.chainId,
   });
 
   const requiredChainIds = new Set<number>();
+  const directDestinationExtras =
+    input.route.directDestination === true ? input.route.extras.directDestination : undefined;
+  const directDestinationExactOut = directDestinationExtras !== undefined;
   // Source-swap executor address. 'ephemeral' on 7702 chains, 'safe' on non-7702 — both run as
   // smart-account wrappers. Other path values aren't expected; we still default to the
   // ephemeral as a safe fallback so cache queries are valid.
@@ -183,169 +154,183 @@ export const prepareSwapExecution = async (
       ? input.ephemeralWallet.address
       : predictSafeAccountAddress(input.ephemeralWallet.address).address;
 
-  queueParsedQuoteQueries(
-    input.cache,
-    input.source.swaps,
-    ownerForSourceChain,
-    input.ephemeralWallet.address,
-    requiredChainIds
-  );
-
   const destinationQuotes = [
     input.destination.swap.tokenSwap,
     input.destination.swap.gasSwap,
   ].filter((quote): quote is QuoteResponse => quote !== null);
-  queueParsedQuoteQueries(
-    input.cache,
-    destinationQuotes,
-    () => destinationOwner,
-    input.ephemeralWallet.address,
-    requiredChainIds
-  );
-
-  queueDeterministicTransferQueries(
-    input.cache,
-    input.source.swaps
-      .filter((swap) => {
+  const sourceTransferSpecs: DeterministicTransferSpec[] = directDestinationExactOut
+    ? []
+    : input.source.swaps.flatMap((swap) => {
         const path = input.route.sourceExecutionPaths.get(swap.chainID);
-        return (
-          (path === 'ephemeral' || path === 'safe') &&
-          !isNativeAddress(swap.quote.input.contractAddress)
-        );
-      })
-      .map((swap) => ({
-        chainId: swap.chainID,
-        tokenAddress: swap.quote.input.contractAddress,
-        amount: swap.quote.input.amountRaw,
-        spender: ownerForSourceChain(swap.chainID),
-      })),
-    input.eoaAddress,
-    requiredChainIds
-  );
-
-  if (input.destination.eoaToEphemeral) {
-    queueDeterministicTransferQueries(
-      input.cache,
-      [
+        if (
+          (path !== 'ephemeral' && path !== 'safe') ||
+          isNativeAddress(swap.quote.input.contractAddress)
+        ) {
+          return [];
+        }
+        return [
+          {
+            reason: 'source',
+            chainId: swap.chainID,
+            tokenAddress: swap.quote.input.contractAddress,
+            tokenDecimals: swap.quote.input.decimals,
+            amount: swap.quote.input.amountRaw,
+            eagerPermit: false,
+            targetAddress: ownerForSourceChain(swap.chainID),
+          },
+        ];
+      });
+  const destinationTransferSpecs: DeterministicTransferSpec[] = input.destination.eoaToEphemeral
+    ? [
         {
+          reason: 'destination',
           chainId: input.destination.chainId,
           tokenAddress: input.destination.eoaToEphemeral.contractAddress,
           amount: input.destination.eoaToEphemeral.amount,
-          spender: destinationOwner,
+          eagerPermit: true,
+          targetAddress: destinationOwner,
         },
-      ],
-      input.eoaAddress,
-      requiredChainIds
-    );
-  }
-
-  // Direct-COT bridge holdings always come from the EOA and need to be moved to the executor
-  // before the deposit batch runs.
-  if (input.route.bridge) {
-    queueDeterministicTransferQueries(
-      input.cache,
-      input.route.bridge.assets
-        .filter((asset) => !asset.eoaBalance.isZero() && !isNativeAddress(asset.contractAddress))
-        .map((asset) => ({
+      ]
+    : [];
+  const bridgeTransferSpecs: DeterministicTransferSpec[] =
+    input.route.bridge?.assets.flatMap((asset) => {
+      if (asset.eoaBalance.isZero() || isNativeAddress(asset.contractAddress)) return [];
+      return [
+        {
+          reason: 'bridge',
           chainId: asset.chainID,
           tokenAddress: asset.contractAddress,
+          tokenDecimals: asset.decimals,
           amount: mulDecimals(asset.eoaBalance, asset.decimals),
-          // Spender = the deposit executor: Safe on non-7702, ephemeral on 7702. Must match the
-          // buildPreparedTransfer target below so the cached permit/allowance check is keyed right.
-          spender: ownerForBridgeChain(asset.chainID),
-        })),
-      input.eoaAddress,
-      requiredChainIds
-    );
-  }
-
-  if (destinationQuotes.length > 0) {
-    queueNativeSweepQueries(
-      input.cache,
-      input.destination.chainId,
-      input.ephemeralWallet.address,
-      requiredChainIds
-    );
-  }
-
-  await input.cache.process(getPublicClientMap(requiredChainIds, input.publicClientList));
-
-  const parsedQuotes = [
-    ...input.source.swaps.map((quoteResponse) => ({
-      ...parseQuote(quoteResponse.quote),
-      chainId: quoteResponse.chainID,
-      quote: quoteResponse.quote,
-    })),
-    ...destinationQuotes.map((quoteResponse) => ({
-      ...parseQuote(quoteResponse.quote),
-      chainId: quoteResponse.chainID,
-      quote: quoteResponse.quote,
-    })),
+          eagerPermit: false,
+          targetAddress: ownerForBridgeChain(asset.chainID),
+        },
+      ];
+    }) ?? [];
+  const deterministicTransferSpecs = [
+    ...sourceTransferSpecs,
+    ...destinationTransferSpecs,
+    ...bridgeTransferSpecs,
   ];
-
-  const eoaToEphemeralTransfers: PreparedEoaToEphemeralTransfer[] = [];
-
-  for (const swap of input.source.swaps) {
-    const path = input.route.sourceExecutionPaths.get(swap.chainID);
-    if (
-      (path !== 'ephemeral' && path !== 'safe') ||
-      isNativeAddress(swap.quote.input.contractAddress)
-    ) {
-      continue;
-    }
-    eoaToEphemeralTransfers.push(
-      await buildPreparedTransfer(
-        'source',
-        swap.chainID,
-        swap.quote.input.contractAddress,
-        swap.quote.input.decimals,
-        swap.quote.input.amountRaw,
-        false,
-        ownerForSourceChain(swap.chainID),
-        input
-      )
-    );
-  }
-
-  if (input.destination.eoaToEphemeral) {
-    eoaToEphemeralTransfers.push(
-      await buildPreparedTransfer(
-        'destination',
-        input.destination.chainId,
-        input.destination.eoaToEphemeral.contractAddress,
-        getDestinationFundingTokenDecimals(
-          input,
-          destinationQuotes,
-          input.destination.eoaToEphemeral.contractAddress
-        ),
-        input.destination.eoaToEphemeral.amount,
-        true,
-        destinationOwner,
-        input
-      )
-    );
-  }
-
-  if (input.route.bridge) {
-    for (const asset of input.route.bridge.assets) {
-      // Native bridge sources are EOA-submitted payable deposits — no EOA->ephemeral transfer.
-      if (asset.eoaBalance.isZero() || isNativeAddress(asset.contractAddress)) continue;
-      eoaToEphemeralTransfers.push(
-        await buildPreparedTransfer(
-          'bridge',
-          asset.chainID,
-          asset.contractAddress,
-          asset.decimals,
-          mulDecimals(asset.eoaBalance, asset.decimals),
-          false,
-          ownerForBridgeChain(asset.chainID),
-          input
-        )
+  await withTimingSpan(
+    input.timing,
+    'flow.swap.prepare.queue_cache',
+    async () => {
+      queueParsedQuoteQueries(
+        input.cache,
+        input.source.swaps,
+        ownerForSourceChain,
+        input.ephemeralWallet.address,
+        requiredChainIds
       );
-    }
-  }
+      queueParsedQuoteQueries(
+        input.cache,
+        destinationQuotes,
+        () => destinationOwner,
+        input.ephemeralWallet.address,
+        requiredChainIds
+      );
 
-  logger.debug('prepareSwapExecution:complete', {
+      queueDeterministicTransferQueries(
+        input.cache,
+        directDestinationExtras
+          ? directDestinationExtras.dstHoldings
+              .filter((holding) => !isNativeAddress(holding.tokenAddress))
+              .map((holding) => ({
+                chainId: holding.chainID,
+                tokenAddress: holding.tokenAddress,
+                amount: holding.amountRaw,
+                spender: ownerForSourceChain(holding.chainID),
+              }))
+          : deterministicTransferSpecs.map((transfer) => ({
+              chainId: transfer.chainId,
+              tokenAddress: transfer.tokenAddress,
+              amount: transfer.amount,
+              spender: transfer.targetAddress,
+            })),
+        input.eoaAddress,
+        requiredChainIds
+      );
+
+      // Direct-destination Exact Out authorizations are prepared by its dedicated executor, but a
+      // defensive route carrying later-stage transfers still needs those cache queries here.
+      if (directDestinationExactOut && deterministicTransferSpecs.length > 0) {
+        queueDeterministicTransferQueries(
+          input.cache,
+          deterministicTransferSpecs.map((transfer) => ({
+            chainId: transfer.chainId,
+            tokenAddress: transfer.tokenAddress,
+            amount: transfer.amount,
+            spender: transfer.targetAddress,
+          })),
+          input.eoaAddress,
+          requiredChainIds
+        );
+      }
+
+      if (destinationQuotes.length > 0) {
+        queueNativeSweepQueries(
+          input.cache,
+          input.destination.chainId,
+          input.ephemeralWallet.address,
+          requiredChainIds
+        );
+      }
+    },
+    {
+      tags: {
+        source_leg_count: input.source.swaps.length,
+        destination_leg_count: destinationQuotes.length,
+      },
+    }
+  );
+
+  const cacheProcess = withTimingSpan(
+    input.timing,
+    'flow.swap.prepare.cache_start',
+    async () => input.cache.process(getPublicClientMap(requiredChainIds, input.publicClientList)),
+    { tags: { chain_count: requiredChainIds.size } }
+  );
+  await withTimingSpan(input.timing, 'flow.swap.prepare.cache_wait', async () => cacheProcess, {
+    tags: { chain_count: requiredChainIds.size, pending_at_first_use: true },
+  });
+
+  const parsedQuotes = await withTimingSpan(
+    input.timing,
+    'flow.swap.prepare.parse_quotes',
+    async () => [
+      ...input.source.swaps.map((quoteResponse) => ({
+        ...parseQuote(quoteResponse.quote),
+        chainId: quoteResponse.chainID,
+        quote: quoteResponse.quote,
+      })),
+      ...destinationQuotes.map((quoteResponse) => ({
+        ...parseQuote(quoteResponse.quote),
+        chainId: quoteResponse.chainID,
+        quote: quoteResponse.quote,
+      })),
+    ],
+    { tags: { quote_count: input.source.swaps.length + destinationQuotes.length } }
+  );
+
+  const eoaToEphemeralTransfers = await withTimingSpan(
+    input.timing,
+    'flow.swap.prepare.build_transfers',
+    async () => {
+      const transfers: PreparedEoaToEphemeralTransfer[] = [];
+      for (const transfer of deterministicTransferSpecs) {
+        const tokenDecimals =
+          transfer.tokenDecimals ??
+          getDestinationFundingTokenDecimals(input, destinationQuotes, transfer.tokenAddress);
+        transfers.push(await buildPreparedTransfer({ ...transfer, tokenDecimals, ...input }));
+      }
+
+      return transfers;
+    },
+    { tags: { source_leg_count: input.source.swaps.length } }
+  );
+
+  logger.debug('swap.prepare.execution.completed', {
     parsedQuotes: parsedQuotes.length,
     transfers: eoaToEphemeralTransfers.length,
     queriedChains: [...requiredChainIds],

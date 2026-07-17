@@ -13,6 +13,7 @@ import ERC20ABI from '../abi/erc20';
 import { ARBITRUM_GAS_ORACLE_ABI, OP_STACK_GAS_ORACLE_ABI } from '../abi/gasOracle';
 import { type Chain, getLogger } from '../domain';
 import { ERROR_CODES, Errors, ExecutionError, formatUnknownError } from '../domain/errors';
+import { isUserRejectedRequest } from './is-user-rejected-request';
 import { minutesToMs } from './time';
 
 const logger = getLogger();
@@ -191,22 +192,15 @@ export const switchChain = async (client: WalletClient, chain: Chain) => {
   if (current === chain.id) return;
 
   try {
-    await wrapExternal('Failed to switch wallet chain', 'wallet', { chainId: chain.id }, () =>
-      client.switchChain({ id: chain.id })
-    );
+    await client.switchChain({ id: chain.id });
   } catch (outerErr) {
+    if (isUserRejectedRequest(outerErr)) throw Errors.userRejectedTxSend();
     logger.error('switchChain failed, trying addChain', outerErr);
     try {
-      await wrapExternal('Failed to add wallet chain', 'wallet', { chainId: chain.id }, () =>
-        client.addChain({ chain })
-      );
-      await wrapExternal(
-        'Failed to switch wallet chain after add',
-        'wallet',
-        { chainId: chain.id },
-        () => client.switchChain({ id: chain.id })
-      );
+      await client.addChain({ chain });
+      await client.switchChain({ id: chain.id });
     } catch (inner) {
+      if (isUserRejectedRequest(inner)) throw Errors.userRejectedTxSend();
       logger.error('Unable to add/switch chain', inner);
       throw Errors.execution(`Unable to add/switch chain: ${formatUnknownError(inner)}`, {
         service: 'wallet',

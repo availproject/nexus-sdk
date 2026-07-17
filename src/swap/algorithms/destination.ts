@@ -41,17 +41,21 @@ type DetermineInput = {
     userAddress: Hex;
     recipientAddress: Hex;
     cotCurrencyID?: CurrencyID;
+    // Optional price-derived COT seed. When present, convergence can start with a serious forward
+    // quote instead of first surveying the reverse direction.
+    estimatedInputAmountRaw?: Decimal;
   };
 };
 
 /**
  * Determines the COT → destination token swap quote.
  *
- * Races two candidates in parallel: an EXACT_OUT direct quote (where the aggregator
- * picks the input for a given output) and an EXACT_IN convergence loop (priced off a
- * reverse quote, then iteratively bumped under a USD cap). Whichever settles non-null
- * first wins. Returns null if destination token IS COT (no swap needed) or neither
- * candidate covers the requirement.
+ * Races two candidates in parallel: an EXACT_OUT direct quote (where the aggregator picks the input
+ * for a given output) and an EXACT_IN convergence loop. Convergence starts from a cached USD-price
+ * estimate when the caller has one, otherwise from a reverse survey; an unusable price-seeded
+ * forward result or a correction beyond that seed's cap lazily falls back to the reverse survey.
+ * Whichever settles non-null first wins. Returns null if destination token IS COT (no swap needed)
+ * or neither candidate covers the requirement.
  */
 export const determineDestinationSwaps = async ({
   dst,
@@ -83,41 +87,57 @@ export const determineDestinationSwaps = async ({
   });
 
   const convergedPromise = (async () => {
-    const reverseStartedAt = Date.now();
-    const reverseResults = await aggregateAggregators(
-      [
-        {
-          userAddress: options.userAddress,
-          recipientAddress: options.recipientAddress,
-          chainId: dst.chainId,
-          inputToken: dst.token.contractAddress,
-          outputToken: cot.contractAddress,
-          seriousness: QuoteSeriousness.PRICE_SURVEY,
-          type: QuoteType.EXACT_IN,
-          inputAmount: dst.token.amountRaw,
-        },
-      ],
-      options.aggregators,
-      AggregateMode.MaximizeOutput
-    );
-    const reverseQuote = reverseResults[0]?.quote;
-    logger.debug('swap:timing', {
-      op: 'dst_reverse_quote',
+    const resolveReverseInputAmountRaw = async (): Promise<Decimal | null> => {
+      const reverseStartedAt = Date.now();
+      const reverseResults = await aggregateAggregators(
+        [
+          {
+            userAddress: options.userAddress,
+            recipientAddress: options.recipientAddress,
+            chainId: dst.chainId,
+            inputToken: dst.token.contractAddress,
+            outputToken: cot.contractAddress,
+            seriousness: QuoteSeriousness.PRICE_SURVEY,
+            type: QuoteType.EXACT_IN,
+            inputAmount: dst.token.amountRaw,
+          },
+        ],
+        options.aggregators,
+        AggregateMode.MaximizeOutput
+      );
+      const reverseQuote = reverseResults[0]?.quote;
+      logger.debug('swap.route.destination.reverse_quote.completed', {
+        op: 'dst_reverse_quote',
+        chainId: dst.chainId,
+        hit: reverseQuote != null,
+        durationMs: Date.now() - reverseStartedAt,
+      });
+      if (!reverseQuote) return null;
+
+      const cotOutputHuman = new Decimal(reverseQuote.output.amount);
+      if (cotOutputHuman.lte(0)) return null;
+      return cotOutputHuman.mul(Decimal.pow(10, cot.decimals));
+    };
+
+    let initialInputAmountRaw = options.estimatedInputAmountRaw;
+    let seedSource = 'price';
+    if (!initialInputAmountRaw?.isFinite() || initialInputAmountRaw.lte(0)) {
+      seedSource = 'reverse_quote';
+      initialInputAmountRaw = (await resolveReverseInputAmountRaw()) ?? undefined;
+    }
+    if (!initialInputAmountRaw) return null;
+    logger.debug('swap.route.destination.convergence_seed.resolved', {
       chainId: dst.chainId,
-      hit: reverseQuote != null,
-      ms: Date.now() - reverseStartedAt,
+      seedSource,
+      inputAmountRaw: initialInputAmountRaw.toFixed(),
     });
-    if (!reverseQuote) return null;
-
-    const cotOutputHuman = new Decimal(reverseQuote.output.amount);
-    if (cotOutputHuman.lte(0)) return null;
-
-    const initialInputAmountRaw = cotOutputHuman.mul(Decimal.pow(10, cot.decimals));
 
     const converged = await convergeExactIn({
       initialInputAmountRaw,
       requiredOutputAmountRaw: dst.token.amountRaw,
       maxExtraInputAmountRaw: maxConvergenceExtraAmountRaw(cot.decimals),
+      getFallbackInitialInputAmountRaw:
+        seedSource === 'price' ? resolveReverseInputAmountRaw : undefined,
       aggregators: options.aggregators,
       makeRequest: (inputAmountRaw) => ({
         userAddress: options.userAddress,
@@ -138,11 +158,11 @@ export const determineDestinationSwaps = async ({
     timedCandidate('race.exact_out', raceContext, exactOutPromise),
     timedCandidate('race.convergence', raceContext, convergedPromise),
   ]);
-  logger.debug('swap:timing', {
+  logger.debug('swap.route.destination.selection.completed', {
     op: 'destination_swap',
     chainId: dst.chainId,
     hit: winner != null,
-    ms: Date.now() - startedAt,
+    durationMs: Date.now() - startedAt,
   });
 
   if (!winner) return null;

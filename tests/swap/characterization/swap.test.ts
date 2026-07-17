@@ -95,6 +95,9 @@ import {
   USDC_ARB,
   USDC_BASE,
   USDC_OP,
+  USDT_ARB,
+  USDT_BASE,
+  USDT_OP,
   WETH,
 } from '../../helpers/swap';
 
@@ -325,6 +328,199 @@ describe('swap execution characterization', () => {
     // No destination swap → BRIDGE_RECEIVER = EOA, and no destination SBC batch.
     expect(rffRecipient(middlewareClient)).toBe(bytes32Address(EOA));
     expect(sbcBatchesForChain(middlewareClient, BASE_CHAIN).length, 'no dst batch').toBe(0);
+    expect(sentTxs).toHaveLength(0);
+  });
+
+  it('EXACT_OUT · Nexus · B1 same-token bridge (USDT→USDT) → deposits split across chains, delivered exact, recv=EOA', async () => {
+    // B1 EXACT_OUT: every source and the destination share the USDT family (≠ COT) → bridge USDT
+    // directly EOA→EOA, no swaps. The exact 3 USDT target (zero-fee quote → gross == target) is split
+    // greedily: ARB (2, full) + OP (1, partial). Each chain runs a fast-path funding + deposit batch.
+    const balances: FlatBalance[] = [
+      { amount: '2', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDT', tokenAddress: USDT_ARB, value: 2, name: 'Tether USD', logo: '' },
+      { amount: '2', chainID: OP_CHAIN, decimals: 6, symbol: 'USDT', tokenAddress: USDT_OP, value: 2, name: 'Tether USD', logo: '' },
+    ];
+    const chainList = makeCharChainList();
+    const middlewareClient = makeCharMiddleware({ balances, provider: 'nexus' });
+    const { wallet, sentTxs } = makeRealEoaWallet();
+
+    await flowSwap(
+      {
+        mode: SwapMode.EXACT_OUT as const,
+        data: {
+          sources: [{ chainId: ARB_CHAIN, tokenAddress: USDT_ARB }, { chainId: OP_CHAIN, tokenAddress: USDT_OP }],
+          toChainId: BASE_CHAIN,
+          toTokenAddress: USDT_BASE,
+          toAmountRaw: 3n * 10n ** 6n, // 3 USDT
+        },
+      },
+      {
+        chainList,
+        intentExplorerUrl: 'https://intent.example',
+        evm: { walletClient: wallet, address: EOA },
+        forceMayan: false,
+        middlewareClient,
+        swap: { ephemeralWallet: EPH_ACCOUNT, cotCurrencyId: 1 },
+      },
+      { onIntent: (d: { allow: () => void }) => d.allow() }
+    );
+
+    // ARB bridges the full 2 USDT; OP the remaining 1 USDT. Each: fast-path funding (permit+transferFrom
+    // EOA→EPH) then approve(vault)→deposit — no source swap.
+    const arb = sbcBatchesForChain(middlewareClient, ARB_CHAIN);
+    expect(arb.length).toBe(1);
+    expectCallSequence(arb[0], [
+      { fn: 'permit', to: USDT_ARB, argsMatch: permitOwnerSpender(EOA, EPH) },
+      { fn: 'transferFrom', to: USDT_ARB, argsMatch: (a) => { eq(EOA)(a[0]); eq(EPH)(a[1]); expect(a[2]).toBe(2n * 10n ** 6n); } },
+      { fn: 'approve', to: USDT_ARB, argsMatch: (a) => { eq(VAULT_BY_CHAIN[ARB_CHAIN])(a[0]); expect(a[1]).toBe(2n * 10n ** 6n); } },
+      { fn: 'deposit', to: VAULT_BY_CHAIN[ARB_CHAIN] },
+    ], 'arb same-token deposit');
+    const op = sbcBatchesForChain(middlewareClient, OP_CHAIN);
+    expect(op.length).toBe(1);
+    expectCallSequence(op[0], [
+      { fn: 'permit', to: USDT_OP, argsMatch: permitOwnerSpender(EOA, EPH) },
+      { fn: 'transferFrom', to: USDT_OP, argsMatch: (a) => { eq(EOA)(a[0]); eq(EPH)(a[1]); expect(a[2]).toBe(1n * 10n ** 6n); } },
+      { fn: 'approve', to: USDT_OP, argsMatch: (a) => { eq(VAULT_BY_CHAIN[OP_CHAIN])(a[0]); expect(a[1]).toBe(1n * 10n ** 6n); } },
+      { fn: 'deposit', to: VAULT_BY_CHAIN[OP_CHAIN] },
+    ], 'op same-token deposit');
+
+    // No dst swap → RFF fills to the EOA, no BASE batch. RFF source values == the split; Σ == the exact
+    // 3 USDT delivered (zero fees).
+    expect(rffRecipient(middlewareClient)).toBe(bytes32Address(EOA));
+    expect(sbcBatchesForChain(middlewareClient, BASE_CHAIN).length).toBe(0);
+    const rff = rffRequest(middlewareClient);
+    const total = rff.sources.reduce((sum: bigint, s: { value: string }) => sum + BigInt(s.value), 0n);
+    expect(total).toBe(3n * 10n ** 6n);
+    expect(sentTxs).toHaveLength(0);
+  });
+
+  it('EXACT_IN · Nexus · B2 dynamic-COT (USDT sources → WETH): settles in USDT, no source swaps, dst swap pulls USDT', async () => {
+    // Every source is USDT (a stable family ≠ USDC, the default COT) → B2 re-enters with cotCurrencyId
+    // = USDT: the sources ARE the COT, so there are NO source swaps — each chain just funds (EOA→EPH)
+    // and deposits USDT. The bridge carries USDT, and the single destination swap is USDT→WETH.
+    const balances: FlatBalance[] = [
+      { amount: '2000', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDT', tokenAddress: USDT_ARB, value: 2000, name: 'Tether USD', logo: '' },
+      { amount: '2000', chainID: OP_CHAIN, decimals: 6, symbol: 'USDT', tokenAddress: USDT_OP, value: 2000, name: 'Tether USD', logo: '' },
+    ];
+    const chainList = makeCharChainList();
+    const middlewareClient = makeCharMiddleware({ balances, provider: 'nexus' });
+    const { wallet, sentTxs } = makeRealEoaWallet();
+
+    await flowSwap(
+      {
+        mode: SwapMode.EXACT_IN as const,
+        data: {
+          sources: [
+            { chainId: ARB_CHAIN, tokenAddress: USDT_ARB, amountRaw: 2000n * 10n ** 6n },
+            { chainId: OP_CHAIN, tokenAddress: USDT_OP, amountRaw: 2000n * 10n ** 6n },
+          ],
+          toChainId: BASE_CHAIN,
+          toTokenAddress: WETH,
+        },
+      },
+      {
+        chainList,
+        intentExplorerUrl: 'https://intent.example',
+        evm: { walletClient: wallet, address: EOA },
+        forceMayan: false,
+        middlewareClient,
+        swap: { ephemeralWallet: EPH_ACCOUNT, cotCurrencyId: 1 },
+      },
+      { onIntent: (d: { allow: () => void }) => d.allow() }
+    );
+
+    // Each source chain: ONE bridge-deposit batch (fast-path funding EOA→EPH then approve→deposit) —
+    // no source swap, because USDT is the (dynamic) COT.
+    for (const [chainId, usdt] of [[ARB_CHAIN, USDT_ARB], [OP_CHAIN, USDT_OP]] as const) {
+      const batches = sbcBatchesForChain(middlewareClient, chainId);
+      expect(batches.length, `chain ${chainId} batch count`).toBe(1);
+      expectCallSequence(batches[0], [
+        { fn: 'permit', to: usdt, argsMatch: permitOwnerSpender(EOA, EPH) },
+        { fn: 'transferFrom', to: usdt, argsMatch: (a) => { eq(EOA)(a[0]); eq(EPH)(a[1]); } },
+        { fn: 'approve', to: usdt, argsMatch: (a) => { eq(VAULT_BY_CHAIN[chainId])(a[0]); } },
+        { fn: 'deposit', to: VAULT_BY_CHAIN[chainId] },
+      ], `b2 deposit ${chainId}`);
+    }
+
+    // Fill → EPH (7702 dst + dst swap). RFF sources + destination carry USDT, not USDC.
+    expect(rffRecipient(middlewareClient)).toBe(bytes32Address(EPH));
+    const rff = rffRequest(middlewareClient);
+    const usdtByChain: Record<number, Hex> = { [ARB_CHAIN]: USDT_ARB, [OP_CHAIN]: USDT_OP };
+    for (const s of rff.sources) {
+      expect(s.contract_address.toLowerCase()).toBe(bytes32Address(usdtByChain[Number(s.chain_id)]));
+    }
+    expect(rff.destinations[0].contract_address.toLowerCase()).toBe(bytes32Address(USDT_BASE));
+
+    // Destination swap pulls USDT (Seam 2 reads the USDT balance) → WETH, delivered to the EOA.
+    const dst = sbcBatchesForChain(middlewareClient, BASE_CHAIN);
+    expect(dst.length).toBe(1);
+    const swp = dst[0].find((c) => c.fn === 'swap')!;
+    eq(USDT_BASE)(swp.args[0]); // input = the dynamic COT (USDT)
+    eq(WETH)(swp.args[1]); // output = WETH
+    eq(EOA)(swp.args[5]); // receiver = EOA
+    expect(sentTxs).toHaveLength(0);
+  });
+
+  it('EXACT_OUT · Nexus · B2 dynamic-COT (USDT sources → WETH + gas): USDT funding + deposits, dst batch pulls USDT for token AND gas', async () => {
+    // B2 EXACT_OUT: USDT-multichain sources, a WETH target AND a native gas amount. Re-enters with
+    // cotCurrencyId = USDT → no source swaps (USDT is the COT), the bridge carries USDT, and the dst
+    // batch runs BOTH the token swap (USDT→WETH) and the gas swap (USDT→native) off the bridged USDT.
+    const balances: FlatBalance[] = [
+      { amount: '3000', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDT', tokenAddress: USDT_ARB, value: 3000, name: 'Tether USD', logo: '' },
+      { amount: '3000', chainID: OP_CHAIN, decimals: 6, symbol: 'USDT', tokenAddress: USDT_OP, value: 3000, name: 'Tether USD', logo: '' },
+    ];
+    const chainList = makeCharChainList();
+    const middlewareClient = makeCharMiddleware({ balances, provider: 'nexus' });
+    const { wallet, sentTxs } = makeRealEoaWallet();
+
+    await flowSwap(
+      {
+        mode: SwapMode.EXACT_OUT as const,
+        data: {
+          sources: [
+            { chainId: ARB_CHAIN, tokenAddress: USDT_ARB },
+            { chainId: OP_CHAIN, tokenAddress: USDT_OP },
+          ],
+          toChainId: BASE_CHAIN,
+          toTokenAddress: WETH,
+          toAmountRaw: 1n * 10n ** 15n, // 0.001 WETH
+          toNativeAmountRaw: 1n * 10n ** 16n, // 0.01 ETH gas
+        },
+      },
+      {
+        chainList,
+        intentExplorerUrl: 'https://intent.example',
+        evm: { walletClient: wallet, address: EOA },
+        forceMayan: false,
+        middlewareClient,
+        swap: { ephemeralWallet: EPH_ACCOUNT, cotCurrencyId: 1 },
+      },
+      { onIntent: (d: { allow: () => void }) => d.allow() }
+    );
+
+    // Source chains only deposit USDT (no source swap — USDT is the dynamic COT). At least one source
+    // funds+deposits; every source batch is deposit-shaped, never a swap.
+    const sourceBatches = [ARB_CHAIN, OP_CHAIN].flatMap((c) => sbcBatchesForChain(middlewareClient, c));
+    expect(sourceBatches.length).toBeGreaterThan(0);
+    for (const b of sourceBatches) {
+      expect(b.some((c) => c.fn === 'swap'), 'no source swap on a B2 source chain').toBe(false);
+      expect(b.some((c) => c.fn === 'deposit'), 'source chain deposits USDT').toBe(true);
+    }
+    // RFF carries USDT.
+    const rff = rffRequest(middlewareClient);
+    expect(rff.destinations[0].contract_address.toLowerCase()).toBe(bytes32Address(USDT_BASE));
+
+    // Destination batch: the token swap (→WETH) and the gas swap (→native), BOTH pulling USDT to the EOA.
+    const dst = sbcBatchesForChain(middlewareClient, BASE_CHAIN);
+    expect(dst.length).toBe(1);
+    const swaps = dst[0].filter((c) => c.fn === 'swap');
+    const tokenSwap = swaps.find((c) => (c.args[1] as Hex).toLowerCase() === WETH.toLowerCase());
+    const gasSwap = swaps.find((c) => (c.args[1] as Hex).toLowerCase() === (EADDRESS as Hex).toLowerCase());
+    expect(tokenSwap, 'USDT→WETH token swap').toBeDefined();
+    expect(gasSwap, 'USDT→native gas swap').toBeDefined();
+    eq(USDT_BASE)(tokenSwap!.args[0]); // both pull the dynamic COT (USDT)
+    eq(USDT_BASE)(gasSwap!.args[0]);
+    eq(EOA)(tokenSwap!.args[5]);
+    eq(EOA)(gasSwap!.args[5]);
     expect(sentTxs).toHaveLength(0);
   });
 
@@ -650,12 +846,11 @@ describe('swap execution characterization', () => {
     eq(EOA)(refund.args[0]);
   });
 
-  it('EXACT_OUT · Nexus · gas-only funding from same-chain COT → handoff funds the wrapper gas swap', async () => {
+  it('EXACT_OUT · Nexus · explicit same-chain COT funds the gas swap directly with no buffered remainder', async () => {
     // The only requirement is destination gas (toTokenAddress == COT, toAmountRaw = 0n — the
     // gas-only sentinel — plus toNativeAmountRaw), funded from USDC already ON the destination
-    // chain. Nothing bridges, so the ONLY way the gas swap's COT can reach the wrapper (taker =
-    // EPH) is the same-chain EOA→wrapper handoff. Regression: the `eoaToEphemeral` gate ignored
-    // `needsGasSwap` and dispatched a bare [approve, swap] the wrapper couldn't pay for.
+    // chain. The explicit destination-only allowlist selects terminal Path A, which funds the
+    // wrapper with the exact direct-swap input and delivers native straight to the EOA.
     const balances: FlatBalance[] = [
       { amount: '1000', chainID: BASE_CHAIN, decimals: 6, symbol: 'USDC', tokenAddress: USDC_BASE, value: 1000, name: 'USD Coin', logo: '' },
     ];
@@ -688,15 +883,14 @@ describe('swap execution characterization', () => {
     // Everything already sits on the destination chain → no bridge.
     expect(middlewareClient.submitRFF).not.toHaveBeenCalled();
 
-    // Single BASE batch with the same Seam-2 handoff shape as the EXACT_IN same-chain spec:
-    // fund EOA→EPH (permit+transferFrom of the selected COT), gas swap (COT→native, taker=EPH,
-    // recv=EOA), then the un-consumed remainder returned to the EOA.
+    // Single BASE batch: fund EOA→EPH with exactly the selected COT input, then execute the direct
+    // gas swap. Path A has no buffers, so there is no unconsumed remainder to return.
     const base = sbcBatchesForChain(middlewareClient, BASE_CHAIN);
     expect(base.length, 'dst SBC batch count').toBe(1);
-    expect(base[0].map((c) => c.fn)).toEqual(['permit', 'transferFrom', 'approve', 'swap', 'transfer']);
+    expect(base[0].map((c) => c.fn)).toEqual(['permit', 'transferFrom', 'approve', 'swap']);
     permitOwnerSpender(EOA, EPH)(base[0][0].args);
     eq(EPH)(base[0][1].args[1]); // transferFrom EOA→EPH
-    const handoff = base[0][1].args[2] as bigint; // buffer-derived (gas budget + dst/src buffers)
+    const funded = base[0][1].args[2] as bigint;
     const swp = base[0][3];
     eq(USDC_BASE)(swp.args[0]); // input = COT
     eq(EADDRESS as Hex)(swp.args[1]); // output = native
@@ -705,11 +899,7 @@ describe('swap execution characterization', () => {
     eq(EPH)(swp.args[4]); // taker = wrapper
     eq(EOA)(swp.args[5]); // receiver = EOA
     expect(base[0][2].args[1]).toBe(swp.args[2]); // approve(router) == swap input
-    expect(handoff).toBeGreaterThanOrEqual(swp.args[2] as bigint); // handoff covers the swap input
-    const leftover = base[0][4];
-    eq(USDC_BASE)(leftover.to); // remainder COT → EOA
-    eq(EOA)(leftover.args[0]);
-    expect(leftover.args[1] as bigint).toBe(handoff - (swp.args[2] as bigint));
+    expect(funded).toBe(swp.args[2]);
   });
 
   it('EXACT_IN · Nexus · 7702 source → non-7702 Safe destination swap (recv=SAFE, direct output)', async () => {
@@ -762,9 +952,10 @@ describe('swap execution characterization', () => {
     eq(USDC_BASE)(dst[0][2].to); // leftover COT transferred to the EOA
   });
 
-  it('EXACT_IN · Nexus · same-chain-as-dst COT → dst swap, no bridge (handoff)', async () => {
-    // COT held on the destination chain itself → no bridge. The COT is handed EOA→wrapper and the
-    // dst swap runs locally. Source receiver collapses to the handoff; RFF is never submitted.
+  it('EXACT_IN · Nexus · Path A: all sources on dst chain → direct source swap, no bridge/dst swap', async () => {
+    // Every source already on the destination chain (here COT@Base → WETH@Base) → Path A fires: the
+    // input is swapped input→toToken directly as a SOURCE swap delivered to the EOA. No bridge, no
+    // destination swap, no leftover return (that's a COT-round-trip Seam-2 concern) — one atomic batch.
     const balances: FlatBalance[] = [
       { amount: '1000', chainID: BASE_CHAIN, decimals: 6, symbol: 'USDC', tokenAddress: USDC_BASE, value: 1000, name: 'USD Coin', logo: '' },
     ];
@@ -795,29 +986,24 @@ describe('swap execution characterization', () => {
     // No bridge at all.
     expect(middlewareClient.submitRFF).not.toHaveBeenCalled();
 
-    // Single BASE batch: fund EOA→EPH (handoff of the full local COT), the dst swap (its input the
-    // handoff less the 1bp reclaim deduction), then the tiny remainder returned to the EOA — the same
-    // Seam-2 shape as every other EXACT_IN dst swap.
+    // Single BASE batch — the direct SOURCE swap: fund EOA→EPH, approve router, swap → receiver=EOA.
+    // No trailing leftover transfer (Path A swaps the full holding; there's no COT surplus to return).
     const base = sbcBatchesForChain(middlewareClient, BASE_CHAIN);
     expect(base.length).toBe(1);
-    expect(base[0].map((c) => c.fn)).toEqual(['permit', 'transferFrom', 'approve', 'swap', 'transfer']);
+    expect(base[0].map((c) => c.fn)).toEqual(['permit', 'transferFrom', 'approve', 'swap']);
     permitOwnerSpender(EOA, EPH)(base[0][0].args);
     eq(EPH)(base[0][1].args[1]); // transferFrom EOA→EPH
     const swp = base[0][3];
-    eq(USDC_BASE)(swp.args[0]);
-    eq(WETH)(swp.args[1]);
+    eq(USDC_BASE)(swp.args[0]); // inputToken
+    eq(WETH)(swp.args[1]); // outputToken
     eq(EPH)(swp.args[4]); // taker = wrapper
-    eq(EOA)(swp.args[5]); // receiver = EOA
-    // The handoff moves the full local COT; the swap consumes it less the 1bp margin; approve matches
-    // the swap input; the un-consumed remainder is returned to the EOA.
-    const fundAmt = base[0][1].args[2] as bigint; // transferFrom = full handoff
+    eq(EOA)(swp.args[5]); // receiver = EOA (direct destination)
+    // Path A swaps the FULL holding (no buffer, no reclaim deduction): transferFrom == approve == swap input.
+    const fundAmt = base[0][1].args[2] as bigint;
     const swapInput = swp.args[2] as bigint;
+    expect(swapInput).toBe(fundAmt);
     expect(base[0][2].args[1]).toBe(swapInput); // approve(router) == swap input
-    expect(swapInput).toBeLessThanOrEqual(fundAmt); // input ≤ handoff (1bp deduction)
-    const leftover = base[0][4];
-    eq(USDC_BASE)(leftover.to); // leftover COT → EOA
-    eq(EOA)(leftover.args[0]);
-    expect(leftover.args[1] as bigint).toBe(fundAmt - swapInput); // exactly the remainder
+    expect(swapInput).toBe(1000n * 10n ** 6n); // full 1000 USDC
   });
 
   it('EXACT_IN · Nexus · mixed native + ERC20 sources → COT dst', async () => {
@@ -1735,7 +1921,10 @@ describe('EXACT_OUT coverage expansion', () => {
 
   // ── A · same-chain / no-bridge family ──
 
-  it('A1 · direct COT + token swap on the dst chain → handoff feeds the swap, no bridge', async () => {
+  it('A1 · Path A: COT source on the dst chain swaps directly to the exact toToken amount, no bridge', async () => {
+    // Every source already on the dst chain (COT@Base → WETH@Base) → Path A: one direct SOURCE swap
+    // input→toToken, receiver = EOA. EXACT_OUT selects exactly 0.2 WETH. No bridge, no dst swap, no
+    // leftover-return leg.
     const middlewareClient = makeCharMiddleware({ balances: [usdc(BASE_CHAIN, USDC_BASE, '1000')], provider: 'nexus' });
     const { wallet, sentTxs } = makeRealEoaWallet();
     await flowSwap(
@@ -1747,40 +1936,33 @@ describe('EXACT_OUT coverage expansion', () => {
     expect(middlewareClient.submitRFF).not.toHaveBeenCalled();
     const base = sbcBatchesForChain(middlewareClient, BASE_CHAIN);
     expect(base.length, 'single dst batch').toBe(1);
-    expect(base[0].map((c) => c.fn)).toEqual(['permit', 'transferFrom', 'approve', 'swap', 'transfer']);
+    expect(base[0].map((c) => c.fn)).toEqual(['permit', 'transferFrom', 'approve', 'swap']);
     permitOwnerSpender(EOA, EPH)(base[0][0].args);
-    const handoff = base[0][1].args[2] as bigint; // selected COT (target + buffers)
     const swp = base[0][3];
-    expect(swp.args[2]).toBe(500n * 10n ** 6n); // 0.2 WETH @2500 → 500 USDC input
-    expect(swp.args[3]).toBe(2n * 10n ** 17n); // EXACT_OUT output literal
-    eq(EPH)(swp.args[4]);
-    eq(EOA)(swp.args[5]);
+    eq(USDC_BASE)(swp.args[0]);
+    eq(WETH)(swp.args[1]);
+    eq(EPH)(swp.args[4]); // taker = wrapper
+    eq(EOA)(swp.args[5]); // receiver = EOA (direct destination)
+    expect(swp.args[3]).toBe(2n * 10n ** 17n); // 0.2 WETH out
+    expect(swp.args[2]).toBe(500n * 10n ** 6n); // 0.2 @2500 → 500 USDC in
+    expect(base[0][1].args[2]).toBe(swp.args[2]); // transferFrom funds exactly the swap input
     expect(base[0][2].args[1]).toBe(swp.args[2]); // approve == swap input
-    expect(base[0][4].args[1] as bigint).toBe(handoff - (swp.args[2] as bigint)); // leftover == handoff − consumed
     expect(sentTxs).toHaveLength(0);
   });
 
-  it('A2 · non-COT source swap on the dst chain → wrapper recipient, dst swap, no handoff', async () => {
+  it('A2 · explicit destination-only source fails when its direct pair cannot quote', async () => {
     const middlewareClient = makeCharMiddleware({ balances: [dai(BASE_CHAIN, '1000')], provider: 'nexus' });
     const { wallet } = makeRealEoaWallet();
-    await flowSwap(
-      { mode: SwapMode.EXACT_OUT as const, data: { sources: [{ chainId: BASE_CHAIN, tokenAddress: SOURCE_DAI }], toChainId: BASE_CHAIN, toTokenAddress: WETH, toAmountRaw: 2n * 10n ** 17n } },
-      deps(middlewareClient, wallet),
-      allow
-    );
+    await expect(
+      flowSwap(
+        { mode: SwapMode.EXACT_OUT as const, data: { sources: [{ chainId: BASE_CHAIN, tokenAddress: SOURCE_DAI }], toChainId: BASE_CHAIN, toTokenAddress: WETH, toAmountRaw: 2n * 10n ** 17n } },
+        deps(middlewareClient, wallet),
+        allow
+      )
+    ).rejects.toThrow('Direct destination EXACT_OUT: token selection cannot cover');
 
     expect(middlewareClient.submitRFF).not.toHaveBeenCalled();
-    const base = sbcBatchesForChain(middlewareClient, BASE_CHAIN);
-    expect(base.length, 'source-swap batch + dst batch').toBe(2);
-    // Source swap: DAI funded EOA→EPH, output COT stays at the wrapper (destinationHasSwap).
-    expect(base[0].map((c) => c.fn)).toEqual(['permit', 'transferFrom', 'approve', 'swap']);
-    eq(SOURCE_DAI)(base[0][3].args[0]);
-    eq(USDC_BASE)(base[0][3].args[1]);
-    eq(EPH)(base[0][3].args[5]); // recipient = wrapper (a dst swap follows)
-    // Dst swap consumes the swap-produced COT — no handoff leg (no direct COT was selected).
-    expect(base[1].map((c) => c.fn)).toEqual(['approve', 'swap', 'transfer']);
-    expect(base[1][1].args[3]).toBe(2n * 10n ** 17n);
-    eq(EOA)(base[1][1].args[5]);
+    expect(sbcBatchesForChain(middlewareClient, BASE_CHAIN)).toEqual([]);
   });
 
   it('A3 · same-chain source → COT delivery (no dst swap) → source swap delivers straight to the EOA', async () => {
@@ -1802,7 +1984,7 @@ describe('EXACT_OUT coverage expansion', () => {
     expect(swp.args[3] as bigint, 'delivers at least the requested amount').toBeGreaterThanOrEqual(500n * 10n ** 6n);
   });
 
-  it('A4 · gas-only same-chain COT on a non-7702 Safe destination → handoff targets the SAFE', async () => {
+  it('A4 · explicit gas-only same-chain COT funds the non-7702 Safe directly', async () => {
     const chainList = makeCharChainList({ non7702: [BASE_CHAIN] });
     const middlewareClient = makeCharMiddleware({ balances: [usdc(BASE_CHAIN, USDC_BASE, '1000')], provider: 'nexus' });
     const { wallet } = makeRealEoaWallet();
@@ -1815,12 +1997,13 @@ describe('EXACT_OUT coverage expansion', () => {
     expect(middlewareClient.submitRFF).not.toHaveBeenCalled();
     const dst = safeBatchesForChain(middlewareClient, BASE_CHAIN);
     expect(dst.length, 'single Safe batch').toBe(1);
-    expect(dst[0].map((c) => c.fn)).toEqual(['permit', 'transferFrom', 'approve', 'swap', 'transfer']);
+    expect(dst[0].map((c) => c.fn)).toEqual(['permit', 'transferFrom', 'approve', 'swap']);
     permitOwnerSpender(EOA, PREDICTED_SAFE)(dst[0][0].args); // funding targets the Safe wrapper
     eq(PREDICTED_SAFE)(dst[0][1].args[1]);
     const swp = dst[0][3];
     eq(EADDRESS as Hex)(swp.args[1]);
     expect(swp.args[2]).toBe(25n * 10n ** 6n);
+    expect(dst[0][1].args[2]).toBe(swp.args[2]);
     eq(PREDICTED_SAFE)(swp.args[4]); // taker = Safe
     eq(EOA)(swp.args[5]);
   });
@@ -1854,6 +2037,64 @@ describe('EXACT_OUT coverage expansion', () => {
     const delivered = BigInt(rffRequest(middlewareClient).destinations[0].value);
     expect(base[0][4].args[1] as bigint).toBe(delivered + handoff - 500n * 10n ** 6n);
     expect(bridged, 'bridge covers target − local COT').toBeGreaterThan(0n);
+  });
+
+  it('A6 · Path A (+token, +gas): the two-pass carry delivers toToken AND native gas in one bridge-less batch', async () => {
+    // Every source on the dst chain, toToken ≠ COT, plus a native gas request (the swapAndExecute
+    // sentinel). Path A runs TWO exact passes over the single USDC holding: token (USDC→WETH, 0.2)
+    // then gas over the REMAINDER (USDC→native, 0.01).
+    // Both legs land in ONE atomic BASE batch, each delivering straight to the EOA — no bridge, no RFF,
+    // no dst swap. This is the multi-output-token sibling of A1 (which has no gas leg).
+    const middlewareClient = makeCharMiddleware({ balances: [usdc(BASE_CHAIN, USDC_BASE, '1000')], provider: 'nexus' });
+    const { wallet, sentTxs } = makeRealEoaWallet();
+    await flowSwap(
+      { mode: SwapMode.EXACT_OUT as const, data: { sources: [{ chainId: BASE_CHAIN, tokenAddress: USDC_BASE }], toChainId: BASE_CHAIN, toTokenAddress: WETH, toAmountRaw: 2n * 10n ** 17n, toNativeAmountRaw: 1n * 10n ** 16n } },
+      deps(middlewareClient, wallet),
+      allow
+    );
+
+    expect(middlewareClient.submitRFF).not.toHaveBeenCalled();
+    const base = sbcBatchesForChain(middlewareClient, BASE_CHAIN);
+    expect(base.length, 'single atomic dst batch').toBe(1);
+    expect(base[0].map((call) => call.fn)).toEqual([
+      'permit',
+      'transferFrom',
+      'approve',
+      'swap',
+      'approve',
+      'swap',
+    ]);
+    permitOwnerSpender(EOA, EPH)(base[0][0].args);
+    eq(USDC_BASE)(base[0][1].to);
+    eq(EOA)(base[0][1].args[0]);
+    eq(EPH)(base[0][1].args[1]);
+    expect(base[0][1].args[2]).toBe(525n * 10n ** 6n);
+    const swaps = base[0].filter((c) => c.fn === 'swap');
+    expect(swaps.length, 'two-pass → one token swap + one gas swap').toBe(2);
+
+    const tokenSwap = swaps.find((c) => (c.args[1] as Hex).toLowerCase() === WETH.toLowerCase());
+    const gasSwap = swaps.find((c) => (c.args[1] as Hex).toLowerCase() === (EADDRESS as Hex).toLowerCase());
+    expect(tokenSwap, 'toToken leg present').toBeDefined();
+    expect(gasSwap, 'native gas leg present').toBeDefined();
+
+    // Token leg: USDC→WETH exact output, taker = wrapper, receiver = EOA.
+    eq(USDC_BASE)(tokenSwap!.args[0]);
+    eq(EPH)(tokenSwap!.args[4]);
+    eq(EOA)(tokenSwap!.args[5]);
+    expect(tokenSwap!.args[3]).toBe(2n * 10n ** 17n); // 0.2 WETH out
+    expect(tokenSwap!.args[2]).toBe(500n * 10n ** 6n); // 500 USDC in (0.2 @ 2500)
+
+    // Gas leg: USDC→native exact output, receiver = EOA. Its input is drawn from what the token pass
+    // left behind — the remainder-carry.
+    eq(USDC_BASE)(gasSwap!.args[0]);
+    eq(EPH)(gasSwap!.args[4]);
+    eq(EOA)(gasSwap!.args[5]);
+    expect(gasSwap!.args[3]).toBe(1n * 10n ** 16n); // 0.01 ETH out
+    expect(gasSwap!.args[2]).toBe(25n * 10n ** 6n); // 25 USDC in (0.01 @ 2500)
+
+    // Both legs pull USDC; the combined input fits inside the single 1000 USDC holding (remainder-carry).
+    expect((tokenSwap!.args[2] as bigint) + (gasSwap!.args[2] as bigint)).toBe(525n * 10n ** 6n);
+    expect(sentTxs).toHaveLength(0); // ERC20 input → ephemeral SBC, no EOA native send
   });
 
   // ── B · gas-only with a bridged source ──
@@ -2097,8 +2338,9 @@ describe('EXACT_OUT coverage expansion', () => {
       allow
     );
 
-    // EXACT_OUT never same-token-bridges: the ETH is liquidated to COT (EOA-signed swap) and the
-    // bridged token is ERC-20 USDC → an approve-only Mayan leg; no depositMayan{value}, no report.
+    // Cross-family EXACT_OUT (ETH source → USDC dst) can't same-token-bridge, so the ETH is liquidated
+    // to COT (EOA-signed swap) and the bridged token is ERC-20 USDC → an approve-only Mayan leg; no
+    // depositMayan{value}, no report. (B1 only fires when source family == destination family.)
     expect(sentTxs).toHaveLength(1);
     const eoaTx = decodeEoaTx(sentTxs[0].raw);
     expect(eoaTx.calls.map((c) => c.fn)).toEqual(['swap']);
@@ -2112,7 +2354,9 @@ describe('EXACT_OUT coverage expansion', () => {
     expect(BigInt(rffRequest(middlewareClient).sources[0].value)).toBe(eoaTx.calls[0].args[3] as bigint);
   });
 
-  it('M4 · forceMayan + everything on the dst chain → bridge=null, plain local swap, no RFF', async () => {
+  it('M4 · forceMayan + everything on the dst chain → Path A (bridge=null, direct swap, no RFF)', async () => {
+    // forceMayan is a no-op when there's no bridge: every source is on the dst chain, so Path A fires
+    // and swaps directly (Mayan is a bridge provider, and there is no bridge). Same shape as A1.
     const middlewareClient = makeCharMiddleware({ balances: [usdc(BASE_CHAIN, USDC_BASE, '1000')], provider: 'mayan' });
     const { wallet } = makeRealEoaWallet();
     await flowSwap(
@@ -2124,8 +2368,10 @@ describe('EXACT_OUT coverage expansion', () => {
     expect(middlewareClient.submitRFF).not.toHaveBeenCalled();
     const base = sbcBatchesForChain(middlewareClient, BASE_CHAIN);
     expect(base.length).toBe(1);
-    expect(base[0].map((c) => c.fn)).toEqual(['permit', 'transferFrom', 'approve', 'swap', 'transfer']);
-    expect(base[0][3].args[3]).toBe(2n * 10n ** 17n);
+    expect(base[0].map((c) => c.fn)).toEqual(['permit', 'transferFrom', 'approve', 'swap']);
+    eq(WETH)(base[0][3].args[1]);
+    eq(EOA)(base[0][3].args[5]); // direct source swap → EOA
+    expect(base[0][3].args[3]).toBe(2n * 10n ** 17n); // exact 0.2 WETH
   });
 
   // ── R · destination requote (the drift lever generalizes: it fails the FIRST swap-carrying

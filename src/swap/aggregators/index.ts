@@ -36,7 +36,7 @@ export const aggregatorService = (aggregator: Aggregator): ExternalServiceServic
 export const createAggregators = (mw: MiddlewareAggregatorQuoteClient): Aggregator[] => [
   new LiFiAggregator(mw.getLiFiQuote, mw.getLiFiToken),
   new BebopAggregator(mw.getBebopQuote),
-  new FibrousAggregator(mw.getFibrousQuote),
+  new FibrousAggregator(mw.getFibrousQuote, mw.getFibrousRoute),
   new ZeroExAggregator(mw.getZeroExPrice, mw.getZeroExQuote),
   new MysticAggregator(mw.postMystic, mw.getMysticToken),
   new RelayAggregator(mw.getRelayQuote),
@@ -162,16 +162,16 @@ export const aggregateAggregators = async (
           failed = true;
         }
         // Per-adapter wall time — the primary "which aggregator is slow" signal.
-        logger.debug('swap:timing', {
+        logger.debug('swap.route.aggregator.quote_round.completed', {
           op: 'aggregator.getQuotes',
           aggregator: aggregatorService(agg),
-          requests: reqIdxs.length,
+          requestCount: reqIdxs.length,
           quoted,
           failed,
           chainIds: [...new Set(reqIdxs.map((reqIdx) => normalized[reqIdx].chainId))],
           types: [...new Set(reqIdxs.map((reqIdx) => normalized[reqIdx].type))],
           seriousness: [...new Set(reqIdxs.map((reqIdx) => normalized[reqIdx].seriousness))],
-          ms: Date.now() - startedAt,
+          durationMs: Date.now() - startedAt,
         });
       })
     );
@@ -190,11 +190,11 @@ export const aggregateAggregators = async (
       : []
   );
   await quoteRound(fallbackSelection);
-  logger.debug('swap:timing', {
+  logger.debug('swap.route.aggregator.aggregate.completed', {
     op: 'aggregate_total',
-    requests: normalized.length,
+    requestCount: normalized.length,
     mode,
-    ms: Date.now() - aggregateStartedAt,
+    durationMs: Date.now() - aggregateStartedAt,
   });
 
   // The selection that supplied each request's quotes — the candidate set for the trace below.
@@ -206,61 +206,61 @@ export const aggregateAggregators = async (
   // (0x has no decimals/symbol/price) from a sibling that quoted the same token.
   return Promise.all(
     normalized.map(async (req, reqIdx) => {
-    let bestQuote: Quote | null = null;
-    let bestAgg: Aggregator = aggregators[0];
-    let bestAggIdx = 0;
+      let bestQuote: Quote | null = null;
+      let bestAgg: Aggregator = aggregators[0];
+      let bestAggIdx = 0;
 
-    for (let aggIdx = 0; aggIdx < aggregators.length; aggIdx++) {
-      const quote = allResults[aggIdx][reqIdx];
-      if (!quote) continue;
+      for (let aggIdx = 0; aggIdx < aggregators.length; aggIdx++) {
+        const quote = allResults[aggIdx][reqIdx];
+        if (!quote) continue;
 
-      const isBetter =
-        !bestQuote ||
-        (mode === AggregateMode.MaximizeOutput
-          ? quote.output.amountRaw > bestQuote.output.amountRaw
-          : quote.input.amountRaw < bestQuote.input.amountRaw);
+        const isBetter =
+          !bestQuote ||
+          (mode === AggregateMode.MaximizeOutput
+            ? quote.output.amountRaw > bestQuote.output.amountRaw
+            : quote.input.amountRaw < bestQuote.input.amountRaw);
 
-      if (isBetter) {
-        bestQuote = quote;
-        bestAgg = aggregators[aggIdx];
-        bestAggIdx = aggIdx;
+        if (isBetter) {
+          bestQuote = quote;
+          bestAgg = aggregators[aggIdx];
+          bestAggIdx = aggIdx;
+        }
       }
-    }
 
-    const quote = bestQuote
-      ? await enrichWinner(bestQuote, bestAgg, allResults, reqIdx, bestAggIdx, aggregators, req)
-      : null;
+      const quote = bestQuote
+        ? await enrichWinner(bestQuote, bestAgg, allResults, reqIdx, bestAggIdx, aggregators, req)
+        : null;
 
-    // Per-request selection trace (debug only): every candidate's metric + the winner, so a
-    // surprising route can be diffed against what each aggregator actually offered.
-    logger.debug('swap:aggregator-selection', {
-      chainId: req.chainId,
-      type: req.type,
-      inputToken: req.inputToken,
-      outputToken: req.outputToken,
-      mode,
-      metric: mode === AggregateMode.MaximizeOutput ? 'output.amountRaw' : 'input.amountRaw',
-      candidates: selectedPerRequest[reqIdx].map((aggIdx) => {
-        const candidate = allResults[aggIdx][reqIdx];
-        return {
-          aggregator: aggregatorService(aggregators[aggIdx]),
-          output: candidate ? candidate.output.amountRaw.toString() : null,
-          input: candidate ? candidate.input.amountRaw.toString() : null,
-        };
-      }),
-      selected: bestQuote
-        ? {
-            aggregator: aggregatorService(bestAgg),
-            output: bestQuote.output.amountRaw.toString(),
-            input: bestQuote.input.amountRaw.toString(),
-            // 0x/Mystic can win on amount yet be dropped only if neither a sibling nor the
-            // token-info provider supplied decimals (§7 backfill/enrich).
-            droppedNoSibling: quote === null,
-          }
-        : null,
-    });
+      // Per-request selection trace (debug only): every candidate's metric + the winner, so a
+      // surprising route can be diffed against what each aggregator actually offered.
+      logger.debug('swap.route.aggregator.selection.completed', {
+        chainId: req.chainId,
+        type: req.type,
+        inputToken: req.inputToken,
+        outputToken: req.outputToken,
+        mode,
+        metric: mode === AggregateMode.MaximizeOutput ? 'output.amountRaw' : 'input.amountRaw',
+        candidates: selectedPerRequest[reqIdx].map((aggIdx) => {
+          const candidate = allResults[aggIdx][reqIdx];
+          return {
+            aggregator: aggregatorService(aggregators[aggIdx]),
+            outputAmountRaw: candidate ? candidate.output.amountRaw.toString() : null,
+            inputAmountRaw: candidate ? candidate.input.amountRaw.toString() : null,
+          };
+        }),
+        selected: bestQuote
+          ? {
+              aggregator: aggregatorService(bestAgg),
+              outputAmountRaw: bestQuote.output.amountRaw.toString(),
+              inputAmountRaw: bestQuote.input.amountRaw.toString(),
+              // 0x/Mystic can win on amount yet be dropped only if neither a sibling nor the
+              // token-info provider supplied decimals (§7 backfill/enrich).
+              droppedNoSibling: quote === null,
+            }
+          : null,
+      });
 
-    return { quote, aggregator: bestAgg };
+      return { quote, aggregator: bestAgg };
     })
   );
 };

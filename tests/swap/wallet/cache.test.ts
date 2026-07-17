@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { SwapCache } from '../../../src/swap/wallet/cache';
-import type { Hex } from 'viem';
+import { getAddress, type Hex } from 'viem';
 import { EADDRESS, CALIBUR_ADDRESS } from '../../../src/swap/constants';
 import { PermitVariant } from '../../../src/domain/permits';
 import type { ChainListType, TokenInfo } from '../../../src/domain';
@@ -83,6 +83,32 @@ describe('SwapCache', () => {
 
     const allowance = cache.getAllowance(MOCK_TOKEN, MOCK_OWNER, MOCK_SPENDER, CHAIN_ID);
     expect(allowance).toBe(1000000n);
+  });
+
+  it('matches allowance, permit, and code entries across address casing', async () => {
+    cache.addAllowanceQuery(MOCK_TOKEN, MOCK_OWNER, MOCK_SPENDER, CHAIN_ID);
+    cache.addPermitQuery(MOCK_TOKEN, CHAIN_ID);
+    cache.addSetCodeQuery(MOCK_ADDRESS, CHAIN_ID);
+
+    await cache.process({
+      [CHAIN_ID]: makePublicClient({
+        multicallResults: [{ result: 123n, status: 'success' }],
+        code: CALIBUR_DELEGATED_CODE,
+      }),
+    } as unknown as CacheClients);
+
+    expect(
+      cache.getAllowance(
+        getAddress(MOCK_TOKEN),
+        getAddress(MOCK_OWNER),
+        getAddress(MOCK_SPENDER),
+        CHAIN_ID
+      )
+    ).toBe(123n);
+    expect(cache.getPermit(getAddress(MOCK_TOKEN), CHAIN_ID)).toMatchObject({
+      permitVariant: PermitVariant.EIP2612Canonical,
+    });
+    expect(cache.hasAuthCodeSet(getAddress(MOCK_ADDRESS), CHAIN_ID)).toBe(true);
   });
 
   it('hasAuthCodeSet detects 0xef0100 delegation prefix', async () => {

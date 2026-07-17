@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import Decimal from 'decimal.js';
-import { parseUnits, type Hex } from 'viem';
+import { formatUnits, parseUnits, type Hex } from 'viem';
 
 vi.mock('../../src/swap/route', () => ({
   determineSwapRoute: vi.fn(),
@@ -19,6 +19,8 @@ vi.mock('../../src/swap/preflight', () => ({
 }));
 
 import { calculateMaxForSwap } from '../../src/swap/max';
+import { EADDRESS } from '../../src/swap/constants';
+import { ZERO_ADDRESS } from '../../src/domain/constants/addresses';
 import { determineSwapRoute } from '../../src/swap/route';
 import { buildSwapPreflight } from '../../src/swap/preflight';
 import { SwapMode } from '../../src/swap/types';
@@ -66,13 +68,43 @@ const makeQuote = (inputRaw: bigint, outputRaw: bigint): QuoteResponse => ({
   aggregator: {} as Aggregator,
 });
 
+// A minimal source-swap quote whose only load-bearing field for the haircut is `output.value`
+// (the USD basis) — used to exercise the quote-implied-price scaling in the tokenSwap-null branch.
+const makeOutputValueQuote = (
+  outputValue: number,
+  outputRaw: bigint,
+  outputContract: Hex = WETH,
+  outputDecimals = 18
+): QuoteResponse => ({
+  chainID: ARB_CHAIN,
+  quote: {
+    input: { contractAddress: USDC_ARB, amount: '0', amountRaw: 0n, decimals: 6, value: 0, symbol: 'USDC' },
+    output: {
+      contractAddress: outputContract,
+      amount: formatUnits(outputRaw, outputDecimals),
+      amountRaw: outputRaw,
+      decimals: outputDecimals,
+      value: outputValue,
+      symbol: 'X',
+    },
+    txData: {
+      approvalAddress: '0x1111111111111111111111111111111111111111' as Hex,
+      tx: { to: '0x2222222222222222222222222222222222222222' as Hex, data: '0xabcdef' as Hex, value: '0x0' as Hex },
+    },
+  },
+  holding: { chainID: ARB_CHAIN, tokenAddress: USDC_ARB, amountRaw: 0n, decimals: 6, symbol: 'USDC' },
+  aggregator: {} as Aggregator,
+});
+
 const makeRoute = (overrides?: {
   destinationMax?: Decimal;
   tokenSwap?: QuoteResponse | null;
   dstTokenInfo?: TokenInfo;
+  sourceSwaps?: QuoteResponse[];
+  oraclePrices?: SwapRoute['extras']['oraclePrices'];
 }): SwapRoute => ({
   type: SwapMode.EXACT_IN,
-  source: { swaps: [], creationTime: Date.now(), srcBuffer: new Decimal(0) },
+  source: { swaps: overrides?.sourceSwaps ?? [], creationTime: Date.now(), srcBuffer: new Decimal(0) },
   bridge: null,
   destination: {
     chainId: ARB_CHAIN,
@@ -92,8 +124,24 @@ const makeRoute = (overrides?: {
   },
   buffer: { amount: '0' },
   dstTokenInfo: overrides?.dstTokenInfo ?? makeDstTokenInfo(),
-  extras: { aggregators: [], oraclePrices: [], balances: [], assetsUsed: [] },
+  extras: { aggregators: [], oraclePrices: overrides?.oraclePrices ?? [], balances: [], assetsUsed: [] },
   sourceExecutionPaths: new Map(),
+});
+
+// A delivered token that is neither the COT nor $1 — for exercising the unit-correct haircut where
+// `destination.inputAmount.max` is denominated in the destination token, not USDC.
+const TOKEN_X = '0x0000000000000000000000000000000000000abc' as Hex;
+const makeTokenXInfo = (): TokenInfo =>
+  makeDstTokenInfo({ contractAddress: TOKEN_X, decimals: 18, symbol: 'X', name: 'Token X' });
+
+const makeOraclePrice = (chainId: number, tokenAddress: Hex, priceUsd: number) => ({
+  universe: 'EVM' as const,
+  chainId,
+  tokenAddress,
+  tokenSymbol: 'X',
+  tokenDecimals: 18,
+  priceUsd: new Decimal(priceUsd),
+  timestamp: 1,
 });
 
 const makeOptions = (): MaxOptions => ({
@@ -306,5 +354,116 @@ describe('calculateMaxForSwap', () => {
         sources: [{ chainId: ARB_CHAIN, tokenAddress: USDC_ARB }],
       },
     });
+  });
+});
+
+// The `tokenSwap == null` branch delivers whatever `destination.inputAmount.max` is denominated in —
+// USDC in the default COT-dst flow, but the destination token itself on the fast paths (Path A →
+// toToken, same-token bridge → family token). A bare `− $3` corrupts those (3 ETH, not $3), so the
+// haircut is kept in USD space and the floor converted at the delivered token's price. See swap.md §5.
+describe('calculateMaxForSwap — unit-correct haircut (tokenSwap == null)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(buildSwapPreflight).mockResolvedValue(makeSwapPreflight());
+  });
+
+  it('USDC destination stays byte-identical when source swaps are present (usdBasis ≈ delivered)', async () => {
+    // delivered 100 USDC, one source swap that produced ~$100 → usdBasis 100.
+    // haircut = max(3% of 100, $3) = 3 → adjusted = 100 × (100−3)/100 = 97 USDC (== old `100 − 3`).
+    const route = makeRoute({
+      destinationMax: new Decimal('100'),
+      tokenSwap: null,
+      dstTokenInfo: makeDstTokenInfo({ contractAddress: USDC_ARB, decimals: 6, symbol: 'USDC', name: 'USD Coin' }),
+      sourceSwaps: [makeOutputValueQuote(100, 100_000_000n, USDC_ARB, 6)],
+    });
+    vi.mocked(determineSwapRoute).mockResolvedValue(route);
+    const result = await calculateMaxForSwap({ toChainId: ARB_CHAIN, toTokenAddress: USDC_ARB }, makeOptions());
+    expect(result.maxAmountRaw).toBe(97_000_000n);
+  });
+
+  it('scales the $3 floor through the quote-implied price for a non-COT delivered token', async () => {
+    // delivered 1 X; source swaps produced $10 of value → usdBasis 10 (implied $10/X).
+    // haircutUsd = max(10×0.03, 3) = 3 → adjusted = 1 × (10−3)/10 = 0.7 X. NOT 1 − 3 = −2.
+    const route = makeRoute({
+      destinationMax: new Decimal('1'),
+      tokenSwap: null,
+      dstTokenInfo: makeTokenXInfo(),
+      sourceSwaps: [makeOutputValueQuote(10, parseUnits('1', 18), TOKEN_X, 18)],
+    });
+    vi.mocked(determineSwapRoute).mockResolvedValue(route);
+    const result = await calculateMaxForSwap({ toChainId: ARB_CHAIN, toTokenAddress: TOKEN_X }, makeOptions());
+    expect(result.maxAmount).toBe(new Decimal('0.7').toFixed(18));
+    expect(result.maxAmountRaw).toBe(parseUnits('0.7', 18));
+  });
+
+  it('same-token bridge (no source swaps) converts the $3 floor at the oracle price', async () => {
+    // delivered 1 X, no quotes; oracle $10/X → floor 3/10 = 0.3 X; haircut = max(0.03, 0.3) = 0.3
+    // → adjusted 0.7 X. Fixes the pre-existing same-token "subtract 3 ETH" bug.
+    const route = makeRoute({
+      destinationMax: new Decimal('1'),
+      tokenSwap: null,
+      dstTokenInfo: makeTokenXInfo(),
+      sourceSwaps: [],
+      oraclePrices: [makeOraclePrice(ARB_CHAIN, TOKEN_X, 10)],
+    });
+    vi.mocked(determineSwapRoute).mockResolvedValue(route);
+    const result = await calculateMaxForSwap({ toChainId: ARB_CHAIN, toTokenAddress: TOKEN_X }, makeOptions());
+    expect(result.maxAmountRaw).toBe(parseUnits('0.7', 18));
+  });
+
+  it('same-token bridge with a NATIVE dst token hits the oracle floor (EADDRESS normalized to ZERO_ADDRESS)', async () => {
+    // Regression: findOraclePriceUsd was called with EADDRESS, but oracle entries key native as
+    // ZERO_ADDRESS → miss → pct-only. A SMALL amount makes the miss observable (the $3 floor exceeds
+    // the 3% pct): delivered 0.02 ETH, oracle $2500/ETH → floor 3/2500 = 0.0012 > pct 0.0006 →
+    // haircut 0.0012 → adjusted 0.0188 ETH. Buggy pct-only would give 0.0194.
+    const route = makeRoute({
+      destinationMax: new Decimal('0.02'),
+      tokenSwap: null,
+      dstTokenInfo: makeDstTokenInfo({ contractAddress: EADDRESS as Hex, decimals: 18, symbol: 'ETH', name: 'Ether' }),
+      sourceSwaps: [],
+      oraclePrices: [makeOraclePrice(ARB_CHAIN, ZERO_ADDRESS, 2500)],
+    });
+    vi.mocked(determineSwapRoute).mockResolvedValue(route);
+    const result = await calculateMaxForSwap({ toChainId: ARB_CHAIN, toTokenAddress: EADDRESS as Hex }, makeOptions());
+    expect(result.maxAmountRaw).toBe(parseUnits('0.0188', 18));
+  });
+
+  it('falls back to a pct-only haircut when neither quote value nor oracle price is available', async () => {
+    const route = makeRoute({
+      destinationMax: new Decimal('1'),
+      tokenSwap: null,
+      dstTokenInfo: makeTokenXInfo(),
+      sourceSwaps: [],
+      oraclePrices: [],
+    });
+    vi.mocked(determineSwapRoute).mockResolvedValue(route);
+    const result = await calculateMaxForSwap({ toChainId: ARB_CHAIN, toTokenAddress: TOKEN_X }, makeOptions());
+    expect(result.maxAmountRaw).toBe(parseUnits('0.97', 18));
+  });
+
+  it('uses a pct-only haircut when the source quotes carry no USD value (usdBasis ≤ 0)', async () => {
+    const route = makeRoute({
+      destinationMax: new Decimal('1'),
+      tokenSwap: null,
+      dstTokenInfo: makeTokenXInfo(),
+      sourceSwaps: [makeOutputValueQuote(0, parseUnits('1', 18), TOKEN_X, 18)],
+    });
+    vi.mocked(determineSwapRoute).mockResolvedValue(route);
+    const result = await calculateMaxForSwap({ toChainId: ARB_CHAIN, toTokenAddress: TOKEN_X }, makeOptions());
+    expect(result.maxAmountRaw).toBe(parseUnits('0.97', 18));
+  });
+
+  it('clamps the adjusted amount at zero when the haircut exceeds the delivered amount', async () => {
+    // delivered 0.1 X at $1/X → floor $3 = 3 X ≫ 0.1 → adjusted clamps to 0 (never negative).
+    const route = makeRoute({
+      destinationMax: new Decimal('0.1'),
+      tokenSwap: null,
+      dstTokenInfo: makeTokenXInfo(),
+      sourceSwaps: [],
+      oraclePrices: [makeOraclePrice(ARB_CHAIN, TOKEN_X, 1)],
+    });
+    vi.mocked(determineSwapRoute).mockResolvedValue(route);
+    const result = await calculateMaxForSwap({ toChainId: ARB_CHAIN, toTokenAddress: TOKEN_X }, makeOptions());
+    expect(result.maxAmountRaw).toBe(0n);
   });
 });

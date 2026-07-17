@@ -15,6 +15,13 @@ type AllowanceKey = `${Hex}:${Hex}:${Hex}:${number}`; // token:owner:spender:cha
 type SetCodeKey = `${Hex}:${number}`; // address:chainId
 type PermitKey = `${Hex}:${number}`; // token:chainId
 
+const allowanceKey = (token: Hex, owner: Hex, spender: Hex, chainId: number): AllowanceKey =>
+  `${token.toLowerCase()}:${owner.toLowerCase()}:${spender.toLowerCase()}:${chainId}` as AllowanceKey;
+const setCodeKey = (address: Hex, chainId: number): SetCodeKey =>
+  `${address.toLowerCase()}:${chainId}` as SetCodeKey;
+const permitKey = (token: Hex, chainId: number): PermitKey =>
+  `${token.toLowerCase()}:${chainId}` as PermitKey;
+
 type AllowanceQuery = {
   type: 'allowance';
   token: Hex;
@@ -99,14 +106,15 @@ export class SwapCache {
   // ---------------------------------------------------------------------------
 
   async process(clients: PublicClientMap): Promise<void> {
-    logger.debug('swapCache:processStart', {
+    logger.debug('swap.cache.process.started', {
       queuedQueryCount: this.queries.length,
-      clientChainIds: Object.keys(clients).map(Number),
+      chainIds: Object.keys(clients).map(Number),
     });
 
     if (this.queries.length === 0) {
-      logger.debug('swapCache:skip_no_queries', {
-        clientChainIds: Object.keys(clients).map(Number),
+      logger.debug('swap.cache.process.skipped', {
+        reason: 'no_queries',
+        chainIds: Object.keys(clients).map(Number),
       });
       return;
     }
@@ -128,10 +136,11 @@ export class SwapCache {
       [...byChain.entries()].map(async ([chainId, chainQueries]) => {
         const client = clients[chainId];
         if (!client) {
-          logger.debug('swapCache:skip_missing_client', {
+          logger.debug('swap.cache.client.missing', {
             chainId,
-            availableClientChainIds: Object.keys(clients).map(Number),
-            chainQueries,
+            availableChainIds: Object.keys(clients).map(Number),
+            queryCount: chainQueries.length,
+            queryKinds: [...new Set(chainQueries.map((query) => query.type))],
           });
           return;
         }
@@ -149,51 +158,32 @@ export class SwapCache {
           const permitQueries = chainQueries.filter((q): q is PermitQuery => q.type === 'permit');
 
           if (allowanceQueries.length > 0) {
-            const contracts = allowanceQueries.map((q) => {
-              if (q.type === 'allowance') {
-                return {
-                  address: q.token,
-                  abi: erc20Abi,
-                  functionName: 'allowance' as const,
-                  args: [q.owner, q.spender] as const,
-                };
-              }
-              return {
-                address: CALIBUR_ADDRESS,
-                abi: erc20Abi,
-                functionName: 'allowance' as const,
-                args: [q.owner, q.spender] as const,
-              };
-            });
+            const contracts = allowanceQueries.map((q) => ({
+              address: q.token,
+              abi: erc20Abi,
+              functionName: 'allowance' as const,
+              args: [q.owner, q.spender] as const,
+            }));
 
-            logger.debug('swapCache:allowanceQueries', {
+            logger.debug('swap.cache.allowance.query_started', {
               chainId,
-              queries: allowanceQueries.map((q) => ({
-                type: q.type,
-                token: q.token,
-                owner: q.owner,
-                spender: q.spender,
-              })),
-              contracts,
+              queryCount: allowanceQueries.length,
             });
 
             const multicallAddress = this.chainList.getChainByID(chainId).multicallAddress;
             const results = await client.multicall({ multicallAddress, contracts });
 
-            logger.debug('swapCache:allowanceResults', {
+            logger.debug('swap.cache.allowance.query_completed', {
               chainId,
-              results: results.map((r, i) => ({
-                query: allowanceQueries[i],
-                status: r?.status,
-                result: typeof r?.result === 'bigint' ? r.result.toString() : r?.result,
-                error: r && 'error' in r && r.error instanceof Error ? r.error.message : undefined,
-              })),
+              queryCount: allowanceQueries.length,
+              successCount: results.filter((result) => result?.status === 'success').length,
+              failureCount: results.filter((result) => result?.status !== 'success').length,
             });
 
             for (let i = 0; i < allowanceQueries.length; i++) {
               const q = allowanceQueries[i];
               const r = results[i];
-              const key: AllowanceKey = `${q.token}:${q.owner}:${q.spender}:${q.chainId}`;
+              const key = allowanceKey(q.token, q.owner, q.spender, q.chainId);
               this.allowances.set(key, typeof r?.result === 'bigint' ? r.result : 0n);
             }
           }
@@ -220,7 +210,7 @@ export class SwapCache {
                   normalizedCode === CALIBUR_DELEGATED_CODE && typeof allowance === 'bigint'
                     ? allowance
                     : 0n;
-                const key: AllowanceKey = `${EADDRESS as Hex}:${q.address}:${q.spender}:${q.chainId}`;
+                const key = allowanceKey(EADDRESS as Hex, q.address, q.spender, q.chainId);
                 this.allowances.set(key, result);
                 return {
                   address: q.address,
@@ -231,14 +221,10 @@ export class SwapCache {
               })
             );
 
-            logger.debug('swapCache:nativeAllowanceResults', {
+            logger.debug('swap.cache.native_allowance.query_completed', {
               chainId,
-              results: nativeResults.map((result) => ({
-                address: result.address,
-                spender: result.spender,
-                code: result.code,
-                result: result.result.toString(),
-              })),
+              queryCount: nativeAllowanceQueries.length,
+              nonzeroCount: nativeResults.filter((result) => result.result > 0n).length,
             });
           }
 
@@ -251,14 +237,14 @@ export class SwapCache {
             );
 
             for (const result of codeResults) {
-              const key: SetCodeKey = `${result.query.address}:${result.query.chainId}`;
+              const key = setCodeKey(result.query.address, result.query.chainId);
               this.codeResults.set(key, result.code);
             }
           }
 
           await Promise.all(
             permitQueries.map(async (q) => {
-              const key: PermitKey = `${q.token}:${q.chainId}`;
+              const key = permitKey(q.token, q.chainId);
               this.permits.set(
                 key,
                 await getPermitVariantAndVersion({
@@ -286,23 +272,23 @@ export class SwapCache {
   // ---------------------------------------------------------------------------
 
   getAllowance(token: Hex, owner: Hex, spender: Hex, chainId: number): bigint {
-    const key: AllowanceKey = `${token}:${owner}:${spender}:${chainId}`;
+    const key = allowanceKey(token, owner, spender, chainId);
     return this.allowances.get(key) ?? 0n;
   }
 
   hasAuthCodeSet(address: Hex, chainId: number): boolean {
-    const key: SetCodeKey = `${address}:${chainId}`;
+    const key = setCodeKey(address, chainId);
     const code = this.codeResults.get(key);
     return code != null && typeof code === 'string' && code.startsWith('0xef0100');
   }
 
   markAuthCodeSet(address: Hex, chainId: number): void {
-    const key: SetCodeKey = `${address}:${chainId}`;
+    const key = setCodeKey(address, chainId);
     this.codeResults.set(key, CALIBUR_DELEGATED_CODE);
   }
 
   getPermit(token: Hex, chainId: number): PermitDetails | undefined {
-    const key: PermitKey = `${token}:${chainId}`;
+    const key = permitKey(token, chainId);
     return this.permits.get(key);
   }
 }

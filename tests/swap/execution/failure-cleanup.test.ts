@@ -78,10 +78,12 @@ describe('resolveFailureSweepCurrencyId', () => {
     sameTokenBridge: boolean;
     provider?: 'nexus' | 'mayan';
     settlementCurrencyId: number;
+    directDestination?: boolean;
   }) =>
     ({
       sameTokenBridge: over.sameTokenBridge,
       settlementCurrencyId: over.settlementCurrencyId,
+      directDestination: over.directDestination,
       bridge: over.provider ? { provider: over.provider } : null,
     }) as never;
 
@@ -109,11 +111,28 @@ describe('resolveFailureSweepCurrencyId', () => {
     ).toBe(CurrencyID.USDC);
   });
 
+  it('sweeps the dynamic COT (F) for a B2 route settling in a non-USDC family', () => {
+    // B2 re-enters the COT flow with cotCurrencyId = F (USDT), so a failed route strands F, not USDC.
+    expect(
+      resolveFailureSweepCurrencyId(
+        makeRoute({ sameTokenBridge: false, provider: 'nexus', settlementCurrencyId: CurrencyID.USDT })
+      )
+    ).toBe(CurrencyID.USDT);
+  });
+
   it('sweeps the settlement currency when there is no bridge (single-chain swap)', () => {
     expect(
       resolveFailureSweepCurrencyId(
         makeRoute({ sameTokenBridge: false, settlementCurrencyId: CurrencyID.USDC })
       )
     ).toBe(CurrencyID.USDC);
+  });
+
+  it('skips (null) for the direct-destination fast path — one atomic batch, nothing strands', () => {
+    expect(
+      resolveFailureSweepCurrencyId(
+        makeRoute({ sameTokenBridge: false, directDestination: true, settlementCurrencyId: CurrencyID.USDC })
+      )
+    ).toBeNull();
   });
 });

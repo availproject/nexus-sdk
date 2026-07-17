@@ -93,7 +93,7 @@ of that graph is a green assertion here.
 
 Harness lives in [`tests/helpers/swap-characterization.ts`](../../helpers/swap-characterization.ts).
 
-**Scenario matrix (30, all green).** 25 execution scenarios close the full provider × bridge-receiver grid, plus the 5-scenario amount-flow-under-drift block (above):
+**Scenario matrix (61, all green).** 53 execution scenarios close the full provider × bridge-receiver grid (plus the fast-path expansion: Path A, same-token B1/EXACT_OUT, dynamic-COT B2), plus the 8-scenario amount-flow-under-drift block (above):
 
 | bridge receiver | Nexus | Mayan |
 | --- | --- | --- |
@@ -103,14 +103,25 @@ Harness lives in [`tests/helpers/swap-characterization.ts`](../../helpers/swap-c
 
 Across that grid the suite also covers: both modes (EXACT_IN / EXACT_OUT); all source wrappers
 (7702 SBC, Safe MultiSend, native EOA-signed, mixed native+ERC20, mixed 7702+Safe); COT-direct
-fast-path vs swap-sourced (funding-leg present/absent) on **both** wrappers; same-chain-as-dst
-handoff (no bridge); destination ops (COT no-swap, token swap, gas swap, token+gas combined,
-Safe-destination gas swap); and the native same-token `depositMayan{value}` + `reportMayanNativeTx`
-path.
+fast-path vs swap-sourced (funding-leg present/absent) on **both** wrappers; **Path A direct
+destination** (all sources on dst chain → input→toToken source swap, receiver = EOA, no bridge, no
+dst swap; EXACT_OUT also delivers a native gas leg in the same batch via the two-pass carry);
+destination ops (COT no-swap, token swap, gas swap, token+gas combined,
+Safe-destination gas swap); the native same-token `depositMayan{value}` + `reportMayanNativeTx`
+path; the **same-token EXACT_OUT mirror** (B1: USDT→USDT, gross-up split deposits, delivered exact);
+and **dynamic-COT** (B2: all-USDT sources → WETH settle in USDT — no source swaps, USDT deposits +
+bridge, dst swap pulls USDT, EXACT_OUT even sizes the gas swap in USDT).
 
 **Behavioral facts it pins (verify the test before changing these):**
 
 - Gas top-up is **EXACT_OUT-only** — `_exactInRoute` always sets `gasSwap: null`.
+- **Path A** (all sources already on the dst chain, `toToken ≠ COT`) emits ONE atomic batch per
+  chain — `[permit, transferFrom(EOA→wrapper), approve(router), swap(taker=wrapper, receiver=EOA)]`
+  per leg — no bridge (`submitRFF` never called), no destination swap, no leftover return. EXACT_IN
+  swaps the full holding (no buffer, no reclaim deduction); EXACT_OUT selects `toAmount + srcBuffer`
+  and over-delivers the surplus to the EOA, and with a native gas request runs a second pass over the
+  remainder (`toNative`) so ONE batch carries two output tokens — toToken and native
+  gas — both to the EOA (A6).
 - The bridge/vault identity is always the **ephemeral**, even on a non-7702 source (Safe → ephemeral
   transfer, then ephemeral signs the vault permit).
 - **Native participates in provider selection** like any token — `forceMayan` routes a native

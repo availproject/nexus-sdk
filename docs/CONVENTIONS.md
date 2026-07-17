@@ -12,6 +12,7 @@ with `docs/ARCHITECTURE.md`.
 | `src/swap/` | [`src/swap/swap.md`](../src/swap/swap.md) | Swap end-to-end flow: routing & bridge-provider (Nexus/Mayan) selection, source/destination algorithms, aggregators, intent/plan/prepare, and per-stage execution across the ephemeral & Safe wallet paths |
 | `src/bridge/` | [`src/bridge/bridge.md`](../src/bridge/bridge.md) | Bridge end-to-end flow: quoting, the Nexus/Mayan provider seam, intent build, RFF signing, deposits, and fill |
 | `src/domain/errors` | [`src/domain/errors.md`](../src/domain/errors.md) | Error taxonomy: the `NexusError` hierarchy, category/service codes, the boundary-catch pattern, throwing rules, and OTel surfacing |
+| `src/domain/utils/logger` | [`src/domain/utils/logs.md`](../src/domain/utils/logs.md) | Logging levels, searchable message taxonomy, structured payload rules, production safety, and timing/logging responsibilities |
 
 As more modules grow sibling markdown, add a row here and point the relevant section below to it.
 
@@ -47,6 +48,16 @@ Tests:
 - tests live under `tests/`
 - test TypeScript config relaxes unused locals and params
 - Biome allows `any` in tests for mocking, but keep it contained
+
+## Logging
+
+Use `src/domain/utils/logger.ts` for SDK logs. The detailed message taxonomy, payload rules,
+security constraints, and timing guidance live in
+[`src/domain/utils/logs.md`](../src/domain/utils/logs.md); read it before adding or changing a log.
+
+Debug messages must be literal, searchable, and unique to their production call site. Logging must
+not add I/O, mutate state, or create a new failure path. Warning and error messages also feed
+telemetry and should remain stable unless an operational change is intentional.
 
 ## Code Organization
 

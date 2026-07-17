@@ -15,9 +15,9 @@ import {
   QuoteType,
 } from '../aggregators';
 import type { CurrencyID } from '../cot';
-import type { BridgeQuoteResponse } from '../types';
 import { logger } from '../../domain/utils';
 import { convergeExactIn, firstSuccess, timedCandidate, tryExactOutDirect } from './convergence';
+import { filterMayanSourcesByChain } from './mayan-floor';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -34,7 +34,7 @@ type AutoSelectResult = {
   usedCOTs: UsedCOT[];
 };
 
-// A source holding plus its USD value. `value` lets the selector size an initial survey
+// A source holding plus its USD value. `value` lets the selector size an initial quote
 // prefix instead of quoting every non-COT holding upfront — only the priority-ordered
 // prefix whose cumulative value covers `outputRequired × prefixHeadroom` is quoted first;
 // the batch extends to the remaining non-COT holdings only if that prefix under-delivers.
@@ -46,8 +46,6 @@ type AutoSelectInput = {
   aggregators: Aggregator[];
   chainList: ChainListType;
   cotCurrencyId: CurrencyID;
-  dstChainId?: number;
-  bridgeQuoteResponse?: BridgeQuoteResponse | null;
   userAddressByChain: Map<number, `0x${string}`>;
   recipientAddressByChain: Map<number, Hex>;
   // Set when the bridge will go through Mayan: each source chain's aggregate
@@ -83,32 +81,6 @@ export function requireRequestAddresses(
   return { userAddress, recipientAddress };
 }
 
-// Drop chains whose aggregate USD value falls below the Mayan per-leg floor.
-// When `minOutputUsdPerSource` is unset, returns the holdings untouched.
-const filterChainsByMinOutputUsd = (
-  holdings: SourceHolding[],
-  minOutputUsdPerSource: Decimal | undefined
-): { holdings: SourceHolding[]; droppedChains: { chainID: number; valueUsd: Decimal }[] } => {
-  if (!minOutputUsdPerSource) return { holdings, droppedChains: [] };
-
-  const valueByChain = new Map<number, Decimal>();
-  for (const h of holdings) {
-    valueByChain.set(h.chainID, (valueByChain.get(h.chainID) ?? new Decimal(0)).plus(h.value));
-  }
-
-  const droppedChains: { chainID: number; valueUsd: Decimal }[] = [];
-  for (const [chainID, total] of valueByChain) {
-    if (total.lt(minOutputUsdPerSource)) {
-      droppedChains.push({ chainID, valueUsd: total });
-    }
-  }
-  const droppedSet = new Set(droppedChains.map((entry) => entry.chainID));
-  return {
-    holdings: holdings.filter((h) => !droppedSet.has(h.chainID)),
-    droppedChains,
-  };
-};
-
 const throwMayanShortfall = (
   droppedChains: { chainID: number; valueUsd: Decimal }[],
   chainList: ChainListType,
@@ -131,24 +103,6 @@ const throwMayanShortfall = (
   );
 };
 
-function lookupChainCollectionFee(
-  chainId: number,
-  quoteResponse: BridgeQuoteResponse,
-  chainList: ChainListType,
-  cotCurrencyId: CurrencyID
-): Decimal {
-  const cot = chainList.getTokenByCurrencyId(chainId, cotCurrencyId);
-  const match = quoteResponse.sources.find(
-    (source) => source.chainId === chainId && equalFold(source.tokenAddress, cot.contractAddress)
-  );
-  if (!match) {
-    throw Errors.internal(
-      `Quote response missing deposit fee for chain ${chainId} token ${cot.contractAddress}`
-    );
-  }
-  return divDecimals(match.depositFeeToken, cot.decimals);
-}
-
 // ---------------------------------------------------------------------------
 // autoSelectSourcesV2
 // ---------------------------------------------------------------------------
@@ -164,26 +118,32 @@ function lookupChainCollectionFee(
  */
 export const autoSelectSources = async (input: AutoSelectInput): Promise<AutoSelectResult> => {
   const { outputRequired, aggregators, userAddressByChain, recipientAddressByChain } = input;
-  const { holdings, droppedChains } = filterChainsByMinOutputUsd(
-    input.holdings,
-    input.minOutputUsdPerSource
-  );
-  // Bridge collection fees only applied on the legacy EOA-direct funding path. The smart-
-  // account-only model never charges per-source collection fees, so the per-chain fee gating
-  // collapses to "never apply" — feeApplies stays false even when bridgeQuoteResponse is set.
-  const feeApplies = false;
+  const { holdings, droppedChains } = input.minOutputUsdPerSource
+    ? filterMayanSourcesByChain(
+        input.holdings,
+        input.minOutputUsdPerSource,
+        (holding) => new Decimal(holding.value)
+      )
+    : { holdings: input.holdings, droppedChains: [] };
 
   const getRequestAddresses = (chainId: number) =>
     requireRequestAddresses(chainId, userAddressByChain, recipientAddressByChain);
+
+  // The COT each holding is liquidated toward (per-chain). Path A's fixed-destination selection lives
+  // in selectDirectDestinationSwaps, not here.
+  const targetTokenFor = (chainID: number): { contractAddress: Hex; decimals: number } => {
+    const cot = input.chainList.getTokenByCurrencyId(chainID, input.cotCurrencyId);
+    return { contractAddress: cot.contractAddress as Hex, decimals: cot.decimals };
+  };
 
   if (outputRequired.lte(0)) {
     return { quoteResponses: [], usedCOTs: [] };
   }
 
-  // Phase 1: Classify holdings as COT or non-COT
+  // Phase 1: Classify holdings as target-token (identity, used directly) vs swappable
   const items: QueueItem[] = holdings.map((h, idx) => {
-    const cot = input.chainList.getTokenByCurrencyId(h.chainID, input.cotCurrencyId);
-    const isCOT = cot && equalFold(h.tokenAddress, cot.contractAddress);
+    const target = targetTokenFor(h.chainID);
+    const isCOT = equalFold(h.tokenAddress, target.contractAddress);
     const amount = divDecimals(h.amountRaw, h.decimals);
     return { holding: h, idx, isCOT, amount, value: h.value };
   });
@@ -191,32 +151,12 @@ export const autoSelectSources = async (input: AutoSelectInput): Promise<AutoSel
   // Phase 2: Early exit — check if leading COTs cover requirement
   let earlySum = new Decimal(0);
   let allLeadingCOT = true;
-  const earlyFeeSecured = new Map<number, boolean>();
   for (const item of items) {
     if (!item.isCOT) {
       allLeadingCOT = false;
       break;
     }
-    const chainId = item.holding.chainID;
-    let effective = item.amount;
-    if (
-      feeApplies &&
-      chainId !== input.dstChainId &&
-      !earlyFeeSecured.get(chainId) &&
-      input.bridgeQuoteResponse
-    ) {
-      const fee = lookupChainCollectionFee(
-        chainId,
-        input.bridgeQuoteResponse,
-        input.chainList,
-        input.cotCurrencyId
-      );
-      effective = effective.minus(fee);
-      if (effective.gt(0)) {
-        earlyFeeSecured.set(chainId, true);
-      }
-    }
-    earlySum = earlySum.plus(Decimal.max(effective, new Decimal(0)));
+    earlySum = earlySum.plus(Decimal.max(item.amount, new Decimal(0)));
     if (earlySum.gte(outputRequired)) break;
   }
 
@@ -224,32 +164,12 @@ export const autoSelectSources = async (input: AutoSelectInput): Promise<AutoSel
     // Use COTs directly
     const usedCOTs: UsedCOT[] = [];
     let remaining = outputRequired;
-    const collectionFeeSecured = new Map<number, boolean>();
     for (const item of items) {
       if (remaining.lte(0)) break;
-      const chainId = item.holding.chainID;
-      let chainFee = new Decimal(0);
-      const needsFee =
-        feeApplies &&
-        chainId !== input.dstChainId &&
-        !collectionFeeSecured.get(chainId) &&
-        input.bridgeQuoteResponse;
-      if (needsFee && input.bridgeQuoteResponse) {
-        chainFee = lookupChainCollectionFee(
-          chainId,
-          input.bridgeQuoteResponse,
-          input.chainList,
-          input.cotCurrencyId
-        );
-      }
-      const use = Decimal.min(item.amount, remaining.plus(chainFee));
-      const effective = use.minus(chainFee);
-      if (effective.lte(0)) continue;
-      if (needsFee) {
-        collectionFeeSecured.set(chainId, true);
-      }
+      const use = Decimal.min(item.amount, remaining);
+      if (use.lte(0)) continue;
       usedCOTs.push({ holding: item.holding, amountUsed: use, idx: item.idx });
-      remaining = remaining.minus(effective);
+      remaining = remaining.minus(use);
     }
     if (remaining.gt(0) && droppedChains.length > 0 && input.minOutputUsdPerSource) {
       throwMayanShortfall(
@@ -273,15 +193,15 @@ export const autoSelectSources = async (input: AutoSelectInput): Promise<AutoSel
   const quoteBatch = async (batch: QueueItem[]): Promise<void> => {
     if (batch.length === 0) return;
     const requests = batch.map((item) => {
-      const cot = input.chainList.getTokenByCurrencyId(item.holding.chainID, input.cotCurrencyId);
+      const target = targetTokenFor(item.holding.chainID);
       const addresses = getRequestAddresses(item.holding.chainID);
       return {
         userAddress: addresses.userAddress,
         recipientAddress: addresses.recipientAddress,
         chainId: item.holding.chainID,
         inputToken: item.holding.tokenAddress,
-        outputToken: cot.contractAddress,
-        seriousness: QuoteSeriousness.PRICE_SURVEY,
+        outputToken: target.contractAddress,
+        seriousness: QuoteSeriousness.SERIOUS,
         type: QuoteType.EXACT_IN as const,
         inputAmount: item.holding.amountRaw,
       };
@@ -315,39 +235,19 @@ export const autoSelectSources = async (input: AutoSelectInput): Promise<AutoSel
   let remaining = outputRequired;
   const usedCOTs: UsedCOT[] = [];
   const quoteResponses: QuoteResponse[] = [];
-  const collectionFeeSecured = new Map<number, boolean>();
 
   for (const item of items) {
     if (remaining.lte(0)) break;
-    const chainId = item.holding.chainID;
-    let chainFee = new Decimal(0);
-    const needsFee =
-      feeApplies &&
-      chainId !== input.dstChainId &&
-      !collectionFeeSecured.get(chainId) &&
-      input.bridgeQuoteResponse;
-    if (needsFee && input.bridgeQuoteResponse) {
-      chainFee = lookupChainCollectionFee(
-        chainId,
-        input.bridgeQuoteResponse,
-        input.chainList,
-        input.cotCurrencyId
-      );
-    }
 
     if (item.isCOT) {
-      const use = Decimal.min(item.amount, remaining.plus(chainFee));
-      const effective = use.minus(chainFee);
-      if (effective.lte(0)) continue;
-      if (needsFee) {
-        collectionFeeSecured.set(chainId, true);
-      }
+      const use = Decimal.min(item.amount, remaining);
+      if (use.lte(0)) continue;
       usedCOTs.push({ holding: item.holding, amountUsed: use, idx: item.idx });
-      remaining = remaining.minus(effective);
+      remaining = remaining.minus(use);
       continue;
     }
 
-    // Non-COT: use indicative quote. If this holding sits beyond the surveyed prefix, the
+    // Non-COT: use the initial quote. If this holding sits beyond the quoted prefix, the
     // prefix under-delivered — quote every remaining non-COT holding before consuming it.
     if (!quotedIdxs.has(item.idx)) {
       await quoteBatch(nonCOTItems.filter((i) => !quotedIdxs.has(i.idx)));
@@ -356,44 +256,38 @@ export const autoSelectSources = async (input: AutoSelectInput): Promise<AutoSel
     if (!indicative) continue;
 
     const outputAmount = new Decimal(indicative.quote.output.amount);
-    const effective = outputAmount.minus(chainFee);
-    if (effective.lte(0)) continue;
+    if (outputAmount.lte(0)) continue;
 
-    if (needsFee) {
-      collectionFeeSecured.set(chainId, true);
-    }
-
-    if (effective.lte(remaining)) {
-      // Use full holding — indicative quote output covers partially or fully
+    if (outputAmount.lte(remaining)) {
+      // The initial quote is executable, so a fully consumed holding can reuse it directly.
       quoteResponses.push({
         chainID: item.holding.chainID,
         quote: indicative.quote,
         holding: item.holding,
         aggregator: indicative.aggregator,
       });
-      remaining = remaining.minus(effective);
+      remaining = remaining.minus(outputAmount);
     } else {
       // Partial: we need less than full output — convergence loop.
       // For Mayan, lift the target to the per-leg floor so a partial fill
       // never produces a leg that the bridge would later reject. COT is USDC,
       // so $1.10 USD ≈ 1.10 USDC; we treat the floor as a COT-unit value.
-      const naturalTarget = remaining.plus(chainFee);
       const convergenceTarget = input.minOutputUsdPerSource
-        ? Decimal.max(naturalTarget, input.minOutputUsdPerSource.plus(chainFee))
-        : naturalTarget;
+        ? Decimal.max(remaining, input.minOutputUsdPerSource)
+        : remaining;
       const serious = await convergenceQuote(
         item,
         convergenceTarget,
         indicative,
         aggregators,
-        input.chainList,
-        input.cotCurrencyId,
+        targetTokenFor(item.holding.chainID),
+        undefined,
         userAddressByChain,
         recipientAddressByChain
       );
       quoteResponses.push(serious);
       const seriousOutput = new Decimal(serious.quote.output.amount);
-      remaining = remaining.minus(seriousOutput.minus(chainFee));
+      remaining = remaining.minus(seriousOutput);
     }
   }
 
@@ -411,6 +305,124 @@ export const autoSelectSources = async (input: AutoSelectInput): Promise<AutoSel
 };
 
 // ---------------------------------------------------------------------------
+// Path A — direct destination selection
+// ---------------------------------------------------------------------------
+
+export type DirectSelectInput = {
+  holdings: SourceHolding[];
+  // In the target token's units (toToken or native gas), NOT USD.
+  outputRequired: Decimal;
+  target: { contractAddress: Hex; decimals: number };
+  aggregators: Aggregator[];
+  userAddressByChain: Map<number, `0x${string}`>;
+  recipientAddressByChain: Map<number, Hex>;
+  // Caps convergence input growth in the target token's raw units (Path A passes ≈$0.50 via oracle;
+  // absent ⇒ convergenceQuote's default of 0.5 whole output tokens).
+  maxConvergenceExtraRaw?: Decimal;
+};
+
+/**
+ * Path A (direct destination-chain swap) source selection — the standalone twin of autoSelectSources'
+ * COT round-trip. Every holding is selected toward one FIXED target token (the toToken or native gas)
+ * on the dst chain, with none of the bridge machinery (no Mayan floor, collection fees, COT resolution,
+ * or USD-value prefix batching). Holdings already in the target token are used directly (identities); the
+ * rest are quoted input→target via the shared EXACT_OUT-direct vs EXACT_IN convergence race.
+ *
+ * Path A's holdings are dst-chain-only (a handful), so every swappable holding is quoted up front —
+ * there is no value-prefix batching, which would compare USD `value` against a token-denominated target
+ * and mis-batch. Partial coverage returns without throwing; the builder enforces the buffered target
+ * and falls back on a shortfall.
+ */
+export const selectDirectDestinationSwaps = async (
+  input: DirectSelectInput
+): Promise<AutoSelectResult> => {
+  const { outputRequired, target, aggregators, userAddressByChain, recipientAddressByChain } =
+    input;
+  if (outputRequired.lte(0)) return { quoteResponses: [], usedCOTs: [] };
+
+  // Classify: identity (already the target token) vs swappable.
+  const items: QueueItem[] = input.holdings.map((h, idx) => ({
+    holding: h,
+    idx,
+    isCOT: equalFold(h.tokenAddress, target.contractAddress),
+    amount: divDecimals(h.amountRaw, h.decimals),
+    value: h.value,
+  }));
+
+  // Quote every swappable holding up front (no value-prefix batching — see the docblock).
+  const swappable = items.filter((item) => !item.isCOT);
+  const indicativeByIdx = new Map<number, { quote: Quote; aggregator: Aggregator }>();
+  if (swappable.length > 0) {
+    const requests = swappable.map((item) => {
+      const addresses = requireRequestAddresses(
+        item.holding.chainID,
+        userAddressByChain,
+        recipientAddressByChain
+      );
+      return {
+        userAddress: addresses.userAddress,
+        recipientAddress: addresses.recipientAddress,
+        chainId: item.holding.chainID,
+        inputToken: item.holding.tokenAddress,
+        outputToken: target.contractAddress,
+        seriousness: QuoteSeriousness.SERIOUS,
+        type: QuoteType.EXACT_IN as const,
+        inputAmount: item.holding.amountRaw,
+      };
+    });
+    const results = await aggregateAggregators(requests, aggregators, AggregateMode.MaximizeOutput);
+    swappable.forEach((item, i) => {
+      const r = results[i];
+      if (r?.quote) indicativeByIdx.set(item.idx, { quote: r.quote, aggregator: r.aggregator });
+    });
+  }
+
+  // Walk in priority order: identities used directly; swappable consumed full (serious Exact In quote)
+  // or partial (convergence race), until the target is covered.
+  let remaining = outputRequired;
+  const usedCOTs: UsedCOT[] = [];
+  const quoteResponses: QuoteResponse[] = [];
+  for (const item of items) {
+    if (remaining.lte(0)) break;
+    if (item.isCOT) {
+      const use = Decimal.min(item.amount, remaining);
+      if (use.lte(0)) continue;
+      usedCOTs.push({ holding: item.holding, amountUsed: use, idx: item.idx });
+      remaining = remaining.minus(use);
+      continue;
+    }
+    const indicative = indicativeByIdx.get(item.idx);
+    if (!indicative) continue;
+    const outputAmount = new Decimal(indicative.quote.output.amount);
+    if (outputAmount.lte(0)) continue;
+    if (outputAmount.lte(remaining)) {
+      quoteResponses.push({
+        chainID: item.holding.chainID,
+        quote: indicative.quote,
+        holding: item.holding,
+        aggregator: indicative.aggregator,
+      });
+      remaining = remaining.minus(outputAmount);
+    } else {
+      const serious = await convergenceQuote(
+        item,
+        remaining,
+        indicative,
+        aggregators,
+        target,
+        input.maxConvergenceExtraRaw,
+        userAddressByChain,
+        recipientAddressByChain
+      );
+      quoteResponses.push(serious);
+      remaining = remaining.minus(new Decimal(serious.quote.output.amount));
+    }
+  }
+
+  return { quoteResponses, usedCOTs };
+};
+
+// ---------------------------------------------------------------------------
 // Convergence loop for partial non-COT
 // ---------------------------------------------------------------------------
 
@@ -419,13 +431,11 @@ async function convergenceQuote(
   needed: Decimal,
   indicative: { quote: Quote; aggregator: Aggregator },
   aggregators: Aggregator[],
-  chainList: ChainListType,
-  cotCurrencyId: CurrencyID,
+  target: { contractAddress: Hex; decimals: number },
+  maxConvergenceExtraRaw: Decimal | undefined,
   userAddressByChain: Map<number, `0x${string}`>,
   recipientAddressByChain: Map<number, Hex>
 ): Promise<QuoteResponse> {
-  const cot = chainList.getTokenByCurrencyId(item.holding.chainID, cotCurrencyId);
-
   const indicativeInputHuman = new Decimal(indicative.quote.input.amount);
   const indicativeOutputHuman = new Decimal(indicative.quote.output.amount);
 
@@ -447,10 +457,12 @@ async function convergenceQuote(
   );
   const initialInputDecimal = new Decimal(initialInputAmountRaw.toString());
   const holdingBalanceDecimal = new Decimal(item.holding.amountRaw.toString());
-  // Cap the extra input in COT-USD terms, converted back to source-token raw via the
-  // indicative price ratio. Mirrors v1's inputRawForOutputRaw(indicative, 0.5 COT).
-  const cotExtraRaw = new Decimal('0.5').mul(Decimal.pow(10, cot.decimals));
-  const maxExtraInputAmountRaw = cotExtraRaw
+  // Cap the extra input in output-token terms, converted back to source-token raw via the indicative
+  // price ratio. Mirrors v1's inputRawForOutputRaw(indicative, 0.5 COT). Path A can pass a USD-derived
+  // cap (≈$0.50 of the destination token); default is 0.5 whole output tokens.
+  const extraOutputRaw =
+    maxConvergenceExtraRaw ?? new Decimal('0.5').mul(Decimal.pow(10, target.decimals));
+  const maxExtraInputAmountRaw = extraOutputRaw
     .mul(new Decimal(indicative.quote.input.amountRaw.toString()))
     .div(new Decimal(indicative.quote.output.amountRaw.toString()));
   const requiredOutputAmountRaw = BigInt(
@@ -463,7 +475,7 @@ async function convergenceQuote(
       recipientAddress: addresses.recipientAddress,
       chainId: item.holding.chainID,
       inputToken: item.holding.tokenAddress,
-      outputToken: cot.contractAddress,
+      outputToken: target.contractAddress,
       seriousness: QuoteSeriousness.SERIOUS,
       type: QuoteType.EXACT_OUT,
       outputAmount: requiredOutputAmountRaw,
@@ -484,7 +496,7 @@ async function convergenceQuote(
       recipientAddress: addresses.recipientAddress,
       chainId: item.holding.chainID,
       inputToken: item.holding.tokenAddress,
-      outputToken: cot.contractAddress,
+      outputToken: target.contractAddress,
       seriousness: QuoteSeriousness.SERIOUS,
       type: QuoteType.EXACT_IN,
       inputAmount: inputAmountRaw,
@@ -497,12 +509,12 @@ async function convergenceQuote(
     timedCandidate('race.exact_out', raceContext, exactOutPromise),
     timedCandidate('race.convergence', raceContext, convergedPromise),
   ]);
-  logger.debug('swap:timing', {
-    op: 'source_convergence_race',
+  logger.debug('swap.route.source_selection.convergence_race.completed', {
+    operation: 'source_convergence_race',
     chainId: item.holding.chainID,
     tokenAddress: item.holding.tokenAddress,
     hit: winner != null,
-    ms: Date.now() - raceStartedAt,
+    durationMs: Date.now() - raceStartedAt,
   });
 
   if (!winner) {

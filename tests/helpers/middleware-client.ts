@@ -34,6 +34,11 @@ export const makeMiddlewareClient = (
   simulateBundleV2: async () => ({ gas: [] }),
   getLiFiQuote: async () => ({}),
   getBebopQuote: async () => ({}),
+  getFibrousQuote: async () => ({}),
+  getFibrousRoute: async () => ({}),
+  getLiFiTokenPrice: async () => null,
+  getRelayTokenPrice: async () => null,
+  getFibrousTokenPrice: async () => null,
   submitSBCs: async () => [],
   getQuote: async () => ({
     fulfillmentBps: 0,

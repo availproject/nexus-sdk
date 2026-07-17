@@ -5,6 +5,7 @@ import {
   NexusError,
   UserActionError,
   type NexusClient,
+  type SpanProperties,
   type TokenBalance,
   type SwapIntent,
   type BridgeIntent,
@@ -622,6 +623,25 @@ export function useNexusSdk(network: NetworkMode, forceMayan: boolean) {
         network,
         debug: true,
         forceMayan,
+        devTiming: {
+          enabled: true,
+          emitAnalytics: false,
+          emitLogs: false,
+          captureNetworkTiming: true,
+          onSpanComplete: (span: SpanProperties) => {
+            const isSwapSpan =
+              span.operation === "swap" ||
+              span.operation === "swap_and_execute" ||
+              span.operation.startsWith("flow.swap.");
+            if (!isSwapSpan) return;
+
+            console.log(`[swap timing] ${span.operation}`, {
+              durationMs: Number(span.duration.toFixed(2)),
+              success: span.success,
+              tags: span.tags,
+            });
+          },
+        },
       });
 
       console.log(`[nexus] initializing client (${network}, forceMayan=${forceMayan})`);

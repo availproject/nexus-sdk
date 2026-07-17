@@ -1,5 +1,5 @@
 import Decimal from 'decimal.js';
-import { erc20Abi, type Hex } from 'viem';
+import type { Hex } from 'viem';
 import { getLogger } from '../../domain';
 import {
   ERROR_CODES,
@@ -20,6 +20,7 @@ import {
 } from '../../services/sbc';
 import { createSourceSwapStepId } from '../../services/step-ids';
 import { equalFold } from '../../services/strings';
+import { withTimingSpan } from '../../services/timing';
 import { aggregatorService } from '../aggregators';
 import { type QuoteResponse, QuoteSeriousness, QuoteType } from '../aggregators/types';
 import { predictSafeAccountAddress } from '../safe/predict';
@@ -35,18 +36,22 @@ import { chainSupports7702 } from '../wallet/capabilities';
 import { resolvePreparedFundingTransferCalls } from './eoa-to-ephemeral';
 import { getParsedQuote } from './parsed-quote';
 import { dispatchSafeSource } from './safe-dispatch';
+import { readSettlementBalanceRaw } from './settlement-balance';
 
 const logger = getLogger();
 
-type DispatchedSourceChain = {
+export type DispatchedSourceBatch = {
   chainId: number;
   chainName?: string;
-  chainSwaps: QuoteResponse[];
   walletPath: WalletPath;
   explorerBaseUrl?: string;
   submittedTxHash?: Hex;
   submittedExplorerUrl?: string;
   waitForReceipt: () => Promise<Hex>;
+};
+
+type DispatchedSourceChain = DispatchedSourceBatch & {
+  chainSwaps: QuoteResponse[];
 };
 
 type ConfirmedSourceChain = DispatchedSourceChain & {
@@ -132,7 +137,6 @@ const buildSourceCalls = async (
 const buildBridgeAsset = (
   chainId: number,
   chainSwaps: QuoteResponse[],
-  ownerWalletPath: WalletPath,
   cot: SourceChainCOT | undefined,
   // EXACT_IN reclaim: when set, the COT that actually landed at the wrapper (raw), bridged instead
   // of the quote's `minReceived` floor so positive source slippage reaches the destination.
@@ -146,7 +150,6 @@ const buildBridgeAsset = (
 
   // Swap output is always carried as the ephemeral identity for the RFF; the per-chain Safe
   // → ephemeral transfer happens inside the bridge deposit batch, not in this bookkeeping.
-  void ownerWalletPath;
   return {
     chainID: chainId,
     contractAddress: cot?.contractAddress ?? chainSwaps[0].quote.output.contractAddress,
@@ -167,15 +170,12 @@ const readWrapperCotBalanceRaw = async (
   const holder = is7702
     ? ctx.ephemeralWallet.address
     : predictSafeAccountAddress(ctx.ephemeralWallet.address).address;
-  const publicClient = ctx.publicClientList.get(chainId);
-  return isNativeAddress(cotAddress)
-    ? publicClient.getBalance({ address: holder })
-    : publicClient.readContract({
-        address: cotAddress,
-        abi: erc20Abi,
-        functionName: 'balanceOf',
-        args: [holder],
-      });
+  return readSettlementBalanceRaw({
+    chainId,
+    tokenAddress: cotAddress,
+    holderAddress: holder,
+    publicClientList: ctx.publicClientList,
+  });
 };
 
 const sourceSwapStep = (chainId: number) => ({
@@ -183,6 +183,154 @@ const sourceSwapStep = (chainId: number) => ({
   stepType: 'source_swap',
   label: 'Source swap',
 });
+
+type SourceDispatchContext = Pick<
+  ExecutionContext,
+  | 'chainList'
+  | 'sourceExecutionPaths'
+  | 'eoaAddress'
+  | 'eoaWallet'
+  | 'ephemeralWallet'
+  | 'publicClientList'
+  | 'middlewareClient'
+  | 'cache'
+  | 'onProgress'
+>;
+
+export const dispatchSourceChainBatch = async (input: {
+  chainId: number;
+  calls: SBCCall[];
+  nativeValue: bigint;
+  ctx: SourceDispatchContext;
+}): Promise<DispatchedSourceBatch> => {
+  const { chainId, calls, nativeValue, ctx } = input;
+  const walletPath: WalletPath = ctx.sourceExecutionPaths.get(chainId) ?? 'ephemeral';
+  const chain = ctx.chainList.getChainByID(chainId);
+  const publicClient = ctx.publicClientList.get(chainId);
+
+  if (chain && !chainSupports7702(chain)) {
+    ctx.onProgress?.({
+      stepType: 'source_swap',
+      chainId,
+      state: nativeValue > 0n ? 'wallet_prompted' : 'started',
+    });
+    const { txHash } = await dispatchSafeSource({
+      chain,
+      chainId,
+      calls,
+      nativeValue,
+      ephemeralWallet: ctx.ephemeralWallet,
+      eoaWallet: ctx.eoaWallet,
+      eoaAddress: ctx.eoaAddress,
+      publicClient,
+      middleware: ctx.middlewareClient,
+    });
+    const explorerUrl = createExplorerTxURL(txHash, chain.blockExplorers?.default?.url);
+    ctx.onProgress?.({
+      stepType: 'source_swap',
+      chainId,
+      state: 'submitted',
+      txHash,
+      explorerUrl,
+    });
+    return {
+      chainId,
+      chainName: chain.name,
+      walletPath,
+      explorerBaseUrl: chain.blockExplorers?.default?.url,
+      submittedTxHash: txHash,
+      submittedExplorerUrl: explorerUrl,
+      waitForReceipt: () =>
+        confirmStepReceipt(publicClient, txHash, chainId, sourceSwapStep(chainId)),
+    };
+  }
+
+  if (nativeValue > 0n) {
+    const hasDelegatedAuth =
+      ctx.cache?.hasAuthCodeSet(ctx.ephemeralWallet.address, chainId) ?? false;
+    if (!hasDelegatedAuth) {
+      const bootstrapSbcTx = await createSBCTxFromCalls({
+        calls: [],
+        chainID: chainId,
+        ephemeralAddress: ctx.ephemeralWallet.address,
+        ephemeralWallet: ctx.ephemeralWallet,
+        publicClient,
+      });
+      const bootstrapResults = await ctx.middlewareClient.submitSBCs([bootstrapSbcTx]);
+      const bootstrapHash = requireSuccessfulSbcResult(
+        bootstrapResults,
+        chainId,
+        'Native source auth bootstrap'
+      );
+      await confirmStepReceipt(publicClient, bootstrapHash, chainId, sourceSwapStep(chainId));
+      ctx.cache?.markAuthCodeSet?.(ctx.ephemeralWallet.address, chainId);
+    }
+
+    ctx.onProgress?.({ stepType: 'source_swap', chainId, state: 'wallet_prompted' });
+    const tx = await createCaliburExecuteTxFromCalls({
+      calls,
+      chainID: chainId,
+      ephemeralAddress: ctx.ephemeralWallet.address,
+      ephemeralWallet: ctx.ephemeralWallet,
+      value: nativeValue,
+    });
+    await switchChain(ctx.eoaWallet, chain);
+    const txHash = await ctx.eoaWallet.sendTransaction({
+      account: ctx.eoaAddress,
+      to: tx.to,
+      data: tx.data,
+      value: tx.value,
+      chain,
+    });
+    const explorerUrl = createExplorerTxURL(txHash, chain.blockExplorers?.default?.url);
+    ctx.onProgress?.({
+      stepType: 'source_swap',
+      chainId,
+      state: 'submitted',
+      txHash,
+      explorerUrl,
+    });
+    return {
+      chainId,
+      chainName: chain.name,
+      walletPath,
+      explorerBaseUrl: chain.blockExplorers?.default?.url,
+      submittedTxHash: txHash,
+      submittedExplorerUrl: explorerUrl,
+      waitForReceipt: () =>
+        confirmStepReceipt(publicClient, txHash, chainId, sourceSwapStep(chainId)),
+    };
+  }
+
+  ctx.onProgress?.({ stepType: 'source_swap', chainId, state: 'started' });
+  const sbcTx = await createSBCTxFromCalls({
+    calls,
+    chainID: chainId,
+    ephemeralAddress: ctx.ephemeralWallet.address,
+    ephemeralWallet: ctx.ephemeralWallet,
+    publicClient,
+  });
+  const results = await ctx.middlewareClient.submitSBCs([sbcTx]);
+  const txHash = requireSuccessfulSbcResult(results, chainId, 'Source swap SBC submission');
+  const explorerUrl = createExplorerTxURL(txHash, chain.blockExplorers?.default?.url);
+  ctx.onProgress?.({
+    stepType: 'source_swap',
+    chainId,
+    state: 'submitted',
+    txHash,
+    explorerUrl,
+  });
+  return {
+    chainId,
+    chainName: chain.name,
+    walletPath,
+    explorerBaseUrl: chain.blockExplorers?.default?.url,
+    submittedTxHash: txHash,
+    submittedExplorerUrl: explorerUrl,
+    waitForReceipt: () =>
+      confirmStepReceipt(publicClient, txHash, chainId, sourceSwapStep(chainId)),
+  };
+};
 
 // Re-quote source legs that reverted. For EXACT_OUT (`srcBuffer` non-null, COT units sizing
 // `min(SRC_BUFFER_PCT, SRC_BUFFER_MAX_USD)` of the destination-buffered input) the combined
@@ -205,14 +353,6 @@ const requoteFailedChains = async (
       ? predictSafeAccountAddress(ctx.ephemeralWallet.address).address
       : ctx.ephemeralWallet.address;
   };
-  let oldTotalOutput = new Decimal(0);
-  for (const { chainSwaps } of failedChains) {
-    for (const swap of chainSwaps) {
-      oldTotalOutput = oldTotalOutput.add(
-        divDecimals(swap.quote.output.amountRaw, swap.quote.output.decimals)
-      );
-    }
-  }
 
   const perChainResults = await Promise.all(
     failedChains.map(async ({ chainId, chainSwaps }) => {
@@ -267,29 +407,37 @@ const requoteFailedChains = async (
   // EXACT_IN (null buffer): accept the re-quote unconditionally — no pooled drift check.
   if (srcBuffer === null) return perChainResults;
 
-  let newTotalOutput = new Decimal(0);
-  for (const [, requoted] of perChainResults) {
-    for (const swap of requoted) {
-      newTotalOutput = newTotalOutput.add(
-        divDecimals(swap.quote.output.amountRaw, swap.quote.output.decimals)
-      );
+  // All routes that reach this executor liquidate into one settlement currency. Path A's tagged
+  // token/gas legs use the direct-destination executor and never reach this pooled drift check.
+  const sumOutputs = (groups: Iterable<QuoteResponse[]>): Decimal => {
+    let total = new Decimal(0);
+    for (const swaps of groups) {
+      for (const swap of swaps) {
+        total = total.add(
+          divDecimals(swap.quote.output.amountRaw, swap.quote.output.decimals)
+        );
+      }
     }
-  }
+    return total;
+  };
 
-  const minAcceptable = oldTotalOutput.minus(srcBuffer);
-  logger.debug('requoteFailedChains:bufferCheck', {
-    oldTotalOutput: oldTotalOutput.toFixed(),
-    newTotalOutput: newTotalOutput.toFixed(),
-    srcBuffer: srcBuffer.toFixed(),
+  const oldTotal = sumOutputs(failedChains.map((chain) => chain.chainSwaps));
+  const newTotal = sumOutputs(perChainResults.map(([, requoted]) => requoted));
+  const minAcceptable = oldTotal.minus(srcBuffer);
+  const firstFailedChain = failedChains[0];
+  const firstSwap = firstFailedChain?.chainSwaps[0];
+  const contractAddress = firstSwap?.quote.output.contractAddress;
+  logger.debug('swap.execute.source.requote_buffer.checked', {
+    outputToken: contractAddress,
+    oldTotal: oldTotal.toFixed(),
+    newTotal: newTotal.toFixed(),
+    buffer: srcBuffer.toFixed(),
     minAcceptable: minAcceptable.toFixed(),
   });
-
-  if (newTotalOutput.lt(minAcceptable)) {
-    const firstFailedChain = failedChains[0];
-    const firstSwap = firstFailedChain?.chainSwaps[0];
+  if (newTotal.lt(minAcceptable)) {
     throw new ExternalServiceError(
       ERROR_CODES.EXTERNAL_RATES_DRIFT_EXCEEDED,
-      `Source requote exceeded srcBuffer: dropped from ${oldTotalOutput.toFixed()} to ${newTotalOutput.toFixed()} (buffer ${srcBuffer.toFixed()})`,
+      `Source requote exceeded the drift budget for ${contractAddress}: dropped from ${oldTotal.toFixed()} to ${newTotal.toFixed()} (buffer ${srcBuffer.toFixed()})`,
       {
         context: {
           service: firstSwap ? aggregatorService(firstSwap.aggregator) : 'lifi',
@@ -298,8 +446,9 @@ const requoteFailedChains = async (
           chainId: firstFailedChain?.chainId,
         },
         details: {
-          oldTotalOutput: oldTotalOutput.toFixed(),
-          newTotalOutput: newTotalOutput.toFixed(),
+          outputToken: contractAddress,
+          oldTotalOutput: oldTotal.toFixed(),
+          newTotalOutput: newTotal.toFixed(),
           srcBuffer: srcBuffer.toFixed(),
           minAcceptable: minAcceptable.toFixed(),
           failedChainIds: failedChains.map((f) => f.chainId).join(','),
@@ -346,6 +495,7 @@ export const executeSourceSwaps = async (
     | 'cache'
     | 'preparedExecution'
     | 'onProgress'
+    | 'timing'
     | 'slippage'
   > & { destinationChainId: number },
   metadata: SwapMetadata
@@ -370,7 +520,7 @@ export const executeSourceSwaps = async (
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt < 2 && pendingChains.size > 0; attempt++) {
-    logger.debug('executeSourceSwaps:attempt', {
+    logger.debug('swap.execute.source.attempt.started', {
       attempt,
       chains: [...pendingChains.keys()],
     });
@@ -380,162 +530,29 @@ export const executeSourceSwaps = async (
 
     for (const [chainId, chainSwaps] of pendingEntries) {
       try {
-        const walletPath: WalletPath = ctx.sourceExecutionPaths.get(chainId) ?? 'ephemeral';
-        const chain = ctx.chainList.getChainByID(chainId);
-        const calls = await buildSourceCalls(chainSwaps, ctx, chainId);
-        const nativeValue = calls.reduce((sum, call) => sum + call.value, 0n);
-
-        // Non-7702 chains use the Safe smart-account flow instead of Calibur SBC. Sponsor pays
-        // gas via middleware when there's no native value to carry; otherwise the EOA submits
-        // directly so it can fund the native send.
-        if (chain && !chainSupports7702(chain)) {
-          const publicClient = ctx.publicClientList.get(chainId);
-          ctx.onProgress?.({
-            stepType: 'source_swap',
-            chainId,
-            state: nativeValue > 0n ? 'wallet_prompted' : 'started',
-          });
-          const { txHash } = await dispatchSafeSource({
-            chain,
-            chainId,
-            calls,
-            nativeValue,
-            ephemeralWallet: ctx.ephemeralWallet,
-            eoaWallet: ctx.eoaWallet,
-            eoaAddress: ctx.eoaAddress,
-            publicClient,
-            middleware: ctx.middlewareClient,
-          });
-          const explorerUrl = createExplorerTxURL(txHash, chain?.blockExplorers?.default?.url);
-          ctx.onProgress?.({
-            stepType: 'source_swap',
-            chainId,
-            state: 'submitted',
-            txHash,
-            explorerUrl,
-          });
-          dispatchResults.push({
-            status: 'fulfilled',
-            value: {
-              chainId,
-              chainName: chain?.name,
-              chainSwaps,
-              walletPath,
-              explorerBaseUrl: chain?.blockExplorers?.default?.url,
-              submittedTxHash: txHash,
-              submittedExplorerUrl: explorerUrl,
-              waitForReceipt: () =>
-                confirmStepReceipt(publicClient, txHash, chainId, sourceSwapStep(chainId)),
-            } satisfies DispatchedSourceChain,
-          });
-          continue;
-        }
-
-        const publicClient = ctx.publicClientList.get(chainId);
-        if (nativeValue > 0n) {
-          const hasDelegatedAuth =
-            ctx.cache?.hasAuthCodeSet(ctx.ephemeralWallet.address, chainId) ?? false;
-          if (!hasDelegatedAuth) {
-            const bootstrapSbcTx = await createSBCTxFromCalls({
-              calls: [],
-              chainID: chainId,
-              ephemeralAddress: ctx.ephemeralWallet.address,
-              ephemeralWallet: ctx.ephemeralWallet,
-              publicClient,
-            });
-            const bootstrapResults = await ctx.middlewareClient.submitSBCs([bootstrapSbcTx]);
-            const bootstrapHash = requireSuccessfulSbcResult(
-              bootstrapResults,
-              chainId,
-              'Native source auth bootstrap'
-            );
-            await confirmStepReceipt(publicClient, bootstrapHash, chainId, sourceSwapStep(chainId));
-            ctx.cache?.markAuthCodeSet?.(ctx.ephemeralWallet.address, chainId);
+        const walletPath = ctx.sourceExecutionPaths.get(chainId) ?? 'ephemeral';
+        const calls = await withTimingSpan(
+          ctx.timing,
+          'flow.swap.execute.source.build_calls',
+          async () => buildSourceCalls(chainSwaps, ctx, chainId),
+          {
+            tags: {
+              attempt,
+              wallet_path: walletPath,
+              source_leg_count: chainSwaps.length,
+            },
           }
-
-          ctx.onProgress?.({
-            stepType: 'source_swap',
-            chainId,
-            state: 'wallet_prompted',
-          });
-          const tx = await createCaliburExecuteTxFromCalls({
-            calls,
-            chainID: chainId,
-            ephemeralAddress: ctx.ephemeralWallet.address,
-            ephemeralWallet: ctx.ephemeralWallet,
-            value: nativeValue,
-          });
-          await switchChain(ctx.eoaWallet, chain);
-          const txHash = await ctx.eoaWallet.sendTransaction({
-            account: ctx.eoaAddress,
-            to: tx.to,
-            data: tx.data,
-            value: tx.value,
-            chain,
-          });
-          const explorerUrl = createExplorerTxURL(txHash, chain?.blockExplorers?.default?.url);
-          ctx.onProgress?.({
-            stepType: 'source_swap',
-            chainId,
-            state: 'submitted',
-            txHash,
-            explorerUrl,
-          });
-
-          dispatchResults.push({
-            status: 'fulfilled',
-            value: {
-              chainId,
-              chainName: chain?.name,
-              chainSwaps,
-              walletPath,
-              explorerBaseUrl: chain?.blockExplorers?.default?.url,
-              submittedTxHash: txHash,
-              submittedExplorerUrl: explorerUrl,
-              waitForReceipt: () =>
-                confirmStepReceipt(publicClient, txHash, chainId, sourceSwapStep(chainId)),
-            } satisfies DispatchedSourceChain,
-          });
-          continue;
-        }
-
-        ctx.onProgress?.({
-          stepType: 'source_swap',
-          chainId,
-          state: 'started',
-        });
-        const sbcTx = await createSBCTxFromCalls({
-          calls,
-          chainID: chainId,
-          ephemeralAddress: ctx.ephemeralWallet.address,
-          ephemeralWallet: ctx.ephemeralWallet,
-          publicClient,
-        });
-
-        const results = await ctx.middlewareClient.submitSBCs([sbcTx]);
-        const txHash = requireSuccessfulSbcResult(results, chainId, 'Source swap SBC submission');
-        const explorerUrl = createExplorerTxURL(txHash, chain?.blockExplorers?.default?.url);
-        ctx.onProgress?.({
-          stepType: 'source_swap',
-          chainId,
-          state: 'submitted',
-          txHash,
-          explorerUrl,
-        });
-
+        );
+        const nativeValue = calls.reduce((sum, call) => sum + call.value, 0n);
+        const dispatched = await withTimingSpan(
+          ctx.timing,
+          'flow.swap.execute.source.dispatch',
+          async () => dispatchSourceChainBatch({ chainId, calls, nativeValue, ctx }),
+          { tags: { attempt, wallet_path: walletPath } }
+        );
         dispatchResults.push({
           status: 'fulfilled',
-          value: {
-            chainId,
-            chainName: chain?.name,
-            chainSwaps,
-            walletPath,
-            explorerBaseUrl: chain?.blockExplorers?.default?.url,
-            submittedTxHash: txHash,
-            submittedExplorerUrl: explorerUrl,
-            waitForReceipt: () =>
-              confirmStepReceipt(publicClient, txHash, chainId, sourceSwapStep(chainId)),
-          } satisfies DispatchedSourceChain,
+          value: { ...dispatched, chainSwaps },
         });
       } catch (error) {
         dispatchResults.push({
@@ -561,11 +578,17 @@ export const executeSourceSwaps = async (
       });
     });
 
-    const receiptResults = await Promise.allSettled(
-      dispatchedChains.map(async (entry) => ({
-        ...entry,
-        txHash: await entry.waitForReceipt(),
-      }))
+    const receiptResults = await withTimingSpan(
+      ctx.timing,
+      'flow.swap.execute.source.wait_receipt',
+      async () =>
+        Promise.allSettled(
+          dispatchedChains.map(async (entry) => ({
+            ...entry,
+            txHash: await entry.waitForReceipt(),
+          }))
+        ),
+      { tags: { attempt, source_chain_count: dispatchedChains.length } }
     );
 
     receiptResults.forEach((result, index) => {
@@ -617,10 +640,16 @@ export const executeSourceSwaps = async (
     lastError = failedChains[0].error;
 
     if (attempt === 0) {
-      const requoted = await requoteFailedChains(
-        failedChains.map(({ chainId, chainSwaps }) => ({ chainId, chainSwaps })),
-        source.srcBuffer,
-        ctx
+      const requoted = await withTimingSpan(
+        ctx.timing,
+        'flow.swap.execute.source.requote',
+        async () =>
+          requoteFailedChains(
+            failedChains.map(({ chainId, chainSwaps }) => ({ chainId, chainSwaps })),
+            source.srcBuffer,
+            ctx
+          ),
+        { tags: { attempt, source_chain_count: failedChains.length } }
       );
       pendingChains = new Map(requoted);
       continue;
@@ -705,25 +734,29 @@ export const executeSourceSwaps = async (
       let overrideBalanceRaw: bigint | undefined;
       if (source.reclaimFromActualBalance) {
         try {
-          overrideBalanceRaw = await readWrapperCotBalanceRaw(
-            entry.chainId,
-            cot?.contractAddress ?? entry.chainSwaps[0].quote.output.contractAddress,
-            ctx
+          overrideBalanceRaw = await withTimingSpan(
+            ctx.timing,
+            'flow.swap.execute.source.read_actual_balance',
+            async () =>
+              readWrapperCotBalanceRaw(
+                entry.chainId,
+                cot?.contractAddress ?? entry.chainSwaps[0].quote.output.contractAddress,
+                ctx
+              ),
+            {
+              tags: {
+                wallet_path: ctx.sourceExecutionPaths.get(entry.chainId) ?? 'ephemeral',
+              },
+            }
           );
         } catch (error) {
-          logger.debug('executeSourceSwaps:reclaim_skipped', {
+          logger.debug('swap.execute.source.actual_balance.skipped', {
             chainId: entry.chainId,
             error: error instanceof Error ? error.message : String(error),
           });
         }
       }
-      return buildBridgeAsset(
-        entry.chainId,
-        entry.chainSwaps,
-        'ephemeral',
-        cot,
-        overrideBalanceRaw
-      );
+      return buildBridgeAsset(entry.chainId, entry.chainSwaps, cot, overrideBalanceRaw);
     })
   );
 };

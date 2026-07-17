@@ -1,6 +1,7 @@
 import Decimal from 'decimal.js';
 import { describe, expect, it } from 'vitest';
 import {
+  B2_STABLE_CURRENCY_IDS,
   DST_BUFFER_MAX_USD,
   DST_BUFFER_PCT,
   DST_RECLAIM_DEDUCTION_PCT,
@@ -13,6 +14,7 @@ import {
   SRC_BUFFER_MAX_USD,
   SRC_BUFFER_PCT,
 } from '../../src/swap/constants';
+import { CurrencyID } from '../../src/swap/cot';
 import {
   MAX_CONVERGENCE_EXTRA_COT,
   MAX_CONVERGENCE_ITERATIONS,
@@ -45,8 +47,8 @@ describe('swap economic constants', () => {
     expect(MAX_SWAP_HAIRCUT_MIN_USDC).toBe(3);
   });
 
-  it('convergence: ×1.002 safety, +0.5 COT input cap, ≤10 iterations', () => {
-    expect(SAFETY_MULTIPLIER.eq(new Decimal('1.002'))).toBe(true);
+  it('convergence: ×1.005 safety, +0.5 COT input cap, ≤10 iterations', () => {
+    expect(SAFETY_MULTIPLIER.eq(new Decimal('1.005'))).toBe(true);
     expect(MAX_CONVERGENCE_EXTRA_COT.eq(new Decimal('0.5'))).toBe(true);
     expect(MAX_CONVERGENCE_ITERATIONS).toBe(10);
   });
@@ -56,5 +58,10 @@ describe('swap economic constants', () => {
     expect(GAS_TO_COT_BUFFER).toBe(1.02);
     expect(MAX_RETRIES).toBe(2);
     expect(SBC_DEADLINE_MINUTES).toBe(15n);
+  });
+
+  it('B2 dynamic COT is stables-only (USDC + USDT) — ETH excluded', () => {
+    expect([...B2_STABLE_CURRENCY_IDS].sort()).toEqual([CurrencyID.USDC, CurrencyID.USDT].sort());
+    expect(B2_STABLE_CURRENCY_IDS.has(CurrencyID.ETH)).toBe(false);
   });
 });

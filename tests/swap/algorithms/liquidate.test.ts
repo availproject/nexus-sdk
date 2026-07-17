@@ -166,6 +166,35 @@ describe('liquidateInputHoldings', () => {
     expect(result[1].chainID).toBe(10);
   });
 
+  it('liquidates to a fixed destination token when outputToken is set (Path A), skipping identity holdings', async () => {
+    const PEPE = '0x00000000000000000000000000000000000pepe01' as `0x${string}`;
+    const holdings = [
+      makeHolding(ARB_CHAIN, WETH, 500000000000000000n, 18, 'WETH'), // swap → PEPE
+      makeHolding(ARB_CHAIN, PEPE, 1000000000000000000n, 18, 'PEPE'), // identity → skipped
+    ];
+    const getQuotes = vi.fn().mockResolvedValue([makeQuote(5000000n)]);
+    const agg: Aggregator = { getQuotes, supportsChain: () => true };
+
+    const result = await liquidateInputHoldings({
+      holdings,
+      aggregators: [agg],
+      chainList: makeSwapChainList(),
+      cotCurrencyId: CurrencyID.USDC,
+      outputToken: { contractAddress: PEPE },
+      ...requestAddresses,
+    });
+
+    // Only the non-identity WETH holding is swapped, and its request targets the destination token
+    // directly — NOT the per-chain COT.
+    expect(result).toHaveLength(1);
+    expect(result[0].holding.tokenAddress).toBe(WETH);
+    const [requests] = getQuotes.mock.calls[0];
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toEqual(
+      expect.objectContaining({ inputToken: WETH, outputToken: PEPE })
+    );
+  });
+
   it('passes recipientAddressByChain through to liquidation quotes', async () => {
     const holdings = [makeHolding(ARB_CHAIN, WETH, 500000000000000000n, 18, 'WETH')];
     const getQuotes = vi.fn().mockResolvedValue([makeQuote(5000000n)]);

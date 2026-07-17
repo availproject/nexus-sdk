@@ -22,6 +22,7 @@ export {
   type MiddlewareSwapClient,
   type MiddlewareSwapExecutionClient,
   type MiddlewareSwapPreflightClient,
+  type MiddlewareTokenPriceClient,
   type QuoteDestinationFee,
   type QuoteRequest,
   type QuoteResponse,

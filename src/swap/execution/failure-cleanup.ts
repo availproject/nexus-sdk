@@ -1,6 +1,5 @@
-import { erc20Abi, type Hex } from 'viem';
+import type { Hex } from 'viem';
 import { getLogger } from '../../domain';
-import { isNativeAddress } from '../../services/addresses';
 import {
   buildRefundSweepCall,
   dispatchSweepGroups,
@@ -11,18 +10,25 @@ import { type CurrencyID, resolveCOT } from '../cot';
 import { predictSafeAccountAddress } from '../safe/predict';
 import type { ExecutionContext, SwapRoute } from '../types';
 import { chainSupports7702 } from '../wallet/capabilities';
+import { readSettlementBalanceRaw } from './settlement-balance';
 
 const logger = getLogger();
 
 /**
  * The currency the on-failure cleanup should sweep, or `null` to skip it. A Nexus same-token bridge
  * deposits the exact amount directly from the EOA — nothing is staged on the ephemeral — so there's
- * nothing to sweep. Every other route can strand the COT (or, for a Mayan same-token bridge, the
- * bridged family token) on a failed leg, swept under the route's settlement currency.
+ * nothing to sweep. The direct-destination fast path (Path A) is one atomic batch on one chain
+ * (revertOnFailure), with no later stage, so nothing ever strands there either. Every other route
+ * can strand the COT (or, for a Mayan same-token bridge, the bridged family token) on a failed leg,
+ * swept under the route's settlement currency.
  */
 export const resolveFailureSweepCurrencyId = (
-  route: Pick<SwapRoute, 'sameTokenBridge' | 'bridge' | 'settlementCurrencyId'>
+  route: Pick<
+    SwapRoute,
+    'sameTokenBridge' | 'bridge' | 'settlementCurrencyId' | 'directDestination'
+  >
 ): CurrencyID | null => {
+  if (route.directDestination) return null;
   if (route.sameTokenBridge && route.bridge?.provider === 'nexus') return null;
   return route.settlementCurrencyId as CurrencyID;
 };
@@ -48,6 +54,11 @@ export const cleanupStrandedCot = async (input: {
   const { ctx } = input;
   const { address: safeAddress } = predictSafeAccountAddress(ctx.ephemeralWallet.address);
   const groups: SweepGroup[] = [];
+  logger.debug('swap.cleanup.sweep.started', {
+    currencyId: input.currencyId,
+    chainIds: input.chainIds,
+    chainCount: input.chainIds.length,
+  });
 
   for (const chainId of input.chainIds) {
     try {
@@ -55,16 +66,12 @@ export const cleanupStrandedCot = async (input: {
       const holderAddress = is7702 ? ctx.ephemeralWallet.address : safeAddress;
       const cot = resolveCOT(chainId, ctx.chainList, input.currencyId);
       const tokenAddress = cot.address as Hex;
-      const publicClient = ctx.publicClientList.get(chainId);
-
-      const balance = isNativeAddress(tokenAddress)
-        ? await publicClient.getBalance({ address: holderAddress })
-        : await publicClient.readContract({
-            address: tokenAddress,
-            abi: erc20Abi,
-            functionName: 'balanceOf',
-            args: [holderAddress],
-          });
+      const balance = await readSettlementBalanceRaw({
+        chainId,
+        tokenAddress,
+        holderAddress,
+        publicClientList: ctx.publicClientList,
+      });
 
       if (balance <= 0n) continue;
       groups.push({
@@ -73,7 +80,7 @@ export const cleanupStrandedCot = async (input: {
         calls: [buildRefundSweepCall(tokenAddress, balance, ctx.eoaAddress)],
       });
     } catch (error) {
-      logger.debug('cleanupStrandedCot:chainSkipped', {
+      logger.debug('swap.cleanup.chain.inspection_skipped', {
         chainId,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -82,8 +89,13 @@ export const cleanupStrandedCot = async (input: {
 
   try {
     await dispatchSweepGroups(groups, ctx satisfies SweepContext, 'Swap failure cleanup sweep');
+    logger.debug('swap.cleanup.sweep.completed', {
+      inspectedChainCount: input.chainIds.length,
+      sweptChainIds: groups.map((group) => group.chainId),
+      sweptChainCount: groups.length,
+    });
   } catch (error) {
-    logger.debug('cleanupStrandedCot:failed', {
+    logger.debug('swap.cleanup.sweep.failed', {
       error: error instanceof Error ? error.message : String(error),
     });
   }

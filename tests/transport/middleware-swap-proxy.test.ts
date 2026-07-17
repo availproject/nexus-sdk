@@ -65,6 +65,65 @@ describe('MiddlewareClient swap proxy methods', () => {
     });
   });
 
+  describe('token prices', () => {
+    it('normalizes LiFi token price responses', async () => {
+      const axiosClient = makeClient();
+      axiosRootMock.create.mockReturnValue(axiosClient);
+      axiosClient.get.mockResolvedValue({ data: [{ priceUSD: '2500.25' }] });
+
+      const mw = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+
+      await expect(mw.getLiFiTokenPrice(8453, '0xaaa')).resolves.toBe('2500.25');
+      expect(axiosClient.get).toHaveBeenCalledWith('/api/v1/proxy/lifi/token', {
+        params: { chain: '8453', token: '0xaaa' },
+      });
+    });
+
+    it('normalizes Relay token price responses', async () => {
+      const axiosClient = makeClient();
+      axiosRootMock.create.mockReturnValue(axiosClient);
+      axiosClient.get.mockResolvedValue({ data: { price: 2500.25 } });
+
+      const mw = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+
+      await expect(mw.getRelayTokenPrice(8453, '0xaaa')).resolves.toBe('2500.25');
+      expect(axiosClient.get).toHaveBeenCalledWith(
+        '/api/v1/proxy/relay/currencies/token/price',
+        { params: { address: '0xaaa', chainId: '8453' } }
+      );
+    });
+
+    it('normalizes Fibrous token prices from the direct graph endpoint', async () => {
+      const axiosClient = makeClient();
+      axiosRootMock.create.mockReturnValue(axiosClient);
+      const fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ price: 64936.72 }),
+      });
+      vi.stubGlobal('fetch', fetch);
+
+      const mw = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+
+      await expect(mw.getFibrousTokenPrice('0xaaa')).resolves.toBe('64936.72');
+      expect(fetch).toHaveBeenCalledWith('https://graph.fibrous.finance/citrea/tokens/0xaaa');
+      expect(axiosClient.get).not.toHaveBeenCalled();
+      vi.unstubAllGlobals();
+    });
+
+    it('returns null for invalid or non-positive provider prices', async () => {
+      const axiosClient = makeClient();
+      axiosRootMock.create.mockReturnValue(axiosClient);
+      axiosClient.get
+        .mockResolvedValueOnce({ data: { priceUSD: 'not-a-price' } })
+        .mockResolvedValueOnce({ data: { price: 0 } });
+
+      const mw = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+
+      await expect(mw.getLiFiTokenPrice(8453, '0xaaa')).resolves.toBeNull();
+      await expect(mw.getRelayTokenPrice(8453, '0xaaa')).resolves.toBeNull();
+    });
+  });
+
   // -------------------------------------------------------------------------
   // getBebopQuote
   // -------------------------------------------------------------------------
@@ -86,6 +145,56 @@ describe('MiddlewareClient swap proxy methods', () => {
       expect(axiosClient.get).toHaveBeenCalledWith(
         '/api/v1/proxy/bebop/router/ethereum/v1/quote',
         { params: { sell_tokens: '0xaaa', buy_tokens: '0xbbb' } },
+      );
+    });
+  });
+
+  describe('Fibrous V2', () => {
+    it('gets a route without requesting calldata', async () => {
+      const axiosClient = makeClient();
+      axiosRootMock.create.mockReturnValue(axiosClient);
+      const route = { success: true, outputAmount: '900' };
+      axiosClient.get.mockResolvedValue({ data: route });
+
+      const mw = createMiddlewareClient('https://mw.example', 'wss://mw.example') as any;
+      const params = {
+        chain: 'citrea',
+        amount: '1000',
+        tokenInAddress: '0xaaa',
+        tokenOutAddress: '0xbbb',
+      };
+
+      expect(mw).toHaveProperty('getFibrousRoute');
+      await expect(mw.getFibrousRoute(params)).resolves.toEqual(route);
+      expect(axiosClient.get).toHaveBeenCalledWith('/api/v1/proxy/fibrous/citrea/v2/route', {
+        params: {
+          amount: '1000',
+          tokenInAddress: '0xaaa',
+          tokenOutAddress: '0xbbb',
+        },
+      });
+      expect(axiosClient.post).not.toHaveBeenCalled();
+    });
+
+    it('gets routeAndCallData for a serious quote', async () => {
+      const axiosClient = makeClient();
+      axiosRootMock.create.mockReturnValue(axiosClient);
+      const quote = { route: { success: true }, calldata: { swap_parameters: [] } };
+      axiosClient.get.mockResolvedValue({ data: quote });
+
+      const mw = createMiddlewareClient('https://mw.example', 'wss://mw.example') as any;
+      const params = {
+        chain: 'citrea',
+        amount: '1000',
+        slippage: '0.25',
+        destination: '0xdestination',
+      };
+
+      expect(mw).toHaveProperty('getFibrousQuote');
+      await expect(mw.getFibrousQuote(params)).resolves.toEqual(quote);
+      expect(axiosClient.get).toHaveBeenCalledWith(
+        '/api/v1/proxy/fibrous/citrea/v2/routeAndCallData',
+        { params: { amount: '1000', slippage: '0.25', destination: '0xdestination' } }
       );
     });
   });
