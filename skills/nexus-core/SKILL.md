@@ -117,6 +117,8 @@ const result = await client.bridge(
 // Returns: BridgeResult { intentExplorerUrl, sourceTxs, intent }
 ```
 
+If `onIntent` opens an interactive confirmation UI instead of calling `allow()` immediately, refresh the bridge intent shown to the user every 15 seconds until approval. See [Displayed Intent Freshness](#displayed-intent-freshness-required-for-interactive-approval).
+
 ### Transfer (Bridge + Send)
 
 Bridge tokens and send to a different recipient.
@@ -247,6 +249,8 @@ const exactOutResult = await client.swapWithExactOut(
 // Returns: SwapResult { sourceSwaps, intentExplorerUrl, destinationSwap }
 ```
 
+Most swap quotes are valid for roughly 30 seconds. If `onIntent` displays an intent while waiting for user confirmation, call `refresh()` every 20 seconds, render the returned intent, and stop refreshing before `allow()` or `deny()`. See [Displayed Intent Freshness](#displayed-intent-freshness-required-for-interactive-approval).
+
 **Calculate Maximum Swappable** — populate a "Max" button before calling `swapWithExactIn`:
 
 ```ts
@@ -354,11 +358,59 @@ client.convertTokenReadableAmountToBigInt('1.5', 'USDC', 8453); // bigint
 
 Hooks are passed via the `options` parameter of each operation. If omitted, the SDK **auto-approves** (intents allowed, allowances set to `'min'`).
 
+### Displayed Intent Freshness (Required for Interactive Approval)
+
+The `intent` object passed to `onIntent` is the live pricing preview shown to the user before approval. Do not leave that displayed intent unchanged while waiting for a user to approve a modal. This is separate from the expiry of an already signed/submitted intent and from SDK execution-time requoting:
+
+- Swap and swap-backed composite intents: most quotes are valid for roughly 30 seconds; refresh every 20 seconds to preserve time for sequential route construction and approval.
+- Bridge and bridge-backed composite intents: provider deadlines vary; refresh every 15 seconds.
+- Render the intent returned by `refresh()`, prevent overlapping refresh calls, and stop the timer before `allow()` or `deny()`.
+- Disable confirmation while `refresh()` is running so approval cannot race an older preview.
+- Immediate auto-approval does not need a refresh timer.
+
+```ts
+onIntent: ({ intent, refresh, allow, deny }) => {
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const scheduleRefresh = () => {
+    timer = setTimeout(async () => {
+      try {
+        const refreshedIntent = await refresh();
+        if (!stopped) renderIntent(refreshedIntent);
+      } catch (error) {
+        if (!stopped) showIntentRefreshError(error);
+      } finally {
+        if (!stopped) scheduleRefresh();
+      }
+    }, 20_000); // use 15_000 for bridge
+  };
+
+  renderIntent(intent);
+  scheduleRefresh();
+
+  showIntentActions({
+    confirm: () => {
+      stopped = true;
+      if (timer !== undefined) clearTimeout(timer);
+      allow();
+    },
+    cancel: () => {
+      stopped = true;
+      if (timer !== undefined) clearTimeout(timer);
+      deny();
+    },
+  });
+};
+```
+
+Call `refresh()` without arguments to keep the current sources, or pass a new source list to re-route. `bridgeAndExecute()` and `swapAndExecute()` expose this callback through their top-level `onIntent` hook.
+
 ### Intent Hook
 
 ```ts
 hooks: {
-  onIntent: ({ intent, allow, deny, refresh }) => {
+  onIntent: async ({ intent, allow, deny, refresh }) => {
     // inspect intent details
     console.log(intent.selectedSources, intent.destination);
 
@@ -697,12 +749,13 @@ const src = token.logo || getFallbackTokenLogoDataUri(token.symbol); // size def
 
 1. **Amounts are always `bigint` in raw token units** — use `parseUnits('100', 6)` for 100 USDC, not `100`.
 2. **Bridge uses token symbols, swap uses contract addresses.** `bridge`/`bridgeAndTransfer`/`bridgeAndExecute` take `toTokenSymbol: 'USDC'` and `tokenApproval.toTokenSymbol`. `swapWithExactIn`/`swapWithExactOut`/`swapAndExecute` take `toTokenAddress: '0x...'` and `tokenApproval.toTokenAddress`.
-3. **Composite hooks are top-level** — `bridgeAndExecute` and `swapAndExecute` use `options.onIntent`, not `options.hooks.onIntent`.
-4. **`bridgeAndExecute().execute` omits `toChainId`.** `BridgeAndExecuteParams.execute` is `Omit<ExecuteParams, 'toChainId'>`; setting it is a type error. The destination chain is inherited from the top-level `toChainId`.
-5. **Default auto-approval** — if no hooks are provided, intents are allowed and allowances use `'min'`. When you do provide an `onAllowance` hook, the array passed to `allow()` must have the same length as `sources` (otherwise the SDK throws `INVALID_VALUES_ALLOWANCE_HOOK`); the safest pattern is `allow(sources.map(() => 'min'))`.
-6. **`initialize()` and `setEVMProvider()` are independent.** `initialize()` is required before any chain-dependent method; `setEVMProvider()` only attaches a wallet and can be called in any order.
-7. **Create a new client on account change.** `setEVMProvider()` short-circuits when called with the same provider instance, so it cannot be reused to swap accounts. Rebuild with `createNexusClient()` and re-run both setup steps.
-8. **Bridge skip optimization** — `bridgeAndExecute` and `swapAndExecute` may skip the bridge/swap if the destination chain already has enough funds; always branch on `result.bridgeSkipped` / `result.swapSkipped` before reading `result.bridgeResult` / `result.swapResult`.
+3. **Displayed intent previews are short-lived** — when `onIntent` shows an intent while waiting for interactive approval, refresh swaps every 20 seconds and bridges every 15 seconds, render the returned intent, and stop refreshing before `allow()` or `deny()`. Immediate auto-approval does not need a timer.
+4. **Composite hooks are top-level** — `bridgeAndExecute` and `swapAndExecute` use `options.onIntent`, not `options.hooks.onIntent`.
+5. **`bridgeAndExecute().execute` omits `toChainId`.** `BridgeAndExecuteParams.execute` is `Omit<ExecuteParams, 'toChainId'>`; setting it is a type error. The destination chain is inherited from the top-level `toChainId`.
+6. **Default auto-approval** — if no hooks are provided, intents are allowed and allowances use `'min'`. When you do provide an `onAllowance` hook, the array passed to `allow()` must have the same length as `sources` (otherwise the SDK throws `INVALID_VALUES_ALLOWANCE_HOOK`); the safest pattern is `allow(sources.map(() => 'min'))`.
+7. **`initialize()` and `setEVMProvider()` are independent.** `initialize()` is required before any chain-dependent method; `setEVMProvider()` only attaches a wallet and can be called in any order.
+8. **Create a new client on account change.** `setEVMProvider()` short-circuits when called with the same provider instance, so it cannot be reused to swap accounts. Rebuild with `createNexusClient()` and re-run both setup steps.
+9. **Bridge skip optimization** — `bridgeAndExecute` and `swapAndExecute` may skip the bridge/swap if the destination chain already has enough funds; always branch on `result.bridgeSkipped` / `result.swapSkipped` before reading `result.bridgeResult` / `result.swapResult`.
 
 ---
 
