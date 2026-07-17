@@ -38,6 +38,7 @@ export const makeMiddlewareClient = (
   getFibrousRoute: async () => ({}),
   getLiFiTokenPrice: async () => null,
   getRelayTokenPrice: async () => null,
+  getFibrousTokenPrice: async () => null,
   submitSBCs: async () => [],
   getQuote: async () => ({
     fulfillmentBps: 0,

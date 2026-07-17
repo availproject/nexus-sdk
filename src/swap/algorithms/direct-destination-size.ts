@@ -3,17 +3,12 @@ import type { Hex } from 'viem';
 import { ZERO_ADDRESS } from '../../domain/constants/addresses';
 import { Errors } from '../../domain/errors';
 import { isNativeAddress } from '../../services/addresses';
-import type { Aggregator, Holding, QuoteResponse } from '../aggregators/types';
-import { divDecimals, mulDecimals } from '../../services/math';
+import type { Aggregator, QuoteResponse } from '../aggregators/types';
+import { divDecimals } from '../../services/math';
 import { equalFold } from '../../services/strings';
 import { EADDRESS } from '../constants';
 import type { OraclePriceResponse } from '../types';
 import { selectDirectDestinationSwaps, type SourceHolding } from './auto-select';
-
-type SelectionResult = {
-  quoteResponses: QuoteResponse[];
-  usedCOTs: { holding: Holding; amountUsed: Decimal }[];
-};
 
 type DirectDestinationSizeInput = {
   holdings: SourceHolding[];
@@ -28,12 +23,8 @@ type DirectDestinationSizeInput = {
   convergenceExtraRaw: (tokenAddress: Hex, decimals: number) => Decimal | undefined;
 };
 
-const deliveredRaw = (result: SelectionResult): bigint =>
-  result.quoteResponses.reduce((sum, quote) => sum + quote.quote.output.amountRaw, 0n) +
-  result.usedCOTs.reduce(
-    (sum, used) => sum + mulDecimals(used.amountUsed, used.holding.decimals),
-    0n
-  );
+const deliveredRaw = (quoteResponses: QuoteResponse[]): bigint =>
+  quoteResponses.reduce((sum, quote) => sum + quote.quote.output.amountRaw, 0n);
 
 export const makeConvergenceExtraRaw = (
   oraclePrices: OraclePriceResponse,
@@ -54,7 +45,7 @@ const holdingKey = (chainId: number, tokenAddress: Hex): string =>
 
 const subtractConsumedHoldings = (
   holdings: SourceHolding[],
-  result: SelectionResult
+  quoteResponses: QuoteResponse[]
 ): SourceHolding[] => {
   const consumedByKey = new Map<string, bigint>();
   const addConsumed = (chainId: number, tokenAddress: Hex, amountRaw: bigint) => {
@@ -62,15 +53,8 @@ const subtractConsumedHoldings = (
     consumedByKey.set(key, (consumedByKey.get(key) ?? 0n) + amountRaw);
   };
 
-  for (const quote of result.quoteResponses) {
+  for (const quote of quoteResponses) {
     addConsumed(quote.chainID, quote.holding.tokenAddress, quote.quote.input.amountRaw);
-  }
-  for (const used of result.usedCOTs) {
-    addConsumed(
-      used.holding.chainID,
-      used.holding.tokenAddress,
-      mulDecimals(used.amountUsed, used.holding.decimals)
-    );
   }
 
   return holdings.flatMap((holding) => {
@@ -102,8 +86,13 @@ export const sizeDirectDestinationExactOut = async (
     maxConvergenceExtraRaw: input.convergenceExtraRaw(input.tokenAddress, input.tokenDecimals),
   });
 
-  if (deliveredRaw(tokenResult) < input.tokenTargetRaw) {
-    if (tokenResult.quoteResponses.length > 0 || tokenResult.usedCOTs.length > 0) {
+  if (tokenResult.usedCOTs.length > 0) {
+    throw Errors.internal(
+      'Direct destination EXACT_OUT token selection returned identity holdings'
+    );
+  }
+  if (deliveredRaw(tokenResult.quoteResponses) < input.tokenTargetRaw) {
+    if (tokenResult.quoteResponses.length > 0) {
       throw Errors.insufficientBalance(
         'Direct destination EXACT_OUT: quoted token output cannot cover toAmount'
       );
@@ -113,7 +102,7 @@ export const sizeDirectDestinationExactOut = async (
   let gasSwaps: QuoteResponse[] = [];
   if (input.gasTargetRaw > 0n) {
     const gasResult = await selectDirectDestinationSwaps({
-      holdings: subtractConsumedHoldings(input.holdings, tokenResult),
+      holdings: subtractConsumedHoldings(input.holdings, tokenResult.quoteResponses),
       outputRequired: divDecimals(input.gasTargetRaw, input.nativeDecimals),
       target: { contractAddress: EADDRESS, decimals: input.nativeDecimals },
       aggregators: input.aggregators,
@@ -121,13 +110,18 @@ export const sizeDirectDestinationExactOut = async (
       recipientAddressByChain: input.recipientAddressByChain,
       maxConvergenceExtraRaw: input.convergenceExtraRaw(ZERO_ADDRESS, input.nativeDecimals),
     });
+    if (gasResult.usedCOTs.length > 0) {
+      throw Errors.internal(
+        'Direct destination EXACT_OUT gas selection returned identity holdings'
+      );
+    }
     gasSwaps = gasResult.quoteResponses;
     const gasDeliveredRaw = gasSwaps.reduce(
       (sum, quote) => sum + quote.quote.output.amountRaw,
       0n
     );
     if (gasDeliveredRaw < input.gasTargetRaw) {
-      if (gasResult.quoteResponses.length > 0 || gasResult.usedCOTs.length > 0) {
+      if (gasResult.quoteResponses.length > 0) {
         throw Errors.insufficientBalance(
           'Direct destination EXACT_OUT: quoted gas output cannot cover toNativeAmount'
         );

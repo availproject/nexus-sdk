@@ -143,7 +143,12 @@ const buildCalls = async (input: {
   const publicClient = ctx.publicClientList.get(chainId);
   const tokenTotals = new Map<
     string,
-    { tokenAddress: Hex; tokenDecimals: number; amount: bigint }
+    {
+      tokenAddress: Hex;
+      tokenDecimals: number;
+      amount: bigint;
+      representativeSwap: QuoteResponse;
+    }
   >();
 
   for (const swap of orderedSwaps) {
@@ -155,101 +160,87 @@ const buildCalls = async (input: {
       tokenAddress,
       tokenDecimals: swap.quote.input.decimals,
       amount: (existing?.amount ?? 0n) + swap.quote.input.amountRaw,
+      representativeSwap: existing?.representativeSwap ?? swap,
     });
   }
 
   const calls: SBCCall[] = [];
-  const fundedTokens = new Set<string>();
+  const fundingCallsByToken = new Map<string, SBCCall[]>();
+  for (const [tokenKey, funding] of tokenTotals) {
+    const cacheKey = `${chainId}:${tokenKey}:${targetAddress.toLowerCase()}`;
+    let cached = authorizations.get(cacheKey);
+    const needsFreshAuthorization = !cached || funding.amount > cached.capacityRaw;
+    const currentAllowance = needsFreshAuthorization
+      ? ctx.cache.getAllowance(funding.tokenAddress, ctx.eoaAddress, targetAddress, chainId)
+      : 0n;
+    const authorization = needsFreshAuthorization || !cached
+      ? undefined
+      : cached.authorization?.kind === 'approve' && cached.approvalMined
+        ? null
+        : cached.authorization;
+    const transfer: PreparedEoaToEphemeralTransfer = await buildPreparedTransfer({
+      reason: 'source',
+      chainId,
+      tokenAddress: funding.tokenAddress,
+      tokenDecimals: funding.tokenDecimals,
+      amount: funding.amount,
+      eagerPermit: false,
+      targetAddress,
+      chainList: ctx.chainList,
+      eoaAddress: ctx.eoaAddress,
+      eoaWallet: ctx.eoaWallet,
+      publicClientList: ctx.publicClientList,
+      cache: ctx.cache,
+      authorization,
+    });
+
+    if (needsFreshAuthorization) {
+      cached = {
+        authorization: transfer.authorization,
+        capacityRaw: authorizationCapacity(
+          transfer.authorization,
+          currentAllowance,
+          funding.amount
+        ),
+        approvalMined: false,
+      };
+      authorizations.set(cacheKey, cached);
+    }
+
+    if (!needsFreshAuthorization || transfer.authorization === null) {
+      assertSilentGrowthWithinCap({
+        chainId,
+        swap: funding.representativeSwap,
+        neededRaw: funding.amount,
+        baselineRaw: routeTimeInputs.get(tokenKey) ?? 0n,
+        oraclePrices,
+      });
+    }
+
+    fundingCallsByToken.set(
+      tokenKey,
+      await resolvePreparedFundingTransferCalls({
+        transfer,
+        tokenDecimals: funding.tokenDecimals,
+        chain,
+        eoaAddress: ctx.eoaAddress,
+        eoaWallet: ctx.eoaWallet,
+        publicClient,
+      })
+    );
+    if (cached?.authorization?.kind === 'approve') cached.approvalMined = true;
+  }
+
   for (const swap of orderedSwaps) {
     const nativeInput = isNativeInput(swap);
     if (!nativeInput) {
       const tokenKey = swap.quote.input.contractAddress.toLowerCase();
-      if (!fundedTokens.has(tokenKey)) {
-        const funding = tokenTotals.get(tokenKey);
-        if (!funding) throw Errors.internal('Missing direct-destination funding total');
-        const cacheKey = `${chainId}:${tokenKey}:${targetAddress.toLowerCase()}`;
-        let cached = authorizations.get(cacheKey);
-        let transfer: PreparedEoaToEphemeralTransfer;
-        let reusedAuthorization = true;
-
-        if (!cached || funding.amount > cached.capacityRaw) {
-          reusedAuthorization = false;
-          const currentAllowance = ctx.cache.getAllowance(
-            funding.tokenAddress,
-            ctx.eoaAddress,
-            targetAddress,
-            chainId
-          );
-          transfer = await buildPreparedTransfer({
-            reason: 'source',
-            chainId,
-            tokenAddress: funding.tokenAddress,
-            tokenDecimals: funding.tokenDecimals,
-            amount: funding.amount,
-            eagerPermit: false,
-            targetAddress,
-            chainList: ctx.chainList,
-            eoaAddress: ctx.eoaAddress,
-            eoaWallet: ctx.eoaWallet,
-            publicClientList: ctx.publicClientList,
-            cache: ctx.cache,
-          });
-          cached = {
-            authorization: transfer.authorization,
-            capacityRaw: authorizationCapacity(
-              transfer.authorization,
-              currentAllowance,
-              funding.amount
-            ),
-            approvalMined: false,
-          };
-          authorizations.set(cacheKey, cached);
-        } else {
-          transfer = await buildPreparedTransfer({
-            reason: 'source',
-            chainId,
-            tokenAddress: funding.tokenAddress,
-            tokenDecimals: funding.tokenDecimals,
-            amount: funding.amount,
-            eagerPermit: false,
-            targetAddress,
-            chainList: ctx.chainList,
-            eoaAddress: ctx.eoaAddress,
-            eoaWallet: ctx.eoaWallet,
-            publicClientList: ctx.publicClientList,
-            cache: ctx.cache,
-            authorization:
-              cached.authorization?.kind === 'approve' && cached.approvalMined
-                ? null
-                : cached.authorization,
-          });
-        }
-
-        if (reusedAuthorization || transfer.authorization === null) {
-          assertSilentGrowthWithinCap({
-            chainId,
-            swap,
-            neededRaw: funding.amount,
-            baselineRaw: routeTimeInputs.get(tokenKey) ?? 0n,
-            oraclePrices,
-          });
-        }
-
-        calls.push(
-          ...(await resolvePreparedFundingTransferCalls({
-            transfer,
-            tokenDecimals: funding.tokenDecimals,
-            chain,
-            eoaAddress: ctx.eoaAddress,
-            eoaWallet: ctx.eoaWallet,
-            publicClient,
-          }))
-        );
-        if (cached.authorization?.kind === 'approve') cached.approvalMined = true;
-        fundedTokens.add(tokenKey);
+      const fundingCalls = fundingCallsByToken.get(tokenKey);
+      if (fundingCalls) {
+        calls.push(...fundingCalls);
+        fundingCallsByToken.delete(tokenKey);
       }
     }
-
     const parsedQuote = getParsedQuote(swap, ctx.preparedExecution?.parsedQuotes);
     if (parsedQuote.approval && !nativeInput) calls.push(parsedQuote.approval);
     calls.push(parsedQuote.swap);

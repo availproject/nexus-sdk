@@ -61,8 +61,8 @@ export class ZeroExAggregator implements Aggregator {
         params.sellAmount = req.inputAmount.toString();
       }
 
-      // Price surveys only compare amounts and are always re-quoted SERIOUS before execution, so use
-      // 0x's indicative /price endpoint (no calldata, no enhanced simulation) instead of /quote.
+      // Price surveys are only used as indicative convergence seeds and never enter execution, so
+      // use 0x's /price endpoint (no calldata or enhanced simulation) instead of /quote.
       const isSurvey = req.seriousness !== QuoteSeriousness.SERIOUS;
       const data = (await (isSurvey ? this.getPrice : this.getQuote)(params)) as ZeroExResponse;
       return parseResponse(data, req, isExactOut, isSurvey);
@@ -95,7 +95,7 @@ const parseResponse = (
     input: placeholderSide(req.inputToken, inputAmountRaw),
     output: placeholderSide(req.outputToken, outputAmountRaw),
     // /quote carries the executable tx; /price (survey) carries none, so use a placeholder that is
-    // never executed (surveys are always re-quoted SERIOUS first).
+    // never executed because surveys are restricted to indicative convergence seeds.
     txData: data.transaction
       ? {
           approvalAddress: data.allowanceTarget ?? zeroAddress, // null for native sells (no approval)
@@ -115,8 +115,8 @@ const placeholderSide = (contractAddress: Hex, amountRaw: bigint): Quote['input'
   symbol: '',
 });
 
-// Survey quotes are indicative (amounts only) and never executed — /price returns no calldata, so
-// txData is a non-executable placeholder. Mirrors the Mystic adapter.
+// Survey quotes are indicative convergence seeds and never executed — /price returns no calldata,
+// so txData is a non-executable placeholder. Mirrors the Mystic adapter.
 const SURVEY_TX_PLACEHOLDER: Quote['txData'] = {
   approvalAddress: zeroAddress,
   tx: { to: zeroAddress, data: '0x', value: '0x0' },

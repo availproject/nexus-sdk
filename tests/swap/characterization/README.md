@@ -120,7 +120,7 @@ bridge, dst swap pulls USDT, EXACT_OUT even sizes the gas swap in USDT).
   per leg — no bridge (`submitRFF` never called), no destination swap, no leftover return. EXACT_IN
   swaps the full holding (no buffer, no reclaim deduction); EXACT_OUT selects `toAmount + srcBuffer`
   and over-delivers the surplus to the EOA, and with a native gas request runs a second pass over the
-  remainder (`toNative + gasSrcBuffer`) so ONE batch carries two output tokens — toToken and native
+  remainder (`toNative`) so ONE batch carries two output tokens — toToken and native
   gas — both to the EOA (A6).
 - The bridge/vault identity is always the **ephemeral**, even on a non-7702 source (Safe → ephemeral
   transfer, then ephemeral signs the vault permit).

@@ -34,7 +34,7 @@ type AutoSelectResult = {
   usedCOTs: UsedCOT[];
 };
 
-// A source holding plus its USD value. `value` lets the selector size an initial survey
+// A source holding plus its USD value. `value` lets the selector size an initial quote
 // prefix instead of quoting every non-COT holding upfront — only the priority-ordered
 // prefix whose cumulative value covers `outputRequired × prefixHeadroom` is quoted first;
 // the batch extends to the remaining non-COT holdings only if that prefix under-delivers.
@@ -201,7 +201,7 @@ export const autoSelectSources = async (input: AutoSelectInput): Promise<AutoSel
         chainId: item.holding.chainID,
         inputToken: item.holding.tokenAddress,
         outputToken: target.contractAddress,
-        seriousness: QuoteSeriousness.PRICE_SURVEY,
+        seriousness: QuoteSeriousness.SERIOUS,
         type: QuoteType.EXACT_IN as const,
         inputAmount: item.holding.amountRaw,
       };
@@ -247,7 +247,7 @@ export const autoSelectSources = async (input: AutoSelectInput): Promise<AutoSel
       continue;
     }
 
-    // Non-COT: use indicative quote. If this holding sits beyond the surveyed prefix, the
+    // Non-COT: use the initial quote. If this holding sits beyond the quoted prefix, the
     // prefix under-delivered — quote every remaining non-COT holding before consuming it.
     if (!quotedIdxs.has(item.idx)) {
       await quoteBatch(nonCOTItems.filter((i) => !quotedIdxs.has(i.idx)));
@@ -259,7 +259,7 @@ export const autoSelectSources = async (input: AutoSelectInput): Promise<AutoSel
     if (outputAmount.lte(0)) continue;
 
     if (outputAmount.lte(remaining)) {
-      // Use full holding — indicative quote output covers partially or fully
+      // The initial quote is executable, so a fully consumed holding can reuse it directly.
       quoteResponses.push({
         chainID: item.holding.chainID,
         quote: indicative.quote,
@@ -325,11 +325,11 @@ export type DirectSelectInput = {
  * Path A (direct destination-chain swap) source selection — the standalone twin of autoSelectSources'
  * COT round-trip. Every holding is selected toward one FIXED target token (the toToken or native gas)
  * on the dst chain, with none of the bridge machinery (no Mayan floor, collection fees, COT resolution,
- * or USD-value prefix survey). Holdings already in the target token are used directly (identities); the
+ * or USD-value prefix batching). Holdings already in the target token are used directly (identities); the
  * rest are quoted input→target via the shared EXACT_OUT-direct vs EXACT_IN convergence race.
  *
  * Path A's holdings are dst-chain-only (a handful), so every swappable holding is quoted up front —
- * there is no value-prefix survey, which would compare USD `value` against a token-denominated target
+ * there is no value-prefix batching, which would compare USD `value` against a token-denominated target
  * and mis-batch. Partial coverage returns without throwing; the builder enforces the buffered target
  * and falls back on a shortfall.
  */
@@ -349,7 +349,7 @@ export const selectDirectDestinationSwaps = async (
     value: h.value,
   }));
 
-  // Quote every swappable holding up front (no prefix survey — see the docblock).
+  // Quote every swappable holding up front (no value-prefix batching — see the docblock).
   const swappable = items.filter((item) => !item.isCOT);
   const indicativeByIdx = new Map<number, { quote: Quote; aggregator: Aggregator }>();
   if (swappable.length > 0) {
@@ -365,7 +365,7 @@ export const selectDirectDestinationSwaps = async (
         chainId: item.holding.chainID,
         inputToken: item.holding.tokenAddress,
         outputToken: target.contractAddress,
-        seriousness: QuoteSeriousness.PRICE_SURVEY,
+        seriousness: QuoteSeriousness.SERIOUS,
         type: QuoteType.EXACT_IN as const,
         inputAmount: item.holding.amountRaw,
       };
@@ -377,7 +377,7 @@ export const selectDirectDestinationSwaps = async (
     });
   }
 
-  // Walk in priority order: identities used directly; swappable consumed full (indicative survey quote)
+  // Walk in priority order: identities used directly; swappable consumed full (serious Exact In quote)
   // or partial (convergence race), until the target is covered.
   let remaining = outputRequired;
   const usedCOTs: UsedCOT[] = [];

@@ -93,6 +93,23 @@ describe('MiddlewareClient swap proxy methods', () => {
       );
     });
 
+    it('normalizes Fibrous token prices from the direct graph endpoint', async () => {
+      const axiosClient = makeClient();
+      axiosRootMock.create.mockReturnValue(axiosClient);
+      const fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ price: 64936.72 }),
+      });
+      vi.stubGlobal('fetch', fetch);
+
+      const mw = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+
+      await expect(mw.getFibrousTokenPrice('0xaaa')).resolves.toBe('64936.72');
+      expect(fetch).toHaveBeenCalledWith('https://graph.fibrous.finance/citrea/tokens/0xaaa');
+      expect(axiosClient.get).not.toHaveBeenCalled();
+      vi.unstubAllGlobals();
+    });
+
     it('returns null for invalid or non-positive provider prices', async () => {
       const axiosClient = makeClient();
       axiosRootMock.create.mockReturnValue(axiosClient);

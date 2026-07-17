@@ -163,6 +163,72 @@ describe('sizeDirectDestinationExactOut', () => {
       })
     ).rejects.toThrow(/insufficient balance/i);
   });
+
+  it('rejects identity holdings returned by the token selection invariant', async () => {
+    vi.mocked(selectDirectDestinationSwaps).mockResolvedValue({
+      quoteResponses: [],
+      usedCOTs: [
+        {
+          holding: { ...holding, tokenAddress: OUTPUT_TOKEN },
+          amountUsed: new Decimal(100),
+          idx: 0,
+        },
+      ],
+    });
+
+    await expect(
+      sizeDirectDestinationExactOut({
+        holdings: [holding],
+        tokenAddress: OUTPUT_TOKEN,
+        tokenDecimals: 6,
+        tokenTargetRaw: 100_000_000n,
+        nativeDecimals: 18,
+        gasTargetRaw: 0n,
+        aggregators: [],
+        userAddressByChain: new Map([[CHAIN_ID, USER]]),
+        recipientAddressByChain: new Map([[CHAIN_ID, RECIPIENT]]),
+        convergenceExtraRaw: () => undefined,
+      })
+    ).rejects.toThrow(/token selection returned identity holdings/i);
+  });
+
+  it('rejects identity holdings returned by the gas selection invariant', async () => {
+    vi.mocked(selectDirectDestinationSwaps)
+      .mockResolvedValueOnce({
+        quoteResponses: [quote(100_000_000n, { inputAmountRaw: 600_000n })],
+        usedCOTs: [],
+      })
+      .mockResolvedValueOnce({
+        quoteResponses: [],
+        usedCOTs: [
+          {
+            holding: {
+              ...holding,
+              tokenAddress: EADDRESS,
+              amountRaw: 1_000_000_000_000_000_000n,
+              decimals: 18,
+            },
+            amountUsed: new Decimal(1),
+            idx: 0,
+          },
+        ],
+      });
+
+    await expect(
+      sizeDirectDestinationExactOut({
+        holdings: [holding],
+        tokenAddress: OUTPUT_TOKEN,
+        tokenDecimals: 6,
+        tokenTargetRaw: 100_000_000n,
+        nativeDecimals: 18,
+        gasTargetRaw: 1_000_000_000_000_000_000n,
+        aggregators: [],
+        userAddressByChain: new Map([[CHAIN_ID, USER]]),
+        recipientAddressByChain: new Map([[CHAIN_ID, RECIPIENT]]),
+        convergenceExtraRaw: () => undefined,
+      })
+    ).rejects.toThrow(/gas selection returned identity holdings/i);
+  });
 });
 
 describe('makeConvergenceExtraRaw', () => {

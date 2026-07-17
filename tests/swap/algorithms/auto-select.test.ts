@@ -145,6 +145,28 @@ describe('autoSelectSources', () => {
     expect(result.quoteResponses.length).toBeGreaterThanOrEqual(1);
   });
 
+  it('uses one serious full-holding quote as executable calldata', async () => {
+    const holdings = [makeHolding(ARB_CHAIN, WETH, 500000000000000000n, { value: 10 })];
+    const seriousQuote = makeQuote(5000000n, 500000000000000000n);
+    seriousQuote.txData.tx.data = '0x1234';
+    const getQuotes = vi.fn(async (reqs: QuoteRequest[]) => reqs.map(() => seriousQuote));
+
+    const result = await autoSelectSources({
+      holdings,
+      outputRequired: new Decimal(5),
+      aggregators: [makeAggregator(getQuotes)],
+      chainList: makeSwapChainList(),
+      cotCurrencyId: CurrencyID.USDC,
+      ...requestAddresses,
+    });
+
+    expect(result.quoteResponses).toHaveLength(1);
+    expect(result.quoteResponses[0].quote.txData.tx.data).toBe('0x1234');
+    expect(getQuotes.mock.calls.flatMap(([requests]) => requests.map((r) => r.seriousness))).toEqual([
+      QuoteSeriousness.SERIOUS,
+    ]);
+  });
+
   it('handles first holding is COT but not enough — falls through to queue', async () => {
     const holdings = [
       makeHolding(ARB_CHAIN, USDC_ARB, 2000000n),
@@ -188,14 +210,14 @@ describe('autoSelectSources', () => {
   });
 
   it('throws when partial source selection cannot converge', async () => {
-    // Indicative says 0.5 WETH → 10 USDC; partial requirement is 5 USDC. Convergence
-    // is then asked for 5-USDC-worth of WETH, but the SERIOUS quote always under-delivers
+    // Initial full-balance quote says 0.5 WETH → 10 USDC; partial requirement is 5 USDC.
+    // Convergence is then asked for 5-USDC-worth of WETH, but its quote always under-delivers
     // (returns 1 USDC) so the cap pins the input and the loop exits.
     const holdings = [makeHolding(ARB_CHAIN, WETH, 500000000000000000n, { value: 10 })];
     const requestSequence = vi.fn(async (reqs: QuoteRequest[]) =>
       reqs.map((req) => {
         if (req.type === QuoteType.EXACT_OUT) return null;
-        if (req.seriousness === QuoteSeriousness.PRICE_SURVEY) {
+        if (req.inputAmount === holdings[0].amountRaw) {
           return makeQuote(10000000n, 500000000000000000n);
         }
         // SERIOUS convergence quote always under-delivers.
@@ -227,7 +249,7 @@ describe('autoSelectSources', () => {
           if (req.type === QuoteType.EXACT_OUT) {
             return makeQuote(5000000n, 247000000000000000n);
           }
-          if (req.seriousness === QuoteSeriousness.PRICE_SURVEY) {
+          if (req.inputAmount === holdings[0].amountRaw) {
             return makeQuote(10000000n, 500000000000000000n);
           }
           await delay(30);
@@ -262,7 +284,7 @@ describe('autoSelectSources', () => {
             await delay(30);
             return makeQuote(5000000n, 247000000000000000n);
           }
-          if (req.seriousness === QuoteSeriousness.PRICE_SURVEY) {
+          if (req.inputAmount === holdings[0].amountRaw) {
             return makeQuote(10000000n, 500000000000000000n);
           }
           return makeQuote(5000000n, req.inputAmount);
@@ -292,7 +314,7 @@ describe('autoSelectSources', () => {
     const agg = makeAggregator(async (reqs) =>
       reqs.map((req) => {
         if (req.type === QuoteType.EXACT_OUT) return null;
-        if (req.seriousness === QuoteSeriousness.PRICE_SURVEY) {
+        if (req.inputAmount === holdings[0].amountRaw) {
           return makeQuote(10000000n, 500000000000000000n);
         }
         seriousInputs.push(req.inputAmount);
@@ -325,7 +347,7 @@ describe('autoSelectSources', () => {
     const agg = makeAggregator(async (reqs) =>
       reqs.map((req) => {
         if (req.type === QuoteType.EXACT_OUT) return null;
-        if (req.seriousness === QuoteSeriousness.PRICE_SURVEY) {
+        if (req.inputAmount === holdings[0].amountRaw) {
           return makeQuote(10000000n, 500000000000000000n);
         }
         seriousInputs.push(req.inputAmount);
@@ -425,7 +447,7 @@ describe('autoSelectSources', () => {
       makeHolding(ARB_CHAIN, DUST_A, 1000000000000000000n, { value: 50 }),
       makeHolding(ARB_CHAIN, DUST_B, 1000000000000000000n, { value: 50 }),
     ];
-    // WETH survey quote outputs exactly the required 1000 USDC → full-holding branch, no convergence.
+    // WETH initial quote outputs exactly the required 1000 USDC → full-holding branch, no convergence.
     const getQuotes = vi.fn(async (reqs: QuoteRequest[]) =>
       reqs.map(() => makeQuote(1000000000n, 1000000000000000000n))
     );
@@ -515,7 +537,14 @@ describe('selectDirectDestinationSwaps', () => {
       reqs.map((req) => {
         captured.push(req);
         if (req.type === QuoteType.EXACT_OUT) return null; // EXACT_IN-only aggregator
-        if (req.seriousness === QuoteSeriousness.PRICE_SURVEY) return makeQuoteTo(10000000000000000000n, 500000000000000000n, PEPE, 18);
+        if (req.inputAmount === holdings[0].amountRaw) {
+          return makeQuoteTo(
+            10000000000000000000n,
+            500000000000000000n,
+            PEPE,
+            18
+          );
+        }
         seriousInputs.push(req.inputAmount);
         return makeQuoteTo(5000000000000000000n, req.inputAmount, PEPE, 18); // delivers exactly 5 PEPE
       })
@@ -547,7 +576,6 @@ describe('selectDirectDestinationSwaps', () => {
     const agg = makeAggregator(async (reqs) =>
       reqs.map((req) => {
         if (req.type === QuoteType.EXACT_OUT) return null;
-        if (req.seriousness === QuoteSeriousness.PRICE_SURVEY) return makeQuoteTo(10000000000000000000n, 500000000000000000n, PEPE, 18);
         return makeQuoteTo(2000000000000000000n, req.inputAmount, PEPE, 18); // remaining 2 PEPE
       })
     );
@@ -567,8 +595,8 @@ describe('selectDirectDestinationSwaps', () => {
     expect(result.quoteResponses[0].holding.tokenAddress).toBe(WETH);
   });
 
-  it('does NOT run a USD-value prefix survey — sizes the walk in target-token units (fixes 6b)', async () => {
-    // Two holdings; the first alone covers the 5-PEPE target. A USD-value prefix survey (comparing
+  it('does NOT use USD-value prefix batching — sizes the walk in target-token units (fixes 6b)', async () => {
+    // Two holdings; the first alone covers the 5-PEPE target. USD-value prefix batching (comparing
     // $-value against a PEPE-denominated target) would mis-size the batch. Here the walk is purely in
     // PEPE units: after the first holding covers 5 PEPE, the second is never consumed.
     const holdings = [
@@ -578,7 +606,7 @@ describe('selectDirectDestinationSwaps', () => {
     const agg = makeAggregator(async (reqs) =>
       reqs.map((req) => {
         if (req.type === QuoteType.EXACT_OUT) return null;
-        return makeQuoteTo(5000000000000000000n, req.inputAmount, PEPE, 18); // each holding surveys to 5 PEPE
+        return makeQuoteTo(5000000000000000000n, req.inputAmount, PEPE, 18); // each holding quotes to 5 PEPE
       })
     );
 
@@ -595,6 +623,32 @@ describe('selectDirectDestinationSwaps', () => {
     expect(result.quoteResponses[0].quote.output.amountRaw).toBe(5000000000000000000n);
   });
 
+  it('uses one serious direct-destination full-holding quote as executable calldata', async () => {
+    const holdings = [makeHolding(ARB_CHAIN, WETH, 500000000000000000n, { value: 10 })];
+    const seriousQuote = makeQuoteTo(
+      5000000000000000000n,
+      500000000000000000n,
+      PEPE,
+      18
+    );
+    seriousQuote.txData.tx.data = '0x5678';
+    const getQuotes = vi.fn(async (reqs: QuoteRequest[]) => reqs.map(() => seriousQuote));
+
+    const result = await selectDirectDestinationSwaps({
+      holdings,
+      outputRequired: new Decimal(5),
+      target: { contractAddress: PEPE, decimals: 18 },
+      aggregators: [makeAggregator(getQuotes)],
+      ...requestAddresses,
+    });
+
+    expect(result.quoteResponses).toHaveLength(1);
+    expect(result.quoteResponses[0].quote.txData.tx.data).toBe('0x5678');
+    expect(getQuotes.mock.calls.flatMap(([requests]) => requests.map((r) => r.seriousness))).toEqual([
+      QuoteSeriousness.SERIOUS,
+    ]);
+  });
+
   it('caps convergence input growth at maxConvergenceExtraRaw (target-token units)', async () => {
     // Indicative 0.5 WETH → 10 PEPE. Initial estimate for 5 PEPE = 0.25 WETH. Cap extra = 1 PEPE worth
     // of WETH = (1e18 PEPE * 0.5e18 WETH) / 10e18 PEPE = 5e16 WETH. Max input = 2.5e17 + 5e16 = 3e17.
@@ -603,7 +657,14 @@ describe('selectDirectDestinationSwaps', () => {
     const agg = makeAggregator(async (reqs) =>
       reqs.map((req) => {
         if (req.type === QuoteType.EXACT_OUT) return null;
-        if (req.seriousness === QuoteSeriousness.PRICE_SURVEY) return makeQuoteTo(10000000000000000000n, 500000000000000000n, PEPE, 18);
+        if (req.inputAmount === holdings[0].amountRaw) {
+          return makeQuoteTo(
+            10000000000000000000n,
+            500000000000000000n,
+            PEPE,
+            18
+          );
+        }
         seriousInputs.push(req.inputAmount);
         return makeQuoteTo(4000000000000000000n, req.inputAmount, PEPE, 18); // always under-delivers → drives to cap
       })

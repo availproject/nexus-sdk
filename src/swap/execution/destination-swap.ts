@@ -270,6 +270,8 @@ export const executeDestinationSwap = async (
 ): Promise<void> => {
   const chain = ctx.chainList.getChainByID(destination.chainId);
   let currentSwap = destination.swap;
+  const requiresTokenSwap = Boolean(destination.swap.tokenSwap);
+  const requiresGasSwap = Boolean(destination.swap.gasSwap);
   let lastError: unknown;
 
   if (!currentSwap.tokenSwap && !currentSwap.gasSwap) {
@@ -372,9 +374,13 @@ export const executeDestinationSwap = async (
           async () => destination.getDstSwap(wrapperCotBalance ?? 0n),
           { tags: { mode, wallet_path: wrapper, attempt } }
         );
-        if (requoted?.tokenSwap || requoted?.gasSwap) {
+        const hasEveryRequiredLeg =
+          requoted != null &&
+          (!requiresTokenSwap || Boolean(requoted.tokenSwap)) &&
+          (!requiresGasSwap || Boolean(requoted.gasSwap));
+        if ((requoted?.tokenSwap || requoted?.gasSwap) && hasEveryRequiredLeg) {
           currentSwap = requoted;
-        } else if (attempt > 0) {
+        } else if (attempt > 0 || (requoted != null && !hasEveryRequiredLeg)) {
           const previousAggregator =
             currentSwap.tokenSwap?.aggregator ?? currentSwap.gasSwap?.aggregator;
           throw new ExternalServiceError(

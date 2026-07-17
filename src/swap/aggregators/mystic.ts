@@ -72,10 +72,9 @@ export class MysticAggregator implements Aggregator, TokenInfoProvider {
       const inputAmountRaw = BigInt(best.sellAmount);
       const outputAmountRaw = BigInt(best.minBuyAmount); // slippage-protected floor, like 0x
 
-      // Price surveys only compare amounts and are always re-quoted SERIOUS before execution
-      // (swap/execution/source-swaps.ts), so skip the build call: it simulates on-chain, which is
-      // wasteful per survey candidate and would drop otherwise-valid price data when the taker
-      // can't execute yet.
+      // Price surveys are only used as indicative convergence seeds and never enter execution, so
+      // skip the build call: it simulates on-chain, which is wasteful per seed and would drop
+      // otherwise-valid price data when the taker can't execute yet.
       if (req.seriousness !== QuoteSeriousness.SERIOUS) {
         return {
           input: placeholderSide(req.inputToken, inputAmountRaw),

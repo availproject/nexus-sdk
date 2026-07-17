@@ -12,6 +12,7 @@ import { logger } from '../../domain/utils';
 import { isNativeAddress } from '../../services/addresses';
 import { divDecimals, mulDecimals } from '../../services/math';
 import { MAYAN_MIN_USD_PER_LEG, quoteMayanLegs } from '../../services/mayan';
+import type { QuoteResponse } from '../aggregators/types';
 import { resolveCOT } from '../cot';
 import type { BridgeAsset, BridgeQuoteResponse, SourceChainCOT, SwapRoute } from '../types';
 import type { RouteOptions } from '../route';
@@ -381,6 +382,68 @@ export const computeBridgeFees = (params: {
     estimatedFees,
     totalFeeAmount,
     deliveredAmount: params.grossBridged.minus(totalFeeAmount),
+  };
+};
+
+export const buildBridgeAssetsAndFees = (input: {
+  destinationChainId: number;
+  quoteResponses: QuoteResponse[];
+  cotSources: Array<{
+    holding: { chainID: number; tokenAddress: Hex; amountRaw: bigint };
+    amountUsed?: Decimal;
+  }>;
+  chainList: ChainListType;
+  currencyId: number;
+  bridgeQuoteResponse: BridgeQuoteResponse | null | undefined;
+  dstCOTDecimals: number;
+}): {
+  assets: BridgeAsset[];
+  grossBridged: Decimal;
+  feeSummary: ReturnType<typeof computeBridgeFees> | null;
+} => {
+  const assetsByChain = new Map<number, BridgeAsset>();
+  for (const swap of input.quoteResponses) {
+    if (swap.chainID === input.destinationChainId) continue;
+    const cot = resolveCOT(swap.chainID, input.chainList, input.currencyId);
+    accumulateBridgeAsset(assetsByChain, {
+      chainID: swap.chainID,
+      contractAddress: cot?.address ?? swap.quote.output.contractAddress,
+      decimals: cot?.decimals ?? swap.quote.output.decimals,
+      balance: 'ephemeralBalance',
+      amount: new Decimal(swap.quote.output.amount),
+    });
+  }
+  for (const source of input.cotSources) {
+    if (source.holding.chainID === input.destinationChainId) continue;
+    const cot = resolveCOT(source.holding.chainID, input.chainList, input.currencyId);
+    accumulateBridgeAsset(assetsByChain, {
+      chainID: source.holding.chainID,
+      contractAddress: cot?.address ?? source.holding.tokenAddress,
+      decimals: cot?.decimals ?? 6,
+      balance: 'eoaBalance',
+      amount:
+        source.amountUsed ?? divDecimals(source.holding.amountRaw, cot?.decimals ?? 6),
+    });
+  }
+
+  const assets = [...assetsByChain.values()];
+  const grossBridged = assets.reduce(
+    (sum, asset) => sum.plus(asset.eoaBalance).plus(asset.ephemeralBalance),
+    new Decimal(0)
+  );
+  if (assets.length === 0) return { assets, grossBridged, feeSummary: null };
+  if (!input.bridgeQuoteResponse) {
+    throw Errors.internal('Bridge fee quote unavailable -- cannot route cross-chain swap');
+  }
+
+  return {
+    assets,
+    grossBridged,
+    feeSummary: computeBridgeFees({
+      quoteResponse: input.bridgeQuoteResponse,
+      grossBridged,
+      dstCOTDecimals: input.dstCOTDecimals,
+    }),
   };
 };
 

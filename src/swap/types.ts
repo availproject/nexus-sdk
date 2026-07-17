@@ -234,11 +234,6 @@ export type SwapRoute = {
     // buffered input. EXACT_IN carries `null` — it re-quotes a failed leg and proceeds
     // with no drift guard (Seam 2 re-sizes the dst swap to whatever COT actually lands).
     srcBuffer: Decimal | null;
-    // Path A only: the drift budget for the native gas legs, in native-token units (the token
-    // legs use `srcBuffer` in toToken units). A Path A batch mixes toToken legs and native gas
-    // legs, so the pooled re-quote guard is checked per output token — each group against its own
-    // buffer. Absent on every non-Path-A route (which carry a single output token).
-    gasSrcBuffer?: Decimal;
     // EXACT_IN reclaim (set only when a bridge runs): execution bridges the COT that actually
     // landed at the source wrapper (`balanceOf`) rather than the conservative quote floor, so
     // positive source slippage reaches the destination instead of being swept at the source.

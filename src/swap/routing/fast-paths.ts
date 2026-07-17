@@ -605,6 +605,16 @@ export async function buildSameTokenBridgeRoute(
       },
       options
     );
+    if (bridge.provider === 'mayan' && bridge.mayanQuotesBySource) {
+      deliveredFromBridge = [...bridge.mayanQuotesBySource.values()].reduce(
+        (sum, quote) => sum.plus(new Decimal(quote.minReceived.toString())),
+        new Decimal(0)
+      );
+      bridge = {
+        ...bridge,
+        amounts: { ...bridge.amounts, tokenAmount: deliveredFromBridge },
+      };
+    }
   }
 
   const finalDelivered = deliveredFromBridge.plus(dstChainBalance);

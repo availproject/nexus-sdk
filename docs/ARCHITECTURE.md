@@ -208,10 +208,10 @@ Middleware client (`createMiddlewareClient`) validates URLs once and provides:
 - `getSwapBalances(address)` -> `GET /api/v1/swap-balance/EVM/:address`
 - `simulateBundleV2(request)` -> `POST /api/v1/gas/bundle-v2`
 
-It also exposes aggregator quote proxies, lightweight LiFi/Relay token-price proxies used by Exact
-Out routing, oracle-price fetches, timing configuration, and `destroy()` for transport teardown.
-Citrea token pricing is fetched directly from `graph.fibrous.finance` by the swap routing package;
-Fibrous quote requests continue to use their separate quote API through middleware.
+It also exposes aggregator quote proxies, lightweight token-price clients used by Exact Out routing,
+oracle-price fetches, timing configuration, and `destroy()` for transport teardown. The transport
+client fetches Citrea prices directly from `graph.fibrous.finance`; Fibrous quote requests continue
+to use their separate quote API through middleware.
 
 Every middleware error is normalized at this boundary: axios failures are wrapped in a `BackendError`
 whose `details` carry the middleware's typed error envelope (`middlewareCode`, `middlewareSubcode`,

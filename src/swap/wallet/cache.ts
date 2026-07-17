@@ -158,22 +158,12 @@ export class SwapCache {
           const permitQueries = chainQueries.filter((q): q is PermitQuery => q.type === 'permit');
 
           if (allowanceQueries.length > 0) {
-            const contracts = allowanceQueries.map((q) => {
-              if (q.type === 'allowance') {
-                return {
-                  address: q.token,
-                  abi: erc20Abi,
-                  functionName: 'allowance' as const,
-                  args: [q.owner, q.spender] as const,
-                };
-              }
-              return {
-                address: CALIBUR_ADDRESS,
-                abi: erc20Abi,
-                functionName: 'allowance' as const,
-                args: [q.owner, q.spender] as const,
-              };
-            });
+            const contracts = allowanceQueries.map((q) => ({
+              address: q.token,
+              abi: erc20Abi,
+              functionName: 'allowance' as const,
+              args: [q.owner, q.spender] as const,
+            }));
 
             logger.debug('swap.cache.allowance.query_started', {
               chainId,

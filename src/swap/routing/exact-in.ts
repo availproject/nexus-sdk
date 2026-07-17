@@ -10,7 +10,7 @@ import { destinationSwapWithExactIn } from '../algorithms/destination';
 import { liquidateInputHoldings } from '../algorithms/liquidate';
 import { DST_RECLAIM_DEDUCTION_PCT } from '../constants';
 import { resolveCOT, resolveSwapSettlement } from '../cot';
-import type { AssetsUsedEntry, BridgeAsset, DestinationSwap, SwapRoute } from '../types';
+import type { AssetsUsedEntry, DestinationSwap, SwapRoute } from '../types';
 import { SwapMode } from '../types';
 import type { RouteOptions } from '../route';
 import {
@@ -20,10 +20,9 @@ import {
   resolveWalletDecisions,
 } from './addresses';
 import {
-  accumulateBridgeAsset,
   bridgedTokenForChain,
+  buildBridgeAssetsAndFees,
   buildSourceCotByChain,
-  computeBridgeFees,
   enrichMayanBridge,
   fetchBridgeQuoteForCurrency,
   resolveBridgeProviderDecision,
@@ -183,52 +182,23 @@ const buildExactInBridge = async (input: {
     input.options.timing,
     'flow.swap.route.build_bridge',
     async () => {
-      const assetsByChain = new Map<number, BridgeAsset>();
-      for (const swap of input.sourceSwaps) {
-        if (swap.chainID === input.data.toChainId) continue;
-        const cot = resolveCOT(swap.chainID, input.options.chainList, input.currencyId);
-        accumulateBridgeAsset(assetsByChain, {
-          chainID: swap.chainID,
-          contractAddress: cot?.address ?? swap.quote.output.contractAddress,
-          decimals: cot?.decimals ?? swap.quote.output.decimals,
-          balance: 'ephemeralBalance',
-          amount: new Decimal(swap.quote.output.amount),
-        });
-      }
-      for (const holding of input.cotHoldings) {
-        if (holding.chainID === input.data.toChainId) continue;
-        const cot = resolveCOT(holding.chainID, input.options.chainList, input.currencyId);
-        accumulateBridgeAsset(assetsByChain, {
-          chainID: holding.chainID,
-          contractAddress: cot?.address ?? holding.tokenAddress,
-          decimals: cot?.decimals ?? 6,
-          balance: 'eoaBalance',
-          amount: divDecimals(holding.amountRaw, cot?.decimals ?? 6),
-        });
-      }
-
-      const assets = [...assetsByChain.values()];
-      if (assets.length === 0) {
+      const { assets, grossBridged: bridgedCOT, feeSummary } = buildBridgeAssetsAndFees({
+        destinationChainId: input.data.toChainId,
+        quoteResponses: input.sourceSwaps,
+        cotSources: input.cotHoldings.map((holding) => ({ holding })),
+        chainList: input.options.chainList,
+        currencyId: input.currencyId,
+        bridgeQuoteResponse: input.options.bridgeQuoteResponse,
+        dstCOTDecimals: input.dstCOT.decimals,
+      });
+      if (!feeSummary) {
         return { bridge: null, cotAvailableForDestination: input.cotAvailableForDestination };
-      }
-
-      const bridgedCOT = assets.reduce(
-        (sum, asset) => sum.plus(asset.eoaBalance).plus(asset.ephemeralBalance),
-        new Decimal(0)
-      );
-      const bridgeQuoteResponse = input.options.bridgeQuoteResponse;
-      if (!bridgeQuoteResponse) {
-        throw Errors.internal('Bridge fee quote unavailable -- cannot route cross-chain swap');
       }
       const {
         estimatedFees,
         totalFeeAmount,
         deliveredAmount: effectiveBridgedToDestination,
-      } = computeBridgeFees({
-        quoteResponse: bridgeQuoteResponse,
-        grossBridged: bridgedCOT,
-        dstCOTDecimals: input.dstCOT.decimals,
-      });
+      } = feeSummary;
       if (effectiveBridgedToDestination.lte(0)) {
         throw Errors.insufficientBalance(
           `Bridge fees (${totalFeeAmount.toString()}) exceed bridged COT (${bridgedCOT.toString()})`
@@ -488,43 +458,12 @@ export async function _exactInRoute(data: ExactInData, options: RouteOptions): P
         sourceChainCount: allChainIds.size,
       });
 
-  // EXACT_IN quotes the destination swap at the FULL available COT — there is no source buffer.
-  // A source leg that requotes lower simply delivers less COT; Seam 2 (getDstSwap) re-sizes the
-  // dst swap down to whatever actually lands, so there is no floor to reserve here.
-  if (needsTokenSwap && cotAvailableForDestination.gt(0)) {
-    const dstQuote = await withTimingSpan(
-      options.timing,
-      'flow.swap.route.quote_destination',
-      async () =>
-        destinationSwapWithExactIn({
-          chainId: data.toChainId,
-          input: {
-            amountRaw: mulDecimals(cotAvailableForDestination, dstCOT.decimals),
-            tokenAddress: dstCOT.address,
-          },
-          outputToken: data.toTokenAddress,
-          options: {
-            chainList,
-            aggregators,
-            userAddress: destinationQuoteAddress,
-            recipientAddress: options.eoaAddress,
-          },
-        }),
-      { tags: { mode: SwapMode.EXACT_IN } }
-    );
-    if (!dstQuote) {
-      throw Errors.quoteFailed(
-        `No destination swap quote available for chain ${data.toChainId} token ${data.toTokenAddress}`
-      );
-    }
-    dstSwap = { tokenSwap: dstQuote, gasSwap: null };
-  }
-
-  // Shared EXACT_IN destination-swap quote at a given COT input (human units), used by both
-  // execution-time requote paths. No rate-tolerance guard — a requote is accepted whatever it returns.
+  // Shared EXACT_IN destination-swap quote at a given COT input (human units), used by the initial
+  // route and both execution-time requote paths. No rate-tolerance guard — a requote is accepted
+  // whatever it returns.
   const quoteDstSwapAtInput = async (inputHuman: Decimal): Promise<DestinationSwap | null> => {
     if (!needsTokenSwap) return null;
-    const q = await withTimingSpan(
+    const quote = await withTimingSpan(
       options.timing,
       'flow.swap.route.quote_destination',
       async () =>
@@ -544,9 +483,22 @@ export async function _exactInRoute(data: ExactInData, options: RouteOptions): P
         }),
       { tags: { mode: SwapMode.EXACT_IN } }
     );
-    if (!q) return null;
-    return { tokenSwap: q, gasSwap: null };
+    if (!quote) return null;
+    return { tokenSwap: quote, gasSwap: null };
   };
+
+  // EXACT_IN quotes the destination swap at the FULL available COT — there is no source buffer.
+  // A source leg that requotes lower simply delivers less COT; Seam 2 (getDstSwap) re-sizes the
+  // dst swap down to whatever actually lands, so there is no floor to reserve here.
+  if (needsTokenSwap && cotAvailableForDestination.gt(0)) {
+    const quotedSwap = await quoteDstSwapAtInput(cotAvailableForDestination);
+    if (!quotedSwap) {
+      throw Errors.quoteFailed(
+        `No destination swap quote available for chain ${data.toChainId} token ${data.toTokenAddress}`
+      );
+    }
+    dstSwap = quotedSwap;
+  }
 
   const assetsUsed: AssetsUsedEntry[] = holdings.map((h) => ({
     chainID: h.chainID,

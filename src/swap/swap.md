@@ -341,8 +341,8 @@ determineSwapRoute(input, opts) -> SwapRoute:
     prices = route-scoped keyed promises                            # chainId + normalized token address
       oracle → balance-implied (value / amount) → provider API
       non-Citrea provider fallback = RACE(LiFi token, Relay token-price)
-      Citrea provider fallback = direct graph.fibrous.finance token fetch
-        (native normalized to ZERO_ADDRESS; does not use middleware)
+      Citrea provider fallback = transport-owned graph.fibrous.finance token fetch
+        (native normalized to ZERO_ADDRESS; direct provider request, not a middleware proxy)
       provider wait is bounded; missing price remains unknown, never a false-negative gate
     # Path A gets the first attempt, before any COT→toToken sizing quote:
     directRequiredUsd = toAmount × toTokenPrice + nativeAmount × nativePrice
@@ -553,9 +553,11 @@ createAggregators(mw) → [LiFi, Bebop, Fibrous, 0x, Mystic, Relay]
 
 All adapters map a middleware response to a `Quote`, return `null` on throw/timeout, short‑circuit
 unsupported chains **without firing a request**, and send **no API‑key headers** (the proxy handles
-auth). Executable quotes use the **slippage-protected** output amount. Fibrous price surveys use its
-lighter `/v2/route` response, apply the configured slippage floor to `outputAmount` locally, and are
-always re-quoted through `/v2/routeAndCallData` before execution.
+auth). Executable quotes use the **slippage-protected** output amount. Source-selection candidates
+are requested as executable quotes from the outset so a fully consumed holding reuses one quote.
+Fibrous price surveys are reserved for indicative convergence seeds: they use the lighter `/v2/route`
+response, apply the configured slippage floor to `outputAmount` locally, and never enter execution;
+serious Fibrous requests use `/v2/routeAndCallData`.
 LiFi/Bebop surface a per-token `priceUsd`;
 **0x and Mystic report amounts + tx only (no decimals/symbol/price)** — filled from a sibling quote in
 `aggregateAggregators`, or, when a leg is only 0x/Mystic, from a token endpoint (0x → LiFi `/v1/token`;
@@ -563,10 +565,10 @@ Mystic → its `/v1/tokens/resolve`, no price → value 0); dropped only if neit
 
 Exact Out routing also gets lightweight token prices without constructing executable quotes. LiFi
 `/token` and Relay `/currencies/token/price` race through middleware on non-Citrea chains. Citrea
-instead fetches `https://graph.fibrous.finance/citrea/tokens/:address` directly; this is a different
-host from the Fibrous quote API (`https://api.fibrous.finance`). Responses are normalized to a
-positive decimal value at their request boundary, then consumed through the route-scoped
-keyed-promise cache described in §5.
+instead uses a transport-owned direct fetch to `https://graph.fibrous.finance/citrea/tokens/:address`;
+this is a different host from the Fibrous quote API (`https://api.fibrous.finance`). Responses are
+normalized to a positive decimal value at the transport boundary, then consumed through the
+route-scoped keyed-promise cache described in §5.
 
 | Adapter | Output amount | Recipient param | Notable params | Chains / notes |
 |---|---|---|---|---|
@@ -955,7 +957,7 @@ a formula over the (already‑updated) inputs, so it tracks them automatically.
 - **Direct destination (Path A) EXACT_OUT delivers exact outputs with a dedicated executor.** The
   EXACT_OUT twin swaps input→toToken directly on the dst chain (`directDestination = true`,
   `bridge = null`, `dst.swap = null`, receiver = EOA), with token and optional gas passes targeting
-  the original raw requests exactly. Its route has `srcBuffer = null`, no `gasSrcBuffer`, and
+  the original raw requests exactly. Its route has `srcBuffer = null` and
   `route.buffer.amount = '0'`; the output-side source retry guard is not used. Before destination
   pricing or settlement work, the canonical filtered holdings are classified. If they are all on the
   destination chain, Path A is authoritative for non-negative token requests: it returns on success

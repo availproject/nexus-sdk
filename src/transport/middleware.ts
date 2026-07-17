@@ -85,6 +85,7 @@ export type MiddlewareClient = {
   getRelayQuote: (params: Record<string, string>) => Promise<unknown>;
   getLiFiTokenPrice: (chainId: number, token: string) => Promise<string | null>;
   getRelayTokenPrice: (chainId: number, address: string) => Promise<string | null>;
+  getFibrousTokenPrice: (address: string) => Promise<string | null>;
   // Token-metadata lookups (raw responses) used to enrich a metadata-less winner (0x/Mystic) when no
   // sibling quote supplies decimals: LiFi for non-Citrea (+USD price), Mystic-resolve for Citrea.
   getLiFiToken: (chainId: number, token: string) => Promise<unknown>;
@@ -124,7 +125,7 @@ export type MiddlewareAggregatorQuoteClient = Pick<
 >;
 export type MiddlewareTokenPriceClient = Pick<
   MiddlewareClient,
-  'getLiFiTokenPrice' | 'getRelayTokenPrice'
+  'getLiFiTokenPrice' | 'getRelayTokenPrice' | 'getFibrousTokenPrice'
 >;
 export type MiddlewareRffClient = Pick<MiddlewareClient, 'getRFF'>;
 export type MiddlewareRffStatusClient = Pick<MiddlewareClient, 'getRFFStatus'>;
@@ -997,6 +998,17 @@ export const createMiddlewareClient = (
     return isRecord(response.data) ? normalizeTokenPrice(response.data.price) : null;
   };
 
+  const getFibrousTokenPrice = async (address: string): Promise<string | null> => {
+    try {
+      const response = await fetch(`https://graph.fibrous.finance/citrea/tokens/${address}`);
+      if (!response.ok) return null;
+      const data: unknown = await response.json();
+      return isRecord(data) ? normalizeTokenPrice(data.price) : null;
+    } catch {
+      return null;
+    }
+  };
+
   // Mystic on-chain ERC-20 resolve (decimals/symbol/name, no price) — enriches a lone Mystic quote.
   const getMysticToken = async (chainId: number, address: string): Promise<unknown> => {
     const response = await client.get('/api/v1/proxy/mystic/v1/tokens/resolve', {
@@ -1185,6 +1197,7 @@ export const createMiddlewareClient = (
     getRelayQuote,
     getLiFiTokenPrice,
     getRelayTokenPrice,
+    getFibrousTokenPrice,
     getSwapBalances,
     getQuote,
     getMayanQuotes,

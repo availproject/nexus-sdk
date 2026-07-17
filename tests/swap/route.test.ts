@@ -2775,7 +2775,6 @@ describe('determineSwapRoute', () => {
       expect(arg.target).toEqual(expect.objectContaining({ contractAddress: PEPE, decimals: 18 }));
       expect(arg.outputRequired.toString()).toBe('100');
       expect(route.source.srcBuffer).toBeNull();
-      expect(route.source.gasSrcBuffer).toBeUndefined();
       expect(route.buffer.amount).toBe('0');
       expect(determineDestinationSwaps).not.toHaveBeenCalled();
     });
@@ -3049,7 +3048,6 @@ describe('determineSwapRoute', () => {
       // Merged source.swaps = 2 token legs + 1 gas leg; Path A carries no source buffers.
       expect(route.source.swaps).toHaveLength(3);
       expect(route.source.srcBuffer).toBeNull();
-      expect(route.source.gasSrcBuffer).toBeUndefined();
       expect(route.directDestination).toBe(true);
     });
 
@@ -3116,7 +3114,6 @@ describe('determineSwapRoute', () => {
       }));
       const gasArg = vi.mocked(selectDirectDestinationSwaps).mock.calls[1][0];
       expect(gasArg.maxConvergenceExtraRaw?.toString()).toBe('200000000000000'); // priceUsdFor: ARB price wins
-      expect(route.source.gasSrcBuffer).toBeUndefined();
     });
   });
 
@@ -4714,6 +4711,64 @@ describe('determineSwapRoute — bridge provider parity', () => {
     );
     expect(route.bridge!.provider).toBe('mayan');
     expect(route.bridge!.mayanQuotesBySource?.size).toBe(2);
+  });
+
+  it('EXACT_IN same-token Mayan reports quoted delivery plus destination-local balance', async () => {
+    const middleware = {
+      getBridgeProvider: vi.fn().mockResolvedValue({ provider: 'mayan' }),
+      getMayanQuotes: vi.fn().mockImplementation(
+        async (req: {
+          sources: { chain_id: Hex; contract_address: Hex; amount: string }[];
+          destination: { chain_id: Hex; contract_address: Hex };
+        }) => ({
+          destination: req.destination,
+          quotes: req.sources.map((source) => ({
+            source: {
+              chainId: Number(BigInt(source.chain_id)),
+              tokenAddress: source.contract_address,
+              amount: source.amount,
+            },
+            mayanQuote: {
+              minReceived: Number(BigInt(source.chain_id)) === ARB_CHAIN ? '0.8' : '1.7',
+              protocolBps: 3,
+            },
+          })),
+        })
+      ),
+    };
+    const route = await determineSwapRoute(
+      {
+        mode: SwapMode.EXACT_IN,
+        data: {
+          sources: [
+            { chainId: ARB_CHAIN, tokenAddress: USDT_ARB, amountRaw: 1_000_000n },
+            { chainId: OP_CHAIN, tokenAddress: USDT_OP, amountRaw: 2_000_000n },
+            { chainId: BASE_CHAIN, tokenAddress: USDT_BASE, amountRaw: 3_000_000n },
+          ],
+          toChainId: BASE_CHAIN,
+          toTokenAddress: USDT_BASE,
+        },
+      },
+      makeRouteOptions({
+        middlewareClient: middleware as never,
+        dstTokenInfo: makeDstTokenInfo({
+          contractAddress: USDT_BASE,
+          decimals: 6,
+          symbol: 'USDT',
+          name: 'Tether USD',
+        }),
+        balances: [
+          { amount: '1', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDT', tokenAddress: USDT_ARB, value: 1, logo: '', name: 'Tether USD' },
+          { amount: '2', chainID: OP_CHAIN, decimals: 6, symbol: 'USDT', tokenAddress: USDT_OP, value: 2, logo: '', name: 'Tether USD' },
+          { amount: '3', chainID: BASE_CHAIN, decimals: 6, symbol: 'USDT', tokenAddress: USDT_BASE, value: 3, logo: '', name: 'Tether USD' },
+        ],
+      })
+    );
+
+    expect(route.bridge!.provider).toBe('mayan');
+    expect(route.bridge!.amounts.tokenAmount.toFixed()).toBe('2.5');
+    expect(route.destination.inputAmount.min.toFixed()).toBe('5.5');
+    expect(route.destination.inputAmount.max.toFixed()).toBe('5.5');
   });
 
   it('fast path native dst participates in provider selection (calls the provider endpoint with the normalized zero-address)', async () => {

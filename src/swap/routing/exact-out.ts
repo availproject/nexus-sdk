@@ -19,7 +19,6 @@ import {
 import { resolveCOT, resolveCurrencyId } from '../cot';
 import type {
   AssetsUsedEntry,
-  BridgeAsset,
   DestinationSwap,
   OraclePriceResponse,
   Source,
@@ -34,10 +33,9 @@ import {
   resolveWalletDecisions,
 } from './addresses';
 import {
-  accumulateBridgeAsset,
   bridgedTokenForChain,
+  buildBridgeAssetsAndFees,
   buildSourceCotByChain,
-  computeBridgeFees,
   enrichMayanBridge,
   estimateBridgeFees,
   fetchBridgeQuoteForCurrency,
@@ -63,6 +61,87 @@ type ExactOutData = {
 type ExactOutSelection = Awaited<ReturnType<typeof autoSelectSources>>;
 type ResolvedCot = ReturnType<typeof resolveCOT>;
 type DestinationChain = ReturnType<ChainListType['getChainByID']>;
+
+const quoteExactOutDestination = async (input: {
+  data: ExactOutData;
+  options: RouteOptions;
+  dstCOT: ResolvedCot;
+  destinationQuoteAddress: Hex;
+  gasInCotBudgetRaw: bigint;
+  needsGasSwap: boolean;
+  needsTokenSwap: boolean;
+  estimatedInputAmountRaw?: Decimal;
+  timingSpan:
+    | 'flow.swap.route.quote_destination_requirement'
+    | 'flow.swap.route.quote_destination';
+}) => {
+  const [tokenSwapQuote, gasSwapQuote] = await withTimingSpan(
+    input.options.timing,
+    input.timingSpan,
+    async () =>
+      Promise.all([
+        input.needsTokenSwap
+          ? determineDestinationSwaps({
+              dst: {
+                chainId: input.data.toChainId,
+                token: {
+                  contractAddress: input.data.toTokenAddress,
+                  amountRaw: input.data.toAmountRaw,
+                },
+              },
+              options: {
+                chainList: input.options.chainList,
+                aggregators: input.options.aggregators,
+                cotCurrencyID: input.options.cotCurrencyId,
+                estimatedInputAmountRaw: input.estimatedInputAmountRaw,
+                userAddress: input.destinationQuoteAddress,
+                recipientAddress: input.options.eoaAddress,
+              },
+            })
+          : Promise.resolve(null),
+        input.needsGasSwap
+          ? destinationGasSwapExactIn({
+              chainId: input.data.toChainId,
+              gasAmountInCotRaw: input.gasInCotBudgetRaw,
+              options: {
+                chainList: input.options.chainList,
+                aggregators: input.options.aggregators,
+                cotCurrencyID: input.options.cotCurrencyId,
+                userAddress: input.destinationQuoteAddress,
+                recipientAddress: input.options.eoaAddress,
+              },
+            })
+          : Promise.resolve(null),
+      ]),
+    {
+      tags: {
+        mode: SwapMode.EXACT_OUT,
+        has_token_swap: input.needsTokenSwap,
+        has_gas_swap: input.needsGasSwap,
+      },
+    }
+  );
+
+  const tokenInputAmount = input.needsTokenSwap
+    ? new Decimal(
+        tokenSwapQuote?.quote.input.amount ??
+          formatUnits(input.data.toAmountRaw, input.options.dstTokenInfo.decimals)
+      )
+    : input.data.toAmountRaw > 0n
+      ? divDecimals(input.data.toAmountRaw, input.dstCOT.decimals)
+      : new Decimal(0);
+  const gasInputAmount = gasSwapQuote
+    ? divDecimals(gasSwapQuote.quote.input.amountRaw, input.dstCOT.decimals)
+    : new Decimal(0);
+
+  return {
+    tokenSwapQuote,
+    gasSwapQuote,
+    tokenInputAmount,
+    gasInputAmount,
+    inputAmount: tokenInputAmount.plus(gasInputAmount),
+  };
+};
 
 const resolveExactOutSources = async (
   data: ExactOutData,
@@ -123,52 +202,23 @@ const resolveExactOutDestinationRequirement = async (
       })
     : 0n;
 
-  const [tokenSwapQuote, gasSwapQuote] = await withTimingSpan(
-    options.timing,
-    'flow.swap.route.quote_destination_requirement',
-    async () =>
-      Promise.all([
-        needsTokenSwap
-          ? determineDestinationSwaps({
-              dst: {
-                chainId: data.toChainId,
-                token: {
-                  contractAddress: data.toTokenAddress,
-                  amountRaw: data.toAmountRaw,
-                },
-              },
-              options: {
-                chainList: options.chainList,
-                aggregators: options.aggregators,
-                cotCurrencyID: options.cotCurrencyId,
-                estimatedInputAmountRaw,
-                userAddress: destinationQuoteAddress,
-                recipientAddress: options.eoaAddress,
-              },
-            })
-          : Promise.resolve(null),
-        needsGasSwap
-          ? destinationGasSwapExactIn({
-              chainId: data.toChainId,
-              gasAmountInCotRaw: gasInCotBudgetRaw,
-              options: {
-                chainList: options.chainList,
-                aggregators: options.aggregators,
-                cotCurrencyID: options.cotCurrencyId,
-                userAddress: destinationQuoteAddress,
-                recipientAddress: options.eoaAddress,
-              },
-            })
-          : Promise.resolve(null),
-      ]),
-    {
-      tags: {
-        mode: SwapMode.EXACT_OUT,
-        has_token_swap: needsTokenSwap,
-        has_gas_swap: needsGasSwap,
-      },
-    }
-  );
+  const {
+    tokenSwapQuote,
+    gasSwapQuote,
+    tokenInputAmount,
+    gasInputAmount,
+    inputAmount,
+  } = await quoteExactOutDestination({
+    data,
+    options,
+    dstCOT,
+    destinationQuoteAddress,
+    gasInCotBudgetRaw,
+    needsGasSwap,
+    needsTokenSwap,
+    estimatedInputAmountRaw,
+    timingSpan: 'flow.swap.route.quote_destination_requirement',
+  });
 
   if (needsTokenSwap && !tokenSwapQuote) {
     throw Errors.quoteFailed(
@@ -178,19 +228,6 @@ const resolveExactOutDestinationRequirement = async (
   if (needsGasSwap && !gasSwapQuote) {
     throw Errors.quoteFailed(`No destination gas swap quote available for chain ${data.toChainId}`);
   }
-
-  const tokenInputAmount = needsTokenSwap
-    ? new Decimal(
-        tokenSwapQuote?.quote.input.amount ??
-          formatUnits(data.toAmountRaw, options.dstTokenInfo.decimals)
-      )
-    : data.toAmountRaw > 0n
-      ? divDecimals(data.toAmountRaw, dstCOT.decimals)
-      : new Decimal(0);
-  const gasInputAmount = gasSwapQuote
-    ? divDecimals(gasSwapQuote.quote.input.amountRaw, dstCOT.decimals)
-    : new Decimal(0);
-  const inputAmount = tokenInputAmount.plus(gasInputAmount);
 
   logger.debug('swap.route.exact_out.destination_requirement.resolved', {
     needsTokenSwap,
@@ -216,9 +253,7 @@ const tryExactOutFastPaths = async (
   data: ExactOutData,
   options: RouteOptions,
   holdings: SourceHolding[],
-  roughlyEstimatedSources: SourceHolding[],
-  needsTokenSwap: boolean,
-  needsGasSwap: boolean
+  roughlyEstimatedSources: SourceHolding[]
 ): Promise<SwapRoute | null> => {
   if (options.skipFastPaths) return null;
 
@@ -231,12 +266,12 @@ const tryExactOutFastPaths = async (
     dstChainId: data.toChainId,
     dstTokenAddress: data.toTokenAddress,
     cotCurrencyId: options.cotCurrencyId,
-    allowDirectDestination: needsTokenSwap,
-    hasGasRequest: needsGasSwap,
+    allowDirectDestination: false,
+    hasGasRequest: (data.toNativeAmountRaw ?? 0n) > 0n,
     toAmountRaw: data.toAmountRaw,
     mode: SwapMode.EXACT_OUT,
   } as const;
-  let fastPathClass = await withTimingSpan(
+  const fastPathClass = await withTimingSpan(
     options.timing,
     'flow.swap.route.classify_path',
     async () => classifyFastPath(classificationInput),
@@ -247,20 +282,6 @@ const tryExactOutFastPaths = async (
     sourceCount: roughlyEstimatedSources.length,
     reason: 'rough_source_shape',
   });
-
-  if (fastPathClass?.kind === 'direct') {
-    fastPathClass = await withTimingSpan(
-      options.timing,
-      'flow.swap.route.classify_path',
-      async () => classifyFastPath({ ...classificationInput, allowDirectDestination: false }),
-      { tags: { mode: SwapMode.EXACT_OUT } }
-    );
-    logger.debug('swap.route.exact_out.fast_path.reclassified', {
-      routePath: fastPathClass?.kind ?? 'default',
-      sourceCount: roughlyEstimatedSources.length,
-      reason: 'direct_path_already_resolved',
-    });
-  }
 
   if (fastPathClass?.kind === 'same-token-out') {
     const sameToken = await tryFastPath('same-token-out', () =>
@@ -343,47 +364,19 @@ const buildExactOutBridge = async (input: {
     input.options.timing,
     'flow.swap.route.build_bridge',
     async () => {
-      const assetsByChain = new Map<number, BridgeAsset>();
-      for (const swap of input.quoteResponses) {
-        if (swap.chainID === input.data.toChainId) continue;
-        const cot = resolveCOT(swap.chainID, input.options.chainList, input.options.cotCurrencyId);
-        accumulateBridgeAsset(assetsByChain, {
-          chainID: swap.chainID,
-          contractAddress: cot?.address ?? swap.quote.output.contractAddress,
-          decimals: cot?.decimals ?? swap.quote.output.decimals,
-          balance: 'ephemeralBalance',
-          amount: new Decimal(swap.quote.output.amount),
-        });
-      }
-      for (const usedCot of input.usedCOTs) {
-        if (usedCot.holding.chainID === input.data.toChainId) continue;
-        const cot = resolveCOT(
-          usedCot.holding.chainID,
-          input.options.chainList,
-          input.options.cotCurrencyId
-        );
-        accumulateBridgeAsset(assetsByChain, {
-          chainID: usedCot.holding.chainID,
-          contractAddress: cot?.address ?? usedCot.holding.tokenAddress,
-          decimals: cot?.decimals ?? 6,
-          balance: 'eoaBalance',
-          amount: usedCot.amountUsed,
-        });
-      }
-      const assets = [...assetsByChain.values()];
-      const grossBridged = assets.reduce(
-        (sum, asset) => sum.plus(asset.eoaBalance).plus(asset.ephemeralBalance),
-        new Decimal(0)
-      );
-      const bridgeQuoteResponse = input.options.bridgeQuoteResponse;
-      if (!bridgeQuoteResponse) {
-        throw Errors.internal('Bridge fee quote unavailable -- cannot route cross-chain swap');
-      }
-      const { estimatedFees, deliveredAmount } = computeBridgeFees({
-        quoteResponse: bridgeQuoteResponse,
-        grossBridged,
+      const { assets, grossBridged, feeSummary } = buildBridgeAssetsAndFees({
+        destinationChainId: input.data.toChainId,
+        quoteResponses: input.quoteResponses,
+        cotSources: input.usedCOTs,
+        chainList: input.options.chainList,
+        currencyId: input.options.cotCurrencyId,
+        bridgeQuoteResponse: input.options.bridgeQuoteResponse,
         dstCOTDecimals: input.dstCOT.decimals,
       });
+      if (!feeSummary) {
+        throw Errors.internal('Bridge assets unavailable -- cannot route cross-chain swap');
+      }
+      const { estimatedFees, deliveredAmount } = feeSummary;
       const deliveredTokenAmount = Decimal.max(
         deliveredAmount.minus(input.gasInCot),
         new Decimal(0)
@@ -489,8 +482,10 @@ export async function _exactOutRoute(
       ? dstHoldings.map((holding) => priceResolver.resolve(holding.chainID, holding.tokenAddress))
       : [];
 
-  const destinationPrice = await destinationPricePromise;
-  const nativePrice = await nativePricePromise;
+  const [destinationPrice, nativePrice] = await Promise.all([
+    destinationPricePromise,
+    nativePricePromise,
+  ]);
   const tokenAmount = divDecimals(data.toAmountRaw, dstTokenInfo.decimals);
   const tokenRequiredUsd = destinationPrice ? tokenAmount.mul(destinationPrice.priceUsd) : null;
   const gasRequiredUsd =
@@ -580,9 +575,7 @@ export async function _exactOutRoute(
     data,
     options,
     holdings,
-    roughlyEstimatedSources,
-    needsTokenSwap,
-    needsGasSwap
+    roughlyEstimatedSources
   );
   if (fastPathRoute) return fastPathRoute;
 
@@ -714,16 +707,9 @@ export async function _exactOutRoute(
   if (!allOnDstChain && !options.bridgeQuoteResponse) {
     throw Errors.internal('Bridge fee quote unavailable -- cannot route cross-chain swap');
   }
-  const gasInCot = gasInputAmount;
   // selectionTarget = net delivery (sourceBufferedRequired, which includes gasInCot via inputAmount)
   // + the up-front bridge-fee estimate. The fee is already folded in, so there is no iterative
   // fee-adjusted re-select; coverage was checked against selectionTarget above.
-  const requiredSourceOutput = selectionTarget;
-
-  if (coveredOutput.lt(requiredSourceOutput)) {
-    throw Errors.insufficientBalance('Available balances do not cover required output');
-  }
-
   const walletDecision = resolveWalletDecisions({
     sourceChainIds: allSourceChainIds,
     walletPathHints,
@@ -750,7 +736,7 @@ export async function _exactOutRoute(
         dstCOT,
         quoteResponses,
         usedCOTs,
-        gasInCot,
+        gasInCot: gasInputAmount,
         bridgeProvider,
         sourceChainCount: allSourceChainIds.size,
       })
@@ -813,64 +799,20 @@ export async function _exactOutRoute(
         inputAmount: dstInputAmount,
         swap: dstSwap,
         getDstSwap: async (actualCotRaw: bigint) => {
-          const [nextTokenSwap, nextGasSwap] = await withTimingSpan(
-            options.timing,
-            'flow.swap.route.quote_destination',
-            async () =>
-              Promise.all([
-                needsTokenSwap
-                  ? determineDestinationSwaps({
-                      dst: {
-                        chainId: data.toChainId,
-                        token: {
-                          contractAddress: data.toTokenAddress,
-                          amountRaw: data.toAmountRaw,
-                        },
-                      },
-                      options: {
-                        chainList,
-                        aggregators,
-                        cotCurrencyID: cotCurrencyId,
-                        userAddress: destinationQuoteAddress,
-                        recipientAddress: options.eoaAddress,
-                      },
-                    })
-                  : Promise.resolve(null),
-                needsGasSwap
-                  ? destinationGasSwapExactIn({
-                      chainId: data.toChainId,
-                      gasAmountInCotRaw: gasInCotBudgetRaw,
-                      options: {
-                        chainList,
-                        aggregators,
-                        cotCurrencyID: cotCurrencyId,
-                        userAddress: destinationQuoteAddress,
-                        recipientAddress: options.eoaAddress,
-                      },
-                    })
-                  : Promise.resolve(null),
-              ]),
-            {
-              tags: {
-                mode: SwapMode.EXACT_OUT,
-                has_token_swap: needsTokenSwap,
-                has_gas_swap: needsGasSwap,
-              },
-            }
-          );
-
-          const nextTokenInputAmount = needsTokenSwap
-            ? new Decimal(
-                nextTokenSwap?.quote.input.amount ??
-                  formatUnits(data.toAmountRaw, dstTokenInfo.decimals)
-              )
-            : data.toAmountRaw > 0n
-              ? divDecimals(data.toAmountRaw, dstCOT.decimals)
-              : new Decimal(0);
-          const nextGasInputAmount = nextGasSwap
-            ? divDecimals(nextGasSwap.quote.input.amountRaw, dstCOT.decimals)
-            : new Decimal(0);
-          const nextInputAmount = nextTokenInputAmount.plus(nextGasInputAmount);
+          const {
+            tokenSwapQuote: nextTokenSwap,
+            gasSwapQuote: nextGasSwap,
+            inputAmount: nextInputAmount,
+          } = await quoteExactOutDestination({
+            data,
+            options,
+            dstCOT,
+            destinationQuoteAddress,
+            gasInCotBudgetRaw,
+            needsGasSwap,
+            needsTokenSwap,
+            timingSpan: 'flow.swap.route.quote_destination',
+          });
 
           // Budget = the larger of the route-time max and the COT that actually landed. The srcBuffer
           // was bridged on top of the destination buffer, so when destination drift pushes the requote
