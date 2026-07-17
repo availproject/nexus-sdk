@@ -331,7 +331,7 @@ describe('aggregateAggregators — per-chain tiered selection', () => {
 
     // primary = [Relay, Bebop] (both null) → fallback quotes the remaining supporters [0x, LiFi].
     expect(p.relay).toHaveBeenCalledTimes(1);
-    expect(p.bebop).toHaveBeenCalledTimes(1);
+    expect(p.bebop).toHaveBeenCalledTimes(2);
     expect(p.zerox).toHaveBeenCalledTimes(1);
     expect(p.lifi).toHaveBeenCalledTimes(1);
     expect(p.fibrous).not.toHaveBeenCalled(); // doesn't serve Base
@@ -649,13 +649,11 @@ describe('createAggregators', () => {
 
   it('wires Bebop aggregator to mw.getBebopQuote', async () => {
     const bebopResponse = {
-      routes: [{
-        quote: {
-          sellTokens: { '0x0000000000000000000000000000000000000001': { amount: '1000', symbol: 'A', decimals: 6 } },
-          buyTokens: { '0x0000000000000000000000000000000000000002': { minimumAmount: '900', symbol: 'B', decimals: 18 } },
-          approvalTarget: '0x0000000000000000000000000000000000000003', tx: { to: '0x0000000000000000000000000000000000000004', data: '0x05', value: '0x0' }, expiry: 9999,
-        },
-      }],
+      sellTokens: { '0x0000000000000000000000000000000000000001': { amount: '1000', symbol: 'A', decimals: 6 } },
+      buyTokens: { '0x0000000000000000000000000000000000000002': { amount: '900', minimumAmount: '900', symbol: 'B', decimals: 18 } },
+      approvalTarget: '0x0000000000000000000000000000000000000003',
+      tx: { to: '0x0000000000000000000000000000000000000004', data: '0x05', value: '0x0' },
+      expiry: 9999,
     };
     const getBebopQuote = vi.fn().mockResolvedValue(bebopResponse);
     const mw = { getLiFiQuote: vi.fn(), getBebopQuote, getFibrousQuote: vi.fn(), getFibrousRoute: vi.fn() } as any;
@@ -663,7 +661,8 @@ describe('createAggregators', () => {
     const [, bebop] = createAggregators(mw);
     await bebop.getQuotes([makeRequest()]);
 
-    expect(getBebopQuote).toHaveBeenCalledTimes(1);
+    expect(getBebopQuote).toHaveBeenCalledTimes(2);
+    expect(getBebopQuote.mock.calls.map(([, api]) => api)).toEqual(['aggregation', 'rfq']);
     expect(mw.getLiFiQuote).not.toHaveBeenCalled();
     expect(mw.getFibrousQuote).not.toHaveBeenCalled();
   });

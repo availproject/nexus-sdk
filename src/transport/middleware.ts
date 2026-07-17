@@ -71,7 +71,10 @@ export type MiddlewareClient = {
   simulateBundleV2: (request: SimulationRequest) => Promise<{ gas: bigint[] }>;
   submitSBCs: (sbcTxs: SBCTx[]) => Promise<SBCResult[]>;
   getLiFiQuote: (params: Record<string, string>, exactOut?: boolean) => Promise<unknown>;
-  getBebopQuote: (params: Record<string, string>) => Promise<unknown>;
+  getBebopQuote: (
+    params: Record<string, string>,
+    api?: 'aggregation' | 'rfq'
+  ) => Promise<unknown>;
   getFibrousQuote: (params: Record<string, string>) => Promise<unknown>;
   getFibrousRoute: (params: Record<string, string>) => Promise<unknown>;
   getZeroExQuote: (params: Record<string, string>) => Promise<unknown>;
@@ -943,9 +946,13 @@ export const createMiddlewareClient = (
     return response.data;
   };
 
-  const getBebopQuote = async (params: Record<string, string>): Promise<unknown> => {
+  const getBebopQuote = async (
+    params: Record<string, string>,
+    api: 'aggregation' | 'rfq' = 'aggregation'
+  ): Promise<unknown> => {
     const { chain: chainName, ...nextParams } = params;
-    const response = await client.get(`/api/v1/proxy/bebop/router/${chainName}/v1/quote`, {
+    const path = api === 'rfq' ? `pmm/${chainName}/v3/quote` : `jam/${chainName}/v2/quote`;
+    const response = await client.get(`/api/v1/proxy/bebop/${path}`, {
       params: nextParams,
     });
     return response.data;
