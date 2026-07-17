@@ -117,7 +117,7 @@ const result = await client.bridge(
 // Returns: BridgeResult { intentExplorerUrl, sourceTxs, intent }
 ```
 
-If `onIntent` opens an interactive confirmation UI instead of calling `allow()` immediately, refresh the bridge intent shown to the user every 15 seconds until approval. See [Displayed Intent Freshness](#displayed-intent-freshness-required-for-interactive-approval).
+If `onIntent` opens an interactive confirmation UI instead of calling `allow()` immediately, use an async timeout that waits 15 seconds after each bridge refresh completes before starting the next one. See [Displayed Intent Freshness](#displayed-intent-freshness-required-for-interactive-approval).
 
 ### Transfer (Bridge + Send)
 
@@ -249,7 +249,7 @@ const exactOutResult = await client.swapWithExactOut(
 // Returns: SwapResult { sourceSwaps, intentExplorerUrl, destinationSwap }
 ```
 
-Most swap quotes are valid for roughly 30 seconds. If `onIntent` displays an intent while waiting for user confirmation, call `refresh()` every 20 seconds, render the returned intent, and stop refreshing before `allow()` or `deny()`. See [Displayed Intent Freshness](#displayed-intent-freshness-required-for-interactive-approval).
+Most swap quotes are valid for roughly 30 seconds. If `onIntent` displays an intent while waiting for user confirmation, use an async timeout that waits 20 seconds after each `refresh()` completes, render the returned intent, and stop refreshing before `allow()` or `deny()`. See [Displayed Intent Freshness](#displayed-intent-freshness-required-for-interactive-approval).
 
 **Calculate Maximum Swappable** — populate a "Max" button before calling `swapWithExactIn`:
 
@@ -362,11 +362,13 @@ Hooks are passed via the `options` parameter of each operation. If omitted, the 
 
 The `intent` object passed to `onIntent` is the live pricing preview shown to the user before approval. Do not leave that displayed intent unchanged while waiting for a user to approve a modal. This is separate from the expiry of an already signed/submitted intent and from SDK execution-time requoting:
 
-- Swap and swap-backed composite intents: most quotes are valid for roughly 30 seconds; refresh every 20 seconds to preserve time for sequential route construction and approval.
-- Bridge and bridge-backed composite intents: provider deadlines vary; refresh every 15 seconds.
+- Swap and swap-backed composite intents: most quotes are valid for roughly 30 seconds; wait 20 seconds after each refresh completes before starting the next one.
+- Bridge and bridge-backed composite intents: provider deadlines vary; wait 15 seconds after each refresh completes before starting the next one.
 - Render the intent returned by `refresh()`, prevent overlapping refresh calls, and stop the timer before `allow()` or `deny()`.
 - Disable confirmation while `refresh()` is running so approval cannot race an older preview.
 - Immediate auto-approval does not need a refresh timer.
+
+Use a recursive async timeout, not `setInterval`. Schedule the next timeout in `finally` after `refresh()` settles, matching `example/browser`: a refresh that takes 5–10 seconds still gets the full configured delay before the next refresh starts.
 
 ```ts
 onIntent: ({ intent, refresh, allow, deny }) => {
@@ -749,7 +751,7 @@ const src = token.logo || getFallbackTokenLogoDataUri(token.symbol); // size def
 
 1. **Amounts are always `bigint` in raw token units** — use `parseUnits('100', 6)` for 100 USDC, not `100`.
 2. **Bridge uses token symbols, swap uses contract addresses.** `bridge`/`bridgeAndTransfer`/`bridgeAndExecute` take `toTokenSymbol: 'USDC'` and `tokenApproval.toTokenSymbol`. `swapWithExactIn`/`swapWithExactOut`/`swapAndExecute` take `toTokenAddress: '0x...'` and `tokenApproval.toTokenAddress`.
-3. **Displayed intent previews are short-lived** — when `onIntent` shows an intent while waiting for interactive approval, refresh swaps every 20 seconds and bridges every 15 seconds, render the returned intent, and stop refreshing before `allow()` or `deny()`. Immediate auto-approval does not need a timer.
+3. **Displayed intent previews are short-lived** — when `onIntent` shows an intent while waiting for interactive approval, use recursive async timeouts that wait 20 seconds after swap refreshes and 15 seconds after bridge refreshes, render the returned intent, and stop refreshing before `allow()` or `deny()`. Do not use `setInterval`; immediate auto-approval does not need a timer.
 4. **Composite hooks are top-level** — `bridgeAndExecute` and `swapAndExecute` use `options.onIntent`, not `options.hooks.onIntent`.
 5. **`bridgeAndExecute().execute` omits `toChainId`.** `BridgeAndExecuteParams.execute` is `Omit<ExecuteParams, 'toChainId'>`; setting it is a type error. The destination chain is inherited from the top-level `toChainId`.
 6. **Default auto-approval** — if no hooks are provided, intents are allowed and allowances use `'min'`. When you do provide an `onAllowance` hook, the array passed to `allow()` must have the same length as `sources` (otherwise the SDK throws `INVALID_VALUES_ALLOWANCE_HOOK`); the safest pattern is `allow(sources.map(() => 'min'))`.

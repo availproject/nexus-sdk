@@ -1124,59 +1124,66 @@ The `intent` object passed to `onIntent` is the pricing preview shown in the app
 
 | Operation | Freshness guidance |
 |-----------|--------------------|
-| `swapWithExactIn()`, `swapWithExactOut()`, `swapAndExecute()` when a swap is required | Most underlying swap quotes are valid for roughly 30 seconds. Refresh every 20 seconds to leave time for sequential route construction and user approval. |
-| `bridge()`, `bridgeAndTransfer()`, `bridgeAndExecute()` when a bridge is required | Bridge quote deadlines vary by provider. Refresh every 15 seconds while the approval UI is open. |
+| `swapWithExactIn()`, `swapWithExactOut()`, `swapAndExecute()` when a swap is required | Most underlying swap quotes are valid for roughly 30 seconds. After each refresh completes, wait 20 seconds before starting the next one. |
+| `bridge()`, `bridgeAndTransfer()`, `bridgeAndExecute()` when a bridge is required | Bridge quote deadlines vary by provider. After each refresh completes, wait 15 seconds before starting the next one. |
 
 These are conservative UI-refresh cadences, not guaranteed protocol expiry values. This guidance applies only while displaying the pre-approval intent from `onIntent`; an already signed or submitted intent has separate expiry semantics. The SDK's execution-time requoting is also separate from keeping the confirmation UI current.
 
 Call `refresh()` without arguments to rebuild using the current source selection, or pass sources to change the selection. Always render the returned intent, avoid overlapping refresh calls, and stop refreshing before `allow()` or `deny()`. If a refresh is in flight, disable confirmation until it settles so `allow()` cannot race an older preview.
 
-```typescript
-const keepIntentFresh = <T>(
-  initialIntent: T,
-  refresh: () => Promise<T>,
-  everyMs: number,
-  render: (intent: T) => void,
-  reportError: (error: unknown) => void
-) => {
-  let stopped = false;
-  let timer: ReturnType<typeof setTimeout> | undefined;
+Use an async timeout rather than `setInterval`. The next timeout must be scheduled only after `refresh()` settles: if refreshing takes 5–10 seconds, a 20-second async timeout waits the full 20 seconds after completion instead of starting the next refresh only 10–15 seconds later.
 
-  const schedule = () => {
-    timer = setTimeout(async () => {
-      try {
-        const refreshedIntent = await refresh();
-        if (!stopped) render(refreshedIntent);
-      } catch (error) {
-        if (!stopped) reportError(error);
-      } finally {
-        if (!stopped) schedule();
-      }
-    }, everyMs);
+```typescript
+type ClearAsyncInterval = () => void;
+
+function setAsyncInterval(
+  cb: () => Promise<void>,
+  interval: number,
+  onError: (error: unknown) => void
+): ClearAsyncInterval {
+  let active = true;
+  let timer: ReturnType<typeof setTimeout>;
+
+  const tick = async () => {
+    if (!active) return;
+
+    try {
+      await cb();
+    } catch (error) {
+      onError(error);
+    } finally {
+      if (active) timer = setTimeout(tick, interval);
+    }
   };
 
-  render(initialIntent);
-  schedule();
+  timer = setTimeout(tick, interval);
 
   return () => {
-    stopped = true;
-    if (timer !== undefined) clearTimeout(timer);
+    active = false;
+    clearTimeout(timer);
   };
-};
+}
 
 await client.swapWithExactOut(input, {
   hooks: {
     onIntent: ({ intent, refresh, allow, deny }) => {
-      const stopRefreshing = keepIntentFresh(
-        intent,
-        () => refresh(),
-        20_000,
-        renderSwapIntent,
-        showIntentRefreshError
-      );
+      let refreshing = false;
+      renderSwapIntent(intent);
+
+      const stopRefreshing = setAsyncInterval(async () => {
+        refreshing = true;
+        setIntentRefreshing(true); // disable Confirm in the UI
+        try {
+          renderSwapIntent(await refresh());
+        } finally {
+          refreshing = false;
+          setIntentRefreshing(false);
+        }
+      }, 20_000, showIntentRefreshError);
 
       showIntentActions({
         confirm: () => {
+          if (refreshing) return;
           stopRefreshing();
           allow();
         },
@@ -1232,7 +1239,7 @@ type OnIntentHookData = {
 };
 ```
 
-> **Interactive approval:** refresh the bridge intent displayed in the confirmation UI every 15 seconds, render the intent returned by `refresh()`, and stop the refresh loop before calling `allow()` or `deny()`. See [Displayed Intent Freshness](#displayed-intent-freshness).
+> **Interactive approval:** after refreshing the bridge intent displayed in the confirmation UI, wait 15 seconds before starting the next refresh. Render the intent returned by `refresh()` and stop the async timeout before calling `allow()` or `deny()`. See [Displayed Intent Freshness](#displayed-intent-freshness).
 
 **BridgeIntent Structure:**
 
@@ -1408,7 +1415,7 @@ type OnIntentHookData = {
 };
 ```
 
-> **Interactive approval:** most swap quotes are valid for roughly 30 seconds. Refresh the swap intent displayed in the confirmation UI every 20 seconds so sequential routing and user approval do not consume the entire quote lifetime. See [Displayed Intent Freshness](#displayed-intent-freshness).
+> **Interactive approval:** most swap quotes are valid for roughly 30 seconds. After refreshing the swap intent displayed in the confirmation UI, wait 20 seconds before starting the next refresh. Use an async timeout so sequential routing does not shorten that wait. See [Displayed Intent Freshness](#displayed-intent-freshness).
 
 ### Composite Intent Hooks (Bridge + Execute / Swap + Execute)
 
