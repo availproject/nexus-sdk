@@ -21,6 +21,7 @@ Built for backends, CLIs, and custom UI integrations.
   - [Swap Operations](#swap-operations)
   - [Intent Management](#intent-management)
 - [Hooks & Callbacks](#hooks--callbacks)
+  - [Displayed Intent Freshness](#displayed-intent-freshness)
   - [Intent Hook](#intent-hook)
   - [Allowance Hook](#allowance-hook)
   - [Swap Intent Hook](#swap-intent-hook)
@@ -1117,6 +1118,87 @@ type IntentRecord = {
 
 Hooks are essential for building interactive UIs. They allow users to review and approve operations before execution.
 
+### Displayed Intent Freshness
+
+The `intent` object passed to `onIntent` is the pricing preview shown in the app's confirmation UI. If that UI waits for interactive confirmation, keep this displayed intent fresh until the user approves or denies it.
+
+| Operation | Freshness guidance |
+|-----------|--------------------|
+| `swapWithExactIn()`, `swapWithExactOut()`, `swapAndExecute()` when a swap is required | Most underlying swap quotes are valid for roughly 30 seconds. After each refresh completes, wait 20 seconds before starting the next one. |
+| `bridge()`, `bridgeAndTransfer()`, `bridgeAndExecute()` when a bridge is required | Bridge quote deadlines vary by provider. After each refresh completes, wait 15 seconds before starting the next one. |
+
+These are conservative UI-refresh cadences, not guaranteed protocol expiry values. This guidance applies only while displaying the pre-approval intent from `onIntent`; an already signed or submitted intent has separate expiry semantics. The SDK's execution-time requoting is also separate from keeping the confirmation UI current.
+
+Call `refresh()` without arguments to rebuild using the current source selection, or pass sources to change the selection. Always render the returned intent, avoid overlapping refresh calls, and stop refreshing before `allow()` or `deny()`. If a refresh is in flight, disable confirmation until it settles so `allow()` cannot race an older preview.
+
+Use an async timeout rather than `setInterval`. The next timeout must be scheduled only after `refresh()` settles: if refreshing takes 5–10 seconds, a 20-second async timeout waits the full 20 seconds after completion instead of starting the next refresh only 10–15 seconds later.
+
+```typescript
+type ClearAsyncInterval = () => void;
+
+function setAsyncInterval(
+  cb: () => Promise<void>,
+  interval: number,
+  onError: (error: unknown) => void
+): ClearAsyncInterval {
+  let active = true;
+  let timer: ReturnType<typeof setTimeout>;
+
+  const tick = async () => {
+    if (!active) return;
+
+    try {
+      await cb();
+    } catch (error) {
+      onError(error);
+    } finally {
+      if (active) timer = setTimeout(tick, interval);
+    }
+  };
+
+  timer = setTimeout(tick, interval);
+
+  return () => {
+    active = false;
+    clearTimeout(timer);
+  };
+}
+
+await client.swapWithExactOut(input, {
+  hooks: {
+    onIntent: ({ intent, refresh, allow, deny }) => {
+      let refreshing = false;
+      renderSwapIntent(intent);
+
+      const stopRefreshing = setAsyncInterval(async () => {
+        refreshing = true;
+        setIntentRefreshing(true); // disable Confirm in the UI
+        try {
+          renderSwapIntent(await refresh());
+        } finally {
+          refreshing = false;
+          setIntentRefreshing(false);
+        }
+      }, 20_000, showIntentRefreshError);
+
+      showIntentActions({
+        confirm: () => {
+          if (refreshing) return;
+          stopRefreshing();
+          allow();
+        },
+        cancel: () => {
+          stopRefreshing();
+          deny();
+        },
+      });
+    },
+  },
+});
+```
+
+Use `15_000` instead for an interactive bridge intent. Immediate auto-approval (`onIntent: ({ allow }) => allow()`) does not need a refresh loop. Composite operations expose the same `refresh()` callback through their top-level `onIntent` hook.
+
 ### Intent Hook
 
 Called when the SDK needs user approval for a bridge/transfer intent. Passed via `options.hooks.onIntent` for bridge operations.
@@ -1157,7 +1239,7 @@ type OnIntentHookData = {
 };
 ```
 
-> **Keeping quotes fresh.** Fees and amounts drift while a confirmation modal is open. A common pattern is to stash the hook handle and poll `refresh()` on an interval (e.g. every 20s) to re-quote, re-rendering the intent each time, until the user calls `allow()` / `deny()`. `refresh()` returns the updated intent (the same shape passed to the hook). The same applies to the swap and composite intent hooks.
+> **Interactive approval:** after refreshing the bridge intent displayed in the confirmation UI, wait 15 seconds before starting the next refresh. Render the intent returned by `refresh()` and stop the async timeout before calling `allow()` or `deny()`. See [Displayed Intent Freshness](#displayed-intent-freshness).
 
 **BridgeIntent Structure:**
 
@@ -1333,9 +1415,13 @@ type OnIntentHookData = {
 };
 ```
 
+> **Interactive approval:** most swap quotes are valid for roughly 30 seconds. After refreshing the swap intent displayed in the confirmation UI, wait 20 seconds before starting the next refresh. Use an async timeout so sequential routing does not shorten that wait. See [Displayed Intent Freshness](#displayed-intent-freshness).
+
 ### Composite Intent Hooks (Bridge + Execute / Swap + Execute)
 
 `bridgeAndExecute()` and `swapAndExecute()` use a top-level `onIntent` hook (not nested under `hooks`). The intent data is a composite type that includes the execution requirement, available balances, and whether a bridge/swap is actually needed.
+
+When the composite intent reports `bridgeRequired: true` or `swapRequired: true`, keep it fresh with the corresponding 15-second bridge or 20-second swap cadence until approval.
 
 #### Bridge and Execute Intent
 
