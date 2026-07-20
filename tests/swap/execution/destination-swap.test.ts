@@ -427,7 +427,7 @@ describe('executeDestinationSwap', () => {
     const resized = makeQuoteResponse({
       quote: {
         ...planned.quote,
-        input: { ...planned.quote.input, amount: '3149.685', amountRaw: 3149685000n },
+        input: { ...planned.quote.input, amount: '3150', amountRaw: 3150000000n },
         output: { ...planned.quote.output, amount: '1.05', amountRaw: 1050000000000000000n },
       },
     });
@@ -456,19 +456,18 @@ describe('executeDestinationSwap', () => {
     // grew the input from the actual balance (3150), not the route-time planned input (3000)
     expect(destination.getDstSwap).toHaveBeenCalledWith(3150000000n);
     // executed swap used the larger quote → bigger input + output recorded
-    expect(metadata.dst?.swaps[0].inputAmount).toBe(3149685000n);
+    expect(metadata.dst?.swaps[0].inputAmount).toBe(3150000000n);
     expect(metadata.dst?.swaps[0].outputAmount).toBe(1050000000000000000n);
   });
 
-  it('EXACT_IN reclaim: re-sizes even when the actual balance equals the planned input (applies the deduction)', async () => {
+  it('EXACT_IN reclaim: consumes the complete balance when it equals the planned input', async () => {
     // No source buffer: the dst swap re-sizes from the actual balance in BOTH directions. Even when
-    // balanceOf equals the route-time input, getDstSwap runs so the reclaim deduction applies and a
-    // leftover survives — the swap never consumes 100% of the wrapper balance.
+    // balanceOf equals the route-time input, getDstSwap runs and consumes all settlement currency.
     const planned = makeQuoteResponse(); // route-time input = 3000 USDC
     const resized = makeQuoteResponse({
       quote: {
         ...planned.quote,
-        input: { ...planned.quote.input, amount: '2999.7', amountRaw: 2999700000n }, // 3000 − 1bp
+        input: { ...planned.quote.input, amount: '3000', amountRaw: 3000000000n },
       },
     });
     const destination = makeDestination({ tokenSwap: planned });
@@ -486,7 +485,42 @@ describe('executeDestinationSwap', () => {
     );
 
     expect(destination.getDstSwap).toHaveBeenCalledWith(3000000000n);
-    expect(metadata.dst?.swaps[0].inputAmount).toBe(2999700000n); // deducted → a leftover remains
+    expect(metadata.dst?.swaps[0].inputAmount).toBe(3000000000n);
+  });
+
+  it('EXACT_IN reclaim: refuses a resized quote that would return settlement-token dust', async () => {
+    const planned = makeQuoteResponse();
+    const underConsuming = makeQuoteResponse({
+      quote: {
+        ...planned.quote,
+        input: { ...planned.quote.input, amount: '2999.7', amountRaw: 2999700000n },
+      },
+    });
+    const destination = makeDestination({ tokenSwap: planned });
+    destination.getDstSwap = vi
+      .fn()
+      .mockResolvedValue({ tokenSwap: underConsuming, gasSwap: null });
+
+    const ctx = makeCtx('ephemeral');
+    withReclaimClient(ctx, 3000000000n);
+    const metadata: SwapMetadata = { src: [], dst: null, has_xcs: false, intent_request_hash: null };
+
+    await expect(
+      executeDestinationSwap(
+        destination as unknown as SwapRoute['destination'],
+        SwapMode.EXACT_IN,
+        makeDstTokenInfo(),
+        ctx,
+        metadata
+      )
+    ).rejects.toMatchObject({
+      code: ERROR_CODES.EXTERNAL_DESTINATION_SWAP_QUOTE_FAILED,
+      context: expect.objectContaining({ stepType: 'destination_swap' }),
+    });
+
+    expect(destination.getDstSwap).toHaveBeenCalledTimes(3);
+    expect(ctx.middlewareClient.submitSBCs).not.toHaveBeenCalled();
+    expect(metadata.dst).toBeNull();
   });
 
   it('EXACT_IN reclaim: shrinks the destination swap when the actual balance is BELOW the planned input', async () => {
@@ -496,7 +530,7 @@ describe('executeDestinationSwap', () => {
     const resized = makeQuoteResponse({
       quote: {
         ...planned.quote,
-        input: { ...planned.quote.input, amount: '2499.75', amountRaw: 2499750000n }, // 2500 − 1bp
+        input: { ...planned.quote.input, amount: '2500', amountRaw: 2500000000n },
       },
     });
     const destination = makeDestination({ tokenSwap: planned });
@@ -514,7 +548,7 @@ describe('executeDestinationSwap', () => {
     );
 
     expect(destination.getDstSwap).toHaveBeenCalledWith(2500000000n);
-    expect(metadata.dst?.swaps[0].inputAmount).toBe(2499750000n); // shrank to actual − 1bp
+    expect(metadata.dst?.swaps[0].inputAmount).toBe(2500000000n);
   });
 
   it('EXACT_IN reclaim: never dispatches the route-time quote when mandatory resizing fails', async () => {
@@ -547,7 +581,19 @@ describe('executeDestinationSwap', () => {
   });
 
   it('EXACT_IN retries the mandatory destination balance read before first dispatch', async () => {
-    const destination = makeDestination();
+    const planned = makeQuoteResponse();
+    const resized = makeQuoteResponse({
+      quote: {
+        ...planned.quote,
+        input: {
+          ...planned.quote.input,
+          amount: '3150',
+          amountRaw: 3150000000n,
+        },
+      },
+    });
+    const destination = makeDestination({ tokenSwap: planned });
+    destination.getDstSwap = vi.fn().mockResolvedValue({ tokenSwap: resized, gasSwap: null });
     const ctx = makeCtx('ephemeral');
     const readContract = vi
       .fn()
@@ -650,7 +696,7 @@ describe('executeDestinationSwap', () => {
       metadata
     );
 
-    // one transfer of the surplus (3120 − 3000 = 120 USDC, less the 1bp margin) to the EOA
+    // one transfer of the surplus (3120 − 3000 = 120 USDC) to the EOA
     const transfer = findCotTransfer(lastSbcCalls(), USDC_ARB);
     expect(transfer?.[0].toLowerCase()).toBe(EOA);
     expect(transfer?.[1]).toBe(120000000n); // exact B − consumed (3120 − 3000)
@@ -1041,6 +1087,7 @@ describe('executeDestinationSwap', () => {
     };
     const ctx = makeCtx('ephemeral');
     const destination = makeDestination({ tokenSwap, gasSwap });
+    withReclaimClient(ctx, 3025000000n);
     const metadata: SwapMetadata = { src: [], dst: null, has_xcs: false, intent_request_hash: null };
 
     await executeDestinationSwap(destination as unknown as SwapRoute['destination'], SwapMode.EXACT_IN, makeDstTokenInfo(), ctx, metadata);
@@ -1229,6 +1276,7 @@ describe('executeDestinationSwap', () => {
         ensureSafeAccount: vi.fn().mockResolvedValue({}),
       }),
     } as DstCtx;
+    withReclaimClient(ctx, 0n);
     const destination = {
       ...makeDestination({ tokenSwap }),
       eoaToEphemeral: { amount: 3000000000n, contractAddress: USDC_ARB },
@@ -1296,6 +1344,7 @@ describe('executeDestinationSwap', () => {
         ensureSafeAccount: vi.fn().mockResolvedValue({}),
       }),
     } as DstCtx;
+    withReclaimClient(ctx, 5000000n);
     const destination = makeDestination({ tokenSwap });
     const metadata: SwapMetadata = {
       src: [],
@@ -1361,6 +1410,7 @@ describe('executeDestinationSwap', () => {
         ensureSafeAccount: vi.fn().mockResolvedValue({}),
       }),
     } as DstCtx;
+    withReclaimClient(ctx, 3025000000n);
     const destination = makeDestination({ tokenSwap, gasSwap });
     const metadata: SwapMetadata = {
       src: [],
@@ -1414,6 +1464,7 @@ describe('executeDestinationSwap', () => {
     };
 
     const ctx = makeCtx('ephemeral');
+    withReclaimClient(ctx, 3025000000n);
     const destination = makeDestination({ tokenSwap, gasSwap });
     const metadata: SwapMetadata = { src: [], dst: null, has_xcs: false, intent_request_hash: null };
 

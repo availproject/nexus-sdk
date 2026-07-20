@@ -770,7 +770,8 @@ output reaches the existing intent fields. Executable calldata, approvals, aggre
 and retry guards still use protected quote amounts. At execution the SDK must read the COT that
 actually reached the destination wrapper and resize the destination swap before its first dispatch;
 the read/resize has three attempts total, then the swap fails with destination-step context and runs
-the normal stranded-COT cleanup.
+the normal stranded-COT cleanup. The resized quote must consume the complete measured COT balance;
+an under-consuming quote is rejected rather than returning settlement-token dust to the user.
 
 #### `swapWithExactOut(input, options?)`
 

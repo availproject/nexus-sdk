@@ -137,11 +137,10 @@ const buildDestinationCalls = async (
     calls.push(parsedGasSwap.swap);
   }
 
-  // Leftover COT input → ONE direct transfer back to the EOA: `B − consumed` (EXACT_IN grew the input
-  // so this is ~nothing; EXACT_OUT leaves the real surplus). Both modes use the same transfer; getDstSwap
-  // already applied any margin (EXACT_IN's grow deduction), and the swap pulls ≤ its quoted input so the
-  // leftover is guaranteed available. Only when the balance read failed do we fall back to the blind
-  // Sweeper (size unknown).
+  // Leftover COT input → ONE direct transfer back to the EOA: `B − consumed`. Exact In execution
+  // requires its resized quote to consume the complete measured balance, so only Exact Out should
+  // produce a positive surplus here. When the Exact Out balance read failed, fall back to the blind
+  // Sweeper because the surplus size is unknown.
   if (wrapperCotBalance !== null) {
     const cotAddress =
       currentSwap.tokenSwap?.quote.input.contractAddress ??
@@ -340,18 +339,30 @@ export const executeDestinationSwap = async (
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
       if (mode === SwapMode.EXACT_IN) {
-        wrapperCotBalance ??= await readWrapperCotBalance();
+        if (wrapperCotBalance === null) {
+          wrapperCotBalance = await readWrapperCotBalance();
+        }
+        const actualCotBalance = wrapperCotBalance;
         const resized = await withTimingSpan(
           ctx.timing,
           'flow.swap.execute.destination.resize_or_requote',
-          async () => destination.getDstSwap(wrapperCotBalance as bigint),
+          async () => destination.getDstSwap(actualCotBalance),
           { tags: { mode, wallet_path: wrapper, attempt } }
         );
         const hasEveryRequiredLeg =
           resized != null &&
           (!requiresTokenSwap || Boolean(resized.tokenSwap)) &&
           (!requiresGasSwap || Boolean(resized.gasSwap));
-        if (!resized || (!resized.tokenSwap && !resized.gasSwap) || !hasEveryRequiredLeg) {
+        const resizedInputRaw =
+          (resized?.tokenSwap?.quote.input.amountRaw ?? 0n) +
+          (resized?.gasSwap?.quote.input.amountRaw ?? 0n);
+        const consumesFullBalance = resizedInputRaw === actualCotBalance;
+        if (
+          !resized ||
+          (!resized.tokenSwap && !resized.gasSwap) ||
+          !hasEveryRequiredLeg ||
+          !consumesFullBalance
+        ) {
           const previousAggregator =
             currentSwap.tokenSwap?.aggregator ?? currentSwap.gasSwap?.aggregator;
           throw new ExternalServiceError(
@@ -370,7 +381,7 @@ export const executeDestinationSwap = async (
         currentSwap = resized;
         logger.debug('swap.execute.destination.resize.completed', {
           chainId: destination.chainId,
-          actualBalanceRaw: wrapperCotBalance.toString(),
+          actualBalanceRaw: actualCotBalance.toString(),
           inputAmountRaw: resized.tokenSwap?.quote.input.amountRaw.toString(),
         });
       }

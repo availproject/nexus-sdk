@@ -8,7 +8,6 @@ import { equalFold } from '../../services/strings';
 import { withTimingSpan } from '../../services/timing';
 import { destinationSwapWithExactIn } from '../algorithms/destination';
 import { liquidateInputHoldings } from '../algorithms/liquidate';
-import { DST_RECLAIM_DEDUCTION_PCT } from '../constants';
 import { resolveCOT, resolveSwapSettlement } from '../cot';
 import type { AssetsUsedEntry, DestinationSwap, SwapRoute } from '../types';
 import { SwapMode } from '../types';
@@ -568,14 +567,13 @@ export async function _exactInRoute(data: ExactInData, options: RouteOptions): P
           max: cotAvailableForDestination,
         },
         swap: dstSwap,
-        // Re-size the dst swap from the COT that actually landed at the wrapper (`actualCotRaw`): the
-        // input tracks that balance (less a small deduction). No floor and no upper clamp — `actual` IS
-        // the real on-chain balance and `deducted < actual`, so it can never over-spend; the source
-        // reclaim can deliver above the route estimate and that surplus is spent here, not swept.
+        // Re-size the dst swap from the COT that actually landed at the wrapper (`actualCotRaw`). No
+        // floor and no upper clamp — `actual` IS the real on-chain balance, and Exact In must consume
+        // it completely so settlement-token dust is not returned to the user. The source reclaim can
+        // deliver above the route estimate and that surplus is converted here too.
         getDstSwap: (actualCotRaw: bigint) => {
           const actual = divDecimals(actualCotRaw, dstCOT.decimals);
-          const execInput = actual.mul(new Decimal(1).minus(DST_RECLAIM_DEDUCTION_PCT));
-          return quoteDstSwapAtInput(execInput);
+          return quoteDstSwapAtInput(actual);
         },
       },
       // EXACT_IN has no buffer (no source buffer, no dst buffer).

@@ -770,14 +770,17 @@ executeDestinationSwap(destination, dstTokenInfo, ctx, meta):
   #   down-drifted source delivered less (never over-size, floor 0); EXACT_OUT keeps the exact output.
   #   EXACT_IN: the read AND a complete resized quote are mandatory before first dispatch. Either
   #   failure consumes an attempt; 3 failures → destination-scoped error, no optimistic dispatch,
-  #   then orchestrator cleanup. EXACT_OUT keeps its best-effort surplus read.
+  #   then orchestrator cleanup. The quote must consume the complete measured COT balance; an
+  #   under-consuming quote is rejected instead of returning settlement-token dust to the user.
+  #   EXACT_OUT keeps its best-effort surplus read.
   #   getDstSwap re-quotes with no tolerance guard (EXACT_IN) / within [floor, ceiling] (EXACT_OUT); also on expiry.
   direct EOA COT on the dst chain (destination.eoaToEphemeral) → [permit?, transferFrom](eoa→executor) prepended (BOTH paths)
   path(dstChain):
     ephemeral → SBC [permit?, transferFrom?, approve, swap, transfer(leftover COT → EOA)?]
     safe      → Safe.execTransaction [permit?, transferFrom?, approve, swap, transfer(leftover COT → EOA)?]
-  # leftover COT = balanceOf − consumed → ONE direct transfer → EOA (replaces the blind approve+Sweeper
-  #   drain), skipped when ≤ 0. Output token lands at the EOA (receiver=EOA) → its dust sweep is skipped;
+  # EXACT_OUT leftover COT = balanceOf − consumed → ONE direct transfer → EOA (replaces the blind
+  #   approve+Sweeper drain), skipped when ≤ 0. EXACT_IN consumes the complete balance. Output token
+  #   lands at the EOA (receiver=EOA) → its dust sweep is skipped;
   #   native output NEVER swept (EADDRESS → approveNative at the Safe → GS013). gas-swap approve+swap ride the same batch
   retry: twice (3 attempts, forced requotes) then rethrow            # no fallback sweep
   meta.dst = {chid, tx_hash, swaps[]}
@@ -901,10 +904,12 @@ bridge fill → COT at dstWrapper
    ▼
 SEAM 2  balanceOf(COT, dstWrapper)                 ◄ the COT that ACTUALLY arrived
    │  dst swap re-sized: EXACT_IN MUST track the actual balance BOTH ways before any dispatch (grow on surplus → MORE output,
-   │  shrink on a short source → no over-size, floor 0); EXACT_OUT keeps the EXACT output.
+   │  shrink on a short source → no over-size, floor 0) and MUST consume the complete measured COT;
+   │  EXACT_OUT keeps the EXACT output.
    │  getDstSwap ⟳ re-quote: EXACT_IN no tolerance guard; EXACT_OUT within [floor, ceiling] (≤3 attempts)
    ▼
-leftover = balanceOf − consumed → ONE transfer(→ EOA)   ◄ skipped if ≤ 0 (replaces the blind Sweeper drain)
+EXACT_OUT leftover = balanceOf − consumed → ONE transfer(→ EOA)   ◄ skipped if ≤ 0
+EXACT_IN requires consumed = balanceOf; otherwise fail before dispatch
 ```
 
 **Path A (directDestination) short‑circuits this graph.** EXACT_OUT selects input→toToken *directly* on
@@ -1152,11 +1157,11 @@ MAYAN  native → EOA payable vault.depositMayan{value} + reportMayanNativeTx
 
 # ── destination swap (iff destination_swap; on WRAPPER(dstChain), §9) ──
 #   funds are already at the wrapper from the bridge fill; the same-chain fast path prepends EOA→WRAPPER funding.
-(7702) → SBC  [funding?, approve(EPH→ROUTER),  swap(pullFrom=EPH,  taker=EPH,  receiver=EOA), transfer(leftover COT→EOA)?]
-(safe) → Safe [funding?, approve(SAFE→ROUTER), swap(pullFrom=SAFE, taker=SAFE, receiver=EOA), transfer(leftover COT→EOA)?]
-# receiver=EOA for BOTH the token swap and the gas swap. Leftover COT (balanceOf − consumed) → ONE direct
-# transfer → EOA (replaces the blind approve+Sweeper drain), skipped when ≤ 0. The output token lands at the
-# EOA so its dust sweep is skipped; gas-swap native → EOA, never swept.
+(7702) → SBC  [funding?, approve(EPH→ROUTER),  swap(pullFrom=EPH,  taker=EPH,  receiver=EOA), EXACT_OUT transfer(leftover COT→EOA)?]
+(safe) → Safe [funding?, approve(SAFE→ROUTER), swap(pullFrom=SAFE, taker=SAFE, receiver=EOA), EXACT_OUT transfer(leftover COT→EOA)?]
+# receiver=EOA for BOTH the token swap and the gas swap. EXACT_IN consumes the complete measured COT
+# balance or fails before dispatch. EXACT_OUT leftover COT (balanceOf − consumed) returns by one direct
+# transfer. The output token lands at the EOA so its dust sweep is skipped; gas-swap native → EOA, never swept.
 ```
 
 Two invariants this view makes explicit (both asserted by the suite):

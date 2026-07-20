@@ -1581,7 +1581,7 @@ describe('determineSwapRoute', () => {
     );
   });
 
-  it('EXACT_IN getDstSwap sizes the input to actual - deduction (floor 0)', async () => {
+  it('EXACT_IN getDstSwap sizes the input to the full actual balance (floor 0)', async () => {
     const input: SwapData = {
       mode: SwapMode.EXACT_IN,
       data: {
@@ -1600,20 +1600,18 @@ describe('determineSwapRoute', () => {
         ],
       })
     );
-    // No source buffer: floor = 0, max = cotAvailable = 3000.
-    // Full delivery, no drift: actual COT at the wrapper = 3000. deduction = 1bp of 3000 = 0.3.
-    // execInput = 3000 - 0.3 = 2999.7 → 2999700000n raw.
+    // No source buffer: floor = 0, max = cotAvailable = 3000. Execution must quote the complete
+    // measured balance so the user receives only the requested destination token, not residual COT.
     const resized = await route.destination.getDstSwap(3000000000n);
     expect(resized).not.toBeNull();
     expect(vi.mocked(destinationSwapWithExactIn)).toHaveBeenLastCalledWith(
-      expect.objectContaining({ input: expect.objectContaining({ amountRaw: 2999700000n }) })
+      expect.objectContaining({ input: expect.objectContaining({ amountRaw: 3000000000n }) })
     );
-    // Input scales with the actual delivered balance (minus deduction) and is NOT capped at the
-    // route estimate — the source reclaim can over-deliver, and that surplus must be spent here.
-    // 5000 actual → 5000 - 0.5 (1bp) = 4999.5 → 4999500000n.
+    // Input scales with the actual delivered balance and is NOT capped at the route estimate — the
+    // source reclaim can over-deliver, and all of that surplus must be converted here.
     await route.destination.getDstSwap(5000000000n);
     expect(vi.mocked(destinationSwapWithExactIn)).toHaveBeenLastCalledWith(
-      expect.objectContaining({ input: expect.objectContaining({ amountRaw: 4999500000n }) })
+      expect.objectContaining({ input: expect.objectContaining({ amountRaw: 5000000000n }) })
     );
   });
 
