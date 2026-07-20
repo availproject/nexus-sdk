@@ -305,42 +305,37 @@ export const makeBebopResponse = (
   const outputRaw = toRaw(outputHuman, outDec);
 
   return {
-    routes: [
-      {
-        quote: {
-          buyTokens: {
-            [outputToken]: {
-              minimumAmount: outputRaw.toString(),
-              priceUsd: tokenMeta(outputToken).symbol === 'WETH' ? 2500 : 1,
-              symbol: tokenMeta(outputToken).symbol,
-              decimals: outDec,
-            },
-          },
-          sellTokens: {
-            [inputToken]: {
-              amount: inputRaw.toString(),
-              priceUsd: tokenMeta(inputToken).symbol === 'WETH' ? 2500 : 1,
-              symbol: tokenMeta(inputToken).symbol,
-              decimals: inDec,
-            },
-          },
-          approvalTarget: APPROVALS.bebop,
-          tx: {
-            to: ROUTERS.bebop,
-            data: encodeEchoSwap(
-              inputToken,
-              outputToken,
-              inputRaw,
-              outputRaw,
-              getAddress(params.taker_address),
-              getAddress(params.receiver_address)
-            ),
-            value: nativeValueHex(inputToken, inputRaw),
-          },
-          expiry: Math.floor(2_000_000_000),
-        },
+    buyTokens: {
+      [outputToken]: {
+        amount: outputRaw.toString(),
+        minimumAmount: outputRaw.toString(),
+        priceUsd: tokenMeta(outputToken).symbol === 'WETH' ? 2500 : 1,
+        symbol: tokenMeta(outputToken).symbol,
+        decimals: outDec,
       },
-    ],
+    },
+    sellTokens: {
+      [inputToken]: {
+        amount: inputRaw.toString(),
+        priceUsd: tokenMeta(inputToken).symbol === 'WETH' ? 2500 : 1,
+        symbol: tokenMeta(inputToken).symbol,
+        decimals: inDec,
+      },
+    },
+    approvalTarget: APPROVALS.bebop,
+    tx: {
+      to: ROUTERS.bebop,
+      data: encodeEchoSwap(
+        inputToken,
+        outputToken,
+        inputRaw,
+        outputRaw,
+        getAddress(params.taker_address),
+        getAddress(params.receiver_address)
+      ),
+      value: nativeValueHex(inputToken, inputRaw),
+    },
+    expiry: Math.floor(2_000_000_000),
   };
 };
 

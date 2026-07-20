@@ -14,26 +14,29 @@ const ROUTER = getAddress('0x4444444444444444444444444444444444444444');
 const APPROVAL2 = getAddress('0x5555555555555555555555555555555555555555');
 const ROUTER2 = getAddress('0x6666666666666666666666666666666666666666');
 
-// One route in the shape Bebop returns (USDC sell, WETH buy), for multi-route selection tests.
-const makeRoute = (opts: {
-  type: string;
+// One quote in the shape returned by either Bebop API (USDC sell, WETH buy).
+const makeQuote = (opts: {
+  buyAmount?: string;
   buyMinimumAmount: string;
   sellAmount: string;
   approvalTarget: Hex;
   to: Hex;
 }) => ({
-  type: opts.type,
-  quote: {
-    buyTokens: {
-      [WETH]: { minimumAmount: opts.buyMinimumAmount, priceUsd: 3000, symbol: 'WETH', decimals: 18 },
+  buyTokens: {
+    [WETH]: {
+      amount: opts.buyAmount ?? opts.buyMinimumAmount,
+      minimumAmount: opts.buyMinimumAmount,
+      priceUsd: 3000,
+      symbol: 'WETH',
+      decimals: 18,
     },
-    sellTokens: {
-      [USDC]: { amount: opts.sellAmount, priceUsd: 1, symbol: 'USDC', decimals: 6 },
-    },
-    approvalTarget: opts.approvalTarget,
-    tx: { to: opts.to, data: '0xfedcba', value: '0x0' },
-    expiry: Math.floor(Date.now() / 1000) + 60,
   },
+  sellTokens: {
+    [USDC]: { amount: opts.sellAmount, priceUsd: 1, symbol: 'USDC', decimals: 6 },
+  },
+  approvalTarget: opts.approvalTarget,
+  tx: { to: opts.to, data: '0xfedcba', value: '0x0' },
+  expiry: Math.floor(Date.now() / 1000) + 60,
 });
 
 type ExactInQuoteRequest = Extract<QuoteRequest, { type: QuoteType.EXACT_IN }>;
@@ -65,43 +68,36 @@ const makeExactOutRequest = (
   ...overrides,
 });
 
-// Mirrors the real Bebop router response (see ca-common src/xcs/bebop-agg.ts): tx, approvalTarget
-// and expiry live INSIDE route.quote alongside the token maps, which are keyed by checksummed
-// address.
+// Mirrors the top-level quote shape shared by the RFQ and Aggregation APIs. Token maps are keyed by
+// checksummed address.
 const makeBebopResponseData = (
   overrides?: {
     buyToken?: Partial<{ minimumAmount: string; priceUsd: number; symbol: string; decimals: number }>;
     sellToken?: Partial<{ amount: string; priceUsd: number; symbol: string; decimals: number }>;
   }
 ) => ({
-  routes: [
-    {
-      type: 'PMMv3',
-      quote: {
-        buyTokens: {
-          [WETH]: {
-            minimumAmount: '980100000000000000',
-            priceUsd: 3000,
-            symbol: 'WETH',
-            decimals: 18,
-            ...overrides?.buyToken,
-          },
-        },
-        sellTokens: {
-          [USDC]: {
-            amount: '1000000',
-            priceUsd: 1.0,
-            symbol: 'USDC',
-            decimals: 6,
-            ...overrides?.sellToken,
-          },
-        },
-        approvalTarget: APPROVAL,
-        tx: { to: ROUTER, data: '0xfedcba', value: '0x0' },
-        expiry: Math.floor(Date.now() / 1000) + 60,
-      },
+  buyTokens: {
+    [WETH]: {
+      amount: '980100000000000000',
+      minimumAmount: '980100000000000000',
+      priceUsd: 3000,
+      symbol: 'WETH',
+      decimals: 18,
+      ...overrides?.buyToken,
     },
-  ],
+  },
+  sellTokens: {
+    [USDC]: {
+      amount: '1000000',
+      priceUsd: 1.0,
+      symbol: 'USDC',
+      decimals: 6,
+      ...overrides?.sellToken,
+    },
+  },
+  approvalTarget: APPROVAL,
+  tx: { to: ROUTER, data: '0xfedcba', value: '0x0' },
+  expiry: Math.floor(Date.now() / 1000) + 60,
 });
 
 describe('BebopAggregator', () => {
@@ -112,11 +108,14 @@ describe('BebopAggregator', () => {
     vi.clearAllMocks();
     getQuoteFn = vi.fn().mockResolvedValue(makeBebopResponseData());
     agg = new BebopAggregator(
-      getQuoteFn as unknown as (params: Record<string, string>) => Promise<unknown>
+      getQuoteFn as unknown as (
+        params: Record<string, string>,
+        api?: 'aggregation' | 'rfq'
+      ) => Promise<unknown>
     );
   });
 
-  it('parses a valid Quote from the nested route.quote shape (EXACT_IN)', async () => {
+  it('parses a valid Quote from the top-level API response (EXACT_IN)', async () => {
     const results = await agg.getQuotes([makeRequest()]);
 
     expect(results).toHaveLength(1);
@@ -128,7 +127,7 @@ describe('BebopAggregator', () => {
     expect(quote!.input.amountRaw).toBe(1000000n);
     expect(quote!.input.symbol).toBe('USDC');
     expect(quote!.input.contractAddress).toBe(USDC);
-    // tx / approvalTarget / expiry come from route.quote, not the route top level.
+    // tx / approvalTarget / expiry come from the same winning API response as the amounts.
     expect(quote!.txData.approvalAddress).toBe(APPROVAL);
     expect(quote!.txData.tx.to).toBe(ROUTER);
     expect(quote!.expiry).toBeGreaterThan(0);
@@ -146,32 +145,37 @@ describe('BebopAggregator', () => {
   it('sends EXACT_IN request params matching the Bebop API', async () => {
     await agg.getQuotes([makeRequest({ chainId: 42161 })]);
 
-    expect(getQuoteFn).toHaveBeenCalledTimes(1);
-    const [params] = getQuoteFn.mock.calls[0];
-    expect(params.chain).toBe('arbitrum');
-    expect(params.sell_tokens).toBe(USDC);
-    expect(params.buy_tokens).toBe(WETH);
-    expect(params.taker_address).toBe(USER);
-    expect(params.receiver_address).toBe(RECIPIENT);
-    expect(params.sell_amounts).toBe('1000000');
-    expect(params.approval_type).toBe('Standard');
-    expect(params.skip_validation).toBe('true');
-    expect(params.gasless).toBe(false);
-    expect(params.source).toBe('arcana');
+    expect(getQuoteFn).toHaveBeenCalledTimes(2);
+    expect(getQuoteFn.mock.calls.map(([, api]) => api)).toEqual(['aggregation', 'rfq']);
+    const [aggregationParams] = getQuoteFn.mock.calls[0];
+    const [rfqParams] = getQuoteFn.mock.calls[1];
+    for (const params of [aggregationParams, rfqParams]) {
+      expect(params.chain).toBe('arbitrum');
+      expect(params.sell_tokens).toBe(USDC);
+      expect(params.buy_tokens).toBe(WETH);
+      expect(params.taker_address).toBe(USER);
+      expect(params.receiver_address).toBe(RECIPIENT);
+      expect(params.sell_amounts).toBe('1000000');
+      expect(params.approval_type).toBe('Standard');
+      expect(params.gasless).toBe(false);
+    }
+    expect(aggregationParams.skip_validation).toBeUndefined();
+    expect(rfqParams.skip_validation).toBe('true');
     // The misnamed params from the old port must be gone.
-    expect(params.receiver).toBeUndefined();
-    expect(params.buy_amounts).toBeUndefined();
-    expect(params.buy_tokens_amounts).toBeUndefined();
+    expect(aggregationParams.receiver).toBeUndefined();
+    expect(aggregationParams.buy_amounts).toBeUndefined();
+    expect(aggregationParams.buy_tokens_amounts).toBeUndefined();
   });
 
   it('sends EXACT_OUT with buy_amounts (not buy_tokens_amounts) and no sell_amounts', async () => {
     await agg.getQuotes([makeExactOutRequest({ outputAmount: 980100000000000000n })]);
 
-    expect(getQuoteFn).toHaveBeenCalledTimes(1);
-    const [params] = getQuoteFn.mock.calls[0];
-    expect(params.buy_amounts).toBe('980100000000000000');
-    expect(params.sell_amounts).toBeUndefined();
-    expect(params.buy_tokens_amounts).toBeUndefined();
+    expect(getQuoteFn).toHaveBeenCalledTimes(2);
+    for (const [params] of getQuoteFn.mock.calls) {
+      expect(params.buy_amounts).toBe('980100000000000000');
+      expect(params.sell_amounts).toBeUndefined();
+      expect(params.buy_tokens_amounts).toBeUndefined();
+    }
   });
 
   it('parses a valid Quote for EXACT_OUT', async () => {
@@ -181,36 +185,58 @@ describe('BebopAggregator', () => {
     expect(results[0]!.output.amountRaw).toBe(980100000000000000n);
   });
 
-  it('EXACT_IN: selects the route with the most output, not just the first', async () => {
-    // Bebop returns several routes (PMMv3, JAMv2, …); the first is not always the best.
-    getQuoteFn.mockResolvedValueOnce({
-      routes: [
-        makeRoute({ type: 'PMMv3', buyMinimumAmount: '980000000000000000', sellAmount: '1000000', approvalTarget: APPROVAL, to: ROUTER }),
-        makeRoute({ type: 'JAMv2', buyMinimumAmount: '990000000000000000', sellAmount: '1000000', approvalTarget: APPROVAL2, to: ROUTER2 }),
-      ],
-    });
+  it('EXACT_IN: selects the API response with the most protected output', async () => {
+    getQuoteFn
+      .mockResolvedValueOnce(
+        makeQuote({
+          buyAmount: '1000000000000000000',
+          buyMinimumAmount: '980000000000000000',
+          sellAmount: '1000000',
+          approvalTarget: APPROVAL,
+          to: ROUTER,
+        })
+      )
+      .mockResolvedValueOnce(
+        makeQuote({
+          buyMinimumAmount: '990000000000000000',
+          sellAmount: '1000000',
+          approvalTarget: APPROVAL2,
+          to: ROUTER2,
+        })
+      );
 
     const [quote] = await agg.getQuotes([makeRequest()]);
 
     expect(quote).not.toBeNull();
-    expect(quote!.output.amountRaw).toBe(990000000000000000n); // JAMv2 delivers more
-    // The whole route is taken from JAMv2, not just its amount.
+    expect(quote!.output.amountRaw).toBe(990000000000000000n); // RFQ has the better floor
+    // The whole RFQ response is selected, not just its amount.
     expect(quote!.txData.tx.to).toBe(ROUTER2);
     expect(quote!.txData.approvalAddress).toBe(APPROVAL2);
   });
 
-  it('EXACT_OUT: selects the route with the least input, not just the first', async () => {
-    getQuoteFn.mockResolvedValueOnce({
-      routes: [
-        makeRoute({ type: 'PMMv3', buyMinimumAmount: '980100000000000000', sellAmount: '3100000000', approvalTarget: APPROVAL, to: ROUTER }),
-        makeRoute({ type: 'JAMv2', buyMinimumAmount: '980100000000000000', sellAmount: '3000000000', approvalTarget: APPROVAL2, to: ROUTER2 }),
-      ],
-    });
+  it('EXACT_OUT: selects the API response with the least input', async () => {
+    getQuoteFn
+      .mockResolvedValueOnce(
+        makeQuote({
+          buyMinimumAmount: '980100000000000000',
+          sellAmount: '3100000000',
+          approvalTarget: APPROVAL,
+          to: ROUTER,
+        })
+      )
+      .mockResolvedValueOnce(
+        makeQuote({
+          buyMinimumAmount: '980100000000000000',
+          sellAmount: '3000000000',
+          approvalTarget: APPROVAL2,
+          to: ROUTER2,
+        })
+      );
 
     const [quote] = await agg.getQuotes([makeExactOutRequest()]);
 
     expect(quote).not.toBeNull();
-    expect(quote!.input.amountRaw).toBe(3000000000n); // JAMv2 costs less
+    expect(quote!.input.amountRaw).toBe(3000000000n); // RFQ costs less
     expect(quote!.txData.tx.to).toBe(ROUTER2);
   });
 
@@ -234,12 +260,14 @@ describe('BebopAggregator', () => {
     expect(results[0]!.output.amountRaw).toBe(980100000000000000n);
   });
 
-  it('does not send API key headers (proxy handles auth)', async () => {
-    await agg.getQuotes([makeRequest()]);
+  it('can disable RFQ usage while keeping Aggregation enabled', async () => {
+    const aggregationOnly = new BebopAggregator(getQuoteFn, { useRfq: false });
 
-    // getQuote is called with (params) only — no headers argument; Source-Auth is the proxy's job.
+    const [quote] = await aggregationOnly.getQuotes([makeRequest()]);
+
+    expect(quote).not.toBeNull();
     expect(getQuoteFn).toHaveBeenCalledTimes(1);
-    expect(getQuoteFn.mock.calls[0]).toHaveLength(1);
+    expect(getQuoteFn.mock.calls[0][1]).toBe('aggregation');
   });
 
   it('returns null for unsupported chain', async () => {
@@ -251,7 +279,7 @@ describe('BebopAggregator', () => {
   });
 
   it('returns null on API error', async () => {
-    getQuoteFn.mockRejectedValueOnce(new Error('Internal Server Error'));
+    getQuoteFn.mockRejectedValue(new Error('Internal Server Error'));
 
     const results = await agg.getQuotes([makeRequest()]);
 
@@ -259,13 +287,15 @@ describe('BebopAggregator', () => {
     expect(results[0]).toBeNull();
   });
 
-  it('returns null on network timeout', async () => {
-    getQuoteFn.mockRejectedValueOnce(new Error('timeout'));
+  it('uses the RFQ quote when the Aggregation API times out', async () => {
+    getQuoteFn
+      .mockRejectedValueOnce(new Error('timeout'))
+      .mockResolvedValueOnce(makeBebopResponseData());
 
     const results = await agg.getQuotes([makeRequest()]);
 
     expect(results).toHaveLength(1);
-    expect(results[0]).toBeNull();
+    expect(results[0]).not.toBeNull();
   });
 
   it('returns a quote with value 0 when token priceUsd is missing (unpriced token)', async () => {
@@ -287,8 +317,8 @@ describe('BebopAggregator', () => {
     expect(quote!.output.amountRaw).toBe(980100000000000000n);
   });
 
-  it('returns null when response has no routes', async () => {
-    getQuoteFn.mockResolvedValueOnce({ routes: [] });
+  it('returns null when neither API response contains a usable quote', async () => {
+    getQuoteFn.mockResolvedValue({});
 
     const results = await agg.getQuotes([makeRequest()]);
 
@@ -304,7 +334,7 @@ describe('BebopAggregator', () => {
     expect(results).toHaveLength(2);
     expect(results[0]).not.toBeNull();
     expect(results[1]).not.toBeNull();
-    expect(getQuoteFn).toHaveBeenCalledTimes(2);
+    expect(getQuoteFn).toHaveBeenCalledTimes(4);
   });
 });
 

@@ -1078,35 +1078,30 @@ const makeBebopResponse = (params: Record<string, string>) => {
     chainId === ARB_CHAIN ? ARB_BEBOP_ROUTER : chainId === OP_CHAIN ? OP_BEBOP_ROUTER : BASE_BEBOP_ROUTER;
 
   return {
-    routes: [
-      {
-        quote: {
-          buyTokens: {
-            [outputToken]: {
-              minimumAmount: outputAmountRaw.toString(),
-              priceUsd: outputMeta.symbol === 'USDC' ? 1 : 1500,
-              symbol: outputMeta.symbol,
-              decimals: outputMeta.decimals,
-            },
-          },
-          sellTokens: {
-            [inputToken]: {
-              amount: inputAmountRaw.toString(),
-              priceUsd: inputMeta.symbol === 'USDC' ? 1 : 1500,
-              symbol: inputMeta.symbol,
-              decimals: inputMeta.decimals,
-            },
-          },
-          approvalTarget: approvalAddress,
-          tx: {
-            to: router,
-            data: '0xfedcba',
-            value: '0x0',
-          },
-          expiry: Math.floor(Date.now() / 1000) + 60,
-        },
+    buyTokens: {
+      [outputToken]: {
+        amount: outputAmountRaw.toString(),
+        minimumAmount: outputAmountRaw.toString(),
+        priceUsd: outputMeta.symbol === 'USDC' ? 1 : 1500,
+        symbol: outputMeta.symbol,
+        decimals: outputMeta.decimals,
       },
-    ],
+    },
+    sellTokens: {
+      [inputToken]: {
+        amount: inputAmountRaw.toString(),
+        priceUsd: inputMeta.symbol === 'USDC' ? 1 : 1500,
+        symbol: inputMeta.symbol,
+        decimals: inputMeta.decimals,
+      },
+    },
+    approvalTarget: approvalAddress,
+    tx: {
+      to: router,
+      data: '0xfedcba',
+      value: '0x0',
+    },
+    expiry: Math.floor(Date.now() / 1000) + 60,
   };
 };
 

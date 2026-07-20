@@ -5,6 +5,20 @@ import { divDecimals } from '../../services/math';
 import type { Aggregator, Quote, QuoteRequest } from './types';
 import { QuoteType } from './types';
 
+type BebopApi = 'aggregation' | 'rfq';
+
+type BebopAggregatorOptions = {
+  useRfq?: boolean;
+};
+
+const logQuoteFailure = (api: BebopApi | 'request', chainId: number, reason: unknown): void => {
+  logger.debug('swap.route.aggregator.bebop_quote.failed', {
+    api,
+    chainId,
+    message: reason instanceof Error ? reason.message : String(reason),
+  });
+};
+
 // Bebop chain name mapping
 const CHAIN_NAME_MAP: Record<number, string> = {
   1: 'ethereum',
@@ -18,10 +32,18 @@ const CHAIN_NAME_MAP: Record<number, string> = {
 };
 
 export class BebopAggregator implements Aggregator {
-  private readonly getQuote: (params: Record<string, string>) => Promise<unknown>;
+  private readonly getQuote: (
+    params: Record<string, string>,
+    api?: BebopApi
+  ) => Promise<unknown>;
+  private readonly useRfq: boolean;
 
-  constructor(getQuote: (params: Record<string, string>) => Promise<unknown>) {
+  constructor(
+    getQuote: (params: Record<string, string>, api?: BebopApi) => Promise<unknown>,
+    options: BebopAggregatorOptions = {}
+  ) {
     this.getQuote = getQuote;
+    this.useRfq = options.useRfq ?? true;
   }
 
   supportsChain(chainId: number): boolean {
@@ -49,7 +71,6 @@ export class BebopAggregator implements Aggregator {
         taker_address: getAddress(req.userAddress),
         receiver_address: getAddress(req.recipientAddress),
         approval_type: 'Standard',
-        skip_validation: 'true',
         gasless: false,
         source: 'arcana',
       };
@@ -60,35 +81,48 @@ export class BebopAggregator implements Aggregator {
         params.sell_amounts = req.inputAmount.toString();
       }
 
-      const data = await this.getQuote(params as Record<string, string>);
+      const requests: Array<{ api: BebopApi; params: Record<string, string> }> = [
+        { api: 'aggregation', params: params as Record<string, string> },
+      ];
+      if (this.useRfq) {
+        requests.push({
+          api: 'rfq',
+          params: { ...params, skip_validation: 'true' } as Record<string, string>,
+        });
+      }
+
+      const results = await Promise.allSettled(
+        requests.map(({ api, params: apiParams }) => this.getQuote(apiParams, api))
+      );
+      const quotes: BebopQuoteData[] = [];
+      results.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+          quotes.push(result.value as BebopQuoteData);
+          return;
+        }
+        logQuoteFailure(requests[index].api, req.chainId, result.reason);
+      });
 
       return this.parseResponse(
-        data as BebopQuoteData,
+        quotes,
         sellToken,
         buyToken,
         req.type === QuoteType.EXACT_OUT
       );
     } catch (error) {
-      logger.debug('swap.route.aggregator.bebop_quote.failed', {
-        chainId: req.chainId,
-        message: error instanceof Error ? error.message : String(error),
-      });
+      logQuoteFailure('request', req.chainId, error);
       return null;
     }
   }
 
   private parseResponse(
-    data: BebopQuoteData,
+    quotes: BebopQuoteData[],
     sellToken: Hex,
     buyToken: Hex,
     isExactOut: boolean
   ): Quote | null {
-    // Bebop returns several routes (PMMv3, JAMv2, …); pick the best for the user, not just [0].
-    const route = selectBestBebopRoute(data.routes ?? [], sellToken, buyToken, isExactOut);
-    if (!route) return null;
-
-    // Bebop nests the token maps, tx, approvalTarget and expiry together under route.quote.
-    const { quote } = route;
+    const quote = selectBestBebopQuote(quotes, sellToken, buyToken, isExactOut);
+    if (!quote) return null;
 
     const inputToken = quote.sellTokens[sellToken];
     const outputToken = quote.buyTokens[buyToken];
@@ -140,52 +174,55 @@ export class BebopAggregator implements Aggregator {
 // Bebop response types (internal)
 // ---------------------------------------------------------------------------
 
-type BebopRoute = {
-  quote: {
-    buyTokens: Record<
-      Hex,
-      {
-        decimals: number;
-        priceUsd?: number;
-        symbol: string;
-        minimumAmount: string;
-      }
-    >;
-    sellTokens: Record<
-      Hex,
-      {
-        amount: string;
-        decimals: number;
-        priceUsd?: number;
-        symbol: string;
-      }
-    >;
-    approvalTarget: Hex;
-    tx: { to: Hex; data: Hex; value: Hex };
-    expiry: number;
-  };
-};
-
 type BebopQuoteData = {
-  routes: BebopRoute[];
+  buyTokens: Record<
+    Hex,
+    {
+      decimals: number;
+      priceUsd?: number;
+      symbol: string;
+      minimumAmount: string;
+    }
+  >;
+  sellTokens: Record<
+    Hex,
+    {
+      amount: string;
+      decimals: number;
+      priceUsd?: number;
+      symbol: string;
+    }
+  >;
+  approvalTarget: Hex;
+  tx: { to: Hex; data: Hex; value: Hex };
+  expiry: number;
 };
 
-// Bebop returns several routes (PMMv3, JAMv2, …) and hints the winner via `bestPrice`. We pick by
-// the user-relevant amount instead — most output for EXACT_IN, least input for EXACT_OUT — which is
-// self-contained and consistent with how the SDK compares quotes across aggregators. Routes missing
-// the requested token (or with an unparseable amount) are skipped.
-const selectBestBebopRoute = (
-  routes: BebopRoute[],
+// Pick the user-relevant executable amount across the Aggregation and RFQ APIs: most protected
+// output for EXACT_IN, least input for EXACT_OUT. Responses missing execution data, the requested
+// token, or a parseable amount are skipped.
+const selectBestBebopQuote = (
+  quotes: BebopQuoteData[],
   sellToken: Hex,
   buyToken: Hex,
   isExactOut: boolean
-): BebopRoute | null => {
-  let best: BebopRoute | null = null;
+): BebopQuoteData | null => {
+  let best: BebopQuoteData | null = null;
   let bestMetric: bigint | null = null;
-  for (const route of routes) {
-    const buy = route.quote?.buyTokens?.[buyToken];
-    const sell = route.quote?.sellTokens?.[sellToken];
-    if (!buy || !sell) continue;
+  for (const quote of quotes) {
+    const buy = quote?.buyTokens?.[buyToken];
+    const sell = quote?.sellTokens?.[sellToken];
+    if (
+      !buy ||
+      !sell ||
+      !quote.approvalTarget ||
+      !quote.tx?.to ||
+      !quote.tx.data ||
+      quote.tx.value === undefined ||
+      typeof quote.expiry !== 'number'
+    ) {
+      continue;
+    }
     let metric: bigint;
     try {
       metric = isExactOut ? BigInt(sell.amount) : BigInt(buy.minimumAmount);
@@ -193,7 +230,7 @@ const selectBestBebopRoute = (
       continue;
     }
     if (bestMetric === null || (isExactOut ? metric < bestMetric : metric > bestMetric)) {
-      best = route;
+      best = quote;
       bestMetric = metric;
     }
   }

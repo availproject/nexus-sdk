@@ -241,9 +241,8 @@ const makeBebopResponse = (params: Record<string, string>) => {
   const inputMeta = inputToken.toLowerCase() === SOURCE_DAI.toLowerCase() ? daiToken : nativeToken;
   const outputMeta = usdcToken;
   const rate = getRate('bebop', inputToken, outputToken);
-  // bebop.ts sends `buy_amounts` for EXACT_OUT and parses approvalTarget/tx from INSIDE
-  // `routes[0].quote` — the earlier shape had them at the route level, so every Bebop echo
-  // parsed to null and LiFi silently carried this file (masked while LiFi was still consulted).
+  // bebop.ts sends `buy_amounts` for EXACT_OUT and parses the top-level quote shape shared by the
+  // Aggregation and RFQ APIs.
   const isExactOut = params.buy_amounts !== undefined;
 
   const outputAmountHuman = isExactOut
@@ -257,35 +256,30 @@ const makeBebopResponse = (params: Record<string, string>) => {
   const outputAmountRaw = toRawAmount(outputAmountHuman, outputMeta.decimals);
 
   return {
-    routes: [
-      {
-        quote: {
-          buyTokens: {
-            [outputToken]: {
-              minimumAmount: outputAmountRaw.toString(),
-              priceUsd: 1,
-              symbol: outputMeta.symbol,
-              decimals: outputMeta.decimals,
-            },
-          },
-          sellTokens: {
-            [inputToken]: {
-              amount: inputAmountRaw.toString(),
-              priceUsd: inputMeta.symbol === 'DAI' ? 1 : 3000,
-              symbol: inputMeta.symbol,
-              decimals: inputMeta.decimals,
-            },
-          },
-          approvalTarget: '0x2222222222222222222222222222222222221111',
-          tx: {
-            to: '0x2222222222222222222222222222222222222222',
-            data: '0xfedcba',
-            value: '0x0',
-          },
-          expiry: Math.floor(Date.now() / 1000) + 60,
-        },
+    buyTokens: {
+      [outputToken]: {
+        amount: outputAmountRaw.toString(),
+        minimumAmount: outputAmountRaw.toString(),
+        priceUsd: 1,
+        symbol: outputMeta.symbol,
+        decimals: outputMeta.decimals,
       },
-    ],
+    },
+    sellTokens: {
+      [inputToken]: {
+        amount: inputAmountRaw.toString(),
+        priceUsd: inputMeta.symbol === 'DAI' ? 1 : 3000,
+        symbol: inputMeta.symbol,
+        decimals: inputMeta.decimals,
+      },
+    },
+    approvalTarget: '0x2222222222222222222222222222222222221111',
+    tx: {
+      to: '0x2222222222222222222222222222222222222222',
+      data: '0xfedcba',
+      value: '0x0',
+    },
+    expiry: Math.floor(Date.now() / 1000) + 60,
   };
 };
 

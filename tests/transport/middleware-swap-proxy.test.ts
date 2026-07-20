@@ -129,23 +129,34 @@ describe('MiddlewareClient swap proxy methods', () => {
   // -------------------------------------------------------------------------
 
   describe('getBebopQuote', () => {
-    it('proxies quote through /api/v1/proxy/bebop/router/{chain}/v1/quote', async () => {
+    it('proxies Aggregation and RFQ quotes through their versioned Bebop paths', async () => {
       const axiosClient = makeClient();
       axiosRootMock.create.mockReturnValue(axiosClient);
 
-      const quoteResponse = { routes: [{ quote: {} }] };
-      axiosClient.get.mockResolvedValue({ data: quoteResponse });
+      const aggregationResponse = { quoteId: 'aggregation' };
+      const rfqResponse = { quoteId: 'rfq' };
+      axiosClient.get
+        .mockResolvedValueOnce({ data: aggregationResponse })
+        .mockResolvedValueOnce({ data: rfqResponse });
 
       const mw = createMiddlewareClient('https://mw.example');
       const params = { chain: 'ethereum', sell_tokens: '0xaaa', buy_tokens: '0xbbb' };
-      const result = await mw.getBebopQuote(params);
+      const aggregation = await mw.getBebopQuote(params, 'aggregation');
+      const rfq = await mw.getBebopQuote(params, 'rfq');
 
-      expect(result).toEqual(quoteResponse);
+      expect(aggregation).toEqual(aggregationResponse);
+      expect(rfq).toEqual(rfqResponse);
       // chain is extracted from params and used in the URL path, not sent as query param
-      expect(axiosClient.get).toHaveBeenCalledWith(
-        '/api/v1/proxy/bebop/router/ethereum/v1/quote',
-        { params: { sell_tokens: '0xaaa', buy_tokens: '0xbbb' } },
-      );
+      expect(axiosClient.get.mock.calls).toEqual([
+        [
+          '/api/v1/proxy/bebop/jam/ethereum/v2/quote',
+          { params: { sell_tokens: '0xaaa', buy_tokens: '0xbbb' } },
+        ],
+        [
+          '/api/v1/proxy/bebop/pmm/ethereum/v3/quote',
+          { params: { sell_tokens: '0xaaa', buy_tokens: '0xbbb' } },
+        ],
+      ]);
     });
   });
 
