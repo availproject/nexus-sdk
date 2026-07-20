@@ -1,6 +1,11 @@
 import { type Hex, toHex } from 'viem';
 import { describe, expect, it } from 'vitest';
-import { MAYAN_MIN_USD_PER_LEG, MAYAN_SLIPPAGE_BPS, quoteMayanLegs } from '../../src/services/mayan';
+import {
+  MAYAN_MIN_USD_PER_LEG,
+  MAYAN_SLIPPAGE_BPS,
+  quoteMayanLegs,
+  selectMayanQuoteOutput,
+} from '../../src/services/mayan';
 import type { MayanQuote, MayanQuoteRequest } from '../../src/transport';
 import { makeMiddlewareClient } from '../helpers/middleware-client';
 
@@ -146,5 +151,43 @@ describe('quoteMayanLegs', () => {
 
   it('pins the Mayan slippage bps', () => {
     expect(MAYAN_SLIPPAGE_BPS).toBe(5);
+  });
+});
+
+describe('selectMayanQuoteOutput', () => {
+  const quote = (overrides: Record<string, unknown> = {}) =>
+    ({
+      minReceived: 9.8,
+      expectedAmountOut: 9.9,
+      expectedAmountOutBaseUnits: '10000000',
+      ...overrides,
+    }) as unknown as MayanQuote;
+
+  it('prefers positive expected base units at destination decimals', () => {
+    expect(selectMayanQuoteOutput(quote(), 6, 'expected').toFixed()).toBe('10');
+  });
+
+  it('falls back from malformed base units to the human expected amount', () => {
+    expect(
+      selectMayanQuoteOutput(
+        quote({ expectedAmountOutBaseUnits: 'invalid', expectedAmountOut: 9.9 }),
+        6,
+        'expected'
+      ).toFixed()
+    ).toBe('9.9');
+  });
+
+  it('falls below-minimum expected values back to minReceived', () => {
+    expect(
+      selectMayanQuoteOutput(
+        quote({ expectedAmountOutBaseUnits: '9700000', expectedAmountOut: 9.7 }),
+        6,
+        'expected'
+      ).toFixed()
+    ).toBe('9.8');
+  });
+
+  it('always selects minReceived in minimum mode', () => {
+    expect(selectMayanQuoteOutput(quote(), 6, 'minimum').toFixed()).toBe('9.8');
   });
 });

@@ -132,4 +132,37 @@ describe('refreshMayanQuotesForExecution', () => {
     expect(quoteEffectiveIn).toBe(EXECUTED_RAW);
     expect(rffValue).toBe(quoteEffectiveIn);
   });
+
+  it('recomputes protected Mayan delivery and fees from actual input and refreshed minReceived', async () => {
+    const middleware = {
+      getMayanQuotes: async (req: {
+        sources: { chain_id: string; contract_address: Hex; amount: string }[];
+      }) => ({
+        destination: { chainId: BASE_CHAIN, tokenAddress: USDC_BASE },
+        quotes: req.sources.map((source) => ({
+          source: {
+            chainId: Number(BigInt(source.chain_id)),
+            tokenAddress: source.contract_address,
+            amount: source.amount,
+          },
+          mayanQuote: {
+            ...makeMayanQuote(source.amount),
+            minReceived: 470,
+            expectedAmountOut: 476,
+          },
+        })),
+      }),
+    };
+
+    const refreshed = await refreshMayanQuotesForExecution(
+      makeStaleBridge(),
+      makeExecutedAssets(),
+      middleware as never
+    );
+
+    expect(refreshed.amount.toString()).toBe('477.873208');
+    expect(refreshed.amounts.totalAmount.toString()).toBe('477.873208');
+    expect(refreshed.amounts.tokenAmount.toString()).toBe('470');
+    expect(refreshed.estimatedFees.protocol.toString()).toBe('7.873208');
+  });
 });

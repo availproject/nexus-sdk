@@ -68,6 +68,10 @@ import { createSweeperTxs } from '../../../src/swap/sweep';
 import { signPermitForAddressAndValue } from '../../../src/services/allowance-utils';
 import { makeSwapExecutionMiddlewareClient } from '../../helpers/middleware-client';
 import type { QuoteResponse, Aggregator } from '../../../src/swap/aggregators/types';
+import {
+  quoteResponseFixture,
+  type QuoteResponseFixtureOverrides,
+} from '../../helpers/quote';
 import type {
   PreparedSwapExecution,
   SwapMetadata,
@@ -112,8 +116,8 @@ const makeSbcFailure = (chainId: number, message: string) => ({
 
 const makeQuoteResponse = (
   chainId = ARB_CHAIN,
-  overrides?: Partial<QuoteResponse>
-): QuoteResponse => ({
+  overrides?: QuoteResponseFixtureOverrides
+): QuoteResponse => quoteResponseFixture({
   chainID: chainId,
   quote: {
     input: { contractAddress: WETH, amount: '1.0', amountRaw: 1000000000000000000n, decimals: 18, value: 3000, symbol: 'WETH' },
@@ -125,8 +129,7 @@ const makeQuoteResponse = (
   },
   holding: { chainID: chainId, tokenAddress: WETH, amountRaw: 1000000000000000000n, decimals: 18, symbol: 'WETH' },
   aggregator: {} as Aggregator,
-  ...overrides,
-});
+}, overrides);
 
 type SrcCtx = Pick<
   ExecutionContext,

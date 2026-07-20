@@ -137,11 +137,10 @@ const buildDestinationCalls = async (
     calls.push(parsedGasSwap.swap);
   }
 
-  // Leftover COT input → ONE direct transfer back to the EOA: `B − consumed` (EXACT_IN grew the input
-  // so this is ~nothing; EXACT_OUT leaves the real surplus). Both modes use the same transfer; getDstSwap
-  // already applied any margin (EXACT_IN's grow deduction), and the swap pulls ≤ its quoted input so the
-  // leftover is guaranteed available. Only when the balance read failed do we fall back to the blind
-  // Sweeper (size unknown).
+  // Leftover COT input → ONE direct transfer back to the EOA: `B − consumed`. Exact In execution
+  // requires its resized quote to consume the complete measured balance, so only Exact Out should
+  // produce a positive surplus here. When the Exact Out balance read failed, fall back to the blind
+  // Sweeper because the surplus size is unknown.
   if (wrapperCotBalance !== null) {
     const cotAddress =
       currentSwap.tokenSwap?.quote.input.contractAddress ??
@@ -288,66 +287,41 @@ export const executeDestinationSwap = async (
     walletPath: wrapper,
   });
 
-  // Read the COT at the dst wrapper once. Execution just measures and hands the balance to the route's
-  // getDstSwap — each mode's closure decides what to do with it (EXACT_IN grows the input toward it,
-  // EXACT_OUT lifts its max-input budget to it). Includes the in-batch direct dst COT (eoaToEphemeral),
-  // which rides the swap batch and isn't at the wrapper yet. Best-effort: a failed read passes 0 (→ the
-  // route-time quote) and the leftover falls back to the Sweeper.
-  let wrapperCotBalance: bigint | null = null;
-  try {
+  const readWrapperCotBalance = async (): Promise<bigint> => {
     const cotAddress =
       currentSwap.tokenSwap?.quote.input.contractAddress ??
       currentSwap.gasSwap?.quote.input.contractAddress;
-    if (cotAddress) {
-      const holderAddress =
-        wrapper === 'safe'
-          ? predictSafeAccountAddress(ctx.ephemeralWallet.address).address
-          : ctx.ephemeralWallet.address;
-      const balance = await withTimingSpan(
-        ctx.timing,
-        'flow.swap.execute.destination.read_balance',
-        async () =>
-          readSettlementBalanceRaw({
-            chainId: destination.chainId,
-            tokenAddress: cotAddress,
-            holderAddress,
-            publicClientList: ctx.publicClientList,
-          }),
-        { tags: { mode, wallet_path: wrapper } }
-      );
-      wrapperCotBalance = balance + (destination.eoaToEphemeral?.amount ?? 0n);
+    if (!cotAddress) {
+      throw new Error('Destination settlement token is unavailable');
     }
-  } catch (error) {
-    logger.debug('swap.execute.destination.balance_read.skipped', {
-      chainId: destination.chainId,
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-
-  // EXACT_IN re-sizes the dst input to the COT that ACTUALLY landed, in BOTH directions: grow on
-  // positive slippage (swallow the surplus into more output), shrink when a down-drifted source
-  // delivered less (there's no source buffer guaranteeing balanceOf ≥ the route estimate). getDstSwap
-  // applies the reclaim deduction, so the swap always pulls ≤ the balance — a leftover survives for
-  // the refund transfer and it can never underflow. EXACT_OUT keeps the output fixed — it tries the
-  // existing quote first and only re-prices (at the lifted budget) on a retry/expiry below.
-  if (mode === SwapMode.EXACT_IN && wrapperCotBalance !== null && currentSwap.tokenSwap) {
-    try {
-      const resized = await withTimingSpan(
-        ctx.timing,
-        'flow.swap.execute.destination.resize_or_requote',
-        async () => destination.getDstSwap(wrapperCotBalance),
-        { tags: { mode, wallet_path: wrapper, attempt: 0 } }
-      );
-      if (resized?.tokenSwap) {
-        currentSwap = resized;
-        logger.debug('swap.execute.destination.resize.completed', {
+    const holderAddress =
+      wrapper === 'safe'
+        ? predictSafeAccountAddress(ctx.ephemeralWallet.address).address
+        : ctx.ephemeralWallet.address;
+    const balance = await withTimingSpan(
+      ctx.timing,
+      'flow.swap.execute.destination.read_balance',
+      async () =>
+        readSettlementBalanceRaw({
           chainId: destination.chainId,
-          actualBalanceRaw: wrapperCotBalance.toString(),
-          inputAmountRaw: resized.tokenSwap.quote.input.amountRaw.toString(),
-        });
-      }
+          tokenAddress: cotAddress,
+          holderAddress,
+          publicClientList: ctx.publicClientList,
+        }),
+      { tags: { mode, wallet_path: wrapper } }
+    );
+    return balance + (destination.eoaToEphemeral?.amount ?? 0n);
+  };
+
+  // EXACT_OUT keeps its best-effort read: it can safely execute the protected fixed-output quote
+  // without measuring surplus. EXACT_IN must measure and resize before dispatch, so its read lives
+  // inside the retry loop below and a read failure consumes an attempt.
+  let wrapperCotBalance: bigint | null = null;
+  if (mode === SwapMode.EXACT_OUT) {
+    try {
+      wrapperCotBalance = await readWrapperCotBalance();
     } catch (error) {
-      logger.debug('swap.execute.destination.resize.skipped', {
+      logger.debug('swap.execute.destination.balance_read.skipped', {
         chainId: destination.chainId,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -364,10 +338,58 @@ export const executeDestinationSwap = async (
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
+      if (mode === SwapMode.EXACT_IN) {
+        if (wrapperCotBalance === null) {
+          wrapperCotBalance = await readWrapperCotBalance();
+        }
+        const actualCotBalance = wrapperCotBalance;
+        const resized = await withTimingSpan(
+          ctx.timing,
+          'flow.swap.execute.destination.resize_or_requote',
+          async () => destination.getDstSwap(actualCotBalance),
+          { tags: { mode, wallet_path: wrapper, attempt } }
+        );
+        const hasEveryRequiredLeg =
+          resized != null &&
+          (!requiresTokenSwap || Boolean(resized.tokenSwap)) &&
+          (!requiresGasSwap || Boolean(resized.gasSwap));
+        const resizedInputRaw =
+          (resized?.tokenSwap?.quote.input.amountRaw ?? 0n) +
+          (resized?.gasSwap?.quote.input.amountRaw ?? 0n);
+        const consumesFullBalance = resizedInputRaw === actualCotBalance;
+        if (
+          !resized ||
+          (!resized.tokenSwap && !resized.gasSwap) ||
+          !hasEveryRequiredLeg ||
+          !consumesFullBalance
+        ) {
+          const previousAggregator =
+            currentSwap.tokenSwap?.aggregator ?? currentSwap.gasSwap?.aggregator;
+          throw new ExternalServiceError(
+            ERROR_CODES.EXTERNAL_DESTINATION_SWAP_QUOTE_FAILED,
+            'Quote failed: Failed to resize destination swap.',
+            {
+              context: {
+                service: previousAggregator ? aggregatorService(previousAggregator) : 'lifi',
+                stepId: createDestinationSwapStepId(destination.chainId),
+                stepType: 'destination_swap',
+                chainId: destination.chainId,
+              },
+            }
+          );
+        }
+        currentSwap = resized;
+        logger.debug('swap.execute.destination.resize.completed', {
+          chainId: destination.chainId,
+          actualBalanceRaw: actualCotBalance.toString(),
+          inputAmountRaw: resized.tokenSwap?.quote.input.amountRaw.toString(),
+        });
+      }
+
       // Try the current quote first; only requote on a forced retry or an expired quote. The requote
       // re-prices against the actual balance (EXACT_OUT lifts its budget to it; an EXACT_IN retry
       // re-grows).
-      if (attempt > 0 || isQuoteExpired(currentSwap)) {
+      if (mode === SwapMode.EXACT_OUT && (attempt > 0 || isQuoteExpired(currentSwap))) {
         const requoted = await withTimingSpan(
           ctx.timing,
           'flow.swap.execute.destination.resize_or_requote',

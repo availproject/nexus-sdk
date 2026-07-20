@@ -72,7 +72,13 @@ const makeExactOutRequest = (
 // checksummed address.
 const makeBebopResponseData = (
   overrides?: {
-    buyToken?: Partial<{ minimumAmount: string; priceUsd: number; symbol: string; decimals: number }>;
+    buyToken?: Partial<{
+      amount: string;
+      minimumAmount: string;
+      priceUsd: number;
+      symbol: string;
+      decimals: number;
+    }>;
     sellToken?: Partial<{ amount: string; priceUsd: number; symbol: string; decimals: number }>;
   }
 ) => ({
@@ -133,6 +139,31 @@ describe('BebopAggregator', () => {
     expect(quote!.expiry).toBeGreaterThan(0);
     expect(quote!.input.amount).toBe('1.000000');
     expect(quote!.output.amount).toBe('0.980100000000000000');
+    expect(quote!.expectedOutput).toEqual({
+      amountRaw: 980100000000000000n,
+      amount: '0.980100000000000000',
+      value: 2940.3,
+    });
+  });
+
+  it('maps buyTokens.amount as expected output while keeping minimumAmount executable', async () => {
+    getQuoteFn.mockResolvedValue(
+      makeBebopResponseData({
+        buyToken: {
+          amount: '1000000000000000000',
+          minimumAmount: '980000000000000000',
+        },
+      })
+    );
+
+    const [quote] = await agg.getQuotes([makeRequest()]);
+
+    expect(quote!.output.amountRaw).toBe(980000000000000000n);
+    expect(quote!.expectedOutput).toEqual({
+      amountRaw: 1000000000000000000n,
+      amount: '1',
+      value: 3000,
+    });
   });
 
   it('surfaces per-token priceUsd so price-less siblings (0x) can backfill from it', async () => {

@@ -39,6 +39,13 @@ export type Quote = {
     priceUsd?: number; // see input.priceUsd
     symbol: string;
   };
+  // Unprotected output estimate used only for Exact In preview economics and forward sizing.
+  // `output` remains the executable slippage-protected minimum for selection, calldata, and guards.
+  expectedOutput: {
+    amountRaw: bigint;
+    amount: string;
+    value: number;
+  };
   txData: {
     approvalAddress: Hex;
     tx: { to: Hex; data: Hex; value: Hex };

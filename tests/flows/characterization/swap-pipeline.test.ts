@@ -2118,6 +2118,8 @@ const makeExactInScenario = (scenario: ExactInScenario): ExactInScenarioContext 
 
 const runExactInScenario = async (scenario: ExactInScenario): Promise<ExactInHarnessResult> => {
   const ctx = makeExactInScenario(scenario);
+  let destinationWrapperCotRaw = 0n;
+  const sourceWrapperCotRawByAddress = new Map<string, bigint>();
 
   hoisted.readContract.mockImplementation(async ({ address, functionName }: { address: Hex; functionName: string }) => {
     const normalized = address.toLowerCase();
@@ -2129,6 +2131,11 @@ const runExactInScenario = async (scenario: ExactInScenario): Promise<ExactInHar
     }
     if (functionName === 'allowance') {
       return 0n;
+    }
+    if (functionName === 'balanceOf') {
+      return normalized === USDC_BASE.toLowerCase()
+        ? destinationWrapperCotRaw
+        : (sourceWrapperCotRawByAddress.get(normalized) ?? 0n);
     }
     if (functionName === 'name') {
       if (normalized === SOURCE_DAI.toLowerCase()) return 'Dai Stablecoin';
@@ -2183,6 +2190,17 @@ const runExactInScenario = async (scenario: ExactInScenario): Promise<ExactInHar
     forceMayan: false,
     preflight,
   });
+  destinationWrapperCotRaw = toRawAmount(
+    previewState.route.destination.inputAmount.max,
+    previewState.route.destination.swap.tokenSwap?.quote.input.decimals ?? 6
+  );
+  for (const swap of previewState.route.source.swaps) {
+    const key = swap.quote.output.contractAddress.toLowerCase();
+    sourceWrapperCotRawByAddress.set(
+      key,
+      (sourceWrapperCotRawByAddress.get(key) ?? 0n) + swap.quote.output.amountRaw
+    );
+  }
 
   const preparedExecution = await prepareSwapExecution({
     chainList: ctx.chainList,

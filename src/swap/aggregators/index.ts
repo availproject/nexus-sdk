@@ -5,6 +5,7 @@ import { isNativeAddress } from '../../services/addresses';
 import { divDecimals } from '../../services/math';
 import type { MiddlewareAggregatorQuoteClient } from '../../transport';
 import { EADDRESS } from '../constants';
+import { refreshExpectedOutput } from './expected-output';
 import { BebopAggregator } from './bebop';
 import { FibrousAggregator } from './fibrous';
 import { LiFiAggregator } from './lifi';
@@ -305,7 +306,7 @@ const backfillFromSiblings = (
         leg.value = new Decimal(leg.amount).mul(priceUsd).toNumber();
     }
   }
-  return quote;
+  return refreshExpectedOutput(quote);
 };
 
 // First non-nullish value of `field` on `side` among the sibling results (skips the winner itself,
@@ -363,7 +364,7 @@ const enrichWinner = async (
       leg.value = 0;
     }
   }
-  return quote;
+  return refreshExpectedOutput(quote);
 };
 
 export { BebopAggregator } from './bebop';

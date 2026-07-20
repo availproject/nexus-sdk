@@ -11,10 +11,21 @@ import { Errors } from '../../domain/errors';
 import { logger } from '../../domain/utils';
 import { isNativeAddress } from '../../services/addresses';
 import { divDecimals, mulDecimals } from '../../services/math';
-import { MAYAN_MIN_USD_PER_LEG, quoteMayanLegs } from '../../services/mayan';
+import {
+  MAYAN_MIN_USD_PER_LEG,
+  quoteMayanLegs,
+  selectMayanQuoteOutput,
+} from '../../services/mayan';
 import type { QuoteResponse } from '../aggregators/types';
+import { resolveExactInAmountBasis, selectExactInQuoteOutput } from '../amount-basis';
 import { resolveCOT } from '../cot';
-import type { BridgeAsset, BridgeQuoteResponse, SourceChainCOT, SwapRoute } from '../types';
+import type {
+  BridgeAsset,
+  BridgeQuoteResponse,
+  NexusFeeModel,
+  SourceChainCOT,
+  SwapRoute,
+} from '../types';
 import type { RouteOptions } from '../route';
 
 // Decide the bridge provider (Mayan vs Nexus) once, at the start of a route, by asking the
@@ -221,7 +232,7 @@ export const estimateBridgeFees = async (
 // src/bridge/intent/creator.ts.
 export const enrichMayanBridge = async (
   bridge: NonNullable<SwapRoute['bridge']>,
-  options: Pick<RouteOptions, 'chainList' | 'middlewareClient'>
+  options: Pick<RouteOptions, 'chainList' | 'middlewareClient' | 'exactInAmountBasis'>
 ): Promise<NonNullable<SwapRoute['bridge']>> => {
   // Defensive: destination check is also done up-front in determineSwapRoute when
   // forceMayan is true, but the threshold path can also land us here.
@@ -282,8 +293,9 @@ export const enrichMayanBridge = async (
     (sum, asset) => sum.plus(asset.eoaBalance).plus(asset.ephemeralBalance),
     new Decimal(0)
   );
+  const amountBasis = resolveExactInAmountBasis(options.exactInAmountBasis);
   const delivered = [...mayanQuotesBySource.values()].reduce(
-    (sum, quote) => sum.plus(new Decimal(quote.minReceived.toString())),
+    (sum, quote) => sum.plus(selectMayanQuoteOutput(quote, bridge.decimals, amountBasis)),
     new Decimal(0)
   );
   const haircut = Decimal.max(grossBridged.minus(delivered), new Decimal(0));
@@ -359,12 +371,34 @@ export const computeBridgeFees = (params: {
   estimatedFees: NonNullable<SwapRoute['bridge']>['estimatedFees'];
   totalFeeAmount: Decimal;
   deliveredAmount: Decimal;
+  nexusFeeModel: NexusFeeModel;
 } => {
-  const fulfilment = divDecimals(
-    params.quoteResponse.destination.fulfillmentFeeToken,
-    params.dstCOTDecimals
-  );
-  const protocol = params.grossBridged.mul(params.quoteResponse.fulfillmentBps).div(10000);
+  const nexusFeeModel = {
+    fulfillmentFee: divDecimals(
+      params.quoteResponse.destination.fulfillmentFeeToken,
+      params.dstCOTDecimals
+    ),
+    fulfillmentBps: new Decimal(params.quoteResponse.fulfillmentBps),
+  };
+  return {
+    ...computeNexusBridgeFees({
+      nexusFeeModel,
+      grossBridged: params.grossBridged,
+    }),
+    nexusFeeModel,
+  };
+};
+
+export const computeNexusBridgeFees = (params: {
+  nexusFeeModel: NexusFeeModel;
+  grossBridged: Decimal;
+}): {
+  estimatedFees: NonNullable<SwapRoute['bridge']>['estimatedFees'];
+  totalFeeAmount: Decimal;
+  deliveredAmount: Decimal;
+} => {
+  const fulfilment = params.nexusFeeModel.fulfillmentFee;
+  const protocol = params.grossBridged.mul(params.nexusFeeModel.fulfillmentBps).div(10000);
   // Collection (per-source deposit) fee only applies when the EOA funds the bridge directly,
   // which our smart-account-only model no longer supports — bridge funding always flows
   // through the ephemeral, which the solver covers gas for. Keep the field for the public
@@ -396,11 +430,13 @@ export const buildBridgeAssetsAndFees = (input: {
   currencyId: number;
   bridgeQuoteResponse: BridgeQuoteResponse | null | undefined;
   dstCOTDecimals: number;
+  exactInAmountBasis?: RouteOptions['exactInAmountBasis'];
 }): {
   assets: BridgeAsset[];
   grossBridged: Decimal;
   feeSummary: ReturnType<typeof computeBridgeFees> | null;
 } => {
+  const amountBasis = resolveExactInAmountBasis(input.exactInAmountBasis);
   const assetsByChain = new Map<number, BridgeAsset>();
   for (const swap of input.quoteResponses) {
     if (swap.chainID === input.destinationChainId) continue;
@@ -410,7 +446,7 @@ export const buildBridgeAssetsAndFees = (input: {
       contractAddress: cot?.address ?? swap.quote.output.contractAddress,
       decimals: cot?.decimals ?? swap.quote.output.decimals,
       balance: 'ephemeralBalance',
-      amount: new Decimal(swap.quote.output.amount),
+      amount: new Decimal(selectExactInQuoteOutput(swap.quote, amountBasis).amount),
     });
   }
   for (const source of input.cotSources) {

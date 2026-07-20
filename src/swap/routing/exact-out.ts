@@ -376,7 +376,7 @@ const buildExactOutBridge = async (input: {
       if (!feeSummary) {
         throw Errors.internal('Bridge assets unavailable -- cannot route cross-chain swap');
       }
-      const { estimatedFees, deliveredAmount } = feeSummary;
+      const { estimatedFees, deliveredAmount, nexusFeeModel } = feeSummary;
       const deliveredTokenAmount = Decimal.max(
         deliveredAmount.minus(input.gasInCot),
         new Decimal(0)
@@ -394,6 +394,7 @@ const buildExactOutBridge = async (input: {
         decimals: input.dstCOT.decimals,
         tokenAddress: input.dstCOT.address as Hex,
         estimatedFees,
+        ...(input.bridgeProvider === 'nexus' ? { nexusFeeModel } : {}),
         provider: input.bridgeProvider,
       };
       if (input.bridgeProvider === 'mayan') {

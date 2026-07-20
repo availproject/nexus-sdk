@@ -4,12 +4,13 @@ import ERC20ABI, { ERC20PermitABI } from '../../src/abi/erc20';
 import { parseQuote } from '../../src/services/quote-parser';
 import type { Quote } from '../../src/swap/aggregators/types';
 import { EADDRESS } from '../../src/swap/constants';
+import { quoteFixture } from '../helpers/quote';
 
 const TOKEN = '0xaf88d065e77c8cc2239327c5edb3a432268e5831' as Hex;
 const ROUTER = '0x2222222222222222222222222222222222222222' as Hex;
 const APPROVAL = '0x1111111111111111111111111111111111111111' as Hex;
 
-const makeQuote = (inputToken = TOKEN): Quote => ({
+const makeQuote = (inputToken = TOKEN): Quote => quoteFixture({
   input: {
     contractAddress: inputToken,
     amount: '3000',

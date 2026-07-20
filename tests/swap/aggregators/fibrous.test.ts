@@ -149,6 +149,11 @@ describe('FibrousAggregator', () => {
     expect(quote!.output.contractAddress).toBe(OUTPUT_TOKEN);
     expect(quote!.output.decimals).toBe(18);
     expect(quote!.output.symbol).toBe('HYPE');
+    expect(quote!.expectedOutput).toEqual({
+      amountRaw: 40_000_000_000_000_000n,
+      amount: '0.04',
+      value: 1,
+    });
   });
 
   it('passes the chain name in params so the transport can build the proxy path', async () => {

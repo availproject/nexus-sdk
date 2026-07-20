@@ -54,7 +54,8 @@ const createRouteOptions = (
     | 'forceMayan'
     | 'timing'
   >,
-  preflight: SwapPreflight
+  preflight: SwapPreflight,
+  input: SwapData
 ): RouteOptions => ({
   aggregators: preflight.aggregators,
   bridgeQuoteResponse: preflight.bridgeQuoteResponse,
@@ -76,6 +77,7 @@ const createRouteOptions = (
   ),
   forceMayan: context.forceMayan,
   timing: context.timing,
+  ...(input.mode === SwapMode.EXACT_IN ? { exactInAmountBasis: 'expected' as const } : {}),
 });
 
 export type SwapPreviewState = {
@@ -102,7 +104,10 @@ export const buildSwapPreviewState = async (
   input: SwapData,
   context: SwapPreviewContext
 ): Promise<SwapPreviewState> => {
-  const route = await determineSwapRoute(input, createRouteOptions(context, context.preflight));
+  const route = await determineSwapRoute(
+    input,
+    createRouteOptions(context, context.preflight, input)
+  );
   return createSwapPreviewStateFromRoute(route, input, context.chainList);
 };
 
@@ -217,7 +222,8 @@ const runSwapFlow = async (
           forceMayan: deps.forceMayan,
           timing: deps.timing,
         },
-        preflight
+        preflight,
+        input
       )
     )
   );

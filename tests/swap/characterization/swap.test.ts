@@ -241,19 +241,17 @@ describe('swap execution characterization', () => {
     // S5 — exactly the two source chains + the destination chain emit batches; nothing stray.
     expect(dispatchedChains(middlewareClient)).toEqual([OP_CHAIN, BASE_CHAIN, ARB_CHAIN].sort((a, b) => a - b));
 
-    // ── DESTINATION_SWAP (BASE 7702): approve→swap(recv=EOA)→transfer(leftover COT → EOA) ──
-    // #86: the unused COT is returned by ONE direct transfer (balance − consumed), replacing the blind
-    // approve+Sweeper drain; the output token lands at the EOA so its dust sweep is skipped.
+    // ── DESTINATION_SWAP (BASE 7702): approve→swap(recv=EOA), consuming all delivered COT ──
     const dstBatches = sbcBatchesForChain(middlewareClient, BASE_CHAIN);
     expect(dstBatches.length, 'dst SBC batch count').toBe(1);
     const [dst] = dstBatches;
 
-    // Y is reclaim-sized; assert consistency (router approve == swap input) and Y ≤ bridged total.
+    // Y is reclaim-sized; router approval and swap input equal the complete bridged total.
     const swapCall = dst.find((c) => c.fn === 'swap')!;
     const approveRouterCall = dst.find((c) => c.fn === 'approve')!;
     const Y = approveRouterCall.args[1] as bigint;
     expect(swapCall.args[2]).toBe(Y); // approve amount == swap inputAmount
-    expect(Y).toBeLessThanOrEqual(2n * srcOut); // ≤ bridged total
+    expect(Y).toBe(2n * srcOut);
 
     expectCallSequence(
       dst,
@@ -269,7 +267,6 @@ describe('swap execution characterization', () => {
             eq(EOA)(a[5]); // receiver = EOA
           },
         },
-        { fn: 'transfer', to: USDC_BASE, argsMatch: (a) => { eq(EOA)(a[0]); } }, // leftover COT → EOA
       ],
       'dst'
     );
@@ -603,7 +600,7 @@ describe('swap execution characterization', () => {
     const dstSwap = dst[0].find((c) => c.fn === 'swap')!;
     eq(EPH)(dstSwap.args[4]); // taker = wrapper
     eq(EOA)(dstSwap.args[5]); // receiver = EOA
-    expect(dst[0].map((c) => c.fn)).toEqual(['approve', 'swap', 'transfer']);
+    expect(dst[0].map((c) => c.fn)).toEqual(['approve', 'swap']);
 
     // No native legs → EOA signed nothing (Safe txs are middleware-sponsored).
     expect(sentTxs).toHaveLength(0);
@@ -939,17 +936,16 @@ describe('swap execution characterization', () => {
     expect(rffRecipient(middlewareClient)).toBe(bytes32Address(PREDICTED_SAFE));
 
     // Destination swap via Safe.execTransaction (no funding — bridge filled the Safe):
-    // approve(router)→swap(taker=SAFE, recv=EOA)→transfer leftover COT → EOA. No WETH output sweep
-    // (Safe delivers output direct to the EOA).
+    // approve(router)→swap(taker=SAFE, recv=EOA), consuming all COT. No WETH output sweep because
+    // the Safe delivers output directly to the EOA.
     const dst = safeBatchesForChain(middlewareClient, BASE_CHAIN);
     expect(dst.length, 'dst Safe batch count').toBe(1);
-    expect(dst[0].map((c) => c.fn)).toEqual(['approve', 'swap', 'transfer']);
+    expect(dst[0].map((c) => c.fn)).toEqual(['approve', 'swap']);
     const swp = dst[0][1];
     eq(USDC_BASE)(swp.args[0]);
     eq(WETH)(swp.args[1]);
     eq(PREDICTED_SAFE)(swp.args[4]); // taker = Safe wrapper
     eq(EOA)(swp.args[5]); // receiver = EOA
-    eq(USDC_BASE)(dst[0][2].to); // leftover COT transferred to the EOA
   });
 
   it('EXACT_IN · Nexus · Path A: all sources on dst chain → direct source swap, no bridge/dst swap', async () => {
@@ -1480,7 +1476,7 @@ describe('swap execution characterization', () => {
     expect(rffRecipient(middlewareClient)).toBe(bytes32Address(PREDICTED_SAFE));
     const dst = safeBatchesForChain(middlewareClient, BASE_CHAIN);
     expect(dst.length).toBe(1);
-    expect(dst[0].map((c) => c.fn)).toEqual(['approve', 'swap', 'transfer']);
+    expect(dst[0].map((c) => c.fn)).toEqual(['approve', 'swap']);
     eq(PREDICTED_SAFE)(dst[0][1].args[4]); // taker = Safe
     eq(EOA)(dst[0][1].args[5]); // receiver = EOA
   });
@@ -1524,10 +1520,9 @@ describe('swap execution characterization', () => {
     expect(rffRecipient(middlewareClient)).toBe(bytes32Address(EPH));
     const dst = sbcBatchesForChain(middlewareClient, BASE_CHAIN);
     expect(dst.length).toBe(1);
-    expect(dst[0].map((c) => c.fn)).toEqual(['approve', 'swap', 'transfer']);
+    expect(dst[0].map((c) => c.fn)).toEqual(['approve', 'swap']);
     eq(EPH)(dst[0][1].args[4]); // taker = EPH
     eq(EOA)(dst[0][1].args[5]); // receiver = EOA
-    eq(USDC_BASE)(dst[0][2].to); // leftover COT transferred to the EOA (output WETH delivered direct)
   });
 
   it('EXACT_OUT · Nexus · token swap + gas in the same destination batch (7702 dst)', async () => {
@@ -1700,7 +1695,7 @@ describe('swap execution characterization', () => {
     expect(rffRecipient(middlewareClient)).toBe(bytes32Address(PREDICTED_SAFE));
     const dst = safeBatchesForChain(middlewareClient, BASE_CHAIN);
     expect(dst.length).toBe(1);
-    expect(dst[0].map((c) => c.fn)).toEqual(['approve', 'swap', 'transfer']);
+    expect(dst[0].map((c) => c.fn)).toEqual(['approve', 'swap']);
     eq(PREDICTED_SAFE)(dst[0][1].args[4]);
     eq(EOA)(dst[0][1].args[5]);
   });
@@ -1808,23 +1803,19 @@ describe('swap execution characterization', () => {
     const delivered = rff.destinations.reduce((sum, d) => sum + BigInt(d.value), 0n);
     expect(delivered, 'both legs deliver in full (zero mock haircut)').toBe(2000n * 10n ** 6n);
 
-    // Destination: approve → swap(COT→native, taker=EPH, recv=EOA) → leftover COT → EOA. Native
-    // output is delivered direct, so there is NO native sweep call.
+    // Destination: approve → swap(COT→native, taker=EPH, recv=EOA), consuming all delivered COT.
+    // Native output is delivered direct, so there is no native sweep call.
     const dst = sbcBatchesForChain(middlewareClient, BASE_CHAIN);
     expect(dst.length, 'dst SBC batch count').toBe(1);
-    expect(dst[0].map((c) => c.fn)).toEqual(['approve', 'swap', 'transfer']);
+    expect(dst[0].map((c) => c.fn)).toEqual(['approve', 'swap']);
     const swp = dst[0][1];
     eq(USDC_BASE)(swp.args[0]); // input = COT
     eq(EADDRESS as Hex)(swp.args[1]); // output = native
     eq(EPH)(swp.args[4]); // taker = wrapper
     eq(EOA)(swp.args[5]); // receiver = EOA
-    // EXACT_IN resize: the swap consumes the delivered COT less the reclaim margin; the tiny
-    // remainder goes back to the EOA in the same batch.
-    expect(swp.args[2] as bigint).toBeLessThanOrEqual(delivered);
+    // EXACT_IN resize consumes the complete delivered COT balance.
+    expect(swp.args[2] as bigint).toBe(delivered);
     expect(dst[0][0].args[1]).toBe(swp.args[2]); // approve == swap input
-    eq(USDC_BASE)(dst[0][2].to);
-    eq(EOA)(dst[0][2].args[0]);
-    expect(dst[0][2].args[1] as bigint).toBe(delivered - (swp.args[2] as bigint));
     expect(sentTxs).toHaveLength(0);
   });
 

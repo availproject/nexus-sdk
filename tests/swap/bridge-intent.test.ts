@@ -314,6 +314,47 @@ describe('createSwapBridgeIntent', () => {
     ).toBe('3.5');
   });
 
+  it.each([
+    { actualBalance: '3000', protocolFee: '30', delivered: '2968' },
+    { actualBalance: '7000', protocolFee: '70', delivered: '6928' },
+  ])(
+    'recomputes Nexus fixed-plus-bps fees from the actual $actualBalance execution balance',
+    ({ actualBalance, protocolFee, delivered }) => {
+      const assets = [makeBridgeAsset(ARB_CHAIN, USDC_ARB, actualBalance)];
+      const bridge = makeBridge(assets, {
+        amount: new Decimal('6000'),
+        amounts: {
+          tokenAmount: new Decimal('5938'),
+          gasInCot: new Decimal(0),
+          totalAmount: new Decimal('6000'),
+        },
+        estimatedFees: {
+          collection: new Decimal(0),
+          fulfilment: new Decimal(2),
+          caGas: new Decimal(2),
+          protocol: new Decimal(60),
+          solver: new Decimal(0),
+        },
+        nexusFeeModel: {
+          fulfillmentFee: new Decimal(2),
+          fulfillmentBps: new Decimal(100),
+        },
+      });
+
+      const intent = createSwapBridgeIntent({
+        bridge,
+        assets,
+        chainList: makeChainList(),
+        recipient: EPHEMERAL_ADDRESS,
+        ephemeralAddress: EPHEMERAL_ADDRESS,
+      });
+
+      expect(intent.destination.amount.toString()).toBe(delivered);
+      expect(intent.fees.fulfillment).toBe('2');
+      expect(intent.fees.protocol).toBe(protocolFee);
+    }
+  );
+
   it('EXACT_OUT same-token (B1): per-chain split sources, destination = the exact target, no gas', () => {
     // B1 EXACT_OUT bridges the family token directly from EOA-held (fast-path) assets. The destination
     // is derived as Σassets − fees; B1 grosses the split up to cover the fees, so with a zero-fee quote

@@ -4,7 +4,6 @@ import {
   B2_STABLE_CURRENCY_IDS,
   DST_BUFFER_MAX_USD,
   DST_BUFFER_PCT,
-  DST_RECLAIM_DEDUCTION_PCT,
   GAS_TO_COT_BUFFER,
   MAX_RETRIES,
   MAX_SWAP_HAIRCUT_MIN_USDC,
@@ -36,10 +35,6 @@ describe('swap economic constants', () => {
   it('EXACT_OUT source buffer = min(2%, $1)', () => {
     expect(SRC_BUFFER_PCT).toBe(0.02);
     expect(SRC_BUFFER_MAX_USD).toBe(1);
-  });
-
-  it('EXACT_IN dst reclaim deduction = 1 bp', () => {
-    expect(DST_RECLAIM_DEDUCTION_PCT).toBe(0.0001);
   });
 
   it('max-amount haircut = max(3%, $3)', () => {

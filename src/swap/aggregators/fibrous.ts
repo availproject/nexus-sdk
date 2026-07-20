@@ -3,6 +3,7 @@ import { encodeFunctionData, getAddress, type Hex, toHex, zeroAddress } from 'vi
 import { SLIPPAGE_BPS, SLIPPAGE_PERCENT } from './constants';
 import type { Aggregator, Quote, QuoteRequest } from './types';
 import { QuoteSeriousness, QuoteType } from './types';
+import { normalizeExpectedOutput } from './expected-output';
 
 const CHAIN_NAME_MAP: Record<number, string> = {
   // 999: 'hyperevm', // Causing issue
@@ -89,6 +90,15 @@ export class FibrousAggregator implements Aggregator {
     const routerAddress = getAddress(data.router_address);
     const isNativeInput = data.calldata.route.swap_type === 0;
 
+    const output: Quote['output'] = {
+      contractAddress: req.outputToken,
+      amount: outputAmount,
+      amountRaw: outputAmountRaw,
+      decimals: outputDecimals,
+      value: Decimal.mul(outputAmount, data.route.outputToken.price ?? 0).toNumber(),
+      symbol: data.route.outputToken.symbol ?? data.route.outputToken.name,
+    };
+
     return {
       input: {
         contractAddress: req.inputToken,
@@ -98,14 +108,8 @@ export class FibrousAggregator implements Aggregator {
         value: Decimal.mul(inputAmount, data.route.inputToken.price ?? 0).toNumber(),
         symbol: data.route.inputToken.symbol ?? data.route.inputToken.name,
       },
-      output: {
-        contractAddress: req.outputToken,
-        amount: outputAmount,
-        amountRaw: outputAmountRaw,
-        decimals: outputDecimals,
-        value: Decimal.mul(outputAmount, data.route.outputToken.price ?? 0).toNumber(),
-        symbol: data.route.outputToken.symbol ?? data.route.outputToken.name,
-      },
+      output,
+      expectedOutput: normalizeExpectedOutput(data.calldata.route.amount_out, output),
       txData: {
         approvalAddress: isNativeInput ? zeroAddress : routerAddress,
         tx: {
@@ -153,6 +157,15 @@ export class FibrousAggregator implements Aggregator {
       .div(Decimal.pow(10, data.outputToken.decimals))
       .toFixed(data.outputToken.decimals);
 
+    const output: Quote['output'] = {
+      contractAddress: req.outputToken,
+      amount: outputAmount,
+      amountRaw: outputAmountRaw,
+      decimals: data.outputToken.decimals,
+      value: Decimal.mul(outputAmount, data.outputToken.price ?? 0).toNumber(),
+      symbol: data.outputToken.symbol ?? data.outputToken.name,
+    };
+
     return {
       input: {
         contractAddress: req.inputToken,
@@ -162,14 +175,8 @@ export class FibrousAggregator implements Aggregator {
         value: Decimal.mul(inputAmount, data.inputToken.price ?? 0).toNumber(),
         symbol: data.inputToken.symbol ?? data.inputToken.name,
       },
-      output: {
-        contractAddress: req.outputToken,
-        amount: outputAmount,
-        amountRaw: outputAmountRaw,
-        decimals: data.outputToken.decimals,
-        value: Decimal.mul(outputAmount, data.outputToken.price ?? 0).toNumber(),
-        symbol: data.outputToken.symbol ?? data.outputToken.name,
-      },
+      output,
+      expectedOutput: normalizeExpectedOutput(data.outputAmount, output),
       txData: SURVEY_TX_PLACEHOLDER,
     };
   }

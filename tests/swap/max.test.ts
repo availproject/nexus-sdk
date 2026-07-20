@@ -37,12 +37,13 @@ import {
   makeSwapChainList,
   makeSwapPreflight,
 } from '../helpers/swap';
+import { quoteFixture } from '../helpers/quote';
 
 type MaxOptions = Parameters<typeof calculateMaxForSwap>[1];
 
 const makeQuote = (inputRaw: bigint, outputRaw: bigint): QuoteResponse => ({
   chainID: ARB_CHAIN,
-  quote: {
+  quote: quoteFixture({
     input: {
       contractAddress: USDC_ARB,
       amount: new Decimal(inputRaw.toString()).div(new Decimal(10).pow(6)).toString(),
@@ -63,7 +64,7 @@ const makeQuote = (inputRaw: bigint, outputRaw: bigint): QuoteResponse => ({
       approvalAddress: '0x1111111111111111111111111111111111111111' as Hex,
       tx: { to: '0x2222222222222222222222222222222222222222' as Hex, data: '0xabcdef' as Hex, value: '0x0' as Hex },
     },
-  },
+  }),
   holding: { chainID: ARB_CHAIN, tokenAddress: USDC_ARB, amountRaw: inputRaw, decimals: 6, symbol: 'USDC' },
   aggregator: {} as Aggregator,
 });
@@ -77,7 +78,7 @@ const makeOutputValueQuote = (
   outputDecimals = 18
 ): QuoteResponse => ({
   chainID: ARB_CHAIN,
-  quote: {
+  quote: quoteFixture({
     input: { contractAddress: USDC_ARB, amount: '0', amountRaw: 0n, decimals: 6, value: 0, symbol: 'USDC' },
     output: {
       contractAddress: outputContract,
@@ -91,7 +92,7 @@ const makeOutputValueQuote = (
       approvalAddress: '0x1111111111111111111111111111111111111111' as Hex,
       tx: { to: '0x2222222222222222222222222222222222222222' as Hex, data: '0xabcdef' as Hex, value: '0x0' as Hex },
     },
-  },
+  }),
   holding: { chainID: ARB_CHAIN, tokenAddress: USDC_ARB, amountRaw: 0n, decimals: 6, symbol: 'USDC' },
   aggregator: {} as Aggregator,
 });
@@ -333,6 +334,19 @@ describe('calculateMaxForSwap', () => {
     expect(vi.mocked(determineSwapRoute).mock.calls[0][1]).toMatchObject({
       bridgeQuoteResponse,
     });
+  });
+
+  it('constructs the synthetic Exact In route with the minimum amount basis', async () => {
+    vi.mocked(determineSwapRoute).mockResolvedValue(makeRoute());
+
+    await calculateMaxForSwap(
+      { toChainId: ARB_CHAIN, toTokenAddress: WETH },
+      makeOptions()
+    );
+
+    expect(vi.mocked(determineSwapRoute).mock.calls[0][1].exactInAmountBasis).toBe('minimum');
+    expect(buildSwapPreflight).toHaveBeenCalledTimes(1);
+    expect(determineSwapRoute).toHaveBeenCalledTimes(1);
   });
 
   it('passes sources restrictions into the synthetic EXACT_IN max route input', async () => {

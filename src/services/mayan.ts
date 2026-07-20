@@ -33,6 +33,37 @@ export type MayanLegQuote = {
   minReceived: Decimal;
 };
 
+const validExpectedMayanOutput = (candidate: Decimal, minimum: Decimal): boolean =>
+  candidate.isFinite() && candidate.gt(0) && candidate.gte(minimum);
+
+/** Select Mayan's normalized expected or protected delivery in human destination-token units. */
+export const selectMayanQuoteOutput = (
+  quote: MayanQuote,
+  destinationDecimals: number,
+  basis: 'expected' | 'minimum'
+): Decimal => {
+  const minimum = new Decimal(quote.minReceived.toString());
+  if (basis === 'minimum') return minimum;
+
+  try {
+    const expectedBaseUnits = new Decimal(quote.expectedAmountOutBaseUnits).div(
+      new Decimal(10).pow(destinationDecimals)
+    );
+    if (validExpectedMayanOutput(expectedBaseUnits, minimum)) return expectedBaseUnits;
+  } catch {
+    // Fall through to Mayan's human expected amount.
+  }
+
+  try {
+    const expectedHuman = new Decimal(quote.expectedAmountOut.toString());
+    if (validExpectedMayanOutput(expectedHuman, minimum)) return expectedHuman;
+  } catch {
+    // Fall through to the protected delivery.
+  }
+
+  return minimum;
+};
+
 /**
  * Shared Mayan quote plumbing: builds the `getMayanQuotes` request from a list of legs,
  * validates the response is index-aligned with the request (length + per-leg

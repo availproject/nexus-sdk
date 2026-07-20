@@ -6,6 +6,7 @@ import { QuoteSeriousness, QuoteType } from '../../../src/swap/aggregators/types
 import { SAFETY_MULTIPLIER } from '../../../src/swap/algorithms/convergence';
 import { CurrencyID } from '../../../src/swap/cot';
 import { ARB_CHAIN, OP_CHAIN, USDC_ARB, USDC_OP, WETH, makeSwapChainList } from '../../helpers/swap';
+import { quoteFixture } from '../../helpers/quote';
 
 const tokenMeta = (tokenAddress: `0x${string}`) => {
   if (tokenAddress.toLowerCase() === USDC_ARB.toLowerCase()) return { decimals: 6, symbol: 'USDC' };
@@ -28,7 +29,7 @@ const makeHolding = (
   ...overrides,
 });
 
-const makeQuote = (outputAmountRaw: bigint, inputAmountRaw: bigint): Quote => ({
+const makeQuote = (outputAmountRaw: bigint, inputAmountRaw: bigint): Quote => quoteFixture({
   input: {
     contractAddress: WETH,
     amount: new Decimal(inputAmountRaw.toString()).div(new Decimal(10).pow(18)).toString(),
@@ -521,7 +522,7 @@ describe('selectDirectDestinationSwaps', () => {
     inputAmountRaw: bigint,
     outputContract: `0x${string}`,
     outputDecimals: number
-  ): Quote => ({
+  ): Quote => quoteFixture({
     input: { contractAddress: WETH, amount: divRaw(inputAmountRaw, 18), amountRaw: inputAmountRaw, decimals: 18, value: 1, symbol: 'WETH' },
     output: { contractAddress: outputContract, amount: divRaw(outputAmountRaw, outputDecimals), amountRaw: outputAmountRaw, decimals: outputDecimals, value: 1, symbol: 'PEPE' },
     txData: { approvalAddress: '0x03' as `0x${string}`, tx: { to: '0x04' as `0x${string}`, data: '0x05' as `0x${string}`, value: '0x0' as `0x${string}` } },

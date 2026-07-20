@@ -22,6 +22,7 @@ import type {
   WalletPath,
 } from '../../../src/swap/types';
 import { EADDRESS } from '../../../src/swap/constants';
+import { quoteFixture } from '../../helpers/quote';
 
 const ARB_CHAIN = 42161;
 const USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913' as Hex;
@@ -44,14 +45,14 @@ const innerData = (data: Hex) => {
 // tells stale (original) from fresh (re-quoted) apart.
 const makeNativeQuote = (swapData: Hex, outputRaw: bigint, aggregator?: Aggregator): QuoteResponse => ({
   chainID: ARB_CHAIN,
-  quote: {
+  quote: quoteFixture({
     input: { contractAddress: EADDRESS as Hex, amount: '0.015', amountRaw: NATIVE_IN, decimals: 18, value: 45, symbol: 'ETH' },
     output: { contractAddress: USDC, amount: '45', amountRaw: outputRaw, decimals: 6, value: 45, symbol: 'USDC' },
     txData: {
       approvalAddress: '0x1111111111111111111111111111111111111111' as Hex,
       tx: { to: BEBOP, data: swapData, value: '0x354a6ba7a18000' as Hex },
     },
-  },
+  }),
   holding: { chainID: ARB_CHAIN, tokenAddress: EADDRESS as Hex, amountRaw: NATIVE_IN, decimals: 18, symbol: 'ETH' },
   aggregator: aggregator ?? ({} as Aggregator),
 });

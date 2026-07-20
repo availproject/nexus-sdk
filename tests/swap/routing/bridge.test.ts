@@ -53,5 +53,9 @@ describe('swap routing bridge mechanics', () => {
     expect(result.estimatedFees.protocol).toEqual(new Decimal(1));
     expect(result.totalFeeAmount).toEqual(new Decimal(3));
     expect(result.deliveredAmount).toEqual(new Decimal(97));
+    expect(result.nexusFeeModel).toEqual({
+      fulfillmentFee: new Decimal(2),
+      fulfillmentBps: new Decimal(100),
+    });
   });
 });

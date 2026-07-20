@@ -39,13 +39,6 @@ export const DST_BUFFER_PCT = 0.1;
 export const DST_BUFFER_MAX_USD = 2;
 export const SRC_BUFFER_PCT = 0.02;
 export const SRC_BUFFER_MAX_USD = 1;
-// EXACT_IN dst reclaim: when the destination swap is re-sized from the COT that actually landed
-// at the wrapper, shave this off as a safety margin (raw rounding + the swap's own input-side
-// behaviour) so the sized input can never exceed the on-chain balance.
-// ponytail: fixed 1bp margin — real-world calibration knob, not a derived constant. Too small →
-// occasional insufficient-balance reverts; too large → yield left on the table. Upgrade path:
-// derive from the quote's own slippage + a dust floor.
-export const DST_RECLAIM_DEDUCTION_PCT = 0.0001;
 export const MAX_SWAP_HAIRCUT_PCT = 0.03;
 export const MAX_SWAP_HAIRCUT_MIN_USDC = 3;
 export const GAS_TO_COT_BUFFER = 1.02;

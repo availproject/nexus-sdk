@@ -2,6 +2,7 @@ import { type Hex, zeroAddress } from 'viem';
 import { SLIPPAGE_BPS_STRING } from './constants';
 import type { Aggregator, Quote, QuoteRequest } from './types';
 import { QuoteSeriousness, QuoteType } from './types';
+import { normalizeExpectedOutput } from './expected-output';
 
 // Chains 0x's Swap API serves. Best-effort mainnet set; outside it we return null without a
 // round-trip (mirrors LiFi's ALLOWED_CHAINS). Confirm/expand against
@@ -91,9 +92,11 @@ const parseResponse = (
   const inputAmountRaw = BigInt(isExactOut ? data.maxSellAmount : data.sellAmount);
   const outputAmountRaw = BigInt(isExactOut ? data.buyAmount : data.minBuyAmount);
 
+  const output = placeholderSide(req.outputToken, outputAmountRaw);
   return {
     input: placeholderSide(req.inputToken, inputAmountRaw),
-    output: placeholderSide(req.outputToken, outputAmountRaw),
+    output,
+    expectedOutput: normalizeExpectedOutput(data.buyAmount, output),
     // /quote carries the executable tx; /price (survey) carries none, so use a placeholder that is
     // never executed because surveys are restricted to indicative convergence seeds.
     txData: data.transaction

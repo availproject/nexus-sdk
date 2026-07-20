@@ -4,6 +4,7 @@ import { divDecimals } from '../../services/math';
 import { SLIPPAGE_FRACTION } from './constants';
 import type { Aggregator, Quote, QuoteRequest, TokenInfo, TokenInfoProvider } from './types';
 import { QuoteType } from './types';
+import { normalizeExpectedOutput } from './expected-output';
 
 // LiFi exchanges to deny. openocean over-quotes everywhere; on HyperEVM (999)
 // fly/hyperflow/liquidswap share one on-chain entry and over-quote native HYPE->USDC by
@@ -115,6 +116,16 @@ export class LiFiAggregator implements Aggregator, TokenInfoProvider {
     const inputAmount = divDecimals(inputAmountRaw, action.fromToken.decimals).toFixed();
     const outputAmount = divDecimals(outputAmountRaw, action.toToken.decimals).toFixed();
 
+    const output: Quote['output'] = {
+      contractAddress: action.toToken.address as Hex,
+      amount: outputAmount,
+      amountRaw: outputAmountRaw,
+      decimals: action.toToken.decimals,
+      value: Decimal.mul(outputAmount, action.toToken.priceUSD).toNumber(),
+      priceUsd: Number(action.toToken.priceUSD),
+      symbol: action.toToken.symbol,
+    };
+
     return {
       input: {
         contractAddress: action.fromToken.address as Hex,
@@ -126,15 +137,8 @@ export class LiFiAggregator implements Aggregator, TokenInfoProvider {
         priceUsd: Number(action.fromToken.priceUSD),
         symbol: action.fromToken.symbol,
       },
-      output: {
-        contractAddress: action.toToken.address as Hex,
-        amount: outputAmount,
-        amountRaw: outputAmountRaw,
-        decimals: action.toToken.decimals,
-        value: Decimal.mul(outputAmount, action.toToken.priceUSD).toNumber(),
-        priceUsd: Number(action.toToken.priceUSD),
-        symbol: action.toToken.symbol,
-      },
+      output,
+      expectedOutput: normalizeExpectedOutput(estimate.toAmount, output),
       txData: {
         approvalAddress: estimate.approvalAddress as Hex,
         tx: {

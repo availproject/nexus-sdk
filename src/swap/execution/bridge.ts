@@ -4,6 +4,7 @@ import {
   toMayanDepositRequest,
   VAULT_ABI_MAYAN,
 } from '@avail-project/nexus-types/rff';
+import Decimal from 'decimal.js';
 import { encodeFunctionData, erc20Abi, type Hex, type PublicClient, parseSignature } from 'viem';
 import type { PrivateKeyAccount } from 'viem/accounts';
 import { ERC20PermitABI } from '../../abi/erc20';
@@ -847,8 +848,30 @@ export const refreshMayanQuotesForExecution = async (
     })),
     destination: { chainId: bridge.chainID, tokenAddress: bridge.tokenAddress },
   });
+  const grossBridged = bridgedAssets.reduce(
+    (sum, asset) => sum.plus(asset.eoaBalance).plus(asset.ephemeralBalance),
+    new Decimal(0)
+  );
+  const protectedDelivered = quotes.reduce(
+    (sum, quote) => sum.plus(new Decimal(quote.quote.minReceived.toString())),
+    new Decimal(0)
+  );
+  const haircut = Decimal.max(grossBridged.minus(protectedDelivered), new Decimal(0));
   return {
     ...bridge,
+    amount: grossBridged,
+    amounts: {
+      tokenAmount: Decimal.max(protectedDelivered.minus(bridge.amounts.gasInCot), new Decimal(0)),
+      gasInCot: bridge.amounts.gasInCot,
+      totalAmount: grossBridged,
+    },
+    estimatedFees: {
+      collection: new Decimal(0),
+      fulfilment: new Decimal(0),
+      caGas: new Decimal(0),
+      protocol: haircut,
+      solver: new Decimal(0),
+    },
     mayanQuotesBySource: new Map(
       quotes.map((quote) => [`${quote.chainId}:${quote.tokenAddress.toLowerCase()}`, quote.quote])
     ),

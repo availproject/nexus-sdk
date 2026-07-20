@@ -2,6 +2,7 @@ import { type Hex, toHex, zeroAddress } from 'viem';
 import { SLIPPAGE_BPS } from './constants';
 import type { Aggregator, Quote, QuoteRequest, TokenInfo, TokenInfoProvider } from './types';
 import { QuoteSeriousness, QuoteType } from './types';
+import { normalizeExpectedOutput } from './expected-output';
 
 // Chains Mystic Router serves in this SDK. Citrea-only for now (co-located with Fibrous); add
 // Mystic's other chains (Flare 14, Plume 98866, …) here once validated.
@@ -71,6 +72,7 @@ export class MysticAggregator implements Aggregator, TokenInfoProvider {
 
       const inputAmountRaw = BigInt(best.sellAmount);
       const outputAmountRaw = BigInt(best.minBuyAmount); // slippage-protected floor, like 0x
+      const output = placeholderSide(req.outputToken, outputAmountRaw);
 
       // Price surveys are only used as indicative convergence seeds and never enter execution, so
       // skip the build call: it simulates on-chain, which is wasteful per seed and would drop
@@ -78,7 +80,8 @@ export class MysticAggregator implements Aggregator, TokenInfoProvider {
       if (req.seriousness !== QuoteSeriousness.SERIOUS) {
         return {
           input: placeholderSide(req.inputToken, inputAmountRaw),
-          output: placeholderSide(req.outputToken, outputAmountRaw),
+          output,
+          expectedOutput: normalizeExpectedOutput(best.buyAmount, output),
           txData: SURVEY_TX_PLACEHOLDER,
         };
       }
@@ -94,7 +97,8 @@ export class MysticAggregator implements Aggregator, TokenInfoProvider {
 
       return {
         input: placeholderSide(req.inputToken, inputAmountRaw),
-        output: placeholderSide(req.outputToken, outputAmountRaw),
+        output,
+        expectedOutput: normalizeExpectedOutput(best.buyAmount, output),
         txData: {
           approvalAddress: build.approval?.spender ?? zeroAddress, // null for native sells
           tx: {

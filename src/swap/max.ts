@@ -78,6 +78,7 @@ export async function calculateMaxForSwap(
     walletPathHints: preflight.walletPathHints,
     cotCurrencyId: options.cotCurrencyId,
     forceMayan: options.forceMayan ?? false,
+    exactInAmountBasis: 'minimum',
   });
   const resolvedTokenInfo = route.dstTokenInfo;
   const tokenSwap = route.destination.swap.tokenSwap;

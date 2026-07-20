@@ -11,6 +11,7 @@ import type { Aggregator } from '../../src/swap/aggregators/types';
 import type { TokenInfo } from '../../src/domain';
 import { makeChain, makeChainList } from '../helpers/chains';
 import { makeTimingHooks } from '../helpers/timing';
+import { quoteFixture } from '../helpers/quote';
 
 vi.mock('../../src/services/allowance-utils', () => ({
   signPermitForAddressAndValue: vi.fn(),
@@ -37,7 +38,7 @@ const SUPPORTED_TOKEN: TokenInfo = {
 
 const makeQuoteResponse = (): QuoteResponse => ({
   chainID: ARB_CHAIN,
-  quote: {
+  quote: quoteFixture({
     input: {
       contractAddress: USDC_ARB,
       amount: '3000',
@@ -62,7 +63,7 @@ const makeQuoteResponse = (): QuoteResponse => ({
         value: '0x0' as Hex,
       },
     },
-  },
+  }),
   holding: {
     chainID: ARB_CHAIN,
     tokenAddress: USDC_ARB,

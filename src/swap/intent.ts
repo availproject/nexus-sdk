@@ -3,6 +3,7 @@ import type { Hex } from 'viem';
 import type { ChainListType } from '../domain';
 import { equalFold } from '../services/strings';
 import { type SwapData, type SwapIntent, SwapMode, type SwapRoute } from './types';
+import { resolveExactInAmountBasis, selectExactInQuoteOutput } from './amount-basis';
 
 // ---------------------------------------------------------------------------
 // createSwapIntent
@@ -18,6 +19,7 @@ export const createSwapIntent = (
   chainList: ChainListType
 ): SwapIntent => {
   const dstChainData = chainList.getChainByID(route.destination.chainId);
+  const exactInAmountBasis = resolveExactInAmountBasis(route.exactInAmountBasis);
 
   // Destination amount. A non-positive `toAmountRaw` in EXACT_OUT is the reservation /
   // gas-only sentinel — no tokens are delivered to the user, so the amount is "0" rather
@@ -31,7 +33,10 @@ export const createSwapIntent = (
   } else {
     // EXACT_IN: use swap output if available, else inputAmount.min
     if (route.destination.swap.tokenSwap) {
-      destinationAmount = route.destination.swap.tokenSwap.quote.output.amount;
+      destinationAmount = selectExactInQuoteOutput(
+        route.destination.swap.tokenSwap.quote,
+        exactInAmountBasis
+      ).amount;
     } else {
       destinationAmount = route.destination.inputAmount.min.toString();
     }
@@ -46,7 +51,10 @@ export const createSwapIntent = (
   if (input.mode === SwapMode.EXACT_OUT && (input.data.toAmountRaw ?? 0n) <= 0n) {
     destinationValue = '0';
   } else if (route.destination.swap.tokenSwap) {
-    destinationValue = route.destination.swap.tokenSwap.quote.output.value.toString();
+    destinationValue = selectExactInQuoteOutput(
+      route.destination.swap.tokenSwap.quote,
+      exactInAmountBasis
+    ).value.toString();
   } else {
     // No destination swap. Path A (directDestination) delivers the toToken via token-role SOURCE
     // swaps on the dst chain, so sum their aggregator-reported USD values — the direct analog of a
@@ -59,7 +67,11 @@ export const createSwapIntent = (
     const directSwapValue = route.directDestination
       ? route.source.swaps
           .filter((s) => s.chainID === route.destination.chainId && s.outputRole !== 'gas')
-          .reduce((sum, s) => sum.plus(s.quote.output.value), new Decimal(0))
+          .reduce(
+            (sum, s) =>
+              sum.plus(selectExactInQuoteOutput(s.quote, exactInAmountBasis).value),
+            new Decimal(0)
+          )
       : new Decimal(0);
     if (directSwapValue.gt(0)) {
       destinationValue = directSwapValue.toString();

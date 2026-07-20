@@ -79,6 +79,11 @@ import {
 import type { QuoteResponse, Aggregator } from '../../../src/swap/aggregators/types';
 import type { TokenInfo } from '../../../src/domain';
 import { ERROR_CODES } from '../../../src/domain/errors';
+import {
+  quoteFixture,
+  quoteResponseFixture,
+  type QuoteResponseFixtureOverrides,
+} from '../../helpers/quote';
 
 const USDC_ARB = '0xaf88d065e77c8cc2239327c5edb3a432268e5831' as Hex;
 const WETH = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2' as Hex;
@@ -96,7 +101,8 @@ const requestToData = (request: {
     args: request.args as readonly [Hex, bigint],
   });
 
-const makeQuoteResponse = (overrides?: Partial<QuoteResponse>): QuoteResponse => ({
+const makeQuoteResponse = (overrides?: QuoteResponseFixtureOverrides): QuoteResponse =>
+  quoteResponseFixture({
   chainID: ARB_CHAIN,
   quote: {
     input: { contractAddress: USDC_ARB, amount: '3000', amountRaw: 3000000000n, decimals: 6, value: 3000, symbol: 'USDC' },
@@ -108,22 +114,25 @@ const makeQuoteResponse = (overrides?: Partial<QuoteResponse>): QuoteResponse =>
   },
   holding: { chainID: ARB_CHAIN, tokenAddress: USDC_ARB, amountRaw: 3000000000n, decimals: 6, symbol: 'USDC' },
   aggregator: {} as Aggregator,
-  ...overrides,
-});
+  }, overrides);
 
 const makeDestination = (overrides?: {
   tokenSwap?: QuoteResponse | null;
   gasSwap?: QuoteResponse | null;
-}) => ({
-  chainId: ARB_CHAIN,
-  eoaToEphemeral: null,
-  inputAmount: { min: new Decimal('3000'), max: new Decimal('3150') },
-  swap: {
-    tokenSwap: overrides && 'tokenSwap' in overrides ? overrides.tokenSwap : makeQuoteResponse(),
-    gasSwap: overrides?.gasSwap ?? null,
-  } as DestinationSwap,
-  getDstSwap: vi.fn().mockResolvedValue(null),
-});
+}) => {
+  const destination = {
+    chainId: ARB_CHAIN,
+    eoaToEphemeral: null,
+    inputAmount: { min: new Decimal('3000'), max: new Decimal('3150') },
+    swap: {
+      tokenSwap: overrides && 'tokenSwap' in overrides ? overrides.tokenSwap : makeQuoteResponse(),
+      gasSwap: overrides?.gasSwap ?? null,
+    } as DestinationSwap,
+    getDstSwap: vi.fn(),
+  };
+  destination.getDstSwap.mockResolvedValue(destination.swap);
+  return destination;
+};
 
 type DstCtx = Pick<
   ExecutionContext,
@@ -212,6 +221,7 @@ const makeCtx = (
   publicClientList: {
     get: vi.fn().mockReturnValue({
       getCode: vi.fn().mockResolvedValue(undefined),
+      readContract: vi.fn().mockResolvedValue(3000000000n),
       waitForTransactionReceipt: vi.fn().mockResolvedValue({
         status: 'success',
         transactionHash: '0xdst_tx' as Hex,
@@ -417,7 +427,7 @@ describe('executeDestinationSwap', () => {
     const resized = makeQuoteResponse({
       quote: {
         ...planned.quote,
-        input: { ...planned.quote.input, amount: '3149.685', amountRaw: 3149685000n },
+        input: { ...planned.quote.input, amount: '3150', amountRaw: 3150000000n },
         output: { ...planned.quote.output, amount: '1.05', amountRaw: 1050000000000000000n },
       },
     });
@@ -446,19 +456,18 @@ describe('executeDestinationSwap', () => {
     // grew the input from the actual balance (3150), not the route-time planned input (3000)
     expect(destination.getDstSwap).toHaveBeenCalledWith(3150000000n);
     // executed swap used the larger quote → bigger input + output recorded
-    expect(metadata.dst?.swaps[0].inputAmount).toBe(3149685000n);
+    expect(metadata.dst?.swaps[0].inputAmount).toBe(3150000000n);
     expect(metadata.dst?.swaps[0].outputAmount).toBe(1050000000000000000n);
   });
 
-  it('EXACT_IN reclaim: re-sizes even when the actual balance equals the planned input (applies the deduction)', async () => {
+  it('EXACT_IN reclaim: consumes the complete balance when it equals the planned input', async () => {
     // No source buffer: the dst swap re-sizes from the actual balance in BOTH directions. Even when
-    // balanceOf equals the route-time input, getDstSwap runs so the reclaim deduction applies and a
-    // leftover survives — the swap never consumes 100% of the wrapper balance.
+    // balanceOf equals the route-time input, getDstSwap runs and consumes all settlement currency.
     const planned = makeQuoteResponse(); // route-time input = 3000 USDC
     const resized = makeQuoteResponse({
       quote: {
         ...planned.quote,
-        input: { ...planned.quote.input, amount: '2999.7', amountRaw: 2999700000n }, // 3000 − 1bp
+        input: { ...planned.quote.input, amount: '3000', amountRaw: 3000000000n },
       },
     });
     const destination = makeDestination({ tokenSwap: planned });
@@ -476,7 +485,42 @@ describe('executeDestinationSwap', () => {
     );
 
     expect(destination.getDstSwap).toHaveBeenCalledWith(3000000000n);
-    expect(metadata.dst?.swaps[0].inputAmount).toBe(2999700000n); // deducted → a leftover remains
+    expect(metadata.dst?.swaps[0].inputAmount).toBe(3000000000n);
+  });
+
+  it('EXACT_IN reclaim: refuses a resized quote that would return settlement-token dust', async () => {
+    const planned = makeQuoteResponse();
+    const underConsuming = makeQuoteResponse({
+      quote: {
+        ...planned.quote,
+        input: { ...planned.quote.input, amount: '2999.7', amountRaw: 2999700000n },
+      },
+    });
+    const destination = makeDestination({ tokenSwap: planned });
+    destination.getDstSwap = vi
+      .fn()
+      .mockResolvedValue({ tokenSwap: underConsuming, gasSwap: null });
+
+    const ctx = makeCtx('ephemeral');
+    withReclaimClient(ctx, 3000000000n);
+    const metadata: SwapMetadata = { src: [], dst: null, has_xcs: false, intent_request_hash: null };
+
+    await expect(
+      executeDestinationSwap(
+        destination as unknown as SwapRoute['destination'],
+        SwapMode.EXACT_IN,
+        makeDstTokenInfo(),
+        ctx,
+        metadata
+      )
+    ).rejects.toMatchObject({
+      code: ERROR_CODES.EXTERNAL_DESTINATION_SWAP_QUOTE_FAILED,
+      context: expect.objectContaining({ stepType: 'destination_swap' }),
+    });
+
+    expect(destination.getDstSwap).toHaveBeenCalledTimes(3);
+    expect(ctx.middlewareClient.submitSBCs).not.toHaveBeenCalled();
+    expect(metadata.dst).toBeNull();
   });
 
   it('EXACT_IN reclaim: shrinks the destination swap when the actual balance is BELOW the planned input', async () => {
@@ -486,7 +530,7 @@ describe('executeDestinationSwap', () => {
     const resized = makeQuoteResponse({
       quote: {
         ...planned.quote,
-        input: { ...planned.quote.input, amount: '2499.75', amountRaw: 2499750000n }, // 2500 − 1bp
+        input: { ...planned.quote.input, amount: '2500', amountRaw: 2500000000n },
       },
     });
     const destination = makeDestination({ tokenSwap: planned });
@@ -504,10 +548,10 @@ describe('executeDestinationSwap', () => {
     );
 
     expect(destination.getDstSwap).toHaveBeenCalledWith(2500000000n);
-    expect(metadata.dst?.swaps[0].inputAmount).toBe(2499750000n); // shrank to actual − 1bp
+    expect(metadata.dst?.swaps[0].inputAmount).toBe(2500000000n);
   });
 
-  it('EXACT_IN reclaim: falls back to the route-time quote when the grow re-quote fails', async () => {
+  it('EXACT_IN reclaim: never dispatches the route-time quote when mandatory resizing fails', async () => {
     const planned = makeQuoteResponse();
     const destination = makeDestination({ tokenSwap: planned });
     destination.getDstSwap = vi.fn().mockRejectedValue(new Error('aggregator down'));
@@ -516,16 +560,99 @@ describe('executeDestinationSwap', () => {
     withReclaimClient(ctx, 3150000000n);
     const metadata: SwapMetadata = { src: [], dst: null, has_xcs: false, intent_request_hash: null };
 
+    await expect(
+      executeDestinationSwap(
+        destination as unknown as SwapRoute['destination'],
+        SwapMode.EXACT_IN,
+        makeDstTokenInfo(),
+        ctx,
+        metadata
+      )
+    ).rejects.toMatchObject({
+      context: expect.objectContaining({
+        stepType: 'destination_swap',
+        chainId: ARB_CHAIN,
+      }),
+    });
+
+    expect(destination.getDstSwap).toHaveBeenCalledTimes(3);
+    expect(ctx.middlewareClient.submitSBCs).not.toHaveBeenCalled();
+    expect(metadata.dst).toBeNull();
+  });
+
+  it('EXACT_IN retries the mandatory destination balance read before first dispatch', async () => {
+    const planned = makeQuoteResponse();
+    const resized = makeQuoteResponse({
+      quote: {
+        ...planned.quote,
+        input: {
+          ...planned.quote.input,
+          amount: '3150',
+          amountRaw: 3150000000n,
+        },
+      },
+    });
+    const destination = makeDestination({ tokenSwap: planned });
+    destination.getDstSwap = vi.fn().mockResolvedValue({ tokenSwap: resized, gasSwap: null });
+    const ctx = makeCtx('ephemeral');
+    const readContract = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('rpc unavailable'))
+      .mockRejectedValueOnce(new Error('rpc unavailable'))
+      .mockResolvedValue(3150000000n);
+    (ctx.publicClientList.get as unknown) = vi.fn().mockReturnValue({
+      getCode: vi.fn().mockResolvedValue(undefined),
+      waitForTransactionReceipt: vi
+        .fn()
+        .mockResolvedValue({ status: 'success', transactionHash: '0xdst_tx' as Hex }),
+      readContract,
+    });
+    const metadata: SwapMetadata = { src: [], dst: null, has_xcs: false, intent_request_hash: null };
+
     await executeDestinationSwap(
       destination as unknown as SwapRoute['destination'],
-      SwapMode.EXACT_IN, makeDstTokenInfo(),
+      SwapMode.EXACT_IN,
+      makeDstTokenInfo(),
       ctx,
       metadata
     );
 
-    // the grow is best-effort: a failed re-quote must not abort the swap
-    expect(destination.getDstSwap).toHaveBeenCalled();
-    expect(metadata.dst?.swaps[0].inputAmount).toBe(3000000000n); // original quote executed
+    expect(destination.getDstSwap).toHaveBeenCalledWith(3150000000n);
+    expect(ctx.middlewareClient.submitSBCs).toHaveBeenCalledTimes(1);
+    expect(
+      readContract.mock.calls.filter(([request]) => request.address === USDC_ARB)
+    ).toHaveLength(3);
+  });
+
+  it('EXACT_IN fails with destination context and does not dispatch after balance-read exhaustion', async () => {
+    const destination = makeDestination();
+    const ctx = makeCtx('ephemeral');
+    const readContract = vi.fn().mockRejectedValue(new Error('rpc unavailable'));
+    (ctx.publicClientList.get as unknown) = vi.fn().mockReturnValue({
+      getCode: vi.fn().mockResolvedValue(undefined),
+      waitForTransactionReceipt: vi.fn(),
+      readContract,
+    });
+    const metadata: SwapMetadata = { src: [], dst: null, has_xcs: false, intent_request_hash: null };
+
+    await expect(
+      executeDestinationSwap(
+        destination as unknown as SwapRoute['destination'],
+        SwapMode.EXACT_IN,
+        makeDstTokenInfo(),
+        ctx,
+        metadata
+      )
+    ).rejects.toMatchObject({
+      context: expect.objectContaining({
+        stepType: 'destination_swap',
+        chainId: ARB_CHAIN,
+      }),
+    });
+
+    expect(readContract).toHaveBeenCalledTimes(3);
+    expect(destination.getDstSwap).not.toHaveBeenCalled();
+    expect(ctx.middlewareClient.submitSBCs).not.toHaveBeenCalled();
   });
 
   // EXACT_OUT surplus return (Seam 2): the output is fixed, so the COT that arrived beyond what the
@@ -569,7 +696,7 @@ describe('executeDestinationSwap', () => {
       metadata
     );
 
-    // one transfer of the surplus (3120 − 3000 = 120 USDC, less the 1bp margin) to the EOA
+    // one transfer of the surplus (3120 − 3000 = 120 USDC) to the EOA
     const transfer = findCotTransfer(lastSbcCalls(), USDC_ARB);
     expect(transfer?.[0].toLowerCase()).toBe(EOA);
     expect(transfer?.[1]).toBe(120000000n); // exact B − consumed (3120 − 3000)
@@ -696,7 +823,6 @@ describe('executeDestinationSwap', () => {
       { to: USDC_ARB, data: '0xaaa1', value: 0n },
       { to: tokenSwap.quote.txData.tx.to, data: '0xbbb1', value: 0n },
       { to: tokenSwap.quote.output.contractAddress, data: '0xsweep', value: 0n },
-      { to: USDC_ARB, data: '0xsweep', value: 0n },
     ]);
   });
 
@@ -945,7 +1071,7 @@ describe('executeDestinationSwap', () => {
     const tokenSwap = makeQuoteResponse();
     const gasSwap: QuoteResponse = {
       chainID: ARB_CHAIN,
-      quote: {
+      quote: quoteFixture({
         input: { contractAddress: USDC_ARB, amount: '25', amountRaw: 25_000_000n, decimals: 6, value: 25, symbol: 'USDC' },
         output: {
           contractAddress: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' as Hex,
@@ -955,12 +1081,13 @@ describe('executeDestinationSwap', () => {
           approvalAddress: '0x4444444444444444444444444444444444444444' as Hex,
           tx: { to: '0x5555555555555555555555555555555555555555' as Hex, data: '0xfeedface' as Hex, value: '0x0' as Hex },
         },
-      },
+      }),
       holding: { chainID: ARB_CHAIN, tokenAddress: USDC_ARB, amountRaw: 25_000_000n, decimals: 6, symbol: 'USDC' },
       aggregator: {} as Aggregator,
     };
     const ctx = makeCtx('ephemeral');
     const destination = makeDestination({ tokenSwap, gasSwap });
+    withReclaimClient(ctx, 3025000000n);
     const metadata: SwapMetadata = { src: [], dst: null, has_xcs: false, intent_request_hash: null };
 
     await executeDestinationSwap(destination as unknown as SwapRoute['destination'], SwapMode.EXACT_IN, makeDstTokenInfo(), ctx, metadata);
@@ -1051,7 +1178,8 @@ describe('executeDestinationSwap', () => {
     destination.getDstSwap = vi
       .fn()
       .mockResolvedValueOnce({ tokenSwap: requotedA, gasSwap: null })
-      .mockResolvedValueOnce({ tokenSwap: requotedB, gasSwap: null });
+      .mockResolvedValueOnce({ tokenSwap: requotedB, gasSwap: null })
+      .mockResolvedValueOnce({ tokenSwap: baseQuote, gasSwap: null });
 
     const metadata: SwapMetadata = { src: [], dst: null, has_xcs: false, intent_request_hash: null };
 
@@ -1064,7 +1192,7 @@ describe('executeDestinationSwap', () => {
       )
     ).rejects.toThrow(/attempt 3 failed|SBC submission/i);
 
-    expect(destination.getDstSwap).toHaveBeenCalledTimes(2);
+    expect(destination.getDstSwap).toHaveBeenCalledTimes(3);
     expect(createSBCTxFromCalls).toHaveBeenCalledTimes(3);
   });
 
@@ -1112,13 +1240,9 @@ describe('executeDestinationSwap', () => {
     expect(createSafeExecuteTxFromCalls).toHaveBeenCalledTimes(1);
     expect(createSBCTxFromCalls).not.toHaveBeenCalled();
 
-    // Sweeper sender = Safe address so Sweeper.sweepERC20 pulls the residual COT/output from
-    // the Safe wrapper (not the ephemeral).
-    const sweepCallArgs = vi.mocked(createSweeperTxs).mock.calls[0];
-    const sweeperSender = sweepCallArgs?.[4]; // 5th arg is the sender address override
-    expect(sweeperSender?.toLowerCase()).toBe(
-      '0x2d7E4C3ef02B86D271624742C6e81636f4c9e663'.toLowerCase()
-    );
+    // The mandatory read proves the resized swap consumes the full measured COT balance, while the
+    // aggregator delivers output directly to the EOA on Safe paths, so no blind sweep is needed.
+    expect(createSweeperTxs).not.toHaveBeenCalled();
   });
 
   it('Safe path: moves EOA-held direct COT into the Safe before the destination swap', async () => {
@@ -1152,6 +1276,7 @@ describe('executeDestinationSwap', () => {
         ensureSafeAccount: vi.fn().mockResolvedValue({}),
       }),
     } as DstCtx;
+    withReclaimClient(ctx, 0n);
     const destination = {
       ...makeDestination({ tokenSwap }),
       eoaToEphemeral: { amount: 3000000000n, contractAddress: USDC_ARB },
@@ -1219,6 +1344,7 @@ describe('executeDestinationSwap', () => {
         ensureSafeAccount: vi.fn().mockResolvedValue({}),
       }),
     } as DstCtx;
+    withReclaimClient(ctx, 5000000n);
     const destination = makeDestination({ tokenSwap });
     const metadata: SwapMetadata = {
       src: [],
@@ -1238,8 +1364,8 @@ describe('executeDestinationSwap', () => {
       .mocked(createSweeperTxs)
       .mock.calls.map((args) => (args[0] as string).toLowerCase());
     expect(sweptTokens).not.toContain('0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee');
-    // Input COT must still be swept so residual COT at Safe drains to EOA.
-    expect(sweptTokens).toContain(USDC_ARB.toLowerCase());
+    // The measured input is fully consumed, so no blind input-COT sweep is appended either.
+    expect(sweptTokens).not.toContain(USDC_ARB.toLowerCase());
   });
 
   it('Safe path: includes gas-swap approve+swap in the same batch, no raw native value-send', async () => {
@@ -1250,7 +1376,7 @@ describe('executeDestinationSwap', () => {
     const tokenSwap = makeQuoteResponse();
     const gasSwap: QuoteResponse = {
       chainID: ARB_CHAIN,
-      quote: {
+      quote: quoteFixture({
         input: { contractAddress: USDC_ARB, amount: '25', amountRaw: 25_000_000n, decimals: 6, value: 25, symbol: 'USDC' },
         output: {
           contractAddress: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' as Hex,
@@ -1260,7 +1386,7 @@ describe('executeDestinationSwap', () => {
           approvalAddress: '0x4444444444444444444444444444444444444444' as Hex,
           tx: { to: '0x5555555555555555555555555555555555555555' as Hex, data: '0xfeedface' as Hex, value: '0x0' as Hex },
         },
-      },
+      }),
       holding: { chainID: ARB_CHAIN, tokenAddress: USDC_ARB, amountRaw: 25_000_000n, decimals: 6, symbol: 'USDC' },
       aggregator: {} as Aggregator,
     };
@@ -1284,6 +1410,7 @@ describe('executeDestinationSwap', () => {
         ensureSafeAccount: vi.fn().mockResolvedValue({}),
       }),
     } as DstCtx;
+    withReclaimClient(ctx, 3025000000n);
     const destination = makeDestination({ tokenSwap, gasSwap });
     const metadata: SwapMetadata = {
       src: [],
@@ -1321,7 +1448,7 @@ describe('executeDestinationSwap', () => {
     const tokenSwap = makeQuoteResponse();
     const gasSwap: QuoteResponse = {
       chainID: ARB_CHAIN,
-      quote: {
+      quote: quoteFixture({
         input: { contractAddress: USDC_ARB, amount: '25', amountRaw: 25_000_000n, decimals: 6, value: 25, symbol: 'USDC' },
         output: {
           contractAddress: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' as Hex,
@@ -1331,12 +1458,13 @@ describe('executeDestinationSwap', () => {
           approvalAddress: '0x4444444444444444444444444444444444444444' as Hex,
           tx: { to: '0x5555555555555555555555555555555555555555' as Hex, data: '0xfeedface' as Hex, value: '0x0' as Hex },
         },
-      },
+      }),
       holding: { chainID: ARB_CHAIN, tokenAddress: USDC_ARB, amountRaw: 25_000_000n, decimals: 6, symbol: 'USDC' },
       aggregator: {} as Aggregator,
     };
 
     const ctx = makeCtx('ephemeral');
+    withReclaimClient(ctx, 3025000000n);
     const destination = makeDestination({ tokenSwap, gasSwap });
     const metadata: SwapMetadata = { src: [], dst: null, has_xcs: false, intent_request_hash: null };
 
