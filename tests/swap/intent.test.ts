@@ -6,13 +6,18 @@ import { SwapMode } from '../../src/swap/types';
 import type { SwapRoute, SwapData } from '../../src/swap/types';
 import type { Aggregator, QuoteResponse } from '../../src/swap/aggregators/types';
 import type { ChainListType, TokenInfo } from '../../src/domain';
+import {
+  quoteResponseFixture,
+  type QuoteResponseFixtureOverrides,
+} from '../helpers/quote';
 
 const USDC_ARB = '0xaf88d065e77c8cc2239327c5edb3a432268e5831' as Hex;
 const WETH = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2' as Hex;
 const ARB_CHAIN = 42161;
 const BASE_CHAIN = 8453;
 
-const makeQuoteResponse = (overrides?: Partial<QuoteResponse>): QuoteResponse => ({
+const makeQuoteResponse = (overrides?: QuoteResponseFixtureOverrides): QuoteResponse =>
+  quoteResponseFixture({
   chainID: ARB_CHAIN,
   quote: {
     input: { contractAddress: WETH, amount: '1.0', amountRaw: 1000000000000000000n, decimals: 18, value: 3000, symbol: 'WETH' },
@@ -24,8 +29,7 @@ const makeQuoteResponse = (overrides?: Partial<QuoteResponse>): QuoteResponse =>
   },
   holding: { chainID: ARB_CHAIN, tokenAddress: WETH, amountRaw: 1000000000000000000n, decimals: 18, symbol: 'WETH' },
   aggregator: {} as Aggregator,
-  ...overrides,
-});
+  }, overrides);
 
 const makeChainList = () => ({
   getChainByID: (id: number) => ({

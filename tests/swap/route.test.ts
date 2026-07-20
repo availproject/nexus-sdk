@@ -67,10 +67,16 @@ import {
   makeSwapChainListWithUsdtCot,
 } from '../helpers/swap';
 import { makeTimingHooks } from '../helpers/timing';
+import {
+  quoteFixture,
+  quoteResponseFixture,
+  type QuoteResponseFixtureOverrides,
+} from '../helpers/quote';
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-const makeQuoteResponse = (overrides?: Partial<QuoteResponse>): QuoteResponse => ({
+const makeQuoteResponse = (overrides?: QuoteResponseFixtureOverrides): QuoteResponse =>
+  quoteResponseFixture({
   chainID: ARB_CHAIN,
   quote: {
     input: { contractAddress: WETH, amount: '1.0', amountRaw: 1000000000000000000n, decimals: 18, value: 3000, symbol: 'WETH' },
@@ -82,9 +88,9 @@ const makeQuoteResponse = (overrides?: Partial<QuoteResponse>): QuoteResponse =>
   },
   holding: { chainID: ARB_CHAIN, tokenAddress: WETH, amountRaw: 1000000000000000000n, decimals: 18, symbol: 'WETH' },
   aggregator: {} as Aggregator,
-  ...overrides,
-});
-const makeDestinationQuoteResponse = (overrides?: Partial<QuoteResponse>): QuoteResponse => ({
+  }, overrides);
+const makeDestinationQuoteResponse = (overrides?: QuoteResponseFixtureOverrides): QuoteResponse =>
+  quoteResponseFixture({
   chainID: ARB_CHAIN,
   quote: {
     input: { contractAddress: USDC_ARB, amount: '3100', amountRaw: 3100000000n, decimals: 6, value: 3100, symbol: 'USDC' },
@@ -96,8 +102,7 @@ const makeDestinationQuoteResponse = (overrides?: Partial<QuoteResponse>): Quote
   },
   holding: { chainID: ARB_CHAIN, tokenAddress: USDC_ARB, amountRaw: 3100000000n, decimals: 6, symbol: 'WETH' },
   aggregator: {} as Aggregator,
-  ...overrides,
-});
+  }, overrides);
 const makeGasQuoteResponse = (overrides?: {
   chainID?: number;
   inputAmountRaw?: bigint;
@@ -114,14 +119,14 @@ const makeGasQuoteResponse = (overrides?: {
   const inputContract = overrides?.inputContract ?? USDC_BASE;
   return {
     chainID,
-    quote: {
+    quote: quoteFixture({
       input: { contractAddress: inputContract, amount: inputAmount, amountRaw: inputAmountRaw, decimals: 6, value: Number(inputAmount), symbol: 'USDC' },
       output: { contractAddress: EADDRESS, amount: outputAmount, amountRaw: outputAmountRaw, decimals: 18, value: Number(inputAmount), symbol: 'ETH' },
       txData: {
         approvalAddress: '0x1111111111111111111111111111111111111111' as Hex,
         tx: { to: '0x2222222222222222222222222222222222222222' as Hex, data: '0xabcdef' as Hex, value: '0x0' as Hex },
       },
-    },
+    }),
     holding: { chainID, tokenAddress: inputContract, amountRaw: inputAmountRaw, decimals: 6, symbol: 'USDC' },
     aggregator: {} as Aggregator,
   };
@@ -215,6 +220,141 @@ describe('determineSwapRoute', () => {
     vi.mocked(selectDirectDestinationSwaps).mockReset();
     vi.mocked(selectDirectDestinationSwaps).mockResolvedValue({ quoteResponses: [], usedCOTs: [] });
   });
+
+  it.each([
+    {
+      basis: 'expected' as const,
+      sourceAmount: '3200',
+      mayanDelivery: '3150',
+      bridgeFee: '50',
+      intentAmount: '1.1',
+      intentValue: '3300',
+    },
+    {
+      basis: 'minimum' as const,
+      sourceAmount: '3000',
+      mayanDelivery: '2900',
+      bridgeFee: '100',
+      intentAmount: '1',
+      intentValue: '3000',
+    },
+  ])(
+    'EXACT_IN cascades the $basis amount through source, Mayan, destination, and intent',
+    async ({ basis, sourceAmount, mayanDelivery, bridgeFee, intentAmount, intentValue }) => {
+      const sourceQuote = makeQuoteResponse();
+      sourceQuote.quote.expectedOutput = {
+        amountRaw: 3_200_000_000n,
+        amount: '3200',
+        value: 3200,
+      };
+      vi.mocked(liquidateInputHoldings).mockResolvedValue([sourceQuote]);
+
+      const destinationQuote = makeDestinationQuoteResponse({ chainID: BASE_CHAIN });
+      destinationQuote.quote.input = {
+        ...destinationQuote.quote.input,
+        contractAddress: USDC_BASE,
+        amount: mayanDelivery,
+        amountRaw: BigInt(new Decimal(mayanDelivery).mul(1_000_000).toFixed(0)),
+      };
+      destinationQuote.quote.output = {
+        ...destinationQuote.quote.output,
+        amount: '1',
+        amountRaw: 1_000_000_000_000_000_000n,
+        value: 3000,
+      };
+      destinationQuote.quote.expectedOutput = {
+        amountRaw: 1_100_000_000_000_000_000n,
+        amount: '1.1',
+        value: 3300,
+      };
+      vi.mocked(destinationSwapWithExactIn).mockResolvedValue(destinationQuote);
+
+      const mayanRequests: string[] = [];
+      const middleware = {
+        getBridgeProvider: vi.fn(),
+        getMayanQuotes: vi.fn().mockImplementation(
+          async (req: {
+            sources: { chain_id: Hex; contract_address: Hex; amount: string }[];
+            destination: { chain_id: Hex; contract_address: Hex };
+          }) => {
+            const amountRaw = BigInt(req.sources[0].amount);
+            mayanRequests.push(req.sources[0].amount);
+            const minReceivedRaw = amountRaw - 100_000_000n;
+            const expectedReceivedRaw = amountRaw - 50_000_000n;
+            return {
+              destination: req.destination,
+              quotes: req.sources.map((source) => ({
+                source: {
+                  chainId: Number(BigInt(source.chain_id)),
+                  tokenAddress: source.contract_address,
+                  amount: source.amount,
+                },
+                mayanQuote: {
+                  effectiveAmountIn64: source.amount,
+                  expectedAmountOutBaseUnits: expectedReceivedRaw.toString(),
+                  expectedAmountOut: Number(expectedReceivedRaw) / 1_000_000,
+                  minReceived: Number(minReceivedRaw) / 1_000_000,
+                  protocolBps: 3,
+                },
+              })),
+            };
+          }
+        ),
+      };
+      const input: SwapData = {
+        mode: SwapMode.EXACT_IN,
+        data: {
+          sources: [{ chainId: ARB_CHAIN, tokenAddress: WETH }],
+          toChainId: BASE_CHAIN,
+          toTokenAddress: DAI,
+        },
+      };
+      const chainList = makeSwapChainList() as unknown as ChainListType;
+      const route = await determineSwapRoute(
+        input,
+        makeRouteOptions({
+          chainList,
+          middlewareClient: middleware as never,
+          forceMayan: true,
+          skipFastPaths: true,
+          exactInAmountBasis: basis,
+          dstTokenInfo: makeDstTokenInfo({
+            contractAddress: DAI,
+            decimals: 18,
+            symbol: 'DAI',
+            name: 'Dai',
+          }),
+          balances: [
+            {
+              amount: '1',
+              chainID: ARB_CHAIN,
+              decimals: 18,
+              symbol: 'WETH',
+              tokenAddress: WETH,
+              value: 3200,
+              logo: '',
+              name: 'WETH',
+            },
+          ],
+        })
+      );
+      const intent = createSwapIntent(route, input, chainList);
+
+      expect(route.bridge!.amount.toFixed()).toBe(sourceAmount);
+      expect(mayanRequests).toEqual([new Decimal(sourceAmount).mul(1_000_000).toFixed()]);
+      expect(route.bridge!.amounts.tokenAmount.toFixed()).toBe(mayanDelivery);
+      expect(route.bridge!.estimatedFees.protocol.toFixed()).toBe(bridgeFee);
+      expect(destinationSwapWithExactIn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          input: expect.objectContaining({
+            amountRaw: BigInt(new Decimal(mayanDelivery).mul(1_000_000).toFixed(0)),
+          }),
+        })
+      );
+      expect(intent.destination.amount).toBe(intentAmount);
+      expect(intent.destination.value).toBe(intentValue);
+    }
+  );
   it('EXACT_OUT destination-only holdings route directly with no bridge', async () => {
     const input: SwapData = {
       mode: SwapMode.EXACT_OUT,
@@ -2733,11 +2873,11 @@ describe('determineSwapRoute', () => {
     const human = (raw: bigint, decimals: number) => new Decimal(raw.toString()).div(new Decimal(10).pow(decimals)).toString();
     const leg = (inputToken: Hex, inputRaw: bigint, inputDecimals: number, outputToken: Hex, outputRaw: bigint, outputDecimals: number): QuoteResponse => ({
       chainID: ARB_CHAIN,
-      quote: {
+      quote: quoteFixture({
         input: { contractAddress: inputToken, amount: human(inputRaw, inputDecimals), amountRaw: inputRaw, decimals: inputDecimals, value: 0, symbol: 'IN' },
         output: { contractAddress: outputToken, amount: human(outputRaw, outputDecimals), amountRaw: outputRaw, decimals: outputDecimals, value: 0, symbol: 'OUT' },
         txData: { approvalAddress: '0x1111111111111111111111111111111111111111' as Hex, tx: { to: '0x2222222222222222222222222222222222222222' as Hex, data: '0xabcdef' as Hex, value: '0x0' as Hex } },
-      },
+      }),
       holding: { chainID: ARB_CHAIN, tokenAddress: inputToken, amountRaw: inputRaw, decimals: inputDecimals, symbol: 'IN' },
       aggregator: {} as Aggregator,
     });

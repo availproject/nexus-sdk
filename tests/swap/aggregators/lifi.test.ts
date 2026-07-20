@@ -78,6 +78,11 @@ describe('LiFiAggregator', () => {
     expect(quote!.txData.tx.data).toBe('0xabcdef');
     expect(quote!.input.amount).toBe('1');
     expect(quote!.output.amount).toBe('0.0000000000009801');
+    expect(quote!.expectedOutput).toEqual({
+      amountRaw: 990000n,
+      amount: '0.00000000000099',
+      value: 0.00000000396,
+    });
   });
 
   it('computes input/output value from human amount × token priceUSD (ca-common parity)', async () => {
@@ -105,7 +110,31 @@ describe('LiFiAggregator', () => {
 
     expect(quote!.input.value).toBe(1); // 1 USDC × $1
     expect(quote!.output.value).toBe(6); // 4 DAI (toAmountMin) × $1.5
+    expect(quote!.expectedOutput).toEqual({
+      amountRaw: 5000000n,
+      amount: '5',
+      value: 7.5,
+    });
   });
+
+  it.each([undefined, 'not-an-integer', '0', '3999999'])(
+    'falls expected output back to the protected output when toAmount is %s',
+    async (toAmount) => {
+      const response = makeLiFiResponseData();
+      Object.assign(response.estimate, { toAmount, toAmountMin: '4000000' });
+      response.action.toToken.decimals = 6;
+      response.action.toToken.priceUSD = '1.5';
+      getQuoteFn.mockResolvedValueOnce(response);
+
+      const [quote] = await agg.getQuotes([makeRequest()]);
+
+      expect(quote!.expectedOutput).toEqual({
+        amountRaw: 4000000n,
+        amount: '4',
+        value: 6,
+      });
+    }
+  );
 
   it('surfaces per-token priceUsd so price-less siblings (0x) can backfill from it', async () => {
     const [quote] = await agg.getQuotes([makeRequest()]);

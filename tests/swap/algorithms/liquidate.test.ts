@@ -3,6 +3,7 @@ import { liquidateInputHoldings } from '../../../src/swap/algorithms/liquidate';
 import type { Aggregator, Holding, Quote } from '../../../src/swap/aggregators/types';
 import { CurrencyID } from '../../../src/swap/cot';
 import { ARB_CHAIN, OP_CHAIN, USDC_ARB, USDC_OP, WETH, DAI, makeSwapChainList } from '../../helpers/swap';
+import { quoteFixture } from '../../helpers/quote';
 
 const makeHolding = (chainID: number, tokenAddress: `0x${string}`, amountRaw: bigint, decimals: number, symbol: string): Holding => ({
   chainID,
@@ -12,7 +13,7 @@ const makeHolding = (chainID: number, tokenAddress: `0x${string}`, amountRaw: bi
   symbol,
 });
 
-const makeQuote = (outputAmountRaw: bigint, inputContract: `0x${string}` = WETH): Quote => ({
+const makeQuote = (outputAmountRaw: bigint, inputContract: `0x${string}` = WETH): Quote => quoteFixture({
   input: {
     contractAddress: inputContract,
     amount: '1000000',

@@ -10,6 +10,7 @@ import {
 import { Universe } from '../domain/chain-abstraction';
 import { Errors } from '../domain/errors';
 import { mulDecimals } from '../services/math';
+import { computeNexusBridgeFees } from './routing/bridge';
 import type { BridgeAsset, SwapRoute } from './types';
 
 const logger = getLogger();
@@ -74,12 +75,19 @@ export const createSwapBridgeIntent = (params: {
     (sum, asset) => sum.plus(asset.eoaBalance).plus(asset.ephemeralBalance),
     new Decimal(0)
   );
+  const effectiveFees =
+    bridge.provider === 'nexus' && bridge.nexusFeeModel
+      ? computeNexusBridgeFees({
+          nexusFeeModel: bridge.nexusFeeModel,
+          grossBridged: totalBridgedAmount,
+        }).estimatedFees
+      : bridge.estimatedFees;
   // Gas-swap COT (`bridge.amounts.gasInCot`) is still bridged — it funds the dst gas swap.
   // Bridge solver no longer delivers separate native gas; intent.destination.nativeAmount=0.
   const executionTokenAmount = totalBridgedAmount
-    .minus(bridge.estimatedFees.collection)
-    .minus(bridge.estimatedFees.fulfilment)
-    .minus(bridge.estimatedFees.protocol);
+    .minus(effectiveFees.collection)
+    .minus(effectiveFees.fulfilment)
+    .minus(effectiveFees.protocol);
   if (executionTokenAmount.isNegative()) {
     throw new Error('Bridge token amount cannot be negative after fee deduction');
   }
@@ -169,11 +177,11 @@ export const createSwapBridgeIntent = (params: {
       universe: Universe.ETHEREUM,
     },
     fees: {
-      caGas: bridge.estimatedFees.caGas.toString(),
-      deposit: bridge.estimatedFees.collection.toString(),
-      fulfillment: bridge.estimatedFees.fulfilment.toString(),
-      protocol: bridge.estimatedFees.protocol.toString(),
-      solver: bridge.estimatedFees.solver.toString(),
+      caGas: effectiveFees.caGas.toString(),
+      deposit: effectiveFees.collection.toString(),
+      fulfillment: effectiveFees.fulfilment.toString(),
+      protocol: effectiveFees.protocol.toString(),
+      solver: effectiveFees.solver.toString(),
     },
     recipientAddress: recipient,
   };

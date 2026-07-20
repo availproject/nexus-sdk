@@ -6,6 +6,7 @@ import { Errors } from '../../domain/errors';
 import { logger } from '../../domain/utils';
 import { isNativeAddress } from '../../services/addresses';
 import { divDecimals, mulDecimals } from '../../services/math';
+import { selectMayanQuoteOutput } from '../../services/mayan';
 import { estimateRepresentativeSwapNativeReserveFee } from '../../services/swap-native-reserve-fee';
 import { equalFold } from '../../services/strings';
 import { withTimingSpan } from '../../services/timing';
@@ -18,8 +19,15 @@ import {
 import { liquidateInputHoldings } from '../algorithms/liquidate';
 import { B2_STABLE_CURRENCY_IDS } from '../constants';
 import { type CurrencyID, resolveCOT, resolveCurrencyId } from '../cot';
-import type { AssetsUsedEntry, BridgeAsset, SourceChainCOT, SwapRoute } from '../types';
+import type {
+  AssetsUsedEntry,
+  BridgeAsset,
+  NexusFeeModel,
+  SourceChainCOT,
+  SwapRoute,
+} from '../types';
 import { SwapMode } from '../types';
+import { resolveExactInAmountBasis, selectExactInQuoteOutput } from '../amount-basis';
 import type { RouteOptions } from '../route';
 import {
   buildExecutorAddressByChain,
@@ -199,6 +207,7 @@ export async function buildDirectDestinationExactInRoute(
   const { aggregators, chainList, oraclePrices, dstTokenInfo, walletPathHints } = options;
   const dstChainId = data.toChainId;
   const toTokenAddress = data.toTokenAddress;
+  const exactInAmountBasis = resolveExactInAmountBasis(options.exactInAmountBasis);
 
   // Split identity holdings (already the destination token) from those needing a swap.
   const identityHoldings = holdings.filter((h) => isSameSwapToken(h.tokenAddress, toTokenAddress));
@@ -253,7 +262,12 @@ export async function buildDirectDestinationExactInRoute(
   // Total delivered = Σ swap outputs (toToken) + Σ identity holdings (already toToken).
   const swappedDelivered = swaps.reduce(
     (sum, quote) =>
-      sum.plus(divDecimals(quote.quote.output.amountRaw, quote.quote.output.decimals)),
+      sum.plus(
+        divDecimals(
+          selectExactInQuoteOutput(quote.quote, exactInAmountBasis).amountRaw,
+          quote.quote.output.decimals
+        )
+      ),
     new Decimal(0)
   );
   const identityDelivered = identityHoldings.reduce(
@@ -275,6 +289,7 @@ export async function buildDirectDestinationExactInRoute(
     'flow.swap.route.assemble',
     async (): Promise<SwapRoute> => ({
       type: SwapMode.EXACT_IN,
+      exactInAmountBasis,
       // No bridge/cleanup on Path A (directDestination skips the sweep), but keep the COT for the
       // public surface's settlement currency.
       settlementCurrencyId: options.cotCurrencyId,
@@ -465,6 +480,7 @@ const finalizeSameTokenBridge = async (
     grossBridged: Decimal;
     tokenAmount: Decimal;
     fees: NonNullable<SwapRoute['bridge']>['estimatedFees'];
+    nexusFeeModel: NexusFeeModel;
     dstChainId: number;
     dstTokenAddress: Hex;
     dstTokenDecimals: number;
@@ -508,6 +524,7 @@ const finalizeSameTokenBridge = async (
         decimals: params.dstTokenDecimals,
         tokenAddress: params.dstTokenAddress,
         estimatedFees: params.fees,
+        ...(provider === 'nexus' ? { nexusFeeModel: params.nexusFeeModel } : {}),
         provider,
       };
       return provider === 'mayan' ? enrichMayanBridge(bridge, options) : bridge;
@@ -535,6 +552,7 @@ export async function buildSameTokenBridgeRoute(
 ): Promise<SwapRoute> {
   const { oraclePrices, dstTokenInfo, walletPathHints, aggregators } = options;
   const dstChainId = data.toChainId;
+  const exactInAmountBasis = resolveExactInAmountBasis(options.exactInAmountBasis);
   // Swap internals carry native as EADDRESS, but the bridge intent's `getTokenByAddress` lookup
   // only resolves ZERO_ADDRESS as native — normalize both the bridged token and source assets.
   const dstTokenAddress: Hex = isNativeAddress(dstTokenInfo.contractAddress)
@@ -579,6 +597,7 @@ export async function buildSameTokenBridgeRoute(
       estimatedFees: fees,
       totalFeeAmount: totalFee,
       deliveredAmount,
+      nexusFeeModel,
     } = computeBridgeFees({
       quoteResponse: bridgeQuoteResponse,
       grossBridged: bridgedToken,
@@ -599,6 +618,7 @@ export async function buildSameTokenBridgeRoute(
         grossBridged: bridgedToken,
         tokenAmount: deliveredFromBridge,
         fees,
+        nexusFeeModel,
         dstChainId,
         dstTokenAddress,
         dstTokenDecimals: dstTokenInfo.decimals,
@@ -606,8 +626,10 @@ export async function buildSameTokenBridgeRoute(
       options
     );
     if (bridge.provider === 'mayan' && bridge.mayanQuotesBySource) {
+      const bridgeDecimals = bridge.decimals;
       deliveredFromBridge = [...bridge.mayanQuotesBySource.values()].reduce(
-        (sum, quote) => sum.plus(new Decimal(quote.minReceived.toString())),
+        (sum, quote) =>
+          sum.plus(selectMayanQuoteOutput(quote, bridgeDecimals, exactInAmountBasis)),
         new Decimal(0)
       );
       bridge = {
@@ -635,6 +657,7 @@ export async function buildSameTokenBridgeRoute(
     'flow.swap.route.assemble',
     async (): Promise<SwapRoute> => ({
       type: SwapMode.EXACT_IN,
+      exactInAmountBasis,
       settlementCurrencyId,
       sameTokenBridge: true,
       source: {
@@ -760,7 +783,7 @@ export async function buildSameTokenBridgeExactOutRoute(
     );
   }
 
-  const { estimatedFees: fees } = computeBridgeFees({
+  const { estimatedFees: fees, nexusFeeModel } = computeBridgeFees({
     quoteResponse: fQuote,
     grossBridged,
     dstCOTDecimals: dstTokenInfo.decimals,
@@ -771,6 +794,7 @@ export async function buildSameTokenBridgeExactOutRoute(
       grossBridged,
       tokenAmount: toAmountHuman,
       fees,
+      nexusFeeModel,
       dstChainId,
       dstTokenAddress,
       dstTokenDecimals: dstTokenInfo.decimals,

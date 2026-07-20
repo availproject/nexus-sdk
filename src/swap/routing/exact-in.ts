@@ -3,7 +3,7 @@ import { formatUnits, type Hex } from 'viem';
 import { Errors } from '../../domain/errors';
 import { logger } from '../../domain/utils';
 import { divDecimals, mulDecimals } from '../../services/math';
-import { MAYAN_MIN_USD_PER_LEG } from '../../services/mayan';
+import { MAYAN_MIN_USD_PER_LEG, selectMayanQuoteOutput } from '../../services/mayan';
 import { equalFold } from '../../services/strings';
 import { withTimingSpan } from '../../services/timing';
 import { destinationSwapWithExactIn } from '../algorithms/destination';
@@ -12,6 +12,7 @@ import { DST_RECLAIM_DEDUCTION_PCT } from '../constants';
 import { resolveCOT, resolveSwapSettlement } from '../cot';
 import type { AssetsUsedEntry, DestinationSwap, SwapRoute } from '../types';
 import { SwapMode } from '../types';
+import { resolveExactInAmountBasis, selectExactInQuoteOutput } from '../amount-basis';
 import type { RouteOptions } from '../route';
 import {
   buildExecutorAddressByChain,
@@ -190,6 +191,7 @@ const buildExactInBridge = async (input: {
         currencyId: input.currencyId,
         bridgeQuoteResponse: input.options.bridgeQuoteResponse,
         dstCOTDecimals: input.dstCOT.decimals,
+        exactInAmountBasis: input.options.exactInAmountBasis,
       });
       if (!feeSummary) {
         return { bridge: null, cotAvailableForDestination: input.cotAvailableForDestination };
@@ -198,6 +200,7 @@ const buildExactInBridge = async (input: {
         estimatedFees,
         totalFeeAmount,
         deliveredAmount: effectiveBridgedToDestination,
+        nexusFeeModel,
       } = feeSummary;
       if (effectiveBridgedToDestination.lte(0)) {
         throw Errors.insufficientBalance(
@@ -220,6 +223,7 @@ const buildExactInBridge = async (input: {
         decimals: input.dstCOT.decimals,
         tokenAddress: input.dstCOT.address as Hex,
         estimatedFees,
+        ...(input.bridgeProvider === 'nexus' ? { nexusFeeModel } : {}),
         provider: input.bridgeProvider,
       };
 
@@ -227,7 +231,15 @@ const buildExactInBridge = async (input: {
         bridge = await enrichMayanBridge(bridge, input.options);
         if (bridge.mayanQuotesBySource) {
           const mayanDelivered = [...bridge.mayanQuotesBySource.values()].reduce(
-            (sum, quote) => Decimal.add(sum, new Decimal(quote.minReceived.toString())),
+            (sum, quote) =>
+              Decimal.add(
+                sum,
+                selectMayanQuoteOutput(
+                  quote,
+                  bridge.decimals,
+                  resolveExactInAmountBasis(input.options.exactInAmountBasis)
+                )
+              ),
             new Decimal(0)
           );
           cotAvailableForDestination = input.destinationChainCot.plus(mayanDelivered);
@@ -253,6 +265,7 @@ const buildExactInBridge = async (input: {
 export async function _exactInRoute(data: ExactInData, options: RouteOptions): Promise<SwapRoute> {
   const { aggregators, chainList, oraclePrices, dstTokenInfo, walletPathHints } = options;
   const destinationChain = chainList.getChainByID(data.toChainId);
+  const exactInAmountBasis = resolveExactInAmountBasis(options.exactInAmountBasis);
 
   // Build holdings from input
   const rawHoldings = await withTimingSpan(
@@ -424,7 +437,7 @@ export async function _exactInRoute(data: ExactInData, options: RouteOptions): P
     totalCOT = totalCOT.plus(divDecimals(c.amountRaw, cot.decimals));
   }
   for (const q of sourceSwaps) {
-    totalCOT = totalCOT.plus(q.quote.output.amount);
+    totalCOT = totalCOT.plus(selectExactInQuoteOutput(q.quote, exactInAmountBasis).amount);
   }
 
   let dstSwap: DestinationSwap = { tokenSwap: null, gasSwap: null };
@@ -441,7 +454,10 @@ export async function _exactInRoute(data: ExactInData, options: RouteOptions): P
   // a real under-sized dst swap otherwise). Mirrors `_exactOutRoute`'s `destinationChainSwapCot`.
   const destinationChainSwapCot = sourceSwaps
     .filter((q) => q.chainID === data.toChainId)
-    .reduce((sum, q) => sum.plus(q.quote.output.amount), new Decimal(0));
+    .reduce(
+      (sum, q) => sum.plus(selectExactInQuoteOutput(q.quote, exactInAmountBasis).amount),
+      new Decimal(0)
+    );
   const destinationChainCot = destinationChainDirectCot.plus(destinationChainSwapCot);
   const { bridge, cotAvailableForDestination } = allOnDstChain
     ? { bridge: null, cotAvailableForDestination: totalCOT }
@@ -515,6 +531,7 @@ export async function _exactInRoute(data: ExactInData, options: RouteOptions): P
     'flow.swap.route.assemble',
     async (): Promise<SwapRoute> => ({
       type: SwapMode.EXACT_IN,
+      exactInAmountBasis,
       settlementCurrencyId: currencyId,
       sameTokenBridge: false,
       source: {

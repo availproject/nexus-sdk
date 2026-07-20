@@ -10,6 +10,7 @@ import {
 import type { Aggregator, QuoteResponse } from '../../../src/swap/aggregators/types';
 import { EADDRESS } from '../../../src/swap/constants';
 import type { OraclePriceResponse } from '../../../src/swap/types';
+import { quoteFixture } from '../../helpers/quote';
 
 vi.mock('../../../src/swap/algorithms/auto-select', () => ({
   selectDirectDestinationSwaps: vi.fn(),
@@ -42,7 +43,7 @@ const quote = (
   chainID: CHAIN_ID,
   holding: overrides.holding ?? holding,
   aggregator: {} as Aggregator,
-  quote: {
+  quote: quoteFixture({
     input: {
       contractAddress: INPUT_TOKEN,
       amount: '1',
@@ -65,7 +66,7 @@ const quote = (
       approvalAddress: USER,
       tx: { to: RECIPIENT, data: '0x', value: '0x0' },
     },
-  },
+  }),
 });
 
 describe('sizeDirectDestinationExactOut', () => {

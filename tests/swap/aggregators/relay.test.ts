@@ -96,6 +96,11 @@ describe('RelayAggregator', () => {
     expect(quote!.output.amountRaw).toBe(399000000000000n); // minimumAmount, NOT the expected amount
     expect(quote!.output.decimals).toBe(18);
     expect(quote!.output.symbol).toBe('WETH');
+    expect(quote!.expectedOutput).toEqual({
+      amountRaw: 400000000000000n,
+      amount: '0.0004',
+      value: 1.2,
+    });
     // tx comes from the 'swap' step, never 'approve'.
     expect(quote!.txData.tx.to).toBe(ROUTER);
     expect(quote!.txData.tx.data).toBe('0xswapdata');

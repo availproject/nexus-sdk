@@ -80,6 +80,7 @@ describe('ZeroExAggregator', () => {
     expect(quote).not.toBeNull();
     expect(quote!.input.amountRaw).toBe(1000000n); // sellAmount
     expect(quote!.output.amountRaw).toBe(980100000000000000n); // minBuyAmount, NOT buyAmount
+    expect(quote!.expectedOutput.amountRaw).toBe(990000000000000000n);
     expect(quote!.input.contractAddress).toBe(INPUT);
     expect(quote!.output.contractAddress).toBe(OUTPUT);
     expect(quote!.txData.approvalAddress).toBe(ALLOWANCE_TARGET);

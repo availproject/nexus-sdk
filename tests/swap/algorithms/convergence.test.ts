@@ -8,6 +8,7 @@ import {
 } from '../../../src/swap/algorithms/convergence';
 import type { Aggregator, Quote, QuoteRequest } from '../../../src/swap/aggregators';
 import { QuoteSeriousness, QuoteType } from '../../../src/swap/aggregators';
+import { quoteFixture } from '../../helpers/quote';
 
 const later = <T>(ms: number, value: T): Promise<T> =>
   new Promise((resolve) => setTimeout(() => resolve(value), ms));
@@ -50,7 +51,7 @@ const TOKEN_IN = '0x1111111111111111111111111111111111111111' as Hex;
 const TOKEN_OUT = '0x2222222222222222222222222222222222222222' as Hex;
 const USER = '0x3333333333333333333333333333333333333333' as Hex;
 
-const makeQuote = (inputAmountRaw: bigint, outputAmountRaw: bigint): Quote => ({
+const makeQuote = (inputAmountRaw: bigint, outputAmountRaw: bigint): Quote => quoteFixture({
   input: {
     contractAddress: TOKEN_IN,
     amount: inputAmountRaw.toString(),

@@ -59,6 +59,10 @@ untested (this map exists because that scoping mistake has bitten twice):
   descends from `options.cotCurrencyId`, and `settlementCurrencyId` records the family actually used.
 - **Modes.** `EXACT_OUT` (deliver a fixed output) and `EXACT_IN` (spend fixed inputs). A
   **negative `toAmountRaw`** in EXACT_OUT is a reservation / gas‑only sentinel.
+- **Exact In amount basis.** Internally, every Exact In route carries one basis through all forward
+  sizing: `'expected'` for normal `swapWithExactIn` previews and `'minimum'` for
+  `calculateMaxForSwap`. Direct internal route calls default to `'minimum'`. The basis is not public;
+  Exact Out is unchanged. It selects route economics only—execution fields remain protected.
 - **Smart‑account‑only.** A swap is **never dispatched directly from the EOA**. Execution always
   runs through a per‑chain smart account, of which there are **two implemented kinds**
   (`WalletPath = 'ephemeral' | 'safe'`):
@@ -301,12 +305,12 @@ their amount propagation and requote policies remain mode-owned.
 
 `RouteOptions = { aggregators, bridgeQuoteResponse, chainList, cotCurrencyId, middlewareClient,
 publicClientList, oraclePrices, dstTokenInfo, eoaAddress, ephemeralAddress, balances,
-walletPathHints, quoteAddressHints? }`. Returned `SwapRoute`:
+walletPathHints, quoteAddressHints?, exactInAmountBasis? }`. Returned `SwapRoute`:
 
 ```text
 { type, source:{swaps[], creationTime, srcBuffer, cotByChain?},
   bridge: null | {amount, amounts:{tokenAmount,gasInCot,totalAmount}, assets[], chainID,
-                  decimals, tokenAddress, estimatedFees},
+                  decimals, tokenAddress, estimatedFees, nexusFeeModel?},
   destination:{chainId, eoaToEphemeral, inputAmount:{min,max}, swap:{tokenSwap,gasSwap}, getDstSwap()},
   buffer:{amount}, dstTokenInfo,
   extras:{aggregators,oraclePrices,balances,assetsUsed,
@@ -387,6 +391,7 @@ determineSwapRoute(input, opts) -> SwapRoute:
 
   # ── EXACT_IN ──
   if EXACT_IN:
+    basis = exactInAmountBasis ?? 'minimum'  # public preview passes expected; calculateMax passes minimum
     rawHoldings = resolveSources(sources)   # amountRaw absent ⇒ full balance; requested > balance ⇒ throw
     cot = resolveCOT(toChainId, chainList, cotCurrencyId)
     # ── Path A: direct destination swap (fast-path, gated FIRST) ── unless options.skipFastPaths:
@@ -418,18 +423,22 @@ determineSwapRoute(input, opts) -> SwapRoute:
       holdings = dropSubFloorMayanChains(rawHoldings)                # drop chains whose SELECTED USD < floor
       if holdings empty: throw "Mayan bridge requires ≥ $MAYAN_MIN_USD_PER_LEG per source …"
     source        = liquidateInputHoldings(holdings)                 # §6 (COT holdings skipped)
+    sourceCOT     = Σ select(source.quote, basis) + direct COT       # one selected amount per stage
     # no source buffer: source.srcBuffer = null (a failed leg re-quotes and proceeds, no drift guard)
-    dstQuoteInput = cotAvailable            # full; dst-swap floor (inputAmount.min) = 0 — Seam 2 tracks actuals
+    dstQuoteInput = cotAvailable            # expected/minimum source→bridge delivery under the selected basis
     buffer.amount = 0                        # EXACT_IN has no buffer (no source, no dst)
 
   # ── bridge ──
   bridge = (all source COT on toChainId) ? null : buildBridge(…, provider)
            # cross-chain requires bridgeQuoteResponse else throw "bridge fee quote unavailable"
            # collection fee = 0 (smart-account model); coalesce same-chain assets
-           # bridge funding → ephemeralBalance;  direct COT → eoaBalance
+           # bridge funding → ephemeralBalance; direct COT → eoaBalance
+           # Nexus applies fixed fulfillment + bps to selected gross and stores that normalized model
+           # Mayan quotes selected source amounts; expected basis chooses expectedAmountOutBaseUnits,
+           # then expectedAmountOut, then minReceived; preview fee = max(gross − selected delivery, 0)
            # dstChain COT deducted → destination.eoaToEphemeral{amount,contractAddress}
            # toNativeAmountRaw ⇒ gas swap sized off its COT input: tokenAmount + gasInCot == totalAmount
-  if provider == 'mayan': bridge = await enrichMayanBridge(bridge)   # fetch per-source quotes + validate (guard at call site)
+  if provider == 'mayan': bridge = await enrichMayanBridge(bridge)   # fetch the existing per-source quote batch + validate
 
   # ── destination swap ──
   if needTokenSwap:
@@ -458,14 +467,16 @@ determineSwapRoute(input, opts) -> SwapRoute:
 
 # getDstSwap() requote guards (execution-time, frozen bounds):
 #   EXACT_OUT: require (tokenInput + gasInput) ≤ originalBufferedMax   # max pinned, never creeps; accepted requote moves `min`
-#   EXACT_IN:  no guard — the requote is accepted whatever it returns (no rate tolerance)
+#   EXACT_IN:  mandatory balance read + resize before first dispatch; no rate-tolerance guard
 ```
 
 Balance→holding conversion uses `parseUnits` precision (no `Number()` rounding). `cotByChain`
 carries route‑resolved COT metadata into execution. `extras.assetsUsed` amounts are normalized to
 human strings (falls back to balance metadata for tokens absent from the deployment list).
 
-**`calculateMaxForSwap` haircut denomination.** The max‑amount safety haircut (`max(3%, $3)`) is kept
+**`calculateMaxForSwap` amount basis and haircut denomination.** Max routing explicitly uses the
+protected `'minimum'` basis through source, bridge, destination, and fast paths without adding quote
+requests. The max‑amount safety haircut (`max(3%, $3)`) is kept
 in USD space. When a destination token swap exists, it applies in COT space and scales to the output
 token via the swap's own ratio (unchanged). When there is **no** destination swap,
 `destination.inputAmount.max` is denominated in the *destination token itself* — USDC for the default
@@ -553,7 +564,13 @@ createAggregators(mw) → [LiFi, Bebop, Fibrous, 0x, Mystic, Relay]
 
 All adapters map a middleware response to a `Quote`, return `null` on throw/timeout, short‑circuit
 unsupported chains **without firing a request**, and send **no API‑key headers** (the proxy handles
-auth). Executable quotes use the **slippage-protected** output amount. Source-selection candidates
+auth). Every normalized `Quote` has both a required `output` (the **slippage-protected executable
+minimum**) and a required `expectedOutput` (`amountRaw`, human `amount`, and USD `value`). LiFi maps
+`toAmount`; Bebop maps `amount`; Relay, 0x, and Mystic map `amount`/`buyAmount`; Fibrous maps
+`amount_out`. Missing, malformed, non-positive, or below-minimum expected amounts normalize to
+`output`. Metadata enrichment recomputes both output and expected human/USD values for 0x/Mystic.
+Aggregator winners are still chosen only by protected `output.amountRaw` (or protected input for
+MinimizeInput), never by expected output. Source-selection candidates
 are requested as executable quotes from the outset so a fully consumed holding reuses one quote.
 Fibrous price surveys are reserved for indicative convergence seeds: they use the lighter `/v2/route`
 response, apply the configured slippage floor to `outputAmount` locally, and never enter execution;
@@ -582,7 +599,9 @@ route-scoped keyed-promise cache described in §5.
 
 ## 8. Intent, bridge intent, plan, prepare
 
-**`createSwapIntent(route, input, chainList)`** — destination amount/value (token‑swap output
+**`createSwapIntent(route, input, chainList)`** — Exact In destination amount/value use the route's
+selected basis: expected for normal previews and protected minimum for max calculations/internal
+minimum routes. Exact Out remains requested/protected as before. Destination token‑swap output
 semantics; **Path A** (`directDestination`, no dst swap) sums the token‑role source‑swap output USD
 values — oracle‑independent, the analog of a dst token‑swap's `output.value`; other no‑swap
 destinations, e.g. COT, use `amount × oraclePriceUsd`, else `amount`); reservation
@@ -594,7 +613,8 @@ from the gas‑swap output; `feesAndBuffer.bridge` set iff a bridge exists; `bri
 Ethereum sorted last; copies `bridge.provider`; the five‑field fees map from `bridge.estimatedFees`
 (`collection → deposit`, plus `fulfilment/caGas/protocol/solver`); destination amount from
 **execution‑time assets** (`executionTokenAmount = totalBridged − collection − fulfilment −
-protocol`, throws if negative); **native amount stays 0** (`gasInCot` bridged as COT for the dst gas
+protocol`, throws if negative). Nexus recomputes its stored fixed-plus-bps fee model from the
+execution-time total rather than reusing route-time absolute fees. **Native amount stays 0** (`gasInCot` bridged as COT for the dst gas
 swap). When `provider === 'mayan'` it stamps each source with its per‑source `mayanQuote` (looked up
 from `bridge.mayanQuotesBySource` by `${chainID}:${address.toLowerCase()}`; throws
 `Mayan quote missing for source …` if absent); Nexus leaves `mayanQuote` undefined.
@@ -712,7 +732,8 @@ executeSwapBridge(bridge, executedAssets, ctx, meta):   # bridges the ACTUAL wra
       if mayan: bridge = refreshMayanQuotesForExecution(bridge, bridgedAssets)   # re-quote per leg at
                 #   the FINAL bridged amount — route-time quotes were signed for the ESTIMATE, and a
                 #   source re-quote can drift the executed COT. Middleware enforces RFF source.value ==
-                #   mayanQuote.effectiveAmountIn; re-quoting here makes them match (and refreshes deadline)
+                #   mayanQuote.effectiveAmountIn; re-quoting here makes them match (and refreshes deadline).
+                #   Replace preview fees with protected accounting: max(actual gross − ΣminReceived, 0).
       intent    = createSwapBridgeIntent(bridge, bridgedAssets, recipient)   # carries provider + mayanQuotes
 
       # ── Mayan (intent.provider == 'mayan') → runMayanEphemeralBridge, then return ──
@@ -747,6 +768,9 @@ executeDestinationSwap(destination, dstTokenInfo, ctx, meta):
   # SEAM 2 (reclaim): read balanceOf(COT, dstWrapper) → re-size the dst swap input from the ACTUAL
   #   delivered COT. EXACT_IN re-sizes BOTH ways — grows on surplus (more output), shrinks when a
   #   down-drifted source delivered less (never over-size, floor 0); EXACT_OUT keeps the exact output.
+  #   EXACT_IN: the read AND a complete resized quote are mandatory before first dispatch. Either
+  #   failure consumes an attempt; 3 failures → destination-scoped error, no optimistic dispatch,
+  #   then orchestrator cleanup. EXACT_OUT keeps its best-effort surplus read.
   #   getDstSwap re-quotes with no tolerance guard (EXACT_IN) / within [floor, ceiling] (EXACT_OUT); also on expiry.
   direct EOA COT on the dst chain (destination.eoaToEphemeral) → [permit?, transferFrom](eoa→executor) prepended (BOTH paths)
   path(dstChain):
@@ -792,7 +816,7 @@ failure falls back to `0n` (never throws).
 **`createSweeperTxs(token, receiver, chainId, cache?, ephemeralOwner?)`** — the blind drain: ERC20 →
 `[approve, sweepERC20]`; native → `[approveNative(→CALIBUR), sweepERC7914(→SWEEPER)]`; a sufficient
 cached allowance drops the approve; undefined cache → safe fallback (include approve). Now reserved for
-the **failure cleanup** (§11) and the destination fallback when the `balanceOf` read fails.
+the **failure cleanup** (§11) and Exact Out's destination fallback when its best-effort balance read fails.
 
 **`buildRefundSweepCall(token, amount, eoa)`** — the success-path COT return: ONE `erc20.transfer(eoa,
 amount)` (native → bare value send). The destination swap returns the *known* leftover COT
@@ -854,7 +878,8 @@ principle is *execution tracks actuals, while route‑time quotes/buffers are co
 
 ```text
 holding.amountRaw (route)
-   │  aggregator @ route → quote.output            # the minReceived FLOOR shown to the user
+   │  aggregator @ route → quote.output (protected) + expectedOutput
+   │  EXACT_IN preview carries expected forward; calculateMax carries protected minimum
    ▼
 source swap executes ──[attempt-0 dispatch fail]──⟳ requoteFailedChains (ONCE, re-quote @ holding)
    │                       ▣ EXACT_OUT: Σnew ≥ Σold − srcBuffer (POOLED; an over-leg offsets an under-leg)
@@ -867,15 +892,15 @@ SEAM 1  balanceOf(COT, sourceWrapper)              ◄ the COT that ACTUALLY lan
 bridge assets (executed)
    ├──────────────────────────────┬──────────────────────────────────────┐
    ▼                              ▼                                       ▼
-RFF source.value = executed       MAYAN: refresh effectiveAmountIn64       NEXUS: destination = Σ(executed) − route-time fees
-   = intent.source.amountRaw       = re-quote @ the executed amount          DERIVED (not refreshed) — gives MORE on more input;
-   (Nexus deposit = RFF value,      → value == effectiveAmountIn64            the only route-time-frozen term is the FEE
+RFF source.value = executed       MAYAN: refresh effectiveAmountIn64       NEXUS: destination = Σ(executed) − recomputed fees
+   = intent.source.amountRaw       = re-quote @ the executed amount          MODEL-DERIVED — gives MORE on more input;
+   (Nexus deposit = RFF value,      → value == effectiveAmountIn64            fixed fee + bps model reapplied to actual gross
     no signed quote → no mismatch)     (the a4ba539 invariant)
    ▼
 bridge fill → COT at dstWrapper
    ▼
 SEAM 2  balanceOf(COT, dstWrapper)                 ◄ the COT that ACTUALLY arrived
-   │  dst swap re-sized: EXACT_IN tracks the actual balance BOTH ways (grow on surplus → MORE output,
+   │  dst swap re-sized: EXACT_IN MUST track the actual balance BOTH ways before any dispatch (grow on surplus → MORE output,
    │  shrink on a short source → no over-size, floor 0); EXACT_OUT keeps the EXACT output.
    │  getDstSwap ⟳ re-quote: EXACT_IN no tolerance guard; EXACT_OUT within [floor, ceiling] (≤3 attempts)
    ▼
@@ -906,8 +931,9 @@ unchanged: no buffer and no gas pass, with `inputAmount.min = Σ delivered`.
 absorbed by re‑derivation — *except* the Mayan per‑leg `effectiveAmountIn64`, the one EXACT, per‑leg,
 signed value with no buffer. A drift that's harmless elsewhere (even an UPWARD drift the pooled source
 guard waves through) breaks `value == effectiveAmountIn64`, so only Mayan needs the execution‑time
-re‑quote (`refreshMayanQuotesForExecution`). Nexus needs none: its destination is `Σ(executed) − fees`,
-a formula over the (already‑updated) inputs, so it tracks them automatically.
+re‑quote (`refreshMayanQuotesForExecution`), which also recomputes the protected haircut from actual
+input and refreshed `minReceived`. Nexus needs no quote refresh: the route stores its normalized
+fixed-plus-bps model and reapplies it to `Σ(executed)` when building the bridge intent.
 
 ### 12.2 Invariants
 

@@ -26,6 +26,7 @@ import type {
 } from '../../../src/swap/types';
 import { SwapMode } from '../../../src/swap/types';
 import { buildTransferAuthorization } from '../../../src/swap/wallet/transfer-authorization';
+import { quoteFixture } from '../../helpers/quote';
 
 vi.mock('../../../src/swap/execution/source-swaps', async () => {
   const actual = await vi.importActual<
@@ -73,7 +74,7 @@ const makeSwap = (
   },
   aggregator: {} as Aggregator,
   outputRole,
-  quote: {
+  quote: quoteFixture({
     input: {
       contractAddress: USDC,
       amount: new Decimal(inputAmountRaw.toString()).div(1_000_000).toFixed(),
@@ -94,7 +95,7 @@ const makeSwap = (
       approvalAddress: ROUTER,
       tx: { to: ROUTER, data: outputRole === 'token' ? '0xaaaa' : '0xbbbb', value: '0x0' },
     },
-  },
+  }),
 });
 
 const makeRoute = (swaps: QuoteResponse[]): SwapRoute => ({

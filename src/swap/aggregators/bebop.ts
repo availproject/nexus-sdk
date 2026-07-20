@@ -4,6 +4,7 @@ import { logger } from '../../domain/utils';
 import { divDecimals } from '../../services/math';
 import type { Aggregator, Quote, QuoteRequest } from './types';
 import { QuoteType } from './types';
+import { normalizeExpectedOutput } from './expected-output';
 
 type BebopApi = 'aggregation' | 'rfq';
 
@@ -138,6 +139,16 @@ export class BebopAggregator implements Aggregator {
       inputToken.decimals
     );
 
+    const output: Quote['output'] = {
+      contractAddress: buyToken,
+      amount: outputAmountInDecimal,
+      amountRaw: BigInt(outputToken.minimumAmount),
+      decimals: outputToken.decimals,
+      value: Decimal.mul(outputAmountInDecimal, outputToken.priceUsd ?? 0).toNumber(),
+      priceUsd: outputToken.priceUsd,
+      symbol: outputToken.symbol,
+    };
+
     return {
       expiry: quote.expiry,
       input: {
@@ -149,15 +160,8 @@ export class BebopAggregator implements Aggregator {
         priceUsd: inputToken.priceUsd,
         symbol: inputToken.symbol,
       },
-      output: {
-        contractAddress: buyToken,
-        amount: outputAmountInDecimal,
-        amountRaw: BigInt(outputToken.minimumAmount),
-        decimals: outputToken.decimals,
-        value: Decimal.mul(outputAmountInDecimal, outputToken.priceUsd ?? 0).toNumber(),
-        priceUsd: outputToken.priceUsd,
-        symbol: outputToken.symbol,
-      },
+      output,
+      expectedOutput: normalizeExpectedOutput(outputToken.amount, output),
       txData: {
         approvalAddress: quote.approvalTarget,
         tx: {
@@ -181,6 +185,7 @@ type BebopQuoteData = {
       decimals: number;
       priceUsd?: number;
       symbol: string;
+      amount?: string;
       minimumAmount: string;
     }
   >;

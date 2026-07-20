@@ -19,6 +19,7 @@ import type {
   WalletPath,
 } from './types';
 import { SwapMode } from './types';
+import { type ExactInAmountBasis, resolveExactInAmountBasis, selectExactInQuoteOutput } from './amount-basis';
 
 export type RouteOptions = {
   aggregators: Aggregator[];
@@ -36,6 +37,8 @@ export type RouteOptions = {
   quoteAddressHints?: Map<number, Hex>;
   forceMayan: boolean;
   timing?: TimingSpanHooks;
+  // Exact In only. Direct internal route callers default conservatively to protected minimums.
+  exactInAmountBasis?: ExactInAmountBasis;
   // Recursion stop for the B2 dynamic-COT re-entry: when a fast path re-enters `_exactInRoute` /
   // `_exactOutRoute` with an overridden `cotCurrencyId`, it sets this so the re-entered call runs
   // the default COT flow instead of re-classifying and looping. Never set by public callers.
@@ -45,6 +48,7 @@ export type RouteOptions = {
 // Never-throwing snapshot of a built route for the debug trace, so a tester (or we)
 // can reconstruct the exact scenario from the real amounts instead of guessing inputs.
 const summarizeRouteForLog = (input: SwapData, route: SwapRoute) => {
+  const amountBasis = resolveExactInAmountBasis(route.exactInAmountBasis);
   const decimal = (value: Decimal | null | undefined) => value?.toFixed();
   const mayanLeg = (q: unknown) => {
     const m = (q ?? {}) as Record<string, unknown>;
@@ -57,6 +61,7 @@ const summarizeRouteForLog = (input: SwapData, route: SwapRoute) => {
   try {
     return {
       mode: input.mode,
+      ...(input.mode === SwapMode.EXACT_IN ? { exactInAmountBasis: amountBasis } : {}),
       toChainId: input.data.toChainId,
       toToken: input.data.toTokenAddress,
       sourceBuffer: decimal(route.source?.srcBuffer),
@@ -64,7 +69,10 @@ const summarizeRouteForLog = (input: SwapData, route: SwapRoute) => {
         chainId: s.chainID,
         inputAmount: s.quote?.input?.amount,
         inputSymbol: s.quote?.input?.symbol,
-        outputAmount: s.quote?.output?.amount,
+        outputAmount:
+          input.mode === SwapMode.EXACT_IN
+            ? selectExactInQuoteOutput(s.quote, amountBasis).amount
+            : s.quote?.output?.amount,
         outputSymbol: s.quote?.output?.symbol,
       })),
       bridge: route.bridge
@@ -134,11 +142,5 @@ export const determineSwapRoute = async (
 
 export { resolveWalletDecisions } from './routing/addresses';
 export { enrichMayanBridge } from './routing/bridge';
-export {
-  classifyFastPath,
-  type FastPathClass,
-} from './routing/fast-paths';
-export {
-  greedyUsdPrefix,
-  selectRoughEligibleSources,
-} from './routing/holdings';
+export { classifyFastPath, type FastPathClass } from './routing/fast-paths';
+export { greedyUsdPrefix, selectRoughEligibleSources } from './routing/holdings';

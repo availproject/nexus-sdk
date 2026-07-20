@@ -12,6 +12,7 @@ import { SAFETY_MULTIPLIER } from '../../../src/swap/algorithms/convergence';
 import { EADDRESS } from '../../../src/swap/constants';
 import { CurrencyID } from '../../../src/swap/cot';
 import { BASE_CHAIN, USDC_BASE, WETH, makeSwapChainList } from '../../helpers/swap';
+import { quoteFixture } from '../../helpers/quote';
 
 const makeQuote = (
   outputAmountRaw: bigint,
@@ -22,7 +23,7 @@ const makeQuote = (
   const inputIsUsdc = inputContract === USDC_BASE;
   const outputIsUsdc = outputContract === USDC_BASE;
 
-  return {
+  return quoteFixture({
     input: {
       contractAddress: inputContract,
       amount: new Decimal(inputAmountRaw.toString())
@@ -47,7 +48,7 @@ const makeQuote = (
     approvalAddress: '0x03' as `0x${string}`,
     tx: { to: '0x04' as `0x${string}`, data: '0x05' as `0x${string}`, value: '0x0' as `0x${string}` },
   },
-  };
+  });
 };
 
 // First (uncapped) convergence step = ceil(seed × SAFETY_MULTIPLIER), mirroring convergence.ts.

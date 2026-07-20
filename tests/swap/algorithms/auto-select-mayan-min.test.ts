@@ -1,6 +1,7 @@
 import Decimal from 'decimal.js';
 import { describe, expect, it, vi } from 'vitest';
 import type { Hex } from 'viem';
+import { quoteFixture } from '../../helpers/quote';
 import { autoSelectSources, type SourceHolding } from '../../../src/swap/algorithms/auto-select';
 import type {
   Aggregator,
@@ -182,7 +183,7 @@ describe('autoSelectSources — Mayan per-source USD minimum', () => {
       );
       const outputHuman = inputHuman.mul(wethToUsdcRate);
       const outputAmountRaw = BigInt(outputHuman.mul(new Decimal(10).pow(6)).toFixed(0, 1));
-      return {
+      return quoteFixture({
         input: {
           contractAddress: WETH,
           amount: inputHuman.toString(),
@@ -207,7 +208,7 @@ describe('autoSelectSources — Mayan per-source USD minimum', () => {
             value: '0x0' as Hex,
           },
         },
-      };
+      });
     };
     const seriousInputs: bigint[] = [];
     const aggregator: Aggregator = {

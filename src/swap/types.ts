@@ -19,6 +19,7 @@ import type {
 import type { Aggregator, Holding, Quote, QuoteResponse } from './aggregators/types';
 import type { CurrencyID } from './cot';
 import type { SwapCache } from './wallet/cache';
+import type { ExactInAmountBasis } from './amount-basis';
 
 export type { OraclePriceResponse, QuoteResponse };
 export type { BridgeQuoteResponse };
@@ -201,6 +202,11 @@ export type BridgeAsset = {
   ephemeralBalance: Decimal; // human-readable decimal amount
 };
 
+export type NexusFeeModel = {
+  fulfillmentFee: Decimal;
+  fulfillmentBps: Decimal;
+};
+
 export type DestinationSwap = {
   tokenSwap: QuoteResponse | null;
   gasSwap: QuoteResponse | null;
@@ -214,6 +220,8 @@ export type SourceChainCOT = {
 
 export type SwapRoute = {
   type: SwapMode;
+  // Present on Exact In routes; omitted on Exact Out. Internal callers default to `minimum`.
+  exactInAmountBasis?: ExactInAmountBasis;
   // Currency the route settles/bridges in (the destination family for a same-token bridge, else
   // the COT/USDC). Drives the on-failure cleanup sweep's `currencyId`.
   settlementCurrencyId: number;
@@ -257,6 +265,8 @@ export type SwapRoute = {
       protocol: Decimal; // human-readable decimal amount (stubbed to 0)
       solver: Decimal; // human-readable decimal amount (stubbed to 0)
     };
+    // Retained so execution can apply the fixed-plus-bps model to actual bridged balances.
+    nexusFeeModel?: NexusFeeModel;
     provider: BridgeProvider;
     // Populated only when provider === 'mayan'. Keyed by `${chainID}:${contractAddress.toLowerCase()}`.
     mayanQuotesBySource?: Map<string, MayanQuote>;

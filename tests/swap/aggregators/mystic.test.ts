@@ -55,6 +55,7 @@ describe('MysticAggregator', () => {
     expect(quote).not.toBeNull();
     expect(quote!.input.amountRaw).toBe(1000000n); // sellAmount
     expect(quote!.output.amountRaw).toBe(985000n); // minBuyAmount, NOT buyAmount
+    expect(quote!.expectedOutput.amountRaw).toBe(990000n);
     expect(quote!.txData.approvalAddress).toBe(SPENDER);
     expect(quote!.txData.tx.to).toBe(ROUTER);
     expect(quote!.txData.tx.data).toBe('0xabcdef');

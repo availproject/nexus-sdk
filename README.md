@@ -763,6 +763,15 @@ const result = await client.swapWithExactIn(
 | `toChainId` | `number` | Yes | Destination chain |
 | `toTokenAddress` | `Hex` | Yes | Output token address |
 
+For Exact In, the approval-time `SwapIntent.destination.amount` and `.value` are the route's
+**expected output**, not its slippage-protected minimum. Expected source-swap output sizes the
+bridge, expected bridge delivery sizes the destination swap, and the destination quote's expected
+output reaches the existing intent fields. Executable calldata, approvals, aggregator selection,
+and retry guards still use protected quote amounts. At execution the SDK must read the COT that
+actually reached the destination wrapper and resize the destination swap before its first dispatch;
+the read/resize has three attempts total, then the swap fails with destination-step context and runs
+the normal stranded-COT cleanup.
+
 #### `swapWithExactOut(input, options?)`
 
 Swap tokens specifying the exact output amount desired.
@@ -850,7 +859,7 @@ type Swap = {
 
 #### `calculateMaxForSwap(input)`
 
-Calculate the maximum amount that can be swapped to a destination token across all available sources. Useful for populating a "Max" button before calling `swapWithExactIn`.
+Calculate the maximum amount that can be swapped to a destination token across all available sources. Useful for populating a "Max" button before calling `swapWithExactIn`. Max calculation deliberately uses protected minimum outputs at every stage (with the existing safety haircut), while reusing the normal quote sequence without extra quote requests.
 
 ```typescript
 const max = await client.calculateMaxForSwap({
@@ -1384,8 +1393,8 @@ await client.swapWithExactOut(input, {
 ```typescript
 type SwapIntent = {
   destination: {
-    amount: string;          // human-readable decimal amount
-    value?: string;          // optional USD value
+    amount: string;          // Exact In: expected output; Exact Out: requested output
+    value?: string;          // Exact In: expected output USD value when available
     chain: { id: number; logo: string; name: string };
     token: { contractAddress: Hex; decimals: number; symbol: string };
     gas: {

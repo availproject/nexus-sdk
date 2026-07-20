@@ -16,7 +16,11 @@ import { EADDRESS } from '../../../src/swap/constants';
 import { ZERO_ADDRESS } from '../../../src/domain/constants/addresses';
 import { logger } from '../../../src/domain/utils';
 
-const makeQuote = (outputAmountRaw: bigint, inputAmountRaw = 1000000n): Quote => ({
+const makeQuote = (
+  outputAmountRaw: bigint,
+  inputAmountRaw = 1000000n,
+  expectedAmountRaw?: bigint
+): Quote => ({
   input: {
     contractAddress: '0x01' as `0x${string}`,
     amount: inputAmountRaw.toString(),
@@ -32,6 +36,11 @@ const makeQuote = (outputAmountRaw: bigint, inputAmountRaw = 1000000n): Quote =>
     decimals: 18,
     value: 1,
     symbol: 'WETH',
+  },
+  expectedOutput: {
+    amountRaw: expectedAmountRaw ?? outputAmountRaw,
+    amount: (expectedAmountRaw ?? outputAmountRaw).toString(),
+    value: 1,
   },
   txData: {
     approvalAddress: '0x03' as `0x${string}`,
@@ -70,6 +79,21 @@ describe('aggregateAggregators', () => {
     expect(results[0].quote).not.toBeNull();
     expect(results[0].quote!.output.amountRaw).toBe(950000n);
     expect(results[0].aggregator).toBe(aggB);
+  });
+
+  it('selects by protected output even when another quote has a higher expected output', async () => {
+    const betterMinimum = makeAggregator([makeQuote(950000n, 1000000n, 960000n)]);
+    const betterExpected = makeAggregator([makeQuote(940000n, 1000000n, 990000n)]);
+
+    const [result] = await aggregateAggregators(
+      [makeRequest()],
+      [betterMinimum, betterExpected],
+      AggregateMode.MaximizeOutput
+    );
+
+    expect(result.aggregator).toBe(betterMinimum);
+    expect(result.quote!.output.amountRaw).toBe(950000n);
+    expect(result.quote!.expectedOutput.amountRaw).toBe(960000n);
   });
 
   it('picks lowest input in MinimizeInput mode', async () => {
@@ -196,6 +220,11 @@ describe('aggregateAggregators — sibling backfill (price-less 0x)', () => {
     expect(res.quote!.output.symbol).toBe('WETH'); // borrowed
     expect(res.quote!.output.amount).toBe('2'); // recomputed: 2e18 / 1e18
     expect(res.quote!.output.value).toBe(4); // 2 × $2 (borrowed priceUsd)
+    expect(res.quote!.expectedOutput).toEqual({
+      amountRaw: 2100000000000000000n,
+      amount: '2.1',
+      value: 4.2,
+    });
     expect(res.quote!.input.decimals).toBe(6);
     expect(res.quote!.input.amount).toBe('1');
     expect(res.quote!.input.value).toBe(1); // 1 USDC × $1
@@ -563,8 +592,29 @@ describe('aggregateAggregators — Mystic tier-1 selection', () => {
   // (decimals/symbol, no USD price → value 0) rather than dropped.
   it('enriches a lone Mystic quote from its own token resolve instead of dropping it', async () => {
     const mysticToken = vi.fn().mockResolvedValue({ symbol: 'USDC', decimals: 6, name: 'USD Coin' });
-    const mystic = new MysticAggregator(vi.fn() as any, mysticToken as any);
-    vi.spyOn(mystic, 'getQuotes').mockResolvedValue([makeQuote(900_000n)]);
+    const postMystic = vi.fn(async (path: string) =>
+      path === 'v1/swap/build'
+        ? {
+            txRequest: {
+              to: '0x0000000000000000000000000000000000000004',
+              data: '0x05',
+              value: '0',
+            },
+            approval: null,
+          }
+        : {
+            quoteSetId: 'set-1',
+            quotes: [
+              {
+                quoteId: 'quote-1',
+                sellAmount: '1000000',
+                buyAmount: '990000',
+                minBuyAmount: '985000',
+              },
+            ],
+          }
+    );
+    const mystic = new MysticAggregator(postMystic as any, mysticToken as any);
 
     const [res] = await aggregateAggregators(
       [chainRequest(4114)],
@@ -576,6 +626,11 @@ describe('aggregateAggregators — Mystic tier-1 selection', () => {
     expect(res.quote).not.toBeNull();
     expect(res.quote!.output.decimals).toBe(6); // from Mystic /v1/tokens/resolve
     expect(res.quote!.output.value).toBe(0); // Mystic reports no USD price
+    expect(res.quote!.expectedOutput).toEqual({
+      amountRaw: 990000n,
+      amount: '0.99',
+      value: 0,
+    });
     expect(mysticToken).toHaveBeenCalled();
   });
 });

@@ -6,6 +6,7 @@ import type { BridgeAsset, DestinationSwap, SwapRoute } from '../../src/swap/typ
 import { SwapMode } from '../../src/swap/types';
 import type { Aggregator, Holding, Quote } from '../../src/swap/aggregators/types';
 import { makeChain, makeChainList } from '../helpers/chains';
+import { quoteFixture } from '../helpers/quote';
 
 const token = {
   contractAddress: '0x0000000000000000000000000000000000000001' as const,
@@ -24,7 +25,7 @@ const noSwap: DestinationSwap = { tokenSwap: null, gasSwap: null };
 const withTokenSwap: DestinationSwap = {
   tokenSwap: {
     chainID: 8453,
-    quote: {
+    quote: quoteFixture({
       input: {
         contractAddress: token.contractAddress,
         amount: '100',
@@ -49,7 +50,7 @@ const withTokenSwap: DestinationSwap = {
           value: '0x0' as Hex,
         },
       },
-    } as Quote,
+    }),
     holding: {} as Holding,
     aggregator: {} as Aggregator,
   },
@@ -76,7 +77,7 @@ const makeRoute = (overrides: Partial<SwapRoute> = {}): SwapRoute => ({
 
 const makeQuoteResponse = (chainID: number) => ({
   chainID,
-  quote: {
+  quote: quoteFixture({
     input: {
       contractAddress: '0x00000000000000000000000000000000000000aa' as Hex,
       amount: '50000',
@@ -101,7 +102,7 @@ const makeQuoteResponse = (chainID: number) => ({
         value: '0x0' as Hex,
       },
     },
-  } as Quote,
+  }),
   holding: {
     chainID,
     tokenAddress: '0x01' as Hex,

@@ -6,6 +6,7 @@ import { divDecimals } from '../../services/math';
 import { SLIPPAGE_BPS_STRING } from './constants';
 import type { Aggregator, Quote, QuoteRequest } from './types';
 import { QuoteType } from './types';
+import { normalizeExpectedOutput } from './expected-output';
 
 const ERC20_APPROVE_ABI = parseAbi(['function approve(address spender, uint256 value)']);
 
@@ -98,9 +99,11 @@ const parseResponse = (
   const inputAmountRaw = BigInt(currencyIn.amount);
   const outputAmountRaw = BigInt(isExactOut ? currencyOut.amount : currencyOut.minimumAmount);
 
+  const output = buildSide(currencyOut, req.outputToken, outputAmountRaw);
   return {
     input: buildSide(currencyIn, req.inputToken, inputAmountRaw),
-    output: buildSide(currencyOut, req.outputToken, outputAmountRaw),
+    output,
+    expectedOutput: normalizeExpectedOutput(currencyOut.amount, output),
     txData: {
       approvalAddress: resolveApprovalAddress(data, req.inputToken, tx.to as Hex),
       tx: {
@@ -138,8 +141,8 @@ const buildSide = (
 ): Quote['input'] => {
   const { currency } = detail;
   const amount = divDecimals(amountRaw, currency.decimals).toFixed();
-  const formatted = Number(detail.amountFormatted);
-  const priceUsd = formatted > 0 ? Number(detail.amountUsd) / formatted : 0;
+  const formatted = new Decimal(detail.amountFormatted);
+  const priceUsd = formatted.gt(0) ? new Decimal(detail.amountUsd).div(formatted).toNumber() : 0;
   return {
     contractAddress: tokenAddress, // SDK-canonical token (EADDRESS for native), not Relay's zero
     amount,
