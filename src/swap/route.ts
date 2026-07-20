@@ -71,7 +71,9 @@ const summarizeRouteForLog = (input: SwapData, route: SwapRoute) => {
         inputSymbol: s.quote?.input?.symbol,
         outputAmount:
           input.mode === SwapMode.EXACT_IN
-            ? selectExactInQuoteOutput(s.quote, amountBasis).amount
+            ? s.quote
+              ? selectExactInQuoteOutput(s.quote, amountBasis).amount
+              : undefined
             : s.quote?.output?.amount,
         outputSymbol: s.quote?.output?.symbol,
       })),

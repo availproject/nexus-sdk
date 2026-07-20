@@ -43,6 +43,8 @@ export const normalizeExpectedOutput = (
 
 /** Recalculate metadata-dependent expected human/USD values after 0x/Mystic enrichment. */
 export const refreshExpectedOutput = (quote: Quote): Quote => {
+  // Normalized SDK quotes require expectedOutput. This guard only tolerates malformed runtime
+  // objects from untyped/custom integrations; it does not make the normalized field optional.
   if (quote.expectedOutput) {
     quote.expectedOutput = normalizeExpectedOutput(quote.expectedOutput.amountRaw, quote.output);
   }

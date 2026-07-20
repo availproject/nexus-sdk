@@ -11,4 +11,6 @@ export const selectExactInQuoteOutput = (
   quote: Quote,
   basis: ExactInAmountBasis
 ): Quote['output'] | Quote['expectedOutput'] =>
+  // Normalized SDK quotes require expectedOutput. Keep the runtime check only for untyped custom
+  // aggregators or stale JavaScript objects crossing the boundary; it does not weaken Quote's type.
   basis === 'expected' && quote.expectedOutput ? quote.expectedOutput : quote.output;
