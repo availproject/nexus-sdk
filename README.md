@@ -916,7 +916,7 @@ type SwapMaxResult = {
 
 Calculate the maximum amount that can be bridged to a destination token across all same-currency holdings on other chains. Useful for populating a "Max" button before calling `bridge`.
 
-The max is sized against the provider the bridge will actually use: the summed bridge amount is checked against the Mayan threshold (the same decision the real bridge makes), and the receivable max is computed for that provider — Nexus backs out deposit/fulfillment/protocol fees, Mayan sums the per-leg `minReceived`. A `max(3%, $3)` safety haircut is applied so the suggested amount survives fee drift before execution. The returned `provider` tells you which path was used.
+The max is sized against the provider the bridge will actually use: the summed bridge amount is checked against the Mayan threshold (the same decision the real bridge makes), and the receivable max is computed for that provider — Nexus backs out deposit/fulfillment/protocol fees, while Mayan sums the per-leg `minReceived`. No additional safety haircut is applied. The returned `provider` tells you which path was used.
 
 ```typescript
 const max = await client.calculateMaxForBridge({
