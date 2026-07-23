@@ -15,12 +15,6 @@ import {
 } from './intent/quote-request';
 import type { BridgeMaxParams, BridgeMaxResult } from './types';
 
-// Safety haircut applied to the computed max so the suggested amount survives fee/quote drift
-// between this estimate and execution. Mirrors calculateMaxForSwap: the larger of 3% or $3,
-// with the $3 floor converted to token units (so it stays $3, not 3 ETH, for non-stables).
-const MAX_BRIDGE_HAIRCUT_PCT = 0.03;
-const MAX_BRIDGE_HAIRCUT_MIN_USD = 3;
-
 type BridgeMaxExecutionParams = {
   chainList: ChainListType;
   evmAddress: Hex;
@@ -52,7 +46,6 @@ type SourceEntry = {
  *    middleware, which compares it against the Mayan threshold.
  * 3. Compute the receivable max for that provider (Nexus: back out deposit/fulfillment/bps;
  *    Mayan: sum minReceived across eligible legs quoted at full balance).
- * 4. Apply the max(3%, $3) safety haircut.
  */
 export async function calculateMaxForBridge(
   input: BridgeMaxParams,
@@ -121,14 +114,12 @@ export async function calculateMaxForBridge(
     ({ maxToken, selected } = computeNexusBridgeMax({ entries, dstToken, quoteResponse }));
   }
 
-  const adjusted = applyHaircut(maxToken, tokenPriceUsd(asset.value.value, asset.value.balance));
-
   return {
     toChainId: input.toChainId,
     toTokenSymbol: input.toTokenSymbol,
     provider,
-    maxAmount: adjusted.toFixed(dstToken.decimals),
-    maxAmountRaw: mulDecimals(adjusted, dstToken.decimals),
+    maxAmount: maxToken.toFixed(dstToken.decimals),
+    maxAmountRaw: mulDecimals(maxToken, dstToken.decimals),
     symbol: dstToken.symbol,
     decimals: dstToken.decimals,
     sources: selected.map((entry) => ({
@@ -234,18 +225,4 @@ const computeMayanBridgeMax = async (args: {
     maxToken: quotes.reduce((sum, leg) => Decimal.add(sum, leg.minReceived), new Decimal(0)),
     selected: eligible.map((leg) => leg.entry),
   };
-};
-
-const tokenPriceUsd = (valueUsd: string, balance: string): Decimal => {
-  const value = new Decimal(valueUsd);
-  const bal = new Decimal(balance);
-  return value.gt(0) && bal.gt(0) ? value.div(bal) : new Decimal(0);
-};
-
-const applyHaircut = (maxToken: Decimal, priceUsd: Decimal): Decimal => {
-  const haircutPct = maxToken.mul(MAX_BRIDGE_HAIRCUT_PCT);
-  const haircutMin = priceUsd.gt(0)
-    ? new Decimal(MAX_BRIDGE_HAIRCUT_MIN_USD).div(priceUsd)
-    : new Decimal(0);
-  return Decimal.max(maxToken.minus(Decimal.max(haircutPct, haircutMin)), new Decimal(0));
 };

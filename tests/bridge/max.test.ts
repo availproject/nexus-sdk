@@ -136,7 +136,7 @@ describe('calculateMaxForBridge', () => {
     vi.clearAllMocks();
   });
 
-  it('nexus path: sums usable across sources, 3% haircut dominates', async () => {
+  it('nexus path: returns the full usable amount across sources', async () => {
     vi.mocked(getBalancesForBridge).mockResolvedValue([
       makeAsset({
         balance: '150',
@@ -151,16 +151,15 @@ describe('calculateMaxForBridge', () => {
     const input: BridgeMaxParams = { toChainId: 137, toTokenSymbol: 'USDC' };
     const result = await calculateMaxForBridge(input, makeOptions({ quote: zeroFeeQuote([1, 10], 137) }));
 
-    // total usable 150 → 3% haircut = 4.5 (> $3) → 145.5
     expect(result.provider).toBe('nexus');
-    expect(result.maxAmount).toBe('145.500000');
-    expect(result.maxAmountRaw).toBe(145_500_000n);
+    expect(result.maxAmount).toBe('150.000000');
+    expect(result.maxAmountRaw).toBe(150_000_000n);
     expect(result.symbol).toBe('USDC');
     expect(result.decimals).toBe(6);
     expect(result.sources.map((s) => s.chainId).sort()).toEqual([1, 10]);
   });
 
-  it('nexus path: $3 floor applies when 3% is smaller', async () => {
+  it('nexus path: does not deduct a minimum safety amount', async () => {
     vi.mocked(getBalancesForBridge).mockResolvedValue([
       makeAsset({
         balance: '50',
@@ -174,12 +173,11 @@ describe('calculateMaxForBridge', () => {
       makeOptions({ quote: zeroFeeQuote([1], 137) })
     );
 
-    // 3% of 50 = 1.5 < $3 → haircut = $3 → 47
-    expect(result.maxAmount).toBe('47.000000');
-    expect(result.maxAmountRaw).toBe(47_000_000n);
+    expect(result.maxAmount).toBe('50.000000');
+    expect(result.maxAmountRaw).toBe(50_000_000n);
   });
 
-  it('nexus path: $3 floor is denominated in USD, not 3 tokens, for non-stables', async () => {
+  it('nexus path: returns the full usable amount for non-stables', async () => {
     const WETH: TokenInfo = {
       contractAddress: '0x0000000000000000000000000000000000000002',
       decimals: 18,
@@ -215,9 +213,7 @@ describe('calculateMaxForBridge', () => {
       makeOptions({ token: WETH, quote: zeroFeeQuote([1], 137, WETH.contractAddress) })
     );
 
-    // 1 ETH max. 3% = 0.03 ETH; $3 floor = 3/2500 = 0.0012 ETH → 3% dominates → 0.97 ETH
-    // (NOT 1 - 3 = clamped 0, which a literal "3 token" floor would give).
-    expect(result.maxAmount).toBe('0.970000000000000000');
+    expect(result.maxAmount).toBe('1.000000000000000000');
     expect(result.decimals).toBe(18);
     expect(result.symbol).toBe('WETH');
   });
@@ -243,10 +239,9 @@ describe('calculateMaxForBridge', () => {
       })
     );
 
-    // each 100 → 99 out, total 198 → 3% haircut 5.94 → 192.06
     expect(result.provider).toBe('mayan');
-    expect(result.maxAmount).toBe('192.060000');
-    expect(result.maxAmountRaw).toBe(192_060_000n);
+    expect(result.maxAmount).toBe('198.000000');
+    expect(result.maxAmountRaw).toBe(198_000_000n);
     expect(result.sources.map((s) => s.chainId).sort((a, b) => a - b)).toEqual([8453, 42161]);
   });
 
@@ -267,8 +262,7 @@ describe('calculateMaxForBridge', () => {
       makeOptions({ quote: zeroFeeQuote([1, 10], 137) })
     );
 
-    // only chain 1's 100 considered → 3% = 3 = $3 floor → 97
-    expect(result.maxAmount).toBe('97.000000');
+    expect(result.maxAmount).toBe('100.000000');
     expect(result.sources.map((s) => s.chainId)).toEqual([1]);
   });
 
@@ -292,8 +286,7 @@ describe('calculateMaxForBridge', () => {
     );
 
     expect(result.provider).toBe('mayan');
-    // 100 → 99 out → 3% = 2.97 < $3 → haircut $3 → 96
-    expect(result.maxAmount).toBe('96.000000');
+    expect(result.maxAmount).toBe('99.000000');
   });
 
   it('falls back to nexus when no source clears the Mayan per-leg minimum', async () => {
