@@ -770,6 +770,13 @@ executeSwapBridge(bridge, executedAssets, ctx, meta):   # bridges the ACTUAL wra
         #   On non-7702 the executor is the Safe, so funds flow EOA→Safe→ephemeral (transfer(eph) above).
         eoaBalance>0 but no prepared bridge-transfer → throw ExecutionError{
             stepType:'eoa_to_ephemeral_transfer', stepId: createEoaToEphemeralTransferStepId(chainId)}
+      bridge funding retry boundary (Mayan approve + Nexus deposit):
+        permit-preparation RPC failure → retry, at most 3 total attempts
+        direct approval / wallet rejection → terminal (an approval may already be known or mined)
+        7702 SBC result errored:true → re-submit the SAME signed SBC, at most 3 total attempts
+        transport failure → terminal (broadcast outcome is ambiguous)
+        errored:false → SDK waits for that txHash receipt; receipt failure is terminal
+        progress lifecycle events are emitted once around the logical funding/deposit operation
       waitForFill (DEFAULT_FILL_TIMEOUT_MINUTES = 5)        # races middleware-poll + on-chain vault watch
   meta.intent_request_hash set; meta.has_xcs = true
 

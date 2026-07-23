@@ -172,6 +172,13 @@ per-chain SBC submission, and receipt waits. The native-token ephemeral source p
 ordering requirement: if the ephemeral account is not delegated, the SDK sends and confirms an
 empty-calls SBC before prompting the EOA to send the payable execute transaction.
 
+Bridge funding preparation retries only transient permit-path RPC work, with three total attempts.
+Direct approvals and wallet rejections are terminal. For 7702 Mayan approvals and Nexus deposits, a
+structured middleware SBC result with `errored: true` is known to be unbroadcast, so the SDK may
+submit the same signed SBC again, also up to three total attempts. Transport failures are ambiguous
+and are never replayed. Once middleware returns a transaction hash, the SDK waits for its receipt
+and does not apply this funding retry policy to receipt failures.
+
 `base.ts` now assembles explicit flow deps (`chainList`, `timing`, `intentExplorerUrl`, `evm`,
 `middlewareClient`, and swap runtime deps where needed) and delegates to plain flow functions
 instead of building query objects or factory-returned method bags.
