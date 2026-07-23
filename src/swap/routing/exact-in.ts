@@ -8,11 +8,11 @@ import { equalFold } from '../../services/strings';
 import { withTimingSpan } from '../../services/timing';
 import { destinationSwapWithExactIn } from '../algorithms/destination';
 import { liquidateInputHoldings } from '../algorithms/liquidate';
+import { resolveExactInAmountBasis, selectExactInQuoteOutput } from '../amount-basis';
 import { resolveCOT, resolveSwapSettlement } from '../cot';
+import type { RouteOptions } from '../route';
 import type { AssetsUsedEntry, DestinationSwap, SwapRoute } from '../types';
 import { SwapMode } from '../types';
-import { resolveExactInAmountBasis, selectExactInQuoteOutput } from '../amount-basis';
-import type { RouteOptions } from '../route';
 import {
   buildExecutorAddressByChain,
   buildSourceRecipientAddressByChain,
@@ -61,10 +61,23 @@ type ResolvedCot = ReturnType<typeof resolveCOT>;
  */
 async function buildDynamicCotExactInRoute(
   data: ExactInData,
+  holdings: ExactInHolding[],
   options: RouteOptions,
   familyId: number
 ): Promise<SwapRoute | null> {
-  const fQuote = await fetchBridgeQuoteForCurrency(data.toChainId, familyId, options);
+  const sourceChainIds = [
+    ...new Set(
+      holdings
+        .filter((holding) => holding.chainID !== data.toChainId)
+        .map((holding) => holding.chainID)
+    ),
+  ];
+  const fQuote = await fetchBridgeQuoteForCurrency(
+    data.toChainId,
+    familyId,
+    sourceChainIds,
+    options
+  );
   if (!fQuote) return null;
   // EXACT_IN needs no source allowlist — the classifier already proved every holding is family F.
   return _exactInRoute(data, {
@@ -182,7 +195,11 @@ const buildExactInBridge = async (input: {
     input.options.timing,
     'flow.swap.route.build_bridge',
     async () => {
-      const { assets, grossBridged: bridgedCOT, feeSummary } = buildBridgeAssetsAndFees({
+      const {
+        assets,
+        grossBridged: bridgedCOT,
+        feeSummary,
+      } = buildBridgeAssetsAndFees({
         destinationChainId: input.data.toChainId,
         quoteResponses: input.sourceSwaps,
         cotSources: input.cotHoldings.map((holding) => ({ holding })),
@@ -323,10 +340,9 @@ export async function _exactInRoute(data: ExactInData, options: RouteOptions): P
     if (direct) return direct;
   }
 
-  // Settlement decision — shared with preflight via `resolveSwapSettlement` so the fee-quote token
-  // and the route can't drift. `sameTokenBridge` ⇒ every source is the same non-COT mesh family as
-  // the destination, so bridge that token directly EOA→EOA (skips the COT round-trip + buffers and
-  // makes its own provider decision). Otherwise settle through the COT.
+  // Settlement determines the route-scoped fee-quote currency. `sameTokenBridge` ⇒ every source is
+  // the same non-COT mesh family as the destination, so bridge that token directly EOA→EOA (skips
+  // the COT round-trip + buffers and makes its own provider decision). Otherwise settle through COT.
   const settlement = await withTimingSpan(
     options.timing,
     'flow.swap.route.resolve_settlement',
@@ -354,7 +370,7 @@ export async function _exactInRoute(data: ExactInData, options: RouteOptions): P
   // above). Re-enters this flow with cotCurrencyId = F so the sources ARE the COT (zero source swaps).
   if (fastPathClass?.kind === 'dynamic-cot') {
     const b2 = await tryFastPath('dynamic-cot', () =>
-      buildDynamicCotExactInRoute(data, options, fastPathClass.familyId)
+      buildDynamicCotExactInRoute(data, rawHoldings, options, fastPathClass.familyId)
     );
     if (b2) return b2;
   }
@@ -376,7 +392,20 @@ export async function _exactInRoute(data: ExactInData, options: RouteOptions): P
   // Bridge check: any source not on destination chain?
   const allOnDstChain = holdings.every((h) => h.chainID === data.toChainId);
   const allChainIds = new Set(holdings.map((h) => h.chainID));
-  if (!allOnDstChain && !options.bridgeQuoteResponse) {
+  const bridgeQuoteSourceChainIds = [...allChainIds].filter(
+    (chainId) => chainId !== data.toChainId
+  );
+  const bridgeQuoteResponse =
+    options.bridgeQuoteResponse ??
+    (bridgeQuoteSourceChainIds.length > 0
+      ? await fetchBridgeQuoteForCurrency(
+          data.toChainId,
+          currencyId,
+          bridgeQuoteSourceChainIds,
+          options
+        )
+      : null);
+  if (!allOnDstChain && !bridgeQuoteResponse) {
     throw Errors.internal('Bridge fee quote unavailable -- cannot route cross-chain swap');
   }
 
@@ -462,7 +491,7 @@ export async function _exactInRoute(data: ExactInData, options: RouteOptions): P
     ? { bridge: null, cotAvailableForDestination: totalCOT }
     : await buildExactInBridge({
         data,
-        options,
+        options: { ...options, bridgeQuoteResponse },
         dstCOT,
         currencyId,
         sourceSwaps,

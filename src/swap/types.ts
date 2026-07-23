@@ -17,9 +17,9 @@ import type {
   MiddlewareSwapExecutionClient,
 } from '../transport';
 import type { Aggregator, Holding, Quote, QuoteResponse } from './aggregators/types';
+import type { ExactInAmountBasis } from './amount-basis';
 import type { CurrencyID } from './cot';
 import type { SwapCache } from './wallet/cache';
-import type { ExactInAmountBasis } from './amount-basis';
 
 export type { OraclePriceResponse, QuoteResponse };
 export type { BridgeQuoteResponse };
@@ -391,7 +391,6 @@ export type ExecutionContext = {
   // EOA and there's no destination swap step. Carried on the execution context so dispatchers
   // don't need to read back the route shape.
   destinationDirectEoa: boolean;
-  bridgeQuoteResponse?: BridgeQuoteResponse;
   cache: SwapCache | undefined;
   preparedExecution?: PreparedSwapExecution;
   onProgress?: (update: SwapExecutionProgressUpdate) => void;

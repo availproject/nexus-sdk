@@ -118,8 +118,9 @@ executeBridge({toTokenSymbol:USDC, toAmountRaw:100e6, toChainId:Base}, deps, opt
     parallel:
       balances      = getBalancesForBridge(eoa)
       oraclePrices  = getOraclePrices()
-      quoteResponse = getQuote(buildQuoteRequest(USDC, Base))   # one quote: per-source deposit fees
       provider      = resolveBridgeProvider(mw, {dst:USDC@Base, amount:100e6}, false) # → 'nexus'  ◄ seam
+    quoteSources  = explicit sources ?? positive eligible USDC balance chains
+    quoteResponse = getQuote(buildQuoteRequest(USDC, Base, quoteSources)) # scoped deposit + fulfilment fees
     createBridgeIntent(provider='nexus'):                                             (§5)
       availableSources  = balances on every chain ≠ Base                # depositFee via 'deposit'
       baseAmount        = 100 + gasInToken                              # gasInToken=0 here
@@ -196,12 +197,16 @@ leg**.
 
 ## 5. Intent build reference
 
-`buildBridgeIntent` (`intent/builder.ts`) fans out four calls in parallel — balances, oracle prices,
-`getQuote`, `resolveBridgeProvider` — builds a USD resolver (balance‑derived price first, oracle
-fallback; `bridge-intent-values.test.ts`), then delegates to `createBridgeIntent`. `buildQuoteRequest`
-(`quote-request.ts`) enumerates the same‑currency token on every chain except the destination
-(currencyId first, symbol fallback, native skipped) — this single quote supplies **per‑source deposit
-fees**.
+`buildBridgeIntent` (`intent/builder.ts`) fetches balances, oracle prices, and provider selection in
+parallel. It then scopes `getQuote` to caller-provided source chains, or to positive eligible
+same-currency balances after the existing native-gas reservation when no source allowlist was
+provided. The balance-derived USD resolver still prefers balance pricing before its oracle fallback
+(`bridge-intent-values.test.ts`).
+
+`buildQuoteRequest` (`quote-request.ts`) requires explicit source chain IDs and resolves the
+same-currency token only on those chains (currencyId first, symbol fallback, native skipped). The
+destination remains present on the first call so middleware can calculate the fulfillment fee; the
+source entries supply the applicable per-source deposit fees without contacting unrelated chains.
 
 `createBridgeIntent` (`intent/creator.ts`) branches on `provider`:
 

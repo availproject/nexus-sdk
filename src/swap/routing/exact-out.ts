@@ -1,5 +1,5 @@
 import Decimal from 'decimal.js';
-import { formatUnits, parseUnits, type Hex } from 'viem';
+import { formatUnits, type Hex, parseUnits } from 'viem';
 import type { ChainListType } from '../../domain';
 import { Errors } from '../../domain/errors';
 import { logger } from '../../domain/utils';
@@ -17,6 +17,7 @@ import {
   SRC_BUFFER_PCT,
 } from '../constants';
 import { resolveCOT, resolveCurrencyId } from '../cot';
+import type { RouteOptions } from '../route';
 import type {
   AssetsUsedEntry,
   DestinationSwap,
@@ -25,7 +26,6 @@ import type {
   SwapRoute,
 } from '../types';
 import { SwapMode } from '../types';
-import type { RouteOptions } from '../route';
 import {
   buildExecutorAddressByChain,
   buildSourceRecipientAddressByChain,
@@ -71,9 +71,7 @@ const quoteExactOutDestination = async (input: {
   needsGasSwap: boolean;
   needsTokenSwap: boolean;
   estimatedInputAmountRaw?: Decimal;
-  timingSpan:
-    | 'flow.swap.route.quote_destination_requirement'
-    | 'flow.swap.route.quote_destination';
+  timingSpan: 'flow.swap.route.quote_destination_requirement' | 'flow.swap.route.quote_destination';
 }) => {
   const [tokenSwapQuote, gasSwapQuote] = await withTimingSpan(
     input.options.timing,
@@ -202,23 +200,18 @@ const resolveExactOutDestinationRequirement = async (
       })
     : 0n;
 
-  const {
-    tokenSwapQuote,
-    gasSwapQuote,
-    tokenInputAmount,
-    gasInputAmount,
-    inputAmount,
-  } = await quoteExactOutDestination({
-    data,
-    options,
-    dstCOT,
-    destinationQuoteAddress,
-    gasInCotBudgetRaw,
-    needsGasSwap,
-    needsTokenSwap,
-    estimatedInputAmountRaw,
-    timingSpan: 'flow.swap.route.quote_destination_requirement',
-  });
+  const { tokenSwapQuote, gasSwapQuote, tokenInputAmount, gasInputAmount, inputAmount } =
+    await quoteExactOutDestination({
+      data,
+      options,
+      dstCOT,
+      destinationQuoteAddress,
+      gasInCotBudgetRaw,
+      needsGasSwap,
+      needsTokenSwap,
+      estimatedInputAmountRaw,
+      timingSpan: 'flow.swap.route.quote_destination_requirement',
+    });
 
   if (needsTokenSwap && !tokenSwapQuote) {
     throw Errors.quoteFailed(
@@ -285,13 +278,25 @@ const tryExactOutFastPaths = async (
 
   if (fastPathClass?.kind === 'same-token-out') {
     const sameToken = await tryFastPath('same-token-out', () =>
-      buildSameTokenBridgeExactOutRoute(data, holdings, options, fastPathClass.familyId)
+      buildSameTokenBridgeExactOutRoute(data, holdings, options, fastPathClass.familyId, [
+        ...new Set(
+          roughlyEstimatedSources
+            .filter((holding) => holding.chainID !== data.toChainId)
+            .map((holding) => holding.chainID)
+        ),
+      ])
     );
     if (sameToken) return sameToken;
   }
   if (fastPathClass?.kind === 'dynamic-cot') {
     const dynamicCot = await tryFastPath('dynamic-cot', () =>
-      buildDynamicCotExactOutRoute(data, holdings, options, fastPathClass.familyId)
+      buildDynamicCotExactOutRoute(
+        data,
+        holdings,
+        roughlyEstimatedSources,
+        options,
+        fastPathClass.familyId
+      )
     );
     if (dynamicCot) return dynamicCot;
   }
@@ -358,6 +363,7 @@ const buildExactOutBridge = async (input: {
   usedCOTs: ExactOutSelection['usedCOTs'];
   gasInCot: Decimal;
   bridgeProvider: Awaited<ReturnType<typeof resolveBridgeProviderDecision>>['provider'];
+  bridgeQuoteResponse: NonNullable<RouteOptions['bridgeQuoteResponse']>;
   sourceChainCount: number;
 }): Promise<NonNullable<SwapRoute['bridge']>> =>
   withTimingSpan(
@@ -370,7 +376,7 @@ const buildExactOutBridge = async (input: {
         cotSources: input.usedCOTs,
         chainList: input.options.chainList,
         currencyId: input.options.cotCurrencyId,
-        bridgeQuoteResponse: input.options.bridgeQuoteResponse,
+        bridgeQuoteResponse: input.bridgeQuoteResponse,
         dstCOTDecimals: input.dstCOT.decimals,
       });
       if (!feeSummary) {
@@ -432,8 +438,7 @@ export async function _exactOutRoute(
         dstChainId: data.toChainId,
         dstTokenAddress: data.toTokenAddress,
         cotCurrencyId,
-        allowDirectDestination:
-          data.toAmountRaw >= 0n && (data.toNativeAmountRaw ?? 0n) >= 0n,
+        allowDirectDestination: data.toAmountRaw >= 0n && (data.toNativeAmountRaw ?? 0n) >= 0n,
         hasGasRequest: (data.toNativeAmountRaw ?? 0n) > 0n,
         toAmountRaw: data.toAmountRaw,
         mode: SwapMode.EXACT_OUT,
@@ -457,7 +462,13 @@ export async function _exactOutRoute(
       sourceCount: holdings.length,
       settlementCurrencyId: fastPathClass.familyId,
     });
-    return buildSameTokenBridgeExactOutRoute(data, holdings, options, fastPathClass.familyId);
+    return buildSameTokenBridgeExactOutRoute(data, holdings, options, fastPathClass.familyId, [
+      ...new Set(
+        holdings
+          .filter((holding) => holding.chainID !== data.toChainId)
+          .map((holding) => holding.chainID)
+      ),
+    ]);
   }
 
   const dstCOT = await withTimingSpan(
@@ -580,6 +591,24 @@ export async function _exactOutRoute(
   );
   if (fastPathRoute) return fastPathRoute;
 
+  const bridgeQuoteSourceChainIds = [
+    ...new Set(
+      roughlyEstimatedSources
+        .filter((holding) => holding.chainID !== data.toChainId)
+        .map((holding) => holding.chainID)
+    ),
+  ];
+  const bridgeQuoteResponse =
+    options.bridgeQuoteResponse ??
+    (bridgeQuoteSourceChainIds.length > 0
+      ? await fetchBridgeQuoteForCurrency(
+          data.toChainId,
+          options.cotCurrencyId,
+          bridgeQuoteSourceChainIds,
+          options
+        )
+      : null);
+
   const { bridgeProvider, minOutputUsdPerSource } = await resolveExactOutProvider(
     data,
     options,
@@ -617,7 +646,7 @@ export async function _exactOutRoute(
       dstChainId: data.toChainId,
       dstCOT,
       cotCurrencyId,
-      bridgeQuoteResponse: options.bridgeQuoteResponse,
+      bridgeQuoteResponse,
     },
     options
   );
@@ -705,9 +734,6 @@ export async function _exactOutRoute(
 
   const allSourceChainIds = collectSourceChainIds();
   const allOnDstChain = [...allSourceChainIds].every((id) => id === data.toChainId);
-  if (!allOnDstChain && !options.bridgeQuoteResponse) {
-    throw Errors.internal('Bridge fee quote unavailable -- cannot route cross-chain swap');
-  }
   // selectionTarget = net delivery (sourceBufferedRequired, which includes gasInCot via inputAmount)
   // + the up-front bridge-fee estimate. The fee is already folded in, so there is no iterative
   // fee-adjusted re-select; coverage was checked against selectionTarget above.
@@ -730,18 +756,23 @@ export async function _exactOutRoute(
   );
   const bridgeNeeded = !allOnDstChain && bridgeTotalCot.gt(0);
 
-  const bridge = bridgeNeeded
-    ? await buildExactOutBridge({
-        data,
-        options,
-        dstCOT,
-        quoteResponses,
-        usedCOTs,
-        gasInCot: gasInputAmount,
-        bridgeProvider,
-        sourceChainCount: allSourceChainIds.size,
-      })
-    : null;
+  let bridge: SwapRoute['bridge'] = null;
+  if (bridgeNeeded) {
+    if (!bridgeQuoteResponse) {
+      throw Errors.internal('Bridge fee quote unavailable -- cannot route cross-chain swap');
+    }
+    bridge = await buildExactOutBridge({
+      data,
+      options,
+      dstCOT,
+      quoteResponses,
+      usedCOTs,
+      gasInCot: gasInputAmount,
+      bridgeProvider,
+      bridgeQuoteResponse,
+      sourceChainCount: allSourceChainIds.size,
+    });
+  }
 
   // Build buffer amount string
   const bufferAmount = sourceBufferedRequired.minus(dstInputAmount.min).toString();
@@ -862,10 +893,23 @@ export async function _exactOutRoute(
 async function buildDynamicCotExactOutRoute(
   data: ExactOutData,
   holdings: SourceHolding[],
+  roughlyEstimatedSources: SourceHolding[],
   options: RouteOptions,
   familyId: number
 ): Promise<SwapRoute | null> {
-  const fQuote = await fetchBridgeQuoteForCurrency(data.toChainId, familyId, options);
+  const sourceChainIds = [
+    ...new Set(
+      roughlyEstimatedSources
+        .filter((holding) => holding.chainID !== data.toChainId)
+        .map((holding) => holding.chainID)
+    ),
+  ];
+  const fQuote = await fetchBridgeQuoteForCurrency(
+    data.toChainId,
+    familyId,
+    sourceChainIds,
+    options
+  );
   if (!fQuote) return null;
   // Restrict the re-entry to the family-F holdings (the allowlist `filterExactOutBalances` honors) →
   // every source is a COT ⇒ zero source swaps. Insufficient F inside throws `insufficientBalance` ⇒

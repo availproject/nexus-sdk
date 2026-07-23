@@ -883,7 +883,6 @@ const executeEphemeralBridgePath = async (
   bridgedAssets: BridgeAsset[],
   ctx: Pick<
     ExecutionContext,
-    | 'bridgeQuoteResponse'
     | 'cache'
     | 'chainList'
     | 'destinationDirectEoa'
@@ -1266,7 +1265,6 @@ export const executeSwapBridge = async (
   assets: BridgeAsset[],
   ctx: Pick<
     ExecutionContext,
-    | 'bridgeQuoteResponse'
     | 'cache'
     | 'chainList'
     | 'destinationDirectEoa'

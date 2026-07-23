@@ -6,7 +6,7 @@ import {
   buildQuoteRequest,
   resolveBridgeProvider,
 } from '../../bridge/intent/quote-request';
-import type { ChainListType } from '../../domain';
+import type { ChainListType, TokenInfo } from '../../domain';
 import { Errors } from '../../domain/errors';
 import { logger } from '../../domain/utils';
 import { isNativeAddress } from '../../services/addresses';
@@ -19,6 +19,7 @@ import {
 import type { QuoteResponse } from '../aggregators/types';
 import { resolveExactInAmountBasis, selectExactInQuoteOutput } from '../amount-basis';
 import { resolveCOT } from '../cot';
+import type { RouteOptions } from '../route';
 import type {
   BridgeAsset,
   BridgeQuoteResponse,
@@ -26,7 +27,6 @@ import type {
   SourceChainCOT,
   SwapRoute,
 } from '../types';
-import type { RouteOptions } from '../route';
 
 // Decide the bridge provider (Mayan vs Nexus) once, at the start of a route, by asking the
 // middleware (which owns the USD threshold + destination mayanEnabled checks) about the
@@ -457,8 +457,7 @@ export const buildBridgeAssetsAndFees = (input: {
       contractAddress: cot?.address ?? source.holding.tokenAddress,
       decimals: cot?.decimals ?? 6,
       balance: 'eoaBalance',
-      amount:
-        source.amountUsed ?? divDecimals(source.holding.amountRaw, cot?.decimals ?? 6),
+      amount: source.amountUsed ?? divDecimals(source.holding.amountRaw, cot?.decimals ?? 6),
     });
   }
 
@@ -483,21 +482,32 @@ export const buildBridgeAssetsAndFees = (input: {
   };
 };
 
-// Fetch a bridge-fee quote denominated in a specific currency's token on the destination chain.
-// Non-COT fast paths call this mid-route because their fees follow the bridged token and reusing the
-// preflight COT quote would be a decimal trap. Returns null on any failure (unknown token, getQuote
-// reject) so the caller can fall back to the COT flow.
+// Fetch a bridge-fee quote denominated in a specific currency's token on the destination chain and
+// scoped to the route's eligible remote source chains. Returns null on any failure (unknown token,
+// getQuote reject) so fast-path callers can fall back to the COT flow.
 export const fetchBridgeQuoteForCurrency = async (
   dstChainId: number,
   currencyId: number,
+  sourceChainIds: number[],
   options: Pick<RouteOptions, 'chainList' | 'middlewareClient'>
 ): Promise<BridgeQuoteResponse | null> => {
   try {
-    const token = options.chainList.getTokenByCurrencyId(dstChainId, currencyId);
+    let token: TokenInfo;
+    try {
+      token = options.chainList.getTokenByCurrencyId(dstChainId, currencyId);
+    } catch (error) {
+      const nativeToken = options.chainList.getNativeToken(dstChainId);
+      const nativeCurrencyId =
+        nativeToken.currencyId ??
+        options.chainList.getChainByID(dstChainId).nativeCurrency.currencyId ??
+        options.chainList.getTokenByAddress(dstChainId, nativeToken.contractAddress)?.currencyId;
+      if (nativeCurrencyId !== currencyId) throw error;
+      token = nativeToken;
+    }
     const quoteToken = isNativeAddress(token.contractAddress)
       ? options.chainList.getNativeToken(dstChainId)
       : token;
-    const request = buildQuoteRequest(options.chainList, quoteToken, dstChainId);
+    const request = buildQuoteRequest(options.chainList, quoteToken, dstChainId, sourceChainIds);
     return await options.middlewareClient.getQuote(request);
   } catch {
     return null;

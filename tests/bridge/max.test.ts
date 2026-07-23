@@ -1,5 +1,6 @@
 import Decimal from 'decimal.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { toHex } from 'viem';
 import type { BridgeProvider } from '@avail-project/nexus-types';
 import type { BridgeTokenBalance, TokenInfo } from '../../src/domain';
 import { Universe } from '../../src/domain/chain-abstraction';
@@ -257,13 +258,22 @@ describe('calculateMaxForBridge', () => {
       }),
     ]);
 
+    const options = makeOptions({ quote: zeroFeeQuote([1, 10], 137) });
+    const getQuote = vi.spyOn(options.middlewareClient, 'getQuote');
     const result = await calculateMaxForBridge(
       { toChainId: 137, toTokenSymbol: 'USDC', sources: [1] },
-      makeOptions({ quote: zeroFeeQuote([1, 10], 137) })
+      options
     );
 
     expect(result.maxAmount).toBe('100.000000');
     expect(result.sources.map((s) => s.chainId)).toEqual([1]);
+    expect(getQuote).toHaveBeenCalledWith({
+      sources: [{ chain_id: toHex(1), contract_address: USDC.contractAddress }],
+      destination: {
+        chain_id: toHex(137),
+        contract_address: USDC.contractAddress,
+      },
+    });
   });
 
   it('forceMayan overrides the middleware provider decision', async () => {

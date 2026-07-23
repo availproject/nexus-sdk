@@ -7,8 +7,8 @@ import { logger } from '../../domain/utils';
 import { isNativeAddress } from '../../services/addresses';
 import { divDecimals, mulDecimals } from '../../services/math';
 import { selectMayanQuoteOutput } from '../../services/mayan';
-import { estimateRepresentativeSwapNativeReserveFee } from '../../services/swap-native-reserve-fee';
 import { equalFold } from '../../services/strings';
+import { estimateRepresentativeSwapNativeReserveFee } from '../../services/swap-native-reserve-fee';
 import { withTimingSpan } from '../../services/timing';
 import type { Holding } from '../aggregators/types';
 import type { SourceHolding } from '../algorithms/auto-select';
@@ -17,8 +17,10 @@ import {
   sizeDirectDestinationExactOut,
 } from '../algorithms/direct-destination-size';
 import { liquidateInputHoldings } from '../algorithms/liquidate';
+import { resolveExactInAmountBasis, selectExactInQuoteOutput } from '../amount-basis';
 import { B2_STABLE_CURRENCY_IDS } from '../constants';
 import { type CurrencyID, resolveCOT, resolveCurrencyId } from '../cot';
+import type { RouteOptions } from '../route';
 import type {
   AssetsUsedEntry,
   BridgeAsset,
@@ -27,8 +29,6 @@ import type {
   SwapRoute,
 } from '../types';
 import { SwapMode } from '../types';
-import { resolveExactInAmountBasis, selectExactInQuoteOutput } from '../amount-basis';
-import type { RouteOptions } from '../route';
 import {
   buildExecutorAddressByChain,
   buildSourceRecipientAddressByChain,
@@ -578,9 +578,16 @@ export async function buildSameTokenBridgeRoute(
     });
   }
 
-  if (assets.length > 0 && !options.bridgeQuoteResponse) {
-    throw Errors.internal('Bridge fee quote unavailable -- cannot route cross-chain swap');
-  }
+  const bridgeQuoteResponse =
+    options.bridgeQuoteResponse ??
+    (assets.length > 0
+      ? await fetchBridgeQuoteForCurrency(
+          dstChainId,
+          settlementCurrencyId,
+          assets.map((asset) => asset.chainID),
+          options
+        )
+      : null);
 
   let bridge: SwapRoute['bridge'] = null;
   let deliveredFromBridge = new Decimal(0);
@@ -589,7 +596,6 @@ export async function buildSameTokenBridgeRoute(
       (sum, asset) => sum.plus(asset.eoaBalance).plus(asset.ephemeralBalance),
       new Decimal(0)
     );
-    const bridgeQuoteResponse = options.bridgeQuoteResponse;
     if (!bridgeQuoteResponse) {
       throw Errors.internal('Bridge fee quote unavailable -- cannot route cross-chain swap');
     }
@@ -628,8 +634,7 @@ export async function buildSameTokenBridgeRoute(
     if (bridge.provider === 'mayan' && bridge.mayanQuotesBySource) {
       const bridgeDecimals = bridge.decimals;
       deliveredFromBridge = [...bridge.mayanQuotesBySource.values()].reduce(
-        (sum, quote) =>
-          sum.plus(selectMayanQuoteOutput(quote, bridgeDecimals, exactInAmountBasis)),
+        (sum, quote) => sum.plus(selectMayanQuoteOutput(quote, bridgeDecimals, exactInAmountBasis)),
         new Decimal(0)
       );
       bridge = {
@@ -709,7 +714,8 @@ export async function buildSameTokenBridgeExactOutRoute(
   data: { toChainId: number; toTokenAddress: Hex; toAmountRaw: bigint },
   holdings: SourceHolding[],
   options: RouteOptions,
-  settlementCurrencyId: number
+  settlementCurrencyId: number,
+  quoteSourceChainIds: number[]
 ): Promise<SwapRoute> {
   const { chainList, oraclePrices, dstTokenInfo, walletPathHints, aggregators, publicClientList } =
     options;
@@ -718,15 +724,20 @@ export async function buildSameTokenBridgeExactOutRoute(
     ? ZERO_ADDRESS
     : (dstTokenInfo.contractAddress as Hex);
 
-  // F-denominated bridge-fee quote (fees follow the bridged token — the preflight USDC quote would be
-  // a decimal trap). Null ⇒ fall back.
+  // F-denominated bridge-fee quote scoped to the path's remote source candidates. Fees follow the
+  // bridged token, so reusing a COT-denominated quote would be a decimal trap. Null ⇒ fall back.
   const fQuote = await withTimingSpan(
     options.timing,
     'flow.swap.route.resolve_settlement',
     async () =>
       settlementCurrencyId === options.cotCurrencyId && options.bridgeQuoteResponse
         ? options.bridgeQuoteResponse
-        : fetchBridgeQuoteForCurrency(dstChainId, settlementCurrencyId, options),
+        : fetchBridgeQuoteForCurrency(
+            dstChainId,
+            settlementCurrencyId,
+            quoteSourceChainIds,
+            options
+          ),
     { tags: { mode: SwapMode.EXACT_OUT, route_path: 'same_token' } }
   );
   if (!fQuote) {

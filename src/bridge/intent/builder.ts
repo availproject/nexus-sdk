@@ -117,21 +117,19 @@ export const buildBridgeIntent = async (
     );
   }
 
-  const quoteRequest = buildQuoteRequest(deps.chainList, input.dstToken, input.dstChainId);
   const bridgeProviderRequest = buildBridgeProviderRequest(
     input.dstToken,
     input.dstChainId,
     input.tokenAmount
   );
 
-  const [assets, oraclePrices, quoteResponse, provider] = await Promise.all([
+  const [assets, oraclePrices, provider] = await Promise.all([
     getBalancesForBridge({
       middlewareClient: deps.middlewareClient,
       evmAddress: deps.evm.address,
       chainList: deps.chainList,
     }),
     deps.middlewareClient.getOraclePrices(),
-    deps.middlewareClient.getQuote(quoteRequest),
     resolveBridgeProvider(deps.middlewareClient, bridgeProviderRequest, input.forceMayan),
   ]);
 
@@ -141,6 +139,22 @@ export const buildBridgeIntent = async (
   });
 
   const userAssets = createUserAssets(assets);
+  const quoteSourceChainIds =
+    sourceChains.length > 0
+      ? sourceChains
+      : (
+          await userAssets
+            .find({
+              currencyId: input.dstToken.currencyId,
+              symbol: input.dstToken.symbol,
+            })
+            .iterate(deps.chainList)
+        )
+          .filter((entry) => entry.chain.id !== input.dstChainId && entry.balance.gt(0))
+          .map((entry) => entry.chain.id);
+  const quoteResponse = await deps.middlewareClient.getQuote(
+    buildQuoteRequest(deps.chainList, input.dstToken, input.dstChainId, quoteSourceChainIds)
+  );
 
   const tokenAmountInDecimal = divDecimals(input.tokenAmount, input.dstToken.decimals);
   const gasInNativeToken = divDecimals(input.nativeAmount, input.dstChainNativeDecimals);

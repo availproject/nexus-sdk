@@ -62,10 +62,7 @@ export async function calculateMaxForBridge(
 
   const sourceFilter = input.sources ?? [];
 
-  const [assets, quoteResponse] = await Promise.all([
-    getBalancesForBridge({ middlewareClient, evmAddress, chainList }),
-    middlewareClient.getQuote(buildQuoteRequest(chainList, dstToken, input.toChainId)),
-  ]);
+  const assets = await getBalancesForBridge({ middlewareClient, evmAddress, chainList });
 
   const asset = createUserAssets(assets).find({
     currencyId: dstToken.currencyId,
@@ -77,6 +74,14 @@ export async function calculateMaxForBridge(
       entry.chain.id !== input.toChainId &&
       entry.balance.gt(0) &&
       (sourceFilter.length === 0 || sourceFilter.includes(entry.chain.id))
+  );
+  const quoteResponse = await middlewareClient.getQuote(
+    buildQuoteRequest(
+      chainList,
+      dstToken,
+      input.toChainId,
+      entries.map((entry) => entry.chain.id)
+    )
   );
 
   // Provider decision: hand the middleware the summed bridge amount (in destination token
