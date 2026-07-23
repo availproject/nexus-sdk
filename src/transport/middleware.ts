@@ -40,6 +40,7 @@ import { logger } from '../domain/utils';
 import { addressString, hexString } from '../domain/utils/validation';
 import { convertAddressByUniverse } from '../services/addresses';
 import { equalFold } from '../services/strings';
+import { minutesToMs } from '../services/time';
 import { getFallbackTokenLogoDataUri } from '../services/token-logo';
 import { EADDRESS } from '../swap/constants';
 import { createSafeMiddlewareClient } from '../swap/safe/client';
@@ -71,10 +72,7 @@ export type MiddlewareClient = {
   simulateBundleV2: (request: SimulationRequest) => Promise<{ gas: bigint[] }>;
   submitSBCs: (sbcTxs: SBCTx[]) => Promise<SBCResult[]>;
   getLiFiQuote: (params: Record<string, string>, exactOut?: boolean) => Promise<unknown>;
-  getBebopQuote: (
-    params: Record<string, string>,
-    api?: 'aggregation' | 'rfq'
-  ) => Promise<unknown>;
+  getBebopQuote: (params: Record<string, string>, api?: 'aggregation' | 'rfq') => Promise<unknown>;
   getFibrousQuote: (params: Record<string, string>) => Promise<unknown>;
   getFibrousRoute: (params: Record<string, string>) => Promise<unknown>;
   getZeroExQuote: (params: Record<string, string>) => Promise<unknown>;
@@ -630,7 +628,8 @@ export const createMiddlewareClient = (
 
   const client = axios.create({
     baseURL: middlewareURL,
-    timeout: 30000,
+    // Since middleware waits for receipt for now - increasing this temporarily
+    timeout: minutesToMs(1.5),
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
