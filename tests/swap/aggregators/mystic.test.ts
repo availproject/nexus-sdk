@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { SLIPPAGE_BPS } from '../../../src/swap/aggregators/constants';
 import { MysticAggregator } from '../../../src/swap/aggregators/mystic';
 import { QuoteSeriousness, QuoteType, type QuoteRequest } from '../../../src/swap/aggregators/types';
 
@@ -80,6 +81,7 @@ describe('MysticAggregator', () => {
     expect(quoteBody.buyToken).toBe(OUTPUT);
     expect(quoteBody.sellAmount).toBe('1000000');
     expect(quoteBody.taker).toBe('0x1111111111111111111111111111111111111111');
+    expect(quoteBody.slippageBps).toBe(SLIPPAGE_BPS);
 
     const [buildPath, buildBody] = postFn.mock.calls[1];
     expect(buildPath).toBe('v1/swap/build');

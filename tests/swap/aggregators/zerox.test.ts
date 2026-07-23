@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { SLIPPAGE_BPS_STRING } from '../../../src/swap/aggregators/constants';
 import { ZeroExAggregator } from '../../../src/swap/aggregators/zerox';
 import { QuoteSeriousness, QuoteType, type QuoteRequest } from '../../../src/swap/aggregators/types';
 
@@ -120,7 +121,7 @@ describe('ZeroExAggregator', () => {
     expect(params.buyToken).toBe(OUTPUT);
     expect(params.taker).toBe('0x1111111111111111111111111111111111111111');
     expect(params.recipient).toBe('0x2222222222222222222222222222222222222222');
-    expect(params.slippageBps).toBe('25');
+    expect(params.slippageBps).toBe(SLIPPAGE_BPS_STRING);
     expect(params.sellAmount).toBe('1000000');
     expect(params.buyAmount).toBeUndefined();
   });

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { encodeFunctionData, parseAbi, zeroAddress } from 'viem';
+import { SLIPPAGE_BPS_STRING } from '../../../src/swap/aggregators/constants';
 import { RelayAggregator } from '../../../src/swap/aggregators/relay';
 import { QuoteSeriousness, QuoteType, type QuoteRequest } from '../../../src/swap/aggregators/types';
 import { EADDRESS, ZERO_ADDRESS } from '../../../src/domain/constants/addresses';
@@ -70,7 +71,7 @@ const asProxy = (fn: unknown) => fn as (params: Record<string, string>) => Promi
 describe('RelayAggregator', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('sends same-chain EXACT_INPUT params at 25 bps slippage', async () => {
+  it('sends same-chain EXACT_INPUT params with the configured slippage', async () => {
     const getQuote = vi.fn().mockResolvedValue(makeResponse());
     await new RelayAggregator(asProxy(getQuote)).getQuotes([makeRequest()]);
 
@@ -83,7 +84,7 @@ describe('RelayAggregator', () => {
     expect(params.destinationCurrency).toBe(OUTPUT);
     expect(params.amount).toBe('1000000');
     expect(params.tradeType).toBe('EXACT_INPUT');
-    expect(params.slippageTolerance).toBe('25');
+    expect(params.slippageTolerance).toBe(SLIPPAGE_BPS_STRING);
   });
 
   it('maps EXACT_IN → slippage-protected output (currencyOut.minimumAmount), swap step tx', async () => {

@@ -37,6 +37,7 @@ untested (this map exists because that scoping mistake has bitten twice):
 | `determineSwapRoute` / `resolveWalletDecisions` | `tests/swap/route.test.ts`, `tests/swap/route-swap-supported.test.ts` |
 | Selection & destination algorithms | `tests/swap/algorithms/*.test.ts` |
 | Aggregators (+ adapters) | `tests/swap/aggregators/*.test.ts` |
+| Aggregator quote slippage | `tests/swap/aggregators/constants.test.ts` |
 | Intent / bridge-intent / plan / prepare | `tests/swap/{intent,bridge-intent,swap-steps-builder,prepare}.test.ts` |
 | Execution (source / bridge / destination / cleanup / safe-dispatch) | `tests/swap/execution/*.test.ts` |
 | Wallet primitives (SBC, stark, derived-key, cache, capabilities, eoa-executor, sweep, cot) | `tests/swap/wallet/*.test.ts`, `tests/swap/{sweep,cot}.test.ts` |
@@ -562,6 +563,13 @@ aggregateAggregators(requests, aggregators, mode):
 createAggregators(mw) → [LiFi, Bebop, Fibrous, 0x, Mystic, Relay]
 ```
 
+Adapters that accept a slippage tolerance share `SLIPPAGE_BPS = 50` (0.5%). 0x and Relay receive
+the value as a basis-point string, Mystic receives it as a basis-point number, LiFi receives the
+fractional form (`0.005`), and Fibrous receives the percentage form (`0.5`) while using the same
+basis-point value for its local survey floor. `tests/swap/aggregators/constants.test.ts` pins this
+policy and its derived wire forms; adapter tests reference the matching provider-native constant
+directly.
+
 All adapters map a middleware response to a `Quote`, return `null` on throw/timeout, short‑circuit
 unsupported chains **without firing a request**, and send **no API‑key headers** (the proxy handles
 auth). Every normalized `Quote` has both a required `output` (the **slippage-protected executable
@@ -1080,6 +1088,9 @@ The gaps from the original audit have been addressed:
   retry/slippage values to source. (This corrected the EXACT_OUT source buffer from a guessed
   `0.5%` to the real `SRC_BUFFER_PCT = 2%` — the worked route example clamps to `$1` under either
   percentage, so it couldn't disambiguate.)_
+- _**Aggregator quote slippage** — `tests/swap/aggregators/constants.test.ts` separately pins the
+  shared 50 bps policy and its provider wire forms; adapter tests reference the matching
+  provider-native constant directly._
 - _**`max-pipeline.test.ts`** — the stale "`describe()` is `.skip'd`" header was removed; it runs
   and passes under the smart‑account‑only model._
 - _**`swapAndExecute`** — already covered: the post‑swap `execute({to, gas})` behaviour lives in
