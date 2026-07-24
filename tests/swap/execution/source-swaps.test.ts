@@ -218,6 +218,7 @@ const makeCtx = (
   } as unknown as WalletClient,
   publicClientList: {
     get: vi.fn().mockReturnValue({
+      call: vi.fn().mockResolvedValue({ data: '0x' }),
       getCode: vi.fn().mockResolvedValue(undefined),
       multicall: vi.fn().mockResolvedValue([]),
       waitForTransactionReceipt: vi.fn().mockResolvedValue({
@@ -1018,6 +1019,44 @@ describe('executeSourceSwaps', () => {
       },
     ]);
     expect(metadata.src[0]?.tx_hash).toBe('0xeoa_native_tx');
+  });
+
+  it('simulates a native Calibur execution before prompting the wallet', async () => {
+    const ctx = makeCtx('ephemeral');
+    ctx.cache = {
+      ...ctx.cache,
+      hasAuthCodeSet: vi.fn().mockReturnValue(true),
+    } as unknown as ExecutionContext['cache'];
+    const publicClient = ctx.publicClientList.get(ARB_CHAIN);
+    vi.mocked(publicClient.call).mockRejectedValueOnce(new Error('quote expired'));
+
+    await expect(
+      dispatchSourceChainBatch({
+        chainId: ARB_CHAIN,
+        calls: [
+          {
+            to: '0x3333333333333333333333333333333333333333',
+            data: '0xfeedface',
+            value: 5n,
+          },
+        ],
+        nativeValue: 5n,
+        ctx,
+      })
+    ).rejects.toMatchObject({ code: 'simulation/eth_call_failed' });
+
+    expect(publicClient.call).toHaveBeenCalledWith({
+      account: ctx.eoaAddress,
+      to: ctx.ephemeralWallet.address,
+      data: expect.any(String),
+      value: 5n,
+    });
+    expect(ctx.eoaWallet.getChainId).not.toHaveBeenCalled();
+    expect(ctx.eoaWallet.switchChain).not.toHaveBeenCalled();
+    expect(ctx.eoaWallet.sendTransaction).not.toHaveBeenCalled();
+    expect(ctx.onProgress).not.toHaveBeenCalledWith(
+      expect.objectContaining({ state: 'wallet_prompted' })
+    );
   });
 
   it('dispatches all chains before waiting for receipts', async () => {

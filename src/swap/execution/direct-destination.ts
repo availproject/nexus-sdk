@@ -254,7 +254,8 @@ const isDefinitiveFailure = (error: unknown): boolean =>
   error instanceof NexusError &&
   (error.code === ERROR_CODES.EXEC_TX_ONCHAIN_REVERTED ||
     error.code === ERROR_CODES.EXEC_TX_SUBMISSION_REVERTED ||
-    error.code === ERROR_CODES.BACKEND_SBC_SUBMIT_FAILED);
+    error.code === ERROR_CODES.BACKEND_SBC_SUBMIT_FAILED ||
+    error.code === ERROR_CODES.SIMULATION_ETH_CALL_FAILED);
 
 const isRetryableDispatchFailure = (error: unknown, dispatched?: DispatchedSourceBatch): boolean =>
   isDefinitiveFailure(error) ||

@@ -8,7 +8,12 @@ import {
 } from 'viem';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getLogger } from '../../../src/domain';
-import { BackendError, ERROR_CODES, Errors } from '../../../src/domain/errors';
+import {
+  BackendError,
+  ERROR_CODES,
+  Errors,
+  SimulationError,
+} from '../../../src/domain/errors';
 import { PermitVariant } from '../../../src/domain/permits';
 import { BebopAggregator } from '../../../src/swap/aggregators/bebop';
 import type { Aggregator, QuoteResponse } from '../../../src/swap/aggregators/types';
@@ -477,6 +482,46 @@ describe('executeDirectDestinationExactOut', () => {
     vi.mocked(sizeDirectDestinationExactOut).mockResolvedValueOnce([nativeSwap]);
     vi.mocked(dispatchSourceChainBatch)
       .mockRejectedValueOnce(new Error('wallet submission failed before returning a hash'))
+      .mockResolvedValueOnce({
+        chainId: CHAIN_ID,
+        walletPath: 'ephemeral',
+        submittedTxHash: TX_HASH,
+        waitForReceipt: vi.fn().mockResolvedValue(TX_HASH),
+      });
+
+    await executeDirectDestinationExactOut(
+      makeRoute([nativeSwap]),
+      makeContext(makePreparedExecution([nativeSwap])),
+      makeMetadata()
+    );
+
+    expect(sizeDirectDestinationExactOut).toHaveBeenCalledTimes(1);
+    expect(dispatchSourceChainBatch).toHaveBeenCalledTimes(2);
+  });
+
+  it('requotes after a pre-submit native simulation failure', async () => {
+    const nativeSwap = makeSwap(
+      100_000_000_000_000_000n,
+      WETH,
+      200_000_000_000_000_000n,
+      'token'
+    );
+    nativeSwap.holding.tokenAddress = EADDRESS;
+    nativeSwap.holding.amountRaw = nativeSwap.quote.input.amountRaw;
+    nativeSwap.holding.decimals = 18;
+    nativeSwap.holding.symbol = 'ETH';
+    nativeSwap.quote.input.contractAddress = EADDRESS;
+    nativeSwap.quote.input.decimals = 18;
+    nativeSwap.quote.input.symbol = 'ETH';
+    vi.mocked(sizeDirectDestinationExactOut).mockResolvedValueOnce([nativeSwap]);
+    vi.mocked(dispatchSourceChainBatch)
+      .mockRejectedValueOnce(
+        new SimulationError(
+          ERROR_CODES.SIMULATION_ETH_CALL_FAILED,
+          'Native source transaction simulation failed: quote expired',
+          { context: { service: 'rpc', chainId: CHAIN_ID } }
+        )
+      )
       .mockResolvedValueOnce({
         chainId: CHAIN_ID,
         walletPath: 'ephemeral',

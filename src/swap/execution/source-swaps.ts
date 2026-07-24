@@ -36,6 +36,7 @@ import type {
   WalletPath,
 } from '../types';
 import { chainSupports7702 } from '../wallet/capabilities';
+import { simulateEoaTransaction } from './eoa-simulation';
 import { resolvePreparedFundingTransferCalls } from './eoa-to-ephemeral';
 import { getParsedQuote } from './parsed-quote';
 import { dispatchSafeSource } from './safe-dispatch';
@@ -213,11 +214,13 @@ export const dispatchSourceChainBatch = async (input: {
   const publicClient = ctx.publicClientList.get(chainId);
 
   if (chain && !chainSupports7702(chain)) {
-    ctx.onProgress?.({
-      stepType: 'source_swap',
-      chainId,
-      state: nativeValue > 0n ? 'wallet_prompted' : 'started',
-    });
+    if (nativeValue === 0n) {
+      ctx.onProgress?.({
+        stepType: 'source_swap',
+        chainId,
+        state: 'started',
+      });
+    }
     const { txHash } = await dispatchSafeSource({
       chain,
       chainId,
@@ -228,6 +231,11 @@ export const dispatchSourceChainBatch = async (input: {
       eoaAddress: ctx.eoaAddress,
       publicClient,
       middleware: ctx.middlewareClient,
+      onWalletPrompt:
+        nativeValue > 0n
+          ? () => ctx.onProgress?.({ stepType: 'source_swap', chainId, state: 'wallet_prompted' })
+          : undefined,
+      simulationStep: sourceSwapStep(chainId),
     });
     const explorerUrl = createExplorerTxURL(txHash, chain.blockExplorers?.default?.url);
     ctx.onProgress?.({
@@ -270,7 +278,6 @@ export const dispatchSourceChainBatch = async (input: {
       ctx.cache?.markAuthCodeSet?.(ctx.ephemeralWallet.address, chainId);
     }
 
-    ctx.onProgress?.({ stepType: 'source_swap', chainId, state: 'wallet_prompted' });
     const tx = await createCaliburExecuteTxFromCalls({
       calls,
       chainID: chainId,
@@ -278,6 +285,14 @@ export const dispatchSourceChainBatch = async (input: {
       ephemeralWallet: ctx.ephemeralWallet,
       value: nativeValue,
     });
+    await simulateEoaTransaction({
+      publicClient,
+      eoaAddress: ctx.eoaAddress,
+      chainId,
+      transaction: tx,
+      step: sourceSwapStep(chainId),
+    });
+    ctx.onProgress?.({ stepType: 'source_swap', chainId, state: 'wallet_prompted' });
     await switchChain(ctx.eoaWallet, chain);
     const txHash = await ctx.eoaWallet.sendTransaction({
       account: ctx.eoaAddress,

@@ -703,6 +703,8 @@ executeDirectDestinationExactOut(route, ctx, meta):
       needed = Σ inputRaw across that token's token/gas sibling legs
       calls += [one permit?, one transferFrom(eoa→executor, needed)] before its first leg
       calls += each leg's [approve(router)?, swap]
+    native input → eth_call the exact Calibur/Safe EOA transaction before any wallet interaction
+                   simulation revert → fresh re-size, then retry without prompting the wallet
     dispatchSourceChainBatch(one atomic dst-chain batch); reconcile a known hash; await receipt
     confirmed → meta.src += the confirmed batch and return
     confirmed revert / explicit no-broadcast result → fresh re-size, then retry
@@ -724,7 +726,8 @@ executeSourceSwaps(source, ctx, meta) -> BridgeAsset[]:
                                                        #   writeContract, mined BEFORE the batch, kept OFF it
                                                        # native input: bootstrap Calibur (empty-calls SBC,
                                                        #   gated on cache.hasAuthCodeSet) then EOA
-                                                       #   sendTransaction payable execute (no authList)
+                                                       #   eth_call exact payable execute, then
+                                                       #   sendTransaction (no authList) only on success
   await all receipts                                   # only AFTER every chain is dispatched
   confirmed paid EOA approval → update allowance cache # retry reuses it; never prompts/submits again
   user rejects permit/approval/transaction → terminal  # emit failed and stop; never requote/re-prompt
@@ -1025,8 +1028,9 @@ fixed-plus-bps model and reapplies it to `Σ(executed)` when building the bridge
   two-pass quotes and strict coverage remain authoritative; a gate miss or builder failure lets B1/B2
   and the default route continue. Execution re-sizes only from persisted, filtered
   `dstHoldings`, preserves the route-time executor/EOA quote addresses, groups ERC-20 funding per
-  token, and retries after a definitive failure or a wallet submission failure that returned no
-  hash (§12.1). The whole batch is atomic, so failure cleanup is skipped.
+  token, and retries after a pre-submit simulation failure, a definitive failure, or a wallet
+  submission failure that returned no hash (§12.1). The whole batch is atomic, so failure cleanup
+  is skipped.
   `dstHoldings.amountRaw` is an **already usable** ceiling: preflight and composite-flow balance inputs
   must have deducted any native gas reserve before routing. This executor consumes that ceiling and
   never estimates or deducts a second reserve.

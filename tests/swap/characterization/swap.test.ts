@@ -14,8 +14,10 @@ const hoisted = vi.hoisted(() => {
   const waitForTransactionReceipt = vi.fn();
   const multicall = vi.fn();
   const getBalance = vi.fn();
+  const call = vi.fn();
   const createPublicClient = vi.fn((opts?: { chain?: unknown }) => ({
     chain: opts?.chain,
+    call,
     readContract,
     getCode,
     getTransactionCount,
@@ -23,7 +25,16 @@ const hoisted = vi.hoisted(() => {
     multicall,
     getBalance,
   }));
-  return { readContract, getCode, getTransactionCount, waitForTransactionReceipt, multicall, getBalance, createPublicClient };
+  return {
+    call,
+    readContract,
+    getCode,
+    getTransactionCount,
+    waitForTransactionReceipt,
+    multicall,
+    getBalance,
+    createPublicClient,
+  };
 });
 
 vi.mock('viem', async () => {
@@ -109,6 +120,7 @@ const FACADE = '0x00000000000000000000000000000000facade02' as Hex;
 registerAggregatorOnlyToken(FACADE, { symbol: 'TKN', decimals: 6, name: 'Facade Token' }, 1);
 
 const installPublicClientStubs = () => {
+  hoisted.call.mockResolvedValue({ data: '0x' });
   hoisted.readContract.mockImplementation(readContractStub);
   hoisted.getCode.mockResolvedValue(undefined);
   hoisted.getTransactionCount.mockResolvedValue(0n);
