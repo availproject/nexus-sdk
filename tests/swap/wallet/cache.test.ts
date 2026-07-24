@@ -294,4 +294,10 @@ describe('SwapCache', () => {
     expect(cache.getAllowance(MOCK_TOKEN, MOCK_OWNER, MOCK_SPENDER, chainA)).toBe(500n);
     expect(cache.hasAuthCodeSet(MOCK_ADDRESS, chainB)).toBe(true);
   });
+
+  it('updates a cached allowance after a confirmed approval', () => {
+    cache.setAllowance(MOCK_TOKEN, MOCK_OWNER, MOCK_SPENDER, CHAIN_ID, 750n);
+
+    expect(cache.getAllowance(MOCK_TOKEN, MOCK_OWNER, MOCK_SPENDER, CHAIN_ID)).toBe(750n);
+  });
 });

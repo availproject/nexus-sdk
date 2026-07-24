@@ -8,7 +8,7 @@ import {
 } from 'viem';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getLogger } from '../../../src/domain';
-import { Errors } from '../../../src/domain/errors';
+import { BackendError, ERROR_CODES, Errors } from '../../../src/domain/errors';
 import { PermitVariant } from '../../../src/domain/permits';
 import { BebopAggregator } from '../../../src/swap/aggregators/bebop';
 import type { Aggregator, QuoteResponse } from '../../../src/swap/aggregators/types';
@@ -852,5 +852,33 @@ describe('executeDirectDestinationExactOut', () => {
 
     expect(error).toMatchObject({ code: 'external_service/rates_drift_exceeded' });
     expect(dispatchSourceChainBatch).not.toHaveBeenCalled();
+  });
+
+  it('requotes and retries an explicit middleware no-broadcast failure', async () => {
+    const swap = makeSwap(500_000_000n, WETH, 200_000_000_000_000_000n, 'token');
+    vi.mocked(sizeDirectDestinationExactOut).mockResolvedValueOnce([swap]);
+    vi.mocked(dispatchSourceChainBatch)
+      .mockRejectedValueOnce(
+        new BackendError(
+          ERROR_CODES.BACKEND_SBC_SUBMIT_FAILED,
+          'middleware rejected the unbroadcast batch',
+          { context: { service: 'middleware', chainId: CHAIN_ID } }
+        )
+      )
+      .mockResolvedValueOnce({
+        chainId: CHAIN_ID,
+        walletPath: 'ephemeral',
+        submittedTxHash: TX_HASH,
+        waitForReceipt: vi.fn().mockResolvedValue(TX_HASH),
+      });
+
+    await executeDirectDestinationExactOut(
+      makeRoute([swap]),
+      makeContext(makePreparedExecution([swap])),
+      makeMetadata()
+    );
+
+    expect(sizeDirectDestinationExactOut).toHaveBeenCalledTimes(1);
+    expect(dispatchSourceChainBatch).toHaveBeenCalledTimes(2);
   });
 });

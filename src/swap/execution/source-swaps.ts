@@ -3,14 +3,17 @@ import type { Hex } from 'viem';
 import { getLogger } from '../../domain';
 import {
   ERROR_CODES,
+  Errors,
   ExecutionError,
   ExternalServiceError,
   formatUnknownError,
   NexusError,
+  UserActionError,
 } from '../../domain/errors';
 import { isNativeAddress } from '../../services/addresses';
 import { confirmStepReceipt, switchChain } from '../../services/evm';
 import { createExplorerTxURL } from '../../services/explorer';
+import { isUserRejectedRequest } from '../../services/is-user-rejected-request';
 import { divDecimals } from '../../services/math';
 import {
   createCaliburExecuteTxFromCalls,
@@ -119,6 +122,7 @@ const buildSourceCalls = async (
             eoaAddress: ctx.eoaAddress,
             eoaWallet: ctx.eoaWallet,
             publicClient,
+            cache: ctx.cache,
           }))
         );
         usedTransfers.add(transferKey);
@@ -413,9 +417,7 @@ const requoteFailedChains = async (
     let total = new Decimal(0);
     for (const swaps of groups) {
       for (const swap of swaps) {
-        total = total.add(
-          divDecimals(swap.quote.output.amountRaw, swap.quote.output.decimals)
-        );
+        total = total.add(divDecimals(swap.quote.output.amountRaw, swap.quote.output.decimals));
       }
     }
     return total;
@@ -529,6 +531,7 @@ export const executeSourceSwaps = async (
     const dispatchResults: PromiseSettledResult<DispatchedSourceChain>[] = [];
 
     for (const [chainId, chainSwaps] of pendingEntries) {
+      let phase: 'authorization' | 'dispatch' = 'authorization';
       try {
         const walletPath = ctx.sourceExecutionPaths.get(chainId) ?? 'ephemeral';
         const calls = await withTimingSpan(
@@ -543,6 +546,7 @@ export const executeSourceSwaps = async (
             },
           }
         );
+        phase = 'dispatch';
         const nativeValue = calls.reduce((sum, call) => sum + call.value, 0n);
         const dispatched = await withTimingSpan(
           ctx.timing,
@@ -555,9 +559,14 @@ export const executeSourceSwaps = async (
           value: { ...dispatched, chainSwaps },
         });
       } catch (error) {
+        const normalized = isUserRejectedRequest(error)
+          ? phase === 'authorization'
+            ? Errors.userRejectedAllowance()
+            : Errors.userRejectedTxSend()
+          : error;
         dispatchResults.push({
           status: 'rejected',
-          reason: error,
+          reason: normalized,
         });
       }
     }
@@ -635,6 +644,17 @@ export const executeSourceSwaps = async (
     if (failedChains.length === 0) {
       pendingChains = new Map();
       break;
+    }
+
+    const terminalFailure = failedChains.find(({ error }) => error instanceof UserActionError);
+    if (terminalFailure) {
+      ctx.onProgress?.({
+        stepType: 'source_swap',
+        chainId: terminalFailure.chainId,
+        state: 'failed',
+        error: formatUnknownError(terminalFailure.error),
+      });
+      throw terminalFailure.error;
     }
 
     lastError = failedChains[0].error;

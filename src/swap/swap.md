@@ -725,6 +725,8 @@ executeSourceSwaps(source, ctx, meta) -> BridgeAsset[]:
                                                        #   gated on cache.hasAuthCodeSet) then EOA
                                                        #   sendTransaction payable execute (no authList)
   await all receipts                                   # only AFTER every chain is dispatched
+  confirmed paid EOA approval → update allowance cache # retry reuses it; never prompts/submits again
+  user rejects permit/approval/transaction → terminal  # emit failed and stop; never requote/re-prompt
   on chain failure: requote that chain ONCE (EXACT_IN; taker=receiver = that chain's executor —
                     EOA for the direct-COT dst chain, predictedSafe on non-7702, else ephemeral)
     # EXACT_OUT: require Σ(output drop) ≤ srcBuffer, pooled across that route's source legs
@@ -940,8 +942,9 @@ them from global balances or from prior leg outputs.
 
 Execution belongs to `executeDirectDestinationExactOut`, not the shared multi-chain source retry. A
 route older than 45 seconds is re-sized before its first dispatch. A confirmed atomic revert (or an
-explicit provider result proving no broadcast) re-runs the same two-pass sizer, then may retry, for at
-most three actual dispatches. Quote/sizing failure consumes no dispatch slot and is reported as
+explicit provider/middleware result proving no broadcast, including structured SBC submission
+failure) re-runs the same two-pass sizer, then may retry, for at most three actual dispatches.
+Quote/sizing failure consumes no dispatch slot and is reported as
 `EXTERNAL_RATES_DRIFT_EXCEEDED` with the selected aggregator service. A known hash is reconciled; an
 ambiguous submission/receipt outcome is terminal, and wallet rejection never re-prompts. ERC-20 inputs
 are grouped by token: one authorization plus one summed `transferFrom` precedes that token's ordered

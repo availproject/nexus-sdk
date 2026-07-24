@@ -7,6 +7,7 @@ import {
   parseAbi,
   type Hex,
   type PrivateKeyAccount,
+  UserRejectedRequestError,
   type WalletClient,
 } from 'viem';
 import { ERC20PermitABI } from '../../../src/abi/erc20';
@@ -815,6 +816,83 @@ describe('executeSourceSwaps', () => {
     );
   });
 
+  it('reuses a confirmed paid EOA approval when a source batch is retried', async () => {
+    const quote = makeQuoteResponse(ARB_CHAIN, {
+      quote: {
+        ...makeQuoteResponse().quote,
+        input: {
+          ...makeQuoteResponse().quote.input,
+          contractAddress: USDC_ARB,
+          amount: '3000',
+          amountRaw: 3000000000n,
+          decimals: 6,
+          symbol: 'USDC',
+        },
+      },
+      holding: {
+        chainID: ARB_CHAIN,
+        tokenAddress: USDC_ARB,
+        amountRaw: 3000000000n,
+        decimals: 6,
+        symbol: 'USDC',
+      },
+    });
+    const aggregator = {
+      supportsChain: () => true,
+      getQuotes: vi.fn().mockResolvedValue([quote.quote]),
+    } as unknown as Aggregator;
+    quote.aggregator = aggregator;
+
+    const preparedExecution = makePreparedExecution(quote);
+    preparedExecution.eoaToEphemeralTransfers[0] = {
+      ...preparedExecution.eoaToEphemeralTransfers[0],
+      authorization: {
+        kind: 'approve',
+        call: {
+          to: USDC_ARB,
+          data: '0xfundingapprove' as Hex,
+          value: 0n,
+        },
+        permit: null,
+      },
+    };
+
+    let cachedAllowance = 0n;
+    const setAllowance = vi.fn(
+      (_token: Hex, _owner: Hex, _spender: Hex, _chainId: number, amount: bigint) => {
+        cachedAllowance = amount;
+      }
+    );
+    const ctx = makeCtx('ephemeral', preparedExecution);
+    ctx.cache = {
+      getAllowance: vi.fn(() => cachedAllowance),
+      setAllowance,
+      hasAuthCodeSet: vi.fn().mockReturnValue(false),
+    } as unknown as ExecutionContext['cache'];
+    ctx.middlewareClient = makeSwapExecutionMiddlewareClient({
+      submitSBCs: vi
+        .fn()
+        .mockResolvedValueOnce([makeSbcFailure(ARB_CHAIN, 'retry me')])
+        .mockResolvedValueOnce([makeSbcSuccess(ARB_CHAIN, '0xretry' as Hex)]),
+    });
+
+    await executeSourceSwaps(
+      { swaps: [quote], creationTime: Date.now(), srcBuffer: new Decimal(0) },
+      ctx,
+      { src: [], dst: null, has_xcs: false, intent_request_hash: null }
+    );
+
+    expect(ctx.eoaWallet.writeContract).toHaveBeenCalledTimes(1);
+    expect(setAllowance).toHaveBeenCalledWith(
+      USDC_ARB,
+      ctx.eoaAddress,
+      ctx.ephemeralWallet.address,
+      ARB_CHAIN,
+      3000000000n
+    );
+    expect(aggregator.getQuotes).toHaveBeenCalledTimes(1);
+  });
+
   it('orders native source swaps before ERC20 source swaps within a chain', async () => {
     const nativeQuote = makeQuoteResponse(ARB_CHAIN, {
       quote: {
@@ -1589,4 +1667,84 @@ describe('executeSourceSwaps', () => {
     expect(createSBCTxFromCalls).toHaveBeenCalledTimes(3);
     expect(createSweeperTxs).not.toHaveBeenCalled();
   });
+
+  it.each(['permit', 'approve'] as const)(
+    'treats a rejected source %s authorization as terminal',
+    async (authorizationKind) => {
+      const quote = makeQuoteResponse(ARB_CHAIN, {
+        quote: {
+          ...makeQuoteResponse().quote,
+          input: {
+            ...makeQuoteResponse().quote.input,
+            contractAddress: USDC_ARB,
+            amount: '3000',
+            amountRaw: 3000000000n,
+            decimals: 6,
+            symbol: 'USDC',
+          },
+        },
+        holding: {
+          chainID: ARB_CHAIN,
+          tokenAddress: USDC_ARB,
+          amountRaw: 3000000000n,
+          decimals: 6,
+          symbol: 'USDC',
+        },
+      });
+      const aggregator = {
+        supportsChain: () => true,
+        getQuotes: vi.fn().mockResolvedValue([quote.quote]),
+      } as unknown as Aggregator;
+      quote.aggregator = aggregator;
+
+      const preparedExecution = makePreparedExecution(quote);
+      preparedExecution.eoaToEphemeralTransfers[0] = {
+        ...preparedExecution.eoaToEphemeralTransfers[0],
+        authorization:
+          authorizationKind === 'permit'
+            ? {
+                kind: 'permit',
+                call: null,
+                permit: {
+                  signature: null,
+                  permitVariant: 1,
+                  permitContractVersion: 2,
+                },
+              }
+            : {
+                kind: 'approve',
+                call: {
+                  to: USDC_ARB,
+                  data: '0xfundingapprove' as Hex,
+                  value: 0n,
+                },
+                permit: null,
+              },
+      };
+
+      const rejection = new UserRejectedRequestError(
+        new Error(`${authorizationKind} rejected`)
+      );
+      const ctx = makeCtx('ephemeral', preparedExecution);
+      if (authorizationKind === 'permit') {
+        vi.mocked(signPermitForAddressAndValue).mockRejectedValue(rejection);
+      } else {
+        vi.mocked(ctx.eoaWallet.writeContract).mockRejectedValue(rejection);
+      }
+
+      const error = await executeSourceSwaps(
+        { swaps: [quote], creationTime: Date.now(), srcBuffer: new Decimal(0) },
+        ctx,
+        { src: [], dst: null, has_xcs: false, intent_request_hash: null }
+      ).catch((caught) => caught);
+
+      expect(error).toMatchObject({ code: 'user_action/allowance_approval_denied' });
+      expect(aggregator.getQuotes).not.toHaveBeenCalled();
+      if (authorizationKind === 'permit') {
+        expect(signPermitForAddressAndValue).toHaveBeenCalledTimes(1);
+      } else {
+        expect(ctx.eoaWallet.writeContract).toHaveBeenCalledTimes(1);
+      }
+    }
+  );
 });
