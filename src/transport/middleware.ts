@@ -83,7 +83,7 @@ export type MiddlewareClient = {
   // versioned path. Bodies carry mixed types (numeric chainId/slippageBps + string amounts) rather
   // than the string-only GET query maps above.
   postMystic: (path: string, body: Record<string, unknown>) => Promise<unknown>;
-  getRelayQuote: (params: Record<string, string>) => Promise<unknown>;
+  getRelayQuote: (params: Record<string, string | string[]>) => Promise<unknown>;
   getLiFiTokenPrice: (chainId: number, token: string) => Promise<string | null>;
   getRelayTokenPrice: (chainId: number, address: string) => Promise<string | null>;
   getFibrousTokenPrice: (address: string) => Promise<string | null>;
@@ -1046,7 +1046,7 @@ export const createMiddlewareClient = (
   };
 
   // Relay is a POST /quote/v2 with a JSON body (chain ids as numbers), unlike the GET aggregators.
-  const getRelayQuote = async (params: Record<string, string>): Promise<unknown> => {
+  const getRelayQuote = async (params: Record<string, string | string[]>): Promise<unknown> => {
     const { originChainId, destinationChainId, ...rest } = params;
     const response = await client.post('/api/v1/proxy/relay/quote/v2', {
       ...rest,
