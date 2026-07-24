@@ -566,7 +566,7 @@ aggregateAggregators(requests, aggregators, mode):
 createAggregators(mw) → [LiFi, Bebop, Fibrous, 0x, Mystic, Relay]
 ```
 
-Adapters that accept a slippage tolerance share `SLIPPAGE_BPS = 50` (0.5%). 0x and Relay receive
+Adapters that accept a slippage tolerance share `SLIPPAGE_BPS = 30` (0.3%). 0x and Relay receive
 the value as a basis-point string, Mystic receives it as a basis-point number, LiFi receives the
 fractional form (`0.005`), and Fibrous receives the percentage form (`0.5`) while using the same
 basis-point value for its local survey floor. `tests/swap/aggregators/constants.test.ts` pins this
