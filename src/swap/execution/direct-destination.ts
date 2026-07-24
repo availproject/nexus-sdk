@@ -256,6 +256,13 @@ const isDefinitiveFailure = (error: unknown): boolean =>
     error.code === ERROR_CODES.EXEC_TX_SUBMISSION_REVERTED ||
     error.code === ERROR_CODES.BACKEND_SBC_SUBMIT_FAILED);
 
+const isRetryableDispatchFailure = (error: unknown, dispatched?: DispatchedSourceBatch): boolean =>
+  isDefinitiveFailure(error) ||
+  (dispatched === undefined &&
+    error instanceof NexusError &&
+    error.code === ERROR_CODES.EXECUTION_ERROR &&
+    error.context.service === 'wallet');
+
 const normalizeDispatchFailure = (
   error: unknown,
   chainId: number,
@@ -452,7 +459,10 @@ export const executeDirectDestinationExactOut = async (
       return;
     } catch (error) {
       const normalized = normalizeDispatchFailure(error, chainId, dispatched);
-      if (isDefinitiveFailure(normalized) && dispatchAttempts < MAX_DISPATCH_ATTEMPTS) {
+      if (
+        isRetryableDispatchFailure(normalized, dispatched) &&
+        dispatchAttempts < MAX_DISPATCH_ATTEMPTS
+      ) {
         forceRequote = true;
         continue;
       }

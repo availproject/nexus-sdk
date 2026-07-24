@@ -706,7 +706,8 @@ executeDirectDestinationExactOut(route, ctx, meta):
     dispatchSourceChainBatch(one atomic dst-chain batch); reconcile a known hash; await receipt
     confirmed → meta.src += the confirmed batch and return
     confirmed revert / explicit no-broadcast result → fresh re-size, then retry
-    wallet rejection / ambiguous submission or receipt result → terminal; never blindly redispatch
+    wallet submission failure with no hash → assume unsubmitted, fresh re-size, then retry
+    wallet rejection / receipt timeout with a known hash → terminal; never blindly redispatch
   cached authorization capacity is exact for canonical/Polygon-EMT permits and paid approvals,
   MAX_UINT256 for DAI/Polygon-2612 allowed=true, or the actual pre-existing allowance. A mined paid
   approval is never replayed. Silent per-token growth is capped against the ROUTE-TIME baseline.
@@ -1024,8 +1025,8 @@ fixed-plus-bps model and reapplies it to `Σ(executed)` when building the bridge
   two-pass quotes and strict coverage remain authoritative; a gate miss or builder failure lets B1/B2
   and the default route continue. Execution re-sizes only from persisted, filtered
   `dstHoldings`, preserves the route-time executor/EOA quote addresses, groups ERC-20 funding per
-  token, and retries only after a definitive failure (§12.1). The whole batch is atomic, so failure
-  cleanup is skipped.
+  token, and retries after a definitive failure or a wallet submission failure that returned no
+  hash (§12.1). The whole batch is atomic, so failure cleanup is skipped.
   `dstHoldings.amountRaw` is an **already usable** ceiling: preflight and composite-flow balance inputs
   must have deducted any native gas reserve before routing. This executor consumes that ceiling and
   never estimates or deducts a second reserve.

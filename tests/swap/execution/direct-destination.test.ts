@@ -460,6 +460,40 @@ describe('executeDirectDestinationExactOut', () => {
     expect(sizeDirectDestinationExactOut).not.toHaveBeenCalled();
   });
 
+  it('requotes and retries a native wallet submission failure without a hash', async () => {
+    const nativeSwap = makeSwap(
+      100_000_000_000_000_000n,
+      WETH,
+      200_000_000_000_000_000n,
+      'token'
+    );
+    nativeSwap.holding.tokenAddress = EADDRESS;
+    nativeSwap.holding.amountRaw = nativeSwap.quote.input.amountRaw;
+    nativeSwap.holding.decimals = 18;
+    nativeSwap.holding.symbol = 'ETH';
+    nativeSwap.quote.input.contractAddress = EADDRESS;
+    nativeSwap.quote.input.decimals = 18;
+    nativeSwap.quote.input.symbol = 'ETH';
+    vi.mocked(sizeDirectDestinationExactOut).mockResolvedValueOnce([nativeSwap]);
+    vi.mocked(dispatchSourceChainBatch)
+      .mockRejectedValueOnce(new Error('wallet submission failed before returning a hash'))
+      .mockResolvedValueOnce({
+        chainId: CHAIN_ID,
+        walletPath: 'ephemeral',
+        submittedTxHash: TX_HASH,
+        waitForReceipt: vi.fn().mockResolvedValue(TX_HASH),
+      });
+
+    await executeDirectDestinationExactOut(
+      makeRoute([nativeSwap]),
+      makeContext(makePreparedExecution([nativeSwap])),
+      makeMetadata()
+    );
+
+    expect(sizeDirectDestinationExactOut).toHaveBeenCalledTimes(1);
+    expect(dispatchSourceChainBatch).toHaveBeenCalledTimes(2);
+  });
+
   it('requotes a stale route before its first dispatch from persisted exact targets', async () => {
     const initial = makeSwap(500_000_000n, WETH, 200_000_000_000_000_000n, 'token');
     const fresh = makeSwap(510_000_000n, WETH, 200_000_000_000_000_000n, 'token');
