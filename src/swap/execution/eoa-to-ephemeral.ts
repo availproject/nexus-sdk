@@ -4,6 +4,7 @@ import { confirmStepReceipt, switchChain } from '../../services/evm';
 import type { SBCCall } from '../../services/sbc';
 import { createEoaToEphemeralTransferStepId } from '../../services/step-ids';
 import type { PreparedEoaToEphemeralTransfer } from '../types';
+import type { SwapCache } from '../wallet/cache';
 import {
   buildDirectApprovalRequest,
   materializePermitAuthorizationCall,
@@ -18,11 +19,29 @@ type ResolvePreparedFundingTransferCallsInput = {
   eoaAddress: Hex;
   eoaWallet: WalletClient;
   publicClient: Pick<PublicClient, 'waitForTransactionReceipt' | 'readContract'>;
+  cache?: Pick<SwapCache, 'getAllowance'> & Partial<Pick<SwapCache, 'setAllowance'>>;
 };
 
 const ensureDirectApproval = async (
   input: ResolvePreparedFundingTransferCallsInput
 ): Promise<void> => {
+  const cachedAllowance =
+    input.cache?.getAllowance(
+      input.transfer.tokenAddress,
+      input.eoaAddress,
+      input.transfer.targetAddress,
+      input.chain.id
+    ) ?? 0n;
+  if (cachedAllowance >= input.transfer.amount) {
+    logger.debug('swap.execute.funding.approval_skipped', {
+      chainId: input.chain.id,
+      tokenAddress: input.transfer.tokenAddress,
+      amountRaw: input.transfer.amount.toString(),
+      cachedAllowanceRaw: cachedAllowance.toString(),
+    });
+    return;
+  }
+
   logger.debug('swap.execute.funding.approval_started', {
     chainId: input.chain.id,
     tokenAddress: input.transfer.tokenAddress,
@@ -49,6 +68,13 @@ const ensureDirectApproval = async (
     stepType: 'eoa_to_ephemeral_transfer',
     label: 'EOA approval',
   });
+  input.cache?.setAllowance?.(
+    input.transfer.tokenAddress,
+    input.eoaAddress,
+    input.transfer.targetAddress,
+    input.chain.id,
+    input.transfer.amount
+  );
   logger.debug('swap.execute.funding.approval_confirmed', {
     chainId: input.chain.id,
     tokenAddress: input.transfer.tokenAddress,

@@ -32,7 +32,7 @@ const dstToken: TokenInfo = {
 };
 
 describe('buildQuoteRequest', () => {
-  it('collects non-native equivalent tokens from all chains except destination', () => {
+  it('collects equivalent tokens only from the requested source chains', () => {
     const ethChain = makeChain(1, 'Ethereum');
     const arbChain = makeChain(42161, 'Arbitrum');
     const baseChain = makeChain(8453, 'Base');
@@ -49,12 +49,11 @@ describe('buildQuoteRequest', () => {
       },
     } as unknown as ChainListType;
 
-    const result = buildQuoteRequest(chainList, dstToken, arbChain.id);
+    const result = buildQuoteRequest(chainList, dstToken, arbChain.id, [ethChain.id]);
 
-    expect(result.sources).toHaveLength(2);
+    expect(result.sources).toHaveLength(1);
     expect(result.sources[0]!.chain_id).toBe(toHex(1));
     expect(result.sources[0]!.contract_address).toBe(USDC_ADDRESS);
-    expect(result.sources[1]!.chain_id).toBe(toHex(8453));
     expect(result.destination.chain_id).toBe(toHex(42161));
     expect(result.destination.contract_address).toBe(USDC_ARB);
   });
@@ -75,7 +74,10 @@ describe('buildQuoteRequest', () => {
       },
     } as unknown as ChainListType;
 
-    const result = buildQuoteRequest(chainList, dstToken, arbChain.id);
+    const result = buildQuoteRequest(chainList, dstToken, arbChain.id, [
+      ethChain.id,
+      solChain.id,
+    ]);
 
     expect(result.sources).toHaveLength(1);
     expect(result.sources[0]!.chain_id).toBe(toHex(1));
@@ -101,7 +103,7 @@ describe('buildQuoteRequest', () => {
       },
     } as unknown as ChainListType;
 
-    const result = buildQuoteRequest(chainList, nativeToken, arbChain.id);
+    const result = buildQuoteRequest(chainList, nativeToken, arbChain.id, [ethChain.id]);
 
     // All sources are native, so sources array is empty
     // But request is still returned (for fulfillment fees)
@@ -130,7 +132,7 @@ describe('buildQuoteRequest', () => {
       },
     } as unknown as ChainListType;
 
-    const result = buildQuoteRequest(chainList, dstTokenWithCurrency, arbChain.id);
+    const result = buildQuoteRequest(chainList, dstTokenWithCurrency, arbChain.id, [ethChain.id]);
 
     // Should fall back to symbol and find ETH chain
     expect(result.sources).toHaveLength(1);
@@ -162,7 +164,7 @@ describe('buildQuoteRequest', () => {
       },
     } as unknown as ChainListType;
 
-    buildQuoteRequest(chainList, dstTokenWithCurrency, arbChain.id);
+    buildQuoteRequest(chainList, dstTokenWithCurrency, arbChain.id, [ethChain.id]);
 
     expect(usedCurrencyId).toBe(true);
   });

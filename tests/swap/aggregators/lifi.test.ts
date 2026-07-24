@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { SLIPPAGE_FRACTION } from '../../../src/swap/aggregators/constants';
 import { LiFiAggregator } from '../../../src/swap/aggregators/lifi';
 import { QuoteSeriousness, QuoteType, type QuoteRequest } from '../../../src/swap/aggregators/types';
 
@@ -200,7 +201,7 @@ describe('LiFiAggregator', () => {
     const [params] = getQuoteFn.mock.calls[0];
     expect(params.denyExchanges).toBe('openocean');
     expect(params.skipSimulation).toBe(true);
-    expect(params.slippage).toBe('0.0025'); // 25 bps as a fraction
+    expect(params.slippage).toBe(SLIPPAGE_FRACTION);
   });
 
   it('denies HyperEVM-specific exchanges in addition to openocean on chain 999', async () => {

@@ -66,7 +66,6 @@ export async function calculateMaxForSwap(
   // Determine route to figure out max COT available
   const route = await determineSwapRoute(swapData, {
     aggregators: preflight.aggregators,
-    bridgeQuoteResponse: preflight.bridgeQuoteResponse,
     chainList: options.chainList,
     middlewareClient: options.middlewareClient,
     publicClientList: preflight.publicClientList,
@@ -180,5 +179,6 @@ const findOraclePriceUsd = (
   chainId: number,
   tokenAddress: Hex
 ): Decimal | undefined =>
-  oraclePrices.find((price) => price.chainId === chainId && equalFold(price.tokenAddress, tokenAddress))
-    ?.priceUsd;
+  oraclePrices.find(
+    (price) => price.chainId === chainId && equalFold(price.tokenAddress, tokenAddress)
+  )?.priceUsd;

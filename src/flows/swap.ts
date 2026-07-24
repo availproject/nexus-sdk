@@ -58,7 +58,6 @@ const createRouteOptions = (
   input: SwapData
 ): RouteOptions => ({
   aggregators: preflight.aggregators,
-  bridgeQuoteResponse: preflight.bridgeQuoteResponse,
   chainList: context.chainList,
   middlewareClient: context.middlewareClient,
   publicClientList: preflight.publicClientList,
@@ -303,7 +302,6 @@ const runSwapFlow = async (
     intentExplorerUrl: deps.intentExplorerUrl,
     publicClientList: preflight.publicClientList,
     middlewareClient: deps.middlewareClient,
-    bridgeQuoteResponse: preflight.bridgeQuoteResponse ?? undefined,
     cache,
     preparedExecution,
     onProgress: emitExecutionProgress,

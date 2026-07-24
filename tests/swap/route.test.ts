@@ -557,9 +557,12 @@ describe('determineSwapRoute', () => {
     vi.mocked(determineDestinationSwaps).mockResolvedValue(
       makeDestinationQuoteResponse({ chainID: BASE_CHAIN }),
     );
+    const getQuote = vi.fn().mockResolvedValue(makeBridgeQuoteResponse());
     const route = await determineSwapRoute(
       input,
       makeRouteOptions({
+        bridgeQuoteResponse: null,
+        middlewareClient: { ...mockMiddleware, getQuote } as never,
         balances: [{ amount: '0.5', chainID: ARB_CHAIN, decimals: 18, symbol: 'WETH', tokenAddress: WETH, value: 1500, logo: '', name: 'WETH' }],
       })
     );
@@ -569,6 +572,13 @@ describe('determineSwapRoute', () => {
     // EXACT_OUT reclaim: bridge source actuals so every chain's extra (buffer + realized slippage)
     // consolidates at the destination (returned there by a single direct transfer at execution time).
     expect(route.source.reclaimFromActualBalance).toBe(true);
+    expect(getQuote).toHaveBeenCalledWith({
+      sources: [{ chain_id: toHex(ARB_CHAIN), contract_address: USDC_ARB }],
+      destination: {
+        chain_id: toHex(BASE_CHAIN),
+        contract_address: USDC_BASE,
+      },
+    });
   });
   it('EXACT_OUT cross-chain with toNativeAmount quotes a gas swap and sizes bridge gas off it', async () => {
     const input: SwapData = {
@@ -791,10 +801,14 @@ describe('determineSwapRoute', () => {
     // surfaces a clean assertion failure here instead of a crash.
     vi.mocked(liquidateInputHoldings).mockResolvedValue([makeQuoteResponse({ chainID: ARB_CHAIN })]);
     vi.mocked(destinationSwapWithExactIn).mockResolvedValue(makeDestinationQuoteResponse());
+    const getQuote = vi.fn().mockResolvedValue(makeBridgeQuoteResponse());
 
     const route = await determineSwapRoute(
       input,
       makeRouteOptions({
+        bridgeQuoteResponse: null,
+        chainList: makeSwapChainListWithUsdtCot(),
+        middlewareClient: { ...mockMiddleware, getQuote } as never,
         balances: [
           { amount: '1', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDT', tokenAddress: USDT_ARB, value: 1, logo: '', name: 'Tether USD' },
           { amount: '1', chainID: OP_CHAIN, decimals: 6, symbol: 'USDT', tokenAddress: USDT_OP, value: 1, logo: '', name: 'Tether USD' },
@@ -814,6 +828,16 @@ describe('determineSwapRoute', () => {
     // Same-token fast path: settles in the USDT family and is flagged so the failure sweep can skip.
     expect(route.sameTokenBridge).toBe(true);
     expect(route.settlementCurrencyId).toBe(CurrencyID.USDT);
+    expect(getQuote).toHaveBeenCalledWith({
+      sources: [
+        { chain_id: toHex(ARB_CHAIN), contract_address: USDT_ARB },
+        { chain_id: toHex(OP_CHAIN), contract_address: USDT_OP },
+      ],
+      destination: {
+        chain_id: toHex(BASE_CHAIN),
+        contract_address: USDT_BASE,
+      },
+    });
   });
   it('EXACT_IN same-token: dst-chain source stays at the EOA and is not bridged', async () => {
     const input: SwapData = {
@@ -855,7 +879,7 @@ describe('determineSwapRoute', () => {
     // A default-flow sizing quote is available, but uniform full holdings must terminate in B1
     // before destination sizing starts even when the user did not supply a sources allowlist.
     vi.mocked(determineDestinationSwaps).mockResolvedValue(makeDestinationQuoteResponse({ chainID: BASE_CHAIN }));
-    // B1 fetches its OWN F-denominated bridge-fee quote (never the preflight USDC quote).
+    // B1 fetches its own F-denominated bridge-fee quote for the path's source chains.
     const getQuote = vi.fn().mockResolvedValue(makeBridgeQuoteResponse());
     const route = await determineSwapRoute(
       input,
@@ -1433,8 +1457,8 @@ describe('determineSwapRoute', () => {
   it('EXACT_IN mixed-family COT round-trip computes sane fees from the COT-denominated quote', async () => {
     // End-to-end of the fixed bug: Base ETH + OP USDC -> Arbitrum native ETH. Mixed source
     // families (ETH + USDC) disqualify the same-token fast-path, so the route does the USDC COT
-    // round-trip. Preflight's resolveBridgeQuoteToken now quotes the COT (USDC) for this mixed
-    // case — not the native-ETH destination — so `fulfillmentFeeToken` arrives denominated in USDC
+    // round-trip. Routing quotes the COT (USDC) for only the eligible remote source chains — not the
+    // native-ETH destination — so `fulfillmentFeeToken` arrives denominated in USDC
     // (6 decimals): "11868" = 0.011868 USDC (~$0.0119). computeBridgeFees scales it by the COT's 6
     // decimals, matching the quote's token, so the fee stays ~$0.0119 instead of the old 1e12
     // inflation that tripped "Bridge fees ... exceed bridged COT".
@@ -1466,7 +1490,7 @@ describe('determineSwapRoute', () => {
     ]);
     vi.mocked(destinationSwapWithExactIn).mockResolvedValue(makeDestinationQuoteResponse({ chainID: ARB_CHAIN }));
 
-    // What preflight now produces for this mixed-source COT round-trip: the fee is in USDC (6 dec).
+    // The route-time quote for this mixed-source COT round-trip is denominated in USDC (6 dec).
     const usdcDenominatedQuote = {
       fulfillmentBps: 10,
       sources: [],
@@ -1477,11 +1501,13 @@ describe('determineSwapRoute', () => {
         fulfillmentFeeToken: '11868',
       },
     };
+    const getQuote = vi.fn().mockResolvedValue(usdcDenominatedQuote);
 
     const route = await determineSwapRoute(
       input,
       makeRouteOptions({
-        bridgeQuoteResponse: usdcDenominatedQuote as never,
+        bridgeQuoteResponse: null,
+        middlewareClient: { ...mockMiddleware, getQuote } as never,
         dstTokenInfo: makeDstTokenInfo({ contractAddress: EADDRESS, decimals: 18, symbol: 'ETH', name: 'Ether' }),
         balances: [
           { amount: '0.003', chainID: BASE_CHAIN, decimals: 18, symbol: 'ETH', tokenAddress: EADDRESS, value: 11, logo: '', name: 'Ether' },
@@ -1503,6 +1529,16 @@ describe('determineSwapRoute', () => {
     // The USDC-denominated fee is ~0.0119 USDC — well below the ~0.55 USDC bridged — so the route
     // resolves instead of throwing "exceed bridged COT".
     expect(route.bridge).not.toBeNull();
+    expect(getQuote).toHaveBeenCalledWith({
+      sources: [
+        { chain_id: toHex(BASE_CHAIN), contract_address: USDC_BASE },
+        { chain_id: toHex(OP_CHAIN), contract_address: USDC_OP },
+      ],
+      destination: {
+        chain_id: toHex(ARB_CHAIN),
+        contract_address: USDC_ARB,
+      },
+    });
     expect(route.bridge!.estimatedFees.fulfilment.toFixed(6)).toBe('0.011868');
   });
   it('EXACT_IN native same-family sources bridge directly with addresses normalized to ZERO (ETH→ETH)', async () => {
@@ -2887,9 +2923,12 @@ describe('determineSwapRoute', () => {
         quoteResponses: [leg(WETH, 1000000000000000000n, 18, PEPE, 100000000000000000000n, 18)],
         usedCOTs: [],
       });
+      const getQuote = vi.fn().mockRejectedValue(new Error('unrelated bridge RPC unavailable'));
 
       const route = await determineSwapRoute(input, makeRouteOptions({
+        bridgeQuoteResponse: null,
         dstTokenInfo: pepeInfo,
+        middlewareClient: { ...mockMiddleware, getQuote } as never,
         balances: [bal(WETH, '1', 18, 3000, 'WETH')],
         oraclePrices: [
           {
@@ -2915,6 +2954,7 @@ describe('determineSwapRoute', () => {
       expect(route.source.srcBuffer).toBeNull();
       expect(route.buffer.amount).toBe('0');
       expect(determineDestinationSwaps).not.toHaveBeenCalled();
+      expect(getQuote).not.toHaveBeenCalled();
     });
 
     it('passes the cached destination/COT price estimate into destination convergence', async () => {

@@ -1,20 +1,18 @@
 import type { Hex } from 'viem';
-import { buildQuoteRequest } from '../bridge/intent/quote-request';
 import { type ChainListType, getLogger, type TokenInfo } from '../domain';
 import { isNativeAddress } from '../services/addresses';
+import { deductSwapNativeReserveFees } from '../services/balances';
 import { fetchErc20TokenMetadata } from '../services/token-metadata';
 import type { MiddlewareSwapPreflightClient } from '../transport';
-import { deductSwapNativeReserveFees } from '../services/balances';
 import { createAggregators } from './aggregators';
 import { selectSwapSources } from './balance/swap-balances';
-import { type CurrencyID, resolveSwapSettlement } from './cot';
+import type { CurrencyID } from './cot';
 import {
-  SwapMode,
-  type BridgeQuoteResponse,
   type FlatBalance,
   type OraclePriceResponse,
   type PublicClientList,
   type SwapData,
+  SwapMode,
   type WalletPath,
 } from './types';
 import { chainSupports7702, resolveWalletPath } from './wallet/capabilities';
@@ -26,7 +24,6 @@ const logger = getLogger();
 export type SwapPreflight = {
   aggregators: ReturnType<typeof createAggregators>;
   balances: FlatBalance[];
-  bridgeQuoteResponse: BridgeQuoteResponse | null;
   dstTokenInfo: Pick<TokenInfo, 'symbol' | 'decimals' | 'contractAddress'>;
   oraclePrices: OraclePriceResponse;
   publicClientList: PublicClientList;
@@ -75,37 +72,6 @@ const resolveDstTokenInfo = async (
   return fetchErc20TokenMetadata(toTokenAddress, publicClientList.get(toChainId));
 };
 
-// The bridge-fee quote must be denominated in the token the router actually bridges, because the
-// fee value and the decimals it's later scaled by (in computeBridgeFees) have to refer to the same
-// token — a mismatch inflates/deflates the fee by the decimal gap (e.g. ETH 18 vs USDC 6). The
-// settlement decision (same-token bridge vs COT round-trip) is shared with the route via
-// `resolveSwapSettlement` so the two can't drift. A native COT has no bridge-quote path → undefined.
-// (For EXACT_IN without explicit sources the families aren't known yet, so `resolveSwapSettlement`
-// reports `sameTokenBridge: false` and we quote the COT — the same documented edge as before.)
-export const resolveBridgeQuoteToken = (
-  chainList: ChainListType,
-  input: SwapData,
-  cotCurrencyId: CurrencyID
-): TokenInfo | undefined => {
-  const { toChainId, toTokenAddress } = input.data;
-  const { sameTokenBridge } = resolveSwapSettlement(
-    chainList,
-    input.mode,
-    input.data.sources ?? [],
-    toChainId,
-    toTokenAddress,
-    cotCurrencyId
-  );
-
-  if (sameTokenBridge) {
-    return isNativeAddress(toTokenAddress)
-      ? chainList.getNativeToken(toChainId)
-      : chainList.getTokenByAddress(toChainId, toTokenAddress);
-  }
-  const cot = chainList.getTokenByCurrencyId(toChainId, cotCurrencyId);
-  return isNativeAddress(cot.contractAddress) ? undefined : cot;
-};
-
 export const buildSwapPreflight = async (
   input: SwapData,
   options: BuildSwapPreflightOptions
@@ -128,20 +94,7 @@ export const buildSwapPreflight = async (
   const rawBalancesPromise = options.preloadedBalances
     ? Promise.resolve(options.preloadedBalances)
     : options.middlewareClient.getSwapBalances(options.eoaAddress);
-  const quotePromise: Promise<BridgeQuoteResponse | null> = (() => {
-    try {
-      const quoteToken = resolveBridgeQuoteToken(options.chainList, input, options.cotCurrencyId);
-      if (!quoteToken) {
-        return Promise.resolve(null);
-      }
-      const quoteRequest = buildQuoteRequest(options.chainList, quoteToken, input.data.toChainId);
-      return options.middlewareClient.getQuote(quoteRequest).catch(() => null);
-    } catch {
-      return Promise.resolve(null);
-    }
-  })();
-
-  const [oraclePrices, rawBalances, dstTokenInfo, bridgeQuoteResponse] = await Promise.all([
+  const [oraclePrices, rawBalances, dstTokenInfo] = await Promise.all([
     options.middlewareClient.getOraclePrices(),
     rawBalancesPromise,
     options.preloadedDstTokenInfo ??
@@ -151,7 +104,6 @@ export const buildSwapPreflight = async (
         input.data.toChainId,
         input.data.toTokenAddress
       ),
-    quotePromise,
   ]);
 
   // Reserve a representative gas amount out of native balances before source selection, so the
@@ -159,11 +111,7 @@ export const buildSwapPreflight = async (
   // source-sizing chokepoint — regardless of whether balances were preloaded (composite flow
   // passes raw, keeping actual values for its own destination-gas shortfall) or freshly fetched.
   const reserved = await deductSwapNativeReserveFees(options.chainList, rawBalances);
-  const balances = selectSwapSources(
-    reserved,
-    input.data.toChainId,
-    input.data.toTokenAddress
-  );
+  const balances = selectSwapSources(reserved, input.data.toChainId, input.data.toTokenAddress);
 
   const candidateChainIds = getCandidateChainIds(input, balances);
   const walletPathHints = new Map<number, WalletPath>(
@@ -183,7 +131,6 @@ export const buildSwapPreflight = async (
   return {
     aggregators,
     balances,
-    bridgeQuoteResponse,
     dstTokenInfo,
     oraclePrices,
     publicClientList,
