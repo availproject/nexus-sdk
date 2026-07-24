@@ -18,7 +18,10 @@ type ResolvePreparedFundingTransferCallsInput = {
   chain: Chain;
   eoaAddress: Hex;
   eoaWallet: WalletClient;
-  publicClient: Pick<PublicClient, 'waitForTransactionReceipt' | 'readContract'>;
+  publicClient: Pick<
+    PublicClient,
+    'getTransactionReceipt' | 'waitForTransactionReceipt' | 'readContract'
+  >;
   cache?: Pick<SwapCache, 'getAllowance'> & Partial<Pick<SwapCache, 'setAllowance'>>;
 };
 

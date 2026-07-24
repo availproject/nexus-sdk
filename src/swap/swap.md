@@ -685,6 +685,13 @@ executeSwapRoute(route, ctx) -> SwapMetadata:                  # execution/orche
   executeDestinationSwap(route.destination, route.type, ...)
   on failure: cleanup source chains before the switch, destination chain after it; rethrow
   return metadata
+
+receipt confirmation (shared):
+  wait up to 60s for the requested confirmations (1 on Ethereum, 2 on other chains)
+  waiter error → getTransactionReceipt(hash) once as a final inclusion check
+    found success → accept it even if the normal confirmation count was not reached
+    found revert  → preserve the on-chain-revert classification for the caller's retry policy
+    not found / lookup error → surface the original waiter error
 ```
 
 The direct-destination executor stays dedicated. Ordinary source execution, route-driven bridge

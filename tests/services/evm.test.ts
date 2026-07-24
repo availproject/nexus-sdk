@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { UserRejectedRequestError, type WalletClient } from 'viem';
 import { ExecutionError, UserActionError } from '../../src/domain/errors';
-import { confirmStepReceipt, getL1Fee, switchChain } from '../../src/services/evm';
+import {
+  confirmStepReceipt,
+  getL1Fee,
+  switchChain,
+  waitForTxReceipt,
+} from '../../src/services/evm';
 import * as evmService from '../../src/services/evm';
 
 const readContract = vi.fn();
@@ -90,6 +95,34 @@ describe('confirmStepReceipt', () => {
     expect(confirmations).toBe(1);
     await confirmStepReceipt(makeClient('success', capture), TX, 42161, step);
     expect(confirmations).toBe(2);
+  });
+});
+
+describe('waitForTxReceipt', () => {
+  const TX = '0xabc0000000000000000000000000000000000000000000000000000000000001' as const;
+
+  it('falls back to a direct receipt lookup when the confirmation waiter fails', async () => {
+    const waitError = new Error('receipt wait timed out');
+    const waitForTransactionReceipt = vi.fn().mockRejectedValue(waitError);
+    const receipt = { status: 'success' } as const;
+    const getTransactionReceipt = vi.fn().mockResolvedValue(receipt);
+
+    await expect(
+      waitForTxReceipt(
+        TX,
+        {
+          waitForTransactionReceipt,
+          getTransactionReceipt,
+        } as never
+      )
+    ).resolves.toEqual([receipt, null]);
+
+    expect(waitForTransactionReceipt).toHaveBeenCalledWith({
+      confirmations: 1,
+      hash: TX,
+      timeout: 60_000,
+    });
+    expect(getTransactionReceipt).toHaveBeenCalledWith({ hash: TX });
   });
 });
 

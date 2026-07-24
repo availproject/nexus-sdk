@@ -18,6 +18,13 @@ import { minutesToMs } from './time';
 
 const logger = getLogger();
 
+const TRANSACTION_RECEIPT_WAIT_TIMEOUT_MS = 60_000;
+
+type TransactionReceiptPublicClient = Pick<
+  PublicClient,
+  'getTransactionReceipt' | 'waitForTransactionReceipt'
+>;
+
 const wrapExternal = async <T>(
   message: string,
   service: 'wallet' | 'rpc',
@@ -128,19 +135,31 @@ const fetchL1Fee = async (toAddress: Hex, chain: Chain, input: `0x${string}`) =>
 /**
  * Waits for a transaction receipt and returns `[receipt, error]` instead of throwing on revert:
  * `error` is `Errors.transactionReverted(hash)` for a reverted receipt, else `null`. Callers
- * `if (error) throw error` (or attach step-specific context). RPC failures still throw.
+ * `if (error) throw error` (or attach step-specific context). If the confirmation waiter fails,
+ * make one direct receipt lookup before surfacing the original wait failure. The fallback accepts
+ * a mined receipt without waiting for the requested confirmation count.
  */
 export const waitForTxReceipt = async (
   hash: `0x${string}`,
-  publicClient: Pick<PublicClient, 'waitForTransactionReceipt'>,
+  publicClient: TransactionReceiptPublicClient,
   confirmations = 1,
-  timeout = 60000
+  timeout = TRANSACTION_RECEIPT_WAIT_TIMEOUT_MS
 ): Promise<[TransactionReceipt, ReturnType<typeof Errors.transactionReverted> | null]> => {
   const receipt = await wrapExternal(
     'Failed to wait for transaction receipt',
     'rpc',
     { hash, confirmations, timeout },
-    () => publicClient.waitForTransactionReceipt({ confirmations, hash, timeout })
+    async () => {
+      try {
+        return await publicClient.waitForTransactionReceipt({ confirmations, hash, timeout });
+      } catch (waitError) {
+        try {
+          return await publicClient.getTransactionReceipt({ hash });
+        } catch {
+          throw waitError;
+        }
+      }
+    }
   );
   return [receipt, receipt.status === 'reverted' ? Errors.transactionReverted(hash) : null];
 };
@@ -153,9 +172,9 @@ export const waitForTxReceipt = async (
  */
 export const waitForTxReceiptByChain = (
   hash: `0x${string}`,
-  publicClient: Pick<PublicClient, 'waitForTransactionReceipt'>,
+  publicClient: TransactionReceiptPublicClient,
   chainId: number,
-  timeout = 60000
+  timeout = TRANSACTION_RECEIPT_WAIT_TIMEOUT_MS
 ) => waitForTxReceipt(hash, publicClient, chainId === 1 ? 1 : 2, timeout);
 
 /**
@@ -166,7 +185,7 @@ export const waitForTxReceiptByChain = (
  * boundaries — instead of bubbling up as a context-less revert. Returns the txHash on success.
  */
 export const confirmStepReceipt = async (
-  publicClient: Pick<PublicClient, 'waitForTransactionReceipt'>,
+  publicClient: TransactionReceiptPublicClient,
   txHash: `0x${string}`,
   chainId: number,
   step: { stepId: string; stepType: string; label: string }
