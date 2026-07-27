@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router";
 import * as Dialog from "@radix-ui/react-dialog";
 import type { TokenBalance } from "@avail-project/nexus-core";
 import type { NetworkMode, TabConfig } from "../lib/types";

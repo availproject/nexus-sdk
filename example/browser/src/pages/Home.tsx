@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router";
 import type { NexusClient } from "@avail-project/nexus-core";
 import type { NetworkMode, TabConfig } from "../lib/types";
 import type {

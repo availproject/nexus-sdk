@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Route, Routes, useLocation } from "react-router-dom";
+import { Route, Routes, useLocation } from "react-router";
 import { useConnection } from "wagmi";
 import { Toaster } from "sonner";
 import type { TokenBalance } from "@avail-project/nexus-core";
