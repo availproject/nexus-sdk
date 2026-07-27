@@ -8,7 +8,12 @@ import {
 } from 'viem';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getLogger } from '../../../src/domain';
-import { Errors } from '../../../src/domain/errors';
+import {
+  BackendError,
+  ERROR_CODES,
+  Errors,
+  SimulationError,
+} from '../../../src/domain/errors';
 import { PermitVariant } from '../../../src/domain/permits';
 import { BebopAggregator } from '../../../src/swap/aggregators/bebop';
 import type { Aggregator, QuoteResponse } from '../../../src/swap/aggregators/types';
@@ -460,6 +465,80 @@ describe('executeDirectDestinationExactOut', () => {
     expect(sizeDirectDestinationExactOut).not.toHaveBeenCalled();
   });
 
+  it('requotes and retries a native wallet submission failure without a hash', async () => {
+    const nativeSwap = makeSwap(
+      100_000_000_000_000_000n,
+      WETH,
+      200_000_000_000_000_000n,
+      'token'
+    );
+    nativeSwap.holding.tokenAddress = EADDRESS;
+    nativeSwap.holding.amountRaw = nativeSwap.quote.input.amountRaw;
+    nativeSwap.holding.decimals = 18;
+    nativeSwap.holding.symbol = 'ETH';
+    nativeSwap.quote.input.contractAddress = EADDRESS;
+    nativeSwap.quote.input.decimals = 18;
+    nativeSwap.quote.input.symbol = 'ETH';
+    vi.mocked(sizeDirectDestinationExactOut).mockResolvedValueOnce([nativeSwap]);
+    vi.mocked(dispatchSourceChainBatch)
+      .mockRejectedValueOnce(new Error('wallet submission failed before returning a hash'))
+      .mockResolvedValueOnce({
+        chainId: CHAIN_ID,
+        walletPath: 'ephemeral',
+        submittedTxHash: TX_HASH,
+        waitForReceipt: vi.fn().mockResolvedValue(TX_HASH),
+      });
+
+    await executeDirectDestinationExactOut(
+      makeRoute([nativeSwap]),
+      makeContext(makePreparedExecution([nativeSwap])),
+      makeMetadata()
+    );
+
+    expect(sizeDirectDestinationExactOut).toHaveBeenCalledTimes(1);
+    expect(dispatchSourceChainBatch).toHaveBeenCalledTimes(2);
+  });
+
+  it('requotes after a pre-submit native simulation failure', async () => {
+    const nativeSwap = makeSwap(
+      100_000_000_000_000_000n,
+      WETH,
+      200_000_000_000_000_000n,
+      'token'
+    );
+    nativeSwap.holding.tokenAddress = EADDRESS;
+    nativeSwap.holding.amountRaw = nativeSwap.quote.input.amountRaw;
+    nativeSwap.holding.decimals = 18;
+    nativeSwap.holding.symbol = 'ETH';
+    nativeSwap.quote.input.contractAddress = EADDRESS;
+    nativeSwap.quote.input.decimals = 18;
+    nativeSwap.quote.input.symbol = 'ETH';
+    vi.mocked(sizeDirectDestinationExactOut).mockResolvedValueOnce([nativeSwap]);
+    vi.mocked(dispatchSourceChainBatch)
+      .mockRejectedValueOnce(
+        new SimulationError(
+          ERROR_CODES.SIMULATION_ETH_CALL_FAILED,
+          'Native source transaction simulation failed: quote expired',
+          { context: { service: 'rpc', chainId: CHAIN_ID } }
+        )
+      )
+      .mockResolvedValueOnce({
+        chainId: CHAIN_ID,
+        walletPath: 'ephemeral',
+        submittedTxHash: TX_HASH,
+        waitForReceipt: vi.fn().mockResolvedValue(TX_HASH),
+      });
+
+    await executeDirectDestinationExactOut(
+      makeRoute([nativeSwap]),
+      makeContext(makePreparedExecution([nativeSwap])),
+      makeMetadata()
+    );
+
+    expect(sizeDirectDestinationExactOut).toHaveBeenCalledTimes(1);
+    expect(dispatchSourceChainBatch).toHaveBeenCalledTimes(2);
+  });
+
   it('requotes a stale route before its first dispatch from persisted exact targets', async () => {
     const initial = makeSwap(500_000_000n, WETH, 200_000_000_000_000_000n, 'token');
     const fresh = makeSwap(510_000_000n, WETH, 200_000_000_000_000_000n, 'token');
@@ -852,5 +931,33 @@ describe('executeDirectDestinationExactOut', () => {
 
     expect(error).toMatchObject({ code: 'external_service/rates_drift_exceeded' });
     expect(dispatchSourceChainBatch).not.toHaveBeenCalled();
+  });
+
+  it('requotes and retries an explicit middleware no-broadcast failure', async () => {
+    const swap = makeSwap(500_000_000n, WETH, 200_000_000_000_000_000n, 'token');
+    vi.mocked(sizeDirectDestinationExactOut).mockResolvedValueOnce([swap]);
+    vi.mocked(dispatchSourceChainBatch)
+      .mockRejectedValueOnce(
+        new BackendError(
+          ERROR_CODES.BACKEND_SBC_SUBMIT_FAILED,
+          'middleware rejected the unbroadcast batch',
+          { context: { service: 'middleware', chainId: CHAIN_ID } }
+        )
+      )
+      .mockResolvedValueOnce({
+        chainId: CHAIN_ID,
+        walletPath: 'ephemeral',
+        submittedTxHash: TX_HASH,
+        waitForReceipt: vi.fn().mockResolvedValue(TX_HASH),
+      });
+
+    await executeDirectDestinationExactOut(
+      makeRoute([swap]),
+      makeContext(makePreparedExecution([swap])),
+      makeMetadata()
+    );
+
+    expect(sizeDirectDestinationExactOut).toHaveBeenCalledTimes(1);
+    expect(dispatchSourceChainBatch).toHaveBeenCalledTimes(2);
   });
 });

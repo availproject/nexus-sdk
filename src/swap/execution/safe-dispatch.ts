@@ -11,6 +11,7 @@ import {
 } from '../../services/safe';
 import { predictSafeAccountAddress } from '../safe/predict';
 import type { CreateSafeExecuteTxRequest, CreateSafeExecuteTxResponse } from '../safe/types';
+import { type EoaSimulationStep, simulateEoaTransaction } from './eoa-simulation';
 
 export type SafeDispatchMiddleware = EnsureSafeMiddleware & {
   createSafeExecuteTx: (req: CreateSafeExecuteTxRequest) => Promise<CreateSafeExecuteTxResponse>;
@@ -33,6 +34,8 @@ export async function dispatchSafeSource(input: {
   eoaAddress: Address;
   publicClient: PublicClient;
   middleware: SafeDispatchMiddleware;
+  onWalletPrompt?: () => void;
+  simulationStep?: EoaSimulationStep;
 }): Promise<{ txHash: Hex; safeAddress: Address }> {
   const {
     chain,
@@ -63,6 +66,18 @@ export async function dispatchSafeSource(input: {
       safeAddress,
       nativeValue,
     });
+    await simulateEoaTransaction({
+      publicClient,
+      eoaAddress,
+      chainId,
+      transaction: eoaCall,
+      step: input.simulationStep ?? {
+        stepId: `source_swap:${chainId}`,
+        stepType: 'source_swap',
+        label: 'Native source transaction',
+      },
+    });
+    input.onWalletPrompt?.();
     await switchChain(eoaWallet, chain);
     const txHash = await eoaWallet.sendTransaction({
       account: eoaAddress,

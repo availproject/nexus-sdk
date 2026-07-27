@@ -4,12 +4,12 @@ import { ZERO_ADDRESS } from '../../domain/constants/addresses';
 import { isNativeAddress } from '../../services/addresses';
 import { divDecimals } from '../../services/math';
 import { SLIPPAGE_BPS_STRING } from './constants';
+import { normalizeExpectedOutput } from './expected-output';
 import type { Aggregator, Quote, QuoteRequest } from './types';
 import { QuoteType } from './types';
-import { normalizeExpectedOutput } from './expected-output';
 
 const ERC20_APPROVE_ABI = parseAbi(['function approve(address spender, uint256 value)']);
-
+const GLOBAL_DENY = ['magpie'];
 // Relay `/quote/v2` used as a SAME-CHAIN swap: originChainId == destinationChainId. Native is the
 // ZERO address on Relay (its default currency), whereas the SDK hands adapters EADDRESS — so map
 // native → zero on the request and keep the SDK-canonical token on the returned quote.
@@ -34,9 +34,9 @@ const SUPPORTED_CHAINS = new Set<number>([
 ]);
 
 export class RelayAggregator implements Aggregator {
-  private readonly getQuote: (params: Record<string, string>) => Promise<unknown>;
+  private readonly getQuote: (params: Record<string, string | string[]>) => Promise<unknown>;
 
-  constructor(getQuote: (params: Record<string, string>) => Promise<unknown>) {
+  constructor(getQuote: (params: Record<string, string | string[]>) => Promise<unknown>) {
     this.getQuote = getQuote;
   }
 
@@ -59,7 +59,7 @@ export class RelayAggregator implements Aggregator {
             ? req.inputAmount
             : 0n;
 
-      const params: Record<string, string> = {
+      const params: Record<string, string | string[]> = {
         user: req.userAddress,
         recipient: req.recipientAddress,
         originChainId: chainId,
@@ -69,6 +69,7 @@ export class RelayAggregator implements Aggregator {
         amount: amountRaw.toString(),
         tradeType: isExactOut ? 'EXACT_OUTPUT' : 'EXACT_INPUT',
         slippageTolerance: SLIPPAGE_BPS_STRING,
+        excludedSwapSources: GLOBAL_DENY,
       };
 
       const data = (await this.getQuote(params)) as RelayResponse;

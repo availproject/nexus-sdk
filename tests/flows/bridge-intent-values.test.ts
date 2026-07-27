@@ -1,6 +1,6 @@
 import Decimal from 'decimal.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Hex } from 'viem';
+import { toHex, type Hex } from 'viem';
 import type { BridgeIntentDraft, OraclePriceResponse, TokenBalance } from '../../src/domain';
 import { Universe } from '../../src/domain/chain-abstraction';
 import { buildBridgeIntent } from '../../src/bridge/intent/builder';
@@ -82,6 +82,7 @@ describe('buildBridgeIntent value resolver', () => {
 
     const chain1 = makeChain(1, 'Ethereum');
     const chain2 = makeChain(10, 'Optimism');
+    const unrelatedChain = makeChain(137, 'Polygon');
     const token = {
       contractAddress: TOKEN_ADDRESS,
       decimals: 6,
@@ -89,8 +90,19 @@ describe('buildBridgeIntent value resolver', () => {
       name: 'USD Coin',
       logo: '',
     };
-    const chainList = makeChainList([chain1, chain2], token);
+    const chainList = makeChainList([chain1, chain2, unrelatedChain], token);
+    const getQuote = vi.fn().mockResolvedValue({
+      fulfillmentBps: 0,
+      sources: [],
+      destination: {
+        chainId: chain2.id,
+        tokenAddress: TOKEN_ADDRESS,
+        fulfillmentFeeUsd: '0',
+        fulfillmentFeeToken: '0',
+      },
+    });
     const middlewareClient = makeMiddlewareClient({
+      getQuote,
       getOraclePrices: async () =>
         [
           {
@@ -161,6 +173,13 @@ describe('buildBridgeIntent value resolver', () => {
     });
 
     expect(capturedInput).toBeDefined();
+    expect(getQuote).toHaveBeenCalledWith({
+      sources: [{ chain_id: toHex(chain1.id), contract_address: TOKEN_ADDRESS }],
+      destination: {
+        chain_id: toHex(chain2.id),
+        contract_address: TOKEN_ADDRESS,
+      },
+    });
     expect(
       capturedInput?.resolveUsdValue({
         amount: new Decimal('3'),

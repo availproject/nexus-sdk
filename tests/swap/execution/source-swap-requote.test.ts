@@ -81,7 +81,12 @@ const makeCtx = (opts: {
       addChain: vi.fn().mockResolvedValue(undefined),
       sendTransaction,
     } as unknown as WalletClient,
-    publicClientList: { get: vi.fn().mockReturnValue({ waitForTransactionReceipt }) },
+    publicClientList: {
+      get: vi.fn().mockReturnValue({
+        call: vi.fn().mockResolvedValue({ data: '0x' }),
+        waitForTransactionReceipt,
+      }),
+    },
     middlewareClient: {} as ExecutionContext['middlewareClient'],
     cache: { hasAuthCodeSet: vi.fn().mockReturnValue(true), markAuthCodeSet: vi.fn() },
     preparedExecution: opts.preparedExecution,

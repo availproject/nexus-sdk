@@ -1,5 +1,5 @@
 import Decimal from 'decimal.js';
-import { maxUint256, type Hex } from 'viem';
+import { type Hex, maxUint256 } from 'viem';
 import { getLogger } from '../../domain';
 import { ZERO_ADDRESS } from '../../domain/constants/addresses';
 import {
@@ -18,26 +18,26 @@ import type { SBCCall } from '../../services/sbc';
 import { createSourceSwapStepId } from '../../services/step-ids';
 import { equalFold } from '../../services/strings';
 import { withTimingSpan } from '../../services/timing';
+import { aggregatorService } from '../aggregators';
+import type { QuoteResponse } from '../aggregators/types';
 import {
   makeConvergenceExtraRaw,
   sizeDirectDestinationExactOut,
 } from '../algorithms/direct-destination-size';
-import { aggregatorService } from '../aggregators';
-import type { QuoteResponse } from '../aggregators/types';
 import { DIRECT_DST_QUOTE_TTL_MS, SRC_BUFFER_MAX_USD, SRC_BUFFER_PCT } from '../constants';
 import { predictSafeAccountAddress } from '../safe/predict';
 import type {
   ExecutionContext,
+  OraclePriceResponse,
   PreparedAuthorizationCall,
   PreparedEoaToEphemeralTransfer,
   SwapMetadata,
   SwapRoute,
-  OraclePriceResponse,
 } from '../types';
 import { buildPreparedTransfer } from '../wallet/prepared-transfer';
 import { resolvePreparedFundingTransferCalls } from './eoa-to-ephemeral';
 import { getParsedQuote } from './parsed-quote';
-import { dispatchSourceChainBatch, type DispatchedSourceBatch } from './source-swaps';
+import { type DispatchedSourceBatch, dispatchSourceChainBatch } from './source-swaps';
 
 const logger = getLogger();
 
@@ -173,11 +173,12 @@ const buildCalls = async (input: {
     const currentAllowance = needsFreshAuthorization
       ? ctx.cache.getAllowance(funding.tokenAddress, ctx.eoaAddress, targetAddress, chainId)
       : 0n;
-    const authorization = needsFreshAuthorization || !cached
-      ? undefined
-      : cached.authorization?.kind === 'approve' && cached.approvalMined
-        ? null
-        : cached.authorization;
+    const authorization =
+      needsFreshAuthorization || !cached
+        ? undefined
+        : cached.authorization?.kind === 'approve' && cached.approvalMined
+          ? null
+          : cached.authorization;
     const transfer: PreparedEoaToEphemeralTransfer = await buildPreparedTransfer({
       reason: 'source',
       chainId,
@@ -252,7 +253,16 @@ const buildCalls = async (input: {
 const isDefinitiveFailure = (error: unknown): boolean =>
   error instanceof NexusError &&
   (error.code === ERROR_CODES.EXEC_TX_ONCHAIN_REVERTED ||
-    error.code === ERROR_CODES.EXEC_TX_SUBMISSION_REVERTED);
+    error.code === ERROR_CODES.EXEC_TX_SUBMISSION_REVERTED ||
+    error.code === ERROR_CODES.BACKEND_SBC_SUBMIT_FAILED ||
+    error.code === ERROR_CODES.SIMULATION_ETH_CALL_FAILED);
+
+const isRetryableDispatchFailure = (error: unknown, dispatched?: DispatchedSourceBatch): boolean =>
+  isDefinitiveFailure(error) ||
+  (dispatched === undefined &&
+    error instanceof NexusError &&
+    error.code === ERROR_CODES.EXECUTION_ERROR &&
+    error.context.service === 'wallet');
 
 const normalizeDispatchFailure = (
   error: unknown,
@@ -421,7 +431,7 @@ export const executeDirectDestinationExactOut = async (
             calls,
             nativeValue: calls.reduce((total, call) => total + call.value, 0n),
             ctx,
-        }),
+          }),
         { tags: { attempt: dispatchAttempts, route_path: 'direct_destination' } }
       );
       dispatched = submitted;
@@ -450,7 +460,10 @@ export const executeDirectDestinationExactOut = async (
       return;
     } catch (error) {
       const normalized = normalizeDispatchFailure(error, chainId, dispatched);
-      if (isDefinitiveFailure(normalized) && dispatchAttempts < MAX_DISPATCH_ATTEMPTS) {
+      if (
+        isRetryableDispatchFailure(normalized, dispatched) &&
+        dispatchAttempts < MAX_DISPATCH_ATTEMPTS
+      ) {
         forceRequote = true;
         continue;
       }

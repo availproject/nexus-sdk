@@ -3,14 +3,17 @@ import type { Hex } from 'viem';
 import { getLogger } from '../../domain';
 import {
   ERROR_CODES,
+  Errors,
   ExecutionError,
   ExternalServiceError,
   formatUnknownError,
   NexusError,
+  UserActionError,
 } from '../../domain/errors';
 import { isNativeAddress } from '../../services/addresses';
 import { confirmStepReceipt, switchChain } from '../../services/evm';
 import { createExplorerTxURL } from '../../services/explorer';
+import { isUserRejectedRequest } from '../../services/is-user-rejected-request';
 import { divDecimals } from '../../services/math';
 import {
   createCaliburExecuteTxFromCalls,
@@ -33,6 +36,7 @@ import type {
   WalletPath,
 } from '../types';
 import { chainSupports7702 } from '../wallet/capabilities';
+import { simulateEoaTransaction } from './eoa-simulation';
 import { resolvePreparedFundingTransferCalls } from './eoa-to-ephemeral';
 import { getParsedQuote } from './parsed-quote';
 import { dispatchSafeSource } from './safe-dispatch';
@@ -119,6 +123,7 @@ const buildSourceCalls = async (
             eoaAddress: ctx.eoaAddress,
             eoaWallet: ctx.eoaWallet,
             publicClient,
+            cache: ctx.cache,
           }))
         );
         usedTransfers.add(transferKey);
@@ -209,11 +214,13 @@ export const dispatchSourceChainBatch = async (input: {
   const publicClient = ctx.publicClientList.get(chainId);
 
   if (chain && !chainSupports7702(chain)) {
-    ctx.onProgress?.({
-      stepType: 'source_swap',
-      chainId,
-      state: nativeValue > 0n ? 'wallet_prompted' : 'started',
-    });
+    if (nativeValue === 0n) {
+      ctx.onProgress?.({
+        stepType: 'source_swap',
+        chainId,
+        state: 'started',
+      });
+    }
     const { txHash } = await dispatchSafeSource({
       chain,
       chainId,
@@ -224,6 +231,11 @@ export const dispatchSourceChainBatch = async (input: {
       eoaAddress: ctx.eoaAddress,
       publicClient,
       middleware: ctx.middlewareClient,
+      onWalletPrompt:
+        nativeValue > 0n
+          ? () => ctx.onProgress?.({ stepType: 'source_swap', chainId, state: 'wallet_prompted' })
+          : undefined,
+      simulationStep: sourceSwapStep(chainId),
     });
     const explorerUrl = createExplorerTxURL(txHash, chain.blockExplorers?.default?.url);
     ctx.onProgress?.({
@@ -266,7 +278,6 @@ export const dispatchSourceChainBatch = async (input: {
       ctx.cache?.markAuthCodeSet?.(ctx.ephemeralWallet.address, chainId);
     }
 
-    ctx.onProgress?.({ stepType: 'source_swap', chainId, state: 'wallet_prompted' });
     const tx = await createCaliburExecuteTxFromCalls({
       calls,
       chainID: chainId,
@@ -274,6 +285,14 @@ export const dispatchSourceChainBatch = async (input: {
       ephemeralWallet: ctx.ephemeralWallet,
       value: nativeValue,
     });
+    await simulateEoaTransaction({
+      publicClient,
+      eoaAddress: ctx.eoaAddress,
+      chainId,
+      transaction: tx,
+      step: sourceSwapStep(chainId),
+    });
+    ctx.onProgress?.({ stepType: 'source_swap', chainId, state: 'wallet_prompted' });
     await switchChain(ctx.eoaWallet, chain);
     const txHash = await ctx.eoaWallet.sendTransaction({
       account: ctx.eoaAddress,
@@ -413,9 +432,7 @@ const requoteFailedChains = async (
     let total = new Decimal(0);
     for (const swaps of groups) {
       for (const swap of swaps) {
-        total = total.add(
-          divDecimals(swap.quote.output.amountRaw, swap.quote.output.decimals)
-        );
+        total = total.add(divDecimals(swap.quote.output.amountRaw, swap.quote.output.decimals));
       }
     }
     return total;
@@ -529,6 +546,7 @@ export const executeSourceSwaps = async (
     const dispatchResults: PromiseSettledResult<DispatchedSourceChain>[] = [];
 
     for (const [chainId, chainSwaps] of pendingEntries) {
+      let phase: 'authorization' | 'dispatch' = 'authorization';
       try {
         const walletPath = ctx.sourceExecutionPaths.get(chainId) ?? 'ephemeral';
         const calls = await withTimingSpan(
@@ -543,6 +561,7 @@ export const executeSourceSwaps = async (
             },
           }
         );
+        phase = 'dispatch';
         const nativeValue = calls.reduce((sum, call) => sum + call.value, 0n);
         const dispatched = await withTimingSpan(
           ctx.timing,
@@ -555,9 +574,14 @@ export const executeSourceSwaps = async (
           value: { ...dispatched, chainSwaps },
         });
       } catch (error) {
+        const normalized = isUserRejectedRequest(error)
+          ? phase === 'authorization'
+            ? Errors.userRejectedAllowance()
+            : Errors.userRejectedTxSend()
+          : error;
         dispatchResults.push({
           status: 'rejected',
-          reason: error,
+          reason: normalized,
         });
       }
     }
@@ -635,6 +659,17 @@ export const executeSourceSwaps = async (
     if (failedChains.length === 0) {
       pendingChains = new Map();
       break;
+    }
+
+    const terminalFailure = failedChains.find(({ error }) => error instanceof UserActionError);
+    if (terminalFailure) {
+      ctx.onProgress?.({
+        stepType: 'source_swap',
+        chainId: terminalFailure.chainId,
+        state: 'failed',
+        error: formatUnknownError(terminalFailure.error),
+      });
+      throw terminalFailure.error;
     }
 
     lastError = failedChains[0].error;

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getAddress, zeroAddress } from 'viem';
+import { SLIPPAGE_BPS, SLIPPAGE_PERCENT } from '../../../src/swap/aggregators/constants';
 import { FibrousAggregator } from '../../../src/swap/aggregators/fibrous';
 import { QuoteSeriousness, QuoteType, type QuoteRequest } from '../../../src/swap/aggregators/types';
 
@@ -102,8 +103,10 @@ describe('FibrousAggregator', () => {
     ]);
 
     expect(quote).not.toBeNull();
-    // /route has no min_received, so surveys apply the configured 0.25% floor locally.
-    expect(quote!.output.amountRaw).toBe(39_900_000_000_000_000n);
+    // /route has no min_received, so surveys apply the configured floor locally.
+    const expectedOutput =
+      (BigInt(response.route.outputAmount) * BigInt(10_000 - SLIPPAGE_BPS)) / 10_000n;
+    expect(quote!.output.amountRaw).toBe(expectedOutput);
     expect(quote!.txData).toEqual({
       approvalAddress: zeroAddress,
       tx: { to: zeroAddress, data: '0x', value: '0x0' },
@@ -127,7 +130,7 @@ describe('FibrousAggregator', () => {
     expect(getQuote).toHaveBeenCalledWith(
       expect.objectContaining({
         chain: 'citrea',
-        slippage: '0.25',
+        slippage: SLIPPAGE_PERCENT,
         destination: RECIPIENT,
       })
     );
@@ -181,7 +184,7 @@ describe('FibrousAggregator', () => {
     expect(params.amount).toBe('1000000');
     expect(params.tokenInAddress).toBe(INPUT_TOKEN);
     expect(params.tokenOutAddress).toBe(OUTPUT_TOKEN);
-    expect(params.slippage).toBe('0.25');
+    expect(params.slippage).toBe(SLIPPAGE_PERCENT);
   });
 
   it('returns null for EXACT_OUT without calling getQuote (Fibrous is EXACT_IN only)', async () => {

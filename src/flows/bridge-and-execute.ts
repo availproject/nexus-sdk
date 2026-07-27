@@ -57,7 +57,7 @@ import { estimateTotalFees, type TxWithGas } from '../services/fee-estimation';
 import { divDecimals, mulDecimals } from '../services/math';
 import { generateStateOverride } from '../services/simulation';
 import { withTimingSpan } from '../services/timing';
-import type { MiddlewareSimulationClient, QuoteResponse } from '../transport';
+import type { MiddlewareSimulationClient } from '../transport';
 import { executeBridge, simulateBridge } from './bridge';
 import { createBridgeAndExecuteProgressEmitter } from './bridge-and-execute-progress';
 import type { BridgeAndExecuteDeps } from './deps';
@@ -92,7 +92,6 @@ type EstimateBridgeAndExecuteResult = {
   };
   feeParams: import('../execute/runtime').ExecuteFeeParams;
   priceLookup: (chainId: number, tokenAddress: Hex) => Decimal;
-  resolveQuoteResponse: () => QuoteResponse;
   requirementRaw: {
     gas: bigint;
     nativeValue: bigint;
@@ -263,7 +262,6 @@ const buildCompositePreviewState = async (
     sourceChains?: number[];
     token: TokenInfo;
     unifiedBalances: TokenBalance[];
-    getQuoteResponse: () => QuoteResponse;
   },
   deps: BridgeAndExecuteDeps
 ): Promise<CompositePreviewState> => {
@@ -313,10 +311,28 @@ const buildCompositePreviewState = async (
     };
   }
 
+  const assets = createUserAssets(input.unifiedBalances);
+  const quoteSourceChainIds =
+    input.sourceChains && input.sourceChains.length > 0
+      ? input.sourceChains
+      : (
+          await assets
+            .find({
+              currencyId: input.token.currencyId,
+              symbol: input.token.symbol,
+            })
+            .iterate(deps.chainList)
+        )
+          .filter((entry) => entry.chain.id !== input.dstChain.id && entry.balance.gt(0))
+          .map((entry) => entry.chain.id);
+  const quoteResponse = await deps.middlewareClient.getQuote(
+    buildQuoteRequest(deps.chainList, input.token, input.dstChain.id, quoteSourceChainIds)
+  );
+
   const bridgeIntent = await createBridgeIntent(
     {
       amount: divDecimals(shortfall.tokenShortfall, input.token.decimals),
-      assets: createUserAssets(input.unifiedBalances),
+      assets,
       gas: divDecimals(shortfall.gasShortfall, input.dstChain.nativeCurrency.decimals),
       gasInToken: convertNativeGasToTokenAmount(deps.chainList, {
         chain: input.dstChain,
@@ -333,7 +349,7 @@ const buildCompositePreviewState = async (
       dstChainUniverse: input.dstChain.universe,
       dstChainNativeDecimals: input.dstChain.nativeCurrency.decimals,
       recipient: input.address,
-      quoteResponse: input.getQuoteResponse(),
+      quoteResponse,
     },
     {
       chainList: deps.chainList,
@@ -447,13 +463,7 @@ const estimateBridgeAndExecute = async (
         };
       });
 
-  const quoteRequest = buildQuoteRequest(deps.chainList, token, dstChain.id);
-
-  const quotePromise = deps.middlewareClient
-    .getQuote(quoteRequest)
-    .catch((error) => error as Error);
-
-  const [gasUsed, balances, oraclePrices, quoteResult] = await Promise.all([
+  const [gasUsed, balances, oraclePrices] = await Promise.all([
     determineGasUsed,
     getBalancesForBridge({
       evmAddress: deps.evm.address,
@@ -461,13 +471,7 @@ const estimateBridgeAndExecute = async (
       middlewareClient: deps.middlewareClient,
     }),
     deps.middlewareClient.getOraclePrices(),
-    quotePromise,
   ]);
-
-  const resolveQuoteResponse = (): QuoteResponse => {
-    if (quoteResult instanceof Error) throw quoteResult;
-    return quoteResult;
-  };
 
   const items: TxWithGas[] = [
     ...(approvalTx
@@ -577,7 +581,6 @@ const estimateBridgeAndExecute = async (
       sourceChains: params.sources,
       token,
       unifiedBalances: balances,
-      getQuoteResponse: resolveQuoteResponse,
     },
     deps
   );
@@ -596,7 +599,6 @@ const estimateBridgeAndExecute = async (
     },
     initialPreviewState,
     priceLookup,
-    resolveQuoteResponse,
     requirementRaw,
     token,
     tx,
@@ -660,7 +662,6 @@ export const bridgeAndExecute = async (
     approvalTx,
     approvalContext,
     executeRequirement,
-    resolveQuoteResponse,
     requirementRaw,
   } = estimate;
   const executePlan = createExecutePlanContext({
@@ -717,7 +718,6 @@ export const bridgeAndExecute = async (
             sourceChains: selectedSources ?? parsed.sources,
             token,
             unifiedBalances,
-            getQuoteResponse: resolveQuoteResponse,
           },
           deps
         );

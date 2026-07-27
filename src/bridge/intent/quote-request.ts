@@ -8,30 +8,31 @@ import type { MiddlewareBridgeProviderClient, QuoteRequest } from '../../transpo
 export const buildQuoteRequest = (
   chainList: ChainListType,
   dstToken: TokenInfo,
-  dstChainId: number
+  dstChainId: number,
+  sourceChainIds: number[]
 ): QuoteRequest => {
   const quoteSources: { chain_id: string; contract_address: string }[] = [];
 
-  for (const chain of chainList.chains) {
-    if (chain.id === dstChainId) continue;
+  for (const sourceChainId of new Set(sourceChainIds)) {
+    if (sourceChainId === dstChainId) continue;
     let token: TokenInfo | undefined;
     if (dstToken.currencyId != null) {
       try {
-        token = chainList.getTokenByCurrencyId(chain.id, dstToken.currencyId);
+        token = chainList.getTokenByCurrencyId(sourceChainId, dstToken.currencyId);
       } catch {
         // currencyId miss — fall through to symbol lookup
       }
     }
     if (!token) {
       try {
-        token = chainList.getTokenInfoBySymbol(chain.id, dstToken.symbol);
+        token = chainList.getTokenInfoBySymbol(sourceChainId, dstToken.symbol);
       } catch {
         continue;
       }
     }
     if (isNativeAddress(token.contractAddress)) continue;
     quoteSources.push({
-      chain_id: toHex(chain.id),
+      chain_id: toHex(sourceChainId),
       contract_address: token.contractAddress,
     });
   }

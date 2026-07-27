@@ -17,6 +17,7 @@ import {
   ExecutionError,
   formatUnknownError,
   NexusError,
+  UserActionError,
 } from '../../domain/errors';
 import { PermitVariant } from '../../domain/permits';
 import { isNativeAddress } from '../../services/addresses';
@@ -43,7 +44,7 @@ import {
 import { withTimingSpan } from '../../services/timing';
 import { createSwapBridgeIntent } from '../bridge-intent';
 import { predictSafeAccountAddress } from '../safe/predict';
-import type { BridgeAsset, ExecutionContext, SwapMetadata, SwapRoute } from '../types';
+import type { BridgeAsset, ExecutionContext, SBCResult, SwapMetadata, SwapRoute } from '../types';
 import { chainSupports7702 } from '../wallet/capabilities';
 import { resolvePreparedFundingTransferCalls } from './eoa-to-ephemeral';
 import { dispatchSafeSource } from './safe-dispatch';
@@ -76,6 +77,79 @@ const resolveBridgeRecipient = (input: {
 // 5 minute window — matches v1's BRIDGE_VAULT_PERMIT_DEADLINE_MINUTES. Permit deadline expiry
 // has historically been a source of flake; do not drop below 3 minutes.
 const BRIDGE_VAULT_PERMIT_DEADLINE_SECONDS = 5n * 60n;
+const MAX_BRIDGE_FUNDING_ATTEMPTS = 3;
+
+const isRetryableFundingPreparationError = (
+  error: unknown,
+  authorizationKind: 'permit' | 'approve' | 'none'
+): boolean => {
+  if (authorizationKind !== 'permit') return false;
+  if (!(error instanceof NexusError)) return true;
+  return error.context.service === 'rpc';
+};
+
+const withFundingStepContext = (error: NexusError, chainId: number): NexusError => {
+  if (error.context.stepId !== undefined) return error;
+
+  if (error instanceof ExecutionError) {
+    return new ExecutionError(error.code, error.message, {
+      context: {
+        operation: error.context.operation,
+        service: error.context.service,
+        chainId,
+        stepId: createEoaToEphemeralTransferStepId(chainId),
+        stepType: 'eoa_to_ephemeral_transfer',
+      },
+      details: error.details,
+    });
+  }
+  if (error instanceof UserActionError) {
+    return new UserActionError(error.code, error.message, {
+      context: {
+        operation: error.context.operation,
+        service: error.context.service,
+        chainId,
+        stepId: createEoaToEphemeralTransferStepId(chainId),
+        stepType: 'eoa_to_ephemeral_transfer',
+      },
+      details: error.details,
+    });
+  }
+  return error;
+};
+
+// A structured per-chain failure means middleware did not broadcast the SBC. Re-submit the exact
+// signed payload so nonce/deadline/signature stay stable. Transport failures are intentionally not
+// caught because the broadcast outcome is ambiguous; a successful result hands its hash to the
+// caller's existing receipt wait.
+const submitBridgeFundingSbc = async (
+  sbcTx: Awaited<ReturnType<typeof createSBCTxFromCalls>>,
+  chainId: number,
+  context: string,
+  middlewareClient: ExecutionContext['middlewareClient']
+): Promise<Hex> => {
+  for (let attempt = 1; attempt <= MAX_BRIDGE_FUNDING_ATTEMPTS; attempt++) {
+    const results = await middlewareClient.submitSBCs([sbcTx]);
+    const result = results.find((entry) => entry.chainId === chainId);
+    const shouldRetry = result?.errored === true && attempt < MAX_BRIDGE_FUNDING_ATTEMPTS;
+
+    if (!shouldRetry) {
+      return requireSuccessfulSbcResult(results, chainId, context);
+    }
+
+    const erroredResult = result as SBCResult<true>;
+    logger.debug('swap.execute.bridge.funding_sbc.retrying', {
+      chainId,
+      attempt,
+      maxAttempts: MAX_BRIDGE_FUNDING_ATTEMPTS,
+      middlewareCode: erroredResult.code,
+      middlewareSubcode: erroredResult.subcode,
+      errorId: erroredResult.errorId,
+    });
+  }
+
+  throw Errors.internal(`Unreachable bridge funding SBC retry state for chain ${chainId}`);
+};
 
 // Non-7702 bridge funding/allowance, shared by the Nexus deposit batch and the Mayan approve:
 //  1. transfer(ephemeral, depositValue) — Safe moves the COT to the ephemeral
@@ -303,39 +377,63 @@ const resolveFundingTransferCalls = async (
     });
   }
 
-  try {
-    const calls = await resolvePreparedFundingTransferCalls({
-      transfer,
-      tokenDecimals: asset.decimals,
-      chain,
-      eoaAddress: ctx.eoaAddress,
-      eoaWallet: ctx.eoaWallet,
-      publicClient,
-    });
-    logger.debug('swap.execute.bridge.funding.completed', {
-      chainId: asset.chainID,
-      tokenAddress: asset.contractAddress,
-      authorizationKind,
-      callCount: calls.length,
-    });
-    return calls;
-  } catch (error) {
-    const message = `Failed to prepare bridge funding transfer for chain ${asset.chainID}`;
-    logger.error('executeSwapBridge:funding_transfer:failed', error, {
-      chainId: asset.chainID,
-      tokenAddress: asset.contractAddress,
-      authorizationKind,
-    });
-    ctx.onProgress?.({
-      stepType: 'eoa_to_ephemeral_transfer',
-      chainId: asset.chainID,
-      state: 'failed',
-      error: formatUnknownError(error),
-    });
-    if (error instanceof NexusError && error.context.stepId !== undefined) {
-      throw error;
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= MAX_BRIDGE_FUNDING_ATTEMPTS; attempt++) {
+    try {
+      const calls = await resolvePreparedFundingTransferCalls({
+        transfer,
+        tokenDecimals: asset.decimals,
+        chain,
+        eoaAddress: ctx.eoaAddress,
+        eoaWallet: ctx.eoaWallet,
+        publicClient,
+      });
+      logger.debug('swap.execute.bridge.funding.completed', {
+        chainId: asset.chainID,
+        tokenAddress: asset.contractAddress,
+        authorizationKind,
+        callCount: calls.length,
+        attempt,
+      });
+      return calls;
+    } catch (error) {
+      lastError = error;
+      if (
+        attempt === MAX_BRIDGE_FUNDING_ATTEMPTS ||
+        !isRetryableFundingPreparationError(error, authorizationKind)
+      ) {
+        break;
+      }
+      logger.debug('swap.execute.bridge.funding.retrying', {
+        chainId: asset.chainID,
+        tokenAddress: asset.contractAddress,
+        authorizationKind,
+        attempt,
+        maxAttempts: MAX_BRIDGE_FUNDING_ATTEMPTS,
+        error: formatUnknownError(error),
+      });
     }
-    throw new ExecutionError(ERROR_CODES.EXECUTION_ERROR, message, {
+  }
+
+  const message = `Failed to prepare bridge funding transfer for chain ${asset.chainID}`;
+  logger.error('executeSwapBridge:funding_transfer:failed', lastError, {
+    chainId: asset.chainID,
+    tokenAddress: asset.contractAddress,
+    authorizationKind,
+  });
+  ctx.onProgress?.({
+    stepType: 'eoa_to_ephemeral_transfer',
+    chainId: asset.chainID,
+    state: 'failed',
+    error: formatUnknownError(lastError),
+  });
+  if (lastError instanceof NexusError) {
+    throw withFundingStepContext(lastError, asset.chainID);
+  }
+  throw new ExecutionError(
+    ERROR_CODES.EXECUTION_ERROR,
+    `${message}: ${formatUnknownError(lastError)}`,
+    {
       context: {
         service: 'wallet',
         stepId: createEoaToEphemeralTransferStepId(asset.chainID),
@@ -346,8 +444,8 @@ const resolveFundingTransferCalls = async (
         tokenAddress: asset.contractAddress,
         authorizationKind,
       },
-    });
-  }
+    }
+  );
 };
 
 const hasEoaFunding = (asset: BridgeAsset) => asset.eoaBalance.gt(0);
@@ -518,8 +616,12 @@ const runMayanEphemeralBridge = async (
           publicClient: ctx.publicClientList.get(asset.chainID),
         });
 
-        const sbcResults = await ctx.middlewareClient.submitSBCs([sbcTx]);
-        txHash = requireSuccessfulSbcResult(sbcResults, asset.chainID, 'Swap bridge approve');
+        txHash = await submitBridgeFundingSbc(
+          sbcTx,
+          asset.chainID,
+          'Swap bridge approve',
+          ctx.middlewareClient
+        );
       } else {
         // Non-7702: the sponsored depositMayan pulls the COT from the ephemeral. Move it
         // Safe→ephemeral and grant the vault allowance via permit in one Safe batch. When a source
@@ -883,7 +985,6 @@ const executeEphemeralBridgePath = async (
   bridgedAssets: BridgeAsset[],
   ctx: Pick<
     ExecutionContext,
-    | 'bridgeQuoteResponse'
     | 'cache'
     | 'chainList'
     | 'destinationDirectEoa'
@@ -1115,13 +1216,16 @@ const executeEphemeralBridgePath = async (
           chainId: asset.chainID,
         });
 
-        const sbcResults = await ctx.middlewareClient.submitSBCs([sbcTx]);
+        txHash = await submitBridgeFundingSbc(
+          sbcTx,
+          asset.chainID,
+          'Swap bridge deposit',
+          ctx.middlewareClient
+        );
 
         logger.debug('swap.execute.bridge.deposit_sbc_dispatch.completed', {
           chainId: asset.chainID,
         });
-
-        txHash = requireSuccessfulSbcResult(sbcResults, asset.chainID, 'Swap bridge deposit');
       }
       const explorerUrl = createExplorerTxURL(txHash, chain.blockExplorers?.default?.url ?? '');
 
@@ -1266,7 +1370,6 @@ export const executeSwapBridge = async (
   assets: BridgeAsset[],
   ctx: Pick<
     ExecutionContext,
-    | 'bridgeQuoteResponse'
     | 'cache'
     | 'chainList'
     | 'destinationDirectEoa'

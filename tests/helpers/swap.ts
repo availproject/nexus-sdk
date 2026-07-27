@@ -1,7 +1,6 @@
 import { vi } from 'vitest';
 import type { Hex } from 'viem';
 import type { ChainListType, TokenInfo } from '../../src/domain';
-import type { QuoteResponse as BridgeQuoteResponse } from '../../src/transport';
 import { Universe } from '../../src/domain/chain-abstraction';
 import type { Aggregator } from '../../src/swap/aggregators/types';
 import type { SwapPreflight } from '../../src/swap/preflight';
@@ -225,7 +224,6 @@ export const makeSwapPreflight = (
 ): SwapPreflight => ({
   aggregators: ([] as Aggregator[]),
   balances: [],
-  bridgeQuoteResponse: null as BridgeQuoteResponse | null,
   dstTokenInfo: makeDstTokenInfo(),
   oraclePrices: [] as OraclePriceResponse,
   publicClientList: makePublicClientList(),

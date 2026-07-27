@@ -25,6 +25,7 @@ const makePublicClient = (overrides?: {
   waitStatus?: 'success' | 'reverted';
 }) =>
   ({
+    call: vi.fn().mockResolvedValue({ data: '0x' }),
     getCode: vi.fn().mockResolvedValue(overrides?.code),
     readContract: vi.fn().mockResolvedValue(overrides?.nonce ?? 0n),
     waitForTransactionReceipt: vi
@@ -139,6 +140,39 @@ describe('dispatchSafeSource', () => {
       });
       expect(functionName).toBe('execTransaction');
       expect(result.txHash).toBe('0xeoa1');
+    });
+
+    it('simulates the exact EOA call before touching the wallet', async () => {
+      const publicClient = makePublicClient({ code: undefined });
+      vi.mocked(publicClient.call).mockRejectedValueOnce(new Error('quote expired'));
+      const eoaWallet = makeEoaWallet();
+      const onWalletPrompt = vi.fn();
+
+      await expect(
+        dispatchSafeSource({
+          chain,
+          chainId,
+          calls: [{ to: target, value: 1_000n, data: '0xdead' }],
+          nativeValue: 1_000n,
+          ephemeralWallet,
+          eoaWallet,
+          eoaAddress,
+          publicClient,
+          middleware: makeMiddleware(),
+          onWalletPrompt,
+        })
+      ).rejects.toMatchObject({ code: 'simulation/eth_call_failed' });
+
+      expect(publicClient.call).toHaveBeenCalledWith({
+        account: eoaAddress,
+        to: safeAddress,
+        data: expect.any(String),
+        value: 1_000n,
+      });
+      expect(eoaWallet.getChainId).not.toHaveBeenCalled();
+      expect(eoaWallet.switchChain).not.toHaveBeenCalled();
+      expect(eoaWallet.sendTransaction).not.toHaveBeenCalled();
+      expect(onWalletPrompt).not.toHaveBeenCalled();
     });
 
     it('refuses single-call value mismatch (defensive against route drift)', async () => {

@@ -1,6 +1,6 @@
 import Decimal from 'decimal.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Hex } from 'viem';
+import { toHex, type Hex } from 'viem';
 import type {
   AllowanceHookSources,
   BridgeAndExecuteEvent,
@@ -913,15 +913,16 @@ describe('bridgeAndExecute event model', () => {
       }
     );
 
+    const middlewareClient = makeMiddlewareClient({
+      simulateBundleV2: vi.fn().mockResolvedValue({ gas: [21_000n] }),
+    });
     const query = createBridgeAndExecuteQuery(
       makeChainList(),
       makeEvmClient() as never,
       bridgeExecute as never,
       vi.fn() as never,
       async () => sourceOnlyBalances,
-      makeMiddlewareClient({
-        simulateBundleV2: vi.fn().mockResolvedValue({ gas: [21_000n] }),
-      })
+      middlewareClient
     );
 
     const events: BridgeAndExecuteEvent[] = [];
@@ -967,6 +968,13 @@ describe('bridgeAndExecute event model', () => {
         expect.objectContaining({ type: 'execute_transaction' }),
       ])
     );
+    expect(middlewareClient.getQuote).toHaveBeenCalledWith({
+      sources: [{ chain_id: toHex(sourceChain.id), contract_address: TOKEN_ADDRESS }],
+      destination: {
+        chain_id: toHex(chain.id),
+        contract_address: TOKEN_ADDRESS,
+      },
+    });
   });
 
   it('does not fail the public flow when onEvent throws during bridge plan progress', async () => {
@@ -1066,6 +1074,7 @@ describe('bridgeAndExecute event model', () => {
       execute: { txHash: TX_HASH },
       bridgeResult: undefined,
     });
+    expect(failingQuoteMw.getQuote).not.toHaveBeenCalled();
   });
 
   it('passes EIP-1559 feeParams when useLegacyPricing is false', async () => {

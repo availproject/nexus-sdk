@@ -379,7 +379,6 @@ describe('calculateMaxForSwap characterization', () => {
     });
     const route = await determineSwapRoute(syntheticExactInInput(WETH), {
       aggregators: preflight.aggregators,
-      bridgeQuoteResponse: preflight.bridgeQuoteResponse,
       chainList: options.chainList,
       middlewareClient: options.middlewareClient,
       publicClientList: preflight.publicClientList,
@@ -454,7 +453,6 @@ describe('calculateMaxForSwap characterization', () => {
     });
     const route = await determineSwapRoute(syntheticExactInInput(USDC_BASE), {
       aggregators: preflight.aggregators,
-      bridgeQuoteResponse: preflight.bridgeQuoteResponse,
       chainList: options.chainList,
       middlewareClient: options.middlewareClient,
       publicClientList: preflight.publicClientList,

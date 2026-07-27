@@ -300,42 +300,6 @@ describe('calculateMaxForSwap', () => {
     expect(routeOptionsArg.dstTokenInfo.symbol).toBe('USDC');
   });
 
-  it('passes preflight bridgeQuoteResponse into route construction', async () => {
-    const bridgeQuoteResponse = {
-      fulfillmentBps: 100,
-      sources: [
-        {
-          chainId: ARB_CHAIN,
-          tokenAddress: USDC_ARB,
-          depositFeeUsd: '1.00',
-          depositFeeToken: '1000000',
-          depositMayanFeeUsd: '1.00',
-          depositMayanFeeToken: '1000000',
-        },
-      ],
-      destination: {
-        chainId: ARB_CHAIN,
-        tokenAddress: USDC_ARB,
-        fulfillmentFeeUsd: '1.50',
-        fulfillmentFeeToken: '1500000',
-      },
-    };
-    const opts = makeOptions();
-    vi.mocked(buildSwapPreflight).mockResolvedValueOnce(
-      makeSwapPreflight({ bridgeQuoteResponse })
-    );
-    vi.mocked(determineSwapRoute).mockResolvedValue(makeRoute());
-
-    await calculateMaxForSwap(
-      { toChainId: ARB_CHAIN, toTokenAddress: WETH },
-      opts
-    );
-
-    expect(vi.mocked(determineSwapRoute).mock.calls[0][1]).toMatchObject({
-      bridgeQuoteResponse,
-    });
-  });
-
   it('constructs the synthetic Exact In route with the minimum amount basis', async () => {
     vi.mocked(determineSwapRoute).mockResolvedValue(makeRoute());
 

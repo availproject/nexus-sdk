@@ -37,6 +37,7 @@ untested (this map exists because that scoping mistake has bitten twice):
 | `determineSwapRoute` / `resolveWalletDecisions` | `tests/swap/route.test.ts`, `tests/swap/route-swap-supported.test.ts` |
 | Selection & destination algorithms | `tests/swap/algorithms/*.test.ts` |
 | Aggregators (+ adapters) | `tests/swap/aggregators/*.test.ts` |
+| Aggregator quote slippage | `tests/swap/aggregators/constants.test.ts` |
 | Intent / bridge-intent / plan / prepare | `tests/swap/{intent,bridge-intent,swap-steps-builder,prepare}.test.ts` |
 | Execution (source / bridge / destination / cleanup / safe-dispatch) | `tests/swap/execution/*.test.ts` |
 | Wallet primitives (SBC, stark, derived-key, cache, capabilities, eoa-executor, sweep, cot) | `tests/swap/wallet/*.test.ts`, `tests/swap/{sweep,cot}.test.ts` |
@@ -160,12 +161,6 @@ swap(input = {mode: EXACT_OUT, data:{toChainId:Base, toTokenAddress:WETH, toAmou
     balances         = selectSwapSources(reserved, toChainId, toToken)   # → positive-only, same-chain-first
     dstTokenInfo     = native(toToken) ? chain.nativeCurrency
                                        : fetchErc20TokenMetadata(toToken)     # → WETH/18
-    quoteTok = resolveBridgeQuoteToken(input)          # the token the router will BRIDGE: the dst token
-                                                       #   only when same-token bridging fires (EXACT_IN ∧
-                                                       #   every source = dst family); else dstCOT. undefined
-                                                       #   when no quote is needed (native COT / no COT)
-    bridgeQuoteResponse = quoteTok ? getQuote(buildQuoteRequest(quoteTok)).catch(null)
-                                   : null              # undefined quoteTok → no bridge-fee quote
     walletPathHints  = ({toChainId} ∪ balanceChains ∪ sourceChains)
                          .map(c → resolveWalletPath(chainSupports7702(c)))     # → {Arb:eph, Base:eph}
 
@@ -175,6 +170,11 @@ swap(input = {mode: EXACT_OUT, data:{toChainId:Base, toTokenAddress:WETH, toAmou
     cot = resolveCOT(Base)                  # → USDC
     needTokenSwap = (toToken ≠ cot)         # → true (WETH ≠ USDC) ⇒ a destination token swap
     holdings = balances − dstChain.toToken  # toAmountRaw>0 ⇒ drop Base-WETH → {0.5 WETH @ Arb}
+    dst.tokenSwap = determineDestinationSwaps(cot→WETH, receiver=EOA, taker=executor)         # (§6)
+    dstInput = dst.tokenSwap.quote.input.amount
+    RES = selectRoughEligibleSources(holdings, dstInput)
+    bridgeQuoteResponse = getQuote(buildQuoteRequest(dstCOT, Base, remote chains in RES))
+             # destination is included in this first scoped call for fulfillmentFeeToken/BPS
     provider = resolveBridgeProviderDecision(dstCOT, roughBridgedPrefix)  # → 'nexus' (under threshold)  (§5)
     inputAmount.max = dstInput + min(DST_BUFFER_PCT·dstInput, DST_BUFFER_MAX_USD)    # +min(10%,$2)
     outputRequired  = max     + min(SRC_BUFFER_PCT·max,     SRC_BUFFER_MAX_USD)      # +min(2%,$1)
@@ -182,7 +182,6 @@ swap(input = {mode: EXACT_OUT, data:{toChainId:Base, toTokenAddress:WETH, toAmou
     source = autoSelectSources(holdings, outputRequired)             # → [WETH→USDC @ Arb]   (§6)
     bridge = (sourceChain ≠ Base) ? buildBridge(…) : null            # → bridge; collection fee = 0
              # require bridgeQuoteResponse else throw "bridge fee quote unavailable"
-    dst.tokenSwap = determineDestinationSwaps(cot→WETH, receiver=EOA, taker=executor)         # (§6)
     paths = resolveWalletDecisions({sourceChainIds, walletPathHints})  # → {Arb:'ephemeral'}  ◄ seam
     dst.getDstSwap = frozen at inputAmount.max          # requote ≤ max; never creeps  (§5)
 
@@ -303,9 +302,10 @@ Routing ownership is intentionally explicit:
 Exact In and Exact Out are not one configurable pipeline. They share mechanics and vocabulary, but
 their amount propagation and requote policies remain mode-owned.
 
-`RouteOptions = { aggregators, bridgeQuoteResponse, chainList, cotCurrencyId, middlewareClient,
+`RouteOptions = { aggregators, bridgeQuoteResponse?, chainList, cotCurrencyId, middlewareClient,
 publicClientList, oraclePrices, dstTokenInfo, eoaAddress, ephemeralAddress, balances,
-walletPathHints, quoteAddressHints?, exactInAmountBasis? }`. Returned `SwapRoute`:
+walletPathHints, quoteAddressHints?, exactInAmountBasis? }`. `bridgeQuoteResponse` is an internal
+route-reentry cache for dynamic-COT paths; public preflight no longer fetches it. Returned `SwapRoute`:
 
 ```text
 { type, source:{swaps[], creationTime, srcBuffer, cotByChain?},
@@ -374,7 +374,8 @@ determineSwapRoute(input, opts) -> SwapRoute:
     #   B1 'same-token-out': every RES member ∧ the dst token share one family F (including cot), at
     #     least one RES member is remote, no gas
     #     ⇒ buildSameTokenBridgeExactOutRoute: gross the target up through an F-denominated fee quote
-    #     (gross = (toAmount + fulfilment)/(1 − bps); current cot reuses the preflight quote), fund greedily
+    #     scoped to remote RES chains, then
+    #     gross = (toAmount + fulfilment)/(1 − bps); fund greedily
     #     split over remote family holdings (native keeps a per-chain gas reserve). Delivered == toAmount
     #     exactly, bridge EOA→EOA, no swaps. Uniform full holdings use the terminal branch above;
     #     RES-derived B1 failures (Mayan undershoot / short holdings / no F-quote) fall back.
@@ -422,6 +423,9 @@ determineSwapRoute(input, opts) -> SwapRoute:
     if provider == 'mayan':                                          # Nexus skips the floor entirely
       holdings = dropSubFloorMayanChains(rawHoldings)                # drop chains whose SELECTED USD < floor
       if holdings empty: throw "Mayan bridge requires ≥ $MAYAN_MIN_USD_PER_LEG per source …"
+    bridgeQuoteResponse = getQuote(buildQuoteRequest(
+                              settlement token, toChainId, unique remote chains in holdings))
+                         # skipped when every selected holding is already on the destination
     source        = liquidateInputHoldings(holdings)                 # §6 (COT holdings skipped)
     sourceCOT     = Σ select(source.quote, basis) + direct COT       # one selected amount per stage
     # no source buffer: source.srcBuffer = null (a failed leg re-quotes and proceeds, no drift guard)
@@ -430,7 +434,7 @@ determineSwapRoute(input, opts) -> SwapRoute:
 
   # ── bridge ──
   bridge = (all source COT on toChainId) ? null : buildBridge(…, provider)
-           # cross-chain requires bridgeQuoteResponse else throw "bridge fee quote unavailable"
+           # cross-chain requires the route-scoped bridgeQuoteResponse
            # collection fee = 0 (smart-account model); coalesce same-chain assets
            # bridge funding → ephemeralBalance; direct COT → eoaBalance
            # Nexus applies fixed fulfillment + bps to selected gross and stores that normalized model
@@ -562,6 +566,13 @@ aggregateAggregators(requests, aggregators, mode):
 createAggregators(mw) → [LiFi, Bebop, Fibrous, 0x, Mystic, Relay]
 ```
 
+Adapters that accept a slippage tolerance share `SLIPPAGE_BPS = 30` (0.3%). 0x and Relay receive
+the value as a basis-point string, Mystic receives it as a basis-point number, LiFi receives the
+fractional form (`0.005`), and Fibrous receives the percentage form (`0.5`) while using the same
+basis-point value for its local survey floor. `tests/swap/aggregators/constants.test.ts` pins this
+policy and its derived wire forms; adapter tests reference the matching provider-native constant
+directly.
+
 All adapters map a middleware response to a `Quote`, return `null` on throw/timeout, short‑circuit
 unsupported chains **without firing a request**, and send **no API‑key headers** (the proxy handles
 auth). Every normalized `Quote` has both a required `output` (the **slippage-protected executable
@@ -674,6 +685,13 @@ executeSwapRoute(route, ctx) -> SwapMetadata:                  # execution/orche
   executeDestinationSwap(route.destination, route.type, ...)
   on failure: cleanup source chains before the switch, destination chain after it; rethrow
   return metadata
+
+receipt confirmation (shared):
+  wait up to 60s for the requested confirmations (1 on Ethereum, 2 on other chains)
+  waiter error → getTransactionReceipt(hash) once as a final inclusion check
+    found success → accept it even if the normal confirmation count was not reached
+    found revert  → preserve the on-chain-revert classification for the caller's retry policy
+    not found / lookup error → surface the original waiter error
 ```
 
 The direct-destination executor stays dedicated. Ordinary source execution, route-driven bridge
@@ -692,10 +710,13 @@ executeDirectDestinationExactOut(route, ctx, meta):
       needed = Σ inputRaw across that token's token/gas sibling legs
       calls += [one permit?, one transferFrom(eoa→executor, needed)] before its first leg
       calls += each leg's [approve(router)?, swap]
+    native input → eth_call the exact Calibur/Safe EOA transaction before any wallet interaction
+                   simulation revert → fresh re-size, then retry without prompting the wallet
     dispatchSourceChainBatch(one atomic dst-chain batch); reconcile a known hash; await receipt
     confirmed → meta.src += the confirmed batch and return
     confirmed revert / explicit no-broadcast result → fresh re-size, then retry
-    wallet rejection / ambiguous submission or receipt result → terminal; never blindly redispatch
+    wallet submission failure with no hash → assume unsubmitted, fresh re-size, then retry
+    wallet rejection / receipt timeout with a known hash → terminal; never blindly redispatch
   cached authorization capacity is exact for canonical/Polygon-EMT permits and paid approvals,
   MAX_UINT256 for DAI/Polygon-2612 allowed=true, or the actual pre-existing allowance. A mined paid
   approval is never replayed. Silent per-token growth is capped against the ROUTE-TIME baseline.
@@ -712,8 +733,11 @@ executeSourceSwaps(source, ctx, meta) -> BridgeAsset[]:
                                                        #   writeContract, mined BEFORE the batch, kept OFF it
                                                        # native input: bootstrap Calibur (empty-calls SBC,
                                                        #   gated on cache.hasAuthCodeSet) then EOA
-                                                       #   sendTransaction payable execute (no authList)
+                                                       #   eth_call exact payable execute, then
+                                                       #   sendTransaction (no authList) only on success
   await all receipts                                   # only AFTER every chain is dispatched
+  confirmed paid EOA approval → update allowance cache # retry reuses it; never prompts/submits again
+  user rejects permit/approval/transaction → terminal  # emit failed and stop; never requote/re-prompt
   on chain failure: requote that chain ONCE (EXACT_IN; taker=receiver = that chain's executor —
                     EOA for the direct-COT dst chain, predictedSafe on non-7702, else ephemeral)
     # EXACT_OUT: require Σ(output drop) ≤ srcBuffer, pooled across that route's source legs
@@ -759,6 +783,13 @@ executeSwapBridge(bridge, executedAssets, ctx, meta):   # bridges the ACTUAL wra
         #   On non-7702 the executor is the Safe, so funds flow EOA→Safe→ephemeral (transfer(eph) above).
         eoaBalance>0 but no prepared bridge-transfer → throw ExecutionError{
             stepType:'eoa_to_ephemeral_transfer', stepId: createEoaToEphemeralTransferStepId(chainId)}
+      bridge funding retry boundary (Mayan approve + Nexus deposit):
+        permit-preparation RPC failure → retry, at most 3 total attempts
+        direct approval / wallet rejection → terminal (an approval may already be known or mined)
+        7702 SBC result errored:true → re-submit the SAME signed SBC, at most 3 total attempts
+        transport failure → terminal (broadcast outcome is ambiguous)
+        errored:false → SDK waits for that txHash receipt; receipt failure is terminal
+        progress lifecycle events are emitted once around the logical funding/deposit operation
       waitForFill (DEFAULT_FILL_TIMEOUT_MINUTES = 5)        # races middleware-poll + on-chain vault watch
   meta.intent_request_hash set; meta.has_xcs = true
 
@@ -922,8 +953,9 @@ them from global balances or from prior leg outputs.
 
 Execution belongs to `executeDirectDestinationExactOut`, not the shared multi-chain source retry. A
 route older than 45 seconds is re-sized before its first dispatch. A confirmed atomic revert (or an
-explicit provider result proving no broadcast) re-runs the same two-pass sizer, then may retry, for at
-most three actual dispatches. Quote/sizing failure consumes no dispatch slot and is reported as
+explicit provider/middleware result proving no broadcast, including structured SBC submission
+failure) re-runs the same two-pass sizer, then may retry, for at most three actual dispatches.
+Quote/sizing failure consumes no dispatch slot and is reported as
 `EXTERNAL_RATES_DRIFT_EXCEEDED` with the selected aggregator service. A known hash is reconciled; an
 ambiguous submission/receipt outcome is terminal, and wallet rejection never re-prompts. ERC-20 inputs
 are grouped by token: one authorization plus one summed `transferFrom` precedes that token's ordered
@@ -964,8 +996,8 @@ fixed-plus-bps model and reapplies it to `Σ(executed)` when building the bridge
   `settlementCurrencyId = F`, `swaps: []`,
   `srcBuffer`/`buffer` = 0), but sizes by **grossing the exact target up through the fee** so the
   delivered amount is exactly `toAmount`: `gross = (toAmount + fulfilment) / (1 − fulfillmentBps/1e4)`.
-  The fee quote is **F-denominated**: the current COT reuses its preflight quote, while a non-COT F is
-  fetched mid-route (`fetchBridgeQuoteForCurrency`) rather than using a mismatched COT quote. Funding
+  The fee quote is **F-denominated** and fetched mid-route for only the path's remote source
+  candidates (`fetchBridgeQuoteForCurrency`), rather than reusing a mismatched COT quote. Funding
   is a **greedy split** over priority-ordered remote family holdings (`use = min(available, remaining)`); ERC-20 and
   **native** F both supported (native holdings keep a per-chain gas reserve via
   `estimateRepresentativeSwapNativeReserveFee` so the deposit can pay its own gas — never 100% native).
@@ -1003,8 +1035,9 @@ fixed-plus-bps model and reapplies it to `Σ(executed)` when building the bridge
   two-pass quotes and strict coverage remain authoritative; a gate miss or builder failure lets B1/B2
   and the default route continue. Execution re-sizes only from persisted, filtered
   `dstHoldings`, preserves the route-time executor/EOA quote addresses, groups ERC-20 funding per
-  token, and retries only after a definitive failure (§12.1). The whole batch is atomic, so failure
-  cleanup is skipped.
+  token, and retries after a pre-submit simulation failure, a definitive failure, or a wallet
+  submission failure that returned no hash (§12.1). The whole batch is atomic, so failure cleanup
+  is skipped.
   `dstHoldings.amountRaw` is an **already usable** ceiling: preflight and composite-flow balance inputs
   must have deducted any native gas reserve before routing. This executor consumes that ceiling and
   never estimates or deducts a second reserve.
@@ -1071,15 +1104,17 @@ fixed-plus-bps model and reapplies it to `Σ(executed)` when building the bridge
 
 The gaps from the original audit have been addressed:
 - _**`buildSwapPreflight`** — covered by `tests/services/swap-preflight.test.ts`: parallel
-  oracle/balance fetch, preloaded short‑circuit, the bridge‑quote branches (resolved / native‑COT /
-  no‑COT / `getQuote` rejects), native vs. ERC20 `dstTokenInfo`, `walletPathHints`
-  (7702→ephemeral / non‑7702→safe), and debug logging. (It pre‑existed under `tests/services/`;
-  the null‑branch / native / safe‑path cases were merged in and a duplicate
-  `tests/swap/preflight.test.ts` was removed.)_
+  oracle/balance fetch, preloaded short‑circuit, no eager bridge quote, native vs. ERC20
+  `dstTokenInfo`, `walletPathHints` (7702→ephemeral / non‑7702→safe), and debug logging.
+  Bridge-quote denomination and source scoping are covered by route tests after the route knows its
+  eligible sources._
 - _**Economic constants** — `tests/swap/constants.test.ts` pins the buffer/haircut/convergence/
   retry/slippage values to source. (This corrected the EXACT_OUT source buffer from a guessed
   `0.5%` to the real `SRC_BUFFER_PCT = 2%` — the worked route example clamps to `$1` under either
   percentage, so it couldn't disambiguate.)_
+- _**Aggregator quote slippage** — `tests/swap/aggregators/constants.test.ts` separately pins the
+  shared 50 bps policy and its provider wire forms; adapter tests reference the matching
+  provider-native constant directly._
 - _**`max-pipeline.test.ts`** — the stale "`describe()` is `.skip'd`" header was removed; it runs
   and passes under the smart‑account‑only model._
 - _**`swapAndExecute`** — already covered: the post‑swap `execute({to, gas})` behaviour lives in

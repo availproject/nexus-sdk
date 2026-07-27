@@ -276,6 +276,11 @@ export class SwapCache {
     return this.allowances.get(key) ?? 0n;
   }
 
+  setAllowance(token: Hex, owner: Hex, spender: Hex, chainId: number, amount: bigint): void {
+    const key = allowanceKey(token, owner, spender, chainId);
+    this.allowances.set(key, amount);
+  }
+
   hasAuthCodeSet(address: Hex, chainId: number): boolean {
     const key = setCodeKey(address, chainId);
     const code = this.codeResults.get(key);

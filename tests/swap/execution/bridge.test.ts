@@ -5,7 +5,7 @@ import type { PrivateKeyAccount } from 'viem/accounts';
 import { ERC20PermitABI } from '../../../src/abi/erc20';
 import { EVMVaultABI } from '../../../src/abi/vault';
 import { getLogger } from '../../../src/domain';
-import { ExecutionError } from '../../../src/domain/errors';
+import { Errors, ExecutionError, UserActionError } from '../../../src/domain/errors';
 import { createEoaToEphemeralTransferStepId } from '../../../src/services/step-ids';
 
 vi.mock('../../../src/services/sbc', () => ({
@@ -344,6 +344,59 @@ const makeCtx = (): BridgeCtx => ({
   destinationDirectEoa: false,
 });
 
+const makePermitFundedCtx = (
+  permitVariant: PermitVariant = PermitVariant.EIP2612Canonical
+): BridgeCtx => {
+  const ctx = makeCtx();
+  return {
+    ...ctx,
+    preparedExecution: {
+      parsedQuotes: [],
+      eoaToEphemeralTransfers: [
+        {
+          reason: 'bridge',
+          chainId: ARB_CHAIN,
+          tokenAddress: USDC_ARB,
+          amount: 3000000n,
+          targetAddress: ctx.ephemeralWallet.address,
+          authorization: {
+            kind: 'permit',
+            call: null,
+            permit: {
+              signature: null,
+              permitVariant,
+              permitContractVersion: 2,
+            },
+          },
+          transferCall: {
+            to: USDC_ARB,
+            data: encodeFunctionData({
+              abi: erc20Abi,
+              functionName: 'transferFrom',
+              args: [ctx.eoaAddress, ctx.ephemeralWallet.address, 3000000n],
+            }),
+            value: 0n,
+          },
+        },
+      ],
+    },
+  };
+};
+
+const executeEoaFundedBridge = (ctx: BridgeCtx) =>
+  executeSwapBridge(
+    makeBridge(),
+    [
+      {
+        ...makeBridgeAsset(),
+        eoaBalance: new Decimal('3'),
+        ephemeralBalance: new Decimal(0),
+      },
+    ],
+    ctx,
+    { src: [], dst: null, has_xcs: false, intent_request_hash: null }
+  );
+
 describe('executeSwapBridge', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -598,6 +651,204 @@ describe('executeSwapBridge', () => {
     expect(permitCall.functionName).toBe('permit');
     expect(transferCall.functionName).toBe('transferFrom');
     expect(ctx.eoaWallet.writeContract).not.toHaveBeenCalled();
+  });
+
+  it('retries transient RPC failures while preparing permit funding', async () => {
+    const ctx = makePermitFundedCtx(PermitVariant.DAI);
+    const publicClient = ctx.publicClientList.get(ARB_CHAIN);
+    const readContract = vi
+      .mocked(publicClient.readContract)
+      .mockRejectedValueOnce(new Error('RPC temporarily unavailable'))
+      .mockResolvedValue(0n);
+
+    await executeEoaFundedBridge(ctx);
+
+    expect(readContract).toHaveBeenCalledTimes(2);
+    expect(createSBCTxFromCalls).toHaveBeenCalledTimes(1);
+    expect(ctx.middlewareClient.submitSBCs).toHaveBeenCalledTimes(1);
+    expect(
+      vi
+        .mocked(ctx.onProgress!)
+        .mock.calls.filter(
+          ([event]) =>
+            event.stepType === 'eoa_to_ephemeral_transfer' && event.state === 'wallet_prompted'
+        )
+    ).toHaveLength(1);
+  });
+
+  it('stops permit funding preparation after three transient RPC failures', async () => {
+    const ctx = makePermitFundedCtx(PermitVariant.DAI);
+    const publicClient = ctx.publicClientList.get(ARB_CHAIN);
+    const readContract = vi
+      .mocked(publicClient.readContract)
+      .mockRejectedValue(new Error('RPC unavailable'));
+
+    await expect(executeEoaFundedBridge(ctx)).rejects.toThrow('RPC unavailable');
+
+    expect(readContract).toHaveBeenCalledTimes(3);
+    expect(createSBCTxFromCalls).not.toHaveBeenCalled();
+    expect(ctx.middlewareClient.submitSBCs).not.toHaveBeenCalled();
+    expect(
+      vi
+        .mocked(ctx.onProgress!)
+        .mock.calls.filter(
+          ([event]) =>
+            event.stepType === 'eoa_to_ephemeral_transfer' && event.state === 'failed'
+        )
+    ).toHaveLength(1);
+  });
+
+  it('does not retry rejected permit signatures and preserves the user-action error', async () => {
+    const ctx = makePermitFundedCtx();
+    const rejection = Errors.userRejectedAllowance();
+    vi.mocked(signPermitForAddressAndValue).mockRejectedValueOnce(rejection);
+
+    const result = executeEoaFundedBridge(ctx);
+
+    await expect(result).rejects.toBeInstanceOf(UserActionError);
+    await expect(result).rejects.toMatchObject({ code: rejection.code });
+    expect(signPermitForAddressAndValue).toHaveBeenCalledTimes(1);
+    expect(ctx.middlewareClient.submitSBCs).not.toHaveBeenCalled();
+  });
+
+  it('retries an explicitly unbroadcast bridge SBC with the same signed request', async () => {
+    const submitSBCs = vi
+      .fn()
+      .mockResolvedValueOnce([
+        {
+          chainId: ARB_CHAIN,
+          address: '0x0000000000000000000000000000000000000abc' as Hex,
+          errored: true,
+          message: 'not broadcast',
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          chainId: ARB_CHAIN,
+          address: '0x0000000000000000000000000000000000000abc' as Hex,
+          errored: false,
+          txHash: '0xbridge_tx' as Hex,
+        },
+      ]);
+    const ctx = {
+      ...makeCtx(),
+      middlewareClient: makeSwapExecutionMiddlewareClient({ submitSBCs }),
+    } as BridgeCtx;
+
+    await executeSwapBridge(
+      makeBridge(),
+      [makeBridgeAsset()],
+      ctx,
+      { src: [], dst: null, has_xcs: false, intent_request_hash: null }
+    );
+
+    expect(createSBCTxFromCalls).toHaveBeenCalledTimes(1);
+    expect(submitSBCs).toHaveBeenCalledTimes(2);
+    expect(submitSBCs.mock.calls[1]?.[0]?.[0]).toBe(submitSBCs.mock.calls[0]?.[0]?.[0]);
+    expect(
+      vi
+        .mocked(ctx.onProgress!)
+        .mock.calls.filter(
+          ([event]) => event.stepType === 'bridge_deposit' && event.state === 'started'
+        )
+    ).toHaveLength(1);
+    expect(
+      vi
+        .mocked(ctx.onProgress!)
+        .mock.calls.filter(
+          ([event]) => event.stepType === 'bridge_deposit' && event.state === 'submitted'
+        )
+    ).toHaveLength(1);
+  });
+
+  it('stops retrying explicitly unbroadcast bridge SBCs after three attempts', async () => {
+    const submitSBCs = vi.fn().mockResolvedValue([
+      {
+        chainId: ARB_CHAIN,
+        address: '0x0000000000000000000000000000000000000abc' as Hex,
+        errored: true,
+        message: 'not broadcast',
+      },
+    ]);
+    const ctx = {
+      ...makeCtx(),
+      middlewareClient: makeSwapExecutionMiddlewareClient({ submitSBCs }),
+    } as BridgeCtx;
+
+    await expect(
+      executeSwapBridge(
+        makeBridge(),
+        [makeBridgeAsset()],
+        ctx,
+        { src: [], dst: null, has_xcs: false, intent_request_hash: null }
+      )
+    ).rejects.toThrow('not broadcast');
+
+    expect(createSBCTxFromCalls).toHaveBeenCalledTimes(1);
+    expect(submitSBCs).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not retry ambiguous bridge SBC transport failures', async () => {
+    const submitSBCs = vi.fn().mockRejectedValue(new Error('request timed out'));
+    const ctx = {
+      ...makeCtx(),
+      middlewareClient: makeSwapExecutionMiddlewareClient({ submitSBCs }),
+    } as BridgeCtx;
+
+    await expect(
+      executeSwapBridge(
+        makeBridge(),
+        [makeBridgeAsset()],
+        ctx,
+        { src: [], dst: null, has_xcs: false, intent_request_hash: null }
+      )
+    ).rejects.toThrow('request timed out');
+
+    expect(submitSBCs).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry direct approval failures during bridge funding preparation', async () => {
+    const ctx = makePermitFundedCtx();
+    const [transfer] = ctx.preparedExecution!.eoaToEphemeralTransfers;
+    transfer!.authorization = {
+      kind: 'approve',
+      call: {
+        to: USDC_ARB,
+        data: encodeFunctionData({
+          abi: erc20Abi,
+          functionName: 'approve',
+          args: [ctx.ephemeralWallet.address, 3000000n],
+        }),
+        value: 0n,
+      },
+      permit: null,
+    };
+    vi.mocked(ctx.eoaWallet.writeContract).mockRejectedValueOnce(new Error('approval failed'));
+
+    await expect(executeEoaFundedBridge(ctx)).rejects.toThrow('approval failed');
+
+    expect(ctx.eoaWallet.writeContract).toHaveBeenCalledTimes(1);
+    expect(ctx.middlewareClient.submitSBCs).not.toHaveBeenCalled();
+  });
+
+  it('does not retry a bridge SBC after receiving a transaction hash', async () => {
+    const ctx = makeCtx();
+    const publicClient = ctx.publicClientList.get(ARB_CHAIN);
+    vi.mocked(publicClient.waitForTransactionReceipt).mockRejectedValueOnce(
+      new Error('receipt RPC unavailable')
+    );
+
+    await expect(
+      executeSwapBridge(
+        makeBridge(),
+        [makeBridgeAsset()],
+        ctx,
+        { src: [], dst: null, has_xcs: false, intent_request_hash: null }
+      )
+    ).rejects.toThrow('receipt RPC unavailable');
+
+    expect(ctx.middlewareClient.submitSBCs).toHaveBeenCalledTimes(1);
+    expect(createSBCTxFromCalls).toHaveBeenCalledTimes(1);
   });
 
   it('executes a paid EOA approval before the combined deposit when permit support is unavailable', async () => {

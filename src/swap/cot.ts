@@ -79,10 +79,9 @@ export type SwapSettlement = {
 
 /**
  * Decide a swap's settlement currency + whether the same-token direct bridge applies, in one place.
- * Both preflight (which token to fee-quote) and the route (fast-path vs COT flow) consume this so
- * the decision can't drift. `sources` are the selected sources to judge family on — the route passes
- * its resolved holdings; preflight passes the requested sources (empty ⇒ not same-token, since the
- * families aren't yet known).
+ * The route uses the result for both path selection and its route-scoped bridge-fee quote, so the
+ * bridged currency and fee denomination cannot drift. `sources` are the resolved sources whose
+ * family determines whether the same-token path applies.
  */
 export function resolveSwapSettlement(
   chainList: ChainListType,
