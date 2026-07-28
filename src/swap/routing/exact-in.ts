@@ -568,7 +568,7 @@ export async function _exactInRoute(data: ExactInData, options: RouteOptions): P
         cotByChain: buildSourceCotByChain(sourceSwaps, chainList, currencyId),
         // EXACT_IN: no source buffer — a failed leg re-quotes and proceeds with no drift guard.
         srcBuffer: null,
-        // Only meaningful when a bridge runs — execution bridges the actual wrapper balance so
+        // Only meaningful when a bridge runs — execution bridges the actual source-holder balance so
         // positive source slippage reaches the destination instead of being swept at the source.
         reclaimFromActualBalance: bridge !== null,
       },

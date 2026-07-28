@@ -16,6 +16,7 @@ export const buildPreparedTransfer = async (input: {
   amount: bigint;
   eagerPermit: boolean;
   targetAddress: Hex;
+  recipientAddress?: Hex;
   chainList: ChainListType;
   eoaAddress: Hex;
   eoaWallet: WalletClient;
@@ -39,6 +40,7 @@ export const buildPreparedTransfer = async (input: {
           eagerPermit: input.eagerPermit,
         })
       : input.authorization;
+  const recipientAddress = input.recipientAddress ?? input.targetAddress;
 
   return {
     reason: input.reason,
@@ -52,7 +54,7 @@ export const buildPreparedTransfer = async (input: {
       data: encodeFunctionData({
         abi: erc20Abi,
         functionName: 'transferFrom',
-        args: [input.eoaAddress, input.targetAddress, input.amount],
+        args: [input.eoaAddress, recipientAddress, input.amount],
       }),
       value: 0n,
     },
