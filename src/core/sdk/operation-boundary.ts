@@ -23,6 +23,7 @@ import {
   translateTransferEvent,
 } from '../../analytics/lifecycle-translator';
 import { buildEconomics, extractBridgeProperties, getWalletType } from '../../analytics/utils';
+import type { BridgeMaxParams, BridgeMaxResult } from '../../bridge/types';
 import type {
   BridgeAndExecuteEvent,
   BridgeAndExecuteParams,
@@ -611,6 +612,30 @@ export function trackCalculateMaxForSwap<R extends SwapMaxResult>(
     },
     opName: NexusOperationNames.CALCULATE_MAX_FOR_SWAP,
     operation: 'calculateMaxForSwap',
+    initiatedProps,
+    params,
+    run,
+  });
+}
+
+export function trackCalculateMaxForBridge<R extends BridgeMaxResult>(
+  analytics: AnalyticsManager,
+  params: BridgeMaxParams,
+  run: (opId: string) => Promise<R>
+): Promise<R> {
+  const initiatedProps = {
+    toChainId: params.toChainId,
+    tokenSymbol: params.toTokenSymbol,
+    sourceChains: params.sources,
+  };
+  return analytics.runOp<R>({
+    events: {
+      initiated: NexusAnalyticsEvents.CALCULATE_MAX_FOR_BRIDGE_INITIATED,
+      success: NexusAnalyticsEvents.CALCULATE_MAX_FOR_BRIDGE_SUCCESS,
+      failed: NexusAnalyticsEvents.CALCULATE_MAX_FOR_BRIDGE_FAILED,
+    },
+    opName: NexusOperationNames.CALCULATE_MAX_FOR_BRIDGE,
+    operation: 'calculateMaxForBridge',
     initiatedProps,
     params,
     run,

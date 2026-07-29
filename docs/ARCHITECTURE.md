@@ -28,6 +28,7 @@ The returned `NexusClient` includes:
 - `swapWithExactOut(params, options?)`
 - `swapAndExecute(params, options?)`
 - `calculateMaxForSwap(params)`
+- `calculateMaxForBridge(params)`
 - Simulation variants: `simulateBridge`, `simulateBridgeAndTransfer`, `simulateBridgeAndExecute`, `simulateExecute`
 - `getBalancesForBridge()`
 - `getBalancesForSwap()`

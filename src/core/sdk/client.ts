@@ -1,4 +1,5 @@
 import { AnalyticsManager } from '../../analytics/AnalyticsManager';
+import type { BridgeMaxParams, BridgeMaxResult } from '../../bridge/types';
 import type {
   AnalyticsConfig,
   BridgeAndExecuteParams,
@@ -49,6 +50,7 @@ import {
   trackBridgeAndExecute,
   trackBridgeAndExecuteSim,
   trackBridgeSim,
+  trackCalculateMaxForBridge,
   trackCalculateMaxForSwap,
   trackExecute,
   trackExecuteSim,
@@ -192,6 +194,9 @@ export const createNexusClient = (config?: {
   const calculateMaxForSwapPublic = (input: SwapMaxParams): Promise<SwapMaxResult> =>
     trackCalculateMaxForSwap(analytics, input, () => base.calculateMaxForSwap(input));
 
+  const calculateMaxForBridgePublic = (input: BridgeMaxParams): Promise<BridgeMaxResult> =>
+    trackCalculateMaxForBridge(analytics, input, () => base.calculateMaxForBridge(input));
+
   const setEVMProvider = (provider: EthereumProvider) => base.setEvmProvider(provider);
 
   const convertTokenReadableAmountToBigInt = (
@@ -229,7 +234,7 @@ export const createNexusClient = (config?: {
     swapWithExactOut,
     swapAndExecute: swapAndExecutePublic,
     calculateMaxForSwap: calculateMaxForSwapPublic,
-    calculateMaxForBridge: (input) => base.calculateMaxForBridge(input),
+    calculateMaxForBridge: calculateMaxForBridgePublic,
     setEVMProvider,
     convertTokenReadableAmountToBigInt,
     getSupportedChains: () => getSupportedChainsFromChainList(base.getChainList()),

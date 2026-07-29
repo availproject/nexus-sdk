@@ -9,6 +9,7 @@ import type {
   IntentRecord,
   ListIntentsParams,
   ListIntentsResult,
+  OperationName,
   SwapAndExecuteResult,
   SwapMaxResult,
   SwapResult as SwapResultType,
@@ -23,6 +24,8 @@ describe('public api exports', () => {
     const bridgeSimulation = {} as BridgeSimulationResult;
     const swapResult = {} as SwapResult;
     const swapMaxResult = {} as SwapMaxResult;
+    const calculateMaxForBridgeOperation =
+      'calculateMaxForBridge' as const satisfies OperationName;
     const txResult = {} as TxResult;
     const bridgeAndExecuteResult = {} as BridgeAndExecuteResult;
     const swapAndExecuteResult = {} as SwapAndExecuteResult;
@@ -33,6 +36,7 @@ describe('public api exports', () => {
     expectTypeOf(bridgeSimulation).toMatchTypeOf<BridgeSimulationResult>();
     expectTypeOf(swapResult).toMatchTypeOf<SwapResult>();
     expectTypeOf(swapMaxResult).toMatchTypeOf<SwapMaxResult>();
+    expect(calculateMaxForBridgeOperation).toBe('calculateMaxForBridge');
     expectTypeOf(txResult).toMatchTypeOf<TxResult>();
     expectTypeOf(bridgeAndExecuteResult).toMatchTypeOf<BridgeAndExecuteResult>();
     expectTypeOf(swapAndExecuteResult).toMatchTypeOf<SwapAndExecuteResult>();
@@ -83,6 +87,15 @@ describe('public api exports', () => {
     expect(NexusAnalyticsEvents.CALCULATE_MAX_FOR_SWAP_FAILED).toBe(
       'nexus_v2_calculate_max_for_swap_failed'
     );
+    expect(NexusAnalyticsEvents.CALCULATE_MAX_FOR_BRIDGE_INITIATED).toBe(
+      'nexus_v2_calculate_max_for_bridge_initiated'
+    );
+    expect(NexusAnalyticsEvents.CALCULATE_MAX_FOR_BRIDGE_SUCCESS).toBe(
+      'nexus_v2_calculate_max_for_bridge_success'
+    );
+    expect(NexusAnalyticsEvents.CALCULATE_MAX_FOR_BRIDGE_FAILED).toBe(
+      'nexus_v2_calculate_max_for_bridge_failed'
+    );
   });
 
   it('locks the AnalyticsManager public surface after boundary cleanup', () => {
@@ -119,6 +132,7 @@ describe('public api exports', () => {
       'trackBalanceFetch',
       'trackInit',
       'trackListIntents',
+      'trackCalculateMaxForBridge',
       'trackCalculateMaxForSwap',
       'trackWalletConnect',
     ]) {
