@@ -42,6 +42,7 @@ type DeterministicTransferSpec = {
   amount: bigint;
   eagerPermit: boolean;
   targetAddress: Hex;
+  recipientAddress?: Hex;
 };
 
 const getPublicClientMap = (
@@ -146,9 +147,9 @@ export const prepareSwapExecution = async (
   )
     ? input.ephemeralWallet.address
     : predictSafeAccountAddress(input.ephemeralWallet.address).address;
-  // Bridge deposit executor (= permit spender + transferFrom recipient): the predicted Safe on
-  // non-7702 chains (the Safe runs the deposit batch and pulls the COT from itself), the ephemeral
-  // on 7702 chains. Mirrors the deposit dispatch in execution/bridge.ts.
+  // Bridge funding spender/executor: the predicted Safe on non-7702 chains, the ephemeral on 7702.
+  // The recipient is always the ephemeral bridge holder; on a Safe chain the Safe calls
+  // transferFrom(EOA, ephemeral, amount) without taking intermediate custody.
   const ownerForBridgeChain = (chainId: number) =>
     chainSupports7702(input.chainList.getChainByID(chainId))
       ? input.ephemeralWallet.address
@@ -204,6 +205,7 @@ export const prepareSwapExecution = async (
           amount: mulDecimals(asset.eoaBalance, asset.decimals),
           eagerPermit: false,
           targetAddress: ownerForBridgeChain(asset.chainID),
+          recipientAddress: input.ephemeralWallet.address,
         },
       ];
     }) ?? [];

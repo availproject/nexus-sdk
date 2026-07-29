@@ -550,10 +550,9 @@ describe('prepareSwapExecution', () => {
     expect(bridgeTransfer?.amount).toBe(5000000n);
   });
 
-  it('targets the predicted Safe for the bridge funding transfer on non-7702 source chains', async () => {
-    // Fast-path bridge (no source swap) on a non-7702 chain: the Safe deposit batch pulls the COT
-    // from the Safe, so the EOA's COT must move EOA->Safe (Safe = permit spender + transferFrom
-    // recipient). Targeting the ephemeral leaves the Safe empty and the deposit reverts (GS013).
+  it('authorizes the Safe but transfers bridge funding directly from the EOA to the ephemeral', async () => {
+    // Fast-path bridge (no source swap) on a non-7702 chain: the Safe executes transferFrom, so it
+    // remains the permit spender, while the COT recipient is the ephemeral bridge holder.
     const route = makeRoute();
     route.source = { swaps: [], creationTime: Date.now(), srcBuffer: new Decimal(0) };
     route.destination = {
@@ -611,7 +610,7 @@ describe('prepareSwapExecution', () => {
     expect(bridgeTransfer!.targetAddress.toLowerCase()).toBe(expectedSafe.toLowerCase());
     const transferCall = decodeFunctionData({ abi: ERC20ABI, data: bridgeTransfer!.transferCall.data });
     expect(transferCall.functionName).toBe('transferFrom');
-    expect((transferCall.args?.[1] as Hex).toLowerCase()).toBe(expectedSafe.toLowerCase());
+    expect((transferCall.args?.[1] as Hex).toLowerCase()).toBe(EPH.toLowerCase());
   });
 
   it('does not build an eoa->ephemeral transfer for a native bridge asset (paid inline by the EOA)', async () => {

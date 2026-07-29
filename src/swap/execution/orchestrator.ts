@@ -121,7 +121,12 @@ export const executeSwapRoute = async (
         ? [route.destination.chainId]
         : metadata.src.map((entry) => entry.chid);
       await withTimingSpan(context.timing, 'flow.swap.execute.cleanup', async () =>
-        cleanupStrandedCot({ currencyId: sweepCurrencyId, chainIds, ctx: context })
+        cleanupStrandedCot({
+          currencyId: sweepCurrencyId,
+          chainIds,
+          scope: reachedDestinationSwap ? 'destination' : 'source',
+          ctx: context,
+        })
       );
     }
     throw error;

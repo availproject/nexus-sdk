@@ -4219,10 +4219,10 @@ describe('determineSwapRoute', () => {
     expect(holding.amountRaw).toBe(999999999999999999999n);
   });
 
-  it('routes source-swap recipient on non-7702 chains to the predicted Safe address', async () => {
+  it('routes bridged source-swap output on non-7702 chains directly to the ephemeral', async () => {
     // EXACT_IN cross-chain: WETH on ARB (treated non-7702 via 'safe' hint) → USDC on BASE.
-    // Source-swap recipient on ARB must equal the predicted Safe address (matches v1's
-    // "taker == receiver = Safe" on non-Pectra source chains).
+    // The Safe remains the aggregator taker/executor, but the COT output goes straight to the
+    // ephemeral bridge holder so the deposit path does not need a Safe→ephemeral transfer.
     const input: SwapData = {
       mode: SwapMode.EXACT_IN,
       data: {
@@ -4257,7 +4257,7 @@ describe('determineSwapRoute', () => {
     const safeAddress = predictSafeAccountAddress(EPHEMERAL_EXECUTOR).address;
     expect(liquidateInputHoldings).toHaveBeenCalledOnce();
     const callArgs = vi.mocked(liquidateInputHoldings).mock.calls[0][0];
-    expect(callArgs.recipientAddressByChain.get(ARB_CHAIN)).toBe(safeAddress);
+    expect(callArgs.recipientAddressByChain.get(ARB_CHAIN)).toBe(EPHEMERAL_EXECUTOR);
     expect(callArgs.userAddressByChain.get(ARB_CHAIN)).toBe(safeAddress);
   });
 

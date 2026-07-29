@@ -5,9 +5,8 @@ import {
   VAULT_ABI_MAYAN,
 } from '@avail-project/nexus-types/rff';
 import Decimal from 'decimal.js';
-import { encodeFunctionData, erc20Abi, type Hex, type PublicClient, parseSignature } from 'viem';
+import { encodeFunctionData, erc20Abi, type Hex, type PublicClient } from 'viem';
 import type { PrivateKeyAccount } from 'viem/accounts';
-import { ERC20PermitABI } from '../../abi/erc20';
 import { EVMVaultABI } from '../../abi/vault';
 import { submitRFFToMiddleware, waitForFill } from '../../bridge/executor';
 import { type Chain, DEFAULT_FILL_TIMEOUT_MINUTES, getLogger } from '../../domain';
@@ -19,7 +18,6 @@ import {
   NexusError,
   UserActionError,
 } from '../../domain/errors';
-import { PermitVariant } from '../../domain/permits';
 import { isNativeAddress } from '../../services/addresses';
 import { confirmStepReceipt, switchChain } from '../../services/evm';
 import { createExplorerTxURL } from '../../services/explorer';
@@ -46,6 +44,7 @@ import { createSwapBridgeIntent } from '../bridge-intent';
 import { predictSafeAccountAddress } from '../safe/predict';
 import type { BridgeAsset, ExecutionContext, SBCResult, SwapMetadata, SwapRoute } from '../types';
 import { chainSupports7702 } from '../wallet/capabilities';
+import { buildEphemeralPermitCall } from '../wallet/ephemeral-permit';
 import { resolvePreparedFundingTransferCalls } from './eoa-to-ephemeral';
 import { dispatchSafeSource } from './safe-dispatch';
 
@@ -151,11 +150,12 @@ const submitBridgeFundingSbc = async (
   throw Errors.internal(`Unreachable bridge funding SBC retry state for chain ${chainId}`);
 };
 
-// Non-7702 bridge funding/allowance, shared by the Nexus deposit batch and the Mayan approve:
-//  1. transfer(ephemeral, depositValue) — Safe moves the COT to the ephemeral
-//  2. permit(ephemeral → vault)          — ephemeral grants the vault transferFrom via EIP-2612
+// Non-7702 bridge allowance, shared by the Nexus deposit batch and the Mayan approve:
+//  1. permit(ephemeral → vault) — ephemeral grants the vault transferFrom via EIP-2612
+// COT already sits at the ephemeral: source swaps deliver there directly, and EOA-held bridge
+// funding uses transferFrom(EOA, ephemeral) with the Safe as spender.
 // (the deposit itself is appended by the Nexus path, or sponsored by the middleware for Mayan).
-const buildSafeTransferAndPermitCalls = async (input: {
+const buildSafePermitCalls = async (input: {
   asset: BridgeAsset;
   depositValue: bigint;
   vaultAddress: Hex;
@@ -165,105 +165,24 @@ const buildSafeTransferAndPermitCalls = async (input: {
   publicClient: PublicClient;
   deadline: bigint;
 }): Promise<SafeCall[]> => {
-  const token = input.chainList.getTokenByAddress(input.chain.id, input.asset.contractAddress);
-  const permitVariant = token?.permitVariant;
-  if (!permitVariant || permitVariant === PermitVariant.Unsupported) {
-    throw Errors.tokenNotSupported(
-      input.asset.contractAddress,
-      input.chain.id,
-      'permit required for non-7702 bridge deposit'
-    );
-  }
-  // v1's createPermitOnlyApprovalTx only supports EIP-2612 canonical.
-  if (permitVariant !== PermitVariant.EIP2612Canonical) {
-    throw Errors.tokenNotSupported(
-      input.asset.contractAddress,
-      input.chain.id,
-      '(2612 details not found)'
-    );
-  }
-  const permitContractVersion = token?.permitVersion ?? 1;
-
-  const [name, nonce] = (await Promise.all([
-    input.publicClient.readContract({
-      address: input.asset.contractAddress,
-      abi: erc20Abi,
-      functionName: 'name',
-    }),
-    input.publicClient.readContract({
-      address: input.asset.contractAddress,
-      abi: ERC20PermitABI,
-      functionName: 'nonces',
-      args: [input.ephemeralWallet.address],
-    }),
-  ])) as [string, bigint];
-
-  const sigHex = await input.ephemeralWallet.signTypedData({
-    domain: {
-      chainId: BigInt(input.chain.id),
-      name,
-      verifyingContract: input.asset.contractAddress,
-      version: permitContractVersion.toString(10),
-    },
-    types: {
-      Permit: [
-        { name: 'owner', type: 'address' },
-        { name: 'spender', type: 'address' },
-        { name: 'value', type: 'uint256' },
-        { name: 'nonce', type: 'uint256' },
-        { name: 'deadline', type: 'uint256' },
-      ],
-    },
-    primaryType: 'Permit',
-    message: {
-      owner: input.ephemeralWallet.address,
-      spender: input.vaultAddress,
-      value: input.depositValue,
-      nonce,
-      deadline: input.deadline,
-    },
-  });
-  const parsedSig = parseSignature(sigHex);
-  const v = Number(
-    parsedSig.v ?? (parsedSig.yParity != null ? Number(parsedSig.yParity) + 27 : 27)
-  );
-
   return [
-    {
-      to: input.asset.contractAddress,
-      value: 0n,
-      data: encodeFunctionData({
-        abi: erc20Abi,
-        functionName: 'transfer',
-        args: [input.ephemeralWallet.address, input.depositValue],
-      }),
-    },
-    {
-      to: input.asset.contractAddress,
-      value: 0n,
-      data: encodeFunctionData({
-        abi: ERC20PermitABI,
-        functionName: 'permit',
-        args: [
-          input.ephemeralWallet.address,
-          input.vaultAddress,
-          input.depositValue,
-          input.deadline,
-          v,
-          parsedSig.r,
-          parsedSig.s,
-        ],
-      }),
-    },
+    await buildEphemeralPermitCall({
+      tokenAddress: input.asset.contractAddress,
+      amount: input.depositValue,
+      spender: input.vaultAddress,
+      chain: input.chain,
+      chainList: input.chainList,
+      ephemeralWallet: input.ephemeralWallet,
+      publicClient: input.publicClient,
+      deadline: input.deadline,
+    }),
   ];
 };
 
-// Safe-path bridge deposit (non-7702 source). Seam 1 bridges the actual Safe balance, so the batch
-// is just transfer → permit → deposit with no trailing Sweeper (the deposit drains the Safe):
+// Safe-path bridge deposit (non-7702 source). COT is already at the ephemeral, so the batch is:
 //
-//  1. transfer(ephemeral, depositValue)   — Safe moves the full COT to ephemeral
-//  2. permit(ephemeral → vault)            — ephemeral signs EIP-2612 granting vault transferFrom
-//  3. vault.deposit(...)                   — vault.transferFrom(ephemeral, vault, depositValue)
+//  1. permit(ephemeral → vault) — ephemeral signs EIP-2612 granting vault transferFrom
+//  2. vault.deposit(...)        — vault.transferFrom(ephemeral, vault, depositValue)
 const buildSafeBridgeDepositCalls = async (input: {
   asset: BridgeAsset;
   depositValue: bigint;
@@ -280,7 +199,7 @@ const buildSafeBridgeDepositCalls = async (input: {
   deadline: bigint;
 }): Promise<SafeCall[]> => {
   const calls: SafeCall[] = [
-    ...(await buildSafeTransferAndPermitCalls({
+    ...(await buildSafePermitCalls({
       asset: input.asset,
       depositValue: input.depositValue,
       vaultAddress: input.vaultAddress,
@@ -302,9 +221,6 @@ const buildSafeBridgeDepositCalls = async (input: {
     },
   ];
 
-  // No COT sweep: Seam 1 bridges the actual Safe balance, so transfer(ephemeral, depositValue) moves
-  // the full COT and the deposit drains it — nothing residual stays at the Safe. The surplus is
-  // consolidated at the destination, not returned per source chain.
   return calls;
 };
 
@@ -623,11 +539,9 @@ const runMayanEphemeralBridge = async (
           ctx.middlewareClient
         );
       } else {
-        // Non-7702: the sponsored depositMayan pulls the COT from the ephemeral. Move it
-        // Safe→ephemeral and grant the vault allowance via permit in one Safe batch. When a source
-        // swap funded the Safe the COT already sits there (eoaBalance == 0 ⇒ fundingCalls empty); on
-        // the fast path it's still at the EOA, so prepend the EOA→Safe funding (permit + transferFrom)
-        // — without it the Safe holds zero and the Safe→ephemeral transfer reverts (GS013).
+        // Non-7702: COT already lands at the ephemeral. The Safe submits the ephemeral→vault permit;
+        // on an EOA-held fast path, fundingCalls first performs transferFrom(EOA→ephemeral) with the
+        // Safe as spender.
         const publicClient = ctx.publicClientList.get(asset.chainID);
         const { address: safeAddress } = predictSafeAccountAddress(ctx.ephemeralWallet.address);
         await ensureSafeForEphemeral({
@@ -640,7 +554,7 @@ const runMayanEphemeralBridge = async (
           BigInt(Math.floor(Date.now() / 1000)) + BRIDGE_VAULT_PERMIT_DEADLINE_SECONDS;
         const safeCalls = [
           ...fundingCalls,
-          ...(await buildSafeTransferAndPermitCalls({
+          ...(await buildSafePermitCalls({
             asset,
             depositValue: totalBalanceRaw,
             vaultAddress,
@@ -1131,11 +1045,9 @@ const executeEphemeralBridgePath = async (
           ctx,
         });
       } else if (chain && !chainSupports7702(chain)) {
-        // Non-7702 source chain → v1's Safe `safe_account` mode batch: per-asset
-        // transfer→permit→deposit→approve(Sweeper)→sweep. When a source swap funded the Safe its
-        // output already sits there (eoaBalance == 0 ⇒ fundingCalls empty); on the fast path the
-        // COT is still at the EOA, so prepend the EOA→Safe funding (permit + transferFrom) — without
-        // it the Safe holds zero and the deposit's transfer reverts (GS013).
+        // Non-7702 source: the Safe submits permit→deposit. Source swaps already delivered COT to
+        // the ephemeral; on an EOA-held fast path, fundingCalls first performs
+        // transferFrom(EOA→ephemeral) with the Safe as spender.
         const publicClient = ctx.publicClientList.get(asset.chainID);
         const { address: safeAddress } = predictSafeAccountAddress(ctx.ephemeralWallet.address);
         await ensureSafeForEphemeral({
@@ -1172,7 +1084,7 @@ const executeEphemeralBridgePath = async (
         const result = await ctx.middlewareClient.createSafeExecuteTx(request);
         txHash = result.txHash;
       } else {
-        // 7702 chain: existing Calibur SBC path. Build approve(vault)+deposit+sweep on the
+        // 7702 chain: existing Calibur SBC path. Build approve(vault)+deposit on the
         // ephemeral smart account (msg.sender == ephemeral); funding calls come from the
         // pre-built EOA→ephemeral transfer authorization.
         const calls = [...fundingCalls];
@@ -1198,7 +1110,7 @@ const executeEphemeralBridgePath = async (
           }),
           value: 0n,
         });
-        // No COT sweep: Seam 1 bridges the actual wrapper balance, so approve(vault, total) + deposit
+        // No COT sweep: Seam 1 bridges the actual source balance, so approve(vault, total) + deposit
         // drain the ephemeral — nothing residual to sweep. The surplus is consolidated at the
         // destination (EXACT_OUT direct transfer / EXACT_IN grown swap), not returned per source chain.
         const sbcTx = await createSBCTxFromCalls({

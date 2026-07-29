@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Hex } from 'viem';
+import { decodeFunctionData, erc20Abi, type Hex } from 'viem';
+import { ERC20PermitABI } from '../../../src/abi/erc20';
 import { CurrencyID } from '../../../src/swap/cot';
+import { predictSafeAccountAddress } from '../../../src/swap/safe/predict';
 
 vi.mock('../../../src/swap/wallet/capabilities', () => ({
   chainSupports7702: (chain: { id: number }) => chain.id === 42161,
@@ -18,11 +20,20 @@ import {
 import { dispatchSweepGroups } from '../../../src/services/init-refund-sweep';
 
 const ARB = 42161; // 7702 → ephemeral holder
+const OP = 10; // non-7702
 const USDC = '0xaf88d065e77c8cc2239327c5edb3a432268e5831' as Hex;
 const EPH = '0xbbbb000000000000000000000000000000000002' as Hex;
 const EOA = '0xaaaa000000000000000000000000000000000001' as Hex;
 
-const makeCtx = (balance: bigint) =>
+const makeCtx = (
+  balance: bigint,
+  readContract = vi.fn().mockImplementation(({ functionName }: { functionName: string }) => {
+    if (functionName === 'balanceOf') return balance;
+    if (functionName === 'name') return 'USD Coin';
+    return 0n;
+  }),
+  destination = { chainId: 8453, directEoa: false }
+) =>
   ({
     cache: undefined,
     chainList: {
@@ -32,13 +43,27 @@ const makeCtx = (balance: bigint) =>
         decimals: 6,
         currencyId: CurrencyID.USDC,
       }),
+      getTokenByAddress: () => ({
+        contractAddress: USDC,
+        decimals: 6,
+        currencyId: CurrencyID.USDC,
+        permitVariant: 1,
+        permitVersion: 2,
+      }),
     },
     eoaAddress: EOA,
-    ephemeralWallet: { address: EPH },
+    destinationChainId: destination.chainId,
+    destinationDirectEoa: destination.directEoa,
+    ephemeralWallet: {
+      address: EPH,
+      signTypedData: vi
+        .fn()
+        .mockResolvedValue(`0x${'11'.repeat(32)}${'22'.repeat(32)}1b` as Hex),
+    },
     middlewareClient: {},
     publicClientList: {
       get: () => ({
-        readContract: vi.fn().mockResolvedValue(balance),
+        readContract,
         getBalance: vi.fn().mockResolvedValue(balance),
       }),
     },
@@ -51,6 +76,7 @@ describe('cleanupStrandedCot', () => {
     await cleanupStrandedCot({
       currencyId: CurrencyID.USDC,
       chainIds: [ARB],
+      scope: 'source',
       ctx: makeCtx(5_000_000n),
     });
 
@@ -62,10 +88,85 @@ describe('cleanupStrandedCot', () => {
     expect(groups[0]!.calls[0]!.to).toBe(USDC); // ERC-20 transfer call targets the COT token
   });
 
+  it('reads non-7702 source settlement at the ephemeral bridge holder', async () => {
+    const readContract = vi.fn().mockImplementation(({ functionName }: { functionName: string }) => {
+      if (functionName === 'balanceOf') return 5_000_000n;
+      if (functionName === 'name') return 'USD Coin';
+      return 0n;
+    });
+
+    await cleanupStrandedCot({
+      currencyId: CurrencyID.USDC,
+      chainIds: [OP],
+      scope: 'source',
+      ctx: makeCtx(5_000_000n, readContract),
+    });
+
+    expect(readContract).toHaveBeenCalledWith(
+      expect.objectContaining({ functionName: 'balanceOf', args: [EPH] })
+    );
+    const groups = vi.mocked(dispatchSweepGroups).mock.calls[0]![0];
+    expect(groups[0]!.holder).toBe('safe');
+    expect(groups[0]!.calls).toHaveLength(2);
+    expect(
+      decodeFunctionData({ abi: ERC20PermitABI, data: groups[0]!.calls[0]!.data }).functionName
+    ).toBe('permit');
+    const transferFrom = decodeFunctionData({
+      abi: erc20Abi,
+      data: groups[0]!.calls[1]!.data,
+    });
+    expect(transferFrom.functionName).toBe('transferFrom');
+    expect((transferFrom.args?.[0] as Hex).toLowerCase()).toBe(EPH.toLowerCase());
+    expect((transferFrom.args?.[1] as Hex).toLowerCase()).toBe(EOA.toLowerCase());
+    expect(transferFrom.args?.[2]).toBe(5_000_000n);
+  });
+
+  it('reads destination-chain source settlement at its Safe when a destination swap follows', async () => {
+    const readContract = vi.fn().mockImplementation(({ functionName }: { functionName: string }) => {
+      if (functionName === 'balanceOf') return 5_000_000n;
+      return 0n;
+    });
+    const ctx = makeCtx(5_000_000n, readContract, { chainId: OP, directEoa: false });
+
+    await cleanupStrandedCot({
+      currencyId: CurrencyID.USDC,
+      chainIds: [OP],
+      scope: 'source',
+      ctx,
+    });
+
+    const safeAddress = predictSafeAccountAddress(EPH).address;
+    expect(readContract).toHaveBeenCalledWith(
+      expect.objectContaining({ functionName: 'balanceOf', args: [safeAddress] })
+    );
+    const groups = vi.mocked(dispatchSweepGroups).mock.calls[0]![0];
+    expect(groups[0]!.holder).toBe('safe');
+    expect(groups[0]!.calls).toHaveLength(1);
+    expect(
+      decodeFunctionData({ abi: erc20Abi, data: groups[0]!.calls[0]!.data }).functionName
+    ).toBe('transfer');
+  });
+
+  it('does not inspect destination-chain source output that was delivered directly to the EOA', async () => {
+    const readContract = vi.fn().mockResolvedValue(5_000_000n);
+    const ctx = makeCtx(5_000_000n, readContract, { chainId: OP, directEoa: true });
+
+    await cleanupStrandedCot({
+      currencyId: CurrencyID.USDC,
+      chainIds: [OP],
+      scope: 'source',
+      ctx,
+    });
+
+    expect(readContract).not.toHaveBeenCalled();
+    expect(vi.mocked(dispatchSweepGroups).mock.calls[0]![0]).toHaveLength(0);
+  });
+
   it('skips a chain whose COT balance is zero', async () => {
     await cleanupStrandedCot({
       currencyId: CurrencyID.USDC,
       chainIds: [ARB],
+      scope: 'source',
       ctx: makeCtx(0n),
     });
 

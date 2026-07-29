@@ -382,9 +382,9 @@ describe('executeSourceSwaps', () => {
     return readContract;
   };
 
-  it('EXACT_IN reclaim: bridges the actual wrapper COT balance, not the quote floor', async () => {
+  it('EXACT_IN reclaim: bridges the actual source-holder COT balance, not the quote floor', async () => {
     const ctx = makeCtx('ephemeral');
-    const readContract = withBalanceReadClient(ctx, 3015000000n); // 3015 USDC at wrapper (floor 3000)
+    const readContract = withBalanceReadClient(ctx, 3015000000n); // 3015 USDC at EPH (floor 3000)
     const source = {
       swaps: [makeQuoteResponse()],
       creationTime: Date.now(),
@@ -417,12 +417,13 @@ describe('executeSourceSwaps', () => {
     expect(assets[0].ephemeralBalance).toEqual(new Decimal('3000')); // quote floor
   });
 
-  it('EXACT_IN reclaim: reads the COT balance at the predicted Safe on non-7702 chains', async () => {
+  it('EXACT_IN reclaim: reads bridged COT at the ephemeral on non-7702 source chains', async () => {
     const SAFE = '0x2d7E4C3ef02B86D271624742C6e81636f4c9e663' as Hex; // predictSafe(0xbbbb...0002)
     vi.mocked(dispatchSafeSource).mockResolvedValue({ txHash: '0xsafe_src' as Hex, safeAddress: SAFE });
     const readContract = vi.fn().mockResolvedValue(3010000000n);
     const ctx: SrcCtx = {
       ...makeCtx('ephemeral'),
+      destinationChainId: 8453,
       sourceExecutionPaths: new Map([[ARB_CHAIN, 'safe']]),
       chainList: {
         getChainByID: vi
@@ -451,7 +452,11 @@ describe('executeSourceSwaps', () => {
     const assets = await executeSourceSwaps(source, ctx, metadata);
 
     expect(readContract).toHaveBeenCalledWith(
-      expect.objectContaining({ address: USDC_ARB, functionName: 'balanceOf', args: [SAFE] })
+      expect.objectContaining({
+        address: USDC_ARB,
+        functionName: 'balanceOf',
+        args: ['0xbbbb000000000000000000000000000000000002'],
+      })
     );
     expect(assets[0].ephemeralBalance).toEqual(new Decimal('3010'));
   });

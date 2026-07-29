@@ -153,8 +153,8 @@ const buildBridgeAsset = (
       ? divDecimals(overrideBalanceRaw, decimals)
       : chainSwaps.reduce((sum, swap) => sum.plus(swap.quote.output.amount), new Decimal(0));
 
-  // Swap output is always carried as the ephemeral identity for the RFF; the per-chain Safe
-  // → ephemeral transfer happens inside the bridge deposit batch, not in this bookkeeping.
+  // Remote swap output already lands at the ephemeral bridge holder on both wallet paths. The
+  // asset is therefore always carried as the ephemeral identity for the RFF.
   return {
     chainID: chainId,
     contractAddress: cot?.contractAddress ?? chainSwaps[0].quote.output.contractAddress,
@@ -164,17 +164,21 @@ const buildBridgeAsset = (
   };
 };
 
-// Read the COT that actually landed at the source wrapper after the swaps confirmed (ephemeral on
-// 7702 chains, the predicted Safe on non-7702). Mirrors the targeted read in failure-cleanup.
-const readWrapperCotBalanceRaw = async (
+// Read the COT that actually landed after the source swaps confirmed. Remote outputs that bridge
+// land directly at the ephemeral on both wallet paths. A destination-chain Safe keeps local COT for
+// its later destination swap.
+const readSourceCotBalanceRaw = async (
   chainId: number,
   cotAddress: Hex,
-  ctx: Pick<ExecutionContext, 'chainList' | 'ephemeralWallet' | 'publicClientList'>
+  ctx: Pick<ExecutionContext, 'chainList' | 'ephemeralWallet' | 'publicClientList'> & {
+    destinationChainId: number;
+  }
 ): Promise<bigint> => {
   const is7702 = chainSupports7702(ctx.chainList.getChainByID(chainId));
-  const holder = is7702
-    ? ctx.ephemeralWallet.address
-    : predictSafeAccountAddress(ctx.ephemeralWallet.address).address;
+  const holder =
+    is7702 || chainId !== ctx.destinationChainId
+      ? ctx.ephemeralWallet.address
+      : predictSafeAccountAddress(ctx.ephemeralWallet.address).address;
   return readSettlementBalanceRaw({
     chainId,
     tokenAddress: cotAddress,
@@ -363,11 +367,12 @@ const requoteFailedChains = async (
     'sourceExecutionPaths' | 'eoaAddress' | 'ephemeralWallet' | 'destinationDirectEoa'
   > & { destinationChainId: number }
 ) => {
-  // Per-chain recipient: when the chain is the dst chain AND the route has no dst swap step,
-  // the route quoted the source swap with recipient = EOA (direct delivery). Otherwise the
-  // recipient is the chain's wrapper (Safe for non-7702, ephemeral for 7702).
+  // Per-chain recipient: remote output always lands at the ephemeral bridge holder. On the
+  // destination chain, direct delivery uses the EOA and a later Safe destination swap keeps COT
+  // at that Safe.
   const recipientForChain = (chainId: number, walletPath: WalletPath): Hex => {
     if (chainId === ctx.destinationChainId && ctx.destinationDirectEoa) return ctx.eoaAddress;
+    if (chainId !== ctx.destinationChainId) return ctx.ephemeralWallet.address;
     return walletPath === 'safe'
       ? predictSafeAccountAddress(ctx.ephemeralWallet.address).address
       : ctx.ephemeralWallet.address;
@@ -758,8 +763,8 @@ export const executeSourceSwaps = async (
     });
   }
 
-  // Bridge funding flows through the ephemeral identity regardless of the per-chain wrapper; the
-  // asset is always tagged ephemeral here. EXACT_IN reclaim reads the actual wrapper COT balance so
+  // Bridge funding flows through the ephemeral identity regardless of the source executor; the
+  // asset is always tagged ephemeral here. EXACT_IN reclaim reads the actual source COT holder so
   // positive source slippage bridges through instead of being swept at the source.
   return Promise.all(
     sortedEntries.map(async (entry) => {
@@ -773,7 +778,7 @@ export const executeSourceSwaps = async (
             ctx.timing,
             'flow.swap.execute.source.read_actual_balance',
             async () =>
-              readWrapperCotBalanceRaw(
+              readSourceCotBalanceRaw(
                 entry.chainId,
                 cot?.contractAddress ?? entry.chainSwaps[0].quote.output.contractAddress,
                 ctx

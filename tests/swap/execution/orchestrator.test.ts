@@ -54,6 +54,7 @@ describe('executeSwapRoute destination cleanup', () => {
     expect(cleanupStrandedCot).toHaveBeenCalledWith({
       currencyId: CurrencyID.USDC,
       chainIds: [8453],
+      scope: 'destination',
       ctx: context,
     });
   });

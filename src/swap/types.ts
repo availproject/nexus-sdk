@@ -536,9 +536,9 @@ export type PreparedEoaToEphemeralTransfer = {
   chainId: number;
   tokenAddress: Hex;
   amount: bigint; // raw integer units
-  // The smart-account executor that receives the funds and is the approve/permit spender:
-  // the predicted Safe on non-7702 chains, the ephemeral on 7702 chains. The transferFrom
-  // recipient and the authorization spender must both be this address.
+  // The smart-account executor and approve/permit spender: the predicted Safe on non-7702 chains,
+  // the ephemeral on 7702 chains. Bridge funding may encode a different transferFrom recipient
+  // (the ephemeral bridge holder) while retaining this spender.
   targetAddress: Hex;
   authorization: PreparedAuthorizationCall | null;
   transferCall: { to: Hex; data: Hex; value: bigint };

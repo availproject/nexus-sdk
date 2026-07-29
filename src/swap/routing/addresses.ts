@@ -1,9 +1,9 @@
 import type { Hex } from 'viem';
 import type { ChainListType } from '../../domain';
+import type { RouteOptions } from '../route';
 import { predictSafeAccountAddress } from '../safe/predict';
 import type { WalletPath } from '../types';
 import { chainSupports7702, resolveWalletPath } from '../wallet/capabilities';
-import type { RouteOptions } from '../route';
 
 export type WalletDecision = {
   sourceExecutionPaths: Map<number, WalletPath>;
@@ -42,8 +42,9 @@ export function buildExecutorAddressByChain(
   );
 }
 
-// Source-swap recipient. Output stays at the per-chain wrapper unless this is the same-chain
-// COT-destination case (no dst swap step) — there it can go straight to the user's EOA.
+// Source-swap recipient. Remote outputs that will bridge go straight to the ephemeral bridge
+// holder, even when a Safe executes the swap. Destination-chain output stays at its wrapper unless
+// this is the COT-destination case (no dst swap step), where it can go straight to the user's EOA.
 export function buildSourceRecipientAddressByChain(input: {
   chainIds: Iterable<number>;
   sourceExecutionPaths: Map<number, WalletPath>;
@@ -59,6 +60,9 @@ export function buildSourceRecipientAddressByChain(input: {
       }
       const path = input.sourceExecutionPaths.get(chainId);
       if (!path) {
+        return [chainId, input.options.ephemeralAddress];
+      }
+      if (chainId !== input.destinationChainId) {
         return [chainId, input.options.ephemeralAddress];
       }
       return [chainId, resolveWalletAddress(path, input.options)];

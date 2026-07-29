@@ -92,14 +92,16 @@ implemented; every execution stage reads `sourceExecutionPaths` and switches dis
 | Stage | `'ephemeral'` | `'safe'` |
 |---|---|---|
 | Source swap | Calibur SBC → `submitSBCs` | `dispatchSafeSource` (ensure Safe, then `createSafeExecuteTx` / EOA‑submit) |
-| Bridge deposit | combined SBC `[approve, deposit]` | v1 5‑step Safe batch (`createSafeExecuteTx`) |
+| Bridge deposit | combined SBC `[approve, deposit]` | Safe batch `[permit(EPH→vault), deposit]`, with an optional direct EOA→EPH funding prefix |
 | Destination swap | Calibur SBC | `Safe.execTransaction` |
 
-Routing **pre‑aligns** quotes and recipients to the chosen path: on a `'safe'` chain the
-source‑swap quote's `userAddress` **and** `recipientAddress` are the **predicted Safe address**
-(`predictSafeAccountAddress(ephemeral).address`); on a `'ephemeral'` chain they are the ephemeral.
-Flipping a chain between 7702 and non‑7702 needs no special‑casing at the call sites — the
-resolver flips the path and the stages follow.
+Routing **pre‑aligns** quote takers to the chosen execution path: on a `'safe'` chain the
+source‑swap quote's `userAddress` is the predicted Safe address
+(`predictSafeAccountAddress(ephemeral).address`); on an `'ephemeral'` chain it is the ephemeral.
+The `recipientAddress` follows custody needs instead: every remote source swap delivers directly
+to the ephemeral bridge holder, while a destination‑chain source swap delivers to the EOA when it
+is final or to the destination wrapper when another swap follows. Flipping a chain between 7702
+and non‑7702 changes the executor without adding a Safe custody hop before bridging.
 
 ---
 
@@ -228,8 +230,8 @@ swap(input = {mode: EXACT_OUT, data:{toChainId:Base, toTokenAddress:WETH, toAmou
 > **Scenario (illustrative amounts; decisions are exact).** Spend **1 WETH on Arbitrum (42161,
 > non‑7702 → Safe)**, receive **USDC on Base (8453, 7702)**. COT = USDC. Exercises liquidation, a
 > destination that **is** COT, and the **Safe path as a first‑class execution path**. Grounded in
-> `route.test.ts` (`EXACT_IN liquidates …`, `… routes source-swap recipient on non-7702 chains to
-> the predicted Safe address`, `EXACT_IN dst quote spends the full cotAvailable (no source buffer) …`),
+> `route.test.ts` (`EXACT_IN liquidates …`, `… routes bridged source-swap output on non-7702
+> chains directly to the ephemeral`, `EXACT_IN dst quote spends the full cotAvailable (no source buffer) …`),
 > `execution/bridge.test.ts` (Safe deposit batch), `execution/destination-swap.test.ts` (COT
 > no‑op), and `safe-dispatch.test.ts`.
 
@@ -247,7 +249,8 @@ swap(input = {mode: EXACT_IN, data:{sources:[{Arb, WETH}], toChainId:Base, toTok
   tryBuildSameTokenBridgeRoute → null      # WETH has no currencyId (non-mesh) ⇒ COT flow            (§5)
   provider = resolveBridgeProviderDecision(dstCOT, {Arb WETH USD})  # → 'nexus' (under threshold)    (§5)
   # quote-address resolution — the seam, pre-execution:
-  quote.userAddress = quote.recipientAddress = predictedSafe(Arb)   # because path=safe (else eph)  ◄ seam
+  quote.userAddress = predictedSafe(Arb)             # Safe remains the taker/executor              ◄ seam
+  quote.recipientAddress = ephemeral                 # remote output lands at the bridge holder
   source = liquidateInputHoldings(holdings)  # WETH non-COT → quote WETH→USDC @ Arb (COT skipped)  (§6)
   # no source buffer — a failed source leg re-quotes and proceeds (no drift guard)
   dstQuoteInput = cotAvailable  # full; Seam 2 re-sizes the dst swap to the actual delivered COT (both ways), floor 0
@@ -270,14 +273,13 @@ swap(input = {mode: EXACT_IN, data:{sources:[{Arb, WETH}], toChainId:Base, toTok
       native               → eoaWallet.sendTransaction(execTransaction, value=nativeValue)
                                                         #   refuse single-call value mismatch
       SafeTx EIP-712-signed by the ephemeral owner
-    → swap-output COT lands at the Safe (the quote receiver)
+    → swap-output COT lands directly at the ephemeral (the quote receiver)
 
   # ── Step 7: bridge ──                                                                      (§9)
   executeSwapBridge(route.bridge, assets):
-    path(Arb)='safe' → deposit via Safe (createSafeExecuteTx), 3-step batch:
-      1 transfer(ephemeral, depositValue)               # Safe → ephemeral
-      2 permit(ephemeral → vault, depositValue)         # EIP-2612
-      3 vault.deposit(…)                                # no sweep — Seam 1 bridges the Safe's full COT balance
+    path(Arb)='safe' → deposit via Safe (createSafeExecuteTx), 2-step batch:
+      1 permit(ephemeral → vault, depositValue)         # EIP-2612
+      2 vault.deposit(…)                                # no custody transfer — COT is already at ephemeral
     recipient = EOA                          # dst 7702 ∧ no dst swap (COT) ⇒ deliver to EOA
     RFF + waitForFill;  has_xcs = true
 
@@ -650,16 +652,16 @@ destination_swap:<chain>            # only when a dst token OR gas swap exists (
 
 ```text
 per transfer (reason: source | destination | bridge):
-  target = the executor that runs the swap: predictedSafe on non-7702, ephemeral on 7702
-           (source/bridge: per sourceExecutionPaths; destination: per chainSupports7702(dstChain).
-            bridge target is the deposit executor; a non-7702 Safe batch then moves Safe→ephemeral
-            for RFF funding.)
+  target = the authorized spender/executor: predictedSafe on non-7702, ephemeral on 7702
+           (source/bridge: per sourceExecutionPaths; destination: per chainSupports7702(dstChain))
+  recipient = bridge ? ephemeral : target
+           # a non-7702 Safe spends the EOA authorization but sends bridge funding directly to EPH
   if cachedAllowance(eoa→target) ≥ amount:  authorization = null    # skip
   elif permit supported:
     source | bridge → LAZY  {kind:'permit', call:null, signature:null}   # materialized at execution
     destination     → EAGER  signPermitForAddressAndValue(spender=target)
   else: authorization = {kind:'approve'}                            # EOA approve(target), mined before the batch
-  transferCall = transferFrom(eoa, target, amount)                  # permit/approve spender == target
+  transferCall = transferFrom(eoa, recipient, amount)               # called by target; bridge recipient may differ
 # bridge EOA balances converted human → raw
 # source, destination, and bridge transfer specs are constructed once, then reused for cache
 # queries and the single prepared-transfer build loop. Their order remains source → destination → bridge.
@@ -738,18 +740,19 @@ executeSourceSwaps(source, ctx, meta) -> BridgeAsset[]:
   await all receipts                                   # only AFTER every chain is dispatched
   confirmed paid EOA approval → update allowance cache # retry reuses it; never prompts/submits again
   user rejects permit/approval/transaction → terminal  # emit failed and stop; never requote/re-prompt
-  on chain failure: requote that chain ONCE (EXACT_IN; taker=receiver = that chain's executor —
-                    EOA for the direct-COT dst chain, predictedSafe on non-7702, else ephemeral)
+  on chain failure: requote that chain ONCE (EXACT_IN; taker remains the chain's executor;
+                    receiver = ephemeral for a remote chain, EOA for a direct-COT dst chain,
+                    or the destination wrapper when another dst swap follows)
     # EXACT_OUT: require Σ(output drop) ≤ srcBuffer, pooled across that route's source legs
     #   (directDestination EXACT_OUT never reaches this shared retry; its dedicated executor is above)
     # EXACT_IN:  srcBuffer = null → no guard; accept the re-quote and proceed (Seam 2 re-sizes the dst swap)
     still failing → rethrow                            # no sweep here — cleanup is the orchestrator's job (§11)
-  # SEAM 1 (reclaim, when bridge ≠ null): read balanceOf(COT, wrapper) per chain → bridge the ACTUAL
+  # SEAM 1 (reclaim, when bridge ≠ null): read balanceOf(COT, source holder) per chain → bridge the ACTUAL
   #   landed COT, not the quote floor (captures positive source slippage; best-effort — on a read
-  #   failure fall back to the quote output). wrapper = ephemeral (7702) / predicted-Safe (non-7702).
-  return assets    # ACTUAL wrapper COT balances (Seam 1) + route-resolved COT metadata; meta.src = [{chid, tx_hash}]
+  #   failure fall back to the quote output). Remote source holder = ephemeral on both wallet paths.
+  return assets    # ACTUAL source COT balances (Seam 1) + route-resolved COT metadata; meta.src = [{chid, tx_hash}]
 
-executeSwapBridge(bridge, executedAssets, ctx, meta):   # bridges the ACTUAL wrapper COT (Seam 1), not the route estimate
+executeSwapBridge(bridge, executedAssets, ctx, meta):   # bridges the ACTUAL source COT (Seam 1), not the route estimate
   bridgedAssets = executedAssets − dstChain − zero-balance, sorted by chainId asc   # empty ⇒ return
   → executeEphemeralBridgePath(bridge, bridgedAssets, ctx, meta):
       recipient = destinationDirectEoa ? EOA : (dst 7702 ? ephemeralWrapper : predictedSafe)
@@ -763,7 +766,7 @@ executeSwapBridge(bridge, executedAssets, ctx, meta):   # bridges the ACTUAL wra
       # ── Mayan (intent.provider == 'mayan') → runMayanEphemeralBridge, then return ──
       per chain (approve-ONLY — NO deposit, NO sweep):
         7702     → SBC  [funding?, approve(vault, total)]
-        non-7702 → Safe [funding?, transfer(eph), permit(eph → vault)]   # permit IS the allowance grant
+        non-7702 → Safe [funding?, permit(eph → vault)]   # permit IS the allowance grant
                  submit, then WAIT for it to be MINED      # mw sponsors depositMayan() async the moment the
                                                            #   RFF lands, and fails if the allowance isn't on-chain
       after ALL approves mined:
@@ -777,10 +780,11 @@ executeSwapBridge(bridge, executedAssets, ctx, meta):   # bridges the ACTUAL wra
                     # 7702: bootstrap Calibur if !hasAuthCodeSet, then EOA execute; non-7702: Safe execTransaction{value}
         ephemeral → SBC [funding?, approve(vault, total), deposit]   # no sweep — Seam 1 bridges the full balance
         safe      → Safe batch (createSafeExecuteTx; token must be EIP-2612 permit):
-                      [funding?] → transfer(eph) → permit(eph → vault) → vault.deposit   # no sweep (Seam 1 full)
-        # funding? = prepared EOA→executor [permit, transferFrom], prepended when eoaBalance>0 (fast
-        #   path / direct-COT — COT still at the EOA); empty when a source swap funded the executor.
-        #   On non-7702 the executor is the Safe, so funds flow EOA→Safe→ephemeral (transfer(eph) above).
+                      [funding?] → permit(eph → vault) → vault.deposit   # no sweep (Seam 1 full)
+        # funding? = prepared [EOA authorization for executor, transferFrom(EOA→recipient)], prepended
+        #   when eoaBalance>0 (fast path / direct-COT — COT still at the EOA); empty when a source
+        #   swap funded the holder. The bridge recipient is EPH on both paths, so a non-7702 Safe
+        #   calls transferFrom(EOA→EPH) without taking custody.
         eoaBalance>0 but no prepared bridge-transfer → throw ExecutionError{
             stepType:'eoa_to_ephemeral_transfer', stepId: createEoaToEphemeralTransferStepId(chainId)}
       bridge funding retry boundary (Mayan approve + Nexus deposit):
@@ -886,13 +890,17 @@ chainIds = reachedDestinationSwap                       # stage flag: COT moved 
   ? [route.destination.chainId]                         #   otherwise it sits on the source chains that swapped to COT
   : metadata.src.map(chid)
 
-cleanupStrandedCot({currencyId, chainIds, ctx}):        # ONLY on execution failure, and only when currencyId != null
+scope = reachedDestinationSwap ? 'destination' : 'source'
+cleanupStrandedCot({currencyId, chainIds, scope, ctx}): # ONLY on execution failure, and only when currencyId != null
   for chainId in chainIds:                              # no getBalancesForSwap — one known token, one holder, per chain
-    holder = chainSupports7702 ? ephemeral : predictedSafe
+    if scope == 'source' ∧ chainId == dstChain ∧ destinationDirectEoa: skip  # already at EOA
+    holder = scope == 'source' ∧ chainId != dstChain ? EPH : WRAPPER(chainId)
     cot    = resolveCOT(chainId, currencyId)
     bal    = isNative(cot) ? getBalance(holder) : cot.balanceOf(holder)   # single targeted read
-    if bal > 0: group{chainId, holder, [transfer(cot, bal → eoa)]}        # direct transfer of the read amount
-  dispatchSweepGroups(groups)                           # shared w/ init sweep: 7702→SBC, non-7702→Safe execTransaction
+    if bal > 0:
+      source ∧ non-7702 → Safe group [permit(EPH→Safe), transferFrom(EPH→EOA)]
+      otherwise         → holder group [transfer(cot, bal→EOA)]
+  dispatchSweepGroups(groups)                           # 7702→SBC, non-7702→Safe execTransaction
   # best-effort; never rethrows / masks the original error. pre-execution failures (deny, routing) never reach here.
 ```
 
@@ -1125,7 +1133,7 @@ The gaps from the original audit have been addressed:
 
 Mayan bridge **execution** is now exercised end‑to‑end by
 `tests/swap/characterization/swap.test.ts` (§14): the approve‑only batches (7702 `approve(VAULT)` /
-non‑7702 `transfer→permit`, no deposit/sweep), the native `depositMayan{value}` +
+non‑7702 `permit`, no deposit/sweep), the native `depositMayan{value}` +
 `reportMayanNativeTx` path, and the EPH/Safe destination receivers — all decoded from the real
 emitted calls. That suite mocks the middleware boundary, so a focused `tests/swap/execution/*` unit
 for `runMayanEphemeralBridge`'s **wait‑for‑mine‑then‑RFF ordering** and the 2‑minute
@@ -1161,9 +1169,9 @@ just the token swap — §5).
 
 ```text
 # ── source-swap receiver  (buildSourceRecipientAddressByChain) ──
-if chain == dstChain ∧ ¬destination_swap:  receiver = EOA            # COT is the final token here → deliver direct
-else:                                       receiver = WRAPPER(chain)    # output stays at the wrapper, to be bridged / dst-swapped
-# cross-chain legs IGNORE destination_swap — only the same-as-dst leg can short-circuit to the EOA.
+if chain != dstChain:                       receiver = EPH               # bridge custody is path-independent
+elif ¬destination_swap:                     receiver = EOA               # COT is final → deliver direct
+else:                                       receiver = WRAPPER(chain)    # keep local COT for the dst swap
 # Path A (directDestination): EVERY source is on dstChain with no destination_swap, so every leg takes
 #   the receiver = EOA short-circuit — the swap delivers toToken straight to the user, taker = WRAPPER.
 
@@ -1180,13 +1188,13 @@ else:                  SAFE                          # non-7702 dst + dst swap �
 #   pre-bridge calls below are the fast-path funding+deposit shape (COT/token still at the EOA).
 
 # ── pre-bridge calls (per source chain ≠ dstChain; §9)  the vault is ALWAYS driven by EPH ──
-#   funding? = [permit/approve(owner=EOA, spender=WRAPPER), transferFrom(EOA→WRAPPER)] — present only on the
-#              fast path (COT still at the EOA); EMPTY when a source swap already funded the wrapper.
+#   funding? = [permit/approve(owner=EOA, spender=WRAPPER), transferFrom(EOA→EPH)] — present only on
+#              the fast path (COT still at the EOA); EMPTY when a remote source swap funded EPH.
 NEXUS  7702   → [funding?, approve(EPH→VAULT), vault.deposit]                      # Seam 1 bridges the full balance → no sweep
-NEXUS  safe   → [funding?, transfer(SAFE→EPH), permit(owner=EPH, spender=VAULT), vault.deposit]   # no sweep (Seam 1 full)
+NEXUS  safe   → [funding?, permit(owner=EPH, spender=VAULT), vault.deposit]         # Safe executes; EPH holds
 NEXUS  native → EOA payable vault.deposit{value}                      # no approve/permit/transfer/sweep
 MAYAN  7702   → [funding?, approve(EPH→VAULT)]                        # NO deposit / NO sweep — middleware sponsors depositMayan()
-MAYAN  safe   → [funding?, transfer(SAFE→EPH), permit(owner=EPH, spender=VAULT)]   # NO deposit / NO sweep
+MAYAN  safe   → [funding?, permit(owner=EPH, spender=VAULT)]          # NO deposit / NO sweep
 MAYAN  native → EOA payable vault.depositMayan{value} + reportMayanNativeTx
 # ordering: Mayan approves are submitted + MINED before the RFF; Nexus deposits run AFTER submitRFF (§9).
 
@@ -1201,9 +1209,9 @@ MAYAN  native → EOA payable vault.depositMayan{value} + reportMayanNativeTx
 
 Two invariants this view makes explicit (both asserted by the suite):
 
-- **The bridge/vault identity is always EPH**, even on a non‑7702 source — the SAFE is a transient
-  holder that `transfer(SAFE→EPH)`s, then EPH signs the vault permit. Swap output is tagged
-  `ephemeralBalance` regardless of the wrapper that produced it (§9).
+- **The bridge/vault identity and remote source holder are always EPH**, even on a non‑7702 source.
+  The Safe remains the swap taker and bridge-call executor, but remote swap output and fast-path
+  `transferFrom` funding land at EPH directly; the Safe never takes intermediate bridge custody.
 - **Provider choice is leg‑independent of the receiver** — Nexus vs Mayan only changes the
   *pre‑bridge* shape (real deposit vs. allowance‑only + sponsored `depositMayan`); the
   source/bridge/destination *receivers* are identical either way. **Native participates in provider

@@ -1222,13 +1222,9 @@ describe('executeSwapBridge', () => {
     expect(intent?.recipientAddress.toLowerCase()).toBe(safeAddress.toLowerCase());
   });
 
-  it('builds the 3-step deposit batch (no Sweeper) on non-7702 source chains', async () => {
-    // Seam 1 bridges the actual wrapper balance, so transfer(ephemeral, depositValue) moves the
-    // FULL Safe COT and the deposit drains it — nothing residual stays at the Safe. The old v1
-    // steps 4-5 (approve(Sweeper) + Sweeper.sweepERC20) are gone; the batch is just:
-    //   1. transfer(ephemeral, depositValue) — Safe sends the deposit amount to ephemeral
-    //   2. permit(ephemeral → vault) — ephemeral grants vault allowance via EIP-2612
-    //   3. vault.deposit(...) — vault.transferFrom(ephemeral, vault, depositValue)
+  it('builds a 2-step permit and deposit batch on non-7702 source chains', async () => {
+    // The source swap now delivers COT directly to the ephemeral bridge holder. The Safe only
+    // submits the ephemeral's permit and the vault deposit; no Safe→ephemeral transfer or Sweeper.
     const baseCtx = makeCtx();
     const createSafeExecuteTx = vi.fn().mockResolvedValue({
       txHash: '0xsafe_deposit_tx' as Hex,
@@ -1298,35 +1294,26 @@ describe('executeSwapBridge', () => {
     const vaultAddress = (ctx.chainList.getVaultContractAddress(ARB_CHAIN)) as Hex;
     const ephemeral = ctx.ephemeralWallet.address;
 
-    // Step 1: Safe → ephemeral transfer
-    const transferCall = decodeFunctionData({ abi: erc20Abi, data: callsArg[0].data });
-    expect(transferCall.functionName).toBe('transfer');
-    expect((transferCall.args?.[0] as string).toLowerCase()).toBe(ephemeral.toLowerCase());
-    expect(transferCall.args?.[1]).toBe(depositValue);
-    expect(callsArg[0].to.toLowerCase()).toBe(USDC_ARB.toLowerCase());
-
-    // Step 2: permit(ephemeral, vault, depositValue, ...)
-    const permitCall = decodeFunctionData({ abi: ERC20PermitABI, data: callsArg[1].data });
+    // Step 1: permit(ephemeral, vault, depositValue, ...)
+    const permitCall = decodeFunctionData({ abi: ERC20PermitABI, data: callsArg[0].data });
     expect(permitCall.functionName).toBe('permit');
     expect((permitCall.args?.[0] as string).toLowerCase()).toBe(ephemeral.toLowerCase());
     expect((permitCall.args?.[1] as string).toLowerCase()).toBe(vaultAddress.toLowerCase());
     expect(permitCall.args?.[2]).toBe(depositValue);
 
-    // Step 3: vault.deposit
-    const depositCall = decodeFunctionData({ abi: EVMVaultABI, data: callsArg[2].data });
+    // Step 2: vault.deposit
+    const depositCall = decodeFunctionData({ abi: EVMVaultABI, data: callsArg[1].data });
     expect(depositCall.functionName).toBe('deposit');
 
-    // No Sweeper steps — the deposit drained the Safe, so there's nothing to sweep.
-    expect(callsArg).toHaveLength(3);
+    expect(callsArg).toHaveLength(2);
     for (const call of callsArg) {
       expect(call.to.toLowerCase()).not.toBe((SWEEPER_ADDRESS as string).toLowerCase());
     }
   });
 
-  it('funds the Safe (permit + transferFrom EOA->Safe) before the deposit on a non-7702 fast-path bridge', async () => {
-    // Fast-path bridge: no source swap funded the Safe, so the bridged COT sits at the EOA
-    // (eoaBalance > 0). The non-7702 deposit batch must consume the prepared EOA->Safe funding
-    // (permit + transferFrom) before transfer(Safe->ephemeral), else the Safe is empty -> GS013.
+  it('transfers EOA-held bridge funding directly to the ephemeral on a non-7702 fast path', async () => {
+    // The Safe remains the authorized transferFrom spender, but sends EOA-held COT directly to the
+    // ephemeral bridge holder before the ephemeral permit and vault deposit.
     const baseCtx = makeCtx();
     const safeAddress = predictSafeAccountAddress(baseCtx.ephemeralWallet.address).address;
     const createSafeExecuteTx = vi.fn().mockResolvedValue({ txHash: '0xsafe_deposit_tx' as Hex });
@@ -1365,7 +1352,7 @@ describe('executeSwapBridge', () => {
               data: encodeFunctionData({
                 abi: erc20Abi,
                 functionName: 'transferFrom',
-                args: [baseCtx.eoaAddress, safeAddress, 3000000n],
+                args: [baseCtx.eoaAddress, baseCtx.ephemeralWallet.address, 3000000n],
               }),
               value: 0n,
             },
@@ -1417,27 +1404,27 @@ describe('executeSwapBridge', () => {
     expect(createSafeExecuteTxFromCalls).toHaveBeenCalledTimes(1);
     const callsArg = vi.mocked(createSafeExecuteTxFromCalls).mock.calls[0]?.[0]?.calls ?? [];
 
-    // Funding runs first: permit(EOA -> Safe) then transferFrom(EOA -> Safe) …
+    // Funding runs first: permit spender = Safe, transferFrom recipient = ephemeral.
     const permitCall = decodeFunctionData({ abi: ERC20PermitABI, data: callsArg[0].data });
     expect(permitCall.functionName).toBe('permit');
     expect((permitCall.args?.[1] as string).toLowerCase()).toBe(safeAddress.toLowerCase());
     const fundingTransfer = decodeFunctionData({ abi: erc20Abi, data: callsArg[1].data });
     expect(fundingTransfer.functionName).toBe('transferFrom');
-    expect((fundingTransfer.args?.[1] as string).toLowerCase()).toBe(safeAddress.toLowerCase());
-
-    // … then the deposit batch's Safe -> ephemeral transfer.
-    const transferCall = decodeFunctionData({ abi: erc20Abi, data: callsArg[2].data });
-    expect(transferCall.functionName).toBe('transfer');
-    expect((transferCall.args?.[0] as string).toLowerCase()).toBe(
+    expect((fundingTransfer.args?.[1] as string).toLowerCase()).toBe(
       baseCtx.ephemeralWallet.address.toLowerCase()
     );
+    expect(decodeFunctionData({ abi: ERC20PermitABI, data: callsArg[2].data }).functionName).toBe(
+      'permit'
+    );
+    expect(decodeFunctionData({ abi: EVMVaultABI, data: callsArg[3].data }).functionName).toBe(
+      'deposit'
+    );
+    expect(callsArg).toHaveLength(4);
   });
 
-  it('moves COT Safe→ephemeral + permits the vault for a non-7702 Mayan source (no deposit, no SBC approve)', async () => {
-    // On a non-7702 source chain the source-swap COT sits on the Safe, but the Mayan deposit pulls
-    // from the ephemeral. So the "approval" must be a Safe.execTransaction batch of
-    // transfer(Safe→ephemeral) + permit(ephemeral→vault) — NOT a Calibur SBC approve — and the
-    // depositMayan itself stays sponsored by the middleware (no deposit call in this batch).
+  it('permits the vault for a non-7702 Mayan source without a custody transfer', async () => {
+    // The source-swap COT already sits at the ephemeral. The Safe submits only the
+    // permit(ephemeral→vault); depositMayan remains middleware-sponsored.
     const baseCtx = makeCtx();
     const createSafeExecuteTx = vi.fn().mockResolvedValue({ txHash: '0xsafe_mayan_approve' as Hex });
     const safeReadContract = vi.fn().mockImplementation((args: { functionName: string }) => {
@@ -1504,7 +1491,7 @@ describe('executeSwapBridge', () => {
       contractAddress: USDC_ARB,
       decimals: 6,
       eoaBalance: new Decimal(0),
-      ephemeralBalance: new Decimal('3'), // source-swap COT, on the Safe
+      ephemeralBalance: new Decimal('3'), // source-swap COT, at the ephemeral
     };
     const metadata: SwapMetadata = { src: [], dst: null, has_xcs: false, intent_request_hash: null };
 
@@ -1518,18 +1505,12 @@ describe('executeSwapBridge', () => {
     const ephemeral = ctx.ephemeralWallet.address;
     const vaultAddress = ctx.chainList.getVaultContractAddress(ARB_CHAIN) as Hex;
 
-    // Step 1: Safe → ephemeral transfer of the COT.
-    const transferCall = decodeFunctionData({ abi: erc20Abi, data: calls[0].data });
-    expect(transferCall.functionName).toBe('transfer');
-    expect((transferCall.args?.[0] as string).toLowerCase()).toBe(ephemeral.toLowerCase());
-    expect(transferCall.args?.[1]).toBe(depositValue);
-
-    // Step 2: permit(ephemeral → vault) granting the deposit allowance.
-    const permitCall = decodeFunctionData({ abi: ERC20PermitABI, data: calls[1].data });
+    const permitCall = decodeFunctionData({ abi: ERC20PermitABI, data: calls[0].data });
     expect(permitCall.functionName).toBe('permit');
     expect((permitCall.args?.[0] as string).toLowerCase()).toBe(ephemeral.toLowerCase());
     expect((permitCall.args?.[1] as string).toLowerCase()).toBe(vaultAddress.toLowerCase());
     expect(permitCall.args?.[2]).toBe(depositValue);
+    expect(calls).toHaveLength(1);
 
     // No vault.deposit in the approve batch — Mayan's depositMayan is sponsored separately.
     const hasDeposit = calls.some((c) => {
@@ -1545,10 +1526,9 @@ describe('executeSwapBridge', () => {
     expect(waitForFill).toHaveBeenCalledTimes(1);
   });
 
-  it('funds the Safe (permit + transferFrom EOA->Safe) before Safe->ephemeral on a non-7702 Mayan fast-path source', async () => {
-    // Mayan fast path: no source swap, so the COT is at the EOA (eoaBalance > 0), not the Safe.
-    // The Safe approve batch (transfer(Safe->ephemeral) + permit(ephemeral->vault)) must be preceded
-    // by the prepared EOA->Safe funding — the sponsored depositMayan then pulls from the ephemeral.
+  it('transfers EOA-held Mayan bridge funding directly to the ephemeral on non-7702', async () => {
+    // The Safe is the transferFrom spender, while the ephemeral receives the COT and permits the
+    // vault for the middleware-sponsored depositMayan.
     const baseCtx = makeCtx();
     const safeAddress = predictSafeAccountAddress(baseCtx.ephemeralWallet.address).address;
     const createSafeExecuteTx = vi.fn().mockResolvedValue({ txHash: '0xsafe_mayan_approve' as Hex });
@@ -1587,7 +1567,7 @@ describe('executeSwapBridge', () => {
               data: encodeFunctionData({
                 abi: erc20Abi,
                 functionName: 'transferFrom',
-                args: [baseCtx.eoaAddress, safeAddress, 3000000n],
+                args: [baseCtx.eoaAddress, baseCtx.ephemeralWallet.address, 3000000n],
               }),
               value: 0n,
             },
@@ -1647,20 +1627,19 @@ describe('executeSwapBridge', () => {
     expect(createSafeExecuteTxFromCalls).toHaveBeenCalledTimes(1);
     const calls = vi.mocked(createSafeExecuteTxFromCalls).mock.calls[0]?.[0]?.calls ?? [];
 
-    // Funding first: permit(EOA -> Safe), transferFrom(EOA -> Safe) …
+    // Funding first: permit spender = Safe, transferFrom recipient = ephemeral.
     const permitCall = decodeFunctionData({ abi: ERC20PermitABI, data: calls[0].data });
     expect(permitCall.functionName).toBe('permit');
     expect((permitCall.args?.[1] as string).toLowerCase()).toBe(safeAddress.toLowerCase());
     const fundingTransfer = decodeFunctionData({ abi: erc20Abi, data: calls[1].data });
     expect(fundingTransfer.functionName).toBe('transferFrom');
-    expect((fundingTransfer.args?.[1] as string).toLowerCase()).toBe(safeAddress.toLowerCase());
-
-    // … then the Mayan approve batch's Safe -> ephemeral transfer.
-    const transferCall = decodeFunctionData({ abi: erc20Abi, data: calls[2].data });
-    expect(transferCall.functionName).toBe('transfer');
-    expect((transferCall.args?.[0] as string).toLowerCase()).toBe(
+    expect((fundingTransfer.args?.[1] as string).toLowerCase()).toBe(
       baseCtx.ephemeralWallet.address.toLowerCase()
     );
+    expect(decodeFunctionData({ abi: ERC20PermitABI, data: calls[2].data }).functionName).toBe(
+      'permit'
+    );
+    expect(calls).toHaveLength(3);
   });
 
   it('deposits a native source via EOA-submitted Calibur execute carrying value, skipping approve and funding (7702)', async () => {
@@ -1876,9 +1855,9 @@ describe('executeSwapBridge', () => {
     expect(waitForFill).toHaveBeenCalledTimes(1);
   });
 
-  it('deposits a native source via dispatchSafeSource carrying value, skipping the ERC-20 5-step batch (non-7702)', async () => {
+  it('deposits a native source via dispatchSafeSource carrying value, skipping the ERC-20 batch (non-7702)', async () => {
     // Phase 1b non-7702: native deposit is a single payable Safe.execTransaction{value} dispatched
-    // by the EOA (dispatchSafeSource), not the sponsor 5-step transfer/permit/deposit/sweep batch.
+    // by the EOA (dispatchSafeSource), not the sponsored ERC-20 permit/deposit batch.
     const NATIVE = '0x0000000000000000000000000000000000000000' as Hex;
     const depositValue = 1_000_000_000_000_000_000n;
     vi.mocked(createRequestFromIntent).mockResolvedValueOnce({
@@ -1956,7 +1935,7 @@ describe('executeSwapBridge', () => {
       (ctx.chainList.getVaultContractAddress(ARB_CHAIN) as string).toLowerCase()
     );
     expect(decodeFunctionData({ abi: EVMVaultABI, data: dispatchArg!.calls[0].data }).functionName).toBe('deposit');
-    // No sponsor 5-step ERC-20 batch and no relayed SBC deposit.
+    // No sponsored ERC-20 batch and no relayed SBC deposit.
     expect(createSafeExecuteTxFromCalls).not.toHaveBeenCalled();
     expect(createSBCTxFromCalls).not.toHaveBeenCalled();
     expect(waitForFill).toHaveBeenCalledTimes(1);

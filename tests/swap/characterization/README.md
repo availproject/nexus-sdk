@@ -122,8 +122,9 @@ bridge, dst swap pulls USDT, EXACT_OUT even sizes the gas swap in USDT).
   and over-delivers the surplus to the EOA, and with a native gas request runs a second pass over the
   remainder (`toNative`) so ONE batch carries two output tokens — toToken and native
   gas — both to the EOA (A6).
-- The bridge/vault identity is always the **ephemeral**, even on a non-7702 source (Safe → ephemeral
-  transfer, then ephemeral signs the vault permit).
+- The bridge/vault identity and remote source holder are always the **ephemeral**, even on a
+  non-7702 source. The Safe executes the swap and bridge calls without taking intermediate bridge
+  custody; remote swap output and direct bridge funding land at the ephemeral.
 - **Native participates in provider selection** like any token — `forceMayan` routes a native
   same-token bridge through Mayan (EOA-submitted `depositMayan`); non-forced native with an
   unverifiable Mayan source downgrades to Nexus `vault.deposit{value}`.

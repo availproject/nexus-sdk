@@ -1,4 +1,4 @@
-import type { Hex } from 'viem';
+import { encodeFunctionData, erc20Abi, type Hex } from 'viem';
 import { getLogger } from '../../domain';
 import {
   buildRefundSweepCall,
@@ -10,9 +10,11 @@ import { type CurrencyID, resolveCOT } from '../cot';
 import { predictSafeAccountAddress } from '../safe/predict';
 import type { ExecutionContext, SwapRoute } from '../types';
 import { chainSupports7702 } from '../wallet/capabilities';
+import { buildEphemeralPermitCall } from '../wallet/ephemeral-permit';
 import { readSettlementBalanceRaw } from './settlement-balance';
 
 const logger = getLogger();
+const CLEANUP_PERMIT_DEADLINE_SECONDS = 5n * 60n;
 
 /**
  * The currency the on-failure cleanup should sweep, or `null` to skip it. A Nexus same-token bridge
@@ -35,20 +37,28 @@ export const resolveFailureSweepCurrencyId = (
 
 type FailureCleanupContext = Pick<
   ExecutionContext,
-  'cache' | 'chainList' | 'eoaAddress' | 'ephemeralWallet' | 'middlewareClient' | 'publicClientList'
->;
+  | 'cache'
+  | 'chainList'
+  | 'destinationDirectEoa'
+  | 'eoaAddress'
+  | 'ephemeralWallet'
+  | 'middlewareClient'
+  | 'publicClientList'
+> & { destinationChainId: number };
 
 /**
  * Sweep the route's COT stranded on a failed leg back to the EOA. Unlike a blind balance scan, we
  * know exactly what to look for: the single COT token, on the chains the failure left it (source
  * chains if we failed before the bridge, the destination chain if the destination swap failed), at
- * the one holder that chain uses (ephemeral on 7702, predicted Safe otherwise). So we read just that
- * one balance per chain (`balanceOf` / `getBalance`) and direct-transfer the exact amount — no full
- * `getBalancesForSwap` over every token on every chain for two addresses. Best-effort; never rethrows.
+ * the holder for the failed stage. Remote source settlement is at the ephemeral on both wallet
+ * paths; destination-chain settlement stays at its wrapper when another swap follows. On a
+ * non-7702 remote source, the Safe submits an ephemeral permit + transferFrom recovery batch.
+ * Best-effort; never rethrows.
  */
 export const cleanupStrandedCot = async (input: {
   currencyId: CurrencyID;
   chainIds: number[];
+  scope: 'source' | 'destination';
   ctx: FailureCleanupContext;
 }): Promise<void> => {
   const { ctx } = input;
@@ -58,12 +68,17 @@ export const cleanupStrandedCot = async (input: {
     currencyId: input.currencyId,
     chainIds: input.chainIds,
     chainCount: input.chainIds.length,
+    scope: input.scope,
   });
 
   for (const chainId of input.chainIds) {
     try {
-      const is7702 = chainSupports7702(ctx.chainList.getChainByID(chainId));
-      const holderAddress = is7702 ? ctx.ephemeralWallet.address : safeAddress;
+      const chain = ctx.chainList.getChainByID(chainId);
+      const is7702 = chainSupports7702(chain);
+      const sourceOnDestination = input.scope === 'source' && chainId === ctx.destinationChainId;
+      if (sourceOnDestination && ctx.destinationDirectEoa) continue;
+      const sourceAtEphemeral = input.scope === 'source' && chainId !== ctx.destinationChainId;
+      const holderAddress = is7702 || sourceAtEphemeral ? ctx.ephemeralWallet.address : safeAddress;
       const cot = resolveCOT(chainId, ctx.chainList, input.currencyId);
       const tokenAddress = cot.address as Hex;
       const balance = await readSettlementBalanceRaw({
@@ -74,6 +89,36 @@ export const cleanupStrandedCot = async (input: {
       });
 
       if (balance <= 0n) continue;
+      if (sourceAtEphemeral && !is7702) {
+        const deadline = BigInt(Math.floor(Date.now() / 1000)) + CLEANUP_PERMIT_DEADLINE_SECONDS;
+        const permitCall = await buildEphemeralPermitCall({
+          tokenAddress,
+          amount: balance,
+          spender: safeAddress,
+          chain,
+          chainList: ctx.chainList,
+          ephemeralWallet: ctx.ephemeralWallet,
+          publicClient: ctx.publicClientList.get(chainId),
+          deadline,
+        });
+        groups.push({
+          chainId,
+          holder: 'safe',
+          calls: [
+            permitCall,
+            {
+              to: tokenAddress,
+              value: 0n,
+              data: encodeFunctionData({
+                abi: erc20Abi,
+                functionName: 'transferFrom',
+                args: [ctx.ephemeralWallet.address, ctx.eoaAddress, balance],
+              }),
+            },
+          ],
+        });
+        continue;
+      }
       groups.push({
         chainId,
         holder: is7702 ? 'ephemeral' : 'safe',
