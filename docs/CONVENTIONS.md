@@ -48,6 +48,8 @@ Tests:
 - tests live under `tests/`
 - test TypeScript config relaxes unused locals and params
 - Biome allows `any` in tests for mocking, but keep it contained
+- [`tests/TESTING.md`](../tests/TESTING.md) defines test-layer ownership, approved mock boundaries,
+  shared helper ownership, and the required subsumption and coverage-comparison process
 
 ## Logging
 
