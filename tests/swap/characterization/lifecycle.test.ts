@@ -116,6 +116,17 @@ describe('top-level swap lifecycle characterization', () => {
     );
   });
 
+  it('auto-approves when no intent hook is provided', async () => {
+    const { deps, middlewareClient } = makeHarness();
+
+    const result = await swap(input, deps);
+
+    expect(result.intent.destination.token.contractAddress.toLowerCase()).toBe(
+      USDC_BASE.toLowerCase()
+    );
+    expect(middlewareClient.submitRFF).toHaveBeenCalledTimes(1);
+  });
+
   it('denies before execution and emits no wallet or middleware submission', async () => {
     const { deps, middlewareClient, wallet } = makeHarness();
 

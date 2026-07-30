@@ -5,7 +5,10 @@ import Decimal from 'decimal.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Hex } from 'viem';
 import { swapAndExecute } from '../../../src/flows/swap-and-execute';
-import { simulateBridgeAndExecute } from '../../../src/flows/bridge-and-execute';
+import {
+  bridgeAndExecute,
+  simulateBridgeAndExecute,
+} from '../../../src/flows/bridge-and-execute';
 import { EADDRESS } from '../../../src/swap/constants';
 import type { FlatBalance } from '../../../src/swap/types';
 import {
@@ -152,6 +155,74 @@ const makeSwapAndExecuteHarness = (
   return { deps, middlewareClient, params, requests, walletHarness };
 };
 
+const makeBridgeAndExecuteHarness = (chainId: number) => {
+  const chainList = makeCharChainList();
+  const tokenAddress = chainId === ARB_CHAIN ? USDC_ARB : USDC_BASE;
+  const token = chainList.getTokenByAddress(chainId, tokenAddress)!;
+  chainList.getChainAndTokenFromSymbol = vi.fn().mockReturnValue({
+    chain: chainList.getChainByID(chainId),
+    token,
+    isNativeToken: false,
+  });
+  const middlewareClient = makeBridgeAndExecuteMiddlewareClient({
+    getBalances: vi.fn().mockResolvedValue([
+      makeUnifiedBalance({
+        chainId,
+        tokenAddress,
+        rawBalance: '200000000',
+        value: '200',
+      }),
+      makeUnifiedBalance({
+        chainId,
+        tokenAddress: ZERO_ADDRESS,
+        rawBalance: '1000000000000000000',
+        value: '2500',
+      }),
+    ]),
+    getOraclePrices: vi.fn().mockResolvedValue([
+      makeOraclePrice({
+        chainId,
+        tokenAddress,
+        symbol: 'USDC',
+        decimals: 6,
+        priceUsd: new Decimal(1),
+      }),
+      makeOraclePrice({
+        chainId,
+        tokenAddress: ZERO_ADDRESS,
+        symbol: 'ETH',
+        decimals: 18,
+        priceUsd: new Decimal(2500),
+      }),
+    ]),
+  });
+  const walletHarness = makeRealEoaWallet();
+  const deps: Parameters<typeof bridgeAndExecute>[1] = {
+    chainList,
+    intentExplorerUrl: 'https://intent.example',
+    evm: { walletClient: walletHarness.wallet, address: EOA },
+    forceMayan: false,
+    middlewareClient,
+  };
+  const params: Parameters<typeof bridgeAndExecute>[0] = {
+    toChainId: chainId,
+    toTokenSymbol: 'USDC',
+    toAmountRaw: 100_000_000n,
+    execute: {
+      to: TARGET,
+      data: '0xdeadbeef',
+      gas: 100_000n,
+      tokenApproval: {
+        toTokenSymbol: 'USDC',
+        amount: 2_000_000n,
+        spender: TARGET,
+      },
+    },
+  };
+
+  return { deps, middlewareClient, params, walletHarness };
+};
+
 describe('composite flow lifecycle and refresh characterization', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -245,6 +316,18 @@ describe('composite flow lifecycle and refresh characterization', () => {
     expect(harness.middlewareClient.submitSBCs).not.toHaveBeenCalled();
   });
 
+  it('honors an explicit skip override even when destination funding is short', async () => {
+    const harness = makeSwapAndExecuteHarness(ARB_CHAIN, fundingRequired);
+
+    const result = await swapAndExecute(harness.params, harness.deps, {
+      onIntent: ({ allow }) => allow(),
+      skipSwapOverride: true,
+    });
+
+    expect(result.swapSkipped).toBe(true);
+    expect(harness.middlewareClient.submitSBCs).not.toHaveBeenCalled();
+  });
+
   it('keeps executing when composite event callbacks throw', async () => {
     const harness = makeSwapAndExecuteHarness(ARB_CHAIN, destinationRich(ARB_CHAIN));
 
@@ -257,6 +340,41 @@ describe('composite flow lifecycle and refresh characterization', () => {
 
     expect(result.swapSkipped).toBe(true);
     expect(result.execute.txHash).toMatch(/^0x[0-9a-f]{64}$/);
+  });
+
+  it.each([ARB_CHAIN, BASE_CHAIN])(
+    'executes the approval and transaction with chain-aware fee parameters on %s',
+    async (chainId) => {
+      const harness = makeBridgeAndExecuteHarness(chainId);
+
+      const result = await bridgeAndExecute(harness.params, harness.deps);
+
+      expect(result.bridgeSkipped).toBe(true);
+      expect(result.approval?.txHash).toMatch(/^0x[0-9a-f]{64}$/);
+      expect(result.execute.txHash).toMatch(/^0x[0-9a-f]{64}$/);
+      expect(harness.walletHarness.sentTxs).toHaveLength(2);
+    }
+  );
+
+  it('rebuilds previews for default and selected sources before approval', async () => {
+    const harness = makeBridgeAndExecuteHarness(BASE_CHAIN);
+    let refreshAfterAllow: Promise<unknown> | undefined;
+
+    const result = await bridgeAndExecute(harness.params, harness.deps, {
+      onIntent: ({ refresh, allow }) => {
+        void refresh()
+          .then(() => refresh([ARB_CHAIN]))
+          .then(() => {
+            allow();
+            refreshAfterAllow = refresh();
+          });
+      },
+    });
+
+    await refreshAfterAllow;
+    expect(result.bridgeSkipped).toBe(true);
+    expect(harness.middlewareClient.getBalances).toHaveBeenCalledTimes(3);
+    expect(harness.middlewareClient.getOraclePrices).toHaveBeenCalledTimes(3);
   });
 
   it.each([

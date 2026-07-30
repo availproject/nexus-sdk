@@ -115,6 +115,17 @@ const makeChainList = () =>
   }) as unknown as ChainListType;
 
 describe('findInsufficientAllowanceSources', () => {
+  it('treats a missing allowance entry as zero', () => {
+    const result = findInsufficientAllowanceSources({
+      intent: makeIntent(),
+      allowances: {},
+      chainList: makeChainList(),
+    });
+
+    expect(result).toHaveLength(2);
+    expect(result.map((source) => source.allowance.currentRaw)).toEqual([0n, 0n]);
+  });
+
   it('tracks allowances by chain, token, and holder address for mixed-holder sources', () => {
     const intent = makeIntent();
     const chainList = makeChainList();

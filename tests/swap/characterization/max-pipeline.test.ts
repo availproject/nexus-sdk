@@ -635,6 +635,61 @@ describe('calculateMaxForSwap characterization', () => {
     expect(result.maxAmountRaw).toBe(parseUnits('0.0188', 18));
   });
 
+  it('uses the percentage haircut when source quotes carry no USD value', async () => {
+    const options = makeOptions([defaultBalances()[0]]);
+    vi.mocked(options.middlewareClient.getBebopQuote).mockImplementation(
+      async (params: Record<string, string>) => {
+        const response = makeBebopResponse(params);
+        for (const token of Object.values(response.buyTokens)) token.priceUsd = 0;
+        for (const token of Object.values(response.sellTokens)) token.priceUsd = 0;
+        return response;
+      }
+    );
+    vi.mocked(options.middlewareClient.getLiFiQuote).mockImplementation(
+      async (params: Record<string, string>, exactOut?: boolean) => {
+        const response = makeLiFiResponse(params, Boolean(exactOut));
+        response.estimate.fromAmountUSD = '0';
+        response.estimate.toAmountUSD = '0';
+        response.action.fromToken.priceUSD = '0';
+        response.action.toToken.priceUSD = '0';
+        return response;
+      }
+    );
+
+    const preflight = await buildSwapPreflight(syntheticExactInInput(USDC_BASE), {
+      chainList: options.chainList,
+      cotCurrencyId: options.cotCurrencyId,
+      eoaAddress: options.eoaAddress,
+      middlewareClient: options.middlewareClient,
+    });
+    const route = await determineSwapRoute(syntheticExactInInput(USDC_BASE), {
+      aggregators: preflight.aggregators,
+      chainList: options.chainList,
+      middlewareClient: options.middlewareClient,
+      publicClientList: preflight.publicClientList,
+      oraclePrices: preflight.oraclePrices,
+      dstTokenInfo: preflight.dstTokenInfo,
+      eoaAddress: options.eoaAddress,
+      ephemeralAddress: options.ephemeralAddress,
+      balances: preflight.balances,
+      walletPathHints: preflight.walletPathHints,
+      cotCurrencyId: options.cotCurrencyId,
+      forceMayan: false,
+    });
+
+    const result = await calculateMaxForSwap(
+      { toChainId: BASE_CHAIN, toTokenAddress: USDC_BASE },
+      options
+    );
+    const expected = route.destination.inputAmount.max
+      .mul(1 - MAX_SWAP_HAIRCUT_PCT);
+
+    expect(route.source.swaps).toHaveLength(1);
+    expect(route.destination.swap.tokenSwap).toBeNull();
+    expect(route.source.swaps[0]?.quote.output.value).toBe(0);
+    expect(result.maxAmountRaw).toBe(mulDecimals(expected, 6));
+  });
+
   it('keeps max usable when a source token is present in swap balances but not in the deployment token list', async () => {
     const balances: FlatBalance[] = [
       {
