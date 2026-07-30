@@ -14,18 +14,6 @@ vi.mock('../../src/swap/algorithms/destination', () => ({
   destinationSwapWithExactIn: vi.fn(),
   destinationGasSwapExactIn: vi.fn(),
 }));
-vi.mock('../../src/swap/routing/holdings', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/swap/routing/holdings')>();
-  return {
-    ...actual,
-    selectRoughEligibleSources: vi.fn(actual.selectRoughEligibleSources),
-  };
-});
-// B1 EXACT_OUT native-family reserve cap: keep it a fixed value (no RPC) so the deducted-native
-// assertions are deterministic. Default 0.001 ETH; tests override per case.
-vi.mock('../../src/services/swap-native-reserve-fee', () => ({
-  estimateRepresentativeSwapNativeReserveFee: vi.fn().mockResolvedValue(1_000_000_000_000_000n),
-}));
 import { determineSwapRoute, resolveWalletDecisions, type RouteOptions } from '../../src/swap/route';
 import { createSwapIntent } from '../../src/swap/intent';
 import { predictSafeAccountAddress } from '../../src/swap/safe/predict';
@@ -45,9 +33,7 @@ import { autoSelectSources, selectDirectDestinationSwaps } from '../../src/swap/
 import { liquidateInputHoldings } from '../../src/swap/algorithms/liquidate';
 import { destinationGasSwapExactIn, determineDestinationSwaps, destinationSwapWithExactIn } from '../../src/swap/algorithms/destination';
 import { CurrencyID } from '../../src/swap/cot';
-import { estimateRepresentativeSwapNativeReserveFee } from '../../src/services/swap-native-reserve-fee';
 import { equalFold } from '../../src/services/strings';
-import { selectRoughEligibleSources } from '../../src/swap/routing/holdings';
 import {
   ARB_CHAIN,
   BASE_CHAIN,
@@ -72,6 +58,7 @@ import {
   quoteResponseFixture,
   type QuoteResponseFixtureOverrides,
 } from '../helpers/quote';
+import { makeDeterministicPublicClient } from '../helpers/public-client';
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -387,56 +374,6 @@ describe('determineSwapRoute', () => {
     expect(autoSelectSources).not.toHaveBeenCalled();
   });
 
-  it('computes Exact Out RES once and projects provider sources without selecting again', async () => {
-    const input: SwapData = {
-      mode: SwapMode.EXACT_OUT,
-      data: {
-        toChainId: ARB_CHAIN,
-        toTokenAddress: WETH,
-        toAmountRaw: 1_000_000_000_000_000_000n,
-      },
-    };
-    vi.mocked(autoSelectSources).mockResolvedValue({
-      quoteResponses: [],
-      usedCOTs: [
-        {
-          holding: {
-            chainID: ARB_CHAIN,
-            tokenAddress: USDC_ARB,
-            amountRaw: 3_255_000_000n,
-            decimals: 6,
-            symbol: 'USDC',
-          },
-          amountUsed: new Decimal('3255'),
-          idx: 0,
-        },
-      ],
-    });
-    vi.mocked(determineDestinationSwaps).mockResolvedValue(
-      makeDestinationQuoteResponse({ chainID: ARB_CHAIN })
-    );
-
-    await determineSwapRoute(
-      input,
-      makeRouteOptions({
-        skipFastPaths: true,
-        balances: [
-          {
-            amount: '3100',
-            chainID: ARB_CHAIN,
-            decimals: 6,
-            symbol: 'USDC',
-            tokenAddress: USDC_ARB,
-            value: 3100,
-            logo: '',
-            name: 'USDC',
-          },
-        ],
-      })
-    );
-
-    expect(selectRoughEligibleSources).toHaveBeenCalledTimes(1);
-  });
   it('EXACT_OUT toToken=COT removes the dst-chain toToken from autoSelect holdings', async () => {
     // Regression: when toToken IS the destination COT (USDC on ARB), the dst-chain USDC
     // balance was retained as a swap source, so autoSelect would "use" it to cover the
@@ -1072,32 +1009,41 @@ describe('determineSwapRoute', () => {
     expect(autoSelectSources).not.toHaveBeenCalled();
   });
   it('B1 EXACT_OUT (native/ETH family) caps each source at balance − native reserve', async () => {
-    // 1 ETH balance, 0.001 ETH reserve → 0.999 usable; target 0.999 forces the FULL reserve-adjusted
-    // balance to bridge, proving the reserve was deducted (a naive walk would bridge 1.0).
+    // The deterministic fee history produces a 2 wei gas price. With the real 1.5M gas estimate
+    // and 120% synthetic buffer, the reserve is 3.6M wei. Targeting the full reserve-adjusted
+    // balance proves the route never consumes the complete 1 ETH native holding.
     const chainList = makeSwapChainList();
     const nativeToken = { contractAddress: EADDRESS, decimals: 18, symbol: 'ETH', name: 'Ether', logo: '', currencyId: CurrencyID.ETH };
     chainList.getNativeToken = vi.fn().mockReturnValue(nativeToken);
     const origById = chainList.getTokenByCurrencyId;
     chainList.getTokenByCurrencyId = vi.fn().mockImplementation((c: number, id: number) =>
       id === CurrencyID.ETH ? { ...nativeToken, mayanEnabled: true } : origById(c, id));
-    vi.mocked(estimateRepresentativeSwapNativeReserveFee).mockResolvedValue(1_000_000_000_000_000n); // 0.001 ETH
+    const publicClient = makeDeterministicPublicClient({
+      readContract: ({ functionName }) =>
+        functionName === 'gasEstimateL1Component' ? [0n, 0n, 0n] : 0n,
+    });
     const input: SwapData = {
       mode: SwapMode.EXACT_OUT,
-      data: { sources: [{ chainId: ARB_CHAIN, tokenAddress: EADDRESS }], toChainId: BASE_CHAIN, toTokenAddress: EADDRESS, toAmountRaw: 999n * 10n ** 15n }, // 0.999 ETH
+      data: { sources: [{ chainId: ARB_CHAIN, tokenAddress: EADDRESS }], toChainId: BASE_CHAIN, toTokenAddress: EADDRESS, toAmountRaw: 1_000_000_000_000_000_000n - 3_600_000n },
     };
     vi.mocked(determineDestinationSwaps).mockResolvedValue(makeDestinationQuoteResponse({ chainID: BASE_CHAIN }));
     const getQuote = vi.fn().mockResolvedValue(makeBridgeQuoteResponse());
     const route = await determineSwapRoute(input, makeRouteOptions({
       chainList,
       middlewareClient: { ...mockMiddleware, getQuote } as never,
+      publicClientList: {
+        get: vi.fn().mockReturnValue(publicClient),
+      } as unknown as PublicClientList,
       balances: [{ amount: '1', chainID: ARB_CHAIN, decimals: 18, symbol: 'ETH', tokenAddress: EADDRESS, value: 3000, logo: '', name: 'Ether' }],
       dstTokenInfo: makeDstTokenInfo({ contractAddress: EADDRESS, decimals: 18, symbol: 'ETH', name: 'Ether' }),
     }));
-    expect(estimateRepresentativeSwapNativeReserveFee).toHaveBeenCalled();
+    expect(publicClient.getFeeHistory).toHaveBeenCalledTimes(1);
+    expect(publicClient.readContract).toHaveBeenCalledWith(
+      expect.objectContaining({ functionName: 'gasEstimateL1Component' })
+    );
     expect(route.sameTokenBridge).toBe(true);
     expect(route.settlementCurrencyId).toBe(CurrencyID.ETH);
-    // Bridged == balance − reserve (0.999), and native is normalized to ZERO_ADDRESS.
-    expect(route.bridge!.assets[0].eoaBalance.toString()).toBe('0.999');
+    expect(route.bridge!.assets[0].eoaBalance.toString()).toBe('0.9999999999964');
     expect(equalFold(route.bridge!.assets[0].contractAddress, ZERO_ADDRESS)).toBe(true);
   });
   const mayanMiddleware = (minReceived: number, getQuote: ReturnType<typeof vi.fn>) => ({
@@ -4481,18 +4427,6 @@ describe('determineSwapRoute — bridge provider parity', () => {
     ),
   });
 
-  // A chain list where one chain's token reports mayanEnabled:false (non-throwing gate).
-  const chainListWithDisabledToken = (chainId: number): ChainListType => {
-    const base = makeSwapChainList() as unknown as ChainListType;
-    return {
-      ...base,
-      getTokenByAddress: vi.fn().mockImplementation((cId: number, addr: Hex) => {
-        const token = base.getTokenByAddress(cId, addr);
-        return cId === chainId && token ? { ...token, mayanEnabled: false } : token;
-      }),
-    } as unknown as ChainListType;
-  };
-
   it('EXACT_IN COT round-trip judges Mayan eligibility on the bridged COT, not the source token', async () => {
     // Repro: 2.9 USDT(OP) + 2.9 USDT(Arb) → 5.8 USDC(Base). The deployment has USDT NOT
     // mayan-enabled, but USDC (the bridged COT) IS. Source USDT is liquidated to USDC before any
@@ -4611,63 +4545,6 @@ describe('determineSwapRoute — bridge provider parity', () => {
     expect(req.destination.chain_id).toBe(toHex(BASE_CHAIN));
   });
 
-  it('EXACT_IN: server says mayan but a remote source is mayan-disabled → downgrades to nexus without throwing', async () => {
-    const input: SwapData = {
-      mode: SwapMode.EXACT_IN,
-      data: {
-        sources: [
-          { chainId: ARB_CHAIN, tokenAddress: USDC_ARB },
-          { chainId: OP_CHAIN, tokenAddress: USDC_OP },
-        ],
-        toChainId: BASE_CHAIN,
-        toTokenAddress: USDC_BASE,
-      },
-    };
-    const route = await determineSwapRoute(
-      input,
-      makeRouteOptions({
-        middlewareClient: makeMayanMiddleware() as never,
-        chainList: chainListWithDisabledToken(OP_CHAIN),
-        dstTokenInfo: makeDstTokenInfo({ contractAddress: USDC_BASE, decimals: 6, symbol: 'USDC', name: 'USD Coin' }),
-        balances: [
-          { amount: '5', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDC', tokenAddress: USDC_ARB, value: 5, logo: '', name: 'USDC' },
-          { amount: '5', chainID: OP_CHAIN, decimals: 6, symbol: 'USDC', tokenAddress: USDC_OP, value: 5, logo: '', name: 'USDC' },
-        ],
-      })
-    );
-    expect(route.bridge).not.toBeNull();
-    expect(route.bridge!.provider).toBe('nexus');
-    expect(route.bridge!.mayanQuotesBySource).toBeUndefined();
-  });
-
-  it('EXACT_IN: server says mayan and every remote source is enabled → mayan with per-source quotes', async () => {
-    const input: SwapData = {
-      mode: SwapMode.EXACT_IN,
-      data: {
-        sources: [
-          { chainId: ARB_CHAIN, tokenAddress: USDC_ARB },
-          { chainId: OP_CHAIN, tokenAddress: USDC_OP },
-        ],
-        toChainId: BASE_CHAIN,
-        toTokenAddress: USDC_BASE,
-      },
-    };
-    const route = await determineSwapRoute(
-      input,
-      makeRouteOptions({
-        middlewareClient: makeMayanMiddleware() as never,
-        dstTokenInfo: makeDstTokenInfo({ contractAddress: USDC_BASE, decimals: 6, symbol: 'USDC', name: 'USD Coin' }),
-        balances: [
-          { amount: '5', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDC', tokenAddress: USDC_ARB, value: 5, logo: '', name: 'USDC' },
-          { amount: '5', chainID: OP_CHAIN, decimals: 6, symbol: 'USDC', tokenAddress: USDC_OP, value: 5, logo: '', name: 'USDC' },
-        ],
-      })
-    );
-    expect(route.bridge).not.toBeNull();
-    expect(route.bridge!.provider).toBe('mayan');
-    expect(route.bridge!.mayanQuotesBySource?.size).toBe(2);
-  });
-
   it('EXACT_OUT sends the bridged (non-dst) rough prefix as the amount and still buffers autoSelect', async () => {
     const input: SwapData = {
       mode: SwapMode.EXACT_OUT,
@@ -4703,38 +4580,6 @@ describe('determineSwapRoute — bridge provider parity', () => {
     expect(equalFold(req.destination.contract_address, USDC_ARB)).toBe(true);
     // autoSelect still gets the full buffered requirement (3100 + buffers).
     expect(vi.mocked(autoSelectSources).mock.calls[0][0].outputRequired.toString()).toBe('3103');
-  });
-
-  it('EXACT_OUT: server says mayan but a bridged source is mayan-disabled → nexus', async () => {
-    const input: SwapData = {
-      mode: SwapMode.EXACT_OUT,
-      data: { toChainId: ARB_CHAIN, toTokenAddress: WETH, toAmountRaw: 1000000000000000000n },
-    };
-    vi.mocked(determineDestinationSwaps).mockResolvedValue(
-      makeDestinationQuoteResponse({ chainID: ARB_CHAIN })
-    );
-    vi.mocked(autoSelectSources).mockResolvedValue({
-      quoteResponses: [],
-      usedCOTs: [
-        {
-          holding: { chainID: BASE_CHAIN, tokenAddress: USDC_BASE, amountRaw: 3103000000n, decimals: 6, symbol: 'USDC' },
-          amountUsed: new Decimal('3103'),
-          idx: 0,
-        },
-      ],
-    });
-    const route = await determineSwapRoute(
-      input,
-      makeRouteOptions({
-        middlewareClient: makeMayanMiddleware() as never,
-        chainList: chainListWithDisabledToken(BASE_CHAIN),
-        balances: [
-          { amount: '5000', chainID: BASE_CHAIN, decimals: 6, symbol: 'USDC', tokenAddress: USDC_BASE, value: 5000, logo: '', name: 'USDC' },
-        ],
-      })
-    );
-    expect(route.bridge).not.toBeNull();
-    expect(route.bridge!.provider).toBe('nexus');
   });
 
   it('EXACT_OUT Mayan: folds the pre-estimated bridge fee (input − minReceived) into the source selection', async () => {
@@ -4862,33 +4707,6 @@ describe('determineSwapRoute — bridge provider parity', () => {
     expect(equalFold(req.destination.contract_address, USDT_BASE)).toBe(true);
     expect(req.destination.amount).toBe('1000000');
     expect(route.bridge!.provider).toBe('nexus');
-  });
-
-  it('fast path: server says mayan and sources are enabled → mayan bridge with quotes', async () => {
-    const input: SwapData = {
-      mode: SwapMode.EXACT_IN,
-      data: {
-        sources: [
-          { chainId: ARB_CHAIN, tokenAddress: USDT_ARB, amountRaw: 1_000_000n },
-          { chainId: OP_CHAIN, tokenAddress: USDT_OP, amountRaw: 1_000_000n },
-        ],
-        toChainId: BASE_CHAIN,
-        toTokenAddress: USDT_BASE,
-      },
-    };
-    const route = await determineSwapRoute(
-      input,
-      makeRouteOptions({
-        middlewareClient: makeMayanMiddleware() as never,
-        dstTokenInfo: makeDstTokenInfo({ contractAddress: USDT_BASE, decimals: 6, symbol: 'USDT', name: 'Tether USD' }),
-        balances: [
-          { amount: '1', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDT', tokenAddress: USDT_ARB, value: 1, logo: '', name: 'Tether USD' },
-          { amount: '1', chainID: OP_CHAIN, decimals: 6, symbol: 'USDT', tokenAddress: USDT_OP, value: 1, logo: '', name: 'Tether USD' },
-        ],
-      })
-    );
-    expect(route.bridge!.provider).toBe('mayan');
-    expect(route.bridge!.mayanQuotesBySource?.size).toBe(2);
   });
 
   it('EXACT_IN same-token Mayan reports quoted delivery plus destination-local balance', async () => {

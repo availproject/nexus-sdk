@@ -159,6 +159,30 @@ const priceLookup = (chainId: number, tokenAddress: Hex) => {
 };
 
 describe('createPriceLookup', () => {
+  it('ignores non-positive balance-derived price samples', () => {
+    const lookup = createPriceLookup(
+      [
+        {
+          chainId: CHAIN_ID,
+          tokenAddress: TOKEN_ADDRESS,
+          amount: new Decimal(0),
+          valueUsd: new Decimal('10'),
+        },
+        {
+          chainId: CHAIN_ID,
+          tokenAddress: NATIVE_ADDRESS,
+          amount: new Decimal('1'),
+          valueUsd: new Decimal(0),
+        },
+      ],
+      [],
+      chainList
+    );
+
+    expect(lookup(CHAIN_ID, TOKEN_ADDRESS).toFixed(2)).toBe('0.00');
+    expect(lookup(CHAIN_ID, NATIVE_ADDRESS).toFixed(2)).toBe('0.00');
+  });
+
   it('prefers balance-derived prices and normalizes native token addresses', () => {
     const oraclePrices: OraclePriceResponse = [
       {

@@ -69,15 +69,38 @@ const makeAggregator = (quotes: (Quote | null)[]): Aggregator => ({
 });
 
 describe('aggregateAggregators', () => {
-  it('picks highest output in MaximizeOutput mode', async () => {
-    const aggA = makeAggregator([makeQuote(900000n)]);
-    const aggB = makeAggregator([makeQuote(950000n)]);
+  it.each([
+    {
+      mode: AggregateMode.MaximizeOutput,
+      selection: 'highest output',
+      first: makeQuote(900000n),
+      second: makeQuote(950000n),
+      selectedAmount: 950000n,
+      selectedSide: 'output' as const,
+    },
+    {
+      mode: AggregateMode.MinimizeInput,
+      selection: 'lowest input',
+      first: makeQuote(990000n, 1100000n),
+      second: makeQuote(990000n, 1000000n),
+      selectedAmount: 1000000n,
+      selectedSide: 'input' as const,
+    },
+  ])('picks the $selection in $mode mode', async ({
+    first,
+    mode,
+    second,
+    selectedAmount,
+    selectedSide,
+  }) => {
+    const aggA = makeAggregator([first]);
+    const aggB = makeAggregator([second]);
 
-    const results = await aggregateAggregators([makeRequest()], [aggA, aggB], AggregateMode.MaximizeOutput);
+    const results = await aggregateAggregators([makeRequest()], [aggA, aggB], mode);
 
     expect(results).toHaveLength(1);
     expect(results[0].quote).not.toBeNull();
-    expect(results[0].quote!.output.amountRaw).toBe(950000n);
+    expect(results[0].quote![selectedSide].amountRaw).toBe(selectedAmount);
     expect(results[0].aggregator).toBe(aggB);
   });
 
@@ -94,17 +117,6 @@ describe('aggregateAggregators', () => {
     expect(result.aggregator).toBe(betterMinimum);
     expect(result.quote!.output.amountRaw).toBe(950000n);
     expect(result.quote!.expectedOutput.amountRaw).toBe(960000n);
-  });
-
-  it('picks lowest input in MinimizeInput mode', async () => {
-    const aggA = makeAggregator([makeQuote(990000n, 1100000n)]);
-    const aggB = makeAggregator([makeQuote(990000n, 1000000n)]);
-
-    const results = await aggregateAggregators([makeRequest()], [aggA, aggB], AggregateMode.MinimizeInput);
-
-    expect(results).toHaveLength(1);
-    expect(results[0].quote!.input.amountRaw).toBe(1000000n);
-    expect(results[0].aggregator).toBe(aggB);
   });
 
   it('uses other aggregator quotes when one fails entirely', async () => {
@@ -290,24 +302,17 @@ describe('aggregateAggregators — native token normalization', () => {
     return { agg, received: () => received };
   };
 
-  it('rewrites a native ZERO_ADDRESS outputToken to EADDRESS (so non-LiFi aggregators recognize native)', async () => {
+  it.each([
+    { field: 'outputToken' as const, direction: 'output' },
+    { field: 'inputToken' as const, direction: 'input' },
+  ])('rewrites a native ZERO_ADDRESS $direction token to EADDRESS', async ({ field }) => {
     const { agg, received } = capture();
     await aggregateAggregators(
-      [{ ...makeRequest(), outputToken: ZERO_ADDRESS }],
+      [{ ...makeRequest(), [field]: ZERO_ADDRESS }],
       [agg],
       AggregateMode.MaximizeOutput
     );
-    expect(received()![0].outputToken).toBe(EADDRESS);
-  });
-
-  it('rewrites a native ZERO_ADDRESS inputToken to EADDRESS', async () => {
-    const { agg, received } = capture();
-    await aggregateAggregators(
-      [{ ...makeRequest(), inputToken: ZERO_ADDRESS }],
-      [agg],
-      AggregateMode.MaximizeOutput
-    );
-    expect(received()![0].inputToken).toBe(EADDRESS);
+    expect(received()![0][field]).toBe(EADDRESS);
   });
 
   it('leaves an already-EADDRESS native token and non-native tokens untouched', async () => {

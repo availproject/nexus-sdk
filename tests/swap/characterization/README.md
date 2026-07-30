@@ -1,7 +1,8 @@
 # Swap-Domain Characterization Tests
 
-This directory now contains internal swap-domain characterization tests, not top-level public flow
-characterization.
+This directory primarily contains internal swap-domain characterization tests. The `swap.test.ts`
+decision graph and `lifecycle.test.ts` intentionally exercise the public `swap()` entrypoint because
+their behavior crosses the complete swap pipeline.
 
 Public entrypoint characterization lives under
 `tests/flows/characterization`.
@@ -24,6 +25,8 @@ Good examples:
 | --- | --- |
 | `sbc-wire-format.test.ts` | Locks wire-format assumptions for SBC transaction building and delegated execution prerequisites |
 | `safe-wire-format.test.ts` | Locks the Safe `execTransaction` / MultiSend wire format and EIP-712 signing |
+| `execution-failures.test.ts` | Characterizes retry classification, requote exhaustion, mandatory destination reads, and cleanup fallback across real swap execution stages |
+| `lifecycle.test.ts` | Characterizes public `swap()` hook decisions, refresh behavior, event/timing emission, and intent explorer results |
 | `max-pipeline.test.ts` | Keeps `buildSwapPreflight`, `determineSwapRoute`, and `calculateMaxForSwap` real so max-amount behavior stays consistent with exact-in route construction, quote winner selection, haircut math, and returned source attribution |
 | `swap.test.ts` | Full `swap()`-flow **decision-graph** characterization — drives the real flow and decodes **every** emitted call against the receiver/wrapper graph (see below) |
 
@@ -37,6 +40,8 @@ Good examples:
 - winning source/destination aggregator continuity between route construction and max output
 - returned `sources` continuity with `route.extras.assetsUsed`
 - haircut and proportional-output scaling against the real route-derived destination budget
+- the 3 USDC floor, 3% cap, no-price fallback, and zero clamp
+- native-token normalization and source quotes with no USD value
 
 ## Swap execution decision-graph coverage (`swap.test.ts`)
 
@@ -129,11 +134,10 @@ bridge, dst swap pulls USDT, EXACT_OUT even sizes the gas swap in USDT).
   same-token bridge through Mayan (EOA-submitted `depositMayan`); non-forced native with an
   unverifiable Mayan source downgrades to Nexus `vault.deposit{value}`.
 
-**Out of scope** (tracked, not here): `swapAndExecute` (a separate entrypoint —
-`tests/flows/swap-and-execute*`), and the retry-EXHAUSTION / fill-timeout / cleanup paths. A single
-source re-quote (drift, including the over-buffer `EXTERNAL_RATES_DRIFT_EXCEEDED` abort) IS covered
-(above); a leg that exhausts its retries, the destination 3-attempt exhaustion, and the fill-timeout
-cleanup are not.
+**Adjacent ownership:** `swapAndExecute` remains under `tests/flows/characterization`.
+`execution-failures.test.ts` owns source dispatch exhaustion, destination read exhaustion, retry
+classification, and cleanup fallback. The decision-graph suite retains the integrated amount-drift
+and decoded-call cases rather than duplicating those focused failure families.
 
 ## What stays real
 
