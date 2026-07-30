@@ -1,4 +1,4 @@
-import { BaseError as ViemBaseError, type Hex } from 'viem';
+import { type Hex, BaseError as ViemBaseError } from 'viem';
 
 /**
  * Categories for hierarchical errors. Drives subclass identity and `error.category`
@@ -42,6 +42,7 @@ export type OperationName =
   | 'swapWithExactOut'
   | 'swapAndExecute'
   | 'calculateMaxForSwap'
+  | 'calculateMaxForBridge'
   | 'setEVMProvider'
   // exported utility helpers (rev 10)
   | 'getCoinbaseRates'
