@@ -131,6 +131,7 @@ const toBridgeDeps = (options: BridgeOptions): BridgeDeps => ({
   timing: options.timing,
   intentExplorerUrl: options.intentExplorerUrl,
   middlewareClient: options.middlewareClient,
+  forceMayan: false,
   evm: {
     walletClient: options.evm.client,
     address: options.evm.address,

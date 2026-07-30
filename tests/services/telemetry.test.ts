@@ -5,8 +5,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const LoggerProviderCtor = vi.fn();
 const OTLPLogExporterCtor = vi.fn();
 const BatchLogRecordProcessorCtor = vi.fn();
-const setGlobalLoggerProvider = vi.fn();
-const getLogger = vi.fn(() => ({ emit: vi.fn() }));
+const setGlobalLoggerProvider = vi.fn((_provider: unknown) => true);
+const getLogger = vi.fn((_name: string, _version?: string, _options?: unknown) => ({
+  emit: vi.fn(),
+}));
 
 vi.mock('@opentelemetry/sdk-logs', () => ({
   LoggerProvider: class {
@@ -35,8 +37,9 @@ vi.mock('@opentelemetry/api-logs', async () => {
     ...real,
     logs: {
       ...real.logs,
-      setGlobalLoggerProvider: (...args: unknown[]) => setGlobalLoggerProvider(...args),
-      getLogger: (...args: unknown[]) => getLogger(...args),
+      setGlobalLoggerProvider: (provider: unknown) => setGlobalLoggerProvider(provider),
+      getLogger: (name: string, version?: string, options?: unknown) =>
+        getLogger(name, version, options),
     },
   };
 });

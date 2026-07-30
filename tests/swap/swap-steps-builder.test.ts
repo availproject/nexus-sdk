@@ -4,6 +4,7 @@ import type { Hex } from 'viem';
 import { createSwapPlan } from '../../src/swap/swap-steps-builder';
 import type { BridgeAsset, DestinationSwap, SwapRoute } from '../../src/swap/types';
 import { SwapMode } from '../../src/swap/types';
+import { CurrencyID } from '../../src/swap/cot';
 import type { Aggregator, Holding, Quote } from '../../src/swap/aggregators/types';
 import { makeChain, makeChainList } from '../helpers/chains';
 import { quoteFixture } from '../helpers/quote';
@@ -59,6 +60,8 @@ const withTokenSwap: DestinationSwap = {
 
 const makeRoute = (overrides: Partial<SwapRoute> = {}): SwapRoute => ({
   type: SwapMode.EXACT_OUT,
+  settlementCurrencyId: CurrencyID.USDC,
+  sameTokenBridge: false,
   source: { swaps: [], creationTime: Date.now(), srcBuffer: new Decimal(0) },
   bridge: null,
   destination: {
@@ -168,6 +171,7 @@ describe('createSwapPlan', () => {
         ]),
       },
       bridge: {
+        provider: 'nexus',
         amount: new Decimal('2.2'),
         amounts: {
           tokenAmount: new Decimal('2.2'),
@@ -218,6 +222,7 @@ describe('createSwapPlan', () => {
   it('includes eoa_to_ephemeral_transfer only for bridge assets with eoa balance', () => {
     const route = makeRoute({
       bridge: {
+        provider: 'nexus',
         amount: new Decimal(50),
         amounts: {
           tokenAmount: new Decimal(50),

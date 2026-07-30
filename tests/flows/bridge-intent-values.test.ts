@@ -128,6 +128,7 @@ describe('buildBridgeIntent value resolver', () => {
       dstChainId: chain2.id,
       dstChainUniverse: Universe.ETHEREUM,
       dstChainNativeDecimals: 18,
+      forceMayan: false,
       deps: {
         chainList,
         middlewareClient,

@@ -364,6 +364,7 @@ const makeRealBridgeAdapters = (
     chainList,
     middlewareClient,
     intentExplorerUrl: baseOptions.intentExplorerUrl,
+    forceMayan: false,
     evm: {
       walletClient: evmClient as never,
       address: USER_ADDRESS,
@@ -421,6 +422,7 @@ const createBridgeAndExecuteQuery = (
     chainList,
     middlewareClient,
     intentExplorerUrl: 'https://bridge.example',
+    forceMayan: false,
     evm: {
       walletClient: evmClient as never,
       address: USER_ADDRESS,

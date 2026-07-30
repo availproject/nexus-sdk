@@ -107,6 +107,7 @@ const readableBridgeIntent: BridgeIntent = {
 };
 
 const swapIntent: SwapIntent = {
+  bridgeProvider: null,
   destination: {
     amount: '1',
     value: '1.00',

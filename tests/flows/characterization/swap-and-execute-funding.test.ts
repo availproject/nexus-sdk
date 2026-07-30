@@ -17,7 +17,7 @@ import type { SwapAndExecuteIntent } from '../../../src';
 import type { DeploymentResponse } from '../../../src/domain';
 import { createChainList } from '../../../src/services/chain-list';
 import { EADDRESS } from '../../../src/swap/constants';
-import type { SwapData } from '../../../src/swap/types';
+import { SwapMode, type SwapData } from '../../../src/swap/types';
 import { makeSwapMiddlewareClient } from '../../helpers/middleware-client';
 import { ARB_CHAIN, USDC_ARB } from '../../helpers/swap';
 
@@ -193,6 +193,18 @@ type RunResult = {
   swapCalled: boolean;
 };
 
+const requireFundingIntent = (intent: SwapAndExecuteIntent) => {
+  expect(intent.swapRequired).toBe(true);
+  if (!intent.swapRequired) throw new Error('Expected a funding intent');
+  return intent;
+};
+
+const requireExactOutInput = (input: SwapData | undefined) => {
+  expect(input?.mode).toBe(SwapMode.EXACT_OUT);
+  if (input?.mode !== SwapMode.EXACT_OUT) throw new Error('Expected an Exact Out funding swap');
+  return input.data;
+};
+
 const run = async (opts: {
   balances: Balance[];
   toTokenAddress?: Hex;
@@ -280,15 +292,16 @@ describe('swapAndExecute funding decision', () => {
     const { intent, swapInput } = await run({
       balances: [bal(USDC_ARB, '100', 6, 'USDC', 100)], // exactly required, zero native
     });
+    const fundingIntent = requireFundingIntent(intent);
+    const swapParams = requireExactOutInput(swapInput);
 
-    expect(intent.swapRequired).toBe(true);
     // token side: nothing to acquire — the held token is RESERVED (negative sentinel), not swapped for.
-    expect(intent.shortfall?.token.amountRaw, 'no token shortfall').toBe(0n);
-    expect(swapInput?.data.toAmountRaw, 'token reserved (== −required), NOT a positive ask').toBe(-REQUIRED);
+    expect(fundingIntent.shortfall.token.amountRaw, 'no token shortfall').toBe(0n);
+    expect(swapParams.toAmountRaw, 'token reserved (== −required), NOT a positive ask').toBe(-REQUIRED);
     // gas side: the whole gas requirement is the shortfall and the only positive ask.
-    const gasShort = intent.shortfall?.gas.amountRaw ?? 0n;
+    const gasShort = fundingIntent.shortfall.gas.amountRaw;
     expect(gasShort, 'a real gas shortfall exists').toBeGreaterThan(0n);
-    expect(swapInput?.data.toNativeAmountRaw, 'gas shortfall forwarded as the native ask').toBe(gasShort);
+    expect(swapParams.toNativeAmountRaw, 'gas shortfall forwarded as the native ask').toBe(gasShort);
   });
 
   it('case 3 · holds some token + some gas → only the SHORTFALL is filled (existing reserved)', async () => {
@@ -297,16 +310,17 @@ describe('swapAndExecute funding decision', () => {
     const { intent, swapInput } = await run({
       balances: [bal(USDC_ARB, '40', 6, 'USDC', 40), bal(NATIVE, '0.05', 18, 'ETH', 150)],
     });
+    const fundingIntent = requireFundingIntent(intent);
+    const swapParams = requireExactOutInput(swapInput);
 
-    expect(intent.swapRequired).toBe(true);
     // token: exactly the 60 USDC delta — the 40 held is NOT swapped away.
-    expect(intent.shortfall?.token.amountRaw).toBe(REQUIRED - 40_000_000n);
-    expect(swapInput?.data.toAmountRaw, 'positive token shortfall == required − held').toBe(60_000_000n);
+    expect(fundingIntent.shortfall.token.amountRaw).toBe(REQUIRED - 40_000_000n);
+    expect(swapParams.toAmountRaw, 'positive token shortfall == required − held').toBe(60_000_000n);
     // gas: exactly requirement − held; the held gas is reserved, only the delta is requested.
-    const gasReq = intent.executeRequirement.gas.amountRaw;
+    const gasReq = fundingIntent.executeRequirement.gas.amountRaw;
     expect(gasReq, 'sanity: held gas is below the requirement').toBeGreaterThan(heldGas);
-    expect(swapInput?.data.toNativeAmountRaw, 'gas shortfall == requirement − held (existing reserved)').toBe(gasReq - heldGas);
-    expect(intent.shortfall?.gas.amountRaw).toBe(gasReq - heldGas);
+    expect(swapParams.toNativeAmountRaw, 'gas shortfall == requirement − held (existing reserved)').toBe(gasReq - heldGas);
+    expect(fundingIntent.shortfall.gas.amountRaw).toBe(gasReq - heldGas);
   });
 
   it('case 4 · holds MORE than required token + some gas → reserve == REQUIRED, surplus stays usable', async () => {
@@ -315,16 +329,17 @@ describe('swapAndExecute funding decision', () => {
     const { intent, swapInput } = await run({
       balances: [bal(USDC_ARB, '150', 6, 'USDC', 150), bal(NATIVE, '0.05', 18, 'ETH', 150)],
     });
+    const fundingIntent = requireFundingIntent(intent);
+    const swapParams = requireExactOutInput(swapInput);
 
-    expect(intent.swapRequired).toBe(true);
-    expect(intent.shortfall?.token.amountRaw, 'no token shortfall (held > required)').toBe(0n);
+    expect(fundingIntent.shortfall.token.amountRaw, 'no token shortfall (held > required)').toBe(0n);
     // The reservation must be EXACTLY the required amount, NOT the held 150 — otherwise the 50 surplus
     // would be locked instead of usable as a swap source.
-    expect(swapInput?.data.toAmountRaw, 'reserve == −required (surplus 50 stays usable)').toBe(-REQUIRED);
-    expect(swapInput?.data.toAmountRaw).not.toBe(-150_000_000n);
+    expect(swapParams.toAmountRaw, 'reserve == −required (surplus 50 stays usable)').toBe(-REQUIRED);
+    expect(swapParams.toAmountRaw).not.toBe(-150_000_000n);
     // gas shortfall still filled from the surplus / other sources.
-    const gasReq = intent.executeRequirement.gas.amountRaw;
-    expect(swapInput?.data.toNativeAmountRaw, 'gas shortfall == requirement − held').toBe(gasReq - heldGas);
+    const gasReq = fundingIntent.executeRequirement.gas.amountRaw;
+    expect(swapParams.toNativeAmountRaw, 'gas shortfall == requirement − held').toBe(gasReq - heldGas);
   });
 
   it('case 5 · selected sources are forwarded verbatim to the swap call', async () => {
@@ -361,11 +376,12 @@ describe('swapAndExecute funding decision', () => {
       balances: [bal(USDC_ARB, '100', 6, 'USDC', 100), bal(SOURCE_DAI, '500', 18, 'DAI', 500)],
       sources,
     });
+    const fundingIntent = requireFundingIntent(intent);
+    const swapParams = requireExactOutInput(swapInput);
 
-    expect(intent.swapRequired).toBe(true);
-    expect(intent.shortfall?.token.amountRaw, 'held USDC excluded → full token shortfall').toBe(REQUIRED);
-    expect(swapInput?.data.toAmountRaw, 'token acquired (positive), not reserved').toBe(REQUIRED);
-    expect(swapInput?.data.sources).toEqual(sources);
+    expect(fundingIntent.shortfall.token.amountRaw, 'held USDC excluded → full token shortfall').toBe(REQUIRED);
+    expect(swapParams.toAmountRaw, 'token acquired (positive), not reserved').toBe(REQUIRED);
+    expect(swapParams.sources).toEqual(sources);
   });
 
   it('case 8 · sources gates each asset — listing native lets held gas count, unlisted token acquired', async () => {
@@ -383,9 +399,10 @@ describe('swapAndExecute funding decision', () => {
       ],
       sources,
     });
+    const swapParams = requireExactOutInput(swapInput);
 
-    expect(swapInput?.data.toAmountRaw, 'unlisted USDC → acquired').toBe(REQUIRED);
-    expect(swapInput?.data.toNativeAmountRaw ?? 0n, 'listed native → held ETH covers gas, not acquired').not.toBeGreaterThan(0n);
+    expect(swapParams.toAmountRaw, 'unlisted USDC → acquired').toBe(REQUIRED);
+    expect(swapParams.toNativeAmountRaw ?? 0n, 'listed native → held ETH covers gas, not acquired').not.toBeGreaterThan(0n);
   });
 
   it('case 9 · sources matching no held balance fails loud (length 0 → throw)', async () => {
@@ -407,10 +424,12 @@ describe('swapAndExecute funding decision', () => {
       toTokenAddress: UNKNOWN_TOKEN,
       balances: [bal(SOURCE_DAI, '500', 18, 'DAI', 500), bal(NATIVE, '1', 18, 'ETH', 3000)],
     });
+    const fundingIntent = requireFundingIntent(intent);
+    const swapParams = requireExactOutInput(swapInput);
 
-    expect(intent.swapRequired, 'unknown token not held → funding required').toBe(true);
-    expect(swapInput?.data.toTokenAddress, 'funding swap targets the unknown token').toBe(UNKNOWN_TOKEN);
-    expect(swapInput?.data.toAmountRaw, 'acquire the full requirement of the unknown token').toBe(REQUIRED);
+    expect(fundingIntent.swapRequired, 'unknown token not held → funding required').toBe(true);
+    expect(swapParams.toTokenAddress, 'funding swap targets the unknown token').toBe(UNKNOWN_TOKEN);
+    expect(swapParams.toAmountRaw, 'acquire the full requirement of the unknown token').toBe(REQUIRED);
     expect(result.execute.txHash).toBe(EXECUTE_TX_HASH);
   });
 
@@ -423,11 +442,13 @@ describe('swapAndExecute funding decision', () => {
       balances: [bal(SOURCE_DAI, '500', 18, 'DAI', 500), bal(NATIVE, '1', 18, 'ETH', 3000)],
       tokenApproval: { toTokenAddress: UNKNOWN_TOKEN, amount: REQUIRED, spender: TARGET_CONTRACT },
     });
+    const fundingIntent = requireFundingIntent(intent);
+    const swapParams = requireExactOutInput(swapInput);
 
-    expect(intent.swapRequired).toBe(true);
-    expect(swapInput?.data.toTokenAddress, 'funding swap targets the unknown token').toBe(UNKNOWN_TOKEN);
+    expect(fundingIntent.swapRequired).toBe(true);
+    expect(swapParams.toTokenAddress, 'funding swap targets the unknown token').toBe(UNKNOWN_TOKEN);
     expect(result.execute.txHash).toBe(EXECUTE_TX_HASH);
     // Approval amount renders with the on-chain decimals (6) backfilled from dstTokenInfo, not the 18 stub.
-    expect(intent.executeRequirement.tokenApproval?.amount, 'approval display uses real decimals').toBe('100');
+    expect(fundingIntent.executeRequirement.tokenApproval?.amount, 'approval display uses real decimals').toBe('100');
   });
 });

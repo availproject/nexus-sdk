@@ -41,6 +41,7 @@ const makeQuote = (opts: {
 
 type ExactInQuoteRequest = Extract<QuoteRequest, { type: QuoteType.EXACT_IN }>;
 type ExactOutQuoteRequest = Extract<QuoteRequest, { type: QuoteType.EXACT_OUT }>;
+type GetBebopQuote = ConstructorParameters<typeof BebopAggregator>[0];
 
 const makeRequest = (overrides: Partial<ExactInQuoteRequest> = {}): ExactInQuoteRequest => ({
   userAddress: USER,
@@ -108,17 +109,12 @@ const makeBebopResponseData = (
 
 describe('BebopAggregator', () => {
   let agg: BebopAggregator;
-  let getQuoteFn: ReturnType<typeof vi.fn>;
+  let getQuoteFn: ReturnType<typeof vi.fn<GetBebopQuote>>;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    getQuoteFn = vi.fn().mockResolvedValue(makeBebopResponseData());
-    agg = new BebopAggregator(
-      getQuoteFn as unknown as (
-        params: Record<string, string>,
-        api?: 'aggregation' | 'rfq'
-      ) => Promise<unknown>
-    );
+    getQuoteFn = vi.fn<GetBebopQuote>().mockResolvedValue(makeBebopResponseData());
+    agg = new BebopAggregator(getQuoteFn);
   });
 
   it('parses a valid Quote from the top-level API response (EXACT_IN)', async () => {

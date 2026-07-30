@@ -161,7 +161,7 @@ import { SWEEPER_ADDRESS } from '../../../src/swap/constants';
 import { PermitVariant } from '../../../src/domain/permits';
 import { executeSwapBridge } from '../../../src/swap/execution/bridge';
 import { VAULT_ABI_MAYAN } from '@avail-project/nexus-types/rff';
-import type { BridgeAsset, BridgeQuoteResponse, ExecutionContext, SwapMetadata, SwapRoute } from '../../../src/swap/types';
+import type { BridgeAsset, ExecutionContext, SwapMetadata, SwapRoute } from '../../../src/swap/types';
 
 const USDC_ARB = '0xaf88d065e77c8cc2239327c5edb3a432268e5831' as Hex;
 const USDC_BASE = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913' as Hex;
@@ -169,26 +169,6 @@ const USDC_OP = '0x0b2c639c533813f4aa9d7837caf62653d097ff85' as Hex;
 const ARB_CHAIN = 42161;
 const BASE_CHAIN = 8453;
 const OP_CHAIN = 10;
-
-const makeBridgeQuoteResponse = (): BridgeQuoteResponse => ({
-  fulfillmentBps: 100,
-  sources: [
-    {
-      chainId: ARB_CHAIN,
-      tokenAddress: USDC_ARB,
-      depositFeeUsd: '0.5',
-      depositFeeToken: '500000',
-      depositMayanFeeUsd: '0.5',
-      depositMayanFeeToken: '500000',
-    },
-  ],
-  destination: {
-    chainId: BASE_CHAIN,
-    tokenAddress: USDC_BASE,
-    fulfillmentFeeUsd: '1.5',
-    fulfillmentFeeToken: '1500000',
-  },
-});
 
 const makeBridgeAsset = (chainId = ARB_CHAIN, contractAddress = USDC_ARB): BridgeAsset => ({
   chainID: chainId,
@@ -199,6 +179,7 @@ const makeBridgeAsset = (chainId = ARB_CHAIN, contractAddress = USDC_ARB): Bridg
 });
 
 const makeBridge = (): NonNullable<SwapRoute['bridge']> => ({
+  provider: 'nexus',
   amount: new Decimal('5'),
   amounts: {
     tokenAmount: new Decimal('3'),
@@ -220,7 +201,6 @@ const makeBridge = (): NonNullable<SwapRoute['bridge']> => ({
 
 type BridgeCtx = Pick<
   ExecutionContext,
-  | 'bridgeQuoteResponse'
   | 'cache'
   | 'chainList'
   | 'destinationDirectEoa'
@@ -337,7 +317,6 @@ const makeCtx = (): BridgeCtx => ({
   cache: undefined,
   intentExplorerUrl: 'https://explorer.example/rff',
   onProgress: vi.fn(),
-  bridgeQuoteResponse: makeBridgeQuoteResponse(),
   preparedExecution: undefined,
   // Default: destination has a swap step (bridge recipient resolves to wrapper). Override in
   // tests that exercise the COT-direct path.

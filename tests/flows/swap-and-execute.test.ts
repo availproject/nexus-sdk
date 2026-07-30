@@ -181,6 +181,7 @@ const createSwapAndExecuteQuery = (input: {
     chainList: input.chainList,
     middlewareClient: input.middlewareClient,
     intentExplorerUrl: 'https://intent.example',
+    forceMayan: false,
     evm: {
       walletClient: input.evmClient,
       address: input.eoaAddress,
@@ -328,6 +329,7 @@ const makeParams = (overrides?: Partial<SwapAndExecuteParams>): SwapAndExecutePa
 });
 
 const makeSwapIntent = (destinationAmount = '60'): SwapIntent => ({
+  bridgeProvider: null,
   destination: {
     amount: destinationAmount,
     value: destinationAmount,

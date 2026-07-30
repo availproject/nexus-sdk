@@ -213,6 +213,7 @@ const runSwap = (input: Parameters<typeof flowSwap>[0], params: SwapParams) =>
       chainList: params.chainList,
       middlewareClient: params.middlewareClient,
       intentExplorerUrl: params.intentExplorerUrl,
+      forceMayan: false,
       evm: {
         walletClient: params.eoaWallet,
         address: params.eoaAddress,
