@@ -29,6 +29,7 @@ import {
   makePublicClientList,
   makeSwapChainList,
 } from '../helpers/swap';
+import { makeSwapMiddlewareClient } from '../helpers/middleware-client';
 
 const aggregators: Aggregator[] = [{ supportsChain: () => true, getQuotes: vi.fn().mockResolvedValue([]) }];
 
@@ -48,6 +49,8 @@ const makeOptions = (overrides?: Partial<RouteOptions>): RouteOptions => ({
   } as never,
   chainList: makeSwapChainList() as unknown as ChainListType,
   cotCurrencyId: CurrencyID.USDC,
+  forceMayan: false,
+  middlewareClient: makeSwapMiddlewareClient(),
   publicClientList: makePublicClientList() as unknown as PublicClientList,
   oraclePrices: [] as OraclePriceResponse,
   dstTokenInfo: makeDstTokenInfo(),

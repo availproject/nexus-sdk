@@ -105,6 +105,8 @@ const makeRoute = (overrides?: {
   oraclePrices?: SwapRoute['extras']['oraclePrices'];
 }): SwapRoute => ({
   type: SwapMode.EXACT_IN,
+  settlementCurrencyId: CurrencyID.USDC,
+  sameTokenBridge: false,
   source: { swaps: overrides?.sourceSwaps ?? [], creationTime: Date.now(), srcBuffer: new Decimal(0) },
   bridge: null,
   destination: {

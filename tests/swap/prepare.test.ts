@@ -5,6 +5,7 @@ import type { PrivateKeyAccount } from 'viem/accounts';
 import ERC20ABI, { ERC20PermitABI } from '../../src/abi/erc20';
 import { prepareSwapExecution } from '../../src/swap/prepare';
 import { predictSafeAccountAddress } from '../../src/swap/safe/predict';
+import { CurrencyID } from '../../src/swap/cot';
 import { SwapMode, type ExecutionContext, type QuoteResponse, type SwapRoute } from '../../src/swap/types';
 import { SwapCache } from '../../src/swap/wallet/cache';
 import type { Aggregator } from '../../src/swap/aggregators/types';
@@ -76,6 +77,8 @@ const makeQuoteResponse = (): QuoteResponse => ({
 
 const makeRoute = (): SwapRoute => ({
   type: SwapMode.EXACT_OUT,
+  settlementCurrencyId: CurrencyID.USDC,
+  sameTokenBridge: false,
   source: { swaps: [makeQuoteResponse()], creationTime: Date.now(), srcBuffer: new Decimal(0) },
   bridge: null,
   destination: {
@@ -506,6 +509,7 @@ describe('prepareSwapExecution', () => {
   it('converts bridge EOA balances from human Decimal to raw transfer amounts', async () => {
     const route = makeRoute();
     route.bridge = {
+      provider: 'nexus',
       amount: new Decimal('5'),
       amounts: {
         tokenAmount: new Decimal('5'),
@@ -561,6 +565,7 @@ describe('prepareSwapExecution', () => {
       swap: { tokenSwap: null, gasSwap: null },
     };
     route.bridge = {
+      provider: 'nexus',
       amount: new Decimal('5'),
       amounts: {
         tokenAmount: new Decimal('5'),
@@ -619,6 +624,7 @@ describe('prepareSwapExecution', () => {
     const NATIVE = '0x0000000000000000000000000000000000000000' as Hex;
     const route = makeRoute();
     route.bridge = {
+      provider: 'nexus',
       amount: new Decimal('1'),
       amounts: {
         tokenAmount: new Decimal('1'),
@@ -673,6 +679,7 @@ describe('prepareSwapExecution', () => {
       swap: { tokenSwap: null, gasSwap: null },
     };
     route.bridge = {
+      provider: 'nexus',
       amount: new Decimal('5'),
       amounts: {
         tokenAmount: new Decimal('5'),
@@ -735,6 +742,7 @@ describe('prepareSwapExecution', () => {
       swap: { tokenSwap: null, gasSwap: null },
     };
     route.bridge = {
+      provider: 'nexus',
       amount: new Decimal('5'),
       amounts: {
         tokenAmount: new Decimal('5'),

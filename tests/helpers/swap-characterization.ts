@@ -506,7 +506,7 @@ export const makeRealEoaWallet = (account: PrivateKeyAccount = EOA_ACCOUNT): Eoa
     const nonce = nonceByChain.get(chainId) ?? 0;
     nonceByChain.set(chainId, nonce + 1);
     // Real RLP encode + secp256k1 signature; network broadcast is the only faked part.
-    const raw = (await account.signTransaction({
+    const raw = await account.signTransaction({
       to,
       data,
       value,
@@ -516,10 +516,14 @@ export const makeRealEoaWallet = (account: PrivateKeyAccount = EOA_ACCOUNT): Eoa
       maxPriorityFeePerGas: 1_000_000_000n,
       chainId,
       type: 'eip1559',
-    })) as Hex;
+    });
+    if (!raw.startsWith('0x02')) {
+      throw new Error('Expected an EIP-1559 serialized transaction');
+    }
+    const serializedTransaction = raw as `0x02${string}`;
     // S1: independently recover the signer from the serialized tx — proves the EOA genuinely
     // authorized this (native deposit / source-swap / direct approve), not just that signing ran.
-    const recovered = await recoverTransactionAddress({ serializedTransaction: raw });
+    const recovered = await recoverTransactionAddress({ serializedTransaction });
     expect(recovered.toLowerCase(), 'EOA tx must be signed by the EOA').toBe(account.address.toLowerCase());
     recordProducedCot(decodeEoaTx(raw).calls); // an EOA-submitted native source swap lands COT at the wrapper
     sentTxs.push({ chainId, raw, call: decodeEoaTx(raw).calls[0] ?? decodeEoaRawTx(raw) });

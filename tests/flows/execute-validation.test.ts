@@ -20,6 +20,7 @@ const makeQuery = () => {
     chainList,
     middlewareClient,
     intentExplorerUrl: 'https://bridge.example',
+    forceMayan: false,
     evm: {
       walletClient: evmClient as never,
       address: '0x0000000000000000000000000000000000000001' as `0x${string}`,

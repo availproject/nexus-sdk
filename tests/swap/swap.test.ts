@@ -88,6 +88,7 @@ import { makeTimingHooks } from '../helpers/timing';
 const makeBridge = (
   overrides?: Partial<NonNullable<SwapRoute['bridge']>>
 ): NonNullable<SwapRoute['bridge']> => ({
+  provider: 'nexus',
   amount: new Decimal('3000'),
   amounts: {
     tokenAmount: new Decimal('3000'),
@@ -128,6 +129,7 @@ const makeRoute = (): SwapRoute => ({
 });
 
 const makeIntent = (): SwapIntent => ({
+  bridgeProvider: null,
   destination: {
     amount: '1.0',
     chain: { id: ARB_CHAIN, logo: '', name: 'Arbitrum' },
@@ -177,6 +179,7 @@ const toSwapDeps = (params: SwapParams): Parameters<typeof flowSwap>[1] => ({
   timing: params.timing,
   middlewareClient: params.middlewareClient,
   intentExplorerUrl: params.intentExplorerUrl,
+  forceMayan: false,
   evm: {
     walletClient: params.eoaWallet,
     address: params.eoaAddress,

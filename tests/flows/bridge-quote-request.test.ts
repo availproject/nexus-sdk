@@ -171,7 +171,7 @@ describe('buildQuoteRequest', () => {
 });
 
 describe('resolveBridgeProvider', () => {
-  const sampleRequest = {
+  const sampleRequest: Parameters<typeof resolveBridgeProvider>[1] = {
     destination: {
       chain_id: toHex(42161),
       contract_address: USDC_ARB,

@@ -5,6 +5,7 @@ import { createSwapIntent } from '../../src/swap/intent';
 import { SwapMode } from '../../src/swap/types';
 import type { SwapRoute, SwapData } from '../../src/swap/types';
 import type { Aggregator, QuoteResponse } from '../../src/swap/aggregators/types';
+import { CurrencyID } from '../../src/swap/cot';
 import type { ChainListType, TokenInfo } from '../../src/domain';
 import {
   quoteResponseFixture,
@@ -41,6 +42,8 @@ const makeChainList = () => ({
 
 const makeRoute = (overrides?: Partial<SwapRoute>): SwapRoute => ({
   type: SwapMode.EXACT_OUT,
+  settlementCurrencyId: CurrencyID.USDC,
+  sameTokenBridge: false,
   source: { swaps: [makeQuoteResponse()], creationTime: Date.now(), srcBuffer: new Decimal(0) },
   bridge: null,
   destination: {
@@ -194,6 +197,7 @@ describe('createSwapIntent', () => {
   it('bridge fees present when bridge exists', () => {
     const route = makeRoute({
       bridge: {
+        provider: 'nexus',
         amount: new Decimal('3000'),
         amounts: {
           tokenAmount: new Decimal('3000'),

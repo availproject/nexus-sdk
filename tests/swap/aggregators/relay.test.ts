@@ -6,6 +6,7 @@ import { QuoteSeriousness, QuoteType, type QuoteRequest } from '../../../src/swa
 import { EADDRESS, ZERO_ADDRESS } from '../../../src/domain/constants/addresses';
 
 type ExactInQuoteRequest = Extract<QuoteRequest, { type: QuoteType.EXACT_IN }>;
+type RelayProxy = ConstructorParameters<typeof RelayAggregator>[0];
 
 const INPUT = '0xaaaa000000000000000000000000000000000001' as const;
 const OUTPUT = '0xbbbb000000000000000000000000000000000002' as const;
@@ -66,14 +67,12 @@ const makeResponse = () => ({
   },
 });
 
-const asProxy = (fn: unknown) => fn as (params: Record<string, string>) => Promise<unknown>;
-
 describe('RelayAggregator', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('sends same-chain EXACT_INPUT params with the configured slippage', async () => {
-    const getQuote = vi.fn().mockResolvedValue(makeResponse());
-    await new RelayAggregator(asProxy(getQuote)).getQuotes([makeRequest()]);
+    const getQuote = vi.fn<RelayProxy>().mockResolvedValue(makeResponse());
+    await new RelayAggregator(getQuote).getQuotes([makeRequest()]);
 
     const [params] = getQuote.mock.calls[0];
     expect(params.user).toBe(TAKER);
@@ -88,8 +87,8 @@ describe('RelayAggregator', () => {
   });
 
   it('maps EXACT_IN → slippage-protected output (currencyOut.minimumAmount), swap step tx', async () => {
-    const getQuote = vi.fn().mockResolvedValue(makeResponse());
-    const [quote] = await new RelayAggregator(asProxy(getQuote)).getQuotes([makeRequest()]);
+    const getQuote = vi.fn<RelayProxy>().mockResolvedValue(makeResponse());
+    const [quote] = await new RelayAggregator(getQuote).getQuotes([makeRequest()]);
 
     expect(quote!.input.amountRaw).toBe(1000000n);
     expect(quote!.input.decimals).toBe(6);
@@ -112,7 +111,7 @@ describe('RelayAggregator', () => {
   });
 
   it('EXACT_OUT: delivers the exact requested output (currencyOut.amount), EXACT_OUTPUT trade type', async () => {
-    const getQuote = vi.fn().mockResolvedValue(makeResponse());
+    const getQuote = vi.fn<RelayProxy>().mockResolvedValue(makeResponse());
     const req: QuoteRequest = {
       type: QuoteType.EXACT_OUT,
       seriousness: QuoteSeriousness.SERIOUS,
@@ -123,7 +122,7 @@ describe('RelayAggregator', () => {
       recipientAddress: RECIPIENT,
       outputAmount: 400000000000000n,
     };
-    const [quote] = await new RelayAggregator(asProxy(getQuote)).getQuotes([req]);
+    const [quote] = await new RelayAggregator(getQuote).getQuotes([req]);
 
     const [params] = getQuote.mock.calls[0];
     expect(params.tradeType).toBe('EXACT_OUTPUT');
@@ -135,8 +134,8 @@ describe('RelayAggregator', () => {
   it('native input: originCurrency = ZERO_ADDRESS, approvalAddress = zero, quote keeps EADDRESS', async () => {
     const res = makeResponse();
     res.steps[1].items[0].data.value = '1000000000000000000'; // native rides the swap tx value
-    const getQuote = vi.fn().mockResolvedValue(res);
-    const [quote] = await new RelayAggregator(asProxy(getQuote)).getQuotes([
+    const getQuote = vi.fn<RelayProxy>().mockResolvedValue(res);
+    const [quote] = await new RelayAggregator(getQuote).getQuotes([
       makeRequest({ inputToken: EADDRESS }),
     ]);
 
@@ -148,22 +147,22 @@ describe('RelayAggregator', () => {
   });
 
   it('returns null when the proxy throws', async () => {
-    const getQuote = vi.fn().mockRejectedValue(new Error('boom'));
-    const [quote] = await new RelayAggregator(asProxy(getQuote)).getQuotes([makeRequest()]);
+    const getQuote = vi.fn<RelayProxy>().mockRejectedValue(new Error('boom'));
+    const [quote] = await new RelayAggregator(getQuote).getQuotes([makeRequest()]);
     expect(quote).toBeNull();
   });
 
   it('returns null when no executable (non-approve) step is present', async () => {
     const res = makeResponse();
     res.steps = [res.steps[0]]; // only the approve step, nothing to execute
-    const getQuote = vi.fn().mockResolvedValue(res);
-    const [quote] = await new RelayAggregator(asProxy(getQuote)).getQuotes([makeRequest()]);
+    const getQuote = vi.fn<RelayProxy>().mockResolvedValue(res);
+    const [quote] = await new RelayAggregator(getQuote).getQuotes([makeRequest()]);
     expect(quote).toBeNull();
   });
 });
 
 describe('RelayAggregator supportsChain', () => {
-  const agg = new RelayAggregator(vi.fn());
+  const agg = new RelayAggregator(vi.fn<RelayProxy>());
 
   it('reports listed chains as supported', () => {
     expect(agg.supportsChain(1)).toBe(true);
@@ -177,8 +176,8 @@ describe('RelayAggregator supportsChain', () => {
   });
 
   it('still fires the proxy for a chain outside SUPPORTED_CHAINS (no local gate — Relay is the zero-supporter fallback probe)', async () => {
-    const getQuote = vi.fn().mockResolvedValue(makeResponse());
-    await new RelayAggregator(asProxy(getQuote)).getQuotes([makeRequest({ chainId: 777777 })]);
+    const getQuote = vi.fn<RelayProxy>().mockResolvedValue(makeResponse());
+    await new RelayAggregator(getQuote).getQuotes([makeRequest({ chainId: 777777 })]);
     expect(getQuote).toHaveBeenCalledTimes(1);
   });
 });

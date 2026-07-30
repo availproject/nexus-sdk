@@ -71,7 +71,7 @@ describe('MiddlewareClient swap proxy methods', () => {
       axiosRootMock.create.mockReturnValue(axiosClient);
       axiosClient.get.mockResolvedValue({ data: [{ priceUSD: '2500.25' }] });
 
-      const mw = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+      const mw = createMiddlewareClient('https://mw.example');
 
       await expect(mw.getLiFiTokenPrice(8453, '0xaaa')).resolves.toBe('2500.25');
       expect(axiosClient.get).toHaveBeenCalledWith('/api/v1/proxy/lifi/token', {
@@ -84,7 +84,7 @@ describe('MiddlewareClient swap proxy methods', () => {
       axiosRootMock.create.mockReturnValue(axiosClient);
       axiosClient.get.mockResolvedValue({ data: { price: 2500.25 } });
 
-      const mw = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+      const mw = createMiddlewareClient('https://mw.example');
 
       await expect(mw.getRelayTokenPrice(8453, '0xaaa')).resolves.toBe('2500.25');
       expect(axiosClient.get).toHaveBeenCalledWith(
@@ -102,7 +102,7 @@ describe('MiddlewareClient swap proxy methods', () => {
       });
       vi.stubGlobal('fetch', fetch);
 
-      const mw = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+      const mw = createMiddlewareClient('https://mw.example');
 
       await expect(mw.getFibrousTokenPrice('0xaaa')).resolves.toBe('64936.72');
       expect(fetch).toHaveBeenCalledWith('https://graph.fibrous.finance/citrea/tokens/0xaaa');
@@ -117,7 +117,7 @@ describe('MiddlewareClient swap proxy methods', () => {
         .mockResolvedValueOnce({ data: { priceUSD: 'not-a-price' } })
         .mockResolvedValueOnce({ data: { price: 0 } });
 
-      const mw = createMiddlewareClient('https://mw.example', 'wss://mw.example');
+      const mw = createMiddlewareClient('https://mw.example');
 
       await expect(mw.getLiFiTokenPrice(8453, '0xaaa')).resolves.toBeNull();
       await expect(mw.getRelayTokenPrice(8453, '0xaaa')).resolves.toBeNull();
@@ -167,7 +167,7 @@ describe('MiddlewareClient swap proxy methods', () => {
       const route = { success: true, outputAmount: '900' };
       axiosClient.get.mockResolvedValue({ data: route });
 
-      const mw = createMiddlewareClient('https://mw.example', 'wss://mw.example') as any;
+      const mw = createMiddlewareClient('https://mw.example');
       const params = {
         chain: 'citrea',
         amount: '1000',
@@ -193,7 +193,7 @@ describe('MiddlewareClient swap proxy methods', () => {
       const quote = { route: { success: true }, calldata: { swap_parameters: [] } };
       axiosClient.get.mockResolvedValue({ data: quote });
 
-      const mw = createMiddlewareClient('https://mw.example', 'wss://mw.example') as any;
+      const mw = createMiddlewareClient('https://mw.example');
       const params = {
         chain: 'citrea',
         amount: '1000',

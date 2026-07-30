@@ -4,6 +4,7 @@ import type {
   MiddlewareSwapClient,
   MiddlewareSwapExecutionClient,
 } from '../../src/transport';
+import type { Hex } from 'viem';
 
 export const makeMiddlewareClient = (
   overrides: Partial<MiddlewareClient> = {}
@@ -36,9 +37,15 @@ export const makeMiddlewareClient = (
   getBebopQuote: async () => ({}),
   getFibrousQuote: async () => ({}),
   getFibrousRoute: async () => ({}),
+  getZeroExQuote: async () => ({}),
+  getZeroExPrice: async () => ({}),
+  postMystic: async () => ({}),
+  getRelayQuote: async () => ({}),
   getLiFiTokenPrice: async () => null,
   getRelayTokenPrice: async () => null,
   getFibrousTokenPrice: async () => null,
+  getLiFiToken: async () => ({}),
+  getMysticToken: async () => ({}),
   submitSBCs: async () => [],
   getQuote: async () => ({
     fulfillmentBps: 0,
@@ -50,7 +57,7 @@ export const makeMiddlewareClient = (
       fulfillmentFeeToken: '0',
     },
   }),
-  getBridgeProvider: async () => ({ provider: "nexus" }),
+  getBridgeProvider: async () => ({ provider: 'nexus' }),
   // Echo each requested leg back as its own quote (index- and chain/token-aligned), with
   // effectiveAmountIn64 == the requested amount — Mayan's behaviour for a like-for-like leg. The
   // empty default threw "Mayan quote response length mismatch" for any real leg; override per test
@@ -71,7 +78,26 @@ export const makeMiddlewareClient = (
       },
     })) as never,
   }),
-  reportMayanNativeTx: async () => ({success: true}),
+  reportMayanNativeTx: async () => ({ success: true }),
+  getSafeAccountAddress: async (request) => ({
+    chainId: request.chainId,
+    owner: request.owner,
+    address: request.owner,
+    factoryAddress: request.owner,
+    exists: true,
+  }),
+  ensureSafeAccount: async (request) => ({
+    chainId: request.chainId,
+    owner: request.owner,
+    address: request.safeAddress,
+    factoryAddress: request.safeAddress,
+    exists: true,
+  }),
+  createSafeExecuteTx: async (request) => ({
+    chainId: request.chainId,
+    safeAddress: request.safeAddress,
+    txHash: '0x' as Hex,
+  }),
   configureTiming: () => {},
   destroy: () => {},
   ...overrides,

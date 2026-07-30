@@ -157,6 +157,7 @@ const createSwapAndExecuteQuery = (input: {
     chainList: input.chainList,
     middlewareClient: input.middlewareClient,
     intentExplorerUrl: 'https://intent.example',
+    forceMayan: false,
     evm: {
       walletClient: input.evmClient as never,
       address: input.eoaAddress,

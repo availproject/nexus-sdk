@@ -347,6 +347,7 @@ const createBridgeAndExecuteQuery = (
     chainList,
     middlewareClient,
     intentExplorerUrl: 'https://bridge.example',
+    forceMayan: false,
     evm: {
       walletClient: evmClient as never,
       address: USER_ADDRESS,
