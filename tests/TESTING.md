@@ -20,6 +20,11 @@ Keep focused tests for boundaries whose wire format or authentication details ar
 ABI encoding, signed payloads, transaction serialization, middleware request normalization,
 public exports, type surfaces, and vendor adapters.
 
+An execution contract test may replace adjacent SDK stages only to reach control flow owned by the
+subject under test, such as retry classification, asset reconciliation, failure context, or cleanup
+scope. Assert the owned result, error, state transition, or side effect; do not merely assert that a
+canned internal payload was forwarded to another mock.
+
 ### Characterization tests
 
 Cross-stage behavior belongs in characterization tests that execute the real orchestration and

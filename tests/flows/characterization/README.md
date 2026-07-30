@@ -52,8 +52,10 @@ Only external edges should be mocked:
 | --- | --- |
 | `bridge-pipeline.test.ts` | Public `bridge()` characterization: intent build/refresh, plan preview/confirmation, allowance gating, request submission, vault deposit progress, fill completion, and event resilience |
 | `bridge-and-execute-pipeline.test.ts` | Public `bridgeAndExecute()` characterization with the real nested bridge leg and real execute leg, mocking only middleware, wallet, and RPC boundaries |
+| `composite-lifecycle.test.ts` | Shared `bridgeAndExecute()` / `swapAndExecute()` lifecycle coverage: refresh transitions, merged plans, callback resilience, chain-aware fee parameters, and simulation gas composition |
 | `swap-pipeline.test.ts` | Public `swap()` characterization with the real internal pipeline from preflight through prepare and execution |
 | `swap-and-execute-pipeline.test.ts` | Public `swapAndExecute()` characterization with the real nested swap leg and real execute leg, including both execute-only and funding-required paths |
+| `swap-and-execute-funding.test.ts` | Funding-decision matrix for destination token and gas shortfalls, selected-source restrictions, and unknown destination tokens |
 
 ## Good assertions
 

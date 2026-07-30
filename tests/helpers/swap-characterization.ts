@@ -590,10 +590,6 @@ export const readContractStub = async (req: {
   }
 };
 
-export const VAULT_ABI = EVMVaultABI;
-export const MAYAN_VAULT_ABI = VAULT_ABI_MAYAN;
-export { toHex };
-
 /* ────────────────────────────────────────────────────────────────────────────
  * ChainList override — vault addresses, per-chain 7702, native + token lookups
  * ──────────────────────────────────────────────────────────────────────────── */

@@ -63,12 +63,12 @@ const makeBridgeDeployment = (): DeploymentResponse => {
   };
 };
 
-export type BridgeCharacterizationSource = {
+type BridgeCharacterizationSource = {
   chainId: number;
   tokenAddress: `0x${string}`;
 };
 
-export type BridgeCharacterizationHarness = {
+type BridgeCharacterizationHarness = {
   address: `0x${string}`;
   events: BridgeEvent[];
   middlewareClient: MiddlewareClient;

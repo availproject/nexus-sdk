@@ -1,5 +1,5 @@
 import { vi } from 'vitest';
-import type { Chain as ViemChain, Hex } from 'viem';
+import type { Hex } from 'viem';
 import type { Chain, ChainListType, TokenInfo } from '../../src/domain';
 import { Universe } from '../../src/domain/chain-abstraction';
 import { CurrencyID } from '../../src/swap/cot';
@@ -62,13 +62,6 @@ export const makeChainList = (chains: Chain[], token: TokenInfo): ChainListType 
   getTokenByCurrencyId: () => {
     throw new Error('Token not found');
   },
-});
-
-export const makeViemChain = (id: number): ViemChain => ({
-  id,
-  name: `Chain ${id}`,
-  nativeCurrency: { decimals: 18, name: 'Ether', symbol: 'ETH' },
-  rpcUrls: { default: { http: [`https://rpc-${id}.example`] } },
 });
 
 const makeSwapChain = (id: number): Chain => ({

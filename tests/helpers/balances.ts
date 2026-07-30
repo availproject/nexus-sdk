@@ -1,7 +1,7 @@
 import Decimal from 'decimal.js';
 import type { Hex } from 'viem';
 import { Universe, type UnifiedBalanceResponseData } from '../../src/domain';
-import type { FlatBalance, OraclePriceResponse } from '../../src/swap/types';
+import type { OraclePriceResponse } from '../../src/swap/types';
 import { encodeChainIdToBytes32, parseHexToTokenBytes } from '../../src/transport/encoding';
 
 export const makeUnifiedBalance = (input: {
@@ -41,12 +41,4 @@ export const makeOraclePrice = (input: {
   tokenDecimals: input.decimals,
   priceUsd: new Decimal(input.priceUsd),
   timestamp: input.timestamp ?? 1,
-});
-
-export const makeFlatBalance = (
-  input: Omit<FlatBalance, 'logo' | 'name'> & Partial<Pick<FlatBalance, 'logo' | 'name'>>
-): FlatBalance => ({
-  logo: '',
-  name: input.symbol,
-  ...input,
 });
