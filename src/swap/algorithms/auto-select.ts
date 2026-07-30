@@ -2,6 +2,7 @@ import Decimal from 'decimal.js';
 import type { Hex } from 'viem';
 import { Errors } from '../../domain/errors';
 import type { ChainListType } from '../../domain/types';
+import { logger } from '../../domain/utils/logger';
 import { divDecimals, mulDecimals } from '../../services/math';
 import { equalFold } from '../../services/strings';
 import {
@@ -15,7 +16,6 @@ import {
   QuoteType,
 } from '../aggregators';
 import type { CurrencyID } from '../cot';
-import { logger } from '../../domain/utils';
 import { convergeExactIn, firstSuccess, timedCandidate, tryExactOutDirect } from './convergence';
 import { filterMayanSourcesByChain } from './mayan-floor';
 

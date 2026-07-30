@@ -4,7 +4,6 @@ import {
   B2_STABLE_CURRENCY_IDS,
   DST_BUFFER_MAX_USD,
   DST_BUFFER_PCT,
-  GAS_TO_COT_BUFFER,
   MAX_RETRIES,
   MAX_SWAP_HAIRCUT_MIN_USDC,
   MAX_SWAP_HAIRCUT_PCT,
@@ -48,9 +47,8 @@ describe('swap economic constants', () => {
     expect(MAX_CONVERGENCE_ITERATIONS).toBe(10);
   });
 
-  it('execution thresholds: 0.5% default slippage, gas×1.02, 2 retries, 15-minute SBC deadline', () => {
+  it('execution thresholds: 0.5% default slippage, 2 retries, 15-minute SBC deadline', () => {
     expect(SLIPPAGE_DEFAULT).toBe(0.005);
-    expect(GAS_TO_COT_BUFFER).toBe(1.02);
     expect(MAX_RETRIES).toBe(2);
     expect(SBC_DEADLINE_MINUTES).toBe(15n);
   });

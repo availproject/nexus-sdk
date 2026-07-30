@@ -39,14 +39,6 @@ export const cryptoGetRandomValues = async (
   return window.crypto.getRandomValues(bytes);
 };
 
-export const locationProtocol = (): string => {
-  if (typeof window === 'undefined') {
-    return 'https';
-  }
-
-  return window.location.protocol;
-};
-
 export const locationHost = (): string => {
   if (typeof window === 'undefined') {
     return 'localhost';

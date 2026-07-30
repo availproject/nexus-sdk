@@ -50,7 +50,6 @@ export type OperationName =
 
 // ── Service union per category ────────────────────────────────────────────────
 
-export type ValidationService = never;
 export type UserActionService = 'wallet' | 'hook';
 export type SimulationService = 'rpc';
 export type ExecutionService = 'wallet' | 'rpc';
@@ -63,8 +62,6 @@ export type ExternalServiceService =
   | 'mystic'
   | 'relay'
   | 'coinbase';
-export type InternalService = never;
-
 /**
  * Maps a category literal to its allowed `service` values. Used by `ErrorContext<C>`
  * and the wrap helpers so TypeScript rejects mismatches (e.g. `service: 'middleware'`

@@ -17,20 +17,6 @@ export const safeSetupAbi = [
   },
 ] as const;
 
-export const safeProxyFactoryAbi = [
-  {
-    name: 'createProxyWithNonce',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: '_singleton', type: 'address' },
-      { name: 'initializer', type: 'bytes' },
-      { name: 'saltNonce', type: 'uint256' },
-    ],
-    outputs: [{ name: 'proxy', type: 'address' }],
-  },
-] as const;
-
 export const safeExecTransactionAbi = [
   {
     name: 'execTransaction',

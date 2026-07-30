@@ -205,7 +205,6 @@ Bridge hook internals are split by responsibility:
 - `bridge/hooks/approval.ts` resolves `onIntent` and `onAllowance`
 - `bridge/hooks/defaults.ts` provides default auto-accept behavior
 - `bridge/allowances/prepare.ts` handles paid ERC20 approval execution
-- `bridge/allowances/prepare-swap-sbc.ts` handles swap-specific SBC approval fallback
 
 ## Transport (middleware + simulation)
 

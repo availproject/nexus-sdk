@@ -43,7 +43,7 @@ vi.mock('../../src/services/chain-list', () => ({
   createChainList: hoisted.createChainList,
 }));
 
-import { createNexusClient } from '../../src/core/sdk';
+import { createNexusClient } from '../../src/core/sdk/client';
 
 const ADDRESS = '0x0000000000000000000000000000000000000aaa' as Hex;
 const DERIVED_ADDRESS = '0x0000000000000000000000000000000000000bbb' as Hex;

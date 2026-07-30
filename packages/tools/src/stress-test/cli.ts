@@ -4,7 +4,7 @@ import { dirname } from 'node:path';
 import process from 'node:process';
 import * as p from '@clack/prompts';
 import { z } from 'zod';
-import * as sdkCore from '../../../../src/core/sdk';
+import * as sdkCore from '../../../../src/core/sdk/client';
 import type { Chain, NexusNetwork } from '../../../../src/domain/types';
 import {
   applyChainRpcOverrides,
@@ -72,7 +72,7 @@ const getCreateNexusClient = () => {
   if (typeof fn !== 'function') {
     throw new Error('Failed to load createNexusClient from src/core/sdk at runtime.');
   }
-  return fn as typeof import('../../../../src/core/sdk').createNexusClient;
+  return fn as typeof import('../../../../src/core/sdk/client').createNexusClient;
 };
 
 const HELP_TEXT = `Usage
@@ -1093,14 +1093,18 @@ const executeRun = async (cfg: ResolvedCliConfig) => {
   const eligibleDestinations = pickEligibleDestinations(supported, cfg.destinations, cfg.token);
 
   const total = cfg.runConfig.totalRequests;
-  const operations: Operation[] = Array.from({ length: total }, (_, idx) => ({
-    id: idx + 1,
-    status: 'queued',
-    destinationChainId:
-      eligibleDestinations[Math.floor(Math.random() * eligibleDestinations.length)]!,
-    token: cfg.token,
-    amount: cfg.amount,
-  }));
+  const operations: Operation[] = Array.from({ length: total }, (_, idx) => {
+    const destinationChainId =
+      eligibleDestinations[Math.floor(Math.random() * eligibleDestinations.length)];
+    if (destinationChainId === undefined) throw new Error('No eligible destination chains found.');
+    return {
+      id: idx + 1,
+      status: 'queued',
+      destinationChainId,
+      token: cfg.token,
+      amount: cfg.amount,
+    };
+  });
   const startedAt = Date.now();
   let stopRequested = false;
 

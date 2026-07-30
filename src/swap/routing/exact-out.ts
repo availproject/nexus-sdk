@@ -2,7 +2,7 @@ import Decimal from 'decimal.js';
 import { formatUnits, type Hex, parseUnits } from 'viem';
 import type { ChainListType } from '../../domain';
 import { Errors } from '../../domain/errors';
-import { logger } from '../../domain/utils';
+import { logger } from '../../domain/utils/logger';
 import { convertGasToToken } from '../../services/intent';
 import { divDecimals, mulDecimals } from '../../services/math';
 import { equalFold } from '../../services/strings';

@@ -1,11 +1,16 @@
+import type Decimal from 'decimal.js';
+import type { Hex } from 'viem';
 import { assertMayanSupportedDestination } from '../bridge/intent/quote-request';
 import type { ChainListType, TimingSpanHooks, TokenInfo } from '../domain';
 import { Errors } from '../domain/errors';
-import { logger } from '../domain/utils';
+import { logger } from '../domain/utils/logger';
 import type { MiddlewareSwapPreflightClient } from '../transport';
-import type { Hex } from 'viem';
-import type Decimal from 'decimal.js';
 import type { Aggregator } from './aggregators/types';
+import {
+  type ExactInAmountBasis,
+  resolveExactInAmountBasis,
+  selectExactInQuoteOutput,
+} from './amount-basis';
 import { type CurrencyID, resolveCOT } from './cot';
 import { _exactInRoute } from './routing/exact-in';
 import { _exactOutRoute } from './routing/exact-out';
@@ -19,7 +24,6 @@ import type {
   WalletPath,
 } from './types';
 import { SwapMode } from './types';
-import { type ExactInAmountBasis, resolveExactInAmountBasis, selectExactInQuoteOutput } from './amount-basis';
 
 export type RouteOptions = {
   aggregators: Aggregator[];

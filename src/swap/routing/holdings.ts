@@ -1,13 +1,13 @@
 import Decimal from 'decimal.js';
-import { parseUnits, type Hex } from 'viem';
+import { type Hex, parseUnits } from 'viem';
 import type { ChainListType } from '../../domain';
 import { Errors } from '../../domain/errors';
-import { logger } from '../../domain/utils';
+import { logger } from '../../domain/utils/logger';
 import { divDecimals } from '../../services/math';
 import { equalFold } from '../../services/strings';
+import { filterMayanSourcesByChain } from '../algorithms/mayan-floor';
 import { EADDRESS, EXACT_OUT_PROVIDER_BUFFER } from '../constants';
 import type { FlatBalance, OraclePriceResponse, Source } from '../types';
-import { filterMayanSourcesByChain } from '../algorithms/mayan-floor';
 
 // Drop selected source chains whose aggregate bridged USD can't clear Mayan's per-leg quote floor.
 // Mayan-only — Nexus has no per-leg minimum, so this runs only inside the `bridgeProvider==='mayan'`

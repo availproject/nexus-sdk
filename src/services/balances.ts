@@ -518,5 +518,4 @@ export const createUserAssets = (data: TokenBalance[]) => {
   };
 };
 
-export type UserAssetInstance = ReturnType<typeof createUserAsset>;
 export type UserAssetsInstance = ReturnType<typeof createUserAssets>;

@@ -5,7 +5,6 @@ import {
   type PrivateKeyAccount,
   type PublicClient,
   toHex,
-  zeroAddress,
 } from 'viem';
 import { Errors } from '../domain/errors';
 import { safeExecTransactionAbi, safeNonceAbi } from '../swap/safe/abis';
@@ -255,10 +254,3 @@ export async function ensureSafeForEphemeral(input: {
     signature,
   });
 }
-
-export const __testing = {
-  HEX32_ZERO,
-  buildFieldsForCalls,
-  readSafeNonce,
-  zeroAddress,
-};

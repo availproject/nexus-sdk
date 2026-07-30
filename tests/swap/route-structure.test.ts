@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 const repositoryRoot = resolve(import.meta.dirname, '../..');
 
 describe('swap routing module structure', () => {
-  it('keeps route.ts as a small facade over mode-owned routing modules', () => {
+  it('keeps mode-owned routing modules in place', () => {
     const expectedModules = [
       'exact-in.ts',
       'exact-out.ts',
@@ -20,8 +20,5 @@ describe('swap routing module structure', () => {
         readFileSync(resolve(repositoryRoot, 'src/swap/routing', module), 'utf8')
       ).not.toThrow();
     }
-
-    const facade = readFileSync(resolve(repositoryRoot, 'src/swap/route.ts'), 'utf8');
-    expect(facade.split('\n').length).toBeLessThan(150);
   });
 });

@@ -4,7 +4,7 @@ export { AnalyticsManager } from './analytics/AnalyticsManager';
 export { NexusAnalyticsEvents } from './analytics/events';
 export type { AnalyticsConfig, DevTimingConfig, SpanProperties } from './analytics/types';
 
-export { createNexusClient } from './core/sdk';
+export { createNexusClient } from './core/sdk/client';
 export type { NexusClient } from './core/types';
 
 export { getFallbackTokenLogoDataUri } from './services/token-logo';

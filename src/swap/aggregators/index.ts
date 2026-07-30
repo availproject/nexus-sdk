@@ -1,12 +1,12 @@
 import Decimal from 'decimal.js';
 import type { ExternalServiceService } from '../../domain/errors';
-import { logger } from '../../domain/utils';
+import { logger } from '../../domain/utils/logger';
 import { isNativeAddress } from '../../services/addresses';
 import { divDecimals } from '../../services/math';
 import type { MiddlewareAggregatorQuoteClient } from '../../transport';
 import { EADDRESS } from '../constants';
-import { refreshExpectedOutput } from './expected-output';
 import { BebopAggregator } from './bebop';
+import { refreshExpectedOutput } from './expected-output';
 import { FibrousAggregator } from './fibrous';
 import { LiFiAggregator } from './lifi';
 import { MysticAggregator } from './mystic';

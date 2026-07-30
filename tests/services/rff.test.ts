@@ -2,7 +2,7 @@ import Decimal from 'decimal.js';
 import { describe, expect, it } from 'vitest';
 import type { BridgeIntentDraft, TokenInfo } from '../../src/domain';
 import { Universe } from '../../src/domain/chain-abstraction';
-import { ZERO_ADDRESS } from '../../src/domain/constants';
+import { ZERO_ADDRESS } from '../../src/domain/constants/addresses';
 import { convertTo32BytesHex } from '../../src/services/encoding';
 import { getSourcesAndDestinationsForRFF } from '../../src/services/rff';
 

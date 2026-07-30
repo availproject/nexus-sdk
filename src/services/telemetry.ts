@@ -75,7 +75,6 @@ const setLoggerProvider = async (networkConfig: NetworkConfig): Promise<void> =>
       // and clear the lock so a future call can retry. The promise itself still
       // resolves successfully — `await setLoggerProvider(...)` from `initialize()`
       // or `setEVMProvider()` won't reject just because OTel setup blew up.
-      // biome-ignore lint/suspicious/noConsole: production fallback for telemetry failure
       console.error('Telemetry init failed; SDK will run without OTel emission', err);
       initInFlight = null;
     }

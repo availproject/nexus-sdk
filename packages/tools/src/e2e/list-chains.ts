@@ -1,5 +1,5 @@
 import process from 'node:process';
-import * as sdkCore from '../../../../src/core/sdk';
+import * as sdkCore from '../../../../src/core/sdk/client';
 import type { NexusNetwork } from '../../../../src/domain/types';
 import type { ChainInfo } from './chain-select';
 import { runIfMain } from './cli-shim';
@@ -11,7 +11,7 @@ const getCreateNexusClient = () => {
   };
   const fn = mod.createNexusClient ?? mod.default?.createNexusClient;
   if (typeof fn !== 'function') throw new Error('Failed to load createNexusClient from SDK.');
-  return fn as typeof import('../../../../src/core/sdk').createNexusClient;
+  return fn as typeof import('../../../../src/core/sdk/client').createNexusClient;
 };
 
 export const listSupportedChains = async (network: NexusNetwork): Promise<ChainInfo[]> => {

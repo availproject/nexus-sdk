@@ -4,7 +4,6 @@ import type {
   BridgeEvent,
   BridgeIntent,
   BridgeOptions,
-  BridgeResult,
   Chain,
   SourceTxs,
   TokenInfo,
@@ -55,5 +54,3 @@ export type BridgeFlowOptions = {
   emit?: (event: BridgeEvent) => void;
   fillTimeoutMinutes?: number;
 };
-
-export type BridgeFlowResult = BridgeResult;

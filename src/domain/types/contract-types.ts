@@ -6,13 +6,6 @@ export type GetAllowanceParams = {
   owner: Hex;
 };
 
-export type SetAllowanceParams = {
-  contractAddress: Hex;
-  spender: Hex;
-  owner: Hex;
-  amount: bigint;
-};
-
 // ABI-compatible Vault.Request payload for EVM deposits.
 export type VaultSourcePair = {
   universe: number;
