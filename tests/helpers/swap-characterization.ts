@@ -702,6 +702,8 @@ import type { MiddlewareClient } from '../../src/transport';
 import type { FlatBalance } from '../../src/swap/types';
 
 export type CharMiddleware = MiddlewareClient & {
+  getSwapBalances: ReturnType<typeof vi.fn>;
+  getOraclePrices: ReturnType<typeof vi.fn>;
   getLiFiQuote: ReturnType<typeof vi.fn>;
   getBebopQuote: ReturnType<typeof vi.fn>;
   getMayanQuotes: ReturnType<typeof vi.fn>;

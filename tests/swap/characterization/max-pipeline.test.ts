@@ -11,8 +11,10 @@ import { mulDecimals } from '../../../src/services/math';
 import { determineSwapRoute } from '../../../src/swap/route';
 import { calculateMaxForSwap } from '../../../src/swap/max';
 import { MAX_SWAP_HAIRCUT_MIN_USDC, MAX_SWAP_HAIRCUT_PCT } from '../../../src/swap/constants';
+import { EADDRESS } from '../../../src/swap/constants';
+import { ZERO_ADDRESS } from '../../../src/domain/constants/addresses';
 import { SwapMode, type FlatBalance, type SwapParams } from '../../../src/swap/types';
-import type { ChainListType } from '../../../src/domain';
+import type { ChainListType, TokenInfo } from '../../../src/domain';
 import { makeSwapMiddlewareClient } from '../../helpers/middleware-client';
 import {
   ARB_CHAIN,
@@ -81,6 +83,12 @@ const tokenInfoByAddress = (tokenAddress: Hex) => {
   if (normalized === USDC_OP.toLowerCase()) return { symbol: 'USDC', decimals: 6 };
   if (normalized === USDC_BASE.toLowerCase()) return { symbol: 'USDC', decimals: 6 };
   if (normalized === WETH.toLowerCase()) return { symbol: 'WETH', decimals: 18 };
+  if (
+    normalized === EADDRESS.toLowerCase() ||
+    normalized === ZERO_ADDRESS.toLowerCase()
+  ) {
+    return { symbol: 'ETH', decimals: 18 };
+  }
   throw new Error(`Unknown token ${tokenAddress}`);
 };
 
@@ -249,25 +257,25 @@ const defaultBalances = (): FlatBalance[] => [
   },
 ];
 
-const makeBridgeQuoteResponse = () => ({
+const makeBridgeQuoteResponse = (
+  tokenByChain: Partial<Record<number, Hex>> = {
+    [ARB_CHAIN]: USDC_ARB,
+    [OP_CHAIN]: USDC_OP,
+    [BASE_CHAIN]: USDC_BASE,
+  }
+) => ({
   fulfillmentBps: 0,
-  sources: [
-    {
-      chainId: ARB_CHAIN,
-      tokenAddress: USDC_ARB,
+  sources: [ARB_CHAIN, OP_CHAIN]
+    .filter((chainId) => tokenByChain[chainId] !== undefined)
+    .map((chainId) => ({
+      chainId,
+      tokenAddress: tokenByChain[chainId]!,
       depositFeeUsd: '0',
       depositFeeToken: '0',
-    },
-    {
-      chainId: OP_CHAIN,
-      tokenAddress: USDC_OP,
-      depositFeeUsd: '0',
-      depositFeeToken: '0',
-    },
-  ],
+    })),
   destination: {
     chainId: BASE_CHAIN,
-    tokenAddress: USDC_BASE,
+    tokenAddress: tokenByChain[BASE_CHAIN] ?? USDC_BASE,
     fulfillmentFeeUsd: '0',
     fulfillmentFeeToken: '0',
   },
@@ -276,10 +284,24 @@ const makeBridgeQuoteResponse = () => ({
 const makeChainList = (): ChainListType => {
   const chainList = makeSwapChainList() as ChainListType;
   const originalGetTokenByAddress = chainList.getTokenByAddress;
+  const nativeToken: TokenInfo = {
+    contractAddress: EADDRESS as Hex,
+    decimals: 18,
+    logo: '',
+    name: 'Ether',
+    symbol: 'ETH',
+    currencyId: 3,
+  };
 
   chainList.getTokenByAddress = vi
     .fn()
     .mockImplementation((chainId: number, tokenAddress: Hex) => {
+      if (
+        tokenAddress.toLowerCase() === EADDRESS.toLowerCase() ||
+        tokenAddress.toLowerCase() === ZERO_ADDRESS.toLowerCase()
+      ) {
+        return nativeToken;
+      }
       if (tokenAddress.toLowerCase() === SOURCE_DAI.toLowerCase()) {
         return {
           contractAddress: SOURCE_DAI,
@@ -292,32 +314,56 @@ const makeChainList = (): ChainListType => {
 
       return originalGetTokenByAddress(chainId, tokenAddress);
     });
+  chainList.getNativeToken = vi.fn().mockReturnValue(nativeToken);
+  chainList.getTokenInfoBySymbol = vi
+    .fn()
+    .mockImplementation((chainId: number, symbol: string) => {
+      if (symbol === 'ETH') return nativeToken;
+      if (symbol === 'USDC') return chainList.getTokenByCurrencyId(chainId, 1);
+      throw new Error(`Unsupported symbol ${symbol}`);
+    });
+  chainList.getChainAndTokenByAddress = vi
+    .fn()
+    .mockImplementation((chainId: number, tokenAddress: Hex) => ({
+      chain: chainList.getChainByID(chainId),
+      token: chainList.getTokenByAddress(chainId, tokenAddress),
+    }));
 
   return chainList;
 };
 
-const makeOptions = (balances: FlatBalance[]): MaxOptions => {
+const makeOptions = (
+  balances: FlatBalance[],
+  overrides: {
+    bridgeTokenByChain?: Partial<Record<number, Hex>>;
+    oraclePrices?: Awaited<ReturnType<MaxOptions['middlewareClient']['getOraclePrices']>>;
+  } = {}
+): MaxOptions => {
   const chainList = makeChainList();
   const middlewareClient = makeSwapMiddlewareClient({
     getSwapBalances: vi.fn().mockResolvedValue(balances),
-    getOraclePrices: vi.fn().mockResolvedValue([
-      {
-        universe: 'EVM' as const,
-        chainId: BASE_CHAIN,
-        tokenAddress: USDC_BASE,
-        tokenSymbol: 'USDC',
-        tokenDecimals: 6,
-        priceUsd: new Decimal(1),
-        timestamp: 1,
-      },
-    ]),
+    getOraclePrices: vi.fn().mockResolvedValue(
+      overrides.oraclePrices ?? [
+        {
+          universe: 'EVM' as const,
+          chainId: BASE_CHAIN,
+          tokenAddress: USDC_BASE,
+          tokenSymbol: 'USDC',
+          tokenDecimals: 6,
+          priceUsd: new Decimal(1),
+          timestamp: 1,
+        },
+      ]
+    ),
     getLiFiQuote: vi.fn().mockImplementation(async (params: Record<string, string>, exactOut?: boolean) =>
       makeLiFiResponse(params, Boolean(exactOut))
     ),
     getBebopQuote: vi.fn().mockImplementation(async (params: Record<string, string>) =>
       makeBebopResponse(params)
     ),
-    getQuote: vi.fn().mockResolvedValue(makeBridgeQuoteResponse()),
+    getQuote: vi
+      .fn()
+      .mockResolvedValue(makeBridgeQuoteResponse(overrides.bridgeTokenByChain)),
     getBridgeProvider: vi.fn().mockResolvedValue({ provider: 'nexus' }),
     getMayanQuotes: vi.fn(),
     getRFFStatus: vi.fn().mockResolvedValue({ status: 'created' }),
@@ -483,6 +529,110 @@ describe('calculateMaxForSwap characterization', () => {
     // raw and human must agree at the reported decimals (the COT-direct branch derives both from the
     // resolved destination token, not the separately-resolved COT decimals).
     expect(result.maxAmountRaw).toBe(parseUnits(result.maxAmount, result.decimals));
+  });
+
+  it.each([
+    {
+      name: 'uses the 3 USDC floor below the percentage crossover',
+      amount: '50',
+      oraclePrices: undefined,
+      expected: '47',
+    },
+    {
+      name: 'uses the 3% cap above the floor crossover',
+      amount: '10000',
+      oraclePrices: undefined,
+      expected: '9700',
+    },
+    {
+      name: 'falls back to the percentage haircut when no price is available',
+      amount: '50',
+      oraclePrices: [],
+      expected: '48.5',
+    },
+    {
+      name: 'clamps at zero when the converted floor exceeds delivery',
+      amount: '1',
+      oraclePrices: undefined,
+      expected: '0',
+    },
+  ])('$name', async ({ amount, oraclePrices, expected }) => {
+    const options = makeOptions(
+      [
+        {
+          amount,
+          chainID: OP_CHAIN,
+          decimals: 6,
+          symbol: 'USDC',
+          tokenAddress: USDC_OP,
+          value: Number(amount),
+          logo: '',
+          name: 'USDC',
+        },
+      ],
+      oraclePrices === undefined ? {} : { oraclePrices }
+    );
+
+    const result = await calculateMaxForSwap(
+      { toChainId: BASE_CHAIN, toTokenAddress: USDC_BASE },
+      options
+    );
+
+    expect(result.maxAmount).toBe(new Decimal(expected).toFixed(6));
+    expect(result.maxAmountRaw).toBe(parseUnits(expected, 6));
+    expect(result.sources).toEqual([
+      {
+        chainId: OP_CHAIN,
+        tokenAddress: USDC_OP,
+        symbol: 'USDC',
+        decimals: 6,
+        amount,
+      },
+    ]);
+  });
+
+  it('normalizes the native destination address before applying the oracle floor', async () => {
+    const options = makeOptions(
+      [
+        {
+          amount: '0.02',
+          chainID: ARB_CHAIN,
+          decimals: 18,
+          symbol: 'ETH',
+          tokenAddress: EADDRESS as Hex,
+          value: 50,
+          logo: '',
+          name: 'Ether',
+        },
+      ],
+      {
+        bridgeTokenByChain: {
+          [ARB_CHAIN]: EADDRESS as Hex,
+          [OP_CHAIN]: EADDRESS as Hex,
+          [BASE_CHAIN]: EADDRESS as Hex,
+        },
+        oraclePrices: [
+          {
+            universe: 'EVM',
+            chainId: BASE_CHAIN,
+            tokenAddress: ZERO_ADDRESS,
+            tokenSymbol: 'ETH',
+            tokenDecimals: 18,
+            priceUsd: new Decimal(2500),
+            timestamp: 1,
+          },
+        ],
+      }
+    );
+
+    const result = await calculateMaxForSwap(
+      { toChainId: BASE_CHAIN, toTokenAddress: EADDRESS as Hex },
+      options
+    );
+
+    expect(result.symbol).toBe('ETH');
+    expect(result.maxAmount).toBe(new Decimal('0.0188').toFixed(18));
+    expect(result.maxAmountRaw).toBe(parseUnits('0.0188', 18));
   });
 
   it('keeps max usable when a source token is present in swap balances but not in the deployment token list', async () => {
