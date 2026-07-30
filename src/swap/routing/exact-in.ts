@@ -1,7 +1,7 @@
 import Decimal from 'decimal.js';
 import { formatUnits, type Hex } from 'viem';
 import { Errors } from '../../domain/errors';
-import { logger } from '../../domain/utils';
+import { logger } from '../../domain/utils/logger';
 import { divDecimals, mulDecimals } from '../../services/math';
 import { MAYAN_MIN_USD_PER_LEG, selectMayanQuoteOutput } from '../../services/mayan';
 import { equalFold } from '../../services/strings';

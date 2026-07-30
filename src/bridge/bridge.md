@@ -33,7 +33,6 @@ Data shapes, wire formats, and rationale stay as prose / structs / tables.
 | Allowance detection (`findInsufficientAllowanceSources`) | `tests/flows/bridge-intent-builder.test.ts` |
 | Hooks (intent approve/deny/refresh, allowance selection) | `tests/flows/bridge-hooks.test.ts` |
 | Full pipeline (build→preview→hook→execute→events) | `tests/flows/characterization/bridge-pipeline.test.ts` |
-| Sponsored allowance SBC (bridge‑in‑swap path) | `tests/bridge/allowances/prepare-swap-sbc-7702.test.ts` |
 | Transport (`submitRFF`, `getMayanQuotes`, `reportMayanNativeTx`) | `tests/transport/middleware.test.ts` |
 
 ---

@@ -36,7 +36,7 @@ import {
 } from '../domain';
 import { ZERO_ADDRESS } from '../domain/constants/addresses';
 import { BackendError, ERROR_CODES, Errors, formatUnknownError } from '../domain/errors';
-import { logger } from '../domain/utils';
+import { logger } from '../domain/utils/logger';
 import { addressString, hexString } from '../domain/utils/validation';
 import { convertAddressByUniverse } from '../services/addresses';
 import { equalFold } from '../services/strings';
@@ -603,7 +603,9 @@ const middlewareErrorDetails = (error: unknown): Record<string, unknown> => {
 
 const groupSbcTxsByChain = (sbcTxs: SBCTx[]): Record<number, SBCTx[]> =>
   sbcTxs.reduce<Record<number, SBCTx[]>>((acc, tx) => {
-    (acc[tx.chainId] ??= []).push(tx);
+    const chainTxs = acc[tx.chainId] ?? [];
+    chainTxs.push(tx);
+    acc[tx.chainId] = chainTxs;
     return acc;
   }, {});
 

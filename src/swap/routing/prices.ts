@@ -1,7 +1,7 @@
 import Decimal from 'decimal.js';
 import type { Hex } from 'viem';
 import { ZERO_ADDRESS } from '../../domain/constants/addresses';
-import { logger } from '../../domain/utils';
+import { logger } from '../../domain/utils/logger';
 import { isNativeAddress } from '../../services/addresses';
 import { equalFold } from '../../services/strings';
 import type { MiddlewareTokenPriceClient } from '../../transport';

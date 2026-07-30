@@ -24,10 +24,3 @@ export const divDecimals = (input: bigint | number | string, decimals: number) =
 export const mulDecimals = (input: Decimal | number | string, decimals: number) => {
   return BigInt(new Decimal(input).mul(Decimal.pow(10, decimals)).toFixed(0, Decimal.ROUND_CEIL));
 };
-
-export function pctAdditionWithSuggestion(base: bigint, percentage: number) {
-  const pctAmount = BigInt(new Decimal(base).mul(percentage).toFixed(0, Decimal.ROUND_CEIL));
-  const value = base + pctAmount;
-  const reducedValue = base + (pctAmount * 70n) / 100n;
-  return [reducedValue, value];
-}

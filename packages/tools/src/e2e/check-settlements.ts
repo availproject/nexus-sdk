@@ -1,6 +1,6 @@
 import process from 'node:process';
 import { type Chain, createPublicClient, fallback, getAddress, http, parseAbiItem } from 'viem';
-import * as sdkCore from '../../../../src/core/sdk';
+import * as sdkCore from '../../../../src/core/sdk/client';
 import type { NexusNetwork } from '../../../../src/domain/types';
 import { runIfMain } from './cli-shim';
 

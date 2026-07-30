@@ -7,7 +7,6 @@ import { CurrencyID } from './cot';
 export { EADDRESS } from '../domain/constants/addresses';
 export const SWEEPER_ADDRESS = '0x0000000000296e7a886f40f7bc60D2E3653216a6' as const;
 export const CALIBUR_ADDRESS = '0x00000000557A0daF2659cbb6A45f2beB6081e6AE' as const;
-export const CANONICAL_MULTICALL_ADDRESS = '0xcA11bde05977b3631167028862bE2a173976CA11' as const;
 export const ZERO_BYTES_32 = new Uint8Array(32);
 
 // ---------------------------------------------------------------------------
@@ -26,8 +25,6 @@ export const CALIBUR_EIP712_BASE = {
 
 export const SBC_DEADLINE_MINUTES = 15n;
 export const SLIPPAGE_DEFAULT = 0.005;
-export const RATE_GUARD_THRESHOLD = 0.995;
-export const REQUOTE_THRESHOLD_SECONDS = 24;
 export const MAX_RETRIES = 2;
 export const DIRECT_DST_QUOTE_TTL_MS = 45_000;
 
@@ -41,7 +38,6 @@ export const SRC_BUFFER_PCT = 0.02;
 export const SRC_BUFFER_MAX_USD = 1;
 export const MAX_SWAP_HAIRCUT_PCT = 0.03;
 export const MAX_SWAP_HAIRCUT_MIN_USDC = 3;
-export const GAS_TO_COT_BUFFER = 1.02;
 
 // EXACT_OUT's start-of-route provider check surveys bridged source value with a rough
 // greedy walk over priority-ordered holdings; this overshoot fraction makes it count a
@@ -61,13 +57,3 @@ export const B2_STABLE_CURRENCY_IDS: ReadonlySet<CurrencyID> = new Set([
   CurrencyID.USDC,
   CurrencyID.USDT,
 ]);
-
-// ---------------------------------------------------------------------------
-// Token symbol normalization
-// ---------------------------------------------------------------------------
-
-export const normalizeSymbol = (symbol: string): string => {
-  const upper = symbol.toUpperCase();
-  if (['USD$', 'USD$0', 'USDT'].includes(upper) || symbol === 'USDt') return 'USDT';
-  return symbol;
-};

@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import process from 'node:process';
 import Decimal from 'decimal.js';
-import * as sdkCore from '../../../../src/core/sdk';
+import * as sdkCore from '../../../../src/core/sdk/client';
 import type { Chain, NexusNetwork, TokenBalance } from '../../../../src/domain/types';
 import { normalizePrivateKey } from '../stress-test/private-key';
 import { createPrivateKeyProvider } from '../stress-test/provider.node';
@@ -42,7 +42,7 @@ const getCreateNexusClient = () => {
   };
   const fn = mod.createNexusClient ?? mod.default?.createNexusClient;
   if (typeof fn !== 'function') throw new Error('Failed to load createNexusClient from SDK.');
-  return fn as typeof import('../../../../src/core/sdk').createNexusClient;
+  return fn as typeof import('../../../../src/core/sdk/client').createNexusClient;
 };
 
 export const captureSnapshot = async (params: CaptureSnapshotParams): Promise<Snapshot> => {

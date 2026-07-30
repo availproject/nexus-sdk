@@ -21,11 +21,3 @@ export const chainSupports7702 = (chain: Chain): boolean => {
  * the absence of a destination-swap step, not by this function.
  */
 export const resolveWalletPath = (is7702: boolean): WalletPath => (is7702 ? 'ephemeral' : 'safe');
-
-/**
- * Filters chains to only those that support EIP-7702 (Calibur).
- * Chains without `supports7702` default to true.
- */
-export const filterValidSourceChains = (chains: Chain[]): Chain[] => {
-  return chains.filter(chainSupports7702);
-};

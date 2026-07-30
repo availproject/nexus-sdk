@@ -8,7 +8,7 @@ import {
 } from '../../bridge/intent/quote-request';
 import type { ChainListType, TokenInfo } from '../../domain';
 import { Errors } from '../../domain/errors';
-import { logger } from '../../domain/utils';
+import { logger } from '../../domain/utils/logger';
 import { isNativeAddress } from '../../services/addresses';
 import { divDecimals, mulDecimals } from '../../services/math';
 import {

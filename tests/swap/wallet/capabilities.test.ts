@@ -1,11 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  chainSupports7702,
-  filterValidSourceChains,
-  resolveWalletPath,
-} from '../../../src/swap/wallet/capabilities';
 import type { Chain } from '../../../src/domain';
 import { Universe } from '../../../src/domain/chain-abstraction';
+import {
+  chainSupports7702,
+  resolveWalletPath,
+} from '../../../src/swap/wallet/capabilities';
 
 const makeChain = (id: number, supports7702?: boolean): Chain => ({
   id,
@@ -43,26 +42,5 @@ describe('resolveWalletPath', () => {
 
   it('non-7702 chain → safe', () => {
     expect(resolveWalletPath(false)).toBe('safe');
-  });
-});
-
-describe('filterValidSourceChains', () => {
-  it('keeps 7702 chains', () => {
-    const chains = [makeChain(42161, true), makeChain(10, true)];
-    const filtered = filterValidSourceChains(chains);
-    expect(filtered).toHaveLength(2);
-  });
-
-  it('filters out non-7702 chains', () => {
-    const chains = [makeChain(42161, true), makeChain(10, false)];
-    const filtered = filterValidSourceChains(chains);
-    expect(filtered).toHaveLength(1);
-    expect(filtered[0].id).toBe(42161);
-  });
-
-  it('defaults undefined supports7702 to true (keeps chain)', () => {
-    const chains = [makeChain(42161, undefined)];
-    const filtered = filterValidSourceChains(chains);
-    expect(filtered).toHaveLength(1);
   });
 });

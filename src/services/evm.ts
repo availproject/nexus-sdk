@@ -245,14 +245,6 @@ export const createPublicClientWithFallback = (chain: Chain): PublicClient => {
   });
 };
 
-export const getPctGasBufferByChain = (chainId: number) => {
-  if (chainId === GAS_ORACLE_CHAIN_IDS.ARBITRUM) {
-    return 1;
-  }
-
-  return 0.5;
-};
-
 export const packERC20Approve = (spender: Hex, amount: bigint) => {
   return encodeFunctionData({
     abi: ERC20ABI,

@@ -34,10 +34,6 @@ vi.mock('../../../src/bridge/hooks/approval', () => ({
   })),
 }));
 
-vi.mock('../../../src/bridge/allowances/prepare-swap-sbc', () => ({
-  prepareSwapBridgeExecution: vi.fn().mockResolvedValue(undefined),
-}));
-
 vi.mock('../../../src/services/rff', () => ({
   createRequestFromIntent: vi.fn(),
 }));

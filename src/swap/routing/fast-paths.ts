@@ -3,7 +3,7 @@ import { formatUnits, type Hex } from 'viem';
 import type { ChainListType } from '../../domain';
 import { ZERO_ADDRESS } from '../../domain/constants/addresses';
 import { Errors } from '../../domain/errors';
-import { logger } from '../../domain/utils';
+import { logger } from '../../domain/utils/logger';
 import { isNativeAddress } from '../../services/addresses';
 import { divDecimals, mulDecimals } from '../../services/math';
 import { selectMayanQuoteOutput } from '../../services/mayan';

@@ -129,20 +129,6 @@ export interface TokenMetadata {
 }
 
 /**
- * Generic event listener type for CA SDK events
- */
-export type EventListener = (...args: unknown[]) => void;
-
-/**
- * Response structure for token allowance.
- */
-export interface AllowanceResponse {
-  chainID: number;
-  allowance: bigint;
-  token: string;
-}
-
-/**
  * Parameters for bridging tokens between chains.
  */
 export interface BridgeParams {
@@ -420,13 +406,6 @@ type BridgeIntentDraftSource = {
   depositFee: Decimal; // per-source deposit fee in token units (0 for native)
   depositFeeRaw: bigint;
   mayanQuote?: MayanQuote;
-};
-
-export type IntentSourceForAllowance = {
-  chainID: number;
-  currentAllowance: bigint;
-  requiredAllowance: bigint;
-  token: TokenInfo;
 };
 
 export type NetworkConfig = {

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Hex } from 'viem';
 import type { EthereumProvider } from '../../src/domain';
 import type { MiddlewareClient } from '../../src/transport';
-import { createNexusClient } from '../../src/core/sdk';
+import { createNexusClient } from '../../src/core/sdk/client';
 import { makeMiddlewareClient as makeBaseMiddlewareClient } from '../helpers/middleware-client';
 
 const hoisted = vi.hoisted(() => ({

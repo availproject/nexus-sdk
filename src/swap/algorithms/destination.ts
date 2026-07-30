@@ -1,7 +1,7 @@
 import Decimal from 'decimal.js';
 import type { Hex } from 'viem';
 import type { ChainListType } from '../../domain/types';
-import { logger } from '../../domain/utils';
+import { logger } from '../../domain/utils/logger';
 import { equalFold } from '../../services/strings';
 import {
   AggregateMode,

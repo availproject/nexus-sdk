@@ -40,7 +40,7 @@ untested (this map exists because that scoping mistake has bitten twice):
 | Aggregator quote slippage | `tests/swap/aggregators/constants.test.ts` |
 | Intent / bridge-intent / plan / prepare | `tests/swap/{intent,bridge-intent,swap-steps-builder,prepare}.test.ts` |
 | Execution (source / bridge / destination / cleanup / safe-dispatch) | `tests/swap/execution/*.test.ts` |
-| Wallet primitives (SBC, stark, derived-key, cache, capabilities, eoa-executor, sweep, cot) | `tests/swap/wallet/*.test.ts`, `tests/swap/{sweep,cot}.test.ts` |
+| Wallet primitives (SBC, stark, derived-key, cache, capabilities, sweep, cot) | `tests/swap/wallet/*.test.ts`, `tests/swap/{sweep,cot}.test.ts` |
 | Safe machinery | `tests/swap/safe/*.test.ts` |
 | Balances | `tests/swap/balance/*.test.ts` |
 | `calculateMaxForSwap` | `tests/swap/max.test.ts`, `tests/swap/characterization/max-pipeline.test.ts` |
@@ -860,10 +860,6 @@ the **failure cleanup** (§11) and Exact Out's destination fallback when its bes
 amount)` (native → bare value send). The destination swap returns the *known* leftover COT
 (`balanceOf − consumed`) with this instead of the blind `createSweeperTxs` drain — no approve, no
 external Sweeper CALL; emitted only when the leftover is > 0.
-
-**EOA dispatch primitives (`eoa-executor`)** — `executeViaEoa` (`wallet_sendCalls` +
-`experimental_fallback`, then `waitForCallsStatus`; throws `failed`/`no receipt`), `dispatchViaEoa`
-(switch chain, send without waiting), `waitForDispatchedEoaCalls`.
 
 **Safe** — `predictSafeAccountAddress(owner)` → `{address, factoryAddress, initializer}`,
 deterministic (owner `0x1111…` → `0x9eAc…5cf9`). **EnsureAuth** EIP‑712 (`NexusSafeEnsure`, domain

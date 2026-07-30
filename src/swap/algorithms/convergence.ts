@@ -1,5 +1,5 @@
 import Decimal from 'decimal.js';
-import { logger } from '../../domain/utils';
+import { logger } from '../../domain/utils/logger';
 import {
   AggregateMode,
   type Aggregator,

@@ -1,10 +1,10 @@
 import Decimal from 'decimal.js';
 import { getAddress, type Hex } from 'viem';
-import { logger } from '../../domain/utils';
+import { logger } from '../../domain/utils/logger';
 import { divDecimals } from '../../services/math';
+import { normalizeExpectedOutput } from './expected-output';
 import type { Aggregator, Quote, QuoteRequest } from './types';
 import { QuoteType } from './types';
-import { normalizeExpectedOutput } from './expected-output';
 
 type BebopApi = 'aggregation' | 'rfq';
 
@@ -33,10 +33,7 @@ const CHAIN_NAME_MAP: Record<number, string> = {
 };
 
 export class BebopAggregator implements Aggregator {
-  private readonly getQuote: (
-    params: Record<string, string>,
-    api?: BebopApi
-  ) => Promise<unknown>;
+  private readonly getQuote: (params: Record<string, string>, api?: BebopApi) => Promise<unknown>;
   private readonly useRfq: boolean;
 
   constructor(
@@ -104,12 +101,7 @@ export class BebopAggregator implements Aggregator {
         logQuoteFailure(requests[index].api, req.chainId, result.reason);
       });
 
-      return this.parseResponse(
-        quotes,
-        sellToken,
-        buyToken,
-        req.type === QuoteType.EXACT_OUT
-      );
+      return this.parseResponse(quotes, sellToken, buyToken, req.type === QuoteType.EXACT_OUT);
     } catch (error) {
       logQuoteFailure('request', req.chainId, error);
       return null;

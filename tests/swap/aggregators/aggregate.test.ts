@@ -14,7 +14,7 @@ import { RelayAggregator } from '../../../src/swap/aggregators/relay';
 import { ZeroExAggregator } from '../../../src/swap/aggregators/zerox';
 import { EADDRESS } from '../../../src/swap/constants';
 import { ZERO_ADDRESS } from '../../../src/domain/constants/addresses';
-import { logger } from '../../../src/domain/utils';
+import { logger } from '../../../src/domain/utils/logger';
 
 const makeQuote = (
   outputAmountRaw: bigint,

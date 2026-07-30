@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import Decimal from 'decimal.js';
 import type { Hex } from 'viem';
-import type { BridgeIntentDraft, ChainListType, AllowanceHookSource } from '../../src/domain';
+import type { BridgeIntentDraft, ChainListType } from '../../src/domain';
 import { Universe } from '../../src/domain/chain-abstraction';
 
 vi.mock('../../src/services/allowance-utils', () => ({
@@ -16,31 +16,7 @@ vi.mock('../../src/bridge/intent/readable', () => ({
   convertIntent: vi.fn().mockReturnValue({ id: 'mock-readable-intent' }),
 }));
 
-vi.mock('../../src/services/sbc', () => ({
-  createSBCTxFromCalls: vi.fn().mockResolvedValue({
-    chainId: 1,
-    address: '0x0000000000000000000000000000000000000001',
-    calls: [],
-    deadline: '0x0000000000000000000000000000000000000000000000000000000000000001',
-    keyHash: '0x0000000000000000000000000000000000000000000000000000000000000000',
-    nonce: '0x0000000000000000000000000000000000000000000000000000000000000001',
-    revertOnFailure: true,
-    signature: '0x1234',
-  }),
-  requireSuccessfulSbcResult: vi.fn((results, chainId) => {
-    const result = results.find((entry: { chainId: number }) => entry.chainId === chainId) as
-      | { errored: false; txHash: Hex }
-      | { errored: true; message: string }
-      | undefined;
-    if (!result || result.errored) {
-      throw new Error(result?.message ?? 'SBC submission failed');
-    }
-    return result.txHash;
-  }),
-}));
-
 import { prepareBridgeExecution } from '../../src/bridge/allowances/prepare';
-import { prepareSwapBridgeExecution } from '../../src/bridge/allowances/prepare-swap-sbc';
 import { runBridgeHooks } from '../../src/bridge/hooks/approval';
 import { buildHookStateFromIntent } from '../../src/bridge/hooks/state';
 import { getAllowances } from '../../src/services/allowance-utils';
@@ -195,110 +171,5 @@ describe('prepareBridgeExecution', () => {
         dstChain: { id: 8453, name: 'Base' } as any,
       }),
     ).resolves.toBeUndefined();
-  });
-});
-
-describe('prepareSwapBridgeExecution', () => {
-  it('no-ops when no insufficient sources', async () => {
-    const submitSBCs = vi.fn().mockResolvedValue([]);
-    await prepareSwapBridgeExecution(makeIntent(), {
-      allowanceSelections: [],
-      insufficientAllowanceSources: [],
-      middlewareClient: { submitSBCs } as any,
-      ephemeralWallet: { address: '0xeph' as Hex } as any,
-      chainList: makeChainList(),
-      publicClientList: { get: vi.fn() },
-      cache: undefined,
-    });
-
-    expect(submitSBCs).not.toHaveBeenCalled();
-  });
-
-  it('submits SBC approve transactions when allowances are insufficient', async () => {
-    const submitSBCs = vi.fn().mockResolvedValue([
-      {
-        chainId: 42161,
-        address: '0x0000000000000000000000000000000000000abc' as Hex,
-        errored: false,
-        txHash: '0xapprove' as Hex,
-      },
-    ]);
-    const insufficientSources: AllowanceHookSource[] = [
-      {
-        allowance: { current: '0', currentRaw: 0n, minimum: '100', minimumRaw: 100000000n },
-        chain: { id: 42161, logo: '', name: 'Arbitrum' },
-        token: { contractAddress: '0xaf88d065e77c8cc2239327c5edb3a432268e5831' as Hex, decimals: 6, logo: '', name: 'USDC', symbol: 'USDC' },
-      },
-    ];
-
-    await prepareSwapBridgeExecution(makeIntent(), {
-      allowanceSelections: ['min'],
-      insufficientAllowanceSources: insufficientSources,
-      middlewareClient: { submitSBCs } as any,
-      ephemeralWallet: {
-        address: '0xbbbb000000000000000000000000000000000002' as Hex,
-        signTypedData: vi.fn().mockResolvedValue('0x' + 'aa'.repeat(65)),
-        signAuthorization: vi.fn().mockResolvedValue({ r: '0x01', s: '0x02', yParity: 0, nonce: 0 }),
-      } as any,
-      chainList: makeChainList(),
-      publicClientList: {
-        get: vi.fn().mockReturnValue({
-          getCode: vi.fn().mockResolvedValue(undefined),
-          getTransactionCount: vi.fn().mockResolvedValue(0),
-          multicall: vi.fn().mockResolvedValue([]),
-          waitForTransactionReceipt: vi.fn().mockResolvedValue({
-            status: 'success',
-            transactionHash: '0xapprove' as Hex,
-          }),
-        }),
-      },
-      cache: undefined,
-    });
-
-    expect(submitSBCs).toHaveBeenCalledTimes(1);
-  });
-
-  it('throws when SBC approval submission reports failure', async () => {
-    const submitSBCs = vi.fn().mockResolvedValue([
-      {
-        chainId: 42161,
-        address: '0x0000000000000000000000000000000000000abc' as Hex,
-        errored: true,
-        message: 'approval failed',
-      },
-    ]);
-    const insufficientSources: AllowanceHookSource[] = [
-      {
-        allowance: { current: '0', currentRaw: 0n, minimum: '100', minimumRaw: 100000000n },
-        chain: { id: 42161, logo: '', name: 'Arbitrum' },
-        token: { contractAddress: '0xaf88d065e77c8cc2239327c5edb3a432268e5831' as Hex, decimals: 6, logo: '', name: 'USDC', symbol: 'USDC' },
-      },
-    ];
-
-    await expect(
-      prepareSwapBridgeExecution(makeIntent(), {
-        allowanceSelections: ['min'],
-        insufficientAllowanceSources: insufficientSources,
-        middlewareClient: { submitSBCs } as any,
-        ephemeralWallet: {
-          address: '0xbbbb000000000000000000000000000000000002' as Hex,
-          signTypedData: vi.fn().mockResolvedValue('0x' + 'aa'.repeat(65)),
-          signAuthorization: vi.fn().mockResolvedValue({ r: '0x01', s: '0x02', yParity: 0, nonce: 0 }),
-        } as any,
-        chainList: makeChainList(),
-        publicClientList: {
-          get: vi.fn().mockReturnValue({
-            getCode: vi.fn().mockResolvedValue(undefined),
-            getTransactionCount: vi.fn().mockResolvedValue(0),
-            multicall: vi.fn().mockResolvedValue([]),
-            waitForTransactionReceipt: vi.fn().mockResolvedValue({
-              status: 'success',
-              transactionHash: '0xapprove' as Hex,
-            }),
-          }),
-        },
-        cache: undefined,
-      })
-    ).rejects.toThrow(/approval failed|submission/i);
   });
 });
