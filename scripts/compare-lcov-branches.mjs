@@ -90,6 +90,7 @@ export const compareLcovBranches = (baselineContents, currentContents) => {
     return { label, before, after };
   });
   const newlyUncovered = [...baseline.entries()]
+    .filter(([, branch]) => branch.source.startsWith('src/'))
     .filter(([, branch]) => branch.taken > 0)
     .filter(([key]) => (current.get(key)?.taken ?? 0) === 0)
     .map(([key, branch]) => ({ ...branch, currentTaken: current.get(key)?.taken }))

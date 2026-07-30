@@ -95,4 +95,27 @@ end_of_record
     expect(result.stderr).toBe('');
     expect(result.stdout).toContain('Newly uncovered branches: none');
   });
+
+  it('ignores branch identity churn outside production source files', async () => {
+    const baseline = await writeLcov(`TN:
+SF:/repo/src/swap/route.ts
+BRDA:20,0,0,1
+end_of_record
+SF:/repo/tests/helpers/swap.ts
+BRDA:40,0,0,3
+end_of_record
+`);
+    const current = await writeLcov(`TN:
+SF:/repo/src/swap/route.ts
+BRDA:20,0,0,1
+end_of_record
+`);
+
+    const result = await runComparator(baseline, current);
+
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toContain('Newly uncovered branches: none');
+    expect(result.stdout).not.toContain('tests/helpers/swap.ts');
+  });
 });

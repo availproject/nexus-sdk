@@ -13,7 +13,6 @@
 
 import {
   type Abi,
-  type Chain,
   type Hex,
   type WalletClient,
   decodeFunctionData,
@@ -47,6 +46,11 @@ import {
   ARB_CHAIN,
   BASE_CHAIN,
   OP_CHAIN,
+  makeSwapChainList,
+} from './chains';
+import { makeOraclePrice } from './balances';
+import {
+  DAI_ARB,
   USDC_ARB,
   USDC_BASE,
   USDC_OP,
@@ -54,11 +58,9 @@ import {
   USDT_BASE,
   USDT_OP,
   WETH,
-} from './swap';
+} from './tokens';
 
-// Real token address. helpers/swap.ts exports DAI as a non-hex placeholder ('0xDAI...') which
-// getAddress() rejects in the aggregators, so we use the real DAI (Arbitrum/Optimism deployment).
-export const SOURCE_DAI = '0xda10009cbd5d07dd0cecc66161fc93d7c9000da1' as Hex;
+export const SOURCE_DAI = DAI_ARB;
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Real accounts (fixed keys → deterministic addresses + Safe prediction)
@@ -588,16 +590,6 @@ export const readContractStub = async (req: {
   }
 };
 
-/* ────────────────────────────────────────────────────────────────────────────
- * Chain object + chain-list overrides
- * ──────────────────────────────────────────────────────────────────────────── */
-export const makeViemChain = (id: number): Chain => ({
-  id,
-  name: `Chain ${id}`,
-  nativeCurrency: { decimals: 18, name: 'Ether', symbol: 'ETH' },
-  rpcUrls: { default: { http: [`https://rpc-${id}.example`] } },
-});
-
 export const VAULT_ABI = EVMVaultABI;
 export const MAYAN_VAULT_ABI = VAULT_ABI_MAYAN;
 export { toHex };
@@ -606,7 +598,6 @@ export { toHex };
  * ChainList override — vault addresses, per-chain 7702, native + token lookups
  * ──────────────────────────────────────────────────────────────────────────── */
 import type { ChainListType, TokenInfo } from '../../src/domain';
-import { makeSwapChainList } from './swap';
 
 const EXTRA_TOKENS: Record<string, TokenInfo> = {
   [SOURCE_DAI.toLowerCase()]: {
@@ -770,34 +761,28 @@ export const makeCharMiddleware = (opts: {
 }): CharMiddleware => {
   resetCotBalances(); // fresh wrapper COT ledger per test
   const oraclePrices = [ARB_CHAIN, OP_CHAIN, BASE_CHAIN].flatMap((chainId) => [
-    {
-      universe: 'EVM' as const,
+    makeOraclePrice({
       chainId,
       // Native gas price is looked up by ZERO_ADDRESS (intent.ts convertGasToToken), not EADDRESS.
       tokenAddress: '0x0000000000000000000000000000000000000000' as Hex,
-      tokenSymbol: 'ETH',
-      tokenDecimals: 18,
+      symbol: 'ETH',
+      decimals: 18,
       priceUsd: new Decimal(2500),
-      timestamp: 1,
-    },
-    {
-      universe: 'EVM' as const,
+    }),
+    makeOraclePrice({
       chainId,
       tokenAddress: ({ [ARB_CHAIN]: USDC_ARB, [OP_CHAIN]: USDC_OP, [BASE_CHAIN]: USDC_BASE }[chainId])!,
-      tokenSymbol: 'USDC',
-      tokenDecimals: 6,
+      symbol: 'USDC',
+      decimals: 6,
       priceUsd: new Decimal(1),
-      timestamp: 1,
-    },
-    {
-      universe: 'EVM' as const,
+    }),
+    makeOraclePrice({
       chainId,
       tokenAddress: ({ [ARB_CHAIN]: USDT_ARB, [OP_CHAIN]: USDT_OP, [BASE_CHAIN]: USDT_BASE }[chainId])!,
-      tokenSymbol: 'USDT',
-      tokenDecimals: 6,
+      symbol: 'USDT',
+      decimals: 6,
       priceUsd: new Decimal(1),
-      timestamp: 1,
-    },
+    }),
   ]);
 
   return makeMiddlewareClient({
