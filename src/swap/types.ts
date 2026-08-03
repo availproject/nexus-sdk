@@ -16,7 +16,13 @@ import type {
   MiddlewareSwapClient,
   MiddlewareSwapExecutionClient,
 } from '../transport';
-import type { Aggregator, Holding, Quote, QuoteResponse } from './aggregators/types';
+import type {
+  Aggregator,
+  Holding,
+  Quote,
+  QuoteResponse,
+  RouterExclusions,
+} from './aggregators/types';
 import type { ExactInAmountBasis } from './amount-basis';
 import type { CurrencyID } from './cot';
 import type { SwapCache } from './wallet/cache';
@@ -285,7 +291,10 @@ export type SwapRoute = {
     // Re-quote the dst swap against the COT that actually arrived at the wrapper (raw). Each mode's
     // closure interprets it: EXACT_IN grows the input toward it (more output); EXACT_OUT keeps the
     // output fixed but lifts its max-input budget to it (so the srcBuffer covers destination drift).
-    getDstSwap: (actualCotRaw: bigint) => Promise<DestinationSwap | null>;
+    getDstSwap: (
+      actualCotRaw: bigint,
+      routerExclusions?: RouterExclusions
+    ) => Promise<DestinationSwap | null>;
   };
   buffer: { amount: string }; // human decimal string
   dstTokenInfo: Pick<TokenInfo, 'symbol' | 'decimals' | 'contractAddress'>;

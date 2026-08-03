@@ -545,7 +545,7 @@ destinationGasSwapExactIn(cot → EADDRESS, EXACT_IN, input=gasAmountInCotRaw)  
 ## 7. Aggregators
 
 ```text
-aggregateAggregators(requests, aggregators, mode):
+aggregateAggregators(requests, aggregators, mode, routerExclusions?):
   per request: selectForChain picks ≤ 2 aggregators by TIER (supportsChain static lists):
     TIER_1 = [Relay, Bebop, Fibrous, Mystic]; TIER_2 = [0x, LiFi]      # priority = array order
     tier-1 supporters first, top up from tier 2 to reach 2 (Citrea → Fibrous + Mystic, both tier-1); a lone supporter runs alone
@@ -554,6 +554,8 @@ aggregateAggregators(requests, aggregators, mode):
       deliberately ungated in fetchQuote, probes live)
   round 1 quotes the PRIMARY selection; if every primary adapter returns null/error for a request, a
     round 2 FALLBACK quotes the REMAINING supporters (next ≤ 2 by tier)
+  optional routerExclusions are keyed by Aggregator instance; only that exact adapter instance
+    receives its own provider-internal router IDs
   each aggregator receives ONLY its selected requests (the network-call reduction); results scatter
   back into the full matrix, then per request pick the best non-null quote among the selected:
     MaximizeOutput → max output.amountRaw   (tie → first aggregator)
@@ -588,6 +590,9 @@ are requested as executable quotes from the outset so a fully consumed holding r
 Fibrous price surveys are reserved for indicative convergence seeds: they use the lighter `/v2/route`
 response, apply the configured slippage floor to `outputAmount` locally, and never enter execution;
 serious Fibrous requests use `/v2/routeAndCallData`.
+Relay also normalizes `details.route.origin.router` into optional `Quote.routerId`. After a dispatched
+swap fails, retry paths return that ID only to the same Relay instance; Relay merges it into
+`excludedSwapSources` with its global deny list. Other adapters ignore the optional input.
 LiFi/Bebop surface a per-token `priceUsd`;
 **0x and Mystic report amounts + tx only (no decimals/symbol/price)** — filled from a sibling quote in
 `aggregateAggregators`, or, when a leg is only 0x/Mystic, from a token endpoint (0x → LiFi `/v1/token`;
@@ -607,6 +612,7 @@ route-scoped keyed-promise cache described in §5.
 | **Fibrous** | survey: slippage-floored `outputAmount`; serious: `min_received` | serious: `destination` | survey: `/v2/route`; serious: `/v2/routeAndCallData`; `excludeProtocols='3'` | **EXACT_IN only** (EXACT_OUT → `null`); Citrea 4114; native input (`swap_type===0`) → `approvalAddress=zeroAddress`, `tx.value=amount_in` |
 | **0x** | `minBuyAmount` (EXACT_IN) / exact `buyAmount`, input capped at `maxSellAmount` (EXACT_OUT) | `recipient` | allowance‑holder via proxy; survey (`!SERIOUS`) → indicative `/price`, SERIOUS → `/quote` (executable tx); `taker=userAddress`; `slippageBps`; `allowanceTarget` → `approvalAddress` (`zeroAddress` when null/native) | EXACT_IN **and** EXACT_OUT; `liquidityAvailable=false` → `null`; **no decimals/symbol/price** (backfilled from a sibling) |
 | **Mystic** | `minBuyAmount` (slippage‑protected floor, like 0x) | `recipient` | two‑step: POST `/v1/swap/quote` then `/v1/swap/build`; `slippageBps`; survey (`!SERIOUS`) skips the simulating build call; native sell → `approvalAddress=zeroAddress` | **EXACT_IN only**; Citrea 4114 only; **no decimals/symbol/price** (backfilled from a sibling, mirrors 0x) |
+| **Relay** | `currencyOut.minimumAmount` (EXACT_IN) / exact `currencyOut.amount` (EXACT_OUT) | `recipient` | same-chain `/quote/v2`; `excludedSwapSources=['magpie', ...failedRouterIds]`; route ID from `details.route.origin.router` | EXACT_IN and EXACT_OUT; native mapped to Relay's zero address; ungated request fallback |
 
 ---
 
@@ -718,6 +724,8 @@ executeDirectDestinationExactOut(route, ctx, meta):
     confirmed → meta.src += the confirmed batch and return
     confirmed revert / explicit no-broadcast result → fresh re-size, then retry
     wallet submission failure with no hash → assume unsubmitted, fresh re-size, then retry
+    each retry excludes every Relay internal router returned by previously failed dispatches,
+      keyed by the Relay aggregator instance across token and gas legs
     wallet rejection / receipt timeout with a known hash → terminal; never blindly redispatch
   cached authorization capacity is exact for canonical/Polygon-EMT permits and paid approvals,
   MAX_UINT256 for DAI/Polygon-2612 allowed=true, or the actual pre-existing allowance. A mined paid
@@ -743,6 +751,7 @@ executeSourceSwaps(source, ctx, meta) -> BridgeAsset[]:
   on chain failure: requote that chain ONCE (EXACT_IN; taker remains the chain's executor;
                     receiver = ephemeral for a remote chain, EOA for a direct-COT dst chain,
                     or the destination wrapper when another dst swap follows)
+    # Relay requotes exclude that failed quote's internal router ID
     # EXACT_OUT: require Σ(output drop) ≤ srcBuffer, pooled across that route's source legs
     #   (directDestination EXACT_OUT never reaches this shared retry; its dedicated executor is above)
     # EXACT_IN:  srcBuffer = null → no guard; accept the re-quote and proceed (Seam 2 re-sizes the dst swap)
@@ -818,6 +827,8 @@ executeDestinationSwap(destination, dstTokenInfo, ctx, meta):
   #   lands at the EOA (receiver=EOA) → its dust sweep is skipped;
   #   native output NEVER swept (EADDRESS → approveNative at the Safe → GS013). gas-swap approve+swap ride the same batch
   retry: twice (3 attempts, forced requotes) then rethrow            # no fallback sweep
+    after each dispatched failure, accumulate each Relay token/gas quote's router ID and pass the
+    aggregator-keyed exclusions through getDstSwap; stale-only refreshes do not blacklist a router
   meta.dst = {chid, tx_hash, swaps[]}
 ```
 
@@ -1089,9 +1100,12 @@ fixed-plus-bps model and reapplies it to `Σ(executed)` when building the bridge
   `srcBuffer` (boundary inclusive), pooled across the route's source legs; otherwise
   `EXTERNAL_RATES_DRIFT_EXCEEDED`. EXACT_IN has no guard and accepts the re-quote. Still failing means
   re-throw, with no sweep at this layer. Path A EXACT_OUT does not enter this code; its exact-target,
-  three-dispatch policy and silent-input growth guard are described above.
+  three-dispatch policy and silent-input growth guard are described above. A Relay retry excludes
+  the failed quote's internal router from that same Relay instance.
 - **Destination re‑quote twice** (`MAX_RETRIES`; 3 attempts), then re‑throw without a fallback sweep.
   EXACT_IN has no rate‑tolerance guard on the re‑quote; EXACT_OUT keeps its frozen `[floor, ceiling]`.
+  Router exclusions are recorded only after a dispatched failure, accumulated across token/gas legs
+  and attempts, and keyed by aggregator instance.
 - **Aggregator failures non‑fatal** at the aggregation layer.
 - **EOA single‑chain & serialized**; **all chains dispatched before receipts** (source stage).
 - **Fail loud at routing** (see §5) — never emit an inconsistent plan.

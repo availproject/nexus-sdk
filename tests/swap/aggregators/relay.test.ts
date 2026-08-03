@@ -64,6 +64,9 @@ const makeResponse = () => ({
       amountUsd: '1.2',
       minimumAmount: '399000000000000',
     },
+    route: {
+      origin: { router: 'uniswap-v3' },
+    },
   },
 });
 
@@ -101,6 +104,7 @@ describe('RelayAggregator', () => {
       amount: '0.0004',
       value: 1.2,
     });
+    expect(quote!.routerId).toBe('uniswap-v3');
     // tx comes from the 'swap' step, never 'approve'.
     expect(quote!.txData.tx.to).toBe(ROUTER);
     expect(quote!.txData.tx.data).toBe('0xswapdata');
@@ -108,6 +112,17 @@ describe('RelayAggregator', () => {
     // approvalAddress is the spender the approve step encodes, not the swap tx `to`
     // (decodeFunctionData returns it checksummed; addresses compare case-insensitively).
     expect(quote!.txData.approvalAddress.toLowerCase()).toBe(SPENDER);
+  });
+
+  it('excludes previously failed internal routers when requoting', async () => {
+    const getQuote = vi.fn<RelayProxy>().mockResolvedValue(makeResponse());
+    await new RelayAggregator(getQuote).getQuotes([makeRequest()], ['uniswap-v3', 'odos']);
+
+    expect(getQuote.mock.calls[0][0].excludedSwapSources).toEqual([
+      'magpie',
+      'uniswap-v3',
+      'odos',
+    ]);
   });
 
   it('EXACT_OUT: delivers the exact requested output (currencyOut.amount), EXACT_OUTPUT trade type', async () => {

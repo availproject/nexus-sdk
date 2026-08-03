@@ -19,7 +19,7 @@ import { createSourceSwapStepId } from '../../services/step-ids';
 import { equalFold } from '../../services/strings';
 import { withTimingSpan } from '../../services/timing';
 import { aggregatorService } from '../aggregators';
-import type { QuoteResponse } from '../aggregators/types';
+import type { QuoteResponse, RouterExclusions } from '../aggregators/types';
 import {
   makeConvergenceExtraRaw,
   sizeDirectDestinationExactOut,
@@ -37,6 +37,7 @@ import type {
 import { buildPreparedTransfer } from '../wallet/prepared-transfer';
 import { resolvePreparedFundingTransferCalls } from './eoa-to-ephemeral';
 import { getParsedQuote } from './parsed-quote';
+import { addRouterExclusions } from './router-exclusions';
 import { type DispatchedSourceBatch, dispatchSourceChainBatch } from './source-swaps';
 
 const logger = getLogger();
@@ -347,6 +348,7 @@ export const executeDirectDestinationExactOut = async (
     routeTimeInputs.set(key, (routeTimeInputs.get(key) ?? 0n) + swap.quote.input.amountRaw);
   }
   let swaps = route.source.swaps;
+  const routerExclusions: RouterExclusions = new Map();
   const currentTimeMs = Date.now();
   const quoteAgeMs = currentTimeMs - route.source.creationTime;
   let forceRequote = quoteAgeMs > DIRECT_DST_QUOTE_TTL_MS;
@@ -379,6 +381,7 @@ export const executeDirectDestinationExactOut = async (
               userAddressByChain: new Map([[chainId, targetAddress]]),
               recipientAddressByChain: new Map([[chainId, ctx.eoaAddress]]),
               convergenceExtraRaw: makeConvergenceExtraRaw(route.extras.oraclePrices, chainId),
+              ...(routerExclusions.size > 0 ? { routerExclusions } : {}),
             }),
           { tags: { attempt: dispatchAttempts + 1, route_path: 'direct_destination' } }
         );
@@ -464,6 +467,7 @@ export const executeDirectDestinationExactOut = async (
         isRetryableDispatchFailure(normalized, dispatched) &&
         dispatchAttempts < MAX_DISPATCH_ATTEMPTS
       ) {
+        addRouterExclusions(routerExclusions, swaps);
         forceRequote = true;
         continue;
       }

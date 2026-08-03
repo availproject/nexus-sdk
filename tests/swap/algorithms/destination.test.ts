@@ -452,6 +452,7 @@ describe('destinationSwapWithExactIn', () => {
       supportsChain: () => true,
       getQuotes: vi.fn().mockResolvedValue([makeQuote(500000000000000000n, 1000000000n)]),
     };
+    const routerExclusions = new Map([[agg, ['uniswap-v3']]]);
 
     const result = await destinationSwapWithExactIn({
       chainId: BASE_CHAIN,
@@ -465,12 +466,14 @@ describe('destinationSwapWithExactIn', () => {
         userAddress: '0xaaaa000000000000000000000000000000000001' as Hex,
         recipientAddress: '0xe0a0000000000000000000000000000000000a02' as Hex,
         chainList: makeSwapChainList(),
+        routerExclusions,
       },
     });
 
     expect(result).not.toBeNull();
     expect(result!.quote.output.amountRaw).toBe(500000000000000000n);
     expect(result!.chainID).toBe(BASE_CHAIN);
+    expect(agg.getQuotes).toHaveBeenCalledWith(expect.any(Array), ['uniswap-v3']);
   });
 
   it('returns null when quote fails', async () => {

@@ -7,6 +7,7 @@ import {
   type Quote,
   type QuoteRequest,
   type QuoteType,
+  type RouterExclusions,
 } from '../aggregators';
 
 // 0.5% safety on each proposed input. A usable under-delivering quote is corrected by its observed
@@ -38,12 +39,14 @@ export type ExactOutConvergenceArgs = {
   // for destination swaps where COT is bridged in).
   maxInputAmountRaw?: Decimal;
   aggregators: Aggregator[];
+  routerExclusions?: RouterExclusions;
   maxAttempts?: number;
 };
 
 export type ExactOutDirectArgs = {
   request: QuoteRequest & { type: QuoteType.EXACT_OUT };
   aggregators: Aggregator[];
+  routerExclusions?: RouterExclusions;
   requiredOutputAmountRaw: bigint;
   maxInputAmountRaw?: bigint;
 };
@@ -77,7 +80,8 @@ export const tryExactOutDirect = async (
   const results = await aggregateAggregators(
     [args.request],
     args.aggregators,
-    AggregateMode.MinimizeInput
+    AggregateMode.MinimizeInput,
+    args.routerExclusions
   );
   const best = results[0];
   const hit =
@@ -147,7 +151,8 @@ export const convergeExactIn = async (
     const results = await aggregateAggregators(
       [request],
       args.aggregators,
-      AggregateMode.MaximizeOutput
+      AggregateMode.MaximizeOutput,
+      args.routerExclusions
     );
     const best = results[0];
     if (best?.quote && best.quote.output.amountRaw >= args.requiredOutputAmountRaw) {

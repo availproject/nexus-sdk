@@ -11,7 +11,7 @@ import { FibrousAggregator } from './fibrous';
 import { LiFiAggregator } from './lifi';
 import { MysticAggregator } from './mystic';
 import { RelayAggregator } from './relay';
-import type { Aggregator, Quote, QuoteRequest, TokenInfoProvider } from './types';
+import type { Aggregator, Quote, QuoteRequest, RouterExclusions, TokenInfoProvider } from './types';
 import { ZeroExAggregator } from './zerox';
 
 /**
@@ -122,7 +122,8 @@ const remainingForChain = (
 export const aggregateAggregators = async (
   requests: QuoteRequest[],
   aggregators: Aggregator[],
-  mode: AggregateMode
+  mode: AggregateMode,
+  routerExclusions?: RouterExclusions
 ): Promise<{ quote: Quote | null; aggregator: Aggregator }[]> => {
   // Native is canonically EADDRESS for the aggregators (the gas swap already quotes it that way).
   // A caller may pass it as ZERO_ADDRESS (e.g. a user's native toTokenAddress); normalize here so
@@ -153,7 +154,11 @@ export const aggregateAggregators = async (
         let failed = false;
         let quoted = 0;
         try {
-          const quotes = await agg.getQuotes(reqIdxs.map((reqIdx) => normalized[reqIdx]));
+          const selectedRequests = reqIdxs.map((reqIdx) => normalized[reqIdx]);
+          const excludedRouterIds = routerExclusions?.get(agg);
+          const quotes = excludedRouterIds?.length
+            ? await agg.getQuotes(selectedRequests, excludedRouterIds)
+            : await agg.getQuotes(selectedRequests);
           reqIdxs.forEach((reqIdx, k) => {
             allResults[aggIdx][reqIdx] = quotes[k] ?? null;
             if (quotes[k]) quoted++;
@@ -373,6 +378,13 @@ export { LiFiAggregator } from './lifi';
 export { MysticAggregator } from './mystic';
 export { RelayAggregator } from './relay';
 // Re-exports
-export type { Aggregator, Holding, Quote, QuoteRequest, QuoteResponse } from './types';
+export type {
+  Aggregator,
+  Holding,
+  Quote,
+  QuoteRequest,
+  QuoteResponse,
+  RouterExclusions,
+} from './types';
 export { QuoteSeriousness, QuoteType } from './types';
 export { ZeroExAggregator } from './zerox';

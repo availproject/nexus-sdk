@@ -10,6 +10,7 @@ import {
   type QuoteResponse,
   QuoteSeriousness,
   QuoteType,
+  type RouterExclusions,
 } from '../aggregators';
 import { EADDRESS } from '../constants';
 import { CurrencyID } from '../cot';
@@ -44,6 +45,7 @@ type DetermineInput = {
     // Optional price-derived COT seed. When present, convergence can start with a serious forward
     // quote instead of first surveying the reverse direction.
     estimatedInputAmountRaw?: Decimal;
+    routerExclusions?: RouterExclusions;
   };
 };
 
@@ -83,6 +85,7 @@ export const determineDestinationSwaps = async ({
       outputAmount: dst.token.amountRaw,
     },
     aggregators: options.aggregators,
+    routerExclusions: options.routerExclusions,
     requiredOutputAmountRaw: dst.token.amountRaw,
   });
 
@@ -103,7 +106,8 @@ export const determineDestinationSwaps = async ({
           },
         ],
         options.aggregators,
-        AggregateMode.MaximizeOutput
+        AggregateMode.MaximizeOutput,
+        options.routerExclusions
       );
       const reverseQuote = reverseResults[0]?.quote;
       logger.debug('swap.route.destination.reverse_quote.completed', {
@@ -139,6 +143,7 @@ export const determineDestinationSwaps = async ({
       getFallbackInitialInputAmountRaw:
         seedSource === 'price' ? resolveReverseInputAmountRaw : undefined,
       aggregators: options.aggregators,
+      routerExclusions: options.routerExclusions,
       makeRequest: (inputAmountRaw) => ({
         userAddress: options.userAddress,
         recipientAddress: options.recipientAddress,
@@ -197,6 +202,7 @@ type ExactInInput = {
     userAddress: Hex;
     recipientAddress: Hex;
     chainList: ChainListType;
+    routerExclusions?: RouterExclusions;
   };
 };
 
@@ -224,7 +230,8 @@ export const destinationSwapWithExactIn = async ({
       },
     ],
     options.aggregators,
-    AggregateMode.MaximizeOutput
+    AggregateMode.MaximizeOutput,
+    options.routerExclusions
   );
   const best = results[0];
 
@@ -257,6 +264,7 @@ type GasSwapInput = {
     recipientAddress: Hex;
     chainList: ChainListType;
     cotCurrencyID?: CurrencyID;
+    routerExclusions?: RouterExclusions;
   };
 };
 
@@ -284,6 +292,7 @@ export const destinationGasSwapExactIn = async ({
       userAddress: options.userAddress,
       recipientAddress: options.recipientAddress,
       chainList: options.chainList,
+      routerExclusions: options.routerExclusions,
     },
   });
 };

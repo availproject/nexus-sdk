@@ -6,6 +6,7 @@ import { divDecimals, mulDecimals } from '../../services/math';
 import { MAYAN_MIN_USD_PER_LEG, selectMayanQuoteOutput } from '../../services/mayan';
 import { equalFold } from '../../services/strings';
 import { withTimingSpan } from '../../services/timing';
+import type { RouterExclusions } from '../aggregators';
 import { destinationSwapWithExactIn } from '../algorithms/destination';
 import { liquidateInputHoldings } from '../algorithms/liquidate';
 import { resolveExactInAmountBasis, selectExactInQuoteOutput } from '../amount-basis';
@@ -505,7 +506,10 @@ export async function _exactInRoute(data: ExactInData, options: RouteOptions): P
   // Shared EXACT_IN destination-swap quote at a given COT input (human units), used by the initial
   // route and both execution-time requote paths. No rate-tolerance guard — a requote is accepted
   // whatever it returns.
-  const quoteDstSwapAtInput = async (inputHuman: Decimal): Promise<DestinationSwap | null> => {
+  const quoteDstSwapAtInput = async (
+    inputHuman: Decimal,
+    routerExclusions?: RouterExclusions
+  ): Promise<DestinationSwap | null> => {
     if (!needsTokenSwap) return null;
     const quote = await withTimingSpan(
       options.timing,
@@ -523,6 +527,7 @@ export async function _exactInRoute(data: ExactInData, options: RouteOptions): P
             aggregators,
             userAddress: destinationQuoteAddress,
             recipientAddress: options.eoaAddress,
+            routerExclusions,
           },
         }),
       { tags: { mode: SwapMode.EXACT_IN } }
@@ -600,9 +605,9 @@ export async function _exactInRoute(data: ExactInData, options: RouteOptions): P
         // floor and no upper clamp — `actual` IS the real on-chain balance, and Exact In must consume
         // it completely so settlement-token dust is not returned to the user. The source reclaim can
         // deliver above the route estimate and that surplus is converted here too.
-        getDstSwap: (actualCotRaw: bigint) => {
+        getDstSwap: (actualCotRaw: bigint, routerExclusions?: RouterExclusions) => {
           const actual = divDecimals(actualCotRaw, dstCOT.decimals);
-          return quoteDstSwapAtInput(actual);
+          return quoteDstSwapAtInput(actual, routerExclusions);
         },
       },
       // EXACT_IN has no buffer (no source buffer, no dst buffer).

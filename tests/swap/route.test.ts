@@ -1591,9 +1591,15 @@ describe('determineSwapRoute', () => {
     );
     // Input scales with the actual delivered balance and is NOT capped at the route estimate — the
     // source reclaim can over-deliver, and all of that surplus must be converted here.
-    await route.destination.getDstSwap(5000000000n);
+    const routerExclusions = new Map<Aggregator, string[]>([
+      [{} as Aggregator, ['uniswap-v3']],
+    ]);
+    await route.destination.getDstSwap(5000000000n, routerExclusions);
     expect(vi.mocked(destinationSwapWithExactIn)).toHaveBeenLastCalledWith(
-      expect.objectContaining({ input: expect.objectContaining({ amountRaw: 5000000000n }) })
+      expect.objectContaining({
+        input: expect.objectContaining({ amountRaw: 5000000000n }),
+        options: expect.objectContaining({ routerExclusions }),
+      })
     );
   });
 
@@ -3815,7 +3821,15 @@ describe('determineSwapRoute', () => {
       })
     );
     expect(route.destination.inputAmount.max.toString()).toBe('3102');
-    await route.destination.getDstSwap(0n);
+    const routerExclusions = new Map<Aggregator, string[]>([
+      [{} as Aggregator, ['uniswap-v3']],
+    ]);
+    await route.destination.getDstSwap(0n, routerExclusions);
+    expect(determineDestinationSwaps).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({ routerExclusions }),
+      })
+    );
     // min tracks the fresh requote; max stays pinned at the original buffered ceiling.
     expect(route.destination.inputAmount.min.toString()).toBe('3101');
     expect(route.destination.inputAmount.max.toString()).toBe('3102');

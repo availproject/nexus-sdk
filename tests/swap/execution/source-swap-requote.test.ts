@@ -107,6 +107,7 @@ describe('native EOA source swap dispatches the fresh re-quote on retry', () => 
     const requoted = makeNativeQuote('0xbbbbbbbb', 45000000n); // fresh order, EQUAL output (inside buffer)
     const aggregator = { supportsChain: () => true, getQuotes: vi.fn().mockResolvedValue([requoted.quote]) } as unknown as Aggregator;
     const original = makeNativeQuote('0xaaaaaaaa', 45000000n, aggregator);
+    original.quote.routerId = 'uniswap-v3';
 
     // prepared parsedQuote mirrors what prepare() builds from the ORIGINAL quote
     const prepared = {
@@ -134,6 +135,7 @@ describe('native EOA source swap dispatches the fresh re-quote on retry', () => 
 
     const sends = sendTransaction.mock.calls.map((c) => innerData(c[0].data as Hex));
     expect(aggregator.getQuotes).toHaveBeenCalledTimes(1); // re-quote happened, in-buffer
+    expect(aggregator.getQuotes).toHaveBeenCalledWith(expect.any(Array), ['uniswap-v3']);
     expect(sends).toEqual(['0xaaaaaaaa', '0xbbbbbbbb']); // attempt-0 prepared, attempt-1 the FRESH re-quote
   });
 

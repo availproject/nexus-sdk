@@ -305,6 +305,43 @@ describe('executeDestinationSwap contracts', () => {
     expect(destination.getDstSwap).toHaveBeenCalledWith(3_000_000_000n);
   });
 
+  it('excludes failed destination routers when requoting after dispatch failure', async () => {
+    const relay = {} as Aggregator;
+    const planned = makeQuote(3_000_000_000n, { aggregator: relay });
+    planned.quote.routerId = 'uniswap-v3';
+    const refreshed = makeQuote(3_000_000_000n, { aggregator: relay });
+    refreshed.quote.routerId = 'odos';
+    const getDstSwap = vi
+      .fn()
+      .mockResolvedValue({ tokenSwap: refreshed, gasSwap: null });
+    const destination = makeDestination(
+      { tokenSwap: planned, gasSwap: null },
+      getDstSwap
+    );
+    const { context, submitSBCs } = makeContext();
+    submitSBCs.mockResolvedValueOnce([
+      {
+        chainId: CHAIN_ID,
+        address: EPH,
+        errored: true,
+        message: 'router reverted',
+      },
+    ]);
+
+    await executeDestinationSwap(
+      destination,
+      SwapMode.EXACT_OUT,
+      dstToken,
+      context,
+      metadata()
+    );
+
+    expect(getDstSwap).toHaveBeenCalledWith(
+      3_000_000_000n,
+      new Map([[relay, ['uniswap-v3']]])
+    );
+  });
+
   it('rejects a non-null Exact Out requote that drops a required leg', async () => {
     const expiredToken = makeQuote(2_000_000_000n, {
       expiry: Math.floor(Date.now() / 1000) - 60,

@@ -3,12 +3,12 @@ import type { Hex } from 'viem';
 import { ZERO_ADDRESS } from '../../domain/constants/addresses';
 import { Errors } from '../../domain/errors';
 import { isNativeAddress } from '../../services/addresses';
-import type { Aggregator, QuoteResponse } from '../aggregators/types';
 import { divDecimals } from '../../services/math';
 import { equalFold } from '../../services/strings';
+import type { Aggregator, QuoteResponse, RouterExclusions } from '../aggregators/types';
 import { EADDRESS } from '../constants';
 import type { OraclePriceResponse } from '../types';
-import { selectDirectDestinationSwaps, type SourceHolding } from './auto-select';
+import { type SourceHolding, selectDirectDestinationSwaps } from './auto-select';
 
 type DirectDestinationSizeInput = {
   holdings: SourceHolding[];
@@ -18,6 +18,7 @@ type DirectDestinationSizeInput = {
   nativeDecimals: number;
   gasTargetRaw: bigint;
   aggregators: Aggregator[];
+  routerExclusions?: RouterExclusions;
   userAddressByChain: Map<number, Hex>;
   recipientAddressByChain: Map<number, Hex>;
   convergenceExtraRaw: (tokenAddress: Hex, decimals: number) => Decimal | undefined;
@@ -26,15 +27,15 @@ type DirectDestinationSizeInput = {
 const deliveredRaw = (quoteResponses: QuoteResponse[]): bigint =>
   quoteResponses.reduce((sum, quote) => sum + quote.quote.output.amountRaw, 0n);
 
-export const makeConvergenceExtraRaw = (
-  oraclePrices: OraclePriceResponse,
-  chainId: number
-): ((tokenAddress: Hex, decimals: number) => Decimal | undefined) =>
+export const makeConvergenceExtraRaw =
+  (
+    oraclePrices: OraclePriceResponse,
+    chainId: number
+  ): ((tokenAddress: Hex, decimals: number) => Decimal | undefined) =>
   (tokenAddress, decimals) => {
     const oracleAddress = isNativeAddress(tokenAddress) ? ZERO_ADDRESS : tokenAddress;
     const price = oraclePrices.find(
-      (entry) =>
-        entry.chainId === chainId && equalFold(entry.tokenAddress, oracleAddress)
+      (entry) => entry.chainId === chainId && equalFold(entry.tokenAddress, oracleAddress)
     )?.priceUsd;
     if (!price || price.lte(0)) return undefined;
     return new Decimal('0.5').div(price).mul(Decimal.pow(10, decimals));
@@ -84,6 +85,7 @@ export const sizeDirectDestinationExactOut = async (
     userAddressByChain: input.userAddressByChain,
     recipientAddressByChain: input.recipientAddressByChain,
     maxConvergenceExtraRaw: input.convergenceExtraRaw(input.tokenAddress, input.tokenDecimals),
+    routerExclusions: input.routerExclusions,
   });
 
   if (tokenResult.usedCOTs.length > 0) {
@@ -109,6 +111,7 @@ export const sizeDirectDestinationExactOut = async (
       userAddressByChain: input.userAddressByChain,
       recipientAddressByChain: input.recipientAddressByChain,
       maxConvergenceExtraRaw: input.convergenceExtraRaw(ZERO_ADDRESS, input.nativeDecimals),
+      routerExclusions: input.routerExclusions,
     });
     if (gasResult.usedCOTs.length > 0) {
       throw Errors.internal(
@@ -116,10 +119,7 @@ export const sizeDirectDestinationExactOut = async (
       );
     }
     gasSwaps = gasResult.quoteResponses;
-    const gasDeliveredRaw = gasSwaps.reduce(
-      (sum, quote) => sum + quote.quote.output.amountRaw,
-      0n
-    );
+    const gasDeliveredRaw = gasSwaps.reduce((sum, quote) => sum + quote.quote.output.amountRaw, 0n);
     if (gasDeliveredRaw < input.gasTargetRaw) {
       if (gasResult.quoteResponses.length > 0) {
         throw Errors.insufficientBalance(
