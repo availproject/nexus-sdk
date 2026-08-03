@@ -164,18 +164,13 @@ export const waitForTxReceipt = async (
   return [receipt, receipt.status === 'reverted' ? Errors.transactionReverted(hash) : null];
 };
 
-/**
- * Chain-aware blocks: wait extra confirmations so a lagging RPC has synced the tx's effects before
- * the next call/tx reads them (avoids the follow-up tx failing on stale state). Faster chains' RPCs
- * can sit a block behind head, so wait 2; Ethereum mainnet (chainId 1) stays in sync within 1.
- * Same `[receipt, error]` contract as waitForTxReceipt.
- */
+/** Wait one confirmation on every chain. Same `[receipt, error]` contract as waitForTxReceipt. */
 export const waitForTxReceiptByChain = (
   hash: `0x${string}`,
   publicClient: TransactionReceiptPublicClient,
-  chainId: number,
+  _chainId: number,
   timeout = TRANSACTION_RECEIPT_WAIT_TIMEOUT_MS
-) => waitForTxReceipt(hash, publicClient, chainId === 1 ? 1 : 2, timeout);
+) => waitForTxReceipt(hash, publicClient, 1, timeout);
 
 /**
  * Waits (chain-aware) for an execution step's receipt and, on revert, throws a step-tagged

@@ -86,7 +86,7 @@ describe('confirmStepReceipt', () => {
     });
   });
 
-  it('waits 1 block on Ethereum mainnet, 2 on other chains', async () => {
+  it('waits 1 block on every chain', async () => {
     let confirmations: number | undefined;
     const capture = (a: { confirmations: number }) => {
       confirmations = a.confirmations;
@@ -94,7 +94,7 @@ describe('confirmStepReceipt', () => {
     await confirmStepReceipt(makeClient('success', capture), TX, 1, step);
     expect(confirmations).toBe(1);
     await confirmStepReceipt(makeClient('success', capture), TX, 42161, step);
-    expect(confirmations).toBe(2);
+    expect(confirmations).toBe(1);
   });
 });
 
