@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { parseSignature, type Hex, type PublicClient, type WalletClient } from 'viem';
+import {
+  decodeFunctionData,
+  parseSignature,
+  type Hex,
+  type PublicClient,
+  type WalletClient,
+} from 'viem';
+import { ERC20PermitABI } from '../../../src/abi/erc20';
 import { PermitVariant } from '../../../src/domain/permits';
 
 vi.mock('../../../src/services/allowance-utils', () => ({
@@ -104,8 +111,53 @@ describe('materializePermitAuthorizationCall', () => {
       expect.anything(),
       expect.objectContaining({ address: EOA }),
       EPH,
-      1n
+      1n,
+      expect.anything()
     );
+  });
+
+  it('uses the same 15-minute deadline for signing and canonical permit calldata', async () => {
+    vi.mocked(signPermitForAddressAndValue).mockResolvedValueOnce(
+      (`0x${'0'.repeat(63)}1${'0'.repeat(63)}2${'1b'}`) as Hex
+    );
+    vi.mocked(parseSignature).mockReturnValueOnce({
+      r: `0x${'11'.repeat(32)}` as Hex,
+      s: `0x${'22'.repeat(32)}` as Hex,
+      v: 27n,
+      yParity: 0,
+    });
+    const before = BigInt(Math.floor(Date.now() / 1000));
+
+    const call = await materializePermitAuthorizationCall({
+      chain: CHAIN,
+      authorization: {
+        kind: 'permit',
+        call: null,
+        permit: {
+          signature: null,
+          permitVariant: PermitVariant.EIP2612Canonical,
+          permitContractVersion: 1,
+        },
+      },
+      tokenAddress: TOKEN,
+      tokenDecimals: 6,
+      amount: 1n,
+      eoaAddress: EOA,
+      eoaWallet: {} as WalletClient,
+      ephemeralAddress: EPH,
+      publicClient: {} as PublicClient,
+    });
+    const after = BigInt(Math.floor(Date.now() / 1000));
+    const deadline = vi.mocked(signPermitForAddressAndValue).mock.calls[0]?.[7];
+
+    expect(deadline).toBeTypeOf('bigint');
+    expect(deadline).toBeGreaterThanOrEqual(before + 900n);
+    expect(deadline).toBeLessThanOrEqual(after + 900n);
+    expect(call).not.toBeNull();
+    if (!call) throw new Error('Expected canonical permit calldata');
+    const decoded = decodeFunctionData({ abi: ERC20PermitABI, data: call.data });
+    expect(decoded.functionName).toBe('permit');
+    expect(decoded.args[3]).toBe(deadline);
   });
 });
 
