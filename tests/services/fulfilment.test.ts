@@ -48,7 +48,7 @@ describe('waitForIntentFulfilment', () => {
       },
     }) as unknown as PublicClient;
 
-  it('waits 2 confirmations of the fill tx on a non-mainnet destination', async () => {
+  it('waits 1 confirmation of the fill tx on a non-mainnet destination', async () => {
     let confirmations: number | undefined;
     await waitForIntentFulfilment(
       makeClient((c) => {
@@ -59,7 +59,7 @@ describe('waitForIntentFulfilment', () => {
       new AbortController(),
       42161
     );
-    expect(confirmations).toBe(2);
+    expect(confirmations).toBe(1);
   });
 
   it('waits 1 confirmation on Ethereum mainnet', async () => {

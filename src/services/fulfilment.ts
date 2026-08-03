@@ -23,10 +23,8 @@ export const waitForIntentFulfilment = async (
       onLogs: async (logs) => {
         logger.debug('waitForIntentFulfilment', { logs });
         const fillTxHash = logs[0]?.transactionHash;
-        // The Fulfilment log means the fill is mined (~1 confirmation). Wait the chain-aware
-        // confirmation count (1 on mainnet, 2 elsewhere) so a lagging dst RPC has the fill synced
-        // before any follow-up tx (e.g. a bridge-and-execute call) reads stale state. The event
-        // already proves the fill, so a transient receipt-wait hiccup must not fail the bridge.
+        // The Fulfilment log means the fill is mined. Confirm its receipt once before any follow-up
+        // transaction; a transient receipt-wait hiccup must not fail the bridge.
         if (fillTxHash) {
           await waitForTxReceiptByChain(fillTxHash, publicClient, chainId).catch(() => undefined);
         }
