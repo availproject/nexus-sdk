@@ -20,6 +20,9 @@ export enum QuoteSeriousness {
 
 export type Quote = {
   expiry?: number;
+  // Provider-internal route identifier. Execution retries can return it to the same aggregator
+  // so that aggregator avoids repeating a route that already failed on-chain.
+  routerId?: string;
   input: {
     contractAddress: Hex;
     amount: string; // human decimal string
@@ -96,10 +99,14 @@ export type QuoteResponse = {
 // ---------------------------------------------------------------------------
 
 export interface Aggregator {
-  getQuotes(requests: QuoteRequest[]): Promise<(Quote | null)[]>;
+  getQuotes(requests: QuoteRequest[], excludedRouterIds?: string[]): Promise<(Quote | null)[]>;
   // Static chain gate consulted by aggregateAggregators' per-request tiered selection.
   supportsChain(chainId: number): boolean;
 }
+
+// Key exclusions by aggregator object identity so provider-internal route IDs never leak between
+// adapters (or between two independently configured instances of the same adapter).
+export type RouterExclusions = Map<Aggregator, string[]>;
 
 // ---------------------------------------------------------------------------
 // Token metadata enrichment

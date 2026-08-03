@@ -296,10 +296,15 @@ describe('executeDirectDestinationExactOut', () => {
   });
 
   it('reuses an exact permit after a confirmed revert and requotes before retrying', async () => {
+    const relay = {} as Aggregator;
     const swaps = [
       makeSwap(500_000_000n, WETH, 200_000_000_000_000_000n, 'token'),
       makeSwap(25_000_000n, EADDRESS, 10_000_000_000_000_000n, 'gas'),
     ];
+    swaps[0].aggregator = relay;
+    swaps[1].aggregator = relay;
+    swaps[0].quote.routerId = 'uniswap-v3';
+    swaps[1].quote.routerId = 'odos';
     const route = makeRoute(swaps);
     const ctx = makeContext(makePreparedExecution(swaps));
     const metadata = makeMetadata();
@@ -309,6 +314,11 @@ describe('executeDirectDestinationExactOut', () => {
 
     expect(dispatchSourceChainBatch).toHaveBeenCalledTimes(2);
     expect(sizeDirectDestinationExactOut).toHaveBeenCalledTimes(1);
+    expect(sizeDirectDestinationExactOut).toHaveBeenCalledWith(
+      expect.objectContaining({
+        routerExclusions: new Map([[relay, ['uniswap-v3', 'odos']]]),
+      })
+    );
     expect(buildTransferAuthorization).toHaveBeenCalledTimes(1);
     expect(vi.mocked(dispatchSourceChainBatch).mock.calls[1][0].calls[0].data).toBe('0x9999');
   });

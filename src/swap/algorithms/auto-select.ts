@@ -14,6 +14,7 @@ import {
   type QuoteResponse,
   QuoteSeriousness,
   QuoteType,
+  type RouterExclusions,
 } from '../aggregators';
 import type { CurrencyID } from '../cot';
 import { convergeExactIn, firstSuccess, timedCandidate, tryExactOutDirect } from './convergence';
@@ -282,6 +283,7 @@ export const autoSelectSources = async (input: AutoSelectInput): Promise<AutoSel
         aggregators,
         targetTokenFor(item.holding.chainID),
         undefined,
+        undefined,
         userAddressByChain,
         recipientAddressByChain
       );
@@ -319,6 +321,7 @@ export type DirectSelectInput = {
   // Caps convergence input growth in the target token's raw units (Path A passes ≈$0.50 via oracle;
   // absent ⇒ convergenceQuote's default of 0.5 whole output tokens).
   maxConvergenceExtraRaw?: Decimal;
+  routerExclusions?: RouterExclusions;
 };
 
 /**
@@ -370,7 +373,12 @@ export const selectDirectDestinationSwaps = async (
         inputAmount: item.holding.amountRaw,
       };
     });
-    const results = await aggregateAggregators(requests, aggregators, AggregateMode.MaximizeOutput);
+    const results = await aggregateAggregators(
+      requests,
+      aggregators,
+      AggregateMode.MaximizeOutput,
+      input.routerExclusions
+    );
     swappable.forEach((item, i) => {
       const r = results[i];
       if (r?.quote) indicativeByIdx.set(item.idx, { quote: r.quote, aggregator: r.aggregator });
@@ -411,6 +419,7 @@ export const selectDirectDestinationSwaps = async (
         aggregators,
         target,
         input.maxConvergenceExtraRaw,
+        input.routerExclusions,
         userAddressByChain,
         recipientAddressByChain
       );
@@ -433,6 +442,7 @@ async function convergenceQuote(
   aggregators: Aggregator[],
   target: { contractAddress: Hex; decimals: number },
   maxConvergenceExtraRaw: Decimal | undefined,
+  routerExclusions: RouterExclusions | undefined,
   userAddressByChain: Map<number, `0x${string}`>,
   recipientAddressByChain: Map<number, Hex>
 ): Promise<QuoteResponse> {
@@ -481,6 +491,7 @@ async function convergenceQuote(
       outputAmount: requiredOutputAmountRaw,
     },
     aggregators,
+    routerExclusions,
     requiredOutputAmountRaw,
     maxInputAmountRaw: item.holding.amountRaw,
   });
@@ -491,6 +502,7 @@ async function convergenceQuote(
     maxExtraInputAmountRaw,
     maxInputAmountRaw: holdingBalanceDecimal,
     aggregators,
+    routerExclusions,
     makeRequest: (inputAmountRaw) => ({
       userAddress: addresses.userAddress,
       recipientAddress: addresses.recipientAddress,

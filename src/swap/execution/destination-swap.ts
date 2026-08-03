@@ -21,7 +21,7 @@ import {
 import { createSBCTxFromCalls, requireSuccessfulSbcResult, type SBCCall } from '../../services/sbc';
 import { createDestinationSwapStepId } from '../../services/step-ids';
 import { withTimingSpan } from '../../services/timing';
-import { aggregatorService } from '../aggregators';
+import { aggregatorService, type RouterExclusions } from '../aggregators';
 import { predictSafeAccountAddress } from '../safe/predict';
 import { createSweeperTxs } from '../sweep';
 import {
@@ -35,6 +35,7 @@ import {
 import { chainSupports7702 } from '../wallet/capabilities';
 import { resolvePreparedFundingTransferCalls } from './eoa-to-ephemeral';
 import { getParsedQuote } from './parsed-quote';
+import { addRouterExclusions } from './router-exclusions';
 import { readSettlementBalanceRaw } from './settlement-balance';
 
 const logger = getLogger();
@@ -271,7 +272,13 @@ export const executeDestinationSwap = async (
   let currentSwap = destination.swap;
   const requiresTokenSwap = Boolean(destination.swap.tokenSwap);
   const requiresGasSwap = Boolean(destination.swap.gasSwap);
+  const routerExclusions: RouterExclusions = new Map();
   let lastError: unknown;
+
+  const getDstSwap = (actualCotRaw: bigint) =>
+    routerExclusions.size > 0
+      ? destination.getDstSwap(actualCotRaw, routerExclusions)
+      : destination.getDstSwap(actualCotRaw);
 
   if (!currentSwap.tokenSwap && !currentSwap.gasSwap) {
     logger.debug('swap.execute.destination.noop.skipped', {
@@ -337,6 +344,7 @@ export const executeDestinationSwap = async (
     | undefined;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    let attemptedDispatch = false;
     try {
       if (mode === SwapMode.EXACT_IN) {
         if (wrapperCotBalance === null) {
@@ -346,7 +354,7 @@ export const executeDestinationSwap = async (
         const resized = await withTimingSpan(
           ctx.timing,
           'flow.swap.execute.destination.resize_or_requote',
-          async () => destination.getDstSwap(actualCotBalance),
+          async () => getDstSwap(actualCotBalance),
           { tags: { mode, wallet_path: wrapper, attempt } }
         );
         const hasEveryRequiredLeg =
@@ -393,7 +401,7 @@ export const executeDestinationSwap = async (
         const requoted = await withTimingSpan(
           ctx.timing,
           'flow.swap.execute.destination.resize_or_requote',
-          async () => destination.getDstSwap(wrapperCotBalance ?? 0n),
+          async () => getDstSwap(wrapperCotBalance ?? 0n),
           { tags: { mode, wallet_path: wrapper, attempt } }
         );
         const hasEveryRequiredLeg =
@@ -471,6 +479,7 @@ export const executeDestinationSwap = async (
               publicClient,
               safeAddress,
             });
+            attemptedDispatch = true;
             return ctx.middlewareClient.createSafeExecuteTx(request);
           },
           { tags: { mode, wallet_path: wrapper, attempt } }
@@ -522,6 +531,7 @@ export const executeDestinationSwap = async (
               publicClient: ctx.publicClientList.get(destination.chainId),
             });
 
+            attemptedDispatch = true;
             return ctx.middlewareClient.submitSBCs([sbcTx]);
           },
           { tags: { mode, wallet_path: wrapper, attempt } }
@@ -572,6 +582,9 @@ export const executeDestinationSwap = async (
       });
       return;
     } catch (error) {
+      if (attemptedDispatch) {
+        addRouterExclusions(routerExclusions, [currentSwap.tokenSwap, currentSwap.gasSwap]);
+      }
       lastError = error;
       logger.debug('swap.execute.destination.attempt.failed', {
         chainId: destination.chainId,

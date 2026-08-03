@@ -7,6 +7,7 @@ import { convertGasToToken } from '../../services/intent';
 import { divDecimals, mulDecimals } from '../../services/math';
 import { equalFold } from '../../services/strings';
 import { withTimingSpan } from '../../services/timing';
+import type { RouterExclusions } from '../aggregators';
 import { autoSelectSources, type SourceHolding } from '../algorithms/auto-select';
 import { destinationGasSwapExactIn, determineDestinationSwaps } from '../algorithms/destination';
 import {
@@ -71,6 +72,7 @@ const quoteExactOutDestination = async (input: {
   needsGasSwap: boolean;
   needsTokenSwap: boolean;
   estimatedInputAmountRaw?: Decimal;
+  routerExclusions?: RouterExclusions;
   timingSpan: 'flow.swap.route.quote_destination_requirement' | 'flow.swap.route.quote_destination';
 }) => {
   const [tokenSwapQuote, gasSwapQuote] = await withTimingSpan(
@@ -94,6 +96,7 @@ const quoteExactOutDestination = async (input: {
                 estimatedInputAmountRaw: input.estimatedInputAmountRaw,
                 userAddress: input.destinationQuoteAddress,
                 recipientAddress: input.options.eoaAddress,
+                routerExclusions: input.routerExclusions,
               },
             })
           : Promise.resolve(null),
@@ -107,6 +110,7 @@ const quoteExactOutDestination = async (input: {
                 cotCurrencyID: input.options.cotCurrencyId,
                 userAddress: input.destinationQuoteAddress,
                 recipientAddress: input.options.eoaAddress,
+                routerExclusions: input.routerExclusions,
               },
             })
           : Promise.resolve(null),
@@ -830,7 +834,7 @@ export async function _exactOutRoute(
             : null,
         inputAmount: dstInputAmount,
         swap: dstSwap,
-        getDstSwap: async (actualCotRaw: bigint) => {
+        getDstSwap: async (actualCotRaw: bigint, routerExclusions?: RouterExclusions) => {
           const {
             tokenSwapQuote: nextTokenSwap,
             gasSwapQuote: nextGasSwap,
@@ -843,6 +847,7 @@ export async function _exactOutRoute(
             gasInCotBudgetRaw,
             needsGasSwap,
             needsTokenSwap,
+            routerExclusions,
             timingSpan: 'flow.swap.route.quote_destination',
           });
 

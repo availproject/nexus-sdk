@@ -150,6 +150,19 @@ describe('aggregateAggregators', () => {
     expect(results[0].quote).toBeNull();
   });
 
+  it('forwards excluded router ids to selected aggregators', async () => {
+    const aggregator = makeAggregator([makeQuote(950000n)]);
+
+    await aggregateAggregators(
+      [makeRequest()],
+      [aggregator],
+      AggregateMode.MaximizeOutput,
+      new Map([[aggregator, ['uniswap-v3']]])
+    );
+
+    expect(aggregator.getQuotes).toHaveBeenCalledWith(expect.any(Array), ['uniswap-v3']);
+  });
+
   it('picks first aggregator on tie in MaximizeOutput', async () => {
     const aggA = makeAggregator([makeQuote(950000n)]);
     const aggB = makeAggregator([makeQuote(950000n)]);

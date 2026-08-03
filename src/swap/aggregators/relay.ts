@@ -44,11 +44,14 @@ export class RelayAggregator implements Aggregator {
     return SUPPORTED_CHAINS.has(chainId);
   }
 
-  async getQuotes(requests: QuoteRequest[]): Promise<(Quote | null)[]> {
-    return Promise.all(requests.map((req) => this.fetchQuote(req)));
+  async getQuotes(
+    requests: QuoteRequest[],
+    excludedRouterIds: string[] = []
+  ): Promise<(Quote | null)[]> {
+    return Promise.all(requests.map((req) => this.fetchQuote(req, excludedRouterIds)));
   }
 
-  private async fetchQuote(req: QuoteRequest): Promise<Quote | null> {
+  private async fetchQuote(req: QuoteRequest, excludedRouterIds: string[]): Promise<Quote | null> {
     try {
       const isExactOut = req.type === QuoteType.EXACT_OUT;
       const chainId = req.chainId.toString();
@@ -69,7 +72,7 @@ export class RelayAggregator implements Aggregator {
         amount: amountRaw.toString(),
         tradeType: isExactOut ? 'EXACT_OUTPUT' : 'EXACT_INPUT',
         slippageTolerance: SLIPPAGE_BPS_STRING,
-        excludedSwapSources: GLOBAL_DENY,
+        excludedSwapSources: [...new Set([...GLOBAL_DENY, ...excludedRouterIds])],
       };
 
       const data = (await this.getQuote(params)) as RelayResponse;
@@ -102,6 +105,7 @@ const parseResponse = (
 
   const output = buildSide(currencyOut, req.outputToken, outputAmountRaw);
   return {
+    routerId: data.details?.route?.origin?.router,
     input: buildSide(currencyIn, req.inputToken, inputAmountRaw),
     output,
     expectedOutput: normalizeExpectedOutput(currencyOut.amount, output),
@@ -170,5 +174,9 @@ type RelayCurrencyDetail = {
 };
 type RelayResponse = {
   steps?: RelayStep[];
-  details?: { currencyIn?: RelayCurrencyDetail; currencyOut?: RelayCurrencyDetail };
+  details?: {
+    currencyIn?: RelayCurrencyDetail;
+    currencyOut?: RelayCurrencyDetail;
+    route?: { origin?: { router?: string } };
+  };
 };

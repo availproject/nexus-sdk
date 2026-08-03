@@ -389,9 +389,9 @@ const requoteFailedChains = async (
 
       const requoted = await Promise.all(
         chainSwaps.map(async (swap) => {
-          const [requote] = await swap.aggregator.getQuotes([
+          const requests = [
             {
-              type: QuoteType.EXACT_IN,
+              type: QuoteType.EXACT_IN as const,
               seriousness: QuoteSeriousness.SERIOUS,
               chainId: swap.chainID,
               inputToken: swap.quote.input.contractAddress,
@@ -400,7 +400,10 @@ const requoteFailedChains = async (
               userAddress,
               recipientAddress: sourceRecipient,
             },
-          ]);
+          ];
+          const [requote] = swap.quote.routerId
+            ? await swap.aggregator.getQuotes(requests, [swap.quote.routerId])
+            : await swap.aggregator.getQuotes(requests);
 
           if (!requote) {
             throw new ExternalServiceError(

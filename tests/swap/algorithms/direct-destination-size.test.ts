@@ -75,6 +75,8 @@ describe('sizeDirectDestinationExactOut', () => {
   });
 
   it('tags the token pass and skips gas selection when the gas target is zero', async () => {
+    const aggregator = {} as Aggregator;
+    const routerExclusions = new Map([[aggregator, ['uniswap-v3']]]);
     vi.mocked(selectDirectDestinationSwaps).mockResolvedValue({
       quoteResponses: [quote(100_000_000n)],
       usedCOTs: [],
@@ -91,11 +93,15 @@ describe('sizeDirectDestinationExactOut', () => {
       userAddressByChain: new Map([[CHAIN_ID, USER]]),
       recipientAddressByChain: new Map([[CHAIN_ID, RECIPIENT]]),
       convergenceExtraRaw: () => undefined,
+      routerExclusions,
     });
 
     expect(selectDirectDestinationSwaps).toHaveBeenCalledTimes(1);
     expect(vi.mocked(selectDirectDestinationSwaps).mock.calls[0][0].outputRequired.toFixed()).toBe(
       '100'
+    );
+    expect(selectDirectDestinationSwaps).toHaveBeenCalledWith(
+      expect.objectContaining({ routerExclusions })
     );
     expect(swaps).toEqual([expect.objectContaining({ outputRole: 'token' })]);
   });
