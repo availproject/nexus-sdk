@@ -327,7 +327,8 @@ describe('prepareSwapExecution', () => {
       expect.anything(),
       expect.objectContaining({ address: EOA }),
       EPH,
-      500000000n
+      500000000n,
+      expect.anything()
     );
   });
 

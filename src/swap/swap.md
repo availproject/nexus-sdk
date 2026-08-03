@@ -666,6 +666,7 @@ per transfer (reason: source | destination | bridge):
   elif permit supported:
     source | bridge → LAZY  {kind:'permit', call:null, signature:null}   # materialized at execution
     destination     → EAGER  signPermitForAddressAndValue(spender=target)
+    EIP-2612 / DAI-style permit deadline = signing time + 15 minutes
   else: authorization = {kind:'approve'}                            # EOA approve(target), mined before the batch
   transferCall = transferFrom(eoa, recipient, amount)               # called by target; bridge recipient may differ
 # bridge EOA balances converted human → raw
