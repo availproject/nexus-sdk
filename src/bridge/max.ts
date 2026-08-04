@@ -83,11 +83,16 @@ export async function calculateMaxForBridge(
       entries.map((entry) => entry.chain.id)
     )
   );
+  const quotedEntries = entries.filter(
+    (entry) =>
+      lookupDepositFee(entry.chain.id, entry.contractAddress, quoteResponse, entry.decimals) !==
+      null
+  );
 
   // Provider decision: hand the middleware the summed bridge amount (in destination token
   // units) so it applies the same Mayan threshold the real bridge would.
   const bridgeAmountRaw = mulDecimals(
-    entries.reduce((sum, entry) => Decimal.add(sum, entry.balance), new Decimal(0)),
+    quotedEntries.reduce((sum, entry) => Decimal.add(sum, entry.balance), new Decimal(0)),
     dstToken.decimals
   );
   let provider = await resolveBridgeProvider(
@@ -100,7 +105,7 @@ export async function calculateMaxForBridge(
   let selected: SourceEntry[];
   if (provider === 'mayan') {
     const mayan = await computeMayanBridgeMax({
-      entries,
+      entries: quotedEntries,
       dstToken,
       dstChainId: input.toChainId,
       quoteResponse,
@@ -111,12 +116,20 @@ export async function calculateMaxForBridge(
     // per-leg minimum, the real bridge runs on Nexus, so the max should too.
     if (mayan.selected.length === 0) {
       provider = 'nexus';
-      ({ maxToken, selected } = computeNexusBridgeMax({ entries, dstToken, quoteResponse }));
+      ({ maxToken, selected } = computeNexusBridgeMax({
+        entries: quotedEntries,
+        dstToken,
+        quoteResponse,
+      }));
     } else {
       ({ maxToken, selected } = mayan);
     }
   } else {
-    ({ maxToken, selected } = computeNexusBridgeMax({ entries, dstToken, quoteResponse }));
+    ({ maxToken, selected } = computeNexusBridgeMax({
+      entries: quotedEntries,
+      dstToken,
+      quoteResponse,
+    }));
   }
 
   return {
@@ -150,12 +163,14 @@ const computeNexusBridgeMax = (args: {
   let totalUsable = new Decimal(0);
 
   for (const entry of entries) {
-    const depositFee = lookupDepositFee(
+    const depositFeeQuote = lookupDepositFee(
       entry.chain.id,
       entry.contractAddress,
       quoteResponse,
       entry.decimals
-    ).amount;
+    );
+    if (!depositFeeQuote) continue;
+    const depositFee = depositFeeQuote.amount;
     if (depositFee.gte(entry.balance)) continue;
     totalUsable = Decimal.add(totalUsable, Decimal.sub(entry.balance, depositFee));
     selected.push(entry);
@@ -193,14 +208,16 @@ const computeMayanBridgeMax = async (args: {
         chainList.getTokenByAddress(entry.chain.id, entry.contractAddress).mayanEnabled === true
       );
     })
-    .map((entry) => {
-      const depositFee = lookupDepositFee(
+    .flatMap((entry) => {
+      const depositFeeQuote = lookupDepositFee(
         entry.chain.id,
         entry.contractAddress,
         quoteResponse,
         entry.decimals,
         'depositMayan'
-      ).amount;
+      );
+      if (!depositFeeQuote) return [];
+      const depositFee = depositFeeQuote.amount;
       const usable = Decimal.sub(entry.balance, depositFee);
       const usdPerToken = entry.balance.gt(0) ? entry.value.div(entry.balance) : new Decimal(0);
       const minimumAmount = usdPerToken.gt(0)
@@ -209,7 +226,7 @@ const computeMayanBridgeMax = async (args: {
             dstChainId === 1 && isNativeAddress(dstToken.contractAddress) ? 2 : 1
           )
         : new Decimal(Number.POSITIVE_INFINITY);
-      return { entry, usable, usableUsd: Decimal.mul(usable, usdPerToken), minimumAmount };
+      return [{ entry, usable, usableUsd: Decimal.mul(usable, usdPerToken), minimumAmount }];
     })
     .filter((leg) => leg.usableUsd.gte(minPerLeg) && leg.usable.gte(leg.minimumAmount));
 

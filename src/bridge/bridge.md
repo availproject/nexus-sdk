@@ -118,10 +118,10 @@ executeBridge({toTokenSymbol:USDC, toAmountRaw:100e6, toChainId:Base}, deps, opt
       balances      = getBalancesForBridge(eoa)
       oraclePrices  = getOraclePrices()
       provider      = resolveBridgeProvider(mw, {dst:USDC@Base, amount:100e6}, false) # → 'nexus'  ◄ seam
-    quoteSources  = explicit sources ?? positive eligible USDC balance chains
+    quoteSources  = positive eligible USDC balance chains ∩ (explicit sources ?? all)
     quoteResponse = getQuote(buildQuoteRequest(USDC, Base, quoteSources)) # scoped deposit + fulfilment fees
     createBridgeIntent(provider='nexus'):                                             (§5)
-      availableSources  = balances on every chain ≠ Base                # depositFee via 'deposit'
+      availableSources  = selected-source balances with a deposit quote # depositFee via 'deposit'
       baseAmount        = 100 + gasInToken                              # gasInToken=0 here
       payableAmount     = baseAmount × (1 + fulfillmentBps/1e4) + fulfillmentFeeToken
       allowedSources    = filter by `sources` allowlist; sort Ethereum-last, then balance DESC
@@ -197,21 +197,26 @@ leg**.
 ## 5. Intent build reference
 
 `buildBridgeIntent` (`intent/builder.ts`) fetches balances, oracle prices, and provider selection in
-parallel. It then scopes `getQuote` to caller-provided source chains, or to positive eligible
-same-currency balances after the existing native-gas reservation when no source allowlist was
-provided. The balance-derived USD resolver still prefers balance pricing before its oracle fallback
-(`bridge-intent-values.test.ts`).
+parallel. It then scopes `getQuote` to positive eligible same-currency balances after the existing
+native-gas reservation, intersected with caller-provided source chains when an allowlist exists.
+Zero-balance chains are never quoted. The balance-derived USD resolver still prefers balance pricing
+before its oracle fallback (`bridge-intent-values.test.ts`).
 
 `buildQuoteRequest` (`quote-request.ts`) requires explicit source chain IDs and resolves the
 same-currency token only on those chains (currencyId first, symbol fallback, native skipped). The
 destination remains present on the first call so middleware can calculate the fulfillment fee; the
 source entries supply the applicable per-source deposit fees without contacting unrelated chains.
+Intent creation applies the same source allowlist before fee lookup and drops any ERC-20 source
+whose deposit fee is missing or zero instead of failing the whole bridge. Native sources remain
+eligible with an internal zero deposit fee and do not require a source quote entry.
+`calculateMaxForBridge` applies the same rule before sizing the provider-selection request.
 
 `createBridgeIntent` (`intent/creator.ts`) branches on `provider`:
 
 ```text
 NEXUS:
-  availableSources = balances(chain ≠ dst), depositFee = lookupDepositFee('deposit')   # native ⇒ 0
+  candidates       = balances(chain ≠ dst) filtered by source allowlist before fee lookup
+  availableSources = candidates with depositFee('deposit'); missing/zero fee ⇒ omit, native ⇒ 0
   baseAmount    = requiredAmount + gasInToken
   payableAmount = baseAmount × (1 + fulfillmentBps/1e4) + fulfillmentFeeToken
   allowedSources= allowlist-filtered; sortSourcesForFeeAllocation = Ethereum(id 1) LAST, then balance DESC
@@ -221,7 +226,8 @@ NEXUS:
   fees = { caGas: Σdeposit + fulfillmentFee, deposit: Σdeposit,
            fulfillment: fulfillmentFee, protocol: baseAmount × bps/1e4, solver: 0 }
 
-MAYAN: createMayanBridgeIntent  (§4) — mayanEnabled gating, $1.10 per-leg floor, quote-once + swing-leg
+MAYAN: createMayanBridgeIntent  (§4) — source allowlist + missing/zero-fee omission, mayanEnabled gating,
+       $1.10 per-leg floor, quote-once + swing-leg
        convergence (one batched getMayanQuotes at full usable, then trim the last leg), gas drop inside
        the route. On ANY throw → falls back to createBridgeIntent({…, provider:'nexus'}); if THAT throws
        too → "Mayan failed: … Nexus fallback failed: …"
@@ -352,8 +358,8 @@ address (`bridge-pipeline.test.ts`, "padded token address").
 | `solver` | `0` | `fulfillment − protocol` |
 
 Deposit fee per source comes from the deploy quote: `depositFeeToken` (Nexus) vs
-`depositMayanFeeToken` (Mayan); native sources are always `0`. The public `total` is
-`caGas + protocol + solver`.
+`depositMayanFeeToken` (Mayan). Quoted ERC-20 fees must be positive; native sources are absent from
+the quote source list and use an internal fee of `0`. The public `total` is `caGas + protocol + solver`.
 
 ---
 

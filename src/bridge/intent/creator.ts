@@ -60,22 +60,18 @@ export const lookupDepositFee = (
   quoteResponse: QuoteResponse,
   decimals: number,
   type: 'deposit' | 'depositMayan' = 'deposit'
-): { amount: Decimal; raw: bigint } => {
+): { amount: Decimal; raw: bigint } | null => {
   if (isNativeAddress(tokenContract)) return { amount: new Decimal(0), raw: 0n };
   const match = quoteResponse.sources.find(
     (s) => s.chainId === chainId && equalFold(s.tokenAddress, tokenContract)
   );
-  if (!match) {
-    throw Errors.internal(
-      `Quote response missing deposit fee for chain ${chainId} token ${tokenContract}`
-    );
-  }
+  if (!match) return null;
+  const feeToken = type === 'depositMayan' ? match.depositMayanFeeToken : match.depositFeeToken;
+  const raw = BigInt(feeToken);
+  if (raw === 0n) return null;
   return {
-    amount: divDecimals(
-      type === 'depositMayan' ? match.depositMayanFeeToken : match.depositFeeToken,
-      decimals
-    ),
-    raw: BigInt(type === 'depositMayan' ? match.depositMayanFeeToken : match.depositFeeToken),
+    amount: divDecimals(feeToken, decimals),
+    raw,
   };
 };
 
@@ -153,8 +149,12 @@ export const createBridgeIntent = async (
   }
 
   intent.availableSources = (await asset.iterate(chainList))
-    .filter((entry) => entry.chain.id !== input.dstChainId)
-    .map((entry) => {
+    .filter(
+      (entry) =>
+        entry.chain.id !== input.dstChainId &&
+        (input.sourceChains.length === 0 || input.sourceChains.includes(entry.chain.id))
+    )
+    .flatMap((entry) => {
       const sourceToken = chainList.getTokenByAddress(entry.chain.id, entry.contractAddress);
       const depositFee = lookupDepositFee(
         entry.chain.id,
@@ -162,22 +162,25 @@ export const createBridgeIntent = async (
         input.quoteResponse,
         entry.decimals
       );
-      return {
-        amount: entry.balance,
-        amountRaw: mulDecimals(entry.balance, entry.decimals),
-        balance: entry.balance,
-        chain: entry.chain,
-        holderAddress: retrieveAddress(entry.universe, { evm: { address: evmAddress } }),
-        depositFee: depositFee.amount,
-        depositFeeRaw: depositFee.raw,
-        token: toBridgeIntentToken({
-          ...sourceToken,
-          contractAddress: entry.contractAddress,
-          decimals: entry.decimals,
-        }),
-        universe: entry.universe,
-        value: entry.value,
-      };
+      if (!depositFee) return [];
+      return [
+        {
+          amount: entry.balance,
+          amountRaw: mulDecimals(entry.balance, entry.decimals),
+          balance: entry.balance,
+          chain: entry.chain,
+          holderAddress: retrieveAddress(entry.universe, { evm: { address: evmAddress } }),
+          depositFee: depositFee.amount,
+          depositFeeRaw: depositFee.raw,
+          token: toBridgeIntentToken({
+            ...sourceToken,
+            contractAddress: entry.contractAddress,
+            decimals: entry.decimals,
+          }),
+          universe: entry.universe,
+          value: entry.value,
+        },
+      ];
     })
     .map(({ balance: _balance, ...source }) => source);
 
@@ -191,14 +194,7 @@ export const createBridgeIntent = async (
   const bpsMultiplier = Decimal.add(1, Decimal.div(fulfillmentBps, 10_000));
   const payableAmount = Decimal.add(Decimal.mul(baseAmount, bpsMultiplier), fulfillmentFee);
   const allowedSources = sortSourcesForFeeAllocation(
-    intent.availableSources
-      .map((source) => ({ ...source, balance: source.amount }))
-      .filter((source) => {
-        if (input.sourceChains.length > 0 && !input.sourceChains.includes(source.chain.id)) {
-          return false;
-        }
-        return true;
-      })
+    intent.availableSources.map((source) => ({ ...source, balance: source.amount }))
   );
 
   if (allowedSources.length === 0) {
@@ -350,6 +346,10 @@ const createMayanBridgeIntent = async (
           return false;
         }
 
+        if (input.sourceChains.length > 0 && !input.sourceChains.includes(entry.chain.id)) {
+          return false;
+        }
+
         const sourceChain = chainList.getChainByID(entry.chain.id);
         if (!sourceChain.mayanEnabled) {
           return false;
@@ -358,7 +358,7 @@ const createMayanBridgeIntent = async (
         const sourceToken = chainList.getTokenByAddress(entry.chain.id, entry.contractAddress);
         return sourceToken.mayanEnabled === true;
       })
-      .map((entry) => {
+      .flatMap((entry) => {
         const sourceToken = chainList.getTokenByAddress(entry.chain.id, entry.contractAddress);
         const depositFee = lookupDepositFee(
           entry.chain.id,
@@ -367,22 +367,25 @@ const createMayanBridgeIntent = async (
           entry.decimals,
           'depositMayan'
         );
-        return {
-          amount: entry.balance,
-          amountRaw: mulDecimals(entry.balance, entry.decimals),
-          balance: entry.balance,
-          chain: entry.chain,
-          holderAddress: retrieveAddress(entry.universe, { evm: { address: evmAddress } }),
-          depositFee: depositFee.amount,
-          depositFeeRaw: depositFee.raw,
-          token: toBridgeIntentToken({
-            ...sourceToken,
-            contractAddress: entry.contractAddress,
-            decimals: entry.decimals,
-          }),
-          universe: entry.universe,
-          value: entry.value,
-        };
+        if (!depositFee) return [];
+        return [
+          {
+            amount: entry.balance,
+            amountRaw: mulDecimals(entry.balance, entry.decimals),
+            balance: entry.balance,
+            chain: entry.chain,
+            holderAddress: retrieveAddress(entry.universe, { evm: { address: evmAddress } }),
+            depositFee: depositFee.amount,
+            depositFeeRaw: depositFee.raw,
+            token: toBridgeIntentToken({
+              ...sourceToken,
+              contractAddress: entry.contractAddress,
+              decimals: entry.decimals,
+            }),
+            universe: entry.universe,
+            value: entry.value,
+          },
+        ];
       })
       .map(({ balance: _balance, ...source }) => source);
 
@@ -414,9 +417,6 @@ const createMayanBridgeIntent = async (
         };
       })
       .filter((source) => {
-        if (input.sourceChains.length > 0 && !input.sourceChains.includes(source.chain.id)) {
-          return false;
-        }
         return source.usableUsd.gte(minimumPerLegUsd) && source.usable.gte(source.minimumAmount);
       })
       .sort((a, b) => Decimal.sub(b.usableUsd, a.usableUsd).toNumber());

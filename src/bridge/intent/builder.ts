@@ -27,6 +27,7 @@ import {
   buildBridgeProviderRequest,
   buildQuoteRequest,
   resolveBridgeProvider,
+  selectQuoteSourceChainIds,
 } from './quote-request';
 
 type CreateIntentInput = {
@@ -139,19 +140,16 @@ export const buildBridgeIntent = async (
   });
 
   const userAssets = createUserAssets(assets);
-  const quoteSourceChainIds =
-    sourceChains.length > 0
-      ? sourceChains
-      : (
-          await userAssets
-            .find({
-              currencyId: input.dstToken.currencyId,
-              symbol: input.dstToken.symbol,
-            })
-            .iterate(deps.chainList)
-        )
-          .filter((entry) => entry.chain.id !== input.dstChainId && entry.balance.gt(0))
-          .map((entry) => entry.chain.id);
+  const quoteSourceChainIds = selectQuoteSourceChainIds(
+    await userAssets
+      .find({
+        currencyId: input.dstToken.currencyId,
+        symbol: input.dstToken.symbol,
+      })
+      .iterate(deps.chainList),
+    input.dstChainId,
+    sourceChains
+  );
   const quoteResponse = await deps.middlewareClient.getQuote(
     buildQuoteRequest(deps.chainList, input.dstToken, input.dstChainId, quoteSourceChainIds)
   );

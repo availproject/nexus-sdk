@@ -64,16 +64,16 @@ const makeAsset = (input: {
     currencyId: input.currencyId ?? USDC.currencyId,
   }) as BridgeTokenBalance;
 
-// Quote with zero deposit + fulfillment fees for the listed source chains.
-const zeroFeeQuote = (srcChainIds: number[], dstChainId: number, tokenAddress = USDC.contractAddress) => ({
+// Quote with the smallest valid deposit fee and zero fulfillment fees.
+const feeQuote = (srcChainIds: number[], dstChainId: number, tokenAddress = USDC.contractAddress) => ({
   fulfillmentBps: 0,
   sources: srcChainIds.map((chainId) => ({
     chainId,
     tokenAddress,
-    depositFeeUsd: '0',
-    depositFeeToken: '0',
-    depositMayanFeeUsd: '0',
-    depositMayanFeeToken: '0',
+    depositFeeUsd: '0.000001',
+    depositFeeToken: '1',
+    depositMayanFeeUsd: '0.000001',
+    depositMayanFeeToken: '1',
   })),
   destination: {
     chainId: dstChainId,
@@ -106,7 +106,7 @@ const rateMayanQuotes =
 
 const makeOptions = (overrides: {
   provider?: BridgeProvider;
-  quote?: ReturnType<typeof zeroFeeQuote>;
+  quote?: ReturnType<typeof feeQuote>;
   mayanQuotes?: ReturnType<typeof rateMayanQuotes>;
   forceMayan?: boolean;
   token?: TokenInfo;
@@ -125,7 +125,7 @@ const makeOptions = (overrides: {
     evmAddress: '0x000000000000000000000000000000000000aaaa' as `0x${string}`,
     forceMayan: overrides.forceMayan,
     middlewareClient: makeMiddlewareClient({
-      getQuote: async () => overrides.quote ?? zeroFeeQuote([], 0),
+      getQuote: async () => overrides.quote ?? feeQuote([], 0),
       getBridgeProvider: async () => ({ provider: overrides.provider ?? 'nexus' }),
       ...(overrides.mayanQuotes ? { getMayanQuotes: overrides.mayanQuotes as never } : {}),
     }),
@@ -150,11 +150,11 @@ describe('calculateMaxForBridge', () => {
     ]);
 
     const input: BridgeMaxParams = { toChainId: 137, toTokenSymbol: 'USDC' };
-    const result = await calculateMaxForBridge(input, makeOptions({ quote: zeroFeeQuote([1, 10], 137) }));
+    const result = await calculateMaxForBridge(input, makeOptions({ quote: feeQuote([1, 10], 137) }));
 
     expect(result.provider).toBe('nexus');
-    expect(result.maxAmount).toBe('150.000000');
-    expect(result.maxAmountRaw).toBe(150_000_000n);
+    expect(result.maxAmount).toBe('149.999998');
+    expect(result.maxAmountRaw).toBe(149_999_998n);
     expect(result.symbol).toBe('USDC');
     expect(result.decimals).toBe(6);
     expect(result.sources.map((s) => s.chainId).sort()).toEqual([1, 10]);
@@ -171,11 +171,11 @@ describe('calculateMaxForBridge', () => {
 
     const result = await calculateMaxForBridge(
       { toChainId: 137, toTokenSymbol: 'USDC' },
-      makeOptions({ quote: zeroFeeQuote([1], 137) })
+      makeOptions({ quote: feeQuote([1], 137) })
     );
 
-    expect(result.maxAmount).toBe('50.000000');
-    expect(result.maxAmountRaw).toBe(50_000_000n);
+    expect(result.maxAmount).toBe('49.999999');
+    expect(result.maxAmountRaw).toBe(49_999_999n);
   });
 
   it('nexus path: returns the full usable amount for non-stables', async () => {
@@ -211,10 +211,10 @@ describe('calculateMaxForBridge', () => {
 
     const result = await calculateMaxForBridge(
       { toChainId: 137, toTokenSymbol: 'WETH' },
-      makeOptions({ token: WETH, quote: zeroFeeQuote([1], 137, WETH.contractAddress) })
+      makeOptions({ token: WETH, quote: feeQuote([1], 137, WETH.contractAddress) })
     );
 
-    expect(result.maxAmount).toBe('1.000000000000000000');
+    expect(result.maxAmount).toBe('0.999999999999999999');
     expect(result.decimals).toBe(18);
     expect(result.symbol).toBe('WETH');
   });
@@ -235,15 +235,41 @@ describe('calculateMaxForBridge', () => {
       { toChainId: 10, toTokenSymbol: 'USDC' },
       makeOptions({
         provider: 'mayan',
-        quote: zeroFeeQuote([42161, 8453], 10),
+        quote: feeQuote([42161, 8453], 10),
         mayanQuotes: rateMayanQuotes(0.99),
       })
     );
 
     expect(result.provider).toBe('mayan');
-    expect(result.maxAmount).toBe('198.000000');
-    expect(result.maxAmountRaw).toBe(198_000_000n);
+    expect(result.maxAmount).toBe('197.999998');
+    expect(result.maxAmountRaw).toBe(197_999_999n);
     expect(result.sources.map((s) => s.chainId).sort((a, b) => a - b)).toEqual([8453, 42161]);
+  });
+
+  it('mayan path: ignores source chains missing a deposit fee quote', async () => {
+    vi.mocked(getBalancesForBridge).mockResolvedValue([
+      makeAsset({
+        balance: '200',
+        value: '200.00',
+        chainBalances: [
+          makeChainBalance({ balance: '100', value: '100.00', chainId: 42161, chainName: 'Arbitrum' }),
+          makeChainBalance({ balance: '100', value: '100.00', chainId: 8453, chainName: 'Base' }),
+        ],
+      }),
+    ]);
+
+    const result = await calculateMaxForBridge(
+      { toChainId: 10, toTokenSymbol: 'USDC' },
+      makeOptions({
+        provider: 'mayan',
+        quote: feeQuote([8453], 10),
+        mayanQuotes: rateMayanQuotes(0.99),
+      })
+    );
+
+    expect(result.provider).toBe('mayan');
+    expect(result.maxAmount).toBe('98.999999');
+    expect(result.sources.map((source) => source.chainId)).toEqual([8453]);
   });
 
   it('restricts to the requested source chains', async () => {
@@ -258,20 +284,50 @@ describe('calculateMaxForBridge', () => {
       }),
     ]);
 
-    const options = makeOptions({ quote: zeroFeeQuote([1, 10], 137) });
+    const options = makeOptions({ quote: feeQuote([1, 10], 137) });
     const getQuote = vi.spyOn(options.middlewareClient, 'getQuote');
     const result = await calculateMaxForBridge(
       { toChainId: 137, toTokenSymbol: 'USDC', sources: [1] },
       options
     );
 
-    expect(result.maxAmount).toBe('100.000000');
+    expect(result.maxAmount).toBe('99.999999');
     expect(result.sources.map((s) => s.chainId)).toEqual([1]);
     expect(getQuote).toHaveBeenCalledWith({
       sources: [{ chain_id: toHex(1), contract_address: USDC.contractAddress }],
       destination: {
         chain_id: toHex(137),
         contract_address: USDC.contractAddress,
+      },
+    });
+  });
+
+  it('ignores source chains missing a deposit fee quote', async () => {
+    vi.mocked(getBalancesForBridge).mockResolvedValue([
+      makeAsset({
+        balance: '150',
+        value: '150.00',
+        chainBalances: [
+          makeChainBalance({ balance: '100', value: '100.00', chainId: 1, chainName: 'Ethereum' }),
+          makeChainBalance({ balance: '50', value: '50.00', chainId: 10, chainName: 'Optimism' }),
+        ],
+      }),
+    ]);
+
+    const options = makeOptions({ quote: feeQuote([1], 137) });
+    const getBridgeProvider = vi.spyOn(options.middlewareClient, 'getBridgeProvider');
+    const result = await calculateMaxForBridge(
+      { toChainId: 137, toTokenSymbol: 'USDC' },
+      options
+    );
+
+    expect(result.maxAmount).toBe('99.999999');
+    expect(result.sources.map((source) => source.chainId)).toEqual([1]);
+    expect(getBridgeProvider).toHaveBeenCalledWith({
+      destination: {
+        chain_id: toHex(137),
+        contract_address: USDC.contractAddress,
+        amount: '100000000',
       },
     });
   });
@@ -290,13 +346,13 @@ describe('calculateMaxForBridge', () => {
       makeOptions({
         provider: 'nexus', // middleware says nexus...
         forceMayan: true, // ...but force wins
-        quote: zeroFeeQuote([42161], 10),
+        quote: feeQuote([42161], 10),
         mayanQuotes: rateMayanQuotes(0.99),
       })
     );
 
     expect(result.provider).toBe('mayan');
-    expect(result.maxAmount).toBe('99.000000');
+    expect(result.maxAmount).toBe('98.999999');
   });
 
   it('falls back to nexus when no source clears the Mayan per-leg minimum', async () => {
@@ -312,7 +368,7 @@ describe('calculateMaxForBridge', () => {
       { toChainId: 10, toTokenSymbol: 'USDC' },
       makeOptions({
         provider: 'mayan', // middleware picks mayan, but the only leg is below the $1.10 floor
-        quote: zeroFeeQuote([42161], 10),
+        quote: feeQuote([42161], 10),
         mayanQuotes: rateMayanQuotes(0.99),
       })
     );
