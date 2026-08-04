@@ -45,6 +45,15 @@ const USDC_ASSET: TokenBalance = {
       symbol: 'USDC',
       universe: Universe.ETHEREUM,
     },
+    {
+      balance: '0',
+      value: '0.00',
+      chain: { id: 137, logo: '', name: 'Polygon' },
+      contractAddress: TOKEN_ADDRESS,
+      decimals: 6,
+      symbol: 'USDC',
+      universe: Universe.ETHEREUM,
+    },
   ],
   decimals: 6,
   logo: '',
@@ -128,6 +137,7 @@ describe('buildBridgeIntent value resolver', () => {
       dstChainId: chain2.id,
       dstChainUniverse: Universe.ETHEREUM,
       dstChainNativeDecimals: 18,
+      sourceChains: [chain1.id, unrelatedChain.id],
       forceMayan: false,
       deps: {
         chainList,

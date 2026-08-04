@@ -1,9 +1,24 @@
 import type { BridgeProvider, BridgeProviderRequest } from '@avail-project/nexus-types';
+import type Decimal from 'decimal.js';
 import { type Hex, toHex } from 'viem';
 import type { ChainListType, TokenInfo } from '../../domain';
 import { Errors } from '../../domain/errors';
 import { isNativeAddress } from '../../services/addresses';
 import type { MiddlewareBridgeProviderClient, QuoteRequest } from '../../transport';
+
+export const selectQuoteSourceChainIds = (
+  entries: Array<{ balance: Decimal; chain: { id: number } }>,
+  dstChainId: number,
+  sourceChainIds: number[]
+): number[] =>
+  entries
+    .filter(
+      (entry) =>
+        entry.chain.id !== dstChainId &&
+        entry.balance.gt(0) &&
+        (sourceChainIds.length === 0 || sourceChainIds.includes(entry.chain.id))
+    )
+    .map((entry) => entry.chain.id);
 
 export const buildQuoteRequest = (
   chainList: ChainListType,

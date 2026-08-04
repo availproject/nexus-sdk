@@ -296,8 +296,8 @@ const makeMiddlewareClient = (
         {
           chainId: SOURCE_CHAIN_ID,
           tokenAddress: TOKEN_ADDRESS,
-          depositFeeUsd: '0',
-          depositFeeToken: '0',
+          depositFeeUsd: '0.000001',
+          depositFeeToken: '1',
         },
       ],
       destination: {

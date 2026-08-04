@@ -7,7 +7,7 @@ import type {
   TokenInfo,
 } from '../../src/domain';
 import { Universe } from '../../src/domain/chain-abstraction';
-import { createBridgeIntent } from '../../src/bridge/intent/creator';
+import { createBridgeIntent, lookupDepositFee } from '../../src/bridge/intent/creator';
 import { createUserAssets } from '../../src/services/balances';
 import type { MayanQuote, MayanQuoteRequest } from '../../src/transport';
 import { makeChain, makeChainList } from '../helpers/chains';
@@ -67,19 +67,20 @@ describe('createBridgeIntent', () => {
 
   const zeroUsdValue = () => new Decimal(0);
 
-  const zeroFeeQuote = (
+  const feeQuote = (
     srcChainIds: number[],
     dstChainId: number,
-    tokenAddress = token.contractAddress
+    tokenAddress = token.contractAddress,
+    depositFeeToken = '1'
   ) => ({
     fulfillmentBps: 0,
     sources: srcChainIds.map((chainId) => ({
       chainId,
       tokenAddress,
-      depositFeeUsd: '0',
-      depositFeeToken: '0',
-      depositMayanFeeUsd: '0',
-      depositMayanFeeToken: '0',
+      depositFeeUsd: '0.000001',
+      depositFeeToken,
+      depositMayanFeeUsd: '0.000001',
+      depositMayanFeeToken: depositFeeToken,
     })),
     destination: {
       chainId: dstChainId,
@@ -87,6 +88,12 @@ describe('createBridgeIntent', () => {
       fulfillmentFeeUsd: '0',
       fulfillmentFeeToken: '0',
     },
+  });
+
+  it('treats a zero ERC-20 deposit fee quote as missing', () => {
+    expect(
+      lookupDepositFee(1, token.contractAddress, feeQuote([1], 10, token.contractAddress, '0'), token.decimals)
+    ).toBeNull();
   });
 
   const makeChainBalance = (input: {
@@ -157,7 +164,7 @@ describe('createBridgeIntent', () => {
         dstChainUniverse: Universe.ETHEREUM,
         dstChainNativeDecimals: 18,
         recipient: options.evm.address,
-        quoteResponse: zeroFeeQuote([1], 10),
+        quoteResponse: feeQuote([1], 10),
         provider: 'nexus',
       },
       createIntentContext(options)
@@ -173,6 +180,100 @@ describe('createBridgeIntent', () => {
     expect(intent.destination.amount.toFixed()).toBe('6');
     expect(intent.destination.value.toFixed(2)).toBe('0.00');
     expect(intent.destination.nativeAmountValue.toFixed(2)).toBe('0.00');
+  });
+
+  it('looks up deposit fees only for explicitly selected source chains', async () => {
+    const selectedChain = makeChain(1, 'Ethereum');
+    const unselectedChain = makeChain(42161, 'Arbitrum');
+    const dstChain = makeChain(10, 'Optimism');
+    const assets: TokenBalance[] = [
+      makeTokenBalance({
+        balance: '20',
+        chainBalances: [
+          makeChainBalance({
+            balance: '10',
+            chainId: selectedChain.id,
+            chainName: selectedChain.name,
+          }),
+          makeChainBalance({
+            balance: '10',
+            chainId: unselectedChain.id,
+            chainName: unselectedChain.name,
+          }),
+        ],
+      }),
+    ];
+    const chainList = makeChainList([selectedChain, unselectedChain, dstChain], token);
+    const options = makeOptions(chainList);
+
+    const intent = await createBridgeIntent(
+      {
+        amount: new Decimal('6'),
+        assets: createUserAssets(assets),
+        gas: new Decimal('0'),
+        gasInToken: new Decimal('0'),
+        resolveUsdValue: zeroUsdValue,
+        sourceChains: [selectedChain.id],
+        token,
+        dstChainId: dstChain.id,
+        dstChainUniverse: Universe.ETHEREUM,
+        dstChainNativeDecimals: 18,
+        recipient: options.evm.address,
+        quoteResponse: feeQuote([selectedChain.id], dstChain.id),
+        provider: 'nexus',
+      },
+      createIntentContext(options)
+    );
+
+    expect(intent.availableSources.map((source) => source.chain.id)).toEqual([selectedChain.id]);
+    expect(intent.selectedSources.map((source) => source.chain.id)).toEqual([selectedChain.id]);
+  });
+
+  it('ignores source chains missing a deposit fee quote', async () => {
+    const missingFeeChain = makeChain(1, 'Ethereum');
+    const quotedChain = makeChain(42161, 'Arbitrum');
+    const dstChain = makeChain(10, 'Optimism');
+    const assets: TokenBalance[] = [
+      makeTokenBalance({
+        balance: '20',
+        chainBalances: [
+          makeChainBalance({
+            balance: '10',
+            chainId: missingFeeChain.id,
+            chainName: missingFeeChain.name,
+          }),
+          makeChainBalance({
+            balance: '10',
+            chainId: quotedChain.id,
+            chainName: quotedChain.name,
+          }),
+        ],
+      }),
+    ];
+    const chainList = makeChainList([missingFeeChain, quotedChain, dstChain], token);
+    const options = makeOptions(chainList);
+
+    const intent = await createBridgeIntent(
+      {
+        amount: new Decimal('6'),
+        assets: createUserAssets(assets),
+        gas: new Decimal('0'),
+        gasInToken: new Decimal('0'),
+        resolveUsdValue: zeroUsdValue,
+        sourceChains: [],
+        token,
+        dstChainId: dstChain.id,
+        dstChainUniverse: Universe.ETHEREUM,
+        dstChainNativeDecimals: 18,
+        recipient: options.evm.address,
+        quoteResponse: feeQuote([quotedChain.id], dstChain.id),
+        provider: 'nexus',
+      },
+      createIntentContext(options)
+    );
+
+    expect(intent.availableSources.map((source) => source.chain.id)).toEqual([quotedChain.id]);
+    expect(intent.selectedSources.map((source) => source.chain.id)).toEqual([quotedChain.id]);
   });
 
   it('excludes Mayan-disabled source chains and source tokens from Mayan source selection', async () => {
@@ -246,7 +347,7 @@ describe('createBridgeIntent', () => {
         dstChainUniverse: Universe.ETHEREUM,
         dstChainNativeDecimals: 18,
         recipient: '0x0000000000000000000000000000000000000002',
-        quoteResponse: zeroFeeQuote([usableChain.id], dstChain.id),
+        quoteResponse: feeQuote([usableChain.id], dstChain.id),
         provider: 'mayan',
       },
       {
@@ -261,6 +362,78 @@ describe('createBridgeIntent', () => {
     expect(quotedSources.map((source) => Number(BigInt(source.chain_id)))).toEqual([
       usableChain.id,
     ]);
+  });
+
+  it('keeps Mayan routing when a source is missing a deposit fee quote', async () => {
+    const missingFeeChain = makeChain(42161, 'Arbitrum');
+    const quotedChain = makeChain(8453, 'Base');
+    const dstChain = makeChain(10, 'Optimism');
+    const assets: TokenBalance[] = [
+      makeTokenBalance({
+        balance: '20',
+        value: '20.00',
+        chainBalances: [
+          makeChainBalance({
+            balance: '10',
+            value: '10.00',
+            chainId: missingFeeChain.id,
+            chainName: missingFeeChain.name,
+          }),
+          makeChainBalance({
+            balance: '10',
+            value: '10.00',
+            chainId: quotedChain.id,
+            chainName: quotedChain.name,
+          }),
+        ],
+      }),
+    ];
+    const chainList = makeChainList([missingFeeChain, quotedChain, dstChain], token);
+    const quotedSourceChains: number[][] = [];
+    const middlewareClient = makeMiddlewareClient({
+      getMayanQuotes: async (request) => {
+        quotedSourceChains.push(
+          request.sources.map((source) => Number(BigInt(source.chain_id)))
+        );
+        return {
+          destination: { chainId: dstChain.id, tokenAddress: token.contractAddress },
+          quotes: request.sources.map((source) => ({
+            source: {
+              chainId: Number(BigInt(source.chain_id)),
+              tokenAddress: source.contract_address as `0x${string}`,
+              amount: source.amount,
+            },
+            mayanQuote: { minReceived: 5, protocolBps: 0 } as MayanQuote,
+          })),
+        };
+      },
+    });
+
+    const intent = await createBridgeIntent(
+      {
+        amount: new Decimal('5'),
+        assets: createUserAssets(assets),
+        gas: new Decimal('0'),
+        gasInToken: new Decimal('0'),
+        resolveUsdValue: ({ amount }) => amount,
+        sourceChains: [],
+        token,
+        dstChainId: dstChain.id,
+        dstChainUniverse: Universe.ETHEREUM,
+        dstChainNativeDecimals: 18,
+        recipient: '0x0000000000000000000000000000000000000002',
+        quoteResponse: feeQuote([quotedChain.id], dstChain.id),
+        provider: 'mayan',
+      },
+      {
+        ...createIntentContext(makeOptions(chainList)),
+        middlewareClient,
+      }
+    );
+
+    expect(intent.provider).toBe('mayan');
+    expect(intent.availableSources.map((source) => source.chain.id)).toEqual([quotedChain.id]);
+    expect(quotedSourceChains).toEqual([[quotedChain.id]]);
   });
 
   describe('Mayan exact-out convergence', () => {
@@ -332,7 +505,7 @@ describe('createBridgeIntent', () => {
           dstChainUniverse: Universe.ETHEREUM,
           dstChainNativeDecimals: 18,
           recipient: options.evm.address,
-          quoteResponse: zeroFeeQuote([bigChain.id, swingChain.id], dstChain.id),
+          quoteResponse: feeQuote([bigChain.id, swingChain.id], dstChain.id),
           provider: 'mayan',
         },
         { ...createIntentContext(options), middlewareClient: makeRateMayanClient(0.5) }
@@ -341,14 +514,14 @@ describe('createBridgeIntent', () => {
       expect(intent.provider).toBe('mayan');
       const big = intent.selectedSources.find((s) => s.chain.id === bigChain.id)!;
       const swing = intent.selectedSources.find((s) => s.chain.id === swingChain.id)!;
-      // big leg (out 6 at full 12) can't cover 7 alone, so it stays at full usable
-      expect(big.amount.toFixed()).toBe('12');
+      // big leg can't cover 7 alone, so it stays at its full balance-minus-fee usable amount
+      expect(big.amount.toFixed()).toBe('11.999999');
       // swing covers residual output 1. The 50% mock is a steep *proportional* fee, so the
       // absolute-haircut seed (which models a FIXED fee) over-sizes here: seed = need 1 +
       // fullHaircut (10−5)=5 → 6 in → 3 out, delivering 9 vs the 7 requested. Pins the known
       // trade-off (real Mayan is mostly fixed — see the fixed-fee test below for clean convergence).
       expect(swing.amount.toFixed()).toBe('6');
-      expect(intent.destination.amount.toFixed()).toBe('9');
+      expect(intent.destination.amount.toFixed()).toBe('8.9999995');
     });
 
     it('over-sizes a single source on a steep proportional rate (the absolute-haircut trade-off)', async () => {
@@ -386,7 +559,7 @@ describe('createBridgeIntent', () => {
           dstChainUniverse: Universe.ETHEREUM,
           dstChainNativeDecimals: 18,
           recipient: options.evm.address,
-          quoteResponse: zeroFeeQuote([srcChain.id], dstChain.id),
+          quoteResponse: feeQuote([srcChain.id], dstChain.id),
           provider: 'mayan',
         },
         { ...createIntentContext(options), middlewareClient: makeRateMayanClient(0.5) }
@@ -397,7 +570,7 @@ describe('createBridgeIntent', () => {
       // Steep 50% *proportional* mock: the absolute-haircut seed (modelling a FIXED fee) over-sizes —
       // seed = need 30 + fullHaircut (100−50)=50 → 80 in → 40 out, delivering 40 vs 30 requested.
       // The documented trade-off; on a mostly-fixed real Mayan fee it converges clean (test below).
-      expect(intent.selectedSources[0]!.amount.toFixed()).toBe('80');
+      expect(intent.selectedSources[0]!.amount.toFixed()).toBe('79.9999995');
       expect(intent.destination.amount.toFixed()).toBe('40');
     });
 
@@ -445,7 +618,7 @@ describe('createBridgeIntent', () => {
           dstChainUniverse: Universe.ETHEREUM,
           dstChainNativeDecimals: 18,
           recipient: options.evm.address,
-          quoteResponse: zeroFeeQuote([bigChain.id, swingChain.id], dstChain.id),
+          quoteResponse: feeQuote([bigChain.id, swingChain.id], dstChain.id),
           provider: 'mayan',
         },
         { ...createIntentContext(options), middlewareClient: makeRateMayanClient(0.5) }
@@ -524,7 +697,7 @@ describe('createBridgeIntent', () => {
           dstChainUniverse: Universe.ETHEREUM,
           dstChainNativeDecimals: 18,
           recipient: options.evm.address,
-          quoteResponse: zeroFeeQuote([srcChain.id], dstChain.id),
+          quoteResponse: feeQuote([srcChain.id], dstChain.id),
           provider: 'mayan',
         },
         { ...createIntentContext(options), middlewareClient: makeFixedFeeMayanClient(1.0) }
@@ -589,7 +762,7 @@ describe('createBridgeIntent', () => {
         dstChainUniverse: Universe.ETHEREUM,
         dstChainNativeDecimals: 18,
         recipient: options.evm.address,
-        quoteResponse: zeroFeeQuote([1], 10),
+        quoteResponse: feeQuote([1], 10),
         provider: 'nexus',
       },
       createIntentContext(options)
@@ -628,7 +801,7 @@ describe('createBridgeIntent', () => {
           dstChainUniverse: Universe.ETHEREUM,
           dstChainNativeDecimals: 18,
           recipient: options.evm.address,
-          quoteResponse: zeroFeeQuote([], 10),
+          quoteResponse: feeQuote([], 10),
           provider: 'nexus',
         },
         createIntentContext(options)
@@ -656,7 +829,7 @@ describe('createBridgeIntent', () => {
           dstChainUniverse: Universe.ETHEREUM,
           dstChainNativeDecimals: 18,
           recipient: options.evm.address,
-          quoteResponse: zeroFeeQuote([], 10),
+          quoteResponse: feeQuote([], 10),
           provider: 'nexus',
         },
         createIntentContext(options)
@@ -696,7 +869,7 @@ describe('createBridgeIntent', () => {
           dstChainUniverse: Universe.ETHEREUM,
           dstChainNativeDecimals: 18,
           recipient: options.evm.address,
-          quoteResponse: zeroFeeQuote([1], 10),
+          quoteResponse: feeQuote([1], 10),
           provider: 'nexus',
         },
         createIntentContext(options)
@@ -736,7 +909,7 @@ describe('createBridgeIntent', () => {
           dstChainUniverse: Universe.ETHEREUM,
           dstChainNativeDecimals: 18,
           recipient: options.evm.address,
-          quoteResponse: zeroFeeQuote([1], 10),
+          quoteResponse: feeQuote([1], 10),
           provider: 'nexus',
         },
         createIntentContext(options)
@@ -874,9 +1047,9 @@ describe('createBridgeIntent', () => {
       fulfillmentBps: 0,
       fulfillmentFeeToken: '0',
       sources: [
-        { chainId: ethChain.id, tokenAddress: token.contractAddress, depositFeeToken: '0' },
-        { chainId: arbChain.id, tokenAddress: token.contractAddress, depositFeeToken: '0' },
-        { chainId: baseChain.id, tokenAddress: token.contractAddress, depositFeeToken: '0' },
+        { chainId: ethChain.id, tokenAddress: token.contractAddress, depositFeeToken: '1' },
+        { chainId: arbChain.id, tokenAddress: token.contractAddress, depositFeeToken: '1' },
+        { chainId: baseChain.id, tokenAddress: token.contractAddress, depositFeeToken: '1' },
       ],
       dstChainId: dstChain.id,
     });
@@ -900,15 +1073,14 @@ describe('createBridgeIntent', () => {
       createIntentContext(options)
     );
 
-    // Sort: Base(20) before Arb(10) before Eth(30) — amount DESC, Eth last
-    // Need 55: Base 20 + Arb 10 + Eth 25
+    // Sort: Base before Arb before Eth — balance DESC, Eth last. Each full leg pays one raw fee.
     expect(intent.selectedSources).toHaveLength(3);
     expect(intent.selectedSources[0]!.chain.id).toBe(baseChain.id);
-    expect(intent.selectedSources[0]!.amount.toFixed()).toBe('20');
+    expect(intent.selectedSources[0]!.amount.toFixed()).toBe('19.999999');
     expect(intent.selectedSources[1]!.chain.id).toBe(arbChain.id);
-    expect(intent.selectedSources[1]!.amount.toFixed()).toBe('10');
+    expect(intent.selectedSources[1]!.amount.toFixed()).toBe('9.999999');
     expect(intent.selectedSources[2]!.chain.id).toBe(ethChain.id);
-    expect(intent.selectedSources[2]!.amount.toFixed()).toBe('25');
+    expect(intent.selectedSources[2]!.amount.toFixed()).toBe('25.000002');
   });
 
   it('skips sources where deposit fee exceeds balance', async () => {
@@ -1221,7 +1393,7 @@ describe('createBridgeIntent', () => {
           dstChainUniverse: Universe.ETHEREUM,
           dstChainNativeDecimals: 18,
           recipient: options.evm.address,
-          quoteResponse: zeroFeeQuote([], 10),
+          quoteResponse: feeQuote([], 10),
           provider: 'nexus',
         },
         createIntentContext(options)

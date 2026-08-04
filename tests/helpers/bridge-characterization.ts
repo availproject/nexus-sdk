@@ -199,14 +199,14 @@ export const makeBridgeCharacterizationHarness = (_options?: {
         {
           chainId: primarySourceChain.id,
           tokenAddress: primarySourceToken.contractAddress,
-          depositFeeUsd: '0',
-          depositFeeToken: '0',
+          depositFeeUsd: '0.000001',
+          depositFeeToken: '1',
         },
         {
           chainId: alternateSourceChain.id,
           tokenAddress: alternateSourceToken.contractAddress,
-          depositFeeUsd: '0',
-          depositFeeToken: '0',
+          depositFeeUsd: '0.000001',
+          depositFeeToken: '1',
         },
       ],
       destination: {

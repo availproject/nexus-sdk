@@ -2,7 +2,7 @@ import Decimal from 'decimal.js';
 import { type Hex, type PublicClient, toHex } from 'viem';
 import { z } from 'zod';
 import { createBridgeIntent } from '../bridge/intent/creator';
-import { buildQuoteRequest } from '../bridge/intent/quote-request';
+import { buildQuoteRequest, selectQuoteSourceChainIds } from '../bridge/intent/quote-request';
 import { type BridgePreviewState, buildBridgePreviewState } from '../bridge/preview';
 import {
   type BeforeExecuteHook,
@@ -312,19 +312,16 @@ const buildCompositePreviewState = async (
   }
 
   const assets = createUserAssets(input.unifiedBalances);
-  const quoteSourceChainIds =
-    input.sourceChains && input.sourceChains.length > 0
-      ? input.sourceChains
-      : (
-          await assets
-            .find({
-              currencyId: input.token.currencyId,
-              symbol: input.token.symbol,
-            })
-            .iterate(deps.chainList)
-        )
-          .filter((entry) => entry.chain.id !== input.dstChain.id && entry.balance.gt(0))
-          .map((entry) => entry.chain.id);
+  const quoteSourceChainIds = selectQuoteSourceChainIds(
+    await assets
+      .find({
+        currencyId: input.token.currencyId,
+        symbol: input.token.symbol,
+      })
+      .iterate(deps.chainList),
+    input.dstChain.id,
+    input.sourceChains ?? []
+  );
   const quoteResponse = await deps.middlewareClient.getQuote(
     buildQuoteRequest(deps.chainList, input.token, input.dstChain.id, quoteSourceChainIds)
   );
