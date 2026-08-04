@@ -23,6 +23,7 @@ import { divDecimals, mulDecimals } from './math';
 import { getPermitVariantAndVersion } from './permits';
 import { createAllowanceApprovalStepId } from './step-ids';
 import { equalFold } from './strings';
+import { minutesFromNow } from './time';
 
 const logger = getLogger();
 
@@ -273,7 +274,8 @@ export const executeAllowances = async (input: AllowanceExecutionInput): Promise
           publicClient,
           account,
           vaultContract,
-          source.amount
+          source.amount,
+          minutesFromNow(15)
         ).catch((cause) => {
           const error =
             cause instanceof NexusError

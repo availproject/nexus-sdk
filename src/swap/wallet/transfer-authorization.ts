@@ -11,14 +11,13 @@ import { ERC20PermitABI } from '../../abi/erc20';
 import { type Chain, getLogger } from '../../domain';
 import { PermitVariant } from '../../domain/permits';
 import { signPermitForAddressAndValue } from '../../services/allowance-utils';
-import { minutesToMs } from '../../services/time';
+import { minutesFromNow } from '../../services/time';
 import type { PreparedAuthorizationCall, PublicClientList } from '../types';
 import type { SwapCache } from './cache';
 
 const logger = getLogger();
 // Destination permits are signed before source + bridge execution, whose fill wait alone can take
 // five minutes. Match the SBC validity window so the signature stays finite without expiring mid-flow.
-const TRANSFER_PERMIT_DEADLINE_MS = minutesToMs(15);
 
 const DAI_PERMIT_ABI = [
   {
@@ -76,7 +75,7 @@ const buildPermitCall = async (input: {
   permitVariant: PermitVariant;
   permitContractVersion: number;
 }): Promise<Extract<PreparedAuthorizationCall, { kind: 'permit' }>> => {
-  const deadline = BigInt(Math.floor((Date.now() + TRANSFER_PERMIT_DEADLINE_MS) / 1000));
+  const deadline = minutesFromNow(15);
   const signature = parseSignature(
     await signPermitForAddressAndValue(
       {

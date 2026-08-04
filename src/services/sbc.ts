@@ -13,6 +13,7 @@ import {
 import { BackendError, ERROR_CODES, Errors } from '../domain/errors';
 import { CALIBUR_ADDRESS, CALIBUR_EIP712_BASE, SBC_DEADLINE_MINUTES } from '../swap/constants';
 import type { AuthorizationListItem, SBCResult, SBCTx } from '../swap/types';
+import { minutesFromNow } from './time';
 
 export type SBCCall = {
   to: Hex;
@@ -57,7 +58,7 @@ export const createSBCTxFromCalls = async (input: CreateSBCInput): Promise<SBCTx
 
   const randomBytes = crypto.getRandomValues(new Uint8Array(24));
   const nonce = bytesToBigInt(randomBytes) << 64n;
-  const deadline = BigInt(Math.floor(Date.now() / 1000)) + SBC_DEADLINE_MINUTES * 60n;
+  const deadline = minutesFromNow(Number(SBC_DEADLINE_MINUTES));
 
   const domain = {
     ...CALIBUR_EIP712_BASE,
@@ -121,7 +122,7 @@ export const createCaliburExecuteTxFromCalls = async (input: {
 }): Promise<SBCCall> => {
   const randomBytes = crypto.getRandomValues(new Uint8Array(24));
   const nonce = bytesToBigInt(randomBytes) << 64n;
-  const deadline = BigInt(Math.floor(Date.now() / 1000)) + SBC_DEADLINE_MINUTES * 60n;
+  const deadline = minutesFromNow(Number(SBC_DEADLINE_MINUTES));
 
   const domain = {
     ...CALIBUR_EIP712_BASE,
