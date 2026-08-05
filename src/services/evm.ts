@@ -18,7 +18,7 @@ import { minutesToMs } from './time';
 
 const logger = getLogger();
 
-const TRANSACTION_RECEIPT_WAIT_TIMEOUT_MS = 60_000;
+const TRANSACTION_RECEIPT_WAIT_TIMEOUT_MS = minutesToMs(3);
 
 type TransactionReceiptPublicClient = Pick<
   PublicClient,

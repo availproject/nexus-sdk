@@ -101,7 +101,7 @@ describe('confirmStepReceipt', () => {
 describe('waitForTxReceipt', () => {
   const TX = '0xabc0000000000000000000000000000000000000000000000000000000000001' as const;
 
-  it('falls back to a direct receipt lookup when the confirmation waiter fails', async () => {
+  it('uses the 3-minute default and falls back to a direct receipt lookup when waiting fails', async () => {
     const waitError = new Error('receipt wait timed out');
     const waitForTransactionReceipt = vi.fn().mockRejectedValue(waitError);
     const receipt = { status: 'success' } as const;
@@ -120,7 +120,7 @@ describe('waitForTxReceipt', () => {
     expect(waitForTransactionReceipt).toHaveBeenCalledWith({
       confirmations: 1,
       hash: TX,
-      timeout: 60_000,
+      timeout: 180_000,
     });
     expect(getTransactionReceipt).toHaveBeenCalledWith({ hash: TX });
   });

@@ -696,7 +696,7 @@ executeSwapRoute(route, ctx) -> SwapMetadata:                  # execution/orche
   return metadata
 
 receipt confirmation (shared):
-  wait up to 60s for 1 confirmation on every chain
+  wait up to 3 minutes for 1 confirmation on every chain
   waiter error → getTransactionReceipt(hash) once as a final inclusion check
     found success → accept it even if the normal confirmation count was not reached
     found revert  → preserve the on-chain-revert classification for the caller's retry policy
