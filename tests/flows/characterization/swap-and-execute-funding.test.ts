@@ -118,6 +118,7 @@ const DEPLOYMENT: DeploymentResponse = {
       multicallAddress: '0x00000000000000000000000000000000000000aa',
       nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18, logo: '', currencyId: 3 },
       sponsored: false,
+      swapSupported: true,
       explorerUrl: 'https://arbiscan.io',
       logo: '',
       tokens: [

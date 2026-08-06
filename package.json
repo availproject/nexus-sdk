@@ -61,7 +61,7 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "@avail-project/nexus-types": "0.1.21",
+    "@avail-project/nexus-types": "0.1.25",
     "@opentelemetry/api-logs": "0.219.0",
     "@opentelemetry/exporter-logs-otlp-http": "0.219.0",
     "@opentelemetry/resources": "2.8.0",

@@ -177,6 +177,7 @@ describe('createMiddlewareClient', () => {
               currencyId: 3,
             },
             sponsored: false,
+            swapSupported: true,
             explorerUrl: 'https://sepolia.etherscan.io',
             logo: 'https://example.com/chain.png',
             tokens: [
@@ -229,6 +230,7 @@ describe('createMiddlewareClient', () => {
               logo: 'https://example.com/eth.png',
             },
             sponsored: false,
+            swapSupported: true,
             explorerUrl: 'https://sepolia.etherscan.io',
             logo: 'https://example.com/chain.png',
             tokens: [
@@ -282,6 +284,7 @@ describe('createMiddlewareClient', () => {
               currencyId: 3,
             },
             sponsored: false,
+            swapSupported: true,
             explorerUrl: 'https://sepolia.etherscan.io',
             logo: 'https://example.com/chain.png',
             tokens: [
@@ -335,6 +338,7 @@ describe('createMiddlewareClient', () => {
               currencyId: 3,
             },
             sponsored: false,
+            swapSupported: true,
             explorerUrl: 'https://sepolia.etherscan.io',
             logo: 'https://example.com/chain.png',
             tokens: [],
