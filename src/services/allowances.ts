@@ -266,6 +266,7 @@ export const executeAllowances = async (input: AllowanceExecutionInput): Promise
         ...amount,
       });
 
+      const deadline = minutesFromNow(15);
       const signed = parseSignature(
         await signPermitForAddressAndValue(
           currency,
@@ -275,7 +276,7 @@ export const executeAllowances = async (input: AllowanceExecutionInput): Promise
           account,
           vaultContract,
           source.amount,
-          minutesFromNow(15)
+          deadline
         ).catch((cause) => {
           const error =
             cause instanceof NexusError
@@ -309,6 +310,7 @@ export const executeAllowances = async (input: AllowanceExecutionInput): Promise
         },
       ];
       sponsoredApprovals[chain.id][0].ops.push({
+        deadline: deadline.toString(),
         signature: {
           v: signed.yParity < 27 ? signed.yParity + 27 : signed.yParity,
           r: signed.r,

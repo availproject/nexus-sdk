@@ -85,13 +85,20 @@ describe('signPermitForAddressAndValue', () => {
     );
   });
 
-  it('uses a 15-minute deadline for bridge allowance permits', async () => {
+  it('uses the same 15-minute deadline for permit signing and sponsored approval', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-04T00:00:00.000Z'));
 
     const signTypedData = vi.fn().mockResolvedValue(
       `0x${'0'.repeat(63)}1${'0'.repeat(63)}2${'1b'}` as Hex
     );
+    const createApprovals = vi.fn().mockResolvedValue([
+      {
+        chainId: SOURCE_CHAIN.id,
+        address: OWNER,
+        errored: false,
+      },
+    ]);
     const walletClient = {
       getChainId: vi.fn().mockResolvedValue(SOURCE_CHAIN.id),
       signTypedData,
@@ -111,19 +118,15 @@ describe('signPermitForAddressAndValue', () => {
       options: {
         evm: { address: OWNER, client: walletClient },
         chainList: makeChainList([SOURCE_CHAIN], token),
-        middlewareClient: makeMiddlewareClient({
-          createApprovals: vi.fn().mockResolvedValue([
-            {
-              chainId: SOURCE_CHAIN.id,
-              address: OWNER,
-              errored: false,
-            },
-          ]),
-        }),
+        middlewareClient: makeMiddlewareClient({ createApprovals }),
       },
       dstChain: SOURCE_CHAIN,
     });
 
-    expect(signTypedData.mock.calls[0]?.[0]?.message.deadline).toBe(minutesFromNow(15));
+    const deadline = minutesFromNow(15);
+    expect(signTypedData.mock.calls[0]?.[0]?.message.deadline).toBe(deadline);
+    expect(
+      createApprovals.mock.calls[0]?.[0]?.[SOURCE_CHAIN.id]?.[0]?.ops[0]?.deadline
+    ).toBe(deadline.toString());
   });
 });

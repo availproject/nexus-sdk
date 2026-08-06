@@ -25,6 +25,7 @@ const makeDeployment = (overrides?: Partial<DeploymentResponse>): DeploymentResp
         currencyId: 3,
       },
       sponsored: false,
+      swapSupported: true,
       tokens: [
         {
           symbol: 'USDC',
