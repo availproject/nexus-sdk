@@ -614,14 +614,17 @@ export async function _exactOutRoute(
     roughlyEstimatedSources
   );
 
-  const destinationBuffer = applyBuffer(
-    inputAmount,
-    DST_BUFFER_PCT,
-    DST_BUFFER_MAX_USD,
-    oraclePrices,
-    data.toChainId,
-    dstCOT.address
-  );
+  const destinationBuffer =
+    needsTokenSwap || needsGasSwap
+      ? applyBuffer(
+          inputAmount,
+          DST_BUFFER_PCT,
+          DST_BUFFER_MAX_USD,
+          oraclePrices,
+          data.toChainId,
+          dstCOT.address
+        )
+      : new Decimal(0);
   const destinationBufferedInput = inputAmount.plus(destinationBuffer);
   const originalDestinationMaxInput = new Decimal(destinationBufferedInput);
   const sourceBuffer = applyBuffer(

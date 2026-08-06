@@ -4600,7 +4600,8 @@ describe('determineSwapRoute — bridge provider parity', () => {
     // Before the real source quoting, the route rough-selects ~110% of the 1000 USDC requirement,
     // quotes Mayan, and folds the haircut (a flat $22 on the 1100 rough leg) into the target that
     // autoSelectSources must cover — so the real selection produces enough COT to survive the bridge
-    // fee. Net dst-need + buffers is 1003; with the fee, autoSelect is asked for 1025.
+    // fee. With no destination swap, net dst-need + source buffer is 1001; with the fee,
+    // autoSelect is asked for 1023.
     const mayanMw = {
       getBridgeProvider: vi.fn().mockResolvedValue({ provider: 'mayan' }),
       getMayanQuotes: vi.fn().mockImplementation(
@@ -4644,7 +4645,7 @@ describe('determineSwapRoute — bridge provider parity', () => {
     );
     expect(autoSelectSources).toHaveBeenCalled();
     const { outputRequired } = vi.mocked(autoSelectSources).mock.calls[0][0];
-    expect(outputRequired.toFixed()).toBe('1025');
+    expect(outputRequired.toFixed()).toBe('1023');
   });
 
   it('EXACT_OUT Mayan: estimatedFees records the haircut (gross − Σ minReceived), not Nexus fees', async () => {
