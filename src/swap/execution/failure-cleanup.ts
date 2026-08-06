@@ -6,6 +6,7 @@ import {
   type SweepContext,
   type SweepGroup,
 } from '../../services/init-refund-sweep';
+import { minutesFromNow } from '../../services/time';
 import { type CurrencyID, resolveCOT } from '../cot';
 import { predictSafeAccountAddress } from '../safe/predict';
 import type { ExecutionContext, SwapRoute } from '../types';
@@ -14,7 +15,6 @@ import { buildEphemeralPermitCall } from '../wallet/ephemeral-permit';
 import { readSettlementBalanceRaw } from './settlement-balance';
 
 const logger = getLogger();
-const CLEANUP_PERMIT_DEADLINE_SECONDS = 5n * 60n;
 
 /**
  * The currency the on-failure cleanup should sweep, or `null` to skip it. A Nexus same-token bridge
@@ -90,7 +90,7 @@ export const cleanupStrandedCot = async (input: {
 
       if (balance <= 0n) continue;
       if (sourceAtEphemeral && !is7702) {
-        const deadline = BigInt(Math.floor(Date.now() / 1000)) + CLEANUP_PERMIT_DEADLINE_SECONDS;
+        const deadline = minutesFromNow(5);
         const permitCall = await buildEphemeralPermitCall({
           tokenAddress,
           amount: balance,

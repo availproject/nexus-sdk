@@ -39,6 +39,7 @@ import {
   createBridgeDepositStepId,
   createEoaToEphemeralTransferStepId,
 } from '../../services/step-ids';
+import { minutesFromNow } from '../../services/time';
 import { withTimingSpan } from '../../services/timing';
 import { createSwapBridgeIntent } from '../bridge-intent';
 import { predictSafeAccountAddress } from '../safe/predict';
@@ -75,7 +76,6 @@ const resolveBridgeRecipient = (input: {
 
 // 5 minute window — matches v1's BRIDGE_VAULT_PERMIT_DEADLINE_MINUTES. Permit deadline expiry
 // has historically been a source of flake; do not drop below 3 minutes.
-const BRIDGE_VAULT_PERMIT_DEADLINE_SECONDS = 5n * 60n;
 const MAX_BRIDGE_FUNDING_ATTEMPTS = 3;
 
 const isRetryableFundingPreparationError = (
@@ -550,8 +550,7 @@ const runMayanEphemeralBridge = async (
           publicClient,
           middleware: ctx.middlewareClient,
         });
-        const deadline =
-          BigInt(Math.floor(Date.now() / 1000)) + BRIDGE_VAULT_PERMIT_DEADLINE_SECONDS;
+        const deadline = minutesFromNow(5);
         const safeCalls = [
           ...fundingCalls,
           ...(await buildSafePermitCalls({
@@ -1056,8 +1055,7 @@ const executeEphemeralBridgePath = async (
           publicClient,
           middleware: ctx.middlewareClient,
         });
-        const deadline =
-          BigInt(Math.floor(Date.now() / 1000)) + BRIDGE_VAULT_PERMIT_DEADLINE_SECONDS;
+        const deadline = minutesFromNow(5);
         const safeCalls = [
           ...fundingCalls,
           ...(await buildSafeBridgeDepositCalls({

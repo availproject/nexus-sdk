@@ -23,6 +23,7 @@ export const testDeployment: DeploymentResponse = {
         currencyId: 3,
       },
       sponsored: false,
+      swapSupported: true,
       explorerUrl: 'https://etherscan.io',
       logo: 'https://example.com/eth-chain/logo.png',
       tokens: [
@@ -61,6 +62,7 @@ export const testDeployment: DeploymentResponse = {
         currencyId: 3,
       },
       sponsored: true,
+      swapSupported: true,
       explorerUrl: 'https://sepolia.etherscan.io',
       logo: 'https://example.com/sepolia/logo.png',
       tokens: [

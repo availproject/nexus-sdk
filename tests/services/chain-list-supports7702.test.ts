@@ -5,7 +5,7 @@ import type { DeploymentResponse } from '../../src/domain/types/deployment-types
 
 const hyperEvmDeployment = (
   supports7702: boolean,
-  swapSupported?: boolean
+  swapSupported = true
 ): DeploymentResponse => ({
   network: 'mainnet',
   statekeeperUrl: 'https://statekeeper.example',
@@ -33,7 +33,7 @@ const hyperEvmDeployment = (
       explorerUrl: 'https://hyperliquid.cloud.blockscout.com',
       logo: 'https://example.com/chain.png',
       supports7702,
-      ...(swapSupported !== undefined ? { swapSupported } : {}),
+      swapSupported,
     },
   ],
 });

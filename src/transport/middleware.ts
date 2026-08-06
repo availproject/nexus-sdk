@@ -455,7 +455,7 @@ export const deploymentResponseSchema: z.ZodType<DeploymentResponse> = z.object(
         ),
         mayanEnabled: z.boolean().optional(),
         eip7702Enabled: z.boolean().optional(),
-        swapSupported: z.boolean().optional(),
+        swapSupported: z.boolean(),
       })
       .transform(({ eip7702Enabled, ...rest }) => ({
         ...rest,

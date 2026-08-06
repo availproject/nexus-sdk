@@ -16,6 +16,7 @@ const wireChain = (overrides: Record<string, unknown> = {}): Record<string, unkn
     currencyId: 100,
   },
   sponsored: false,
+  swapSupported: true,
   explorerUrl: 'https://hyperliquid.cloud.blockscout.com',
   logo: 'https://example.com/chain.png',
   tokens: [],
@@ -64,9 +65,9 @@ describe('deploymentResponseSchema parses swapSupported', () => {
     expect(parsed.chains[0].swapSupported).toBe(false);
   });
 
-  it('leaves swapSupported undefined when wire field omitted', () => {
-    const parsed = deploymentResponseSchema.parse(wirePayload());
-
-    expect(parsed.chains[0].swapSupported).toBeUndefined();
+  it('rejects the deployment when swapSupported is omitted', () => {
+    expect(() =>
+      deploymentResponseSchema.parse(wirePayload({ swapSupported: undefined }))
+    ).toThrow();
   });
 });
