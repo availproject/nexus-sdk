@@ -2097,6 +2097,58 @@ describe('EXACT_OUT coverage expansion', () => {
     expect(sentTxs).toHaveLength(0); // ERC20 input → ephemeral SBC, no EOA native send
   });
 
+  it('A7 · COT exact out uses a covering destination-chain asset directly despite a remote source', async () => {
+    const balances: FlatBalance[] = [
+      dai(BASE_CHAIN, '1000'),
+      {
+        amount: '1',
+        chainID: ARB_CHAIN,
+        decimals: 18,
+        symbol: 'WETH',
+        tokenAddress: WETH,
+        value: 2500,
+        name: 'Wrapped Ether',
+        logo: '',
+      },
+    ];
+    const middlewareClient = makeCharMiddleware({ balances, provider: 'nexus' });
+    const { wallet } = makeRealEoaWallet();
+
+    await flowSwap(
+      {
+        mode: SwapMode.EXACT_OUT as const,
+        data: {
+          sources: [
+            { chainId: BASE_CHAIN, tokenAddress: SOURCE_DAI },
+            { chainId: ARB_CHAIN, tokenAddress: WETH },
+          ],
+          toChainId: BASE_CHAIN,
+          toTokenAddress: USDC_BASE,
+          toAmountRaw: 500n * 10n ** 6n,
+        },
+      },
+      deps(middlewareClient, wallet),
+      allow
+    );
+
+    expect(middlewareClient.submitRFF).not.toHaveBeenCalled();
+    expect(sbcBatchesForChain(middlewareClient, ARB_CHAIN)).toEqual([]);
+
+    const base = sbcBatchesForChain(middlewareClient, BASE_CHAIN);
+    expect(base).toHaveLength(1);
+    expect(base[0].map((call) => call.fn)).toEqual([
+      'permit',
+      'transferFrom',
+      'approve',
+      'swap',
+    ]);
+    const swap = base[0][3];
+    eq(SOURCE_DAI)(swap.args[0]);
+    eq(USDC_BASE)(swap.args[1]);
+    eq(EOA)(swap.args[5]);
+    expect(swap.args[3]).toBe(500n * 10n ** 6n);
+  });
+
   // ── B · gas-only with a bridged source ──
 
   it('B1 · gas-only funding from a cross-chain COT source → bridge fills the wrapper, gas swap runs', async () => {

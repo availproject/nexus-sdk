@@ -353,7 +353,7 @@ determineSwapRoute(input, opts) -> SwapRoute:
     # Path A gets the first attempt, before any COT→toToken sizing quote:
     directRequiredUsd = toAmount × toTokenPrice + nativeAmount × nativePrice
     directCapacityUsd = Σ(dstHolding.amount × cachedPrice)
-    if needTokenSwap ∧ dstHoldings non-empty ∧
+    if toAmountRaw > 0 ∧ dstHoldings non-empty ∧
        (required/capacity unknown ∨ directCapacityUsd ≥ directRequiredUsd):
       try buildDirectDestinationExactOutRoute                       # authoritative quotes/coverage
       success → return immediately                                  # no destination requirement quote
