@@ -201,13 +201,6 @@ describe('Errors.* named factories', () => {
     expect(err.context.service).toBe('wallet');
   });
 
-  it('userRejectedEphemeralKey returns UserActionError with wallet service', () => {
-    const err = Errors.userRejectedEphemeralKey();
-    expect(err).toBeInstanceOf(UserActionError);
-    expect(err.code).toBe('user_action/ephemeral_key_denied');
-    expect(err.context.service).toBe('wallet');
-  });
-
   it('liquidityTimeout maps to backend/fulfilment_wait_timeout', () => {
     const err = Errors.liquidityTimeout('0xrff');
     expect(err).toBeInstanceOf(BackendError);
@@ -250,12 +243,6 @@ describe('Errors.* named factories', () => {
     const err = Errors.slippageExceeded('100', '90');
     expect(err).toBeInstanceOf(ExecutionError);
     expect(err.code).toBe('execution/slippage_exceeded');
-  });
-
-  it('ephemeralKeyFailed maps to internal/ephemeral_key_derive_failed', () => {
-    const err = Errors.ephemeralKeyFailed(new Error('crypto bug'));
-    expect(err).toBeInstanceOf(InternalError);
-    expect(err.code).toBe('internal/ephemeral_key_derive_failed');
   });
 
   it('destinationRequestHashNotFound maps to internal/destination_request_hash_not_found', () => {

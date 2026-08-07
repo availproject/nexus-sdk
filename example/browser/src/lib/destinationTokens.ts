@@ -224,13 +224,12 @@ export const DESTINATION_TOKENS: ReadonlyMap<number, DestinationToken[]> =
 
 /* ── Swap chain/token options ───────────────────────────────────────── */
 
-/** Chains a swap can target: the SDK's supported chains filtered to those
- *  flagged `swapSupported`. */
+/** Chains a swap can target according to the Better Intent catalog. */
 export function getSwapChainOptions(client: NexusClient | null): ChainOption[] {
   if (!client) return [];
   return client
     .getSupportedChains()
-    .filter((c) => c.swapSupported)
+    .filter((c) => c.capabilities.intent)
     .map((c) => ({ id: c.id, name: c.name }));
 }
 
@@ -244,7 +243,7 @@ export function getSwapTokenOptions(
   const sdkTokens: TokenOption[] = (chain?.tokens ?? []).map((t) => ({
     symbol: t.symbol,
     label: t.symbol,
-    tokenAddress: t.contractAddress,
+    tokenAddress: t.address,
     decimals: t.decimals,
   }));
 

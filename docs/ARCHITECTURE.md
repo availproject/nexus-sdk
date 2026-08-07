@@ -1,318 +1,235 @@
-# Nexus SDK Architecture (v2)
+# Nexus SDK Architecture
 
-This document is the canonical overview of how the Nexus SDK is structured and how requests flow
-through the system. It is intended to help developers and LLMs understand the codebase quickly.
+This document describes the API-first Nexus SDK after the Better Intent refactor.
 
-## Scope and goals
+## Responsibility split
 
-- Provide a headless TypeScript SDK for cross-chain operations on EVM chains.
-- Keep a functional architecture with clear package boundaries.
-- Use pure functions unless absolutely necessary.
-- Keep flow entrypoints thin and feature internals local to their feature package.
-- Make flows testable and services reusable.
-- Keep the public API stable (unless explicitly changed).
+The Better Intent middleware owns:
 
-## Public API surface (high level)
+- supported intent chains and tokens;
+- balance-aware source selection;
+- route and provider selection;
+- exact-input and exact-output quote calculation;
+- fees, allowances, signing instructions, and native source transaction instructions;
+- intent status and history.
 
-The SDK exposes a single factory: `createNexusClient`.
+The SDK owns:
 
-The returned `NexusClient` includes:
-- `initialize(): Promise<void>` (fetches deployment data; must be called before chain-dependent ops)
-- `setEVMProvider(provider): Promise<void>`
-- `isSupportedChain(chainId): boolean`
-- `bridge(params, options?)`
-- `bridgeAndTransfer(params, options?)`
-- `bridgeAndExecute(params, options?)`
-- `execute(params, options?)`
-- `swapWithExactIn(params, options?)`
-- `swapWithExactOut(params, options?)`
-- `swapAndExecute(params, options?)`
-- `calculateMaxForSwap(params)`
-- `calculateMaxForBridge(params)`
-- Simulation variants: `simulateBridge`, `simulateBridgeAndTransfer`, `simulateBridgeAndExecute`, `simulateExecute`
-- `getBalancesForBridge()`
-- `getBalancesForSwap()`
-- `listIntents(params?)`
-- `getSupportedChains()`
-- `convertTokenReadableAmountToBigInt(amount, tokenSymbol, chainId)`
-- `chainList`, `utils`, `analytics`, `destroy()`, `hasEvmProvider`
+- public input validation and catalog lookups;
+- response normalization at the transport boundary;
+- quote review hooks and quote refresh;
+- wallet chain switching, ERC-20 approvals, `personal_sign`, and native transactions;
+- intent submission and fulfillment polling;
+- standalone contract execution;
+- destination shortfall calculation for intent-plus-execute operations;
+- analytics, timing, errors, and public client assembly.
 
-## Client lifecycle
+There is no local route engine, quote engine, aggregator selection, Safe path, ephemeral wallet, or
+legacy fallback.
 
-1) Create the client
-2) Call `initialize()` to load deployment data (chains/tokens)
-3) Call `setEVMProvider(provider)` to bind the wallet
+## Public client lifecycle
 
-The client is disposable and should be treated as bound to the current provider/address. On account
-change, create a new client, call `initialize()`, then call `setEVMProvider(provider)` again.
-
-The SDK does not persist flow/runtime state across client instances, but swap flows may cache
-derived-key signature material in local storage so an ephemeral wallet can be reconstructed for the
-same address. Call `destroy()` when you are done to end analytics sessions.
-
-## Folder structure
-
+```text
+createNexusClient(config)
+  -> initialize()
+       GET /deployment
+       GET /api/v1/better-intent/chains       mainnet/canary only
+       GET /api/v1/better-intent/tokens       mainnet/canary only
+  -> setEVMProvider(provider)
+       bind address + viem wallet client
+  -> operations
+  -> destroy()
 ```
+
+`mainnet` and `canary` both enable Better Intent and use mainnet chain catalogs. Other network
+hints initialize deployment metadata for execute, but intent operations fail with
+`ENVIRONMENT_NOT_SUPPORTED`.
+
+The client is bound to the current wallet provider/address. Recreate it after an account or
+provider change.
+
+## Source layout
+
+```text
 src/
-  abi/          Contract ABIs used by flows and services
-  analytics/    Analytics, timing, and provider integrations
-  bridge/       Bridge-specific internals (preview, intent builders, hooks, allowances, progress)
-  core/         Public SDK surface, event adapters, and shared client types
-    sdk/        Base state/operation layer + public client factory implementation
-  domain/       Types, constants, errors, validation, chain metadata
-  execute/      Shared execute runtime and execute-progress mapping
-  flows/        Thin public orchestration entrypoints, shared deps, and composition wrappers
-  services/     Cross-feature helpers only (timing, balances, intents, pricing, etc.)
-  swap/         Swap-specific route, preflight, execution, progress, and wallet logic
-    routing/     Mode-owned Exact In/Exact Out routing plus shared routing mechanics
-    execution/   Feature-owned source/bridge/destination stages and their orchestrator
-  transport/    Middleware + simulation clients, including shared WS request lifecycle
+  abi/          ABIs used by retained contract execution helpers
+  analytics/    analytics providers, timing, sessions, and event definitions
+  core/         public client assembly, public client types, and SDK utilities
+  domain/       shared public types, deployment types, validation, logging, and errors
+  execute/      standalone EVM execute runtime
+  flows/        thin execute entrypoint and shared execute dependency types
+  intent/       Better Intent catalog, types, normalization, funding, wallet, orchestrator
+  services/     cross-feature helpers only
+  swap/         public swap input types only
+  transport/    deployment and Better Intent HTTP client
 ```
 
-## Package boundaries
+## Dependency direction
 
-The codebase is organized as layered feature packages, not as a flat bag of helpers.
+- `src/core/` is the assembly layer and may depend on all lower packages.
+- `src/intent/` owns all cross-chain intent behavior.
+- `src/execute/` and `src/flows/execute.ts` own standalone destination execution.
+- `src/transport/` validates and normalizes external responses before returning them.
+- `src/domain/` contains shared primitives and must not depend on assembly code.
+- `src/services/` contains only helpers used across features.
+- Lower packages must not import `src/core/`.
+- `src/services/` must not import `src/flows/`.
 
-- `src/core/` is the top assembly layer. It may depend on `flows`, `bridge`, `execute`, `swap`,
-  `services`, `transport`, and `domain`.
-- Lower layers must not depend on `src/core/`.
-- `src/flows/` is for thin entrypoints and public composition surfaces. Reusable feature logic
-  should not live here.
-- `src/bridge/` owns bridge-specific internals: intent assembly, hook state, allowance
-  preparation, execution, progress mapping, and bridge-only adapters.
-- `src/execute/` owns reusable execute internals shared by composed flows.
-- `src/swap/` owns swap-specific planning, preflight, execution, and progress logic. Its
-  `route.ts` is a stable facade over `routing/exact-in.ts` and `routing/exact-out.ts`, while
-  `execution/orchestrator.ts` owns the source → bridge → destination sequence and failure cleanup.
-- `src/services/` contains cross-feature helpers only. Swap-only and bridge-only modules should not
-  live there.
-- `src/transport/` and `src/domain/` must not import from `src/flows/`.
-- `src/flows/deps.ts` is the shared home for internal flow dependency shapes.
+Bridge and swap no longer have parallel runtime packages. Both use the canonical intent path.
 
-Shared timing helpers now live in `src/services/timing.ts`, so `bridge`, `execute`, and `flows`
-can reuse timing spans without introducing `src/* -> src/flows/*` utility dependencies.
+## Canonical intent flow
 
-## Request flow overview
+Bridge, exact-output swap, and exact-input swap differ only in public validation and quote-request
+construction. They converge at `src/intent/orchestrator.ts`.
 
-Bridge flow (simplified):
-
-```
-createNexusClient
-  -> core/sdk/client.ts
-     -> core/sdk/base.ts
-        -> flows/bridge.ts
-           -> bridge/preview.ts
-           -> bridge/intent/builder.ts
-           -> bridge/intent/creator.ts
-           -> bridge/hooks/state.ts
-           -> bridge/hooks/approval.ts
-           -> bridge/allowances/prepare.ts
-           -> bridge/executor.ts
-           -> wait for fulfilment
-```
-
-Execute flow (simplified):
-
-```
-execute(params)
+```text
+public client method
   -> core/sdk/base.ts
-     -> flows/execute.ts
-        -> execute/runtime.ts
-           -> createExecuteTxContext(...)
-           -> createExecutePlanContext(...)
-           -> sendExecuteTransactions(...)
+       validate input against normalized catalog
+       build IntentQuoteRequest
+  -> transport.getIntentQuote(...)
+       validate raw API response with Zod
+       normalize into ExecutableIntentQuote
+  -> intent/orchestrator.ts
+       emit quote
+       onIntent({ quote, refresh, allow, deny })
+       resolve allowance amounts
+       ERC-20 approvals
+       personal_sign
+       native source transactions
+       submit signed intent
+       poll status
+       resolve only when fulfilled
 ```
 
-Bridge + execute flow combines both: it bridges to the destination chain and then executes a
-transaction using the bridged funds.
+The quote returned by `refresh()` replaces the complete executable quote atomically. Execution
+never combines public fields from one quote with private instructions from another.
 
-Bridge + execute flow (simplified):
+The canonical plan is ordered:
 
+1. `erc20_approval` steps with a positive deficit;
+2. `intent_signature`;
+3. `native_transaction` steps;
+4. `intent_submission`;
+5. `intent_fulfillment`.
+
+The SDK serializes wallet work through a per-client queue. User callbacks use the non-blocking
+callback pattern so event/analytics failures cannot break a flow. Approval hooks are flow-control
+hooks and may deliberately allow or reject execution.
+
+## Quote request modes
+
+### Bridge
+
+Bridge resolves the destination token by chain plus symbol, then asks the catalog for same-asset
+deployments on selected source chains. It sends an exact-output request.
+
+### Exact-output swap
+
+Exact-output accepts optional source chain/token pairs and a required destination raw amount. If
+sources are omitted, the middleware selects usable balances.
+
+### Exact-input swap
+
+Exact-input requires every source chain, token address, and raw amount. The output amount is quoted
+by the middleware.
+
+All modes default to 50 basis points of slippage. `forceMayan` becomes a preferred-provider request;
+the SDK does not calculate a local threshold or compare provider quotes.
+
+## Public intent model versus executable model
+
+`IntentQuote` is public and contains normalized user-relevant data:
+
+- provider and trade type;
+- input legs and required raw amounts;
+- output and minimum output;
+- normalized fees and allowances;
+- expiry;
+- canonical plan.
+
+`ExecutableIntentQuote` is internal. It additionally contains the RFF payload, personal-sign
+message, approval calldata, native transaction ABI/request data, and provider submission data.
+
+This separation prevents middleware wire details from becoming public API while keeping the
+approved quote auditable.
+
+## Balances and catalog
+
+`src/intent/catalog.ts` indexes the normalized chain/token catalogs by chain, address, symbol, and
+asset identity. It validates bridge same-asset relationships and produces bridge source filters.
+
+`getBalancesForBridge()` and `getBalancesForSwap()` call the same provider-backed balances endpoint
+and return chain-level `IntentBalance[]` values.
+
+`getSupportedChains()` merges Better Intent catalog chains with execute deployment chains. Each
+result contains explicit `capabilities.intent` and `capabilities.execute` flags.
+
+## Composite intent plus execute
+
+`bridgeAndExecute` and `swapAndExecute` retain a small amount of local calculation because the SDK
+must know what the later contract call needs.
+
+```text
+fetch fresh destination balances + simulate execute gas
+  -> calculate destination token/native shortfall
+  -> skip intent if fully funded
+  -> otherwise request only the shortfall through canonical intent flow
+  -> wait for fulfilled
+  -> run optional beforeExecute hook
+  -> execute destination transaction
 ```
-bridgeAndExecute(params)
-  -> core/sdk/base.ts
-     -> flows/bridge-and-execute.ts
-        -> flows/bridge.ts
-        -> flows/execute.ts
-        -> services/balances.ts
-```
 
-Swap flow (simplified):
+Native-token output combines the contract value and gas requirement. If only gas is missing and
+the funding token is non-native, the request uses one raw output unit plus the provider gas-drop
+amount so the intent remains valid.
 
-```
-swap(params)
-  -> flows/swap.ts
-     -> swap/preflight.ts
-     -> swap/route.ts: determineSwapRoute(...)
-        -> swap/routing/exact-in.ts | exact-out.ts
-     -> createSwapIntent(...)
-     -> onIntent({ allow, deny, refresh, intent })
-     -> swap/prepare.ts: prepareSwapExecution(...)
-     -> swap/execution/orchestrator.ts: executeSwapRoute(...)
-        -> executeSourceSwaps(...) | executeDirectDestinationExactOut(...)
-        -> executeSwapBridge(...) when routed
-        -> executeDestinationSwap(...)
-        -> cleanupStrandedCot(...) on stage failure
-     -> finalizeSwapResult(...)
-```
+Composite operations do not build routes locally.
 
-`swapAndExecute` composes swap planning with an execution request on the destination chain.
-`calculateMaxForSwap` reuses swap preflight and route logic to estimate the maximum usable input.
+## Standalone execute
 
-Swap preflight does not request bridge-fee quotes. Exact In requests one after its eligible remote
-holdings are finalized; Exact Out requests one from its rough eligible source prefix after resolving
-the destination requirement. Direct destination-only routes skip the request. Every bridge quote
-includes the destination fee calculation but lists only route-relevant source chains, isolating
-unrelated RPC failures.
+`src/flows/execute.ts` validates `ExecuteParams`, resolves optional token approval metadata,
+estimates fees for simulation, and delegates transaction preparation/sending to
+`src/execute/runtime.ts`.
 
-Swap execution assumes the user's EOA wallet has one mutable active-chain context. Work that touches
-the EOA wallet must therefore be sequential across chains, including chain switching, wallet
-prompts, permit signatures, direct approvals, and EOA transaction dispatch. Swap internals may still
-parallelize non-EOA work such as route requests, public-client reads, ephemeral SBC construction,
-per-chain SBC submission, and receipt waits. The native-token ephemeral source path has one explicit
-ordering requirement: if the ephemeral account is not delegated, the SDK sends and confirms an
-empty-calls SBC before prompting the EOA to send the payable execute transaction.
+Execute uses deployment chain metadata and is independent of Better Intent availability.
 
-Bridge funding preparation retries only transient permit-path RPC work, with three total attempts.
-Direct approvals and wallet rejections are terminal. For 7702 Mayan approvals and Nexus deposits, a
-structured middleware SBC result with `errored: true` is known to be unbroadcast, so the SDK may
-submit the same signed SBC again, also up to three total attempts. Transport failures are ambiguous
-and are never replayed. Once middleware returns a transaction hash, the SDK waits for its receipt
-and does not apply this funding retry policy to receipt failures.
+## Transport boundary
 
-`base.ts` now assembles explicit flow deps (`chainList`, `timing`, `intentExplorerUrl`, `evm`,
-`middlewareClient`, and swap runtime deps where needed) and delegates to plain flow functions
-instead of building query objects or factory-returned method bags.
+`src/transport/middleware.ts` exposes only:
 
-## Hooks (per-operation)
+- deployment metadata;
+- Better Intent chains and tokens;
+- Better Intent balances;
+- quote;
+- submit;
+- status;
+- Nexus and external-provider history.
 
-Hooks are per operation (not global). Provide hooks via options when calling operations:
+Every raw response is parsed and normalized in `src/intent/normalize.ts`. Addresses are canonical
+lowercase `Hex`, chain references become numeric EVM chain IDs, and decimal integer strings become
+`bigint`.
 
-- `onIntent({ allow, deny, refresh, intent })`
-- `onAllowance({ allow, deny, sources })`
+HTTP and schema failures become categorized `BackendError` values with middleware correlation
+details where available.
 
-If no hooks are provided, the SDK auto-accepts intent and allowance.
+## History
 
-`refresh()` re-builds the intent (ex: when a UI changes source chain selection). It is safe until the
-intent is accepted.
+History requests both Better Intent history feeds, normalizes provider identity, merges the records,
+sorts newest first, and adds the configured intent explorer URL. The public method preserves the
+existing page-based entrypoint.
 
-For swap operations, the exposed hook is `onIntent(...)`. Swap does not expose a separate
-`onAllowance` hook; allowance and permit handling are part of swap execution preparation.
+## Tests
 
-Bridge hook internals are split by responsibility:
+The retained suite follows the runtime boundaries:
 
-- `bridge/hooks/state.ts` derives hook state from an intent
-- `bridge/hooks/approval.ts` resolves `onIntent` and `onAllowance`
-- `bridge/hooks/defaults.ts` provides default auto-accept behavior
-- `bridge/allowances/prepare.ts` handles paid ERC20 approval execution
+- `tests/intent/normalize.test.ts` — external response contracts;
+- `tests/transport/better-intent.test.ts` — endpoint and request contracts;
+- `tests/intent/catalog.test.ts` — token identity and merged capabilities;
+- `tests/intent/orchestrator.test.ts` — approval/sign/send/submit/poll ordering;
+- `tests/intent/wallet.test.ts` — wallet validation and transaction behavior;
+- `tests/intent/funding.test.ts` — composite shortfall invariants;
+- `tests/core/sdk-better-intent.test.ts` — public assembly and network behavior;
+- `tests/public-api.test.ts` — exported surface guardrails.
 
-## Transport (middleware + simulation)
-
-Middleware client (`createMiddlewareClient`) validates URLs once and provides:
-
-- `getDeployment()` -> `GET /deployment`
-- `getBalances(address, universe)`
-- `listRFFs(params)` -> `GET /api/v1/rffs`
-- `getRFF(hash)` -> `GET /api/v1/rff/:hash`
-- `submitRFF(payload)` -> `POST /api/v1/rff`
-- `createApprovals(approvals)` -> `POST /api/v2/create-sponsored-approvals`
-- `submitSBCs(sbcTxs)` -> `POST /api/v2/create-sbc-tx`
-- `getQuote(request)` -> `POST /api/v1/quote`
-- `getSwapBalances(address)` -> `GET /api/v1/swap-balance/EVM/:address`
-- `simulateBundleV2(request)` -> `POST /api/v1/gas/bundle-v2`
-
-It also exposes aggregator quote proxies, lightweight token-price clients used by Exact Out routing,
-oracle-price fetches, timing configuration, and `destroy()` for transport teardown. The transport
-client fetches Citrea prices directly from `graph.fibrous.finance`; Fibrous quote requests continue
-to use their separate quote API through middleware.
-
-Every middleware error is normalized at this boundary: axios failures are wrapped in a `BackendError`
-whose `details` carry the middleware's typed error envelope (`middlewareCode`, `middlewareSubcode`,
-`errorId`, `middlewareDetails`) when present — see `middlewareErrorDetails` in
-`src/transport/middleware.ts` and the middleware-error model in `src/domain/types/middleware-error.ts`.
-The `errorId` is the correlation key between SDK and middleware logs.
-
-List RFFs params:
-
-- `user` (hex address)
-- `status` ("created" | "deposited" | "fulfilled" | "expired")
-- `deposited` (boolean)
-- `fulfilled` (boolean)
-- `limit`, `offset`
-
-Response: `{ rffs: V2RffResponse[], total: number }`.
-
-Simulation client calls the backend simulation service (Tenderly) and is used by simulation flows.
-
-## Data model notes
-
-- `Intent` is the internal representation of a bridge intent.
-- `V2Request` is the middleware API request format.
-- `depositRequest` is the on-chain request used for vault deposits.
-- Middleware balance responses use string universes (`EVM`, `TRON`, `FUEL`, `SVM`) and raw balances.
-  The SDK normalizes universes to internal enums and scales balances by token decimals.
-
-## Errors and validation
-
-- Errors are categorized subclasses of the generic `NexusError<C>` (see `domain/errors.ts`):
-  `ValidationError`, `UserActionError`, `SimulationError`, `ExecutionError`, `BackendError`,
-  `ExternalServiceError`, `InternalError`. Each carries a stable code (`category/specific_…`)
-  and a narrowed `context.service` (`'wallet' | 'rpc' | 'middleware' | 'lifi' | 'bebop' |
-  'coinbase' | 'hook'` depending on category).
-- External calls are wrapped with the right category-specific helper
-  (`Errors.backendWithCause(... { service: 'middleware' })`,
-  `Errors.executionWithCause(... { service: 'wallet' | 'rpc' })`, etc.) — not the legacy
-  `internalWithCause`, which is reserved for SDK invariants.
-- Inputs are validated with shared Zod validators in `domain/utils/validation.ts`.
-- User rejection errors from wallet providers may be nested; use `error.walk(...)` /
-  `error.find(Sub)` to traverse the chain. `error.toString()` and `JSON.stringify(error)`
-  render the full chain via native ES2022 `cause`.
-
-OTel boundary emission for every public method + the two exported utilities
-(`getCoinbaseRates`, `getSupportedChains`) is handled by
-`src/services/error-telemetry.ts:reportOperationError`. It emits a single flat OTel log per
-failure with stable attributes (`operation`, `error.category`, `error.code`, `error.service`,
-flattened `params.<allowlisted-key>` / `options.<allowlisted-key>`, plus the full sanitized
-blob in `params.raw` / `options.raw`). The OTel logger is provisioned by
-`services/telemetry.ts:setLoggerProvider`, called idempotently from both `initialize()` and
-`setEVMProvider()`. See [`src/domain/errors.md`](../src/domain/errors.md) for the OTel surfacing details.
-
-## Chain and token metadata
-
-- Chains and token metadata are fetched from the middleware deployment endpoint during
-  `initialize()`.
-- `src/services/chain-list.ts` converts the deployment response into the runtime `chainList`
-  structure used by the SDK.
-- The SDK does not treat local source files as the source of truth for supported chains/tokens.
-- `chainList.getChainByID` throws if a chain id is not supported.
-- `convertTokenReadableAmountToBigInt` converts human amounts to raw units using token decimals.
-
-## Extending the SDK
-
-Common extensions:
-- Add or change a chain/token for an existing supported universe: update the middleware deployment
-  response; the SDK will pick it up on `initialize()`.
-- Add a new universe or new runtime capability: update the SDK's universe mappings, address
-  conversion utilities, and any flow/runtime code that depends on that universe.
-
-Keep package boundaries intact when extending the SDK:
-
-- `src/services/` should remain cross-feature.
-- `src/bridge/` is the home for bridge-only internals.
-- `src/swap/` is the home for swap-only internals.
-- `src/execute/` is the home for shared execute machinery.
-- `src/flows/` should only gain thin entrypoints or public composition wrappers.
-- `src/core/sdk/` should stay as thin orchestration and public client assembly.
-
-## Testing and CI
-
-- Unit tests: `vitest`
-- Type checking: `tsc --noEmit`
-- Linting: `biome`
-- CI runs lint, typecheck, and tests on every PR and push to `main`.
-
-## Glossary
-
-- RFF: Request for Funds (bridge request)
-- Middleware: Nexus backend that provides balances, RFF indexing, approvals
-- Vault: On-chain contract that accepts deposits for bridging
+See [Testing Strategy](../tests/TESTING.md) and [Conventions](CONVENTIONS.md).

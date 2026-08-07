@@ -2,12 +2,13 @@ import { vi } from 'vitest';
 import type { Hex } from 'viem';
 import type { Chain, ChainListType, TokenInfo } from '../../src/domain';
 import { Universe } from '../../src/domain/chain-abstraction';
-import { CurrencyID } from '../../src/swap/cot';
 import {
   getTestTokenByAddress,
   getUsdcToken,
   getUsdtToken,
 } from './tokens';
+
+const CurrencyID = { USDC: 1, USDT: 2, ETH: 3 } as const;
 
 export const ARB_CHAIN = 42161;
 export const BASE_CHAIN = 8453;

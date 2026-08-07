@@ -13,6 +13,8 @@ import type {
 type RawStep = {
   id: string;
   type: string;
+  chainId?: number;
+  tokenAddress?: string;
   chain?: { id: number; name: string; logo: string };
   asset?: { symbol: string; amount: string; logo?: string };
   token?: { symbol: string; logo?: string };
@@ -36,6 +38,11 @@ const STEP_LABELS: Record<string, (step: RawStep) => string> = {
   vault_deposit: (s) => `Deposit on ${s.chain?.name ?? "chain"}`,
   execute_approval: (s) => `Approve ${s.token?.symbol ?? "token"}`,
   execute_transaction: (s) => `Execute on ${s.chain?.name ?? "chain"}`,
+  erc20_approval: (s) => `Approve token on ${s.chain?.name ?? "source chain"}`,
+  intent_signature: () => "Sign intent",
+  native_transaction: (s) => `Submit source transaction on ${s.chain?.name ?? "chain"}`,
+  intent_submission: () => "Submit intent",
+  intent_fulfillment: () => "Wait for fulfillment",
 };
 
 function extractToken(step: RawStep): NormalizedStep["token"] {
@@ -58,12 +65,15 @@ function extractToken(step: RawStep): NormalizedStep["token"] {
 
 function normalizeStep(raw: RawStep): NormalizedStep {
   const labelFn = STEP_LABELS[raw.type];
+  const chain = raw.chain ?? (raw.chainId
+    ? { id: raw.chainId, name: `Chain ${raw.chainId}`, logo: "" }
+    : undefined);
   return {
     id: raw.id,
     type: raw.type,
     label: labelFn ? labelFn(raw) : raw.type.replace(/_/g, " "),
     state: "pending",
-    chain: raw.chain,
+    chain,
     token: extractToken(raw),
   };
 }
@@ -87,7 +97,11 @@ function mapStatusToPhase(status: string): ProgressPhase | null {
     case "executing":
       return "executing";
     case "completed":
+    case "fulfilled":
       return "completed";
+    case "created":
+    case "deposited":
+      return "executing";
     default:
       return null;
   }
@@ -157,6 +171,7 @@ export function useExecutionProgress(operationType: OperationType) {
         state?: string;
         step?: RawStep;
         plan?: { steps?: RawStep[] };
+        quote?: { plan?: { steps?: RawStep[] } };
         txHash?: string;
         explorerUrl?: string;
         error?: string;
@@ -166,6 +181,16 @@ export function useExecutionProgress(operationType: OperationType) {
       if (!ev.type) return;
 
       const draft = ensureDraft();
+
+      // Better Intent quote events carry the canonical API execution plan.
+      if (ev.type === "quote") {
+        if (ev.quote?.plan?.steps) {
+          draft.steps = ev.quote.plan.steps.map(normalizeStep);
+        }
+        draft.phase = "awaiting_approval";
+        scheduleFlush();
+        return;
+      }
 
       // Plan preview/confirmed — populate steps
       if (ev.type === "plan_preview" || ev.type === "plan_confirmed") {
@@ -256,6 +281,29 @@ export function useExecutionProgress(operationType: OperationType) {
             }
           }
         }
+        scheduleFlush();
+        return;
+      }
+
+      // Better Intent emits one event per canonical plan-step transition.
+      if (ev.type === "step" && ev.step) {
+        let target = draft.steps.find((step) => step.id === ev.step?.id);
+        if (!target) {
+          target = normalizeStep(ev.step);
+          draft.steps.push(target);
+        }
+        const previousState = target.state;
+        target.state = mapProgressState(ev.state ?? "started");
+        target.rawState = ev.state;
+        if (ev.error) target.error = ev.error;
+        if (
+          (target.state === "done" || target.state === "failed") &&
+          previousState !== target.state &&
+          target.completedAt === undefined
+        ) {
+          target.completedAt = Date.now();
+        }
+        draft.phase = target.state === "failed" ? "failed" : "executing";
         scheduleFlush();
       }
     },

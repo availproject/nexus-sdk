@@ -1,26 +1,22 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   createNexusClient,
   NexusError,
   UserActionError,
+  type IntentBalance,
+  type IntentHookData,
+  type IntentQuote,
   type NexusClient,
   type SpanProperties,
-  type TokenBalance,
-  type SwapIntent,
-  type BridgeIntent,
-  type OnSwapIntentHookData as SdkSwapIntentHookData,
-  type SwapAndExecuteIntent,
-  type SwapAndExecuteOnIntentHookData,
-  type BridgeAndExecuteIntent,
-  type BridgeAndExecuteOnIntentHookData,
 } from "@avail-project/nexus-core";
+import { formatUnits } from "viem";
 import { toast } from "sonner";
 import { useConnection } from "wagmi";
-import type { NetworkMode, SourceOption } from "./types";
-import { ceilDp, D, sum, toFixed } from "./math";
+import type { NetworkMode, SourceOption, TokenBalance } from "./types";
+import { D, sum, toFixed } from "./math";
 
-/* ── View models for intent modals ────────────────────────────────── */
+/* ── View models for the existing intent modals ─────────────────── */
 
 export type SwapIntentViewModel = {
   sources: Array<{
@@ -39,11 +35,7 @@ export type SwapIntentViewModel = {
     tokenSymbol: string;
     amount: string;
     value: string;
-    gas?: {
-      tokenSymbol: string;
-      amount: string;
-      value: string;
-    };
+    gas?: { tokenSymbol: string; amount: string; value: string };
   };
   buffer: string;
   bridgeFees: {
@@ -72,20 +64,9 @@ export type BridgeIntentViewModel = {
     nativeAmountInToken: string;
     nativeToken: { symbol: string; logo: string };
   };
-  token: {
-    symbol: string;
-    name: string;
-    logo: string | undefined;
-  };
-  fees: {
-    caGas: string;
-    protocol: string;
-    solver: string;
-    total: string;
-  };
+  token: { symbol: string; name: string; logo: string | undefined };
+  fees: { caGas: string; protocol: string; solver: string; total: string };
 };
-
-/* ── Composite intent view models (swap-and-execute / bridge-and-execute) ── */
 
 export type ExecuteRequirementViewModel = {
   chainName: string;
@@ -125,7 +106,229 @@ export type BridgeAndExecuteIntentViewModel = {
   bridge?: BridgeIntentViewModel;
 };
 
-/* ── Helpers ──────────────────────────────────────────────────────── */
+export type CompositeIntentContext = {
+  contractAddress: `0x${string}`;
+  tokenSymbol: string;
+  amount: string;
+  tokenApproval?: { symbol: string; amount: string };
+};
+
+/* ── API model → existing UI model adapters ─────────────────────── */
+
+function findChain(client: NexusClient, chainId: number) {
+  return client.getSupportedChains().find((chain) => chain.id === chainId);
+}
+
+function findToken(client: NexusClient, chainId: number, address: `0x${string}`) {
+  return findChain(client, chainId)?.tokens.find(
+    (token) => token.address.toLowerCase() === address.toLowerCase(),
+  );
+}
+
+function displayAmount(
+  client: NexusClient,
+  chainId: number,
+  address: `0x${string}`,
+  amountRaw: bigint,
+): string {
+  return formatUnits(amountRaw, findToken(client, chainId, address)?.decimals ?? 18);
+}
+
+function estimatedUsd(symbol: string, amount: string): string {
+  return /^(USDC|USDT|USDS|DAI|USDE)$/i.test(symbol) ? amount : "0";
+}
+
+function quoteFees(client: NexusClient, quote: IntentQuote) {
+  const decimals = findToken(
+    client,
+    quote.output.chainId,
+    quote.output.tokenAddress,
+  )?.decimals ?? 18;
+  const formatFee = (value: bigint) => formatUnits(value, decimals);
+  return {
+    caGas: formatFee(quote.fees.caGasRaw),
+    protocol: formatFee(quote.fees.protocolRaw),
+    solver: formatFee(quote.fees.solverRaw),
+    total: formatFee(quote.fees.depositRaw + quote.fees.fulfillmentRaw),
+  };
+}
+
+function mapSwapQuote(client: NexusClient, quote: IntentQuote): SwapIntentViewModel {
+  const sources = quote.input.map((source) => {
+    const chain = findChain(client, source.chainId);
+    const amount = displayAmount(
+      client,
+      source.chainId,
+      source.tokenAddress,
+      source.totalRequiredRaw,
+    );
+    return {
+      chainId: source.chainId,
+      chainName: chain?.name ?? `Chain ${source.chainId}`,
+      chainLogo: chain?.logo ?? "",
+      tokenSymbol: source.tokenSymbol,
+      amount,
+      value: estimatedUsd(source.tokenSymbol, amount),
+    };
+  });
+  const destinationChain = findChain(client, quote.output.chainId);
+  const destinationToken = findToken(
+    client,
+    quote.output.chainId,
+    quote.output.tokenAddress,
+  );
+  const destinationAmount = displayAmount(
+    client,
+    quote.output.chainId,
+    quote.output.tokenAddress,
+    quote.output.amountRaw,
+  );
+
+  return {
+    sources,
+    sourcesTotal: toFixed(sum(sources.map((source) => source.value)), 2),
+    destination: {
+      chainId: quote.output.chainId,
+      chainName: destinationChain?.name ?? `Chain ${quote.output.chainId}`,
+      chainLogo: destinationChain?.logo ?? "",
+      tokenSymbol: destinationToken?.symbol ?? "Token",
+      amount: destinationAmount,
+      value: estimatedUsd(destinationToken?.symbol ?? "", destinationAmount),
+    },
+    buffer: "0",
+    bridgeFees: quoteFees(client, quote),
+  };
+}
+
+function mapBridgeQuote(client: NexusClient, quote: IntentQuote): BridgeIntentViewModel {
+  const swap = mapSwapQuote(client, quote);
+  const chain = findChain(client, quote.output.chainId);
+  const token = findToken(client, quote.output.chainId, quote.output.tokenAddress);
+  const native = chain?.nativeCurrency;
+  const fees = quoteFees(client, quote);
+
+  return {
+    sources: swap.sources.map(({ value: _value, ...source }) => source),
+    sourcesTotal: swap.sourcesTotal,
+    destination: {
+      chainName: swap.destination.chainName,
+      chainLogo: swap.destination.chainLogo || undefined,
+      amount: swap.destination.amount,
+      nativeAmount: "0",
+      nativeAmountValue: "0",
+      nativeAmountInToken: "0",
+      nativeToken: { symbol: native?.symbol ?? "Native", logo: native?.logo ?? "" },
+    },
+    token: {
+      symbol: token?.symbol ?? "Token",
+      name: token?.name ?? token?.symbol ?? "Token",
+      logo: token?.logo,
+    },
+    fees,
+  };
+}
+
+function mapCompositeQuote(
+  client: NexusClient,
+  quote: IntentQuote,
+  kind: "swapAndExecute" | "bridgeAndExecute",
+  context?: CompositeIntentContext,
+): SwapAndExecuteIntentViewModel | BridgeAndExecuteIntentViewModel {
+  const chain = findChain(client, quote.output.chainId);
+  const token = findToken(client, quote.output.chainId, quote.output.tokenAddress);
+  const amount = context?.amount ?? displayAmount(
+    client,
+    quote.output.chainId,
+    quote.output.tokenAddress,
+    quote.output.amountRaw,
+  );
+  const symbol = context?.tokenSymbol ?? token?.symbol ?? "Token";
+  const value = estimatedUsd(symbol, amount);
+  const executeRequirement: ExecuteRequirementViewModel = {
+    chainName: chain?.name ?? `Chain ${quote.output.chainId}`,
+    chainLogo: chain?.logo,
+    contractAddress: context?.contractAddress ?? quote.output.tokenAddress,
+    token: { symbol, amount, value },
+    gas: {
+      symbol: chain?.nativeCurrency.symbol ?? "Native",
+      amount: "0",
+      value: "0",
+      priceTier: "medium",
+    },
+    tokenApproval: context?.tokenApproval,
+  };
+  const available = {
+    token: { amount: "0", value: "0" },
+    gas: { amount: "0", value: "0" },
+  };
+  const shortfall = {
+    token: { amount, value },
+    gas: { amount: "0", value: "0" },
+  };
+
+  return kind === "swapAndExecute"
+    ? {
+        kind,
+        executeRequirement,
+        available,
+        swapRequired: true,
+        shortfall,
+        swap: mapSwapQuote(client, quote),
+      }
+    : {
+        kind,
+        executeRequirement,
+        available,
+        bridgeRequired: true,
+        shortfall,
+        bridge: mapBridgeQuote(client, quote),
+      };
+}
+
+export function groupBalances(client: NexusClient, balances: IntentBalance[]): TokenBalance[] {
+  const groups = new Map<string, TokenBalance>();
+
+  for (const balance of balances) {
+    const chain = findChain(client, balance.chainId);
+    const readable = formatUnits(balance.balanceRaw, balance.decimals);
+    const value = String(balance.valueUsd ?? 0);
+    const key = balance.symbol.toLowerCase();
+    const asset = groups.get(key) ?? {
+      name: balance.name,
+      symbol: balance.symbol,
+      logo: balance.logo,
+      balance: "0",
+      value: "0",
+      chainBalances: [],
+    };
+    asset.balance = D(asset.balance).plus(readable).toString();
+    asset.value = D(asset.value).plus(value).toString();
+    asset.chainBalances.push({
+      balance: readable,
+      value,
+      decimals: balance.decimals,
+      contractAddress: balance.tokenAddress,
+      chain: {
+        id: balance.chainId,
+        name: chain?.name ?? `Chain ${balance.chainId}`,
+        logo: chain?.logo ?? "",
+      },
+    });
+    groups.set(key, asset);
+  }
+
+  return [...groups.values()];
+}
+
+export async function fetchUiBalances(
+  client: NexusClient,
+  kind: "swap" | "bridge",
+): Promise<TokenBalance[]> {
+  const balances = kind === "swap"
+    ? await client.getBalancesForSwap()
+    : await client.getBalancesForBridge();
+  return groupBalances(client, balances);
+}
 
 export function flattenBalances(assets: TokenBalance[]): SourceOption[] {
   return assets.flatMap((asset) =>
@@ -135,8 +338,8 @@ export function flattenBalances(assets: TokenBalance[]): SourceOption[] {
         id: `${entry.chain.id}:${entry.contractAddress.toLowerCase()}`,
         symbol: asset.symbol,
         tokenLogo: asset.logo,
-        tokenName: (asset as { name?: string }).name,
-        decimals: (entry as { decimals?: number }).decimals,
+        tokenName: asset.name,
+        decimals: entry.decimals,
         chainId: entry.chain.id,
         chainName: entry.chain.name,
         chainLogo: entry.chain.logo,
@@ -156,9 +359,6 @@ function trimErrorMessage(message: string): string {
 export function logError(label: string, error: unknown) {
   console.error(`[${label}]`, error);
   if (error instanceof NexusError) {
-    // NexusError is flat — no cause chain. The underlying error's text (viem revert,
-    // HTTP failure, …) is inlined into `error.message`; `context` / `details` carry the
-    // queryable metadata.
     console.error(`[${label}] code:`, error.code);
     console.error(`[${label}] category:`, error.category);
     console.error(`[${label}] service:`, error.context.service);
@@ -169,15 +369,8 @@ export function logError(label: string, error: unknown) {
 }
 
 export function getErrorMessage(error: unknown): string {
-  // Every user-denial path lands as UserActionError (intent hook denial,
-  // intent/SIWE signature denial in wallet, ERC20 approve denial).
-  if (error instanceof UserActionError) {
-    return "Transaction cancelled in wallet.";
-  }
-  if (error instanceof NexusError) {
-    return trimErrorMessage(error.message);
-  }
-
+  if (error instanceof UserActionError) return "Transaction cancelled in wallet.";
+  if (error instanceof NexusError) return trimErrorMessage(error.message);
   if (error instanceof Error) {
     if (
       error.name === "UserRejectedRequestError" ||
@@ -188,434 +381,136 @@ export function getErrorMessage(error: unknown): string {
     }
     return trimErrorMessage(error.message);
   }
-
   return "Unexpected error";
 }
 
-function ceil4(v: string | number): string {
-  return ceilDp(v, 4);
-}
+/* ── Intent approval state shared by all four UI flows ───────────── */
 
-function mapSwapIntent(intent: SwapIntent): SwapIntentViewModel {
-  console.log("[actual-intent-hook] bridgeAndExecute", intent);
-  const sources = intent.sources.map((source) => ({
-    chainId: source.chain.id,
-    chainName: source.chain.name,
-    chainLogo: source.chain.logo,
-    tokenSymbol: source.token.symbol,
-    amount: source.amount,
-    value: (source as { value?: string }).value ?? "0",
-  }));
-  const sourcesTotal = toFixed(sum(sources.map((s) => s.value)), 2);
-
-  const gas = intent.destination.gas;
-  return {
-    sources,
-    sourcesTotal,
-    destination: {
-      chainId: intent.destination.chain.id,
-      chainName: intent.destination.chain.name,
-      chainLogo: intent.destination.chain.logo,
-      tokenSymbol: intent.destination.token.symbol,
-      amount: intent.destination.amount,
-      value: (intent.destination as { value?: string }).value ?? "0",
-      gas:
-        gas?.amount && D(gas.amount).gt(0)
-          ? {
-              tokenSymbol: gas.token.symbol,
-              amount: gas.amount,
-              value: (gas as { value?: string }).value ?? "0",
-            }
-          : undefined,
-    },
-    buffer: ceil4(intent.feesAndBuffer.buffer),
-    bridgeFees: intent.feesAndBuffer.bridge
-      ? {
-          caGas: ceil4(intent.feesAndBuffer.bridge.caGas),
-          protocol: ceil4(intent.feesAndBuffer.bridge.protocol),
-          solver: ceil4(intent.feesAndBuffer.bridge.solver),
-          total: ceil4(intent.feesAndBuffer.bridge.total),
-        }
-      : null,
-  };
-}
-
-function mapBridgeIntent(intent: BridgeIntent): BridgeIntentViewModel {
-  return {
-    sources: intent.selectedSources.map((s) => ({
-      chainId: s.chain.id,
-      chainName: s.chain.name,
-      chainLogo: s.chain.logo,
-      tokenSymbol: s.token.symbol,
-      amount: s.amount,
-    })),
-    sourcesTotal: intent.sourcesTotal,
-    destination: {
-      chainName: intent.destination.chain.name,
-      chainLogo: intent.destination.chain.logo ?? undefined,
-      amount: intent.destination.amount,
-      nativeAmount: intent.destination.nativeAmount,
-      nativeAmountValue: intent.destination.nativeAmountValue,
-      nativeAmountInToken: intent.destination.nativeAmountInToken,
-      nativeToken: {
-        symbol: intent.destination.nativeToken.symbol,
-        logo: intent.destination.nativeToken.logo,
-      },
-    },
-    token: {
-      symbol: intent.destination.token.symbol,
-      name: intent.destination.token.symbol,
-      logo: intent.destination.token.logo ?? undefined,
-    },
-    fees: {
-      caGas: ceil4(intent.fees.caGas),
-      protocol: ceil4(intent.fees.protocol),
-      solver: ceil4(intent.fees.solver),
-      total: ceil4(intent.fees.total),
-    },
-  };
-}
-
-function mapExecuteRequirement(req: SwapAndExecuteIntent["executeRequirement"]): ExecuteRequirementViewModel {
-  return {
-    chainName: req.chain.name,
-    chainLogo: req.chain.logo,
-    contractAddress: req.to,
-    token: { symbol: req.token.symbol, amount: req.token.amount, value: req.token.value },
-    gas: { symbol: req.gas.symbol, amount: req.gas.amount, value: req.gas.value, priceTier: req.gas.priceTier },
-    nativeValue: req.nativeValue ? { amount: req.nativeValue.amount, value: req.nativeValue.value } : undefined,
-    tokenApproval: req.tokenApproval ? { symbol: req.tokenApproval.token.symbol, amount: req.tokenApproval.amount } : undefined,
-  };
-}
-
-function mapAvailable(avail: SwapAndExecuteIntent["available"]): AvailableViewModel {
-  return {
-    token: { amount: avail.token.amount, value: avail.token.value },
-    gas: { amount: avail.gas.amount, value: avail.gas.value },
-  };
-}
-
-function mapShortfall(sf: { token: { amount: string; value: string }; gas: { amount: string; value: string } }): ShortfallViewModel {
-  return {
-    token: { amount: sf.token.amount, value: sf.token.value },
-    gas: { amount: sf.gas.amount, value: sf.gas.value },
-  };
-}
-
-function mapSwapAndExecuteIntent(intent: SwapAndExecuteIntent): SwapAndExecuteIntentViewModel {
-  const base = {
-    kind: "swapAndExecute" as const,
-    executeRequirement: mapExecuteRequirement(intent.executeRequirement),
-    available: mapAvailable(intent.available),
-    swapRequired: intent.swapRequired,
-  };
-  if (intent.swapRequired) {
-    return {
-      ...base,
-      swapRequired: true,
-      shortfall: mapShortfall(intent.shortfall),
-      swap: mapSwapIntent(intent.swap),
-    };
-  }
-  return base;
-}
-
-function mapBridgeAndExecuteIntent(intent: BridgeAndExecuteIntent): BridgeAndExecuteIntentViewModel {
-  const base = {
-    kind: "bridgeAndExecute" as const,
-    executeRequirement: mapExecuteRequirement(intent.executeRequirement),
-    available: mapAvailable(intent.available),
-    bridgeRequired: intent.bridgeRequired,
-  };
-  if (intent.bridgeRequired) {
-    return {
-      ...base,
-      bridgeRequired: true,
-      shortfall: mapShortfall(intent.shortfall),
-      bridge: mapBridgeIntent(intent.bridge),
-    };
-  }
-  return base;
-}
-
-/* ── Async interval for intent refresh ────────────────────────────── */
-
-const asyncIntervals: boolean[] = [];
-
-function runAsyncInterval(
-  cb: () => Promise<void>,
-  interval: number,
-  intervalIndex: number,
+function useIntentApproval<T, C = undefined>(
+  clientRef: React.RefObject<NexusClient | null>,
+  mapQuote: (client: NexusClient, quote: IntentQuote, context?: C) => T,
 ) {
-  if (!asyncIntervals[intervalIndex]) return;
-  cb().finally(() => {
-    if (asyncIntervals[intervalIndex]) {
-      setTimeout(() => runAsyncInterval(cb, interval, intervalIndex), interval);
-    }
-  });
+  const dataRef = useRef<IntentHookData | null>(null);
+  const contextRef = useRef<C | undefined>(undefined);
+  const timerRef = useRef<number | null>(null);
+  const [intent, setIntent] = useState<T | null>(null);
+  const [pending, setPending] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [approved, setApproved] = useState(false);
+
+  const stopRefresh = useCallback(() => {
+    if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+    timerRef.current = null;
+  }, []);
+
+  const clear = useCallback(() => {
+    stopRefresh();
+    dataRef.current = null;
+    contextRef.current = undefined;
+    setIntent(null);
+    setPending(false);
+    setRefreshing(false);
+  }, [stopRefresh]);
+
+  const scheduleRefresh = useCallback(() => {
+    stopRefresh();
+    timerRef.current = window.setTimeout(async () => {
+      const current = dataRef.current;
+      const client = clientRef.current;
+      if (!current || !client) return;
+      try {
+        setRefreshing(true);
+        const quote = await current.refresh();
+        if (dataRef.current === current) {
+          setIntent(mapQuote(client, quote, contextRef.current));
+          scheduleRefresh();
+        }
+      } catch (error) {
+        toast.error(getErrorMessage(error));
+        clear();
+      } finally {
+        setRefreshing(false);
+      }
+    }, 20_000);
+  }, [clear, clientRef, mapQuote, stopRefresh]);
+
+  const onIntent = useCallback((data: IntentHookData, context?: C) => {
+    const client = clientRef.current;
+    if (!client) return;
+    dataRef.current = data;
+    contextRef.current = context;
+    setIntent(mapQuote(client, data.quote, context));
+    setPending(true);
+    setRefreshing(false);
+    setApproved(false);
+    scheduleRefresh();
+  }, [clientRef, mapQuote, scheduleRefresh]);
+
+  const approve = useCallback(() => {
+    const current = dataRef.current;
+    if (!current) return;
+    clear();
+    setApproved(true);
+    current.allow();
+  }, [clear]);
+
+  const deny = useCallback(() => {
+    const current = dataRef.current;
+    if (!current) return;
+    clear();
+    setApproved(false);
+    current.deny();
+  }, [clear]);
+
+  useEffect(() => stopRefresh, [stopRefresh]);
+
+  return { intent, pending, refreshing, approved, onIntent, approve, deny, clear };
 }
 
-function setAsyncInterval(cb: () => Promise<void>, interval: number): number {
-  const intervalIndex = asyncIntervals.length;
-  asyncIntervals.push(true);
-  setTimeout(() => runAsyncInterval(cb, interval, intervalIndex), interval);
-  return intervalIndex;
-}
+const mapSwap = (client: NexusClient, quote: IntentQuote) => mapSwapQuote(client, quote);
+const mapBridge = (client: NexusClient, quote: IntentQuote) => mapBridgeQuote(client, quote);
+const mapSwapExecute = (
+  client: NexusClient,
+  quote: IntentQuote,
+  context?: CompositeIntentContext,
+) => mapCompositeQuote(client, quote, "swapAndExecute", context) as SwapAndExecuteIntentViewModel;
+const mapBridgeExecute = (
+  client: NexusClient,
+  quote: IntentQuote,
+  context?: CompositeIntentContext,
+) => mapCompositeQuote(client, quote, "bridgeAndExecute", context) as BridgeAndExecuteIntentViewModel;
 
-function clearAsyncInterval(intervalIndex: number) {
-  if (intervalIndex >= 0 && intervalIndex < asyncIntervals.length) {
-    asyncIntervals[intervalIndex] = false;
-  }
-}
-
-/* ── useNexusSdk hook ─────────────────────────────────────────────── */
+/* ── useNexusSdk hook ───────────────────────────────────────────── */
 
 export function useNexusSdk(network: NetworkMode, forceMayan: boolean) {
   const { connector, address, status } = useConnection();
   const queryClient = useQueryClient();
   const clientRef = useRef<NexusClient | null>(null);
-
-  // Swap intent state (plain swap)
-  const swapIntentRef = useRef<SdkSwapIntentHookData | null>(null);
-  const swapRefreshRef = useRef(-1);
   const [ready, setReady] = useState(false);
-  const [swapIntent, setSwapIntent] = useState<SwapIntentViewModel | null>(null);
-  const [swapIntentPending, setSwapIntentPending] = useState(false);
-  const [swapIntentRefreshing, setSwapIntentRefreshing] = useState(false);
-  const [swapIntentApproved, setSwapIntentApproved] = useState(false);
 
-  // Swap-and-execute composite intent state
-  const swapExecIntentRef = useRef<SwapAndExecuteOnIntentHookData | null>(null);
-  const swapExecRefreshRef = useRef(-1);
-  const [swapExecIntent, setSwapExecIntent] = useState<SwapAndExecuteIntentViewModel | null>(null);
-  const [swapExecIntentPending, setSwapExecIntentPending] = useState(false);
-  const [swapExecIntentRefreshing, setSwapExecIntentRefreshing] = useState(false);
-  const [swapExecIntentApproved, setSwapExecIntentApproved] = useState(false);
+  const swap = useIntentApproval(clientRef, mapSwap);
+  const bridge = useIntentApproval(clientRef, mapBridge);
+  const swapExecute = useIntentApproval(clientRef, mapSwapExecute);
+  const bridgeExecute = useIntentApproval(clientRef, mapBridgeExecute);
+  const prevKeyRef = useRef("");
 
-  // Bridge intent state (plain bridge)
-  type BridgeIntentHookData = {
-    allow: () => void;
-    deny: () => void;
-    intent: BridgeIntent;
-    refresh: (selectedSources?: number[]) => Promise<BridgeIntent>;
-  };
-  const bridgeIntentRef = useRef<BridgeIntentHookData | null>(null);
-  const bridgeRefreshRef = useRef(-1);
-  const [bridgeIntent, setBridgeIntent] = useState<BridgeIntentViewModel | null>(null);
-  const [bridgeIntentPending, setBridgeIntentPending] = useState(false);
-  const [bridgeIntentRefreshing, setBridgeIntentRefreshing] = useState(false);
-  const [bridgeIntentApproved, setBridgeIntentApproved] = useState(false);
-
-  // Bridge-and-execute composite intent state
-  const bridgeExecIntentRef = useRef<BridgeAndExecuteOnIntentHookData | null>(null);
-  const bridgeExecRefreshRef = useRef(-1);
-  const [bridgeExecIntent, setBridgeExecIntent] = useState<BridgeAndExecuteIntentViewModel | null>(null);
-  const [bridgeExecIntentPending, setBridgeExecIntentPending] = useState(false);
-  const [bridgeExecIntentRefreshing, setBridgeExecIntentRefreshing] = useState(false);
-  const [bridgeExecIntentApproved, setBridgeExecIntentApproved] = useState(false);
-
-  function stopSwapRefresh() {
-    if (swapRefreshRef.current >= 0) {
-      clearAsyncInterval(swapRefreshRef.current);
-      swapRefreshRef.current = -1;
-    }
-  }
-
-  function resetSwapIntent() {
-    stopSwapRefresh();
-    swapIntentRef.current = null;
-    setSwapIntent(null);
-    setSwapIntentPending(false);
-    setSwapIntentRefreshing(false);
-  }
-
-  function stopSwapExecRefresh() {
-    if (swapExecRefreshRef.current >= 0) {
-      clearAsyncInterval(swapExecRefreshRef.current);
-      swapExecRefreshRef.current = -1;
-    }
-  }
-
-  function resetSwapExecIntent() {
-    stopSwapExecRefresh();
-    swapExecIntentRef.current = null;
-    setSwapExecIntent(null);
-    setSwapExecIntentPending(false);
-    setSwapExecIntentRefreshing(false);
-  }
-
-  function stopBridgeRefresh() {
-    if (bridgeRefreshRef.current >= 0) {
-      clearAsyncInterval(bridgeRefreshRef.current);
-      bridgeRefreshRef.current = -1;
-    }
-  }
-
-  function resetBridgeIntent() {
-    stopBridgeRefresh();
-    bridgeIntentRef.current = null;
-    setBridgeIntent(null);
-    setBridgeIntentPending(false);
-    setBridgeIntentRefreshing(false);
-  }
-
-  function stopBridgeExecRefresh() {
-    if (bridgeExecRefreshRef.current >= 0) {
-      clearAsyncInterval(bridgeExecRefreshRef.current);
-      bridgeExecRefreshRef.current = -1;
-    }
-  }
-
-  function resetBridgeExecIntent() {
-    stopBridgeExecRefresh();
-    bridgeExecIntentRef.current = null;
-    setBridgeExecIntent(null);
-    setBridgeExecIntentPending(false);
-    setBridgeExecIntentRefreshing(false);
-  }
-
-  // Store intent hook handlers that tabs can call
-  const handleSwapIntentRef = useRef<((data: SdkSwapIntentHookData) => void) | undefined>(undefined);
-  const handleBridgeIntentRef = useRef<((data: BridgeIntentHookData) => void) | undefined>(undefined);
-  const handleSwapExecIntentRef = useRef<((data: SwapAndExecuteOnIntentHookData) => void) | undefined>(undefined);
-  const handleBridgeExecIntentRef = useRef<((data: BridgeAndExecuteOnIntentHookData) => void) | undefined>(undefined);
-
-  handleSwapIntentRef.current = (data) => {
-    console.log("[intent-hook] swap", data.intent);
-    stopSwapRefresh();
-    swapIntentRef.current = data;
-    setSwapIntent(mapSwapIntent(data.intent));
-    setSwapIntentPending(true);
-    setSwapIntentRefreshing(false);
-    setSwapIntentApproved(false);
-
-    swapRefreshRef.current = setAsyncInterval(async () => {
-      if (!swapIntentRef.current) return;
-      try {
-        setSwapIntentRefreshing(true);
-        const refreshed = await swapIntentRef.current.refresh();
-        if (swapIntentRef.current) {
-          setSwapIntent(mapSwapIntent(refreshed));
-        }
-      } catch (error) {
-        toast.error(getErrorMessage(error));
-        resetSwapIntent();
-      } finally {
-        setSwapIntentRefreshing(false);
-      }
-    }, 20_000);
-  };
-
-  handleBridgeIntentRef.current = (data) => {
-    console.log("[intent-hook] bridge", data.intent);
-    stopBridgeRefresh();
-    bridgeIntentRef.current = data;
-    setBridgeIntent(mapBridgeIntent(data.intent));
-    setBridgeIntentPending(true);
-    setBridgeIntentRefreshing(false);
-    setBridgeIntentApproved(false);
-
-    bridgeRefreshRef.current = setAsyncInterval(async () => {
-      if (!bridgeIntentRef.current) return;
-      try {
-        setBridgeIntentRefreshing(true);
-        const refreshed = await bridgeIntentRef.current.refresh();
-        if (bridgeIntentRef.current) {
-          setBridgeIntent(mapBridgeIntent(refreshed));
-        }
-      } catch (error) {
-        toast.error(getErrorMessage(error));
-        resetBridgeIntent();
-      } finally {
-        setBridgeIntentRefreshing(false);
-      }
-    }, 20_000);
-  };
-
-  handleSwapExecIntentRef.current = (data) => {
-    console.log("[intent-hook] swapAndExecute", data.intent);
-    stopSwapExecRefresh();
-    swapExecIntentRef.current = data;
-    setSwapExecIntent(mapSwapAndExecuteIntent(data.intent));
-    setSwapExecIntentPending(true);
-    setSwapExecIntentRefreshing(false);
-    setSwapExecIntentApproved(false);
-
-    swapExecRefreshRef.current = setAsyncInterval(async () => {
-      if (!swapExecIntentRef.current) return;
-      try {
-        setSwapExecIntentRefreshing(true);
-        const refreshed = await swapExecIntentRef.current.refresh();
-        if (swapExecIntentRef.current) {
-          setSwapExecIntent(mapSwapAndExecuteIntent(refreshed));
-        }
-      } catch (error) {
-        toast.error(getErrorMessage(error));
-        resetSwapExecIntent();
-      } finally {
-        setSwapExecIntentRefreshing(false);
-      }
-    }, 20_000);
-  };
-
-  handleBridgeExecIntentRef.current = (data) => {
-    console.log("[intent-hook] bridgeAndExecute", data.intent);
-    stopBridgeExecRefresh();
-    bridgeExecIntentRef.current = data;
-    setBridgeExecIntent(mapBridgeAndExecuteIntent(data.intent));
-    setBridgeExecIntentPending(true);
-    setBridgeExecIntentRefreshing(false);
-    setBridgeExecIntentApproved(false);
-
-    bridgeExecRefreshRef.current = setAsyncInterval(async () => {
-      if (!bridgeExecIntentRef.current) return;
-      try {
-        setBridgeExecIntentRefreshing(true);
-        const refreshed = await bridgeExecIntentRef.current.refresh();
-        if (bridgeExecIntentRef.current) {
-          setBridgeExecIntent(mapBridgeAndExecuteIntent(refreshed));
-        }
-      } catch (error) {
-        toast.error(getErrorMessage(error));
-        resetBridgeExecIntent();
-      } finally {
-        setBridgeExecIntentRefreshing(false);
-      }
-    }, 20_000);
-  };
-
-  // Track the last address/network combo to avoid redundant recreations
-  const prevKeyRef = useRef<string>("");
-
-  // Re-create client on network change, account change, or forceMayan toggle.
-  // Gate on wagmi's settled status — during 'reconnecting'/'connecting',
-  // `connector` can be undefined even though the account flips connected, which
-  // used to leave the dedup key stamped so the SDK never initialized after a
-  // page refresh.
   useEffect(() => {
     if (status !== "connected" && status !== "disconnected") return;
-
     const key = `${network}:${address ?? ""}:${status}:${forceMayan ? "1" : "0"}`;
     if (key === prevKeyRef.current) return;
     prevKeyRef.current = key;
-
     let cancelled = false;
 
     async function run() {
-      // Tear down previous client
-      if (clientRef.current) {
-        clientRef.current.destroy();
-        clientRef.current = null;
-      }
+      clientRef.current?.destroy();
+      clientRef.current = null;
       setReady(false);
-      resetSwapIntent();
-      resetSwapExecIntent();
-      resetBridgeIntent();
-      resetBridgeExecIntent();
+      swap.clear();
+      bridge.clear();
+      swapExecute.clear();
+      bridgeExecute.clear();
       queryClient.removeQueries({ queryKey: ["swap-balances"] });
       queryClient.removeQueries({ queryKey: ["bridge-balances"] });
-      queryClient.removeQueries({ queryKey: ["max"] });
-
       if (status !== "connected" || !connector) return;
 
       const provider = await connector.getProvider();
@@ -629,12 +524,7 @@ export function useNexusSdk(network: NetworkMode, forceMayan: boolean) {
           emitLogs: false,
           captureNetworkTiming: true,
           onSpanComplete: (span: SpanProperties) => {
-            const isSwapSpan =
-              span.operation === "swap" ||
-              span.operation === "swap_and_execute" ||
-              span.operation.startsWith("flow.swap.");
-            if (!isSwapSpan) return;
-
+            if (span.operation !== "swap" && span.operation !== "swap_and_execute") return;
             console.log(`[swap timing] ${span.operation}`, {
               durationMs: Number(span.duration.toFixed(2)),
               success: span.success,
@@ -644,14 +534,13 @@ export function useNexusSdk(network: NetworkMode, forceMayan: boolean) {
         },
       });
 
-      console.log(`[nexus] initializing client (${network}, forceMayan=${forceMayan})`);
       await client.initialize();
       await client.setEVMProvider(provider as never);
-
       if (!cancelled) {
         clientRef.current = client;
         setReady(true);
-        console.log(`[nexus] client ready (${network})`);
+      } else {
+        client.destroy();
       }
     }
 
@@ -665,141 +554,44 @@ export function useNexusSdk(network: NetworkMode, forceMayan: boolean) {
     return () => {
       cancelled = true;
     };
-  }, [connector, status, network, address, forceMayan]);
+  }, [address, bridge.clear, bridgeExecute.clear, connector, forceMayan, network, queryClient, status, swap.clear, swapExecute.clear]);
 
-  // Expose intent hook handlers for tabs to use in per-call options
-  const onSwapIntent = useMemo(
-    () => (data: SdkSwapIntentHookData) => handleSwapIntentRef.current?.(data),
-    [],
-  );
-
-  const onBridgeIntent = useMemo(
-    () => (data: BridgeIntentHookData) => handleBridgeIntentRef.current?.(data),
-    [],
-  );
-
-  const onSwapExecIntent = useMemo(
-    () => (data: SwapAndExecuteOnIntentHookData) => handleSwapExecIntentRef.current?.(data),
-    [],
-  );
-
-  const onBridgeExecIntent = useMemo(
-    () => (data: BridgeAndExecuteOnIntentHookData) => handleBridgeExecIntentRef.current?.(data),
-    [],
-  );
-
-  return useMemo(
-    () => ({
-      client: clientRef.current,
-      ready,
-      // Intent hook handlers for per-call options
-      onSwapIntent,
-      onBridgeIntent,
-      onSwapExecIntent,
-      onBridgeExecIntent,
-      // Swap intent modal state (plain)
-      swapIntent,
-      swapIntentPending,
-      swapIntentRefreshing,
-      swapIntentApproved,
-      approveSwapIntent: () => {
-        const current = swapIntentRef.current;
-        if (!current) return;
-        resetSwapIntent();
-        setSwapIntentApproved(true);
-        current.allow();
-      },
-      denySwapIntent: () => {
-        const current = swapIntentRef.current;
-        if (!current) return;
-        resetSwapIntent();
-        setSwapIntentApproved(false);
-        current.deny();
-      },
-      clearSwapIntent: () => resetSwapIntent(),
-      // Swap-and-execute composite intent state
-      swapExecIntent,
-      swapExecIntentPending,
-      swapExecIntentRefreshing,
-      swapExecIntentApproved,
-      approveSwapExecIntent: () => {
-        const current = swapExecIntentRef.current;
-        if (!current) return;
-        resetSwapExecIntent();
-        setSwapExecIntentApproved(true);
-        current.allow();
-      },
-      denySwapExecIntent: () => {
-        const current = swapExecIntentRef.current;
-        if (!current) return;
-        resetSwapExecIntent();
-        setSwapExecIntentApproved(false);
-        current.deny();
-      },
-      clearSwapExecIntent: () => resetSwapExecIntent(),
-      // Bridge intent modal state (plain)
-      bridgeIntent,
-      bridgeIntentPending,
-      bridgeIntentRefreshing,
-      bridgeIntentApproved,
-      approveBridgeIntent: () => {
-        const current = bridgeIntentRef.current;
-        if (!current) return;
-        resetBridgeIntent();
-        setBridgeIntentApproved(true);
-        current.allow();
-      },
-      denyBridgeIntent: () => {
-        const current = bridgeIntentRef.current;
-        if (!current) return;
-        resetBridgeIntent();
-        setBridgeIntentApproved(false);
-        current.deny();
-      },
-      clearBridgeIntent: () => resetBridgeIntent(),
-      // Bridge-and-execute composite intent state
-      bridgeExecIntent,
-      bridgeExecIntentPending,
-      bridgeExecIntentRefreshing,
-      bridgeExecIntentApproved,
-      approveBridgeExecIntent: () => {
-        const current = bridgeExecIntentRef.current;
-        if (!current) return;
-        resetBridgeExecIntent();
-        setBridgeExecIntentApproved(true);
-        current.allow();
-      },
-      denyBridgeExecIntent: () => {
-        const current = bridgeExecIntentRef.current;
-        if (!current) return;
-        resetBridgeExecIntent();
-        setBridgeExecIntentApproved(false);
-        current.deny();
-      },
-      clearBridgeExecIntent: () => resetBridgeExecIntent(),
-    }),
-    [
-      ready,
-      onSwapIntent,
-      onBridgeIntent,
-      onSwapExecIntent,
-      onBridgeExecIntent,
-      swapIntent,
-      swapIntentPending,
-      swapIntentRefreshing,
-      swapIntentApproved,
-      swapExecIntent,
-      swapExecIntentPending,
-      swapExecIntentRefreshing,
-      swapExecIntentApproved,
-      bridgeIntent,
-      bridgeIntentPending,
-      bridgeIntentRefreshing,
-      bridgeIntentApproved,
-      bridgeExecIntent,
-      bridgeExecIntentPending,
-      bridgeExecIntentRefreshing,
-      bridgeExecIntentApproved,
-    ],
-  );
+  return useMemo(() => ({
+    client: clientRef.current,
+    ready,
+    onSwapIntent: swap.onIntent,
+    onBridgeIntent: bridge.onIntent,
+    onSwapExecIntent: swapExecute.onIntent,
+    onBridgeExecIntent: bridgeExecute.onIntent,
+    swapIntent: swap.intent,
+    swapIntentPending: swap.pending,
+    swapIntentRefreshing: swap.refreshing,
+    swapIntentApproved: swap.approved,
+    approveSwapIntent: swap.approve,
+    denySwapIntent: swap.deny,
+    clearSwapIntent: swap.clear,
+    bridgeIntent: bridge.intent,
+    bridgeIntentPending: bridge.pending,
+    bridgeIntentRefreshing: bridge.refreshing,
+    bridgeIntentApproved: bridge.approved,
+    approveBridgeIntent: bridge.approve,
+    denyBridgeIntent: bridge.deny,
+    clearBridgeIntent: bridge.clear,
+    swapExecIntent: swapExecute.intent,
+    swapExecIntentPending: swapExecute.pending,
+    swapExecIntentRefreshing: swapExecute.refreshing,
+    swapExecIntentApproved: swapExecute.approved,
+    approveSwapExecIntent: swapExecute.approve,
+    denySwapExecIntent: swapExecute.deny,
+    clearSwapExecIntent: swapExecute.clear,
+    bridgeExecIntent: bridgeExecute.intent,
+    bridgeExecIntentPending: bridgeExecute.pending,
+    bridgeExecIntentRefreshing: bridgeExecute.refreshing,
+    bridgeExecIntentApproved: bridgeExecute.approved,
+    approveBridgeExecIntent: bridgeExecute.approve,
+    denyBridgeExecIntent: bridgeExecute.deny,
+    clearBridgeExecIntent: bridgeExecute.clear,
+  }), [
+    bridge, bridgeExecute, ready, swap, swapExecute,
+  ]);
 }

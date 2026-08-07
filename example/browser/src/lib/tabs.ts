@@ -1,16 +1,11 @@
 import type {
+  IntentEvent,
+  IntentResult,
   NexusClient,
-  BridgeResult,
   BridgeAndExecuteResult,
-  SwapResult,
   SwapAndExecuteResult,
-  SwapEvent,
-  BridgeEvent,
-  SwapAndExecuteEvent,
-  BridgeAndExecuteEvent,
 } from "@avail-project/nexus-core";
-import { parseUnits } from "viem";
-import { D } from "./math";
+import { formatUnits, parseUnits } from "viem";
 import type {
   TabConfig,
   ExecuteContext,
@@ -28,9 +23,9 @@ import {
   getSupportedChains,
   getSupportedTokens,
   filterBridgeSources,
-  extractBridgeResultHashes,
 } from "./bridge";
 import { getSwapChainOptions, getSwapTokenOptions } from "./destinationTokens";
+import { fetchUiBalances } from "./nexus";
 
 /**
  * Look up a chain's display name from the SDK's chain registry. Falls back to
@@ -39,49 +34,9 @@ import { getSwapChainOptions, getSwapTokenOptions } from "./destinationTokens";
  * id→name table.
  */
 function chainName(client: NexusClient | null | undefined, chainId: number): string {
-  try {
-    const found = client?.chainList.chains.find((c) => c.id === chainId);
-    if (found) return found.name;
-  } catch {
-    // chainList getter throws if the client hasn't finished initialize().
-  }
+  const found = client?.getSupportedChains().find((chain) => chain.id === chainId);
+  if (found) return found.name;
   return `Chain ${chainId}`;
-}
-
-/* ── Max-calc strategies ──────────────────────────────────────────── */
-
-async function swapMax(
-  client: NexusClient,
-  chainId: number,
-  _tokenSymbol: string,
-  tokenAddress: `0x${string}` | undefined,
-  _sourceChainIds: number[],
-  fromSources:
-    | Array<{ chainId: number; tokenAddress: `0x${string}` }>
-    | undefined,
-) {
-  if (!tokenAddress) throw new Error("Token address required for swap max");
-  const result = await client.calculateMaxForSwap({
-    toChainId: chainId,
-    toTokenAddress: tokenAddress,
-    sources: fromSources,
-  });
-  return { maxAmount: result.maxAmount, symbol: result.symbol };
-}
-
-async function bridgeMax(
-  client: NexusClient,
-  chainId: number,
-  tokenSymbol: string,
-  _tokenAddress: `0x${string}` | undefined,
-  sourceChainIds: number[],
-) {
-  const result = await client.calculateMaxForBridge({
-    toChainId: chainId,
-    toTokenSymbol: tokenSymbol,
-    sources: sourceChainIds.length > 0 ? sourceChainIds : undefined,
-  });
-  return { maxAmount: result.maxAmount, symbol: result.symbol };
 }
 
 /* ── Source derivation ────────────────────────────────────────────── */
@@ -103,172 +58,48 @@ function deriveBridgeSourceChains(ctx: ExecuteContext): number[] | undefined {
   return [...new Set(chainIds)];
 }
 
-/* ── v2 event → step tracking ─────────────────────────────────────── */
+/* ── Better Intent event → existing progress UI ──────────────────── */
 
-function createSwapEventHandler(ctx: ExecuteContext) {
-  return (event: SwapEvent) => {
+function createIntentEventHandler(
+  ctx: ExecuteContext,
+  operation: "swap" | "bridge" | "swapAndExecute" | "bridgeAndExecute",
+) {
+  return (event: IntentEvent) => {
     ctx.handleProgressEvent?.(event);
-    if (event.type === "status") {
-      if (event.status === "approved") {
-        ctx.setCompletedSteps((prev) => new Set(prev).add("INTENT_APPROVED"));
-        ctx.setStatusMessage("Executing swap...");
-      } else if (event.status === "completed") {
-        ctx.setCompletedSteps((prev) => {
-          const next = new Set(prev);
-          next.add("INTENT_APPROVED");
-          next.add("SWAP_COMPLETE");
-          return next;
-        });
-        ctx.setStatusMessage("");
-      } else if (event.status === "route_building") {
-        ctx.setStatusMessage("Building route...");
-      } else if (event.status === "awaiting_approval") {
-        ctx.setStatusMessage("Waiting for approval...");
-      } else if (event.status === "executing") {
-        ctx.setStatusMessage("Executing...");
-      }
-    } else if (event.type === "plan_progress") {
-      const step = event as {
-        stepType?: string;
-        state?: string;
-        chain?: { name?: string };
-      };
-      if (step.state === "wallet_prompted") {
-        const chain = step.chain?.name ?? "";
-        if (step.stepType === "source_swap") {
-          ctx.setStatusMessage(`Swapping on ${chain}...`);
-        } else if (step.stepType === "bridge_deposit") {
-          ctx.setStatusMessage(`Depositing to bridge on ${chain}...`);
-        } else if (step.stepType === "destination_swap") {
-          ctx.setStatusMessage(`Swapping on destination ${chain}...`);
-        }
-      } else if (step.stepType === "bridge_fill" && step.state === "waiting") {
-        ctx.setStatusMessage("Waiting for bridge fill...");
-      }
+
+    if (event.type === "quote") {
+      ctx.setStatusMessage("Waiting for approval...");
+      return;
     }
-  };
-}
 
-function createBridgeEventHandler(ctx: ExecuteContext) {
-  return (event: BridgeEvent) => {
-    ctx.handleProgressEvent?.(event);
-    if (event.type === "status") {
-      if (event.status === "approved") {
-        ctx.setCompletedSteps((prev) => new Set(prev).add("INTENT_APPROVED"));
-        ctx.setStatusMessage("Executing bridge...");
-      } else if (event.status === "completed") {
-        ctx.setCompletedSteps((prev) => {
-          const next = new Set(prev);
-          next.add("INTENT_APPROVED");
-          next.add("INTENT_FULFILLED");
-          return next;
-        });
-        ctx.setStatusMessage("");
-      } else if (event.status === "intent_building") {
-        ctx.setStatusMessage("Building intent...");
-      } else if (event.status === "awaiting_approval") {
-        ctx.setStatusMessage("Waiting for approval...");
-      } else if (event.status === "executing") {
-        ctx.setStatusMessage("Executing...");
+    if (event.type === "step") {
+      if (event.state === "started") {
+        const messages: Record<typeof event.step.type, string> = {
+          erc20_approval: "Approve token in your wallet...",
+          intent_signature: "Sign intent in your wallet...",
+          native_transaction: "Submit source transaction...",
+          intent_submission: "Submitting intent...",
+          intent_fulfillment: "Waiting for fulfillment...",
+        };
+        ctx.setStatusMessage(messages[event.step.type]);
       }
-    } else if (event.type === "plan_progress") {
-      const step = event as {
-        stepType?: string;
-        state?: string;
-        chain?: { name?: string };
-      };
-      if (
-        step.stepType === "vault_deposit" &&
-        step.state === "wallet_prompted"
-      ) {
-        ctx.setStatusMessage(`Depositing on ${step.chain?.name ?? ""}...`);
-      } else if (step.stepType === "bridge_fill" && step.state === "waiting") {
-        ctx.setStatusMessage("Waiting for bridge fill...");
-      }
+      return;
     }
-  };
-}
 
-function createSwapAndExecuteEventHandler(ctx: ExecuteContext) {
-  return (event: SwapAndExecuteEvent) => {
-    ctx.handleProgressEvent?.(event);
-    if (event.type === "status") {
-      if (event.status === "approved") {
-        ctx.setCompletedSteps((prev) => new Set(prev).add("INTENT_APPROVED"));
-        ctx.setStatusMessage("Executing swap...");
-      } else if (event.status === "completed") {
-        ctx.setCompletedSteps((prev) => {
-          const next = new Set(prev);
-          next.add("INTENT_APPROVED");
-          next.add("SWAP_COMPLETE");
-          next.add("TRANSACTION_CONFIRMED");
-          return next;
-        });
-        ctx.setStatusMessage("");
-      } else if (event.status === "route_building") {
-        ctx.setStatusMessage("Building route...");
-      } else if (event.status === "awaiting_approval") {
-        ctx.setStatusMessage("Waiting for approval...");
-      } else if (event.status === "executing") {
-        ctx.setStatusMessage("Executing...");
-      }
-    } else if (event.type === "plan_progress") {
-      const step = event as {
-        stepType?: string;
-        state?: string;
-        chain?: { name?: string };
-      };
-      if (step.stepType === "source_swap" && step.state === "confirmed") {
-        ctx.setCompletedSteps((prev) => new Set(prev).add("SWAP_COMPLETE"));
-        ctx.setStatusMessage("Executing deposit...");
-      } else if (step.state === "wallet_prompted") {
-        const chain = step.chain?.name ?? "";
-        ctx.setStatusMessage(`Swapping on ${chain}...`);
-      }
-    }
-  };
-}
-
-function createBridgeAndExecuteEventHandler(ctx: ExecuteContext) {
-  return (event: BridgeAndExecuteEvent) => {
-    ctx.handleProgressEvent?.(event);
-    if (event.type === "status") {
-      if (event.status === "approved") {
-        ctx.setCompletedSteps((prev) => new Set(prev).add("INTENT_APPROVED"));
-        ctx.setStatusMessage("Executing bridge...");
-      } else if (event.status === "completed") {
-        ctx.setCompletedSteps((prev) => {
-          const next = new Set(prev);
-          next.add("INTENT_APPROVED");
-          next.add("INTENT_FULFILLED");
-          next.add("TRANSACTION_CONFIRMED");
-          return next;
-        });
-        ctx.setStatusMessage("");
-      } else if (event.status === "intent_building") {
-        ctx.setStatusMessage("Building intent...");
-      } else if (event.status === "awaiting_approval") {
-        ctx.setStatusMessage("Waiting for approval...");
-      } else if (event.status === "executing") {
-        ctx.setStatusMessage("Executing...");
-      }
-    } else if (event.type === "plan_progress") {
-      const step = event as {
-        stepType?: string;
-        state?: string;
-        chain?: { name?: string };
-      };
-      if (step.stepType === "bridge_fill" && step.state === "confirmed") {
-        ctx.setCompletedSteps((prev) => new Set(prev).add("INTENT_FULFILLED"));
-        ctx.setStatusMessage("Executing deposit...");
-      } else if (
-        step.stepType === "vault_deposit" &&
-        step.state === "wallet_prompted"
-      ) {
-        ctx.setStatusMessage(`Depositing on ${step.chain?.name ?? ""}...`);
-      } else if (step.stepType === "bridge_fill" && step.state === "waiting") {
-        ctx.setStatusMessage("Waiting for bridge fill...");
-      }
+    if (event.status === "deposited") {
+      ctx.setCompletedSteps((previous) => new Set(previous).add("INTENT_APPROVED"));
+      ctx.setStatusMessage("Waiting for fulfillment...");
+    } else if (event.status === "fulfilled") {
+      ctx.setCompletedSteps((previous) => {
+        const next = new Set(previous);
+        next.add("INTENT_APPROVED");
+        next.add(operation.includes("swap") ? "SWAP_COMPLETE" : "INTENT_FULFILLED");
+        if (operation.endsWith("Execute")) next.add("TRANSACTION_CONFIRMED");
+        return next;
+      });
+      ctx.setStatusMessage(operation.endsWith("Execute") ? "Executing deposit..." : "");
+    } else if (event.status === "expired") {
+      ctx.setStatusMessage("Intent expired");
     }
   };
 }
@@ -280,87 +111,76 @@ function createBridgeAndExecuteEventHandler(ctx: ExecuteContext) {
  * route visualization). Shared by the exact-out and exact-in swap tabs, which
  * both resolve to a SwapResult.
  */
+function tokenDecimals(client: NexusClient, chainId: number, address: `0x${string}`) {
+  const chain = client.getSupportedChains().find((entry) => entry.id === chainId);
+  return chain?.tokens.find(
+    (token) => token.address.toLowerCase() === address.toLowerCase(),
+  )?.decimals ?? 18;
+}
+
+function buildIntentHashes(client: NexusClient, result: IntentResult) {
+  return [
+    ...result.approvals.map((tx, index) => ({
+      label: `Approval ${index + 1} (${chainName(client, tx.chainId)})`,
+      value: tx.txHash,
+      href: tx.txExplorerUrl,
+    })),
+    ...result.nativeTransactions.map((tx, index) => ({
+      label: `Source tx ${index + 1}`,
+      value: tx.txHash,
+      href: tx.txExplorerUrl,
+    })),
+    {
+      label: "Intent",
+      value: result.intentId,
+      href: result.intentExplorerUrl,
+    },
+  ];
+}
+
 function buildSwapResult(
   client: NexusClient,
-  result: SwapResult,
+  result: IntentResult,
   destChainId: number,
   destTokenSymbol: string,
   destFallbackAmount = "",
 ): OperationResult {
-  const hashes: Array<{ label: string; value: string; href?: string }> = [];
-  const route: SwapRouteStep[] = [];
-
-  if (result.sourceSwaps) {
-    for (const swap of result.sourceSwaps) {
-      hashes.push({
-        label: `Source (${chainName(client, swap.chainId)})`,
-        value: swap.txHash,
-      });
-      const firstSwap = swap.swaps[0];
-      route.push({
-        type: "source",
-        chainId: swap.chainId,
-        chainName: chainName(client, swap.chainId),
-        tokenSymbol: destTokenSymbol,
-        amount: firstSwap
-          ? D(firstSwap.inputAmount.toString())
-              .div(D(10).pow(firstSwap.inputDecimals))
-              .toFixed(2)
-          : "",
-        txHash: swap.txHash,
-      });
-    }
-  }
-  if (result.intentExplorerUrl) {
-    hashes.push({
-      label: "Intent",
-      value: result.intentExplorerUrl,
-      href: result.intentExplorerUrl,
-    });
-    route.push({
-      type: "bridge",
-      chainId: destChainId,
-      chainName: chainName(client, destChainId),
-      tokenSymbol: "USDC",
-      amount: "",
-      explorerUrl: result.intentExplorerUrl,
-    });
-  }
-  if (result.destinationSwap) {
-    hashes.push({
-      label: `Destination (${chainName(client, destChainId)})`,
-      value: result.destinationSwap.txHash,
-    });
-    const lastSwap =
-      result.destinationSwap.swaps[result.destinationSwap.swaps.length - 1];
-    route.push({
-      type: "destination",
-      chainId: destChainId,
-      chainName: chainName(client, destChainId),
-      tokenSymbol: destTokenSymbol,
-      amount: lastSwap
-        ? D(lastSwap.outputAmount.toString())
-            .div(D(10).pow(lastSwap.outputDecimals))
-            .toFixed(6)
-        : destFallbackAmount,
-      txHash: result.destinationSwap.txHash,
-    });
-  }
-
-  const parts: string[] = [];
-  const srcCount = result.sourceSwaps?.length ?? 0;
-  if (srcCount > 0)
-    parts.push(`${srcCount} source swap${srcCount > 1 ? "s" : ""}`);
-  if (result.intentExplorerUrl) parts.push("1 bridge");
-  if (result.destinationSwap) parts.push("1 destination swap");
+  const route: SwapRouteStep[] = result.quote.input.map((source) => ({
+    type: "source",
+    chainId: source.chainId,
+    chainName: chainName(client, source.chainId),
+    tokenSymbol: source.tokenSymbol,
+    amount: formatUnits(
+      source.totalRequiredRaw,
+      tokenDecimals(client, source.chainId, source.tokenAddress),
+    ),
+  }));
+  route.push({
+    type: "bridge",
+    chainId: destChainId,
+    chainName: chainName(client, destChainId),
+    tokenSymbol: destTokenSymbol,
+    amount: "",
+    explorerUrl: result.intentExplorerUrl,
+  });
+  route.push({
+    type: "destination",
+    chainId: destChainId,
+    chainName: chainName(client, destChainId),
+    tokenSymbol: destTokenSymbol,
+    amount: formatUnits(
+      result.quote.output.amountRaw,
+      tokenDecimals(client, destChainId, result.quote.output.tokenAddress),
+    ) || destFallbackAmount,
+  });
 
   return {
-    hashes,
+    hashes: buildIntentHashes(client, result),
     richResult: {
       kind: "swap",
       route,
-      intentExplorerUrl: result.intentExplorerUrl || undefined,
-      summary: parts.join(", "),
+      intentExplorerUrl: result.intentExplorerUrl,
+      summary: `${result.quote.input.length} source${result.quote.input.length === 1 ? "" : "s"}, ${result.quote.provider} intent`,
     },
   };
 }
@@ -386,8 +206,7 @@ export const EXACT_OUT_SWAP_TAB: TabConfig = {
   getTokenOptions: (client, chainId) => getSwapTokenOptions(client, chainId),
 
   balanceQueryKey: "swap-balances",
-  fetchBalances: (client) => client.getBalancesForSwap(),
-  calculateMax: swapMax,
+  fetchBalances: (client) => fetchUiBalances(client, "swap"),
 
   intentType: "swap",
 
@@ -414,7 +233,7 @@ export const EXACT_OUT_SWAP_TAB: TabConfig = {
         sources: fromSources,
       },
       {
-        onEvent: createSwapEventHandler(ctx),
+        onEvent: createIntentEventHandler(ctx, "swap"),
         hooks: {
           onIntent: (data) => {
             // Intent is handled via useNexusSdk hook - called from App level
@@ -426,7 +245,7 @@ export const EXACT_OUT_SWAP_TAB: TabConfig = {
       },
     );
 
-    return buildSwapResult(client, result as SwapResult, chainId, tokenSymbol, amount);
+    return buildSwapResult(client, result, chainId, tokenSymbol, amount);
   },
 };
 
@@ -451,8 +270,7 @@ export const EXACT_IN_SWAP_TAB: TabConfig = {
   getTokenOptions: (client, chainId) => getSwapTokenOptions(client, chainId),
 
   balanceQueryKey: "swap-balances",
-  fetchBalances: (client) => client.getBalancesForSwap(),
-  calculateMax: swapMax,
+  fetchBalances: (client) => fetchUiBalances(client, "swap"),
 
   amountMode: "per-source",
   intentType: "swap",
@@ -493,7 +311,7 @@ export const EXACT_IN_SWAP_TAB: TabConfig = {
         sources,
       },
       {
-        onEvent: createSwapEventHandler(ctx),
+        onEvent: createIntentEventHandler(ctx, "swap"),
         hooks: {
           onIntent: (data) => {
             // Intent is handled via useNexusSdk hook - called from App level
@@ -505,7 +323,7 @@ export const EXACT_IN_SWAP_TAB: TabConfig = {
       },
     );
 
-    return buildSwapResult(client, result as SwapResult, chainId, tokenSymbol);
+    return buildSwapResult(client, result, chainId, tokenSymbol);
   },
 };
 
@@ -531,8 +349,7 @@ export const SWAP_AND_EXECUTE_TAB: TabConfig = {
   getTokenOptions: (_client, chainId) => getDepositTokenOptions(chainId),
 
   balanceQueryKey: "swap-balances",
-  fetchBalances: (client) => client.getBalancesForSwap(),
-  calculateMax: swapMax,
+  fetchBalances: (client) => fetchUiBalances(client, "swap"),
 
   intentType: "swapAndExecute",
 
@@ -569,11 +386,25 @@ export const SWAP_AND_EXECUTE_TAB: TabConfig = {
         execute: deposit.execute,
       },
       {
-        onEvent: createSwapAndExecuteEventHandler(ctx),
-        onIntent: (data) => {
-          (
-            ctx as unknown as { _onSwapExecIntent?: (d: typeof data) => void }
-          )._onSwapExecIntent?.(data);
+        onEvent: createIntentEventHandler(ctx, "swapAndExecute"),
+        hooks: {
+          onIntent: (data) => {
+            (
+              ctx as unknown as {
+                _onSwapExecIntent?: (
+                  d: typeof data,
+                  context: import("./nexus").CompositeIntentContext,
+                ) => void;
+              }
+            )._onSwapExecIntent?.(data, {
+              contractAddress: deposit.execute.to,
+              tokenSymbol,
+              amount,
+              tokenApproval: deposit.execute.tokenApproval
+                ? { symbol: tokenSymbol, amount }
+                : undefined,
+            });
+          },
         },
       },
     );
@@ -583,31 +414,12 @@ export const SWAP_AND_EXECUTE_TAB: TabConfig = {
     const route: import("./types").SwapRouteStep[] = [];
 
     const swapResult = typedResult.swapResult;
-    if (swapResult?.sourceSwaps) {
-      for (const swap of swapResult.sourceSwaps) {
-        hashes.push({
-          label: `Source (${chainName(client, swap.chainId)})`,
-          value: swap.txHash,
-        });
-        route.push({
-          type: "source",
-          chainId: swap.chainId,
-          chainName: chainName(client, swap.chainId),
-          tokenSymbol: tokenSymbol,
-          amount: "",
-          txHash: swap.txHash,
-        });
+    if (swapResult) {
+      const intentResult = buildSwapResult(client, swapResult, chainId, tokenSymbol, amount);
+      hashes.push(...intentResult.hashes);
+      if (intentResult.richResult?.kind === "swap") {
+        route.push(...intentResult.richResult.route);
       }
-    }
-    if (swapResult?.intentExplorerUrl) {
-      route.push({
-        type: "bridge",
-        chainId,
-        chainName: chainName(client, chainId),
-        tokenSymbol: "USDC",
-        amount: "",
-        explorerUrl: swapResult.intentExplorerUrl,
-      });
     }
     route.push({
       type: "destination",
@@ -659,8 +471,7 @@ export const BRIDGE_TAB: TabConfig = {
     client ? getSupportedTokens(client, chainId) : [],
 
   balanceQueryKey: "bridge-balances",
-  fetchBalances: (client) => client.getBalancesForBridge(),
-  calculateMax: bridgeMax,
+  fetchBalances: (client) => fetchUiBalances(client, "bridge"),
 
   intentType: "bridge",
 
@@ -703,22 +514,22 @@ export const BRIDGE_TAB: TabConfig = {
       },
       {
         fillTimeoutMinutes: 4,
-        onEvent: createBridgeEventHandler(ctx),
+        onEvent: createIntentEventHandler(ctx, "bridge"),
         hooks: {
           onIntent: (data) => {
             (
               ctx as unknown as { _onBridgeIntent?: (d: typeof data) => void }
             )._onBridgeIntent?.(data);
           },
-          onAllowance: ({ allow, sources }) => allow(sources.map(() => "min")),
+          onAllowance: ({ allow, allowances }) => allow(allowances.map(() => "min")),
         },
       },
-    )) as BridgeResult;
+    ));
 
     const links: import("./types").BridgeLink[] = [];
-    for (const tx of result.sourceTxs) {
+    for (const tx of [...result.approvals, ...result.nativeTransactions]) {
       links.push({
-        label: `Collection (${tx.chain.name})`,
+        label: `Source transaction (${chainName(client, tx.chainId)})`,
         href: tx.txExplorerUrl,
         icon: "collection",
       });
@@ -732,7 +543,7 @@ export const BRIDGE_TAB: TabConfig = {
     }
 
     return {
-      hashes: extractBridgeResultHashes(result),
+      hashes: buildIntentHashes(client, result),
       richResult: {
         kind: "bridge",
         summary: `Bridged ${amount} ${tokenSymbol} to ${chainName(client, chainId)}`,
@@ -764,8 +575,7 @@ export const BRIDGE_AND_EXECUTE_TAB: TabConfig = {
   getTokenOptions: (_client, chainId) => getDepositTokenOptions(chainId),
 
   balanceQueryKey: "bridge-balances",
-  fetchBalances: (client) => client.getBalancesForBridge(),
-  calculateMax: bridgeMax,
+  fetchBalances: (client) => fetchUiBalances(client, "bridge"),
 
   intentType: "bridgeAndExecute",
 
@@ -817,11 +627,25 @@ export const BRIDGE_AND_EXECUTE_TAB: TabConfig = {
         execute: bridgeExecute,
       },
       {
-        onEvent: createBridgeAndExecuteEventHandler(ctx),
-        onIntent: (data) => {
-          (
-            ctx as unknown as { _onBridgeExecIntent?: (d: typeof data) => void }
-          )._onBridgeExecIntent?.(data);
+        onEvent: createIntentEventHandler(ctx, "bridgeAndExecute"),
+        hooks: {
+          onIntent: (data) => {
+            (
+              ctx as unknown as {
+                _onBridgeExecIntent?: (
+                  d: typeof data,
+                  context: import("./nexus").CompositeIntentContext,
+                ) => void;
+              }
+            )._onBridgeExecIntent?.(data, {
+              contractAddress: deposit.execute.to,
+              tokenSymbol,
+              amount,
+              tokenApproval: depositApproval
+                ? { symbol: tokenSymbol, amount }
+                : undefined,
+            });
+          },
         },
       },
     )) as BridgeAndExecuteResult;
@@ -877,8 +701,6 @@ export const MAINNET_TABS: TabConfig[] = [
   BRIDGE_AND_EXECUTE_TAB,
 ];
 
-export const TESTNET_TABS: TabConfig[] = [BRIDGE_TAB];
-
-export function getTabsForNetwork(network: NetworkMode): TabConfig[] {
-  return network === "testnet" ? TESTNET_TABS : MAINNET_TABS;
+export function getTabsForNetwork(_network: NetworkMode): TabConfig[] {
+  return MAINNET_TABS;
 }

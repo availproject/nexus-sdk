@@ -6,38 +6,55 @@ import type {
   BridgeAndExecuteResult,
   BridgeResult,
   BridgeSimulationResult,
+  IntentBalance,
+  IntentEvent,
+  IntentHistoryRecord,
+  IntentHistoryResult,
+  IntentHookData,
+  IntentQuote,
+  IntentResult,
   IntentRecord,
+  IntentStatusResponse,
   ListIntentsParams,
   ListIntentsResult,
   OperationName,
   SwapAndExecuteResult,
-  SwapMaxResult,
   SwapResult as SwapResultType,
   SwapResult,
   TxResult,
 } from '../src';
 
 describe('public api exports', () => {
-  it('exports renamed public types and intent status from the package root', () => {
+  it('exports the unified Better Intent surface and compatibility aliases', () => {
     const params: ListIntentsParams = { page: 1, status: IntentStatus.Created };
-    const result = { intents: [] as IntentRecord[], total: 0 } satisfies ListIntentsResult;
+    const result = { intents: [] as IntentHistoryRecord[], total: 0 } satisfies ListIntentsResult;
     const bridgeSimulation = {} as BridgeSimulationResult;
     const swapResult = {} as SwapResult;
-    const swapMaxResult = {} as SwapMaxResult;
-    const calculateMaxForBridgeOperation =
-      'calculateMaxForBridge' as const satisfies OperationName;
+    const bridgeOperation = 'bridge' as const satisfies OperationName;
     const txResult = {} as TxResult;
     const bridgeAndExecuteResult = {} as BridgeAndExecuteResult;
     const swapAndExecuteResult = {} as SwapAndExecuteResult;
+    const quote = {} as IntentQuote;
+    const balance = {} as IntentBalance;
+    const event = {} as IntentEvent;
+    const hook = {} as IntentHookData;
+    const status = {} as IntentStatusResponse;
 
     expect(IntentStatus.Created).toBe('created');
     expect(params).toEqual({ page: 1, status: 'created' });
     expect(result.total).toBe(0);
-    expectTypeOf(bridgeSimulation).toMatchTypeOf<BridgeSimulationResult>();
-    expectTypeOf(swapResult).toMatchTypeOf<SwapResult>();
-    expectTypeOf(swapMaxResult).toMatchTypeOf<SwapMaxResult>();
-    expect(calculateMaxForBridgeOperation).toBe('calculateMaxForBridge');
+    expectTypeOf(bridgeSimulation).toEqualTypeOf<IntentQuote>();
+    expectTypeOf(swapResult).toEqualTypeOf<IntentResult>();
+    expectTypeOf<BridgeResult>().toEqualTypeOf<IntentResult>();
+    expectTypeOf<IntentRecord>().toEqualTypeOf<IntentHistoryRecord>();
+    expectTypeOf<ListIntentsResult>().toEqualTypeOf<IntentHistoryResult>();
+    expect(bridgeOperation).toBe('bridge');
     expectTypeOf(txResult).toMatchTypeOf<TxResult>();
+    expectTypeOf(quote).toMatchTypeOf<IntentQuote>();
+    expectTypeOf(balance).toMatchTypeOf<IntentBalance>();
+    expectTypeOf(event).toMatchTypeOf<IntentEvent>();
+    expectTypeOf(hook).toMatchTypeOf<IntentHookData>();
+    expectTypeOf(status.status).toEqualTypeOf<IntentStatus>();
     expectTypeOf(bridgeAndExecuteResult).toMatchTypeOf<BridgeAndExecuteResult>();
     expectTypeOf(swapAndExecuteResult).toMatchTypeOf<SwapAndExecuteResult>();
 
@@ -59,6 +76,9 @@ describe('public api exports', () => {
     expect(rootModule).not.toHaveProperty('parseUnits');
     expect(rootModule).not.toHaveProperty('isSupportedToken');
     expect(utilsModule).not.toHaveProperty('isSupportedToken');
+    expect(rootModule).not.toHaveProperty('createSafeClient');
+    expect(rootModule).not.toHaveProperty('createSafeMiddlewareClient');
+    expect(rootModule).not.toHaveProperty('predictSafeAccountAddress');
   });
 
   it('locks the NexusAnalyticsEvents taxonomy after the SigNoz/PostHog split', () => {
@@ -78,24 +98,12 @@ describe('public api exports', () => {
     expect(NexusAnalyticsEvents.LIST_INTENTS_INITIATED).toBe('nexus_v2_list_intents_initiated');
     expect(NexusAnalyticsEvents.LIST_INTENTS_SUCCESS).toBe('nexus_v2_list_intents_success');
     expect(NexusAnalyticsEvents.LIST_INTENTS_FAILED).toBe('nexus_v2_list_intents_failed');
-    expect(NexusAnalyticsEvents.CALCULATE_MAX_FOR_SWAP_INITIATED).toBe(
-      'nexus_v2_calculate_max_for_swap_initiated'
-    );
-    expect(NexusAnalyticsEvents.CALCULATE_MAX_FOR_SWAP_SUCCESS).toBe(
-      'nexus_v2_calculate_max_for_swap_success'
-    );
-    expect(NexusAnalyticsEvents.CALCULATE_MAX_FOR_SWAP_FAILED).toBe(
-      'nexus_v2_calculate_max_for_swap_failed'
-    );
-    expect(NexusAnalyticsEvents.CALCULATE_MAX_FOR_BRIDGE_INITIATED).toBe(
-      'nexus_v2_calculate_max_for_bridge_initiated'
-    );
-    expect(NexusAnalyticsEvents.CALCULATE_MAX_FOR_BRIDGE_SUCCESS).toBe(
-      'nexus_v2_calculate_max_for_bridge_success'
-    );
-    expect(NexusAnalyticsEvents.CALCULATE_MAX_FOR_BRIDGE_FAILED).toBe(
-      'nexus_v2_calculate_max_for_bridge_failed'
-    );
+    expect(NexusAnalyticsEvents).not.toHaveProperty('CALCULATE_MAX_FOR_SWAP_INITIATED');
+    expect(NexusAnalyticsEvents).not.toHaveProperty('CALCULATE_MAX_FOR_SWAP_SUCCESS');
+    expect(NexusAnalyticsEvents).not.toHaveProperty('CALCULATE_MAX_FOR_SWAP_FAILED');
+    expect(NexusAnalyticsEvents).not.toHaveProperty('CALCULATE_MAX_FOR_BRIDGE_INITIATED');
+    expect(NexusAnalyticsEvents).not.toHaveProperty('CALCULATE_MAX_FOR_BRIDGE_SUCCESS');
+    expect(NexusAnalyticsEvents).not.toHaveProperty('CALCULATE_MAX_FOR_BRIDGE_FAILED');
   });
 
   it('locks the AnalyticsManager public surface after boundary cleanup', () => {

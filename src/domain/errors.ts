@@ -41,8 +41,6 @@ export type OperationName =
   | 'swapWithExactIn'
   | 'swapWithExactOut'
   | 'swapAndExecute'
-  | 'calculateMaxForSwap'
-  | 'calculateMaxForBridge'
   | 'setEVMProvider'
   // exported utility helpers (rev 10)
   | 'getCoinbaseRates'
@@ -150,7 +148,6 @@ export const ERROR_CODES = {
   USER_ALLOWANCE_APPROVAL_DENIED: 'user_action/allowance_approval_denied',
   USER_SIWE_SIGNATURE_DENIED: 'user_action/siwe_signature_denied',
   USER_TX_SEND_DENIED: 'user_action/tx_send_denied',
-  USER_EPHEMERAL_KEY_DENIED: 'user_action/ephemeral_key_denied',
   USER_ACTION_ERROR: 'user_action/error',
 
   // ── simulation/* — pre-execution simulate boundary (service='rpc')
@@ -202,9 +199,6 @@ export const ERROR_CODES = {
   BACKEND_GET_QUOTE_FAILED: 'backend/get_quote_failed',
   BACKEND_GET_MAYAN_QUOTE_FAILED: 'backend/get_mayan_quote_failed',
   BACKEND_GET_BRIDGE_PROVIDER_FAILED: 'backend/get_bridge_provider_failed',
-  BACKEND_SAFE_GET_ADDRESS_FAILED: 'backend/safe_get_address_failed',
-  BACKEND_SAFE_ENSURE_FAILED: 'backend/safe_ensure_failed',
-  BACKEND_SAFE_EXECUTE_FAILED: 'backend/safe_execute_failed',
   BACKEND_ERROR: 'backend/error',
 
   // ── external_service/* — third-party deps (service='lifi'|'bebop'|'fibrous'|'coinbase')
@@ -218,7 +212,6 @@ export const ERROR_CODES = {
   // ── internal/* — true SDK invariants (no service)
   INTERNAL_ERROR: 'internal/error',
   INTERNAL_UNKNOWN_SIGNATURE: 'internal/unknown_signature',
-  INTERNAL_EPHEMERAL_KEY_DERIVE_FAILED: 'internal/ephemeral_key_derive_failed',
   INTERNAL_DESTINATION_REQUEST_HASH_NOT_FOUND: 'internal/destination_request_hash_not_found',
 } as const;
 
@@ -529,13 +522,6 @@ export const Errors = {
       context: { service: 'wallet' },
     }),
 
-  userRejectedEphemeralKey: (): UserActionError =>
-    new UserActionError(
-      ERROR_CODES.USER_EPHEMERAL_KEY_DENIED,
-      'User rejected signing the ephemeral-key derivation message.',
-      { context: { service: 'wallet' } }
-    ),
-
   // ── backend/* named factories
   liquidityTimeout: (requestHash: Hex): BackendError =>
     new BackendError(
@@ -624,15 +610,6 @@ export const Errors = {
     new InternalError(ERROR_CODES.INTERNAL_UNKNOWN_SIGNATURE, 'Unknown signature type', {
       context: {},
     }),
-
-  ephemeralKeyFailed: (cause?: unknown): InternalError =>
-    new InternalError(
-      ERROR_CODES.INTERNAL_EPHEMERAL_KEY_DERIVE_FAILED,
-      cause !== undefined
-        ? `Ephemeral key derivation failed: ${formatUnknownError(cause)}`
-        : 'Ephemeral key derivation failed',
-      { context: {} }
-    ),
 
   destinationRequestHashNotFound: (): InternalError =>
     new InternalError(

@@ -11,8 +11,6 @@
   ],
   "scripts": {
     "build": "rollup -c",
-    "stress": "npm --prefix packages/tools run stress --",
-    "stress:help": "npm --prefix packages/tools run stress:help",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "coverage:compare": "node scripts/compare-lcov-branches.mjs",

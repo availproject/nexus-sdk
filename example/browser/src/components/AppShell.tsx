@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { NavLink, useLocation, useNavigate } from "react-router";
+import { NavLink } from "react-router";
 import * as Dialog from "@radix-ui/react-dialog";
-import type { TokenBalance } from "@avail-project/nexus-core";
-import type { NetworkMode, TabConfig } from "../lib/types";
+import type { NetworkMode, TabConfig, TokenBalance } from "../lib/types";
 import { BalancesModal } from "./BalancesModal";
 import { WalletButton } from "../wallet";
 
@@ -20,7 +19,7 @@ type AppShellProps = {
   onRefreshBalances: () => void;
 };
 
-const NETWORK_OPTIONS: readonly NetworkMode[] = ["mainnet", "canary", "testnet"];
+const NETWORK_OPTIONS: readonly NetworkMode[] = ["mainnet", "canary"];
 
 function AvailLogo() {
   return (
@@ -66,9 +65,6 @@ export function AppShell({
   const [pendingNetwork, setPendingNetwork] = useState<NetworkMode | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
-  const location = useLocation();
-  const navigate = useNavigate();
-  const isWide = location.pathname.startsWith("/stress-test");
 
   useEffect(() => {
     if (!settingsOpen) return;
@@ -87,7 +83,7 @@ export function AppShell({
   }, [settingsOpen]);
 
   return (
-    <div className={`app-frame${isWide ? " app-frame--wide" : ""}`}>
+    <div className="app-frame">
       <header className="topbar">
         <div className="brand">
           <div className="brand-mark">
@@ -163,19 +159,6 @@ export function AppShell({
             )}
           </div>
           <span className="topbar-divider" />
-          {network === "testnet" && (
-            <button
-              className="ghost-button"
-              type="button"
-              onClick={() => navigate("/stress-test")}
-              title="Stress test"
-              aria-label="Stress test"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-              </svg>
-            </button>
-          )}
           <button
             className="ghost-button"
             type="button"

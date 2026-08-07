@@ -3,15 +3,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Route, Routes, useLocation } from "react-router";
 import { useConnection } from "wagmi";
 import { Toaster } from "sonner";
-import type { TokenBalance } from "@avail-project/nexus-core";
-import type { ExecutionProgressState } from "./lib/types";
-import type { NetworkMode } from "./lib/types";
+import type { ExecutionProgressState, NetworkMode, TokenBalance } from "./lib/types";
 import { getTabsForNetwork } from "./lib/tabs";
 import { useNexusSdk } from "./lib/nexus";
 import { AppShell } from "./components/AppShell";
 import { FlowModal } from "./components/FlowModal";
 import Home from "./pages/Home";
-import StressTest from "./pages/StressTest";
 import "./App.css";
 
 const THEMES = ["charm", "ocean", "ember"] as const;
@@ -49,7 +46,7 @@ function useThemeAndMode() {
   };
 }
 
-const NETWORK_MODES: readonly NetworkMode[] = ["mainnet", "canary", "testnet"];
+const NETWORK_MODES: readonly NetworkMode[] = ["mainnet", "canary"];
 
 function useNetwork() {
   const [network, setNetwork] = useState<NetworkMode>(() => {
@@ -182,10 +179,6 @@ export default function App() {
         onRefreshBalances={refreshBalances}
       >
         <Routes>
-          <Route
-            path="/stress-test"
-            element={<StressTest isConnected={isConnected} />}
-          />
           <Route
             path="/*"
             element={

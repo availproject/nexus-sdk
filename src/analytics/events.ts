@@ -309,22 +309,6 @@ export const NexusAnalyticsEvents = {
   LIST_INTENTS_SUCCESS: 'nexus_v2_list_intents_success',
   /** Fires when listIntents() throws. */
   LIST_INTENTS_FAILED: 'nexus_v2_list_intents_failed',
-
-  // Calculate Max For Swap Operations
-  /** Fires when calculateMaxForSwap() is called. */
-  CALCULATE_MAX_FOR_SWAP_INITIATED: 'nexus_v2_calculate_max_for_swap_initiated',
-  /** Fires when calculateMaxForSwap() returns. */
-  CALCULATE_MAX_FOR_SWAP_SUCCESS: 'nexus_v2_calculate_max_for_swap_success',
-  /** Fires when calculateMaxForSwap() throws. */
-  CALCULATE_MAX_FOR_SWAP_FAILED: 'nexus_v2_calculate_max_for_swap_failed',
-
-  // Calculate Max For Bridge Operations
-  /** Fires when calculateMaxForBridge() is called. */
-  CALCULATE_MAX_FOR_BRIDGE_INITIATED: 'nexus_v2_calculate_max_for_bridge_initiated',
-  /** Fires when calculateMaxForBridge() returns. */
-  CALCULATE_MAX_FOR_BRIDGE_SUCCESS: 'nexus_v2_calculate_max_for_bridge_success',
-  /** Fires when calculateMaxForBridge() throws. */
-  CALCULATE_MAX_FOR_BRIDGE_FAILED: 'nexus_v2_calculate_max_for_bridge_failed',
 } as const;
 
 export type NexusAnalyticsEvent = (typeof NexusAnalyticsEvents)[keyof typeof NexusAnalyticsEvents];
@@ -347,8 +331,6 @@ export const NexusOperationNames = {
   BALANCES_FETCH_BRIDGE: 'balances_fetch_bridge',
   BALANCES_FETCH_SWAP: 'balances_fetch_swap',
   LIST_INTENTS: 'list_intents',
-  CALCULATE_MAX_FOR_SWAP: 'calculate_max_for_swap',
-  CALCULATE_MAX_FOR_BRIDGE: 'calculate_max_for_bridge',
   WALLET_CONNECT: 'wallet_connect',
   INITIALIZE: 'initialize',
 } as const;

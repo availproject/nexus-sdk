@@ -209,19 +209,6 @@ export function useOperationForm({
       ? sourceOptions.filter((s) => selectedSources.includes(s.id))
       : [];
 
-  const fromSources =
-    selectedSources.length > 0
-      ? selectedSourceOptions.map((s) => ({
-          chainId: s.chainId,
-          tokenAddress: s.tokenAddress,
-        }))
-      : undefined;
-
-  const sourceChainIds =
-    selectedSources.length > 0
-      ? [...new Set(selectedSourceOptions.map((s) => s.chainId))]
-      : [];
-
   const currentTokenOption = tokenOptions.find((t) => t.symbol === tokenSymbol);
 
   // Per-source (exact-in): each selected source carries its own input amount.
@@ -247,37 +234,6 @@ export function useOperationForm({
         (s) => selectedSet.has(s.id) && Number(sourceAmounts[s.id] ?? "0") > 0,
       )
     : Number(amount) > 0;
-
-  const maxQuery = useQuery({
-    queryKey: ["max", config.id, chainId, tokenSymbol, selectedSources],
-    queryFn: async () => {
-      try {
-        const result = await config.calculateMax(
-          client!,
-          chainId,
-          tokenSymbol,
-          currentTokenOption?.tokenAddress,
-          sourceChainIds,
-          fromSources,
-        );
-        console.log(`[max-calc] ${config.id}:`, { chainId, tokenSymbol, sourceChainIds, result });
-        return result;
-      } catch (error) {
-        logError(`max-calc:${config.id}`, error);
-        console.error(`[max-calc] context:`, { chainId, tokenSymbol, sourceChainIds });
-        throw error;
-      }
-    },
-    enabled: false,
-    staleTime: 30_000,
-    retry: false,
-  });
-
-  const fetchMax = useCallback(() => {
-    if (ready && client && currentTokenOption) {
-      maxQuery.refetch();
-    }
-  }, [ready, client, currentTokenOption, maxQuery]);
 
   // Reset progress when form fields change
   const mutationRef = useRef<{ isPending: boolean }>({ isPending: false });
@@ -478,8 +434,6 @@ export function useOperationForm({
     setSourceAmount,
     sourcesTotalFiat,
     amountValid,
-    maxQuery,
-    fetchMax,
     completedSteps,
     started,
     resultHashes,

@@ -68,7 +68,7 @@ Use a small object built from state already in memory.
 - Convert `bigint` to a decimal string before logging when the logger or transport requires it.
 - Prefer chain/token identifiers, counts, role names, and compact summaries over complete runtime
   objects.
-- Describe wallet identities by role (`eoa`, `ephemeral`, `safe`) and ownership/equality facts when
+- Describe wallet identities by role (`eoa`, `approval`, `intent`) and ownership/equality facts when
   possible instead of logging user addresses.
 - For caught failures, include a categorized error code when available and a concise message. Keep
   fallback reasons intact.

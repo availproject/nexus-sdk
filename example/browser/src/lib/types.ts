@@ -1,7 +1,23 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { NexusClient, TokenBalance } from "@avail-project/nexus-core";
+import type { NexusClient } from "@avail-project/nexus-core";
 
-export type NetworkMode = "mainnet" | "canary" | "testnet";
+export type NetworkMode = "mainnet" | "canary";
+
+/** UI-facing aggregate kept stable while the SDK exposes chain-level balances. */
+export type TokenBalance = {
+  name?: string;
+  symbol: string;
+  logo?: string;
+  balance: string;
+  value: string;
+  chainBalances: Array<{
+    balance: string;
+    value: string;
+    decimals: number;
+    contractAddress: `0x${string}`;
+    chain: { id: number; name: string; logo: string };
+  }>;
+};
 
 export type TabId =
   | "swap-exact-out"
@@ -200,17 +216,6 @@ export type TabConfig = {
 
   balanceQueryKey: string;
   fetchBalances: (client: NexusClient) => Promise<TokenBalance[]>;
-
-  calculateMax: (
-    client: NexusClient,
-    chainId: number,
-    tokenSymbol: string,
-    tokenAddress: `0x${string}` | undefined,
-    sourceChainIds: number[],
-    fromSources:
-      | Array<{ chainId: number; tokenAddress: `0x${string}` }>
-      | undefined,
-  ) => Promise<{ maxAmount: string; symbol: string }>;
 
   filterSources?: (
     sources: SourceOption[],

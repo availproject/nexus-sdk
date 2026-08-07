@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { createChainList } from '../../src/services/chain-list';
-import { chainSupports7702 } from '../../src/swap/wallet/capabilities';
 import type { DeploymentResponse } from '../../src/domain/types/deployment-types';
 
 const hyperEvmDeployment = (
@@ -53,12 +52,6 @@ describe('createChainList propagates supports7702', () => {
     expect(chain.supports7702).toBe(true);
   });
 
-  it('routes non-7702 chain to Safe (chainSupports7702 returns false)', () => {
-    const list = createChainList(hyperEvmDeployment(false));
-    const chain = list.getChainByID(999);
-
-    expect(chainSupports7702(chain)).toBe(false);
-  });
 });
 
 describe('createChainList propagates swapSupported', () => {
