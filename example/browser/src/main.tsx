@@ -12,10 +12,8 @@ import type { Transport } from "viem";
 import { http, WagmiProvider } from "wagmi";
 import {
   arbitrum,
-  arbitrumSepolia,
   avalanche,
   base,
-  baseSepolia,
   bsc,
   citrea,
   hyperEvm,
@@ -23,20 +21,16 @@ import {
   megaeth,
   monad,
   optimism,
-  optimismSepolia,
   polygon,
-  polygonAmoy,
   scroll,
-  sepolia,
 } from "wagmi/chains";
 import App from "./App";
 import { createWalletConfig, WalletProvider } from "./wallet";
 
-// Chains the Nexus middleware can target across mainnet + canary + testnet
-// deployments. Wagmi uses this list for chain-switching and per-chain RPC
-// fallback; the SDK fetches its own authoritative chain list at runtime.
+// Mainnet and canary both target mainnet chains. Wagmi uses this list for
+// chain-switching and per-chain RPC fallback; the SDK fetches its authoritative
+// chain list from the selected middleware deployment at runtime.
 const chains = [
-  // mainnet + canary (real chain ids, same wallet network)
   mainnet,
   arbitrum,
   base,
@@ -49,12 +43,6 @@ const chains = [
   monad,
   hyperEvm,
   megaeth,
-  // testnet
-  sepolia,
-  arbitrumSepolia,
-  baseSepolia,
-  optimismSepolia,
-  polygonAmoy,
 ] as const;
 
 const transports = Object.fromEntries(

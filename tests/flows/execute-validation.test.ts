@@ -1,6 +1,5 @@
 import { describe, it } from 'vitest';
 import type { ExecuteParams } from '../../src/domain';
-import { bridgeAndExecute } from '../../src/flows/bridge-and-execute';
 import { execute } from '../../src/flows/execute';
 import { createChainList } from '../../src/services/chain-list';
 import { testDeployment } from '../fixtures/deployment';
@@ -13,14 +12,8 @@ const makeQuery = () => {
     sendTransaction: async () => '0x' as `0x${string}`,
   };
 
-  const middlewareClient = {
-    simulateBundleV2: async () => ({ gas: [21_000n] }),
-  } as never;
   const deps = {
     chainList,
-    middlewareClient,
-    intentExplorerUrl: 'https://bridge.example',
-    forceMayan: false,
     evm: {
       walletClient: evmClient as never,
       address: '0x0000000000000000000000000000000000000001' as `0x${string}`,
@@ -29,8 +22,6 @@ const makeQuery = () => {
 
   return {
     execute: (params: ExecuteParams) => execute(params, deps),
-    bridgeAndExecute: (params: Parameters<typeof bridgeAndExecute>[0]) =>
-      bridgeAndExecute(params, deps),
   };
 };
 
@@ -80,36 +71,5 @@ describe('execute validation', () => {
     };
 
     await expectInvalidInput(() => query.execute(invalidParams));
-  });
-
-  it('rejects invalid bridge-and-execute params before any chain access', async () => {
-    const query = makeQuery();
-    const invalidParams = {
-      toChainId: 1,
-      toTokenSymbol: 'USDC',
-      toAmountRaw: 1n,
-      execute: {
-        to: 'not-an-address',
-        value: 0n,
-      },
-    };
-
-    await expectInvalidInput(() => query.bridgeAndExecute(invalidParams as never));
-  });
-
-  it('rejects invalid bridge-and-execute recentApprovalTxHash', async () => {
-    const query = makeQuery();
-    const invalidParams = {
-      toChainId: 1,
-      toTokenSymbol: 'USDC',
-      toAmountRaw: 1n,
-      recentApprovalTxHash: 'bad-hash',
-      execute: {
-        to: '0x0000000000000000000000000000000000000001',
-        value: 0n,
-      },
-    };
-
-    await expectInvalidInput(() => query.bridgeAndExecute(invalidParams as never));
   });
 });

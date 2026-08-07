@@ -5,10 +5,8 @@ export {
   makeSwapChainList,
   makeSwapChainListWithUsdtCot,
 } from './chains';
-export { makePublicClientList } from './public-client';
 export {
   DAI,
-  EPHEMERAL_EXECUTOR,
   USDC_ARB,
   USDC_BASE,
   USDC_OP,

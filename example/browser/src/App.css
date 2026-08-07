@@ -328,11 +328,6 @@ select {
   box-shadow: 0 0 6px var(--accent);
 }
 
-.network-dot.testnet {
-  background: var(--warning);
-  box-shadow: 0 0 6px var(--warning);
-}
-
 /* ── Settings popover ── */
 .settings-anchor {
   position: relative;

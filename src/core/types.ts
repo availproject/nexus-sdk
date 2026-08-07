@@ -1,73 +1,51 @@
 import type { AnalyticsManager } from '../analytics/AnalyticsManager';
-import type { BridgeMaxParams, BridgeMaxResult } from '../bridge/types';
 import type {
   BeforeExecuteHook,
-  BridgeAndExecuteEvent,
-  BridgeAndExecuteOnIntentHookData,
   BridgeAndExecuteParams,
-  BridgeAndExecuteResult,
-  BridgeAndExecuteSimulationResult,
-  BridgeEvent,
   BridgeParams,
-  BridgeResult,
-  BridgeSimulationResult,
   ChainListType,
   EthereumProvider,
   ExecuteParams,
   ExecuteResult,
   ExecuteSimulation,
   ListIntentsParams,
-  ListIntentsResult,
-  OnAllowanceHook,
   OnEventParam,
-  OnIntentHook,
-  SupportedChainsAndTokensResult,
-  SwapAndExecuteEvent,
-  SwapAndExecuteOnIntentHookData,
-  SwapEvent,
-  TokenBalance,
   TransferParams,
-  TransferResult,
 } from '../domain';
 import type {
-  OnIntentHookData,
-  SwapAndExecuteParams,
-  SwapAndExecuteResult,
-  SwapExactInParams,
-  SwapExactOutParams,
-  SwapMaxParams,
-  SwapMaxResult,
-  SwapResult,
-} from '../swap/types';
+  BridgeAndExecuteIntentResult,
+  IntentAllowanceHookData,
+  IntentAndExecuteSimulationResult,
+  IntentBalance,
+  IntentChain,
+  IntentEvent,
+  IntentHistoryResult,
+  IntentHookData,
+  IntentQuote,
+  IntentResult,
+  SwapAndExecuteIntentResult,
+} from '../intent/types';
+import type { SwapAndExecuteParams, SwapExactInParams, SwapExactOutParams } from '../swap/types';
 import type { NexusUtils } from './utils';
 
-export type HookOverrides = {
-  onAllowance?: OnAllowanceHook;
-  onIntent?: OnIntentHook;
-};
-
-export type BridgeOperationOptions = OnEventParam<BridgeEvent> & {
-  hooks?: HookOverrides;
-  fillTimeoutMinutes?: number;
-};
-
-export type BridgeAndExecuteOptions = OnEventParam<BridgeAndExecuteEvent> &
-  BeforeExecuteHook & {
-    fillTimeoutMinutes?: number;
-    onIntent?: (data: BridgeAndExecuteOnIntentHookData) => void;
-  };
-
-export type SwapOperationOptions = OnEventParam<SwapEvent> & {
+export type IntentOperationOptions = OnEventParam<IntentEvent> & {
   hooks?: {
-    onIntent?: (data: OnIntentHookData) => void;
+    onIntent?: (data: IntentHookData) => void | Promise<void>;
+    onAllowance?: (data: IntentAllowanceHookData) => void | Promise<void>;
   };
-  slippageTolerance?: number;
+  slippageBps?: number | 'auto';
+  fillTimeoutMinutes?: number;
+  pollingIntervalMs?: number;
 };
 
-export type SwapAndExecuteOptions = OnEventParam<SwapAndExecuteEvent> & {
-  onIntent?: (data: SwapAndExecuteOnIntentHookData) => void;
-  slippageTolerance?: number;
+export type BridgeOperationOptions = IntentOperationOptions;
+
+export type SwapOperationOptions = Omit<IntentOperationOptions, 'hooks'> & {
+  hooks?: { onIntent?: (data: IntentHookData) => void | Promise<void> };
 };
+
+export type BridgeAndExecuteOptions = IntentOperationOptions & BeforeExecuteHook;
+export type SwapAndExecuteOptions = SwapOperationOptions & BeforeExecuteHook;
 
 export type NexusClient = {
   chainList: ChainListType;
@@ -75,63 +53,41 @@ export type NexusClient = {
   analytics: AnalyticsManager;
   initialize: () => Promise<void>;
   isSupportedChain: (chainId: number) => boolean;
-  bridge: (params: BridgeParams, options?: BridgeOperationOptions) => Promise<BridgeResult>;
+  bridge: (params: BridgeParams, options?: BridgeOperationOptions) => Promise<IntentResult>;
   bridgeAndTransfer: (
     params: TransferParams,
     options?: BridgeOperationOptions
-  ) => Promise<TransferResult>;
-  simulateBridge: (params: BridgeParams) => Promise<BridgeSimulationResult>;
-  simulateBridgeAndTransfer: (params: TransferParams) => Promise<BridgeAndExecuteSimulationResult>;
-  listIntents: (params?: ListIntentsParams) => Promise<ListIntentsResult>;
+  ) => Promise<IntentResult>;
+  simulateBridge: (params: BridgeParams, options?: BridgeOperationOptions) => Promise<IntentQuote>;
+  simulateBridgeAndTransfer: (
+    params: TransferParams,
+    options?: BridgeOperationOptions
+  ) => Promise<IntentQuote>;
+  listIntents: (params?: ListIntentsParams) => Promise<IntentHistoryResult>;
   execute: (params: ExecuteParams, options?: OnEventParam) => Promise<ExecuteResult>;
   simulateExecute: (params: ExecuteParams) => Promise<ExecuteSimulation>;
-  /**
-   * Orchestrates two distinct operations in sequence — NOT a single atomic transaction:
-   *
-   * 1. Bridge (conditional) — funds the shortfall on the destination chain. Skipped when the
-   *    destination already holds enough of the token (`result.bridgeSkipped === true`).
-   * 2. Execute + approval (execute always, approval optional) — the contract call, preceded by
-   *    an optional token approval, is always sent from the user's connected wallet on the
-   *    destination chain.
-   *
-   * The steps succeed or fail independently: a failed execute does not roll back the bridge —
-   * the bridged funds remain in the user's wallet on the destination chain.
-   */
   bridgeAndExecute: (
     params: BridgeAndExecuteParams,
     options?: BridgeAndExecuteOptions
-  ) => Promise<BridgeAndExecuteResult>;
+  ) => Promise<BridgeAndExecuteIntentResult>;
   simulateBridgeAndExecute: (
-    params: BridgeAndExecuteParams
-  ) => Promise<BridgeAndExecuteSimulationResult>;
-  getBalancesForBridge: () => Promise<TokenBalance[]>;
-  getBalancesForSwap: () => Promise<TokenBalance[]>;
+    params: BridgeAndExecuteParams,
+    options?: BridgeAndExecuteOptions
+  ) => Promise<IntentAndExecuteSimulationResult>;
+  getBalancesForBridge: () => Promise<IntentBalance[]>;
+  getBalancesForSwap: () => Promise<IntentBalance[]>;
   swapWithExactIn: (
     input: SwapExactInParams,
     options?: SwapOperationOptions
-  ) => Promise<SwapResult>;
+  ) => Promise<IntentResult>;
   swapWithExactOut: (
     input: SwapExactOutParams,
     options?: SwapOperationOptions
-  ) => Promise<SwapResult>;
-  /**
-   * Orchestrates two distinct operations in sequence — NOT a single atomic transaction:
-   *
-   * 1. Swap (conditional) — funds the shortfall on the destination chain. Skipped when the
-   *    destination already holds enough of the token (`result.swapSkipped === true`).
-   * 2. Execute + approval (execute always, approval optional) — the contract call, preceded by
-   *    an optional token approval, is always sent from the user's connected wallet on the
-   *    destination chain.
-   *
-   * The steps succeed or fail independently: a failed execute does not roll back the swap —
-   * the swapped funds remain in the user's wallet on the destination chain.
-   */
+  ) => Promise<IntentResult>;
   swapAndExecute: (
     input: SwapAndExecuteParams,
     options?: SwapAndExecuteOptions
-  ) => Promise<SwapAndExecuteResult>;
-  calculateMaxForSwap: (input: SwapMaxParams) => Promise<SwapMaxResult>;
-  calculateMaxForBridge: (input: BridgeMaxParams) => Promise<BridgeMaxResult>;
+  ) => Promise<SwapAndExecuteIntentResult>;
   setEVMProvider: (provider: EthereumProvider) => Promise<void>;
   hasEvmProvider: boolean;
   convertTokenReadableAmountToBigInt: (
@@ -139,6 +95,6 @@ export type NexusClient = {
     tokenSymbol: string,
     chainId: number
   ) => bigint;
-  getSupportedChains: () => SupportedChainsAndTokensResult;
+  getSupportedChains: () => IntentChain[];
   destroy: () => void;
 };

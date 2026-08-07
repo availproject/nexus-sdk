@@ -1,135 +1,98 @@
 # Testing Strategy
 
-This document defines how the Nexus SDK test suite should be structured and how behavior may be
-consolidated without losing coverage. Read it with
-[`docs/CONVENTIONS.md`](../docs/CONVENTIONS.md) and
-[`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md).
+Use the smallest layer that directly observes the behavior.
 
-## Test Layers
-
-Use the smallest layer that observes the behavior directly.
+## Layers
 
 ### Pure unit tests
 
-Pure logic belongs in a test that mirrors the production path and uses no mocks. Prefer concrete
-inputs and exact outputs for arithmetic, normalization, validation, mapping, and selection logic.
+Use no mocks for catalog lookup, response normalization, funding arithmetic, validation, and event
+or result mapping. Assert exact raw units and normalized output.
 
-### Focused contract tests
+### Boundary contract tests
 
-Keep focused tests for boundaries whose wire format or authentication details are the behavior:
-ABI encoding, signed payloads, transaction serialization, middleware request normalization,
-public exports, type surfaces, and vendor adapters.
+Mock only external boundaries for middleware URLs/bodies, wallet requests, RPC reads/writes, and
+receipt/status polling. Assert the wire contract and the categorized error visible to callers.
 
-An execution contract test may replace adjacent SDK stages only to reach control flow owned by the
-subject under test, such as retry classification, asset reconciliation, failure context, or cleanup
-scope. Assert the owned result, error, state transition, or side effect; do not merely assert that a
-canned internal payload was forwarded to another mock.
+### Orchestrator tests
 
-### Characterization tests
+Drive the real canonical orchestrator with injected boundary dependencies. Assert observable order,
+events, refreshed-quote replacement, submission payloads, fulfillment, expiry, timeout, and user
+denial. Do not mock an SDK helper merely to assert another SDK helper called it.
 
-Cross-stage behavior belongs in characterization tests that execute the real orchestration and
-feature internals. Assert observable plans, results, errors, events, lifecycle transitions,
-decoded calls, and externally submitted payloads.
+### Public assembly tests
 
-An assertion that only checks whether one mocked SDK-internal function called another is forbidden.
-It restates the implementation call graph and cannot prove the integrated behavior.
+Exercise `createNexusClient` with a middleware fixture for lifecycle, network gating, public request
+construction, composite funding, history, and supported-chain capabilities.
 
-## Mock Boundaries
+## Mock boundaries
 
-Mocks are allowed at injected or external boundaries:
+Allowed boundaries:
 
 - middleware responses and submissions;
-- wallet prompts and network sends;
-- deterministic public-client reads;
-- receipt watchers and fulfilment polling;
-- aggregator HTTP requests.
+- wallet prompts and transaction sends;
+- deterministic RPC reads and gas estimates;
+- receipt and intent-status polling;
+- time/sleep injection.
 
-Do not mock SDK-internal intent builders, route stages, allowance logic, request-for-funds logic,
-progress mapping, or execution stages in characterization coverage.
+Do not mock:
 
-`tests/swap/route.test.ts` has one documented exception: it may mock the auto-select, liquidate,
-and destination algorithm seams so the route facade can retain focused validation and composition
-coverage. Holdings and native-reserve estimation must run through their real implementations.
+- `normalizeIntent*` inside normalizer tests;
+- catalog lookups inside catalog tests;
+- allowance/sign/send/submit sequencing inside orchestrator tests;
+- funding arithmetic inside composite assembly tests.
 
-## Shared Helpers
+## Helper ownership
 
-Use the existing helper owners instead of redefining local builders:
+- `tests/helpers/chains.ts` — deployment chain and chain-list fixtures
+- `tests/helpers/tokens.ts` — reusable token metadata
+- `tests/helpers/middleware-client.ts` — normalized middleware client fixtures
+- `tests/helpers/swap.ts` — public swap input fixtures that still apply
 
-- `tests/helpers/chains.ts` owns chain and chain-list factories;
-- `tests/helpers/tokens.ts` owns reusable token constants and token fixtures;
-- `tests/helpers/public-client.ts` owns deterministic public-client builders;
-- `tests/helpers/balances.ts` owns balance and oracle-price builders;
-- `tests/helpers/middleware-client.ts` owns middleware client fixtures;
-- feature characterization helpers own only capture, decoding, and scenario controls specific to
-  that feature.
+Add a shared helper only when multiple retained suites use it. Do not add compatibility helpers for
+deleted local-routing types.
 
-Add capabilities to these owners when a surviving suite needs a shared shape. Do not add
-compatibility wrappers only for a test that is scheduled for deletion.
+## Core coverage map
 
-## Scenario Design
+- `tests/intent/normalize.test.ts`
+- `tests/intent/catalog.test.ts`
+- `tests/intent/funding.test.ts`
+- `tests/intent/orchestrator.test.ts`
+- `tests/intent/wallet.test.ts`
+- `tests/transport/better-intent.test.ts`
+- `tests/core/sdk-better-intent.test.ts`
+- `tests/public-api.test.ts`
 
-Name scenarios after observable behavior and the condition that produces it, for example:
+New middleware fields require normalizer and transport tests. New wallet or orchestration behavior
+requires failure-path coverage as well as success coverage.
+
+## Scenario names
+
+Name scenarios after observable behavior and its condition, for example:
 
 ```text
-retries an unbroadcast bridge deposit after a structured middleware failure
-re-emits the refreshed plan before executing an allowed swap
+replaces the complete executable quote after refresh
+rejects when the middleware reports an expired intent
+requests one raw output unit when only destination gas is missing
 ```
-
-Table-drive families that differ only by provider, wallet path, mode, or input shape. Keep
-separate specs when their failure paths, emitted lifecycle, or decoded wire formats differ.
-
-## Subsuming Existing Tests
-
-Before deleting a spec, record exactly one classification in the PR evidence:
-
-- `DROP`: the spec only echoes calls or arguments to an SDK-internal function mocked by the test;
-- `SUBSUMED`: a surviving test observes the same behavior; cite its file and exact spec title;
-- `PORT`: meaningful behavior is not observed elsewhere; add a characterization or focused
-  contract spec and cite its new title.
-
-No deletion candidate may be removed while it contains an unclassified spec.
-
-For each deletion batch:
-
-1. Generate LCOV on the exact production-source revision used for the baseline.
-2. Save `coverage/lcov.info` outside the worktree.
-3. Run coverage after porting and deletion.
-4. Compare exact branch identities with the tracked comparator.
-5. Restore coverage or document each intentionally uncovered branch in the PR evidence.
-
-The comparator reports recursively selected scopes. `src/swap/**` includes every instrumented file
-below `src/swap/`; it is not the direct-files-only row in the text coverage table.
-
-```bash
-npm run test:coverage
-cp coverage/lcov.info /tmp/nexus-baseline.lcov
-
-# After the refactor batch:
-npm run test:coverage
-npm run coverage:compare -- /tmp/nexus-baseline.lcov coverage/lcov.info
-```
-
-The comparator exits non-zero and prints the exact file, line, block, and branch for every branch
-that was covered in the baseline and is uncovered or missing in the current report.
 
 ## Verification
 
-Use focused tests while iterating:
+During iteration:
 
 ```bash
 npm test -- tests/path/to/focused.test.ts
 npm run typecheck:tests
 ```
 
-Finish every independently reviewable refactor layer with:
+Before delivery:
 
 ```bash
-npm run lint
-npm run lint:deps
 npm run typecheck
 npm run typecheck:tests
 npm run test
+npm run lint
+npm run lint:deps
+npm run build
+npm --prefix example/browser run build
 ```
-
-Run `npm run test:coverage` and the LCOV comparator for broad ports, deletion batches, and the final
-PR evidence.

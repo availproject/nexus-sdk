@@ -169,31 +169,6 @@ export function OperationPage({ config, ...sdkProps }: OperationPageProps) {
                       balances={destinationBalances}
                     />
                   </div>
-                  <div className="receive-hint">
-                    {form.maxQuery.isFetching
-                      ? <span>Calculating max…</span>
-                      : form.maxQuery.error
-                        ? <span className="field-error">Max calc failed: {form.maxQuery.error.message}</span>
-                        : form.maxQuery.data
-                          ? (
-                            <button
-                              type="button"
-                              className="max-link"
-                              onClick={() => form.setAmount(form.maxQuery.data!.maxAmount)}
-                            >
-                              {form.maxQuery.data.maxAmount} {form.maxQuery.data.symbol}
-                            </button>
-                          )
-                          : (
-                            <button
-                              type="button"
-                              className="max-link"
-                              onClick={form.fetchMax}
-                            >
-                              Calculate max
-                            </button>
-                          )}
-                  </div>
                   {isBridge && (
                     <RecipientInput
                       value={form.recipient}

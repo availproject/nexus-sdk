@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { formatAmount } from "../lib/format";
 import { D, sum } from "../lib/math";
-import type { TokenBalance } from "@avail-project/nexus-core";
+import type { TokenBalance } from "../lib/types";
 import {
   AssetRowIcon,
   AssetRowMeta,

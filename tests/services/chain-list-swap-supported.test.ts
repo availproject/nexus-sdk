@@ -41,6 +41,16 @@ describe('createChainList propagates swapSupported and uses Safe V2', () => {
     expect(chain.swapSupported).toBe(true);
   });
 
+  it('copies supports7702=true from deployment chain onto runtime Chain', () => {
+    const list = createChainList(hyperEvmDeployment(true));
+    const chain = list.getChainByID(999);
+
+    expect(chain.supports7702).toBe(true);
+  });
+
+});
+
+describe('createChainList propagates swapSupported', () => {
   it('copies swapSupported=true from deployment chain onto runtime Chain', () => {
     const list = createChainList(hyperEvmDeployment(true));
     const chain = list.getChainByID(999);

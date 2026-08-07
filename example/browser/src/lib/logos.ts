@@ -38,14 +38,6 @@ const NEXUS_CHAIN_SLUGS: Record<number, string> = {
   43114: "avalanche",
   50104: "sophon",
   534352: "scroll",
-  // Testnets
-  5115: "citrea-testnet",
-  10143: "monad-testnet",
-  80002: "polygon-amoy",
-  84532: "base-sepolia",
-  421614: "arbitrum-sepolia",
-  11155111: "ethereum-sepolia",
-  11155420: "optimism-sepolia",
 };
 
 /** Token symbol (uppercase-normalized) → slug under nexus-assets/tokens/.

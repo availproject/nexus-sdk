@@ -1,9 +1,11 @@
 import type { NexusClient } from "@avail-project/nexus-core";
-import type { ChainOption, HashRecord, TokenOption, SourceOption } from "./types";
+import type { ChainOption, TokenOption, SourceOption } from "./types";
 import { D } from "./math";
 
 export function getSupportedChains(client: NexusClient): ChainOption[] {
-  const supported = client.getSupportedChains();
+  const supported = client
+    .getSupportedChains()
+    .filter((chain) => chain.capabilities.intent);
   return supported.map((c) => ({ id: c.id, name: c.name }));
 }
 
@@ -18,7 +20,8 @@ export function getSupportedTokens(
   const tokens: TokenOption[] = chain.tokens.map((t) => ({
     symbol: t.symbol,
     label: t.symbol,
-    tokenAddress: t.contractAddress,
+    tokenAddress: t.address,
+    decimals: t.decimals,
   }));
 
   return tokens;
@@ -35,33 +38,4 @@ export function filterBridgeSources(
       s.chainId !== chainId &&
       D(s.balance).gt(0),
   );
-}
-
-export function extractBridgeResultHashes(result: {
-  intentExplorerUrl: string;
-  sourceTxs: Array<{
-    chain: { id: number; name: string };
-    txHash: string;
-    txExplorerUrl: string;
-  }>;
-}): HashRecord[] {
-  const hashes: HashRecord[] = [];
-
-  for (const [index, tx] of result.sourceTxs.entries()) {
-    hashes.push({
-      label: `Source tx ${index + 1} (${tx.chain.name})`,
-      value: tx.txHash,
-      href: tx.txExplorerUrl,
-    });
-  }
-
-  if (result.intentExplorerUrl) {
-    hashes.push({
-      label: "Bridge explorer",
-      value: result.intentExplorerUrl,
-      href: result.intentExplorerUrl,
-    });
-  }
-
-  return hashes;
 }

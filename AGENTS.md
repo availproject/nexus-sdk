@@ -22,15 +22,15 @@ execution, and balance discovery. The public client is created with `createNexus
 
 ## Repo Map
 
-- `src/abi/` — contract ABIs used by bridge, execute, and swap flows
+- `src/abi/` — contract ABIs used by retained execute and approval flows
 - `src/analytics/` — telemetry, timing spans, analytics providers, event definitions
-- `src/core/` — public SDK assembly, client factory, client types, event adapters
-- `src/flows/` — thin public orchestration and composition entrypoints
-- `src/bridge/` — bridge-specific preview, intent, allowance, execution, progress
-- `src/execute/` — execute runtime and execute-progress mapping
-- `src/swap/` — routing, preflight, execution, wallet logic, progress
+- `src/core/` — public SDK assembly, client factory, and client types
+- `src/flows/` — thin execute entrypoint and shared execute dependencies
+- `src/intent/` — Better Intent catalog, normalization, funding, wallet, and orchestrator
+- `src/execute/` — standalone execute runtime
+- `src/swap/` — public swap input types only
 - `src/services/` — cross-feature helpers only
-- `src/transport/` — middleware and simulation clients, request lifecycle
+- `src/transport/` — deployment and Better Intent middleware client
 - `src/domain/` — types, errors, constants, validation, shared utilities
 - `tests/` — mirrors `src/` and includes public API and type-surface tests
 
@@ -43,12 +43,13 @@ execution, and balance discovery. The public client is created with `createNexus
 - Keep the high-level dependency direction intact:
   - `src/core/` is the top assembly layer
   - `src/flows/` stays thin
-  - `src/bridge/`, `src/execute/`, and `src/swap/` own feature internals
+  - `src/intent/` owns bridge/swap intent internals
+  - `src/execute/` owns standalone execute internals
   - `src/services/` is only for cross-feature helpers
   - lower layers must not grow back-references into higher orchestration layers
 - Keep package boundaries intact. `src/core/` is the assembly layer. `src/flows/` stays thin.
-  Bridge-only code belongs in `src/bridge/`, swap-only code in `src/swap/`, shared execute code in
-  `src/execute/`, and only cross-feature helpers belong in `src/services/`.
+  API-backed bridge/swap behavior belongs in `src/intent/`, shared execute code in `src/execute/`,
+  and only cross-feature helpers belong in `src/services/`.
 - `src/services/` must not import `src/flows/`. This is CI-enforced by `npm run lint:deps`.
 - Normalize external API and contract responses at the transport boundary before they reach
   business logic.
@@ -81,7 +82,7 @@ Architecture and flow ownership:
 
 - `docs/ARCHITECTURE.md`
 - `src/flows/`
-- `src/bridge/`
+- `src/intent/`
 - `src/execute/`
 - `src/swap/`
 
@@ -92,22 +93,21 @@ Key domain and transport pieces:
 - `src/domain/types/`
 - `src/domain/utils/validation.ts`
 - `src/transport/middleware.ts`
-- `src/transport/ws-request.ts`
+- `src/intent/normalize.ts`
 
 Common implementation hotspots:
 
-- Bridge: `src/bridge/intent/`, `src/bridge/allowances/`, `src/bridge/executor.ts`,
-  `src/bridge/progress.ts`
-- Execute: `src/execute/runtime.ts`, `src/execute/progress.ts`
-- Swap: `src/swap/route.ts`, `src/swap/preflight.ts`, `src/swap/prepare.ts`,
-  `src/swap/execution/`, `src/swap/progress.ts`
-- Shared helpers: `src/services/chain-list.ts`, `src/services/balances.ts`,
-  `src/services/fee-estimation.ts`, `src/services/wallet-capabilities.ts`
+- Intent: `src/intent/orchestrator.ts`, `src/intent/wallet.ts`, `src/intent/catalog.ts`,
+  `src/intent/funding.ts`
+- Execute: `src/execute/runtime.ts`, `src/flows/execute.ts`
+- Public request construction: `src/core/sdk/base.ts`
+- Shared helpers: `src/services/chain-list.ts`, `src/services/allowance-utils.ts`,
+  `src/services/wallet-capabilities.ts`
 
 Tests to inspect first:
 
 - `tests/public-api.test.ts`
-- feature tests under `tests/flows/`, `tests/swap/`, `tests/services/`, `tests/transport/`
+- feature tests under `tests/intent/`, `tests/core/`, `tests/flows/`, and `tests/transport/`
 - surface and type tests under `tests/types/`
 
 ## Change Checklist
