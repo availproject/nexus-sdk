@@ -488,7 +488,10 @@ export async function _exactOutRoute(
     data.toNativeAmountRaw != null && data.toNativeAmountRaw > 0n ? data.toNativeAmountRaw : 0n;
   const dstHoldings = holdings.filter((holding) => holding.chainID === data.toChainId);
   const canTryDirectDestination =
-    !options.skipFastPaths && data.toAmountRaw > 0n && dstHoldings.length > 0;
+    !options.skipFastPaths &&
+    data.toAmountRaw > 0n &&
+    (data.toNativeAmountRaw ?? 0n) >= 0n &&
+    dstHoldings.length > 0;
   const nativePricePromise =
     canTryDirectDestination && requestedNativeAmountRaw > 0n
       ? priceResolver.resolve(data.toChainId, EADDRESS)
