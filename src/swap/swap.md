@@ -353,7 +353,7 @@ determineSwapRoute(input, opts) -> SwapRoute:
     # Path A gets the first attempt, before any COT→toToken sizing quote:
     directRequiredUsd = toAmount × toTokenPrice + nativeAmount × nativePrice
     directCapacityUsd = Σ(dstHolding.amount × cachedPrice)
-    if needTokenSwap ∧ dstHoldings non-empty ∧
+    if toAmountRaw > 0 ∧ dstHoldings non-empty ∧
        (required/capacity unknown ∨ directCapacityUsd ≥ directRequiredUsd):
       try buildDirectDestinationExactOutRoute                       # authoritative quotes/coverage
       success → return immediately                                  # no destination requirement quote
@@ -388,7 +388,10 @@ determineSwapRoute(input, opts) -> SwapRoute:
     #     Null F-quote / insufficient F ⇒ fall back to the USDC COT flow.
     provider, minOutputUsdPerSource = resolveBridgeProviderDecision(  # ← AFTER fast-path attempts
                         dstCOT, RES.filter(non-dst))                   # same immutable RES snapshot
-    inputAmount.max = inputAmount + min(DST_BUFFER_PCT·in, DST_BUFFER_MAX_USD)
+    destinationBuffer = (needTokenSwap ∨ needGasSwap)
+                      ? min(DST_BUFFER_PCT·in, DST_BUFFER_MAX_USD)
+                      : 0
+    inputAmount.max = inputAmount + destinationBuffer
     outputRequired  = max         + min(SRC_BUFFER_PCT·max, SRC_BUFFER_MAX_USD)
     source = autoSelectSources(holdings, outputRequired, minOutputUsdPerSource)   # §6 (floor drops sub-$1.10 chains)
 
@@ -990,8 +993,8 @@ fixed-plus-bps model and reapplies it to `Σ(executed)` when building the bridge
 
 ### 12.2 Invariants
 
-- **Buffers applied once.** The default EXACT_OUT swap path has a dst buffer `min(10%, $2)` +
-  source buffer `min(2%, $1)`;
+- **Buffers applied once.** The default EXACT_OUT swap path has a dst buffer `min(10%, $2)` only
+  when a destination token or gas swap runs, plus a source buffer `min(2%, $1)`;
   EXACT_IN has **no buffer** (no source buffer, no dst buffer). (Values: `DST_BUFFER_PCT`/`DST_BUFFER_MAX_USD`,
   `SRC_BUFFER_PCT`/`SRC_BUFFER_MAX_USD` —
   pinned in `tests/swap/constants.test.ts`.) `getDstSwap` never lets the EXACT_OUT max ceiling
