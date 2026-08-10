@@ -3,20 +3,23 @@
 // wallet/network boundary.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Hex } from 'viem';
-import type { SBCTx } from '../../../src/swap/types';
 import { swap } from '../../../src/flows/swap';
+import type {
+  CreateSafeExecuteTxV2Request,
+  CreateSafeExecuteTxV2Response,
+} from '../../../src/swap/safe/types';
 import { SwapMode, type FlatBalance } from '../../../src/swap/types';
 import {
   EOA,
   EPH_ACCOUNT,
-  decodeSbcCalls,
+  decodeSafeRequest,
   makeBebopResponse,
   makeCharChainList,
   makeCharMiddleware,
   makeRealEoaWallet,
   makeRequoteDrift,
   readContractStub,
-  sbcBatchesForChain,
+  executionBatchesForChain,
   type CharMiddleware,
 } from '../../helpers/swap-characterization';
 import {
@@ -121,8 +124,8 @@ const runDirectCotBridge = (
   );
 
 const bridgeSubmissionCalls = (middlewareClient: CharMiddleware) =>
-  middlewareClient.submitSBCs.mock.calls.filter(([txs]) =>
-    (txs as SBCTx[]).some((tx) => decodeSbcCalls(tx).some((call) => call.fn === 'deposit'))
+  middlewareClient.createSafeExecuteTx.mock.calls.filter(([request]) =>
+    decodeSafeRequest(request).some((call) => call.fn === 'deposit')
   );
 
 describe('swap execution failure and retry characterization', () => {
@@ -159,78 +162,43 @@ describe('swap execution failure and retry characterization', () => {
 
     await runDirectCotBridge(middlewareClient);
 
-    expect(nonceReads).toBe(2);
+    expect(nonceReads).toBe(3);
     expect(bridgeSubmissionCalls(middlewareClient)).toHaveLength(1);
   });
 
-  it('retries an explicitly unbroadcast bridge request without re-signing it', async () => {
+  it('does not retry a rejected Safe bridge request', async () => {
     const middlewareClient = makeCharMiddleware({
       balances: [balance(ARB_CHAIN, USDC_ARB, 'USDC', 6, '50')],
     });
-    const defaultSubmit = middlewareClient.submitSBCs.getMockImplementation() as
-      | ((txs: SBCTx[]) => Promise<unknown>)
-      | undefined;
-    if (!defaultSubmit) throw new Error('missing default submitSBCs implementation');
-    let rejected = false;
-    middlewareClient.submitSBCs.mockImplementation(async (txs: SBCTx[]) => {
-      const isBridge = txs.some((tx) =>
-        decodeSbcCalls(tx).some((call) => call.fn === 'deposit')
-      );
-      if (isBridge && !rejected) {
-        rejected = true;
-        return txs.map((tx) => ({
-          chainId: tx.chainId,
-          address: tx.address,
-          errored: true as const,
-          message: 'not broadcast',
-        }));
-      }
-      return defaultSubmit(txs);
-    });
+    middlewareClient.createSafeExecuteTx.mockRejectedValueOnce(new Error('not broadcast'));
 
-    await runDirectCotBridge(middlewareClient);
+    await expect(runDirectCotBridge(middlewareClient)).rejects.toThrow('not broadcast');
 
     const submissions = bridgeSubmissionCalls(middlewareClient);
-    expect(submissions).toHaveLength(2);
-    expect((submissions[1]![0] as SBCTx[])[0]).toBe((submissions[0]![0] as SBCTx[])[0]);
+    expect(submissions).toHaveLength(1);
   });
 
   it('does not retry an ambiguous bridge transport failure', async () => {
     const middlewareClient = makeCharMiddleware({
       balances: [balance(ARB_CHAIN, USDC_ARB, 'USDC', 6, '50')],
     });
-    const defaultSubmit = middlewareClient.submitSBCs.getMockImplementation() as
-      | ((txs: SBCTx[]) => Promise<unknown>)
-      | undefined;
-    if (!defaultSubmit) throw new Error('missing default submitSBCs implementation');
-    middlewareClient.submitSBCs.mockImplementation(async (txs: SBCTx[]) => {
-      if (txs.some((tx) => decodeSbcCalls(tx).some((call) => call.fn === 'deposit'))) {
-        throw new Error('request timed out');
-      }
-      return defaultSubmit(txs);
-    });
+    middlewareClient.createSafeExecuteTx.mockRejectedValueOnce(new Error('request timed out'));
 
     await expect(runDirectCotBridge(middlewareClient)).rejects.toThrow('request timed out');
 
     expect(bridgeSubmissionCalls(middlewareClient)).toHaveLength(1);
   });
 
-  it('does not resubmit a bridge request after a transaction hash is known', async () => {
+  it('submits one Safe bridge request when a transaction hash is returned', async () => {
     const middlewareClient = makeCharMiddleware({
       balances: [balance(ARB_CHAIN, USDC_ARB, 'USDC', 6, '50')],
     });
-    hoisted.waitForTransactionReceipt.mockRejectedValueOnce(
-      new Error('receipt RPC unavailable')
-    );
-
-    await expect(runDirectCotBridge(middlewareClient)).rejects.toThrow(
-      'receipt RPC unavailable'
-    );
+    await runDirectCotBridge(middlewareClient);
 
     expect(bridgeSubmissionCalls(middlewareClient)).toHaveLength(1);
   });
 
-  it('reuses a paid source approval when a failed source leg is requoted', async () => {
+  it('reuses Safe funding authorization when a failed source leg is requoted', async () => {
     hoisted.getCode.mockImplementation(
       async ({ address }: { address: Hex }) =>
         address.toLowerCase() === EOA.toLowerCase()
@@ -266,9 +234,9 @@ describe('swap execution failure and retry characterization', () => {
       { onIntent: ({ allow }) => allow() }
     );
 
-    expect(walletHarness.sentTxs.map(({ call }) => call.fn)).toEqual(['approve']);
+    expect(walletHarness.sentTxs).toEqual([]);
     expect(
-      sbcBatchesForChain(middlewareClient, ARB_CHAIN).filter((batch) =>
+      executionBatchesForChain(middlewareClient, ARB_CHAIN).filter((batch) =>
         batch.some((call) => call.fn === 'swap')
       )
     ).toHaveLength(2);
@@ -278,20 +246,15 @@ describe('swap execution failure and retry characterization', () => {
     const middlewareClient = makeCharMiddleware({
       balances: [balance(ARB_CHAIN, WETH, 'WETH', 18, '1')],
     });
-    const defaultSubmit = middlewareClient.submitSBCs.getMockImplementation() as
-      | ((txs: SBCTx[]) => Promise<unknown>)
+    const defaultCreate = middlewareClient.createSafeExecuteTx.getMockImplementation() as
+      | ((request: CreateSafeExecuteTxV2Request) => Promise<CreateSafeExecuteTxV2Response>)
       | undefined;
-    if (!defaultSubmit) throw new Error('missing default submitSBCs implementation');
-    middlewareClient.submitSBCs.mockImplementation(async (txs: SBCTx[]) => {
-      if (txs.some((tx) => decodeSbcCalls(tx).some((call) => call.fn === 'swap'))) {
-        return txs.map((tx) => ({
-          chainId: tx.chainId,
-          address: tx.address,
-          errored: true as const,
-          message: 'source swap rejected',
-        }));
+    if (!defaultCreate) throw new Error('missing default createSafeExecuteTx implementation');
+    middlewareClient.createSafeExecuteTx.mockImplementation(async (request) => {
+      if (decodeSafeRequest(request).some((call) => call.fn === 'swap')) {
+        throw new Error('source swap rejected');
       }
-      return defaultSubmit(txs);
+      return defaultCreate(request);
     });
 
     await expect(
@@ -316,10 +279,8 @@ describe('swap execution failure and retry characterization', () => {
     ).rejects.toThrow('source swap rejected');
 
     expect(
-      middlewareClient.submitSBCs.mock.calls.filter(([txs]) =>
-        (txs as SBCTx[]).some((tx) =>
-          decodeSbcCalls(tx).some((call) => call.fn === 'swap')
-        )
+      middlewareClient.createSafeExecuteTx.mock.calls.filter(([request]) =>
+        decodeSafeRequest(request).some((call) => call.fn === 'swap')
       )
     ).toHaveLength(2);
     expect(middlewareClient.submitRFF).not.toHaveBeenCalled();
@@ -372,7 +333,7 @@ describe('swap execution failure and retry characterization', () => {
 
     expect(destinationQuoteCalls).toBeGreaterThanOrEqual(2);
     expect(
-      sbcBatchesForChain(middlewareClient, BASE_CHAIN).some((batch) =>
+      executionBatchesForChain(middlewareClient, BASE_CHAIN).some((batch) =>
         batch.some((call) => call.fn === 'swap')
       )
     ).toBe(true);
@@ -425,7 +386,7 @@ describe('swap execution failure and retry characterization', () => {
 
     expect(destinationBalanceReads).toBeGreaterThanOrEqual(3);
     expect(
-      sbcBatchesForChain(middlewareClient, BASE_CHAIN).some((batch) =>
+      executionBatchesForChain(middlewareClient, BASE_CHAIN).some((batch) =>
         batch.some((call) => call.fn === 'swap')
       )
     ).toBe(false);
@@ -462,7 +423,7 @@ describe('swap execution failure and retry characterization', () => {
       { onIntent: ({ allow }) => allow() }
     );
 
-    const destinationCalls = sbcBatchesForChain(middlewareClient, BASE_CHAIN).flat();
+    const destinationCalls = executionBatchesForChain(middlewareClient, BASE_CHAIN).flat();
     expect(destinationCalls.some((call) => call.fn === 'sweepERC20')).toBe(true);
   });
 });

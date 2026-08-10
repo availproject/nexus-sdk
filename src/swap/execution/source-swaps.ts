@@ -11,16 +11,11 @@ import {
   UserActionError,
 } from '../../domain/errors';
 import { isNativeAddress } from '../../services/addresses';
-import { confirmStepReceipt, switchChain } from '../../services/evm';
+import { confirmStepReceipt } from '../../services/evm';
 import { createExplorerTxURL } from '../../services/explorer';
 import { isUserRejectedRequest } from '../../services/is-user-rejected-request';
 import { divDecimals } from '../../services/math';
-import {
-  createCaliburExecuteTxFromCalls,
-  createSBCTxFromCalls,
-  requireSuccessfulSbcResult,
-  type SBCCall,
-} from '../../services/sbc';
+import type { SafeCall } from '../../services/safe';
 import { createSourceSwapStepId } from '../../services/step-ids';
 import { equalFold } from '../../services/strings';
 import { withTimingSpan } from '../../services/timing';
@@ -35,8 +30,6 @@ import type {
   SwapMetadata,
   WalletPath,
 } from '../types';
-import { resolveSwapWalletPath } from '../wallet/capabilities';
-import { simulateEoaTransaction } from './eoa-simulation';
 import { resolvePreparedFundingTransferCalls } from './eoa-to-ephemeral';
 import { getParsedQuote } from './parsed-quote';
 import { dispatchSafeSource } from './safe-dispatch';
@@ -93,8 +86,8 @@ const buildSourceCalls = async (
     | 'safeDeploymentPromises'
   >,
   chainId: number
-): Promise<SBCCall[]> => {
-  const calls: SBCCall[] = [];
+): Promise<SafeCall[]> => {
+  const calls: SafeCall[] = [];
   const usedTransfers = new Set<string>();
   const publicClient = ctx.publicClientList.get(chainId);
   const chain = ctx.chainList.getChainByID(chainId);
@@ -103,10 +96,9 @@ const buildSourceCalls = async (
     const parsedQuote = getParsedQuote(swap, ctx.preparedExecution?.parsedQuotes);
     const nativeInput = isNativeInput(swap);
 
-    // ERC20 inputs are funded EOA → executor (ephemeral SBC or Safe) inside the same batch, so the
-    // executor holds the token before it approves the aggregator router and swaps. The prepared
-    // transfer's targetAddress is the executor for this chain's wallet path. Native inputs carry
-    // their value via the SBC / Safe execTransaction, so they need no funding transfer.
+    // ERC20 inputs are funded EOA → Safe inside the same batch, so the Safe holds the token before
+    // it approves the aggregator router and swaps. Native inputs carry their value through the
+    // Safe execTransaction, so they need no funding transfer.
     if (!nativeInput) {
       const transfer = getPreparedSourceTransfer(
         swap,
@@ -167,8 +159,8 @@ const buildBridgeAsset = (
 };
 
 // Read the COT that actually landed after the source swaps confirmed. Remote outputs that bridge
-// land directly at the ephemeral on both wallet paths. A destination-chain Safe keeps local COT for
-// its later destination swap.
+// land directly at the ephemeral bridge holder. A destination-chain Safe keeps local COT for its
+// later destination swap.
 const readSourceCotBalanceRaw = async (
   chainId: number,
   cotAddress: Hex,
@@ -179,9 +171,8 @@ const readSourceCotBalanceRaw = async (
     destinationChainId: number;
   }
 ): Promise<bigint> => {
-  const usesEphemeral = resolveSwapWalletPath(ctx.chainList.getChainByID(chainId)) === 'ephemeral';
   const holder =
-    usesEphemeral || chainId !== ctx.destinationChainId
+    chainId !== ctx.destinationChainId
       ? ctx.ephemeralWallet.address
       : predictSafeAccountAddressV2(ctx.eoaAddress, ctx.ephemeralWallet.address).address;
   return readSettlementBalanceRaw({
@@ -208,140 +199,44 @@ type SourceDispatchContext = Pick<
   | 'ephemeralWallet'
   | 'publicClientList'
   | 'middlewareClient'
-  | 'cache'
   | 'onProgress'
 >;
 
 export const dispatchSourceChainBatch = async (input: {
   chainId: number;
-  calls: SBCCall[];
+  calls: SafeCall[];
   nativeValue: bigint;
   ctx: SourceDispatchContext;
 }): Promise<DispatchedSourceBatch> => {
   const { chainId, calls, nativeValue, ctx } = input;
-  const walletPath: WalletPath = ctx.sourceExecutionPaths.get(chainId) ?? 'ephemeral';
+  const walletPath: WalletPath = 'safe';
   const chain = ctx.chainList.getChainByID(chainId);
   const publicClient = ctx.publicClientList.get(chainId);
 
-  if (walletPath === 'safe') {
-    if (nativeValue === 0n) {
-      ctx.onProgress?.({
-        stepType: 'source_swap',
-        chainId,
-        state: 'started',
-      });
-    }
-    const { txHash } = await dispatchSafeSource({
-      chain,
-      chainId,
-      calls,
-      nativeValue,
-      ephemeralWallet: ctx.ephemeralWallet,
-      eoaWallet: ctx.eoaWallet,
-      eoaAddress: ctx.eoaAddress,
-      publicClient,
-      middleware: ctx.middlewareClient,
-      safeDeploymentPromise: ctx.safeDeploymentPromises?.get(chainId),
-      onWalletPrompt:
-        nativeValue > 0n
-          ? () => ctx.onProgress?.({ stepType: 'source_swap', chainId, state: 'wallet_prompted' })
-          : undefined,
-      simulationStep: sourceSwapStep(chainId),
-    });
-    const explorerUrl = createExplorerTxURL(txHash, chain.blockExplorers?.default?.url);
+  if (nativeValue === 0n) {
     ctx.onProgress?.({
       stepType: 'source_swap',
       chainId,
-      state: 'submitted',
-      txHash,
-      explorerUrl,
+      state: 'started',
     });
-    return {
-      chainId,
-      chainName: chain.name,
-      walletPath,
-      explorerBaseUrl: chain.blockExplorers?.default?.url,
-      submittedTxHash: txHash,
-      submittedExplorerUrl: explorerUrl,
-      waitForReceipt: () =>
-        confirmStepReceipt(publicClient, txHash, chainId, sourceSwapStep(chainId)),
-    };
   }
-
-  if (nativeValue > 0n) {
-    const hasDelegatedAuth =
-      ctx.cache?.hasAuthCodeSet(ctx.ephemeralWallet.address, chainId) ?? false;
-    if (!hasDelegatedAuth) {
-      const bootstrapSbcTx = await createSBCTxFromCalls({
-        calls: [],
-        chainID: chainId,
-        ephemeralAddress: ctx.ephemeralWallet.address,
-        ephemeralWallet: ctx.ephemeralWallet,
-        publicClient,
-      });
-      const bootstrapResults = await ctx.middlewareClient.submitSBCs([bootstrapSbcTx]);
-      const bootstrapHash = requireSuccessfulSbcResult(
-        bootstrapResults,
-        chainId,
-        'Native source auth bootstrap'
-      );
-      await confirmStepReceipt(publicClient, bootstrapHash, chainId, sourceSwapStep(chainId));
-      ctx.cache?.markAuthCodeSet?.(ctx.ephemeralWallet.address, chainId);
-    }
-
-    const tx = await createCaliburExecuteTxFromCalls({
-      calls,
-      chainID: chainId,
-      ephemeralAddress: ctx.ephemeralWallet.address,
-      ephemeralWallet: ctx.ephemeralWallet,
-      value: nativeValue,
-    });
-    await simulateEoaTransaction({
-      publicClient,
-      eoaAddress: ctx.eoaAddress,
-      chainId,
-      transaction: tx,
-      step: sourceSwapStep(chainId),
-    });
-    ctx.onProgress?.({ stepType: 'source_swap', chainId, state: 'wallet_prompted' });
-    await switchChain(ctx.eoaWallet, chain);
-    const txHash = await ctx.eoaWallet.sendTransaction({
-      account: ctx.eoaAddress,
-      to: tx.to,
-      data: tx.data,
-      value: tx.value,
-      chain,
-    });
-    const explorerUrl = createExplorerTxURL(txHash, chain.blockExplorers?.default?.url);
-    ctx.onProgress?.({
-      stepType: 'source_swap',
-      chainId,
-      state: 'submitted',
-      txHash,
-      explorerUrl,
-    });
-    return {
-      chainId,
-      chainName: chain.name,
-      walletPath,
-      explorerBaseUrl: chain.blockExplorers?.default?.url,
-      submittedTxHash: txHash,
-      submittedExplorerUrl: explorerUrl,
-      waitForReceipt: () =>
-        confirmStepReceipt(publicClient, txHash, chainId, sourceSwapStep(chainId)),
-    };
-  }
-
-  ctx.onProgress?.({ stepType: 'source_swap', chainId, state: 'started' });
-  const sbcTx = await createSBCTxFromCalls({
+  const { txHash } = await dispatchSafeSource({
+    chain,
     calls,
-    chainID: chainId,
-    ephemeralAddress: ctx.ephemeralWallet.address,
+    chainId,
+    nativeValue,
     ephemeralWallet: ctx.ephemeralWallet,
+    eoaWallet: ctx.eoaWallet,
+    eoaAddress: ctx.eoaAddress,
     publicClient,
+    middleware: ctx.middlewareClient,
+    safeDeploymentPromise: ctx.safeDeploymentPromises?.get(chainId),
+    onWalletPrompt:
+      nativeValue > 0n
+        ? () => ctx.onProgress?.({ stepType: 'source_swap', chainId, state: 'wallet_prompted' })
+        : undefined,
+    simulationStep: sourceSwapStep(chainId),
   });
-  const results = await ctx.middlewareClient.submitSBCs([sbcTx]);
-  const txHash = requireSuccessfulSbcResult(results, chainId, 'Source swap SBC submission');
   const explorerUrl = createExplorerTxURL(txHash, chain.blockExplorers?.default?.url);
   ctx.onProgress?.({
     stepType: 'source_swap',
@@ -377,22 +272,19 @@ const requoteFailedChains = async (
   // Per-chain recipient: remote output always lands at the ephemeral bridge holder. On the
   // destination chain, direct delivery uses the EOA and a later Safe destination swap keeps COT
   // at that Safe.
-  const recipientForChain = (chainId: number, walletPath: WalletPath): Hex => {
+  const recipientForChain = (chainId: number): Hex => {
     if (chainId === ctx.destinationChainId && ctx.destinationDirectEoa) return ctx.eoaAddress;
     if (chainId !== ctx.destinationChainId) return ctx.ephemeralWallet.address;
-    return walletPath === 'safe'
-      ? predictSafeAccountAddressV2(ctx.eoaAddress, ctx.ephemeralWallet.address).address
-      : ctx.ephemeralWallet.address;
+    return predictSafeAccountAddressV2(ctx.eoaAddress, ctx.ephemeralWallet.address).address;
   };
 
   const perChainResults = await Promise.all(
     failedChains.map(async ({ chainId, chainSwaps }) => {
-      const walletPath = ctx.sourceExecutionPaths.get(chainId) ?? 'ephemeral';
-      const userAddress =
-        walletPath === 'safe'
-          ? predictSafeAccountAddressV2(ctx.eoaAddress, ctx.ephemeralWallet.address).address
-          : ctx.ephemeralWallet.address;
-      const sourceRecipient = recipientForChain(chainId, walletPath);
+      const userAddress = predictSafeAccountAddressV2(
+        ctx.eoaAddress,
+        ctx.ephemeralWallet.address
+      ).address;
+      const sourceRecipient = recipientForChain(chainId);
 
       const requoted = await Promise.all(
         chainSwaps.map(async (swap) => {
@@ -499,9 +391,7 @@ const requoteFailedChains = async (
 /**
  * Executes source swaps across all chains.
  *
- * Per-chain wrapper, based on the chain's 7702 support:
- *   - 'ephemeral' (Calibur SBC) for 7702 chains
- *   - 'safe' (Safe.execTransaction via middleware) for non-7702 chains
+ * Every chain executes through the deterministic V2 Safe.
  *
  * Returns BridgeAsset[] tagged as ephemeral balance — bridge funding always flows through the
  * ephemeral identity, regardless of the per-chain wrapper that produced the output.
@@ -563,7 +453,7 @@ export const executeSourceSwaps = async (
     for (const [chainId, chainSwaps] of pendingEntries) {
       let phase: 'authorization' | 'dispatch' = 'authorization';
       try {
-        const walletPath = ctx.sourceExecutionPaths.get(chainId) ?? 'ephemeral';
+        const walletPath: WalletPath = 'safe';
         const calls = await withTimingSpan(
           ctx.timing,
           'flow.swap.execute.source.build_calls',
@@ -795,7 +685,7 @@ export const executeSourceSwaps = async (
               ),
             {
               tags: {
-                wallet_path: ctx.sourceExecutionPaths.get(entry.chainId) ?? 'ephemeral',
+                wallet_path: 'safe',
               },
             }
           );

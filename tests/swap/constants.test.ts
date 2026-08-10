@@ -4,10 +4,8 @@ import {
   B2_STABLE_CURRENCY_IDS,
   DST_BUFFER_MAX_USD,
   DST_BUFFER_PCT,
-  MAX_RETRIES,
   MAX_SWAP_HAIRCUT_MIN_USDC,
   MAX_SWAP_HAIRCUT_PCT,
-  SBC_DEADLINE_MINUTES,
   SLIPPAGE_DEFAULT,
   SRC_BUFFER_MAX_USD,
   SRC_BUFFER_PCT,
@@ -47,10 +45,8 @@ describe('swap economic constants', () => {
     expect(MAX_CONVERGENCE_ITERATIONS).toBe(10);
   });
 
-  it('execution thresholds: 0.5% default slippage, 2 retries, 15-minute SBC deadline', () => {
+  it('uses 0.5% default slippage', () => {
     expect(SLIPPAGE_DEFAULT).toBe(0.005);
-    expect(MAX_RETRIES).toBe(2);
-    expect(SBC_DEADLINE_MINUTES).toBe(15n);
   });
 
   it('B2 dynamic COT is stables-only (USDC + USDT) — ETH excluded', () => {

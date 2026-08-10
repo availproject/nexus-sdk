@@ -2304,20 +2304,22 @@ if (result.bridgeSkipped) {
 }
 ```
 
-### Swap Execution Paths
+### Swap Execution Path
 
-Swaps execute through a per-chain smart account, chosen automatically — there is no wallet-mode
-option. The SDK never dispatches a swap directly from the EOA:
+Every swap leg executes through the deterministic V2 Safe on every chain where swaps are enabled.
+There is no wallet-mode or chain-capability fallback. `swapSupported` controls whether a chain may
+participate in swap routing; it does not select a different execution account.
 
-- **Swap-enabled chains** (`swapSupported: true`, including an omitted deployment flag normalized
-  to `true`) — execute through the deterministic V2 Safe,
-  jointly identified by the EOA and ephemeral owner (`Safe.execTransaction`). This applies whether
-  or not the chain supports EIP-7702.
-- **Compatibility fallback** — only unnormalized/custom chain objects without an explicit true use
-  the legacy capability choice: Calibur on 7702 chains and the Safe path otherwise.
+The Safe has the connected EOA and the SDK's ephemeral account as owners with threshold 1. Its
+address is deterministic across supported chains. After intent approval, the SDK starts Safe
+deployment on every execution chain concurrently and awaits the relevant deployment before the
+first permit, approval, or transaction prompt on that chain. This ensures wallet UIs see a deployed
+contract as the spender instead of warning about an approval to an undeployed address.
 
-The EOA only signs permits and pays funding approvals where needed. On top of the execution path,
-the SDK still handles routing, bridge funding, and destination custody decisions.
+Token-only Safe transactions are sponsor-broadcast through middleware. Native-value Safe
+transactions are submitted by the EOA because the outer transaction must fund the Safe call. The
+ephemeral account remains an owner/signing identity and may hold remote bridge settlement funds; it
+is never the swap executor.
 
 ---
 
@@ -2447,7 +2449,7 @@ Backend deployments may change which chains and tokens are live without an SDK r
 
 - **Create a new client on account change.** The client is tied to a specific provider/address. Calling `setEVMProvider()` again with the **same** provider instance is a no-op (it short-circuits when the provider hasn't changed), so it cannot be used to swap accounts. On wallet disconnect or account switch, build a fresh client and re-run `initialize()` + `setEVMProvider()`.
 
-- **EOA wallet operations are single-chain.** Browser wallets expose one active chain context for the connected user wallet. The SDK serializes wallet-touching work such as chain switching, prompts, permit signatures, direct approvals, and EOA transaction sends. It may still parallelize non-wallet work like quotes, public-client reads, per-chain SBC submission, and receipt waits. Avoid running multiple SDK operations against the same connected wallet at the same time unless you can tolerate wallet prompt and chain-switch contention.
+- **EOA wallet operations are single-chain.** Browser wallets expose one active chain context for the connected user wallet. The SDK serializes wallet-touching work such as chain switching, prompts, permit signatures, direct approvals, and EOA transaction sends. It may still parallelize non-wallet work like quotes, public-client reads, Safe deployment, sponsored Safe execution, and receipt waits. Avoid running multiple SDK operations against the same connected wallet at the same time unless you can tolerate wallet prompt and chain-switch contention.
 
 - **Composite `onIntent` is top-level.** `bridgeAndExecute()` and `swapAndExecute()` use `options.onIntent`, not `options.hooks.onIntent`. Even when bridge/swap is skipped, `allow()` still gates execution.
 

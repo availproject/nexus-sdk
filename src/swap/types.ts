@@ -3,7 +3,6 @@ import type Decimal from 'decimal.js';
 import type { Hex, PrivateKeyAccount, PublicClient, WalletClient } from 'viem';
 import type {
   ChainListType,
-  MiddlewareErrorCode,
   OraclePriceResponse,
   SwapEvent,
   TimingSpanHooks,
@@ -169,12 +168,9 @@ export type OnSwapIntentHookData = OnIntentHookData;
 // Wallet path types
 // ---------------------------------------------------------------------------
 
-// Smart-account wrapper used for swap execution on a given chain. The user's connected EOA is
-// never a swap-executor wallet path: every swap leg runs inside one of these wrappers, and
-// only the destination COT case (no destination swap step) routes the bridge fill directly to
-// the user's EOA — that's signalled by `route.destination.swap.tokenSwap === null`, not by an
-// EOA wallet path value.
-export type WalletPath = 'ephemeral' | 'safe';
+// Safe V2 is the only swap executor. The destination COT case (no destination swap step) may still
+// route the bridge fill directly to the user's EOA, but that is not an execution wallet path.
+export type WalletPath = 'safe';
 
 // ---------------------------------------------------------------------------
 // Internal types
@@ -319,43 +315,6 @@ export type AssetsUsedEntry = {
   decimals: number;
   amount: string; // human decimal string
 };
-
-export type AuthorizationListItem = {
-  chainId: Hex;
-  address: Hex;
-  nonce: number;
-  v: number;
-  r: Hex;
-  s: Hex;
-};
-
-export type SBCTx = {
-  chainId: number;
-  address: Hex;
-  nonce: Hex;
-  keyHash: Hex;
-  deadline: Hex;
-  calls: Array<{ to: Hex; value: Hex; data: Hex }>;
-  revertOnFailure: boolean;
-  signature: Hex;
-  authorizationList?: AuthorizationListItem[];
-};
-
-export type SBCResult<E extends boolean = boolean> = {
-  chainId: number;
-  address: Hex;
-  errored: E;
-} & (E extends true
-  ? {
-      message: string;
-      // Middleware typed error envelope. `code`/`errorId` are always present on a v2 errored result;
-      // `subcode`/`details` are optional in the envelope itself (the server may omit them).
-      code: MiddlewareErrorCode;
-      errorId: string;
-      subcode?: string;
-      details?: Record<string, unknown>;
-    }
-  : { txHash: Hex });
 
 export type SwapMetadata = {
   src: Array<{ chid: number; swaps: Swap[]; tx_hash: Hex }>;
@@ -530,8 +489,8 @@ export type PreparedAuthorizationCall =
       };
     }
   | {
-      // Marker: unsupported permit flow requires a paid EOA approve(spender=ephemeral)
-      // transaction before the SBC transferFrom path can execute.
+      // Marker: unsupported permit flow requires a paid EOA approve(spender=Safe)
+      // transaction before the Safe transferFrom can execute.
       kind: 'approve';
       call: { to: Hex; data: Hex; value: bigint };
       permit: null;
@@ -549,9 +508,8 @@ export type PreparedEoaToEphemeralTransfer = {
   chainId: number;
   tokenAddress: Hex;
   amount: bigint; // raw integer units
-  // The smart-account executor and approve/permit spender: the predicted Safe on non-7702 chains,
-  // the ephemeral on 7702 chains. Bridge funding may encode a different transferFrom recipient
-  // (the ephemeral bridge holder) while retaining this spender.
+  // The smart-account executor and approve/permit spender is the predicted Safe. Bridge funding
+  // may encode a different transferFrom recipient (the ephemeral bridge holder).
   targetAddress: Hex;
   authorization: PreparedAuthorizationCall | null;
   transferCall: { to: Hex; data: Hex; value: bigint };

@@ -4,17 +4,16 @@ import { type ChainListType, getLogger, type SwapTokenBalance } from '../domain'
 import { predictSafeAccountAddressV2 } from '../swap/safe/predict';
 import type { PublicClientList } from '../swap/types';
 import type { SwapCache } from '../swap/wallet/cache';
-import { resolveSwapWalletPath } from '../swap/wallet/capabilities';
+import { buildEphemeralPermitCall } from '../swap/wallet/ephemeral-permit';
 import type { MiddlewareSwapClient } from '../transport';
 import { isNativeAddress } from './addresses';
 import { getBalancesForSwap } from './balances';
 import { createSafeExecuteTxFromCalls, ensureSafeForEphemeral } from './safe';
-import { createSBCTxFromCalls, requireSuccessfulSbcResult } from './sbc';
 
 const logger = getLogger();
 
 export type SweepCall = { to: Hex; value: bigint; data: Hex };
-export type SweepHolder = 'ephemeral' | 'safe';
+export type SweepHolder = 'safe';
 // One sweep tx per (chain, holder): all that chain's token transfers batched into `calls`.
 export type SweepGroup = { chainId: number; holder: SweepHolder; calls: SweepCall[] };
 
@@ -22,11 +21,7 @@ export type SweepContext = {
   chainList: ChainListType;
   middlewareClient: Pick<
     MiddlewareSwapClient,
-    | 'getSwapBalances'
-    | 'submitSBCs'
-    | 'createSafeExecuteTx'
-    | 'ensureSafeAccount'
-    | 'getSafeAccountAddress'
+    'getSwapBalances' | 'createSafeExecuteTx' | 'ensureSafeAccount' | 'getSafeAccountAddress'
   >;
   publicClientList: PublicClientList;
   ephemeralWallet: PrivateKeyAccount;
@@ -40,7 +35,7 @@ export type SweepContext = {
  * amount from the balance fetch, so it's a plain transfer:
  *   - ERC-20 → `transfer(eoa, amount)` on the token (value 0)
  *   - native → a value send straight to the EOA (empty calldata)
- * The call shape is identical for the 7702 (Calibur SBC) and non-7702 (Safe execTransaction) paths.
+ * The Safe batches these calls in one execTransaction.
  */
 export const buildRefundSweepCall = (
   tokenAddress: Hex,
@@ -60,10 +55,8 @@ export const buildRefundSweepCall = (
       };
 
 /**
- * Group a holder's positive, chainList-known token balances into one sweep per chain. Only the
- * chains whose wallet mode matches `holder` are kept (7702 → ephemeral, non-7702 → Safe), so the
- * ephemeral scan handles 7702 chains and the Safe scan handles the rest. Zero / dust-to-zero and
- * unknown (spam) tokens are dropped.
+ * Group the Safe's positive, chainList-known token balances into one sweep per chain. Zero,
+ * dust-to-zero, and unknown (spam) tokens are dropped.
  */
 const isKnownToken = (chainList: ChainListType, chainId: number, tokenAddress: Hex): boolean => {
   if (isNativeAddress(tokenAddress)) return true;
@@ -76,7 +69,7 @@ const isKnownToken = (chainList: ChainListType, chainId: number, tokenAddress: H
 
 export const collectRefundSweepGroups = (
   balances: SwapTokenBalance[],
-  holder: SweepHolder,
+  _holder: SweepHolder,
   chainList: ChainListType,
   eoaAddress: Hex
 ): SweepGroup[] => {
@@ -86,14 +79,14 @@ export const collectRefundSweepGroups = (
       if (new Decimal(entry.balance).lte(0)) continue;
       const tokenAddress = entry.contractAddress as Hex;
       if (!isKnownToken(chainList, entry.chain.id, tokenAddress)) continue;
-      const expectedHolder: SweepHolder = resolveSwapWalletPath(
-        chainList.getChainByID(entry.chain.id)
-      );
-      if (holder !== expectedHolder) continue;
       const amountRaw = parseUnits(entry.balance, entry.decimals);
       if (amountRaw <= 0n) continue;
       const call = buildRefundSweepCall(tokenAddress, amountRaw, eoaAddress);
-      const group = byChain.get(entry.chain.id) ?? { chainId: entry.chain.id, holder, calls: [] };
+      const group = byChain.get(entry.chain.id) ?? {
+        chainId: entry.chain.id,
+        holder: 'safe' as const,
+        calls: [],
+      };
       group.calls.push(call);
       byChain.set(entry.chain.id, group);
     }
@@ -103,10 +96,9 @@ export const collectRefundSweepGroups = (
 
 /**
  * One-shot sweep of bridge-failure refunds stranded on the intent signer back to the EOA. The
- * refund lands on the ephemeral-controlled account — Calibur on 7702 chains, the predicted Safe
- * on non-7702 — so we scan both, full-drain (no native reserve, the holder pays no gas), and fire
- * exactly one batched tx per chain (Calibur SBC or Safe execTransaction). Best-effort: a single
- * chain failure is logged and doesn't strand the rest. Sponsor-submitted, so no user prompt.
+ * Refunds can land at the Safe or at the ephemeral bridge holder. Safe balances transfer directly;
+ * ERC-20 balances at the ephemeral are pulled by the Safe with EIP-2612 permit + transferFrom.
+ * Best-effort and sponsor-submitted, so there is no user prompt.
  */
 export const sweepEphemeralRefundsToEoa = async (input: {
   ctx: SweepContext;
@@ -134,19 +126,60 @@ export const sweepEphemeralRefundsToEoa = async (input: {
     }),
   ]);
 
-  const groups = [
-    ...collectRefundSweepGroups(ephemeralBalances, 'ephemeral', ctx.chainList, ctx.eoaAddress),
-    ...collectRefundSweepGroups(safeBalances, 'safe', ctx.chainList, ctx.eoaAddress),
-  ];
+  const groups = [...collectRefundSweepGroups(safeBalances, 'safe', ctx.chainList, ctx.eoaAddress)];
+
+  const deadline = BigInt(Math.floor(Date.now() / 1000)) + 5n * 60n;
+  const ephemeralByChain = new Map<number, SweepGroup>();
+  for (const asset of ephemeralBalances) {
+    for (const entry of asset.chainBalances) {
+      const tokenAddress = entry.contractAddress as Hex;
+      if (new Decimal(entry.balance).lte(0) || isNativeAddress(tokenAddress)) continue;
+      if (!isKnownToken(ctx.chainList, entry.chain.id, tokenAddress)) continue;
+      const amountRaw = parseUnits(entry.balance, entry.decimals);
+      if (amountRaw <= 0n) continue;
+      try {
+        const permitCall = await buildEphemeralPermitCall({
+          tokenAddress,
+          amount: amountRaw,
+          spender: safeAddress,
+          chain: ctx.chainList.getChainByID(entry.chain.id),
+          chainList: ctx.chainList,
+          ephemeralWallet: ctx.ephemeralWallet,
+          publicClient: ctx.publicClientList.get(entry.chain.id),
+          deadline,
+        });
+        const group = ephemeralByChain.get(entry.chain.id) ?? {
+          chainId: entry.chain.id,
+          holder: 'safe' as const,
+          calls: [],
+        };
+        group.calls.push(permitCall, {
+          to: tokenAddress,
+          value: 0n,
+          data: encodeFunctionData({
+            abi: erc20Abi,
+            functionName: 'transferFrom',
+            args: [ctx.ephemeralWallet.address, ctx.eoaAddress, amountRaw],
+          }),
+        });
+        ephemeralByChain.set(entry.chain.id, group);
+      } catch (error) {
+        logger.debug('sweep:ephemeralTokenSkipped', {
+          chainId: entry.chain.id,
+          tokenAddress,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
+  groups.push(...ephemeralByChain.values());
 
   await dispatchSweepGroups(groups, ctx, label);
 };
 
 /**
- * Fire one batched tx per sweep group — Calibur SBC on 7702 chains, Safe execTransaction on
- * non-7702 (the Safe pays a native value from its own balance, outer msg.value 0). Best-effort:
- * a single chain failure is logged and doesn't strand the rest. Shared by the init refund sweep
- * and the swap failure-cleanup sweep.
+ * Fire one Safe execTransaction per sweep group. Best-effort: a single chain failure is logged and
+ * doesn't strand the rest. Shared by the init refund sweep and swap failure cleanup.
  */
 export const dispatchSweepGroups = async (
   groups: SweepGroup[],
@@ -171,35 +204,22 @@ export const dispatchSweepGroups = async (
     groups.map(async (group) => {
       const publicClient = ctx.publicClientList.get(group.chainId);
 
-      if (group.holder === 'safe') {
-        await ensureSafeForEphemeral({
-          chainId: group.chainId,
-          eoaAddress: ctx.eoaAddress,
-          ephemeralWallet: ctx.ephemeralWallet,
-          publicClient,
-          middleware: ctx.middlewareClient,
-        });
-        const request = await createSafeExecuteTxFromCalls({
-          calls: group.calls,
-          chainId: group.chainId,
-          eoaAddress: ctx.eoaAddress,
-          ephemeralWallet: ctx.ephemeralWallet,
-          publicClient,
-          safeAddress,
-        });
-        await ctx.middlewareClient.createSafeExecuteTx(request);
-        return;
-      }
-
-      const sbcTx = await createSBCTxFromCalls({
-        calls: group.calls,
-        chainID: group.chainId,
-        ephemeralAddress: ctx.ephemeralWallet.address,
+      await ensureSafeForEphemeral({
+        chainId: group.chainId,
+        eoaAddress: ctx.eoaAddress,
         ephemeralWallet: ctx.ephemeralWallet,
         publicClient,
+        middleware: ctx.middlewareClient,
       });
-      const sbcResults = await ctx.middlewareClient.submitSBCs([sbcTx]);
-      requireSuccessfulSbcResult(sbcResults, group.chainId, label);
+      const request = await createSafeExecuteTxFromCalls({
+        calls: group.calls,
+        chainId: group.chainId,
+        eoaAddress: ctx.eoaAddress,
+        ephemeralWallet: ctx.ephemeralWallet,
+        publicClient,
+        safeAddress,
+      });
+      await ctx.middlewareClient.createSafeExecuteTx(request);
     })
   );
 

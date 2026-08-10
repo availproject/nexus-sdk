@@ -23,7 +23,7 @@ export type SafeDispatchMiddleware = EnsureSafeMiddleware & {
   ) => Promise<CreateSafeExecuteTxV2Response>;
 };
 
-// Dispatches a source-swap batch via the Safe smart-account path (non-7702 chains). Two sub-paths:
+// Dispatches a source-swap batch via the Safe V2 smart account. Two sub-paths:
 //   - nativeValue === 0n → sponsor broadcasts (middleware.createSafeExecuteTx) — pays gas, no
 //     native value carried.
 //   - nativeValue >  0n → EOA broadcasts (eoaWallet.sendTransaction) — EOA pays gas + carries the

@@ -199,8 +199,8 @@ const makeProviderRouteOptions = ({
     [BASE_CHAIN, EPHEMERAL_EXECUTOR],
   ]),
   walletPathHints: new Map([
-    [ARB_CHAIN, 'ephemeral'],
-    [BASE_CHAIN, 'ephemeral'],
+    [ARB_CHAIN, 'safe'],
+    [BASE_CHAIN, 'safe'],
   ]),
 });
 

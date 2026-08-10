@@ -17,7 +17,7 @@ import type { SwapCache } from './cache';
 
 const logger = getLogger();
 // Destination permits are signed before source + bridge execution, whose fill wait alone can take
-// five minutes. Match the SBC validity window so the signature stays finite without expiring mid-flow.
+// Five minutes keeps the signature finite without expiring mid-flow.
 const TRANSFER_PERMIT_DEADLINE_MS = minutesToMs(15);
 
 const DAI_PERMIT_ABI = [
@@ -199,17 +199,9 @@ export const buildTransferAuthorization = async (input: {
     chainId
   );
   const permit = input.cache.getPermit(input.tokenAddress, chainId);
-  // A delegated (EIP-7702 / smart-account) funding EOA can't produce a plain EIP-2612 permit:
-  // tokens like USDC route code-bearing owners through ERC-1271, which rejects the raw permit
-  // digest. Fall back to a paid on-chain approve, same as an unsupported-permit token.
-  const eoaIsDelegated = input.cache.hasAuthCodeSet(input.eoaAddress, chainId);
   const permitUnsupported = !permit || permit.permitVariant === PermitVariant.Unsupported;
   const decision =
-    currentAllowance >= input.amount
-      ? 'none'
-      : permitUnsupported || eoaIsDelegated
-        ? 'approve'
-        : 'permit';
+    currentAllowance >= input.amount ? 'none' : permitUnsupported ? 'approve' : 'permit';
 
   logger.debug('swap.prepare.transfer_authorization.decision', {
     chainId,
@@ -218,7 +210,6 @@ export const buildTransferAuthorization = async (input: {
     requiredAllowanceRaw: input.amount.toString(),
     permitVariant: permit?.permitVariant ?? PermitVariant.Unsupported,
     permitContractVersion: permit?.permitContractVersion ?? 0,
-    eoaIsDelegated,
     eagerPermit: input.eagerPermit,
     decision,
   });
@@ -226,10 +217,9 @@ export const buildTransferAuthorization = async (input: {
   if (currentAllowance >= input.amount) {
     return null;
   }
-  if (permitUnsupported || eoaIsDelegated) {
+  if (permitUnsupported) {
     return {
-      // Marker: unsupported permits (or a delegated funding EOA) require a paid EOA
-      // approve(spender=ephemeral) before the SBC transferFrom path can execute.
+      // Unsupported permits require a paid EOA approve(spender=Safe) before transferFrom.
       kind: 'approve',
       call: {
         to: input.tokenAddress,

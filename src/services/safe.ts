@@ -153,7 +153,7 @@ export type SafeExecuteEOACall = {
 // EOA pays gas and forwards `nativeValue` to the Safe. Used when the sponsor path can't carry
 // native value (sponsor doesn't fund native sends). Mirrors v1 SDK
 // `safetx.ts:createSafeExecuteEOASubmittedTx` but returns the raw call shape so the existing
-// `eoaWallet.sendTransaction` pathway in source-swaps.ts can broadcast it the same way as Calibur.
+// `eoaWallet.sendTransaction` pathway in source-swaps.ts can broadcast it.
 export async function buildSafeExecuteEOACall(input: {
   calls: SafeCall[];
   chainId: number;
@@ -199,7 +199,6 @@ const DEFAULT_ENSURE_DEADLINE_SECONDS = 600;
 // Idempotent ensure-deploy step for the Safe jointly owned by the EOA and `ephemeralWallet` at
 // threshold 1. The ephemeral is the owner that signs SafeTx; the digest is signed with its
 // `sign({hash})`. Skips the middleware call when the proxy already has bytecode — the existing
-// Calibur path has the same pre-check shape (see source-swaps.ts auth-code bootstrap).
 export async function ensureSafeForEphemeral(input: {
   chainId: number;
   eoaAddress: Address;

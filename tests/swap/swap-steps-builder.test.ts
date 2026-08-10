@@ -128,7 +128,7 @@ describe('createSwapPlan', () => {
   it('returns source-only steps without synthetic lifecycle markers', () => {
     const route = makeRoute({
       source: { swaps: [makeQuoteResponse(42161)], creationTime: Date.now(), srcBuffer: new Decimal(0) },
-      sourceExecutionPaths: new Map([[42161, 'ephemeral']]),
+      sourceExecutionPaths: new Map([[42161, 'safe']]),
     });
 
     const plan = createSwapPlan(route, chainList);
@@ -140,7 +140,7 @@ describe('createSwapPlan', () => {
         type: 'source_swap',
         id: 'source_swap:42161',
         chain: expect.objectContaining({ id: 42161, name: 'Arbitrum' }),
-        walletPath: 'ephemeral',
+        walletPath: 'safe',
         swaps: [
           expect.objectContaining({
             input: expect.objectContaining({
@@ -198,8 +198,8 @@ describe('createSwapPlan', () => {
         getDstSwap: async () => null,
       },
       sourceExecutionPaths: new Map([
-        [42161, 'ephemeral'],
-        [10, 'ephemeral'],
+        [42161, 'safe'],
+        [10, 'safe'],
       ]),
     });
 
@@ -279,7 +279,7 @@ describe('createSwapPlan', () => {
         swap: withTokenSwap,
         getDstSwap: async () => null,
       },
-      sourceExecutionPaths: new Map([[8453, 'ephemeral']]),
+      sourceExecutionPaths: new Map([[8453, 'safe']]),
     });
 
     const plan = createSwapPlan(route, chainList);

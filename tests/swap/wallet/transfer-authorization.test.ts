@@ -208,16 +208,7 @@ describe('buildTransferAuthorization', () => {
     vi.clearAllMocks();
   });
 
-  it('chooses approve over permit when the funding EOA has 7702 auth code set', async () => {
-    const cache = await makeCacheWithPermit();
-    cache.markAuthCodeSet(EOA, CHAIN_ID); // funding EOA is a delegated smart account
-
-    const result = await build(cache);
-
-    expect(result?.kind).toBe('approve');
-  });
-
-  it('still chooses permit for a non-delegated funding EOA', async () => {
+  it('chooses permit for Safe funding when the token supports it', async () => {
     const cache = await makeCacheWithPermit();
 
     const result = await build(cache);

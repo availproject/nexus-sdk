@@ -24,7 +24,6 @@ import {
 } from '../services/step-ids';
 import type { QuoteResponse } from './aggregators/types';
 import type { SwapRoute } from './types';
-import { resolveSwapWalletPath } from './wallet/capabilities';
 
 const toPlanTokenAmount = (
   metadata: PlanTokenMetadata,
@@ -64,7 +63,6 @@ const groupSourceSwapsByChain = (route: SwapRoute): Map<number, QuoteResponse[]>
 
 const createSourceSwapStep = (
   chainList: ChainListType,
-  route: SwapRoute,
   chainId: number,
   quotesResponse: QuoteResponse[]
 ): SwapSourceSwapStep => {
@@ -72,7 +70,7 @@ const createSourceSwapStep = (
     type: 'source_swap',
     id: createSourceSwapStepId(chainId),
     chain: toChainDisplay(chainList.getChainByID(chainId)),
-    walletPath: route.sourceExecutionPaths.get(chainId) ?? 'ephemeral',
+    walletPath: 'safe',
     swaps: [],
   };
 
@@ -171,7 +169,7 @@ const createDestinationSwapStep = (
     type: 'destination_swap',
     id: createDestinationSwapStepId(route.destination.chainId),
     chain: toChainDisplay(destinationChain),
-    walletPath: resolveSwapWalletPath(destinationChain),
+    walletPath: 'safe',
     swaps: [],
   };
 
@@ -195,7 +193,7 @@ export const createSwapPlan = (route: SwapRoute, chainList: ChainListType): Swap
   const steps: SwapPlanStep[] = [];
 
   for (const [chainId, quotes] of groupSourceSwapsByChain(route).entries()) {
-    steps.push(createSourceSwapStep(chainList, route, chainId, quotes));
+    steps.push(createSourceSwapStep(chainList, chainId, quotes));
   }
 
   if (route.bridge) {

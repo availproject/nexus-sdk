@@ -58,8 +58,8 @@ const makeOptions = (overrides?: Partial<RouteOptions>): RouteOptions => ({
   ephemeralAddress: EPHEMERAL_EXECUTOR,
   balances: [],
   walletPathHints: new Map([
-    [ARB_CHAIN, 'ephemeral'],
-    [BASE_CHAIN, 'ephemeral'],
+    [ARB_CHAIN, 'safe'],
+    [BASE_CHAIN, 'safe'],
   ]),
   ...overrides,
 });

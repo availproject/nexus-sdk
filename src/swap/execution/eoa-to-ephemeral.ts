@@ -1,7 +1,7 @@
 import type { Hex, PublicClient, WalletClient } from 'viem';
 import { type Chain, getLogger } from '../../domain';
 import { confirmStepReceipt, switchChain } from '../../services/evm';
-import type { SBCCall } from '../../services/sbc';
+import type { SafeCall } from '../../services/safe';
 import { createEoaToEphemeralTransferStepId } from '../../services/step-ids';
 import type { EnsureSafeAccountV2Response } from '../safe/types';
 import type { PreparedEoaToEphemeralTransfer } from '../types';
@@ -58,7 +58,7 @@ const ensureDirectApproval = async (
       tokenAddress: input.transfer.tokenAddress,
       amount: input.transfer.amount,
       eoaAddress: input.eoaAddress,
-      // Executor (Safe on non-7702, ephemeral on 7702) is the approved spender.
+      // The Safe is the approved spender.
       ephemeralAddress: input.transfer.targetAddress,
       chain: input.chain,
     })
@@ -89,10 +89,10 @@ const ensureDirectApproval = async (
 
 export const resolvePreparedFundingTransferCalls = async (
   input: ResolvePreparedFundingTransferCallsInput
-): Promise<SBCCall[]> => {
+): Promise<SafeCall[]> => {
   await input.safeDeploymentPromise;
 
-  const calls: SBCCall[] = [];
+  const calls: SafeCall[] = [];
   const authorizationKind = input.transfer.authorization?.kind ?? 'none';
 
   logger.debug('swap.execute.funding.calls_started', {
@@ -116,7 +116,7 @@ export const resolvePreparedFundingTransferCalls = async (
       amount: input.transfer.amount,
       eoaAddress: input.eoaAddress,
       eoaWallet: input.eoaWallet,
-      // Executor (Safe on non-7702, ephemeral on 7702) is the permit spender.
+      // The Safe is the permit spender.
       ephemeralAddress: input.transfer.targetAddress,
       publicClient: input.publicClient as PublicClient,
     });

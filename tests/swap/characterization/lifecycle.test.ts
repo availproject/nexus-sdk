@@ -137,7 +137,7 @@ describe('top-level swap lifecycle characterization', () => {
     ).rejects.toThrow('User denied swap intent');
 
     expect(wallet.sentTxs).toEqual([]);
-    expect(middlewareClient.submitSBCs).not.toHaveBeenCalled();
+    expect(middlewareClient.createSafeExecuteTx).not.toHaveBeenCalled();
     expect(middlewareClient.submitRFF).not.toHaveBeenCalled();
   });
 

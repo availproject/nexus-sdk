@@ -27,6 +27,7 @@ const USDC_ARB = '0xaf88d065e77c8cc2239327c5edb3a432268e5831' as Hex;
 const DAI_ARB = '0xda10009cbd5d07dd0cecc66161fc93d7c9000da1' as Hex;
 const EOA = '0xaaaa000000000000000000000000000000000001' as Hex;
 const EPH = '0xbbbb000000000000000000000000000000000002' as Hex;
+const SAFE = predictSafeAccountAddressV2(EOA, EPH).address;
 const APPROVAL = '0x1111111111111111111111111111111111111111' as Hex;
 const SUPPORTED_TOKEN: TokenInfo = {
   contractAddress: USDC_ARB,
@@ -98,7 +99,7 @@ const makeRoute = (): SwapRoute => ({
     logo: '',
   } as TokenInfo,
   extras: { aggregators: [], oraclePrices: [], balances: [], assetsUsed: [] },
-  sourceExecutionPaths: new Map([[ARB_CHAIN, 'ephemeral']]),
+  sourceExecutionPaths: new Map([[ARB_CHAIN, 'safe']]),
 });
 
 const makePublicClient = () =>
@@ -196,7 +197,7 @@ describe('prepareSwapExecution', () => {
     });
     expect(transferCall.functionName).toBe('transferFrom');
     expect((transferCall.args?.[0] as Hex).toLowerCase()).toBe(EOA.toLowerCase());
-    expect((transferCall.args?.[1] as Hex).toLowerCase()).toBe(EPH.toLowerCase());
+    expect((transferCall.args?.[1] as Hex).toLowerCase()).toBe(SAFE.toLowerCase());
     expect(transferCall.args?.[2]).toBe(3000000000n);
   });
 
@@ -244,11 +245,11 @@ describe('prepareSwapExecution', () => {
     expect(prepared.eoaToEphemeralTransfers).toEqual([]);
     expect(addPermitQuery).toHaveBeenCalledWith(USDC_ARB, ARB_CHAIN);
     expect(addPermitQuery).toHaveBeenCalledWith(DAI_ARB, ARB_CHAIN);
-    expect(addAllowanceQuery).toHaveBeenCalledWith(DAI_ARB, EOA, EPH, ARB_CHAIN);
+    expect(addAllowanceQuery).toHaveBeenCalledWith(DAI_ARB, EOA, SAFE, ARB_CHAIN);
   });
 
-  it('builds a source EOA->Safe funding transfer targeting the predicted Safe on non-7702 source chains', async () => {
-    // Parity with v1: the source-swap executor on a non-7702 chain is the Safe, so the EOA's input
+  it('builds a source EOA->Safe funding transfer targeting the predicted Safe on Safe V2 source chains', async () => {
+    // Parity with v1: the source-swap executor on a Safe V2 chain is the Safe, so the EOA's input
     // ERC20 must be moved EOA -> Safe (and the Safe is the approve/permit spender) before the
     // aggregator swap runs as the Safe. Without it the Safe holds zero of the token and the swap
     // reverts on-chain (GS013).
@@ -327,7 +328,7 @@ describe('prepareSwapExecution', () => {
       expect.anything(),
       expect.anything(),
       expect.objectContaining({ address: EOA }),
-      EPH,
+      predictSafeAccountAddressV2(EOA, EPH).address,
       500000000n,
       expect.anything()
     );
@@ -471,7 +472,7 @@ describe('prepareSwapExecution', () => {
       data: sourceTransfer.authorization.call!.data,
     });
     expect(approvalCall.functionName).toBe('approve');
-    expect((approvalCall.args?.[0] as Hex).toLowerCase()).toBe(EPH.toLowerCase());
+    expect((approvalCall.args?.[0] as Hex).toLowerCase()).toBe(SAFE.toLowerCase());
     expect(approvalCall.args?.[1]).toBe(3000000000n);
   });
 
@@ -593,7 +594,7 @@ describe('prepareSwapExecution', () => {
   });
 
   it('authorizes the V2 Safe for a direct COT source when swapSupported is true', async () => {
-    // Even with 7702 support, swapSupported selects the V2 Safe as transferFrom spender; only
+    // Even with Safe V2 support, swapSupported selects the V2 Safe as transferFrom spender; only
     // bridge custody goes to the ephemeral address.
     const route = makeRoute();
     route.source = { swaps: [], creationTime: Date.now(), srcBuffer: new Decimal(0) };
@@ -631,7 +632,7 @@ describe('prepareSwapExecution', () => {
       },
     };
     const chainList = makeChainList(
-      [{ ...makeChain(ARB_CHAIN, 'Arbitrum'), supports7702: true, swapSupported: true }],
+      [{ ...makeChain(ARB_CHAIN, 'Arbitrum'), swapSupported: true }],
       SUPPORTED_TOKEN
     );
     const expectedSafe = predictSafeAccountAddressV2(EOA, EPH).address;
@@ -708,7 +709,7 @@ describe('prepareSwapExecution', () => {
 
   it('skips bridge eoa->ephemeral authorization when cached allowance already covers the amount', async () => {
     const route = makeRoute();
-    route.sourceExecutionPaths = new Map([[ARB_CHAIN, 'ephemeral']]);
+    route.sourceExecutionPaths = new Map([[ARB_CHAIN, 'safe']]);
     // Isolate the bridge: no source swap (this test asserts only on the bridge transfer).
     route.source = { ...route.source, swaps: [] };
     route.destination = {
@@ -769,9 +770,9 @@ describe('prepareSwapExecution', () => {
     expect(signPermitForAddressAndValue).not.toHaveBeenCalled();
   });
 
-  it('chooses approve over permit for a bridge COT transfer when the funding EOA is delegated', async () => {
+  it('ignores legacy delegation metadata and keeps Safe funding on the permit path', async () => {
     const route = makeRoute();
-    route.sourceExecutionPaths = new Map([[ARB_CHAIN, 'ephemeral']]);
+    route.sourceExecutionPaths = new Map([[ARB_CHAIN, 'safe']]);
     // Isolate the bridge: no source swap, so the only setCode query is the funding EOA's.
     route.source = { ...route.source, swaps: [] };
     route.destination = {
@@ -808,8 +809,7 @@ describe('prepareSwapExecution', () => {
       },
     };
 
-    // Allowance below the amount (would normally trigger a permit), and the funding EOA carries
-    // an EIP-7702 delegation designator, so permit must be swapped for a paid approve.
+    // Legacy delegation bytecode is not consulted by the Safe V2-only execution path.
     const publicClient = {
       multicall: vi.fn().mockResolvedValue([{ result: 0n, status: 'success' }]),
       getCode: vi.fn().mockResolvedValue(`0xef0100${'ab'.repeat(20)}`),
@@ -832,8 +832,8 @@ describe('prepareSwapExecution', () => {
       (entry) => entry.reason === 'bridge'
     );
 
-    expect(publicClient.getCode).toHaveBeenCalledWith({ address: EOA });
-    expect(bridgeTransfer?.authorization?.kind).toBe('approve');
+    expect(publicClient.getCode).not.toHaveBeenCalled();
+    expect(bridgeTransfer?.authorization?.kind).toBe('permit');
     expect(signPermitForAddressAndValue).not.toHaveBeenCalled();
   });
 });

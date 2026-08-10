@@ -122,7 +122,6 @@ const makeChain = (id: number, name: string): Chain => ({
     icon: `https://${name.toLowerCase()}.example/icon.png`,
     knownTokens: [token],
   },
-  supports7702: true,
 });
 
 const sourceChain = makeChain(SOURCE_CHAIN_ID, 'Source');

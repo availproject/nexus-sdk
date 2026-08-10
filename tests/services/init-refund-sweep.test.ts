@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { encodeFunctionData, erc20Abi, type Hex } from 'viem';
 import {
   buildRefundSweepCall,
@@ -7,16 +7,10 @@ import {
 import { EADDRESS } from '../../src/swap/constants';
 import type { ChainListType, SwapTokenBalance } from '../../src/domain';
 
-vi.mock('../../src/swap/wallet/capabilities', () => ({
-  chainSupports7702: (chain: { id: number }) => chain.id === 42161,
-  resolveSwapWalletPath: (chain: { id: number }) =>
-    chain.id === 42161 ? 'ephemeral' : 'safe',
-}));
-
 const USDC = '0xaf88d065e77c8cc2239327c5edb3a432268e5831' as Hex;
 const EOA = '0x1111111111111111111111111111111111111111' as Hex;
-const ARB = 42161; // 7702 → ephemeral
-const BASE = 8453; // non-7702 → safe
+const ARB = 42161;
+const BASE = 8453;
 const USDT_ARB = '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9' as Hex;
 const SPAM = '0xdeadBeefdeadBEEFdeadbeEfDeAdbEEFdeadBEef' as Hex;
 
@@ -62,7 +56,7 @@ describe('buildRefundSweepCall', () => {
 });
 
 describe('collectRefundSweepGroups', () => {
-  it('batches positive known-token balances into one group per chain for the matching holder', () => {
+  it('batches positive known-token Safe balances into one group per chain', () => {
     const balances = [
       {
         symbol: 'USDC',
@@ -73,22 +67,20 @@ describe('collectRefundSweepGroups', () => {
       { symbol: 'USDT', chainBalances: [chainBal(ARB, USDT_ARB, '0', 6, 'USDT')] },
     ] as unknown as SwapTokenBalance[];
 
-    const groups = collectRefundSweepGroups(balances, 'ephemeral', chainList, EOA);
+    const groups = collectRefundSweepGroups(balances, 'safe', chainList, EOA);
 
-    // Only ARB (7702 → ephemeral); BASE is non-7702 (safe), SPAM unknown, USDT zero.
-    expect(groups).toHaveLength(1);
-    expect(groups[0]!.chainId).toBe(ARB);
-    expect(groups[0]!.holder).toBe('ephemeral');
-    // USDC transfer + ETH native value, batched into one chain tx.
-    expect(groups[0]!.calls).toHaveLength(2);
-    expect(groups[0]!.calls.find((c) => c.to === EOA)?.value).toBe(500_000_000_000_000_000n);
+    expect(groups).toHaveLength(2);
+    const arb = groups.find((group) => group.chainId === ARB)!;
+    expect(arb.holder).toBe('safe');
+    expect(arb.calls).toHaveLength(2);
+    expect(arb.calls.find((call) => call.to === EOA)?.value).toBe(500_000_000_000_000_000n);
   });
 
-  it('routes non-7702 chain balances to the safe holder', () => {
+  it('routes every chain balance to the Safe holder', () => {
     const balances = [
       {
         symbol: 'USDC',
-        chainBalances: [chainBal(ARB, USDC, '1', 6, 'USDC'), chainBal(BASE, USDC, '2', 6, 'USDC')],
+        chainBalances: [chainBal(BASE, USDC, '2', 6, 'USDC')],
       },
     ] as unknown as SwapTokenBalance[];
 

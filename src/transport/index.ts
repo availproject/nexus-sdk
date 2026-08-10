@@ -16,7 +16,6 @@ export {
   type MiddlewareQuoteClient,
   type MiddlewareRffStatusClient,
   type MiddlewareRffSubmitterClient,
-  type MiddlewareSbcSubmitterClient,
   type MiddlewareSimulationClient,
   type MiddlewareSwapBalanceClient,
   type MiddlewareSwapClient,

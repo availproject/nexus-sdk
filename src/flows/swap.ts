@@ -21,30 +21,20 @@ import type {
 } from '../swap/types';
 import { SwapMode } from '../swap/types';
 import { SwapCache } from '../swap/wallet/cache';
-import { resolveSwapWalletPath } from '../swap/wallet/capabilities';
 import type { SwapDeps } from './deps';
 
 const logger = getLogger();
 
-const getSafeExecutionChainIds = (route: SwapRoute, chainList: SwapDeps['chainList']) => {
-  const chainIds = new Set(
-    [...route.sourceExecutionPaths.entries()]
-      .filter(([, walletPath]) => walletPath === 'safe')
-      .map(([chainId]) => chainId)
-  );
+const getSafeExecutionChainIds = (route: SwapRoute) => {
+  const chainIds = new Set(route.sourceExecutionPaths.keys());
 
   for (const asset of route.bridge?.assets ?? []) {
-    if (resolveSwapWalletPath(chainList.getChainByID(asset.chainID)) === 'safe') {
-      chainIds.add(asset.chainID);
-    }
+    chainIds.add(asset.chainID);
   }
 
   const hasDestinationExecution =
     route.destination.swap.tokenSwap !== null || route.destination.swap.gasSwap !== null;
-  if (
-    hasDestinationExecution &&
-    resolveSwapWalletPath(chainList.getChainByID(route.destination.chainId)) === 'safe'
-  ) {
+  if (hasDestinationExecution) {
     chainIds.add(route.destination.chainId);
   }
 
@@ -96,10 +86,7 @@ const createRouteOptions = (
   balances: preflight.balances,
   walletPathHints: preflight.walletPathHints,
   quoteAddressHints: new Map(
-    [...preflight.walletPathHints.entries()].map(([chainId, walletPath]) => [
-      chainId,
-      walletPath === 'ephemeral' ? context.ephemeralWallet.address : context.eoaAddress,
-    ])
+    [...preflight.walletPathHints.entries()].map(([chainId]) => [chainId, context.eoaAddress])
   ),
   forceMayan: context.forceMayan,
   timing: context.timing,
@@ -298,7 +285,7 @@ const runSwapFlow = async (
   });
 
   const safeDeploymentPromises = startSafeDeploymentsForChains({
-    chainIds: getSafeExecutionChainIds(route, deps.chainList),
+    chainIds: getSafeExecutionChainIds(route),
     eoaAddress: deps.evm.address,
     ephemeralWallet: deps.swap.ephemeralWallet,
     publicClientList: preflight.publicClientList,

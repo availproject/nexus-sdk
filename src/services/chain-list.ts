@@ -67,10 +67,11 @@ const createChainList = (deployment: DeploymentResponse): ChainListType => {
           webSocket: [],
         },
       },
-      supports7702: chain.supports7702,
-      // Deployment omission means swaps are enabled everywhere else in the SDK. Normalize that
-      // default here so wallet-path selection sees an explicit true and consistently chooses V2 Safe.
+      // Deployment omission means swaps are enabled. Normalize the default once so routing and
+      // public chain metadata agree on availability.
       swapSupported: chain.swapSupported !== false,
+      supports7702: chain.supports7702,
+      caliburAddress: chain.caliburAddress,
       universe: universeFromV2(chain.universe),
     };
   });

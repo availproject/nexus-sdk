@@ -439,10 +439,10 @@ describe('allow-list constants — guard the contract', () => {
 
 describe('reportOperationError — middleware error correlation attributes', () => {
   it('promotes errorId/middlewareCode/middlewareSubcode from details to error.middleware.*', () => {
-    const err = new BackendError(ERROR_CODES.BACKEND_SBC_SUBMIT_FAILED, 'sbc failed', {
+    const err = new BackendError(ERROR_CODES.BACKEND_SAFE_EXECUTE_FAILED, 'Safe execution failed', {
       context: { service: 'middleware' },
       details: {
-        error: 'sbc failed',
+        error: 'Safe execution failed',
         middlewareCode: 'TRANSACTION_REVERTED',
         middlewareSubcode: 'TRANSFER_FROM_FAILED',
         errorId: 'err-uuid-1',

@@ -52,9 +52,45 @@ import type {
   GetSafeAccountAddressV2Request,
   GetSafeAccountAddressV2Response,
 } from '../swap/safe/types';
-import type { FlatBalance, SBCResult, SBCTx } from '../swap/types';
+import type { FlatBalance } from '../swap/types';
 import { encodeChainIdToBytes32, parseHexToTokenBytes } from './encoding';
 import type { SimulationRequest, SimulationResponse } from './types';
+
+export type SbcAuthorization = {
+  chainId: Hex;
+  address: Hex;
+  nonce: number;
+  v: number;
+  r: Hex;
+  s: Hex;
+};
+
+export type SbcTransaction = {
+  chainId: number;
+  address: Hex;
+  nonce: Hex;
+  keyHash: Hex;
+  deadline: Hex;
+  calls: Array<{ to: Hex; value: Hex; data: Hex }>;
+  revertOnFailure: boolean;
+  signature: Hex;
+  authorizationList?: SbcAuthorization[];
+};
+
+export type SbcResult = {
+  chainId: number;
+  address: Hex;
+} & (
+  | { errored: false; txHash: Hex }
+  | {
+      errored: true;
+      message: string;
+      code: string;
+      errorId: string;
+      subcode?: string;
+      details?: Record<string, unknown>;
+    }
+);
 
 export type MiddlewareClient = {
   getBalances: (address: Hex, universe: number) => Promise<UnifiedBalanceResponseData[]>;
@@ -70,7 +106,7 @@ export type MiddlewareClient = {
   getDeployment: () => Promise<DeploymentResponse>;
   getOraclePrices: () => Promise<OraclePriceResponse>;
   simulateBundleV2: (request: SimulationRequest) => Promise<{ gas: bigint[] }>;
-  submitSBCs: (sbcTxs: SBCTx[]) => Promise<SBCResult[]>;
+  submitSBCs: (transactions: SbcTransaction[]) => Promise<SbcResult[]>;
   getLiFiQuote: (params: Record<string, string>, exactOut?: boolean) => Promise<unknown>;
   getBebopQuote: (params: Record<string, string>, api?: 'aggregation' | 'rfq') => Promise<unknown>;
   getFibrousQuote: (params: Record<string, string>) => Promise<unknown>;
@@ -387,7 +423,7 @@ const approvalResultSchema: z.ZodType<ApprovalResult> = z.object({
   message: z.string().optional(),
 });
 
-const sbcResultSchema = z.union([
+const sbcResultSchema: z.ZodType<SbcResult> = z.union([
   z.object({
     chainId: z.number().int(),
     address: addressString,
@@ -404,7 +440,7 @@ const sbcResultSchema = z.union([
     subcode: z.string().optional(),
     details: z.record(z.string(), z.unknown()).optional(),
   }),
-]) as z.ZodType<SBCResult>;
+]);
 
 const permitVariantSchema = z.number().int().optional().default(1);
 
@@ -457,10 +493,11 @@ export const deploymentResponseSchema: z.ZodType<DeploymentResponse> = z.object(
         ),
         mayanEnabled: z.boolean().optional(),
         eip7702Enabled: z.boolean().optional(),
+        caliburAddress: addressString.optional(),
         swapSupported: z.boolean().optional(),
       })
-      .transform(({ eip7702Enabled, ...rest }) => ({
-        ...rest,
+      .transform(({ eip7702Enabled, ...chain }) => ({
+        ...chain,
         supports7702: eip7702Enabled,
       }))
   ),
@@ -603,12 +640,14 @@ const middlewareErrorDetails = (error: unknown): Record<string, unknown> => {
   };
 };
 
-const groupSbcTxsByChain = (sbcTxs: SBCTx[]): Record<number, SBCTx[]> =>
-  sbcTxs.reduce<Record<number, SBCTx[]>>((acc, tx) => {
-    const chainTxs = acc[tx.chainId] ?? [];
-    chainTxs.push(tx);
-    acc[tx.chainId] = chainTxs;
-    return acc;
+const groupSbcTransactionsByChain = (
+  transactions: SbcTransaction[]
+): Record<number, SbcTransaction[]> =>
+  transactions.reduce<Record<number, SbcTransaction[]>>((grouped, transaction) => {
+    const chainTransactions = grouped[transaction.chainId] ?? [];
+    chainTransactions.push(transaction);
+    grouped[transaction.chainId] = chainTransactions;
+    return grouped;
   }, {});
 
 /**
@@ -918,14 +957,13 @@ export const createMiddlewareClient = (
     }
   };
 
-  const submitSBCs = async (sbcTxs: SBCTx[]): Promise<SBCResult[]> => {
+  const submitSBCs = async (transactions: SbcTransaction[]): Promise<SbcResult[]> => {
     try {
-      logger.debug('submitSBCs', { expectedCount: sbcTxs.length });
-      const response = await client.post<SBCResult[]>(
+      logger.debug('submitSBCs', { expectedCount: transactions.length });
+      const response = await client.post<SbcResult[]>(
         '/api/v2/create-sbc-tx',
-        groupSbcTxsByChain(sbcTxs)
+        groupSbcTransactionsByChain(transactions)
       );
-      logger.debug('submitSBCs:response', { data: response.data });
       return parseMiddlewareResponse(z.array(sbcResultSchema), response.data, 'sbc results');
     } catch (error) {
       logger.error('submitSBCs:error', error);

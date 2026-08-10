@@ -8,7 +8,7 @@
 //
 // Wallets are REAL viem accounts (fixed private keys). The EOA wrapper does real RLP encoding +
 // secp256k1 signing for sendTransaction/writeContract and captures the signed raw tx; only the
-// network broadcast is faked. The ephemeral is a real PrivateKeyAccount, so SBC / permit / Safe /
+// network broadcast is faked. The ephemeral is a real PrivateKeyAccount, so permit / Safe /
 // intent signatures are genuine.
 
 import {
@@ -35,13 +35,11 @@ import { EVMVaultABI } from '../../src/abi/vault';
 import { ERC20PermitABI } from '../../src/abi/erc20';
 import { VAULT_ABI_MAYAN } from '@avail-project/nexus-types/rff';
 import { SWEEPER_ABI } from '../../src/swap/sweep';
-import { CALIBUR_EXECUTE_ABI } from '../../src/services/sbc';
-import { multiSendCallOnlyAbi } from '../../src/swap/safe/abis';
+import { multiSendCallOnlyAbi, safeExecTransactionAbi } from '../../src/swap/safe/abis';
 import { predictSafeAccountAddressV2 } from '../../src/swap/safe/predict';
 import { EADDRESS } from '../../src/swap/constants';
 import { isNativeAddress } from '../../src/services/addresses';
 import type { CreateSafeExecuteTxV2Request } from '../../src/swap/safe/types';
-import type { SBCTx } from '../../src/swap/types';
 import {
   ARB_CHAIN,
   BASE_CHAIN,
@@ -80,7 +78,7 @@ export const PREDICTED_SAFE = predictSafeAccountAddressV2(EOA, EPH).address as H
 /* ────────────────────────────────────────────────────────────────────────────
  * Custom SWAP ABI — the echo. The mock aggregator encodes the request's
  * taker/receiver/amount into this call; parseQuote passes txData.tx.data through
- * verbatim, so we decode it back out of the SBC/Safe batch and assert exact args.
+ * verbatim, so we decode it back out of the Safe batch and assert exact args.
  * ──────────────────────────────────────────────────────────────────────────── */
 export const MOCK_SWAP_ABI = [
   {
@@ -373,9 +371,6 @@ export const classifyCall = (call: { to: Hex; data: Hex; value: bigint }): Decod
   return { to: call.to, value: call.value, fn: `unknown(${slice(call.data, 0, 4)})`, args: [] };
 };
 
-export const decodeSbcCalls = (sbcTx: SBCTx): DecodedCall[] =>
-  sbcTx.calls.map((c) => classifyCall({ to: c.to, data: c.data, value: BigInt(c.value) }));
-
 /* ────────────────────────────────────────────────────────────────────────────
  * Realistic wrapper COT balances. The #84/#86 reclaim reads balanceOf(COT, wrapper) to bridge the
  * COT that actually landed and to size the destination surplus transfer; a flat 0 stub zeroes the
@@ -446,25 +441,38 @@ export const decodeEoaRawTx = (raw: Hex): DecodedCall => {
   });
 };
 
-// EOA-submitted native txs wrap the real call in a Calibur `execute` (7702). Unwrap to the inner
-// calls; falls back to a direct classify for a plain tx.
+// Decode a direct EOA-submitted Safe transaction to its inner calls.
 export const decodeEoaTx = (raw: Hex): { value: bigint; calls: DecodedCall[] } => {
   const tx = parseTransaction(raw);
   const value = tx.value ?? 0n;
   const data = (tx.data ?? '0x') as Hex;
   try {
-    const decoded = decodeFunctionData({ abi: CALIBUR_EXECUTE_ABI, data });
-    if (decoded.functionName === 'execute') {
-      const sbc = decoded.args[0] as {
-        batchedCall: { calls: readonly { to: Hex; value: bigint; data: Hex }[] };
-      };
+    const decoded = decodeFunctionData({ abi: safeExecTransactionAbi, data });
+    if (decoded.functionName === 'execTransaction') {
+      const [to, safeValue, safeData, operation] = decoded.args;
       return {
         value,
-        calls: sbc.batchedCall.calls.map((c) => classifyCall({ to: c.to, data: c.data, value: c.value })),
+        calls: decodeSafeRequest({
+          chainId: 0,
+          eoaAddress: EOA,
+          ephemeralAddress: EPH,
+          safeAddress: (tx.to ?? PREDICTED_SAFE) as Hex,
+          to,
+          value: safeValue.toString(),
+          data: safeData,
+          operation: operation as 0 | 1,
+          safeTxGas: '0',
+          baseGas: '0',
+          gasPrice: '0',
+          gasToken: '0x0000000000000000000000000000000000000000',
+          refundReceiver: '0x0000000000000000000000000000000000000000',
+          nonce: '0',
+          signature: `0x${'00'.repeat(65)}`,
+        }),
       };
     }
   } catch {
-    /* not a Calibur execute */
+    /* not a Safe execTransaction */
   }
   return { value, calls: [classifyCall({ to: (tx.to ?? '0x') as Hex, data, value })] };
 };
@@ -591,7 +599,7 @@ export const readContractStub = async (req: {
 };
 
 /* ────────────────────────────────────────────────────────────────────────────
- * ChainList override — vault addresses, per-chain 7702, native + token lookups
+ * ChainList override — vault addresses, per-chain Safe V2, native + token lookups
  * ──────────────────────────────────────────────────────────────────────────── */
 import type { ChainListType, TokenInfo } from '../../src/domain';
 
@@ -614,15 +622,14 @@ const EXTRA_TOKENS: Record<string, TokenInfo> = {
   },
 };
 
-// The shared fixture tags USDC permitVariant=2 (DAI), but real USDC is EIP-2612 canonical (1) and
-// the Safe bridge vault permit requires canonical-2612 — coerce so non-7702 source scenarios work.
-const coerceUsdcPermit = <T extends { symbol?: string } | undefined>(token: T): T =>
-  token && token.symbol === 'USDC'
+// Safe-held bridge custody uses canonical EIP-2612 permits. Keep the synthetic stablecoin
+// fixtures aligned with that execution invariant.
+const coerceSafePermit = <T extends { symbol?: string } | undefined>(token: T): T =>
+  token && (token.symbol === 'USDC' || token.symbol === 'USDT')
     ? ({ ...token, permitVariant: 1, permitVersion: 2 } as T)
     : token;
 
-export const makeCharChainList = (opts: { non7702?: number[] } = {}): ChainListType => {
-  const non7702 = new Set(opts.non7702 ?? []);
+export const makeCharChainList = (): ChainListType => {
   const chainList = makeSwapChainList();
   const baseGetChain = chainList.getChainByID;
   const baseGetToken = chainList.getTokenByAddress;
@@ -637,9 +644,9 @@ export const makeCharChainList = (opts: { non7702?: number[] } = {}): ChainListT
     .fn()
     .mockImplementation((chainId: number, currencyId: number) => {
       if (currencyId === 2 && usdtByChain[chainId]) {
-        return { contractAddress: usdtByChain[chainId], decimals: 6, symbol: 'USDT', name: 'Tether USD', logo: '', currencyId: 2, permitVariant: 2, permitVersion: 1, mayanEnabled: true };
+        return { contractAddress: usdtByChain[chainId], decimals: 6, symbol: 'USDT', name: 'Tether USD', logo: '', currencyId: 2, permitVariant: 1, permitVersion: 2, mayanEnabled: true };
       }
-      return coerceUsdcPermit(baseGetTokenByCurrencyId(chainId, currencyId));
+      return coerceSafePermit(baseGetTokenByCurrencyId(chainId, currencyId));
     });
 
   chainList.getVaultContractAddress = vi
@@ -648,7 +655,6 @@ export const makeCharChainList = (opts: { non7702?: number[] } = {}): ChainListT
 
   chainList.getChainByID = vi.fn().mockImplementation((chainId: number) => ({
     ...baseGetChain(chainId),
-    supports7702: !non7702.has(chainId),
     blockExplorers: { default: { name: 'explorer', url: 'https://example.com' } },
   }));
 
@@ -668,7 +674,7 @@ export const makeCharChainList = (opts: { non7702?: number[] } = {}): ChainListT
       return { contractAddress: tokenAddress, decimals: 18, symbol: 'ETH', name: 'Ether', logo: '', currencyId: 3, mayanEnabled: true };
     const extra = EXTRA_TOKENS[tokenAddress.toLowerCase()];
     if (extra) return { ...extra, mayanEnabled: true };
-    const known = coerceUsdcPermit(baseGetToken(chainId, tokenAddress));
+    const known = coerceSafePermit(baseGetToken(chainId, tokenAddress));
     // Production createChainList THROWS tokenNotSupported for unknown tokens; the base fixture
     // returns undefined. Mirror production so unknown-token cells fail the way the SDK really does.
     if (!known) throw new Error(`Token ${tokenAddress} not supported on chain ${chainId}`);
@@ -703,7 +709,6 @@ export type CharMiddleware = MiddlewareClient & {
   getLiFiQuote: ReturnType<typeof vi.fn>;
   getBebopQuote: ReturnType<typeof vi.fn>;
   getMayanQuotes: ReturnType<typeof vi.fn>;
-  submitSBCs: ReturnType<typeof vi.fn>;
   createSafeExecuteTx: ReturnType<typeof vi.fn>;
   ensureSafeAccount: ReturnType<typeof vi.fn>;
   submitRFF: ReturnType<typeof vi.fn>;
@@ -718,13 +723,13 @@ export type CharMiddleware = MiddlewareClient & {
  * requoteFailedChains / pooled-buffer guard / mergeBridgeAssets / Nexus
  * re-derivation / refreshMayanQuotesForExecution all run unmocked downstream.
  *
- *   1. The first source-swap SBC on `chainId` returns `errored` → the flow re-quotes it.
+ *   1. The first Safe source-swap request on `chainId` fails → the flow re-quotes it.
  *   2. From that moment the winning aggregator re-prices `sourceToken→COT` by `factor`
  *      (>1 up, <1 down), so the re-quoted (executed) output A ≠ planned P.
  * ──────────────────────────────────────────────────────────────────────────── */
 export type RequoteDrift = {
-  /** submitSBCs hook: true (and arms the drift) for the first source-swap batch on the target chain. */
-  shouldFailSourceSwap: (tx: SBCTx) => boolean;
+  /** Dispatch hook: true (and arms the drift) for the first source-swap batch on the target chain. */
+  shouldFailSourceSwap: (input: { chainId: number; calls: DecodedCall[] }) => boolean;
   /** Aggregator rate multiplier — `factor` once armed, for the failing leg's `sourceToken` pair only. */
   rateMul: (inputToken: Hex, outputToken: Hex) => number;
 };
@@ -737,9 +742,9 @@ export const makeRequoteDrift = (opts: {
   let armed = false;
   let failed = false;
   return {
-    shouldFailSourceSwap: (tx) => {
-      if (failed || tx.chainId !== opts.chainId || tx.calls.length === 0) return false;
-      if (!decodeSbcCalls(tx).some((c) => c.fn === 'swap')) return false; // not the source swap (bridge/deposit)
+    shouldFailSourceSwap: ({ chainId, calls }) => {
+      if (failed || chainId !== opts.chainId || calls.length === 0) return false;
+      if (!calls.some((c) => c.fn === 'swap')) return false; // not the source swap (bridge/deposit)
       failed = true;
       armed = true;
       return true;
@@ -834,33 +839,14 @@ export const makeCharMiddleware = (opts: {
           })),
         }))
     ),
-    submitSBCs: vi
-      .fn()
-      .mockImplementation(async (txs: SBCTx[]) =>
-        txs.map((tx, i) => {
-          // Drift injection rides this true external edge: the chain rejects the first source-swap
-          // dispatch (errored), so requireSuccessfulSbcResult throws → requoteFailedChains re-quotes.
-          if (opts.drift?.shouldFailSourceSwap(tx)) {
-            return {
-              chainId: tx.chainId,
-              address: tx.address,
-              errored: true as const,
-              message: 'simulated source-swap dispatch failure (requote drift)',
-            };
-          }
-          recordProducedCot(decodeSbcCalls(tx)); // this batch's source swap landed COT at the wrapper
-          return {
-            chainId: tx.chainId,
-            address: tx.address,
-            errored: false as const,
-            txHash: (`0x${(i + 1).toString(16).padStart(64, '0')}`) as Hex,
-          };
-        })
-      ),
     createSafeExecuteTx: vi
       .fn()
       .mockImplementation(async (req: CreateSafeExecuteTxV2Request) => {
-        recordProducedCot(decodeSafeRequest(req)); // Safe source swap landed COT at the predicted Safe
+        const calls = decodeSafeRequest(req);
+        if (opts.drift?.shouldFailSourceSwap({ chainId: req.chainId, calls })) {
+          throw new Error('simulated Safe source-swap dispatch failure (requote drift)');
+        }
+        recordProducedCot(calls); // Safe source swap landed COT at the predicted Safe
         return {
           chainId: req.chainId,
           safeAddress: req.safeAddress,
@@ -921,16 +907,13 @@ export const makeCharMiddleware = (opts: {
 };
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Captured-batch accessors (ordered, per chain). Each SBC/Safe invocation is one
+ * Captured-batch accessors (ordered, per chain). Each Safe invocation is one
  * batch; per chain, source-swap batches precede bridge-deposit batches.
  * ──────────────────────────────────────────────────────────────────────────── */
-// Empty-calls SBCs are 7702 auth bootstraps (delegation only) — filter them so batch indices line
-// up with real operations.
-export const sbcBatchesForChain = (mw: CharMiddleware, chainId: number): DecodedCall[][] =>
-  mw.submitSBCs.mock.calls
-    .flatMap((args) => args[0] as SBCTx[])
-    .filter((tx) => tx.chainId === chainId && tx.calls.length > 0)
-    .map((tx) => decodeSbcCalls(tx));
+export const executionBatchesForChain = (
+  mw: CharMiddleware,
+  chainId: number
+): DecodedCall[][] => safeBatchesForChain(mw, chainId);
 
 export const safeBatchesForChain = (mw: CharMiddleware, chainId: number): DecodedCall[][] =>
   mw.createSafeExecuteTx.mock.calls
@@ -953,25 +936,20 @@ export const rffRequest = (mw: CharMiddleware): CharRffRequest =>
 
 export const rffRecipient = (mw: CharMiddleware): Hex => rffRequest(mw).recipient_address;
 
-// S2 — invocationCallOrder of the submitSBCs call whose batch contains a decoded call matching `fn`
+// S2 — invocationCallOrder of the Safe request whose batch contains a decoded call matching `fn`
 // (e.g. 'deposit'). Lets a scenario pin cross-seam ordering against submitRFF's order.
-export const sbcCallOrderWith = (mw: CharMiddleware, fn: string): number => {
-  const idx = mw.submitSBCs.mock.calls.findIndex((args) =>
-    (args[0] as SBCTx[]).some((tx) => decodeSbcCalls(tx).some((c) => c.fn === fn))
+export const executionCallOrderWith = (mw: CharMiddleware, fn: string): number => {
+  const safeIdx = mw.createSafeExecuteTx.mock.calls.findIndex(([request]) =>
+    decodeSafeRequest(request as CreateSafeExecuteTxV2Request).some((call) => call.fn === fn)
   );
-  if (idx < 0) throw new Error(`no submitSBCs batch contained a '${fn}' call`);
-  return mw.submitSBCs.mock.invocationCallOrder[idx];
+  if (safeIdx < 0) throw new Error(`no execution batch contained a '${fn}' call`);
+  return mw.createSafeExecuteTx.mock.invocationCallOrder[safeIdx];
 };
 
-// S5 — the COMPLETE set of chains that received a real on-chain batch (non-empty SBC or any Safe
-// exec). Lets a scenario assert there are NO stray batches on unexpected chains.
+// S5 — the COMPLETE set of chains that received a Safe execution request.
 export const dispatchedChains = (mw: CharMiddleware): number[] => {
-  const sbc = mw.submitSBCs.mock.calls
-    .flatMap((args) => args[0] as SBCTx[])
-    .filter((tx) => tx.calls.length > 0)
-    .map((tx) => tx.chainId);
   const safe = mw.createSafeExecuteTx.mock.calls.map(
     (args) => (args[0] as CreateSafeExecuteTxV2Request).chainId
   );
-  return [...new Set([...sbc, ...safe])].sort((a, b) => a - b);
+  return [...new Set(safe)].sort((a, b) => a - b);
 };

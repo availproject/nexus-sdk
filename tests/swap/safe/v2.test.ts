@@ -152,13 +152,13 @@ describe('Safe V2 wire format', () => {
     expect(() => normalizeSafeSignature(`0x${'11'.repeat(64)}` as Hex)).toThrow(/65-byte/);
   });
 
-  it('posts V2 requests only to /api/v2 Safe endpoints', async () => {
+  it('posts Citrea requests only to /api/v2 Safe endpoints', async () => {
     expect(typeof v2.createSafeMiddlewareClientV2).toBe('function');
     if (!v2.createSafeMiddlewareClientV2) return;
 
     const post = vi.fn().mockResolvedValue({ data: { ok: true } });
     const client = v2.createSafeMiddlewareClientV2({ post });
-    const addressRequest = { chainId: 1, eoaAddress: EOA, ephemeralAddress: EPHEMERAL };
+    const addressRequest = { chainId: 4114, eoaAddress: EOA, ephemeralAddress: EPHEMERAL };
     const ensureRequest = {
       ...addressRequest,
       safeAddress: EXPECTED_SAFE,
@@ -190,6 +190,7 @@ describe('Safe V2 wire format', () => {
       '/api/v2/ensure-safe-account',
       '/api/v2/create-safe-execute-tx',
     ]);
+    expect(post.mock.calls.map(([, body]) => body.chainId)).toEqual([4114, 4114, 4114]);
   });
 
   it('serializes sponsored V2 execution numeric fields as decimal strings', async () => {

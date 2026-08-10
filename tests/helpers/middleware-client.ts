@@ -33,6 +33,7 @@ export const makeMiddlewareClient = (
   getRFFStatus: async () => ({ status: 'created' }),
   getDeployment: async () => ({}) as never,
   simulateBundleV2: async () => ({ gas: [] }),
+  submitSBCs: async () => [],
   getLiFiQuote: async () => ({}),
   getBebopQuote: async () => ({}),
   getFibrousQuote: async () => ({}),
@@ -46,7 +47,6 @@ export const makeMiddlewareClient = (
   getFibrousTokenPrice: async () => null,
   getLiFiToken: async () => ({}),
   getMysticToken: async () => ({}),
-  submitSBCs: async () => [],
   getQuote: async () => ({
     fulfillmentBps: 0,
     sources: [],

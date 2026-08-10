@@ -149,7 +149,6 @@ const makeEphemeralWallet = (): PrivateKeyAccount =>
     address: '0xbbbb000000000000000000000000000000000002' as Hex,
     signMessage: vi.fn().mockResolvedValue('0x' + '33'.repeat(65)),
     signTypedData: vi.fn().mockResolvedValue('0x' + '33'.repeat(65)),
-    signAuthorization: vi.fn().mockResolvedValue({ r: '0x01', s: '0x02', yParity: 0, nonce: 0 }),
   }) as unknown as PrivateKeyAccount;
 
 type Balance = { amount: string; chainID: number; decimals: number; name: string; logo: string; symbol: string; tokenAddress: Hex; value: number };
