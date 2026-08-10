@@ -482,21 +482,23 @@ export async function _exactOutRoute(
     { tags: { mode: SwapMode.EXACT_OUT } }
   );
   const priceResolver = createTokenPriceResolver(options);
-  const directNeedsTokenSwap =
-    data.toAmountRaw > 0n && !equalFold(data.toTokenAddress, dstCOT.address);
   const destinationPricePromise = priceResolver.resolve(data.toChainId, data.toTokenAddress);
   const cotPricePromise = priceResolver.resolve(data.toChainId, dstCOT.address as Hex);
   const requestedNativeAmountRaw =
     data.toNativeAmountRaw != null && data.toNativeAmountRaw > 0n ? data.toNativeAmountRaw : 0n;
+  const dstHoldings = holdings.filter((holding) => holding.chainID === data.toChainId);
+  const canTryDirectDestination =
+    !options.skipFastPaths &&
+    data.toAmountRaw > 0n &&
+    (data.toNativeAmountRaw ?? 0n) >= 0n &&
+    dstHoldings.length > 0;
   const nativePricePromise =
-    !options.skipFastPaths && directNeedsTokenSwap && requestedNativeAmountRaw > 0n
+    canTryDirectDestination && requestedNativeAmountRaw > 0n
       ? priceResolver.resolve(data.toChainId, EADDRESS)
       : Promise.resolve<ResolvedTokenPrice | null>(null);
-  const dstHoldings = holdings.filter((holding) => holding.chainID === data.toChainId);
-  const dstHoldingPricePromises =
-    !options.skipFastPaths && directNeedsTokenSwap
-      ? dstHoldings.map((holding) => priceResolver.resolve(holding.chainID, holding.tokenAddress))
-      : [];
+  const dstHoldingPricePromises = canTryDirectDestination
+    ? dstHoldings.map((holding) => priceResolver.resolve(holding.chainID, holding.tokenAddress))
+    : [];
 
   const [destinationPrice, nativePrice] = await Promise.all([
     destinationPricePromise,
@@ -538,12 +540,7 @@ export async function _exactOutRoute(
     hasUnpricedDstHolding,
     passed: directPriceGatePassed,
   });
-  if (
-    !options.skipFastPaths &&
-    directNeedsTokenSwap &&
-    dstHoldings.length > 0 &&
-    directPriceGatePassed
-  ) {
+  if (canTryDirectDestination && directPriceGatePassed) {
     const direct = await tryFastPath('direct', () =>
       buildDirectDestinationExactOutRoute(data, holdings, options)
     );
@@ -620,14 +617,17 @@ export async function _exactOutRoute(
     roughlyEstimatedSources
   );
 
-  const destinationBuffer = applyBuffer(
-    inputAmount,
-    DST_BUFFER_PCT,
-    DST_BUFFER_MAX_USD,
-    oraclePrices,
-    data.toChainId,
-    dstCOT.address
-  );
+  const destinationBuffer =
+    needsTokenSwap || needsGasSwap
+      ? applyBuffer(
+          inputAmount,
+          DST_BUFFER_PCT,
+          DST_BUFFER_MAX_USD,
+          oraclePrices,
+          data.toChainId,
+          dstCOT.address
+        )
+      : new Decimal(0);
   const destinationBufferedInput = inputAmount.plus(destinationBuffer);
   const originalDestinationMaxInput = new Decimal(destinationBufferedInput);
   const sourceBuffer = applyBuffer(

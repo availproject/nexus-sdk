@@ -683,7 +683,7 @@ describe('swap execution characterization', () => {
     expect(sentTxs).toHaveLength(0);
   });
 
-  it('EXACT_OUT · Nexus · 7702 source → COT dst (derived amounts, per-leg consistency)', async () => {
+  it('EXACT_OUT · Nexus · COT dst skips the destination buffer when no destination swap runs', async () => {
     // EXACT_OUT: ask for exactly N USDC on BASE. Source amounts are routing-derived, so we assert
     // the call SHAPE + receivers exactly and the amounts for CONSISTENCY across a leg (the same
     // value threads permit→transferFrom→approve→swap-input; swap-output == bridge approve/deposit).
@@ -726,6 +726,8 @@ describe('swap execution characterization', () => {
     eq(EPH)(source[3].args[4]); // taker = wrapper
     eq(EPH)(source[3].args[5]); // receiver = wrapper (cross-chain leg)
     const usdcOut = source[3].args[3] as bigint; // swap outputAmount (USDC)
+    // The COT destination needs no destination swap, so only the $1 source buffer is added.
+    expect(usdcOut).toBe(501n * 10n ** 6n);
 
     // BRIDGE deposit: approve(vault) + deposit; approve amount == produced COT.
     expect(bridge.map((c) => c.fn)).toEqual(['approve', 'deposit']);
@@ -2097,6 +2099,58 @@ describe('EXACT_OUT coverage expansion', () => {
     expect(sentTxs).toHaveLength(0); // ERC20 input → ephemeral SBC, no EOA native send
   });
 
+  it('A7 · COT exact out uses a covering destination-chain asset directly despite a remote source', async () => {
+    const balances: FlatBalance[] = [
+      dai(BASE_CHAIN, '1000'),
+      {
+        amount: '1',
+        chainID: ARB_CHAIN,
+        decimals: 18,
+        symbol: 'WETH',
+        tokenAddress: WETH,
+        value: 2500,
+        name: 'Wrapped Ether',
+        logo: '',
+      },
+    ];
+    const middlewareClient = makeCharMiddleware({ balances, provider: 'nexus' });
+    const { wallet } = makeRealEoaWallet();
+
+    await flowSwap(
+      {
+        mode: SwapMode.EXACT_OUT as const,
+        data: {
+          sources: [
+            { chainId: BASE_CHAIN, tokenAddress: SOURCE_DAI },
+            { chainId: ARB_CHAIN, tokenAddress: WETH },
+          ],
+          toChainId: BASE_CHAIN,
+          toTokenAddress: USDC_BASE,
+          toAmountRaw: 500n * 10n ** 6n,
+        },
+      },
+      deps(middlewareClient, wallet),
+      allow
+    );
+
+    expect(middlewareClient.submitRFF).not.toHaveBeenCalled();
+    expect(sbcBatchesForChain(middlewareClient, ARB_CHAIN)).toEqual([]);
+
+    const base = sbcBatchesForChain(middlewareClient, BASE_CHAIN);
+    expect(base).toHaveLength(1);
+    expect(base[0].map((call) => call.fn)).toEqual([
+      'permit',
+      'transferFrom',
+      'approve',
+      'swap',
+    ]);
+    const swap = base[0][3];
+    eq(SOURCE_DAI)(swap.args[0]);
+    eq(USDC_BASE)(swap.args[1]);
+    eq(EOA)(swap.args[5]);
+    expect(swap.args[3]).toBe(500n * 10n ** 6n);
+  });
+
   // ── B · gas-only with a bridged source ──
 
   it('B1 · gas-only funding from a cross-chain COT source → bridge fills the wrapper, gas swap runs', async () => {
@@ -2438,7 +2492,9 @@ describe('EXACT_OUT coverage expansion', () => {
     eq(EPH)(swp.args[5]); // wrapper receives the COT for the bridge
     expect(eoaTx.value, 'tx value carries the derived native input').toBe(swp.args[2]);
     const produced = swp.args[3] as bigint;
-    expect(produced, 'covers the target + buffers').toBeGreaterThanOrEqual(503n * 10n ** 6n);
+    expect(produced, 'covers the target + source buffer').toBeGreaterThanOrEqual(
+      501n * 10n ** 6n
+    );
     // Bridge leg: approve(vault, produced) → deposit; the RFF bridges exactly the produced COT.
     const arb = sbcBatchesForChain(middlewareClient, ARB_CHAIN);
     expect(arb.map((b) => b.map((c) => c.fn))).toEqual([['approve', 'deposit']]);
@@ -2671,10 +2727,10 @@ describe('amount flow under a source drift', () => {
   });
 
   // ── EXACT_OUT drift twins (D1-D3, ai-exact-out-coverage-plan.md §2 P3) ──
-  // want 500 USDC on BASE → target = 500 + dstBuffer(min(10%·500,$2)=2) + srcBuffer(min(2%·502,$1)=1)
-  // = 503 USDC planned source COT (P'). fees are 0 in the harness.
-  const PLANNED_OUT = 503n * 10n ** 6n;
-  const SLIPPED_OUT = 504n * 10n ** 6n; // A' > P' actually lands at the source wrapper
+  // want 500 USDC on BASE with no destination swap → target = 500 + srcBuffer($1)
+  // = 501 USDC planned source COT (P'). fees are 0 in the harness.
+  const PLANNED_OUT = 501n * 10n ** 6n;
+  const SLIPPED_OUT = 502n * 10n ** 6n; // A' > P' actually lands at the source wrapper
 
   it('D1 · positive slippage · EXACT_OUT · Nexus — reclaim bridges the ACTUAL COT, delivery re-derives', async () => {
     const { promise, middlewareClient: mw } = runExactOut({ provider: 'nexus', toAmountRaw: 500n * 10n ** 6n, wrapperCot: SLIPPED_OUT });
@@ -2687,7 +2743,7 @@ describe('amount flow under a source drift', () => {
   });
 
   it('D2 · requote DOWN within srcBuffer · EXACT_OUT · Nexus — re-dispatch carries the fresh quote and completes', async () => {
-    // −0.05% on ~503 ≈ $0.25 loss < the $1 srcBuffer → the kept EXACT_OUT guard must let it through.
+    // −0.05% on ~501 ≈ $0.25 loss < the $1 srcBuffer → the kept EXACT_OUT guard must let it through.
     const drift = makeRequoteDrift({ chainId: ARB_CHAIN, sourceToken: SOURCE_DAI, factor: 0.9995 });
     const { promise, middlewareClient: mw } = runExactOut({ provider: 'nexus', toAmountRaw: 500n * 10n ** 6n, wrapperCot: PLANNED_OUT, drift });
     await promise;
@@ -2702,7 +2758,7 @@ describe('amount flow under a source drift', () => {
   });
 
   it('D3 · requote DOWN beyond srcBuffer · EXACT_OUT · Nexus — the kept guard aborts, nothing deposits', async () => {
-    // −5% on ~503 ≈ $25 loss ≫ the $1 srcBuffer → EXACT_OUT (unlike EXACT_IN) must abort.
+    // −5% on ~501 ≈ $25 loss ≫ the $1 srcBuffer → EXACT_OUT (unlike EXACT_IN) must abort.
     const drift = makeRequoteDrift({ chainId: ARB_CHAIN, sourceToken: SOURCE_DAI, factor: 0.95 });
     const { promise, middlewareClient: mw } = runExactOut({ provider: 'nexus', toAmountRaw: 500n * 10n ** 6n, wrapperCot: PLANNED_OUT, drift });
 
