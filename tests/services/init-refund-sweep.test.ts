@@ -9,6 +9,8 @@ import type { ChainListType, SwapTokenBalance } from '../../src/domain';
 
 vi.mock('../../src/swap/wallet/capabilities', () => ({
   chainSupports7702: (chain: { id: number }) => chain.id === 42161,
+  resolveSwapWalletPath: (chain: { id: number }) =>
+    chain.id === 42161 ? 'ephemeral' : 'safe',
 }));
 
 const USDC = '0xaf88d065e77c8cc2239327c5edb3a432268e5831' as Hex;

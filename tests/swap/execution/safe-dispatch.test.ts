@@ -8,13 +8,15 @@ import {
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { dispatchSafeSource } from '../../../src/swap/execution/safe-dispatch';
-import { predictSafeAccountAddress } from '../../../src/swap/safe/predict';
+import { predictSafeAccountAddressV2 } from '../../../src/swap/safe/predict';
 import { safeExecTransactionAbi } from '../../../src/swap/safe/abis';
+import type { EnsureSafeAccountV2Response } from '../../../src/swap/safe/types';
 
 const PK = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d' as const;
 const ephemeralWallet = privateKeyToAccount(PK);
-const safeAddress = predictSafeAccountAddress(ephemeralWallet.address).address as Address;
 const eoaAddress = '0xeeee000000000000000000000000000000000001' as Address;
+const safeAddress = predictSafeAccountAddressV2(eoaAddress, ephemeralWallet.address)
+  .address as Address;
 const target = '0xabcdef0123456789abcdef0123456789abcdef01' as Address;
 const chainId = 999;
 const chain = { id: chainId, name: 'test', blockExplorers: { default: { url: 'https://x.test' } } } as never;
@@ -43,7 +45,8 @@ const makeEoaWallet = (txHash: Hex = '0xfeed' as Hex) =>
 const makeMiddleware = (txHash: Hex = '0xdeed' as Hex) => ({
   ensureSafeAccount: vi.fn().mockResolvedValue({
     chainId,
-    owner: ephemeralWallet.address,
+    eoaAddress,
+    ephemeralAddress: ephemeralWallet.address,
     address: safeAddress,
     factoryAddress: '0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67' as Hex,
     exists: true,
@@ -84,6 +87,44 @@ describe('dispatchSafeSource', () => {
       expect((eoaWallet.sendTransaction as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
       expect(result.txHash).toBe('0xdeed');
       expect(result.safeAddress).toBe(safeAddress);
+    });
+
+    it('awaits a prestarted deployment and does not ensure the Safe twice', async () => {
+      const publicClient = makePublicClient({ code: undefined });
+      const middleware = makeMiddleware('0xdeed' as Hex);
+      let resolveDeployment!: () => void;
+      const safeDeploymentPromise = new Promise<EnsureSafeAccountV2Response>((resolve) => {
+        resolveDeployment = () =>
+          resolve({
+            chainId,
+            eoaAddress,
+            ephemeralAddress: ephemeralWallet.address,
+            address: safeAddress,
+            factoryAddress: '0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67',
+            exists: true,
+          });
+      });
+
+      const dispatch = dispatchSafeSource({
+        chain,
+        chainId,
+        calls: [{ to: target, value: 0n, data: '0xfeed' }],
+        nativeValue: 0n,
+        ephemeralWallet,
+        eoaWallet: makeEoaWallet(),
+        eoaAddress,
+        publicClient,
+        middleware,
+        safeDeploymentPromise,
+      });
+
+      await Promise.resolve();
+      expect(middleware.createSafeExecuteTx).not.toHaveBeenCalled();
+      resolveDeployment();
+      await dispatch;
+
+      expect(middleware.ensureSafeAccount).not.toHaveBeenCalled();
+      expect(middleware.createSafeExecuteTx).toHaveBeenCalledTimes(1);
     });
 
     it('skips ensure when Safe already deployed', async () => {

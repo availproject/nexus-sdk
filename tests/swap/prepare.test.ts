@@ -4,7 +4,8 @@ import { decodeFunctionData, type Hex, type WalletClient } from 'viem';
 import type { PrivateKeyAccount } from 'viem/accounts';
 import ERC20ABI, { ERC20PermitABI } from '../../src/abi/erc20';
 import { prepareSwapExecution } from '../../src/swap/prepare';
-import { predictSafeAccountAddress } from '../../src/swap/safe/predict';
+import { predictSafeAccountAddressV2 } from '../../src/swap/safe/predict';
+import type { EnsureSafeAccountV2Response } from '../../src/swap/safe/types';
 import { CurrencyID } from '../../src/swap/cot';
 import { SwapMode, type ExecutionContext, type QuoteResponse, type SwapRoute } from '../../src/swap/types';
 import { SwapCache } from '../../src/swap/wallet/cache';
@@ -259,7 +260,7 @@ describe('prepareSwapExecution', () => {
       eoaToEphemeral: null,
       swap: { tokenSwap: null, gasSwap: null },
     };
-    const expectedSafe = predictSafeAccountAddress(EPH).address;
+    const expectedSafe = predictSafeAccountAddressV2(EOA, EPH).address;
 
     const prepared = await prepareSwapExecution({
       chainList: makeSupportedChainList(),
@@ -330,6 +331,42 @@ describe('prepareSwapExecution', () => {
       500000000n,
       expect.anything()
     );
+  });
+
+  it('waits for the destination Safe deployment before eagerly signing its permit', async () => {
+    const route = makeRoute();
+    let resolveDeployment!: () => void;
+    const deployment = new Promise<EnsureSafeAccountV2Response>((resolve) => {
+      resolveDeployment = () =>
+        resolve({
+          chainId: ARB_CHAIN,
+          eoaAddress: EOA,
+          ephemeralAddress: EPH,
+          address: predictSafeAccountAddressV2(EOA, EPH).address,
+          factoryAddress: '0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67',
+          exists: true,
+        });
+    });
+
+    const preparation = prepareSwapExecution({
+      chainList: makeSupportedChainList(),
+      route,
+      source: route.source,
+      destination: route.destination,
+      eoaAddress: EOA,
+      eoaWallet: {} as WalletClient,
+      ephemeralWallet: { address: EPH } as PrivateKeyAccount,
+      publicClientList: { get: vi.fn().mockReturnValue(makePublicClient()) },
+      cache: makeCache(),
+      safeDeploymentPromises: new Map([[ARB_CHAIN, deployment]]),
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(signPermitForAddressAndValue).not.toHaveBeenCalled();
+    resolveDeployment();
+    await preparation;
+
+    expect(signPermitForAddressAndValue).toHaveBeenCalledTimes(1);
   });
 
   it('skips source and destination eoa->ephemeral authorization when cached allowance already covers the amount', async () => {
@@ -555,9 +592,9 @@ describe('prepareSwapExecution', () => {
     expect(bridgeTransfer?.amount).toBe(5000000n);
   });
 
-  it('authorizes the Safe but transfers bridge funding directly from the EOA to the ephemeral', async () => {
-    // Fast-path bridge (no source swap) on a non-7702 chain: the Safe executes transferFrom, so it
-    // remains the permit spender, while the COT recipient is the ephemeral bridge holder.
+  it('authorizes the V2 Safe for a direct COT source when swapSupported is true', async () => {
+    // Even with 7702 support, swapSupported selects the V2 Safe as transferFrom spender; only
+    // bridge custody goes to the ephemeral address.
     const route = makeRoute();
     route.source = { swaps: [], creationTime: Date.now(), srcBuffer: new Decimal(0) };
     route.destination = {
@@ -594,10 +631,10 @@ describe('prepareSwapExecution', () => {
       },
     };
     const chainList = makeChainList(
-      [{ ...makeChain(ARB_CHAIN, 'Arbitrum'), supports7702: false }],
+      [{ ...makeChain(ARB_CHAIN, 'Arbitrum'), supports7702: true, swapSupported: true }],
       SUPPORTED_TOKEN
     );
-    const expectedSafe = predictSafeAccountAddress(EPH).address;
+    const expectedSafe = predictSafeAccountAddressV2(EOA, EPH).address;
 
     const prepared = await prepareSwapExecution({
       chainList,

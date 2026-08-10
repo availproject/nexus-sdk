@@ -41,9 +41,9 @@ import {
 } from '../../services/step-ids';
 import { withTimingSpan } from '../../services/timing';
 import { createSwapBridgeIntent } from '../bridge-intent';
-import { predictSafeAccountAddress } from '../safe/predict';
+import { predictSafeAccountAddressV2 } from '../safe/predict';
 import type { BridgeAsset, ExecutionContext, SBCResult, SwapMetadata, SwapRoute } from '../types';
-import { chainSupports7702 } from '../wallet/capabilities';
+import { resolveSwapWalletPath } from '../wallet/capabilities';
 import { buildEphemeralPermitCall } from '../wallet/ephemeral-permit';
 import { resolvePreparedFundingTransferCalls } from './eoa-to-ephemeral';
 import { dispatchSafeSource } from './safe-dispatch';
@@ -59,9 +59,7 @@ const resolveChain = (chainList: ExecutionContext['chainList'], chainId: number)
 
 // Bridge fill recipient resolution:
 //   - `destinationDirectEoa` (no destination swap step) → user's EOA, no wrapper
-//   - 7702 destination + destination swap step → ephemeral (Calibur runs the swap)
-//   - non-7702 destination + destination swap step → predicted Safe (Safe.execTransaction
-//     runs the swap, delivers to EOA)
+//   - destination swap step → the chain's selected swap wrapper
 const resolveBridgeRecipient = (input: {
   destinationDirectEoa: boolean;
   destinationChain: Chain;
@@ -69,8 +67,10 @@ const resolveBridgeRecipient = (input: {
   ephemeralAddress: Hex;
 }): Hex => {
   if (input.destinationDirectEoa) return input.eoaAddress;
-  if (chainSupports7702(input.destinationChain)) return input.ephemeralAddress;
-  return predictSafeAccountAddress(input.ephemeralAddress).address;
+  if (resolveSwapWalletPath(input.destinationChain) === 'ephemeral') {
+    return input.ephemeralAddress;
+  }
+  return predictSafeAccountAddressV2(input.eoaAddress, input.ephemeralAddress).address;
 };
 
 // 5 minute window — matches v1's BRIDGE_VAULT_PERMIT_DEADLINE_MINUTES. Permit deadline expiry
@@ -235,6 +235,7 @@ const resolveFundingTransferCalls = async (
     | 'onProgress'
     | 'preparedExecution'
     | 'publicClientList'
+    | 'safeDeploymentPromises'
     | 'timing'
   >
 ) => {
@@ -279,6 +280,8 @@ const resolveFundingTransferCalls = async (
   const publicClient = ctx.publicClientList.get(asset.chainID);
   const authorizationKind = transfer.authorization?.kind ?? 'none';
 
+  await ctx.safeDeploymentPromises?.get(asset.chainID);
+
   logger.debug('swap.execute.bridge.funding.started', {
     chainId: asset.chainID,
     tokenAddress: asset.contractAddress,
@@ -303,6 +306,7 @@ const resolveFundingTransferCalls = async (
         eoaAddress: ctx.eoaAddress,
         eoaWallet: ctx.eoaWallet,
         publicClient,
+        safeDeploymentPromise: ctx.safeDeploymentPromises?.get(asset.chainID),
       });
       logger.debug('swap.execute.bridge.funding.completed', {
         chainId: asset.chainID,
@@ -368,8 +372,8 @@ const hasEoaFunding = (asset: BridgeAsset) => asset.eoaBalance.gt(0);
 
 // EOA-submitted payable native bridge deposit, shared by the Nexus and Mayan paths. Native value
 // can't be relayed/sponsored, so the EOA submits the deposit itself: Calibur execute{value} on a
-// 7702 chain (bootstrapping delegation once if needed), or Safe.execTransaction{value} via
-// dispatchSafeSource on a non-7702 chain. `depositCall` is the pre-encoded payable deposit /
+// ephemeral path (bootstrapping delegation once if needed), or Safe.execTransaction{value} via
+// dispatchSafeSource on the Safe path. `depositCall` is the pre-encoded payable deposit /
 // depositMayan call.
 const submitNativeBridgeDepositViaEoa = async (params: {
   asset: BridgeAsset;
@@ -384,12 +388,13 @@ const submitNativeBridgeDepositViaEoa = async (params: {
     | 'ephemeralWallet'
     | 'middlewareClient'
     | 'publicClientList'
+    | 'safeDeploymentPromises'
   >;
 }): Promise<Hex> => {
   const { asset, chain, depositCall, depositValue, ctx } = params;
   const publicClient = ctx.publicClientList.get(asset.chainID);
 
-  if (!chainSupports7702(chain)) {
+  if (resolveSwapWalletPath(chain) === 'safe') {
     const safeResult = await dispatchSafeSource({
       chain,
       chainId: asset.chainID,
@@ -400,6 +405,7 @@ const submitNativeBridgeDepositViaEoa = async (params: {
       eoaAddress: ctx.eoaAddress,
       publicClient,
       middleware: ctx.middlewareClient,
+      safeDeploymentPromise: ctx.safeDeploymentPromises?.get(asset.chainID),
     });
     return safeResult.txHash;
   }
@@ -469,6 +475,7 @@ const runMayanEphemeralBridge = async (
     | 'onProgress'
     | 'preparedExecution'
     | 'publicClientList'
+    | 'safeDeploymentPromises'
     | 'timing'
   >,
   metadata: SwapMetadata
@@ -510,7 +517,7 @@ const runMayanEphemeralBridge = async (
       });
       const chain = resolveChain(ctx.chainList, asset.chainID);
       let txHash: Hex;
-      if (chainSupports7702(chain)) {
+      if (resolveSwapWalletPath(chain) === 'ephemeral') {
         const calls: SBCCall[] = [
           ...fundingCalls,
           {
@@ -543,12 +550,17 @@ const runMayanEphemeralBridge = async (
         // on an EOA-held fast path, fundingCalls first performs transferFrom(EOA→ephemeral) with the
         // Safe as spender.
         const publicClient = ctx.publicClientList.get(asset.chainID);
-        const { address: safeAddress } = predictSafeAccountAddress(ctx.ephemeralWallet.address);
+        const { address: safeAddress } = predictSafeAccountAddressV2(
+          ctx.eoaAddress,
+          ctx.ephemeralWallet.address
+        );
         await ensureSafeForEphemeral({
           chainId: asset.chainID,
+          eoaAddress: ctx.eoaAddress,
           ephemeralWallet: ctx.ephemeralWallet,
           publicClient,
           middleware: ctx.middlewareClient,
+          deploymentPromise: ctx.safeDeploymentPromises?.get(asset.chainID),
         });
         const deadline =
           BigInt(Math.floor(Date.now() / 1000)) + BRIDGE_VAULT_PERMIT_DEADLINE_SECONDS;
@@ -568,6 +580,7 @@ const runMayanEphemeralBridge = async (
         const request = await createSafeExecuteTxFromCalls({
           calls: safeCalls,
           chainId: asset.chainID,
+          eoaAddress: ctx.eoaAddress,
           ephemeralWallet: ctx.ephemeralWallet,
           publicClient,
           safeAddress,
@@ -910,6 +923,7 @@ const executeEphemeralBridgePath = async (
     | 'onProgress'
     | 'preparedExecution'
     | 'publicClientList'
+    | 'safeDeploymentPromises'
     | 'timing'
   >,
   metadata: SwapMetadata
@@ -1044,17 +1058,22 @@ const executeEphemeralBridgePath = async (
           depositValue,
           ctx,
         });
-      } else if (chain && !chainSupports7702(chain)) {
+      } else if (chain && resolveSwapWalletPath(chain) === 'safe') {
         // Non-7702 source: the Safe submits permit→deposit. Source swaps already delivered COT to
         // the ephemeral; on an EOA-held fast path, fundingCalls first performs
         // transferFrom(EOA→ephemeral) with the Safe as spender.
         const publicClient = ctx.publicClientList.get(asset.chainID);
-        const { address: safeAddress } = predictSafeAccountAddress(ctx.ephemeralWallet.address);
+        const { address: safeAddress } = predictSafeAccountAddressV2(
+          ctx.eoaAddress,
+          ctx.ephemeralWallet.address
+        );
         await ensureSafeForEphemeral({
           chainId: asset.chainID,
+          eoaAddress: ctx.eoaAddress,
           ephemeralWallet: ctx.ephemeralWallet,
           publicClient,
           middleware: ctx.middlewareClient,
+          deploymentPromise: ctx.safeDeploymentPromises?.get(asset.chainID),
         });
         const deadline =
           BigInt(Math.floor(Date.now() / 1000)) + BRIDGE_VAULT_PERMIT_DEADLINE_SECONDS;
@@ -1077,6 +1096,7 @@ const executeEphemeralBridgePath = async (
         const request = await createSafeExecuteTxFromCalls({
           calls: safeCalls,
           chainId: asset.chainID,
+          eoaAddress: ctx.eoaAddress,
           ephemeralWallet: ctx.ephemeralWallet,
           publicClient,
           safeAddress,
@@ -1293,6 +1313,7 @@ export const executeSwapBridge = async (
     | 'onProgress'
     | 'preparedExecution'
     | 'publicClientList'
+    | 'safeDeploymentPromises'
     | 'timing'
   >,
   metadata: SwapMetadata

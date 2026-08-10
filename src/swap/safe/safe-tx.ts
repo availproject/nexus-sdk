@@ -1,5 +1,14 @@
-import { type Address, type Hex, hashTypedData, type LocalAccount, zeroAddress } from 'viem';
-import type { SafeOperation } from './constants';
+import {
+  type Address,
+  concatHex,
+  encodeFunctionData,
+  type Hex,
+  hashTypedData,
+  type LocalAccount,
+  zeroAddress,
+} from 'viem';
+import { safeExecTransactionAbi } from './abis';
+import { SAFE_V2_ON_CHAIN_IDENTIFIER, type SafeOperation } from './constants';
 
 export type SafeTxFields = {
   to: Address;
@@ -61,6 +70,40 @@ export async function signSafeTx(args: {
     primaryType: 'SafeTx',
     message: args.fields,
   });
+}
+
+export function normalizeSafeSignature(signature: Hex): Hex {
+  if (signature.length !== 132) {
+    throw new Error(`Safe signature must be 65-byte hex, received ${(signature.length - 2) / 2}`);
+  }
+  const recoveryByte = Number.parseInt(signature.slice(-2), 16);
+  const normalized = recoveryByte < 27 ? recoveryByte + 27 : recoveryByte;
+  if (normalized !== 27 && normalized !== 28) {
+    throw new Error(
+      `Safe signature recovery byte must be 0, 1, 27, or 28; received ${recoveryByte}`
+    );
+  }
+  return `${signature.slice(0, -2)}${normalized.toString(16)}` as Hex;
+}
+
+export function encodeSafeExecTransactionV2(fields: SafeTxFields, signature: Hex): Hex {
+  const data = encodeFunctionData({
+    abi: safeExecTransactionAbi,
+    functionName: 'execTransaction',
+    args: [
+      fields.to,
+      fields.value,
+      fields.data,
+      fields.operation,
+      fields.safeTxGas,
+      fields.baseGas,
+      fields.gasPrice,
+      fields.gasToken,
+      fields.refundReceiver,
+      normalizeSafeSignature(signature),
+    ],
+  });
+  return concatHex([data, SAFE_V2_ON_CHAIN_IDENTIFIER]);
 }
 
 // Sponsored flow: refund-related fields stay zero so the Safe doesn't pay/refund anyone — the

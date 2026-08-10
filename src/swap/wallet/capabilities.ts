@@ -13,7 +13,7 @@ export const chainSupports7702 = (chain: Chain): boolean => {
  * Determines the smart-account wrapper used on a chain.
  *
  * - 7702 chain → `ephemeral` (Calibur-delegated EOA)
- * - non-7702 chain → `safe` (Safe smart account owned by the ephemeral)
+ * - non-7702 chain → `safe` (threshold-1 Safe owned by the EOA and ephemeral)
  *
  * The user's connected EOA is never a swap-executor wallet path: source swaps, bridge deposits,
  * and destination swaps always run inside one of the two wrappers above. Bridge fills on
@@ -21,3 +21,6 @@ export const chainSupports7702 = (chain: Chain): boolean => {
  * the absence of a destination-swap step, not by this function.
  */
 export const resolveWalletPath = (is7702: boolean): WalletPath => (is7702 ? 'ephemeral' : 'safe');
+
+export const resolveSwapWalletPath = (chain: Chain): WalletPath =>
+  chain.swapSupported === true ? 'safe' : resolveWalletPath(chainSupports7702(chain));

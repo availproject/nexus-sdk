@@ -3,6 +3,7 @@ import { type Chain, getLogger } from '../../domain';
 import { confirmStepReceipt, switchChain } from '../../services/evm';
 import type { SBCCall } from '../../services/sbc';
 import { createEoaToEphemeralTransferStepId } from '../../services/step-ids';
+import type { EnsureSafeAccountV2Response } from '../safe/types';
 import type { PreparedEoaToEphemeralTransfer } from '../types';
 import type { SwapCache } from '../wallet/cache';
 import {
@@ -23,6 +24,7 @@ type ResolvePreparedFundingTransferCallsInput = {
     'getTransactionReceipt' | 'waitForTransactionReceipt' | 'readContract'
   >;
   cache?: Pick<SwapCache, 'getAllowance'> & Partial<Pick<SwapCache, 'setAllowance'>>;
+  safeDeploymentPromise?: Promise<EnsureSafeAccountV2Response>;
 };
 
 const ensureDirectApproval = async (
@@ -88,6 +90,8 @@ const ensureDirectApproval = async (
 export const resolvePreparedFundingTransferCalls = async (
   input: ResolvePreparedFundingTransferCallsInput
 ): Promise<SBCCall[]> => {
+  await input.safeDeploymentPromise;
+
   const calls: SBCCall[] = [];
   const authorizationKind = input.transfer.authorization?.kind ?? 'none';
 

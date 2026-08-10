@@ -1,5 +1,5 @@
 import { type Address, type Hex, hashTypedData, type LocalAccount } from 'viem';
-import { SAFE_PROXY_FACTORY_ADDRESS } from './constants';
+import { SAFE_PROXY_FACTORY_ADDRESS, SAFE_V2_SALT_NONCE } from './constants';
 
 export type EnsureAuthParams = {
   chainId: bigint;
@@ -60,5 +60,59 @@ export async function signEnsureAuth(
       saltNonce: params.saltNonce,
       deadline: params.deadline,
     },
+  });
+}
+
+export type EnsureAuthV2Params = {
+  chainId: bigint;
+  eoaAddress: Address;
+  ephemeralAddress: Address;
+  safeAddress: Address;
+  deadline: bigint;
+};
+
+export const ensureAuthDomainV2 = (chainId: bigint) => ({
+  name: 'NexusSafeEnsureAuth',
+  version: '2',
+  chainId,
+  verifyingContract: SAFE_PROXY_FACTORY_ADDRESS,
+});
+
+export const ensureAuthTypesV2 = {
+  NexusSafeEnsureV2: [
+    { name: 'eoaAddress', type: 'address' },
+    { name: 'ephemeralAddress', type: 'address' },
+    { name: 'safeAddress', type: 'address' },
+    { name: 'saltNonce', type: 'uint256' },
+    { name: 'deadline', type: 'uint256' },
+  ],
+} as const;
+
+const ensureAuthMessageV2 = (params: EnsureAuthV2Params) => ({
+  eoaAddress: params.eoaAddress,
+  ephemeralAddress: params.ephemeralAddress,
+  safeAddress: params.safeAddress,
+  saltNonce: SAFE_V2_SALT_NONCE,
+  deadline: params.deadline,
+});
+
+export function buildEnsureAuthDigestV2(params: EnsureAuthV2Params): Hex {
+  return hashTypedData({
+    domain: ensureAuthDomainV2(params.chainId),
+    types: ensureAuthTypesV2,
+    primaryType: 'NexusSafeEnsureV2',
+    message: ensureAuthMessageV2(params),
+  });
+}
+
+export async function signEnsureAuthV2(
+  account: LocalAccount,
+  params: EnsureAuthV2Params
+): Promise<Hex> {
+  return account.signTypedData({
+    domain: ensureAuthDomainV2(params.chainId),
+    types: ensureAuthTypesV2,
+    primaryType: 'NexusSafeEnsureV2',
+    message: ensureAuthMessageV2(params),
   });
 }

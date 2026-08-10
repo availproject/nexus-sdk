@@ -1,27 +1,24 @@
-import {
-  type Address,
-  encodeFunctionData,
-  type Hex,
-  type PrivateKeyAccount,
-  type PublicClient,
-  toHex,
-} from 'viem';
+import type { Address, Hex, PrivateKeyAccount, PublicClient } from 'viem';
 import { Errors } from '../domain/errors';
-import { safeExecTransactionAbi, safeNonceAbi } from '../swap/safe/abis';
-import { SAFE_MULTI_SEND_CALL_ONLY_ADDRESS, SAFE_SALT_NONCE } from '../swap/safe/constants';
-import { signEnsureAuth } from '../swap/safe/ensure-auth';
+import { safeNonceAbi } from '../swap/safe/abis';
+import { SAFE_MULTI_SEND_CALL_ONLY_ADDRESS } from '../swap/safe/constants';
+import { signEnsureAuthV2 } from '../swap/safe/ensure-auth';
 import { buildMultiSendPayload } from '../swap/safe/multi-send';
-import { predictSafeAccountAddress } from '../swap/safe/predict';
-import { buildDefaultSafeTxFields, type SafeTxFields, signSafeTx } from '../swap/safe/safe-tx';
-import type { CreateSafeExecuteTxRequest, EnsureSafeAccountResponse } from '../swap/safe/types';
+import { predictSafeAccountAddressV2 } from '../swap/safe/predict';
+import {
+  buildDefaultSafeTxFields,
+  encodeSafeExecTransactionV2,
+  normalizeSafeSignature,
+  type SafeTxFields,
+  signSafeTx,
+} from '../swap/safe/safe-tx';
+import type { CreateSafeExecuteTxV2Request, EnsureSafeAccountV2Response } from '../swap/safe/types';
 
 export type SafeCall = {
   to: Address;
   value: bigint;
   data: Hex;
 };
-
-const HEX32_ZERO: Hex = `0x${'0'.repeat(64)}`;
 
 // nonce() reverts when the proxy isn't deployed yet (or RPC view is stale right after deploy).
 // The first execTransaction on a fresh Safe correctly uses nonce 0, so this matches contract state.
@@ -40,12 +37,12 @@ async function readSafeNonce(
   }
 }
 
-function buildFieldsForCalls(calls: SafeCall[], nonce: bigint, nativeValue: bigint): SafeTxFields {
+function buildFieldsForCalls(calls: SafeCall[], nonce: bigint): SafeTxFields {
   if (calls.length === 1) {
     const [call] = calls as [SafeCall];
     return buildDefaultSafeTxFields({
       to: call.to,
-      value: nativeValue,
+      value: call.value,
       data: call.data,
       operation: 0,
       nonce,
@@ -62,23 +59,28 @@ function buildFieldsForCalls(calls: SafeCall[], nonce: bigint, nativeValue: bigi
 
 function toExecuteRequest(
   chainId: number,
+  eoaAddress: Address,
+  ephemeralAddress: Address,
   safeAddress: Address,
   fields: SafeTxFields,
   signature: Hex
-): CreateSafeExecuteTxRequest {
+): CreateSafeExecuteTxV2Request {
   return {
     chainId,
+    eoaAddress,
+    ephemeralAddress,
     safeAddress,
     to: fields.to,
-    value: toHex(fields.value, { size: 32 }),
+    value: fields.value.toString(),
     data: fields.data,
     operation: fields.operation,
-    safeTxGas: HEX32_ZERO,
-    baseGas: HEX32_ZERO,
-    gasPrice: HEX32_ZERO,
+    safeTxGas: fields.safeTxGas.toString(),
+    baseGas: fields.baseGas.toString(),
+    gasPrice: fields.gasPrice.toString(),
     gasToken: fields.gasToken,
     refundReceiver: fields.refundReceiver,
-    signature,
+    nonce: fields.nonce.toString(),
+    signature: normalizeSafeSignature(signature),
   };
 }
 
@@ -89,33 +91,36 @@ function toExecuteRequest(
 export async function createSafeExecuteTxFromCalls(input: {
   calls: SafeCall[];
   chainId: number;
+  eoaAddress: Address;
   ephemeralWallet: PrivateKeyAccount;
   publicClient: Pick<PublicClient, 'readContract'>;
   safeAddress: Address;
-  // Outer-tx native value. Sponsor flow keeps this 0 — the sponsor won't fund native sends; for
-  // native value transfers use the EOA-submitted path instead.
-  nativeValue?: bigint;
-}): Promise<CreateSafeExecuteTxRequest> {
+}): Promise<CreateSafeExecuteTxV2Request> {
   if (input.calls.length === 0) {
     throw Errors.invalidInput('createSafeExecuteTxFromCalls: calls must not be empty');
   }
-  const nativeValue = input.nativeValue ?? 0n;
   const nonce = await readSafeNonce(input.publicClient, input.safeAddress);
-  const fields = buildFieldsForCalls(input.calls, nonce, nativeValue);
+  const fields = buildFieldsForCalls(input.calls, nonce);
   const signature = await signSafeTx({
     account: input.ephemeralWallet,
     chainId: input.chainId,
     safeAddress: input.safeAddress,
     fields,
   });
-  return toExecuteRequest(input.chainId, input.safeAddress, fields, signature);
+  return toExecuteRequest(
+    input.chainId,
+    input.eoaAddress,
+    input.ephemeralWallet.address,
+    input.safeAddress,
+    fields,
+    signature
+  );
 }
 
 // Native-value invariants when the EOA submits the Safe.execTransaction. The outer eth_call
 // carries `nativeValue` to the Safe; how that lands depends on the operation:
-//   - operation=CALL (single): SafeTx.value forwards directly to call.to. We set SafeTx.value to
-//     `nativeValue`, which means it MUST match calls[0].value or we'd execute against a different
-//     value than the quote was built for.
+//   - operation=CALL (single): SafeTx.value forwards calls[0].value directly to call.to, so the
+//     outer `nativeValue` MUST match or we'd execute against a different value than the quote.
 //   - operation=DELEGATECALL (MultiSend): SafeTx.value is ignored by Safe; the outer eth_call
 //     funds the Safe with `nativeValue` and each per-tuple value forwards from that balance. Sum
 //     of inner values must equal the outer or funds strand / inner reverts on insufficient balance.
@@ -163,7 +168,7 @@ export async function buildSafeExecuteEOACall(input: {
   assertNativeValueInvariant(input.calls, input.nativeValue);
 
   const nonce = await readSafeNonce(input.publicClient, input.safeAddress);
-  const fields = buildFieldsForCalls(input.calls, nonce, input.nativeValue);
+  const fields = buildFieldsForCalls(input.calls, nonce);
   const signature = await signSafeTx({
     account: input.ephemeralWallet,
     chainId: input.chainId,
@@ -171,56 +176,46 @@ export async function buildSafeExecuteEOACall(input: {
     fields,
   });
 
-  const data = encodeFunctionData({
-    abi: safeExecTransactionAbi,
-    functionName: 'execTransaction',
-    args: [
-      fields.to,
-      fields.value,
-      fields.data,
-      fields.operation,
-      fields.safeTxGas,
-      fields.baseGas,
-      fields.gasPrice,
-      fields.gasToken,
-      fields.refundReceiver,
-      signature,
-    ],
-  });
-
   return {
     to: input.safeAddress,
     value: input.nativeValue,
-    data,
+    data: encodeSafeExecTransactionV2(fields, signature),
   };
 }
 
 export type EnsureSafeMiddleware = {
   ensureSafeAccount: (req: {
     chainId: number;
-    owner: Hex;
-    safeAddress: Hex;
-    saltNonce: Hex;
-    deadline: Hex;
+    eoaAddress: Address;
+    ephemeralAddress: Address;
+    safeAddress: Address;
+    deadline: string;
     signature: Hex;
-  }) => Promise<EnsureSafeAccountResponse>;
+  }) => Promise<EnsureSafeAccountV2Response>;
 };
 
 const DEFAULT_ENSURE_DEADLINE_SECONDS = 600;
 
-// Idempotent ensure-deploy step for the Safe owned by `ephemeralWallet`. The Safe owner is the
-// ephemeral (same key that signs SafeTx); the digest is signed raw with the ephemeral's
+// Idempotent ensure-deploy step for the Safe jointly owned by the EOA and `ephemeralWallet` at
+// threshold 1. The ephemeral is the owner that signs SafeTx; the digest is signed with its
 // `sign({hash})`. Skips the middleware call when the proxy already has bytecode — the existing
 // Calibur path has the same pre-check shape (see source-swaps.ts auth-code bootstrap).
 export async function ensureSafeForEphemeral(input: {
   chainId: number;
+  eoaAddress: Address;
   ephemeralWallet: PrivateKeyAccount;
   publicClient: Pick<PublicClient, 'getCode'>;
   middleware: EnsureSafeMiddleware;
+  deploymentPromise?: Promise<EnsureSafeAccountV2Response>;
   deadlineSeconds?: number;
-}): Promise<EnsureSafeAccountResponse> {
-  const { chainId, ephemeralWallet, publicClient, middleware } = input;
-  const { address: safeAddress, factoryAddress } = predictSafeAccountAddress(
+}): Promise<EnsureSafeAccountV2Response> {
+  if (input.deploymentPromise) {
+    return input.deploymentPromise;
+  }
+
+  const { chainId, eoaAddress, ephemeralWallet, publicClient, middleware } = input;
+  const { address: safeAddress, factoryAddress } = predictSafeAccountAddressV2(
+    eoaAddress,
     ephemeralWallet.address
   );
 
@@ -228,7 +223,8 @@ export async function ensureSafeForEphemeral(input: {
   if (code !== undefined && code !== '0x') {
     return {
       chainId,
-      owner: ephemeralWallet.address,
+      eoaAddress,
+      ephemeralAddress: ephemeralWallet.address,
       address: safeAddress,
       factoryAddress,
       exists: true,
@@ -237,20 +233,46 @@ export async function ensureSafeForEphemeral(input: {
 
   const deadlineSeconds = input.deadlineSeconds ?? DEFAULT_ENSURE_DEADLINE_SECONDS;
   const deadline = BigInt(Math.floor(Date.now() / 1000) + deadlineSeconds);
-  const signature = await signEnsureAuth(ephemeralWallet, {
+  const signature = await signEnsureAuthV2(ephemeralWallet, {
     chainId: BigInt(chainId),
-    owner: ephemeralWallet.address,
-    safe: safeAddress,
-    saltNonce: SAFE_SALT_NONCE,
+    eoaAddress,
+    ephemeralAddress: ephemeralWallet.address,
+    safeAddress,
     deadline,
   });
 
   return middleware.ensureSafeAccount({
     chainId,
-    owner: ephemeralWallet.address,
+    eoaAddress,
+    ephemeralAddress: ephemeralWallet.address,
     safeAddress,
-    saltNonce: toHex(SAFE_SALT_NONCE, { size: 32 }),
-    deadline: toHex(deadline, { size: 32 }),
+    deadline: deadline.toString(),
     signature,
   });
+}
+
+export function startSafeDeploymentsForChains(input: {
+  chainIds: readonly number[];
+  eoaAddress: Address;
+  ephemeralWallet: PrivateKeyAccount;
+  publicClientList: { get(chainId: number): Pick<PublicClient, 'getCode'> };
+  middleware: EnsureSafeMiddleware;
+}): Map<number, Promise<EnsureSafeAccountV2Response>> {
+  const deployments = new Map<number, Promise<EnsureSafeAccountV2Response>>();
+
+  for (const chainId of new Set(input.chainIds)) {
+    const deployment = ensureSafeForEphemeral({
+      chainId,
+      eoaAddress: input.eoaAddress,
+      ephemeralWallet: input.ephemeralWallet,
+      publicClient: input.publicClientList.get(chainId),
+      middleware: input.middleware,
+    });
+    // Deployment starts immediately. Attach a rejection observer so a later chain cannot cause an
+    // unhandled rejection while execution is still awaiting an earlier chain.
+    void deployment.catch(() => undefined);
+    deployments.set(chainId, deployment);
+  }
+
+  return deployments;
 }

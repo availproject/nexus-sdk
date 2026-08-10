@@ -8,7 +8,7 @@ import {
   type SafeCall,
 } from '../../src/services/safe';
 import { ValidationError } from '../../src/domain/errors';
-import { predictSafeAccountAddress } from '../../src/swap/safe/predict';
+import { predictSafeAccountAddressV2 } from '../../src/swap/safe/predict';
 import {
   SAFE_MULTI_SEND_CALL_ONLY_ADDRESS,
 } from '../../src/swap/safe/constants';
@@ -21,7 +21,8 @@ import { buildMultiSendPayload } from '../../src/swap/safe/multi-send';
 
 const PK = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d' as const;
 const ephemeralWallet = privateKeyToAccount(PK);
-const safeAddress = predictSafeAccountAddress(ephemeralWallet.address).address;
+const eoaAddress = '0x1111111111111111111111111111111111111111' as const;
+const safeAddress = predictSafeAccountAddressV2(eoaAddress, ephemeralWallet.address).address;
 const chainId = 42161;
 
 type StubPublicClient = Pick<PublicClient, 'readContract'>;
@@ -47,6 +48,7 @@ describe('createSafeExecuteTxFromCalls', () => {
     const result = await createSafeExecuteTxFromCalls({
       calls: [sampleCall],
       chainId,
+      eoaAddress,
       ephemeralWallet,
       publicClient,
       safeAddress,
@@ -54,7 +56,7 @@ describe('createSafeExecuteTxFromCalls', () => {
 
     expect(result.operation).toBe(0);
     expect(result.to).toBe(sampleCall.to);
-    expect(result.value).toBe(`0x${'0'.repeat(64)}`);
+    expect(result.value).toBe('0');
     expect(result.data).toBe(sampleCall.data);
     expect(result.signature.length).toBe(132);
 
@@ -90,6 +92,7 @@ describe('createSafeExecuteTxFromCalls', () => {
     const result = await createSafeExecuteTxFromCalls({
       calls,
       chainId,
+      eoaAddress,
       ephemeralWallet,
       publicClient,
       safeAddress,
@@ -110,6 +113,7 @@ describe('createSafeExecuteTxFromCalls', () => {
     const result = await createSafeExecuteTxFromCalls({
       calls: [sampleCall],
       chainId,
+      eoaAddress,
       ephemeralWallet,
       publicClient,
       safeAddress,
@@ -136,18 +140,33 @@ describe('createSafeExecuteTxFromCalls', () => {
     expect(recovered.toLowerCase()).toBe(ephemeralWallet.address.toLowerCase());
   });
 
-  it('all 32-byte hex fields are exactly 66 chars', async () => {
+  it('serializes uint256 fields as decimal strings', async () => {
     const result = await createSafeExecuteTxFromCalls({
       calls: [sampleCall],
       chainId,
+      eoaAddress,
       ephemeralWallet,
       publicClient: makePublicClient(),
       safeAddress,
     });
-    expect(result.value.length).toBe(66);
-    expect(result.safeTxGas.length).toBe(66);
-    expect(result.baseGas.length).toBe(66);
-    expect(result.gasPrice.length).toBe(66);
+    expect(result.value).toBe('0');
+    expect(result.safeTxGas).toBe('0');
+    expect(result.baseGas).toBe('0');
+    expect(result.gasPrice).toBe('0');
+    expect(result.nonce).toBe('0');
+  });
+
+  it('preserves a single sponsored call value in the signed Safe transaction', async () => {
+    const result = await createSafeExecuteTxFromCalls({
+      calls: [{ ...sampleCall, value: 5n }],
+      chainId,
+      eoaAddress,
+      ephemeralWallet,
+      publicClient: makePublicClient(),
+      safeAddress,
+    });
+
+    expect(result.value).toBe('5');
   });
 
   it('throws a ValidationError when calls is empty', async () => {
@@ -155,6 +174,7 @@ describe('createSafeExecuteTxFromCalls', () => {
       createSafeExecuteTxFromCalls({
         calls: [],
         chainId,
+        eoaAddress,
         ephemeralWallet,
         publicClient: makePublicClient(),
         safeAddress,

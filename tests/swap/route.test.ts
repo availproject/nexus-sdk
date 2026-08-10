@@ -16,7 +16,7 @@ vi.mock('../../src/swap/algorithms/destination', () => ({
 }));
 import { determineSwapRoute, resolveWalletDecisions, type RouteOptions } from '../../src/swap/route';
 import { createSwapIntent } from '../../src/swap/intent';
-import { predictSafeAccountAddress } from '../../src/swap/safe/predict';
+import { predictSafeAccountAddressV2 } from '../../src/swap/safe/predict';
 import { SwapMode } from '../../src/swap/types';
 import type {
   OraclePriceResponse,
@@ -161,7 +161,7 @@ const makeRouteOptions = (overrides?: Partial<RouteOptions>): RouteOptions => ({
   publicClientList: makePublicClientList() as unknown as PublicClientList,
   oraclePrices: mockOraclePrices,
   dstTokenInfo: makeDstTokenInfo(),
-  eoaAddress: '0xaaaa' as Hex,
+  eoaAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as Hex,
   ephemeralAddress: EPHEMERAL_EXECUTOR,
   balances: [],
   walletPathHints: new Map([
@@ -2764,7 +2764,9 @@ describe('determineSwapRoute', () => {
       // liquidate targets the destination token directly, recipient = EOA, taker = wrapper (ephemeral).
       const liqArg = vi.mocked(liquidateInputHoldings).mock.calls[0][0];
       expect(liqArg.outputToken).toEqual({ contractAddress: PEPE });
-      expect(liqArg.recipientAddressByChain.get(ARB_CHAIN)).toBe('0xaaaa');
+      expect(liqArg.recipientAddressByChain.get(ARB_CHAIN)).toBe(
+        '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+      );
       expect(liqArg.userAddressByChain.get(ARB_CHAIN)).toBe(EPHEMERAL_EXECUTOR);
     });
 
@@ -4214,7 +4216,10 @@ describe('determineSwapRoute', () => {
         ]),
       })
     );
-    const safeAddress = predictSafeAccountAddress(EPHEMERAL_EXECUTOR).address;
+    const safeAddress = predictSafeAccountAddressV2(
+      '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      EPHEMERAL_EXECUTOR
+    ).address;
     expect(liquidateInputHoldings).toHaveBeenCalledOnce();
     const callArgs = vi.mocked(liquidateInputHoldings).mock.calls[0][0];
     expect(callArgs.recipientAddressByChain.get(ARB_CHAIN)).toBe(EPHEMERAL_EXECUTOR);

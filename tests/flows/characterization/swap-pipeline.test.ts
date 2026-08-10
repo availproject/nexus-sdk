@@ -16,7 +16,7 @@ import {
 import type { PrivateKeyAccount } from 'viem/accounts';
 import { buildSwapPreflight } from '../../../src/swap/preflight';
 import { prepareSwapExecution } from '../../../src/swap/prepare';
-import { predictSafeAccountAddress } from '../../../src/swap/safe/predict';
+import { predictSafeAccountAddressV2 } from '../../../src/swap/safe/predict';
 import { buildSwapPreviewState, swap as flowSwap, type SwapPreviewState } from '../../../src/flows/swap';
 import {
   getSwapBridgeDepositStep,
@@ -27,6 +27,7 @@ import {
 } from '../../../src/swap/swap-steps-builder';
 import { EADDRESS, SWEEPER_ADDRESS } from '../../../src/swap/constants';
 import { SwapCache } from '../../../src/swap/wallet/cache';
+import { resolveSwapWalletPath } from '../../../src/swap/wallet/capabilities';
 import {
   SwapMode,
   type FlatBalance,
@@ -118,10 +119,8 @@ vi.mock('viem', async () => {
 
 const EOA = '0xaaaa000000000000000000000000000000000001' as Hex;
 const EPH = '0xbbbb000000000000000000000000000000000002' as Hex;
-// CREATE2 of the Safe-proxy with EPH as the sole 1-of-1 owner. Stable as long as EPH and
-// Safe constants don't change. Cross-check by calling predictSafeAccountAddress(EPH) if
-// either drifts.
-const PREDICTED_SAFE_FOR_EPH = '0x2d7E4C3ef02B86D271624742C6e81636f4c9e663' as Hex;
+// CREATE2 of the V2 Safe proxy jointly keyed by the EOA and ephemeral owner.
+const PREDICTED_SAFE_FOR_EPH = predictSafeAccountAddressV2(EOA, EPH).address as Hex;
 const SOURCE_DAI = '0x0000000000000000000000000000000000000da1' as Hex;
 const ARB_BEBOP_APPROVAL = '0x1111111111111111111111111111111111111111' as Hex;
 const ARB_BEBOP_ROUTER = '0x1111111111111111111111111111111111112222' as Hex;
@@ -175,6 +174,7 @@ type ScenarioContext = {
     getRFFStatus: ReturnType<typeof vi.fn>;
     getSwapBalances: ReturnType<typeof vi.fn>;
     getOraclePrices: ReturnType<typeof vi.fn>;
+    ensureSafeAccount: ReturnType<typeof vi.fn>;
   };
   eoaWallet: SwapParams['eoaWallet'] & {
     getCapabilities: ReturnType<typeof vi.fn>;
@@ -1290,7 +1290,7 @@ const makeScenario = (scenario: ExactOutScenario): ScenarioContext => {
   const ephemeralWallet = {
     address: EPH,
     signMessage: vi.fn().mockResolvedValue('0x' + '33'.repeat(65)),
-    signTypedData: vi.fn().mockResolvedValue('0x' + '33'.repeat(65)),
+    signTypedData: vi.fn().mockResolvedValue(`0x${'33'.repeat(64)}1b`),
     signAuthorization: vi.fn().mockResolvedValue({
       r: '0x01',
       s: '0x02',
@@ -1451,7 +1451,39 @@ const runScenario = async (scenario: ExactOutScenario): Promise<HarnessResult> =
   };
 };
 
+const expectSafeDeploymentCalls = (result: {
+  chainList: ChainListType;
+  middlewareClient: ScenarioContext['middlewareClient'];
+  previewState: SwapPreviewState;
+}) => {
+  const { route } = result.previewState;
+  const expectedChainIds = new Set(
+    [...route.sourceExecutionPaths.entries()]
+      .filter(([, walletPath]) => walletPath === 'safe')
+      .map(([chainId]) => chainId)
+  );
+  for (const asset of route.bridge?.assets ?? []) {
+    if (resolveSwapWalletPath(result.chainList.getChainByID(asset.chainID)) === 'safe') {
+      expectedChainIds.add(asset.chainID);
+    }
+  }
+  if (
+    (route.destination.swap.tokenSwap !== null || route.destination.swap.gasSwap !== null) &&
+    resolveSwapWalletPath(result.chainList.getChainByID(route.destination.chainId)) === 'safe'
+  ) {
+    expectedChainIds.add(route.destination.chainId);
+  }
+
+  const actualChainIds = (result.middlewareClient.ensureSafeAccount?.mock.calls ?? []).map(
+    ([request]) => request.chainId
+  );
+  expect(actualChainIds.sort((left, right) => left - right)).toEqual(
+    [...expectedChainIds].sort((left, right) => left - right)
+  );
+};
+
 const assertScenario = (scenario: ExactOutScenario, result: HarnessResult) => {
+  expectSafeDeploymentCalls(result);
   expect(result.previewState.route.source.swaps.map((entry) => entry.chainID)).toEqual(
     scenario.expected.sourceSwapChainIds
   );
@@ -1705,7 +1737,7 @@ const assertScenario = (scenario: ExactOutScenario, result: HarnessResult) => {
       ? EOA
       : scenario.destinationHas7702
         ? EPH
-        : (predictSafeAccountAddress(EPH).address as Hex);
+        : (predictSafeAccountAddressV2(EOA, EPH).address as Hex);
     expect(submitRffPayload.request.recipient_address).toBe(
       toBytes32Address(expectedRecipient)
     );
@@ -2062,7 +2094,7 @@ const makeExactInScenario = (scenario: ExactInScenario): ExactInScenarioContext 
   const ephemeralWallet = {
     address: EPH,
     signMessage: vi.fn().mockResolvedValue('0x' + '33'.repeat(65)),
-    signTypedData: vi.fn().mockResolvedValue('0x' + '33'.repeat(65)),
+    signTypedData: vi.fn().mockResolvedValue(`0x${'33'.repeat(64)}1b`),
     signAuthorization: vi.fn().mockResolvedValue({
       r: '0x01',
       s: '0x02',
@@ -2241,6 +2273,7 @@ const runExactInScenario = async (scenario: ExactInScenario): Promise<ExactInHar
 };
 
 const assertExactInScenario = (scenario: ExactInScenario, result: ExactInHarnessResult) => {
+  expectSafeDeploymentCalls(result);
   expect(result.previewState.route.type).toBe(SwapMode.EXACT_IN);
   expect(result.previewState.route.source.swaps.map((entry) => entry.chainID)).toEqual(
     scenario.expected.sourceSwapChainIds
@@ -2365,7 +2398,7 @@ const assertExactInScenario = (scenario: ExactInScenario, result: ExactInHarness
   };
   const exactInExpectedRecipient: Hex = scenario.destinationHas7702
     ? EPH
-    : (predictSafeAccountAddress(EPH).address as Hex);
+    : (predictSafeAccountAddressV2(EOA, EPH).address as Hex);
   expect(submitRffPayload.request.recipient_address).toBe(toBytes32Address(exactInExpectedRecipient));
   expect(result.swapResult.sourceSwaps).toHaveLength(scenario.expected.sourceSwapChainIds.length);
   expect(result.swapResult.destinationSwap?.chainId).toBe(BASE_CHAIN);

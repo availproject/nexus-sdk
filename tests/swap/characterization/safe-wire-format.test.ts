@@ -17,13 +17,15 @@ import {
 } from '../../../src/swap/safe/constants';
 import { safeExecTransactionAbi } from '../../../src/swap/safe/abis';
 import { safeDomain, safeTxTypes } from '../../../src/swap/safe/safe-tx';
-import { predictSafeAccountAddress } from '../../../src/swap/safe/predict';
+import { predictSafeAccountAddressV2 } from '../../../src/swap/safe/predict';
 import { buildMultiSendPayload } from '../../../src/swap/safe/multi-send';
 
 const CHAIN_ID = 42161;
 const PK = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d' as const;
 const ephemeralWallet = privateKeyToAccount(PK);
-const safeAddress = predictSafeAccountAddress(ephemeralWallet.address).address as Address;
+const eoaAddress = '0x1111111111111111111111111111111111111111' as Address;
+const safeAddress = predictSafeAccountAddressV2(eoaAddress, ephemeralWallet.address)
+  .address as Address;
 const target = '0xabcdef0123456789abcdef0123456789abcdef01' as Address;
 const target2 = '0xfedcba9876543210fedcba9876543210fedcba98' as Address;
 
@@ -33,32 +35,33 @@ const makePublicClient = (nonce = 0n) =>
     'readContract'
   >;
 
-const HEX32 = /^0x[0-9a-fA-F]{64}$/;
-
 describe('Safe wire-format characterization — sponsor (createSafeExecuteTxFromCalls)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('pads fixed-width 32-byte fields (value, safeTxGas, baseGas, gasPrice)', async () => {
+  it('serializes uint256 fields as decimal strings', async () => {
     const calls: SafeCall[] = [{ to: target, value: 0n, data: '0xdeadbeef' }];
     const result = await createSafeExecuteTxFromCalls({
       calls,
       chainId: CHAIN_ID,
+      eoaAddress,
       ephemeralWallet,
       publicClient: makePublicClient(),
       safeAddress,
     });
-    expect(result.value).toMatch(HEX32);
-    expect(result.safeTxGas).toMatch(HEX32);
-    expect(result.baseGas).toMatch(HEX32);
-    expect(result.gasPrice).toMatch(HEX32);
+    expect(result.value).toBe('0');
+    expect(result.safeTxGas).toBe('0');
+    expect(result.baseGas).toBe('0');
+    expect(result.gasPrice).toBe('0');
+    expect(result.nonce).toBe('0');
   });
 
   it('single CALL: operation=0, to=target, value=0x00…0', async () => {
     const result = await createSafeExecuteTxFromCalls({
       calls: [{ to: target, value: 0n, data: '0x' }],
       chainId: CHAIN_ID,
+      eoaAddress,
       ephemeralWallet,
       publicClient: makePublicClient(),
       safeAddress,
@@ -76,6 +79,7 @@ describe('Safe wire-format characterization — sponsor (createSafeExecuteTxFrom
     const result = await createSafeExecuteTxFromCalls({
       calls,
       chainId: CHAIN_ID,
+      eoaAddress,
       ephemeralWallet,
       publicClient: makePublicClient(),
       safeAddress,
@@ -89,6 +93,7 @@ describe('Safe wire-format characterization — sponsor (createSafeExecuteTxFrom
     const result = await createSafeExecuteTxFromCalls({
       calls: [{ to: target, value: 0n, data: '0xfeed' }],
       chainId: CHAIN_ID,
+      eoaAddress,
       ephemeralWallet,
       publicClient: makePublicClient(11n),
       safeAddress,

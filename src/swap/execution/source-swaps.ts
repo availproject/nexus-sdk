@@ -26,7 +26,7 @@ import { equalFold } from '../../services/strings';
 import { withTimingSpan } from '../../services/timing';
 import { aggregatorService } from '../aggregators';
 import { type QuoteResponse, QuoteSeriousness, QuoteType } from '../aggregators/types';
-import { predictSafeAccountAddress } from '../safe/predict';
+import { predictSafeAccountAddressV2 } from '../safe/predict';
 import type {
   BridgeAsset,
   ExecutionContext,
@@ -35,7 +35,7 @@ import type {
   SwapMetadata,
   WalletPath,
 } from '../types';
-import { chainSupports7702 } from '../wallet/capabilities';
+import { resolveSwapWalletPath } from '../wallet/capabilities';
 import { simulateEoaTransaction } from './eoa-simulation';
 import { resolvePreparedFundingTransferCalls } from './eoa-to-ephemeral';
 import { getParsedQuote } from './parsed-quote';
@@ -90,6 +90,7 @@ const buildSourceCalls = async (
     | 'eoaAddress'
     | 'eoaWallet'
     | 'publicClientList'
+    | 'safeDeploymentPromises'
   >,
   chainId: number
 ): Promise<SBCCall[]> => {
@@ -124,6 +125,7 @@ const buildSourceCalls = async (
             eoaWallet: ctx.eoaWallet,
             publicClient,
             cache: ctx.cache,
+            safeDeploymentPromise: ctx.safeDeploymentPromises?.get(chainId),
           }))
         );
         usedTransfers.add(transferKey);
@@ -170,15 +172,18 @@ const buildBridgeAsset = (
 const readSourceCotBalanceRaw = async (
   chainId: number,
   cotAddress: Hex,
-  ctx: Pick<ExecutionContext, 'chainList' | 'ephemeralWallet' | 'publicClientList'> & {
+  ctx: Pick<
+    ExecutionContext,
+    'chainList' | 'eoaAddress' | 'ephemeralWallet' | 'publicClientList'
+  > & {
     destinationChainId: number;
   }
 ): Promise<bigint> => {
-  const is7702 = chainSupports7702(ctx.chainList.getChainByID(chainId));
+  const usesEphemeral = resolveSwapWalletPath(ctx.chainList.getChainByID(chainId)) === 'ephemeral';
   const holder =
-    is7702 || chainId !== ctx.destinationChainId
+    usesEphemeral || chainId !== ctx.destinationChainId
       ? ctx.ephemeralWallet.address
-      : predictSafeAccountAddress(ctx.ephemeralWallet.address).address;
+      : predictSafeAccountAddressV2(ctx.eoaAddress, ctx.ephemeralWallet.address).address;
   return readSettlementBalanceRaw({
     chainId,
     tokenAddress: cotAddress,
@@ -197,6 +202,7 @@ type SourceDispatchContext = Pick<
   ExecutionContext,
   | 'chainList'
   | 'sourceExecutionPaths'
+  | 'safeDeploymentPromises'
   | 'eoaAddress'
   | 'eoaWallet'
   | 'ephemeralWallet'
@@ -217,7 +223,7 @@ export const dispatchSourceChainBatch = async (input: {
   const chain = ctx.chainList.getChainByID(chainId);
   const publicClient = ctx.publicClientList.get(chainId);
 
-  if (chain && !chainSupports7702(chain)) {
+  if (walletPath === 'safe') {
     if (nativeValue === 0n) {
       ctx.onProgress?.({
         stepType: 'source_swap',
@@ -235,6 +241,7 @@ export const dispatchSourceChainBatch = async (input: {
       eoaAddress: ctx.eoaAddress,
       publicClient,
       middleware: ctx.middlewareClient,
+      safeDeploymentPromise: ctx.safeDeploymentPromises?.get(chainId),
       onWalletPrompt:
         nativeValue > 0n
           ? () => ctx.onProgress?.({ stepType: 'source_swap', chainId, state: 'wallet_prompted' })
@@ -374,7 +381,7 @@ const requoteFailedChains = async (
     if (chainId === ctx.destinationChainId && ctx.destinationDirectEoa) return ctx.eoaAddress;
     if (chainId !== ctx.destinationChainId) return ctx.ephemeralWallet.address;
     return walletPath === 'safe'
-      ? predictSafeAccountAddress(ctx.ephemeralWallet.address).address
+      ? predictSafeAccountAddressV2(ctx.eoaAddress, ctx.ephemeralWallet.address).address
       : ctx.ephemeralWallet.address;
   };
 
@@ -383,7 +390,7 @@ const requoteFailedChains = async (
       const walletPath = ctx.sourceExecutionPaths.get(chainId) ?? 'ephemeral';
       const userAddress =
         walletPath === 'safe'
-          ? predictSafeAccountAddress(ctx.ephemeralWallet.address).address
+          ? predictSafeAccountAddressV2(ctx.eoaAddress, ctx.ephemeralWallet.address).address
           : ctx.ephemeralWallet.address;
       const sourceRecipient = recipientForChain(chainId, walletPath);
 

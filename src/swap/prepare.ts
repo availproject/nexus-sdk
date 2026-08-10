@@ -8,15 +8,16 @@ import { parseQuote } from '../services/quote-parser';
 import { withTimingSpan } from '../services/timing';
 import type { QuoteResponse } from './aggregators/types';
 import { SWEEPER_ADDRESS } from './constants';
-import { predictSafeAccountAddress } from './safe/predict';
+import { predictSafeAccountAddressV2 } from './safe/predict';
 import type {
+  ExecutionContext,
   PreparedEoaToEphemeralTransfer,
   PreparedSwapExecution,
   PublicClientList,
   SwapRoute,
 } from './types';
 import type { SwapCache } from './wallet/cache';
-import { chainSupports7702 } from './wallet/capabilities';
+import { resolveSwapWalletPath } from './wallet/capabilities';
 import { buildPreparedTransfer } from './wallet/prepared-transfer';
 
 const logger = getLogger();
@@ -31,6 +32,7 @@ type PrepareSwapExecutionInput = {
   ephemeralWallet: PrivateKeyAccount;
   publicClientList: PublicClientList;
   cache: SwapCache;
+  safeDeploymentPromises?: ExecutionContext['safeDeploymentPromises'];
   timing?: TimingSpanHooks;
 };
 
@@ -135,25 +137,24 @@ export const prepareSwapExecution = async (
   const ownerForSourceChain = (chainId: number) => {
     const path = input.route.sourceExecutionPaths.get(chainId);
     if (path === 'safe') {
-      return predictSafeAccountAddress(input.ephemeralWallet.address).address;
+      return predictSafeAccountAddressV2(input.eoaAddress, input.ephemeralWallet.address).address;
     }
     return input.ephemeralWallet.address;
   };
-  // Destination quote owner / funding target is the destination wrapper: the predicted Safe on
-  // non-7702 chains, the ephemeral on 7702 chains. (The EOA only enters the route as the bridge
-  // fill receiver in the COT-destination case, which doesn't need quote prep.)
-  const destinationOwner = chainSupports7702(
-    input.chainList.getChainByID(input.destination.chainId)
-  )
-    ? input.ephemeralWallet.address
-    : predictSafeAccountAddress(input.ephemeralWallet.address).address;
-  // Bridge funding spender/executor: the predicted Safe on non-7702 chains, the ephemeral on 7702.
+  // Destination quote owner / funding target is the chain's selected swap wrapper. (The EOA only
+  // enters the route as the bridge fill receiver in the COT-destination case, which doesn't need
+  // quote prep.)
+  const destinationOwner =
+    resolveSwapWalletPath(input.chainList.getChainByID(input.destination.chainId)) === 'ephemeral'
+      ? input.ephemeralWallet.address
+      : predictSafeAccountAddressV2(input.eoaAddress, input.ephemeralWallet.address).address;
+  // Bridge funding spender/executor uses the chain's selected swap wrapper.
   // The recipient is always the ephemeral bridge holder; on a Safe chain the Safe calls
   // transferFrom(EOA, ephemeral, amount) without taking intermediate custody.
   const ownerForBridgeChain = (chainId: number) =>
-    chainSupports7702(input.chainList.getChainByID(chainId))
+    resolveSwapWalletPath(input.chainList.getChainByID(chainId)) === 'ephemeral'
       ? input.ephemeralWallet.address
-      : predictSafeAccountAddress(input.ephemeralWallet.address).address;
+      : predictSafeAccountAddressV2(input.eoaAddress, input.ephemeralWallet.address).address;
 
   const destinationQuotes = [
     input.destination.swap.tokenSwap,
@@ -321,6 +322,9 @@ export const prepareSwapExecution = async (
     async () => {
       const transfers: PreparedEoaToEphemeralTransfer[] = [];
       for (const transfer of deterministicTransferSpecs) {
+        if (transfer.eagerPermit) {
+          await input.safeDeploymentPromises?.get(transfer.chainId);
+        }
         const tokenDecimals =
           transfer.tokenDecimals ??
           getDestinationFundingTokenDecimals(input, destinationQuotes, transfer.tokenAddress);

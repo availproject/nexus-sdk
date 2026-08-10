@@ -67,10 +67,12 @@ untested (this map exists because that scoping mistake has bitten twice):
 - **Smart‑account‑only.** A swap is **never dispatched directly from the EOA**. Execution always
   runs through a per‑chain smart account, of which there are **two implemented kinds**
   (`WalletPath = 'ephemeral' | 'safe'`):
-  - **`ephemeral` (7702 chains):** the ephemeral key, delegated to **Calibur** via an EIP‑7702
-    authorization, runs the calls as an **SBC** submitted to middleware.
-  - **`safe` (non‑7702 chains):** a deterministic **Safe** owned by the ephemeral key runs the
-    calls via `Safe.execTransaction`.
+  - **`safe` (every `swapSupported: true` chain):** a deterministic V2 **Safe**, jointly identified
+    by the EOA and ephemeral owner, runs calls via `Safe.execTransaction`. Deployment flags omitted
+    by middleware are normalized to `true` when the runtime chain list is built.
+  - **`ephemeral` (compatibility fallback):** when a chain object does not explicitly enable swaps,
+    a 7702-capable chain may still use the ephemeral key delegated to **Calibur** and submit an SBC.
+    The same fallback selects Safe for a non-7702 chain.
 
   The EOA only ever: signs permits, pays a fallback `approve` when permit is unavailable
   (`writeContract`), and sends native bootstrap / payable execute transactions
@@ -81,9 +83,9 @@ untested (this map exists because that scoping mistake has bitten twice):
 ```text
 resolveWalletDecisions({ sourceChainIds, walletPathHints }) → { sourceExecutionPaths }
   per chain: hint ?? 'ephemeral'                       # missing chain defaults to ephemeral
-  # hints come from preflight: resolveWalletPath(chainSupports7702(chain))
-  #   chainSupports7702 = (chain.supports7702 !== false)     # undefined ⇒ true
-  #   true → 'ephemeral'   false → 'safe'
+  # hints come from preflight: resolveSwapWalletPath(chain)
+  #   chain.swapSupported === true → 'safe'
+  #   otherwise → resolveWalletPath(chain.supports7702 !== false) for compatibility
 ```
 
 This is the **single point** that assigns each chain a `WalletPath`. Both paths are fully
@@ -97,11 +99,12 @@ implemented; every execution stage reads `sourceExecutionPaths` and switches dis
 
 Routing **pre‑aligns** quote takers to the chosen execution path: on a `'safe'` chain the
 source‑swap quote's `userAddress` is the predicted Safe address
-(`predictSafeAccountAddress(ephemeral).address`); on an `'ephemeral'` chain it is the ephemeral.
+(`predictSafeAccountAddressV2(eoa, ephemeral).address`); on an `'ephemeral'` chain it is the
+ephemeral.
 The `recipientAddress` follows custody needs instead: every remote source swap delivers directly
 to the ephemeral bridge holder, while a destination‑chain source swap delivers to the EOA when it
-is final or to the destination wrapper when another swap follows. Flipping a chain between 7702
-and non‑7702 changes the executor without adding a Safe custody hop before bridging.
+is final or to the destination wrapper when another swap follows. Changing the resolved wallet
+path changes the executor without adding a Safe custody hop before bridging.
 
 ---
 
@@ -143,12 +146,13 @@ A destination failure propagates and **never** emits `{status:completed}`.
 
 ---
 
-## 3. Worked run A — EXACT_OUT, cross‑chain, 7702/ephemeral
+## 3. Worked run A — EXACT_OUT, legacy 7702/ephemeral fallback
 
 > **Scenario (illustrative amounts; decisions are exact).** Deliver **exactly 1.0 WETH on Base
 > (8453)**. The user holds **0.5 WETH on Arbitrum (42161)**. COT = USDC. Both chains support 7702.
 > Grounded in `route.test.ts` (`EXACT_OUT cross-chain → bridge populated`, `… deducts
-> destination-chain COT …`) and the `execution/*` tests.
+> destination-chain COT …`) and the `execution/*` tests. This compatibility example assumes the
+> chain objects omit `swapSupported`; production entries with `swapSupported: true` use V2 Safe.
 
 ```text
 swap(input = {mode: EXACT_OUT, data:{toChainId:Base, toTokenAddress:WETH, toAmountRaw:1e18}},
@@ -164,7 +168,7 @@ swap(input = {mode: EXACT_OUT, data:{toChainId:Base, toTokenAddress:WETH, toAmou
     dstTokenInfo     = native(toToken) ? chain.nativeCurrency
                                        : fetchErc20TokenMetadata(toToken)     # → WETH/18
     walletPathHints  = ({toChainId} ∪ balanceChains ∪ sourceChains)
-                         .map(c → resolveWalletPath(chainSupports7702(c)))     # → {Arb:eph, Base:eph}
+                         .map(c → resolveSwapWalletPath(c))                    # → {Arb:eph, Base:eph} here
 
   # ── Step 2: route ─────────────────────────────────  emit {status:route_ready}        (§5)
   route = determineSwapRoute(input, {…pf}):
@@ -199,8 +203,11 @@ swap(input = {mode: EXACT_OUT, data:{toChainId:Base, toTokenAddress:WETH, toAmou
                                             #      bridge_deposit:Arb, bridge_fill:Base,
                                             #      destination_swap:Base   (no eoa_to_ephemeral —
                                             #      funding is the swap output / ephemeralBalance)
+  safeDeployments = startSafeDeploymentsForChains(all Safe execution chains)
+                                            # starts concurrently after allow(); each chain's
+                                            # wallet authorization awaits only its own promise
   prepared = prepareSwapExecution(route)    # source auth LAZY (permit, sig=null);
-                                            # destination auth EAGER (signs permit)
+                                            # destination auth EAGER only after its Safe is deployed
 
   # ── Step 6: source swaps ──────────────────────────  (§9)
   assets = executeSourceSwaps(route.source, ctx, meta)
@@ -209,7 +216,7 @@ swap(input = {mode: EXACT_OUT, data:{toChainId:Base, toTokenAddress:WETH, toAmou
 
   # ── Step 7: bridge ────────────────────────────────  (§9)
   executeSwapBridge(route.bridge, assets, ctx, meta)     # bridges EXECUTED assets, not estimate
-    recipient = (dst 7702 ∧ hasDstSwap) ? ephemeralWrapper : predictedSafe        # → ephemeralWrapper
+    recipient = destinationDirectEoa ? EOA : destinationWrapper                   # → ephemeralWrapper
     createRequestFromIntent → submitRFFToMiddleware → depositSBC[approve, deposit] → waitForFill
     meta.intent_request_hash set; meta.has_xcs = true
 
@@ -225,7 +232,7 @@ swap(input = {mode: EXACT_OUT, data:{toChainId:Base, toTokenAddress:WETH, toAmou
 
 ---
 
-## 4. Worked run B — EXACT_IN, cross‑chain, Safe source + ephemeral destination
+## 4. Worked run B — EXACT_IN, legacy capability fallback
 
 > **Scenario (illustrative amounts; decisions are exact).** Spend **1 WETH on Arbitrum (42161,
 > non‑7702 → Safe)**, receive **USDC on Base (8453, 7702)**. COT = USDC. Exercises liquidation, a
@@ -239,7 +246,7 @@ swap(input = {mode: EXACT_OUT, data:{toChainId:Base, toTokenAddress:WETH, toAmou
 swap(input = {mode: EXACT_IN, data:{sources:[{Arb, WETH}], toChainId:Base, toTokenAddress:USDC_BASE}}, …):
 
   # ── Step 1: preflight ──
-  pf.walletPathHints = {Arb:'safe' (supports7702=false), Base:'ephemeral'}
+  pf.walletPathHints = {Arb:'safe' (legacy non-7702 fallback), Base:'ephemeral'}
 
   # ── Step 2: route = determineSwapRoute(input, {…pf}) ──                                   (§5)
   gate(Base);  cot = USDC
@@ -268,7 +275,8 @@ swap(input = {mode: EXACT_IN, data:{sources:[{Arb, WETH}], toChainId:Base, toTok
   assets = executeSourceSwaps(route.source):
     calls = [permit|approve, transferFrom](eoa→Safe) ++ [approve(router), swap]  # WETH non-COT → EOA→Safe funds the Safe
     path(Arb)='safe' → dispatchSafeSource(calls):       # NOT an SBC — the seam flips dispatch only
-      ensureSafe()                                      # skip if getCode shows already deployed
+      await safeDeployments[Arb]                         # deployment started after intent approval,
+                                                        # before any EOA permit/approval prompt
       sponsor (non-native) → middleware.createSafeExecuteTx        # no EOA tx
       native               → eoaWallet.sendTransaction(execTransaction, value=nativeValue)
                                                         #   refuse single-call value mismatch
@@ -661,14 +669,14 @@ destination_swap:<chain>            # only when a dst token OR gas swap exists (
 
 ```text
 per transfer (reason: source | destination | bridge):
-  target = the authorized spender/executor: predictedSafe on non-7702, ephemeral on 7702
-           (source/bridge: per sourceExecutionPaths; destination: per chainSupports7702(dstChain))
+  target = the authorized spender/executor selected by resolveSwapWalletPath
+           (source/bridge: per sourceExecutionPaths; destination: per destination chain policy)
   recipient = bridge ? ephemeral : target
            # a non-7702 Safe spends the EOA authorization but sends bridge funding directly to EPH
   if cachedAllowance(eoa→target) ≥ amount:  authorization = null    # skip
   elif permit supported:
     source | bridge → LAZY  {kind:'permit', call:null, signature:null}   # materialized at execution
-    destination     → EAGER  signPermitForAddressAndValue(spender=target)
+    destination     → EAGER  await safeDeployment[chain], then signPermitForAddressAndValue(spender=target)
     EIP-2612 / DAI-style permit deadline = signing time + 15 minutes
   else: authorization = {kind:'approve'}                            # EOA approve(target), mined before the batch
   transferCall = transferFrom(eoa, recipient, amount)               # called by target; bridge recipient may differ
@@ -876,16 +884,17 @@ amount)` (native → bare value send). The destination swap returns the *known* 
 (`balanceOf − consumed`) with this instead of the blind `createSweeperTxs` drain — no approve, no
 external Sweeper CALL; emitted only when the leftover is > 0.
 
-**Safe** — `predictSafeAccountAddress(owner)` → `{address, factoryAddress, initializer}`,
-deterministic (owner `0x1111…` → `0x9eAc…5cf9`). **EnsureAuth** EIP‑712 (`NexusSafeEnsure`, domain
-`{name:'NexusSafeEnsureAuth', version:'1', chainId, verifyingContract: SAFE_PROXY_FACTORY_ADDRESS}`,
-anti‑replay via chainId+deadline). **SafeTx** minimal domain (`chainId` + `verifyingContract` only).
-MultiSend packs `op(1)‖to(20)‖value(32)‖dataLen(32)‖data`. `createSafeMiddlewareClient` →
-`getSafeAccountAddress` / `ensureSafeAccount` / `createSafeExecuteTx` (POST `/api/v1/*`).
-`createSafeClient.ensure()` skips middleware when already deployed; `.execute()` single‑action
+**Safe V2** — `predictSafeAccountAddressV2(eoa, ephemeral)` →
+`{address, factoryAddress, initializer}`, deterministic with owners `[eoa, ephemeral]`, threshold
+`1`, and the fixed `SAFE_V2_SALT_NONCE`. **EnsureAuth** EIP‑712 uses version `2`, both owners,
+chainId, Safe address, fixed salt, and deadline. **SafeTx** keeps Safe's minimal domain (`chainId` +
+`verifyingContract` only); numeric middleware fields are decimal strings. MultiSend packs
+`op(1)‖to(20)‖value(32)‖dataLen(32)‖data`. `createSafeMiddlewareClientV2` posts only to `/api/v2/*`.
+`createSafeClientV2.ensure()` skips middleware when already deployed; `.execute()` single‑action
 (`operation 0`, reverting `nonce()`→0); `.executeBatch()` MultiSendCallOnly **DELEGATECALL**
 (`operation 1`). `dispatchSafeSource` ensures the Safe, then sponsor (`createSafeExecuteTx`) or
-native EOA‑submit (`execTransaction`, refuses single‑call value mismatch).
+native EOA‑submit (`execTransaction`, refuses single‑call value mismatch). Unsuffixed V1 helpers
+and `/api/v1/*` remain exported for compatibility but are not used by the high-level swap flow.
 
 ---
 
@@ -909,9 +918,9 @@ cleanupStrandedCot({currencyId, chainIds, scope, ctx}): # ONLY on execution fail
     cot    = resolveCOT(chainId, currencyId)
     bal    = isNative(cot) ? getBalance(holder) : cot.balanceOf(holder)   # single targeted read
     if bal > 0:
-      source ∧ non-7702 → Safe group [permit(EPH→Safe), transferFrom(EPH→EOA)]
+      source ∧ walletPath='safe' → Safe group [permit(EPH→Safe), transferFrom(EPH→EOA)]
       otherwise         → holder group [transfer(cot, bal→EOA)]
-  dispatchSweepGroups(groups)                           # 7702→SBC, non-7702→Safe execTransaction
+  dispatchSweepGroups(groups)                           # ephemeral→SBC, safe→Safe execTransaction
   # best-effort; never rethrows / masks the original error. pre-execution failures (deny, routing) never reach here.
 ```
 
@@ -1115,8 +1124,8 @@ fixed-plus-bps model and reapplies it to `Σ(executed)` when building the bridge
 - **Fail loud at routing** (see §5) — never emit an inconsistent plan.
 - **Cleanup only on execution failure**, swept from the ephemeral; **native never swept, COT always
   swept** back to the EOA.
-- **Smart‑account‑only**: no EOA‑direct swap dispatch; `'ephemeral'` (Calibur SBC) and `'safe'`
-  (Safe) are both first‑class, chosen per chain by `resolveWalletDecisions`. Collection fee stubbed
+- **Smart‑account‑only**: no EOA‑direct swap dispatch; `swapSupported: true` selects V2 Safe, while
+  `'ephemeral'` remains a compatibility fallback chosen through `resolveSwapWalletPath`. Collection fee stubbed
   to `0`; bridge funding tagged `ephemeralBalance`, direct COT (`eoaBalance`) moved EOA→ephemeral
   inside the deposit batch.
 
@@ -1127,7 +1136,8 @@ fixed-plus-bps model and reapplies it to `Σ(executed)` when building the bridge
 The gaps from the original audit have been addressed:
 - _**`buildSwapPreflight`** — covered by `tests/services/swap-preflight.test.ts`: parallel
   oracle/balance fetch, preloaded short‑circuit, no eager bridge quote, native vs. ERC20
-  `dstTokenInfo`, `walletPathHints` (7702→ephemeral / non‑7702→safe), and debug logging.
+  `dstTokenInfo`, `walletPathHints` (`swapSupported:true`→Safe, otherwise legacy capability
+  fallback), and debug logging.
   Bridge-quote denomination and source scoping are covered by route tests after the route knows its
   eligible sources._
 - _**Economic constants** — `tests/swap/constants.test.ts` pins the buffer/haircut/convergence/
@@ -1176,8 +1186,9 @@ decodes every emitted SBC / Safe‑MultiSend / EOA‑signed call, and asserts th
 `owner`/`spender`/`taker`/`receiver`/`amount` values across both modes, both providers (Nexus /
 Mayan), and all three wrappers — the whole grid below is a green assertion, not narrative.
 
-**Symbols.** `EOA` user wallet · `EPH` ephemeral · `SAFE = predictSafeAccountAddress(EPH)` ·
-`WRAPPER(c) = 7702(c) ? EPH : SAFE` (per‑chain) · `ROUTER` aggregator router · `VAULT` bridge vault ·
+**Symbols.** `EOA` user wallet · `EPH` ephemeral ·
+`SAFE = predictSafeAccountAddressV2(EOA, EPH)` ·
+`WRAPPER(c) = resolveSwapWalletPath(c) == 'safe' ? SAFE : EPH` · `ROUTER` aggregator router · `VAULT` bridge vault ·
 `COT` USDC · `destination_swap = tokenSwap || gasSwap` (EXACT_IN never has a gas swap, so there it's
 just the token swap — §5).
 
@@ -1190,31 +1201,30 @@ else:                                       receiver = WRAPPER(chain)    # keep 
 #   the receiver = EOA short-circuit — the swap delivers toToken straight to the user, taker = WRAPPER.
 
 # ── source swaps (per chain; §9 for dispatch)  ERC-20 legs fund EOA→WRAPPER first, then swap ──
-(7702) → SBC  [permit/approve(owner=EOA, spender=EPH),  transferFrom(EOA→EPH),  approve(EPH→ROUTER),  swap(pullFrom=EPH,  receiver=<above>)]
+(ephemeral) → SBC  [permit/approve(owner=EOA, spender=EPH),  transferFrom(EOA→EPH),  approve(EPH→ROUTER),  swap(pullFrom=EPH,  receiver=<above>)]
 (safe) → Safe [permit/approve(owner=EOA, spender=SAFE), transferFrom(EOA→SAFE), approve(SAFE→ROUTER), swap(pullFrom=SAFE, receiver=<above>)]
-# native input → skip funding + approve; the input value rides the batch (EOA-submitted on 7702).
+# native input → skip funding + approve; the input value rides the EOA-submitted wrapper batch.
 
 # ── bridge receiver  (resolveBridgeRecipient) ──   the RFF fill target on the dst chain
 if ¬destination_swap:  EOA                          # no dst swap → bridge delivers straight to the EOA
-elif 7702(dstChain):   EPH                          # 7702 dst + dst swap → ephemeral runs the swap
-else:                  SAFE                          # non-7702 dst + dst swap → predicted Safe runs it
+else:                  WRAPPER(dstChain)             # chain policy selects V2 Safe or compatibility EPH
 # Same-token direct bridge (EXACT_IN) AND its EXACT_OUT mirror (B1) have no dst swap → recv = EOA; the
 #   pre-bridge calls below are the fast-path funding+deposit shape (COT/token still at the EOA).
 
 # ── pre-bridge calls (per source chain ≠ dstChain; §9)  the vault is ALWAYS driven by EPH ──
 #   funding? = [permit/approve(owner=EOA, spender=WRAPPER), transferFrom(EOA→EPH)] — present only on
 #              the fast path (COT still at the EOA); EMPTY when a remote source swap funded EPH.
-NEXUS  7702   → [funding?, approve(EPH→VAULT), vault.deposit]                      # Seam 1 bridges the full balance → no sweep
+NEXUS  ephemeral → [funding?, approve(EPH→VAULT), vault.deposit]                   # Seam 1 bridges the full balance → no sweep
 NEXUS  safe   → [funding?, permit(owner=EPH, spender=VAULT), vault.deposit]         # Safe executes; EPH holds
 NEXUS  native → EOA payable vault.deposit{value}                      # no approve/permit/transfer/sweep
-MAYAN  7702   → [funding?, approve(EPH→VAULT)]                        # NO deposit / NO sweep — middleware sponsors depositMayan()
+MAYAN  ephemeral → [funding?, approve(EPH→VAULT)]                     # NO deposit / NO sweep — middleware sponsors depositMayan()
 MAYAN  safe   → [funding?, permit(owner=EPH, spender=VAULT)]          # NO deposit / NO sweep
 MAYAN  native → EOA payable vault.depositMayan{value} + reportMayanNativeTx
 # ordering: Mayan approves are submitted + MINED before the RFF; Nexus deposits run AFTER submitRFF (§9).
 
 # ── destination swap (iff destination_swap; on WRAPPER(dstChain), §9) ──
 #   funds are already at the wrapper from the bridge fill; the same-chain fast path prepends EOA→WRAPPER funding.
-(7702) → SBC  [funding?, approve(EPH→ROUTER),  swap(pullFrom=EPH,  taker=EPH,  receiver=EOA), EXACT_OUT transfer(leftover COT→EOA)?]
+(ephemeral) → SBC  [funding?, approve(EPH→ROUTER),  swap(pullFrom=EPH,  taker=EPH,  receiver=EOA), EXACT_OUT transfer(leftover COT→EOA)?]
 (safe) → Safe [funding?, approve(SAFE→ROUTER), swap(pullFrom=SAFE, taker=SAFE, receiver=EOA), EXACT_OUT transfer(leftover COT→EOA)?]
 # receiver=EOA for BOTH the token swap and the gas swap. EXACT_IN consumes the complete measured COT
 # balance or fails before dispatch. EXACT_OUT leftover COT (balanceOf − consumed) returns by one direct

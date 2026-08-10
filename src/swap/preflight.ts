@@ -15,7 +15,7 @@ import {
   SwapMode,
   type WalletPath,
 } from './types';
-import { chainSupports7702, resolveWalletPath } from './wallet/capabilities';
+import { resolveSwapWalletPath } from './wallet/capabilities';
 import { createPublicClientList } from './wallet/public-client-list';
 
 type RawSwapBalances = Awaited<ReturnType<MiddlewareSwapPreflightClient['getSwapBalances']>>;
@@ -117,7 +117,7 @@ export const buildSwapPreflight = async (
   const walletPathHints = new Map<number, WalletPath>(
     candidateChainIds.map((chainId) => {
       const chain = options.chainList.getChainByID(chainId);
-      return [chainId, resolveWalletPath(chainSupports7702(chain))];
+      return [chainId, resolveSwapWalletPath(chain)];
     })
   );
 

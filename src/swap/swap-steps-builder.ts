@@ -24,7 +24,7 @@ import {
 } from '../services/step-ids';
 import type { QuoteResponse } from './aggregators/types';
 import type { SwapRoute } from './types';
-import { chainSupports7702 } from './wallet/capabilities';
+import { resolveSwapWalletPath } from './wallet/capabilities';
 
 const toPlanTokenAmount = (
   metadata: PlanTokenMetadata,
@@ -165,14 +165,13 @@ const createDestinationSwapStep = (
   }
 
   // walletPath here is always a smart-account wrapper because a destination swap step only
-  // exists when the dst aggregator runs inside one. 7702-capable chains use the Calibur
-  // ephemeral; non-7702 chains use the per-EOA Safe.
+  // exists when the destination aggregator runs inside one.
   const destinationChain = chainList.getChainByID(route.destination.chainId);
   const dstSwapStep: SwapDestinationSwapStep = {
     type: 'destination_swap',
     id: createDestinationSwapStepId(route.destination.chainId),
     chain: toChainDisplay(destinationChain),
-    walletPath: chainSupports7702(destinationChain) ? 'ephemeral' : 'safe',
+    walletPath: resolveSwapWalletPath(destinationChain),
     swaps: [],
   };
 

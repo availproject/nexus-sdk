@@ -2136,6 +2136,42 @@ import type {
 import { ERROR_CODES } from '@avail-project/nexus-core';
 ```
 
+### Safe V2 Low-Level Helpers
+
+New Safe integrations should use the explicit V2 exports. V2 Safes are deterministic SafeL2
+`1.4.1` accounts with owners ordered as `[eoaAddress, ephemeralAddress]` and threshold `1`.
+
+```typescript
+import {
+  createSafeClientV2,
+  createSafeMiddlewareClientV2,
+  predictSafeAccountAddressV2,
+  SAFE_V2_SALT_NONCE,
+} from '@avail-project/nexus-core';
+
+const predicted = predictSafeAccountAddressV2(eoaAddress, ephemeralOwner.address);
+const middleware = createSafeMiddlewareClientV2(httpClient);
+const safe = createSafeClientV2({
+  chainId,
+  eoaAddress,
+  ephemeralOwner,
+  publicClient,
+  middleware,
+});
+
+await safe.ensure();
+await safe.execute({ to, value: 0n, data });
+```
+
+The V2 middleware client only uses `/api/v2` Safe endpoints. Numeric wire fields are decimal
+strings, and the deployment salt is fixed by `SAFE_V2_SALT_NONCE`; callers do not supply an
+arbitrary salt. The SDK implements the required wire formats with `viem` and does not depend on
+`@safe-global/protocol-kit`.
+
+The unsuffixed `createSafeClient`, `createSafeMiddlewareClient`, `predictSafeAccountAddress`,
+request/response types, and `SAFE_SALT_NONCE` remain available for V1 compatibility but are
+deprecated for new integrations.
+
 ---
 
 ## Utilities
@@ -2273,10 +2309,12 @@ if (result.bridgeSkipped) {
 Swaps execute through a per-chain smart account, chosen automatically — there is no wallet-mode
 option. The SDK never dispatches a swap directly from the EOA:
 
-- **7702 chains** — execute through an ephemeral key delegated to Calibur (EIP-7702), batched and
-  submitted to middleware.
-- **non-7702 chains** — execute through a deterministic Safe owned by the ephemeral key
-  (`Safe.execTransaction`).
+- **Swap-enabled chains** (`swapSupported: true`, including an omitted deployment flag normalized
+  to `true`) — execute through the deterministic V2 Safe,
+  jointly identified by the EOA and ephemeral owner (`Safe.execTransaction`). This applies whether
+  or not the chain supports EIP-7702.
+- **Compatibility fallback** — only unnormalized/custom chain objects without an explicit true use
+  the legacy capability choice: Calibur on 7702 chains and the Safe path otherwise.
 
 The EOA only signs permits and pays funding approvals where needed. On top of the execution path,
 the SDK still handles routing, bridge funding, and destination custody decisions.

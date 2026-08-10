@@ -68,7 +68,9 @@ const createChainList = (deployment: DeploymentResponse): ChainListType => {
         },
       },
       supports7702: chain.supports7702,
-      swapSupported: chain.swapSupported,
+      // Deployment omission means swaps are enabled everywhere else in the SDK. Normalize that
+      // default here so wallet-path selection sees an explicit true and consistently chooses V2 Safe.
+      swapSupported: chain.swapSupported !== false,
       universe: universeFromV2(chain.universe),
     };
   });

@@ -22,7 +22,7 @@ import { createSBCTxFromCalls, requireSuccessfulSbcResult, type SBCCall } from '
 import { createDestinationSwapStepId } from '../../services/step-ids';
 import { withTimingSpan } from '../../services/timing';
 import { aggregatorService, type RouterExclusions } from '../aggregators';
-import { predictSafeAccountAddress } from '../safe/predict';
+import { predictSafeAccountAddressV2 } from '../safe/predict';
 import { createSweeperTxs } from '../sweep';
 import {
   type ExecutionContext,
@@ -32,7 +32,7 @@ import {
   type SwapRoute,
   type WalletPath,
 } from '../types';
-import { chainSupports7702 } from '../wallet/capabilities';
+import { resolveSwapWalletPath } from '../wallet/capabilities';
 import { resolvePreparedFundingTransferCalls } from './eoa-to-ephemeral';
 import { getParsedQuote } from './parsed-quote';
 import { addRouterExclusions } from './router-exclusions';
@@ -77,6 +77,7 @@ const buildDestinationCalls = async (
     | 'publicClientList'
     | 'cache'
     | 'preparedExecution'
+    | 'safeDeploymentPromises'
   >,
   wrapper: WalletPath,
   // The COT actually at the wrapper (balanceOf + in-batch direct COT), or null if the read failed.
@@ -103,6 +104,7 @@ const buildDestinationCalls = async (
           eoaAddress: ctx.eoaAddress,
           eoaWallet: ctx.eoaWallet,
           publicClient: ctx.publicClientList.get(destination.chainId),
+          safeDeploymentPromise: ctx.safeDeploymentPromises?.get(destination.chainId),
         }))
       );
     }
@@ -167,7 +169,7 @@ const buildDestinationCalls = async (
   // ephemeral itself).
   const senderAddress =
     wrapper === 'safe'
-      ? predictSafeAccountAddress(ctx.ephemeralWallet.address).address
+      ? predictSafeAccountAddressV2(ctx.eoaAddress, ctx.ephemeralWallet.address).address
       : ctx.ephemeralWallet.address;
   const uniqueSweepTokens = [
     ...new Map(sweepTokens.map((token) => [token.toLowerCase(), token] as const)).values(),
@@ -262,6 +264,7 @@ export const executeDestinationSwap = async (
     | 'middlewareClient'
     | 'cache'
     | 'preparedExecution'
+    | 'safeDeploymentPromises'
     | 'onProgress'
     | 'timing'
     | 'slippage'
@@ -287,7 +290,7 @@ export const executeDestinationSwap = async (
     return;
   }
 
-  const wrapper: WalletPath = chainSupports7702(chain) ? 'ephemeral' : 'safe';
+  const wrapper: WalletPath = resolveSwapWalletPath(chain);
 
   logger.debug('swap.execute.destination.operation.started', {
     chainId: destination.chainId,
@@ -303,7 +306,7 @@ export const executeDestinationSwap = async (
     }
     const holderAddress =
       wrapper === 'safe'
-        ? predictSafeAccountAddress(ctx.ephemeralWallet.address).address
+        ? predictSafeAccountAddressV2(ctx.eoaAddress, ctx.ephemeralWallet.address).address
         : ctx.ephemeralWallet.address;
     const balance = await withTimingSpan(
       ctx.timing,
@@ -456,16 +459,21 @@ export const executeDestinationSwap = async (
           state: 'started',
         });
         const publicClient = ctx.publicClientList.get(destination.chainId);
-        const { address: safeAddress } = predictSafeAccountAddress(ctx.ephemeralWallet.address);
+        const { address: safeAddress } = predictSafeAccountAddressV2(
+          ctx.eoaAddress,
+          ctx.ephemeralWallet.address
+        );
         const result = await withTimingSpan(
           ctx.timing,
           'flow.swap.execute.destination.dispatch',
           async () => {
             await ensureSafeForEphemeral({
               chainId: destination.chainId,
+              eoaAddress: ctx.eoaAddress,
               ephemeralWallet: ctx.ephemeralWallet,
               publicClient,
               middleware: ctx.middlewareClient,
+              deploymentPromise: ctx.safeDeploymentPromises?.get(destination.chainId),
             });
             const safeCalls: SafeCall[] = calls.map((c) => ({
               to: c.to,
@@ -475,6 +483,7 @@ export const executeDestinationSwap = async (
             const request = await createSafeExecuteTxFromCalls({
               calls: safeCalls,
               chainId: destination.chainId,
+              eoaAddress: ctx.eoaAddress,
               ephemeralWallet: ctx.ephemeralWallet,
               publicClient,
               safeAddress,

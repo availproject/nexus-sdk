@@ -1,10 +1,10 @@
 import Decimal from 'decimal.js';
 import { encodeFunctionData, erc20Abi, type Hex, type PrivateKeyAccount, parseUnits } from 'viem';
 import { type ChainListType, getLogger, type SwapTokenBalance } from '../domain';
-import { predictSafeAccountAddress } from '../swap/safe/predict';
+import { predictSafeAccountAddressV2 } from '../swap/safe/predict';
 import type { PublicClientList } from '../swap/types';
 import type { SwapCache } from '../swap/wallet/cache';
-import { chainSupports7702 } from '../swap/wallet/capabilities';
+import { resolveSwapWalletPath } from '../swap/wallet/capabilities';
 import type { MiddlewareSwapClient } from '../transport';
 import { isNativeAddress } from './addresses';
 import { getBalancesForSwap } from './balances';
@@ -86,9 +86,9 @@ export const collectRefundSweepGroups = (
       if (new Decimal(entry.balance).lte(0)) continue;
       const tokenAddress = entry.contractAddress as Hex;
       if (!isKnownToken(chainList, entry.chain.id, tokenAddress)) continue;
-      const expectedHolder: SweepHolder = chainSupports7702(chainList.getChainByID(entry.chain.id))
-        ? 'ephemeral'
-        : 'safe';
+      const expectedHolder: SweepHolder = resolveSwapWalletPath(
+        chainList.getChainByID(entry.chain.id)
+      );
       if (holder !== expectedHolder) continue;
       const amountRaw = parseUnits(entry.balance, entry.decimals);
       if (amountRaw <= 0n) continue;
@@ -114,7 +114,10 @@ export const sweepEphemeralRefundsToEoa = async (input: {
 }): Promise<void> => {
   const { ctx } = input;
   const label = input.label ?? 'Init refund sweep';
-  const { address: safeAddress } = predictSafeAccountAddress(ctx.ephemeralWallet.address);
+  const { address: safeAddress } = predictSafeAccountAddressV2(
+    ctx.eoaAddress,
+    ctx.ephemeralWallet.address
+  );
 
   const [ephemeralBalances, safeBalances] = await Promise.all([
     getBalancesForSwap({
@@ -154,7 +157,10 @@ export const dispatchSweepGroups = async (
     logger.debug('sweep:noGroups', { label, ephemeralAddress: ctx.ephemeralWallet.address });
     return;
   }
-  const { address: safeAddress } = predictSafeAccountAddress(ctx.ephemeralWallet.address);
+  const { address: safeAddress } = predictSafeAccountAddressV2(
+    ctx.eoaAddress,
+    ctx.ephemeralWallet.address
+  );
 
   logger.debug('sweep:dispatch', {
     label,
@@ -166,10 +172,9 @@ export const dispatchSweepGroups = async (
       const publicClient = ctx.publicClientList.get(group.chainId);
 
       if (group.holder === 'safe') {
-        const [firstCall] = group.calls;
-        const nativeValue = group.calls.length === 1 && firstCall ? firstCall.value : 0n;
         await ensureSafeForEphemeral({
           chainId: group.chainId,
+          eoaAddress: ctx.eoaAddress,
           ephemeralWallet: ctx.ephemeralWallet,
           publicClient,
           middleware: ctx.middlewareClient,
@@ -177,10 +182,10 @@ export const dispatchSweepGroups = async (
         const request = await createSafeExecuteTxFromCalls({
           calls: group.calls,
           chainId: group.chainId,
+          eoaAddress: ctx.eoaAddress,
           ephemeralWallet: ctx.ephemeralWallet,
           publicClient,
           safeAddress,
-          nativeValue,
         });
         await ctx.middlewareClient.createSafeExecuteTx(request);
         return;

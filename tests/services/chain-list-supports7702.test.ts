@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { createChainList } from '../../src/services/chain-list';
-import { chainSupports7702 } from '../../src/swap/wallet/capabilities';
+import {
+  chainSupports7702,
+  resolveSwapWalletPath,
+} from '../../src/swap/wallet/capabilities';
 import type { DeploymentResponse } from '../../src/domain/types/deployment-types';
 
 const hyperEvmDeployment = (
@@ -62,6 +65,14 @@ describe('createChainList propagates supports7702', () => {
 });
 
 describe('createChainList propagates swapSupported', () => {
+  it('normalizes an omitted deployment flag to true and selects the V2 Safe', () => {
+    const list = createChainList(hyperEvmDeployment(true));
+    const chain = list.getChainByID(999);
+
+    expect(chain.swapSupported).toBe(true);
+    expect(resolveSwapWalletPath(chain)).toBe('safe');
+  });
+
   it('copies swapSupported=true from deployment chain onto runtime Chain', () => {
     const list = createChainList(hyperEvmDeployment(false, true));
     const chain = list.getChainByID(999);

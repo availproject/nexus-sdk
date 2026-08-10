@@ -1,5 +1,6 @@
 import { getLogger, type SwapPlan } from '../domain';
 import { getIntentExplorerUrl } from '../services/explorer';
+import { startSafeDeploymentsForChains } from '../services/safe';
 import { withTimingSpan } from '../services/timing';
 import { SLIPPAGE_DEFAULT } from '../swap/constants';
 import { executeSwapRoute } from '../swap/execution/orchestrator';
@@ -20,9 +21,35 @@ import type {
 } from '../swap/types';
 import { SwapMode } from '../swap/types';
 import { SwapCache } from '../swap/wallet/cache';
+import { resolveSwapWalletPath } from '../swap/wallet/capabilities';
 import type { SwapDeps } from './deps';
 
 const logger = getLogger();
+
+const getSafeExecutionChainIds = (route: SwapRoute, chainList: SwapDeps['chainList']) => {
+  const chainIds = new Set(
+    [...route.sourceExecutionPaths.entries()]
+      .filter(([, walletPath]) => walletPath === 'safe')
+      .map(([chainId]) => chainId)
+  );
+
+  for (const asset of route.bridge?.assets ?? []) {
+    if (resolveSwapWalletPath(chainList.getChainByID(asset.chainID)) === 'safe') {
+      chainIds.add(asset.chainID);
+    }
+  }
+
+  const hasDestinationExecution =
+    route.destination.swap.tokenSwap !== null || route.destination.swap.gasSwap !== null;
+  if (
+    hasDestinationExecution &&
+    resolveSwapWalletPath(chainList.getChainByID(route.destination.chainId)) === 'safe'
+  ) {
+    chainIds.add(route.destination.chainId);
+  }
+
+  return [...chainIds];
+};
 
 export type SwapFlowOptions = {
   onIntent?: SwapParams['onIntent'];
@@ -270,6 +297,14 @@ const runSwapFlow = async (
       route.destination.swap.tokenSwap !== null || route.destination.swap.gasSwap !== null,
   });
 
+  const safeDeploymentPromises = startSafeDeploymentsForChains({
+    chainIds: getSafeExecutionChainIds(route, deps.chainList),
+    eoaAddress: deps.evm.address,
+    ephemeralWallet: deps.swap.ephemeralWallet,
+    publicClientList: preflight.publicClientList,
+    middleware: deps.middlewareClient,
+  });
+
   const cache = new SwapCache(deps.chainList);
 
   const preparedExecution = await withTimingSpan(
@@ -286,6 +321,7 @@ const runSwapFlow = async (
         ephemeralWallet: deps.swap.ephemeralWallet,
         publicClientList: preflight.publicClientList,
         cache,
+        safeDeploymentPromises,
         timing: deps.timing,
       })
   );
@@ -293,6 +329,7 @@ const runSwapFlow = async (
   const executionContext = {
     chainList: deps.chainList,
     sourceExecutionPaths: route.sourceExecutionPaths,
+    safeDeploymentPromises,
     destinationDirectEoa:
       route.destination.swap.tokenSwap === null && route.destination.swap.gasSwap === null,
     destinationChainId: route.destination.chainId,

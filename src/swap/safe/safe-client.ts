@@ -32,6 +32,7 @@ export type SafeExecuteCall = {
   data: Hex;
 };
 
+/** @deprecated Legacy single-owner Safe client. Use SafeClientV2. */
 export type SafeClient = {
   getAddress: () => Promise<{
     address: Address;
@@ -61,6 +62,7 @@ async function readSafeNonce(publicClient: PublicClient, safe: Address): Promise
   }
 }
 
+/** @deprecated Creates the legacy single-owner V1 Safe. Use createSafeClientV2. */
 export function createSafeClient(opts: SafeClientOptions): SafeClient {
   const { chainId, owner, publicClient, middleware } = opts;
   const { address: safe } = predictSafeAccountAddress(owner.address);

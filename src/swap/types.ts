@@ -396,6 +396,10 @@ export type ExecutionContext = {
   ephemeralWallet: PrivateKeyAccount;
   intentExplorerUrl: string;
   sourceExecutionPaths: Map<number, WalletPath>;
+  safeDeploymentPromises?: ReadonlyMap<
+    number,
+    Promise<import('./safe/types').EnsureSafeAccountV2Response>
+  >;
   // True when `route.destination.swap.tokenSwap === null` — bridge fill goes directly to the
   // EOA and there's no destination swap step. Carried on the execution context so dispatchers
   // don't need to read back the route shape.

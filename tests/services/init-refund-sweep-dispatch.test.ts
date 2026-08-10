@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Hex } from 'viem';
 import type { PrivateKeyAccount } from 'viem/accounts';
 import { sweepEphemeralRefundsToEoa } from '../../src/services/init-refund-sweep';
-import { predictSafeAccountAddress } from '../../src/swap/safe/predict';
+import { predictSafeAccountAddressV2 } from '../../src/swap/safe/predict';
 import { EADDRESS } from '../../src/swap/constants';
 import type { ChainListType } from '../../src/domain';
 import type { PublicClientList } from '../../src/swap/types';
@@ -10,6 +10,8 @@ import { makeSwapMiddlewareClient } from '../helpers/middleware-client';
 
 vi.mock('../../src/swap/wallet/capabilities', () => ({
   chainSupports7702: (chain: { id: number }) => chain.id === 42161,
+  resolveSwapWalletPath: (chain: { id: number }) =>
+    chain.id === 42161 ? 'ephemeral' : 'safe',
 }));
 
 vi.mock('../../src/services/sbc', () => ({
@@ -101,7 +103,7 @@ describe('sweepEphemeralRefundsToEoa dispatch', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('fires one batched SBC per 7702 chain and one Safe tx per non-7702 chain (native value carried)', async () => {
-    const safeAddress = predictSafeAccountAddress(EPHEMERAL).address;
+    const safeAddress = predictSafeAccountAddressV2(EOA, EPHEMERAL).address;
     const createSafeExecuteTx = vi.fn().mockResolvedValue({ txHash: '0xsafe' as Hex });
     const submitSBCs = vi
       .fn()
@@ -148,9 +150,9 @@ describe('sweepEphemeralRefundsToEoa dispatch', () => {
     // 7702 chain → one SBC, batched (USDC transfer + ETH native)
     expect(submitSBCs).toHaveBeenCalledTimes(1);
     expect(vi.mocked(createSBCTxFromCalls).mock.calls[0]![0].calls).toHaveLength(2);
-    // non-7702 chain → one Safe tx; single native send carries the amount as nativeValue
+    // non-7702 chain → one Safe tx; the single Safe call carries the native amount
     expect(createSafeExecuteTx).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(createSafeExecuteTxFromCalls).mock.calls[0]![0].nativeValue).toBe(
+    expect(vi.mocked(createSafeExecuteTxFromCalls).mock.calls[0]![0].calls[0]?.value).toBe(
       300_000_000_000_000_000n
     );
   });

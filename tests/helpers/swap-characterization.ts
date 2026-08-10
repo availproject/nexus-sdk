@@ -37,10 +37,10 @@ import { VAULT_ABI_MAYAN } from '@avail-project/nexus-types/rff';
 import { SWEEPER_ABI } from '../../src/swap/sweep';
 import { CALIBUR_EXECUTE_ABI } from '../../src/services/sbc';
 import { multiSendCallOnlyAbi } from '../../src/swap/safe/abis';
-import { predictSafeAccountAddress } from '../../src/swap/safe/predict';
+import { predictSafeAccountAddressV2 } from '../../src/swap/safe/predict';
 import { EADDRESS } from '../../src/swap/constants';
 import { isNativeAddress } from '../../src/services/addresses';
-import type { CreateSafeExecuteTxRequest } from '../../src/swap/safe/types';
+import type { CreateSafeExecuteTxV2Request } from '../../src/swap/safe/types';
 import type { SBCTx } from '../../src/swap/types';
 import {
   ARB_CHAIN,
@@ -75,7 +75,7 @@ export const EOA_ACCOUNT = privateKeyToAccount(EOA_PRIVATE_KEY);
 export const EPH_ACCOUNT = privateKeyToAccount(EPH_PRIVATE_KEY);
 export const EOA = EOA_ACCOUNT.address;
 export const EPH = EPH_ACCOUNT.address;
-export const PREDICTED_SAFE = predictSafeAccountAddress(EPH).address as Hex;
+export const PREDICTED_SAFE = predictSafeAccountAddressV2(EOA, EPH).address as Hex;
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Custom SWAP ABI — the echo. The mock aggregator encodes the request's
@@ -416,7 +416,7 @@ const recordDeliveredCot = (destinations: ReadonlyArray<{ contract_address: Hex;
 
 // Unpack a Safe execute request into its inner calls. operation 0 = single CALL;
 // operation 1 = MultiSendCallOnly DELEGATECALL carrying tightly-packed sub-calls.
-export const decodeSafeRequest = (req: CreateSafeExecuteTxRequest): DecodedCall[] => {
+export const decodeSafeRequest = (req: CreateSafeExecuteTxV2Request): DecodedCall[] => {
   if (req.operation === 0) {
     return [classifyCall({ to: req.to, data: req.data, value: BigInt(req.value) })];
   }
@@ -859,7 +859,7 @@ export const makeCharMiddleware = (opts: {
       ),
     createSafeExecuteTx: vi
       .fn()
-      .mockImplementation(async (req: CreateSafeExecuteTxRequest) => {
+      .mockImplementation(async (req: CreateSafeExecuteTxV2Request) => {
         recordProducedCot(decodeSafeRequest(req)); // Safe source swap landed COT at the predicted Safe
         return {
           chainId: req.chainId,
@@ -869,7 +869,8 @@ export const makeCharMiddleware = (opts: {
       }),
     ensureSafeAccount: vi.fn().mockResolvedValue({
       chainId: BASE_CHAIN,
-      owner: EPH,
+      eoaAddress: EOA,
+      ephemeralAddress: EPH,
       address: PREDICTED_SAFE,
       factoryAddress: '0x0000000000000000000000000000000000000000' as Hex,
       exists: true,
@@ -933,7 +934,7 @@ export const sbcBatchesForChain = (mw: CharMiddleware, chainId: number): Decoded
 
 export const safeBatchesForChain = (mw: CharMiddleware, chainId: number): DecodedCall[][] =>
   mw.createSafeExecuteTx.mock.calls
-    .map((args) => args[0] as CreateSafeExecuteTxRequest)
+    .map((args) => args[0] as CreateSafeExecuteTxV2Request)
     .filter((req) => req.chainId === chainId)
     .map((req) => decodeSafeRequest(req));
 
@@ -969,6 +970,8 @@ export const dispatchedChains = (mw: CharMiddleware): number[] => {
     .flatMap((args) => args[0] as SBCTx[])
     .filter((tx) => tx.calls.length > 0)
     .map((tx) => tx.chainId);
-  const safe = mw.createSafeExecuteTx.mock.calls.map((args) => (args[0] as CreateSafeExecuteTxRequest).chainId);
+  const safe = mw.createSafeExecuteTx.mock.calls.map(
+    (args) => (args[0] as CreateSafeExecuteTxV2Request).chainId
+  );
   return [...new Set([...sbc, ...safe])].sort((a, b) => a - b);
 };

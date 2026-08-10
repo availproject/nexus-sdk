@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { decodeFunctionData, erc20Abi, type Hex } from 'viem';
 import { ERC20PermitABI } from '../../../src/abi/erc20';
 import { CurrencyID } from '../../../src/swap/cot';
-import { predictSafeAccountAddress } from '../../../src/swap/safe/predict';
+import { predictSafeAccountAddressV2 } from '../../../src/swap/safe/predict';
 
 vi.mock('../../../src/swap/wallet/capabilities', () => ({
   chainSupports7702: (chain: { id: number }) => chain.id === 42161,
+  resolveSwapWalletPath: (chain: { id: number }) =>
+    chain.id === 42161 ? 'ephemeral' : 'safe',
 }));
 
 vi.mock('../../../src/services/init-refund-sweep', async (importOriginal) => ({
@@ -135,7 +137,7 @@ describe('cleanupStrandedCot', () => {
       ctx,
     });
 
-    const safeAddress = predictSafeAccountAddress(EPH).address;
+    const safeAddress = predictSafeAccountAddressV2(EOA, EPH).address;
     expect(readContract).toHaveBeenCalledWith(
       expect.objectContaining({ functionName: 'balanceOf', args: [safeAddress] })
     );

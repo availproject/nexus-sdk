@@ -22,7 +22,7 @@ import { EADDRESS } from '../../../src/swap/constants';
 import { DIRECT_DST_QUOTE_TTL_MS } from '../../../src/swap/constants';
 import { executeDirectDestinationExactOut } from '../../../src/swap/execution/direct-destination';
 import { dispatchSourceChainBatch } from '../../../src/swap/execution/source-swaps';
-import { predictSafeAccountAddress } from '../../../src/swap/safe/predict';
+import { predictSafeAccountAddressV2 } from '../../../src/swap/safe/predict';
 import type {
   ExecutionContext,
   PreparedSwapExecution,
@@ -727,7 +727,7 @@ describe('executeDirectDestinationExactOut', () => {
     route.sourceExecutionPaths.set(CHAIN_ID, 'safe');
     const ctx = makeContext(makePreparedExecution([swap]));
     ctx.sourceExecutionPaths.set(CHAIN_ID, 'safe');
-    const safe = predictSafeAccountAddress(EXECUTOR).address;
+    const safe = predictSafeAccountAddressV2(EOA, EXECUTOR).address;
 
     await executeDirectDestinationExactOut(route, ctx, makeMetadata());
 

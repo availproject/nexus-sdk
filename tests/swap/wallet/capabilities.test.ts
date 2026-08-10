@@ -3,6 +3,7 @@ import type { Chain } from '../../../src/domain';
 import { Universe } from '../../../src/domain/chain-abstraction';
 import {
   chainSupports7702,
+  resolveSwapWalletPath,
   resolveWalletPath,
 } from '../../../src/swap/wallet/capabilities';
 
@@ -42,5 +43,17 @@ describe('resolveWalletPath', () => {
 
   it('non-7702 chain → safe', () => {
     expect(resolveWalletPath(false)).toBe('safe');
+  });
+});
+
+describe('resolveSwapWalletPath', () => {
+  it('uses the Safe whenever swaps are explicitly enabled', () => {
+    expect(resolveSwapWalletPath({ ...makeChain(1, true), swapSupported: true })).toBe('safe');
+    expect(resolveSwapWalletPath({ ...makeChain(2, false), swapSupported: true })).toBe('safe');
+  });
+
+  it('retains the legacy capability fallback when swaps are not explicitly enabled', () => {
+    expect(resolveSwapWalletPath(makeChain(1, true))).toBe('ephemeral');
+    expect(resolveSwapWalletPath(makeChain(2, false))).toBe('safe');
   });
 });

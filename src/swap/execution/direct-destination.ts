@@ -25,7 +25,7 @@ import {
   sizeDirectDestinationExactOut,
 } from '../algorithms/direct-destination-size';
 import { DIRECT_DST_QUOTE_TTL_MS, SRC_BUFFER_MAX_USD, SRC_BUFFER_PCT } from '../constants';
-import { predictSafeAccountAddress } from '../safe/predict';
+import { predictSafeAccountAddressV2 } from '../safe/predict';
 import type {
   ExecutionContext,
   OraclePriceResponse,
@@ -228,6 +228,7 @@ const buildCalls = async (input: {
         eoaAddress: ctx.eoaAddress,
         eoaWallet: ctx.eoaWallet,
         publicClient,
+        safeDeploymentPromise: ctx.safeDeploymentPromises?.get(chainId),
       })
     );
     if (cached?.authorization?.kind === 'approve') cached.approvalMined = true;
@@ -337,7 +338,7 @@ export const executeDirectDestinationExactOut = async (
   const chain = ctx.chainList.getChainByID(chainId);
   const targetAddress: Hex =
     ctx.sourceExecutionPaths.get(chainId) === 'safe'
-      ? predictSafeAccountAddress(ctx.ephemeralWallet.address).address
+      ? predictSafeAccountAddressV2(ctx.eoaAddress, ctx.ephemeralWallet.address).address
       : ctx.ephemeralWallet.address;
   const executorCtx = { ...ctx, cache: ctx.cache };
   const authorizations = new Map<string, FundingAuthorization>();

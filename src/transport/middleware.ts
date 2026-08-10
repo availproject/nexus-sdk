@@ -43,14 +43,14 @@ import { equalFold } from '../services/strings';
 import { minutesToMs } from '../services/time';
 import { getFallbackTokenLogoDataUri } from '../services/token-logo';
 import { EADDRESS } from '../swap/constants';
-import { createSafeMiddlewareClient } from '../swap/safe/client';
+import { createSafeMiddlewareClientV2 } from '../swap/safe/client';
 import type {
-  CreateSafeExecuteTxRequest,
-  CreateSafeExecuteTxResponse,
-  EnsureSafeAccountRequest,
-  EnsureSafeAccountResponse,
-  GetSafeAccountAddressRequest,
-  GetSafeAccountAddressResponse,
+  CreateSafeExecuteTxV2Request,
+  CreateSafeExecuteTxV2Response,
+  EnsureSafeAccountV2Request,
+  EnsureSafeAccountV2Response,
+  GetSafeAccountAddressV2Request,
+  GetSafeAccountAddressV2Response,
 } from '../swap/safe/types';
 import type { FlatBalance, SBCResult, SBCTx } from '../swap/types';
 import { encodeChainIdToBytes32, parseHexToTokenBytes } from './encoding';
@@ -96,10 +96,12 @@ export type MiddlewareClient = {
   getMayanQuotes: (request: MayanQuoteRequest) => Promise<MayanQuoteResponse>;
   getBridgeProvider: (request: BridgeProviderRequest) => Promise<BridgeProviderResponse>;
   getSafeAccountAddress: (
-    req: GetSafeAccountAddressRequest
-  ) => Promise<GetSafeAccountAddressResponse>;
-  ensureSafeAccount: (req: EnsureSafeAccountRequest) => Promise<EnsureSafeAccountResponse>;
-  createSafeExecuteTx: (req: CreateSafeExecuteTxRequest) => Promise<CreateSafeExecuteTxResponse>;
+    req: GetSafeAccountAddressV2Request
+  ) => Promise<GetSafeAccountAddressV2Response>;
+  ensureSafeAccount: (req: EnsureSafeAccountV2Request) => Promise<EnsureSafeAccountV2Response>;
+  createSafeExecuteTx: (
+    req: CreateSafeExecuteTxV2Request
+  ) => Promise<CreateSafeExecuteTxV2Response>;
   configureTiming: (options?: { timing?: TimingSpanHooks; captureNetworkTiming?: boolean }) => void;
   destroy: () => void;
 };
@@ -1135,7 +1137,7 @@ export const createMiddlewareClient = (
     }
   };
 
-  const safe = createSafeMiddlewareClient(client);
+  const safe = createSafeMiddlewareClientV2(client);
 
   const wrapSafe = async <T>(
     label: string,
@@ -1157,23 +1159,32 @@ export const createMiddlewareClient = (
     }
   };
 
-  const getSafeAccountAddress = (req: GetSafeAccountAddressRequest) =>
+  const getSafeAccountAddress = (req: GetSafeAccountAddressV2Request) =>
     wrapSafe(
       'getSafeAccountAddress',
       ERROR_CODES.BACKEND_SAFE_GET_ADDRESS_FAILED,
-      { chainId: req.chainId, owner: req.owner },
+      {
+        chainId: req.chainId,
+        eoaAddress: req.eoaAddress,
+        ephemeralAddress: req.ephemeralAddress,
+      },
       () => safe.getSafeAccountAddress(req)
     );
 
-  const ensureSafeAccount = (req: EnsureSafeAccountRequest) =>
+  const ensureSafeAccount = (req: EnsureSafeAccountV2Request) =>
     wrapSafe(
       'ensureSafeAccount',
       ERROR_CODES.BACKEND_SAFE_ENSURE_FAILED,
-      { chainId: req.chainId, owner: req.owner, safeAddress: req.safeAddress },
+      {
+        chainId: req.chainId,
+        eoaAddress: req.eoaAddress,
+        ephemeralAddress: req.ephemeralAddress,
+        safeAddress: req.safeAddress,
+      },
       () => safe.ensureSafeAccount(req)
     );
 
-  const createSafeExecuteTx = (req: CreateSafeExecuteTxRequest) =>
+  const createSafeExecuteTx = (req: CreateSafeExecuteTxV2Request) =>
     wrapSafe(
       'createSafeExecuteTx',
       ERROR_CODES.BACKEND_SAFE_EXECUTE_FAILED,

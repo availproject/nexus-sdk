@@ -7,9 +7,9 @@ import {
   type SweepGroup,
 } from '../../services/init-refund-sweep';
 import { type CurrencyID, resolveCOT } from '../cot';
-import { predictSafeAccountAddress } from '../safe/predict';
+import { predictSafeAccountAddressV2 } from '../safe/predict';
 import type { ExecutionContext, SwapRoute } from '../types';
-import { chainSupports7702 } from '../wallet/capabilities';
+import { resolveSwapWalletPath } from '../wallet/capabilities';
 import { buildEphemeralPermitCall } from '../wallet/ephemeral-permit';
 import { readSettlementBalanceRaw } from './settlement-balance';
 
@@ -62,7 +62,10 @@ export const cleanupStrandedCot = async (input: {
   ctx: FailureCleanupContext;
 }): Promise<void> => {
   const { ctx } = input;
-  const { address: safeAddress } = predictSafeAccountAddress(ctx.ephemeralWallet.address);
+  const { address: safeAddress } = predictSafeAccountAddressV2(
+    ctx.eoaAddress,
+    ctx.ephemeralWallet.address
+  );
   const groups: SweepGroup[] = [];
   logger.debug('swap.cleanup.sweep.started', {
     currencyId: input.currencyId,
@@ -74,11 +77,12 @@ export const cleanupStrandedCot = async (input: {
   for (const chainId of input.chainIds) {
     try {
       const chain = ctx.chainList.getChainByID(chainId);
-      const is7702 = chainSupports7702(chain);
+      const usesEphemeral = resolveSwapWalletPath(chain) === 'ephemeral';
       const sourceOnDestination = input.scope === 'source' && chainId === ctx.destinationChainId;
       if (sourceOnDestination && ctx.destinationDirectEoa) continue;
       const sourceAtEphemeral = input.scope === 'source' && chainId !== ctx.destinationChainId;
-      const holderAddress = is7702 || sourceAtEphemeral ? ctx.ephemeralWallet.address : safeAddress;
+      const holderAddress =
+        usesEphemeral || sourceAtEphemeral ? ctx.ephemeralWallet.address : safeAddress;
       const cot = resolveCOT(chainId, ctx.chainList, input.currencyId);
       const tokenAddress = cot.address as Hex;
       const balance = await readSettlementBalanceRaw({
@@ -89,7 +93,7 @@ export const cleanupStrandedCot = async (input: {
       });
 
       if (balance <= 0n) continue;
-      if (sourceAtEphemeral && !is7702) {
+      if (sourceAtEphemeral && !usesEphemeral) {
         const deadline = BigInt(Math.floor(Date.now() / 1000)) + CLEANUP_PERMIT_DEADLINE_SECONDS;
         const permitCall = await buildEphemeralPermitCall({
           tokenAddress,
@@ -121,7 +125,7 @@ export const cleanupStrandedCot = async (input: {
       }
       groups.push({
         chainId,
-        holder: is7702 ? 'ephemeral' : 'safe',
+        holder: usesEphemeral ? 'ephemeral' : 'safe',
         calls: [buildRefundSweepCall(tokenAddress, balance, ctx.eoaAddress)],
       });
     } catch (error) {

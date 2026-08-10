@@ -237,9 +237,7 @@ describe('buildSwapPreflight', () => {
     expect(selectSwapSources).toHaveBeenCalledWith(rawBalances, OP_CHAIN, WETH);
   });
 
-  it('builds wallet path hints from each chain\'s 7702 support', async () => {
-    // Preflight no longer reads wallet capabilities; the hint is driven purely by
-    // chainSupports7702 — 'ephemeral' for 7702 chains, 'safe' for non-7702.
+  it('preserves the legacy 7702 wallet fallback for an unnormalized chain fixture', async () => {
     const chainList = makeChainList();
 
     const preflight = await buildSwapPreflight(makeInput(), {
@@ -252,6 +250,26 @@ describe('buildSwapPreflight', () => {
     expect(preflight.walletPathHints.get(ARB_CHAIN)).toBe('ephemeral');
     expect(preflight.walletPathHints.get(BASE_CHAIN)).toBe('ephemeral');
     expect(preflight.walletPathHints.get(OP_CHAIN)).toBe('ephemeral');
+  });
+
+  it('maps every explicitly swap-supported chain to the V2 Safe path', async () => {
+    const chainList = makeChainList();
+    const baseGetChainByID = chainList.getChainByID;
+    chainList.getChainByID = vi.fn((id: number) => ({
+      ...(baseGetChainByID(id) as Record<string, unknown>),
+      swapSupported: true,
+    })) as unknown as ChainListType['getChainByID'];
+
+    const preflight = await buildSwapPreflight(makeInput(), {
+      chainList,
+      cotCurrencyId: CurrencyID.USDC,
+      eoaAddress: '0xaaaa' as Hex,
+      middlewareClient: makeMiddlewareClient(),
+    });
+
+    expect(preflight.walletPathHints.get(ARB_CHAIN)).toBe('safe');
+    expect(preflight.walletPathHints.get(BASE_CHAIN)).toBe('safe');
+    expect(preflight.walletPathHints.get(OP_CHAIN)).toBe('safe');
   });
 
   it('defers bridge quotes until routing has selected eligible sources', async () => {
@@ -322,11 +340,12 @@ describe('buildSwapPreflight', () => {
     });
   });
 
-  it('maps a non-7702 candidate chain to the safe wallet path', async () => {
+  it('maps a non-7702 compatibility candidate to the safe wallet path', async () => {
     const chainList = makeChainList();
     const baseGetChainByID = chainList.getChainByID;
     chainList.getChainByID = vi.fn((id: number) => ({
       ...(baseGetChainByID(id) as Record<string, unknown>),
+      swapSupported: false,
       supports7702: id !== BASE_CHAIN,
     })) as unknown as ChainListType['getChainByID'];
 
