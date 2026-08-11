@@ -2277,7 +2277,7 @@ address is derived once and is deterministic across supported chains. While the 
 the SDK caches whether that address has bytecode on every execution chain. After approval, it skips
 middleware for deployed Safes and concurrently ensures only the missing ones, awaiting the relevant
 deployment before the first permit, approval, or transaction prompt on that chain. A successful
-ensure updates the same cac he so later execution does not repeat the bytecode check. This ensures
+ensure updates the same cache so later execution does not repeat the bytecode check. This ensures
 wallet UIs see a deployed contract as the spender instead of warning about an approval to an
 undeployed address.
 
