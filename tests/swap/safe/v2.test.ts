@@ -344,13 +344,6 @@ describe('Safe V2 wire format', () => {
     expect(middleware.createSafeExecuteTx).not.toHaveBeenCalled();
   });
 
-  it('exports the explicit V2 Safe surface from the package root', () => {
-    expect(rootModule).toHaveProperty('predictSafeAccountAddressV2');
-    expect(rootModule).toHaveProperty('createSafeClientV2');
-    expect(rootModule).toHaveProperty('createSafeMiddlewareClientV2');
-    expect(rootModule).toHaveProperty('SAFE_V2_SALT_NONCE', EXPECTED_SALT);
-  });
-
   it('keeps Protocol Kit out of SDK dependencies and source imports', () => {
     const repositoryRoot = resolve(import.meta.dirname, '../../..');
     const manifest = readFileSync(join(repositoryRoot, 'package.json'), 'utf8');

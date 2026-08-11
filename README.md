@@ -1708,12 +1708,12 @@ Swap plans contain the following step types:
 
 | Step Type | Description |
 |-----------|-------------|
-| `source_swap` | Execute a swap on a source chain (ephemeral or Safe smart-account path) |
-| `eoa_to_ephemeral_transfer` | Transfer funds from EOA to ephemeral wallet on a source chain |
+| `source_swap` | Execute a swap through the Safe on a source chain |
+| `eoa_to_ephemeral_transfer` | Move EOA-held bridge funds to the ephemeral bridge holder |
 | `bridge_deposit` | Deposit into vault for cross-chain bridge |
 | `bridge_intent_submission` | Submit the bridge intent to the network |
 | `bridge_fill` | Wait for bridge fill on destination chain |
-| `destination_swap` | Execute a swap on the destination chain |
+| `destination_swap` | Execute a swap through the Safe on the destination chain |
 
 **SwapPlan:**
 
@@ -1733,7 +1733,7 @@ type SwapPlanStep =
   | SwapDestinationSwapStep;
 ```
 
-Each step carries contextual metadata (chain, tokens, wallet path). Progress events report per-step state transitions. The terminal success state varies by step type:
+Each step carries contextual metadata such as its chain and tokens. Source and destination swap steps also expose `walletPath: 'safe'`. Progress events report per-step state transitions. The terminal success state varies by step type:
 
 - On-chain transaction steps (`allowance_approval`, `source_swap`, `eoa_to_ephemeral_transfer`, `bridge_deposit`, `destination_swap`, `execute_approval`, `execute_transaction`) settle on `confirmed`.
 - `vault_deposit` settles on `completed` — it emits `confirmed` as an on-chain intermediate, then `completed` as its terminal-success state.
@@ -2136,42 +2136,6 @@ import type {
 import { ERROR_CODES } from '@avail-project/nexus-core';
 ```
 
-### Safe V2 Low-Level Helpers
-
-New Safe integrations should use the explicit V2 exports. V2 Safes are deterministic SafeL2
-`1.4.1` accounts with owners ordered as `[eoaAddress, ephemeralAddress]` and threshold `1`.
-
-```typescript
-import {
-  createSafeClientV2,
-  createSafeMiddlewareClientV2,
-  predictSafeAccountAddressV2,
-  SAFE_V2_SALT_NONCE,
-} from '@avail-project/nexus-core';
-
-const predicted = predictSafeAccountAddressV2(eoaAddress, ephemeralOwner.address);
-const middleware = createSafeMiddlewareClientV2(httpClient);
-const safe = createSafeClientV2({
-  chainId,
-  eoaAddress,
-  ephemeralOwner,
-  publicClient,
-  middleware,
-});
-
-await safe.ensure();
-await safe.execute({ to, value: 0n, data });
-```
-
-The V2 middleware client only uses `/api/v2` Safe endpoints. Numeric wire fields are decimal
-strings, and the deployment salt is fixed by `SAFE_V2_SALT_NONCE`; callers do not supply an
-arbitrary salt. The SDK implements the required wire formats with `viem` and does not depend on
-`@safe-global/protocol-kit`.
-
-The unsuffixed `createSafeClient`, `createSafeMiddlewareClient`, `predictSafeAccountAddress`,
-request/response types, and `SAFE_SALT_NONCE` remain available for V1 compatibility but are
-deprecated for new integrations.
-
 ---
 
 ## Utilities
@@ -2306,16 +2270,14 @@ if (result.bridgeSkipped) {
 
 ### Swap Execution Path
 
-Every swap leg executes through the deterministic V2 Safe on every chain where swaps are enabled.
-There is no wallet-mode or chain-capability fallback. `swapSupported` controls whether a chain may
-participate in swap routing; it does not select a different execution account.
+Every source and destination swap executes through the deterministic V2 Safe. 
 
 The Safe has the connected EOA and the SDK's ephemeral account as owners with threshold 1. Its
 address is derived once and is deterministic across supported chains. While the intent is displayed,
 the SDK caches whether that address has bytecode on every execution chain. After approval, it skips
 middleware for deployed Safes and concurrently ensures only the missing ones, awaiting the relevant
 deployment before the first permit, approval, or transaction prompt on that chain. A successful
-ensure updates the same cache so later execution does not repeat the bytecode check. This ensures
+ensure updates the same cac he so later execution does not repeat the bytecode check. This ensures
 wallet UIs see a deployed contract as the spender instead of warning about an approval to an
 undeployed address.
 
