@@ -543,13 +543,12 @@ describe('executeSwapBridge contracts', () => {
     expect(safeCallNames(createSafeExecuteTx)).toEqual(['deposit']);
   });
 
-  it('does not submit the Safe until the Calibur receipt and visible allowance are confirmed', async () => {
+  it('does not reread allowance after the Calibur approval receipt', async () => {
     const receipt = deferred<{ status: 'success'; transactionHash: Hex }>();
-    const visibleAllowance = deferred<bigint>();
     const readAllowance = vi
       .fn()
       .mockResolvedValueOnce(0n)
-      .mockImplementationOnce(() => visibleAllowance.promise);
+      .mockResolvedValueOnce(3_000_000n);
     const waitForTransactionReceipt = vi.fn().mockReturnValue(receipt.promise);
     const { context, createSafeExecuteTx, submitSBCs } = makeContext({
       permitVariant: PermitVariant.Unsupported,
@@ -562,11 +561,9 @@ describe('executeSwapBridge contracts', () => {
     expect(createSafeExecuteTx).not.toHaveBeenCalled();
 
     receipt.resolve({ status: 'success', transactionHash: APPROVAL_TX_HASH });
-    await vi.waitFor(() => expect(readAllowance).toHaveBeenCalledTimes(2));
-    expect(createSafeExecuteTx).not.toHaveBeenCalled();
-
-    visibleAllowance.resolve(3_000_000n);
     await execution;
+
+    expect(readAllowance).toHaveBeenCalledTimes(1);
     expect(createSafeExecuteTx).toHaveBeenCalledTimes(1);
   });
 

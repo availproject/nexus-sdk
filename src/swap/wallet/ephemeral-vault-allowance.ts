@@ -239,27 +239,6 @@ const executeCaliburVaultApproval = async (input: {
     stepType: 'bridge_deposit',
     label: 'Calibur vault approval',
   });
-
-  const allowance = await readVaultAllowance({
-    tokenAddress: input.tokenAddress,
-    owner: input.ephemeralWallet.address,
-    vaultAddress: input.vaultAddress,
-    chainId: input.chain.id,
-    publicClient: input.publicClient,
-  });
-  if (allowance < input.depositValue) {
-    throw Errors.execution('Calibur vault approval is not visible after confirmation', {
-      service: 'rpc',
-      chainId: input.chain.id,
-      details: {
-        tokenAddress: input.tokenAddress,
-        vaultAddress: input.vaultAddress,
-        expectedAllowance: input.depositValue.toString(),
-        actualAllowance: allowance.toString(),
-        txHash,
-      },
-    });
-  }
 };
 
 export const resolveEphemeralVaultAllowance = async (input: {
