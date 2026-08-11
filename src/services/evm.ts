@@ -169,8 +169,9 @@ export const waitForTxReceiptByChain = (
   hash: `0x${string}`,
   publicClient: TransactionReceiptPublicClient,
   _chainId: number,
-  timeout = TRANSACTION_RECEIPT_WAIT_TIMEOUT_MS
-) => waitForTxReceipt(hash, publicClient, 1, timeout);
+  timeout = TRANSACTION_RECEIPT_WAIT_TIMEOUT_MS,
+  confirmations = 1
+) => waitForTxReceipt(hash, publicClient, confirmations, timeout);
 
 /**
  * Waits (chain-aware) for an execution step's receipt and, on revert, throws a step-tagged
@@ -183,9 +184,10 @@ export const confirmStepReceipt = async (
   publicClient: TransactionReceiptPublicClient,
   txHash: `0x${string}`,
   chainId: number,
-  step: { stepId: string; stepType: string; label: string }
+  step: { stepId: string; stepType: string; label: string },
+  confirmations = 1
 ): Promise<`0x${string}`> => {
-  const [, error] = await waitForTxReceiptByChain(txHash, publicClient, chainId);
+  const [, error] = await waitForTxReceiptByChain(txHash, publicClient, chainId, confirmations);
   if (error) {
     throw new ExecutionError(
       ERROR_CODES.EXEC_TX_ONCHAIN_REVERTED,

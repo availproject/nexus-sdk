@@ -234,11 +234,17 @@ const executeCaliburVaultApproval = async (input: {
     input.chain.id
   );
 
-  await confirmStepReceipt(input.publicClient, txHash, input.chain.id, {
-    stepId: createBridgeDepositStepId(input.chain.id),
-    stepType: 'bridge_deposit',
-    label: 'Calibur vault approval',
-  });
+  await confirmStepReceipt(
+    input.publicClient,
+    txHash,
+    input.chain.id,
+    {
+      stepId: createBridgeDepositStepId(input.chain.id),
+      stepType: 'bridge_deposit',
+      label: 'Calibur vault approval',
+    },
+    2
+  );
 };
 
 export const resolveEphemeralVaultAllowance = async (input: {
