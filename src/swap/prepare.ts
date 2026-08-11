@@ -15,7 +15,7 @@ import type {
   PublicClientList,
   SwapRoute,
 } from './types';
-import type { SwapCache } from './wallet/cache';
+import { SwapCache } from './wallet/cache';
 import { buildPreparedTransfer } from './wallet/prepared-transfer';
 
 const logger = getLogger();
@@ -30,8 +30,34 @@ type PrepareSwapExecutionInput = {
   ephemeralWallet: PrivateKeyAccount;
   publicClientList: PublicClientList;
   cache: SwapCache;
+  cacheProcess?: Promise<void>;
+  cacheChainIds?: readonly number[];
   safeDeploymentPromises?: ExecutionContext['safeDeploymentPromises'];
   timing?: TimingSpanHooks;
+};
+
+type SwapCacheInput = Pick<
+  PrepareSwapExecutionInput,
+  | 'chainList'
+  | 'route'
+  | 'source'
+  | 'destination'
+  | 'eoaAddress'
+  | 'ephemeralWallet'
+  | 'publicClientList'
+  | 'timing'
+>;
+
+type SwapCacheWarmupInput = SwapCacheInput & {
+  safeAccount: { address: Hex; factoryAddress: Hex };
+};
+
+export type SwapCacheWarmup = {
+  cache: SwapCache;
+  key: string;
+  process: Promise<void>;
+  chainIds: readonly number[];
+  safeChainIds: readonly number[];
 };
 
 type DeterministicTransferSpec = {
@@ -91,39 +117,20 @@ const queueDeterministicTransferQueries = (
   }
 };
 
-const getDestinationFundingTokenDecimals = (
-  input: PrepareSwapExecutionInput,
-  destinationQuotes: QuoteResponse[],
-  eoaToEphemeralContractAddress: Hex
-) =>
-  destinationQuotes[0]?.quote.input.decimals ??
-  input.chainList.getTokenByAddress(input.destination.chainId, eoaToEphemeralContractAddress)
-    .decimals;
-
-export const prepareSwapExecution = async (
-  input: PrepareSwapExecutionInput
-): Promise<PreparedSwapExecution> => {
-  logger.debug('swap.prepare.execution.started', {
-    sourceSwaps: input.source.swaps.length,
-    hasBridge: input.route.bridge !== null,
-    destinationChainId: input.destination.chainId,
-  });
-
-  const requiredChainIds = new Set<number>();
+const getPreparationDetails = (
+  input: Pick<
+    PrepareSwapExecutionInput,
+    'route' | 'source' | 'destination' | 'eoaAddress' | 'ephemeralWallet'
+  > & { safeAddress?: Hex }
+) => {
   const directDestinationExtras =
     input.route.directDestination === true ? input.route.extras.directDestination : undefined;
   const directDestinationExactOut = directDestinationExtras !== undefined;
-  const safeAddress = predictSafeAccountAddressV2(
-    input.eoaAddress,
-    input.ephemeralWallet.address
-  ).address;
-  const ownerForSourceChain = (_chainId: number) => safeAddress;
-  // Destination quote owner / funding target is the Safe. The bridge funding spender is also the
-  // Safe, while the recipient remains the ephemeral bridge holder; the Safe calls
-  // transferFrom(EOA, ephemeral, amount) without taking intermediate custody.
-  const destinationOwner = safeAddress;
-  const ownerForBridgeChain = (_chainId: number) => safeAddress;
-
+  const safeAddress =
+    input.safeAddress ??
+    predictSafeAccountAddressV2(input.eoaAddress, input.ephemeralWallet.address).address;
+  // The Safe owns swap inputs and pulls bridge funding from the EOA directly to the ephemeral
+  // bridge holder, so every funding allowance names the Safe as spender.
   const destinationQuotes = [
     input.destination.swap.tokenSwap,
     input.destination.swap.gasSwap,
@@ -142,7 +149,7 @@ export const prepareSwapExecution = async (
             tokenDecimals: swap.quote.input.decimals,
             amount: swap.quote.input.amountRaw,
             eagerPermit: false,
-            targetAddress: ownerForSourceChain(swap.chainID),
+            targetAddress: safeAddress,
           },
         ];
       });
@@ -154,7 +161,7 @@ export const prepareSwapExecution = async (
           tokenAddress: input.destination.eoaToEphemeral.contractAddress,
           amount: input.destination.eoaToEphemeral.amount,
           eagerPermit: true,
-          targetAddress: destinationOwner,
+          targetAddress: safeAddress,
         },
       ]
     : [];
@@ -169,84 +176,188 @@ export const prepareSwapExecution = async (
           tokenDecimals: asset.decimals,
           amount: mulDecimals(asset.eoaBalance, asset.decimals),
           eagerPermit: false,
-          targetAddress: ownerForBridgeChain(asset.chainID),
+          targetAddress: safeAddress,
           recipientAddress: input.ephemeralWallet.address,
         },
       ];
     }) ?? [];
-  const deterministicTransferSpecs = [
-    ...sourceTransferSpecs,
-    ...destinationTransferSpecs,
-    ...bridgeTransferSpecs,
-  ];
-  await withTimingSpan(
-    input.timing,
-    'flow.swap.prepare.queue_cache',
-    async () => {
-      queueParsedQuoteQueries(
-        input.cache,
-        input.source.swaps,
-        ownerForSourceChain,
-        requiredChainIds
-      );
-      queueParsedQuoteQueries(
-        input.cache,
-        destinationQuotes,
-        () => destinationOwner,
-        requiredChainIds
-      );
 
-      queueDeterministicTransferQueries(
-        input.cache,
-        directDestinationExtras
-          ? directDestinationExtras.dstHoldings
-              .filter((holding) => !isNativeAddress(holding.tokenAddress))
-              .map((holding) => ({
-                chainId: holding.chainID,
-                tokenAddress: holding.tokenAddress,
-                amount: holding.amountRaw,
-                spender: ownerForSourceChain(holding.chainID),
-              }))
-          : deterministicTransferSpecs.map((transfer) => ({
-              chainId: transfer.chainId,
-              tokenAddress: transfer.tokenAddress,
-              amount: transfer.amount,
-              spender: transfer.targetAddress,
-            })),
-        input.eoaAddress,
-        requiredChainIds
-      );
+  return {
+    directDestinationExtras,
+    directDestinationExactOut,
+    destinationQuotes,
+    deterministicTransferSpecs: [
+      ...sourceTransferSpecs,
+      ...destinationTransferSpecs,
+      ...bridgeTransferSpecs,
+    ],
+    safeAddress,
+  };
+};
 
-      // Direct-destination Exact Out authorizations are prepared by its dedicated executor, but a
-      // defensive route carrying later-stage transfers still needs those cache queries here.
-      if (directDestinationExactOut && deterministicTransferSpecs.length > 0) {
-        queueDeterministicTransferQueries(
-          input.cache,
-          deterministicTransferSpecs.map((transfer) => ({
-            chainId: transfer.chainId,
-            tokenAddress: transfer.tokenAddress,
-            amount: transfer.amount,
-            spender: transfer.targetAddress,
-          })),
-          input.eoaAddress,
-          requiredChainIds
-        );
-      }
-    },
-    {
-      tags: {
-        source_leg_count: input.source.swaps.length,
-        destination_leg_count: destinationQuotes.length,
-      },
-    }
+const queueSwapCacheQueries = (
+  input: SwapCacheInput & { cache: SwapCache },
+  details: ReturnType<typeof getPreparationDetails>
+): Set<number> => {
+  const requiredChainIds = new Set<number>();
+
+  for (const chainId of getSafeExecutionChainIds(input.route)) {
+    requiredChainIds.add(chainId);
+    input.cache.addSafeAccountQuery(chainId);
+  }
+
+  queueParsedQuoteQueries(
+    input.cache,
+    input.source.swaps,
+    () => details.safeAddress,
+    requiredChainIds
+  );
+  queueParsedQuoteQueries(
+    input.cache,
+    details.destinationQuotes,
+    () => details.safeAddress,
+    requiredChainIds
+  );
+  queueDeterministicTransferQueries(
+    input.cache,
+    details.directDestinationExtras
+      ? details.directDestinationExtras.dstHoldings
+          .filter((holding) => !isNativeAddress(holding.tokenAddress))
+          .map((holding) => ({
+            chainId: holding.chainID,
+            tokenAddress: holding.tokenAddress,
+            amount: holding.amountRaw,
+            spender: details.safeAddress,
+          }))
+      : details.deterministicTransferSpecs.map((transfer) => ({
+          chainId: transfer.chainId,
+          tokenAddress: transfer.tokenAddress,
+          amount: transfer.amount,
+          spender: transfer.targetAddress,
+        })),
+    input.eoaAddress,
+    requiredChainIds
   );
 
-  const cacheProcess = withTimingSpan(
+  if (details.directDestinationExactOut && details.deterministicTransferSpecs.length > 0) {
+    queueDeterministicTransferQueries(
+      input.cache,
+      details.deterministicTransferSpecs.map((transfer) => ({
+        chainId: transfer.chainId,
+        tokenAddress: transfer.tokenAddress,
+        amount: transfer.amount,
+        spender: transfer.targetAddress,
+      })),
+      input.eoaAddress,
+      requiredChainIds
+    );
+  }
+
+  return requiredChainIds;
+};
+
+const getSafeExecutionChainIds = (route: SwapRoute): number[] => {
+  const chainIds = new Set(route.sourceExecutionPaths.keys());
+  for (const asset of route.bridge?.assets ?? []) {
+    chainIds.add(asset.chainID);
+  }
+  if (route.destination.swap.tokenSwap || route.destination.swap.gasSwap) {
+    chainIds.add(route.destination.chainId);
+  }
+  return [...chainIds];
+};
+
+const startSwapCacheProcess = (
+  input: SwapCacheInput & { cache: SwapCache },
+  requiredChainIds: Set<number>
+): Promise<void> =>
+  withTimingSpan(
     input.timing,
     'flow.swap.prepare.cache_start',
     async () => input.cache.process(getPublicClientMap(requiredChainIds, input.publicClientList)),
     { tags: { chain_count: requiredChainIds.size } }
   );
+
+export const startSwapCacheWarmup = async (
+  input: SwapCacheWarmupInput,
+  previous?: SwapCacheWarmup
+): Promise<SwapCacheWarmup> => {
+  const cache = new SwapCache(input.chainList, input.safeAccount);
+  const safeChainIds = getSafeExecutionChainIds(input.route);
+  for (const chainId of safeChainIds) {
+    if (previous?.cache.getSafeAccount(chainId)?.deployed) {
+      cache.setSafeDeployed(chainId, true);
+    }
+  }
+  const details = getPreparationDetails({ ...input, safeAddress: input.safeAccount.address });
+  const requiredChainIds = await withTimingSpan(
+    input.timing,
+    'flow.swap.prepare.queue_cache',
+    async () => queueSwapCacheQueries({ ...input, cache }, details),
+    {
+      tags: {
+        source_leg_count: input.source.swaps.length,
+        destination_leg_count: details.destinationQuotes.length,
+      },
+    }
+  );
+  const key = cache.getPendingQueryKey();
+
+  if (previous?.key === key) {
+    return previous;
+  }
+  const process = startSwapCacheProcess({ ...input, cache }, requiredChainIds);
+  // The user may deny or refresh while this runs. Observe early rejection now; awaiting the
+  // original promise after acceptance still preserves its failure.
+  void process.catch(() => undefined);
+
+  return {
+    cache,
+    key,
+    process,
+    chainIds: [...requiredChainIds],
+    safeChainIds,
+  };
+};
+
+const getDestinationFundingTokenDecimals = (
+  input: PrepareSwapExecutionInput,
+  destinationQuotes: QuoteResponse[],
+  eoaToEphemeralContractAddress: Hex
+) =>
+  destinationQuotes[0]?.quote.input.decimals ??
+  input.chainList.getTokenByAddress(input.destination.chainId, eoaToEphemeralContractAddress)
+    .decimals;
+
+export const prepareSwapExecution = async (
+  input: PrepareSwapExecutionInput
+): Promise<PreparedSwapExecution> => {
+  logger.debug('swap.prepare.execution.started', {
+    sourceSwaps: input.source.swaps.length,
+    hasBridge: input.route.bridge !== null,
+    destinationChainId: input.destination.chainId,
+  });
+
+  const details = getPreparationDetails({ ...input, safeAddress: input.cache.getSafeAddress() });
+  const { destinationQuotes, deterministicTransferSpecs } = details;
+  let requiredChainIds = new Set(input.cacheChainIds);
+  let cacheProcess = input.cacheProcess;
+
+  if (!cacheProcess) {
+    requiredChainIds = await withTimingSpan(
+      input.timing,
+      'flow.swap.prepare.queue_cache',
+      async () => queueSwapCacheQueries({ ...input, cache: input.cache }, details),
+      {
+        tags: {
+          source_leg_count: input.source.swaps.length,
+          destination_leg_count: destinationQuotes.length,
+        },
+      }
+    );
+    cacheProcess = startSwapCacheProcess(input, requiredChainIds);
+  }
+
   await withTimingSpan(input.timing, 'flow.swap.prepare.cache_wait', async () => cacheProcess, {
     tags: { chain_count: requiredChainIds.size, pending_at_first_use: true },
   });

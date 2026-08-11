@@ -198,14 +198,16 @@ const DEFAULT_ENSURE_DEADLINE_SECONDS = 600;
 
 // Idempotent ensure-deploy step for the Safe jointly owned by the EOA and `ephemeralWallet` at
 // threshold 1. The ephemeral is the owner that signs SafeTx; the digest is signed with its
-// `sign({hash})`. Skips the middleware call when the proxy already has bytecode — the existing
+// `sign({hash})`. Skips the middleware call when the proxy is already known to have bytecode.
 export async function ensureSafeForEphemeral(input: {
   chainId: number;
   eoaAddress: Address;
   ephemeralWallet: PrivateKeyAccount;
-  publicClient: Pick<PublicClient, 'getCode'>;
+  publicClient?: Pick<PublicClient, 'getCode'>;
   middleware: EnsureSafeMiddleware;
   deploymentPromise?: Promise<EnsureSafeAccountV2Response>;
+  safeAccount?: { address: Address; factoryAddress: Address };
+  deployed?: boolean;
   deadlineSeconds?: number;
 }): Promise<EnsureSafeAccountV2Response> {
   if (input.deploymentPromise) {
@@ -213,13 +215,17 @@ export async function ensureSafeForEphemeral(input: {
   }
 
   const { chainId, eoaAddress, ephemeralWallet, publicClient, middleware } = input;
-  const { address: safeAddress, factoryAddress } = predictSafeAccountAddressV2(
-    eoaAddress,
-    ephemeralWallet.address
-  );
+  const { address: safeAddress, factoryAddress } =
+    input.safeAccount ?? predictSafeAccountAddressV2(eoaAddress, ephemeralWallet.address);
 
-  const code = await publicClient.getCode({ address: safeAddress });
-  if (code !== undefined && code !== '0x') {
+  const deployed =
+    input.deployed ??
+    (publicClient
+      ? await publicClient
+          .getCode({ address: safeAddress })
+          .then((code) => code !== undefined && code !== '0x')
+      : false);
+  if (deployed) {
     return {
       chainId,
       eoaAddress,
@@ -254,18 +260,35 @@ export function startSafeDeploymentsForChains(input: {
   chainIds: readonly number[];
   eoaAddress: Address;
   ephemeralWallet: PrivateKeyAccount;
-  publicClientList: { get(chainId: number): Pick<PublicClient, 'getCode'> };
+  safeAccounts: {
+    getSafeAccount(
+      chainId: number
+    ): { address: Address; factoryAddress: Address; deployed: boolean } | undefined;
+    setSafeDeployed(chainId: number, deployed: boolean): void;
+  };
+  cacheReady: Promise<void>;
   middleware: EnsureSafeMiddleware;
 }): Map<number, Promise<EnsureSafeAccountV2Response>> {
   const deployments = new Map<number, Promise<EnsureSafeAccountV2Response>>();
 
   for (const chainId of new Set(input.chainIds)) {
-    const deployment = ensureSafeForEphemeral({
-      chainId,
-      eoaAddress: input.eoaAddress,
-      ephemeralWallet: input.ephemeralWallet,
-      publicClient: input.publicClientList.get(chainId),
-      middleware: input.middleware,
+    const deployment = input.cacheReady.then(async () => {
+      const safeAccount = input.safeAccounts.getSafeAccount(chainId);
+      if (!safeAccount) {
+        throw Errors.internal(`Missing cached Safe account for chain ${chainId}`);
+      }
+      const result = await ensureSafeForEphemeral({
+        chainId,
+        eoaAddress: input.eoaAddress,
+        ephemeralWallet: input.ephemeralWallet,
+        middleware: input.middleware,
+        safeAccount,
+        deployed: safeAccount.deployed,
+      });
+      if (!safeAccount.deployed && result.exists) {
+        input.safeAccounts.setSafeDeployed(chainId, true);
+      }
+      return result;
     });
     // Deployment starts immediately. Attach a rejection observer so a later chain cannot cause an
     // unhandled rejection while execution is still awaiting an earlier chain.

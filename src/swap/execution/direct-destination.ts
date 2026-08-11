@@ -34,6 +34,7 @@ import type {
   SwapMetadata,
   SwapRoute,
 } from '../types';
+import { readCachedSafeAddress } from '../wallet/cache';
 import { buildPreparedTransfer } from '../wallet/prepared-transfer';
 import { resolvePreparedFundingTransferCalls } from './eoa-to-ephemeral';
 import { getParsedQuote } from './parsed-quote';
@@ -330,10 +331,9 @@ export const executeDirectDestinationExactOut = async (
 
   const chainId = route.destination.chainId;
   const chain = ctx.chainList.getChainByID(chainId);
-  const targetAddress: Hex = predictSafeAccountAddressV2(
-    ctx.eoaAddress,
-    ctx.ephemeralWallet.address
-  ).address;
+  const targetAddress: Hex =
+    readCachedSafeAddress(ctx.cache) ??
+    predictSafeAccountAddressV2(ctx.eoaAddress, ctx.ephemeralWallet.address).address;
   const executorCtx = { ...ctx, cache: ctx.cache };
   const authorizations = new Map<string, FundingAuthorization>();
   const routeTimeInputs = new Map<string, bigint>();

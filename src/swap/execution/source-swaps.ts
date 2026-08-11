@@ -30,12 +30,19 @@ import type {
   SwapMetadata,
   WalletPath,
 } from '../types';
+import { readCachedSafeAddress } from '../wallet/cache';
 import { resolvePreparedFundingTransferCalls } from './eoa-to-ephemeral';
 import { getParsedQuote } from './parsed-quote';
 import { dispatchSafeSource } from './safe-dispatch';
 import { readSettlementBalanceRaw } from './settlement-balance';
 
 const logger = getLogger();
+
+const getSafeAddress = (
+  ctx: Pick<ExecutionContext, 'cache' | 'eoaAddress' | 'ephemeralWallet'>
+): Hex =>
+  readCachedSafeAddress(ctx.cache) ??
+  predictSafeAccountAddressV2(ctx.eoaAddress, ctx.ephemeralWallet.address).address;
 
 export type DispatchedSourceBatch = {
   chainId: number;
@@ -166,15 +173,13 @@ const readSourceCotBalanceRaw = async (
   cotAddress: Hex,
   ctx: Pick<
     ExecutionContext,
-    'chainList' | 'eoaAddress' | 'ephemeralWallet' | 'publicClientList'
+    'cache' | 'chainList' | 'eoaAddress' | 'ephemeralWallet' | 'publicClientList'
   > & {
     destinationChainId: number;
   }
 ): Promise<bigint> => {
   const holder =
-    chainId !== ctx.destinationChainId
-      ? ctx.ephemeralWallet.address
-      : predictSafeAccountAddressV2(ctx.eoaAddress, ctx.ephemeralWallet.address).address;
+    chainId !== ctx.destinationChainId ? ctx.ephemeralWallet.address : getSafeAddress(ctx);
   return readSettlementBalanceRaw({
     chainId,
     tokenAddress: cotAddress,
@@ -192,6 +197,7 @@ const sourceSwapStep = (chainId: number) => ({
 type SourceDispatchContext = Pick<
   ExecutionContext,
   | 'chainList'
+  | 'cache'
   | 'sourceExecutionPaths'
   | 'safeDeploymentPromises'
   | 'eoaAddress'
@@ -230,6 +236,7 @@ export const dispatchSourceChainBatch = async (input: {
     eoaAddress: ctx.eoaAddress,
     publicClient,
     middleware: ctx.middlewareClient,
+    safeAddress: getSafeAddress(ctx),
     safeDeploymentPromise: ctx.safeDeploymentPromises?.get(chainId),
     onWalletPrompt:
       nativeValue > 0n
@@ -266,7 +273,7 @@ const requoteFailedChains = async (
   srcBuffer: Decimal | null,
   ctx: Pick<
     ExecutionContext,
-    'sourceExecutionPaths' | 'eoaAddress' | 'ephemeralWallet' | 'destinationDirectEoa'
+    'cache' | 'sourceExecutionPaths' | 'eoaAddress' | 'ephemeralWallet' | 'destinationDirectEoa'
   > & { destinationChainId: number }
 ) => {
   // Per-chain recipient: remote output always lands at the ephemeral bridge holder. On the
@@ -275,15 +282,12 @@ const requoteFailedChains = async (
   const recipientForChain = (chainId: number): Hex => {
     if (chainId === ctx.destinationChainId && ctx.destinationDirectEoa) return ctx.eoaAddress;
     if (chainId !== ctx.destinationChainId) return ctx.ephemeralWallet.address;
-    return predictSafeAccountAddressV2(ctx.eoaAddress, ctx.ephemeralWallet.address).address;
+    return getSafeAddress(ctx);
   };
 
   const perChainResults = await Promise.all(
     failedChains.map(async ({ chainId, chainSwaps }) => {
-      const userAddress = predictSafeAccountAddressV2(
-        ctx.eoaAddress,
-        ctx.ephemeralWallet.address
-      ).address;
+      const userAddress = getSafeAddress(ctx);
       const sourceRecipient = recipientForChain(chainId);
 
       const requoted = await Promise.all(

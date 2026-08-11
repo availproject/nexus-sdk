@@ -44,9 +44,10 @@ The high-level flow is:
 buildSwapPreflight
   -> determineSwapRoute
   -> createSwapIntent + createSwapPlan
+  -> start allowance, permit-capability, and Safe-code cache reads
   -> await onIntent approval
-  -> start Safe deployment on every execution chain
-  -> prepareSwapExecution
+  -> ensure missing Safes on every execution chain
+  -> prepareSwapExecution (await the accepted route's cache)
   -> executeSwapRoute
        -> source swaps or direct-destination swap
        -> bridge deposits and fill
@@ -54,6 +55,12 @@ buildSwapPreflight
        -> failure cleanup when needed
   -> finalize result
 ```
+
+Cache warming starts immediately before the intent is exposed to `onIntent`, so its read-only RPC
+work overlaps the user's review time. It includes one bytecode lookup for the derived Safe on each
+execution chain. A refreshed intent reuses the existing warmup when its query data is unchanged; a
+changed query set starts a new warmup. Wallet signatures, approvals, and transactions remain gated
+behind intent acceptance.
 
 ## Deployment-before-wallet-prompt invariant
 
@@ -64,8 +71,9 @@ Immediately after intent approval, `startSafeDeploymentsForChains` starts one id
 - every bridge deposit chain;
 - the destination chain when a destination token or gas swap exists.
 
-All deployment requests start without waiting for one another. Their promises are stored by chain
-ID and reused for the rest of the operation.
+After the shared cache warmup resolves, every chain reads its cached deployment state. Already
+deployed Safes skip middleware; missing Safes are ensured concurrently. Their promises are stored by
+chain ID and reused for the rest of the operation.
 
 Before the SDK asks for a permit, direct approval, chain switch, or transaction on a chain, it awaits
 that chain's deployment promise. Execution also awaits the same promise before dispatch. This order
@@ -73,9 +81,11 @@ is mandatory: a wallet must observe deployed code at the Safe spender address be
 approval prompt. Otherwise wallets commonly warn that the approval targets an EOA or undeployed
 address, defeating the safety benefit of the Safe path.
 
-`ensureSafeForEphemeral` first checks bytecode at the predicted address. If the Safe is absent, the
-ephemeral owner signs the V2 ensure authorization and middleware deploys it through the canonical
-factory. Repeated calls are safe.
+The flow derives the Safe address once before preflight and uses it for routing, cache checks,
+preparation, and execution. If cached bytecode is absent, the ephemeral owner signs the V2 ensure
+authorization and middleware deploys the Safe through the canonical factory. A successful ensure
+marks that chain deployed in the same cache, so later execution and cleanup reuse the result without
+another bytecode lookup.
 
 ## Routing identities
 
@@ -112,11 +122,12 @@ destination routes do not request a bridge provider.
 
 ## Preparation
 
-`prepareSwapExecution` predicts the Safe once and uses it as the owner/spender for every swap quote.
-It batches only the reads still needed by Safe execution:
+`prepareSwapExecution` uses the Safe derived at flow start as the owner/spender for every swap quote.
+The pre-intent cache batches only the reads still needed by Safe execution:
 
 - ERC-20 allowances;
-- token permit support and version.
+- token permit support and version;
+- Safe deployment bytecode on each execution chain.
 
 For ERC-20 value held by the EOA, preparation builds a deterministic transfer authorization:
 

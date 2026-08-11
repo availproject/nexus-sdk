@@ -36,6 +36,7 @@ export type RouteOptions = {
   dstTokenInfo: Pick<TokenInfo, 'symbol' | 'decimals' | 'contractAddress'>;
   eoaAddress: Hex;
   ephemeralAddress: Hex;
+  safeAddress?: Hex;
   balances: FlatBalance[];
   walletPathHints: Map<number, WalletPath>;
   quoteAddressHints?: Map<number, Hex>;

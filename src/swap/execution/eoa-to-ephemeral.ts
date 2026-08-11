@@ -102,7 +102,8 @@ export const resolvePreparedFundingTransferCalls = async (
     amountRaw: input.transfer.amount.toString(),
   });
 
-  if (input.transfer.authorization?.kind === 'permit') {
+  const authorization = input.transfer.authorization;
+  if (authorization?.kind === 'permit') {
     logger.debug('swap.execute.funding.permit_started', {
       chainId: input.chain.id,
       tokenAddress: input.transfer.tokenAddress,
@@ -110,7 +111,7 @@ export const resolvePreparedFundingTransferCalls = async (
     });
     const permitCall = await materializePermitAuthorizationCall({
       chain: input.chain,
-      authorization: input.transfer.authorization,
+      authorization,
       tokenAddress: input.transfer.tokenAddress,
       tokenDecimals: input.tokenDecimals,
       amount: input.transfer.amount,

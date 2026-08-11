@@ -40,6 +40,7 @@ export async function dispatchSafeSource(input: {
   eoaAddress: Address;
   publicClient: PublicClient;
   middleware: SafeDispatchMiddleware;
+  safeAddress?: Address;
   safeDeploymentPromise?: Promise<EnsureSafeAccountV2Response>;
   onWalletPrompt?: () => void;
   simulationStep?: EoaSimulationStep;
@@ -55,7 +56,8 @@ export async function dispatchSafeSource(input: {
     publicClient,
     middleware,
   } = input;
-  const { address: safeAddress } = predictSafeAccountAddressV2(eoaAddress, ephemeralWallet.address);
+  const safeAddress =
+    input.safeAddress ?? predictSafeAccountAddressV2(eoaAddress, ephemeralWallet.address).address;
 
   await ensureSafeForEphemeral({
     chainId,

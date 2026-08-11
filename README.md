@@ -2311,10 +2311,17 @@ There is no wallet-mode or chain-capability fallback. `swapSupported` controls w
 participate in swap routing; it does not select a different execution account.
 
 The Safe has the connected EOA and the SDK's ephemeral account as owners with threshold 1. Its
-address is deterministic across supported chains. After intent approval, the SDK starts Safe
-deployment on every execution chain concurrently and awaits the relevant deployment before the
-first permit, approval, or transaction prompt on that chain. This ensures wallet UIs see a deployed
-contract as the spender instead of warning about an approval to an undeployed address.
+address is derived once and is deterministic across supported chains. While the intent is displayed,
+the SDK caches whether that address has bytecode on every execution chain. After approval, it skips
+middleware for deployed Safes and concurrently ensures only the missing ones, awaiting the relevant
+deployment before the first permit, approval, or transaction prompt on that chain. A successful
+ensure updates the same cache so later execution does not repeat the bytecode check. This ensures
+wallet UIs see a deployed contract as the spender instead of warning about an approval to an
+undeployed address.
+
+Read-only allowance, permit-capability, and Safe-code cache requests start while the swap intent is
+displayed and are awaited after approval. Refreshing an intent reuses that work when its cache query
+data is unchanged.
 
 Token-only Safe transactions are sponsor-broadcast through middleware. Native-value Safe
 transactions are submitted by the EOA because the outer transaction must fund the Safe call. The

@@ -30,12 +30,19 @@ import {
   SwapMode,
   type SwapRoute,
 } from '../types';
+import { readCachedSafeAddress } from '../wallet/cache';
 import { resolvePreparedFundingTransferCalls } from './eoa-to-ephemeral';
 import { getParsedQuote } from './parsed-quote';
 import { addRouterExclusions } from './router-exclusions';
 import { readSettlementBalanceRaw } from './settlement-balance';
 
 const logger = getLogger();
+
+const getSafeAddress = (
+  ctx: Pick<ExecutionContext, 'cache' | 'eoaAddress' | 'ephemeralWallet'>
+): Hex =>
+  readCachedSafeAddress(ctx.cache) ??
+  predictSafeAccountAddressV2(ctx.eoaAddress, ctx.ephemeralWallet.address).address;
 
 const destinationSwapStep = (chainId: number) => ({
   stepId: createDestinationSwapStepId(chainId),
@@ -154,10 +161,7 @@ const buildDestinationCalls = async (
   }
 
   // MultiSendCallOnly DELEGATECALL → CALL Sweeper resolves msg.sender to the Safe.
-  const senderAddress = predictSafeAccountAddressV2(
-    ctx.eoaAddress,
-    ctx.ephemeralWallet.address
-  ).address;
+  const senderAddress = getSafeAddress(ctx);
   const uniqueSweepTokens = [
     ...new Map(sweepTokens.map((token) => [token.toLowerCase(), token] as const)).values(),
   ];
@@ -290,10 +294,7 @@ export const executeDestinationSwap = async (
     if (!cotAddress) {
       throw new Error('Destination settlement token is unavailable');
     }
-    const holderAddress = predictSafeAccountAddressV2(
-      ctx.eoaAddress,
-      ctx.ephemeralWallet.address
-    ).address;
+    const holderAddress = getSafeAddress(ctx);
     const balance = await withTimingSpan(
       ctx.timing,
       'flow.swap.execute.destination.read_balance',
@@ -436,10 +437,7 @@ export const executeDestinationSwap = async (
         state: 'started',
       });
       const publicClient = ctx.publicClientList.get(destination.chainId);
-      const { address: safeAddress } = predictSafeAccountAddressV2(
-        ctx.eoaAddress,
-        ctx.ephemeralWallet.address
-      );
+      const safeAddress = getSafeAddress(ctx);
       const result = await withTimingSpan(
         ctx.timing,
         'flow.swap.execute.destination.dispatch',

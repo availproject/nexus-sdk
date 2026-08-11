@@ -20,7 +20,10 @@ export function resolveWalletDecisions(input: {
 }
 
 function resolveWalletAddress(options: RouteOptions): Hex {
-  return predictSafeAccountAddressV2(options.eoaAddress, options.ephemeralAddress).address;
+  return (
+    options.safeAddress ??
+    predictSafeAccountAddressV2(options.eoaAddress, options.ephemeralAddress).address
+  );
 }
 
 export function buildExecutorAddressByChain(

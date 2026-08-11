@@ -9,6 +9,7 @@ import {
 import { type CurrencyID, resolveCOT } from '../cot';
 import { predictSafeAccountAddressV2 } from '../safe/predict';
 import type { ExecutionContext, SwapRoute } from '../types';
+import { readCachedSafeAddress } from '../wallet/cache';
 import { buildEphemeralPermitCall } from '../wallet/ephemeral-permit';
 import { readSettlementBalanceRaw } from './settlement-balance';
 
@@ -43,6 +44,7 @@ type FailureCleanupContext = Pick<
   | 'ephemeralWallet'
   | 'middlewareClient'
   | 'publicClientList'
+  | 'safeDeploymentPromises'
 > & { destinationChainId: number };
 
 /**
@@ -61,10 +63,9 @@ export const cleanupStrandedCot = async (input: {
   ctx: FailureCleanupContext;
 }): Promise<void> => {
   const { ctx } = input;
-  const { address: safeAddress } = predictSafeAccountAddressV2(
-    ctx.eoaAddress,
-    ctx.ephemeralWallet.address
-  );
+  const safeAddress =
+    readCachedSafeAddress(ctx.cache) ??
+    predictSafeAccountAddressV2(ctx.eoaAddress, ctx.ephemeralWallet.address).address;
   const groups: SweepGroup[] = [];
   logger.debug('swap.cleanup.sweep.started', {
     currencyId: input.currencyId,

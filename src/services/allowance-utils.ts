@@ -171,7 +171,6 @@ export async function signPermitForAddressAndValue(
 
   const walletAddress = account.address;
   const deadline = ddl ?? 2n ** 256n - 1n;
-
   const tokenNameRequest = contract.read.name().catch(() => {
     logger.error(
       'signPermit:failed to read token name',

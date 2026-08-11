@@ -12,6 +12,7 @@ const logger = getLogger();
 
 type AllowanceKey = `${Hex}:${Hex}:${Hex}:${number}`; // token:owner:spender:chainId
 type PermitKey = `${Hex}:${number}`; // token:chainId
+type SafeAccountIdentity = { address: Hex; factoryAddress: Hex };
 
 const allowanceKey = (token: Hex, owner: Hex, spender: Hex, chainId: number): AllowanceKey =>
   `${token.toLowerCase()}:${owner.toLowerCase()}:${spender.toLowerCase()}:${chainId}` as AllowanceKey;
@@ -32,7 +33,12 @@ type PermitQuery = {
   chainId: number;
 };
 
-type CacheQuery = AllowanceQuery | PermitQuery;
+type SafeAccountQuery = {
+  type: 'safe_account';
+  chainId: number;
+};
+
+type CacheQuery = AllowanceQuery | PermitQuery | SafeAccountQuery;
 
 type PublicClientMap = Record<number, Pick<PublicClient, 'multicall' | 'getCode' | 'readContract'>>;
 
@@ -41,14 +47,19 @@ type PublicClientMap = Record<number, Pick<PublicClient, 'multicall' | 'getCode'
 // ---------------------------------------------------------------------------
 
 /**
- * Batches allowance and permit-support queries, then provides cached results.
+ * Batches allowance, permit-support, and Safe deployment queries, then provides cached results.
  */
 export class SwapCache {
-  constructor(private readonly chainList: ChainListType) {}
+  constructor(
+    private readonly chainList: ChainListType,
+    private readonly safeAccount?: SafeAccountIdentity
+  ) {}
 
   private queries: CacheQuery[] = [];
   private allowances = new Map<AllowanceKey, bigint>();
   private permits = new Map<PermitKey, PermitDetails | undefined>();
+  private safeDeployment = new Map<number, boolean>();
+  private safeAccountChains = new Set<number>();
 
   // ---------------------------------------------------------------------------
   // Add queries
@@ -60,6 +71,40 @@ export class SwapCache {
 
   addPermitQuery(token: Hex, chainId: number): void {
     this.queries.push({ type: 'permit', token, chainId });
+  }
+
+  addSafeAccountQuery(chainId: number): void {
+    if (!this.safeAccount) return;
+    this.safeAccountChains.add(chainId);
+    if (this.safeDeployment.get(chainId) !== true) {
+      this.queries.push({ type: 'safe_account', chainId });
+    }
+  }
+
+  getPendingQueryKey(): string {
+    return [
+      ...new Set([
+        ...this.queries.map((query) => {
+          if (query.type === 'safe_account') {
+            return `safe_account:${query.chainId}:${this.safeAccount?.address.toLowerCase()}`;
+          }
+          if (query.type === 'permit') {
+            return `permit:${permitKey(query.token, query.chainId)}`;
+          }
+          return `allowance:${allowanceKey(
+            query.token,
+            query.owner,
+            query.spender,
+            query.chainId
+          )}`;
+        }),
+        ...[...this.safeAccountChains].map(
+          (chainId) => `safe_account:${chainId}:${this.safeAccount?.address.toLowerCase()}`
+        ),
+      ]),
+    ]
+      .sort()
+      .join('|');
   }
 
   // ---------------------------------------------------------------------------
@@ -111,8 +156,11 @@ export class SwapCache {
             (q): q is AllowanceQuery => q.type === 'allowance'
           );
           const permitQueries = chainQueries.filter((q): q is PermitQuery => q.type === 'permit');
+          const hasSafeAccountQuery = chainQueries.some((q) => q.type === 'safe_account');
 
-          if (allowanceQueries.length > 0) {
+          const allowanceProcess = (async () => {
+            if (allowanceQueries.length === 0) return;
+
             const contracts = allowanceQueries.map((q) => ({
               address: q.token,
               abi: erc20Abi,
@@ -141,9 +189,8 @@ export class SwapCache {
               const key = allowanceKey(q.token, q.owner, q.spender, q.chainId);
               this.allowances.set(key, typeof r?.result === 'bigint' ? r.result : 0n);
             }
-          }
-
-          await Promise.all(
+          })();
+          const permitProcess = Promise.all(
             permitQueries.map(async (q) => {
               const key = permitKey(q.token, q.chainId);
               this.permits.set(
@@ -157,6 +204,18 @@ export class SwapCache {
               );
             })
           );
+          const safeAccountProcess = (async () => {
+            if (!hasSafeAccountQuery || !this.safeAccount) return;
+            try {
+              const code = await client.getCode({ address: this.safeAccount.address });
+              this.safeDeployment.set(chainId, code !== undefined && code !== '0x');
+            } catch (error) {
+              this.safeDeployment.set(chainId, false);
+              logger.error('swap.cache.safe_account.query_failed', { chainId }, error);
+            }
+          })();
+
+          await Promise.all([allowanceProcess, permitProcess, safeAccountProcess]);
         } catch (error) {
           logger.error('swapCache:processFailed', { chainId, chainQueries }, error);
           // Graceful fallback — leave defaults (0n / undefined)
@@ -186,4 +245,23 @@ export class SwapCache {
     const key = permitKey(token, chainId);
     return this.permits.get(key);
   }
+
+  getSafeAccount(chainId: number): (SafeAccountIdentity & { deployed: boolean }) | undefined {
+    if (!this.safeAccount) return undefined;
+    return {
+      ...this.safeAccount,
+      deployed: this.safeDeployment.get(chainId) ?? false,
+    };
+  }
+
+  getSafeAddress(): Hex | undefined {
+    return this.safeAccount?.address;
+  }
+
+  setSafeDeployed(chainId: number, deployed = true): void {
+    this.safeDeployment.set(chainId, deployed);
+  }
 }
+
+export const readCachedSafeAddress = (cache: SwapCache | undefined): Hex | undefined =>
+  typeof cache?.getSafeAddress === 'function' ? cache.getSafeAddress() : undefined;

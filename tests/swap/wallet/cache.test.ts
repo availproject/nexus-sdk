@@ -11,6 +11,8 @@ const OWNER = '0xaaaa000000000000000000000000000000000001' as Hex;
 const SPENDER = '0xbbbb000000000000000000000000000000000002' as Hex;
 const CHAIN_ID = 42161;
 const MULTICALL = '0x00000000000000000000000000000000000000aa' as Hex;
+const SAFE = '0xcccc000000000000000000000000000000000003' as Hex;
+const SAFE_FACTORY = '0xdddd000000000000000000000000000000000004' as Hex;
 
 const makePublicClient = (overrides?: {
   multicallResults?: unknown[];
@@ -22,6 +24,14 @@ const makePublicClient = (overrides?: {
   getCode: vi.fn(),
   readContract: vi.fn(),
 });
+
+const deferred = <T>() => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+};
 
 describe('SwapCache', () => {
   let cache: SwapCache;
@@ -86,6 +96,23 @@ describe('SwapCache', () => {
     });
   });
 
+  it('caches the derived Safe identity and its per-chain deployment state', async () => {
+    cache = new SwapCache(chainList, { address: SAFE, factoryAddress: SAFE_FACTORY });
+    cache.addSafeAccountQuery(CHAIN_ID);
+    const client = makePublicClient();
+    client.getCode.mockResolvedValue('0x60806040');
+
+    await cache.process({ [CHAIN_ID]: client } as unknown as CacheClients);
+
+    expect(client.getCode).toHaveBeenCalledTimes(1);
+    expect(client.getCode).toHaveBeenCalledWith({ address: SAFE });
+    expect(cache.getSafeAccount(CHAIN_ID)).toEqual({
+      address: SAFE,
+      factoryAddress: SAFE_FACTORY,
+      deployed: true,
+    });
+  });
+
   it('probes canonical permit support when metadata is missing', async () => {
     setTokenInfo({
       contractAddress: TOKEN,
@@ -109,6 +136,38 @@ describe('SwapCache', () => {
       permitVariant: PermitVariant.EIP2612Canonical,
       permitContractVersion: 2,
     });
+  });
+
+  it('starts allowance reads and permit probing concurrently', async () => {
+    setTokenInfo({
+      contractAddress: TOKEN,
+      decimals: 6,
+      logo: '',
+      name: 'USD Coin',
+      symbol: 'USDC',
+    });
+    cache.addAllowanceQuery(TOKEN, OWNER, SPENDER, CHAIN_ID);
+    cache.addPermitQuery(TOKEN, CHAIN_ID);
+    const allowance = deferred<unknown[]>();
+    const permit = deferred<unknown[]>();
+    const client = makePublicClient();
+    client.multicall
+      .mockImplementationOnce(() => allowance.promise)
+      .mockImplementationOnce(() => permit.promise);
+
+    const processing = cache.process({ [CHAIN_ID]: client } as unknown as CacheClients);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(client.multicall).toHaveBeenCalledTimes(2);
+
+    allowance.resolve([{ result: 1_000_000n, status: 'success' }]);
+    permit.resolve([
+      { result: `0x${'11'.repeat(32)}`, status: 'success' },
+      { result: 0n, status: 'success' },
+      { result: '2', status: 'success' },
+    ]);
+    await processing;
   });
 
   it('falls back to zero when an allowance multicall fails', async () => {

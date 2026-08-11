@@ -37,11 +37,18 @@ import { withTimingSpan } from '../../services/timing';
 import { createSwapBridgeIntent } from '../bridge-intent';
 import { predictSafeAccountAddressV2 } from '../safe/predict';
 import type { BridgeAsset, ExecutionContext, SwapMetadata, SwapRoute } from '../types';
+import { readCachedSafeAddress } from '../wallet/cache';
 import { resolveEphemeralVaultAllowance } from '../wallet/ephemeral-vault-allowance';
 import { resolvePreparedFundingTransferCalls } from './eoa-to-ephemeral';
 import { dispatchSafeSource } from './safe-dispatch';
 
 const logger = getLogger();
+
+const getSafeAddress = (
+  ctx: Pick<ExecutionContext, 'cache' | 'eoaAddress' | 'ephemeralWallet'>
+): Hex =>
+  readCachedSafeAddress(ctx.cache) ??
+  predictSafeAccountAddressV2(ctx.eoaAddress, ctx.ephemeralWallet.address).address;
 
 // Loose view of a Mayan quote for tracing (effectiveAmountIn / minReceived live on the vendored
 // Mayan Quote type and aren't worth importing just to log).
@@ -55,12 +62,11 @@ const resolveChain = (chainList: ExecutionContext['chainList'], chainId: number)
 //   - destination swap step → the deterministic V2 Safe
 const resolveBridgeRecipient = (input: {
   destinationDirectEoa: boolean;
-  destinationChain: Chain;
   eoaAddress: Hex;
-  ephemeralAddress: Hex;
+  safeAddress: Hex;
 }): Hex => {
   if (input.destinationDirectEoa) return input.eoaAddress;
-  return predictSafeAccountAddressV2(input.eoaAddress, input.ephemeralAddress).address;
+  return input.safeAddress;
 };
 
 // 5 minute window — matches v1's BRIDGE_VAULT_PERMIT_DEADLINE_MINUTES. Permit deadline expiry
@@ -189,6 +195,7 @@ const resolveFundingTransferCalls = async (
     ExecutionContext,
     | 'chainList'
     | 'eoaAddress'
+    | 'cache'
     | 'eoaWallet'
     | 'ephemeralWallet'
     | 'onProgress'
@@ -339,6 +346,7 @@ const submitNativeBridgeDepositViaEoa = async (params: {
   depositValue: bigint;
   ctx: Pick<
     ExecutionContext,
+    | 'cache'
     | 'eoaAddress'
     | 'eoaWallet'
     | 'ephemeralWallet'
@@ -360,6 +368,7 @@ const submitNativeBridgeDepositViaEoa = async (params: {
     eoaAddress: ctx.eoaAddress,
     publicClient,
     middleware: ctx.middlewareClient,
+    safeAddress: getSafeAddress(ctx),
     safeDeploymentPromise: ctx.safeDeploymentPromises?.get(asset.chainID),
   });
   return safeResult.txHash;
@@ -433,10 +442,7 @@ const runMayanEphemeralBridge = async (
       // EOA-held fast path, fundingCalls first performs transferFrom(EOA→ephemeral) with the Safe
       // as spender.
       const publicClient = ctx.publicClientList.get(asset.chainID);
-      const { address: safeAddress } = predictSafeAccountAddressV2(
-        ctx.eoaAddress,
-        ctx.ephemeralWallet.address
-      );
+      const safeAddress = getSafeAddress(ctx);
       await ensureSafeForEphemeral({
         chainId: asset.chainID,
         eoaAddress: ctx.eoaAddress,
@@ -811,12 +817,10 @@ const executeEphemeralBridgePath = async (
   >,
   metadata: SwapMetadata
 ) => {
-  const destinationChain = resolveChain(ctx.chainList, bridge.chainID);
   const recipient = resolveBridgeRecipient({
     destinationDirectEoa: ctx.destinationDirectEoa,
-    destinationChain,
     eoaAddress: ctx.eoaAddress,
-    ephemeralAddress: ctx.ephemeralWallet.address,
+    safeAddress: getSafeAddress(ctx),
   });
   // Mayan: re-quote against the FINAL bridged amounts before building the intent, so the signed
   // order input matches the RFF deposit value exactly (route-time quotes can drift after a
@@ -946,10 +950,7 @@ const executeEphemeralBridgePath = async (
         // an EOA-held fast path, fundingCalls first performs transferFrom(EOA→ephemeral) with the
         // Safe as spender.
         const publicClient = ctx.publicClientList.get(asset.chainID);
-        const { address: safeAddress } = predictSafeAccountAddressV2(
-          ctx.eoaAddress,
-          ctx.ephemeralWallet.address
-        );
+        const safeAddress = getSafeAddress(ctx);
         await ensureSafeForEphemeral({
           chainId: asset.chainID,
           eoaAddress: ctx.eoaAddress,

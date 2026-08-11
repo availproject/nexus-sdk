@@ -146,8 +146,9 @@ swap(params)
      -> swap/route.ts: determineSwapRoute(...)
         -> swap/routing/exact-in.ts | exact-out.ts
      -> createSwapIntent(...)
+     -> start allowance, permit-capability, and Safe-code cache reads
      -> onIntent({ allow, deny, refresh, intent })
-     -> swap/prepare.ts: prepareSwapExecution(...)
+     -> swap/prepare.ts: prepareSwapExecution(...) awaits the accepted route's cache
      -> swap/execution/orchestrator.ts: executeSwapRoute(...)
         -> executeSourceSwaps(...) | executeDirectDestinationExactOut(...)
         -> executeSwapBridge(...) when routed
@@ -171,13 +172,15 @@ prompts, permit signatures, direct approvals, and EOA transaction dispatch. Swap
 parallelize non-EOA work such as route requests, public-client reads, per-chain Safe deployment,
 sponsored Safe execution, and receipt waits.
 
-Safe V2 is the only swap execution account. After intent approval, the flow immediately starts an
-idempotent `ensureSafeAccount` request for every chain that will execute a source swap, bridge
-deposit, or destination swap. These requests run concurrently. Preparation and execution await the
-promise for a chain before requesting any permit, direct approval, or EOA transaction on that chain,
-so wallet UIs resolve the spender to deployed contract code. Safe owners are the connected EOA and
-the SDK ephemeral account at threshold 1. Token-only batches are sponsor-broadcast; batches carrying
-native value are wrapped in `Safe.execTransaction` and submitted by the EOA.
+Safe V2 is the only swap execution account. The flow derives its address once, then checks bytecode
+on every execution chain as part of the read-only cache warmup while the intent is displayed. After
+intent approval, already deployed Safes skip middleware and absent Safes are ensured concurrently.
+A successful ensure marks the shared cache deployed for that chain. Preparation and execution await
+the chain promise before requesting any permit, direct approval, or EOA transaction, so wallet UIs
+resolve the spender to deployed contract code without repeated Safe bytecode reads. Safe owners are
+the connected EOA and the SDK ephemeral account at threshold 1. Token-only batches are
+sponsor-broadcast; batches carrying native value are wrapped in `Safe.execTransaction` and submitted
+by the EOA.
 
 Bridge funding preparation retries only transient permit-path RPC work, with three total attempts.
 Direct approvals and wallet rejections are terminal. Ambiguous Safe middleware failures are not

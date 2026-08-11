@@ -119,34 +119,32 @@ describe('ensureSafeForEphemeral', () => {
 
   it('starts every unique chain deployment without waiting for another chain', async () => {
     const secondChainId = 10;
-    const pendingCodeReads = new Map<number, () => void>();
-    const publicClientList = {
-      get: vi.fn((requestedChainId: number) => ({
-        getCode: vi.fn(
-          () =>
-            new Promise<undefined>((resolve) => {
-              pendingCodeReads.set(requestedChainId, () => resolve(undefined));
-            })
-        ),
-      })),
-    };
     const middleware = makeMiddleware();
+    const safeAccounts = {
+      getSafeAccount: vi.fn((requestedChainId: number) => ({
+        address: safeAddress,
+        factoryAddress: '0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67' as Hex,
+        deployed: requestedChainId === chainId,
+      })),
+      setSafeDeployed: vi.fn(),
+    };
 
     const deployments = startSafeDeploymentsForChains({
       chainIds: [chainId, secondChainId, chainId],
       eoaAddress,
       ephemeralWallet,
-      publicClientList,
+      safeAccounts,
+      cacheReady: Promise.resolve(),
       middleware,
     });
 
     expect([...deployments.keys()]).toEqual([chainId, secondChainId]);
-    expect(publicClientList.get).toHaveBeenCalledTimes(2);
-    expect(pendingCodeReads.has(chainId)).toBe(true);
-    expect(pendingCodeReads.has(secondChainId)).toBe(true);
-
-    pendingCodeReads.get(chainId)?.();
-    pendingCodeReads.get(secondChainId)?.();
     await Promise.all(deployments.values());
+    expect(safeAccounts.getSafeAccount).toHaveBeenCalledTimes(2);
+    expect(middleware.ensureSafeAccount).toHaveBeenCalledTimes(1);
+    expect(middleware.ensureSafeAccount).toHaveBeenCalledWith(
+      expect.objectContaining({ chainId: secondChainId, safeAddress })
+    );
+    expect(safeAccounts.setSafeDeployed).toHaveBeenCalledWith(secondChainId, true);
   });
 });
