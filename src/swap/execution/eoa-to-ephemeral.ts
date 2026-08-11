@@ -24,7 +24,7 @@ type ResolvePreparedFundingTransferCallsInput = {
     'getTransactionReceipt' | 'waitForTransactionReceipt' | 'readContract'
   >;
   cache?: Pick<SwapCache, 'getAllowance'> & Partial<Pick<SwapCache, 'setAllowance'>>;
-  safeDeploymentPromise?: Promise<EnsureSafeAccountV2Response>;
+  safeDeploymentPromise: Promise<EnsureSafeAccountV2Response>;
 };
 
 const ensureDirectApproval = async (

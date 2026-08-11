@@ -238,6 +238,8 @@ const makeContext = (
       submitSBCs,
     },
     cache: undefined,
+    safeAddress: EPH,
+    safeDeploymentPromises: new Map([[ARB_CHAIN, Promise.resolve({})]]),
     intentExplorerUrl: 'https://intent.example',
     onProgress: vi.fn(),
     preparedExecution: overrides.preparedExecution,
@@ -255,6 +257,8 @@ const makeContext = (
     | 'onProgress'
     | 'preparedExecution'
     | 'publicClientList'
+    | 'safeAddress'
+    | 'safeDeploymentPromises'
     | 'timing'
   >;
   return {

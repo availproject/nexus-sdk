@@ -370,4 +370,22 @@ describe('Safe V2 wire format', () => {
 
     expect(highLevelSafeUsers.join('\n')).not.toMatch(/\bpredictSafeAccountAddress\(/);
   });
+
+  it('passes the derived V2 Safe through routing and execution without re-deriving it', () => {
+    const repositoryRoot = resolve(import.meta.dirname, '../../..');
+    const safeConsumers = [
+      'src/swap/prepare.ts',
+      'src/swap/routing/addresses.ts',
+      'src/swap/execution/bridge.ts',
+      'src/swap/execution/destination-swap.ts',
+      'src/swap/execution/direct-destination.ts',
+      'src/swap/execution/failure-cleanup.ts',
+      'src/swap/execution/safe-dispatch.ts',
+      'src/swap/execution/source-swaps.ts',
+    ].map((path) => readFileSync(join(repositoryRoot, path), 'utf8'));
+
+    expect(safeConsumers.join('\n')).not.toMatch(
+      /predictSafeAccountAddressV2|readCachedSafeAddress/
+    );
+  });
 });

@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Decimal from 'decimal.js';
-import { decodeFunctionData, type Hex, type WalletClient } from 'viem';
+import { decodeFunctionData, type Hex, type PublicClient, type WalletClient } from 'viem';
 import type { PrivateKeyAccount } from 'viem/accounts';
 import ERC20ABI, { ERC20PermitABI } from '../../src/abi/erc20';
-import { prepareSwapExecution } from '../../src/swap/prepare';
+import { prepareSwapExecution, startSwapCacheWarmup } from '../../src/swap/prepare';
 import { predictSafeAccountAddressV2 } from '../../src/swap/safe/predict';
 import type { EnsureSafeAccountV2Response } from '../../src/swap/safe/types';
 import { CurrencyID } from '../../src/swap/cot';
@@ -27,7 +27,8 @@ const USDC_ARB = '0xaf88d065e77c8cc2239327c5edb3a432268e5831' as Hex;
 const DAI_ARB = '0xda10009cbd5d07dd0cecc66161fc93d7c9000da1' as Hex;
 const EOA = '0xaaaa000000000000000000000000000000000001' as Hex;
 const EPH = '0xbbbb000000000000000000000000000000000002' as Hex;
-const SAFE = predictSafeAccountAddressV2(EOA, EPH).address;
+const SAFE_ACCOUNT = predictSafeAccountAddressV2(EOA, EPH);
+const SAFE = SAFE_ACCOUNT.address;
 const APPROVAL = '0x1111111111111111111111111111111111111111' as Hex;
 const SUPPORTED_TOKEN: TokenInfo = {
   contractAddress: USDC_ARB,
@@ -121,10 +122,56 @@ const makeSupportedChainList = (token: TokenInfo = SUPPORTED_TOKEN) =>
     token
   );
 
-const makeCache = (token: TokenInfo = SUPPORTED_TOKEN) =>
-  new SwapCache(
-    makeSupportedChainList(token)
-  );
+const resolvedDeployment = (): Promise<EnsureSafeAccountV2Response> =>
+  Promise.resolve({
+    chainId: ARB_CHAIN,
+    eoaAddress: EOA,
+    ephemeralAddress: EPH,
+    address: SAFE,
+    factoryAddress: SAFE_ACCOUNT.factoryAddress,
+    exists: true,
+  });
+
+const prepareRoute = (
+  route: SwapRoute,
+  options: {
+    chainList?: ReturnType<typeof makeSupportedChainList>;
+    publicClient?: Pick<PublicClient, 'getCode' | 'multicall' | 'readContract'>;
+    safeDeploymentPromises?: ReadonlyMap<number, Promise<EnsureSafeAccountV2Response>>;
+    timing?: ReturnType<typeof makeTimingHooks>;
+  } = {}
+) => {
+  const chainList = options.chainList ?? makeSupportedChainList();
+  const publicClientList = {
+    get: vi.fn().mockReturnValue(options.publicClient ?? makePublicClient()),
+  } as ExecutionContext['publicClientList'];
+  const cacheWarmup = startSwapCacheWarmup({
+    chainList,
+    route,
+    source: route.source,
+    destination: route.destination,
+    eoaAddress: EOA,
+    ephemeralWallet: { address: EPH } as PrivateKeyAccount,
+    publicClientList,
+    safeAccount: SAFE_ACCOUNT,
+    timing: options.timing,
+  });
+
+  return prepareSwapExecution({
+    chainList,
+    route,
+    source: route.source,
+    destination: route.destination,
+    eoaAddress: EOA,
+    eoaWallet: {} as WalletClient,
+    ephemeralWallet: { address: EPH } as PrivateKeyAccount,
+    publicClientList,
+    cacheWarmup,
+    safeDeploymentPromises:
+      options.safeDeploymentPromises ?? new Map([[ARB_CHAIN, resolvedDeployment()]]),
+    timing: options.timing,
+  });
+};
 
 describe('prepareSwapExecution', () => {
   beforeEach(() => {
@@ -136,29 +183,16 @@ describe('prepareSwapExecution', () => {
 
   it('processes cache and returns parsed quote calls before execution', async () => {
     const route = makeRoute();
-    const cache = makeCache();
     const publicClient = makePublicClient();
     const timing = makeTimingHooks();
 
-    const prepared = await prepareSwapExecution({
-      chainList: makeSupportedChainList(),
-      route,
-      source: route.source,
-      destination: route.destination,
-      eoaAddress: EOA,
-      eoaWallet: {} as WalletClient,
-      ephemeralWallet: { address: EPH } as PrivateKeyAccount,
-      publicClientList: { get: vi.fn().mockReturnValue(publicClient) },
-      cache,
-      timing,
-    });
+    const prepared = await prepareRoute(route, { publicClient, timing });
 
     expect(publicClient.multicall).toHaveBeenCalled();
     expect(prepared.parsedQuotes).toHaveLength(2);
     expect(prepared.parsedQuotes[0]?.approval).not.toBeNull();
     expect(timing.startSpan.mock.calls.map(([name]) => name)).toEqual(
       expect.arrayContaining([
-        'flow.swap.prepare.queue_cache',
         'flow.swap.prepare.cache_start',
         'flow.swap.prepare.cache_wait',
         'flow.swap.prepare.parse_quotes',
@@ -170,17 +204,7 @@ describe('prepareSwapExecution', () => {
   it('records source permit support without eagerly building the permit call', async () => {
     const route = makeRoute();
 
-    const prepared = await prepareSwapExecution({
-      chainList: makeSupportedChainList(),
-      route,
-      source: route.source,
-      destination: route.destination,
-      eoaAddress: EOA,
-      eoaWallet: {} as WalletClient,
-      ephemeralWallet: { address: EPH } as PrivateKeyAccount,
-      publicClientList: { get: vi.fn().mockReturnValue(makePublicClient()) },
-      cache: makeCache(),
-    });
+    const prepared = await prepareRoute(route);
 
     const sourceTransfer = prepared.eoaToEphemeralTransfers.find((entry) => entry.reason === 'source');
     expect(sourceTransfer).toBeDefined();
@@ -224,22 +248,10 @@ describe('prepareSwapExecution', () => {
       toAmountRaw: 1000000000000000000n,
       toNativeAmountRaw: 0n,
     };
-    const cache = makeCache();
-    const addPermitQuery = vi.spyOn(cache, 'addPermitQuery');
-    const addAllowanceQuery = vi.spyOn(cache, 'addAllowanceQuery');
-    vi.spyOn(cache, 'process').mockResolvedValue(undefined);
+    const addPermitQuery = vi.spyOn(SwapCache.prototype, 'addPermitQuery');
+    const addAllowanceQuery = vi.spyOn(SwapCache.prototype, 'addAllowanceQuery');
 
-    const prepared = await prepareSwapExecution({
-      chainList: makeSupportedChainList(),
-      route,
-      source: route.source,
-      destination: route.destination,
-      eoaAddress: EOA,
-      eoaWallet: {} as WalletClient,
-      ephemeralWallet: { address: EPH } as PrivateKeyAccount,
-      publicClientList: { get: vi.fn().mockReturnValue(makePublicClient()) },
-      cache,
-    });
+    const prepared = await prepareRoute(route);
 
     expect(prepared.parsedQuotes).toHaveLength(1);
     expect(prepared.eoaToEphemeralTransfers).toEqual([]);
@@ -263,17 +275,7 @@ describe('prepareSwapExecution', () => {
     };
     const expectedSafe = predictSafeAccountAddressV2(EOA, EPH).address;
 
-    const prepared = await prepareSwapExecution({
-      chainList: makeSupportedChainList(),
-      route,
-      source: route.source,
-      destination: route.destination,
-      eoaAddress: EOA,
-      eoaWallet: {} as WalletClient,
-      ephemeralWallet: { address: EPH } as PrivateKeyAccount,
-      publicClientList: { get: vi.fn().mockReturnValue(makePublicClient()) },
-      cache: makeCache(),
-    });
+    const prepared = await prepareRoute(route);
 
     const sourceTransfer = prepared.eoaToEphemeralTransfers.find((entry) => entry.reason === 'source');
     expect(sourceTransfer).toBeDefined();
@@ -293,17 +295,7 @@ describe('prepareSwapExecution', () => {
     const route = makeRoute();
     const chainList = makeSupportedChainList();
 
-    const prepared = await prepareSwapExecution({
-      chainList,
-      route,
-      source: route.source,
-      destination: route.destination,
-      eoaAddress: EOA,
-      eoaWallet: {} as WalletClient,
-      ephemeralWallet: { address: EPH } as PrivateKeyAccount,
-      publicClientList: { get: vi.fn().mockReturnValue(makePublicClient()) },
-      cache: makeCache(),
-    });
+    const prepared = await prepareRoute(route, { chainList });
 
     const destinationTransfer = prepared.eoaToEphemeralTransfers.find(
       (entry) => entry.reason === 'destination'
@@ -349,16 +341,7 @@ describe('prepareSwapExecution', () => {
         });
     });
 
-    const preparation = prepareSwapExecution({
-      chainList: makeSupportedChainList(),
-      route,
-      source: route.source,
-      destination: route.destination,
-      eoaAddress: EOA,
-      eoaWallet: {} as WalletClient,
-      ephemeralWallet: { address: EPH } as PrivateKeyAccount,
-      publicClientList: { get: vi.fn().mockReturnValue(makePublicClient()) },
-      cache: makeCache(),
+    const preparation = prepareRoute(route, {
       safeDeploymentPromises: new Map([[ARB_CHAIN, deployment]]),
     });
 
@@ -385,17 +368,7 @@ describe('prepareSwapExecution', () => {
       readContract: vi.fn(),
     };
 
-    const prepared = await prepareSwapExecution({
-      chainList: makeSupportedChainList(),
-      route,
-      source: route.source,
-      destination: route.destination,
-      eoaAddress: EOA,
-      eoaWallet: {} as WalletClient,
-      ephemeralWallet: { address: EPH } as PrivateKeyAccount,
-      publicClientList: { get: vi.fn().mockReturnValue(publicClient) },
-      cache: makeCache(),
-    });
+    const prepared = await prepareRoute(route, { publicClient });
 
     const sourceTransfer = prepared.eoaToEphemeralTransfers.find((entry) => entry.reason === 'source');
     const destinationTransfer = prepared.eoaToEphemeralTransfers.find(
@@ -424,41 +397,29 @@ describe('prepareSwapExecution', () => {
       },
     };
 
-    const prepared = await prepareSwapExecution({
-      chainList: makeChainList(
-        [makeChain(ARB_CHAIN, 'Arbitrum')],
-        {
-          contractAddress: '0x0000000000000000000000000000000000000001' as Hex,
-          decimals: 6,
-          logo: '',
-          name: 'Unknown Token',
-          symbol: 'UNK',
-        }
-      ),
-      route,
-      source: route.source,
-      destination: route.destination,
-      eoaAddress: EOA,
-      eoaWallet: {} as WalletClient,
-      ephemeralWallet: { address: EPH } as PrivateKeyAccount,
-      publicClientList: {
-        get: vi.fn().mockReturnValue({
-          multicall: vi.fn().mockResolvedValue([
-            { status: 'failure' },
-            { status: 'failure' },
-            { status: 'failure' },
-          ]),
-          getCode: vi.fn().mockResolvedValue(undefined),
-          readContract: vi.fn().mockResolvedValue(0n),
-        }),
-      },
-      cache: makeCache({
+    const chainList = makeChainList(
+      [makeChain(ARB_CHAIN, 'Arbitrum')],
+      {
         contractAddress: '0x0000000000000000000000000000000000000001' as Hex,
         decimals: 6,
         logo: '',
         name: 'Unknown Token',
         symbol: 'UNK',
-      }),
+      }
+    );
+    const publicClient = {
+      multicall: vi.fn().mockResolvedValue([
+        { status: 'failure' },
+        { status: 'failure' },
+        { status: 'failure' },
+      ]),
+      getCode: vi.fn().mockResolvedValue(undefined),
+      readContract: vi.fn().mockResolvedValue(0n),
+    };
+
+    const prepared = await prepareRoute(route, {
+      chainList,
+      publicClient,
     });
 
     const sourceTransfer = prepared.eoaToEphemeralTransfers.find((entry) => entry.reason === 'source');
@@ -512,31 +473,20 @@ describe('prepareSwapExecution', () => {
       readContract: vi.fn().mockResolvedValue(0n),
     };
 
-    const prepared = await prepareSwapExecution({
-      chainList: makeChainList(
-        [makeChain(ARB_CHAIN, 'Arbitrum')],
-        {
-          contractAddress: unsupportedToken,
-          decimals: 6,
-          logo: '',
-          name: 'Unknown Token',
-          symbol: 'UNK',
-        }
-      ),
-      route,
-      source: route.source,
-      destination: route.destination,
-      eoaAddress: EOA,
-      eoaWallet: {} as WalletClient,
-      ephemeralWallet: { address: EPH } as PrivateKeyAccount,
-      publicClientList: { get: vi.fn().mockReturnValue(publicClient) },
-      cache: makeCache({
+    const chainList = makeChainList(
+      [makeChain(ARB_CHAIN, 'Arbitrum')],
+      {
         contractAddress: unsupportedToken,
         decimals: 6,
         logo: '',
         name: 'Unknown Token',
         symbol: 'UNK',
-      }),
+      }
+    );
+
+    const prepared = await prepareRoute(route, {
+      chainList,
+      publicClient,
     });
 
     const sourceTransfer = prepared.eoaToEphemeralTransfers.find((entry) => entry.reason === 'source');
@@ -576,17 +526,7 @@ describe('prepareSwapExecution', () => {
       },
     };
 
-    const prepared = await prepareSwapExecution({
-      chainList: makeSupportedChainList(),
-      route,
-      source: route.source,
-      destination: route.destination,
-      eoaAddress: EOA,
-      eoaWallet: {} as WalletClient,
-      ephemeralWallet: { address: EPH } as PrivateKeyAccount,
-      publicClientList: { get: vi.fn().mockReturnValue(makePublicClient()) },
-      cache: makeCache(),
-    });
+    const prepared = await prepareRoute(route);
 
     const bridgeTransfer = prepared.eoaToEphemeralTransfers.find((entry) => entry.reason === 'bridge');
     expect(bridgeTransfer).toBeDefined();
@@ -637,17 +577,7 @@ describe('prepareSwapExecution', () => {
     );
     const expectedSafe = predictSafeAccountAddressV2(EOA, EPH).address;
 
-    const prepared = await prepareSwapExecution({
-      chainList,
-      route,
-      source: route.source,
-      destination: route.destination,
-      eoaAddress: EOA,
-      eoaWallet: {} as WalletClient,
-      ephemeralWallet: { address: EPH } as PrivateKeyAccount,
-      publicClientList: { get: vi.fn().mockReturnValue(makePublicClient()) },
-      cache: makeCache(),
-    });
+    const prepared = await prepareRoute(route, { chainList });
 
     const bridgeTransfer = prepared.eoaToEphemeralTransfers.find((entry) => entry.reason === 'bridge');
     expect(bridgeTransfer).toBeDefined();
@@ -691,17 +621,7 @@ describe('prepareSwapExecution', () => {
       },
     };
 
-    const prepared = await prepareSwapExecution({
-      chainList: makeSupportedChainList(),
-      route,
-      source: route.source,
-      destination: route.destination,
-      eoaAddress: EOA,
-      eoaWallet: {} as WalletClient,
-      ephemeralWallet: { address: EPH } as PrivateKeyAccount,
-      publicClientList: { get: vi.fn().mockReturnValue(makePublicClient()) },
-      cache: makeCache(),
-    });
+    const prepared = await prepareRoute(route);
 
     const bridgeTransfer = prepared.eoaToEphemeralTransfers.find((entry) => entry.reason === 'bridge');
     expect(bridgeTransfer).toBeUndefined();
@@ -752,16 +672,8 @@ describe('prepareSwapExecution', () => {
       readContract: vi.fn().mockResolvedValue(0n),
     };
 
-    const prepared = await prepareSwapExecution({
-      chainList: makeSupportedChainList(),
-      route,
-      source: route.source,
-      destination: route.destination,
-      eoaAddress: EOA,
-      eoaWallet: {} as WalletClient,
-      ephemeralWallet: { address: EPH } as PrivateKeyAccount,
-      publicClientList: { get: vi.fn().mockReturnValue(publicClient) },
-      cache: makeCache(),
+    const prepared = await prepareRoute(route, {
+      publicClient,
     });
 
     const bridgeTransfer = prepared.eoaToEphemeralTransfers.find((entry) => entry.reason === 'bridge');
@@ -812,27 +724,23 @@ describe('prepareSwapExecution', () => {
     // Legacy delegation bytecode is not consulted by the Safe V2-only execution path.
     const publicClient = {
       multicall: vi.fn().mockResolvedValue([{ result: 0n, status: 'success' }]),
-      getCode: vi.fn().mockResolvedValue(`0xef0100${'ab'.repeat(20)}`),
+      getCode: vi.fn().mockImplementation(({ address }: { address: Hex }) =>
+        address.toLowerCase() === EPH.toLowerCase()
+          ? Promise.resolve(`0xef0100${'ab'.repeat(20)}`)
+          : Promise.resolve(undefined)
+      ),
       readContract: vi.fn().mockResolvedValue(0n),
     };
 
-    const prepared = await prepareSwapExecution({
-      chainList: makeSupportedChainList(),
-      route,
-      source: route.source,
-      destination: route.destination,
-      eoaAddress: EOA,
-      eoaWallet: {} as WalletClient,
-      ephemeralWallet: { address: EPH } as PrivateKeyAccount,
-      publicClientList: { get: vi.fn().mockReturnValue(publicClient) },
-      cache: makeCache(),
+    const prepared = await prepareRoute(route, {
+      publicClient,
     });
 
     const bridgeTransfer = prepared.eoaToEphemeralTransfers.find(
       (entry) => entry.reason === 'bridge'
     );
 
-    expect(publicClient.getCode).not.toHaveBeenCalled();
+    expect(publicClient.getCode).toHaveBeenCalledWith({ address: SAFE });
     expect(bridgeTransfer?.authorization?.kind).toBe('permit');
     expect(signPermitForAddressAndValue).not.toHaveBeenCalled();
   });

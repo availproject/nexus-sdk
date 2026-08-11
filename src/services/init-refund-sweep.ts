@@ -3,7 +3,7 @@ import { encodeFunctionData, erc20Abi, type Hex, type PrivateKeyAccount, parseUn
 import { type ChainListType, getLogger, type SwapTokenBalance } from '../domain';
 import { predictSafeAccountAddressV2 } from '../swap/safe/predict';
 import type { PublicClientList } from '../swap/types';
-import { readCachedSafeAddress, type SwapCache } from '../swap/wallet/cache';
+import type { SwapCache } from '../swap/wallet/cache';
 import { buildEphemeralPermitCall } from '../swap/wallet/ephemeral-permit';
 import type { MiddlewareSwapClient } from '../transport';
 import { isNativeAddress } from './addresses';
@@ -27,6 +27,7 @@ export type SweepContext = {
   ephemeralWallet: PrivateKeyAccount;
   eoaAddress: Hex;
   cache: SwapCache | undefined;
+  safeAddress?: Hex;
   safeDeploymentPromises?: ReadonlyMap<
     number,
     Promise<import('../swap/safe/types').EnsureSafeAccountV2Response>
@@ -111,7 +112,7 @@ export const sweepEphemeralRefundsToEoa = async (input: {
   const { ctx } = input;
   const label = input.label ?? 'Init refund sweep';
   const safeAddress =
-    readCachedSafeAddress(ctx.cache) ??
+    ctx.safeAddress ??
     predictSafeAccountAddressV2(ctx.eoaAddress, ctx.ephemeralWallet.address).address;
 
   const [ephemeralBalances, safeBalances] = await Promise.all([
@@ -194,7 +195,7 @@ export const dispatchSweepGroups = async (
     return;
   }
   const safeAddress =
-    readCachedSafeAddress(ctx.cache) ??
+    ctx.safeAddress ??
     predictSafeAccountAddressV2(ctx.eoaAddress, ctx.ephemeralWallet.address).address;
 
   logger.debug('sweep:dispatch', {
@@ -206,14 +207,18 @@ export const dispatchSweepGroups = async (
     groups.map(async (group) => {
       const publicClient = ctx.publicClientList.get(group.chainId);
 
-      await ensureSafeForEphemeral({
-        chainId: group.chainId,
-        eoaAddress: ctx.eoaAddress,
-        ephemeralWallet: ctx.ephemeralWallet,
-        publicClient,
-        middleware: ctx.middlewareClient,
-        deploymentPromise: ctx.safeDeploymentPromises?.get(group.chainId),
-      });
+      const safeDeployment = ctx.safeDeploymentPromises?.get(group.chainId);
+      if (safeDeployment) {
+        await safeDeployment;
+      } else {
+        await ensureSafeForEphemeral({
+          chainId: group.chainId,
+          eoaAddress: ctx.eoaAddress,
+          ephemeralWallet: ctx.ephemeralWallet,
+          publicClient,
+          middleware: ctx.middlewareClient,
+        });
+      }
       const request = await createSafeExecuteTxFromCalls({
         calls: group.calls,
         chainId: group.chainId,

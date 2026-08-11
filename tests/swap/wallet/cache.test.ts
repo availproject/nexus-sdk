@@ -113,6 +113,20 @@ describe('SwapCache', () => {
     });
   });
 
+  it('keeps the Safe query key stable while skipping code reads for a known deployment', async () => {
+    cache = new SwapCache(chainList, { address: SAFE, factoryAddress: SAFE_FACTORY });
+    cache.addSafeAccountQuery(CHAIN_ID);
+    const pendingKey = cache.getPendingQueryKey();
+    cache.setSafeDeployed(CHAIN_ID);
+    const client = makePublicClient();
+
+    expect(cache.getPendingQueryKey()).toBe(pendingKey);
+    await cache.process({ [CHAIN_ID]: client } as unknown as CacheClients);
+
+    expect(client.getCode).not.toHaveBeenCalled();
+    expect(cache.getSafeAccount(CHAIN_ID)?.deployed).toBe(true);
+  });
+
   it('probes canonical permit support when metadata is missing', async () => {
     setTokenInfo({
       contractAddress: TOKEN,

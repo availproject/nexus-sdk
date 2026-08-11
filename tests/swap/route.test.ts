@@ -163,6 +163,10 @@ const makeRouteOptions = (overrides?: Partial<RouteOptions>): RouteOptions => ({
   dstTokenInfo: makeDstTokenInfo(),
   eoaAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as Hex,
   ephemeralAddress: EPHEMERAL_EXECUTOR,
+  safeAddress: predictSafeAccountAddressV2(
+    '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    EPHEMERAL_EXECUTOR
+  ).address,
   balances: [],
   walletPathHints: new Map([
     [ARB_CHAIN, 'safe'],
@@ -3657,24 +3661,23 @@ describe('determineSwapRoute', () => {
     };
     vi.mocked(liquidateInputHoldings).mockResolvedValue([makeQuoteResponse()]);
     vi.mocked(destinationSwapWithExactIn).mockResolvedValue(makeQuoteResponse());
+    const eoaAddress = '0xaaaa000000000000000000000000000000000001' as Hex;
+    const safeAddress = predictSafeAccountAddressV2(eoaAddress, EPHEMERAL_EXECUTOR).address;
     const routeOptions = {
       ...makeRouteOptions({
-        eoaAddress: '0xaaaa000000000000000000000000000000000001' as Hex,
+        eoaAddress,
+        safeAddress,
         balances: [{ amount: '1', chainID: ARB_CHAIN, decimals: 18, symbol: 'WETH', tokenAddress: WETH, value: 3000, logo: '', name: 'WETH' }],
       }),
       quoteAddressHints: new Map([[ARB_CHAIN, EPHEMERAL_EXECUTOR]]),
     } as RouteOptions & { quoteAddressHints: Map<number, Hex> };
-    const expectedSafe = predictSafeAccountAddressV2(
-      routeOptions.eoaAddress,
-      routeOptions.ephemeralAddress
-    ).address;
     await determineSwapRoute(input, routeOptions);
     expect(
       vi.mocked(liquidateInputHoldings).mock.calls[0][0].userAddressByChain?.get(ARB_CHAIN)
-    ).toBe(expectedSafe);
+    ).toBe(safeAddress);
     expect(vi.mocked(destinationSwapWithExactIn)).toHaveBeenCalledWith(
       expect.objectContaining({
-        options: expect.objectContaining({ userAddress: expectedSafe }),
+        options: expect.objectContaining({ userAddress: safeAddress }),
       })
     );
   });

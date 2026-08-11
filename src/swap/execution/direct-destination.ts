@@ -14,7 +14,7 @@ import { isNativeAddress } from '../../services/addresses';
 import { createExplorerTxURL } from '../../services/explorer';
 import { isUserRejectedRequest } from '../../services/is-user-rejected-request';
 import { mulDecimals } from '../../services/math';
-import type { SafeCall } from '../../services/safe';
+import { requireSafeDeployment, type SafeCall } from '../../services/safe';
 import { createSourceSwapStepId } from '../../services/step-ids';
 import { equalFold } from '../../services/strings';
 import { withTimingSpan } from '../../services/timing';
@@ -25,7 +25,6 @@ import {
   sizeDirectDestinationExactOut,
 } from '../algorithms/direct-destination-size';
 import { DIRECT_DST_QUOTE_TTL_MS, SRC_BUFFER_MAX_USD, SRC_BUFFER_PCT } from '../constants';
-import { predictSafeAccountAddressV2 } from '../safe/predict';
 import type {
   ExecutionContext,
   OraclePriceResponse,
@@ -34,7 +33,6 @@ import type {
   SwapMetadata,
   SwapRoute,
 } from '../types';
-import { readCachedSafeAddress } from '../wallet/cache';
 import { buildPreparedTransfer } from '../wallet/prepared-transfer';
 import { resolvePreparedFundingTransferCalls } from './eoa-to-ephemeral';
 import { getParsedQuote } from './parsed-quote';
@@ -229,7 +227,7 @@ const buildCalls = async (input: {
         eoaAddress: ctx.eoaAddress,
         eoaWallet: ctx.eoaWallet,
         publicClient,
-        safeDeploymentPromise: ctx.safeDeploymentPromises?.get(chainId),
+        safeDeploymentPromise: requireSafeDeployment(ctx.safeDeploymentPromises, chainId),
       })
     );
     if (cached?.authorization?.kind === 'approve') cached.approvalMined = true;
@@ -331,9 +329,7 @@ export const executeDirectDestinationExactOut = async (
 
   const chainId = route.destination.chainId;
   const chain = ctx.chainList.getChainByID(chainId);
-  const targetAddress: Hex =
-    readCachedSafeAddress(ctx.cache) ??
-    predictSafeAccountAddressV2(ctx.eoaAddress, ctx.ephemeralWallet.address).address;
+  const targetAddress = ctx.safeAddress;
   const executorCtx = { ...ctx, cache: ctx.cache };
   const authorizations = new Map<string, FundingAuthorization>();
   const routeTimeInputs = new Map<string, bigint>();

@@ -26,7 +26,7 @@ import { quoteMayanLegs } from '../../services/mayan';
 import { createRequestFromIntent } from '../../services/rff';
 import {
   createSafeExecuteTxFromCalls,
-  ensureSafeForEphemeral,
+  requireSafeDeployment,
   type SafeCall,
 } from '../../services/safe';
 import {
@@ -35,20 +35,12 @@ import {
 } from '../../services/step-ids';
 import { withTimingSpan } from '../../services/timing';
 import { createSwapBridgeIntent } from '../bridge-intent';
-import { predictSafeAccountAddressV2 } from '../safe/predict';
 import type { BridgeAsset, ExecutionContext, SwapMetadata, SwapRoute } from '../types';
-import { readCachedSafeAddress } from '../wallet/cache';
 import { resolveEphemeralVaultAllowance } from '../wallet/ephemeral-vault-allowance';
 import { resolvePreparedFundingTransferCalls } from './eoa-to-ephemeral';
 import { dispatchSafeSource } from './safe-dispatch';
 
 const logger = getLogger();
-
-const getSafeAddress = (
-  ctx: Pick<ExecutionContext, 'cache' | 'eoaAddress' | 'ephemeralWallet'>
-): Hex =>
-  readCachedSafeAddress(ctx.cache) ??
-  predictSafeAccountAddressV2(ctx.eoaAddress, ctx.ephemeralWallet.address).address;
 
 // Loose view of a Mayan quote for tracing (effectiveAmountIn / minReceived live on the vendored
 // Mayan Quote type and aren't worth importing just to log).
@@ -246,7 +238,8 @@ const resolveFundingTransferCalls = async (
   const publicClient = ctx.publicClientList.get(asset.chainID);
   const authorizationKind = transfer.authorization?.kind ?? 'none';
 
-  await ctx.safeDeploymentPromises?.get(asset.chainID);
+  const safeDeploymentPromise = requireSafeDeployment(ctx.safeDeploymentPromises, asset.chainID);
+  await safeDeploymentPromise;
 
   logger.debug('swap.execute.bridge.funding.started', {
     chainId: asset.chainID,
@@ -272,7 +265,7 @@ const resolveFundingTransferCalls = async (
         eoaAddress: ctx.eoaAddress,
         eoaWallet: ctx.eoaWallet,
         publicClient,
-        safeDeploymentPromise: ctx.safeDeploymentPromises?.get(asset.chainID),
+        safeDeploymentPromise,
       });
       logger.debug('swap.execute.bridge.funding.completed', {
         chainId: asset.chainID,
@@ -352,11 +345,13 @@ const submitNativeBridgeDepositViaEoa = async (params: {
     | 'ephemeralWallet'
     | 'middlewareClient'
     | 'publicClientList'
+    | 'safeAddress'
     | 'safeDeploymentPromises'
   >;
 }): Promise<Hex> => {
   const { asset, chain, depositCall, depositValue, ctx } = params;
   const publicClient = ctx.publicClientList.get(asset.chainID);
+  const safeDeploymentPromise = requireSafeDeployment(ctx.safeDeploymentPromises, asset.chainID);
 
   const safeResult = await dispatchSafeSource({
     chain,
@@ -368,8 +363,8 @@ const submitNativeBridgeDepositViaEoa = async (params: {
     eoaAddress: ctx.eoaAddress,
     publicClient,
     middleware: ctx.middlewareClient,
-    safeAddress: getSafeAddress(ctx),
-    safeDeploymentPromise: ctx.safeDeploymentPromises?.get(asset.chainID),
+    safeAddress: ctx.safeAddress,
+    safeDeploymentPromise,
   });
   return safeResult.txHash;
 };
@@ -397,6 +392,7 @@ const runMayanEphemeralBridge = async (
     | 'onProgress'
     | 'preparedExecution'
     | 'publicClientList'
+    | 'safeAddress'
     | 'safeDeploymentPromises'
     | 'timing'
   >,
@@ -442,15 +438,8 @@ const runMayanEphemeralBridge = async (
       // EOA-held fast path, fundingCalls first performs transferFrom(EOA→ephemeral) with the Safe
       // as spender.
       const publicClient = ctx.publicClientList.get(asset.chainID);
-      const safeAddress = getSafeAddress(ctx);
-      await ensureSafeForEphemeral({
-        chainId: asset.chainID,
-        eoaAddress: ctx.eoaAddress,
-        ephemeralWallet: ctx.ephemeralWallet,
-        publicClient,
-        middleware: ctx.middlewareClient,
-        deploymentPromise: ctx.safeDeploymentPromises?.get(asset.chainID),
-      });
+      const { safeAddress } = ctx;
+      await requireSafeDeployment(ctx.safeDeploymentPromises, asset.chainID);
       const deadline = BigInt(Math.floor(Date.now() / 1000)) + BRIDGE_VAULT_PERMIT_DEADLINE_SECONDS;
       const safeCalls = [
         ...fundingCalls,
@@ -812,6 +801,7 @@ const executeEphemeralBridgePath = async (
     | 'onProgress'
     | 'preparedExecution'
     | 'publicClientList'
+    | 'safeAddress'
     | 'safeDeploymentPromises'
     | 'timing'
   >,
@@ -820,7 +810,7 @@ const executeEphemeralBridgePath = async (
   const recipient = resolveBridgeRecipient({
     destinationDirectEoa: ctx.destinationDirectEoa,
     eoaAddress: ctx.eoaAddress,
-    safeAddress: getSafeAddress(ctx),
+    safeAddress: ctx.safeAddress,
   });
   // Mayan: re-quote against the FINAL bridged amounts before building the intent, so the signed
   // order input matches the RFF deposit value exactly (route-time quotes can drift after a
@@ -950,15 +940,8 @@ const executeEphemeralBridgePath = async (
         // an EOA-held fast path, fundingCalls first performs transferFrom(EOA→ephemeral) with the
         // Safe as spender.
         const publicClient = ctx.publicClientList.get(asset.chainID);
-        const safeAddress = getSafeAddress(ctx);
-        await ensureSafeForEphemeral({
-          chainId: asset.chainID,
-          eoaAddress: ctx.eoaAddress,
-          ephemeralWallet: ctx.ephemeralWallet,
-          publicClient,
-          middleware: ctx.middlewareClient,
-          deploymentPromise: ctx.safeDeploymentPromises?.get(asset.chainID),
-        });
+        const { safeAddress } = ctx;
+        await requireSafeDeployment(ctx.safeDeploymentPromises, asset.chainID);
         const deadline =
           BigInt(Math.floor(Date.now() / 1000)) + BRIDGE_VAULT_PERMIT_DEADLINE_SECONDS;
         const safeCalls = [
@@ -1143,6 +1126,7 @@ export const executeSwapBridge = async (
     | 'onProgress'
     | 'preparedExecution'
     | 'publicClientList'
+    | 'safeAddress'
     | 'safeDeploymentPromises'
     | 'timing'
   >,

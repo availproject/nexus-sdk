@@ -206,12 +206,16 @@ describe('top-level swap lifecycle characterization', () => {
     const { deps } = makeHarness();
     let initialCacheCalls = 0;
     let refreshedCacheCalls = 0;
+    let initialCodeReads = 0;
+    let refreshedCodeReads = 0;
 
     await swap(input, deps, {
       onIntent: ({ refresh, allow }) => {
         initialCacheCalls = hoisted.multicall.mock.calls.length;
+        initialCodeReads = hoisted.getCode.mock.calls.length;
         void refresh().then(() => {
           refreshedCacheCalls = hoisted.multicall.mock.calls.length;
+          refreshedCodeReads = hoisted.getCode.mock.calls.length;
           allow();
         });
       },
@@ -219,6 +223,8 @@ describe('top-level swap lifecycle characterization', () => {
 
     expect(initialCacheCalls).toBeGreaterThan(0);
     expect(refreshedCacheCalls).toBe(initialCacheCalls);
+    expect(initialCodeReads).toBeGreaterThan(0);
+    expect(refreshedCodeReads).toBe(initialCodeReads);
     expect(hoisted.multicall).toHaveBeenCalledTimes(initialCacheCalls);
   });
 

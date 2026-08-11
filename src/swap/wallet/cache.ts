@@ -59,7 +59,6 @@ export class SwapCache {
   private allowances = new Map<AllowanceKey, bigint>();
   private permits = new Map<PermitKey, PermitDetails | undefined>();
   private safeDeployment = new Map<number, boolean>();
-  private safeAccountChains = new Set<number>();
 
   // ---------------------------------------------------------------------------
   // Add queries
@@ -75,16 +74,13 @@ export class SwapCache {
 
   addSafeAccountQuery(chainId: number): void {
     if (!this.safeAccount) return;
-    this.safeAccountChains.add(chainId);
-    if (this.safeDeployment.get(chainId) !== true) {
-      this.queries.push({ type: 'safe_account', chainId });
-    }
+    this.queries.push({ type: 'safe_account', chainId });
   }
 
   getPendingQueryKey(): string {
     return [
-      ...new Set([
-        ...this.queries.map((query) => {
+      ...new Set(
+        this.queries.map((query) => {
           if (query.type === 'safe_account') {
             return `safe_account:${query.chainId}:${this.safeAccount?.address.toLowerCase()}`;
           }
@@ -97,11 +93,8 @@ export class SwapCache {
             query.spender,
             query.chainId
           )}`;
-        }),
-        ...[...this.safeAccountChains].map(
-          (chainId) => `safe_account:${chainId}:${this.safeAccount?.address.toLowerCase()}`
-        ),
-      ]),
+        })
+      ),
     ]
       .sort()
       .join('|');
@@ -205,7 +198,13 @@ export class SwapCache {
             })
           );
           const safeAccountProcess = (async () => {
-            if (!hasSafeAccountQuery || !this.safeAccount) return;
+            if (
+              !hasSafeAccountQuery ||
+              !this.safeAccount ||
+              this.safeDeployment.get(chainId) === true
+            ) {
+              return;
+            }
             try {
               const code = await client.getCode({ address: this.safeAccount.address });
               this.safeDeployment.set(chainId, code !== undefined && code !== '0x');
@@ -254,14 +253,7 @@ export class SwapCache {
     };
   }
 
-  getSafeAddress(): Hex | undefined {
-    return this.safeAccount?.address;
-  }
-
   setSafeDeployed(chainId: number, deployed = true): void {
     this.safeDeployment.set(chainId, deployed);
   }
 }
-
-export const readCachedSafeAddress = (cache: SwapCache | undefined): Hex | undefined =>
-  typeof cache?.getSafeAddress === 'function' ? cache.getSafeAddress() : undefined;

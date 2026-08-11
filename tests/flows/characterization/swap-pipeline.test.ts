@@ -11,7 +11,7 @@ import {
 } from 'viem';
 import type { PrivateKeyAccount } from 'viem/accounts';
 import { buildSwapPreflight } from '../../../src/swap/preflight';
-import { prepareSwapExecution } from '../../../src/swap/prepare';
+import { prepareSwapExecution, startSwapCacheWarmup } from '../../../src/swap/prepare';
 import { predictSafeAccountAddressV2 } from '../../../src/swap/safe/predict';
 import { buildSwapPreviewState, swap as flowSwap, type SwapPreviewState } from '../../../src/flows/swap';
 import {
@@ -22,7 +22,6 @@ import {
   getSwapSourceSwapStep,
 } from '../../../src/swap/swap-steps-builder';
 import { EADDRESS, SWEEPER_ADDRESS } from '../../../src/swap/constants';
-import { SwapCache } from '../../../src/swap/wallet/cache';
 import {
   SwapMode,
   type FlatBalance,
@@ -117,7 +116,22 @@ vi.mock('viem', async () => {
 const EOA = '0xaaaa000000000000000000000000000000000001' as Hex;
 const EPH = '0xbbbb000000000000000000000000000000000002' as Hex;
 // CREATE2 of the V2 Safe proxy jointly keyed by the EOA and ephemeral owner.
-const PREDICTED_SAFE_FOR_EPH = predictSafeAccountAddressV2(EOA, EPH).address as Hex;
+const PREDICTED_SAFE_ACCOUNT = predictSafeAccountAddressV2(EOA, EPH);
+const PREDICTED_SAFE_FOR_EPH = PREDICTED_SAFE_ACCOUNT.address as Hex;
+const resolvedSafeDeployments = (chainIds: readonly number[]) =>
+  new Map(
+    chainIds.map((chainId) => [
+      chainId,
+      Promise.resolve({
+        chainId,
+        eoaAddress: EOA,
+        ephemeralAddress: EPH,
+        address: PREDICTED_SAFE_ACCOUNT.address,
+        factoryAddress: PREDICTED_SAFE_ACCOUNT.factoryAddress,
+        exists: true,
+      }),
+    ])
+  );
 const SOURCE_DAI = '0x0000000000000000000000000000000000000da1' as Hex;
 const ARB_BEBOP_APPROVAL = '0x1111111111111111111111111111111111111111' as Hex;
 const ARB_BEBOP_ROUTER = '0x1111111111111111111111111111111111112222' as Hex;
@@ -1363,6 +1377,18 @@ const runScenario = async (scenario: ExactOutScenario): Promise<HarnessResult> =
     middlewareClient: ctx.middlewareClient,
     forceMayan: false,
     preflight,
+    safeAddress: PREDICTED_SAFE_FOR_EPH,
+  });
+
+  const cacheWarmup = startSwapCacheWarmup({
+    chainList: ctx.chainList,
+    route: previewState.route,
+    source: previewState.route.source,
+    destination: previewState.route.destination,
+    eoaAddress: ctx.params.eoaAddress,
+    ephemeralWallet: ctx.params.ephemeralWallet,
+    publicClientList: preflight.publicClientList,
+    safeAccount: PREDICTED_SAFE_ACCOUNT,
   });
 
   const preparedExecution = await prepareSwapExecution({
@@ -1374,7 +1400,8 @@ const runScenario = async (scenario: ExactOutScenario): Promise<HarnessResult> =
     eoaWallet: ctx.params.eoaWallet,
     ephemeralWallet: ctx.params.ephemeralWallet,
     publicClientList: preflight.publicClientList,
-    cache: new SwapCache(ctx.chainList),
+    cacheWarmup,
+    safeDeploymentPromises: resolvedSafeDeployments(cacheWarmup.safeChainIds),
   });
 
   ctx.eoaWallet.sendCalls.mockClear();
@@ -2138,6 +2165,7 @@ const runExactInScenario = async (scenario: ExactInScenario): Promise<ExactInHar
     middlewareClient: ctx.middlewareClient,
     forceMayan: false,
     preflight,
+    safeAddress: PREDICTED_SAFE_FOR_EPH,
   });
   destinationWrapperCotRaw = toRawAmount(
     previewState.route.destination.inputAmount.max,
@@ -2151,6 +2179,17 @@ const runExactInScenario = async (scenario: ExactInScenario): Promise<ExactInHar
     );
   }
 
+  const cacheWarmup = startSwapCacheWarmup({
+    chainList: ctx.chainList,
+    route: previewState.route,
+    source: previewState.route.source,
+    destination: previewState.route.destination,
+    eoaAddress: ctx.params.eoaAddress,
+    ephemeralWallet: ctx.params.ephemeralWallet,
+    publicClientList: preflight.publicClientList,
+    safeAccount: PREDICTED_SAFE_ACCOUNT,
+  });
+
   const preparedExecution = await prepareSwapExecution({
     chainList: ctx.chainList,
     route: previewState.route,
@@ -2160,7 +2199,8 @@ const runExactInScenario = async (scenario: ExactInScenario): Promise<ExactInHar
     eoaWallet: ctx.params.eoaWallet,
     ephemeralWallet: ctx.params.ephemeralWallet,
     publicClientList: preflight.publicClientList,
-    cache: new SwapCache(ctx.chainList),
+    cacheWarmup,
+    safeDeploymentPromises: resolvedSafeDeployments(cacheWarmup.safeChainIds),
   });
 
   ctx.eoaWallet.sendCalls.mockClear();

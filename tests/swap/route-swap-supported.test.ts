@@ -56,6 +56,7 @@ const makeOptions = (overrides?: Partial<RouteOptions>): RouteOptions => ({
   dstTokenInfo: makeDstTokenInfo(),
   eoaAddress: '0xaaaa' as Hex,
   ephemeralAddress: EPHEMERAL_EXECUTOR,
+  safeAddress: EPHEMERAL_EXECUTOR,
   balances: [],
   walletPathHints: new Map([
     [ARB_CHAIN, 'safe'],

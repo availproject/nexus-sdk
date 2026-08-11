@@ -5,11 +5,8 @@ import { switchChain } from '../../services/evm';
 import {
   buildSafeExecuteEOACall,
   createSafeExecuteTxFromCalls,
-  type EnsureSafeMiddleware,
-  ensureSafeForEphemeral,
   type SafeCall,
 } from '../../services/safe';
-import { predictSafeAccountAddressV2 } from '../safe/predict';
 import type {
   CreateSafeExecuteTxV2Request,
   CreateSafeExecuteTxV2Response,
@@ -17,7 +14,7 @@ import type {
 } from '../safe/types';
 import { type EoaSimulationStep, simulateEoaTransaction } from './eoa-simulation';
 
-export type SafeDispatchMiddleware = EnsureSafeMiddleware & {
+export type SafeDispatchMiddleware = {
   createSafeExecuteTx: (
     req: CreateSafeExecuteTxV2Request
   ) => Promise<CreateSafeExecuteTxV2Response>;
@@ -40,8 +37,8 @@ export async function dispatchSafeSource(input: {
   eoaAddress: Address;
   publicClient: PublicClient;
   middleware: SafeDispatchMiddleware;
-  safeAddress?: Address;
-  safeDeploymentPromise?: Promise<EnsureSafeAccountV2Response>;
+  safeAddress: Address;
+  safeDeploymentPromise: Promise<EnsureSafeAccountV2Response>;
   onWalletPrompt?: () => void;
   simulationStep?: EoaSimulationStep;
 }): Promise<{ txHash: Hex; safeAddress: Address }> {
@@ -56,17 +53,9 @@ export async function dispatchSafeSource(input: {
     publicClient,
     middleware,
   } = input;
-  const safeAddress =
-    input.safeAddress ?? predictSafeAccountAddressV2(eoaAddress, ephemeralWallet.address).address;
+  const { safeAddress } = input;
 
-  await ensureSafeForEphemeral({
-    chainId,
-    eoaAddress,
-    ephemeralWallet,
-    publicClient,
-    middleware,
-    deploymentPromise: input.safeDeploymentPromise,
-  });
+  await input.safeDeploymentPromise;
 
   if (nativeValue > 0n) {
     const eoaCall = await buildSafeExecuteEOACall({

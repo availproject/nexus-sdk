@@ -187,6 +187,8 @@ const makeContext = (preparedExecution: PreparedSwapExecution, allowance = 0n) =
     ephemeralWallet: { address: EXECUTOR } as PrivateKeyAccount,
     intentExplorerUrl: '',
     sourceExecutionPaths: new Map([[CHAIN_ID, 'safe']]),
+    safeAddress: SAFE,
+    safeDeploymentPromises: new Map([[CHAIN_ID, Promise.resolve({})]]),
     destinationDirectEoa: true,
     cache: {
       getAllowance: vi.fn().mockReturnValue(allowance),

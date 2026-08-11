@@ -5,9 +5,9 @@ import { getLogger } from '../domain';
 import { isNativeAddress } from '../services/addresses';
 import { mulDecimals } from '../services/math';
 import { parseQuote } from '../services/quote-parser';
+import { requireSafeDeployment } from '../services/safe';
 import { withTimingSpan } from '../services/timing';
 import type { QuoteResponse } from './aggregators/types';
-import { predictSafeAccountAddressV2 } from './safe/predict';
 import type {
   ExecutionContext,
   PreparedEoaToEphemeralTransfer,
@@ -29,10 +29,8 @@ type PrepareSwapExecutionInput = {
   eoaWallet: WalletClient;
   ephemeralWallet: PrivateKeyAccount;
   publicClientList: PublicClientList;
-  cache: SwapCache;
-  cacheProcess?: Promise<void>;
-  cacheChainIds?: readonly number[];
-  safeDeploymentPromises?: ExecutionContext['safeDeploymentPromises'];
+  cacheWarmup: SwapCacheWarmup;
+  safeDeploymentPromises: NonNullable<ExecutionContext['safeDeploymentPromises']>;
   timing?: TimingSpanHooks;
 };
 
@@ -58,6 +56,7 @@ export type SwapCacheWarmup = {
   process: Promise<void>;
   chainIds: readonly number[];
   safeChainIds: readonly number[];
+  safeAddress: Hex;
 };
 
 type DeterministicTransferSpec = {
@@ -83,7 +82,7 @@ const getPublicClientMap = (
 const queueParsedQuoteQueries = (
   cache: SwapCache,
   quotes: QuoteResponse[],
-  ownerForChain: (chainId: number) => Hex,
+  owner: Hex,
   requiredChainIds: Set<number>
 ) => {
   for (const quote of quotes) {
@@ -93,7 +92,7 @@ const queueParsedQuoteQueries = (
     if (!isNativeInput) {
       cache.addAllowanceQuery(
         quote.quote.input.contractAddress,
-        ownerForChain(quote.chainID),
+        owner,
         quote.quote.txData.approvalAddress,
         quote.chainID
       );
@@ -103,7 +102,7 @@ const queueParsedQuoteQueries = (
 
 const queueDeterministicTransferQueries = (
   cache: SwapCache,
-  transfers: Array<{ chainId: number; tokenAddress: Hex; amount: bigint; spender: Hex }>,
+  transfers: Array<{ chainId: number; tokenAddress: Hex; spender: Hex }>,
   eoaAddress: Hex,
   requiredChainIds: Set<number>
 ) => {
@@ -121,14 +120,12 @@ const getPreparationDetails = (
   input: Pick<
     PrepareSwapExecutionInput,
     'route' | 'source' | 'destination' | 'eoaAddress' | 'ephemeralWallet'
-  > & { safeAddress?: Hex }
+  > & { safeAddress: Hex }
 ) => {
   const directDestinationExtras =
     input.route.directDestination === true ? input.route.extras.directDestination : undefined;
   const directDestinationExactOut = directDestinationExtras !== undefined;
-  const safeAddress =
-    input.safeAddress ??
-    predictSafeAccountAddressV2(input.eoaAddress, input.ephemeralWallet.address).address;
+  const { safeAddress } = input;
   // The Safe owns swap inputs and pulls bridge funding from the EOA directly to the ephemeral
   // bridge holder, so every funding allowance names the Safe as spender.
   const destinationQuotes = [
@@ -206,16 +203,11 @@ const queueSwapCacheQueries = (
     input.cache.addSafeAccountQuery(chainId);
   }
 
-  queueParsedQuoteQueries(
-    input.cache,
-    input.source.swaps,
-    () => details.safeAddress,
-    requiredChainIds
-  );
+  queueParsedQuoteQueries(input.cache, input.source.swaps, details.safeAddress, requiredChainIds);
   queueParsedQuoteQueries(
     input.cache,
     details.destinationQuotes,
-    () => details.safeAddress,
+    details.safeAddress,
     requiredChainIds
   );
   queueDeterministicTransferQueries(
@@ -226,13 +218,11 @@ const queueSwapCacheQueries = (
           .map((holding) => ({
             chainId: holding.chainID,
             tokenAddress: holding.tokenAddress,
-            amount: holding.amountRaw,
             spender: details.safeAddress,
           }))
       : details.deterministicTransferSpecs.map((transfer) => ({
           chainId: transfer.chainId,
           tokenAddress: transfer.tokenAddress,
-          amount: transfer.amount,
           spender: transfer.targetAddress,
         })),
     input.eoaAddress,
@@ -245,7 +235,6 @@ const queueSwapCacheQueries = (
       details.deterministicTransferSpecs.map((transfer) => ({
         chainId: transfer.chainId,
         tokenAddress: transfer.tokenAddress,
-        amount: transfer.amount,
         spender: transfer.targetAddress,
       })),
       input.eoaAddress,
@@ -278,10 +267,10 @@ const startSwapCacheProcess = (
     { tags: { chain_count: requiredChainIds.size } }
   );
 
-export const startSwapCacheWarmup = async (
+export const startSwapCacheWarmup = (
   input: SwapCacheWarmupInput,
   previous?: SwapCacheWarmup
-): Promise<SwapCacheWarmup> => {
+): SwapCacheWarmup => {
   const cache = new SwapCache(input.chainList, input.safeAccount);
   const safeChainIds = getSafeExecutionChainIds(input.route);
   for (const chainId of safeChainIds) {
@@ -290,17 +279,7 @@ export const startSwapCacheWarmup = async (
     }
   }
   const details = getPreparationDetails({ ...input, safeAddress: input.safeAccount.address });
-  const requiredChainIds = await withTimingSpan(
-    input.timing,
-    'flow.swap.prepare.queue_cache',
-    async () => queueSwapCacheQueries({ ...input, cache }, details),
-    {
-      tags: {
-        source_leg_count: input.source.swaps.length,
-        destination_leg_count: details.destinationQuotes.length,
-      },
-    }
-  );
+  const requiredChainIds = queueSwapCacheQueries({ ...input, cache }, details);
   const key = cache.getPendingQueryKey();
 
   if (previous?.key === key) {
@@ -317,6 +296,7 @@ export const startSwapCacheWarmup = async (
     process,
     chainIds: [...requiredChainIds],
     safeChainIds,
+    safeAddress: input.safeAccount.address,
   };
 };
 
@@ -338,28 +318,12 @@ export const prepareSwapExecution = async (
     destinationChainId: input.destination.chainId,
   });
 
-  const details = getPreparationDetails({ ...input, safeAddress: input.cache.getSafeAddress() });
+  const { cache, process, chainIds, safeAddress } = input.cacheWarmup;
+  const details = getPreparationDetails({ ...input, safeAddress });
   const { destinationQuotes, deterministicTransferSpecs } = details;
-  let requiredChainIds = new Set(input.cacheChainIds);
-  let cacheProcess = input.cacheProcess;
 
-  if (!cacheProcess) {
-    requiredChainIds = await withTimingSpan(
-      input.timing,
-      'flow.swap.prepare.queue_cache',
-      async () => queueSwapCacheQueries({ ...input, cache: input.cache }, details),
-      {
-        tags: {
-          source_leg_count: input.source.swaps.length,
-          destination_leg_count: destinationQuotes.length,
-        },
-      }
-    );
-    cacheProcess = startSwapCacheProcess(input, requiredChainIds);
-  }
-
-  await withTimingSpan(input.timing, 'flow.swap.prepare.cache_wait', async () => cacheProcess, {
-    tags: { chain_count: requiredChainIds.size, pending_at_first_use: true },
+  await withTimingSpan(input.timing, 'flow.swap.prepare.cache_wait', async () => process, {
+    tags: { chain_count: chainIds.length, pending_at_first_use: true },
   });
 
   const parsedQuotes = await withTimingSpan(
@@ -387,12 +351,14 @@ export const prepareSwapExecution = async (
       const transfers: PreparedEoaToEphemeralTransfer[] = [];
       for (const transfer of deterministicTransferSpecs) {
         if (transfer.eagerPermit) {
-          await input.safeDeploymentPromises?.get(transfer.chainId);
+          await requireSafeDeployment(input.safeDeploymentPromises, transfer.chainId);
         }
         const tokenDecimals =
           transfer.tokenDecimals ??
           getDestinationFundingTokenDecimals(input, destinationQuotes, transfer.tokenAddress);
-        transfers.push(await buildPreparedTransfer({ ...transfer, tokenDecimals, ...input }));
+        transfers.push(
+          await buildPreparedTransfer({ ...transfer, tokenDecimals, ...input, cache })
+        );
       }
 
       return transfers;
@@ -403,7 +369,7 @@ export const prepareSwapExecution = async (
   logger.debug('swap.prepare.execution.completed', {
     parsedQuotes: parsedQuotes.length,
     transfers: eoaToEphemeralTransfers.length,
-    queriedChains: [...requiredChainIds],
+    queriedChains: chainIds,
   });
 
   return {

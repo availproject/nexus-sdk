@@ -22,12 +22,16 @@ import type {
 } from '../../../src/swap/types';
 import { EADDRESS } from '../../../src/swap/constants';
 import { safeExecTransactionAbi } from '../../../src/swap/safe/abis';
+import { predictSafeAccountAddressV2 } from '../../../src/swap/safe/predict';
 import { quoteFixture } from '../../helpers/quote';
 
 const ARB_CHAIN = 42161;
 const USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913' as Hex;
 const BEBOP = '0xbeb0b0623f66be8ce162ebdfa2ec543a522f4ea6' as Hex; // settlement addr — CONSTANT across requotes
 const NATIVE_IN = 15000000000000000n; // 0.015 ETH — FIXED for EXACT_IN
+const EOA = '0xaaaa000000000000000000000000000000000001' as Hex;
+const EPH = '0xbbbb000000000000000000000000000000000002' as Hex;
+const SAFE = predictSafeAccountAddressV2(EOA, EPH).address;
 
 const innerData = (data: Hex) => {
   const decoded = decodeFunctionData({
@@ -66,9 +70,9 @@ const makeCtx = (opts: {
   const ctx = {
     chainList: { getChainByID: vi.fn().mockReturnValue({ id: ARB_CHAIN, name: 'Arbitrum' }) },
     sourceExecutionPaths: new Map<number, WalletPath>([[ARB_CHAIN, 'safe']]),
-    eoaAddress: '0xaaaa000000000000000000000000000000000001' as Hex,
+    eoaAddress: EOA,
     ephemeralWallet: {
-      address: '0xbbbb000000000000000000000000000000000002' as Hex,
+      address: EPH,
       signTypedData: vi.fn().mockResolvedValue(('0x' + 'aa'.repeat(64) + '1b') as Hex),
     } as unknown as PrivateKeyAccount,
     eoaWallet: {
@@ -86,6 +90,8 @@ const makeCtx = (opts: {
       }),
     },
     middlewareClient: {} as ExecutionContext['middlewareClient'],
+    safeAddress: SAFE,
+    safeDeploymentPromises: new Map([[ARB_CHAIN, Promise.resolve({})]]),
     cache: undefined,
     preparedExecution: opts.preparedExecution,
     onProgress: vi.fn(),

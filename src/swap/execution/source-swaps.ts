@@ -15,13 +15,12 @@ import { confirmStepReceipt } from '../../services/evm';
 import { createExplorerTxURL } from '../../services/explorer';
 import { isUserRejectedRequest } from '../../services/is-user-rejected-request';
 import { divDecimals } from '../../services/math';
-import type { SafeCall } from '../../services/safe';
+import { requireSafeDeployment, type SafeCall } from '../../services/safe';
 import { createSourceSwapStepId } from '../../services/step-ids';
 import { equalFold } from '../../services/strings';
 import { withTimingSpan } from '../../services/timing';
 import { aggregatorService } from '../aggregators';
 import { type QuoteResponse, QuoteSeriousness, QuoteType } from '../aggregators/types';
-import { predictSafeAccountAddressV2 } from '../safe/predict';
 import type {
   BridgeAsset,
   ExecutionContext,
@@ -30,19 +29,12 @@ import type {
   SwapMetadata,
   WalletPath,
 } from '../types';
-import { readCachedSafeAddress } from '../wallet/cache';
 import { resolvePreparedFundingTransferCalls } from './eoa-to-ephemeral';
 import { getParsedQuote } from './parsed-quote';
 import { dispatchSafeSource } from './safe-dispatch';
 import { readSettlementBalanceRaw } from './settlement-balance';
 
 const logger = getLogger();
-
-const getSafeAddress = (
-  ctx: Pick<ExecutionContext, 'cache' | 'eoaAddress' | 'ephemeralWallet'>
-): Hex =>
-  readCachedSafeAddress(ctx.cache) ??
-  predictSafeAccountAddressV2(ctx.eoaAddress, ctx.ephemeralWallet.address).address;
 
 export type DispatchedSourceBatch = {
   chainId: number;
@@ -90,6 +82,7 @@ const buildSourceCalls = async (
     | 'eoaAddress'
     | 'eoaWallet'
     | 'publicClientList'
+    | 'safeAddress'
     | 'safeDeploymentPromises'
   >,
   chainId: number
@@ -124,7 +117,7 @@ const buildSourceCalls = async (
             eoaWallet: ctx.eoaWallet,
             publicClient,
             cache: ctx.cache,
-            safeDeploymentPromise: ctx.safeDeploymentPromises?.get(chainId),
+            safeDeploymentPromise: requireSafeDeployment(ctx.safeDeploymentPromises, chainId),
           }))
         );
         usedTransfers.add(transferKey);
@@ -173,13 +166,12 @@ const readSourceCotBalanceRaw = async (
   cotAddress: Hex,
   ctx: Pick<
     ExecutionContext,
-    'cache' | 'chainList' | 'eoaAddress' | 'ephemeralWallet' | 'publicClientList'
+    'cache' | 'chainList' | 'eoaAddress' | 'ephemeralWallet' | 'publicClientList' | 'safeAddress'
   > & {
     destinationChainId: number;
   }
 ): Promise<bigint> => {
-  const holder =
-    chainId !== ctx.destinationChainId ? ctx.ephemeralWallet.address : getSafeAddress(ctx);
+  const holder = chainId !== ctx.destinationChainId ? ctx.ephemeralWallet.address : ctx.safeAddress;
   return readSettlementBalanceRaw({
     chainId,
     tokenAddress: cotAddress,
@@ -199,6 +191,7 @@ type SourceDispatchContext = Pick<
   | 'chainList'
   | 'cache'
   | 'sourceExecutionPaths'
+  | 'safeAddress'
   | 'safeDeploymentPromises'
   | 'eoaAddress'
   | 'eoaWallet'
@@ -218,6 +211,7 @@ export const dispatchSourceChainBatch = async (input: {
   const walletPath: WalletPath = 'safe';
   const chain = ctx.chainList.getChainByID(chainId);
   const publicClient = ctx.publicClientList.get(chainId);
+  const safeDeploymentPromise = requireSafeDeployment(ctx.safeDeploymentPromises, chainId);
 
   if (nativeValue === 0n) {
     ctx.onProgress?.({
@@ -236,8 +230,8 @@ export const dispatchSourceChainBatch = async (input: {
     eoaAddress: ctx.eoaAddress,
     publicClient,
     middleware: ctx.middlewareClient,
-    safeAddress: getSafeAddress(ctx),
-    safeDeploymentPromise: ctx.safeDeploymentPromises?.get(chainId),
+    safeAddress: ctx.safeAddress,
+    safeDeploymentPromise,
     onWalletPrompt:
       nativeValue > 0n
         ? () => ctx.onProgress?.({ stepType: 'source_swap', chainId, state: 'wallet_prompted' })
@@ -273,7 +267,12 @@ const requoteFailedChains = async (
   srcBuffer: Decimal | null,
   ctx: Pick<
     ExecutionContext,
-    'cache' | 'sourceExecutionPaths' | 'eoaAddress' | 'ephemeralWallet' | 'destinationDirectEoa'
+    | 'cache'
+    | 'sourceExecutionPaths'
+    | 'eoaAddress'
+    | 'ephemeralWallet'
+    | 'destinationDirectEoa'
+    | 'safeAddress'
   > & { destinationChainId: number }
 ) => {
   // Per-chain recipient: remote output always lands at the ephemeral bridge holder. On the
@@ -282,12 +281,12 @@ const requoteFailedChains = async (
   const recipientForChain = (chainId: number): Hex => {
     if (chainId === ctx.destinationChainId && ctx.destinationDirectEoa) return ctx.eoaAddress;
     if (chainId !== ctx.destinationChainId) return ctx.ephemeralWallet.address;
-    return getSafeAddress(ctx);
+    return ctx.safeAddress;
   };
 
   const perChainResults = await Promise.all(
     failedChains.map(async ({ chainId, chainSwaps }) => {
-      const userAddress = getSafeAddress(ctx);
+      const userAddress = ctx.safeAddress;
       const sourceRecipient = recipientForChain(chainId);
 
       const requoted = await Promise.all(
@@ -423,6 +422,8 @@ export const executeSourceSwaps = async (
     | 'onProgress'
     | 'timing'
     | 'slippage'
+    | 'safeAddress'
+    | 'safeDeploymentPromises'
   > & { destinationChainId: number },
   metadata: SwapMetadata
 ): Promise<BridgeAsset[]> => {

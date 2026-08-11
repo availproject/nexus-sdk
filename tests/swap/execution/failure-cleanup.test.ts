@@ -20,6 +20,7 @@ const OP = 10;
 const USDC = '0xaf88d065e77c8cc2239327c5edb3a432268e5831' as Hex;
 const EPH = '0xbbbb000000000000000000000000000000000002' as Hex;
 const EOA = '0xaaaa000000000000000000000000000000000001' as Hex;
+const SAFE = predictSafeAccountAddressV2(EOA, EPH).address;
 
 const makeCtx = (
   balance: bigint,
@@ -48,6 +49,8 @@ const makeCtx = (
       }),
     },
     eoaAddress: EOA,
+    safeAddress: SAFE,
+    safeDeploymentPromises: new Map(),
     destinationChainId: destination.chainId,
     destinationDirectEoa: destination.directEoa,
     ephemeralWallet: {
@@ -130,9 +133,8 @@ describe('cleanupStrandedCot', () => {
       ctx,
     });
 
-    const safeAddress = predictSafeAccountAddressV2(EOA, EPH).address;
     expect(readContract).toHaveBeenCalledWith(
-      expect.objectContaining({ functionName: 'balanceOf', args: [safeAddress] })
+      expect.objectContaining({ functionName: 'balanceOf', args: [SAFE] })
     );
     const groups = vi.mocked(dispatchSweepGroups).mock.calls[0]![0];
     expect(groups[0]!.holder).toBe('safe');

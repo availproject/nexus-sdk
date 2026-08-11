@@ -26,7 +26,6 @@ const expectedSpans = [
   'flow.swap.route.build_bridge',
   'flow.swap.route.quote_destination',
   'flow.swap.route.assemble',
-  'flow.swap.prepare.queue_cache',
   'flow.swap.prepare.cache_start',
   'flow.swap.prepare.cache_wait',
   'flow.swap.prepare.parse_quotes',
@@ -52,5 +51,9 @@ const expectedSpans = [
 describe('swap nested timing instrumentation', () => {
   it.each(expectedSpans)('contains the %s span', (span) => {
     expect(source).toContain(`'${span}'`);
+  });
+
+  it('does not time synchronous cache query assembly', () => {
+    expect(source).not.toContain("'flow.swap.prepare.queue_cache'");
   });
 });

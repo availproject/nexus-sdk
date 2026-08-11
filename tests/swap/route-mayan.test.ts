@@ -190,6 +190,7 @@ const makeProviderRouteOptions = ({
   }),
   eoaAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
   ephemeralAddress: EPHEMERAL_EXECUTOR,
+  safeAddress: EPHEMERAL_EXECUTOR,
   forceMayan: false,
   middlewareClient: middlewareClient as never,
   oraclePrices: [] as OraclePriceResponse,

@@ -20,6 +20,15 @@ const safeAddress = predictSafeAccountAddressV2(eoaAddress, ephemeralWallet.addr
 const target = '0xabcdef0123456789abcdef0123456789abcdef01' as Address;
 const chainId = 999;
 const chain = { id: chainId, name: 'test', blockExplorers: { default: { url: 'https://x.test' } } } as never;
+const resolvedDeployment = () =>
+  Promise.resolve<EnsureSafeAccountV2Response>({
+    chainId,
+    eoaAddress,
+    ephemeralAddress: ephemeralWallet.address,
+    address: safeAddress,
+    factoryAddress: '0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67',
+    exists: true,
+  });
 
 const makePublicClient = (overrides?: {
   code?: Hex;
@@ -65,7 +74,7 @@ describe('dispatchSafeSource', () => {
   });
 
   describe('non-native (sponsor path)', () => {
-    it('ensures Safe, then submits via middleware.createSafeExecuteTx', async () => {
+    it('awaits Safe deployment, then submits via middleware.createSafeExecuteTx', async () => {
       const publicClient = makePublicClient({ code: undefined });
       const middleware = makeMiddleware('0xdeed' as Hex);
       const eoaWallet = makeEoaWallet();
@@ -80,9 +89,11 @@ describe('dispatchSafeSource', () => {
         eoaAddress,
         publicClient,
         middleware,
+        safeAddress,
+        safeDeploymentPromise: resolvedDeployment(),
       });
 
-      expect(middleware.ensureSafeAccount).toHaveBeenCalledTimes(1);
+      expect(middleware.ensureSafeAccount).not.toHaveBeenCalled();
       expect(middleware.createSafeExecuteTx).toHaveBeenCalledTimes(1);
       expect((eoaWallet.sendTransaction as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
       expect(result.txHash).toBe('0xdeed');
@@ -115,6 +126,7 @@ describe('dispatchSafeSource', () => {
         eoaAddress,
         publicClient,
         middleware,
+        safeAddress,
         safeDeploymentPromise,
       });
 
@@ -141,6 +153,8 @@ describe('dispatchSafeSource', () => {
         eoaAddress,
         publicClient,
         middleware,
+        safeAddress,
+        safeDeploymentPromise: resolvedDeployment(),
       });
 
       expect(middleware.ensureSafeAccount).not.toHaveBeenCalled();
@@ -149,7 +163,7 @@ describe('dispatchSafeSource', () => {
   });
 
   describe('native value (EOA-submit path)', () => {
-    it('ensures Safe, then sends execTransaction via eoaWallet.sendTransaction', async () => {
+    it('awaits Safe deployment, then sends execTransaction via eoaWallet.sendTransaction', async () => {
       const publicClient = makePublicClient({ code: undefined });
       const middleware = makeMiddleware();
       const eoaWallet = makeEoaWallet('0xeoa1' as Hex);
@@ -164,9 +178,11 @@ describe('dispatchSafeSource', () => {
         eoaAddress,
         publicClient,
         middleware,
+        safeAddress,
+        safeDeploymentPromise: resolvedDeployment(),
       });
 
-      expect(middleware.ensureSafeAccount).toHaveBeenCalledTimes(1);
+      expect(middleware.ensureSafeAccount).not.toHaveBeenCalled();
       expect(middleware.createSafeExecuteTx).not.toHaveBeenCalled();
       expect(eoaWallet.sendTransaction).toHaveBeenCalledTimes(1);
 
@@ -200,6 +216,8 @@ describe('dispatchSafeSource', () => {
           eoaAddress,
           publicClient,
           middleware: makeMiddleware(),
+          safeAddress,
+          safeDeploymentPromise: resolvedDeployment(),
           onWalletPrompt,
         })
       ).rejects.toMatchObject({ code: 'simulation/eth_call_failed' });
@@ -232,6 +250,8 @@ describe('dispatchSafeSource', () => {
           eoaAddress,
           publicClient,
           middleware,
+          safeAddress,
+          safeDeploymentPromise: resolvedDeployment(),
         })
       ).rejects.toThrow(/Single-call native value mismatch/);
       expect(eoaWallet.sendTransaction).not.toHaveBeenCalled();

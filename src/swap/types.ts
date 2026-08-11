@@ -355,7 +355,8 @@ export type ExecutionContext = {
   ephemeralWallet: PrivateKeyAccount;
   intentExplorerUrl: string;
   sourceExecutionPaths: Map<number, WalletPath>;
-  safeDeploymentPromises?: ReadonlyMap<
+  safeAddress: Hex;
+  safeDeploymentPromises: ReadonlyMap<
     number,
     Promise<import('./safe/types').EnsureSafeAccountV2Response>
   >;

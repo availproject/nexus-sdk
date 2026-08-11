@@ -126,6 +126,8 @@ const makeContext = (readContract = vi.fn().mockResolvedValue(3_000_000_000n)) =
     cache: {
       getAllowance: vi.fn().mockReturnValue(0n),
     },
+    safeAddress: EPH,
+    safeDeploymentPromises: new Map([[CHAIN_ID, Promise.resolve({})]]),
     onProgress: vi.fn(),
     slippage: 0.005,
   } as unknown as Pick<
@@ -135,6 +137,8 @@ const makeContext = (readContract = vi.fn().mockResolvedValue(3_000_000_000n)) =
     | 'eoaWallet'
     | 'ephemeralWallet'
     | 'publicClientList'
+    | 'safeAddress'
+    | 'safeDeploymentPromises'
     | 'middlewareClient'
     | 'cache'
     | 'preparedExecution'

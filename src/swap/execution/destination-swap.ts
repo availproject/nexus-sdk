@@ -15,13 +15,12 @@ import { createExplorerTxURL } from '../../services/explorer';
 import { buildRefundSweepCall } from '../../services/init-refund-sweep';
 import {
   createSafeExecuteTxFromCalls,
-  ensureSafeForEphemeral,
+  requireSafeDeployment,
   type SafeCall,
 } from '../../services/safe';
 import { createDestinationSwapStepId } from '../../services/step-ids';
 import { withTimingSpan } from '../../services/timing';
 import { aggregatorService, type RouterExclusions } from '../aggregators';
-import { predictSafeAccountAddressV2 } from '../safe/predict';
 import { createSweeperTxs } from '../sweep';
 import {
   type ExecutionContext,
@@ -30,19 +29,12 @@ import {
   SwapMode,
   type SwapRoute,
 } from '../types';
-import { readCachedSafeAddress } from '../wallet/cache';
 import { resolvePreparedFundingTransferCalls } from './eoa-to-ephemeral';
 import { getParsedQuote } from './parsed-quote';
 import { addRouterExclusions } from './router-exclusions';
 import { readSettlementBalanceRaw } from './settlement-balance';
 
 const logger = getLogger();
-
-const getSafeAddress = (
-  ctx: Pick<ExecutionContext, 'cache' | 'eoaAddress' | 'ephemeralWallet'>
-): Hex =>
-  readCachedSafeAddress(ctx.cache) ??
-  predictSafeAccountAddressV2(ctx.eoaAddress, ctx.ephemeralWallet.address).address;
 
 const destinationSwapStep = (chainId: number) => ({
   stepId: createDestinationSwapStepId(chainId),
@@ -81,6 +73,7 @@ const buildDestinationCalls = async (
     | 'publicClientList'
     | 'cache'
     | 'preparedExecution'
+    | 'safeAddress'
     | 'safeDeploymentPromises'
   >,
   // The COT actually at the wrapper (balanceOf + in-batch direct COT), or null if the read failed.
@@ -105,7 +98,10 @@ const buildDestinationCalls = async (
           eoaAddress: ctx.eoaAddress,
           eoaWallet: ctx.eoaWallet,
           publicClient: ctx.publicClientList.get(destination.chainId),
-          safeDeploymentPromise: ctx.safeDeploymentPromises?.get(destination.chainId),
+          safeDeploymentPromise: requireSafeDeployment(
+            ctx.safeDeploymentPromises,
+            destination.chainId
+          ),
         }))
       );
     }
@@ -161,7 +157,7 @@ const buildDestinationCalls = async (
   }
 
   // MultiSendCallOnly DELEGATECALL → CALL Sweeper resolves msg.sender to the Safe.
-  const senderAddress = getSafeAddress(ctx);
+  const senderAddress = ctx.safeAddress;
   const uniqueSweepTokens = [
     ...new Map(sweepTokens.map((token) => [token.toLowerCase(), token] as const)).values(),
   ];
@@ -254,6 +250,7 @@ export const executeDestinationSwap = async (
     | 'middlewareClient'
     | 'cache'
     | 'preparedExecution'
+    | 'safeAddress'
     | 'safeDeploymentPromises'
     | 'onProgress'
     | 'timing'
@@ -294,7 +291,7 @@ export const executeDestinationSwap = async (
     if (!cotAddress) {
       throw new Error('Destination settlement token is unavailable');
     }
-    const holderAddress = getSafeAddress(ctx);
+    const holderAddress = ctx.safeAddress;
     const balance = await withTimingSpan(
       ctx.timing,
       'flow.swap.execute.destination.read_balance',
@@ -437,19 +434,11 @@ export const executeDestinationSwap = async (
         state: 'started',
       });
       const publicClient = ctx.publicClientList.get(destination.chainId);
-      const safeAddress = getSafeAddress(ctx);
       const result = await withTimingSpan(
         ctx.timing,
         'flow.swap.execute.destination.dispatch',
         async () => {
-          await ensureSafeForEphemeral({
-            chainId: destination.chainId,
-            eoaAddress: ctx.eoaAddress,
-            ephemeralWallet: ctx.ephemeralWallet,
-            publicClient,
-            middleware: ctx.middlewareClient,
-            deploymentPromise: ctx.safeDeploymentPromises?.get(destination.chainId),
-          });
+          await requireSafeDeployment(ctx.safeDeploymentPromises, destination.chainId);
           const safeCalls: SafeCall[] = calls.map((c) => ({
             to: c.to,
             value: c.value,
@@ -461,7 +450,7 @@ export const executeDestinationSwap = async (
             eoaAddress: ctx.eoaAddress,
             ephemeralWallet: ctx.ephemeralWallet,
             publicClient,
-            safeAddress,
+            safeAddress: ctx.safeAddress,
           });
           attemptedDispatch = true;
           return ctx.middlewareClient.createSafeExecuteTx(request);

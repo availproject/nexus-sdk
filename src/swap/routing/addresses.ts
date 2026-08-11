@@ -1,7 +1,6 @@
 import type { Hex } from 'viem';
 import type { ChainListType } from '../../domain';
 import type { RouteOptions } from '../route';
-import { predictSafeAccountAddressV2 } from '../safe/predict';
 import type { WalletPath } from '../types';
 
 export type WalletDecision = {
@@ -20,10 +19,7 @@ export function resolveWalletDecisions(input: {
 }
 
 function resolveWalletAddress(options: RouteOptions): Hex {
-  return (
-    options.safeAddress ??
-    predictSafeAccountAddressV2(options.eoaAddress, options.ephemeralAddress).address
-  );
+  return options.safeAddress;
 }
 
 export function buildExecutorAddressByChain(

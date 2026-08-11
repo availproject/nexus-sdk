@@ -33,6 +33,7 @@ vi.mock('../../../src/services/safe', async (importOriginal) => ({
 import { signPermitForAddressAndValue } from '../../../src/services/allowance-utils';
 import { createSafeExecuteTxFromCalls } from '../../../src/services/safe';
 import { executeSourceSwaps } from '../../../src/swap/execution/source-swaps';
+import { predictSafeAccountAddressV2 } from '../../../src/swap/safe/predict';
 import type { Aggregator, QuoteResponse } from '../../../src/swap/aggregators/types';
 import type {
   ExecutionContext,
@@ -47,6 +48,7 @@ const INPUT = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2' as Hex;
 const COT = '0xaf88d065e77c8cc2239327c5edb3a432268e5831' as Hex;
 const EOA = '0xaaaa000000000000000000000000000000000001' as Hex;
 const EPH = '0xbbbb000000000000000000000000000000000002' as Hex;
+const SAFE = predictSafeAccountAddressV2(EOA, EPH).address;
 const TX_HASH =
   '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as Hex;
 
@@ -115,7 +117,7 @@ const makePreparedExecution = (
       chainId: CHAIN_ID,
       tokenAddress: INPUT,
       amount: quote.quote.input.amountRaw,
-      targetAddress: EPH,
+      targetAddress: SAFE,
       authorization: {
         kind: 'permit',
         call: lazyPermit
@@ -157,6 +159,8 @@ const makeContext = (
       }),
     },
     sourceExecutionPaths: new Map([[CHAIN_ID, 'safe']]),
+    safeAddress: SAFE,
+    safeDeploymentPromises: new Map([[CHAIN_ID, Promise.resolve({})]]),
     destinationDirectEoa: false,
     destinationChainId: 8453,
     eoaAddress: EOA,

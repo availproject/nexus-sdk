@@ -20,6 +20,17 @@ export type SafeCall = {
   data: Hex;
 };
 
+export const requireSafeDeployment = (
+  deployments: ReadonlyMap<number, Promise<EnsureSafeAccountV2Response>>,
+  chainId: number
+): Promise<EnsureSafeAccountV2Response> => {
+  const deployment = deployments.get(chainId);
+  if (!deployment) {
+    throw Errors.internal(`Missing Safe deployment promise for chain ${chainId}`);
+  }
+  return deployment;
+};
+
 // nonce() reverts when the proxy isn't deployed yet (or RPC view is stale right after deploy).
 // The first execTransaction on a fresh Safe correctly uses nonce 0, so this matches contract state.
 async function readSafeNonce(
@@ -205,15 +216,10 @@ export async function ensureSafeForEphemeral(input: {
   ephemeralWallet: PrivateKeyAccount;
   publicClient?: Pick<PublicClient, 'getCode'>;
   middleware: EnsureSafeMiddleware;
-  deploymentPromise?: Promise<EnsureSafeAccountV2Response>;
   safeAccount?: { address: Address; factoryAddress: Address };
   deployed?: boolean;
   deadlineSeconds?: number;
 }): Promise<EnsureSafeAccountV2Response> {
-  if (input.deploymentPromise) {
-    return input.deploymentPromise;
-  }
-
   const { chainId, eoaAddress, ephemeralWallet, publicClient, middleware } = input;
   const { address: safeAddress, factoryAddress } =
     input.safeAccount ?? predictSafeAccountAddressV2(eoaAddress, ephemeralWallet.address);
