@@ -243,7 +243,7 @@ const executeCaliburVaultApproval = async (input: {
       stepType: 'bridge_deposit',
       label: 'Calibur vault approval',
     },
-    2
+    { confirmations: 2 }
   );
 };
 

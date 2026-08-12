@@ -25,6 +25,11 @@ type TransactionReceiptPublicClient = Pick<
   'getTransactionReceipt' | 'waitForTransactionReceipt'
 >;
 
+type TransactionReceiptWaitOptions = {
+  confirmations?: number;
+  timeout?: number;
+};
+
 const wrapExternal = async <T>(
   message: string,
   service: 'wallet' | 'rpc',
@@ -142,9 +147,9 @@ const fetchL1Fee = async (toAddress: Hex, chain: Chain, input: `0x${string}`) =>
 export const waitForTxReceipt = async (
   hash: `0x${string}`,
   publicClient: TransactionReceiptPublicClient,
-  confirmations = 1,
-  timeout = TRANSACTION_RECEIPT_WAIT_TIMEOUT_MS
+  options: TransactionReceiptWaitOptions = {}
 ): Promise<[TransactionReceipt, ReturnType<typeof Errors.transactionReverted> | null]> => {
+  const { confirmations = 1, timeout = TRANSACTION_RECEIPT_WAIT_TIMEOUT_MS } = options;
   const receipt = await wrapExternal(
     'Failed to wait for transaction receipt',
     'rpc',
@@ -169,9 +174,8 @@ export const waitForTxReceiptByChain = (
   hash: `0x${string}`,
   publicClient: TransactionReceiptPublicClient,
   _chainId: number,
-  timeout = TRANSACTION_RECEIPT_WAIT_TIMEOUT_MS,
-  confirmations = 1
-) => waitForTxReceipt(hash, publicClient, confirmations, timeout);
+  options?: TransactionReceiptWaitOptions
+) => waitForTxReceipt(hash, publicClient, options);
 
 /**
  * Waits (chain-aware) for an execution step's receipt and, on revert, throws a step-tagged
@@ -185,9 +189,9 @@ export const confirmStepReceipt = async (
   txHash: `0x${string}`,
   chainId: number,
   step: { stepId: string; stepType: string; label: string },
-  confirmations = 1
+  options?: TransactionReceiptWaitOptions
 ): Promise<`0x${string}`> => {
-  const [, error] = await waitForTxReceiptByChain(txHash, publicClient, chainId, confirmations);
+  const [, error] = await waitForTxReceiptByChain(txHash, publicClient, chainId, options);
   if (error) {
     throw new ExecutionError(
       ERROR_CODES.EXEC_TX_ONCHAIN_REVERTED,
