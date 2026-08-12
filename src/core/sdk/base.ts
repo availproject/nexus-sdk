@@ -58,6 +58,7 @@ import { locationHost } from '../../services/platform';
 import { setLoggerProvider } from '../../services/telemetry';
 import { DEFAULT_CURRENCY_ID } from '../../swap/cot';
 import { calculateMaxForSwap as flowCalculateMaxForSwap } from '../../swap/max';
+import { predictSafeAccountAddressV2 } from '../../swap/safe/predict';
 import type {
   SwapAndExecuteParams,
   SwapAndExecuteResult,
@@ -132,8 +133,7 @@ export const createBase = (config?: {
 }) => {
   const networkConfig = getNetworkConfig(config?.network);
   const middlewareClient =
-    config?.internal?.middlewareClient ??
-    createMiddlewareClient(networkConfig.MIDDLEWARE_HTTP_URL);
+    config?.internal?.middlewareClient ?? createMiddlewareClient(networkConfig.MIDDLEWARE_HTTP_URL);
 
   const state: BaseState = {
     chainList: null,
@@ -534,11 +534,13 @@ export const createBase = (config?: {
     validateSwapMax(input);
     const chainList = getChainListOrThrow();
     const ephemeralAddress = await ephemeralSession.getAddressForEstimation(state.evm.address);
+    const safeAddress = predictSafeAccountAddressV2(state.evm.address, ephemeralAddress).address;
 
     return flowCalculateMaxForSwap(input, {
       chainList,
       eoaAddress: state.evm.address,
       ephemeralAddress,
+      safeAddress,
       middlewareClient: state.middlewareClient,
       cotCurrencyId: DEFAULT_CURRENCY_ID,
       forceMayan: config?.forceMayan ?? false,

@@ -193,12 +193,12 @@ Event emission:
   parsing in feature code.
 - Treat the user's EOA wallet as a single-chain, stateful resource: serialize across chains any
   operation that can `switchChain`, prompt the wallet, sign typed data, send an EOA transaction, or
-  write an approval. Non-EOA work (quote fetching, read-only public-client calls, ephemeral SBC
-  construction and submission, receipt waits) may run in parallel. Tests touching multi-chain EOA
-  behavior must assert concurrent EOA wallet operations never exceed one.
+  write an approval. Non-EOA work (quote fetching, read-only public-client calls, per-chain Safe
+  deployment, sponsored Safe execution, and receipt waits) may run in parallel. Tests touching
+  multi-chain EOA behavior must assert concurrent EOA wallet operations never exceed one.
 
-Swap source selection, wallet-path resolution, and execution ordering — including the value-prefix
-survey and the native ephemeral source-swap bootstrap — are documented in
+Swap source selection and Safe execution ordering — including the value-prefix survey and the
+deployment-before-wallet-prompt invariant — are documented in
 [`src/swap/swap.md`](../src/swap/swap.md), which is the source of truth for the swap flow. Read it
 before changing that flow.
 

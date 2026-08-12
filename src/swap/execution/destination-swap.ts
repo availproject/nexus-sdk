@@ -15,14 +15,12 @@ import { createExplorerTxURL } from '../../services/explorer';
 import { buildRefundSweepCall } from '../../services/init-refund-sweep';
 import {
   createSafeExecuteTxFromCalls,
-  ensureSafeForEphemeral,
+  requireSafeDeployment,
   type SafeCall,
 } from '../../services/safe';
-import { createSBCTxFromCalls, requireSuccessfulSbcResult, type SBCCall } from '../../services/sbc';
 import { createDestinationSwapStepId } from '../../services/step-ids';
 import { withTimingSpan } from '../../services/timing';
 import { aggregatorService, type RouterExclusions } from '../aggregators';
-import { predictSafeAccountAddress } from '../safe/predict';
 import { createSweeperTxs } from '../sweep';
 import {
   type ExecutionContext,
@@ -30,9 +28,7 @@ import {
   type SwapMetadata,
   SwapMode,
   type SwapRoute,
-  type WalletPath,
 } from '../types';
-import { chainSupports7702 } from '../wallet/capabilities';
 import { resolvePreparedFundingTransferCalls } from './eoa-to-ephemeral';
 import { getParsedQuote } from './parsed-quote';
 import { addRouterExclusions } from './router-exclusions';
@@ -61,7 +57,7 @@ const isQuoteExpired = (swap: SwapRoute['destination']['swap']) => {
   );
 };
 
-// Read the COT held at the destination wrapper (ephemeral on 7702, predicted Safe otherwise).
+// Read the COT held at the destination Safe.
 // Shared by the EXACT_IN reclaim (size the swap up) and the EXACT_OUT surplus return (size the
 // transfer). Mirrors the targeted read in failure-cleanup.
 const buildDestinationCalls = async (
@@ -77,19 +73,18 @@ const buildDestinationCalls = async (
     | 'publicClientList'
     | 'cache'
     | 'preparedExecution'
+    | 'safeAddress'
+    | 'safeDeploymentPromises'
   >,
-  wrapper: WalletPath,
   // The COT actually at the wrapper (balanceOf + in-batch direct COT), or null if the read failed.
   // When present, the leftover `B − consumed` is returned by one direct transfer (both modes); only a
   // failed read falls back to the blind Sweeper drain.
   wrapperCotBalance: bigint | null
 ) => {
-  const calls: SBCCall[] = [];
+  const calls: SafeCall[] = [];
   const sweepTokens: Hex[] = [];
 
-  // Direct COT held at the EOA is moved EOA → executor (the predicted Safe on non-7702 chains, the
-  // ephemeral on 7702 chains) so the dst swap can pull from it. The prepared transfer's
-  // targetAddress is that executor.
+  // Direct COT held at the EOA is moved EOA → Safe so the destination swap can pull from it.
   {
     const transfer = getPreparedDestinationTransfer(ctx.preparedExecution?.eoaToEphemeralTransfers);
     if (transfer) {
@@ -103,6 +98,10 @@ const buildDestinationCalls = async (
           eoaAddress: ctx.eoaAddress,
           eoaWallet: ctx.eoaWallet,
           publicClient: ctx.publicClientList.get(destination.chainId),
+          safeDeploymentPromise: requireSafeDeployment(
+            ctx.safeDeploymentPromises,
+            destination.chainId
+          ),
         }))
       );
     }
@@ -117,19 +116,14 @@ const buildDestinationCalls = async (
       calls.push(parsedTokenSwap.approval);
     }
     calls.push(parsedTokenSwap.swap);
-    // Output-token dust sweep only on the 7702 ephemeral path — aggregator delivers output
-    // direct to the EOA on Safe paths.
-    if (wrapper === 'ephemeral') {
-      sweepTokens.push(currentSwap.tokenSwap.quote.output.contractAddress);
-    }
+    // The aggregator delivers output directly to the EOA, so the Safe has no output-token dust.
   } else if (!currentSwap.gasSwap) {
     sweepTokens.push(dstTokenInfo.contractAddress);
   }
 
   // Gas swap (COT → native, receiver = EOA). Push after the token swap to match v1's
   // combined-batch ordering. Native goes direct to the EOA, so we never sweep EADDRESS
-  // at the wrapper — that's what removed Calibur's approveNative/sweepERC7914 path and
-  // the Safe value-send forwarder.
+  // at the Safe, so it needs no native-token sweep.
   if (currentSwap.gasSwap) {
     const parsedGasSwap = getParsedQuote(currentSwap.gasSwap, ctx.preparedExecution?.parsedQuotes);
     if (parsedGasSwap.approval) {
@@ -162,13 +156,8 @@ const buildDestinationCalls = async (
     }
   }
 
-  // Sweeper sender = wrapper (msg.sender at Sweeper after Safe.execTransaction →
-  // MultiSendCallOnly DELEGATECALL → CALL Sweeper resolves to Safe; on Calibur it's the
-  // ephemeral itself).
-  const senderAddress =
-    wrapper === 'safe'
-      ? predictSafeAccountAddress(ctx.ephemeralWallet.address).address
-      : ctx.ephemeralWallet.address;
+  // MultiSendCallOnly DELEGATECALL → CALL Sweeper resolves msg.sender to the Safe.
+  const senderAddress = ctx.safeAddress;
   const uniqueSweepTokens = [
     ...new Map(sweepTokens.map((token) => [token.toLowerCase(), token] as const)).values(),
   ];
@@ -245,8 +234,7 @@ const updateDestinationMetadata = (
  *
  * - No destination swap step (COT destination) → no-op; the bridge fill already delivered to
  *   the EOA.
- * - 7702 destination → Calibur SBC executes approve + dst-aggregator swap + sweepers.
- * - non-7702 destination → Safe.execTransaction wraps the same call sequence.
+ * - Safe.execTransaction wraps approve + destination-aggregator swap + sweepers.
  */
 export const executeDestinationSwap = async (
   destination: SwapRoute['destination'],
@@ -262,6 +250,8 @@ export const executeDestinationSwap = async (
     | 'middlewareClient'
     | 'cache'
     | 'preparedExecution'
+    | 'safeAddress'
+    | 'safeDeploymentPromises'
     | 'onProgress'
     | 'timing'
     | 'slippage'
@@ -287,7 +277,7 @@ export const executeDestinationSwap = async (
     return;
   }
 
-  const wrapper: WalletPath = chainSupports7702(chain) ? 'ephemeral' : 'safe';
+  const wrapper = 'safe' as const;
 
   logger.debug('swap.execute.destination.operation.started', {
     chainId: destination.chainId,
@@ -301,10 +291,7 @@ export const executeDestinationSwap = async (
     if (!cotAddress) {
       throw new Error('Destination settlement token is unavailable');
     }
-    const holderAddress =
-      wrapper === 'safe'
-        ? predictSafeAccountAddress(ctx.ephemeralWallet.address).address
-        : ctx.ephemeralWallet.address;
+    const holderAddress = ctx.safeAddress;
     const balance = await withTimingSpan(
       ctx.timing,
       'flow.swap.execute.destination.read_balance',
@@ -432,147 +419,73 @@ export const executeDestinationSwap = async (
         ctx.timing,
         'flow.swap.execute.destination.build_calls',
         async () =>
-          buildDestinationCalls(
-            currentSwap,
-            destination,
-            dstTokenInfo,
-            ctx,
-            wrapper,
-            wrapperCotBalance
-          ),
+          buildDestinationCalls(currentSwap, destination, dstTokenInfo, ctx, wrapperCotBalance),
         { tags: { mode, wallet_path: wrapper, attempt } }
       );
       let txHash: Hex;
       const explorerBaseUrl = chain?.blockExplorers?.default?.url;
 
-      if (wrapper === 'safe') {
-        // Non-7702 destination: Safe.execTransaction wraps approve+swap+sweepers. Bridge fill
-        // already landed at the Safe (route sets bridge recipient = Safe). The Safe pulls the
-        // COT into the aggregator, runs the swap with receiver=EOA, and the sweeper drains
-        // residual COT back to the EOA in the same execTransaction.
-        ctx.onProgress?.({
-          stepType: 'destination_swap',
-          chainId: destination.chainId,
-          state: 'started',
-        });
-        const publicClient = ctx.publicClientList.get(destination.chainId);
-        const { address: safeAddress } = predictSafeAccountAddress(ctx.ephemeralWallet.address);
-        const result = await withTimingSpan(
-          ctx.timing,
-          'flow.swap.execute.destination.dispatch',
-          async () => {
-            await ensureSafeForEphemeral({
-              chainId: destination.chainId,
-              ephemeralWallet: ctx.ephemeralWallet,
-              publicClient,
-              middleware: ctx.middlewareClient,
-            });
-            const safeCalls: SafeCall[] = calls.map((c) => ({
-              to: c.to,
-              value: c.value,
-              data: c.data,
-            }));
-            const request = await createSafeExecuteTxFromCalls({
-              calls: safeCalls,
-              chainId: destination.chainId,
-              ephemeralWallet: ctx.ephemeralWallet,
-              publicClient,
-              safeAddress,
-            });
-            attemptedDispatch = true;
-            return ctx.middlewareClient.createSafeExecuteTx(request);
-          },
-          { tags: { mode, wallet_path: wrapper, attempt } }
-        );
-        txHash = result.txHash;
-        const explorerUrl = createExplorerTxURL(txHash, explorerBaseUrl);
-        lastSubmitted = { txHash, explorerUrl };
-        ctx.onProgress?.({
-          stepType: 'destination_swap',
-          chainId: destination.chainId,
-          state: 'submitted',
-          txHash,
-          explorerUrl,
-        });
-        await withTimingSpan(
-          ctx.timing,
-          'flow.swap.execute.destination.wait_receipt',
-          async () =>
-            confirmStepReceipt(
-              publicClient,
-              txHash,
-              destination.chainId,
-              destinationSwapStep(destination.chainId)
-            ),
-          { tags: { mode, wallet_path: wrapper, attempt } }
-        );
-        ctx.onProgress?.({
-          stepType: 'destination_swap',
-          chainId: destination.chainId,
-          state: 'confirmed',
-          txHash,
-          explorerUrl,
-        });
-      } else {
-        ctx.onProgress?.({
-          stepType: 'destination_swap',
-          chainId: destination.chainId,
-          state: 'started',
-        });
-        const results = await withTimingSpan(
-          ctx.timing,
-          'flow.swap.execute.destination.dispatch',
-          async () => {
-            const sbcTx = await createSBCTxFromCalls({
-              calls,
-              chainID: destination.chainId,
-              ephemeralAddress: ctx.ephemeralWallet.address,
-              ephemeralWallet: ctx.ephemeralWallet,
-              publicClient: ctx.publicClientList.get(destination.chainId),
-            });
-
-            attemptedDispatch = true;
-            return ctx.middlewareClient.submitSBCs([sbcTx]);
-          },
-          { tags: { mode, wallet_path: wrapper, attempt } }
-        );
-        txHash = requireSuccessfulSbcResult(
-          results,
-          destination.chainId,
-          'Destination swap SBC submission'
-        );
-        const explorerUrl = createExplorerTxURL(txHash, explorerBaseUrl);
-        lastSubmitted = {
-          txHash,
-          explorerUrl,
-        };
-        ctx.onProgress?.({
-          stepType: 'destination_swap',
-          chainId: destination.chainId,
-          state: 'submitted',
-          txHash,
-          explorerUrl,
-        });
-        await withTimingSpan(
-          ctx.timing,
-          'flow.swap.execute.destination.wait_receipt',
-          async () =>
-            confirmStepReceipt(
-              ctx.publicClientList.get(destination.chainId),
-              txHash,
-              destination.chainId,
-              destinationSwapStep(destination.chainId)
-            ),
-          { tags: { mode, wallet_path: wrapper, attempt } }
-        );
-        ctx.onProgress?.({
-          stepType: 'destination_swap',
-          chainId: destination.chainId,
-          state: 'confirmed',
-          txHash,
-          explorerUrl,
-        });
-      }
+      // Safe.execTransaction wraps approve+swap+sweepers. Bridge fill already landed at the Safe.
+      // The Safe pulls COT into the aggregator, runs the swap with receiver=EOA, and drains any
+      // residual COT back to the EOA in the same transaction.
+      ctx.onProgress?.({
+        stepType: 'destination_swap',
+        chainId: destination.chainId,
+        state: 'started',
+      });
+      const publicClient = ctx.publicClientList.get(destination.chainId);
+      const result = await withTimingSpan(
+        ctx.timing,
+        'flow.swap.execute.destination.dispatch',
+        async () => {
+          await requireSafeDeployment(ctx.safeDeploymentPromises, destination.chainId);
+          const safeCalls: SafeCall[] = calls.map((c) => ({
+            to: c.to,
+            value: c.value,
+            data: c.data,
+          }));
+          const request = await createSafeExecuteTxFromCalls({
+            calls: safeCalls,
+            chainId: destination.chainId,
+            eoaAddress: ctx.eoaAddress,
+            ephemeralWallet: ctx.ephemeralWallet,
+            publicClient,
+            safeAddress: ctx.safeAddress,
+          });
+          attemptedDispatch = true;
+          return ctx.middlewareClient.createSafeExecuteTx(request);
+        },
+        { tags: { mode, wallet_path: wrapper, attempt } }
+      );
+      txHash = result.txHash;
+      const explorerUrl = createExplorerTxURL(txHash, explorerBaseUrl);
+      lastSubmitted = { txHash, explorerUrl };
+      ctx.onProgress?.({
+        stepType: 'destination_swap',
+        chainId: destination.chainId,
+        state: 'submitted',
+        txHash,
+        explorerUrl,
+      });
+      await withTimingSpan(
+        ctx.timing,
+        'flow.swap.execute.destination.wait_receipt',
+        async () =>
+          confirmStepReceipt(
+            publicClient,
+            txHash,
+            destination.chainId,
+            destinationSwapStep(destination.chainId)
+          ),
+        { tags: { mode, wallet_path: wrapper, attempt } }
+      );
+      ctx.onProgress?.({
+        stepType: 'destination_swap',
+        chainId: destination.chainId,
+        state: 'confirmed',
+        txHash,
+        explorerUrl,
+      });
 
       updateDestinationMetadata(currentSwap, destination.chainId, txHash, metadata);
       logger.debug('swap.execute.destination.operation.completed', {

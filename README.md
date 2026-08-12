@@ -1708,12 +1708,12 @@ Swap plans contain the following step types:
 
 | Step Type | Description |
 |-----------|-------------|
-| `source_swap` | Execute a swap on a source chain (ephemeral or Safe smart-account path) |
-| `eoa_to_ephemeral_transfer` | Transfer funds from EOA to ephemeral wallet on a source chain |
+| `source_swap` | Execute a swap through the Safe on a source chain |
+| `eoa_to_ephemeral_transfer` | Move EOA-held bridge funds to the ephemeral bridge holder |
 | `bridge_deposit` | Deposit into vault for cross-chain bridge |
 | `bridge_intent_submission` | Submit the bridge intent to the network |
 | `bridge_fill` | Wait for bridge fill on destination chain |
-| `destination_swap` | Execute a swap on the destination chain |
+| `destination_swap` | Execute a swap through the Safe on the destination chain |
 
 **SwapPlan:**
 
@@ -1733,7 +1733,7 @@ type SwapPlanStep =
   | SwapDestinationSwapStep;
 ```
 
-Each step carries contextual metadata (chain, tokens, wallet path). Progress events report per-step state transitions. The terminal success state varies by step type:
+Each step carries contextual metadata such as its chain and tokens. Source and destination swap steps also expose `walletPath: 'safe'`. Progress events report per-step state transitions. The terminal success state varies by step type:
 
 - On-chain transaction steps (`allowance_approval`, `source_swap`, `eoa_to_ephemeral_transfer`, `bridge_deposit`, `destination_swap`, `execute_approval`, `execute_transaction`) settle on `confirmed`.
 - `vault_deposit` settles on `completed` — it emits `confirmed` as an on-chain intermediate, then `completed` as its terminal-success state.
@@ -2268,18 +2268,27 @@ if (result.bridgeSkipped) {
 }
 ```
 
-### Swap Execution Paths
+### Swap Execution Path
 
-Swaps execute through a per-chain smart account, chosen automatically — there is no wallet-mode
-option. The SDK never dispatches a swap directly from the EOA:
+Every source and destination swap executes through the deterministic V2 Safe. 
 
-- **7702 chains** — execute through an ephemeral key delegated to Calibur (EIP-7702), batched and
-  submitted to middleware.
-- **non-7702 chains** — execute through a deterministic Safe owned by the ephemeral key
-  (`Safe.execTransaction`).
+The Safe has the connected EOA and the SDK's ephemeral account as owners with threshold 1. Its
+address is derived once and is deterministic across supported chains. While the intent is displayed,
+the SDK caches whether that address has bytecode on every execution chain. After approval, it skips
+middleware for deployed Safes and concurrently ensures only the missing ones, awaiting the relevant
+deployment before the first permit, approval, or transaction prompt on that chain. A successful
+ensure updates the same cache so later execution does not repeat the bytecode check. This ensures
+wallet UIs see a deployed contract as the spender instead of warning about an approval to an
+undeployed address.
 
-The EOA only signs permits and pays funding approvals where needed. On top of the execution path,
-the SDK still handles routing, bridge funding, and destination custody decisions.
+Read-only allowance, permit-capability, and Safe-code cache requests start while the swap intent is
+displayed and are awaited after approval. Refreshing an intent reuses that work when its cache query
+data is unchanged.
+
+Token-only Safe transactions are sponsor-broadcast through middleware. Native-value Safe
+transactions are submitted by the EOA because the outer transaction must fund the Safe call. The
+ephemeral account remains an owner/signing identity and may hold remote bridge settlement funds; it
+is never the swap executor.
 
 ---
 
@@ -2409,7 +2418,7 @@ Backend deployments may change which chains and tokens are live without an SDK r
 
 - **Create a new client on account change.** The client is tied to a specific provider/address. Calling `setEVMProvider()` again with the **same** provider instance is a no-op (it short-circuits when the provider hasn't changed), so it cannot be used to swap accounts. On wallet disconnect or account switch, build a fresh client and re-run `initialize()` + `setEVMProvider()`.
 
-- **EOA wallet operations are single-chain.** Browser wallets expose one active chain context for the connected user wallet. The SDK serializes wallet-touching work such as chain switching, prompts, permit signatures, direct approvals, and EOA transaction sends. It may still parallelize non-wallet work like quotes, public-client reads, per-chain SBC submission, and receipt waits. Avoid running multiple SDK operations against the same connected wallet at the same time unless you can tolerate wallet prompt and chain-switch contention.
+- **EOA wallet operations are single-chain.** Browser wallets expose one active chain context for the connected user wallet. The SDK serializes wallet-touching work such as chain switching, prompts, permit signatures, direct approvals, and EOA transaction sends. It may still parallelize non-wallet work like quotes, public-client reads, Safe deployment, sponsored Safe execution, and receipt waits. Avoid running multiple SDK operations against the same connected wallet at the same time unless you can tolerate wallet prompt and chain-switch contention.
 
 - **Composite `onIntent` is top-level.** `bridgeAndExecute()` and `swapAndExecute()` use `options.onIntent`, not `options.hooks.onIntent`. Even when bridge/swap is skipped, `allow()` still gates execution.
 

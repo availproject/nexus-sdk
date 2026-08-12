@@ -1,8 +1,4 @@
-// TODO: rebaseline characterization snapshots after the smart-account-only refactor
-//   (WalletPath = ephemeral | safe; no more SwapWalletMode / finalWalletPath /
-//    bridgeFundingWalletPath / sourceRecipientWalletPath). describe() is .skip'd until
-//   each scenario's expected execution paths, fee math, sendCalls counts, and
-//   eoaToEphemeralTransfers are recomputed for the new model.
+// End-to-end swap pipeline characterization for the Safe V2-only execution model.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Decimal from 'decimal.js';
 import {
@@ -15,8 +11,8 @@ import {
 } from 'viem';
 import type { PrivateKeyAccount } from 'viem/accounts';
 import { buildSwapPreflight } from '../../../src/swap/preflight';
-import { prepareSwapExecution } from '../../../src/swap/prepare';
-import { predictSafeAccountAddress } from '../../../src/swap/safe/predict';
+import { prepareSwapExecution, startSwapCacheWarmup } from '../../../src/swap/prepare';
+import { predictSafeAccountAddressV2 } from '../../../src/swap/safe/predict';
 import { buildSwapPreviewState, swap as flowSwap, type SwapPreviewState } from '../../../src/flows/swap';
 import {
   getSwapBridgeDepositStep,
@@ -26,7 +22,6 @@ import {
   getSwapSourceSwapStep,
 } from '../../../src/swap/swap-steps-builder';
 import { EADDRESS, SWEEPER_ADDRESS } from '../../../src/swap/constants';
-import { SwapCache } from '../../../src/swap/wallet/cache';
 import {
   SwapMode,
   type FlatBalance,
@@ -48,6 +43,8 @@ import {
   makeSwapChainList,
 } from '../../helpers/swap';
 import { ERC20PermitABI } from '../../../src/abi/erc20';
+import { decodeSafeRequest } from '../../helpers/swap-characterization';
+import type { CreateSafeExecuteTxV2Request } from '../../../src/swap/safe/types';
 
 const hoisted = vi.hoisted(() => {
   const readContract = vi.fn();
@@ -118,10 +115,23 @@ vi.mock('viem', async () => {
 
 const EOA = '0xaaaa000000000000000000000000000000000001' as Hex;
 const EPH = '0xbbbb000000000000000000000000000000000002' as Hex;
-// CREATE2 of the Safe-proxy with EPH as the sole 1-of-1 owner. Stable as long as EPH and
-// Safe constants don't change. Cross-check by calling predictSafeAccountAddress(EPH) if
-// either drifts.
-const PREDICTED_SAFE_FOR_EPH = '0x2d7E4C3ef02B86D271624742C6e81636f4c9e663' as Hex;
+// CREATE2 of the V2 Safe proxy jointly keyed by the EOA and ephemeral owner.
+const PREDICTED_SAFE_ACCOUNT = predictSafeAccountAddressV2(EOA, EPH);
+const PREDICTED_SAFE_FOR_EPH = PREDICTED_SAFE_ACCOUNT.address as Hex;
+const resolvedSafeDeployments = (chainIds: readonly number[]) =>
+  new Map(
+    chainIds.map((chainId) => [
+      chainId,
+      Promise.resolve({
+        chainId,
+        eoaAddress: EOA,
+        ephemeralAddress: EPH,
+        address: PREDICTED_SAFE_ACCOUNT.address,
+        factoryAddress: PREDICTED_SAFE_ACCOUNT.factoryAddress,
+        exists: true,
+      }),
+    ])
+  );
 const SOURCE_DAI = '0x0000000000000000000000000000000000000da1' as Hex;
 const ARB_BEBOP_APPROVAL = '0x1111111111111111111111111111111111111111' as Hex;
 const ARB_BEBOP_ROUTER = '0x1111111111111111111111111111111111112222' as Hex;
@@ -169,12 +179,13 @@ type ScenarioContext = {
   middlewareClient: MiddlewareClient & {
     getLiFiQuote: ReturnType<typeof vi.fn>;
     getBebopQuote: ReturnType<typeof vi.fn>;
-    submitSBCs: ReturnType<typeof vi.fn>;
     submitRFF: ReturnType<typeof vi.fn>;
     getRFF: ReturnType<typeof vi.fn>;
     getRFFStatus: ReturnType<typeof vi.fn>;
     getSwapBalances: ReturnType<typeof vi.fn>;
     getOraclePrices: ReturnType<typeof vi.fn>;
+    ensureSafeAccount: ReturnType<typeof vi.fn>;
+    createSafeExecuteTx: ReturnType<typeof vi.fn>;
   };
   eoaWallet: SwapParams['eoaWallet'] & {
     getCapabilities: ReturnType<typeof vi.fn>;
@@ -203,7 +214,6 @@ type HarnessResult = ScenarioContext & {
   previewState: SwapPreviewState;
   preparedExecution: Awaited<ReturnType<typeof prepareSwapExecution>>;
   swapResult: Awaited<ReturnType<typeof flowSwap>>;
-  submitSbcChainIds: number[];
 };
 
 const runSwap = (input: Parameters<typeof flowSwap>[0], params: SwapParams) =>
@@ -233,7 +243,6 @@ const runSwap = (input: Parameters<typeof flowSwap>[0], params: SwapParams) =>
 
 type ExactOutScenario = {
   name: string;
-  destinationHas7702: boolean;
   balances?: FlatBalance[];
   sources?: Array<{ chainId: number; tokenAddress: Hex }>;
   destinationTokenAddress: Hex;
@@ -250,7 +259,6 @@ type ExactOutScenario = {
     expectedSendCallsCount: number;
     expectedWriteContractCount: number;
     expectedEoaRouters: Hex[];
-    expectedSubmitSbcChainIds: number[];
     expectedBridgeRecipient: Hex | null;
     expectsNativeSweep: boolean;
     sourceQuoteExpectations: Array<{
@@ -277,8 +285,7 @@ type ExactOutScenario = {
 
 const SCENARIOS: ExactOutScenario[] = [
   {
-    name: 'COT destination without gas on 7702 chain',
-    destinationHas7702: true,
+    name: 'COT destination without gas on Safe V2 chain',
     destinationTokenAddress: USDC_BASE,
     destinationAmountRaw: parseUnits('1600', 6),
     toNativeAmountRaw: 0n,
@@ -290,8 +297,8 @@ const SCENARIOS: ExactOutScenario[] = [
       ],
       directCotChains: [],
       sourceExecutionPaths: [
-        [ARB_CHAIN, 'ephemeral'],
-        [OP_CHAIN, 'ephemeral'],
+        [ARB_CHAIN, 'safe'],
+        [OP_CHAIN, 'safe'],
       ],
       hasBridge: true,
       expectsDestinationSwap: false,
@@ -299,7 +306,6 @@ const SCENARIOS: ExactOutScenario[] = [
       expectedSendCallsCount: 1,
       expectedWriteContractCount: 0,
       expectedEoaRouters: [ARB_BEBOP_ROUTER],
-      expectedSubmitSbcChainIds: [ARB_CHAIN, OP_CHAIN],
       expectedBridgeRecipient: EOA,
       expectsNativeSweep: false,
       sourceQuoteExpectations: [
@@ -316,8 +322,7 @@ const SCENARIOS: ExactOutScenario[] = [
     },
   },
   {
-    name: 'COT destination with gas on 7702 chain',
-    destinationHas7702: true,
+    name: 'COT destination with gas on Safe V2 chain',
     destinationTokenAddress: USDC_BASE,
     destinationAmountRaw: parseUnits('1600', 6),
     toNativeAmountRaw: parseUnits('0.01', 18),
@@ -329,8 +334,8 @@ const SCENARIOS: ExactOutScenario[] = [
       ],
       directCotChains: [],
       sourceExecutionPaths: [
-        [ARB_CHAIN, 'ephemeral'],
-        [OP_CHAIN, 'ephemeral'],
+        [ARB_CHAIN, 'safe'],
+        [OP_CHAIN, 'safe'],
       ],
       hasBridge: true,
       expectsDestinationSwap: false,
@@ -338,7 +343,6 @@ const SCENARIOS: ExactOutScenario[] = [
       expectedSendCallsCount: 1,
       expectedWriteContractCount: 0,
       expectedEoaRouters: [ARB_BEBOP_ROUTER],
-      expectedSubmitSbcChainIds: [ARB_CHAIN, OP_CHAIN],
       expectedBridgeRecipient: EOA,
       expectsNativeSweep: false,
       sourceQuoteExpectations: [
@@ -355,8 +359,7 @@ const SCENARIOS: ExactOutScenario[] = [
     },
   },
   {
-    name: 'non-COT destination with gas on 7702 chain',
-    destinationHas7702: true,
+    name: 'non-COT destination with gas on Safe V2 chain',
     destinationTokenAddress: WETH,
     destinationAmountRaw: parseUnits('1', 18),
     toNativeAmountRaw: parseUnits('0.01', 18),
@@ -368,8 +371,8 @@ const SCENARIOS: ExactOutScenario[] = [
       ],
       directCotChains: [],
       sourceExecutionPaths: [
-        [ARB_CHAIN, 'ephemeral'],
-        [OP_CHAIN, 'ephemeral'],
+        [ARB_CHAIN, 'safe'],
+        [OP_CHAIN, 'safe'],
       ],
       hasBridge: true,
       expectsDestinationSwap: true,
@@ -377,7 +380,6 @@ const SCENARIOS: ExactOutScenario[] = [
       expectedSendCallsCount: 1,
       expectedWriteContractCount: 0,
       expectedEoaRouters: [ARB_BEBOP_ROUTER],
-      expectedSubmitSbcChainIds: [ARB_CHAIN, OP_CHAIN, BASE_CHAIN],
       expectedBridgeRecipient: EPH,
       expectsNativeSweep: true,
       sourceQuoteExpectations: [
@@ -395,12 +397,11 @@ const SCENARIOS: ExactOutScenario[] = [
     },
   },
   {
-    // Non-7702 destination + needs token swap → finalWalletPath='safe'. Bridge fills to the
+    // Non-Safe V2 destination + needs token swap → finalWalletPath='safe'. Bridge fills to the
     // predicted Safe address; Safe.execTransaction runs the dst aggregator swap and delivers
     // output to the EOA. The user signs zero destination-side EOA transactions (was 1 before
     // the Safe-destination fix).
-    name: 'non-COT destination with gas on non-7702 chain',
-    destinationHas7702: false,
+    name: 'non-COT destination with gas on Safe V2 chain',
     destinationTokenAddress: WETH,
     destinationAmountRaw: parseUnits('1', 18),
     toNativeAmountRaw: parseUnits('0.01', 18),
@@ -412,8 +413,8 @@ const SCENARIOS: ExactOutScenario[] = [
       ],
       directCotChains: [],
       sourceExecutionPaths: [
-        [ARB_CHAIN, 'ephemeral'],
-        [OP_CHAIN, 'ephemeral'],
+        [ARB_CHAIN, 'safe'],
+        [OP_CHAIN, 'safe'],
       ],
       hasBridge: true,
       expectsDestinationSwap: true,
@@ -421,7 +422,6 @@ const SCENARIOS: ExactOutScenario[] = [
       expectedSendCallsCount: 1,
       expectedWriteContractCount: 0,
       expectedEoaRouters: [ARB_BEBOP_ROUTER],
-      expectedSubmitSbcChainIds: [ARB_CHAIN, OP_CHAIN],
       expectedBridgeRecipient: PREDICTED_SAFE_FOR_EPH,
       expectsNativeSweep: false,
       sourceQuoteExpectations: [
@@ -440,7 +440,6 @@ const SCENARIOS: ExactOutScenario[] = [
   },
   {
     name: 'mixed swapped source and direct COT bridge with COT destination',
-    destinationHas7702: true,
     balances: [
       {
         amount: '1200',
@@ -475,8 +474,8 @@ const SCENARIOS: ExactOutScenario[] = [
       sourceSwapAggregators: [{ chainId: ARB_CHAIN, aggregator: 'BebopAggregator' }],
       directCotChains: [OP_CHAIN],
       sourceExecutionPaths: [
-        [ARB_CHAIN, 'ephemeral'],
-        [OP_CHAIN, 'ephemeral'],
+        [ARB_CHAIN, 'safe'],
+        [OP_CHAIN, 'safe'],
       ],
       hasBridge: true,
       expectsDestinationSwap: false,
@@ -484,7 +483,6 @@ const SCENARIOS: ExactOutScenario[] = [
       expectedSendCallsCount: 1,
       expectedWriteContractCount: 0,
       expectedEoaRouters: [ARB_BEBOP_ROUTER],
-      expectedSubmitSbcChainIds: [ARB_CHAIN, OP_CHAIN],
       expectedBridgeRecipient: EOA,
       expectsNativeSweep: false,
       sourceQuoteExpectations: [{ chainId: ARB_CHAIN, executor: EPH, recipient: EPH }],
@@ -502,7 +500,6 @@ const SCENARIOS: ExactOutScenario[] = [
     // input→toToken delivered to the EOA, no bridge and no destination swap. The direct-COT handoff
     // (dst-chain COT feeding a dst swap) is still covered by the cross-chain scenario below.
     name: 'same-chain Path A exact-out — direct source swap, no bridge, no dst swap',
-    destinationHas7702: true,
     balances: [
       {
         amount: '1700',
@@ -525,14 +522,13 @@ const SCENARIOS: ExactOutScenario[] = [
       // The assertion derives this from USDC tokens in `assetsUsed`; here USDC is the Path A swap
       // INPUT (not a direct COT delivery), so BASE appears — no handoff is actually emitted.
       directCotChains: [BASE_CHAIN],
-      sourceExecutionPaths: [[BASE_CHAIN, 'ephemeral']],
+      sourceExecutionPaths: [[BASE_CHAIN, 'safe']],
       hasBridge: false,
       expectsDestinationSwap: false,
       expectedDestinationAggregator: null,
       expectedSendCallsCount: 0,
       expectedWriteContractCount: 0,
       expectedEoaRouters: [],
-      expectedSubmitSbcChainIds: [BASE_CHAIN],
       expectedBridgeRecipient: null,
       expectsNativeSweep: false,
       // Path A source swap delivers straight to the EOA (no dst swap follows).
@@ -544,8 +540,7 @@ const SCENARIOS: ExactOutScenario[] = [
     },
   },
   {
-    name: 'destination local COT plus bridged swap source on 7702 destination',
-    destinationHas7702: true,
+    name: 'destination local COT plus bridged swap source on Safe V2 destination',
     balances: [
       {
         amount: '1200',
@@ -580,8 +575,8 @@ const SCENARIOS: ExactOutScenario[] = [
       sourceSwapAggregators: [{ chainId: ARB_CHAIN, aggregator: 'BebopAggregator' }],
       directCotChains: [BASE_CHAIN],
       sourceExecutionPaths: [
-        [ARB_CHAIN, 'ephemeral'],
-        [BASE_CHAIN, 'ephemeral'],
+        [ARB_CHAIN, 'safe'],
+        [BASE_CHAIN, 'safe'],
       ],
       hasBridge: true,
       expectsDestinationSwap: true,
@@ -589,7 +584,6 @@ const SCENARIOS: ExactOutScenario[] = [
       expectedSendCallsCount: 1,
       expectedWriteContractCount: 0,
       expectedEoaRouters: [ARB_BEBOP_ROUTER],
-      expectedSubmitSbcChainIds: [ARB_CHAIN, BASE_CHAIN],
       expectedBridgeRecipient: EPH,
       expectsNativeSweep: false,
       sourceQuoteExpectations: [{ chainId: ARB_CHAIN, executor: EPH, recipient: EPH }],
@@ -605,7 +599,6 @@ const SCENARIOS: ExactOutScenario[] = [
     // now executes through a wrapper. This scenario stays in the suite to ensure the legacy
     // EOA-direct surface is gone (bridge assets carry `ephemeralBalance`, not `eoaBalance`).
     name: 'eoa-only keeps all swaps and bridge custody on eoa',
-    destinationHas7702: true,
     destinationTokenAddress: WETH,
     destinationAmountRaw: parseUnits('1', 18),
     toNativeAmountRaw: 0n,
@@ -617,8 +610,8 @@ const SCENARIOS: ExactOutScenario[] = [
       ],
       directCotChains: [],
       sourceExecutionPaths: [
-        [ARB_CHAIN, 'ephemeral'],
-        [OP_CHAIN, 'ephemeral'],
+        [ARB_CHAIN, 'safe'],
+        [OP_CHAIN, 'safe'],
       ],
       hasBridge: true,
       expectsDestinationSwap: true,
@@ -626,7 +619,6 @@ const SCENARIOS: ExactOutScenario[] = [
       expectedSendCallsCount: 0,
       expectedWriteContractCount: 0,
       expectedEoaRouters: [],
-      expectedSubmitSbcChainIds: [ARB_CHAIN, OP_CHAIN, BASE_CHAIN],
       expectedBridgeRecipient: EPH,
       expectsNativeSweep: false,
       sourceQuoteExpectations: [
@@ -644,10 +636,9 @@ const SCENARIOS: ExactOutScenario[] = [
     },
   },
   {
-    // Same shape as above but on a non-7702 destination, so the dst wrapper is the per-EOA
+    // Same shape as above but on a Safe V2 destination, so the dst wrapper is the per-EOA
     // Safe. Bridge recipient is the predicted Safe address.
-    name: 'eoa-only with gas on non-7702 destination keeps bridge and destination on eoa',
-    destinationHas7702: false,
+    name: 'eoa-only with gas on Safe V2 destination keeps bridge and destination on eoa',
     destinationTokenAddress: WETH,
     destinationAmountRaw: parseUnits('1', 18),
     toNativeAmountRaw: parseUnits('0.01', 18),
@@ -659,8 +650,8 @@ const SCENARIOS: ExactOutScenario[] = [
       ],
       directCotChains: [],
       sourceExecutionPaths: [
-        [ARB_CHAIN, 'ephemeral'],
-        [OP_CHAIN, 'ephemeral'],
+        [ARB_CHAIN, 'safe'],
+        [OP_CHAIN, 'safe'],
       ],
       hasBridge: true,
       expectsDestinationSwap: true,
@@ -668,7 +659,6 @@ const SCENARIOS: ExactOutScenario[] = [
       expectedSendCallsCount: 0,
       expectedWriteContractCount: 0,
       expectedEoaRouters: [],
-      expectedSubmitSbcChainIds: [ARB_CHAIN, OP_CHAIN],
       expectedBridgeRecipient: PREDICTED_SAFE_FOR_EPH,
       expectsNativeSweep: false,
       sourceQuoteExpectations: [
@@ -687,7 +677,6 @@ const SCENARIOS: ExactOutScenario[] = [
   },
   {
     name: 'multiple direct COT chains bridge without source swaps',
-    destinationHas7702: true,
     balances: [
       {
         amount: '900',
@@ -722,8 +711,8 @@ const SCENARIOS: ExactOutScenario[] = [
       sourceSwapAggregators: [],
       directCotChains: [ARB_CHAIN, OP_CHAIN],
       sourceExecutionPaths: [
-        [ARB_CHAIN, 'ephemeral'],
-        [OP_CHAIN, 'ephemeral'],
+        [ARB_CHAIN, 'safe'],
+        [OP_CHAIN, 'safe'],
       ],
       hasBridge: true,
       expectsDestinationSwap: false,
@@ -731,7 +720,6 @@ const SCENARIOS: ExactOutScenario[] = [
       expectedSendCallsCount: 0,
       expectedWriteContractCount: 0,
       expectedEoaRouters: [],
-      expectedSubmitSbcChainIds: [ARB_CHAIN, OP_CHAIN],
       expectedBridgeRecipient: EOA,
       expectsNativeSweep: false,
       sourceQuoteExpectations: [],
@@ -747,7 +735,6 @@ const SCENARIOS: ExactOutScenario[] = [
   },
   {
     name: 'ephemeral-preferred uses ephemeral execution end-to-end where supported',
-    destinationHas7702: true,
     destinationTokenAddress: WETH,
     destinationAmountRaw: parseUnits('1', 18),
     toNativeAmountRaw: 0n,
@@ -759,8 +746,8 @@ const SCENARIOS: ExactOutScenario[] = [
       ],
       directCotChains: [],
       sourceExecutionPaths: [
-        [ARB_CHAIN, 'ephemeral'],
-        [OP_CHAIN, 'ephemeral'],
+        [ARB_CHAIN, 'safe'],
+        [OP_CHAIN, 'safe'],
       ],
       hasBridge: true,
       expectsDestinationSwap: true,
@@ -768,7 +755,6 @@ const SCENARIOS: ExactOutScenario[] = [
       expectedSendCallsCount: 0,
       expectedWriteContractCount: 0,
       expectedEoaRouters: [],
-      expectedSubmitSbcChainIds: [ARB_CHAIN, OP_CHAIN, BASE_CHAIN],
       expectedBridgeRecipient: EPH,
       expectsNativeSweep: false,
       sourceQuoteExpectations: [
@@ -870,7 +856,7 @@ const getDefaultBalances = (): FlatBalance[] => [
   },
 ];
 
-const makeChainList = (destinationHas7702: boolean): ChainListType => {
+const makeChainList = (): ChainListType => {
   const chainList = makeSwapChainList();
   const originalGetChainByID = chainList.getChainByID;
   const originalGetTokenByAddress = chainList.getTokenByAddress;
@@ -902,7 +888,6 @@ const makeChainList = (destinationHas7702: boolean): ChainListType => {
       return {
         ...chain,
         name: 'Base',
-        supports7702: destinationHas7702,
         blockExplorers: { default: { name: 'Basescan', url: 'https://basescan.org' } },
         custom: { ...chain.custom, icon: 'https://base.example/icon.png' },
       };
@@ -931,7 +916,10 @@ const makeChainList = (destinationHas7702: boolean): ChainListType => {
         permitVersion: 1,
       };
     }
-    return originalGetTokenByAddress(chainId, tokenAddress);
+    const token = originalGetTokenByAddress(chainId, tokenAddress);
+    return token?.symbol === 'USDC'
+      ? { ...token, permitVariant: 1, permitVersion: 2 }
+      : token;
   });
   return chainList;
 };
@@ -1106,9 +1094,6 @@ const makeBebopResponse = (params: Record<string, string>) => {
   };
 };
 
-const extractSbcChainIds = (call: unknown): number[] =>
-  (call as Array<{ chainId: number }>).map((tx) => tx.chainId);
-
 const SWEEPER_ABI = [
   {
     type: 'function',
@@ -1129,19 +1114,15 @@ const SWEEPER_ABI = [
   },
 ] as const;
 
-const getSubmittedSbcCallsForChain = (
+const getSubmittedExecutionCallsForChain = (
   middlewareClient: ScenarioContext['middlewareClient'],
   chainId: number
-) =>
-  middlewareClient.submitSBCs.mock.calls
-    .flatMap(([txs]) => txs as Array<{ chainId: number; calls: Array<{ to: Hex; data: Hex }> }>)
-    .filter((tx) => tx.chainId === chainId)
-    .flatMap((tx) =>
-      tx.calls.map((call) => ({
-        to: call.to,
-        data: call.data,
-      }))
-    );
+) => [
+  ...middlewareClient.createSafeExecuteTx.mock.calls
+    .map(([request]) => request as CreateSafeExecuteTxV2Request)
+    .filter((request) => request.chainId === chainId)
+    .flatMap(decodeSafeRequest),
+];
 
 const getBebopCallsForChain = (
   middlewareClient: ScenarioContext['middlewareClient'],
@@ -1166,7 +1147,7 @@ const getLiFiCallsForChain = (
     .filter(([params]) => Number(params.fromChain) === chainId && Number(params.toChain) === chainId);
 
 const makeScenario = (scenario: ExactOutScenario): ScenarioContext => {
-  const chainList = makeChainList(scenario.destinationHas7702);
+  const chainList = makeChainList();
   const emittedEvents: SwapEvent[] = [];
   const capturedIntent = { current: null as SwapIntent | null };
   let currentEoaChainId = ARB_CHAIN;
@@ -1202,14 +1183,6 @@ const makeScenario = (scenario: ExactOutScenario): ScenarioContext => {
     getQuote: vi.fn().mockResolvedValue(makeBridgeQuoteResponse()),
     getBridgeProvider: vi.fn().mockResolvedValue({ provider: 'nexus' }),
     getMayanQuotes: vi.fn(),
-    submitSBCs: vi.fn().mockImplementation(async (txs: Array<{ chainId: number; address: Hex }>) =>
-      txs.map((tx, index) => ({
-        chainId: tx.chainId,
-        address: tx.address,
-        errored: false as const,
-        txHash: (`0x${(index + 1).toString(16).padStart(64, '0')}`) as Hex,
-      }))
-    ),
     submitRFF: vi.fn().mockResolvedValue({
       request_hash: '0x9999999999999999999999999999999999999999999999999999999999999999' as Hex,
     }),
@@ -1230,9 +1203,7 @@ const makeScenario = (scenario: ExactOutScenario): ScenarioContext => {
       solver: null,
     }),
     getRFFStatus: vi.fn().mockResolvedValue({ status: 'fulfilled' }),
-    // Non-7702 Safe support: source-swap/bridge-deposit/destination-swap on non-Pectra chains
-    // dispatch via Safe.execTransaction instead of Calibur SBC. The scenario only exercises
-    // these when destinationHas7702=false (Safe wraps the dst swap) or a source uses 'safe'.
+    // Source swaps, bridge deposits, and destination swaps all dispatch via Safe V2.
     ensureSafeAccount: vi.fn().mockResolvedValue({
       chainId: BASE_CHAIN,
       owner: EPH,
@@ -1290,13 +1261,7 @@ const makeScenario = (scenario: ExactOutScenario): ScenarioContext => {
   const ephemeralWallet = {
     address: EPH,
     signMessage: vi.fn().mockResolvedValue('0x' + '33'.repeat(65)),
-    signTypedData: vi.fn().mockResolvedValue('0x' + '33'.repeat(65)),
-    signAuthorization: vi.fn().mockResolvedValue({
-      r: '0x01',
-      s: '0x02',
-      yParity: 0,
-      nonce: 0,
-    }),
+    signTypedData: vi.fn().mockResolvedValue(`0x${'33'.repeat(64)}1b`),
   } as unknown as PrivateKeyAccount;
 
   const input = {
@@ -1412,6 +1377,18 @@ const runScenario = async (scenario: ExactOutScenario): Promise<HarnessResult> =
     middlewareClient: ctx.middlewareClient,
     forceMayan: false,
     preflight,
+    safeAddress: PREDICTED_SAFE_FOR_EPH,
+  });
+
+  const cacheWarmup = startSwapCacheWarmup({
+    chainList: ctx.chainList,
+    route: previewState.route,
+    source: previewState.route.source,
+    destination: previewState.route.destination,
+    eoaAddress: ctx.params.eoaAddress,
+    ephemeralWallet: ctx.params.ephemeralWallet,
+    publicClientList: preflight.publicClientList,
+    safeAccount: PREDICTED_SAFE_ACCOUNT,
   });
 
   const preparedExecution = await prepareSwapExecution({
@@ -1423,13 +1400,13 @@ const runScenario = async (scenario: ExactOutScenario): Promise<HarnessResult> =
     eoaWallet: ctx.params.eoaWallet,
     ephemeralWallet: ctx.params.ephemeralWallet,
     publicClientList: preflight.publicClientList,
-    cache: new SwapCache(ctx.chainList),
+    cacheWarmup,
+    safeDeploymentPromises: resolvedSafeDeployments(cacheWarmup.safeChainIds),
   });
 
   ctx.eoaWallet.sendCalls.mockClear();
   ctx.eoaWallet.waitForCallsStatus.mockClear();
   ctx.eoaWallet.writeContract.mockClear();
-  ctx.middlewareClient.submitSBCs.mockClear();
   ctx.middlewareClient.submitRFF.mockClear();
   ctx.middlewareClient.getRFF.mockClear();
   ctx.emittedEvents.length = 0;
@@ -1437,21 +1414,38 @@ const runScenario = async (scenario: ExactOutScenario): Promise<HarnessResult> =
 
   const swapResult = await runSwap(ctx.input, ctx.params);
 
-  const submitSbcChainIds = ctx.middlewareClient.submitSBCs.mock.calls.flatMap(([txs]) =>
-    extractSbcChainIds(txs)
-  );
-
   return {
     ...ctx,
     preflight,
     previewState,
     preparedExecution,
     swapResult,
-    submitSbcChainIds,
   };
 };
 
+const expectSafeDeploymentCalls = (result: {
+  middlewareClient: ScenarioContext['middlewareClient'];
+  previewState: SwapPreviewState;
+}) => {
+  const { route } = result.previewState;
+  const expectedChainIds = new Set(route.sourceExecutionPaths.keys());
+  for (const asset of route.bridge?.assets ?? []) {
+    expectedChainIds.add(asset.chainID);
+  }
+  if (route.destination.swap.tokenSwap !== null || route.destination.swap.gasSwap !== null) {
+    expectedChainIds.add(route.destination.chainId);
+  }
+
+  const actualChainIds = (result.middlewareClient.ensureSafeAccount?.mock.calls ?? []).map(
+    ([request]) => request.chainId
+  );
+  expect(actualChainIds.sort((left, right) => left - right)).toEqual(
+    [...expectedChainIds].sort((left, right) => left - right)
+  );
+};
+
 const assertScenario = (scenario: ExactOutScenario, result: HarnessResult) => {
+  expectSafeDeploymentCalls(result);
   expect(result.previewState.route.source.swaps.map((entry) => entry.chainID)).toEqual(
     scenario.expected.sourceSwapChainIds
   );
@@ -1471,7 +1465,7 @@ const assertScenario = (scenario: ExactOutScenario, result: HarnessResult) => {
   }
 
   expect(result.previewState.route.sourceExecutionPaths).toEqual(
-    new Map(scenario.expected.sourceExecutionPaths)
+    new Map(scenario.expected.sourceExecutionPaths.map(([chainId]) => [chainId, 'safe']))
   );
   expect(result.previewState.plan.hasBridge).toBe(scenario.expected.hasBridge);
   // Destination swap step fires when either a token swap or a gas swap is required.
@@ -1503,16 +1497,12 @@ const assertScenario = (scenario: ExactOutScenario, result: HarnessResult) => {
     ).toBeUndefined();
   }
 
-  for (const [chainId, walletPath] of scenario.expected.sourceExecutionPaths) {
+  for (const [chainId] of scenario.expected.sourceExecutionPaths) {
     if (!scenario.expected.sourceSwapChainIds.includes(chainId)) continue;
-    expect(getSwapSourceSwapStep(result.previewState.plan, chainId).walletPath).toBe(walletPath);
+    expect(getSwapSourceSwapStep(result.previewState.plan, chainId).walletPath).toBe('safe');
   }
   if (expectsAnyDestinationSwap) {
-    // Destination wrapper depends on the chain's 7702 support, not a per-route field.
-    const expectedDstWrapper = scenario.destinationHas7702 ? 'ephemeral' : 'safe';
-    expect(getSwapDestinationSwapStep(result.previewState.plan, BASE_CHAIN).walletPath).toBe(
-      expectedDstWrapper
-    );
+    expect(getSwapDestinationSwapStep(result.previewState.plan, BASE_CHAIN).walletPath).toBe('safe');
   } else {
     expect(
       result.previewState.plan.steps.find((step) => step.type === 'destination_swap')
@@ -1579,7 +1569,7 @@ const assertScenario = (scenario: ExactOutScenario, result: HarnessResult) => {
       expect(bebopCalls).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            taker_address: getAddress(expectation.executor),
+            taker_address: getAddress(PREDICTED_SAFE_FOR_EPH),
             receiver_address: getAddress(expectation.recipient),
           }),
         ])
@@ -1590,7 +1580,7 @@ const assertScenario = (scenario: ExactOutScenario, result: HarnessResult) => {
         expect.arrayContaining([
           [
             expect.objectContaining({
-              fromAddress: expectation.executor,
+              fromAddress: PREDICTED_SAFE_FOR_EPH,
               toAddress: expectation.recipient,
             }),
             false,
@@ -1605,7 +1595,7 @@ const assertScenario = (scenario: ExactOutScenario, result: HarnessResult) => {
       expect(baseBebopCalls).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            taker_address: getAddress(scenario.expected.destinationQuoteExpectation.executor),
+            taker_address: getAddress(PREDICTED_SAFE_FOR_EPH),
             receiver_address: getAddress(scenario.expected.destinationQuoteExpectation.recipient),
           }),
         ])
@@ -1616,7 +1606,7 @@ const assertScenario = (scenario: ExactOutScenario, result: HarnessResult) => {
         expect.arrayContaining([
           [
             expect.objectContaining({
-              fromAddress: scenario.expected.destinationQuoteExpectation.executor,
+              fromAddress: PREDICTED_SAFE_FOR_EPH,
               toAddress: scenario.expected.destinationQuoteExpectation.recipient,
             }),
             expect.anything(),
@@ -1676,7 +1666,7 @@ const assertScenario = (scenario: ExactOutScenario, result: HarnessResult) => {
   );
 
   // Smart-account-only model: the EOA never dispatches swap routers directly. All swap
-  // calldata flows through the per-chain wrapper (Calibur SBC on 7702, Safe on non-7702),
+  // calldata flows through the per-chain wrapper (Safe request on Safe V2, Safe on Safe V2),
   // so the EOA never lands on a known aggregator router via writeContract/sendCalls.
   const eoaCalls = flattenEoaCalls(result.eoaWallet);
   const eoaCallTargets = eoaCalls.map((call) => call.to);
@@ -1684,40 +1674,28 @@ const assertScenario = (scenario: ExactOutScenario, result: HarnessResult) => {
     expect.arrayContaining([ARB_BEBOP_ROUTER, OP_BEBOP_ROUTER, BASE_BEBOP_ROUTER])
   );
 
-  // Source SBC chains = each ephemeral source chain, plus the dst chain if any dst swap runs.
-  const expectedSbcChainIds = new Set<number>(
-    scenario.expected.sourceExecutionPaths
-      .filter(([, walletPath]) => walletPath === 'ephemeral')
-      .map(([chainId]) => chainId)
-  );
-  if (expectsAnyDestinationSwap && scenario.destinationHas7702) {
-    expectedSbcChainIds.add(BASE_CHAIN);
-  }
-  expect(new Set(result.submitSbcChainIds)).toEqual(expectedSbcChainIds);
+  // Source Safe request chains = each ephemeral source chain, plus the dst chain if any dst swap runs.
   if (scenario.expected.hasBridge) {
     expect(result.middlewareClient.submitRFF).toHaveBeenCalledTimes(1);
     const submitRffPayload = result.middlewareClient.submitRFF.mock.calls[0]?.[0] as {
       request: { recipient_address: Hex };
     };
-    // Bridge recipient derives from the destination shape: no dst swap → EOA; 7702 + swap →
-    // ephemeral; non-7702 + swap → Safe.
+    // No destination swap fills the EOA directly; otherwise it fills the V2 Safe.
     const expectedRecipient: Hex = !expectsAnyDestinationSwap
       ? EOA
-      : scenario.destinationHas7702
-        ? EPH
-        : (predictSafeAccountAddress(EPH).address as Hex);
+      : (predictSafeAccountAddressV2(EOA, EPH).address as Hex);
     expect(submitRffPayload.request.recipient_address).toBe(
       toBytes32Address(expectedRecipient)
     );
   } else {
     expect(result.middlewareClient.submitRFF).not.toHaveBeenCalled();
   }
-  // Aggregator delivers native straight to the EOA on the gas-swap path — no Calibur
+  // Aggregator delivers native straight to the EOA on the gas-swap path — no Safe
   // `sweepERC7914` ever fires for the swap flow, even when gas was requested.
-  const baseSbcCalls = getSubmittedSbcCallsForChain(result.middlewareClient, BASE_CHAIN);
+  const baseSbcCalls = getSubmittedExecutionCallsForChain(result.middlewareClient, BASE_CHAIN);
   const sweeperFunctions = baseSbcCalls
     .filter((call) => call.to.toLowerCase() === SWEEPER_ADDRESS.toLowerCase())
-    .map((call) => decodeFunctionData({ abi: SWEEPER_ABI, data: call.data }).functionName);
+    .map((call) => call.fn);
   expect(sweeperFunctions).not.toContain('sweepERC7914');
 
   expect(result.swapResult.sourceSwaps).toHaveLength(scenario.expected.sourceSwapChainIds.length);
@@ -1792,7 +1770,7 @@ describe('swap pipeline characterization', () => {
     expect(result.capturedIntent.current?.destination.gas.amount).toBe('0');
   });
 
-  it('ephemeral-preferred materializes source permits during source execution and keeps them inside the source SBC batch', async () => {
+  it('ephemeral-preferred materializes source permits during source execution and keeps them inside the source Safe request batch', async () => {
     const scenario = SCENARIOS.find(
       (entry) => entry.name === 'ephemeral-preferred uses ephemeral execution end-to-end where supported'
     );
@@ -1811,10 +1789,13 @@ describe('swap pipeline characterization', () => {
       expect(transfer.authorization?.kind).toBe('permit');
       expect(transfer.authorization?.call).toBeNull();
 
-      const sbcCalls = getSubmittedSbcCallsForChain(result.middlewareClient, transfer.chainId);
+      const sbcCalls = getSubmittedExecutionCallsForChain(
+        result.middlewareClient,
+        transfer.chainId
+      );
       const tokenCallNames = sbcCalls
         .filter((call) => call.to.toLowerCase() === transfer.tokenAddress.toLowerCase())
-        .map((call) => decodeTokenFunctionName(call.data));
+        .map((call) => call.fn);
 
       expect(tokenCallNames).toEqual(
         expect.arrayContaining(['permit', 'transferFrom', 'approve'])
@@ -1824,12 +1805,12 @@ describe('swap pipeline characterization', () => {
     expect(result.eoaWallet.writeContract).not.toHaveBeenCalled();
   });
 
-  it('direct dst-chain COT handoff keeps the destination permit and transferFrom inside the destination SBC batch', async () => {
+  it('direct dst-chain COT handoff keeps the destination permit and transferFrom inside the destination Safe request batch', async () => {
     // The direct dst-chain COT handoff feeding a destination swap now lives on the cross-chain
     // scenario (same-chain COT→token routes take Path A). This still exercises the destination
-    // eoaToEphemeral permit/transferFrom inside the dst SBC batch.
+    // eoaToEphemeral permit/transferFrom inside the dst Safe request batch.
     const scenario = SCENARIOS.find(
-      (entry) => entry.name === 'destination local COT plus bridged swap source on 7702 destination'
+      (entry) => entry.name === 'destination local COT plus bridged swap source on Safe V2 destination'
     );
     if (!scenario) {
       throw new Error('destination handoff scenario not found');
@@ -1843,13 +1824,13 @@ describe('swap pipeline characterization', () => {
     expect(destinationTransfer?.authorization?.kind).toBe('permit');
     expect(destinationTransfer?.authorization?.call).not.toBeNull();
 
-    const sbcCalls = getSubmittedSbcCallsForChain(result.middlewareClient, BASE_CHAIN);
+    const sbcCalls = getSubmittedExecutionCallsForChain(result.middlewareClient, BASE_CHAIN);
     const tokenCallNames = sbcCalls
       .filter(
         (call) =>
           call.to.toLowerCase() === destinationTransfer?.tokenAddress.toLowerCase()
       )
-      .map((call) => decodeTokenFunctionName(call.data));
+      .map((call) => call.fn);
 
     expect(tokenCallNames).toEqual(
       expect.arrayContaining(['permit', 'transferFrom', 'approve'])
@@ -1860,7 +1841,6 @@ describe('swap pipeline characterization', () => {
 
 type ExactInScenario = {
   name: string;
-  destinationHas7702: boolean;
   balances?: FlatBalance[];
   sources?: Array<{ chainId: number; tokenAddress: Hex; amountRaw?: bigint }>;
   destinationTokenAddress: Hex;
@@ -1872,7 +1852,6 @@ type ExactInScenario = {
     expectedDestinationAggregator: 'BebopAggregator' | 'LiFiAggregator';
     expectedSendCallsCount: number;
     expectedEoaRouters: Hex[];
-    expectedSubmitSbcChainIds: number[];
     expectedBridgeRecipient: Hex;
     expectedBridgeAmountHuman: string;
     expectedDestinationInputHuman: string;
@@ -1916,7 +1895,6 @@ type ExactInHarnessResult = Omit<HarnessResult, 'input'> & {
 const EXACT_IN_SCENARIOS: ExactInScenario[] = [
   {
     name: 'cross-chain non-COT exact-in uses real liquidation, bridge, and destination swap pipeline',
-    destinationHas7702: true,
     destinationTokenAddress: WETH,
     expected: {
       sourceSwapChainIds: [ARB_CHAIN, OP_CHAIN],
@@ -1925,14 +1903,13 @@ const EXACT_IN_SCENARIOS: ExactInScenario[] = [
         { chainId: OP_CHAIN, aggregator: 'BebopAggregator' },
       ],
       sourceExecutionPaths: [
-        [ARB_CHAIN, 'ephemeral'],
-        [OP_CHAIN, 'ephemeral'],
+        [ARB_CHAIN, 'safe'],
+        [OP_CHAIN, 'safe'],
       ],
       hasBridge: true,
       expectedDestinationAggregator: 'BebopAggregator',
       expectedSendCallsCount: 1,
       expectedEoaRouters: [ARB_BEBOP_ROUTER],
-      expectedSubmitSbcChainIds: [ARB_CHAIN, OP_CHAIN, BASE_CHAIN],
       expectedBridgeRecipient: EPH,
       expectedBridgeAmountHuman: '2100',
       // No source buffer: the dst quote runs on the full bridged 2100; `min` is the getDstSwap floor (0).
@@ -1954,7 +1931,7 @@ const EXACT_IN_SCENARIOS: ExactInScenario[] = [
 ];
 
 const makeExactInScenario = (scenario: ExactInScenario): ExactInScenarioContext => {
-  const chainList = makeChainList(scenario.destinationHas7702);
+  const chainList = makeChainList();
   const emittedEvents: SwapEvent[] = [];
   const capturedIntent = { current: null as SwapIntent | null };
   let currentEoaChainId = ARB_CHAIN;
@@ -1990,14 +1967,6 @@ const makeExactInScenario = (scenario: ExactInScenario): ExactInScenarioContext 
     getQuote: vi.fn().mockResolvedValue(makeBridgeQuoteResponse()),
     getBridgeProvider: vi.fn().mockResolvedValue({ provider: 'nexus' }),
     getMayanQuotes: vi.fn(),
-    submitSBCs: vi.fn().mockImplementation(async (txs: Array<{ chainId: number; address: Hex }>) =>
-      txs.map((tx, index) => ({
-        chainId: tx.chainId,
-        address: tx.address,
-        errored: false as const,
-        txHash: (`0x${(index + 1).toString(16).padStart(64, '0')}`) as Hex,
-      }))
-    ),
     submitRFF: vi.fn().mockResolvedValue({
       request_hash: '0x9999999999999999999999999999999999999999999999999999999999999999' as Hex,
     }),
@@ -2018,6 +1987,18 @@ const makeExactInScenario = (scenario: ExactInScenario): ExactInScenarioContext 
       solver: null,
     }),
     getRFFStatus: vi.fn().mockResolvedValue({ status: 'fulfilled' }),
+    ensureSafeAccount: vi.fn().mockResolvedValue({
+      chainId: BASE_CHAIN,
+      eoaAddress: EOA,
+      ephemeralAddress: EPH,
+      address: PREDICTED_SAFE_FOR_EPH,
+      factoryAddress: '0x0000000000000000000000000000000000000000' as Hex,
+      exists: true,
+    }),
+    createSafeExecuteTx: vi.fn().mockResolvedValue({
+      txHash: '0xsafe00000000000000000000000000000000000000000000000000000000aaaa' as Hex,
+    }),
+    getSafeAccountAddress: vi.fn().mockResolvedValue({ address: PREDICTED_SAFE_FOR_EPH }),
     configureTiming: vi.fn(),
     destroy: vi.fn(),
   } as unknown as ExactInScenarioContext['middlewareClient'];
@@ -2062,13 +2043,7 @@ const makeExactInScenario = (scenario: ExactInScenario): ExactInScenarioContext 
   const ephemeralWallet = {
     address: EPH,
     signMessage: vi.fn().mockResolvedValue('0x' + '33'.repeat(65)),
-    signTypedData: vi.fn().mockResolvedValue('0x' + '33'.repeat(65)),
-    signAuthorization: vi.fn().mockResolvedValue({
-      r: '0x01',
-      s: '0x02',
-      yParity: 0,
-      nonce: 0,
-    }),
+    signTypedData: vi.fn().mockResolvedValue(`0x${'33'.repeat(64)}1b`),
   } as unknown as PrivateKeyAccount;
 
   const sources =
@@ -2190,6 +2165,7 @@ const runExactInScenario = async (scenario: ExactInScenario): Promise<ExactInHar
     middlewareClient: ctx.middlewareClient,
     forceMayan: false,
     preflight,
+    safeAddress: PREDICTED_SAFE_FOR_EPH,
   });
   destinationWrapperCotRaw = toRawAmount(
     previewState.route.destination.inputAmount.max,
@@ -2203,6 +2179,17 @@ const runExactInScenario = async (scenario: ExactInScenario): Promise<ExactInHar
     );
   }
 
+  const cacheWarmup = startSwapCacheWarmup({
+    chainList: ctx.chainList,
+    route: previewState.route,
+    source: previewState.route.source,
+    destination: previewState.route.destination,
+    eoaAddress: ctx.params.eoaAddress,
+    ephemeralWallet: ctx.params.ephemeralWallet,
+    publicClientList: preflight.publicClientList,
+    safeAccount: PREDICTED_SAFE_ACCOUNT,
+  });
+
   const preparedExecution = await prepareSwapExecution({
     chainList: ctx.chainList,
     route: previewState.route,
@@ -2212,13 +2199,13 @@ const runExactInScenario = async (scenario: ExactInScenario): Promise<ExactInHar
     eoaWallet: ctx.params.eoaWallet,
     ephemeralWallet: ctx.params.ephemeralWallet,
     publicClientList: preflight.publicClientList,
-    cache: new SwapCache(ctx.chainList),
+    cacheWarmup,
+    safeDeploymentPromises: resolvedSafeDeployments(cacheWarmup.safeChainIds),
   });
 
   ctx.eoaWallet.sendCalls.mockClear();
   ctx.eoaWallet.waitForCallsStatus.mockClear();
   ctx.eoaWallet.writeContract.mockClear();
-  ctx.middlewareClient.submitSBCs.mockClear();
   ctx.middlewareClient.submitRFF.mockClear();
   ctx.middlewareClient.getRFF.mockClear();
   ctx.emittedEvents.length = 0;
@@ -2226,21 +2213,17 @@ const runExactInScenario = async (scenario: ExactInScenario): Promise<ExactInHar
 
   const swapResult = await runSwap(ctx.input, ctx.params);
 
-  const submitSbcChainIds = ctx.middlewareClient.submitSBCs.mock.calls.flatMap(([txs]) =>
-    extractSbcChainIds(txs)
-  );
-
   return {
     ...ctx,
     preflight,
     previewState,
     preparedExecution,
     swapResult,
-    submitSbcChainIds,
   };
 };
 
 const assertExactInScenario = (scenario: ExactInScenario, result: ExactInHarnessResult) => {
+  expectSafeDeploymentCalls(result);
   expect(result.previewState.route.type).toBe(SwapMode.EXACT_IN);
   expect(result.previewState.route.source.swaps.map((entry) => entry.chainID)).toEqual(
     scenario.expected.sourceSwapChainIds
@@ -2252,7 +2235,7 @@ const assertExactInScenario = (scenario: ExactInScenario, result: ExactInHarness
     }))
   ).toEqual(scenario.expected.sourceSwapAggregators);
   expect(result.previewState.route.sourceExecutionPaths).toEqual(
-    new Map(scenario.expected.sourceExecutionPaths)
+    new Map(scenario.expected.sourceExecutionPaths.map(([chainId]) => [chainId, 'safe']))
   );
   expect(result.previewState.route.bridge).not.toBeNull();
   expect(result.previewState.route.destination.swap.tokenSwap?.aggregator.constructor.name).toBe(
@@ -2288,10 +2271,7 @@ const assertExactInScenario = (scenario: ExactInScenario, result: ExactInHarness
     );
   }
   expect(getSwapBridgeFillStep(result.previewState.plan).chain.id).toBe(BASE_CHAIN);
-  const exactInExpectedDstWrapper = scenario.destinationHas7702 ? 'ephemeral' : 'safe';
-  expect(getSwapDestinationSwapStep(result.previewState.plan, BASE_CHAIN).walletPath).toBe(
-    exactInExpectedDstWrapper
-  );
+  expect(getSwapDestinationSwapStep(result.previewState.plan, BASE_CHAIN).walletPath).toBe('safe');
 
   for (const expectation of scenario.expected.sourceQuoteExpectations) {
     const bebopCalls = getBebopCallsForChain(result.middlewareClient, expectation.chainId);
@@ -2300,7 +2280,7 @@ const assertExactInScenario = (scenario: ExactInScenario, result: ExactInHarness
       expect(bebopCalls).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            taker_address: getAddress(expectation.executor),
+            taker_address: getAddress(PREDICTED_SAFE_FOR_EPH),
             receiver_address: getAddress(expectation.recipient),
           }),
         ])
@@ -2311,7 +2291,7 @@ const assertExactInScenario = (scenario: ExactInScenario, result: ExactInHarness
         expect.arrayContaining([
           [
             expect.objectContaining({
-              fromAddress: expectation.executor,
+              fromAddress: PREDICTED_SAFE_FOR_EPH,
               toAddress: expectation.recipient,
             }),
             false,
@@ -2325,7 +2305,7 @@ const assertExactInScenario = (scenario: ExactInScenario, result: ExactInHarness
   expect(baseBebopCalls).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
-        taker_address: getAddress(scenario.expected.destinationQuoteExpectation.executor),
+        taker_address: getAddress(PREDICTED_SAFE_FOR_EPH),
         receiver_address: getAddress(scenario.expected.destinationQuoteExpectation.recipient),
       }),
     ])
@@ -2349,23 +2329,12 @@ const assertExactInScenario = (scenario: ExactInScenario, result: ExactInHarness
   expect(eoaCallTargets).not.toEqual(
     expect.arrayContaining([ARB_BEBOP_ROUTER, OP_BEBOP_ROUTER, BASE_BEBOP_ROUTER])
   );
-  // SBC chains = each ephemeral source chain + dst chain.
-  const exactInExpectedSbcChainIds = new Set<number>(
-    scenario.expected.sourceExecutionPaths
-      .filter(([, walletPath]) => walletPath === 'ephemeral')
-      .map(([chainId]) => chainId)
-  );
-  if (scenario.destinationHas7702) {
-    exactInExpectedSbcChainIds.add(BASE_CHAIN);
-  }
-  expect(new Set(result.submitSbcChainIds)).toEqual(exactInExpectedSbcChainIds);
+  // Safe request chains = each ephemeral source chain + dst chain.
   expect(result.middlewareClient.submitRFF).toHaveBeenCalledTimes(1);
   const submitRffPayload = result.middlewareClient.submitRFF.mock.calls[0]?.[0] as {
     request: { recipient_address: Hex };
   };
-  const exactInExpectedRecipient: Hex = scenario.destinationHas7702
-    ? EPH
-    : (predictSafeAccountAddress(EPH).address as Hex);
+  const exactInExpectedRecipient = predictSafeAccountAddressV2(EOA, EPH).address as Hex;
   expect(submitRffPayload.request.recipient_address).toBe(toBytes32Address(exactInExpectedRecipient));
   expect(result.swapResult.sourceSwaps).toHaveLength(scenario.expected.sourceSwapChainIds.length);
   expect(result.swapResult.destinationSwap?.chainId).toBe(BASE_CHAIN);

@@ -5,7 +5,7 @@ import {
   VAULT_ABI_MAYAN,
 } from '@avail-project/nexus-types/rff';
 import Decimal from 'decimal.js';
-import { encodeFunctionData, erc20Abi, type Hex, type PublicClient } from 'viem';
+import { encodeFunctionData, type Hex, type PublicClient } from 'viem';
 import type { PrivateKeyAccount } from 'viem/accounts';
 import { EVMVaultABI } from '../../abi/vault';
 import { submitRFFToMiddleware, waitForFill } from '../../bridge/executor';
@@ -19,32 +19,24 @@ import {
   UserActionError,
 } from '../../domain/errors';
 import { isNativeAddress } from '../../services/addresses';
-import { confirmStepReceipt, switchChain } from '../../services/evm';
+import { confirmStepReceipt } from '../../services/evm';
 import { createExplorerTxURL } from '../../services/explorer';
 import { mulDecimals } from '../../services/math';
 import { quoteMayanLegs } from '../../services/mayan';
 import { createRequestFromIntent } from '../../services/rff';
 import {
   createSafeExecuteTxFromCalls,
-  ensureSafeForEphemeral,
+  requireSafeDeployment,
   type SafeCall,
 } from '../../services/safe';
-import {
-  createCaliburExecuteTxFromCalls,
-  createSBCTxFromCalls,
-  requireSuccessfulSbcResult,
-  type SBCCall,
-} from '../../services/sbc';
 import {
   createBridgeDepositStepId,
   createEoaToEphemeralTransferStepId,
 } from '../../services/step-ids';
 import { withTimingSpan } from '../../services/timing';
 import { createSwapBridgeIntent } from '../bridge-intent';
-import { predictSafeAccountAddress } from '../safe/predict';
-import type { BridgeAsset, ExecutionContext, SBCResult, SwapMetadata, SwapRoute } from '../types';
-import { chainSupports7702 } from '../wallet/capabilities';
-import { buildEphemeralPermitCall } from '../wallet/ephemeral-permit';
+import type { BridgeAsset, ExecutionContext, SwapMetadata, SwapRoute } from '../types';
+import { resolveEphemeralVaultAllowance } from '../wallet/ephemeral-vault-allowance';
 import { resolvePreparedFundingTransferCalls } from './eoa-to-ephemeral';
 import { dispatchSafeSource } from './safe-dispatch';
 
@@ -59,18 +51,14 @@ const resolveChain = (chainList: ExecutionContext['chainList'], chainId: number)
 
 // Bridge fill recipient resolution:
 //   - `destinationDirectEoa` (no destination swap step) → user's EOA, no wrapper
-//   - 7702 destination + destination swap step → ephemeral (Calibur runs the swap)
-//   - non-7702 destination + destination swap step → predicted Safe (Safe.execTransaction
-//     runs the swap, delivers to EOA)
+//   - destination swap step → the deterministic V2 Safe
 const resolveBridgeRecipient = (input: {
   destinationDirectEoa: boolean;
-  destinationChain: Chain;
   eoaAddress: Hex;
-  ephemeralAddress: Hex;
+  safeAddress: Hex;
 }): Hex => {
   if (input.destinationDirectEoa) return input.eoaAddress;
-  if (chainSupports7702(input.destinationChain)) return input.ephemeralAddress;
-  return predictSafeAccountAddress(input.ephemeralAddress).address;
+  return input.safeAddress;
 };
 
 // 5 minute window — matches v1's BRIDGE_VAULT_PERMIT_DEADLINE_MINUTES. Permit deadline expiry
@@ -117,45 +105,13 @@ const withFundingStepContext = (error: NexusError, chainId: number): NexusError 
   return error;
 };
 
-// A structured per-chain failure means middleware did not broadcast the SBC. Re-submit the exact
-// signed payload so nonce/deadline/signature stay stable. Transport failures are intentionally not
-// caught because the broadcast outcome is ambiguous; a successful result hands its hash to the
-// caller's existing receipt wait.
-const submitBridgeFundingSbc = async (
-  sbcTx: Awaited<ReturnType<typeof createSBCTxFromCalls>>,
-  chainId: number,
-  context: string,
-  middlewareClient: ExecutionContext['middlewareClient']
-): Promise<Hex> => {
-  for (let attempt = 1; attempt <= MAX_BRIDGE_FUNDING_ATTEMPTS; attempt++) {
-    const results = await middlewareClient.submitSBCs([sbcTx]);
-    const result = results.find((entry) => entry.chainId === chainId);
-    const shouldRetry = result?.errored === true && attempt < MAX_BRIDGE_FUNDING_ATTEMPTS;
-
-    if (!shouldRetry) {
-      return requireSuccessfulSbcResult(results, chainId, context);
-    }
-
-    const erroredResult = result as SBCResult<true>;
-    logger.debug('swap.execute.bridge.funding_sbc.retrying', {
-      chainId,
-      attempt,
-      maxAttempts: MAX_BRIDGE_FUNDING_ATTEMPTS,
-      middlewareCode: erroredResult.code,
-      middlewareSubcode: erroredResult.subcode,
-      errorId: erroredResult.errorId,
-    });
-  }
-
-  throw Errors.internal(`Unreachable bridge funding SBC retry state for chain ${chainId}`);
-};
-
-// Non-7702 bridge allowance, shared by the Nexus deposit batch and the Mayan approve:
-//  1. permit(ephemeral → vault) — ephemeral grants the vault transferFrom via EIP-2612
+// Safe bridge allowance, shared by the Nexus deposit batch and the Mayan approval. Existing
+// allowance needs no call; canonical permit stays in the Safe batch; a permitless token uses the
+// narrow Calibur approval fallback before the Safe transaction is submitted.
 // COT already sits at the ephemeral: source swaps deliver there directly, and EOA-held bridge
 // funding uses transferFrom(EOA, ephemeral) with the Safe as spender.
 // (the deposit itself is appended by the Nexus path, or sponsored by the middleware for Mayan).
-const buildSafePermitCalls = async (input: {
+const resolveSafeVaultAllowanceCalls = async (input: {
   asset: BridgeAsset;
   depositValue: bigint;
   vaultAddress: Hex;
@@ -163,23 +119,22 @@ const buildSafePermitCalls = async (input: {
   chainList: ExecutionContext['chainList'];
   ephemeralWallet: PrivateKeyAccount;
   publicClient: PublicClient;
+  middleware: ExecutionContext['middlewareClient'];
   deadline: bigint;
-}): Promise<SafeCall[]> => {
-  return [
-    await buildEphemeralPermitCall({
-      tokenAddress: input.asset.contractAddress,
-      amount: input.depositValue,
-      spender: input.vaultAddress,
-      chain: input.chain,
-      chainList: input.chainList,
-      ephemeralWallet: input.ephemeralWallet,
-      publicClient: input.publicClient,
-      deadline: input.deadline,
-    }),
-  ];
-};
+}): Promise<SafeCall[]> =>
+  resolveEphemeralVaultAllowance({
+    tokenAddress: input.asset.contractAddress,
+    depositValue: input.depositValue,
+    vaultAddress: input.vaultAddress,
+    chain: input.chain,
+    chainList: input.chainList,
+    ephemeralWallet: input.ephemeralWallet,
+    publicClient: input.publicClient,
+    middleware: input.middleware,
+    deadline: input.deadline,
+  });
 
-// Safe-path bridge deposit (non-7702 source). COT is already at the ephemeral, so the batch is:
+// Safe bridge deposit. COT is already at the ephemeral, so the batch is:
 //
 //  1. permit(ephemeral → vault) — ephemeral signs EIP-2612 granting vault transferFrom
 //  2. vault.deposit(...)        — vault.transferFrom(ephemeral, vault, depositValue)
@@ -191,6 +146,7 @@ const buildSafeBridgeDepositCalls = async (input: {
   chainList: ExecutionContext['chainList'];
   ephemeralWallet: PrivateKeyAccount;
   publicClient: PublicClient;
+  middleware: ExecutionContext['middlewareClient'];
   depositRequest:
     | Parameters<(typeof EVMVaultABI)[0] extends { name: 'deposit' } ? never : never>
     | unknown;
@@ -199,7 +155,7 @@ const buildSafeBridgeDepositCalls = async (input: {
   deadline: bigint;
 }): Promise<SafeCall[]> => {
   const calls: SafeCall[] = [
-    ...(await buildSafePermitCalls({
+    ...(await resolveSafeVaultAllowanceCalls({
       asset: input.asset,
       depositValue: input.depositValue,
       vaultAddress: input.vaultAddress,
@@ -207,6 +163,7 @@ const buildSafeBridgeDepositCalls = async (input: {
       chainList: input.chainList,
       ephemeralWallet: input.ephemeralWallet,
       publicClient: input.publicClient,
+      middleware: input.middleware,
       deadline: input.deadline,
     })),
     {
@@ -230,11 +187,13 @@ const resolveFundingTransferCalls = async (
     ExecutionContext,
     | 'chainList'
     | 'eoaAddress'
+    | 'cache'
     | 'eoaWallet'
     | 'ephemeralWallet'
     | 'onProgress'
     | 'preparedExecution'
     | 'publicClientList'
+    | 'safeDeploymentPromises'
     | 'timing'
   >
 ) => {
@@ -279,6 +238,9 @@ const resolveFundingTransferCalls = async (
   const publicClient = ctx.publicClientList.get(asset.chainID);
   const authorizationKind = transfer.authorization?.kind ?? 'none';
 
+  const safeDeploymentPromise = requireSafeDeployment(ctx.safeDeploymentPromises, asset.chainID);
+  await safeDeploymentPromise;
+
   logger.debug('swap.execute.bridge.funding.started', {
     chainId: asset.chainID,
     tokenAddress: asset.contractAddress,
@@ -303,6 +265,7 @@ const resolveFundingTransferCalls = async (
         eoaAddress: ctx.eoaAddress,
         eoaWallet: ctx.eoaWallet,
         publicClient,
+        safeDeploymentPromise,
       });
       logger.debug('swap.execute.bridge.funding.completed', {
         chainId: asset.chainID,
@@ -367,14 +330,12 @@ const resolveFundingTransferCalls = async (
 const hasEoaFunding = (asset: BridgeAsset) => asset.eoaBalance.gt(0);
 
 // EOA-submitted payable native bridge deposit, shared by the Nexus and Mayan paths. Native value
-// can't be relayed/sponsored, so the EOA submits the deposit itself: Calibur execute{value} on a
-// 7702 chain (bootstrapping delegation once if needed), or Safe.execTransaction{value} via
-// dispatchSafeSource on a non-7702 chain. `depositCall` is the pre-encoded payable deposit /
-// depositMayan call.
+// can't be relayed/sponsored, so the EOA submits Safe.execTransaction{value}. `depositCall` is the
+// pre-encoded payable deposit / depositMayan call.
 const submitNativeBridgeDepositViaEoa = async (params: {
   asset: BridgeAsset;
   chain: Chain;
-  depositCall: SBCCall;
+  depositCall: SafeCall;
   depositValue: bigint;
   ctx: Pick<
     ExecutionContext,
@@ -384,71 +345,33 @@ const submitNativeBridgeDepositViaEoa = async (params: {
     | 'ephemeralWallet'
     | 'middlewareClient'
     | 'publicClientList'
+    | 'safeAddress'
+    | 'safeDeploymentPromises'
   >;
 }): Promise<Hex> => {
   const { asset, chain, depositCall, depositValue, ctx } = params;
   const publicClient = ctx.publicClientList.get(asset.chainID);
+  const safeDeploymentPromise = requireSafeDeployment(ctx.safeDeploymentPromises, asset.chainID);
 
-  if (!chainSupports7702(chain)) {
-    const safeResult = await dispatchSafeSource({
-      chain,
-      chainId: asset.chainID,
-      calls: [depositCall],
-      nativeValue: depositValue,
-      ephemeralWallet: ctx.ephemeralWallet,
-      eoaWallet: ctx.eoaWallet,
-      eoaAddress: ctx.eoaAddress,
-      publicClient,
-      middleware: ctx.middlewareClient,
-    });
-    return safeResult.txHash;
-  }
-
-  // 7702: EOA submits Calibur execute{value}; bootstrap delegation first when the ephemeral isn't
-  // delegated yet (a pure same-token native bridge runs no prior source swap on this chain).
-  const hasDelegatedAuth =
-    ctx.cache?.hasAuthCodeSet(ctx.ephemeralWallet.address, asset.chainID) ?? false;
-  if (!hasDelegatedAuth) {
-    const bootstrapSbcTx = await createSBCTxFromCalls({
-      calls: [],
-      chainID: asset.chainID,
-      ephemeralAddress: ctx.ephemeralWallet.address,
-      ephemeralWallet: ctx.ephemeralWallet,
-      publicClient,
-    });
-    const bootstrapResults = await ctx.middlewareClient.submitSBCs([bootstrapSbcTx]);
-    const bootstrapHash = requireSuccessfulSbcResult(
-      bootstrapResults,
-      asset.chainID,
-      'Native bridge deposit auth bootstrap'
-    );
-    await confirmStepReceipt(publicClient, bootstrapHash, asset.chainID, {
-      stepId: createBridgeDepositStepId(asset.chainID),
-      stepType: 'bridge_deposit',
-      label: 'Native bridge deposit auth bootstrap',
-    });
-    ctx.cache?.markAuthCodeSet?.(ctx.ephemeralWallet.address, asset.chainID);
-  }
-  const tx = await createCaliburExecuteTxFromCalls({
-    calls: [depositCall],
-    chainID: asset.chainID,
-    ephemeralAddress: ctx.ephemeralWallet.address,
-    ephemeralWallet: ctx.ephemeralWallet,
-    value: depositValue,
-  });
-  await switchChain(ctx.eoaWallet, chain);
-  return ctx.eoaWallet.sendTransaction({
-    account: ctx.eoaAddress,
-    to: tx.to,
-    data: tx.data,
-    value: tx.value,
+  const safeResult = await dispatchSafeSource({
     chain,
+    chainId: asset.chainID,
+    calls: [depositCall],
+    nativeValue: depositValue,
+    ephemeralWallet: ctx.ephemeralWallet,
+    eoaWallet: ctx.eoaWallet,
+    eoaAddress: ctx.eoaAddress,
+    publicClient,
+    middleware: ctx.middlewareClient,
+    safeAddress: ctx.safeAddress,
+    safeDeploymentPromise,
   });
+  return safeResult.txHash;
 };
 
-// Mayan + ephemeral path: each SBC contains the EOA→ephemeral funding (if any)
-// plus a single approve(vault, total) — no vault.deposit, no sweep. We submit
-// the SBC and wait for it to be mined BEFORE submitting the RFF, because the
+// Mayan Safe path: each transaction contains EOA→ephemeral funding (if any) plus a single
+// permit(ephemeral→vault) — no vault.deposit and no sweep. We wait for it to be mined BEFORE
+// submitting the RFF, because the
 // middleware kicks off its sponsored depositMayan() call asynchronously the
 // moment the RFF lands and fails fast if the allowance isn't on-chain yet.
 //
@@ -469,6 +392,8 @@ const runMayanEphemeralBridge = async (
     | 'onProgress'
     | 'preparedExecution'
     | 'publicClientList'
+    | 'safeAddress'
+    | 'safeDeploymentPromises'
     | 'timing'
   >,
   metadata: SwapMetadata
@@ -489,7 +414,7 @@ const runMayanEphemeralBridge = async (
     })),
   });
 
-  const runApprove = (asset: BridgeAsset, fundingCalls: SBCCall[]) =>
+  const runApprove = (asset: BridgeAsset, fundingCalls: SafeCall[]) =>
     (async () => {
       ctx.onProgress?.({ stepType: 'bridge_deposit', chainId: asset.chainID, state: 'started' });
 
@@ -509,72 +434,38 @@ const runMayanEphemeralBridge = async (
         ephemeralBalance: asset.ephemeralBalance.toFixed(),
       });
       const chain = resolveChain(ctx.chainList, asset.chainID);
-      let txHash: Hex;
-      if (chainSupports7702(chain)) {
-        const calls: SBCCall[] = [
-          ...fundingCalls,
-          {
-            to: asset.contractAddress,
-            data: encodeFunctionData({
-              abi: erc20Abi,
-              functionName: 'approve',
-              args: [vaultAddress, totalBalanceRaw],
-            }),
-            value: 0n,
-          },
-        ];
-
-        const sbcTx = await createSBCTxFromCalls({
-          calls,
-          chainID: asset.chainID,
-          ephemeralAddress: ctx.ephemeralWallet.address,
-          ephemeralWallet: ctx.ephemeralWallet,
-          publicClient: ctx.publicClientList.get(asset.chainID),
-        });
-
-        txHash = await submitBridgeFundingSbc(
-          sbcTx,
-          asset.chainID,
-          'Swap bridge approve',
-          ctx.middlewareClient
-        );
-      } else {
-        // Non-7702: COT already lands at the ephemeral. The Safe submits the ephemeral→vault permit;
-        // on an EOA-held fast path, fundingCalls first performs transferFrom(EOA→ephemeral) with the
-        // Safe as spender.
-        const publicClient = ctx.publicClientList.get(asset.chainID);
-        const { address: safeAddress } = predictSafeAccountAddress(ctx.ephemeralWallet.address);
-        await ensureSafeForEphemeral({
-          chainId: asset.chainID,
+      // COT already lands at the ephemeral. The Safe submits the ephemeral→vault permit; on an
+      // EOA-held fast path, fundingCalls first performs transferFrom(EOA→ephemeral) with the Safe
+      // as spender.
+      const publicClient = ctx.publicClientList.get(asset.chainID);
+      const { safeAddress } = ctx;
+      await requireSafeDeployment(ctx.safeDeploymentPromises, asset.chainID);
+      const deadline = BigInt(Math.floor(Date.now() / 1000)) + BRIDGE_VAULT_PERMIT_DEADLINE_SECONDS;
+      const safeCalls = [
+        ...fundingCalls,
+        ...(await resolveSafeVaultAllowanceCalls({
+          asset,
+          depositValue: totalBalanceRaw,
+          vaultAddress,
+          chain,
+          chainList: ctx.chainList,
           ephemeralWallet: ctx.ephemeralWallet,
           publicClient,
           middleware: ctx.middlewareClient,
-        });
-        const deadline =
-          BigInt(Math.floor(Date.now() / 1000)) + BRIDGE_VAULT_PERMIT_DEADLINE_SECONDS;
-        const safeCalls = [
-          ...fundingCalls,
-          ...(await buildSafePermitCalls({
-            asset,
-            depositValue: totalBalanceRaw,
-            vaultAddress,
-            chain,
-            chainList: ctx.chainList,
-            ephemeralWallet: ctx.ephemeralWallet,
-            publicClient,
-            deadline,
-          })),
-        ];
-        const request = await createSafeExecuteTxFromCalls({
-          calls: safeCalls,
-          chainId: asset.chainID,
-          ephemeralWallet: ctx.ephemeralWallet,
-          publicClient,
-          safeAddress,
-        });
-        const result = await ctx.middlewareClient.createSafeExecuteTx(request);
-        txHash = result.txHash;
-      }
+          deadline,
+        })),
+      ];
+      if (safeCalls.length === 0) return;
+      const request = await createSafeExecuteTxFromCalls({
+        calls: safeCalls,
+        chainId: asset.chainID,
+        eoaAddress: ctx.eoaAddress,
+        ephemeralWallet: ctx.ephemeralWallet,
+        publicClient,
+        safeAddress,
+      });
+      const result = await ctx.middlewareClient.createSafeExecuteTx(request);
+      const txHash = result.txHash;
       const explorerUrl = createExplorerTxURL(txHash, chain.blockExplorers?.default?.url ?? '');
 
       if (hasEoaFunding(asset)) {
@@ -910,16 +801,16 @@ const executeEphemeralBridgePath = async (
     | 'onProgress'
     | 'preparedExecution'
     | 'publicClientList'
+    | 'safeAddress'
+    | 'safeDeploymentPromises'
     | 'timing'
   >,
   metadata: SwapMetadata
 ) => {
-  const destinationChain = resolveChain(ctx.chainList, bridge.chainID);
   const recipient = resolveBridgeRecipient({
     destinationDirectEoa: ctx.destinationDirectEoa,
-    destinationChain,
     eoaAddress: ctx.eoaAddress,
-    ephemeralAddress: ctx.ephemeralWallet.address,
+    safeAddress: ctx.safeAddress,
   });
   // Mayan: re-quote against the FINAL bridged amounts before building the intent, so the signed
   // order input matches the RFF deposit value exactly (route-time quotes can drift after a
@@ -999,7 +890,7 @@ const executeEphemeralBridgePath = async (
 
   const bridgeDepositTasks: Array<{ chainId: number; task: Promise<void> }> = [];
 
-  const startBridgeDepositTask = (asset: BridgeAsset, fundingCalls: SBCCall[]) =>
+  const startBridgeDepositTask = (asset: BridgeAsset, fundingCalls: SafeCall[]) =>
     (async () => {
       logger.debug('swap.execute.bridge.deposit_sbc_build.started', {
         chainId: asset.chainID,
@@ -1044,18 +935,13 @@ const executeEphemeralBridgePath = async (
           depositValue,
           ctx,
         });
-      } else if (chain && !chainSupports7702(chain)) {
-        // Non-7702 source: the Safe submits permit→deposit. Source swaps already delivered COT to
-        // the ephemeral; on an EOA-held fast path, fundingCalls first performs
-        // transferFrom(EOA→ephemeral) with the Safe as spender.
+      } else {
+        // The Safe submits permit→deposit. Source swaps already delivered COT to the ephemeral; on
+        // an EOA-held fast path, fundingCalls first performs transferFrom(EOA→ephemeral) with the
+        // Safe as spender.
         const publicClient = ctx.publicClientList.get(asset.chainID);
-        const { address: safeAddress } = predictSafeAccountAddress(ctx.ephemeralWallet.address);
-        await ensureSafeForEphemeral({
-          chainId: asset.chainID,
-          ephemeralWallet: ctx.ephemeralWallet,
-          publicClient,
-          middleware: ctx.middlewareClient,
-        });
+        const { safeAddress } = ctx;
+        await requireSafeDeployment(ctx.safeDeploymentPromises, asset.chainID);
         const deadline =
           BigInt(Math.floor(Date.now() / 1000)) + BRIDGE_VAULT_PERMIT_DEADLINE_SECONDS;
         const safeCalls = [
@@ -1068,6 +954,7 @@ const executeEphemeralBridgePath = async (
             chainList: ctx.chainList,
             ephemeralWallet: ctx.ephemeralWallet,
             publicClient,
+            middleware: ctx.middlewareClient,
             depositRequest,
             signature,
             chainIndex,
@@ -1077,67 +964,13 @@ const executeEphemeralBridgePath = async (
         const request = await createSafeExecuteTxFromCalls({
           calls: safeCalls,
           chainId: asset.chainID,
+          eoaAddress: ctx.eoaAddress,
           ephemeralWallet: ctx.ephemeralWallet,
           publicClient,
           safeAddress,
         });
         const result = await ctx.middlewareClient.createSafeExecuteTx(request);
         txHash = result.txHash;
-      } else {
-        // 7702 chain: existing Calibur SBC path. Build approve(vault)+deposit on the
-        // ephemeral smart account (msg.sender == ephemeral); funding calls come from the
-        // pre-built EOA→ephemeral transfer authorization.
-        const calls = [...fundingCalls];
-        const totalBalanceRaw = mulDecimals(
-          asset.eoaBalance.plus(asset.ephemeralBalance),
-          asset.decimals
-        );
-        calls.push({
-          to: asset.contractAddress,
-          data: encodeFunctionData({
-            abi: erc20Abi,
-            functionName: 'approve',
-            args: [vaultAddress, totalBalanceRaw],
-          }),
-          value: 0n,
-        });
-        calls.push({
-          to: vaultAddress,
-          data: encodeFunctionData({
-            abi: EVMVaultABI,
-            functionName: 'deposit',
-            args: [depositRequest, signature, BigInt(chainIndex)],
-          }),
-          value: 0n,
-        });
-        // No COT sweep: Seam 1 bridges the actual source balance, so approve(vault, total) + deposit
-        // drain the ephemeral — nothing residual to sweep. The surplus is consolidated at the
-        // destination (EXACT_OUT direct transfer / EXACT_IN grown swap), not returned per source chain.
-        const sbcTx = await createSBCTxFromCalls({
-          calls,
-          chainID: asset.chainID,
-          ephemeralAddress: ctx.ephemeralWallet.address,
-          ephemeralWallet: ctx.ephemeralWallet,
-          publicClient: ctx.publicClientList.get(asset.chainID),
-        });
-
-        logger.debug('swap.execute.bridge.deposit_sbc_build.completed', {
-          chainId: asset.chainID,
-        });
-        logger.debug('swap.execute.bridge.deposit_sbc_dispatch.started', {
-          chainId: asset.chainID,
-        });
-
-        txHash = await submitBridgeFundingSbc(
-          sbcTx,
-          asset.chainID,
-          'Swap bridge deposit',
-          ctx.middlewareClient
-        );
-
-        logger.debug('swap.execute.bridge.deposit_sbc_dispatch.completed', {
-          chainId: asset.chainID,
-        });
       }
       const explorerUrl = createExplorerTxURL(txHash, chain.blockExplorers?.default?.url ?? '');
 
@@ -1293,6 +1126,8 @@ export const executeSwapBridge = async (
     | 'onProgress'
     | 'preparedExecution'
     | 'publicClientList'
+    | 'safeAddress'
+    | 'safeDeploymentPromises'
     | 'timing'
   >,
   metadata: SwapMetadata

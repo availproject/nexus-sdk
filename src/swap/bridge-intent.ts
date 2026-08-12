@@ -115,7 +115,7 @@ export const createSwapBridgeIntent = (params: {
   });
 
   // Bridge funding always flows through the ephemeral identity — RFF `parties` come from the
-  // ephemeral, and the deposit batch (Safe or Calibur) moves funds from there. Deposit fees
+  // ephemeral bridge holder, and the Safe deposit batch moves funds from there. Deposit fees
   // are always zero in this model because the bridge intent is sponsor-relayed; no on-chain
   // ERC-20 transfer from the EOA happens during bridging.
   const holderAddress = ephemeralAddress;

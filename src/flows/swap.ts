@@ -1,14 +1,17 @@
+import type { Hex } from 'viem';
 import { getLogger, type SwapPlan } from '../domain';
 import { getIntentExplorerUrl } from '../services/explorer';
+import { startSafeDeploymentsForChains } from '../services/safe';
 import { withTimingSpan } from '../services/timing';
 import { SLIPPAGE_DEFAULT } from '../swap/constants';
 import { executeSwapRoute } from '../swap/execution/orchestrator';
 import { createSwapIntent } from '../swap/intent';
 import { buildSwapPreflight, type SwapPreflight } from '../swap/preflight';
-import { prepareSwapExecution } from '../swap/prepare';
+import { prepareSwapExecution, type SwapCacheWarmup, startSwapCacheWarmup } from '../swap/prepare';
 import { createSwapProgressEmitter } from '../swap/progress';
 import type { RouteOptions } from '../swap/route';
 import { determineSwapRoute } from '../swap/route';
+import { predictSafeAccountAddressV2 } from '../swap/safe/predict';
 import { createSwapPlan } from '../swap/swap-steps-builder';
 import type {
   Source,
@@ -19,7 +22,6 @@ import type {
   SwapRoute,
 } from '../swap/types';
 import { SwapMode } from '../swap/types';
-import { SwapCache } from '../swap/wallet/cache';
 import type { SwapDeps } from './deps';
 
 const logger = getLogger();
@@ -41,6 +43,7 @@ type SwapPreviewContext = {
   forceMayan: SwapDeps['forceMayan'];
   timing?: SwapDeps['timing'];
   preflight: SwapPreflight;
+  safeAddress: Hex;
 };
 
 const createRouteOptions = (
@@ -53,6 +56,7 @@ const createRouteOptions = (
     | 'middlewareClient'
     | 'forceMayan'
     | 'timing'
+    | 'safeAddress'
   >,
   preflight: SwapPreflight,
   input: SwapData
@@ -65,14 +69,12 @@ const createRouteOptions = (
   dstTokenInfo: preflight.dstTokenInfo,
   eoaAddress: context.eoaAddress,
   ephemeralAddress: context.ephemeralWallet.address,
+  safeAddress: context.safeAddress,
   cotCurrencyId: context.cotCurrencyId,
   balances: preflight.balances,
   walletPathHints: preflight.walletPathHints,
   quoteAddressHints: new Map(
-    [...preflight.walletPathHints.entries()].map(([chainId, walletPath]) => [
-      chainId,
-      walletPath === 'ephemeral' ? context.ephemeralWallet.address : context.eoaAddress,
-    ])
+    [...preflight.walletPathHints.entries()].map(([chainId]) => [chainId, context.eoaAddress])
   ),
   forceMayan: context.forceMayan,
   timing: context.timing,
@@ -115,6 +117,7 @@ const waitForIntentApproval = (
   initialPreviewState: SwapPreviewState,
   input: SwapData,
   deps: SwapDeps,
+  safeAddress: Hex,
   onPreviewStateUpdated?: (nextPreviewState: SwapPreviewState) => void
 ): Promise<SwapPreviewState> => {
   return new Promise<SwapPreviewState>((resolve, reject) => {
@@ -158,6 +161,7 @@ const waitForIntentApproval = (
         forceMayan: deps.forceMayan,
         timing: deps.timing,
         preflight,
+        safeAddress,
       });
       onPreviewStateUpdated?.(currentPreviewState);
       return currentPreviewState.intent;
@@ -195,6 +199,10 @@ const runSwapFlow = async (
     mode: input.mode,
     toChainId: input.data.toChainId,
   });
+  const safeAccount = predictSafeAccountAddressV2(
+    deps.evm.address,
+    deps.swap.ephemeralWallet.address
+  );
 
   emitStatus('route_building');
   const preflight = await withTimingSpan(deps.timing, 'flow.swap.preflight', async () =>
@@ -220,6 +228,7 @@ const runSwapFlow = async (
           middlewareClient: deps.middlewareClient,
           forceMayan: deps.forceMayan,
           timing: deps.timing,
+          safeAddress: safeAccount.address,
         },
         preflight,
         input
@@ -230,6 +239,23 @@ const runSwapFlow = async (
     createSwapPreviewStateFromRoute(route, input, deps.chainList)
   );
 
+  const warmCacheForRoute = (nextRoute: SwapRoute, previous?: SwapCacheWarmup): SwapCacheWarmup =>
+    startSwapCacheWarmup(
+      {
+        chainList: deps.chainList,
+        route: nextRoute,
+        source: nextRoute.source,
+        destination: nextRoute.destination,
+        eoaAddress: deps.evm.address,
+        ephemeralWallet: deps.swap.ephemeralWallet,
+        publicClientList: preflight.publicClientList,
+        timing: deps.timing,
+        safeAccount,
+      },
+      previous
+    );
+  let cacheWarmup = warmCacheForRoute(route);
+
   emitStatus('route_ready');
   emitPlanPreview(previewState.plan);
   emitStatus('awaiting_approval');
@@ -237,11 +263,19 @@ const runSwapFlow = async (
   const onIntent = options?.onIntent;
   const approval = await withTimingSpan(deps.timing, 'flow.swap.hooks', async () =>
     onIntent
-      ? waitForIntentApproval(onIntent, previewState, input, deps, (nextPreviewState) => {
-          previewState = nextPreviewState;
-          route = nextPreviewState.route;
-          emitPlanPreview(nextPreviewState.plan);
-        })
+      ? waitForIntentApproval(
+          onIntent,
+          previewState,
+          input,
+          deps,
+          safeAccount.address,
+          (nextPreviewState) => {
+            previewState = nextPreviewState;
+            route = nextPreviewState.route;
+            cacheWarmup = warmCacheForRoute(route, cacheWarmup);
+            emitPlanPreview(nextPreviewState.plan);
+          }
+        )
       : previewState
   );
 
@@ -270,7 +304,14 @@ const runSwapFlow = async (
       route.destination.swap.tokenSwap !== null || route.destination.swap.gasSwap !== null,
   });
 
-  const cache = new SwapCache(deps.chainList);
+  const safeDeploymentPromises = startSafeDeploymentsForChains({
+    chainIds: cacheWarmup.safeChainIds,
+    eoaAddress: deps.evm.address,
+    ephemeralWallet: deps.swap.ephemeralWallet,
+    safeAccounts: cacheWarmup.cache,
+    cacheReady: cacheWarmup.process,
+    middleware: deps.middlewareClient,
+  });
 
   const preparedExecution = await withTimingSpan(
     deps.timing,
@@ -285,7 +326,8 @@ const runSwapFlow = async (
         eoaWallet: deps.evm.walletClient,
         ephemeralWallet: deps.swap.ephemeralWallet,
         publicClientList: preflight.publicClientList,
-        cache,
+        cacheWarmup,
+        safeDeploymentPromises,
         timing: deps.timing,
       })
   );
@@ -293,6 +335,8 @@ const runSwapFlow = async (
   const executionContext = {
     chainList: deps.chainList,
     sourceExecutionPaths: route.sourceExecutionPaths,
+    safeAddress: safeAccount.address,
+    safeDeploymentPromises,
     destinationDirectEoa:
       route.destination.swap.tokenSwap === null && route.destination.swap.gasSwap === null,
     destinationChainId: route.destination.chainId,
@@ -302,7 +346,7 @@ const runSwapFlow = async (
     intentExplorerUrl: deps.intentExplorerUrl,
     publicClientList: preflight.publicClientList,
     middlewareClient: deps.middlewareClient,
-    cache,
+    cache: cacheWarmup.cache,
     preparedExecution,
     onProgress: emitExecutionProgress,
     timing: deps.timing,

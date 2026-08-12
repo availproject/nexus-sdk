@@ -7,9 +7,7 @@ import {
   type SweepGroup,
 } from '../../services/init-refund-sweep';
 import { type CurrencyID, resolveCOT } from '../cot';
-import { predictSafeAccountAddress } from '../safe/predict';
 import type { ExecutionContext, SwapRoute } from '../types';
-import { chainSupports7702 } from '../wallet/capabilities';
 import { buildEphemeralPermitCall } from '../wallet/ephemeral-permit';
 import { readSettlementBalanceRaw } from './settlement-balance';
 
@@ -44,16 +42,18 @@ type FailureCleanupContext = Pick<
   | 'ephemeralWallet'
   | 'middlewareClient'
   | 'publicClientList'
+  | 'safeAddress'
+  | 'safeDeploymentPromises'
 > & { destinationChainId: number };
 
 /**
  * Sweep the route's COT stranded on a failed leg back to the EOA. Unlike a blind balance scan, we
  * know exactly what to look for: the single COT token, on the chains the failure left it (source
  * chains if we failed before the bridge, the destination chain if the destination swap failed), at
- * the holder for the failed stage. Remote source settlement is at the ephemeral on both wallet
- * paths; destination-chain settlement stays at its wrapper when another swap follows. On a
- * non-7702 remote source, the Safe submits an ephemeral permit + transferFrom recovery batch.
- * Best-effort; never rethrows.
+ * the holder for the failed stage. Remote source settlement is at the ephemeral bridge holder;
+ * destination-chain settlement stays at the Safe when another swap follows. The Safe submits an
+ * ephemeral permit + transferFrom recovery batch for remote source settlement. Best-effort; never
+ * rethrows.
  */
 export const cleanupStrandedCot = async (input: {
   currencyId: CurrencyID;
@@ -62,7 +62,7 @@ export const cleanupStrandedCot = async (input: {
   ctx: FailureCleanupContext;
 }): Promise<void> => {
   const { ctx } = input;
-  const { address: safeAddress } = predictSafeAccountAddress(ctx.ephemeralWallet.address);
+  const safeAddress = ctx.safeAddress;
   const groups: SweepGroup[] = [];
   logger.debug('swap.cleanup.sweep.started', {
     currencyId: input.currencyId,
@@ -74,11 +74,10 @@ export const cleanupStrandedCot = async (input: {
   for (const chainId of input.chainIds) {
     try {
       const chain = ctx.chainList.getChainByID(chainId);
-      const is7702 = chainSupports7702(chain);
       const sourceOnDestination = input.scope === 'source' && chainId === ctx.destinationChainId;
       if (sourceOnDestination && ctx.destinationDirectEoa) continue;
       const sourceAtEphemeral = input.scope === 'source' && chainId !== ctx.destinationChainId;
-      const holderAddress = is7702 || sourceAtEphemeral ? ctx.ephemeralWallet.address : safeAddress;
+      const holderAddress = sourceAtEphemeral ? ctx.ephemeralWallet.address : safeAddress;
       const cot = resolveCOT(chainId, ctx.chainList, input.currencyId);
       const tokenAddress = cot.address as Hex;
       const balance = await readSettlementBalanceRaw({
@@ -89,7 +88,7 @@ export const cleanupStrandedCot = async (input: {
       });
 
       if (balance <= 0n) continue;
-      if (sourceAtEphemeral && !is7702) {
+      if (sourceAtEphemeral) {
         const deadline = BigInt(Math.floor(Date.now() / 1000)) + CLEANUP_PERMIT_DEADLINE_SECONDS;
         const permitCall = await buildEphemeralPermitCall({
           tokenAddress,
@@ -121,7 +120,7 @@ export const cleanupStrandedCot = async (input: {
       }
       groups.push({
         chainId,
-        holder: is7702 ? 'ephemeral' : 'safe',
+        holder: 'safe',
         calls: [buildRefundSweepCall(tokenAddress, balance, ctx.eoaAddress)],
       });
     } catch (error) {

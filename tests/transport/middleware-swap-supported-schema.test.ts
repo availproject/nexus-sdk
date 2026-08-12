@@ -31,27 +31,7 @@ const wirePayload = (chainOverrides: Record<string, unknown> = {}) => ({
   chains: [wireChain(chainOverrides)],
 });
 
-describe('deploymentResponseSchema parses eip7702Enabled', () => {
-  it('maps wire field eip7702Enabled=false to supports7702=false', () => {
-    const parsed = deploymentResponseSchema.parse(wirePayload({ eip7702Enabled: false }));
-
-    expect(parsed.chains[0].supports7702).toBe(false);
-  });
-
-  it('maps wire field eip7702Enabled=true to supports7702=true', () => {
-    const parsed = deploymentResponseSchema.parse(wirePayload({ eip7702Enabled: true }));
-
-    expect(parsed.chains[0].supports7702).toBe(true);
-  });
-
-  it('leaves supports7702 undefined when wire field omitted', () => {
-    const parsed = deploymentResponseSchema.parse(wirePayload());
-
-    expect(parsed.chains[0].supports7702).toBeUndefined();
-  });
-});
-
-describe('deploymentResponseSchema parses swapSupported', () => {
+describe('deploymentResponseSchema parses swapSupported independently of execution mode', () => {
   it('maps wire field swapSupported=true to chain.swapSupported=true', () => {
     const parsed = deploymentResponseSchema.parse(wirePayload({ swapSupported: true }));
 
@@ -68,5 +48,18 @@ describe('deploymentResponseSchema parses swapSupported', () => {
     const parsed = deploymentResponseSchema.parse(wirePayload());
 
     expect(parsed.chains[0].swapSupported).toBeUndefined();
+  });
+
+  it('normalizes the EIP-7702 flag and configured Calibur address', () => {
+    const caliburAddress = '0x00000000000000000000000000000000000000cc';
+    const parsed = deploymentResponseSchema.parse(
+      wirePayload({ eip7702Enabled: true, caliburAddress })
+    );
+
+    expect(parsed.chains[0]).toMatchObject({
+      supports7702: true,
+      caliburAddress,
+    });
+    expect(parsed.chains[0]).not.toHaveProperty('eip7702Enabled');
   });
 });

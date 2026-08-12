@@ -43,18 +43,58 @@ import { equalFold } from '../services/strings';
 import { minutesToMs } from '../services/time';
 import { getFallbackTokenLogoDataUri } from '../services/token-logo';
 import { EADDRESS } from '../swap/constants';
-import { createSafeMiddlewareClient } from '../swap/safe/client';
+import {
+  createSafeMiddlewareClient,
+  createSafeMiddlewareClientV2,
+  type SafeMiddlewareClient,
+} from '../swap/safe/client';
 import type {
-  CreateSafeExecuteTxRequest,
-  CreateSafeExecuteTxResponse,
-  EnsureSafeAccountRequest,
-  EnsureSafeAccountResponse,
-  GetSafeAccountAddressRequest,
-  GetSafeAccountAddressResponse,
+  CreateSafeExecuteTxV2Request,
+  CreateSafeExecuteTxV2Response,
+  EnsureSafeAccountV2Request,
+  EnsureSafeAccountV2Response,
+  GetSafeAccountAddressV2Request,
+  GetSafeAccountAddressV2Response,
 } from '../swap/safe/types';
-import type { FlatBalance, SBCResult, SBCTx } from '../swap/types';
+import type { FlatBalance } from '../swap/types';
 import { encodeChainIdToBytes32, parseHexToTokenBytes } from './encoding';
 import type { SimulationRequest, SimulationResponse } from './types';
+
+export type SbcAuthorization = {
+  chainId: Hex;
+  address: Hex;
+  nonce: number;
+  v: number;
+  r: Hex;
+  s: Hex;
+};
+
+export type SbcTransaction = {
+  chainId: number;
+  address: Hex;
+  nonce: Hex;
+  keyHash: Hex;
+  deadline: Hex;
+  calls: Array<{ to: Hex; value: Hex; data: Hex }>;
+  revertOnFailure: boolean;
+  signature: Hex;
+  authorizationList?: SbcAuthorization[];
+};
+
+export type SbcResult = {
+  chainId: number;
+  address: Hex;
+} & (
+  | { errored: false; txHash: Hex }
+  | {
+      errored: true;
+      message: string;
+      code: string;
+      errorId: string;
+      subcode?: string;
+      details?: Record<string, unknown>;
+    }
+);
 
 export type MiddlewareClient = {
   getBalances: (address: Hex, universe: number) => Promise<UnifiedBalanceResponseData[]>;
@@ -70,7 +110,7 @@ export type MiddlewareClient = {
   getDeployment: () => Promise<DeploymentResponse>;
   getOraclePrices: () => Promise<OraclePriceResponse>;
   simulateBundleV2: (request: SimulationRequest) => Promise<{ gas: bigint[] }>;
-  submitSBCs: (sbcTxs: SBCTx[]) => Promise<SBCResult[]>;
+  submitSBCs: (transactions: SbcTransaction[]) => Promise<SbcResult[]>;
   getLiFiQuote: (params: Record<string, string>, exactOut?: boolean) => Promise<unknown>;
   getBebopQuote: (params: Record<string, string>, api?: 'aggregation' | 'rfq') => Promise<unknown>;
   getFibrousQuote: (params: Record<string, string>) => Promise<unknown>;
@@ -96,10 +136,13 @@ export type MiddlewareClient = {
   getMayanQuotes: (request: MayanQuoteRequest) => Promise<MayanQuoteResponse>;
   getBridgeProvider: (request: BridgeProviderRequest) => Promise<BridgeProviderResponse>;
   getSafeAccountAddress: (
-    req: GetSafeAccountAddressRequest
-  ) => Promise<GetSafeAccountAddressResponse>;
-  ensureSafeAccount: (req: EnsureSafeAccountRequest) => Promise<EnsureSafeAccountResponse>;
-  createSafeExecuteTx: (req: CreateSafeExecuteTxRequest) => Promise<CreateSafeExecuteTxResponse>;
+    req: GetSafeAccountAddressV2Request
+  ) => Promise<GetSafeAccountAddressV2Response>;
+  ensureSafeAccount: (req: EnsureSafeAccountV2Request) => Promise<EnsureSafeAccountV2Response>;
+  createSafeExecuteTx: (
+    req: CreateSafeExecuteTxV2Request
+  ) => Promise<CreateSafeExecuteTxV2Response>;
+  legacySafe?: SafeMiddlewareClient;
   configureTiming: (options?: { timing?: TimingSpanHooks; captureNetworkTiming?: boolean }) => void;
   destroy: () => void;
 };
@@ -385,7 +428,7 @@ const approvalResultSchema: z.ZodType<ApprovalResult> = z.object({
   message: z.string().optional(),
 });
 
-const sbcResultSchema = z.union([
+const sbcResultSchema: z.ZodType<SbcResult> = z.union([
   z.object({
     chainId: z.number().int(),
     address: addressString,
@@ -402,7 +445,7 @@ const sbcResultSchema = z.union([
     subcode: z.string().optional(),
     details: z.record(z.string(), z.unknown()).optional(),
   }),
-]) as z.ZodType<SBCResult>;
+]);
 
 const permitVariantSchema = z.number().int().optional().default(1);
 
@@ -455,10 +498,11 @@ export const deploymentResponseSchema: z.ZodType<DeploymentResponse> = z.object(
         ),
         mayanEnabled: z.boolean().optional(),
         eip7702Enabled: z.boolean().optional(),
+        caliburAddress: addressString.optional(),
         swapSupported: z.boolean().optional(),
       })
-      .transform(({ eip7702Enabled, ...rest }) => ({
-        ...rest,
+      .transform(({ eip7702Enabled, ...chain }) => ({
+        ...chain,
         supports7702: eip7702Enabled,
       }))
   ),
@@ -601,12 +645,14 @@ const middlewareErrorDetails = (error: unknown): Record<string, unknown> => {
   };
 };
 
-const groupSbcTxsByChain = (sbcTxs: SBCTx[]): Record<number, SBCTx[]> =>
-  sbcTxs.reduce<Record<number, SBCTx[]>>((acc, tx) => {
-    const chainTxs = acc[tx.chainId] ?? [];
-    chainTxs.push(tx);
-    acc[tx.chainId] = chainTxs;
-    return acc;
+const groupSbcTransactionsByChain = (
+  transactions: SbcTransaction[]
+): Record<number, SbcTransaction[]> =>
+  transactions.reduce<Record<number, SbcTransaction[]>>((grouped, transaction) => {
+    const chainTransactions = grouped[transaction.chainId] ?? [];
+    chainTransactions.push(transaction);
+    grouped[transaction.chainId] = chainTransactions;
+    return grouped;
   }, {});
 
 /**
@@ -916,14 +962,13 @@ export const createMiddlewareClient = (
     }
   };
 
-  const submitSBCs = async (sbcTxs: SBCTx[]): Promise<SBCResult[]> => {
+  const submitSBCs = async (transactions: SbcTransaction[]): Promise<SbcResult[]> => {
     try {
-      logger.debug('submitSBCs', { expectedCount: sbcTxs.length });
-      const response = await client.post<SBCResult[]>(
+      logger.debug('submitSBCs', { expectedCount: transactions.length });
+      const response = await client.post<SbcResult[]>(
         '/api/v2/create-sbc-tx',
-        groupSbcTxsByChain(sbcTxs)
+        groupSbcTransactionsByChain(transactions)
       );
-      logger.debug('submitSBCs:response', { data: response.data });
       return parseMiddlewareResponse(z.array(sbcResultSchema), response.data, 'sbc results');
     } catch (error) {
       logger.error('submitSBCs:error', error);
@@ -1135,7 +1180,8 @@ export const createMiddlewareClient = (
     }
   };
 
-  const safe = createSafeMiddlewareClient(client);
+  const safe = createSafeMiddlewareClientV2(client);
+  const legacySafe = createSafeMiddlewareClient(client);
 
   const wrapSafe = async <T>(
     label: string,
@@ -1157,23 +1203,32 @@ export const createMiddlewareClient = (
     }
   };
 
-  const getSafeAccountAddress = (req: GetSafeAccountAddressRequest) =>
+  const getSafeAccountAddress = (req: GetSafeAccountAddressV2Request) =>
     wrapSafe(
       'getSafeAccountAddress',
       ERROR_CODES.BACKEND_SAFE_GET_ADDRESS_FAILED,
-      { chainId: req.chainId, owner: req.owner },
+      {
+        chainId: req.chainId,
+        eoaAddress: req.eoaAddress,
+        ephemeralAddress: req.ephemeralAddress,
+      },
       () => safe.getSafeAccountAddress(req)
     );
 
-  const ensureSafeAccount = (req: EnsureSafeAccountRequest) =>
+  const ensureSafeAccount = (req: EnsureSafeAccountV2Request) =>
     wrapSafe(
       'ensureSafeAccount',
       ERROR_CODES.BACKEND_SAFE_ENSURE_FAILED,
-      { chainId: req.chainId, owner: req.owner, safeAddress: req.safeAddress },
+      {
+        chainId: req.chainId,
+        eoaAddress: req.eoaAddress,
+        ephemeralAddress: req.ephemeralAddress,
+        safeAddress: req.safeAddress,
+      },
       () => safe.ensureSafeAccount(req)
     );
 
-  const createSafeExecuteTx = (req: CreateSafeExecuteTxRequest) =>
+  const createSafeExecuteTx = (req: CreateSafeExecuteTxV2Request) =>
     wrapSafe(
       'createSafeExecuteTx',
       ERROR_CODES.BACKEND_SAFE_EXECUTE_FAILED,
@@ -1213,6 +1268,7 @@ export const createMiddlewareClient = (
     getSafeAccountAddress,
     ensureSafeAccount,
     createSafeExecuteTx,
+    legacySafe,
     configureTiming,
     destroy: () => {
       uninstallTiming();

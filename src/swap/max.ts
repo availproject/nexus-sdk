@@ -22,6 +22,7 @@ type SwapMaxExecutionParams = Pick<
   'chainList' | 'cotCurrencyId' | 'eoaAddress' | 'middlewareClient'
 > & {
   ephemeralAddress: Hex;
+  safeAddress: Hex;
   forceMayan?: boolean;
 };
 
@@ -73,6 +74,7 @@ export async function calculateMaxForSwap(
     dstTokenInfo: preflight.dstTokenInfo,
     eoaAddress: options.eoaAddress,
     ephemeralAddress: options.ephemeralAddress,
+    safeAddress: options.safeAddress,
     balances: preflight.balances,
     walletPathHints: preflight.walletPathHints,
     cotCurrencyId: options.cotCurrencyId,

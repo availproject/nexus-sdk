@@ -14,7 +14,7 @@ import { isNativeAddress } from '../../services/addresses';
 import { createExplorerTxURL } from '../../services/explorer';
 import { isUserRejectedRequest } from '../../services/is-user-rejected-request';
 import { mulDecimals } from '../../services/math';
-import type { SBCCall } from '../../services/sbc';
+import { requireSafeDeployment, type SafeCall } from '../../services/safe';
 import { createSourceSwapStepId } from '../../services/step-ids';
 import { equalFold } from '../../services/strings';
 import { withTimingSpan } from '../../services/timing';
@@ -25,7 +25,6 @@ import {
   sizeDirectDestinationExactOut,
 } from '../algorithms/direct-destination-size';
 import { DIRECT_DST_QUOTE_TTL_MS, SRC_BUFFER_MAX_USD, SRC_BUFFER_PCT } from '../constants';
-import { predictSafeAccountAddress } from '../safe/predict';
 import type {
   ExecutionContext,
   OraclePriceResponse,
@@ -136,7 +135,7 @@ const buildCalls = async (input: {
   authorizations: Map<string, FundingAuthorization>;
   routeTimeInputs: Map<string, bigint>;
   oraclePrices: OraclePriceResponse;
-}): Promise<SBCCall[]> => {
+}): Promise<SafeCall[]> => {
   const { swaps, chainId, targetAddress, ctx, authorizations, routeTimeInputs, oraclePrices } =
     input;
   const orderedSwaps = sortSwaps(swaps);
@@ -165,8 +164,8 @@ const buildCalls = async (input: {
     });
   }
 
-  const calls: SBCCall[] = [];
-  const fundingCallsByToken = new Map<string, SBCCall[]>();
+  const calls: SafeCall[] = [];
+  const fundingCallsByToken = new Map<string, SafeCall[]>();
   for (const [tokenKey, funding] of tokenTotals) {
     const cacheKey = `${chainId}:${tokenKey}:${targetAddress.toLowerCase()}`;
     let cached = authorizations.get(cacheKey);
@@ -228,6 +227,7 @@ const buildCalls = async (input: {
         eoaAddress: ctx.eoaAddress,
         eoaWallet: ctx.eoaWallet,
         publicClient,
+        safeDeploymentPromise: requireSafeDeployment(ctx.safeDeploymentPromises, chainId),
       })
     );
     if (cached?.authorization?.kind === 'approve') cached.approvalMined = true;
@@ -255,15 +255,9 @@ const isDefinitiveFailure = (error: unknown): boolean =>
   error instanceof NexusError &&
   (error.code === ERROR_CODES.EXEC_TX_ONCHAIN_REVERTED ||
     error.code === ERROR_CODES.EXEC_TX_SUBMISSION_REVERTED ||
-    error.code === ERROR_CODES.BACKEND_SBC_SUBMIT_FAILED ||
     error.code === ERROR_CODES.SIMULATION_ETH_CALL_FAILED);
 
-const isRetryableDispatchFailure = (error: unknown, dispatched?: DispatchedSourceBatch): boolean =>
-  isDefinitiveFailure(error) ||
-  (dispatched === undefined &&
-    error instanceof NexusError &&
-    error.code === ERROR_CODES.EXECUTION_ERROR &&
-    error.context.service === 'wallet');
+const isRetryableDispatchFailure = (error: unknown): boolean => isDefinitiveFailure(error);
 
 const normalizeDispatchFailure = (
   error: unknown,
@@ -335,10 +329,7 @@ export const executeDirectDestinationExactOut = async (
 
   const chainId = route.destination.chainId;
   const chain = ctx.chainList.getChainByID(chainId);
-  const targetAddress: Hex =
-    ctx.sourceExecutionPaths.get(chainId) === 'safe'
-      ? predictSafeAccountAddress(ctx.ephemeralWallet.address).address
-      : ctx.ephemeralWallet.address;
+  const targetAddress = ctx.safeAddress;
   const executorCtx = { ...ctx, cache: ctx.cache };
   const authorizations = new Map<string, FundingAuthorization>();
   const routeTimeInputs = new Map<string, bigint>();
@@ -393,7 +384,7 @@ export const executeDirectDestinationExactOut = async (
       }
     }
 
-    let calls: SBCCall[];
+    let calls: SafeCall[];
     try {
       calls = await withTimingSpan(
         ctx.timing,
@@ -463,10 +454,7 @@ export const executeDirectDestinationExactOut = async (
       return;
     } catch (error) {
       const normalized = normalizeDispatchFailure(error, chainId, dispatched);
-      if (
-        isRetryableDispatchFailure(normalized, dispatched) &&
-        dispatchAttempts < MAX_DISPATCH_ATTEMPTS
-      ) {
+      if (isRetryableDispatchFailure(normalized) && dispatchAttempts < MAX_DISPATCH_ATTEMPTS) {
         addRouterExclusions(routerExclusions, swaps);
         forceRequote = true;
         continue;

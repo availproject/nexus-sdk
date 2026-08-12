@@ -148,32 +148,6 @@ export {
   ValidationError,
 } from './domain/errors';
 export type {
-  CreateSafeExecuteTxRequest,
-  CreateSafeExecuteTxResponse,
-  EnsureSafeAccountRequest,
-  EnsureSafeAccountResponse,
-  GetSafeAccountAddressRequest,
-  GetSafeAccountAddressResponse,
-  SafeAccountAddress,
-  SafeClient,
-  SafeClientOptions,
-  SafeExecuteCall,
-  SafeHttpClient,
-  SafeMiddlewareClient,
-  SafeOperation,
-  SafeTxFields,
-} from './swap/safe';
-export {
-  createSafeClient,
-  createSafeMiddlewareClient,
-  predictSafeAccountAddress,
-  SAFE_MULTI_SEND_CALL_ONLY_ADDRESS,
-  SAFE_OPERATION_CALL,
-  SAFE_OPERATION_DELEGATECALL,
-  SAFE_PROXY_FACTORY_ADDRESS,
-  SAFE_SALT_NONCE,
-} from './swap/safe';
-export type {
   OnSwapIntentHookData,
   Source,
   SwapAndExecuteParams,

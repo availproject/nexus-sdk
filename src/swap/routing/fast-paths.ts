@@ -225,7 +225,7 @@ export async function buildDirectDestinationExactInRoute(
     destinationHasSwap: false,
     options,
   });
-  // Taker = the per-chain wrapper (Calibur ephemeral / predicted Safe) that executes the swap.
+  // Taker = the deterministic V2 Safe that executes the swap.
   const userAddressByChain = buildExecutorAddressByChain(
     walletDecision.sourceExecutionPaths,
     options

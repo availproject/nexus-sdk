@@ -2,17 +2,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Hex, PublicClient } from 'viem';
 import { recoverTypedDataAddress } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { ensureSafeForEphemeral } from '../../src/services/safe';
 import {
-  ensureAuthDomain,
-  ensureAuthTypes,
+  ensureSafeForEphemeral,
+  startSafeDeploymentsForChains,
+} from '../../src/services/safe';
+import {
+  ensureAuthDomainV2,
+  ensureAuthTypesV2,
 } from '../../src/swap/safe/ensure-auth';
-import { predictSafeAccountAddress } from '../../src/swap/safe/predict';
-import { SAFE_SALT_NONCE } from '../../src/swap/safe/constants';
+import { predictSafeAccountAddressV2 } from '../../src/swap/safe/predict';
+import { SAFE_V2_SALT_NONCE } from '../../src/swap/safe/constants';
 
 const PK = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d' as const;
 const ephemeralWallet = privateKeyToAccount(PK);
-const safeAddress = predictSafeAccountAddress(ephemeralWallet.address).address;
+const eoaAddress = '0xeeee000000000000000000000000000000000001' as const;
+const safeAddress = predictSafeAccountAddressV2(eoaAddress, ephemeralWallet.address).address;
 const chainId = 42161;
 
 type StubPublicClient = Pick<PublicClient, 'getCode'>;
@@ -23,7 +27,8 @@ const makePublicClient = (code?: Hex): StubPublicClient =>
 const makeMiddleware = () => ({
   ensureSafeAccount: vi.fn().mockResolvedValue({
     chainId,
-    owner: ephemeralWallet.address,
+    eoaAddress,
+    ephemeralAddress: ephemeralWallet.address,
     address: safeAddress,
     factoryAddress: '0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67' as Hex,
     exists: true,
@@ -42,6 +47,7 @@ describe('ensureSafeForEphemeral', () => {
 
     const result = await ensureSafeForEphemeral({
       chainId,
+      eoaAddress,
       ephemeralWallet,
       publicClient,
       middleware,
@@ -59,6 +65,7 @@ describe('ensureSafeForEphemeral', () => {
 
     await ensureSafeForEphemeral({
       chainId,
+      eoaAddress,
       ephemeralWallet,
       publicClient,
       middleware,
@@ -67,22 +74,22 @@ describe('ensureSafeForEphemeral', () => {
     expect(middleware.ensureSafeAccount).toHaveBeenCalledTimes(1);
     const [body] = middleware.ensureSafeAccount.mock.calls[0];
     expect(body.chainId).toBe(chainId);
-    expect(body.owner.toLowerCase()).toBe(ephemeralWallet.address.toLowerCase());
+    expect(body.eoaAddress.toLowerCase()).toBe(eoaAddress.toLowerCase());
+    expect(body.ephemeralAddress.toLowerCase()).toBe(ephemeralWallet.address.toLowerCase());
     expect(body.safeAddress).toBe(safeAddress);
-    expect(body.saltNonce.length).toBe(66);
-    expect(body.deadline.length).toBe(66);
+    expect(body).not.toHaveProperty('saltNonce');
+    expect(body.deadline).toMatch(/^\d+$/);
     expect(body.signature.length).toBe(132);
 
-    expect(BigInt(body.saltNonce)).toBe(SAFE_SALT_NONCE);
-
     const recovered = await recoverTypedDataAddress({
-      domain: ensureAuthDomain(BigInt(chainId)),
-      types: ensureAuthTypes,
-      primaryType: 'NexusSafeEnsure',
+      domain: ensureAuthDomainV2(BigInt(chainId)),
+      types: ensureAuthTypesV2,
+      primaryType: 'NexusSafeEnsureV2',
       message: {
-        owner: ephemeralWallet.address,
+        eoaAddress,
+        ephemeralAddress: ephemeralWallet.address,
         safeAddress,
-        saltNonce: SAFE_SALT_NONCE,
+        saltNonce: SAFE_V2_SALT_NONCE,
         deadline: BigInt(body.deadline),
       },
       signature: body.signature,
@@ -97,6 +104,7 @@ describe('ensureSafeForEphemeral', () => {
 
     await ensureSafeForEphemeral({
       chainId,
+      eoaAddress,
       ephemeralWallet,
       publicClient,
       middleware,
@@ -107,5 +115,36 @@ describe('ensureSafeForEphemeral', () => {
     const deadline = Number(BigInt(body.deadline));
     expect(deadline).toBeGreaterThanOrEqual(before + 600);
     expect(deadline).toBeLessThanOrEqual(after + 600);
+  });
+
+  it('starts every unique chain deployment without waiting for another chain', async () => {
+    const secondChainId = 10;
+    const middleware = makeMiddleware();
+    const safeAccounts = {
+      getSafeAccount: vi.fn((requestedChainId: number) => ({
+        address: safeAddress,
+        factoryAddress: '0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67' as Hex,
+        deployed: requestedChainId === chainId,
+      })),
+      setSafeDeployed: vi.fn(),
+    };
+
+    const deployments = startSafeDeploymentsForChains({
+      chainIds: [chainId, secondChainId, chainId],
+      eoaAddress,
+      ephemeralWallet,
+      safeAccounts,
+      cacheReady: Promise.resolve(),
+      middleware,
+    });
+
+    expect([...deployments.keys()]).toEqual([chainId, secondChainId]);
+    await Promise.all(deployments.values());
+    expect(safeAccounts.getSafeAccount).toHaveBeenCalledTimes(2);
+    expect(middleware.ensureSafeAccount).toHaveBeenCalledTimes(1);
+    expect(middleware.ensureSafeAccount).toHaveBeenCalledWith(
+      expect.objectContaining({ chainId: secondChainId, safeAddress })
+    );
+    expect(safeAccounts.setSafeDeployed).toHaveBeenCalledWith(secondChainId, true);
   });
 });

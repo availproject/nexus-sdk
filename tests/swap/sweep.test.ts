@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { createSweeperTxs } from '../../src/swap/sweep';
-import { CALIBUR_ADDRESS, EADDRESS, SWEEPER_ADDRESS } from '../../src/swap/constants';
-import { decodeFunctionData, type Hex } from 'viem';
+import { EADDRESS, SWEEPER_ADDRESS } from '../../src/swap/constants';
+import { type Hex } from 'viem';
 import type { SwapCache } from '../../src/swap/wallet/cache';
 
 const MOCK_RECEIVER = '0xaaaa000000000000000000000000000000000001' as Hex;
@@ -28,29 +28,11 @@ describe('createSweeperTxs', () => {
     expect(calls[1].to.toLowerCase()).toBe(SWEEPER_ADDRESS.toLowerCase());
   });
 
-  it('native sweep → approveNative + sweepERC7914 calls', () => {
+  it('does not build legacy native sweep calls', () => {
     const cache = makeCache(0n);
     const calls = createSweeperTxs(EADDRESS as Hex, MOCK_RECEIVER, CHAIN_ID, cache as unknown as Pick<SwapCache, 'getAllowance'>);
 
-    expect(calls.length).toBe(2);
-    expect(calls[0].to.toLowerCase()).toBe(CALIBUR_ADDRESS.toLowerCase());
-    expect(
-      decodeFunctionData({
-        abi: [
-          {
-            type: 'function',
-            name: 'approveNative',
-            inputs: [
-              { name: 'spender', type: 'address' },
-              { name: 'amount', type: 'uint256' },
-            ],
-          },
-        ] as const,
-        data: calls[0].data,
-      }).functionName
-    ).toBe('approveNative');
-    // Second call should target sweeper
-    expect(calls[1].to.toLowerCase()).toBe(SWEEPER_ADDRESS.toLowerCase());
+    expect(calls).toEqual([]);
   });
 
   it('skip approve if allowance sufficient', () => {
@@ -72,30 +54,25 @@ describe('createSweeperTxs', () => {
     }
   });
 
-  it('ERC20 queries cache with token as token and ephemeral as owner', () => {
-    const EPHEMERAL = '0xeeee000000000000000000000000000000000099' as Hex;
+  it('ERC20 queries cache with the Safe as owner', () => {
+    const SAFE = '0xeeee000000000000000000000000000000000099' as Hex;
     const cache = makeCache(0n);
-    createSweeperTxs(MOCK_TOKEN, MOCK_RECEIVER, CHAIN_ID, cache as unknown as Pick<SwapCache, 'getAllowance'>, EPHEMERAL);
+    createSweeperTxs(MOCK_TOKEN, MOCK_RECEIVER, CHAIN_ID, cache as unknown as Pick<SwapCache, 'getAllowance'>, SAFE);
 
     expect(cache.getAllowance).toHaveBeenCalledWith(
       MOCK_TOKEN,          // token
-      EPHEMERAL,           // owner = ephemeral wallet
+      SAFE,
       SWEEPER_ADDRESS,     // spender
       CHAIN_ID,
     );
   });
 
-  it('native queries cache with EADDRESS as token and ephemeral as owner', () => {
-    const EPHEMERAL = '0xeeee000000000000000000000000000000000099' as Hex;
+  it('native sweep does not query legacy allowances', () => {
+    const SAFE = '0xeeee000000000000000000000000000000000099' as Hex;
     const cache = makeCache(0n);
-    createSweeperTxs(EADDRESS as Hex, MOCK_RECEIVER, CHAIN_ID, cache as unknown as Pick<SwapCache, 'getAllowance'>, EPHEMERAL);
+    createSweeperTxs(EADDRESS as Hex, MOCK_RECEIVER, CHAIN_ID, cache as unknown as Pick<SwapCache, 'getAllowance'>, SAFE);
 
-    expect(cache.getAllowance).toHaveBeenCalledWith(
-      EADDRESS,            // token
-      EPHEMERAL,           // owner = ephemeral wallet
-      SWEEPER_ADDRESS,     // spender
-      CHAIN_ID,
-    );
+    expect(cache.getAllowance).not.toHaveBeenCalled();
   });
 
   it('undefined cache produces approve + sweep calls (safe fallback)', () => {

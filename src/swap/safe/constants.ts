@@ -20,7 +20,18 @@ export const SAFE_PROXY_INIT_CODE_HASH: Hex =
 // multiple Safes per owner. The literal value (0x18c19de7…) is part of on-chain state for any
 // Safe already deployed at this address — never change the source string after deploys exist.
 export const SAFE_SALT_NONCE_NAMESPACE = 'avail.nexus.safe.v1' as const;
+/** @deprecated V1 single-owner Safe salt. Use SAFE_V2_SALT_NONCE for new integrations. */
 export const SAFE_SALT_NONCE = hexToBigInt(keccak256(stringToBytes(SAFE_SALT_NONCE_NAMESPACE)));
+
+export const SAFE_V2_SALT_NONCE_NAMESPACE = 'avail.nexus.safe.v2' as const;
+export const SAFE_V2_SALT_NONCE = hexToBigInt(
+  keccak256(stringToBytes(SAFE_V2_SALT_NONCE_NAMESPACE))
+);
+
+// Safe on-chain identifier for project=Avail Nexus, platform=SDK, tool=protocol-kit,
+// toolVersion=8.0.4. It is appended to outer deployment/exec calldata, never inner Safe calls.
+export const SAFE_V2_ON_CHAIN_IDENTIFIER: Hex =
+  '0x5afe003863353064343636303538333931616562313764653466393238363165';
 
 export const SAFE_OPERATION_CALL = 0 as const;
 export const SAFE_OPERATION_DELEGATECALL = 1 as const;

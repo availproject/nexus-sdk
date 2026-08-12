@@ -313,7 +313,7 @@ describe('composite flow lifecycle and refresh characterization', () => {
     expect(previews.map((plan) => plan.swapRequired)).toEqual([true, false]);
     expect(previews[1]?.steps.map((step) => step.type)).toEqual(['execute_transaction']);
     expect(result.swapSkipped).toBe(true);
-    expect(harness.middlewareClient.submitSBCs).not.toHaveBeenCalled();
+    expect(harness.middlewareClient.createSafeExecuteTx).not.toHaveBeenCalled();
   });
 
   it('honors an explicit skip override even when destination funding is short', async () => {
@@ -325,7 +325,7 @@ describe('composite flow lifecycle and refresh characterization', () => {
     });
 
     expect(result.swapSkipped).toBe(true);
-    expect(harness.middlewareClient.submitSBCs).not.toHaveBeenCalled();
+    expect(harness.middlewareClient.createSafeExecuteTx).not.toHaveBeenCalled();
   });
 
   it('keeps executing when composite event callbacks throw', async () => {

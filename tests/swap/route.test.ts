@@ -16,7 +16,7 @@ vi.mock('../../src/swap/algorithms/destination', () => ({
 }));
 import { determineSwapRoute, resolveWalletDecisions, type RouteOptions } from '../../src/swap/route';
 import { createSwapIntent } from '../../src/swap/intent';
-import { predictSafeAccountAddress } from '../../src/swap/safe/predict';
+import { predictSafeAccountAddressV2 } from '../../src/swap/safe/predict';
 import { SwapMode } from '../../src/swap/types';
 import type {
   OraclePriceResponse,
@@ -161,12 +161,16 @@ const makeRouteOptions = (overrides?: Partial<RouteOptions>): RouteOptions => ({
   publicClientList: makePublicClientList() as unknown as PublicClientList,
   oraclePrices: mockOraclePrices,
   dstTokenInfo: makeDstTokenInfo(),
-  eoaAddress: '0xaaaa' as Hex,
+  eoaAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as Hex,
   ephemeralAddress: EPHEMERAL_EXECUTOR,
+  safeAddress: predictSafeAccountAddressV2(
+    '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    EPHEMERAL_EXECUTOR
+  ).address,
   balances: [],
   walletPathHints: new Map([
-    [ARB_CHAIN, 'ephemeral'],
-    [BASE_CHAIN, 'ephemeral'],
+    [ARB_CHAIN, 'safe'],
+    [BASE_CHAIN, 'safe'],
   ]),
   quoteAddressHints: new Map([
     [ARB_CHAIN, EPHEMERAL_EXECUTOR],
@@ -179,23 +183,23 @@ const makeRouteOptions = (overrides?: Partial<RouteOptions>): RouteOptions => ({
 // Tests
 // ---------------------------------------------------------------------------
 describe('resolveWalletDecisions', () => {
-  it('passes through per-chain wallet path hints', () => {
+  it('uses Safe V2 even when a legacy caller supplies an ephemeral hint', () => {
     const decision = resolveWalletDecisions({
       sourceChainIds: [ARB_CHAIN, BASE_CHAIN],
       walletPathHints: new Map<number, WalletPath>([
-        [ARB_CHAIN, 'ephemeral'],
+        [ARB_CHAIN, 'safe'],
         [BASE_CHAIN, 'safe'],
       ]),
     });
-    expect(decision.sourceExecutionPaths.get(ARB_CHAIN)).toBe('ephemeral');
+    expect(decision.sourceExecutionPaths.get(ARB_CHAIN)).toBe('safe');
     expect(decision.sourceExecutionPaths.get(BASE_CHAIN)).toBe('safe');
   });
-  it('defaults missing hints to "ephemeral"', () => {
+  it('defaults missing hints to Safe V2', () => {
     const decision = resolveWalletDecisions({
       sourceChainIds: [ARB_CHAIN],
       walletPathHints: new Map<number, WalletPath>(),
     });
-    expect(decision.sourceExecutionPaths.get(ARB_CHAIN)).toBe('ephemeral');
+    expect(decision.sourceExecutionPaths.get(ARB_CHAIN)).toBe('safe');
   });
 });
 describe('determineSwapRoute', () => {
@@ -1460,9 +1464,9 @@ describe('determineSwapRoute', () => {
           { amount: '0.30', chainID: OP_CHAIN, decimals: 6, symbol: 'USDC', tokenAddress: USDC_OP, value: 0.3, logo: '', name: 'USDC' },
         ],
         walletPathHints: new Map([
-          [ARB_CHAIN, 'ephemeral'],
-          [BASE_CHAIN, 'ephemeral'],
-          [OP_CHAIN, 'ephemeral'],
+          [ARB_CHAIN, 'safe'],
+          [BASE_CHAIN, 'safe'],
+          [OP_CHAIN, 'safe'],
         ]),
         quoteAddressHints: new Map([
           [ARB_CHAIN, EPHEMERAL_EXECUTOR],
@@ -2228,13 +2232,13 @@ describe('determineSwapRoute', () => {
       amount: 1000000000n,
       contractAddress: USDC_ARB,
     });
-    // Destination is 7702 (default) and needs a swap step → bridge fills to the ephemeral
+    // Destination is Safe V2 (default) and needs a swap step → bridge fills to the ephemeral
     // wrapper, signalled by tokenSwap being non-null.
     expect(route.destination.swap.tokenSwap).not.toBeNull();
   });
-  it('sets eoaToEphemeral on a non-7702 (Safe) destination chain so direct EOA COT reaches the Safe', async () => {
-    // Parity: on a Safe (non-7702) destination chain the dst swap runs as the Safe, so the EOA's
-    // direct COT must be moved EOA→Safe before the swap. This used to be gated to 7702 chains,
+  it('sets eoaToEphemeral on a Safe V2 (Safe) destination chain so direct EOA COT reaches the Safe', async () => {
+    // Parity: on a Safe (Safe V2) destination chain the dst swap runs as the Safe, so the EOA's
+    // direct COT must be moved EOA→Safe before the swap. This used to be gated to Safe V2 chains,
     // leaving the Safe empty → the dst swap reverts (GS013). The transfer must be produced for
     // both wrappers; prepare/execution target whichever executor runs the swap.
     const input: SwapData = {
@@ -2280,14 +2284,7 @@ describe('determineSwapRoute', () => {
         },
       })
     );
-    // Destination chain ARB advertises supports7702=false → Safe wrapper.
     const chainList = makeSwapChainList();
-    const originalGetChainByID = chainList.getChainByID.bind(chainList);
-    chainList.getChainByID = vi.fn().mockImplementation((chainId: number) =>
-      chainId === ARB_CHAIN
-        ? { ...originalGetChainByID(chainId), supports7702: false }
-        : originalGetChainByID(chainId)
-    );
     const route = await determineSwapRoute(
       input,
       makeRouteOptions({
@@ -2298,7 +2295,7 @@ describe('determineSwapRoute', () => {
         ],
         walletPathHints: new Map<number, WalletPath>([
           [ARB_CHAIN, 'safe'],
-          [BASE_CHAIN, 'ephemeral'],
+          [BASE_CHAIN, 'safe'],
         ]),
       })
     );
@@ -2761,11 +2758,18 @@ describe('determineSwapRoute', () => {
       expect(route.destination.inputAmount.min.toString()).toBe('1000');
       // The dst swap machinery is not consulted on Path A (EXACT_IN dst swap = destinationSwapWithExactIn).
       expect(destinationSwapWithExactIn).not.toHaveBeenCalled();
-      // liquidate targets the destination token directly, recipient = EOA, taker = wrapper (ephemeral).
+      // liquidate targets the destination token directly, recipient = EOA, taker = V2 Safe.
       const liqArg = vi.mocked(liquidateInputHoldings).mock.calls[0][0];
       expect(liqArg.outputToken).toEqual({ contractAddress: PEPE });
-      expect(liqArg.recipientAddressByChain.get(ARB_CHAIN)).toBe('0xaaaa');
-      expect(liqArg.userAddressByChain.get(ARB_CHAIN)).toBe(EPHEMERAL_EXECUTOR);
+      expect(liqArg.recipientAddressByChain.get(ARB_CHAIN)).toBe(
+        '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+      );
+      expect(liqArg.userAddressByChain.get(ARB_CHAIN)).toBe(
+        predictSafeAccountAddressV2(
+          '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          EPHEMERAL_EXECUTOR
+        ).address
+      );
     });
 
     it('identity holdings (already the destination token) contribute directly and are not quoted', async () => {
@@ -3657,9 +3661,12 @@ describe('determineSwapRoute', () => {
     };
     vi.mocked(liquidateInputHoldings).mockResolvedValue([makeQuoteResponse()]);
     vi.mocked(destinationSwapWithExactIn).mockResolvedValue(makeQuoteResponse());
+    const eoaAddress = '0xaaaa000000000000000000000000000000000001' as Hex;
+    const safeAddress = predictSafeAccountAddressV2(eoaAddress, EPHEMERAL_EXECUTOR).address;
     const routeOptions = {
       ...makeRouteOptions({
-        eoaAddress: '0xaaaa000000000000000000000000000000000001' as Hex,
+        eoaAddress,
+        safeAddress,
         balances: [{ amount: '1', chainID: ARB_CHAIN, decimals: 18, symbol: 'WETH', tokenAddress: WETH, value: 3000, logo: '', name: 'WETH' }],
       }),
       quoteAddressHints: new Map([[ARB_CHAIN, EPHEMERAL_EXECUTOR]]),
@@ -3667,10 +3674,10 @@ describe('determineSwapRoute', () => {
     await determineSwapRoute(input, routeOptions);
     expect(
       vi.mocked(liquidateInputHoldings).mock.calls[0][0].userAddressByChain?.get(ARB_CHAIN)
-    ).toBe(EPHEMERAL_EXECUTOR);
+    ).toBe(safeAddress);
     expect(vi.mocked(destinationSwapWithExactIn)).toHaveBeenCalledWith(
       expect.objectContaining({
-        options: expect.objectContaining({ userAddress: EPHEMERAL_EXECUTOR }),
+        options: expect.objectContaining({ userAddress: safeAddress }),
       })
     );
   });
@@ -4179,8 +4186,8 @@ describe('determineSwapRoute', () => {
     expect(holding.amountRaw).toBe(999999999999999999999n);
   });
 
-  it('routes bridged source-swap output on non-7702 chains directly to the ephemeral', async () => {
-    // EXACT_IN cross-chain: WETH on ARB (treated non-7702 via 'safe' hint) → USDC on BASE.
+  it('routes bridged source-swap output on Safe V2 chains directly to the ephemeral', async () => {
+    // EXACT_IN cross-chain: WETH on ARB (treated Safe V2 via 'safe' hint) → USDC on BASE.
     // The Safe remains the aggregator taker/executor, but the COT output goes straight to the
     // ephemeral bridge holder so the deposit path does not need a Safe→ephemeral transfer.
     const input: SwapData = {
@@ -4210,11 +4217,14 @@ describe('determineSwapRoute', () => {
         ],
         walletPathHints: new Map<number, WalletPath>([
           [ARB_CHAIN, 'safe'],
-          [BASE_CHAIN, 'ephemeral'],
+          [BASE_CHAIN, 'safe'],
         ]),
       })
     );
-    const safeAddress = predictSafeAccountAddress(EPHEMERAL_EXECUTOR).address;
+    const safeAddress = predictSafeAccountAddressV2(
+      '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      EPHEMERAL_EXECUTOR
+    ).address;
     expect(liquidateInputHoldings).toHaveBeenCalledOnce();
     const callArgs = vi.mocked(liquidateInputHoldings).mock.calls[0][0];
     expect(callArgs.recipientAddressByChain.get(ARB_CHAIN)).toBe(EPHEMERAL_EXECUTOR);
@@ -4303,7 +4313,7 @@ describe('determineSwapRoute', () => {
           symbol: 'USDC',
           name: 'USD Coin',
         }),
-        walletPathHints: new Map([[ARB_CHAIN, 'ephemeral']]),
+        walletPathHints: new Map([[ARB_CHAIN, 'safe']]),
         quoteAddressHints: new Map([[ARB_CHAIN, EPHEMERAL_EXECUTOR]]),
         balances: [
           { amount: '5', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDC', tokenAddress: USDC_ARB, value: 5, logo: '', name: 'USDC' },
@@ -4517,7 +4527,7 @@ describe('determineSwapRoute — bridge provider parity', () => {
           { amount: '2.9', chainID: OP_CHAIN, decimals: 6, symbol: 'USDT', tokenAddress: USDT_OP, value: 2.9, logo: '', name: 'Tether USD' },
           { amount: '2.9', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDT', tokenAddress: USDT_ARB, value: 2.9, logo: '', name: 'Tether USD' },
         ],
-        walletPathHints: new Map([[OP_CHAIN, 'ephemeral'], [ARB_CHAIN, 'ephemeral'], [BASE_CHAIN, 'ephemeral']]),
+        walletPathHints: new Map([[OP_CHAIN, 'safe'], [ARB_CHAIN, 'safe'], [BASE_CHAIN, 'safe']]),
         quoteAddressHints: new Map([[OP_CHAIN, EPHEMERAL_EXECUTOR], [ARB_CHAIN, EPHEMERAL_EXECUTOR], [BASE_CHAIN, EPHEMERAL_EXECUTOR]]),
       })
     );

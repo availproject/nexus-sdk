@@ -146,8 +146,9 @@ swap(params)
      -> swap/route.ts: determineSwapRoute(...)
         -> swap/routing/exact-in.ts | exact-out.ts
      -> createSwapIntent(...)
+     -> start allowance, permit-capability, and Safe-code cache reads
      -> onIntent({ allow, deny, refresh, intent })
-     -> swap/prepare.ts: prepareSwapExecution(...)
+     -> swap/prepare.ts: prepareSwapExecution(...) awaits the accepted route's cache
      -> swap/execution/orchestrator.ts: executeSwapRoute(...)
         -> executeSourceSwaps(...) | executeDirectDestinationExactOut(...)
         -> executeSwapBridge(...) when routed
@@ -168,17 +169,23 @@ unrelated RPC failures.
 Swap execution assumes the user's EOA wallet has one mutable active-chain context. Work that touches
 the EOA wallet must therefore be sequential across chains, including chain switching, wallet
 prompts, permit signatures, direct approvals, and EOA transaction dispatch. Swap internals may still
-parallelize non-EOA work such as route requests, public-client reads, ephemeral SBC construction,
-per-chain SBC submission, and receipt waits. The native-token ephemeral source path has one explicit
-ordering requirement: if the ephemeral account is not delegated, the SDK sends and confirms an
-empty-calls SBC before prompting the EOA to send the payable execute transaction.
+parallelize non-EOA work such as route requests, public-client reads, per-chain Safe deployment,
+sponsored Safe execution, and receipt waits.
+
+Safe V2 is the only swap execution account. The flow derives its address once, then checks bytecode
+on every execution chain as part of the read-only cache warmup while the intent is displayed. After
+intent approval, already deployed Safes skip middleware and absent Safes are ensured concurrently.
+A successful ensure marks the shared cache deployed for that chain. Preparation and execution await
+the chain promise before requesting any permit, direct approval, or EOA transaction, so wallet UIs
+resolve the spender to deployed contract code without repeated Safe bytecode reads. Safe owners are
+the connected EOA and the SDK ephemeral account at threshold 1. Token-only batches are
+sponsor-broadcast; batches carrying native value are wrapped in `Safe.execTransaction` and submitted
+by the EOA.
 
 Bridge funding preparation retries only transient permit-path RPC work, with three total attempts.
-Direct approvals and wallet rejections are terminal. For 7702 Mayan approvals and Nexus deposits, a
-structured middleware SBC result with `errored: true` is known to be unbroadcast, so the SDK may
-submit the same signed SBC again, also up to three total attempts. Transport failures are ambiguous
-and are never replayed. Once middleware returns a transaction hash, the SDK waits for its receipt
-and does not apply this funding retry policy to receipt failures.
+Direct approvals and wallet rejections are terminal. Ambiguous Safe middleware failures are not
+replayed. Once middleware returns a transaction hash, the SDK waits for its receipt and does not
+apply the preparation retry policy to receipt failures.
 
 `base.ts` now assembles explicit flow deps (`chainList`, `timing`, `intentExplorerUrl`, `evm`,
 `middlewareClient`, and swap runtime deps where needed) and delegates to plain flow functions
@@ -216,7 +223,11 @@ Middleware client (`createMiddlewareClient`) validates URLs once and provides:
 - `getRFF(hash)` -> `GET /api/v1/rff/:hash`
 - `submitRFF(payload)` -> `POST /api/v1/rff`
 - `createApprovals(approvals)` -> `POST /api/v2/create-sponsored-approvals`
-- `submitSBCs(sbcTxs)` -> `POST /api/v2/create-sbc-tx`
+- `getSafeAccountAddress(request)` -> `POST /api/v2/get-safe-account-address`
+- `ensureSafeAccount(request)` -> `POST /api/v2/ensure-safe-account`
+- `createSafeExecuteTx(request)` -> `POST /api/v2/create-safe-execute-tx`
+- The initialization refund sweep temporarily uses the corresponding `/api/v1` ensure and execute
+  endpoints only when it finds funds at the derived legacy V1 Safe address.
 - `getQuote(request)` -> `POST /api/v1/quote`
 - `getSwapBalances(address)` -> `GET /api/v1/swap-balance/EVM/:address`
 - `simulateBundleV2(request)` -> `POST /api/v1/gas/bundle-v2`

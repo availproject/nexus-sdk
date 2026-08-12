@@ -9,7 +9,6 @@ import {
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getLogger } from '../../../src/domain';
 import {
-  BackendError,
   ERROR_CODES,
   Errors,
   SimulationError,
@@ -22,7 +21,7 @@ import { EADDRESS } from '../../../src/swap/constants';
 import { DIRECT_DST_QUOTE_TTL_MS } from '../../../src/swap/constants';
 import { executeDirectDestinationExactOut } from '../../../src/swap/execution/direct-destination';
 import { dispatchSourceChainBatch } from '../../../src/swap/execution/source-swaps';
-import { predictSafeAccountAddress } from '../../../src/swap/safe/predict';
+import { predictSafeAccountAddressV2 } from '../../../src/swap/safe/predict';
 import type {
   ExecutionContext,
   PreparedSwapExecution,
@@ -60,6 +59,7 @@ const DAI = '0x0000000000000000000000000000000000000066' as Hex;
 const WETH = '0x0000000000000000000000000000000000000022' as Hex;
 const EOA = '0x0000000000000000000000000000000000000033' as Hex;
 const EXECUTOR = '0x0000000000000000000000000000000000000044' as Hex;
+const SAFE = predictSafeAccountAddressV2(EOA, EXECUTOR).address;
 const ROUTER = '0x0000000000000000000000000000000000000055' as Hex;
 const TX_HASH = '0x1234' as Hex;
 
@@ -154,7 +154,7 @@ const makeRoute = (swaps: QuoteResponse[]): SwapRoute => ({
       toNativeAmountRaw: 10_000_000_000_000_000n,
     },
   },
-  sourceExecutionPaths: new Map([[CHAIN_ID, 'ephemeral']]),
+  sourceExecutionPaths: new Map([[CHAIN_ID, 'safe']]),
 });
 
 const makePreparedExecution = (swaps: QuoteResponse[]): PreparedSwapExecution => ({
@@ -170,7 +170,7 @@ const makePreparedExecution = (swaps: QuoteResponse[]): PreparedSwapExecution =>
 const makeContext = (preparedExecution: PreparedSwapExecution, allowance = 0n) =>
   ({
     chainList: {
-      getChainByID: vi.fn().mockReturnValue({ id: CHAIN_ID, name: 'Base', supports7702: true }),
+      getChainByID: vi.fn().mockReturnValue({ id: CHAIN_ID, name: 'Base' }),
     },
     publicClientList: {
       get: vi.fn().mockReturnValue({
@@ -186,12 +186,13 @@ const makeContext = (preparedExecution: PreparedSwapExecution, allowance = 0n) =
     eoaAddress: EOA,
     ephemeralWallet: { address: EXECUTOR } as PrivateKeyAccount,
     intentExplorerUrl: '',
-    sourceExecutionPaths: new Map([[CHAIN_ID, 'ephemeral']]),
+    sourceExecutionPaths: new Map([[CHAIN_ID, 'safe']]),
+    safeAddress: SAFE,
+    safeDeploymentPromises: new Map([[CHAIN_ID, Promise.resolve({})]]),
     destinationDirectEoa: true,
     cache: {
       getAllowance: vi.fn().mockReturnValue(allowance),
       getPermit: vi.fn(),
-      hasAuthCodeSet: vi.fn().mockReturnValue(false),
     },
     preparedExecution,
     onProgress: vi.fn(),
@@ -212,13 +213,13 @@ const mockRevertThenSuccess = (requoted: QuoteResponse[]) => {
   vi.mocked(dispatchSourceChainBatch)
     .mockResolvedValueOnce({
       chainId: CHAIN_ID,
-      walletPath: 'ephemeral',
+      walletPath: 'safe',
       submittedTxHash: revertedHash,
       waitForReceipt: vi.fn().mockRejectedValue(Errors.transactionReverted(revertedHash)),
     })
     .mockResolvedValueOnce({
       chainId: CHAIN_ID,
-      walletPath: 'ephemeral',
+      walletPath: 'safe',
       submittedTxHash: TX_HASH,
       waitForReceipt: vi.fn().mockResolvedValue(TX_HASH),
     });
@@ -234,7 +235,7 @@ describe('executeDirectDestinationExactOut', () => {
     });
     vi.mocked(dispatchSourceChainBatch).mockResolvedValue({
       chainId: CHAIN_ID,
-      walletPath: 'ephemeral',
+      walletPath: 'safe',
       submittedTxHash: TX_HASH,
       waitForReceipt: vi.fn().mockResolvedValue(TX_HASH),
     });
@@ -275,7 +276,7 @@ describe('executeDirectDestinationExactOut', () => {
 
     expect(buildTransferAuthorization).toHaveBeenCalledTimes(1);
     expect(buildTransferAuthorization).toHaveBeenCalledWith(
-      expect.objectContaining({ amount: 525_000_000n, ephemeralAddress: EXECUTOR })
+      expect.objectContaining({ amount: 525_000_000n, ephemeralAddress: SAFE })
     );
     const calls = vi.mocked(dispatchSourceChainBatch).mock.calls[0][0].calls;
     expect(calls.map((call) => call.data)).toEqual([
@@ -288,7 +289,7 @@ describe('executeDirectDestinationExactOut', () => {
     ]);
     const transfer = decodeFunctionData({ abi: erc20Abi, data: calls[1].data });
     expect(transfer.functionName).toBe('transferFrom');
-    expect(transfer.args).toEqual([EOA, EXECUTOR, 525_000_000n]);
+    expect(transfer.args).toEqual([EOA, SAFE, 525_000_000n]);
     expect(metadata.src).toEqual([
       expect.objectContaining({ chid: CHAIN_ID, tx_hash: TX_HASH, swaps: expect.any(Array) }),
     ]);
@@ -475,7 +476,7 @@ describe('executeDirectDestinationExactOut', () => {
     expect(sizeDirectDestinationExactOut).not.toHaveBeenCalled();
   });
 
-  it('requotes and retries a native wallet submission failure without a hash', async () => {
+  it('does not retry an ambiguous native wallet submission failure', async () => {
     const nativeSwap = makeSwap(
       100_000_000_000_000_000n,
       WETH,
@@ -489,24 +490,20 @@ describe('executeDirectDestinationExactOut', () => {
     nativeSwap.quote.input.contractAddress = EADDRESS;
     nativeSwap.quote.input.decimals = 18;
     nativeSwap.quote.input.symbol = 'ETH';
-    vi.mocked(sizeDirectDestinationExactOut).mockResolvedValueOnce([nativeSwap]);
-    vi.mocked(dispatchSourceChainBatch)
-      .mockRejectedValueOnce(new Error('wallet submission failed before returning a hash'))
-      .mockResolvedValueOnce({
-        chainId: CHAIN_ID,
-        walletPath: 'ephemeral',
-        submittedTxHash: TX_HASH,
-        waitForReceipt: vi.fn().mockResolvedValue(TX_HASH),
-      });
-
-    await executeDirectDestinationExactOut(
-      makeRoute([nativeSwap]),
-      makeContext(makePreparedExecution([nativeSwap])),
-      makeMetadata()
+    vi.mocked(dispatchSourceChainBatch).mockRejectedValueOnce(
+      new Error('wallet submission failed before returning a hash')
     );
 
-    expect(sizeDirectDestinationExactOut).toHaveBeenCalledTimes(1);
-    expect(dispatchSourceChainBatch).toHaveBeenCalledTimes(2);
+    await expect(
+      executeDirectDestinationExactOut(
+        makeRoute([nativeSwap]),
+        makeContext(makePreparedExecution([nativeSwap])),
+        makeMetadata()
+      )
+    ).rejects.toThrow('wallet submission failed before returning a hash');
+
+    expect(sizeDirectDestinationExactOut).not.toHaveBeenCalled();
+    expect(dispatchSourceChainBatch).toHaveBeenCalledTimes(1);
   });
 
   it('requotes after a pre-submit native simulation failure', async () => {
@@ -534,7 +531,7 @@ describe('executeDirectDestinationExactOut', () => {
       )
       .mockResolvedValueOnce({
         chainId: CHAIN_ID,
-        walletPath: 'ephemeral',
+        walletPath: 'safe',
         submittedTxHash: TX_HASH,
         waitForReceipt: vi.fn().mockResolvedValue(TX_HASH),
       });
@@ -568,7 +565,7 @@ describe('executeDirectDestinationExactOut', () => {
         holdings: route.extras.directDestination?.dstHoldings,
         tokenTargetRaw: 200_000_000_000_000_000n,
         gasTargetRaw: 10_000_000_000_000_000n,
-        userAddressByChain: new Map([[CHAIN_ID, EXECUTOR]]),
+        userAddressByChain: new Map([[CHAIN_ID, SAFE]]),
         recipientAddressByChain: new Map([[CHAIN_ID, EOA]]),
       })
     );
@@ -609,7 +606,7 @@ describe('executeDirectDestinationExactOut', () => {
     const ctx = makeContext(makePreparedExecution([swap]));
     vi.mocked(dispatchSourceChainBatch).mockResolvedValueOnce({
       chainId: CHAIN_ID,
-      walletPath: 'ephemeral',
+      walletPath: 'safe',
       submittedTxHash: TX_HASH,
       submittedExplorerUrl: 'https://explorer.example/tx/0x1234',
       waitForReceipt: vi
@@ -639,7 +636,7 @@ describe('executeDirectDestinationExactOut', () => {
     const swap = makeSwap(500_000_000n, WETH, 200_000_000_000_000_000n, 'token');
     vi.mocked(dispatchSourceChainBatch).mockResolvedValueOnce({
       chainId: CHAIN_ID,
-      walletPath: 'ephemeral',
+      walletPath: 'safe',
       submittedTxHash: TX_HASH,
       waitForReceipt: vi.fn().mockRejectedValue(new Error('RPC disconnected')),
     });
@@ -667,7 +664,7 @@ describe('executeDirectDestinationExactOut', () => {
     const ctx = makeContext(makePreparedExecution([swap]));
     const failedBatch = (txHash: Hex) => ({
       chainId: CHAIN_ID,
-      walletPath: 'ephemeral' as const,
+      walletPath: 'safe' as const,
       submittedTxHash: txHash,
       waitForReceipt: vi.fn().mockRejectedValue(Errors.transactionReverted(txHash)),
     });
@@ -702,7 +699,7 @@ describe('executeDirectDestinationExactOut', () => {
     const revertedHash = '0xdead' as Hex;
     vi.mocked(dispatchSourceChainBatch).mockResolvedValueOnce({
       chainId: CHAIN_ID,
-      walletPath: 'ephemeral',
+      walletPath: 'safe',
       submittedTxHash: revertedHash,
       waitForReceipt: vi.fn().mockRejectedValue(Errors.transactionReverted(revertedHash)),
     });
@@ -721,13 +718,13 @@ describe('executeDirectDestinationExactOut', () => {
     expect(sizeDirectDestinationExactOut).toHaveBeenCalledTimes(1);
   });
 
-  it('funds the predicted Safe on a non-7702 execution path', async () => {
+  it('funds the predicted Safe on a Safe V2 execution path', async () => {
     const swap = makeSwap(500_000_000n, WETH, 200_000_000_000_000_000n, 'token');
     const route = makeRoute([swap]);
     route.sourceExecutionPaths.set(CHAIN_ID, 'safe');
     const ctx = makeContext(makePreparedExecution([swap]));
     ctx.sourceExecutionPaths.set(CHAIN_ID, 'safe');
-    const safe = predictSafeAccountAddress(EXECUTOR).address;
+    const safe = predictSafeAccountAddressV2(EOA, EXECUTOR).address;
 
     await executeDirectDestinationExactOut(route, ctx, makeMetadata());
 
@@ -849,13 +846,13 @@ describe('executeDirectDestinationExactOut', () => {
     vi.mocked(dispatchSourceChainBatch)
       .mockResolvedValueOnce({
         chainId: CHAIN_ID,
-        walletPath: 'ephemeral',
+        walletPath: 'safe',
         submittedTxHash: '0x01',
         waitForReceipt: vi.fn().mockRejectedValue(Errors.transactionReverted('0x01')),
       })
       .mockResolvedValueOnce({
         chainId: CHAIN_ID,
-        walletPath: 'ephemeral',
+        walletPath: 'safe',
         submittedTxHash: '0x02',
         waitForReceipt: vi.fn().mockRejectedValue(Errors.transactionReverted('0x02')),
       });
@@ -943,31 +940,21 @@ describe('executeDirectDestinationExactOut', () => {
     expect(dispatchSourceChainBatch).not.toHaveBeenCalled();
   });
 
-  it('requotes and retries an explicit middleware no-broadcast failure', async () => {
+  it('does not retry an ambiguous Safe middleware failure', async () => {
     const swap = makeSwap(500_000_000n, WETH, 200_000_000_000_000_000n, 'token');
-    vi.mocked(sizeDirectDestinationExactOut).mockResolvedValueOnce([swap]);
-    vi.mocked(dispatchSourceChainBatch)
-      .mockRejectedValueOnce(
-        new BackendError(
-          ERROR_CODES.BACKEND_SBC_SUBMIT_FAILED,
-          'middleware rejected the unbroadcast batch',
-          { context: { service: 'middleware', chainId: CHAIN_ID } }
-        )
-      )
-      .mockResolvedValueOnce({
-        chainId: CHAIN_ID,
-        walletPath: 'ephemeral',
-        submittedTxHash: TX_HASH,
-        waitForReceipt: vi.fn().mockResolvedValue(TX_HASH),
-      });
-
-    await executeDirectDestinationExactOut(
-      makeRoute([swap]),
-      makeContext(makePreparedExecution([swap])),
-      makeMetadata()
+    vi.mocked(dispatchSourceChainBatch).mockRejectedValueOnce(
+      new Error('Safe submission outcome is unknown')
     );
 
-    expect(sizeDirectDestinationExactOut).toHaveBeenCalledTimes(1);
-    expect(dispatchSourceChainBatch).toHaveBeenCalledTimes(2);
+    await expect(
+      executeDirectDestinationExactOut(
+        makeRoute([swap]),
+        makeContext(makePreparedExecution([swap])),
+        makeMetadata()
+      )
+    ).rejects.toThrow('Safe submission outcome is unknown');
+
+    expect(sizeDirectDestinationExactOut).not.toHaveBeenCalled();
+    expect(dispatchSourceChainBatch).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,8 +1,9 @@
 import type { Hex, PublicClient, WalletClient } from 'viem';
 import { type Chain, getLogger } from '../../domain';
 import { confirmStepReceipt, switchChain } from '../../services/evm';
-import type { SBCCall } from '../../services/sbc';
+import type { SafeCall } from '../../services/safe';
 import { createEoaToEphemeralTransferStepId } from '../../services/step-ids';
+import type { EnsureSafeAccountV2Response } from '../safe/types';
 import type { PreparedEoaToEphemeralTransfer } from '../types';
 import type { SwapCache } from '../wallet/cache';
 import {
@@ -23,6 +24,7 @@ type ResolvePreparedFundingTransferCallsInput = {
     'getTransactionReceipt' | 'waitForTransactionReceipt' | 'readContract'
   >;
   cache?: Pick<SwapCache, 'getAllowance'> & Partial<Pick<SwapCache, 'setAllowance'>>;
+  safeDeploymentPromise: Promise<EnsureSafeAccountV2Response>;
 };
 
 const ensureDirectApproval = async (
@@ -56,7 +58,7 @@ const ensureDirectApproval = async (
       tokenAddress: input.transfer.tokenAddress,
       amount: input.transfer.amount,
       eoaAddress: input.eoaAddress,
-      // Executor (Safe on non-7702, ephemeral on 7702) is the approved spender.
+      // The Safe is the approved spender.
       ephemeralAddress: input.transfer.targetAddress,
       chain: input.chain,
     })
@@ -87,8 +89,10 @@ const ensureDirectApproval = async (
 
 export const resolvePreparedFundingTransferCalls = async (
   input: ResolvePreparedFundingTransferCallsInput
-): Promise<SBCCall[]> => {
-  const calls: SBCCall[] = [];
+): Promise<SafeCall[]> => {
+  await input.safeDeploymentPromise;
+
+  const calls: SafeCall[] = [];
   const authorizationKind = input.transfer.authorization?.kind ?? 'none';
 
   logger.debug('swap.execute.funding.calls_started', {
@@ -98,7 +102,8 @@ export const resolvePreparedFundingTransferCalls = async (
     amountRaw: input.transfer.amount.toString(),
   });
 
-  if (input.transfer.authorization?.kind === 'permit') {
+  const authorization = input.transfer.authorization;
+  if (authorization?.kind === 'permit') {
     logger.debug('swap.execute.funding.permit_started', {
       chainId: input.chain.id,
       tokenAddress: input.transfer.tokenAddress,
@@ -106,13 +111,13 @@ export const resolvePreparedFundingTransferCalls = async (
     });
     const permitCall = await materializePermitAuthorizationCall({
       chain: input.chain,
-      authorization: input.transfer.authorization,
+      authorization,
       tokenAddress: input.transfer.tokenAddress,
       tokenDecimals: input.tokenDecimals,
       amount: input.transfer.amount,
       eoaAddress: input.eoaAddress,
       eoaWallet: input.eoaWallet,
-      // Executor (Safe on non-7702, ephemeral on 7702) is the permit spender.
+      // The Safe is the permit spender.
       ephemeralAddress: input.transfer.targetAddress,
       publicClient: input.publicClient as PublicClient,
     });

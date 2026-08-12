@@ -1,9 +1,7 @@
 import type { Hex } from 'viem';
 import type { ChainListType } from '../../domain';
 import type { RouteOptions } from '../route';
-import { predictSafeAccountAddress } from '../safe/predict';
 import type { WalletPath } from '../types';
-import { chainSupports7702, resolveWalletPath } from '../wallet/capabilities';
 
 export type WalletDecision = {
   sourceExecutionPaths: Map<number, WalletPath>;
@@ -13,21 +11,15 @@ export function resolveWalletDecisions(input: {
   sourceChainIds: Iterable<number>;
   walletPathHints: Map<number, WalletPath>;
 }): WalletDecision {
-  const chainIds = [...new Set(input.sourceChainIds)];
-  const sourceExecutionPaths = new Map<number, WalletPath>();
-  for (const chainId of chainIds) {
-    // Preflight populates hints from each chain's 7702 support — 'ephemeral' for 7702 (Calibur
-    // SBC), 'safe' for non-7702. Default to 'ephemeral' for any chain the preflight didn't
-    // include, mirroring the chainSupports7702 default.
-    sourceExecutionPaths.set(chainId, input.walletPathHints.get(chainId) ?? 'ephemeral');
-  }
-  return { sourceExecutionPaths };
+  return {
+    sourceExecutionPaths: new Map(
+      [...new Set(input.sourceChainIds)].map((chainId) => [chainId, 'safe'] as const)
+    ),
+  };
 }
 
-function resolveWalletAddress(walletPath: WalletPath, options: RouteOptions): Hex {
-  return walletPath === 'safe'
-    ? predictSafeAccountAddress(options.ephemeralAddress).address
-    : options.ephemeralAddress;
+function resolveWalletAddress(options: RouteOptions): Hex {
+  return options.safeAddress;
 }
 
 export function buildExecutorAddressByChain(
@@ -35,10 +27,7 @@ export function buildExecutorAddressByChain(
   options: RouteOptions
 ): Map<number, Hex> {
   return new Map(
-    [...sourceExecutionPaths.entries()].map(([chainId, walletPath]) => [
-      chainId,
-      resolveWalletAddress(walletPath, options),
-    ])
+    [...sourceExecutionPaths.keys()].map((chainId) => [chainId, resolveWalletAddress(options)])
   );
 }
 
@@ -58,25 +47,20 @@ export function buildSourceRecipientAddressByChain(input: {
       if (chainId === input.destinationChainId && !input.destinationHasSwap) {
         return [chainId, input.options.eoaAddress];
       }
-      const path = input.sourceExecutionPaths.get(chainId);
-      if (!path) {
-        return [chainId, input.options.ephemeralAddress];
-      }
       if (chainId !== input.destinationChainId) {
         return [chainId, input.options.ephemeralAddress];
       }
-      return [chainId, resolveWalletAddress(path, input.options)];
+      return [chainId, resolveWalletAddress(input.options)];
     })
   );
 }
 
-// Destination quote taker — the on-chain executor of the dst aggregator swap. For 7702 chains
-// it's the Calibur-delegated ephemeral; for non-7702 it's the predicted Safe wrapper.
+// Destination quote taker — the on-chain executor of the destination aggregator swap.
 export function destinationWrapperAddress(
-  destinationChain: ReturnType<ChainListType['getChainByID']>,
+  _destinationChain: ReturnType<ChainListType['getChainByID']>,
   options: RouteOptions
 ): Hex {
-  return resolveWalletAddress(resolveWalletPath(chainSupports7702(destinationChain)), options);
+  return resolveWalletAddress(options);
 }
 
 // Convert the user's requested native amount into a COT budget for the destination gas swap.

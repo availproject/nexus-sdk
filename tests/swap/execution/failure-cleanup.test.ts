@@ -2,11 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { decodeFunctionData, erc20Abi, type Hex } from 'viem';
 import { ERC20PermitABI } from '../../../src/abi/erc20';
 import { CurrencyID } from '../../../src/swap/cot';
-import { predictSafeAccountAddress } from '../../../src/swap/safe/predict';
-
-vi.mock('../../../src/swap/wallet/capabilities', () => ({
-  chainSupports7702: (chain: { id: number }) => chain.id === 42161,
-}));
+import { predictSafeAccountAddressV2 } from '../../../src/swap/safe/predict';
 
 vi.mock('../../../src/services/init-refund-sweep', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/services/init-refund-sweep')>()),
@@ -19,11 +15,12 @@ import {
 } from '../../../src/swap/execution/failure-cleanup';
 import { dispatchSweepGroups } from '../../../src/services/init-refund-sweep';
 
-const ARB = 42161; // 7702 → ephemeral holder
-const OP = 10; // non-7702
+const ARB = 42161;
+const OP = 10;
 const USDC = '0xaf88d065e77c8cc2239327c5edb3a432268e5831' as Hex;
 const EPH = '0xbbbb000000000000000000000000000000000002' as Hex;
 const EOA = '0xaaaa000000000000000000000000000000000001' as Hex;
+const SAFE = predictSafeAccountAddressV2(EOA, EPH).address;
 
 const makeCtx = (
   balance: bigint,
@@ -52,6 +49,8 @@ const makeCtx = (
       }),
     },
     eoaAddress: EOA,
+    safeAddress: SAFE,
+    safeDeploymentPromises: new Map(),
     destinationChainId: destination.chainId,
     destinationDirectEoa: destination.directEoa,
     ephemeralWallet: {
@@ -72,7 +71,7 @@ const makeCtx = (
 describe('cleanupStrandedCot', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('reads only the COT at the chain holder and dispatches a direct-transfer group when positive', async () => {
+  it('pulls remote COT from the ephemeral bridge holder through the Safe', async () => {
     await cleanupStrandedCot({
       currencyId: CurrencyID.USDC,
       chainIds: [ARB],
@@ -83,12 +82,11 @@ describe('cleanupStrandedCot', () => {
     const groups = vi.mocked(dispatchSweepGroups).mock.calls[0]![0];
     expect(groups).toHaveLength(1);
     expect(groups[0]!.chainId).toBe(ARB);
-    expect(groups[0]!.holder).toBe('ephemeral'); // 7702 chain → ephemeral, never the Safe
-    expect(groups[0]!.calls).toHaveLength(1);
-    expect(groups[0]!.calls[0]!.to).toBe(USDC); // ERC-20 transfer call targets the COT token
+    expect(groups[0]!.holder).toBe('safe');
+    expect(groups[0]!.calls).toHaveLength(2);
   });
 
-  it('reads non-7702 source settlement at the ephemeral bridge holder', async () => {
+  it('reads Safe V2 source settlement at the ephemeral bridge holder', async () => {
     const readContract = vi.fn().mockImplementation(({ functionName }: { functionName: string }) => {
       if (functionName === 'balanceOf') return 5_000_000n;
       if (functionName === 'name') return 'USD Coin';
@@ -135,9 +133,8 @@ describe('cleanupStrandedCot', () => {
       ctx,
     });
 
-    const safeAddress = predictSafeAccountAddress(EPH).address;
     expect(readContract).toHaveBeenCalledWith(
-      expect.objectContaining({ functionName: 'balanceOf', args: [safeAddress] })
+      expect.objectContaining({ functionName: 'balanceOf', args: [SAFE] })
     );
     const groups = vi.mocked(dispatchSweepGroups).mock.calls[0]![0];
     expect(groups[0]!.holder).toBe('safe');

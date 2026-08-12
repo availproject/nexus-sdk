@@ -7,7 +7,6 @@ import { describe, expect, it, vi } from 'vitest';
 import Decimal from 'decimal.js';
 import {
   decodeFunctionData,
-  parseAbi,
   type Hex,
   type PrivateKeyAccount,
   type WalletClient,
@@ -22,22 +21,24 @@ import type {
   WalletPath,
 } from '../../../src/swap/types';
 import { EADDRESS } from '../../../src/swap/constants';
+import { safeExecTransactionAbi } from '../../../src/swap/safe/abis';
+import { predictSafeAccountAddressV2 } from '../../../src/swap/safe/predict';
 import { quoteFixture } from '../../helpers/quote';
 
 const ARB_CHAIN = 42161;
 const USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913' as Hex;
 const BEBOP = '0xbeb0b0623f66be8ce162ebdfa2ec543a522f4ea6' as Hex; // settlement addr — CONSTANT across requotes
 const NATIVE_IN = 15000000000000000n; // 0.015 ETH — FIXED for EXACT_IN
+const EOA = '0xaaaa000000000000000000000000000000000001' as Hex;
+const EPH = '0xbbbb000000000000000000000000000000000002' as Hex;
+const SAFE = predictSafeAccountAddressV2(EOA, EPH).address;
 
 const innerData = (data: Hex) => {
   const decoded = decodeFunctionData({
-    abi: parseAbi([
-      'function execute((((address to,uint256 value,bytes data)[] calls,bool revertOnFailure) batchedCall,uint256 nonce,bytes32 keyHash,address executor,uint256 deadline) signedBatchedCall,bytes wrappedSignature)',
-    ]),
+    abi: safeExecTransactionAbi,
     data,
   });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (decoded.args?.[0] as any).batchedCall.calls[0].data as Hex;
+  return decoded.args?.[2] as Hex;
 };
 
 // original + requote share (chainId, to=BEBOP, inputToken=EADDRESS, inputAmount) — all invariant
@@ -68,12 +69,11 @@ const makeCtx = (opts: {
   const sendTransaction = vi.fn().mockResolvedValue('0xnative_tx' as Hex);
   const ctx = {
     chainList: { getChainByID: vi.fn().mockReturnValue({ id: ARB_CHAIN, name: 'Arbitrum' }) },
-    sourceExecutionPaths: new Map<number, WalletPath>([[ARB_CHAIN, 'ephemeral']]),
-    eoaAddress: '0xaaaa000000000000000000000000000000000001' as Hex,
+    sourceExecutionPaths: new Map<number, WalletPath>([[ARB_CHAIN, 'safe']]),
+    eoaAddress: EOA,
     ephemeralWallet: {
-      address: '0xbbbb000000000000000000000000000000000002' as Hex,
-      signTypedData: vi.fn().mockResolvedValue(('0x' + 'aa'.repeat(65)) as Hex),
-      signAuthorization: vi.fn().mockResolvedValue({ r: '0x01', s: '0x02', yParity: 0, nonce: 0 }),
+      address: EPH,
+      signTypedData: vi.fn().mockResolvedValue(('0x' + 'aa'.repeat(64) + '1b') as Hex),
     } as unknown as PrivateKeyAccount,
     eoaWallet: {
       getChainId: vi.fn().mockResolvedValue(ARB_CHAIN),
@@ -84,11 +84,15 @@ const makeCtx = (opts: {
     publicClientList: {
       get: vi.fn().mockReturnValue({
         call: vi.fn().mockResolvedValue({ data: '0x' }),
+        getCode: vi.fn().mockResolvedValue('0x01'),
+        readContract: vi.fn().mockResolvedValue(0n),
         waitForTransactionReceipt,
       }),
     },
     middlewareClient: {} as ExecutionContext['middlewareClient'],
-    cache: { hasAuthCodeSet: vi.fn().mockReturnValue(true), markAuthCodeSet: vi.fn() },
+    safeAddress: SAFE,
+    safeDeploymentPromises: new Map([[ARB_CHAIN, Promise.resolve({})]]),
+    cache: undefined,
     preparedExecution: opts.preparedExecution,
     onProgress: vi.fn(),
     slippage: 0.005,

@@ -96,6 +96,24 @@ describe('confirmStepReceipt', () => {
     await confirmStepReceipt(makeClient('success', capture), TX, 42161, step);
     expect(confirmations).toBe(1);
   });
+
+  it('keeps confirmation count separate from the receipt timeout', async () => {
+    const waitForTransactionReceipt = vi.fn().mockResolvedValue({ status: 'success' });
+
+    await confirmStepReceipt(
+      { waitForTransactionReceipt } as never,
+      TX,
+      42161,
+      step,
+      { confirmations: 2 }
+    );
+
+    expect(waitForTransactionReceipt).toHaveBeenCalledWith({
+      confirmations: 2,
+      hash: TX,
+      timeout: 180_000,
+    });
+  });
 });
 
 describe('waitForTxReceipt', () => {
@@ -123,6 +141,22 @@ describe('waitForTxReceipt', () => {
       timeout: 180_000,
     });
     expect(getTransactionReceipt).toHaveBeenCalledWith({ hash: TX });
+  });
+
+  it('accepts named confirmation and timeout options', async () => {
+    const waitForTransactionReceipt = vi.fn().mockResolvedValue({ status: 'success' });
+
+    await waitForTxReceipt(
+      TX,
+      { waitForTransactionReceipt } as never,
+      { confirmations: 2, timeout: 4_000 }
+    );
+
+    expect(waitForTransactionReceipt).toHaveBeenCalledWith({
+      confirmations: 2,
+      hash: TX,
+      timeout: 4_000,
+    });
   });
 });
 

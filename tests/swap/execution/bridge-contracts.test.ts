@@ -1,25 +1,7 @@
 import Decimal from 'decimal.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { encodeFunctionData, erc20Abi, type Hex } from 'viem';
+import { decodeFunctionData, encodeFunctionData, erc20Abi, type Hex } from 'viem';
 import type { PrivateKeyAccount } from 'viem/accounts';
-
-vi.mock('../../../src/services/sbc', () => ({
-  createSBCTxFromCalls: vi.fn(),
-  createCaliburExecuteTxFromCalls: vi.fn(),
-  requireSuccessfulSbcResult: vi.fn(
-    (
-      results: Array<
-        | { chainId: number; errored: false; txHash: Hex }
-        | { chainId: number; errored: true; message: string }
-      >,
-      chainId: number
-    ) => {
-      const result = results.find((entry) => entry.chainId === chainId);
-      if (!result || result.errored) throw new Error(result?.message ?? 'submission failed');
-      return result.txHash;
-    }
-  ),
-}));
 
 vi.mock('../../../src/bridge/executor', () => ({
   submitRFFToMiddleware: vi.fn().mockResolvedValue('0xrequest'),
@@ -46,12 +28,9 @@ vi.mock('../../../src/swap/execution/safe-dispatch', () => ({
   dispatchSafeSource: vi.fn(),
 }));
 
-import { Errors } from '../../../src/domain/errors';
+import { ERROR_CODES, Errors } from '../../../src/domain/errors';
+import { PermitVariant } from '../../../src/domain/permits';
 import { createRequestFromIntent } from '../../../src/services/rff';
-import {
-  createCaliburExecuteTxFromCalls,
-  createSBCTxFromCalls,
-} from '../../../src/services/sbc';
 import { signPermitForAddressAndValue } from '../../../src/services/allowance-utils';
 import { executeSwapBridge } from '../../../src/swap/execution/bridge';
 import { dispatchSafeSource } from '../../../src/swap/execution/safe-dispatch';
@@ -63,6 +42,7 @@ import type {
   SwapRoute,
 } from '../../../src/swap/types';
 import { makeSwapExecutionMiddlewareClient } from '../../helpers/middleware-client';
+import { decodeSafeRequest } from '../../helpers/swap-characterization';
 
 const ARB_CHAIN = 42161;
 const BASE_CHAIN = 8453;
@@ -71,8 +51,13 @@ const USDC_BASE = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913' as Hex;
 const NATIVE = '0x0000000000000000000000000000000000000000' as Hex;
 const EOA = '0xaaaa000000000000000000000000000000000001' as Hex;
 const EPH = '0xbbbb000000000000000000000000000000000002' as Hex;
+const VAULT = '0x9999999999999999999999999999999999999999' as Hex;
+const CALIBUR = '0xcccc000000000000000000000000000000000003' as Hex;
+const OTHER_CALIBUR = '0xdddd000000000000000000000000000000000004' as Hex;
 const TX_HASH =
   '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as Hex;
+const APPROVAL_TX_HASH =
+  '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' as Hex;
 
 const makeAsset = (
   overrides: Partial<BridgeAsset> = {}
@@ -148,33 +133,64 @@ const lazyPermit = () =>
 const makeContext = (
   overrides: {
     preparedExecution?: PreparedSwapExecution;
+    permitVariant?: PermitVariant;
+    swapSupported?: boolean;
     supports7702?: boolean;
+    caliburAddress?: Hex;
+    ephemeralCode?: Hex;
+    readAllowance?: () => Promise<bigint>;
+    waitForTransactionReceipt?: ReturnType<typeof vi.fn>;
   } = {}
 ) => {
-  const readContract = vi.fn().mockResolvedValue(0n);
+  const readAllowance = overrides.readAllowance ?? vi.fn().mockResolvedValue(0n);
+  const readContract = vi.fn().mockImplementation(({ functionName }) => {
+    if (functionName === 'allowance') return readAllowance();
+    if (functionName === 'name') return 'USD Coin';
+    return 0n;
+  });
+  const createSafeExecuteTx = vi.fn().mockResolvedValue({
+    chainId: ARB_CHAIN,
+    safeAddress: EPH,
+    txHash: TX_HASH,
+  });
   const submitSBCs = vi.fn().mockResolvedValue([
     {
       chainId: ARB_CHAIN,
       address: EPH,
-      errored: false as const,
-      txHash: TX_HASH,
+      errored: false,
+      txHash: APPROVAL_TX_HASH,
     },
   ]);
+  const signAuthorization = vi.fn().mockResolvedValue({
+    address: CALIBUR,
+    chainId: ARB_CHAIN,
+    nonce: 7,
+    r: `0x${'22'.repeat(32)}`,
+    s: `0x${'33'.repeat(32)}`,
+    yParity: 1,
+  });
+  const waitForTransactionReceipt =
+    overrides.waitForTransactionReceipt ??
+    vi.fn().mockResolvedValue({
+      status: 'success',
+      transactionHash: APPROVAL_TX_HASH,
+    });
   const context = {
     chainList: {
       getChainByID: vi.fn().mockImplementation((chainId: number) => ({
         id: chainId,
         name: chainId === ARB_CHAIN ? 'Arbitrum' : 'Base',
-        supports7702:
-          chainId === ARB_CHAIN ? (overrides.supports7702 ?? true) : true,
         rpcUrls: { default: { http: ['https://rpc.example'] } },
         nativeCurrency: { decimals: 18, symbol: 'ETH', name: 'Ether' },
         blockExplorers: { default: { url: 'https://explorer.example' } },
         custom: { icon: '' },
+        swapSupported: overrides.swapSupported ?? true,
+        supports7702: overrides.supports7702 ?? true,
+        caliburAddress: overrides.caliburAddress ?? CALIBUR,
       })),
       getVaultContractAddress: vi
         .fn()
-        .mockReturnValue('0x9999999999999999999999999999999999999999'),
+        .mockReturnValue(VAULT),
       getNativeToken: vi.fn().mockReturnValue({
         contractAddress: NATIVE,
         decimals: 18,
@@ -188,7 +204,7 @@ const makeContext = (
         symbol: address === NATIVE ? 'ETH' : 'USDC',
         name: address === NATIVE ? 'Ether' : 'USD Coin',
         logo: '',
-        permitVariant: 1,
+        permitVariant: overrides.permitVariant ?? PermitVariant.EIP2612Canonical,
         permitVersion: 2,
       })),
     },
@@ -202,21 +218,28 @@ const makeContext = (
     },
     ephemeralWallet: {
       address: EPH,
-      signTypedData: vi.fn().mockResolvedValue(`0x${'11'.repeat(65)}`),
-      signAuthorization: vi.fn(),
+      signTypedData: vi.fn().mockResolvedValue(`0x${'11'.repeat(64)}1b`),
+      signAuthorization,
     } as unknown as PrivateKeyAccount,
     publicClientList: {
       get: vi.fn().mockReturnValue({
-        getCode: vi.fn().mockResolvedValue(undefined),
+        getCode: vi.fn().mockImplementation(({ address }) =>
+          address.toLowerCase() === EPH.toLowerCase()
+            ? Promise.resolve(overrides.ephemeralCode)
+            : Promise.resolve(undefined)
+        ),
+        getTransactionCount: vi.fn().mockResolvedValue(7),
         readContract,
-        waitForTransactionReceipt: vi.fn().mockResolvedValue({
-          status: 'success',
-          transactionHash: TX_HASH,
-        }),
+        waitForTransactionReceipt,
       }),
     },
-    middlewareClient: makeSwapExecutionMiddlewareClient({ submitSBCs }),
+    middlewareClient: {
+      ...makeSwapExecutionMiddlewareClient({ createSafeExecuteTx }),
+      submitSBCs,
+    },
     cache: undefined,
+    safeAddress: EPH,
+    safeDeploymentPromises: new Map([[ARB_CHAIN, Promise.resolve({})]]),
     intentExplorerUrl: 'https://intent.example',
     onProgress: vi.fn(),
     preparedExecution: overrides.preparedExecution,
@@ -234,10 +257,33 @@ const makeContext = (
     | 'onProgress'
     | 'preparedExecution'
     | 'publicClientList'
+    | 'safeAddress'
+    | 'safeDeploymentPromises'
     | 'timing'
   >;
-  return { context, readContract, submitSBCs };
+  return {
+    context,
+    createSafeExecuteTx,
+    readAllowance,
+    readContract,
+    signAuthorization,
+    submitSBCs,
+    waitForTransactionReceipt,
+  };
 };
+
+const deferred = <T>() => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+};
+
+const safeCallNames = (createSafeExecuteTx: ReturnType<typeof vi.fn>) =>
+  createSafeExecuteTx.mock.calls.flatMap(([request]) =>
+    decodeSafeRequest(request).map((call) => call.fn)
+  );
 
 const metadata = (): SwapMetadata => ({
   src: [],
@@ -280,18 +326,12 @@ describe('executeSwapBridge contracts', () => {
     vi.clearAllMocks();
     setDepositRequest();
     vi.mocked(signPermitForAddressAndValue).mockResolvedValue(
-      `0x${'11'.repeat(65)}`
+      `0x${'11'.repeat(64)}1b`
     );
-    vi.mocked(createSBCTxFromCalls).mockResolvedValue({
-      chainId: ARB_CHAIN,
-      address: EPH,
-      calls: [],
-      deadline: '0x01',
-      keyHash: '0x00',
-      nonce: '0x01',
-      revertOnFailure: true,
-      signature: '0x1234',
-    } as never);
+    vi.mocked(dispatchSafeSource).mockResolvedValue({
+      txHash: TX_HASH,
+      safeAddress: EPH,
+    });
   });
 
   it('fails with step context when an EOA-held asset has no prepared funding transfer', async () => {
@@ -314,7 +354,7 @@ describe('executeSwapBridge contracts', () => {
   });
 
   it('uses a prepared transfer with no authorization without retrying', async () => {
-    const { context, submitSBCs } = makeContext({
+    const { context, createSafeExecuteTx } = makeContext({
       preparedExecution: makePreparedTransfer(null),
     });
     const asset = makeAsset({
@@ -324,7 +364,7 @@ describe('executeSwapBridge contracts', () => {
 
     await executeSwapBridge(makeBridge(), [asset], context, metadata());
 
-    expect(submitSBCs).toHaveBeenCalledTimes(1);
+    expect(createSafeExecuteTx).toHaveBeenCalledTimes(1);
     expect(context.eoaWallet.writeContract).not.toHaveBeenCalled();
   });
 
@@ -366,7 +406,7 @@ describe('executeSwapBridge contracts', () => {
   });
 
   it('does not retry a rejected permit signature', async () => {
-    const { context, submitSBCs } = makeContext({ preparedExecution: lazyPermit() });
+    const { context, createSafeExecuteTx } = makeContext({ preparedExecution: lazyPermit() });
     const rejection = Errors.userRejectedAllowance();
     vi.mocked(signPermitForAddressAndValue).mockRejectedValue(rejection);
     const asset = makeAsset({
@@ -379,7 +419,7 @@ describe('executeSwapBridge contracts', () => {
     ).rejects.toMatchObject({ code: rejection.code });
 
     expect(signPermitForAddressAndValue).toHaveBeenCalledTimes(1);
-    expect(submitSBCs).not.toHaveBeenCalled();
+    expect(createSafeExecuteTx).not.toHaveBeenCalled();
   });
 
   it('does not retry direct approval failures', async () => {
@@ -396,7 +436,7 @@ describe('executeSwapBridge contracts', () => {
       },
       permit: null,
     };
-    const { context, submitSBCs } = makeContext({
+    const { context, createSafeExecuteTx } = makeContext({
       preparedExecution: makePreparedTransfer(approval),
     });
     vi.mocked(context.eoaWallet.writeContract).mockRejectedValue(
@@ -412,55 +452,140 @@ describe('executeSwapBridge contracts', () => {
     ).rejects.toThrow('approval failed');
 
     expect(context.eoaWallet.writeContract).toHaveBeenCalledTimes(1);
+    expect(createSafeExecuteTx).not.toHaveBeenCalled();
+  });
+
+  it('keeps a canonical permit in the Safe batch without submitting Calibur', async () => {
+    const { context, createSafeExecuteTx, submitSBCs } = makeContext({
+      permitVariant: PermitVariant.EIP2612Canonical,
+    });
+
+    await executeSwapBridge(makeBridge(), [makeAsset()], context, metadata());
+
     expect(submitSBCs).not.toHaveBeenCalled();
+    expect(safeCallNames(createSafeExecuteTx)).toEqual(['permit', 'deposit']);
   });
 
-  it('submits a native bridge deposit through a payable Calibur execute on 7702', async () => {
+  it('uses one exact-value Calibur approval and omits the Safe permit for a permitless token', async () => {
+    const readAllowance = vi
+      .fn()
+      .mockResolvedValueOnce(0n)
+      .mockResolvedValueOnce(3_000_000n);
+    const { context, createSafeExecuteTx, submitSBCs } = makeContext({
+      permitVariant: PermitVariant.Unsupported,
+      readAllowance,
+    });
+
+    await executeSwapBridge(makeBridge(), [makeAsset()], context, metadata());
+
+    expect(submitSBCs).toHaveBeenCalledTimes(1);
+    const [submitted] = submitSBCs.mock.calls[0]![0];
+    expect(submitted.calls).toHaveLength(1);
+    expect(submitted.calls[0].to).toBe(USDC_ARB);
+    const approval = decodeFunctionData({
+      abi: erc20Abi,
+      data: submitted.calls[0].data,
+    });
+    expect(approval.functionName).toBe('approve');
+    expect(approval.args).toEqual([VAULT, 3_000_000n]);
+    expect(safeCallNames(createSafeExecuteTx)).toEqual(['deposit']);
+  });
+
+  it('includes authorization to the configured Calibur when the ephemeral is undelegated', async () => {
+    const readAllowance = vi
+      .fn()
+      .mockResolvedValueOnce(0n)
+      .mockResolvedValueOnce(3_000_000n);
+    const { context, signAuthorization, submitSBCs } = makeContext({
+      permitVariant: PermitVariant.Unsupported,
+      ephemeralCode: `0xef0100${OTHER_CALIBUR.slice(2)}`,
+      readAllowance,
+    });
+
+    await executeSwapBridge(makeBridge(), [makeAsset()], context, metadata());
+
+    expect(signAuthorization).toHaveBeenCalledWith(
+      expect.objectContaining({ contractAddress: CALIBUR })
+    );
+    const [submitted] = submitSBCs.mock.calls[0]![0];
+    expect(submitted.authorizationList).toEqual([
+      expect.objectContaining({ address: CALIBUR }),
+    ]);
+  });
+
+  it('omits authorization only when the ephemeral is delegated to the configured Calibur', async () => {
+    const readAllowance = vi
+      .fn()
+      .mockResolvedValueOnce(0n)
+      .mockResolvedValueOnce(3_000_000n);
+    const { context, signAuthorization, submitSBCs } = makeContext({
+      permitVariant: PermitVariant.Unsupported,
+      ephemeralCode: `0xef0100${CALIBUR.slice(2)}`,
+      readAllowance,
+    });
+
+    await executeSwapBridge(makeBridge(), [makeAsset()], context, metadata());
+
+    expect(signAuthorization).not.toHaveBeenCalled();
+    const [submitted] = submitSBCs.mock.calls[0]![0];
+    expect(submitted.authorizationList).toBeUndefined();
+  });
+
+  it('skips both permit and Calibur when the existing vault allowance is sufficient', async () => {
+    const { context, createSafeExecuteTx, submitSBCs } = makeContext({
+      permitVariant: PermitVariant.Unsupported,
+      readAllowance: vi.fn().mockResolvedValue(3_000_000n),
+    });
+
+    await executeSwapBridge(makeBridge(), [makeAsset()], context, metadata());
+
+    expect(submitSBCs).not.toHaveBeenCalled();
+    expect(safeCallNames(createSafeExecuteTx)).toEqual(['deposit']);
+  });
+
+  it('does not reread allowance after the Calibur approval receipt', async () => {
+    const receipt = deferred<{ status: 'success'; transactionHash: Hex }>();
+    const readAllowance = vi
+      .fn()
+      .mockResolvedValueOnce(0n)
+      .mockResolvedValueOnce(3_000_000n);
+    const waitForTransactionReceipt = vi.fn().mockReturnValue(receipt.promise);
+    const { context, createSafeExecuteTx, submitSBCs } = makeContext({
+      permitVariant: PermitVariant.Unsupported,
+      readAllowance,
+      waitForTransactionReceipt,
+    });
+
+    const execution = executeSwapBridge(makeBridge(), [makeAsset()], context, metadata());
+    await vi.waitFor(() => expect(submitSBCs).toHaveBeenCalledTimes(1));
+    expect(createSafeExecuteTx).not.toHaveBeenCalled();
+
+    receipt.resolve({ status: 'success', transactionHash: APPROVAL_TX_HASH });
+    await execution;
+
+    expect(readAllowance).toHaveBeenCalledTimes(1);
+    expect(createSafeExecuteTx).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a permitless token unsupported when Calibur or EIP-7702 is unavailable', async () => {
+    const { context, createSafeExecuteTx, submitSBCs } = makeContext({
+      permitVariant: PermitVariant.Unsupported,
+      supports7702: false,
+      caliburAddress: undefined,
+    });
+
+    await expect(
+      executeSwapBridge(makeBridge(), [makeAsset()], context, metadata())
+    ).rejects.toMatchObject({ code: ERROR_CODES.TOKEN_NOT_SUPPORTED });
+
+    expect(submitSBCs).not.toHaveBeenCalled();
+    expect(createSafeExecuteTx).not.toHaveBeenCalled();
+  });
+
+  it('submits a native bridge deposit through the Safe', async () => {
     const value = 1_000_000_000_000_000_000n;
     setDepositRequest(NATIVE, value);
-    vi.mocked(createCaliburExecuteTxFromCalls).mockResolvedValue({
-      to: EPH,
-      data: '0x1234',
-      value,
-    });
     const { context } = makeContext();
-    context.cache = {
-      hasAuthCodeSet: vi.fn().mockReturnValue(false),
-      markAuthCodeSet: vi.fn(),
-    } as unknown as ExecutionContext['cache'];
-    const asset = makeAsset({
-      contractAddress: NATIVE,
-      decimals: 18,
-      eoaBalance: new Decimal('1'),
-      ephemeralBalance: new Decimal(0),
-    });
-    const bridge = makeBridge({
-      tokenAddress: NATIVE,
-      decimals: 18,
-      assets: [asset],
-    });
-
-    await executeSwapBridge(bridge, [asset], context, metadata());
-
-    expect(createCaliburExecuteTxFromCalls).toHaveBeenCalledWith(
-      expect.objectContaining({
-        calls: [expect.objectContaining({ value })],
-        value,
-      })
-    );
-    expect(context.eoaWallet.sendTransaction).toHaveBeenCalledWith(
-      expect.objectContaining({ value })
-    );
-  });
-
-  it('dispatches a native bridge deposit through the Safe on non-7702', async () => {
-    const value = 1_000_000_000_000_000_000n;
-    setDepositRequest(NATIVE, value);
-    vi.mocked(dispatchSafeSource).mockResolvedValue({
-      txHash: TX_HASH,
-      safeAddress: '0xacc1ffaf0000000000000000000000000000beef',
-    });
-    const { context } = makeContext({ supports7702: false });
     const asset = makeAsset({
       contractAddress: NATIVE,
       decimals: 18,
@@ -481,6 +606,35 @@ describe('executeSwapBridge contracts', () => {
         nativeValue: value,
       })
     );
-    expect(createCaliburExecuteTxFromCalls).not.toHaveBeenCalled();
+  });
+
+  it('ignores legacy chain capability metadata for native Safe deposits', async () => {
+    const value = 1_000_000_000_000_000_000n;
+    setDepositRequest(NATIVE, value);
+    vi.mocked(dispatchSafeSource).mockResolvedValue({
+      txHash: TX_HASH,
+      safeAddress: '0xacc1ffaf0000000000000000000000000000beef',
+    });
+    const { context } = makeContext();
+    const asset = makeAsset({
+      contractAddress: NATIVE,
+      decimals: 18,
+      eoaBalance: new Decimal('1'),
+      ephemeralBalance: new Decimal(0),
+    });
+    const bridge = makeBridge({
+      tokenAddress: NATIVE,
+      decimals: 18,
+      assets: [asset],
+    });
+
+    await executeSwapBridge(bridge, [asset], context, metadata());
+
+    expect(dispatchSafeSource).toHaveBeenCalledWith(
+      expect.objectContaining({
+        calls: [expect.objectContaining({ value })],
+        nativeValue: value,
+      })
+    );
   });
 });

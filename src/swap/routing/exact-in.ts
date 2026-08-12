@@ -581,9 +581,8 @@ export async function _exactInRoute(data: ExactInData, options: RouteOptions): P
       destination: {
         chainId: data.toChainId,
         // Direct COT held at the EOA on the destination chain needs to land at the wrapper before
-        // the dst swap can pull it. The wrapper is the ephemeral on 7702 chains and the predicted
-        // Safe on non-7702 chains; prepare/execution move the COT EOA→wrapper for both (the transfer
-        // targets whichever executor runs the swap). Same-chain COT-input swaps rely on this too —
+        // the dst swap can pull it. The wrapper is the predicted Safe; prepare/execution move the
+        // COT EOA→Safe. Same-chain COT-input swaps rely on this too —
         // there's no bridge to deliver the COT, so it must be moved from the EOA directly.
         eoaToEphemeral:
           needsTokenSwap && destinationChainDirectCot.gt(0)

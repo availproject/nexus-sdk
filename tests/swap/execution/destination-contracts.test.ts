@@ -2,23 +2,6 @@ import Decimal from 'decimal.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Hex, PrivateKeyAccount, WalletClient } from 'viem';
 
-vi.mock('../../../src/services/sbc', () => ({
-  createSBCTxFromCalls: vi.fn(),
-  requireSuccessfulSbcResult: vi.fn(
-    (
-      results: Array<
-        | { chainId: number; errored: false; txHash: Hex }
-        | { chainId: number; errored: true; message: string }
-      >,
-      chainId: number
-    ) => {
-      const result = results.find((entry) => entry.chainId === chainId);
-      if (!result || result.errored) throw new Error(result?.message ?? 'submission failed');
-      return result.txHash;
-    }
-  ),
-}));
-
 vi.mock('../../../src/swap/sweep', () => ({
   createSweeperTxs: vi.fn().mockReturnValue([
     {
@@ -30,7 +13,6 @@ vi.mock('../../../src/swap/sweep', () => ({
 }));
 
 import { ERROR_CODES, Errors } from '../../../src/domain/errors';
-import { createSBCTxFromCalls } from '../../../src/services/sbc';
 import { executeDestinationSwap } from '../../../src/swap/execution/destination-swap';
 import { createSweeperTxs } from '../../../src/swap/sweep';
 import type { Aggregator, QuoteResponse } from '../../../src/swap/aggregators/types';
@@ -109,27 +91,23 @@ const makeDestination = (
   }) as SwapRoute['destination'];
 
 const makeContext = (readContract = vi.fn().mockResolvedValue(3_000_000_000n)) => {
-  const submitSBCs = vi.fn().mockResolvedValue([
-    {
-      chainId: CHAIN_ID,
-      address: EPH,
-      errored: false as const,
-      txHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as Hex,
-    },
-  ]);
+  const createSafeExecuteTx = vi.fn().mockResolvedValue({
+    chainId: CHAIN_ID,
+    safeAddress: EPH,
+    txHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as Hex,
+  });
   const context = {
     chainList: {
       getChainByID: vi.fn().mockReturnValue({
         id: CHAIN_ID,
         name: 'Arbitrum',
-        supports7702: true,
       }),
     },
     eoaAddress: EOA,
     eoaWallet: {} as WalletClient,
     ephemeralWallet: {
       address: EPH,
-      signTypedData: vi.fn(),
+      signTypedData: vi.fn().mockResolvedValue(`0x${'11'.repeat(64)}1b`),
     } as unknown as PrivateKeyAccount,
     publicClientList: {
       get: vi.fn().mockReturnValue({
@@ -142,11 +120,14 @@ const makeContext = (readContract = vi.fn().mockResolvedValue(3_000_000_000n)) =
         }),
       }),
     },
-    middlewareClient: makeSwapExecutionMiddlewareClient({ submitSBCs }),
+    middlewareClient: makeSwapExecutionMiddlewareClient({
+      createSafeExecuteTx,
+    }),
     cache: {
       getAllowance: vi.fn().mockReturnValue(0n),
-      hasAuthCodeSet: vi.fn().mockReturnValue(true),
     },
+    safeAddress: EPH,
+    safeDeploymentPromises: new Map([[CHAIN_ID, Promise.resolve({})]]),
     onProgress: vi.fn(),
     slippage: 0.005,
   } as unknown as Pick<
@@ -156,6 +137,8 @@ const makeContext = (readContract = vi.fn().mockResolvedValue(3_000_000_000n)) =
     | 'eoaWallet'
     | 'ephemeralWallet'
     | 'publicClientList'
+    | 'safeAddress'
+    | 'safeDeploymentPromises'
     | 'middlewareClient'
     | 'cache'
     | 'preparedExecution'
@@ -163,7 +146,7 @@ const makeContext = (readContract = vi.fn().mockResolvedValue(3_000_000_000n)) =
     | 'timing'
     | 'slippage'
   >;
-  return { context, submitSBCs };
+  return { context, createSafeExecuteTx };
 };
 
 const metadata = (): SwapMetadata => ({
@@ -180,19 +163,7 @@ const dstToken = {
 };
 
 describe('executeDestinationSwap contracts', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.mocked(createSBCTxFromCalls).mockResolvedValue({
-      chainId: CHAIN_ID,
-      address: EPH,
-      calls: [],
-      deadline: '0x01',
-      keyHash: '0x00',
-      nonce: '0x01',
-      revertOnFailure: true,
-      signature: '0x1234',
-    } as never);
-  });
+  beforeEach(() => vi.clearAllMocks());
 
   it.each([
     {
@@ -213,7 +184,7 @@ describe('executeDestinationSwap contracts', () => {
       { tokenSwap: planned, gasSwap: null },
       vi.fn().mockResolvedValue(resized)
     );
-    const { context, submitSBCs } = makeContext();
+    const { context, createSafeExecuteTx } = makeContext();
 
     await expect(
       executeDestinationSwap(
@@ -228,7 +199,7 @@ describe('executeDestinationSwap contracts', () => {
       context: expect.objectContaining({ stepType: 'destination_swap' }),
     });
 
-    expect(submitSBCs).not.toHaveBeenCalled();
+    expect(createSafeExecuteTx).not.toHaveBeenCalled();
   });
 
   it('requires every originally planned leg when resizing Exact In', async () => {
@@ -318,15 +289,8 @@ describe('executeDestinationSwap contracts', () => {
       { tokenSwap: planned, gasSwap: null },
       getDstSwap
     );
-    const { context, submitSBCs } = makeContext();
-    submitSBCs.mockResolvedValueOnce([
-      {
-        chainId: CHAIN_ID,
-        address: EPH,
-        errored: true,
-        message: 'router reverted',
-      },
-    ]);
+    const { context, createSafeExecuteTx } = makeContext();
+    createSafeExecuteTx.mockRejectedValueOnce(new Error('router reverted'));
 
     await executeDestinationSwap(
       destination,
@@ -399,15 +363,15 @@ describe('executeDestinationSwap contracts', () => {
   });
 
   it('stamps destination context onto a categorized error that lacks step metadata', async () => {
-    vi.mocked(createSBCTxFromCalls).mockRejectedValue(
-      Errors.execution('wallet failed', { service: 'wallet' })
-    );
     const quote = makeQuote();
     const destination = makeDestination(
       { tokenSwap: quote, gasSwap: null },
       vi.fn().mockResolvedValue({ tokenSwap: quote, gasSwap: null })
     );
-    const { context } = makeContext();
+    const { context, createSafeExecuteTx } = makeContext();
+    createSafeExecuteTx.mockRejectedValue(
+      Errors.execution('wallet failed', { service: 'wallet' })
+    );
 
     await expect(
       executeDestinationSwap(

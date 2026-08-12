@@ -24,7 +24,6 @@ import {
 } from '../services/step-ids';
 import type { QuoteResponse } from './aggregators/types';
 import type { SwapRoute } from './types';
-import { chainSupports7702 } from './wallet/capabilities';
 
 const toPlanTokenAmount = (
   metadata: PlanTokenMetadata,
@@ -64,7 +63,6 @@ const groupSourceSwapsByChain = (route: SwapRoute): Map<number, QuoteResponse[]>
 
 const createSourceSwapStep = (
   chainList: ChainListType,
-  route: SwapRoute,
   chainId: number,
   quotesResponse: QuoteResponse[]
 ): SwapSourceSwapStep => {
@@ -72,7 +70,7 @@ const createSourceSwapStep = (
     type: 'source_swap',
     id: createSourceSwapStepId(chainId),
     chain: toChainDisplay(chainList.getChainByID(chainId)),
-    walletPath: route.sourceExecutionPaths.get(chainId) ?? 'ephemeral',
+    walletPath: 'safe',
     swaps: [],
   };
 
@@ -165,14 +163,13 @@ const createDestinationSwapStep = (
   }
 
   // walletPath here is always a smart-account wrapper because a destination swap step only
-  // exists when the dst aggregator runs inside one. 7702-capable chains use the Calibur
-  // ephemeral; non-7702 chains use the per-EOA Safe.
+  // exists when the destination aggregator runs inside one.
   const destinationChain = chainList.getChainByID(route.destination.chainId);
   const dstSwapStep: SwapDestinationSwapStep = {
     type: 'destination_swap',
     id: createDestinationSwapStepId(route.destination.chainId),
     chain: toChainDisplay(destinationChain),
-    walletPath: chainSupports7702(destinationChain) ? 'ephemeral' : 'safe',
+    walletPath: 'safe',
     swaps: [],
   };
 
@@ -196,7 +193,7 @@ export const createSwapPlan = (route: SwapRoute, chainList: ChainListType): Swap
   const steps: SwapPlanStep[] = [];
 
   for (const [chainId, quotes] of groupSourceSwapsByChain(route).entries()) {
-    steps.push(createSourceSwapStep(chainList, route, chainId, quotes));
+    steps.push(createSourceSwapStep(chainList, chainId, quotes));
   }
 
   if (route.bridge) {

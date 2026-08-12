@@ -64,7 +64,6 @@ const makeChainList = (): ChainListType =>
         rpcUrls: { default: { http: [`https://rpc-${ARB_CHAIN}.example.com`] } },
         nativeCurrency: { decimals: 18, symbol: 'ETH', name: 'Ether', logo: '' },
         custom: { icon: '', knownTokens: [] },
-        supports7702: true,
       },
       {
         id: BASE_CHAIN,
@@ -72,7 +71,6 @@ const makeChainList = (): ChainListType =>
         rpcUrls: { default: { http: [`https://rpc-${BASE_CHAIN}.example.com`] } },
         nativeCurrency: { decimals: 18, symbol: 'ETH', name: 'Ether', logo: '' },
         custom: { icon: '', knownTokens: [] },
-        supports7702: true,
       },
       {
         id: OP_CHAIN,
@@ -80,7 +78,6 @@ const makeChainList = (): ChainListType =>
         rpcUrls: { default: { http: [`https://rpc-${OP_CHAIN}.example.com`] } },
         nativeCurrency: { decimals: 18, symbol: 'ETH', name: 'Ether', logo: '' },
         custom: { icon: '', knownTokens: [] },
-        supports7702: true,
       },
     ],
     getChainByID: vi.fn().mockImplementation((chainId: number) => ({
@@ -89,7 +86,6 @@ const makeChainList = (): ChainListType =>
       rpcUrls: { default: { http: [`https://rpc-${chainId}.example.com`] } },
       nativeCurrency: { decimals: 18, symbol: 'ETH', name: 'Ether', logo: '', currencyId: CurrencyID.ETH },
       custom: { icon: '', knownTokens: [] },
-      supports7702: true,
     })),
     getNativeToken: vi.fn().mockImplementation((_chainId: number) => ({
       contractAddress: EADDRESS as Hex,
@@ -237,9 +233,7 @@ describe('buildSwapPreflight', () => {
     expect(selectSwapSources).toHaveBeenCalledWith(rawBalances, OP_CHAIN, WETH);
   });
 
-  it('builds wallet path hints from each chain\'s 7702 support', async () => {
-    // Preflight no longer reads wallet capabilities; the hint is driven purely by
-    // chainSupports7702 — 'ephemeral' for 7702 chains, 'safe' for non-7702.
+  it('maps unnormalized chain fixtures to Safe V2', async () => {
     const chainList = makeChainList();
 
     const preflight = await buildSwapPreflight(makeInput(), {
@@ -249,9 +243,29 @@ describe('buildSwapPreflight', () => {
       middlewareClient: makeMiddlewareClient(),
     });
 
-    expect(preflight.walletPathHints.get(ARB_CHAIN)).toBe('ephemeral');
-    expect(preflight.walletPathHints.get(BASE_CHAIN)).toBe('ephemeral');
-    expect(preflight.walletPathHints.get(OP_CHAIN)).toBe('ephemeral');
+    expect(preflight.walletPathHints.get(ARB_CHAIN)).toBe('safe');
+    expect(preflight.walletPathHints.get(BASE_CHAIN)).toBe('safe');
+    expect(preflight.walletPathHints.get(OP_CHAIN)).toBe('safe');
+  });
+
+  it('maps every explicitly swap-supported chain to the V2 Safe path', async () => {
+    const chainList = makeChainList();
+    const baseGetChainByID = chainList.getChainByID;
+    chainList.getChainByID = vi.fn((id: number) => ({
+      ...(baseGetChainByID(id) as Record<string, unknown>),
+      swapSupported: true,
+    })) as unknown as ChainListType['getChainByID'];
+
+    const preflight = await buildSwapPreflight(makeInput(), {
+      chainList,
+      cotCurrencyId: CurrencyID.USDC,
+      eoaAddress: '0xaaaa' as Hex,
+      middlewareClient: makeMiddlewareClient(),
+    });
+
+    expect(preflight.walletPathHints.get(ARB_CHAIN)).toBe('safe');
+    expect(preflight.walletPathHints.get(BASE_CHAIN)).toBe('safe');
+    expect(preflight.walletPathHints.get(OP_CHAIN)).toBe('safe');
   });
 
   it('defers bridge quotes until routing has selected eligible sources', async () => {
@@ -322,12 +336,12 @@ describe('buildSwapPreflight', () => {
     });
   });
 
-  it('maps a non-7702 candidate chain to the safe wallet path', async () => {
+  it('does not vary the Safe V2 wallet path by legacy chain metadata', async () => {
     const chainList = makeChainList();
     const baseGetChainByID = chainList.getChainByID;
     chainList.getChainByID = vi.fn((id: number) => ({
       ...(baseGetChainByID(id) as Record<string, unknown>),
-      supports7702: id !== BASE_CHAIN,
+      swapSupported: false,
     })) as unknown as ChainListType['getChainByID'];
 
     const preflight = await buildSwapPreflight(makeInput(), {
@@ -338,7 +352,7 @@ describe('buildSwapPreflight', () => {
     });
 
     expect(preflight.walletPathHints.get(BASE_CHAIN)).toBe('safe');
-    expect(preflight.walletPathHints.get(OP_CHAIN)).toBe('ephemeral');
-    expect(preflight.walletPathHints.get(ARB_CHAIN)).toBe('ephemeral');
+    expect(preflight.walletPathHints.get(OP_CHAIN)).toBe('safe');
+    expect(preflight.walletPathHints.get(ARB_CHAIN)).toBe('safe');
   });
 });

@@ -5,25 +5,28 @@ import { switchChain } from '../../services/evm';
 import {
   buildSafeExecuteEOACall,
   createSafeExecuteTxFromCalls,
-  type EnsureSafeMiddleware,
-  ensureSafeForEphemeral,
   type SafeCall,
 } from '../../services/safe';
-import { predictSafeAccountAddress } from '../safe/predict';
-import type { CreateSafeExecuteTxRequest, CreateSafeExecuteTxResponse } from '../safe/types';
+import type {
+  CreateSafeExecuteTxV2Request,
+  CreateSafeExecuteTxV2Response,
+  EnsureSafeAccountV2Response,
+} from '../safe/types';
 import { type EoaSimulationStep, simulateEoaTransaction } from './eoa-simulation';
 
-export type SafeDispatchMiddleware = EnsureSafeMiddleware & {
-  createSafeExecuteTx: (req: CreateSafeExecuteTxRequest) => Promise<CreateSafeExecuteTxResponse>;
+export type SafeDispatchMiddleware = {
+  createSafeExecuteTx: (
+    req: CreateSafeExecuteTxV2Request
+  ) => Promise<CreateSafeExecuteTxV2Response>;
 };
 
-// Dispatches a source-swap batch via the Safe smart-account path (non-7702 chains). Two sub-paths:
+// Dispatches a source-swap batch via the Safe V2 smart account. Two sub-paths:
 //   - nativeValue === 0n → sponsor broadcasts (middleware.createSafeExecuteTx) — pays gas, no
 //     native value carried.
 //   - nativeValue >  0n → EOA broadcasts (eoaWallet.sendTransaction) — EOA pays gas + carries the
 //     native value to the Safe. Sponsor flow can't do this because the sponsor wallet doesn't fund
 //     native sends.
-// In both cases the ephemeral signs SafeTx (Safe owner == ephemeral).
+// In both cases the ephemeral signs SafeTx as one of the two threshold-1 Safe owners.
 export async function dispatchSafeSource(input: {
   chain: Chain;
   chainId: number;
@@ -34,6 +37,8 @@ export async function dispatchSafeSource(input: {
   eoaAddress: Address;
   publicClient: PublicClient;
   middleware: SafeDispatchMiddleware;
+  safeAddress: Address;
+  safeDeploymentPromise: Promise<EnsureSafeAccountV2Response>;
   onWalletPrompt?: () => void;
   simulationStep?: EoaSimulationStep;
 }): Promise<{ txHash: Hex; safeAddress: Address }> {
@@ -48,14 +53,9 @@ export async function dispatchSafeSource(input: {
     publicClient,
     middleware,
   } = input;
-  const { address: safeAddress } = predictSafeAccountAddress(ephemeralWallet.address);
+  const { safeAddress } = input;
 
-  await ensureSafeForEphemeral({
-    chainId,
-    ephemeralWallet,
-    publicClient,
-    middleware,
-  });
+  await input.safeDeploymentPromise;
 
   if (nativeValue > 0n) {
     const eoaCall = await buildSafeExecuteEOACall({
@@ -92,6 +92,7 @@ export async function dispatchSafeSource(input: {
   const request = await createSafeExecuteTxFromCalls({
     calls,
     chainId,
+    eoaAddress,
     ephemeralWallet,
     publicClient,
     safeAddress,

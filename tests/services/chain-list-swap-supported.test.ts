@@ -1,12 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { createChainList } from '../../src/services/chain-list';
-import { chainSupports7702 } from '../../src/swap/wallet/capabilities';
 import type { DeploymentResponse } from '../../src/domain/types/deployment-types';
 
-const hyperEvmDeployment = (
-  supports7702: boolean,
-  swapSupported?: boolean
-): DeploymentResponse => ({
+const hyperEvmDeployment = (swapSupported?: boolean): DeploymentResponse => ({
   network: 'mainnet',
   statekeeperUrl: 'https://statekeeper.example',
   fulfillmentBps: 0,
@@ -32,47 +28,46 @@ const hyperEvmDeployment = (
       tokens: [],
       explorerUrl: 'https://hyperliquid.cloud.blockscout.com',
       logo: 'https://example.com/chain.png',
-      supports7702,
       ...(swapSupported !== undefined ? { swapSupported } : {}),
     },
   ],
 });
 
-describe('createChainList propagates supports7702', () => {
-  it('copies supports7702=false from deployment chain onto runtime Chain', () => {
-    const list = createChainList(hyperEvmDeployment(false));
+describe('createChainList propagates swapSupported and uses Safe V2', () => {
+  it('normalizes an omitted deployment flag to true and selects the V2 Safe', () => {
+    const list = createChainList(hyperEvmDeployment());
     const chain = list.getChainByID(999);
 
-    expect(chain.supports7702).toBe(false);
+    expect(chain.swapSupported).toBe(true);
   });
 
-  it('copies supports7702=true from deployment chain onto runtime Chain', () => {
-    const list = createChainList(hyperEvmDeployment(true));
-    const chain = list.getChainByID(999);
-
-    expect(chain.supports7702).toBe(true);
-  });
-
-  it('routes non-7702 chain to Safe (chainSupports7702 returns false)', () => {
-    const list = createChainList(hyperEvmDeployment(false));
-    const chain = list.getChainByID(999);
-
-    expect(chainSupports7702(chain)).toBe(false);
-  });
-});
-
-describe('createChainList propagates swapSupported', () => {
   it('copies swapSupported=true from deployment chain onto runtime Chain', () => {
-    const list = createChainList(hyperEvmDeployment(false, true));
+    const list = createChainList(hyperEvmDeployment(true));
     const chain = list.getChainByID(999);
 
     expect(chain.swapSupported).toBe(true);
   });
 
   it('copies swapSupported=false from deployment chain onto runtime Chain', () => {
-    const list = createChainList(hyperEvmDeployment(true, false));
+    const list = createChainList(hyperEvmDeployment(false));
     const chain = list.getChainByID(999);
 
     expect(chain.swapSupported).toBe(false);
+  });
+
+  it('copies the configured Calibur capability onto the runtime Chain', () => {
+    const deployment = hyperEvmDeployment(true);
+    Object.assign(deployment.chains[0], {
+      supports7702: true,
+      caliburAddress: '0x00000000000000000000000000000000000000cc',
+    });
+
+    const chain = createChainList(deployment).getChainByID(999);
+
+    expect(chain).toMatchObject({
+      swapSupported: true,
+      supports7702: true,
+      caliburAddress: '0x00000000000000000000000000000000000000cc',
+    });
   });
 });

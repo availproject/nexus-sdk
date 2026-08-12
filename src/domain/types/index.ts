@@ -333,8 +333,9 @@ export type Chain = {
       webSocket: string[];
     };
   };
-  supports7702?: boolean;
   swapSupported?: boolean;
+  supports7702?: boolean;
+  caliburAddress?: Hex;
   universe: Universe;
 };
 

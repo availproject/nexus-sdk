@@ -67,8 +67,11 @@ const createChainList = (deployment: DeploymentResponse): ChainListType => {
           webSocket: [],
         },
       },
+      // Deployment omission means swaps are enabled. Normalize the default once so routing and
+      // public chain metadata agree on availability.
+      swapSupported: chain.swapSupported !== false,
       supports7702: chain.supports7702,
-      swapSupported: chain.swapSupported,
+      caliburAddress: chain.caliburAddress,
       universe: universeFromV2(chain.universe),
     };
   });

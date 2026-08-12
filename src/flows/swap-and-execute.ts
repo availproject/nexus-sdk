@@ -35,6 +35,7 @@ import { equalFold } from '../services/strings';
 import { resolveTokenInfo } from '../services/token-metadata';
 import { SLIPPAGE_DEFAULT } from '../swap/constants';
 import { buildSwapPreflight, type SwapPreflight } from '../swap/preflight';
+import { predictSafeAccountAddressV2 } from '../swap/safe/predict';
 import type { Source, SwapAndExecuteParams, SwapAndExecuteResult, SwapData } from '../swap/types';
 import { SwapMode } from '../swap/types';
 import type { MiddlewareSwapClient } from '../transport';
@@ -264,6 +265,8 @@ const buildCompositePreviewState = async (
     middlewareClient: deps.middlewareClient,
     forceMayan: deps.forceMayan,
     preflight: input.preflight,
+    safeAddress: predictSafeAccountAddressV2(deps.evm.address, deps.swap.ephemeralWallet.address)
+      .address,
   });
 
   return {

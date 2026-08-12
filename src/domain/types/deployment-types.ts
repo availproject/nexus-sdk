@@ -11,9 +11,19 @@ export type DeploymentResponse = Omit<BaseDeploymentConfig, 'chains'> & {
   chains: DeploymentChain[];
 };
 
-export type DeploymentChain = Omit<
+export type DeploymentChain = Pick<
   BaseDeploymentChain,
-  'vaultAddress' | 'multicallAddress' | 'nativeCurrency' | 'tokens' | 'eip7702Enabled'
+  | 'chainId'
+  | 'universe'
+  | 'name'
+  | 'rpcUrl'
+  | 'port'
+  | 'sponsored'
+  | 'tenderlyNetwork'
+  | 'ankrChainName'
+  | 'swapTokens'
+  | 'gasBufferMultiplier'
+  | 'mayanEnabled'
 > & {
   vaultAddress: Hex;
   multicallAddress: Hex;
@@ -21,8 +31,9 @@ export type DeploymentChain = Omit<
   tokens: DeploymentToken[];
   explorerUrl: string;
   logo: string;
-  supports7702?: boolean;
   swapSupported?: boolean;
+  supports7702?: boolean;
+  caliburAddress?: Hex;
 };
 
 export type DeploymentNativeCurrency = BaseDeploymentNativeCurrency & {

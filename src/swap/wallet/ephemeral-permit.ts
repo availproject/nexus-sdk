@@ -21,7 +21,7 @@ export const buildEphemeralPermitCall = async (input: {
     throw Errors.tokenNotSupported(
       input.tokenAddress,
       input.chain.id,
-      'permit required for non-7702 bridge custody'
+      'permit required for Safe V2 bridge custody'
     );
   }
   if (permitVariant !== PermitVariant.EIP2612Canonical) {

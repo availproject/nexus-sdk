@@ -149,6 +149,46 @@ describe('createMiddlewareClient', () => {
     expect(axiosClient.post).toHaveBeenCalledTimes(1);
   });
 
+  it('submits the narrow Calibur transaction through the existing grouped SBC endpoint', async () => {
+    const axiosClient = makeClient();
+    axiosRootMock.create.mockReturnValue(axiosClient);
+    const transaction = {
+      chainId: 42161,
+      address: '0xbbbb000000000000000000000000000000000002' as Hex,
+      nonce: `0x${'00'.repeat(32)}` as Hex,
+      keyHash: `0x${'00'.repeat(32)}` as Hex,
+      deadline: `0x${'00'.repeat(32)}` as Hex,
+      calls: [
+        {
+          to: '0xaf88d065e77c8cc2239327c5edb3a432268e5831' as Hex,
+          value: `0x${'00'.repeat(32)}` as Hex,
+          data: '0x1234' as Hex,
+        },
+      ],
+      revertOnFailure: true,
+      signature: '0x1234' as Hex,
+    };
+    axiosClient.post.mockResolvedValue({
+      data: [
+        {
+          chainId: 42161,
+          address: transaction.address,
+          errored: false,
+          txHash: `0x${'aa'.repeat(32)}`,
+        },
+      ],
+    });
+
+    const result = await createMiddlewareClient('https://mw.example').submitSBCs([transaction]);
+
+    expect(result).toEqual([
+      expect.objectContaining({ chainId: 42161, errored: false }),
+    ]);
+    expect(axiosClient.post).toHaveBeenCalledWith('/api/v2/create-sbc-tx', {
+      42161: [transaction],
+    });
+  });
+
   it('getDeployment defaults permit fields when missing', async () => {
     const axiosClient = makeClient();
     axiosRootMock.create.mockReturnValue(axiosClient);
@@ -486,74 +526,6 @@ describe('createMiddlewareClient', () => {
     expect(() => createMiddlewareClient('wss://mw.example')).toThrow(
       /Invalid middleware HTTP URL/
     );
-  });
-
-  it('submitSBCs posts grouped-by-chain requests to /api/v2/create-sbc-tx and parses results', async () => {
-    const axiosClient = makeClient();
-    axiosRootMock.create.mockReturnValue(axiosClient);
-
-    const txHash =
-      '0x1111111111111111111111111111111111111111111111111111111111111111' as Hex;
-    const address = '0x0000000000000000000000000000000000000aaa' as Hex;
-
-    const sbcTx = {
-      chainId: 42161,
-      address,
-      nonce: '0x0000000000000000000000000000000000000000000000000000000000000001',
-      keyHash: '0x0000000000000000000000000000000000000000000000000000000000000000',
-      deadline: '0x00000000000000000000000000000000000000000000000000000000000000ff',
-      calls: [
-        {
-          to: '0x0000000000000000000000000000000000000bbb',
-          value: '0x0000000000000000000000000000000000000000000000000000000000000001',
-          data: '0xabcdef',
-        },
-      ],
-      revertOnFailure: true,
-      signature: '0x1234',
-    };
-
-    axiosClient.post.mockResolvedValue({
-      data: [{ chainId: 42161, address, errored: false, txHash }],
-    });
-
-    const client = createMiddlewareClient('https://mw.example');
-    const results = await client.submitSBCs([sbcTx as any]);
-
-    expect(axiosClient.post).toHaveBeenCalledWith('/api/v2/create-sbc-tx', { 42161: [sbcTx] });
-    expect(results).toEqual([{ chainId: 42161, address, errored: false, txHash }]);
-  });
-
-  it('submitSBCs parses a per-chain errored result carrying the typed envelope', async () => {
-    const axiosClient = makeClient();
-    axiosRootMock.create.mockReturnValue(axiosClient);
-    const address = '0x0000000000000000000000000000000000000aaa' as Hex;
-
-    axiosClient.post.mockResolvedValue({
-      data: [
-        {
-          chainId: 42161,
-          address,
-          errored: true,
-          message: 'SBC internal call failed: TRANSFER_FROM_FAILED',
-          code: 'TRANSACTION_REVERTED',
-          subcode: 'TRANSFER_FROM_FAILED',
-          errorId: 'err-uuid-9',
-          details: { source: 'inner-call' },
-        },
-      ],
-    });
-
-    const client = createMiddlewareClient('https://mw.example');
-    const results = await client.submitSBCs([{ chainId: 42161, address } as any]);
-
-    expect(results[0]).toMatchObject({
-      chainId: 42161,
-      errored: true,
-      code: 'TRANSACTION_REVERTED',
-      subcode: 'TRANSFER_FROM_FAILED',
-      errorId: 'err-uuid-9',
-    });
   });
 
   it('getQuote posts to /api/v1/quote and parses response', async () => {

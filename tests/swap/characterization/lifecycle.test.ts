@@ -137,7 +137,7 @@ describe('top-level swap lifecycle characterization', () => {
     ).rejects.toThrow('User denied swap intent');
 
     expect(wallet.sentTxs).toEqual([]);
-    expect(middlewareClient.submitSBCs).not.toHaveBeenCalled();
+    expect(middlewareClient.createSafeExecuteTx).not.toHaveBeenCalled();
     expect(middlewareClient.submitRFF).not.toHaveBeenCalled();
   });
 
@@ -153,6 +153,25 @@ describe('top-level swap lifecycle characterization', () => {
     expect(result.intent.destination.token.contractAddress.toLowerCase()).toBe(
       USDC_BASE.toLowerCase()
     );
+  });
+
+  it('starts cache reads before showing the intent and reuses them after approval', async () => {
+    const { deps } = makeHarness();
+    let cacheCallsAtApproval = 0;
+    let safeCodeReadsAtApproval = 0;
+
+    await swap(input, deps, {
+      onIntent: ({ allow }) => {
+        cacheCallsAtApproval = hoisted.multicall.mock.calls.length;
+        safeCodeReadsAtApproval = hoisted.getCode.mock.calls.length;
+        allow();
+      },
+    });
+
+    expect(cacheCallsAtApproval).toBeGreaterThan(0);
+    expect(safeCodeReadsAtApproval).toBeGreaterThan(0);
+    expect(hoisted.multicall).toHaveBeenCalledTimes(cacheCallsAtApproval);
+    expect(hoisted.getCode).toHaveBeenCalledTimes(safeCodeReadsAtApproval);
   });
 
   it('refreshes balances, oracle prices, intent, and plan preview before approval', async () => {
@@ -181,6 +200,32 @@ describe('top-level swap lifecycle characterization', () => {
     expect(events.findIndex((event) => event.type === 'plan_confirmed')).toBeGreaterThan(
       events.map((event) => event.type).lastIndexOf('plan_preview')
     );
+  });
+
+  it('reuses the cache when a refreshed intent has the same query data', async () => {
+    const { deps } = makeHarness();
+    let initialCacheCalls = 0;
+    let refreshedCacheCalls = 0;
+    let initialCodeReads = 0;
+    let refreshedCodeReads = 0;
+
+    await swap(input, deps, {
+      onIntent: ({ refresh, allow }) => {
+        initialCacheCalls = hoisted.multicall.mock.calls.length;
+        initialCodeReads = hoisted.getCode.mock.calls.length;
+        void refresh().then(() => {
+          refreshedCacheCalls = hoisted.multicall.mock.calls.length;
+          refreshedCodeReads = hoisted.getCode.mock.calls.length;
+          allow();
+        });
+      },
+    });
+
+    expect(initialCacheCalls).toBeGreaterThan(0);
+    expect(refreshedCacheCalls).toBe(initialCacheCalls);
+    expect(initialCodeReads).toBeGreaterThan(0);
+    expect(refreshedCodeReads).toBe(initialCodeReads);
+    expect(hoisted.multicall).toHaveBeenCalledTimes(initialCacheCalls);
   });
 
   it('returns the accepted intent when refresh is called after allow', async () => {

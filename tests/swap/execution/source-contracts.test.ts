@@ -7,36 +7,33 @@ import {
   type WalletClient,
 } from 'viem';
 
-vi.mock('../../../src/services/sbc', async () => {
-  const actual = await vi.importActual<typeof import('../../../src/services/sbc')>(
-    '../../../src/services/sbc'
-  );
-  return {
-    ...actual,
-    createSBCTxFromCalls: vi.fn(),
-    requireSuccessfulSbcResult: vi.fn(
-      (
-        results: Array<
-          | { chainId: number; errored: false; txHash: Hex }
-          | { chainId: number; errored: true; message: string }
-        >,
-        chainId: number
-      ) => {
-        const result = results.find((entry) => entry.chainId === chainId);
-        if (!result || result.errored) throw new Error(result?.message ?? 'submission failed');
-        return result.txHash;
-      }
-    ),
-  };
-});
-
 vi.mock('../../../src/services/allowance-utils', () => ({
   signPermitForAddressAndValue: vi.fn(),
 }));
 
+vi.mock('../../../src/services/safe', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../src/services/safe')>()),
+  ensureSafeForEphemeral: vi.fn().mockResolvedValue({}),
+  createSafeExecuteTxFromCalls: vi.fn().mockImplementation(async (input) => ({
+    chainId: input.chainId,
+    safeAddress: input.safeAddress,
+    to: input.calls[0]?.to ?? '0xbbbb000000000000000000000000000000000002',
+    value: '0x0',
+    data: '0x',
+    operation: 0,
+    safeTxGas: '0x0',
+    baseGas: '0x0',
+    gasPrice: '0x0',
+    gasToken: '0x0000000000000000000000000000000000000000',
+    refundReceiver: '0x0000000000000000000000000000000000000000',
+    signature: '0x',
+  })),
+}));
+
 import { signPermitForAddressAndValue } from '../../../src/services/allowance-utils';
-import { createSBCTxFromCalls } from '../../../src/services/sbc';
+import { createSafeExecuteTxFromCalls } from '../../../src/services/safe';
 import { executeSourceSwaps } from '../../../src/swap/execution/source-swaps';
+import { predictSafeAccountAddressV2 } from '../../../src/swap/safe/predict';
 import type { Aggregator, QuoteResponse } from '../../../src/swap/aggregators/types';
 import type {
   ExecutionContext,
@@ -51,6 +48,7 @@ const INPUT = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2' as Hex;
 const COT = '0xaf88d065e77c8cc2239327c5edb3a432268e5831' as Hex;
 const EOA = '0xaaaa000000000000000000000000000000000001' as Hex;
 const EPH = '0xbbbb000000000000000000000000000000000002' as Hex;
+const SAFE = predictSafeAccountAddressV2(EOA, EPH).address;
 const TX_HASH =
   '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as Hex;
 
@@ -119,7 +117,7 @@ const makePreparedExecution = (
       chainId: CHAIN_ID,
       tokenAddress: INPUT,
       amount: quote.quote.input.amountRaw,
-      targetAddress: EPH,
+      targetAddress: SAFE,
       authorization: {
         kind: 'permit',
         call: lazyPermit
@@ -148,23 +146,21 @@ const makeContext = (
   preparedExecution?: PreparedSwapExecution,
   readContract = vi.fn().mockResolvedValue(3_000_000_000n)
 ) => {
-  const submitSBCs = vi.fn().mockResolvedValue([
-    {
-      chainId: CHAIN_ID,
-      address: EPH,
-      errored: false as const,
-      txHash: TX_HASH,
-    },
-  ]);
+  const createSafeExecuteTx = vi.fn().mockResolvedValue({
+    chainId: CHAIN_ID,
+    safeAddress: EPH,
+    txHash: TX_HASH,
+  });
   const context = {
     chainList: {
       getChainByID: vi.fn().mockReturnValue({
         id: CHAIN_ID,
         name: 'Arbitrum',
-        supports7702: true,
       }),
     },
-    sourceExecutionPaths: new Map([[CHAIN_ID, 'ephemeral']]),
+    sourceExecutionPaths: new Map([[CHAIN_ID, 'safe']]),
+    safeAddress: SAFE,
+    safeDeploymentPromises: new Map([[CHAIN_ID, Promise.resolve({})]]),
     destinationDirectEoa: false,
     destinationChainId: 8453,
     eoaAddress: EOA,
@@ -176,7 +172,7 @@ const makeContext = (
     } as unknown as WalletClient,
     ephemeralWallet: {
       address: EPH,
-      signTypedData: vi.fn(),
+      signTypedData: vi.fn().mockResolvedValue(`0x${'11'.repeat(64)}1b`),
     } as unknown as PrivateKeyAccount,
     publicClientList: {
       get: vi.fn().mockReturnValue({
@@ -189,16 +185,17 @@ const makeContext = (
         }),
       }),
     },
-    middlewareClient: makeSwapExecutionMiddlewareClient({ submitSBCs }),
+    middlewareClient: makeSwapExecutionMiddlewareClient({
+      createSafeExecuteTx,
+    }),
     cache: {
       getAllowance: vi.fn().mockReturnValue(0n),
-      hasAuthCodeSet: vi.fn().mockReturnValue(true),
     },
     preparedExecution,
     onProgress: vi.fn(),
     slippage: 0.005,
   } as unknown as ExecutionContext & { destinationChainId: number };
-  return { context, submitSBCs };
+  return { context, createSafeExecuteTx };
 };
 
 const metadata = (): SwapMetadata => ({
@@ -214,21 +211,11 @@ describe('executeSourceSwaps contracts', () => {
     vi.mocked(signPermitForAddressAndValue).mockResolvedValue(
       `0x${'11'.repeat(65)}`
     );
-    vi.mocked(createSBCTxFromCalls).mockResolvedValue({
-      chainId: CHAIN_ID,
-      address: EPH,
-      calls: [],
-      deadline: '0x01',
-      keyHash: '0x00',
-      nonce: '0x01',
-      revertOnFailure: true,
-      signature: '0x1234',
-    } as never);
   });
 
   it('groups repeated same-chain legs and consumes their prepared transfer only once', async () => {
     const quote = makeQuote();
-    const { context } = makeContext(makePreparedExecution(quote));
+    const { context, createSafeExecuteTx } = makeContext(makePreparedExecution(quote));
 
     await executeSourceSwaps(
       {
@@ -240,7 +227,7 @@ describe('executeSourceSwaps contracts', () => {
       metadata()
     );
 
-    const calls = vi.mocked(createSBCTxFromCalls).mock.calls[0]?.[0].calls;
+    const calls = vi.mocked(createSafeExecuteTxFromCalls).mock.calls[0]![0].calls;
     expect(calls.filter((call) => call.data === '0xpermit')).toHaveLength(1);
     expect(calls.filter((call) => call.data === '0xtransferFrom')).toHaveLength(1);
   });
@@ -251,7 +238,7 @@ describe('executeSourceSwaps contracts', () => {
       supportsChain: () => true,
       getQuotes: vi.fn(),
     } as unknown as Aggregator;
-    const { context, submitSBCs } = makeContext(makePreparedExecution(quote, true));
+    const { context, createSafeExecuteTx } = makeContext(makePreparedExecution(quote, true));
     vi.mocked(signPermitForAddressAndValue).mockRejectedValue(
       new UserRejectedRequestError(new Error('permit rejected'))
     );
@@ -268,7 +255,7 @@ describe('executeSourceSwaps contracts', () => {
       )
     ).rejects.toMatchObject({ code: 'user_action/allowance_approval_denied' });
 
-    expect(submitSBCs).not.toHaveBeenCalled();
+    expect(createSafeExecuteTx).not.toHaveBeenCalled();
     expect(quote.aggregator.getQuotes).not.toHaveBeenCalled();
   });
 
@@ -278,8 +265,8 @@ describe('executeSourceSwaps contracts', () => {
       supportsChain: () => true,
       getQuotes: vi.fn(),
     } as unknown as Aggregator;
-    const { context, submitSBCs } = makeContext();
-    submitSBCs.mockRejectedValue(
+    const { context, createSafeExecuteTx } = makeContext();
+    createSafeExecuteTx.mockRejectedValue(
       new UserRejectedRequestError(new Error('dispatch rejected'))
     );
 

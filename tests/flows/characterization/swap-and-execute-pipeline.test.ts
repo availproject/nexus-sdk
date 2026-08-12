@@ -294,7 +294,6 @@ const makeChainList = (): ChainListType => {
     return {
       ...chain,
       name: 'Arbitrum',
-      supports7702: true,
       universe: Universe.ETHEREUM,
       nativeCurrency: { ...chain.nativeCurrency, symbol: 'ETH', name: 'Ether', logo: '' },
       blockExplorers: { default: { name: 'Arbiscan', url: 'https://arbiscan.io' } },
@@ -341,13 +340,7 @@ const makeEphemeralWallet = (): PrivateKeyAccount =>
   ({
     address: '0xbbbb000000000000000000000000000000000002' as Hex,
     signMessage: vi.fn().mockResolvedValue('0x' + '33'.repeat(65)),
-    signTypedData: vi.fn().mockResolvedValue('0x' + '33'.repeat(65)),
-    signAuthorization: vi.fn().mockResolvedValue({
-      r: '0x01',
-      s: '0x02',
-      yParity: 0,
-      nonce: 0,
-    }),
+    signTypedData: vi.fn().mockResolvedValue('0x' + '33'.repeat(64) + '1b'),
   }) as unknown as PrivateKeyAccount;
 
 const makeMiddlewareClient = (balances: Array<{
@@ -369,14 +362,11 @@ const makeMiddlewareClient = (balances: Array<{
     getBebopQuote: vi.fn().mockImplementation(async (params: Record<string, string>) =>
       makeBebopResponse(params)
     ),
-    submitSBCs: vi.fn().mockImplementation(async (txs: Array<{ chainId: number; address: Hex }>) =>
-      txs.map((tx, index) => ({
-        chainId: tx.chainId,
-        address: tx.address,
-        errored: false as const,
-        txHash: (`0x${(index + 1).toString(16).padStart(64, '0')}`) as Hex,
-      }))
-    ),
+    createSafeExecuteTx: vi.fn().mockImplementation(async (request) => ({
+      chainId: request.chainId,
+      safeAddress: request.safeAddress,
+      txHash: SWAP_TX_HASH,
+    })),
     submitRFF: vi.fn(),
     getRFF: vi.fn(),
     getRFFStatus: vi.fn().mockResolvedValue({ status: 'created' }),
@@ -587,9 +577,9 @@ describe('swapAndExecute pipeline characterization', () => {
     // Tiered selection: LiFi (tier 2) is not consulted — Bebop carries the funding swap.
     expect(middlewareClient.getBebopQuote).toHaveBeenCalled();
     expect(middlewareClient.getLiFiQuote).not.toHaveBeenCalled();
-    // Smart-account-only: source swap dispatches via ephemeral SBC (middleware submitSBCs),
+    // Smart-account-only: source swap dispatches through Safe V2 middleware execution,
     // not EOA sendCalls. Only the final execute lands on the EOA wallet.
-    expect(middlewareClient.submitSBCs).toHaveBeenCalled();
+    expect(middlewareClient.createSafeExecuteTx).toHaveBeenCalled();
     expect(evmClient.sendTransaction).toHaveBeenCalledTimes(1);
     expect(events).toEqual(
       expect.arrayContaining([

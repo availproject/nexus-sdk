@@ -38,7 +38,7 @@ export type SwapSourceSwapStep = {
     name: string;
     logo: string;
   };
-  walletPath: 'ephemeral' | 'safe';
+  walletPath: 'safe';
   swaps: {
     input: PlanTokenAmount;
     output: PlanTokenAmount;
@@ -80,7 +80,7 @@ export type SwapDestinationSwapStep = {
     name: string;
     logo: string;
   };
-  walletPath: 'ephemeral' | 'safe';
+  walletPath: 'safe';
   swaps: {
     input: PlanTokenAmount;
     output: PlanTokenAmount;
