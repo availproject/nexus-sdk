@@ -19,8 +19,13 @@ import { requireSafeDeployment, type SafeCall } from '../../services/safe';
 import { createSourceSwapStepId } from '../../services/step-ids';
 import { equalFold } from '../../services/strings';
 import { withTimingSpan } from '../../services/timing';
-import { aggregatorService } from '../aggregators';
-import { type QuoteResponse, QuoteSeriousness, QuoteType } from '../aggregators/types';
+import { AggregateMode, aggregateAggregators, aggregatorService } from '../aggregators';
+import {
+  type Aggregator,
+  type QuoteResponse,
+  QuoteSeriousness,
+  QuoteType,
+} from '../aggregators/types';
 import type {
   BridgeAsset,
   ExecutionContext,
@@ -31,6 +36,7 @@ import type {
 } from '../types';
 import { resolvePreparedFundingTransferCalls } from './eoa-to-ephemeral';
 import { getParsedQuote } from './parsed-quote';
+import { addRouterExclusions } from './router-exclusions';
 import { dispatchSafeSource } from './safe-dispatch';
 import { readSettlementBalanceRaw } from './settlement-balance';
 
@@ -265,6 +271,7 @@ export const dispatchSourceChainBatch = async (input: {
 const requoteFailedChains = async (
   failedChains: Array<{ chainId: number; chainSwaps: QuoteResponse[] }>,
   srcBuffer: Decimal | null,
+  aggregators: Aggregator[],
   ctx: Pick<
     ExecutionContext,
     | 'cache'
@@ -289,45 +296,47 @@ const requoteFailedChains = async (
       const userAddress = ctx.safeAddress;
       const sourceRecipient = recipientForChain(chainId);
 
-      const requoted = await Promise.all(
-        chainSwaps.map(async (swap) => {
-          const requests = [
-            {
-              type: QuoteType.EXACT_IN as const,
-              seriousness: QuoteSeriousness.SERIOUS,
-              chainId: swap.chainID,
-              inputToken: swap.quote.input.contractAddress,
-              outputToken: swap.quote.output.contractAddress,
-              inputAmount: swap.holding.amountRaw,
-              userAddress,
-              recipientAddress: sourceRecipient,
-            },
-          ];
-          const [requote] = swap.quote.routerId
-            ? await swap.aggregator.getQuotes(requests, [swap.quote.routerId])
-            : await swap.aggregator.getQuotes(requests);
-
-          if (!requote) {
-            throw new ExternalServiceError(
-              ERROR_CODES.EXTERNAL_SOURCE_SWAP_QUOTE_FAILED,
-              `Source requote failed on chain ${swap.chainID}`,
-              {
-                context: {
-                  service: aggregatorService(swap.aggregator),
-                  stepId: createSourceSwapStepId(chainId),
-                  stepType: 'source_swap',
-                  chainId: swap.chainID,
-                },
-              }
-            );
-          }
-
-          return {
-            ...swap,
-            quote: requote,
-          };
-        })
+      const requests = chainSwaps.map((swap) => ({
+        type: QuoteType.EXACT_IN as const,
+        seriousness: QuoteSeriousness.SERIOUS,
+        chainId: swap.chainID,
+        inputToken: swap.quote.input.contractAddress,
+        outputToken: swap.quote.output.contractAddress,
+        inputAmount: swap.holding.amountRaw,
+        userAddress,
+        recipientAddress: sourceRecipient,
+      }));
+      const routerExclusions = new Map<Aggregator, string[]>();
+      addRouterExclusions(routerExclusions, chainSwaps);
+      const results = await aggregateAggregators(
+        requests,
+        aggregators,
+        AggregateMode.MaximizeOutput,
+        routerExclusions
       );
+      const requoted = results.map(({ quote, aggregator }, index) => {
+        const swap = chainSwaps[index];
+        if (!quote) {
+          throw new ExternalServiceError(
+            ERROR_CODES.EXTERNAL_SOURCE_SWAP_QUOTE_FAILED,
+            `Source requote failed on chain ${swap.chainID}`,
+            {
+              context: {
+                service: aggregatorService(swap.aggregator),
+                stepId: createSourceSwapStepId(chainId),
+                stepType: 'source_swap',
+                chainId: swap.chainID,
+              },
+            }
+          );
+        }
+
+        return {
+          ...swap,
+          quote,
+          aggregator,
+        };
+      });
 
       return [chainId, requoted] as const;
     })
@@ -425,7 +434,8 @@ export const executeSourceSwaps = async (
     | 'safeAddress'
     | 'safeDeploymentPromises'
   > & { destinationChainId: number },
-  metadata: SwapMetadata
+  metadata: SwapMetadata,
+  aggregators: Aggregator[]
 ): Promise<BridgeAsset[]> => {
   if (source.swaps.length === 0) return [];
 
@@ -592,6 +602,7 @@ export const executeSourceSwaps = async (
           requoteFailedChains(
             failedChains.map(({ chainId, chainSwaps }) => ({ chainId, chainSwaps })),
             source.srcBuffer,
+            aggregators,
             ctx
           ),
         { tags: { attempt, source_chain_count: failedChains.length } }

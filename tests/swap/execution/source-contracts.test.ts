@@ -224,7 +224,8 @@ describe('executeSourceSwaps contracts', () => {
         srcBuffer: new Decimal(0),
       },
       context,
-      metadata()
+      metadata(),
+      [quote.aggregator]
     );
 
     const calls = vi.mocked(createSafeExecuteTxFromCalls).mock.calls[0]![0].calls;
@@ -251,7 +252,8 @@ describe('executeSourceSwaps contracts', () => {
           srcBuffer: new Decimal(0),
         },
         context,
-        metadata()
+        metadata(),
+        [quote.aggregator]
       )
     ).rejects.toMatchObject({ code: 'user_action/allowance_approval_denied' });
 
@@ -278,7 +280,8 @@ describe('executeSourceSwaps contracts', () => {
           srcBuffer: new Decimal(0),
         },
         context,
-        metadata()
+        metadata(),
+        [quote.aggregator]
       )
     ).rejects.toMatchObject({ code: 'user_action/tx_send_denied' });
 
@@ -298,7 +301,8 @@ describe('executeSourceSwaps contracts', () => {
         reclaimFromActualBalance: true,
       },
       context,
-      metadata()
+      metadata(),
+      [quote.aggregator]
     );
 
     expect(readContract).toHaveBeenCalledWith(

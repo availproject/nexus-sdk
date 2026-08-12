@@ -18,8 +18,8 @@ export const DIRECT_DST_QUOTE_TTL_MS = 45_000;
 // Buffers
 // ---------------------------------------------------------------------------
 
-export const DST_BUFFER_PCT = 0.1;
-export const DST_BUFFER_MAX_USD = 2;
+export const DST_BUFFER_PCT = 0.05;
+export const DST_BUFFER_MAX_USD = 1;
 export const SRC_BUFFER_PCT = 0.02;
 export const SRC_BUFFER_MAX_USD = 1;
 export const MAX_SWAP_HAIRCUT_PCT = 0.03;

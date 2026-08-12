@@ -626,6 +626,91 @@ describe('determineSwapRoute', () => {
       )
     ).toBe(true);
   });
+  it('EXACT_OUT buffers only the gas-swap input for a COT destination with gas', async () => {
+    const input: SwapData = {
+      mode: SwapMode.EXACT_OUT,
+      data: {
+        toChainId: BASE_CHAIN,
+        toTokenAddress: USDC_BASE,
+        toAmountRaw: 500_000_000n,
+        toNativeAmountRaw: 1_000_000_000_000_000n,
+      },
+    };
+    vi.mocked(destinationGasSwapExactIn).mockResolvedValue(
+      makeGasQuoteResponse({
+        chainID: BASE_CHAIN,
+        inputAmountRaw: 10_000_000n,
+        inputAmount: '10',
+        inputContract: USDC_BASE,
+      })
+    );
+    vi.mocked(autoSelectSources).mockResolvedValue({
+      quoteResponses: [],
+      usedCOTs: [
+        {
+          holding: {
+            chainID: ARB_CHAIN,
+            tokenAddress: USDC_ARB,
+            amountRaw: 600_000_000n,
+            decimals: 6,
+            symbol: 'USDC',
+          },
+          amountUsed: new Decimal('513'),
+          idx: 0,
+        },
+      ],
+    });
+
+    const route = await determineSwapRoute(
+      input,
+      makeRouteOptions({
+        skipFastPaths: true,
+        dstTokenInfo: makeDstTokenInfo({
+          contractAddress: USDC_BASE,
+          decimals: 6,
+          symbol: 'USDC',
+          name: 'USD Coin',
+        }),
+        oraclePrices: [
+          {
+            universe: 'EVM',
+            chainId: BASE_CHAIN,
+            priceUsd: new Decimal('2500'),
+            tokenAddress: ZERO_ADDRESS,
+            tokenSymbol: 'ETH',
+            tokenDecimals: 18,
+            timestamp: 0,
+          },
+          {
+            universe: 'EVM',
+            chainId: BASE_CHAIN,
+            priceUsd: new Decimal('1'),
+            tokenAddress: USDC_BASE,
+            tokenSymbol: 'USDC',
+            tokenDecimals: 6,
+            timestamp: 0,
+          },
+        ],
+        balances: [
+          {
+            amount: '600',
+            chainID: ARB_CHAIN,
+            decimals: 6,
+            symbol: 'USDC',
+            tokenAddress: USDC_ARB,
+            value: 600,
+            logo: '',
+            name: 'USDC',
+          },
+        ],
+      })
+    );
+
+    expect(vi.mocked(autoSelectSources).mock.calls[0][0].outputRequired.toFixed()).toBe('511.5');
+    expect(route.destination.inputAmount.min.toFixed()).toBe('510');
+    expect(route.destination.inputAmount.max.toFixed()).toBe('510.5');
+    expect(route.buffer.amount).toBe('1.5');
+  });
   it('fails closed when cross-chain routing needs a bridge quote and none is available', async () => {
     const input: SwapData = {
       mode: SwapMode.EXACT_OUT,
@@ -1837,10 +1922,10 @@ describe('determineSwapRoute', () => {
     );
     expect(
       vi.mocked(autoSelectSources).mock.calls[0][0].outputRequired.toString()
-    ).toBe('3103');
+    ).toBe('3102');
     expect(route.destination.inputAmount.min.toString()).toBe('3100');
-    expect(route.destination.inputAmount.max.toString()).toBe('3102');
-    expect(route.buffer.amount).toBe('3');
+    expect(route.destination.inputAmount.max.toString()).toBe('3101');
+    expect(route.buffer.amount).toBe('2');
   });
   it('EXACT_OUT applies sources as an allowlist before source selection', async () => {
     const input: SwapData = {
@@ -3774,7 +3859,7 @@ describe('determineSwapRoute', () => {
     expect(accepted?.tokenSwap).not.toBeNull();
   });
   it('EXACT_OUT getDstSwap keeps the original buffered max on an accepted requote (buffer applied once)', async () => {
-    // The dst buffer (min 10% / $2) is applied exactly once when the route is built.
+    // The dst buffer (min 5% / $1) is applied exactly once when the route is built.
     // A requote that moves `min` but stays within the frozen original max must NOT re-add
     // the buffer to `max` — otherwise the ceiling would creep up on every requote.
     const input: SwapData = {
@@ -3792,7 +3877,7 @@ describe('determineSwapRoute', () => {
       ],
     });
     vi.mocked(determineDestinationSwaps)
-      // Initial build: input 3100 → dst buffer 2 → originalDestinationMaxInput = 3102.
+      // Initial build: input 3100 → dst buffer 1 → originalDestinationMaxInput = 3101.
       .mockResolvedValueOnce(
         makeDestinationQuoteResponse({
           chainID: ARB_CHAIN,
@@ -3806,7 +3891,7 @@ describe('determineSwapRoute', () => {
           },
         })
       )
-      // Requote: input 3101 — changed, but still ≤ 3102, so it is accepted.
+      // Requote: input 3101 — changed, but still ≤ 3101, so it is accepted.
       .mockResolvedValueOnce(
         makeDestinationQuoteResponse({
           chainID: ARB_CHAIN,
@@ -3827,7 +3912,7 @@ describe('determineSwapRoute', () => {
         balances: [{ amount: '4000', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDC', tokenAddress: USDC_ARB, value: 4000, logo: '', name: 'USDC' }],
       })
     );
-    expect(route.destination.inputAmount.max.toString()).toBe('3102');
+    expect(route.destination.inputAmount.max.toString()).toBe('3101');
     const routerExclusions = new Map<Aggregator, string[]>([
       [{} as Aggregator, ['uniswap-v3']],
     ]);
@@ -3839,11 +3924,11 @@ describe('determineSwapRoute', () => {
     );
     // min tracks the fresh requote; max stays pinned at the original buffered ceiling.
     expect(route.destination.inputAmount.min.toString()).toBe('3101');
-    expect(route.destination.inputAmount.max.toString()).toBe('3102');
+    expect(route.destination.inputAmount.max.toString()).toBe('3101');
   });
   it('EXACT_OUT getDstSwap requotes the gas swap and rejects when its input drifts past the buffered max budget', async () => {
-    // Initial: token swap input 3100 + gas swap input 22 = 3122 → dst buffer 2 → max 3124.
-    // Requote: token 3100 + gas 30 = 3130 → exceeds 3124, must throw.
+    // Initial: token swap input 3100 + gas swap input 22 = 3122 → dst buffer 1 → max 3123.
+    // Requote: token 3100 + gas 30 = 3130 → exceeds 3123, must throw.
     const input: SwapData = {
       mode: SwapMode.EXACT_OUT,
       data: {
@@ -3904,14 +3989,14 @@ describe('determineSwapRoute', () => {
         balances: [{ amount: '4000', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDC', tokenAddress: USDC_ARB, value: 4000, logo: '', name: 'USDC' }],
       })
     );
-    // Initial: token 3100 + gas 22 = 3122; dst buffer = min(10%, $2) → $2 → max = 3124.
+    // Initial: token 3100 + gas 22 = 3122; dst buffer = min(5%, $1) → $1 → max = 3123.
     expect(route.destination.swap.gasSwap?.quote.input.amountRaw).toBe(22_000_000n);
     expect(route.destination.inputAmount.min.toString()).toBe('3122');
-    expect(route.destination.inputAmount.max.toString()).toBe('3124');
+    expect(route.destination.inputAmount.max.toString()).toBe('3123');
     await expect(route.destination.getDstSwap(0n)).rejects.toThrow(/max budget/i);
   });
   it('EXACT_OUT getDstSwap accepts a gas-swap requote when total input stays under the buffered max', async () => {
-    // Initial: 3100 + 22 = 3122; max 3124. Requote: 3100 + 24 = 3124 — at the cap, accepted.
+    // Initial: 3100 + 22 = 3122; max 3123. Requote: 3100 + 23 = 3123 — at the cap, accepted.
     const input: SwapData = {
       mode: SwapMode.EXACT_OUT,
       data: {
@@ -3957,8 +4042,8 @@ describe('determineSwapRoute', () => {
         makeGasQuoteResponse({
           chainID: ARB_CHAIN,
           inputContract: USDC_ARB,
-          inputAmountRaw: 24_000_000n,
-          inputAmount: '24',
+          inputAmountRaw: 23_000_000n,
+          inputAmount: '23',
         })
       );
     const route = await determineSwapRoute(
@@ -3972,11 +4057,11 @@ describe('determineSwapRoute', () => {
         balances: [{ amount: '4000', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDC', tokenAddress: USDC_ARB, value: 4000, logo: '', name: 'USDC' }],
       })
     );
-    expect(route.destination.inputAmount.max.toString()).toBe('3124');
+    expect(route.destination.inputAmount.max.toString()).toBe('3123');
     const requoted = await route.destination.getDstSwap(0n);
-    expect(requoted?.gasSwap?.quote.input.amountRaw).toBe(24_000_000n);
-    expect(route.destination.inputAmount.min.toString()).toBe('3124');
-    expect(route.destination.inputAmount.max.toString()).toBe('3124');
+    expect(requoted?.gasSwap?.quote.input.amountRaw).toBe(23_000_000n);
+    expect(route.destination.inputAmount.min.toString()).toBe('3123');
+    expect(route.destination.inputAmount.max.toString()).toBe('3123');
   });
   it('EXACT_IN getDstSwap accepts a worsened requote (no rate tolerance guard)', async () => {
     const input: SwapData = {
@@ -4603,7 +4688,7 @@ describe('determineSwapRoute — bridge provider parity', () => {
     expect(req.destination.amount).toBe('5000000000');
     expect(equalFold(req.destination.contract_address, USDC_ARB)).toBe(true);
     // autoSelect still gets the full buffered requirement (3100 + buffers).
-    expect(vi.mocked(autoSelectSources).mock.calls[0][0].outputRequired.toString()).toBe('3103');
+    expect(vi.mocked(autoSelectSources).mock.calls[0][0].outputRequired.toString()).toBe('3102');
   });
 
   it('EXACT_OUT Mayan: folds the pre-estimated bridge fee (input − minReceived) into the source selection', async () => {

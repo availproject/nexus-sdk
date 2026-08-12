@@ -134,7 +134,8 @@ describe('native EOA source swap dispatches the fresh re-quote on retry', () => 
     await executeSourceSwaps(
       { swaps: [original], creationTime: Date.now(), srcBuffer: REAL_SRC_BUFFER },
       ctx,
-      metadata()
+      metadata(),
+      [aggregator]
     ).catch(() => undefined); // both attempts revert; we only assert what was dispatched
 
     const sends = sendTransaction.mock.calls.map((c) => innerData(c[0].data as Hex));
@@ -153,10 +154,42 @@ describe('native EOA source swap dispatches the fresh re-quote on retry', () => 
     await executeSourceSwaps(
       { swaps: [original], creationTime: Date.now(), srcBuffer: REAL_SRC_BUFFER },
       ctx,
-      metadata()
+      metadata(),
+      [aggregator]
     );
 
     const sends = sendTransaction.mock.calls.map((c) => innerData(c[0].data as Hex));
     expect(sends).toEqual(['0xaaaaaaaa', '0xbbbbbbbb']);
+  });
+
+  it('selects the best source re-quote across the route aggregators', async () => {
+    const sameAggregatorQuote = makeNativeQuote('0xbbbbbbbb', 45_000_000n);
+    const competingQuote = makeNativeQuote('0xcccccccc', 46_000_000n);
+    const originalAggregator = {
+      supportsChain: () => true,
+      getQuotes: vi.fn().mockResolvedValue([sameAggregatorQuote.quote]),
+    } as unknown as Aggregator;
+    const competingAggregator = {
+      supportsChain: () => true,
+      getQuotes: vi.fn().mockResolvedValue([competingQuote.quote]),
+    } as unknown as Aggregator;
+    const original = makeNativeQuote('0xaaaaaaaa', 45_000_000n, originalAggregator);
+    original.quote.routerId = 'uniswap-v3';
+    const { ctx, sendTransaction } = makeCtx({ receiptStatuses: ['reverted', 'success'] });
+
+    await executeSourceSwaps(
+      { swaps: [original], creationTime: Date.now(), srcBuffer: REAL_SRC_BUFFER },
+      ctx,
+      metadata(),
+      [originalAggregator, competingAggregator]
+    );
+
+    expect(originalAggregator.getQuotes).toHaveBeenCalledWith(
+      expect.any(Array),
+      ['uniswap-v3']
+    );
+    expect(competingAggregator.getQuotes).toHaveBeenCalledWith(expect.any(Array));
+    const sends = sendTransaction.mock.calls.map((call) => innerData(call[0].data as Hex));
+    expect(sends).toEqual(['0xaaaaaaaa', '0xcccccccc']);
   });
 });

@@ -24,9 +24,9 @@ import {
 // budget to be a deliberate, reviewed product decision rather than something that slips through
 // behind an ambiguous numeric example. Keep this in lockstep with src/swap/swap.md §12.
 describe('swap economic constants', () => {
-  it('destination buffer = min(10%, $2)', () => {
-    expect(DST_BUFFER_PCT).toBe(0.1);
-    expect(DST_BUFFER_MAX_USD).toBe(2);
+  it('destination buffer = min(5%, $1)', () => {
+    expect(DST_BUFFER_PCT).toBe(0.05);
+    expect(DST_BUFFER_MAX_USD).toBe(1);
   });
 
   it('EXACT_OUT source buffer = min(2%, $1)', () => {

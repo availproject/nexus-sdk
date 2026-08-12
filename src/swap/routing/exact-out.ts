@@ -620,7 +620,7 @@ export async function _exactOutRoute(
   const destinationBuffer =
     needsTokenSwap || needsGasSwap
       ? applyBuffer(
-          inputAmount,
+          needsTokenSwap ? inputAmount : gasInputAmount,
           DST_BUFFER_PCT,
           DST_BUFFER_MAX_USD,
           oraclePrices,

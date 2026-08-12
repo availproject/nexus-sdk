@@ -36,6 +36,7 @@ const makeRoute = () => ({
     sameTokenBridge: false,
     settlementCurrencyId: CurrencyID.USDC,
     source: { swaps: [], creationTime: Date.now(), srcBuffer: null },
+    extras: { aggregators: [] },
     bridge: null,
     destination: {
       chainId: 8453,

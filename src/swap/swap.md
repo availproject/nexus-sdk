@@ -117,8 +117,10 @@ Destination swaps always execute from the Safe and deliver requested token/nativ
 
 Exact In maximizes destination output from the selected raw input. Exact Out selects enough source
 value to satisfy a fixed destination amount and optional native-gas amount, including configured
-buffers and bridge fees. Provider selection happens only for route-relevant remote value; direct
-destination routes do not request a bridge provider.
+buffers and bridge fees. Its destination buffer is the smaller of 5% or $1. When the requested
+token is already the destination COT and only native gas needs a swap, that buffer applies only to
+the gas-swap input; the requested COT amount remains exact. Provider selection happens only for
+route-relevant remote value; direct destination routes do not request a bridge provider.
 
 ## Preparation
 
@@ -222,6 +224,8 @@ Retries are deliberately narrow:
 - transient permit-preparation RPC errors may retry up to three total attempts;
 - user rejection and direct approval failures are terminal;
 - ambiguous middleware submission failures are not replayed;
+- a safely retryable source swap is re-quoted across the route's aggregators, excluding the failed
+  router only from its original aggregator, and uses the quote with the highest output;
 - destination requotes remain bounded by their original route constraints.
 
 ## Key invariants
