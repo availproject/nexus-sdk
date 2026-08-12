@@ -43,7 +43,11 @@ import { equalFold } from '../services/strings';
 import { minutesToMs } from '../services/time';
 import { getFallbackTokenLogoDataUri } from '../services/token-logo';
 import { EADDRESS } from '../swap/constants';
-import { createSafeMiddlewareClientV2 } from '../swap/safe/client';
+import {
+  createSafeMiddlewareClient,
+  createSafeMiddlewareClientV2,
+  type SafeMiddlewareClient,
+} from '../swap/safe/client';
 import type {
   CreateSafeExecuteTxV2Request,
   CreateSafeExecuteTxV2Response,
@@ -138,6 +142,7 @@ export type MiddlewareClient = {
   createSafeExecuteTx: (
     req: CreateSafeExecuteTxV2Request
   ) => Promise<CreateSafeExecuteTxV2Response>;
+  legacySafe?: SafeMiddlewareClient;
   configureTiming: (options?: { timing?: TimingSpanHooks; captureNetworkTiming?: boolean }) => void;
   destroy: () => void;
 };
@@ -1176,6 +1181,7 @@ export const createMiddlewareClient = (
   };
 
   const safe = createSafeMiddlewareClientV2(client);
+  const legacySafe = createSafeMiddlewareClient(client);
 
   const wrapSafe = async <T>(
     label: string,
@@ -1262,6 +1268,7 @@ export const createMiddlewareClient = (
     getSafeAccountAddress,
     ensureSafeAccount,
     createSafeExecuteTx,
+    legacySafe,
     configureTiming,
     destroy: () => {
       uninstallTiming();

@@ -353,10 +353,9 @@ describe('Safe V2 wire format', () => {
     expect(source).not.toMatch(/(?:from\s+|import\s*\()(['"])@safe-global\/protocol-kit/);
   });
 
-  it('keeps high-level swap code off the legacy single-owner predictor', () => {
+  it('keeps active swap code off the legacy single-owner predictor', () => {
     const repositoryRoot = resolve(import.meta.dirname, '../../..');
     const highLevelSafeUsers = [
-      'src/services/init-refund-sweep.ts',
       'src/services/safe.ts',
       'src/swap/prepare.ts',
       'src/swap/routing/addresses.ts',
@@ -369,6 +368,17 @@ describe('Safe V2 wire format', () => {
     ].map((path) => readFileSync(join(repositoryRoot, path), 'utf8'));
 
     expect(highLevelSafeUsers.join('\n')).not.toMatch(/\bpredictSafeAccountAddress\(/);
+  });
+
+  it('confines legacy Safe recovery to the initialization refund sweep', () => {
+    const repositoryRoot = resolve(import.meta.dirname, '../../..');
+    const initRefundSweep = readFileSync(
+      join(repositoryRoot, 'src/services/init-refund-sweep.ts'),
+      'utf8'
+    );
+
+    expect(initRefundSweep.match(/\bpredictSafeAccountAddress\(/g)).toHaveLength(1);
+    expect(initRefundSweep.match(/\bcreateSafeClient\(/g)).toHaveLength(1);
   });
 
   it('passes the derived V2 Safe through routing and execution without re-deriving it', () => {

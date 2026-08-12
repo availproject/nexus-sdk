@@ -200,6 +200,11 @@ Cleanup never falls back to another execution account:
 - native value held only by the separate ephemeral account cannot be pulled by the Safe and is
   intentionally skipped.
 
+As a temporary migration exception, the one-shot initialization refund sweep also checks the
+legacy single-owner V1 Safe. It reads bridge-family ERC-20 and native balances for the ephemeral,
+V1 Safe, and V2 Safe in one multicall per chain, and dispatches only a positive V1 Safe balance
+through the legacy Safe middleware endpoint. Active swaps and failure cleanup remain V2-only.
+
 User callbacks are emitted through the non-blocking progress pattern and cannot break cleanup or the
 main flow.
 

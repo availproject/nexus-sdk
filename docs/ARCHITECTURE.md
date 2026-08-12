@@ -226,6 +226,8 @@ Middleware client (`createMiddlewareClient`) validates URLs once and provides:
 - `getSafeAccountAddress(request)` -> `POST /api/v2/get-safe-account-address`
 - `ensureSafeAccount(request)` -> `POST /api/v2/ensure-safe-account`
 - `createSafeExecuteTx(request)` -> `POST /api/v2/create-safe-execute-tx`
+- The initialization refund sweep temporarily uses the corresponding `/api/v1` ensure and execute
+  endpoints only when it finds funds at the derived legacy V1 Safe address.
 - `getQuote(request)` -> `POST /api/v1/quote`
 - `getSwapBalances(address)` -> `GET /api/v1/swap-balance/EVM/:address`
 - `simulateBundleV2(request)` -> `POST /api/v1/gas/bundle-v2`
