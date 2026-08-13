@@ -14,7 +14,6 @@ import {
   normalizeIntentQuote,
   normalizeIntentStatus,
   normalizeIntentSubmitResponse,
-  normalizeIntentTokens,
 } from '../intent/normalize';
 import type {
   ExecutableIntentQuote,
@@ -22,11 +21,11 @@ import type {
   IntentChain,
   IntentHistoryQuery,
   IntentHistoryResult,
+  IntentProvider,
   IntentQuoteRequest,
   IntentStatus,
   IntentSubmitRequest,
   IntentSubmitResponse,
-  IntentTokenCatalogEntry,
 } from '../intent/types';
 
 export type SbcAuthorization = {
@@ -67,11 +66,10 @@ export type SbcResult = {
 
 export type MiddlewareClient = {
   getDeployment: () => Promise<DeploymentResponse>;
-  getIntentChains: () => Promise<IntentChain[]>;
-  getIntentTokens: () => Promise<IntentTokenCatalogEntry[]>;
+  getIntentChains: (providers?: IntentProvider[]) => Promise<IntentChain[]>;
   getIntentBalances: (
     address: Hex,
-    options?: { refresh?: boolean }
+    options?: { refresh?: boolean; providers?: IntentProvider[] }
   ) => Promise<IntentBalancesResult>;
   getIntentQuote: (request: IntentQuoteRequest) => Promise<ExecutableIntentQuote>;
   submitIntent: (request: IntentSubmitRequest) => Promise<IntentSubmitResponse>;
@@ -230,14 +228,15 @@ export const createMiddlewareClient = (
     }
   };
 
-  const getIntentChains = (): Promise<IntentChain[]> =>
+  const getIntentChains = (providers?: IntentProvider[]): Promise<IntentChain[]> =>
     request('chains request', async () =>
-      normalizeIntentChains((await client.get('/api/v1/better-intent/chains')).data)
-    );
-
-  const getIntentTokens = (): Promise<IntentTokenCatalogEntry[]> =>
-    request('tokens request', async () =>
-      normalizeIntentTokens((await client.get('/api/v1/better-intent/tokens')).data)
+      normalizeIntentChains(
+        (
+          await client.get('/api/v1/better-intent/chains', {
+            params: { provider: providers?.length === 1 ? providers[0] : providers },
+          })
+        ).data
+      )
     );
 
   const getIntentBalances: MiddlewareClient['getIntentBalances'] = (address, options) =>
@@ -245,7 +244,11 @@ export const createMiddlewareClient = (
       normalizeIntentBalances(
         (
           await client.get(`/api/v1/better-intent/balances/${address}`, {
-            params: { refresh: options?.refresh ?? false },
+            params: {
+              refresh: options?.refresh ?? false,
+              provider:
+                options?.providers?.length === 1 ? options.providers[0] : options?.providers,
+            },
           })
         ).data
       )
@@ -287,7 +290,6 @@ export const createMiddlewareClient = (
   return {
     getDeployment,
     getIntentChains,
-    getIntentTokens,
     getIntentBalances,
     getIntentQuote,
     submitIntent,

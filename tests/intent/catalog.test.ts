@@ -3,10 +3,11 @@ import type { Chain } from '../../src/domain';
 import { Universe } from '../../src/domain/chain-abstraction';
 import {
   createIntentCatalog,
+  createTokenCatalogFromChains,
   intentNetworkEnabled,
   mergeSupportedChains,
 } from '../../src/intent/catalog';
-import type { IntentChain, IntentTokenCatalogEntry } from '../../src/intent/types';
+import type { IntentChain } from '../../src/intent/types';
 
 const ETHEREUM_TOKEN = '0x0000000000000000000000000000000000000001' as const;
 const BASE_TOKEN = '0x0000000000000000000000000000000000000002' as const;
@@ -24,6 +25,7 @@ const intentChain = (id: number, tokenAddress: `0x${string}`): IntentChain => ({
       name: 'USD Coin',
       decimals: 6,
       isNative: false,
+      coingeckoId: 'usd-coin',
       providers: [{ id: 'nexus-v2', currencyId: 1 }],
     },
   ],
@@ -40,34 +42,6 @@ const executeChain = (id: number): Chain => ({
   rpcUrls: { default: { http: [`https://rpc-${id}.example`], webSocket: [] } },
 });
 
-const tokens: IntentTokenCatalogEntry[] = [
-  {
-    assetId: 'usd-coin',
-    symbol: 'USDC',
-    name: 'USD Coin',
-    chains: [
-      {
-        universe: 'EVM',
-        chainId: 1,
-        address: ETHEREUM_TOKEN,
-        name: 'USD Coin',
-        decimals: 6,
-        isNative: false,
-        providers: [{ id: 'nexus-v2', currencyId: 1 }],
-      },
-      {
-        universe: 'EVM',
-        chainId: 8453,
-        address: BASE_TOKEN,
-        name: 'USD Coin',
-        decimals: 6,
-        isNative: false,
-        providers: [{ id: 'nexus-v2', currencyId: 1 }],
-      },
-    ],
-  },
-];
-
 describe('Better Intent catalog', () => {
   it('enables intent operations only for mainnet and canary', () => {
     expect(intentNetworkEnabled('mainnet')).toBe(true);
@@ -76,10 +50,8 @@ describe('Better Intent catalog', () => {
   });
 
   it('resolves same-asset source filters for bridge quotes', () => {
-    const catalog = createIntentCatalog(
-      [intentChain(1, ETHEREUM_TOKEN), intentChain(8453, BASE_TOKEN)],
-      tokens
-    );
+    const chains = [intentChain(1, ETHEREUM_TOKEN), intentChain(8453, BASE_TOKEN)];
+    const catalog = createIntentCatalog(chains, createTokenCatalogFromChains(chains));
 
     expect(catalog.bridgeSources(1, ETHEREUM_TOKEN, [8453])).toEqual([
       { chainId: 'EVM_8453', tokens: [BASE_TOKEN] },
@@ -87,6 +59,24 @@ describe('Better Intent catalog', () => {
     expect(() => catalog.bridgeSources(1, ETHEREUM_TOKEN, [10])).toThrow(
       /USDC is not available on source chain 10/
     );
+  });
+
+  it('derives fungible asset deployments from the chains catalog', () => {
+    expect(
+      createTokenCatalogFromChains([
+        intentChain(1, ETHEREUM_TOKEN),
+        intentChain(8453, BASE_TOKEN),
+      ])
+    ).toEqual([
+      expect.objectContaining({
+        assetId: 'usd-coin',
+        symbol: 'USDC',
+        chains: [
+          expect.objectContaining({ chainId: 1, address: ETHEREUM_TOKEN }),
+          expect.objectContaining({ chainId: 8453, address: BASE_TOKEN }),
+        ],
+      }),
+    ]);
   });
 
   it('unions intent and execute chains with explicit capabilities', () => {

@@ -37,6 +37,10 @@ Supported built-in network names are:
 
 A custom `NetworkConfig` can also provide middleware and explorer URLs plus a network hint.
 
+Set `forceMayan: true` to restrict the supported intent catalog and balances to Mayan and prefer
+Mayan for quotes. The SDK derives cross-chain fungible asset groups from the filtered `/chains`
+response using `coingeckoId`.
+
 ## Intent lifecycle
 
 Bridge and swap methods share one server-driven lifecycle:

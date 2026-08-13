@@ -203,6 +203,11 @@ export const createBase = (config?: {
 
   const preferredProviders = () => (config?.forceMayan ? ['mayan' as const] : undefined);
 
+  const balanceOptions = (refresh = false) => ({
+    refresh,
+    ...(preferredProviders() ? { providers: preferredProviders() } : {}),
+  });
+
   const bridgeRequest = (
     input: BridgeParams,
     options?: BridgeOperationOptions,
@@ -352,7 +357,9 @@ export const createBase = (config?: {
     executeIntent((sources) => exactOutRequest(input, options, sources), options);
 
   const getIntentBalances = async (): Promise<IntentBalance[]> =>
-    state.middlewareClient.getIntentBalances(getEvm().address).then((result) => result.balances);
+    state.middlewareClient
+      .getIntentBalances(getEvm().address, balanceOptions())
+      .then((result) => result.balances);
 
   const execute = (params: ExecuteParams, _options?: OnEventParam, parentSpanId?: string) =>
     flowExecute(params, {
@@ -390,7 +397,7 @@ export const createBase = (config?: {
     executeParams: ExecuteParams
   ) => {
     const [balances, executeSimulation] = await Promise.all([
-      state.middlewareClient.getIntentBalances(getEvm().address, { refresh: true }),
+      state.middlewareClient.getIntentBalances(getEvm().address, balanceOptions(true)),
       simulateExecute(executeParams),
     ]);
     const token = getIntentCatalog().getToken(chainId, tokenAddress);

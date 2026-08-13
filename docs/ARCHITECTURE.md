@@ -34,7 +34,6 @@ createNexusClient(config)
   -> initialize()
        GET /deployment
        GET /api/v1/better-intent/chains       mainnet/canary only
-       GET /api/v1/better-intent/tokens       mainnet/canary only
   -> setEVMProvider(provider)
        bind address + viem wallet client
   -> operations
@@ -156,8 +155,14 @@ approved quote auditable.
 
 ## Balances and catalog
 
-`src/intent/catalog.ts` indexes the normalized chain/token catalogs by chain, address, symbol, and
-asset identity. It validates bridge same-asset relationships and produces bridge source filters.
+`src/intent/catalog.ts` indexes the normalized chain catalog by chain, address, symbol, and asset
+identity. Fungible asset groups are derived from each deployment's `coingeckoId`, matching the
+middleware's `/tokens` grouping without a second request. It validates bridge same-asset
+relationships and produces bridge source filters.
+
+When `forceMayan` is enabled, the SDK requests Mayan-filtered chains and balances and sends Mayan
+as the preferred quote provider. This keeps selectors, holdings, and quote routing on the same
+provider catalog.
 
 `getBalancesForBridge()` and `getBalancesForSwap()` call the same provider-backed balances endpoint
 and return chain-level `IntentBalance[]` values.
@@ -199,7 +204,7 @@ Execute uses deployment chain metadata and is independent of Better Intent avail
 `src/transport/middleware.ts` exposes only:
 
 - deployment metadata;
-- Better Intent chains and tokens;
+- Better Intent chains;
 - Better Intent balances;
 - quote;
 - submit;
