@@ -529,7 +529,7 @@ describe('selectDirectDestinationSwaps', () => {
   });
 
   it('routes quotes to the target token and converges with EXACT_IN-only aggregators', async () => {
-    // The core Path A EXACT_OUT bet: Fibrous/Mystic are EXACT_IN-only (EXACT_OUT → null), so the
+    // The core Path A EXACT_OUT bet: Mystic is EXACT_IN-only (EXACT_OUT → null), so the
     // route rides the convergence race alone. Indicative 0.5 WETH → 10 PEPE, need 5 PEPE.
     const captured: QuoteRequest[] = [];
     const seriousInputs: bigint[] = [];

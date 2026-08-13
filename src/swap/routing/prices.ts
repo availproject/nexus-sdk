@@ -8,12 +8,11 @@ import type { MiddlewareTokenPriceClient } from '../../transport';
 import { EADDRESS } from '../constants';
 import type { FlatBalance, OraclePriceResponse } from '../types';
 
-const CITREA_CHAIN_ID = 4114;
 const EXTERNAL_PRICE_TIMEOUT_MS = 2_000;
 
 export type ResolvedTokenPrice = {
   priceUsd: Decimal;
-  source: 'oracle' | 'balance' | 'lifi' | 'relay' | 'fibrous';
+  source: 'oracle' | 'balance' | 'lifi' | 'relay';
 };
 
 type Inputs = {
@@ -82,40 +81,29 @@ export const createTokenPriceResolver = (inputs: Inputs) => {
     }
 
     const middleware = inputs.middlewareClient as Partial<MiddlewareTokenPriceClient>;
-    let external: Promise<ResolvedTokenPrice | null>;
-    if (chainId === CITREA_CHAIN_ID) {
-      external = Promise.resolve()
-        .then(() =>
-          middleware.getFibrousTokenPrice?.(
-            isNativeAddress(tokenAddress) ? ZERO_ADDRESS : tokenAddress
-          )
+    const lifi = Promise.resolve()
+      .then(() =>
+        middleware.getLiFiTokenPrice?.(
+          chainId,
+          isNativeAddress(tokenAddress) ? EADDRESS : tokenAddress
         )
-        .then((value) => parsePrice(value ?? null, 'fibrous'));
-    } else {
-      const lifi = Promise.resolve()
-        .then(() =>
-          middleware.getLiFiTokenPrice?.(
-            chainId,
-            isNativeAddress(tokenAddress) ? EADDRESS : tokenAddress
-          )
+      )
+      .then((value) => parsePrice(value ?? null, 'lifi'));
+    const relay = Promise.resolve()
+      .then(() =>
+        middleware.getRelayTokenPrice?.(
+          chainId,
+          isNativeAddress(tokenAddress) ? ZERO_ADDRESS : tokenAddress
         )
-        .then((value) => parsePrice(value ?? null, 'lifi'));
-      const relay = Promise.resolve()
-        .then(() =>
-          middleware.getRelayTokenPrice?.(
-            chainId,
-            isNativeAddress(tokenAddress) ? ZERO_ADDRESS : tokenAddress
-          )
-        )
-        .then((value) => parsePrice(value ?? null, 'relay'));
-      external = Promise.any(
-        [lifi, relay].map(async (candidate) => {
-          const price = await candidate;
-          if (!price) throw new Error('token price unavailable');
-          return price;
-        })
-      ).catch(() => null);
-    }
+      )
+      .then((value) => parsePrice(value ?? null, 'relay'));
+    const external = Promise.any(
+      [lifi, relay].map(async (candidate) => {
+        const price = await candidate;
+        if (!price) throw new Error('token price unavailable');
+        return price;
+      })
+    ).catch(() => null);
 
     return withinExternalPriceBudget(external);
   };

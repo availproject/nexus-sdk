@@ -801,7 +801,6 @@ export const makeCharMiddleware = (opts: {
       .mockImplementation(async (params: Record<string, string>) =>
         makeBebopResponse(params, opts.drift?.rateMul)
       ),
-    getFibrousQuote: vi.fn().mockResolvedValue(null),
     getQuote: vi.fn().mockResolvedValue({
       fulfillmentBps: 0,
       sources: [ARB_CHAIN, OP_CHAIN, BASE_CHAIN].map((chainId) => ({

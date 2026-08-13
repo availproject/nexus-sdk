@@ -3,7 +3,6 @@ import {
   SLIPPAGE_BPS,
   SLIPPAGE_BPS_STRING,
   SLIPPAGE_FRACTION,
-  SLIPPAGE_PERCENT,
 } from '../../../src/swap/aggregators/constants';
 
 describe('aggregator slippage constants', () => {
@@ -11,6 +10,5 @@ describe('aggregator slippage constants', () => {
     expect(SLIPPAGE_BPS).toBe(30);
     expect(SLIPPAGE_BPS_STRING).toBe('30');
     expect(SLIPPAGE_FRACTION).toBe('0.003');
-    expect(SLIPPAGE_PERCENT).toBe('0.3');
   });
 });

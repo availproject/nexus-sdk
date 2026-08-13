@@ -7,7 +7,6 @@ import type { MiddlewareAggregatorQuoteClient } from '../../transport';
 import { EADDRESS } from '../constants';
 import { BebopAggregator } from './bebop';
 import { refreshExpectedOutput } from './expected-output';
-import { FibrousAggregator } from './fibrous';
 import { LiFiAggregator } from './lifi';
 import { MysticAggregator } from './mystic';
 import { RelayAggregator } from './relay';
@@ -22,7 +21,6 @@ import { ZeroExAggregator } from './zerox';
  */
 export const aggregatorService = (aggregator: Aggregator): ExternalServiceService => {
   if (aggregator instanceof BebopAggregator) return 'bebop';
-  if (aggregator instanceof FibrousAggregator) return 'fibrous';
   if (aggregator instanceof ZeroExAggregator) return 'zerox';
   if (aggregator instanceof MysticAggregator) return 'mystic';
   if (aggregator instanceof RelayAggregator) return 'relay';
@@ -37,7 +35,6 @@ export const aggregatorService = (aggregator: Aggregator): ExternalServiceServic
 export const createAggregators = (mw: MiddlewareAggregatorQuoteClient): Aggregator[] => [
   new LiFiAggregator(mw.getLiFiQuote, mw.getLiFiToken),
   new BebopAggregator(mw.getBebopQuote),
-  new FibrousAggregator(mw.getFibrousQuote, mw.getFibrousRoute),
   new ZeroExAggregator(mw.getZeroExPrice, mw.getZeroExQuote),
   new MysticAggregator(mw.postMystic, mw.getMysticToken),
   new RelayAggregator(mw.getRelayQuote),
@@ -58,7 +55,7 @@ export enum AggregateMode {
 
 // Tier-1 adapters quote fast; tier 2 only tops the pool up to the competition cap.
 // Array order is priority order within a tier.
-const TIER_1 = [RelayAggregator, BebopAggregator, FibrousAggregator, MysticAggregator];
+const TIER_1 = [RelayAggregator, BebopAggregator, MysticAggregator];
 const TIER_2 = [ZeroExAggregator, LiFiAggregator];
 const MAX_AGGREGATORS_PER_REQUEST = 2;
 
@@ -71,9 +68,8 @@ const tierRank = (aggregator: Aggregator): number => {
 };
 
 // Pick the ≤2 aggregators that quote this chain: tier-1 supporters first, topped up from tier 2.
-// Selection is chain-only on purpose — request-type quirks (e.g. Fibrous nulling EXACT_OUT) resolve
-// locally in the adapter for free. A lone metadata-less pick (0x/Mystic) is kept: aggregateAggregators
-// enriches it from a token-info endpoint rather than dropping it.
+// Selection is chain-only on purpose. A lone metadata-less pick (0x/Mystic) is kept:
+// aggregateAggregators enriches it from a token-info endpoint rather than dropping it.
 const selectForChain = (aggregators: Aggregator[], chainId: number): number[] => {
   const supporters = aggregators
     .map((agg, idx) => ({ agg, idx }))
@@ -373,7 +369,6 @@ const enrichWinner = async (
 };
 
 export { BebopAggregator } from './bebop';
-export { FibrousAggregator } from './fibrous';
 export { LiFiAggregator } from './lifi';
 export { MysticAggregator } from './mystic';
 export { RelayAggregator } from './relay';

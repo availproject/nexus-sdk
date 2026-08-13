@@ -7,7 +7,6 @@ import {
 import type { Aggregator, Quote, QuoteRequest } from '../../../src/swap/aggregators/types';
 import { QuoteSeriousness, QuoteType } from '../../../src/swap/aggregators/types';
 import { BebopAggregator } from '../../../src/swap/aggregators/bebop';
-import { FibrousAggregator } from '../../../src/swap/aggregators/fibrous';
 import { LiFiAggregator } from '../../../src/swap/aggregators/lifi';
 import { MysticAggregator } from '../../../src/swap/aggregators/mystic';
 import { RelayAggregator } from '../../../src/swap/aggregators/relay';
@@ -346,7 +345,6 @@ describe('aggregateAggregators — per-chain tiered selection', () => {
   const proxies = () => ({
     lifi: vi.fn().mockResolvedValue({}),
     bebop: vi.fn().mockResolvedValue({}),
-    fibrous: vi.fn().mockResolvedValue({}),
     zerox: vi.fn().mockResolvedValue({}),
     relay: vi.fn().mockResolvedValue({}),
     // LiFi /v1/token used to enrich a lone 0x quote (decimals/symbol/priceUSD).
@@ -356,7 +354,6 @@ describe('aggregateAggregators — per-chain tiered selection', () => {
   const realAggregators = (p: ReturnType<typeof proxies>): Aggregator[] => [
     new LiFiAggregator(p.lifi as any, p.lifiToken as any),
     new BebopAggregator(p.bebop as any),
-    new FibrousAggregator(p.fibrous as any, vi.fn() as any),
     new ZeroExAggregator(p.zerox as any, p.zerox as any),
     new RelayAggregator(p.relay as any),
   ];
@@ -381,18 +378,6 @@ describe('aggregateAggregators — per-chain tiered selection', () => {
     expect(p.bebop).toHaveBeenCalledTimes(2);
     expect(p.zerox).toHaveBeenCalledTimes(1);
     expect(p.lifi).toHaveBeenCalledTimes(1);
-    expect(p.fibrous).not.toHaveBeenCalled(); // doesn't serve Base
-  });
-
-  it('quotes only Fibrous on Citrea (single supporter, no top-up)', async () => {
-    const p = proxies();
-    await aggregateAggregators([chainRequest(4114)], realAggregators(p), AggregateMode.MaximizeOutput);
-
-    expect(p.fibrous).toHaveBeenCalledTimes(1);
-    expect(p.relay).not.toHaveBeenCalled();
-    expect(p.bebop).not.toHaveBeenCalled();
-    expect(p.lifi).not.toHaveBeenCalled();
-    expect(p.zerox).not.toHaveBeenCalled();
   });
 
   it('primary tops up a lone tier-1 with 0x (higher tier-2 priority); LiFi is the fallback', async () => {
@@ -440,7 +425,6 @@ describe('aggregateAggregators — per-chain tiered selection', () => {
     expect(p.relay).toHaveBeenCalledTimes(1);
     expect(p.lifi).not.toHaveBeenCalled();
     expect(p.bebop).not.toHaveBeenCalled();
-    expect(p.fibrous).not.toHaveBeenCalled();
     expect(p.zerox).not.toHaveBeenCalled();
   });
 
@@ -588,20 +572,15 @@ describe('aggregateAggregators — per-chain tiered selection', () => {
 describe('aggregateAggregators — Mystic tier-1 selection', () => {
   const chainRequest = (chainId: number): QuoteRequest => ({ ...makeRequest(), chainId });
 
-  // Mystic is tier-1 and serves Citrea (4114) alongside Fibrous. Both are picked; Mystic reports no
-  // token metadata, so it backfills decimals/symbol from its Fibrous sibling (backfillFromSiblings).
-  it('co-selects Mystic and Fibrous as the two tier-1 Citrea supporters', async () => {
-    const fibrous = vi.fn().mockResolvedValue({});
+  it('selects Mystic as the Citrea supporter', async () => {
     const mystic = vi.fn().mockResolvedValue({});
     const relay = vi.fn().mockResolvedValue({});
     const aggs = [
-      new FibrousAggregator(fibrous as any, vi.fn() as any),
       new MysticAggregator(mystic as any, vi.fn() as any),
       new RelayAggregator(relay as any),
     ];
     await aggregateAggregators([chainRequest(4114)], aggs, AggregateMode.MaximizeOutput);
 
-    expect(fibrous).toHaveBeenCalledTimes(1);
     expect(mystic).toHaveBeenCalledTimes(1);
     expect(relay).not.toHaveBeenCalled(); // Relay does not serve Citrea
   });
@@ -654,18 +633,16 @@ describe('aggregateAggregators — Mystic tier-1 selection', () => {
 });
 
 describe('createAggregators', () => {
-  it('returns LiFi, Bebop, Fibrous, 0x, Mystic, and Relay aggregators when given a MiddlewareClient', () => {
+  it('returns LiFi, Bebop, 0x, Mystic, and Relay aggregators when given a MiddlewareClient', () => {
     const mockMiddlewareClient = {
       getLiFiQuote: vi.fn(),
       getBebopQuote: vi.fn(),
-      getFibrousQuote: vi.fn(),
-      getFibrousRoute: vi.fn(),
       getZeroExQuote: vi.fn(),
       postMystic: vi.fn(),
       getRelayQuote: vi.fn(),
     } as any;
     const aggs = createAggregators(mockMiddlewareClient);
-    expect(aggs).toHaveLength(6);
+    expect(aggs).toHaveLength(5);
   });
 
   it('wires Relay aggregator to mw.getRelayQuote', async () => {
@@ -673,15 +650,13 @@ describe('createAggregators', () => {
     const mw = {
       getLiFiQuote: vi.fn(),
       getBebopQuote: vi.fn(),
-      getFibrousQuote: vi.fn(),
-      getFibrousRoute: vi.fn(),
       getZeroExQuote: vi.fn(),
       postMystic: vi.fn(),
       getRelayQuote,
     } as any;
 
     const aggs = createAggregators(mw);
-    const relay = aggs[5];
+    const relay = aggs[4];
     await relay.getQuotes([makeRequest()]);
 
     expect(getRelayQuote).toHaveBeenCalledTimes(1);
@@ -691,16 +666,15 @@ describe('createAggregators', () => {
 
   it('wires 0x aggregator to mw.getZeroExQuote', async () => {
     const getZeroExQuote = vi.fn().mockResolvedValue(zeroExResponse());
-    const mw = { getLiFiQuote: vi.fn(), getBebopQuote: vi.fn(), getFibrousQuote: vi.fn(), getFibrousRoute: vi.fn(), getZeroExQuote } as any;
+    const mw = { getLiFiQuote: vi.fn(), getBebopQuote: vi.fn(), getZeroExQuote } as any;
 
     const aggs = createAggregators(mw);
-    const zerox = aggs[3];
+    const zerox = aggs[2];
     await zerox.getQuotes([makeRequest()]);
 
     expect(getZeroExQuote).toHaveBeenCalledTimes(1);
     expect(mw.getLiFiQuote).not.toHaveBeenCalled();
     expect(mw.getBebopQuote).not.toHaveBeenCalled();
-    expect(mw.getFibrousQuote).not.toHaveBeenCalled();
   });
 
   it('wires LiFi aggregator to mw.getLiFiQuote', async () => {
@@ -710,14 +684,13 @@ describe('createAggregators', () => {
       transactionRequest: { to: '0x04', data: '0x05', value: '0x0' },
     };
     const getLiFiQuote = vi.fn().mockResolvedValue(lifiResponse);
-    const mw = { getLiFiQuote, getBebopQuote: vi.fn(), getFibrousQuote: vi.fn(), getFibrousRoute: vi.fn() } as any;
+    const mw = { getLiFiQuote, getBebopQuote: vi.fn() } as any;
 
     const [lifi] = createAggregators(mw);
     await lifi.getQuotes([makeRequest()]);
 
     expect(getLiFiQuote).toHaveBeenCalledTimes(1);
     expect(mw.getBebopQuote).not.toHaveBeenCalled();
-    expect(mw.getFibrousQuote).not.toHaveBeenCalled();
   });
 
   it('wires Bebop aggregator to mw.getBebopQuote', async () => {
@@ -729,7 +702,7 @@ describe('createAggregators', () => {
       expiry: 9999,
     };
     const getBebopQuote = vi.fn().mockResolvedValue(bebopResponse);
-    const mw = { getLiFiQuote: vi.fn(), getBebopQuote, getFibrousQuote: vi.fn(), getFibrousRoute: vi.fn() } as any;
+    const mw = { getLiFiQuote: vi.fn(), getBebopQuote } as any;
 
     const [, bebop] = createAggregators(mw);
     await bebop.getQuotes([makeRequest()]);
@@ -737,53 +710,5 @@ describe('createAggregators', () => {
     expect(getBebopQuote).toHaveBeenCalledTimes(2);
     expect(getBebopQuote.mock.calls.map(([, api]) => api)).toEqual(['aggregation', 'rfq']);
     expect(mw.getLiFiQuote).not.toHaveBeenCalled();
-    expect(mw.getFibrousQuote).not.toHaveBeenCalled();
-  });
-
-  it('wires Fibrous aggregator to mw.getFibrousQuote', async () => {
-    const fibrousResponse = {
-      route: {
-        success: true,
-        routeSwapType: 1,
-        inputToken: { name: 'A', symbol: 'A', address: '0x01', decimals: 6, price: 1 },
-        inputAmount: '1000',
-        outputToken: { name: 'B', symbol: 'B', address: '0x02', decimals: 18, price: 1 },
-        outputAmount: '900',
-      },
-      calldata: {
-        route: {
-          token_in: '0x0000000000000000000000000000000000000001',
-          token_out: '0x0000000000000000000000000000000000000002',
-          amount_in: '1000',
-          amount_out: '900',
-          min_received: '890',
-          destination: '0x0000000000000000000000000000000000000003',
-          swap_type: 1,
-        },
-        swap_parameters: [{
-          token_in: '0x0000000000000000000000000000000000000001',
-          token_out: '0x0000000000000000000000000000000000000002',
-          rate: '1', protocol_id: '1',
-          pool_address: '0x0000000000000000000000000000000000000004',
-          swap_type: 1, extra_data: '0x',
-        }],
-      },
-      router_address: '0x0000000000000000000000000000000000000005',
-    };
-    const getFibrousQuote = vi.fn().mockResolvedValue(fibrousResponse);
-    const mw = {
-      getLiFiQuote: vi.fn(),
-      getBebopQuote: vi.fn(),
-      getFibrousQuote,
-      getFibrousRoute: vi.fn(),
-    } as any;
-
-    // Use Citrea (4114) — the only Fibrous-supported chain.
-    const [, , fibrous] = createAggregators(mw);
-    await fibrous.getQuotes([{ ...makeRequest(), chainId: 4114 }]);
-
-    expect(getFibrousQuote).toHaveBeenCalledTimes(1);
-    expect(mw.getLiFiQuote).not.toHaveBeenCalled();
-    expect(mw.getBebopQuote).not.toHaveBeenCalled();
   });
 });

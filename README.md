@@ -111,7 +111,7 @@ console.log('Bridge complete:', result.intentExplorerUrl);
 ## Core Features
 
 - **Cross-chain bridging** — Move tokens seamlessly across 14+ chains
-- **Cross-chain swaps** — Execute EXACT_IN and EXACT_OUT swaps between any supported networks via LiFi, Bebop, and Fibrous aggregators
+- **Cross-chain swaps** — Execute EXACT_IN and EXACT_OUT swaps between any supported networks via LiFi, Bebop, 0x, Mystic, and Relay aggregators
 - **Unified balances** — Aggregate user assets and balances across all connected chains
 - **Contract execution** — Call smart contracts with automatic bridging or swap funding logic
 - **Composite operations** — Bridge + Execute or Swap + Execute, orchestrated as two sequenced operations (funding, then execution) — not a single atomic transaction
@@ -1902,7 +1902,7 @@ class UserActionError      extends NexusError<'user_action'>      {}  // wallet 
 class SimulationError      extends NexusError<'simulation'>       {}  // rpc
 class ExecutionError       extends NexusError<'execution'>        {}  // wallet | rpc
 class BackendError         extends NexusError<'backend'>          {}  // middleware
-class ExternalServiceError extends NexusError<'external_service'> {}  // lifi | bebop | fibrous | coinbase
+class ExternalServiceError extends NexusError<'external_service'> {}  // lifi | bebop | zerox | mystic | relay | coinbase
 class InternalError        extends NexusError<'internal'>         {}  // no service
 ```
 
@@ -1993,7 +1993,7 @@ Codes follow `category/specific_noun_suffix`. Suffixes: `_failed`, `_timeout`, `
 | `backend/safe_get_address_failed` | Middleware Safe address fetch failed | Retry |
 | `backend/safe_ensure_failed` | Middleware Safe account ensure/deploy failed | Retry |
 | `backend/safe_execute_failed` | Middleware Safe execute failed | Retry |
-| **external_service/*** (service=lifi / bebop / fibrous / coinbase) | | |
+| **external_service/*** (service=lifi / bebop / zerox / mystic / relay / coinbase) | | |
 | `external_service/destination_swap_quote_failed` | Destination aggregator quote failed | Retry or adjust |
 | `external_service/source_swap_quote_failed` | Source aggregator quote failed | Retry or adjust |
 | `external_service/swap_route_build_failed` | Aggregator route build failed | Try different sources |
