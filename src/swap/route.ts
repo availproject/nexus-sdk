@@ -1,6 +1,5 @@
 import type Decimal from 'decimal.js';
 import type { Hex } from 'viem';
-import { assertMayanSupportedDestination } from '../bridge/intent/quote-request';
 import type { ChainListType, TimingSpanHooks, TokenInfo } from '../domain';
 import { Errors } from '../domain/errors';
 import { logger } from '../domain/utils/logger';
@@ -11,7 +10,7 @@ import {
   resolveExactInAmountBasis,
   selectExactInQuoteOutput,
 } from './amount-basis';
-import { type CurrencyID, resolveCOT } from './cot';
+import type { CurrencyID } from './cot';
 import { _exactInRoute } from './routing/exact-in';
 import { _exactOutRoute } from './routing/exact-out';
 import type {
@@ -44,9 +43,7 @@ export type RouteOptions = {
   timing?: TimingSpanHooks;
   // Exact In only. Direct internal route callers default conservatively to protected minimums.
   exactInAmountBasis?: ExactInAmountBasis;
-  // Recursion stop for the B2 dynamic-COT re-entry: when a fast path re-enters `_exactInRoute` /
-  // `_exactOutRoute` with an overridden `cotCurrencyId`, it sets this so the re-entered call runs
-  // the default COT flow instead of re-classifying and looping. Never set by public callers.
+  // Internal test/diagnostic switch for bypassing terminal fast paths.
   skipFastPaths?: boolean;
 };
 
@@ -128,13 +125,6 @@ export const determineSwapRoute = async (
   }
   if (destinationChain.swapSupported === false) {
     throw Errors.invalidInput(`Destination chain ${input.data.toChainId} does not support swaps`);
-  }
-
-  // forceMayan: fail fast before any planning work if destination doesn't support Mayan.
-  // Bridge happens through USDC (the COT), so check the USDC token on the destination.
-  if (options.forceMayan) {
-    const dstCOT = resolveCOT(input.data.toChainId, options.chainList, options.cotCurrencyId);
-    assertMayanSupportedDestination(options.chainList, input.data.toChainId, dstCOT.address as Hex);
   }
 
   const route =

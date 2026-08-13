@@ -7,7 +7,6 @@ import {
   selectRoughEligibleSources,
 } from '../../src/swap/route';
 import { CurrencyID } from '../../src/swap/cot';
-import { EADDRESS } from '../../src/swap/constants';
 import { SwapMode } from '../../src/swap/types';
 import type { ChainListType } from '../../src/domain';
 import {
@@ -139,7 +138,7 @@ describe('classifyFastPath', () => {
     ).toBeNull();
   });
 
-  it('B2 (dynamic-cot): uniform stable family distinct from dst family + COT, resolving on the dst chain', () => {
+  it('leaves stable-family optimization to the settlement selector', () => {
     expect(
       classify({
         chainList: makeChainListWithUsdtCot(),
@@ -148,64 +147,6 @@ describe('classifyFastPath', () => {
           { chainID: OP_CHAIN, tokenAddress: USDT_OP },
         ],
         dstTokenAddress: WETH, // non-mesh destination
-        allowDirectDestination: true,
-        mode: SwapMode.EXACT_IN,
-      })
-    ).toEqual({ kind: 'dynamic-cot', familyId: CurrencyID.USDT });
-  });
-
-  it('B2 does not fire when all members are already on the dst chain (no bridge to optimize)', () => {
-    // USDT@Base → USDC@Base: same-chain, toToken IS the COT so A/B1 skip. B2 would settle in USDT but
-    // saves nothing (a USDT→USDC swap is one hop either way) — the "some member off-chain" guard drops it.
-    expect(
-      classify({
-        chainList: makeChainListWithUsdtCot(),
-        members: [{ chainID: BASE_CHAIN, tokenAddress: USDT_BASE }],
-        dstTokenAddress: USDC_BASE, // == COT → ordinary routing disallows Path A
-        allowDirectDestination: false,
-        mode: SwapMode.EXACT_IN,
-      })
-    ).toBeNull();
-  });
-
-  it('B2 does not fire when the family COT cannot be resolved on the destination chain', () => {
-    // Default chainList: USDT has no getTokenByCurrencyId entry → resolveCOT throws → null.
-    expect(
-      classify({
-        members: [
-          { chainID: ARB_CHAIN, tokenAddress: USDT_ARB },
-          { chainID: OP_CHAIN, tokenAddress: USDT_OP },
-        ],
-        dstTokenAddress: WETH,
-        allowDirectDestination: true,
-        mode: SwapMode.EXACT_IN,
-      })
-    ).toBeNull();
-  });
-
-  it('B2 excludes ETH — a native (ETH family) source to a non-mesh destination is null', () => {
-    expect(
-      classify({
-        chainList: makeChainListWithUsdtCot(),
-        members: [
-          { chainID: ARB_CHAIN, tokenAddress: EADDRESS as Hex },
-          { chainID: OP_CHAIN, tokenAddress: EADDRESS as Hex },
-        ],
-        dstTokenAddress: WETH,
-        allowDirectDestination: true,
-        mode: SwapMode.EXACT_IN,
-      })
-    ).toBeNull();
-  });
-
-  it('B2 is a no-op when the family IS the COT (USDC everywhere → today’s default flow)', () => {
-    expect(
-      classify({
-        members: [
-          { chainID: ARB_CHAIN, tokenAddress: USDC_ARB },
-          { chainID: OP_CHAIN, tokenAddress: USDC_OP },
-        ],
-        dstTokenAddress: WETH,
         allowDirectDestination: true,
         mode: SwapMode.EXACT_IN,
       })

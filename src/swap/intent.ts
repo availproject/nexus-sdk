@@ -2,8 +2,8 @@ import Decimal from 'decimal.js';
 import type { Hex } from 'viem';
 import type { ChainListType } from '../domain';
 import { equalFold } from '../services/strings';
-import { type SwapData, type SwapIntent, SwapMode, type SwapRoute } from './types';
 import { resolveExactInAmountBasis, selectExactInQuoteOutput } from './amount-basis';
+import { type SwapData, type SwapIntent, SwapMode, type SwapRoute } from './types';
 
 // ---------------------------------------------------------------------------
 // createSwapIntent
@@ -20,6 +20,14 @@ export const createSwapIntent = (
 ): SwapIntent => {
   const dstChainData = chainList.getChainByID(route.destination.chainId);
   const exactInAmountBasis = resolveExactInAmountBasis(route.exactInAmountBasis);
+  const identityAmount =
+    input.mode === SwapMode.EXACT_IN
+      ? (route.destination.identityOutput?.amount ?? new Decimal(0))
+      : new Decimal(0);
+  const identityValue =
+    input.mode === SwapMode.EXACT_IN
+      ? (route.destination.identityOutput?.value ?? new Decimal(0))
+      : new Decimal(0);
 
   // Destination amount. A non-positive `toAmountRaw` in EXACT_OUT is the reservation /
   // gas-only sentinel — no tokens are delivered to the user, so the amount is "0" rather
@@ -33,12 +41,13 @@ export const createSwapIntent = (
   } else {
     // EXACT_IN: use swap output if available, else inputAmount.min
     if (route.destination.swap.tokenSwap) {
-      destinationAmount = selectExactInQuoteOutput(
-        route.destination.swap.tokenSwap.quote,
-        exactInAmountBasis
-      ).amount;
+      destinationAmount = new Decimal(
+        selectExactInQuoteOutput(route.destination.swap.tokenSwap.quote, exactInAmountBasis).amount
+      )
+        .plus(identityAmount)
+        .toFixed();
     } else {
-      destinationAmount = route.destination.inputAmount.min.toString();
+      destinationAmount = route.destination.inputAmount.min.plus(identityAmount).toFixed();
     }
   }
 
@@ -51,10 +60,11 @@ export const createSwapIntent = (
   if (input.mode === SwapMode.EXACT_OUT && (input.data.toAmountRaw ?? 0n) <= 0n) {
     destinationValue = '0';
   } else if (route.destination.swap.tokenSwap) {
-    destinationValue = selectExactInQuoteOutput(
-      route.destination.swap.tokenSwap.quote,
-      exactInAmountBasis
-    ).value.toString();
+    destinationValue = new Decimal(
+      selectExactInQuoteOutput(route.destination.swap.tokenSwap.quote, exactInAmountBasis).value
+    )
+      .plus(identityValue)
+      .toString();
   } else {
     // No destination swap. Path A (directDestination) delivers the toToken via token-role SOURCE
     // swaps on the dst chain, so sum their aggregator-reported USD values — the direct analog of a
@@ -62,19 +72,16 @@ export const createSwapIntent = (
     // guarantees the toToken price is in `oraclePrices`). Falls through to the oracle/amount path
     // when that's unavailable: a non-Path-A route (toToken IS COT, ≈$1), an aggregator that reported
     // no price (value 0), or identity-only holdings with no swap leg.
-    // ponytail: EXACT_IN identity holdings (already-toToken, no quote) aren't priced into the sum —
-    // a display-only undercount; add their oracle-priced value if the intent USD must be exact there.
     const directSwapValue = route.directDestination
       ? route.source.swaps
           .filter((s) => s.chainID === route.destination.chainId && s.outputRole !== 'gas')
           .reduce(
-            (sum, s) =>
-              sum.plus(selectExactInQuoteOutput(s.quote, exactInAmountBasis).value),
+            (sum, s) => sum.plus(selectExactInQuoteOutput(s.quote, exactInAmountBasis).value),
             new Decimal(0)
           )
       : new Decimal(0);
     if (directSwapValue.gt(0)) {
-      destinationValue = directSwapValue.toString();
+      destinationValue = directSwapValue.plus(identityValue).toString();
     } else {
       const oraclePrice = route.extras.oraclePrices.find(
         (entry) =>

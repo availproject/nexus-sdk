@@ -46,6 +46,9 @@ export const resolveBridgeProviderDecision = async (
   },
   options: Pick<RouteOptions, 'middlewareClient' | 'chainList' | 'forceMayan'>
 ): Promise<{ provider: BridgeProvider; minOutputUsdPerSource?: Decimal }> => {
+  if (options.forceMayan) {
+    assertMayanSupportedDestination(options.chainList, params.dstChainId, params.dstTokenToCheck);
+  }
   const request = {
     destination: {
       chain_id: toHex(params.dstChainId),

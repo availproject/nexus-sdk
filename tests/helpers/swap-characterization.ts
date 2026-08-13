@@ -170,9 +170,9 @@ const RATES: Record<Agg, Record<string, Decimal>> = {
     'WETH>USDC': new Decimal('2500'),
     'USDC>ETH': new Decimal('0.0004'),
     'ETH>USDC': new Decimal('2500'),
-    'USDC>USDT': new Decimal('1'), // 1:1 stable (dst-swap sizing for B1/B2 EXACT_OUT)
+    'USDC>USDT': new Decimal('1'), // 1:1 stable (destination-swap sizing)
     'USDT>USDC': new Decimal('1'),
-    'USDT>WETH': new Decimal('0.0004'), // USDT priced like USDC (B2 settles the dst swap in USDT)
+    'USDT>WETH': new Decimal('0.0004'), // USDT priced like USDC
     'USDT>ETH': new Decimal('0.0004'),
   },
   lifi: {
@@ -785,6 +785,13 @@ export const makeCharMiddleware = (opts: {
       symbol: 'USDT',
       decimals: 6,
       priceUsd: new Decimal(1),
+    }),
+    makeOraclePrice({
+      chainId,
+      tokenAddress: WETH,
+      symbol: 'WETH',
+      decimals: 18,
+      priceUsd: new Decimal(2500),
     }),
   ]);
 

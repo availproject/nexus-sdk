@@ -534,6 +534,72 @@ describe('calculateMaxForSwap characterization', () => {
     expect(result.maxAmountRaw).toBe(parseUnits(result.maxAmount, result.decimals));
   });
 
+  it('does not apply the max haircut to destination-token identity output', async () => {
+    const options = makeOptions([
+      {
+        amount: '100',
+        chainID: OP_CHAIN,
+        decimals: 6,
+        symbol: 'USDC',
+        tokenAddress: USDC_OP,
+        value: 100,
+        logo: '',
+        name: 'USDC',
+      },
+      {
+        amount: '20',
+        chainID: BASE_CHAIN,
+        decimals: 6,
+        symbol: 'USDC',
+        tokenAddress: USDC_BASE,
+        value: 20,
+        logo: '',
+        name: 'USDC',
+      },
+    ]);
+
+    const result = await calculateMaxForSwap(
+      { toChainId: BASE_CHAIN, toTokenAddress: USDC_BASE },
+      options
+    );
+
+    expect(result.maxAmount).toBe('117.000000');
+    expect(result.maxAmountRaw).toBe(117_000_000n);
+  });
+
+  it('preserves identity output when the routed token-swap portion is below the haircut floor', async () => {
+    const options = makeOptions([
+      {
+        amount: '1',
+        chainID: OP_CHAIN,
+        decimals: 6,
+        symbol: 'USDC',
+        tokenAddress: USDC_OP,
+        value: 1,
+        logo: '',
+        name: 'USDC',
+      },
+      {
+        amount: '1',
+        chainID: BASE_CHAIN,
+        decimals: 18,
+        symbol: 'WETH',
+        tokenAddress: WETH,
+        value: 1500,
+        logo: '',
+        name: 'WETH',
+      },
+    ]);
+
+    const result = await calculateMaxForSwap(
+      { toChainId: BASE_CHAIN, toTokenAddress: WETH },
+      options
+    );
+
+    expect(result.maxAmount).toBe('1.000000000000000000');
+    expect(result.maxAmountRaw).toBe(1_000_000_000_000_000_000n);
+  });
+
   it.each([
     {
       name: 'uses the 3 USDC floor below the percentage crossover',

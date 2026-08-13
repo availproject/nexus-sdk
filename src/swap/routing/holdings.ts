@@ -98,6 +98,25 @@ export const sumHoldingsUsd = (
     new Decimal(0)
   );
 
+export const summarizeIdentityHoldings = (
+  holdings: SelectedHolding[],
+  balances: FlatBalance[],
+  oraclePrices: OraclePriceResponse
+): { amountRaw: bigint; amount: Decimal; value: Decimal } | undefined => {
+  if (holdings.length === 0) return undefined;
+  return {
+    amountRaw: holdings.reduce((sum, holding) => sum + holding.amountRaw, 0n),
+    amount: holdings.reduce(
+      (sum, holding) => sum.plus(divDecimals(holding.amountRaw, holding.decimals)),
+      new Decimal(0)
+    ),
+    value: holdings.reduce(
+      (sum, holding) => sum.plus(holdingUsd(holding, balances, oraclePrices)),
+      new Decimal(0)
+    ),
+  };
+};
+
 // Greedy leading prefix of `holdings` (already priority-ordered) whose cumulative USD value first
 // reaches `targetUsd`. Includes the holding that tips the running total over the target; reads only
 // `value`, so it preserves H.

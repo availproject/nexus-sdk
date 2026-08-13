@@ -160,11 +160,16 @@ swap(params)
 `swapAndExecute` composes swap planning with an execution request on the destination chain.
 `calculateMaxForSwap` reuses swap preflight and route logic to estimate the maximum usable input.
 
-Swap preflight does not request bridge-fee quotes. Exact In requests one after its eligible remote
-holdings are finalized; Exact Out requests one from its rough eligible source prefix after resolving
-the destination requirement. Direct destination-only routes skip the request. Every bridge quote
-includes the destination fee calculation but lists only route-relevant source chains, isolating
-unrelated RPC failures.
+Swap preflight does not request bridge-fee quotes. After terminal direct/same-token paths, routing
+chooses between USDC and USDT by counting required source and destination swap legs; ties retain the
+current settlement family. Exact In scores selected holdings. Exact Out scores its priced
+rough source prefix while requiring the candidate on every usable source chain; unpriced requirements
+retain the current family. The selected family's bridge quote is fetched before its aggregator legs;
+if it is unavailable, routing fails. Direct destination-only routes skip the request.
+
+Exact In treats destination-chain holdings already equal to the requested output as terminal identity
+output. They remain in the EOA and in intent/max accounting, but never enter source swaps, bridge
+assets, destination swaps, or routing haircuts.
 
 Swap execution assumes the user's EOA wallet has one mutable active-chain context. Work that touches
 the EOA wallet must therefore be sequential across chains, including chain switching, wallet

@@ -40,8 +40,10 @@ import {
   dropSubFloorMayanChains,
   resolveExactInHoldings,
   sumHoldingsUsd,
+  summarizeIdentityHoldings,
   throwMayanRouteShortfall,
 } from './holdings';
+import { selectStableSettlement } from './settlement';
 
 type ExactInData = {
   sources?: { chainId: number; amountRaw?: bigint; tokenAddress: Hex }[];
@@ -52,43 +54,6 @@ type ExactInData = {
 type ExactInHolding = Awaited<ReturnType<typeof resolveExactInHoldings>>[number];
 type ExactInSourceSwaps = Awaited<ReturnType<typeof liquidateInputHoldings>>;
 type ResolvedCot = ReturnType<typeof resolveCOT>;
-
-/**
- * B2 — dynamic COT (both modes). Every source shares one STABLE family F ≠ the destination family and
- * ≠ the current COT, and F resolves as a COT on the destination chain. Rather than settle through USDC
- * (source→USDC→bridge→USDC→output — two swap hops), re-enter the same route flow with `cotCurrencyId = F`
- * so the sources ARE the COT: zero source swaps, bridge F, one F→output destination swap. The re-entry
- * threads an F-denominated bridge-fee quote and sets `skipFastPaths` to stop the recursion. A null
- * F-quote or a re-entry throw (e.g. insufficient F) ⇒ the fast-path envelope falls back to the COT flow.
- */
-async function buildDynamicCotExactInRoute(
-  data: ExactInData,
-  holdings: ExactInHolding[],
-  options: RouteOptions,
-  familyId: number
-): Promise<SwapRoute | null> {
-  const sourceChainIds = [
-    ...new Set(
-      holdings
-        .filter((holding) => holding.chainID !== data.toChainId)
-        .map((holding) => holding.chainID)
-    ),
-  ];
-  const fQuote = await fetchBridgeQuoteForCurrency(
-    data.toChainId,
-    familyId,
-    sourceChainIds,
-    options
-  );
-  if (!fQuote) return null;
-  // EXACT_IN needs no source allowlist — the classifier already proved every holding is family F.
-  return _exactInRoute(data, {
-    ...options,
-    cotCurrencyId: familyId,
-    bridgeQuoteResponse: fQuote,
-    skipFastPaths: true,
-  });
-}
 
 const resolveExactInProviderAndHoldings = async (
   data: ExactInData,
@@ -296,9 +261,18 @@ export async function _exactInRoute(data: ExactInData, options: RouteOptions): P
   if (rawHoldings.length === 0) {
     throw Errors.insufficientBalance('No usable balances for swap route');
   }
+  const identityHoldings = rawHoldings.filter(
+    (holding) =>
+      holding.chainID === data.toChainId && equalFold(holding.tokenAddress, data.toTokenAddress)
+  );
+  const routedHoldings = rawHoldings.filter((holding) => !identityHoldings.includes(holding));
+  const identityOutput = summarizeIdentityHoldings(
+    identityHoldings,
+    options.balances,
+    oraclePrices
+  );
 
-  // ── Fast paths (skipped on the B2 re-entry, which sets skipFastPaths). Classified once; Path A
-  // gates before the same-token dispatch, B2 after it (see the ladder). ──
+  // Terminal fast paths run before general stable-settlement routing.
   const fastPathClass = options.skipFastPaths
     ? null
     : await withTimingSpan(
@@ -368,45 +342,51 @@ export async function _exactInRoute(data: ExactInData, options: RouteOptions): P
     return buildSameTokenBridgeRoute(data, rawHoldings, options, settlement.currencyId);
   }
 
-  // B2 — dynamic COT: gated AFTER the same-token dispatch (a same-family-as-dst set already returned
-  // above). Re-enters this flow with cotCurrencyId = F so the sources ARE the COT (zero source swaps).
-  if (fastPathClass?.kind === 'dynamic-cot') {
-    const b2 = await tryFastPath('dynamic-cot', () =>
-      buildDynamicCotExactInRoute(data, rawHoldings, options, fastPathClass.familyId)
+  const bridgeQuoteSourceChainIds = [
+    ...new Set(
+      routedHoldings
+        .filter((holding) => holding.chainID !== data.toChainId)
+        .map((holding) => holding.chainID)
+    ),
+  ];
+  const currencyId = selectStableSettlement({
+    chainList,
+    currentCurrencyId: settlement.currencyId,
+    destinationChainId: data.toChainId,
+    destinationTokenAddress: data.toTokenAddress,
+    scoreHoldings: rawHoldings,
+  });
+  let bridgeQuoteResponse = options.bridgeQuoteResponse;
+  if (bridgeQuoteSourceChainIds.length > 0 && currencyId !== options.cotCurrencyId) {
+    bridgeQuoteResponse = await fetchBridgeQuoteForCurrency(
+      data.toChainId,
+      currencyId,
+      bridgeQuoteSourceChainIds,
+      options
     );
-    if (b2) return b2;
+  } else if (bridgeQuoteSourceChainIds.length > 0 && !bridgeQuoteResponse) {
+    bridgeQuoteResponse = await fetchBridgeQuoteForCurrency(
+      data.toChainId,
+      currencyId,
+      bridgeQuoteSourceChainIds,
+      options
+    );
   }
-
-  // COT round-trip: settle in the COT. `settlement.currencyId === options.cotCurrencyId` here (any
-  // same-token case returned above); thread it so every resolveCOT in this flow uses one source.
-  const currencyId = settlement.currencyId;
+  const routeOptions = { ...options, cotCurrencyId: currencyId, bridgeQuoteResponse };
   const dstCOT = resolveCOT(data.toChainId, chainList, currencyId);
 
   const { bridgeProvider, holdings } = await resolveExactInProviderAndHoldings(
     data,
-    rawHoldings,
+    routedHoldings,
     dstCOT,
     currencyId,
-    options
+    routeOptions
   );
   const { cotHoldings, nonCotHoldings } = partitionExactInHoldings(holdings, options, currencyId);
 
   // Bridge check: any source not on destination chain?
   const allOnDstChain = holdings.every((h) => h.chainID === data.toChainId);
   const allChainIds = new Set(holdings.map((h) => h.chainID));
-  const bridgeQuoteSourceChainIds = [...allChainIds].filter(
-    (chainId) => chainId !== data.toChainId
-  );
-  const bridgeQuoteResponse =
-    options.bridgeQuoteResponse ??
-    (bridgeQuoteSourceChainIds.length > 0
-      ? await fetchBridgeQuoteForCurrency(
-          data.toChainId,
-          currencyId,
-          bridgeQuoteSourceChainIds,
-          options
-        )
-      : null);
   if (!allOnDstChain && !bridgeQuoteResponse) {
     throw Errors.internal('Bridge fee quote unavailable -- cannot route cross-chain swap');
   }
@@ -443,9 +423,7 @@ export async function _exactInRoute(data: ExactInData, options: RouteOptions): P
               holdings: nonCotHoldings,
               aggregators,
               chainList: options.chainList,
-              // Settlement currency (= options.cotCurrencyId in the default flow, = F on the B2 re-entry),
-              // NOT options.cotCurrencyId — matches the tryResolveCOT split above and keeps every COT read
-              // in this flow on one source.
+              // Every source and destination quote uses the selected stable settlement family.
               cotCurrencyId: currencyId,
               userAddressByChain,
               recipientAddressByChain,
@@ -493,7 +471,7 @@ export async function _exactInRoute(data: ExactInData, options: RouteOptions): P
     ? { bridge: null, cotAvailableForDestination: totalCOT }
     : await buildExactInBridge({
         data,
-        options: { ...options, bridgeQuoteResponse },
+        options: routeOptions,
         dstCOT,
         currencyId,
         sourceSwaps,
@@ -550,7 +528,7 @@ export async function _exactInRoute(data: ExactInData, options: RouteOptions): P
     dstSwap = quotedSwap;
   }
 
-  const assetsUsed: AssetsUsedEntry[] = holdings.map((h) => ({
+  const assetsUsed: AssetsUsedEntry[] = [...holdings, ...identityHoldings].map((h) => ({
     chainID: h.chainID,
     tokenAddress: h.tokenAddress,
     symbol: h.symbol,
@@ -581,6 +559,7 @@ export async function _exactInRoute(data: ExactInData, options: RouteOptions): P
       bridge,
       destination: {
         chainId: data.toChainId,
+        identityOutput,
         // Direct COT held at the EOA on the destination chain needs to land at the wrapper before
         // the dst swap can pull it. The wrapper is the predicted Safe; prepare/execution move the
         // COT EOA→Safe. Same-chain COT-input swaps rely on this too —

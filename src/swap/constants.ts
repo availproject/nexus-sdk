@@ -32,14 +32,12 @@ export const MAX_SWAP_HAIRCUT_MIN_USDC = 3;
 export const EXACT_OUT_PROVIDER_BUFFER = 0.01;
 
 // ---------------------------------------------------------------------------
-// Fast-path settlement families
+// Stable settlement families
 // ---------------------------------------------------------------------------
 
-// B2 dynamic-COT selection re-settles a swap through whichever STABLE family ALL its sources already
-// hold (USDC or USDT), skipping the input↔USDC round-trip when the sources are USDT-everywhere, etc.
-// ETH is deliberately excluded: its volatility makes it a poor common settlement token for a route
-// that isn't already ETH-shaped (B1 same-token still bridges ETH↔ETH directly).
-export const B2_STABLE_CURRENCY_IDS: ReadonlySet<CurrencyID> = new Set([
+// General routing may settle through USDC or USDT, whichever requires fewer swap legs. ETH remains
+// eligible for same-token bridging but is deliberately excluded as a general settlement token.
+export const STABLE_SETTLEMENT_CURRENCY_IDS: ReadonlySet<CurrencyID> = new Set([
   CurrencyID.USDC,
   CurrencyID.USDT,
 ]);

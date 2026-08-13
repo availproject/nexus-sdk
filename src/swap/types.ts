@@ -279,6 +279,13 @@ export type SwapRoute = {
       amount: bigint; // raw integer units
       contractAddress: Hex;
     } | null;
+    // EXACT_IN holdings already matching the requested token on the destination chain. They stay
+    // in the user's EOA and contribute to display/max output without entering settlement execution.
+    identityOutput?: {
+      amountRaw: bigint;
+      amount: Decimal;
+      value: Decimal;
+    };
     inputAmount: {
       min: Decimal; // human-readable decimal amount
       max: Decimal; // human-readable decimal amount

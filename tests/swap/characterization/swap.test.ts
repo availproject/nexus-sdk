@@ -401,9 +401,9 @@ describe('swap execution characterization', () => {
     expect(sentTxs).toHaveLength(0);
   });
 
-  it('EXACT_IN · Nexus · B2 dynamic-COT (USDT sources → WETH): settles in USDT, no source swaps, dst swap pulls USDT', async () => {
-    // Every source is USDT (a stable family ≠ USDC, the default COT) → B2 re-enters with cotCurrencyId
-    // = USDT: the sources ARE the COT, so there are NO source swaps — each chain just funds (EOA→EPH)
+  it('EXACT_IN · Nexus · least-swap settlement (USDT sources → WETH): no source swaps, dst swap pulls USDT', async () => {
+    // USDT requires fewer legs than USDC, so the sources are already the selected settlement token:
+    // there are no source swaps — each chain just funds (EOA→EPH)
     // and deposits USDT. The bridge carries USDT, and the single destination swap is USDT→WETH.
     const balances: FlatBalance[] = [
       { amount: '2000', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDT', tokenAddress: USDT_ARB, value: 2000, name: 'Tether USD', logo: '' },
@@ -462,15 +462,14 @@ describe('swap execution characterization', () => {
     const dst = executionBatchesForChain(middlewareClient, BASE_CHAIN);
     expect(dst.length).toBe(1);
     const swp = dst[0].find((c) => c.fn === 'swap')!;
-    eq(USDT_BASE)(swp.args[0]); // input = the dynamic COT (USDT)
+    eq(USDT_BASE)(swp.args[0]); // input = the selected settlement token
     eq(WETH)(swp.args[1]); // output = WETH
     eq(EOA)(swp.args[5]); // receiver = EOA
     expect(sentTxs).toHaveLength(0);
   });
 
-  it('EXACT_OUT · Nexus · B2 dynamic-COT (USDT sources → WETH + gas): USDT funding + deposits, dst batch pulls USDT for token AND gas', async () => {
-    // B2 EXACT_OUT: USDT-multichain sources, a WETH target AND a native gas amount. Re-enters with
-    // cotCurrencyId = USDT → no source swaps (USDT is the COT), the bridge carries USDT, and the dst
+  it('EXACT_OUT · Nexus · least-swap settlement (USDT sources → WETH + gas): dst batch pulls USDT for token and gas', async () => {
+    // The priced rough prefix selects USDT, so there are no source swaps, the bridge carries USDT, and the dst
     // batch runs BOTH the token swap (USDT→WETH) and the gas swap (USDT→native) off the bridged USDT.
     const balances: FlatBalance[] = [
       { amount: '3000', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDT', tokenAddress: USDT_ARB, value: 3000, name: 'Tether USD', logo: '' },
@@ -505,12 +504,12 @@ describe('swap execution characterization', () => {
       { onIntent: (d: { allow: () => void }) => d.allow() }
     );
 
-    // Source chains only deposit USDT (no source swap — USDT is the dynamic COT). At least one source
+    // Source chains only deposit USDT (no source swap). At least one source
     // funds+deposits; every source batch is deposit-shaped, never a swap.
     const sourceBatches = [ARB_CHAIN, OP_CHAIN].flatMap((c) => executionBatchesForChain(middlewareClient, c));
     expect(sourceBatches.length).toBeGreaterThan(0);
     for (const b of sourceBatches) {
-      expect(b.some((c) => c.fn === 'swap'), 'no source swap on a B2 source chain').toBe(false);
+      expect(b.some((c) => c.fn === 'swap'), 'no source swap on a settled source chain').toBe(false);
       expect(b.some((c) => c.fn === 'deposit'), 'source chain deposits USDT').toBe(true);
     }
     // RFF carries USDT.
@@ -525,7 +524,7 @@ describe('swap execution characterization', () => {
     const gasSwap = swaps.find((c) => (c.args[1] as Hex).toLowerCase() === (EADDRESS as Hex).toLowerCase());
     expect(tokenSwap, 'USDT→WETH token swap').toBeDefined();
     expect(gasSwap, 'USDT→native gas swap').toBeDefined();
-    eq(USDT_BASE)(tokenSwap!.args[0]); // both pull the dynamic COT (USDT)
+    eq(USDT_BASE)(tokenSwap!.args[0]); // both pull the selected settlement token
     eq(USDT_BASE)(gasSwap!.args[0]);
     eq(EOA)(tokenSwap!.args[5]);
     eq(EOA)(gasSwap!.args[5]);

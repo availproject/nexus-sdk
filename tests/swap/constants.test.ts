@@ -1,7 +1,7 @@
 import Decimal from 'decimal.js';
 import { describe, expect, it } from 'vitest';
 import {
-  B2_STABLE_CURRENCY_IDS,
+  STABLE_SETTLEMENT_CURRENCY_IDS,
   DST_BUFFER_MAX_USD,
   DST_BUFFER_PCT,
   MAX_SWAP_HAIRCUT_MIN_USDC,
@@ -49,8 +49,10 @@ describe('swap economic constants', () => {
     expect(SLIPPAGE_DEFAULT).toBe(0.005);
   });
 
-  it('B2 dynamic COT is stables-only (USDC + USDT) — ETH excluded', () => {
-    expect([...B2_STABLE_CURRENCY_IDS].sort()).toEqual([CurrencyID.USDC, CurrencyID.USDT].sort());
-    expect(B2_STABLE_CURRENCY_IDS.has(CurrencyID.ETH)).toBe(false);
+  it('least-swap settlement is stables-only (USDC + USDT) — ETH excluded', () => {
+    expect([...STABLE_SETTLEMENT_CURRENCY_IDS].sort()).toEqual(
+      [CurrencyID.USDC, CurrencyID.USDT].sort()
+    );
+    expect(STABLE_SETTLEMENT_CURRENCY_IDS.has(CurrencyID.ETH)).toBe(false);
   });
 });

@@ -122,6 +122,18 @@ token is already the destination COT and only native gas needs a swap, that buff
 the gas-swap input; the requested COT amount remains exact. Provider selection happens only for
 route-relevant remote value; direct destination routes do not request a bridge provider.
 
+For general COT routes, the SDK deterministically chooses between USDC and USDT before requesting
+aggregator quotes. Each source that is not already the candidate costs one leg, and a
+candidate different from the requested output costs one destination leg. Destination-chain holdings
+already equal to the Exact-In output are excluded. Exact In scores all selected holdings; priced
+Exact Out (including `swapAndExecute`) scores its rough eligible prefix but requires the candidate on
+every usable source chain. ETH remains available to the same-token bridge path but is not a general
+settlement candidate. Equal scores keep the current COT; an unavailable bridge quote fails routing.
+
+Mixed Exact-In routes leave destination-chain holdings already denominated in the requested token
+untouched. That identity output is included in `onIntent`, `assetsUsed`, and `calculateMaxForSwap`,
+but creates no plan step or transaction. Max-amount haircuts apply only to the routed portion.
+
 ## Preparation
 
 `prepareSwapExecution` uses the Safe derived at flow start as the owner/spender for every swap quote.

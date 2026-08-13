@@ -83,6 +83,7 @@ export async function calculateMaxForSwap(
   });
   const resolvedTokenInfo = route.dstTokenInfo;
   const tokenSwap = route.destination.swap.tokenSwap;
+  const identityAmount = route.destination.identityOutput?.amount ?? new Decimal(0);
   const sources = route.extras.assetsUsed.map((a) => ({
     chainId: a.chainID,
     tokenAddress: a.tokenAddress,
@@ -100,10 +101,10 @@ export async function calculateMaxForSwap(
       cotAmount.mul(MAX_SWAP_HAIRCUT_PCT),
       new Decimal(MAX_SWAP_HAIRCUT_MIN_USDC)
     );
-    const adjusted = cotAmount.minus(haircut);
+    const adjusted = Decimal.max(cotAmount.minus(haircut), new Decimal(0));
     const quoteInput = new Decimal(tokenSwap.quote.input.amount);
     const quoteOutput = new Decimal(tokenSwap.quote.output.amount);
-    const adjustedOutput = quoteOutput.mul(adjusted.div(quoteInput));
+    const adjustedOutput = quoteOutput.mul(adjusted.div(quoteInput)).plus(identityAmount);
 
     return {
       toChainId: input.toChainId,
@@ -119,7 +120,7 @@ export async function calculateMaxForSwap(
   // No destination swap → `destination.inputAmount.max` is delivered in the DESTINATION token, which
   // is only USDC in the default COT-dst flow (Path A delivers toToken, a same-token bridge the family
   // token). Keep the haircut in USD space and convert the $3 floor into delivered-token units.
-  const adjustedDelivered = applyDeliveredTokenHaircut(route);
+  const adjustedDelivered = applyDeliveredTokenHaircut(route).plus(identityAmount);
   return {
     toChainId: input.toChainId,
     toTokenAddress: input.toTokenAddress,
