@@ -22,8 +22,8 @@ export const DST_BUFFER_PCT = 0.05;
 export const DST_BUFFER_MAX_USD = 1;
 export const SRC_BUFFER_PCT = 0.02;
 export const SRC_BUFFER_MAX_USD = 1;
-export const MAX_SWAP_HAIRCUT_PCT = 0.03;
-export const MAX_SWAP_HAIRCUT_MIN_USDC = 3;
+export const MAX_SWAP_HAIRCUT_PCT = DST_BUFFER_PCT + SRC_BUFFER_PCT;
+export const MAX_SWAP_HAIRCUT_MIN_USDC = DST_BUFFER_MAX_USD + SRC_BUFFER_MAX_USD;
 
 // EXACT_OUT's start-of-route provider check surveys bridged source value with a rough
 // greedy walk over priority-ordered holdings; this overshoot fraction makes it count a

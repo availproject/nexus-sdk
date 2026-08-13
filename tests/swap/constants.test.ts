@@ -34,9 +34,11 @@ describe('swap economic constants', () => {
     expect(SRC_BUFFER_MAX_USD).toBe(1);
   });
 
-  it('max-amount haircut = max(3%, $3)', () => {
-    expect(MAX_SWAP_HAIRCUT_PCT).toBe(0.03);
-    expect(MAX_SWAP_HAIRCUT_MIN_USDC).toBe(3);
+  it('max-amount haircut combines the source and destination buffers', () => {
+    expect(MAX_SWAP_HAIRCUT_PCT).toBe(DST_BUFFER_PCT + SRC_BUFFER_PCT);
+    expect(MAX_SWAP_HAIRCUT_PCT).toBe(0.07);
+    expect(MAX_SWAP_HAIRCUT_MIN_USDC).toBe(DST_BUFFER_MAX_USD + SRC_BUFFER_MAX_USD);
+    expect(MAX_SWAP_HAIRCUT_MIN_USDC).toBe(2);
   });
 
   it('convergence: ×1.005 safety, +0.5 COT input cap, ≤10 iterations', () => {

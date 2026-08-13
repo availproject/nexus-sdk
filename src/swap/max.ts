@@ -36,7 +36,7 @@ type SwapMaxExecutionParams = Pick<
  * Algorithm:
  * 1. Determine route using EXACT_IN mode with all available balances
  * 2. Extract total COT available (destination.inputAmount.max)
- * 3. Apply haircut: max(3% of cotAmount, 3 USDC)
+ * 3. Apply a haircut equal to the combined source and destination buffer budgets
  * 4. If destination has token swap: scale output proportionally
  * 5. If destination IS COT: use adjusted COT directly
  */
@@ -94,8 +94,8 @@ export async function calculateMaxForSwap(
 
   if (tokenSwap) {
     // A destination token swap exists → `destination.inputAmount.max` is COT (USDC). Take the
-    // max(3%, $3) haircut in COT space, then scale the adjusted COT to the output token via the
-    // dst swap's own input→output ratio.
+    // Combined source + destination buffer haircut in COT space, then scale the adjusted COT to the
+    // output token via the dst swap's own input→output ratio.
     const cotAmount = route.destination.inputAmount.max;
     const haircut = Decimal.max(
       cotAmount.mul(MAX_SWAP_HAIRCUT_PCT),
@@ -105,12 +105,15 @@ export async function calculateMaxForSwap(
     const quoteInput = new Decimal(tokenSwap.quote.input.amount);
     const quoteOutput = new Decimal(tokenSwap.quote.output.amount);
     const adjustedOutput = quoteOutput.mul(adjusted.div(quoteInput)).plus(identityAmount);
+    const maxAmountRaw = mulDecimals(adjustedOutput, resolvedTokenInfo.decimals);
 
     return {
       toChainId: input.toChainId,
       toTokenAddress: input.toTokenAddress,
-      maxAmount: adjustedOutput.toFixed(resolvedTokenInfo.decimals),
-      maxAmountRaw: mulDecimals(adjustedOutput, resolvedTokenInfo.decimals),
+      maxAmount: new Decimal(maxAmountRaw.toString())
+        .div(Decimal.pow(10, resolvedTokenInfo.decimals))
+        .toFixed(resolvedTokenInfo.decimals),
+      maxAmountRaw,
       symbol: resolvedTokenInfo.symbol,
       decimals: resolvedTokenInfo.decimals,
       sources,
@@ -119,7 +122,7 @@ export async function calculateMaxForSwap(
 
   // No destination swap → `destination.inputAmount.max` is delivered in the DESTINATION token, which
   // is only USDC in the default COT-dst flow (Path A delivers toToken, a same-token bridge the family
-  // token). Keep the haircut in USD space and convert the $3 floor into delivered-token units.
+  // token). Keep the haircut in USD space and convert the combined USD floor into token units.
   const adjustedDelivered = applyDeliveredTokenHaircut(route).plus(identityAmount);
   return {
     toChainId: input.toChainId,
@@ -132,14 +135,13 @@ export async function calculateMaxForSwap(
   };
 }
 
-// The max(3%, $3) safety haircut for a route with no destination swap, where
+// The combined source + destination buffer haircut for a route with no destination swap, where
 // `destination.inputAmount.max` is denominated in the destination token itself (USDC in the default
-// COT-dst flow, toToken for Path A, the family token for a same-token bridge). The 3% part is
-// unit-free; the $3 floor is converted to token units at the delivered token's price so a bare
-// subtraction can't mean "3 ETH" on an ETH route. Price source: quote-implied (Σ output.value over
-// the source swaps) when swaps exist, else the delivered token's oracle price; neither ⇒ pct-only.
-// Clamped at 0. For a USDC destination usdBasis ≈ delivered, so this stays byte-identical to the old
-// `delivered − max(3%, $3)`. See swap.md §5.
+// COT-dst flow, toToken for Path A, the family token for a same-token bridge). The percentage is
+// unit-free; the USD floor is converted to token units at the delivered token's price. Price source:
+// quote-implied (Σ output.value over the source swaps) when swaps exist, else the delivered token's
+// oracle price; neither ⇒ pct-only.
+// Clamped at 0. See swap.md §5.
 function applyDeliveredTokenHaircut(route: SwapRoute): Decimal {
   const delivered = route.destination.inputAmount.max;
   const clampToPositive = (value: Decimal): Decimal => Decimal.max(value, new Decimal(0));
@@ -148,7 +150,7 @@ function applyDeliveredTokenHaircut(route: SwapRoute): Decimal {
   const sourceSwaps = route.source.swaps;
   if (sourceSwaps.length > 0) {
     // Quote-implied price. Scaling `delivered` by (usdBasis − haircutUsd)/usdBasis subtracts the
-    // haircut converted at that price (algebraically `delivered − max(delivered×3%, $3/price)`).
+    // haircut converted at that price.
     const usdBasis = sourceSwaps.reduce(
       (sum, quote) => sum.plus(quote.quote.output.value),
       new Decimal(0)
@@ -163,7 +165,7 @@ function applyDeliveredTokenHaircut(route: SwapRoute): Decimal {
 
   // Same-token pure bridge: no quotes to imply a price → oracle price of the delivered token. Oracle
   // entries key native as ZERO_ADDRESS, but a native dst token carries EADDRESS — normalize so ETH↔ETH
-  // bridges hit the oracle floor (max(3%, $3/price)) instead of falling through to pct-only.
+  // bridges apply the USD-denominated floor instead of falling through to percentage-only.
   const priceUsd = findOraclePriceUsd(
     route.extras.oraclePrices,
     route.destination.chainId,
