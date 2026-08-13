@@ -543,7 +543,7 @@ All SDK errors are concrete subclasses of the abstract base `NexusError<C>`. Swi
 | `SimulationError` | `simulation` | `'rpc'` |
 | `ExecutionError` | `execution` | `'wallet'` (submit/sign) or `'rpc'` (read/receipt) |
 | `BackendError` | `backend` | `'middleware'` (Avail backend) |
-| `ExternalServiceError` | `external_service` | `'lifi'`, `'bebop'`, `'fibrous'`, or `'coinbase'` |
+| `ExternalServiceError` | `external_service` | `'lifi'`, `'bebop'`, `'zerox'`, `'mystic'`, `'relay'`, or `'coinbase'` |
 | `InternalError` | `internal` | _(none — SDK invariants only)_ |
 
 Every `NexusError` carries:
@@ -676,7 +676,7 @@ Codes follow `category/specific_noun_suffix`. Suffixes: `_failed`, `_timeout`, `
 - `backend/simulation_bundle_failed`
 - `backend/fulfilment_wait_timeout` — bridge fulfilment didn't land in window
 
-**External service (`ExternalServiceError`, service `'lifi'`, `'bebop'`, `'fibrous'`, or `'coinbase'`):**
+**External service (`ExternalServiceError`, service `'lifi'`, `'bebop'`, `'zerox'`, `'mystic'`, `'relay'`, or `'coinbase'`):**
 - `external_service/destination_swap_quote_failed`
 - `external_service/source_swap_quote_failed`
 - `external_service/swap_route_build_failed`

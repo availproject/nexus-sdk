@@ -54,14 +54,7 @@ export type UserActionService = 'wallet' | 'hook';
 export type SimulationService = 'rpc';
 export type ExecutionService = 'wallet' | 'rpc';
 export type BackendService = 'middleware';
-export type ExternalServiceService =
-  | 'lifi'
-  | 'bebop'
-  | 'fibrous'
-  | 'zerox'
-  | 'mystic'
-  | 'relay'
-  | 'coinbase';
+export type ExternalServiceService = 'lifi' | 'bebop' | 'zerox' | 'mystic' | 'relay' | 'coinbase';
 /**
  * Maps a category literal to its allowed `service` values. Used by `ErrorContext<C>`
  * and the wrap helpers so TypeScript rejects mismatches (e.g. `service: 'middleware'`
@@ -207,7 +200,7 @@ export const ERROR_CODES = {
   BACKEND_SAFE_EXECUTE_FAILED: 'backend/safe_execute_failed',
   BACKEND_ERROR: 'backend/error',
 
-  // ── external_service/* — third-party deps (service='lifi'|'bebop'|'fibrous'|'coinbase')
+  // ── external_service/* — third-party dependencies
   EXTERNAL_DESTINATION_SWAP_QUOTE_FAILED: 'external_service/destination_swap_quote_failed',
   EXTERNAL_SOURCE_SWAP_QUOTE_FAILED: 'external_service/source_swap_quote_failed',
   EXTERNAL_SWAP_ROUTE_BUILD_FAILED: 'external_service/swap_route_build_failed',

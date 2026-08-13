@@ -20,7 +20,6 @@ const makeInputs = (overrides?: {
   middlewareClient: {
     getLiFiTokenPrice: vi.fn().mockResolvedValue(null),
     getRelayTokenPrice: vi.fn().mockResolvedValue(null),
-    getFibrousTokenPrice: vi.fn().mockResolvedValue(null),
     ...overrides?.middlewareClient,
   } as never,
 });
@@ -102,19 +101,12 @@ describe('createTokenPriceResolver', () => {
     releaseLiFi?.('2500');
   });
 
-  it('gets Fibrous pricing through transport on Citrea and normalizes native to the zero address', async () => {
-    const fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: vi.fn().mockResolvedValue({ price: '1' }),
-    });
-    vi.stubGlobal('fetch', fetch);
-    const getFibrousTokenPrice = vi.fn().mockResolvedValue('64936.72');
-    const getLiFiTokenPrice = vi.fn();
-    const getRelayTokenPrice = vi.fn();
+  it('uses the standard external price providers on Citrea', async () => {
+    const getLiFiTokenPrice = vi.fn().mockResolvedValue(null);
+    const getRelayTokenPrice = vi.fn().mockResolvedValue('64936.72');
     const resolver = createTokenPriceResolver(
       makeInputs({
         middlewareClient: {
-          getFibrousTokenPrice,
           getLiFiTokenPrice,
           getRelayTokenPrice,
         },
@@ -123,12 +115,10 @@ describe('createTokenPriceResolver', () => {
 
     const price = await resolver.resolve(CITREA_CHAIN, EADDRESS);
 
-    expect(price?.source).toBe('fibrous');
+    expect(price?.source).toBe('relay');
     expect(price?.priceUsd.eq('64936.72')).toBe(true);
-    expect(getFibrousTokenPrice).toHaveBeenCalledWith(ZERO_ADDRESS);
-    expect(fetch).not.toHaveBeenCalled();
-    expect(getLiFiTokenPrice).not.toHaveBeenCalled();
-    expect(getRelayTokenPrice).not.toHaveBeenCalled();
+    expect(getLiFiTokenPrice).toHaveBeenCalledWith(CITREA_CHAIN, EADDRESS);
+    expect(getRelayTokenPrice).toHaveBeenCalledWith(CITREA_CHAIN, ZERO_ADDRESS);
   });
 
   it('normalizes native to the zero address for Relay while preserving LiFi native form', async () => {

@@ -1,11 +1,10 @@
 import { type Hex, toHex, zeroAddress } from 'viem';
 import { SLIPPAGE_BPS } from './constants';
+import { normalizeExpectedOutput } from './expected-output';
 import type { Aggregator, Quote, QuoteRequest, TokenInfo, TokenInfoProvider } from './types';
 import { QuoteSeriousness, QuoteType } from './types';
-import { normalizeExpectedOutput } from './expected-output';
 
-// Chains Mystic Router serves in this SDK. Citrea-only for now (co-located with Fibrous); add
-// Mystic's other chains (Flare 14, Plume 98866, …) here once validated.
+// Chains Mystic Router serves in this SDK. Citrea-only for now.
 const ALLOWED_CHAINS = new Set<number>([
   4114, // Citrea
 ]);
