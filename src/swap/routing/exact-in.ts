@@ -1,6 +1,7 @@
 import Decimal from 'decimal.js';
 import { formatUnits, type Hex } from 'viem';
 import { Errors } from '../../domain/errors';
+import { formatTokenBalance } from '../../domain/utils/format';
 import { logger } from '../../domain/utils/logger';
 import { divDecimals, mulDecimals } from '../../services/math';
 import { MAYAN_MIN_USD_PER_LEG, selectMayanQuoteOutput } from '../../services/mayan';
@@ -221,7 +222,7 @@ const buildExactInBridge = async (input: {
       } = feeSummary;
       if (effectiveBridgedToDestination.lte(0)) {
         throw Errors.insufficientBalance(
-          `Bridge fees (${totalFeeAmount.toString()}) exceed bridged COT (${bridgedCOT.toString()})`
+          `Bridge fees (${formatTokenBalance(totalFeeAmount.toFixed())}) exceed bridged amount (${formatTokenBalance(bridgedCOT.toFixed())})`
         );
       }
 
