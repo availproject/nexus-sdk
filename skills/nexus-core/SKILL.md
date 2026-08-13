@@ -648,6 +648,7 @@ Codes follow `category/specific_noun_suffix`. Suffixes: `_failed`, `_timeout`, `
 
 **Validation (`ValidationError`, no service):**
 - `validation/insufficient_balance`
+- `validation/amount_too_low` — source amount cannot cover bridge fees
 - `validation/no_balance_for_address`
 - `validation/invalid_input`, `validation/invalid_address_length`, `validation/invalid_allowance_hook`
 - `validation/token_not_supported`, `validation/chain_not_found`, `validation/chain_data_not_found`, `validation/asset_not_found`

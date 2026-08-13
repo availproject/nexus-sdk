@@ -3,6 +3,7 @@ import { formatUnits, type Hex } from 'viem';
 import type { ChainListType } from '../../domain';
 import { ZERO_ADDRESS } from '../../domain/constants/addresses';
 import { Errors } from '../../domain/errors';
+import { formatTokenBalance } from '../../domain/utils/format';
 import { logger } from '../../domain/utils/logger';
 import { isNativeAddress } from '../../services/addresses';
 import { divDecimals, mulDecimals } from '../../services/math';
@@ -611,8 +612,8 @@ export async function buildSameTokenBridgeRoute(
     });
     deliveredFromBridge = deliveredAmount;
     if (deliveredFromBridge.lte(0)) {
-      throw Errors.insufficientBalance(
-        `Bridge fees (${totalFee.toString()}) exceed bridged amount (${bridgedToken.toString()})`
+      throw Errors.amountTooLow(
+        `Bridge fees (${formatTokenBalance(totalFee.toFixed())}) exceed bridged amount (${formatTokenBalance(bridgedToken.toFixed())})`
       );
     }
     // The fast path participates in provider selection too, querying the server with the actual

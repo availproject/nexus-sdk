@@ -2,7 +2,9 @@ import Decimal from 'decimal.js';
 import { type Hex, parseUnits } from 'viem';
 import type { ChainListType } from '../../domain';
 import { Errors } from '../../domain/errors';
+import { formatTokenBalance } from '../../domain/utils/format';
 import { logger } from '../../domain/utils/logger';
+import { isNativeAddress } from '../../services/addresses';
 import { divDecimals } from '../../services/math';
 import { equalFold } from '../../services/strings';
 import { filterMayanSourcesByChain } from '../algorithms/mayan-floor';
@@ -269,14 +271,18 @@ export function resolveExactInHoldings(
         entry.chainID === source.chainId && equalFold(entry.tokenAddress, source.tokenAddress)
     );
     if (!balance || new Decimal(balance.amount).lte(0)) {
-      throw Errors.insufficientBalance('Requested source has no usable balance');
+      throw Errors.insufficientBalance(
+        `Requested source ${source.tokenAddress} on chain ${source.chainId} has no usable balance`
+      );
     }
 
     const availableRaw = parseUnits(balance.amount, balance.decimals);
     const amountRaw = source.amountRaw ?? availableRaw;
 
-    if (amountRaw > availableRaw) {
-      throw Errors.insufficientBalance('Requested source amount exceeds available balance');
+    if (!isNativeAddress(source.tokenAddress) && amountRaw > availableRaw) {
+      throw Errors.insufficientBalance(
+        `Requested source (${balance.symbol}, ${source.chainId}) amount (${formatTokenBalance(divDecimals(amountRaw, balance.decimals).toFixed())}) exceeds available balance (${formatTokenBalance(divDecimals(availableRaw, balance.decimals).toFixed())})`
+      );
     }
 
     return amountRaw > 0n
