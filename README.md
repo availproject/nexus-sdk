@@ -1932,6 +1932,7 @@ Codes follow `category/specific_noun_suffix`. Suffixes: `_failed`, `_timeout`, `
 | `user_action/ephemeral_key_denied` | User rejected the ephemeral-key derivation signature | None — user cancelled |
 | **validation/*** | | |
 | `validation/insufficient_balance` | Not enough tokens for operation | Show balance, suggest deposit |
+| `validation/amount_too_low` | Amount cannot cover bridge fees | Increase the source amount |
 | `validation/no_balance_for_address` | No balance found for address | Verify address |
 | `validation/invalid_input` | Invalid parameters provided | Check input values |
 | `validation/invalid_address_length` | Address has wrong length | Verify address format |

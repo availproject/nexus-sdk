@@ -221,7 +221,7 @@ const buildExactInBridge = async (input: {
         nexusFeeModel,
       } = feeSummary;
       if (effectiveBridgedToDestination.lte(0)) {
-        throw Errors.insufficientBalance(
+        throw Errors.amountTooLow(
           `Bridge fees (${formatTokenBalance(totalFeeAmount.toFixed())}) exceed bridged amount (${formatTokenBalance(bridgedCOT.toFixed())})`
         );
       }

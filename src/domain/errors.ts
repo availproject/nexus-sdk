@@ -131,6 +131,7 @@ export const ERROR_CODES = {
   ENVIRONMENT_NOT_KNOWN: 'validation/environment_not_known',
   INSUFFICIENT_BALANCE: 'validation/insufficient_balance',
   NO_BALANCE_FOR_ADDRESS: 'validation/no_balance_for_address',
+  AMOUNT_TOO_LOW: 'validation/amount_too_low',
   SDK_NOT_INITIALIZED: 'validation/sdk_not_initialized',
   SDK_INIT_STATE_NOT_EXPECTED: 'validation/sdk_init_state_unexpected',
   WALLET_NOT_CONNECTED: 'validation/wallet_not_connected',
@@ -460,6 +461,8 @@ export const Errors = {
       `Insufficient balance to proceed. ${msg ?? ''}`.trim(),
       { context: {} }
     ),
+  amountTooLow: (msg: string): ValidationError =>
+    new ValidationError(ERROR_CODES.AMOUNT_TOO_LOW, msg, { context: {} }),
 
   walletNotConnected: (walletType: string): ValidationError =>
     new ValidationError(

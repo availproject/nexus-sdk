@@ -612,7 +612,7 @@ export async function buildSameTokenBridgeRoute(
     });
     deliveredFromBridge = deliveredAmount;
     if (deliveredFromBridge.lte(0)) {
-      throw Errors.insufficientBalance(
+      throw Errors.amountTooLow(
         `Bridge fees (${formatTokenBalance(totalFee.toFixed())}) exceed bridged amount (${formatTokenBalance(bridgedToken.toFixed())})`
       );
     }
