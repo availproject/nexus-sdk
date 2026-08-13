@@ -281,7 +281,7 @@ export function resolveExactInHoldings(
 
     if (!isNativeAddress(source.tokenAddress) && amountRaw > availableRaw) {
       throw Errors.insufficientBalance(
-        `Requested source (${balance.symbol}) amount (${formatTokenBalance(divDecimals(amountRaw, balance.decimals).toFixed())}) exceeds available balance (${formatTokenBalance(divDecimals(availableRaw, balance.decimals).toFixed())})`
+        `Requested source (${balance.symbol}, ${source.chainId}) amount (${formatTokenBalance(divDecimals(amountRaw, balance.decimals).toFixed())}) exceeds available balance (${formatTokenBalance(divDecimals(availableRaw, balance.decimals).toFixed())})`
       );
     }
 
