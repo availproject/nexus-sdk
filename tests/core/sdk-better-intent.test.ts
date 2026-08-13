@@ -3,7 +3,7 @@ import type { Hex } from 'viem';
 import { createNexusClient } from '../../src';
 import type { EthereumProvider } from '../../src/domain';
 import { normalizeIntentQuote } from '../../src/intent/normalize';
-import type { IntentChain, IntentTokenCatalogEntry } from '../../src/intent/types';
+import type { IntentChain } from '../../src/intent/types';
 import { makeMiddlewareClient } from '../helpers/middleware-client';
 import { testDeployment } from '../fixtures/deployment';
 
@@ -27,6 +27,7 @@ const intentChains: IntentChain[] = [
         name: 'USD Coin',
         decimals: 6,
         isNative: false,
+        coingeckoId: 'usd-coin',
         providers: [{ id: 'nexus-v2', currencyId: 1 }],
       },
     ],
@@ -45,38 +46,11 @@ const intentChains: IntentChain[] = [
         name: 'USD Coin',
         decimals: 6,
         isNative: false,
+        coingeckoId: 'usd-coin',
         providers: [{ id: 'nexus-v2', currencyId: 1 }],
       },
     ],
     capabilities: { intent: true, execute: false },
-  },
-];
-
-const intentTokens: IntentTokenCatalogEntry[] = [
-  {
-    assetId: 'usd-coin',
-    symbol: 'USDC',
-    name: 'USD Coin',
-    chains: [
-      {
-        universe: 'EVM',
-        chainId: 1,
-        address: ETHEREUM_TOKEN,
-        name: 'USD Coin',
-        decimals: 6,
-        isNative: false,
-        providers: [{ id: 'nexus-v2', currencyId: 1 }],
-      },
-      {
-        universe: 'EVM',
-        chainId: 8453,
-        address: BASE_TOKEN,
-        name: 'USD Coin',
-        decimals: 6,
-        isNative: false,
-        providers: [{ id: 'nexus-v2', currencyId: 1 }],
-      },
-    ],
   },
 ];
 
@@ -124,7 +98,6 @@ describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s
     const middleware = makeMiddlewareClient({
       getDeployment: async () => testDeployment,
       getIntentChains: async () => intentChains,
-      getIntentTokens: async () => intentTokens,
       getIntentQuote,
       submitIntent: async () => ({ quoteId: QUOTE_ID, status: 'created' }),
       getIntentStatus: async () => ({
@@ -182,7 +155,6 @@ describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s
     const middleware = makeMiddlewareClient({
       getDeployment: async () => testDeployment,
       getIntentChains: async () => intentChains,
-      getIntentTokens: async () => intentTokens,
       listIntentHistory,
     });
     const client = createNexusClient({ network, internal: { middlewareClient: middleware } });
@@ -207,6 +179,31 @@ describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s
       status: 'fulfilled',
       limit: 20,
       offset: 20,
+    });
+  });
+
+  it('applies the Mayan filter to catalog and balance requests', async () => {
+    const getIntentChains = vi.fn().mockResolvedValue(intentChains);
+    const getIntentBalances = vi.fn().mockResolvedValue({ balances: [], errored: false });
+    const middleware = makeMiddlewareClient({
+      getDeployment: async () => testDeployment,
+      getIntentChains,
+      getIntentBalances,
+    });
+    const client = createNexusClient({
+      network,
+      forceMayan: true,
+      internal: { middlewareClient: middleware },
+    });
+
+    await client.initialize();
+    await client.setEVMProvider(provider());
+    await client.getBalancesForSwap();
+
+    expect(getIntentChains).toHaveBeenCalledWith(['mayan']);
+    expect(getIntentBalances).toHaveBeenCalledWith(expect.stringMatching(/^0x0*aa$/i), {
+      refresh: false,
+      providers: ['mayan'],
     });
   });
 });

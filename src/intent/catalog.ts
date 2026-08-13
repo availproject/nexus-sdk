@@ -27,6 +27,42 @@ export type IntentCatalog = {
   ) => NonNullable<IntentQuoteRequest['sources']>;
 };
 
+export const createTokenCatalogFromChains = (chains: IntentChain[]): IntentTokenCatalogEntry[] => {
+  const assets = new Map<string, IntentTokenCatalogEntry>();
+
+  for (const chain of chains) {
+    for (const token of chain.tokens) {
+      const assetId = token.coingeckoId ?? `symbol:${token.symbol.toUpperCase()}`;
+      const existing = assets.get(assetId);
+      const deployment = {
+        universe: 'EVM' as const,
+        chainId: token.chainId,
+        address: token.address,
+        name: token.name,
+        decimals: token.decimals,
+        isNative: token.isNative,
+        providers: token.providers,
+      };
+
+      if (existing) {
+        existing.chains.push(deployment);
+        continue;
+      }
+
+      assets.set(assetId, {
+        assetId,
+        symbol: token.symbol,
+        name: token.name,
+        logo: token.logo,
+        coingeckoId: token.coingeckoId,
+        chains: [deployment],
+      });
+    }
+  }
+
+  return [...assets.values()];
+};
+
 export const createIntentCatalog = (
   chains: IntentChain[],
   tokens: IntentTokenCatalogEntry[]

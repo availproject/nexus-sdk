@@ -6,7 +6,6 @@ export const makeMiddlewareClient = (
 ): MiddlewareClient => ({
   getDeployment: async () => ({}) as never,
   getIntentChains: async () => [],
-  getIntentTokens: async () => [],
   getIntentBalances: async () => ({ balances: [], errored: false }),
   getIntentQuote: async () => {
     throw new Error('getIntentQuote fixture not configured');

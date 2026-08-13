@@ -11,7 +11,7 @@ import type {
   TransferParams,
 } from '../../domain';
 import { getLogger } from '../../domain';
-import { intentNetworkEnabled } from '../../intent/catalog';
+import { createTokenCatalogFromChains, intentNetworkEnabled } from '../../intent/catalog';
 import { createChainList } from '../../services/chain-list';
 import { getNetwork, readEnv } from '../../services/network-config';
 import { setLoggerProvider } from '../../services/telemetry';
@@ -64,13 +64,17 @@ export const createNexusClient = (config?: {
     await trackInit(analytics, { debug: config?.debug || false }, async () => {
       const middleware = base.getMiddlewareClient();
       const intentEnabled = intentNetworkEnabled(base.networkConfig.NETWORK_HINT);
-      const [deployment, intentChains, intentTokens] = await Promise.all([
+      const catalogProviders = config?.forceMayan ? (['mayan'] as const) : undefined;
+      const [deployment, intentChains] = await Promise.all([
         middleware.getDeployment(),
-        intentEnabled ? middleware.getIntentChains() : Promise.resolve([]),
-        intentEnabled ? middleware.getIntentTokens() : Promise.resolve([]),
+        intentEnabled
+          ? middleware.getIntentChains(catalogProviders ? [...catalogProviders] : undefined)
+          : Promise.resolve([]),
       ]);
       base.setChainList(createChainList(deployment));
-      if (intentEnabled) base.setIntentCatalog(intentChains, intentTokens);
+      if (intentEnabled) {
+        base.setIntentCatalog(intentChains, createTokenCatalogFromChains(intentChains));
+      }
     });
   };
 

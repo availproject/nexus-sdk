@@ -56,7 +56,6 @@ describe('Better Intent middleware transport', () => {
           },
         ],
       })
-      .mockResolvedValueOnce({ data: [] })
       .mockResolvedValueOnce({
         data: {
           errored: false,
@@ -81,20 +80,24 @@ describe('Better Intent middleware transport', () => {
 
     const client = createMiddlewareClient('https://mw.example');
 
-    await expect(client.getIntentChains()).resolves.toEqual([
+    await expect(client.getIntentChains(['mayan'])).resolves.toEqual([
       expect.objectContaining({ id: 1, capabilities: { intent: true, execute: false } }),
     ]);
-    await expect(client.getIntentTokens()).resolves.toEqual([]);
-    await expect(client.getIntentBalances(ACCOUNT, { refresh: true })).resolves.toEqual({
+    await expect(
+      client.getIntentBalances(ACCOUNT, { refresh: true, providers: ['mayan'] })
+    ).resolves.toEqual({
       errored: false,
       balances: [expect.objectContaining({ balanceRaw: 42n })],
     });
-    expect(http.get).toHaveBeenNthCalledWith(1, '/api/v1/better-intent/chains');
-    expect(http.get).toHaveBeenNthCalledWith(2, '/api/v1/better-intent/tokens');
     expect(http.get).toHaveBeenNthCalledWith(
-      3,
+      1,
+      '/api/v1/better-intent/chains',
+      { params: { provider: 'mayan' } }
+    );
+    expect(http.get).toHaveBeenNthCalledWith(
+      2,
       `/api/v1/better-intent/balances/${ACCOUNT}`,
-      { params: { refresh: true } }
+      { params: { refresh: true, provider: 'mayan' } }
     );
   });
 
