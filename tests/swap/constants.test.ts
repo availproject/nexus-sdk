@@ -9,6 +9,8 @@ import {
   SLIPPAGE_DEFAULT,
   SRC_BUFFER_MAX_USD,
   SRC_BUFFER_PCT,
+  STABLE_SRC_BUFFER_MAX_USD,
+  STABLE_SRC_BUFFER_PCT,
 } from '../../src/swap/constants';
 import { CurrencyID } from '../../src/swap/cot';
 import {
@@ -32,6 +34,11 @@ describe('swap economic constants', () => {
   it('EXACT_OUT source buffer = min(2%, $1)', () => {
     expect(SRC_BUFFER_PCT).toBe(0.02);
     expect(SRC_BUFFER_MAX_USD).toBe(1);
+  });
+
+  it('EXACT_OUT stable source buffer = min(0.5%, $0.25)', () => {
+    expect(STABLE_SRC_BUFFER_PCT).toBe(0.005);
+    expect(STABLE_SRC_BUFFER_MAX_USD).toBe(0.25);
   });
 
   it('max-amount haircut combines the source and destination buffers', () => {

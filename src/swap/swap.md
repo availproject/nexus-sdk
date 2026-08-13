@@ -119,8 +119,11 @@ Exact In maximizes destination output from the selected raw input. Exact Out sel
 value to satisfy a fixed destination amount and optional native-gas amount, including configured
 buffers and bridge fees. Its destination buffer is the smaller of 5% or $1. When the requested
 token is already the destination COT and only native gas needs a swap, that buffer applies only to
-the gas-swap input; the requested COT amount remains exact. Provider selection happens only for
-route-relevant remote value; direct destination routes do not request a bridge provider.
+the gas-swap input; the requested COT amount remains exact. Its source buffer depends on the rough
+selected source prefix: zero when every source already matches the selected settlement token, the
+smaller of 0.5% or $0.25 for stable-only conversions, and the smaller of 2% or $1 when any
+non-stable conversion is required. Provider selection happens only for route-relevant remote value;
+direct destination routes do not request a bridge provider.
 
 For general COT routes, the SDK deterministically chooses between USDC and USDT before requesting
 aggregator quotes. Each source that is not already the candidate costs one leg, and a

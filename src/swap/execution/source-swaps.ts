@@ -264,10 +264,9 @@ export const dispatchSourceChainBatch = async (input: {
   };
 };
 
-// Re-quote source legs that reverted. For EXACT_OUT (`srcBuffer` non-null, COT units sizing
-// `min(SRC_BUFFER_PCT, SRC_BUFFER_MAX_USD)` of the destination-buffered input) the combined
-// output drop must fit inside that budget. EXACT_IN passes `null`: re-quote and proceed with
-// no drift guard — Seam 2 re-sizes the dst swap to whatever COT actually lands.
+// Re-quote source legs that reverted. For EXACT_OUT (`srcBuffer` non-null, in COT units) the
+// combined output drop must fit inside the route's source-risk budget. EXACT_IN passes `null`:
+// re-quote and proceed with no drift guard — Seam 2 re-sizes the dst swap to whatever COT lands.
 const requoteFailedChains = async (
   failedChains: Array<{ chainId: number; chainSwaps: QuoteResponse[] }>,
   srcBuffer: Decimal | null,

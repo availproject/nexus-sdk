@@ -510,6 +510,7 @@ describe('determineSwapRoute', () => {
     expect(route.type).toBe(SwapMode.EXACT_OUT);
     expect(route.bridge).not.toBeNull();
     expect(route.bridge!.assets.length).toBeGreaterThan(0);
+    expect(route.source.srcBuffer?.toString()).toBe('1');
     // EXACT_OUT reclaim: bridge source actuals so every chain's extra (buffer + realized slippage)
     // consolidates at the destination (returned there by a single direct transfer at execution time).
     expect(route.source.reclaimFromActualBalance).toBe(true);
@@ -706,10 +707,10 @@ describe('determineSwapRoute', () => {
       })
     );
 
-    expect(vi.mocked(autoSelectSources).mock.calls[0][0].outputRequired.toFixed()).toBe('511.5');
+    expect(vi.mocked(autoSelectSources).mock.calls[0][0].outputRequired.toFixed()).toBe('510.5');
     expect(route.destination.inputAmount.min.toFixed()).toBe('510');
     expect(route.destination.inputAmount.max.toFixed()).toBe('510.5');
-    expect(route.buffer.amount).toBe('1.5');
+    expect(route.buffer.amount).toBe('0.5');
   });
   it('fails closed when cross-chain routing needs a bridge quote and none is available', async () => {
     const input: SwapData = {
@@ -2187,7 +2188,7 @@ describe('determineSwapRoute', () => {
     expect(route.buffer.amount).toBeDefined();
     expect(route.type).toBe(SwapMode.EXACT_OUT);
   });
-  it('EXACT_OUT applies a source buffer on top of the destination-buffered input requirement', async () => {
+  it('EXACT_OUT skips the source buffer when sources already match settlement', async () => {
     const input: SwapData = {
       mode: SwapMode.EXACT_OUT,
       data: { toChainId: ARB_CHAIN, toTokenAddress: WETH, toAmountRaw: 1000000000000000000n },
@@ -2237,7 +2238,7 @@ describe('determineSwapRoute', () => {
       input,
       makeRouteOptions({
         // This same-chain COT→WETH input would take Path A (direct swap); skip fast paths to isolate
-        // the DEFAULT-flow two-buffer math (dst buffer + source buffer in COT units) under test here.
+        // the default COT route and its destination-only buffer.
         skipFastPaths: true,
         balances: [
           {
@@ -2255,10 +2256,108 @@ describe('determineSwapRoute', () => {
     );
     expect(
       vi.mocked(autoSelectSources).mock.calls[0][0].outputRequired.toString()
-    ).toBe('3102');
+    ).toBe('3101');
     expect(route.destination.inputAmount.min.toString()).toBe('3100');
     expect(route.destination.inputAmount.max.toString()).toBe('3101');
-    expect(route.buffer.amount).toBe('2');
+    expect(route.source.srcBuffer?.toString()).toBe('0');
+    expect(route.buffer.amount).toBe('1');
+  });
+
+  it('EXACT_OUT uses a reduced source buffer for stable-only conversions', async () => {
+    const input: SwapData = {
+      mode: SwapMode.EXACT_OUT,
+      data: { toChainId: ARB_CHAIN, toTokenAddress: WETH, toAmountRaw: 1000000000000000000n },
+    };
+    vi.mocked(autoSelectSources).mockResolvedValue({
+      quoteResponses: [
+        makeQuoteResponse({
+          quote: {
+            input: {
+              contractAddress: USDT_ARB,
+              amount: '2101.25',
+              amountRaw: 2101250000n,
+              decimals: 6,
+              value: 2101.25,
+              symbol: 'USDT',
+            },
+            output: {
+              contractAddress: USDC_ARB,
+              amount: '2101.25',
+              amountRaw: 2101250000n,
+              decimals: 6,
+              value: 2101.25,
+              symbol: 'USDC',
+            },
+            txData: {
+              approvalAddress: '0x1111111111111111111111111111111111111111' as Hex,
+              tx: {
+                to: '0x2222222222222222222222222222222222222222' as Hex,
+                data: '0xabcdef' as Hex,
+                value: '0x0' as Hex,
+              },
+            },
+          },
+          holding: {
+            chainID: ARB_CHAIN,
+            tokenAddress: USDT_ARB,
+            amountRaw: 2101250000n,
+            decimals: 6,
+            symbol: 'USDT',
+          },
+        }),
+      ],
+      usedCOTs: [
+        {
+          holding: {
+            chainID: ARB_CHAIN,
+            tokenAddress: USDC_ARB,
+            amountRaw: 1000000000n,
+            decimals: 6,
+            symbol: 'USDC',
+          },
+          amountUsed: new Decimal('1000'),
+          idx: 0,
+        },
+      ],
+    });
+    vi.mocked(determineDestinationSwaps).mockResolvedValue(
+      makeDestinationQuoteResponse({ chainID: ARB_CHAIN })
+    );
+
+    const route = await determineSwapRoute(
+      input,
+      makeRouteOptions({
+        skipFastPaths: true,
+        balances: [
+          {
+            amount: '1000',
+            chainID: ARB_CHAIN,
+            decimals: 6,
+            symbol: 'USDC',
+            tokenAddress: USDC_ARB,
+            value: 1000,
+            logo: '',
+            name: 'USDC',
+          },
+          {
+            amount: '5000',
+            chainID: ARB_CHAIN,
+            decimals: 6,
+            symbol: 'USDT',
+            tokenAddress: USDT_ARB,
+            value: 5000,
+            logo: '',
+            name: 'USDT',
+          },
+        ],
+      })
+    );
+
+    expect(vi.mocked(autoSelectSources).mock.calls[0][0].outputRequired.toString()).toBe(
+      '3101.25'
+    );
+    expect(route.source.srcBuffer?.toString()).toBe('0.25');
+    expect(route.buffer.amount).toBe('1.25');
   });
   it('EXACT_OUT applies sources as an allowlist before source selection', async () => {
     const input: SwapData = {
@@ -5030,7 +5129,7 @@ describe('determineSwapRoute — bridge provider parity', () => {
     expect(req.destination.chain_id).toBe(toHex(BASE_CHAIN));
   });
 
-  it('EXACT_OUT sends the bridged (non-dst) rough prefix as the amount and still buffers autoSelect', async () => {
+  it('EXACT_OUT sends the bridged rough prefix as the amount without buffering direct COT sources', async () => {
     const input: SwapData = {
       mode: SwapMode.EXACT_OUT,
       data: { toChainId: ARB_CHAIN, toTokenAddress: WETH, toAmountRaw: 1000000000000000000n },
@@ -5063,16 +5162,16 @@ describe('determineSwapRoute — bridge provider parity', () => {
     // Bridged prefix excludes the $1000 dst-chain holding → $5000 raw (not $6000).
     expect(req.destination.amount).toBe('5000000000');
     expect(equalFold(req.destination.contract_address, USDC_ARB)).toBe(true);
-    // autoSelect still gets the full buffered requirement (3100 + buffers).
-    expect(vi.mocked(autoSelectSources).mock.calls[0][0].outputRequired.toString()).toBe('3102');
+    // autoSelect gets the destination-buffered requirement; direct COT sources need no source buffer.
+    expect(vi.mocked(autoSelectSources).mock.calls[0][0].outputRequired.toString()).toBe('3101');
   });
 
   it('EXACT_OUT Mayan: folds the pre-estimated bridge fee (input − minReceived) into the source selection', async () => {
     // Before the real source quoting, the route rough-selects ~110% of the 1000 USDC requirement,
     // quotes Mayan, and folds the haircut (a flat $22 on the 1100 rough leg) into the target that
     // autoSelectSources must cover — so the real selection produces enough COT to survive the bridge
-    // fee. With no destination swap, net dst-need + source buffer is 1001; with the fee,
-    // autoSelect is asked for 1023.
+    // fee. With no destination or source swap, the net destination need is 1000; with the fee,
+    // autoSelect is asked for 1022.
     const mayanMw = {
       getBridgeProvider: vi.fn().mockResolvedValue({ provider: 'mayan' }),
       getMayanQuotes: vi.fn().mockImplementation(
@@ -5116,7 +5215,7 @@ describe('determineSwapRoute — bridge provider parity', () => {
     );
     expect(autoSelectSources).toHaveBeenCalled();
     const { outputRequired } = vi.mocked(autoSelectSources).mock.calls[0][0];
-    expect(outputRequired.toFixed()).toBe('1023');
+    expect(outputRequired.toFixed()).toBe('1022');
   });
 
   it('EXACT_OUT Mayan: estimatedFees records the haircut (gross − Σ minReceived), not Nexus fees', async () => {

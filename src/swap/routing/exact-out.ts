@@ -16,8 +16,11 @@ import {
   EADDRESS,
   SRC_BUFFER_MAX_USD,
   SRC_BUFFER_PCT,
+  STABLE_SETTLEMENT_CURRENCY_IDS,
+  STABLE_SRC_BUFFER_MAX_USD,
+  STABLE_SRC_BUFFER_PCT,
 } from '../constants';
-import { resolveCOT } from '../cot';
+import { type CurrencyID, resolveCOT, resolveCurrencyId } from '../cot';
 import type { RouteOptions } from '../route';
 import type {
   AssetsUsedEntry,
@@ -670,14 +673,21 @@ export async function _exactOutRoute(
       : new Decimal(0);
   const destinationBufferedInput = inputAmount.plus(destinationBuffer);
   const originalDestinationMaxInput = new Decimal(destinationBufferedInput);
-  const sourceBuffer = applyBuffer(
-    destinationBufferedInput,
-    SRC_BUFFER_PCT,
-    SRC_BUFFER_MAX_USD,
-    oraclePrices,
-    data.toChainId,
-    dstCOT.address
+  const sourceBufferConfig = resolveSourceBufferConfig(
+    roughlyEstimatedSources,
+    selectedCurrencyId,
+    chainList
   );
+  const sourceBuffer = sourceBufferConfig
+    ? applyBuffer(
+        destinationBufferedInput,
+        sourceBufferConfig.pct,
+        sourceBufferConfig.maxUsd,
+        oraclePrices,
+        data.toChainId,
+        dstCOT.address
+      )
+    : new Decimal(0);
   const sourceBufferedRequired = destinationBufferedInput.plus(sourceBuffer);
   // Estimate the bridge fee up front and add it to the *selection* target (not the net delivery
   // target `sourceBufferedRequired`) so a single `autoSelectSources` pass produces enough COT to
@@ -953,6 +963,27 @@ function applyBuffer(
   const tokenPrice = entry ? entry.priceUsd.toNumber() : 1;
   const maxBufferInToken = new Decimal(maxUsd).div(tokenPrice);
   return Decimal.min(pctBuffer, maxBufferInToken);
+}
+
+function resolveSourceBufferConfig(
+  sources: SourceHolding[],
+  settlementCurrencyId: number,
+  chainList: ChainListType
+): { pct: number; maxUsd: number } | null {
+  let needsSourceSwap = false;
+  for (const source of sources) {
+    const settlementToken = resolveCOT(source.chainID, chainList, settlementCurrencyId);
+    if (equalFold(source.tokenAddress, settlementToken.address)) continue;
+    needsSourceSwap = true;
+    if (
+      !STABLE_SETTLEMENT_CURRENCY_IDS.has(
+        resolveCurrencyId(chainList, source.chainID, source.tokenAddress) as CurrencyID
+      )
+    ) {
+      return { pct: SRC_BUFFER_PCT, maxUsd: SRC_BUFFER_MAX_USD };
+    }
+  }
+  return needsSourceSwap ? { pct: STABLE_SRC_BUFFER_PCT, maxUsd: STABLE_SRC_BUFFER_MAX_USD } : null;
 }
 
 function computeGasInCotBudgetRaw(input: {
