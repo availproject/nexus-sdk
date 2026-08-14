@@ -1,7 +1,7 @@
 import Decimal from 'decimal.js';
 import { describe, expect, it } from 'vitest';
 import {
-  B2_STABLE_CURRENCY_IDS,
+  STABLE_SETTLEMENT_CURRENCY_IDS,
   DST_BUFFER_MAX_USD,
   DST_BUFFER_PCT,
   MAX_SWAP_HAIRCUT_MIN_USDC,
@@ -9,6 +9,8 @@ import {
   SLIPPAGE_DEFAULT,
   SRC_BUFFER_MAX_USD,
   SRC_BUFFER_PCT,
+  STABLE_SRC_BUFFER_MAX_USD,
+  STABLE_SRC_BUFFER_PCT,
 } from '../../src/swap/constants';
 import { CurrencyID } from '../../src/swap/cot';
 import {
@@ -24,9 +26,9 @@ import {
 // budget to be a deliberate, reviewed product decision rather than something that slips through
 // behind an ambiguous numeric example. Keep this in lockstep with src/swap/swap.md §12.
 describe('swap economic constants', () => {
-  it('destination buffer = min(10%, $2)', () => {
-    expect(DST_BUFFER_PCT).toBe(0.1);
-    expect(DST_BUFFER_MAX_USD).toBe(2);
+  it('destination buffer = min(5%, $1)', () => {
+    expect(DST_BUFFER_PCT).toBe(0.05);
+    expect(DST_BUFFER_MAX_USD).toBe(1);
   });
 
   it('EXACT_OUT source buffer = min(2%, $1)', () => {
@@ -34,9 +36,16 @@ describe('swap economic constants', () => {
     expect(SRC_BUFFER_MAX_USD).toBe(1);
   });
 
-  it('max-amount haircut = max(3%, $3)', () => {
-    expect(MAX_SWAP_HAIRCUT_PCT).toBe(0.03);
-    expect(MAX_SWAP_HAIRCUT_MIN_USDC).toBe(3);
+  it('EXACT_OUT stable source buffer = min(0.5%, $0.25)', () => {
+    expect(STABLE_SRC_BUFFER_PCT).toBe(0.005);
+    expect(STABLE_SRC_BUFFER_MAX_USD).toBe(0.25);
+  });
+
+  it('max-amount haircut combines the source and destination buffers', () => {
+    expect(MAX_SWAP_HAIRCUT_PCT).toBe(DST_BUFFER_PCT + SRC_BUFFER_PCT);
+    expect(MAX_SWAP_HAIRCUT_PCT).toBe(0.07);
+    expect(MAX_SWAP_HAIRCUT_MIN_USDC).toBe(DST_BUFFER_MAX_USD + SRC_BUFFER_MAX_USD);
+    expect(MAX_SWAP_HAIRCUT_MIN_USDC).toBe(2);
   });
 
   it('convergence: ×1.005 safety, +0.5 COT input cap, ≤10 iterations', () => {
@@ -49,8 +58,10 @@ describe('swap economic constants', () => {
     expect(SLIPPAGE_DEFAULT).toBe(0.005);
   });
 
-  it('B2 dynamic COT is stables-only (USDC + USDT) — ETH excluded', () => {
-    expect([...B2_STABLE_CURRENCY_IDS].sort()).toEqual([CurrencyID.USDC, CurrencyID.USDT].sort());
-    expect(B2_STABLE_CURRENCY_IDS.has(CurrencyID.ETH)).toBe(false);
+  it('least-swap settlement is stables-only (USDC + USDT) — ETH excluded', () => {
+    expect([...STABLE_SETTLEMENT_CURRENCY_IDS].sort()).toEqual(
+      [CurrencyID.USDC, CurrencyID.USDT].sort()
+    );
+    expect(STABLE_SETTLEMENT_CURRENCY_IDS.has(CurrencyID.ETH)).toBe(false);
   });
 });

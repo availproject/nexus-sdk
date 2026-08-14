@@ -117,8 +117,25 @@ Destination swaps always execute from the Safe and deliver requested token/nativ
 
 Exact In maximizes destination output from the selected raw input. Exact Out selects enough source
 value to satisfy a fixed destination amount and optional native-gas amount, including configured
-buffers and bridge fees. Provider selection happens only for route-relevant remote value; direct
-destination routes do not request a bridge provider.
+buffers and bridge fees. Its destination buffer is the smaller of 5% or $1. When the requested
+token is already the destination COT and only native gas needs a swap, that buffer applies only to
+the gas-swap input; the requested COT amount remains exact. Its source buffer depends on the rough
+selected source prefix: zero when every source already matches the selected settlement token, the
+smaller of 0.5% or $0.25 for stable-only conversions, and the smaller of 2% or $1 when any
+non-stable conversion is required. Provider selection happens only for route-relevant remote value;
+direct destination routes do not request a bridge provider.
+
+For general COT routes, the SDK deterministically chooses between USDC and USDT before requesting
+aggregator quotes. Each source that is not already the candidate costs one leg, and a
+candidate different from the requested output costs one destination leg. Destination-chain holdings
+already equal to the Exact-In output are excluded. Exact In scores all selected holdings; priced
+Exact Out (including `swapAndExecute`) scores its rough eligible prefix but requires the candidate on
+every usable source chain. ETH remains available to the same-token bridge path but is not a general
+settlement candidate. Equal scores keep the current COT; an unavailable bridge quote fails routing.
+
+Mixed Exact-In routes leave destination-chain holdings already denominated in the requested token
+untouched. That identity output is included in `onIntent`, `assetsUsed`, and `calculateMaxForSwap`,
+but creates no plan step or transaction. Max-amount haircuts apply only to the routed portion.
 
 ## Preparation
 
@@ -222,6 +239,8 @@ Retries are deliberately narrow:
 - transient permit-preparation RPC errors may retry up to three total attempts;
 - user rejection and direct approval failures are terminal;
 - ambiguous middleware submission failures are not replayed;
+- a safely retryable source swap is re-quoted across the route's aggregators, excluding the failed
+  router only from its original aggregator, and uses the quote with the highest output;
 - destination requotes remain bounded by their original route constraints.
 
 ## Key invariants

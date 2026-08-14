@@ -209,8 +209,8 @@ describe('resolveFailureSweepCurrencyId', () => {
     ).toBe(CurrencyID.USDC);
   });
 
-  it('sweeps the dynamic COT (F) for a B2 route settling in a non-USDC family', () => {
-    // B2 re-enters the COT flow with cotCurrencyId = F (USDT), so a failed route strands F, not USDC.
+  it('sweeps the selected settlement token for a route settling in a non-USDC family', () => {
+    // A USDT-settled route strands USDT on failure, not the default USDC.
     expect(
       resolveFailureSweepCurrencyId(
         makeRoute({ sameTokenBridge: false, provider: 'nexus', settlementCurrencyId: CurrencyID.USDT })

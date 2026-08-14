@@ -19,8 +19,7 @@ import {
 } from '../algorithms/direct-destination-size';
 import { liquidateInputHoldings } from '../algorithms/liquidate';
 import { resolveExactInAmountBasis, selectExactInQuoteOutput } from '../amount-basis';
-import { B2_STABLE_CURRENCY_IDS } from '../constants';
-import { type CurrencyID, resolveCOT, resolveCurrencyId } from '../cot';
+import { resolveCOT, resolveCurrencyId } from '../cot';
 import type { RouteOptions } from '../route';
 import type {
   AssetsUsedEntry,
@@ -41,6 +40,7 @@ import {
   fetchBridgeQuoteForCurrency,
   resolveBridgeProviderDecision,
 } from './bridge';
+import { summarizeIdentityHoldings } from './holdings';
 
 // ---------------------------------------------------------------------------
 // Fast-path classification & fallback envelope
@@ -49,7 +49,6 @@ import {
 export type FastPathClass =
   | { kind: 'direct' } // A — direct destination-chain swap (both modes)
   | { kind: 'same-token-out'; familyId: number } // B1 — same-family direct bridge, EXACT_OUT mirror
-  | { kind: 'dynamic-cot'; familyId: number } // B2 — dynamic COT selection (both modes)
   | null;
 
 // The single bridgeable mesh family shared by ALL members, or undefined when any member is non-mesh
@@ -68,19 +67,6 @@ const uniformMemberFamily = (
     : undefined;
 };
 
-const cotResolvesOnChain = (
-  chainList: ChainListType,
-  chainId: number,
-  currencyId: number
-): boolean => {
-  try {
-    resolveCOT(chainId, chainList, currencyId);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
 // Whether the destination token IS the COT (⇒ no destination token swap). Defensive: a chain with no
 // COT can't have toToken == COT, so treat it as needing a swap.
 export const toTokenIsCot = (
@@ -96,9 +82,8 @@ export const toTokenIsCot = (
   }
 };
 
-// Pure routing-time classifier for the three fast paths. `members` are the sources to judge:
-// resolved holdings for EXACT_IN, the full resolved holdings or RES prefix for EXACT_OUT. Check order
-// encodes the product decision A → B1 → B2; the first match wins and the caller gates on it.
+// Pure routing-time classifier for the direct and same-token fast paths. Stable settlement selection
+// is handled independently after these terminal paths have had precedence.
 export const classifyFastPath = (input: {
   chainList: ChainListType;
   members: { chainID: number; tokenAddress: Hex }[];
@@ -110,7 +95,7 @@ export const classifyFastPath = (input: {
   toAmountRaw: bigint;
   mode: SwapMode;
 }): FastPathClass => {
-  const { chainList, members, dstChainId, dstTokenAddress, cotCurrencyId } = input;
+  const { chainList, members, dstChainId, dstTokenAddress } = input;
   if (members.length === 0) return null;
 
   // A — direct destination swap: every member is already on the destination chain and the caller
@@ -137,23 +122,6 @@ export const classifyFastPath = (input: {
     input.toAmountRaw > 0n
   ) {
     return { kind: 'same-token-out', familyId };
-  }
-
-  // B2 — dynamic COT: all members share a STABLE family F distinct from both the destination family
-  // and the current COT, and F resolves as a COT on the destination chain (the resolveCOT throw,
-  // caught here, is the guard). ETH is excluded by B2_STABLE_CURRENCY_IDS. Requires at least one
-  // off-dst-chain member: B2's whole benefit is skipping the F→USDC→bridge→USDC round-trip, so with
-  // everything already on the dst chain there is no bridge to optimize (a same-chain F→toToken swap is
-  // one hop either way) — firing would only add a wasted F-quote + re-entry. (toToken ≠ cot on dst is
-  // Path A's job; toToken == cot is the plain same-chain liquidation.)
-  if (
-    familyId !== dstFamily &&
-    familyId !== cotCurrencyId &&
-    B2_STABLE_CURRENCY_IDS.has(familyId as CurrencyID) &&
-    !members.every((member) => member.chainID === dstChainId) &&
-    cotResolvesOnChain(chainList, dstChainId, familyId)
-  ) {
-    return { kind: 'dynamic-cot', familyId };
   }
 
   return null;
@@ -215,12 +183,12 @@ export async function buildDirectDestinationExactInRoute(
   const swapHoldings = holdings.filter((h) => !isSameSwapToken(h.tokenAddress, toTokenAddress));
 
   const walletDecision = resolveWalletDecisions({
-    sourceChainIds: new Set(holdings.map((h) => h.chainID)),
+    sourceChainIds: new Set(swapHoldings.map((h) => h.chainID)),
     walletPathHints,
   });
   // No destination swap on this chain (the swap output IS the final token) → recipient = EOA.
   const recipientAddressByChain = buildSourceRecipientAddressByChain({
-    chainIds: holdings.map((h) => h.chainID),
+    chainIds: swapHoldings.map((h) => h.chainID),
     sourceExecutionPaths: walletDecision.sourceExecutionPaths,
     destinationChainId: dstChainId,
     destinationHasSwap: false,
@@ -271,11 +239,11 @@ export async function buildDirectDestinationExactInRoute(
       ),
     new Decimal(0)
   );
-  const identityDelivered = identityHoldings.reduce(
-    (sum, holding) => sum.plus(divDecimals(holding.amountRaw, holding.decimals)),
-    new Decimal(0)
+  const identityOutput = summarizeIdentityHoldings(
+    identityHoldings,
+    options.balances,
+    oraclePrices
   );
-  const totalDelivered = swappedDelivered.plus(identityDelivered);
 
   const assetsUsed: AssetsUsedEntry[] = holdings.map((holding) => ({
     chainID: holding.chainID,
@@ -307,7 +275,8 @@ export async function buildDirectDestinationExactInRoute(
       destination: {
         chainId: dstChainId,
         eoaToEphemeral: null,
-        inputAmount: { min: totalDelivered, max: totalDelivered },
+        identityOutput,
+        inputAmount: { min: swappedDelivered, max: swappedDelivered },
         swap: { tokenSwap: null, gasSwap: null },
         getDstSwap: async () => null,
       },
@@ -563,11 +532,9 @@ export async function buildSameTokenBridgeRoute(
   // dst-chain holdings already sit at the EOA as the right token; only other-chain holdings are
   // bridged. Bridge funding is EOA-held (no swap happened) → eoaBalance.
   const assets: BridgeAsset[] = [];
-  let dstChainBalance = new Decimal(0);
   for (const holding of holdings) {
     const amount = divDecimals(holding.amountRaw, holding.decimals);
     if (holding.chainID === dstChainId) {
-      dstChainBalance = dstChainBalance.plus(amount);
       continue;
     }
     assets.push({
@@ -645,9 +612,13 @@ export async function buildSameTokenBridgeRoute(
     }
   }
 
-  const finalDelivered = deliveredFromBridge.plus(dstChainBalance);
+  const identityOutput = summarizeIdentityHoldings(
+    holdings.filter((holding) => holding.chainID === dstChainId),
+    options.balances,
+    oraclePrices
+  );
   const walletDecision = resolveWalletDecisions({
-    sourceChainIds: new Set(holdings.map((holding) => holding.chainID)),
+    sourceChainIds: new Set(assets.map((asset) => asset.chainID)),
     walletPathHints,
   });
   const assetsUsed: AssetsUsedEntry[] = holdings.map((holding) => ({
@@ -676,7 +647,8 @@ export async function buildSameTokenBridgeRoute(
       destination: {
         chainId: dstChainId,
         eoaToEphemeral: null,
-        inputAmount: { min: finalDelivered, max: finalDelivered },
+        identityOutput,
+        inputAmount: { min: deliveredFromBridge, max: deliveredFromBridge },
         swap: { tokenSwap: null, gasSwap: null },
         getDstSwap: async () => null,
       },

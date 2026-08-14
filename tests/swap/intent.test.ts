@@ -470,6 +470,41 @@ describe('createSwapIntent', () => {
     expect(intent.destination.amount).toBe('3000');
   });
 
+  it('EXACT_IN adds identity output to the routed destination amount and value', () => {
+    const route = makeRoute({
+      type: SwapMode.EXACT_IN,
+      destination: {
+        chainId: ARB_CHAIN,
+        eoaToEphemeral: null,
+        identityOutput: {
+          amountRaw: 2_000_000n,
+          amount: new Decimal(2),
+          value: new Decimal(2),
+        },
+        inputAmount: { min: new Decimal(3), max: new Decimal(3) },
+        swap: {
+          tokenSwap: makeQuoteResponse({
+            quote: {
+              input: { contractAddress: USDC_ARB, amount: '3', amountRaw: 3_000_000n, decimals: 6, value: 3, symbol: 'USDC' },
+              output: { contractAddress: WETH, amount: '3', amountRaw: 3_000_000n, decimals: 6, value: 3, symbol: 'WETH' },
+            } as never,
+          }),
+          gasSwap: null,
+        },
+        getDstSwap: async () => null,
+      },
+    });
+    const input: SwapData = {
+      mode: SwapMode.EXACT_IN,
+      data: { sources: [], toChainId: ARB_CHAIN, toTokenAddress: WETH },
+    };
+
+    const intent = createSwapIntent(route, input, makeChainList() as unknown as ChainListType);
+
+    expect(intent.destination.amount).toBe('5');
+    expect(intent.destination.value).toBe('5');
+  });
+
   it('uses route destination gas-swap output for destination gas display', () => {
     const route = makeRoute({
       destination: {

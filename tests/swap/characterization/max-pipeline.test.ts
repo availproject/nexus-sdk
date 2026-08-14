@@ -474,7 +474,7 @@ describe('calculateMaxForSwap characterization', () => {
     expect(result.symbol).toBe('WETH');
     expect(result.decimals).toBe(18);
     expect(result.maxAmountRaw).toBe(mulDecimals(expectedOutput, 18));
-    expect(result.maxAmount).toBe(expectedOutput.toFixed(18));
+    expect(result.maxAmount).toBe(formatUnits(result.maxAmountRaw, 18));
 
     // Ground truth — NOT recomputed from the route's own quote object. The destination swap is
     // USDC→WETH and Bebop wins (asserted above), so the true per-COT rate is the known Bebop rate.
@@ -534,24 +534,90 @@ describe('calculateMaxForSwap characterization', () => {
     expect(result.maxAmountRaw).toBe(parseUnits(result.maxAmount, result.decimals));
   });
 
+  it('does not apply the max haircut to destination-token identity output', async () => {
+    const options = makeOptions([
+      {
+        amount: '100',
+        chainID: OP_CHAIN,
+        decimals: 6,
+        symbol: 'USDC',
+        tokenAddress: USDC_OP,
+        value: 100,
+        logo: '',
+        name: 'USDC',
+      },
+      {
+        amount: '20',
+        chainID: BASE_CHAIN,
+        decimals: 6,
+        symbol: 'USDC',
+        tokenAddress: USDC_BASE,
+        value: 20,
+        logo: '',
+        name: 'USDC',
+      },
+    ]);
+
+    const result = await calculateMaxForSwap(
+      { toChainId: BASE_CHAIN, toTokenAddress: USDC_BASE },
+      options
+    );
+
+    expect(result.maxAmount).toBe('113.000000');
+    expect(result.maxAmountRaw).toBe(113_000_000n);
+  });
+
+  it('preserves identity output when the routed token-swap portion is below the haircut floor', async () => {
+    const options = makeOptions([
+      {
+        amount: '1',
+        chainID: OP_CHAIN,
+        decimals: 6,
+        symbol: 'USDC',
+        tokenAddress: USDC_OP,
+        value: 1,
+        logo: '',
+        name: 'USDC',
+      },
+      {
+        amount: '1',
+        chainID: BASE_CHAIN,
+        decimals: 18,
+        symbol: 'WETH',
+        tokenAddress: WETH,
+        value: 1500,
+        logo: '',
+        name: 'WETH',
+      },
+    ]);
+
+    const result = await calculateMaxForSwap(
+      { toChainId: BASE_CHAIN, toTokenAddress: WETH },
+      options
+    );
+
+    expect(result.maxAmount).toBe('1.000000000000000000');
+    expect(result.maxAmountRaw).toBe(1_000_000_000_000_000_000n);
+  });
+
   it.each([
     {
-      name: 'uses the 3 USDC floor below the percentage crossover',
-      amount: '50',
+      name: 'uses the combined USD floor below the percentage crossover',
+      amount: '20',
       oraclePrices: undefined,
-      expected: '47',
+      expected: '18',
     },
     {
-      name: 'uses the 3% cap above the floor crossover',
+      name: 'uses the combined percentage above the floor crossover',
       amount: '10000',
       oraclePrices: undefined,
-      expected: '9700',
+      expected: '9300',
     },
     {
       name: 'falls back to the percentage haircut when no price is available',
       amount: '50',
       oraclePrices: [],
-      expected: '48.5',
+      expected: '46.5',
     },
     {
       name: 'clamps at zero when the converted floor exceeds delivery',
@@ -634,8 +700,8 @@ describe('calculateMaxForSwap characterization', () => {
     );
 
     expect(result.symbol).toBe('ETH');
-    expect(result.maxAmount).toBe(new Decimal('0.0188').toFixed(18));
-    expect(result.maxAmountRaw).toBe(parseUnits('0.0188', 18));
+    expect(result.maxAmount).toBe(new Decimal('0.0186').toFixed(18));
+    expect(result.maxAmountRaw).toBe(parseUnits('0.0186', 18));
   });
 
   it('uses the percentage haircut when source quotes carry no USD value', async () => {

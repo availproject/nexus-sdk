@@ -86,7 +86,7 @@ export const executeSwapRoute = async (
           await executeDirectDestinationExactOut(route, context, metadata);
           return [];
         }
-        return executeSourceSwaps(route.source, context, metadata);
+        return executeSourceSwaps(route.source, context, metadata, route.extras.aggregators);
       }
     );
 
