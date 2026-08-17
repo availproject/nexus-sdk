@@ -265,17 +265,22 @@ describe('createSwapPlan', () => {
     ]);
   });
 
-  it('omits eoa_to_ephemeral_transfer for a direct bridge', () => {
+  it('uses the destination token amount for an EOA bridge fill that also delivers gas', () => {
     const route = makeRoute({
       bridge: {
         provider: 'nexus',
-        amount: new Decimal(5),
+        amount: new Decimal(8),
         amounts: {
           tokenAmount: new Decimal(5),
           gasInCot: new Decimal(0),
-          totalAmount: new Decimal(5),
+          totalAmount: new Decimal(8),
         },
-        assets: [makeBridgeAsset(42161, 5)],
+        destinationGas: {
+          amount: new Decimal('0.001'),
+          amountRaw: 1_000_000_000_000_000n,
+          amountInToken: new Decimal('2.5'),
+        },
+        assets: [{ ...makeBridgeAsset(42161, 8), ephemeralBalance: new Decimal(0) }],
         chainID: 8453,
         decimals: 6,
         tokenAddress: token.contractAddress,
@@ -296,6 +301,8 @@ describe('createSwapPlan', () => {
       'bridge_deposit',
       'bridge_fill',
     ]);
+    expect(plan.steps[1]).toMatchObject({ asset: { amount: '8.000000', amountRaw: 8_000_000n } });
+    expect(plan.steps[2]).toMatchObject({ asset: { amount: '5.000000', amountRaw: 5_000_000n } });
   });
 
   it('omits any public sweep step even for ephemeral destination execution', () => {

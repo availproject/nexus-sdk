@@ -140,6 +140,7 @@ const createBridgeFillStep = (
   route: NonNullable<SwapRoute['bridge']>
 ): BridgeFillStep => {
   const { chain, token } = chainList.getChainAndTokenByAddress(route.chainID, route.tokenAddress);
+  const amount = route.destinationGas ? route.amounts.tokenAmount : route.amount;
 
   return {
     type: 'bridge_fill',
@@ -147,8 +148,8 @@ const createBridgeFillStep = (
     chain: toChainDisplay(chain),
     asset: toPlanTokenAmount(
       token,
-      mulDecimals(route.amount, route.decimals),
-      route.amount.toFixed(route.decimals)
+      mulDecimals(amount, route.decimals),
+      amount.toFixed(route.decimals)
     ),
   };
 };
