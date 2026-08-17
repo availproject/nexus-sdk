@@ -1709,7 +1709,7 @@ Swap plans contain the following step types:
 | Step Type | Description |
 |-----------|-------------|
 | `source_swap` | Execute a swap through the Safe on a source chain |
-| `eoa_to_ephemeral_transfer` | Move EOA-held bridge funds to the ephemeral bridge holder |
+| `eoa_to_ephemeral_transfer` | Move EOA-held bridge funds to the ephemeral holder for a non-direct bridge |
 | `bridge_deposit` | Deposit into vault for cross-chain bridge |
 | `bridge_intent_submission` | Submit the bridge intent to the network |
 | `bridge_fill` | Wait for bridge fill on destination chain |
@@ -2290,6 +2290,12 @@ Token-only Safe transactions are sponsor-broadcast through middleware. Native-va
 transactions are submitted by the EOA because the outer transaction must fund the Safe call. The
 ephemeral account remains an owner/signing identity and may hold remote bridge settlement funds; it
 is never the swap executor.
+
+When a swap route is a direct bridge with no source or destination swap, it follows the normal bridge
+custody path instead: the connected EOA owns and signs the RFF and authorizes the vault directly.
+This applies to Nexus and Mayan, including direct routes nested inside `swapAndExecute`. The route
+does not transfer funds to the ephemeral holder or require a Safe on its source chains. Swap intent
+fields and plan step types are unchanged; the `eoa_to_ephemeral_transfer` step is simply absent.
 
 ---
 

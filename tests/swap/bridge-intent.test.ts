@@ -170,6 +170,47 @@ describe('createSwapBridgeIntent', () => {
     expect(intent.availableSources).toEqual(intent.selectedSources);
   });
 
+  it('uses the EOA holder and separates the collection fee on the direct bridge path', () => {
+    const asset = {
+      ...makeBridgeAsset(ARB_CHAIN, USDC_ARB, '3'),
+      eoaBalance: new Decimal('3'),
+      ephemeralBalance: new Decimal(0),
+      depositFee: new Decimal('0.1'),
+      depositFeeRaw: 100_000n,
+    } as BridgeAsset & { depositFee: Decimal; depositFeeRaw: bigint };
+    const bridge = makeBridge([asset], {
+      amount: new Decimal('3'),
+      amounts: {
+        tokenAmount: new Decimal('2.9'),
+        gasInCot: new Decimal(0),
+        totalAmount: new Decimal('3'),
+      },
+      estimatedFees: {
+        collection: new Decimal('0.1'),
+        fulfilment: new Decimal(0),
+        caGas: new Decimal('0.1'),
+        protocol: new Decimal(0),
+        solver: new Decimal(0),
+      },
+    });
+
+    const intent = createSwapBridgeIntent({
+      bridge,
+      assets: bridge.assets,
+      chainList: makeChainList(),
+      recipient: EOA_ADDRESS,
+      ephemeralAddress: EPHEMERAL_ADDRESS,
+      holderAddress: EOA_ADDRESS,
+    } as Parameters<typeof createSwapBridgeIntent>[0]);
+
+    expect(intent.selectedSources[0]).toMatchObject({
+      holderAddress: EOA_ADDRESS,
+      amountRaw: 2_900_000n,
+      depositFeeRaw: 100_000n,
+    });
+    expect(intent.selectedSources[0].depositFee.toFixed()).toBe('0.1');
+  });
+
   it('recipient is dynamic (EOA or ephemeral)', () => {
     const bridge = makeBridge([makeBridgeAsset(ARB_CHAIN, USDC_ARB)]);
     const chainList = makeChainList();

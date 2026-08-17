@@ -1,3 +1,4 @@
+import type { BridgeProvider } from '@avail-project/nexus-types';
 import Decimal from 'decimal.js';
 import { formatUnits, type Hex } from 'viem';
 import type { ChainListType } from '../../domain';
@@ -39,6 +40,7 @@ import {
   enrichMayanBridge,
   fetchBridgeQuoteForCurrency,
   resolveBridgeProviderDecision,
+  withDirectBridgeDepositFees,
 } from './bridge';
 import { summarizeIdentityHoldings } from './holdings';
 
@@ -444,20 +446,17 @@ export async function buildDirectDestinationExactOutRoute(
 // from the gross, EXACT_OUT grosses up from the target, then each finalizes here. forceMayan
 // short-circuits inside resolveBridgeProviderDecision; native is priced like any token (the caller
 // already normalized it to ZERO_ADDRESS).
-const finalizeSameTokenBridge = async (
+const resolveSameTokenBridgeProvider = async (
   params: {
     assets: BridgeAsset[];
     grossBridged: Decimal;
-    tokenAmount: Decimal;
-    fees: NonNullable<SwapRoute['bridge']>['estimatedFees'];
-    nexusFeeModel: NexusFeeModel;
     dstChainId: number;
     dstTokenAddress: Hex;
     dstTokenDecimals: number;
   },
   options: RouteOptions
-): Promise<NonNullable<SwapRoute['bridge']>> => {
-  const provider = (
+): Promise<BridgeProvider> =>
+  (
     await withTimingSpan(
       options.timing,
       'flow.swap.route.resolve_provider',
@@ -478,6 +477,22 @@ const finalizeSameTokenBridge = async (
       { tags: { route_path: 'same_token', source_chain_count: params.assets.length } }
     )
   ).provider;
+
+const finalizeSameTokenBridge = async (
+  params: {
+    assets: BridgeAsset[];
+    grossBridged: Decimal;
+    tokenAmount: Decimal;
+    fees: NonNullable<SwapRoute['bridge']>['estimatedFees'];
+    nexusFeeModel?: NexusFeeModel;
+    provider: BridgeProvider;
+    dstChainId: number;
+    dstTokenAddress: Hex;
+    dstTokenDecimals: number;
+  },
+  options: RouteOptions
+): Promise<NonNullable<SwapRoute['bridge']>> => {
+  const { provider } = params;
   return withTimingSpan(
     options.timing,
     'flow.swap.route.build_bridge',
@@ -494,7 +509,9 @@ const finalizeSameTokenBridge = async (
         decimals: params.dstTokenDecimals,
         tokenAddress: params.dstTokenAddress,
         estimatedFees: params.fees,
-        ...(provider === 'nexus' ? { nexusFeeModel: params.nexusFeeModel } : {}),
+        ...(provider === 'nexus' && params.nexusFeeModel
+          ? { nexusFeeModel: params.nexusFeeModel }
+          : {}),
         provider,
       };
       return provider === 'mayan' ? enrichMayanBridge(bridge, options) : bridge;
@@ -560,39 +577,51 @@ export async function buildSameTokenBridgeRoute(
   let bridge: SwapRoute['bridge'] = null;
   let deliveredFromBridge = new Decimal(0);
   if (assets.length > 0) {
-    const bridgedToken = assets.reduce(
+    const totalDebit = assets.reduce(
       (sum, asset) => sum.plus(asset.eoaBalance).plus(asset.ephemeralBalance),
       new Decimal(0)
     );
     if (!bridgeQuoteResponse) {
       throw Errors.internal('Bridge fee quote unavailable -- cannot route cross-chain swap');
     }
-    const {
-      estimatedFees: fees,
-      totalFeeAmount: totalFee,
-      deliveredAmount,
-      nexusFeeModel,
-    } = computeBridgeFees({
-      quoteResponse: bridgeQuoteResponse,
-      grossBridged: bridgedToken,
-      dstCOTDecimals: dstTokenInfo.decimals,
-    });
-    deliveredFromBridge = deliveredAmount;
-    if (deliveredFromBridge.lte(0)) {
-      throw Errors.amountTooLow(
-        `Bridge fees (${formatTokenBalance(totalFee.toFixed())}) exceed bridged amount (${formatTokenBalance(bridgedToken.toFixed())})`
-      );
-    }
     // The fast path participates in provider selection too, querying the server with the actual
     // bridged same-token (not the COT). Native is priced like any other token (already normalized to
     // ZERO_ADDRESS above); forceMayan still short-circuits inside resolveBridgeProviderDecision.
-    bridge = await finalizeSameTokenBridge(
+    const provider = await resolveSameTokenBridgeProvider(
       {
         assets,
-        grossBridged: bridgedToken,
+        grossBridged: totalDebit,
+        dstChainId,
+        dstTokenAddress,
+        dstTokenDecimals: dstTokenInfo.decimals,
+      },
+      options
+    );
+    const directAssets = withDirectBridgeDepositFees(assets, bridgeQuoteResponse, provider);
+    const collectionFee = directAssets.reduce(
+      (sum, asset) => sum.plus(asset.depositFee ?? 0),
+      new Decimal(0)
+    );
+    const feeSummary = computeBridgeFees({
+      quoteResponse: bridgeQuoteResponse,
+      grossBridged: totalDebit,
+      dstCOTDecimals: dstTokenInfo.decimals,
+      collectionFee,
+    });
+    deliveredFromBridge = feeSummary.deliveredAmount;
+    if (deliveredFromBridge.lte(0)) {
+      throw Errors.amountTooLow(
+        `Bridge fees (${formatTokenBalance(feeSummary.totalFeeAmount.toFixed())}) exceed bridged amount (${formatTokenBalance(totalDebit.toFixed())})`
+      );
+    }
+    bridge = await finalizeSameTokenBridge(
+      {
+        assets: directAssets,
+        grossBridged: totalDebit,
         tokenAmount: deliveredFromBridge,
-        fees,
-        nexusFeeModel,
+        fees: feeSummary.estimatedFees,
+        nexusFeeModel: feeSummary.nexusFeeModel,
+        provider,
         dstChainId,
         dstTokenAddress,
         dstTokenDecimals: dstTokenInfo.decimals,
@@ -724,7 +753,7 @@ export async function buildSameTokenBridgeExactOutRoute(
   if (bpsFraction.gte(1)) {
     throw Errors.internal('Same-token EXACT_OUT: fulfillmentBps >= 100%');
   }
-  const grossBridged = toAmountHuman.plus(fulfilment).div(new Decimal(1).minus(bpsFraction));
+  const bridgeInput = toAmountHuman.plus(fulfilment).div(new Decimal(1).minus(bpsFraction));
 
   // Greedy split over priority-ordered remote family-F holdings. Native holdings keep a per-chain gas
   // reserve so the deposit tx can pay for itself (never consume 100% native).
@@ -733,11 +762,8 @@ export async function buildSameTokenBridgeExactOutRoute(
       holding.chainID !== dstChainId &&
       resolveCurrencyId(chainList, holding.chainID, holding.tokenAddress) === settlementCurrencyId
   );
-  const assets: BridgeAsset[] = [];
-  const usedHoldings: { holding: SourceHolding; used: Decimal }[] = [];
-  let remaining = grossBridged;
+  const candidates: Array<{ holding: SourceHolding; available: Decimal }> = [];
   for (const holding of familyHoldings) {
-    if (remaining.lte(0)) break;
     let available = divDecimals(holding.amountRaw, holding.decimals);
     if (isNativeAddress(holding.tokenAddress)) {
       const reserveRaw = await estimateRepresentativeSwapNativeReserveFee({
@@ -749,28 +775,68 @@ export async function buildSameTokenBridgeExactOutRoute(
         new Decimal(0)
       );
     }
-    const use = Decimal.min(available, remaining);
-    if (use.lte(0)) continue;
-    assets.push({
-      chainID: holding.chainID,
-      contractAddress: isNativeAddress(holding.tokenAddress) ? ZERO_ADDRESS : holding.tokenAddress,
-      decimals: holding.decimals,
-      eoaBalance: use,
-      ephemeralBalance: new Decimal(0),
-    });
-    usedHoldings.push({ holding, used: use });
-    remaining = remaining.minus(use);
-  }
-  if (remaining.gt(0)) {
-    throw Errors.insufficientBalance(
-      `Same-token EXACT_OUT: family holdings cannot cover the grossed-up target (${remaining.toString()} short)`
-    );
+    candidates.push({ holding, available });
   }
 
+  const selectAssets = (provider?: BridgeProvider) => {
+    const assets: BridgeAsset[] = [];
+    const usedHoldings: { holding: SourceHolding; used: Decimal }[] = [];
+    let remaining = bridgeInput;
+    for (const { holding, available } of candidates) {
+      if (remaining.lte(0)) break;
+      const baseAsset: BridgeAsset = {
+        chainID: holding.chainID,
+        contractAddress: isNativeAddress(holding.tokenAddress)
+          ? ZERO_ADDRESS
+          : holding.tokenAddress,
+        decimals: holding.decimals,
+        eoaBalance: available,
+        ephemeralBalance: new Decimal(0),
+      };
+      const asset = provider
+        ? withDirectBridgeDepositFees([baseAsset], fQuote, provider)[0]
+        : baseAsset;
+      const depositFee = asset.depositFee ?? new Decimal(0);
+      const bridgeAmount = Decimal.min(Decimal.max(available.minus(depositFee), 0), remaining);
+      if (bridgeAmount.lte(0)) continue;
+      const debit = bridgeAmount.plus(depositFee);
+      assets.push({ ...asset, eoaBalance: debit });
+      usedHoldings.push({ holding, used: debit });
+      remaining = remaining.minus(bridgeAmount);
+    }
+    if (remaining.gt(0)) {
+      throw Errors.insufficientBalance(
+        `Same-token EXACT_OUT: family holdings cannot cover the grossed-up target (${remaining.toFixed()} short)`
+      );
+    }
+    return { assets, usedHoldings };
+  };
+
+  const preliminary = selectAssets();
+  const provider = await resolveSameTokenBridgeProvider(
+    {
+      assets: preliminary.assets,
+      grossBridged: bridgeInput,
+      dstChainId,
+      dstTokenAddress,
+      dstTokenDecimals: dstTokenInfo.decimals,
+    },
+    options
+  );
+  const { assets, usedHoldings } = selectAssets(provider);
+  const grossBridged = assets.reduce(
+    (sum, asset) => sum.plus(asset.eoaBalance).plus(asset.ephemeralBalance),
+    new Decimal(0)
+  );
+  const collectionFee = assets.reduce(
+    (sum, asset) => sum.plus(asset.depositFee ?? 0),
+    new Decimal(0)
+  );
   const { estimatedFees: fees, nexusFeeModel } = computeBridgeFees({
     quoteResponse: fQuote,
     grossBridged,
     dstCOTDecimals: dstTokenInfo.decimals,
+    collectionFee,
   });
   const bridge = await finalizeSameTokenBridge(
     {
@@ -779,6 +845,7 @@ export async function buildSameTokenBridgeExactOutRoute(
       tokenAmount: toAmountHuman,
       fees,
       nexusFeeModel,
+      provider,
       dstChainId,
       dstTokenAddress,
       dstTokenDecimals: dstTokenInfo.decimals,

@@ -70,7 +70,8 @@ describe('executeSwapRoute contracts', () => {
       route.bridge,
       [executedOnly],
       expect.anything(),
-      expect.anything()
+      expect.anything(),
+      false
     );
   });
 

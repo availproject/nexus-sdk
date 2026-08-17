@@ -58,10 +58,10 @@ const toBridgeIntentChain = (
  * (executeBridgeFromIntent, runBridgeHooks, etc.).
  *
  * Differences from regular bridge intent:
- * - Sources = post-swap ephemeral balances (bridge.assets)
+ * - Sources = swap route bridge assets
  * - Recipient = dynamic (EOA or ephemeral)
  * - Ethereum chain sorted last (most expensive)
- * - Fee stubs all zero (TODO: fees)
+ * - Holder = ephemeral for composed routes, EOA for direct bridge routes
  */
 export const createSwapBridgeIntent = (params: {
   bridge: NonNullable<SwapRoute['bridge']>;
@@ -69,6 +69,7 @@ export const createSwapBridgeIntent = (params: {
   chainList: ChainListType;
   recipient: Hex;
   ephemeralAddress: Hex;
+  holderAddress?: Hex;
 }): BridgeIntentDraft => {
   const { bridge, assets, chainList, recipient, ephemeralAddress } = params;
   const totalBridgedAmount = assets.reduce(
@@ -80,6 +81,7 @@ export const createSwapBridgeIntent = (params: {
       ? computeNexusBridgeFees({
           nexusFeeModel: bridge.nexusFeeModel,
           grossBridged: totalBridgedAmount,
+          collectionFee: bridge.estimatedFees.collection,
         }).estimatedFees
       : bridge.estimatedFees;
   // Gas-swap COT (`bridge.amounts.gasInCot`) is still bridged — it funds the dst gas swap.
@@ -114,11 +116,9 @@ export const createSwapBridgeIntent = (params: {
     return bTotal.comparedTo(aTotal);
   });
 
-  // Bridge funding always flows through the ephemeral identity — RFF `parties` come from the
-  // ephemeral bridge holder, and the Safe deposit batch moves funds from there. Deposit fees
-  // are always zero in this model because the bridge intent is sponsor-relayed; no on-chain
-  // ERC-20 transfer from the EOA happens during bridging.
-  const holderAddress = ephemeralAddress;
+  // Composed routes bridge from the ephemeral holder. Direct bridge routes pass the EOA holder and
+  // retain the normal bridge collection fee on each source.
+  const holderAddress = params.holderAddress ?? ephemeralAddress;
   const lookupMayanQuote = (asset: BridgeAsset) => {
     if (bridge.provider !== 'mayan') return undefined;
     const key = `${asset.chainID}:${asset.contractAddress.toLowerCase()}`;
@@ -133,7 +133,10 @@ export const createSwapBridgeIntent = (params: {
     if (totalBalance.lte(0)) {
       return [];
     }
-    const depositFee = { amount: new Decimal(0), raw: 0n };
+    const depositFee = {
+      amount: asset.depositFee ?? new Decimal(0),
+      raw: asset.depositFeeRaw ?? 0n,
+    };
     if (depositFee.amount.gte(totalBalance)) {
       throw Errors.internal(
         `Route produced infeasible bridge asset for chain ${asset.chainID}: deposit fee ${depositFee.amount.toString()} >= balance ${totalBalance.toString()}`
@@ -142,7 +145,7 @@ export const createSwapBridgeIntent = (params: {
     const mayanQuote = lookupMayanQuote(asset);
     return [
       {
-        amountRaw: mulDecimals(totalBalance.minus(depositFee.amount), asset.decimals),
+        amountRaw: mulDecimals(totalBalance, asset.decimals) - depositFee.raw,
         chain: toBridgeIntentChain(chainList, asset.chainID),
         token: toBridgeIntentToken(chainList, asset.chainID, asset.contractAddress),
         amount: totalBalance.minus(depositFee.amount),

@@ -260,6 +260,53 @@ describe('prepareSwapExecution', () => {
     expect(addAllowanceQuery).toHaveBeenCalledWith(DAI_ARB, EOA, SAFE, ARB_CHAIN);
   });
 
+  it('does not prepare Safe custody for a direct bridge', async () => {
+    const route = makeRoute();
+    route.source = { swaps: [], creationTime: Date.now(), srcBuffer: new Decimal(0) };
+    route.sourceExecutionPaths = new Map([[ARB_CHAIN, 'safe']]);
+    route.destination = {
+      ...route.destination,
+      eoaToEphemeral: null,
+      swap: { tokenSwap: null, gasSwap: null },
+    };
+    route.bridge = {
+      provider: 'nexus',
+      amount: new Decimal('3'),
+      amounts: {
+        tokenAmount: new Decimal('3'),
+        gasInCot: new Decimal(0),
+        totalAmount: new Decimal('3'),
+      },
+      assets: [
+        {
+          chainID: ARB_CHAIN,
+          contractAddress: USDC_ARB,
+          decimals: 6,
+          eoaBalance: new Decimal('3'),
+          ephemeralBalance: new Decimal(0),
+        },
+      ],
+      chainID: ARB_CHAIN + 1,
+      decimals: 6,
+      tokenAddress: USDC_ARB,
+      estimatedFees: {
+        collection: new Decimal(0),
+        fulfilment: new Decimal(0),
+        caGas: new Decimal(0),
+        protocol: new Decimal(0),
+        solver: new Decimal(0),
+      },
+    };
+    const addSafeAccountQuery = vi.spyOn(SwapCache.prototype, 'addSafeAccountQuery');
+    const addAllowanceQuery = vi.spyOn(SwapCache.prototype, 'addAllowanceQuery');
+
+    const prepared = await prepareRoute(route, { safeDeploymentPromises: new Map() });
+
+    expect(prepared.eoaToEphemeralTransfers).toEqual([]);
+    expect(addSafeAccountQuery).not.toHaveBeenCalled();
+    expect(addAllowanceQuery).not.toHaveBeenCalled();
+  });
+
   it('builds a source EOA->Safe funding transfer targeting the predicted Safe on Safe V2 source chains', async () => {
     // Parity with v1: the source-swap executor on a Safe V2 chain is the Safe, so the EOA's input
     // ERC20 must be moved EOA -> Safe (and the Safe is the approve/permit spender) before the
@@ -533,15 +580,13 @@ describe('prepareSwapExecution', () => {
     expect(bridgeTransfer?.amount).toBe(5000000n);
   });
 
-  it('authorizes the V2 Safe for a direct COT source when swapSupported is true', async () => {
-    // Even with Safe V2 support, swapSupported selects the V2 Safe as transferFrom spender; only
-    // bridge custody goes to the ephemeral address.
+  it('authorizes the V2 Safe for a bridge followed by a destination swap', async () => {
     const route = makeRoute();
     route.source = { swaps: [], creationTime: Date.now(), srcBuffer: new Decimal(0) };
     route.destination = {
       ...route.destination,
       eoaToEphemeral: null,
-      swap: { tokenSwap: null, gasSwap: null },
+      swap: { tokenSwap: makeQuoteResponse(), gasSwap: null },
     };
     route.bridge = {
       provider: 'nexus',
@@ -630,12 +675,13 @@ describe('prepareSwapExecution', () => {
   it('skips bridge eoa->ephemeral authorization when cached allowance already covers the amount', async () => {
     const route = makeRoute();
     route.sourceExecutionPaths = new Map([[ARB_CHAIN, 'safe']]);
-    // Isolate the bridge: no source swap (this test asserts only on the bridge transfer).
+    // Isolate bridge funding from source-swap funding while retaining a destination swap, so this
+    // is not the direct EOA bridge path.
     route.source = { ...route.source, swaps: [] };
     route.destination = {
       ...route.destination,
       eoaToEphemeral: null,
-      swap: { tokenSwap: null, gasSwap: null },
+      swap: { tokenSwap: makeQuoteResponse(), gasSwap: null },
     };
     route.bridge = {
       provider: 'nexus',
@@ -685,12 +731,12 @@ describe('prepareSwapExecution', () => {
   it('ignores legacy delegation metadata and keeps Safe funding on the permit path', async () => {
     const route = makeRoute();
     route.sourceExecutionPaths = new Map([[ARB_CHAIN, 'safe']]);
-    // Isolate the bridge: no source swap, so the only setCode query is the funding EOA's.
+    // Isolate bridge funding from source-swap funding while retaining a destination swap.
     route.source = { ...route.source, swaps: [] };
     route.destination = {
       ...route.destination,
       eoaToEphemeral: null,
-      swap: { tokenSwap: null, gasSwap: null },
+      swap: { tokenSwap: makeQuoteResponse(), gasSwap: null },
     };
     route.bridge = {
       provider: 'nexus',

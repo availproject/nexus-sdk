@@ -241,6 +241,13 @@ describe('createSwapPlan', () => {
           solver: new Decimal(0),
         },
       },
+      destination: {
+        chainId: 8453,
+        eoaToEphemeral: null,
+        inputAmount: { min: new Decimal(0), max: new Decimal(0) },
+        swap: withTokenSwap,
+        getDstSwap: async () => null,
+      },
     });
 
     const plan = createSwapPlan(route, chainList);
@@ -250,6 +257,39 @@ describe('createSwapPlan', () => {
         chain: expect.objectContaining({ id: 42161, name: 'Arbitrum' }),
         asset: expect.objectContaining({ amountRaw: 5000000n, amount: '5.000000' }),
       }),
+    ]);
+  });
+
+  it('omits eoa_to_ephemeral_transfer for a direct bridge', () => {
+    const route = makeRoute({
+      bridge: {
+        provider: 'nexus',
+        amount: new Decimal(5),
+        amounts: {
+          tokenAmount: new Decimal(5),
+          gasInCot: new Decimal(0),
+          totalAmount: new Decimal(5),
+        },
+        assets: [makeBridgeAsset(42161, 5)],
+        chainID: 8453,
+        decimals: 6,
+        tokenAddress: token.contractAddress,
+        estimatedFees: {
+          collection: new Decimal(0),
+          fulfilment: new Decimal(0),
+          caGas: new Decimal(0),
+          protocol: new Decimal(0),
+          solver: new Decimal(0),
+        },
+      },
+    });
+
+    const plan = createSwapPlan(route, chainList);
+
+    expect(plan.steps.map((step) => step.type)).toEqual([
+      'bridge_intent_submission',
+      'bridge_deposit',
+      'bridge_fill',
     ]);
   });
 

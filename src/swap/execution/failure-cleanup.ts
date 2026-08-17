@@ -8,28 +8,32 @@ import {
 } from '../../services/init-refund-sweep';
 import { minutesFromNow } from '../../services/time';
 import { type CurrencyID, resolveCOT } from '../cot';
-import type { ExecutionContext, SwapRoute } from '../types';
+import { type ExecutionContext, isDirectBridgeRoute, type SwapRoute } from '../types';
 import { buildEphemeralPermitCall } from '../wallet/ephemeral-permit';
 import { readSettlementBalanceRaw } from './settlement-balance';
 
 const logger = getLogger();
 
 /**
- * The currency the on-failure cleanup should sweep, or `null` to skip it. A Nexus same-token bridge
- * deposits the exact amount directly from the EOA — nothing is staged on the ephemeral — so there's
+ * The currency the on-failure cleanup should sweep, or `null` to skip it. A direct bridge deposits
+ * from the EOA — nothing is staged on the ephemeral — so there's
  * nothing to sweep. The direct-destination fast path (Path A) is one atomic batch on one chain
  * (revertOnFailure), with no later stage, so nothing ever strands there either. Every other route
- * can strand the COT (or, for a Mayan same-token bridge, the bridged family token) on a failed leg,
- * swept under the route's settlement currency.
+ * can strand the COT on a failed leg, swept under the route's settlement currency.
  */
 export const resolveFailureSweepCurrencyId = (
   route: Pick<
     SwapRoute,
-    'sameTokenBridge' | 'bridge' | 'settlementCurrencyId' | 'directDestination'
+    | 'sameTokenBridge'
+    | 'bridge'
+    | 'settlementCurrencyId'
+    | 'directDestination'
+    | 'source'
+    | 'destination'
   >
 ): CurrencyID | null => {
   if (route.directDestination) return null;
-  if (route.sameTokenBridge && route.bridge?.provider === 'nexus') return null;
+  if (isDirectBridgeRoute(route)) return null;
   return route.settlementCurrencyId as CurrencyID;
 };
 

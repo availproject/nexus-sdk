@@ -24,6 +24,7 @@ import {
 import { EADDRESS, SWEEPER_ADDRESS } from '../../../src/swap/constants';
 import {
   SwapMode,
+  isDirectBridgeRoute,
   type FlatBalance,
   type SwapIntent,
   type SwapParams,
@@ -723,10 +724,7 @@ const SCENARIOS: ExactOutScenario[] = [
       expectedBridgeRecipient: EOA,
       expectsNativeSweep: false,
       sourceQuoteExpectations: [],
-      eoaToEphemeralTransfers: [
-        { reason: 'bridge', chainId: ARB_CHAIN, tokenAddress: USDC_ARB },
-        { reason: 'bridge', chainId: OP_CHAIN, tokenAddress: USDC_OP },
-      ],
+      eoaToEphemeralTransfers: [],
       bridgeAssetOwnership: [
         { chainId: ARB_CHAIN, hasEoaBalance: true, hasEphemeralBalance: false },
         { chainId: OP_CHAIN, hasEoaBalance: true, hasEphemeralBalance: false },
@@ -1428,9 +1426,10 @@ const expectSafeDeploymentCalls = (result: {
   previewState: SwapPreviewState;
 }) => {
   const { route } = result.previewState;
-  const expectedChainIds = new Set(route.sourceExecutionPaths.keys());
-  for (const asset of route.bridge?.assets ?? []) {
-    expectedChainIds.add(asset.chainID);
+  const expectedChainIds = new Set<number>();
+  if (!isDirectBridgeRoute(route)) {
+    for (const chainId of route.sourceExecutionPaths.keys()) expectedChainIds.add(chainId);
+    for (const asset of route.bridge?.assets ?? []) expectedChainIds.add(asset.chainID);
   }
   if (route.destination.swap.tokenSwap !== null || route.destination.swap.gasSwap !== null) {
     expectedChainIds.add(route.destination.chainId);
@@ -1512,13 +1511,14 @@ const assertScenario = (scenario: ExactOutScenario, result: HarnessResult) => {
     .filter((step) => step.type === 'eoa_to_ephemeral_transfer')
     .map((step) => step.chain.id)
     .sort((left, right) => left - right);
-  // Smart-account-only model: EOA → ephemeral transfer fires for any bridge asset that has
-  // an eoaBalance > 0 (bridge funding flows through the ephemeral).
+  // Direct bridges keep funds in the EOA. Other bridge routes still fund the ephemeral wallet.
   expect(bridgeTransferChainIds).toEqual(
-    scenario.expected.bridgeAssetOwnership
-      .filter((asset) => asset.hasEoaBalance)
-      .map((asset) => asset.chainId)
-      .sort((left, right) => left - right)
+    isDirectBridgeRoute(result.previewState.route)
+      ? []
+      : scenario.expected.bridgeAssetOwnership
+          .filter((asset) => asset.hasEoaBalance)
+          .map((asset) => asset.chainId)
+          .sort((left, right) => left - right)
   );
 
   const usedCotChainIds = result.previewState.route.extras.assetsUsed

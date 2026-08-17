@@ -23,7 +23,7 @@ import {
   createSourceSwapStepId,
 } from '../services/step-ids';
 import type { QuoteResponse } from './aggregators/types';
-import type { SwapRoute } from './types';
+import { isDirectBridgeRoute, type SwapRoute } from './types';
 
 const toPlanTokenAmount = (
   metadata: PlanTokenMetadata,
@@ -202,9 +202,9 @@ export const createSwapPlan = (route: SwapRoute, chainList: ChainListType): Swap
     );
     steps.push(createBridgeIntentSubmissionStep());
     for (const asset of sortedAssets) {
-      // EOA → ephemeral transfer step only emits for direct-COT bridge holdings (eoaBalance>0);
-      // the smart-account-driven bridge model funds the rest from per-chain wrappers.
-      if (asset.eoaBalance.gt(0)) {
+      // Non-direct routes stage EOA bridge holdings on the ephemeral wallet. Direct routes deposit
+      // from the EOA and therefore omit the custody-transfer step.
+      if (!isDirectBridgeRoute(route) && asset.eoaBalance.gt(0)) {
         steps.push(createBridgeTransferStep(chainList, asset));
       }
       steps.push(createBridgeDepositStep(chainList, asset));

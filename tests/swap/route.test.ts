@@ -121,19 +121,20 @@ const makeGasQuoteResponse = (overrides?: {
 const makeBridgeQuoteResponse = () => ({
   fulfillmentBps: 0,
   sources: [
-    {
-      chainId: ARB_CHAIN,
-      tokenAddress: USDC_ARB,
-      depositFeeUsd: '0',
-      depositFeeToken: '0',
-    },
-    {
-      chainId: OP_CHAIN,
-      tokenAddress: USDC_OP,
-      depositFeeUsd: '0',
-      depositFeeToken: '0',
-    },
-  ],
+    [ARB_CHAIN, USDC_ARB],
+    [OP_CHAIN, USDC_OP],
+    [BASE_CHAIN, USDC_BASE],
+    [ARB_CHAIN, USDT_ARB],
+    [OP_CHAIN, USDT_OP],
+    [BASE_CHAIN, USDT_BASE],
+  ].map(([chainId, tokenAddress]) => ({
+    chainId,
+    tokenAddress,
+    depositFeeUsd: '0',
+    depositFeeToken: '0',
+    depositMayanFeeUsd: '0',
+    depositMayanFeeToken: '0',
+  })),
   destination: {
     chainId: BASE_CHAIN,
     tokenAddress: USDC_BASE,
@@ -866,6 +867,176 @@ describe('determineSwapRoute', () => {
       },
     });
   });
+
+  it('EXACT_IN same-token Nexus debits per-source vault collection fees from delivery', async () => {
+    const getQuote = vi.fn().mockResolvedValue({
+      fulfillmentBps: 0,
+      sources: [
+        {
+          chainId: ARB_CHAIN,
+          tokenAddress: USDT_ARB,
+          depositFeeUsd: '0.1',
+          depositFeeToken: '100000',
+          depositMayanFeeUsd: '0.2',
+          depositMayanFeeToken: '200000',
+        },
+      ],
+      destination: {
+        chainId: BASE_CHAIN,
+        tokenAddress: USDT_BASE,
+        fulfillmentFeeUsd: '0',
+        fulfillmentFeeToken: '0',
+      },
+    });
+    const route = await determineSwapRoute(
+      {
+        mode: SwapMode.EXACT_IN,
+        data: {
+          sources: [{ chainId: ARB_CHAIN, tokenAddress: USDT_ARB, amountRaw: 1_000_000n }],
+          toChainId: BASE_CHAIN,
+          toTokenAddress: USDT_BASE,
+        },
+      },
+      makeRouteOptions({
+        bridgeQuoteResponse: null,
+        chainList: makeSwapChainListWithUsdtCot(),
+        middlewareClient: { ...mockMiddleware, getQuote } as never,
+        balances: [
+          { amount: '1', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDT', tokenAddress: USDT_ARB, value: 1, logo: '', name: 'Tether USD' },
+        ],
+        dstTokenInfo: makeDstTokenInfo({ contractAddress: USDT_BASE, decimals: 6, symbol: 'USDT', name: 'Tether USD' }),
+      })
+    );
+
+    expect(route.bridge?.estimatedFees.collection.toFixed()).toBe('0.1');
+    expect(route.bridge?.amounts.tokenAmount.toFixed()).toBe('0.9');
+    expect(route.bridge?.assets[0]).toMatchObject({ depositFeeRaw: 100_000n });
+    expect(route.bridge?.assets[0].depositFee?.toFixed()).toBe('0.1');
+  });
+
+  it('EXACT_IN same-token Mayan quotes only the EOA amount remaining after collection', async () => {
+    const getQuote = vi.fn().mockResolvedValue({
+      fulfillmentBps: 0,
+      sources: [
+        {
+          chainId: ARB_CHAIN,
+          tokenAddress: USDT_ARB,
+          depositFeeUsd: '0.1',
+          depositFeeToken: '100000',
+          depositMayanFeeUsd: '0.2',
+          depositMayanFeeToken: '200000',
+        },
+      ],
+      destination: {
+        chainId: BASE_CHAIN,
+        tokenAddress: USDT_BASE,
+        fulfillmentFeeUsd: '0',
+        fulfillmentFeeToken: '0',
+      },
+    });
+    const getMayanQuotes = vi.fn().mockImplementation(
+      async (request: { sources: Array<{ amount: string }> }) => ({
+        destination: { chainId: BASE_CHAIN, tokenAddress: USDT_BASE },
+        quotes: request.sources.map((source) => ({
+          source: { chainId: ARB_CHAIN, tokenAddress: USDT_ARB, amount: source.amount },
+          mayanQuote: {
+            effectiveAmountIn64: source.amount,
+            minReceived: Number(source.amount) / 1e6,
+            protocolBps: 0,
+          },
+        })),
+      })
+    );
+    const route = await determineSwapRoute(
+      {
+        mode: SwapMode.EXACT_IN,
+        data: {
+          sources: [{ chainId: ARB_CHAIN, tokenAddress: USDT_ARB, amountRaw: 1_000_000n }],
+          toChainId: BASE_CHAIN,
+          toTokenAddress: USDT_BASE,
+        },
+      },
+      makeRouteOptions({
+        bridgeQuoteResponse: null,
+        chainList: makeSwapChainListWithUsdtCot(),
+        middlewareClient: {
+          ...mockMiddleware,
+          getQuote,
+          getBridgeProvider: vi.fn().mockResolvedValue({ provider: 'mayan' }),
+          getMayanQuotes,
+        } as never,
+        balances: [
+          { amount: '1', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDT', tokenAddress: USDT_ARB, value: 1, logo: '', name: 'Tether USD' },
+        ],
+        dstTokenInfo: makeDstTokenInfo({ contractAddress: USDT_BASE, decimals: 6, symbol: 'USDT', name: 'Tether USD' }),
+      })
+    );
+
+    expect(getMayanQuotes.mock.calls[0][0].sources[0].amount).toBe('800000');
+    expect(route.bridge?.estimatedFees.collection.toFixed()).toBe('0.2');
+    expect(route.bridge?.amounts.tokenAmount.toFixed()).toBe('0.8');
+  });
+
+  it('EXACT_IN direct COT bridge debits the EOA vault collection fee', async () => {
+    const getQuote = vi.fn().mockResolvedValue({
+      fulfillmentBps: 0,
+      sources: [
+        {
+          chainId: ARB_CHAIN,
+          tokenAddress: USDC_ARB,
+          depositFeeUsd: '0.1',
+          depositFeeToken: '100000',
+          depositMayanFeeUsd: '0.2',
+          depositMayanFeeToken: '200000',
+        },
+      ],
+      destination: {
+        chainId: BASE_CHAIN,
+        tokenAddress: USDC_BASE,
+        fulfillmentFeeUsd: '0',
+        fulfillmentFeeToken: '0',
+      },
+    });
+    const route = await determineSwapRoute(
+      {
+        mode: SwapMode.EXACT_IN,
+        data: {
+          sources: [{ chainId: ARB_CHAIN, tokenAddress: USDC_ARB, amountRaw: 1_000_000n }],
+          toChainId: BASE_CHAIN,
+          toTokenAddress: USDC_BASE,
+        },
+      },
+      makeRouteOptions({
+        bridgeQuoteResponse: null,
+        middlewareClient: { ...mockMiddleware, getQuote } as never,
+        balances: [
+          {
+            amount: '1',
+            chainID: ARB_CHAIN,
+            decimals: 6,
+            symbol: 'USDC',
+            tokenAddress: USDC_ARB,
+            value: 1,
+            logo: '',
+            name: 'USD Coin',
+          },
+        ],
+        dstTokenInfo: makeDstTokenInfo({
+          contractAddress: USDC_BASE,
+          decimals: 6,
+          symbol: 'USDC',
+          name: 'USD Coin',
+        }),
+      })
+    );
+
+    expect(route.sameTokenBridge).toBe(false);
+    expect(route.source.swaps).toEqual([]);
+    expect(route.destination.swap).toEqual({ tokenSwap: null, gasSwap: null });
+    expect(route.bridge?.estimatedFees.collection.toFixed()).toBe('0.1');
+    expect(route.bridge?.amounts.tokenAmount.toFixed()).toBe('0.9');
+    expect(route.bridge?.assets[0]).toMatchObject({ depositFeeRaw: 100_000n });
+  });
   it('EXACT_IN same-token: dst-chain source stays at the EOA and is not bridged', async () => {
     const input: SwapData = {
       mode: SwapMode.EXACT_IN,
@@ -939,6 +1110,53 @@ describe('determineSwapRoute', () => {
     expect(route.destination.inputAmount.max.toString()).toBe('1.5');
     // The F-quote was fetched via getQuote.
     expect(getQuote).toHaveBeenCalled();
+  });
+
+  it('B1 EXACT_OUT adds the EOA vault collection fee to the selected source debit', async () => {
+    const getQuote = vi.fn().mockResolvedValue({
+      fulfillmentBps: 0,
+      sources: [
+        {
+          chainId: ARB_CHAIN,
+          tokenAddress: USDT_ARB,
+          depositFeeUsd: '0.1',
+          depositFeeToken: '100000',
+          depositMayanFeeUsd: '0.2',
+          depositMayanFeeToken: '200000',
+        },
+      ],
+      destination: {
+        chainId: BASE_CHAIN,
+        tokenAddress: USDT_BASE,
+        fulfillmentFeeUsd: '0',
+        fulfillmentFeeToken: '0',
+      },
+    });
+    const route = await determineSwapRoute(
+      {
+        mode: SwapMode.EXACT_OUT,
+        data: {
+          sources: [{ chainId: ARB_CHAIN, tokenAddress: USDT_ARB }],
+          toChainId: BASE_CHAIN,
+          toTokenAddress: USDT_BASE,
+          toAmountRaw: 1_500_000n,
+        },
+      },
+      makeRouteOptions({
+        chainList: makeSwapChainListWithUsdtCot(),
+        middlewareClient: { ...mockMiddleware, getQuote } as never,
+        balances: [
+          { amount: '2', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDT', tokenAddress: USDT_ARB, value: 2, logo: '', name: 'Tether USD' },
+        ],
+        dstTokenInfo: makeDstTokenInfo({ contractAddress: USDT_BASE, decimals: 6, symbol: 'USDT', name: 'Tether USD' }),
+      })
+    );
+
+    expect(route.bridge?.amount.toFixed()).toBe('1.6');
+    expect(route.bridge?.amounts.tokenAmount.toFixed()).toBe('1.5');
+    expect(route.bridge?.estimatedFees.collection.toFixed()).toBe('0.1');
+    expect(route.bridge?.assets[0].eoaBalance.toFixed()).toBe('1.6');
+    expect(route.bridge?.assets[0].depositFeeRaw).toBe(100_000n);
   });
   it('B1 EXACT_OUT current-COT sources bridge directly with no swap buffer (USDC→USDC)', async () => {
     const input: SwapData = {

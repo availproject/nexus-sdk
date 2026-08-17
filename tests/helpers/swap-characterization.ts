@@ -810,11 +810,20 @@ export const makeCharMiddleware = (opts: {
       ),
     getQuote: vi.fn().mockResolvedValue({
       fulfillmentBps: 0,
-      sources: [ARB_CHAIN, OP_CHAIN, BASE_CHAIN].map((chainId) => ({
+      sources: [
+        [ARB_CHAIN, USDC_ARB],
+        [OP_CHAIN, USDC_OP],
+        [BASE_CHAIN, USDC_BASE],
+        [ARB_CHAIN, USDT_ARB],
+        [OP_CHAIN, USDT_OP],
+        [BASE_CHAIN, USDT_BASE],
+      ].map(([chainId, tokenAddress]) => ({
         chainId,
-        tokenAddress: ({ [ARB_CHAIN]: USDC_ARB, [OP_CHAIN]: USDC_OP, [BASE_CHAIN]: USDC_BASE }[chainId])!,
+        tokenAddress,
         depositFeeUsd: '0',
         depositFeeToken: '0',
+        depositMayanFeeUsd: '0',
+        depositMayanFeeToken: '0',
       })),
       destination: {
         chainId: BASE_CHAIN,
@@ -936,6 +945,7 @@ export type CharRffRequest = {
   sources: Array<{ chain_id: string; contract_address: Hex; value: string }>;
   destinations: Array<{ contract_address: Hex; value: string }>;
   recipient_address: Hex;
+  parties: Array<{ universe: string; address: Hex }>;
 };
 export const rffRequest = (mw: CharMiddleware): CharRffRequest =>
   (mw.submitRFF.mock.calls[0]?.[0] as { request: CharRffRequest }).request;

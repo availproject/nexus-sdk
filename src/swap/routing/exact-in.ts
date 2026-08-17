@@ -25,9 +25,11 @@ import {
   bridgedTokenForChain,
   buildBridgeAssetsAndFees,
   buildSourceCotByChain,
+  computeBridgeFees,
   enrichMayanBridge,
   fetchBridgeQuoteForCurrency,
   resolveBridgeProviderDecision,
+  withDirectBridgeDepositFees,
 } from './bridge';
 import {
   buildDirectDestinationExactInRoute,
@@ -179,12 +181,35 @@ const buildExactInBridge = async (input: {
       if (!feeSummary) {
         return { bridge: null, cotAvailableForDestination: input.cotAvailableForDestination };
       }
+      const directBridge =
+        input.sourceSwaps.length === 0 &&
+        equalFold(input.data.toTokenAddress, input.dstCOT.address);
+      const bridgeQuoteResponse = input.options.bridgeQuoteResponse;
+      if (directBridge && !bridgeQuoteResponse) {
+        throw Errors.internal('Bridge fee quote unavailable -- cannot route direct bridge');
+      }
+      const bridgeAssets =
+        directBridge && bridgeQuoteResponse
+          ? withDirectBridgeDepositFees(assets, bridgeQuoteResponse, input.bridgeProvider)
+          : assets;
+      const effectiveFeeSummary =
+        directBridge && bridgeQuoteResponse
+          ? computeBridgeFees({
+              quoteResponse: bridgeQuoteResponse,
+              grossBridged: bridgedCOT,
+              dstCOTDecimals: input.dstCOT.decimals,
+              collectionFee: bridgeAssets.reduce(
+                (sum, asset) => sum.plus(asset.depositFee ?? 0),
+                new Decimal(0)
+              ),
+            })
+          : feeSummary;
       const {
         estimatedFees,
         totalFeeAmount,
         deliveredAmount: effectiveBridgedToDestination,
         nexusFeeModel,
-      } = feeSummary;
+      } = effectiveFeeSummary;
       if (effectiveBridgedToDestination.lte(0)) {
         throw Errors.amountTooLow(
           `Bridge fees (${formatTokenBalance(totalFeeAmount.toFixed())}) exceed bridged amount (${formatTokenBalance(bridgedCOT.toFixed())})`
@@ -201,7 +226,7 @@ const buildExactInBridge = async (input: {
           gasInCot: new Decimal(0),
           totalAmount: bridgedCOT,
         },
-        assets,
+        assets: bridgeAssets,
         chainID: input.data.toChainId,
         decimals: input.dstCOT.decimals,
         tokenAddress: input.dstCOT.address as Hex,

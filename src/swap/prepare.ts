@@ -15,6 +15,7 @@ import type {
   PublicClientList,
   SwapRoute,
 } from './types';
+import { isDirectBridgeRoute } from './types';
 import { SwapCache } from './wallet/cache';
 import { buildPreparedTransfer } from './wallet/prepared-transfer';
 
@@ -162,22 +163,23 @@ const getPreparationDetails = (
         },
       ]
     : [];
-  const bridgeTransferSpecs: DeterministicTransferSpec[] =
-    input.route.bridge?.assets.flatMap((asset) => {
-      if (asset.eoaBalance.isZero() || isNativeAddress(asset.contractAddress)) return [];
-      return [
-        {
-          reason: 'bridge',
-          chainId: asset.chainID,
-          tokenAddress: asset.contractAddress,
-          tokenDecimals: asset.decimals,
-          amount: mulDecimals(asset.eoaBalance, asset.decimals),
-          eagerPermit: false,
-          targetAddress: safeAddress,
-          recipientAddress: input.ephemeralWallet.address,
-        },
-      ];
-    }) ?? [];
+  const bridgeTransferSpecs: DeterministicTransferSpec[] = isDirectBridgeRoute(input.route)
+    ? []
+    : (input.route.bridge?.assets.flatMap((asset) => {
+        if (asset.eoaBalance.isZero() || isNativeAddress(asset.contractAddress)) return [];
+        return [
+          {
+            reason: 'bridge',
+            chainId: asset.chainID,
+            tokenAddress: asset.contractAddress,
+            tokenDecimals: asset.decimals,
+            amount: mulDecimals(asset.eoaBalance, asset.decimals),
+            eagerPermit: false,
+            targetAddress: safeAddress,
+            recipientAddress: input.ephemeralWallet.address,
+          },
+        ];
+      }) ?? []);
 
   return {
     directDestinationExtras,
@@ -246,9 +248,12 @@ const queueSwapCacheQueries = (
 };
 
 const getSafeExecutionChainIds = (route: SwapRoute): number[] => {
-  const chainIds = new Set(route.sourceExecutionPaths.keys());
-  for (const asset of route.bridge?.assets ?? []) {
-    chainIds.add(asset.chainID);
+  const directBridge = isDirectBridgeRoute(route);
+  const chainIds = new Set(directBridge ? [] : route.sourceExecutionPaths.keys());
+  if (!directBridge) {
+    for (const asset of route.bridge?.assets ?? []) {
+      chainIds.add(asset.chainID);
+    }
   }
   if (route.destination.swap.tokenSwap || route.destination.swap.gasSwap) {
     chainIds.add(route.destination.chainId);
