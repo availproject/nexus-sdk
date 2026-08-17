@@ -274,6 +274,13 @@ export type SwapRoute = {
     };
     // Retained so execution can apply the fixed-plus-bps model to actual bridged balances.
     nexusFeeModel?: NexusFeeModel;
+    // Native gas delivered by the bridge itself. Present only when no destination gas swap is
+    // needed; `amountInToken` is the bridged-token value reserved to fund it.
+    destinationGas?: {
+      amount: Decimal;
+      amountRaw: bigint;
+      amountInToken: Decimal;
+    };
     provider: BridgeProvider;
     // Populated only when provider === 'mayan'. Keyed by `${chainID}:${contractAddress.toLowerCase()}`.
     mayanQuotesBySource?: Map<string, MayanQuote>;
@@ -320,11 +327,13 @@ export type SwapRoute = {
   sourceExecutionPaths: Map<number, WalletPath>;
 };
 
+export const isEoaBridgeRoute = (route: Pick<SwapRoute, 'bridge' | 'source'>): boolean =>
+  route.bridge !== null && route.source.swaps.length === 0;
+
 export const isDirectBridgeRoute = (
   route: Pick<SwapRoute, 'bridge' | 'source' | 'destination'>
 ): boolean =>
-  route.bridge !== null &&
-  route.source.swaps.length === 0 &&
+  isEoaBridgeRoute(route) &&
   route.destination.swap.tokenSwap === null &&
   route.destination.swap.gasSwap === null;
 

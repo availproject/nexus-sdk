@@ -580,7 +580,7 @@ describe('prepareSwapExecution', () => {
     expect(bridgeTransfer?.amount).toBe(5000000n);
   });
 
-  it('authorizes the V2 Safe for a bridge followed by a destination swap', async () => {
+  it('keeps no-source-swap bridge custody in the EOA before a destination swap', async () => {
     const route = makeRoute();
     route.source = { swaps: [], creationTime: Date.now(), srcBuffer: new Decimal(0) };
     route.destination = {
@@ -620,16 +620,10 @@ describe('prepareSwapExecution', () => {
       [{ ...makeChain(ARB_CHAIN, 'Arbitrum'), swapSupported: true }],
       SUPPORTED_TOKEN
     );
-    const expectedSafe = predictSafeAccountAddressV2(EOA, EPH).address;
-
     const prepared = await prepareRoute(route, { chainList });
 
     const bridgeTransfer = prepared.eoaToEphemeralTransfers.find((entry) => entry.reason === 'bridge');
-    expect(bridgeTransfer).toBeDefined();
-    expect(bridgeTransfer!.targetAddress.toLowerCase()).toBe(expectedSafe.toLowerCase());
-    const transferCall = decodeFunctionData({ abi: ERC20ABI, data: bridgeTransfer!.transferCall.data });
-    expect(transferCall.functionName).toBe('transferFrom');
-    expect((transferCall.args?.[1] as Hex).toLowerCase()).toBe(EPH.toLowerCase());
+    expect(bridgeTransfer).toBeUndefined();
   });
 
   it('does not build an eoa->ephemeral transfer for a native bridge asset (paid inline by the EOA)', async () => {
@@ -675,9 +669,7 @@ describe('prepareSwapExecution', () => {
   it('skips bridge eoa->ephemeral authorization when cached allowance already covers the amount', async () => {
     const route = makeRoute();
     route.sourceExecutionPaths = new Map([[ARB_CHAIN, 'safe']]);
-    // Isolate bridge funding from source-swap funding while retaining a destination swap, so this
-    // is not the direct EOA bridge path.
-    route.source = { ...route.source, swaps: [] };
+    // Keep a source swap so this remains the composed Safe-funded bridge path.
     route.destination = {
       ...route.destination,
       eoaToEphemeral: null,
@@ -713,7 +705,9 @@ describe('prepareSwapExecution', () => {
     };
 
     const publicClient = {
-      multicall: vi.fn().mockResolvedValue([{ result: 5000000n }, { result: 5000000n }]),
+      multicall: vi.fn().mockImplementation(async ({ contracts }: { contracts: unknown[] }) =>
+        contracts.map(() => ({ result: 5000000n, status: 'success' }))
+      ),
       getCode: vi.fn().mockResolvedValue(undefined),
       readContract: vi.fn().mockResolvedValue(0n),
     };
@@ -731,8 +725,7 @@ describe('prepareSwapExecution', () => {
   it('ignores legacy delegation metadata and keeps Safe funding on the permit path', async () => {
     const route = makeRoute();
     route.sourceExecutionPaths = new Map([[ARB_CHAIN, 'safe']]);
-    // Isolate bridge funding from source-swap funding while retaining a destination swap.
-    route.source = { ...route.source, swaps: [] };
+    // Keep a source swap so this remains the composed Safe-funded bridge path.
     route.destination = {
       ...route.destination,
       eoaToEphemeral: null,

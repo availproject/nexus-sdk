@@ -23,7 +23,7 @@ import {
   createSourceSwapStepId,
 } from '../services/step-ids';
 import type { QuoteResponse } from './aggregators/types';
-import { isDirectBridgeRoute, type SwapRoute } from './types';
+import { isEoaBridgeRoute, type SwapRoute } from './types';
 
 const toPlanTokenAmount = (
   metadata: PlanTokenMetadata,
@@ -204,7 +204,7 @@ export const createSwapPlan = (route: SwapRoute, chainList: ChainListType): Swap
     for (const asset of sortedAssets) {
       // Non-direct routes stage EOA bridge holdings on the ephemeral wallet. Direct routes deposit
       // from the EOA and therefore omit the custody-transfer step.
-      if (!isDirectBridgeRoute(route) && asset.eoaBalance.gt(0)) {
+      if (!isEoaBridgeRoute(route) && asset.eoaBalance.gt(0)) {
         steps.push(createBridgeTransferStep(chainList, asset));
       }
       steps.push(createBridgeDepositStep(chainList, asset));

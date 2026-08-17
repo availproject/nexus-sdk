@@ -270,12 +270,15 @@ export const enrichMayanBridge = async (
   // Per-source Mayan legs derived from the bridge assets (what each leg sends and the
   // destination token it must deliver). Swap leaves the leg amounts at the full produced
   // balance — the COT selection upstream already sized them — and only prices them here.
-  const legs = bridge.assets.map((asset) => ({
+  const legs = bridge.assets.map((asset, index) => ({
     chainId: asset.chainID,
     tokenAddress: asset.contractAddress,
     amountRaw:
       mulDecimals(asset.eoaBalance.plus(asset.ephemeralBalance), asset.decimals) -
       (asset.depositFeeRaw ?? 0n),
+    ...(index === 0 && bridge.destinationGas
+      ? { gasDrop: bridge.destinationGas.amount.toNumber() }
+      : {}),
   }));
   logger.debug('swap.route.mayan_quote.requested', {
     legs: legs.map((leg) => ({ ...leg, amountRaw: leg.amountRaw.toString() })),

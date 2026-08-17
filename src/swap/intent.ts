@@ -101,6 +101,7 @@ export const createSwapIntent = (
   const nativeCurrency = dstChainData.nativeCurrency ?? { symbol: 'ETH', decimals: 18 };
   const gasOutputRaw =
     route.destination.swap.gasSwap?.quote.output.amountRaw ??
+    route.bridge?.destinationGas?.amountRaw ??
     route.source.swaps
       .filter((swap) => swap.chainID === route.destination.chainId && swap.outputRole === 'gas')
       .reduce((sum, swap) => sum + swap.quote.output.amountRaw, 0n);

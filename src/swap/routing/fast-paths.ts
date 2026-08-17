@@ -7,6 +7,7 @@ import { Errors } from '../../domain/errors';
 import { formatTokenBalance } from '../../domain/utils/format';
 import { logger } from '../../domain/utils/logger';
 import { isNativeAddress } from '../../services/addresses';
+import { convertGasToToken } from '../../services/intent';
 import { divDecimals, mulDecimals } from '../../services/math';
 import { selectMayanQuoteOutput } from '../../services/mayan';
 import { equalFold } from '../../services/strings';
@@ -93,7 +94,6 @@ export const classifyFastPath = (input: {
   dstTokenAddress: Hex;
   cotCurrencyId: number;
   allowDirectDestination: boolean;
-  hasGasRequest: boolean;
   toAmountRaw: bigint;
   mode: SwapMode;
 }): FastPathClass => {
@@ -114,13 +114,12 @@ export const classifyFastPath = (input: {
 
   // B1 — same-family direct bridge (EXACT_OUT mirror of buildSameTokenBridgeRoute). All members and
   // the destination token are one family, including the current COT; at least one source needs a
-  // bridge; no gas leg (disqualified in v1); positive output. A current-COT match belongs here too:
-  // it has no swap drift to buffer.
+  // bridge; positive output. Destination gas can ride the bridge intent, so it does not require a
+  // destination gas swap. A current-COT match belongs here too: it has no swap drift to buffer.
   if (
     input.mode === SwapMode.EXACT_OUT &&
     familyId === dstFamily &&
     members.some((member) => member.chainID !== dstChainId) &&
-    !input.hasGasRequest &&
     input.toAmountRaw > 0n
   ) {
     return { kind: 'same-token-out', familyId };
@@ -485,6 +484,7 @@ const finalizeSameTokenBridge = async (
     tokenAmount: Decimal;
     fees: NonNullable<SwapRoute['bridge']>['estimatedFees'];
     nexusFeeModel?: NexusFeeModel;
+    destinationGas?: NonNullable<SwapRoute['bridge']>['destinationGas'];
     provider: BridgeProvider;
     dstChainId: number;
     dstTokenAddress: Hex;
@@ -512,6 +512,7 @@ const finalizeSameTokenBridge = async (
         ...(provider === 'nexus' && params.nexusFeeModel
           ? { nexusFeeModel: params.nexusFeeModel }
           : {}),
+        ...(params.destinationGas ? { destinationGas: params.destinationGas } : {}),
         provider,
       };
       return provider === 'mayan' ? enrichMayanBridge(bridge, options) : bridge;
@@ -713,7 +714,12 @@ export async function buildSameTokenBridgeRoute(
  * caller propagates that error, while the RES fast-path envelope falls back to the COT flow.
  */
 export async function buildSameTokenBridgeExactOutRoute(
-  data: { toChainId: number; toTokenAddress: Hex; toAmountRaw: bigint },
+  data: {
+    toChainId: number;
+    toTokenAddress: Hex;
+    toAmountRaw: bigint;
+    toNativeAmountRaw?: bigint;
+  },
   holdings: SourceHolding[],
   options: RouteOptions,
   settlementCurrencyId: number,
@@ -722,9 +728,34 @@ export async function buildSameTokenBridgeExactOutRoute(
   const { chainList, oraclePrices, dstTokenInfo, walletPathHints, aggregators, publicClientList } =
     options;
   const dstChainId = data.toChainId;
+  const destinationChain = chainList.getChainByID(dstChainId);
   const dstTokenAddress: Hex = isNativeAddress(dstTokenInfo.contractAddress)
     ? ZERO_ADDRESS
     : (dstTokenInfo.contractAddress as Hex);
+  const requestedNativeAmountRaw =
+    data.toNativeAmountRaw != null && data.toNativeAmountRaw > 0n ? data.toNativeAmountRaw : 0n;
+  const nativeAmount =
+    requestedNativeAmountRaw > 0n
+      ? divDecimals(requestedNativeAmountRaw, destinationChain.nativeCurrency.decimals)
+      : new Decimal(0);
+  const nativeAmountInToken =
+    requestedNativeAmountRaw > 0n
+      ? convertGasToToken(
+          { contractAddress: dstTokenAddress, decimals: dstTokenInfo.decimals },
+          oraclePrices,
+          dstChainId,
+          destinationChain.universe,
+          nativeAmount
+        )
+      : new Decimal(0);
+  const destinationGas =
+    requestedNativeAmountRaw > 0n
+      ? {
+          amount: nativeAmount,
+          amountRaw: requestedNativeAmountRaw,
+          amountInToken: nativeAmountInToken,
+        }
+      : undefined;
 
   // F-denominated bridge-fee quote scoped to the path's remote source candidates. Fees follow the
   // bridged token, so reusing a COT-denominated quote would be a decimal trap. Null ⇒ fall back.
@@ -753,7 +784,10 @@ export async function buildSameTokenBridgeExactOutRoute(
   if (bpsFraction.gte(1)) {
     throw Errors.internal('Same-token EXACT_OUT: fulfillmentBps >= 100%');
   }
-  const bridgeInput = toAmountHuman.plus(fulfilment).div(new Decimal(1).minus(bpsFraction));
+  const bridgeInput = toAmountHuman
+    .plus(nativeAmountInToken)
+    .plus(fulfilment)
+    .div(new Decimal(1).minus(bpsFraction));
 
   // Greedy split over priority-ordered remote family-F holdings. Native holdings keep a per-chain gas
   // reserve so the deposit tx can pay for itself (never consume 100% native).
@@ -845,6 +879,7 @@ export async function buildSameTokenBridgeExactOutRoute(
       tokenAmount: toAmountHuman,
       fees,
       nexusFeeModel,
+      destinationGas,
       provider,
       dstChainId,
       dstTokenAddress,

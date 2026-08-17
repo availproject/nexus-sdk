@@ -160,12 +160,13 @@ swap(params)
 `swapAndExecute` composes swap planning with an execution request on the destination chain.
 `calculateMaxForSwap` reuses swap preflight and route logic to estimate the maximum usable input.
 
-A direct bridge route is identified by its execution shape: it has a bridge but no source or
-destination swap. This includes the same-token fast paths and a COT-to-COT bridge. These routes use
-the normal bridge custody model: the connected EOA is the source holder, RFF party, and signer;
-ERC-20 allowance targets the vault; native deposits are sent directly by the EOA. They do not
-prepare EOA-to-ephemeral transfers or deploy a Safe. The public swap intent and step types remain
-unchanged, and `swapAndExecute` inherits the behavior through its nested swap route.
+A bridge route with no source swaps uses the normal bridge custody model: the connected EOA is the
+source holder, RFF party, and signer; ERC-20 allowance targets the vault; native deposits are sent
+directly by the EOA. It does not prepare EOA-to-ephemeral transfers or deploy a Safe on its source
+chains. The bridge fills the destination Safe when a destination swap is required and the EOA
+otherwise. Terminal same-token Exact Out routes can request destination gas through the bridge
+intent and deliver both token and native outputs directly to the EOA. The public swap intent and
+step types remain unchanged, and `swapAndExecute` inherits the behavior through its nested route.
 
 Swap preflight does not request bridge-fee quotes. After terminal direct/same-token paths, routing
 chooses between USDC and USDT by counting required source and destination swap legs; ties retain the
@@ -192,8 +193,8 @@ the chain promise before requesting any permit, direct approval, or EOA transact
 resolve the spender to deployed contract code without repeated Safe bytecode reads. Safe owners are
 the connected EOA and the SDK ephemeral account at threshold 1. Token-only batches are
 sponsor-broadcast; batches carrying native value are wrapped in `Safe.execTransaction` and submitted
-by the EOA. Direct bridge source chains bypass this Safe path and reuse the bridge allowance and
-execution modules with the EOA wallet.
+by the EOA. Bridge source chains without source swaps bypass this Safe path and reuse the bridge
+allowance and execution modules with the EOA wallet.
 
 Bridge funding preparation retries only transient permit-path RPC work, with three total attempts.
 Direct approvals and wallet rejections are terminal. Ambiguous Safe middleware failures are not

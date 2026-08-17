@@ -221,6 +221,11 @@ describe('createSwapPlan', () => {
 
   it('includes eoa_to_ephemeral_transfer only for bridge assets with eoa balance', () => {
     const route = makeRoute({
+      source: {
+        swaps: [makeQuoteResponse(42161)],
+        creationTime: Date.now(),
+        srcBuffer: new Decimal(0),
+      },
       bridge: {
         provider: 'nexus',
         amount: new Decimal(50),

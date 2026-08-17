@@ -40,10 +40,12 @@ import {
   bridgedTokenForChain,
   buildBridgeAssetsAndFees,
   buildSourceCotByChain,
+  computeBridgeFees,
   enrichMayanBridge,
   estimateBridgeFees,
   fetchBridgeQuoteForCurrency,
   resolveBridgeProviderDecision,
+  withDirectBridgeDepositFees,
 } from './bridge';
 import {
   buildDirectDestinationExactOutRoute,
@@ -268,7 +270,6 @@ const tryExactOutFastPaths = async (
     dstTokenAddress: data.toTokenAddress,
     cotCurrencyId: options.cotCurrencyId,
     allowDirectDestination: false,
-    hasGasRequest: (data.toNativeAmountRaw ?? 0n) > 0n,
     toAmountRaw: data.toAmountRaw,
     mode: SwapMode.EXACT_OUT,
   } as const;
@@ -366,7 +367,7 @@ const buildExactOutBridge = async (input: {
     input.options.timing,
     'flow.swap.route.build_bridge',
     async () => {
-      const { assets, grossBridged, feeSummary } = buildBridgeAssetsAndFees({
+      const { assets, feeSummary } = buildBridgeAssetsAndFees({
         destinationChainId: input.data.toChainId,
         quoteResponses: input.quoteResponses,
         cotSources: input.usedCOTs,
@@ -378,20 +379,60 @@ const buildExactOutBridge = async (input: {
       if (!feeSummary) {
         throw Errors.internal('Bridge assets unavailable -- cannot route cross-chain swap');
       }
-      const { estimatedFees, deliveredAmount, nexusFeeModel } = feeSummary;
+      const eoaBridge = input.quoteResponses.length === 0;
+      const feeAssets = eoaBridge
+        ? withDirectBridgeDepositFees(assets, input.bridgeQuoteResponse, input.bridgeProvider)
+        : assets;
+      const bridgeAssets = eoaBridge
+        ? feeAssets.map((asset) => ({
+            ...asset,
+            eoaBalance: asset.eoaBalance.plus(asset.depositFee ?? 0),
+          }))
+        : assets;
+      const effectiveGrossBridged = bridgeAssets.reduce(
+        (sum, asset) => sum.plus(asset.eoaBalance).plus(asset.ephemeralBalance),
+        new Decimal(0)
+      );
+      if (eoaBridge) {
+        for (const source of input.usedCOTs) {
+          const fee = bridgeAssets.find(
+            (asset) => asset.chainID === source.holding.chainID
+          )?.depositFee;
+          if (!fee) continue;
+          const debit = source.amountUsed.plus(fee);
+          if (mulDecimals(debit, source.holding.decimals) > source.holding.amountRaw) {
+            throw Errors.insufficientBalance(
+              `Bridge collection fee exceeds the available balance on chain ${source.holding.chainID}`
+            );
+          }
+          source.amountUsed = debit;
+        }
+      }
+      const effectiveFeeSummary = eoaBridge
+        ? computeBridgeFees({
+            quoteResponse: input.bridgeQuoteResponse,
+            grossBridged: effectiveGrossBridged,
+            dstCOTDecimals: input.dstCOT.decimals,
+            collectionFee: bridgeAssets.reduce(
+              (sum, asset) => sum.plus(asset.depositFee ?? 0),
+              new Decimal(0)
+            ),
+          })
+        : feeSummary;
+      const { estimatedFees, deliveredAmount, nexusFeeModel } = effectiveFeeSummary;
       const deliveredTokenAmount = Decimal.max(
         deliveredAmount.minus(input.gasInCot),
         new Decimal(0)
       );
 
       let bridge: NonNullable<SwapRoute['bridge']> = {
-        amount: grossBridged,
+        amount: effectiveGrossBridged,
         amounts: {
           tokenAmount: deliveredTokenAmount,
           gasInCot: input.gasInCot,
-          totalAmount: grossBridged,
+          totalAmount: effectiveGrossBridged,
         },
-        assets,
+        assets: bridgeAssets,
         chainID: input.data.toChainId,
         decimals: input.dstCOT.decimals,
         tokenAddress: input.dstCOT.address as Hex,
@@ -435,7 +476,6 @@ export async function _exactOutRoute(
         dstTokenAddress: data.toTokenAddress,
         cotCurrencyId,
         allowDirectDestination: data.toAmountRaw >= 0n && (data.toNativeAmountRaw ?? 0n) >= 0n,
-        hasGasRequest: (data.toNativeAmountRaw ?? 0n) > 0n,
         toAmountRaw: data.toAmountRaw,
         mode: SwapMode.EXACT_OUT,
       });

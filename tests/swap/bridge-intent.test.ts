@@ -322,6 +322,42 @@ describe('createSwapBridgeIntent', () => {
     expect(intent.destination.nativeToken.contractAddress).toBe(NATIVE_TOKEN.contractAddress);
   });
 
+  it('puts direct-bridge destination gas in the bridge intent', () => {
+    const asset = {
+      ...makeBridgeAsset(ARB_CHAIN, USDC_ARB, '3.5'),
+      eoaBalance: new Decimal('3.5'),
+      ephemeralBalance: new Decimal(0),
+    };
+    const bridge = makeBridge([asset], {
+      amount: new Decimal('3.5'),
+      amounts: {
+        tokenAmount: new Decimal('1'),
+        gasInCot: new Decimal(0),
+        totalAmount: new Decimal('3.5'),
+      },
+      destinationGas: {
+        amount: new Decimal('0.001'),
+        amountRaw: 1_000_000_000_000_000n,
+        amountInToken: new Decimal('2.5'),
+      },
+    } as Partial<NonNullable<SwapRoute['bridge']>>);
+
+    const intent = createSwapBridgeIntent({
+      bridge,
+      assets: bridge.assets,
+      chainList: makeChainList(),
+      recipient: EOA_ADDRESS,
+      ephemeralAddress: EPHEMERAL_ADDRESS,
+      holderAddress: EOA_ADDRESS,
+    });
+
+    expect(intent.destination.amount.toString()).toBe('1');
+    expect(intent.destination.amountRaw).toBe(1_000_000n);
+    expect(intent.destination.nativeAmount.toString()).toBe('0.001');
+    expect(intent.destination.nativeAmountRaw).toBe(1_000_000_000_000_000n);
+    expect(intent.destination.nativeAmountInToken.toString()).toBe('2.5');
+  });
+
   it('derives destination token amount from execution-time assets instead of stale route totals', () => {
     const assets = [makeBridgeAsset(ARB_CHAIN, USDC_ARB, '3.5')];
     const bridge = makeBridge(assets, {

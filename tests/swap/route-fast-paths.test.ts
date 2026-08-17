@@ -31,7 +31,6 @@ const classify = (over: {
   members: Member[];
   dstTokenAddress: Hex;
   allowDirectDestination: boolean;
-  hasGasRequest?: boolean;
   toAmountRaw?: bigint;
   mode?: SwapMode;
   cotCurrencyId?: number;
@@ -43,7 +42,6 @@ const classify = (over: {
     dstTokenAddress: over.dstTokenAddress,
     cotCurrencyId: over.cotCurrencyId ?? CurrencyID.USDC,
     allowDirectDestination: over.allowDirectDestination,
-    hasGasRequest: over.hasGasRequest ?? false,
     toAmountRaw: over.toAmountRaw ?? 1_000_000n,
     mode: over.mode ?? SwapMode.EXACT_OUT,
   });
@@ -109,21 +107,6 @@ describe('classifyFastPath', () => {
         mode: SwapMode.EXACT_OUT,
       })
     ).toEqual({ kind: 'same-token-out', familyId: CurrencyID.USDC });
-  });
-
-  it('B1 is disqualified by a gas request → falls back to the default flow (null)', () => {
-    expect(
-      classify({
-        members: [
-          { chainID: ARB_CHAIN, tokenAddress: USDT_ARB },
-          { chainID: OP_CHAIN, tokenAddress: USDT_OP },
-        ],
-        dstTokenAddress: USDT_BASE,
-        allowDirectDestination: true,
-        hasGasRequest: true,
-        mode: SwapMode.EXACT_OUT,
-      })
-    ).toBeNull();
   });
 
   it('B1 does not fire on EXACT_IN (that is the existing buildSameTokenBridgeRoute path)', () => {

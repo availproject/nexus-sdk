@@ -15,7 +15,7 @@ import type {
   PublicClientList,
   SwapRoute,
 } from './types';
-import { isDirectBridgeRoute } from './types';
+import { isEoaBridgeRoute } from './types';
 import { SwapCache } from './wallet/cache';
 import { buildPreparedTransfer } from './wallet/prepared-transfer';
 
@@ -163,7 +163,7 @@ const getPreparationDetails = (
         },
       ]
     : [];
-  const bridgeTransferSpecs: DeterministicTransferSpec[] = isDirectBridgeRoute(input.route)
+  const bridgeTransferSpecs: DeterministicTransferSpec[] = isEoaBridgeRoute(input.route)
     ? []
     : (input.route.bridge?.assets.flatMap((asset) => {
         if (asset.eoaBalance.isZero() || isNativeAddress(asset.contractAddress)) return [];
@@ -248,9 +248,9 @@ const queueSwapCacheQueries = (
 };
 
 const getSafeExecutionChainIds = (route: SwapRoute): number[] => {
-  const directBridge = isDirectBridgeRoute(route);
-  const chainIds = new Set(directBridge ? [] : route.sourceExecutionPaths.keys());
-  if (!directBridge) {
+  const eoaBridge = isEoaBridgeRoute(route);
+  const chainIds = new Set(eoaBridge ? [] : route.sourceExecutionPaths.keys());
+  if (!eoaBridge) {
     for (const asset of route.bridge?.assets ?? []) {
       chainIds.add(asset.chainID);
     }

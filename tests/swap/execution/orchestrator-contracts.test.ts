@@ -59,6 +59,7 @@ describe('executeSwapRoute contracts', () => {
     vi.mocked(executeSourceSwaps).mockResolvedValue([executedOnly] as never);
     const route = {
       ...makeRoute(),
+      source: { swaps: [{}], creationTime: Date.now(), srcBuffer: null },
       bridge: {
         assets: [],
       },

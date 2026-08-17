@@ -61,7 +61,7 @@ const toBridgeIntentChain = (
  * - Sources = swap route bridge assets
  * - Recipient = dynamic (EOA or ephemeral)
  * - Ethereum chain sorted last (most expensive)
- * - Holder = ephemeral for composed routes, EOA for direct bridge routes
+ * - Holder = ephemeral for source-swap routes, EOA when the bridge has no source swaps
  */
 export const createSwapBridgeIntent = (params: {
   bridge: NonNullable<SwapRoute['bridge']>;
@@ -84,8 +84,13 @@ export const createSwapBridgeIntent = (params: {
           collectionFee: bridge.estimatedFees.collection,
         }).estimatedFees
       : bridge.estimatedFees;
-  // Gas-swap COT (`bridge.amounts.gasInCot`) is still bridged — it funds the dst gas swap.
-  // Bridge solver no longer delivers separate native gas; intent.destination.nativeAmount=0.
+  const destinationGas = bridge.destinationGas ?? {
+    amount: new Decimal(0),
+    amountRaw: 0n,
+    amountInToken: new Decimal(0),
+  };
+  // `gasInCot` funds a destination gas swap. `destinationGas.amountInToken` instead funds native
+  // gas delivered directly by the bridge.
   const executionTokenAmount = totalBridgedAmount
     .minus(effectiveFees.collection)
     .minus(effectiveFees.fulfilment)
@@ -93,7 +98,9 @@ export const createSwapBridgeIntent = (params: {
   if (executionTokenAmount.isNegative()) {
     throw new Error('Bridge token amount cannot be negative after fee deduction');
   }
-  const expectedExecutionCot = bridge.amounts.tokenAmount.plus(bridge.amounts.gasInCot);
+  const expectedExecutionCot = bridge.amounts.tokenAmount
+    .plus(bridge.amounts.gasInCot)
+    .plus(destinationGas.amountInToken);
   if (
     !totalBridgedAmount.eq(bridge.amounts.totalAmount) ||
     !executionTokenAmount.eq(expectedExecutionCot)
@@ -116,7 +123,7 @@ export const createSwapBridgeIntent = (params: {
     return bTotal.comparedTo(aTotal);
   });
 
-  // Composed routes bridge from the ephemeral holder. Direct bridge routes pass the EOA holder and
+  // Source-swap routes bridge from the ephemeral holder. EOA-funded routes pass the EOA holder and
   // retain the normal bridge collection fee on each source.
   const holderAddress = params.holderAddress ?? ephemeralAddress;
   const lookupMayanQuote = (asset: BridgeAsset) => {
@@ -164,18 +171,18 @@ export const createSwapBridgeIntent = (params: {
     availableSources: sources,
     selectedSources: sources,
     destination: {
-      amountRaw: mulDecimals(executionTokenAmount, bridge.decimals),
+      amountRaw: mulDecimals(
+        bridge.destinationGas ? bridge.amounts.tokenAmount : executionTokenAmount,
+        bridge.decimals
+      ),
       chain: toBridgeIntentChain(chainList, bridge.chainID),
       token: toBridgeIntentToken(chainList, bridge.chainID, bridge.tokenAddress),
-      amount: executionTokenAmount,
+      amount: bridge.destinationGas ? bridge.amounts.tokenAmount : executionTokenAmount,
       value: new Decimal(0),
-      // Swap routes never request bridge-delivered native gas — the destination gas swap
-      // (route.destination.swap.gasSwap) handles native delivery via the dst aggregator,
-      // so the wire-format native fields stay zero.
-      nativeAmount: new Decimal(0),
-      nativeAmountRaw: 0n,
+      nativeAmount: destinationGas.amount,
+      nativeAmountRaw: destinationGas.amountRaw,
       nativeAmountValue: new Decimal(0),
-      nativeAmountInToken: new Decimal(0),
+      nativeAmountInToken: destinationGas.amountInToken,
       nativeToken: toBridgeIntentTokenFromMetadata(chainList.getNativeToken(bridge.chainID)),
       universe: Universe.ETHEREUM,
     },

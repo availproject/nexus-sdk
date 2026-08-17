@@ -1248,6 +1248,41 @@ describe('determineSwapRoute', () => {
     expect(route.bridge!.assets).toHaveLength(1);
     expect(route.bridge!.assets[0].eoaBalance.toString()).toBe(gross.toString());
   });
+  it('B1 EXACT_OUT requests destination gas through the bridge intent', async () => {
+    const input: SwapData = {
+      mode: SwapMode.EXACT_OUT,
+      data: {
+        sources: [{ chainId: OP_CHAIN, tokenAddress: USDT_OP }],
+        toChainId: BASE_CHAIN,
+        toTokenAddress: USDT_BASE,
+        toAmountRaw: 1_000_000n,
+        toNativeAmountRaw: 1_000_000_000_000_000n,
+      },
+    };
+    const route = await determineSwapRoute(input, makeRouteOptions({
+      chainList: makeSwapChainListWithUsdtCot(),
+      middlewareClient: { ...mockMiddleware, getQuote: vi.fn().mockResolvedValue(makeBridgeQuoteResponse()) } as never,
+      oraclePrices: [
+        { universe: 'EVM', chainId: BASE_CHAIN, priceUsd: new Decimal('2500'), tokenAddress: ZERO_ADDRESS, tokenSymbol: 'ETH', tokenDecimals: 18, timestamp: 0 },
+        { universe: 'EVM', chainId: BASE_CHAIN, priceUsd: new Decimal('1'), tokenAddress: USDT_BASE, tokenSymbol: 'USDT', tokenDecimals: 6, timestamp: 0 },
+      ],
+      balances: [{ amount: '5', chainID: OP_CHAIN, decimals: 6, symbol: 'USDT', tokenAddress: USDT_OP, value: 5, logo: '', name: 'Tether USD' }],
+      dstTokenInfo: makeDstTokenInfo({ contractAddress: USDT_BASE, decimals: 6, symbol: 'USDT', name: 'Tether USD' }),
+    }));
+
+    expect(route.sameTokenBridge).toBe(true);
+    expect(route.source.swaps).toEqual([]);
+    expect(route.destination.swap).toEqual({ tokenSwap: null, gasSwap: null });
+    expect(route.bridge?.destinationGas).toMatchObject({
+      amountRaw: 1_000_000_000_000_000n,
+    });
+    expect(route.bridge?.destinationGas?.amount.toString()).toBe('0.001');
+    expect(route.bridge?.destinationGas?.amountInToken.toString()).toBe('2.5');
+    expect(route.bridge?.amounts.tokenAmount.toString()).toBe('1');
+    expect(route.bridge?.amounts.totalAmount.toString()).toBe('3.5');
+    expect(createSwapIntent(route, input, makeSwapChainListWithUsdtCot()).destination.gas.amount).toBe('0.001');
+    expect(determineDestinationSwaps).not.toHaveBeenCalled();
+  });
   it('B1 EXACT_OUT splits the grossed-up target greedily across family chains', async () => {
     const input: SwapData = {
       mode: SwapMode.EXACT_OUT,
@@ -1383,6 +1418,37 @@ describe('determineSwapRoute', () => {
     expect(route.sameTokenBridge).toBe(true);
     expect(route.bridge!.provider).toBe('mayan');
     expect(route.bridge!.mayanQuotesBySource).toBeDefined();
+  });
+  it('B1 EXACT_OUT sends destination gas on the Mayan bridge quote', async () => {
+    const input: SwapData = {
+      mode: SwapMode.EXACT_OUT,
+      data: {
+        sources: [{ chainId: OP_CHAIN, tokenAddress: USDT_OP }],
+        toChainId: ARB_CHAIN,
+        toTokenAddress: USDT_ARB,
+        toAmountRaw: 1_000_000n,
+        toNativeAmountRaw: 1_000_000_000_000_000n,
+      },
+    };
+    const middleware = mayanMiddleware(1, vi.fn().mockResolvedValue(makeBridgeQuoteResponse()));
+    const route = await determineSwapRoute(input, makeRouteOptions({
+      chainList: makeSwapChainListWithUsdtCot(),
+      middlewareClient: middleware as never,
+      oraclePrices: [
+        { universe: 'EVM', chainId: ARB_CHAIN, priceUsd: new Decimal('2500'), tokenAddress: ZERO_ADDRESS, tokenSymbol: 'ETH', tokenDecimals: 18, timestamp: 0 },
+        { universe: 'EVM', chainId: ARB_CHAIN, priceUsd: new Decimal('1'), tokenAddress: USDT_ARB, tokenSymbol: 'USDT', tokenDecimals: 6, timestamp: 0 },
+      ],
+      balances: [{ amount: '5', chainID: OP_CHAIN, decimals: 6, symbol: 'USDT', tokenAddress: USDT_OP, value: 5, logo: '', name: 'Tether USD' }],
+      dstTokenInfo: makeDstTokenInfo({ contractAddress: USDT_ARB, decimals: 6, symbol: 'USDT', name: 'Tether USD' }),
+    }));
+
+    expect(route.bridge?.provider).toBe('mayan');
+    expect(route.destination.swap).toEqual({ tokenSwap: null, gasSwap: null });
+    expect(middleware.getMayanQuotes).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sources: [expect.objectContaining({ gas_drop: 0.001 })],
+      })
+    );
   });
   it('B1 EXACT_OUT explicit same-family sources fail terminally when Mayan undershoots', async () => {
     const input: SwapData = {
@@ -4213,11 +4279,11 @@ describe('determineSwapRoute', () => {
     );
     expect(route.bridge?.amount.toString()).toBe('100');
     expect(route.bridge?.amounts.totalAmount.toString()).toBe('100');
-    // Collection fee = 0 in the smart-account-only model; fulfilment/protocol still applied.
-    expect(route.bridge?.amounts.tokenAmount.toString()).toBe('97.5');
-    expect(route.bridge?.estimatedFees.collection.toString()).toBe('0');
+    // No source swap means the EOA pays the quoted vault collection fee directly.
+    expect(route.bridge?.amounts.tokenAmount.toString()).toBe('95.52');
+    expect(route.bridge?.estimatedFees.collection.toString()).toBe('2');
     expect(route.bridge?.estimatedFees.fulfilment.toString()).toBe('1.5');
-    expect(route.bridge?.estimatedFees.protocol.toString()).toBe('1');
+    expect(route.bridge?.estimatedFees.protocol.toString()).toBe('0.98');
     expect(vi.mocked(destinationSwapWithExactIn)).toHaveBeenCalled();
   });
   it('EXACT_IN coalesces direct COT and swap-produced COT on the same bridge chain', async () => {

@@ -761,12 +761,15 @@ export const refreshMayanQuotesForExecution = async (
   middlewareClient: ExecutionContext['middlewareClient']
 ): Promise<NonNullable<SwapRoute['bridge']>> => {
   const quotes = await quoteMayanLegs(middlewareClient, {
-    legs: bridgedAssets.map((asset) => ({
+    legs: bridgedAssets.map((asset, index) => ({
       chainId: asset.chainID,
       tokenAddress: asset.contractAddress,
       amountRaw:
         mulDecimals(asset.eoaBalance.plus(asset.ephemeralBalance), asset.decimals) -
         (asset.depositFeeRaw ?? 0n),
+      ...(index === 0 && bridge.destinationGas
+        ? { gasDrop: bridge.destinationGas.amount.toNumber() }
+        : {}),
     })),
     destination: { chainId: bridge.chainID, tokenAddress: bridge.tokenAddress },
   });

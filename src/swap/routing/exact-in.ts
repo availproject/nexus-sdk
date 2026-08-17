@@ -181,19 +181,17 @@ const buildExactInBridge = async (input: {
       if (!feeSummary) {
         return { bridge: null, cotAvailableForDestination: input.cotAvailableForDestination };
       }
-      const directBridge =
-        input.sourceSwaps.length === 0 &&
-        equalFold(input.data.toTokenAddress, input.dstCOT.address);
+      const eoaBridge = input.sourceSwaps.length === 0;
       const bridgeQuoteResponse = input.options.bridgeQuoteResponse;
-      if (directBridge && !bridgeQuoteResponse) {
+      if (eoaBridge && !bridgeQuoteResponse) {
         throw Errors.internal('Bridge fee quote unavailable -- cannot route direct bridge');
       }
       const bridgeAssets =
-        directBridge && bridgeQuoteResponse
+        eoaBridge && bridgeQuoteResponse
           ? withDirectBridgeDepositFees(assets, bridgeQuoteResponse, input.bridgeProvider)
           : assets;
       const effectiveFeeSummary =
-        directBridge && bridgeQuoteResponse
+        eoaBridge && bridgeQuoteResponse
           ? computeBridgeFees({
               quoteResponse: bridgeQuoteResponse,
               grossBridged: bridgedCOT,
@@ -319,7 +317,6 @@ export async function _exactInRoute(data: ExactInData, options: RouteOptions): P
               data.toTokenAddress,
               options.cotCurrencyId
             ),
-            hasGasRequest: false,
             toAmountRaw: 0n,
             mode: SwapMode.EXACT_IN,
           }),

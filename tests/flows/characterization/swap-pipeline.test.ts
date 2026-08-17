@@ -24,7 +24,7 @@ import {
 import { EADDRESS, SWEEPER_ADDRESS } from '../../../src/swap/constants';
 import {
   SwapMode,
-  isDirectBridgeRoute,
+  isEoaBridgeRoute,
   type FlatBalance,
   type SwapIntent,
   type SwapParams,
@@ -1427,7 +1427,7 @@ const expectSafeDeploymentCalls = (result: {
 }) => {
   const { route } = result.previewState;
   const expectedChainIds = new Set<number>();
-  if (!isDirectBridgeRoute(route)) {
+  if (!isEoaBridgeRoute(route)) {
     for (const chainId of route.sourceExecutionPaths.keys()) expectedChainIds.add(chainId);
     for (const asset of route.bridge?.assets ?? []) expectedChainIds.add(asset.chainID);
   }
@@ -1511,9 +1511,9 @@ const assertScenario = (scenario: ExactOutScenario, result: HarnessResult) => {
     .filter((step) => step.type === 'eoa_to_ephemeral_transfer')
     .map((step) => step.chain.id)
     .sort((left, right) => left - right);
-  // Direct bridges keep funds in the EOA. Other bridge routes still fund the ephemeral wallet.
+  // Bridges without source swaps keep funds in the EOA. Other routes fund the ephemeral wallet.
   expect(bridgeTransferChainIds).toEqual(
-    isDirectBridgeRoute(result.previewState.route)
+    isEoaBridgeRoute(result.previewState.route)
       ? []
       : scenario.expected.bridgeAssetOwnership
           .filter((asset) => asset.hasEoaBalance)
