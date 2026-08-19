@@ -273,6 +273,42 @@ describe('createSwapPlan', () => {
     });
   });
 
+  it('builds source allowance metadata for tokens outside the static chain list', () => {
+    const inputAddress = '0x00000000000000000000000000000000000000dd' as Hex;
+    const route = makeRoute({
+      source: {
+        swaps: [makeQuoteResponse(42161, inputAddress)],
+        creationTime: Date.now(),
+        srcBuffer: new Decimal(0),
+      },
+      sourceExecutionPaths: new Map([[42161, 'safe']]),
+    });
+    const strictChainList = {
+      ...chainList,
+      getTokenByAddress: (chainId: number, address: Hex) => {
+        if (address.toLowerCase() === inputAddress.toLowerCase()) {
+          throw new Error(`Token ${address} is not in the static list`);
+        }
+        return chainList.getTokenByAddress(chainId, address);
+      },
+    };
+
+    const plan = createSwapPlan(
+      route,
+      strictChainList,
+      makeAuthorization(PermitVariant.Unsupported)
+    );
+
+    expect(plan.steps[0]).toMatchObject({
+      type: 'allowance',
+      token: {
+        contractAddress: inputAddress,
+        decimals: 6,
+        symbol: 'PEPE',
+      },
+    });
+  });
+
   it('omits allowance steps when the existing EOA allowance covers the transfer', () => {
     const route = makeRoute({
       source: {
@@ -502,6 +538,55 @@ describe('createSwapPlan', () => {
       method: 'approval',
       spender: '0x0000000000000000000000000000000000000000',
       amount: { amountRaw: 5000000n },
+    });
+  });
+
+  it('builds direct bridge allowance metadata from routed balances', () => {
+    const assetAddress = '0x00000000000000000000000000000000000000ee' as Hex;
+    const asset = { ...makeBridgeAsset(42161, 5), contractAddress: assetAddress, decimals: 18 };
+    const route = makeRoute({
+      bridge: makeBridge([asset], { tokenAddress: assetAddress, decimals: 18 }),
+      extras: {
+        aggregators: [],
+        oraclePrices: [],
+        assetsUsed: [],
+        balances: [
+          {
+            amount: '5',
+            chainID: 42161,
+            decimals: 18,
+            logo: '',
+            name: 'Wrapped Ether',
+            symbol: 'WETH',
+            tokenAddress: assetAddress,
+            value: 15_000,
+          },
+        ],
+      },
+    });
+    const strictChainList = {
+      ...chainList,
+      getTokenByAddress: (_chainId: number, address: Hex) => {
+        if (address.toLowerCase() === assetAddress.toLowerCase()) {
+          throw new Error(`Token ${address} is not in the static list`);
+        }
+        return token;
+      },
+    };
+
+    const plan = createSwapPlan(
+      route,
+      strictChainList,
+      makeAuthorization(PermitVariant.Unsupported)
+    );
+
+    expect(plan.steps[0]).toMatchObject({
+      type: 'allowance',
+      token: {
+        contractAddress: assetAddress,
+        decimals: 18,
+        symbol: 'WETH',
+      },
     });
   });
 
