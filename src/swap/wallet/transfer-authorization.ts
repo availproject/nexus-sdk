@@ -9,7 +9,7 @@ import {
 } from 'viem';
 import { ERC20PermitABI } from '../../abi/erc20';
 import { type Chain, getLogger } from '../../domain';
-import { PermitVariant } from '../../domain/permits';
+import { type PermitDetails, PermitVariant } from '../../domain/permits';
 import { signPermitForAddressAndValue } from '../../services/allowance-utils';
 import { minutesFromNow } from '../../services/time';
 import type { PreparedAuthorizationCall, PublicClientList } from '../types';
@@ -198,9 +198,11 @@ export const buildTransferAuthorization = async (input: {
     chainId
   );
   const permit = input.cache.getPermit(input.tokenAddress, chainId);
-  const permitUnsupported = !permit || permit.permitVariant === PermitVariant.Unsupported;
-  const decision =
-    currentAllowance >= input.amount ? 'none' : permitUnsupported ? 'approve' : 'permit';
+  const decision = getTransferAuthorizationKind({
+    currentAllowance,
+    requiredAllowance: input.amount,
+    permit,
+  });
 
   logger.debug('swap.prepare.transfer_authorization.decision', {
     chainId,
@@ -210,13 +212,11 @@ export const buildTransferAuthorization = async (input: {
     permitVariant: permit?.permitVariant ?? PermitVariant.Unsupported,
     permitContractVersion: permit?.permitContractVersion ?? 0,
     eagerPermit: input.eagerPermit,
-    decision,
+    decision: decision ?? 'none',
   });
 
-  if (currentAllowance >= input.amount) {
-    return null;
-  }
-  if (permitUnsupported) {
+  if (!decision) return null;
+  if (decision === 'approve') {
     return {
       // Unsupported permits require a paid EOA approve(spender=Safe) before transferFrom.
       kind: 'approve',
@@ -232,6 +232,7 @@ export const buildTransferAuthorization = async (input: {
       permit: null,
     };
   }
+  if (!permit) return null;
 
   if (!input.eagerPermit) {
     return {
@@ -257,6 +258,18 @@ export const buildTransferAuthorization = async (input: {
     permitVariant: permit.permitVariant,
     permitContractVersion: permit.permitContractVersion,
   });
+};
+
+export const getTransferAuthorizationKind = (input: {
+  currentAllowance: bigint;
+  requiredAllowance: bigint;
+  permit: PermitDetails | undefined;
+  permitAllowed?: boolean;
+}): 'approve' | 'permit' | null => {
+  if (input.currentAllowance >= input.requiredAllowance) return null;
+  if (input.permitAllowed === false) return 'approve';
+  const { permit } = input;
+  return !permit || permit.permitVariant === PermitVariant.Unsupported ? 'approve' : 'permit';
 };
 
 export const materializePermitAuthorizationCall = async (input: {

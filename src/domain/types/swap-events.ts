@@ -12,7 +12,7 @@ import type {
   PlanProgressFailedBase,
   StatusEvent,
 } from './event-common';
-import type { PlanTokenAmount } from './plan-common';
+import type { PlanTokenAmount, PlanTokenMetadata } from './plan-common';
 
 export type SwapStatus =
   | 'route_building'
@@ -28,6 +28,20 @@ export type SwapPlan = {
   hasBridge: boolean;
   hasDestinationSwap: boolean;
   steps: SwapPlanStep[];
+};
+
+export type SwapAllowanceStep = {
+  type: 'allowance';
+  id: string;
+  method?: 'approval' | 'permit';
+  chain: {
+    id: number;
+    name: string;
+    logo: string;
+  };
+  token: PlanTokenMetadata;
+  spender: Hex;
+  amount: PlanTokenAmount;
 };
 
 export type SwapSourceSwapStep = {
@@ -88,6 +102,7 @@ export type SwapDestinationSwapStep = {
 };
 
 export type SwapPlanStep =
+  | SwapAllowanceStep
   | SwapSourceSwapStep
   | SwapEoaToEphemeralTransferStep
   | SwapBridgeDepositStep

@@ -148,6 +148,7 @@ swap(params)
      -> createSwapIntent(...)
      -> start allowance, permit-capability, and Safe-code cache reads
      -> onIntent({ allow, deny, refresh, intent })
+     -> await cache and confirm the plan with required allowance methods
      -> swap/prepare.ts: prepareSwapExecution(...) awaits the accepted route's cache
      -> swap/execution/orchestrator.ts: executeSwapRoute(...)
         -> executeSourceSwaps(...) | executeDirectDestinationExactOut(...)
@@ -218,7 +219,9 @@ If no hooks are provided, the SDK auto-accepts intent and allowance.
 intent is accepted.
 
 For swap operations, the exposed hook is `onIntent(...)`. Swap does not expose a separate
-`onAllowance` hook; allowance and permit handling are part of swap execution preparation.
+`onAllowance` hook. The preview plan shows potential EOA allowance steps without a method; after
+intent approval, the confirmed plan removes satisfied allowances and resolves the rest to
+`approval` or `permit` before swap execution preparation.
 
 Bridge hook internals are split by responsibility:
 

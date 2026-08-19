@@ -25,6 +25,7 @@ import {
   sizeDirectDestinationExactOut,
 } from '../algorithms/direct-destination-size';
 import { DIRECT_DST_QUOTE_TTL_MS, SRC_BUFFER_MAX_USD, SRC_BUFFER_PCT } from '../constants';
+import { orderSourceSwaps } from '../source-order';
 import type {
   ExecutionContext,
   OraclePriceResponse,
@@ -50,9 +51,6 @@ type FundingAuthorization = {
 };
 
 const isNativeInput = (swap: QuoteResponse) => isNativeAddress(swap.quote.input.contractAddress);
-
-const sortSwaps = (swaps: QuoteResponse[]) =>
-  [...swaps].sort((left, right) => Number(isNativeInput(right)) - Number(isNativeInput(left)));
 
 const toMetadataSwap = (swap: QuoteResponse) => ({
   inputAmount: swap.quote.input.amountRaw,
@@ -138,7 +136,7 @@ const buildCalls = async (input: {
 }): Promise<SafeCall[]> => {
   const { swaps, chainId, targetAddress, ctx, authorizations, routeTimeInputs, oraclePrices } =
     input;
-  const orderedSwaps = sortSwaps(swaps);
+  const orderedSwaps = orderSourceSwaps(swaps);
   const chain = ctx.chainList.getChainByID(chainId);
   const publicClient = ctx.publicClientList.get(chainId);
   const tokenTotals = new Map<

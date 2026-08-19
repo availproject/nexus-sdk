@@ -213,6 +213,37 @@ describe('executeSourceSwaps contracts', () => {
     );
   });
 
+  it('dispatches source chains in the same ascending order used by the plan', async () => {
+    const arbitrumQuote = makeQuote();
+    const optimismQuote = makeQuote();
+    optimismQuote.chainID = 10;
+    optimismQuote.holding.chainID = 10;
+    const { context } = makeContext();
+    context.sourceExecutionPaths = new Map([
+      [CHAIN_ID, 'safe'],
+      [10, 'safe'],
+    ]);
+    const deployments = new Map(context.safeDeploymentPromises);
+    deployments.set(10, deployments.get(CHAIN_ID)!);
+    context.safeDeploymentPromises = deployments;
+
+    await executeSourceSwaps(
+      {
+        swaps: [arbitrumQuote, optimismQuote],
+        creationTime: Date.now(),
+        srcBuffer: new Decimal(0),
+      },
+      context,
+      metadata(),
+      [arbitrumQuote.aggregator]
+    );
+
+    expect(vi.mocked(createSafeExecuteTxFromCalls).mock.calls.map(([call]) => call.chainId)).toEqual([
+      10,
+      CHAIN_ID,
+    ]);
+  });
+
   it('groups repeated same-chain legs and consumes their prepared transfer only once', async () => {
     const quote = makeQuote();
     const { context, createSafeExecuteTx } = makeContext(makePreparedExecution(quote));

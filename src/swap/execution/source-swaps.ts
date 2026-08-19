@@ -26,6 +26,7 @@ import {
   QuoteSeriousness,
   QuoteType,
 } from '../aggregators/types';
+import { orderSourceSwaps } from '../source-order';
 import type {
   BridgeAsset,
   ExecutionContext,
@@ -62,9 +63,6 @@ type ConfirmedSourceChain = DispatchedSourceChain & {
 
 const isNativeInput = (swap: QuoteResponse) => isNativeAddress(swap.quote.input.contractAddress);
 
-const sortSourceSwaps = (swaps: QuoteResponse[]) =>
-  [...swaps].sort((left, right) => Number(isNativeInput(left)) * -1 + Number(isNativeInput(right)));
-
 const getPreparedSourceTransfer = (
   swap: QuoteResponse,
   transfers: PreparedEoaToEphemeralTransfer[] | undefined
@@ -98,7 +96,7 @@ const buildSourceCalls = async (
   const publicClient = ctx.publicClientList.get(chainId);
   const chain = ctx.chainList.getChainByID(chainId);
 
-  for (const swap of sortSourceSwaps(chainSwaps)) {
+  for (const swap of orderSourceSwaps(chainSwaps)) {
     const parsedQuote = getParsedQuote(swap, ctx.preparedExecution?.parsedQuotes);
     const nativeInput = isNativeInput(swap);
 
@@ -451,7 +449,9 @@ export const executeSourceSwaps = async (
 
   const confirmedResults = new Map<number, ConfirmedSourceChain>();
   let pendingChains = new Map(
-    [...byChain.entries()].map(([chainId, chainSwaps]) => [chainId, sortSourceSwaps(chainSwaps)])
+    [...byChain.entries()]
+      .sort(([left], [right]) => left - right)
+      .map(([chainId, chainSwaps]) => [chainId, orderSourceSwaps(chainSwaps)])
   );
   let lastError: Error | null = null;
 

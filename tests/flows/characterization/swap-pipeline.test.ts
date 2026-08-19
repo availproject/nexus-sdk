@@ -1661,7 +1661,7 @@ const assertScenario = (scenario: ExactOutScenario, result: HarnessResult) => {
   expect(result.emittedEvents).toEqual(
     expect.arrayContaining([
       expect.objectContaining({ type: 'plan_preview', plan: result.previewState.plan }),
-      expect.objectContaining({ type: 'plan_confirmed', plan: result.previewState.plan }),
+      expect.objectContaining({ type: 'plan_confirmed' }),
     ])
   );
 

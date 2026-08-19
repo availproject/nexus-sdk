@@ -205,6 +205,19 @@ const queueSwapCacheQueries = (
     input.cache.addSafeAccountQuery(chainId);
   }
 
+  if (isEoaBridgeRoute(input.route)) {
+    for (const asset of input.route.bridge?.assets ?? []) {
+      if (asset.eoaBalance.lte(0) || isNativeAddress(asset.contractAddress)) continue;
+      requiredChainIds.add(asset.chainID);
+      input.cache.addAllowanceQuery(
+        asset.contractAddress,
+        input.eoaAddress,
+        input.chainList.getVaultContractAddress(asset.chainID),
+        asset.chainID
+      );
+    }
+  }
+
   queueParsedQuoteQueries(input.cache, input.source.swaps, details.safeAddress, requiredChainIds);
   queueParsedQuoteQueries(
     input.cache,

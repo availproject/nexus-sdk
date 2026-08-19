@@ -304,7 +304,7 @@ describe('prepareSwapExecution', () => {
 
     expect(prepared.eoaToEphemeralTransfers).toEqual([]);
     expect(addSafeAccountQuery).not.toHaveBeenCalled();
-    expect(addAllowanceQuery).not.toHaveBeenCalled();
+    expect(addAllowanceQuery).toHaveBeenCalledTimes(1);
   });
 
   it('builds a source EOA->Safe funding transfer targeting the predicted Safe on Safe V2 source chains', async () => {
