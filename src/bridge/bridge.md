@@ -277,7 +277,7 @@ depositFeeRaw`; flag when it exceeds the current allowance (keyed by chain + tok
 `onAllowance({sources, allow, deny})`; `allow(selections)` requires `selections.length ===
 sources.length` else `invalidAllowance`; `deny()` → `userRejectedAllowance`.
 `prepareBridgeExecution` (`allowances/prepare.ts`) then `approve`s the vault per source (EOA tx /
-sponsored).
+sponsored). Sponsored permit variants with an expiry field expire 15 minutes after signing.
 
 **Plan** (`steps.ts createBridgePlan`), deterministic ids:
 ```text
