@@ -251,6 +251,13 @@ const exactOutResult = await client.swapWithExactOut(
 
 Most swap quotes are valid for roughly 30 seconds. If `onIntent` displays an intent while waiting for user confirmation, use an async timeout that waits 20 seconds after each `refresh()` completes, render the returned intent, and stop refreshing before `allow()` or `deny()`. See [Displayed Intent Freshness](#displayed-intent-freshness-required-for-interactive-approval).
 
+Swap plans expose EOA-held ERC-20 authorization as an `allowance` step. In `plan_preview`, the
+step is provisional and omits `method`. After intent approval, `plan_confirmed` removes the step
+when the existing allowance already covers the required amount; no wallet approval or permit
+prompt is expected in that case. Remaining allowance steps set `method` to `approval` or `permit`.
+Authorization progress is reported through the adjacent swap, transfer, or bridge step rather than
+through a separate allowance progress event.
+
 **Calculate Maximum Swappable** — populate a "Max" button before calling `swapWithExactIn`:
 
 ```ts
@@ -913,6 +920,8 @@ import {
   type SwapResult,
   type SwapMaxResult,
   type SwapEvent,
+  type SwapPlan,
+  type SwapAllowanceStep,
   type SwapAndExecuteParams,
   type SwapAndExecuteResult,
   type SwapAndExecuteEvent,
