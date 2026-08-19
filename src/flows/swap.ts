@@ -90,27 +90,61 @@ export type SwapPreviewState = {
 const createSwapPreviewStateFromRoute = (
   route: SwapRoute,
   input: SwapData,
-  chainList: SwapDeps['chainList']
+  chainList: SwapDeps['chainList'],
+  authorization?: {
+    cache: SwapCacheWarmup['cache'];
+    eoaAddress: Hex;
+    safeAddress: Hex;
+  }
 ): SwapPreviewState => {
   const intent = createSwapIntent(route, input, chainList);
 
   return {
     route,
     intent,
-    plan: createSwapPlan(route, chainList),
+    plan: createSwapPlan(route, chainList, authorization),
+  };
+};
+
+const buildSwapPreviewStateWithWarmup = async (
+  input: SwapData,
+  context: SwapPreviewContext
+): Promise<{ previewState: SwapPreviewState; cacheWarmup: SwapCacheWarmup }> => {
+  const route = await determineSwapRoute(
+    input,
+    createRouteOptions(context, context.preflight, input)
+  );
+  const safeAccount = predictSafeAccountAddressV2(
+    context.eoaAddress,
+    context.ephemeralWallet.address
+  );
+  const cacheWarmup = startSwapCacheWarmup({
+    chainList: context.chainList,
+    route,
+    source: route.source,
+    destination: route.destination,
+    eoaAddress: context.eoaAddress,
+    ephemeralWallet: context.ephemeralWallet,
+    publicClientList: context.preflight.publicClientList,
+    timing: context.timing,
+    safeAccount,
+  });
+  await cacheWarmup.process;
+  return {
+    previewState: createSwapPreviewStateFromRoute(route, input, context.chainList, {
+      cache: cacheWarmup.cache,
+      eoaAddress: context.eoaAddress,
+      safeAddress: context.safeAddress,
+    }),
+    cacheWarmup,
   };
 };
 
 export const buildSwapPreviewState = async (
   input: SwapData,
   context: SwapPreviewContext
-): Promise<SwapPreviewState> => {
-  const route = await determineSwapRoute(
-    input,
-    createRouteOptions(context, context.preflight, input)
-  );
-  return createSwapPreviewStateFromRoute(route, input, context.chainList);
-};
+): Promise<SwapPreviewState> =>
+  (await buildSwapPreviewStateWithWarmup(input, context)).previewState;
 
 const waitForIntentApproval = (
   onIntent: NonNullable<SwapFlowOptions['onIntent']>,
@@ -118,7 +152,7 @@ const waitForIntentApproval = (
   input: SwapData,
   deps: SwapDeps,
   safeAddress: Hex,
-  onPreviewStateUpdated?: (nextPreviewState: SwapPreviewState) => void
+  onPreviewStateUpdated?: (nextPreviewState: SwapPreviewState, cacheWarmup: SwapCacheWarmup) => void
 ): Promise<SwapPreviewState> => {
   return new Promise<SwapPreviewState>((resolve, reject) => {
     let accepted = false;
@@ -152,7 +186,7 @@ const waitForIntentApproval = (
         middlewareClient: deps.middlewareClient,
       });
 
-      currentPreviewState = await buildSwapPreviewState(refreshedInput, {
+      const refreshed = await buildSwapPreviewStateWithWarmup(refreshedInput, {
         chainList: deps.chainList,
         eoaAddress: deps.evm.address,
         ephemeralWallet: deps.swap.ephemeralWallet,
@@ -163,7 +197,8 @@ const waitForIntentApproval = (
         preflight,
         safeAddress,
       });
-      onPreviewStateUpdated?.(currentPreviewState);
+      currentPreviewState = refreshed.previewState;
+      onPreviewStateUpdated?.(currentPreviewState, refreshed.cacheWarmup);
       return currentPreviewState.intent;
     };
 
@@ -235,26 +270,25 @@ const runSwapFlow = async (
       )
     )
   );
+  let cacheWarmup = startSwapCacheWarmup({
+    chainList: deps.chainList,
+    route,
+    source: route.source,
+    destination: route.destination,
+    eoaAddress: deps.evm.address,
+    ephemeralWallet: deps.swap.ephemeralWallet,
+    publicClientList: preflight.publicClientList,
+    timing: deps.timing,
+    safeAccount,
+  });
+  await cacheWarmup.process;
   let previewState = await withTimingSpan(deps.timing, 'flow.swap.create_intent', async () =>
-    createSwapPreviewStateFromRoute(route, input, deps.chainList)
+    createSwapPreviewStateFromRoute(route, input, deps.chainList, {
+      cache: cacheWarmup.cache,
+      eoaAddress: deps.evm.address,
+      safeAddress: safeAccount.address,
+    })
   );
-
-  const warmCacheForRoute = (nextRoute: SwapRoute, previous?: SwapCacheWarmup): SwapCacheWarmup =>
-    startSwapCacheWarmup(
-      {
-        chainList: deps.chainList,
-        route: nextRoute,
-        source: nextRoute.source,
-        destination: nextRoute.destination,
-        eoaAddress: deps.evm.address,
-        ephemeralWallet: deps.swap.ephemeralWallet,
-        publicClientList: preflight.publicClientList,
-        timing: deps.timing,
-        safeAccount,
-      },
-      previous
-    );
-  let cacheWarmup = warmCacheForRoute(route);
 
   emitStatus('route_ready');
   emitPlanPreview(previewState.plan);
@@ -269,10 +303,10 @@ const runSwapFlow = async (
           input,
           deps,
           safeAccount.address,
-          (nextPreviewState) => {
+          (nextPreviewState, nextCacheWarmup) => {
             previewState = nextPreviewState;
             route = nextPreviewState.route;
-            cacheWarmup = warmCacheForRoute(route, cacheWarmup);
+            cacheWarmup = nextCacheWarmup;
             emitPlanPreview(nextPreviewState.plan);
           }
         )

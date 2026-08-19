@@ -1,10 +1,11 @@
 import type { Hex, PublicClient, WalletClient } from 'viem';
 import { type Chain, getLogger } from '../../domain';
 import { confirmStepReceipt, switchChain } from '../../services/evm';
+import { createExplorerTxURL } from '../../services/explorer';
 import type { SafeCall } from '../../services/safe';
-import { createEoaToEphemeralTransferStepId } from '../../services/step-ids';
+import { createSwapAllowanceStepId } from '../../services/step-ids';
 import type { EnsureSafeAccountV2Response } from '../safe/types';
-import type { PreparedEoaToEphemeralTransfer } from '../types';
+import type { PreparedEoaToEphemeralTransfer, SwapExecutionProgressUpdate } from '../types';
 import type { SwapCache } from '../wallet/cache';
 import {
   buildDirectApprovalRequest,
@@ -25,6 +26,7 @@ type ResolvePreparedFundingTransferCallsInput = {
   >;
   cache?: Pick<SwapCache, 'getAllowance'> & Partial<Pick<SwapCache, 'setAllowance'>>;
   safeDeploymentPromise: Promise<EnsureSafeAccountV2Response>;
+  onProgress?: (update: SwapExecutionProgressUpdate) => void;
 };
 
 const ensureDirectApproval = async (
@@ -52,6 +54,17 @@ const ensureDirectApproval = async (
     tokenAddress: input.transfer.tokenAddress,
     amountRaw: input.transfer.amount.toString(),
   });
+  const stepId = createSwapAllowanceStepId(
+    input.transfer.reason,
+    input.chain.id,
+    input.transfer.tokenAddress
+  );
+  input.onProgress?.({
+    stepType: 'allowance',
+    stepId,
+    chainId: input.chain.id,
+    state: 'wallet_prompted',
+  });
   await switchChain(input.eoaWallet, input.chain);
   const txHash = await input.eoaWallet.writeContract(
     buildDirectApprovalRequest({
@@ -68,9 +81,18 @@ const ensureDirectApproval = async (
     tokenAddress: input.transfer.tokenAddress,
     txHash,
   });
+  const explorerUrl = createExplorerTxURL(txHash, input.chain.blockExplorers?.default?.url);
+  input.onProgress?.({
+    stepType: 'allowance',
+    stepId,
+    chainId: input.chain.id,
+    state: 'submitted',
+    txHash,
+    explorerUrl,
+  });
   await confirmStepReceipt(input.publicClient, txHash, input.chain.id, {
-    stepId: createEoaToEphemeralTransferStepId(input.chain.id),
-    stepType: 'eoa_to_ephemeral_transfer',
+    stepId,
+    stepType: 'allowance',
     label: 'EOA approval',
   });
   input.cache?.setAllowance?.(
@@ -84,6 +106,14 @@ const ensureDirectApproval = async (
     chainId: input.chain.id,
     tokenAddress: input.transfer.tokenAddress,
     txHash,
+  });
+  input.onProgress?.({
+    stepType: 'allowance',
+    stepId,
+    chainId: input.chain.id,
+    state: 'confirmed',
+    txHash,
+    explorerUrl,
   });
 };
 
@@ -103,36 +133,73 @@ export const resolvePreparedFundingTransferCalls = async (
   });
 
   const authorization = input.transfer.authorization;
-  if (authorization?.kind === 'permit') {
-    logger.debug('swap.execute.funding.permit_started', {
-      chainId: input.chain.id,
-      tokenAddress: input.transfer.tokenAddress,
-      amountRaw: input.transfer.amount.toString(),
-    });
-    const permitCall = await materializePermitAuthorizationCall({
-      chain: input.chain,
-      authorization,
-      tokenAddress: input.transfer.tokenAddress,
-      tokenDecimals: input.tokenDecimals,
-      amount: input.transfer.amount,
-      eoaAddress: input.eoaAddress,
-      eoaWallet: input.eoaWallet,
-      // The Safe is the permit spender.
-      ephemeralAddress: input.transfer.targetAddress,
-      publicClient: input.publicClient as PublicClient,
-    });
-    if (!permitCall) {
-      throw new Error(`Missing permit calldata for ${input.transfer.tokenAddress}`);
+  try {
+    if (authorization?.kind === 'permit') {
+      const needsSignature = authorization.call === null;
+      const stepId = createSwapAllowanceStepId(
+        input.transfer.reason,
+        input.chain.id,
+        input.transfer.tokenAddress
+      );
+      if (needsSignature) {
+        input.onProgress?.({
+          stepType: 'allowance',
+          stepId,
+          chainId: input.chain.id,
+          state: 'wallet_prompted',
+        });
+      }
+      logger.debug('swap.execute.funding.permit_started', {
+        chainId: input.chain.id,
+        tokenAddress: input.transfer.tokenAddress,
+        amountRaw: input.transfer.amount.toString(),
+      });
+      const permitCall = await materializePermitAuthorizationCall({
+        chain: input.chain,
+        authorization,
+        tokenAddress: input.transfer.tokenAddress,
+        tokenDecimals: input.tokenDecimals,
+        amount: input.transfer.amount,
+        eoaAddress: input.eoaAddress,
+        eoaWallet: input.eoaWallet,
+        // The Safe is the permit spender.
+        ephemeralAddress: input.transfer.targetAddress,
+        publicClient: input.publicClient as PublicClient,
+      });
+      if (!permitCall) {
+        throw new Error(`Missing permit calldata for ${input.transfer.tokenAddress}`);
+      }
+      calls.push(permitCall);
+      if (needsSignature) {
+        input.onProgress?.({
+          stepType: 'allowance',
+          stepId,
+          chainId: input.chain.id,
+          state: 'signed',
+        });
+      }
+      logger.debug('swap.execute.funding.permit_completed', {
+        chainId: input.chain.id,
+        tokenAddress: input.transfer.tokenAddress,
+      });
     }
-    calls.push(permitCall);
-    logger.debug('swap.execute.funding.permit_completed', {
-      chainId: input.chain.id,
-      tokenAddress: input.transfer.tokenAddress,
-    });
-  }
 
-  if (input.transfer.authorization?.kind === 'approve') {
-    await ensureDirectApproval(input);
+    if (authorization?.kind === 'approve') {
+      await ensureDirectApproval(input);
+    }
+  } catch (error) {
+    input.onProgress?.({
+      stepType: 'allowance',
+      stepId: createSwapAllowanceStepId(
+        input.transfer.reason,
+        input.chain.id,
+        input.transfer.tokenAddress
+      ),
+      chainId: input.chain.id,
+      state: 'failed',
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
   }
 
   calls.push(input.transfer.transferCall);

@@ -1,5 +1,6 @@
 import type { SwapEvent, SwapPlan, SwapPlanProgressEvent, SwapStatus } from '../domain';
 import {
+  getSwapAllowanceStep,
   getSwapBridgeDepositStep,
   getSwapBridgeFillStep,
   getSwapBridgeIntentSubmissionStep,
@@ -72,6 +73,41 @@ export const createSwapProgressEmitter = (emit: SwapParams['emit']) => {
     const plan = getExecutionPlan(state.latestPreviewPlan, state.confirmedPlan);
 
     switch (update.stepType) {
+      case 'allowance': {
+        const step = getSwapAllowanceStep(plan, update.stepId);
+        if (update.state === 'wallet_prompted' || update.state === 'signed') {
+          emitPlanProgress({
+            type: 'plan_progress',
+            stepType: 'allowance',
+            state: update.state,
+            step,
+          });
+          return;
+        }
+        if (update.state === 'submitted' || update.state === 'confirmed') {
+          emitPlanProgress({
+            type: 'plan_progress',
+            stepType: 'allowance',
+            state: update.state,
+            step,
+            txHash: update.txHash,
+            explorerUrl: update.explorerUrl,
+          });
+          return;
+        }
+        if (update.state === 'failed') {
+          emitPlanProgress({
+            type: 'plan_progress',
+            stepType: 'allowance',
+            state: 'failed',
+            step,
+            ...(update.txHash ? { txHash: update.txHash } : {}),
+            ...(update.explorerUrl ? { explorerUrl: update.explorerUrl } : {}),
+            error: update.error,
+          });
+        }
+        return;
+      }
       case 'source_swap': {
         const step = getSwapSourceSwapStep(plan, update.chainId);
         if (update.state === 'wallet_prompted' || update.state === 'started') {

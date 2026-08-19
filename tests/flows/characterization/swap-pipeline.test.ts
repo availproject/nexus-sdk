@@ -1822,7 +1822,7 @@ describe('swap pipeline characterization', () => {
     );
 
     expect(destinationTransfer?.authorization?.kind).toBe('permit');
-    expect(destinationTransfer?.authorization?.call).not.toBeNull();
+    expect(destinationTransfer?.authorization?.call).toBeNull();
 
     const sbcCalls = getSubmittedExecutionCallsForChain(result.middlewareClient, BASE_CHAIN);
     const tokenCallNames = sbcCalls

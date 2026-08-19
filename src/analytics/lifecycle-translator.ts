@@ -212,6 +212,7 @@ export function translateSwapEvent(
   if (event.type !== 'plan_progress') return;
 
   const onChainStepTypes = new Set([
+    'allowance',
     'source_swap',
     'eoa_to_ephemeral_transfer',
     'bridge_deposit',

@@ -46,8 +46,8 @@ The high-level flow is:
 ```text
 buildSwapPreflight
   -> determineSwapRoute
-  -> createSwapIntent + createSwapPlan
   -> start allowance, permit-capability, and Safe-code cache reads
+  -> await cache and createSwapIntent + allowance-aware createSwapPlan
   -> await onIntent approval
   -> ensure missing Safes on every Safe execution chain
   -> prepareSwapExecution (await the accepted route's cache)
@@ -59,11 +59,12 @@ buildSwapPreflight
   -> finalize result
 ```
 
-Cache warming starts immediately before the intent is exposed to `onIntent`, so its read-only RPC
-work overlaps the user's review time. It includes one bytecode lookup for the derived Safe on each
-Safe execution chain. Bridge source chains without source swaps do not require this lookup. A refreshed intent
-reuses the existing warmup when its query data is unchanged; a changed query set starts a new
-warmup. Wallet signatures, approvals, and transactions remain gated behind intent acceptance.
+Cache warming resolves before the intent and plan are exposed to `onIntent`, allowing the preview to
+include only required EOA authorization and distinguish `approval` from `permit`. It includes one
+bytecode lookup for the derived Safe on each Safe execution chain. Bridge source chains without
+source swaps skip that lookup but still resolve ERC-20 vault authorization. A refreshed intent
+resolves the refreshed route's cache before emitting its replacement preview. Wallet signatures,
+approvals, and transactions remain gated behind intent acceptance.
 
 ## Deployment-before-wallet-prompt invariant
 
@@ -158,7 +159,7 @@ but creates no plan step or transaction. Max-amount haircuts apply only to the r
 ## Preparation
 
 `prepareSwapExecution` uses the Safe derived at flow start as the owner/spender for every swap quote.
-The pre-intent cache batches only the reads still needed by Safe execution:
+The pre-intent cache batches reads needed by the plan and execution:
 
 - ERC-20 allowances;
 - token permit support and version;
@@ -171,8 +172,9 @@ For ERC-20 value held by the EOA, preparation builds a deterministic transfer au
 
 The Safe consumes the authorization with `transferFrom`. Source and destination funding moves into
 the Safe. Bridge funding after a source swap may send from the EOA to the ephemeral bridge holder
-while the Safe remains the spender. Bridge routes without source swaps skip this preparation and use
-the bridge allowance service to authorize the vault from the EOA.
+while the Safe remains the spender. Bridge routes without source swaps skip Safe custody preparation
+and use the bridge allowance service to authorize the vault from the EOA; the same resolved
+authorization is represented in the public plan.
 
 Native input does not use an allowance. It is carried by the outer EOA transaction that calls the
 Safe.
@@ -208,8 +210,10 @@ inner values must equal the outer native value. The SDK rejects mismatches befor
 
 ### Source swaps
 
-Each chain groups its source legs into one Safe batch. ERC-20 legs prepend prepared funding and
-aggregator allowance calls as needed. Native legs are EOA-submitted Safe transactions. Failed source
+Source chains execute in ascending numeric chain-ID order, matching the plan. Each chain groups its
+source legs into one Safe batch, with native-value legs first. ERC-20 legs prepend prepared funding
+and aggregator allowance calls as needed. Native-value batches are EOA-submitted Safe transactions.
+Failed source
 execution may trigger a bounded requote when the failure is known to be safe to retry.
 
 ### Bridge deposits

@@ -69,6 +69,7 @@ const buildDestinationCalls = async (
     | 'chainList'
     | 'eoaAddress'
     | 'eoaWallet'
+    | 'onProgress'
     | 'ephemeralWallet'
     | 'publicClientList'
     | 'cache'
@@ -98,6 +99,8 @@ const buildDestinationCalls = async (
           eoaAddress: ctx.eoaAddress,
           eoaWallet: ctx.eoaWallet,
           publicClient: ctx.publicClientList.get(destination.chainId),
+          cache: ctx.cache,
+          onProgress: ctx.onProgress,
           safeDeploymentPromise: requireSafeDeployment(
             ctx.safeDeploymentPromises,
             destination.chainId

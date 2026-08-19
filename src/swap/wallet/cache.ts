@@ -77,29 +77,6 @@ export class SwapCache {
     this.queries.push({ type: 'safe_account', chainId });
   }
 
-  getPendingQueryKey(): string {
-    return [
-      ...new Set(
-        this.queries.map((query) => {
-          if (query.type === 'safe_account') {
-            return `safe_account:${query.chainId}:${this.safeAccount?.address.toLowerCase()}`;
-          }
-          if (query.type === 'permit') {
-            return `permit:${permitKey(query.token, query.chainId)}`;
-          }
-          return `allowance:${allowanceKey(
-            query.token,
-            query.owner,
-            query.spender,
-            query.chainId
-          )}`;
-        })
-      ),
-    ]
-      .sort()
-      .join('|');
-  }
-
   // ---------------------------------------------------------------------------
   // Process all queued queries
   // ---------------------------------------------------------------------------

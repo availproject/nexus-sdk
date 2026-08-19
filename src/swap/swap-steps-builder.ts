@@ -1,10 +1,11 @@
-import { formatUnits } from 'viem';
+import { formatUnits, type Hex } from 'viem';
 import type {
   BridgeFillStep,
   Chain,
   ChainListType,
   PlanTokenAmount,
   PlanTokenMetadata,
+  SwapAllowanceStep,
   SwapBridgeDepositStep,
   SwapBridgeIntentSubmissionStep,
   SwapDestinationSwapStep,
@@ -13,6 +14,7 @@ import type {
   SwapPlanStep,
   SwapSourceSwapStep,
 } from '../domain';
+import { isNativeAddress } from '../services/addresses';
 import { mulDecimals } from '../services/math';
 import {
   createBridgeDepositStepId,
@@ -21,9 +23,19 @@ import {
   createDestinationSwapStepId,
   createEoaToEphemeralTransferStepId,
   createSourceSwapStepId,
+  createSwapAllowanceStepId,
 } from '../services/step-ids';
 import type { QuoteResponse } from './aggregators/types';
+import { groupSourceSwapsByChain, isNativeSourceSwap } from './source-order';
 import { isEoaBridgeRoute, type SwapRoute } from './types';
+import type { SwapCache } from './wallet/cache';
+import { getTransferAuthorizationKind } from './wallet/transfer-authorization';
+
+type SwapPlanAuthorizationContext = {
+  cache: Pick<SwapCache, 'getAllowance' | 'getPermit'>;
+  eoaAddress: Hex;
+  safeAddress: Hex;
+};
 
 const toPlanTokenAmount = (
   metadata: PlanTokenMetadata,
@@ -48,19 +60,6 @@ const toChainDisplay = (chain: Chain) => {
   };
 };
 
-const groupSourceSwapsByChain = (route: SwapRoute): Map<number, QuoteResponse[]> => {
-  const grouped = new Map<number, QuoteResponse[]>();
-  for (const quote of route.source.swaps) {
-    const entries = grouped.get(quote.chainID);
-    if (entries) {
-      entries.push(quote);
-    } else {
-      grouped.set(quote.chainID, [quote]);
-    }
-  }
-  return new Map([...grouped.entries()].sort(([left], [right]) => left - right));
-};
-
 const createSourceSwapStep = (
   chainList: ChainListType,
   chainId: number,
@@ -71,6 +70,7 @@ const createSourceSwapStep = (
     id: createSourceSwapStepId(chainId),
     chain: toChainDisplay(chainList.getChainByID(chainId)),
     walletPath: 'safe',
+    submissionMode: quotesResponse.some(isNativeSourceSwap) ? 'eoa' : 'sponsored',
     swaps: [],
   };
 
@@ -82,6 +82,51 @@ const createSourceSwapStep = (
   }
 
   return swapSourceSwapStep;
+};
+
+const createAllowanceStep = (
+  chainList: ChainListType,
+  context: SwapPlanAuthorizationContext,
+  input: {
+    reason: 'source' | 'destination' | 'bridge';
+    chainId: number;
+    tokenAddress: Hex;
+    amountRaw: bigint;
+    spender: Hex;
+    permitAllowed?: boolean;
+  }
+): SwapAllowanceStep | null => {
+  const kind = getTransferAuthorizationKind({
+    cache: context.cache,
+    tokenAddress: input.tokenAddress,
+    ownerAddress: context.eoaAddress,
+    spenderAddress: input.spender,
+    chainId: input.chainId,
+    amount: input.amountRaw,
+    permitAllowed: input.permitAllowed,
+  });
+  if (!kind) return null;
+
+  const token = chainList.getTokenByAddress(input.chainId, input.tokenAddress);
+  return {
+    type: 'allowance',
+    id: createSwapAllowanceStepId(input.reason, input.chainId, input.tokenAddress),
+    method: kind === 'approve' ? 'approval' : 'permit',
+    chain: toChainDisplay(chainList.getChainByID(input.chainId)),
+    token,
+    spender: input.spender,
+    amount: toPlanTokenAmount(token, input.amountRaw),
+  };
+};
+
+const pushAllowanceStep = (
+  steps: SwapPlanStep[],
+  seenIds: Set<string>,
+  step: SwapAllowanceStep | null
+) => {
+  if (!step || seenIds.has(step.id)) return;
+  seenIds.add(step.id);
+  steps.push(step);
 };
 
 const createBridgeTransferStep = (
@@ -190,10 +235,31 @@ const createDestinationSwapStep = (
   return dstSwapStep;
 };
 
-export const createSwapPlan = (route: SwapRoute, chainList: ChainListType): SwapPlan => {
+export const createSwapPlan = (
+  route: SwapRoute,
+  chainList: ChainListType,
+  authorization?: SwapPlanAuthorizationContext
+): SwapPlan => {
   const steps: SwapPlanStep[] = [];
+  const allowanceIds = new Set<string>();
 
-  for (const [chainId, quotes] of groupSourceSwapsByChain(route).entries()) {
+  for (const [chainId, quotes] of groupSourceSwapsByChain(route.source.swaps)) {
+    if (authorization) {
+      for (const quote of quotes) {
+        if (isNativeSourceSwap(quote)) continue;
+        pushAllowanceStep(
+          steps,
+          allowanceIds,
+          createAllowanceStep(chainList, authorization, {
+            reason: 'source',
+            chainId,
+            tokenAddress: quote.quote.input.contractAddress,
+            amountRaw: quote.quote.input.amountRaw,
+            spender: authorization.safeAddress,
+          })
+        );
+      }
+    }
     steps.push(createSourceSwapStep(chainList, chainId, quotes));
   }
 
@@ -201,20 +267,72 @@ export const createSwapPlan = (route: SwapRoute, chainList: ChainListType): Swap
     const sortedAssets = [...route.bridge.assets].sort(
       (left, right) => left.chainID - right.chainID
     );
-    steps.push(createBridgeIntentSubmissionStep());
-    for (const asset of sortedAssets) {
-      // Non-direct routes stage EOA bridge holdings on the ephemeral wallet. Direct routes deposit
-      // from the EOA and therefore omit the custody-transfer step.
-      if (!isEoaBridgeRoute(route) && asset.eoaBalance.gt(0)) {
-        steps.push(createBridgeTransferStep(chainList, asset));
+    const directEoaBridge = isEoaBridgeRoute(route);
+    const bridgeAllowance = (asset: (typeof sortedAssets)[number]) =>
+      authorization && asset.eoaBalance.gt(0) && !isNativeAddress(asset.contractAddress)
+        ? createAllowanceStep(chainList, authorization, {
+            reason: 'bridge',
+            chainId: asset.chainID,
+            tokenAddress: asset.contractAddress,
+            amountRaw: mulDecimals(asset.eoaBalance, asset.decimals),
+            spender: directEoaBridge
+              ? chainList.getVaultContractAddress(asset.chainID)
+              : authorization.safeAddress,
+            permitAllowed: !directEoaBridge || asset.chainID !== 1,
+          })
+        : null;
+    const appendBridgeAssetSteps = (assets: typeof sortedAssets, includeAllowance: boolean) => {
+      for (const asset of assets) {
+        if (includeAllowance) {
+          pushAllowanceStep(steps, allowanceIds, bridgeAllowance(asset));
+        }
+        // Non-direct routes stage EOA bridge holdings on the ephemeral wallet. Direct routes
+        // deposit from the EOA, while native value stays at the EOA until its payable deposit.
+        if (!directEoaBridge && asset.eoaBalance.gt(0) && !isNativeAddress(asset.contractAddress)) {
+          steps.push(createBridgeTransferStep(chainList, asset));
+        }
+        steps.push(createBridgeDepositStep(chainList, asset));
       }
-      steps.push(createBridgeDepositStep(chainList, asset));
+    };
+
+    if (route.bridge.provider === 'mayan' && !directEoaBridge) {
+      appendBridgeAssetSteps(
+        sortedAssets.filter((asset) => !isNativeAddress(asset.contractAddress)),
+        true
+      );
+      steps.push(createBridgeIntentSubmissionStep());
+      appendBridgeAssetSteps(
+        sortedAssets.filter((asset) => isNativeAddress(asset.contractAddress)),
+        false
+      );
+    } else {
+      if (directEoaBridge) {
+        for (const asset of sortedAssets) {
+          pushAllowanceStep(steps, allowanceIds, bridgeAllowance(asset));
+        }
+      }
+      steps.push(createBridgeIntentSubmissionStep());
+      appendBridgeAssetSteps(sortedAssets, !directEoaBridge);
     }
     steps.push(createBridgeFillStep(chainList, route.bridge));
   }
 
   const destinationSwapStep = createDestinationSwapStep(chainList, route);
   if (destinationSwapStep) {
+    const destinationTransfer = route.destination.eoaToEphemeral;
+    if (authorization && destinationTransfer) {
+      pushAllowanceStep(
+        steps,
+        allowanceIds,
+        createAllowanceStep(chainList, authorization, {
+          reason: 'destination',
+          chainId: route.destination.chainId,
+          tokenAddress: destinationTransfer.contractAddress,
+          amountRaw: destinationTransfer.amount,
+          spender: authorization.safeAddress,
+        })
+      );
+    }
     steps.push(destinationSwapStep);
   }
 
@@ -242,6 +360,13 @@ export const getSwapSourceSwapStep = (plan: SwapPlan, chainId: number): SwapSour
     plan,
     (step): step is SwapSourceSwapStep => step.type === 'source_swap' && step.chain.id === chainId,
     `Swap plan is missing source_swap step for chain ${chainId}`
+  );
+
+export const getSwapAllowanceStep = (plan: SwapPlan, stepId: string): SwapAllowanceStep =>
+  findStep(
+    plan,
+    (step): step is SwapAllowanceStep => step.type === 'allowance' && step.id === stepId,
+    `Swap plan is missing allowance step ${stepId}`
   );
 
 export const getSwapEoaToEphemeralTransferStep = (

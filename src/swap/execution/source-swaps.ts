@@ -10,7 +10,6 @@ import {
   NexusError,
   UserActionError,
 } from '../../domain/errors';
-import { isNativeAddress } from '../../services/addresses';
 import { confirmStepReceipt } from '../../services/evm';
 import { createExplorerTxURL } from '../../services/explorer';
 import { isUserRejectedRequest } from '../../services/is-user-rejected-request';
@@ -26,6 +25,7 @@ import {
   QuoteSeriousness,
   QuoteType,
 } from '../aggregators/types';
+import { groupSourceSwapsByChain, isNativeSourceSwap, orderSourceSwaps } from '../source-order';
 import type {
   BridgeAsset,
   ExecutionContext,
@@ -60,10 +60,7 @@ type ConfirmedSourceChain = DispatchedSourceChain & {
   txHash: Hex;
 };
 
-const isNativeInput = (swap: QuoteResponse) => isNativeAddress(swap.quote.input.contractAddress);
-
-const sortSourceSwaps = (swaps: QuoteResponse[]) =>
-  [...swaps].sort((left, right) => Number(isNativeInput(left)) * -1 + Number(isNativeInput(right)));
+const isNativeInput = isNativeSourceSwap;
 
 const getPreparedSourceTransfer = (
   swap: QuoteResponse,
@@ -88,6 +85,7 @@ const buildSourceCalls = async (
     | 'eoaAddress'
     | 'eoaWallet'
     | 'publicClientList'
+    | 'onProgress'
     | 'safeAddress'
     | 'safeDeploymentPromises'
   >,
@@ -98,7 +96,7 @@ const buildSourceCalls = async (
   const publicClient = ctx.publicClientList.get(chainId);
   const chain = ctx.chainList.getChainByID(chainId);
 
-  for (const swap of sortSourceSwaps(chainSwaps)) {
+  for (const swap of orderSourceSwaps(chainSwaps)) {
     const parsedQuote = getParsedQuote(swap, ctx.preparedExecution?.parsedQuotes);
     const nativeInput = isNativeInput(swap);
 
@@ -123,6 +121,7 @@ const buildSourceCalls = async (
             eoaWallet: ctx.eoaWallet,
             publicClient,
             cache: ctx.cache,
+            onProgress: ctx.onProgress,
             safeDeploymentPromise: requireSafeDeployment(ctx.safeDeploymentPromises, chainId),
           }))
         );
@@ -438,21 +437,8 @@ export const executeSourceSwaps = async (
 ): Promise<BridgeAsset[]> => {
   if (source.swaps.length === 0) return [];
 
-  // Group swaps by chainId
-  const byChain = new Map<number, QuoteResponse[]>();
-  for (const swap of source.swaps) {
-    let bucket = byChain.get(swap.chainID);
-    if (!bucket) {
-      bucket = [];
-      byChain.set(swap.chainID, bucket);
-    }
-    bucket.push(swap);
-  }
-
   const confirmedResults = new Map<number, ConfirmedSourceChain>();
-  let pendingChains = new Map(
-    [...byChain.entries()].map(([chainId, chainSwaps]) => [chainId, sortSourceSwaps(chainSwaps)])
-  );
+  let pendingChains = new Map(groupSourceSwapsByChain(source.swaps));
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt < 2 && pendingChains.size > 0; attempt++) {

@@ -39,6 +39,7 @@ import {
 import {
   createBridgeDepositStepId,
   createEoaToEphemeralTransferStepId,
+  createSwapAllowanceStepId,
 } from '../../services/step-ids';
 import { minutesFromNow } from '../../services/time';
 import { withTimingSpan } from '../../services/timing';
@@ -260,14 +261,6 @@ const resolveFundingTransferCalls = async (
     authorizationKind,
     amountRaw: transfer.amount.toString(),
   });
-  if (transfer.authorization) {
-    ctx.onProgress?.({
-      stepType: 'eoa_to_ephemeral_transfer',
-      chainId: asset.chainID,
-      state: 'wallet_prompted',
-    });
-  }
-
   let lastError: unknown;
   for (let attempt = 1; attempt <= MAX_BRIDGE_FUNDING_ATTEMPTS; attempt++) {
     try {
@@ -278,6 +271,8 @@ const resolveFundingTransferCalls = async (
         eoaAddress: ctx.eoaAddress,
         eoaWallet: ctx.eoaWallet,
         publicClient,
+        cache: ctx.cache,
+        onProgress: ctx.onProgress,
         safeDeploymentPromise,
       });
       logger.debug('swap.execute.bridge.funding.completed', {
@@ -429,7 +424,9 @@ const runMayanEphemeralBridge = async (
 
   const runApprove = (asset: BridgeAsset, fundingCalls: SafeCall[]) =>
     (async () => {
-      ctx.onProgress?.({ stepType: 'bridge_deposit', chainId: asset.chainID, state: 'started' });
+      if (!hasEoaFunding(asset)) {
+        ctx.onProgress?.({ stepType: 'bridge_deposit', chainId: asset.chainID, state: 'started' });
+      }
 
       const totalBalanceRaw = mulDecimals(
         asset.eoaBalance.plus(asset.ephemeralBalance),
@@ -489,6 +486,7 @@ const runMayanEphemeralBridge = async (
           txHash,
           explorerUrl,
         });
+        ctx.onProgress?.({ stepType: 'bridge_deposit', chainId: asset.chainID, state: 'started' });
       }
       ctx.onProgress?.({
         stepType: 'bridge_deposit',
@@ -925,6 +923,27 @@ const executeEoaBridgePath = async (
       evm: { address: ctx.eoaAddress, walletClient: ctx.eoaWallet },
     },
     dstChain,
+    onProgress: (update) => {
+      const base = {
+        stepType: 'allowance' as const,
+        stepId: createSwapAllowanceStepId('bridge', update.chainId, update.tokenAddress),
+        chainId: update.chainId,
+      };
+      if (update.state === 'submitted' || update.state === 'confirmed') {
+        ctx.onProgress?.({
+          ...base,
+          state: update.state,
+          txHash: update.txHash,
+          explorerUrl: update.explorerUrl,
+        });
+        return;
+      }
+      if (update.state === 'failed') {
+        ctx.onProgress?.({ ...base, state: 'failed', error: update.error });
+        return;
+      }
+      ctx.onProgress?.({ ...base, state: 'wallet_prompted' });
+    },
   });
 
   const result = await executeBridgeFromIntent(intent, {
@@ -1050,11 +1069,15 @@ const executeEphemeralBridgePath = async (
       logger.debug('swap.execute.bridge.deposit_sbc_build.started', {
         chainId: asset.chainID,
       });
-      ctx.onProgress?.({
-        stepType: 'bridge_deposit',
-        chainId: asset.chainID,
-        state: 'started',
-      });
+      const includesFundingTransfer =
+        hasEoaFunding(asset) && !isNativeAddress(asset.contractAddress);
+      if (!includesFundingTransfer) {
+        ctx.onProgress?.({
+          stepType: 'bridge_deposit',
+          chainId: asset.chainID,
+          state: 'started',
+        });
+      }
 
       const chainIndex = depositRequest.sources.findIndex(
         (source) => Number(source.chainID) === asset.chainID
@@ -1128,13 +1151,18 @@ const executeEphemeralBridgePath = async (
       }
       const explorerUrl = createExplorerTxURL(txHash, chain.blockExplorers?.default?.url ?? '');
 
-      if (hasEoaFunding(asset) && !nativeAsset) {
+      if (includesFundingTransfer) {
         ctx.onProgress?.({
           stepType: 'eoa_to_ephemeral_transfer',
           chainId: asset.chainID,
           state: 'submitted',
           txHash,
           explorerUrl,
+        });
+        ctx.onProgress?.({
+          stepType: 'bridge_deposit',
+          chainId: asset.chainID,
+          state: 'started',
         });
       }
 
@@ -1152,7 +1180,7 @@ const executeEphemeralBridgePath = async (
         label: 'Bridge deposit',
       });
 
-      if (hasEoaFunding(asset) && !nativeAsset) {
+      if (includesFundingTransfer) {
         ctx.onProgress?.({
           stepType: 'eoa_to_ephemeral_transfer',
           chainId: asset.chainID,

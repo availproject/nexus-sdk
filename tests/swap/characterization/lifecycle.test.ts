@@ -2,6 +2,7 @@
 // signing paths are real; only injected network boundaries are deterministic.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Hex } from 'viem';
+import type { SwapPlan } from '../../../src/domain';
 import { swap } from '../../../src/flows/swap';
 import { SwapMode, type FlatBalance, type SwapIntent } from '../../../src/swap/types';
 import {
@@ -158,12 +159,20 @@ describe('top-level swap lifecycle characterization', () => {
     );
   });
 
-  it('skips Safe cache reads for a direct EOA bridge', async () => {
+  it('resolves direct EOA bridge authorization before approval without Safe cache reads', async () => {
     const { deps } = makeHarness();
     let cacheCallsAtApproval = 0;
     let safeCodeReadsAtApproval = 0;
+    let previewPlan: SwapPlan | undefined;
+    const allowanceStates: string[] = [];
 
     await swap(input, deps, {
+      onEvent: (event) => {
+        if (event.type === 'plan_preview') previewPlan = event.plan;
+        if (event.type === 'plan_progress' && event.step.type === 'allowance') {
+          allowanceStates.push(event.state);
+        }
+      },
       onIntent: ({ allow }) => {
         cacheCallsAtApproval = hoisted.multicall.mock.calls.length;
         safeCodeReadsAtApproval = hoisted.getCode.mock.calls.length;
@@ -171,10 +180,18 @@ describe('top-level swap lifecycle characterization', () => {
       },
     });
 
-    expect(cacheCallsAtApproval).toBe(0);
+    expect(cacheCallsAtApproval).toBeGreaterThan(0);
     expect(safeCodeReadsAtApproval).toBe(0);
     expect(hoisted.multicall).toHaveBeenCalledTimes(cacheCallsAtApproval);
     expect(hoisted.getCode).toHaveBeenCalledTimes(safeCodeReadsAtApproval);
+    expect(previewPlan?.steps[0]).toMatchObject({
+      type: 'allowance',
+      method: 'permit',
+      chain: { id: ARB_CHAIN },
+    });
+    expect(allowanceStates).toEqual(
+      expect.arrayContaining(['wallet_prompted', 'submitted', 'confirmed'])
+    );
   });
 
   it('refreshes balances, oracle prices, intent, and plan preview before approval', async () => {
@@ -205,7 +222,7 @@ describe('top-level swap lifecycle characterization', () => {
     );
   });
 
-  it('keeps Safe cache reads skipped when refreshing a direct EOA bridge', async () => {
+  it('refreshes direct bridge authorization while keeping Safe cache reads skipped', async () => {
     const { deps } = makeHarness();
     let initialCacheCalls = 0;
     let refreshedCacheCalls = 0;
@@ -224,11 +241,11 @@ describe('top-level swap lifecycle characterization', () => {
       },
     });
 
-    expect(initialCacheCalls).toBe(0);
-    expect(refreshedCacheCalls).toBe(initialCacheCalls);
+    expect(initialCacheCalls).toBeGreaterThan(0);
+    expect(refreshedCacheCalls).toBeGreaterThan(initialCacheCalls);
     expect(initialCodeReads).toBe(0);
     expect(refreshedCodeReads).toBe(initialCodeReads);
-    expect(hoisted.multicall).toHaveBeenCalledTimes(initialCacheCalls);
+    expect(hoisted.multicall).toHaveBeenCalledTimes(refreshedCacheCalls);
   });
 
   it('returns the accepted intent when refresh is called after allow', async () => {

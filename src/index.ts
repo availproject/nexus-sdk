@@ -86,6 +86,8 @@ export type {
   Shortfall,
   StatusEvent,
   SupportedChainsAndTokensResult,
+  SwapAllowanceProgressEvent,
+  SwapAllowanceStep,
   SwapAndExecuteEvent,
   SwapAndExecuteIntent,
   SwapAndExecuteOnIntentHookData,

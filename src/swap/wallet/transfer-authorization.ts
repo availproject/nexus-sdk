@@ -16,9 +16,6 @@ import type { PreparedAuthorizationCall, PublicClientList } from '../types';
 import type { SwapCache } from './cache';
 
 const logger = getLogger();
-// Destination permits are signed before source + bridge execution, whose fill wait alone can take
-// five minutes. A 15-minute window keeps the signature finite without expiring mid-flow.
-
 const DAI_PERMIT_ABI = [
   {
     type: 'function',
@@ -198,9 +195,15 @@ export const buildTransferAuthorization = async (input: {
     chainId
   );
   const permit = input.cache.getPermit(input.tokenAddress, chainId);
-  const permitUnsupported = !permit || permit.permitVariant === PermitVariant.Unsupported;
-  const decision =
-    currentAllowance >= input.amount ? 'none' : permitUnsupported ? 'approve' : 'permit';
+  const kind = getTransferAuthorizationKind({
+    cache: input.cache,
+    tokenAddress: input.tokenAddress,
+    ownerAddress: input.eoaAddress,
+    spenderAddress: input.ephemeralAddress,
+    chainId,
+    amount: input.amount,
+  });
+  const decision = kind ?? 'none';
 
   logger.debug('swap.prepare.transfer_authorization.decision', {
     chainId,
@@ -213,10 +216,10 @@ export const buildTransferAuthorization = async (input: {
     decision,
   });
 
-  if (currentAllowance >= input.amount) {
+  if (!kind) {
     return null;
   }
-  if (permitUnsupported) {
+  if (kind === 'approve') {
     return {
       // Unsupported permits require a paid EOA approve(spender=Safe) before transferFrom.
       kind: 'approve',
@@ -231,6 +234,9 @@ export const buildTransferAuthorization = async (input: {
       },
       permit: null,
     };
+  }
+  if (!permit) {
+    throw new Error(`Missing cached permit details for ${input.tokenAddress} on ${chainId}`);
   }
 
   if (!input.eagerPermit) {
@@ -306,3 +312,30 @@ export const buildDirectApprovalRequest = (input: {
   chain: input.chain,
   functionName: 'approve' as const,
 });
+
+export const getTransferAuthorizationKind = (input: {
+  cache: Pick<SwapCache, 'getAllowance' | 'getPermit'>;
+  tokenAddress: Hex;
+  ownerAddress: Hex;
+  spenderAddress: Hex;
+  chainId: number;
+  amount: bigint;
+  permitAllowed?: boolean;
+}): 'approve' | 'permit' | null => {
+  if (
+    input.cache.getAllowance(
+      input.tokenAddress,
+      input.ownerAddress,
+      input.spenderAddress,
+      input.chainId
+    ) >= input.amount
+  ) {
+    return null;
+  }
+  const permit = input.cache.getPermit(input.tokenAddress, input.chainId);
+  return input.permitAllowed !== false &&
+    permit &&
+    permit.permitVariant !== PermitVariant.Unsupported
+    ? 'permit'
+    : 'approve';
+};

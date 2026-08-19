@@ -233,6 +233,39 @@ describe('executeSourceSwaps contracts', () => {
     expect(calls.filter((call) => call.data === '0xtransferFrom')).toHaveLength(1);
   });
 
+  it('dispatches source chains in the same canonical order as the plan', async () => {
+    const arbitrumQuote = makeQuote();
+    const optimismQuote = { ...makeQuote(), chainID: 10 };
+    const { context, createSafeExecuteTx } = makeContext();
+    context.safeDeploymentPromises = new Map([
+      [CHAIN_ID, Promise.resolve({})],
+      [10, Promise.resolve({})],
+    ]) as never;
+    context.sourceExecutionPaths = new Map([
+      [CHAIN_ID, 'safe'],
+      [10, 'safe'],
+    ]);
+    vi.mocked(context.chainList.getChainByID).mockImplementation(
+      (chainId) => ({ id: chainId, name: `Chain ${chainId}` }) as never
+    );
+
+    await executeSourceSwaps(
+      {
+        swaps: [arbitrumQuote, optimismQuote],
+        creationTime: Date.now(),
+        srcBuffer: new Decimal(0),
+      },
+      context,
+      metadata(),
+      [arbitrumQuote.aggregator]
+    );
+
+    expect(createSafeExecuteTx.mock.calls.map(([request]) => request.chainId)).toEqual([
+      10,
+      CHAIN_ID,
+    ]);
+  });
+
   it('treats a rejected permit authorization as terminal before dispatch', async () => {
     const quote = makeQuote();
     quote.aggregator = {
@@ -259,6 +292,16 @@ describe('executeSourceSwaps contracts', () => {
 
     expect(createSafeExecuteTx).not.toHaveBeenCalled();
     expect(quote.aggregator.getQuotes).not.toHaveBeenCalled();
+    expect(context.onProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stepType: 'allowance',
+        stepId: `allowance:source:${CHAIN_ID}:${INPUT}`,
+        state: 'wallet_prompted',
+      })
+    );
+    expect(context.onProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ stepType: 'allowance', state: 'failed' })
+    );
   });
 
   it('treats a rejected source dispatch as a transaction rejection', async () => {

@@ -12,7 +12,7 @@ import type {
   PlanProgressFailedBase,
   StatusEvent,
 } from './event-common';
-import type { PlanTokenAmount } from './plan-common';
+import type { PlanTokenAmount, PlanTokenMetadata } from './plan-common';
 
 export type SwapStatus =
   | 'route_building'
@@ -30,6 +30,20 @@ export type SwapPlan = {
   steps: SwapPlanStep[];
 };
 
+export type SwapAllowanceStep = {
+  type: 'allowance';
+  id: string;
+  method: 'approval' | 'permit';
+  chain: {
+    id: number;
+    name: string;
+    logo: string;
+  };
+  token: PlanTokenMetadata;
+  spender: Hex;
+  amount: PlanTokenAmount;
+};
+
 export type SwapSourceSwapStep = {
   type: 'source_swap';
   id: string;
@@ -39,6 +53,7 @@ export type SwapSourceSwapStep = {
     logo: string;
   };
   walletPath: 'safe';
+  submissionMode: 'eoa' | 'sponsored';
   swaps: {
     input: PlanTokenAmount;
     output: PlanTokenAmount;
@@ -88,6 +103,7 @@ export type SwapDestinationSwapStep = {
 };
 
 export type SwapPlanStep =
+  | SwapAllowanceStep
   | SwapSourceSwapStep
   | SwapEoaToEphemeralTransferStep
   | SwapBridgeDepositStep
@@ -98,6 +114,31 @@ export type SwapPlanStep =
 export type SwapPlanPreviewEvent = PlanPreviewEvent<SwapPlan>;
 export type SwapPlanConfirmedEvent = PlanConfirmedEvent<SwapPlan>;
 export type SwapPlanProgressFailedBase = PlanProgressFailedBase<SwapPlanStep>;
+
+export type SwapAllowanceProgressEvent =
+  | {
+      type: 'plan_progress';
+      stepType: 'allowance';
+      state: 'wallet_prompted' | 'signed';
+      step: SwapAllowanceStep;
+    }
+  | {
+      type: 'plan_progress';
+      stepType: 'allowance';
+      state: 'submitted' | 'confirmed';
+      step: SwapAllowanceStep;
+      txHash: Hex;
+      explorerUrl: string;
+    }
+  | {
+      type: 'plan_progress';
+      stepType: 'allowance';
+      state: 'failed';
+      step: SwapAllowanceStep;
+      txHash?: Hex;
+      explorerUrl?: string;
+      error: string;
+    };
 
 export type SwapSourceSwapProgressEvent =
   | {
@@ -269,6 +310,7 @@ export type SwapDestinationSwapProgressEvent =
     };
 
 export type SwapPlanProgressEvent =
+  | SwapAllowanceProgressEvent
   | SwapSourceSwapProgressEvent
   | SwapEoaToEphemeralTransferProgressEvent
   | SwapBridgeDepositProgressEvent

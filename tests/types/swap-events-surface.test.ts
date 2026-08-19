@@ -2,6 +2,8 @@ import type {
   BridgeFillStep,
   PlanTokenAmount,
   StatusEvent,
+  SwapAllowanceProgressEvent,
+  SwapAllowanceStep,
   SwapAndExecuteEvent,
   SwapAndExecutePlan,
   SwapAndExecutePlanStep,
@@ -26,6 +28,7 @@ declare const swapAndExecutePlan: SwapAndExecutePlan;
 declare const swapEvent: SwapEvent;
 declare const swapAndExecuteEvent: SwapAndExecuteEvent;
 declare const sourceSwapStep: Extract<SwapPlanStep, { type: 'source_swap' }>;
+declare const allowanceStep: Extract<SwapPlanStep, { type: 'allowance' }>;
 declare const bridgeFillStep: Extract<SwapPlanStep, { type: 'bridge_fill' }>;
 declare const destinationSwapStep: Extract<SwapAndExecutePlanStep, { type: 'destination_swap' }>;
 
@@ -37,6 +40,9 @@ swapPlan.hasDestinationSwap satisfies boolean;
 swapAndExecutePlan.steps satisfies SwapAndExecutePlanStep[];
 swapAndExecutePlan.swapRequired satisfies boolean;
 sourceSwapStep satisfies SwapSourceSwapStep;
+sourceSwapStep.submissionMode satisfies 'eoa' | 'sponsored';
+allowanceStep satisfies SwapAllowanceStep;
+allowanceStep.method satisfies 'approval' | 'permit';
 bridgeFillStep satisfies BridgeFillStep;
 destinationSwapStep.walletPath satisfies 'ephemeral' | 'safe';
 
@@ -50,6 +56,12 @@ if (swapEvent.type === 'plan_preview') {
 
 if (swapEvent.type === 'plan_progress' && swapEvent.stepType === 'bridge_fill') {
   swapEvent.step satisfies BridgeFillStep;
+}
+
+if (swapEvent.type === 'plan_progress' && swapEvent.stepType === 'allowance') {
+  swapEvent satisfies SwapAllowanceProgressEvent;
+  swapEvent.step satisfies SwapAllowanceStep;
+  swapEvent.step.method satisfies 'approval' | 'permit';
 }
 
 if (swapAndExecuteEvent.type === 'plan_progress' && swapAndExecuteEvent.stepType === 'destination_swap') {

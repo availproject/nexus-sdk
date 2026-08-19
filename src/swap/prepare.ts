@@ -53,7 +53,6 @@ type SwapCacheWarmupInput = SwapCacheInput & {
 
 export type SwapCacheWarmup = {
   cache: SwapCache;
-  key: string;
   process: Promise<void>;
   chainIds: readonly number[];
   safeChainIds: readonly number[];
@@ -120,7 +119,7 @@ const queueDeterministicTransferQueries = (
 const getPreparationDetails = (
   input: Pick<
     PrepareSwapExecutionInput,
-    'route' | 'source' | 'destination' | 'eoaAddress' | 'ephemeralWallet'
+    'chainList' | 'route' | 'source' | 'destination' | 'eoaAddress' | 'ephemeralWallet'
   > & { safeAddress: Hex }
 ) => {
   const directDestinationExtras =
@@ -158,7 +157,7 @@ const getPreparationDetails = (
           chainId: input.destination.chainId,
           tokenAddress: input.destination.eoaToEphemeral.contractAddress,
           amount: input.destination.eoaToEphemeral.amount,
-          eagerPermit: true,
+          eagerPermit: false,
           targetAddress: safeAddress,
         },
       ]
@@ -180,16 +179,34 @@ const getPreparationDetails = (
           },
         ];
       }) ?? []);
+  const directBridgeAuthorizationSpecs: DeterministicTransferSpec[] = isEoaBridgeRoute(input.route)
+    ? (input.route.bridge?.assets.flatMap((asset) => {
+        if (asset.eoaBalance.isZero() || isNativeAddress(asset.contractAddress)) return [];
+        return [
+          {
+            reason: 'bridge',
+            chainId: asset.chainID,
+            tokenAddress: asset.contractAddress,
+            tokenDecimals: asset.decimals,
+            amount: mulDecimals(asset.eoaBalance, asset.decimals),
+            eagerPermit: false,
+            targetAddress: input.chainList.getVaultContractAddress(asset.chainID),
+          },
+        ];
+      }) ?? [])
+    : [];
+  const deterministicTransferSpecs = [
+    ...sourceTransferSpecs,
+    ...destinationTransferSpecs,
+    ...bridgeTransferSpecs,
+  ];
 
   return {
     directDestinationExtras,
     directDestinationExactOut,
     destinationQuotes,
-    deterministicTransferSpecs: [
-      ...sourceTransferSpecs,
-      ...destinationTransferSpecs,
-      ...bridgeTransferSpecs,
-    ],
+    deterministicTransferSpecs,
+    authorizationSpecs: [...deterministicTransferSpecs, ...directBridgeAuthorizationSpecs],
     safeAddress,
   };
 };
@@ -222,7 +239,7 @@ const queueSwapCacheQueries = (
             tokenAddress: holding.tokenAddress,
             spender: details.safeAddress,
           }))
-      : details.deterministicTransferSpecs.map((transfer) => ({
+      : details.authorizationSpecs.map((transfer) => ({
           chainId: transfer.chainId,
           tokenAddress: transfer.tokenAddress,
           spender: transfer.targetAddress,
@@ -272,32 +289,15 @@ const startSwapCacheProcess = (
     { tags: { chain_count: requiredChainIds.size } }
   );
 
-export const startSwapCacheWarmup = (
-  input: SwapCacheWarmupInput,
-  previous?: SwapCacheWarmup
-): SwapCacheWarmup => {
+export const startSwapCacheWarmup = (input: SwapCacheWarmupInput): SwapCacheWarmup => {
   const cache = new SwapCache(input.chainList, input.safeAccount);
   const safeChainIds = getSafeExecutionChainIds(input.route);
-  for (const chainId of safeChainIds) {
-    if (previous?.cache.getSafeAccount(chainId)?.deployed) {
-      cache.setSafeDeployed(chainId, true);
-    }
-  }
   const details = getPreparationDetails({ ...input, safeAddress: input.safeAccount.address });
   const requiredChainIds = queueSwapCacheQueries({ ...input, cache }, details);
-  const key = cache.getPendingQueryKey();
-
-  if (previous?.key === key) {
-    return previous;
-  }
   const process = startSwapCacheProcess({ ...input, cache }, requiredChainIds);
-  // The user may deny or refresh while this runs. Observe early rejection now; awaiting the
-  // original promise after acceptance still preserves its failure.
-  void process.catch(() => undefined);
 
   return {
     cache,
-    key,
     process,
     chainIds: [...requiredChainIds],
     safeChainIds,

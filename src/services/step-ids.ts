@@ -23,6 +23,12 @@ export const createExecuteTransactionStepId = (chainId: number, to: Hex): string
 
 export const createSourceSwapStepId = (chainId: number): string => `source_swap:${chainId}`;
 
+export const createSwapAllowanceStepId = (
+  reason: 'source' | 'destination' | 'bridge',
+  chainId: number,
+  tokenAddress: Hex
+): string => `allowance:${reason}:${chainId}:${normalizeAddress(tokenAddress)}`;
+
 export const createEoaToEphemeralTransferStepId = (chainId: number): string =>
   `eoa_to_ephemeral_transfer:${chainId}`;
 

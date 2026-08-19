@@ -1708,6 +1708,7 @@ Swap plans contain the following step types:
 
 | Step Type | Description |
 |-----------|-------------|
+| `allowance` | Authorize an EOA-held ERC-20 with `method: 'approval' \| 'permit'` |
 | `source_swap` | Execute a swap through the Safe on a source chain |
 | `eoa_to_ephemeral_transfer` | Move EOA-held bridge funds to the ephemeral holder when source swaps are required |
 | `bridge_deposit` | Deposit into vault for cross-chain bridge |
@@ -1725,6 +1726,7 @@ type SwapPlan = {
 };
 
 type SwapPlanStep =
+  | SwapAllowanceStep
   | SwapSourceSwapStep
   | SwapEoaToEphemeralTransferStep
   | SwapBridgeDepositStep
@@ -1733,9 +1735,13 @@ type SwapPlanStep =
   | SwapDestinationSwapStep;
 ```
 
-Each step carries contextual metadata such as its chain and tokens. Source and destination swap steps also expose `walletPath: 'safe'`. Progress events report per-step state transitions. The terminal success state varies by step type:
+Each step carries contextual metadata such as its chain and tokens. Swap allowance steps expose
+`method: 'approval' | 'permit'`; source swaps expose `submissionMode: 'eoa' | 'sponsored'` in
+addition to `walletPath: 'safe'`. Source chains are ordered by numeric chain ID, and native-value
+batches are ordered first within a chain and use `submissionMode: 'eoa'`. Progress events report
+per-step state transitions. The terminal success state varies by step type:
 
-- On-chain transaction steps (`allowance_approval`, `source_swap`, `eoa_to_ephemeral_transfer`, `bridge_deposit`, `destination_swap`, `execute_approval`, `execute_transaction`) settle on `confirmed`.
+- On-chain transaction steps (`allowance`, `allowance_approval`, `source_swap`, `eoa_to_ephemeral_transfer`, `bridge_deposit`, `destination_swap`, `execute_approval`, `execute_transaction`) settle on `confirmed`. A permit-only `allowance` can instead settle on `signed` when no authorization transaction is submitted.
 - `vault_deposit` settles on `completed` — it emits `confirmed` as an on-chain intermediate, then `completed` as its terminal-success state.
 - Off-chain orchestration steps (`request_signing`, `request_submission`, `bridge_intent_submission`, `bridge_fill`) settle on `completed`.
 - All steps can emit `failed`.
@@ -1748,7 +1754,7 @@ Each `plan_progress` event carries `type: 'plan_progress'`, `stepType`, `state`,
 
 | Field | On | Meaning |
 |-------|----|---------|
-| `txHash` / `explorerUrl` | on-chain steps in `submitted` / `confirmed` (optional on `failed`): `allowance_approval`, `vault_deposit`, `execute_approval`, `execute_transaction`, and source/destination swap steps | The submitted transaction hash and its explorer URL — use for "View tx" links |
+| `txHash` / `explorerUrl` | on-chain steps in `submitted` / `confirmed` (optional on `failed`): `allowance`, `allowance_approval`, `vault_deposit`, `execute_approval`, `execute_transaction`, and source/destination swap steps | The submitted transaction hash and its explorer URL — use for "View tx" links |
 | `intentRequestHash` | `request_signing` (`completed`), `request_submission`, `bridge_fill` | The intent/RFF hash — use for "View intent" links |
 | `error` | every `failed` state | Failure text (already inlined; the underlying cause is here) |
 | `approvedAmount` / `approvedAmountRaw` | `allowance_approval` | Amount approved at this step |
@@ -1771,7 +1777,7 @@ client.bridge(params, {
 });
 ```
 
-Per-step `step` shapes (all include `id` and `type`): `allowance_approval` → `chain`, `token`, `spender`, `requiredAmount`; `vault_deposit` → `chain`, `asset`, `assetType`, `submissionMode`; `bridge_fill` → `chain`, `asset`; `execute_approval` → `chain`, `token`, `spender`, `amount`; `execute_transaction` → `chain`, `to`. Swap source/destination steps carry `swaps[]` with `input`/`output` token amounts.
+Per-step `step` shapes (all include `id` and `type`): swap `allowance` → `method`, `chain`, `token`, `spender`, `amount`; bridge `allowance_approval` → `chain`, `token`, `spender`, `requiredAmount`; `vault_deposit` → `chain`, `asset`, `assetType`, `submissionMode`; `bridge_fill` → `chain`, `asset`; `execute_approval` → `chain`, `token`, `spender`, `amount`; `execute_transaction` → `chain`, `to`. Swap source/destination steps carry `swaps[]` with `input`/`output` token amounts, and source steps also carry `submissionMode`.
 
 ### Building Progress UIs
 
@@ -2274,17 +2280,18 @@ if (result.bridgeSkipped) {
 Every source and destination swap executes through the deterministic V2 Safe. 
 
 The Safe has the connected EOA and the SDK's ephemeral account as owners with threshold 1. Its
-address is derived once and is deterministic across supported chains. While the intent is displayed,
-the SDK caches whether that address has bytecode on every execution chain. After approval, it skips
+address is derived once and is deterministic across supported chains. Before the intent and plan are
+displayed, the SDK resolves allowance, permit-capability, and Safe bytecode reads so EOA
+authorization steps are accurate. After approval, it skips
 middleware for deployed Safes and concurrently ensures only the missing ones, awaiting the relevant
 deployment before the first permit, approval, or transaction prompt on that chain. A successful
 ensure updates the same cache so later execution does not repeat the bytecode check. This ensures
 wallet UIs see a deployed contract as the spender instead of warning about an approval to an
 undeployed address.
 
-Read-only allowance, permit-capability, and Safe-code cache requests start while the swap intent is
-displayed and are awaited after approval. Refreshing an intent reuses that work when its cache query
-data is unchanged.
+Refreshing an intent resolves the refreshed route's read-only authorization data before emitting its
+replacement plan preview. Wallet signatures, approval transactions, and swap transactions remain
+gated behind intent acceptance.
 
 Token-only Safe transactions are sponsor-broadcast through middleware. Native-value Safe
 transactions are submitted by the EOA because the outer transaction must fund the Safe call. The
@@ -2297,8 +2304,8 @@ Mayan, including routes nested inside `swapAndExecute`. The route does not trans
 the ephemeral holder or require a Safe on its source chains. If a destination swap is required, the
 bridge still fills the destination Safe; otherwise it fills the EOA. Exact-out same-token routes can
 also request destination gas through the bridge intent and fill both outputs directly to the EOA.
-Swap intent fields and plan step types are unchanged; the `eoa_to_ephemeral_transfer` step is simply
-absent.
+The plan includes an EOA vault `allowance` step when authorization is required; the
+`eoa_to_ephemeral_transfer` step remains absent.
 
 ---
 

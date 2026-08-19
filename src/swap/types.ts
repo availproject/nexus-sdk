@@ -402,6 +402,29 @@ export type ExecutionContext = {
 
 export type SwapExecutionProgressUpdate =
   | {
+      stepType: 'allowance';
+      stepId: string;
+      chainId: number;
+      state: 'wallet_prompted' | 'signed';
+    }
+  | {
+      stepType: 'allowance';
+      stepId: string;
+      chainId: number;
+      state: 'submitted' | 'confirmed';
+      txHash: Hex;
+      explorerUrl: string;
+    }
+  | {
+      stepType: 'allowance';
+      stepId: string;
+      chainId: number;
+      state: 'failed';
+      error: string;
+      txHash?: Hex;
+      explorerUrl?: string;
+    }
+  | {
       stepType: 'source_swap';
       chainId: number;
       state: 'wallet_prompted' | 'started';

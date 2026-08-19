@@ -145,8 +145,8 @@ swap(params)
      -> swap/preflight.ts
      -> swap/route.ts: determineSwapRoute(...)
         -> swap/routing/exact-in.ts | exact-out.ts
-     -> createSwapIntent(...)
      -> start allowance, permit-capability, and Safe-code cache reads
+     -> await cache and createSwapIntent(...) + allowance-aware SwapPlan
      -> onIntent({ allow, deny, refresh, intent })
      -> swap/prepare.ts: prepareSwapExecution(...) awaits the accepted route's cache
      -> swap/execution/orchestrator.ts: executeSwapRoute(...)
@@ -165,8 +165,9 @@ source holder, RFF party, and signer; ERC-20 allowance targets the vault; native
 directly by the EOA. It does not prepare EOA-to-ephemeral transfers or deploy a Safe on its source
 chains. The bridge fills the destination Safe when a destination swap is required and the EOA
 otherwise. Terminal same-token Exact Out routes can request destination gas through the bridge
-intent and deliver both token and native outputs directly to the EOA. The public swap intent and
-step types remain unchanged, and `swapAndExecute` inherits the behavior through its nested route.
+intent and deliver both token and native outputs directly to the EOA. The swap plan exposes any
+required EOA vault authorization as an `allowance` step, and `swapAndExecute` inherits the behavior
+through its nested route.
 
 Swap preflight does not request bridge-fee quotes. After terminal direct/same-token paths, routing
 chooses between USDC and USDT by counting required source and destination swap legs; ties retain the
@@ -186,7 +187,8 @@ parallelize non-EOA work such as route requests, public-client reads, per-chain 
 sponsored Safe execution, and receipt waits.
 
 Safe V2 is the only aggregator-swap execution account. The flow derives its address once, then
-checks bytecode on every Safe execution chain as part of the read-only cache warmup while the intent is displayed. After
+checks bytecode on every Safe execution chain as part of the read-only cache warmup before the
+intent and allowance-aware plan are displayed. After
 intent approval, already deployed Safes skip middleware and absent Safes are ensured concurrently.
 A successful ensure marks the shared cache deployed for that chain. Preparation and execution await
 the chain promise before requesting any permit, direct approval, or EOA transaction, so wallet UIs
@@ -218,7 +220,8 @@ If no hooks are provided, the SDK auto-accepts intent and allowance.
 intent is accepted.
 
 For swap operations, the exposed hook is `onIntent(...)`. Swap does not expose a separate
-`onAllowance` hook; allowance and permit handling are part of swap execution preparation.
+`onAllowance` hook; required EOA authorization is included in the swap plan and executed
+automatically after intent acceptance.
 
 Bridge hook internals are split by responsibility:
 

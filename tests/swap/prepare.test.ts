@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Decimal from 'decimal.js';
 import { decodeFunctionData, type Hex, type PublicClient, type WalletClient } from 'viem';
 import type { PrivateKeyAccount } from 'viem/accounts';
-import ERC20ABI, { ERC20PermitABI } from '../../src/abi/erc20';
+import ERC20ABI from '../../src/abi/erc20';
 import { prepareSwapExecution, startSwapCacheWarmup } from '../../src/swap/prepare';
 import { predictSafeAccountAddressV2 } from '../../src/swap/safe/predict';
 import type { EnsureSafeAccountV2Response } from '../../src/swap/safe/types';
@@ -260,7 +260,7 @@ describe('prepareSwapExecution', () => {
     expect(addAllowanceQuery).toHaveBeenCalledWith(DAI_ARB, EOA, SAFE, ARB_CHAIN);
   });
 
-  it('does not prepare Safe custody for a direct bridge', async () => {
+  it('warms EOA vault authorization without preparing Safe custody for a direct bridge', async () => {
     const route = makeRoute();
     route.source = { swaps: [], creationTime: Date.now(), srcBuffer: new Decimal(0) };
     route.sourceExecutionPaths = new Map([[ARB_CHAIN, 'safe']]);
@@ -298,13 +298,20 @@ describe('prepareSwapExecution', () => {
       },
     };
     const addSafeAccountQuery = vi.spyOn(SwapCache.prototype, 'addSafeAccountQuery');
+    const addPermitQuery = vi.spyOn(SwapCache.prototype, 'addPermitQuery');
     const addAllowanceQuery = vi.spyOn(SwapCache.prototype, 'addAllowanceQuery');
 
     const prepared = await prepareRoute(route, { safeDeploymentPromises: new Map() });
 
     expect(prepared.eoaToEphemeralTransfers).toEqual([]);
     expect(addSafeAccountQuery).not.toHaveBeenCalled();
-    expect(addAllowanceQuery).not.toHaveBeenCalled();
+    expect(addPermitQuery).toHaveBeenCalledWith(USDC_ARB, ARB_CHAIN);
+    expect(addAllowanceQuery).toHaveBeenCalledWith(
+      USDC_ARB,
+      EOA,
+      '0x0000000000000000000000000000000000000000',
+      ARB_CHAIN
+    );
   });
 
   it('builds a source EOA->Safe funding transfer targeting the predicted Safe on Safe V2 source chains', async () => {
@@ -338,11 +345,8 @@ describe('prepareSwapExecution', () => {
     expect(transferCall.args?.[2]).toBe(3000000000n);
   });
 
-  it('builds deterministic destination eoaToEphemeral transfer preparation and eagerly signs its permit', async () => {
-    const route = makeRoute();
-    const chainList = makeSupportedChainList();
-
-    const prepared = await prepareRoute(route, { chainList });
+  it('defers destination permit signing until the destination allowance step executes', async () => {
+    const prepared = await prepareRoute(makeRoute());
 
     const destinationTransfer = prepared.eoaToEphemeralTransfers.find(
       (entry) => entry.reason === 'destination'
@@ -355,49 +359,28 @@ describe('prepareSwapExecution', () => {
       throw new Error('Expected destination permit authorization to exist');
     }
 
-    const permitCall = decodeFunctionData({
-      abi: ERC20PermitABI,
-      data: destinationTransfer.authorization.call!.data,
-    });
-    expect(permitCall.functionName).toBe('permit');
-    expect(destinationTransfer.authorization.permit.signature).toMatch(/^0x[0-9a-f]+$/i);
-    expect(signPermitForAddressAndValue).toHaveBeenCalledWith(
-      expect.objectContaining({ tokenAddress: USDC_ARB }),
-      chainList.getChainByID(ARB_CHAIN),
-      expect.anything(),
-      expect.anything(),
-      expect.objectContaining({ address: EOA }),
-      predictSafeAccountAddressV2(EOA, EPH).address,
-      500000000n,
-      expect.anything()
-    );
+    expect(destinationTransfer.authorization.call).toBeNull();
+    expect(destinationTransfer.authorization.permit.signature).toBeNull();
+    expect(signPermitForAddressAndValue).not.toHaveBeenCalled();
   });
 
-  it('waits for the destination Safe deployment before eagerly signing its permit', async () => {
-    const route = makeRoute();
-    let resolveDeployment!: () => void;
-    const deployment = new Promise<EnsureSafeAccountV2Response>((resolve) => {
-      resolveDeployment = () =>
-        resolve({
-          chainId: ARB_CHAIN,
-          eoaAddress: EOA,
-          ephemeralAddress: EPH,
-          address: predictSafeAccountAddressV2(EOA, EPH).address,
-          factoryAddress: '0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67',
-          exists: true,
-        });
-    });
+  it('does not wait for destination Safe deployment before returning lazy permit preparation', async () => {
+    const neverDeployed = new Promise<EnsureSafeAccountV2Response>(() => undefined);
 
-    const preparation = prepareRoute(route, {
-      safeDeploymentPromises: new Map([[ARB_CHAIN, deployment]]),
-    });
+    const prepared = await Promise.race([
+      prepareRoute(makeRoute(), {
+        safeDeploymentPromises: new Map([[ARB_CHAIN, neverDeployed]]),
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('preparation waited for deployment')), 100)
+      ),
+    ]);
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(
+      prepared.eoaToEphemeralTransfers.find((entry) => entry.reason === 'destination')
+        ?.authorization
+    ).toMatchObject({ kind: 'permit', call: null });
     expect(signPermitForAddressAndValue).not.toHaveBeenCalled();
-    resolveDeployment();
-    await preparation;
-
-    expect(signPermitForAddressAndValue).toHaveBeenCalledTimes(1);
   });
 
   it('skips source and destination eoa->ephemeral authorization when cached allowance already covers the amount', async () => {
