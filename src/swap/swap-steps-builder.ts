@@ -23,7 +23,7 @@ import {
   createSourceSwapStepId,
 } from '../services/step-ids';
 import type { QuoteResponse } from './aggregators/types';
-import type { SwapRoute } from './types';
+import { isEoaBridgeRoute, type SwapRoute } from './types';
 
 const toPlanTokenAmount = (
   metadata: PlanTokenMetadata,
@@ -140,6 +140,7 @@ const createBridgeFillStep = (
   route: NonNullable<SwapRoute['bridge']>
 ): BridgeFillStep => {
   const { chain, token } = chainList.getChainAndTokenByAddress(route.chainID, route.tokenAddress);
+  const amount = route.destinationGas ? route.amounts.tokenAmount : route.amount;
 
   return {
     type: 'bridge_fill',
@@ -147,8 +148,8 @@ const createBridgeFillStep = (
     chain: toChainDisplay(chain),
     asset: toPlanTokenAmount(
       token,
-      mulDecimals(route.amount, route.decimals),
-      route.amount.toFixed(route.decimals)
+      mulDecimals(amount, route.decimals),
+      amount.toFixed(route.decimals)
     ),
   };
 };
@@ -202,9 +203,9 @@ export const createSwapPlan = (route: SwapRoute, chainList: ChainListType): Swap
     );
     steps.push(createBridgeIntentSubmissionStep());
     for (const asset of sortedAssets) {
-      // EOA → ephemeral transfer step only emits for direct-COT bridge holdings (eoaBalance>0);
-      // the smart-account-driven bridge model funds the rest from per-chain wrappers.
-      if (asset.eoaBalance.gt(0)) {
+      // Non-direct routes stage EOA bridge holdings on the ephemeral wallet. Direct routes deposit
+      // from the EOA and therefore omit the custody-transfer step.
+      if (!isEoaBridgeRoute(route) && asset.eoaBalance.gt(0)) {
         steps.push(createBridgeTransferStep(chainList, asset));
       }
       steps.push(createBridgeDepositStep(chainList, asset));

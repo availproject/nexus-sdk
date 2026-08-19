@@ -8,7 +8,14 @@ import Decimal from 'decimal.js';
 import { encodeFunctionData, type Hex, type PublicClient } from 'viem';
 import type { PrivateKeyAccount } from 'viem/accounts';
 import { EVMVaultABI } from '../../abi/vault';
-import { submitRFFToMiddleware, waitForFill } from '../../bridge/executor';
+import { prepareBridgeExecution } from '../../bridge/allowances/prepare';
+import {
+  type BridgeExecutionProgressUpdate,
+  executeBridgeFromIntent,
+  submitRFFToMiddleware,
+  waitForFill,
+} from '../../bridge/executor';
+import { buildHookStateFromIntent } from '../../bridge/hooks/state';
 import { type Chain, DEFAULT_FILL_TIMEOUT_MINUTES, getLogger } from '../../domain';
 import {
   ERROR_CODES,
@@ -36,7 +43,13 @@ import {
 import { minutesFromNow } from '../../services/time';
 import { withTimingSpan } from '../../services/timing';
 import { createSwapBridgeIntent } from '../bridge-intent';
-import type { BridgeAsset, ExecutionContext, SwapMetadata, SwapRoute } from '../types';
+import type {
+  BridgeAsset,
+  ExecutionContext,
+  SwapExecutionProgressUpdate,
+  SwapMetadata,
+  SwapRoute,
+} from '../types';
 import { resolveEphemeralVaultAllowance } from '../wallet/ephemeral-vault-allowance';
 import { resolvePreparedFundingTransferCalls } from './eoa-to-ephemeral';
 import { dispatchSafeSource } from './safe-dispatch';
@@ -748,10 +761,15 @@ export const refreshMayanQuotesForExecution = async (
   middlewareClient: ExecutionContext['middlewareClient']
 ): Promise<NonNullable<SwapRoute['bridge']>> => {
   const quotes = await quoteMayanLegs(middlewareClient, {
-    legs: bridgedAssets.map((asset) => ({
+    legs: bridgedAssets.map((asset, index) => ({
       chainId: asset.chainID,
       tokenAddress: asset.contractAddress,
-      amountRaw: mulDecimals(asset.eoaBalance.plus(asset.ephemeralBalance), asset.decimals),
+      amountRaw:
+        mulDecimals(asset.eoaBalance.plus(asset.ephemeralBalance), asset.decimals) -
+        (asset.depositFeeRaw ?? 0n),
+      ...(index === 0 && bridge.destinationGas
+        ? { gasDrop: bridge.destinationGas.amount.toNumber() }
+        : {}),
     })),
     destination: { chainId: bridge.chainID, tokenAddress: bridge.tokenAddress },
   });
@@ -759,11 +777,18 @@ export const refreshMayanQuotesForExecution = async (
     (sum, asset) => sum.plus(asset.eoaBalance).plus(asset.ephemeralBalance),
     new Decimal(0)
   );
+  const collection = bridgedAssets.reduce(
+    (sum, asset) => sum.plus(asset.depositFee ?? 0),
+    new Decimal(0)
+  );
   const protectedDelivered = quotes.reduce(
     (sum, quote) => sum.plus(new Decimal(quote.quote.minReceived.toString())),
     new Decimal(0)
   );
-  const haircut = Decimal.max(grossBridged.minus(protectedDelivered), new Decimal(0));
+  const haircut = Decimal.max(
+    grossBridged.minus(collection).minus(protectedDelivered),
+    new Decimal(0)
+  );
   return {
     ...bridge,
     amount: grossBridged,
@@ -773,9 +798,9 @@ export const refreshMayanQuotesForExecution = async (
       totalAmount: grossBridged,
     },
     estimatedFees: {
-      collection: new Decimal(0),
+      collection,
       fulfilment: new Decimal(0),
-      caGas: new Decimal(0),
+      caGas: collection,
       protocol: haircut,
       solver: new Decimal(0),
     },
@@ -783,6 +808,136 @@ export const refreshMayanQuotesForExecution = async (
       quotes.map((quote) => [`${quote.chainId}:${quote.tokenAddress.toLowerCase()}`, quote.quote])
     ),
   };
+};
+
+const forwardDirectBridgeProgress = (
+  emit: ((update: SwapExecutionProgressUpdate) => void) | undefined,
+  update: BridgeExecutionProgressUpdate
+) => {
+  if (!emit) return;
+
+  switch (update.stepType) {
+    case 'request_signing':
+      if (update.state === 'wallet_prompted') {
+        emit({ stepType: 'bridge_intent_submission', state: 'started' });
+      } else if (update.state === 'failed') {
+        emit({
+          stepType: 'bridge_intent_submission',
+          state: 'failed',
+          error: update.error,
+        });
+      }
+      return;
+    case 'request_submission':
+      if (update.state === 'completed') {
+        emit({
+          stepType: 'bridge_intent_submission',
+          state: 'completed',
+          intentRequestHash: update.intentRequestHash,
+        });
+      } else if (update.state === 'failed') {
+        emit({
+          stepType: 'bridge_intent_submission',
+          state: 'failed',
+          intentRequestHash: update.intentRequestHash,
+          error: update.error,
+        });
+      }
+      return;
+    case 'vault_deposit':
+      if (update.state === 'started' || update.state === 'wallet_prompted') {
+        emit({ stepType: 'bridge_deposit', chainId: update.chainId, state: 'started' });
+      } else if (update.state === 'submitted' || update.state === 'confirmed') {
+        emit({
+          stepType: 'bridge_deposit',
+          chainId: update.chainId,
+          state: update.state,
+          txHash: update.txHash,
+          explorerUrl: update.explorerUrl,
+        });
+      } else if (update.state === 'failed') {
+        emit({
+          stepType: 'bridge_deposit',
+          chainId: update.chainId,
+          state: 'failed',
+          error: update.error,
+          ...(update.txHash ? { txHash: update.txHash } : {}),
+          ...(update.explorerUrl ? { explorerUrl: update.explorerUrl } : {}),
+        });
+      }
+      return;
+    case 'bridge_fill':
+      emit(update);
+  }
+};
+
+const executeEoaBridgePath = async (
+  bridge: NonNullable<SwapRoute['bridge']>,
+  bridgedAssets: BridgeAsset[],
+  ctx: Pick<
+    ExecutionContext,
+    | 'chainList'
+    | 'destinationDirectEoa'
+    | 'eoaAddress'
+    | 'eoaWallet'
+    | 'ephemeralWallet'
+    | 'intentExplorerUrl'
+    | 'middlewareClient'
+    | 'onProgress'
+    | 'safeAddress'
+    | 'timing'
+  >,
+  metadata: SwapMetadata
+) => {
+  const recipient = resolveBridgeRecipient({
+    destinationDirectEoa: ctx.destinationDirectEoa,
+    eoaAddress: ctx.eoaAddress,
+    safeAddress: ctx.safeAddress,
+  });
+  const intentBridge =
+    bridge.provider === 'mayan'
+      ? await withTimingSpan(
+          ctx.timing,
+          'flow.swap.execute.bridge.refresh_mayan_quotes',
+          async () => refreshMayanQuotesForExecution(bridge, bridgedAssets, ctx.middlewareClient),
+          { tags: { provider: 'mayan', source_chain_count: bridgedAssets.length } }
+        )
+      : bridge;
+  const intent = createSwapBridgeIntent({
+    bridge: intentBridge,
+    assets: bridgedAssets,
+    chainList: ctx.chainList,
+    recipient,
+    ephemeralAddress: ctx.ephemeralWallet.address,
+    holderAddress: ctx.eoaAddress,
+  });
+  const { insufficientAllowanceSources } = await buildHookStateFromIntent(intent, {
+    chainList: ctx.chainList,
+  });
+  const dstChain = resolveChain(ctx.chainList, bridge.chainID);
+
+  await prepareBridgeExecution({
+    allowanceSelections: insufficientAllowanceSources.map(() => 'min'),
+    insufficientAllowanceSources,
+    bridge: {
+      chainList: ctx.chainList,
+      middlewareClient: ctx.middlewareClient,
+      evm: { address: ctx.eoaAddress, walletClient: ctx.eoaWallet },
+    },
+    dstChain,
+  });
+
+  const result = await executeBridgeFromIntent(intent, {
+    walletClient: ctx.eoaWallet,
+    address: ctx.eoaAddress,
+    chainList: ctx.chainList,
+    middlewareClient: ctx.middlewareClient,
+    intentExplorerUrl: ctx.intentExplorerUrl,
+    dstChain,
+    onProgress: (update) => forwardDirectBridgeProgress(ctx.onProgress, update),
+  });
+  metadata.intent_request_hash = result.requestHash;
+  metadata.has_xcs = true;
 };
 
 const executeEphemeralBridgePath = async (
@@ -1129,7 +1284,8 @@ export const executeSwapBridge = async (
     | 'safeDeploymentPromises'
     | 'timing'
   >,
-  metadata: SwapMetadata
+  metadata: SwapMetadata,
+  directEoa = false
 ): Promise<void> => {
   const bridgedAssets = assets
     .filter(
@@ -1138,6 +1294,11 @@ export const executeSwapBridge = async (
     )
     .sort((left, right) => left.chainID - right.chainID);
   if (bridgedAssets.length === 0) {
+    return;
+  }
+
+  if (directEoa) {
+    await executeEoaBridgePath(bridge, bridgedAssets, ctx, metadata);
     return;
   }
 

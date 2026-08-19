@@ -16,6 +16,7 @@ import {
   quoteMayanLegs,
   selectMayanQuoteOutput,
 } from '../../services/mayan';
+import { equalFold } from '../../services/strings';
 import type { QuoteResponse } from '../aggregators/types';
 import { resolveExactInAmountBasis, selectExactInQuoteOutput } from '../amount-basis';
 import { resolveCOT } from '../cot';
@@ -269,10 +270,15 @@ export const enrichMayanBridge = async (
   // Per-source Mayan legs derived from the bridge assets (what each leg sends and the
   // destination token it must deliver). Swap leaves the leg amounts at the full produced
   // balance — the COT selection upstream already sized them — and only prices them here.
-  const legs = bridge.assets.map((asset) => ({
+  const legs = bridge.assets.map((asset, index) => ({
     chainId: asset.chainID,
     tokenAddress: asset.contractAddress,
-    amountRaw: mulDecimals(asset.eoaBalance.plus(asset.ephemeralBalance), asset.decimals),
+    amountRaw:
+      mulDecimals(asset.eoaBalance.plus(asset.ephemeralBalance), asset.decimals) -
+      (asset.depositFeeRaw ?? 0n),
+    ...(index === 0 && bridge.destinationGas
+      ? { gasDrop: bridge.destinationGas.amount.toNumber() }
+      : {}),
   }));
   logger.debug('swap.route.mayan_quote.requested', {
     legs: legs.map((leg) => ({ ...leg, amountRaw: leg.amountRaw.toString() })),
@@ -296,21 +302,25 @@ export const enrichMayanBridge = async (
     (sum, asset) => sum.plus(asset.eoaBalance).plus(asset.ephemeralBalance),
     new Decimal(0)
   );
+  const collection = bridge.assets.reduce(
+    (sum, asset) => sum.plus(asset.depositFee ?? 0),
+    new Decimal(0)
+  );
   const amountBasis = resolveExactInAmountBasis(options.exactInAmountBasis);
   const delivered = [...mayanQuotesBySource.values()].reduce(
     (sum, quote) => sum.plus(selectMayanQuoteOutput(quote, bridge.decimals, amountBasis)),
     new Decimal(0)
   );
-  const haircut = Decimal.max(grossBridged.minus(delivered), new Decimal(0));
+  const haircut = Decimal.max(grossBridged.minus(collection).minus(delivered), new Decimal(0));
 
   return {
     ...bridge,
     provider: 'mayan',
     mayanQuotesBySource,
     estimatedFees: {
-      collection: new Decimal(0),
+      collection,
       fulfilment: new Decimal(0),
-      caGas: new Decimal(0),
+      caGas: collection,
       protocol: haircut,
       solver: new Decimal(0),
     },
@@ -362,6 +372,30 @@ export const accumulateBridgeAsset = (
   });
 };
 
+export const withDirectBridgeDepositFees = (
+  assets: BridgeAsset[],
+  quote: BridgeQuoteResponse,
+  provider: BridgeProvider
+): BridgeAsset[] =>
+  assets.map((asset) => {
+    if (isNativeAddress(asset.contractAddress)) return asset;
+    const source = quote.sources.find(
+      (entry) =>
+        entry.chainId === asset.chainID && equalFold(entry.tokenAddress, asset.contractAddress)
+    );
+    if (!source) {
+      throw Errors.internal(`Bridge collection fee missing for source chain ${asset.chainID}`);
+    }
+    const depositFeeRaw = BigInt(
+      provider === 'mayan' ? (source.depositMayanFeeToken ?? '0') : source.depositFeeToken
+    );
+    return {
+      ...asset,
+      depositFee: divDecimals(depositFeeRaw, asset.decimals),
+      depositFeeRaw,
+    };
+  });
+
 // Nexus bridge fees. The protocol bps applies to `grossBridged` — the COT actually sent into the
 // bridge (Σ assets) — in BOTH routes, so the fee no longer differs by route (EXACT_IN was already
 // gross; EXACT_OUT used to size it off the smaller net delivery). The Mayan branch records its own
@@ -370,6 +404,7 @@ export const computeBridgeFees = (params: {
   quoteResponse: BridgeQuoteResponse;
   grossBridged: Decimal;
   dstCOTDecimals: number;
+  collectionFee?: Decimal;
 }): {
   estimatedFees: NonNullable<SwapRoute['bridge']>['estimatedFees'];
   totalFeeAmount: Decimal;
@@ -387,6 +422,7 @@ export const computeBridgeFees = (params: {
     ...computeNexusBridgeFees({
       nexusFeeModel,
       grossBridged: params.grossBridged,
+      collectionFee: params.collectionFee,
     }),
     nexusFeeModel,
   };
@@ -395,18 +431,18 @@ export const computeBridgeFees = (params: {
 export const computeNexusBridgeFees = (params: {
   nexusFeeModel: NexusFeeModel;
   grossBridged: Decimal;
+  collectionFee?: Decimal;
 }): {
   estimatedFees: NonNullable<SwapRoute['bridge']>['estimatedFees'];
   totalFeeAmount: Decimal;
   deliveredAmount: Decimal;
 } => {
   const fulfilment = params.nexusFeeModel.fulfillmentFee;
-  const protocol = params.grossBridged.mul(params.nexusFeeModel.fulfillmentBps).div(10000);
-  // Collection (per-source deposit) fee only applies when the EOA funds the bridge directly,
-  // which our smart-account-only model no longer supports — bridge funding always flows
-  // through the ephemeral, which the solver covers gas for. Keep the field for the public
-  // SwapRoute surface, but stub it at zero.
-  const collection = new Decimal(0);
+  const collection = params.collectionFee ?? new Decimal(0);
+  const protocol = params.grossBridged
+    .minus(collection)
+    .mul(params.nexusFeeModel.fulfillmentBps)
+    .div(10000);
   const estimatedFees = {
     collection,
     fulfilment,

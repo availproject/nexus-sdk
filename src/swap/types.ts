@@ -202,6 +202,10 @@ export type BridgeAsset = {
   decimals: number;
   eoaBalance: Decimal; // human-readable decimal amount
   ephemeralBalance: Decimal; // human-readable decimal amount
+  // Direct bridges debit the collection fee from the EOA alongside the bridged amount.
+  // Ephemeral-backed routes omit these fields because their collection fee is sponsored.
+  depositFee?: Decimal;
+  depositFeeRaw?: bigint;
 };
 
 export type NexusFeeModel = {
@@ -227,8 +231,8 @@ export type SwapRoute = {
   // Currency the route settles/bridges in (the destination family for a same-token bridge, else
   // the COT/USDC). Drives the on-failure cleanup sweep's `currencyId`.
   settlementCurrencyId: number;
-  // True iff the same-token direct bridge fired (no source/destination swap). A Nexus same-token
-  // bridge deposits the exact amount directly, so nothing strands → the failure sweep is skipped.
+  // True iff the same-token direct bridge fired (no source/destination swap). It deposits from the
+  // EOA directly, so nothing strands on the ephemeral → the failure sweep is skipped.
   sameTokenBridge: boolean;
   // True iff the direct-destination fast path (Path A) fired: ALL sources on the destination chain,
   // swapped input→toToken directly with no bridge and no destination swap. The whole route is one
@@ -270,6 +274,13 @@ export type SwapRoute = {
     };
     // Retained so execution can apply the fixed-plus-bps model to actual bridged balances.
     nexusFeeModel?: NexusFeeModel;
+    // Native gas delivered by the bridge itself. Present only when no destination gas swap is
+    // needed; `amountInToken` is the bridged-token value reserved to fund it.
+    destinationGas?: {
+      amount: Decimal;
+      amountRaw: bigint;
+      amountInToken: Decimal;
+    };
     provider: BridgeProvider;
     // Populated only when provider === 'mayan'. Keyed by `${chainID}:${contractAddress.toLowerCase()}`.
     mayanQuotesBySource?: Map<string, MayanQuote>;
@@ -315,6 +326,16 @@ export type SwapRoute = {
   };
   sourceExecutionPaths: Map<number, WalletPath>;
 };
+
+export const isEoaBridgeRoute = (route: Pick<SwapRoute, 'bridge' | 'source'>): boolean =>
+  route.bridge !== null && route.source.swaps.length === 0;
+
+export const isDirectBridgeRoute = (
+  route: Pick<SwapRoute, 'bridge' | 'source' | 'destination'>
+): boolean =>
+  isEoaBridgeRoute(route) &&
+  route.destination.swap.tokenSwap === null &&
+  route.destination.swap.gasSwap === null;
 
 export type AssetsUsedEntry = {
   chainID: number;

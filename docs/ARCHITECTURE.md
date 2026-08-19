@@ -160,6 +160,14 @@ swap(params)
 `swapAndExecute` composes swap planning with an execution request on the destination chain.
 `calculateMaxForSwap` reuses swap preflight and route logic to estimate the maximum usable input.
 
+A bridge route with no source swaps uses the normal bridge custody model: the connected EOA is the
+source holder, RFF party, and signer; ERC-20 allowance targets the vault; native deposits are sent
+directly by the EOA. It does not prepare EOA-to-ephemeral transfers or deploy a Safe on its source
+chains. The bridge fills the destination Safe when a destination swap is required and the EOA
+otherwise. Terminal same-token Exact Out routes can request destination gas through the bridge
+intent and deliver both token and native outputs directly to the EOA. The public swap intent and
+step types remain unchanged, and `swapAndExecute` inherits the behavior through its nested route.
+
 Swap preflight does not request bridge-fee quotes. After terminal direct/same-token paths, routing
 chooses between USDC and USDT by counting required source and destination swap legs; ties retain the
 current settlement family. Exact In scores selected holdings. Exact Out scores its priced
@@ -177,15 +185,16 @@ prompts, permit signatures, direct approvals, and EOA transaction dispatch. Swap
 parallelize non-EOA work such as route requests, public-client reads, per-chain Safe deployment,
 sponsored Safe execution, and receipt waits.
 
-Safe V2 is the only swap execution account. The flow derives its address once, then checks bytecode
-on every execution chain as part of the read-only cache warmup while the intent is displayed. After
+Safe V2 is the only aggregator-swap execution account. The flow derives its address once, then
+checks bytecode on every Safe execution chain as part of the read-only cache warmup while the intent is displayed. After
 intent approval, already deployed Safes skip middleware and absent Safes are ensured concurrently.
 A successful ensure marks the shared cache deployed for that chain. Preparation and execution await
 the chain promise before requesting any permit, direct approval, or EOA transaction, so wallet UIs
 resolve the spender to deployed contract code without repeated Safe bytecode reads. Safe owners are
 the connected EOA and the SDK ephemeral account at threshold 1. Token-only batches are
 sponsor-broadcast; batches carrying native value are wrapped in `Safe.execTransaction` and submitted
-by the EOA.
+by the EOA. Bridge source chains without source swaps bypass this Safe path and reuse the bridge
+allowance and execution modules with the EOA wallet.
 
 Bridge funding preparation retries only transient permit-path RPC work, with three total attempts.
 Direct approvals and wallet rejections are terminal. Ambiguous Safe middleware failures are not

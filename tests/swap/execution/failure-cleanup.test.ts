@@ -177,13 +177,20 @@ describe('resolveFailureSweepCurrencyId', () => {
     provider?: 'nexus' | 'mayan';
     settlementCurrencyId: number;
     directDestination?: boolean;
-  }) =>
-    ({
+    directBridge?: boolean;
+  }) => {
+    const directBridge = over.directBridge ?? over.sameTokenBridge;
+    return ({
       sameTokenBridge: over.sameTokenBridge,
       settlementCurrencyId: over.settlementCurrencyId,
       directDestination: over.directDestination,
       bridge: over.provider ? { provider: over.provider } : null,
+      source: { swaps: directBridge ? [] : [{}] },
+      destination: {
+        swap: directBridge ? { tokenSwap: null, gasSwap: null } : { tokenSwap: {}, gasSwap: null },
+      },
     }) as never;
+  };
 
   it('skips (null) for a same-token bridge via Nexus — nothing strands', () => {
     expect(
@@ -193,12 +200,25 @@ describe('resolveFailureSweepCurrencyId', () => {
     ).toBeNull();
   });
 
-  it('sweeps the bridged family token for a same-token bridge via Mayan', () => {
+  it('skips cleanup for a same-token bridge via Mayan because custody stays at the EOA', () => {
     expect(
       resolveFailureSweepCurrencyId(
         makeRoute({ sameTokenBridge: true, provider: 'mayan', settlementCurrencyId: CurrencyID.USDT })
       )
-    ).toBe(CurrencyID.USDT);
+    ).toBeNull();
+  });
+
+  it('skips cleanup for a direct COT bridge because custody stays at the EOA', () => {
+    expect(
+      resolveFailureSweepCurrencyId(
+        makeRoute({
+          sameTokenBridge: false,
+          provider: 'nexus',
+          settlementCurrencyId: CurrencyID.USDC,
+          directBridge: true,
+        })
+      )
+    ).toBeNull();
   });
 
   it('sweeps the COT (USDC) for a COT round-trip route', () => {

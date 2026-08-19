@@ -2,7 +2,7 @@ import { getLogger } from '../../domain';
 import { NexusError } from '../../domain/errors';
 import { withTimingSpan } from '../../services/timing';
 import type { BridgeAsset, ExecutionContext, SwapMetadata, SwapRoute } from '../types';
-import { SwapMode } from '../types';
+import { isEoaBridgeRoute, SwapMode } from '../types';
 import { executeSwapBridge } from './bridge';
 import { executeDestinationSwap } from './destination-swap';
 import { executeDirectDestinationExactOut } from './direct-destination';
@@ -13,8 +13,8 @@ const logger = getLogger();
 
 type SwapRouteExecutionContext = ExecutionContext & { destinationChainId: number };
 
-// Bridge funding always flows through the ephemeral identity, so executed swap output is the
-// authoritative ephemeralBalance and planned eoaBalance carries direct-COT holdings into the merge.
+// Source-swap output is held by the ephemeral identity. When no source swaps run, planned EOA
+// balances pass through this merge unchanged.
 const mergeBridgeAssets = (
   plannedAssets: BridgeAsset[],
   executedAssets: BridgeAsset[]
@@ -94,7 +94,7 @@ export const executeSwapRoute = async (
     if (bridge) {
       const bridgeAssets = mergeBridgeAssets(bridge.assets, executedSourceAssets);
       await withTimingSpan(context.timing, 'flow.swap.execute_bridge', async () =>
-        executeSwapBridge(bridge, bridgeAssets, context, metadata)
+        executeSwapBridge(bridge, bridgeAssets, context, metadata, isEoaBridgeRoute(route))
       );
     }
 

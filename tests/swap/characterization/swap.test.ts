@@ -15,6 +15,8 @@ const hoisted = vi.hoisted(() => {
   const multicall = vi.fn();
   const getBalance = vi.fn();
   const call = vi.fn();
+  const watchContractEvent = vi.fn().mockReturnValue(vi.fn());
+  const simulateContract = vi.fn().mockImplementation(async (request) => ({ request }));
   const createPublicClient = vi.fn((opts?: { chain?: unknown }) => ({
     chain: opts?.chain,
     call,
@@ -24,6 +26,8 @@ const hoisted = vi.hoisted(() => {
     waitForTransactionReceipt,
     multicall,
     getBalance,
+    watchContractEvent,
+    simulateContract,
   }));
   return {
     call,
@@ -33,6 +37,8 @@ const hoisted = vi.hoisted(() => {
     waitForTransactionReceipt,
     multicall,
     getBalance,
+    watchContractEvent,
+    simulateContract,
     createPublicClient,
   };
 });
@@ -70,6 +76,7 @@ vi.mock('@avail-project/nexus-types/rff', async () => {
 });
 
 import { swap as flowSwap } from '../../../src/flows/swap';
+import { ZERO_ADDRESS } from '../../../src/domain';
 import { SwapMode, type FlatBalance } from '../../../src/swap/types';
 import { EADDRESS } from '../../../src/swap/constants';
 import {
@@ -318,31 +325,35 @@ describe('swap execution characterization', () => {
 
     const amt = 1000n * 10n ** 6n;
 
-    // Single bridge batch on ARB (no source swap): fast-path funding (permit+transferFrom EOA→EPH),
-    // then approve(vault)→deposit. #86 bridges the full EPH balance → no sweep.
-    const arb = executionBatchesForChain(middlewareClient, ARB_CHAIN);
-    expect(arb.length, 'ARB Safe request batch count').toBe(1);
+    // Direct bridge custody stays at the EOA. The approval targets the vault and no Safe request
+    // or EOA→ephemeral transfer is created.
+    expect(executionBatchesForChain(middlewareClient, ARB_CHAIN)).toEqual([]);
+    expect(middlewareClient.ensureSafeAccount).not.toHaveBeenCalled();
+    expect(sentTxs).toHaveLength(1);
     expectCallSequence(
-      arb[0],
+      [sentTxs[0].call],
       [
-        { fn: 'permit', to: USDC_ARB, argsMatch: permitOwnerSpender(EOA, PREDICTED_SAFE) },
-        { fn: 'transferFrom', to: USDC_ARB, argsMatch: (a) => { eq(EOA)(a[0]); eq(EPH)(a[1]); expect(a[2]).toBe(amt); } },
-        { fn: 'permit', to: USDC_ARB, argsMatch: (a) => { eq(EPH)(a[0]); eq(VAULT_BY_CHAIN[ARB_CHAIN])(a[1]); expect(a[2]).toBe(amt); } },
-        { fn: 'deposit', to: VAULT_BY_CHAIN[ARB_CHAIN] },
+        {
+          fn: 'approve',
+          to: USDC_ARB,
+          args: [VAULT_BY_CHAIN[ARB_CHAIN], amt],
+        },
       ],
-      'arb fast-path bridge'
+      'arb direct bridge approval'
     );
 
     // No destination swap → BRIDGE_RECEIVER = EOA, and no destination Safe request batch.
     expect(rffRecipient(middlewareClient)).toBe(bytes32Address(EOA));
     expect(executionBatchesForChain(middlewareClient, BASE_CHAIN).length, 'no dst batch').toBe(0);
-    expect(sentTxs).toHaveLength(0);
+    expect(rffRequest(middlewareClient).parties.map((party) => party.address.toLowerCase())).toContain(
+      bytes32Address(EOA)
+    );
   });
 
   it('EXACT_OUT · Nexus · B1 same-token bridge (USDT→USDT) → deposits split across chains, delivered exact, recv=EOA', async () => {
     // B1 EXACT_OUT: every source and the destination share the USDT family (≠ COT) → bridge USDT
     // directly EOA→EOA, no swaps. The exact 3 USDT target (zero-fee quote → gross == target) is split
-    // greedily: ARB (2, full) + OP (1, partial). Each chain runs a fast-path funding + deposit batch.
+    // greedily: ARB (2, full) + OP (1, partial). Each EOA approves its chain's vault directly.
     const balances: FlatBalance[] = [
       { amount: '2', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDT', tokenAddress: USDT_ARB, value: 2, name: 'Tether USD', logo: '' },
       { amount: '2', chainID: OP_CHAIN, decimals: 6, symbol: 'USDT', tokenAddress: USDT_OP, value: 2, name: 'Tether USD', logo: '' },
@@ -372,33 +383,32 @@ describe('swap execution characterization', () => {
       { onIntent: (d: { allow: () => void }) => d.allow() }
     );
 
-    // ARB bridges the full 2 USDT; OP the remaining 1 USDT. Each: fast-path funding (permit+transferFrom
-    // EOA→EPH) then approve(vault)→deposit — no source swap.
-    const arb = executionBatchesForChain(middlewareClient, ARB_CHAIN);
-    expect(arb.length).toBe(1);
-    expectCallSequence(arb[0], [
-      { fn: 'permit', to: USDT_ARB, argsMatch: permitOwnerSpender(EOA, PREDICTED_SAFE) },
-      { fn: 'transferFrom', to: USDT_ARB, argsMatch: (a) => { eq(EOA)(a[0]); eq(EPH)(a[1]); expect(a[2]).toBe(2n * 10n ** 6n); } },
-      { fn: 'permit', to: USDT_ARB, argsMatch: (a) => { eq(EPH)(a[0]); eq(VAULT_BY_CHAIN[ARB_CHAIN])(a[1]); expect(a[2]).toBe(2n * 10n ** 6n); } },
-      { fn: 'deposit', to: VAULT_BY_CHAIN[ARB_CHAIN] },
-    ], 'arb same-token deposit');
-    const op = executionBatchesForChain(middlewareClient, OP_CHAIN);
-    expect(op.length).toBe(1);
-    expectCallSequence(op[0], [
-      { fn: 'permit', to: USDT_OP, argsMatch: permitOwnerSpender(EOA, PREDICTED_SAFE) },
-      { fn: 'transferFrom', to: USDT_OP, argsMatch: (a) => { eq(EOA)(a[0]); eq(EPH)(a[1]); expect(a[2]).toBe(1n * 10n ** 6n); } },
-      { fn: 'permit', to: USDT_OP, argsMatch: (a) => { eq(EPH)(a[0]); eq(VAULT_BY_CHAIN[OP_CHAIN])(a[1]); expect(a[2]).toBe(1n * 10n ** 6n); } },
-      { fn: 'deposit', to: VAULT_BY_CHAIN[OP_CHAIN] },
-    ], 'op same-token deposit');
+    // ARB bridges the full 2 USDT; OP the remaining 1 USDT. Both approvals are direct EOA→vault.
+    expect(executionBatchesForChain(middlewareClient, ARB_CHAIN)).toEqual([]);
+    expect(executionBatchesForChain(middlewareClient, OP_CHAIN)).toEqual([]);
+    expect(middlewareClient.ensureSafeAccount).not.toHaveBeenCalled();
+    expect(sentTxs).toHaveLength(2);
+    const rff = rffRequest(middlewareClient);
+    for (const [chainId, tokenAddress] of [
+      [ARB_CHAIN, USDT_ARB],
+      [OP_CHAIN, USDT_OP],
+    ] as const) {
+      const tx = sentTxs.find((entry) => entry.chainId === chainId)!;
+      const source = rff.sources.find((entry) => Number(BigInt(entry.chain_id)) === chainId)!;
+      expectCallSequence(
+        [tx.call],
+        [{ fn: 'approve', to: tokenAddress, args: [VAULT_BY_CHAIN[chainId], BigInt(source.value)] }],
+        `${chainId} same-token approval`
+      );
+    }
 
     // No dst swap → RFF fills to the EOA, no BASE batch. RFF source values == the split; Σ == the exact
     // 3 USDT delivered (zero fees).
     expect(rffRecipient(middlewareClient)).toBe(bytes32Address(EOA));
     expect(executionBatchesForChain(middlewareClient, BASE_CHAIN).length).toBe(0);
-    const rff = rffRequest(middlewareClient);
     const total = rff.sources.reduce((sum: bigint, s: { value: string }) => sum + BigInt(s.value), 0n);
     expect(total).toBe(3n * 10n ** 6n);
-    expect(sentTxs).toHaveLength(0);
+    expect(rff.parties.map((party) => party.address.toLowerCase())).toContain(bytes32Address(EOA));
   });
 
   it('EXACT_IN · Nexus · least-swap settlement (USDT sources → WETH): no source swaps, dst swap pulls USDT', async () => {
@@ -436,22 +446,24 @@ describe('swap execution characterization', () => {
       { onIntent: (d: { allow: () => void }) => d.allow() }
     );
 
-    // Each source chain: ONE bridge-deposit batch (fast-path funding EOA→EPH then approve→deposit) —
-    // no source swap, because USDT is the (dynamic) COT.
+    // With no source swaps, each source stays in the EOA and approves its vault directly. The
+    // destination Safe is still used because the bridge fill feeds a destination token swap.
+    const rff = rffRequest(middlewareClient);
+    expect(sentTxs).toHaveLength(2);
     for (const [chainId, usdt] of [[ARB_CHAIN, USDT_ARB], [OP_CHAIN, USDT_OP]] as const) {
-      const batches = executionBatchesForChain(middlewareClient, chainId);
-      expect(batches.length, `chain ${chainId} batch count`).toBe(1);
-      expectCallSequence(batches[0], [
-        { fn: 'permit', to: usdt, argsMatch: permitOwnerSpender(EOA, PREDICTED_SAFE) },
-        { fn: 'transferFrom', to: usdt, argsMatch: (a) => { eq(EOA)(a[0]); eq(EPH)(a[1]); } },
-        { fn: 'permit', to: usdt, argsMatch: (a) => { eq(EPH)(a[0]); eq(VAULT_BY_CHAIN[chainId])(a[1]); } },
-        { fn: 'deposit', to: VAULT_BY_CHAIN[chainId] },
-      ], `b2 deposit ${chainId}`);
+      expect(executionBatchesForChain(middlewareClient, chainId)).toEqual([]);
+      const tx = sentTxs.find((entry) => entry.chainId === chainId)!;
+      const source = rff.sources.find((entry) => Number(BigInt(entry.chain_id)) === chainId)!;
+      expectCallSequence(
+        [tx.call],
+        [{ fn: 'approve', to: usdt, args: [VAULT_BY_CHAIN[chainId], BigInt(source.value)] }],
+        `${chainId} direct vault approval`
+      );
     }
 
-    // Fill → EPH (Safe V2 dst + dst swap). RFF sources + destination carry USDT, not USDC.
+    // Fill → Safe (dst swap). RFF holder/party is still the EOA and the bridged token is USDT.
     expect(rffRecipient(middlewareClient)).toBe(bytes32Address(PREDICTED_SAFE));
-    const rff = rffRequest(middlewareClient);
+    expect(rff.parties.map((party) => party.address.toLowerCase())).toContain(bytes32Address(EOA));
     const usdtByChain: Record<number, Hex> = { [ARB_CHAIN]: USDT_ARB, [OP_CHAIN]: USDT_OP };
     for (const s of rff.sources) {
       expect(s.contract_address.toLowerCase()).toBe(bytes32Address(usdtByChain[Number(s.chain_id)]));
@@ -465,7 +477,9 @@ describe('swap execution characterization', () => {
     eq(USDT_BASE)(swp.args[0]); // input = the selected settlement token
     eq(WETH)(swp.args[1]); // output = WETH
     eq(EOA)(swp.args[5]); // receiver = EOA
-    expect(sentTxs).toHaveLength(0);
+    expect(
+      middlewareClient.ensureSafeAccount.mock.calls.map(([request]) => request.chainId)
+    ).toEqual([BASE_CHAIN]);
   });
 
   it('EXACT_OUT · Nexus · least-swap settlement (USDT sources → WETH + gas): dst batch pulls USDT for token and gas', async () => {
@@ -504,16 +518,23 @@ describe('swap execution characterization', () => {
       { onIntent: (d: { allow: () => void }) => d.allow() }
     );
 
-    // Source chains only deposit USDT (no source swap). At least one source
-    // funds+deposits; every source batch is deposit-shaped, never a swap.
+    // With no source swaps, selected bridge sources remain in the EOA and approve the vault.
     const sourceBatches = [ARB_CHAIN, OP_CHAIN].flatMap((c) => executionBatchesForChain(middlewareClient, c));
-    expect(sourceBatches.length).toBeGreaterThan(0);
-    for (const b of sourceBatches) {
-      expect(b.some((c) => c.fn === 'swap'), 'no source swap on a settled source chain').toBe(false);
-      expect(b.some((c) => c.fn === 'deposit'), 'source chain deposits USDT').toBe(true);
-    }
-    // RFF carries USDT.
+    expect(sourceBatches).toEqual([]);
     const rff = rffRequest(middlewareClient);
+    expect(sentTxs).toHaveLength(rff.sources.length);
+    const usdtByChain: Record<number, Hex> = { [ARB_CHAIN]: USDT_ARB, [OP_CHAIN]: USDT_OP };
+    for (const source of rff.sources) {
+      const chainId = Number(BigInt(source.chain_id));
+      const tx = sentTxs.find((entry) => entry.chainId === chainId)!;
+      expectCallSequence(
+        [tx.call],
+        [{ fn: 'approve', to: usdtByChain[chainId], args: [VAULT_BY_CHAIN[chainId], BigInt(source.value)] }],
+        `${chainId} direct vault approval`
+      );
+    }
+    expect(rff.parties.map((party) => party.address.toLowerCase())).toContain(bytes32Address(EOA));
+    expect(rffRecipient(middlewareClient)).toBe(bytes32Address(PREDICTED_SAFE));
     expect(rff.destinations[0].contract_address.toLowerCase()).toBe(bytes32Address(USDT_BASE));
 
     // Destination batch: the token swap (→WETH) and the gas swap (→native), BOTH pulling USDT to the EOA.
@@ -528,7 +549,6 @@ describe('swap execution characterization', () => {
     eq(USDT_BASE)(gasSwap!.args[0]);
     eq(EOA)(tokenSwap!.args[5]);
     eq(EOA)(gasSwap!.args[5]);
-    expect(sentTxs).toHaveLength(0);
   });
 
   it('EXACT_IN · Nexus · Safe V2 source → Safe V2 dst token swap', async () => {
@@ -614,9 +634,9 @@ describe('swap execution characterization', () => {
     expect(sentTxs).toHaveLength(0);
   });
 
-  it('EXACT_IN · Mayan · COT-direct Safe V2 → approve-only (no deposit/sweep), bridge recv=EOA', async () => {
-    // Same inputs as the Nexus COT-direct case but forceMayan. The deposit batch stops at the vault
-    // allowance — the middleware sponsors depositMayan() after the RFF. Pins the Nexus↔Mayan diff.
+  it('EXACT_IN · Mayan · COT-direct EOA → approve-only (no deposit/sweep), bridge recv=EOA', async () => {
+    // Same inputs as the Nexus COT-direct case but forceMayan. The EOA approves the vault and the
+    // middleware sponsors depositMayan() after the RFF. Pins the Nexus↔Mayan diff.
     const balances: FlatBalance[] = [
       { amount: '1000', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDC', tokenAddress: USDC_ARB, value: 1000, name: 'USD Coin', logo: '' },
     ];
@@ -646,17 +666,14 @@ describe('swap execution characterization', () => {
 
     const amt = 1000n * 10n ** 6n;
 
-    // Mayan Safe V2 deposit batch = fund EOA→EPH + approve(vault). NO deposit, NO sweep.
-    const arb = executionBatchesForChain(middlewareClient, ARB_CHAIN);
-    expect(arb.length, 'ARB Mayan Safe request batch count').toBe(1);
+    // Mayan uses the same EOA→vault approval path; its ERC-20 deposit remains middleware-sponsored.
+    expect(executionBatchesForChain(middlewareClient, ARB_CHAIN)).toEqual([]);
+    expect(middlewareClient.ensureSafeAccount).not.toHaveBeenCalled();
+    expect(sentTxs).toHaveLength(1);
     expectCallSequence(
-      arb[0],
-      [
-        { fn: 'permit', to: USDC_ARB, argsMatch: permitOwnerSpender(EOA, PREDICTED_SAFE) },
-        { fn: 'transferFrom', to: USDC_ARB, argsMatch: (a) => { eq(EOA)(a[0]); eq(EPH)(a[1]); expect(a[2]).toBe(amt); } },
-        { fn: 'permit', to: USDC_ARB, argsMatch: (a) => { eq(EPH)(a[0]); eq(VAULT_BY_CHAIN[ARB_CHAIN])(a[1]); expect(a[2]).toBe(amt); } },
-      ],
-      'arb mayan approve-only'
+      [sentTxs[0].call],
+      [{ fn: 'approve', to: USDC_ARB, args: [VAULT_BY_CHAIN[ARB_CHAIN], amt] }],
+      'arb mayan direct approval'
     );
 
     expect(middlewareClient.submitRFF).toHaveBeenCalledTimes(1);
@@ -670,15 +687,10 @@ describe('swap execution characterization', () => {
     expect(rff.sources[0].contract_address.toLowerCase()).toBe(bytes32Address(USDC_ARB));
     expect(rff.destinations[0].contract_address.toLowerCase()).toBe(bytes32Address(USDC_BASE));
     expect(BigInt(rff.destinations[0].value)).toBeGreaterThan(0n);
-
-    // S2 — Mayan approves the vault BEFORE the RFF is registered (middleware sponsors depositMayan after).
-    expect(executionCallOrderWith(middlewareClient, 'permit')).toBeLessThan(
-      middlewareClient.submitRFF.mock.invocationCallOrder[0]
-    );
+    expect(rff.parties.map((party) => party.address.toLowerCase())).toContain(bytes32Address(EOA));
 
     // S5 — only the source chain emits a batch (COT-direct dst, recv=EOA → no destination batch).
-    expect(dispatchedChains(middlewareClient)).toEqual([ARB_CHAIN]);
-    expect(sentTxs).toHaveLength(0);
+    expect(dispatchedChains(middlewareClient)).toEqual([]);
   });
 
   it('EXACT_OUT · Nexus · COT dst skips the destination buffer when no destination swap runs', async () => {
@@ -801,16 +813,13 @@ describe('swap execution characterization', () => {
     expect(rffRecipient(middlewareClient)).toBe(bytes32Address(EOA));
   });
 
-  it('EXACT_OUT · Nexus · COT dst + native gas → gas swap (COT→native, taker=wrapper, recv=EOA)', async () => {
-    // Gas top-up is EXACT_OUT-only (EXACT_IN always sets gasSwap=null). toToken==COT so there is no
-    // token swap — only the gas swap. Because a dst swap (the gas swap) exists, BRIDGE_RECEIVER=EPH,
-    // and the gas swap is quoted/executed on the wrapper (taker=EPH) delivering native to the EOA.
+  it('EXACT_OUT · Nexus · COT dst + native gas → bridge intent delivers both to the EOA', async () => {
     const balances: FlatBalance[] = [
       { amount: '1000', chainID: ARB_CHAIN, decimals: 6, symbol: 'USDC', tokenAddress: USDC_ARB, value: 1000, name: 'USD Coin', logo: '' },
     ];
     const chainList = makeCharChainList();
     const middlewareClient = makeCharMiddleware({ balances, provider: 'nexus' });
-    const { wallet } = makeRealEoaWallet();
+    const { wallet, sentTxs } = makeRealEoaWallet();
 
     await flowSwap(
       {
@@ -834,23 +843,22 @@ describe('swap execution characterization', () => {
       { onIntent: (d: { allow: () => void }) => d.allow() }
     );
 
-    // Gas swap present → BRIDGE_RECEIVER = EPH (wrapper runs the dst gas swap).
-    expect(rffRecipient(middlewareClient)).toBe(bytes32Address(PREDICTED_SAFE));
-
-    // Destination batch is the gas swap (COT→native): approve(router)→swap(taker=EPH, recv=EOA)→
-    // transfer leftover COT → EOA. No token swap, no native sweep (native delivered straight to the EOA).
-    const dst = executionBatchesForChain(middlewareClient, BASE_CHAIN);
-    expect(dst.length, 'dst Safe request batch count').toBe(1);
-    const gasSwap = dst[0].find((c) => c.fn === 'swap')!;
-    eq(USDC_BASE)(gasSwap.args[0]); // input = COT
-    eq(EADDRESS as Hex)(gasSwap.args[1]); // output = native
-    eq(PREDICTED_SAFE)(gasSwap.args[4]); // taker = wrapper (needsTokenSwap||needsGasSwap → wrapper)
-    eq(EOA)(gasSwap.args[5]); // receiver = EOA
-    // #86: leftover COT returned by one direct transfer → EOA (not a Sweeper drain), native direct.
-    expect(dst[0].map((c) => c.fn)).toEqual(['approve', 'swap', 'transfer']);
-    const refund = dst[0].find((c) => c.fn === 'transfer')!;
-    eq(USDC_BASE)(refund.to);
-    eq(EOA)(refund.args[0]);
+    const rff = rffRequest(middlewareClient);
+    expect(rffRecipient(middlewareClient)).toBe(bytes32Address(EOA));
+    expect(rff.destinations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ contract_address: bytes32Address(USDC_BASE), value: (500n * 10n ** 6n).toString() }),
+        expect.objectContaining({ contract_address: bytes32Address(ZERO_ADDRESS), value: (1n * 10n ** 16n).toString() }),
+      ])
+    );
+    expect(executionBatchesForChain(middlewareClient, BASE_CHAIN)).toEqual([]);
+    expect(middlewareClient.ensureSafeAccount).not.toHaveBeenCalled();
+    expect(sentTxs).toHaveLength(1);
+    expectCallSequence(
+      [sentTxs[0].call],
+      [{ fn: 'approve', to: USDC_ARB, args: [VAULT_BY_CHAIN[ARB_CHAIN], BigInt(rff.sources[0].value)] }],
+      'direct token-and-gas bridge approval'
+    );
   });
 
   it('EXACT_OUT · Nexus · explicit same-chain COT funds the gas swap directly with no buffered remainder', async () => {
@@ -1235,7 +1243,7 @@ describe('swap execution characterization', () => {
       { onIntent: (d: { allow: () => void }) => d.allow() }
     );
 
-    // The EOA really signed one tx: the payable depositMayan (Safe execTransaction{value}). Decode it out.
+    // The EOA really signed one direct payable depositMayan transaction.
     expect(sentTxs).toHaveLength(1);
     const dep = decodeEoaTx(sentTxs[0].raw);
     expect(dep.value).toBe(1n * 10n ** 18n);
@@ -1266,6 +1274,10 @@ describe('swap execution characterization', () => {
       middlewareClient.submitRFF.mock.invocationCallOrder[0]
     );
     expect(executionBatchesForChain(middlewareClient, ARB_CHAIN).length).toBe(0);
+    expect(middlewareClient.ensureSafeAccount).not.toHaveBeenCalled();
+    expect(rffRequest(middlewareClient).parties.map((party) => party.address.toLowerCase())).toContain(
+      bytes32Address(EOA)
+    );
   });
 
   it('EXACT_IN · Mayan · mixed native + ERC20 sources → COT dst (approve-only legs)', async () => {
@@ -1623,15 +1635,13 @@ describe('swap execution characterization', () => {
     eq(USDC_BASE)(dst[0][2].to); // leftover COT transferred to the EOA
   });
 
-  it('EXACT_IN · Nexus · Safe COT-direct fast-path (no source swap) → bridge recv=EOA', async () => {
-    // COT at the EOA on a Safe V2 chain → no source swap. The Safe is the transferFrom spender,
-    // but sends EOA→EPH directly, followed by EPH→vault permit + deposit.
+  it('EXACT_IN · Nexus · COT-direct fast-path on OP → EOA approves vault', async () => {
     const balances: FlatBalance[] = [
       { amount: '1000', chainID: OP_CHAIN, decimals: 6, symbol: 'USDC', tokenAddress: USDC_OP, value: 1000, name: 'USD Coin', logo: '' },
     ];
     const chainList = makeCharChainList();
     const middlewareClient = makeCharMiddleware({ balances, provider: 'nexus' });
-    const { wallet } = makeRealEoaWallet();
+    const { wallet, sentTxs } = makeRealEoaWallet();
 
     await flowSwap(
       {
@@ -1653,16 +1663,24 @@ describe('swap execution characterization', () => {
       { onIntent: (d: { allow: () => void }) => d.allow() }
     );
 
-    const op = safeBatchesForChain(middlewareClient, OP_CHAIN);
-    expect(op.length).toBe(1); // single bridge batch (no source swap)
-    expect(op[0].map((c) => c.fn)).toEqual([
-      'permit', 'transferFrom', 'permit', 'deposit',
-    ]);
-    permitOwnerSpender(EOA, PREDICTED_SAFE)(op[0][0].args); // Safe is transferFrom spender
-    eq(EPH)(op[0][1].args[1]); // direct EOA→EPH
-    eq(EPH)(op[0][2].args[0]); // EPH permits vault
-    eq(VAULT_BY_CHAIN[OP_CHAIN])(op[0][2].args[1]);
+    expect(safeBatchesForChain(middlewareClient, OP_CHAIN)).toEqual([]);
+    expect(middlewareClient.ensureSafeAccount).not.toHaveBeenCalled();
+    expect(sentTxs).toHaveLength(1);
+    expectCallSequence(
+      [sentTxs[0].call],
+      [
+        {
+          fn: 'approve',
+          to: USDC_OP,
+          args: [VAULT_BY_CHAIN[OP_CHAIN], 1000n * 10n ** 6n],
+        },
+      ],
+      'op direct bridge approval'
+    );
     expect(rffRecipient(middlewareClient)).toBe(bytes32Address(EOA));
+    expect(rffRequest(middlewareClient).parties.map((party) => party.address.toLowerCase())).toContain(
+      bytes32Address(EOA)
+    );
   });
 
   it('EXACT_IN · Nexus · Safe V2 source → Safe V2 destination swap', async () => {
@@ -1786,25 +1804,29 @@ describe('swap execution characterization', () => {
       { onIntent: (d: { allow: () => void }) => d.allow() }
     );
 
-    // Both sources: Mayan COT-direct fast-path (fund EOA→EPH + approve(vault); NO deposit).
+    // Both no-swap sources stay in the EOA and approve their vaults directly.
+    const rff = rffRequest(middlewareClient);
+    expect(sentTxs).toHaveLength(2);
     for (const [chainId, usdc] of [
       [ARB_CHAIN, USDC_ARB],
       [OP_CHAIN, USDC_OP],
     ] as const) {
-      const legs = executionBatchesForChain(middlewareClient, chainId);
-      expect(legs.map((b) => b.map((c) => c.fn)), `chain ${chainId} Mayan leg`).toEqual([
-        ['permit', 'transferFrom', 'permit'],
-      ]);
-      eq(VAULT_BY_CHAIN[chainId])(legs[0][2].args[1]);
-      eq(usdc)(legs[0][2].to);
+      expect(executionBatchesForChain(middlewareClient, chainId)).toEqual([]);
+      const tx = sentTxs.find((entry) => entry.chainId === chainId)!;
+      const source = rff.sources.find((entry) => Number(BigInt(entry.chain_id)) === chainId)!;
+      expectCallSequence(
+        [tx.call],
+        [{ fn: 'approve', to: usdc, args: [VAULT_BY_CHAIN[chainId], BigInt(source.value)] }],
+        `${chainId} direct Mayan vault approval`
+      );
     }
 
     // The RFF bridges both COT legs to the wrapper (a dst swap exists → recv=EPH). The submitRFF
     // mock enforces value == effectiveAmountIn64 per leg, so completion proves the Mayan refresh.
-    const rff = rffRequest(middlewareClient);
     expect(rff.sources).toHaveLength(2);
     for (const s of rff.sources) expect(BigInt(s.value)).toBe(1000n * 10n ** 6n);
     expect(rffRecipient(middlewareClient)).toBe(bytes32Address(PREDICTED_SAFE));
+    expect(rff.parties.map((party) => party.address.toLowerCase())).toContain(bytes32Address(EOA));
 
     // Mayan RFF shape: ONE destination entry PER SOURCE LEG (each SWIFT order delivers
     // independently) — unlike Nexus, which sums both sources into a single destination entry.
@@ -1825,7 +1847,7 @@ describe('swap execution characterization', () => {
     // EXACT_IN resize consumes the complete delivered COT balance.
     expect(swp.args[2] as bigint).toBe(delivered);
     expect(dst[0][0].args[1]).toBe(swp.args[2]); // approve == swap input
-    expect(sentTxs).toHaveLength(0);
+    expect(sentTxs).toHaveLength(2);
   });
 
   it('EXACT_IN · Mayan · native dst swap fails every attempt → stranded COT swept back to the EOA', async () => {
@@ -2153,17 +2175,15 @@ describe('EXACT_OUT coverage expansion', () => {
 
   it('B1 · gas-only funding from a cross-chain COT source → bridge fills the wrapper, gas swap runs', async () => {
     const middlewareClient = makeCharMiddleware({ balances: [usdc(ARB_CHAIN, USDC_ARB, '1000')], provider: 'nexus' });
-    const { wallet } = makeRealEoaWallet();
+    const { wallet, sentTxs } = makeRealEoaWallet();
     await flowSwap(
       { mode: SwapMode.EXACT_OUT as const, data: { sources: [{ chainId: ARB_CHAIN, tokenAddress: USDC_ARB }], toChainId: BASE_CHAIN, toTokenAddress: USDC_BASE, toAmountRaw: 0n, toNativeAmountRaw: 1n * 10n ** 16n } },
       deps(middlewareClient, wallet),
       allow
     );
 
-    // ARB: COT-direct fast-path funding + deposit.
-    expect(executionBatchesForChain(middlewareClient, ARB_CHAIN).map((b) => b.map((c) => c.fn))).toEqual([
-      ['permit', 'transferFrom', 'permit', 'deposit'],
-    ]);
+    expect(executionBatchesForChain(middlewareClient, ARB_CHAIN)).toEqual([]);
+    expect(sentTxs).toHaveLength(1);
     expect(rffRecipient(middlewareClient), 'gas swap runs on the wrapper').toBe(bytes32Address(PREDICTED_SAFE));
     const delivered = BigInt(rffRequest(middlewareClient).destinations[0].value);
     // BASE: gas swap + surplus return, NO handoff (nothing local).
@@ -2203,17 +2223,16 @@ describe('EXACT_OUT coverage expansion', () => {
 
   it('C2 · (−reserve, +gas) cross-chain: the reserved dst COT never moves; gas bridges from ARB', async () => {
     const middlewareClient = makeCharMiddleware({ balances: [usdc(BASE_CHAIN, USDC_BASE, '100'), usdc(ARB_CHAIN, USDC_ARB, '100')], provider: 'nexus' });
-    const { wallet } = makeRealEoaWallet();
+    const { wallet, sentTxs } = makeRealEoaWallet();
     await flowSwap(
       { mode: SwapMode.EXACT_OUT as const, data: { sources: [{ chainId: BASE_CHAIN, tokenAddress: USDC_BASE }, { chainId: ARB_CHAIN, tokenAddress: USDC_ARB }], toChainId: BASE_CHAIN, toTokenAddress: USDC_BASE, toAmountRaw: -(100n * 10n ** 6n), toNativeAmountRaw: 1n * 10n ** 16n } },
       deps(middlewareClient, wallet),
       allow
     );
 
-    // Gas is bridged from ARB; the fully-reserved BASE USDC is untouched.
-    expect(executionBatchesForChain(middlewareClient, ARB_CHAIN).map((b) => b.map((c) => c.fn))).toEqual([
-      ['permit', 'transferFrom', 'permit', 'deposit'],
-    ]);
+    // Gas is bridged from the ARB EOA; the fully-reserved BASE USDC is untouched.
+    expect(executionBatchesForChain(middlewareClient, ARB_CHAIN)).toEqual([]);
+    expect(sentTxs).toHaveLength(1);
     expect(rffRecipient(middlewareClient)).toBe(bytes32Address(PREDICTED_SAFE));
     const dst = executionBatchesForChain(middlewareClient, BASE_CHAIN);
     expect(dst.length).toBe(1);

@@ -23,6 +23,7 @@ const hoisted = vi.hoisted(() => {
   const waitForTransactionReceipt = vi.fn();
   const multicall = vi.fn();
   const getBalance = vi.fn();
+  const watchContractEvent = vi.fn().mockReturnValue(vi.fn());
   const createPublicClient = vi.fn((options?: { chain?: unknown }) => ({
     chain: options?.chain,
     call,
@@ -32,6 +33,7 @@ const hoisted = vi.hoisted(() => {
     waitForTransactionReceipt,
     multicall,
     getBalance,
+    watchContractEvent,
   }));
 
   return {
@@ -42,6 +44,7 @@ const hoisted = vi.hoisted(() => {
     waitForTransactionReceipt,
     multicall,
     getBalance,
+    watchContractEvent,
     createPublicClient,
   };
 });
@@ -155,7 +158,7 @@ describe('top-level swap lifecycle characterization', () => {
     );
   });
 
-  it('starts cache reads before showing the intent and reuses them after approval', async () => {
+  it('skips Safe cache reads for a direct EOA bridge', async () => {
     const { deps } = makeHarness();
     let cacheCallsAtApproval = 0;
     let safeCodeReadsAtApproval = 0;
@@ -168,8 +171,8 @@ describe('top-level swap lifecycle characterization', () => {
       },
     });
 
-    expect(cacheCallsAtApproval).toBeGreaterThan(0);
-    expect(safeCodeReadsAtApproval).toBeGreaterThan(0);
+    expect(cacheCallsAtApproval).toBe(0);
+    expect(safeCodeReadsAtApproval).toBe(0);
     expect(hoisted.multicall).toHaveBeenCalledTimes(cacheCallsAtApproval);
     expect(hoisted.getCode).toHaveBeenCalledTimes(safeCodeReadsAtApproval);
   });
@@ -202,7 +205,7 @@ describe('top-level swap lifecycle characterization', () => {
     );
   });
 
-  it('reuses the cache when a refreshed intent has the same query data', async () => {
+  it('keeps Safe cache reads skipped when refreshing a direct EOA bridge', async () => {
     const { deps } = makeHarness();
     let initialCacheCalls = 0;
     let refreshedCacheCalls = 0;
@@ -221,9 +224,9 @@ describe('top-level swap lifecycle characterization', () => {
       },
     });
 
-    expect(initialCacheCalls).toBeGreaterThan(0);
+    expect(initialCacheCalls).toBe(0);
     expect(refreshedCacheCalls).toBe(initialCacheCalls);
-    expect(initialCodeReads).toBeGreaterThan(0);
+    expect(initialCodeReads).toBe(0);
     expect(refreshedCodeReads).toBe(initialCodeReads);
     expect(hoisted.multicall).toHaveBeenCalledTimes(initialCacheCalls);
   });

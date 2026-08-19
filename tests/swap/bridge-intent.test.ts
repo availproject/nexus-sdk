@@ -170,6 +170,47 @@ describe('createSwapBridgeIntent', () => {
     expect(intent.availableSources).toEqual(intent.selectedSources);
   });
 
+  it('uses the EOA holder and separates the collection fee on the direct bridge path', () => {
+    const asset = {
+      ...makeBridgeAsset(ARB_CHAIN, USDC_ARB, '3'),
+      eoaBalance: new Decimal('3'),
+      ephemeralBalance: new Decimal(0),
+      depositFee: new Decimal('0.1'),
+      depositFeeRaw: 100_000n,
+    } as BridgeAsset & { depositFee: Decimal; depositFeeRaw: bigint };
+    const bridge = makeBridge([asset], {
+      amount: new Decimal('3'),
+      amounts: {
+        tokenAmount: new Decimal('2.9'),
+        gasInCot: new Decimal(0),
+        totalAmount: new Decimal('3'),
+      },
+      estimatedFees: {
+        collection: new Decimal('0.1'),
+        fulfilment: new Decimal(0),
+        caGas: new Decimal('0.1'),
+        protocol: new Decimal(0),
+        solver: new Decimal(0),
+      },
+    });
+
+    const intent = createSwapBridgeIntent({
+      bridge,
+      assets: bridge.assets,
+      chainList: makeChainList(),
+      recipient: EOA_ADDRESS,
+      ephemeralAddress: EPHEMERAL_ADDRESS,
+      holderAddress: EOA_ADDRESS,
+    } as Parameters<typeof createSwapBridgeIntent>[0]);
+
+    expect(intent.selectedSources[0]).toMatchObject({
+      holderAddress: EOA_ADDRESS,
+      amountRaw: 2_900_000n,
+      depositFeeRaw: 100_000n,
+    });
+    expect(intent.selectedSources[0].depositFee.toFixed()).toBe('0.1');
+  });
+
   it('recipient is dynamic (EOA or ephemeral)', () => {
     const bridge = makeBridge([makeBridgeAsset(ARB_CHAIN, USDC_ARB)]);
     const chainList = makeChainList();
@@ -279,6 +320,42 @@ describe('createSwapBridgeIntent', () => {
     expect(intent.destination.nativeAmount.toString()).toBe('0');
     expect(intent.destination.nativeAmountInToken.toString()).toBe('0');
     expect(intent.destination.nativeToken.contractAddress).toBe(NATIVE_TOKEN.contractAddress);
+  });
+
+  it('puts direct-bridge destination gas in the bridge intent', () => {
+    const asset = {
+      ...makeBridgeAsset(ARB_CHAIN, USDC_ARB, '3.5'),
+      eoaBalance: new Decimal('3.5'),
+      ephemeralBalance: new Decimal(0),
+    };
+    const bridge = makeBridge([asset], {
+      amount: new Decimal('3.5'),
+      amounts: {
+        tokenAmount: new Decimal('1'),
+        gasInCot: new Decimal(0),
+        totalAmount: new Decimal('3.5'),
+      },
+      destinationGas: {
+        amount: new Decimal('0.001'),
+        amountRaw: 1_000_000_000_000_000n,
+        amountInToken: new Decimal('2.5'),
+      },
+    } as Partial<NonNullable<SwapRoute['bridge']>>);
+
+    const intent = createSwapBridgeIntent({
+      bridge,
+      assets: bridge.assets,
+      chainList: makeChainList(),
+      recipient: EOA_ADDRESS,
+      ephemeralAddress: EPHEMERAL_ADDRESS,
+      holderAddress: EOA_ADDRESS,
+    });
+
+    expect(intent.destination.amount.toString()).toBe('1');
+    expect(intent.destination.amountRaw).toBe(1_000_000n);
+    expect(intent.destination.nativeAmount.toString()).toBe('0.001');
+    expect(intent.destination.nativeAmountRaw).toBe(1_000_000_000_000_000n);
+    expect(intent.destination.nativeAmountInToken.toString()).toBe('2.5');
   });
 
   it('derives destination token amount from execution-time assets instead of stale route totals', () => {

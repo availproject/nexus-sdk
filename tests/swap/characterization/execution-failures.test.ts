@@ -38,6 +38,7 @@ const hoisted = vi.hoisted(() => {
   const waitForTransactionReceipt = vi.fn();
   const multicall = vi.fn();
   const getBalance = vi.fn();
+  const watchContractEvent = vi.fn().mockReturnValue(vi.fn());
   const createPublicClient = vi.fn((options?: { chain?: unknown }) => ({
     chain: options?.chain,
     call,
@@ -47,6 +48,7 @@ const hoisted = vi.hoisted(() => {
     waitForTransactionReceipt,
     multicall,
     getBalance,
+    watchContractEvent,
   }));
 
   return {
@@ -57,6 +59,7 @@ const hoisted = vi.hoisted(() => {
     waitForTransactionReceipt,
     multicall,
     getBalance,
+    watchContractEvent,
     createPublicClient,
   };
 });
@@ -123,11 +126,6 @@ const runDirectCotBridge = (
     { onIntent: ({ allow }) => allow() }
   );
 
-const bridgeSubmissionCalls = (middlewareClient: CharMiddleware) =>
-  middlewareClient.createSafeExecuteTx.mock.calls.filter(([request]) =>
-    decodeSafeRequest(request).some((call) => call.fn === 'deposit')
-  );
-
 describe('swap execution failure and retry characterization', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -145,7 +143,7 @@ describe('swap execution failure and retry characterization', () => {
     );
   });
 
-  it('retries a transient permit nonce read before any bridge broadcast', async () => {
+  it('fails a direct EOA bridge before broadcast when its permit nonce read fails', async () => {
     const middlewareClient = makeCharMiddleware({
       balances: [balance(ARB_CHAIN, USDC_ARB, 'USDC', 6, '50')],
     });
@@ -160,42 +158,23 @@ describe('swap execution failure and retry characterization', () => {
       return readContractStub(request);
     });
 
-    await runDirectCotBridge(middlewareClient);
+    await expect(runDirectCotBridge(middlewareClient)).rejects.toThrow(
+      'RPC temporarily unavailable'
+    );
 
-    expect(nonceReads).toBe(3);
-    expect(bridgeSubmissionCalls(middlewareClient)).toHaveLength(1);
+    expect(nonceReads).toBe(1);
+    expect(middlewareClient.submitRFF).not.toHaveBeenCalled();
+    expect(middlewareClient.createSafeExecuteTx).not.toHaveBeenCalled();
   });
 
-  it('does not retry a rejected Safe bridge request', async () => {
-    const middlewareClient = makeCharMiddleware({
-      balances: [balance(ARB_CHAIN, USDC_ARB, 'USDC', 6, '50')],
-    });
-    middlewareClient.createSafeExecuteTx.mockRejectedValueOnce(new Error('not broadcast'));
-
-    await expect(runDirectCotBridge(middlewareClient)).rejects.toThrow('not broadcast');
-
-    const submissions = bridgeSubmissionCalls(middlewareClient);
-    expect(submissions).toHaveLength(1);
-  });
-
-  it('does not retry an ambiguous bridge transport failure', async () => {
-    const middlewareClient = makeCharMiddleware({
-      balances: [balance(ARB_CHAIN, USDC_ARB, 'USDC', 6, '50')],
-    });
-    middlewareClient.createSafeExecuteTx.mockRejectedValueOnce(new Error('request timed out'));
-
-    await expect(runDirectCotBridge(middlewareClient)).rejects.toThrow('request timed out');
-
-    expect(bridgeSubmissionCalls(middlewareClient)).toHaveLength(1);
-  });
-
-  it('submits one Safe bridge request when a transaction hash is returned', async () => {
+  it('never creates a Safe bridge request for a direct EOA bridge', async () => {
     const middlewareClient = makeCharMiddleware({
       balances: [balance(ARB_CHAIN, USDC_ARB, 'USDC', 6, '50')],
     });
     await runDirectCotBridge(middlewareClient);
 
-    expect(bridgeSubmissionCalls(middlewareClient)).toHaveLength(1);
+    expect(middlewareClient.createSafeExecuteTx).not.toHaveBeenCalled();
+    expect(middlewareClient.submitRFF).toHaveBeenCalledTimes(1);
   });
 
   it('reuses Safe funding authorization when a failed source leg is requoted', async () => {

@@ -5,8 +5,10 @@ authority when this document and code disagree.
 
 ## Core account model
 
-Safe V2 is the only swap execution account. A chain's `swapSupported` deployment flag controls
-whether the chain can participate in routing; it does not select an execution mode.
+Safe V2 is the only account that executes aggregator swaps. A bridge route with no source swaps uses
+the connected EOA as its source holder and signer, matching the normal bridge flow. A chain's
+`swapSupported` deployment flag controls whether the chain can participate in routing; it does not
+select an execution mode.
 
 For a connected EOA and the SDK ephemeral account, the SDK predicts one deterministic Safe address:
 
@@ -20,7 +22,8 @@ a Safe transaction, but normal sponsored execution is signed by the ephemeral ow
 EOA still provides user-facing permits, direct approvals when a token cannot be permitted, and native
 value for payable Safe transactions.
 
-The ephemeral address is not an execution wallet. It remains relevant as:
+The ephemeral address is not an execution wallet. On routes that require source swaps, it remains
+relevant as:
 
 - a Safe owner and SafeTx signer;
 - the signing identity for bridge intents and token permits;
@@ -46,7 +49,7 @@ buildSwapPreflight
   -> createSwapIntent + createSwapPlan
   -> start allowance, permit-capability, and Safe-code cache reads
   -> await onIntent approval
-  -> ensure missing Safes on every execution chain
+  -> ensure missing Safes on every Safe execution chain
   -> prepareSwapExecution (await the accepted route's cache)
   -> executeSwapRoute
        -> source swaps or direct-destination swap
@@ -58,17 +61,17 @@ buildSwapPreflight
 
 Cache warming starts immediately before the intent is exposed to `onIntent`, so its read-only RPC
 work overlaps the user's review time. It includes one bytecode lookup for the derived Safe on each
-execution chain. A refreshed intent reuses the existing warmup when its query data is unchanged; a
-changed query set starts a new warmup. Wallet signatures, approvals, and transactions remain gated
-behind intent acceptance.
+Safe execution chain. Bridge source chains without source swaps do not require this lookup. A refreshed intent
+reuses the existing warmup when its query data is unchanged; a changed query set starts a new
+warmup. Wallet signatures, approvals, and transactions remain gated behind intent acceptance.
 
 ## Deployment-before-wallet-prompt invariant
 
 Immediately after intent approval, `startSafeDeploymentsForChains` starts one idempotent
-`ensureSafeForEphemeral` promise for every chain that may execute:
+`ensureSafeForEphemeral` promise for every chain that may execute through the Safe:
 
 - every source execution chain;
-- every bridge deposit chain;
+- every bridge deposit chain that also requires a source swap;
 - the destination chain when a destination token or gas swap exists.
 
 After the shared cache warmup resolves, every chain reads its cached deployment state. Already
@@ -104,6 +107,13 @@ Bridge fill receivers are:
 
 Destination swaps always execute from the Safe and deliver requested token/native output to the EOA.
 
+For a bridge route without source swaps, each source remains in the EOA. The EOA signs the RFF, its
+address is the RFF party, and ERC-20 allowance targets the chain's vault. No EOA-to-ephemeral transfer
+or source-chain Safe deployment is prepared. Nexus and Mayan use the normal bridge
+allowance/executor path; Mayan ERC-20 collection remains middleware-sponsored, while native deposits
+are sent by the EOA. The bridge fills the destination Safe if a destination swap follows and the EOA
+otherwise.
+
 ## Route families
 
 `determineSwapRoute` selects among these shapes:
@@ -124,6 +134,14 @@ selected source prefix: zero when every source already matches the selected sett
 smaller of 0.5% or $0.25 for stable-only conversions, and the smaller of 2% or $1 when any
 non-stable conversion is required. Provider selection happens only for route-relevant remote value;
 direct destination routes do not request a bridge provider.
+
+An Exact Out same-token bridge can include a positive native-gas requirement in the bridge intent.
+Routing accounts for that gas in the selected source amount, omits a destination gas swap, and sets
+the bridge receiver to the EOA.
+
+EOA-funded bridge routing includes provider-specific vault collection fees. Exact In deducts those fees
+from delivery; Exact Out adds them to the selected EOA debit while keeping the requested output
+exact. The public swap intent shape is unchanged.
 
 For general COT routes, the SDK deterministically chooses between USDC and USDT before requesting
 aggregator quotes. Each source that is not already the candidate costs one leg, and a
@@ -152,8 +170,9 @@ For ERC-20 value held by the EOA, preparation builds a deterministic transfer au
 - direct ERC-20 approval otherwise.
 
 The Safe consumes the authorization with `transferFrom`. Source and destination funding moves into
-the Safe. A direct bridge-funding transfer may send from the EOA to the ephemeral bridge holder while
-the Safe remains the spender.
+the Safe. Bridge funding after a source swap may send from the EOA to the ephemeral bridge holder
+while the Safe remains the spender. Bridge routes without source swaps skip this preparation and use
+the bridge allowance service to authorize the vault from the EOA.
 
 Native input does not use an allowance. It is carried by the outer EOA transaction that calls the
 Safe.
@@ -195,10 +214,11 @@ execution may trigger a bounded requote when the failure is known to be safe to 
 
 ### Bridge deposits
 
-Nexus ERC-20 deposits execute funding, ephemeral-to-vault permit, and deposit calls through the Safe.
-Mayan ERC-20 funding and permit calls also execute through the Safe. Native deposits are
-EOA-submitted Safe transactions. The bridge intent is signed and submitted only after the required
-pre-deposit work has completed.
+For composed routes, Nexus ERC-20 deposits execute funding, ephemeral-to-vault permit, and deposit
+calls through the Safe. Mayan ERC-20 funding and permit calls also execute through the Safe, and
+native deposits are EOA-submitted Safe transactions. Bridge routes without source swaps reuse normal
+bridge execution instead: the EOA authorizes the vault, owns and signs the RFF, and sends any native
+vault deposit directly. The bridge intent is signed and submitted only after required allowance work.
 
 ### Destination swaps
 
@@ -249,6 +269,8 @@ Retries are deliberately narrow:
 - No swap call is executed from the EOA or ephemeral account directly.
 - The EOA only submits a swap transaction when native value must enter the Safe.
 - The Safe is deployed before any approval or permit prompt that names it as spender.
+- Bridge sources without source swaps name the vault as spender and do not require a source-chain
+  Safe or ephemeral custody.
 - `swapSupported` gates routing availability, not execution mode.
 - Remote bridge custody at the ephemeral address does not make it an execution wallet.
 - Native gas reserve is deducted before source selection; the SDK never consumes 100% of native

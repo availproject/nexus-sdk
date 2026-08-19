@@ -221,6 +221,11 @@ describe('createSwapPlan', () => {
 
   it('includes eoa_to_ephemeral_transfer only for bridge assets with eoa balance', () => {
     const route = makeRoute({
+      source: {
+        swaps: [makeQuoteResponse(42161)],
+        creationTime: Date.now(),
+        srcBuffer: new Decimal(0),
+      },
       bridge: {
         provider: 'nexus',
         amount: new Decimal(50),
@@ -241,6 +246,13 @@ describe('createSwapPlan', () => {
           solver: new Decimal(0),
         },
       },
+      destination: {
+        chainId: 8453,
+        eoaToEphemeral: null,
+        inputAmount: { min: new Decimal(0), max: new Decimal(0) },
+        swap: withTokenSwap,
+        getDstSwap: async () => null,
+      },
     });
 
     const plan = createSwapPlan(route, chainList);
@@ -251,6 +263,46 @@ describe('createSwapPlan', () => {
         asset: expect.objectContaining({ amountRaw: 5000000n, amount: '5.000000' }),
       }),
     ]);
+  });
+
+  it('uses the destination token amount for an EOA bridge fill that also delivers gas', () => {
+    const route = makeRoute({
+      bridge: {
+        provider: 'nexus',
+        amount: new Decimal(8),
+        amounts: {
+          tokenAmount: new Decimal(5),
+          gasInCot: new Decimal(0),
+          totalAmount: new Decimal(8),
+        },
+        destinationGas: {
+          amount: new Decimal('0.001'),
+          amountRaw: 1_000_000_000_000_000n,
+          amountInToken: new Decimal('2.5'),
+        },
+        assets: [{ ...makeBridgeAsset(42161, 8), ephemeralBalance: new Decimal(0) }],
+        chainID: 8453,
+        decimals: 6,
+        tokenAddress: token.contractAddress,
+        estimatedFees: {
+          collection: new Decimal(0),
+          fulfilment: new Decimal(0),
+          caGas: new Decimal(0),
+          protocol: new Decimal(0),
+          solver: new Decimal(0),
+        },
+      },
+    });
+
+    const plan = createSwapPlan(route, chainList);
+
+    expect(plan.steps.map((step) => step.type)).toEqual([
+      'bridge_intent_submission',
+      'bridge_deposit',
+      'bridge_fill',
+    ]);
+    expect(plan.steps[1]).toMatchObject({ asset: { amount: '8.000000', amountRaw: 8_000_000n } });
+    expect(plan.steps[2]).toMatchObject({ asset: { amount: '5.000000', amountRaw: 5_000_000n } });
   });
 
   it('omits any public sweep step even for ephemeral destination execution', () => {
