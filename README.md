@@ -243,6 +243,20 @@ for (const chain of chains) {
 The returned list merges the Better Intent catalog with deployment metadata used by standalone
 execute. Token addresses and decimals are chain-specific; never infer decimals from a symbol.
 
+For selectors that depend on choices the user has already made, request a constrained catalog from
+the middleware. Directional `asSource` and `asDestination` arrays show which providers can use each
+chain or token in that role; an empty array means the option should be disabled for that route.
+
+```ts
+const destinationOptions = await client.getSupportedChainsForRoute({
+  sources: [{ chainId: 10, tokenAddress: optimismUsdc, amountRaw: 1_000_000n }],
+});
+```
+
+Use `valueUsd`, source `amountRaw` values, or destination `amountRaw` values as one sizing mode per
+request. Quote results expose `sourceVerdicts`; quote failures can be inspected without parsing
+messages using `getIntentQuoteFailure(error)`.
+
 ## Execute
 
 Standalone execute remains local wallet/contract execution:

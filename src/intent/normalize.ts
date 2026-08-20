@@ -8,6 +8,7 @@ import type {
   IntentHistoryResult,
   IntentPlanStep,
   IntentProvider,
+  IntentSourceVerdict,
   IntentStatus,
   IntentSubmitResponse,
   IntentTokenCatalogEntry,
@@ -19,6 +20,23 @@ const hash = z.string().regex(/^0x[0-9a-fA-F]{64}$/);
 const amount = z.string().regex(/^\d+$/);
 const provider = z.enum(['nexus-v2', 'mayan']);
 const providerSupport = z.object({ id: provider, currencyId: z.number().int().optional() });
+const sourceVerdict = z.object({
+  chainId: z.string(),
+  tokenAddress: address,
+  tokenSymbol: z.string(),
+  state: z.enum(['selected', 'unused', 'unroutable']),
+  reason: z
+    .enum([
+      'BELOW_DEPOSIT_FEE',
+      'INSUFFICIENT_APPROVAL_GAS',
+      'ABOVE_PROVIDER_CEILING',
+      'CURRENCY_MISMATCH',
+      'NOT_IN_PROVIDER_CATALOG',
+      'PROVIDER_REFUSED',
+    ])
+    .optional(),
+  detail: z.string().optional(),
+});
 const nativeCurrency = z.object({
   name: z.string(),
   symbol: z.string(),
@@ -34,7 +52,9 @@ const chainToken = z.object({
   isNative: z.boolean(),
   logo: z.string().optional(),
   coingeckoId: z.string().optional(),
-  providers: z.array(providerSupport),
+  providers: z.array(providerSupport).optional(),
+  asSource: z.array(providerSupport).optional(),
+  asDestination: z.array(providerSupport).optional(),
 });
 const chain = z
   .object({
@@ -44,7 +64,9 @@ const chain = z
     explorerUrl: z.string().optional(),
     rpcUrl: z.string().optional(),
     nativeCurrency,
-    providers: z.array(provider),
+    providers: z.array(provider).optional(),
+    asSource: z.array(provider).optional(),
+    asDestination: z.array(provider).optional(),
     tokens: z.array(chainToken),
   })
   .passthrough();
@@ -56,6 +78,8 @@ const tokenDeployment = z.object({
   decimals: z.number().int().nonnegative(),
   isNative: z.boolean(),
   providers: z.array(providerSupport),
+  asSource: z.array(providerSupport).optional().default([]),
+  asDestination: z.array(providerSupport).optional().default([]),
 });
 const tokenCatalogEntry = z.object({
   assetId: z.string(),
@@ -153,6 +177,7 @@ const quote = z.object({
     requiresApprovals: z.boolean(),
     requiresNativeTxReceipts: z.boolean(),
   }),
+  sourceVerdicts: z.array(sourceVerdict).default([]),
 });
 const lifecycleStatus = z.enum(['created', 'deposited', 'fulfilled', 'expired']);
 const submitResponse = z.object({ quoteId: hash, status: lifecycleStatus });
@@ -192,6 +217,16 @@ export const parseIntentChainRef = (value: string): number => {
 };
 
 const normalizedAddress = (value: string): Hex => value.toLowerCase() as Hex;
+const uniqueProviders = <T extends { id: IntentProvider }>(items: T[]): T[] => [
+  ...new Map(items.map((item) => [item.id, item])).values(),
+];
+
+export const normalizeIntentSourceVerdicts = (input: unknown): IntentSourceVerdict[] =>
+  parse(z.array(sourceVerdict), input, 'Better Intent source verdicts').map((entry) => ({
+    ...entry,
+    chainId: parseIntentChainRef(entry.chainId),
+    tokenAddress: normalizedAddress(entry.tokenAddress),
+  }));
 
 export const normalizeIntentChains = (input: unknown): IntentChain[] =>
   parse(z.array(chain), input, 'Better Intent chains response').map((entry) => {
@@ -210,11 +245,26 @@ export const normalizeIntentChains = (input: unknown): IntentChain[] =>
       explorerUrl: entry.explorerUrl,
       rpcUrl: entry.rpcUrl,
       nativeCurrency: entry.nativeCurrency,
-      providers: entry.providers,
+      providers: [
+        ...new Set([
+          ...(entry.asSource ?? []),
+          ...(entry.asDestination ?? []),
+          ...(entry.providers ?? []),
+        ]),
+      ],
+      asSource: entry.asSource ?? entry.providers ?? [],
+      asDestination: entry.asDestination ?? entry.providers ?? [],
       tokens: entry.tokens.map((token) => ({
         ...token,
         chainId: id,
         address: normalizedAddress(token.address),
+        providers: uniqueProviders([
+          ...(token.asSource ?? []),
+          ...(token.asDestination ?? []),
+          ...(token.providers ?? []),
+        ]),
+        asSource: token.asSource ?? token.providers ?? [],
+        asDestination: token.asDestination ?? token.providers ?? [],
       })),
       capabilities: { intent: true, execute: false },
     };
@@ -338,6 +388,7 @@ export const normalizeIntentQuote = (input: unknown): ExecutableIntentQuote => {
       expiresAt: Number(parsed.expiry),
       allowances: allowances.map(({ approval: _approval, ...entry }) => entry),
       plan: { steps },
+      sourceVerdicts: normalizeIntentSourceVerdicts(parsed.sourceVerdicts),
     },
     execution: {
       provider: parsed.provider,

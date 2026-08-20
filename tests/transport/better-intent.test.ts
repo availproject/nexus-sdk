@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Hex } from 'viem';
+import { getIntentQuoteFailure } from '../../src/intent/errors';
 import { createMiddlewareClient } from '../../src/transport/middleware';
 
 vi.mock('axios', () => ({ default: { create: vi.fn() } }));
@@ -80,7 +81,7 @@ describe('Better Intent middleware transport', () => {
 
     const client = createMiddlewareClient('https://mw.example');
 
-    await expect(client.getIntentChains(['mayan'])).resolves.toEqual([
+    await expect(client.getIntentChains({ providers: ['mayan'] })).resolves.toEqual([
       expect.objectContaining({ id: 1, capabilities: { intent: true, execute: false } }),
     ]);
     await expect(
@@ -92,7 +93,7 @@ describe('Better Intent middleware transport', () => {
     expect(http.get).toHaveBeenNthCalledWith(
       1,
       '/api/v1/better-intent/chains',
-      { params: { provider: 'mayan' } }
+      { params: new URLSearchParams('provider=mayan') }
     );
     expect(http.get).toHaveBeenNthCalledWith(
       2,
@@ -130,6 +131,79 @@ describe('Better Intent middleware transport', () => {
     });
     expect(http.post).toHaveBeenNthCalledWith(1, '/api/v1/better-intent/quote', request);
     expect(http.post).toHaveBeenNthCalledWith(2, '/api/v1/better-intent/submit', submit);
+  });
+
+  it('exposes structured quote failure diagnostics', async () => {
+    const http = makeAxios();
+    axiosRoot.create.mockReturnValue(http);
+    http.post.mockRejectedValue({
+      response: {
+        data: {
+          code: 'QUOTE_UNAVAILABLE',
+          subcode: 'NO_ROUTABLE_SOURCE',
+          message: 'No provider could quote this intent',
+          errorId: 'error-123',
+          details: {
+            sourceVerdicts: [
+              {
+                chainId: 'EVM_137',
+                tokenAddress: TOKEN,
+                tokenSymbol: 'USDC',
+                state: 'unroutable',
+                reason: 'NOT_IN_PROVIDER_CATALOG',
+              },
+            ],
+            providerReasons: ['mayan: token is not supported'],
+          },
+        },
+      },
+    });
+    const client = createMiddlewareClient('https://mw.example');
+
+    let failure = null;
+    try {
+      await client.getIntentQuote({
+        sender: ACCOUNT,
+        tradeType: 'exactOutput',
+        output: { chainId: 'EVM_1', token: TOKEN, amount: '1' },
+      });
+    } catch (error) {
+      failure = getIntentQuoteFailure(error);
+    }
+
+    expect(failure).toEqual({
+      code: 'QUOTE_UNAVAILABLE',
+      subcode: 'NO_ROUTABLE_SOURCE',
+      errorId: 'error-123',
+      retryable: false,
+      sourceVerdicts: [
+        expect.objectContaining({ chainId: 137, reason: 'NOT_IN_PROVIDER_CATALOG' }),
+      ],
+      providerReasons: ['mayan: token is not supported'],
+    });
+  });
+
+  it('serializes directional chain constraints as repeated query parameters', async () => {
+    const http = makeAxios();
+    axiosRoot.create.mockReturnValue(http);
+    http.get.mockResolvedValue({ data: [] });
+    const client = createMiddlewareClient('https://mw.example');
+
+    await client.getIntentChains({
+      providers: ['nexus-v2', 'mayan'],
+      sources: [
+        { chainId: 10, tokenAddress: TOKEN, amountRaw: 1_000_000n },
+        { chainId: 137, tokenAddress: TOKEN, amountRaw: 2_000_000n },
+      ],
+      destinations: [{ chainId: 8453, tokenAddress: TOKEN }],
+    });
+
+    const params = http.get.mock.calls[0]?.[1]?.params as URLSearchParams;
+    expect(params.getAll('provider')).toEqual(['nexus-v2', 'mayan']);
+    expect(params.getAll('sourceChain')).toEqual(['EVM_10', 'EVM_137']);
+    expect(params.getAll('sourceToken')).toEqual([TOKEN, TOKEN]);
+    expect(params.getAll('sourceAmount')).toEqual(['1000000', '2000000']);
+    expect(params.getAll('destinationChain')).toEqual(['EVM_8453']);
   });
 
   it('normalizes intent lifecycle status', async () => {

@@ -42,6 +42,8 @@ export const createTokenCatalogFromChains = (chains: IntentChain[]): IntentToken
         decimals: token.decimals,
         isNative: token.isNative,
         providers: token.providers,
+        asSource: token.asSource ?? token.providers,
+        asDestination: token.asDestination ?? token.providers,
       };
 
       if (existing) {
@@ -124,6 +126,8 @@ const executeIntentChain = (chain: Chain): IntentChain => ({
   rpcUrl: chain.rpcUrls.default.http[0],
   nativeCurrency: chain.nativeCurrency,
   providers: [],
+  asSource: [],
+  asDestination: [],
   tokens: [
     {
       chainId: chain.id,
@@ -134,6 +138,8 @@ const executeIntentChain = (chain: Chain): IntentChain => ({
       isNative: true,
       logo: chain.nativeCurrency.logo,
       providers: [],
+      asSource: [],
+      asDestination: [],
     },
     ...chain.custom.knownTokens.map((token) => ({
       chainId: chain.id,
@@ -144,6 +150,8 @@ const executeIntentChain = (chain: Chain): IntentChain => ({
       isNative: false,
       logo: token.logo,
       providers: [],
+      asSource: [],
+      asDestination: [],
     })),
   ],
   capabilities: { intent: false, execute: true },

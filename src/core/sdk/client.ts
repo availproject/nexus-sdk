@@ -70,7 +70,9 @@ export const createNexusClient = (config?: {
       const [deployment, intentChains] = await Promise.all([
         middleware.getDeployment(),
         intentEnabled
-          ? middleware.getIntentChains(catalogProviders ? [...catalogProviders] : undefined)
+          ? middleware.getIntentChains(
+              catalogProviders ? { providers: [...catalogProviders] } : undefined
+            )
           : Promise.resolve([]),
       ]);
       base.setChainList(createChainList(deployment));
@@ -133,6 +135,7 @@ export const createNexusClient = (config?: {
     setEVMProvider: (provider: EthereumProvider) => base.setEvmProvider(provider),
     convertTokenReadableAmountToBigInt: base.convertTokenReadableAmountToBigInt,
     getSupportedChains: base.getSupportedChains,
+    getSupportedChainsForRoute: base.getSupportedChainsForRoute,
     destroy: () => {
       analytics.trackSessionEnd();
       base.getMiddlewareClient().destroy();

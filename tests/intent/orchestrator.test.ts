@@ -29,6 +29,7 @@ const executableQuote = (byte = '11'): ExecutableIntentQuote => {
         caGasRaw: 0n,
       },
       expiresAt: 2_000_000_000,
+      sourceVerdicts: [],
       allowances: [
         {
           chainId: 8453,

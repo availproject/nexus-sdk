@@ -13,7 +13,7 @@ export type {
   SwapAndExecuteOptions,
   SwapOperationOptions,
 } from './core/types';
-
+export { getIntentQuoteFailure } from './intent/errors';
 export { getFallbackTokenLogoDataUri } from './services/token-logo';
 
 export const IntentStatus = DomainIntentStatus;
@@ -90,12 +90,18 @@ export type {
   IntentQuote,
   IntentQuote as BridgeSimulationResult,
   IntentQuote as SwapSimulationResult,
+  IntentQuoteFailure,
+  IntentQuoteFailureSubcode,
   IntentQuoteInput,
   IntentResult,
   IntentResult as BridgeResult,
   IntentResult as SwapResult,
   IntentResult as TransferResult,
+  IntentRouteConstraintLeg,
+  IntentRouteConstraints,
   IntentSource,
+  IntentSourceUnroutableReason,
+  IntentSourceVerdict,
   IntentStatus as IntentStatusResponse,
   IntentStepState,
   IntentToken,

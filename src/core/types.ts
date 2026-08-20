@@ -23,6 +23,7 @@ import type {
   IntentHookData,
   IntentQuote,
   IntentResult,
+  IntentRouteConstraints,
   SwapAndExecuteIntentResult,
 } from '../intent/types';
 import type { SwapAndExecuteParams, SwapExactInParams, SwapExactOutParams } from '../swap/types';
@@ -96,5 +97,6 @@ export type NexusClient = {
     chainId: number
   ) => bigint;
   getSupportedChains: () => IntentChain[];
+  getSupportedChainsForRoute: (constraints: IntentRouteConstraints) => Promise<IntentChain[]>;
   destroy: () => void;
 };

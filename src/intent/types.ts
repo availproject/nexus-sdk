@@ -20,6 +20,8 @@ export type IntentToken = {
   logo?: string;
   coingeckoId?: string;
   providers: IntentProviderSupport[];
+  asSource?: IntentProviderSupport[];
+  asDestination?: IntentProviderSupport[];
 };
 
 export type IntentChain = {
@@ -36,11 +38,57 @@ export type IntentChain = {
     coingeckoId?: string;
   };
   providers: IntentProvider[];
+  asSource?: IntentProvider[];
+  asDestination?: IntentProvider[];
   tokens: IntentToken[];
   capabilities: {
     intent: boolean;
     execute: boolean;
   };
+};
+
+export type IntentRouteConstraintLeg = {
+  chainId?: number;
+  tokenAddress?: Hex;
+  amountRaw?: bigint;
+};
+
+export type IntentRouteConstraints = {
+  sources?: IntentRouteConstraintLeg[];
+  destinations?: IntentRouteConstraintLeg[];
+  valueUsd?: number;
+  providers?: IntentProvider[];
+};
+
+export type IntentSourceUnroutableReason =
+  | 'BELOW_DEPOSIT_FEE'
+  | 'INSUFFICIENT_APPROVAL_GAS'
+  | 'ABOVE_PROVIDER_CEILING'
+  | 'CURRENCY_MISMATCH'
+  | 'NOT_IN_PROVIDER_CATALOG'
+  | 'PROVIDER_REFUSED';
+
+export type IntentSourceVerdict = {
+  chainId: number;
+  tokenAddress: Hex;
+  tokenSymbol: string;
+  state: 'selected' | 'unused' | 'unroutable';
+  reason?: IntentSourceUnroutableReason;
+  detail?: string;
+};
+
+export type IntentQuoteFailureSubcode =
+  | 'NO_ROUTABLE_SOURCE'
+  | 'INTENT_REFUSED'
+  | 'PROVIDER_UNAVAILABLE';
+
+export type IntentQuoteFailure = {
+  code?: string;
+  subcode: IntentQuoteFailureSubcode;
+  errorId?: string;
+  retryable: boolean;
+  sourceVerdicts: IntentSourceVerdict[];
+  providerReasons: string[];
 };
 
 export type IntentTokenCatalogEntry = {
@@ -144,6 +192,7 @@ export type IntentQuote = {
   expiresAt: number;
   allowances: IntentAllowance[];
   plan: IntentPlan;
+  sourceVerdicts: IntentSourceVerdict[];
 };
 
 export type IntentApprovalInstruction = IntentAllowance & {
