@@ -63,7 +63,8 @@ errors can be diagnosed in FastBridge.
 
 ### 6. Formalize structured middleware errors across endpoints
 
-Quote failures now have `getIntentQuoteFailure()`, which is better than parsing message strings.
+Quote failures now have `getIntentQuoteFailure()`, including routing, balance, approval-gas, and
+price failures, which is better than parsing message strings.
 Apply the same pattern to balances, submit, status, and catalog failures if their API contracts gain
 stable subcodes and details. Keep human-readable messages for display and structured fields for UI
 decisions.
