@@ -80,7 +80,13 @@ export type IntentSourceVerdict = {
 export type IntentQuoteFailureSubcode =
   | 'NO_ROUTABLE_SOURCE'
   | 'INTENT_REFUSED'
-  | 'PROVIDER_UNAVAILABLE';
+  | 'PROVIDER_UNAVAILABLE'
+  | 'NO_PROVIDERS_ENABLED'
+  | 'INSUFFICIENT_BALANCE'
+  | 'INSUFFICIENT_APPROVAL_GAS'
+  | 'SAME_CHAIN_GAS_DROP_UNSUPPORTED'
+  | 'QUOTE_PRICE_UNAVAILABLE'
+  | 'QUOTE_PRICE_OUTLIER';
 
 export type IntentQuoteFailure = {
   code?: string;
@@ -89,6 +95,7 @@ export type IntentQuoteFailure = {
   retryable: boolean;
   sourceVerdicts: IntentSourceVerdict[];
   providerReasons: string[];
+  details: Record<string, unknown>;
 };
 
 export type IntentTokenCatalogEntry = {

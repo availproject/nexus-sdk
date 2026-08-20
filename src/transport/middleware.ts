@@ -132,11 +132,18 @@ const middlewareErrorDetails = (error: unknown): Record<string, unknown> => {
   const details = isRecord(data.details) ? data.details : undefined;
   const subcode = data.subcode;
   let intentQuoteFailure: Record<string, unknown> | undefined;
-  if (
-    subcode === 'NO_ROUTABLE_SOURCE' ||
-    subcode === 'INTENT_REFUSED' ||
-    subcode === 'PROVIDER_UNAVAILABLE'
-  ) {
+  const quoteFailureSubcodes = new Set([
+    'NO_ROUTABLE_SOURCE',
+    'INTENT_REFUSED',
+    'PROVIDER_UNAVAILABLE',
+    'NO_PROVIDERS_ENABLED',
+    'INSUFFICIENT_BALANCE',
+    'INSUFFICIENT_APPROVAL_GAS',
+    'SAME_CHAIN_GAS_DROP_UNSUPPORTED',
+    'QUOTE_PRICE_UNAVAILABLE',
+    'QUOTE_PRICE_OUTLIER',
+  ]);
+  if (typeof subcode === 'string' && quoteFailureSubcodes.has(subcode)) {
     let sourceVerdicts: IntentSourceVerdict[] = [];
     try {
       sourceVerdicts = normalizeIntentSourceVerdicts(details?.sourceVerdicts ?? []);
@@ -152,6 +159,7 @@ const middlewareErrorDetails = (error: unknown): Record<string, unknown> => {
       providerReasons: Array.isArray(details?.providerReasons)
         ? details.providerReasons.filter((reason): reason is string => typeof reason === 'string')
         : [],
+      details: details ?? {},
     };
   }
   return {

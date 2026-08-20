@@ -180,6 +180,53 @@ describe('Better Intent middleware transport', () => {
         expect.objectContaining({ chainId: 137, reason: 'NOT_IN_PROVIDER_CATALOG' }),
       ],
       providerReasons: ['mayan: token is not supported'],
+      details: {
+        sourceVerdicts: [
+          {
+            chainId: 'EVM_137',
+            tokenAddress: TOKEN,
+            tokenSymbol: 'USDC',
+            state: 'unroutable',
+            reason: 'NOT_IN_PROVIDER_CATALOG',
+          },
+        ],
+        providerReasons: ['mayan: token is not supported'],
+      },
+    });
+  });
+
+  it('exposes structured balance and approval-gas quote failures', async () => {
+    const http = makeAxios();
+    axiosRoot.create.mockReturnValue(http);
+    http.post.mockRejectedValue({
+      response: {
+        data: {
+          code: 'QUOTE_UNAVAILABLE',
+          subcode: 'INSUFFICIENT_APPROVAL_GAS',
+          message: 'Insufficient gas balance',
+          errorId: 'error-456',
+          details: { shortfalls: [{ chainId: 137, required: '10', actual: '0' }] },
+        },
+      },
+    });
+    const client = createMiddlewareClient('https://mw.example');
+
+    let failure = null;
+    try {
+      await client.getIntentQuote({
+        sender: ACCOUNT,
+        tradeType: 'exactInput',
+        input: [{ chainId: 'EVM_137', token: TOKEN, amount: '1' }],
+        output: { chainId: 'EVM_1', token: TOKEN },
+      });
+    } catch (error) {
+      failure = getIntentQuoteFailure(error);
+    }
+
+    expect(failure).toMatchObject({
+      subcode: 'INSUFFICIENT_APPROVAL_GAS',
+      retryable: false,
+      details: { shortfalls: [{ chainId: 137, required: '10', actual: '0' }] },
     });
   });
 

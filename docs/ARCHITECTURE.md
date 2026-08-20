@@ -178,6 +178,8 @@ those fields for compatibility with existing consumers.
 Quote responses normalize `sourceVerdicts`. Structured quote failures are retained on the SDK
 error and exposed through `getIntentQuoteFailure`, including the middleware subcode, error ID,
 source verdicts, provider reasons, and whether retrying may help.
+Pre-routing quote failures such as insufficient balance or approval gas use the same helper and keep
+their endpoint-specific payload in `details`.
 
 ## Composite intent plus execute
 

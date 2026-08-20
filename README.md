@@ -256,6 +256,8 @@ const destinationOptions = await client.getSupportedChainsForRoute({
 Use `valueUsd`, source `amountRaw` values, or destination `amountRaw` values as one sizing mode per
 request. Quote results expose `sourceVerdicts`; quote failures can be inspected without parsing
 messages using `getIntentQuoteFailure(error)`.
+The helper also exposes structured balance, approval-gas, price, and routing failures through its
+`subcode`, `details`, and `errorId` fields.
 
 ## Execute
 
