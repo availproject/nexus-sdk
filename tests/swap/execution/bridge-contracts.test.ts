@@ -21,6 +21,7 @@ vi.mock('../../../src/services/rff', () => ({
 }));
 
 vi.mock('../../../src/services/allowance-utils', () => ({
+  getPermitDomainName: vi.fn().mockResolvedValue('USD Coin'),
   signPermitForAddressAndValue: vi.fn(),
 }));
 
