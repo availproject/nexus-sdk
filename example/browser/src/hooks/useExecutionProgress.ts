@@ -13,8 +13,10 @@ import type {
 type RawStep = {
   id: string;
   type: string;
+  method?: "approval" | "permit";
   chain?: { id: number; name: string; logo: string };
   asset?: { symbol: string; amount: string; logo?: string };
+  amount?: { symbol: string; amount: string; logo?: string };
   token?: { symbol: string; logo?: string };
   swaps?: Array<{
     input: { symbol: string; amount: string; logo?: string };
@@ -24,6 +26,11 @@ type RawStep = {
 };
 
 const STEP_LABELS: Record<string, (step: RawStep) => string> = {
+  allowance: (s) => {
+    const action = s.method === "permit" ? "Permit" : s.method === "approval" ? "Approve" : "Authorize";
+    const amount = s.amount?.amount ? `${s.amount.amount} ` : "";
+    return `${action} ${amount}${s.token?.symbol ?? "token"} on ${s.chain?.name ?? "chain"}`;
+  },
   source_swap: (s) => `Swap on ${s.chain?.name ?? "source"}`,
   eoa_to_ephemeral_transfer: (s) => `Transfer on ${s.chain?.name ?? "chain"}`,
   bridge_deposit: (s) => `Deposit to bridge on ${s.chain?.name ?? "chain"}`,
@@ -39,6 +46,9 @@ const STEP_LABELS: Record<string, (step: RawStep) => string> = {
 };
 
 function extractToken(step: RawStep): NormalizedStep["token"] {
+  if (step.amount) {
+    return { symbol: step.amount.symbol, amount: step.amount.amount, logo: step.amount.logo };
+  }
   if (step.asset) {
     return { symbol: step.asset.symbol, amount: step.asset.amount, logo: step.asset.logo };
   }
@@ -190,6 +200,13 @@ export function useExecutionProgress(operationType: OperationType) {
         const phase = mapStatusToPhase(ev.status);
         if (phase) {
           draft.phase = phase;
+          if (ev.status === "executing") {
+            const firstPending = draft.steps.find((step) => step.state === "pending");
+            if (firstPending?.type === "allowance") {
+              firstPending.state = "active";
+              firstPending.rawState = "started";
+            }
+          }
           // On completion, mark any remaining active/submitted steps as done
           if (phase === "completed") {
             if (draft.completedAt === undefined) draft.completedAt = Date.now();
@@ -216,9 +233,25 @@ export function useExecutionProgress(operationType: OperationType) {
           : draft.steps.find((s) => s.type === ev.stepType && s.state !== "done");
 
         if (target) {
+          if (ev.state !== "failed") {
+            const completedAt = Date.now();
+            for (const previous of draft.steps.slice(0, draft.steps.indexOf(target))) {
+              if (previous.type === "allowance" && previous.state !== "done") {
+                previous.state = "done";
+                previous.completedAt ??= completedAt;
+              }
+            }
+          }
           const prevState = target.state;
           target.state = mapProgressState(ev.state ?? "active");
           target.rawState = ev.state;
+          if (target.state === "done") {
+            const next = draft.steps[draft.steps.indexOf(target) + 1];
+            if (next?.type === "allowance" && next.state === "pending") {
+              next.state = "active";
+              next.rawState = "started";
+            }
+          }
           if (ev.txHash) target.txHash = ev.txHash;
           if (ev.explorerUrl) target.explorerUrl = ev.explorerUrl;
           if (ev.error) target.error = ev.error;

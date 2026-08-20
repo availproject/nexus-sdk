@@ -26,6 +26,7 @@ import {
 import { getTokenLogoUrl } from "../lib/logos";
 import { D, pctOf, sum, toFixed, trimDp } from "../lib/math";
 import { truncateAddress } from "../lib/format";
+import { getVisibleExecutionSteps } from "../lib/execution-progress";
 
 /* ── Shared icons ─────────────────────────────────────────────────── */
 
@@ -597,7 +598,7 @@ function ExecutingBody({
   const steps = state.steps;
   const activeStep = steps.find((s) => s.state === "active" || s.state === "submitted");
   const showToggle = activeStep !== undefined && steps.length > 1;
-  const visibleSteps = !activeStep || expanded ? steps : [activeStep];
+  const visibleSteps = getVisibleExecutionSteps(steps, expanded);
 
   return (
     <>
@@ -1026,4 +1027,3 @@ export function FlowModal({
     </Dialog.Root>
   );
 }
-
