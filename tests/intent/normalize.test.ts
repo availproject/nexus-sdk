@@ -27,7 +27,8 @@ describe('Better Intent response normalization', () => {
           decimals: 18,
           logo: 'eth.svg',
         },
-        providers: ['nexus-v2', 'mayan'],
+        asSource: ['nexus-v2', 'mayan'],
+        asDestination: ['nexus-v2'],
         tokens: [
           {
             address: TOKEN.toUpperCase().replace('0X', '0x'),
@@ -35,13 +36,19 @@ describe('Better Intent response normalization', () => {
             name: 'USD Coin',
             decimals: 6,
             isNative: false,
-            providers: [{ id: 'nexus-v2', currencyId: 1 }],
+            asSource: [{ id: 'nexus-v2', currencyId: 1 }, { id: 'mayan' }],
+            asDestination: [{ id: 'nexus-v2', currencyId: 1 }],
           },
         ],
       },
     ]);
 
     expect(result[0]).toMatchObject({ id: 8453, name: 'Base' });
+    expect(result[0]).toMatchObject({
+      providers: ['nexus-v2', 'mayan'],
+      asSource: ['nexus-v2', 'mayan'],
+      asDestination: ['nexus-v2'],
+    });
     expect(result[0]?.tokens[0]).toMatchObject({
       chainId: 8453,
       address: TOKEN,
@@ -171,6 +178,14 @@ describe('Better Intent response normalization', () => {
         requiresApprovals: true,
         requiresNativeTxReceipts: true,
       },
+      sourceVerdicts: [
+        {
+          chainId: 'EVM_8453',
+          tokenAddress: TOKEN,
+          tokenSymbol: 'USDC',
+          state: 'selected',
+        },
+      ],
     });
 
     expect(result.quote).toMatchObject({
@@ -178,6 +193,7 @@ describe('Better Intent response normalization', () => {
       provider: 'nexus-v2',
       input: [{ amountRaw: 1_000_000n, totalRequiredRaw: 1_001_000n }],
       output: { chainId: 1, amountRaw: 990_000n, minAmountRaw: 985_000n },
+      sourceVerdicts: [{ chainId: 8453, tokenAddress: TOKEN, state: 'selected' }],
       expiresAt: 2_000_000_000,
     });
     expect(result.quote).not.toHaveProperty('rff');

@@ -42,6 +42,7 @@ export type OperationName =
   | 'swapWithExactOut'
   | 'swapAndExecute'
   | 'setEVMProvider'
+  | 'getSupportedChainsForRoute'
   // exported utility helpers (rev 10)
   | 'getCoinbaseRates'
   | 'getSupportedChains';

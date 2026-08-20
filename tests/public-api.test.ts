@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import * as rootModule from '../src';
 import * as utilsModule from '../src/utils';
-import { AnalyticsManager, IntentStatus, NexusAnalyticsEvents } from '../src';
+import { AnalyticsManager, getIntentQuoteFailure, IntentStatus, NexusAnalyticsEvents } from '../src';
 import type {
   BridgeAndExecuteResult,
   BridgeResult,
@@ -12,6 +12,7 @@ import type {
   IntentHistoryResult,
   IntentHookData,
   IntentQuote,
+  IntentRouteConstraints,
   IntentResult,
   IntentRecord,
   IntentStatusResponse,
@@ -35,6 +36,7 @@ describe('public api exports', () => {
     const bridgeAndExecuteResult = {} as BridgeAndExecuteResult;
     const swapAndExecuteResult = {} as SwapAndExecuteResult;
     const quote = {} as IntentQuote;
+    const route = { sources: [{ chainId: 10 }] } satisfies IntentRouteConstraints;
     const balance = {} as IntentBalance;
     const event = {} as IntentEvent;
     const hook = {} as IntentHookData;
@@ -51,6 +53,8 @@ describe('public api exports', () => {
     expect(bridgeOperation).toBe('bridge');
     expectTypeOf(txResult).toMatchTypeOf<TxResult>();
     expectTypeOf(quote).toMatchTypeOf<IntentQuote>();
+    expect(route.sources[0]?.chainId).toBe(10);
+    expect(getIntentQuoteFailure(new Error('not an SDK error'))).toBeNull();
     expectTypeOf(balance).toMatchTypeOf<IntentBalance>();
     expectTypeOf(event).toMatchTypeOf<IntentEvent>();
     expectTypeOf(hook).toMatchTypeOf<IntentHookData>();

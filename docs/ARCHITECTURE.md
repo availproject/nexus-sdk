@@ -170,6 +170,15 @@ and return chain-level `IntentBalance[]` values.
 `getSupportedChains()` merges Better Intent catalog chains with execute deployment chains. Each
 result contains explicit `capabilities.intent` and `capabilities.execute` flags.
 
+`getSupportedChainsForRoute()` forwards the user's current source/destination constraints to
+`/better-intent/chains`. The middleware remains the source of truth for provider compatibility and
+returns directional `asSource`/`asDestination` support. The SDK keeps `providers` as the union of
+those fields for compatibility with existing consumers.
+
+Quote responses normalize `sourceVerdicts`. Structured quote failures are retained on the SDK
+error and exposed through `getIntentQuoteFailure`, including the middleware subcode, error ID,
+source verdicts, provider reasons, and whether retrying may help.
+
 ## Composite intent plus execute
 
 `bridgeAndExecute` and `swapAndExecute` retain a small amount of local calculation because the SDK

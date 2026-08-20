@@ -200,7 +200,7 @@ describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s
     await client.setEVMProvider(provider());
     await client.getBalancesForSwap();
 
-    expect(getIntentChains).toHaveBeenCalledWith(['mayan']);
+    expect(getIntentChains).toHaveBeenCalledWith({ providers: ['mayan'] });
     expect(getIntentBalances).toHaveBeenCalledWith(expect.stringMatching(/^0x0*aa$/i), {
       refresh: false,
       providers: ['mayan'],

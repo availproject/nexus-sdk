@@ -12,6 +12,7 @@ import {
   normalizeIntentChains,
   normalizeIntentHistory,
   normalizeIntentQuote,
+  normalizeIntentSourceVerdicts,
   normalizeIntentStatus,
   normalizeIntentSubmitResponse,
 } from '../intent/normalize';
@@ -23,6 +24,8 @@ import type {
   IntentHistoryResult,
   IntentProvider,
   IntentQuoteRequest,
+  IntentRouteConstraints,
+  IntentSourceVerdict,
   IntentStatus,
   IntentSubmitRequest,
   IntentSubmitResponse,
@@ -30,7 +33,7 @@ import type {
 
 export type MiddlewareClient = {
   getDeployment: () => Promise<DeploymentResponse>;
-  getIntentChains: (providers?: IntentProvider[]) => Promise<IntentChain[]>;
+  getIntentChains: (constraints?: IntentRouteConstraints) => Promise<IntentChain[]>;
   getIntentBalances: (
     address: Hex,
     options?: { refresh?: boolean; providers?: IntentProvider[] }
@@ -126,13 +129,100 @@ const filterUnsupportedChains = (input: unknown): unknown => {
 const middlewareErrorDetails = (error: unknown): Record<string, unknown> => {
   const data = (error as { response?: { data?: unknown } } | undefined)?.response?.data;
   if (!isRecord(data)) return { error: formatUnknownError(error) };
+  const details = isRecord(data.details) ? data.details : undefined;
+  const subcode = data.subcode;
+  let intentQuoteFailure: Record<string, unknown> | undefined;
+  if (
+    subcode === 'NO_ROUTABLE_SOURCE' ||
+    subcode === 'INTENT_REFUSED' ||
+    subcode === 'PROVIDER_UNAVAILABLE'
+  ) {
+    let sourceVerdicts: IntentSourceVerdict[] = [];
+    try {
+      sourceVerdicts = normalizeIntentSourceVerdicts(details?.sourceVerdicts ?? []);
+    } catch {
+      // Preserve the original backend error even if optional diagnostics are malformed.
+    }
+    intentQuoteFailure = {
+      code: typeof data.code === 'string' ? data.code : undefined,
+      subcode,
+      errorId: typeof data.errorId === 'string' ? data.errorId : undefined,
+      retryable: subcode === 'PROVIDER_UNAVAILABLE',
+      sourceVerdicts,
+      providerReasons: Array.isArray(details?.providerReasons)
+        ? details.providerReasons.filter((reason): reason is string => typeof reason === 'string')
+        : [],
+    };
+  }
   return {
     error: typeof data.message === 'string' ? data.message : formatUnknownError(error),
     middlewareCode: data.code,
     middlewareSubcode: data.subcode,
     errorId: data.errorId,
     middlewareDetails: data.details,
+    intentQuoteFailure,
   };
+};
+
+const intentChainParams = (constraints?: IntentRouteConstraints): URLSearchParams => {
+  const params = new URLSearchParams();
+  for (const provider of constraints?.providers ?? []) params.append('provider', provider);
+  const appendLegs = (
+    prefix: 'source' | 'destination',
+    legs?: NonNullable<IntentRouteConstraints['sources']>
+  ) => {
+    const fields = ['chainId', 'tokenAddress', 'amountRaw'] as const;
+    for (const field of fields) {
+      const populated = (legs ?? []).filter((leg) => leg[field] !== undefined).length;
+      if (populated > 0 && populated !== legs?.length) {
+        throw Errors.invalidInput(`${prefix} ${field} must be supplied for every constrained leg`);
+      }
+    }
+    for (const leg of legs ?? []) {
+      if (leg.chainId === undefined && leg.tokenAddress === undefined) {
+        throw Errors.invalidInput(`${prefix} constraints require chainId or tokenAddress`);
+      }
+      if (leg.chainId !== undefined) {
+        if (!Number.isInteger(leg.chainId) || leg.chainId <= 0) {
+          throw Errors.invalidInput(`${prefix} chainId must be a positive integer`);
+        }
+        params.append(`${prefix}Chain`, `EVM_${leg.chainId}`);
+      }
+      if (leg.tokenAddress !== undefined) {
+        if (!/^0x[0-9a-fA-F]{40}$/.test(leg.tokenAddress)) {
+          throw Errors.invalidInput(`${prefix} tokenAddress must be an EVM address`);
+        }
+        params.append(`${prefix}Token`, leg.tokenAddress);
+      }
+      if (leg.amountRaw !== undefined) {
+        if (leg.chainId === undefined || leg.tokenAddress === undefined) {
+          throw Errors.invalidInput(`${prefix} amountRaw requires chainId and tokenAddress`);
+        }
+        if (leg.amountRaw < 0n) throw Errors.invalidInput(`${prefix} amountRaw cannot be negative`);
+        params.append(`${prefix}Amount`, leg.amountRaw.toString());
+      }
+    }
+  };
+  appendLegs('source', constraints?.sources);
+  appendLegs('destination', constraints?.destinations);
+  const sourceSized = constraints?.sources?.some((leg) => leg.amountRaw !== undefined) ?? false;
+  const destinationSized =
+    constraints?.destinations?.some((leg) => leg.amountRaw !== undefined) ?? false;
+  if (
+    Number(sourceSized) + Number(destinationSized) + Number(constraints?.valueUsd !== undefined) >
+    1
+  ) {
+    throw Errors.invalidInput(
+      'Use only one sizing mode: source amounts, destination amounts, or valueUsd'
+    );
+  }
+  if (constraints?.valueUsd !== undefined) {
+    if (!Number.isFinite(constraints.valueUsd) || constraints.valueUsd < 0) {
+      throw Errors.invalidInput('valueUsd must be a non-negative finite number');
+    }
+    params.set('valueUsd', constraints.valueUsd.toString());
+  }
+  return params;
 };
 
 export const createMiddlewareClient = (
@@ -189,12 +279,12 @@ export const createMiddlewareClient = (
     }
   };
 
-  const getIntentChains = (providers?: IntentProvider[]): Promise<IntentChain[]> =>
+  const getIntentChains = (constraints?: IntentRouteConstraints): Promise<IntentChain[]> =>
     request('chains request', async () =>
       normalizeIntentChains(
         (
           await client.get('/api/v1/better-intent/chains', {
-            params: { provider: providers?.length === 1 ? providers[0] : providers },
+            params: intentChainParams(constraints),
           })
         ).data
       )

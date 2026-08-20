@@ -64,6 +64,7 @@ type BaseState = {
   evm?: { client: WalletClient; provider: EthereumProvider; address: Hex };
   analytics?: AnalyticsManager;
   networkConfig: ReturnType<typeof getNetworkConfig>;
+  forceMayan: boolean;
 };
 
 const chainRef = (chainId: number) => `EVM_${chainId}`;
@@ -91,6 +92,7 @@ export const createBase = (config?: {
       config?.internal?.middlewareClient ??
       createMiddlewareClient(networkConfig.MIDDLEWARE_HTTP_URL),
     networkConfig,
+    forceMayan: config?.forceMayan === true,
   };
   let walletQueue: Promise<unknown> = Promise.resolve();
 
@@ -564,6 +566,15 @@ export const createBase = (config?: {
     getBalancesForSwap: getIntentBalances,
     getSupportedChains: () =>
       mergeSupportedChains(state.intentCatalog?.chains ?? [], getChainList().chains),
+    getSupportedChainsForRoute: (
+      constraints: import('../../intent/types').IntentRouteConstraints
+    ) => {
+      getIntentCatalog();
+      return state.middlewareClient.getIntentChains({
+        ...constraints,
+        providers: state.forceMayan ? ['mayan'] : constraints.providers,
+      });
+    },
     convertTokenReadableAmountToBigInt: (amount: string, tokenSymbol: string, chainId: number) =>
       mulDecimals(amount, getChainList().getTokenInfoBySymbol(chainId, tokenSymbol).decimals),
     hasEvmProvider: () => Boolean(state.evm),
