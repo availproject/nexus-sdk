@@ -1,9 +1,10 @@
-import { encodeFunctionData, erc20Abi, type Hex, type PublicClient, parseSignature } from 'viem';
+import { encodeFunctionData, type Hex, type PublicClient, parseSignature } from 'viem';
 import type { PrivateKeyAccount } from 'viem/accounts';
 import { ERC20PermitABI } from '../../abi/erc20';
 import type { Chain, ChainListType } from '../../domain';
 import { Errors } from '../../domain/errors';
 import { PermitVariant } from '../../domain/permits';
+import { getPermitDomainName } from '../../services/allowance-utils';
 
 export const buildEphemeralPermitCall = async (input: {
   tokenAddress: Hex;
@@ -29,11 +30,7 @@ export const buildEphemeralPermitCall = async (input: {
   }
 
   const [name, nonce] = (await Promise.all([
-    input.publicClient.readContract({
-      address: input.tokenAddress,
-      abi: erc20Abi,
-      functionName: 'name',
-    }),
+    getPermitDomainName(input.tokenAddress, input.publicClient),
     input.publicClient.readContract({
       address: input.tokenAddress,
       abi: ERC20PermitABI,

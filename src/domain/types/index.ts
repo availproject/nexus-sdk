@@ -56,6 +56,7 @@ export type {
 } from './event-common';
 export type { PlanTokenAmount, PlanTokenMetadata } from './plan-common';
 export type {
+  SwapAllowanceStep,
   SwapAndExecuteEvent,
   SwapAndExecutePlan,
   SwapAndExecutePlanConfirmedEvent,

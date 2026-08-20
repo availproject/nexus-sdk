@@ -11,6 +11,7 @@ import type {
   ListIntentsResult,
   OperationName,
   SwapAndExecuteResult,
+  SwapAllowanceStep,
   SwapMaxResult,
   SwapResult as SwapResultType,
   SwapResult,
@@ -29,6 +30,7 @@ describe('public api exports', () => {
     const txResult = {} as TxResult;
     const bridgeAndExecuteResult = {} as BridgeAndExecuteResult;
     const swapAndExecuteResult = {} as SwapAndExecuteResult;
+    const swapAllowanceStep = {} as SwapAllowanceStep;
 
     expect(IntentStatus.Created).toBe('created');
     expect(params).toEqual({ page: 1, status: 'created' });
@@ -40,6 +42,7 @@ describe('public api exports', () => {
     expectTypeOf(txResult).toMatchTypeOf<TxResult>();
     expectTypeOf(bridgeAndExecuteResult).toMatchTypeOf<BridgeAndExecuteResult>();
     expectTypeOf(swapAndExecuteResult).toMatchTypeOf<SwapAndExecuteResult>();
+    expectTypeOf(swapAllowanceStep.method).toEqualTypeOf<'approval' | 'permit' | undefined>();
 
     if (bridgeAndExecuteResult.bridgeSkipped) {
       expectTypeOf(bridgeAndExecuteResult.bridgeResult).toEqualTypeOf<undefined>();

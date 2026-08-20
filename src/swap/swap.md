@@ -49,6 +49,7 @@ buildSwapPreflight
   -> createSwapIntent + createSwapPlan
   -> start allowance, permit-capability, and Safe-code cache reads
   -> await onIntent approval
+  -> await cache and confirm required allowance methods
   -> ensure missing Safes on every Safe execution chain
   -> prepareSwapExecution (await the accepted route's cache)
   -> executeSwapRoute
@@ -64,6 +65,9 @@ work overlaps the user's review time. It includes one bytecode lookup for the de
 Safe execution chain. Bridge source chains without source swaps do not require this lookup. A refreshed intent
 reuses the existing warmup when its query data is unchanged; a changed query set starts a new
 warmup. Wallet signatures, approvals, and transactions remain gated behind intent acceptance.
+Potential EOA ERC-20 authorization appears as a methodless `allowance` step in `plan_preview`.
+After acceptance, `plan_confirmed` drops already-satisfied allowances and labels the remainder as
+`approval` or `permit` using the warmed cache.
 
 ## Deployment-before-wallet-prompt invariant
 
@@ -208,7 +212,8 @@ inner values must equal the outer native value. The SDK rejects mismatches befor
 
 ### Source swaps
 
-Each chain groups its source legs into one Safe batch. ERC-20 legs prepend prepared funding and
+Source chains execute in ascending chain-ID order, and native input is listed and executed first
+within each chain. Each chain groups its source legs into one Safe batch. ERC-20 legs prepend prepared funding and
 aggregator allowance calls as needed. Native legs are EOA-submitted Safe transactions. Failed source
 execution may trigger a bounded requote when the failure is known to be safe to retry.
 

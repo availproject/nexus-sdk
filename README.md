@@ -1708,6 +1708,7 @@ Swap plans contain the following step types:
 
 | Step Type | Description |
 |-----------|-------------|
+| `allowance` | Authorize an EOA-held ERC-20 for the Safe or bridge vault |
 | `source_swap` | Execute a swap through the Safe on a source chain |
 | `eoa_to_ephemeral_transfer` | Move EOA-held bridge funds to the ephemeral holder when source swaps are required |
 | `bridge_deposit` | Deposit into vault for cross-chain bridge |
@@ -1725,6 +1726,7 @@ type SwapPlan = {
 };
 
 type SwapPlanStep =
+  | SwapAllowanceStep
   | SwapSourceSwapStep
   | SwapEoaToEphemeralTransferStep
   | SwapBridgeDepositStep
@@ -1732,6 +1734,11 @@ type SwapPlanStep =
   | BridgeFillStep
   | SwapDestinationSwapStep;
 ```
+
+In `plan_preview`, an `allowance` step is provisional and omits `method`. After intent approval,
+`plan_confirmed` removes allowances that are already sufficient and sets each remaining step's
+`method` to `approval` or `permit`. Authorization continues to report progress through its adjacent
+transfer, swap, or bridge step rather than a separate allowance progress event.
 
 Each step carries contextual metadata such as its chain and tokens. Source and destination swap steps also expose `walletPath: 'safe'`. Progress events report per-step state transitions. The terminal success state varies by step type:
 
@@ -1771,7 +1778,7 @@ client.bridge(params, {
 });
 ```
 
-Per-step `step` shapes (all include `id` and `type`): `allowance_approval` → `chain`, `token`, `spender`, `requiredAmount`; `vault_deposit` → `chain`, `asset`, `assetType`, `submissionMode`; `bridge_fill` → `chain`, `asset`; `execute_approval` → `chain`, `token`, `spender`, `amount`; `execute_transaction` → `chain`, `to`. Swap source/destination steps carry `swaps[]` with `input`/`output` token amounts.
+Per-step `step` shapes (all include `id` and `type`): swap `allowance` → `method?`, `chain`, `token`, `spender`, `amount`; bridge `allowance_approval` → `chain`, `token`, `spender`, `requiredAmount`; `vault_deposit` → `chain`, `asset`, `assetType`, `submissionMode`; `bridge_fill` → `chain`, `asset`; `execute_approval` → `chain`, `token`, `spender`, `amount`; `execute_transaction` → `chain`, `to`. Swap source/destination steps carry `swaps[]` with `input`/`output` token amounts.
 
 ### Building Progress UIs
 

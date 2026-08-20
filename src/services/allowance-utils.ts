@@ -151,6 +151,35 @@ const PolygonDomain = [
   { name: 'salt', type: 'bytes32' },
 ] as const;
 
+export const getPermitDomainName = async (
+  tokenAddress: Address,
+  publicClient: PublicClient
+): Promise<string> => {
+  const contract = getContract({
+    abi: ERC20ABI,
+    address: tokenAddress,
+    client: { public: publicClient },
+  });
+
+  try {
+    const [, name] = await contract.read.eip712Domain();
+    return name;
+  } catch {
+    try {
+      return await contract.read.name();
+    } catch {
+      logger.error(
+        'signPermit:failed to read token name',
+        new ExecutionError(ERROR_CODES.EXEC_ERC20_NAME_READ_FAILED, 'Failed to read token name', {
+          context: { service: 'rpc' },
+          details: { tokenAddress },
+        })
+      );
+      return '';
+    }
+  }
+};
+
 export async function signPermitForAddressAndValue(
   cur: PermitCurrency,
   chain: Chain,
@@ -171,16 +200,7 @@ export async function signPermitForAddressAndValue(
 
   const walletAddress = account.address;
   const deadline = ddl;
-  const tokenNameRequest = contract.read.name().catch(() => {
-    logger.error(
-      'signPermit:failed to read token name',
-      new ExecutionError(ERROR_CODES.EXEC_ERC20_NAME_READ_FAILED, 'Failed to read token name', {
-        context: { service: 'rpc' },
-        details: { tokenAddress: cur.tokenAddress },
-      })
-    );
-    return '';
-  });
+  const tokenNameRequest = getPermitDomainName(cur.tokenAddress, publicClient);
   let nonceRequest: Promise<bigint>;
 
   switch (cur.permitVariant) {

@@ -9,6 +9,7 @@ import { makeChain, makeChainList } from '../helpers/chains';
 import { makeMiddlewareClient } from '../helpers/middleware-client';
 
 const contractReads = vi.hoisted(() => ({
+  eip712Domain: vi.fn(),
   name: vi.fn(),
   nonces: vi.fn(),
 }));
@@ -28,6 +29,7 @@ const TOKEN = '0x0000000000000000000000000000000000000001' as Hex;
 const OWNER = '0x0000000000000000000000000000000000000002' as Hex;
 const SPENDER = '0x0000000000000000000000000000000000000003' as Hex;
 const SOURCE_CHAIN = makeChain(42161, 'Arbitrum');
+const MONAD = makeChain(143, 'Monad');
 
 describe('signPermitForAddressAndValue', () => {
   afterEach(() => {
@@ -36,8 +38,74 @@ describe('signPermitForAddressAndValue', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    contractReads.eip712Domain.mockRejectedValue(new Error('ERC-5267 unsupported'));
     contractReads.name.mockResolvedValue('USD Coin');
     contractReads.nonces.mockResolvedValue(7n);
+  });
+
+  it.each([
+    {
+      case: 'uses the ERC-5267 name when it differs from name()',
+      domainName: 'Agora Dollar',
+      tokenName: 'AUSD',
+      expected: 'Agora Dollar',
+    },
+    {
+      case: 'falls back to name() when ERC-5267 is unsupported',
+      domainName: null,
+      tokenName: 'AUSD',
+      expected: 'AUSD',
+    },
+    {
+      case: 'falls back to an empty name when both reads fail',
+      domainName: null,
+      tokenName: null,
+      expected: '',
+    },
+  ])('$case', async ({ domainName, tokenName, expected }) => {
+    if (domainName) {
+      contractReads.eip712Domain.mockResolvedValue([
+        '0x0f',
+        domainName,
+        '1',
+        143n,
+        TOKEN,
+        `0x${'00'.repeat(32)}`,
+        [],
+      ]);
+    }
+    if (tokenName === null) {
+      contractReads.name.mockRejectedValue(new Error('name unsupported'));
+    } else {
+      contractReads.name.mockResolvedValue(tokenName);
+    }
+    const walletClient = {
+      getChainId: vi.fn().mockResolvedValue(MONAD.id),
+      signTypedData: vi.fn().mockResolvedValue(`0x${'aa'.repeat(65)}` as Hex),
+    } as unknown as WalletClient & {
+      signTypedData: ReturnType<typeof vi.fn>;
+    };
+
+    await signPermitForAddressAndValue(
+      {
+        tokenAddress: TOKEN,
+        decimals: 6,
+        permitVariant: PermitVariant.EIP2612Canonical,
+        permitContractVersion: 1,
+      },
+      MONAD,
+      walletClient,
+      {} as PublicClient,
+      { address: OWNER, type: 'json-rpc' } as Account,
+      SPENDER,
+      123n,
+      456n
+    );
+
+    expect(walletClient.signTypedData.mock.calls[0]?.[0]?.domain).toMatchObject({
+      name: expected,
+      version: '1',
+    });
   });
 
   it('switches to the supplied chain before signing and uses that chain in the typed data domain', async () => {

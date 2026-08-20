@@ -60,8 +60,8 @@ export const createSwapProgressEmitter = (emit: SwapParams['emit']) => {
     emitSwapEvent(event);
   };
 
-  const emitPlanConfirmed = (fallbackPlan: SwapPlan) => {
-    state.confirmedPlan = state.latestPreviewPlan ?? fallbackPlan;
+  const emitPlanConfirmed = (plan: SwapPlan) => {
+    state.confirmedPlan = plan;
     emitSwapEvent({
       type: 'plan_confirmed',
       plan: state.confirmedPlan,

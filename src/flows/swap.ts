@@ -90,14 +90,15 @@ export type SwapPreviewState = {
 const createSwapPreviewStateFromRoute = (
   route: SwapRoute,
   input: SwapData,
-  chainList: SwapDeps['chainList']
+  chainList: SwapDeps['chainList'],
+  authorization: { eoaAddress: Hex; safeAddress: Hex }
 ): SwapPreviewState => {
   const intent = createSwapIntent(route, input, chainList);
 
   return {
     route,
     intent,
-    plan: createSwapPlan(route, chainList),
+    plan: createSwapPlan(route, chainList, authorization),
   };
 };
 
@@ -109,7 +110,7 @@ export const buildSwapPreviewState = async (
     input,
     createRouteOptions(context, context.preflight, input)
   );
-  return createSwapPreviewStateFromRoute(route, input, context.chainList);
+  return createSwapPreviewStateFromRoute(route, input, context.chainList, context);
 };
 
 const waitForIntentApproval = (
@@ -236,7 +237,10 @@ const runSwapFlow = async (
     )
   );
   let previewState = await withTimingSpan(deps.timing, 'flow.swap.create_intent', async () =>
-    createSwapPreviewStateFromRoute(route, input, deps.chainList)
+    createSwapPreviewStateFromRoute(route, input, deps.chainList, {
+      eoaAddress: deps.evm.address,
+      safeAddress: safeAccount.address,
+    })
   );
 
   const warmCacheForRoute = (nextRoute: SwapRoute, previous?: SwapCacheWarmup): SwapCacheWarmup =>
@@ -283,7 +287,14 @@ const runSwapFlow = async (
   route = approval.route;
 
   emitStatus('approved');
-  emitPlanConfirmed(previewState.plan);
+  await cacheWarmup.process;
+  emitPlanConfirmed(
+    createSwapPlan(route, deps.chainList, {
+      cache: cacheWarmup.cache,
+      eoaAddress: deps.evm.address,
+      safeAddress: safeAccount.address,
+    })
+  );
   const routePath = route.directDestination
     ? 'direct_destination'
     : route.sameTokenBridge
