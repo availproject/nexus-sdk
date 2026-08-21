@@ -163,14 +163,15 @@ createBridgeIntent(provider='mayan') → createMayanBridgeIntent:    # try/catch
   # Step 1: source inventory — keep only sources where source chain AND token are mayanEnabled
   #         depositFee looked up with 'depositMayan' → match.depositMayanFeeToken (not depositFeeToken)
   # Step 2: per-leg floor = $1.10 USD  (×2 for native ETH → Ethereum mainnet)
-  #         keep sources with usableUsd ≥ $1.10 ∧ usable ≥ minimumAmount; sort by usableUsd DESC
+  #         keep sources with usableUsd ≥ $1.10 ∧ usable ≥ minimumAmount;
+  #         sort Ethereum last, then usableUsd DESC within each group
   # Step 3: gas drop — capped per chain (ETH .05, BSC .02, Polygon .2, Avax .1, Arb .01);
   #         native destination + gas drop → throw; modelled INSIDE the Mayan route, not an RFF dest
 
   # Steps 4-7: quote once, then trim ONE leg — Mayan quotes are EXACT-IN, RFF is EXACT-OUT.
   # Step 4: ONE batched getMayanQuotes with every eligible leg at its FULL usable amount,
-  #         gas drop on the largest leg (index 0 after the usableUsd-desc sort). maxOut[i] = minReceived.
-  # Step 5: commit the largest legs in full until Σ maxOut ≥ amount; if even all legs maxed are short
+  #         gas drop on the first priority-ordered leg. maxOut[i] = minReceived.
+  # Step 5: commit priority-ordered legs in full until Σ maxOut ≥ amount; if even all legs maxed are short
   #         → throw Insufficient balance (detected in ONE round, not three).
   # Step 6: the last committed leg is the SWING. Keep the others at full; trim the swing to the
   #         residual needFromSwing = amount − Σ(other committed maxOut):
@@ -374,13 +375,14 @@ the quote source list and use an internal fee of `0`. The public `total` is `caG
 - **Mayan per‑leg floor `$1.10`** (×2 for native ETH → mainnet); sources below it are dropped before
   selection.
 - **Mayan convergence is quote‑once + swing‑leg.** One batched `getMayanQuotes` prices every eligible
-  leg at full usable; the largest legs are committed in full and only the **last (swing) leg** is
-  trimmed (≤ `MAYAN_SWING_MAX_QUOTES` re‑quotes) to the residual output. Convergence is guaranteed
+  leg at full usable; legs are ordered with Ethereum last, then usable USD descending within each
+  group. They are committed in that order and only the **last (swing) leg** is trimmed
+  (≤ `MAYAN_SWING_MAX_QUOTES` re‑quotes) to the residual output. Convergence is guaranteed
   (the swing at full usable already covers the residual), insufficiency is detected in **one** round
   (`Σ all‑max < amount`), and any overshoot is confined to the swing leg and bounded by one per‑leg
   minimum (accepted by design). Replaces the old ≤3‑round proportional‑rescale loop that could miss
   the target and fall back to Nexus.
-- **Mayan gas drop** is chain‑capped and rides the **largest** leg only; it lives in the route
+- **Mayan gas drop** is chain‑capped and rides the **first priority-ordered** leg only; it lives in the route
   payload, never as an RFF destination. Native destination + gas drop is rejected.
 - **Exact‑out source selection** (Nexus) is greedy over `usable = balance − depositFee`, Ethereum
   ordered last; a leftover `remainingPayable` throws `Insufficient balance`.

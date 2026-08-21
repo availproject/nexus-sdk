@@ -463,6 +463,61 @@ describe('createBridgeIntent', () => {
         }),
       });
 
+    it('selects non-Ethereum sources before a larger Ethereum source', async () => {
+      const ethChain = makeChain(1, 'Ethereum');
+      const baseChain = makeChain(8453, 'Base');
+      const dstChain = makeChain(10, 'Optimism');
+
+      const assets: TokenBalance[] = [
+        makeTokenBalance({
+          balance: '30',
+          value: '30.00',
+          chainBalances: [
+            makeChainBalance({
+              balance: '20',
+              value: '20.00',
+              chainId: ethChain.id,
+              chainName: ethChain.name,
+            }),
+            makeChainBalance({
+              balance: '10',
+              value: '10.00',
+              chainId: baseChain.id,
+              chainName: baseChain.name,
+            }),
+          ],
+        }),
+      ];
+
+      const chainList = makeChainList([ethChain, baseChain, dstChain], token);
+      const options = makeOptions(chainList);
+
+      const intent = await createBridgeIntent(
+        {
+          amount: new Decimal('15'),
+          assets: createUserAssets(assets),
+          gas: new Decimal('0'),
+          gasInToken: new Decimal('0'),
+          resolveUsdValue: ({ amount }) => amount,
+          sourceChains: [],
+          token,
+          dstChainId: dstChain.id,
+          dstChainUniverse: Universe.ETHEREUM,
+          dstChainNativeDecimals: 18,
+          recipient: options.evm.address,
+          quoteResponse: feeQuote([ethChain.id, baseChain.id], dstChain.id),
+          provider: 'mayan',
+        },
+        { ...createIntentContext(options), middlewareClient: makeRateMayanClient(1) }
+      );
+
+      expect(intent.provider).toBe('mayan');
+      expect(intent.selectedSources.map((source) => source.chain.id)).toEqual([
+        baseChain.id,
+        ethChain.id,
+      ]);
+    });
+
     it('commits the largest leg in full and trims only the last leg to the requested amount', async () => {
       const bigChain = makeChain(42161, 'Arbitrum');
       const swingChain = makeChain(8453, 'Base');

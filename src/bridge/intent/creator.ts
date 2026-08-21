@@ -419,13 +419,18 @@ const createMayanBridgeIntent = async (
       .filter((source) => {
         return source.usableUsd.gte(minimumPerLegUsd) && source.usable.gte(source.minimumAmount);
       })
-      .sort((a, b) => Decimal.sub(b.usableUsd, a.usableUsd).toNumber());
+      .sort((a, b) => {
+        const aIsEth = a.chain.id === 1 ? 1 : 0;
+        const bIsEth = b.chain.id === 1 ? 1 : 0;
+        if (aIsEth !== bIsEth) return aIsEth - bIsEth;
+        return Decimal.sub(b.usableUsd, a.usableUsd).toNumber();
+      });
     if (allowedSources.length === 0) {
       throw Errors.invalidInput('intent must include at least one allowed source');
     }
 
     // Step 3: Mayan quotes are exact-in while the SDK bridge request is exact-out. We quote
-    // every eligible leg once at its full usable amount, commit the largest legs in full,
+    // every eligible leg once at its full usable amount, commit priority-ordered legs in full,
     // and trim only the last (swing) leg to the residual output we still need. The swing leg
     // may overshoot by up to one per-leg minimum, which is accepted.
     let finalAmountOut = new Decimal(0);
@@ -487,8 +492,7 @@ const createMayanBridgeIntent = async (
     };
 
     // Step 4: quote every eligible leg once at its full usable amount. The destination gas
-    // drop rides the largest leg (index 0 after the usableUsd-desc sort) so a single quote
-    // pays for it.
+    // drop rides the first priority-ordered leg so a single quote pays for it.
     const maxQuotes = await quoteMayanLegs(middlewareClient, {
       legs: allowedSources.map((source, index) => ({
         chainId: source.chain.id,
@@ -505,7 +509,7 @@ const createMayanBridgeIntent = async (
       out: maxQuotes[index].minReceived,
     }));
 
-    // Step 5: commit the largest legs in full until their summed output covers the
+    // Step 5: commit the priority-ordered legs in full until their summed output covers the
     // requested amount.
     const committedLegs: typeof maxLegs = [];
     let cumulativeOut = new Decimal(0);
