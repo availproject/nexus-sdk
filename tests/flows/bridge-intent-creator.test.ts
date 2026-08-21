@@ -107,6 +107,8 @@ describe('createBridgeIntent', () => {
     value?: string;
   }) => ({
     balance: input.balance,
+    totalBalance: input.balance,
+    usableBalance: input.balance,
     value: input.value ?? '0.00',
     symbol: input.symbol ?? 'USDC',
     chain: { id: input.chainId, logo: '', name: input.chainName },
@@ -125,6 +127,8 @@ describe('createBridgeIntent', () => {
     value?: string;
   }): TokenBalance => ({
     balance: input.balance,
+    totalBalance: input.balance,
+    usableBalance: input.balance,
     value: input.value ?? '0.00',
     chainBalances: input.chainBalances,
     decimals: input.decimals ?? token.decimals,

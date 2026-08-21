@@ -6,6 +6,7 @@ import type {
   BridgeAndExecuteResult,
   BridgeResult,
   BridgeSimulationResult,
+  ChainBalance,
   IntentRecord,
   ListIntentsParams,
   ListIntentsResult,
@@ -15,6 +16,7 @@ import type {
   SwapMaxResult,
   SwapResult as SwapResultType,
   SwapResult,
+  TokenBalance,
   TxResult,
 } from '../src';
 
@@ -31,6 +33,8 @@ describe('public api exports', () => {
     const bridgeAndExecuteResult = {} as BridgeAndExecuteResult;
     const swapAndExecuteResult = {} as SwapAndExecuteResult;
     const swapAllowanceStep = {} as SwapAllowanceStep;
+    const tokenBalance = {} as TokenBalance;
+    const chainBalance = {} as ChainBalance;
 
     expect(IntentStatus.Created).toBe('created');
     expect(params).toEqual({ page: 1, status: 'created' });
@@ -43,6 +47,10 @@ describe('public api exports', () => {
     expectTypeOf(bridgeAndExecuteResult).toMatchTypeOf<BridgeAndExecuteResult>();
     expectTypeOf(swapAndExecuteResult).toMatchTypeOf<SwapAndExecuteResult>();
     expectTypeOf(swapAllowanceStep.method).toEqualTypeOf<'approval' | 'permit' | undefined>();
+    expectTypeOf(tokenBalance.totalBalance).toEqualTypeOf<string>();
+    expectTypeOf(tokenBalance.usableBalance).toEqualTypeOf<string>();
+    expectTypeOf(chainBalance.totalBalance).toEqualTypeOf<string>();
+    expectTypeOf(chainBalance.usableBalance).toEqualTypeOf<string>();
 
     if (bridgeAndExecuteResult.bridgeSkipped) {
       expectTypeOf(bridgeAndExecuteResult.bridgeResult).toEqualTypeOf<undefined>();

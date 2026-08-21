@@ -25,10 +25,14 @@ const NATIVE_ADDRESS = '0x0000000000000000000000000000000000000000' as Hex;
 
 const USDC_ASSET: TokenBalance = {
   balance: '15',
+  totalBalance: '15',
+  usableBalance: '15',
   value: '15.00',
   chainBalances: [
     {
       balance: '10',
+      totalBalance: '10',
+      usableBalance: '10',
       value: '10.00',
       chain: { id: 1, logo: '', name: 'Ethereum' },
       contractAddress: TOKEN_ADDRESS,
@@ -38,6 +42,8 @@ const USDC_ASSET: TokenBalance = {
     },
     {
       balance: '5',
+      totalBalance: '5',
+      usableBalance: '5',
       value: '0.00',
       chain: { id: 10, logo: '', name: 'Optimism' },
       contractAddress: TOKEN_ADDRESS,
@@ -47,6 +53,8 @@ const USDC_ASSET: TokenBalance = {
     },
     {
       balance: '0',
+      totalBalance: '0',
+      usableBalance: '0',
       value: '0.00',
       chain: { id: 137, logo: '', name: 'Polygon' },
       contractAddress: TOKEN_ADDRESS,
@@ -63,10 +71,14 @@ const USDC_ASSET: TokenBalance = {
 
 const NATIVE_ASSET: TokenBalance = {
   balance: '1',
+  totalBalance: '1',
+  usableBalance: '1',
   value: '2500.00',
   chainBalances: [
     {
       balance: '1',
+      totalBalance: '1',
+      usableBalance: '1',
       value: '2500.00',
       chain: { id: 10, logo: '', name: 'Optimism' },
       contractAddress: NATIVE_ADDRESS,

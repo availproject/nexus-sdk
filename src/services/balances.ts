@@ -19,6 +19,7 @@ import type { FlatBalance } from '../swap/types';
 import type { MiddlewareBridgeBalanceClient, MiddlewareSwapBalanceClient } from '../transport';
 import { convertAddressByUniverse } from './addresses';
 import { estimateRepresentativeDepositTxFee } from './deposit-fee-estimation';
+import { createPublicClientWithFallback } from './evm';
 import { divDecimals } from './math';
 import { equalFold } from './strings';
 import { estimateRepresentativeSwapNativeReserveFee } from './swap-native-reserve-fee';
@@ -26,9 +27,13 @@ import { estimateRepresentativeSwapNativeReserveFee } from './swap-native-reserv
 const logger = getLogger();
 
 const USD_VALUE_DECIMALS = 2;
+const MONAD_CHAIN_ID = 143;
+const MONAD_DELEGATED_EOA_RESERVE = new Decimal(10);
+const EIP7702_DELEGATION_PREFIX = '0xef0100';
 
 type TokenBalanceGroup = {
   balance: Decimal;
+  totalBalance: Decimal;
   value: Decimal;
   currencyId?: number;
   chainBalances: ChainBalance[];
@@ -55,6 +60,8 @@ const finalizeTokenBalance = (group: TokenBalanceGroup): TokenBalance => {
 
   return {
     balance: group.balance.toFixed(),
+    totalBalance: group.totalBalance.toFixed(),
+    usableBalance: group.balance.toFixed(),
     value: toUsdValueString(group.value),
     chainBalances: orderBy(
       group.chainBalances,
@@ -85,6 +92,7 @@ const addChainBalanceToGroup = (
     groups.get(groupKey) ??
     ({
       balance: new Decimal(0),
+      totalBalance: new Decimal(0),
       value: new Decimal(0),
       currencyId: input.currencyId,
       chainBalances: [] as ChainBalance[],
@@ -92,6 +100,7 @@ const addChainBalanceToGroup = (
     } satisfies TokenBalanceGroup);
 
   group.balance = Decimal.add(group.balance, chainBalance.balance);
+  group.totalBalance = Decimal.add(group.totalBalance, chainBalance.totalBalance);
   group.value = Decimal.add(group.value, input.value);
   group.chainBalances.push(chainBalance);
 
@@ -150,7 +159,7 @@ export const getBalancesForSwap = async (input: {
   const adjusted =
     input.deductNativeReserve === false
       ? swapSupported
-      : await deductSwapNativeReserveFees(input.chainList, swapSupported);
+      : await deductSwapNativeReserveFees(input.chainList, swapSupported, input.evmAddress);
   return flatBalancesToAssets(input.chainList, adjusted);
 };
 
@@ -159,7 +168,8 @@ export const getBalancesForSwap = async (input: {
 // every-swap-supported-chain to 0-2 chains.
 export const deductSwapNativeReserveFees = async (
   chainList: ChainListType,
-  balances: FlatBalance[]
+  balances: FlatBalance[],
+  evmAddress: Hex
 ): Promise<FlatBalance[]> => {
   const nativeChainIds = new Set(
     balances
@@ -171,12 +181,31 @@ export const deductSwapNativeReserveFees = async (
   }
 
   const chainsNeedingFees = chainList.chains.filter((c) => nativeChainIds.has(c.id));
-  const feeByChain = new Map<number, Decimal>();
+  const reserveByChain = new Map<number, Decimal>();
   await Promise.all(
     chainsNeedingFees.map(async (chain) => {
       try {
-        const fee = await estimateRepresentativeSwapNativeReserveFee({ chain });
-        feeByChain.set(chain.id, divDecimals(fee, chain.nativeCurrency.decimals));
+        const publicClient =
+          chain.id === MONAD_CHAIN_ID ? createPublicClientWithFallback(chain) : undefined;
+        const [fee, isDelegatedOnMonad] = await Promise.all([
+          estimateRepresentativeSwapNativeReserveFee({ chain, publicClient }),
+          publicClient
+            ? publicClient
+                .getCode({ address: evmAddress })
+                .then((code) => code?.toLowerCase().startsWith(EIP7702_DELEGATION_PREFIX) === true)
+                .catch((error) => {
+                  logger.error('swap.balance.monad_delegation_check.failed', error, {
+                    chainId: chain.id,
+                  });
+                  return false;
+                })
+            : Promise.resolve(false),
+        ]);
+        const feeReserve = divDecimals(fee, chain.nativeCurrency.decimals);
+        reserveByChain.set(
+          chain.id,
+          isDelegatedOnMonad ? feeReserve.plus(MONAD_DELEGATED_EOA_RESERVE) : feeReserve
+        );
       } catch (error) {
         logger.error('swap-balance-fee-estimate', error, { chainID: chain.id });
       }
@@ -185,10 +214,10 @@ export const deductSwapNativeReserveFees = async (
 
   return balances.map((b) => {
     if (!equalFold(b.tokenAddress, EADDRESS)) return b;
-    const fee = feeByChain.get(b.chainID);
-    if (!fee) return b;
+    const reserve = reserveByChain.get(b.chainID);
+    if (!reserve) return b;
     const amount = new Decimal(b.amount);
-    const remaining = amount.sub(fee);
+    const remaining = amount.sub(reserve);
     // Actual amount removed from this native balance — the reserve fee, or the whole balance
     // when the fee exceeds it.
     const deducted = amount.sub(Decimal.max(remaining, 0));
@@ -197,12 +226,13 @@ export const deductSwapNativeReserveFees = async (
       deductedNativeAmount: `${deducted.toString()} ${b.symbol}`,
     });
     if (remaining.lte(0)) {
-      return { ...b, amount: '0', value: 0 };
+      return { ...b, amount: '0', totalAmount: b.totalAmount ?? b.amount, value: 0 };
     }
     const ratio = amount.gt(0) ? remaining.div(amount) : new Decimal(0);
     return {
       ...b,
       amount: remaining.toFixed(b.decimals, Decimal.ROUND_FLOOR),
+      totalAmount: b.totalAmount ?? b.amount,
       value: ratio.mul(b.value).toNumber(),
     };
   });
@@ -237,6 +267,8 @@ export const aggregateBalancesByCurrency = (
       const value = new Decimal(currency.value);
       const chainBalance: ChainBalance = {
         balance: normalizedBalance.toFixed(),
+        totalBalance: normalizedBalance.toFixed(),
+        usableBalance: normalizedBalance.toFixed(),
         value: toUsdValueString(value),
         symbol: token.symbol,
         chain: {
@@ -286,6 +318,8 @@ export const flatBalancesToAssets = (
     const value = new Decimal(balance.value);
     const chainBalance: ChainBalance = {
       balance: balance.amount,
+      totalBalance: balance.totalAmount ?? balance.amount,
+      usableBalance: balance.amount,
       value: toUsdValueString(value),
       symbol: balance.symbol,
       chain: {

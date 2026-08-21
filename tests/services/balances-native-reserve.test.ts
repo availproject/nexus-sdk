@@ -63,6 +63,16 @@ describe('getBalancesForSwap deductNativeReserve flag', () => {
     });
     const eth = result.find((t) => t.symbol === 'ETH');
     expect(Number(eth!.chainBalances[0]!.balance)).toBeCloseTo(0.99, 6); // 1 - 0.01 reserve
+    expect(eth).toMatchObject({
+      balance: '0.99',
+      totalBalance: '1',
+      usableBalance: '0.99',
+    });
+    expect(eth!.chainBalances[0]).toMatchObject({
+      balance: '0.990000000000000000',
+      totalBalance: '1',
+      usableBalance: '0.990000000000000000',
+    });
   });
 
   it('returns the full native balance when deductNativeReserve=false', async () => {
@@ -74,5 +84,6 @@ describe('getBalancesForSwap deductNativeReserve flag', () => {
     });
     const eth = result.find((t) => t.symbol === 'ETH');
     expect(eth!.chainBalances[0]!.balance).toBe('1'); // full, no reserve deducted
+    expect(eth).toMatchObject({ balance: '1', totalBalance: '1', usableBalance: '1' });
   });
 });
