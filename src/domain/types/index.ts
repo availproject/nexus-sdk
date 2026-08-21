@@ -628,7 +628,12 @@ export type UnifiedBalanceResponseData = {
 };
 
 export type ChainBalance = {
+  /** @deprecated Use `usableBalance` instead. */
   balance: string;
+  /** Balance before native-token reservations are deducted. */
+  totalBalance: string;
+  /** Balance available for SDK operations after reservations are deducted. */
+  usableBalance: string;
   value: string;
   symbol: string;
   chain: {
@@ -642,7 +647,12 @@ export type ChainBalance = {
 };
 
 export type TokenBalance = {
+  /** @deprecated Use `usableBalance` instead. */
   balance: string;
+  /** Total balance across chains before native-token reservations are deducted. */
+  totalBalance: string;
+  /** Balance available across chains after reservations are deducted. */
+  usableBalance: string;
   value: string;
   chainBalances: ChainBalance[];
   currencyId?: number;

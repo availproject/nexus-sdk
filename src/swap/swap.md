@@ -139,6 +139,11 @@ smaller of 0.5% or $0.25 for stable-only conversions, and the smaller of 2% or $
 non-stable conversion is required. Provider selection happens only for route-relevant remote value;
 direct destination routes do not request a bridge provider.
 
+Before source selection, native balances reserve the representative execution fee. On Monad
+(chain 143), a positive MON balance also starts an EIP-7702 delegation-code read in parallel with
+that fee estimate; a delegated EOA reserves an additional 10 MON. The usable balance is clamped at
+zero, while public balance results preserve the pre-reservation amount as `totalBalance`.
+
 An Exact Out same-token bridge can include a positive native-gas requirement in the bridge intent.
 Routing accounts for that gas in the selected source amount, omits a destination gas swap, and sets
 the bridge receiver to the EOA.

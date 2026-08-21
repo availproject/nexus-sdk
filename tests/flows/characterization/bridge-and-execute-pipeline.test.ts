@@ -192,10 +192,14 @@ const makeUserAsset = (input: {
   value: number;
 }) => ({
   balance: input.balance,
+  totalBalance: input.balance,
+  usableBalance: input.balance,
   value: input.value.toFixed(2),
   chainBalances: [
     {
       balance: input.balance,
+      totalBalance: input.balance,
+      usableBalance: input.balance,
       value: input.value.toFixed(2),
       chain: {
         id: input.chain.id,

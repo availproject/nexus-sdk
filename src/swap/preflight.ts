@@ -109,7 +109,11 @@ export const buildSwapPreflight = async (
   // router never sizes a swap against native it needs to execute. Applied here — the single swap
   // source-sizing chokepoint — regardless of whether balances were preloaded (composite flow
   // passes raw, keeping actual values for its own destination-gas shortfall) or freshly fetched.
-  const reserved = await deductSwapNativeReserveFees(options.chainList, rawBalances);
+  const reserved = await deductSwapNativeReserveFees(
+    options.chainList,
+    rawBalances,
+    options.eoaAddress
+  );
   const balances = selectSwapSources(reserved, input.data.toChainId, input.data.toTokenAddress);
 
   const candidateChainIds = getCandidateChainIds(input, balances);

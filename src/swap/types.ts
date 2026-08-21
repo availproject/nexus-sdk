@@ -187,6 +187,7 @@ export type SwapData =
 
 export type FlatBalance = {
   amount: string; // human decimal string
+  totalAmount?: string; // human decimal string before native-token reservations
   chainID: number;
   decimals: number;
   logo: string;

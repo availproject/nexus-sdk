@@ -69,12 +69,20 @@ describe('aggregateBalancesByCurrency', () => {
 
     expect(assets).toHaveLength(1);
     expect(assets[0]?.balance).toBe('3.370802');
+    expect(assets[0]).toMatchObject({
+      totalBalance: '3.370802',
+      usableBalance: '3.370802',
+    });
     expect(assets[0]?.value).toBe('3.37');
     expect(assets[0]?.name).toBe('USDC/USDM');
     expect(assets[0]?.symbol).toBe('USDC');
     expect(assets[0]?.logo).toBe('https://cdn.example/usdc.png');
     expect(assets[0]?.chainBalances.map((entry) => entry.chain.id)).toEqual([1, 10]);
     expect(assets[0]?.chainBalances[0]?.balance).toBe('2.370802');
+    expect(assets[0]?.chainBalances[0]).toMatchObject({
+      totalBalance: '2.370802',
+      usableBalance: '2.370802',
+    });
   });
 });
 
@@ -139,11 +147,15 @@ describe('flatBalancesToAssets', () => {
         name: 'WETH',
         symbol: 'WETH',
         balance: '2.5',
+        totalBalance: '2.5',
+        usableBalance: '2.5',
         value: '5000.00',
         logo: 'https://cdn.example/weth.png',
         chainBalances: [
           expect.objectContaining({
             balance: '2.5',
+            totalBalance: '2.5',
+            usableBalance: '2.5',
             value: '5000.00',
             symbol: 'WETH',
             contractAddress: weth.contractAddress,

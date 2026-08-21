@@ -285,14 +285,18 @@ const assets = await client.getBalancesForBridge();
 //   {
 //     symbol: 'USDC',
 //     name: 'USDC',
-//     balance: '1250.50',          // Total across all chains
+//     balance: '1250.50',          // Deprecated alias for usableBalance
+//     totalBalance: '1250.50',     // Total before native-token reservations
+//     usableBalance: '1250.50',    // Available after reservations
 //     value: '1250.50',            // USD value (string)
 //     decimals: 6,
 //     logo: 'https://...',
 //     currencyId: 1,
 //     chainBalances: [             // Per-chain balances
 //       {
-//         balance: '500.00',
+//         balance: '500.00',       // Deprecated alias for usableBalance
+//         totalBalance: '500.00',
+//         usableBalance: '500.00',
 //         value: '500.00',
 //         symbol: 'USDC',
 //         chain: { id: 1, name: 'Ethereum', logo: '...' },
@@ -330,7 +334,10 @@ type TokenBalance = {
   name: string;               // Display label (e.g. "USDC/USDM")
   symbol: string;             // Majority symbol by chain count
   logo: string;               // Token logo URL
-  balance: string;            // Total balance (human-readable)
+  /** @deprecated Use usableBalance instead. */
+  balance: string;            // Compatibility alias for usableBalance
+  totalBalance: string;       // Before native-token reservations
+  usableBalance: string;      // Available after reservations
   value: string;              // USD value (string for precision)
   decimals: number;
   currencyId?: number;        // Required on BridgeTokenBalance
@@ -338,7 +345,10 @@ type TokenBalance = {
 };
 
 type ChainBalance = {
-  balance: string;
+  /** @deprecated Use usableBalance instead. */
+  balance: string;            // Compatibility alias for usableBalance
+  totalBalance: string;       // Before native-token reservations
+  usableBalance: string;      // Available after reservations
   value: string;              // USD value (string)
   symbol: string;
   chain: { id: number; name: string; logo: string };
@@ -347,6 +357,10 @@ type ChainBalance = {
   universe: Universe;
 };
 ```
+
+For ERC-20 balances and bridge balances, `totalBalance` and `usableBalance` currently match. Swap
+native-token balances can differ because `totalBalance` preserves the middleware balance while
+`usableBalance` excludes the gas reserve used by source selection.
 
 ---
 
