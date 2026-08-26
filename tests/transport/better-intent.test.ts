@@ -256,15 +256,30 @@ describe('Better Intent middleware transport', () => {
   it('normalizes intent lifecycle status', async () => {
     const http = makeAxios();
     axiosRoot.create.mockReturnValue(http);
-    http.get.mockResolvedValue({
-      data: {
-        quoteId: QUOTE_ID,
-        provider: 'mayan',
-        status: 'fulfilled',
-        substatus: 'completed',
-        rff: {},
-      },
-    });
+    http.get.mockImplementation(async (url: string) => ({
+      data: url.includes('/status/')
+        ? {
+            quoteId: QUOTE_ID,
+            provider: 'mayan',
+            status: 'fulfilled',
+            substatus: 'completed',
+            rff: {},
+          }
+        : {
+            request_hash: QUOTE_ID,
+            status: 'fulfilled',
+            legs: [
+              {
+                sourceIndex: 0,
+                status: 'fulfilled',
+                txHash: `0x${'33'.repeat(32)}`,
+                explorerLink: 'https://optimistic.etherscan.io/tx/0x33',
+                protocolExplorerLink: 'https://scan.mayan.finance/swap/0x33',
+                error: null,
+              },
+            ],
+          },
+    }));
 
     const client = createMiddlewareClient('https://mw.example');
 
@@ -273,8 +288,18 @@ describe('Better Intent middleware transport', () => {
       provider: 'mayan',
       status: 'fulfilled',
       substatus: 'completed',
+      legs: [
+        {
+          sourceIndex: 0,
+          status: 'fulfilled',
+          txHash: `0x${'33'.repeat(32)}`,
+          txExplorerUrl: 'https://optimistic.etherscan.io/tx/0x33',
+          protocolExplorerUrl: 'https://scan.mayan.finance/swap/0x33',
+        },
+      ],
     });
     expect(http.get).toHaveBeenCalledWith(`/api/v1/better-intent/status/${QUOTE_ID}`);
+    expect(http.get).toHaveBeenCalledWith(`/api/v1/better-intent/rff/${QUOTE_ID}`);
   });
 
   it('merges Nexus and external intent history behind one request', async () => {

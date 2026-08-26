@@ -181,7 +181,7 @@ const onEvent = (event: IntentEvent) => {
       console.log(event.step.id, event.step.type, event.state, event.error);
       break;
     case 'status':
-      console.log(event.intentId, event.status, event.substatus);
+      console.log(event.intentId, event.status, event.substatus, event.legs);
       break;
   }
 };
@@ -196,7 +196,9 @@ Canonical plan step types are:
 - `intent_fulfillment`
 
 Step states are `started`, `completed`, or `failed`. Lifecycle statuses are `created`, `deposited`,
-`fulfilled`, and `expired`. Callback failures are isolated and do not break the operation.
+`fulfilled`, and `expired`. Status events also expose one normalized leg per source, including its
+`sourceIndex`, lifecycle status, transaction links, and provider error when available. Callback
+failures are isolated and do not break the operation.
 
 ## Results and quotes
 
@@ -212,6 +214,9 @@ type IntentResult = {
   nativeTransactions: IntentTransaction[];
 };
 ```
+
+`status.legs` contains the final per-source status snapshot returned by the middleware. This lets an
+app distinguish an overall intent stage from the progress or failure of an individual source leg.
 
 `IntentQuote` exposes normalized inputs, output, minimum output, fees, allowances, expiry, provider,
 trade type, and the canonical execution plan. Raw RFF payloads, signing payload internals, ABIs, and

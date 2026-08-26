@@ -326,9 +326,13 @@ export const createMiddlewareClient = (
     );
 
   const getIntentStatus = (id: Hex): Promise<IntentStatus> =>
-    request('status request', async () =>
-      normalizeIntentStatus((await client.get(`/api/v1/better-intent/status/${id}`)).data)
-    );
+    request('status request', async () => {
+      const [statusResponse, detailResponse] = await Promise.all([
+        client.get(`/api/v1/better-intent/status/${id}`),
+        client.get(`/api/v1/better-intent/rff/${id}`),
+      ]);
+      return normalizeIntentStatus(statusResponse.data, detailResponse.data);
+    });
 
   const listIntentHistory = (query: IntentHistoryQuery = {}): Promise<IntentHistoryResult> =>
     request('history request', async () => {

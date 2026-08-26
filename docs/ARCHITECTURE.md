@@ -219,12 +219,15 @@ Execute uses deployment chain metadata and is independent of Better Intent avail
 - Better Intent balances;
 - quote;
 - submit;
-- status;
+- aggregate status plus per-leg intent detail;
 - Nexus and external-provider history.
 
 Every raw response is parsed and normalized in `src/intent/normalize.ts`. Addresses are canonical
 lowercase `Hex`, chain references become numeric EVM chain IDs, and decimal integer strings become
 `bigint`.
+
+Status polling combines `/better-intent/status/:id` with `/better-intent/rff/:id`. The first is the
+aggregate lifecycle view; the second supplies normalized per-source leg status and transaction data.
 
 HTTP and schema failures become categorized `BackendError` values with middleware correlation
 details where available.

@@ -105,6 +105,7 @@ describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s
         provider: 'nexus-v2',
         status: 'fulfilled',
         substatus: 'completed',
+        legs: [],
       }),
     });
     const client = createNexusClient({ network, internal: { middlewareClient: middleware } });

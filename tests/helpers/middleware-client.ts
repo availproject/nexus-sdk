@@ -19,6 +19,7 @@ export const makeMiddlewareClient = (
     provider: 'nexus-v2',
     status: 'created',
     substatus: 'awaiting_source_deposit',
+    legs: [],
   }),
   listIntentHistory: async () => ({ intents: [], total: 0 }),
   configureTiming: () => undefined,

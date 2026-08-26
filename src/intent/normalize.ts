@@ -6,6 +6,7 @@ import type {
   IntentBalancesResult,
   IntentChain,
   IntentHistoryResult,
+  IntentLegStatus,
   IntentPlanStep,
   IntentProvider,
   IntentSourceVerdict,
@@ -187,6 +188,20 @@ const statusResponse = z.object({
   status: lifecycleStatus,
   substatus: z.string(),
   rff: z.record(z.string(), z.unknown()),
+});
+const intentDetailResponse = z.object({
+  legs: z.array(
+    z
+      .object({
+        sourceIndex: z.number().int().nonnegative(),
+        status: lifecycleStatus,
+        txHash: hash.nullish(),
+        explorerLink: z.string().nullish(),
+        protocolExplorerLink: z.string().nullish(),
+        error: z.string().nullish(),
+      })
+      .passthrough()
+  ),
 });
 const historyResponse = z.object({
   rffs: z.array(
@@ -409,13 +424,26 @@ export const normalizeIntentSubmitResponse = (input: unknown): IntentSubmitRespo
   return { quoteId: parsed.quoteId as Hex, status: parsed.status };
 };
 
-export const normalizeIntentStatus = (input: unknown): IntentStatus => {
+export const normalizeIntentLegStatuses = (input: unknown): IntentLegStatus[] => {
+  const parsed = parse(intentDetailResponse, input, 'Better Intent detail response');
+  return parsed.legs.map((leg) => ({
+    sourceIndex: leg.sourceIndex,
+    status: leg.status,
+    ...(leg.txHash ? { txHash: leg.txHash as Hex } : {}),
+    ...(leg.explorerLink ? { txExplorerUrl: leg.explorerLink } : {}),
+    ...(leg.protocolExplorerLink ? { protocolExplorerUrl: leg.protocolExplorerLink } : {}),
+    ...(leg.error ? { error: leg.error } : {}),
+  }));
+};
+
+export const normalizeIntentStatus = (input: unknown, detail: unknown): IntentStatus => {
   const parsed = parse(statusResponse, input, 'Better Intent status response');
   return {
     id: parsed.quoteId as Hex,
     provider: parsed.provider,
     status: parsed.status,
     substatus: parsed.substatus,
+    legs: normalizeIntentLegStatuses(detail),
   };
 };
 
