@@ -82,6 +82,7 @@ export type {
   IntentHistoryResult,
   IntentHistoryResult as ListIntentsResult,
   IntentHookData,
+  IntentLegStatus,
   IntentLifecycleStatus,
   IntentPlan,
   IntentPlanStep,

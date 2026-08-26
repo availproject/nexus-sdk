@@ -115,10 +115,10 @@ The canonical `IntentEvent` union is:
 
 - `quote`
 - `step` with `started | completed | failed`
-- `status` with `created | deposited | fulfilled | expired`
+- `status` with `created | deposited | fulfilled | expired` and normalized per-source `legs`
 
-Events expose normalized public plan steps. They do not expose RFF payloads, signing messages, ABIs,
-or raw middleware responses.
+Events expose normalized public plan steps and per-source leg status, transaction links, and errors.
+They do not expose RFF payloads, signing messages, ABIs, or raw middleware responses.
 
 User event callbacks and analytics callbacks must run through the non-blocking callback pattern.
 They must not break execution. Approval hooks are intentionally flow controlling and may reject.

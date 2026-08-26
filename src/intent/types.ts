@@ -264,11 +264,21 @@ export type IntentSubmitResponse = {
   status: IntentLifecycleStatus;
 };
 
+export type IntentLegStatus = {
+  sourceIndex: number;
+  status: IntentLifecycleStatus;
+  txHash?: Hex;
+  txExplorerUrl?: string;
+  protocolExplorerUrl?: string;
+  error?: string;
+};
+
 export type IntentStatus = {
   id: Hex;
   provider: IntentProvider;
   status: IntentLifecycleStatus;
   substatus: string;
+  legs: IntentLegStatus[];
 };
 
 export type IntentHistoryRecord = {
@@ -318,6 +328,7 @@ export type IntentEvent =
       status: IntentLifecycleStatus;
       substatus: string;
       intentId: Hex;
+      legs: IntentLegStatus[];
     };
 
 export type IntentSource = {

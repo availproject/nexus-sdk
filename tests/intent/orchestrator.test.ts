@@ -105,6 +105,7 @@ const status = (
   provider: quote.quote.provider,
   status: value,
   substatus: value === 'fulfilled' ? 'completed' : 'awaiting_source_deposit',
+  legs: [{ sourceIndex: 0, status: value }],
 });
 
 describe('Better Intent orchestration', () => {
@@ -156,6 +157,9 @@ describe('Better Intent orchestration', () => {
       'deposited',
       'fulfilled',
     ]);
+    expect(events.filter((event) => event.type === 'status').at(-1)).toMatchObject({
+      legs: [{ sourceIndex: 0, status: 'fulfilled' }],
+    });
     expect(events.slice(-2)).toMatchObject([
       {
         type: 'step',

@@ -232,6 +232,7 @@ export const runIntent = async (
       status: status.status,
       substatus: status.substatus,
       intentId: status.id,
+      legs: status.legs,
     };
     if (status.status === 'fulfilled') {
       emitStep(executable, 'intent-fulfillment', 'completed');

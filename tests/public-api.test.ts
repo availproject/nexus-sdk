@@ -11,6 +11,7 @@ import type {
   IntentHistoryRecord,
   IntentHistoryResult,
   IntentHookData,
+  IntentLegStatus,
   IntentQuote,
   IntentRouteConstraints,
   IntentResult,
@@ -42,6 +43,7 @@ describe('public api exports', () => {
     const event = {} as IntentEvent;
     const hook = {} as IntentHookData;
     const status = {} as IntentStatusResponse;
+    const leg = {} as IntentLegStatus;
 
     expect(IntentStatus.Created).toBe('created');
     expect(params).toEqual({ page: 1, status: 'created' });
@@ -60,6 +62,8 @@ describe('public api exports', () => {
     expectTypeOf(event).toMatchTypeOf<IntentEvent>();
     expectTypeOf(hook).toMatchTypeOf<IntentHookData>();
     expectTypeOf(status.status).toEqualTypeOf<IntentStatus>();
+    expectTypeOf(status.legs).toEqualTypeOf<IntentLegStatus[]>();
+    expectTypeOf(leg.sourceIndex).toEqualTypeOf<number>();
     expectTypeOf(bridgeAndExecuteResult).toMatchTypeOf<BridgeAndExecuteResult>();
     expectTypeOf(swapAndExecuteResult).toMatchTypeOf<SwapAndExecuteResult>();
     expectTypeOf(swapAllowanceStep.method).toEqualTypeOf<'approval' | 'permit' | undefined>();
