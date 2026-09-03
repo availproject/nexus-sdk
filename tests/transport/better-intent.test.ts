@@ -52,7 +52,7 @@ describe('Better Intent middleware transport', () => {
             chainId: 'EVM_1',
             name: 'Ethereum',
             nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-            providers: ['nexus-v2'],
+            providers: ['nexus-v2', 'relay'],
             tokens: [],
           },
         ],
@@ -82,7 +82,11 @@ describe('Better Intent middleware transport', () => {
     const client = createMiddlewareClient('https://mw.example');
 
     await expect(client.getIntentChains({ providers: ['mayan'] })).resolves.toEqual([
-      expect.objectContaining({ id: 1, capabilities: { intent: true, execute: false } }),
+      expect.objectContaining({
+        id: 1,
+        providers: ['nexus-v2', 'relay'],
+        capabilities: { intent: true, execute: false },
+      }),
     ]);
     await expect(
       client.getIntentBalances(ACCOUNT, { refresh: true, providers: ['mayan'] })
@@ -260,9 +264,10 @@ describe('Better Intent middleware transport', () => {
       data: url.includes('/status/')
         ? {
             quoteId: QUOTE_ID,
-            provider: 'mayan',
+            provider: 'relay',
             status: 'fulfilled',
             substatus: 'completed',
+            progress: { kind: 'completed' },
             rff: {},
           }
         : {
@@ -274,7 +279,7 @@ describe('Better Intent middleware transport', () => {
                 status: 'fulfilled',
                 txHash: `0x${'33'.repeat(32)}`,
                 explorerLink: 'https://optimistic.etherscan.io/tx/0x33',
-                protocolExplorerLink: 'https://scan.mayan.finance/swap/0x33',
+                protocolExplorerLink: 'https://relay.link/transaction/0x33',
                 error: null,
               },
             ],
@@ -285,7 +290,7 @@ describe('Better Intent middleware transport', () => {
 
     await expect(client.getIntentStatus(QUOTE_ID)).resolves.toEqual({
       id: QUOTE_ID,
-      provider: 'mayan',
+      provider: 'relay',
       status: 'fulfilled',
       substatus: 'completed',
       legs: [
@@ -294,7 +299,7 @@ describe('Better Intent middleware transport', () => {
           status: 'fulfilled',
           txHash: `0x${'33'.repeat(32)}`,
           txExplorerUrl: 'https://optimistic.etherscan.io/tx/0x33',
-          protocolExplorerUrl: 'https://scan.mayan.finance/swap/0x33',
+          protocolExplorerUrl: 'https://relay.link/transaction/0x33',
         },
       ],
     });

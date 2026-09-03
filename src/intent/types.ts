@@ -1,7 +1,9 @@
 import type { Abi, Hex, TransactionReceipt } from 'viem';
 import type { ExecuteResult, ExecuteSimulation } from '../domain';
 
-export type IntentProvider = 'nexus-v2' | 'mayan';
+/** Every provider the middleware can name in a catalog, quote, or status response. */
+export const INTENT_PROVIDERS = ['nexus-v2', 'mayan', 'relay'] as const;
+export type IntentProvider = (typeof INTENT_PROVIDERS)[number];
 export type IntentTradeType = 'exactInput' | 'exactOutput';
 export type IntentLifecycleStatus = 'created' | 'deposited' | 'fulfilled' | 'expired';
 
