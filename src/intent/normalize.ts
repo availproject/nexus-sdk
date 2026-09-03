@@ -14,12 +14,13 @@ import type {
   IntentSubmitResponse,
   IntentTokenCatalogEntry,
 } from './types';
+import { INTENT_PROVIDERS } from './types';
 
 const address = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
 const bytes = z.string().regex(/^0x(?:[0-9a-fA-F]{2})*$/);
 const hash = z.string().regex(/^0x[0-9a-fA-F]{64}$/);
 const amount = z.string().regex(/^\d+$/);
-const provider = z.enum(['nexus-v2', 'mayan']);
+const provider = z.enum(INTENT_PROVIDERS);
 const providerSupport = z.object({ id: provider, currencyId: z.number().int().optional() });
 const sourceVerdict = z.object({
   chainId: z.string(),
