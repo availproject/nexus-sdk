@@ -75,7 +75,9 @@ The SDK currently calls `/rffs` and `/rffs-external` in parallel, adds both tota
 records, and sorts the current page locally.
 
 This can produce incorrect global pagination or duplicate records if a request appears in both
-feeds. Ideally middleware should expose one paginated, deduplicated history endpoint. Until then,
+feeds. `/rffs-external` also strips the per-source `protocol_tag`, so the SDK cannot tell a Relay
+record from a Mayan one and labels every external history record `mayan`; the middleware should
+return the owning provider on each row. Ideally middleware should expose one paginated, deduplicated history endpoint. Until then,
 define a stable deduplication key and pagination rule before changing the SDK.
 
 ### 8. Remove old middleware-response fallbacks after rollout

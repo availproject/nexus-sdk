@@ -27,8 +27,8 @@ describe('Better Intent response normalization', () => {
           decimals: 18,
           logo: 'eth.svg',
         },
-        asSource: ['nexus-v2', 'mayan'],
-        asDestination: ['nexus-v2'],
+        asSource: ['nexus-v2', 'mayan', 'relay'],
+        asDestination: ['nexus-v2', 'relay'],
         tokens: [
           {
             address: TOKEN.toUpperCase().replace('0X', '0x'),
@@ -36,8 +36,8 @@ describe('Better Intent response normalization', () => {
             name: 'USD Coin',
             decimals: 6,
             isNative: false,
-            asSource: [{ id: 'nexus-v2', currencyId: 1 }, { id: 'mayan' }],
-            asDestination: [{ id: 'nexus-v2', currencyId: 1 }],
+            asSource: [{ id: 'nexus-v2', currencyId: 1 }, { id: 'mayan' }, { id: 'relay' }],
+            asDestination: [{ id: 'nexus-v2', currencyId: 1 }, { id: 'relay' }],
           },
         ],
       },
@@ -45,14 +45,15 @@ describe('Better Intent response normalization', () => {
 
     expect(result[0]).toMatchObject({ id: 8453, name: 'Base' });
     expect(result[0]).toMatchObject({
-      providers: ['nexus-v2', 'mayan'],
-      asSource: ['nexus-v2', 'mayan'],
-      asDestination: ['nexus-v2'],
+      providers: ['nexus-v2', 'mayan', 'relay'],
+      asSource: ['nexus-v2', 'mayan', 'relay'],
+      asDestination: ['nexus-v2', 'relay'],
     });
     expect(result[0]?.tokens[0]).toMatchObject({
       chainId: 8453,
       address: TOKEN,
       symbol: 'USDC',
+      providers: [{ id: 'nexus-v2', currencyId: 1 }, { id: 'mayan' }, { id: 'relay' }],
     });
   });
 

@@ -37,6 +37,11 @@ Supported built-in network names are:
 
 A custom `NetworkConfig` can also provide middleware and explorer URLs plus a network hint.
 
+The middleware can route an intent through `nexus-v2`, `mayan`, or `relay`. It selects the provider
+per quote, and `IntentQuote.provider`, `IntentStatus.provider`, and every catalog entry name the
+provider that applies. Treat the `IntentProvider` union as open to growth: render an unknown provider
+generically rather than assuming Nexus or Mayan.
+
 Set `forceMayan: true` to restrict the supported intent catalog and balances to Mayan and prefer
 Mayan for quotes. The SDK derives cross-chain fungible asset groups from the filtered `/chains`
 response using `coingeckoId`.
