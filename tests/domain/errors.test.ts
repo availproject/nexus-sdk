@@ -174,6 +174,12 @@ describe('Errors.* wrap helpers categorize a failure (no cause capture)', () => 
 });
 
 describe('Errors.* named factories', () => {
+  it('does not append an undefined additional message to unsupported-token errors', () => {
+    const err = Errors.tokenNotSupported('0xdead', 137);
+
+    expect(err.message).toBe('Token/Asset with address 0xdead is not supported on chain 137.');
+  });
+
   it('sdkNotInitialized returns ValidationError with the right code', () => {
     const err = Errors.sdkNotInitialized();
     expect(err).toBeInstanceOf(ValidationError);

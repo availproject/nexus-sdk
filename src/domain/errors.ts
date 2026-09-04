@@ -439,7 +439,7 @@ export const Errors = {
   ): ValidationError =>
     new ValidationError(
       ERROR_CODES.TOKEN_NOT_SUPPORTED,
-      `Token/Asset with address ${address} is not supported on chain ${chainId}.\n${additionalMessage}`,
+      `Token/Asset with address ${address} is not supported on chain ${chainId}.${additionalMessage ? `\n${additionalMessage}` : ''}`,
       { context: {}, details: { address, chainId } }
     ),
 
