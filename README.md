@@ -183,7 +183,13 @@ const onEvent = (event: IntentEvent) => {
       console.log(event.quote.plan.steps);
       break;
     case 'step':
-      console.log(event.step.id, event.step.type, event.state, event.error);
+      console.log(
+        event.step.id,
+        event.step.type,
+        event.state,
+        event.committed,
+        event.errorDetails,
+      );
       break;
     case 'status':
       console.log(event.intentId, event.status, event.substatus, event.legs);
@@ -204,6 +210,12 @@ Step states are `started`, `completed`, or `failed`. Lifecycle statuses are `cre
 `fulfilled`, and `expired`. Status events also expose one normalized leg per source, including its
 `sourceIndex`, lifecycle status, transaction links, and provider error when available. Callback
 failures are isolated and do not break the operation.
+
+Step events include `committed`, which follows the intent commitment boundary: an ERC-20 intent is
+committed after its intent signature succeeds, while a native-token source is committed when the
+wallet submits its deposit transaction. Failed steps expose a structured `errorDetails` object with
+the SDK category, code, service, step context, and middleware details when available. The legacy
+`error` message remains available for backwards compatibility.
 
 ## Results and quotes
 

@@ -1,4 +1,9 @@
-import { decodeFunctionData, erc20Abi, type Hex, type TransactionReceipt } from 'viem';
+import {
+  decodeFunctionData,
+  erc20Abi,
+  type Hex,
+  type TransactionReceipt,
+} from 'viem';
 import { describe, expect, it, vi } from 'vitest';
 import type { Chain } from '../../src/domain';
 import { Universe } from '../../src/domain/chain-abstraction';
@@ -77,6 +82,60 @@ describe('Better Intent wallet execution', () => {
       method: 'personal_sign',
       params: ['0x1122', ACCOUNT],
     });
+  });
+
+  it('reports native commitment after submission and before receipt confirmation', async () => {
+    const order: string[] = [];
+    const wallet = createIntentWallet({
+      address: ACCOUNT,
+      provider: { request: vi.fn() },
+      walletClient: {
+        getChainId: vi.fn().mockResolvedValue(1),
+        switchChain: vi.fn(),
+        sendTransaction: vi.fn().mockImplementation(async () => {
+          order.push('submitted');
+          return TX_HASH;
+        }),
+      },
+      chainList: { getChainByID: (id: number) => chain(id) },
+      confirm: vi.fn().mockImplementation(async () => {
+        order.push('confirmed');
+        return undefined;
+      }),
+    });
+
+    await wallet.sendNative(
+      {
+        chainId: 1,
+        sourceIndex: 0,
+        kind: 'native_source_deposit',
+        to: SPENDER,
+        valueRaw: 2n,
+        functionName: 'deposit',
+        abi: [
+          {
+            type: 'function',
+            name: 'deposit',
+            stateMutability: 'payable',
+            inputs: [
+              {
+                name: 'request',
+                type: 'tuple',
+                components: [{ name: 'sender', type: 'address' }],
+              },
+              { name: 'signature', type: 'bytes' },
+              { name: 'sourceIndex', type: 'uint256' },
+            ],
+            outputs: [],
+          },
+        ],
+        vaultRequest: { sender: ACCOUNT },
+      },
+      '0x1234',
+      () => order.push('committed')
+    );
+
+    expect(order).toEqual(['submitted', 'committed', 'confirmed']);
   });
 
   it('rejects approval instructions owned by another account', async () => {

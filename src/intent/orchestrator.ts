@@ -1,5 +1,5 @@
 import { type Hex, maxUint256 } from 'viem';
-import { Errors, formatUnknownError } from '../domain/errors';
+import { Errors, formatUnknownError, NexusError } from '../domain/errors';
 import { runNonBlocking } from '../services/non-blocking';
 import type {
   ExecutableIntentQuote,
@@ -8,6 +8,7 @@ import type {
   IntentEvent,
   IntentHookData,
   IntentNativeTransactionInstruction,
+  IntentPlanStep,
   IntentResult,
   IntentSource,
   IntentStatus,
@@ -38,7 +39,8 @@ type RunIntentDeps = {
   sign: (message: Hex) => Promise<Hex>;
   sendNative: (
     instruction: IntentNativeTransactionInstruction,
-    signature: Hex
+    signature: Hex,
+    onSubmitted?: () => void
   ) => Promise<IntentTransaction>;
   submit: (request: IntentSubmitRequest) => Promise<IntentSubmitResponse>;
   getStatus: (id: Hex) => Promise<IntentStatus>;
@@ -50,6 +52,30 @@ const sleep = (milliseconds: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 
 const explorerLink = (baseUrl: string, id: Hex) => `${baseUrl.replace(/\/$/, '')}/explore/${id}`;
+
+const intentStepError = (error: unknown, step: IntentPlanStep) => {
+  const message = formatUnknownError(error);
+  if (!(error instanceof NexusError)) {
+    return {
+      name: error instanceof Error ? error.name : 'Error',
+      message,
+    };
+  }
+  return {
+    name: error.name,
+    message,
+    category: error.category,
+    code: error.code,
+    service: error.context.service,
+    stepId: error.context.stepId ?? step.id,
+    stepType: error.context.stepType ?? step.type,
+    chainId:
+      typeof error.context.chainId === 'bigint'
+        ? error.context.chainId.toString()
+        : (error.context.chainId ?? ('chainId' in step ? step.chainId : undefined)),
+    details: error.details,
+  };
+};
 
 const assertFresh = (quote: ExecutableIntentQuote, now: number) => {
   if (quote.quote.expiresAt * 1_000 <= now) {
@@ -142,6 +168,7 @@ export const runIntent = async (
     runNonBlocking('IntentEventEmitFailed', () => input.onEvent?.(event), {
       eventType: event.type,
     });
+  let committed = false;
   const emitStep = (
     quote: ExecutableIntentQuote,
     stepId: string,
@@ -154,7 +181,10 @@ export const runIntent = async (
       type: 'step',
       step,
       state,
-      ...(error === undefined ? {} : { error: formatUnknownError(error) }),
+      committed,
+      ...(error === undefined
+        ? {}
+        : { error: formatUnknownError(error), errorDetails: intentStepError(error, step) }),
     });
   };
 
@@ -187,6 +217,9 @@ export const runIntent = async (
   let signature: Hex;
   try {
     signature = await deps.sign(executable.execution.signing.message);
+    const hasErc20Source =
+      executable.execution.nativeTransactions.length < executable.quote.input.length;
+    if (hasErc20Source) committed = true;
     emitStep(executable, 'intent-signature', 'completed');
   } catch (error) {
     emitStep(executable, 'intent-signature', 'failed', error);
@@ -199,7 +232,9 @@ export const runIntent = async (
     const stepId = `native:${instruction.chainId}:${instruction.sourceIndex}`;
     emitStep(executable, stepId, 'started');
     try {
-      const transaction = await deps.sendNative(instruction, signature);
+      const transaction = await deps.sendNative(instruction, signature, () => {
+        committed = true;
+      });
       nativeTransactions.push(transaction);
       nativeTxReceipts.push({ sourceIndex: instruction.sourceIndex, txHash: transaction.txHash });
       emitStep(executable, stepId, 'completed');

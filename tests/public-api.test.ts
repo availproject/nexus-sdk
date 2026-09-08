@@ -8,6 +8,7 @@ import type {
   BridgeSimulationResult,
   IntentBalance,
   IntentEvent,
+  IntentStepError,
   IntentHistoryRecord,
   IntentHistoryResult,
   IntentHookData,
@@ -40,6 +41,7 @@ describe('public api exports', () => {
     const route = { sources: [{ chainId: 10 }] } satisfies IntentRouteConstraints;
     const balance = {} as IntentBalance;
     const event = {} as IntentEvent;
+    const stepError = {} as IntentStepError;
     const hook = {} as IntentHookData;
     const status = {} as IntentStatusResponse;
     const leg = {} as IntentLegStatus;
@@ -59,6 +61,7 @@ describe('public api exports', () => {
     expect(getIntentQuoteFailure(new Error('not an SDK error'))).toBeNull();
     expectTypeOf(balance).toMatchTypeOf<IntentBalance>();
     expectTypeOf(event).toMatchTypeOf<IntentEvent>();
+    expectTypeOf(stepError.message).toEqualTypeOf<string>();
     expectTypeOf(hook).toMatchTypeOf<IntentHookData>();
     expectTypeOf(status.status).toEqualTypeOf<IntentStatus>();
     expectTypeOf(status.legs).toEqualTypeOf<IntentLegStatus[]>();

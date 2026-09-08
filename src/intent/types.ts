@@ -1,5 +1,6 @@
 import type { Abi, Hex, TransactionReceipt } from 'viem';
 import type { ExecuteResult, ExecuteSimulation } from '../domain';
+import type { ErrorCategory, ErrorCode } from '../domain/errors';
 
 /** Every provider the middleware can name in a catalog, quote, or status response. */
 export const INTENT_PROVIDERS = ['nexus-v2', 'mayan', 'relay'] as const;
@@ -322,9 +323,29 @@ export type IntentResult = {
 
 export type IntentStepState = 'started' | 'completed' | 'failed';
 
+export type IntentStepError = {
+  name: string;
+  message: string;
+  category?: ErrorCategory;
+  code?: ErrorCode;
+  service?: string;
+  stepId?: string;
+  stepType?: string;
+  chainId?: number | string;
+  details?: Record<string, unknown>;
+};
+
 export type IntentEvent =
   | { type: 'quote'; quote: IntentQuote }
-  | { type: 'step'; step: IntentPlanStep; state: IntentStepState; error?: string }
+  | {
+      type: 'step';
+      step: IntentPlanStep;
+      state: IntentStepState;
+      committed: boolean;
+      /** @deprecated Use `errorDetails.message`. Kept for backwards compatibility. */
+      error?: string;
+      errorDetails?: IntentStepError;
+    }
   | {
       type: 'status';
       status: IntentLifecycleStatus;

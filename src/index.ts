@@ -104,6 +104,7 @@ export type {
   IntentSourceUnroutableReason,
   IntentSourceVerdict,
   IntentStatus as IntentStatusResponse,
+  IntentStepError,
   IntentStepState,
   IntentToken,
   IntentTradeType,
