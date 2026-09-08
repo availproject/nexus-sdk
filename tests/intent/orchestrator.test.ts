@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Hex } from 'viem';
 import { runIntent } from '../../src/intent/orchestrator';
+import { Errors } from '../../src/domain/errors';
 import type {
   ExecutableIntentQuote,
   IntentEvent,
@@ -97,6 +98,25 @@ const executableQuote = (byte = '11'): ExecutableIntentQuote => {
   };
 };
 
+const erc20ExecutableQuote = (): ExecutableIntentQuote => {
+  const quote = executableQuote();
+  quote.quote.input = [
+    {
+      chainId: 8453,
+      tokenAddress: TOKEN,
+      tokenSymbol: 'USDC',
+      amountRaw: 10n,
+      depositFeeRaw: 0n,
+      totalRequiredRaw: 10n,
+    },
+  ];
+  quote.quote.plan.steps = quote.quote.plan.steps.filter(
+    (step) => step.type !== 'native_transaction'
+  );
+  quote.execution.nativeTransactions = [];
+  return quote;
+};
+
 const status = (
   quote: ExecutableIntentQuote,
   value: IntentStatus['status']
@@ -129,8 +149,9 @@ describe('Better Intent orchestration', () => {
           calls.push('sign');
           return '0x1234';
         },
-        sendNative: async (instruction) => {
+        sendNative: async (instruction, _signature, onSubmitted) => {
           calls.push(`native:${instruction.chainId}`);
+          onSubmitted?.();
           return { chainId: instruction.chainId, txHash: TX_HASH, txExplorerUrl: 'native' };
         },
         submit: async (request) => {
@@ -168,6 +189,101 @@ describe('Better Intent orchestration', () => {
       },
       { type: 'status', status: 'fulfilled' },
     ]);
+    expect(
+      events.find(
+        (event) =>
+          event.type === 'step' &&
+          event.step.type === 'intent_signature' &&
+          event.state === 'completed'
+      )
+    ).toMatchObject({ committed: false });
+    expect(
+      events.find(
+        (event) => event.type === 'step' && event.step.type === 'native_transaction'
+      )
+    ).toMatchObject({ committed: false });
+    expect(
+      events.find(
+        (event) =>
+          event.type === 'step' &&
+          event.step.type === 'native_transaction' &&
+          event.state === 'completed'
+      )
+    ).toMatchObject({ committed: true });
+  });
+
+  it('marks an ERC20 intent committed when its signature succeeds', async () => {
+    const quoted = erc20ExecutableQuote();
+    const events: IntentEvent[] = [];
+
+    await runIntent(
+      { requestQuote: async () => quoted, onEvent: (event) => events.push(event) },
+      {
+        explorerUrl: 'https://explorer.example',
+        now: () => 1_900_000_000_000,
+        sleep: async () => undefined,
+        approve: async (instruction) => ({
+          chainId: instruction.chainId,
+          txHash: TX_HASH,
+          txExplorerUrl: 'approval',
+        }),
+        sign: async () => '0x1234',
+        sendNative: vi.fn(),
+        submit: async () => ({ quoteId: quoted.quote.id, status: 'created' }),
+        getStatus: async () => status(quoted, 'fulfilled'),
+      }
+    );
+
+    expect(
+      events.find(
+        (event) =>
+          event.type === 'step' &&
+          event.step.type === 'intent_signature' &&
+          event.state === 'completed'
+      )
+    ).toMatchObject({ committed: true });
+  });
+
+  it('preserves structured SDK errors on failed step events', async () => {
+    const quoted = erc20ExecutableQuote();
+    const events: IntentEvent[] = [];
+
+    await expect(
+      runIntent(
+        { requestQuote: async () => quoted, onEvent: (event) => events.push(event) },
+        {
+          explorerUrl: 'https://explorer.example',
+          now: () => 1_900_000_000_000,
+          sleep: async () => undefined,
+          approve: async (instruction) => ({
+            chainId: instruction.chainId,
+            txHash: TX_HASH,
+            txExplorerUrl: 'approval',
+          }),
+          sign: async () => {
+            throw Errors.userRejectedIntentSignature();
+          },
+          sendNative: vi.fn(),
+          submit: vi.fn(),
+          getStatus: vi.fn(),
+        }
+      )
+    ).rejects.toThrow();
+
+    expect(events.at(-1)).toMatchObject({
+      type: 'step',
+      step: { type: 'intent_signature' },
+      state: 'failed',
+      committed: false,
+      errorDetails: {
+        name: 'UserActionError',
+        category: 'user_action',
+        code: 'user_action/intent_signature_denied',
+        service: 'wallet',
+        stepId: 'intent-signature',
+        stepType: 'intent_signature',
+      },
+    });
   });
 
   it('atomically replaces the executable quote when the hook refreshes it', async () => {

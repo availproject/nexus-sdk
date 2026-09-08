@@ -66,7 +66,8 @@ export const createIntentWallet = (input: IntentWalletInput) => {
 
   const send = async (
     chain: Chain,
-    transaction: { to: Hex; data: Hex; value: bigint }
+    transaction: { to: Hex; data: Hex; value: bigint },
+    onSubmitted?: (txHash: Hex) => void
   ): Promise<IntentTransaction> => {
     if (!input.walletClient.sendTransaction) {
       throw Errors.execution('Wallet client cannot send transactions', {
@@ -82,6 +83,7 @@ export const createIntentWallet = (input: IntentWalletInput) => {
         chain,
         ...transaction,
       });
+      onSubmitted?.(txHash);
     } catch (error) {
       if (isUserRejectedRequest(error)) throw Errors.userRejectedTxSend();
       throw Errors.execution(`Failed to send intent transaction: ${formatUnknownError(error)}`, {
@@ -141,7 +143,8 @@ export const createIntentWallet = (input: IntentWalletInput) => {
 
   const sendNative = (
     instruction: IntentNativeTransactionInstruction,
-    signature: Hex
+    signature: Hex,
+    onSubmitted?: (txHash: Hex) => void
   ): Promise<IntentTransaction> => {
     const args =
       instruction.functionName === 'deposit'
@@ -163,11 +166,15 @@ export const createIntentWallet = (input: IntentWalletInput) => {
       functionName: instruction.functionName,
       args,
     });
-    return send(input.chainList.getChainByID(instruction.chainId), {
-      to: instruction.to,
-      data,
-      value: instruction.valueRaw,
-    });
+    return send(
+      input.chainList.getChainByID(instruction.chainId),
+      {
+        to: instruction.to,
+        data,
+        value: instruction.valueRaw,
+      },
+      onSubmitted
+    );
   };
 
   return { approve, sign, sendNative };
