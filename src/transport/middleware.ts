@@ -341,7 +341,9 @@ export const createMiddlewareClient = (
         client.get('/api/v1/better-intent/rffs-external', { params: query }),
       ]);
       const nexus = normalizeIntentHistory(nexusResponse.data, 'nexus-v2');
-      const external = normalizeIntentHistory(externalResponse.data, 'mayan');
+      // External history can contain Mayan, Relay, or future providers. Do not
+      // invent an attribution when middleware has not returned one.
+      const external = normalizeIntentHistory(externalResponse.data);
       return {
         total: nexus.total + external.total,
         intents: [...nexus.intents, ...external.intents].sort(

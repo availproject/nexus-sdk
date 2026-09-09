@@ -286,7 +286,8 @@ export type IntentStatus = {
 
 export type IntentHistoryRecord = {
   id: Hex;
-  provider: IntentProvider;
+  /** Present only when middleware identifies the provider for this record. */
+  provider?: IntentProvider;
   status: IntentLifecycleStatus;
   explorerUrl?: string;
   createdAt?: number;

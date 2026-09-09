@@ -335,7 +335,7 @@ describe('Better Intent middleware transport', () => {
     });
 
     expect(result.total).toBe(2);
-    expect(result.intents.map(({ provider }) => provider)).toEqual(['mayan', 'nexus-v2']);
+    expect(result.intents.map(({ provider }) => provider)).toEqual([undefined, 'nexus-v2']);
     expect(http.get).toHaveBeenCalledWith('/api/v1/better-intent/rffs', {
       params: { user: ACCOUNT, status: 'fulfilled', limit: 20, offset: 0 },
     });
