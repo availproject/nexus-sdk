@@ -261,7 +261,13 @@ export const runIntent = async (
   emitStep(executable, 'intent-fulfillment', 'started');
   const deadline = now() + (input.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   while (now() <= deadline) {
-    const status = await deps.getStatus(executable.quote.id);
+    let status: IntentStatus;
+    try {
+      status = await deps.getStatus(executable.quote.id);
+    } catch (error) {
+      emitStep(executable, 'intent-fulfillment', 'failed', error);
+      throw error;
+    }
     const statusEvent: IntentEvent = {
       type: 'status',
       status: status.status,

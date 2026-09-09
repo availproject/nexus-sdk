@@ -244,6 +244,48 @@ describe('Better Intent orchestration', () => {
     ).toMatchObject({ committed: true });
   });
 
+  it('emits a failed fulfillment step when status polling fails', async () => {
+    const quoted = erc20ExecutableQuote();
+    const events: IntentEvent[] = [];
+    const pollingError = Errors.backend('Status request failed', {
+      service: 'middleware',
+    });
+
+    await expect(
+      runIntent(
+        { requestQuote: async () => quoted, onEvent: (event) => events.push(event) },
+        {
+          explorerUrl: 'https://explorer.example',
+          now: () => 1_900_000_000_000,
+          sleep: async () => undefined,
+          approve: async (instruction) => ({
+            chainId: instruction.chainId,
+            txHash: TX_HASH,
+            txExplorerUrl: 'approval',
+          }),
+          sign: async () => '0x1234',
+          sendNative: vi.fn(),
+          submit: async () => ({ quoteId: quoted.quote.id, status: 'created' }),
+          getStatus: async () => {
+            throw pollingError;
+          },
+        }
+      )
+    ).rejects.toBe(pollingError);
+
+    expect(events.at(-1)).toMatchObject({
+      type: 'step',
+      step: { id: 'intent-fulfillment', type: 'intent_fulfillment' },
+      state: 'failed',
+      committed: true,
+      errorDetails: {
+        category: pollingError.category,
+        code: pollingError.code,
+        service: 'middleware',
+      },
+    });
+  });
+
   it('preserves structured SDK errors on failed step events', async () => {
     const quoted = erc20ExecutableQuote();
     const events: IntentEvent[] = [];
