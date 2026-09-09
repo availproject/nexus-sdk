@@ -28,8 +28,11 @@ describe('formatUnknownError', () => {
     expect(formatUnknownError(new ViemBaseError('RPC unreachable'))).toBe('RPC unreachable');
   });
 
-  it('uses message for plain Error and String() for non-errors', () => {
+  it('uses message for plain errors and EIP-1193 error objects', () => {
     expect(formatUnknownError(new Error('boom'))).toBe('boom');
+    expect(formatUnknownError({ code: 4001, message: 'User rejected the request.' })).toBe(
+      'User rejected the request.'
+    );
     expect(formatUnknownError('raw')).toBe('raw');
   });
 });
