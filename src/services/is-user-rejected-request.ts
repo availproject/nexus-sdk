@@ -4,8 +4,18 @@ type WalkableError = {
   walk?: (fn: (err: unknown) => unknown) => unknown;
 };
 
+type Eip1193Error = {
+  code?: unknown;
+};
+
 export const isUserRejectedRequest = (error: unknown): boolean => {
   if (error instanceof UserRejectedRequestError) {
+    return true;
+  }
+
+  // Direct EIP-1193 providers such as MetaMask reject requests with a plain
+  // object rather than viem's UserRejectedRequestError wrapper.
+  if (error !== null && typeof error === 'object' && (error as Eip1193Error).code === 4001) {
     return true;
   }
 
