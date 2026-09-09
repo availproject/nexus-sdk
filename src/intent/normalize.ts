@@ -209,6 +209,7 @@ const historyResponse = z.object({
     z
       .object({
         request_hash: hash,
+        provider: provider.optional(),
         status: lifecycleStatus,
         created_at: z.number().optional(),
         updated_at: z.number().optional(),
@@ -450,14 +451,16 @@ export const normalizeIntentStatus = (input: unknown, detail: unknown): IntentSt
 
 export const normalizeIntentHistory = (
   input: unknown,
-  providerId: IntentProvider
+  fallbackProvider?: IntentProvider
 ): IntentHistoryResult => {
   const parsed = parse(historyResponse, input, 'Better Intent history response');
   return {
     total: parsed.total,
     intents: parsed.rffs.map((entry) => ({
       id: entry.request_hash as Hex,
-      provider: providerId,
+      ...((entry.provider ?? fallbackProvider)
+        ? { provider: entry.provider ?? fallbackProvider }
+        : {}),
       status: entry.status,
       createdAt: entry.created_at,
       updatedAt: entry.updated_at,
