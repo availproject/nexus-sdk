@@ -272,7 +272,7 @@ const intentChainParams = (constraints?: IntentRouteConstraints): URLSearchParam
 
 export const createMiddlewareClient = (
   middlewareURL: string,
-  timingOptions?: { timing?: TimingSpanHooks; captureNetworkTiming?: boolean }
+  options?: { clientId?: string; timing?: TimingSpanHooks; captureNetworkTiming?: boolean }
 ): MiddlewareClient => {
   try {
     const url = new URL(middlewareURL);
@@ -284,7 +284,12 @@ export const createMiddlewareClient = (
   const client = axios.create({
     baseURL: middlewareURL,
     timeout: 90_000,
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      'x-nexus-client-id': options?.clientId,
+      'x-nexus-surface': 'nexus-sdk',
+    },
   });
   // biome-ignore lint/suspicious/noEmptyBlockStatements: default no-op cleanup
   let uninstallTiming = () => {};
@@ -297,8 +302,6 @@ export const createMiddlewareClient = (
     });
   };
   configureTiming(options);
-
-  const channelParams = { channel: options?.channel ?? 'stable' };
 
   const getDeployment = async (): Promise<DeploymentResponse> => {
     try {

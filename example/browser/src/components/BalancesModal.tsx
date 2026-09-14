@@ -148,7 +148,7 @@ export function BalancesModal({ open, onOpenChange, assets, loading, onRefresh }
                         <div className="src-group-body">
                           {nonZeroBreakdown.map((entry) => (
                             <div
-                              key={`${asset.symbol}-${entry.chain.id}`}
+                              key={`${entry.chain.id}:${entry.contractAddress.toLowerCase()}`}
                               className="asset-row asset-row--chain asset-row--static"
                             >
                               <AssetRowIcon

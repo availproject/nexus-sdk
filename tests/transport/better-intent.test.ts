@@ -1,8 +1,10 @@
-import axios from 'axios';
+import axios, { type AxiosAdapter, type CreateAxiosDefaults } from 'axios';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Hex } from 'viem';
+import { createNexusClient } from '../../src';
 import { getIntentQuoteFailure } from '../../src/intent/errors';
 import { createMiddlewareClient } from '../../src/transport/middleware';
+import { testDeployment } from '../fixtures/deployment';
 
 vi.mock('axios', () => ({ default: { create: vi.fn() } }));
 
@@ -41,6 +43,36 @@ const quoteResponse = () => ({
 
 describe('Better Intent middleware transport', () => {
   beforeEach(() => axiosRoot.create.mockReset());
+
+  it('sends the public client identity on Better Intent requests', async () => {
+    const { default: realAxios } = await vi.importActual<typeof import('axios')>('axios');
+    const adapter = vi.fn<AxiosAdapter>(async (config) => ({
+      data: config.url === '/deployment' ? testDeployment : [],
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config,
+    }));
+    axiosRoot.create.mockImplementation((config: CreateAxiosDefaults) =>
+      realAxios.create({ ...config, adapter })
+    );
+    const client = createNexusClient({ clientId: 'My.App', analytics: { enabled: false } });
+
+    try {
+      await client.initialize();
+
+      const requests = adapter.mock.calls
+        .map(([config]) => config)
+        .filter(({ url }) => url?.startsWith('/api/v1/better-intent/'));
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.headers.toJSON()).toMatchObject({
+        'x-nexus-client-id': 'My.App',
+        'x-nexus-surface': 'nexus-sdk',
+      });
+    } finally {
+      client.destroy();
+    }
+  });
 
   it('loads and normalizes the provider chain, token, and balance catalogs', async () => {
     const http = makeAxios();
