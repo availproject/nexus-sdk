@@ -15,6 +15,7 @@ import {
   normalizeIntentSourceVerdicts,
   normalizeIntentStatus,
   normalizeIntentSubmitResponse,
+  normalizeIntentTokens,
 } from '../intent/normalize';
 import type {
   ExecutableIntentQuote,
@@ -293,15 +294,50 @@ export const createMiddlewareClient = (
   };
 
   const getIntentChains = (constraints?: IntentRouteConstraints): Promise<IntentChain[]> =>
-    request('chains request', async () =>
-      normalizeIntentChains(
+    request('chains request', async () => {
+      const chains = normalizeIntentChains(
         (
           await client.get('/api/v1/better-intent/chains', {
             params: intentChainParams(constraints),
           })
         ).data
-      )
-    );
+      );
+      if (chains.length === 0) return chains;
+      const chainsById = new Map(chains.map((chain) => [chain.id, chain]));
+      const params = new URLSearchParams();
+      for (const provider of constraints?.providers ?? []) params.append('provider', provider);
+      let offset = 0;
+      while (true) {
+        params.set('offset', offset.toString());
+        params.set('limit', '1000');
+        const page = normalizeIntentTokens(
+          (
+            await client.get('/api/v1/better-intent/tokens', {
+              params: new URLSearchParams(params),
+            })
+          ).data
+        );
+        if (
+          page.offset !== offset ||
+          page.tokens.length > page.limit ||
+          offset + page.tokens.length > page.total ||
+          (page.tokens.length === 0 && offset < page.total)
+        ) {
+          throw Errors.backend('Invalid Better Intent token pagination', { service: 'middleware' });
+        }
+        for (const token of page.tokens) {
+          const chain = chainsById.get(token.chainId);
+          if (!chain) {
+            throw Errors.backend(`Better Intent token references unknown chain ${token.chainId}`, {
+              service: 'middleware',
+            });
+          }
+          chain.tokens.push(token);
+        }
+        offset += page.tokens.length;
+        if (offset >= page.total) return chains;
+      }
+    });
 
   const getIntentBalances: MiddlewareClient['getIntentBalances'] = (address, options) =>
     request('balances request', async () =>

@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Hex } from 'viem';
 import { runIntent } from '../../src/intent/orchestrator';
 import { Errors } from '../../src/domain/errors';
+import { normalizeIntentQuote } from '../../src/intent/normalize';
+import {
+  APPROVAL_SIGNATURE, INTENT_SIGNATURE, intentSignatureRequest, sponsoredQuoteResponse,
+} from '../fixtures/better-intent';
 import type {
   ExecutableIntentQuote,
   IntentEvent,
@@ -27,7 +31,6 @@ const executableQuote = (byte = '11'): ExecutableIntentQuote => {
         fulfillmentRaw: 0n,
         protocolRaw: 0n,
         solverRaw: 0n,
-        caGasRaw: 0n,
       },
       expiresAt: 2_000_000_000,
       sourceVerdicts: [],
@@ -69,7 +72,7 @@ const executableQuote = (byte = '11'): ExecutableIntentQuote => {
     execution: {
       provider: 'nexus-v2',
       rff: { id },
-      signing: { type: 'personal_sign', message: '0x12', hash: id },
+      requiredSignatures: [{ ...intentSignatureRequest(), data: { ...intentSignatureRequest().data, hash: id } }],
       allowances: [
         {
           chainId: 8453,
@@ -129,6 +132,68 @@ const status = (
 });
 
 describe('Better Intent orchestration', () => {
+  it('signs sponsored approvals and submits signature envelopes before fulfillment', async () => {
+    const quoted = normalizeIntentQuote(sponsoredQuoteResponse());
+    const native = executableQuote().execution.nativeTransactions[0]!;
+    quoted.execution.nativeTransactions.push(native);
+    const paid = { ...quoted.execution.allowances[0]!, tokenAddress: ACCOUNT, authorizationType: 'approve' as const };
+    quoted.execution.allowances.unshift(paid);
+    const calls: string[] = [];
+    const submit = vi.fn(async () => {
+      calls.push('submit');
+      return { quoteId: quoted.quote.id, status: 'created' as const };
+    });
+    const events: IntentEvent[] = [];
+    const result = await runIntent({ requestQuote: async () => quoted, onEvent: (event) => events.push(event) }, {
+      explorerUrl: 'https://explorer.example', now: () => 1_900_000_000_000,
+      approve: async () => { calls.push('approve'); return { chainId: 8453, txHash: TX_HASH, txExplorerUrl: '' }; },
+      sign: async (instruction) => {
+        calls.push(instruction.kind);
+        return instruction.kind === 'intent' ? INTENT_SIGNATURE : APPROVAL_SIGNATURE;
+      },
+      sendNative: async (_instruction, signature) => {
+        expect(signature).toBe(INTENT_SIGNATURE);
+        calls.push('native');
+        return { chainId: 10, txHash: TX_HASH, txExplorerUrl: '' };
+      },
+      submit, getStatus: async () => status(quoted, 'fulfilled'),
+    });
+
+    expect(calls).toEqual(['approve', 'sourceApproval', 'intent', 'native', 'submit']);
+    expect(result.approvals).toHaveLength(1);
+    expect(submit).toHaveBeenCalledWith({
+      provider: 'nexus-v2', rff: quoted.execution.rff,
+      signatures: [
+        { kind: 'intent', universe: 'EVM', signingScheme: 'personal_sign', signature: INTENT_SIGNATURE },
+        { kind: 'sourceApproval', universe: 'EVM', signingScheme: 'eip712', chainId: 8453,
+          tokenAddress: TOKEN, signature: APPROVAL_SIGNATURE },
+      ],
+      nativeTxReceipts: [{ sourceIndex: 0, txHash: TX_HASH }],
+    });
+    expect(events).toContainEqual(expect.objectContaining({
+      type: 'step', step: expect.objectContaining({ type: 'source_approval_signature' }), state: 'completed',
+    }));
+  });
+
+  it('stops before intent signing and submission when a permit is rejected', async () => {
+    const quoted = normalizeIntentQuote(sponsoredQuoteResponse());
+    const approve = vi.fn();
+    const sign = vi.fn().mockRejectedValue(Errors.userRejectedIntentSignature());
+    const submit = vi.fn();
+    const sendNative = vi.fn();
+    const events: IntentEvent[] = [];
+    await expect(runIntent({ requestQuote: async () => quoted, onEvent: (event) => events.push(event) }, {
+      explorerUrl: '', now: () => 1_900_000_000_000, approve, sign, submit, sendNative, getStatus: vi.fn(),
+    })).rejects.toThrow();
+    expect(approve).not.toHaveBeenCalled();
+    expect(sign).toHaveBeenCalledExactlyOnceWith(quoted.execution.requiredSignatures[1]);
+    expect(submit).not.toHaveBeenCalled();
+    expect(sendNative).not.toHaveBeenCalled();
+    expect(events.at(-1)).toMatchObject({
+      type: 'step', state: 'failed', committed: false, step: { type: 'source_approval_signature' },
+    });
+  });
+
   it('serializes approvals, signing, native transactions, submit, and fulfillment polling', async () => {
     const quoted = executableQuote();
     const calls: string[] = [];

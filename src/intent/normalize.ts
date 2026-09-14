@@ -9,6 +9,7 @@ import type {
   IntentLegStatus,
   IntentPlanStep,
   IntentProvider,
+  IntentRequiredSignature,
   IntentSourceVerdict,
   IntentStatus,
   IntentSubmitResponse,
@@ -20,7 +21,10 @@ const bytes = z.string().regex(/^0x(?:[0-9a-fA-F]{2})*$/);
 const hash = z.string().regex(/^0x[0-9a-fA-F]{64}$/);
 const amount = z.string().regex(/^\d+$/);
 const provider = z.enum(INTENT_PROVIDERS);
-const providerSupport = z.object({ id: provider, currencyId: z.number().int().optional() });
+const providerSupport = z.object({
+  id: provider,
+  currencyId: z.union([z.number().int(), z.string()]).optional(),
+});
 const sourceVerdict = z.object({
   chainId: z.string(),
   tokenAddress: address,
@@ -46,6 +50,8 @@ const nativeCurrency = z.object({
   coingeckoId: z.string().optional(),
 });
 const chainToken = z.object({
+  universe: z.literal('EVM'),
+  chainId: z.string().regex(/^EVM_[1-9]\d*$/),
   address,
   symbol: z.string(),
   name: z.string(),
@@ -56,6 +62,19 @@ const chainToken = z.object({
   providers: z.array(providerSupport).optional(),
   asSource: z.array(providerSupport).optional(),
   asDestination: z.array(providerSupport).optional(),
+  permit: z
+    .object({
+      variant: z.enum(['eip2612', 'emt']),
+      version: z.string().optional(),
+    })
+    .optional(),
+  sponsoredApproval: z.boolean(),
+});
+const tokenPage = z.object({
+  tokens: z.array(chainToken),
+  offset: z.number().int().nonnegative(),
+  limit: z.number().int().positive().max(1000),
+  total: z.number().int().nonnegative(),
 });
 const chain = z
   .object({
@@ -68,7 +87,6 @@ const chain = z
     providers: z.array(provider).optional(),
     asSource: z.array(provider).optional(),
     asDestination: z.array(provider).optional(),
-    tokens: z.array(chainToken),
   })
   .passthrough();
 const balance = z.object({
@@ -84,10 +102,37 @@ const balance = z.object({
   providers: z.array(providerSupport),
   balance: amount,
   valueUsd: z.number().nullable(),
-  priceSource: z.enum(['oracle', 'indexer']).nullable(),
+  priceSource: z.enum(['oracle', 'indexer', 'coingecko', 'relay']).nullable(),
   usable: z.boolean(),
 });
 const balances = z.object({ balances: z.array(balance), errored: z.boolean() });
+const requiredSignature = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('intent'),
+    universe: z.literal('EVM'),
+    signingScheme: z.literal('personal_sign'),
+    data: z.object({ messagePrefix: z.string(), message: bytes, hash }),
+  }),
+  z.object({
+    kind: z.literal('sourceApproval'),
+    universe: z.literal('EVM'),
+    chainId: z.number().int().positive(),
+    tokenAddress: address,
+    signingScheme: z.literal('eip712'),
+    data: z.object({
+      domain: z.object({
+        name: z.string(),
+        version: z.string(),
+        chainId: z.number().int().positive().optional(),
+        verifyingContract: address,
+        salt: hash.optional(),
+      }),
+      types: z.record(z.string(), z.array(z.object({ name: z.string(), type: z.string() }))),
+      primaryType: z.enum(['Permit', 'MetaTransaction']),
+      message: z.record(z.string(), z.string()),
+    }),
+  }),
+]);
 const quote = z.object({
   quoteId: hash,
   provider,
@@ -109,17 +154,10 @@ const quote = z.object({
     fulfillment: amount,
     protocol: amount,
     solver: amount,
-    caGas: amount,
   }),
   expiry: amount,
   rff: z.record(z.string(), z.unknown()),
   rffHash: hash,
-  signing: z.object({
-    type: z.literal('personal_sign'),
-    messagePrefix: z.string(),
-    message: bytes,
-    hash,
-  }),
   allowances: z.array(
     z.object({
       chainId: z.number().int().positive(),
@@ -129,6 +167,7 @@ const quote = z.object({
       current: amount,
       required: amount,
       deficit: amount,
+      authorizationType: z.enum(['approve', 'permit']).optional(),
       approval: z
         .object({
           type: z.literal('erc20_approve'),
@@ -155,7 +194,7 @@ const quote = z.object({
       .passthrough()
   ),
   submitRequirements: z.object({
-    requiresIntentSignature: z.boolean(),
+    requiredSignatures: z.array(requiredSignature),
     requiresApprovals: z.boolean(),
     requiresNativeTxReceipts: z.boolean(),
   }),
@@ -251,21 +290,29 @@ export const normalizeIntentChains = (input: unknown): IntentChain[] =>
       ],
       asSource: entry.asSource ?? entry.providers ?? [],
       asDestination: entry.asDestination ?? entry.providers ?? [],
-      tokens: entry.tokens.map((token) => ({
-        ...token,
-        chainId: id,
-        address: normalizedAddress(token.address),
-        providers: uniqueProviders([
-          ...(token.asSource ?? []),
-          ...(token.asDestination ?? []),
-          ...(token.providers ?? []),
-        ]),
-        asSource: token.asSource ?? token.providers ?? [],
-        asDestination: token.asDestination ?? token.providers ?? [],
-      })),
+      tokens: [],
       capabilities: { intent: true, execute: false },
     };
   });
+
+export const normalizeIntentTokens = (input: unknown) => {
+  const parsed = parse(tokenPage, input, 'Better Intent tokens response');
+  return {
+    ...parsed,
+    tokens: parsed.tokens.map(({ universe: _universe, ...token }) => ({
+      ...token,
+      chainId: parseIntentChainRef(token.chainId),
+      address: normalizedAddress(token.address),
+      providers: uniqueProviders([
+        ...(token.asSource ?? []),
+        ...(token.asDestination ?? []),
+        ...(token.providers ?? []),
+      ]),
+      asSource: token.asSource ?? token.providers ?? [],
+      asDestination: token.asDestination ?? token.providers ?? [],
+    })),
+  };
+};
 
 export const normalizeIntentBalances = (input: unknown): IntentBalancesResult => {
   const parsed = parse(balances, input, 'Better Intent balances response');
@@ -291,6 +338,30 @@ export const normalizeIntentBalances = (input: unknown): IntentBalancesResult =>
 
 export const normalizeIntentQuote = (input: unknown): ExecutableIntentQuote => {
   const parsed = parse(quote, input, 'Better Intent quote response');
+  const requiredSignatures: IntentRequiredSignature[] =
+    parsed.submitRequirements.requiredSignatures.map((signature) =>
+      signature.kind === 'intent'
+        ? {
+            ...signature,
+            data: {
+              ...signature.data,
+              message: signature.data.message as Hex,
+              hash: signature.data.hash as Hex,
+            },
+          }
+        : {
+            ...signature,
+            tokenAddress: normalizedAddress(signature.tokenAddress),
+            data: {
+              ...signature.data,
+              domain: {
+                ...signature.data.domain,
+                verifyingContract: normalizedAddress(signature.data.domain.verifyingContract),
+                salt: signature.data.domain.salt as Hex | undefined,
+              },
+            },
+          }
+    );
   const allowances = parsed.allowances.map((entry) => ({
     chainId: entry.chainId,
     tokenAddress: normalizedAddress(entry.tokenAddress),
@@ -299,6 +370,7 @@ export const normalizeIntentQuote = (input: unknown): ExecutableIntentQuote => {
     currentRaw: BigInt(entry.current),
     requiredRaw: BigInt(entry.required),
     deficitRaw: BigInt(entry.deficit),
+    authorizationType: entry.authorizationType,
     approval: entry.approval
       ? {
           ...entry.approval,
@@ -307,6 +379,45 @@ export const normalizeIntentQuote = (input: unknown): ExecutableIntentQuote => {
         }
       : undefined,
   }));
+  const intentSignatures = requiredSignatures.filter((entry) => entry.kind === 'intent');
+  const approvalSignatures = requiredSignatures.filter((entry) => entry.kind === 'sourceApproval');
+  if (intentSignatures.length !== 1 || intentSignatures[0]?.data.hash !== parsed.rffHash) {
+    throw Errors.backend('Invalid Better Intent intent signature requirements', {
+      service: 'middleware',
+    });
+  }
+  for (const signature of approvalSignatures) {
+    const allowance = allowances.find(
+      (entry) =>
+        entry.chainId === signature.chainId && entry.tokenAddress === signature.tokenAddress
+    );
+    if (
+      !allowance ||
+      allowance.authorizationType !== 'permit' ||
+      allowance.deficitRaw <= 0n ||
+      signature.data.domain.verifyingContract !== signature.tokenAddress ||
+      (signature.data.domain.chainId !== undefined &&
+        signature.data.domain.chainId !== signature.chainId)
+    ) {
+      throw Errors.backend('Invalid Better Intent source approval signature requirements', {
+        service: 'middleware',
+      });
+    }
+  }
+  for (const allowance of allowances.filter(
+    (entry) => entry.deficitRaw > 0n && entry.authorizationType === 'permit'
+  )) {
+    if (
+      approvalSignatures.filter(
+        (entry) =>
+          entry.chainId === allowance.chainId && entry.tokenAddress === allowance.tokenAddress
+      ).length !== 1
+    ) {
+      throw Errors.backend('Invalid Better Intent source approval signature count', {
+        service: 'middleware',
+      });
+    }
+  }
   const nativeTransactions = parsed.nativeTransactions.map((entry) => ({
     chainId: entry.chainId,
     sourceIndex: entry.sourceIndex,
@@ -324,7 +435,8 @@ export const normalizeIntentQuote = (input: unknown): ExecutableIntentQuote => {
       .map(
         (entry): IntentPlanStep => ({
           id: `approval:${entry.chainId}:${entry.tokenAddress}`,
-          type: 'erc20_approval',
+          type:
+            entry.authorizationType === 'permit' ? 'source_approval_signature' : 'erc20_approval',
           chainId: entry.chainId,
           tokenAddress: entry.tokenAddress,
           spender: entry.spender,
@@ -370,7 +482,6 @@ export const normalizeIntentQuote = (input: unknown): ExecutableIntentQuote => {
         fulfillmentRaw: BigInt(parsed.fees.fulfillment),
         protocolRaw: BigInt(parsed.fees.protocol),
         solverRaw: BigInt(parsed.fees.solver),
-        caGasRaw: BigInt(parsed.fees.caGas),
       },
       expiresAt: Number(parsed.expiry),
       allowances: allowances.map(({ approval: _approval, ...entry }) => entry),
@@ -380,11 +491,7 @@ export const normalizeIntentQuote = (input: unknown): ExecutableIntentQuote => {
     execution: {
       provider: parsed.provider,
       rff: parsed.rff,
-      signing: {
-        type: parsed.signing.type,
-        message: parsed.signing.message as Hex,
-        hash: parsed.signing.hash as Hex,
-      },
+      requiredSignatures,
       allowances,
       nativeTransactions,
     },

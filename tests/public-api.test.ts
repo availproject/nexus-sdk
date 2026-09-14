@@ -5,6 +5,9 @@ import { AnalyticsManager, getIntentQuoteFailure, IntentStatus, NexusAnalyticsEv
 import type {
   IntentBalance,
   IntentEvent,
+  IntentFees,
+  IntentProviderSupport,
+  IntentPlanStep,
   IntentStepError,
   IntentHistoryRecord,
   IntentHistoryResult,
@@ -84,6 +87,10 @@ describe('public api exports', () => {
     expect(route.sources[0]?.chainId).toBe(10);
     expect(getIntentQuoteFailure(new Error('not an SDK error'))).toBeNull();
     expectTypeOf(balance).toMatchTypeOf<IntentBalance>();
+    expectTypeOf<IntentBalance['priceSource']>().toEqualTypeOf<'oracle' | 'indexer' | 'coingecko' | 'relay' | null>();
+    expectTypeOf<IntentProviderSupport['currencyId']>().toEqualTypeOf<number | string | undefined>();
+    expectTypeOf<keyof IntentFees>().toEqualTypeOf<'depositRaw' | 'fulfillmentRaw' | 'protocolRaw' | 'solverRaw'>();
+    expectTypeOf<'source_approval_signature'>().toExtend<IntentPlanStep['type']>();
     expectTypeOf(event).toMatchTypeOf<IntentEvent>();
     expectTypeOf(stepError.message).toEqualTypeOf<string>();
     expectTypeOf(hook).toMatchTypeOf<IntentHookData>();

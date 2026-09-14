@@ -39,7 +39,6 @@ export type SwapIntentViewModel = {
   };
   buffer: string;
   fees: {
-    caGas: string;
     protocol: string;
     solver: string;
     total: string;
@@ -115,7 +114,6 @@ function quoteFees(client: NexusClient, quote: IntentQuote) {
   )?.decimals ?? 18;
   const formatFee = (value: bigint) => formatUnits(value, decimals);
   return {
-    caGas: formatFee(quote.fees.caGasRaw),
     protocol: formatFee(quote.fees.protocolRaw),
     solver: formatFee(quote.fees.solverRaw),
     total: formatFee(quote.fees.depositRaw + quote.fees.fulfillmentRaw),

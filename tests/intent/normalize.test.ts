@@ -3,7 +3,9 @@ import {
   normalizeIntentBalances,
   normalizeIntentChains,
   normalizeIntentQuote,
+  normalizeIntentTokens,
 } from '../../src/intent/normalize';
+import { sponsoredQuoteResponse } from '../fixtures/better-intent';
 
 const ACCOUNT = '0x00000000000000000000000000000000000000aa';
 const TOKEN = '0x00000000000000000000000000000000000000bb';
@@ -13,7 +15,7 @@ const SIGNATURE_MESSAGE = `0x${'22'.repeat(32)}`;
 
 describe('Better Intent response normalization', () => {
   it('normalizes the chain catalog at the transport boundary', () => {
-    const result = normalizeIntentChains([
+    const response = [
       {
         chainId: 'EVM_8453',
         name: 'Base',
@@ -40,7 +42,14 @@ describe('Better Intent response normalization', () => {
           },
         ],
       },
-    ]);
+    ];
+    const result = normalizeIntentChains(response.map(({ tokens: _tokens, ...chain }) => chain));
+    const page = normalizeIntentTokens({
+      tokens: response[0]!.tokens.map((token) => ({
+        ...token, universe: 'EVM', chainId: 'EVM_8453', sponsoredApproval: false,
+      })),
+      offset: 0, limit: 1000, total: 1,
+    });
 
     expect(result[0]).toMatchObject({ id: 8453, name: 'Base' });
     expect(result[0]).toMatchObject({
@@ -48,13 +57,52 @@ describe('Better Intent response normalization', () => {
       asSource: ['nexus-v2', 'mayan', 'relay'],
       asDestination: ['nexus-v2', 'relay'],
     });
-    expect(result[0]?.tokens[0]).toMatchObject({
+    expect(result[0]?.tokens).toEqual([]);
+    expect(page.tokens[0]).toMatchObject({
       chainId: 8453,
       address: TOKEN,
       symbol: 'USDC',
       providers: [{ id: 'nexus-v2', currencyId: 1 }, { id: 'mayan' }, { id: 'relay' }],
     });
   });
+
+  it.each(['relay', 'coingecko'] as const)('accepts %s balance pricing', (priceSource) => {
+    expect(normalizeIntentBalances({
+      errored: false, balances: [{
+        universe: 'EVM', chainId: 'EVM_1', address: TOKEN,
+        name: 'USD Coin', symbol: 'USDC', decimals: 6, isNative: false,
+        providers: [{ id: 'relay', currencyId: 'usdc' }], balance: '10',
+        valueUsd: 0.00001, priceSource, usable: true,
+      }],
+    }).balances[0]).toMatchObject({ priceSource, balanceRaw: 10n });
+  });
+
+  it('normalizes sponsored signatures without legacy quote fields', () => {
+    const result = normalizeIntentQuote(sponsoredQuoteResponse());
+    expect(result.quote.fees).not.toHaveProperty('caGasRaw');
+    expect(result.execution.requiredSignatures).toEqual(
+      sponsoredQuoteResponse().submitRequirements.requiredSignatures
+    );
+    expect(result.quote.plan.steps.map(({ type }) => type)).toEqual([
+      'source_approval_signature', 'intent_signature', 'intent_submission', 'intent_fulfillment',
+    ]);
+    expect(result.quote).not.toHaveProperty('requiredSignatures');
+    expect(result.quote.allowances[0]).toMatchObject({ authorizationType: 'permit' });
+  });
+
+  it.each(['missing intent', 'duplicate intent', 'missing permit', 'wrong token', 'wrong chain'])(
+    'rejects inconsistent signing instructions: %s', (scenario) => {
+      const response = sponsoredQuoteResponse();
+      const signatures = response.submitRequirements.requiredSignatures;
+      if (scenario === 'missing intent') signatures.shift();
+      if (scenario === 'duplicate intent') signatures.push(signatures[0]!);
+      if (scenario === 'missing permit') signatures.pop();
+      const approval = signatures.find((entry) => entry.kind === 'sourceApproval');
+      if (approval && scenario === 'wrong token') approval.data.domain.verifyingContract = SPENDER;
+      if (approval && scenario === 'wrong chain') approval.data.domain.chainId = 1;
+      expect(() => normalizeIntentQuote(response)).toThrow(/signature|signing/i);
+    }
+  );
 
   it('normalizes raw balances', () => {
     const balances = normalizeIntentBalances({
@@ -111,17 +159,10 @@ describe('Better Intent response normalization', () => {
         fulfillment: '2000',
         protocol: '3000',
         solver: '4000',
-        caGas: '5000',
       },
       expiry: '2000000000',
       rff: { sources: [], destinations: [], parties: [] },
       rffHash: QUOTE_ID,
-      signing: {
-        type: 'personal_sign',
-        messagePrefix: 'Sign this intent to proceed',
-        message: SIGNATURE_MESSAGE,
-        hash: QUOTE_ID,
-      },
       allowances: [
         {
           chainId: 8453,
@@ -142,19 +183,22 @@ describe('Better Intent response normalization', () => {
           to: SPENDER,
           value: '42',
           functionName: 'deposit',
-          needsRffSignature: true,
+          needsIntentSignature: true,
           abi: [],
           vaultRequest: {},
           argsTemplate: {
             request: 'nativeTransactions[n].vaultRequest',
-            signature: 'rffSignature',
+            signature: 'signatures[kind=intent].signature',
             sourceIndex: 0,
           },
           usage: 'source deposit',
         },
       ],
       submitRequirements: {
-        requiresIntentSignature: true,
+        requiredSignatures: [{
+          kind: 'intent', universe: 'EVM', signingScheme: 'personal_sign',
+          data: { messagePrefix: 'Sign this intent to proceed', message: SIGNATURE_MESSAGE, hash: QUOTE_ID },
+        }],
         requiresApprovals: true,
         requiresNativeTxReceipts: true,
       },
@@ -178,7 +222,7 @@ describe('Better Intent response normalization', () => {
     });
     expect(result.quote).not.toHaveProperty('rff');
     expect(result.quote).not.toHaveProperty('signing');
-    expect(result.execution.signing.message).toBe(SIGNATURE_MESSAGE);
+    expect(result.execution.requiredSignatures[0]).toMatchObject({ data: { message: SIGNATURE_MESSAGE } });
     expect(result.execution.nativeTransactions[0]?.abi).toEqual([]);
   });
 

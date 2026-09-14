@@ -103,7 +103,9 @@ All intent methods use `options.hooks`:
 `onIntent` receives `{ quote, allow, deny, refresh }`. A refreshed quote replaces the complete
 executable quote. Do not update only its public or private half.
 
-ERC-20 approvals use the quote's minimum required amounts. No intent hook means auto-allow.
+ERC-20 approvals use the quote's minimum required amounts. Sponsored source approvals use the
+quote's EIP-712 signing payload, preserving decimal integer strings without conversion to `number`.
+No intent hook means auto-allow.
 
 ## Events and callbacks
 
@@ -126,10 +128,10 @@ prompt, sign, approve, or send a transaction.
 
 For an approved intent, preserve this order:
 
-1. required ERC-20 approvals;
+1. required ERC-20 approval transactions or sponsored source-approval signatures;
 2. intent `personal_sign`;
 3. native source transactions;
-4. submit;
+4. submit all required signatures through the `signatures[]` envelope;
 5. fulfillment polling.
 
 Do not parallelize wallet prompts. Read-only API work can run concurrently when it does not race

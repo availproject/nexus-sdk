@@ -3,7 +3,7 @@
 Headless TypeScript SDK for API-routed cross-chain intents and EVM contract execution.
 
 The Better Intent middleware owns asset discovery, route selection, provider selection, fees, and
-quotes. The SDK owns validation, wallet approvals, `personal_sign`, required source transactions,
+quotes. The SDK owns validation, wallet approvals, permit and intent signatures, required source transactions,
 intent submission, fulfillment polling, and optional destination contract execution.
 
 ## Install
@@ -47,7 +47,8 @@ provider that applies. Treat the `IntentProvider` union as open to growth: rende
 generically rather than assuming Nexus or Mayan.
 
 Set `forceMayan: true` to restrict the supported intent catalog and balances to Mayan and prefer
-Mayan for quotes. Token selection uses chain IDs and contract addresses from `/chains`.
+Mayan for quotes. The SDK loads chain metadata from `/chains` and all pages from `/tokens`,
+joining tokens to chains by chain ID. Token selection uses chain IDs and contract addresses.
 
 ## Intent lifecycle
 
@@ -55,10 +56,11 @@ Swap methods use one server-driven lifecycle:
 
 1. The SDK asks the middleware for a quote.
 2. `hooks.onIntent` may review, refresh, allow, or deny it.
-3. The SDK performs quoted ERC-20 approvals.
+3. The SDK signs quoted EIP-712 permits for sponsored approvals, or sends quoted ERC-20 approval
+   transactions when required.
 4. The wallet signs the intent with `personal_sign`.
 5. The SDK sends quoted native source transactions, if any.
-6. The signed intent is submitted.
+6. The SDK submits the intent and approval signatures in the middleware's `signatures[]` envelope.
 7. The SDK polls until the intent is `fulfilled`.
 
 The returned promise rejects when a user denies a required action, a quote expires, fulfillment
@@ -172,6 +174,7 @@ const onEvent = (event: IntentEvent) => {
 Canonical plan step types are:
 
 - `erc20_approval`
+- `source_approval_signature`
 - `intent_signature`
 - `native_transaction`
 - `intent_submission`
@@ -234,9 +237,10 @@ for (const chain of chains) {
 The returned list merges the Better Intent catalog with deployment metadata used by standalone
 execute. Token addresses and decimals are chain-specific; never infer decimals from a symbol.
 
-For selectors that depend on choices the user has already made, request a constrained catalog from
-the middleware. Directional `asSource` and `asDestination` arrays show which providers can use each
-chain or token in that role; an empty array means the option should be disabled for that route.
+Token `asSource` and `asDestination` arrays describe general provider support. A listed token does
+not guarantee a route exists; the quote request determines whether the selected swap is supported.
+`getSupportedChainsForRoute()` forwards route constraints to `/chains`, so its chain-level support
+is constrained. Its tokens remain the provider-filtered catalog from `/tokens`.
 
 ```ts
 const destinationOptions = await client.getSupportedChainsForRoute({
@@ -249,6 +253,15 @@ request. Quote results expose `sourceVerdicts`; quote failures can be inspected 
 messages using `getIntentQuoteFailure(error)`.
 The helper also exposes structured balance, approval-gas, price, and routing failures through its
 `subcode`, `details`, and `errorId` fields.
+
+Tokens expose optional `permit` and `sponsoredApproval` metadata for discovery. The quote determines
+which approvals actually need permits. `IntentAllowance.authorizationType` and plan steps describe
+the required action; `IntentResult.approvals` contains only approval transactions submitted by the
+user. A denied permit signature stops execution.
+
+Provider `currencyId` values may be numbers or strings. Balance `priceSource` values include
+`oracle`, `indexer`, `coingecko`, `relay`, or `null`. Quote fees expose `depositRaw`, `fulfillmentRaw`,
+`protocolRaw`, and `solverRaw`; the removed middleware `caGas` fee is no longer exposed as `caGasRaw`.
 
 ## Execute
 

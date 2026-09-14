@@ -22,20 +22,17 @@ const quoteResponse = () => ({
   input: [],
   output: { chainId: 'EVM_1', tokenAddress: TOKEN, amount: '1' },
   minAmountOut: '1',
-  fees: { deposit: '0', fulfillment: '0', protocol: '0', solver: '0', caGas: '0' },
+  fees: { deposit: '0', fulfillment: '0', protocol: '0', solver: '0' },
   expiry: '2000000000',
   rff: {},
   rffHash: QUOTE_ID,
-  signing: {
-    type: 'personal_sign',
-    messagePrefix: 'Sign this intent to proceed',
-    message: '0x12',
-    hash: QUOTE_ID,
-  },
   allowances: [],
   nativeTransactions: [],
   submitRequirements: {
-    requiresIntentSignature: true,
+    requiredSignatures: [{
+        kind: 'intent', universe: 'EVM', signingScheme: 'personal_sign',
+        data: { messagePrefix: 'Sign this intent to proceed', message: '0x1234', hash: QUOTE_ID },
+      }],
     requiresApprovals: false,
     requiresNativeTxReceipts: false,
   },
@@ -85,9 +82,20 @@ describe('Better Intent middleware transport', () => {
             name: 'Ethereum',
             nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
             providers: ['nexus-v2', 'relay'],
-            tokens: [],
           },
         ],
+      })
+      .mockResolvedValueOnce({
+        data: {
+          tokens: [{
+            universe: 'EVM', chainId: 'EVM_1', address: TOKEN,
+            symbol: 'USDC', name: 'USD Coin', decimals: 6, isNative: false,
+            asSource: [{ id: 'mayan', currencyId: 'usdc' }],
+            asDestination: [{ id: 'mayan' }],
+            permit: { variant: 'eip2612', version: '2' }, sponsoredApproval: true,
+          }],
+          offset: 0, limit: 1000, total: 1,
+        },
       })
       .mockResolvedValueOnce({
         data: {
@@ -117,6 +125,11 @@ describe('Better Intent middleware transport', () => {
       expect.objectContaining({
         id: 1,
         providers: ['nexus-v2', 'relay'],
+        tokens: [expect.objectContaining({
+          chainId: 1, address: TOKEN,
+          asSource: [{ id: 'mayan', currencyId: 'usdc' }],
+          permit: { variant: 'eip2612', version: '2' }, sponsoredApproval: true,
+        })],
         capabilities: { intent: true, execute: false },
       }),
     ]);
@@ -133,9 +146,61 @@ describe('Better Intent middleware transport', () => {
     );
     expect(http.get).toHaveBeenNthCalledWith(
       2,
+      '/api/v1/better-intent/tokens',
+      { params: new URLSearchParams('provider=mayan&offset=0&limit=1000') }
+    );
+    expect(http.get).toHaveBeenNthCalledWith(
+      3,
       `/api/v1/better-intent/balances/${ACCOUNT}`,
       { params: { refresh: true, provider: 'mayan' } }
     );
+  });
+
+  it('loads every token page without applying route constraints to token availability', async () => {
+    const http = makeAxios();
+    axiosRoot.create.mockReturnValue(http);
+    const token = {
+      universe: 'EVM', chainId: 'EVM_1', address: TOKEN,
+      symbol: 'USDC', name: 'USD Coin', decimals: 6, isNative: false,
+      asSource: [{ id: 'relay' }], asDestination: [{ id: 'relay' }],
+      sponsoredApproval: false,
+    };
+    http.get
+      .mockResolvedValueOnce({ data: [{
+        chainId: 'EVM_1', name: 'Ethereum',
+        nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+        asSource: [], asDestination: [],
+      }] })
+      .mockResolvedValueOnce({ data: { tokens: [token], offset: 0, limit: 1, total: 2 } })
+      .mockResolvedValueOnce({ data: {
+        tokens: [{ ...token, address: ACCOUNT }], offset: 1, limit: 1, total: 2,
+      } });
+    const client = createMiddlewareClient('https://mw.example');
+
+    const chains = await client.getIntentChains({
+      providers: ['relay'], destinations: [{ chainId: 8453, tokenAddress: TOKEN }],
+    });
+
+    expect(chains[0]?.tokens.map(({ address }) => address)).toEqual([TOKEN, ACCOUNT]);
+    expect(chains[0]?.tokens[0]?.asDestination).toEqual([{ id: 'relay' }]);
+    expect(http.get.mock.calls.slice(1).map(([, config]) => config.params.toString())).toEqual([
+      'provider=relay&offset=0&limit=1000', 'provider=relay&offset=1&limit=1000',
+    ]);
+  });
+
+  it('rejects an incomplete token catalog instead of returning partial data', async () => {
+    const http = makeAxios();
+    axiosRoot.create.mockReturnValue(http);
+    http.get
+      .mockResolvedValueOnce({ data: [{
+        chainId: 'EVM_1', name: 'Ethereum',
+        nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+        asSource: ['relay'], asDestination: ['relay'],
+      }] })
+      .mockResolvedValueOnce({ data: { tokens: [], offset: 0, limit: 1000, total: 1 } });
+
+    await expect(createMiddlewareClient('https://mw.example').getIntentChains())
+      .rejects.toThrow(/token.*pag/i);
   });
 
   it('quotes and submits using the Better Intent wire format', async () => {
@@ -156,7 +221,7 @@ describe('Better Intent middleware transport', () => {
     const submit = {
       provider: quoted.execution.provider,
       rff: quoted.execution.rff,
-      rffSignature: '0x12' as Hex,
+      signatures: [{ kind: 'intent' as const, universe: 'EVM' as const, signingScheme: 'personal_sign' as const, signature: `0x${'22'.repeat(65)}` as Hex }],
     };
 
     expect(quoted.quote.id).toBe(QUOTE_ID);

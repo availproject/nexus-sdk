@@ -36,6 +36,7 @@ const STEP_LABELS: Record<string, (step: RawStep) => string> = {
   execute_approval: (s) => `Approve ${s.token?.symbol ?? "token"}`,
   execute_transaction: (s) => `Execute on ${s.chain?.name ?? "chain"}`,
   erc20_approval: (s) => `Approve token on ${s.chain?.name ?? "source chain"}`,
+  source_approval_signature: () => "Sign token approval",
   intent_signature: () => "Sign intent",
   native_transaction: (s) => `Submit source transaction on ${s.chain?.name ?? "chain"}`,
   intent_submission: () => "Submit intent",
