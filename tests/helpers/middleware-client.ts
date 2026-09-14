@@ -11,7 +11,7 @@ export const makeMiddlewareClient = (
     throw new Error('getIntentQuote fixture not configured');
   },
   submitIntent: async (request) => ({
-    quoteId: request.rffSignature as Hex,
+    quoteId: request.rff.quoteId as Hex,
     status: 'created',
   }),
   getIntentStatus: async (id) => ({

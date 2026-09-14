@@ -7,11 +7,13 @@ import type {
   IntentHookData,
   IntentNativeTransactionInstruction,
   IntentPlanStep,
+  IntentRequiredSignature,
   IntentResult,
   IntentSource,
   IntentStatus,
   IntentSubmitRequest,
   IntentSubmitResponse,
+  IntentSubmittedSignature,
   IntentTransaction,
 } from './types';
 
@@ -33,7 +35,7 @@ type RunIntentDeps = {
     instruction: ExecutableIntentQuote['execution']['allowances'][number],
     amountRaw: bigint
   ) => Promise<IntentTransaction>;
-  sign: (message: Hex) => Promise<Hex>;
+  sign: (instruction: IntentRequiredSignature) => Promise<Hex>;
   sendNative: (
     instruction: IntentNativeTransactionInstruction,
     signature: Hex,
@@ -152,11 +154,28 @@ export const runIntent = async (
 
   const approvals = executable.execution.allowances.filter((entry) => entry.deficitRaw > 0n);
   const approvalTransactions: IntentTransaction[] = [];
+  const signatures: IntentSubmittedSignature[] = [];
   for (const instruction of approvals) {
     const stepId = `approval:${instruction.chainId}:${instruction.tokenAddress}`;
     emitStep(executable, stepId, 'started');
     try {
-      approvalTransactions.push(await deps.approve(instruction, instruction.requiredRaw));
+      if (instruction.authorizationType === 'permit') {
+        const requirement = executable.execution.requiredSignatures.find(
+          (entry) =>
+            entry.kind === 'sourceApproval' &&
+            entry.chainId === instruction.chainId &&
+            entry.tokenAddress === instruction.tokenAddress
+        );
+        if (!requirement) {
+          throw Errors.backend('Missing Better Intent source approval signature', {
+            service: 'middleware',
+          });
+        }
+        const { data: _data, ...envelope } = requirement;
+        signatures.push({ ...envelope, signature: await deps.sign(requirement) });
+      } else {
+        approvalTransactions.push(await deps.approve(instruction, instruction.requiredRaw));
+      }
       emitStep(executable, stepId, 'completed');
     } catch (error) {
       emitStep(executable, stepId, 'failed', error);
@@ -167,7 +186,15 @@ export const runIntent = async (
   emitStep(executable, 'intent-signature', 'started');
   let signature: Hex;
   try {
-    signature = await deps.sign(executable.execution.signing.message);
+    const requirement = executable.execution.requiredSignatures.find(
+      (entry) => entry.kind === 'intent'
+    );
+    if (!requirement) {
+      throw Errors.backend('Missing Better Intent intent signature', { service: 'middleware' });
+    }
+    signature = await deps.sign(requirement);
+    const { data: _data, ...envelope } = requirement;
+    signatures.unshift({ ...envelope, signature });
     const hasErc20Source =
       executable.execution.nativeTransactions.length < executable.quote.input.length;
     if (hasErc20Source) committed = true;
@@ -200,7 +227,7 @@ export const runIntent = async (
     await deps.submit({
       provider: executable.execution.provider,
       rff: executable.execution.rff,
-      rffSignature: signature,
+      signatures,
       ...(nativeTxReceipts.length > 0 ? { nativeTxReceipts } : {}),
     });
     emitStep(executable, 'intent-submission', 'completed');

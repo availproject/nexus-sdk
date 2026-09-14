@@ -18,7 +18,7 @@ The SDK owns:
 - public input validation and catalog lookups;
 - response normalization at the transport boundary;
 - quote review hooks and quote refresh;
-- wallet chain switching, ERC-20 approvals, `personal_sign`, and native transactions;
+- wallet chain switching, ERC-20 approvals, EIP-712 permits, `personal_sign`, and native transactions;
 - intent submission and fulfillment polling;
 - standalone contract execution;
 - destination shortfall calculation for intent-plus-execute operations;
@@ -34,6 +34,7 @@ createNexusClient(config)
   -> initialize()
        GET /deployment
        GET /api/v1/better-intent/chains       mainnet/canary only
+       GET /api/v1/better-intent/tokens       all pages, joined by chain ID
   -> setEVMProvider(provider)
        bind address + viem wallet client
   -> operations
@@ -93,7 +94,7 @@ public client method
        emit quote
        onIntent({ quote, refresh, allow, deny })
        resolve allowance amounts
-       ERC-20 approvals
+       ERC-20 approvals or EIP-712 permit signatures
        personal_sign
        native source transactions
        submit signed intent
@@ -106,7 +107,7 @@ never combines public fields from one quote with private instructions from anoth
 
 The canonical plan is ordered:
 
-1. `erc20_approval` steps with a positive deficit;
+1. `erc20_approval` or `source_approval_signature` steps with a positive deficit;
 2. `intent_signature`;
 3. `native_transaction` steps;
 4. `intent_submission`;
@@ -142,8 +143,10 @@ the SDK does not calculate a local threshold or compare provider quotes.
 - expiry;
 - canonical plan.
 
-`ExecutableIntentQuote` is internal. It additionally contains the RFF payload, personal-sign
-message, approval calldata, native transaction ABI/request data, and provider submission data.
+`ExecutableIntentQuote` is internal. It additionally contains the RFF payload,
+`requiredSignatures` with personal-sign or EIP-712 data, approval calldata, native transaction
+ABI/request data, and provider submission data. Submission echoes each signature's identity with
+the produced signature, excluding its signing data.
 
 This separation prevents middleware wire details from becoming public API while keeping the
 approved quote auditable.
@@ -153,7 +156,10 @@ approved quote auditable.
 `src/intent/catalog.ts` resolves normalized chain metadata and token metadata by chain ID and
 contract address. It does not group tokens by symbol or infer cross-chain fungibility.
 
-When `forceMayan` is enabled, the SDK requests Mayan-filtered chains and balances and sends Mayan
+The transport loads chain metadata and paginated tokens separately, normalizes both responses, and
+joins tokens by chain ID. It rejects incomplete pagination rather than exposing a partial catalog.
+
+When `forceMayan` is enabled, the SDK requests Mayan-filtered chains, tokens, and balances and sends Mayan
 as the preferred quote provider. This keeps selectors, holdings, and quote routing on the same
 provider catalog.
 
@@ -165,8 +171,9 @@ result contains explicit `capabilities.intent` and `capabilities.execute` flags.
 
 `getSupportedChainsForRoute()` forwards the user's current source/destination constraints to
 `/better-intent/chains`. The middleware remains the source of truth for provider compatibility and
-returns directional `asSource`/`asDestination` support. The SDK keeps `providers` as the union of
-those fields for compatibility with existing consumers.
+returns directional `asSource`/`asDestination` support at the chain level. `/tokens` accepts provider
+filters, but no route constraints: token support remains general catalog availability. The SDK
+leaves route feasibility to quote requests. It keeps `providers` as the union of directional fields.
 
 Quote responses normalize `sourceVerdicts`. Structured quote failures are retained on the SDK
 error and exposed through `getIntentQuoteFailure`, including the middleware subcode, error ID,
@@ -211,7 +218,7 @@ The public client requires `clientId`. Its middleware transport sends
 `src/transport/middleware.ts` exposes only:
 
 - deployment metadata;
-- Better Intent chains;
+- Better Intent chains with their separately loaded token catalog;
 - Better Intent balances;
 - quote;
 - submit;

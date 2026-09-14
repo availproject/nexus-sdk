@@ -10,7 +10,7 @@ export type IntentLifecycleStatus = 'created' | 'deposited' | 'fulfilled' | 'exp
 
 export type IntentProviderSupport = {
   id: IntentProvider;
-  currencyId?: number;
+  currencyId?: number | string;
 };
 
 export type IntentToken = {
@@ -25,6 +25,8 @@ export type IntentToken = {
   providers: IntentProviderSupport[];
   asSource?: IntentProviderSupport[];
   asDestination?: IntentProviderSupport[];
+  permit?: { variant: 'eip2612' | 'emt'; version?: string };
+  sponsoredApproval?: boolean;
 };
 
 export type IntentChain = {
@@ -113,7 +115,7 @@ export type IntentBalance = {
   providers: IntentProviderSupport[];
   balanceRaw: bigint;
   valueUsd: number | null;
-  priceSource: 'oracle' | 'indexer' | null;
+  priceSource: 'oracle' | 'indexer' | 'coingecko' | 'relay' | null;
   usable: boolean;
 };
 
@@ -136,7 +138,6 @@ export type IntentFees = {
   fulfillmentRaw: bigint;
   protocolRaw: bigint;
   solverRaw: bigint;
-  caGasRaw: bigint;
 };
 
 export type IntentAllowance = {
@@ -147,12 +148,13 @@ export type IntentAllowance = {
   currentRaw: bigint;
   requiredRaw: bigint;
   deficitRaw: bigint;
+  authorizationType?: 'approve' | 'permit';
 };
 
 export type IntentPlanStep =
   | {
       id: string;
-      type: 'erc20_approval';
+      type: 'erc20_approval' | 'source_approval_signature';
       chainId: number;
       tokenAddress: Hex;
       spender: Hex;
@@ -213,14 +215,46 @@ export type IntentNativeTransactionInstruction = {
   payload?: Hex;
 };
 
+export type IntentRequiredSignature =
+  | {
+      kind: 'intent';
+      universe: 'EVM';
+      signingScheme: 'personal_sign';
+      data: { messagePrefix: string; message: Hex; hash: Hex };
+    }
+  | {
+      kind: 'sourceApproval';
+      universe: 'EVM';
+      chainId: number;
+      tokenAddress: Hex;
+      signingScheme: 'eip712';
+      data: {
+        domain: {
+          name: string;
+          version: string;
+          chainId?: number;
+          verifyingContract: Hex;
+          salt?: Hex;
+        };
+        types: Record<string, Array<{ name: string; type: string }>>;
+        primaryType: 'Permit' | 'MetaTransaction';
+        message: Record<string, string>;
+      };
+    };
+
+export type IntentSubmittedSignature = {
+  kind: IntentRequiredSignature['kind'];
+  universe: 'EVM';
+  signingScheme: IntentRequiredSignature['signingScheme'];
+  chainId?: number;
+  tokenAddress?: Hex;
+  signature: Hex;
+};
+
 export type IntentExecutionInstructions = {
   provider: IntentProvider;
   rff: Record<string, unknown>;
-  signing: {
-    type: 'personal_sign';
-    message: Hex;
-    hash: Hex;
-  };
+  requiredSignatures: IntentRequiredSignature[];
   allowances: IntentApprovalInstruction[];
   nativeTransactions: IntentNativeTransactionInstruction[];
 };
@@ -245,7 +279,7 @@ export type IntentQuoteRequest = {
 export type IntentSubmitRequest = {
   provider: IntentProvider;
   rff: Record<string, unknown>;
-  rffSignature: Hex;
+  signatures: IntentSubmittedSignature[];
   nativeTxReceipts?: Array<{ sourceIndex: number; txHash: Hex }>;
 };
 

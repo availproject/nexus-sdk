@@ -61,6 +61,7 @@ function createIntentEventHandler(
       if (event.state === "started") {
         const messages: Record<typeof event.step.type, string> = {
           erc20_approval: "Approve token in your wallet...",
+          source_approval_signature: "Sign token approval in your wallet...",
           intent_signature: "Sign intent in your wallet...",
           native_transaction: "Submit source transaction...",
           intent_submission: "Submitting intent...",

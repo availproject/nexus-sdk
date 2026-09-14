@@ -11,6 +11,7 @@ import { isUserRejectedRequest } from '../services/is-user-rejected-request';
 import type {
   IntentApprovalInstruction,
   IntentNativeTransactionInstruction,
+  IntentRequiredSignature,
   IntentTransaction,
 } from './types';
 
@@ -19,6 +20,11 @@ type IntentWalletClient = {
   switchChain?: (input: { id: number }) => Promise<unknown>;
   addChain?: (input: { chain: Chain }) => Promise<unknown>;
   sendTransaction?: (input: Record<string, unknown>) => Promise<Hex>;
+  signTypedData?: (
+    input: Extract<IntentRequiredSignature, { kind: 'sourceApproval' }>['data'] & {
+      account: Hex;
+    }
+  ) => Promise<Hex>;
 };
 
 type IntentWalletInput = {
@@ -123,19 +129,43 @@ export const createIntentWallet = (input: IntentWalletInput) => {
     });
   };
 
-  const sign = async (message: Hex): Promise<Hex> => {
+  const sign = async (instruction: IntentRequiredSignature): Promise<Hex> => {
+    if (instruction.kind === 'sourceApproval') {
+      const owner =
+        instruction.data.message[instruction.data.primaryType === 'Permit' ? 'owner' : 'from'];
+      if (!owner || !sameAddress(owner, input.address)) {
+        throw Errors.invalidInput('Permit owner does not match connected account');
+      }
+      if (!input.walletClient.signTypedData) {
+        throw Errors.execution('Wallet client cannot sign typed data', {
+          service: 'wallet',
+          chainId: instruction.chainId,
+        });
+      }
+      await switchTo(input.chainList.getChainByID(instruction.chainId));
+    }
     try {
-      const signature = await input.provider.request({
-        method: 'personal_sign',
-        params: [message, input.address],
-      });
-      if (typeof signature !== 'string' || !signature.startsWith('0x')) {
+      const signature =
+        instruction.kind === 'intent'
+          ? await input.provider.request({
+              method: 'personal_sign',
+              params: [instruction.data.message, input.address],
+            })
+          : await input.walletClient.signTypedData?.({
+              account: input.address,
+              ...instruction.data,
+            });
+      if (typeof signature !== 'string' || !/^0x[0-9a-fA-F]{130}$/.test(signature)) {
         throw new Error('wallet returned an invalid signature');
       }
       return signature as Hex;
     } catch (error) {
-      if (isUserRejectedRequest(error)) throw Errors.userRejectedIntentSignature();
-      throw Errors.execution(`Failed to sign intent: ${formatUnknownError(error)}`, {
+      if (isUserRejectedRequest(error)) {
+        throw instruction.kind === 'sourceApproval'
+          ? Errors.userRejectedAllowance()
+          : Errors.userRejectedIntentSignature();
+      }
+      throw Errors.execution(`Failed to sign ${instruction.kind}: ${formatUnknownError(error)}`, {
         service: 'wallet',
       });
     }
