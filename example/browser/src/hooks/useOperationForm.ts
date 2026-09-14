@@ -2,13 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { UserActionError, type NexusClient } from "@avail-project/nexus-core";
-import type { TabConfig, HashRecord, SwapResultData, BridgeResultData } from "../lib/types";
+import type { TabConfig, HashRecord, SwapResultData } from "../lib/types";
 import {
   flattenBalances,
   getErrorMessage,
   logError,
-  type BridgeAndExecuteIntentViewModel,
-  type BridgeIntentViewModel,
   type SwapAndExecuteIntentViewModel,
   type SwapIntentViewModel,
 } from "../lib/nexus";
@@ -36,9 +34,7 @@ function friendlyUserActionReason(code?: string): string | undefined {
 function extractProgressResult(
   intentType: TabConfig["intentType"],
   swap: SwapIntentViewModel | null,
-  bridge: BridgeIntentViewModel | null,
   swapExec: SwapAndExecuteIntentViewModel | null,
-  bridgeExec: BridgeAndExecuteIntentViewModel | null,
 ): ProgressResult | null {
   const mapSwapSources = (vm: SwapIntentViewModel): ProgressResult => ({
     sources: vm.sources.map((s) => ({
@@ -51,25 +47,10 @@ function extractProgressResult(
       value: s.value,
     })),
     sourcesTotal: vm.sourcesTotal,
-    feesTotal: toFixed(sum([vm.buffer, vm.bridgeFees?.total]), 2),
+    feesTotal: toFixed(sum([vm.buffer, vm.fees?.total]), 2),
   });
-  const mapBridgeSources = (vm: BridgeIntentViewModel): ProgressResult => ({
-    sources: vm.sources.map((s) => ({
-      chainId: s.chainId,
-      chainName: s.chainName,
-      chainLogo: s.chainLogo,
-      tokenSymbol: s.tokenSymbol,
-      tokenLogo: getTokenLogoUrl(s.tokenSymbol, undefined, s.chainId),
-      amount: s.amount,
-    })),
-    sourcesTotal: vm.sourcesTotal,
-    feesTotal: vm.fees.total,
-  });
-
   if (intentType === "swap" && swap) return mapSwapSources(swap);
-  if (intentType === "bridge" && bridge) return mapBridgeSources(bridge);
   if (intentType === "swapAndExecute" && swapExec?.swap) return mapSwapSources(swapExec.swap);
-  if (intentType === "bridgeAndExecute" && bridgeExec?.bridge) return mapBridgeSources(bridgeExec.bridge);
   return null;
 }
 
@@ -79,27 +60,17 @@ type UseOperationFormParams = {
   ready: boolean;
   address?: `0x${string}`;
   onSwapIntent: (data: any) => void;
-  onBridgeIntent: (data: any) => void;
   onSwapExecIntent: (data: any) => void;
-  onBridgeExecIntent: (data: any) => void;
   swapIntentPending: boolean;
   swapIntentApproved: boolean;
   clearSwapIntent: () => void;
-  bridgeIntentPending: boolean;
-  bridgeIntentApproved: boolean;
-  clearBridgeIntent: () => void;
   swapExecIntentPending: boolean;
   swapExecIntentApproved: boolean;
   clearSwapExecIntent: () => void;
-  bridgeExecIntentPending: boolean;
-  bridgeExecIntentApproved: boolean;
-  clearBridgeExecIntent: () => void;
   /** Currently-active view-model for the matching intent type — used to
    *  thread source/fee details into the progress modal on approval. */
   swapIntent?: SwapIntentViewModel | null;
-  bridgeIntent?: BridgeIntentViewModel | null;
   swapExecIntent?: SwapAndExecuteIntentViewModel | null;
-  bridgeExecIntent?: BridgeAndExecuteIntentViewModel | null;
 };
 
 export function useOperationForm({
@@ -108,33 +79,21 @@ export function useOperationForm({
   ready,
   address,
   onSwapIntent,
-  onBridgeIntent,
   onSwapExecIntent,
-  onBridgeExecIntent,
   swapIntentPending,
   swapIntentApproved,
   clearSwapIntent,
-  bridgeIntentPending,
-  bridgeIntentApproved,
-  clearBridgeIntent,
   swapExecIntentPending,
   swapExecIntentApproved,
   clearSwapExecIntent,
-  bridgeExecIntentPending,
-  bridgeExecIntentApproved,
-  clearBridgeExecIntent,
   swapIntent,
-  bridgeIntent,
   swapExecIntent,
-  bridgeExecIntent,
 }: UseOperationFormParams) {
   const progress = useExecutionProgress(config.intentType);
   const chainOptions = useMemo(() => config.getChainOptions(client), [config, client]);
   const [chainId, setChainId] = useState<number>(config.defaultChainId);
   const [tokenAddress, setTokenAddress] = useState<`0x${string}`>();
   const [amount, setAmount] = useState("");
-  const [nativeAmount, setNativeAmount] = useState("");
-  const [recipient, setRecipient] = useState("");
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [sourceAmounts, setSourceAmounts] = useState<Record<string, string>>({});
   const isPerSource = config.amountMode === "per-source";
@@ -146,7 +105,7 @@ export function useOperationForm({
   const [completedSteps, setCompletedSteps] = useState<Set<string>>(new Set());
   const [started, setStarted] = useState(false);
   const [resultHashes, setResultHashes] = useState<HashRecord[]>([]);
-  const [richResult, setRichResult] = useState<SwapResultData | BridgeResultData | null>(null);
+  const [richResult, setRichResult] = useState<SwapResultData | null>(null);
   const [marketUrl, setMarketUrl] = useState<string | undefined>();
   const [statusMessage, setStatusMessage] = useState("");
 
@@ -186,28 +145,10 @@ export function useOperationForm({
     refetchOnWindowFocus: false,
   });
 
-  const allSourceOptions = useMemo(
+  const sourceOptions = useMemo(
     () => flattenBalances(balancesQuery.data ?? []),
     [balancesQuery.data],
   );
-
-  const sourceOptions = useMemo(
-    () =>
-      config.filterSources
-        ? config.filterSources(allSourceOptions, chainId, tokenSymbol)
-        : allSourceOptions,
-    [config, allSourceOptions, chainId, tokenSymbol],
-  );
-
-  const prevSourceIdsRef = useRef<string>("");
-  useEffect(() => {
-    if (!config.filterSources) return;
-    const currentIds = sourceOptions.map((s) => s.id).join(",");
-    if (prevSourceIdsRef.current && prevSourceIdsRef.current !== currentIds) {
-      setSelectedSources([]);
-    }
-    prevSourceIdsRef.current = currentIds;
-  }, [sourceOptions, config.filterSources]);
 
   const selectedSourceOptions =
     selectedSources.length > 0
@@ -253,20 +194,11 @@ export function useOperationForm({
 
   // Intent approval tracking — route to the correct state based on intent type
   const intentPending =
-    config.intentType === "swap" ? swapIntentPending
-    : config.intentType === "swapAndExecute" ? swapExecIntentPending
-    : config.intentType === "bridge" ? bridgeIntentPending
-    : bridgeExecIntentPending;
+    config.intentType === "swap" ? swapIntentPending : swapExecIntentPending;
   const intentApproved =
-    config.intentType === "swap" ? swapIntentApproved
-    : config.intentType === "swapAndExecute" ? swapExecIntentApproved
-    : config.intentType === "bridge" ? bridgeIntentApproved
-    : bridgeExecIntentApproved;
+    config.intentType === "swap" ? swapIntentApproved : swapExecIntentApproved;
   const clearIntent =
-    config.intentType === "swap" ? clearSwapIntent
-    : config.intentType === "swapAndExecute" ? clearSwapExecIntent
-    : config.intentType === "bridge" ? clearBridgeIntent
-    : clearBridgeExecIntent;
+    config.intentType === "swap" ? clearSwapIntent : clearSwapExecIntent;
 
   const intentWasPendingRef = useRef(false);
   useEffect(() => {
@@ -285,9 +217,7 @@ export function useOperationForm({
       const snapshot = extractProgressResult(
         config.intentType,
         swapIntent ?? null,
-        bridgeIntent ?? null,
         swapExecIntent ?? null,
-        bridgeExecIntent ?? null,
       );
       if (snapshot) progress.attachResult(snapshot);
     } else if (intentWasPendingRef.current && !intentPending) {
@@ -339,8 +269,6 @@ export function useOperationForm({
         tokenSymbol,
         tokenAddress: currentTokenOption?.tokenAddress,
         amount,
-        nativeAmount,
-        recipient,
         sourceOptions,
         selectedSources,
         sourceAmounts,
@@ -348,9 +276,7 @@ export function useOperationForm({
         setStatusMessage,
         handleProgressEvent: progress.handleEvent,
         _onSwapIntent: onSwapIntent,
-        _onBridgeIntent: onBridgeIntent,
         _onSwapExecIntent: onSwapExecIntent,
-        _onBridgeExecIntent: onBridgeExecIntent,
       };
 
       console.log(`[execute] ${config.id} starting:`, { chainId, tokenSymbol, amount, selectedSources });
@@ -405,8 +331,6 @@ export function useOperationForm({
 
   const resetForm = useCallback(() => {
     setAmount("");
-    setNativeAmount("");
-    setRecipient("");
     setSelectedSources([]);
     setSourceAmounts({});
     setCompletedSteps(new Set());
@@ -427,10 +351,6 @@ export function useOperationForm({
     setTokenAddress,
     amount,
     setAmount,
-    nativeAmount,
-    setNativeAmount,
-    recipient,
-    setRecipient,
     sourceOptions,
     selectedSources,
     setSelectedSources,

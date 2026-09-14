@@ -2,12 +2,7 @@ import type { Hex } from 'viem';
 import type { Chain } from '../domain';
 import { ZERO_ADDRESS } from '../domain';
 import { Errors } from '../domain/errors';
-import type {
-  IntentChain,
-  IntentQuoteRequest,
-  IntentToken,
-  IntentTokenCatalogEntry,
-} from './types';
+import type { IntentChain, IntentToken } from './types';
 
 export const intentNetworkEnabled = (network: string): boolean =>
   network === 'mainnet' || network === 'canary';
@@ -16,59 +11,11 @@ const sameAddress = (left: string, right: string) => left.toLowerCase() === righ
 
 export type IntentCatalog = {
   chains: IntentChain[];
-  tokens: IntentTokenCatalogEntry[];
   getChain: (chainId: number) => IntentChain;
   getToken: (chainId: number, address: Hex) => IntentToken;
-  getTokenBySymbol: (chainId: number, symbol: string) => IntentToken;
-  bridgeSources: (
-    destinationChainId: number,
-    destinationToken: Hex,
-    sourceChainIds?: number[]
-  ) => NonNullable<IntentQuoteRequest['sources']>;
 };
 
-export const createTokenCatalogFromChains = (chains: IntentChain[]): IntentTokenCatalogEntry[] => {
-  const assets = new Map<string, IntentTokenCatalogEntry>();
-
-  for (const chain of chains) {
-    for (const token of chain.tokens) {
-      const assetId = token.coingeckoId ?? `symbol:${token.symbol.toUpperCase()}`;
-      const existing = assets.get(assetId);
-      const deployment = {
-        universe: 'EVM' as const,
-        chainId: token.chainId,
-        address: token.address,
-        name: token.name,
-        decimals: token.decimals,
-        isNative: token.isNative,
-        providers: token.providers,
-        asSource: token.asSource ?? token.providers,
-        asDestination: token.asDestination ?? token.providers,
-      };
-
-      if (existing) {
-        existing.chains.push(deployment);
-        continue;
-      }
-
-      assets.set(assetId, {
-        assetId,
-        symbol: token.symbol,
-        name: token.name,
-        logo: token.logo,
-        coingeckoId: token.coingeckoId,
-        chains: [deployment],
-      });
-    }
-  }
-
-  return [...assets.values()];
-};
-
-export const createIntentCatalog = (
-  chains: IntentChain[],
-  tokens: IntentTokenCatalogEntry[]
-): IntentCatalog => {
+export const createIntentCatalog = (chains: IntentChain[]): IntentCatalog => {
   const getChain = (chainId: number): IntentChain => {
     const chain = chains.find((entry) => entry.id === chainId);
     if (!chain) throw Errors.chainNotFound(chainId);
@@ -81,41 +28,7 @@ export const createIntentCatalog = (
     return token;
   };
 
-  const getTokenBySymbol = (chainId: number, symbol: string): IntentToken => {
-    const token = getChain(chainId).tokens.find(
-      (entry) => entry.symbol.toLowerCase() === symbol.toLowerCase()
-    );
-    if (!token) throw Errors.tokenNotFound(symbol, chainId);
-    return token;
-  };
-
-  const bridgeSources = (
-    destinationChainId: number,
-    destinationToken: Hex,
-    sourceChainIds?: number[]
-  ): NonNullable<IntentQuoteRequest['sources']> => {
-    const asset = tokens.find((entry) =>
-      entry.chains.some(
-        (deployment) =>
-          deployment.chainId === destinationChainId &&
-          sameAddress(deployment.address, destinationToken)
-      )
-    );
-    if (!asset) throw Errors.tokenNotSupported(destinationToken, destinationChainId);
-
-    const selected = sourceChainIds ?? asset.chains.map((entry) => entry.chainId);
-    return selected
-      .filter((chainId) => chainId !== destinationChainId)
-      .map((chainId) => {
-        const deployment = asset.chains.find((entry) => entry.chainId === chainId);
-        if (!deployment) {
-          throw Errors.invalidInput(`${asset.symbol} is not available on source chain ${chainId}`);
-        }
-        return { chainId: `EVM_${chainId}`, tokens: [deployment.address] };
-      });
-  };
-
-  return { chains, tokens, getChain, getToken, getTokenBySymbol, bridgeSources };
+  return { chains, getChain, getToken };
 };
 
 const executeIntentChain = (chain: Chain): IntentChain => ({

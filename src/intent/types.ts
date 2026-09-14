@@ -101,19 +101,6 @@ export type IntentQuoteFailure = {
   details: Record<string, unknown>;
 };
 
-export type IntentTokenCatalogEntry = {
-  assetId: string;
-  symbol: string;
-  name: string;
-  logo?: string;
-  coingeckoId?: string;
-  chains: Array<
-    Omit<IntentToken, 'symbol' | 'logo' | 'coingeckoId'> & {
-      universe: 'EVM';
-    }
-  >;
-};
-
 export type IntentBalance = {
   chainId: number;
   tokenAddress: Hex;
@@ -367,20 +354,6 @@ export type IntentHookData = {
   deny: () => void;
   refresh: (sources?: IntentSource[]) => Promise<IntentQuote>;
 };
-
-export type IntentAllowanceSelection = 'min' | 'max' | bigint | string;
-
-export type IntentAllowanceHookData = {
-  allowances: IntentAllowance[];
-  allow: (selections?: IntentAllowanceSelection[]) => void;
-  deny: () => void;
-};
-
-export type BridgeAndExecuteIntentResult = Pick<ExecuteResult, 'approval' | 'execute'> &
-  (
-    | { bridgeSkipped: true; bridgeResult?: undefined }
-    | { bridgeSkipped: false; bridgeResult: IntentResult }
-  );
 
 export type SwapAndExecuteIntentResult = Pick<ExecuteResult, 'approval' | 'execute'> &
   (

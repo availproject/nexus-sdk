@@ -1,9 +1,7 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import type { NexusClient } from "@avail-project/nexus-core";
 import type { TabConfig } from "../lib/types";
 import type {
-  BridgeAndExecuteIntentViewModel,
-  BridgeIntentViewModel,
   SwapAndExecuteIntentViewModel,
   SwapIntentViewModel,
 } from "../lib/nexus";
@@ -11,7 +9,6 @@ import { useOperationForm } from "../hooks/useOperationForm";
 import { DestinationSelector, type DestinationOption } from "./DestinationSelector";
 import { SourceSelector } from "./SourceSelector";
 import { SourceAmountsEditor } from "./SourceAmountsEditor";
-import { RecipientInput } from "./RecipientInput";
 import { FlowModal } from "./FlowModal";
 import { getChainLogoUrl, getTokenLogoUrl } from "../lib/logos";
 import { flattenBalances } from "../lib/nexus";
@@ -23,15 +20,10 @@ type OperationPageProps = {
   ready: boolean;
   address?: `0x${string}`;
   onSwapIntent: (data: any) => void;
-  onBridgeIntent: (data: any) => void;
   onSwapExecIntent: (data: any) => void;
-  onBridgeExecIntent: (data: any) => void;
   swapIntentPending: boolean;
   swapIntentApproved: boolean;
   clearSwapIntent: () => void;
-  bridgeIntentPending: boolean;
-  bridgeIntentApproved: boolean;
-  clearBridgeIntent: () => void;
   swapExecIntentPending: boolean;
   swapExecIntentApproved: boolean;
   clearSwapExecIntent: () => void;
@@ -39,27 +31,14 @@ type OperationPageProps = {
   swapIntentRefreshing: boolean;
   approveSwapIntent: () => void;
   denySwapIntent: () => void;
-  bridgeIntent: BridgeIntentViewModel | null;
-  bridgeIntentRefreshing: boolean;
-  approveBridgeIntent: () => void;
-  denyBridgeIntent: () => void;
   swapExecIntent: SwapAndExecuteIntentViewModel | null;
   swapExecIntentRefreshing: boolean;
   approveSwapExecIntent: () => void;
   denySwapExecIntent: () => void;
-  bridgeExecIntent: BridgeAndExecuteIntentViewModel | null;
-  bridgeExecIntentRefreshing: boolean;
-  approveBridgeExecIntent: () => void;
-  denyBridgeExecIntent: () => void;
-  bridgeExecIntentPending: boolean;
-  bridgeExecIntentApproved: boolean;
-  clearBridgeExecIntent: () => void;
 };
 
 export function OperationPage({ config, ...sdkProps }: OperationPageProps) {
   const form = useOperationForm({ config, ...sdkProps });
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-  const isBridge = config.id === "bridge";
   const isPerSource = config.amountMode === "per-source";
 
   const handleDismissProgress = useCallback(() => {
@@ -90,9 +69,7 @@ export function OperationPage({ config, ...sdkProps }: OperationPageProps) {
   // Deposit tabs pin one lending protocol per destination chain — surface its
   // name in the hero pill + intent eyebrow. Label-only (no status color):
   // DESIGN.md reserves success/warning tints for status, not categories.
-  const isDepositTab =
-    config.intentType === "swapAndExecute" ||
-    config.intentType === "bridgeAndExecute";
+  const isDepositTab = config.intentType === "swapAndExecute";
   const depositProtocol = isDepositTab ? getDepositProtocol(form.chainId) : undefined;
 
   const destinationBalances = useMemo(
@@ -169,13 +146,6 @@ export function OperationPage({ config, ...sdkProps }: OperationPageProps) {
                       balances={destinationBalances}
                     />
                   </div>
-                  {isBridge && (
-                    <RecipientInput
-                      value={form.recipient}
-                      onChange={form.setRecipient}
-                      defaultAddress={sdkProps.address}
-                    />
-                  )}
                 </div>
 
                 <SourceSelector
@@ -183,39 +153,6 @@ export function OperationPage({ config, ...sdkProps }: OperationPageProps) {
                   selectedIds={form.selectedSources}
                   onSelect={form.setSelectedSources}
                 />
-
-                {isBridge && (
-                  <div className="field field-full">
-                    <button
-                      type="button"
-                      className="advanced-toggle"
-                      onClick={() => setAdvancedOpen((p) => !p)}
-                    >
-                      <svg
-                        width="12" height="12" viewBox="0 0 24 24" fill="none"
-                        stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-                        style={{ transform: advancedOpen ? "rotate(180deg)" : undefined, transition: "transform 0.2s" }}
-                      >
-                        <polyline points="6 9 12 15 18 9" />
-                      </svg>
-                      Advanced
-                    </button>
-                    {advancedOpen && (
-                      <div className="advanced-fields">
-                        <div className="field">
-                          <label htmlFor="bridge-native-amount">Native amount (destination gas)</label>
-                          <input
-                            id="bridge-native-amount"
-                            value={form.nativeAmount}
-                            onChange={(e) => form.setNativeAmount(e.target.value)}
-                            inputMode="decimal"
-                            placeholder="0.0 (e.g. 0.001 ETH)"
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
               </>
             )}
 
@@ -247,60 +184,12 @@ export function OperationPage({ config, ...sdkProps }: OperationPageProps) {
 
       <FlowModal
         intentType={config.intentType}
-        intent={
-          config.intentType === "swap"
-            ? sdkProps.swapIntent
-            : config.intentType === "bridge"
-              ? sdkProps.bridgeIntent
-              : config.intentType === "swapAndExecute"
-                ? sdkProps.swapExecIntent
-                : sdkProps.bridgeExecIntent
-        }
-        intentPending={
-          config.intentType === "swap"
-            ? sdkProps.swapIntentPending
-            : config.intentType === "bridge"
-              ? sdkProps.bridgeIntentPending
-              : config.intentType === "swapAndExecute"
-                ? sdkProps.swapExecIntentPending
-                : sdkProps.bridgeExecIntentPending
-        }
-        intentRefreshing={
-          config.intentType === "swap"
-            ? sdkProps.swapIntentRefreshing
-            : config.intentType === "bridge"
-              ? sdkProps.bridgeIntentRefreshing
-              : config.intentType === "swapAndExecute"
-                ? sdkProps.swapExecIntentRefreshing
-                : sdkProps.bridgeExecIntentRefreshing
-        }
-        intentApproved={
-          config.intentType === "swap"
-            ? sdkProps.swapIntentApproved
-            : config.intentType === "bridge"
-              ? sdkProps.bridgeIntentApproved
-              : config.intentType === "swapAndExecute"
-                ? sdkProps.swapExecIntentApproved
-                : sdkProps.bridgeExecIntentApproved
-        }
-        onApprove={
-          config.intentType === "swap"
-            ? sdkProps.approveSwapIntent
-            : config.intentType === "bridge"
-              ? sdkProps.approveBridgeIntent
-              : config.intentType === "swapAndExecute"
-                ? sdkProps.approveSwapExecIntent
-                : sdkProps.approveBridgeExecIntent
-        }
-        onDeny={
-          config.intentType === "swap"
-            ? sdkProps.denySwapIntent
-            : config.intentType === "bridge"
-              ? sdkProps.denyBridgeIntent
-              : config.intentType === "swapAndExecute"
-                ? sdkProps.denySwapExecIntent
-                : sdkProps.denyBridgeExecIntent
-        }
+        intent={config.intentType === "swap" ? sdkProps.swapIntent : sdkProps.swapExecIntent}
+        intentPending={config.intentType === "swap" ? sdkProps.swapIntentPending : sdkProps.swapExecIntentPending}
+        intentRefreshing={config.intentType === "swap" ? sdkProps.swapIntentRefreshing : sdkProps.swapExecIntentRefreshing}
+        intentApproved={config.intentType === "swap" ? sdkProps.swapIntentApproved : sdkProps.swapExecIntentApproved}
+        onApprove={config.intentType === "swap" ? sdkProps.approveSwapIntent : sdkProps.approveSwapExecIntent}
+        onDeny={config.intentType === "swap" ? sdkProps.denySwapIntent : sdkProps.denySwapExecIntent}
         actionLabel={depositProtocol ? `${depositProtocol.label} Supply` : undefined}
         progressState={form.progressState}
         onDismissProgress={handleDismissProgress}

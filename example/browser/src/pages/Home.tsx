@@ -2,8 +2,6 @@ import { Navigate, Route, Routes } from "react-router";
 import type { NexusClient } from "@avail-project/nexus-core";
 import type { NetworkMode, TabConfig } from "../lib/types";
 import type {
-  BridgeAndExecuteIntentViewModel,
-  BridgeIntentViewModel,
   SwapAndExecuteIntentViewModel,
   SwapIntentViewModel,
 } from "../lib/nexus";
@@ -18,9 +16,7 @@ type HomeProps = {
   address?: `0x${string}`;
   isConnected: boolean;
   onSwapIntent: (data: any) => void;
-  onBridgeIntent: (data: any) => void;
   onSwapExecIntent: (data: any) => void;
-  onBridgeExecIntent: (data: any) => void;
   swapIntent: SwapIntentViewModel | null;
   swapIntentPending: boolean;
   swapIntentRefreshing: boolean;
@@ -28,13 +24,6 @@ type HomeProps = {
   approveSwapIntent: () => void;
   denySwapIntent: () => void;
   clearSwapIntent: () => void;
-  bridgeIntent: BridgeIntentViewModel | null;
-  bridgeIntentPending: boolean;
-  bridgeIntentRefreshing: boolean;
-  bridgeIntentApproved: boolean;
-  approveBridgeIntent: () => void;
-  denyBridgeIntent: () => void;
-  clearBridgeIntent: () => void;
   swapExecIntent: SwapAndExecuteIntentViewModel | null;
   swapExecIntentPending: boolean;
   swapExecIntentRefreshing: boolean;
@@ -42,13 +31,6 @@ type HomeProps = {
   approveSwapExecIntent: () => void;
   denySwapExecIntent: () => void;
   clearSwapExecIntent: () => void;
-  bridgeExecIntent: BridgeAndExecuteIntentViewModel | null;
-  bridgeExecIntentPending: boolean;
-  bridgeExecIntentRefreshing: boolean;
-  bridgeExecIntentApproved: boolean;
-  approveBridgeExecIntent: () => void;
-  denyBridgeExecIntent: () => void;
-  clearBridgeExecIntent: () => void;
 };
 
 export default function Home({
@@ -58,9 +40,7 @@ export default function Home({
   address,
   isConnected,
   onSwapIntent,
-  onBridgeIntent,
   onSwapExecIntent,
-  onBridgeExecIntent,
   swapIntent,
   swapIntentPending,
   swapIntentRefreshing,
@@ -68,13 +48,6 @@ export default function Home({
   approveSwapIntent,
   denySwapIntent,
   clearSwapIntent,
-  bridgeIntent,
-  bridgeIntentPending,
-  bridgeIntentRefreshing,
-  bridgeIntentApproved,
-  approveBridgeIntent,
-  denyBridgeIntent,
-  clearBridgeIntent,
   swapExecIntent,
   swapExecIntentPending,
   swapExecIntentRefreshing,
@@ -82,13 +55,6 @@ export default function Home({
   approveSwapExecIntent,
   denySwapExecIntent,
   clearSwapExecIntent,
-  bridgeExecIntent,
-  bridgeExecIntentPending,
-  bridgeExecIntentRefreshing,
-  bridgeExecIntentApproved,
-  approveBridgeExecIntent,
-  denyBridgeExecIntent,
-  clearBridgeExecIntent,
 }: HomeProps) {
   if (!isConnected) {
     return <ConnectGate />;
@@ -101,9 +67,7 @@ export default function Home({
     ready,
     address,
     onSwapIntent,
-    onBridgeIntent,
     onSwapExecIntent,
-    onBridgeExecIntent,
     swapIntent,
     swapIntentPending,
     swapIntentRefreshing,
@@ -111,13 +75,6 @@ export default function Home({
     approveSwapIntent,
     denySwapIntent,
     clearSwapIntent,
-    bridgeIntent,
-    bridgeIntentPending,
-    bridgeIntentRefreshing,
-    bridgeIntentApproved,
-    approveBridgeIntent,
-    denyBridgeIntent,
-    clearBridgeIntent,
     swapExecIntent,
     swapExecIntentPending,
     swapExecIntentRefreshing,
@@ -125,13 +82,6 @@ export default function Home({
     approveSwapExecIntent,
     denySwapExecIntent,
     clearSwapExecIntent,
-    bridgeExecIntent,
-    bridgeExecIntentPending,
-    bridgeExecIntentRefreshing,
-    bridgeExecIntentApproved,
-    approveBridgeExecIntent,
-    denyBridgeExecIntent,
-    clearBridgeExecIntent,
   };
 
   return (

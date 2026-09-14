@@ -1,10 +1,8 @@
-import { type Hex, maxUint256 } from 'viem';
+import type { Hex } from 'viem';
 import { Errors, formatUnknownError, NexusError } from '../domain/errors';
 import { runNonBlocking } from '../services/non-blocking';
 import type {
   ExecutableIntentQuote,
-  IntentAllowanceHookData,
-  IntentAllowanceSelection,
   IntentEvent,
   IntentHookData,
   IntentNativeTransactionInstruction,
@@ -24,7 +22,6 @@ type RunIntentInput = {
   requestQuote: () => Promise<ExecutableIntentQuote>;
   refreshQuote?: (sources?: IntentSource[]) => Promise<ExecutableIntentQuote>;
   onIntent?: (data: IntentHookData) => void | Promise<void>;
-  onAllowance?: (data: IntentAllowanceHookData) => void | Promise<void>;
   onEvent?: (event: IntentEvent) => void;
   pollingIntervalMs?: number;
   timeoutMs?: number;
@@ -117,47 +114,6 @@ const resolveIntentApproval = async (
   return current;
 };
 
-const selectionAmount = (selection: IntentAllowanceSelection, minimum: bigint): bigint => {
-  let amount: bigint;
-  try {
-    amount = selection === 'min' ? minimum : selection === 'max' ? maxUint256 : BigInt(selection);
-  } catch {
-    throw Errors.invalidInput(`Invalid allowance amount: ${String(selection)}`);
-  }
-  if (amount < minimum) {
-    throw Errors.invalidInput(`Allowance amount ${amount} is below the required amount ${minimum}`);
-  }
-  return amount;
-};
-
-const resolveAllowanceAmounts = async (
-  quote: ExecutableIntentQuote,
-  hook?: RunIntentInput['onAllowance']
-): Promise<bigint[]> => {
-  const required = quote.execution.allowances.filter((entry) => entry.deficitRaw > 0n);
-  if (required.length === 0) return [];
-  if (!hook) return required.map((entry) => entry.requiredRaw);
-
-  const selections = await new Promise<IntentAllowanceSelection[]>((resolve, reject) => {
-    const allow = (values?: IntentAllowanceSelection[]) => {
-      const resolved = values ?? required.map(() => 'min' as const);
-      if (resolved.length !== required.length) {
-        reject(Errors.invalidAllowance(required.length, resolved.length));
-        return;
-      }
-      resolve(resolved);
-    };
-    const deny = () => reject(Errors.userRejectedAllowance());
-    Promise.resolve(
-      hook({ allowances: required.map(({ approval: _approval, ...entry }) => entry), allow, deny })
-    ).catch(reject);
-  });
-
-  return selections.map((selection, index) =>
-    selectionAmount(selection, required[index]?.requiredRaw ?? 0n)
-  );
-};
-
 export const runIntent = async (
   input: RunIntentInput,
   deps: RunIntentDeps
@@ -195,17 +151,12 @@ export const runIntent = async (
   assertFresh(executable, now());
 
   const approvals = executable.execution.allowances.filter((entry) => entry.deficitRaw > 0n);
-  const approvalAmounts = await resolveAllowanceAmounts(executable, input.onAllowance);
   const approvalTransactions: IntentTransaction[] = [];
-  for (let index = 0; index < approvals.length; index += 1) {
-    const instruction = approvals[index];
-    if (!instruction) continue;
+  for (const instruction of approvals) {
     const stepId = `approval:${instruction.chainId}:${instruction.tokenAddress}`;
     emitStep(executable, stepId, 'started');
     try {
-      approvalTransactions.push(
-        await deps.approve(instruction, approvalAmounts[index] ?? instruction.requiredRaw)
-      );
+      approvalTransactions.push(await deps.approve(instruction, instruction.requiredRaw));
       emitStep(executable, stepId, 'completed');
     } catch (error) {
       emitStep(executable, stepId, 'failed', error);

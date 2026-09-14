@@ -1210,103 +1210,6 @@ select {
   text-transform: none;
 }
 
-/* ── Recipient row (inside the receive card, bridge tab) ── */
-.recipient-section {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px solid var(--line);
-}
-
-.recipient-label {
-  font-size: var(--text-2xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-wide);
-  color: var(--muted);
-}
-
-.recipient-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.recipient-address {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  color: var(--accent);
-  font-weight: 500;
-  word-break: break-all;
-  min-width: 0;
-}
-
-.recipient-edit-btn {
-  flex-shrink: 0;
-  padding: 5px 14px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-pill);
-  background: var(--panel);
-  color: var(--text);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  cursor: pointer;
-  transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
-}
-
-.recipient-edit-btn:hover:not(:disabled) {
-  border-color: var(--accent);
-}
-
-.recipient-edit-btn--primary {
-  background: var(--cta-bg);
-  color: var(--cta-text);
-  border-color: var(--cta-bg);
-}
-
-.recipient-edit-btn--primary:hover:not(:disabled) {
-  background: var(--cta-bg-hover);
-  border-color: var(--cta-bg-hover);
-}
-
-.recipient-edit-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.recipient-row--edit {
-  gap: 6px;
-}
-
-.recipient-row--edit .recipient-edit-btn {
-  border-radius: var(--radius-md);
-}
-
-.recipient-edit-input {
-  flex: 1;
-  min-width: 0;
-  padding: 6px 10px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-sm);
-  background: var(--panel);
-  color: var(--text);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  outline: none;
-  transition: border-color 0.12s ease;
-}
-
-.recipient-edit-input:focus {
-  border-color: var(--accent);
-}
-
-.recipient-edit-input.is-invalid {
-  border-color: var(--danger);
-}
-
 /* ── Source selector trigger ── */
 .src-trigger {
   display: flex;
@@ -2095,36 +1998,6 @@ select {
   opacity: 0.85;
 }
 
-/* ── Advanced toggle (bridge tab) ── */
-.advanced-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 6px;
-  width: 100%;
-  padding: 8px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--muted);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
-}
-
-.advanced-toggle:hover {
-  color: var(--text);
-  border-color: var(--accent);
-}
-
-.advanced-fields {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-top: 12px;
-}
-
 /* ── Dropdown ── */
 .dropdown {
   position: relative;
@@ -2666,7 +2539,7 @@ select {
   border-color: oklch(from var(--accent) l c h / 0.3);
 }
 
-/* Source pill is neutral so it doesn't compete with bridge (pink) and destination (green) */
+/* Source pill is neutral so it doesn't compete with intent (pink) and destination (green) */
 .swap-route-pill--source {
   color: var(--text);
 }
@@ -2675,12 +2548,12 @@ select {
   color: var(--muted);
 }
 
-.swap-route-pill--bridge {
+.swap-route-pill--intent {
   color: var(--accent-light);
   border-color: oklch(from var(--accent) l c h / 0.2);
 }
 
-.swap-route-pill--bridge svg {
+.swap-route-pill--intent svg {
   color: var(--accent);
 }
 
@@ -2742,87 +2615,6 @@ select {
 
 .swap-result-intent-link:hover {
   color: var(--accent-light);
-}
-
-/* ── Bridge result card ── */
-.bridge-result-card {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  border-left: 3px solid var(--success);
-  animation: success-border-glow 1.5s ease-out;
-}
-
-.bridge-result-summary {
-  font-size: var(--text-md);
-  font-weight: 600;
-  color: var(--text);
-}
-
-.bridge-result-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.bridge-result-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 14px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--line-strong);
-  background: var(--panel-2);
-  color: var(--text);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  text-decoration: none;
-  transition: border-color 0.15s, background 0.15s, color 0.15s;
-  animation: line-appear 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
-}
-
-.bridge-result-links .bridge-result-link:nth-child(1) { animation-delay: 0.1s; }
-.bridge-result-links .bridge-result-link:nth-child(2) { animation-delay: 0.25s; }
-.bridge-result-links .bridge-result-link:nth-child(3) { animation-delay: 0.4s; }
-
-.bridge-result-link:hover {
-  border-color: oklch(from var(--accent) l c h / 0.3);
-  background: oklch(from var(--accent) l c h / 0.06);
-  color: var(--accent-light);
-}
-
-.bridge-result-link svg:first-child {
-  color: var(--muted);
-}
-
-.bridge-result-link:hover svg:first-child {
-  color: var(--accent-light);
-}
-
-.bridge-result-link svg:last-child {
-  color: var(--muted);
-  opacity: 0.5;
-}
-
-.bridge-result-market {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  background: var(--success-soft);
-  border: 1px solid oklch(from var(--success) l c h / 0.25);
-  border-radius: var(--radius-md);
-  color: var(--success);
-  font-size: var(--text-sm);
-  font-weight: 600;
-  text-decoration: none;
-  align-self: flex-start;
-  transition: background 0.15s, border-color 0.15s;
-}
-
-.bridge-result-market:hover {
-  background: oklch(from var(--success) l c h / 0.18);
-  border-color: oklch(from var(--success) l c h / 0.4);
 }
 
 /* ── Aave market link ── */

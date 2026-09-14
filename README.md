@@ -47,12 +47,11 @@ provider that applies. Treat the `IntentProvider` union as open to growth: rende
 generically rather than assuming Nexus or Mayan.
 
 Set `forceMayan: true` to restrict the supported intent catalog and balances to Mayan and prefer
-Mayan for quotes. The SDK derives cross-chain fungible asset groups from the filtered `/chains`
-response using `coingeckoId`.
+Mayan for quotes. Token selection uses chain IDs and contract addresses from `/chains`.
 
 ## Intent lifecycle
 
-Bridge and swap methods share one server-driven lifecycle:
+Swap methods use one server-driven lifecycle:
 
 1. The SDK asks the middleware for a quote.
 2. `hooks.onIntent` may review, refresh, allow, or deny it.
@@ -68,42 +67,10 @@ times out, or a wallet/middleware operation fails. It never resolves with an inc
 If no hooks are supplied, the quote is accepted automatically and allowances use their minimum
 required values.
 
-## Bridge
-
-Bridge is a same-asset exact-output operation. `sources` contains source chain IDs; the middleware
-selects the balances and route within those chains.
-
-```ts
-const result = await client.bridge(
-  {
-    toChainId: 8453,
-    toTokenSymbol: 'USDC',
-    toAmountRaw: 10_000_000n,
-    sources: [1, 42161],
-  },
-  {
-    slippageBps: 50,
-    hooks: {
-      onIntent({ quote, allow, deny, refresh }) {
-        console.log(quote.input, quote.output, quote.fees, quote.expiresAt);
-        allow();
-      },
-      onAllowance({ allowances, allow }) {
-        allow(allowances.map(() => 'min'));
-      },
-    },
-  },
-);
-
-console.log(result.intentId, result.intentExplorerUrl, result.status);
-```
-
-`bridgeAndTransfer` uses the same flow and requires a destination `recipient`.
-
-`simulateBridge` and `simulateBridgeAndTransfer` return an API-backed `IntentQuote` without wallet
-transactions or submission.
-
 ## Exact-output swap
+
+Swaps also handle same-asset cross-chain moves: select the asset's contract address on each chain.
+
 
 ```ts
 const result = await client.swapWithExactOut(
@@ -243,16 +210,14 @@ app distinguish an overall intent stage from the progress or failure of an indiv
 trade type, and the canonical execution plan. Raw RFF payloads, signing payload internals, ABIs, and
 submit serialization stay private to the transport layer.
 
-`BridgeResult`, `SwapResult`, and `TransferResult` are stable aliases of `IntentResult`.
+`SwapResult` is an alias of `IntentResult`.
 
 ## Balances and catalog
 
-Both balance methods use the same Better Intent holdings source:
+`getBalancesForSwap()` returns normalized `IntentBalance[]` holdings from Better Intent:
 
 ```ts
 const balances = await client.getBalancesForSwap();
-// same normalized IntentBalance[] model:
-const bridgeBalances = await client.getBalancesForBridge();
 ```
 
 Each `IntentBalance` includes chain/token identity, raw balance, decimals, optional USD value,
@@ -313,8 +278,8 @@ Public inputs and on-chain calls use raw `bigint` units.
 
 ## Intent plus execute
 
-Composite methods inspect destination balances and estimated execution gas, request only the
-shortfall through Better Intent, wait for fulfillment, then execute the destination transaction.
+`swapAndExecute` inspects destination balances and estimated execution gas, requests only the
+shortfall through Better Intent, waits for fulfillment, then executes the destination transaction.
 
 ```ts
 const result = await client.swapAndExecute(
@@ -339,11 +304,7 @@ const result = await client.swapAndExecute(
 );
 ```
 
-`bridgeAndExecute` accepts bridge-style token/source fields plus an `ExecuteParams`-compatible
-`execute` object. A composite result indicates whether funding was skipped and includes the final
-execute transaction.
-
-`simulateBridgeAndExecute` returns the optional intent quote plus execute gas simulation.
+The result indicates whether funding was skipped and includes the final execute transaction.
 
 ## History
 
@@ -365,7 +326,6 @@ type IntentOperationOptions = {
   onEvent?: (event: IntentEvent) => void;
   hooks?: {
     onIntent?: (data: IntentHookData) => void | Promise<void>;
-    onAllowance?: (data: IntentAllowanceHookData) => void | Promise<void>;
   };
   slippageBps?: number | 'auto'; // default: 50
   fillTimeoutMinutes?: number;   // default: 2
@@ -373,8 +333,8 @@ type IntentOperationOptions = {
 };
 ```
 
-Swap operations expose `onIntent`; bridge operations also expose `onAllowance`. Composite options
-add `beforeExecute`.
+Swap operations expose `onIntent` and use minimum required ERC-20 approvals. `swapAndExecute`
+options add `beforeExecute`.
 
 Set `forceMayan: true` when creating the client to request Mayan as the preferred provider.
 
@@ -392,13 +352,25 @@ for broad handling, and stable `ERROR_CODES` for specific cases.
 
 ```ts
 try {
-  await client.bridge(params);
+  await client.swapWithExactOut(params);
 } catch (error) {
   if (error instanceof UserActionError) {
     // Quote, approval, signature, or transaction was denied.
   }
 }
 ```
+
+## Migration from bridge APIs
+
+This is a breaking release. The SDK no longer exposes `bridge`, `bridgeAndTransfer`,
+`bridgeAndExecute`, their simulation methods, `getBalancesForBridge`, bridge/transfer parameter
+and result types, or bridge/transfer analytics events. The bridge-only `onAllowance` hook and its
+selection types are also removed.
+
+Use `swapWithExactOut` or `swapWithExactIn` for same-asset or cross-asset intents, `swapAndExecute`
+for destination contract calls, and `getBalancesForSwap` for holdings. Identify tokens by chain ID
+and contract address rather than symbol. There is no replacement recipient override or standalone
+swap simulation method; review quotes through `onIntent`.
 
 ## Migration from the local router
 

@@ -2,7 +2,7 @@ import { encodeFunctionData, type Hex } from "viem";
 import type { ChainOption, TokenOption } from "./types";
 
 /* ── Deposit protocols across chains ─────────────────────────────────
- * Lending-deposit targets for the Swap & Execute / Bridge & Execute tabs.
+ * Lending-deposit targets for the Swap & Execute tab.
  * Ported from avail-deposit's deposit config. Each chain pins one protocol
  * (an Aave V3 deployment or a fork) plus the assets it accepts. */
 
@@ -18,7 +18,7 @@ export type DepositProtocolMeta = {
 type DepositAsset = {
   symbol: string;
   label: string;
-  /** Token the swap/bridge lands in (the SDK `toTokenAddress`). */
+  /** Token the swap lands in (the SDK `toTokenAddress`). */
   swapTokenAddress: Hex;
   /** Token the pool's `supply`/approval expects. Absent for native. */
   protocolAsset?: Hex;

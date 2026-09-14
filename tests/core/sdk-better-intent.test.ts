@@ -107,7 +107,7 @@ describe('client identity', () => {
 });
 
 describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s', (network) => {
-  it('loads the mainnet intent catalog and executes a bridge through the API', async () => {
+  it('loads the mainnet intent catalog and executes a same-asset swap through the API', async () => {
     const getIntentQuote = vi.fn().mockResolvedValue(quote());
     const middleware = makeMiddlewareClient({
       getDeployment: async () => testDeployment,
@@ -130,12 +130,12 @@ describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s
     await client.initialize();
     await client.setEVMProvider(provider());
 
-    const result = await client.bridge(
+    const result = await client.swapWithExactOut(
       {
         toChainId: 1,
-        toTokenSymbol: 'USDC',
+        toTokenAddress: ETHEREUM_TOKEN,
         toAmountRaw: 1_000_000n,
-        sources: [8453],
+        sources: [{ chainId: 8453, tokenAddress: BASE_TOKEN }],
       },
       { pollingIntervalMs: 0 }
     );
@@ -233,7 +233,7 @@ describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s
 });
 
 describe('unsupported intent environment', () => {
-  it('keeps execute metadata but rejects bridge operations on testnet', async () => {
+  it('keeps execute metadata but rejects swap operations on testnet', async () => {
     const middleware = makeMiddlewareClient({ getDeployment: async () => testDeployment });
     const client = createNexusClient({
       clientId: 'test-client',
@@ -244,7 +244,7 @@ describe('unsupported intent environment', () => {
     await client.setEVMProvider(provider());
 
     await expect(
-      client.bridge({ toChainId: 1, toTokenSymbol: 'USDC', toAmountRaw: 1n })
+      client.swapWithExactOut({ toChainId: 1, toTokenAddress: ETHEREUM_TOKEN, toAmountRaw: 1n })
     ).rejects.toMatchObject({ code: 'validation/environment_not_supported' });
   });
 });

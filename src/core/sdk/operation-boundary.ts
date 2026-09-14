@@ -26,48 +26,6 @@ type IntentTracking = {
 };
 
 const intentTracking = {
-  bridge: {
-    operation: 'bridge',
-    opName: NexusOperationNames.BRIDGE,
-    initiated: NexusAnalyticsEvents.BRIDGE_INITIATED,
-    success: NexusAnalyticsEvents.BRIDGE_TRANSACTION_SUCCESS,
-    failed: NexusAnalyticsEvents.BRIDGE_TRANSACTION_FAILED,
-  },
-  bridgeAndTransfer: {
-    operation: 'bridgeAndTransfer',
-    opName: NexusOperationNames.TRANSFER,
-    initiated: NexusAnalyticsEvents.TRANSFER_INITIATED,
-    success: NexusAnalyticsEvents.TRANSFER_TRANSACTION_SUCCESS,
-    failed: NexusAnalyticsEvents.TRANSFER_TRANSACTION_FAILED,
-  },
-  simulateBridge: {
-    operation: 'simulateBridge',
-    opName: NexusOperationNames.BRIDGE_SIMULATION,
-    initiated: NexusAnalyticsEvents.BRIDGE_SIMULATION_STARTED,
-    success: NexusAnalyticsEvents.BRIDGE_SIMULATION_SUCCESS,
-    failed: NexusAnalyticsEvents.BRIDGE_SIMULATION_FAILED,
-  },
-  simulateBridgeAndTransfer: {
-    operation: 'simulateBridgeAndTransfer',
-    opName: NexusOperationNames.TRANSFER_SIMULATION,
-    initiated: NexusAnalyticsEvents.TRANSFER_SIMULATION_STARTED,
-    success: NexusAnalyticsEvents.TRANSFER_SIMULATION_SUCCESS,
-    failed: NexusAnalyticsEvents.TRANSFER_SIMULATION_FAILED,
-  },
-  bridgeAndExecute: {
-    operation: 'bridgeAndExecute',
-    opName: NexusOperationNames.BRIDGE_AND_EXECUTE,
-    initiated: NexusAnalyticsEvents.BRIDGE_AND_EXECUTE_INITIATED,
-    success: NexusAnalyticsEvents.BRIDGE_AND_EXECUTE_TRANSACTION_SUCCESS,
-    failed: NexusAnalyticsEvents.BRIDGE_AND_EXECUTE_TRANSACTION_FAILED,
-  },
-  simulateBridgeAndExecute: {
-    operation: 'simulateBridgeAndExecute',
-    opName: NexusOperationNames.BRIDGE_AND_EXECUTE_SIMULATION,
-    initiated: NexusAnalyticsEvents.BRIDGE_AND_EXECUTE_SIMULATION_STARTED,
-    success: NexusAnalyticsEvents.BRIDGE_AND_EXECUTE_SIMULATION_SUCCESS,
-    failed: NexusAnalyticsEvents.BRIDGE_AND_EXECUTE_SIMULATION_FAILED,
-  },
   swapWithExactIn: {
     operation: 'swapWithExactIn',
     opName: NexusOperationNames.SWAP,
@@ -158,7 +116,6 @@ export const trackExecuteSim = <R extends ExecuteSimulation>(
 
 export const trackBalanceFetch = <R>(
   analytics: AnalyticsManager,
-  kind: 'bridge' | 'swap',
   run: (opId: string) => Promise<R>
 ): Promise<R> =>
   analytics.runOp({
@@ -167,12 +124,9 @@ export const trackBalanceFetch = <R>(
       success: NexusAnalyticsEvents.BALANCES_FETCH_SUCCESS,
       failed: NexusAnalyticsEvents.BALANCES_FETCH_FAILED,
     },
-    opName:
-      kind === 'swap'
-        ? NexusOperationNames.BALANCES_FETCH_SWAP
-        : NexusOperationNames.BALANCES_FETCH_BRIDGE,
-    operation: kind === 'swap' ? 'getBalancesForSwap' : 'getBalancesForBridge',
-    initiatedProps: { kind },
+    opName: NexusOperationNames.BALANCES_FETCH_SWAP,
+    operation: 'getBalancesForSwap',
+    initiatedProps: { kind: 'swap' },
     run,
   });
 

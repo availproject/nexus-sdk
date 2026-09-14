@@ -43,12 +43,12 @@ execution, and balance discovery. The public client is created with `createNexus
 - Keep the high-level dependency direction intact:
   - `src/core/` is the top assembly layer
   - `src/flows/` stays thin
-  - `src/intent/` owns bridge/swap intent internals
+  - `src/intent/` owns swap intent internals
   - `src/execute/` owns standalone execute internals
   - `src/services/` is only for cross-feature helpers
   - lower layers must not grow back-references into higher orchestration layers
 - Keep package boundaries intact. `src/core/` is the assembly layer. `src/flows/` stays thin.
-  API-backed bridge/swap behavior belongs in `src/intent/`, shared execute code in `src/execute/`,
+  API-backed swap behavior belongs in `src/intent/`, shared execute code in `src/execute/`,
   and only cross-feature helpers belong in `src/services/`.
 - `src/services/` must not import `src/flows/`. This is CI-enforced by `npm run lint:deps`.
 - Normalize external API and contract responses at the transport boundary before they reach

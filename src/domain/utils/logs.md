@@ -43,7 +43,7 @@ Rules:
 
 - Use snake case inside a multiword segment.
 - Prefer stable stages such as `flow`, `preflight`, `route`, `prepare`, `cache`, `execute.source`,
-  `execute.bridge`, `execute.destination`, and `cleanup`.
+  `intent.fulfillment`, `execute.destination`, and `cleanup`.
 - Prefer the event vocabulary `started`, `resolved`, `decision`, `selected`, `skipped`, `fallback`,
   `retry`, `submitted`, `confirmed`, `completed`, and `failed`.
 - Keep the full message unique to one production call site. `rg -F '<message>'` must lead directly
@@ -84,7 +84,7 @@ Use timing spans for latency measurement. Debug logs explain what the SDK decide
 add generic reusable messages such as `timing`; they are hard to search and ambiguous at the call
 site. When a non-span diagnostic still needs elapsed time, use a unique message and `durationMs`.
 
-Separate SDK-controlled preparation from wallet prompts, transaction receipt waits, and bridge fill
+Separate SDK-controlled preparation from wallet prompts, transaction receipt waits, and intent fulfillment
 waits. Never serialize parallel work merely to measure it.
 
 ## Review checklist

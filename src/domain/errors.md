@@ -143,7 +143,7 @@ information survives.
 import { NexusError, UserActionError } from '@avail-project/nexus-core';
 
 try {
-  await sdk.bridge({ /* ... */ });
+  await sdk.swapWithExactOut({ /* ... */ });
 } catch (err) {
   if (err instanceof UserActionError) {
     return; // user clicked "reject" — usually swallow, no error toast
