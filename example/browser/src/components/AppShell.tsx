@@ -148,7 +148,7 @@ export function AppShell({
                   <span className="settings-row-text">
                     <span className="settings-row-label">Force Mayan</span>
                     <span className="settings-row-hint">
-                      Route every bridge through Mayan instead of the threshold check.
+                      Use Mayan for supported assets and swap quotes.
                     </span>
                   </span>
                   <span className="switch" aria-hidden>

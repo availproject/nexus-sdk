@@ -3,7 +3,6 @@ import {
   normalizeIntentBalances,
   normalizeIntentChains,
   normalizeIntentQuote,
-  normalizeIntentTokens,
 } from '../../src/intent/normalize';
 
 const ACCOUNT = '0x00000000000000000000000000000000000000aa';
@@ -57,26 +56,7 @@ describe('Better Intent response normalization', () => {
     });
   });
 
-  it('normalizes asset deployments and raw balances', () => {
-    const tokens = normalizeIntentTokens([
-      {
-        assetId: 'usd-coin',
-        symbol: 'USDC',
-        name: 'USD Coin',
-        coingeckoId: 'usd-coin',
-        chains: [
-          {
-            universe: 'EVM',
-            chainId: 'EVM_8453',
-            address: TOKEN,
-            name: 'USD Coin',
-            decimals: 6,
-            isNative: false,
-            providers: [{ id: 'nexus-v2', currencyId: 1 }],
-          },
-        ],
-      },
-    ]);
+  it('normalizes raw balances', () => {
     const balances = normalizeIntentBalances({
       errored: false,
       balances: [
@@ -97,7 +77,6 @@ describe('Better Intent response normalization', () => {
       ],
     });
 
-    expect(tokens[0]?.chains[0]).toMatchObject({ chainId: 8453, address: TOKEN });
     expect(balances).toEqual({
       errored: false,
       balances: [

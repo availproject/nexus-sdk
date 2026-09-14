@@ -20,7 +20,7 @@ describe('AnalyticsManager dev timing', () => {
     trackSpy.mockClear();
     const logSpy = vi.spyOn(getLogger(), 'info').mockImplementation(() => {});
 
-    await manager.withSpan('flow.bridge.prepare_intent', async () => {
+    await manager.withSpan('intent.prepare', async () => {
       return Promise.resolve('ok');
     });
 
@@ -28,7 +28,7 @@ describe('AnalyticsManager dev timing', () => {
     expect(logSpy).toHaveBeenCalledWith(
       'dev_timing.span_complete',
       expect.objectContaining({
-        name: 'flow.bridge.prepare_intent',
+        name: 'intent.prepare',
         success: true,
       })
     );

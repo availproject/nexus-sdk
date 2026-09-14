@@ -39,16 +39,13 @@ export interface ReportOperationErrorInput {
 // Adding a queryable field requires updating BOTH the public param/option type AND this list.
 
 export const PARAMS_FLATTEN_KEYS = [
-  // bridge / transfer / bridgeAndExecute (BridgeParams, TransferParams, BridgeAndExecuteParams)
+  // swap (SwapExactInParams, SwapExactOutParams, SwapAndExecuteParams)
   'toChainId',
-  'toTokenSymbol',
   'toAmountRaw',
   'toNativeAmountRaw',
-  'recipient',
   'sources',
-  // swap (SwapExactInParams, SwapExactOutParams, SwapAndExecuteParams)
   'toTokenAddress',
-  // execute (ExecuteParams, BridgeAndExecuteParams)
+  // execute (ExecuteParams)
   'to',
   'gasPrice',
   'enableTransactionPolling',
@@ -56,14 +53,11 @@ export const PARAMS_FLATTEN_KEYS = [
   'waitForReceipt',
   'receiptTimeout',
   'requiredConfirmations',
-  // bridgeAndExecute-only
-  'recentApprovalTxHash',
 ] as const;
 
 export const OPTIONS_FLATTEN_KEYS = [
-  // BridgeOperationOptions / BridgeAndExecuteOptions
-  'fillTimeoutMinutes',
   // SwapOperationOptions / SwapAndExecuteOptions
+  'fillTimeoutMinutes',
   'slippageTolerance',
 ] as const;
 

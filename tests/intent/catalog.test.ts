@@ -3,7 +3,6 @@ import type { Chain } from '../../src/domain';
 import { Universe } from '../../src/domain/chain-abstraction';
 import {
   createIntentCatalog,
-  createTokenCatalogFromChains,
   intentNetworkEnabled,
   mergeSupportedChains,
 } from '../../src/intent/catalog';
@@ -49,34 +48,13 @@ describe('Better Intent catalog', () => {
     expect(intentNetworkEnabled('testnet')).toBe(false);
   });
 
-  it('resolves same-asset source filters for bridge quotes', () => {
-    const chains = [intentChain(1, ETHEREUM_TOKEN), intentChain(8453, BASE_TOKEN)];
-    const catalog = createIntentCatalog(chains, createTokenCatalogFromChains(chains));
-
-    expect(catalog.bridgeSources(1, ETHEREUM_TOKEN, [8453])).toEqual([
-      { chainId: 'EVM_8453', tokens: [BASE_TOKEN] },
+  it('resolves tokens by chain and contract address', () => {
+    const catalog = createIntentCatalog([
+      intentChain(1, ETHEREUM_TOKEN),
+      intentChain(8453, BASE_TOKEN),
     ]);
-    expect(() => catalog.bridgeSources(1, ETHEREUM_TOKEN, [10])).toThrow(
-      /USDC is not available on source chain 10/
-    );
-  });
-
-  it('derives fungible asset deployments from the chains catalog', () => {
-    expect(
-      createTokenCatalogFromChains([
-        intentChain(1, ETHEREUM_TOKEN),
-        intentChain(8453, BASE_TOKEN),
-      ])
-    ).toEqual([
-      expect.objectContaining({
-        assetId: 'usd-coin',
-        symbol: 'USDC',
-        chains: [
-          expect.objectContaining({ chainId: 1, address: ETHEREUM_TOKEN }),
-          expect.objectContaining({ chainId: 8453, address: BASE_TOKEN }),
-        ],
-      }),
-    ]);
+    expect(catalog.getToken(8453, BASE_TOKEN)).toMatchObject({ chainId: 8453, address: BASE_TOKEN });
+    expect(() => catalog.getToken(1, BASE_TOKEN)).toThrow();
   });
 
   it('unions intent and execute chains with explicit capabilities', () => {

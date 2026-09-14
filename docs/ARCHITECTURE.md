@@ -74,12 +74,12 @@ src/
 - Lower packages must not import `src/core/`.
 - `src/services/` must not import `src/flows/`.
 
-Bridge and swap no longer have parallel runtime packages. Both use the canonical intent path.
+All swap modes use the canonical intent path; there is no separate bridge API or runtime.
 
 ## Canonical intent flow
 
-Bridge, exact-output swap, and exact-input swap differ only in public validation and quote-request
-construction. They converge at `src/intent/orchestrator.ts`.
+Exact-output and exact-input swaps differ only in public validation and quote-request construction.
+They converge at `src/intent/orchestrator.ts`, including same-asset cross-chain swaps.
 
 ```text
 public client method
@@ -118,11 +118,6 @@ hooks and may deliberately allow or reject execution.
 
 ## Quote request modes
 
-### Bridge
-
-Bridge resolves the destination token by chain plus symbol, then asks the catalog for same-asset
-deployments on selected source chains. It sends an exact-output request.
-
 ### Exact-output swap
 
 Exact-output accepts optional source chain/token pairs and a required destination raw amount. If
@@ -155,17 +150,15 @@ approved quote auditable.
 
 ## Balances and catalog
 
-`src/intent/catalog.ts` indexes the normalized chain catalog by chain, address, symbol, and asset
-identity. Fungible asset groups are derived from each deployment's `coingeckoId`, matching the
-middleware's `/tokens` grouping without a second request. It validates bridge same-asset
-relationships and produces bridge source filters.
+`src/intent/catalog.ts` resolves normalized chain metadata and token metadata by chain ID and
+contract address. It does not group tokens by symbol or infer cross-chain fungibility.
 
 When `forceMayan` is enabled, the SDK requests Mayan-filtered chains and balances and sends Mayan
 as the preferred quote provider. This keeps selectors, holdings, and quote routing on the same
 provider catalog.
 
-`getBalancesForBridge()` and `getBalancesForSwap()` call the same provider-backed balances endpoint
-and return chain-level `IntentBalance[]` values.
+`getBalancesForSwap()` calls the provider-backed balances endpoint and returns chain-level
+`IntentBalance[]` values.
 
 `getSupportedChains()` merges Better Intent catalog chains with execute deployment chains. Each
 result contains explicit `capabilities.intent` and `capabilities.execute` flags.
@@ -183,8 +176,8 @@ their endpoint-specific payload in `details`.
 
 ## Composite intent plus execute
 
-`bridgeAndExecute` and `swapAndExecute` retain a small amount of local calculation because the SDK
-must know what the later contract call needs.
+`swapAndExecute` retains a small amount of local calculation because the SDK must know what the
+later contract call needs.
 
 ```text
 fetch fresh destination balances + simulate execute gas

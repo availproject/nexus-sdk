@@ -40,7 +40,7 @@ Vitest is the test runner. Mirror `src/` under `tests/` where practical.
 
 Lower layers must not import `src/core/`. `src/services/` must not import `src/flows/`.
 
-Do not recreate bridge/swap feature packages for middleware-owned behavior. New provider routing,
+Do not recreate local routing feature packages for middleware-owned behavior. New provider routing,
 quote selection, fee calculation, and source allocation belong in Better Intent middleware, not the
 SDK.
 
@@ -85,7 +85,7 @@ both the requested output and the later execute value/gas.
 
 ## Intent request construction
 
-- Bridge is same-asset exact-output and resolves sources through the token catalog.
+- Same-asset cross-chain moves use swaps with explicit chain IDs and token addresses.
 - Exact-output swap may omit sources for server selection.
 - Exact-input swap requires explicit chain, token address, and positive `amountRaw` on every source.
 - Default slippage is 50 basis points unless the caller supplies another valid value or `auto`.
@@ -97,17 +97,13 @@ Do not calculate a route, quote, maximum output, or provider comparison in the S
 
 All intent methods use `options.hooks`:
 
-- bridge operations: `onIntent` and `onAllowance`
 - swap operations: `onIntent`
-- composite operations: the matching hooks plus top-level `beforeExecute`
+- swap-and-execute: `onIntent` plus top-level `beforeExecute`
 
 `onIntent` receives `{ quote, allow, deny, refresh }`. A refreshed quote replaces the complete
 executable quote. Do not update only its public or private half.
 
-`onAllowance` receives normalized deficits and accepts `min`, `max`, a raw `bigint`, or a raw integer
-string per required allowance. Validate the selection count and minimum.
-
-No hook means auto-allow with minimum approvals.
+ERC-20 approvals use the quote's minimum required amounts. No intent hook means auto-allow.
 
 ## Events and callbacks
 

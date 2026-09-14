@@ -3,15 +3,12 @@ import type { AnalyticsManager } from '../../analytics/AnalyticsManager';
 import type { DevTimingConfig } from '../../analytics/types';
 import { getWalletType } from '../../analytics/utils';
 import type {
-  BridgeAndExecuteParams,
-  BridgeParams,
   ChainListType,
   EthereumProvider,
   ExecuteParams,
   ListIntentsParams,
   NexusNetwork,
   OnEventParam,
-  TransferParams,
 } from '../../domain';
 import { LOG_LEVEL, setLogLevel, ZERO_ADDRESS } from '../../domain';
 import { Errors, formatUnknownError } from '../../domain/errors';
@@ -28,15 +25,12 @@ import {
 import { calculateIntentFunding } from '../../intent/funding';
 import { runIntent } from '../../intent/orchestrator';
 import type {
-  BridgeAndExecuteIntentResult,
   IntentBalance,
   IntentChain,
   IntentHistoryResult,
-  IntentQuote,
   IntentQuoteRequest,
   IntentResult,
   IntentSource,
-  IntentTokenCatalogEntry,
   SwapAndExecuteIntentResult,
 } from '../../intent/types';
 import { createIntentWallet } from '../../intent/wallet';
@@ -46,12 +40,7 @@ import { setLoggerProvider } from '../../services/telemetry';
 import type { SwapAndExecuteParams, SwapExactInParams, SwapExactOutParams } from '../../swap/types';
 import type { MiddlewareClient } from '../../transport';
 import { createMiddlewareClient } from '../../transport';
-import type {
-  BridgeAndExecuteOptions,
-  BridgeOperationOptions,
-  SwapAndExecuteOptions,
-  SwapOperationOptions,
-} from '../types';
+import type { SwapAndExecuteOptions, SwapOperationOptions } from '../types';
 import { trackWalletConnect } from './operation-boundary';
 
 const DEFAULT_INTENTS_PAGE_SIZE = 20;
@@ -112,8 +101,8 @@ export const createBase = (config: {
   const setChainList = (chainList: ChainListType) => {
     state.chainList = chainList;
   };
-  const setIntentCatalog = (chains: IntentChain[], tokens: IntentTokenCatalogEntry[]) => {
-    state.intentCatalog = createIntentCatalog(chains, tokens);
+  const setIntentCatalog = (chains: IntentChain[]) => {
+    state.intentCatalog = createIntentCatalog(chains);
   };
   const getChainList = () => {
     if (!state.chainList) throw Errors.sdkNotInitialized();
@@ -195,7 +184,7 @@ export const createBase = (config: {
     };
   };
 
-  const slippageBps = (options?: BridgeOperationOptions | SwapOperationOptions) => {
+  const slippageBps = (options?: SwapOperationOptions) => {
     const value = options?.slippageBps ?? DEFAULT_SLIPPAGE_BPS;
     if (value !== 'auto' && (!Number.isInteger(value) || value < 0 || value > 10_000)) {
       throw Errors.invalidInput('slippageBps must be an integer from 0 to 10000, or auto');
@@ -209,44 +198,6 @@ export const createBase = (config: {
     refresh,
     ...(preferredProviders() ? { providers: preferredProviders() } : {}),
   });
-
-  const bridgeRequest = (
-    input: BridgeParams,
-    options?: BridgeOperationOptions,
-    refreshedSources?: IntentSource[]
-  ): IntentQuoteRequest => {
-    positiveAmount(input.toAmountRaw, 'toAmountRaw');
-    nonNegativeAmount(input.toNativeAmountRaw, 'toNativeAmountRaw');
-    const catalog = getIntentCatalog();
-    const destinationToken = catalog.getTokenBySymbol(input.toChainId, input.toTokenSymbol);
-    const selectedSourceChains = refreshedSources
-      ? refreshedSources.map((source) => source.chainId)
-      : input.sources;
-    const sources = catalog.bridgeSources(
-      input.toChainId,
-      destinationToken.address,
-      selectedSourceChains
-    );
-    if (sources.length === 0) {
-      throw Errors.invalidInput('bridge requires at least one source chain');
-    }
-    return {
-      sender: getEvm().address.toLowerCase() as Hex,
-      ...(input.recipient ? { recipient: input.recipient } : {}),
-      tradeType: 'exactOutput',
-      output: {
-        chainId: chainRef(input.toChainId),
-        token: destinationToken.address,
-        amount: input.toAmountRaw.toString(),
-      },
-      sources,
-      ...(preferredProviders() ? { preferredProviders: preferredProviders() } : {}),
-      slippageBps: slippageBps(options),
-      ...(input.toNativeAmountRaw && input.toNativeAmountRaw > 0n
-        ? { gasDrop: { amount: input.toNativeAmountRaw.toString() } }
-        : {}),
-    };
-  };
 
   const exactOutRequest = (
     input: SwapExactOutParams,
@@ -318,39 +269,19 @@ export const createBase = (config: {
 
   const executeIntent = (
     request: (sources?: IntentSource[]) => IntentQuoteRequest,
-    options?: BridgeOperationOptions | SwapOperationOptions,
-    allowanceHook = false
+    options?: SwapOperationOptions
   ): Promise<IntentResult> =>
     runIntent(
       {
         requestQuote: () => state.middlewareClient.getIntentQuote(request()),
         refreshQuote: (sources) => state.middlewareClient.getIntentQuote(request(sources)),
         onIntent: options?.hooks?.onIntent,
-        onAllowance:
-          allowanceHook && options && 'hooks' in options
-            ? (options.hooks as BridgeOperationOptions['hooks'])?.onAllowance
-            : undefined,
         onEvent: options?.onEvent,
         pollingIntervalMs: options?.pollingIntervalMs,
         timeoutMs: (options?.fillTimeoutMinutes ?? 2) * 60_000,
       },
       intentRuntime()
     );
-
-  const quoteIntent = async (request: IntentQuoteRequest): Promise<IntentQuote> =>
-    (await state.middlewareClient.getIntentQuote(request)).quote;
-
-  const executeBridge = (input: BridgeParams, options?: BridgeOperationOptions) =>
-    executeIntent((sources) => bridgeRequest(input, options, sources), options, true);
-
-  const simulateBridge = (input: BridgeParams, options?: BridgeOperationOptions) =>
-    quoteIntent(bridgeRequest(input, options));
-
-  const bridgeAndTransfer = (input: TransferParams, options?: BridgeOperationOptions) =>
-    executeBridge({ ...input, recipient: input.recipient }, options);
-
-  const simulateBridgeAndTransfer = (input: TransferParams, options?: BridgeOperationOptions) =>
-    simulateBridge({ ...input, recipient: input.recipient }, options);
 
   const swapWithExactIn = (input: SwapExactInParams, options?: SwapOperationOptions) =>
     executeIntent((sources) => exactInRequest(input, options, sources), options);
@@ -430,70 +361,6 @@ export const createBase = (config: {
     options?: { beforeExecute?: () => Promise<{ value?: bigint; data?: Hex; gas?: bigint }> }
   ): Promise<ExecuteParams> => ({ ...params, ...(await options?.beforeExecute?.()) });
 
-  const bridgeAndExecute = async (
-    input: BridgeAndExecuteParams,
-    options?: BridgeAndExecuteOptions
-  ): Promise<BridgeAndExecuteIntentResult> => {
-    const token = getIntentCatalog().getTokenBySymbol(input.toChainId, input.toTokenSymbol);
-    const executeParams: ExecuteParams = { ...input.execute, toChainId: input.toChainId };
-    const funding = await destinationFunding(
-      input.toChainId,
-      token.address,
-      input.toAmountRaw,
-      executeParams
-    );
-    const bridgeResult =
-      funding.outputAmountRaw === 0n && funding.gasDropRaw === 0n
-        ? undefined
-        : await executeBridge(
-            {
-              toChainId: input.toChainId,
-              toTokenSymbol: input.toTokenSymbol,
-              toAmountRaw: funding.outputAmountRaw,
-              toNativeAmountRaw: funding.gasDropRaw,
-              sources: input.sources,
-            },
-            options
-          );
-    const executed = await execute(await applyBeforeExecute(executeParams, options));
-    return bridgeResult
-      ? {
-          bridgeSkipped: false,
-          bridgeResult,
-          approval: executed.approval,
-          execute: executed.execute,
-        }
-      : { bridgeSkipped: true, approval: executed.approval, execute: executed.execute };
-  };
-
-  const simulateBridgeAndExecute = async (
-    input: BridgeAndExecuteParams,
-    options?: BridgeAndExecuteOptions
-  ) => {
-    const token = getIntentCatalog().getTokenBySymbol(input.toChainId, input.toTokenSymbol);
-    const executeParams: ExecuteParams = { ...input.execute, toChainId: input.toChainId };
-    const funding = await destinationFunding(
-      input.toChainId,
-      token.address,
-      input.toAmountRaw,
-      executeParams
-    );
-    const intentQuote =
-      funding.outputAmountRaw === 0n && funding.gasDropRaw === 0n
-        ? null
-        : await simulateBridge(
-            {
-              toChainId: input.toChainId,
-              toTokenSymbol: input.toTokenSymbol,
-              toAmountRaw: funding.outputAmountRaw,
-              toNativeAmountRaw: funding.gasDropRaw,
-              sources: input.sources,
-            },
-            options
-          );
-    return { intentQuote, executeSimulation: funding.executeSimulation };
-  };
-
   const swapAndExecute = async (
     input: SwapAndExecuteParams,
     options?: SwapAndExecuteOptions
@@ -551,19 +418,12 @@ export const createBase = (config: {
     setIntentCatalog,
     setAnalytics,
     setEvmProvider,
-    executeBridge,
-    simulateBridge,
-    bridgeAndTransfer,
-    simulateBridgeAndTransfer,
     swapWithExactIn,
     swapWithExactOut,
-    bridgeAndExecute,
-    simulateBridgeAndExecute,
     swapAndExecute,
     execute,
     simulateExecute,
     listIntents,
-    getBalancesForBridge: getIntentBalances,
     getBalancesForSwap: getIntentBalances,
     getSupportedChains: () =>
       mergeSupportedChains(state.intentCatalog?.chains ?? [], getChainList().chains),

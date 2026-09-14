@@ -55,7 +55,7 @@ new SimulationError(ERROR_CODES.SIMULATION_ERROR, 'm', { context: { service: 'rp
 new SimulationError(ERROR_CODES.SIMULATION_ERROR, 'm', { context: { service: 'wallet' } });
 
 // ── ValidationError / InternalError: no service field accepted
-new ValidationError(ERROR_CODES.VALIDATION_ERROR, 'm', { context: { operation: 'bridge' } });
+new ValidationError(ERROR_CODES.VALIDATION_ERROR, 'm', { context: { operation: 'swapWithExactOut' } });
 new InternalError(ERROR_CODES.INTERNAL_ERROR, 'm', { context: {} });
 // @ts-expect-error — service field rejected for validation
 new ValidationError(ERROR_CODES.VALIDATION_ERROR, 'm', { context: { service: 'wallet' } });

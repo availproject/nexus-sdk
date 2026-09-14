@@ -12,7 +12,6 @@ import type {
   IntentSourceVerdict,
   IntentStatus,
   IntentSubmitResponse,
-  IntentTokenCatalogEntry,
 } from './types';
 import { INTENT_PROVIDERS } from './types';
 
@@ -72,25 +71,6 @@ const chain = z
     tokens: z.array(chainToken),
   })
   .passthrough();
-const tokenDeployment = z.object({
-  universe: z.literal('EVM'),
-  chainId: z.string(),
-  address,
-  name: z.string(),
-  decimals: z.number().int().nonnegative(),
-  isNative: z.boolean(),
-  providers: z.array(providerSupport),
-  asSource: z.array(providerSupport).optional().default([]),
-  asDestination: z.array(providerSupport).optional().default([]),
-});
-const tokenCatalogEntry = z.object({
-  assetId: z.string(),
-  symbol: z.string(),
-  name: z.string(),
-  logo: z.string().optional(),
-  coingeckoId: z.string().optional(),
-  chains: z.array(tokenDeployment),
-});
 const balance = z.object({
   universe: z.literal('EVM'),
   chainId: z.string(),
@@ -286,16 +266,6 @@ export const normalizeIntentChains = (input: unknown): IntentChain[] =>
       capabilities: { intent: true, execute: false },
     };
   });
-
-export const normalizeIntentTokens = (input: unknown): IntentTokenCatalogEntry[] =>
-  parse(z.array(tokenCatalogEntry), input, 'Better Intent tokens response').map((entry) => ({
-    ...entry,
-    chains: entry.chains.map((deployment) => ({
-      ...deployment,
-      chainId: parseIntentChainRef(deployment.chainId),
-      address: normalizedAddress(deployment.address),
-    })),
-  }));
 
 export const normalizeIntentBalances = (input: unknown): IntentBalancesResult => {
   const parsed = parse(balances, input, 'Better Intent balances response');

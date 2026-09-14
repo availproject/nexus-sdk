@@ -136,7 +136,7 @@ export type AnalyticsNetwork = 'mainnet' | 'testnet' | 'canary' | 'custom';
  * boundary is intentional: SigNoz holds error details (via
  * `reportOperationError` in `services/error-telemetry`), PostHog holds the
  * outcome. Exported so unit tests can assert the filter directly without
- * reaching through a full `trackBridge` flow.
+ * reaching through a full swap flow.
  */
 export function sanitizePerformanceSpanForPostHog(span: SpanProperties): Record<string, unknown> {
   const { errorMessage: _errorMessage, errorType: _errorType, ...payload } = span;

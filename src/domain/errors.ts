@@ -27,16 +27,9 @@ export type ErrorCategory =
 export type OperationName =
   // NexusClient async methods
   | 'initialize'
-  | 'bridge'
-  | 'bridgeAndTransfer'
-  | 'simulateBridge'
-  | 'simulateBridgeAndTransfer'
   | 'listIntents'
   | 'execute'
   | 'simulateExecute'
-  | 'bridgeAndExecute'
-  | 'simulateBridgeAndExecute'
-  | 'getBalancesForBridge'
   | 'getBalancesForSwap'
   | 'swapWithExactIn'
   | 'swapWithExactOut'
@@ -127,7 +120,6 @@ export const ERROR_CODES = {
   // ── validation/* — caller input / preconditions (no service)
   INVALID_INPUT: 'validation/invalid_input',
   INVALID_ADDRESS_LENGTH: 'validation/invalid_address_length',
-  INVALID_VALUES_ALLOWANCE_HOOK: 'validation/invalid_allowance_hook',
   CHAIN_NOT_FOUND: 'validation/chain_not_found',
   CHAIN_DATA_NOT_FOUND: 'validation/chain_data_not_found',
   ASSET_NOT_FOUND: 'validation/asset_not_found',
@@ -199,7 +191,6 @@ export const ERROR_CODES = {
   BACKEND_REPORT_MAYAN_TX_FAILED: 'backend/report_mayan_tx_failed',
   BACKEND_GET_QUOTE_FAILED: 'backend/get_quote_failed',
   BACKEND_GET_MAYAN_QUOTE_FAILED: 'backend/get_mayan_quote_failed',
-  BACKEND_GET_BRIDGE_PROVIDER_FAILED: 'backend/get_bridge_provider_failed',
   BACKEND_ERROR: 'backend/error',
 
   // ── external_service/* — third-party deps (service='lifi'|'bebop'|'fibrous'|'coinbase')
@@ -409,16 +400,6 @@ export const Errors = {
     new ValidationError(ERROR_CODES.ENVIRONMENT_NOT_KNOWN, 'Environment not known/mapped', {
       context: {},
     }),
-
-  invalidAllowance: (expected: number, got: number): ValidationError =>
-    new ValidationError(
-      ERROR_CODES.INVALID_VALUES_ALLOWANCE_HOOK,
-      'Invalid allowance values passed. The length of allowances should equal input lengths.',
-      {
-        context: {},
-        details: { expectedLength: expected, receivedLength: got, source: 'onAllowance:allow()' },
-      }
-    ),
 
   chainNotFound: (chainId: number | bigint): ValidationError =>
     new ValidationError(ERROR_CODES.CHAIN_NOT_FOUND, `Chain not found: ${chainId}`, {

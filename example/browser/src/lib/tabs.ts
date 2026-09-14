@@ -2,7 +2,6 @@ import type {
   IntentEvent,
   IntentResult,
   NexusClient,
-  BridgeAndExecuteResult,
   SwapAndExecuteResult,
 } from "@avail-project/nexus-core";
 import { formatUnits, parseUnits } from "viem";
@@ -19,11 +18,6 @@ import {
   getDepositProtocol,
   buildDepositExecute,
 } from "./deposit";
-import {
-  getSupportedChains,
-  getSupportedTokens,
-  filterBridgeSources,
-} from "./bridge";
 import { getSwapChainOptions, getSwapTokenOptions } from "./destinationTokens";
 import { fetchUiBalances } from "./nexus";
 
@@ -49,20 +43,11 @@ function deriveSwapSources(ctx: ExecuteContext) {
     .map((s) => ({ chainId: s.chainId, tokenAddress: s.tokenAddress }));
 }
 
-function deriveBridgeSourceChains(ctx: ExecuteContext): number[] | undefined {
-  const { sourceOptions, selectedSources } = ctx;
-  if (selectedSources.length === 0) return undefined;
-  const chainIds = sourceOptions
-    .filter((s) => selectedSources.includes(s.id))
-    .map((s) => s.chainId);
-  return [...new Set(chainIds)];
-}
-
 /* ── Better Intent event → existing progress UI ──────────────────── */
 
 function createIntentEventHandler(
   ctx: ExecuteContext,
-  operation: "swap" | "bridge" | "swapAndExecute" | "bridgeAndExecute",
+  operation: "swap" | "swapAndExecute",
 ) {
   return (event: IntentEvent) => {
     ctx.handleProgressEvent?.(event);
@@ -93,7 +78,7 @@ function createIntentEventHandler(
       ctx.setCompletedSteps((previous) => {
         const next = new Set(previous);
         next.add("INTENT_APPROVED");
-        next.add(operation.includes("swap") ? "SWAP_COMPLETE" : "INTENT_FULFILLED");
+        next.add("SWAP_COMPLETE");
         if (operation.endsWith("Execute")) next.add("TRANSACTION_CONFIRMED");
         return next;
       });
@@ -156,7 +141,7 @@ function buildSwapResult(
     ),
   }));
   route.push({
-    type: "bridge",
+    type: "intent",
     chainId: destChainId,
     chainName: chainName(client, destChainId),
     tokenSymbol: destTokenSymbol,
@@ -206,7 +191,7 @@ export const EXACT_OUT_SWAP_TAB: TabConfig = {
   getTokenOptions: (client, chainId) => getSwapTokenOptions(client, chainId),
 
   balanceQueryKey: "swap-balances",
-  fetchBalances: (client) => fetchUiBalances(client, "swap"),
+  fetchBalances: (client) => fetchUiBalances(client),
 
   intentType: "swap",
 
@@ -272,7 +257,7 @@ export const EXACT_IN_SWAP_TAB: TabConfig = {
   getTokenOptions: (client, chainId) => getSwapTokenOptions(client, chainId),
 
   balanceQueryKey: "swap-balances",
-  fetchBalances: (client) => fetchUiBalances(client, "swap"),
+  fetchBalances: (client) => fetchUiBalances(client),
 
   amountMode: "per-source",
   intentType: "swap",
@@ -353,7 +338,7 @@ export const SWAP_AND_EXECUTE_TAB: TabConfig = {
   getTokenOptions: (_client, chainId) => getDepositTokenOptions(chainId),
 
   balanceQueryKey: "swap-balances",
-  fetchBalances: (client) => fetchUiBalances(client, "swap"),
+  fetchBalances: (client) => fetchUiBalances(client),
 
   intentType: "swapAndExecute",
 
@@ -453,256 +438,12 @@ export const SWAP_AND_EXECUTE_TAB: TabConfig = {
   },
 };
 
-export const BRIDGE_TAB: TabConfig = {
-  id: "bridge",
-  path: "/bridge",
-  navLabel: "Bridge",
-  hero: {
-    icon: "◎",
-    title: "Bridge",
-    description:
-      "Bridge tokens to any supported destination chain using Nexus. Select source chains or let the SDK auto-select optimal sources.",
-    buttonLabel: "Bridge",
-    buttonPendingLabel: "Bridging...",
-  },
-  amountLabel: "Receive amount",
-  chainLabel: "Destination chain",
-  tokenLabel: "Token",
-  defaultChainId: 8453,
-
-  getChainOptions: (client) => (client ? getSupportedChains(client) : []),
-  getTokenOptions: (client, chainId) =>
-    client ? getSupportedTokens(client, chainId) : [],
-
-  balanceQueryKey: "bridge-balances",
-  fetchBalances: (client) => fetchUiBalances(client, "bridge"),
-
-  intentType: "bridge",
-
-  filterSources: filterBridgeSources,
-
-  phases: [
-    { key: "approve", label: "Approve", doneWhen: "INTENT_APPROVED" },
-    { key: "bridge", label: "Bridge", doneWhen: "INTENT_FULFILLED" },
-  ],
-
-  execute: async (ctx): Promise<OperationResult> => {
-    const { client, chainId, tokenSymbol, amount } = ctx;
-    const amountBigInt = client.convertTokenReadableAmountToBigInt(
-      amount,
-      tokenSymbol,
-      chainId,
-    );
-    const sourceChains = deriveBridgeSourceChains(ctx);
-
-    const toNativeAmountRaw = ctx.nativeAmount.trim()
-      ? client.convertTokenReadableAmountToBigInt(
-          ctx.nativeAmount,
-          client.chainList.getNativeToken(chainId).symbol,
-          chainId,
-        )
-      : undefined;
-
-    const recipient = ctx.recipient.trim()
-      ? (ctx.recipient.trim() as `0x${string}`)
-      : undefined;
-
-    const result = (await client.bridge(
-      {
-        toTokenSymbol: tokenSymbol,
-        toAmountRaw: amountBigInt,
-        toChainId: chainId,
-        toNativeAmountRaw,
-        recipient,
-        sources: sourceChains,
-      },
-      {
-        fillTimeoutMinutes: 4,
-        onEvent: createIntentEventHandler(ctx, "bridge"),
-        hooks: {
-          onIntent: (data) => {
-            (
-              ctx as unknown as { _onBridgeIntent?: (d: typeof data) => void }
-            )._onBridgeIntent?.(data);
-          },
-          onAllowance: ({ allow, allowances }) => allow(allowances.map(() => "min")),
-        },
-      },
-    ));
-
-    const links: import("./types").BridgeLink[] = [];
-    for (const tx of [...result.approvals, ...result.nativeTransactions]) {
-      links.push({
-        label: `Source transaction (${chainName(client, tx.chainId)})`,
-        href: tx.txExplorerUrl,
-        icon: "collection",
-      });
-    }
-    if (result.intentExplorerUrl) {
-      links.push({
-        label: "Intent",
-        href: result.intentExplorerUrl,
-        icon: "intent",
-      });
-    }
-
-    return {
-      hashes: buildIntentHashes(client, result),
-      richResult: {
-        kind: "bridge",
-        summary: `Bridged ${amount} ${tokenSymbol} to ${chainName(client, chainId)}`,
-        links,
-      },
-    };
-  },
-};
-
-export const BRIDGE_AND_EXECUTE_TAB: TabConfig = {
-  id: "bridge-and-execute",
-  path: "/bridge-and-execute",
-  navLabel: "Bridge & Execute",
-  hero: {
-    icon: "◎",
-    title: "Bridge & Execute",
-    description:
-      "Bridge tokens to the destination chain and deposit them into its lending market in one operation. The bridge step is skipped if sufficient funds are already available.",
-    accentClass: "hero-card-accent",
-    buttonLabel: "Bridge & Deposit",
-    buttonPendingLabel: "Bridging and depositing...",
-  },
-  amountLabel: "Deposit amount",
-  chainLabel: "Destination chain",
-  tokenLabel: "Deposit token",
-  defaultChainId: 8453,
-
-  getChainOptions: (_client) => getDepositSupportedChains(),
-  getTokenOptions: (_client, chainId) => getDepositTokenOptions(chainId),
-
-  balanceQueryKey: "bridge-balances",
-  fetchBalances: (client) => fetchUiBalances(client, "bridge"),
-
-  intentType: "bridgeAndExecute",
-
-  filterSources: filterBridgeSources,
-
-  phases: [
-    { key: "approve", label: "Approve", doneWhen: "INTENT_APPROVED" },
-    { key: "bridge", label: "Bridge", doneWhen: "INTENT_FULFILLED" },
-    { key: "execute", label: "Execute", doneWhen: "TRANSACTION_CONFIRMED" },
-  ],
-
-  execute: async (ctx): Promise<OperationResult> => {
-    const { client, address, chainId, tokenSymbol, amount } = ctx;
-    const amountBigInt = client.convertTokenReadableAmountToBigInt(
-      amount,
-      tokenSymbol,
-      chainId,
-    );
-    const deposit = buildDepositExecute({
-      chainId,
-      symbol: tokenSymbol,
-      amount: amountBigInt,
-      wallet: address,
-    });
-    const sourceChains = deriveBridgeSourceChains(ctx);
-
-    // bridgeAndExecute uses ExecuteParams.tokenApproval (toTokenSymbol)
-    // while swapAndExecute uses SwapExecuteParams.tokenApproval (toTokenAddress)
-    const { tokenApproval: depositApproval, ...depositRest } = deposit.execute;
-    const bridgeExecute = {
-      ...depositRest,
-      ...(depositApproval
-        ? {
-            tokenApproval: {
-              toTokenSymbol: tokenSymbol,
-              amount: depositApproval.amount,
-              spender: depositApproval.spender,
-            },
-          }
-        : {}),
-    };
-
-    const result = (await client.bridgeAndExecute(
-      {
-        toChainId: chainId,
-        toTokenSymbol: tokenSymbol,
-        toAmountRaw: amountBigInt,
-        sources: sourceChains,
-        execute: bridgeExecute,
-      },
-      {
-        onEvent: createIntentEventHandler(ctx, "bridgeAndExecute"),
-        hooks: {
-          onIntent: (data) => {
-            (
-              ctx as unknown as {
-                _onBridgeExecIntent?: (
-                  d: typeof data,
-                  context: import("./nexus").CompositeIntentContext,
-                ) => void;
-              }
-            )._onBridgeExecIntent?.(data, {
-              contractAddress: deposit.execute.to,
-              tokenSymbol,
-              amount,
-              tokenApproval: depositApproval
-                ? { symbol: tokenSymbol, amount }
-                : undefined,
-            });
-          },
-        },
-      },
-    )) as BridgeAndExecuteResult;
-
-    const hashes: Array<{ label: string; value: string; href?: string }> = [];
-    const links: import("./types").BridgeLink[] = [];
-
-    if (!result.bridgeSkipped && result.bridgeResult.intentExplorerUrl) {
-      hashes.push({
-        label: "Bridge",
-        value: result.bridgeResult.intentExplorerUrl,
-        href: result.bridgeResult.intentExplorerUrl,
-      });
-      links.push({
-        label: "Intent",
-        href: result.bridgeResult.intentExplorerUrl,
-        icon: "intent",
-      });
-    }
-
-    hashes.push({
-      label: "Execute tx",
-      value: result.execute.txHash,
-      href: result.execute.txExplorerUrl,
-    });
-    if (result.execute.txExplorerUrl) {
-      links.push({
-        label: `Deposit (${chainName(client, chainId)})`,
-        href: result.execute.txExplorerUrl,
-        icon: "execute",
-      });
-    }
-
-    return {
-      hashes,
-      marketUrl: deposit.marketUrl,
-      richResult: {
-        kind: "bridge",
-        summary: `Bridged & deposited ${amount} ${tokenSymbol} on ${chainName(client, chainId)}`,
-        links,
-      },
-    };
-  },
-};
-
 /* ── Tab collections by network ──────────────────────────────────── */
 
 export const MAINNET_TABS: TabConfig[] = [
   EXACT_OUT_SWAP_TAB,
   EXACT_IN_SWAP_TAB,
   SWAP_AND_EXECUTE_TAB,
-  BRIDGE_TAB,
-  BRIDGE_AND_EXECUTE_TAB,
 ];
 
 export function getTabsForNetwork(_network: NetworkMode): TabConfig[] {

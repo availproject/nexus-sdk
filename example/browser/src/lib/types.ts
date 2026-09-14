@@ -22,9 +22,7 @@ export type TokenBalance = {
 export type TabId =
   | "swap-exact-out"
   | "swap-exact-in"
-  | "swap-and-execute"
-  | "bridge"
-  | "bridge-and-execute";
+  | "swap-and-execute";
 
 export type ChainOption = { id: number; name: string };
 
@@ -43,7 +41,7 @@ export type HashRecord = { label: string; value: string; href?: string };
 /* ── Rich result types for result cards ── */
 
 export type SwapRouteStep = {
-  type: "source" | "bridge" | "destination";
+  type: "source" | "intent" | "destination";
   chainId: number;
   chainName: string;
   tokenSymbol: string;
@@ -56,25 +54,13 @@ export type SwapResultData = {
   kind: "swap";
   route: SwapRouteStep[];
   intentExplorerUrl?: string;
-  summary: string; // e.g. "2 source swaps, 1 bridge, 1 destination swap"
-};
-
-export type BridgeLink = {
-  label: string;
-  href: string;
-  icon: "collection" | "fill" | "intent" | "execute" | "tx";
-};
-
-export type BridgeResultData = {
-  kind: "bridge";
-  summary: string; // e.g. "Bridged 100 USDC to Base"
-  links: BridgeLink[];
+  summary: string; // e.g. "2 source swaps, 1 intent, 1 destination swap"
 };
 
 export type OperationResult = {
   hashes: HashRecord[];
   marketUrl?: string;
-  richResult?: SwapResultData | BridgeResultData;
+  richResult?: SwapResultData;
 };
 
 export type HeroConfig = {
@@ -107,8 +93,6 @@ export type ExecuteContext = {
   tokenSymbol: string;
   tokenAddress: `0x${string}` | undefined;
   amount: string;
-  nativeAmount: string;
-  recipient: string;
   sourceOptions: SourceOption[];
   selectedSources: string[];
   /** Per-source input amounts (human-readable), keyed by SourceOption.id.
@@ -178,7 +162,7 @@ export type ProgressPhase =
 export type ExecutionProgressState = {
   phase: ProgressPhase;
   steps: NormalizedStep[];
-  operationType: "swap" | "bridge" | "bridgeAndExecute" | "swapAndExecute";
+  operationType: "swap" | "swapAndExecute";
   resultLinks: Array<{ label: string; href: string }>;
   header?: ProgressHeader;
   result?: ProgressResult;
@@ -205,8 +189,8 @@ export type TabConfig = {
 
   /**
    * How the form collects the swap amount.
-   * - "single" (default): one global amount input (output amount for exact-out,
-   *   input amount for bridge) + multi-select sources without per-source amounts.
+   * - "single" (default): one output amount input for exact-out swaps
+   *   + multi-select sources without per-source amounts.
    * - "per-source": each selected source carries its own input amount (exact-in).
    */
   amountMode?: "single" | "per-source";
@@ -217,13 +201,7 @@ export type TabConfig = {
   balanceQueryKey: string;
   fetchBalances: (client: NexusClient) => Promise<TokenBalance[]>;
 
-  filterSources?: (
-    sources: SourceOption[],
-    chainId: number,
-    tokenSymbol: string,
-  ) => SourceOption[];
-
-  intentType: "swap" | "bridge" | "bridgeAndExecute" | "swapAndExecute";
+  intentType: "swap" | "swapAndExecute";
   phases: Phase[];
 
   execute: (ctx: ExecuteContext) => Promise<OperationResult>;

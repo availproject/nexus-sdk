@@ -6,8 +6,6 @@ export type { AnalyticsConfig, DevTimingConfig, SpanProperties } from './analyti
 
 export { createNexusClient } from './core/sdk/client';
 export type {
-  BridgeAndExecuteOptions,
-  BridgeOperationOptions,
   IntentOperationOptions,
   NexusClient,
   SwapAndExecuteOptions,
@@ -20,8 +18,6 @@ export const IntentStatus = DomainIntentStatus;
 export type IntentStatus = import('./intent/types').IntentLifecycleStatus;
 
 export type {
-  BridgeAndExecuteParams,
-  BridgeParams,
   Chain,
   ChainListType,
   ChainMetadata,
@@ -36,7 +32,6 @@ export type {
   RequestArguments,
   TokenInfo,
   TokenMetadata,
-  TransferParams,
   TxResult,
 } from './domain';
 export type {
@@ -64,12 +59,7 @@ export {
 } from './domain/errors';
 // Stable high-level names now share the API-backed Better Intent model.
 export type {
-  BridgeAndExecuteIntentResult,
-  BridgeAndExecuteIntentResult as BridgeAndExecuteResult,
   IntentAllowance,
-  IntentAllowanceHookData,
-  IntentAllowanceSelection,
-  IntentAndExecuteSimulationResult as BridgeAndExecuteSimulationResult,
   IntentAndExecuteSimulationResult as SwapAndExecuteSimulationResult,
   IntentBalance,
   IntentBalancesResult,
@@ -89,15 +79,12 @@ export type {
   IntentProvider,
   IntentProviderSupport,
   IntentQuote,
-  IntentQuote as BridgeSimulationResult,
   IntentQuote as SwapSimulationResult,
   IntentQuoteFailure,
   IntentQuoteFailureSubcode,
   IntentQuoteInput,
   IntentResult,
-  IntentResult as BridgeResult,
   IntentResult as SwapResult,
-  IntentResult as TransferResult,
   IntentRouteConstraintLeg,
   IntentRouteConstraints,
   IntentSource,

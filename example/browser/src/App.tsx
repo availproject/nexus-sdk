@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Route, Routes, useLocation } from "react-router";
+import { Route, Routes } from "react-router";
 import { useConnection } from "wagmi";
 import { Toaster } from "sonner";
 import type { ExecutionProgressState, NetworkMode, TokenBalance } from "./lib/types";
@@ -79,7 +79,7 @@ function useForceMayan() {
 
 const MOCK_COMPLETED_STATE: ExecutionProgressState = {
   phase: "completed",
-  operationType: "bridge",
+  operationType: "swap",
   resultLinks: [
     { label: "View intent", href: "#" },
     { label: "Deposit tx", href: "#" },
@@ -89,20 +89,20 @@ const MOCK_COMPLETED_STATE: ExecutionProgressState = {
     { id: "2", type: "request_signing", label: "Sign request", state: "done" },
     { id: "3", type: "vault_deposit", label: "Deposit on Ethereum", state: "done", chain: { id: 1, name: "Ethereum", logo: "" }, token: { symbol: "USDC", amount: "100.00" } },
     { id: "4", type: "request_submission", label: "Submit RFF", state: "done" },
-    { id: "5", type: "bridge_fill", label: "Bridge to Arbitrum", state: "done", chain: { id: 42161, name: "Arbitrum", logo: "" } },
+    { id: "5", type: "intent_fulfillment", label: "Fulfill swap on Arbitrum", state: "done", chain: { id: 42161, name: "Arbitrum", logo: "" } },
   ],
 };
 
 const MOCK_FAILED_STATE: ExecutionProgressState = {
   phase: "failed",
-  operationType: "bridge",
+  operationType: "swap",
   resultLinks: [],
   steps: [
     { id: "1", type: "allowance_approval", label: "Approve USDC on Ethereum", state: "done", chain: { id: 1, name: "Ethereum", logo: "" }, token: { symbol: "USDC", amount: "100.00" } },
     { id: "2", type: "request_signing", label: "Sign request", state: "done" },
     { id: "3", type: "vault_deposit", label: "Deposit on Ethereum", state: "failed", chain: { id: 1, name: "Ethereum", logo: "" }, token: { symbol: "USDC", amount: "100.00" }, error: "Transaction reverted: insufficient gas" },
     { id: "4", type: "request_submission", label: "Submit RFF", state: "pending" },
-    { id: "5", type: "bridge_fill", label: "Bridge to Arbitrum", state: "pending", chain: { id: 42161, name: "Arbitrum", logo: "" } },
+    { id: "5", type: "intent_fulfillment", label: "Fulfill swap on Arbitrum", state: "pending", chain: { id: 42161, name: "Arbitrum", logo: "" } },
   ],
 };
 
@@ -112,7 +112,6 @@ export default function App() {
   const { forceMayan, toggleForceMayan } = useForceMayan();
   const { mode, toggleMode } = useThemeAndMode();
   const queryClient = useQueryClient();
-  const location = useLocation();
 
   // Debug: Cmd/Ctrl+Shift+K to preview success celebration
   const [debugModal, setDebugModal] = useState<ExecutionProgressState | null>(null);
@@ -136,8 +135,7 @@ export default function App() {
 
   const tabs = useMemo(() => getTabsForNetwork(network), [network]);
 
-  const isBridgeTab = location.pathname.startsWith("/bridge");
-  const activeBalanceKey = isBridgeTab ? "bridge-balances" : "swap-balances";
+  const activeBalanceKey = "swap-balances";
 
   // Read balance data from cache without creating a skipToken observer
   const [cachedAssets, setCachedAssets] = useState<TokenBalance[]>([]);
@@ -190,9 +188,7 @@ export default function App() {
                 address={address}
                 isConnected={isConnected}
                 onSwapIntent={sdk.onSwapIntent}
-                onBridgeIntent={sdk.onBridgeIntent}
                 onSwapExecIntent={sdk.onSwapExecIntent}
-                onBridgeExecIntent={sdk.onBridgeExecIntent}
                 swapIntent={sdk.swapIntent}
                 swapIntentPending={sdk.swapIntentPending}
                 swapIntentRefreshing={sdk.swapIntentRefreshing}
@@ -200,13 +196,6 @@ export default function App() {
                 approveSwapIntent={sdk.approveSwapIntent}
                 denySwapIntent={sdk.denySwapIntent}
                 clearSwapIntent={sdk.clearSwapIntent}
-                bridgeIntent={sdk.bridgeIntent}
-                bridgeIntentPending={sdk.bridgeIntentPending}
-                bridgeIntentRefreshing={sdk.bridgeIntentRefreshing}
-                bridgeIntentApproved={sdk.bridgeIntentApproved}
-                approveBridgeIntent={sdk.approveBridgeIntent}
-                denyBridgeIntent={sdk.denyBridgeIntent}
-                clearBridgeIntent={sdk.clearBridgeIntent}
                 swapExecIntent={sdk.swapExecIntent}
                 swapExecIntentPending={sdk.swapExecIntentPending}
                 swapExecIntentRefreshing={sdk.swapExecIntentRefreshing}
@@ -214,13 +203,6 @@ export default function App() {
                 approveSwapExecIntent={sdk.approveSwapExecIntent}
                 denySwapExecIntent={sdk.denySwapExecIntent}
                 clearSwapExecIntent={sdk.clearSwapExecIntent}
-                bridgeExecIntent={sdk.bridgeExecIntent}
-                bridgeExecIntentPending={sdk.bridgeExecIntentPending}
-                bridgeExecIntentRefreshing={sdk.bridgeExecIntentRefreshing}
-                bridgeExecIntentApproved={sdk.bridgeExecIntentApproved}
-                approveBridgeExecIntent={sdk.approveBridgeExecIntent}
-                denyBridgeExecIntent={sdk.denyBridgeExecIntent}
-                clearBridgeExecIntent={sdk.clearBridgeExecIntent}
               />
             }
           />

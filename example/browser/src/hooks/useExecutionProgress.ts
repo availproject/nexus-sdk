@@ -28,9 +28,6 @@ type RawStep = {
 const STEP_LABELS: Record<string, (step: RawStep) => string> = {
   source_swap: (s) => `Swap on ${s.chain?.name ?? "source"}`,
   eoa_to_ephemeral_transfer: (s) => `Transfer on ${s.chain?.name ?? "chain"}`,
-  bridge_deposit: (s) => `Deposit to bridge on ${s.chain?.name ?? "chain"}`,
-  bridge_intent_submission: () => "Submit bridge intent",
-  bridge_fill: (s) => `Bridge to ${s.chain?.name ?? "destination"}`,
   destination_swap: (s) => `Swap on ${s.chain?.name ?? "destination"}`,
   allowance_approval: (s) => `Approve ${s.token?.symbol ?? "token"} on ${s.chain?.name ?? "chain"}`,
   request_signing: () => "Sign request",

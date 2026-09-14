@@ -12,7 +12,7 @@ describe('Better Intent analytics boundary', () => {
     );
     let operationId = '';
 
-    await trackIntentOperation(manager, 'bridge', { toChainId: 1 }, undefined, async (id) => {
+    await trackIntentOperation(manager, 'swapWithExactOut', { toChainId: 1 }, undefined, async (id) => {
       operationId = id;
       const timing = manager.scopedTimingHooks(id);
       await timing.withSpan('intent.quote', async () => undefined);
@@ -31,7 +31,7 @@ describe('Better Intent analytics boundary', () => {
     const error = new Error('quote failed');
 
     await expect(
-      trackIntentOperation(manager, 'simulateBridge', {}, undefined, async () => {
+      trackIntentOperation(manager, 'swapWithExactIn', {}, undefined, async () => {
         throw error;
       })
     ).rejects.toBe(error);

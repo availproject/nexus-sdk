@@ -3,15 +3,13 @@ import * as rootModule from '../src';
 import * as utilsModule from '../src/utils';
 import { AnalyticsManager, getIntentQuoteFailure, IntentStatus, NexusAnalyticsEvents } from '../src';
 import type {
-  BridgeAndExecuteResult,
-  BridgeResult,
-  BridgeSimulationResult,
   IntentBalance,
   IntentEvent,
   IntentStepError,
   IntentHistoryRecord,
   IntentHistoryResult,
   IntentHookData,
+  IntentOperationOptions,
   IntentLegStatus,
   IntentQuote,
   IntentRouteConstraints,
@@ -21,6 +19,7 @@ import type {
   ListIntentsParams,
   ListIntentsResult,
   OperationName,
+  NexusClient,
   SwapAndExecuteResult,
   SwapResult as SwapResultType,
   SwapResult,
@@ -28,6 +27,29 @@ import type {
 } from '../src';
 
 describe('public api exports', () => {
+  it('removes bridge entrypoints and telemetry from the public client', () => {
+    const removed = [
+      'bridge',
+      'bridgeAndTransfer',
+      'simulateBridge',
+      'simulateBridgeAndTransfer',
+      'bridgeAndExecute',
+      'simulateBridgeAndExecute',
+      'getBalancesForBridge',
+    ] as const;
+    expectTypeOf<Extract<keyof NexusClient, (typeof removed)[number]>>().toEqualTypeOf<never>();
+    expectTypeOf<keyof NonNullable<IntentOperationOptions['hooks']>>().toEqualTypeOf<'onIntent'>();
+    const client = rootModule.createNexusClient({
+      clientId: 'test-client',
+      analytics: { enabled: false },
+    });
+    for (const method of removed) expect(Object.keys(client)).not.toContain(method);
+    expect(
+      Object.keys(NexusAnalyticsEvents).filter((name) => /^(BRIDGE|TRANSFER)_/.test(name)),
+    ).toEqual([]);
+    client.destroy();
+  });
+
   it('requires clientId when creating a client', () => {
     expectTypeOf<Parameters<typeof rootModule.createNexusClient>>().toMatchTypeOf<
       [{ clientId: string }]
@@ -37,11 +59,9 @@ describe('public api exports', () => {
   it('exports the unified Better Intent surface and compatibility aliases', () => {
     const params: ListIntentsParams = { page: 1, status: IntentStatus.Created };
     const result = { intents: [] as IntentHistoryRecord[], total: 0 } satisfies ListIntentsResult;
-    const bridgeSimulation = {} as BridgeSimulationResult;
     const swapResult = {} as SwapResult;
-    const bridgeOperation = 'bridge' as const satisfies OperationName;
+    const swapOperation = 'swapWithExactOut' as const satisfies OperationName;
     const txResult = {} as TxResult;
-    const bridgeAndExecuteResult = {} as BridgeAndExecuteResult;
     const swapAndExecuteResult = {} as SwapAndExecuteResult;
     const quote = {} as IntentQuote;
     const route = { sources: [{ chainId: 10 }] } satisfies IntentRouteConstraints;
@@ -55,12 +75,10 @@ describe('public api exports', () => {
     expect(IntentStatus.Created).toBe('created');
     expect(params).toEqual({ page: 1, status: 'created' });
     expect(result.total).toBe(0);
-    expectTypeOf(bridgeSimulation).toEqualTypeOf<IntentQuote>();
     expectTypeOf(swapResult).toEqualTypeOf<IntentResult>();
-    expectTypeOf<BridgeResult>().toEqualTypeOf<IntentResult>();
     expectTypeOf<IntentRecord>().toEqualTypeOf<IntentHistoryRecord>();
     expectTypeOf<ListIntentsResult>().toEqualTypeOf<IntentHistoryResult>();
-    expect(bridgeOperation).toBe('bridge');
+    expect(swapOperation).toBe('swapWithExactOut');
     expectTypeOf(txResult).toMatchTypeOf<TxResult>();
     expectTypeOf(quote).toMatchTypeOf<IntentQuote>();
     expect(route.sources[0]?.chainId).toBe(10);
@@ -72,14 +90,7 @@ describe('public api exports', () => {
     expectTypeOf(status.status).toEqualTypeOf<IntentStatus>();
     expectTypeOf(status.legs).toEqualTypeOf<IntentLegStatus[]>();
     expectTypeOf(leg.sourceIndex).toEqualTypeOf<number>();
-    expectTypeOf(bridgeAndExecuteResult).toMatchTypeOf<BridgeAndExecuteResult>();
     expectTypeOf(swapAndExecuteResult).toMatchTypeOf<SwapAndExecuteResult>();
-
-    if (bridgeAndExecuteResult.bridgeSkipped) {
-      expectTypeOf(bridgeAndExecuteResult.bridgeResult).toEqualTypeOf<undefined>();
-    } else {
-      expectTypeOf(bridgeAndExecuteResult.bridgeResult).toMatchTypeOf<BridgeResult>();
-    }
 
     if (swapAndExecuteResult.swapSkipped) {
       expectTypeOf(swapAndExecuteResult.swapResult).toEqualTypeOf<undefined>();

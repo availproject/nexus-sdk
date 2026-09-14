@@ -1,30 +1,21 @@
 import { AnalyticsManager } from '../../analytics/AnalyticsManager';
 import type { AnalyticsConfig, DevTimingConfig } from '../../analytics/types';
 import type {
-  BridgeAndExecuteParams,
-  BridgeParams,
   EthereumProvider,
   ExecuteParams,
   ListIntentsParams,
   NexusNetwork,
   OnEventParam,
-  TransferParams,
 } from '../../domain';
 import { getLogger } from '../../domain';
 import { Errors } from '../../domain/errors';
-import { createTokenCatalogFromChains, intentNetworkEnabled } from '../../intent/catalog';
+import { intentNetworkEnabled } from '../../intent/catalog';
 import { createChainList } from '../../services/chain-list';
 import { getNetwork, readEnv } from '../../services/network-config';
 import { setLoggerProvider } from '../../services/telemetry';
 import type { SwapAndExecuteParams, SwapExactInParams, SwapExactOutParams } from '../../swap/types';
 import type { MiddlewareClient } from '../../transport';
-import type {
-  BridgeAndExecuteOptions,
-  BridgeOperationOptions,
-  NexusClient,
-  SwapAndExecuteOptions,
-  SwapOperationOptions,
-} from '../types';
+import type { NexusClient, SwapAndExecuteOptions, SwapOperationOptions } from '../types';
 import { nexusUtils } from '../utils';
 import { createBase } from './base';
 import {
@@ -81,7 +72,7 @@ export const createNexusClient = (config: {
       ]);
       base.setChainList(createChainList(deployment));
       if (intentEnabled) {
-        base.setIntentCatalog(intentChains, createTokenCatalogFromChains(intentChains));
+        base.setIntentCatalog(intentChains);
       }
     });
   };
@@ -91,39 +82,13 @@ export const createNexusClient = (config: {
     analytics,
     initialize,
     isSupportedChain: (chainId) => base.getSupportedChains().some((chain) => chain.id === chainId),
-    bridge: (params: BridgeParams, options?: BridgeOperationOptions) =>
-      trackIntentOperation(analytics, 'bridge', params, options, () =>
-        base.executeBridge(params, options)
-      ),
-    bridgeAndTransfer: (params: TransferParams, options?: BridgeOperationOptions) =>
-      trackIntentOperation(analytics, 'bridgeAndTransfer', params, options, () =>
-        base.bridgeAndTransfer(params, options)
-      ),
-    simulateBridge: (params: BridgeParams, options?: BridgeOperationOptions) =>
-      trackIntentOperation(analytics, 'simulateBridge', params, options, () =>
-        base.simulateBridge(params, options)
-      ),
-    simulateBridgeAndTransfer: (params: TransferParams, options?: BridgeOperationOptions) =>
-      trackIntentOperation(analytics, 'simulateBridgeAndTransfer', params, options, () =>
-        base.simulateBridgeAndTransfer(params, options)
-      ),
     listIntents: (params?: ListIntentsParams) =>
       trackListIntents(analytics, params, () => base.listIntents(params)),
     execute: (params: ExecuteParams, options?: OnEventParam) =>
       trackExecute(analytics, params, options, (opId) => base.execute(params, options, opId)),
     simulateExecute: (params: ExecuteParams) =>
       trackExecuteSim(analytics, params, () => base.simulateExecute(params)),
-    bridgeAndExecute: (params: BridgeAndExecuteParams, options?: BridgeAndExecuteOptions) =>
-      trackIntentOperation(analytics, 'bridgeAndExecute', params, options, () =>
-        base.bridgeAndExecute(params, options)
-      ),
-    simulateBridgeAndExecute: (params: BridgeAndExecuteParams, options?: BridgeAndExecuteOptions) =>
-      trackIntentOperation(analytics, 'simulateBridgeAndExecute', params, options, () =>
-        base.simulateBridgeAndExecute(params, options)
-      ),
-    getBalancesForBridge: () =>
-      trackBalanceFetch(analytics, 'bridge', () => base.getBalancesForBridge()),
-    getBalancesForSwap: () => trackBalanceFetch(analytics, 'swap', () => base.getBalancesForSwap()),
+    getBalancesForSwap: () => trackBalanceFetch(analytics, () => base.getBalancesForSwap()),
     swapWithExactIn: (input: SwapExactInParams, options?: SwapOperationOptions) =>
       trackIntentOperation(analytics, 'swapWithExactIn', input, options, () =>
         base.swapWithExactIn(input, options)

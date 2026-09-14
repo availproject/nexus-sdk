@@ -43,23 +43,6 @@ export interface TokenMetadata {
   isNative?: boolean;
 }
 
-export interface BridgeParams {
-  recipient?: Hex;
-  toTokenSymbol: string;
-  toAmountRaw: bigint;
-  toChainId: number;
-  toNativeAmountRaw?: bigint;
-  sources?: number[];
-}
-
-export interface TransferParams {
-  toTokenSymbol: string;
-  toAmountRaw: bigint;
-  toChainId: number;
-  recipient: Hex;
-  sources?: number[];
-}
-
 export type TxResult = {
   txHash: Hex;
   txExplorerUrl: string;
@@ -99,14 +82,6 @@ export type ExecuteSimulation = {
   estimatedGasUnits: bigint;
   estimatedTotalCost: bigint;
 };
-
-export interface BridgeAndExecuteParams {
-  toChainId: number;
-  toTokenSymbol: string;
-  toAmountRaw: bigint;
-  sources?: number[];
-  execute: Omit<ExecuteParams, 'toChainId'>;
-}
 
 export type BeforeExecuteHook = {
   beforeExecute?: () => Promise<{ value?: bigint; data?: Hex; gas?: bigint }>;

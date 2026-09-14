@@ -38,34 +38,12 @@ export type SwapIntentViewModel = {
     gas?: { tokenSymbol: string; amount: string; value: string };
   };
   buffer: string;
-  bridgeFees: {
+  fees: {
     caGas: string;
     protocol: string;
     solver: string;
     total: string;
   } | null;
-};
-
-export type BridgeIntentViewModel = {
-  sources: Array<{
-    chainId: number;
-    chainName: string;
-    chainLogo: string;
-    tokenSymbol: string;
-    amount: string;
-  }>;
-  sourcesTotal: string;
-  destination: {
-    chainName: string;
-    chainLogo: string | undefined;
-    amount: string;
-    nativeAmount: string;
-    nativeAmountValue: string;
-    nativeAmountInToken: string;
-    nativeToken: { symbol: string; logo: string };
-  };
-  token: { symbol: string; name: string; logo: string | undefined };
-  fees: { caGas: string; protocol: string; solver: string; total: string };
 };
 
 export type ExecuteRequirementViewModel = {
@@ -95,15 +73,6 @@ export type SwapAndExecuteIntentViewModel = {
   swapRequired: boolean;
   shortfall?: ShortfallViewModel;
   swap?: SwapIntentViewModel;
-};
-
-export type BridgeAndExecuteIntentViewModel = {
-  kind: "bridgeAndExecute";
-  executeRequirement: ExecuteRequirementViewModel;
-  available: AvailableViewModel;
-  bridgeRequired: boolean;
-  shortfall?: ShortfallViewModel;
-  bridge?: BridgeIntentViewModel;
 };
 
 export type CompositeIntentContext = {
@@ -196,44 +165,15 @@ function mapSwapQuote(client: NexusClient, quote: IntentQuote): SwapIntentViewMo
       value: estimatedUsd(destinationToken?.symbol ?? "", destinationAmount),
     },
     buffer: "0",
-    bridgeFees: quoteFees(client, quote),
-  };
-}
-
-function mapBridgeQuote(client: NexusClient, quote: IntentQuote): BridgeIntentViewModel {
-  const swap = mapSwapQuote(client, quote);
-  const chain = findChain(client, quote.output.chainId);
-  const token = findToken(client, quote.output.chainId, quote.output.tokenAddress);
-  const native = chain?.nativeCurrency;
-  const fees = quoteFees(client, quote);
-
-  return {
-    sources: swap.sources.map(({ value: _value, ...source }) => source),
-    sourcesTotal: swap.sourcesTotal,
-    destination: {
-      chainName: swap.destination.chainName,
-      chainLogo: swap.destination.chainLogo || undefined,
-      amount: swap.destination.amount,
-      nativeAmount: "0",
-      nativeAmountValue: "0",
-      nativeAmountInToken: "0",
-      nativeToken: { symbol: native?.symbol ?? "Native", logo: native?.logo ?? "" },
-    },
-    token: {
-      symbol: token?.symbol ?? "Token",
-      name: token?.name ?? token?.symbol ?? "Token",
-      logo: token?.logo,
-    },
-    fees,
+    fees: quoteFees(client, quote),
   };
 }
 
 function mapCompositeQuote(
   client: NexusClient,
   quote: IntentQuote,
-  kind: "swapAndExecute" | "bridgeAndExecute",
   context?: CompositeIntentContext,
-): SwapAndExecuteIntentViewModel | BridgeAndExecuteIntentViewModel {
+): SwapAndExecuteIntentViewModel {
   const chain = findChain(client, quote.output.chainId);
   const token = findToken(client, quote.output.chainId, quote.output.tokenAddress);
   const amount = context?.amount ?? displayAmount(
@@ -266,23 +206,14 @@ function mapCompositeQuote(
     gas: { amount: "0", value: "0" },
   };
 
-  return kind === "swapAndExecute"
-    ? {
-        kind,
-        executeRequirement,
-        available,
-        swapRequired: true,
-        shortfall,
-        swap: mapSwapQuote(client, quote),
-      }
-    : {
-        kind,
-        executeRequirement,
-        available,
-        bridgeRequired: true,
-        shortfall,
-        bridge: mapBridgeQuote(client, quote),
-      };
+  return {
+    kind: "swapAndExecute",
+    executeRequirement,
+    available,
+    swapRequired: true,
+    shortfall,
+    swap: mapSwapQuote(client, quote),
+  };
 }
 
 export function groupBalances(client: NexusClient, balances: IntentBalance[]): TokenBalance[] {
@@ -320,13 +251,8 @@ export function groupBalances(client: NexusClient, balances: IntentBalance[]): T
   return [...groups.values()];
 }
 
-export async function fetchUiBalances(
-  client: NexusClient,
-  kind: "swap" | "bridge",
-): Promise<TokenBalance[]> {
-  const balances = kind === "swap"
-    ? await client.getBalancesForSwap()
-    : await client.getBalancesForBridge();
+export async function fetchUiBalances(client: NexusClient): Promise<TokenBalance[]> {
+  const balances = await client.getBalancesForSwap();
   return groupBalances(client, balances);
 }
 
@@ -468,17 +394,11 @@ function useIntentApproval<T, C = undefined>(
 }
 
 const mapSwap = (client: NexusClient, quote: IntentQuote) => mapSwapQuote(client, quote);
-const mapBridge = (client: NexusClient, quote: IntentQuote) => mapBridgeQuote(client, quote);
 const mapSwapExecute = (
   client: NexusClient,
   quote: IntentQuote,
   context?: CompositeIntentContext,
-) => mapCompositeQuote(client, quote, "swapAndExecute", context) as SwapAndExecuteIntentViewModel;
-const mapBridgeExecute = (
-  client: NexusClient,
-  quote: IntentQuote,
-  context?: CompositeIntentContext,
-) => mapCompositeQuote(client, quote, "bridgeAndExecute", context) as BridgeAndExecuteIntentViewModel;
+) => mapCompositeQuote(client, quote, context);
 
 /* ── useNexusSdk hook ───────────────────────────────────────────── */
 
@@ -489,9 +409,7 @@ export function useNexusSdk(network: NetworkMode, forceMayan: boolean) {
   const [ready, setReady] = useState(false);
 
   const swap = useIntentApproval(clientRef, mapSwap);
-  const bridge = useIntentApproval(clientRef, mapBridge);
   const swapExecute = useIntentApproval(clientRef, mapSwapExecute);
-  const bridgeExecute = useIntentApproval(clientRef, mapBridgeExecute);
   const prevKeyRef = useRef("");
 
   useEffect(() => {
@@ -506,11 +424,8 @@ export function useNexusSdk(network: NetworkMode, forceMayan: boolean) {
       clientRef.current = null;
       setReady(false);
       swap.clear();
-      bridge.clear();
       swapExecute.clear();
-      bridgeExecute.clear();
       queryClient.removeQueries({ queryKey: ["swap-balances"] });
-      queryClient.removeQueries({ queryKey: ["bridge-balances"] });
       if (status !== "connected" || !connector) return;
 
       const provider = await connector.getProvider();
@@ -555,15 +470,13 @@ export function useNexusSdk(network: NetworkMode, forceMayan: boolean) {
     return () => {
       cancelled = true;
     };
-  }, [address, bridge.clear, bridgeExecute.clear, connector, forceMayan, network, queryClient, status, swap.clear, swapExecute.clear]);
+  }, [address, connector, forceMayan, network, queryClient, status, swap.clear, swapExecute.clear]);
 
   return useMemo(() => ({
     client: clientRef.current,
     ready,
     onSwapIntent: swap.onIntent,
-    onBridgeIntent: bridge.onIntent,
     onSwapExecIntent: swapExecute.onIntent,
-    onBridgeExecIntent: bridgeExecute.onIntent,
     swapIntent: swap.intent,
     swapIntentPending: swap.pending,
     swapIntentRefreshing: swap.refreshing,
@@ -571,13 +484,6 @@ export function useNexusSdk(network: NetworkMode, forceMayan: boolean) {
     approveSwapIntent: swap.approve,
     denySwapIntent: swap.deny,
     clearSwapIntent: swap.clear,
-    bridgeIntent: bridge.intent,
-    bridgeIntentPending: bridge.pending,
-    bridgeIntentRefreshing: bridge.refreshing,
-    bridgeIntentApproved: bridge.approved,
-    approveBridgeIntent: bridge.approve,
-    denyBridgeIntent: bridge.deny,
-    clearBridgeIntent: bridge.clear,
     swapExecIntent: swapExecute.intent,
     swapExecIntentPending: swapExecute.pending,
     swapExecIntentRefreshing: swapExecute.refreshing,
@@ -585,14 +491,7 @@ export function useNexusSdk(network: NetworkMode, forceMayan: boolean) {
     approveSwapExecIntent: swapExecute.approve,
     denySwapExecIntent: swapExecute.deny,
     clearSwapExecIntent: swapExecute.clear,
-    bridgeExecIntent: bridgeExecute.intent,
-    bridgeExecIntentPending: bridgeExecute.pending,
-    bridgeExecIntentRefreshing: bridgeExecute.refreshing,
-    bridgeExecIntentApproved: bridgeExecute.approved,
-    approveBridgeExecIntent: bridgeExecute.approve,
-    denyBridgeExecIntent: bridgeExecute.deny,
-    clearBridgeExecIntent: bridgeExecute.clear,
   }), [
-    bridge, bridgeExecute, ready, swap, swapExecute,
+    ready, swap, swapExecute,
   ]);
 }
