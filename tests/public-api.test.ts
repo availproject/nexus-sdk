@@ -28,6 +28,12 @@ import type {
 } from '../src';
 
 describe('public api exports', () => {
+  it('requires clientId when creating a client', () => {
+    expectTypeOf<Parameters<typeof rootModule.createNexusClient>>().toMatchTypeOf<
+      [{ clientId: string }]
+    >();
+  });
+
   it('exports the unified Better Intent surface and compatibility aliases', () => {
     const params: ListIntentsParams = { page: 1, status: IntentStatus.Created };
     const result = { intents: [] as IntentHistoryRecord[], total: 0 } satisfies ListIntentsResult;

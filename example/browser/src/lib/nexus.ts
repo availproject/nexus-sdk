@@ -515,6 +515,7 @@ export function useNexusSdk(network: NetworkMode, forceMayan: boolean) {
 
       const provider = await connector.getProvider();
       const client = createNexusClient({
+        clientId: "nexus-sdk-browser-example",
         network,
         debug: true,
         forceMayan,

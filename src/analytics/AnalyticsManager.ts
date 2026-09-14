@@ -25,7 +25,7 @@
  * OPT-OUT:
  * To completely disable analytics:
  * ```typescript
- * const sdk = createNexusClient({ analytics: { enabled: false } });
+ * const sdk = createNexusClient({ clientId: 'your-app-name', analytics: { enabled: false } });
  * ```
  *
  * AUTO-DISABLE IN DEV / TEST / LOCALHOST:
@@ -35,12 +35,13 @@
  * regardless of environment, set `mode: 'off'` (equivalent to `enabled: false`).
  * `enabled: false` always wins over `mode: 'on'`.
  * ```typescript
- * const sdk = createNexusClient({ analytics: { mode: 'on' } });
+ * const sdk = createNexusClient({ clientId: 'your-app-name', analytics: { mode: 'on' } });
  * ```
  *
  * PRIVACY CONTROLS:
  * ```typescript
  * const sdk = createNexusClient({
+ *   clientId: 'your-app-name',
  *   analytics: {
  *     privacy: {
  *       anonymizeWallets: true,  // Hash wallet addresses with SHA-256
@@ -54,6 +55,7 @@
  * You can use your own PostHog instance:
  * ```typescript
  * const sdk = createNexusClient({
+ *   clientId: 'your-app-name',
  *   analytics: {
  *     posthogApiKey: 'your-key',
  *     posthogApiHost: 'https://your-posthog.com'

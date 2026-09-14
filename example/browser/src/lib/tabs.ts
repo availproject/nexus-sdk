@@ -218,7 +218,9 @@ export const EXACT_OUT_SWAP_TAB: TabConfig = {
   execute: async (ctx): Promise<OperationResult> => {
     const { client, chainId, tokenSymbol, amount } = ctx;
     const tokenOptions = getSwapTokenOptions(client, chainId);
-    const selectedToken = tokenOptions.find((t) => t.symbol === tokenSymbol);
+    const selectedToken = tokenOptions.find(
+      (t) => t.tokenAddress?.toLowerCase() === ctx.tokenAddress?.toLowerCase(),
+    );
     if (!selectedToken)
       throw new Error("Destination token not available on selected chain");
 
@@ -285,7 +287,9 @@ export const EXACT_IN_SWAP_TAB: TabConfig = {
     const sourceAmounts = ctx.sourceAmounts ?? {};
 
     const tokenOptions = getSwapTokenOptions(client, chainId);
-    const selectedToken = tokenOptions.find((t) => t.symbol === tokenSymbol);
+    const selectedToken = tokenOptions.find(
+      (t) => t.tokenAddress?.toLowerCase() === ctx.tokenAddress?.toLowerCase(),
+    );
     if (!selectedToken)
       throw new Error("Destination token not available on selected chain");
 
@@ -363,7 +367,7 @@ export const SWAP_AND_EXECUTE_TAB: TabConfig = {
     const { client, address, chainId, tokenSymbol, amount } = ctx;
     const tokenOptions = getDepositTokenOptions(chainId);
     const selectedToken = tokenOptions.find(
-      (t) => t.symbol.toLowerCase() === tokenSymbol.toLowerCase(),
+      (t) => t.tokenAddress?.toLowerCase() === ctx.tokenAddress?.toLowerCase(),
     );
     if (!selectedToken)
       throw new Error("Token cannot be used as swap destination");

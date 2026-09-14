@@ -11,6 +11,7 @@ import type {
   TransferParams,
 } from '../../domain';
 import { getLogger } from '../../domain';
+import { Errors } from '../../domain/errors';
 import { createTokenCatalogFromChains, intentNetworkEnabled } from '../../intent/catalog';
 import { createChainList } from '../../services/chain-list';
 import { getNetwork, readEnv } from '../../services/network-config';
@@ -37,7 +38,8 @@ import {
 
 const logger = getLogger();
 
-export const createNexusClient = (config?: {
+export const createNexusClient = (config: {
+  clientId: string;
   network?: NexusNetwork;
   debug?: boolean;
   analytics?: AnalyticsConfig;
@@ -45,6 +47,10 @@ export const createNexusClient = (config?: {
   forceMayan?: boolean;
   internal?: { middlewareClient?: MiddlewareClient };
 }): NexusClient => {
+  if (typeof config?.clientId !== 'string' || !config.clientId.trim()) {
+    throw Errors.invalidInput('clientId must be a non-empty string');
+  }
+
   const resolvedDevTiming: DevTimingConfig | undefined =
     config?.devTiming?.enabled === undefined && readEnv('NEXUS_DEV_TIMING') === 'true'
       ? { ...config?.devTiming, enabled: true }

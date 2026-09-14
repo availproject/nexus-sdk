@@ -19,11 +19,15 @@ The package requires an EIP-1193 Ethereum provider and supports EVM wallets thro
 ```ts
 import { createNexusClient } from '@avail-project/nexus-core';
 
-const client = createNexusClient({ network: 'mainnet' });
+const client = createNexusClient({ clientId: 'your-app-name', network: 'mainnet' });
 
 await client.initialize();
 await client.setEVMProvider(window.ethereum);
 ```
+
+`clientId` is required and must be a non-empty, stable identifier for your application.
+The SDK sends it as `x-nexus-client-id`, along with `x-nexus-surface: nexus-sdk`,
+on every Better Intent middleware request.
 
 Create a new client after the connected account or provider changes. Call `destroy()` when the
 client is no longer used.

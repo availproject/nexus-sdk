@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Hex } from 'viem';
-import { createNexusClient } from '../../src';
+import { createNexusClient, ValidationError } from '../../src';
 import type { EthereumProvider } from '../../src/domain';
 import { normalizeIntentQuote } from '../../src/intent/normalize';
 import type { IntentChain } from '../../src/intent/types';
@@ -92,6 +92,20 @@ const provider = (): EthereumProvider => ({
   }),
 });
 
+describe('client identity', () => {
+  it.each([undefined, {}, { clientId: null }, { clientId: 42 }, { clientId: '' }, { clientId: ' \t ' }])(
+    'rejects missing or invalid clientId: %j',
+    (config) => {
+      expect(() => createNexusClient(config as Parameters<typeof createNexusClient>[0])).toThrowError(
+        expect.objectContaining({
+          constructor: ValidationError,
+          message: expect.stringContaining('clientId must be a non-empty string'),
+        })
+      );
+    }
+  );
+});
+
 describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s', (network) => {
   it('loads the mainnet intent catalog and executes a bridge through the API', async () => {
     const getIntentQuote = vi.fn().mockResolvedValue(quote());
@@ -108,7 +122,11 @@ describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s
         legs: [],
       }),
     });
-    const client = createNexusClient({ network, internal: { middlewareClient: middleware } });
+    const client = createNexusClient({
+      clientId: 'test-client',
+      network,
+      internal: { middlewareClient: middleware },
+    });
     await client.initialize();
     await client.setEVMProvider(provider());
 
@@ -158,7 +176,11 @@ describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s
       getIntentChains: async () => intentChains,
       listIntentHistory,
     });
-    const client = createNexusClient({ network, internal: { middlewareClient: middleware } });
+    const client = createNexusClient({
+      clientId: 'test-client',
+      network,
+      internal: { middlewareClient: middleware },
+    });
     await client.initialize();
     await client.setEVMProvider(provider());
 
@@ -192,6 +214,7 @@ describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s
       getIntentBalances,
     });
     const client = createNexusClient({
+      clientId: 'test-client',
       network,
       forceMayan: true,
       internal: { middlewareClient: middleware },
@@ -212,7 +235,11 @@ describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s
 describe('unsupported intent environment', () => {
   it('keeps execute metadata but rejects bridge operations on testnet', async () => {
     const middleware = makeMiddlewareClient({ getDeployment: async () => testDeployment });
-    const client = createNexusClient({ network: 'testnet', internal: { middlewareClient: middleware } });
+    const client = createNexusClient({
+      clientId: 'test-client',
+      network: 'testnet',
+      internal: { middlewareClient: middleware },
+    });
     await client.initialize();
     await client.setEVMProvider(provider());
 

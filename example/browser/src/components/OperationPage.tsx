@@ -71,7 +71,7 @@ export function OperationPage({ config, ...sdkProps }: OperationPageProps) {
     return form.chainOptions.flatMap((chain) => {
       const tokens = config.getTokenOptions(sdkProps.client, chain.id);
       return tokens.map((token) => ({
-        id: `${chain.id}:${token.symbol}`,
+        id: `${chain.id}:${token.tokenAddress?.toLowerCase()}`,
         chainId: chain.id,
         chainName: chain.name,
         chainLogo: getChainLogoUrl(chain.id),
@@ -84,7 +84,7 @@ export function OperationPage({ config, ...sdkProps }: OperationPageProps) {
     });
   }, [form.chainOptions, config, sdkProps.client]);
 
-  const selectedDestId = `${form.chainId}:${form.tokenSymbol}`;
+  const selectedDestId = `${form.chainId}:${form.tokenAddress?.toLowerCase()}`;
   const hasValidDestination = destinationOptions.some((o) => o.id === selectedDestId);
 
   // Deposit tabs pin one lending protocol per destination chain — surface its
@@ -134,7 +134,7 @@ export function OperationPage({ config, ...sdkProps }: OperationPageProps) {
                       selectedId={selectedDestId}
                       onSelect={(opt) => {
                         form.setChainId(opt.chainId);
-                        form.setTokenSymbol(opt.symbol);
+                        form.setTokenAddress(opt.tokenAddress);
                       }}
                       balances={destinationBalances}
                     />
@@ -164,7 +164,7 @@ export function OperationPage({ config, ...sdkProps }: OperationPageProps) {
                       selectedId={selectedDestId}
                       onSelect={(opt) => {
                         form.setChainId(opt.chainId);
-                        form.setTokenSymbol(opt.symbol);
+                        form.setTokenAddress(opt.tokenAddress);
                       }}
                       balances={destinationBalances}
                     />

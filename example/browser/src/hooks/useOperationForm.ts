@@ -131,7 +131,7 @@ export function useOperationForm({
   const progress = useExecutionProgress(config.intentType);
   const chainOptions = useMemo(() => config.getChainOptions(client), [config, client]);
   const [chainId, setChainId] = useState<number>(config.defaultChainId);
-  const [tokenSymbol, setTokenSymbol] = useState<string>("USDC");
+  const [tokenAddress, setTokenAddress] = useState<`0x${string}`>();
   const [amount, setAmount] = useState("");
   const [nativeAmount, setNativeAmount] = useState("");
   const [recipient, setRecipient] = useState("");
@@ -155,12 +155,17 @@ export function useOperationForm({
     [config, client, chainId],
   );
 
+  const currentTokenOption = tokenOptions.find(
+    (t) => t.tokenAddress?.toLowerCase() === tokenAddress?.toLowerCase(),
+  );
+  const tokenSymbol = currentTokenOption?.symbol ?? "USDC";
+
   useEffect(() => {
-    const found = tokenOptions.find((t) => t.symbol === tokenSymbol);
-    if (!found && tokenOptions.length > 0) {
-      setTokenSymbol(tokenOptions[0]!.symbol);
+    if (!currentTokenOption && tokenOptions.length > 0) {
+      const fallback = tokenOptions.find((t) => t.symbol === tokenSymbol) ?? tokenOptions[0];
+      setTokenAddress(fallback?.tokenAddress);
     }
-  }, [tokenOptions, tokenSymbol]);
+  }, [tokenOptions, currentTokenOption, tokenSymbol]);
 
   const balancesQuery = useQuery({
     queryKey: [config.balanceQueryKey],
@@ -209,8 +214,6 @@ export function useOperationForm({
       ? sourceOptions.filter((s) => selectedSources.includes(s.id))
       : [];
 
-  const currentTokenOption = tokenOptions.find((t) => t.symbol === tokenSymbol);
-
   // Per-source (exact-in): each selected source carries its own input amount.
   // Amounts are scoped to the explicitly-selected ids, so a removed source's
   // lingering entry never counts toward the total / validation / execution.
@@ -246,7 +249,7 @@ export function useOperationForm({
       setMarketUrl(undefined);
       setStatusMessage("");
     }
-  }, [chainId, tokenSymbol, amount, selectedSources, sourceAmounts]);
+  }, [chainId, tokenAddress, amount, selectedSources, sourceAmounts]);
 
   // Intent approval tracking — route to the correct state based on intent type
   const intentPending =
@@ -420,7 +423,8 @@ export function useOperationForm({
     setChainId,
     tokenOptions,
     tokenSymbol,
-    setTokenSymbol,
+    tokenAddress,
+    setTokenAddress,
     amount,
     setAmount,
     nativeAmount,

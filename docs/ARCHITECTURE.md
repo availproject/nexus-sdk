@@ -212,6 +212,9 @@ Execute uses deployment chain metadata and is independent of Better Intent avail
 
 ## Transport boundary
 
+The public client requires `clientId`. Its middleware transport sends
+`x-nexus-client-id` and `x-nexus-surface: nexus-sdk` through shared HTTP headers.
+
 `src/transport/middleware.ts` exposes only:
 
 - deployment metadata;

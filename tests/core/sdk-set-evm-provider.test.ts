@@ -24,6 +24,7 @@ const buildClient = (provider: EthereumProvider, middlewareOverrides: Partial<Mi
   const middleware = makeMiddlewareClient(middlewareOverrides);
   // createNexusClient takes a config; mocked telemetry above means initialize doesn't actually talk to OTel.
   const client = createNexusClient({
+    clientId: 'test-client',
     network: 'mainnet',
     debug: false,
   });

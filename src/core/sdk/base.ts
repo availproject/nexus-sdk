@@ -77,7 +77,8 @@ const nonNegativeAmount = (amount: bigint | undefined, label: string) => {
   }
 };
 
-export const createBase = (config?: {
+export const createBase = (config: {
+  clientId: string;
   network?: NexusNetwork;
   debug?: boolean;
   devTiming?: DevTimingConfig;
@@ -90,7 +91,7 @@ export const createBase = (config?: {
     intentCatalog: null,
     middlewareClient:
       config?.internal?.middlewareClient ??
-      createMiddlewareClient(networkConfig.MIDDLEWARE_HTTP_URL),
+      createMiddlewareClient(networkConfig.MIDDLEWARE_HTTP_URL, { clientId: config.clientId }),
     networkConfig,
     forceMayan: config?.forceMayan === true,
   };
