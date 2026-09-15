@@ -54,6 +54,8 @@ export type MiddlewareClient = {
   destroy: () => void;
 };
 
+const INTENT_API_PREFIX = '/api/v1/intent';
+
 const supportedUniverses = ['EVM', 'TRON', 'FUEL', 'SVM'] as const;
 const universeSchema = z.enum(supportedUniverses);
 const supportedUniverseSet = new Set<string>(supportedUniverses);
@@ -555,7 +557,7 @@ export const createMiddlewareClient = (
     request('chains request', async () => {
       const chains = normalizeIntentChains(
         (
-          await client.get('/api/v1/better-intent/chains', {
+          await client.get(`${INTENT_API_PREFIX}/chains`, {
             params: intentChainParams(constraints),
           })
         ).data
@@ -570,7 +572,7 @@ export const createMiddlewareClient = (
         params.set('limit', '1000');
         const page = normalizeIntentTokens(
           (
-            await client.get('/api/v1/better-intent/tokens', {
+            await client.get(`${INTENT_API_PREFIX}/tokens`, {
               params: new URLSearchParams(params),
             })
           ).data
@@ -601,7 +603,7 @@ export const createMiddlewareClient = (
     request('balances request', async () =>
       normalizeIntentBalances(
         (
-          await client.get(`/api/v1/better-intent/balances/${address}`, {
+          await client.get(`${INTENT_API_PREFIX}/balances/${address}`, {
             params: {
               refresh: options?.refresh ?? false,
               provider:
@@ -614,21 +616,21 @@ export const createMiddlewareClient = (
 
   const getIntentQuote = (quoteRequest: IntentQuoteRequest): Promise<ExecutableIntentQuote> =>
     request('quote request', async () =>
-      normalizeIntentQuote((await client.post('/api/v1/better-intent/quote', quoteRequest)).data)
+      normalizeIntentQuote((await client.post(`${INTENT_API_PREFIX}/quote`, quoteRequest)).data)
     );
 
   const submitIntent = (submitRequest: IntentSubmitRequest): Promise<IntentSubmitResponse> =>
     request('submit request', async () =>
       normalizeIntentSubmitResponse(
-        (await client.post('/api/v1/better-intent/submit', submitRequest)).data
+        (await client.post(`${INTENT_API_PREFIX}/submit`, submitRequest)).data
       )
     );
 
   const getIntentStatus = (id: Hex): Promise<IntentStatus> =>
     request('status request', async () => {
       const [statusResponse, detailResponse] = await Promise.all([
-        client.get(`/api/v1/better-intent/status/${id}`),
-        client.get(`/api/v1/better-intent/rff/${id}`),
+        client.get(`${INTENT_API_PREFIX}/status/${id}`),
+        client.get(`${INTENT_API_PREFIX}/rff/${id}`),
       ]);
       return normalizeIntentStatus(statusResponse.data, detailResponse.data);
     });
@@ -636,8 +638,8 @@ export const createMiddlewareClient = (
   const listIntentHistory = (query: IntentHistoryQuery = {}): Promise<IntentHistoryResult> =>
     request('history request', async () => {
       const [nexusResponse, externalResponse] = await Promise.all([
-        client.get('/api/v1/better-intent/rffs', { params: query }),
-        client.get('/api/v1/better-intent/rffs-external', { params: query }),
+        client.get(`${INTENT_API_PREFIX}/rffs`, { params: query }),
+        client.get(`${INTENT_API_PREFIX}/rffs-external`, { params: query }),
       ]);
       const nexus = normalizeIntentHistory(nexusResponse.data, 'nexus-v2');
       // External history can contain Mayan, Relay, or future providers. Do not

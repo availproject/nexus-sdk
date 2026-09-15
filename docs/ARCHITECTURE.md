@@ -33,8 +33,8 @@ legacy fallback.
 createNexusClient(config)
   -> initialize()
        GET /deployment
-       GET /api/v1/better-intent/chains       mainnet/canary only
-       GET /api/v1/better-intent/tokens       all pages, joined by chain ID
+       GET /api/v1/intent/chains       mainnet/canary only
+       GET /api/v1/intent/tokens       all pages, joined by chain ID
   -> setEVMProvider(provider)
        bind address + viem wallet client
   -> operations
@@ -183,7 +183,7 @@ provider catalog.
 result contains explicit `capabilities.intent` and `capabilities.execute` flags.
 
 `getSupportedChainsForRoute()` forwards the user's current source/destination constraints to
-`/better-intent/chains`. The middleware remains the source of truth for provider compatibility and
+`/intent/chains`. The middleware remains the source of truth for provider compatibility and
 returns directional `asSource`/`asDestination` support at the chain level. `/tokens` accepts provider
 filters, but no route constraints: token support remains general catalog availability. The SDK
 leaves route feasibility to quote requests. It keeps `providers` as the union of directional fields.
@@ -249,7 +249,7 @@ Every raw response is parsed and normalized in `src/intent/normalize.ts`. Addres
 lowercase `Hex`, chain references become numeric EVM chain IDs, and decimal integer strings become
 `bigint`.
 
-Status polling combines `/better-intent/status/:id` with `/better-intent/rff/:id`. The first is the
+Status polling combines `/intent/status/:id` with `/intent/rff/:id`. The first is the
 aggregate lifecycle view; the second supplies normalized per-source leg status and transaction data.
 
 HTTP and schema failures become categorized `BackendError` values with middleware correlation

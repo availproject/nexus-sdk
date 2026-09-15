@@ -52,7 +52,7 @@ joining tokens to chains by chain ID. Token selection uses chain IDs and contrac
 
 ## Intent lifecycle
 
-Swap methods use one server-driven lifecycle:
+Swap methods use the middleware's `/api/v1/intent` endpoints with one server-driven lifecycle:
 
 1. The SDK asks the middleware for a quote.
 2. `hooks.onIntent` may review, refresh, allow, or deny it.
