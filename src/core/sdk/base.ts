@@ -176,6 +176,7 @@ export const createBase = (config: {
       explorerUrl: networkConfig.INTENT_EXPLORER_URL,
       approve: (...args: Parameters<typeof wallet.approve>) =>
         withWallet(() => wallet.approve(...args)),
+      confirmApproval: wallet.confirmTransaction,
       sign: (...args: Parameters<typeof wallet.sign>) => withWallet(() => wallet.sign(...args)),
       sendNative: (...args: Parameters<typeof wallet.sendNative>) =>
         withWallet(() => wallet.sendNative(...args)),
