@@ -20,7 +20,6 @@ import {
   type Tx,
 } from '../domain';
 import { ERROR_CODES, Errors, ExecutionError, formatUnknownError } from '../domain/errors';
-import { isNativeAddress } from '../services/addresses';
 import { erc20GetAllowance } from '../services/allowance-utils';
 import { packERC20Approve, switchChain, waitForTxReceipt } from '../services/evm';
 import { createExplorerTxURL } from '../services/explorer';
@@ -28,15 +27,10 @@ import { isUserRejectedRequest } from '../services/is-user-rejected-request';
 import { divDecimals } from '../services/math';
 import { runNonBlocking } from '../services/non-blocking';
 import { createExecuteApprovalStepId, createExecuteTransactionStepId } from '../services/step-ids';
-import { equalFold } from '../services/strings';
 import { withRootTimingSpan, withTimingSpan } from '../services/timing';
 import { getAtomicBatchSupport } from '../services/wallet-capabilities';
 
 export type { ExecuteFeeParams } from '../domain';
-
-export const isNativeExecuteToken = (chainList: ChainListType, chain: Chain, tokenAddress: Hex) =>
-  isNativeAddress(tokenAddress) ||
-  equalFold(tokenAddress, chainList.getNativeToken(chain.id).contractAddress);
 
 export type ExecuteApprovalContext = {
   token: PlanTokenMetadata;

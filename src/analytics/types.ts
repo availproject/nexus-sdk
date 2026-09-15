@@ -74,46 +74,6 @@ export interface BaseEventProperties {
 }
 
 /**
- * Wallet-related properties
- */
-export interface WalletProperties {
-  walletAddress: string;
-  walletType?: string;
-  chainId?: number;
-  chainName?: string;
-}
-
-/**
- * Transaction-related properties
- */
-export interface TransactionProperties {
-  token: string;
-  amount: string | number;
-  fromChainId?: number;
-  toChainId: number;
-  sourceChains?: number[];
-  recipient?: string;
-  txHash?: string;
-  gasUsed?: string;
-  fees?: string;
-  duration?: number; // in milliseconds
-  route?: string[];
-  explorerUrl?: string;
-}
-
-/**
- * Error properties
- */
-export interface ErrorProperties {
-  errorType: string;
-  errorMessage: string;
-  errorStack?: string;
-  errorCode?: string | number;
-  operation?: string;
-  context?: Record<string, unknown>;
-}
-
-/**
  * Performance properties
  */
 export interface PerformanceProperties {
@@ -178,53 +138,6 @@ export interface SessionProperties {
   successRate?: number;
   url?: string;
   referrer?: string;
-}
-
-/**
- * Balance properties
- */
-export interface BalanceProperties {
-  balanceCount?: number;
-  totalBreakdowns?: number;
-  chains?: number[];
-  tokens?: string[];
-  totalValueUsd?: number;
-  timeSinceLastFetch?: number;
-}
-
-/**
- * Analytics provider interface
- */
-export interface AnalyticsProvider {
-  /**
-   * Initialize the analytics provider
-   */
-  initialize(): void;
-
-  /**
-   * Track an event
-   */
-  track(event: string, properties?: Record<string, unknown>): void;
-
-  /**
-   * Identify a user
-   */
-  identify(userId: string, properties?: Record<string, unknown>): void;
-
-  /**
-   * Register global properties that are sent with every event
-   */
-  register(properties: Record<string, unknown>): void;
-
-  /**
-   * Reset user identification
-   */
-  reset(): void;
-
-  /**
-   * Check if the provider is initialized
-   */
-  isInitialized(): boolean;
 }
 
 /**

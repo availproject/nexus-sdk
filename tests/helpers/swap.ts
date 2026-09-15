@@ -3,7 +3,6 @@ export {
   BASE_CHAIN,
   OP_CHAIN,
   makeSwapChainList,
-  makeSwapChainListWithUsdtCot,
 } from './chains';
 export {
   DAI,
@@ -14,5 +13,4 @@ export {
   USDT_BASE,
   USDT_OP,
   WETH,
-  makeDstTokenInfo,
 } from './tokens';

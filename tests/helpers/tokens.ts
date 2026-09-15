@@ -11,7 +11,6 @@ export const USDT_BASE = '0xfde4c96c8593536e31f229ea8f37b2ada2699bb2' as Hex;
 export const USDT_OP = '0x94b008aa00579c1307b0ef2c499ad98a8ce58e58' as Hex;
 export const WETH = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2' as Hex;
 export const DAI = '0xDAI000000000000000000000000000000000000' as Hex;
-export const DAI_ARB = '0xda10009cbd5d07dd0cecc66161fc93d7c9000da1' as Hex;
 
 const makeUsdcToken = (contractAddress: Hex): TokenInfo => ({
   contractAddress,
@@ -85,11 +84,6 @@ export const getUsdcToken = (chainId: number): TokenInfo | undefined => {
   return token ? { ...token } : undefined;
 };
 
-export const getUsdtToken = (chainId: number): TokenInfo | undefined => {
-  const token = USDT_BY_CHAIN.get(chainId);
-  return token ? { ...token } : undefined;
-};
-
 export const getTestTokenByAddress = (
   chainId: number,
   tokenAddress: Hex
@@ -102,12 +96,3 @@ export const getTestTokenByAddress = (
   const token = TOKENS_BY_ADDRESS.get(tokenAddress.toLowerCase());
   return token ? { ...token } : undefined;
 };
-
-export const makeDstTokenInfo = (overrides?: Partial<TokenInfo>): TokenInfo => ({
-  contractAddress: WETH,
-  decimals: 18,
-  symbol: 'WETH',
-  name: 'Wrapped Ether',
-  logo: '',
-  ...overrides,
-});

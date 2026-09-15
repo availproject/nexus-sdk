@@ -25,8 +25,3 @@ export function truncateAddress(
   if (address.length <= start + end + 2) return address;
   return `${address.slice(0, start)}…${address.slice(-end)}`;
 }
-
-export function truncateHash(hash: string): string {
-  if (hash.length <= 18) return hash;
-  return `${hash.slice(0, 10)}…${hash.slice(-8)}`;
-}

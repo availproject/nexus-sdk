@@ -116,8 +116,8 @@ Concretely:
 ```
 
 The `NexusError` pass-through (1) only matters where the catch wraps a
-function that itself classifies errors — e.g. `createRequestFromIntent`,
-`signPermitForAddressAndValue`. For direct viem calls (`writeContract`,
+function that itself classifies errors — e.g. `createExecuteTxContext` or
+`sendExecuteTransactions`. For direct viem calls (`writeContract`,
 `sendTransaction`, `signMessage`) the error is always raw viem; the check
 is a no-op and should be omitted (don't write code for impossible cases).
 

@@ -227,55 +227,10 @@ describe('Errors.* named factories', () => {
     expect(err.message).toContain('0xdead');
   });
 
-  it('transactionTimeout maps to execution/tx_receipt_wait_timeout with rpc service', () => {
-    const err = Errors.transactionTimeout(30);
-    expect(err).toBeInstanceOf(ExecutionError);
-    expect(err.code).toBe('execution/tx_receipt_wait_timeout');
-    expect(err.context.service).toBe('rpc');
-  });
-
   it('gasPriceError maps to execution/gas_price_fetch_failed with rpc service', () => {
     const err = Errors.gasPriceError({ tag: 'whatever' });
     expect(err).toBeInstanceOf(ExecutionError);
     expect(err.code).toBe('execution/gas_price_fetch_failed');
     expect(err.context.service).toBe('rpc');
-  });
-
-  it('ratesChangedBeyondTolerance maps to external_service/rates_drift_exceeded', () => {
-    const err = Errors.ratesChangedBeyondTolerance(123, '0.5%', 'lifi');
-    expect(err).toBeInstanceOf(ExternalServiceError);
-    expect(err.code).toBe('external_service/rates_drift_exceeded');
-    expect(err.context.service).toBe('lifi');
-  });
-
-  it('slippageExceeded maps to execution/slippage_exceeded with wallet service', () => {
-    const err = Errors.slippageExceeded('100', '90');
-    expect(err).toBeInstanceOf(ExecutionError);
-    expect(err.code).toBe('execution/slippage_exceeded');
-  });
-
-  it('destinationRequestHashNotFound maps to internal/destination_request_hash_not_found', () => {
-    const err = Errors.destinationRequestHashNotFound();
-    expect(err).toBeInstanceOf(InternalError);
-    expect(err.code).toBe('internal/destination_request_hash_not_found');
-  });
-
-  it('swapRouteFailed maps to external_service/swap_route_build_failed', () => {
-    const err = Errors.swapRouteFailed('no route', 'lifi');
-    expect(err).toBeInstanceOf(ExternalServiceError);
-    expect(err.code).toBe('external_service/swap_route_build_failed');
-    expect(err.context.service).toBe('lifi');
-  });
-
-  it('quoteFailed maps to external_service/destination_swap_quote_failed', () => {
-    const err = Errors.quoteFailed('upstream 5xx', 'bebop');
-    expect(err).toBeInstanceOf(ExternalServiceError);
-    expect(err.code).toBe('external_service/destination_swap_quote_failed');
-  });
-
-  it('swapQuoteFailed maps to external_service/source_swap_quote_failed', () => {
-    const err = Errors.swapQuoteFailed('upstream 5xx', 'lifi');
-    expect(err).toBeInstanceOf(ExternalServiceError);
-    expect(err.code).toBe('external_service/source_swap_quote_failed');
   });
 });

@@ -34,7 +34,6 @@ export type TokenOption = {
 };
 
 export type Phase = { key: string; label: string; doneWhen: string };
-export type PhaseState = "idle" | "active" | "done";
 
 export type HashRecord = { label: string; value: string; href?: string };
 
