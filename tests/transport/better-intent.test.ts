@@ -60,7 +60,7 @@ describe('Better Intent middleware transport', () => {
 
       const requests = adapter.mock.calls
         .map(([config]) => config)
-        .filter(({ url }) => url?.startsWith('/api/v1/better-intent/'));
+        .filter(({ url }) => url?.startsWith('/api/v1/intent/'));
       expect(requests).toHaveLength(1);
       expect(requests[0]?.headers.toJSON()).toMatchObject({
         'x-nexus-client-id': 'My.App',
@@ -141,17 +141,17 @@ describe('Better Intent middleware transport', () => {
     });
     expect(http.get).toHaveBeenNthCalledWith(
       1,
-      '/api/v1/better-intent/chains',
+      '/api/v1/intent/chains',
       { params: new URLSearchParams('provider=mayan') }
     );
     expect(http.get).toHaveBeenNthCalledWith(
       2,
-      '/api/v1/better-intent/tokens',
+      '/api/v1/intent/tokens',
       { params: new URLSearchParams('provider=mayan&offset=0&limit=1000') }
     );
     expect(http.get).toHaveBeenNthCalledWith(
       3,
-      `/api/v1/better-intent/balances/${ACCOUNT}`,
+      `/api/v1/intent/balances/${ACCOUNT}`,
       { params: { refresh: true, provider: 'mayan' } }
     );
   });
@@ -230,8 +230,8 @@ describe('Better Intent middleware transport', () => {
       quoteId: QUOTE_ID,
       status: 'created',
     });
-    expect(http.post).toHaveBeenNthCalledWith(1, '/api/v1/better-intent/quote', request);
-    expect(http.post).toHaveBeenNthCalledWith(2, '/api/v1/better-intent/submit', submit);
+    expect(http.post).toHaveBeenNthCalledWith(1, '/api/v1/intent/quote', request);
+    expect(http.post).toHaveBeenNthCalledWith(2, '/api/v1/intent/submit', submit);
   });
 
   it('exposes structured quote failure diagnostics', async () => {
@@ -400,8 +400,8 @@ describe('Better Intent middleware transport', () => {
         },
       ],
     });
-    expect(http.get).toHaveBeenCalledWith(`/api/v1/better-intent/status/${QUOTE_ID}`);
-    expect(http.get).toHaveBeenCalledWith(`/api/v1/better-intent/rff/${QUOTE_ID}`);
+    expect(http.get).toHaveBeenCalledWith(`/api/v1/intent/status/${QUOTE_ID}`);
+    expect(http.get).toHaveBeenCalledWith(`/api/v1/intent/rff/${QUOTE_ID}`);
   });
 
   it('merges Nexus and external intent history behind one request', async () => {
@@ -433,10 +433,10 @@ describe('Better Intent middleware transport', () => {
 
     expect(result.total).toBe(2);
     expect(result.intents.map(({ provider }) => provider)).toEqual([undefined, 'nexus-v2']);
-    expect(http.get).toHaveBeenCalledWith('/api/v1/better-intent/rffs', {
+    expect(http.get).toHaveBeenCalledWith('/api/v1/intent/rffs', {
       params: { user: ACCOUNT, status: 'fulfilled', limit: 20, offset: 0 },
     });
-    expect(http.get).toHaveBeenCalledWith('/api/v1/better-intent/rffs-external', {
+    expect(http.get).toHaveBeenCalledWith('/api/v1/intent/rffs-external', {
       params: { user: ACCOUNT, status: 'fulfilled', limit: 20, offset: 0 },
     });
   });

@@ -8,14 +8,14 @@ current integration branch.
 The SDK currently uses:
 
 - `GET /deployment` for standalone execute chain and contract metadata.
-- `GET /api/v1/better-intent/chains` for chain metadata and constrained chain support.
-- `GET /api/v1/better-intent/tokens` for the paginated provider-filtered token catalog. Token
+- `GET /api/v1/intent/chains` for chain metadata and constrained chain support.
+- `GET /api/v1/intent/tokens` for the paginated provider-filtered token catalog. Token
   availability is general; quote requests determine route feasibility.
-- `GET /api/v1/better-intent/balances/:account` for wallet holdings.
-- `POST /api/v1/better-intent/quote` for exact-input and exact-output quotes.
-- `POST /api/v1/better-intent/submit` with `signatures[]` for intent and sponsored approval signatures.
-- `GET /api/v1/better-intent/status/:id` while waiting for fulfillment.
-- `GET /api/v1/better-intent/rffs` and `/rffs-external` for combined history.
+- `GET /api/v1/intent/balances/:account` for wallet holdings.
+- `POST /api/v1/intent/quote` for exact-input and exact-output quotes.
+- `POST /api/v1/intent/submit` with `signatures[]` for intent and sponsored approval signatures.
+- `GET /api/v1/intent/status/:id` while waiting for fulfillment.
+- `GET /api/v1/intent/rffs` and `/rffs-external` for combined history.
 
 The middleware URL for the `internal-mainnet` deployment is the existing canary URL:
 `https://nexus-v2.canary.avail.so/middleware`.
