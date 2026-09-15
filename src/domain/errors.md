@@ -76,7 +76,7 @@ The category drives:
   carries a `backend/*` code. The drift test (`tests/core/`) keeps that
   invariant honest.
 - The suffix vocabulary (`_failed`, `_timeout`, `_reverted`, `_denied`,
-  `_exceeded`, or none for terminal non-failure states) gives a coarse
+  `_exceeded`, or a named condition such as `insufficient_balance`) gives a coarse
   hint about *what kind of failure* without reading the message.
 - Stable string values mean dashboards survive code refactors. Keys
   (`ERROR_CODES.FOO_BAR`) can rename freely.
@@ -177,7 +177,7 @@ When you do add one:
 1. Add the `ERROR_CODES.FOO_BAR` entry in the right section. The
    `category/` prefix must match the subclass it will be thrown on.
 2. Pick the suffix from the vocabulary (`_failed`, `_timeout`,
-   `_reverted`, `_denied`, `_exceeded`, none).
+   `_reverted`, `_denied`, `_exceeded`) or name the specific condition.
 3. If it's a recurring case, add a named factory (`Errors.foo()`). One
    call site → throw the subclass directly with a literal code; multiple
    call sites → factory.
@@ -225,7 +225,70 @@ For middleware failures, the transport boundary stashes the server's typed error
 `extractErrorAttrs` promotes them to first-class `error.middleware.code`, `error.middleware.subcode`,
 and `error.middleware.errorId` attributes so SigNoz can filter/alert without parsing the details blob.
 `errorId` is the correlation key: the middleware logs the same id, so a user-reported id maps to both
-SDK and middleware log lines. Envelope model: `src/domain/types/middleware-error.ts`.
+SDK and middleware log lines.
+
+## Middleware error mapping
+
+Better Intent HTTP errors are mapped in `src/transport/middleware.ts`. They remain `BackendError`s
+with `service: 'middleware'`, including backend validation failures and provider/RPC failures reported
+by the middleware. Existing SDK `NexusError`s pass through unchanged.
+
+Recognized subcodes take precedence over general codes. Messages describe the condition and a next
+step; the original server message remains in `details.error`. This lets the browser display
+`error.message` without interpreting Axios responses. Related provider failures share a code; their
+original subcode remains in `details.middlewareSubcode`.
+
+All values below have the `backend/` prefix. Constants use `ERROR_CODES.BACKEND_` followed by the
+uppercase SDK name; `error` is the existing `BACKEND_ERROR` constant.
+
+| Middleware code or subcode | SDK code suffix |
+| --- | --- |
+| `INVALID_REQUEST`, `MISSING_CLIENT_ID`, `MISSING_SURFACE` | `invalid_request` |
+| `UNAUTHORIZED` | `unauthorized` |
+| `NOT_FOUND` | `not_found` |
+| `RATE_LIMITED` | `rate_limited` |
+| `CONFIGURATION_ERROR` | `configuration_error` |
+| `UPSTREAM_ERROR` | `upstream_error` |
+| `UPSTREAM_TIMEOUT` | `upstream_timeout` |
+| `RPC_ERROR` | `rpc_error` |
+| `SIMULATION_FAILED` | `simulation_failed` |
+| `TRANSACTION_REVERTED` | `transaction_reverted` |
+| `QUOTE_UNAVAILABLE`, `INVALID_MAYAN_QUOTE` | `quote_unavailable` |
+| `PRICE_UNAVAILABLE`, `QUOTE_PRICE_UNAVAILABLE` | `price_unavailable` |
+| `GAS_UNAVAILABLE` | `gas_unavailable` |
+| `CHAIN_NOT_SUPPORTED` | `chain_not_supported` |
+| `TOKEN_NOT_SUPPORTED` | `token_not_supported` |
+| `INTERNAL_ERROR` | `error` |
+| `NO_ROUTABLE_SOURCE`, `MAYAN_NO_ROUTE` | `no_routable_source` |
+| `INTENT_REFUSED` | `intent_refused` |
+| `PROVIDER_UNAVAILABLE`, `MAYAN_QUOTE_FETCH_FAILED`, `MAYAN_CALLDATA_BUILD_FAILED` | `provider_unavailable` |
+| `NO_PROVIDERS_ENABLED` | `no_providers_enabled` |
+| `INSUFFICIENT_BALANCE`, `MAYAN_INSUFFICIENT_COVERAGE` | `insufficient_balance` |
+| `INSUFFICIENT_APPROVAL_GAS` | `insufficient_approval_gas` |
+| `SAME_CHAIN_GAS_DROP_UNSUPPORTED` | `same_chain_gas_drop_unsupported` |
+| `QUOTE_PRICE_OUTLIER` | `quote_price_outlier` |
+| `INPUT_BELOW_DEPOSIT_FEE` | `input_below_deposit_fee` |
+| `GAS_DROP_TOO_SMALL` | `gas_drop_too_small` |
+| `REQUEST_EXPIRED` | `request_expired` |
+| `INVALID_INTENT_SIGNATURE` | `invalid_intent_signature` |
+| `MISSING_INTENT_SIGNATURE` | `missing_intent_signature` |
+| `INVALID_PERMIT_SIGNATURE` | `invalid_permit_signature` |
+| `PERMIT_WITHOUT_SOURCE` | `permit_without_source` |
+| `PERMIT_NOT_SPONSORABLE` | `permit_not_sponsorable` |
+| `INSUFFICIENT_ALLOWANCE` | `insufficient_allowance` |
+| `PERMIT_RELAY_FAILED` | `permit_relay_failed` |
+
+An unrecognized code retains a nonempty middleware message with an operation-specific fallback
+code (`get_quote_failed`, `rff_submit_failed`, `balances_fetch_failed`, `rff_status_fetch_failed`,
+`rff_list_failed`, or `error` for catalog requests). If the response has no usable message, HTTP
+401/403/404/408/429/500/502/503/504 map to their corresponding authorization, not-found, timeout,
+rate-limit, internal, or upstream failures. Axios timeouts map to `upstream_timeout`; connection
+failures map to `network_error`. Other malformed responses use the operation's default message.
+
+`details` retains `error`, `middlewareCode`, `middlewareSubcode`, `errorId`, `middlewareDetails`,
+and `httpStatus`. Structured quote diagnostics remain available through `getIntentQuoteFailure`.
+Classification does not trigger retries. A submission timeout does not establish whether the
+intent was accepted; callers should check its status before retrying.
 
 ## Throwing rules (quick reference)
 

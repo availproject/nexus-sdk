@@ -365,6 +365,35 @@ All SDK errors extend `NexusError` and expose:
 Use subclasses such as `ValidationError`, `UserActionError`, `ExecutionError`, and `BackendError`
 for broad handling, and stable `ERROR_CODES` for specific cases.
 
+Better Intent HTTP failures remain `BackendError`s with `context.service === 'middleware'`.
+Their `message` is ready to display, and `code` identifies the failure without parsing text:
+
+| Condition | SDK code |
+| --- | --- |
+| Insufficient source balance | `backend/insufficient_balance` |
+| Not enough gas for an approval | `backend/insufficient_approval_gas` |
+| No route from the selected sources | `backend/no_routable_source` |
+| Providers cannot fulfill the swap | `backend/intent_refused` |
+| Providers temporarily unavailable | `backend/provider_unavailable` |
+| Quote failed price checks | `backend/quote_price_outlier` |
+| Request expired | `backend/request_expired` |
+| Approval missing or insufficient | `backend/insufficient_allowance` |
+| Invalid or stale approval signature | `backend/invalid_permit_signature` |
+| Too many requests | `backend/rate_limited` |
+| Service timeout / connection failure | `backend/upstream_timeout` / `backend/network_error` |
+
+For example, `ERROR_CODES.BACKEND_INSUFFICIENT_APPROVAL_GAS` carries:
+“Not enough gas to approve a source token. Add gas funds on the source chain or choose another source.”
+The [complete middleware mapping](src/domain/errors.md#middleware-error-mapping) includes validation,
+catalog, provider, and submission errors. These specific codes replace `backend/error` for recognized
+middleware failures. Existing `NexusError`s raised by SDK validation or response parsing retain their codes.
+
+Original diagnostics remain in `details.error`, `middlewareCode`, `middlewareSubcode`, `errorId`,
+`middlewareDetails`, and `httpStatus`. `getIntentQuoteFailure(error)` still exposes structured quote
+diagnostics. Unrecognized middleware codes retain a nonempty server message and an operation-specific
+fallback code; missing or malformed responses use readable HTTP, network, or operation fallbacks.
+The SDK does not automatically retry submissions after a timeout; check the intent status first.
+
 If an approval fails or a later approval prompt is rejected, the SDK finishes receipt checks for
 all approvals already broadcast before rejecting. `error.details.approvals` lists their `chainId`,
 `tokenAddress`, `spender`, `txHash`, `txExplorerUrl`, and `state` (`confirmed`, `reverted`, or
