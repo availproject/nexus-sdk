@@ -5,5 +5,3 @@ export enum Universe {
   TRON = 3,
   UNRECOGNIZED = -1,
 }
-
-export type Bytes = Uint8Array | number[];

@@ -5,7 +5,6 @@ import { Universe } from '../../src/domain/chain-abstraction';
 import {
   getTestTokenByAddress,
   getUsdcToken,
-  getUsdtToken,
 } from './tokens';
 
 const CurrencyID = { USDC: 1, USDT: 2, ETH: 3 } as const;
@@ -115,25 +114,4 @@ export const makeSwapChainList = (): ChainListType => {
     getChainByID,
     getTokenByCurrencyId,
   };
-};
-
-// The default list resolves only USDC as a COT. Same-token and dynamic-COT paths use this variant
-// so the USDT mesh family also resolves on destination chains.
-export const makeSwapChainListWithUsdtCot = (): ChainListType => {
-  const chainList = makeSwapChainList();
-  chainList.getTokenByCurrencyId = vi
-    .fn()
-    .mockImplementation((chainId: number, currencyId: number) => {
-      const token =
-        currencyId === CurrencyID.USDT
-          ? getUsdtToken(chainId)
-          : currencyId === CurrencyID.USDC
-            ? getUsdcToken(chainId)
-            : undefined;
-      if (!token) {
-        throw new Error(`No token for currencyId=${currencyId} chainId=${chainId}`);
-      }
-      return token;
-    });
-  return chainList;
 };

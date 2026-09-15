@@ -18,15 +18,6 @@ export const storageGetItem = (key: string): string | null => {
   return window.localStorage.getItem(key);
 };
 
-export const storageRemoveItem = (key: string) => {
-  if (typeof window === 'undefined') {
-    MEMORYMAP.delete(key);
-    return;
-  }
-
-  window.localStorage.removeItem(key);
-};
-
 export const cryptoGetRandomValues = async (
   bytes: Uint8Array<ArrayBuffer>
 ): Promise<Uint8Array<ArrayBuffer>> => {

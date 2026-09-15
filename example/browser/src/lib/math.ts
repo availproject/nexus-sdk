@@ -22,10 +22,6 @@ export function sum(values: Array<string | number | Decimal | null | undefined>)
   return values.reduce<Decimal>((acc, v) => acc.plus(D(v)), new Decimal(0));
 }
 
-export function diff(a: string | number | Decimal, b: string | number | Decimal): Decimal {
-  return D(a).minus(D(b));
-}
-
 /** Returns `have / need * 100`, clamped to `[0, 100]`. Returns 100 if need <= 0. */
 export function pctOf(
   have: string | number | Decimal,
@@ -34,11 +30,6 @@ export function pctOf(
   const needD = D(need);
   if (needD.lte(0)) return 100;
   return D(have).div(needD).mul(100).clamp(0, 100).toNumber();
-}
-
-/** Ceiling to `dp` decimal places, returned as a fixed-decimal string. */
-export function ceilDp(value: string | number | Decimal, dp: number): string {
-  return D(value).toDecimalPlaces(dp, Decimal.ROUND_CEIL).toFixed(dp);
 }
 
 /** Fixed-decimal string with `dp` places. */

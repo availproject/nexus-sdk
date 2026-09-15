@@ -384,21 +384,10 @@ export const Errors = {
       context: {},
     }),
 
-  sdkInitStateNotExpected: (state: string): ValidationError =>
-    new ValidationError(ERROR_CODES.SDK_INIT_STATE_NOT_EXPECTED, 'Unexpected init SDK state', {
-      context: {},
-      details: { state },
-    }),
-
   environmentNotSupported: (environment: string): ValidationError =>
     new ValidationError(ERROR_CODES.ENVIRONMENT_NOT_SUPPORTED, 'Environment not supported yet', {
       context: {},
       details: { environment },
-    }),
-
-  environmentNotKnown: (): ValidationError =>
-    new ValidationError(ERROR_CODES.ENVIRONMENT_NOT_KNOWN, 'Environment not known/mapped', {
-      context: {},
     }),
 
   chainNotFound: (chainId: number | bigint): ValidationError =>
@@ -406,20 +395,6 @@ export const Errors = {
       context: { chainId },
       details: { chainId: chainId.toString() },
     }),
-
-  chainDataNotFound: (chainId: number | bigint): ValidationError =>
-    new ValidationError(
-      ERROR_CODES.CHAIN_DATA_NOT_FOUND,
-      `Chain data not found for chain: ${chainId}`,
-      { context: { chainId }, details: { chainId: chainId.toString() } }
-    ),
-
-  assetNotFound: (tokenSymbol: string): ValidationError =>
-    new ValidationError(
-      ERROR_CODES.ASSET_NOT_FOUND,
-      `Asset not found in UserAssets: ${tokenSymbol}`,
-      { context: {}, details: { tokenSymbol } }
-    ),
 
   tokenNotSupported: (
     address?: string,
@@ -432,23 +407,11 @@ export const Errors = {
       { context: {}, details: { address, chainId } }
     ),
 
-  universeNotSupported: (): ValidationError =>
-    new ValidationError(ERROR_CODES.UNIVERSE_NOT_SUPPORTED, 'Universe not supported', {
-      context: {},
-    }),
-
   tokenNotFound: (symbol: string, chainId: number): ValidationError =>
     new ValidationError(
       ERROR_CODES.TOKEN_NOT_SUPPORTED,
       `Token with symbol ${symbol} not found on chain ${chainId}`,
       { context: { chainId }, details: { symbol, chainId } }
-    ),
-
-  insufficientBalance: (msg?: string): ValidationError =>
-    new ValidationError(
-      ERROR_CODES.INSUFFICIENT_BALANCE,
-      `Insufficient balance to proceed. ${msg ?? ''}`.trim(),
-      { context: {} }
     ),
 
   walletNotConnected: (walletType: string): ValidationError =>
@@ -467,20 +430,6 @@ export const Errors = {
 
   invalidInput: (msg: string): ValidationError =>
     new ValidationError(ERROR_CODES.INVALID_INPUT, `input invalid: ${msg}`, { context: {} }),
-
-  invalidAddressLength: (addressType: string, additionalMessage?: string): ValidationError =>
-    new ValidationError(
-      ERROR_CODES.INVALID_ADDRESS_LENGTH,
-      `Invalid ${addressType} address length: ${additionalMessage ?? ''}`,
-      { context: {}, details: { type: addressType } }
-    ),
-
-  noBalanceForAddress: (address: Hex): ValidationError =>
-    new ValidationError(
-      ERROR_CODES.NO_BALANCE_FOR_ADDRESS,
-      `no balance found for user: ${address}`,
-      { context: {}, details: { address } }
-    ),
 
   // ── user_action/* named factories
   userDeniedIntent: (): UserActionError =>
@@ -502,11 +451,6 @@ export const Errors = {
       { context: { service: 'wallet' } }
     ),
 
-  userRejectedSIWESignature: (): UserActionError =>
-    new UserActionError(ERROR_CODES.USER_SIWE_SIGNATURE_DENIED, 'User rejected SIWE signature.', {
-      context: { service: 'wallet' },
-    }),
-
   userRejectedTxSend: (): UserActionError =>
     new UserActionError(ERROR_CODES.USER_TX_SEND_DENIED, 'User rejected sending the transaction.', {
       context: { service: 'wallet' },
@@ -523,19 +467,7 @@ export const Errors = {
       }
     ),
 
-  feeGrantRequested: (): BackendError =>
-    new BackendError(ERROR_CODES.BACKEND_FEE_GRANT_REQUESTED, 'Fee grant requested.', {
-      context: { service: 'middleware' },
-    }),
-
   // ── execution/* named factories
-  transactionTimeout: (timeout: number): ExecutionError =>
-    new ExecutionError(
-      ERROR_CODES.EXEC_TX_RECEIPT_WAIT_TIMEOUT,
-      `⏰ Timeout: Transaction not confirmed within ${timeout}s`,
-      { context: { service: 'rpc' }, details: { timeout } }
-    ),
-
   transactionReverted: (txHash: string): ExecutionError =>
     new ExecutionError(ERROR_CODES.EXEC_TX_ONCHAIN_REVERTED, `Transaction reverted: ${txHash}`, {
       context: { service: 'rpc' },
@@ -549,65 +481,7 @@ export const Errors = {
       { context: { service: 'rpc' }, details: { result } }
     ),
 
-  slippageExceeded: (expected: string, actual: string): ExecutionError =>
-    new ExecutionError(
-      ERROR_CODES.EXEC_SLIPPAGE_EXCEEDED,
-      `Slippage exceeded: expected ${expected}, got ${actual}`,
-      { context: { service: 'wallet' }, details: { expected, actual } }
-    ),
-
-  // ── external_service/* named factories
-  quoteFailed: (message: string, service: ExternalServiceService = 'lifi'): ExternalServiceError =>
-    new ExternalServiceError(
-      ERROR_CODES.EXTERNAL_DESTINATION_SWAP_QUOTE_FAILED,
-      `Quote failed: ${message}`,
-      { context: { service } }
-    ),
-
-  swapQuoteFailed: (msg: string, service: ExternalServiceService = 'lifi'): ExternalServiceError =>
-    new ExternalServiceError(
-      ERROR_CODES.EXTERNAL_SOURCE_SWAP_QUOTE_FAILED,
-      `Swap quote failed: ${msg}`,
-      { context: { service } }
-    ),
-
-  swapRouteFailed: (msg: string, service: ExternalServiceService = 'lifi'): ExternalServiceError =>
-    new ExternalServiceError(
-      ERROR_CODES.EXTERNAL_SWAP_ROUTE_BUILD_FAILED,
-      `Swap route failed: ${msg}`,
-      { context: { service } }
-    ),
-
-  ratesChangedBeyondTolerance: (
-    rate: number | bigint,
-    tolerance: string,
-    service: ExternalServiceService = 'lifi'
-  ): ExternalServiceError =>
-    new ExternalServiceError(
-      ERROR_CODES.EXTERNAL_RATES_DRIFT_EXCEEDED,
-      `Rates changed beyond tolerance. Rate: ${rate}\nTolerance:${tolerance}`,
-      { context: { service }, details: { rate: rate.toString(), tolerance } }
-    ),
-
-  // ── simulation/* named factories
-  simulationFailed: (msg: string): SimulationError =>
-    new SimulationError(ERROR_CODES.SIMULATION_ETH_CALL_FAILED, `simulation failed: ${msg}`, {
-      context: { service: 'rpc' },
-    }),
-
   // ── internal/* named factories
-  unknownSignatureType: (): InternalError =>
-    new InternalError(ERROR_CODES.INTERNAL_UNKNOWN_SIGNATURE, 'Unknown signature type', {
-      context: {},
-    }),
-
-  destinationRequestHashNotFound: (): InternalError =>
-    new InternalError(
-      ERROR_CODES.INTERNAL_DESTINATION_REQUEST_HASH_NOT_FOUND,
-      'requestHash not found for destination',
-      { context: {} }
-    ),
-
   internal: (msg: string, details?: Record<string, unknown>): InternalError =>
     new InternalError(ERROR_CODES.INTERNAL_ERROR, `Internal error: ${msg}`, {
       context: {},

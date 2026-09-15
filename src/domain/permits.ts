@@ -5,22 +5,3 @@ export enum PermitVariant {
   Polygon2612 = 3,
   PolygonEMT = 4,
 }
-
-export type PermitDetails = {
-  permitVariant: PermitVariant;
-  permitContractVersion: number;
-};
-
-export class PermitCreationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'PermitCreationError';
-  }
-}
-
-export type PermitCurrency = {
-  tokenAddress: `0x${string}`;
-  decimals: number;
-  permitVariant: PermitVariant;
-  permitContractVersion: number;
-};

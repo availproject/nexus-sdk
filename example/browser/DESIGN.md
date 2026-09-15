@@ -189,13 +189,6 @@ These are derived from current `App.css`. When adding new components, follow the
 - Focus: 2px solid `--accent` outline with 2px offset (from `:focus-visible` global).
 - Label sits above, color `--muted`, size `--text-base`, uppercase tracking-wide if it's a label-cap.
 
-### Dropdowns
-
-- Trigger looks like an input.
-- Menu (`.dropdown-menu`) uses `--panel` bg, `--line-strong` border, `--radius-md`, backdrop blur, custom shadow.
-- Items default to `--muted` color. Hover/focused fades in a subtle bg tint and shifts color to `--text`. No translate or slide — Nexus hovers are color-only.
-- Active item gets `--primary-soft` bg and `--accent-light` text (in light mode this is `--nexus-blue-700`, visible; in dark this is `--nexus-blue-100`, also visible).
-
 ### Pills & badges
 
 - `.meta-pill` — rounded 999px, soft accent tint background, accent-colored text/border.
@@ -515,7 +508,6 @@ A small set of named keyframe animations is defined in `App.css` and used across
 | `step-pulse` | Pulsing glow on the active execution step icon |
 | `line-appear` | Sequential text reveal on result rows |
 | `intent-pulse` | Pulsing dot on `running` status pill |
-| `dropdown-in` | Dropdown menu fade-in |
 | `token-info-in` | TokenInfoCard hover popover fade + translate |
 | `modal-in` / `fade-in` | Modal panel + overlay entrance |
 | `exec-step-enter` | Sequential step row entrance in the execution modal |
@@ -540,10 +532,8 @@ All financial / display math goes through `decimal.js` (declared in `package.jso
 |---|---|
 | `D(value)` | Coerce `string \| number \| Decimal \| null \| undefined` to `Decimal`. Empty / nullish → `0`. |
 | `sum(values)` | Exact addition across an array. Returns `Decimal`. |
-| `diff(a, b)` | `a - b` as `Decimal`. |
 | `gt(a, b)` / `lte(a, b)` | Boolean comparisons (sign-safe across mixed strings / numbers). |
 | `pctOf(have, need)` | `have / need * 100`, clamped to `[0, 100]`, returned as a `number`. Returns `100` when `need <= 0`. |
-| `ceilDp(value, dp)` | Ceiling to `dp` decimal places, returned as a fixed-decimal string. Used for fees (`ceil4` in `lib/nexus.ts`). |
 | `toFixed(value, dp)` | Fixed-decimal string with `dp` places. Used for totals, USD aggregates. |
 | `trimDp(value, dp)` | Round to at most `dp` decimal places, dropping trailing zeros. Goes through `.toFixed(dp)` then strips `0+$` and the trailing `.` via regex. Used for displaying SDK-provided amounts where we want max-N precision without padding (e.g. source-row USDs at `dp=6`). |
 
