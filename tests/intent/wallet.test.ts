@@ -33,8 +33,9 @@ const chain = (id: number): Chain => ({
 });
 
 describe('Better Intent wallet execution', () => {
-  it('encodes a caller-selected ERC-20 approval amount and confirms it', async () => {
+  it('encodes a caller-selected ERC-20 approval amount and confirms it separately', async () => {
     const sendTransaction = vi.fn().mockResolvedValue(TX_HASH);
+    const confirm = vi.fn().mockResolvedValue(undefined);
     const wallet = createIntentWallet({
       address: ACCOUNT,
       provider: { request: vi.fn() },
@@ -45,7 +46,7 @@ describe('Better Intent wallet execution', () => {
         sendTransaction,
       },
       chainList: { getChainByID: (id: number) => chain(id) },
-      confirm: vi.fn().mockResolvedValue(undefined),
+      confirm,
     });
 
     const result = await wallet.approve(
@@ -72,6 +73,9 @@ describe('Better Intent wallet execution', () => {
       txHash: TX_HASH,
       txExplorerUrl: `https://explorer.example/tx/${TX_HASH}`,
     });
+    expect(confirm).not.toHaveBeenCalled();
+    await wallet.confirmTransaction(result);
+    expect(confirm).toHaveBeenCalledWith(chain(1), TX_HASH);
   });
 
   it('uses personal_sign with the middleware-provided message', async () => {

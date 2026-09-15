@@ -98,14 +98,19 @@ export const createIntentWallet = (input: IntentWalletInput) => {
         details: { to: transaction.to },
       });
     }
-    const receipt = await confirm(chain, txHash);
     return {
       chainId: chain.id,
       txHash,
       txExplorerUrl: createExplorerTxURL(txHash, chain.blockExplorers?.default?.url),
-      receipt,
     };
   };
+
+  const confirmTransaction = async (
+    transaction: IntentTransaction
+  ): Promise<IntentTransaction> => ({
+    ...transaction,
+    receipt: await confirm(input.chainList.getChainByID(transaction.chainId), transaction.txHash),
+  });
 
   const approve = async (
     instruction: IntentApprovalInstruction,
@@ -171,7 +176,7 @@ export const createIntentWallet = (input: IntentWalletInput) => {
     }
   };
 
-  const sendNative = (
+  const sendNative = async (
     instruction: IntentNativeTransactionInstruction,
     signature: Hex,
     onSubmitted?: (txHash: Hex) => void
@@ -196,16 +201,18 @@ export const createIntentWallet = (input: IntentWalletInput) => {
       functionName: instruction.functionName,
       args,
     });
-    return send(
-      input.chainList.getChainByID(instruction.chainId),
-      {
-        to: instruction.to,
-        data,
-        value: instruction.valueRaw,
-      },
-      onSubmitted
+    return confirmTransaction(
+      await send(
+        input.chainList.getChainByID(instruction.chainId),
+        {
+          to: instruction.to,
+          data,
+          value: instruction.valueRaw,
+        },
+        onSubmitted
+      )
     );
   };
 
-  return { approve, sign, sendNative };
+  return { approve, confirmTransaction, sign, sendNative };
 };

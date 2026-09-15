@@ -57,8 +57,10 @@ Swap methods use one server-driven lifecycle:
 1. The SDK asks the middleware for a quote.
 2. `hooks.onIntent` may review, refresh, allow, or deny it.
 3. The SDK signs quoted EIP-712 permits for sponsored approvals, or sends quoted ERC-20 approval
-   transactions when required.
-4. The wallet signs the intent with `personal_sign`.
+   transactions when required. Wallet prompts run one at a time; each broadcast starts its receipt
+   check while the SDK proceeds to the next approval prompt.
+4. After all required approvals confirm, the SDK checks quote expiry again and the wallet signs the
+   intent with `personal_sign`.
 5. The SDK sends quoted native source transactions, if any.
 6. The SDK submits the intent and approval signatures in the middleware's `signatures[]` envelope.
 7. The SDK polls until the intent is `fulfilled`.
@@ -362,6 +364,14 @@ All SDK errors extend `NexusError` and expose:
 
 Use subclasses such as `ValidationError`, `UserActionError`, `ExecutionError`, and `BackendError`
 for broad handling, and stable `ERROR_CODES` for specific cases.
+
+If an approval fails or a later approval prompt is rejected, the SDK finishes receipt checks for
+all approvals already broadcast before rejecting. `error.details.approvals` lists their `chainId`,
+`tokenAddress`, `spender`, `txHash`, `txExplorerUrl`, and `state` (`confirmed`, `reverted`, or
+`unconfirmed`). An RPC failure or timeout leaves a transaction `unconfirmed`; it may still confirm.
+The SDK checks the known hash again if receipt waiting fails, but does not automatically resend
+transactions or reopen rejected prompts. Check unconfirmed hashes before retrying. Start a new swap
+with a fresh quote to account for allowances that already confirmed.
 
 ```ts
 try {

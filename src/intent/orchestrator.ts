@@ -1,8 +1,9 @@
 import type { Hex } from 'viem';
-import { Errors, formatUnknownError, NexusError } from '../domain/errors';
+import { ERROR_CODES, Errors, formatUnknownError, NexusError } from '../domain/errors';
 import { runNonBlocking } from '../services/non-blocking';
 import type {
   ExecutableIntentQuote,
+  IntentApprovalInstruction,
   IntentEvent,
   IntentHookData,
   IntentNativeTransactionInstruction,
@@ -35,6 +36,7 @@ type RunIntentDeps = {
     instruction: ExecutableIntentQuote['execution']['allowances'][number],
     amountRaw: bigint
   ) => Promise<IntentTransaction>;
+  confirmApproval: (transaction: IntentTransaction) => Promise<IntentTransaction>;
   sign: (instruction: IntentRequiredSignature) => Promise<Hex>;
   sendNative: (
     instruction: IntentNativeTransactionInstruction,
@@ -153,9 +155,17 @@ export const runIntent = async (
   assertFresh(executable, now());
 
   const approvals = executable.execution.allowances.filter((entry) => entry.deficitRaw > 0n);
-  const approvalTransactions: IntentTransaction[] = [];
+  const confirmations: Promise<{
+    instruction: IntentApprovalInstruction;
+    transaction: IntentTransaction;
+    state: 'confirmed' | 'reverted' | 'unconfirmed';
+  }>[] = [];
+  let approvalFailure:
+    | { error: unknown; instruction: IntentApprovalInstruction; service: 'wallet' | 'rpc' }
+    | undefined;
   const signatures: IntentSubmittedSignature[] = [];
   for (const instruction of approvals) {
+    if (approvalFailure) break;
     const stepId = `approval:${instruction.chainId}:${instruction.tokenAddress}`;
     emitStep(executable, stepId, 'started');
     try {
@@ -173,19 +183,82 @@ export const runIntent = async (
         }
         const { data: _data, ...envelope } = requirement;
         signatures.push({ ...envelope, signature: await deps.sign(requirement) });
+        emitStep(executable, stepId, 'completed');
       } else {
-        approvalTransactions.push(await deps.approve(instruction, instruction.requiredRaw));
+        const transaction = await deps.approve(instruction, instruction.requiredRaw);
+        // Handle failures immediately so an RPC rejection cannot go unhandled while
+        // the next wallet prompt is open. Receipt checks do not hold the wallet queue.
+        confirmations.push(
+          Promise.resolve()
+            .then(() => deps.confirmApproval(transaction))
+            .then(
+              (confirmed) => {
+                emitStep(executable, stepId, 'completed');
+                return { instruction, transaction: confirmed, state: 'confirmed' as const };
+              },
+              (error: unknown) => {
+                approvalFailure ??= { error, instruction, service: 'rpc' };
+                emitStep(executable, stepId, 'failed', error);
+                return {
+                  instruction,
+                  transaction,
+                  state:
+                    error instanceof NexusError &&
+                    error.code === ERROR_CODES.EXEC_TX_ONCHAIN_REVERTED
+                      ? ('reverted' as const)
+                      : ('unconfirmed' as const),
+                };
+              }
+            )
+        );
       }
-      emitStep(executable, stepId, 'completed');
     } catch (error) {
       emitStep(executable, stepId, 'failed', error);
-      throw error;
+      approvalFailure ??= { error, instruction, service: 'wallet' };
+      break;
     }
   }
+
+  // Settle every submitted transaction even if a later wallet action was rejected.
+  const outcomes = await Promise.all(confirmations);
+  if (approvalFailure) {
+    const { error, instruction, service } = approvalFailure;
+    const failure =
+      error instanceof NexusError
+        ? error
+        : Errors.execution(formatUnknownError(error), { service });
+    const ErrorType = failure.constructor as new (
+      ...args: ConstructorParameters<typeof NexusError>
+    ) => NexusError;
+    throw new ErrorType(failure.code, failure.message, {
+      context: {
+        ...failure.context,
+        chainId: instruction.chainId,
+        stepId: `approval:${instruction.chainId}:${instruction.tokenAddress}`,
+        stepType:
+          instruction.authorizationType === 'permit'
+            ? 'source_approval_signature'
+            : 'erc20_approval',
+      },
+      details: {
+        ...failure.details,
+        approvals: outcomes.map(({ instruction, transaction, state }) => ({
+          chainId: transaction.chainId,
+          tokenAddress: instruction.tokenAddress,
+          spender: instruction.spender,
+          txHash: transaction.txHash,
+          txExplorerUrl: transaction.txExplorerUrl,
+          state,
+        })),
+      },
+    });
+  }
+  const approvalTransactions = outcomes.map(({ transaction }) => transaction);
 
   emitStep(executable, 'intent-signature', 'started');
   let signature: Hex;
   try {
+    assertFresh(executable, now());
     const requirement = executable.execution.requiredSignatures.find(
       (entry) => entry.kind === 'intent'
     );

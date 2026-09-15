@@ -94,7 +94,9 @@ public client method
        emit quote
        onIntent({ quote, refresh, allow, deny })
        resolve allowance amounts
-       ERC-20 approvals or EIP-712 permit signatures
+       serialize ERC-20 approval broadcasts or EIP-712 permit signatures
+       confirm broadcast approvals concurrently outside the wallet queue
+       recheck quote expiry after all approvals confirm
        personal_sign
        native source transactions
        submit signed intent
@@ -113,9 +115,20 @@ The canonical plan is ordered:
 4. `intent_submission`;
 5. `intent_fulfillment`.
 
-The SDK serializes wallet work through a per-client queue. User callbacks use the non-blocking
-callback pattern so event/analytics failures cannot break a flow. Approval hooks are flow-control
-hooks and may deliberately allow or reject execution.
+The SDK serializes wallet prompts and chain switches through a per-client queue. Each ERC-20
+approval releases the queue when its transaction hash is available. Receipt checks use the source
+chain's public RPC client and overlap with later approval prompts and confirmations. Approval
+completion events may arrive out of order; the successful result retains submission order.
+
+Intent signing waits for all required approvals to confirm and for a fresh expiry check. On an
+approval failure, the orchestrator settles all submitted receipt checks and includes their hashes
+and confirmed/reverted/unconfirmed states in `NexusError.details.approvals`, preserving the error's
+category and code. It stops further approval prompts once failure is known and does not resend
+transactions automatically. Native source transactions still wait for receipts inside the wallet
+queue.
+
+User callbacks use the non-blocking callback pattern so event/analytics failures cannot break a
+flow. Approval hooks are flow-control hooks and may deliberately allow or reject execution.
 
 ## Quote request modes
 

@@ -146,6 +146,7 @@ describe('Better Intent orchestration', () => {
     const events: IntentEvent[] = [];
     const result = await runIntent({ requestQuote: async () => quoted, onEvent: (event) => events.push(event) }, {
       explorerUrl: 'https://explorer.example', now: () => 1_900_000_000_000,
+      confirmApproval: async (transaction) => transaction,
       approve: async () => { calls.push('approve'); return { chainId: 8453, txHash: TX_HASH, txExplorerUrl: '' }; },
       sign: async (instruction) => {
         calls.push(instruction.kind);
@@ -184,6 +185,7 @@ describe('Better Intent orchestration', () => {
     const events: IntentEvent[] = [];
     await expect(runIntent({ requestQuote: async () => quoted, onEvent: (event) => events.push(event) }, {
       explorerUrl: '', now: () => 1_900_000_000_000, approve, sign, submit, sendNative, getStatus: vi.fn(),
+      confirmApproval: async (transaction) => transaction,
     })).rejects.toThrow();
     expect(approve).not.toHaveBeenCalled();
     expect(sign).toHaveBeenCalledExactlyOnceWith(quoted.execution.requiredSignatures[1]);
@@ -206,6 +208,7 @@ describe('Better Intent orchestration', () => {
         explorerUrl: 'https://explorer.example',
         now: () => 1_900_000_000_000,
         sleep: async () => undefined,
+        confirmApproval: async (transaction) => transaction,
         approve: async (instruction, amountRaw) => {
           calls.push(`approve:${instruction.chainId}:${amountRaw}`);
           return { chainId: instruction.chainId, txHash: TX_HASH, txExplorerUrl: 'approval' };
@@ -287,6 +290,7 @@ describe('Better Intent orchestration', () => {
         explorerUrl: 'https://explorer.example',
         now: () => 1_900_000_000_000,
         sleep: async () => undefined,
+        confirmApproval: async (transaction) => transaction,
         approve: async (instruction) => ({
           chainId: instruction.chainId,
           txHash: TX_HASH,
@@ -323,6 +327,7 @@ describe('Better Intent orchestration', () => {
           explorerUrl: 'https://explorer.example',
           now: () => 1_900_000_000_000,
           sleep: async () => undefined,
+          confirmApproval: async (transaction) => transaction,
           approve: async (instruction) => ({
             chainId: instruction.chainId,
             txHash: TX_HASH,
@@ -362,6 +367,7 @@ describe('Better Intent orchestration', () => {
           explorerUrl: 'https://explorer.example',
           now: () => 1_900_000_000_000,
           sleep: async () => undefined,
+          confirmApproval: async (transaction) => transaction,
           approve: async (instruction) => ({
             chainId: instruction.chainId,
             txHash: TX_HASH,
@@ -411,6 +417,7 @@ describe('Better Intent orchestration', () => {
         explorerUrl: 'https://explorer.example',
         now: () => 1_900_000_000_000,
         sleep: async () => undefined,
+        confirmApproval: async (transaction) => transaction,
         approve: async (instruction) => ({
           chainId: instruction.chainId,
           txHash: TX_HASH,
@@ -445,6 +452,7 @@ describe('Better Intent orchestration', () => {
           explorerUrl: 'https://explorer.example',
           now: () => 2_000,
           sleep: async () => undefined,
+          confirmApproval: async (transaction) => transaction,
           approve: vi.fn(),
           sign: vi.fn(),
           sendNative: vi.fn(),
@@ -470,6 +478,7 @@ describe('Better Intent orchestration', () => {
           explorerUrl: 'https://explorer.example',
           now: () => 1_900_000_000_000,
           sleep: async () => undefined,
+          confirmApproval: async (transaction) => transaction,
           approve: async (instruction) => ({
             chainId: instruction.chainId,
             txHash: TX_HASH,

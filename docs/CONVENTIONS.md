@@ -128,14 +128,20 @@ prompt, sign, approve, or send a transaction.
 
 For an approved intent, preserve this order:
 
-1. required ERC-20 approval transactions or sponsored source-approval signatures;
-2. intent `personal_sign`;
+1. required ERC-20 approval broadcasts or sponsored source-approval signatures, with wallet prompts
+   serialized and receipt checks running concurrently outside the wallet queue;
+2. wait for all required approvals to confirm, recheck quote expiry, then intent `personal_sign`;
 3. native source transactions;
 4. submit all required signatures through the `signatures[]` envelope;
 5. fulfillment polling.
 
 Do not parallelize wallet prompts. Read-only API work can run concurrently when it does not race
 approved quote state.
+
+Handle receipt failures as soon as waiting starts so they cannot become unhandled rejections while
+a later wallet prompt is open. Settle all submitted approval checks before returning an approval
+failure, preserving each hash and its confirmed/reverted/unconfirmed state in error details.
+Retry receipt lookup by known hash; never treat an RPC timeout as proof that resending is safe.
 
 ## Composite operations
 
