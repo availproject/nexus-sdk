@@ -112,7 +112,7 @@ export type ErrorContext<C extends ErrorCategory = ErrorCategory> =
  *   _reverted — wallet/chain revert
  *   _denied   — user rejection
  *   _exceeded — threshold crossed
- *   (none)    — terminal state, not a failure (e.g. fee_grant_requested)
+ *   (none)    — named condition or terminal state (e.g. insufficient_balance, fee_grant_requested)
  *
  * Every code's `category` segment must match the subclass it's thrown on.
  */
@@ -191,6 +191,40 @@ export const ERROR_CODES = {
   BACKEND_REPORT_MAYAN_TX_FAILED: 'backend/report_mayan_tx_failed',
   BACKEND_GET_QUOTE_FAILED: 'backend/get_quote_failed',
   BACKEND_GET_MAYAN_QUOTE_FAILED: 'backend/get_mayan_quote_failed',
+  BACKEND_INVALID_REQUEST: 'backend/invalid_request',
+  BACKEND_UNAUTHORIZED: 'backend/unauthorized',
+  BACKEND_NOT_FOUND: 'backend/not_found',
+  BACKEND_RATE_LIMITED: 'backend/rate_limited',
+  BACKEND_CONFIGURATION_ERROR: 'backend/configuration_error',
+  BACKEND_UPSTREAM_ERROR: 'backend/upstream_error',
+  BACKEND_UPSTREAM_TIMEOUT: 'backend/upstream_timeout',
+  BACKEND_NETWORK_ERROR: 'backend/network_error',
+  BACKEND_RPC_ERROR: 'backend/rpc_error',
+  BACKEND_SIMULATION_FAILED: 'backend/simulation_failed',
+  BACKEND_TRANSACTION_REVERTED: 'backend/transaction_reverted',
+  BACKEND_QUOTE_UNAVAILABLE: 'backend/quote_unavailable',
+  BACKEND_PRICE_UNAVAILABLE: 'backend/price_unavailable',
+  BACKEND_GAS_UNAVAILABLE: 'backend/gas_unavailable',
+  BACKEND_CHAIN_NOT_SUPPORTED: 'backend/chain_not_supported',
+  BACKEND_TOKEN_NOT_SUPPORTED: 'backend/token_not_supported',
+  BACKEND_NO_ROUTABLE_SOURCE: 'backend/no_routable_source',
+  BACKEND_INTENT_REFUSED: 'backend/intent_refused',
+  BACKEND_PROVIDER_UNAVAILABLE: 'backend/provider_unavailable',
+  BACKEND_NO_PROVIDERS_ENABLED: 'backend/no_providers_enabled',
+  BACKEND_INSUFFICIENT_BALANCE: 'backend/insufficient_balance',
+  BACKEND_INSUFFICIENT_APPROVAL_GAS: 'backend/insufficient_approval_gas',
+  BACKEND_SAME_CHAIN_GAS_DROP_UNSUPPORTED: 'backend/same_chain_gas_drop_unsupported',
+  BACKEND_QUOTE_PRICE_OUTLIER: 'backend/quote_price_outlier',
+  BACKEND_INPUT_BELOW_DEPOSIT_FEE: 'backend/input_below_deposit_fee',
+  BACKEND_GAS_DROP_TOO_SMALL: 'backend/gas_drop_too_small',
+  BACKEND_REQUEST_EXPIRED: 'backend/request_expired',
+  BACKEND_INVALID_INTENT_SIGNATURE: 'backend/invalid_intent_signature',
+  BACKEND_MISSING_INTENT_SIGNATURE: 'backend/missing_intent_signature',
+  BACKEND_INVALID_PERMIT_SIGNATURE: 'backend/invalid_permit_signature',
+  BACKEND_PERMIT_WITHOUT_SOURCE: 'backend/permit_without_source',
+  BACKEND_PERMIT_NOT_SPONSORABLE: 'backend/permit_not_sponsorable',
+  BACKEND_INSUFFICIENT_ALLOWANCE: 'backend/insufficient_allowance',
+  BACKEND_PERMIT_RELAY_FAILED: 'backend/permit_relay_failed',
   BACKEND_ERROR: 'backend/error',
 
   // ── external_service/* — third-party deps (service='lifi'|'bebop'|'fibrous'|'coinbase')

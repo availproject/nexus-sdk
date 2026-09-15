@@ -194,6 +194,13 @@ source verdicts, provider reasons, and whether retrying may help.
 Pre-routing quote failures such as insufficient balance or approval gas use the same helper and keep
 their endpoint-specific payload in `details`.
 
+`src/transport/middleware.ts` maps Better Intent HTTP error envelopes into `BackendError`s with
+display-ready messages and specific `ERROR_CODES`. Recognized subcodes take precedence over general
+middleware codes; related provider subcodes share an SDK code. The original message, codes, error ID,
+HTTP status, and diagnostic details remain available on the error. Unknown errors use the server's
+message when present, then HTTP/network or operation-specific fallbacks. Already-classified SDK errors
+pass through unchanged, including local validation failures before an HTTP call.
+
 ## Composite intent plus execute
 
 `swapAndExecute` retains a small amount of local calculation because the SDK must know what the

@@ -4,7 +4,14 @@ import { z } from 'zod';
 import { installAxiosNetworkTiming } from '../analytics/network-timing';
 import type { DeploymentResponse, TimingSpanHooks } from '../domain';
 import { PermitVariant } from '../domain';
-import { BackendError, ERROR_CODES, Errors, formatUnknownError } from '../domain/errors';
+import {
+  BackendError,
+  ERROR_CODES,
+  type ErrorCode,
+  Errors,
+  formatUnknownError,
+  NexusError,
+} from '../domain/errors';
 import { logger } from '../domain/utils/logger';
 import { addressString, hexString } from '../domain/utils/validation';
 import {
@@ -112,7 +119,218 @@ export const deploymentResponseSchema: z.ZodType<DeploymentResponse> = z.object(
 });
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null;
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+type MiddlewareFailure = readonly [code: ErrorCode, message: string];
+
+// Mirrors common/errors.ts and better-intent's HttpError subcodes in the middleware.
+// Subcodes take precedence; provider-specific aliases share the same SDK recovery code.
+const middlewareFailures: Readonly<Record<string, MiddlewareFailure>> = {
+  INVALID_REQUEST: [
+    ERROR_CODES.BACKEND_INVALID_REQUEST,
+    'The swap request is invalid. Check the selected tokens, chains, and amounts.',
+  ],
+  UNAUTHORIZED: [
+    ERROR_CODES.BACKEND_UNAUTHORIZED,
+    'This client is not authorized to use the swap service.',
+  ],
+  NOT_FOUND: [ERROR_CODES.BACKEND_NOT_FOUND, 'The requested intent or resource was not found.'],
+  RATE_LIMITED: [
+    ERROR_CODES.BACKEND_RATE_LIMITED,
+    'Too many requests. Wait a moment before trying again.',
+  ],
+  CONFIGURATION_ERROR: [
+    ERROR_CODES.BACKEND_CONFIGURATION_ERROR,
+    'The swap service is not configured for this operation. Please try again later.',
+  ],
+  UPSTREAM_ERROR: [
+    ERROR_CODES.BACKEND_UPSTREAM_ERROR,
+    'The swap service is temporarily unavailable. Please try again later.',
+  ],
+  UPSTREAM_TIMEOUT: [
+    ERROR_CODES.BACKEND_UPSTREAM_TIMEOUT,
+    'The swap service timed out. Check the intent status before retrying a submission.',
+  ],
+  RPC_ERROR: [
+    ERROR_CODES.BACKEND_RPC_ERROR,
+    'Unable to read or submit blockchain data. Please try again later.',
+  ],
+  SIMULATION_FAILED: [
+    ERROR_CODES.BACKEND_SIMULATION_FAILED,
+    'Transaction simulation failed. Request a new quote or choose different sources.',
+  ],
+  TRANSACTION_REVERTED: [
+    ERROR_CODES.BACKEND_TRANSACTION_REVERTED,
+    'The source transaction reverted. Check its status before retrying.',
+  ],
+  QUOTE_UNAVAILABLE: [
+    ERROR_CODES.BACKEND_QUOTE_UNAVAILABLE,
+    'No quote is available for this swap. Try different sources or an amount change.',
+  ],
+  PRICE_UNAVAILABLE: [
+    ERROR_CODES.BACKEND_PRICE_UNAVAILABLE,
+    'A required token price is unavailable. Please try again later.',
+  ],
+  GAS_UNAVAILABLE: [
+    ERROR_CODES.BACKEND_GAS_UNAVAILABLE,
+    'Gas estimates are unavailable for this swap. Please try again later.',
+  ],
+  CHAIN_NOT_SUPPORTED: [
+    ERROR_CODES.BACKEND_CHAIN_NOT_SUPPORTED,
+    'A selected chain is not supported. Choose another chain.',
+  ],
+  TOKEN_NOT_SUPPORTED: [
+    ERROR_CODES.BACKEND_TOKEN_NOT_SUPPORTED,
+    'A selected token is not supported. Choose another token.',
+  ],
+  INTERNAL_ERROR: [
+    ERROR_CODES.BACKEND_ERROR,
+    'The swap service encountered an unexpected error. Please try again later.',
+  ],
+  NO_ROUTABLE_SOURCE: [
+    ERROR_CODES.BACKEND_NO_ROUTABLE_SOURCE,
+    'No route is available from the selected sources. Try different tokens, chains, or amounts.',
+  ],
+  INTENT_REFUSED: [
+    ERROR_CODES.BACKEND_INTENT_REFUSED,
+    'The available providers cannot fulfill this swap. Try different sources or amounts.',
+  ],
+  PROVIDER_UNAVAILABLE: [
+    ERROR_CODES.BACKEND_PROVIDER_UNAVAILABLE,
+    'Swap providers are temporarily unavailable. Please try again later.',
+  ],
+  NO_PROVIDERS_ENABLED: [
+    ERROR_CODES.BACKEND_NO_PROVIDERS_ENABLED,
+    'No swap providers are enabled. Please try again later.',
+  ],
+  INSUFFICIENT_BALANCE: [
+    ERROR_CODES.BACKEND_INSUFFICIENT_BALANCE,
+    'Insufficient source balance for this swap and its fees. Reduce the amount or choose another source.',
+  ],
+  INSUFFICIENT_APPROVAL_GAS: [
+    ERROR_CODES.BACKEND_INSUFFICIENT_APPROVAL_GAS,
+    'Not enough gas to approve a source token. Add gas funds on the source chain or choose another source.',
+  ],
+  SAME_CHAIN_GAS_DROP_UNSUPPORTED: [
+    ERROR_CODES.BACKEND_SAME_CHAIN_GAS_DROP_UNSUPPORTED,
+    'Gas top-ups require a cross-chain swap. Remove the gas top-up or choose a different destination chain.',
+  ],
+  QUOTE_PRICE_UNAVAILABLE: [
+    ERROR_CODES.BACKEND_PRICE_UNAVAILABLE,
+    'A required token price is unavailable. Please try again later.',
+  ],
+  QUOTE_PRICE_OUTLIER: [
+    ERROR_CODES.BACKEND_QUOTE_PRICE_OUTLIER,
+    'The quote failed price checks or cannot cover the requested output. Request a new quote or adjust the amount.',
+  ],
+  INPUT_BELOW_DEPOSIT_FEE: [
+    ERROR_CODES.BACKEND_INPUT_BELOW_DEPOSIT_FEE,
+    'The source amount is too small to cover the deposit fee. Increase the amount or choose another source.',
+  ],
+  GAS_DROP_TOO_SMALL: [
+    ERROR_CODES.BACKEND_GAS_DROP_TOO_SMALL,
+    'The requested gas top-up is too small. Increase it or remove the gas top-up.',
+  ],
+  REQUEST_EXPIRED: [
+    ERROR_CODES.BACKEND_REQUEST_EXPIRED,
+    'This swap request has expired. Request a new quote and sign again.',
+  ],
+  INVALID_INTENT_SIGNATURE: [
+    ERROR_CODES.BACKEND_INVALID_INTENT_SIGNATURE,
+    'The intent signature is invalid. Request a new quote and sign with the selected wallet.',
+  ],
+  MISSING_INTENT_SIGNATURE: [
+    ERROR_CODES.BACKEND_MISSING_INTENT_SIGNATURE,
+    'The intent signature is missing. Sign the intent before submitting.',
+  ],
+  INVALID_PERMIT_SIGNATURE: [
+    ERROR_CODES.BACKEND_INVALID_PERMIT_SIGNATURE,
+    'The approval signature is invalid or stale. Request a new quote and sign the approval again.',
+  ],
+  PERMIT_WITHOUT_SOURCE: [
+    ERROR_CODES.BACKEND_PERMIT_WITHOUT_SOURCE,
+    'An approval signature does not match a unique source token. Request a new quote and sign again.',
+  ],
+  PERMIT_NOT_SPONSORABLE: [
+    ERROR_CODES.BACKEND_PERMIT_NOT_SPONSORABLE,
+    'Sponsored approvals are not supported for this source. Choose another source or approve the token with gas.',
+  ],
+  INSUFFICIENT_ALLOWANCE: [
+    ERROR_CODES.BACKEND_INSUFFICIENT_ALLOWANCE,
+    'The source token approval is missing or insufficient. Complete the approval before submitting.',
+  ],
+  PERMIT_RELAY_FAILED: [
+    ERROR_CODES.BACKEND_PERMIT_RELAY_FAILED,
+    'The sponsored approval failed. Check the approval status, then request a new quote.',
+  ],
+  MAYAN_INSUFFICIENT_COVERAGE: [
+    ERROR_CODES.BACKEND_INSUFFICIENT_BALANCE,
+    'Insufficient source balance for this swap and its fees. Reduce the amount or choose another source.',
+  ],
+  INVALID_MAYAN_QUOTE: [
+    ERROR_CODES.BACKEND_QUOTE_UNAVAILABLE,
+    'The provider returned an invalid quote. Request a new quote or choose different sources.',
+  ],
+  MAYAN_QUOTE_FETCH_FAILED: [
+    ERROR_CODES.BACKEND_PROVIDER_UNAVAILABLE,
+    'The quote provider is temporarily unavailable. Please try again later.',
+  ],
+  MAYAN_NO_ROUTE: [
+    ERROR_CODES.BACKEND_NO_ROUTABLE_SOURCE,
+    'No route is available from the selected sources. Try different tokens, chains, or amounts.',
+  ],
+  MAYAN_CALLDATA_BUILD_FAILED: [
+    ERROR_CODES.BACKEND_PROVIDER_UNAVAILABLE,
+    'The quote provider is temporarily unavailable. Please try again later.',
+  ],
+  MISSING_CLIENT_ID: [
+    ERROR_CODES.BACKEND_INVALID_REQUEST,
+    'The app is missing its client identity. Configure the SDK clientId before requesting a swap.',
+  ],
+  MISSING_SURFACE: [
+    ERROR_CODES.BACKEND_INVALID_REQUEST,
+    'The app is missing required client identity headers. Check the SDK integration.',
+  ],
+};
+
+const intentRequestFailures = {
+  'chains request': [
+    ERROR_CODES.BACKEND_ERROR,
+    'Unable to load supported chains and tokens. Please try again.',
+  ],
+  'balances request': [
+    ERROR_CODES.BACKEND_BALANCES_FETCH_FAILED,
+    'Unable to load balances. Please try again.',
+  ],
+  'quote request': [
+    ERROR_CODES.BACKEND_GET_QUOTE_FAILED,
+    'Unable to fetch a quote. Please try again.',
+  ],
+  'submit request': [
+    ERROR_CODES.BACKEND_RFF_SUBMIT_FAILED,
+    'Unable to submit the intent. Check its status before retrying.',
+  ],
+  'status request': [
+    ERROR_CODES.BACKEND_RFF_STATUS_FAILED,
+    'Unable to load the intent status. Please try again.',
+  ],
+  'history request': [
+    ERROR_CODES.BACKEND_RFF_LIST_FAILED,
+    'Unable to load intent history. Please try again.',
+  ],
+} satisfies Record<string, MiddlewareFailure>;
+
+const httpFailureCodes: Readonly<Record<number, string>> = {
+  401: 'UNAUTHORIZED',
+  403: 'UNAUTHORIZED',
+  404: 'NOT_FOUND',
+  408: 'UPSTREAM_TIMEOUT',
+  429: 'RATE_LIMITED',
+  500: 'INTERNAL_ERROR',
+  502: 'UPSTREAM_ERROR',
+  503: 'UPSTREAM_ERROR',
+  504: 'UPSTREAM_TIMEOUT',
+};
 
 const filterUnsupportedChains = (input: unknown): unknown => {
   if (!isRecord(input) || !Array.isArray(input.chains)) return input;
@@ -128,8 +346,10 @@ const filterUnsupportedChains = (input: unknown): unknown => {
 };
 
 const middlewareErrorDetails = (error: unknown): Record<string, unknown> => {
-  const data = (error as { response?: { data?: unknown } } | undefined)?.response?.data;
-  if (!isRecord(data)) return { error: formatUnknownError(error) };
+  const response = isRecord(error) && isRecord(error.response) ? error.response : undefined;
+  const data = response?.data;
+  const httpStatus = typeof response?.status === 'number' ? response.status : undefined;
+  if (!isRecord(data)) return { error: formatUnknownError(error), httpStatus };
   const details = isRecord(data.details) ? data.details : undefined;
   const subcode = data.subcode;
   let intentQuoteFailure: Record<string, unknown> | undefined;
@@ -165,12 +385,50 @@ const middlewareErrorDetails = (error: unknown): Record<string, unknown> => {
   }
   return {
     error: typeof data.message === 'string' ? data.message : formatUnknownError(error),
-    middlewareCode: data.code,
-    middlewareSubcode: data.subcode,
-    errorId: data.errorId,
-    middlewareDetails: data.details,
+    middlewareCode: typeof data.code === 'string' ? data.code : undefined,
+    middlewareSubcode: typeof data.subcode === 'string' ? data.subcode : undefined,
+    errorId: typeof data.errorId === 'string' ? data.errorId : undefined,
+    middlewareDetails: details,
+    httpStatus,
     intentQuoteFailure,
   };
+};
+
+const mapMiddlewareError = (
+  error: unknown,
+  operation: keyof typeof intentRequestFailures
+): BackendError => {
+  const details = middlewareErrorDetails(error);
+  const key = [details.middlewareSubcode, details.middlewareCode].find(
+    (value): value is string =>
+      typeof value === 'string' && Object.hasOwn(middlewareFailures, value)
+  );
+  let mapped = key ? middlewareFailures[key] : undefined;
+  const response = isRecord(error) && isRecord(error.response) ? error.response : undefined;
+  const payload = isRecord(response?.data) ? response.data : undefined;
+  const message = typeof payload?.message === 'string' ? payload.message.trim() : '';
+  // Future middleware codes can still carry useful messages. HTTP and network fallbacks
+  // apply when the response does not contain a usable error envelope.
+  if (!mapped && !message) {
+    if (typeof response?.status === 'number') {
+      const httpCode = httpFailureCodes[response.status];
+      mapped = httpCode ? middlewareFailures[httpCode] : undefined;
+    } else if (isRecord(error)) {
+      if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+        mapped = middlewareFailures.UPSTREAM_TIMEOUT;
+      } else if (error.code === 'ERR_NETWORK') {
+        mapped = [
+          ERROR_CODES.BACKEND_NETWORK_ERROR,
+          'Unable to reach the swap service. Check your connection and try again.',
+        ];
+      }
+    }
+  }
+  const fallback = intentRequestFailures[operation];
+  return new BackendError(mapped?.[0] ?? fallback[0], mapped?.[1] ?? (message || fallback[1]), {
+    context: { service: 'middleware' },
+    details: { operation, ...details },
+  });
 };
 
 const intentChainParams = (constraints?: IntentRouteConstraints): URLSearchParams => {
@@ -281,15 +539,15 @@ export const createMiddlewareClient = (
     }
   };
 
-  const request = async <T>(operation: string, run: () => Promise<T>): Promise<T> => {
+  const request = async <T>(
+    operation: keyof typeof intentRequestFailures,
+    run: () => Promise<T>
+  ): Promise<T> => {
     try {
       return await run();
     } catch (error) {
-      if (error instanceof BackendError) throw error;
-      throw Errors.backend(`Better Intent ${operation} failed: ${formatUnknownError(error)}`, {
-        service: 'middleware',
-        details: { operation, ...middlewareErrorDetails(error) },
-      });
+      if (error instanceof NexusError) throw error;
+      throw mapMiddlewareError(error, operation);
     }
   };
 
