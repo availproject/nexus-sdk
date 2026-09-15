@@ -10,14 +10,23 @@ import type { FlatBalance } from '../types';
 const STABLECOINS = new Set([
   'USDC',
   'USDT',
+  'USDTB', // Ethena
   'DAI',
-  'BUSD',
-  'TUSD',
+  'BUSD', // Binance USD
+  'TUSD', // True USD
   'FRAX',
   'LUSD',
   'USDD',
   'USDP',
   'GUSD',
+  'USD₮0', // New USDT
+  'PYUSD', // Paypal USD
+  'USDS', // Sky dollar
+  'USDE', // Ethena
+  'USDG', // Robinhood native stable
+  'GHO', // AAVE stable
+  'EURC', // Circle euro stable
+  'AUSD', // Agora stable
 ]);
 
 const isStablecoin = (symbol: string): boolean => STABLECOINS.has(symbol.toUpperCase());
