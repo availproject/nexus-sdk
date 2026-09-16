@@ -2,20 +2,32 @@ import Decimal from 'decimal.js';
 import { parseUnits } from 'viem';
 import { describe, expect, it, vi } from 'vitest';
 import { EADDRESS, ZERO_ADDRESS } from '../../../src/domain/constants/addresses';
+import { validateSwapExactIn, validateSwapExactOut } from '../../../src/flows/swap-params';
 import { createChainList } from '../../../src/services/chain-list';
 import { determineDestinationSwaps } from '../../../src/swap/algorithms/destination';
 import { liquidateInputHoldings } from '../../../src/swap/algorithms/liquidate';
 import { CurrencyID } from '../../../src/swap/cot';
+import { buildSwapPreflight } from '../../../src/swap/preflight';
 import { determineSwapRoute, type RouteOptions } from '../../../src/swap/route';
 import { selectStableSettlement } from '../../../src/swap/routing/settlement';
-import { SwapMode } from '../../../src/swap/types';
+import { type SwapData, SwapMode } from '../../../src/swap/types';
 import { testDeployment } from '../../fixtures/deployment';
 import { makeOraclePrice } from '../../helpers/balances';
 import { BASE_CHAIN } from '../../helpers/chains';
 import { makeMiddlewareClient } from '../../helpers/middleware-client';
 import { makePublicClientList } from '../../helpers/public-client';
 
+vi.mock('viem', async (importOriginal) => ({
+  ...await importOriginal<typeof import('viem')>(),
+  createPublicClient: vi.fn(() => ({
+    readContract: vi.fn(async ({ functionName }: { functionName: string }) =>
+      functionName === 'decimals' ? 6 : 'USDC'
+    ),
+  })),
+}));
+
 const ARC_CHAIN = 5042;
+const arcErc20Usdc = '0x3600000000000000000000000000000000000000' as const;
 const base = { ...testDeployment.chains[0], chainId: BASE_CHAIN, name: 'Base' };
 const arc = {
   ...base,
@@ -35,6 +47,7 @@ describe('native USDC settlement', () => {
       { source: ARC_CHAIN, sourceToken: ZERO_ADDRESS, destination: BASE_CHAIN, token: baseUsdc },
       { source: BASE_CHAIN, sourceToken: baseUsdc, destination: ARC_CHAIN, token: ZERO_ADDRESS },
       { source: BASE_CHAIN, sourceToken: baseUsdc, destination: ARC_CHAIN, token: EADDRESS },
+      { source: BASE_CHAIN, sourceToken: baseUsdc, destination: ARC_CHAIN, token: arcErc20Usdc },
     ])('bridges $source → $destination with native address $token / $sourceToken', async ({
       source,
       sourceToken,
@@ -103,12 +116,32 @@ describe('native USDC settlement', () => {
         },
       };
       const data = { toChainId: destination, toTokenAddress: token };
-      const route = await determineSwapRoute(
+      const input: SwapData =
         mode === SwapMode.EXACT_IN
-          ? { mode, data }
-          : { mode, data: { ...data, toAmountRaw: parseUnits('10', destinationDecimals) } },
-        options
-      );
+          ? { mode, data: validateSwapExactIn(data) }
+          : {
+              mode,
+              data: validateSwapExactOut({
+                ...data,
+                toAmountRaw: parseUnits('10', token === arcErc20Usdc ? 6 : destinationDecimals),
+              }),
+            };
+      if (token === arcErc20Usdc) {
+        const preflight = await buildSwapPreflight(input, {
+          chainList,
+          cotCurrencyId: CurrencyID.USDC,
+          eoaAddress,
+          middlewareClient: makeMiddlewareClient({ getOraclePrices: async () => options.oraclePrices }),
+          preloadedBalances: options.balances,
+        });
+        expect(preflight.dstTokenInfo).toEqual({
+          contractAddress: ZERO_ADDRESS,
+          decimals: 18,
+          symbol: 'USDC',
+        });
+        options.dstTokenInfo = preflight.dstTokenInfo;
+      }
+      const route = await determineSwapRoute(input, options);
 
       expect(route.bridge?.amount.toFixed()).toBe('10');
       expect(route.bridge?.assets).toMatchObject([

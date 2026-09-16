@@ -451,4 +451,19 @@ describe('swapAndExecute funding decision', () => {
     // Approval amount renders with the on-chain decimals (6) backfilled from dstTokenInfo, not the 18 stub.
     expect(fundingIntent.executeRequirement.tokenApproval?.amount, 'approval display uses real decimals').toBe('100');
   });
+
+  it('uses ERC-20 approval units when the funding destination is native', async () => {
+    const { intent } = await run({
+      toTokenAddress: ZERO_ADDRESS,
+      toAmountRaw: parseUnits('100', 18),
+      balances: [bal(NATIVE, '1', 18, 'ETH', 3000)],
+      tokenApproval: { toTokenAddress: UNKNOWN_TOKEN, amount: parseUnits('100', 6), spender: TARGET_CONTRACT },
+    });
+
+    expect(intent.executeRequirement.tokenApproval).toMatchObject({
+      token: { address: UNKNOWN_TOKEN, decimals: 6, symbol: 'TKN' },
+      amount: '100',
+      amountRaw: parseUnits('100', 6),
+    });
+  });
 });

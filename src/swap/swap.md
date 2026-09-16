@@ -164,6 +164,13 @@ COT scoring and source/destination token comparisons treat `ZERO_ADDRESS` and `E
 same native token on a chain. A native settlement currency (for example, USDC on Arc) is used
 directly and does not need an aggregator swap into itself.
 
+At the public swap input boundary, Arc mainnet (`5042`) destination USDC
+(`0x3600000000000000000000000000000000000000`) is normalized to `ZERO_ADDRESS` before metadata
+resolution. Exact Out and `swapAndExecute` destination amounts convert from the interface's 6
+decimals to native USDC's 18 decimals. Source inputs and ERC-20 approvals are unchanged; approval
+metadata is resolved separately when its address differs from the funding token. Intents and max
+results report the canonical native address and 18-decimal units.
+
 Mixed Exact-In routes leave destination-chain holdings already denominated in the requested token
 untouched. That identity output is included in `onIntent`, `assetsUsed`, and `calculateMaxForSwap`,
 but creates no plan step or transaction. Max-amount haircuts apply only to the routed portion.
