@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { ZERO_ADDRESS } from '../../src/domain';
+import { aggregateBalancesByCurrency } from '../../src/services/balances';
 import { createChainList } from '../../src/services/chain-list';
 import type { DeploymentResponse } from '../../src/domain/types/deployment-types';
+import { makeUnifiedBalance } from '../helpers/balances';
 
 const makeDeployment = (overrides?: Partial<DeploymentResponse>): DeploymentResponse => ({
   network: 'testnet',
@@ -56,11 +59,57 @@ describe('createChainList', () => {
     expect(token.permitVersion).toBe(1);
   });
 
-  it('threads currencyId into nativeCurrency', () => {
+  it('threads currencyId into nativeCurrency and native token lookups', () => {
     const chainList = createChainList(makeDeployment());
     const chain = chainList.chains[0];
 
     expect(chain.nativeCurrency.currencyId).toBe(3);
+    expect(chainList.getNativeToken(1).currencyId).toBe(3);
+    expect(chainList.getTokenByAddress(1, ZERO_ADDRESS).currencyId).toBe(3);
+    expect(chainList.getTokenInfoBySymbol(1, 'ETH').currencyId).toBe(3);
+  });
+
+  it('groups native and ERC20 bridge balances with the same currencyId', () => {
+    const deployment = makeDeployment();
+    const ethereum = deployment.chains[0];
+    deployment.chains.push({
+      ...ethereum,
+      chainId: 5042,
+      name: 'Arc',
+      nativeCurrency: {
+        ...ethereum.nativeCurrency,
+        name: 'USD Coin',
+        symbol: 'USDC',
+        currencyId: 1,
+      },
+      tokens: [],
+    });
+
+    const balances = aggregateBalancesByCurrency(createChainList(deployment), [
+      makeUnifiedBalance({
+        chainId: 5042,
+        tokenAddress: ZERO_ADDRESS,
+        rawBalance: '1000000000000000000',
+        value: '1',
+      }),
+      makeUnifiedBalance({
+        chainId: 1,
+        tokenAddress: ethereum.tokens[0].address,
+        rawBalance: '2000000',
+        value: '2',
+      }),
+    ]);
+
+    expect(balances).toMatchObject([
+      {
+        currencyId: 1,
+        balance: '3',
+        chainBalances: [
+          { chain: { id: 1 }, balance: '2', decimals: 6 },
+          { chain: { id: 5042 }, balance: '1', decimals: 18 },
+        ],
+      },
+    ]);
   });
 
   it('threads multicallAddress into the runtime chain', () => {
@@ -86,6 +135,7 @@ describe('createChainList', () => {
 
       expect(token).toBeDefined();
       expect(token!.symbol).toBe('ETH');
+      expect(token!.currencyId).toBe(3);
     });
 
     it('throws for unknown currencyId', () => {
