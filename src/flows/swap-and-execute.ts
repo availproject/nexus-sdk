@@ -34,6 +34,7 @@ import { estimateTotalFees, type TxWithGas } from '../services/fee-estimation';
 import { equalFold } from '../services/strings';
 import { resolveTokenInfo } from '../services/token-metadata';
 import { SLIPPAGE_DEFAULT } from '../swap/constants';
+import { isSameSwapToken } from '../swap/cot';
 import { buildSwapPreflight, type SwapPreflight } from '../swap/preflight';
 import { predictSafeAccountAddressV2 } from '../swap/safe/predict';
 import type { Source, SwapAndExecuteParams, SwapAndExecuteResult, SwapData } from '../swap/types';
@@ -89,7 +90,8 @@ const applySourcesAllowlist = (balances: RawSwapBalances, sources?: Source[]): R
   const filtered = balances.filter((balance) =>
     sources.some(
       (source) =>
-        source.chainId === balance.chainID && equalFold(source.tokenAddress, balance.tokenAddress)
+        source.chainId === balance.chainID &&
+        isSameSwapToken(source.tokenAddress, balance.tokenAddress)
     )
   );
   if (filtered.length === 0) {

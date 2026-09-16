@@ -9,6 +9,7 @@ import { divDecimals } from '../../services/math';
 import { equalFold } from '../../services/strings';
 import { filterMayanSourcesByChain } from '../algorithms/mayan-floor';
 import { EADDRESS, EXACT_OUT_PROVIDER_BUFFER } from '../constants';
+import { isSameSwapToken } from '../cot';
 import type { FlatBalance, OraclePriceResponse, Source } from '../types';
 
 // Drop selected source chains whose aggregate bridged USD can't clear Mayan's per-leg quote floor.
@@ -155,7 +156,7 @@ function deductReservedBalance(
 ): FlatBalance[] {
   const reserved = divDecimals(reserveRaw, decimals);
   return balances.map((balance) => {
-    if (balance.chainID !== chainId || !equalFold(balance.tokenAddress, tokenAddress)) {
+    if (balance.chainID !== chainId || !isSameSwapToken(balance.tokenAddress, tokenAddress)) {
       return balance;
     }
 
@@ -199,7 +200,8 @@ export function filterExactOutBalances(
     filtered = filtered.filter((balance) =>
       sources.some(
         (source) =>
-          source.chainId === balance.chainID && equalFold(source.tokenAddress, balance.tokenAddress)
+          source.chainId === balance.chainID &&
+          isSameSwapToken(source.tokenAddress, balance.tokenAddress)
       )
     );
   }
@@ -211,8 +213,9 @@ export function filterExactOutBalances(
   if (removeDstToken || removeNativeToken) {
     filtered = filtered.filter((balance) => {
       if (balance.chainID !== data.toChainId) return true;
-      if (removeDstToken && equalFold(balance.tokenAddress, removeDstToken)) return false;
-      if (removeNativeToken && equalFold(balance.tokenAddress, removeNativeToken)) return false;
+      if (removeDstToken && isSameSwapToken(balance.tokenAddress, removeDstToken)) return false;
+      if (removeNativeToken && isSameSwapToken(balance.tokenAddress, removeNativeToken))
+        return false;
       return true;
     });
   }
@@ -287,7 +290,7 @@ export function resolveExactInHoldings(
   return requestedSources.flatMap((source) => {
     const balance = balances.find(
       (entry) =>
-        entry.chainID === source.chainId && equalFold(entry.tokenAddress, source.tokenAddress)
+        entry.chainID === source.chainId && isSameSwapToken(entry.tokenAddress, source.tokenAddress)
     );
     if (!balance || new Decimal(balance.amount).lte(0)) {
       throw Errors.insufficientBalance(
@@ -308,7 +311,7 @@ export function resolveExactInHoldings(
       ? [
           {
             chainID: source.chainId,
-            tokenAddress: source.tokenAddress,
+            tokenAddress: balance.tokenAddress,
             amountRaw,
             decimals: balance.decimals,
             symbol: balance.symbol,

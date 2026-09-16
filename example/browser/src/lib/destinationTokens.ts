@@ -220,6 +220,17 @@ export const DESTINATION_TOKENS: ReadonlyMap<number, DestinationToken[]> =
         },
       ],
     ],
+    [
+      5042, // Arc
+      [
+        {
+          symbol: "USDC",
+          label: "USDC",
+          tokenAddress: "0x3600000000000000000000000000000000000000",
+          decimals: 6,
+        },
+      ],
+    ],
   ]);
 
 /* ── Swap chain/token options ───────────────────────────────────────── */

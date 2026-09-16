@@ -7,9 +7,11 @@ import { createChainList } from '../../../src/services/chain-list';
 import { determineDestinationSwaps } from '../../../src/swap/algorithms/destination';
 import { liquidateInputHoldings } from '../../../src/swap/algorithms/liquidate';
 import { CurrencyID } from '../../../src/swap/cot';
+import { createSwapIntent } from '../../../src/swap/intent';
 import { buildSwapPreflight } from '../../../src/swap/preflight';
 import { determineSwapRoute, type RouteOptions } from '../../../src/swap/route';
 import { selectStableSettlement } from '../../../src/swap/routing/settlement';
+import { filterExactOutBalances } from '../../../src/swap/routing/holdings';
 import { type SwapData, SwapMode } from '../../../src/swap/types';
 import { testDeployment } from '../../fixtures/deployment';
 import { makeOraclePrice } from '../../helpers/balances';
@@ -48,9 +50,12 @@ describe('native USDC settlement', () => {
       { source: BASE_CHAIN, sourceToken: baseUsdc, destination: ARC_CHAIN, token: ZERO_ADDRESS },
       { source: BASE_CHAIN, sourceToken: baseUsdc, destination: ARC_CHAIN, token: EADDRESS },
       { source: BASE_CHAIN, sourceToken: baseUsdc, destination: ARC_CHAIN, token: arcErc20Usdc },
+      { source: ARC_CHAIN, sourceToken: EADDRESS, requestedToken: ZERO_ADDRESS, destination: BASE_CHAIN, token: baseUsdc },
+      { source: ARC_CHAIN, sourceToken: ZERO_ADDRESS, requestedToken: EADDRESS, destination: BASE_CHAIN, token: baseUsdc },
     ])('bridges $source → $destination with native address $token / $sourceToken', async ({
       source,
       sourceToken,
+      requestedToken,
       destination,
       token,
     }) => {
@@ -115,7 +120,11 @@ describe('native USDC settlement', () => {
           },
         },
       };
-      const data = { toChainId: destination, toTokenAddress: token };
+      const data = {
+        toChainId: destination,
+        toTokenAddress: token,
+        sources: requestedToken ? [{ chainId: source, tokenAddress: requestedToken }] : undefined,
+      };
       const input: SwapData =
         mode === SwapMode.EXACT_IN
           ? { mode, data: validateSwapExactIn(data) }
@@ -156,7 +165,34 @@ describe('native USDC settlement', () => {
       expect(route.source.swaps).toEqual([]);
       expect(route.destination.swap).toEqual({ tokenSwap: null, gasSwap: null });
       expect(getQuotes).not.toHaveBeenCalled();
+      expect(createSwapIntent(route, input, chainList).sources).toMatchObject([
+        { amount: '10', value: '10', token: { contractAddress: sourceToken } },
+      ]);
     });
+  });
+
+  it.each([ZERO_ADDRESS, EADDRESS])('reserves destination native balances with alias %s', (tokenAddress) => {
+    const balances = [{
+      chainID: ARC_CHAIN,
+      tokenAddress,
+      amount: '10',
+      decimals: 18,
+      symbol: 'USDC',
+      name: 'USD Coin',
+      logo: '',
+      value: 10,
+    }];
+    const destinationToken = tokenAddress === ZERO_ADDRESS ? EADDRESS : ZERO_ADDRESS;
+    const data = { toChainId: ARC_CHAIN, toTokenAddress: destinationToken, toAmountRaw: parseUnits('3', 18) };
+    const destinationChain = chainList.getChainByID(ARC_CHAIN);
+
+    expect(filterExactOutBalances(balances, data, destinationChain, 18)).toEqual([]);
+    expect(filterExactOutBalances(balances, { ...data, toAmountRaw: -data.toAmountRaw }, destinationChain, 18))
+      .toEqual([{ ...balances[0], amount: '7', value: 7 }]);
+    expect(filterExactOutBalances(balances, { ...data, toAmountRaw: 0n, toNativeAmountRaw: parseUnits('1', 18) }, destinationChain, 18))
+      .toEqual([]);
+    expect(filterExactOutBalances(balances, { ...data, toAmountRaw: 0n, toNativeAmountRaw: -parseUnits('1', 18) }, destinationChain, 18))
+      .toEqual([{ ...balances[0], amount: '9', value: 9 }]);
   });
 
   it('skips liquidation when a native holding already is the COT', async () => {

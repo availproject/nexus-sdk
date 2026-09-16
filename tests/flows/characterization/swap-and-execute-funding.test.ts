@@ -416,6 +416,17 @@ describe('swapAndExecute funding decision', () => {
     ).rejects.toThrow(/requested sources/i);
   });
 
+  it('accepts the zero address in sources when the native balance uses EADDRESS', async () => {
+    const { swapInput } = await run({
+      balances: [bal(NATIVE, '1', 18, 'ETH', 3000)],
+      sources: [{ chainId: ARB_CHAIN, tokenAddress: ZERO_ADDRESS }],
+    });
+
+    const swapParams = requireExactOutInput(swapInput);
+    expect(swapParams.toAmountRaw).toBe(REQUIRED);
+    expect(swapParams.toNativeAmountRaw).toBeLessThan(0n);
+  });
+
   it('case 10 · unknown destination token absent from balances → funding swap acquires it (no error)', async () => {
     // Same unknown dst token as case 6, but the user does NOT hold it. It still resolves (on-chain
     // metadata, not the deployment list), produces a full shortfall, and the funding swap targets it

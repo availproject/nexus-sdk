@@ -160,9 +160,10 @@ Exact Out (including `swapAndExecute`) scores its rough eligible prefix but requ
 every usable source chain. ETH remains available to the same-token bridge path but is not a general
 settlement candidate. Equal scores keep the current COT; an unavailable bridge quote fails routing.
 
-COT scoring and source/destination token comparisons treat `ZERO_ADDRESS` and `EADDRESS` as the
-same native token on a chain. A native settlement currency (for example, USDC on Arc) is used
-directly and does not need an aggregator swap into itself.
+COT scoring, explicit source allowlists, destination comparisons, and balance reservations treat
+`ZERO_ADDRESS` and `EADDRESS` as the same native token on a chain. Selected sources retain the
+balance's token address so value lookups remain consistent. A native settlement currency (for
+example, USDC on Arc) is used directly and does not need an aggregator swap into itself.
 
 At the public swap input boundary, Arc mainnet (`5042`) destination USDC
 (`0x3600000000000000000000000000000000000000`) is normalized to `ZERO_ADDRESS` before metadata
