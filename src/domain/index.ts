@@ -4,7 +4,6 @@ export * from './errors';
 export * from './permits';
 export * from './types';
 export * from './types/contract-types';
-export * from './types/deployment-types';
 export * from './utils/format';
 export * from './utils/logger';
 export * from './utils/validation';

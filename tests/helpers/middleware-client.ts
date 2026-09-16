@@ -4,7 +4,6 @@ import type { MiddlewareClient } from '../../src/transport';
 export const makeMiddlewareClient = (
   overrides: Partial<MiddlewareClient> = {}
 ): MiddlewareClient => ({
-  getDeployment: async () => ({}) as never,
   getIntentChains: async () => [],
   getIntentBalances: async () => ({ balances: [], errored: false }),
   getIntentQuote: async () => {

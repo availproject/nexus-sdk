@@ -2,11 +2,11 @@ import { describe, it } from 'vitest';
 import type { ExecuteParams } from '../../src/domain';
 import { execute } from '../../src/flows/execute';
 import { createChainList } from '../../src/services/chain-list';
-import { testDeployment } from '../fixtures/deployment';
+import { testChains } from '../fixtures/chains';
 import { expectInvalidInput } from '../helpers/expect-invalid-input';
 
 const makeQuery = () => {
-  const chainList = createChainList(testDeployment);
+  const chainList = createChainList(testChains);
   const evmClient = {
     getAddresses: async () => ['0x0000000000000000000000000000000000000001'],
     sendTransaction: async () => '0x' as `0x${string}`,

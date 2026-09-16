@@ -4,7 +4,6 @@ import type { Hex } from 'viem';
 import { createNexusClient } from '../../src';
 import { getIntentQuoteFailure } from '../../src/intent/errors';
 import { createMiddlewareClient } from '../../src/transport/middleware';
-import { testDeployment } from '../fixtures/deployment';
 
 vi.mock('axios', () => ({ default: { create: vi.fn() } }));
 
@@ -44,7 +43,7 @@ describe('Better Intent middleware transport', () => {
   it('sends the public client identity on Better Intent requests', async () => {
     const { default: realAxios } = await vi.importActual<typeof import('axios')>('axios');
     const adapter = vi.fn<AxiosAdapter>(async (config) => ({
-      data: config.url === '/deployment' ? testDeployment : [],
+      data: [],
       status: 200,
       statusText: 'OK',
       headers: {},
@@ -62,6 +61,7 @@ describe('Better Intent middleware transport', () => {
         .map(([config]) => config)
         .filter(({ url }) => url?.startsWith('/api/v1/intent/'));
       expect(requests).toHaveLength(1);
+      expect(adapter.mock.calls.map(([config]) => config.url)).toEqual(['/api/v1/intent/chains']);
       expect(requests[0]?.headers.toJSON()).toMatchObject({
         'x-nexus-client-id': 'My.App',
         'x-nexus-surface': 'nexus-sdk',

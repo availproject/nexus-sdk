@@ -33,8 +33,8 @@ Vitest is the test runner. Mirror `src/` under `tests/` where practical.
   and the canonical orchestrator.
 - `src/execute/` owns reusable EVM execute internals.
 - `src/flows/` stays thin and currently contains only the execute entrypoint/dependencies.
-- `src/transport/` owns deployment and Better Intent HTTP requests.
-- `src/domain/` owns shared primitives, validation, logging, deployment types, and errors.
+- `src/transport/` owns Better Intent HTTP requests.
+- `src/domain/` owns shared primitives, validation, logging, and errors.
 - `src/services/` contains cross-feature helpers only.
 - `src/swap/` contains public swap input types; it must not grow a local routing engine.
 
@@ -86,8 +86,12 @@ both the requested output and the later execute value/gas.
 ## Intent request construction
 
 - Same-asset cross-chain moves use swaps with explicit chain IDs and token addresses.
-- Exact-output swap may omit sources for server selection.
+- Exact-output swap may omit sources; the SDK filters the cached catalog to compatible candidates
+  before server balance selection. Never omit source filters after removing every candidate.
 - Exact-input swap requires explicit chain, token address, and positive `amountRaw` on every source.
+- Exact-input sources and destination must share one provider across chain and token directional
+  support. Exact-output candidates need individual compatibility with the destination. These checks
+  use the initialization cache; middleware still decides route feasibility.
 - Default slippage is 50 basis points unless the caller supplies another valid value or `auto`.
 - `forceMayan` is a preferred-provider request; never calculate provider thresholds locally.
 

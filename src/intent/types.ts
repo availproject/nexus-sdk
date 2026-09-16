@@ -35,6 +35,11 @@ export type IntentChain = {
   logo?: string;
   explorerUrl?: string;
   rpcUrl?: string;
+  vaultAddress?: Hex;
+  multicallAddress?: Hex;
+  sponsored?: boolean;
+  eip7702Enabled?: boolean;
+  swapSupported?: boolean;
   nativeCurrency: {
     name: string;
     symbol: string;
