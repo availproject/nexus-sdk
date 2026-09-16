@@ -160,6 +160,10 @@ Exact Out (including `swapAndExecute`) scores its rough eligible prefix but requ
 every usable source chain. ETH remains available to the same-token bridge path but is not a general
 settlement candidate. Equal scores keep the current COT; an unavailable bridge quote fails routing.
 
+COT scoring and source/destination token comparisons treat `ZERO_ADDRESS` and `EADDRESS` as the
+same native token on a chain. A native settlement currency (for example, USDC on Arc) is used
+directly and does not need an aggregator swap into itself.
+
 Mixed Exact-In routes leave destination-chain holdings already denominated in the requested token
 untouched. That identity output is included in `onIntent`, `assetsUsed`, and `calculateMaxForSwap`,
 but creates no plan step or transaction. Max-amount haircuts apply only to the routed portion.

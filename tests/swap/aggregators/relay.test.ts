@@ -181,6 +181,7 @@ describe('RelayAggregator supportsChain', () => {
 
   it('reports listed chains as supported', () => {
     expect(agg.supportsChain(1)).toBe(true);
+    expect(agg.supportsChain(5042)).toBe(true);
     expect(agg.supportsChain(8453)).toBe(true);
     expect(agg.supportsChain(42161)).toBe(true);
   });

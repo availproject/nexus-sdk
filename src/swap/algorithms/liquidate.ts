@@ -1,6 +1,5 @@
 import type { Hex } from 'viem';
 import type { ChainListType } from '../../domain';
-import { equalFold } from '../../services/strings';
 import {
   AggregateMode,
   type Aggregator,
@@ -10,7 +9,7 @@ import {
   QuoteSeriousness,
   QuoteType,
 } from '../aggregators';
-import type { CurrencyID } from '../cot';
+import { type CurrencyID, isSameSwapToken } from '../cot';
 import { requireRequestAddresses } from './auto-select';
 
 // ---------------------------------------------------------------------------
@@ -50,10 +49,10 @@ export const liquidateInputHoldings = async (input: LiquidateInput): Promise<Quo
   // Filter out holdings already in the target token — the per-chain COT by default, or the fixed
   // destination token for Path A. Those transfer directly without a swap.
   const swappable = holdings.filter((h) => {
-    if (outputToken) return !equalFold(h.tokenAddress, outputToken.contractAddress);
+    if (outputToken) return !isSameSwapToken(h.tokenAddress, outputToken.contractAddress);
     const cot = input.chainList.getTokenByCurrencyId(h.chainID, input.cotCurrencyId);
     if (!cot) return true; // no COT for chain = treat as non-COT
-    return !equalFold(h.tokenAddress, cot.contractAddress);
+    return !isSameSwapToken(h.tokenAddress, cot.contractAddress);
   });
 
   if (swappable.length === 0) return [];

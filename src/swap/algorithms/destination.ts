@@ -2,7 +2,6 @@ import Decimal from 'decimal.js';
 import type { Hex } from 'viem';
 import type { ChainListType } from '../../domain/types';
 import { logger } from '../../domain/utils/logger';
-import { equalFold } from '../../services/strings';
 import {
   AggregateMode,
   type Aggregator,
@@ -13,7 +12,7 @@ import {
   type RouterExclusions,
 } from '../aggregators';
 import { EADDRESS } from '../constants';
-import { CurrencyID } from '../cot';
+import { CurrencyID, isSameSwapToken } from '../cot';
 import {
   convergeExactIn,
   firstSuccess,
@@ -68,7 +67,7 @@ export const determineDestinationSwaps = async ({
   const cot = options.chainList.getTokenByCurrencyId(dst.chainId, cotCurrencyID);
 
   // No swap needed if destination token IS COT
-  if (equalFold(dst.token.contractAddress, cot.contractAddress)) {
+  if (isSameSwapToken(dst.token.contractAddress, cot.contractAddress)) {
     return null;
   }
 

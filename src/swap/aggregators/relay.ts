@@ -27,6 +27,7 @@ const SUPPORTED_CHAINS = new Set<number>([
   143, // Monad
   999, // HyperEVM
   4326, // MegaETH
+  5042, // Arc
   8453, // Base
   42161, // Arbitrum
   43114, // Avalanche

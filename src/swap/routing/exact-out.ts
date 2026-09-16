@@ -20,7 +20,7 @@ import {
   STABLE_SRC_BUFFER_MAX_USD,
   STABLE_SRC_BUFFER_PCT,
 } from '../constants';
-import { type CurrencyID, resolveCOT, resolveCurrencyId } from '../cot';
+import { type CurrencyID, isSameSwapToken, resolveCOT, resolveCurrencyId } from '../cot';
 import type { RouteOptions } from '../route';
 import type {
   AssetsUsedEntry,
@@ -193,7 +193,8 @@ const resolveExactOutDestinationRequirement = async (
   dstCOT: ResolvedCot,
   estimatedInputAmountRaw?: Decimal
 ) => {
-  const needsTokenSwap = data.toAmountRaw > 0n && !equalFold(data.toTokenAddress, dstCOT.address);
+  const needsTokenSwap =
+    data.toAmountRaw > 0n && !isSameSwapToken(data.toTokenAddress, dstCOT.address);
   const requestedNativeAmountRaw =
     data.toNativeAmountRaw != null && data.toNativeAmountRaw > 0n ? data.toNativeAmountRaw : 0n;
   const needsGasSwap = requestedNativeAmountRaw > 0n;
@@ -1013,7 +1014,7 @@ function resolveSourceBufferConfig(
   let needsSourceSwap = false;
   for (const source of sources) {
     const settlementToken = resolveCOT(source.chainID, chainList, settlementCurrencyId);
-    if (equalFold(source.tokenAddress, settlementToken.address)) continue;
+    if (isSameSwapToken(source.tokenAddress, settlementToken.address)) continue;
     needsSourceSwap = true;
     if (
       !STABLE_SETTLEMENT_CURRENCY_IDS.has(

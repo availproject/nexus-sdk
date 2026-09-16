@@ -4,7 +4,6 @@ import { Errors } from '../../domain/errors';
 import type { ChainListType } from '../../domain/types';
 import { logger } from '../../domain/utils/logger';
 import { divDecimals, mulDecimals } from '../../services/math';
-import { equalFold } from '../../services/strings';
 import {
   AggregateMode,
   type Aggregator,
@@ -16,7 +15,7 @@ import {
   QuoteType,
   type RouterExclusions,
 } from '../aggregators';
-import type { CurrencyID } from '../cot';
+import { type CurrencyID, isSameSwapToken } from '../cot';
 import { convergeExactIn, firstSuccess, timedCandidate, tryExactOutDirect } from './convergence';
 import { filterMayanSourcesByChain } from './mayan-floor';
 
@@ -144,7 +143,7 @@ export const autoSelectSources = async (input: AutoSelectInput): Promise<AutoSel
   // Phase 1: Classify holdings as target-token (identity, used directly) vs swappable
   const items: QueueItem[] = holdings.map((h, idx) => {
     const target = targetTokenFor(h.chainID);
-    const isCOT = equalFold(h.tokenAddress, target.contractAddress);
+    const isCOT = isSameSwapToken(h.tokenAddress, target.contractAddress);
     const amount = divDecimals(h.amountRaw, h.decimals);
     return { holding: h, idx, isCOT, amount, value: h.value };
   });
@@ -347,7 +346,7 @@ export const selectDirectDestinationSwaps = async (
   const items: QueueItem[] = input.holdings.map((h, idx) => ({
     holding: h,
     idx,
-    isCOT: equalFold(h.tokenAddress, target.contractAddress),
+    isCOT: isSameSwapToken(h.tokenAddress, target.contractAddress),
     amount: divDecimals(h.amountRaw, h.decimals),
     value: h.value,
   }));

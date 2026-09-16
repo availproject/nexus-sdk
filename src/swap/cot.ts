@@ -2,6 +2,7 @@ import type { Hex } from 'viem';
 import type { ChainListType } from '../domain';
 import { Errors } from '../domain/errors';
 import { isNativeAddress } from '../services/addresses';
+import { equalFold } from '../services/strings';
 import { SwapMode } from './types';
 
 export enum CurrencyID {
@@ -11,6 +12,11 @@ export enum CurrencyID {
 }
 
 export const DEFAULT_CURRENCY_ID = CurrencyID.USDC;
+
+// Compare token addresses on the same chain. Balances use EADDRESS for native, while
+// deployment token lookups and caller inputs can use ZERO_ADDRESS.
+export const isSameSwapToken = (a: Hex, b: Hex): boolean =>
+  equalFold(a, b) || (isNativeAddress(a) && isNativeAddress(b));
 
 export type ResolvedCOT = {
   address: Hex;

@@ -1,9 +1,8 @@
 import type { Hex } from 'viem';
 import type { ChainListType } from '../../domain';
 import { logger } from '../../domain/utils/logger';
-import { equalFold } from '../../services/strings';
 import { STABLE_SETTLEMENT_CURRENCY_IDS } from '../constants';
-import { resolveCOT } from '../cot';
+import { isSameSwapToken, resolveCOT } from '../cot';
 
 type SettlementHolding = { chainID: number; tokenAddress: Hex };
 
@@ -32,10 +31,10 @@ export const selectStableSettlement = (input: {
         (holding) =>
           !(
             holding.chainID === input.destinationChainId &&
-            equalFold(holding.tokenAddress, input.destinationTokenAddress)
-          ) && !equalFold(holding.tokenAddress, tokensByChain.get(holding.chainID) as Hex)
+            isSameSwapToken(holding.tokenAddress, input.destinationTokenAddress)
+          ) && !isSameSwapToken(holding.tokenAddress, tokensByChain.get(holding.chainID) as Hex)
       ).length;
-      const destinationLeg = equalFold(
+      const destinationLeg = isSameSwapToken(
         tokensByChain.get(input.destinationChainId) as Hex,
         input.destinationTokenAddress
       )
