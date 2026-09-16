@@ -22,7 +22,7 @@ const makeInterceptorStore = <T>(): InterceptorStore<T> => {
 };
 
 describe('installAxiosNetworkTiming', () => {
-  it('starts and ends spans for request/response lifecycle', async () => {
+  it.each([undefined, 'attempt-1'])('starts and ends spans for request/response lifecycle (attempt=%s)', async (attemptId) => {
     const request = makeInterceptorStore<(config: any) => any>();
     const responseSuccess = makeInterceptorStore<(response: any) => any>();
     const responseError = makeInterceptorStore<(error: any) => Promise<never>>();
@@ -58,7 +58,7 @@ describe('installAxiosNetworkTiming', () => {
       },
     });
 
-    const config = { method: 'get', url: '/api/v1/rffs' };
+    const config = { method: 'get', url: '/api/v1/rffs', headers: { 'x-request-id': attemptId } };
     const requestHandler = request.handlers[0];
     expect(requestHandler).toBeTypeOf('function');
     const nextConfig = requestHandler!(config);
@@ -69,6 +69,7 @@ describe('installAxiosNetworkTiming', () => {
     successHandler!({ config, data: {} });
 
     expect(startSpan).toHaveBeenCalledWith('network.middleware.request', {
+      ...(attemptId ? { parentSpanId: attemptId } : {}),
       tags: { method: 'GET', url: '/api/v1/rffs' },
     });
     expect(endSpan).toHaveBeenCalledWith('span_1', { success: true });

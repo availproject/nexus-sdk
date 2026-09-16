@@ -104,7 +104,7 @@ All intent methods use `options.hooks`:
 - swap operations: `onIntent`
 - swap-and-execute: `onIntent` plus top-level `beforeExecute`
 
-`onIntent` receives `{ quote, allow, deny, refresh }`. A refreshed quote replaces the complete
+`onIntent` receives `{ quote, allow, deny, refresh, attemptId }`. A refreshed quote replaces the complete
 executable quote. Do not update only its public or private half.
 
 ERC-20 approvals use the quote's minimum required amounts. Sponsored source approvals use the
@@ -181,6 +181,12 @@ a failure path. See [`src/domain/utils/logs.md`](../src/domain/utils/logs.md).
 
 Public method failures are emitted at the operation boundary. Categorize once near the failing
 boundary; do not repeatedly wrap a `NexusError`.
+
+Use the internal reason mapping in `src/services/error-reporting.ts` for product reporting. Preserve
+public codes/categories/messages. Events carry bounded reasons; messages, stacks, and raw middleware
+diagnostics stay in sanitized OTel logs. Client/session/attempt IDs are per-record attributes, never
+metric labels or global logger resources. Keep one canonical outcome per payment attempt, and do
+not turn a polling error into a confirmed delivery failure. See [TELEMETRY.md](TELEMETRY.md).
 
 ## Refactoring
 

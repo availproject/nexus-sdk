@@ -62,7 +62,7 @@ describe('cached provider checks before quoting', () => {
     expect(ctx.getIntentQuote).toHaveBeenCalledWith(expect.objectContaining({ input: [
       { chainId: 'EVM_10', token: TOKEN, amount: '10' },
       { chainId: 'EVM_8453', token: TOKEN, amount: '10' },
-    ] }));
+    ] }), undefined);
     expect(ctx.getIntentChains).not.toHaveBeenCalled();
     expect(ctx.getIntentBalances).not.toHaveBeenCalled();
   });
@@ -95,7 +95,7 @@ describe('cached provider checks before quoting', () => {
       .rejects.toBe(ctx.reachedQuote);
     expect(ctx.getIntentQuote).toHaveBeenCalledWith(expect.objectContaining({
       sources: [{ chainId: 'EVM_10', tokens: [TOKEN] }],
-    }));
+    }), undefined);
     expect(ctx.getIntentChains).not.toHaveBeenCalled();
     expect(ctx.getIntentBalances).not.toHaveBeenCalled();
   });
@@ -108,7 +108,7 @@ describe('cached provider checks before quoting', () => {
       .rejects.toBe(ctx.reachedQuote);
     expect(ctx.getIntentQuote).toHaveBeenCalledWith(expect.objectContaining({ sources: [
       { chainId: 'EVM_10', tokens: [TOKEN] }, { chainId: 'EVM_8453', tokens: [TOKEN] },
-    ] }));
+    ] }), undefined);
   });
 
   it('groups and deduplicates exact-output tokens by chain while preserving user filters', async () => {
@@ -119,12 +119,12 @@ describe('cached provider checks before quoting', () => {
       .rejects.toBe(ctx.reachedQuote);
     expect(ctx.getIntentQuote).toHaveBeenLastCalledWith(expect.objectContaining({ sources: [
       { chainId: 'EVM_10', tokens: [TOKEN] },
-    ] }));
+    ] }), undefined);
     await expect(ctx.base.swapWithExactOut({ ...destination, toAmountRaw: 10n }))
       .rejects.toBe(ctx.reachedQuote);
     expect(ctx.getIntentQuote).toHaveBeenLastCalledWith(expect.objectContaining({ sources: [
       { chainId: 'EVM_10', tokens: [TOKEN, OTHER_TOKEN] },
-    ] }));
+    ] }), undefined);
   });
 
   it('errors when every selected source is filtered instead of broadening to all sources', async () => {

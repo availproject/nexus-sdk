@@ -340,6 +340,8 @@ export type IntentTransaction = {
 };
 
 export type IntentResult = {
+  /** SDK payment attempt correlation ID; shared across quote refreshes. */
+  attemptId?: string;
   intentId: Hex;
   intentExplorerUrl: string;
   quote: IntentQuote;
@@ -388,6 +390,8 @@ export type IntentSource = {
 };
 
 export type IntentHookData = {
+  /** SDK payment attempt correlation ID, available before commitment. */
+  attemptId?: string;
   quote: IntentQuote;
   allow: () => void;
   deny: () => void;

@@ -26,8 +26,8 @@ await client.setEVMProvider(window.ethereum);
 ```
 
 `clientId` is required and must be a non-empty, stable identifier for your application.
-The SDK sends it as `x-nexus-client-id`, along with `x-nexus-surface: nexus-sdk`,
-on every Better Intent middleware request.
+The SDK sends it as `x-nexus-client-id`, along with `x-nexus-surface: nexus-sdk` and
+`x-nexus-surface-version` (the SDK package version), on every intent middleware request.
 
 Create a new client after the connected account or provider changes. Call `destroy()` when the
 client is no longer used.
@@ -207,6 +207,7 @@ the SDK category, code, service, step context, and middleware details when avail
 
 ```ts
 type IntentResult = {
+  attemptId?: string;
   intentId: `0x${string}`;
   intentExplorerUrl: string;
   quote: IntentQuote;
@@ -224,6 +225,10 @@ trade type, and the canonical execution plan. Raw RFF payloads, signing payload 
 submit serialization stay private to the transport layer.
 
 `SwapResult` is an alias of `IntentResult`.
+
+SDK swap calls expose `attemptId` in `hooks.onIntent` and the returned result. It identifies one
+payment attempt across quote refreshes, source legs, submission, and delivery. A new swap call
+gets a new ID. Use it alongside `intentId` when investigating an operation.
 
 ## Balances and catalog
 
@@ -257,12 +262,14 @@ support on chains and tokens, while keeping their existing `contractAddress` tok
 ```ts
 import { getSupportedChains } from '@avail-project/nexus-core/utils';
 
-const chains = await getSupportedChains('mainnet');
+const chains = await getSupportedChains('mainnet', { clientId: 'your-app-name' });
 console.log(chains[0].asSource, chains[0].asDestination);
 console.log(chains[0].tokens[0].asSource, chains[0].tokens[0].asDestination);
 ```
 
 These utilities fetch their own catalog; `client.getSupportedChains()` uses the initialization cache.
+The standalone utility requires an explicit `clientId` at runtime. `client.utils.getSupportedChains('mainnet')`
+uses the ID configured on that client.
 
 Chain and token `asSource` and `asDestination` arrays describe general provider support. The SDK
 uses both levels for swap prechecks, including quote refreshes, without fetching another catalog.
@@ -438,6 +445,23 @@ try {
   }
 }
 ```
+
+## Error reporting
+
+Internal telemetry records a bounded `reason.bucket` alongside the existing SDK error code and
+category. Public error codes, categories, and display messages retain their meanings.
+
+Payment reporting distinguishes `completed`, `stopped`, `rejected`, and `failed`. User declines
+before commitment are stopped; system errors before commitment are rejected. Middleware status
+confirms delivery or expiry. A timeout or lost connection after commitment records an observation
+error with `attempt.pending: true`; check the intent status before retrying.
+
+Swap delivery completes the payment attempt even when a later `swapAndExecute` contract call fails.
+Partial balance responses return the available balances and emit a separate partial-response event.
+
+See [the SDK telemetry contract](docs/TELEMETRY.md) for event names, internal reason buckets,
+privacy boundaries, and reconciliation requirements. Product analytics configuration controls
+PostHog; diagnostic OTel logging remains independent, as with existing error logs.
 
 ## Migration from bridge APIs
 

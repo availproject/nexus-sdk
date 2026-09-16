@@ -69,7 +69,9 @@ import { version } from '../../package.json' with { type: 'json' };
 import type { ChainListType, TimingSpanHooks } from '../domain';
 import { type OperationName, toError } from '../domain/errors';
 import { getLogger } from '../domain/utils/logger';
+import { getErrorReportingProperties } from '../services/error-reporting';
 import { reportOperationError } from '../services/error-telemetry';
+import { reportTelemetryEvent } from '../services/telemetry';
 import type { NexusOperationName } from './events';
 import { type NexusAnalyticsEvent, NexusAnalyticsEvents } from './events';
 import { PerformanceTracker } from './performance';
@@ -154,13 +156,16 @@ export class AnalyticsManager {
   private sdkVersion: string;
   private network?: AnalyticsNetwork;
   private chainListGetter?: () => ChainListType | null | undefined;
+  private clientId?: string;
 
   constructor(
     network: AnalyticsNetwork,
     config?: AnalyticsConfig,
     devTiming?: DevTimingConfig,
-    chainListGetter?: () => ChainListType | null | undefined
+    chainListGetter?: () => ChainListType | null | undefined,
+    clientId?: string
   ) {
+    this.clientId = clientId;
     this.chainListGetter = chainListGetter;
     this.config = config || { enabled: true };
     this.devTiming = this.resolveDevTimingConfig(devTiming);
@@ -302,6 +307,7 @@ export class AnalyticsManager {
    */
   private registerGlobalProperties(): void {
     const globalProps: Record<string, unknown> = {
+      ...this.getTelemetryIdentity(),
       sdkVersion: this.sdkVersion,
       sessionId: this.session.getSessionId(),
     };
@@ -438,6 +444,7 @@ export class AnalyticsManager {
 
     const eventProps: Record<string, unknown> = {
       ...sanitized,
+      ...this.getTelemetryIdentity(),
       timestamp: new Date().toISOString(),
     };
 
@@ -451,7 +458,11 @@ export class AnalyticsManager {
       salt: this.session.getSessionId().substring(0, 16),
     }) as Record<string, unknown>;
 
-    this.provider.track(event, normalized);
+    try {
+      this.provider.track(event, normalized);
+    } catch (error) {
+      logger.warn('Analytics event emission failed', { event, error });
+    }
 
     if (this.config.debug) {
       logger.debug(`[AnalyticsManager] Event tracked: ${event}`, eventProps);
@@ -706,6 +717,23 @@ export class AnalyticsManager {
     return this.session.getSessionId();
   }
 
+  /** @internal Per-record identity; never store client or session IDs on shared resources. */
+  getTelemetryIdentity(): Record<string, string> {
+    return {
+      ...(this.clientId ? { 'nexus.client.id': this.clientId } : {}),
+      'surface.name': 'nexus-sdk',
+      'surface.version': this.sdkVersion,
+      'session.id': this.session.getSessionId(),
+      network: this.network ?? 'mainnet',
+    };
+  }
+
+  /** @internal Emit the same bounded lifecycle record to product analytics and OTel. */
+  reportEvent(event: NexusAnalyticsEvent, properties: Record<string, unknown>): void {
+    this.track(event, properties);
+    reportTelemetryEvent(event, { ...properties, ...this.getTelemetryIdentity() });
+  }
+
   /**
    * Get the underlying provider (for advanced usage)
    */
@@ -752,9 +780,8 @@ export class AnalyticsManager {
   // `startOperation` → run → `track(SUCCESS)` + `endOperation(success)` on
   // the happy path, or `trackPlanRejectedIfApplicable` (when configured) +
   // `track(FAILED)` + `reportOperationError` + `endOperation(failure)` +
-  // `throw` on the catch path. PostHog payloads carry only input-param
-  // context — error details (message, code, category, step ids) flow
-  // exclusively through OTel.
+  // `throw` on the catch path. Product events carry bounded reason metadata;
+  // messages, stacks, and raw diagnostics remain exclusively in OTel logs.
   // ──────────────────────────────────────────────────────────────────────────
 
   /**
@@ -781,28 +808,46 @@ export class AnalyticsManager {
     run: (opId: string) => Promise<TResult>;
     success?: (result: TResult) => Record<string, unknown>;
     selectSuccessEvent?: (result: TResult) => NexusAnalyticsEvent;
+    operationId?: string;
+    properties?: () => Record<string, unknown>;
+    selectFailureEvent?: (error: unknown) => NexusAnalyticsEvent | null;
   }): Promise<TResult> {
+    const opId = cfg.operationId ?? this.startOperation(cfg.opName);
+    const properties = () => ({ 'operation.id': opId, ...cfg.properties?.() });
     if (cfg.events.initiated) {
-      this.track(cfg.events.initiated, cfg.initiatedProps);
+      this.track(cfg.events.initiated, { ...cfg.initiatedProps, ...properties() });
     }
-    const opId = this.startOperation(cfg.opName);
     try {
       const result = await cfg.run(opId);
       const successEvent = cfg.selectSuccessEvent?.(result) ?? cfg.events.success;
       const successAdditional = cfg.success?.(result) ?? {};
-      this.track(successEvent, { ...(cfg.initiatedProps ?? {}), ...successAdditional });
+      this.reportEvent(successEvent, {
+        ...cfg.initiatedProps,
+        ...successAdditional,
+        ...properties(),
+      });
       this.endOperation(opId, { success: true });
       return result;
     } catch (error) {
       if (cfg.events.planRejected) {
         this.trackPlanRejectedIfApplicable(error, cfg.events.planRejected);
       }
-      this.track(cfg.events.failed, cfg.failedProps ?? cfg.initiatedProps);
+      const failureEvent = cfg.selectFailureEvent
+        ? cfg.selectFailureEvent(error)
+        : cfg.events.failed;
+      if (failureEvent) {
+        this.track(failureEvent, {
+          ...(cfg.failedProps ?? cfg.initiatedProps),
+          ...properties(),
+          ...getErrorReportingProperties(error),
+        });
+      }
       reportOperationError({
         operation: cfg.operation,
         operationId: opId,
         params: cfg.params,
         options: cfg.options,
+        attributes: { ...this.getTelemetryIdentity(), ...properties() },
         error,
       });
       this.endOperation(opId, { success: false, error: toError(error) });

@@ -4,6 +4,18 @@
  */
 
 export const NexusAnalyticsEvents = {
+  // Payment attempt contract v1. Only INTENT_OUTCOME represents a terminal outcome.
+  INTENT_STARTED: 'nexus_v2_intent_started',
+  INTENT_QUOTED: 'nexus_v2_intent_quoted',
+  INTENT_COMMITTED: 'nexus_v2_intent_committed',
+  INTENT_TRANSACTION: 'nexus_v2_intent_transaction',
+  INTENT_SOURCE_STATUS: 'nexus_v2_intent_source_status',
+  INTENT_DELIVERED: 'nexus_v2_intent_delivered',
+  INTENT_OUTCOME: 'nexus_v2_intent_outcome',
+  INTENT_OBSERVATION_FAILED: 'nexus_v2_intent_observation_failed',
+  INTENT_QUOTE_REFRESH_FAILED: 'nexus_v2_intent_quote_refresh_failed',
+  INTENT_SKIPPED: 'nexus_v2_intent_skipped',
+  BALANCES_FETCH_PARTIAL: 'nexus_v2_balances_fetch_partial',
   // SDK Lifecycle
   /** Fires after the SDK has connected to its backing services and is ready for operations. */
   SDK_INITIALIZED: 'nexus_v2_sdk_initialized',
