@@ -1,102 +1,52 @@
 import { describe, expect, it } from 'vitest';
+import { ZERO_ADDRESS } from '../../src/domain';
 import { createChainList } from '../../src/services/chain-list';
-import type { DeploymentResponse } from '../../src/domain/types/deployment-types';
+import { testChains } from '../fixtures/chains';
 
-const makeDeployment = (overrides?: Partial<DeploymentResponse>): DeploymentResponse => ({
-  network: 'testnet',
-  statekeeperUrl: 'https://statekeeper.example',
-  fulfillmentBps: 0,
-  mayanEnabled: false,
-  mayanThresholdUsd: 0,
-  mayanCancelRefundMaxPercentage: 0,
-  chains: [
-    {
-      chainId: 1,
-      universe: 'EVM',
-      name: 'Ethereum',
-      rpcUrl: 'https://rpc.example',
-      vaultAddress: '0x0000000000000000000000000000000000000001',
-      multicallAddress: '0x00000000000000000000000000000000000000aa',
-      nativeCurrency: {
-        name: 'Ether',
-        symbol: 'ETH',
-        decimals: 18,
-        logo: 'https://example.com/eth.png',
-        currencyId: 3,
-      },
-      sponsored: false,
-      tokens: [
-        {
-          symbol: 'USDC',
-          name: 'USD Coin',
-          address: '0x0000000000000000000000000000000000000003',
-          decimals: 6,
-          balanceSlot: 9,
-          logo: 'https://example.com/usdc.png',
-          permitVariant: 2,
-          permitVersion: 1,
-          currencyId: 1,
-        },
-      ],
-      explorerUrl: 'https://etherscan.io',
-      logo: 'https://example.com/chain.png',
-    },
-  ],
-  ...overrides,
-});
-
-describe('createChainList', () => {
-  it('threads currencyId, permitVariant, and permitVersion into knownTokens', () => {
-    const chainList = createChainList(makeDeployment());
-    const token = chainList.chains[0].custom.knownTokens[0];
-
-    expect(token.currencyId).toBe(1);
-    expect(token.permitVariant).toBe(2);
-    expect(token.permitVersion).toBe(1);
+describe('createChainList from the intent catalog', () => {
+  it('preserves execution metadata and Nexus currency IDs from token support', () => {
+    const list = createChainList(testChains);
+    expect(list.getChainByID(1)).toMatchObject({
+      multicallAddress: testChains[0].multicallAddress,
+      supports7702: true, swapSupported: true,
+      nativeCurrency: { currencyId: 3, decimals: 18 },
+    });
+    expect(list.getVaultContractAddress(1)).toBe(testChains[0].vaultAddress);
+    expect(list.getTokenByCurrencyId(1, 1)).toMatchObject({
+      symbol: 'USDC', decimals: 6, permitVariant: 1, permitVersion: 2, mayanEnabled: true,
+    });
+    expect(list.getTokenByCurrencyId(1, 3)).toMatchObject({ contractAddress: ZERO_ADDRESS, symbol: 'ETH' });
+    expect(list.getChainAndTokenByAddress(1, ZERO_ADDRESS).isNativeToken).toBe(true);
+    expect(list.getChainAndTokenFromSymbol(1, 'ETH').isNativeToken).toBe(true);
+    expect(list.getChainByID(1).custom.knownTokens).toHaveLength(1);
+    expect(() => list.getTokenByCurrencyId(1, 999)).toThrow();
+    expect(() => list.getTokenByCurrencyId(999, 1)).toThrow();
   });
 
-  it('threads currencyId into nativeCurrency', () => {
-    const chainList = createChainList(makeDeployment());
-    const chain = chainList.chains[0];
-
-    expect(chain.nativeCurrency.currencyId).toBe(3);
+  it('omits incomplete execute chains without inventing contract addresses', () => {
+    const list = createChainList([{ ...testChains[0], multicallAddress: undefined }]);
+    expect(list.chains).toEqual([]);
   });
 
-  it('threads multicallAddress into the runtime chain', () => {
-    const chainList = createChainList(makeDeployment());
-    const chain = chainList.chains[0];
-
-    expect(chain.multicallAddress).toBe('0x00000000000000000000000000000000000000aa');
+  it('does not coerce external currency IDs or nonnumeric permit versions', () => {
+    const chain = structuredClone(testChains[0]);
+    chain.tokens[1].providers = [{ id: 'nexus-v2' }, { id: 'relay', currencyId: '1' }];
+    chain.tokens[1].permit = { variant: 'emt', version: 'v2' };
+    const token = createChainList([chain]).getChainByID(1).custom.knownTokens[0];
+    expect(token.currencyId).toBeUndefined();
+    expect(token.permitVersion).toBeUndefined();
+    expect(token.permitVariant).toBe(4);
   });
 
-  describe('getTokenByCurrencyId', () => {
-    it('returns token matching currencyId', () => {
-      const chainList = createChainList(makeDeployment());
-      const token = chainList.getTokenByCurrencyId(1, 1);
-
-      expect(token).toBeDefined();
-      expect(token!.symbol).toBe('USDC');
-      expect(token!.currencyId).toBe(1);
+  it('preserves execute token identities when external catalogs contain the same symbol', () => {
+    const chain = structuredClone(testChains[0]);
+    const canonicalAddress = chain.tokens[1].address;
+    chain.tokens.unshift({
+      ...chain.tokens[1], address: '0x00000000000000000000000000000000000000ab',
+      providers: [{ id: 'relay' }],
     });
-
-    it('returns native token when currencyId matches nativeCurrency', () => {
-      const chainList = createChainList(makeDeployment());
-      const token = chainList.getTokenByCurrencyId(1, 3);
-
-      expect(token).toBeDefined();
-      expect(token!.symbol).toBe('ETH');
-    });
-
-    it('throws for unknown currencyId', () => {
-      const chainList = createChainList(makeDeployment());
-
-      expect(() => chainList.getTokenByCurrencyId(1, 999)).toThrow();
-    });
-
-    it('throws for unknown chainId', () => {
-      const chainList = createChainList(makeDeployment());
-
-      expect(() => chainList.getTokenByCurrencyId(999, 1)).toThrow();
-    });
+    const list = createChainList([chain]);
+    expect(list.getTokenInfoBySymbol(1, 'USDC').contractAddress).toBe(canonicalAddress);
+    expect(list.getChainByID(1).custom.knownTokens).toHaveLength(1);
   });
 });

@@ -2,75 +2,91 @@ import type { Hex } from 'viem';
 import {
   type Chain,
   type ChainListType,
-  type DeploymentResponse,
+  PermitVariant,
   type TokenInfo,
   ZERO_ADDRESS,
 } from '../domain';
 import { Universe } from '../domain/chain-abstraction';
 import { Errors } from '../domain/errors';
+import type { IntentChain, IntentToken } from '../intent/types';
 import { isNativeAddress } from './addresses';
 import { equalFold } from './strings';
 
-const universeFromV2 = (universe: DeploymentResponse['chains'][number]['universe']): Universe => {
-  switch (universe) {
-    case 'EVM':
-      return Universe.ETHEREUM;
-    case 'TRON':
-      return Universe.TRON;
-    case 'FUEL':
-      return Universe.FUEL;
-    case 'SVM':
-      return Universe.SOLANA;
-  }
+const nexusCurrencyId = (token?: IntentToken): number | undefined => {
+  const id = token?.providers.find((provider) => provider.id === 'nexus-v2')?.currencyId;
+  return typeof id === 'number' ? id : undefined;
 };
 
-const createChainList = (deployment: DeploymentResponse): ChainListType => {
+const createChainList = (catalog: IntentChain[]): ChainListType => {
   const vaultByChainId = new Map<number, Hex>();
 
-  const chains: Chain[] = deployment.chains.map((chain) => {
-    vaultByChainId.set(chain.chainId, chain.vaultAddress);
+  const chains: Chain[] = catalog.flatMap((chain): Chain[] => {
+    if (!chain.rpcUrl || !chain.multicallAddress) return [];
+    if (chain.vaultAddress) vaultByChainId.set(chain.id, chain.vaultAddress);
 
-    const blockExplorers = {
-      default: {
-        name: `${chain.name} Explorer`,
-        url: chain.explorerUrl,
-      },
-    };
+    const blockExplorers = chain.explorerUrl
+      ? {
+          default: {
+            name: `${chain.name} Explorer`,
+            url: chain.explorerUrl,
+          },
+        }
+      : undefined;
 
-    const knownTokens: TokenInfo[] = chain.tokens.map((token) => ({
-      balanceSlot: token.balanceSlot,
-      contractAddress: token.address,
-      decimals: token.decimals,
-      logo: token.logo,
-      name: token.name,
-      symbol: token.symbol,
-      permitVariant: token.permitVariant,
-      permitVersion: token.permitVersion,
-      currencyId: token.currencyId,
-      mayanEnabled: token.mayanEnabled,
-    }));
+    const knownTokens: TokenInfo[] = chain.tokens
+      // Execute accepts token symbols. Retain the Nexus token set that deployment exposed,
+      // since external catalogs can contain different contracts with the same symbol.
+      .filter((token) => !token.isNative && token.providers.some(({ id }) => id === 'nexus-v2'))
+      .map((token) => ({
+        contractAddress: token.address,
+        decimals: token.decimals,
+        logo: token.logo ?? '',
+        name: token.name,
+        symbol: token.symbol,
+        permitVariant: token.permit
+          ? token.permit.variant === 'emt'
+            ? PermitVariant.PolygonEMT
+            : PermitVariant.EIP2612Canonical
+          : undefined,
+        permitVersion:
+          token.permit?.version &&
+          /^\d+$/.test(token.permit.version) &&
+          Number.isSafeInteger(Number(token.permit.version))
+            ? Number(token.permit.version)
+            : undefined,
+        currencyId: nexusCurrencyId(token),
+        mayanEnabled: token.providers.some((provider) => provider.id === 'mayan'),
+      }));
+    const nativeToken = chain.tokens.find((token) => token.isNative);
 
-    return {
-      blockExplorers,
-      custom: {
-        icon: chain.logo,
-        knownTokens,
-      },
-      id: chain.chainId,
-      mayanEnabled: chain.mayanEnabled,
-      multicallAddress: chain.multicallAddress,
-      name: chain.name,
-      nativeCurrency: chain.nativeCurrency,
-      rpcUrls: {
-        default: {
-          http: [chain.rpcUrl],
-          webSocket: [],
+    return [
+      {
+        blockExplorers,
+        custom: {
+          icon: chain.logo ?? '',
+          knownTokens,
         },
+        id: chain.id,
+        mayanEnabled: chain.providers.includes('mayan'),
+        multicallAddress: chain.multicallAddress,
+        name: chain.name,
+        nativeCurrency: {
+          ...chain.nativeCurrency,
+          logo: chain.nativeCurrency.logo ?? '',
+          currencyId: nexusCurrencyId(nativeToken),
+          mayanEnabled: nativeToken?.providers.some((provider) => provider.id === 'mayan'),
+        },
+        rpcUrls: {
+          default: {
+            http: [chain.rpcUrl],
+            webSocket: [],
+          },
+        },
+        supports7702: chain.eip7702Enabled,
+        swapSupported: chain.swapSupported,
+        universe: Universe.ETHEREUM,
       },
-      supports7702: chain.supports7702,
-      swapSupported: chain.swapSupported,
-      universe: universeFromV2(chain.universe),
-    };
+    ];
   });
 
   const getChainByID = (id: number) => {

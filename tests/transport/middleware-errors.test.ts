@@ -5,7 +5,6 @@ import { Errors } from '../../src/domain/errors';
 import { getIntentQuoteFailure } from '../../src/intent/errors';
 import type { IntentQuoteRequest } from '../../src/intent/types';
 import { createMiddlewareClient } from '../../src/transport/middleware';
-import { testDeployment } from '../fixtures/deployment';
 
 vi.mock('axios', () => ({ default: { create: vi.fn() } }));
 
@@ -202,8 +201,7 @@ describe('middleware error mapping', () => {
           },
         });
       }
-      const data = config.url === '/deployment' ? testDeployment
-        : config.url?.endsWith('/chains') ? [{
+      const data = config.url?.endsWith('/chains') ? [{
           chainId: 'EVM_1', name: 'Ethereum', providers: ['nexus-v2'],
           nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
         }]

@@ -8,7 +8,7 @@ import type { IntentChain, IntentEvent } from '../../src/intent/types';
 import * as evm from '../../src/services/evm';
 import { makeChain, makeChainList } from '../helpers/chains';
 import { makeMiddlewareClient } from '../helpers/middleware-client';
-import { testDeployment } from '../fixtures/deployment';
+import { testChains } from '../fixtures/chains';
 
 const ACCOUNT = '0x00000000000000000000000000000000000000aa' as Hex;
 const ETHEREUM_TOKEN = '0x0000000000000000000000000000000000000002' as Hex;
@@ -18,6 +18,7 @@ const SIGNATURE = `0x${'22'.repeat(65)}` as Hex;
 
 const intentChains: IntentChain[] = [
   {
+    ...testChains[0],
     id: 1,
     name: 'Ethereum',
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
@@ -37,6 +38,7 @@ const intentChains: IntentChain[] = [
     capabilities: { intent: true, execute: false },
   },
   {
+    ...testChains[0],
     id: 8453,
     name: 'Base',
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
@@ -296,7 +298,6 @@ describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s
   it('loads the mainnet intent catalog and executes a same-asset swap through the API', async () => {
     const getIntentQuote = vi.fn().mockResolvedValue(quote());
     const middleware = makeMiddlewareClient({
-      getDeployment: async () => testDeployment,
       getIntentChains: async () => intentChains,
       getIntentQuote,
       submitIntent: async () => ({ quoteId: QUOTE_ID, status: 'created' }),
@@ -358,7 +359,6 @@ describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s
       total: 1,
     });
     const middleware = makeMiddlewareClient({
-      getDeployment: async () => testDeployment,
       getIntentChains: async () => intentChains,
       listIntentHistory,
     });
@@ -391,11 +391,10 @@ describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s
     });
   });
 
-  it('applies the Mayan filter to catalog and balance requests', async () => {
+  it('loads the full catalog and applies the Mayan filter to balance requests', async () => {
     const getIntentChains = vi.fn().mockResolvedValue(intentChains);
     const getIntentBalances = vi.fn().mockResolvedValue({ balances: [], errored: false });
     const middleware = makeMiddlewareClient({
-      getDeployment: async () => testDeployment,
       getIntentChains,
       getIntentBalances,
     });
@@ -410,7 +409,7 @@ describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s
     await client.setEVMProvider(provider());
     await client.getBalancesForSwap();
 
-    expect(getIntentChains).toHaveBeenCalledWith({ providers: ['mayan'] });
+    expect(getIntentChains).toHaveBeenCalledExactlyOnceWith();
     expect(getIntentBalances).toHaveBeenCalledWith(expect.stringMatching(/^0x0*aa$/i), {
       refresh: false,
       providers: ['mayan'],
@@ -420,7 +419,7 @@ describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s
 
 describe('unsupported intent environment', () => {
   it('keeps execute metadata but rejects swap operations on testnet', async () => {
-    const middleware = makeMiddlewareClient({ getDeployment: async () => testDeployment });
+    const middleware = makeMiddlewareClient({ getIntentChains: async () => testChains });
     const client = createNexusClient({
       clientId: 'test-client',
       network: 'testnet',

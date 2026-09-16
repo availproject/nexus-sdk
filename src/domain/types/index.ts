@@ -192,14 +192,6 @@ export type ExecuteTransactionStep = {
 
 export type ExecutePlanStep = ExecuteApprovalStep | ExecuteTransactionStep;
 
-export type SupportedChainsAndTokensResult = Array<{
-  id: number;
-  logo: string;
-  name: string;
-  swapSupported: boolean;
-  tokens: TokenInfo[];
-}>;
-
 export type SpanTagValue = string | number | boolean;
 export type SpanProperties = {
   [key: string]: unknown;

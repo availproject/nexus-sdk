@@ -47,14 +47,17 @@ provider that applies. Treat the `IntentProvider` union as open to growth: rende
 generically rather than assuming Nexus or Mayan.
 
 Set `forceMayan: true` to restrict the supported intent catalog and balances to Mayan and prefer
-Mayan for quotes. The SDK loads chain metadata from `/chains` and all pages from `/tokens`,
-joining tokens to chains by chain ID. Token selection uses chain IDs and contract addresses.
+Mayan for quotes. Initialization caches chain metadata from `/api/v1/intent/chains` and all pages
+from `/api/v1/intent/tokens`, joining tokens to chains by chain ID. This catalog also supplies
+`chainList` for standalone execution; `/deployment` is no longer used. The Mayan catalog filter
+is applied locally, preserving execution metadata for other chains.
+Token selection uses chain IDs and contract addresses.
 
 ## Intent lifecycle
 
 Swap methods use the middleware's `/api/v1/intent` endpoints with one server-driven lifecycle:
 
-1. The SDK asks the middleware for a quote.
+1. The SDK checks directional provider support in its cached catalog, then asks middleware for a quote.
 2. `hooks.onIntent` may review, refresh, allow, or deny it.
 3. The SDK signs quoted EIP-712 permits for sponsored approvals, or sends quoted ERC-20 approval
    transactions when required. Wallet prompts run one at a time; each broadcast starts its receipt
@@ -100,11 +103,16 @@ const result = await client.swapWithExactOut(
 );
 ```
 
-Omit `sources` to let the middleware choose from usable balances.
+Omit `sources` to consider all cached source assets. The SDK filters candidate tokens to those
+sharing a provider with the destination, groups them by chain, and sends them as source filters.
+When supplied, your `sources` restrict those candidates. If none remain, the SDK rejects with
+`INVALID_INPUT` before requesting a quote. Middleware selects usable balances within the filters.
 
 ## Exact-input swap
 
-Exact-input is explicit: every source includes its token and raw amount.
+Exact-input is explicit: every source includes its token and raw amount. All sources and the
+destination must share at least one provider. Otherwise, the SDK rejects with `INVALID_INPUT`
+before requesting a quote. A separate match for each source is insufficient.
 
 ```ts
 const result = await client.swapWithExactIn({
@@ -236,11 +244,30 @@ for (const chain of chains) {
 }
 ```
 
-The returned list merges the Better Intent catalog with deployment metadata used by standalone
-execute. Token addresses and decimals are chain-specific; never infer decimals from a symbol.
+The returned list uses the cached catalog for both intent and standalone execute support.
+Chains with RPC and multicall metadata support execution. `IntentChain` preserves optional
+`vaultAddress`, `multicallAddress`, `sponsored`, `eip7702Enabled`, and `swapSupported` fields.
+Token addresses and decimals are chain-specific; never infer decimals from a symbol.
+Each runtime chain's `custom.knownTokens` retains Nexus-supported ERC-20s for
+standalone execution's symbol-based token lookups. The intent catalog includes all providers' tokens.
 
-Token `asSource` and `asDestination` arrays describe general provider support. A listed token does
-not guarantee a route exists; the quote request determines whether the selected swap is supported.
+The standalone utility and `client.utils.getSupportedChains(network)` also expose directional
+support on chains and tokens, while keeping their existing `contractAddress` token field:
+
+```ts
+import { getSupportedChains } from '@avail-project/nexus-core/utils';
+
+const chains = await getSupportedChains('mainnet');
+console.log(chains[0].asSource, chains[0].asDestination);
+console.log(chains[0].tokens[0].asSource, chains[0].tokens[0].asDestination);
+```
+
+These utilities fetch their own catalog; `client.getSupportedChains()` uses the initialization cache.
+
+Chain and token `asSource` and `asDestination` arrays describe general provider support. The SDK
+uses both levels for swap prechecks, including quote refreshes, without fetching another catalog.
+Shared provider support does not guarantee a route: middleware still validates currency
+compatibility, amounts, balances, fees, and provider availability.
 `getSupportedChainsForRoute()` forwards route constraints to `/chains`, so its chain-level support
 is constrained. Its tokens remain the provider-filtered catalog from `/tokens`.
 

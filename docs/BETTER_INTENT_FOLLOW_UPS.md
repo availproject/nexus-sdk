@@ -7,8 +7,8 @@ current integration branch.
 
 The SDK currently uses:
 
-- `GET /deployment` for standalone execute chain and contract metadata.
-- `GET /api/v1/intent/chains` for chain metadata and constrained chain support.
+- `GET /api/v1/intent/chains` for cached chain and execution metadata, plus explicitly requested
+  constrained chain support. `/deployment` has been removed.
 - `GET /api/v1/intent/tokens` for the paginated provider-filtered token catalog. Token
   availability is general; quote requests determine route feasibility.
 - `GET /api/v1/intent/balances/:account` for wallet holdings.
@@ -73,7 +73,7 @@ deployment mismatches immediately instead of silently accepting old data.
 
 ### 7. Separate intent catalog data from execute-only chains more clearly
 
-`getSupportedChains()` merges intent chains with deployment chains and marks capabilities. This is
+`getSupportedChains()` merges intent and execute views of the cached catalog and marks capabilities. This is
 useful but easy for UI consumers to misuse if they forget to check `capabilities.intent`.
 
 Consider clearer names or dedicated accessors for intent-route options versus execute-only support.

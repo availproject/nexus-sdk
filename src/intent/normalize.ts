@@ -81,8 +81,13 @@ const chain = z
     chainId: z.string(),
     name: z.string(),
     logo: z.string().optional(),
-    explorerUrl: z.string().optional(),
-    rpcUrl: z.string().optional(),
+    explorerUrl: z.url().optional(),
+    rpcUrl: z.url().optional(),
+    vaultAddress: address.optional(),
+    multicallAddress: address.optional(),
+    sponsored: z.boolean().optional(),
+    eip7702Enabled: z.boolean().optional(),
+    swapSupported: z.boolean().optional(),
     nativeCurrency,
     providers: z.array(provider).optional(),
     asSource: z.array(provider).optional(),
@@ -280,6 +285,13 @@ export const normalizeIntentChains = (input: unknown): IntentChain[] =>
       logo: entry.logo,
       explorerUrl: entry.explorerUrl,
       rpcUrl: entry.rpcUrl,
+      vaultAddress: entry.vaultAddress ? normalizedAddress(entry.vaultAddress) : undefined,
+      multicallAddress: entry.multicallAddress
+        ? normalizedAddress(entry.multicallAddress)
+        : undefined,
+      sponsored: entry.sponsored,
+      eip7702Enabled: entry.eip7702Enabled,
+      swapSupported: entry.swapSupported,
       nativeCurrency: entry.nativeCurrency,
       providers: [
         ...new Set([
@@ -291,7 +303,7 @@ export const normalizeIntentChains = (input: unknown): IntentChain[] =>
       asSource: entry.asSource ?? entry.providers ?? [],
       asDestination: entry.asDestination ?? entry.providers ?? [],
       tokens: [],
-      capabilities: { intent: true, execute: false },
+      capabilities: { intent: true, execute: !!entry.rpcUrl && !!entry.multicallAddress },
     };
   });
 

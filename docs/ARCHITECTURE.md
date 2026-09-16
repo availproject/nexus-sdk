@@ -15,7 +15,7 @@ The Better Intent middleware owns:
 
 The SDK owns:
 
-- public input validation and catalog lookups;
+- public input validation, cached catalog lookups, and directional provider prechecks;
 - response normalization at the transport boundary;
 - quote review hooks and quote refresh;
 - wallet chain switching, ERC-20 approvals, EIP-712 permits, `personal_sign`, and native transactions;
@@ -32,8 +32,7 @@ legacy fallback.
 ```text
 createNexusClient(config)
   -> initialize()
-       GET /deployment
-       GET /api/v1/intent/chains       mainnet/canary only
+       GET /api/v1/intent/chains       chain and execution metadata
        GET /api/v1/intent/tokens       all pages, joined by chain ID
   -> setEVMProvider(provider)
        bind address + viem wallet client
@@ -42,7 +41,7 @@ createNexusClient(config)
 ```
 
 `mainnet` and `canary` both enable Better Intent and use mainnet chain catalogs. Other network
-hints initialize deployment metadata for execute, but intent operations fail with
+hints initialize the same catalog endpoints for execute metadata, but intent operations fail with
 `ENVIRONMENT_NOT_SUPPORTED`.
 
 The client is bound to the current wallet provider/address. Recreate it after an account or
@@ -55,13 +54,13 @@ src/
   abi/          ABIs used by retained contract execution helpers
   analytics/    analytics providers, timing, sessions, and event definitions
   core/         public client assembly, public client types, and SDK utilities
-  domain/       shared public types, deployment types, validation, logging, and errors
+  domain/       shared public types, validation, logging, and errors
   execute/      standalone EVM execute runtime
   flows/        thin execute entrypoint and shared execute dependency types
   intent/       Better Intent catalog, types, normalization, funding, wallet, orchestrator
   services/     cross-feature helpers only
   swap/         public swap input types only
-  transport/    deployment and Better Intent HTTP client
+  transport/    Better Intent HTTP client
 ```
 
 ## Dependency direction
@@ -85,7 +84,7 @@ They converge at `src/intent/orchestrator.ts`, including same-asset cross-chain 
 ```text
 public client method
   -> core/sdk/base.ts
-       validate input against normalized catalog
+       validate input and directional provider support against the cached catalog
        build IntentQuoteRequest
   -> transport.getIntentQuote(...)
        validate raw API response with Zod
@@ -134,13 +133,20 @@ flow. Approval hooks are flow-control hooks and may deliberately allow or reject
 
 ### Exact-output swap
 
-Exact-output accepts optional source chain/token pairs and a required destination raw amount. If
-sources are omitted, the middleware selects usable balances.
+Exact-output accepts optional source chain/token pairs and a required destination raw amount.
+The SDK filters cached assets against the destination's providers, restricted to user-selected
+sources when supplied. Compatible tokens are deduplicated and grouped by chain in the quote request.
+No surviving source is a local `INVALID_INPUT` error; the SDK never turns that into an unconstrained
+request. Different candidate sources can use different providers, since middleware may choose a subset.
+Middleware selects usable balances within those filters.
 
 ### Exact-input swap
 
-Exact-input requires every source chain, token address, and raw amount. The output amount is quoted
-by the middleware.
+Exact-input requires every source chain, token address, and raw amount. The SDK intersects all
+source providers with the destination providers and rejects an empty intersection with
+`INVALID_INPUT`. Support must exist at both chain and token level in the correct direction.
+The output amount is quoted by middleware. Both modes repeat their checks for hook-driven refreshes
+and respect `forceMayan` without additional catalog or balance requests.
 
 All modes default to 50 basis points of slippage. `forceMayan` becomes a preferred-provider request;
 the SDK does not calculate a local threshold or compare provider quotes.
@@ -172,21 +178,35 @@ contract address. It does not group tokens by symbol or infer cross-chain fungib
 The transport loads chain metadata and paginated tokens separately, normalizes both responses, and
 joins tokens by chain ID. It rejects incomplete pagination rather than exposing a partial catalog.
 
-When `forceMayan` is enabled, the SDK requests Mayan-filtered chains, tokens, and balances and sends Mayan
-as the preferred quote provider. This keeps selectors, holdings, and quote routing on the same
-provider catalog.
+Initialization requests the full catalog once and builds `chainList` from its RPC, vault, multicall,
+native currency, and execution flags. Native and ERC-20 Nexus currency IDs come from token provider
+support. `knownTokens` retains Nexus-supported ERC-20s, matching the old deployment token set;
+external catalogs contain duplicate symbols that must not replace execute's known token identities.
+Native entries are kept out of `knownTokens` to preserve native-token lookup semantics.
+The standalone chain utility uses these endpoints too; there is no `/deployment` client.
+
+When `forceMayan` is enabled, the SDK filters the cached intent catalog locally, requests
+Mayan-filtered balances, and sends Mayan as the preferred quote provider. Execution metadata remains
+available for other catalog chains.
 
 `getBalancesForSwap()` calls the provider-backed balances endpoint and returns chain-level
 `IntentBalance[]` values.
 
-`getSupportedChains()` merges Better Intent catalog chains with execute deployment chains. Each
+`getSupportedChains()` merges intent-enabled catalog chains with executable catalog chains. Each
 result contains explicit `capabilities.intent` and `capabilities.execute` flags.
+
+The standalone `getSupportedChains(network)` utility and `client.utils.getSupportedChains(network)`
+fetch their own catalog. `src/services/chains.ts` preserves chain and token directional support
+while returning the existing utility shape, including token `contractAddress` and execution token
+metadata. Directional arrays come from the catalog, including explicit empty arrays.
 
 `getSupportedChainsForRoute()` forwards the user's current source/destination constraints to
 `/intent/chains`. The middleware remains the source of truth for provider compatibility and
 returns directional `asSource`/`asDestination` support at the chain level. `/tokens` accepts provider
 filters, but no route constraints: token support remains general catalog availability. The SDK
-leaves route feasibility to quote requests. It keeps `providers` as the union of directional fields.
+uses this endpoint only when explicitly requested, not during swaps. Cached provider intersections
+are preliminary checks; quote requests retain currency, amount, balance, and route feasibility checks.
+The SDK keeps `providers` as the union of directional fields.
 
 Quote responses normalize `sourceVerdicts`. Structured quote failures are retained on the SDK
 error and exposed through `getIntentQuoteFailure`, including the middleware subcode, error ID,

@@ -7,11 +7,12 @@ import {
   formatTokenBalance as domainFormatTokenBalance,
   formatTokenBalanceParts as domainFormatTokenBalanceParts,
   type NexusNetworkHint,
-  type SupportedChainsAndTokensResult,
   truncateAddress as utilTruncateAddress,
 } from '../domain';
-import { createChainList } from '../services/chain-list';
-import { getSupportedChainsFromChainList } from '../services/chains';
+import {
+  getSupportedChainsFromCatalog,
+  type SupportedChainsAndTokensResult,
+} from '../services/chains';
 import { reportOperationError } from '../services/error-telemetry';
 import { getNetworkConfig } from '../services/network-config';
 import { getCoinbasePrices } from '../services/pricing';
@@ -48,14 +49,7 @@ export const getSupportedChains = async (
   try {
     const networkConfig = getNetworkConfig(env);
     const middlewareClient = createMiddlewareClient(networkConfig.MIDDLEWARE_HTTP_URL);
-    const deployment = await middlewareClient.getDeployment();
-    // if (deployment.network !== networkConfig.NETWORK_HINT) {
-    //   throw Errors.invalidInput(
-    //     `Deployment network mismatch: expected ${networkConfig.NETWORK_HINT}, got ${deployment.network}`
-    //   );
-    // }
-    const chainList = createChainList(deployment);
-    return getSupportedChainsFromChainList(chainList);
+    return getSupportedChainsFromCatalog(await middlewareClient.getIntentChains());
   } catch (error) {
     reportOperationError({
       operation: 'getSupportedChains',

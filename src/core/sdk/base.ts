@@ -18,6 +18,7 @@ import {
 } from '../../flows/execute';
 import {
   createIntentCatalog,
+  filterIntentChains,
   type IntentCatalog,
   intentNetworkEnabled,
   mergeSupportedChains,
@@ -210,6 +211,7 @@ export const createBase = (config: {
     const catalog = getIntentCatalog();
     const destinationToken = catalog.getToken(input.toChainId, input.toTokenAddress);
     const selected = refreshedSources ?? input.sources;
+    const sources = catalog.getExactOutputSources(destinationToken, selected, preferredProviders());
     return {
       sender: getEvm().address.toLowerCase() as Hex,
       tradeType: 'exactOutput',
@@ -218,14 +220,7 @@ export const createBase = (config: {
         token: destinationToken.address,
         amount: input.toAmountRaw.toString(),
       },
-      ...(selected?.length
-        ? {
-            sources: selected.map((source) => ({
-              chainId: chainRef(source.chainId),
-              tokens: source.tokenAddress ? [source.tokenAddress] : undefined,
-            })),
-          }
-        : {}),
+      sources: sources.map((source) => ({ ...source, chainId: chainRef(source.chainId) })),
       ...(preferredProviders() ? { preferredProviders: preferredProviders() } : {}),
       slippageBps: slippageBps(options),
       ...(input.toNativeAmountRaw && input.toNativeAmountRaw > 0n
@@ -240,7 +235,7 @@ export const createBase = (config: {
     refreshedSources?: IntentSource[]
   ): IntentQuoteRequest => {
     const catalog = getIntentCatalog();
-    catalog.getToken(input.toChainId, input.toTokenAddress);
+    const destinationToken = catalog.getToken(input.toChainId, input.toTokenAddress);
     const selected = refreshedSources ?? input.sources;
     if (!selected?.length) throw Errors.invalidInput('exact-input swap requires sources');
     const sources = selected.map((source) => {
@@ -258,6 +253,11 @@ export const createBase = (config: {
         amount: source.amountRaw.toString(),
       };
     });
+    catalog.validateExactInput(
+      selected.map((source) => catalog.getToken(source.chainId, source.tokenAddress as Hex)),
+      destinationToken,
+      preferredProviders()
+    );
     return {
       sender: getEvm().address.toLowerCase() as Hex,
       tradeType: 'exactInput',
@@ -427,7 +427,10 @@ export const createBase = (config: {
     listIntents,
     getBalancesForSwap: getIntentBalances,
     getSupportedChains: () =>
-      mergeSupportedChains(state.intentCatalog?.chains ?? [], getChainList().chains),
+      mergeSupportedChains(
+        filterIntentChains(state.intentCatalog?.chains ?? [], preferredProviders()),
+        getChainList().chains
+      ),
     getSupportedChainsForRoute: (
       constraints: import('../../intent/types').IntentRouteConstraints
     ) => {

@@ -1,9 +1,7 @@
 import axios from 'axios';
 import type { Hex } from 'viem';
-import { z } from 'zod';
 import { installAxiosNetworkTiming } from '../analytics/network-timing';
-import type { DeploymentResponse, TimingSpanHooks } from '../domain';
-import { PermitVariant } from '../domain';
+import type { TimingSpanHooks } from '../domain';
 import {
   BackendError,
   ERROR_CODES,
@@ -12,8 +10,6 @@ import {
   formatUnknownError,
   NexusError,
 } from '../domain/errors';
-import { logger } from '../domain/utils/logger';
-import { addressString, hexString } from '../domain/utils/validation';
 import {
   normalizeIntentBalances,
   normalizeIntentChains,
@@ -40,7 +36,6 @@ import type {
 } from '../intent/types';
 
 export type MiddlewareClient = {
-  getDeployment: () => Promise<DeploymentResponse>;
   getIntentChains: (constraints?: IntentRouteConstraints) => Promise<IntentChain[]>;
   getIntentBalances: (
     address: Hex,
@@ -55,70 +50,6 @@ export type MiddlewareClient = {
 };
 
 const INTENT_API_PREFIX = '/api/v1/intent';
-
-const supportedUniverses = ['EVM', 'TRON', 'FUEL', 'SVM'] as const;
-const universeSchema = z.enum(supportedUniverses);
-const supportedUniverseSet = new Set<string>(supportedUniverses);
-const permitVariantSchema = z.number().int().optional().default(1);
-const permitVersionSchema = z
-  .union([z.string(), z.number()])
-  .transform(Number)
-  .pipe(z.number().int())
-  .default(PermitVariant.EIP2612Canonical);
-const normalizeEvmAddress = (value: Hex): Hex =>
-  (value.length === 66 ? `0x${value.slice(-40)}` : value) as Hex;
-
-export const deploymentResponseSchema: z.ZodType<DeploymentResponse> = z.object({
-  network: z.string(),
-  statekeeperUrl: z.string().url(),
-  fulfillmentBps: z.number().int(),
-  mayanEnabled: z.boolean().optional().default(false),
-  mayanThresholdUsd: z.number().nonnegative(),
-  mayanCancelRefundMaxPercentage: z.number().nonnegative(),
-  chains: z.array(
-    z
-      .object({
-        chainId: z.number().int(),
-        universe: universeSchema,
-        name: z.string(),
-        rpcUrl: z.url(),
-        vaultAddress: hexString.transform(normalizeEvmAddress).pipe(addressString),
-        multicallAddress: hexString.transform(normalizeEvmAddress).pipe(addressString),
-        nativeCurrency: z.object({
-          name: z.string(),
-          symbol: z.string(),
-          decimals: z.number().int(),
-          logo: z.url(),
-          currencyId: z.number().int().positive(),
-          mayanEnabled: z.boolean().optional().default(false),
-        }),
-        sponsored: z.boolean(),
-        explorerUrl: z.url(),
-        logo: z.url(),
-        tokens: z.array(
-          z.object({
-            symbol: z.string(),
-            name: z.string(),
-            address: addressString,
-            decimals: z.number().int(),
-            balanceSlot: z.number().int(),
-            logo: z.url(),
-            permitVariant: permitVariantSchema,
-            permitVersion: permitVersionSchema,
-            currencyId: z.number().int().positive(),
-            mayanEnabled: z.boolean().optional(),
-          })
-        ),
-        mayanEnabled: z.boolean().optional(),
-        eip7702Enabled: z.boolean().optional(),
-        swapSupported: z.boolean().optional(),
-      })
-      .transform(({ eip7702Enabled, ...chain }) => ({
-        ...chain,
-        supports7702: eip7702Enabled,
-      }))
-  ),
-});
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -334,19 +265,6 @@ const httpFailureCodes: Readonly<Record<number, string>> = {
   504: 'UPSTREAM_TIMEOUT',
 };
 
-const filterUnsupportedChains = (input: unknown): unknown => {
-  if (!isRecord(input) || !Array.isArray(input.chains)) return input;
-  return {
-    ...input,
-    chains: input.chains.filter(
-      (chain) =>
-        !isRecord(chain) ||
-        chain.universe === undefined ||
-        (typeof chain.universe === 'string' && supportedUniverseSet.has(chain.universe))
-    ),
-  };
-};
-
 const middlewareErrorDetails = (error: unknown): Record<string, unknown> => {
   const response = isRecord(error) && isRecord(error.response) ? error.response : undefined;
   const data = response?.data;
@@ -527,20 +445,6 @@ export const createMiddlewareClient = (
   };
   configureTiming(options);
 
-  const getDeployment = async (): Promise<DeploymentResponse> => {
-    try {
-      const response = await client.get('/deployment');
-      return deploymentResponseSchema.parse(filterUnsupportedChains(response.data));
-    } catch (error) {
-      logger.error('getDeploymentFromMiddleware:error', error);
-      throw new BackendError(
-        ERROR_CODES.BACKEND_DEPLOYMENT_FETCH_FAILED,
-        'Failed to fetch deployment from middleware',
-        { context: { service: 'middleware' }, details: middlewareErrorDetails(error) }
-      );
-    }
-  };
-
   const request = async <T>(
     operation: keyof typeof intentRequestFailures,
     run: () => Promise<T>
@@ -654,7 +558,6 @@ export const createMiddlewareClient = (
     });
 
   return {
-    getDeployment,
     getIntentChains,
     getIntentBalances,
     getIntentQuote,
