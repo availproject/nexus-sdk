@@ -499,9 +499,9 @@ export const createBase = (config?: {
     parentSpanId?: string
   ): Promise<SwapResult> => {
     const ephemeralWallet = requireEphemeralKey();
-    validateSwapExactIn(input);
+    const params = validateSwapExactIn(input);
 
-    const swapData: SwapData = { mode: SwapMode.EXACT_IN, data: input };
+    const swapData: SwapData = { mode: SwapMode.EXACT_IN, data: params };
     return withSwapMutex(() =>
       swap(swapData, getSwapFlowDeps(ephemeralWallet, parentSpanId), {
         onIntent: options?.hooks?.onIntent,
@@ -517,9 +517,9 @@ export const createBase = (config?: {
     parentSpanId?: string
   ): Promise<SwapResult> => {
     const ephemeralWallet = requireEphemeralKey();
-    validateSwapExactOut(input);
+    const params = validateSwapExactOut(input);
 
-    const swapData: SwapData = { mode: SwapMode.EXACT_OUT, data: input };
+    const swapData: SwapData = { mode: SwapMode.EXACT_OUT, data: params };
     return withSwapMutex(() =>
       swap(swapData, getSwapFlowDeps(ephemeralWallet, parentSpanId), {
         onIntent: options?.hooks?.onIntent,
@@ -531,12 +531,12 @@ export const createBase = (config?: {
 
   const calculateMaxForSwap = async (input: SwapMaxParams): Promise<SwapMaxResult> => {
     if (!state.evm) throw Errors.sdkNotInitialized();
-    validateSwapMax(input);
+    const params = validateSwapMax(input);
     const chainList = getChainListOrThrow();
     const ephemeralAddress = await ephemeralSession.getAddressForEstimation(state.evm.address);
     const safeAddress = predictSafeAccountAddressV2(state.evm.address, ephemeralAddress).address;
 
-    return flowCalculateMaxForSwap(input, {
+    return flowCalculateMaxForSwap(params, {
       chainList,
       eoaAddress: state.evm.address,
       ephemeralAddress,
@@ -566,10 +566,10 @@ export const createBase = (config?: {
     parentSpanId?: string
   ): Promise<SwapAndExecuteResult> => {
     const ephemeralWallet = requireEphemeralKey();
-    validateSwapAndExecute(input);
+    const params = validateSwapAndExecute(input);
 
     return withSwapMutex(() =>
-      flowSwapAndExecute(input, getSwapFlowDeps(ephemeralWallet, parentSpanId), options)
+      flowSwapAndExecute(params, getSwapFlowDeps(ephemeralWallet, parentSpanId), options)
     );
   };
 

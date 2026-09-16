@@ -129,6 +129,33 @@ describe('createNexusClient derived key storage', () => {
     });
   });
 
+  it('forwards normalized Arc destinations and amounts from the public swap APIs', async () => {
+    const client = createNexusClient({
+      network: 'testnet',
+      internal: { middlewareClient: makeMiddlewareClient() },
+    });
+    await client.initialize();
+    await client.setEVMProvider(makeProvider());
+    const input = {
+      toChainId: 5042,
+      toTokenAddress: '0x3600000000000000000000000000000000000000' as const,
+    };
+    const normalized = {
+      ...input,
+      toTokenAddress: '0x0000000000000000000000000000000000000000',
+    };
+
+    await client.swapWithExactIn(input);
+    await client.swapWithExactOut({ ...input, toAmountRaw: 1_000_000n });
+    await client.calculateMaxForSwap(input);
+
+    expect(hoisted.swap.mock.calls[0][0]).toMatchObject({ data: normalized });
+    expect(hoisted.swap.mock.calls[1][0]).toMatchObject({
+      data: { ...normalized, toAmountRaw: 1_000_000_000_000_000_000n },
+    });
+    expect(hoisted.calculateMaxForSwap.mock.calls[0][0]).toEqual(normalized);
+  });
+
   it('persists the signature on first swap and reuses it on later clients without prompting', async () => {
     const middlewareClient = makeMiddlewareClient();
     const provider = makeProvider();

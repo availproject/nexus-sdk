@@ -738,6 +738,13 @@ type BridgeAndExecuteSimulationResult = {
 
 Swap APIs use raw integer units (`bigint`) for on-chain amounts and token contract addresses (not symbols).
 
+On Arc mainnet (`5042`), destination USDC address `0x3600000000000000000000000000000000000000`
+is normalized to native USDC (`0x0000000000000000000000000000000000000000`) before routing.
+For Exact Out and `swapAndExecute`, supply `toAmountRaw` in that ERC-20 interface's **6 decimals**;
+the SDK converts it to native **18 decimals**. Explicit native destinations already use 18 decimals.
+Intents and `calculateMaxForSwap` results use the native address and decimals; reuse the returned
+address with `maxAmountRaw`. Source amounts and `execute.tokenApproval` retain their original units.
+
 #### `swapWithExactIn(input, options?)`
 
 Swap tokens specifying the exact input amount from explicit sources.

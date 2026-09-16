@@ -416,6 +416,17 @@ describe('swapAndExecute funding decision', () => {
     ).rejects.toThrow(/requested sources/i);
   });
 
+  it('accepts the zero address in sources when the native balance uses EADDRESS', async () => {
+    const { swapInput } = await run({
+      balances: [bal(NATIVE, '1', 18, 'ETH', 3000)],
+      sources: [{ chainId: ARB_CHAIN, tokenAddress: ZERO_ADDRESS }],
+    });
+
+    const swapParams = requireExactOutInput(swapInput);
+    expect(swapParams.toAmountRaw).toBe(REQUIRED);
+    expect(swapParams.toNativeAmountRaw).toBeLessThan(0n);
+  });
+
   it('case 10 · unknown destination token absent from balances → funding swap acquires it (no error)', async () => {
     // Same unknown dst token as case 6, but the user does NOT hold it. It still resolves (on-chain
     // metadata, not the deployment list), produces a full shortfall, and the funding swap targets it
@@ -450,5 +461,20 @@ describe('swapAndExecute funding decision', () => {
     expect(result.execute.txHash).toBe(EXECUTE_TX_HASH);
     // Approval amount renders with the on-chain decimals (6) backfilled from dstTokenInfo, not the 18 stub.
     expect(fundingIntent.executeRequirement.tokenApproval?.amount, 'approval display uses real decimals').toBe('100');
+  });
+
+  it('uses ERC-20 approval units when the funding destination is native', async () => {
+    const { intent } = await run({
+      toTokenAddress: ZERO_ADDRESS,
+      toAmountRaw: parseUnits('100', 18),
+      balances: [bal(NATIVE, '1', 18, 'ETH', 3000)],
+      tokenApproval: { toTokenAddress: UNKNOWN_TOKEN, amount: parseUnits('100', 6), spender: TARGET_CONTRACT },
+    });
+
+    expect(intent.executeRequirement.tokenApproval).toMatchObject({
+      token: { address: UNKNOWN_TOKEN, decimals: 6, symbol: 'TKN' },
+      amount: '100',
+      amountRaw: parseUnits('100', 6),
+    });
   });
 });

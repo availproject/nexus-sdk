@@ -2,9 +2,9 @@ import Decimal from 'decimal.js';
 import type { Hex } from 'viem';
 import { divDecimals } from '../../services/math';
 import { SLIPPAGE_FRACTION } from './constants';
+import { normalizeExpectedOutput } from './expected-output';
 import type { Aggregator, Quote, QuoteRequest, TokenInfo, TokenInfoProvider } from './types';
 import { QuoteType } from './types';
-import { normalizeExpectedOutput } from './expected-output';
 
 // LiFi exchanges to deny. openocean over-quotes everywhere; on HyperEVM (999)
 // fly/hyperflow/liquidswap share one on-chain entry and over-quote native HYPE->USDC by
@@ -27,6 +27,7 @@ const ALLOWED_CHAINS = new Set<number>([
   143, // Monad
   999, // HyperEVM
   4326, // MegaETH
+  5042, // Arc
   8453, // Base
   42161, // Arbitrum
   43114, // Avalanche

@@ -34,6 +34,7 @@ import { estimateTotalFees, type TxWithGas } from '../services/fee-estimation';
 import { equalFold } from '../services/strings';
 import { resolveTokenInfo } from '../services/token-metadata';
 import { SLIPPAGE_DEFAULT } from '../swap/constants';
+import { isSameSwapToken } from '../swap/cot';
 import { buildSwapPreflight, type SwapPreflight } from '../swap/preflight';
 import { predictSafeAccountAddressV2 } from '../swap/safe/predict';
 import type { Source, SwapAndExecuteParams, SwapAndExecuteResult, SwapData } from '../swap/types';
@@ -89,7 +90,8 @@ const applySourcesAllowlist = (balances: RawSwapBalances, sources?: Source[]): R
   const filtered = balances.filter((balance) =>
     sources.some(
       (source) =>
-        source.chainId === balance.chainID && equalFold(source.tokenAddress, balance.tokenAddress)
+        source.chainId === balance.chainID &&
+        isSameSwapToken(source.tokenAddress, balance.tokenAddress)
     )
   );
   if (filtered.length === 0) {
@@ -368,7 +370,7 @@ export const swapAndExecute = async (
   // Apply the user's source allowlist once, up front. Every downstream consumer — dst availability,
   // the shortfall, and the nested swap()'s preloaded balances — then sees the same filtered set.
   // Resolve the destination/execute token's metadata ONCE — deployment list → balances → on-chain —
-  // and reuse it for the approval display, preflight, and the nested swap. No throw for tokens
+  // and reuse it for preflight and the nested swap. No throw for tokens
   // outside the deployment list, no redundant reads. Done BEFORE the sources allowlist (which can
   // throw) since it's independent of it, and on the full unfiltered balances so a held token's
   // metadata is found even when `sources` excludes it.
@@ -389,13 +391,24 @@ export const swapAndExecute = async (
     currentAllowance < allowanceCheck.requiredAllowance
       ? speculativeApprovalTx
       : null;
+  // An approval can target the ERC-20 interface while funding uses the native token.
+  const approvalTokenInfo =
+    approvalTx && allowanceCheck && !equalFold(allowanceCheck.tokenAddress, toTokenAddress)
+      ? await resolveTokenInfo({
+          chainList: deps.chainList,
+          balances: rawBalances,
+          publicClient: dstPublicClient,
+          chainId: toChainId,
+          address: allowanceCheck.tokenAddress,
+        })
+      : executeTokenInfo;
   const approvalContext =
     approvalTx && allowanceCheck
       ? {
           token: {
             contractAddress: allowanceCheck.tokenAddress,
-            symbol: executeTokenInfo.symbol,
-            decimals: executeTokenInfo.decimals,
+            symbol: approvalTokenInfo.symbol,
+            decimals: approvalTokenInfo.decimals,
           },
           spender: allowanceCheck.spender,
           amount: allowanceCheck.requiredAllowance,

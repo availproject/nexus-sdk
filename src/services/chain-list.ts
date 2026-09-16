@@ -89,6 +89,7 @@ const createChainList = (deployment: DeploymentResponse): ChainListType => {
 
     return {
       contractAddress: ZERO_ADDRESS,
+      currencyId: chain.nativeCurrency.currencyId,
       decimals: chain.nativeCurrency.decimals,
       logo: chain.nativeCurrency.logo,
       name: chain.nativeCurrency.name,
@@ -107,6 +108,7 @@ const createChainList = (deployment: DeploymentResponse): ChainListType => {
         isNativeToken = true;
         token = {
           contractAddress: ZERO_ADDRESS,
+          currencyId: chain.nativeCurrency.currencyId,
           decimals: chain.nativeCurrency.decimals,
           logo: chain.nativeCurrency.logo,
           name: chain.nativeCurrency.name,
@@ -133,6 +135,7 @@ const createChainList = (deployment: DeploymentResponse): ChainListType => {
         isNativeToken = true;
         token = {
           contractAddress: ZERO_ADDRESS,
+          currencyId: chain.nativeCurrency.currencyId,
           decimals: chain.nativeCurrency.decimals,
           logo: chain.nativeCurrency.logo,
           name: chain.nativeCurrency.name,

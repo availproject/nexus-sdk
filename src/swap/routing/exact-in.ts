@@ -5,13 +5,12 @@ import { formatTokenBalance } from '../../domain/utils/format';
 import { logger } from '../../domain/utils/logger';
 import { divDecimals, mulDecimals } from '../../services/math';
 import { MAYAN_MIN_USD_PER_LEG, selectMayanQuoteOutput } from '../../services/mayan';
-import { equalFold } from '../../services/strings';
 import { withTimingSpan } from '../../services/timing';
 import type { RouterExclusions } from '../aggregators';
 import { destinationSwapWithExactIn } from '../algorithms/destination';
 import { liquidateInputHoldings } from '../algorithms/liquidate';
 import { resolveExactInAmountBasis, selectExactInQuoteOutput } from '../amount-basis';
-import { resolveCOT, resolveSwapSettlement } from '../cot';
+import { isSameSwapToken, resolveCOT, resolveSwapSettlement } from '../cot';
 import type { RouteOptions } from '../route';
 import type { AssetsUsedEntry, DestinationSwap, SwapRoute } from '../types';
 import { SwapMode } from '../types';
@@ -133,7 +132,7 @@ const partitionExactInHoldings = (
 ): { cotHoldings: ExactInHolding[]; nonCotHoldings: ExactInHolding[] } => {
   const isCot = (holding: ExactInHolding) => {
     try {
-      return equalFold(
+      return isSameSwapToken(
         holding.tokenAddress,
         resolveCOT(holding.chainID, options.chainList, currencyId).address
       );
@@ -286,7 +285,8 @@ export async function _exactInRoute(data: ExactInData, options: RouteOptions): P
   }
   const identityHoldings = rawHoldings.filter(
     (holding) =>
-      holding.chainID === data.toChainId && equalFold(holding.tokenAddress, data.toTokenAddress)
+      holding.chainID === data.toChainId &&
+      isSameSwapToken(holding.tokenAddress, data.toTokenAddress)
   );
   const routedHoldings = rawHoldings.filter((holding) => !identityHoldings.includes(holding));
   const identityOutput = summarizeIdentityHoldings(
@@ -414,7 +414,7 @@ export async function _exactInRoute(data: ExactInData, options: RouteOptions): P
   }
 
   // Destination swap
-  const needsTokenSwap = !equalFold(data.toTokenAddress, dstCOT.address);
+  const needsTokenSwap = !isSameSwapToken(data.toTokenAddress, dstCOT.address);
   const walletDecision = resolveWalletDecisions({
     sourceChainIds: allChainIds,
     walletPathHints,

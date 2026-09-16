@@ -1,4 +1,6 @@
+import type { Hex } from 'viem';
 import { z } from 'zod';
+import { ZERO_ADDRESS } from '../domain/constants/addresses';
 import {
   addressString,
   nonNegativeBigint,
@@ -64,13 +66,42 @@ const swapMaxSchema = z.object({
   sources: z.array(sourceSchema).optional(),
 });
 
-export const validateSwapExactIn = (input: SwapExactInParams) =>
+const normalizeArcDestination = <
+  T extends { toChainId: number; toTokenAddress: Hex; toAmountRaw?: bigint },
+>(
+  input: T
+): T => {
+  if (
+    input.toChainId !== 5042 ||
+    input.toTokenAddress !== '0x3600000000000000000000000000000000000000'
+  ) {
+    return input;
+  }
+
+  return {
+    ...input,
+    toTokenAddress: ZERO_ADDRESS,
+    // Arc's ERC-20 USDC interface uses 6 decimals; native USDC uses 18.
+    ...(input.toAmountRaw === undefined ? {} : { toAmountRaw: input.toAmountRaw * 10n ** 12n }),
+  };
+};
+
+export const validateSwapExactIn = (input: SwapExactInParams) => {
   parseInput(swapExactInSchema, input);
+  return normalizeArcDestination(input);
+};
 
-export const validateSwapExactOut = (input: SwapExactOutParams) =>
+export const validateSwapExactOut = (input: SwapExactOutParams) => {
   parseInput(swapExactOutSchema, input);
+  return normalizeArcDestination(input);
+};
 
-export const validateSwapAndExecute = (input: SwapAndExecuteParams) =>
+export const validateSwapAndExecute = (input: SwapAndExecuteParams) => {
   parseInput(swapAndExecuteSchema, input);
+  return normalizeArcDestination(input);
+};
 
-export const validateSwapMax = (input: SwapMaxParams) => parseInput(swapMaxSchema, input);
+export const validateSwapMax = (input: SwapMaxParams) => {
+  parseInput(swapMaxSchema, input);
+  return normalizeArcDestination(input);
+};

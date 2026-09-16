@@ -80,7 +80,7 @@
     "@rollup/plugin-node-resolve": "15.3.1",
     "@rollup/plugin-terser": "1.0.0",
     "@rollup/plugin-typescript": "12.3.0",
-    "@vitest/coverage-v8": "4.1.8",
+    "@vitest/coverage-v8": "4.1.11",
     "hardhat": "3.7.0",
     "husky": "9.1.7",
     "lint-staged": "16.2.7",
@@ -89,13 +89,13 @@
     "rollup-plugin-dts": "6.3.0",
     "solc": "0.8.35",
     "typescript": "5.9.3",
-    "vitest": "4.1.8"
+    "vitest": "4.1.11"
   },
   "overrides": {
     "tmp": "0.2.7",
     "ws": "8.21.0",
     "uuid": "11.1.1",
-    "adm-zip": "0.6.0"
+    "adm-zip": "0.6.1"
   },
   "publishConfig": {
     "access": "public"

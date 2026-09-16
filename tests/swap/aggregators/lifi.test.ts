@@ -289,6 +289,7 @@ describe('LiFiAggregator supportsChain', () => {
   const agg = new LiFiAggregator(vi.fn(), vi.fn());
 
   it('reports a listed chain as supported', () => {
+    expect(agg.supportsChain(5042)).toBe(true);
     expect(agg.supportsChain(8453)).toBe(true);
   });
 

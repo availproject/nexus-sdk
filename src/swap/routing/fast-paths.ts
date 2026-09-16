@@ -10,7 +10,6 @@ import { isNativeAddress } from '../../services/addresses';
 import { convertGasToToken } from '../../services/intent';
 import { divDecimals, mulDecimals } from '../../services/math';
 import { selectMayanQuoteOutput } from '../../services/mayan';
-import { equalFold } from '../../services/strings';
 import { estimateRepresentativeSwapNativeReserveFee } from '../../services/swap-native-reserve-fee';
 import { withTimingSpan } from '../../services/timing';
 import type { Holding } from '../aggregators/types';
@@ -21,7 +20,7 @@ import {
 } from '../algorithms/direct-destination-size';
 import { liquidateInputHoldings } from '../algorithms/liquidate';
 import { resolveExactInAmountBasis, selectExactInQuoteOutput } from '../amount-basis';
-import { resolveCOT, resolveCurrencyId } from '../cot';
+import { isSameSwapToken, resolveCOT, resolveCurrencyId } from '../cot';
 import type { RouteOptions } from '../route';
 import type {
   AssetsUsedEntry,
@@ -79,7 +78,7 @@ export const toTokenIsCot = (
   cotCurrencyId: number
 ): boolean => {
   try {
-    return equalFold(toTokenAddress, resolveCOT(chainId, chainList, cotCurrencyId).address);
+    return isSameSwapToken(toTokenAddress, resolveCOT(chainId, chainList, cotCurrencyId).address);
   } catch {
     return false;
   }
@@ -154,11 +153,6 @@ export type ExactInHolding = {
   decimals: number;
   symbol: string;
 };
-
-// Native-normalized token equality: two addresses are the same swap token when they match, or both
-// resolve to native (swap internals carry native as EADDRESS; some balances use ZERO_ADDRESS).
-const isSameSwapToken = (a: Hex, b: Hex): boolean =>
-  equalFold(a, b) || (isNativeAddress(a) && isNativeAddress(b));
 
 /**
  * Path A — direct destination-chain swap (EXACT_IN). Every source is already on the destination
