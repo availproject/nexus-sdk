@@ -195,7 +195,7 @@ available for other catalog chains.
 `getSupportedChains()` merges intent-enabled catalog chains with executable catalog chains. Each
 result contains explicit `capabilities.intent` and `capabilities.execute` flags.
 
-The standalone `getSupportedChains(network)` utility and `client.utils.getSupportedChains(network)`
+The standalone `getSupportedChains(network, { clientId })` utility and `client.utils.getSupportedChains(network)`
 fetch their own catalog. `src/services/chains.ts` preserves chain and token directional support
 while returning the existing utility shape, including token `contractAddress` and execution token
 metadata. Directional arrays come from the catalog, including explicit empty arrays.
@@ -248,16 +248,17 @@ Composite operations do not build routes locally.
 estimates fees for simulation, and delegates transaction preparation/sending to
 `src/execute/runtime.ts`.
 
-Execute uses deployment chain metadata and is independent of Better Intent availability.
+Execute uses cached chain metadata and is independent of intent route availability.
 
 ## Transport boundary
 
 The public client requires `clientId`. Its middleware transport sends
-`x-nexus-client-id` and `x-nexus-surface: nexus-sdk` through shared HTTP headers.
+`x-nexus-client-id`, `x-nexus-surface: nexus-sdk`, and the package version in
+`x-nexus-surface-version` through shared HTTP headers. The standalone catalog utility takes
+`{ clientId }`; client utilities bind the configured ID.
 
 `src/transport/middleware.ts` exposes only:
 
-- deployment metadata;
 - Better Intent chains with their separately loaded token catalog;
 - Better Intent balances;
 - quote;
@@ -274,6 +275,26 @@ aggregate lifecycle view; the second supplies normalized per-source leg status a
 
 HTTP and schema failures become categorized `BackendError` values with middleware correlation
 details where available.
+
+## Payment reporting
+
+`src/core/sdk/operation-boundary.ts` creates one attempt ID and reporting observer per public swap
+call, before local checks or network requests. `src/intent/telemetry.ts` owns commitment, route,
+delivery, and outcome observations. The orchestrator reports independently of user callbacks.
+Base passes that same ID to quote, refresh, submit, status/detail, and composite funding requests
+as per-request `x-request-id`. Signed payloads are unchanged. Optional network timing uses this ID
+as its parent operation.
+
+Only canonical `INTENT_OUTCOME` events count terminal payment outcomes. Polling uncertainty is an
+observation error. `swapAndExecute` records payment completion at destination delivery, before
+standalone execution; skipping the swap records `INTENT_SKIPPED` and no payment outcome.
+Partial balance reporting retains the transport's `errored` flag internally while the public
+balance method still returns an array.
+
+`src/services/error-reporting.ts` maps existing public errors to internal reason buckets.
+`AnalyticsManager` supplies client identity and session on each record; the shared OTel resource
+contains no generated client ID or first-client network. See [TELEMETRY.md](TELEMETRY.md) for
+the schema and the remaining middleware reconciliation work.
 
 ## History
 

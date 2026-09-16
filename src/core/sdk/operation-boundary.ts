@@ -15,7 +15,8 @@ import type {
   ListIntentsParams,
 } from '../../domain';
 import type { OperationName } from '../../domain/errors';
-import type { IntentHistoryResult } from '../../intent/types';
+import { createIntentReporting, type IntentReporting } from '../../intent/telemetry';
+import type { IntentBalancesResult, IntentHistoryResult } from '../../intent/types';
 
 type IntentTracking = {
   operation: OperationName;
@@ -54,10 +55,38 @@ export const trackIntentOperation = <R>(
   kind: keyof typeof intentTracking,
   params: unknown,
   options: unknown,
-  run: (opId: string) => Promise<R>
+  run: (opId: string, reporting: IntentReporting) => Promise<R>
 ): Promise<R> => {
   const tracking: IntentTracking = intentTracking[kind];
+  const operationId = analytics.startOperation(tracking.opName);
+  const input = params as
+    | {
+        toChainId?: number;
+        toTokenAddress?: string;
+        sources?: { chainId: number; tokenAddress?: string }[];
+      }
+    | undefined;
+  // Reporting observes inputs; validation remains responsible for rejecting them.
+  const sources = Array.isArray(input?.sources)
+    ? input.sources.filter((source) => source && typeof source.chainId === 'number')
+    : undefined;
+  const reporting = createIntentReporting(
+    operationId,
+    {
+      kind,
+      toChainId: typeof input?.toChainId === 'number' ? input.toChainId : undefined,
+      toTokenAddress: typeof input?.toTokenAddress === 'string' ? input.toTokenAddress : undefined,
+      sourceChainIds: [...new Set(sources?.map((source) => source.chainId))],
+      sources: sources?.map((source) => ({
+        chainId: source.chainId,
+        tokenAddress: typeof source.tokenAddress === 'string' ? source.tokenAddress : undefined,
+      })),
+    },
+    (event, properties) => analytics.reportEvent(event, properties)
+  );
   return analytics.runOp({
+    operationId,
+    properties: reporting.properties,
     events: {
       initiated: tracking.initiated,
       success: tracking.success,
@@ -68,7 +97,22 @@ export const trackIntentOperation = <R>(
     initiatedProps: { kind },
     params,
     options,
-    run,
+    run: async (id) => {
+      try {
+        return await run(id, reporting);
+      } catch (error) {
+        reporting.failed(error);
+        throw error;
+      }
+    },
+    // Canonical outcomes handle swap failures. A later execute failure is still
+    // an operation failure, while the swap's delivery outcome stays completed.
+    selectFailureEvent: () =>
+      kind === 'swapAndExecute' &&
+      (reporting.properties()['attempt.outcome'] === 'completed' ||
+        reporting.properties()['attempt.skipped'])
+        ? tracking.failed
+        : null,
   });
 };
 
@@ -114,7 +158,7 @@ export const trackExecuteSim = <R extends ExecuteSimulation>(
     run,
   });
 
-export const trackBalanceFetch = <R>(
+export const trackBalanceFetch = <R extends IntentBalancesResult>(
   analytics: AnalyticsManager,
   run: (opId: string) => Promise<R>
 ): Promise<R> =>
@@ -128,6 +172,14 @@ export const trackBalanceFetch = <R>(
     operation: 'getBalancesForSwap',
     initiatedProps: { kind: 'swap' },
     run,
+    success: (result) => ({
+      'balances.partial': result.errored,
+      'balances.count': result.balances.length,
+    }),
+    selectSuccessEvent: (result) =>
+      result.errored
+        ? NexusAnalyticsEvents.BALANCES_FETCH_PARTIAL
+        : NexusAnalyticsEvents.BALANCES_FETCH_SUCCESS,
   });
 
 export const trackInit = <R>(

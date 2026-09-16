@@ -87,7 +87,8 @@ export const createIntentCatalog = (chains: IntentChain[]): IntentCatalog => {
     );
     if (common.length === 0) {
       throw Errors.invalidInput(
-        'No common provider supports all selected sources and the destination. Choose different sources or a destination.'
+        'No common provider supports all selected sources and the destination. Choose different sources or a destination.',
+        { reasonBucket: 'unsupported_route' }
       );
     }
   };
@@ -115,7 +116,8 @@ export const createIntentCatalog = (chains: IntentChain[]): IntentCatalog => {
     });
     if (sources.length === 0) {
       throw Errors.invalidInput(
-        'No source assets share a provider with the destination. Choose different sources or a destination.'
+        'No source assets share a provider with the destination. Choose different sources or a destination.',
+        { reasonBucket: 'unsupported_route' }
       );
     }
     return sources;

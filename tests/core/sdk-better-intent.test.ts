@@ -9,6 +9,7 @@ import * as evm from '../../src/services/evm';
 import { makeChain, makeChainList } from '../helpers/chains';
 import { makeMiddlewareClient } from '../helpers/middleware-client';
 import { testChains } from '../fixtures/chains';
+import { NexusAnalyticsEvents as Events } from '../../src/analytics/events';
 
 const ACCOUNT = '0x00000000000000000000000000000000000000aa' as Hex;
 const ETHEREUM_TOKEN = '0x0000000000000000000000000000000000000002' as Hex;
@@ -295,6 +296,40 @@ describe('client identity', () => {
 });
 
 describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s', (network) => {
+  it('correlates quote refresh, submit and polling from the public client', async () => {
+    const getIntentQuote = vi.fn().mockResolvedValue(quote());
+    const submitIntent = vi.fn().mockResolvedValue({ quoteId: QUOTE_ID, status: 'created' });
+    const getIntentStatus = vi.fn().mockResolvedValue({ id: QUOTE_ID, provider: 'nexus-v2', status: 'fulfilled', substatus: 'completed', legs: [] });
+    const client = createNexusClient({ clientId: 'test', network, analytics: { mode: 'on' },
+      internal: { middlewareClient: makeMiddlewareClient({ getIntentChains: async () => intentChains, getIntentQuote, submitIntent, getIntentStatus }) } });
+    try {
+      await client.initialize();
+      await client.setEVMProvider(provider());
+      const result = await client.swapWithExactOut({ toChainId: 1, toTokenAddress: ETHEREUM_TOKEN, toAmountRaw: 1n }, {
+        hooks: { onIntent: async ({ attemptId, refresh, allow }) => {
+          expect(attemptId).toEqual(expect.any(String)); await refresh(); allow();
+        } },
+      });
+      const id = result.attemptId;
+      expect(id).toEqual(expect.any(String));
+      expect(getIntentQuote.mock.calls.map((call) => call[1])).toEqual([id, id]);
+      expect(submitIntent.mock.calls[0]?.[1]).toBe(id);
+      expect(getIntentStatus.mock.calls[0]?.[1]).toBe(id);
+    } finally { client.destroy(); }
+  });
+
+  it('returns available balances but reports a partial response separately', async () => {
+    const client = createNexusClient({ clientId: 'test', network, analytics: { mode: 'on' },
+      internal: { middlewareClient: makeMiddlewareClient({ getIntentChains: async () => intentChains,
+        getIntentBalances: async () => ({ balances: [], errored: true }) }) } });
+    try {
+      await client.initialize(); await client.setEVMProvider(provider());
+      const track = vi.spyOn(client.analytics.getProvider(), 'track');
+      await expect(client.getBalancesForSwap()).resolves.toEqual([]);
+      expect(track).toHaveBeenCalledWith(Events.BALANCES_FETCH_PARTIAL, expect.objectContaining({ 'balances.partial': true }));
+      expect(track.mock.calls.some(([event]) => event === Events.BALANCES_FETCH_SUCCESS || event === Events.BALANCES_FETCH_FAILED)).toBe(false);
+    } finally { client.destroy(); }
+  });
   it('loads the mainnet intent catalog and executes a same-asset swap through the API', async () => {
     const getIntentQuote = vi.fn().mockResolvedValue(quote());
     const middleware = makeMiddlewareClient({
@@ -333,7 +368,7 @@ describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s
       output: { chainId: 'EVM_1', token: ETHEREUM_TOKEN, amount: '1000000' },
       sources: [{ chainId: 'EVM_8453', tokens: [BASE_TOKEN] }],
       slippageBps: 50,
-    });
+    }, result.attemptId);
     expect(result).toMatchObject({
       intentId: QUOTE_ID,
       status: { status: 'fulfilled' },

@@ -25,7 +25,7 @@ describe('supported-chain utilities', () => {
     const client = createNexusClient({ clientId: 'test-client', analytics: { enabled: false } });
     try {
       const result = entrypoint === 'export'
-        ? await getSupportedChains('mainnet')
+        ? await getSupportedChains('mainnet', { clientId: 'test-client' })
         : await client.utils.getSupportedChains('mainnet');
       const chain = result.find(({ id }) => id === metadata.id)!;
       expect(chain).toMatchObject({
@@ -43,6 +43,9 @@ describe('supported-chain utilities', () => {
       expectTypeOf(chain.asSource).toEqualTypeOf<IntentProvider[]>();
       expectTypeOf(chain.tokens[0].asDestination).toEqualTypeOf<IntentProviderSupport[]>();
       expect(getIntentChains).toHaveBeenCalledExactlyOnceWith();
+      expect(transport.createMiddlewareClient).toHaveBeenLastCalledWith(
+        expect.any(String), { clientId: 'test-client' }
+      );
     } finally {
       client.destroy();
     }

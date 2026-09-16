@@ -1,43 +1,20 @@
-import { type Logger, logs } from '@opentelemetry/api-logs';
+import { type AnyValueMap, type Logger, logs, SeverityNumber } from '@opentelemetry/api-logs';
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { BatchLogRecordProcessor, LoggerProvider } from '@opentelemetry/sdk-logs';
-import { toHex } from 'viem/utils';
+import { version } from '../../package.json' with { type: 'json' };
 import type { NetworkConfig } from '../domain';
-import {
-  cryptoGetRandomValues,
-  isBrowser,
-  locationHost,
-  locationOrigin,
-  storageGetItem,
-  storageSetItem,
-} from './platform';
+import { locationHost, locationOrigin } from './platform';
 
 let telemetryLogger: Logger | null = null;
 let initInFlight: Promise<void> | null = null;
-
-async function getOrGenerateClientId(): Promise<string> {
-  const KEY = 'nexus-client-id';
-  let clientId = storageGetItem(KEY);
-
-  if (!clientId) {
-    const bytes = new Uint8Array(32);
-    clientId = toHex(await cryptoGetRandomValues(bytes));
-    storageSetItem(KEY, clientId);
-  }
-  return clientId;
-}
-
-function getNetworkName(networkConfig: NetworkConfig): string {
-  return networkConfig.NETWORK_HINT;
-}
 
 // Concurrency-safe one-shot init: `initialize()` and `setEVMProvider()` both call
 // `setLoggerProvider(...)` at startup. Without the in-flight promise lock below, two
 // concurrent first calls would both pass the `if (!telemetryLogger)` check, both build a
 // LoggerProvider + OTLPLogExporter, and race to install them via `setGlobalLoggerProvider`.
 // The shared promise makes the second caller await the first caller's work.
-const setLoggerProvider = async (networkConfig: NetworkConfig): Promise<void> => {
+const setLoggerProvider = async (_networkConfig: NetworkConfig): Promise<void> => {
   if (telemetryLogger) return;
   if (initInFlight) {
     await initInFlight;
@@ -45,18 +22,16 @@ const setLoggerProvider = async (networkConfig: NetworkConfig): Promise<void> =>
   }
 
   initInFlight = (async () => {
+    // Install the shared promise before initialization can fail and clear it.
+    await Promise.resolve();
     try {
-      // TODO Check if window.origin is what we actually want because ChatGPT said:
-      // There is no standard window.origin property.
-      // In older browsers, window.origin might even be undefined.
       const loggerProvider = new LoggerProvider({
         resource: resourceFromAttributes({
           'service.name': 'nexus-sdk-v2-logs',
-          'client.id': await getOrGenerateClientId(),
-          origin: isBrowser() ? window.origin : locationOrigin(),
+          'service.version': version,
+          origin: locationOrigin(),
           host: locationHost(),
           hostname: locationHost(),
-          network: getNetworkName(networkConfig),
         }),
         processors: [
           new BatchLogRecordProcessor(
@@ -84,3 +59,17 @@ const setLoggerProvider = async (networkConfig: NetworkConfig): Promise<void> =>
 };
 
 export { setLoggerProvider, telemetryLogger };
+
+/** Structured lifecycle observations; caller supplies per-client identity. */
+export const reportTelemetryEvent = (event: string, attributes: Record<string, unknown>): void => {
+  try {
+    telemetryLogger?.emit({
+      body: event,
+      severityNumber: SeverityNumber.INFO,
+      severityText: 'INFO',
+      attributes: attributes as AnyValueMap,
+    });
+  } catch {
+    // Reporting must not interrupt an operation or replace its error.
+  }
+};

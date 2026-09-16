@@ -16,7 +16,7 @@ import { setLoggerProvider } from '../../services/telemetry';
 import type { SwapAndExecuteParams, SwapExactInParams, SwapExactOutParams } from '../../swap/types';
 import type { MiddlewareClient } from '../../transport';
 import type { NexusClient, SwapAndExecuteOptions, SwapOperationOptions } from '../types';
-import { nexusUtils } from '../utils';
+import { createNexusUtils } from '../utils';
 import { createBase } from './base';
 import {
   trackBalanceFetch,
@@ -51,7 +51,8 @@ export const createNexusClient = (config: {
     getNetwork(config?.network || 'mainnet'),
     config?.analytics,
     resolvedDevTiming,
-    base.peekChainList
+    base.peekChainList,
+    config.clientId
   );
   base.setAnalytics(analytics);
   logger.debug('Nexus SDK initialized with config:', config);
@@ -70,7 +71,7 @@ export const createNexusClient = (config: {
   };
 
   const client: NexusClient = {
-    utils: nexusUtils,
+    utils: createNexusUtils(config.clientId),
     analytics,
     initialize,
     isSupportedChain: (chainId) => base.getSupportedChains().some((chain) => chain.id === chainId),
@@ -80,18 +81,21 @@ export const createNexusClient = (config: {
       trackExecute(analytics, params, options, (opId) => base.execute(params, options, opId)),
     simulateExecute: (params: ExecuteParams) =>
       trackExecuteSim(analytics, params, () => base.simulateExecute(params)),
-    getBalancesForSwap: () => trackBalanceFetch(analytics, () => base.getBalancesForSwap()),
+    getBalancesForSwap: () =>
+      trackBalanceFetch(analytics, () => base.getBalancesForSwap()).then(
+        (result) => result.balances
+      ),
     swapWithExactIn: (input: SwapExactInParams, options?: SwapOperationOptions) =>
-      trackIntentOperation(analytics, 'swapWithExactIn', input, options, () =>
-        base.swapWithExactIn(input, options)
+      trackIntentOperation(analytics, 'swapWithExactIn', input, options, (_id, reporting) =>
+        base.swapWithExactIn(input, options, reporting)
       ),
     swapWithExactOut: (input: SwapExactOutParams, options?: SwapOperationOptions) =>
-      trackIntentOperation(analytics, 'swapWithExactOut', input, options, () =>
-        base.swapWithExactOut(input, options)
+      trackIntentOperation(analytics, 'swapWithExactOut', input, options, (_id, reporting) =>
+        base.swapWithExactOut(input, options, reporting)
       ),
     swapAndExecute: (input: SwapAndExecuteParams, options?: SwapAndExecuteOptions) =>
-      trackIntentOperation(analytics, 'swapAndExecute', input, options, () =>
-        base.swapAndExecute(input, options)
+      trackIntentOperation(analytics, 'swapAndExecute', input, options, (_id, reporting) =>
+        base.swapAndExecute(input, options, reporting)
       ),
     setEVMProvider: (provider: EthereumProvider) => base.setEvmProvider(provider),
     convertTokenReadableAmountToBigInt: base.convertTokenReadableAmountToBigInt,

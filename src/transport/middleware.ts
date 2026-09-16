@@ -1,5 +1,6 @@
 import axios from 'axios';
 import type { Hex } from 'viem';
+import { version } from '../../package.json' with { type: 'json' };
 import { installAxiosNetworkTiming } from '../analytics/network-timing';
 import type { TimingSpanHooks } from '../domain';
 import {
@@ -39,17 +40,24 @@ export type MiddlewareClient = {
   getIntentChains: (constraints?: IntentRouteConstraints) => Promise<IntentChain[]>;
   getIntentBalances: (
     address: Hex,
-    options?: { refresh?: boolean; providers?: IntentProvider[] }
+    options?: { refresh?: boolean; providers?: IntentProvider[]; attemptId?: string }
   ) => Promise<IntentBalancesResult>;
-  getIntentQuote: (request: IntentQuoteRequest) => Promise<ExecutableIntentQuote>;
-  submitIntent: (request: IntentSubmitRequest) => Promise<IntentSubmitResponse>;
-  getIntentStatus: (id: Hex) => Promise<IntentStatus>;
+  getIntentQuote: (
+    request: IntentQuoteRequest,
+    attemptId?: string
+  ) => Promise<ExecutableIntentQuote>;
+  submitIntent: (request: IntentSubmitRequest, attemptId?: string) => Promise<IntentSubmitResponse>;
+  getIntentStatus: (id: Hex, attemptId?: string) => Promise<IntentStatus>;
   listIntentHistory: (query?: IntentHistoryQuery) => Promise<IntentHistoryResult>;
   configureTiming: (options?: { timing?: TimingSpanHooks; captureNetworkTiming?: boolean }) => void;
   destroy: () => void;
 };
 
 const INTENT_API_PREFIX = '/api/v1/intent';
+// Middleware already accepts x-request-id as caller-provided correlation metadata.
+// Keep it on each request, never on shared Axios defaults or in signed payloads.
+const attemptHeaders = (attemptId?: string) =>
+  attemptId ? { 'x-request-id': attemptId } : undefined;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -431,6 +439,7 @@ export const createMiddlewareClient = (
       Accept: 'application/json',
       'x-nexus-client-id': options?.clientId,
       'x-nexus-surface': 'nexus-sdk',
+      'x-nexus-surface-version': version,
     },
   });
   // biome-ignore lint/suspicious/noEmptyBlockStatements: default no-op cleanup
@@ -508,6 +517,7 @@ export const createMiddlewareClient = (
       normalizeIntentBalances(
         (
           await client.get(`${INTENT_API_PREFIX}/balances/${address}`, {
+            ...(options?.attemptId ? { headers: attemptHeaders(options.attemptId) } : {}),
             params: {
               refresh: options?.refresh ?? false,
               provider:
@@ -518,23 +528,33 @@ export const createMiddlewareClient = (
       )
     );
 
-  const getIntentQuote = (quoteRequest: IntentQuoteRequest): Promise<ExecutableIntentQuote> =>
+  const getIntentQuote: MiddlewareClient['getIntentQuote'] = (quoteRequest, attemptId) =>
     request('quote request', async () =>
-      normalizeIntentQuote((await client.post(`${INTENT_API_PREFIX}/quote`, quoteRequest)).data)
-    );
-
-  const submitIntent = (submitRequest: IntentSubmitRequest): Promise<IntentSubmitResponse> =>
-    request('submit request', async () =>
-      normalizeIntentSubmitResponse(
-        (await client.post(`${INTENT_API_PREFIX}/submit`, submitRequest)).data
+      normalizeIntentQuote(
+        (
+          await client.post(`${INTENT_API_PREFIX}/quote`, quoteRequest, {
+            headers: attemptHeaders(attemptId),
+          })
+        ).data
       )
     );
 
-  const getIntentStatus = (id: Hex): Promise<IntentStatus> =>
+  const submitIntent: MiddlewareClient['submitIntent'] = (submitRequest, attemptId) =>
+    request('submit request', async () =>
+      normalizeIntentSubmitResponse(
+        (
+          await client.post(`${INTENT_API_PREFIX}/submit`, submitRequest, {
+            headers: attemptHeaders(attemptId),
+          })
+        ).data
+      )
+    );
+
+  const getIntentStatus: MiddlewareClient['getIntentStatus'] = (id, attemptId) =>
     request('status request', async () => {
       const [statusResponse, detailResponse] = await Promise.all([
-        client.get(`${INTENT_API_PREFIX}/status/${id}`),
-        client.get(`${INTENT_API_PREFIX}/rff/${id}`),
+        client.get(`${INTENT_API_PREFIX}/status/${id}`, { headers: attemptHeaders(attemptId) }),
+        client.get(`${INTENT_API_PREFIX}/rff/${id}`, { headers: attemptHeaders(attemptId) }),
       ]);
       return normalizeIntentStatus(statusResponse.data, detailResponse.data);
     });

@@ -1,6 +1,7 @@
 import type { Hex } from 'viem';
 import { ERROR_CODES, Errors, formatUnknownError, NexusError } from '../domain/errors';
 import { runNonBlocking } from '../services/non-blocking';
+import type { IntentReporting } from './telemetry';
 import type {
   ExecutableIntentQuote,
   IntentApprovalInstruction,
@@ -28,6 +29,7 @@ type RunIntentInput = {
   onEvent?: (event: IntentEvent) => void;
   pollingIntervalMs?: number;
   timeoutMs?: number;
+  reporting?: IntentReporting;
 };
 
 type RunIntentDeps = {
@@ -41,7 +43,7 @@ type RunIntentDeps = {
   sendNative: (
     instruction: IntentNativeTransactionInstruction,
     signature: Hex,
-    onSubmitted?: () => void
+    onSubmitted?: (txHash?: Hex) => void
   ) => Promise<IntentTransaction>;
   submit: (request: IntentSubmitRequest) => Promise<IntentSubmitResponse>;
   getStatus: (id: Hex) => Promise<IntentStatus>;
@@ -82,7 +84,11 @@ const assertFresh = (quote: ExecutableIntentQuote, now: number) => {
   if (quote.quote.expiresAt * 1_000 <= now) {
     throw Errors.backend(`Intent quote ${quote.quote.id} expired before submission`, {
       service: 'middleware',
-      details: { quoteId: quote.quote.id, expiresAt: quote.quote.expiresAt },
+      details: {
+        quoteId: quote.quote.id,
+        expiresAt: quote.quote.expiresAt,
+        reasonBucket: 'expired',
+      },
     });
   }
 };
@@ -105,14 +111,28 @@ const resolveIntentApproval = async (
     const deny = () => reject(Errors.userDeniedIntent());
     const refresh = async (sources?: IntentSource[]) => {
       if (accepted || !input.refreshQuote) return current.quote;
-      const refreshed = await input.refreshQuote(sources);
-      assertFresh(refreshed, now());
+      let refreshed: ExecutableIntentQuote;
+      try {
+        refreshed = await input.refreshQuote(sources);
+        assertFresh(refreshed, now());
+      } catch (error) {
+        input.reporting?.refreshFailed(error);
+        throw error;
+      }
       current = refreshed;
       emit({ type: 'quote', quote: current.quote });
       return current.quote;
     };
 
-    Promise.resolve(input.onIntent?.({ quote: current.quote, allow, deny, refresh })).catch(reject);
+    Promise.resolve(
+      input.onIntent?.({
+        quote: current.quote,
+        allow,
+        deny,
+        refresh,
+        ...(input.reporting ? { attemptId: input.reporting.attemptId } : {}),
+      })
+    ).catch(reject);
   });
 
   return current;
@@ -124,10 +144,12 @@ export const runIntent = async (
 ): Promise<IntentResult> => {
   const now = deps.now ?? Date.now;
   const wait = deps.sleep ?? sleep;
-  const emit = (event: IntentEvent) =>
+  const emit = (event: IntentEvent) => {
+    input.reporting?.observe(event);
     runNonBlocking('IntentEventEmitFailed', () => input.onEvent?.(event), {
       eventType: event.type,
     });
+  };
   let committed = false;
   const emitStep = (
     quote: ExecutableIntentQuote,
@@ -186,6 +208,7 @@ export const runIntent = async (
         emitStep(executable, stepId, 'completed');
       } else {
         const transaction = await deps.approve(instruction, instruction.requiredRaw);
+        input.reporting?.transaction('approval', transaction);
         // Handle failures immediately so an RPC rejection cannot go unhandled while
         // the next wallet prompt is open. Receipt checks do not hold the wallet queue.
         confirmations.push(
@@ -270,7 +293,10 @@ export const runIntent = async (
     signatures.unshift({ ...envelope, signature });
     const hasErc20Source =
       executable.execution.nativeTransactions.length < executable.quote.input.length;
-    if (hasErc20Source) committed = true;
+    if (hasErc20Source) {
+      committed = true;
+      input.reporting?.commit();
+    }
     emitStep(executable, 'intent-signature', 'completed');
   } catch (error) {
     emitStep(executable, 'intent-signature', 'failed', error);
@@ -282,11 +308,21 @@ export const runIntent = async (
   for (const instruction of executable.execution.nativeTransactions) {
     const stepId = `native:${instruction.chainId}:${instruction.sourceIndex}`;
     emitStep(executable, stepId, 'started');
+    let broadcastReported = false;
     try {
-      const transaction = await deps.sendNative(instruction, signature, () => {
+      const transaction = await deps.sendNative(instruction, signature, (txHash) => {
         committed = true;
+        input.reporting?.commit();
+        if (txHash) {
+          input.reporting?.transaction('source', {
+            chainId: instruction.chainId,
+            txHash,
+          });
+          broadcastReported = true;
+        }
       });
       nativeTransactions.push(transaction);
+      if (!broadcastReported) input.reporting?.transaction('source', transaction);
       nativeTxReceipts.push({ sourceIndex: instruction.sourceIndex, txHash: transaction.txHash });
       emitStep(executable, stepId, 'completed');
     } catch (error) {
@@ -330,6 +366,7 @@ export const runIntent = async (
       emitStep(executable, 'intent-fulfillment', 'completed');
       emit(statusEvent);
       return {
+        ...(input.reporting ? { attemptId: input.reporting.attemptId } : {}),
         intentId: executable.quote.id,
         intentExplorerUrl: explorerLink(deps.explorerUrl, executable.quote.id),
         quote: executable.quote,
@@ -341,7 +378,7 @@ export const runIntent = async (
     if (status.status === 'expired') {
       const error = Errors.backend(`Intent ${status.id} expired before fulfillment`, {
         service: 'middleware',
-        details: { quoteId: status.id, substatus: status.substatus },
+        details: { quoteId: status.id, substatus: status.substatus, reasonBucket: 'expired' },
       });
       emitStep(executable, 'intent-fulfillment', 'failed', error);
       emit(statusEvent);

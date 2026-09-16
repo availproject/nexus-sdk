@@ -462,8 +462,11 @@ export const Errors = {
       { context: { chainId } }
     ),
 
-  invalidInput: (msg: string): ValidationError =>
-    new ValidationError(ERROR_CODES.INVALID_INPUT, `input invalid: ${msg}`, { context: {} }),
+  invalidInput: (msg: string, details?: Record<string, unknown>): ValidationError =>
+    new ValidationError(ERROR_CODES.INVALID_INPUT, `input invalid: ${msg}`, {
+      context: {},
+      details,
+    }),
 
   // ── user_action/* named factories
   userDeniedIntent: (): UserActionError =>

@@ -2,6 +2,7 @@ import axios, { type AxiosAdapter, type CreateAxiosDefaults } from 'axios';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Hex } from 'viem';
 import { createNexusClient } from '../../src';
+import { version } from '../../package.json';
 import { getIntentQuoteFailure } from '../../src/intent/errors';
 import { createMiddlewareClient } from '../../src/transport/middleware';
 
@@ -40,6 +41,35 @@ const quoteResponse = () => ({
 describe('Better Intent middleware transport', () => {
   beforeEach(() => axiosRoot.create.mockReset());
 
+  it('keeps concurrent attempts isolated across quote, submit, status and detail requests', async () => {
+    const { default: realAxios } = await vi.importActual<typeof import('axios')>('axios');
+    const adapter = vi.fn<AxiosAdapter>(async (config) => ({
+      data: config.url?.endsWith('/quote') ? quoteResponse() :
+        config.url?.endsWith('/submit') ? { quoteId: QUOTE_ID, status: 'created' } :
+        { quoteId: QUOTE_ID, provider: 'nexus-v2', status: 'fulfilled', substatus: 'completed', rff: {}, legs: [] },
+      status: 200, statusText: 'OK', headers: {}, config,
+    }));
+    axiosRoot.create.mockImplementation((config: CreateAxiosDefaults) => realAxios.create({ ...config, adapter }));
+    const mw = createMiddlewareClient('https://middleware.example', { clientId: 'test' });
+    const request = { sender: ACCOUNT, tradeType: 'exactOutput' as const, output: { chainId: 'EVM_1', token: TOKEN, amount: '1' } };
+    try {
+      await Promise.all(['attempt-a', 'attempt-b'].map(async (id) => {
+        await mw.getIntentQuote(request, id);
+        await mw.getIntentQuote(request, id);
+        await mw.submitIntent({ provider: 'nexus-v2', rff: {}, signatures: [] }, id);
+        await mw.getIntentStatus(QUOTE_ID, id);
+      }));
+      for (const id of ['attempt-a', 'attempt-b']) {
+        const calls = adapter.mock.calls.filter(([config]) => config.headers.get('x-request-id') === id);
+        expect(calls.map(([config]) => config.url?.split('/').slice(4).join('/'))).toEqual([
+          'quote', 'quote', 'submit', `status/${QUOTE_ID}`, `rff/${QUOTE_ID}`,
+        ]);
+      }
+      expect(adapter.mock.calls).toHaveLength(10);
+      expect(adapter.mock.calls.every(([config]) => !config.data?.includes('attempt-'))).toBe(true);
+    } finally { mw.destroy(); }
+  });
+
   it('sends the public client identity on Better Intent requests', async () => {
     const { default: realAxios } = await vi.importActual<typeof import('axios')>('axios');
     const adapter = vi.fn<AxiosAdapter>(async (config) => ({
@@ -65,6 +95,7 @@ describe('Better Intent middleware transport', () => {
       expect(requests[0]?.headers.toJSON()).toMatchObject({
         'x-nexus-client-id': 'My.App',
         'x-nexus-surface': 'nexus-sdk',
+        'x-nexus-surface-version': version,
       });
     } finally {
       client.destroy();
@@ -230,8 +261,8 @@ describe('Better Intent middleware transport', () => {
       quoteId: QUOTE_ID,
       status: 'created',
     });
-    expect(http.post).toHaveBeenNthCalledWith(1, '/api/v1/intent/quote', request);
-    expect(http.post).toHaveBeenNthCalledWith(2, '/api/v1/intent/submit', submit);
+    expect(http.post).toHaveBeenNthCalledWith(1, '/api/v1/intent/quote', request, { headers: undefined });
+    expect(http.post).toHaveBeenNthCalledWith(2, '/api/v1/intent/submit', submit, { headers: undefined });
   });
 
   it('exposes structured quote failure diagnostics', async () => {
@@ -400,8 +431,8 @@ describe('Better Intent middleware transport', () => {
         },
       ],
     });
-    expect(http.get).toHaveBeenCalledWith(`/api/v1/intent/status/${QUOTE_ID}`);
-    expect(http.get).toHaveBeenCalledWith(`/api/v1/intent/rff/${QUOTE_ID}`);
+    expect(http.get).toHaveBeenCalledWith(`/api/v1/intent/status/${QUOTE_ID}`, { headers: undefined });
+    expect(http.get).toHaveBeenCalledWith(`/api/v1/intent/rff/${QUOTE_ID}`, { headers: undefined });
   });
 
   it('merges Nexus and external intent history behind one request', async () => {

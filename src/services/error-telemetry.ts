@@ -24,6 +24,7 @@
 import { type AnyValueMap, SeverityNumber } from '@opentelemetry/api-logs';
 import type { OperationName } from '../domain/errors';
 import { NexusError } from '../domain/errors';
+import { getErrorReportingProperties } from './error-reporting';
 import { telemetryLogger } from './telemetry';
 
 export interface ReportOperationErrorInput {
@@ -33,6 +34,8 @@ export interface ReportOperationErrorInput {
   params?: unknown;
   options?: unknown;
   error: unknown;
+  /** Prepared identity and correlation fields, not raw request data. */
+  attributes?: Record<string, unknown>;
 }
 
 // ── Flattening allow-list — real public field names verified against the SDK types.
@@ -223,6 +226,8 @@ export const reportOperationError = (input: ReportOperationErrorInput): void => 
 
   try {
     const attrs: Attrs = {
+      ...getErrorReportingProperties(input.error),
+      ...input.attributes,
       operation: input.operation,
       'operation.id': input.operationId,
     };

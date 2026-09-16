@@ -1,5 +1,6 @@
 import { createWalletClient, custom, type Hex, type WalletClient } from 'viem';
 import type { AnalyticsManager } from '../../analytics/AnalyticsManager';
+import { NexusAnalyticsEvents } from '../../analytics/events';
 import type { DevTimingConfig } from '../../analytics/types';
 import { getWalletType } from '../../analytics/utils';
 import type {
@@ -25,8 +26,8 @@ import {
 } from '../../intent/catalog';
 import { calculateIntentFunding } from '../../intent/funding';
 import { runIntent } from '../../intent/orchestrator';
+import type { IntentReporting } from '../../intent/telemetry';
 import type {
-  IntentBalance,
   IntentChain,
   IntentHistoryResult,
   IntentQuoteRequest,
@@ -165,7 +166,7 @@ export const createBase = (config: {
     return next;
   };
 
-  const intentRuntime = () => {
+  const intentRuntime = (attemptId?: string) => {
     const evm = getEvm();
     const wallet = createIntentWallet({
       address: evm.address,
@@ -181,8 +182,9 @@ export const createBase = (config: {
       sign: (...args: Parameters<typeof wallet.sign>) => withWallet(() => wallet.sign(...args)),
       sendNative: (...args: Parameters<typeof wallet.sendNative>) =>
         withWallet(() => wallet.sendNative(...args)),
-      submit: state.middlewareClient.submitIntent,
-      getStatus: state.middlewareClient.getIntentStatus,
+      submit: (request: Parameters<MiddlewareClient['submitIntent']>[0]) =>
+        state.middlewareClient.submitIntent(request, attemptId),
+      getStatus: (id: Hex) => state.middlewareClient.getIntentStatus(id, attemptId),
     };
   };
 
@@ -270,30 +272,37 @@ export const createBase = (config: {
 
   const executeIntent = (
     request: (sources?: IntentSource[]) => IntentQuoteRequest,
-    options?: SwapOperationOptions
+    options?: SwapOperationOptions,
+    reporting?: IntentReporting
   ): Promise<IntentResult> =>
     runIntent(
       {
-        requestQuote: () => state.middlewareClient.getIntentQuote(request()),
-        refreshQuote: (sources) => state.middlewareClient.getIntentQuote(request(sources)),
+        requestQuote: () => state.middlewareClient.getIntentQuote(request(), reporting?.attemptId),
+        refreshQuote: (sources) =>
+          state.middlewareClient.getIntentQuote(request(sources), reporting?.attemptId),
+        reporting,
         onIntent: options?.hooks?.onIntent,
         onEvent: options?.onEvent,
         pollingIntervalMs: options?.pollingIntervalMs,
         timeoutMs: (options?.fillTimeoutMinutes ?? 2) * 60_000,
       },
-      intentRuntime()
+      intentRuntime(reporting?.attemptId)
     );
 
-  const swapWithExactIn = (input: SwapExactInParams, options?: SwapOperationOptions) =>
-    executeIntent((sources) => exactInRequest(input, options, sources), options);
+  const swapWithExactIn = (
+    input: SwapExactInParams,
+    options?: SwapOperationOptions,
+    reporting?: IntentReporting
+  ) => executeIntent((sources) => exactInRequest(input, options, sources), options, reporting);
 
-  const swapWithExactOut = (input: SwapExactOutParams, options?: SwapOperationOptions) =>
-    executeIntent((sources) => exactOutRequest(input, options, sources), options);
+  const swapWithExactOut = (
+    input: SwapExactOutParams,
+    options?: SwapOperationOptions,
+    reporting?: IntentReporting
+  ) => executeIntent((sources) => exactOutRequest(input, options, sources), options, reporting);
 
-  const getIntentBalances = async (): Promise<IntentBalance[]> =>
-    state.middlewareClient
-      .getIntentBalances(getEvm().address, balanceOptions())
-      .then((result) => result.balances);
+  const getIntentBalances = () =>
+    state.middlewareClient.getIntentBalances(getEvm().address, balanceOptions());
 
   const execute = (params: ExecuteParams, _options?: OnEventParam, parentSpanId?: string) =>
     flowExecute(params, {
@@ -328,12 +337,23 @@ export const createBase = (config: {
     chainId: number,
     tokenAddress: Hex,
     tokenAmountRaw: bigint,
-    executeParams: ExecuteParams
+    executeParams: ExecuteParams,
+    reporting?: IntentReporting
   ) => {
     const [balances, executeSimulation] = await Promise.all([
-      state.middlewareClient.getIntentBalances(getEvm().address, balanceOptions(true)),
+      state.middlewareClient.getIntentBalances(getEvm().address, {
+        ...balanceOptions(true),
+        ...(reporting ? { attemptId: reporting.attemptId } : {}),
+      }),
       simulateExecute(executeParams),
     ]);
+    if (balances.errored) {
+      state.analytics?.reportEvent(NexusAnalyticsEvents.BALANCES_FETCH_PARTIAL, {
+        ...reporting?.properties(),
+        'balances.partial': true,
+        'balances.count': balances.balances.length,
+      });
+    }
     const token = getIntentCatalog().getToken(chainId, tokenAddress);
     const tokenBalance =
       balances.balances.find(
@@ -364,14 +384,16 @@ export const createBase = (config: {
 
   const swapAndExecute = async (
     input: SwapAndExecuteParams,
-    options?: SwapAndExecuteOptions
+    options?: SwapAndExecuteOptions,
+    reporting?: IntentReporting
   ): Promise<SwapAndExecuteIntentResult> => {
     const executeParams = swapExecuteParams(input);
     const funding = await destinationFunding(
       input.toChainId,
       input.toTokenAddress,
       input.toAmountRaw,
-      executeParams
+      executeParams,
+      reporting
     );
     const swapResult =
       funding.outputAmountRaw === 0n && funding.gasDropRaw === 0n
@@ -384,9 +406,15 @@ export const createBase = (config: {
               toNativeAmountRaw: funding.gasDropRaw,
               sources: input.sources,
             },
-            options
+            options,
+            reporting
           );
-    const executed = await execute(await applyBeforeExecute(executeParams, options));
+    if (!swapResult) reporting?.skip();
+    const executed = await execute(
+      await applyBeforeExecute(executeParams, options),
+      undefined,
+      reporting?.attemptId
+    );
     return swapResult
       ? { swapSkipped: false, swapResult, approval: executed.approval, execute: executed.execute }
       : { swapSkipped: true, approval: executed.approval, execute: executed.execute };
