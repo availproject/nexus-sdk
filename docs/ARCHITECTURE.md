@@ -195,6 +195,16 @@ available for other catalog chains.
 `getSupportedChains()` merges intent-enabled catalog chains with executable catalog chains. Each
 result contains explicit `capabilities.intent` and `capabilities.execute` flags.
 
+The synchronous client helpers `getTokensByChain`, `getAvailableSourceTokens`,
+`getAvailableDestinationTokens`, and `confirmRouteExists` also use the initialization cache. Catalog
+filtering lives in `src/intent/catalog.ts`; `src/core/` binds the client's provider restriction and
+initialization guard. Source candidates are grouped by provider and can be narrowed by existing
+selections without removing selected tokens. Destination candidates form one list after intersecting
+every source's provider support. Both directions intersect chain and token metadata.
+`confirmRouteExists` shares the provider intersection used by exact-input prechecks. Exact-output
+sources remain alternative candidates with individual destination compatibility. These helpers need
+no wallet or network calls, and UI provider groups do not constrain quote provider selection.
+
 The standalone `getSupportedChains(network, { clientId })` utility and `client.utils.getSupportedChains(network)`
 fetch their own catalog. `src/services/chains.ts` preserves chain and token directional support
 while returning the existing utility shape, including token `contractAddress` and execution token

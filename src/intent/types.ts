@@ -13,6 +13,11 @@ export type IntentProviderSupport = {
   currencyId?: number | string;
 };
 
+export type TokenRef = {
+  chainId: number;
+  tokenAddress: Hex;
+};
+
 export type IntentToken = {
   chainId: number;
   address: Hex;
@@ -55,6 +60,11 @@ export type IntentChain = {
     intent: boolean;
     execute: boolean;
   };
+};
+
+export type ProviderTokenGroup = {
+  provider: IntentProvider;
+  chains: IntentChain[];
 };
 
 export type IntentRouteConstraintLeg = {

@@ -96,8 +96,10 @@ export type {
   IntentToken,
   IntentTradeType,
   IntentTransaction,
+  ProviderTokenGroup,
   SwapAndExecuteIntentResult,
   SwapAndExecuteIntentResult as SwapAndExecuteResult,
+  TokenRef,
 } from './intent/types';
 export type {
   Source,

@@ -92,6 +92,10 @@ both the requested output and the later execute value/gas.
 - Exact-input sources and destination must share one provider across chain and token directional
   support. Exact-output candidates need individual compatibility with the destination. These checks
   use the initialization cache; middleware still decides route feasibility.
+- Token picker helpers use the same cached directional support. Optional selected sources narrow
+  source groups; keep already-selected tokens in the results. Destination choices and
+  `confirmRouteExists` require a provider common to all selected sources. Provider groups are for
+  display and must not pin a quote provider.
 - Default slippage is 50 basis points unless the caller supplies another valid value or `auto`.
 - `forceMayan` is a preferred-provider request; never calculate provider thresholds locally.
 
