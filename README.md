@@ -275,6 +275,57 @@ Chain and token `asSource` and `asDestination` arrays describe general provider 
 uses both levels for swap prechecks, including quote refreshes, without fetching another catalog.
 Shared provider support does not guarantee a route: middleware still validates currency
 compatibility, amounts, balances, fees, and provider availability.
+
+### Token picker helpers
+
+After `initialize()`, these synchronous methods use the cached chain and token catalog. They need
+no connected wallet and make no additional API calls. They are available on `mainnet` and `canary`
+and respect `forceMayan`.
+
+```ts
+import type { TokenRef } from '@avail-project/nexus-core';
+
+const destination: TokenRef = { chainId: 8453, tokenAddress: baseUsdc };
+const selectedSources: TokenRef[] = [{ chainId: 10, tokenAddress: optimismUsdc }];
+
+const tokens = client.getTokensByChain(10); // IntentToken[]
+const initialSources = client.getAvailableSourceTokens(destination); // ProviderTokenGroup[]
+const nextSources = client.getAvailableSourceTokens(destination, selectedSources);
+const destinations = client.getAvailableDestinationTokens(selectedSources); // IntentChain[]
+const supported = client.confirmRouteExists(selectedSources, destination); // boolean
+```
+
+- `getTokensByChain(chainId)` returns the chain's tokens, including display metadata and directional
+  provider support.
+- `getAvailableSourceTokens(destination, selectedSources?)` returns `{ provider, chains }` groups.
+  Each group's provider supports the destination and every selected source. Its chains contain
+  only tokens that can be added as sources through that provider. Omitting `selectedSources` or
+  passing `[]` lists the initial candidates. A token can appear in multiple groups. Already-selected
+  chain/token pairs stay in the results; the app can hide them if needed.
+- `getAvailableDestinationTokens(sources)` returns one list of chains and tokens compatible with
+  at least one provider shared by **all** selected sources. It does not duplicate destinations by
+  provider. Passing `[]` lists all destination-capable tokens.
+- `confirmRouteExists(sources, destination)` checks for one provider shared by the whole selection.
+  It returns `false` for empty sources, unknown chain/token pairs, or no common provider. Use it
+  before requesting a quote; `true` means catalog compatibility, not guaranteed quote availability.
+
+Compatibility uses both the chain's and token's directional support. The helpers preserve the
+existing `IntentChain` and `IntentToken` shapes: chains use `id`, tokens use `chainId` and `address`,
+and token provider entries use `{ id, currencyId? }`. Token `logo` is optional. `TokenRef` and
+`ProviderTokenGroup` are exported from the package root.
+
+Valid selections with no compatible candidates return `[]`. Lookup helpers throw the existing
+`validation/chain_not_found` or `validation/token_not_supported` errors for unknown inputs; all four
+methods require initialization. Returned metadata describes general catalog support. Provider groups
+help the app present compatible choices; they are not passed to swaps to pin a quote provider.
+Middleware selects the provider using actual quotes.
+
+The common-provider check matches exact-input validation. Exact-output `sources` are alternative
+funding candidates, so its precheck continues to require individual compatibility with the
+destination rather than one provider shared by every candidate.
+
+### Route-constrained catalog
+
 `getSupportedChainsForRoute()` forwards route constraints to `/chains`, so its chain-level support
 is constrained. Its tokens remain the provider-filtered catalog from `/tokens`.
 

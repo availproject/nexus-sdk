@@ -2,7 +2,15 @@ import type { Hex } from 'viem';
 import type { Chain } from '../domain';
 import { ZERO_ADDRESS } from '../domain';
 import { Errors } from '../domain/errors';
-import type { IntentChain, IntentProvider, IntentSource, IntentToken } from './types';
+import {
+  INTENT_PROVIDERS,
+  type IntentChain,
+  type IntentProvider,
+  type IntentSource,
+  type IntentToken,
+  type ProviderTokenGroup,
+  type TokenRef,
+} from './types';
 
 export const intentNetworkEnabled = (network: string): boolean =>
   network === 'mainnet' || network === 'canary';
@@ -37,6 +45,20 @@ export type IntentCatalog = {
   chains: IntentChain[];
   getChain: (chainId: number) => IntentChain;
   getToken: (chainId: number, address: Hex) => IntentToken;
+  getAvailableSourceTokens: (
+    destination: TokenRef,
+    selectedSources?: TokenRef[],
+    providers?: IntentProvider[]
+  ) => ProviderTokenGroup[];
+  getAvailableDestinationTokens: (
+    sources: TokenRef[],
+    providers?: IntentProvider[]
+  ) => IntentChain[];
+  confirmRouteExists: (
+    sources: TokenRef[],
+    destination: TokenRef,
+    providers?: IntentProvider[]
+  ) => boolean;
   validateExactInput: (
     sources: IntentToken[],
     destination: IntentToken,
@@ -57,8 +79,12 @@ export const createIntentCatalog = (chains: IntentChain[]): IntentCatalog => {
     return chain;
   };
 
+  const findToken = (chainId: number, address: Hex) =>
+    chainsById.get(chainId)?.tokens.find((entry) => sameAddress(entry.address, address));
+
   const getToken = (chainId: number, address: Hex): IntentToken => {
-    const token = getChain(chainId).tokens.find((entry) => sameAddress(entry.address, address));
+    getChain(chainId);
+    const token = findToken(chainId, address);
     if (!token) throw Errors.tokenNotSupported(address, chainId);
     return token;
   };
@@ -76,15 +102,65 @@ export const createIntentCatalog = (chains: IntentChain[]): IntentCatalog => {
       (id) => !providers || providers.includes(id)
     );
 
+  const commonSourceProviders = (sources: IntentToken[], providers: readonly IntentProvider[]) =>
+    sources.reduce(
+      (common, source) => common.filter((id) => tokenProviders(source, 'asSource').includes(id)),
+      [...providers]
+    );
+
+  const matchingChains = (role: 'asSource' | 'asDestination', providers: IntentProvider[]) =>
+    chains.flatMap((chain) => {
+      const tokens = chain.tokens.filter((token) =>
+        tokenProviders(token, role).some((id) => providers.includes(id))
+      );
+      return tokens.length ? [{ ...chain, tokens }] : [];
+    });
+
+  const getAvailableSourceTokens: IntentCatalog['getAvailableSourceTokens'] = (
+    destination,
+    selectedSources,
+    providers
+  ) => {
+    const supported = commonSourceProviders(
+      (selectedSources ?? []).map(({ chainId, tokenAddress }) => getToken(chainId, tokenAddress)),
+      destinationProviders(getToken(destination.chainId, destination.tokenAddress), providers)
+    );
+    return supported.flatMap((provider) => {
+      const candidates = matchingChains('asSource', [provider]);
+      return candidates.length ? [{ provider, chains: candidates }] : [];
+    });
+  };
+
+  const getAvailableDestinationTokens: IntentCatalog['getAvailableDestinationTokens'] = (
+    sources,
+    providers
+  ) =>
+    matchingChains(
+      'asDestination',
+      commonSourceProviders(
+        sources.map(({ chainId, tokenAddress }) => getToken(chainId, tokenAddress)),
+        providers ?? INTENT_PROVIDERS
+      )
+    );
+
+  const confirmRouteExists: IntentCatalog['confirmRouteExists'] = (
+    sources,
+    destination,
+    providers
+  ) => {
+    if (!sources.length) return false;
+    const target = findToken(destination.chainId, destination.tokenAddress);
+    const selected = sources.map(({ chainId, tokenAddress }) => findToken(chainId, tokenAddress));
+    if (!target || !selected.every((token) => token !== undefined)) return false;
+    return commonSourceProviders(selected, destinationProviders(target, providers)).length > 0;
+  };
+
   const validateExactInput: IntentCatalog['validateExactInput'] = (
     sources,
     destination,
     providers
   ) => {
-    const common = sources.reduce(
-      (common, source) => common.filter((id) => tokenProviders(source, 'asSource').includes(id)),
-      destinationProviders(destination, providers)
-    );
+    const common = commonSourceProviders(sources, destinationProviders(destination, providers));
     if (common.length === 0) {
       throw Errors.invalidInput(
         'No common provider supports all selected sources and the destination. Choose different sources or a destination.',
@@ -123,7 +199,16 @@ export const createIntentCatalog = (chains: IntentChain[]): IntentCatalog => {
     return sources;
   };
 
-  return { chains, getChain, getToken, validateExactInput, getExactOutputSources };
+  return {
+    chains,
+    getChain,
+    getToken,
+    getAvailableSourceTokens,
+    getAvailableDestinationTokens,
+    confirmRouteExists,
+    validateExactInput,
+    getExactOutputSources,
+  };
 };
 
 const executeIntentChain = (chain: Chain): IntentChain => ({

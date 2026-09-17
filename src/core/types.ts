@@ -17,7 +17,10 @@ import type {
   IntentHookData,
   IntentResult,
   IntentRouteConstraints,
+  IntentToken,
+  ProviderTokenGroup,
   SwapAndExecuteIntentResult,
+  TokenRef,
 } from '../intent/types';
 import type { SwapAndExecuteParams, SwapExactInParams, SwapExactOutParams } from '../swap/types';
 import type { NexusUtils } from './utils';
@@ -65,6 +68,17 @@ export type NexusClient = {
     chainId: number
   ) => bigint;
   getSupportedChains: () => IntentChain[];
+  /** Read cached token metadata after initialization. */
+  getTokensByChain: (chainId: number) => IntentToken[];
+  /** Group compatible sources by provider, retaining already-selected tokens. */
+  getAvailableSourceTokens: (
+    destination: TokenRef,
+    selectedSources?: TokenRef[]
+  ) => ProviderTokenGroup[];
+  /** List destinations compatible with a provider shared by every source; [] lists all. */
+  getAvailableDestinationTokens: (sources: TokenRef[]) => IntentChain[];
+  /** Check cached provider compatibility; quote availability is still decided by middleware. */
+  confirmRouteExists: (sources: TokenRef[], destination: TokenRef) => boolean;
   getSupportedChainsForRoute: (constraints: IntentRouteConstraints) => Promise<IntentChain[]>;
   destroy: () => void;
 };

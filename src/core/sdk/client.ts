@@ -100,6 +100,10 @@ export const createNexusClient = (config: {
     setEVMProvider: (provider: EthereumProvider) => base.setEvmProvider(provider),
     convertTokenReadableAmountToBigInt: base.convertTokenReadableAmountToBigInt,
     getSupportedChains: base.getSupportedChains,
+    getTokensByChain: base.getTokensByChain,
+    getAvailableSourceTokens: base.getAvailableSourceTokens,
+    getAvailableDestinationTokens: base.getAvailableDestinationTokens,
+    confirmRouteExists: base.confirmRouteExists,
     getSupportedChainsForRoute: base.getSupportedChainsForRoute,
     destroy: () => {
       analytics.trackSessionEnd();

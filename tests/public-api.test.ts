@@ -4,6 +4,7 @@ import * as utilsModule from '../src/utils';
 import { AnalyticsManager, getIntentQuoteFailure, IntentStatus, NexusAnalyticsEvents } from '../src';
 import type {
   IntentBalance,
+  IntentChain,
   IntentEvent,
   IntentFees,
   IntentProviderSupport,
@@ -19,13 +20,16 @@ import type {
   IntentResult,
   IntentRecord,
   IntentStatusResponse,
+  IntentToken,
   ListIntentsParams,
   ListIntentsResult,
   OperationName,
   NexusClient,
+  ProviderTokenGroup,
   SwapAndExecuteResult,
   SwapResult as SwapResultType,
   SwapResult,
+  TokenRef,
   TxResult,
 } from '../src';
 
@@ -56,6 +60,21 @@ describe('public api exports', () => {
   it('requires clientId when creating a client', () => {
     expectTypeOf<Parameters<typeof rootModule.createNexusClient>>().toMatchTypeOf<
       [{ clientId: string }]
+    >();
+  });
+
+  it('exposes synchronous cached token selection helpers', () => {
+    expectTypeOf<NexusClient['getTokensByChain']>().toEqualTypeOf<
+      (chainId: number) => IntentToken[]
+    >();
+    expectTypeOf<NexusClient['getAvailableSourceTokens']>().toEqualTypeOf<
+      (destination: TokenRef, selectedSources?: TokenRef[]) => ProviderTokenGroup[]
+    >();
+    expectTypeOf<NexusClient['getAvailableDestinationTokens']>().toEqualTypeOf<
+      (sources: TokenRef[]) => IntentChain[]
+    >();
+    expectTypeOf<NexusClient['confirmRouteExists']>().toEqualTypeOf<
+      (sources: TokenRef[], destination: TokenRef) => boolean
     >();
   });
 

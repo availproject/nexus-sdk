@@ -34,6 +34,7 @@ import type {
   IntentResult,
   IntentSource,
   SwapAndExecuteIntentResult,
+  TokenRef,
 } from '../../intent/types';
 import { createIntentWallet } from '../../intent/wallet';
 import { mulDecimals } from '../../services/math';
@@ -459,6 +460,19 @@ export const createBase = (config: {
         filterIntentChains(state.intentCatalog?.chains ?? [], preferredProviders()),
         getChainList().chains
       ),
+    getTokensByChain: (chainId: number) =>
+      filterIntentChains([getIntentCatalog().getChain(chainId)], preferredProviders())[0]?.tokens ??
+      [],
+    getAvailableSourceTokens: (destination: TokenRef, selectedSources?: TokenRef[]) =>
+      getIntentCatalog().getAvailableSourceTokens(
+        destination,
+        selectedSources,
+        preferredProviders()
+      ),
+    getAvailableDestinationTokens: (sources: TokenRef[]) =>
+      getIntentCatalog().getAvailableDestinationTokens(sources, preferredProviders()),
+    confirmRouteExists: (sources: TokenRef[], destination: TokenRef) =>
+      getIntentCatalog().confirmRouteExists(sources, destination, preferredProviders()),
     getSupportedChainsForRoute: (
       constraints: import('../../intent/types').IntentRouteConstraints
     ) => {
