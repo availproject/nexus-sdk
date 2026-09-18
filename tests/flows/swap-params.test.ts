@@ -1,6 +1,6 @@
 import { parseUnits } from 'viem';
 import { describe, expect, it } from 'vitest';
-import { ZERO_ADDRESS } from '../../src/domain/constants/addresses';
+import { ARC_USDC_ERC20_INTERFACE as arcUsdc, ZERO_ADDRESS } from '../../src/domain/constants/addresses';
 import {
   validateSwapAndExecute,
   validateSwapExactIn,
@@ -8,7 +8,6 @@ import {
   validateSwapMax,
 } from '../../src/flows/swap-params';
 
-const arcUsdc = '0x3600000000000000000000000000000000000000' as const;
 const destination = { toChainId: 5042, toTokenAddress: arcUsdc } as const;
 
 describe('Arc USDC destination normalization', () => {

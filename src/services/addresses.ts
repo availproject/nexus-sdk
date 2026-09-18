@@ -1,8 +1,13 @@
 import { type ByteArray, type Hex, toBytes, toHex } from 'viem';
 import { EADDRESS, EADDRESS_BYTES_32, ZERO_ADDRESS, ZERO_ADDRESS_BYTES_32 } from '../domain';
 import { Universe } from '../domain/chain-abstraction';
+import { ARC_USDC_ERC20_INTERFACE } from '../domain/constants/addresses';
 import { Errors } from '../domain/errors';
 import { equalFold } from './strings';
+
+// Arc's ERC-20 interface exposes the native USDC balance in ERC-20 units.
+export const getNativeTokenErc20Interface = (chainId: number): Hex | undefined =>
+  chainId === 5042 || chainId === 5042002 ? ARC_USDC_ERC20_INTERFACE : undefined;
 
 export function convertAddressByUniverse(input: Hex, universe: Universe): Hex;
 export function convertAddressByUniverse(input: ByteArray, universe: Universe): ByteArray;

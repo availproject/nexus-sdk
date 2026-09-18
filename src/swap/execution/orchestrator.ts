@@ -13,8 +13,8 @@ const logger = getLogger();
 
 type SwapRouteExecutionContext = ExecutionContext & { destinationChainId: number };
 
-// Source-swap output is held by the ephemeral identity. When no source swaps run, planned EOA
-// balances pass through this merge unchanged.
+// Source-swap output is controlled by the ephemeral signer (native at the Safe, ERC-20 at its account).
+// When no source swaps run, planned EOA balances pass through this merge unchanged.
 const mergeBridgeAssets = (
   plannedAssets: BridgeAsset[],
   executedAssets: BridgeAsset[]

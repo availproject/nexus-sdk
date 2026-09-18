@@ -169,6 +169,25 @@ describe('cleanupStrandedCot', () => {
 
     expect(vi.mocked(dispatchSweepGroups).mock.calls[0]![0]).toHaveLength(0);
   });
+
+  it('refunds native source settlement directly from the Safe without a permit', async () => {
+    const ctx: Parameters<typeof cleanupStrandedCot>[0]['ctx'] = makeCtx(5n);
+    ctx.chainList.getTokenByCurrencyId = vi.fn().mockReturnValue({
+      contractAddress: '0x0000000000000000000000000000000000000000',
+      decimals: 18,
+      currencyId: CurrencyID.USDC,
+    });
+    const getBalance = vi.fn().mockResolvedValue(5n);
+    ctx.publicClientList.get = vi.fn().mockReturnValue({ getBalance });
+
+    await cleanupStrandedCot({ currencyId: CurrencyID.USDC, chainIds: [ARB], scope: 'source', ctx });
+
+    expect(getBalance).toHaveBeenCalledWith({ address: SAFE });
+    expect(ctx.ephemeralWallet.signTypedData).not.toHaveBeenCalled();
+    expect(vi.mocked(dispatchSweepGroups).mock.calls[0][0]).toEqual([
+      { chainId: ARB, holder: 'safe', calls: [{ to: EOA, value: 5n, data: '0x' }] },
+    ]);
+  });
 });
 
 describe('resolveFailureSweepCurrencyId', () => {

@@ -431,7 +431,7 @@ export async function _exactInRoute(data: ExactInData, options: RouteOptions): P
     sourceExecutionPaths: walletDecision.sourceExecutionPaths,
     destinationChainId: data.toChainId,
     destinationHasSwap: needsTokenSwap,
-    options,
+    options: routeOptions,
   });
 
   // Liquidate non-COT holdings to COT

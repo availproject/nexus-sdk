@@ -88,6 +88,32 @@ describe('buildSafeExecuteEOACall', () => {
     ).rejects.toThrow(/Single-call native value mismatch/);
   });
 
+  it('uses the wallet only for the portion not already funded in the Safe', async () => {
+    const result = await buildSafeExecuteEOACall({
+      calls: [{ to: target, value: 1_000n, data: '0x' }],
+      chainId,
+      ephemeralWallet,
+      publicClient: makePublicClient(),
+      safeAddress,
+      nativeValue: 400n,
+      safeNativeValue: 600n,
+    });
+    expect(result.value).toBe(400n);
+    expect(decodeFunctionData({ abi: safeExecTransactionAbi, data: result.data }).args[1]).toBe(1_000n);
+  });
+
+  it('rejects mixed funding that does not equal the native spend', async () => {
+    await expect(buildSafeExecuteEOACall({
+      calls: [{ to: target, value: 1_000n, data: '0x' }],
+      chainId,
+      ephemeralWallet,
+      publicClient: makePublicClient(),
+      safeAddress,
+      nativeValue: 400n,
+      safeNativeValue: 500n,
+    })).rejects.toThrow(/native value mismatch/);
+  });
+
   it('throws when MultiSend inner value sum disagrees with nativeValue', async () => {
     await expect(
       buildSafeExecuteEOACall({

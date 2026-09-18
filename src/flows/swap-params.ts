@@ -1,6 +1,6 @@
 import type { Hex } from 'viem';
 import { z } from 'zod';
-import { ZERO_ADDRESS } from '../domain/constants/addresses';
+import { ARC_USDC_ERC20_INTERFACE, ZERO_ADDRESS } from '../domain/constants/addresses';
 import {
   addressString,
   nonNegativeBigint,
@@ -71,10 +71,7 @@ const normalizeArcDestination = <
 >(
   input: T
 ): T => {
-  if (
-    input.toChainId !== 5042 ||
-    input.toTokenAddress !== '0x3600000000000000000000000000000000000000'
-  ) {
+  if (input.toChainId !== 5042 || input.toTokenAddress !== ARC_USDC_ERC20_INTERFACE) {
     return input;
   }
 

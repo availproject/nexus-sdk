@@ -5,6 +5,7 @@ import type { Chain, ChainListType } from '../../domain';
 import { Errors } from '../../domain/errors';
 import { PermitVariant } from '../../domain/permits';
 import { getPermitDomainName } from '../../services/allowance-utils';
+import { getPermitVariantAndVersion } from '../../services/permits';
 
 export const buildEphemeralPermitCall = async (input: {
   tokenAddress: Hex;
@@ -16,8 +17,23 @@ export const buildEphemeralPermitCall = async (input: {
   publicClient: PublicClient;
   deadline: bigint;
 }) => {
-  const token = input.chainList.getTokenByAddress(input.chain.id, input.tokenAddress);
-  const permitVariant = token?.permitVariant;
+  const token = (() => {
+    try {
+      return input.chainList.getTokenByAddress(input.chain.id, input.tokenAddress);
+    } catch {
+      return undefined;
+    }
+  })();
+  // Native-only deployment metadata can omit Arc's ERC-20 USDC interface. Probe its permit support
+  // and domain version on-chain, while preserving explicit metadata for listed bridge tokens.
+  const { permitVariant, permitContractVersion } = token
+    ? { permitVariant: token.permitVariant, permitContractVersion: token.permitVersion ?? 1 }
+    : await getPermitVariantAndVersion({
+        chainId: input.chain.id,
+        tokenAddress: input.tokenAddress,
+        chainList: input.chainList,
+        publicClient: input.publicClient,
+      });
   if (!permitVariant || permitVariant === PermitVariant.Unsupported) {
     throw Errors.tokenNotSupported(
       input.tokenAddress,
@@ -45,7 +61,7 @@ export const buildEphemeralPermitCall = async (input: {
         chainId: BigInt(input.chain.id),
         name,
         verifyingContract: input.tokenAddress,
-        version: (token.permitVersion ?? 1).toString(10),
+        version: permitContractVersion.toString(10),
       },
       types: {
         Permit: [

@@ -27,7 +27,7 @@ relevant as:
 
 - a Safe owner and SafeTx signer;
 - the signing identity for bridge intents and token permits;
-- the remote source-chain bridge settlement holder, where required by the bridge protocol.
+- the remote source-chain ERC-20 settlement holder; native settlement stays in the Safe.
 
 ## Public flow
 
@@ -101,7 +101,8 @@ All aggregator taker/executor addresses are the predicted Safe.
 Source swap receivers depend on what happens next:
 
 - destination-chain source with no destination swap: output goes directly to the EOA;
-- remote source whose output must bridge: output goes to the ephemeral bridge holder;
+- remote source whose output must bridge: native output goes to the Safe, ERC-20 output to the
+  ephemeral bridge holder;
 - destination-chain source followed by a destination swap: output remains at the Safe.
 
 Bridge fill receivers are:
@@ -202,9 +203,10 @@ Safe.
 
 Safe calls use one of two dispatch forms:
 
-### Sponsored token-only execution
+### Sponsored execution
 
-When a batch carries no native value:
+When a batch needs no native funding from the EOA, including deposits funded by native settlement
+already held in the Safe:
 
 1. read the Safe nonce;
 2. build one `CALL` or a `MultiSendCallOnly` delegatecall;
@@ -214,7 +216,7 @@ When a batch carries no native value:
 
 ### EOA-submitted native execution
 
-When a batch carries native value:
+When a batch needs native funding from the EOA:
 
 1. build and sign the same SafeTx;
 2. encode `Safe.execTransaction` as the EOA transaction calldata;
@@ -222,8 +224,9 @@ When a batch carries native value:
 4. await Safe deployment for the chain;
 5. emit the wallet-prompt event, switch chains, and send the transaction.
 
-For a single call, the inner call value must equal the outer native value. For MultiSend, the sum of
-inner values must equal the outer native value. The SDK rejects mismatches before prompting.
+For a single call, the inner call value must equal the outer native value plus any selected native
+proceeds already in the Safe. For MultiSend, the sum of inner values must equal that combined
+funding. The SDK rejects mismatches before prompting.
 
 ## Stage behavior
 
@@ -237,8 +240,11 @@ execution may trigger a bounded requote when the failure is known to be safe to 
 ### Bridge deposits
 
 For composed routes, Nexus ERC-20 deposits execute funding, ephemeral-to-vault permit, and deposit
-calls through the Safe. Mayan ERC-20 funding and permit calls also execute through the Safe, and
-native deposits are EOA-submitted Safe transactions. Bridge routes without source swaps reuse normal
+calls through the Safe. Mayan ERC-20 funding and permit calls also execute through the Safe.
+Native source-swap proceeds remain in the Safe and fund an ephemeral-signed deposit relayed by
+middleware. If a native leg also includes selected EOA holdings, the EOA submits the Safe transaction
+with only the remaining funding amount. Initial quotes, retries, and actual settlement balance reads
+use the same native-versus-ERC-20 custody rule. Bridge routes without source swaps reuse normal
 bridge execution instead: the EOA authorizes the vault, owns and signs the RFF, and sends any native
 vault deposit directly. The bridge intent is signed and submitted only after required allowance work.
 
@@ -255,9 +261,18 @@ Cleanup never falls back to another execution account:
 - balances held by the Safe transfer directly from the Safe;
 - remote COT or refund tokens held by the ephemeral account are pulled by the Safe with a signed
   permit and `transferFrom`;
-- native value held by the Safe can be returned through a Safe call;
-- native value held only by the separate ephemeral account cannot be pulled by the Safe and is
-  intentionally skipped.
+- native settlement from failed source swaps is read at the Safe and returned through a Safe call;
+- Arc native USDC refunded to the ephemeral intent signer is recovered through
+  `ARC_USDC_ERC20_INTERFACE`: a signed permit followed by `transferFrom`, relayed through the Safe.
+  Recovery reads the interface's 6-decimal `balanceOf` directly, even if deployment lists USDC only
+  as native; missing permit metadata is probed on-chain. Sub-micro-USDC dust remains at ephemeral.
+- Other native balances held only by the separate ephemeral account cannot be pulled by the Safe
+  and are skipped. Recovery never sends a gas-paying transaction from the ephemeral account.
+
+Source failure cleanup checks both the Safe and Arc's ephemeral refund balance, combining their
+calls into one Safe transaction. The initialization sweep also reads both holders and excludes the
+ERC-20 alias from Safe reads to avoid spending the shared balance twice. These sweeps recover refunds
+that have already arrived; a refund arriving after the one-shot init sweep needs a later reconnect.
 
 As a temporary migration exception, the one-shot initialization refund sweep also checks the
 legacy single-owner V1 Safe. It reads bridge-family ERC-20 and native balances for the ephemeral,

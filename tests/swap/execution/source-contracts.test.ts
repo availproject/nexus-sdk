@@ -344,4 +344,36 @@ describe('executeSourceSwaps contracts', () => {
     );
     expect(assets[0]?.ephemeralBalance.toString()).toBe('3100');
   });
+
+  it.each([false, true])('reads native source proceeds from the Safe (retry: %s)', async (retry) => {
+    const quote = makeQuote();
+    quote.quote.output = {
+      ...quote.quote.output,
+      contractAddress: '0x0000000000000000000000000000000000000000',
+      decimals: 18,
+      amount: '3',
+      amountRaw: 3_000_000_000_000_000_000n,
+    };
+    const getQuotes = vi.fn().mockResolvedValue([quote.quote]);
+    quote.aggregator = { supportsChain: () => true, getQuotes } as unknown as Aggregator;
+    const { context, createSafeExecuteTx } = makeContext();
+    const getBalance = vi.fn().mockResolvedValue(3_100_000_000_000_000_000n);
+    Object.assign(context.publicClientList.get(CHAIN_ID), { getBalance });
+    if (retry) createSafeExecuteTx.mockRejectedValueOnce(new Error('quote expired'));
+
+    const assets = await executeSourceSwaps(
+      { swaps: [quote], creationTime: Date.now(), srcBuffer: null, reclaimFromActualBalance: true },
+      context,
+      metadata(),
+      [quote.aggregator]
+    );
+
+    expect(getBalance).toHaveBeenCalledWith({ address: SAFE });
+    expect(assets[0]?.ephemeralBalance.toString()).toBe('3.1');
+    if (retry) {
+      expect(getQuotes).toHaveBeenCalledWith([
+        expect.objectContaining({ recipientAddress: SAFE, userAddress: SAFE }),
+      ]);
+    }
+  });
 });

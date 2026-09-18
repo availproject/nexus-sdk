@@ -192,10 +192,18 @@ intent approval, already deployed Safes skip middleware and absent Safes are ens
 A successful ensure marks the shared cache deployed for that chain. Preparation and execution await
 the chain promise before requesting any permit, direct approval, or EOA transaction, so wallet UIs
 resolve the spender to deployed contract code without repeated Safe bytecode reads. Safe owners are
-the connected EOA and the SDK ephemeral account at threshold 1. Token-only batches are
-sponsor-broadcast; batches carrying native value are wrapped in `Safe.execTransaction` and submitted
-by the EOA. Bridge source chains without source swaps bypass this Safe path and reuse the bridge
+the connected EOA and the SDK ephemeral account at threshold 1. Batches that need no wallet funding
+are signed by the ephemeral owner and sponsor-broadcast, including native bridge deposits funded
+by source-swap proceeds held in the Safe. Remote ERC-20 settlement remains at the ephemeral account.
+When a batch also needs EOA native holdings, the EOA submits `Safe.execTransaction` with only the
+remaining funding amount. Bridge source chains without source swaps bypass this Safe path and reuse the bridge
 allowance and execution modules with the EOA wallet.
+
+Arc refunds to the ephemeral RFF signer are recovered through `ARC_USDC_ERC20_INTERFACE` using
+permit + `transferFrom` in a middleware-sponsored Safe transaction. Initialization and source
+failure cleanup read that ERC-20 balance in its own units; Safe-held USDC uses the native balance
+instead, avoiding duplicate transfers of the shared balance. Ephemeral recovery leaves any native
+dust below the interface's precision and never submits an ephemeral-funded transaction.
 
 Bridge funding preparation retries only transient permit-path RPC work, with three total attempts.
 Direct approvals and wallet rejections are terminal. Ambiguous Safe middleware failures are not

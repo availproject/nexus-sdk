@@ -202,6 +202,7 @@ export type BridgeAsset = {
   contractAddress: Hex;
   decimals: number;
   eoaBalance: Decimal; // human-readable decimal amount
+  // Swap proceeds controlled by the ephemeral signer: native in the Safe, ERC-20 at its account.
   ephemeralBalance: Decimal; // human-readable decimal amount
   // Direct bridges debit the collection fee from the EOA alongside the bridged amount.
   // Ephemeral-backed routes omit these fields because their collection fee is sponsored.

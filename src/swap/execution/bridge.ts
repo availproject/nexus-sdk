@@ -342,10 +342,9 @@ const resolveFundingTransferCalls = async (
 
 const hasEoaFunding = (asset: BridgeAsset) => asset.eoaBalance.gt(0);
 
-// EOA-submitted payable native bridge deposit, shared by the Nexus and Mayan paths. Native value
-// can't be relayed/sponsored, so the EOA submits Safe.execTransaction{value}. `depositCall` is the
-// pre-encoded payable deposit / depositMayan call.
-const submitNativeBridgeDepositViaEoa = async (params: {
+// Native swap proceeds are already in the Safe. Relay their deposit; when a leg also uses EOA
+// holdings, the wallet supplies only that portion. Shared by Nexus and Mayan payable deposits.
+const submitNativeBridgeDeposit = async (params: {
   asset: BridgeAsset;
   chain: Chain;
   depositCall: SafeCall;
@@ -365,12 +364,15 @@ const submitNativeBridgeDepositViaEoa = async (params: {
   const { asset, chain, depositCall, depositValue, ctx } = params;
   const publicClient = ctx.publicClientList.get(asset.chainID);
   const safeDeploymentPromise = requireSafeDeployment(ctx.safeDeploymentPromises, asset.chainID);
+  const safeBalance = mulDecimals(asset.ephemeralBalance, asset.decimals);
+  const nativeValue = depositValue > safeBalance ? depositValue - safeBalance : 0n;
 
   const safeResult = await dispatchSafeSource({
     chain,
     chainId: asset.chainID,
     calls: [depositCall],
-    nativeValue: depositValue,
+    nativeValue,
+    safeNativeValue: depositValue - nativeValue,
     ephemeralWallet: ctx.ephemeralWallet,
     eoaWallet: ctx.eoaWallet,
     eoaAddress: ctx.eoaAddress,
@@ -525,8 +527,7 @@ const runMayanEphemeralBridge = async (
   const approveTasks: Array<{ chainId: number; task: Promise<void> }> = [];
   let fundingError: unknown;
   for (const asset of bridgedAssets) {
-    // Native legs can't be ERC-20-approved or sponsor-deposited — the EOA submits depositMayan for
-    // them below (and reports the tx), so skip the approve here.
+    // Native legs need no ERC-20 approval. Submit their payable Safe deposits below and report them.
     if (isNativeAddress(asset.contractAddress)) continue;
     try {
       const fundingCalls = await withTimingSpan(
@@ -610,8 +611,8 @@ const runMayanEphemeralBridge = async (
     intentRequestHash: requestHash,
   });
 
-  // Native legs can't be relayed (a sponsored call can't carry `value`), so the EOA submits the
-  // payable depositMayan itself and reports each tx so the middleware doesn't also try to deposit it.
+  // Submit native deposits from the Safe (wallet-funded only for selected EOA holdings), then
+  // report each tx so the middleware doesn't also try to deposit it.
   for (const asset of bridgedAssets) {
     if (!isNativeAddress(asset.contractAddress)) continue;
     const chainIndex = depositRequest.sources.findIndex(
@@ -648,7 +649,7 @@ const runMayanEphemeralBridge = async (
       ctx.timing,
       'flow.swap.execute.bridge.deposit',
       async () => {
-        const submittedTxHash = await submitNativeBridgeDepositViaEoa({
+        const submittedTxHash = await submitNativeBridgeDeposit({
           asset,
           chain,
           depositCall,
@@ -1071,9 +1072,7 @@ const executeEphemeralBridgePath = async (
       const depositValue = depositRequest.sources[chainIndex].value;
       let txHash: Hex;
       if (nativeAsset) {
-        // Phase 1b: native bridge deposits are EOA-submitted payable — the relay can't carry
-        // `value`. A single value-inline deposit, no approve/permit/transfer/sweep (native has
-        // none of those mechanics; the native is already at the EOA, no funding transfer).
+        // Spend native swap proceeds from the Safe; selected EOA holdings fund only the remainder.
         const nativeDepositCall = {
           to: vaultAddress,
           value: depositValue,
@@ -1083,7 +1082,7 @@ const executeEphemeralBridgePath = async (
             args: [depositRequest, signature, BigInt(chainIndex)],
           }),
         };
-        txHash = await submitNativeBridgeDepositViaEoa({
+        txHash = await submitNativeBridgeDeposit({
           asset,
           chain,
           depositCall: nativeDepositCall,
@@ -1175,7 +1174,7 @@ const executeEphemeralBridgePath = async (
   const fundedChains: number[] = [];
   for (const asset of bridgedAssets) {
     try {
-      // Native bridge sources are EOA-submitted payable deposits — no EOA→ephemeral transfer.
+      // Native deposits spend Safe proceeds and/or wallet funding, with no EOA→ephemeral transfer.
       const fundingCalls = isNativeAddress(asset.contractAddress)
         ? []
         : await withTimingSpan(

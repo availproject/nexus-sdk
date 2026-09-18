@@ -16,7 +16,7 @@ import type { PublicClientList } from '../swap/types';
 import type { SwapCache } from '../swap/wallet/cache';
 import { buildEphemeralPermitCall } from '../swap/wallet/ephemeral-permit';
 import type { MiddlewareSwapClient } from '../transport';
-import { isNativeAddress } from './addresses';
+import { getNativeTokenErc20Interface, isNativeAddress } from './addresses';
 import { createSafeExecuteTxFromCalls, ensureSafeForEphemeral } from './safe';
 
 const logger = getLogger();
@@ -86,13 +86,22 @@ const readRefundBalances = async (input: {
 
   const balancesByChain = await Promise.all(
     chains.map(async (chain): Promise<RefundBalance[]> => {
-      const bridgeTokens = chain.custom.knownTokens.filter((token) => token.currencyId != null);
+      const nativeErc20Interface = getNativeTokenErc20Interface(chain.id);
+      // The Safe sends native USDC directly, including dust. Only the ephemeral holder needs its
+      // ERC-20 interface for a sponsored permit pull, even when deployment lists USDC only as native.
+      const bridgeTokens = chain.custom.knownTokens.filter(
+        (token) =>
+          token.currencyId != null && token.contractAddress.toLowerCase() !== nativeErc20Interface
+      );
       const reads = input.holders.flatMap(({ holder, address }) => [
         ...bridgeTokens.map((token) => ({
           holder,
           holderAddress: address,
           tokenAddress: token.contractAddress as Hex,
         })),
+        ...(holder === 'ephemeral' && nativeErc20Interface
+          ? [{ holder, holderAddress: address, tokenAddress: nativeErc20Interface }]
+          : []),
         { holder, holderAddress: address, tokenAddress: EADDRESS },
       ]);
       const contracts = reads.map((read) =>
@@ -161,7 +170,8 @@ const addSweepCall = (
  * One-shot sweep of bridge-failure refunds stranded on the intent signer back to the EOA. Refunds
  * can land at either Safe version or at the ephemeral bridge holder. Safe balances transfer
  * directly; ERC-20 balances at the ephemeral are pulled by the V2 Safe with EIP-2612 permit +
- * transferFrom. Best-effort and sponsor-submitted, so there is no user prompt.
+ * transferFrom. Arc native refunds use the ERC-20 interface's balanceOf units; sub-micro-USDC dust
+ * stays at the ephemeral account. Best-effort and sponsor-submitted, so there is no user prompt.
  */
 export const sweepEphemeralRefundsToEoa = async (input: {
   ctx: SweepContext;

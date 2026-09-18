@@ -35,6 +35,7 @@ import { createRequestFromIntent } from '../../../src/services/rff';
 import { signPermitForAddressAndValue } from '../../../src/services/allowance-utils';
 import { executeSwapBridge } from '../../../src/swap/execution/bridge';
 import { dispatchSafeSource } from '../../../src/swap/execution/safe-dispatch';
+import { safeExecTransactionAbi } from '../../../src/swap/safe/abis';
 import type {
   BridgeAsset,
   ExecutionContext,
@@ -607,6 +608,39 @@ describe('executeSwapBridge contracts', () => {
         nativeValue: value,
       })
     );
+  });
+
+  it.each([0, 1, 3])('funds a native deposit from Safe proceeds plus %s wallet tokens', async (eoaAmount) => {
+    const value = 3_000_000_000_000_000_000n;
+    setDepositRequest(NATIVE, value);
+    const { dispatchSafeSource: realDispatch } = await vi.importActual<typeof import('../../../src/swap/execution/safe-dispatch')>(
+      '../../../src/swap/execution/safe-dispatch'
+    );
+    vi.mocked(dispatchSafeSource).mockImplementationOnce(realDispatch);
+    const { context, createSafeExecuteTx, readAllowance } = makeContext();
+    Object.assign(context.publicClientList.get(ARB_CHAIN), { call: vi.fn().mockResolvedValue({ data: '0x' }) });
+    const asset = makeAsset({
+      contractAddress: NATIVE,
+      decimals: 18,
+      eoaBalance: new Decimal(eoaAmount),
+      ephemeralBalance: new Decimal(3 - eoaAmount),
+    });
+
+    await executeSwapBridge(makeBridge({ assets: [asset] }), [asset], context, metadata());
+
+    expect(readAllowance).not.toHaveBeenCalled();
+    if (eoaAmount === 0) {
+      expect(context.eoaWallet.sendTransaction).not.toHaveBeenCalled();
+      const request = createSafeExecuteTx.mock.calls[0][0];
+      expect(request.safeAddress).toBe(context.safeAddress);
+      expect(decodeSafeRequest(request)).toMatchObject([{ fn: 'deposit', to: VAULT, value }]);
+    } else {
+      expect(createSafeExecuteTx).not.toHaveBeenCalled();
+      const transaction = vi.mocked(context.eoaWallet.sendTransaction).mock.calls[0][0];
+      expect(transaction.value).toBe(BigInt(eoaAmount) * 10n ** 18n);
+      const { args } = decodeFunctionData({ abi: safeExecTransactionAbi, data: transaction.data! });
+      expect(args[1]).toBe(value);
+    }
   });
 
   it('ignores legacy chain capability metadata for native Safe deposits', async () => {

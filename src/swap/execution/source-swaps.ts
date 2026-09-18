@@ -151,8 +151,7 @@ const buildBridgeAsset = (
       ? divDecimals(overrideBalanceRaw, decimals)
       : chainSwaps.reduce((sum, swap) => sum.plus(swap.quote.output.amount), new Decimal(0));
 
-  // Remote swap output already lands at the ephemeral bridge holder on both wallet paths. The
-  // asset is therefore always carried as the ephemeral identity for the RFF.
+  // The ephemeral owner controls swap proceeds: native is held by its Safe, ERC-20 at its account.
   return {
     chainID: chainId,
     contractAddress: cot?.contractAddress ?? chainSwaps[0].quote.output.contractAddress,
@@ -162,9 +161,8 @@ const buildBridgeAsset = (
   };
 };
 
-// Read the COT that actually landed after the source swaps confirmed. Remote outputs that bridge
-// land directly at the ephemeral bridge holder. A destination-chain Safe keeps local COT for its
-// later destination swap.
+// Read the COT that actually landed: native stays in the Safe, remote ERC-20 at the ephemeral
+// account. A destination-chain Safe keeps local COT for its later destination swap.
 const readSourceCotBalanceRaw = async (
   chainId: number,
   cotAddress: Hex,
@@ -175,7 +173,10 @@ const readSourceCotBalanceRaw = async (
     destinationChainId: number;
   }
 ): Promise<bigint> => {
-  const holder = chainId !== ctx.destinationChainId ? ctx.ephemeralWallet.address : ctx.safeAddress;
+  const holder =
+    chainId !== ctx.destinationChainId && !isNativeAddress(cotAddress)
+      ? ctx.ephemeralWallet.address
+      : ctx.safeAddress;
   return readSettlementBalanceRaw({
     chainId,
     tokenAddress: cotAddress,
@@ -279,19 +280,17 @@ const requoteFailedChains = async (
     | 'safeAddress'
   > & { destinationChainId: number }
 ) => {
-  // Per-chain recipient: remote output always lands at the ephemeral bridge holder. On the
-  // destination chain, direct delivery uses the EOA and a later Safe destination swap keeps COT
-  // at that Safe.
-  const recipientForChain = (chainId: number): Hex => {
+  // Match the initial quote's custody on retries, including native settlement held by the Safe.
+  const recipientForChain = (chainId: number, outputToken: Hex): Hex => {
     if (chainId === ctx.destinationChainId && ctx.destinationDirectEoa) return ctx.eoaAddress;
-    if (chainId !== ctx.destinationChainId) return ctx.ephemeralWallet.address;
+    if (chainId !== ctx.destinationChainId && !isNativeAddress(outputToken))
+      return ctx.ephemeralWallet.address;
     return ctx.safeAddress;
   };
 
   const perChainResults = await Promise.all(
     failedChains.map(async ({ chainId, chainSwaps }) => {
       const userAddress = ctx.safeAddress;
-      const sourceRecipient = recipientForChain(chainId);
 
       const requests = chainSwaps.map((swap) => ({
         type: QuoteType.EXACT_IN as const,
@@ -301,7 +300,7 @@ const requoteFailedChains = async (
         outputToken: swap.quote.output.contractAddress,
         inputAmount: swap.holding.amountRaw,
         userAddress,
-        recipientAddress: sourceRecipient,
+        recipientAddress: recipientForChain(chainId, swap.quote.output.contractAddress),
       }));
       const routerExclusions = new Map<Aggregator, string[]>();
       addRouterExclusions(routerExclusions, chainSwaps);
@@ -678,8 +677,8 @@ export const executeSourceSwaps = async (
     });
   }
 
-  // Bridge funding flows through the ephemeral identity regardless of the source executor; the
-  // asset is always tagged ephemeral here. EXACT_IN reclaim reads the actual source COT holder so
+  // Swap proceeds are tracked under the ephemeral signer (native in its Safe, ERC-20 at its account).
+  // EXACT_IN reclaim reads the actual source COT holder so
   // positive source slippage bridges through instead of being swept at the source.
   return Promise.all(
     sortedEntries.map(async (entry) => {

@@ -3,7 +3,7 @@
 // calldata, call-by-call, against the decision graph. Mocks only injected deps; the aggregator
 // echoes taker/receiver/amount into real SWAP calldata; the EOA wallet really signs.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { type Hex } from 'viem';
+import { encodeFunctionData, type Hex } from 'viem';
 
 // Public-client reads are routed through a plain stub (mock createPublicClient). Everything else
 // in viem (encoding, parseTransaction, custom, accounts) stays real, so wallet signing is genuine.
@@ -77,12 +77,16 @@ vi.mock('@avail-project/nexus-types/rff', async () => {
 
 import { swap as flowSwap } from '../../../src/flows/swap';
 import { ZERO_ADDRESS } from '../../../src/domain';
+import { createChainList } from '../../../src/services/chain-list';
+import { testDeployment } from '../../fixtures/deployment';
+import { makeOraclePrice } from '../../helpers/balances';
 import { SwapMode, type FlatBalance } from '../../../src/swap/types';
 import { EADDRESS } from '../../../src/swap/constants';
 import {
   APPROVALS,
   bytes32Address,
   decodeEoaTx,
+  decodeSafeRequest,
   dispatchedChains,
   EOA,
   EPH,
@@ -91,6 +95,7 @@ import {
   makeCharChainList,
   makeCharMiddleware,
   makeRealEoaWallet,
+  MOCK_SWAP_ABI,
   makeRequoteDrift,
   type RequoteDrift,
   PREDICTED_SAFE,
@@ -152,6 +157,102 @@ describe('swap execution characterization', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     installPublicClientStubs();
+  });
+
+  it.each([SwapMode.EXACT_IN, SwapMode.EXACT_OUT])('%s · native Arc settlement stays in the Safe through the relayed bridge deposit', async (mode) => {
+    const arcChain = 5042;
+    const chain = testDeployment.chains[0];
+    const chainList = createChainList({
+      ...testDeployment,
+      chains: [
+        {
+          ...chain,
+          chainId: arcChain,
+          name: 'Arc',
+          nativeCurrency: { ...chain.nativeCurrency, symbol: 'USDC', name: 'USD Coin', currencyId: 1 },
+          tokens: [{ ...chain.tokens[1], address: USDT_ARB, permitVariant: 1, permitVersion: 1 }],
+        },
+        { ...chain, chainId: BASE_CHAIN, tokens: [{ ...chain.tokens[0], address: USDC_BASE }] },
+      ],
+    });
+    const balances: FlatBalance[] = [
+      { amount: '100', chainID: arcChain, decimals: 6, symbol: 'USDT', tokenAddress: USDT_ARB, value: 100, name: 'Tether USD', logo: '' },
+    ];
+    const middlewareClient = makeCharMiddleware({ balances });
+    middlewareClient.getOraclePrices.mockResolvedValue([
+      makeOraclePrice({ chainId: arcChain, tokenAddress: ZERO_ADDRESS, symbol: 'USDC', decimals: 18, priceUsd: 1 }),
+      makeOraclePrice({ chainId: arcChain, tokenAddress: USDT_ARB, symbol: 'USDT', decimals: 6, priceUsd: 1 }),
+      makeOraclePrice({ chainId: BASE_CHAIN, tokenAddress: USDC_BASE, symbol: 'USDC', decimals: 6, priceUsd: 1 }),
+      makeOraclePrice({ chainId: BASE_CHAIN, tokenAddress: ZERO_ADDRESS, symbol: 'ETH', decimals: 18, priceUsd: 2500 }),
+    ]);
+    vi.mocked(middlewareClient.getQuote).mockResolvedValue({
+      fulfillmentBps: 0,
+      sources: [{ chainId: arcChain, tokenAddress: ZERO_ADDRESS, depositFeeUsd: '0', depositFeeToken: '0', depositMayanFeeUsd: '0', depositMayanFeeToken: '0' }],
+      destination: { chainId: BASE_CHAIN, tokenAddress: USDC_BASE, fulfillmentFeeUsd: '0', fulfillmentFeeToken: '0' },
+    });
+    // External quote: USDT (6 decimals) -> native USDC (18 decimals), at 1:1.
+    middlewareClient.getLiFiQuote.mockImplementation(async (params: Record<string, string>, exactOut?: boolean) => {
+      const inputRaw = exactOut ? (BigInt(params.toAmount) + 10n ** 12n - 1n) / 10n ** 12n : BigInt(params.fromAmount);
+      const outputRaw = inputRaw * 10n ** 12n;
+      return {
+        estimate: { fromAmount: inputRaw.toString(), toAmount: outputRaw.toString(), toAmountMin: outputRaw.toString(), approvalAddress: APPROVALS.lifi },
+        action: {
+          fromToken: { address: params.fromToken, symbol: 'USDT', decimals: 6, priceUSD: '1' },
+          toToken: { address: params.toToken, symbol: 'USDC', decimals: 18, priceUSD: '1' },
+        },
+        transactionRequest: {
+          to: ROUTERS.lifi,
+          value: '0x0',
+          data: encodeFunctionData({
+            abi: MOCK_SWAP_ABI,
+            functionName: 'swap',
+            args: [params.fromToken as Hex, params.toToken as Hex, inputRaw, outputRaw, params.fromAddress as Hex, params.toAddress as Hex],
+          }),
+        },
+      };
+    });
+    const nativeBalances = new Map<string, bigint>();
+    hoisted.getBalance.mockImplementation(async ({ address }: { address: Hex }) => nativeBalances.get(address.toLowerCase()) ?? 0n);
+    middlewareClient.createSafeExecuteTx.mockImplementation(async (request) => {
+      for (const call of decodeSafeRequest(request)) {
+        if (call.fn === 'swap') nativeBalances.set((call.args[5] as Hex).toLowerCase(), call.args[3] as bigint);
+        if (call.fn === 'deposit') {
+          const holder = request.safeAddress.toLowerCase();
+          const balance = nativeBalances.get(holder) ?? 0n;
+          if (balance < call.value) throw new Error('Safe has insufficient native settlement');
+          nativeBalances.set(holder, balance - call.value);
+        }
+      }
+      return { chainId: request.chainId, safeAddress: request.safeAddress, txHash: `0x${'5a'.repeat(32)}` as Hex };
+    });
+    const { wallet, sentTxs } = makeRealEoaWallet();
+    const destination = { toChainId: BASE_CHAIN, toTokenAddress: USDC_BASE };
+    await flowSwap(
+      mode === SwapMode.EXACT_IN
+        ? { mode, data: { ...destination, sources: [{ chainId: arcChain, tokenAddress: USDT_ARB, amountRaw: 100n * 10n ** 6n }] } }
+        : { mode, data: { ...destination, toAmountRaw: 50n * 10n ** 6n, sources: [{ chainId: arcChain, tokenAddress: USDT_ARB }] } },
+      {
+        chainList,
+        middlewareClient,
+        evm: { walletClient: wallet, address: EOA },
+        // Routing selects destination USDC even though the default settlement currency is USDT.
+        swap: { ephemeralWallet: EPH_ACCOUNT, cotCurrencyId: 2 },
+        intentExplorerUrl: 'https://intent.example',
+        forceMayan: false,
+      },
+      { onIntent: (draft) => draft.allow() }
+    );
+
+    const [source, bridge] = executionBatchesForChain(middlewareClient, arcChain);
+    const swap = source.find((call) => call.fn === 'swap')!;
+    eq(PREDICTED_SAFE)(swap.args[5]);
+    expect(bridge.map((call) => call.fn)).toEqual(['deposit']);
+    expect(bridge[0].value).toBe(BigInt(rffRequest(middlewareClient).sources[0].value));
+    expect(bridge[0].value).toBeGreaterThan(0n);
+    expect(bridge[0].value).toBeLessThanOrEqual(swap.args[3] as bigint);
+    expect(sentTxs).toHaveLength(0);
+    expect(rffRecipient(middlewareClient)).toBe(bytes32Address(EOA));
+    expect(dispatchedChains(middlewareClient)).toEqual([arcChain]);
   });
 
   it('EXACT_IN · Nexus · two Safe V2 sources → Safe V2 dst token swap', async () => {

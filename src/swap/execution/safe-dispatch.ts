@@ -21,8 +21,8 @@ export type SafeDispatchMiddleware = {
 };
 
 // Dispatches a source-swap batch via the Safe V2 smart account. Two sub-paths:
-//   - nativeValue === 0n → sponsor broadcasts (middleware.createSafeExecuteTx) — pays gas, no
-//     native value carried.
+//   - nativeValue === 0n → sponsor broadcasts (middleware.createSafeExecuteTx) — pays gas;
+//     inner calls may spend native value already held by the Safe.
 //   - nativeValue >  0n → EOA broadcasts (eoaWallet.sendTransaction) — EOA pays gas + carries the
 //     native value to the Safe. Sponsor flow can't do this because the sponsor wallet doesn't fund
 //     native sends.
@@ -32,6 +32,7 @@ export async function dispatchSafeSource(input: {
   chainId: number;
   calls: SafeCall[];
   nativeValue: bigint;
+  safeNativeValue?: bigint;
   ephemeralWallet: PrivateKeyAccount;
   eoaWallet: WalletClient;
   eoaAddress: Address;
@@ -65,6 +66,7 @@ export async function dispatchSafeSource(input: {
       publicClient,
       safeAddress,
       nativeValue,
+      safeNativeValue: input.safeNativeValue,
     });
     await simulateEoaTransaction({
       publicClient,

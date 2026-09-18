@@ -2314,10 +2314,17 @@ Read-only allowance, permit-capability, and Safe-code cache requests start while
 displayed and are awaited after approval. Refreshing an intent reuses that work when its cache query
 data is unchanged.
 
-Token-only Safe transactions are sponsor-broadcast through middleware. Native-value Safe
-transactions are submitted by the EOA because the outer transaction must fund the Safe call. The
-ephemeral account remains an owner/signing identity and may hold remote bridge settlement funds; it
-is never the swap executor.
+Safe transactions that need no wallet funding are signed by the ephemeral owner and broadcast
+through middleware. Remote source swaps deliver native settlement tokens to the Safe, which uses
+that balance for the bridge deposit without another wallet transaction. If the deposit also uses
+selected native holdings from the EOA, the EOA submits the Safe transaction and supplies only the
+remaining amount. Remote ERC-20 settlement stays at the ephemeral account, which remains an owner
+and signing identity; the Safe executes all swaps.
+
+If an unfilled Arc bridge refunds native USDC to the ephemeral signer, failure cleanup or the next
+initialization sweep recovers it through USDC's ERC-20 interface using a permit and a
+middleware-sponsored Safe transaction. The ephemeral account pays no gas. Its recovery uses the
+interface's 6-decimal balance, so less than `0.000001 USDC` of native dust can remain there.
 
 When a swap route bridges without source swaps, it follows the normal bridge custody path: the
 connected EOA owns and signs the RFF and authorizes the vault directly. This applies to Nexus and

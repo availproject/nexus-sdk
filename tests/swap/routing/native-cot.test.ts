@@ -1,7 +1,7 @@
 import Decimal from 'decimal.js';
 import { parseUnits } from 'viem';
 import { describe, expect, it, vi } from 'vitest';
-import { EADDRESS, ZERO_ADDRESS } from '../../../src/domain/constants/addresses';
+import { ARC_USDC_ERC20_INTERFACE as arcErc20Usdc, EADDRESS, ZERO_ADDRESS } from '../../../src/domain/constants/addresses';
 import { validateSwapExactIn, validateSwapExactOut } from '../../../src/flows/swap-params';
 import { createChainList } from '../../../src/services/chain-list';
 import { determineDestinationSwaps } from '../../../src/swap/algorithms/destination';
@@ -12,6 +12,7 @@ import { buildSwapPreflight } from '../../../src/swap/preflight';
 import { determineSwapRoute, type RouteOptions } from '../../../src/swap/route';
 import { selectStableSettlement } from '../../../src/swap/routing/settlement';
 import { filterExactOutBalances } from '../../../src/swap/routing/holdings';
+import { buildSourceRecipientAddressByChain } from '../../../src/swap/routing/addresses';
 import { type SwapData, SwapMode } from '../../../src/swap/types';
 import { testDeployment } from '../../fixtures/deployment';
 import { makeOraclePrice } from '../../helpers/balances';
@@ -29,7 +30,6 @@ vi.mock('viem', async (importOriginal) => ({
 }));
 
 const ARC_CHAIN = 5042;
-const arcErc20Usdc = '0x3600000000000000000000000000000000000000' as const;
 const base = { ...testDeployment.chains[0], chainId: BASE_CHAIN, name: 'Base' };
 const arc = {
   ...base,
@@ -43,6 +43,20 @@ const baseUsdc = base.tokens[0].address;
 const eoaAddress = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
 describe('native USDC settlement', () => {
+  it('keeps remote native settlement at the Safe and ERC-20 settlement at the ephemeral account', () => {
+    const safeAddress = '0xcccccccccccccccccccccccccccccccccccccccc';
+    const ephemeralAddress = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    const recipients = buildSourceRecipientAddressByChain({
+      chainIds: [ARC_CHAIN, BASE_CHAIN],
+      sourceExecutionPaths: new Map([[ARC_CHAIN, 'safe'], [BASE_CHAIN, 'safe']]),
+      destinationChainId: 1,
+      destinationHasSwap: false,
+      options: { chainList, cotCurrencyId: CurrencyID.USDC, safeAddress, ephemeralAddress, eoaAddress } as unknown as RouteOptions,
+    });
+    expect(recipients.get(ARC_CHAIN)).toBe(safeAddress);
+    expect(recipients.get(BASE_CHAIN)).toBe(ephemeralAddress);
+  });
+
   describe.each([SwapMode.EXACT_IN, SwapMode.EXACT_OUT])('%s', (mode) => {
     it.each([
       { source: ARC_CHAIN, sourceToken: EADDRESS, destination: BASE_CHAIN, token: baseUsdc },

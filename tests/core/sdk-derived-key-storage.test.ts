@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Hex } from 'viem';
 import type { EthereumProvider } from '../../src/domain';
+import { ARC_USDC_ERC20_INTERFACE } from '../../src/domain/constants/addresses';
 import type { MiddlewareClient } from '../../src/transport';
 import type { SwapMaxResult, SwapResult } from '../../src/swap/types';
 import { makeMiddlewareClient as makeBaseMiddlewareClient } from '../helpers/middleware-client';
@@ -138,7 +139,7 @@ describe('createNexusClient derived key storage', () => {
     await client.setEVMProvider(makeProvider());
     const input = {
       toChainId: 5042,
-      toTokenAddress: '0x3600000000000000000000000000000000000000' as const,
+      toTokenAddress: ARC_USDC_ERC20_INTERFACE,
     };
     const normalized = {
       ...input,

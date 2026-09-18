@@ -1,5 +1,6 @@
-import { encodeFunctionData, erc20Abi, type Hex } from 'viem';
+import { encodeFunctionData, erc20Abi } from 'viem';
 import { getLogger } from '../../domain';
+import { getNativeTokenErc20Interface, isNativeAddress } from '../../services/addresses';
 import {
   buildRefundSweepCall,
   dispatchSweepGroups,
@@ -54,10 +55,11 @@ type FailureCleanupContext = Pick<
  * Sweep the route's COT stranded on a failed leg back to the EOA. Unlike a blind balance scan, we
  * know exactly what to look for: the single COT token, on the chains the failure left it (source
  * chains if we failed before the bridge, the destination chain if the destination swap failed), at
- * the holder for the failed stage. Remote source settlement is at the ephemeral bridge holder;
- * destination-chain settlement stays at the Safe when another swap follows. The Safe submits an
- * ephemeral permit + transferFrom recovery batch for remote source settlement. Best-effort; never
- * rethrows.
+ * the holder for the failed stage. Remote ERC-20 settlement is at the ephemeral bridge holder;
+ * native source settlement stays in the Safe. Destination-chain settlement stays at the Safe when
+ * another swap follows. The Safe submits an ephemeral permit + transferFrom recovery batch for
+ * remote ERC-20 settlement and Arc native bridge refunds returned to the intent signer. Best-effort;
+ * never rethrows.
  */
 export const cleanupStrandedCot = async (input: {
   currencyId: CurrencyID;
@@ -76,63 +78,67 @@ export const cleanupStrandedCot = async (input: {
   });
 
   for (const chainId of input.chainIds) {
+    const group: SweepGroup = { chainId, holder: 'safe', calls: [] };
     try {
       const chain = ctx.chainList.getChainByID(chainId);
       const sourceOnDestination = input.scope === 'source' && chainId === ctx.destinationChainId;
       if (sourceOnDestination && ctx.destinationDirectEoa) continue;
-      const sourceAtEphemeral = input.scope === 'source' && chainId !== ctx.destinationChainId;
-      const holderAddress = sourceAtEphemeral ? ctx.ephemeralWallet.address : safeAddress;
       const cot = resolveCOT(chainId, ctx.chainList, input.currencyId);
-      const tokenAddress = cot.address as Hex;
-      const balance = await readSettlementBalanceRaw({
-        chainId,
-        tokenAddress,
-        holderAddress,
-        publicClientList: ctx.publicClientList,
-      });
-
-      if (balance <= 0n) continue;
-      if (sourceAtEphemeral) {
-        const deadline = minutesFromNow(5);
-        const permitCall = await buildEphemeralPermitCall({
-          tokenAddress,
-          amount: balance,
-          spender: safeAddress,
-          chain,
-          chainList: ctx.chainList,
-          ephemeralWallet: ctx.ephemeralWallet,
-          publicClient: ctx.publicClientList.get(chainId),
-          deadline,
-        });
-        groups.push({
+      const remoteSource = input.scope === 'source' && chainId !== ctx.destinationChainId;
+      const nativeRefundInterface =
+        remoteSource && isNativeAddress(cot.address)
+          ? getNativeTokenErc20Interface(chainId)
+          : undefined;
+      const holdings = [
+        {
+          tokenAddress: cot.address,
+          sourceAtEphemeral: remoteSource && !isNativeAddress(cot.address),
+        },
+        // A deposited-but-unfilled intent refunds its signer, even when its Safe made the deposit.
+        ...(nativeRefundInterface
+          ? [{ tokenAddress: nativeRefundInterface, sourceAtEphemeral: true }]
+          : []),
+      ];
+      for (const { tokenAddress, sourceAtEphemeral } of holdings) {
+        const holderAddress = sourceAtEphemeral ? ctx.ephemeralWallet.address : safeAddress;
+        const balance = await readSettlementBalanceRaw({
           chainId,
-          holder: 'safe',
-          calls: [
-            permitCall,
-            {
-              to: tokenAddress,
-              value: 0n,
-              data: encodeFunctionData({
-                abi: erc20Abi,
-                functionName: 'transferFrom',
-                args: [ctx.ephemeralWallet.address, ctx.eoaAddress, balance],
-              }),
-            },
-          ],
+          tokenAddress,
+          holderAddress,
+          publicClientList: ctx.publicClientList,
         });
-        continue;
+        if (balance <= 0n) continue;
+        if (sourceAtEphemeral) {
+          const permitCall = await buildEphemeralPermitCall({
+            tokenAddress,
+            amount: balance,
+            spender: safeAddress,
+            chain,
+            chainList: ctx.chainList,
+            ephemeralWallet: ctx.ephemeralWallet,
+            publicClient: ctx.publicClientList.get(chainId),
+            deadline: minutesFromNow(5),
+          });
+          group.calls.push(permitCall, {
+            to: tokenAddress,
+            value: 0n,
+            data: encodeFunctionData({
+              abi: erc20Abi,
+              functionName: 'transferFrom',
+              args: [ctx.ephemeralWallet.address, ctx.eoaAddress, balance],
+            }),
+          });
+        } else {
+          group.calls.push(buildRefundSweepCall(tokenAddress, balance, ctx.eoaAddress));
+        }
       }
-      groups.push({
-        chainId,
-        holder: 'safe',
-        calls: [buildRefundSweepCall(tokenAddress, balance, ctx.eoaAddress)],
-      });
     } catch (error) {
       logger.debug('swap.cleanup.chain.inspection_skipped', {
         chainId,
         error: error instanceof Error ? error.message : String(error),
       });
     }
+    if (group.calls.length > 0) groups.push(group);
   }
 
   try {

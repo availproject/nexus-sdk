@@ -128,28 +128,28 @@ export async function createSafeExecuteTxFromCalls(input: {
   );
 }
 
-// Native-value invariants when the EOA submits the Safe.execTransaction. The outer eth_call
-// carries `nativeValue` to the Safe; how that lands depends on the operation:
-//   - operation=CALL (single): SafeTx.value forwards calls[0].value directly to call.to, so the
-//     outer `nativeValue` MUST match or we'd execute against a different value than the quote.
-//   - operation=DELEGATECALL (MultiSend): SafeTx.value is ignored by Safe; the outer eth_call
-//     funds the Safe with `nativeValue` and each per-tuple value forwards from that balance. Sum
-//     of inner values must equal the outer or funds strand / inner reverts on insufficient balance.
-function assertNativeValueInvariant(calls: SafeCall[], nativeValue: bigint): void {
+// The inner native spend must equal wallet funding plus the selected proceeds already in the Safe.
+// MultiSend spends the sum of its per-call values; a single CALL spends its SafeTx.value.
+function assertNativeValueInvariant(
+  calls: SafeCall[],
+  nativeValue: bigint,
+  safeNativeValue: bigint
+): void {
   if (nativeValue === 0n) return;
+  const fundedValue = nativeValue + safeNativeValue;
   if (calls.length === 1) {
     const [call] = calls as [SafeCall];
-    if (call.value !== nativeValue) {
+    if (call.value !== fundedValue) {
       throw Errors.invalidInput(
-        `Single-call native value mismatch: outer=${nativeValue}, calls[0].value=${call.value}`
+        `Single-call native value mismatch: outer=${nativeValue}, safe=${safeNativeValue}, calls[0].value=${call.value}`
       );
     }
     return;
   }
   const innerSum = calls.reduce((acc, c) => acc + c.value, 0n);
-  if (innerSum !== nativeValue) {
+  if (innerSum !== fundedValue) {
     throw Errors.invalidInput(
-      `MultiSend native value mismatch: outer=${nativeValue}, sum(inner.value)=${innerSum}`
+      `MultiSend native value mismatch: outer=${nativeValue}, safe=${safeNativeValue}, sum(inner.value)=${innerSum}`
     );
   }
 }
@@ -172,11 +172,12 @@ export async function buildSafeExecuteEOACall(input: {
   publicClient: Pick<PublicClient, 'readContract'>;
   safeAddress: Address;
   nativeValue: bigint;
+  safeNativeValue?: bigint;
 }): Promise<SafeExecuteEOACall> {
   if (input.calls.length === 0) {
     throw Errors.invalidInput('buildSafeExecuteEOACall: calls must not be empty');
   }
-  assertNativeValueInvariant(input.calls, input.nativeValue);
+  assertNativeValueInvariant(input.calls, input.nativeValue, input.safeNativeValue ?? 0n);
 
   const nonce = await readSafeNonce(input.publicClient, input.safeAddress);
   const fields = buildFieldsForCalls(input.calls, nonce);

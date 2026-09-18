@@ -224,11 +224,23 @@ export const DESTINATION_TOKENS: ReadonlyMap<number, DestinationToken[]> =
       5042, // Arc
       [
         {
-          symbol: "USDC",
-          label: "USDC",
-          tokenAddress: "0x3600000000000000000000000000000000000000",
-          decimals: 6,
+          "symbol": "EURC",
+          "label": "EURC",
+          "tokenAddress": "0xbEf5f6d51CB62b58e6A8f77868681825C6fe21c1",
+          "decimals": 6,
         },
+        {
+          "symbol": "cirBTC",
+          "label": "Circle Wrapped Bitcoin",
+          "tokenAddress": "0x171A4217b86A807A64eB94757Db6849fb4bDbAA0",
+          "decimals": 8,
+        },
+        {
+          "symbol": "ARGUS",
+          "label": "Argus",
+          "tokenAddress": "0xeCe5cA8bf9220718E5727754026757512212cb3c",
+          "decimals": 18,
+        }
       ],
     ],
   ]);

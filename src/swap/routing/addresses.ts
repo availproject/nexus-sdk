@@ -1,5 +1,7 @@
 import type { Hex } from 'viem';
 import type { ChainListType } from '../../domain';
+import { isNativeAddress } from '../../services/addresses';
+import { resolveCOT } from '../cot';
 import type { RouteOptions } from '../route';
 import type { WalletPath } from '../types';
 
@@ -31,9 +33,9 @@ export function buildExecutorAddressByChain(
   );
 }
 
-// Source-swap recipient. Remote outputs that will bridge go straight to the ephemeral bridge
-// holder, even when a Safe executes the swap. Destination-chain output stays at its wrapper unless
-// this is the COT-destination case (no dst swap step), where it can go straight to the user's EOA.
+// Native source settlement stays in the Safe; remote ERC-20 settlement goes to the ephemeral
+// bridge holder. Destination-chain output stays at the Safe unless there is no destination swap,
+// in which case it goes straight to the user's EOA.
 export function buildSourceRecipientAddressByChain(input: {
   chainIds: Iterable<number>;
   sourceExecutionPaths: Map<number, WalletPath>;
@@ -48,7 +50,11 @@ export function buildSourceRecipientAddressByChain(input: {
         return [chainId, input.options.eoaAddress];
       }
       if (chainId !== input.destinationChainId) {
-        return [chainId, input.options.ephemeralAddress];
+        const cot = resolveCOT(chainId, input.options.chainList, input.options.cotCurrencyId);
+        return [
+          chainId,
+          isNativeAddress(cot.address) ? input.options.safeAddress : input.options.ephemeralAddress,
+        ];
       }
       return [chainId, resolveWalletAddress(input.options)];
     })
