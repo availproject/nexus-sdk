@@ -37,6 +37,16 @@ import type {
 } from '../src';
 
 describe('public api exports', () => {
+  it('identifies execute approval tokens by address for execution and simulation', () => {
+    type Params = Parameters<NexusClient['execute']>[0];
+    expectTypeOf<NonNullable<Params['tokenApproval']>>().toEqualTypeOf<{
+      toTokenAddress: `0x${string}`;
+      amount: bigint;
+      spender: `0x${string}`;
+    }>();
+    expectTypeOf<Parameters<NexusClient['simulateExecute']>[0]>().toEqualTypeOf<Params>();
+  });
+
   it('keeps amount conversion outside the client', () => {
     const client = rootModule.createNexusClient({ clientId: 'test-client', analytics: { enabled: false } });
     expect(Object.keys(client)).not.toContain('convertTokenReadableAmountToBigInt');

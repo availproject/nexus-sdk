@@ -37,7 +37,7 @@ const executeParamsSchema = z.object({
   requiredConfirmations: nonNegativeInt.optional(),
   tokenApproval: z
     .object({
-      toTokenSymbol: z.string().min(1),
+      toTokenAddress: addressString,
       amount: nonNegativeBigint,
       spender: addressString,
     })
@@ -51,9 +51,9 @@ const parseExecuteParams = (input: ExecuteParams) => {
 const resolveTokenApproval = (params: ExecuteParams, deps: ExecuteDeps) =>
   params.tokenApproval
     ? {
-        token: deps.chainList.getTokenInfoBySymbol(
+        token: deps.chainList.getTokenByAddress(
           params.toChainId,
-          params.tokenApproval.toTokenSymbol
+          params.tokenApproval.toTokenAddress
         ),
         amount: BigInt(params.tokenApproval.amount),
         spender: params.tokenApproval.spender,

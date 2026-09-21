@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Hex } from 'viem';
 
 const readContract = vi.hoisted(() => vi.fn().mockResolvedValue(0n));
@@ -7,17 +7,55 @@ vi.mock('viem', async () => {
   const actual = await vi.importActual<typeof import('viem')>('viem');
   return {
     ...actual,
-    createPublicClient: vi.fn().mockReturnValue({ readContract }),
+    createPublicClient: vi.fn().mockReturnValue({
+      readContract,
+      estimateGas: vi.fn().mockResolvedValue(21_000n),
+      estimateFeesPerGas: vi.fn().mockResolvedValue({ gasPrice: 1n }),
+    }),
     http: vi.fn().mockReturnValue({}),
   };
 });
 
 import { buildExecuteTxs, createExecuteTxContext } from '../../src/execute/runtime';
+import * as runtime from '../../src/execute/runtime';
+import { execute, simulateExecute } from '../../src/execute/execute';
+import { createChainList } from '../../src/services/chain-list';
 import { packERC20Approve } from '../../src/services/evm';
+import { testChains } from '../fixtures/chains';
 import { ARB_CHAIN, WETH, makeSwapChainList } from '../helpers/swap';
 
 const TARGET = '0x1111111111111111111111111111111111111111' as Hex;
 const SPENDER = '0x2222222222222222222222222222222222222222' as Hex;
+
+afterEach(() => vi.restoreAllMocks());
+
+it.each([['execute', execute], ['simulateExecute', simulateExecute]] as const)('%s approves the requested contract when another token shares its symbol', async (_method, run) => {
+  const chainList = createChainList(testChains);
+  const selected = chainList.getTokenByAddress(1, testChains[0].tokens[1].address);
+  chainList.getChainByID(1).custom.knownTokens.unshift({
+    ...selected, contractAddress: SPENDER,
+  });
+  const send = vi.spyOn(runtime, 'sendExecuteTransactions').mockResolvedValue({
+    txHash: '0x1234', receipt: undefined, approvalHash: undefined,
+  });
+  readContract.mockClear();
+
+  await run({
+    toChainId: 1, to: TARGET,
+    tokenApproval: { toTokenAddress: selected.contractAddress, amount: 1000n, spender: SPENDER },
+  }, {
+    chainList, evm: { address: TARGET, walletClient: {} as never },
+  });
+
+  expect(readContract).toHaveBeenCalledWith(expect.objectContaining({
+    address: selected.contractAddress, functionName: 'allowance', args: [TARGET, SPENDER],
+  }));
+  if (run === execute) {
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      approvalTx: expect.objectContaining({ to: selected.contractAddress, data: packERC20Approve(SPENDER, 1000n) }),
+    }), expect.anything());
+  }
+});
 
 describe('buildExecuteTxs', () => {
   it('keeps the speculative approval when the current allowance is insufficient', async () => {

@@ -36,9 +36,7 @@ const createChainList = (
       : undefined;
 
     const knownTokens: TokenInfo[] = (chain.tokens ?? [])
-      // Execute accepts token symbols. Retain the Nexus token set that deployment exposed,
-      // since external catalogs can contain different contracts with the same symbol.
-      .filter((token) => !token.isNative && token.providers.some(({ id }) => id === 'nexus-v2'))
+      .filter((token) => !token.isNative)
       .map((token) => ({
         contractAddress: token.address,
         decimals: token.decimals,

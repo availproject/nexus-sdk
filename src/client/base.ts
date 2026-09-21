@@ -13,6 +13,7 @@ import type {
 } from '../domain';
 import { LOG_LEVEL, setLogLevel, ZERO_ADDRESS } from '../domain';
 import { Errors, formatUnknownError } from '../domain/errors';
+import { addressString, parseInput } from '../domain/validation';
 import { execute as flowExecute, simulateExecute as flowSimulateExecute } from '../execute/execute';
 import {
   createIntentCatalog,
@@ -41,8 +42,10 @@ import type {
   TokenRef,
 } from '../intent/types';
 import { createIntentWallet } from '../intent/wallet';
+import { isNativeAddress } from '../services/addresses';
 import { createChainList } from '../services/chain-list';
 import { getNetworkConfig } from '../services/network-config';
+import { equalFold } from '../services/strings';
 import { setLoggerProvider } from '../services/telemetry';
 import { trackWalletConnect } from './operation-boundary';
 import type { SwapAndExecuteOptions, SwapOperationOptions } from './types';
@@ -301,19 +304,21 @@ export const createBase = (config: {
   const loadExecuteToken = async (params: ExecuteParams) => {
     if (!params.tokenApproval) return;
     const chain = getChainList().getChainByID(params.toChainId);
-    const symbol = params.tokenApproval.toTokenSymbol;
+    const address = parseInput(addressString, params.tokenApproval.toTokenAddress);
     if (
-      chain.nativeCurrency.symbol.toLowerCase() === symbol.toLowerCase() ||
-      chain.custom.knownTokens.some((token) => token.symbol.toLowerCase() === symbol.toLowerCase())
+      isNativeAddress(address) ||
+      chain.custom.knownTokens.some((token) => equalFold(token.contractAddress, address))
     )
       return;
     const catalog = getCatalog();
-    const token = await catalog.getTokenBySymbol(params.toChainId, symbol);
+    const token = await catalog.getToken(params.toChainId, address);
     const resolved = createChainList([
       { ...catalog.getChain(params.toChainId), tokens: [token] },
     ]).getTokenByAddress(params.toChainId, token.address);
     if (
-      !chain.custom.knownTokens.some((entry) => entry.contractAddress === resolved.contractAddress)
+      !chain.custom.knownTokens.some((entry) =>
+        equalFold(entry.contractAddress, resolved.contractAddress)
+      )
     ) {
       chain.custom.knownTokens.push(resolved);
     }
@@ -337,39 +342,6 @@ export const createBase = (config: {
       evm: { walletClient: getEvm().client, address: getEvm().address },
       timing: state.analytics?.scopedTimingHooks(),
     });
-  };
-
-  const swapExecuteParams = async (input: SwapAndExecuteParams): Promise<ExecuteParams> => {
-    const params: ExecuteParams = {
-      ...input.execute,
-      toChainId: input.toChainId,
-      tokenApproval: input.execute.tokenApproval
-        ? {
-            toTokenSymbol: (
-              await getIntentCatalog().getToken(
-                input.toChainId,
-                input.execute.tokenApproval.toTokenAddress
-              )
-            ).symbol,
-            amount: input.execute.tokenApproval.amount,
-            spender: input.execute.tokenApproval.spender,
-          }
-        : undefined,
-    };
-    if (input.execute.tokenApproval && params.tokenApproval) {
-      await loadExecuteToken(params);
-      const resolved = getChainList().getTokenInfoBySymbol(
-        input.toChainId,
-        params.tokenApproval.toTokenSymbol
-      );
-      if (
-        resolved.contractAddress.toLowerCase() !==
-        input.execute.tokenApproval.toTokenAddress.toLowerCase()
-      ) {
-        throw Errors.tokenNotSupported(input.execute.tokenApproval.toTokenAddress, input.toChainId);
-      }
-    }
-    return params;
   };
 
   const destinationFunding = async (
@@ -426,7 +398,7 @@ export const createBase = (config: {
     options?: SwapAndExecuteOptions,
     reporting?: IntentReporting
   ): Promise<SwapAndExecuteIntentResult> => {
-    const executeParams = await swapExecuteParams(input);
+    const executeParams: ExecuteParams = { ...input.execute, toChainId: input.toChainId };
     const funding = await destinationFunding(
       input.toChainId,
       input.toTokenAddress,
