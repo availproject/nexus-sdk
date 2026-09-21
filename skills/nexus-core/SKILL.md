@@ -192,11 +192,11 @@ await client.execute({
   to,
   data,
   value,
-  tokenApproval: { toTokenSymbol: 'USDC', amount, spender: to },
+  tokenApproval: { toTokenAddress, amount, spender: to },
 });
 ```
 
-Use `simulateExecute` for gas estimation.
+Use `simulateExecute` with the same address-based approval input for gas estimation.
 
 Use `swapAndExecute` or `bridgeAndExecute` when the SDK should fund a destination shortfall, wait
 for fulfillment, then execute. Put `onIntent` in `hooks` and keep `beforeExecute` top-level:

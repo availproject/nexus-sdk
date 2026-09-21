@@ -64,7 +64,7 @@ describe('execute validation', () => {
       toChainId: 1,
       to: '0x0000000000000000000000000000000000000001',
       tokenApproval: {
-        toTokenSymbol: 'USDC',
+        toTokenAddress: testChains[0].tokens[1].address,
         amount: 1n,
         spender: 'not-an-address' as `0x${string}`,
       },

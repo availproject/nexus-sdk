@@ -182,9 +182,9 @@ approved quote auditable.
 contract address. It does not group tokens by symbol or infer cross-chain fungibility.
 
 Initialization fetches `/chains` only. It builds `chainList` from RPC, vault, multicall, native
-currency, and execution flags; `knownTokens` starts empty. Execute resolves approval symbols on
-demand using a chain, symbol, and `nexus-v2` filter. External tokens with duplicate symbols must not
-replace execute token identities. Native metadata is already present on the chain.
+currency, and execution flags; `knownTokens` starts empty. Execute resolves approval tokens on
+demand by chain and exact contract address, without a provider filter. Tokens with duplicate symbols
+remain distinct by address. Native metadata is already present on the chain.
 
 `getTokens` and `getTokensByChain` fetch one `/tokens` page, defaulting to 50 results. The transport
 validates query pagination and normalizes each response. Filters include chain ID, providers, name,
@@ -253,11 +253,12 @@ Composite operations do not build routes locally.
 
 ## Standalone execute
 
-`src/execute/execute.ts` validates `ExecuteParams`, resolves optional token approval metadata,
-estimates fees for simulation, and delegates transaction preparation/sending to
+`src/execute/execute.ts` validates `ExecuteParams`, resolves optional token approval metadata by
+`tokenApproval.toTokenAddress`, estimates fees for simulation, and delegates transaction preparation/sending to
 `src/execute/runtime.ts`.
 
 Execute uses cached chain metadata and is independent of intent route availability.
+`swapAndExecute` passes the same address-based approval input through simulation and execution.
 
 ## Transport boundary
 

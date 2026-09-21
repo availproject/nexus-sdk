@@ -1,6 +1,5 @@
 import type { Hex } from 'viem';
 import type { Chain } from '../domain';
-import { ZERO_ADDRESS } from '../domain';
 import { Errors, NexusError } from '../domain/errors';
 import {
   INTENT_PROVIDERS,
@@ -91,23 +90,6 @@ export const createIntentCatalog = (
     );
     if (!token) throw Errors.tokenNotSupported(address, chainId);
     return token;
-  };
-
-  const getTokenBySymbol = async (chainId: number, symbol: string): Promise<IntentToken> => {
-    const chain = getChain(chainId);
-    if (chain.nativeCurrency.symbol.toLowerCase() === symbol.toLowerCase()) {
-      return getToken(chainId, ZERO_ADDRESS);
-    }
-    let offset = 0;
-    while (true) {
-      const page = await getTokens({ chainId, symbol, providers: ['nexus-v2'], offset });
-      const token = page.tokens.find(
-        (entry) => entry.symbol.toLowerCase() === symbol.toLowerCase()
-      );
-      if (token) return token;
-      offset = page.offset + page.limit;
-      if (offset >= page.total) throw Errors.tokenNotFound(symbol, chainId);
-    }
   };
 
   const tokenProviders = (token: IntentToken, role: 'asSource' | 'asDestination') => {
@@ -263,7 +245,6 @@ export const createIntentCatalog = (
     getChain,
     getTokens,
     getToken,
-    getTokenBySymbol,
     getAvailableSourceTokens,
     getAvailableDestinationTokens,
     confirmRouteExists,

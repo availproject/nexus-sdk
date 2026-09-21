@@ -288,7 +288,7 @@ const executeChains = chains.filter((chain) => chain.capabilities.execute);
 includes intent/execute capabilities and directional provider support. Chains with RPC and
 multicall metadata support execution. Optional vault, sponsorship, and EIP-7702 metadata is retained.
 For a swap picker, use chains with `capabilities.intent`; some chains support only execution.
-Standalone execute resolves Nexus-supported approval tokens by chain and symbol when needed;
+Standalone execute resolves approval tokens by chain and contract address when needed;
 `chainList.chains[*].custom.knownTokens` is populated on demand and is not a complete token catalog.
 
 The standalone utility and `client.utils.getSupportedChains(network)` also return chain metadata
@@ -523,7 +523,7 @@ const result = await client.execute({
   data,
   value: 0n,
   tokenApproval: {
-    toTokenSymbol: 'USDC',
+    toTokenAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
     amount: 10_000_000n,
     spender: contract,
   },
@@ -533,10 +533,19 @@ const simulation = await client.simulateExecute({
   toChainId: 8453,
   to: contract,
   data,
+  tokenApproval: {
+    toTokenAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+    amount: 10_000_000n,
+    spender: contract,
+  },
 });
 ```
 
-Public inputs and on-chain calls use raw `bigint` units.
+Both methods use `tokenApproval.toTokenAddress` to identify the ERC-20 contract on `toChainId`.
+Approval token metadata is fetched on demand by exact address and cached, regardless of its intent
+provider. Symbols are display metadata. Omit `tokenApproval` when no ERC-20 approval is needed;
+send native tokens through `value`. Simulation includes approval gas when the current allowance is
+insufficient. Public inputs and on-chain calls use raw `bigint` units.
 
 ## Intent plus execute
 

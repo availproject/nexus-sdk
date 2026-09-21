@@ -46,7 +46,8 @@ describe('createChainList from the intent catalog', () => {
       providers: [{ id: 'relay' }],
     });
     const list = createChainList([chain]);
-    expect(list.getTokenInfoBySymbol(1, 'USDC').contractAddress).toBe(canonicalAddress);
-    expect(list.getChainByID(1).custom.knownTokens).toHaveLength(1);
+    expect(list.getTokenByAddress(1, canonicalAddress).contractAddress).toBe(canonicalAddress);
+    expect(list.getTokenByAddress(1, chain.tokens[0].address).contractAddress).toBe(chain.tokens[0].address);
+    expect(list.getChainByID(1).custom.knownTokens).toHaveLength(2);
   });
 });

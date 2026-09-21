@@ -61,7 +61,7 @@ export interface ExecuteParams {
   waitForReceipt?: boolean;
   receiptTimeout?: number;
   requiredConfirmations?: number;
-  tokenApproval?: { toTokenSymbol: string; amount: bigint; spender: Hex };
+  tokenApproval?: { toTokenAddress: Hex; amount: bigint; spender: Hex };
 }
 
 export interface ExecuteResult {
