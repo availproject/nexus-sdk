@@ -1,8 +1,8 @@
 import { createWalletClient, custom, type Hex, type WalletClient } from 'viem';
-import type { AnalyticsManager } from '../../analytics/AnalyticsManager';
-import { NexusAnalyticsEvents } from '../../analytics/events';
-import type { DevTimingConfig } from '../../analytics/types';
-import { getWalletType } from '../../analytics/utils';
+import type { AnalyticsManager } from '../analytics/AnalyticsManager';
+import { NexusAnalyticsEvents } from '../analytics/events';
+import type { DevTimingConfig } from '../analytics/types';
+import { getWalletType } from '../analytics/utils';
 import type {
   ChainListType,
   EthereumProvider,
@@ -10,22 +10,26 @@ import type {
   ListIntentsParams,
   NexusNetwork,
   OnEventParam,
-} from '../../domain';
-import { LOG_LEVEL, setLogLevel, ZERO_ADDRESS } from '../../domain';
-import { Errors, formatUnknownError } from '../../domain/errors';
-import {
-  execute as flowExecute,
-  simulateExecute as flowSimulateExecute,
-} from '../../flows/execute';
+} from '../domain';
+import { LOG_LEVEL, setLogLevel, ZERO_ADDRESS } from '../domain';
+import { Errors, formatUnknownError } from '../domain/errors';
+import { execute as flowExecute, simulateExecute as flowSimulateExecute } from '../execute/execute';
 import {
   createIntentCatalog,
   type IntentCatalog,
   intentNetworkEnabled,
   mergeSupportedChains,
-} from '../../intent/catalog';
-import { calculateIntentFunding } from '../../intent/funding';
-import { runIntent } from '../../intent/orchestrator';
-import type { IntentReporting } from '../../intent/telemetry';
+} from '../intent/catalog';
+import { calculateIntentFunding } from '../intent/funding';
+import type { MiddlewareClient } from '../intent/middleware';
+import { createMiddlewareClient } from '../intent/middleware';
+import { runIntent } from '../intent/orchestrator';
+import type {
+  SwapAndExecuteParams,
+  SwapExactInParams,
+  SwapExactOutParams,
+} from '../intent/swap-types';
+import type { IntentReporting } from '../intent/telemetry';
 import type {
   IntentChainMetadata,
   IntentHistoryResult,
@@ -35,16 +39,13 @@ import type {
   IntentTokenQuery,
   SwapAndExecuteIntentResult,
   TokenRef,
-} from '../../intent/types';
-import { createIntentWallet } from '../../intent/wallet';
-import { createChainList } from '../../services/chain-list';
-import { getNetworkConfig } from '../../services/network-config';
-import { setLoggerProvider } from '../../services/telemetry';
-import type { SwapAndExecuteParams, SwapExactInParams, SwapExactOutParams } from '../../swap/types';
-import type { MiddlewareClient } from '../../transport';
-import { createMiddlewareClient } from '../../transport';
-import type { SwapAndExecuteOptions, SwapOperationOptions } from '../types';
+} from '../intent/types';
+import { createIntentWallet } from '../intent/wallet';
+import { createChainList } from '../services/chain-list';
+import { getNetworkConfig } from '../services/network-config';
+import { setLoggerProvider } from '../services/telemetry';
 import { trackWalletConnect } from './operation-boundary';
+import type { SwapAndExecuteOptions, SwapOperationOptions } from './types';
 
 const DEFAULT_INTENTS_PAGE_SIZE = 20;
 const DEFAULT_SLIPPAGE_BPS = 50;
@@ -511,9 +512,7 @@ export const createBase = (config: {
       getIntentCatalog().getAvailableDestinationTokens(sources, query),
     confirmRouteExists: async (sources: TokenRef[], destination: TokenRef) =>
       getIntentCatalog().confirmRouteExists(sources, destination),
-    getSupportedChainsForRoute: (
-      constraints: import('../../intent/types').IntentRouteConstraints
-    ) => {
+    getSupportedChainsForRoute: (constraints: import('../intent/types').IntentRouteConstraints) => {
       getIntentCatalog();
       return state.middlewareClient.getIntentChains(constraints);
     },

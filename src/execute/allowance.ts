@@ -1,6 +1,6 @@
 import type { PublicClient } from 'viem';
-import ERC20ABI from '../abi/erc20';
 import type { GetAllowanceParams } from '../domain';
+import ERC20ABI from '../domain/erc20-abi';
 import { ERROR_CODES, ExecutionError, formatUnknownError } from '../domain/errors';
 
 const wrapExternal = async <T>(

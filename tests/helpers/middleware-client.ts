@@ -1,5 +1,5 @@
 import type { Hex } from 'viem';
-import type { MiddlewareClient } from '../../src/transport';
+import type { MiddlewareClient } from '../../src/intent/middleware';
 import { testChains } from '../fixtures/chains';
 import { makeTokenFetcher } from './catalog';
 

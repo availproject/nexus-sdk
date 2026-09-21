@@ -5,7 +5,7 @@ import {
   hexString,
   nonNegativeBigint,
   parseInput,
-} from '../../src/domain/utils/validation';
+} from '../../src/domain/validation';
 import { expectInvalidInput } from '../helpers/expect-invalid-input';
 
 describe('validation helpers', () => {

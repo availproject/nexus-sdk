@@ -10,6 +10,11 @@ import type {
   OnEventParam,
 } from '../domain';
 import type {
+  SwapAndExecuteParams,
+  SwapExactInParams,
+  SwapExactOutParams,
+} from '../intent/swap-types';
+import type {
   IntentBalance,
   IntentChainMetadata,
   IntentDestinationTokenPage,
@@ -25,7 +30,6 @@ import type {
   SwapAndExecuteIntentResult,
   TokenRef,
 } from '../intent/types';
-import type { SwapAndExecuteParams, SwapExactInParams, SwapExactOutParams } from '../swap/types';
 import type { NexusUtils } from './utils';
 
 export type IntentOperationOptions = OnEventParam<IntentEvent> & {

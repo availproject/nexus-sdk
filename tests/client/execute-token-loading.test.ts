@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { createNexusClient } from '../../src';
-import * as executeFlow from '../../src/flows/execute';
+import * as executeFlow from '../../src/execute/execute';
 import { testChains } from '../fixtures/chains';
 import { makeTokenFetcher } from '../helpers/catalog';
 import { makeMiddlewareClient } from '../helpers/middleware-client';

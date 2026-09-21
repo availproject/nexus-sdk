@@ -3,7 +3,7 @@ import type { Hex } from 'viem';
 import {
   createExecuteApprovalStepId,
   createExecuteTransactionStepId,
-} from '../../src/services/step-ids';
+} from '../../src/execute/step-ids';
 
 describe('step ids', () => {
   it('builds deterministic execute step ids', () => {

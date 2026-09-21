@@ -3,7 +3,7 @@
  * with an integrator's own `posthog.init()` on the default singleton.
  */
 import posthog, { type PostHog, type PostHogInterface } from 'posthog-js';
-import { getLogger } from '../../domain/utils/logger';
+import { getLogger } from '../../domain/logger';
 import type { AnalyticsProvider } from './AnalyticsProvider';
 
 export interface PostHogConfig {

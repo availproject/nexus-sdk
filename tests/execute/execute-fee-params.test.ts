@@ -25,7 +25,7 @@ vi.mock('../../src/services/evm', () => ({
   packERC20Approve: vi.fn().mockReturnValue('0xapprove' as Hex),
 }));
 
-vi.mock('../../src/services/allowance-utils', () => ({
+vi.mock('../../src/execute/allowance', () => ({
   erc20GetAllowance: vi.fn().mockResolvedValue(0n),
 }));
 

@@ -177,8 +177,8 @@ describe('public api exports', () => {
 
   it('locks the AnalyticsManager public surface after boundary cleanup', () => {
     // The typed `trackBridge` / `trackSwap` / etc. wrappers moved to
-    // `core/sdk/operation-boundary.ts` (analytics layer must not depend on
-    // core/swap types). The `attachWalletProvider` / `trackError` /
+    // `client/operation-boundary.ts` (analytics layer must not depend on
+    // client/intent types). The `attachWalletProvider` / `trackError` /
     // `trackOpFailure` methods were deleted (they leaked error details into
     // PostHog or duplicated SigNoz). The `wrap*Options` helpers became
     // boundary-internal. Re-adding any of these on AnalyticsManager would

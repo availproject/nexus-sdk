@@ -1,5 +1,5 @@
 import type { AnyValue } from '@opentelemetry/api-logs';
-import { telemetryLogger } from '../../services/telemetry';
+import { telemetryLogger } from '../services/telemetry';
 
 export const LOG_LEVEL = {
   DEBUG: 1,

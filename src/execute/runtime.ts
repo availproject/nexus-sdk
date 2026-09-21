@@ -20,15 +20,15 @@ import {
   type Tx,
 } from '../domain';
 import { ERROR_CODES, Errors, ExecutionError, formatUnknownError } from '../domain/errors';
-import { erc20GetAllowance } from '../services/allowance-utils';
 import { packERC20Approve, switchChain, waitForTxReceipt } from '../services/evm';
 import { createExplorerTxURL } from '../services/explorer';
 import { isUserRejectedRequest } from '../services/is-user-rejected-request';
 import { divDecimals } from '../services/math';
 import { runNonBlocking } from '../services/non-blocking';
-import { createExecuteApprovalStepId, createExecuteTransactionStepId } from '../services/step-ids';
 import { withRootTimingSpan, withTimingSpan } from '../services/timing';
-import { getAtomicBatchSupport } from '../services/wallet-capabilities';
+import { erc20GetAllowance } from './allowance';
+import { createExecuteApprovalStepId, createExecuteTransactionStepId } from './step-ids';
+import { getAtomicBatchSupport } from './wallet-capabilities';
 
 export type { ExecuteFeeParams } from '../domain';
 

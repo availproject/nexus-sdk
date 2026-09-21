@@ -14,14 +14,14 @@ import {
   nonNegativeInt,
   parseInput,
   positiveInt,
-} from '../domain/utils/validation';
+} from '../domain/validation';
+import { createExplorerTxURL } from '../services/explorer';
+import type { ExecuteDeps } from './deps';
 import {
   createExecutePlanContext,
   createExecuteTxContext,
   sendExecuteTransactions,
-} from '../execute/runtime';
-import { createExplorerTxURL } from '../services/explorer';
-import type { ExecuteDeps } from './deps';
+} from './runtime';
 
 const executeParamsSchema = z.object({
   toChainId: positiveInt,

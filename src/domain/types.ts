@@ -1,5 +1,5 @@
 import type { Hex, TransactionReceipt } from 'viem';
-import type { Universe } from '../chain-abstraction';
+import type { Universe } from './chain-abstraction';
 
 export type TokenInfo = {
   contractAddress: Hex;
@@ -213,4 +213,4 @@ export interface TimingSpanHooks {
   ) => Promise<T>;
 }
 
-export type { FormatTokenBalanceOptions, FormattedParts } from '../utils/format';
+export type { FormatTokenBalanceOptions, FormattedParts } from './format';

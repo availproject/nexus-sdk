@@ -68,7 +68,7 @@ import { clamp, omit } from 'es-toolkit';
 import { version } from '../../package.json' with { type: 'json' };
 import type { ChainListType, TimingSpanHooks } from '../domain';
 import { type OperationName, toError } from '../domain/errors';
-import { getLogger } from '../domain/utils/logger';
+import { getLogger } from '../domain/logger';
 import { getErrorReportingProperties } from '../services/error-reporting';
 import { reportOperationError } from '../services/error-telemetry';
 import { reportTelemetryEvent } from '../services/telemetry';
@@ -645,8 +645,8 @@ export class AnalyticsManager {
    * public-op invocation they're running under — the parent comes from the
    * scoped hook injected into `deps.timing`.
    *
-   * @internal Boundary plumbing used by `src/core/sdk/operation-boundary.ts`
-   *   and `src/core/sdk/base.ts` to wire dev-timing parents. Not a stable
+   * @internal Boundary plumbing used by `src/client/operation-boundary.ts`
+   *   and `src/client/base.ts` to wire dev-timing parents. Not a stable
    *   integrator-facing API — keep callers inside the SDK.
    */
   scopedTimingHooks(parentSpanId?: string): TimingSpanHooks {
@@ -774,8 +774,8 @@ export class AnalyticsManager {
   // ──────────────────────────────────────────────────────────────────────────
   // Boundary orchestration
   //
-  // Public-op wrappers live in `src/core/sdk/operation-boundary.ts` (so the
-  // analytics layer stays generic and doesn't import core/swap types). Those
+  // Public-op wrappers live in `src/client/operation-boundary.ts` (so the
+  // analytics layer stays generic and doesn't import client/intent types). Those
   // wrappers call `runOp` which owns the full lifecycle: `track(INITIATED)` →
   // `startOperation` → run → `track(SUCCESS)` + `endOperation(success)` on
   // the happy path, or `trackPlanRejectedIfApplicable` (when configured) +
@@ -785,7 +785,7 @@ export class AnalyticsManager {
   // ──────────────────────────────────────────────────────────────────────────
 
   /**
-   * @internal Boundary plumbing used by `src/core/sdk/operation-boundary.ts`.
+   * @internal Boundary plumbing used by `src/client/operation-boundary.ts`.
    *   The lifecycle contract (initiated → start → run → success/failed +
    *   endOperation + throw) is the load-bearing piece — do not call from
    *   integrator code or sketch out a parallel boundary on top of it.

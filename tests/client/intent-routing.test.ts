@@ -1,6 +1,6 @@
 import { makeTokenFetcher } from '../helpers/catalog';
 import { describe, expect, it, vi } from 'vitest';
-import { createBase } from '../../src/core/sdk/base';
+import { createBase } from '../../src/client/base';
 import { Errors } from '../../src/domain/errors';
 import type { IntentChain, IntentProvider, IntentSource } from '../../src/intent/types';
 import { normalizeIntentQuote } from '../../src/intent/normalize';

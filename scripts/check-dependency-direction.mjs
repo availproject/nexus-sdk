@@ -9,16 +9,13 @@ const ROOT = process.cwd();
  * textual (grep-style) on `from`/`require` import strings; it matches
  * `'.../<target>'` and `'.../<target>/something'`.
  *
- * Add rules as the layering contract tightens. Today:
- * - services must not depend on flows (pre-existing).
- * - analytics must not depend on core/sdk or feature-specific layers (added
- *   alongside the `operation-boundary.ts` extraction: typed-op wrappers and
- *   the BridgeOperationOptions/SwapResult types live in core/swap; the
- *   analytics layer stays generic).
+ * Shared services must not depend on client assembly or standalone execution.
+ * Analytics stays generic; typed operation wrappers live in client and
+ * feature-specific models live in intent/execute.
  */
 const RULES = [
-  { from: 'src/services', forbidden: ['flows'] },
-  { from: 'src/analytics', forbidden: ['core', 'swap', 'execute', 'flows', 'bridge'] },
+  { from: 'src/services', forbidden: ['client', 'execute'] },
+  { from: 'src/analytics', forbidden: ['client', 'intent', 'execute'] },
 ];
 
 const walk = (dir, files = []) => {

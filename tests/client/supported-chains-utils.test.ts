@@ -2,7 +2,7 @@ import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { createNexusClient } from '../../src';
 import type { IntentProvider } from '../../src';
 import { getSupportedChains } from '../../src/utils';
-import * as transport from '../../src/transport';
+import * as transport from '../../src/intent/middleware';
 import { testChains } from '../fixtures/chains';
 import { makeMiddlewareClient } from '../helpers/middleware-client';
 

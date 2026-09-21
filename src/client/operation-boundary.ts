@@ -1,22 +1,22 @@
 import type { Hex } from 'viem';
-import type { AnalyticsManager } from '../../analytics/AnalyticsManager';
+import type { AnalyticsManager } from '../analytics/AnalyticsManager';
 import {
   type NexusAnalyticsEvent,
   NexusAnalyticsEvents,
   type NexusOperationName,
   NexusOperationNames,
-} from '../../analytics/events';
-import { getWalletType } from '../../analytics/utils';
+} from '../analytics/events';
+import { getWalletType } from '../analytics/utils';
 import type {
   EthereumProvider,
   ExecuteParams,
   ExecuteResult,
   ExecuteSimulation,
   ListIntentsParams,
-} from '../../domain';
-import type { OperationName } from '../../domain/errors';
-import { createIntentReporting, type IntentReporting } from '../../intent/telemetry';
-import type { IntentBalancesResult, IntentHistoryResult } from '../../intent/types';
+} from '../domain';
+import type { OperationName } from '../domain/errors';
+import { createIntentReporting, type IntentReporting } from '../intent/telemetry';
+import type { IntentBalancesResult, IntentHistoryResult } from '../intent/types';
 
 type IntentTracking = {
   operation: OperationName;

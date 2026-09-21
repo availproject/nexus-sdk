@@ -5,13 +5,13 @@
  * (which runs `tsc --noEmit -p tsconfig.tests.json`) — if drift happens, the file
  * fails to compile.
  *
- * Why this lives at the assembly layer (`tests/core/`): `src/domain/errors.ts` cannot
- * import from `src/core/` (package boundary), so we can't derive `OperationName` from
+ * Why this lives at the assembly layer (`tests/client/`): `src/domain/errors.ts` cannot
+ * import from `src/client/` (package boundary), so we can't derive `OperationName` from
  * `NexusClient` directly. This test sits at a layer that can legitimately see both.
  */
 
-import type { NexusClient } from '../../src/core/types';
-import type { NexusUtils } from '../../src/core/utils';
+import type { NexusClient } from '../../src/client/types';
+import type { NexusUtils } from '../../src/client/utils';
 import type { OperationName } from '../../src/domain/errors';
 
 type AsyncMethodNames<T> = {

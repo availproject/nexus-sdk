@@ -73,7 +73,7 @@ The category drives:
 ## Why the `category/specific_noun_suffix` code shape
 
 - The `category/` prefix mirrors the subclass — a `BackendError` always
-  carries a `backend/*` code. The drift test (`tests/core/`) keeps that
+  carries a `backend/*` code. The drift test (`tests/client/`) keeps that
   invariant honest.
 - The suffix vocabulary (`_failed`, `_timeout`, `_reverted`, `_denied`,
   `_exceeded`, or a named condition such as `insufficient_balance`) gives a coarse
@@ -229,7 +229,7 @@ SDK and middleware log lines.
 
 ## Middleware error mapping
 
-Better Intent HTTP errors are mapped in `src/transport/middleware.ts`. They remain `BackendError`s
+Better Intent HTTP errors are mapped in `src/intent/middleware.ts`. They remain `BackendError`s
 with `service: 'middleware'`, including backend validation failures and provider/RPC failures reported
 by the middleware. Existing SDK `NexusError`s pass through unchanged.
 

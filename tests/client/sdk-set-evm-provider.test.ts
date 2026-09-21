@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EthereumProvider } from '../../src';
 import { createNexusClient, ExecutionError, NexusError } from '../../src';
-import type { MiddlewareClient } from '../../src/transport';
+import type { MiddlewareClient } from '../../src/intent/middleware';
 import { makeMiddlewareClient } from '../helpers/middleware-client';
 
 // Capture the exact error object passed to reportOperationError so we can verify it

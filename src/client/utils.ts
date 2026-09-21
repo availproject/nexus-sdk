@@ -11,12 +11,12 @@ import {
   truncateAddress as utilTruncateAddress,
 } from '../domain';
 import { Errors } from '../domain/errors';
+import { createMiddlewareClient } from '../intent/middleware';
 import { getSupportedChainsFromCatalog, type SupportedChainsResult } from '../services/chains';
 import { reportOperationError } from '../services/error-telemetry';
 import { getNetworkConfig } from '../services/network-config';
 import { getCoinbasePrices } from '../services/pricing';
 import { setLoggerProvider } from '../services/telemetry';
-import { createMiddlewareClient } from '../transport';
 
 // Stateless utility exports
 export const formatTokenBalance = domainFormatTokenBalance;

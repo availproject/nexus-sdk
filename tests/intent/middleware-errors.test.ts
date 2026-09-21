@@ -4,7 +4,7 @@ import { BackendError, createNexusClient, ERROR_CODES, NexusError, ValidationErr
 import { Errors } from '../../src/domain/errors';
 import { getIntentQuoteFailure } from '../../src/intent/errors';
 import type { IntentQuoteRequest } from '../../src/intent/types';
-import { createMiddlewareClient } from '../../src/transport/middleware';
+import { createMiddlewareClient } from '../../src/intent/middleware';
 
 vi.mock('axios', () => ({ default: { create: vi.fn() } }));
 

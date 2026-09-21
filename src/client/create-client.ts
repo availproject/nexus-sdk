@@ -1,21 +1,23 @@
-import { AnalyticsManager } from '../../analytics/AnalyticsManager';
-import type { AnalyticsConfig, DevTimingConfig } from '../../analytics/types';
+import { AnalyticsManager } from '../analytics/AnalyticsManager';
+import type { AnalyticsConfig, DevTimingConfig } from '../analytics/types';
 import type {
   EthereumProvider,
   ExecuteParams,
   ListIntentsParams,
   NexusNetwork,
   OnEventParam,
-} from '../../domain';
-import { getLogger } from '../../domain';
-import { Errors } from '../../domain/errors';
-import { createChainList } from '../../services/chain-list';
-import { getNetwork, readEnv } from '../../services/network-config';
-import { setLoggerProvider } from '../../services/telemetry';
-import type { SwapAndExecuteParams, SwapExactInParams, SwapExactOutParams } from '../../swap/types';
-import type { MiddlewareClient } from '../../transport';
-import type { NexusClient, SwapAndExecuteOptions, SwapOperationOptions } from '../types';
-import { createNexusUtils } from '../utils';
+} from '../domain';
+import { getLogger } from '../domain';
+import { Errors } from '../domain/errors';
+import type { MiddlewareClient } from '../intent/middleware';
+import type {
+  SwapAndExecuteParams,
+  SwapExactInParams,
+  SwapExactOutParams,
+} from '../intent/swap-types';
+import { createChainList } from '../services/chain-list';
+import { getNetwork, readEnv } from '../services/network-config';
+import { setLoggerProvider } from '../services/telemetry';
 import { createBase } from './base';
 import {
   trackBalanceFetch,
@@ -25,6 +27,8 @@ import {
   trackIntentOperation,
   trackListIntents,
 } from './operation-boundary';
+import type { NexusClient, SwapAndExecuteOptions, SwapOperationOptions } from './types';
+import { createNexusUtils } from './utils';
 
 const logger = getLogger();
 

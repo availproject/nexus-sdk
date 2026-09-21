@@ -20,7 +20,7 @@ import {
   normalizeIntentStatus,
   normalizeIntentSubmitResponse,
   normalizeIntentTokens,
-} from '../intent/normalize';
+} from './normalize';
 import type {
   ExecutableIntentQuote,
   IntentBalancesResult,
@@ -36,7 +36,7 @@ import type {
   IntentSubmitResponse,
   IntentTokenPage,
   IntentTokenQuery,
-} from '../intent/types';
+} from './types';
 
 export type MiddlewareClient = {
   getIntentChains: (constraints?: IntentRouteConstraints) => Promise<IntentChainMetadata[]>;

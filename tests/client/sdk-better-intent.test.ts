@@ -2,7 +2,7 @@ import { makeTokenFetcher } from '../helpers/catalog';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Hex, TransactionReceipt } from 'viem';
 import { createNexusClient, ExecutionError, UserActionError, ValidationError } from '../../src';
-import { createBase } from '../../src/core/sdk/base';
+import { createBase } from '../../src/client/base';
 import type { EthereumProvider } from '../../src/domain';
 import { normalizeIntentQuote } from '../../src/intent/normalize';
 import type { IntentChain, IntentEvent } from '../../src/intent/types';

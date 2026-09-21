@@ -1,6 +1,6 @@
 import { type Hex, isAddress, isHex } from 'viem';
 import { z } from 'zod';
-import { Errors } from '../errors';
+import { Errors } from './errors';
 
 export const hexString = z.custom<Hex>((value) => isHex(value), {
   message: 'invalid hex',

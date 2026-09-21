@@ -4,7 +4,7 @@ import type { Hex } from 'viem';
 import { createNexusClient } from '../../src';
 import { version } from '../../package.json';
 import { getIntentQuoteFailure } from '../../src/intent/errors';
-import { createMiddlewareClient } from '../../src/transport/middleware';
+import { createMiddlewareClient } from '../../src/intent/middleware';
 
 vi.mock('axios', () => ({ default: { create: vi.fn() } }));
 

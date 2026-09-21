@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AnalyticsManager } from '../../src/analytics/AnalyticsManager';
 import { NexusAnalyticsEvents as Events } from '../../src/analytics/events';
-import { trackIntentOperation } from '../../src/core/sdk/operation-boundary';
+import { trackIntentOperation } from '../../src/client/operation-boundary';
 import { BackendError, ERROR_CODES, Errors } from '../../src/domain/errors';
 import { normalizeIntentQuote } from '../../src/intent/normalize';
 import { runIntent } from '../../src/intent/orchestrator';

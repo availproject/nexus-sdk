@@ -1,6 +1,6 @@
 import { describe, it } from 'vitest';
 import type { ExecuteParams } from '../../src/domain';
-import { execute } from '../../src/flows/execute';
+import { execute } from '../../src/execute/execute';
 import { createChainList } from '../../src/services/chain-list';
 import { testChains } from '../fixtures/chains';
 import { expectInvalidInput } from '../helpers/expect-invalid-input';
