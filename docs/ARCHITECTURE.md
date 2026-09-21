@@ -162,9 +162,9 @@ the SDK does not calculate a local threshold or compare provider quotes.
 `IntentQuote` is public and contains normalized user-relevant data:
 
 - provider and trade type;
-- input legs and required raw amounts;
-- output and minimum output;
-- normalized fees and allowances;
+- input legs and required raw amounts with middleware-provided USD values;
+- output and minimum output with middleware-provided USD values;
+- normalized raw and USD fees plus allowances;
 - expiry;
 - canonical plan.
 

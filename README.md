@@ -221,8 +221,10 @@ type IntentResult = {
 app distinguish an overall intent stage from the progress or failure of an individual source leg.
 
 `IntentQuote` exposes normalized inputs, output, minimum output, fees, allowances, expiry, provider,
-trade type, and the canonical execution plan. Raw RFF payloads, signing payload internals, ABIs, and
-submit serialization stay private to the transport layer.
+trade type, and the canonical execution plan. Raw token amounts use `*Raw: bigint`; the middleware's
+corresponding USD valuations use `*Usd: string` so applications can display the quoted value without
+performing a second token-price lookup. Raw RFF payloads, signing payload internals, ABIs, and submit
+serialization stay private to the transport layer.
 
 `SwapResult` is an alias of `IntentResult`.
 

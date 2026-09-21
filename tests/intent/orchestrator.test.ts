@@ -25,12 +25,19 @@ const executableQuote = (byte = '11'): ExecutableIntentQuote => {
       provider: 'nexus-v2',
       tradeType: 'exactOutput',
       input: [],
-      output: { chainId: 1, tokenAddress: TOKEN, amountRaw: 10n, minAmountRaw: 9n },
+      output: {
+        chainId: 1, tokenAddress: TOKEN, amountRaw: 10n, amountUsd: '0.00001',
+        minAmountRaw: 9n, minAmountUsd: '0.000009',
+      },
       fees: {
         depositRaw: 0n,
+        depositUsd: '0',
         fulfillmentRaw: 0n,
+        fulfillmentUsd: '0',
         protocolRaw: 0n,
+        protocolUsd: '0',
         solverRaw: 0n,
+        solverUsd: '0',
       },
       expiresAt: 2_000_000_000,
       sourceVerdicts: [],
@@ -109,8 +116,11 @@ const erc20ExecutableQuote = (): ExecutableIntentQuote => {
       tokenAddress: TOKEN,
       tokenSymbol: 'USDC',
       amountRaw: 10n,
+      amountUsd: '0.00001',
       depositFeeRaw: 0n,
+      depositFeeUsd: '0',
       totalRequiredRaw: 10n,
+      totalRequiredUsd: '0.00001',
     },
   ];
   quote.quote.plan.steps = quote.quote.plan.steps.filter(

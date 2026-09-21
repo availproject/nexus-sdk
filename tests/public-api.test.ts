@@ -123,7 +123,16 @@ describe('public api exports', () => {
     expectTypeOf(balance).toMatchTypeOf<IntentBalance>();
     expectTypeOf<IntentBalance['priceSource']>().toEqualTypeOf<'oracle' | 'indexer' | 'coingecko' | 'relay' | null>();
     expectTypeOf<IntentProviderSupport['currencyId']>().toEqualTypeOf<number | string | undefined>();
-    expectTypeOf<keyof IntentFees>().toEqualTypeOf<'depositRaw' | 'fulfillmentRaw' | 'protocolRaw' | 'solverRaw'>();
+    expectTypeOf<keyof IntentFees>().toEqualTypeOf<
+      | 'depositRaw'
+      | 'depositUsd'
+      | 'fulfillmentRaw'
+      | 'fulfillmentUsd'
+      | 'protocolRaw'
+      | 'protocolUsd'
+      | 'solverRaw'
+      | 'solverUsd'
+    >();
     expectTypeOf<'source_approval_signature'>().toExtend<IntentPlanStep['type']>();
     expectTypeOf(event).toMatchTypeOf<IntentEvent>();
     expectTypeOf(stepError.message).toEqualTypeOf<string>();

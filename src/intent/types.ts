@@ -174,15 +174,25 @@ export type IntentQuoteInput = {
   tokenAddress: Hex;
   tokenSymbol: string;
   amountRaw: bigint;
+  /** Middleware-priced USD value for `amountRaw`, preserved as a decimal string. */
+  amountUsd: string;
   depositFeeRaw: bigint;
+  /** Middleware-priced USD value for `depositFeeRaw`. */
+  depositFeeUsd: string;
   totalRequiredRaw: bigint;
+  /** Middleware-priced USD value for `totalRequiredRaw`. */
+  totalRequiredUsd: string;
 };
 
 export type IntentFees = {
   depositRaw: bigint;
+  depositUsd: string;
   fulfillmentRaw: bigint;
+  fulfillmentUsd: string;
   protocolRaw: bigint;
+  protocolUsd: string;
   solverRaw: bigint;
+  solverUsd: string;
 };
 
 export type IntentAllowance = {
@@ -230,7 +240,11 @@ export type IntentQuote = {
     chainId: number;
     tokenAddress: Hex;
     amountRaw: bigint;
+    /** Middleware-priced USD value for `amountRaw`. */
+    amountUsd: string;
     minAmountRaw: bigint;
+    /** Middleware-priced USD value for `minAmountRaw`. */
+    minAmountUsd: string;
   };
   fees: IntentFees;
   expiresAt: number;
