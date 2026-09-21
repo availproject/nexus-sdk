@@ -1,3 +1,4 @@
+import { makeTokenFetcher } from '../helpers/catalog';
 import { describe, expect, it, vi } from 'vitest';
 import { createBase } from '../../src/core/sdk/base';
 import { Errors } from '../../src/domain/errors';
@@ -31,15 +32,16 @@ const setup = async (chains: IntentChain[]) => {
   const getIntentQuote = vi.fn().mockRejectedValue(reachedQuote);
   const getIntentChains = vi.fn();
   const getIntentBalances = vi.fn();
+  const getIntentTokens = vi.fn(makeTokenFetcher(chains));
   const base = createBase({
     clientId: 'test-client', network: 'mainnet',
-    internal: { middlewareClient: makeMiddlewareClient({ getIntentQuote, getIntentChains, getIntentBalances }) },
+    internal: { middlewareClient: makeMiddlewareClient({ getIntentTokens, getIntentQuote, getIntentChains, getIntentBalances }) },
   });
   base.setIntentCatalog(chains);
   base.setChainList(createChainList(chains));
   const request = vi.fn(async ({ method }: { method: string }) => method === 'eth_accounts' ? [ACCOUNT] : '0x1');
   await base.setEvmProvider({ request, on: vi.fn(), removeListener: vi.fn() });
-  return { base, getIntentQuote, getIntentChains, getIntentBalances, reachedQuote, request };
+  return { base, getIntentTokens, getIntentQuote, getIntentChains, getIntentBalances, reachedQuote, request };
 };
 
 describe('cached provider checks before quoting', () => {
@@ -87,7 +89,8 @@ describe('cached provider checks before quoting', () => {
     expect(ctx.getIntentQuote).not.toHaveBeenCalled();
   });
 
-  it.each([undefined, [source(10), source(8453)]])('filters exact-output candidates from all or selected assets (%#)', async (sources) => {
+  it('filters explicitly selected exact-output candidates', async () => {
+    const sources = [source(10), source(8453)];
     const ctx = await setup([
       chain(1, [], ['relay']), chain(10, ['relay'], []), chain(8453, ['mayan'], []),
     ]);
@@ -104,7 +107,7 @@ describe('cached provider checks before quoting', () => {
     const ctx = await setup([
       chain(1, [], ['relay', 'mayan']), chain(10, ['relay'], []), chain(8453, ['mayan'], []),
     ]);
-    await expect(ctx.base.swapWithExactOut({ ...destination, toAmountRaw: 10n }))
+    await expect(ctx.base.swapWithExactOut({ ...destination, toAmountRaw: 10n, sources: [source(10), source(8453)] }))
       .rejects.toBe(ctx.reachedQuote);
     expect(ctx.getIntentQuote).toHaveBeenCalledWith(expect.objectContaining({ sources: [
       { chainId: 'EVM_10', tokens: [TOKEN] }, { chainId: 'EVM_8453', tokens: [TOKEN] },
@@ -120,11 +123,29 @@ describe('cached provider checks before quoting', () => {
     expect(ctx.getIntentQuote).toHaveBeenLastCalledWith(expect.objectContaining({ sources: [
       { chainId: 'EVM_10', tokens: [TOKEN] },
     ] }), undefined);
-    await expect(ctx.base.swapWithExactOut({ ...destination, toAmountRaw: 10n }))
+    await expect(ctx.base.swapWithExactOut({ ...destination, toAmountRaw: 10n, sources: [source(10), { chainId: 10, tokenAddress: OTHER_TOKEN }] }))
       .rejects.toBe(ctx.reachedQuote);
     expect(ctx.getIntentQuote).toHaveBeenLastCalledWith(expect.objectContaining({ sources: [
       { chainId: 'EVM_10', tokens: [TOKEN, OTHER_TOKEN] },
     ] }), undefined);
+  });
+
+  it.each([undefined, []])('leaves automatic wallet source discovery to the API (%#)', async (sources) => {
+    const ctx = await setup([chain(1, [], ['relay']), chain(10, ['relay'], [])]);
+    await expect(ctx.base.swapWithExactOut({ ...destination, toAmountRaw: 10n, sources }))
+      .rejects.toBe(ctx.reachedQuote);
+    expect(ctx.getIntentQuote.mock.calls[0][0]).not.toHaveProperty('sources');
+    expect(ctx.getIntentTokens).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      chainId: 1, contract: TOKEN, limit: 1,
+    }));
+  });
+
+  it('preserves broad chain filters without enumerating that chain’s tokens', async () => {
+    const ctx = await setup([chain(1, [], ['relay']), chain(10, ['relay'], [])]);
+    await expect(ctx.base.swapWithExactOut({ ...destination, toAmountRaw: 10n, sources: [{ chainId: 10 }] }))
+      .rejects.toBe(ctx.reachedQuote);
+    expect(ctx.getIntentQuote.mock.calls[0][0].sources).toEqual([{ chainId: 'EVM_10' }]);
+    expect(ctx.getIntentTokens).toHaveBeenCalledOnce();
   });
 
   it('errors when every selected source is filtered instead of broadening to all sources', async () => {

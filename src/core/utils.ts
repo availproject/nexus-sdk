@@ -11,10 +11,7 @@ import {
   truncateAddress as utilTruncateAddress,
 } from '../domain';
 import { Errors } from '../domain/errors';
-import {
-  getSupportedChainsFromCatalog,
-  type SupportedChainsAndTokensResult,
-} from '../services/chains';
+import { getSupportedChainsFromCatalog, type SupportedChainsResult } from '../services/chains';
 import { reportOperationError } from '../services/error-telemetry';
 import { getNetworkConfig } from '../services/network-config';
 import { getCoinbasePrices } from '../services/pricing';
@@ -49,7 +46,7 @@ export const getCoinbaseRates = async (): Promise<Record<string, string>> => {
 export const getSupportedChains = async (
   env: NexusNetworkHint,
   options?: { clientId: string }
-): Promise<SupportedChainsAndTokensResult> => {
+): Promise<SupportedChainsResult> => {
   try {
     if (typeof options?.clientId !== 'string' || !options.clientId.trim()) {
       throw Errors.invalidInput('getSupportedChains requires a non-empty clientId');
@@ -87,7 +84,7 @@ export type NexusUtils = {
   isValidAddress: typeof isValidAddress;
   truncateAddress: typeof truncateAddress;
   getCoinbaseRates: typeof getCoinbaseRates;
-  getSupportedChains: (env: NexusNetworkHint) => Promise<SupportedChainsAndTokensResult>;
+  getSupportedChains: (env: NexusNetworkHint) => Promise<SupportedChainsResult>;
 };
 
 export const createNexusUtils = (clientId: string): NexusUtils => ({
@@ -98,6 +95,6 @@ export const createNexusUtils = (clientId: string): NexusUtils => ({
   isValidAddress,
   truncateAddress,
   getCoinbaseRates,
-  getSupportedChains: (env: NexusNetworkHint): Promise<SupportedChainsAndTokensResult> =>
+  getSupportedChains: (env: NexusNetworkHint): Promise<SupportedChainsResult> =>
     getSupportedChains(env, { clientId }),
 });

@@ -48,7 +48,7 @@ export function OperationPage({ config, ...sdkProps }: OperationPageProps) {
 
   const destinationOptions = useMemo<DestinationOption[]>(() => {
     return form.chainOptions.flatMap((chain) => {
-      const tokens = config.getTokenOptions(sdkProps.client, chain.id);
+      const tokens = (config.getTokenOptions?.(sdkProps.client, chain.id) ?? []);
       return tokens.map((token) => ({
         id: `${chain.id}:${token.tokenAddress?.toLowerCase()}`,
         chainId: chain.id,
@@ -64,7 +64,15 @@ export function OperationPage({ config, ...sdkProps }: OperationPageProps) {
   }, [form.chainOptions, config, sdkProps.client]);
 
   const selectedDestId = `${form.chainId}:${form.tokenAddress?.toLowerCase()}`;
-  const hasValidDestination = destinationOptions.some((o) => o.id === selectedDestId);
+  const selectedDestination = form.currentTokenOption ? {
+    ...form.currentTokenOption,
+    id: selectedDestId,
+    chainId: form.chainId,
+    chainName: form.chainOptions.find((chain) => chain.id === form.chainId)?.name ?? "",
+    chainLogo: getChainLogoUrl(form.chainId),
+    tokenLogo: getTokenLogoUrl(form.tokenSymbol, form.tokenAddress, form.chainId),
+  } : undefined;
+  const hasValidDestination = Boolean(selectedDestination);
 
   // Deposit tabs pin one lending protocol per destination chain — surface its
   // name in the hero pill + intent eyebrow. Label-only (no status color):
@@ -108,10 +116,13 @@ export function OperationPage({ config, ...sdkProps }: OperationPageProps) {
                     </span>
                     <DestinationSelector
                       options={destinationOptions}
+                      client={config.getTokenOptions ? null : sdkProps.client}
+                      chains={form.chainOptions}
+                      selected={selectedDestination}
                       selectedId={selectedDestId}
                       onSelect={(opt) => {
                         form.setChainId(opt.chainId);
-                        form.setTokenAddress(opt.tokenAddress);
+                        form.setCurrentTokenOption(opt);
                       }}
                       balances={destinationBalances}
                     />
@@ -138,10 +149,13 @@ export function OperationPage({ config, ...sdkProps }: OperationPageProps) {
                     />
                     <DestinationSelector
                       options={destinationOptions}
+                      client={config.getTokenOptions ? null : sdkProps.client}
+                      chains={form.chainOptions}
+                      selected={selectedDestination}
                       selectedId={selectedDestId}
                       onSelect={(opt) => {
                         form.setChainId(opt.chainId);
-                        form.setTokenAddress(opt.tokenAddress);
+                        form.setCurrentTokenOption(opt);
                       }}
                       balances={destinationBalances}
                     />

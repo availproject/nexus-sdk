@@ -308,9 +308,9 @@ The checkbox primitive (`.checkbox`) has three states: default, `.checked` (blue
 
 ### Destination selector
 
-Single-select picker used by every operation tab (Exact Out Swap, Swap & Execute, Bridge, Bridge & Execute). Replaces the previous pair of chain + token dropdowns.
+Single-select picker used by every operation tab (Exact Out Swap, Exact In Swap, Swap & Execute). Replaces the previous pair of chain + token dropdowns.
 
-- **`DestinationSelector`** is composed in `OperationPage` from `form.chainOptions` × `config.getTokenOptions(client, chainId)` — flattened into a `DestinationOption[]`. Each option has `chainId`, `chainName`, `chainLogo?`, `symbol`, `label`, `tokenLogo?`, `tokenAddress?`, `decimals?`.
+- **`DestinationSelector`** fetches one 50-token destination page when opened on swap tabs. Symbol/address searches are debounced by 250 ms and chain/search filters go to the API. Previous/Next use candidate-page offsets, including pages with no directional matches. Loading, failure, and retry states appear in the list. Selection stays separate from the visible page. Deposit tabs use their fixed protocol token options.
 - **Trigger** (`.dest-trigger`) — a **compact pill** with the token icon (chain badge in lower-right), the token symbol, and a small chevron. No "on Chain" sub-line — the chain is communicated via the badge overlay. Inline-flex, rounded `--radius-pill`, fits inside a row alongside other content like an amount input.
 - **Modal** uses the same `.modal-panel` / `.src-modal-header` / `.src-list` chrome as the source picker. Title is "Choose asset to receive", subtitle "Select token and destination chain".
 - **Flat list, single-select** — each row is one `(token, chain)` combo. Clicking a row calls `onSelect(option)` and closes the modal (no Apply button; no checkbox). The selected row gets `.src-group.is-open` styling.

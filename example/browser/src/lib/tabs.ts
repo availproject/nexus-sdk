@@ -18,7 +18,7 @@ import {
   getDepositProtocol,
   buildDepositExecute,
 } from "./deposit";
-import { getSwapChainOptions, getSwapTokenOptions } from "./destinationTokens";
+import { getSwapChainOptions } from "./destinationTokens";
 import { fetchUiBalances } from "./nexus";
 
 /**
@@ -97,12 +97,6 @@ function createIntentEventHandler(
  * route visualization). Shared by the exact-out and exact-in swap tabs, which
  * both resolve to a SwapResult.
  */
-function tokenDecimals(client: NexusClient, chainId: number, address: `0x${string}`) {
-  const chain = client.getSupportedChains().find((entry) => entry.id === chainId);
-  return chain?.tokens.find(
-    (token) => token.address.toLowerCase() === address.toLowerCase(),
-  )?.decimals ?? 18;
-}
 
 function buildIntentHashes(client: NexusClient, result: IntentResult) {
   return [
@@ -124,21 +118,24 @@ function buildIntentHashes(client: NexusClient, result: IntentResult) {
   ];
 }
 
-function buildSwapResult(
+async function buildSwapResult(
   client: NexusClient,
   result: IntentResult,
   destChainId: number,
   destTokenSymbol: string,
   destFallbackAmount = "",
-): OperationResult {
-  const route: SwapRouteStep[] = result.quote.input.map((source) => ({
+): Promise<OperationResult> {
+  const [outputToken, ...inputTokens] = await Promise.all([result.quote.output, ...result.quote.input].map(
+    (token) => client.getToken({ chainId: token.chainId, tokenAddress: token.tokenAddress }),
+  ));
+  const route: SwapRouteStep[] = result.quote.input.map((source, index) => ({
     type: "source",
     chainId: source.chainId,
     chainName: chainName(client, source.chainId),
     tokenSymbol: source.tokenSymbol,
     amount: formatUnits(
       source.totalRequiredRaw,
-      tokenDecimals(client, source.chainId, source.tokenAddress),
+      inputTokens[index]!.decimals,
     ),
   }));
   route.push({
@@ -156,7 +153,7 @@ function buildSwapResult(
     tokenSymbol: destTokenSymbol,
     amount: formatUnits(
       result.quote.output.amountRaw,
-      tokenDecimals(client, destChainId, result.quote.output.tokenAddress),
+      outputToken!.decimals,
     ) || destFallbackAmount,
   });
 
@@ -189,7 +186,6 @@ export const EXACT_OUT_SWAP_TAB: TabConfig = {
   defaultChainId: 8453,
 
   getChainOptions: (client) => getSwapChainOptions(client),
-  getTokenOptions: (client, chainId) => getSwapTokenOptions(client, chainId),
 
   balanceQueryKey: "swap-balances",
   fetchBalances: (client) => fetchUiBalances(client),
@@ -203,12 +199,8 @@ export const EXACT_OUT_SWAP_TAB: TabConfig = {
 
   execute: async (ctx): Promise<OperationResult> => {
     const { client, chainId, tokenSymbol, amount } = ctx;
-    const tokenOptions = getSwapTokenOptions(client, chainId);
-    const selectedToken = tokenOptions.find(
-      (t) => t.tokenAddress?.toLowerCase() === ctx.tokenAddress?.toLowerCase(),
-    );
-    if (!selectedToken)
-      throw new Error("Destination token not available on selected chain");
+    if (!ctx.tokenAddress) throw new Error("Select a destination token");
+    const selectedToken = await client.getToken({ chainId, tokenAddress: ctx.tokenAddress });
 
     const toAmount = parseUnits(amount, selectedToken.decimals!);
     const fromSources = deriveSwapSources(ctx);
@@ -216,7 +208,7 @@ export const EXACT_OUT_SWAP_TAB: TabConfig = {
     const result = await client.swapWithExactOut(
       {
         toChainId: chainId,
-        toTokenAddress: selectedToken.tokenAddress!,
+        toTokenAddress: selectedToken.address,
         toAmountRaw: toAmount,
         sources: fromSources,
       },
@@ -225,8 +217,8 @@ export const EXACT_OUT_SWAP_TAB: TabConfig = {
         hooks: {
           onIntent: (data) => {
             // Intent is handled via useNexusSdk hook - called from App level
-            (
-              ctx as unknown as { _onSwapIntent?: (d: typeof data) => void }
+            return (
+              ctx as unknown as { _onSwapIntent?: (d: typeof data) => Promise<void> }
             )._onSwapIntent?.(data);
           },
         },
@@ -255,7 +247,6 @@ export const EXACT_IN_SWAP_TAB: TabConfig = {
   defaultChainId: 8453,
 
   getChainOptions: (client) => getSwapChainOptions(client),
-  getTokenOptions: (client, chainId) => getSwapTokenOptions(client, chainId),
 
   balanceQueryKey: "swap-balances",
   fetchBalances: (client) => fetchUiBalances(client),
@@ -272,12 +263,8 @@ export const EXACT_IN_SWAP_TAB: TabConfig = {
     const { client, chainId, tokenSymbol, sourceOptions, selectedSources } = ctx;
     const sourceAmounts = ctx.sourceAmounts ?? {};
 
-    const tokenOptions = getSwapTokenOptions(client, chainId);
-    const selectedToken = tokenOptions.find(
-      (t) => t.tokenAddress?.toLowerCase() === ctx.tokenAddress?.toLowerCase(),
-    );
-    if (!selectedToken)
-      throw new Error("Destination token not available on selected chain");
+    if (!ctx.tokenAddress) throw new Error("Select a destination token");
+    const selectedToken = await client.getToken({ chainId, tokenAddress: ctx.tokenAddress });
 
     const sources = sourceOptions
       .filter((s) => selectedSources.includes(s.id))
@@ -297,7 +284,7 @@ export const EXACT_IN_SWAP_TAB: TabConfig = {
     const result = await client.swapWithExactIn(
       {
         toChainId: chainId,
-        toTokenAddress: selectedToken.tokenAddress!,
+        toTokenAddress: selectedToken.address,
         sources,
       },
       {
@@ -305,8 +292,8 @@ export const EXACT_IN_SWAP_TAB: TabConfig = {
         hooks: {
           onIntent: (data) => {
             // Intent is handled via useNexusSdk hook - called from App level
-            (
-              ctx as unknown as { _onSwapIntent?: (d: typeof data) => void }
+            return (
+              ctx as unknown as { _onSwapIntent?: (d: typeof data) => Promise<void> }
             )._onSwapIntent?.(data);
           },
         },
@@ -379,12 +366,12 @@ export const SWAP_AND_EXECUTE_TAB: TabConfig = {
         onEvent: createIntentEventHandler(ctx, "swapAndExecute"),
         hooks: {
           onIntent: (data) => {
-            (
+            return (
               ctx as unknown as {
                 _onSwapExecIntent?: (
                   d: typeof data,
                   context: import("./nexus").CompositeIntentContext,
-                ) => void;
+                ) => Promise<void>;
               }
             )._onSwapExecIntent?.(data, {
               contractAddress: deposit.execute.to,
@@ -405,7 +392,7 @@ export const SWAP_AND_EXECUTE_TAB: TabConfig = {
 
     const swapResult = typedResult.swapResult;
     if (swapResult) {
-      const intentResult = buildSwapResult(client, swapResult, chainId, tokenSymbol, amount);
+      const intentResult = await buildSwapResult(client, swapResult, chainId, tokenSymbol, amount);
       hashes.push(...intentResult.hashes);
       if (intentResult.richResult?.kind === "swap") {
         route.push(...intentResult.richResult.route);

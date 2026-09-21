@@ -24,7 +24,7 @@ import {
 import type {
   ExecutableIntentQuote,
   IntentBalancesResult,
-  IntentChain,
+  IntentChainMetadata,
   IntentHistoryQuery,
   IntentHistoryResult,
   IntentProvider,
@@ -34,10 +34,13 @@ import type {
   IntentStatus,
   IntentSubmitRequest,
   IntentSubmitResponse,
+  IntentTokenPage,
+  IntentTokenQuery,
 } from '../intent/types';
 
 export type MiddlewareClient = {
-  getIntentChains: (constraints?: IntentRouteConstraints) => Promise<IntentChain[]>;
+  getIntentChains: (constraints?: IntentRouteConstraints) => Promise<IntentChainMetadata[]>;
+  getIntentTokens: (query?: IntentTokenQuery) => Promise<IntentTokenPage>;
   getIntentBalances: (
     address: Hex,
     options?: { refresh?: boolean; providers?: IntentProvider[]; attemptId?: string }
@@ -239,6 +242,7 @@ const intentRequestFailures = {
     ERROR_CODES.BACKEND_ERROR,
     'Unable to load supported chains and tokens. Please try again.',
   ],
+  'tokens request': [ERROR_CODES.BACKEND_ERROR, 'Unable to load tokens. Please try again.'],
   'balances request': [
     ERROR_CODES.BACKEND_BALANCES_FETCH_FAILED,
     'Unable to load balances. Please try again.',
@@ -466,50 +470,53 @@ export const createMiddlewareClient = (
     }
   };
 
-  const getIntentChains = (constraints?: IntentRouteConstraints): Promise<IntentChain[]> =>
-    request('chains request', async () => {
-      const chains = normalizeIntentChains(
+  const getIntentChains: MiddlewareClient['getIntentChains'] = (constraints) =>
+    request('chains request', async () =>
+      normalizeIntentChains(
         (
           await client.get(`${INTENT_API_PREFIX}/chains`, {
             params: intentChainParams(constraints),
           })
         ).data
-      );
-      if (chains.length === 0) return chains;
-      const chainsById = new Map(chains.map((chain) => [chain.id, chain]));
-      const params = new URLSearchParams();
-      for (const provider of constraints?.providers ?? []) params.append('provider', provider);
-      let offset = 0;
-      while (true) {
-        params.set('offset', offset.toString());
-        params.set('limit', '1000');
-        const page = normalizeIntentTokens(
-          (
-            await client.get(`${INTENT_API_PREFIX}/tokens`, {
-              params: new URLSearchParams(params),
-            })
-          ).data
-        );
-        if (
-          page.offset !== offset ||
-          page.tokens.length > page.limit ||
-          offset + page.tokens.length > page.total ||
-          (page.tokens.length === 0 && offset < page.total)
-        ) {
-          throw Errors.backend('Invalid Better Intent token pagination', { service: 'middleware' });
-        }
-        for (const token of page.tokens) {
-          const chain = chainsById.get(token.chainId);
-          if (!chain) {
-            throw Errors.backend(`Better Intent token references unknown chain ${token.chainId}`, {
-              service: 'middleware',
-            });
-          }
-          chain.tokens.push(token);
-        }
-        offset += page.tokens.length;
-        if (offset >= page.total) return chains;
+      )
+    );
+
+  const getIntentTokens: MiddlewareClient['getIntentTokens'] = (query = {}) =>
+    request('tokens request', async () => {
+      const offset = query.offset ?? 0;
+      const limit = query.limit ?? 50;
+      if (!Number.isInteger(offset) || offset < 0) {
+        throw Errors.invalidInput('token offset must be a non-negative integer');
       }
+      if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
+        throw Errors.invalidInput('token limit must be an integer from 1 to 1000');
+      }
+      const params = new URLSearchParams();
+      if (query.chainId !== undefined) {
+        if (!Number.isInteger(query.chainId) || query.chainId <= 0) {
+          throw Errors.invalidInput('token chainId must be a positive integer');
+        }
+        params.set('chainId', `EVM_${query.chainId}`);
+      }
+      for (const provider of query.providers ?? []) params.append('provider', provider);
+      for (const field of ['name', 'symbol', 'contract'] as const) {
+        if (query[field] !== undefined) params.set(field, query[field]);
+      }
+      params.set('offset', offset.toString());
+      params.set('limit', limit.toString());
+      const page = normalizeIntentTokens(
+        (await client.get(`${INTENT_API_PREFIX}/tokens`, { params })).data
+      );
+      if (
+        page.offset !== offset ||
+        page.limit > limit ||
+        page.tokens.length > page.limit ||
+        (page.tokens.length > 0 && offset + page.tokens.length > page.total) ||
+        (page.tokens.length === 0 && offset < page.total)
+      ) {
+        throw Errors.backend('Invalid Better Intent token pagination', { service: 'middleware' });
+      }
+      return page;
     });
 
   const getIntentBalances: MiddlewareClient['getIntentBalances'] = (address, options) =>
@@ -579,6 +586,7 @@ export const createMiddlewareClient = (
 
   return {
     getIntentChains,
+    getIntentTokens,
     getIntentBalances,
     getIntentQuote,
     submitIntent,

@@ -57,7 +57,7 @@ describe('Better Intent response normalization', () => {
       asSource: ['nexus-v2', 'mayan', 'relay'],
       asDestination: ['nexus-v2', 'relay'],
     });
-    expect(result[0]?.tokens).toEqual([]);
+    expect(result[0]).not.toHaveProperty('tokens');
     expect(page.tokens[0]).toMatchObject({
       chainId: 8453,
       address: TOKEN,

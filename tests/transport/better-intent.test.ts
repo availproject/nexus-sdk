@@ -102,6 +102,20 @@ describe('Better Intent middleware transport', () => {
     }
   });
 
+  it('loads chain metadata without requesting token pages', async () => {
+    const http = makeAxios();
+    axiosRoot.create.mockReturnValue(http);
+    http.get
+      .mockResolvedValueOnce({ data: [{
+        chainId: 'EVM_1', name: 'Ethereum', providers: ['relay'],
+        nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+      }] })
+      .mockResolvedValueOnce({ data: { tokens: [], offset: 0, limit: 1000, total: 0 } });
+    const chains = await createMiddlewareClient('https://mw.example').getIntentChains();
+    expect(http.get).toHaveBeenCalledTimes(1);
+    expect(chains[0]).not.toHaveProperty('tokens');
+  });
+
   it('loads and normalizes the provider chain, token, and balance catalogs', async () => {
     const http = makeAxios();
     axiosRoot.create.mockReturnValue(http);
@@ -156,14 +170,16 @@ describe('Better Intent middleware transport', () => {
       expect.objectContaining({
         id: 1,
         providers: ['nexus-v2', 'relay'],
+        capabilities: { intent: true, execute: false },
+      }),
+    ]);
+    await expect(client.getIntentTokens({ providers: ['mayan'], limit: 1000 })).resolves.toMatchObject({
         tokens: [expect.objectContaining({
           chainId: 1, address: TOKEN,
           asSource: [{ id: 'mayan', currencyId: 'usdc' }],
           permit: { variant: 'eip2612', version: '2' }, sponsoredApproval: true,
         })],
-        capabilities: { intent: true, execute: false },
-      }),
-    ]);
+    });
     await expect(
       client.getIntentBalances(ACCOUNT, { refresh: true, providers: ['mayan'] })
     ).resolves.toEqual({
@@ -187,7 +203,7 @@ describe('Better Intent middleware transport', () => {
     );
   });
 
-  it('loads every token page without applying route constraints to token availability', async () => {
+  it('fetches only the requested token page and forwards API filters', async () => {
     const http = makeAxios();
     axiosRoot.create.mockReturnValue(http);
     const token = {
@@ -196,42 +212,35 @@ describe('Better Intent middleware transport', () => {
       asSource: [{ id: 'relay' }], asDestination: [{ id: 'relay' }],
       sponsoredApproval: false,
     };
-    http.get
-      .mockResolvedValueOnce({ data: [{
-        chainId: 'EVM_1', name: 'Ethereum',
-        nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-        asSource: [], asDestination: [],
-      }] })
-      .mockResolvedValueOnce({ data: { tokens: [token], offset: 0, limit: 1, total: 2 } })
-      .mockResolvedValueOnce({ data: {
-        tokens: [{ ...token, address: ACCOUNT }], offset: 1, limit: 1, total: 2,
-      } });
-    const client = createMiddlewareClient('https://mw.example');
-
-    const chains = await client.getIntentChains({
-      providers: ['relay'], destinations: [{ chainId: 8453, tokenAddress: TOKEN }],
+    http.get.mockResolvedValueOnce({ data: { tokens: [token], offset: 10, limit: 1, total: 100 } });
+    const page = await createMiddlewareClient('https://mw.example').getIntentTokens({
+      chainId: 1, providers: ['relay', 'mayan'], symbol: 'USDC', name: 'USD',
+      contract: TOKEN, offset: 10, limit: 1,
     });
-
-    expect(chains[0]?.tokens.map(({ address }) => address)).toEqual([TOKEN, ACCOUNT]);
-    expect(chains[0]?.tokens[0]?.asDestination).toEqual([{ id: 'relay' }]);
-    expect(http.get.mock.calls.slice(1).map(([, config]) => config.params.toString())).toEqual([
-      'provider=relay&offset=0&limit=1000', 'provider=relay&offset=1&limit=1000',
-    ]);
+    expect(page).toMatchObject({ tokens: [{ address: TOKEN }], offset: 10, limit: 1, total: 100 });
+    expect(http.get).toHaveBeenCalledOnce();
+    const params = http.get.mock.calls[0][1].params;
+    expect(params.get('chainId')).toBe('EVM_1');
+    expect(params.getAll('provider')).toEqual(['relay', 'mayan']);
+    for (const [key, value] of Object.entries({ symbol: 'USDC', name: 'USD', contract: TOKEN, offset: '10', limit: '1' })) {
+      expect(params.get(key)).toBe(value);
+    }
   });
 
-  it('rejects an incomplete token catalog instead of returning partial data', async () => {
+  it('rejects invalid token pagination from the API', async () => {
     const http = makeAxios();
     axiosRoot.create.mockReturnValue(http);
-    http.get
-      .mockResolvedValueOnce({ data: [{
-        chainId: 'EVM_1', name: 'Ethereum',
-        nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-        asSource: ['relay'], asDestination: ['relay'],
-      }] })
-      .mockResolvedValueOnce({ data: { tokens: [], offset: 0, limit: 1000, total: 1 } });
-
-    await expect(createMiddlewareClient('https://mw.example').getIntentChains())
+    http.get.mockResolvedValueOnce({ data: { tokens: [], offset: 0, limit: 50, total: 1 } });
+    await expect(createMiddlewareClient('https://mw.example').getIntentTokens())
       .rejects.toThrow(/token.*pag/i);
+  });
+
+  it('accepts an empty page beyond the end of the token list', async () => {
+    const http = makeAxios();
+    axiosRoot.create.mockReturnValue(http);
+    http.get.mockResolvedValueOnce({ data: { tokens: [], offset: 50, limit: 50, total: 1 } });
+    await expect(createMiddlewareClient('https://mw.example').getIntentTokens({ offset: 50 }))
+      .resolves.toEqual({ tokens: [], offset: 50, limit: 50, total: 1 });
   });
 
   it('quotes and submits using the Better Intent wire format', async () => {

@@ -269,7 +269,7 @@ export const normalizeIntentSourceVerdicts = (input: unknown): IntentSourceVerdi
     tokenAddress: normalizedAddress(entry.tokenAddress),
   }));
 
-export const normalizeIntentChains = (input: unknown): IntentChain[] =>
+export const normalizeIntentChains = (input: unknown): Omit<IntentChain, 'tokens'>[] =>
   parse(z.array(chain), input, 'Better Intent chains response').map((entry) => {
     let id: number;
     try {
@@ -302,7 +302,6 @@ export const normalizeIntentChains = (input: unknown): IntentChain[] =>
       ],
       asSource: entry.asSource ?? entry.providers ?? [],
       asDestination: entry.asDestination ?? entry.providers ?? [],
-      tokens: [],
       capabilities: { intent: true, execute: !!entry.rpcUrl && !!entry.multicallAddress },
     };
   });

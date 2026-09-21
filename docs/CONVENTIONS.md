@@ -86,14 +86,17 @@ both the requested output and the later execute value/gas.
 ## Intent request construction
 
 - Same-asset cross-chain moves use swaps with explicit chain IDs and token addresses.
-- Exact-output swap may omit sources; the SDK filters the cached catalog to compatible candidates
-  before server balance selection. Never omit source filters after removing every candidate.
+- Exact-output swap may omit sources; middleware discovers wallet balances without SDK token
+  enumeration. Explicit chain-only filters stay broad; resolve only selected token addresses.
+  Never omit source filters after removing every explicit candidate.
 - Exact-input swap requires explicit chain, token address, and positive `amountRaw` on every source.
 - Exact-input sources and destination must share one provider across chain and token directional
   support. Exact-output candidates need individual compatibility with the destination. These checks
-  use the initialization cache; middleware still decides route feasibility.
-- Token picker helpers use the same cached directional support. Optional selected sources narrow
-  source groups; keep already-selected tokens in the results. Destination choices and
+  use chain metadata plus token metadata fetched on demand; middleware still decides route feasibility.
+- Token picker helpers fetch one filtered page (default 50, maximum 1000). Their pagination describes
+  API candidates before directional filtering: advance by offset + limit, including empty pages.
+  Keep selected tokens separate from search results. Optional selected sources narrow source groups.
+  Destination choices and
   `confirmRouteExists` require a provider common to all selected sources. Provider groups are for
   display and must not pin a quote provider.
 - Default slippage is 50 basis points unless the caller supplies another valid value or `auto`.

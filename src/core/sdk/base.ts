@@ -27,16 +27,17 @@ import { calculateIntentFunding } from '../../intent/funding';
 import { runIntent } from '../../intent/orchestrator';
 import type { IntentReporting } from '../../intent/telemetry';
 import type {
-  IntentChain,
+  IntentChainMetadata,
   IntentHistoryResult,
   IntentQuoteRequest,
   IntentResult,
   IntentSource,
+  IntentTokenQuery,
   SwapAndExecuteIntentResult,
   TokenRef,
 } from '../../intent/types';
 import { createIntentWallet } from '../../intent/wallet';
-import { mulDecimals } from '../../services/math';
+import { createChainList } from '../../services/chain-list';
 import { getNetworkConfig } from '../../services/network-config';
 import { setLoggerProvider } from '../../services/telemetry';
 import type { SwapAndExecuteParams, SwapExactInParams, SwapExactOutParams } from '../../swap/types';
@@ -100,19 +101,22 @@ export const createBase = (config: {
   const setChainList = (chainList: ChainListType) => {
     state.chainList = chainList;
   };
-  const setIntentCatalog = (chains: IntentChain[]) => {
-    state.intentCatalog = createIntentCatalog(chains);
+  const setIntentCatalog = (chains: IntentChainMetadata[]) => {
+    state.intentCatalog = createIntentCatalog(chains, state.middlewareClient.getIntentTokens);
   };
   const getChainList = () => {
     if (!state.chainList) throw Errors.sdkNotInitialized();
     return state.chainList;
   };
+  const getCatalog = () => {
+    if (!state.intentCatalog) throw Errors.sdkNotInitialized();
+    return state.intentCatalog;
+  };
   const getIntentCatalog = () => {
     if (!intentNetworkEnabled(networkConfig.NETWORK_HINT)) {
       throw Errors.environmentNotSupported(networkConfig.NETWORK_HINT);
     }
-    if (!state.intentCatalog) throw Errors.sdkNotInitialized();
-    return state.intentCatalog;
+    return getCatalog();
   };
   const getEvm = () => {
     if (!state.evm) throw Errors.walletNotConnected('evm');
@@ -193,17 +197,17 @@ export const createBase = (config: {
     return value;
   };
 
-  const exactOutRequest = (
+  const exactOutRequest = async (
     input: SwapExactOutParams,
     options?: SwapOperationOptions,
     refreshedSources?: IntentSource[]
-  ): IntentQuoteRequest => {
+  ): Promise<IntentQuoteRequest> => {
     positiveAmount(input.toAmountRaw, 'toAmountRaw');
     nonNegativeAmount(input.toNativeAmountRaw, 'toNativeAmountRaw');
     const catalog = getIntentCatalog();
-    const destinationToken = catalog.getToken(input.toChainId, input.toTokenAddress);
+    const destinationToken = await catalog.getToken(input.toChainId, input.toTokenAddress);
     const selected = refreshedSources ?? input.sources;
-    const sources = catalog.getExactOutputSources(destinationToken, selected);
+    const sources = await catalog.getExactOutputSources(destinationToken, selected);
     return {
       sender: getEvm().address.toLowerCase() as Hex,
       tradeType: 'exactOutput',
@@ -212,7 +216,9 @@ export const createBase = (config: {
         token: destinationToken.address,
         amount: input.toAmountRaw.toString(),
       },
-      sources: sources.map((source) => ({ ...source, chainId: chainRef(source.chainId) })),
+      ...(sources
+        ? { sources: sources.map((source) => ({ ...source, chainId: chainRef(source.chainId) })) }
+        : {}),
       slippageBps: slippageBps(options),
       ...(input.toNativeAmountRaw && input.toNativeAmountRaw > 0n
         ? { gasDrop: { amount: input.toNativeAmountRaw.toString() } }
@@ -220,13 +226,12 @@ export const createBase = (config: {
     };
   };
 
-  const exactInRequest = (
+  const exactInRequest = async (
     input: SwapExactInParams,
     options?: SwapOperationOptions,
     refreshedSources?: IntentSource[]
-  ): IntentQuoteRequest => {
+  ): Promise<IntentQuoteRequest> => {
     const catalog = getIntentCatalog();
-    const destinationToken = catalog.getToken(input.toChainId, input.toTokenAddress);
     const selected = refreshedSources ?? input.sources;
     if (!selected?.length) throw Errors.invalidInput('exact-input swap requires sources');
     const sources = selected.map((source) => {
@@ -237,17 +242,17 @@ export const createBase = (config: {
       if (!source.tokenAddress) {
         throw Errors.invalidInput('exact-input swap requires tokenAddress on every source');
       }
-      catalog.getToken(source.chainId, source.tokenAddress);
       return {
         chainId: chainRef(source.chainId),
         token: source.tokenAddress,
         amount: source.amountRaw.toString(),
       };
     });
-    catalog.validateExactInput(
-      selected.map((source) => catalog.getToken(source.chainId, source.tokenAddress as Hex)),
-      destinationToken
-    );
+    const [destinationToken, ...sourceTokens] = await Promise.all([
+      catalog.getToken(input.toChainId, input.toTokenAddress),
+      ...selected.map((source) => catalog.getToken(source.chainId, source.tokenAddress as Hex)),
+    ]);
+    catalog.validateExactInput(sourceTokens, destinationToken);
     return {
       sender: getEvm().address.toLowerCase() as Hex,
       tradeType: 'exactInput',
@@ -258,15 +263,16 @@ export const createBase = (config: {
   };
 
   const executeIntent = (
-    request: (sources?: IntentSource[]) => IntentQuoteRequest,
+    request: (sources?: IntentSource[]) => Promise<IntentQuoteRequest>,
     options?: SwapOperationOptions,
     reporting?: IntentReporting
   ): Promise<IntentResult> =>
     runIntent(
       {
-        requestQuote: () => state.middlewareClient.getIntentQuote(request(), reporting?.attemptId),
-        refreshQuote: (sources) =>
-          state.middlewareClient.getIntentQuote(request(sources), reporting?.attemptId),
+        requestQuote: async () =>
+          state.middlewareClient.getIntentQuote(await request(), reporting?.attemptId),
+        refreshQuote: async (sources) =>
+          state.middlewareClient.getIntentQuote(await request(sources), reporting?.attemptId),
         reporting,
         onIntent: options?.hooks?.onIntent,
         onEvent: options?.onEvent,
@@ -291,34 +297,79 @@ export const createBase = (config: {
   const getIntentBalances = () =>
     state.middlewareClient.getIntentBalances(getEvm().address, { refresh: false });
 
-  const execute = (params: ExecuteParams, _options?: OnEventParam, parentSpanId?: string) =>
-    flowExecute(params, {
+  const loadExecuteToken = async (params: ExecuteParams) => {
+    if (!params.tokenApproval) return;
+    const chain = getChainList().getChainByID(params.toChainId);
+    const symbol = params.tokenApproval.toTokenSymbol;
+    if (
+      chain.nativeCurrency.symbol.toLowerCase() === symbol.toLowerCase() ||
+      chain.custom.knownTokens.some((token) => token.symbol.toLowerCase() === symbol.toLowerCase())
+    )
+      return;
+    const catalog = getCatalog();
+    const token = await catalog.getTokenBySymbol(params.toChainId, symbol);
+    const resolved = createChainList([
+      { ...catalog.getChain(params.toChainId), tokens: [token] },
+    ]).getTokenByAddress(params.toChainId, token.address);
+    if (
+      !chain.custom.knownTokens.some((entry) => entry.contractAddress === resolved.contractAddress)
+    ) {
+      chain.custom.knownTokens.push(resolved);
+    }
+  };
+
+  const execute = async (params: ExecuteParams, _options?: OnEventParam, parentSpanId?: string) => {
+    getEvm();
+    await loadExecuteToken(params);
+    return flowExecute(params, {
       chainList: getChainList(),
       evm: { walletClient: getEvm().client, address: getEvm().address },
       timing: state.analytics?.scopedTimingHooks(parentSpanId),
     });
+  };
 
-  const simulateExecute = (params: ExecuteParams) =>
-    flowSimulateExecute(params, {
+  const simulateExecute = async (params: ExecuteParams) => {
+    getEvm();
+    await loadExecuteToken(params);
+    return flowSimulateExecute(params, {
       chainList: getChainList(),
       evm: { walletClient: getEvm().client, address: getEvm().address },
       timing: state.analytics?.scopedTimingHooks(),
     });
+  };
 
-  const swapExecuteParams = (input: SwapAndExecuteParams): ExecuteParams => ({
-    ...input.execute,
-    toChainId: input.toChainId,
-    tokenApproval: input.execute.tokenApproval
-      ? {
-          toTokenSymbol: getIntentCatalog().getToken(
-            input.toChainId,
-            input.execute.tokenApproval.toTokenAddress
-          ).symbol,
-          amount: input.execute.tokenApproval.amount,
-          spender: input.execute.tokenApproval.spender,
-        }
-      : undefined,
-  });
+  const swapExecuteParams = async (input: SwapAndExecuteParams): Promise<ExecuteParams> => {
+    const params: ExecuteParams = {
+      ...input.execute,
+      toChainId: input.toChainId,
+      tokenApproval: input.execute.tokenApproval
+        ? {
+            toTokenSymbol: (
+              await getIntentCatalog().getToken(
+                input.toChainId,
+                input.execute.tokenApproval.toTokenAddress
+              )
+            ).symbol,
+            amount: input.execute.tokenApproval.amount,
+            spender: input.execute.tokenApproval.spender,
+          }
+        : undefined,
+    };
+    if (input.execute.tokenApproval && params.tokenApproval) {
+      await loadExecuteToken(params);
+      const resolved = getChainList().getTokenInfoBySymbol(
+        input.toChainId,
+        params.tokenApproval.toTokenSymbol
+      );
+      if (
+        resolved.contractAddress.toLowerCase() !==
+        input.execute.tokenApproval.toTokenAddress.toLowerCase()
+      ) {
+        throw Errors.tokenNotSupported(input.execute.tokenApproval.toTokenAddress, input.toChainId);
+      }
+    }
+    return params;
+  };
 
   const destinationFunding = async (
     chainId: number,
@@ -341,7 +392,7 @@ export const createBase = (config: {
         'balances.count': balances.balances.length,
       });
     }
-    const token = getIntentCatalog().getToken(chainId, tokenAddress);
+    const token = await getIntentCatalog().getToken(chainId, tokenAddress);
     const tokenBalance =
       balances.balances.find(
         (entry) =>
@@ -374,7 +425,7 @@ export const createBase = (config: {
     options?: SwapAndExecuteOptions,
     reporting?: IntentReporting
   ): Promise<SwapAndExecuteIntentResult> => {
-    const executeParams = swapExecuteParams(input);
+    const executeParams = await swapExecuteParams(input);
     const funding = await destinationFunding(
       input.toChainId,
       input.toTokenAddress,
@@ -442,13 +493,23 @@ export const createBase = (config: {
     listIntents,
     getBalancesForSwap: getIntentBalances,
     getSupportedChains: () =>
-      mergeSupportedChains(state.intentCatalog?.chains ?? [], getChainList().chains),
-    getTokensByChain: (chainId: number) => getIntentCatalog().getChain(chainId).tokens,
-    getAvailableSourceTokens: (destination: TokenRef, selectedSources?: TokenRef[]) =>
-      getIntentCatalog().getAvailableSourceTokens(destination, selectedSources),
-    getAvailableDestinationTokens: (sources: TokenRef[]) =>
-      getIntentCatalog().getAvailableDestinationTokens(sources),
-    confirmRouteExists: (sources: TokenRef[], destination: TokenRef) =>
+      mergeSupportedChains(
+        intentNetworkEnabled(networkConfig.NETWORK_HINT) ? (state.intentCatalog?.chains ?? []) : [],
+        getChainList().chains
+      ),
+    getTokens: async (query?: IntentTokenQuery) => getIntentCatalog().getTokens(query),
+    getToken: async ({ chainId, tokenAddress }: TokenRef) =>
+      getIntentCatalog().getToken(chainId, tokenAddress),
+    getTokensByChain: async (chainId: number, query?: Omit<IntentTokenQuery, 'chainId'>) =>
+      getIntentCatalog().getTokens({ ...query, chainId }),
+    getAvailableSourceTokens: async (
+      destination: TokenRef,
+      selectedSources?: TokenRef[],
+      query?: IntentTokenQuery
+    ) => getIntentCatalog().getAvailableSourceTokens(destination, selectedSources, query),
+    getAvailableDestinationTokens: async (sources: TokenRef[], query?: IntentTokenQuery) =>
+      getIntentCatalog().getAvailableDestinationTokens(sources, query),
+    confirmRouteExists: async (sources: TokenRef[], destination: TokenRef) =>
       getIntentCatalog().confirmRouteExists(sources, destination),
     getSupportedChainsForRoute: (
       constraints: import('../../intent/types').IntentRouteConstraints
@@ -456,8 +517,6 @@ export const createBase = (config: {
       getIntentCatalog();
       return state.middlewareClient.getIntentChains(constraints);
     },
-    convertTokenReadableAmountToBigInt: (amount: string, tokenSymbol: string, chainId: number) =>
-      mulDecimals(amount, getChainList().getTokenInfoBySymbol(chainId, tokenSymbol).decimals),
     hasEvmProvider: () => Boolean(state.evm),
     getMiddlewareClient: () => state.middlewareClient,
     networkConfig,

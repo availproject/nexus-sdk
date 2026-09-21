@@ -1,14 +1,18 @@
 import type { Hex } from 'viem';
 import type { Chain } from '../domain';
 import { ZERO_ADDRESS } from '../domain';
-import { Errors } from '../domain/errors';
+import { Errors, NexusError } from '../domain/errors';
 import {
   INTENT_PROVIDERS,
   type IntentChain,
+  type IntentChainMetadata,
+  type IntentDestinationTokenPage,
   type IntentProvider,
   type IntentSource,
+  type IntentSourceTokenPage,
   type IntentToken,
-  type ProviderTokenGroup,
+  type IntentTokenPage,
+  type IntentTokenQuery,
   type TokenRef,
 } from './types';
 
@@ -16,40 +20,94 @@ export const intentNetworkEnabled = (network: string): boolean =>
   network === 'mainnet' || network === 'canary';
 
 const sameAddress = (left: string, right: string) => left.toLowerCase() === right.toLowerCase();
+const tokenKey = (chainId: number, address: Hex) => `${chainId}:${address.toLowerCase()}`;
 
-export type IntentCatalog = {
-  chains: IntentChain[];
-  getChain: (chainId: number) => IntentChain;
-  getToken: (chainId: number, address: Hex) => IntentToken;
-  getAvailableSourceTokens: (
-    destination: TokenRef,
-    selectedSources?: TokenRef[]
-  ) => ProviderTokenGroup[];
-  getAvailableDestinationTokens: (sources: TokenRef[]) => IntentChain[];
-  confirmRouteExists: (sources: TokenRef[], destination: TokenRef) => boolean;
-  validateExactInput: (sources: IntentToken[], destination: IntentToken) => void;
-  getExactOutputSources: (
-    destination: IntentToken,
-    selected?: IntentSource[]
-  ) => Array<{ chainId: number; tokens: Hex[] }>;
+const remember = <T>(cache: Map<string, T>, key: string, value: T, limit: number) => {
+  cache.delete(key);
+  cache.set(key, value);
+  if (cache.size > limit) cache.delete(cache.keys().next().value as string);
+  return value;
 };
 
-export const createIntentCatalog = (chains: IntentChain[]): IntentCatalog => {
+export const createIntentCatalog = (
+  entries: Array<IntentChainMetadata & { tokens?: IntentToken[] }>,
+  fetchTokens: (query: IntentTokenQuery) => Promise<IntentTokenPage>
+) => {
+  const chains = entries.map(({ tokens: _tokens, ...chain }) => chain);
   const chainsById = new Map(chains.map((chain) => [chain.id, chain]));
-  const getChain = (chainId: number): IntentChain => {
+  const pages = new Map<string, Promise<IntentTokenPage>>();
+  const tokens = new Map<string, IntentToken>();
+  const getChain = (chainId: number): IntentChainMetadata => {
     const chain = chainsById.get(chainId);
     if (!chain) throw Errors.chainNotFound(chainId);
     return chain;
   };
 
-  const findToken = (chainId: number, address: Hex) =>
-    chainsById.get(chainId)?.tokens.find((entry) => sameAddress(entry.address, address));
+  const getTokens = (query: IntentTokenQuery = {}): Promise<IntentTokenPage> => {
+    if (query.chainId !== undefined) getChain(query.chainId);
+    const normalized = {
+      chainId: query.chainId,
+      providers: query.providers?.length ? [...new Set(query.providers)].sort() : undefined,
+      name: query.name?.toLowerCase(),
+      symbol: query.symbol?.toLowerCase(),
+      contract: query.contract?.toLowerCase(),
+      offset: query.offset ?? 0,
+      limit: query.limit ?? 50,
+    };
+    const key = JSON.stringify(normalized);
+    const cached = pages.get(key);
+    if (cached) return cached;
+    const pending = fetchTokens(normalized)
+      .then((page) => {
+        for (const token of page.tokens) {
+          if (
+            !chainsById.has(token.chainId) ||
+            (query.chainId !== undefined && token.chainId !== query.chainId)
+          ) {
+            throw Errors.backend('Token response contains an unexpected chain', {
+              service: 'middleware',
+            });
+          }
+          // Provider-filtered responses omit support needed by unrestricted route checks.
+          if (!normalized.providers)
+            remember(tokens, tokenKey(token.chainId, token.address), token, 1000);
+        }
+        return page;
+      })
+      .catch((error: unknown) => {
+        if (pages.get(key) === pending) pages.delete(key);
+        throw error;
+      });
+    return remember(pages, key, pending, 100);
+  };
 
-  const getToken = (chainId: number, address: Hex): IntentToken => {
+  const getToken = async (chainId: number, address: Hex): Promise<IntentToken> => {
     getChain(chainId);
-    const token = findToken(chainId, address);
+    const cached = tokens.get(tokenKey(chainId, address));
+    if (cached) return cached;
+    const page = await getTokens({ chainId, contract: address, limit: 1 });
+    const token = page.tokens.find(
+      (entry) => entry.chainId === chainId && sameAddress(entry.address, address)
+    );
     if (!token) throw Errors.tokenNotSupported(address, chainId);
     return token;
+  };
+
+  const getTokenBySymbol = async (chainId: number, symbol: string): Promise<IntentToken> => {
+    const chain = getChain(chainId);
+    if (chain.nativeCurrency.symbol.toLowerCase() === symbol.toLowerCase()) {
+      return getToken(chainId, ZERO_ADDRESS);
+    }
+    let offset = 0;
+    while (true) {
+      const page = await getTokens({ chainId, symbol, providers: ['nexus-v2'], offset });
+      const token = page.tokens.find(
+        (entry) => entry.symbol.toLowerCase() === symbol.toLowerCase()
+      );
+      if (token) return token;
+      offset = page.offset + page.limit;
+      if (offset >= page.total) throw Errors.tokenNotFound(symbol, chainId);
+    }
   };
 
   const tokenProviders = (token: IntentToken, role: 'asSource' | 'asDestination') => {
@@ -66,48 +124,94 @@ export const createIntentCatalog = (chains: IntentChain[]): IntentCatalog => {
       [...providers]
     );
 
-  const matchingChains = (role: 'asSource' | 'asDestination', providers: IntentProvider[]) =>
-    chains.flatMap((chain) => {
-      const tokens = chain.tokens.filter((token) =>
-        tokenProviders(token, role).some((id) => providers.includes(id))
-      );
-      return tokens.length ? [{ ...chain, tokens }] : [];
-    });
+  const resolveTokens = (refs: TokenRef[]) =>
+    Promise.all(refs.map(({ chainId, tokenAddress }) => getToken(chainId, tokenAddress)));
 
-  const getAvailableSourceTokens: IntentCatalog['getAvailableSourceTokens'] = (
-    destination,
-    selectedSources
-  ) => {
-    const supported = commonSourceProviders(
-      (selectedSources ?? []).map(({ chainId, tokenAddress }) => getToken(chainId, tokenAddress)),
-      tokenProviders(getToken(destination.chainId, destination.tokenAddress), 'asDestination')
+  const candidatePage = async (
+    providers: IntentProvider[],
+    query: IntentTokenQuery
+  ): Promise<IntentTokenPage> => {
+    const enabled = providers.filter(
+      (id) => !query.providers?.length || query.providers.includes(id)
     );
-    return supported.flatMap((provider) => {
-      const candidates = matchingChains('asSource', [provider]);
-      return candidates.length ? [{ provider, chains: candidates }] : [];
-    });
+    if (!enabled.length)
+      return { tokens: [], total: 0, offset: query.offset ?? 0, limit: query.limit ?? 50 };
+    return getTokens({ ...query, providers: enabled });
   };
 
-  const getAvailableDestinationTokens: IntentCatalog['getAvailableDestinationTokens'] = (sources) =>
-    matchingChains(
-      'asDestination',
-      commonSourceProviders(
-        sources.map(({ chainId, tokenAddress }) => getToken(chainId, tokenAddress)),
-        INTENT_PROVIDERS
-      )
-    );
+  const matchingChains = (
+    page: IntentTokenPage,
+    role: 'asSource' | 'asDestination',
+    providers: IntentProvider[]
+  ): IntentChain[] => {
+    const grouped = new Map<number, IntentChain>();
+    for (const token of page.tokens) {
+      if (!tokenProviders(token, role).some((id) => providers.includes(id))) continue;
+      let chain = grouped.get(token.chainId);
+      if (!chain) {
+        chain = { ...getChain(token.chainId), tokens: [] };
+        grouped.set(chain.id, chain);
+      }
+      chain.tokens.push(token);
+    }
+    return [...grouped.values()];
+  };
 
-  const confirmRouteExists: IntentCatalog['confirmRouteExists'] = (sources, destination) => {
+  const getAvailableSourceTokens = async (
+    destination: TokenRef,
+    selectedSources: TokenRef[] = [],
+    query: IntentTokenQuery = {}
+  ): Promise<IntentSourceTokenPage> => {
+    const [target, selected] = await Promise.all([
+      getToken(destination.chainId, destination.tokenAddress),
+      resolveTokens(selectedSources),
+    ]);
+    const supported = commonSourceProviders(selected, tokenProviders(target, 'asDestination'));
+    const page = await candidatePage(supported, query);
+    const { tokens: _tokens, ...pagination } = page;
+    return {
+      ...pagination,
+      groups: supported.flatMap((provider) => {
+        const candidates = matchingChains(page, 'asSource', [provider]);
+        return candidates.length ? [{ provider, chains: candidates }] : [];
+      }),
+    };
+  };
+
+  const getAvailableDestinationTokens = async (
+    sources: TokenRef[],
+    query: IntentTokenQuery = {}
+  ): Promise<IntentDestinationTokenPage> => {
+    const supported = commonSourceProviders(await resolveTokens(sources), INTENT_PROVIDERS);
+    const page = await candidatePage(supported, query);
+    const { tokens: _tokens, ...pagination } = page;
+    return { ...pagination, chains: matchingChains(page, 'asDestination', supported) };
+  };
+
+  const confirmRouteExists = async (
+    sources: TokenRef[],
+    destination: TokenRef
+  ): Promise<boolean> => {
     if (!sources.length) return false;
-    const target = findToken(destination.chainId, destination.tokenAddress);
-    const selected = sources.map(({ chainId, tokenAddress }) => findToken(chainId, tokenAddress));
-    if (!target || !selected.every((token) => token !== undefined)) return false;
-    return commonSourceProviders(selected, tokenProviders(target, 'asDestination')).length > 0;
+    try {
+      const [target, selected] = await Promise.all([
+        getToken(destination.chainId, destination.tokenAddress),
+        resolveTokens(sources),
+      ]);
+      return commonSourceProviders(selected, tokenProviders(target, 'asDestination')).length > 0;
+    } catch (error) {
+      if (
+        error instanceof NexusError &&
+        (error.code === 'validation/chain_not_found' ||
+          error.code === 'validation/token_not_supported')
+      )
+        return false;
+      throw error;
+    }
   };
 
-  const validateExactInput: IntentCatalog['validateExactInput'] = (sources, destination) => {
-    const common = commonSourceProviders(sources, tokenProviders(destination, 'asDestination'));
-    if (common.length === 0) {
+  const validateExactInput = (sources: IntentToken[], destination: IntentToken) => {
+    if (!commonSourceProviders(sources, tokenProviders(destination, 'asDestination')).length) {
       throw Errors.invalidInput(
         'No common provider supports all selected sources and the destination. Choose different sources or a destination.',
         { reasonBucket: 'unsupported_route' }
@@ -115,36 +219,51 @@ export const createIntentCatalog = (chains: IntentChain[]): IntentCatalog => {
     }
   };
 
-  const getExactOutputSources: IntentCatalog['getExactOutputSources'] = (destination, selected) => {
+  const getExactOutputSources = async (destination: IntentToken, selected?: IntentSource[]) => {
     const supported = tokenProviders(destination, 'asDestination');
-    const sources = chains.flatMap((chain) => {
-      const tokens = chain.tokens.filter(
-        (token) =>
-          (!selected?.length ||
-            selected.some(
-              (source) =>
-                source.chainId === chain.id &&
-                (!source.tokenAddress || sameAddress(source.tokenAddress, token.address))
-            )) &&
-          tokenProviders(token, 'asSource').some((id) => supported.includes(id))
-      );
-      return tokens.length
-        ? [{ chainId: chain.id, tokens: [...new Set(tokens.map((token) => token.address))] }]
-        : [];
-    });
-    if (sources.length === 0) {
+    if (!supported.length) {
+      throw Errors.invalidInput('No provider supports the destination.', {
+        reasonBucket: 'unsupported_route',
+      });
+    }
+    if (!selected?.length) return undefined;
+    const grouped = new Map<number, { chainId: number; tokens?: Hex[] }>();
+    const candidates = await Promise.all(
+      selected.map(async (source) => {
+        const chain = getChain(source.chainId);
+        const providers = source.tokenAddress
+          ? tokenProviders(await getToken(source.chainId, source.tokenAddress), 'asSource')
+          : (chain.asSource ?? chain.providers);
+        return { source, chain, providers };
+      })
+    );
+    for (const { source, chain, providers } of candidates) {
+      if (!providers.some((id) => supported.includes(id))) continue;
+      const previous = grouped.get(chain.id);
+      if (!source.tokenAddress) grouped.set(chain.id, { chainId: chain.id });
+      else if (!previous)
+        grouped.set(chain.id, { chainId: chain.id, tokens: [source.tokenAddress] });
+      else if (
+        previous.tokens &&
+        !previous.tokens.some((address) => sameAddress(address, source.tokenAddress as Hex))
+      )
+        previous.tokens.push(source.tokenAddress);
+    }
+    if (!grouped.size) {
       throw Errors.invalidInput(
         'No source assets share a provider with the destination. Choose different sources or a destination.',
         { reasonBucket: 'unsupported_route' }
       );
     }
-    return sources;
+    return [...grouped.values()];
   };
 
   return {
     chains,
     getChain,
+    getTokens,
     getToken,
+    getTokenBySymbol,
     getAvailableSourceTokens,
     getAvailableDestinationTokens,
     confirmRouteExists,
@@ -153,60 +272,32 @@ export const createIntentCatalog = (chains: IntentChain[]): IntentCatalog => {
   };
 };
 
-const executeIntentChain = (chain: Chain): IntentChain => ({
-  id: chain.id,
-  name: chain.name,
-  logo: chain.custom.icon,
-  explorerUrl: chain.blockExplorers?.default?.url,
-  rpcUrl: chain.rpcUrls.default.http[0],
-  nativeCurrency: chain.nativeCurrency,
-  providers: [],
-  asSource: [],
-  asDestination: [],
-  tokens: [
-    {
-      chainId: chain.id,
-      address: ZERO_ADDRESS,
-      symbol: chain.nativeCurrency.symbol,
-      name: chain.nativeCurrency.name,
-      decimals: chain.nativeCurrency.decimals,
-      isNative: true,
-      logo: chain.nativeCurrency.logo,
-      providers: [],
-      asSource: [],
-      asDestination: [],
-    },
-    ...chain.custom.knownTokens.map((token) => ({
-      chainId: chain.id,
-      address: token.contractAddress,
-      symbol: token.symbol,
-      name: token.name,
-      decimals: token.decimals,
-      isNative: false,
-      logo: token.logo,
-      providers: [],
-      asSource: [],
-      asDestination: [],
-    })),
-  ],
-  capabilities: { intent: false, execute: true },
-});
+export type IntentCatalog = ReturnType<typeof createIntentCatalog>;
 
 export const mergeSupportedChains = (
-  intentChains: IntentChain[],
+  intentChains: IntentChainMetadata[],
   executeChains: Chain[]
-): IntentChain[] => {
+): IntentChainMetadata[] => {
   const merged = new Map(intentChains.map((chain) => [chain.id, chain]));
-  for (const executeChain of executeChains) {
-    const intentChain = merged.get(executeChain.id);
-    if (intentChain) {
-      merged.set(executeChain.id, {
-        ...intentChain,
-        capabilities: { intent: true, execute: true },
-      });
-    } else {
-      merged.set(executeChain.id, executeIntentChain(executeChain));
-    }
+  for (const chain of executeChains) {
+    const intent = merged.get(chain.id);
+    merged.set(
+      chain.id,
+      intent
+        ? { ...intent, capabilities: { intent: true, execute: true } }
+        : {
+            id: chain.id,
+            name: chain.name,
+            logo: chain.custom.icon,
+            explorerUrl: chain.blockExplorers?.default?.url,
+            rpcUrl: chain.rpcUrls.default.http[0],
+            nativeCurrency: chain.nativeCurrency,
+            providers: [],
+            asSource: [],
+            asDestination: [],
+            capabilities: { intent: false, execute: true },
+          }
+    );
   }
   return [...merged.values()].sort((left, right) => left.id - right.id);
 };

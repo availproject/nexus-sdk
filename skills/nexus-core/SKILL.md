@@ -172,7 +172,15 @@ const intentChains = client
   .filter((chain) => chain.capabilities.intent);
 ```
 
-Use catalog token `address`; never infer token identity or decimals from symbol alone.
+`getSupportedChains()` returns chain metadata only; initialization does not fetch tokens.
+Use `await client.getTokensByChain(chainId, { symbol, offset, limit })` for one token page, or
+`await client.getToken({ chainId, tokenAddress })` for exact metadata. Token queries support
+chain, provider, name, symbol, and contract filters; the default page size is 50.
+Compatibility helpers are also async and return pages (`groups` for sources, `chains` for destinations).
+Their pagination counts API candidates before directional filtering; advance by `offset + limit`,
+even for an empty filtered page. Keep selected tokens outside the currently displayed page.
+Use token `address`; never infer token identity or decimals from symbol alone. Amount inputs are
+raw `bigint`; `convertTokenReadableAmountToBigInt` is removed.
 
 ## Execute and compose
 

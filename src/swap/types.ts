@@ -12,7 +12,7 @@ export interface SwapExactInParams {
 }
 
 export interface SwapExactOutParams {
-  sources?: Source[];
+  sources?: Array<{ chainId: number; tokenAddress?: Hex }>;
   toChainId: number;
   toTokenAddress: Hex;
   toAmountRaw: bigint;
@@ -32,6 +32,6 @@ export interface SwapAndExecuteParams {
   toChainId: number;
   toTokenAddress: Hex;
   toAmountRaw: bigint;
-  sources?: Source[];
+  sources?: Array<{ chainId: number; tokenAddress?: Hex }>;
   execute: SwapExecuteParams;
 }
