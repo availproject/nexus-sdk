@@ -21,6 +21,7 @@ import { setLoggerProvider } from '../services/telemetry';
 import { createBase } from './base';
 import {
   trackBalanceFetch,
+  trackCatalogOperation,
   trackExecute,
   trackExecuteSim,
   trackInit,
@@ -98,13 +99,29 @@ export const createNexusClient = (config: {
       ),
     setEVMProvider: (provider: EthereumProvider) => base.setEvmProvider(provider),
     getSupportedChains: base.getSupportedChains,
-    getTokens: base.getTokens,
-    getToken: base.getToken,
-    getTokensByChain: base.getTokensByChain,
-    getAvailableSourceTokens: base.getAvailableSourceTokens,
-    getAvailableDestinationTokens: base.getAvailableDestinationTokens,
-    confirmRouteExists: base.confirmRouteExists,
-    getSupportedChainsForRoute: base.getSupportedChainsForRoute,
+    getTokens: (query) =>
+      trackCatalogOperation(analytics, 'getTokens', () => base.getTokens(query)),
+    getToken: (token) => trackCatalogOperation(analytics, 'getToken', () => base.getToken(token)),
+    getTokensByChain: (chainId, query) =>
+      trackCatalogOperation(analytics, 'getTokensByChain', () =>
+        base.getTokensByChain(chainId, query)
+      ),
+    getAvailableSourceTokens: (destination, selectedSources, query) =>
+      trackCatalogOperation(analytics, 'getAvailableSourceTokens', () =>
+        base.getAvailableSourceTokens(destination, selectedSources, query)
+      ),
+    getAvailableDestinationTokens: (sources, query) =>
+      trackCatalogOperation(analytics, 'getAvailableDestinationTokens', () =>
+        base.getAvailableDestinationTokens(sources, query)
+      ),
+    confirmRouteExists: (sources, destination) =>
+      trackCatalogOperation(analytics, 'confirmRouteExists', () =>
+        base.confirmRouteExists(sources, destination)
+      ),
+    getSupportedChainsForRoute: (constraints) =>
+      trackCatalogOperation(analytics, 'getSupportedChainsForRoute', () =>
+        base.getSupportedChainsForRoute(constraints)
+      ),
     destroy: () => {
       analytics.trackSessionEnd();
       base.getMiddlewareClient().destroy();

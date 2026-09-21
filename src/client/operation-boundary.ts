@@ -182,6 +182,33 @@ export const trackBalanceFetch = <R extends IntentBalancesResult>(
         : NexusAnalyticsEvents.BALANCES_FETCH_SUCCESS,
   });
 
+const catalogOperations = {
+  getTokens: NexusOperationNames.CATALOG_GET_TOKENS,
+  getToken: NexusOperationNames.CATALOG_GET_TOKEN,
+  getTokensByChain: NexusOperationNames.CATALOG_GET_TOKENS_BY_CHAIN,
+  getAvailableSourceTokens: NexusOperationNames.CATALOG_GET_AVAILABLE_SOURCE_TOKENS,
+  getAvailableDestinationTokens: NexusOperationNames.CATALOG_GET_AVAILABLE_DESTINATION_TOKENS,
+  confirmRouteExists: NexusOperationNames.CATALOG_CONFIRM_ROUTE_EXISTS,
+  getSupportedChainsForRoute: NexusOperationNames.CATALOG_GET_SUPPORTED_CHAINS_FOR_ROUTE,
+} as const satisfies Partial<Record<OperationName, NexusOperationName>>;
+
+export const trackCatalogOperation = <R>(
+  analytics: AnalyticsManager,
+  operation: keyof typeof catalogOperations,
+  run: () => Promise<R>
+): Promise<R> =>
+  analytics.runOp({
+    events: {
+      initiated: NexusAnalyticsEvents.CATALOG_FETCH_STARTED,
+      success: NexusAnalyticsEvents.CATALOG_FETCH_SUCCESS,
+      failed: NexusAnalyticsEvents.CATALOG_FETCH_FAILED,
+    },
+    opName: catalogOperations[operation],
+    operation,
+    initiatedProps: { method: operation },
+    run,
+  });
+
 export const trackInit = <R>(
   analytics: AnalyticsManager,
   successProps: Record<string, unknown>,

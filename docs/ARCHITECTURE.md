@@ -201,6 +201,10 @@ limit, even if the filtered page is empty. Selection state is independent of a d
 `confirmRouteExists` checks only the selected identities and does not fetch candidate pages.
 These async helpers require initialization but no wallet. UI provider groups do not pin quote routing.
 
+Public async catalog calls pass through `trackCatalogOperation` in the client operation boundary.
+Each call records its method, operation ID, success/failure, and duration, including cache hits.
+Internal catalog lookups keep their existing cache and do not start additional public operations.
+
 `getSupportedChains()` returns cached `IntentChainMetadata[]`, merging intent and execute
 capabilities without token arrays. The standalone chain utility and `client.utils.getSupportedChains`
 also fetch only `/chains` and preserve directional support. No `/deployment` client remains.

@@ -48,6 +48,11 @@ export const NexusAnalyticsEvents = {
   /** Fires when the SDK refreshes already-cached balances. */
   BALANCES_REFRESHED: 'nexus_v2_balances_refreshed',
 
+  // Catalog Operations (one lifecycle per public call, including cached results)
+  CATALOG_FETCH_STARTED: 'nexus_v2_catalog_fetch_started',
+  CATALOG_FETCH_SUCCESS: 'nexus_v2_catalog_fetch_success',
+  CATALOG_FETCH_FAILED: 'nexus_v2_catalog_fetch_failed',
+
   // Swap Operations
   /** Fires when swap simulation begins. */
   SWAP_SIMULATION_STARTED: 'nexus_v2_swap_simulation_started',
@@ -187,6 +192,13 @@ export const NexusOperationNames = {
   EXECUTE: 'execute',
   EXECUTE_SIMULATION: 'execute_simulation',
   BALANCES_FETCH_SWAP: 'balances_fetch_swap',
+  CATALOG_GET_TOKENS: 'catalog_get_tokens',
+  CATALOG_GET_TOKEN: 'catalog_get_token',
+  CATALOG_GET_TOKENS_BY_CHAIN: 'catalog_get_tokens_by_chain',
+  CATALOG_GET_AVAILABLE_SOURCE_TOKENS: 'catalog_get_available_source_tokens',
+  CATALOG_GET_AVAILABLE_DESTINATION_TOKENS: 'catalog_get_available_destination_tokens',
+  CATALOG_CONFIRM_ROUTE_EXISTS: 'catalog_confirm_route_exists',
+  CATALOG_GET_SUPPORTED_CHAINS_FOR_ROUTE: 'catalog_get_supported_chains_for_route',
   LIST_INTENTS: 'list_intents',
   WALLET_CONNECT: 'wallet_connect',
   INITIALIZE: 'initialize',

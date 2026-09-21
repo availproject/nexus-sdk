@@ -520,6 +520,11 @@ error with `attempt.pending: true`; check the intent status before retrying.
 Swap delivery completes the payment attempt even when a later `swapAndExecute` contract call fails.
 Partial balance responses return the available balances and emit a separate partial-response event.
 
+Async catalog helpers report `nexus_v2_catalog_fetch_started` followed by success or failure,
+with the method name and operation ID. `nexus_v2_operation_performance` records each helper's
+duration, including cache hits. Catalog errors include structured reason/code/category/service
+metadata; an empty page or incompatible route result is a successful catalog check.
+
 See [the SDK telemetry contract](docs/TELEMETRY.md) for event names, internal reason buckets,
 privacy boundaries, and reconciliation requirements. Product analytics configuration controls
 PostHog; diagnostic OTel logging remains independent, as with existing error logs.

@@ -93,6 +93,28 @@ Legacy swap failure constants remain exported, but ordinary swap errors now emit
 outcome or observation event. Successful operations retain their existing success events. Count
 only the canonical outcome when measuring payments; do not add delivery or legacy success events.
 
+## Catalog operation reporting
+
+The public async catalog helpers `getTokens`, `getToken`, `getTokensByChain`,
+`getAvailableSourceTokens`, `getAvailableDestinationTokens`, `confirmRouteExists`, and
+`getSupportedChainsForRoute` use the same operation boundary as balances and history.
+Each call emits `nexus_v2_catalog_fetch_started`, then either `nexus_v2_catalog_fetch_success`
+or `nexus_v2_catalog_fetch_failed`, with `method`, `operation.id`, and client/session identity.
+Failures include the bounded reason, code, category, and service when available; detailed errors
+are logged to OTel with the same operation ID. The original result or error is preserved.
+
+`nexus_v2_operation_performance` records duration in milliseconds and success, with `spanId`
+matching `operation.id`. Its operation labels are `catalog_get_tokens`, `catalog_get_token`,
+`catalog_get_tokens_by_chain`, `catalog_get_available_source_tokens`,
+`catalog_get_available_destination_tokens`, `catalog_confirm_route_exists`, and
+`catalog_get_supported_chains_for_route`.
+
+This measures the full public call, including cache hits and local compatibility checks, rather
+than individual HTTP requests. Concurrent calls have separate operation IDs even when they share
+one fetch. Internal catalog lookups do not emit additional public-operation events. Empty pages
+and `confirmRouteExists` returning `false` are successful results. Catalog calls do not create
+payment attempts. These events contain no query text, token lists, or request amounts.
+
 ## Internal reason buckets v1
 
 `reason.bucket` is an internal reporting vocabulary. `error.code`, `error.category`, and
