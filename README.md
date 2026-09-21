@@ -479,7 +479,7 @@ Their `message` is ready to display, and `code` identifies the failure without p
 
 For example, `ERROR_CODES.BACKEND_INSUFFICIENT_APPROVAL_GAS` carries:
 “Not enough gas to approve a source token. Add gas funds on the source chain or choose another source.”
-The [complete middleware mapping](src/domain/errors.md#middleware-error-mapping) includes validation,
+The [complete middleware mapping](docs/ERRORS.md#middleware-error-mapping) includes validation,
 catalog, provider, and submission errors. These specific codes replace `backend/error` for recognized
 middleware failures. Existing `NexusError`s raised by SDK validation or response parsing retain their codes.
 

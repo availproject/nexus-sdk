@@ -9,8 +9,8 @@ import {
   type TransactionReceipt,
   type WalletClient,
 } from 'viem';
-import ERC20ABI from '../abi/erc20';
 import { type Chain, getLogger } from '../domain';
+import ERC20ABI from '../domain/erc20-abi';
 import { Errors, formatUnknownError } from '../domain/errors';
 import { isUserRejectedRequest } from './is-user-rejected-request';
 import { minutesToMs } from './time';

@@ -17,11 +17,11 @@ export type ErrorCategory =
  * Hand-maintained literal union covering every async public method on `NexusClient`
  * plus exported async utility helpers that have their own OTel boundary.
  *
- * Drift is enforced by `tests/core/operation-name-drift.test-d.ts` — that test will
+ * Drift is enforced by `tests/client/operation-name-drift.test-d.ts` — that test will
  * fail to compile if the client surface diverges from this list.
  *
- * `src/domain/` cannot import from `src/core/` (package layering), so the union is
- * hand-maintained here; the drift test lives in the assembly layer (`tests/core/`)
+ * `src/domain/` cannot import from `src/client/` (package layering), so the union is
+ * hand-maintained here; the drift test lives in the assembly layer (`tests/client/`)
  * where it can import both sides.
  */
 export type OperationName =

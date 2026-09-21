@@ -4,13 +4,13 @@ export { AnalyticsManager } from './analytics/AnalyticsManager';
 export { NexusAnalyticsEvents } from './analytics/events';
 export type { AnalyticsConfig, DevTimingConfig, SpanProperties } from './analytics/types';
 
-export { createNexusClient } from './core/sdk/client';
+export { createNexusClient } from './client/create-client';
 export type {
   IntentOperationOptions,
   NexusClient,
   SwapAndExecuteOptions,
   SwapOperationOptions,
-} from './core/types';
+} from './client/types';
 export { getIntentQuoteFailure } from './intent/errors';
 export { getFallbackTokenLogoDataUri } from './services/token-logo';
 
@@ -57,6 +57,13 @@ export {
   UserActionError,
   ValidationError,
 } from './domain/errors';
+export type {
+  Source,
+  SwapAndExecuteParams,
+  SwapExactInParams,
+  SwapExactOutParams,
+  SwapExecuteParams,
+} from './intent/swap-types';
 // Stable high-level names now share the API-backed Better Intent model.
 export type {
   IntentAllowance,
@@ -106,10 +113,3 @@ export type {
   SwapAndExecuteIntentResult as SwapAndExecuteResult,
   TokenRef,
 } from './intent/types';
-export type {
-  Source,
-  SwapAndExecuteParams,
-  SwapExactInParams,
-  SwapExactOutParams,
-  SwapExecuteParams,
-} from './swap/types';

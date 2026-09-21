@@ -8,10 +8,10 @@ and behavior disagree.
 - `biome.jsonc` — formatting and linting
 - `tsconfig.json` and `tsconfig.tests.json` — compiler rules
 - `package.json` — validation/build commands
-- `src/index.ts`, `src/utils.ts`, and `src/core/types.ts` — public surface
+- `src/index.ts`, `src/utils.ts`, and `src/client/types.ts` — public surface
 - `tests/public-api.test.ts` — public export guardrails
-- [`src/domain/errors.md`](../src/domain/errors.md) — error taxonomy
-- [`src/domain/utils/logs.md`](../src/domain/utils/logs.md) — logging rules
+- [ERRORS.md](ERRORS.md) — error taxonomy
+- [LOGGING.md](LOGGING.md) — logging rules
 
 ## Style
 
@@ -28,17 +28,21 @@ Vitest is the test runner. Mirror `src/` under `tests/` where practical.
 
 ## Package ownership
 
-- `src/core/` assembles the public client and owns top-level SDK state.
-- `src/intent/` owns Better Intent types, normalization, catalog lookup, funding, wallet actions,
-  and the canonical orchestrator.
-- `src/execute/` owns reusable EVM execute internals.
-- `src/flows/` stays thin and currently contains only the execute entrypoint/dependencies.
-- `src/transport/` owns Better Intent HTTP requests.
-- `src/domain/` owns shared primitives, validation, logging, and errors.
+- `src/client/` assembles the public client and owns top-level SDK state and operation boundaries.
+- `src/intent/` owns Better Intent HTTP transport, swap inputs, models, normalization, catalog,
+  funding, wallet actions, and the canonical orchestrator.
+- `src/execute/` owns execute/simulate entrypoints and runtime, approvals, and wallet capabilities.
+- `src/domain/` owns shared types, constants, contract ABI, validation, formatting, logging, and errors.
 - `src/services/` contains cross-feature helpers only.
-- `src/swap/` contains public swap input types; it must not grow a local routing engine.
+- `src/analytics/` owns generic analytics providers, timing, sessions, and events.
 
-Lower layers must not import `src/core/`. `src/services/` must not import `src/flows/`.
+Keep modules flat within each area unless a cohesive group needs its own subdirectory. Do not
+create a folder solely to hold one file or a pass-through barrel. Feature-specific helpers belong
+beside their consumers; only shared helpers belong in `services`.
+
+Lower layers must not import `src/client/`. `src/services/` must not import `src/execute/`.
+Analytics must not import client, intent, or execute modules. `npm run lint:deps` enforces the
+service and analytics boundaries.
 
 Do not recreate local routing feature packages for middleware-owned behavior. New provider routing,
 quote selection, fee calculation, and source allocation belong in Better Intent middleware, not the
@@ -183,7 +187,7 @@ Include `context.stepId`, `stepType`, and `chainId` when an error is step scoped
 ## Logging and telemetry
 
 Logs must be searchable, stable, and sanitized. They must not add I/O, mutate flow state, or create
-a failure path. See [`src/domain/utils/logs.md`](../src/domain/utils/logs.md).
+a failure path. See [LOGGING.md](LOGGING.md).
 
 Public method failures are emitted at the operation boundary. Categorize once near the failing
 boundary; do not repeatedly wrap a `NexusError`.

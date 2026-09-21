@@ -51,28 +51,34 @@ provider change.
 
 ```text
 src/
-  abi/          ABIs used by retained contract execution helpers
+  index.ts      package exports
+  utils.ts      @avail-project/nexus-core/utils exports
+  client/       client factory, SDK state, public API types, operation boundaries
+  intent/       middleware, catalog, swap inputs, normalization, wallet, orchestration
+  execute/      execute/simulate entrypoints, runtime, approvals, wallet capabilities
   analytics/    analytics providers, timing, sessions, and event definitions
-  core/         public client assembly, public client types, and SDK utilities
-  domain/       shared public types, validation, logging, and errors
-  execute/      standalone EVM execute runtime
-  flows/        thin execute entrypoint and shared execute dependency types
-  intent/       Better Intent catalog, types, normalization, funding, wallet, orchestrator
-  services/     cross-feature helpers only
-  swap/         public swap input types only
-  transport/    Better Intent HTTP client
+  domain/       shared types, constants, ABI, validation, formatting, logging, errors
+  services/     helpers shared across features: RPC, chains, pricing, telemetry
 ```
+
+Keep feature code with its owner. Intent HTTP transport lives beside its normalizers and models in
+`intent/middleware.ts`; public swap inputs live in `intent/swap-types.ts`. Standalone execution’s
+entrypoint and transaction runtime live together, along with its approval and batch-capability helpers.
+`client/` and `domain/` are flat; add nesting only when several related modules need a distinct owner.
+
+`tests/client`, `tests/intent`, and `tests/execute` follow these source areas. Public API guardrails,
+fixtures, and shared test helpers retain their existing roles. Error and logging guides live in `docs/`.
 
 ## Dependency direction
 
-- `src/core/` is the assembly layer and may depend on all lower packages.
-- `src/intent/` owns all cross-chain intent behavior.
-- `src/execute/` and `src/flows/execute.ts` own standalone destination execution.
-- `src/transport/` validates and normalizes external responses before returning them.
+- `src/client/` is the assembly layer and may depend on all lower packages.
+- `src/intent/` owns all cross-chain intent behavior, including HTTP transport and normalization.
+- `src/execute/` owns standalone destination execution, from validation through transaction sending.
 - `src/domain/` contains shared primitives and must not depend on assembly code.
 - `src/services/` contains only helpers used across features.
-- Lower packages must not import `src/core/`.
-- `src/services/` must not import `src/flows/`.
+- Lower packages must not import `src/client/`.
+- `src/services/` must not import `src/execute/` or `src/client/`.
+- `src/analytics/` stays generic; typed operation wrappers belong in `src/client/operation-boundary.ts`.
 
 All swap modes use the canonical intent path; there is no separate bridge API or runtime.
 
@@ -83,10 +89,10 @@ They converge at `src/intent/orchestrator.ts`, including same-asset cross-chain 
 
 ```text
 public client method
-  -> core/sdk/base.ts
+  -> client/base.ts
        validate input and directional provider support against the cached catalog
        build IntentQuoteRequest
-  -> transport.getIntentQuote(...)
+  -> intent/middleware.getIntentQuote(...)
        validate raw API response with Zod
        normalize into ExecutableIntentQuote
   -> intent/orchestrator.ts
@@ -213,7 +219,7 @@ source verdicts, provider reasons, and whether retrying may help.
 Pre-routing quote failures such as insufficient balance or approval gas use the same helper and keep
 their endpoint-specific payload in `details`.
 
-`src/transport/middleware.ts` maps Better Intent HTTP error envelopes into `BackendError`s with
+`src/intent/middleware.ts` maps Better Intent HTTP error envelopes into `BackendError`s with
 display-ready messages and specific `ERROR_CODES`. Recognized subcodes take precedence over general
 middleware codes; related provider subcodes share an SDK code. The original message, codes, error ID,
 HTTP status, and diagnostic details remain available on the error. Unknown errors use the server's
@@ -243,7 +249,7 @@ Composite operations do not build routes locally.
 
 ## Standalone execute
 
-`src/flows/execute.ts` validates `ExecuteParams`, resolves optional token approval metadata,
+`src/execute/execute.ts` validates `ExecuteParams`, resolves optional token approval metadata,
 estimates fees for simulation, and delegates transaction preparation/sending to
 `src/execute/runtime.ts`.
 
@@ -256,7 +262,7 @@ The public client requires `clientId`. Its middleware transport sends
 `x-nexus-surface-version` through shared HTTP headers. The standalone catalog utility takes
 `{ clientId }`; client utilities bind the configured ID.
 
-`src/transport/middleware.ts` exposes only:
+`src/intent/middleware.ts` exposes only:
 
 - Better Intent chain metadata and individually requested token pages;
 - Better Intent balances;
@@ -277,7 +283,7 @@ details where available.
 
 ## Payment reporting
 
-`src/core/sdk/operation-boundary.ts` creates one attempt ID and reporting observer per public swap
+`src/client/operation-boundary.ts` creates one attempt ID and reporting observer per public swap
 call, before local checks or network requests. `src/intent/telemetry.ts` owns commitment, route,
 delivery, and outcome observations. The orchestrator reports independently of user callbacks.
 Base passes that same ID to quote, refresh, submit, status/detail, and composite funding requests
@@ -306,12 +312,12 @@ existing page-based entrypoint.
 The retained suite follows the runtime boundaries:
 
 - `tests/intent/normalize.test.ts` — external response contracts;
-- `tests/transport/better-intent.test.ts` — endpoint and request contracts;
+- `tests/intent/middleware.test.ts` — endpoint and request contracts;
 - `tests/intent/catalog.test.ts` — token identity and merged capabilities;
 - `tests/intent/orchestrator.test.ts` — approval/sign/send/submit/poll ordering;
 - `tests/intent/wallet.test.ts` — wallet validation and transaction behavior;
 - `tests/intent/funding.test.ts` — composite shortfall invariants;
-- `tests/core/sdk-better-intent.test.ts` — public assembly and network behavior;
+- `tests/client/sdk-better-intent.test.ts` — public assembly and network behavior;
 - `tests/public-api.test.ts` — exported surface guardrails.
 
 See [Testing Strategy](../tests/TESTING.md) and [Conventions](CONVENTIONS.md).

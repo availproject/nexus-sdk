@@ -1,6 +1,8 @@
 # Testing Strategy
 
-Use the smallest layer that directly observes the behavior.
+Use the smallest layer that directly observes the behavior. Match source ownership under
+`tests/client`, `tests/intent`, `tests/execute`, `tests/analytics`, `tests/domain`, and `tests/services`.
+Middleware contract tests live with intent; execute validation and sending tests live together.
 
 ## Layers
 
@@ -59,8 +61,8 @@ deleted local-routing types.
 - `tests/intent/funding.test.ts`
 - `tests/intent/orchestrator.test.ts`
 - `tests/intent/wallet.test.ts`
-- `tests/transport/better-intent.test.ts`
-- `tests/core/sdk-better-intent.test.ts`
+- `tests/intent/middleware.test.ts`
+- `tests/client/sdk-better-intent.test.ts`
 - `tests/public-api.test.ts`
 
 New middleware fields require normalizer and transport tests. New wallet or orchestration behavior

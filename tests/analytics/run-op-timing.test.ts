@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AnalyticsManager } from '../../src/analytics/AnalyticsManager';
-import { trackIntentOperation } from '../../src/core/sdk/operation-boundary';
+import { trackIntentOperation } from '../../src/client/operation-boundary';
 
 describe('Better Intent analytics boundary', () => {
   it('parents flow timing spans to the public operation', async () => {

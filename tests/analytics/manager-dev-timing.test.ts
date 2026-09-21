@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AnalyticsManager } from '../../src/analytics/AnalyticsManager';
 import { NexusAnalyticsEvents } from '../../src/analytics/events';
-import { getLogger } from '../../src/domain/utils/logger';
+import { getLogger } from '../../src/domain/logger';
 
 describe('AnalyticsManager dev timing', () => {
   beforeEach(() => {
