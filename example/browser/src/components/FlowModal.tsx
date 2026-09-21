@@ -22,8 +22,8 @@ import {
   TokenIcon,
 } from "./IntentModalShell";
 import { getTokenLogoUrl } from "../lib/logos";
-import { D, pctOf, sum, toFixed, trimDp } from "../lib/math";
-import { truncateAddress } from "../lib/format";
+import { D, pctOf } from "../lib/math";
+import { formatUsd, truncateAddress } from "../lib/format";
 
 /* ── Shared icons ─────────────────────────────────────────────────── */
 
@@ -127,6 +127,7 @@ function statusSubText(step: NormalizedStep): string | undefined {
 }
 
 function formatImpact(value: number): string {
+  if (value === 0) return "0.0000%";
   const abs = Math.abs(value);
   return `${value > 0 ? "-" : "+"}${abs.toFixed(4)}%`;
 }
@@ -142,13 +143,11 @@ function impactClass(value: number): string {
 function SwapIntentBody({ intent }: { intent: SwapIntentViewModel }) {
   const srcTotal = D(intent.sourcesTotal);
   const destValue = D(intent.destination.value);
-  const buffer = D(intent.buffer);
-  const srcExclBuffer = srcTotal.minus(buffer);
-  const impactExclBuffer = srcExclBuffer.gt(0)
-    ? srcExclBuffer.minus(destValue).div(srcExclBuffer).mul(100).toNumber()
-    : 0;
-  const impactInclBuffer = srcTotal.gt(0)
+  const expectedDifference = srcTotal.gt(0)
     ? srcTotal.minus(destValue).div(srcTotal).mul(100).toNumber()
+    : 0;
+  const minimumDifference = srcTotal.gt(0)
+    ? srcTotal.minus(intent.destination.minValue).div(srcTotal).mul(100).toNumber()
     : 0;
 
   const sourceSymbols = [...new Set(intent.sources.map((s) => s.tokenSymbol))].join(", ");
@@ -157,14 +156,13 @@ function SwapIntentBody({ intent }: { intent: SwapIntentViewModel }) {
     chainName: s.chainName,
     chainLogo: s.chainLogo,
   }));
-  const totalFees = toFixed(sum([intent.buffer, intent.fees?.total]), 2);
 
   return (
     <>
       <IntentHero
         amount={fmt(intent.destination.amount)}
         symbol={intent.destination.tokenSymbol}
-        usd={`$${intent.destination.value}`}
+        usd={formatUsd(intent.destination.value)}
         chainName={intent.destination.chainName}
         chainLogo={intent.destination.chainLogo ?? undefined}
         tokenLogo={getTokenLogoUrl(
@@ -175,7 +173,7 @@ function SwapIntentBody({ intent }: { intent: SwapIntentViewModel }) {
         chip={{
           chains: chainDotItems,
           countLabel: `${intent.sources.length} source${intent.sources.length === 1 ? "" : "s"}`,
-          totalLabel: `$${intent.sourcesTotal}`,
+          totalLabel: formatUsd(intent.sourcesTotal),
         }}
       />
 
@@ -183,7 +181,7 @@ function SwapIntentBody({ intent }: { intent: SwapIntentViewModel }) {
         <LineItemAccordion
           label="You Swap"
           sub={sourceSymbols}
-          value={`$${intent.sourcesTotal}`}
+          value={formatUsd(intent.sourcesTotal)}
         >
           {intent.sources.map((s, i) => (
             <SourceRow key={`${s.chainId}-${s.tokenSymbol}-${i}`} s={s} />
@@ -193,40 +191,44 @@ function SwapIntentBody({ intent }: { intent: SwapIntentViewModel }) {
         <LineItemAccordion
           size="secondary"
           label="Total Fees"
-          sub="Buffer & intent fees"
-          value={`$${totalFees}`}
+          sub="Quoted intent fees"
+          value={formatUsd(intent.fees.total)}
         >
-          <LineItem size="secondary" label="Buffer" value={`$${intent.buffer}`} />
-          <LineItem size="secondary" label="Intent fees" value={`$${intent.fees?.total ?? "0.00"}`} />
+          <LineItem size="secondary" label="Deposit" value={formatUsd(intent.fees.deposit)} />
+          <LineItem size="secondary" label="Fulfillment" value={formatUsd(intent.fees.fulfillment)} />
+          <LineItem size="secondary" label="Protocol"
+            sub={intent.fees.fulfillmentIncludesProviderFees ? "Included in fulfillment" : undefined}
+            value={formatUsd(intent.fees.protocol)} />
+          <LineItem size="secondary" label="Solver"
+            sub={intent.fees.fulfillmentIncludesProviderFees ? "Included in fulfillment" : undefined}
+            value={formatUsd(intent.fees.solver)} />
         </LineItemAccordion>
 
         <LineItemAccordion
           size="secondary"
-          label="Price Impact"
-          sub={`${intent.destination.tokenSymbol} · estimated`}
+          label="Value Difference"
+          sub="Source vs. destination USD, including fees"
           value={
-            <span className={impactClass(impactExclBuffer)}>{formatImpact(impactExclBuffer)}</span>
+            <span className={impactClass(expectedDifference)}>{formatImpact(expectedDifference)}</span>
           }
         >
           <LineItem
             size="secondary"
             label="Expected"
-            sub="excl. buffer"
-            value={<span className={impactClass(impactExclBuffer)}>{formatImpact(impactExclBuffer)}</span>}
+            value={<span className={impactClass(expectedDifference)}>{formatImpact(expectedDifference)}</span>}
           />
           <LineItem
             size="secondary"
-            label="Worst case"
-            sub="incl. buffer"
-            value={<span className={impactClass(impactInclBuffer)}>{formatImpact(impactInclBuffer)}</span>}
+            label="At minimum received"
+            value={<span className={impactClass(minimumDifference)}>{formatImpact(minimumDifference)}</span>}
           />
         </LineItemAccordion>
 
         <LineItem
           size="secondary"
-          label="Swap Buffer"
-          sub="Temporary buffer collected to ensure successful swaps. Excess funds are refunded."
-          value={`$${intent.buffer}`}
+          label="Minimum received"
+          value={`${fmt(intent.destination.minAmount)} ${intent.destination.tokenSymbol}`}
+          valueSub={formatUsd(intent.destination.minValue)}
         />
 
         {intent.destination.gas && (
@@ -269,7 +271,7 @@ function CompositeIntentBody({
       <IntentHero
         amount={fmt(exec.token.amount)}
         symbol={exec.token.symbol}
-        usd={`$${exec.token.value}`}
+        usd={exec.token.value === undefined ? undefined : formatUsd(exec.token.value)}
         chainName={exec.chainName}
         chainLogo={exec.chainLogo ?? undefined}
         tokenLogo={getTokenLogoUrl(exec.token.symbol)}
@@ -330,24 +332,12 @@ function CompositeIntentBody({
         )}
 
         {showFunding && intent.swap && (
-          <>
-            {intent.swap.buffer && (
-              <LineItem
-                size="secondary"
-                label="Swap Buffer"
-                sub="Temporary buffer collected to ensure successful swaps. Excess funds are refunded."
-                value={`$${intent.swap.buffer}`}
-              />
-            )}
-            {intent.swap.fees && (
-              <LineItem
-                size="secondary"
-                label="Intent Fees"
-                sub="Network & protocol"
-                value={`$${intent.swap.fees.total}`}
-              />
-            )}
-          </>
+          <LineItem
+            size="secondary"
+            label="Intent Fees"
+            sub="Quoted swap fees"
+            value={formatUsd(intent.swap.fees.total)}
+          />
         )}
       </div>
     </>
@@ -374,7 +364,7 @@ function SourceRow({
         <span>
           {fmt(s.amount)} {s.tokenSymbol}
         </span>
-        {s.value !== undefined && <span className="intent-source-usd">${trimDp(s.value, 6)}</span>}
+        {s.value !== undefined && <span className="intent-source-usd">{formatUsd(s.value)}</span>}
       </span>
     </div>
   );
@@ -561,7 +551,7 @@ function SourcesAccordion({ result }: { result: ProgressResult }) {
       <div className="exec-result-row-head">
         <span className="exec-result-label">You Swapped</span>
         <div className="exec-result-value-block">
-          {result.sourcesTotal && <span className="exec-result-value">${result.sourcesTotal}</span>}
+          {result.sourcesTotal && <span className="exec-result-value">{formatUsd(result.sourcesTotal)}</span>}
           <Collapsible.Trigger asChild>
             <button type="button" className="exec-result-toggle">
               <span>{sources.length} asset{sources.length === 1 ? "" : "s"}</span>
@@ -589,7 +579,7 @@ function SourcesAccordion({ result }: { result: ProgressResult }) {
                 <span>
                   {s.amount} {s.tokenSymbol}
                 </span>
-                {s.value && <span className="exec-source-usd">${trimDp(s.value, 6)}</span>}
+                {s.value && <span className="exec-source-usd">{formatUsd(s.value)}</span>}
               </span>
             </div>
           ))}
@@ -659,7 +649,7 @@ function CompletedBody({
         {state.result?.feesTotal && (
           <div className="exec-result-row">
             <span className="exec-result-label">Total Fees</span>
-            <span className="exec-result-value">${state.result.feesTotal}</span>
+            <span className="exec-result-value">{formatUsd(state.result.feesTotal)}</span>
           </div>
         )}
       </div>

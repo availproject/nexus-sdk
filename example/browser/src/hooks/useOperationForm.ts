@@ -13,7 +13,7 @@ import {
 import { getChainLogoUrl, getTokenLogoUrl } from "../lib/logos";
 import { useExecutionProgress } from "./useExecutionProgress";
 import type { ProgressResult } from "../lib/types";
-import { D, sum, toFixed } from "../lib/math";
+import { D } from "../lib/math";
 import { formatAmount } from "../lib/format";
 
 function friendlyUserActionReason(code?: string): string | undefined {
@@ -31,7 +31,7 @@ function friendlyUserActionReason(code?: string): string | undefined {
   }
 }
 
-function extractProgressResult(
+export function extractProgressResult(
   intentType: TabConfig["intentType"],
   swap: SwapIntentViewModel | null,
   swapExec: SwapAndExecuteIntentViewModel | null,
@@ -47,7 +47,7 @@ function extractProgressResult(
       value: s.value,
     })),
     sourcesTotal: vm.sourcesTotal,
-    feesTotal: toFixed(sum([vm.buffer, vm.fees?.total]), 2),
+    feesTotal: vm.fees.total,
   });
   if (intentType === "swap" && swap) return mapSwapSources(swap);
   if (intentType === "swapAndExecute" && swapExec?.swap) return mapSwapSources(swapExec.swap);
@@ -191,9 +191,16 @@ export function useOperationForm({
     config.intentType === "swap" ? clearSwapIntent : clearSwapExecIntent;
 
   const intentWasPendingRef = useRef(false);
+  const intentResultRef = useRef<ProgressResult | null>(null);
   useEffect(() => {
     if (intentPending) {
       intentWasPendingRef.current = true;
+      // Approval clears the review model; retain the latest quote for the result panel first.
+      intentResultRef.current = extractProgressResult(
+        config.intentType,
+        swapIntent ?? null,
+        swapExecIntent ?? null,
+      );
     } else if (intentWasPendingRef.current && started && intentApproved) {
       intentWasPendingRef.current = false;
       setCompletedSteps((prev) => {
@@ -204,16 +211,14 @@ export function useOperationForm({
 
       // Snapshot the approved intent into the progress state so the success
       // screen can show the source breakdown + total fees.
-      const snapshot = extractProgressResult(
-        config.intentType,
-        swapIntent ?? null,
-        swapExecIntent ?? null,
-      );
+      const snapshot = intentResultRef.current;
       if (snapshot) progress.attachResult(snapshot);
+      intentResultRef.current = null;
     } else if (intentWasPendingRef.current && !intentPending) {
       intentWasPendingRef.current = false;
+      intentResultRef.current = null;
     }
-  }, [intentPending, started, intentApproved]);
+  }, [intentPending, started, intentApproved, swapIntent, swapExecIntent, config.intentType]);
 
   const mutation = useMutation({
     mutationFn: async () => {
