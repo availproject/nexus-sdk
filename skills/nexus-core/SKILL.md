@@ -21,7 +21,7 @@ await client.setEVMProvider(provider);
 Recreate the client after provider/account changes and call `destroy()` on the old instance.
 
 Use `mainnet` or `canary` for Better Intent on mainnet chains. Treat `testnet` as standalone-execute
-only. Use `forceMayan: true` only when the application must prefer Mayan.
+only. Middleware selects the provider for each quote.
 
 ## Review quotes
 

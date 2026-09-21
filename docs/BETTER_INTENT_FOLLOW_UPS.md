@@ -30,22 +30,13 @@ their union for compatibility with older consumers and older middleware response
 After the rollout window, deprecate and remove `providers`. UI code should always use the field for
 the role being selected. This avoids treating a destination-only token as a valid source.
 
-### 2. Replace `forceMayan` with normal provider constraints
-
-`forceMayan` is a legacy global switch. The new `/chains` contract and quote request already support
-provider constraints.
-
-Prefer a general provider policy in client or operation options, then deprecate `forceMayan`. Do not
-filter to Mayan by default: the normal flow should allow every available provider and let middleware
-select the route.
-
-### 3. Give constrained catalog requests normal operation telemetry
+### 2. Give constrained catalog requests normal operation telemetry
 
 `getSupportedChainsForRoute()` is an asynchronous public SDK method, but it does not yet have a
 dedicated analytics event set. Add timing, success, and failure telemetry so catalog latency and API
 errors can be diagnosed in FastBridge.
 
-### 4. Formalize structured middleware errors across endpoints
+### 3. Formalize structured middleware errors across endpoints
 
 Quote failures now have `getIntentQuoteFailure()`, including routing, balance, approval-gas, and
 price failures, which is better than parsing message strings.
@@ -53,7 +44,7 @@ Apply the same pattern to balances, submit, status, and catalog failures if thei
 stable subcodes and details. Keep human-readable messages for display and structured fields for UI
 decisions.
 
-### 5. Clarify and eventually simplify history aggregation
+### 4. Clarify and eventually simplify history aggregation
 
 The SDK currently calls `/rffs` and `/rffs-external` in parallel, adds both totals, concatenates the
 records, and sorts the current page locally.
@@ -64,14 +55,14 @@ record from a Mayan one and labels every external history record `mayan`; the mi
 return the owning provider on each row. Ideally middleware should expose one paginated, deduplicated history endpoint. Until then,
 define a stable deduplication key and pagination rule before changing the SDK.
 
-### 6. Remove old middleware-response fallbacks after rollout
+### 5. Remove old middleware-response fallbacks after rollout
 
 The chain normalizer accepts both the old `providers` response and new directional fields so the SDK
 works while environments are on different API versions. Once all supported environments return the
 new contract, make `asSource` and `asDestination` required and delete the fallback. This will surface
 deployment mismatches immediately instead of silently accepting old data.
 
-### 7. Separate intent catalog data from execute-only chains more clearly
+### 6. Separate intent catalog data from execute-only chains more clearly
 
 `getSupportedChains()` merges intent and execute views of the cached catalog and marks capabilities. This is
 useful but easy for UI consumers to misuse if they forget to check `capabilities.intent`.
@@ -79,7 +70,7 @@ useful but easy for UI consumers to misuse if they forget to check `capabilities
 Consider clearer names or dedicated accessors for intent-route options versus execute-only support.
 The constrained method should continue returning only the middleware intent catalog.
 
-### 8. Add live contract tests for the release environment
+### 7. Add live contract tests for the release environment
 
 Unit tests cover query serialization and response normalization. Add a non-wallet smoke test against
 the release middleware that verifies:

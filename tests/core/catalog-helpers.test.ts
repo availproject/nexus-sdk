@@ -36,12 +36,12 @@ const catalog = (): IntentChain[] => [
 const clients: NexusClient[] = [];
 afterEach(() => { clients.splice(0).forEach((client) => client.destroy()); });
 
-const setup = async (chains = catalog(), forceMayan = false) => {
+const setup = async (chains = catalog()) => {
   const reachedQuote = Errors.backend('Quote requested');
   const getIntentChains = vi.fn(async () => chains);
   const getIntentQuote = vi.fn().mockRejectedValue(reachedQuote);
   const getIntentBalances = vi.fn();
-  const client = createNexusClient({ clientId: 'catalog-test', forceMayan, analytics: { enabled: false },
+  const client = createNexusClient({ clientId: 'catalog-test', analytics: { enabled: false },
     internal: { middlewareClient: makeMiddlewareClient({ getIntentChains, getIntentQuote, getIntentBalances }) } });
   clients.push(client);
   await client.initialize();
@@ -128,17 +128,17 @@ describe('public cached token selection helpers', () => {
       asSource: [{ id: 'relay' }], asDestination: [] });
   });
 
-  it('honors forceMayan in every helper without changing the initialized catalog', async () => {
+  it('retains all providers without changing the initialized catalog', async () => {
     const chains = catalog();
     const original = structuredClone(chains);
-    const { client } = await setup(chains, true);
-    expect(client.getAvailableSourceTokens(ref(1)).map(({ provider }) => provider)).toEqual(['mayan']);
-    expect(client.getAvailableSourceTokens(ref(1), [ref(10, B)])).toEqual([]);
-    expect(client.getAvailableDestinationTokens([ref(10, B)])).toEqual([]);
-    expect(addresses(client.getAvailableDestinationTokens([]))).toEqual([{ chainId: 1, tokens: [A, ZERO_ADDRESS] }]);
-    expect(client.confirmRouteExists([ref(10, B)], ref(1))).toBe(false);
+    const { client } = await setup(chains);
+    expect(client.getAvailableSourceTokens(ref(1)).map(({ provider }) => provider)).toEqual(BOTH);
+    expect(client.getAvailableSourceTokens(ref(1), [ref(10, B)]).map(({ provider }) => provider)).toEqual(['relay']);
+    expect(addresses(client.getAvailableDestinationTokens([ref(10, B)]))).toEqual([{ chainId: 1, tokens: [A, B] }]);
+    expect(addresses(client.getAvailableDestinationTokens([]))).toEqual([{ chainId: 1, tokens: [A, B, ZERO_ADDRESS] }]);
+    expect(client.confirmRouteExists([ref(10, B)], ref(1))).toBe(true);
     expect(client.confirmRouteExists([ref(10)], ref(1))).toBe(true);
-    expect(client.getTokensByChain(10).map(({ address }) => address)).toEqual([A, ZERO_ADDRESS]);
+    expect(client.getTokensByChain(10).map(({ address }) => address)).toEqual([A, B, ZERO_ADDRESS]);
     expect(chains).toEqual(original);
   });
 

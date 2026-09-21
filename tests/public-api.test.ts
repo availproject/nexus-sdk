@@ -61,6 +61,9 @@ describe('public api exports', () => {
     expectTypeOf<Parameters<typeof rootModule.createNexusClient>>().toMatchTypeOf<
       [{ clientId: string }]
     >();
+    expectTypeOf<keyof Parameters<typeof rootModule.createNexusClient>[0]>().toEqualTypeOf<
+      'clientId' | 'network' | 'debug' | 'analytics' | 'devTiming' | 'internal'
+    >();
   });
 
   it('exposes synchronous cached token selection helpers', () => {

@@ -426,7 +426,7 @@ describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s
     });
   });
 
-  it('loads the full catalog and applies the Mayan filter to balance requests', async () => {
+  it('loads the full catalog and requests balances without a provider filter', async () => {
     const getIntentChains = vi.fn().mockResolvedValue(intentChains);
     const getIntentBalances = vi.fn().mockResolvedValue({ balances: [], errored: false });
     const middleware = makeMiddlewareClient({
@@ -436,7 +436,6 @@ describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s
     const client = createNexusClient({
       clientId: 'test-client',
       network,
-      forceMayan: true,
       internal: { middlewareClient: middleware },
     });
 
@@ -447,7 +446,6 @@ describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s
     expect(getIntentChains).toHaveBeenCalledExactlyOnceWith();
     expect(getIntentBalances).toHaveBeenCalledWith(expect.stringMatching(/^0x0*aa$/i), {
       refresh: false,
-      providers: ['mayan'],
     });
   });
 });

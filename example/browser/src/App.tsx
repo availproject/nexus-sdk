@@ -64,32 +64,6 @@ function useNetwork() {
   return { network, selectNetwork: setNetwork };
 }
 
-function useForceMayan() {
-  const [forceMayan, setForceMayan] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return window.localStorage.getItem("nexus-force-mayan") === "1";
-  });
-
-  useEffect(() => {
-    window.localStorage.setItem("nexus-force-mayan", forceMayan ? "1" : "0");
-  }, [forceMayan]);
-
-  return { forceMayan, toggleForceMayan: () => setForceMayan((value) => !value) };
-}
-
-function useChannel() {
-  const [channel, setChannel] = useState<ChannelMode>(() => {
-    if (typeof window === "undefined") return "stable";
-    return window.localStorage.getItem("nexus-channel") === "preview" ? "preview" : "stable";
-  });
-
-  useEffect(() => {
-    window.localStorage.setItem("nexus-channel", channel);
-  }, [channel]);
-
-  return { channel, selectChannel: setChannel };
-}
-
 const MOCK_COMPLETED_STATE: ExecutionProgressState = {
   phase: "completed",
   operationType: "swap",
@@ -122,8 +96,6 @@ const MOCK_FAILED_STATE: ExecutionProgressState = {
 export default function App() {
   const { address, isConnected } = useConnection();
   const { network, selectNetwork } = useNetwork();
-  const { channel, selectChannel } = useChannel();
-  const { forceMayan, toggleForceMayan } = useForceMayan();
   const { mode, toggleMode } = useThemeAndMode();
   const queryClient = useQueryClient();
 
@@ -145,7 +117,7 @@ export default function App() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  const sdk = useNexusSdk(network, channel, forceMayan);
+  const sdk = useNexusSdk(network);
 
   const tabs = useMemo(() => getTabsForNetwork(network), [network]);
 
@@ -181,10 +153,6 @@ export default function App() {
       <AppShell
         network={network}
         onSelectNetwork={selectNetwork}
-        channel={channel}
-        onSelectChannel={selectChannel}
-        forceMayan={forceMayan}
-        onToggleForceMayan={toggleForceMayan}
         mode={mode}
         onToggleMode={toggleMode}
         tabs={tabs}
