@@ -30,6 +30,7 @@ export type OperationName =
   | 'listIntents'
   | 'execute'
   | 'simulateExecute'
+  | 'getBalances'
   | 'getBalancesForSwap'
   | 'swapWithExactIn'
   | 'swapWithExactOut'

@@ -155,11 +155,13 @@ RPC, or middleware errors.
 
 ## Use balances and catalog metadata
 
-Use either balance method; both return chain-level `IntentBalance[]`:
+Use `getBalances()` for wallet holdings as `IntentBalance[]`:
 
 ```ts
-const balances = await client.getBalancesForSwap();
+const balances = await client.getBalances();
 ```
+
+`getBalancesForSwap()` remains available as a deprecated alias.
 
 Use `balanceRaw` plus the entry's own `decimals`. Respect `usable`. Group balances in the app only
 for presentation.

@@ -234,12 +234,14 @@ gets a new ID. Use it alongside `intentId` when investigating an operation.
 
 ## Balances and catalog
 
-Use `getBalancesForSwap()` for a connected wallet's holdings. It requires `setEVMProvider()` and
+Use `getBalances()` for a connected wallet's holdings. It requires `setEVMProvider()` and
 returns normalized `IntentBalance[]` from Better Intent:
 
 ```ts
-const balances = await client.getBalancesForSwap();
+const balances = await client.getBalances();
 ```
+
+`getBalancesForSwap()` is a deprecated alias of `getBalances()` with identical behavior and results.
 
 Each `IntentBalance` includes chain/token identity, raw balance, decimals, optional USD value,
 provider support, price source, and a `usable` flag.
@@ -696,7 +698,7 @@ and result types, or bridge/transfer analytics events. The bridge-only `onAllowa
 selection types are also removed.
 
 Use `swapWithExactOut` or `swapWithExactIn` for same-asset or cross-asset intents, `swapAndExecute`
-for destination contract calls, and `getBalancesForSwap` for holdings. Identify tokens by chain ID
+for destination contract calls, and `getBalances` for holdings. Identify tokens by chain ID
 and contract address rather than symbol. There is no replacement recipient override or standalone
 swap simulation method; review quotes through `onIntent`.
 

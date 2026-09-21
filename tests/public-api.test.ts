@@ -37,6 +37,15 @@ import type {
 } from '../src';
 
 describe('public api exports', () => {
+  it('exposes getBalances with getBalancesForSwap as an alias', () => {
+    expectTypeOf<NexusClient['getBalances']>().toEqualTypeOf<() => Promise<IntentBalance[]>>();
+    expectTypeOf<NexusClient['getBalancesForSwap']>().toEqualTypeOf<NexusClient['getBalances']>();
+    const client = rootModule.createNexusClient({ clientId: 'test-client', analytics: { enabled: false } });
+    expect(client.getBalances).toBeTypeOf('function');
+    expect(client.getBalancesForSwap).toBe(client.getBalances);
+    client.destroy();
+  });
+
   it('identifies execute approval tokens by address for execution and simulation', () => {
     type Params = Parameters<NexusClient['execute']>[0];
     expectTypeOf<NonNullable<Params['tokenApproval']>>().toEqualTypeOf<{

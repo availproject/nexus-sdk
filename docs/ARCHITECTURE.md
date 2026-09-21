@@ -214,7 +214,8 @@ and returns metadata only. `/tokens` supports catalog filters but no route const
 provider checks are preliminary; quote requests retain currency, amount, balance, and route
 feasibility checks. The SDK keeps `providers` as the union of directional fields.
 
-`getBalancesForSwap()` returns chain-level `IntentBalance[]` with decimals and raw balances, so
+`getBalances()` (also available as the deprecated alias `getBalancesForSwap()`) returns
+chain-level `IntentBalance[]` with decimals and raw balances, so
 balance discovery needs no token catalog download. All providers are included unless explicitly filtered.
 
 Quote responses normalize `sourceVerdicts`. Structured quote failures are retained on the SDK

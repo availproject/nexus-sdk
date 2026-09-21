@@ -70,6 +70,9 @@ export const createNexusClient = (config: {
     });
   };
 
+  const getBalances = () =>
+    trackBalanceFetch(analytics, () => base.getBalancesForSwap()).then((result) => result.balances);
+
   const client: NexusClient = {
     utils: createNexusUtils(config.clientId),
     analytics,
@@ -81,10 +84,8 @@ export const createNexusClient = (config: {
       trackExecute(analytics, params, options, (opId) => base.execute(params, options, opId)),
     simulateExecute: (params: ExecuteParams) =>
       trackExecuteSim(analytics, params, () => base.simulateExecute(params)),
-    getBalancesForSwap: () =>
-      trackBalanceFetch(analytics, () => base.getBalancesForSwap()).then(
-        (result) => result.balances
-      ),
+    getBalances,
+    getBalancesForSwap: getBalances,
     swapWithExactIn: (input: SwapExactInParams, options?: SwapOperationOptions) =>
       trackIntentOperation(analytics, 'swapWithExactIn', input, options, (_id, reporting) =>
         base.swapWithExactIn(input, options, reporting)

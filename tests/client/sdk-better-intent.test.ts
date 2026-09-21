@@ -324,14 +324,14 @@ describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s
     } finally { client.destroy(); }
   });
 
-  it('returns available balances but reports a partial response separately', async () => {
+  it.each(['getBalances', 'getBalancesForSwap'] as const)('%s returns available balances but reports a partial response separately', async (method) => {
     const client = createNexusClient({ clientId: 'test', network, analytics: { mode: 'on' },
       internal: { middlewareClient: makeMiddlewareClient({ getIntentTokens: makeTokenFetcher(intentChains), getIntentChains: async () => intentChains,
         getIntentBalances: async () => ({ balances: [], errored: true }) }) } });
     try {
       await client.initialize(); await client.setEVMProvider(provider());
       const track = vi.spyOn(client.analytics.getProvider(), 'track');
-      await expect(client.getBalancesForSwap()).resolves.toEqual([]);
+      await expect(client[method]()).resolves.toEqual([]);
       expect(track).toHaveBeenCalledWith(Events.BALANCES_FETCH_PARTIAL, expect.objectContaining({ 'balances.partial': true }));
       expect(track.mock.calls.some(([event]) => event === Events.BALANCES_FETCH_SUCCESS || event === Events.BALANCES_FETCH_FAILED)).toBe(false);
     } finally { client.destroy(); }
@@ -447,7 +447,7 @@ describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s
 
     await client.initialize();
     await client.setEVMProvider(provider());
-    await client.getBalancesForSwap();
+    await client.getBalances();
 
     expect(getIntentChains).toHaveBeenCalledExactlyOnceWith();
     expect(getIntentBalances).toHaveBeenCalledWith(expect.stringMatching(/^0x0*aa$/i), {

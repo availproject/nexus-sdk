@@ -225,7 +225,7 @@ export function groupBalances(client: NexusClient, balances: IntentBalance[]): T
 }
 
 export async function fetchUiBalances(client: NexusClient): Promise<TokenBalance[]> {
-  const balances = await client.getBalancesForSwap();
+  const balances = await client.getBalances();
   return groupBalances(client, balances);
 }
 
