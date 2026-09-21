@@ -80,6 +80,21 @@ describe('Better Intent response normalization', () => {
   it('normalizes sponsored signatures without legacy quote fields', () => {
     const result = normalizeIntentQuote(sponsoredQuoteResponse());
     expect(result.quote.fees).not.toHaveProperty('caGasRaw');
+    expect(result.quote.input[0]).toMatchObject({
+      amountUsd: '0.00001',
+      depositFeeUsd: '0',
+      totalRequiredUsd: '0.00001',
+    });
+    expect(result.quote.output).toMatchObject({
+      amountUsd: '0.000009',
+      minAmountUsd: '0.000008',
+    });
+    expect(result.quote.fees).toMatchObject({
+      depositUsd: '0',
+      fulfillmentUsd: '0',
+      protocolUsd: '0',
+      solverUsd: '0',
+    });
     expect(result.execution.requiredSignatures).toEqual(
       sponsoredQuoteResponse().submitRequirements.requiredSignatures
     );
@@ -148,17 +163,25 @@ describe('Better Intent response normalization', () => {
           tokenAddress: TOKEN,
           tokenSymbol: 'USDC',
           amount: '1000000',
+          amountUsd: '1',
           depositFee: '1000',
+          depositFeeUsd: '0.001',
           totalRequired: '1001000',
+          totalRequiredUsd: '1.001',
         },
       ],
-      output: { chainId: 'EVM_1', tokenAddress: TOKEN, amount: '990000' },
+      output: { chainId: 'EVM_1', tokenAddress: TOKEN, amount: '990000', amountUsd: '0.99' },
       minAmountOut: '985000',
+      minAmountOutUsd: '0.985',
       fees: {
         deposit: '1000',
+        depositUsd: '0.001',
         fulfillment: '2000',
+        fulfillmentUsd: '0.002',
         protocol: '3000',
+        protocolUsd: '0.003',
         solver: '4000',
+        solverUsd: '0.004',
       },
       expiry: '2000000000',
       rff: { sources: [], destinations: [], parties: [] },

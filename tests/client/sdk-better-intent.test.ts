@@ -67,9 +67,13 @@ const quote = () =>
     provider: 'nexus-v2',
     tradeType: 'exactOutput',
     input: [],
-    output: { chainId: 'EVM_1', tokenAddress: ETHEREUM_TOKEN, amount: '1000000' },
+    output: { chainId: 'EVM_1', tokenAddress: ETHEREUM_TOKEN, amount: '1000000', amountUsd: '1' },
     minAmountOut: '1000000',
-    fees: { deposit: '0', fulfillment: '0', protocol: '0', solver: '0' },
+    minAmountOutUsd: '1',
+    fees: {
+      deposit: '0', depositUsd: '0', fulfillment: '0', fulfillmentUsd: '0',
+      protocol: '0', protocolUsd: '0', solver: '0', solverUsd: '0',
+    },
     expiry: '2000000000',
     rff: { quoteId: QUOTE_ID },
     rffHash: QUOTE_ID,
@@ -118,7 +122,8 @@ describe('Better Intent approval confirmations', () => {
     }));
     quoted.quote.allowances = quoted.execution.allowances;
     quoted.quote.input = sources.map((source) => ({
-      ...source, tokenSymbol: 'USDC', amountRaw: 10n, depositFeeRaw: 0n, totalRequiredRaw: 10n,
+      ...source, tokenSymbol: 'USDC', amountRaw: 10n, amountUsd: '0.00001',
+      depositFeeRaw: 0n, depositFeeUsd: '0', totalRequiredRaw: 10n, totalRequiredUsd: '0.00001',
     }));
     quoted.quote.plan.steps.unshift(...sources.map((source) => ({
       ...source, id: `approval:${source.chainId}:${source.tokenAddress}`,

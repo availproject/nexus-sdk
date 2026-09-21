@@ -20,6 +20,7 @@ const address = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
 const bytes = z.string().regex(/^0x(?:[0-9a-fA-F]{2})*$/);
 const hash = z.string().regex(/^0x[0-9a-fA-F]{64}$/);
 const amount = z.string().regex(/^\d+$/);
+const usdAmount = z.string().regex(/^\d+(?:\.\d+)?$/);
 const provider = z.enum(INTENT_PROVIDERS);
 const providerSupport = z.object({
   id: provider,
@@ -148,17 +149,25 @@ const quote = z.object({
       tokenAddress: address,
       tokenSymbol: z.string(),
       amount,
+      amountUsd: usdAmount,
       depositFee: amount,
+      depositFeeUsd: usdAmount,
       totalRequired: amount,
+      totalRequiredUsd: usdAmount,
     })
   ),
-  output: z.object({ chainId: z.string(), tokenAddress: address, amount }),
+  output: z.object({ chainId: z.string(), tokenAddress: address, amount, amountUsd: usdAmount }),
   minAmountOut: amount,
+  minAmountOutUsd: usdAmount,
   fees: z.object({
     deposit: amount,
+    depositUsd: usdAmount,
     fulfillment: amount,
+    fulfillmentUsd: usdAmount,
     protocol: amount,
+    protocolUsd: usdAmount,
     solver: amount,
+    solverUsd: usdAmount,
   }),
   expiry: amount,
   rff: z.record(z.string(), z.unknown()),
@@ -479,20 +488,29 @@ export const normalizeIntentQuote = (input: unknown): ExecutableIntentQuote => {
         tokenAddress: normalizedAddress(entry.tokenAddress),
         tokenSymbol: entry.tokenSymbol,
         amountRaw: BigInt(entry.amount),
+        amountUsd: entry.amountUsd,
         depositFeeRaw: BigInt(entry.depositFee),
+        depositFeeUsd: entry.depositFeeUsd,
         totalRequiredRaw: BigInt(entry.totalRequired),
+        totalRequiredUsd: entry.totalRequiredUsd,
       })),
       output: {
         chainId: parseIntentChainRef(parsed.output.chainId),
         tokenAddress: normalizedAddress(parsed.output.tokenAddress),
         amountRaw: BigInt(parsed.output.amount),
+        amountUsd: parsed.output.amountUsd,
         minAmountRaw: BigInt(parsed.minAmountOut),
+        minAmountUsd: parsed.minAmountOutUsd,
       },
       fees: {
         depositRaw: BigInt(parsed.fees.deposit),
+        depositUsd: parsed.fees.depositUsd,
         fulfillmentRaw: BigInt(parsed.fees.fulfillment),
+        fulfillmentUsd: parsed.fees.fulfillmentUsd,
         protocolRaw: BigInt(parsed.fees.protocol),
+        protocolUsd: parsed.fees.protocolUsd,
         solverRaw: BigInt(parsed.fees.solver),
+        solverUsd: parsed.fees.solverUsd,
       },
       expiresAt: Number(parsed.expiry),
       allowances: allowances.map(({ approval: _approval, ...entry }) => entry),
