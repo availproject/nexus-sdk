@@ -234,7 +234,8 @@ gets a new ID. Use it alongside `intentId` when investigating an operation.
 
 ## Balances and catalog
 
-`getBalancesForSwap()` returns normalized `IntentBalance[]` holdings from Better Intent:
+Use `getBalancesForSwap()` for a connected wallet's holdings. It requires `setEVMProvider()` and
+returns normalized `IntentBalance[]` from Better Intent:
 
 ```ts
 const balances = await client.getBalancesForSwap();
@@ -243,17 +244,50 @@ const balances = await client.getBalancesForSwap();
 Each `IntentBalance` includes chain/token identity, raw balance, decimals, optional USD value,
 provider support, price source, and a `usable` flag.
 
+Catalog helpers discover supported assets independently of wallet holdings. Initialize once, then
+load a token page when the user opens a picker or changes its filters. Initialization fetches chain
+metadata only; it does not download every chain's tokens.
+
+### Choose a catalog helper
+
+| You need to… | Method | Result |
+| --- | --- | --- |
+| List cached chains and their capabilities | `getSupportedChains()` | `IntentChainMetadata[]` (synchronous) |
+| Search tokens across chains | `await getTokens(query?)` | `{ tokens, offset, limit, total }` |
+| Search tokens on one chain | `await getTokensByChain(chainId, query?)` | `{ tokens, offset, limit, total }` |
+| Resolve an exact chain/address selection | `await getToken({ chainId, tokenAddress })` | `IntentToken` |
+| Offer sources for a selected destination | `await getAvailableSourceTokens(destination, selectedSources?, query?)` | `{ groups, offset, limit, total }` |
+| Offer destinations for selected sources | `await getAvailableDestinationTokens(sources, query?)` | `{ chains, offset, limit, total }` |
+| Check whether all selections share a provider | `await confirmRouteExists(sources, destination)` | `boolean` |
+| Ask middleware for chains under route/amount constraints | `await getSupportedChainsForRoute(constraints)` | `IntentChainMetadata[]` |
+
+The examples below share this setup. Catalog calls need initialization but no wallet; the async
+helpers work on `mainnet` and `canary` and reject on `testnet`.
+
+```ts
+import {
+  createNexusClient,
+  type IntentTokenQuery,
+  type TokenRef,
+} from '@avail-project/nexus-core';
+import { parseUnits } from '@avail-project/nexus-core/utils';
+
+const client = createNexusClient({ clientId: 'your-app-name', network: 'mainnet' });
+await client.initialize();
+```
+
+### List chains
+
 ```ts
 const chains = client.getSupportedChains();
-
-for (const chain of chains) {
-  console.log(chain.id, chain.capabilities.intent, chain.capabilities.execute);
-}
+const swapChains = chains.filter((chain) => chain.capabilities.intent);
+const executeChains = chains.filter((chain) => chain.capabilities.execute);
 ```
 
 `getSupportedChains()` returns cached `IntentChainMetadata[]` without token lists. Each chain
 includes intent/execute capabilities and directional provider support. Chains with RPC and
 multicall metadata support execution. Optional vault, sponsorship, and EIP-7702 metadata is retained.
+For a swap picker, use chains with `capabilities.intent`; some chains support only execution.
 Standalone execute resolves Nexus-supported approval tokens by chain and symbol when needed;
 `chainList.chains[*].custom.knownTokens` is populated on demand and is not a complete token catalog.
 
@@ -261,99 +295,213 @@ The standalone utility and `client.utils.getSupportedChains(network)` also retur
 without tokens. They fetch `/chains`; the client method uses its initialization cache:
 
 ```ts
-import { getSupportedChains } from '@avail-project/nexus-core/utils';
+import { getSupportedChains as fetchSupportedChains } from '@avail-project/nexus-core/utils';
 
-const chains = await getSupportedChains('mainnet', { clientId: 'your-app-name' });
-console.log(chains[0].asSource, chains[0].asDestination);
+const remoteChains = await fetchSupportedChains('mainnet', { clientId: 'your-app-name' });
+// Or reuse the client identity: await client.utils.getSupportedChains('mainnet');
 ```
 
 The standalone utility requires `clientId`; `client.utils` uses the ID configured on that client.
 Chain and token `asSource`/`asDestination` arrays describe general provider support. Shared support
 does not guarantee a quote: middleware still checks currencies, amounts, balances, fees, and availability.
 
-### On-demand token discovery
+### Search tokens and load the next page
 
-These asynchronous helpers require initialization, work on `mainnet` and `canary`, and need no wallet.
-`getTokens(query?)` and `getTokensByChain(chainId, query?)` return `IntentTokenPage`:
-`{ tokens, offset, limit, total }`. Each call loads one page, defaulting to 50 tokens.
+`getTokens` and `getTokensByChain` return one `IntentTokenPage` at a time. Use them for general
+asset discovery; use the compatibility helpers below when the other side of a swap is selected.
 
 ```ts
-const page = await client.getTokensByChain(10, { symbol: 'USDC', limit: 50 });
-console.log(page.tokens); // IntentToken[]
+const query: IntentTokenQuery = { symbol: 'USDC', limit: 25 };
+let page = await client.getTokensByChain(10, { ...query, offset: 0 });
 
+for (const token of page.tokens) {
+  console.log(token.chainId, token.address, token.symbol, token.decimals);
+}
+
+// In the Next / Load more handler, keep the same chain and filters.
 if (page.offset + page.limit < page.total) {
-  const next = await client.getTokensByChain(10, {
-    symbol: 'USDC', offset: page.offset + page.limit, limit: page.limit,
+  page = await client.getTokensByChain(10, {
+    ...query,
+    offset: page.offset + page.limit,
+    limit: page.limit,
   });
 }
 
-const token = await client.getToken({ chainId: 8453, tokenAddress: baseUsdc });
-console.log(token.decimals); // exact chain/address lookup
+// For an all-chain search, omit chainId and use getTokens instead.
+const allChainPage = await client.getTokens({ symbol: 'USDC', limit: 25 });
 ```
 
-`IntentTokenQuery` supports `chainId`, `providers`, `name`, `symbol`, `contract`, `offset`, and
-`limit` (1–1000). Text filters are case-insensitive substrings combined with AND; `providers` is
-an OR filter. Use `getToken` for an exact address lookup. Token addresses and decimals are
-chain-specific; never infer decimals from a symbol. SDK amount inputs are raw `bigint` values;
-`convertTokenReadableAmountToBigInt` has been removed. Applications can use `parseUnits` with
-resolved token decimals when converting a form input.
+All token-page helpers accept these `IntentTokenQuery` filters:
+
+| Field | Meaning |
+| --- | --- |
+| `chainId` | Restrict candidates to one chain. With `getTokensByChain`, pass the chain as the first argument instead. |
+| `providers` | Match any listed provider, for example `['nexus-v2', 'mayan']`. Omit it to include all providers. |
+| `name` | Case-insensitive token-name substring, for example `'USD Coin'`. |
+| `symbol` | Case-insensitive symbol substring, for example `'USDC'`. |
+| `contract` | Case-insensitive contract-address substring. Use `getToken` for exact identity. |
+| `offset` | Number of API candidates to skip; defaults to `0`. |
+| `limit` | Page size from `1` to `1000`; defaults to `50`. |
+
+Different filters combine with AND. Setting both `name` and `symbol` searches for tokens matching
+both; it does not search either field. When a search or filter changes, reset `offset` to `0`.
+Debounce text searches and ignore stale responses if a newer query has already been issued.
 
 Repeated queries and concurrent identical requests share a bounded per-client cache (100 pages,
 1000 token metadata entries). Failed requests can be retried. Reinitializing replaces the cache.
 
-### Compatible token picker pages
+### Resolve a selected token
+
+Selections use `TokenRef`: `{ chainId, tokenAddress }`. A returned `IntentToken` uses `address`,
+so copy `token.address` into `tokenAddress` when a user selects a search result. Keep selections
+independently of the currently displayed page, using chain ID plus address as their identity.
 
 ```ts
-import type { TokenRef } from '@avail-project/nexus-core';
+const baseUsdc = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+const optimismUsdc = '0x0b2c639c533813f4aa9d7837caf62653d097ff85';
 
 const destination: TokenRef = { chainId: 8453, tokenAddress: baseUsdc };
-const selectedSources: TokenRef[] = [{ chainId: 10, tokenAddress: optimismUsdc }];
-const query = { chainId: 1, symbol: 'USDC', limit: 50 };
+const destinationToken = await client.getToken(destination);
+const destinationAmountRaw = parseUnits('10', destinationToken.decimals);
 
-const sources = await client.getAvailableSourceTokens(destination, selectedSources, query);
-console.log(sources.groups); // ProviderTokenGroup[] for this page
-const destinations = await client.getAvailableDestinationTokens(selectedSources, query);
-console.log(destinations.chains); // IntentChain[] containing this page's matching tokens
-const supported = await client.confirmRouteExists(selectedSources, destination);
+// Convert a search-result selection into the reference accepted by other helpers.
+const firstToken = page.tokens[0];
+if (firstToken) {
+  const selection: TokenRef = {
+    chainId: firstToken.chainId,
+    tokenAddress: firstToken.address,
+  };
+  console.log(selection);
+}
 ```
 
-Source pages group candidates by providers shared by the destination and every selected source.
-Omitting selected sources or passing `[]` lists initial candidates. A token may occur in more than
-one provider group. Destination pages require one provider shared by all sources; passing `[]`
-allows all destination-capable candidates. Both helpers accept the same optional query filters.
+`getToken` resolves exact metadata without downloading the entire chain's catalog. Token addresses
+and decimals are chain-specific; never infer decimals from a symbol. Public swap inputs take raw
+`bigint` amounts such as `destinationAmountRaw`. `convertTokenReadableAmountToBigInt` has been removed.
 
-Both page types include `offset`, `limit`, and `total` for the API candidate page **before** local
-directional filtering. A page can contain no matching tokens while later pages still have matches.
-Advance using `offset + limit`, and stop when it reaches `total`; do not use the number of displayed
-tokens or groups as a cursor. Keep selected tokens separately from the current search/page.
+### Build source and destination pickers
+
+For a destination-first picker, call `getAvailableSourceTokens`. Pass `[]` as the second argument
+for the first source choice; pass existing source selections to narrow additional choices.
+The third argument filters the candidate sources, not the selected destination.
+
+```ts
+const selectedSources: TokenRef[] = [{ chainId: 10, tokenAddress: optimismUsdc }];
+const sourceQuery: IntentTokenQuery = { symbol: 'USDC', limit: 25 };
+
+let sourcePage = await client.getAvailableSourceTokens(destination, selectedSources, sourceQuery);
+
+for (const group of sourcePage.groups) {
+  for (const chain of group.chains) {
+    for (const token of chain.tokens) {
+      console.log(group.provider, chain.id, token.address, token.symbol);
+    }
+  }
+}
+```
+
+`groups` is `ProviderTokenGroup[]`: each entry has a `provider` and `chains`, each containing
+matching `tokens` from this page. A token may appear under several providers. If your UI displays a
+flat list, deduplicate by chain ID and address. Provider groups are display metadata and do not
+pin the provider used by a later quote.
+
+For a source-first picker, call `getAvailableDestinationTokens`. Its query filters destination
+candidates. Pass `[]` for sources to browse all destination-capable candidates before selecting sources.
+
+```ts
+const destinationPage = await client.getAvailableDestinationTokens(selectedSources, {
+  chainId: 8453,
+  symbol: 'USDC',
+  limit: 25,
+});
+
+for (const chain of destinationPage.chains) {
+  for (const token of chain.tokens) {
+    console.log(chain.id, token.address, token.symbol);
+  }
+}
+```
+
+Both helpers require provider support in the correct direction at the chain and token level.
+Additional source choices must share a provider with the destination and every selected source.
+Destination choices must share one provider with all selected sources.
+Each call loads one candidate page and may also fetch uncached metadata for selected tokens.
+
+**Compatibility-page pagination describes API candidates before local directional filtering.**
+`total` is the candidate count, not the number of displayed compatible tokens. A page can have no
+groups or tokens even when later pages contain matches. Use the page's offset and limit to advance:
+
+```ts
+// In the source picker's Load more handler, even if sourcePage.groups is empty:
+const nextOffset = sourcePage.offset + sourcePage.limit;
+if (nextOffset < sourcePage.total) {
+  sourcePage = await client.getAvailableSourceTokens(destination, selectedSources, {
+    ...sourceQuery,
+    offset: nextOffset,
+    limit: sourcePage.limit,
+  });
+}
+```
+
+The same rule applies to destination pages. Reset pagination and reload when either selection or
+any filter changes. Fetch subsequent pages as needed instead of collecting the entire catalog up front.
+
+### Check a selection before requesting a swap
+
+```ts
+const compatible = await client.confirmRouteExists(selectedSources, destination);
+console.log(compatible); // Whether one provider supports every source and the destination.
+```
 
 `confirmRouteExists` resolves only selected tokens and returns `false` for empty sources, unknown
 chain/token pairs, or no common provider. Network failures still reject. `true` indicates catalog
-compatibility, not guaranteed quote availability. Other lookup helpers reject unknown inputs with
-`validation/chain_not_found` or `validation/token_not_supported`.
+compatibility; the quote still checks amounts, balances, fees, and current provider availability.
+Other lookup helpers reject unknown inputs with `validation/chain_not_found` or
+`validation/token_not_supported`. Handle rejected promises separately from an empty page or a
+`false` compatibility result so an API outage does not appear as an unsupported asset.
 
-`IntentTokenQuery`, `IntentTokenPage`, `IntentSourceTokenPage`, `IntentDestinationTokenPage`,
-`IntentChainMetadata`, `TokenRef`, and `ProviderTokenGroup` are exported from the package root.
-Provider groups help display choices; they do not pin the quote provider. Exact-output sources
-are alternatives, so each candidate needs individual compatibility with the destination.
+The common-provider rule matches exact-input selection, where all sources participate. Exact-output
+sources are alternatives: each candidate only needs individual compatibility with the destination.
+For that picker, call `getAvailableSourceTokens(destination, [], query)` without passing already
+selected alternatives. Do not reject an exact-output selection solely because all alternatives
+together return `false` from `confirmRouteExists`. With omitted sources, let middleware discover
+wallet funding directly; no token enumeration or compatibility check is needed first.
 
 ### Route-constrained catalog
 
-`getSupportedChainsForRoute()` forwards route constraints to `/chains`, so its chain-level support
-is constrained. It returns `IntentChainMetadata[]` and makes no token requests. Token query
-filters describe general availability; the token endpoint does not accept route constraints.
+Use `getSupportedChainsForRoute` when the chain picker needs middleware's support for a particular
+source, destination, or amount. It forwards constraints to `/chains` and returns chain metadata
+without token lists. Read `asSource` or `asDestination` for the side you are choosing.
 
 ```ts
-const destinationOptions = await client.getSupportedChainsForRoute({
-  sources: [{ chainId: 10, tokenAddress: optimismUsdc, amountRaw: 1_000_000n }],
+const constrainedChains = await client.getSupportedChainsForRoute({
+  sources: [{ chainId: 10, tokenAddress: optimismUsdc }],
+  valueUsd: 25,
 });
+const destinationOptions = constrainedChains.filter((chain) => (chain.asDestination?.length ?? 0) > 0);
+
+// Alternatively, constrain the destination using its raw token amount.
+const chainsForOutput = await client.getSupportedChainsForRoute({
+  destinations: [{ ...destination, amountRaw: destinationAmountRaw }],
+});
+const sourceOptions = chainsForOutput.filter((chain) => (chain.asSource?.length ?? 0) > 0);
 ```
 
-Use `valueUsd`, source `amountRaw` values, or destination `amountRaw` values as one sizing mode per
-request. Quote results expose `sourceVerdicts`; quote failures can be inspected without parsing
-messages using `getIntentQuoteFailure(error)`.
-The helper also exposes structured balance, approval-gas, price, and routing failures through its
-`subcode`, `details`, and `errorId` fields.
+`IntentRouteConstraints` accepts `sources`, `destinations`, `providers`, and `valueUsd`. Each leg
+needs a chain ID or token address; an `amountRaw` additionally requires both. When supplying multiple
+legs on one side, supply the same fields on every leg. Amounts must be non-negative raw `bigint`s.
+Sizing is optional; use at most one mode per request: source amounts, destination amounts, or a
+non-negative finite `valueUsd`.
+
+Route constraints apply to this chain response. Subsequent token-page helpers take their own query
+filters; they do not inherit these constraints, and `/tokens` does not accept route amounts.
+Only the quote establishes execution feasibility. Quote results expose `sourceVerdicts`;
+`getIntentQuoteFailure(error)` exposes structured balance, approval-gas, price, and routing failures
+through `subcode`, `details`, and `errorId` without parsing display messages.
+
+Catalog types (`IntentTokenQuery`, `IntentTokenPage`, `IntentSourceTokenPage`,
+`IntentDestinationTokenPage`, `IntentChainMetadata`, `IntentRouteConstraints`, `TokenRef`, and
+`ProviderTokenGroup`) are exported from the package root.
 
 Tokens expose optional `permit` and `sponsoredApproval` metadata for discovery. The quote determines
 which approvals actually need permits. `IntentAllowance.authorizationType` and plan steps describe
