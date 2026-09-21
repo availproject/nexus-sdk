@@ -1,5 +1,10 @@
 import { D } from "./math";
 
+export function formatUsd(value: string): string {
+  const amount = D(value);
+  return amount.gt(0) && amount.lt("0.01") ? "<$0.01" : `$${amount.toFixed(2)}`;
+}
+
 export function formatAmount(
   value: string | number,
   decimals = 6,

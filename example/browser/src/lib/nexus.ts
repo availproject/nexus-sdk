@@ -14,7 +14,7 @@ import { formatUnits } from "viem";
 import { toast } from "sonner";
 import { useConnection } from "wagmi";
 import type { NetworkMode, SourceOption, TokenBalance } from "./types";
-import { D, sum, toFixed } from "./math";
+import { D, sum } from "./math";
 
 /* ── View models for the existing intent modals ─────────────────── */
 
@@ -35,21 +35,25 @@ export type SwapIntentViewModel = {
     tokenSymbol: string;
     amount: string;
     value: string;
+    minAmount: string;
+    minValue: string;
     gas?: { tokenSymbol: string; amount: string; value: string };
   };
-  buffer: string;
   fees: {
+    deposit: string;
+    fulfillment: string;
     protocol: string;
     solver: string;
     total: string;
-  } | null;
+    fulfillmentIncludesProviderFees: boolean;
+  };
 };
 
 export type ExecuteRequirementViewModel = {
   chainName: string;
   chainLogo?: string;
   contractAddress: string;
-  token: { symbol: string; amount: string; value: string };
+  token: { symbol: string; amount: string; value?: string };
   gas: { symbol: string; amount: string; value: string; priceTier: string };
   nativeValue?: { amount: string; value: string };
   tokenApproval?: { symbol: string; amount: string };
@@ -87,20 +91,24 @@ function findChain(client: NexusClient, chainId: number) {
   return client.getSupportedChains().find((chain) => chain.id === chainId);
 }
 
-function estimatedUsd(symbol: string, amount: string): string {
-  return /^(USDC|USDT|USDS|DAI|USDE)$/i.test(symbol) ? amount : "0";
-}
-
-function quoteFees(quote: IntentQuote, decimals: number) {
-  const formatFee = (value: bigint) => formatUnits(value, decimals);
+function quoteFees(quote: IntentQuote) {
+  // Mayan/Relay fulfillment includes protocol and solver costs. Nexus's protocol fee is separate.
+  const fulfillmentIncludesProviderFees = quote.provider !== "nexus-v2";
   return {
-    protocol: formatFee(quote.fees.protocolRaw),
-    solver: formatFee(quote.fees.solverRaw),
-    total: formatFee(quote.fees.depositRaw + quote.fees.fulfillmentRaw),
+    deposit: quote.fees.depositUsd,
+    fulfillment: quote.fees.fulfillmentUsd,
+    protocol: quote.fees.protocolUsd,
+    solver: quote.fees.solverUsd,
+    total: sum([
+      quote.fees.depositUsd,
+      quote.fees.fulfillmentUsd,
+      ...(fulfillmentIncludesProviderFees ? [] : [quote.fees.protocolUsd, quote.fees.solverUsd]),
+    ]).toFixed(),
+    fulfillmentIncludesProviderFees,
   };
 }
 
-async function mapSwapQuote(client: NexusClient, quote: IntentQuote): Promise<SwapIntentViewModel> {
+export async function mapSwapQuote(client: NexusClient, quote: IntentQuote): Promise<SwapIntentViewModel> {
   const [destinationToken, ...sourceTokens] = await Promise.all([quote.output, ...quote.input].map(
     (token) => client.getToken({ chainId: token.chainId, tokenAddress: token.tokenAddress }),
   ));
@@ -113,7 +121,7 @@ async function mapSwapQuote(client: NexusClient, quote: IntentQuote): Promise<Sw
       chainLogo: chain?.logo ?? "",
       tokenSymbol: source.tokenSymbol,
       amount,
-      value: estimatedUsd(source.tokenSymbol, amount),
+      value: source.totalRequiredUsd,
     };
   });
   const destinationChain = findChain(client, quote.output.chainId);
@@ -121,21 +129,22 @@ async function mapSwapQuote(client: NexusClient, quote: IntentQuote): Promise<Sw
 
   return {
     sources,
-    sourcesTotal: toFixed(sum(sources.map((source) => source.value)), 2),
+    sourcesTotal: sum(sources.map((source) => source.value)).toFixed(),
     destination: {
       chainId: quote.output.chainId,
       chainName: destinationChain?.name ?? `Chain ${quote.output.chainId}`,
       chainLogo: destinationChain?.logo ?? "",
       tokenSymbol: destinationToken?.symbol ?? "Token",
       amount: destinationAmount,
-      value: estimatedUsd(destinationToken?.symbol ?? "", destinationAmount),
+      value: quote.output.amountUsd,
+      minAmount: formatUnits(quote.output.minAmountRaw, destinationToken!.decimals),
+      minValue: quote.output.minAmountUsd,
     },
-    buffer: "0",
-    fees: quoteFees(quote, destinationToken!.decimals),
+    fees: quoteFees(quote),
   };
 }
 
-async function mapCompositeQuote(
+export async function mapCompositeQuote(
   client: NexusClient,
   quote: IntentQuote,
   context?: CompositeIntentContext,
@@ -144,7 +153,10 @@ async function mapCompositeQuote(
   const swap = await mapSwapQuote(client, quote);
   const amount = context?.amount ?? swap.destination.amount;
   const symbol = context?.tokenSymbol ?? swap.destination.tokenSymbol;
-  const value = estimatedUsd(symbol, amount);
+  // The execute amount can exceed the funding quote when destination funds are already available.
+  const value = D(swap.destination.amount).gt(0)
+    ? D(swap.destination.value).mul(amount).div(swap.destination.amount).toFixed()
+    : undefined;
   const executeRequirement: ExecuteRequirementViewModel = {
     chainName: chain?.name ?? `Chain ${quote.output.chainId}`,
     chainLogo: chain?.logo,
@@ -163,7 +175,7 @@ async function mapCompositeQuote(
     gas: { amount: "0", value: "0" },
   };
   const shortfall = {
-    token: { amount, value },
+    token: { amount: swap.destination.amount, value: swap.destination.value },
     gas: { amount: "0", value: "0" },
   };
 
