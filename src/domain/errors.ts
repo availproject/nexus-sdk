@@ -36,6 +36,12 @@ export type OperationName =
   | 'swapAndExecute'
   | 'setEVMProvider'
   | 'getSupportedChainsForRoute'
+  | 'getTokens'
+  | 'getToken'
+  | 'getTokensByChain'
+  | 'getAvailableSourceTokens'
+  | 'getAvailableDestinationTokens'
+  | 'confirmRouteExists'
   // exported utility helpers (rev 10)
   | 'getCoinbaseRates'
   | 'getSupportedChains';

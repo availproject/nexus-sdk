@@ -11,14 +11,17 @@ import type {
 } from '../domain';
 import type {
   IntentBalance,
-  IntentChain,
+  IntentChainMetadata,
+  IntentDestinationTokenPage,
   IntentEvent,
   IntentHistoryResult,
   IntentHookData,
   IntentResult,
   IntentRouteConstraints,
+  IntentSourceTokenPage,
   IntentToken,
-  ProviderTokenGroup,
+  IntentTokenPage,
+  IntentTokenQuery,
   SwapAndExecuteIntentResult,
   TokenRef,
 } from '../intent/types';
@@ -62,23 +65,27 @@ export type NexusClient = {
   ) => Promise<SwapAndExecuteIntentResult>;
   setEVMProvider: (provider: EthereumProvider) => Promise<void>;
   hasEvmProvider: boolean;
-  convertTokenReadableAmountToBigInt: (
-    amount: string,
-    tokenSymbol: string,
-    chainId: number
-  ) => bigint;
-  getSupportedChains: () => IntentChain[];
-  /** Read cached token metadata after initialization. */
-  getTokensByChain: (chainId: number) => IntentToken[];
-  /** Group compatible sources by provider, retaining already-selected tokens. */
+  getSupportedChains: () => IntentChainMetadata[];
+  getTokens: (query?: IntentTokenQuery) => Promise<IntentTokenPage>;
+  getToken: (token: TokenRef) => Promise<IntentToken>;
+  getTokensByChain: (
+    chainId: number,
+    query?: Omit<IntentTokenQuery, 'chainId'>
+  ) => Promise<IntentTokenPage>;
+  /** Group one page of compatible candidates; pagination describes the unfiltered API page. */
   getAvailableSourceTokens: (
     destination: TokenRef,
-    selectedSources?: TokenRef[]
-  ) => ProviderTokenGroup[];
-  /** List destinations compatible with a provider shared by every source; [] lists all. */
-  getAvailableDestinationTokens: (sources: TokenRef[]) => IntentChain[];
-  /** Check cached provider compatibility; quote availability is still decided by middleware. */
-  confirmRouteExists: (sources: TokenRef[], destination: TokenRef) => boolean;
-  getSupportedChainsForRoute: (constraints: IntentRouteConstraints) => Promise<IntentChain[]>;
+    selectedSources?: TokenRef[],
+    query?: IntentTokenQuery
+  ) => Promise<IntentSourceTokenPage>;
+  getAvailableDestinationTokens: (
+    sources: TokenRef[],
+    query?: IntentTokenQuery
+  ) => Promise<IntentDestinationTokenPage>;
+  /** Resolve selected tokens and check provider compatibility, not quote availability. */
+  confirmRouteExists: (sources: TokenRef[], destination: TokenRef) => Promise<boolean>;
+  getSupportedChainsForRoute: (
+    constraints: IntentRouteConstraints
+  ) => Promise<IntentChainMetadata[]>;
   destroy: () => void;
 };

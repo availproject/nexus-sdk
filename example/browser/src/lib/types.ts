@@ -195,7 +195,8 @@ export type TabConfig = {
   amountMode?: "single" | "per-source";
 
   getChainOptions: (client: NexusClient | null) => ChainOption[];
-  getTokenOptions: (client: NexusClient | null, chainId: number) => TokenOption[];
+  /** Fixed protocol tokens; swap tabs use the paginated catalog picker. */
+  getTokenOptions?: (client: NexusClient | null, chainId: number) => TokenOption[];
 
   balanceQueryKey: string;
   fetchBalances: (client: NexusClient) => Promise<TokenBalance[]>;

@@ -9,7 +9,6 @@ import type {
 } from '../../domain';
 import { getLogger } from '../../domain';
 import { Errors } from '../../domain/errors';
-import { intentNetworkEnabled } from '../../intent/catalog';
 import { createChainList } from '../../services/chain-list';
 import { getNetwork, readEnv } from '../../services/network-config';
 import { setLoggerProvider } from '../../services/telemetry';
@@ -62,12 +61,9 @@ export const createNexusClient = (config: {
     await setLoggerProvider(base.networkConfig);
     await trackInit(analytics, { debug: config?.debug || false }, async () => {
       const middleware = base.getMiddlewareClient();
-      const intentEnabled = intentNetworkEnabled(base.networkConfig.NETWORK_HINT);
       const intentChains = await middleware.getIntentChains();
       base.setChainList(createChainList(intentChains));
-      if (intentEnabled) {
-        base.setIntentCatalog(intentChains);
-      }
+      base.setIntentCatalog(intentChains);
     });
   };
 
@@ -99,8 +95,9 @@ export const createNexusClient = (config: {
         base.swapAndExecute(input, options, reporting)
       ),
     setEVMProvider: (provider: EthereumProvider) => base.setEvmProvider(provider),
-    convertTokenReadableAmountToBigInt: base.convertTokenReadableAmountToBigInt,
     getSupportedChains: base.getSupportedChains,
+    getTokens: base.getTokens,
+    getToken: base.getToken,
     getTokensByChain: base.getTokensByChain,
     getAvailableSourceTokens: base.getAvailableSourceTokens,
     getAvailableDestinationTokens: base.getAvailableDestinationTokens,

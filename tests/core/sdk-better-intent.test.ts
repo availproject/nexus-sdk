@@ -1,3 +1,4 @@
+import { makeTokenFetcher } from '../helpers/catalog';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Hex, TransactionReceipt } from 'viem';
 import { createNexusClient, ExecutionError, UserActionError, ValidationError } from '../../src';
@@ -149,7 +150,7 @@ describe('Better Intent approval confirmations', () => {
     const submitIntent = vi.fn(async () => ({ quoteId: QUOTE_ID, status: 'created' as const }));
     const base = createBase({
       clientId: 'test-client', network: 'mainnet',
-      internal: { middlewareClient: makeMiddlewareClient({
+      internal: { middlewareClient: makeMiddlewareClient({ getIntentTokens: makeTokenFetcher(intentChains),
         getIntentQuote: async () => quoted, submitIntent,
         getIntentStatus: async () => ({
           id: QUOTE_ID, provider: 'nexus-v2', status: 'fulfilled', substatus: 'completed', legs: [],
@@ -301,7 +302,7 @@ describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s
     const submitIntent = vi.fn().mockResolvedValue({ quoteId: QUOTE_ID, status: 'created' });
     const getIntentStatus = vi.fn().mockResolvedValue({ id: QUOTE_ID, provider: 'nexus-v2', status: 'fulfilled', substatus: 'completed', legs: [] });
     const client = createNexusClient({ clientId: 'test', network, analytics: { mode: 'on' },
-      internal: { middlewareClient: makeMiddlewareClient({ getIntentChains: async () => intentChains, getIntentQuote, submitIntent, getIntentStatus }) } });
+      internal: { middlewareClient: makeMiddlewareClient({ getIntentTokens: makeTokenFetcher(intentChains), getIntentChains: async () => intentChains, getIntentQuote, submitIntent, getIntentStatus }) } });
     try {
       await client.initialize();
       await client.setEVMProvider(provider());
@@ -320,7 +321,7 @@ describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s
 
   it('returns available balances but reports a partial response separately', async () => {
     const client = createNexusClient({ clientId: 'test', network, analytics: { mode: 'on' },
-      internal: { middlewareClient: makeMiddlewareClient({ getIntentChains: async () => intentChains,
+      internal: { middlewareClient: makeMiddlewareClient({ getIntentTokens: makeTokenFetcher(intentChains), getIntentChains: async () => intentChains,
         getIntentBalances: async () => ({ balances: [], errored: true }) }) } });
     try {
       await client.initialize(); await client.setEVMProvider(provider());
@@ -332,7 +333,7 @@ describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s
   });
   it('loads the mainnet intent catalog and executes a same-asset swap through the API', async () => {
     const getIntentQuote = vi.fn().mockResolvedValue(quote());
-    const middleware = makeMiddlewareClient({
+    const middleware = makeMiddlewareClient({ getIntentTokens: makeTokenFetcher(intentChains),
       getIntentChains: async () => intentChains,
       getIntentQuote,
       submitIntent: async () => ({ quoteId: QUOTE_ID, status: 'created' }),
@@ -393,7 +394,7 @@ describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s
       ],
       total: 1,
     });
-    const middleware = makeMiddlewareClient({
+    const middleware = makeMiddlewareClient({ getIntentTokens: makeTokenFetcher(intentChains),
       getIntentChains: async () => intentChains,
       listIntentHistory,
     });
@@ -426,10 +427,10 @@ describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s
     });
   });
 
-  it('loads the full catalog and requests balances without a provider filter', async () => {
+  it('loads chain metadata and requests balances without a provider filter', async () => {
     const getIntentChains = vi.fn().mockResolvedValue(intentChains);
     const getIntentBalances = vi.fn().mockResolvedValue({ balances: [], errored: false });
-    const middleware = makeMiddlewareClient({
+    const middleware = makeMiddlewareClient({ getIntentTokens: makeTokenFetcher(intentChains),
       getIntentChains,
       getIntentBalances,
     });
@@ -452,7 +453,7 @@ describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s
 
 describe('unsupported intent environment', () => {
   it('keeps execute metadata but rejects swap operations on testnet', async () => {
-    const middleware = makeMiddlewareClient({ getIntentChains: async () => testChains });
+    const middleware = makeMiddlewareClient({ getIntentTokens: makeTokenFetcher(intentChains), getIntentChains: async () => testChains });
     const client = createNexusClient({
       clientId: 'test-client',
       network: 'testnet',

@@ -1,10 +1,13 @@
 import type { Hex } from 'viem';
 import type { MiddlewareClient } from '../../src/transport';
+import { testChains } from '../fixtures/chains';
+import { makeTokenFetcher } from './catalog';
 
 export const makeMiddlewareClient = (
   overrides: Partial<MiddlewareClient> = {}
 ): MiddlewareClient => ({
   getIntentChains: async () => [],
+  getIntentTokens: makeTokenFetcher(testChains),
   getIntentBalances: async () => ({ balances: [], errored: false }),
   getIntentQuote: async () => {
     throw new Error('getIntentQuote fixture not configured');

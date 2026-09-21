@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { UserActionError, type NexusClient } from "@avail-project/nexus-core";
-import type { TabConfig, HashRecord, SwapResultData } from "../lib/types";
+import type { TabConfig, HashRecord, SwapResultData, TokenOption } from "../lib/types";
 import {
   flattenBalances,
   getErrorMessage,
@@ -92,7 +92,8 @@ export function useOperationForm({
   const progress = useExecutionProgress(config.intentType);
   const chainOptions = useMemo(() => config.getChainOptions(client), [config, client]);
   const [chainId, setChainId] = useState<number>(config.defaultChainId);
-  const [tokenAddress, setTokenAddress] = useState<`0x${string}`>();
+  const [currentTokenOption, setCurrentTokenOption] = useState<TokenOption>();
+  const tokenAddress = currentTokenOption?.tokenAddress;
   const [amount, setAmount] = useState("");
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [sourceAmounts, setSourceAmounts] = useState<Record<string, string>>({});
@@ -109,22 +110,11 @@ export function useOperationForm({
   const [marketUrl, setMarketUrl] = useState<string | undefined>();
   const [statusMessage, setStatusMessage] = useState("");
 
-  const tokenOptions = useMemo(
-    () => config.getTokenOptions(client, chainId),
-    [config, client, chainId],
-  );
-
-  const currentTokenOption = tokenOptions.find(
-    (t) => t.tokenAddress?.toLowerCase() === tokenAddress?.toLowerCase(),
-  );
-  const tokenSymbol = currentTokenOption?.symbol ?? "USDC";
+  const tokenSymbol = currentTokenOption?.symbol ?? "";
 
   useEffect(() => {
-    if (!currentTokenOption && tokenOptions.length > 0) {
-      const fallback = tokenOptions.find((t) => t.symbol === tokenSymbol) ?? tokenOptions[0];
-      setTokenAddress(fallback?.tokenAddress);
-    }
-  }, [tokenOptions, currentTokenOption, tokenSymbol]);
+    setCurrentTokenOption(undefined);
+  }, [client, config]);
 
   const balancesQuery = useQuery({
     queryKey: [config.balanceQueryKey],
@@ -229,6 +219,7 @@ export function useOperationForm({
     mutationFn: async () => {
       if (!client) throw new Error("SDK not ready");
       if (!address) throw new Error("Connect wallet first");
+      if (!currentTokenOption) throw new Error("Select a destination token");
       if (isPerSource) {
         if (!amountValid) throw new Error("Enter an amount for at least one asset");
       } else if (!amount.trim()) {
@@ -345,10 +336,10 @@ export function useOperationForm({
     chainOptions,
     chainId,
     setChainId,
-    tokenOptions,
+    currentTokenOption,
     tokenSymbol,
     tokenAddress,
-    setTokenAddress,
+    setCurrentTokenOption,
     amount,
     setAmount,
     sourceOptions,

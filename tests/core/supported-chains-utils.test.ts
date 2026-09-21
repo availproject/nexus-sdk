@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { createNexusClient } from '../../src';
-import type { IntentProvider, IntentProviderSupport } from '../../src';
-import { ZERO_ADDRESS } from '../../src/domain';
+import type { IntentProvider } from '../../src';
 import { getSupportedChains } from '../../src/utils';
 import * as transport from '../../src/transport';
 import { testChains } from '../fixtures/chains';
@@ -32,16 +31,8 @@ describe('supported-chain utilities', () => {
         id: metadata.id, name: metadata.name, logo: metadata.logo, swapSupported: true,
         asSource: ['nexus-v2', 'mayan'], asDestination: ['relay'],
       });
-      expect(chain.tokens.find(({ contractAddress }) => contractAddress === metadata.tokens[1].address)).toMatchObject({
-        contractAddress: metadata.tokens[1].address, decimals: 6, currencyId: 1,
-        permitVariant: 1, permitVersion: 2,
-        asSource: [{ id: 'nexus-v2', currencyId: 1 }], asDestination: [{ id: 'mayan' }],
-      });
-      expect(chain.tokens.find(({ contractAddress }) => contractAddress === ZERO_ADDRESS)).toMatchObject({
-        decimals: 18, asSource: [], asDestination: [{ id: 'nexus-v2', currencyId: 3 }],
-      });
+      expect(chain).not.toHaveProperty('tokens');
       expectTypeOf(chain.asSource).toEqualTypeOf<IntentProvider[]>();
-      expectTypeOf(chain.tokens[0].asDestination).toEqualTypeOf<IntentProviderSupport[]>();
       expect(getIntentChains).toHaveBeenCalledExactlyOnceWith();
       expect(transport.createMiddlewareClient).toHaveBeenLastCalledWith(
         expect.any(String), { clientId: 'test-client' }

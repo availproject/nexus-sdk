@@ -87,31 +87,11 @@ function findChain(client: NexusClient, chainId: number) {
   return client.getSupportedChains().find((chain) => chain.id === chainId);
 }
 
-function findToken(client: NexusClient, chainId: number, address: `0x${string}`) {
-  return findChain(client, chainId)?.tokens.find(
-    (token) => token.address.toLowerCase() === address.toLowerCase(),
-  );
-}
-
-function displayAmount(
-  client: NexusClient,
-  chainId: number,
-  address: `0x${string}`,
-  amountRaw: bigint,
-): string {
-  return formatUnits(amountRaw, findToken(client, chainId, address)?.decimals ?? 18);
-}
-
 function estimatedUsd(symbol: string, amount: string): string {
   return /^(USDC|USDT|USDS|DAI|USDE)$/i.test(symbol) ? amount : "0";
 }
 
-function quoteFees(client: NexusClient, quote: IntentQuote) {
-  const decimals = findToken(
-    client,
-    quote.output.chainId,
-    quote.output.tokenAddress,
-  )?.decimals ?? 18;
+function quoteFees(quote: IntentQuote, decimals: number) {
   const formatFee = (value: bigint) => formatUnits(value, decimals);
   return {
     protocol: formatFee(quote.fees.protocolRaw),
@@ -120,15 +100,13 @@ function quoteFees(client: NexusClient, quote: IntentQuote) {
   };
 }
 
-function mapSwapQuote(client: NexusClient, quote: IntentQuote): SwapIntentViewModel {
-  const sources = quote.input.map((source) => {
+async function mapSwapQuote(client: NexusClient, quote: IntentQuote): Promise<SwapIntentViewModel> {
+  const [destinationToken, ...sourceTokens] = await Promise.all([quote.output, ...quote.input].map(
+    (token) => client.getToken({ chainId: token.chainId, tokenAddress: token.tokenAddress }),
+  ));
+  const sources = quote.input.map((source, index) => {
     const chain = findChain(client, source.chainId);
-    const amount = displayAmount(
-      client,
-      source.chainId,
-      source.tokenAddress,
-      source.totalRequiredRaw,
-    );
+    const amount = formatUnits(source.totalRequiredRaw, sourceTokens[index]!.decimals);
     return {
       chainId: source.chainId,
       chainName: chain?.name ?? `Chain ${source.chainId}`,
@@ -139,17 +117,7 @@ function mapSwapQuote(client: NexusClient, quote: IntentQuote): SwapIntentViewMo
     };
   });
   const destinationChain = findChain(client, quote.output.chainId);
-  const destinationToken = findToken(
-    client,
-    quote.output.chainId,
-    quote.output.tokenAddress,
-  );
-  const destinationAmount = displayAmount(
-    client,
-    quote.output.chainId,
-    quote.output.tokenAddress,
-    quote.output.amountRaw,
-  );
+  const destinationAmount = formatUnits(quote.output.amountRaw, destinationToken!.decimals);
 
   return {
     sources,
@@ -163,24 +131,19 @@ function mapSwapQuote(client: NexusClient, quote: IntentQuote): SwapIntentViewMo
       value: estimatedUsd(destinationToken?.symbol ?? "", destinationAmount),
     },
     buffer: "0",
-    fees: quoteFees(client, quote),
+    fees: quoteFees(quote, destinationToken!.decimals),
   };
 }
 
-function mapCompositeQuote(
+async function mapCompositeQuote(
   client: NexusClient,
   quote: IntentQuote,
   context?: CompositeIntentContext,
-): SwapAndExecuteIntentViewModel {
+): Promise<SwapAndExecuteIntentViewModel> {
   const chain = findChain(client, quote.output.chainId);
-  const token = findToken(client, quote.output.chainId, quote.output.tokenAddress);
-  const amount = context?.amount ?? displayAmount(
-    client,
-    quote.output.chainId,
-    quote.output.tokenAddress,
-    quote.output.amountRaw,
-  );
-  const symbol = context?.tokenSymbol ?? token?.symbol ?? "Token";
+  const swap = await mapSwapQuote(client, quote);
+  const amount = context?.amount ?? swap.destination.amount;
+  const symbol = context?.tokenSymbol ?? swap.destination.tokenSymbol;
   const value = estimatedUsd(symbol, amount);
   const executeRequirement: ExecuteRequirementViewModel = {
     chainName: chain?.name ?? `Chain ${quote.output.chainId}`,
@@ -210,7 +173,7 @@ function mapCompositeQuote(
     available,
     swapRequired: true,
     shortfall,
-    swap: mapSwapQuote(client, quote),
+    swap,
   };
 }
 
@@ -312,7 +275,7 @@ export function getErrorMessage(error: unknown): string {
 
 function useIntentApproval<T, C = undefined>(
   clientRef: React.RefObject<NexusClient | null>,
-  mapQuote: (client: NexusClient, quote: IntentQuote, context?: C) => T,
+  mapQuote: (client: NexusClient, quote: IntentQuote, context?: C) => Promise<T>,
 ) {
   const dataRef = useRef<IntentHookData | null>(null);
   const contextRef = useRef<C | undefined>(undefined);
@@ -345,30 +308,43 @@ function useIntentApproval<T, C = undefined>(
       try {
         setRefreshing(true);
         const quote = await current.refresh();
+        const mapped = await mapQuote(client, quote, contextRef.current);
         if (dataRef.current === current) {
-          setIntent(mapQuote(client, quote, contextRef.current));
+          setIntent(mapped);
           scheduleRefresh();
         }
       } catch (error) {
-        toast.error(getErrorMessage(error));
-        clear();
+        if (dataRef.current === current) {
+          current.deny();
+          toast.error(getErrorMessage(error));
+          clear();
+        }
       } finally {
         setRefreshing(false);
       }
     }, 20_000);
   }, [clear, clientRef, mapQuote, stopRefresh]);
 
-  const onIntent = useCallback((data: IntentHookData, context?: C) => {
+  const onIntent = useCallback(async (data: IntentHookData, context?: C) => {
     const client = clientRef.current;
-    if (!client) return;
+    if (!client) { data.deny(); return; }
     dataRef.current = data;
     contextRef.current = context;
-    setIntent(mapQuote(client, data.quote, context));
+    try {
+      const mapped = await mapQuote(client, data.quote, context);
+      if (dataRef.current !== data) return;
+      setIntent(mapped);
+    } catch (error) {
+      data.deny();
+      if (dataRef.current === data) clear();
+      toast.error(getErrorMessage(error));
+      return;
+    }
     setPending(true);
     setRefreshing(false);
     setApproved(false);
     scheduleRefresh();
-  }, [clientRef, mapQuote, scheduleRefresh]);
+  }, [clear, clientRef, mapQuote, scheduleRefresh]);
 
   const approve = useCallback(() => {
     const current = dataRef.current;

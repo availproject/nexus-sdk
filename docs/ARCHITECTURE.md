@@ -33,10 +33,10 @@ legacy fallback.
 createNexusClient(config)
   -> initialize()
        GET /api/v1/intent/chains       chain and execution metadata
-       GET /api/v1/intent/tokens       all pages, joined by chain ID
   -> setEVMProvider(provider)
        bind address + viem wallet client
-  -> operations
+  -> token lookups / operations
+       GET /api/v1/intent/tokens       filtered pages or selected contracts, on demand
   -> destroy()
 ```
 
@@ -134,11 +134,11 @@ flow. Approval hooks are flow-control hooks and may deliberately allow or reject
 ### Exact-output swap
 
 Exact-output accepts optional source chain/token pairs and a required destination raw amount.
-The SDK filters cached assets against the destination's providers, restricted to user-selected
-sources when supplied. Compatible tokens are deduplicated and grouped by chain in the quote request.
-No surviving source is a local `INVALID_INPUT` error; the SDK never turns that into an unconstrained
-request. Different candidate sources can use different providers, since middleware may choose a subset.
-Middleware selects usable balances within those filters.
+With omitted or empty sources, the SDK leaves wallet balance discovery to middleware. Explicit
+token selections are resolved on demand, checked against destination providers, and grouped by chain.
+Chain-only selections remain broad chain filters without enumerating their tokens. No surviving
+explicit source is a local `INVALID_INPUT` error; filtering never broadens a request accidentally.
+Different source candidates can use different providers; middleware selects usable balances.
 
 ### Exact-input swap
 
@@ -146,7 +146,7 @@ Exact-input requires every source chain, token address, and raw amount. The SDK 
 source providers with the destination providers and rejects an empty intersection with
 `INVALID_INPUT`. Support must exist at both chain and token level in the correct direction.
 The output amount is quoted by middleware. Both modes repeat their checks for hook-driven refreshes
-without additional catalog or balance requests.
+using cached metadata when available and fetching only newly selected tokens.
 
 All modes default to 50 basis points of slippage. Middleware selects the quote provider;
 the SDK does not calculate a local threshold or compare provider quotes.
@@ -175,47 +175,37 @@ approved quote auditable.
 `src/intent/catalog.ts` resolves normalized chain metadata and token metadata by chain ID and
 contract address. It does not group tokens by symbol or infer cross-chain fungibility.
 
-The transport loads chain metadata and paginated tokens separately, normalizes both responses, and
-joins tokens by chain ID. It rejects incomplete pagination rather than exposing a partial catalog.
+Initialization fetches `/chains` only. It builds `chainList` from RPC, vault, multicall, native
+currency, and execution flags; `knownTokens` starts empty. Execute resolves approval symbols on
+demand using a chain, symbol, and `nexus-v2` filter. External tokens with duplicate symbols must not
+replace execute token identities. Native metadata is already present on the chain.
 
-Initialization requests the full catalog once and builds `chainList` from its RPC, vault, multicall,
-native currency, and execution flags. Native and ERC-20 Nexus currency IDs come from token provider
-support. `knownTokens` retains Nexus-supported ERC-20s, matching the old deployment token set;
-external catalogs contain duplicate symbols that must not replace execute's known token identities.
-Native entries are kept out of `knownTokens` to preserve native-token lookup semantics.
-The standalone chain utility uses these endpoints too; there is no `/deployment` client.
+`getTokens` and `getTokensByChain` fetch one `/tokens` page, defaulting to 50 results. The transport
+validates query pagination and normalizes each response. Filters include chain ID, providers, name,
+symbol, and contract. `getToken` uses chain plus full contract with limit 1 and verifies exact identity.
+`src/intent/catalog.ts` caches up to 100 query promises and 1000 unrestricted token entries per
+client, deduplicates concurrent requests, and evicts failures. Provider-filtered metadata must not
+seed unrestricted token lookups because those responses narrow provider support.
 
-Catalog discovery and balance requests include all supported providers. Explicit provider
-constraints on `getSupportedChainsForRoute()` are forwarded to middleware for that request.
+`getAvailableSourceTokens` and `getAvailableDestinationTokens` resolve selected tokens, intersect
+chain/token directional providers, request one provider-filtered candidate page, then apply local
+directional checks. Source results contain provider groups; destination results contain chains.
+Pagination metadata refers to candidates before local filtering. Consumers advance by offset plus
+limit, even if the filtered page is empty. Selection state is independent of a displayed page.
+`confirmRouteExists` checks only the selected identities and does not fetch candidate pages.
+These async helpers require initialization but no wallet. UI provider groups do not pin quote routing.
 
-`getBalancesForSwap()` calls the provider-backed balances endpoint and returns chain-level
-`IntentBalance[]` values.
+`getSupportedChains()` returns cached `IntentChainMetadata[]`, merging intent and execute
+capabilities without token arrays. The standalone chain utility and `client.utils.getSupportedChains`
+also fetch only `/chains` and preserve directional support. No `/deployment` client remains.
 
-`getSupportedChains()` merges intent-enabled catalog chains with executable catalog chains. Each
-result contains explicit `capabilities.intent` and `capabilities.execute` flags.
+`getSupportedChainsForRoute()` forwards current source/destination constraints to `/intent/chains`
+and returns metadata only. `/tokens` supports catalog filters but no route constraints. Catalog
+provider checks are preliminary; quote requests retain currency, amount, balance, and route
+feasibility checks. The SDK keeps `providers` as the union of directional fields.
 
-The synchronous client helpers `getTokensByChain`, `getAvailableSourceTokens`,
-`getAvailableDestinationTokens`, and `confirmRouteExists` also use the initialization cache. Catalog
-filtering lives in `src/intent/catalog.ts`; `src/core/` enforces the initialization guard.
-Source candidates are grouped by provider and can be narrowed by existing
-selections without removing selected tokens. Destination candidates form one list after intersecting
-every source's provider support. Both directions intersect chain and token metadata.
-`confirmRouteExists` shares the provider intersection used by exact-input prechecks. Exact-output
-sources remain alternative candidates with individual destination compatibility. These helpers need
-no wallet or network calls, and UI provider groups do not constrain quote provider selection.
-
-The standalone `getSupportedChains(network, { clientId })` utility and `client.utils.getSupportedChains(network)`
-fetch their own catalog. `src/services/chains.ts` preserves chain and token directional support
-while returning the existing utility shape, including token `contractAddress` and execution token
-metadata. Directional arrays come from the catalog, including explicit empty arrays.
-
-`getSupportedChainsForRoute()` forwards the user's current source/destination constraints to
-`/intent/chains`. The middleware remains the source of truth for provider compatibility and
-returns directional `asSource`/`asDestination` support at the chain level. `/tokens` accepts provider
-filters, but no route constraints: token support remains general catalog availability. The SDK
-uses this endpoint only when explicitly requested, not during swaps. Cached provider intersections
-are preliminary checks; quote requests retain currency, amount, balance, and route feasibility checks.
-The SDK keeps `providers` as the union of directional fields.
+`getBalancesForSwap()` returns chain-level `IntentBalance[]` with decimals and raw balances, so
+balance discovery needs no token catalog download. All providers are included unless explicitly filtered.
 
 Quote responses normalize `sourceVerdicts`. Structured quote failures are retained on the SDK
 error and exposed through `getIntentQuoteFailure`, including the middleware subcode, error ID,
@@ -268,7 +258,7 @@ The public client requires `clientId`. Its middleware transport sends
 
 `src/transport/middleware.ts` exposes only:
 
-- Better Intent chains with their separately loaded token catalog;
+- Better Intent chain metadata and individually requested token pages;
 - Better Intent balances;
 - quote;
 - submit;

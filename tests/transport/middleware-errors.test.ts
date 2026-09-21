@@ -209,7 +209,7 @@ describe('middleware error mapping', () => {
           universe: 'EVM', chainId: 'EVM_1', address: ACCOUNT, symbol: 'USDC', name: 'USD Coin',
           decimals: 6, isNative: false, asSource: [{ id: 'nexus-v2' }], asDestination: [{ id: 'nexus-v2' }],
           sponsoredApproval: false,
-        }], offset: 0, limit: 1000, total: 1 };
+        }], offset: 0, limit: Number(config.params.get('limit')), total: 1 };
       return { data, config, status: 200, statusText: 'OK', headers: {} };
     };
     vi.mocked(axios.create).mockImplementation((config?: CreateAxiosDefaults) => realAxios.create({ ...config, adapter }));

@@ -67,6 +67,36 @@ export type ProviderTokenGroup = {
   chains: IntentChain[];
 };
 
+/** Chain discovery does not include a token inventory. */
+export type IntentChainMetadata = Omit<IntentChain, 'tokens'>;
+
+export type IntentTokenQuery = {
+  chainId?: number;
+  providers?: IntentProvider[];
+  name?: string;
+  symbol?: string;
+  contract?: string;
+  offset?: number;
+  limit?: number;
+};
+
+export type IntentTokenPage = {
+  tokens: IntentToken[];
+  offset: number;
+  limit: number;
+  total: number;
+};
+
+/** Pagination describes the API candidate page, before directional filtering. */
+export type IntentSourceTokenPage = Omit<IntentTokenPage, 'tokens'> & {
+  groups: ProviderTokenGroup[];
+};
+
+/** Pagination describes the API candidate page, before directional filtering. */
+export type IntentDestinationTokenPage = Omit<IntentTokenPage, 'tokens'> & {
+  chains: IntentChain[];
+};
+
 export type IntentRouteConstraintLeg = {
   chainId?: number;
   tokenAddress?: Hex;

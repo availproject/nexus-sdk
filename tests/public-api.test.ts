@@ -4,7 +4,11 @@ import * as utilsModule from '../src/utils';
 import { AnalyticsManager, getIntentQuoteFailure, IntentStatus, NexusAnalyticsEvents } from '../src';
 import type {
   IntentBalance,
-  IntentChain,
+  IntentChainMetadata,
+  IntentTokenQuery,
+  IntentTokenPage,
+  IntentSourceTokenPage,
+  IntentDestinationTokenPage,
   IntentEvent,
   IntentFees,
   IntentProviderSupport,
@@ -25,7 +29,6 @@ import type {
   ListIntentsResult,
   OperationName,
   NexusClient,
-  ProviderTokenGroup,
   SwapAndExecuteResult,
   SwapResult as SwapResultType,
   SwapResult,
@@ -34,6 +37,12 @@ import type {
 } from '../src';
 
 describe('public api exports', () => {
+  it('keeps amount conversion outside the client', () => {
+    const client = rootModule.createNexusClient({ clientId: 'test-client', analytics: { enabled: false } });
+    expect(Object.keys(client)).not.toContain('convertTokenReadableAmountToBigInt');
+    client.destroy();
+  });
+
   it('removes bridge entrypoints and telemetry from the public client', () => {
     const removed = [
       'bridge',
@@ -66,18 +75,21 @@ describe('public api exports', () => {
     >();
   });
 
-  it('exposes synchronous cached token selection helpers', () => {
+  it('exposes asynchronous paginated token selection helpers', () => {
+    expectTypeOf<NexusClient['getSupportedChains']>().toEqualTypeOf<() => IntentChainMetadata[]>();
+    expectTypeOf<NexusClient['getTokens']>().toEqualTypeOf<(query?: IntentTokenQuery) => Promise<IntentTokenPage>>();
+    expectTypeOf<NexusClient['getToken']>().toEqualTypeOf<(token: TokenRef) => Promise<IntentToken>>();
     expectTypeOf<NexusClient['getTokensByChain']>().toEqualTypeOf<
-      (chainId: number) => IntentToken[]
+      (chainId: number, query?: Omit<IntentTokenQuery, 'chainId'>) => Promise<IntentTokenPage>
     >();
     expectTypeOf<NexusClient['getAvailableSourceTokens']>().toEqualTypeOf<
-      (destination: TokenRef, selectedSources?: TokenRef[]) => ProviderTokenGroup[]
+      (destination: TokenRef, selectedSources?: TokenRef[], query?: IntentTokenQuery) => Promise<IntentSourceTokenPage>
     >();
     expectTypeOf<NexusClient['getAvailableDestinationTokens']>().toEqualTypeOf<
-      (sources: TokenRef[]) => IntentChain[]
+      (sources: TokenRef[], query?: IntentTokenQuery) => Promise<IntentDestinationTokenPage>
     >();
     expectTypeOf<NexusClient['confirmRouteExists']>().toEqualTypeOf<
-      (sources: TokenRef[], destination: TokenRef) => boolean
+      (sources: TokenRef[], destination: TokenRef) => Promise<boolean>
     >();
   });
 

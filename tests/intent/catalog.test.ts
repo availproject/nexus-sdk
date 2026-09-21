@@ -1,3 +1,4 @@
+import { makeTokenFetcher } from '../helpers/catalog';
 import { describe, expect, it } from 'vitest';
 import type { Chain } from '../../src/domain';
 import { Universe } from '../../src/domain/chain-abstraction';
@@ -48,13 +49,14 @@ describe('Better Intent catalog', () => {
     expect(intentNetworkEnabled('testnet')).toBe(false);
   });
 
-  it('resolves tokens by chain and contract address', () => {
-    const catalog = createIntentCatalog([
+  it('resolves tokens by chain and contract address', async () => {
+    const chains = [
       intentChain(1, ETHEREUM_TOKEN),
       intentChain(8453, BASE_TOKEN),
-    ]);
-    expect(catalog.getToken(8453, BASE_TOKEN)).toMatchObject({ chainId: 8453, address: BASE_TOKEN });
-    expect(() => catalog.getToken(1, BASE_TOKEN)).toThrow();
+    ];
+    const catalog = createIntentCatalog(chains, makeTokenFetcher(chains));
+    expect(await catalog.getToken(8453, BASE_TOKEN)).toMatchObject({ chainId: 8453, address: BASE_TOKEN });
+    await expect(catalog.getToken(1, BASE_TOKEN)).rejects.toThrow();
   });
 
   it('unions intent and execute chains with explicit capabilities', () => {

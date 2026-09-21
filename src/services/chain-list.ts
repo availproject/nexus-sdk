@@ -8,7 +8,7 @@ import {
 } from '../domain';
 import { Universe } from '../domain/chain-abstraction';
 import { Errors } from '../domain/errors';
-import type { IntentChain, IntentToken } from '../intent/types';
+import type { IntentChainMetadata, IntentToken } from '../intent/types';
 import { isNativeAddress } from './addresses';
 import { equalFold } from './strings';
 
@@ -17,7 +17,9 @@ const nexusCurrencyId = (token?: IntentToken): number | undefined => {
   return typeof id === 'number' ? id : undefined;
 };
 
-const createChainList = (catalog: IntentChain[]): ChainListType => {
+const createChainList = (
+  catalog: Array<IntentChainMetadata & { tokens?: IntentToken[] }>
+): ChainListType => {
   const vaultByChainId = new Map<number, Hex>();
 
   const chains: Chain[] = catalog.flatMap((chain): Chain[] => {
@@ -33,7 +35,7 @@ const createChainList = (catalog: IntentChain[]): ChainListType => {
         }
       : undefined;
 
-    const knownTokens: TokenInfo[] = chain.tokens
+    const knownTokens: TokenInfo[] = (chain.tokens ?? [])
       // Execute accepts token symbols. Retain the Nexus token set that deployment exposed,
       // since external catalogs can contain different contracts with the same symbol.
       .filter((token) => !token.isNative && token.providers.some(({ id }) => id === 'nexus-v2'))
@@ -57,7 +59,7 @@ const createChainList = (catalog: IntentChain[]): ChainListType => {
         currencyId: nexusCurrencyId(token),
         mayanEnabled: token.providers.some((provider) => provider.id === 'mayan'),
       }));
-    const nativeToken = chain.tokens.find((token) => token.isNative);
+    const nativeToken = chain.tokens?.find((token) => token.isNative);
 
     return [
       {
