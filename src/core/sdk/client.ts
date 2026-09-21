@@ -35,7 +35,6 @@ export const createNexusClient = (config: {
   debug?: boolean;
   analytics?: AnalyticsConfig;
   devTiming?: DevTimingConfig;
-  forceMayan?: boolean;
   internal?: { middlewareClient?: MiddlewareClient };
 }): NexusClient => {
   if (typeof config?.clientId !== 'string' || !config.clientId.trim()) {

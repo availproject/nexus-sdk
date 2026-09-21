@@ -46,11 +46,10 @@ per quote, and `IntentQuote.provider`, `IntentStatus.provider`, and every catalo
 provider that applies. Treat the `IntentProvider` union as open to growth: render an unknown provider
 generically rather than assuming Nexus or Mayan.
 
-Set `forceMayan: true` to restrict the supported intent catalog and balances to Mayan and prefer
-Mayan for quotes. Initialization caches chain metadata from `/api/v1/intent/chains` and all pages
+Initialization caches chain metadata from `/api/v1/intent/chains` and all pages
 from `/api/v1/intent/tokens`, joining tokens to chains by chain ID. This catalog also supplies
-`chainList` for standalone execution; `/deployment` is no longer used. The Mayan catalog filter
-is applied locally, preserving execution metadata for other chains.
+`chainList` for standalone execution; `/deployment` is no longer used. Catalog discovery and
+balances include all supported providers; middleware selects the provider for each quote.
 Token selection uses chain IDs and contract addresses.
 
 ## Intent lifecycle
@@ -279,8 +278,7 @@ compatibility, amounts, balances, fees, and provider availability.
 ### Token picker helpers
 
 After `initialize()`, these synchronous methods use the cached chain and token catalog. They need
-no connected wallet and make no additional API calls. They are available on `mainnet` and `canary`
-and respect `forceMayan`.
+no connected wallet and make no additional API calls. They are available on `mainnet` and `canary`.
 
 ```ts
 import type { TokenRef } from '@avail-project/nexus-core';
@@ -435,8 +433,6 @@ type IntentOperationOptions = {
 
 Swap operations expose `onIntent` and use minimum required ERC-20 approvals. `swapAndExecute`
 options add `beforeExecute`.
-
-Set `forceMayan: true` when creating the client to request Mayan as the preferred provider.
 
 ## Errors
 

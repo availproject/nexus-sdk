@@ -64,19 +64,6 @@ function useNetwork() {
   return { network, selectNetwork: setNetwork };
 }
 
-function useForceMayan() {
-  const [forceMayan, setForceMayan] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return window.localStorage.getItem("nexus-force-mayan") === "1";
-  });
-
-  useEffect(() => {
-    window.localStorage.setItem("nexus-force-mayan", forceMayan ? "1" : "0");
-  }, [forceMayan]);
-
-  return { forceMayan, toggleForceMayan: () => setForceMayan((value) => !value) };
-}
-
 const MOCK_COMPLETED_STATE: ExecutionProgressState = {
   phase: "completed",
   operationType: "swap",
@@ -109,7 +96,6 @@ const MOCK_FAILED_STATE: ExecutionProgressState = {
 export default function App() {
   const { address, isConnected } = useConnection();
   const { network, selectNetwork } = useNetwork();
-  const { forceMayan, toggleForceMayan } = useForceMayan();
   const { mode, toggleMode } = useThemeAndMode();
   const queryClient = useQueryClient();
 
@@ -131,7 +117,7 @@ export default function App() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  const sdk = useNexusSdk(network, forceMayan);
+  const sdk = useNexusSdk(network);
 
   const tabs = useMemo(() => getTabsForNetwork(network), [network]);
 
@@ -167,8 +153,6 @@ export default function App() {
       <AppShell
         network={network}
         onSelectNetwork={selectNetwork}
-        forceMayan={forceMayan}
-        onToggleForceMayan={toggleForceMayan}
         mode={mode}
         onToggleMode={toggleMode}
         tabs={tabs}

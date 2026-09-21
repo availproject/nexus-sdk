@@ -400,7 +400,7 @@ const mapSwapExecute = (
 
 /* ── useNexusSdk hook ───────────────────────────────────────────── */
 
-export function useNexusSdk(network: NetworkMode, forceMayan: boolean) {
+export function useNexusSdk(network: NetworkMode) {
   const { connector, address, status } = useConnection();
   const queryClient = useQueryClient();
   const clientRef = useRef<NexusClient | null>(null);
@@ -412,7 +412,7 @@ export function useNexusSdk(network: NetworkMode, forceMayan: boolean) {
 
   useEffect(() => {
     if (status !== "connected" && status !== "disconnected") return;
-    const key = `${network}:${address ?? ""}:${status}:${forceMayan ? "1" : "0"}`;
+    const key = `${network}:${address ?? ""}:${status}`;
     if (key === prevKeyRef.current) return;
     prevKeyRef.current = key;
     let cancelled = false;
@@ -431,7 +431,6 @@ export function useNexusSdk(network: NetworkMode, forceMayan: boolean) {
         clientId: "nexus-sdk-browser-example",
         network,
         debug: true,
-        forceMayan,
         devTiming: {
           enabled: true,
           emitAnalytics: false,
@@ -468,7 +467,7 @@ export function useNexusSdk(network: NetworkMode, forceMayan: boolean) {
     return () => {
       cancelled = true;
     };
-  }, [address, connector, forceMayan, network, queryClient, status, swap.clear, swapExecute.clear]);
+  }, [address, connector, network, queryClient, status, swap.clear, swapExecute.clear]);
 
   return useMemo(() => ({
     client: clientRef.current,

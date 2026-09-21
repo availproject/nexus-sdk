@@ -26,13 +26,13 @@ const chain = (id: number, asSource: IntentProvider[], asDestination: IntentProv
   }],
 });
 
-const setup = async (chains: IntentChain[], forceMayan = false) => {
+const setup = async (chains: IntentChain[]) => {
   const reachedQuote = Errors.backend('Quote requested');
   const getIntentQuote = vi.fn().mockRejectedValue(reachedQuote);
   const getIntentChains = vi.fn();
   const getIntentBalances = vi.fn();
   const base = createBase({
-    clientId: 'test-client', network: 'mainnet', forceMayan,
+    clientId: 'test-client', network: 'mainnet',
     internal: { middlewareClient: makeMiddlewareClient({ getIntentQuote, getIntentChains, getIntentBalances }) },
   });
   base.setIntentCatalog(chains);
@@ -136,13 +136,16 @@ describe('cached provider checks before quoting', () => {
     expect(ctx.getIntentQuote).not.toHaveBeenCalled();
   });
 
-  it('applies forceMayan to both exact-input and exact-output compatibility', async () => {
-    const ctx = await setup([chain(1, [], ['relay', 'mayan']), chain(10, ['relay'], [])], true);
+  it.each(['nexus-v2', 'mayan', 'relay'] as const)('allows %s without pinning the quote provider', async (provider) => {
+    const ctx = await setup([chain(1, [], [provider]), chain(10, [provider], [])]);
     await expect(ctx.base.swapWithExactIn({ ...destination, sources: [source(10)] }))
-      .rejects.toMatchObject({ code: 'validation/invalid_input' });
+      .rejects.toBe(ctx.reachedQuote);
     await expect(ctx.base.swapWithExactOut({ ...destination, toAmountRaw: 10n, sources: [source(10)] }))
-      .rejects.toMatchObject({ code: 'validation/invalid_input' });
-    expect(ctx.getIntentQuote).not.toHaveBeenCalled();
+      .rejects.toBe(ctx.reachedQuote);
+    expect(ctx.getIntentQuote).toHaveBeenCalledTimes(2);
+    for (const [request] of ctx.getIntentQuote.mock.calls) {
+      expect(request).not.toHaveProperty('preferredProviders');
+    }
   });
 
   it.each(['exactInput', 'exactOutput'] as const)('rechecks sources when refreshing %s quotes', async (mode) => {

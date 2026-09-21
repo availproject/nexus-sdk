@@ -146,9 +146,9 @@ Exact-input requires every source chain, token address, and raw amount. The SDK 
 source providers with the destination providers and rejects an empty intersection with
 `INVALID_INPUT`. Support must exist at both chain and token level in the correct direction.
 The output amount is quoted by middleware. Both modes repeat their checks for hook-driven refreshes
-and respect `forceMayan` without additional catalog or balance requests.
+without additional catalog or balance requests.
 
-All modes default to 50 basis points of slippage. `forceMayan` becomes a preferred-provider request;
+All modes default to 50 basis points of slippage. Middleware selects the quote provider;
 the SDK does not calculate a local threshold or compare provider quotes.
 
 ## Public intent model versus executable model
@@ -185,9 +185,8 @@ external catalogs contain duplicate symbols that must not replace execute's know
 Native entries are kept out of `knownTokens` to preserve native-token lookup semantics.
 The standalone chain utility uses these endpoints too; there is no `/deployment` client.
 
-When `forceMayan` is enabled, the SDK filters the cached intent catalog locally, requests
-Mayan-filtered balances, and sends Mayan as the preferred quote provider. Execution metadata remains
-available for other catalog chains.
+Catalog discovery and balance requests include all supported providers. Explicit provider
+constraints on `getSupportedChainsForRoute()` are forwarded to middleware for that request.
 
 `getBalancesForSwap()` calls the provider-backed balances endpoint and returns chain-level
 `IntentBalance[]` values.
@@ -197,8 +196,8 @@ result contains explicit `capabilities.intent` and `capabilities.execute` flags.
 
 The synchronous client helpers `getTokensByChain`, `getAvailableSourceTokens`,
 `getAvailableDestinationTokens`, and `confirmRouteExists` also use the initialization cache. Catalog
-filtering lives in `src/intent/catalog.ts`; `src/core/` binds the client's provider restriction and
-initialization guard. Source candidates are grouped by provider and can be narrowed by existing
+filtering lives in `src/intent/catalog.ts`; `src/core/` enforces the initialization guard.
+Source candidates are grouped by provider and can be narrowed by existing
 selections without removing selected tokens. Destination candidates form one list after intersecting
 every source's provider support. Both directions intersect chain and token metadata.
 `confirmRouteExists` shares the provider intersection used by exact-input prechecks. Exact-output

@@ -17,57 +17,20 @@ export const intentNetworkEnabled = (network: string): boolean =>
 
 const sameAddress = (left: string, right: string) => left.toLowerCase() === right.toLowerCase();
 
-export const filterIntentChains = (
-  chains: IntentChain[],
-  providers?: IntentProvider[]
-): IntentChain[] => {
-  if (!providers) return chains;
-  const enabled = (id: IntentProvider) => providers.includes(id);
-  return chains
-    .filter((chain) => chain.providers.some(enabled))
-    .map((chain) => ({
-      ...chain,
-      providers: chain.providers.filter(enabled),
-      asSource: (chain.asSource ?? chain.providers).filter(enabled),
-      asDestination: (chain.asDestination ?? chain.providers).filter(enabled),
-      tokens: chain.tokens
-        .filter((token) => token.providers.some(({ id }) => enabled(id)))
-        .map((token) => ({
-          ...token,
-          providers: token.providers.filter(({ id }) => enabled(id)),
-          asSource: (token.asSource ?? token.providers).filter(({ id }) => enabled(id)),
-          asDestination: (token.asDestination ?? token.providers).filter(({ id }) => enabled(id)),
-        })),
-    }));
-};
-
 export type IntentCatalog = {
   chains: IntentChain[];
   getChain: (chainId: number) => IntentChain;
   getToken: (chainId: number, address: Hex) => IntentToken;
   getAvailableSourceTokens: (
     destination: TokenRef,
-    selectedSources?: TokenRef[],
-    providers?: IntentProvider[]
+    selectedSources?: TokenRef[]
   ) => ProviderTokenGroup[];
-  getAvailableDestinationTokens: (
-    sources: TokenRef[],
-    providers?: IntentProvider[]
-  ) => IntentChain[];
-  confirmRouteExists: (
-    sources: TokenRef[],
-    destination: TokenRef,
-    providers?: IntentProvider[]
-  ) => boolean;
-  validateExactInput: (
-    sources: IntentToken[],
-    destination: IntentToken,
-    providers?: IntentProvider[]
-  ) => void;
+  getAvailableDestinationTokens: (sources: TokenRef[]) => IntentChain[];
+  confirmRouteExists: (sources: TokenRef[], destination: TokenRef) => boolean;
+  validateExactInput: (sources: IntentToken[], destination: IntentToken) => void;
   getExactOutputSources: (
     destination: IntentToken,
-    selected?: IntentSource[],
-    providers?: IntentProvider[]
+    selected?: IntentSource[]
   ) => Array<{ chainId: number; tokens: Hex[] }>;
 };
 
@@ -97,11 +60,6 @@ export const createIntentCatalog = (chains: IntentChain[]): IntentCatalog => {
       .filter((id) => supported.includes(id));
   };
 
-  const destinationProviders = (destination: IntentToken, providers?: IntentProvider[]) =>
-    tokenProviders(destination, 'asDestination').filter(
-      (id) => !providers || providers.includes(id)
-    );
-
   const commonSourceProviders = (sources: IntentToken[], providers: readonly IntentProvider[]) =>
     sources.reduce(
       (common, source) => common.filter((id) => tokenProviders(source, 'asSource').includes(id)),
@@ -118,12 +76,11 @@ export const createIntentCatalog = (chains: IntentChain[]): IntentCatalog => {
 
   const getAvailableSourceTokens: IntentCatalog['getAvailableSourceTokens'] = (
     destination,
-    selectedSources,
-    providers
+    selectedSources
   ) => {
     const supported = commonSourceProviders(
       (selectedSources ?? []).map(({ chainId, tokenAddress }) => getToken(chainId, tokenAddress)),
-      destinationProviders(getToken(destination.chainId, destination.tokenAddress), providers)
+      tokenProviders(getToken(destination.chainId, destination.tokenAddress), 'asDestination')
     );
     return supported.flatMap((provider) => {
       const candidates = matchingChains('asSource', [provider]);
@@ -131,36 +88,25 @@ export const createIntentCatalog = (chains: IntentChain[]): IntentCatalog => {
     });
   };
 
-  const getAvailableDestinationTokens: IntentCatalog['getAvailableDestinationTokens'] = (
-    sources,
-    providers
-  ) =>
+  const getAvailableDestinationTokens: IntentCatalog['getAvailableDestinationTokens'] = (sources) =>
     matchingChains(
       'asDestination',
       commonSourceProviders(
         sources.map(({ chainId, tokenAddress }) => getToken(chainId, tokenAddress)),
-        providers ?? INTENT_PROVIDERS
+        INTENT_PROVIDERS
       )
     );
 
-  const confirmRouteExists: IntentCatalog['confirmRouteExists'] = (
-    sources,
-    destination,
-    providers
-  ) => {
+  const confirmRouteExists: IntentCatalog['confirmRouteExists'] = (sources, destination) => {
     if (!sources.length) return false;
     const target = findToken(destination.chainId, destination.tokenAddress);
     const selected = sources.map(({ chainId, tokenAddress }) => findToken(chainId, tokenAddress));
     if (!target || !selected.every((token) => token !== undefined)) return false;
-    return commonSourceProviders(selected, destinationProviders(target, providers)).length > 0;
+    return commonSourceProviders(selected, tokenProviders(target, 'asDestination')).length > 0;
   };
 
-  const validateExactInput: IntentCatalog['validateExactInput'] = (
-    sources,
-    destination,
-    providers
-  ) => {
-    const common = commonSourceProviders(sources, destinationProviders(destination, providers));
+  const validateExactInput: IntentCatalog['validateExactInput'] = (sources, destination) => {
+    const common = commonSourceProviders(sources, tokenProviders(destination, 'asDestination'));
     if (common.length === 0) {
       throw Errors.invalidInput(
         'No common provider supports all selected sources and the destination. Choose different sources or a destination.',
@@ -169,12 +115,8 @@ export const createIntentCatalog = (chains: IntentChain[]): IntentCatalog => {
     }
   };
 
-  const getExactOutputSources: IntentCatalog['getExactOutputSources'] = (
-    destination,
-    selected,
-    providers
-  ) => {
-    const supported = destinationProviders(destination, providers);
+  const getExactOutputSources: IntentCatalog['getExactOutputSources'] = (destination, selected) => {
+    const supported = tokenProviders(destination, 'asDestination');
     const sources = chains.flatMap((chain) => {
       const tokens = chain.tokens.filter(
         (token) =>

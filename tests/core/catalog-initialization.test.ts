@@ -21,14 +21,14 @@ describe('catalog-backed initialization', () => {
     }
   });
 
-  it('filters Mayan intent support locally while retaining all execution chains and tokens', async () => {
+  it('retains every provider in the cached catalog and execution metadata', async () => {
     const chains = structuredClone(testChains);
     chains[1].providers = ['nexus-v2'];
     chains[1].asSource = ['nexus-v2'];
     chains[1].asDestination = ['nexus-v2'];
     const getIntentChains = vi.fn().mockResolvedValue(chains);
     const client = createNexusClient({
-      clientId: 'test-client', network: 'mainnet', forceMayan: true, analytics: { enabled: false },
+      clientId: 'test-client', network: 'mainnet', analytics: { enabled: false },
       internal: { middlewareClient: makeMiddlewareClient({ getIntentChains }) },
     });
     try {
@@ -36,11 +36,26 @@ describe('catalog-backed initialization', () => {
       expect(getIntentChains).toHaveBeenCalledExactlyOnceWith();
       expect(client.chainList.chains).toHaveLength(2);
       const supported = client.getSupportedChains();
-      expect(supported[0]).toMatchObject({ providers: ['mayan'], asSource: ['mayan'], asDestination: ['mayan'] });
-      expect(supported[0].tokens).toHaveLength(1);
-      expect(supported[0].tokens[0].providers).toEqual([{ id: 'mayan' }]);
-      expect(supported[1].capabilities).toEqual({ intent: false, execute: true });
+      expect(supported[0]).toMatchObject({ providers: ['nexus-v2', 'mayan'], asSource: ['nexus-v2', 'mayan'], asDestination: ['nexus-v2', 'mayan'] });
+      expect(supported[0].tokens).toEqual(chains[0].tokens);
+      expect(supported[1]).toMatchObject({ providers: ['nexus-v2'], capabilities: { intent: true, execute: true } });
       expect(chains[0].providers).toEqual(['nexus-v2', 'mayan']);
+    } finally {
+      client.destroy();
+    }
+  });
+
+  it('forwards explicit provider constraints for route discovery', async () => {
+    const getIntentChains = vi.fn().mockResolvedValue(testChains);
+    const client = createNexusClient({
+      clientId: 'test-client', analytics: { enabled: false },
+      internal: { middlewareClient: makeMiddlewareClient({ getIntentChains }) },
+    });
+    try {
+      await client.initialize();
+      const constraints = { providers: ['relay' as const], sources: [{ chainId: 1 }] };
+      await expect(client.getSupportedChainsForRoute(constraints)).resolves.toEqual(testChains);
+      expect(getIntentChains).toHaveBeenLastCalledWith(constraints);
     } finally {
       client.destroy();
     }

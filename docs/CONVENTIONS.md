@@ -97,7 +97,6 @@ both the requested output and the later execute value/gas.
   `confirmRouteExists` require a provider common to all selected sources. Provider groups are for
   display and must not pin a quote provider.
 - Default slippage is 50 basis points unless the caller supplies another valid value or `auto`.
-- `forceMayan` is a preferred-provider request; never calculate provider thresholds locally.
 
 Do not calculate a route, quote, maximum output, or provider comparison in the SDK.
 

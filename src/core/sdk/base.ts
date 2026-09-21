@@ -19,7 +19,6 @@ import {
 } from '../../flows/execute';
 import {
   createIntentCatalog,
-  filterIntentChains,
   type IntentCatalog,
   intentNetworkEnabled,
   mergeSupportedChains,
@@ -56,7 +55,6 @@ type BaseState = {
   evm?: { client: WalletClient; provider: EthereumProvider; address: Hex };
   analytics?: AnalyticsManager;
   networkConfig: ReturnType<typeof getNetworkConfig>;
-  forceMayan: boolean;
 };
 
 const chainRef = (chainId: number) => `EVM_${chainId}`;
@@ -74,7 +72,6 @@ export const createBase = (config: {
   network?: NexusNetwork;
   debug?: boolean;
   devTiming?: DevTimingConfig;
-  forceMayan?: boolean;
   internal?: { middlewareClient?: MiddlewareClient };
 }) => {
   const networkConfig = getNetworkConfig(config?.network);
@@ -85,7 +82,6 @@ export const createBase = (config: {
       config?.internal?.middlewareClient ??
       createMiddlewareClient(networkConfig.MIDDLEWARE_HTTP_URL, { clientId: config.clientId }),
     networkConfig,
-    forceMayan: config?.forceMayan === true,
   };
   let walletQueue: Promise<unknown> = Promise.resolve();
 
@@ -197,13 +193,6 @@ export const createBase = (config: {
     return value;
   };
 
-  const preferredProviders = () => (config?.forceMayan ? ['mayan' as const] : undefined);
-
-  const balanceOptions = (refresh = false) => ({
-    refresh,
-    ...(preferredProviders() ? { providers: preferredProviders() } : {}),
-  });
-
   const exactOutRequest = (
     input: SwapExactOutParams,
     options?: SwapOperationOptions,
@@ -214,7 +203,7 @@ export const createBase = (config: {
     const catalog = getIntentCatalog();
     const destinationToken = catalog.getToken(input.toChainId, input.toTokenAddress);
     const selected = refreshedSources ?? input.sources;
-    const sources = catalog.getExactOutputSources(destinationToken, selected, preferredProviders());
+    const sources = catalog.getExactOutputSources(destinationToken, selected);
     return {
       sender: getEvm().address.toLowerCase() as Hex,
       tradeType: 'exactOutput',
@@ -224,7 +213,6 @@ export const createBase = (config: {
         amount: input.toAmountRaw.toString(),
       },
       sources: sources.map((source) => ({ ...source, chainId: chainRef(source.chainId) })),
-      ...(preferredProviders() ? { preferredProviders: preferredProviders() } : {}),
       slippageBps: slippageBps(options),
       ...(input.toNativeAmountRaw && input.toNativeAmountRaw > 0n
         ? { gasDrop: { amount: input.toNativeAmountRaw.toString() } }
@@ -258,15 +246,13 @@ export const createBase = (config: {
     });
     catalog.validateExactInput(
       selected.map((source) => catalog.getToken(source.chainId, source.tokenAddress as Hex)),
-      destinationToken,
-      preferredProviders()
+      destinationToken
     );
     return {
       sender: getEvm().address.toLowerCase() as Hex,
       tradeType: 'exactInput',
       input: sources,
       output: { chainId: chainRef(input.toChainId), token: input.toTokenAddress },
-      ...(preferredProviders() ? { preferredProviders: preferredProviders() } : {}),
       slippageBps: slippageBps(options),
     };
   };
@@ -303,7 +289,7 @@ export const createBase = (config: {
   ) => executeIntent((sources) => exactOutRequest(input, options, sources), options, reporting);
 
   const getIntentBalances = () =>
-    state.middlewareClient.getIntentBalances(getEvm().address, balanceOptions());
+    state.middlewareClient.getIntentBalances(getEvm().address, { refresh: false });
 
   const execute = (params: ExecuteParams, _options?: OnEventParam, parentSpanId?: string) =>
     flowExecute(params, {
@@ -343,7 +329,7 @@ export const createBase = (config: {
   ) => {
     const [balances, executeSimulation] = await Promise.all([
       state.middlewareClient.getIntentBalances(getEvm().address, {
-        ...balanceOptions(true),
+        refresh: true,
         ...(reporting ? { attemptId: reporting.attemptId } : {}),
       }),
       simulateExecute(executeParams),
@@ -456,31 +442,19 @@ export const createBase = (config: {
     listIntents,
     getBalancesForSwap: getIntentBalances,
     getSupportedChains: () =>
-      mergeSupportedChains(
-        filterIntentChains(state.intentCatalog?.chains ?? [], preferredProviders()),
-        getChainList().chains
-      ),
-    getTokensByChain: (chainId: number) =>
-      filterIntentChains([getIntentCatalog().getChain(chainId)], preferredProviders())[0]?.tokens ??
-      [],
+      mergeSupportedChains(state.intentCatalog?.chains ?? [], getChainList().chains),
+    getTokensByChain: (chainId: number) => getIntentCatalog().getChain(chainId).tokens,
     getAvailableSourceTokens: (destination: TokenRef, selectedSources?: TokenRef[]) =>
-      getIntentCatalog().getAvailableSourceTokens(
-        destination,
-        selectedSources,
-        preferredProviders()
-      ),
+      getIntentCatalog().getAvailableSourceTokens(destination, selectedSources),
     getAvailableDestinationTokens: (sources: TokenRef[]) =>
-      getIntentCatalog().getAvailableDestinationTokens(sources, preferredProviders()),
+      getIntentCatalog().getAvailableDestinationTokens(sources),
     confirmRouteExists: (sources: TokenRef[], destination: TokenRef) =>
-      getIntentCatalog().confirmRouteExists(sources, destination, preferredProviders()),
+      getIntentCatalog().confirmRouteExists(sources, destination),
     getSupportedChainsForRoute: (
       constraints: import('../../intent/types').IntentRouteConstraints
     ) => {
       getIntentCatalog();
-      return state.middlewareClient.getIntentChains({
-        ...constraints,
-        providers: state.forceMayan ? ['mayan'] : constraints.providers,
-      });
+      return state.middlewareClient.getIntentChains(constraints);
     },
     convertTokenReadableAmountToBigInt: (amount: string, tokenSymbol: string, chainId: number) =>
       mulDecimals(amount, getChainList().getTokenInfoBySymbol(chainId, tokenSymbol).decimals),
