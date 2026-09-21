@@ -54,6 +54,8 @@ export type NexusClient = {
   listIntents: (params?: ListIntentsParams) => Promise<IntentHistoryResult>;
   execute: (params: ExecuteParams, options?: OnEventParam) => Promise<ExecuteResult>;
   simulateExecute: (params: ExecuteParams) => Promise<ExecuteSimulation>;
+  getBalances: () => Promise<IntentBalance[]>;
+  /** @deprecated Use getBalances instead. */
   getBalancesForSwap: () => Promise<IntentBalance[]>;
   swapWithExactIn: (
     input: SwapExactInParams,
