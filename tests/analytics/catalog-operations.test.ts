@@ -86,10 +86,11 @@ describe('public catalog operation telemetry', () => {
     ]);
     const operationId = events[0]![1]!['operation.id'];
     const reason = {
-      'reason.bucket': 'rate_limited', 'error.code': error.code,
+      'error.code': 'rate_limited', 'error.type': error.code,
       'error.category': 'backend', 'error.service': 'middleware',
     };
     expect(events[1]![1]).toMatchObject({ method, 'operation.id': operationId, ...reason });
+    expect(events[1]![1]).not.toHaveProperty('reason.bucket');
     expect(track).toHaveBeenCalledWith(Events.OPERATION_PERFORMANCE, expect.objectContaining({
       operation, spanId: operationId, duration: expect.any(Number), success: false,
     }));
@@ -128,7 +129,7 @@ describe('public catalog operation telemetry', () => {
     await expect(client.getTokensByChain(999)).rejects.toMatchObject({ code: ERROR_CODES.CHAIN_NOT_FOUND });
     expect(getIntentTokens).not.toHaveBeenCalled();
     expect(track).toHaveBeenCalledWith('nexus_v2_catalog_fetch_failed', expect.objectContaining({
-      method: 'getTokensByChain', 'reason.bucket': 'unsupported_route', 'error.category': 'validation',
+      method: 'getTokensByChain', 'error.code': 'unsupported_route', 'error.category': 'validation',
     }));
   });
 
@@ -138,7 +139,7 @@ describe('public catalog operation telemetry', () => {
       .rejects.toMatchObject({ code: ERROR_CODES.SDK_NOT_INITIALIZED });
     expect(getIntentChains).not.toHaveBeenCalled();
     expect(track).toHaveBeenCalledWith('nexus_v2_catalog_fetch_failed', expect.objectContaining({
-      method: 'getSupportedChainsForRoute', 'reason.bucket': 'configuration',
+      method: 'getSupportedChainsForRoute', 'error.code': 'configuration',
     }));
   });
 });

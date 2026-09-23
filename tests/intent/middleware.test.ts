@@ -45,10 +45,11 @@ const quoteResponse = () => ({
 describe('Better Intent middleware transport', () => {
   beforeEach(() => axiosRoot.create.mockReset());
 
-  it('keeps concurrent attempts isolated across quote, submit, status and detail requests', async () => {
+  it('keeps concurrent attempts isolated across balance, quote, submit, status and detail requests', async () => {
     const { default: realAxios } = await vi.importActual<typeof import('axios')>('axios');
     const adapter = vi.fn<AxiosAdapter>(async (config) => ({
-      data: config.url?.endsWith('/quote') ? quoteResponse() :
+      data: config.url?.includes('/balances/') ? { errored: false, balances: [] } :
+        config.url?.endsWith('/quote') ? quoteResponse() :
         config.url?.endsWith('/submit') ? { quoteId: QUOTE_ID, status: 'created' } :
         { quoteId: QUOTE_ID, provider: 'nexus-v2', status: 'fulfilled', substatus: 'completed', rff: {}, legs: [] },
       status: 200, statusText: 'OK', headers: {}, config,
@@ -58,18 +59,22 @@ describe('Better Intent middleware transport', () => {
     const request = { sender: ACCOUNT, tradeType: 'exactOutput' as const, output: { chainId: 'EVM_1', token: TOKEN, amount: '1' } };
     try {
       await Promise.all(['attempt-a', 'attempt-b'].map(async (id) => {
+        await mw.getIntentBalances(ACCOUNT, { attemptId: id });
         await mw.getIntentQuote(request, id);
         await mw.getIntentQuote(request, id);
         await mw.submitIntent({ provider: 'nexus-v2', rff: {}, signatures: [] }, id);
         await mw.getIntentStatus(QUOTE_ID, id);
       }));
       for (const id of ['attempt-a', 'attempt-b']) {
-        const calls = adapter.mock.calls.filter(([config]) => config.headers.get('x-request-id') === id);
+        const calls = adapter.mock.calls.filter(([config]) => config.headers.get('x-nexus-attempt-id') === id);
         expect(calls.map(([config]) => config.url?.split('/').slice(4).join('/'))).toEqual([
-          'quote', 'quote', 'submit', `status/${QUOTE_ID}`, `rff/${QUOTE_ID}`,
+          `balances/${ACCOUNT}`, 'quote', 'quote', 'submit', `status/${QUOTE_ID}`, `rff/${QUOTE_ID}`,
         ]);
       }
-      expect(adapter.mock.calls).toHaveLength(10);
+      expect(adapter.mock.calls).toHaveLength(12);
+      await mw.getIntentQuote(request);
+      expect(adapter.mock.calls.at(-1)?.[0].headers.has('x-nexus-attempt-id')).toBe(false);
+      expect(adapter.mock.calls.every(([config]) => !config.headers.has('x-request-id'))).toBe(true);
       expect(adapter.mock.calls.every(([config]) => !config.data?.includes('attempt-'))).toBe(true);
     } finally { mw.destroy(); }
   });

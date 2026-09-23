@@ -27,7 +27,7 @@ export const installAxiosNetworkTiming = (
 
   const requestInterceptorId = client.interceptors.request.use((config) => {
     try {
-      const attemptId = config.headers?.['x-request-id'];
+      const attemptId = config.headers?.['x-nexus-attempt-id'];
       const spanId = timing.startSpan(spanName, {
         ...(typeof attemptId === 'string' ? { parentSpanId: attemptId } : {}),
         tags: {

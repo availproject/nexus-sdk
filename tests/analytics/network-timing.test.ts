@@ -58,7 +58,10 @@ describe('installAxiosNetworkTiming', () => {
       },
     });
 
-    const config = { method: 'get', url: '/api/v1/rffs', headers: { 'x-request-id': attemptId } };
+    const config = {
+      method: 'get', url: '/api/v1/rffs',
+      headers: { 'x-nexus-attempt-id': attemptId, 'x-request-id': 'request-1' },
+    };
     const requestHandler = request.handlers[0];
     expect(requestHandler).toBeTypeOf('function');
     const nextConfig = requestHandler!(config);

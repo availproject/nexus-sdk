@@ -192,11 +192,12 @@ a failure path. See [LOGGING.md](LOGGING.md).
 Public method failures are emitted at the operation boundary. Categorize once near the failing
 boundary; do not repeatedly wrap a `NexusError`.
 
-Use the internal reason mapping in `src/services/error-reporting.ts` for product reporting. Preserve
-public codes/categories/messages. Events carry bounded reasons; messages, stacks, and raw middleware
-diagnostics stay in sanitized OTel logs. Client/session/attempt IDs are per-record attributes, never
-metric labels or global logger resources. Keep one canonical outcome per payment attempt, and do
-not turn a polling error into a confirmed delivery failure. See [TELEMETRY.md](TELEMETRY.md).
+Use the shared bucket mapping in `src/services/error-reporting.ts` for product reporting. Emit the
+bucket as `error.code` and the SDK code as `error.type`; preserve public codes/categories/messages.
+Events carry bounded reasons; messages, stacks, and raw middleware diagnostics stay in sanitized
+OTel logs. Client/session/attempt IDs are per-record attributes, never metric labels or global
+logger resources. Keep one canonical outcome per payment attempt, and do not turn a polling error
+into a confirmed delivery failure. See [TELEMETRY.md](TELEMETRY.md).
 
 ## Refactoring
 

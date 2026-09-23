@@ -50,7 +50,15 @@ describe('payment attempt outcomes', () => {
     expect(s.outcomes()[0]).toMatchObject({ 'attempt.id': result.attemptId,
       'attempt.outcome': 'completed', 'attempt.committed': true, 'quote.id': refreshed.quote.id });
     const quotes = s.track.mock.calls.filter(([name]) => name === Events.INTENT_QUOTED);
-    expect(quotes).toHaveLength(2);
+    expect(quotes.map(([, props]) => [props?.['quote.id'], props?.['chain.id'], props?.['chain.role']])).toEqual([
+      [s.quote.quote.id, 8453, 'source'], [s.quote.quote.id, 1, 'destination'],
+      [refreshed.quote.id, 8453, 'source'], [refreshed.quote.id, 1, 'destination'],
+    ]);
+    for (const [, props] of quotes) {
+      expect(props).toMatchObject({ 'attempt.id': result.attemptId, 'provider.name': 'nexus-v2' });
+      expect(props).not.toHaveProperty('sourceChainIds');
+      expect(props).not.toHaveProperty('toChainId');
+    }
     expect(new Set(quotes.map(([, props]) => props?.['attempt.id'])).size).toBe(1);
     expect(JSON.stringify(s.track.mock.calls)).not.toContain(INTENT_SIGNATURE);
   });
@@ -60,7 +68,7 @@ describe('payment attempt outcomes', () => {
     if (where === 'signature') s.deps.sign.mockRejectedValue(Errors.userRejectedIntentSignature());
     await expect(s.run(where === 'hook' ? { onIntent: ({ deny }) => deny() } : {})).rejects.toThrow();
     expect(s.outcomes()).toEqual([expect.objectContaining({ 'attempt.outcome': 'stopped',
-      'attempt.committed': false, 'reason.bucket': 'user_declined' })]);
+      'attempt.committed': false, 'error.code': 'user_declined' })]);
     expect(s.track.mock.calls.some(([name]) => name === Events.SWAP_TRANSACTION_FAILED)).toBe(false);
   });
 
@@ -71,18 +79,21 @@ describe('payment attempt outcomes', () => {
     await s.run();
     expect(s.outcomes().map((props) => props?.['attempt.outcome'])).toEqual(['rejected', 'completed']);
     expect(s.outcomes()[0]?.['attempt.id']).not.toBe(s.outcomes()[1]?.['attempt.id']);
-    expect(s.outcomes()[0]).toMatchObject({ 'reason.bucket': 'unsupported_route', 'error.code': error.code });
+    expect(s.outcomes()[0]).toMatchObject({ 'error.code': 'unsupported_route', 'error.type': error.code });
+    expect(s.outcomes()[0]).not.toHaveProperty('reason.bucket');
   });
 
   it('reports confirmed expiry as failed but a polling timeout as observation loss', async () => {
     const s = setup();
     s.deps.getStatus.mockResolvedValueOnce({ id: s.quote.quote.id, provider: 'nexus-v2', status: 'expired', substatus: 'expired', legs: [] });
     await expect(s.run()).rejects.toThrow();
-    expect(s.outcomes()[0]).toMatchObject({ 'attempt.outcome': 'failed', 'reason.bucket': 'expired' });
+    expect(s.outcomes()[0]).toMatchObject({ 'attempt.outcome': 'failed', 'error.code': 'expired' });
+    expect(s.outcomes()[0]).not.toHaveProperty('reason.bucket');
     await expect(s.run({ timeoutMs: -1 })).rejects.toMatchObject({ code: ERROR_CODES.BACKEND_FULFILMENT_WAIT_TIMEOUT });
     expect(s.outcomes()).toHaveLength(1);
     expect(s.track).toHaveBeenCalledWith(Events.INTENT_OBSERVATION_FAILED, expect.objectContaining({
-      'attempt.committed': true, 'attempt.pending': true, 'reason.bucket': 'timeout',
+      'attempt.committed': true, 'attempt.pending': true, 'error.code': 'timeout',
+      'error.type': ERROR_CODES.BACKEND_FULFILMENT_WAIT_TIMEOUT,
     }));
   });
 
@@ -132,25 +143,34 @@ describe('payment attempt outcomes', () => {
     await s.run({ refreshQuote: async () => { throw Errors.backend('temporary failure'); },
       onIntent: async ({ refresh, allow }) => { await refresh().catch(() => undefined); allow(); } });
     expect(s.outcomes()).toEqual([expect.objectContaining({ 'attempt.outcome': 'completed' })]);
-    expect(s.track).toHaveBeenCalledWith(Events.INTENT_QUOTE_REFRESH_FAILED, expect.objectContaining({ 'attempt.committed': false }));
+    expect(s.track).toHaveBeenCalledWith(Events.INTENT_QUOTE_REFRESH_FAILED, expect.objectContaining({
+      'attempt.committed': false, 'error.code': 'unavailable', 'error.type': ERROR_CODES.BACKEND_ERROR,
+    }));
   });
 
   it('buckets local quote expiry without changing the public backend error code', async () => {
     const s = setup();
     s.quote.quote.expiresAt = 1;
     await expect(s.run()).rejects.toMatchObject({ code: ERROR_CODES.BACKEND_ERROR });
-    expect(s.outcomes()).toEqual([expect.objectContaining({ 'attempt.outcome': 'rejected', 'reason.bucket': 'expired' })]);
+    expect(s.outcomes()).toEqual([expect.objectContaining({
+      'attempt.outcome': 'rejected', 'error.code': 'expired', 'error.type': ERROR_CODES.BACKEND_ERROR,
+    })]);
   });
 
-  it('counts a multi-source payment once and deduplicates unchanged source status observations', async () => {
+  it('quotes each distinct source chain and destination while counting a multi-source payment once', async () => {
     const s = setup();
-    s.quote.quote.input.push({ ...s.quote.quote.input[0]!, chainId: 10 });
+    s.quote.quote.input.push({ ...s.quote.quote.input[0]! }, { ...s.quote.quote.input[0]!, chainId: 10 });
+    s.quote.quote.output.chainId = 8453;
     const legs = [{ sourceIndex: 0, status: 'fulfilled' as const }, { sourceIndex: 1, status: 'fulfilled' as const }];
     s.deps.getStatus.mockResolvedValueOnce({ id: s.quote.quote.id, provider: 'nexus-v2', status: 'deposited', substatus: 'processing', legs })
       .mockResolvedValue({ id: s.quote.quote.id, provider: 'nexus-v2', status: 'fulfilled', substatus: 'completed', legs });
     await s.run({ pollingIntervalMs: 0 });
     expect(s.outcomes()).toHaveLength(1);
     expect(s.outcomes()[0]).toMatchObject({ sourceChainIds: [8453, 10] });
+    const quotes = s.track.mock.calls.filter(([event]) => event === Events.INTENT_QUOTED);
+    expect(quotes.map(([, props]) => [props?.['chain.id'], props?.['chain.role']])).toEqual([
+      [8453, 'source'], [10, 'source'], [8453, 'destination'],
+    ]);
     expect(s.track.mock.calls.filter(([event]) => event === Events.INTENT_SOURCE_STATUS)).toHaveLength(2);
   });
 
@@ -167,7 +187,7 @@ describe('payment attempt outcomes', () => {
       expect(record.attributes).toMatchObject({
         'attempt.id': expect.any(String), 'quote.id': s.quote.quote.id, 'intent.id': s.quote.quote.id,
         'session.id': s.analytics.getSessionId(), 'attempt.pending': true,
-        'error.middleware.errorId': 'middleware-error-id', 'error.code': error.code, 'reason.bucket': 'network',
+        'error.middleware.errorId': 'middleware-error-id', 'error.type': error.code, 'error.code': 'network',
       });
       expect(JSON.stringify(s.track.mock.calls)).not.toContain('Display message');
     } finally { spy.mockRestore(); }

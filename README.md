@@ -230,7 +230,8 @@ serialization stay private to the transport layer.
 
 SDK swap calls expose `attemptId` in `hooks.onIntent` and the returned result. It identifies one
 payment attempt across quote refreshes, source legs, submission, and delivery. A new swap call
-gets a new ID. Use it alongside `intentId` when investigating an operation.
+gets a new ID. The SDK sends it as `x-nexus-attempt-id` on associated middleware requests.
+Use it alongside `intentId` when investigating an operation.
 
 ## Balances and catalog
 
@@ -670,8 +671,8 @@ try {
 
 ## Error reporting
 
-Internal telemetry records a bounded `reason.bucket` alongside the existing SDK error code and
-category. Public error codes, categories, and display messages retain their meanings.
+Telemetry records the shared error bucket in `error.code`, the SDK error code in `error.type`,
+and the SDK category in `error.category`. Public error objects retain their codes and messages.
 
 Payment reporting distinguishes `completed`, `stopped`, `rejected`, and `failed`. User declines
 before commitment are stopped; system errors before commitment are rejected. Middleware status
@@ -686,7 +687,7 @@ with the method name and operation ID. `nexus_v2_operation_performance` records 
 duration, including cache hits. Catalog errors include structured reason/code/category/service
 metadata; an empty page or incompatible route result is a successful catalog check.
 
-See [the SDK telemetry contract](docs/TELEMETRY.md) for event names, internal reason buckets,
+See [the SDK telemetry contract](docs/TELEMETRY.md) for event names, shared error buckets,
 privacy boundaries, and reconciliation requirements. Product analytics configuration controls
 PostHog; diagnostic OTel logging remains independent, as with existing error logs.
 

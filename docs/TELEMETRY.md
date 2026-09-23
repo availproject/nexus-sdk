@@ -17,8 +17,9 @@ have no SDK session to attach. Their diagnostic logs remain separate from client
 
 Each public swap call creates one `attempt.id`, reusing the operation's ID. It exists before local
 validation and the first quote. All quote refreshes, submit, status/detail polling, and composite
-funding requests send it in middleware's existing `x-request-id` header. IDs are supplied per
-request, so concurrent operations cannot overwrite one another. A new call gets a new ID.
+funding requests send it in the `x-nexus-attempt-id` header. IDs are supplied per request, so
+concurrent operations cannot overwrite one another. A new call gets a new ID. The SDK does not
+set `x-request-id` for attempt correlation; that header is reserved for individual HTTP requests.
 Optional network timing spans use the attempt as their parent operation.
 
 `quote.id` links each accepted quote, `intent.id` links the committed intent, and transaction
@@ -68,7 +69,7 @@ Event names below all use the `nexus_v2_` prefix.
 | Suffix | Meaning |
 | --- | --- |
 | `intent_started` | Public swap call begins |
-| `intent_quoted` | Initial or refreshed executable quote accepted |
+| `intent_quoted` | Initial or refreshed executable quote accepted; one record per distinct source chain and one for the destination |
 | `intent_quote_refresh_failed` | Refresh failed; the hook may recover within this attempt |
 | `intent_committed` | First commitment point reached |
 | `intent_transaction` | Approval/source transaction broadcast, including its hash |
@@ -79,11 +80,16 @@ Event names below all use the `nexus_v2_` prefix.
 | `intent_skipped` | Composite operation needed no swap |
 | `balances_fetch_partial` | Middleware returned available balances with `errored: true` |
 
-Quote observations carry `provider.name`, deduplicated `sourceChainIds`, paired
-`sources: [{ chainId, tokenAddress }]`, `toChainId`, and `toTokenAddress`. The provider is populated
-only when known from a quote; a failure before quoting must not invent a provider. Source and
-delivery observations add `chain.id` and `chain.role: source | destination`. Step context uses
-`step.id` and `step.type`. These records exclude amounts, signing data, calldata, and raw errors.
+Quote observations use `chain.id` and `chain.role: source | destination`. Each accepted quote
+emits one record per distinct source chain and one destination record, even when the destination
+is also a source chain. These records share `attempt.id`, `quote.id`, `provider.name`, paired
+`sources: [{ chainId, tokenAddress }]`, and `toTokenAddress`. Quote records omit `sourceChainIds`
+and `toChainId`; other attempt records retain those route summaries. Refreshed quotes follow the
+same rule and keep the attempt ID. Use `(attempt.id, quote.id)` to count distinct quotes.
+
+The provider is populated only when known from a quote; a failure before quoting must not invent
+a provider. Source and delivery observations also use `chain.id` and `chain.role`. Step context
+uses `step.id` and `step.type`. These records exclude amounts, signing data, calldata, and raw errors.
 
 Available balances still return to callers on a partial response. Public balance requests emit
 the partial event instead of a clean success event. Composite funding emits the same partial
@@ -115,11 +121,17 @@ one fetch. Internal catalog lookups do not emit additional public-operation even
 and `confirmRouteExists` returning `false` are successful results. Catalog calls do not create
 payment attempts. These events contain no query text, token lists, or request amounts.
 
-## Internal reason buckets v1
+## Shared error buckets v1
 
-`reason.bucket` is an internal reporting vocabulary. `error.code`, `error.category`, and
-`error.service` remain the existing SDK values. Public error objects and display messages keep
-their meanings. `src/services/error-reporting.ts` is the executable mapping.
+`error.code` holds the shared error bucket below. `error.type` holds the original SDK error code
+(for example, `backend/rate_limited`), while `error.category` and `error.service` retain the SDK
+category and service. Public `NexusError.code` values and display messages keep their meanings.
+`src/services/error-reporting.ts` is the executable mapping for product events and OTel logs.
+Untyped errors use `error.code: unknown` without `error.type`. A confirmed expiry observation
+uses `error.code: expired` without inventing an SDK error type.
+
+`reason.bucket` is no longer emitted. Queries that used it should use `error.code`; queries for
+the original SDK codes should use `error.type`.
 
 | Bucket | Meaning |
 | --- | --- |
@@ -149,7 +161,7 @@ their meanings. `src/services/error-reporting.ts` is the executable mapping.
 Exact codes take precedence over category fallbacks. Local route and expiry errors additionally
 carry an allowlisted diagnostic `details.reasonBucket` because their public codes are shared with
 other errors. Arbitrary diagnostic strings and display-message matching cannot create buckets.
-Product events contain only the bucket and existing bounded code/category/service. Full messages,
+Product events contain only the bucket and existing bounded SDK code/category/service. Full messages,
 stacks, and sanitized details remain in OTel; middleware error IDs/codes/subcodes remain searchable
 there alongside the complete attempt/quote/intent IDs.
 
@@ -162,9 +174,9 @@ They establish instrumentation behavior, not production collector/dashboard deli
 Before publishing cross-surface reliability:
 
 1. Mirror this bucket vocabulary and schema marker into the middleware observability contract.
-2. Persist the request ID as the attempt join alongside request hash and client/surface identity.
-   Middleware currently accepts/logs `x-request-id`; it does not yet persist the full attempt/session
-   relationship. SDK records supply `session.id`; a server-side session transport/join is follow-up.
+2. Update middleware to accept/log `x-nexus-attempt-id` and persist the attempt ID alongside
+   request hash and client/surface identity. SDK records supply `session.id`; a server-side
+   session transport/join is follow-up.
 3. Reconcile the server's terminal status with SDK observations by attempt/request hash. Middleware
    and protocol supply outcomes after the browser closes; browser observations alone are incomplete.
 4. Check for missing identities, unmatched intent hashes, duplicate/conflicting outcomes, and aged
