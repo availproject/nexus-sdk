@@ -204,12 +204,14 @@ wrapped external causes.
 
 ## OTel surfacing
 
-`error-telemetry.ts:extractErrorAttrs` reads the **top-level**
+`error-telemetry.ts:reportOperationError` reads the **top-level**
 `error.category`, `error.code`, `error.context.service`,
 `error.context.stepId|stepType|chainId`, `error.message`, and
 `error.details` (sanitized). There is no `error.chain` and no
 `error.rootCause.*` — the error is flat, so the top-level *is* the whole
-story.
+story. The public SDK code is emitted as `error.type`; telemetry `error.code` contains the
+shared bucket from `getErrorReportingProperties`, such as `rate_limited` or `unsupported_route`.
+Untyped errors emit `error.code: unknown` without `error.type`.
 
 Implication: re-wrapping a `UserActionError` in `ExecutionError` emits
 `error.category: 'execution'` and there's no inner error to recover the

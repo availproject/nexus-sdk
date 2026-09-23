@@ -11,7 +11,8 @@
  *      (`params.toChainId`, `options.slippageTolerance`, etc.) so SigNoz alerts can filter
  *      without JSON parsing.
  *   3. Retain the full sanitized blob as `params.raw` / `options.raw` for forensics.
- *   4. Emit `error.{name,category,code,service,message,context.*,details,stack}`
+ *   4. Emit `error.{name,category,code,type,service,message,context.*,details,stack}`
+ *      (`code` is the shared bucket; `type` is the original SDK error code)
  *      with `operation` + `operation.id` correlating to the client's PerformanceTracker id
  *      (or the sentinel `'no_analytics'` for utility helpers). Errors are flat — no cause
  *      chain, so no `error.chain` / `error.rootCause.*`.
@@ -186,7 +187,6 @@ const extractErrorAttrs = (attrs: Attrs, error: unknown): void => {
 
   if (error instanceof NexusError) {
     attrs['error.category'] = error.category;
-    attrs['error.code'] = error.code;
     if (error.context.service !== undefined) {
       attrs['error.service'] = error.context.service;
     }

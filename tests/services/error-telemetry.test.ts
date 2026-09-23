@@ -65,12 +65,14 @@ describe('reportOperationError — basic emission', () => {
     expect(attrs['operation.id']).toBe('op_1');
     expect(attrs['error.name']).toBe('BackendError');
     expect(attrs['error.category']).toBe('backend');
-    expect(attrs['error.code']).toBe('backend/balances_fetch_failed');
+    expect(attrs['error.code']).toBe('unavailable');
+    expect(attrs['error.type']).toBe('backend/balances_fetch_failed');
+    expect(attrs).not.toHaveProperty('reason.bucket');
     expect(attrs['error.service']).toBe('middleware');
     expect(attrs['error.message']).toBe('fetch failed');
   });
 
-  it('emits sensible defaults for a plain Error (no category/code/service)', () => {
+  it('emits an unknown bucket for a plain Error without an SDK type, category or service', () => {
     reportOperationError({
       operation: 'swapWithExactOut',
       operationId: 'op_1',
@@ -80,7 +82,9 @@ describe('reportOperationError — basic emission', () => {
     expect(attrs['error.name']).toBe('Error');
     expect(attrs['error.message']).toBe('boom');
     expect(attrs['error.category']).toBeUndefined();
-    expect(attrs['error.code']).toBeUndefined();
+    expect(attrs['error.code']).toBe('unknown');
+    expect(attrs['error.type']).toBeUndefined();
+    expect(attrs).not.toHaveProperty('reason.bucket');
     expect(attrs['error.service']).toBeUndefined();
   });
 

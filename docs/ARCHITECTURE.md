@@ -293,8 +293,11 @@ details where available.
 call, before local checks or network requests. `src/intent/telemetry.ts` owns commitment, route,
 delivery, and outcome observations. The orchestrator reports independently of user callbacks.
 Base passes that same ID to quote, refresh, submit, status/detail, and composite funding requests
-as per-request `x-request-id`. Signed payloads are unchanged. Optional network timing uses this ID
-as its parent operation.
+in the `x-nexus-attempt-id` header on each request. Signed payloads are unchanged. Optional network
+timing uses this ID as its parent operation.
+
+Each accepted quote emits one `INTENT_QUOTED` record per distinct source chain and one for the
+destination, identified by `chain.id` and `chain.role` and joined by attempt and quote IDs.
 
 Only canonical `INTENT_OUTCOME` events count terminal payment outcomes. Polling uncertainty is an
 observation error. `swapAndExecute` records payment completion at destination delivery, before
@@ -302,7 +305,8 @@ standalone execution; skipping the swap records `INTENT_SKIPPED` and no payment 
 Partial balance reporting retains the transport's `errored` flag internally while the public
 balance method still returns an array.
 
-`src/services/error-reporting.ts` maps existing public errors to internal reason buckets.
+`src/services/error-reporting.ts` maps public errors to shared buckets in telemetry `error.code`
+and preserves the SDK code in `error.type`.
 `AnalyticsManager` supplies client identity and session on each record; the shared OTel resource
 contains no generated client ID or first-client network. See [TELEMETRY.md](TELEMETRY.md) for
 the schema and the remaining middleware reconciliation work.

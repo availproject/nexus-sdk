@@ -57,10 +57,9 @@ export type MiddlewareClient = {
 };
 
 const INTENT_API_PREFIX = '/api/v1/intent';
-// Middleware already accepts x-request-id as caller-provided correlation metadata.
-// Keep it on each request, never on shared Axios defaults or in signed payloads.
+// Keep attempt IDs on each request, never on shared Axios defaults or in signed payloads.
 const attemptHeaders = (attemptId?: string) =>
-  attemptId ? { 'x-request-id': attemptId } : undefined;
+  attemptId ? { 'x-nexus-attempt-id': attemptId } : undefined;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);

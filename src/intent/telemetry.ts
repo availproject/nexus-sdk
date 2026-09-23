@@ -31,7 +31,16 @@ export const createIntentReporting = (
   });
   const report = (event: NexusAnalyticsEvent, extra?: Record<string, unknown>) => {
     try {
-      emit(event, { ...properties(), ...extra });
+      let eventProperties = { ...properties(), ...extra };
+      if (event === Events.INTENT_QUOTED) {
+        const {
+          sourceChainIds: _sources,
+          toChainId: _destination,
+          ...chainProperties
+        } = eventProperties;
+        eventProperties = chainProperties;
+      }
+      emit(event, eventProperties);
     } catch {
       // An observer cannot change wallet or intent execution.
     }
@@ -60,10 +69,11 @@ export const createIntentReporting = (
       if (outcome || skipped) return;
       if (event.type === 'quote') {
         quote = event.quote;
+        const sourceChainIds = [...new Set(quote.input.map((source) => source.chainId))];
         Object.assign(route, {
           'quote.id': quote.id,
           'provider.name': quote.provider,
-          sourceChainIds: [...new Set(quote.input.map((source) => source.chainId))],
+          sourceChainIds,
           sources: quote.input.map((source) => ({
             chainId: source.chainId,
             tokenAddress: source.tokenAddress,
@@ -71,7 +81,13 @@ export const createIntentReporting = (
           toChainId: quote.output.chainId,
           toTokenAddress: quote.output.tokenAddress,
         });
-        report(Events.INTENT_QUOTED);
+        for (const chainId of sourceChainIds) {
+          report(Events.INTENT_QUOTED, { 'chain.id': chainId, 'chain.role': 'source' });
+        }
+        report(Events.INTENT_QUOTED, {
+          'chain.id': quote.output.chainId,
+          'chain.role': 'destination',
+        });
       } else if (event.type === 'step') {
         if (event.committed) commit();
         route['step.type'] = event.step.type;
@@ -97,7 +113,7 @@ export const createIntentReporting = (
             'chain.role': 'destination',
           });
         } else if (event.status === 'expired' && !outcome) {
-          reason = { 'reason.bucket': 'expired' };
+          reason = { 'error.code': 'expired' };
           terminal('failed');
         }
       }

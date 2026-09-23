@@ -5,7 +5,7 @@ import {
   NexusError,
 } from '../domain/errors';
 
-// Internal reporting vocabulary. Public error codes, categories and messages stay unchanged.
+// Shared telemetry error buckets. Public error codes, categories and messages stay unchanged.
 // Unknown inputs never become dynamic buckets or fall back to matching display text.
 const buckets: Partial<Record<ErrorCode, string>> = {
   [Codes.CHAIN_NOT_FOUND]: 'unsupported_route',
@@ -59,7 +59,7 @@ const buckets: Partial<Record<ErrorCode, string>> = {
 
 /** Bounded event properties only. Raw errors and middleware diagnostics belong in OTel logs. */
 export const getErrorReportingProperties = (error: unknown): Record<string, string> => {
-  if (!(error instanceof NexusError)) return { 'reason.bucket': 'unknown' };
+  if (!(error instanceof NexusError)) return { 'error.code': 'unknown' };
   const fallbacks: Record<ErrorCategory, string> = {
     user_action: 'user_declined',
     validation: 'invalid_request',
@@ -73,8 +73,8 @@ export const getErrorReportingProperties = (error: unknown): Record<string, stri
   const override =
     localReason === 'unsupported_route' || localReason === 'expired' ? localReason : undefined;
   return {
-    'reason.bucket': override ?? buckets[error.code] ?? fallbacks[error.category as ErrorCategory],
-    'error.code': error.code,
+    'error.code': override ?? buckets[error.code] ?? fallbacks[error.category as ErrorCategory],
+    'error.type': error.code,
     'error.category': error.category,
     ...(error.context.service ? { 'error.service': error.context.service } : {}),
   };
