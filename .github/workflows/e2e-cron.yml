@@ -59,6 +59,4 @@ jobs:
           file: packages/tools/src/e2e/Dockerfile
           push: true
           platforms: linux/amd64
-          build-args: |
-            GITHUB_PAT=${{ secrets.GH_PAT }}
           tags: ${{ steps.meta.outputs.tag }}
