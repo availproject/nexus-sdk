@@ -7,11 +7,6 @@ WORKDIR /app/nexus-sdk
 # The build context is the repo root — copy everything in
 COPY . .
 
-# git insteadOf rewrites so npm ci can fetch private github deps
-ARG GITHUB_PAT
-RUN git config --global url."https://${GITHUB_PAT}@github.com/".insteadOf "ssh://git@github.com/" && \
-    git config --global url."https://${GITHUB_PAT}@github.com/".insteadOf "https://github.com/"
-
 RUN npm ci
 
 WORKDIR /app/nexus-sdk/packages/tools
