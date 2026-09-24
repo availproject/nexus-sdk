@@ -133,6 +133,10 @@ const client = createNexusClient({
   // Network: 'mainnet' | 'canary' | 'testnet' | custom NetworkConfig
   network: 'mainnet',
 
+  // Chain release channel: 'stable' (default) or 'preview'.
+  // Preview includes stable chains plus chains still being completed.
+  channel: 'stable',
+
   // Enable debug logging
   debug: false,
 
@@ -195,7 +199,11 @@ const customClient = createNexusClient({
 
 #### `initialize()`
 
-Fetches deployment data (chains, tokens, vault contracts) from the middleware. Must be called once before any chain-dependent operations.
+Fetches deployment data (chains, tokens, vault contracts) for the configured channel from the middleware. Must be called once before any chain-dependent operations.
+
+Set `channel: 'preview'` in `createNexusClient(...)` to include preview chains.
+The channel is independent of `network` and also applies to bridge balances,
+swap balances, and oracle prices. Create a new client to change channels.
 
 ```typescript
 await client.initialize();
@@ -225,11 +233,11 @@ client.destroy();
 
 #### `client.chainList`
 
-After `initialize()` resolves, `client.chainList` exposes the deployed chain catalogue. Use it for contract-aware lookups instead of bundling chain/token constants in your app.
+After `initialize()` resolves, `client.chainList` exposes the deployed chain catalogue for the configured channel. Use it for contract-aware lookups instead of bundling chain/token constants in your app.
 
 ```typescript
 type ChainListType = {
-  chains: Chain[];                                              // all deployed chains
+  chains: Chain[];                                              // chains in the configured channel
   getChainByID(id: number): Chain;
   getTokenInfoBySymbol(chainID: number, symbol: string): TokenInfo;
   getTokenByAddress(chainID: number, address: Hex): TokenInfo;
@@ -2263,6 +2271,7 @@ const rates = await getCoinbaseRates(); // { ETH: "3245.12", USDC: "1.00", ... }
 // Query supported chains and tokens at runtime (requires network fetch)
 import { getSupportedChains } from '@avail-project/nexus-core/utils';
 const supported = await getSupportedChains('mainnet');
+const previewSupported = await getSupportedChains('mainnet', { channel: 'preview' });
 
 // Or via client instance (synchronous, uses cached deployment data)
 const chains = client.getSupportedChains();
@@ -2427,7 +2436,10 @@ for (const chain of chains) {
 }
 ```
 
-**Sync via an initialized client** (uses the network passed to `createNexusClient`):
+The standalone helper defaults to `stable`. Pass `{ channel: 'preview' }` as its
+second argument to include preview chains.
+
+**Sync via an initialized client** (uses the network and channel passed to `createNexusClient`):
 
 ```typescript
 const chains = client.getSupportedChains();

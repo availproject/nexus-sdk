@@ -306,6 +306,10 @@ blob in `params.raw` / `options.raw`). The OTel logger is provisioned by
 
 ## Chain and token metadata
 
+- Client configuration and the standalone `getSupportedChains` helper accept
+  `channel: 'stable' | 'preview'`, defaulting to `stable`. Middleware filters the
+  catalogue; `preview` includes both stable and preview chains. The transport
+  sends the channel on deployment, bridge-balance, swap-balance, and oracle requests.
 - Chains and token metadata are fetched from the middleware deployment endpoint during
   `initialize()`.
 - `src/services/chain-list.ts` converts the deployment response into the runtime `chainList`

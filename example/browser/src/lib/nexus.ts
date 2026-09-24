@@ -622,6 +622,7 @@ export function useNexusSdk(network: NetworkMode, forceMayan: boolean) {
       const client = createNexusClient({
         network,
         debug: true,
+        channel: "preview",
         forceMayan,
         devTiming: {
           enabled: true,

@@ -188,7 +188,10 @@ describe('MiddlewareClient swap proxy methods', () => {
           value: 150,
         },
       ]);
-      expect(axiosClient.get).toHaveBeenCalledWith('/api/v1/swap-balance/EVM/0x1234567890abcdef1234567890abcdef12345678');
+      expect(axiosClient.get).toHaveBeenCalledWith(
+        '/api/v1/swap-balance/EVM/0x1234567890abcdef1234567890abcdef12345678',
+        { params: { channel: 'stable' } }
+      );
     });
 
     it('coerces an empty USD value to 0 (unpriced long-tail token) instead of NaN', async () => {
