@@ -5,7 +5,7 @@ import { useConnection } from "wagmi";
 import { Toaster } from "sonner";
 import type { TokenBalance } from "@avail-project/nexus-core";
 import type { ExecutionProgressState } from "./lib/types";
-import type { NetworkMode } from "./lib/types";
+import type { ChannelMode, NetworkMode } from "./lib/types";
 import { getTabsForNetwork } from "./lib/tabs";
 import { useNexusSdk } from "./lib/nexus";
 import { AppShell } from "./components/AppShell";
@@ -80,6 +80,19 @@ function useForceMayan() {
   return { forceMayan, toggleForceMayan: () => setForceMayan((value) => !value) };
 }
 
+function useChannel() {
+  const [channel, setChannel] = useState<ChannelMode>(() => {
+    if (typeof window === "undefined") return "stable";
+    return window.localStorage.getItem("nexus-channel") === "preview" ? "preview" : "stable";
+  });
+
+  useEffect(() => {
+    window.localStorage.setItem("nexus-channel", channel);
+  }, [channel]);
+
+  return { channel, selectChannel: setChannel };
+}
+
 const MOCK_COMPLETED_STATE: ExecutionProgressState = {
   phase: "completed",
   operationType: "bridge",
@@ -112,6 +125,7 @@ const MOCK_FAILED_STATE: ExecutionProgressState = {
 export default function App() {
   const { address, isConnected } = useConnection();
   const { network, selectNetwork } = useNetwork();
+  const { channel, selectChannel } = useChannel();
   const { forceMayan, toggleForceMayan } = useForceMayan();
   const { mode, toggleMode } = useThemeAndMode();
   const queryClient = useQueryClient();
@@ -135,7 +149,7 @@ export default function App() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  const sdk = useNexusSdk(network, forceMayan);
+  const sdk = useNexusSdk(network, channel, forceMayan);
 
   const tabs = useMemo(() => getTabsForNetwork(network), [network]);
 
@@ -172,6 +186,8 @@ export default function App() {
       <AppShell
         network={network}
         onSelectNetwork={selectNetwork}
+        channel={channel}
+        onSelectChannel={selectChannel}
         forceMayan={forceMayan}
         onToggleForceMayan={toggleForceMayan}
         mode={mode}
@@ -184,12 +200,13 @@ export default function App() {
         <Routes>
           <Route
             path="/stress-test"
-            element={<StressTest isConnected={isConnected} />}
+            element={<StressTest isConnected={isConnected} channel={channel} />}
           />
           <Route
             path="/*"
             element={
               <Home
+                key={channel}
                 network={network}
                 tabs={tabs}
                 client={sdk.client}

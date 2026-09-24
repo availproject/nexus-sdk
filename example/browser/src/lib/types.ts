@@ -2,6 +2,7 @@ import type { Dispatch, SetStateAction } from "react";
 import type { NexusClient, TokenBalance } from "@avail-project/nexus-core";
 
 export type NetworkMode = "mainnet" | "canary" | "testnet";
+export type ChannelMode = "stable" | "preview";
 
 export type TabId =
   | "swap-exact-out"
