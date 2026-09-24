@@ -21,6 +21,16 @@ import type {
 } from '../src';
 
 describe('public api exports', () => {
+  it('accepts optional stable and preview channels on public configuration', () => {
+    type ClientConfig = NonNullable<Parameters<typeof rootModule.createNexusClient>[0]>;
+    type ChainOptions = NonNullable<Parameters<typeof utilsModule.getSupportedChains>[1]>;
+    expectTypeOf<ClientConfig['channel']>().toEqualTypeOf<'stable' | 'preview' | undefined>();
+    expectTypeOf<ChainOptions['channel']>().toEqualTypeOf<'stable' | 'preview' | undefined>();
+    expectTypeOf<rootModule.NexusClient['utils']['getSupportedChains']>().toEqualTypeOf<
+      typeof utilsModule.getSupportedChains
+    >();
+  });
+
   it('exports renamed public types and intent status from the package root', () => {
     const params: ListIntentsParams = { page: 1, status: IntentStatus.Created };
     const result = { intents: [] as IntentRecord[], total: 0 } satisfies ListIntentsResult;

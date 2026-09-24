@@ -43,11 +43,12 @@ export const getCoinbaseRates = async (): Promise<Record<string, string>> => {
 };
 
 export const getSupportedChains = async (
-  env: NexusNetworkHint
+  env: NexusNetworkHint,
+  options?: { channel?: 'stable' | 'preview' }
 ): Promise<SupportedChainsAndTokensResult> => {
   try {
     const networkConfig = getNetworkConfig(env);
-    const middlewareClient = createMiddlewareClient(networkConfig.MIDDLEWARE_HTTP_URL);
+    const middlewareClient = createMiddlewareClient(networkConfig.MIDDLEWARE_HTTP_URL, options);
     const deployment = await middlewareClient.getDeployment();
     // if (deployment.network !== networkConfig.NETWORK_HINT) {
     //   throw Errors.invalidInput(
@@ -75,7 +76,7 @@ export type NexusUtils = {
   isValidAddress: typeof isValidAddress;
   truncateAddress: typeof truncateAddress;
   getCoinbaseRates: typeof getCoinbaseRates;
-  getSupportedChains: (env: NexusNetworkHint) => Promise<SupportedChainsAndTokensResult>;
+  getSupportedChains: typeof getSupportedChains;
 };
 
 export const nexusUtils: NexusUtils = {
@@ -86,6 +87,5 @@ export const nexusUtils: NexusUtils = {
   isValidAddress,
   truncateAddress,
   getCoinbaseRates,
-  getSupportedChains: (env: NexusNetworkHint): Promise<SupportedChainsAndTokensResult> =>
-    getSupportedChains(env),
+  getSupportedChains,
 };

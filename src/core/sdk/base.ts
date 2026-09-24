@@ -123,6 +123,7 @@ const createTimingHooks = (analytics?: AnalyticsManager, parentSpanId?: string) 
 
 export const createBase = (config?: {
   network?: NexusNetwork;
+  channel?: 'stable' | 'preview';
   debug?: boolean;
   devTiming?: DevTimingConfig;
   domain?: string;
@@ -133,7 +134,8 @@ export const createBase = (config?: {
 }) => {
   const networkConfig = getNetworkConfig(config?.network);
   const middlewareClient =
-    config?.internal?.middlewareClient ?? createMiddlewareClient(networkConfig.MIDDLEWARE_HTTP_URL);
+    config?.internal?.middlewareClient ??
+    createMiddlewareClient(networkConfig.MIDDLEWARE_HTTP_URL, { channel: config?.channel });
 
   const state: BaseState = {
     chainList: null,
