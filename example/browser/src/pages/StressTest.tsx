@@ -21,6 +21,7 @@ import {
 } from "../../../../packages/tools/src/stress-test";
 import { Dropdown } from "../components/Dropdown";
 import { MultiSelect } from "../components/MultiSelect";
+import type { ChannelMode } from "../lib/types";
 
 type DropdownOption = { value: string; label: string };
 import {
@@ -46,6 +47,7 @@ import './stressTest/stress-test.css';
 
 type StressTestProps = {
   isConnected: boolean;
+  channel: ChannelMode;
 };
 
 const DEFAULTS = {
@@ -63,7 +65,7 @@ const DEFAULTS = {
   soakDurationMinutes: 5,
 };
 
-export default function StressTest({ isConnected }: StressTestProps) {
+export default function StressTest({ isConnected, channel }: StressTestProps) {
   const [privateKey, setPrivateKey] = useState("");
   const [token, setToken] = useState(DEFAULTS.token);
   const [amount, setAmount] = useState(DEFAULTS.amount);
@@ -228,17 +230,18 @@ export default function StressTest({ isConnected }: StressTestProps) {
   }, [currentRunSpanSamples, report]);
 
   useEffect(() => {
+    setClientReady(false);
+    setSupported([]);
+    setClientError(null);
+    setSelectedDestinations([]);
     if (!isConnected) {
-      setClientReady(false);
-      setSupported([]);
-      setClientError(null);
       clientRef.current?.destroy();
       clientRef.current = null;
       return;
     }
 
     let isMounted = true;
-    const client = createNexusClient({ network: "testnet", debug: true });
+    const client = createNexusClient({ network: "testnet", channel, debug: true });
     clientRef.current = client;
 
     client
@@ -258,7 +261,7 @@ export default function StressTest({ isConnected }: StressTestProps) {
       client.destroy();
       clientRef.current = null;
     };
-  }, [isConnected]);
+  }, [isConnected, channel]);
 
   const tokenOptions: DropdownOption[] = useMemo(() => {
     const tokens = new Map<string, string>();
@@ -341,6 +344,7 @@ export default function StressTest({ isConnected }: StressTestProps) {
       const { privateKeyValue, runId, operationId } = params;
       const client = createNexusClient({
         network: "testnet",
+        channel,
         debug: true,
         devTiming: {
           enabled: true,
@@ -369,7 +373,7 @@ export default function StressTest({ isConnected }: StressTestProps) {
       await client.setEVMProvider(provider);
       return client;
     },
-    [],
+    [channel],
   );
 
   const updateOperation = useCallback(

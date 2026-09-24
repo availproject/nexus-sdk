@@ -17,7 +17,7 @@ import {
 } from "@avail-project/nexus-core";
 import { toast } from "sonner";
 import { useConnection } from "wagmi";
-import type { NetworkMode, SourceOption } from "./types";
+import type { ChannelMode, NetworkMode, SourceOption } from "./types";
 import { ceilDp, D, sum, toFixed } from "./math";
 
 /* ── View models for intent modals ────────────────────────────────── */
@@ -370,7 +370,7 @@ function clearAsyncInterval(intervalIndex: number) {
 
 /* ── useNexusSdk hook ─────────────────────────────────────────────── */
 
-export function useNexusSdk(network: NetworkMode, forceMayan: boolean) {
+export function useNexusSdk(network: NetworkMode, channel: ChannelMode, forceMayan: boolean) {
   const { connector, address, status } = useConnection();
   const queryClient = useQueryClient();
   const clientRef = useRef<NexusClient | null>(null);
@@ -584,10 +584,10 @@ export function useNexusSdk(network: NetworkMode, forceMayan: boolean) {
     }, 20_000);
   };
 
-  // Track the last address/network combo to avoid redundant recreations
+  // Track the last wallet/config combination to avoid redundant recreations.
   const prevKeyRef = useRef<string>("");
 
-  // Re-create client on network change, account change, or forceMayan toggle.
+  // Re-create client on network, channel, account, or forceMayan changes.
   // Gate on wagmi's settled status — during 'reconnecting'/'connecting',
   // `connector` can be undefined even though the account flips connected, which
   // used to leave the dedup key stamped so the SDK never initialized after a
@@ -595,7 +595,7 @@ export function useNexusSdk(network: NetworkMode, forceMayan: boolean) {
   useEffect(() => {
     if (status !== "connected" && status !== "disconnected") return;
 
-    const key = `${network}:${address ?? ""}:${status}:${forceMayan ? "1" : "0"}`;
+    const key = `${network}:${channel}:${address ?? ""}:${status}:${forceMayan ? "1" : "0"}`;
     if (key === prevKeyRef.current) return;
     prevKeyRef.current = key;
 
@@ -622,7 +622,7 @@ export function useNexusSdk(network: NetworkMode, forceMayan: boolean) {
       const client = createNexusClient({
         network,
         debug: true,
-        channel: "preview",
+        channel,
         forceMayan,
         devTiming: {
           enabled: true,
@@ -645,14 +645,16 @@ export function useNexusSdk(network: NetworkMode, forceMayan: boolean) {
         },
       });
 
-      console.log(`[nexus] initializing client (${network}, forceMayan=${forceMayan})`);
+      console.log(`[nexus] initializing client (${network}, channel=${channel}, forceMayan=${forceMayan})`);
       await client.initialize();
       await client.setEVMProvider(provider as never);
 
       if (!cancelled) {
         clientRef.current = client;
         setReady(true);
-        console.log(`[nexus] client ready (${network})`);
+        console.log(`[nexus] client ready (${network}, channel=${channel})`);
+      } else {
+        client.destroy();
       }
     }
 
@@ -666,7 +668,7 @@ export function useNexusSdk(network: NetworkMode, forceMayan: boolean) {
     return () => {
       cancelled = true;
     };
-  }, [connector, status, network, address, forceMayan]);
+  }, [connector, status, network, channel, address, forceMayan]);
 
   // Expose intent hook handlers for tabs to use in per-call options
   const onSwapIntent = useMemo(
