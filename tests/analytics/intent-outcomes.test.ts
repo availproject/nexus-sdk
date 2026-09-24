@@ -42,17 +42,21 @@ describe('payment attempt outcomes', () => {
     const s = setup();
     const refreshed = structuredClone(s.quote);
     refreshed.quote.id = `0x${'ab'.repeat(32)}`;
+    refreshed.quote.output.tokenAddress = `0x${'cd'.repeat(20)}`;
     const result = await s.run({ refreshQuote: async () => refreshed,
       onIntent: async ({ refresh, allow }) => { await refresh(); allow(); },
       onEvent: () => { throw new Error('consumer failure'); },
     });
     expect(s.outcomes()).toHaveLength(1);
     expect(s.outcomes()[0]).toMatchObject({ 'attempt.id': result.attemptId,
-      'attempt.outcome': 'completed', 'attempt.committed': true, 'quote.id': refreshed.quote.id });
+      'attempt.outcome': 'completed', 'attempt.committed': true, 'quote.id': refreshed.quote.id,
+      'attempt.outcome_authority': 'middleware' });
     const quotes = s.track.mock.calls.filter(([name]) => name === Events.INTENT_QUOTED);
-    expect(quotes.map(([, props]) => [props?.['quote.id'], props?.['chain.id'], props?.['chain.role']])).toEqual([
-      [s.quote.quote.id, 8453, 'source'], [s.quote.quote.id, 1, 'destination'],
-      [refreshed.quote.id, 8453, 'source'], [refreshed.quote.id, 1, 'destination'],
+    expect(quotes.map(([, props]) => [props?.['quote.id'], props?.['chain.id'], props?.['chain.role'], props?.['token.address']])).toEqual([
+      [s.quote.quote.id, 8453, 'source', s.quote.quote.input[0]!.tokenAddress],
+      [s.quote.quote.id, 1, 'destination', s.quote.quote.output.tokenAddress],
+      [refreshed.quote.id, 8453, 'source', refreshed.quote.input[0]!.tokenAddress],
+      [refreshed.quote.id, 1, 'destination', refreshed.quote.output.tokenAddress],
     ]);
     for (const [, props] of quotes) {
       expect(props).toMatchObject({ 'attempt.id': result.attemptId, 'provider.name': 'nexus-v2' });
@@ -60,6 +64,12 @@ describe('payment attempt outcomes', () => {
       expect(props).not.toHaveProperty('toChainId');
     }
     expect(new Set(quotes.map(([, props]) => props?.['attempt.id'])).size).toBe(1);
+    for (const [, props] of s.track.mock.calls.filter(([, props]) => props?.['attempt.id'])) {
+      expect(props).toMatchObject({ 'attempt.kind': 'swapWithExactOut', 'nexus.telemetry.schema.version': 1 });
+      expect(props).not.toHaveProperty('kind');
+      expect(props).not.toHaveProperty('telemetry.schema.version');
+      expect(props).not.toHaveProperty('outcome.authority');
+    }
     expect(JSON.stringify(s.track.mock.calls)).not.toContain(INTENT_SIGNATURE);
   });
 
@@ -68,7 +78,7 @@ describe('payment attempt outcomes', () => {
     if (where === 'signature') s.deps.sign.mockRejectedValue(Errors.userRejectedIntentSignature());
     await expect(s.run(where === 'hook' ? { onIntent: ({ deny }) => deny() } : {})).rejects.toThrow();
     expect(s.outcomes()).toEqual([expect.objectContaining({ 'attempt.outcome': 'stopped',
-      'attempt.committed': false, 'error.code': 'user_declined' })]);
+      'attempt.committed': false, 'error.code': 'user_declined', 'attempt.outcome_authority': 'sdk' })]);
     expect(s.track.mock.calls.some(([name]) => name === Events.SWAP_TRANSACTION_FAILED)).toBe(false);
   });
 
@@ -157,21 +167,31 @@ describe('payment attempt outcomes', () => {
     })]);
   });
 
-  it('quotes each distinct source chain and destination while counting a multi-source payment once', async () => {
+  it('quotes each distinct source chain/token pair and destination while counting a payment once', async () => {
     const s = setup();
-    s.quote.quote.input.push({ ...s.quote.quote.input[0]! }, { ...s.quote.quote.input[0]!, chainId: 10 });
+    const first = s.quote.quote.input[0]!;
+    const secondToken = `0x${'cd'.repeat(20)}` as const;
+    s.quote.quote.input.push({ ...first }, { ...first, tokenAddress: secondToken }, { ...first, chainId: 10 });
     s.quote.quote.output.chainId = 8453;
-    const legs = [{ sourceIndex: 0, status: 'fulfilled' as const }, { sourceIndex: 1, status: 'fulfilled' as const }];
+    const legs = s.quote.quote.input.map((_, sourceIndex) => ({ sourceIndex, status: 'fulfilled' as const }));
     s.deps.getStatus.mockResolvedValueOnce({ id: s.quote.quote.id, provider: 'nexus-v2', status: 'deposited', substatus: 'processing', legs })
       .mockResolvedValue({ id: s.quote.quote.id, provider: 'nexus-v2', status: 'fulfilled', substatus: 'completed', legs });
     await s.run({ pollingIntervalMs: 0 });
     expect(s.outcomes()).toHaveLength(1);
     expect(s.outcomes()[0]).toMatchObject({ sourceChainIds: [8453, 10] });
     const quotes = s.track.mock.calls.filter(([event]) => event === Events.INTENT_QUOTED);
-    expect(quotes.map(([, props]) => [props?.['chain.id'], props?.['chain.role']])).toEqual([
-      [8453, 'source'], [10, 'source'], [8453, 'destination'],
+    expect(quotes.map(([, props]) => [props?.['chain.id'], props?.['chain.role'], props?.['token.address']])).toEqual([
+      [8453, 'source', first.tokenAddress], [8453, 'source', secondToken],
+      [10, 'source', first.tokenAddress], [8453, 'destination', s.quote.quote.output.tokenAddress],
     ]);
-    expect(s.track.mock.calls.filter(([event]) => event === Events.INTENT_SOURCE_STATUS)).toHaveLength(2);
+    const statuses = s.track.mock.calls.filter(([event]) => event === Events.INTENT_SOURCE_STATUS);
+    expect(statuses.map(([, props]) => [props?.['leg.index'], props?.['leg.status']])).toEqual([
+      [0, 'fulfilled'], [1, 'fulfilled'], [2, 'fulfilled'], [3, 'fulfilled'],
+    ]);
+    for (const [, props] of statuses) {
+      expect(props).not.toHaveProperty('source.index');
+      expect(props).not.toHaveProperty('source.status');
+    }
   });
 
   it('preserves middleware diagnostics and complete correlation IDs in the error log', async () => {
@@ -187,8 +207,12 @@ describe('payment attempt outcomes', () => {
       expect(record.attributes).toMatchObject({
         'attempt.id': expect.any(String), 'quote.id': s.quote.quote.id, 'intent.id': s.quote.quote.id,
         'session.id': s.analytics.getSessionId(), 'attempt.pending': true,
+        'attempt.kind': 'swapWithExactOut', 'nexus.network': 'mainnet', 'nexus.telemetry.schema.version': 1,
         'error.middleware.errorId': 'middleware-error-id', 'error.type': error.code, 'error.code': 'network',
       });
+      for (const key of ['kind', 'network', 'telemetry.schema.version']) {
+        expect(record.attributes).not.toHaveProperty(key);
+      }
       expect(JSON.stringify(s.track.mock.calls)).not.toContain('Display message');
     } finally { spy.mockRestore(); }
   });
