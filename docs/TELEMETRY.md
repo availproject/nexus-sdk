@@ -6,7 +6,7 @@ its bridge-specific event names and timeout paths do not apply to the current in
 ## Identity and correlation
 
 Every client event and operation error log carries `nexus.client.id`, `surface.name: nexus-sdk`,
-`surface.version`, `session.id`, and `network`. Client identity is the configured value, not a
+`surface.version`, `session.id`, and `nexus.network`. Client identity is the configured value, not a
 generated browser ID or hostname. The shared OTel resource retains the SDK service identity and
 package version; client/session/network attribution belongs on each record.
 
@@ -30,9 +30,10 @@ signature envelopes, or protocol transaction payloads. Hooks and successful resu
 
 ## Outcomes and authority
 
-All attempt events carry `telemetry.schema.version: 1`. **Only
+All attempt events carry `nexus.telemetry.schema.version: 1` and `attempt.kind` identifying
+`swapWithExactIn`, `swapWithExactOut`, or `swapAndExecute`. **Only
 `nexus_v2_intent_outcome` is a terminal outcome event.** It includes `attempt.outcome`,
-`attempt.committed`, `attempt.pending`, `attempt.duration_ms`, and `outcome.authority`.
+`attempt.committed`, `attempt.pending`, `attempt.duration_ms`, and `attempt.outcome_authority`.
 
 | Outcome | SDK observation | Authority |
 | --- | --- | --- |
@@ -69,7 +70,7 @@ Event names below all use the `nexus_v2_` prefix.
 | Suffix | Meaning |
 | --- | --- |
 | `intent_started` | Public swap call begins |
-| `intent_quoted` | Initial or refreshed executable quote accepted; one record per distinct source chain and one for the destination |
+| `intent_quoted` | Initial or refreshed executable quote accepted; one record per distinct source chain/token pair and one for the destination |
 | `intent_quote_refresh_failed` | Refresh failed; the hook may recover within this attempt |
 | `intent_committed` | First commitment point reached |
 | `intent_transaction` | Approval/source transaction broadcast, including its hash |
@@ -80,16 +81,32 @@ Event names below all use the `nexus_v2_` prefix.
 | `intent_skipped` | Composite operation needed no swap |
 | `balances_fetch_partial` | Middleware returned available balances with `errored: true` |
 
-Quote observations use `chain.id` and `chain.role: source | destination`. Each accepted quote
-emits one record per distinct source chain and one destination record, even when the destination
-is also a source chain. These records share `attempt.id`, `quote.id`, `provider.name`, paired
-`sources: [{ chainId, tokenAddress }]`, and `toTokenAddress`. Quote records omit `sourceChainIds`
-and `toChainId`; other attempt records retain those route summaries. Refreshed quotes follow the
-same rule and keep the attempt ID. Use `(attempt.id, quote.id)` to count distinct quotes.
+Quote observations use `chain.id`, `chain.role: source | destination`, and `token.address`.
+Each accepted quote emits one record per distinct source chain/token pair and one destination
+record, even when the destination uses the same chain and token as a source. Multiple tokens on
+one chain get separate records; repeated occurrences of the same source pair share one record.
+Token addresses come from the normalized quote. These records share `attempt.id`, `quote.id`,
+`provider.name`, paired `sources: [{ chainId, tokenAddress }]`, and `toTokenAddress`. Quote records
+omit `sourceChainIds` and `toChainId`; other attempt records retain those route summaries.
+Refreshed quotes follow the same rule and keep the attempt ID. Use `(attempt.id, quote.id)` to
+count distinct quotes.
 
 The provider is populated only when known from a quote; a failure before quoting must not invent
 a provider. Source and delivery observations also use `chain.id` and `chain.role`. Step context
 uses `step.id` and `step.type`. These records exclude amounts, signing data, calldata, and raw errors.
+Source-status observations identify the source leg with `leg.index` and its state with `leg.status`.
+
+Telemetry queries must use the namespaced keys below; the previous keys are no longer emitted.
+The network rename also applies to registered analytics properties, `analytics.getBaseProperties()`,
+and utility error logs. The client configuration option remains `network`.
+
+| Previous key | Current key |
+| --- | --- |
+| `kind` | `attempt.kind` |
+| `source.index` / `source.status` | `leg.index` / `leg.status` |
+| `outcome.authority` | `attempt.outcome_authority` |
+| `network` | `nexus.network` |
+| `telemetry.schema.version` | `nexus.telemetry.schema.version` |
 
 Available balances still return to callers on a partial response. Public balance requests emit
 the partial event instead of a clean success event. Composite funding emits the same partial
@@ -141,7 +158,7 @@ the original SDK codes should use `error.type`.
 | `insufficient_funds` | Missing or insufficient source balance |
 | `insufficient_gas` | Source cannot fund approval gas |
 | `amount_too_small` | Amount cannot cover a deposit fee or minimum gas drop |
-| `quote_unavailable` | No usable quote |
+| `quote_unavailable` | No usable quote, including `BACKEND_INTENT_REFUSED` |
 | `pricing` | Price unavailable, outlier, rate drift, or slippage |
 | `approval` | Insufficient allowance or sponsored approval relay failure |
 | `signature` | Missing, stale, or invalid intent/permit signature |

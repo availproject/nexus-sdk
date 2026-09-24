@@ -312,10 +312,6 @@ export class AnalyticsManager {
       sessionId: this.session.getSessionId(),
     };
 
-    if (this.network) {
-      globalProps.network = this.network;
-    }
-
     if (this.config.appMetadata?.appName) {
       globalProps.appName = this.config.appMetadata.appName;
     }
@@ -724,7 +720,7 @@ export class AnalyticsManager {
       'surface.name': 'nexus-sdk',
       'surface.version': this.sdkVersion,
       'session.id': this.session.getSessionId(),
-      network: this.network ?? 'mainnet',
+      'nexus.network': this.network ?? 'mainnet',
     };
   }
 
@@ -763,7 +759,7 @@ export class AnalyticsManager {
   getBaseProperties(): BaseEventProperties {
     return {
       sdkVersion: this.sdkVersion,
-      network: this.network || 'mainnet',
+      'nexus.network': this.network || 'mainnet',
       appName: this.config.appMetadata?.appName,
       appUrl: this.config.appMetadata?.appUrl,
       timestamp: new Date().toISOString(),

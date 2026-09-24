@@ -73,7 +73,7 @@ export const trackIntentOperation = <R>(
   const reporting = createIntentReporting(
     operationId,
     {
-      kind,
+      'attempt.kind': kind,
       toChainId: typeof input?.toChainId === 'number' ? input.toChainId : undefined,
       toTokenAddress: typeof input?.toTokenAddress === 'string' ? input.toTokenAddress : undefined,
       sourceChainIds: [...new Set(sources?.map((source) => source.chainId))],
@@ -94,7 +94,7 @@ export const trackIntentOperation = <R>(
     },
     opName: tracking.opName,
     operation: tracking.operation,
-    initiatedProps: { kind },
+    initiatedProps: { 'attempt.kind': kind },
     params,
     options,
     run: async (id) => {
@@ -170,7 +170,7 @@ export const trackBalanceFetch = <R extends IntentBalancesResult>(
     },
     opName: NexusOperationNames.BALANCES_FETCH_SWAP,
     operation: 'getBalancesForSwap',
-    initiatedProps: { kind: 'swap' },
+    initiatedProps: { 'attempt.kind': 'swap' },
     run,
     success: (result) => ({
       'balances.partial': result.errored,

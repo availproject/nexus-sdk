@@ -673,6 +673,13 @@ try {
 
 Telemetry records the shared error bucket in `error.code`, the SDK error code in `error.type`,
 and the SDK category in `error.category`. Public error objects retain their codes and messages.
+`BACKEND_INTENT_REFUSED` maps to `quote_unavailable`.
+
+Telemetry and `client.analytics.getBaseProperties()` identify the network with `nexus.network`.
+Attempt records use `attempt.kind` and `nexus.telemetry.schema.version`; terminal outcomes use
+`attempt.outcome_authority`, and source progress uses `leg.index` / `leg.status`.
+Accepted quotes emit one record per distinct source chain/token pair plus one for the destination,
+with `chain.id`, `chain.role`, and `token.address` on each record.
 
 Payment reporting distinguishes `completed`, `stopped`, `rejected`, and `failed`. User declines
 before commitment are stopped; system errors before commitment are rejected. Middleware status

@@ -296,8 +296,9 @@ Base passes that same ID to quote, refresh, submit, status/detail, and composite
 in the `x-nexus-attempt-id` header on each request. Signed payloads are unchanged. Optional network
 timing uses this ID as its parent operation.
 
-Each accepted quote emits one `INTENT_QUOTED` record per distinct source chain and one for the
-destination, identified by `chain.id` and `chain.role` and joined by attempt and quote IDs.
+Each accepted quote emits one `INTENT_QUOTED` record per distinct source chain/token pair and one
+for the destination, identified by `chain.id`, `chain.role`, and `token.address` and joined by
+attempt and quote IDs.
 
 Only canonical `INTENT_OUTCOME` events count terminal payment outcomes. Polling uncertainty is an
 observation error. `swapAndExecute` records payment completion at destination delivery, before

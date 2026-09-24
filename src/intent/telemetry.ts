@@ -21,7 +21,7 @@ export const createIntentReporting = (
   const legs = new Map<number, string>();
   const properties = (): Record<string, unknown> => ({
     ...route,
-    'telemetry.schema.version': 1,
+    'nexus.telemetry.schema.version': 1,
     'attempt.id': attemptId,
     'attempt.committed': committed,
     'attempt.pending': committed && !outcome,
@@ -50,7 +50,8 @@ export const createIntentReporting = (
     outcome = value;
     report(Events.INTENT_OUTCOME, {
       'attempt.duration_ms': Date.now() - startedAt,
-      'outcome.authority': value === 'completed' || value === 'failed' ? 'middleware' : 'sdk',
+      'attempt.outcome_authority':
+        value === 'completed' || value === 'failed' ? 'middleware' : 'sdk',
     });
   };
   const commit = () => {
@@ -81,12 +82,20 @@ export const createIntentReporting = (
           toChainId: quote.output.chainId,
           toTokenAddress: quote.output.tokenAddress,
         });
-        for (const chainId of sourceChainIds) {
-          report(Events.INTENT_QUOTED, { 'chain.id': chainId, 'chain.role': 'source' });
+        const sourceTokens = new Map(
+          quote.input.map((source) => [`${source.chainId}:${source.tokenAddress}`, source])
+        );
+        for (const { chainId, tokenAddress } of sourceTokens.values()) {
+          report(Events.INTENT_QUOTED, {
+            'chain.id': chainId,
+            'chain.role': 'source',
+            'token.address': tokenAddress,
+          });
         }
         report(Events.INTENT_QUOTED, {
           'chain.id': quote.output.chainId,
           'chain.role': 'destination',
+          'token.address': quote.output.tokenAddress,
         });
       } else if (event.type === 'step') {
         if (event.committed) commit();
@@ -101,8 +110,8 @@ export const createIntentReporting = (
           report(Events.INTENT_SOURCE_STATUS, {
             'chain.role': 'source',
             'chain.id': quote?.input[leg.sourceIndex]?.chainId,
-            'source.index': leg.sourceIndex,
-            'source.status': leg.status,
+            'leg.index': leg.sourceIndex,
+            'leg.status': leg.status,
             ...(leg.txHash ? { 'transaction.hash': leg.txHash } : {}),
           });
         }

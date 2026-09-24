@@ -65,7 +65,7 @@ export interface AnalyticsConfig {
  */
 export interface BaseEventProperties {
   sdkVersion: string;
-  network: AnalyticsNetwork;
+  'nexus.network': AnalyticsNetwork;
   appName?: string;
   appUrl?: string;
   timestamp: string;

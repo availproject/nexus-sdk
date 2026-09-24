@@ -332,7 +332,10 @@ describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s
       await client.initialize(); await client.setEVMProvider(provider());
       const track = vi.spyOn(client.analytics.getProvider(), 'track');
       await expect(client[method]()).resolves.toEqual([]);
-      expect(track).toHaveBeenCalledWith(Events.BALANCES_FETCH_PARTIAL, expect.objectContaining({ 'balances.partial': true }));
+      expect(track).toHaveBeenCalledWith(Events.BALANCES_FETCH_PARTIAL, expect.objectContaining({
+        'balances.partial': true, 'attempt.kind': 'swap',
+      }));
+      for (const [, props] of track.mock.calls) expect(props).not.toHaveProperty('kind');
       expect(track.mock.calls.some(([event]) => event === Events.BALANCES_FETCH_SUCCESS || event === Events.BALANCES_FETCH_FAILED)).toBe(false);
     } finally { client.destroy(); }
   });

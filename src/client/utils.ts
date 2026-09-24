@@ -68,7 +68,7 @@ export const getSupportedChains = async (
         'nexus.client.id': options?.clientId,
         'surface.name': 'nexus-sdk',
         'surface.version': version,
-        network: env,
+        'nexus.network': env,
       },
       error,
     });
