@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router";
 import * as Dialog from "@radix-ui/react-dialog";
 import type { TokenBalance } from "@avail-project/nexus-core";
-import type { NetworkMode, TabConfig } from "../lib/types";
+import type { ChannelMode, NetworkMode, TabConfig } from "../lib/types";
 import { BalancesModal } from "./BalancesModal";
 import { WalletButton } from "../wallet";
 
@@ -10,6 +10,8 @@ type AppShellProps = {
   children: ReactNode;
   network: NetworkMode;
   onSelectNetwork: (target: NetworkMode) => void;
+  channel: ChannelMode;
+  onSelectChannel: (target: ChannelMode) => void;
   forceMayan: boolean;
   onToggleForceMayan: () => void;
   mode: "dark" | "light";
@@ -53,6 +55,8 @@ export function AppShell({
   children,
   network,
   onSelectNetwork,
+  channel,
+  onSelectChannel,
   forceMayan,
   onToggleForceMayan,
   mode,
@@ -125,7 +129,7 @@ export function AppShell({
           <span className="topbar-divider" />
           <div className="settings-anchor" ref={settingsRef}>
             <button
-              className={`ghost-button settings-trigger${settingsOpen ? " settings-trigger-open" : ""}${forceMayan ? " settings-trigger-flag" : ""}`}
+              className={`ghost-button settings-trigger${settingsOpen ? " settings-trigger-open" : ""}${forceMayan || channel === "preview" ? " settings-trigger-flag" : ""}`}
               type="button"
               onClick={() => setSettingsOpen((value) => !value)}
               title="Developer settings"
@@ -141,6 +145,25 @@ export function AppShell({
             {settingsOpen && (
               <div className="settings-popover" role="dialog" aria-label="Developer settings">
                 <div className="settings-popover-header">Dev settings</div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-label="Preview chains"
+                  aria-checked={channel === "preview"}
+                  onClick={() => onSelectChannel(channel === "preview" ? "stable" : "preview")}
+                  className="settings-row"
+                  data-checked={channel === "preview" ? "true" : "false"}
+                >
+                  <span className="settings-row-text">
+                    <span className="settings-row-label">Preview chains</span>
+                    <span className="settings-row-hint">
+                      Include chains still in preview. Off uses stable chains only.
+                    </span>
+                  </span>
+                  <span className="switch" aria-hidden>
+                    <span className="switch-thumb" />
+                  </span>
+                </button>
                 <button
                   type="button"
                   role="switch"

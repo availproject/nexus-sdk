@@ -484,6 +484,11 @@ Toggle button label swap (`Hide Details` / `View Details`) and chevron rotation 
 - Topbar (`.topbar`) — `--panel` bg, `--line` border, `--radius-xl`.
 - Route tabs (`.route-tabs`) — same surface treatment. Active tab is a tinted pill: `background: var(--primary-soft)`, `color: var(--accent)`. Hover on an inactive tab uses `--accent-soft`. The active state never goes solid filled — Nexus's segmented-control idiom keeps weight low.
 - Network switcher — inline-flex group of small ghost buttons with colored dots (`network-dot` mainnet=`--success`, canary=`--warning`, testnet=`--accent`).
+- Developer settings — the **Preview chains** switch selects the SDK channel. Off is `stable`
+  (the default); on is `preview`, including stable and preview chains. The choice persists in
+  local storage and applies to the main client and stress-test clients. Switching recreates the
+  client and resets cached balances and form selections. The settings indicator lights up when
+  preview chains or Force Mayan is enabled.
 
 ### Focus
 

@@ -655,7 +655,8 @@ const groupSbcTransactionsByChain = (
  */
 export const createMiddlewareClient = (
   middlewareURL: string,
-  timingOptions?: {
+  options?: {
+    channel?: 'stable' | 'preview';
     timing?: TimingSpanHooks;
     captureNetworkTiming?: boolean;
   }
@@ -693,7 +694,9 @@ export const createMiddlewareClient = (
       spanName: 'network.middleware.request',
     });
   };
-  configureTiming(timingOptions);
+  configureTiming(options);
+
+  const channelParams = { channel: options?.channel ?? 'stable' };
 
   const getBalances = async (
     address: Hex,
@@ -704,7 +707,8 @@ export const createMiddlewareClient = (
       logger.debug('getBalancesFromMiddleware', { address, universe: universeStr });
 
       const response = await client.get<BalancesByChain>(
-        `/api/v1/balance/${universeStr}/${address}`
+        `/api/v1/balance/${universeStr}/${address}`,
+        { params: channelParams }
       );
 
       logger.debug('getBalancesFromMiddleware:response', { data: response.data });
@@ -731,7 +735,9 @@ export const createMiddlewareClient = (
     try {
       logger.debug('getDeploymentFromMiddleware');
 
-      const response = await client.get<DeploymentResponse>('/deployment');
+      const response = await client.get<DeploymentResponse>('/deployment', {
+        params: channelParams,
+      });
 
       logger.debug('getDeploymentFromMiddleware:response', { data: response.data });
       return parseMiddlewareResponse(
@@ -810,7 +816,9 @@ export const createMiddlewareClient = (
   const getOraclePrices = async (): Promise<OraclePriceResponse> => {
     try {
       logger.debug('getOraclePricesFromMiddleware');
-      const response = await client.get<{ priceData: OraclePriceResponse }>('/api/v1/oracle');
+      const response = await client.get<{ priceData: OraclePriceResponse }>('/api/v1/oracle', {
+        params: channelParams,
+      });
       logger.debug('getOraclePricesFromMiddleware:response', { data: response.data });
       return parseMiddlewareResponse(
         oraclePriceResponseSchema,
@@ -1073,7 +1081,9 @@ export const createMiddlewareClient = (
 
   const getSwapBalances = async (address: Hex): Promise<FlatBalance[]> => {
     try {
-      const response = await client.get<BalancesByChain>(`/api/v1/swap-balance/EVM/${address}`);
+      const response = await client.get<BalancesByChain>(`/api/v1/swap-balance/EVM/${address}`, {
+        params: channelParams,
+      });
       const payload = parseMiddlewareResponse(swapBalanceSchema, response.data, 'swapBalances');
       return balancesByChainToFlatBalances(payload);
     } catch (error) {
