@@ -102,7 +102,6 @@ const createChainList = (
 
     return {
       contractAddress: ZERO_ADDRESS,
-      currencyId: chain.nativeCurrency.currencyId,
       decimals: chain.nativeCurrency.decimals,
       logo: chain.nativeCurrency.logo,
       name: chain.nativeCurrency.name,
@@ -121,7 +120,6 @@ const createChainList = (
         isNativeToken = true;
         token = {
           contractAddress: ZERO_ADDRESS,
-          currencyId: chain.nativeCurrency.currencyId,
           decimals: chain.nativeCurrency.decimals,
           logo: chain.nativeCurrency.logo,
           name: chain.nativeCurrency.name,
@@ -148,7 +146,6 @@ const createChainList = (
         isNativeToken = true;
         token = {
           contractAddress: ZERO_ADDRESS,
-          currencyId: chain.nativeCurrency.currencyId,
           decimals: chain.nativeCurrency.decimals,
           logo: chain.nativeCurrency.logo,
           name: chain.nativeCurrency.name,

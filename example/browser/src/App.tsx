@@ -165,7 +165,6 @@ export default function App() {
             path="/*"
             element={
               <Home
-                key={channel}
                 network={network}
                 tabs={tabs}
                 client={sdk.client}

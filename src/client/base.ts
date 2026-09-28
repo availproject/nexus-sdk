@@ -75,7 +75,6 @@ const nonNegativeAmount = (amount: bigint | undefined, label: string) => {
 export const createBase = (config: {
   clientId: string;
   network?: NexusNetwork;
-  channel?: 'stable' | 'preview';
   debug?: boolean;
   devTiming?: DevTimingConfig;
   internal?: { middlewareClient?: MiddlewareClient };

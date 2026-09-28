@@ -124,9 +124,8 @@ export type Chain = {
       webSocket: string[];
     };
   };
-  swapSupported?: boolean;
   supports7702?: boolean;
-  caliburAddress?: Hex;
+  swapSupported?: boolean;
   universe: Universe;
 };
 

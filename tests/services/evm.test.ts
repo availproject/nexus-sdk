@@ -30,22 +30,6 @@ describe('waitForTxReceipt', () => {
     });
     expect(getTransactionReceipt).toHaveBeenCalledWith({ hash: TX });
   });
-
-  it('accepts named confirmation and timeout options', async () => {
-    const waitForTransactionReceipt = vi.fn().mockResolvedValue({ status: 'success' });
-
-    await waitForTxReceipt(
-      TX,
-      { waitForTransactionReceipt } as never,
-      { confirmations: 2, timeout: 4_000 }
-    );
-
-    expect(waitForTransactionReceipt).toHaveBeenCalledWith({
-      confirmations: 2,
-      hash: TX,
-      timeout: 4_000,
-    });
-  });
 });
 
 describe('switchChain', () => {

@@ -160,11 +160,6 @@ describe('public api exports', () => {
     expectTypeOf(status.legs).toEqualTypeOf<IntentLegStatus[]>();
     expectTypeOf(leg.sourceIndex).toEqualTypeOf<number>();
     expectTypeOf(swapAndExecuteResult).toMatchTypeOf<SwapAndExecuteResult>();
-    expectTypeOf(swapAllowanceStep.method).toEqualTypeOf<'approval' | 'permit' | undefined>();
-    expectTypeOf(tokenBalance.totalBalance).toEqualTypeOf<string>();
-    expectTypeOf(tokenBalance.usableBalance).toEqualTypeOf<string>();
-    expectTypeOf(chainBalance.totalBalance).toEqualTypeOf<string>();
-    expectTypeOf(chainBalance.usableBalance).toEqualTypeOf<string>();
 
     if (swapAndExecuteResult.swapSkipped) {
       expectTypeOf(swapAndExecuteResult.swapResult).toEqualTypeOf<undefined>();

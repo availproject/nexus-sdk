@@ -519,7 +519,7 @@ function ExecutingBody({
   const steps = state.steps;
   const activeStep = steps.find((s) => s.state === "active" || s.state === "submitted");
   const showToggle = activeStep !== undefined && steps.length > 1;
-  const visibleSteps = getVisibleExecutionSteps(steps, expanded);
+  const visibleSteps = !activeStep || expanded ? steps : [activeStep];
 
   return (
     <>

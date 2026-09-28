@@ -423,12 +423,7 @@ The steps card (`.exec-steps`) — second white card, only this scrolls internal
 
 The `rawState` field on `NormalizedStep` captures the SDK's raw state string (`"wallet_prompted"`, `"started"`, `"submitted"`, `"confirmed"`, `"failed"`) so the UI can tell wallet-prompt steps apart from automated / server-side execution. The previous blanket "Approve in wallet" sub-text was misleading for steps like `bridge_fill` / `vault_deposit` / `destination_swap` / `request_submission` that don't need a wallet popup.
 
-Swap `allowance` steps use their amount and confirmed `method` to render an Authorize, Approve, or
-Permit label. Because the SDK emits their progress through the adjacent execution step, a leading
-allowance becomes active when execution starts, later allowances activate after the preceding step,
-and each completes when the following planned step starts.
-
-Steps stay in **natural execution order**. The active step shows a chevron toggle in place; **collapsed** (the default) renders completed allowance rows plus the active row, while **expanded** reveals the full plan with the active row still in its real position — never lifted to the top. A `useEffect` with `setInterval(setNow(Date.now()), 1000)` ticks every second so "X sec ago" stays fresh.
+Steps stay in **natural execution order**. The active step shows a chevron toggle in place; **collapsed** (the default) renders only that active row, **expanded** reveals the full plan with the active row still in its real position — never lifted to the top. A `useEffect` with `setInterval(setNow(Date.now()), 1000)` ticks every second so "X sec ago" stays fresh.
 
 **Success body (`<CompletedBody>`)** — the gif hero swaps to `.exec-success-hero`: large destination token icon with a small `var(--accent)` check-badge overlay (`.exec-success-check`), "You received" eyebrow, big amount + small symbol, `on <Chain> · completed in <N>s` meta line. Duration is `state.completedAt − state.startedAt`.
 
@@ -477,11 +472,6 @@ Toggle button label swap (`Hide Details` / `View Details`) and chevron rotation 
 - Topbar (`.topbar`) — `--panel` bg, `--line` border, `--radius-xl`.
 - Route tabs (`.route-tabs`) — same surface treatment. Active tab is a tinted pill: `background: var(--primary-soft)`, `color: var(--accent)`. Hover on an inactive tab uses `--accent-soft`. The active state never goes solid filled — Nexus's segmented-control idiom keeps weight low.
 - Network switcher — inline-flex group of small ghost buttons with colored dots (`network-dot` mainnet=`--success`, canary=`--warning`, testnet=`--accent`).
-- Developer settings — the **Preview chains** switch selects the SDK channel. Off is `stable`
-  (the default); on is `preview`, including stable and preview chains. The choice persists in
-  local storage and applies to the main client and stress-test clients. Switching recreates the
-  client and resets cached balances and form selections. The settings indicator lights up when
-  preview chains or Force Mayan is enabled.
 
 ### Focus
 

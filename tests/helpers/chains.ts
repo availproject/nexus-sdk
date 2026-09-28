@@ -64,7 +64,10 @@ export const makeChainList = (chains: Chain[], token: TokenInfo): ChainListType 
   },
 });
 
-const makeSwapChain = (id: number): Chain => makeChain(id);
+const makeSwapChain = (id: number): Chain => ({
+  ...makeChain(id),
+  supports7702: true,
+});
 
 export const makeSwapChainList = (): ChainListType => {
   const getChainByID = vi.fn().mockImplementation((chainId: number) => makeSwapChain(chainId));

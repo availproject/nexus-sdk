@@ -38,42 +38,6 @@ import type {
   IntentTokenQuery,
 } from './types';
 
-export type SbcAuthorization = {
-  chainId: Hex;
-  address: Hex;
-  nonce: number;
-  v: number;
-  r: Hex;
-  s: Hex;
-};
-
-export type SbcTransaction = {
-  chainId: number;
-  address: Hex;
-  nonce: Hex;
-  keyHash: Hex;
-  deadline: Hex;
-  calls: Array<{ to: Hex; value: Hex; data: Hex }>;
-  revertOnFailure: boolean;
-  signature: Hex;
-  authorizationList?: SbcAuthorization[];
-};
-
-export type SbcResult = {
-  chainId: number;
-  address: Hex;
-} & (
-  | { errored: false; txHash: Hex }
-  | {
-      errored: true;
-      message: string;
-      code: string;
-      errorId: string;
-      subcode?: string;
-      details?: Record<string, unknown>;
-    }
-);
-
 export type MiddlewareClient = {
   getIntentChains: (constraints?: IntentRouteConstraints) => Promise<IntentChainMetadata[]>;
   getIntentTokens: (query?: IntentTokenQuery) => Promise<IntentTokenPage>;

@@ -505,10 +505,12 @@ export const sendExecuteTransactions = async (
         let receipt: TransactionReceipt | undefined;
         if (waitForReceipt) {
           const waitForReceiptCall = async () => {
-            const [r, error] = await waitForTxReceipt(txHash, options.dstPublicClient, {
-              confirmations: requiredConfirmations,
-              timeout: receiptTimeout,
-            });
+            const [r, error] = await waitForTxReceipt(
+              txHash,
+              options.dstPublicClient,
+              requiredConfirmations,
+              receiptTimeout
+            );
             if (error) throw error;
             return r;
           };
@@ -604,7 +606,7 @@ export const sendExecuteTransactions = async (
         explorerUrl: approvalExplorerUrl,
       });
 
-      await waitForTxReceipt(approvalHash, options.dstPublicClient)
+      await waitForTxReceipt(approvalHash, options.dstPublicClient, 1)
         .then(([, error]) => {
           if (error) throw error;
         })
@@ -689,10 +691,12 @@ export const sendExecuteTransactions = async (
     let receipt: TransactionReceipt | undefined;
     if (waitForReceipt) {
       const waitForReceiptCall = async () => {
-        const [r, error] = await waitForTxReceipt(txHash, options.dstPublicClient, {
-          confirmations: requiredConfirmations,
-          timeout: receiptTimeout,
-        });
+        const [r, error] = await waitForTxReceipt(
+          txHash,
+          options.dstPublicClient,
+          requiredConfirmations,
+          receiptTimeout
+        );
         if (error) throw error;
         return r;
       };

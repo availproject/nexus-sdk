@@ -24,11 +24,6 @@ type TransactionReceiptPublicClient = Pick<
   'getTransactionReceipt' | 'waitForTransactionReceipt'
 >;
 
-type TransactionReceiptWaitOptions = {
-  confirmations?: number;
-  timeout?: number;
-};
-
 const wrapExternal = async <T>(
   message: string,
   service: 'wallet' | 'rpc',
@@ -52,9 +47,9 @@ const wrapExternal = async <T>(
 export const waitForTxReceipt = async (
   hash: `0x${string}`,
   publicClient: TransactionReceiptPublicClient,
-  options: TransactionReceiptWaitOptions = {}
+  confirmations = 1,
+  timeout = TRANSACTION_RECEIPT_WAIT_TIMEOUT_MS
 ): Promise<[TransactionReceipt, ReturnType<typeof Errors.transactionReverted> | null]> => {
-  const { confirmations = 1, timeout = TRANSACTION_RECEIPT_WAIT_TIMEOUT_MS } = options;
   const receipt = await wrapExternal(
     'Failed to wait for transaction receipt',
     'rpc',

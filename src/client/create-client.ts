@@ -36,8 +36,6 @@ const logger = getLogger();
 export const createNexusClient = (config: {
   clientId: string;
   network?: NexusNetwork;
-  /** Chain release channel. Defaults to stable; preview also includes preview chains. */
-  channel?: 'stable' | 'preview';
   debug?: boolean;
   analytics?: AnalyticsConfig;
   devTiming?: DevTimingConfig;

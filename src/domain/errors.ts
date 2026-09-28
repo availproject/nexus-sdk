@@ -53,7 +53,14 @@ export type UserActionService = 'wallet' | 'hook';
 export type SimulationService = 'rpc';
 export type ExecutionService = 'wallet' | 'rpc';
 export type BackendService = 'middleware';
-export type ExternalServiceService = 'lifi' | 'bebop' | 'zerox' | 'mystic' | 'relay' | 'coinbase';
+export type ExternalServiceService =
+  | 'lifi'
+  | 'bebop'
+  | 'fibrous'
+  | 'zerox'
+  | 'mystic'
+  | 'relay'
+  | 'coinbase';
 /**
  * Maps a category literal to its allowed `service` values. Used by `ErrorContext<C>`
  * and the wrap helpers so TypeScript rejects mismatches (e.g. `service: 'middleware'`
@@ -129,7 +136,6 @@ export const ERROR_CODES = {
   ENVIRONMENT_NOT_KNOWN: 'validation/environment_not_known',
   INSUFFICIENT_BALANCE: 'validation/insufficient_balance',
   NO_BALANCE_FOR_ADDRESS: 'validation/no_balance_for_address',
-  AMOUNT_TOO_LOW: 'validation/amount_too_low',
   SDK_NOT_INITIALIZED: 'validation/sdk_not_initialized',
   SDK_INIT_STATE_NOT_EXPECTED: 'validation/sdk_init_state_unexpected',
   WALLET_NOT_CONNECTED: 'validation/wallet_not_connected',
@@ -184,8 +190,8 @@ export const ERROR_CODES = {
   BACKEND_RFF_FETCH_FAILED: 'backend/rff_fetch_failed',
   BACKEND_RFF_LIST_FAILED: 'backend/rff_list_failed',
   BACKEND_RFF_STATUS_FAILED: 'backend/rff_status_fetch_failed',
-  BACKEND_APPROVALS_WS_FAILED: 'backend/approvals_ws_failed',
   BACKEND_SBC_SUBMIT_FAILED: 'backend/sbc_submit_failed',
+  BACKEND_APPROVALS_WS_FAILED: 'backend/approvals_ws_failed',
   BACKEND_SIMULATION_BUNDLE_FAILED: 'backend/simulation_bundle_failed',
   BACKEND_FULFILMENT_WAIT_TIMEOUT: 'backend/fulfilment_wait_timeout',
   BACKEND_FEE_GRANT_REQUESTED: 'backend/fee_grant_requested',
@@ -228,7 +234,7 @@ export const ERROR_CODES = {
   BACKEND_PERMIT_RELAY_FAILED: 'backend/permit_relay_failed',
   BACKEND_ERROR: 'backend/error',
 
-  // ── external_service/* — third-party dependencies
+  // ── external_service/* — third-party deps (service='lifi'|'bebop'|'fibrous'|'coinbase')
   EXTERNAL_DESTINATION_SWAP_QUOTE_FAILED: 'external_service/destination_swap_quote_failed',
   EXTERNAL_SOURCE_SWAP_QUOTE_FAILED: 'external_service/source_swap_quote_failed',
   EXTERNAL_SWAP_ROUTE_BUILD_FAILED: 'external_service/swap_route_build_failed',
