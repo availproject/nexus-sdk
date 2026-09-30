@@ -17,6 +17,7 @@ import {
 } from '../domain/validation';
 import { createExplorerTxURL } from '../services/explorer';
 import type { ExecuteDeps } from './deps';
+import { estimateTotalFees, type TxWithGas } from './fee-estimation';
 import {
   createExecutePlanContext,
   createExecuteTxContext,
@@ -60,10 +61,15 @@ const resolveTokenApproval = (params: ExecuteParams, deps: ExecuteDeps) =>
       }
     : undefined;
 
-export const execute = async (params: ExecuteParams, deps: ExecuteDeps): Promise<ExecuteResult> => {
+export const execute = async (
+  params: ExecuteParams,
+  deps: ExecuteDeps,
+  prepared?: Awaited<ReturnType<typeof priceExecuteFunding>>
+): Promise<ExecuteResult> => {
   const parsed = parseExecuteParams(params);
   const { dstPublicClient, dstChain, approvalTx, approvalContext, tx } =
-    await createExecuteTxContext({
+    prepared ??
+    (await createExecuteTxContext({
       chainList: deps.chainList,
       ownerAddress: deps.evm.address,
       toChainId: parsed.toChainId,
@@ -72,7 +78,7 @@ export const execute = async (params: ExecuteParams, deps: ExecuteDeps): Promise
       data: parsed.data,
       gas: parsed.gas,
       tokenApproval: resolveTokenApproval(parsed, deps),
-    });
+    }));
   const executePlan = createExecutePlanContext({
     chain: dstChain,
     tx,
@@ -82,7 +88,8 @@ export const execute = async (params: ExecuteParams, deps: ExecuteDeps): Promise
   const sendResult = await sendExecuteTransactions(
     {
       approvalTx,
-      tx,
+      tx: { ...tx, value: parsed.value ?? 0n, data: parsed.data ?? '0x', gas: parsed.gas },
+      feeParams: prepared?.feeParams,
       plan: executePlan,
     },
     {
@@ -117,6 +124,66 @@ export const execute = async (params: ExecuteParams, deps: ExecuteDeps): Promise
     confirmations: parsed.requiredConfirmations,
     effectiveGasPrice: String(sendResult.receipt?.effectiveGasPrice ?? 0n),
     gasUsed: String(sendResult.receipt?.gasUsed ?? 0n),
+  };
+};
+
+export const prepareExecuteFunding = async (
+  params: ExecuteParams & { gas: bigint },
+  deps: ExecuteDeps
+) => {
+  const parsed = parseInput(executeParamsSchema.required({ gas: true }), params);
+  const context = await createExecuteTxContext({
+    ...parsed,
+    chainList: deps.chainList,
+    ownerAddress: deps.evm.address,
+    tokenApproval: resolveTokenApproval(parsed, deps),
+  });
+  const { approvalTx, dstPublicClient, tx } = context;
+  const approvalGas = approvalTx
+    ? await dstPublicClient
+        .estimateGas({
+          to: approvalTx.to,
+          data: approvalTx.data,
+          value: approvalTx.value,
+          account: deps.evm.address,
+        })
+        .catch(() => 70_000n)
+    : 0n;
+  const feeItems: TxWithGas[] = [
+    ...(approvalTx
+      ? [{ tx: approvalTx, gasEstimate: approvalGas, gasEstimateKind: 'final' as const }]
+      : []),
+    { tx, gasEstimate: parsed.gas },
+  ];
+  return { ...context, feeItems, priceTier: parsed.gasPrice ?? 'medium' };
+};
+
+export const priceExecuteFunding = async (
+  prepared: Awaited<ReturnType<typeof prepareExecuteFunding>>
+) => {
+  const fees = await estimateTotalFees(
+    prepared.dstPublicClient,
+    prepared.dstChain.id,
+    prepared.feeItems,
+    prepared.priceTier
+  );
+  const txFee = fees[prepared.approvalTx ? 1 : 0].recommended;
+  const feeParams: ExecuteFeeParams = txFee.useLegacyPricing
+    ? { type: 'legacy', gasPrice: txFee.maxFeePerGas }
+    : {
+        type: 'eip1559',
+        maxFeePerGas: txFee.maxFeePerGas,
+        maxPriorityFeePerGas: txFee.maxPriorityFeePerGas,
+      };
+  return {
+    ...prepared,
+    tx: { ...prepared.tx, gas: txFee.gasLimit },
+    approvalTx: prepared.approvalTx
+      ? { ...prepared.approvalTx, gas: fees[0].recommended.gasLimit }
+      : null,
+    feeParams,
+    estimatedTotalCost: fees.reduce((sum, fee) => sum + fee.recommended.totalMaxCost, 0n),
+    l1Fee: fees.reduce((sum, fee) => sum + fee.l1Fee, 0n),
   };
 };
 

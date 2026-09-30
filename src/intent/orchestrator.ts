@@ -30,6 +30,8 @@ type RunIntentInput = {
   pollingIntervalMs?: number;
   timeoutMs?: number;
   reporting?: IntentReporting;
+  /** Composite review already emitted this accepted quote before entering the intent flow. */
+  quoteAlreadyEmitted?: boolean;
 };
 
 type RunIntentDeps = {
@@ -80,7 +82,7 @@ const intentStepError = (error: unknown, step: IntentPlanStep) => {
   };
 };
 
-const assertFresh = (quote: ExecutableIntentQuote, now: number) => {
+export const assertIntentQuoteFresh = (quote: ExecutableIntentQuote, now: number) => {
   if (quote.quote.expiresAt * 1_000 <= now) {
     throw Errors.backend(`Intent quote ${quote.quote.id} expired before submission`, {
       service: 'middleware',
@@ -114,7 +116,7 @@ const resolveIntentApproval = async (
       let refreshed: ExecutableIntentQuote;
       try {
         refreshed = await input.refreshQuote(sources);
-        assertFresh(refreshed, now());
+        assertIntentQuoteFresh(refreshed, now());
       } catch (error) {
         input.reporting?.refreshFailed(error);
         throw error;
@@ -171,10 +173,10 @@ export const runIntent = async (
   };
 
   let executable = await input.requestQuote();
-  assertFresh(executable, now());
-  emit({ type: 'quote', quote: executable.quote });
+  assertIntentQuoteFresh(executable, now());
+  if (!input.quoteAlreadyEmitted) emit({ type: 'quote', quote: executable.quote });
   executable = await resolveIntentApproval(executable, input, emit, now);
-  assertFresh(executable, now());
+  assertIntentQuoteFresh(executable, now());
 
   const approvals = executable.execution.allowances.filter((entry) => entry.deficitRaw > 0n);
   const confirmations: Promise<{
@@ -281,7 +283,7 @@ export const runIntent = async (
   emitStep(executable, 'intent-signature', 'started');
   let signature: Hex;
   try {
-    assertFresh(executable, now());
+    assertIntentQuoteFresh(executable, now());
     const requirement = executable.execution.requiredSignatures.find(
       (entry) => entry.kind === 'intent'
     );

@@ -14,15 +14,35 @@ afterEach(() => vi.restoreAllMocks());
 const setup = async () => {
   const chains = structuredClone(testChains);
   const getIntentTokens = vi.fn(makeTokenFetcher(chains));
+  const getIntentBalances = vi.fn(async () => ({ balances: [], errored: false }));
   const client = createNexusClient({ clientId: 'lazy-execute', analytics: { enabled: false }, internal: {
     middlewareClient: makeMiddlewareClient({
       getIntentChains: async () => chains.map(({ tokens: _tokens, ...chain }) => chain), getIntentTokens,
+      getIntentBalances,
     }),
   } });
   await client.initialize();
   await client.setEVMProvider({ request: vi.fn(async ({ method }) => method === 'eth_accounts' ? [ACCOUNT] : '0x1'), on: vi.fn(), removeListener: vi.fn() });
-  return { client, chains, getIntentTokens };
+  return { client, chains, getIntentTokens, getIntentBalances };
 };
+
+it.each([undefined, null, 0n, -1n, 100_000, '100000'])('rejects invalid swap execution gas %s before funding', async (gas) => {
+  const { client, getIntentBalances } = await setup();
+  const prepare = vi.spyOn(executeFlow, 'prepareExecuteFunding');
+  try {
+    await expect(client.swapAndExecute({
+      toChainId: 1,
+      toTokenAddress: testChains[0].tokens[1].address,
+      toAmountRaw: 1n,
+      execute: { to: ACCOUNT, gas: gas as bigint },
+    })).rejects.toMatchObject({
+      code: 'validation/invalid_input',
+      message: expect.stringContaining('execute.gas must be a positive bigint'),
+    });
+    expect(getIntentBalances).not.toHaveBeenCalled();
+    expect(prepare).not.toHaveBeenCalled();
+  } finally { client.destroy(); }
+});
 
 it.each(['execute', 'simulateExecute'] as const)('%s fetches only the approval address and reuses its metadata', async (method) => {
   const { client, getIntentTokens } = await setup();
@@ -45,15 +65,15 @@ it('preserves the selected approval address through a composite operation with d
   const { client, chains } = await setup();
   const external = { ...chains[0].tokens[1], address: ACCOUNT, providers: [{ id: 'relay' as const }] };
   chains[0].tokens.push(external);
-  const simulate = vi.spyOn(executeFlow, 'simulateExecute').mockResolvedValue(simulation);
+  const prepare = vi.spyOn(executeFlow, 'prepareExecuteFunding').mockRejectedValue(new Error('preparation stopped'));
   try {
     const tokenApproval = { toTokenAddress: external.address, amount: 1n, spender: ACCOUNT };
-    // Stop at quoting; the simulation must already have received the exact approval identity.
+    // Stop at preparation after resolving the exact approval identity.
     await expect(client.swapAndExecute({
       toChainId: 1, toTokenAddress: external.address, toAmountRaw: 1n,
-      execute: { to: ACCOUNT, tokenApproval },
-    })).rejects.toThrow('No provider supports the destination');
-    expect(simulate).toHaveBeenCalledWith(expect.objectContaining({ tokenApproval }), expect.anything());
+      execute: { to: ACCOUNT, gas: 100_000n, tokenApproval },
+    })).rejects.toThrow('preparation stopped');
+    expect(prepare).toHaveBeenCalledWith(expect.objectContaining({ tokenApproval }), expect.anything());
     expect(client.chainList.getTokenByAddress(1, external.address).contractAddress).toBe(external.address);
   } finally { client.destroy(); }
 });

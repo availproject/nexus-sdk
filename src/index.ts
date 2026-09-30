@@ -109,6 +109,8 @@ export type {
   IntentTradeType,
   IntentTransaction,
   ProviderTokenGroup,
+  SwapAndExecuteHookData,
+  SwapAndExecuteIntent,
   SwapAndExecuteIntentResult,
   SwapAndExecuteIntentResult as SwapAndExecuteResult,
   TokenRef,

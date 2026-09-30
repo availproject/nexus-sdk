@@ -1,5 +1,5 @@
 import type { Abi, Hex, TransactionReceipt } from 'viem';
-import type { ExecuteResult, ExecuteSimulation } from '../domain';
+import type { ExecuteFeeParams, ExecuteResult, ExecuteSimulation } from '../domain';
 import type { ErrorCategory, ErrorCode } from '../domain/errors';
 
 /** Every provider the middleware can name in a catalog, quote, or status response. */
@@ -450,6 +450,47 @@ export type IntentHookData = {
   allow: () => void;
   deny: () => void;
   refresh: (sources?: IntentSource[]) => Promise<IntentQuote>;
+};
+
+export type FundingAmount = {
+  amountRaw: bigint;
+  amount: string;
+  valueUsd?: string;
+};
+
+export type SwapAndExecuteIntent = {
+  executeRequirement: {
+    chain: { id: number; name: string; logo?: string };
+    to: Hex;
+    token: FundingAmount & { address: Hex; symbol: string; decimals: number };
+    gas: FundingAmount & {
+      address: Hex;
+      symbol: string;
+      decimals: number;
+      estimatedGasUnits: bigint;
+      approvalGasUnits: bigint;
+      feeParams: ExecuteFeeParams;
+      l1FeeRaw: bigint;
+      priceTier: 'low' | 'medium' | 'high';
+    };
+    nativeValue: FundingAmount | null;
+    tokenApproval:
+      | (FundingAmount & {
+          token: { address: Hex; symbol: string; decimals: number };
+          spender: Hex;
+        })
+      | null;
+  };
+  available: { token: FundingAmount; gas: FundingAmount };
+  shortfall: { token: FundingAmount; gas: FundingAmount };
+} & ({ swapRequired: true; quote: IntentQuote } | { swapRequired: false; quote?: undefined });
+
+export type SwapAndExecuteHookData = {
+  attemptId?: string;
+  intent: SwapAndExecuteIntent;
+  allow: () => void;
+  deny: () => void;
+  refresh: (sources?: IntentSource[]) => Promise<SwapAndExecuteIntent>;
 };
 
 export type SwapAndExecuteIntentResult = Pick<ExecuteResult, 'approval' | 'execute'> &

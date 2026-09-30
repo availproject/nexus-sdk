@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { UserActionError, type NexusClient } from "@avail-project/nexus-core";
-import type { TabConfig, HashRecord, SwapResultData, TokenOption } from "../lib/types";
+import { ERROR_CODES, UserActionError, type NexusClient } from "@avail-project/nexus-core";
+import type { ExecuteContext, TabConfig, HashRecord, SwapResultData, TokenOption } from "../lib/types";
 import {
   flattenBalances,
   getErrorMessage,
@@ -18,13 +18,13 @@ import { formatAmount } from "../lib/format";
 
 function friendlyUserActionReason(code?: string): string | undefined {
   switch (code) {
-    case "USER_INTENT_SIGNATURE_DENIED":
+    case ERROR_CODES.USER_INTENT_SIGNATURE_DENIED:
       return "signature declined";
-    case "USER_SIWE_SIGNATURE_DENIED":
+    case ERROR_CODES.USER_SIWE_SIGNATURE_DENIED:
       return "SIWE signature declined";
-    case "USER_ALLOWANCE_APPROVAL_DENIED":
+    case ERROR_CODES.USER_ALLOWANCE_APPROVAL_DENIED:
       return "allowance declined";
-    case "USER_TX_SEND_DENIED":
+    case ERROR_CODES.USER_TX_SEND_DENIED:
       return "transaction declined";
     default:
       return undefined;
@@ -59,8 +59,8 @@ type UseOperationFormParams = {
   client: NexusClient | null;
   ready: boolean;
   address?: `0x${string}`;
-  onSwapIntent: (data: any) => void;
-  onSwapExecIntent: (data: any) => void;
+  onSwapIntent: ExecuteContext["onSwapIntent"];
+  onSwapExecIntent: ExecuteContext["onSwapExecIntent"];
   swapIntentPending: boolean;
   swapIntentApproved: boolean;
   clearSwapIntent: () => void;
@@ -271,8 +271,8 @@ export function useOperationForm({
         setCompletedSteps,
         setStatusMessage,
         handleProgressEvent: progress.handleEvent,
-        _onSwapIntent: onSwapIntent,
-        _onSwapExecIntent: onSwapExecIntent,
+        onSwapIntent,
+        onSwapExecIntent,
       };
 
       console.log(`[execute] ${config.id} starting:`, { chainId, tokenSymbol, amount, selectedSources });
@@ -301,7 +301,7 @@ export function useOperationForm({
       // failure UI. Any non-user error renders the "failed" variant.
       const code = (error as { code?: string }).code;
       if (error instanceof UserActionError) {
-        if (code === "USER_INTENT_HOOK_DENIED") {
+        if (code === ERROR_CODES.USER_INTENT_HOOK_DENIED) {
           progress.closeModal();
         } else {
           progress.handleError(error, {

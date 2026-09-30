@@ -23,7 +23,8 @@ export interface SwapExecuteParams {
   to: Hex;
   value?: bigint;
   data?: Hex;
-  gas?: bigint;
+  /** Required raw gas estimate for the destination call. The SDK adds chain-specific buffers. */
+  gas: bigint;
   gasPrice?: 'low' | 'medium' | 'high';
   tokenApproval?: { toTokenAddress: Hex; amount: bigint; spender: Hex };
 }

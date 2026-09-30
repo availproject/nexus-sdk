@@ -1,6 +1,6 @@
 import { Navigate, Route, Routes } from "react-router";
 import type { NexusClient } from "@avail-project/nexus-core";
-import type { NetworkMode, TabConfig } from "../lib/types";
+import type { ExecuteContext, NetworkMode, TabConfig } from "../lib/types";
 import type {
   SwapAndExecuteIntentViewModel,
   SwapIntentViewModel,
@@ -15,8 +15,8 @@ type HomeProps = {
   ready: boolean;
   address?: `0x${string}`;
   isConnected: boolean;
-  onSwapIntent: (data: any) => void;
-  onSwapExecIntent: (data: any) => void;
+  onSwapIntent: ExecuteContext["onSwapIntent"];
+  onSwapExecIntent: ExecuteContext["onSwapExecIntent"];
   swapIntent: SwapIntentViewModel | null;
   swapIntentPending: boolean;
   swapIntentRefreshing: boolean;

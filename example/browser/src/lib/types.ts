@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { NexusClient } from "@avail-project/nexus-core";
+import type { IntentHookData, NexusClient, SwapAndExecuteHookData } from "@avail-project/nexus-core";
 
 export type NetworkMode = "mainnet" | "canary";
 
@@ -100,6 +100,8 @@ export type ExecuteContext = {
   setCompletedSteps: Dispatch<SetStateAction<Set<string>>>;
   setStatusMessage: Dispatch<SetStateAction<string>>;
   handleProgressEvent?: (event: unknown) => void;
+  onSwapIntent: (data: IntentHookData) => void | Promise<void>;
+  onSwapExecIntent: (data: SwapAndExecuteHookData) => void | Promise<void>;
 };
 
 /* ── Execution progress modal types ── */

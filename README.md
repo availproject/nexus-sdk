@@ -552,8 +552,11 @@ insufficient. Public inputs and on-chain calls use raw `bigint` units.
 
 ## Intent plus execute
 
-`swapAndExecute` inspects destination balances and estimated execution gas, requests only the
-shortfall through Better Intent, waits for fulfillment, then executes the destination transaction.
+`swapAndExecute` requires a positive `execute.gas` raw estimate for the destination call. It never
+estimates that call through RPC before funding, when balances or approvals may be missing. The
+SDK adds chain-specific gas/fee buffers and L1 fees, calculates the destination shortfall, requests
+funding through Better Intent, waits for fulfillment, then executes. If an ERC-20 approval is
+needed, its gas is estimated separately, falling back to 70,000 raw gas units if estimation fails.
 
 ```ts
 const result = await client.swapAndExecute(
@@ -564,6 +567,7 @@ const result = await client.swapAndExecute(
     execute: {
       to: lendingPool,
       data: supplyCalldata,
+      gas: 350_000n, // Raw estimate; the SDK adds the destination chain's buffers.
       tokenApproval: {
         toTokenAddress: baseUsdc,
         amount: 10_000_000n,
@@ -572,13 +576,33 @@ const result = await client.swapAndExecute(
     },
   },
   {
-    hooks: { onIntent: ({ allow }) => allow() },
+    hooks: {
+      onIntent: ({ intent, allow }) => {
+        console.log(intent.executeRequirement, intent.available, intent.shortfall);
+        allow(); // Call after your application's review step.
+      },
+    },
     beforeExecute: async () => ({ data: refreshedCalldata }),
   },
 );
 ```
 
 The result indicates whether funding was skipped and includes the final execute transaction.
+
+The composite hook receives `SwapAndExecuteHookData`: `{ intent, allow, deny, refresh, attemptId }`.
+Its `intent` contains execution requirements, available destination balances, token/native
+shortfalls, and `swapRequired`. Amounts include raw `bigint` units, readable strings, and optional
+`valueUsd` valuations. `intent.quote` is present only when `swapRequired` is true. The hook also
+runs when funding is already covered and waits for `allow()` before execution.
+
+`await refresh(sources?)` returns an updated composite intent. It refreshes fee prices and L1 fees,
+recalculates shortfalls, and obtains a replacement quote if funding is needed. It reuses the
+original balance snapshot, calls, allowance decision, and raw gas estimates. Source restrictions
+apply to that snapshot and the quote request; omitted sources retain the last successful selection,
+while `[]` clears it. A failed refresh leaves the prior preview and execution fees intact.
+Queued refreshes finish before `allow()` proceeds. Destination balances are not reserved in
+middleware. `beforeExecute` runs after funding; its calldata, value, or gas overrides do not trigger
+another funding calculation.
 
 ## History
 
@@ -608,7 +632,7 @@ type IntentOperationOptions = {
 ```
 
 Swap operations expose `onIntent` and use minimum required ERC-20 approvals. `swapAndExecute`
-options add `beforeExecute`.
+uses `SwapAndExecuteHookData` for its hook and adds `beforeExecute`.
 
 ## Errors
 
@@ -737,3 +761,7 @@ npm run build
 
 See [Architecture](docs/ARCHITECTURE.md), [Conventions](docs/CONVENTIONS.md), and the preserved
 [browser example](example/browser).
+
+The browser's Swap & Deposit tab uses the composite `onIntent` payload for its funding review and
+periodic fee refresh. It shows destination balances and shortfalls even when funding is skipped,
+and keeps the operation in progress until the destination execution completes.

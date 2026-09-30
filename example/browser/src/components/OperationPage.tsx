@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import type { NexusClient } from "@avail-project/nexus-core";
-import type { TabConfig } from "../lib/types";
+import type { ExecuteContext, TabConfig } from "../lib/types";
 import type {
   SwapAndExecuteIntentViewModel,
   SwapIntentViewModel,
@@ -19,8 +19,8 @@ type OperationPageProps = {
   client: NexusClient | null;
   ready: boolean;
   address?: `0x${string}`;
-  onSwapIntent: (data: any) => void;
-  onSwapExecIntent: (data: any) => void;
+  onSwapIntent: ExecuteContext["onSwapIntent"];
+  onSwapExecIntent: ExecuteContext["onSwapExecIntent"];
   swapIntentPending: boolean;
   swapIntentApproved: boolean;
   clearSwapIntent: () => void;

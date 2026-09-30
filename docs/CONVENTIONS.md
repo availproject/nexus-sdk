@@ -161,13 +161,18 @@ Retry receipt lookup by known hash; never treat an RPC timeout as proof that res
 
 Composite methods may calculate only destination funding requirements:
 
-- fresh output-token balance;
-- fresh native balance;
+- output-token and native balances from the initial snapshot, filtered by selected sources;
 - execute value;
-- simulated execute gas cost;
+- execute gas cost from the required caller-supplied raw estimate, current fee prices, and chain buffers;
 - resulting token and gas shortfalls.
 
 They must not reconstruct an intent route. Execute only after the funding intent is fulfilled.
+Do not estimate the destination call before funding; balances or approvals may be missing.
+Estimate required approval gas separately, using 70,000 raw gas units only as a fallback.
+Refresh fee prices and L1 fees from the original calls and gas estimates, then recalculate
+shortfalls and replace the funding quote. Reuse the initial balance snapshot and allowance decision.
+Commit refreshed sources, quote, and execution fees together only after successful preparation.
+Composite hooks must represent fully funded execution as well as funding quotes.
 
 If only gas is missing for a non-native output token, request one raw output unit plus the gas drop.
 

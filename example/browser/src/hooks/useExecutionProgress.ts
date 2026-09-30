@@ -78,7 +78,10 @@ function normalizeStep(raw: RawStep): NormalizedStep {
 
 /* ── State mapping from SDK events ───────────────────────────────── */
 
-function mapStatusToPhase(status: string): ProgressPhase | null {
+export function mapStatusToPhase(
+  status: string,
+  operationType: ExecutionProgressState["operationType"],
+): ProgressPhase | null {
   switch (status) {
     case "preparing":
       return "preparing";
@@ -95,8 +98,9 @@ function mapStatusToPhase(status: string): ProgressPhase | null {
     case "executing":
       return "executing";
     case "completed":
-    case "fulfilled":
       return "completed";
+    case "fulfilled":
+      return operationType === "swapAndExecute" ? "executing" : "completed";
     case "created":
     case "deposited":
       return "executing";
@@ -210,7 +214,7 @@ export function useExecutionProgress(operationType: OperationType) {
 
       // Status events — update phase
       if (ev.type === "status" && ev.status) {
-        const phase = mapStatusToPhase(ev.status);
+        const phase = mapStatusToPhase(ev.status, draft.operationType);
         if (phase) {
           draft.phase = phase;
           // On completion, mark any remaining active/submitted steps as done

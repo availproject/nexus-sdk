@@ -2,7 +2,6 @@ import type {
   IntentEvent,
   IntentResult,
   NexusClient,
-  SwapAndExecuteResult,
 } from "@avail-project/nexus-core";
 import { formatUnits, parseUnits } from "viem";
 import type {
@@ -80,7 +79,6 @@ function createIntentEventHandler(
         const next = new Set(previous);
         next.add("INTENT_APPROVED");
         next.add("SWAP_COMPLETE");
-        if (operation.endsWith("Execute")) next.add("TRANSACTION_CONFIRMED");
         return next;
       });
       ctx.setStatusMessage(operation.endsWith("Execute") ? "Executing deposit..." : "");
@@ -215,12 +213,7 @@ export const EXACT_OUT_SWAP_TAB: TabConfig = {
       {
         onEvent: createIntentEventHandler(ctx, "swap"),
         hooks: {
-          onIntent: (data) => {
-            // Intent is handled via useNexusSdk hook - called from App level
-            return (
-              ctx as unknown as { _onSwapIntent?: (d: typeof data) => Promise<void> }
-            )._onSwapIntent?.(data);
-          },
+          onIntent: ctx.onSwapIntent,
         },
       },
     );
@@ -290,12 +283,7 @@ export const EXACT_IN_SWAP_TAB: TabConfig = {
       {
         onEvent: createIntentEventHandler(ctx, "swap"),
         hooks: {
-          onIntent: (data) => {
-            // Intent is handled via useNexusSdk hook - called from App level
-            return (
-              ctx as unknown as { _onSwapIntent?: (d: typeof data) => Promise<void> }
-            )._onSwapIntent?.(data);
-          },
+          onIntent: ctx.onSwapIntent,
         },
       },
     );
@@ -354,6 +342,13 @@ export const SWAP_AND_EXECUTE_TAB: TabConfig = {
     });
     const fromSources = deriveSwapSources(ctx);
 
+    const executeStep = {
+      id: "destination-execute",
+      type: "execute_transaction",
+      chain: { id: chainId, name: chainName(client, chainId), logo: "" },
+      to: deposit.execute.to,
+    };
+
     const result = await client.swapAndExecute(
       {
         toChainId: chainId,
@@ -366,31 +361,29 @@ export const SWAP_AND_EXECUTE_TAB: TabConfig = {
         onEvent: createIntentEventHandler(ctx, "swapAndExecute"),
         hooks: {
           onIntent: (data) => {
-            return (
-              ctx as unknown as {
-                _onSwapExecIntent?: (
-                  d: typeof data,
-                  context: import("./nexus").CompositeIntentContext,
-                ) => Promise<void>;
-              }
-            )._onSwapExecIntent?.(data, {
-              contractAddress: deposit.execute.to,
-              tokenSymbol,
-              amount,
-              tokenApproval: deposit.execute.tokenApproval
-                ? { symbol: tokenSymbol, amount }
-                : undefined,
-            });
+            ctx.setStatusMessage("Waiting for approval...");
+            return ctx.onSwapExecIntent(data);
           },
+        },
+        beforeExecute: async () => {
+          ctx.setStatusMessage("Executing deposit...");
+          ctx.handleProgressEvent?.({ type: "step", step: executeStep, state: "started" });
+          return {};
         },
       },
     );
 
-    const typedResult = result as SwapAndExecuteResult;
+    ctx.setCompletedSteps((previous) => new Set(previous).add("TRANSACTION_CONFIRMED"));
+    ctx.setStatusMessage("");
+    ctx.handleProgressEvent?.({
+      type: "plan_progress", stepType: "execute_transaction", step: executeStep,
+      state: "confirmed", txHash: result.execute.txHash, explorerUrl: result.execute.txExplorerUrl,
+    });
+    ctx.handleProgressEvent?.({ type: "status", status: "completed" });
     const hashes: Array<{ label: string; value: string; href?: string }> = [];
     const route: import("./types").SwapRouteStep[] = [];
 
-    const swapResult = typedResult.swapResult;
+    const swapResult = result.swapResult;
     if (swapResult) {
       const intentResult = await buildSwapResult(client, swapResult, chainId, tokenSymbol, amount);
       hashes.push(...intentResult.hashes);
@@ -404,13 +397,13 @@ export const SWAP_AND_EXECUTE_TAB: TabConfig = {
       chainName: chainName(client, chainId),
       tokenSymbol: `${tokenSymbol} → ${getDepositProtocol(chainId)?.label ?? "deposit"}`,
       amount: amount,
-      txHash: typedResult.execute.txHash,
+      txHash: result.execute.txHash,
     });
 
     hashes.push({
       label: "Deposit tx",
-      value: typedResult.execute.txHash,
-      href: typedResult.execute.txExplorerUrl,
+      value: result.execute.txHash,
+      href: result.execute.txExplorerUrl,
     });
 
     return {

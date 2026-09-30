@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Hex } from 'viem';
 
 const readContract = vi.hoisted(() => vi.fn().mockResolvedValue(0n));
+const estimateGas = vi.hoisted(() => vi.fn().mockResolvedValue(21_000n));
+const estimateFeesPerGas = vi.hoisted(() => vi.fn().mockResolvedValue({ gasPrice: 2n }));
 
 vi.mock('viem', async () => {
   const actual = await vi.importActual<typeof import('viem')>('viem');
@@ -9,8 +11,8 @@ vi.mock('viem', async () => {
     ...actual,
     createPublicClient: vi.fn().mockReturnValue({
       readContract,
-      estimateGas: vi.fn().mockResolvedValue(21_000n),
-      estimateFeesPerGas: vi.fn().mockResolvedValue({ gasPrice: 1n }),
+      estimateGas,
+      estimateFeesPerGas,
     }),
     http: vi.fn().mockReturnValue({}),
   };
@@ -27,7 +29,27 @@ import { ARB_CHAIN, WETH, makeSwapChainList } from '../helpers/swap';
 const TARGET = '0x1111111111111111111111111111111111111111' as Hex;
 const SPENDER = '0x2222222222222222222222222222222222222222' as Hex;
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  estimateGas.mockReset().mockResolvedValue(21_000n);
+  estimateFeesPerGas.mockReset().mockResolvedValue({ gasPrice: 2n });
+});
+
+it('estimates execution and approval gas when standalone simulation omits gas', async () => {
+  const result = await simulateExecute({
+    toChainId: 1,
+    to: TARGET,
+    tokenApproval: {
+      toTokenAddress: testChains[0].tokens[1].address, amount: 1000n, spender: SPENDER,
+    },
+  }, {
+    chainList: createChainList(testChains),
+    evm: { address: TARGET, walletClient: {} as never },
+  });
+
+  expect(result.estimatedGasUnits).toBe(42_000n);
+  expect(estimateGas).toHaveBeenCalledTimes(2);
+});
 
 it.each([['execute', execute], ['simulateExecute', simulateExecute]] as const)('%s approves the requested contract when another token shares its symbol', async (_method, run) => {
   const chainList = createChainList(testChains);

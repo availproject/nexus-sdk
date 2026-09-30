@@ -27,6 +27,7 @@ import type {
   IntentToken,
   IntentTokenPage,
   IntentTokenQuery,
+  SwapAndExecuteHookData,
   SwapAndExecuteIntentResult,
   TokenRef,
 } from '../intent/types';
@@ -43,7 +44,10 @@ export type IntentOperationOptions = OnEventParam<IntentEvent> & {
 
 export type SwapOperationOptions = IntentOperationOptions;
 
-export type SwapAndExecuteOptions = SwapOperationOptions & BeforeExecuteHook;
+export type SwapAndExecuteOptions = Omit<SwapOperationOptions, 'hooks'> &
+  BeforeExecuteHook & {
+    hooks?: { onIntent?: (data: SwapAndExecuteHookData) => void | Promise<void> };
+  };
 
 export type NexusClient = {
   chainList: ChainListType;

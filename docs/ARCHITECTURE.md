@@ -237,11 +237,14 @@ pass through unchanged, including local validation failures before an HTTP call.
 later contract call needs.
 
 ```text
-fetch fresh destination balances + simulate execute gas
+validate required execute.gas
+  -> prepare calls and approvals + fetch a balance snapshot
+  -> price supplied execute gas and estimated approval gas
   -> calculate destination token/native shortfall
-  -> skip intent if fully funded
-  -> otherwise request only the shortfall through canonical intent flow
-  -> wait for fulfilled
+  -> request a quote if funding is needed
+  -> review composite intent, including when already funded
+  -> refresh fees, shortfalls, and quote on demand
+  -> submit accepted quote through canonical intent flow and wait for fulfilled, or skip funding
   -> run optional beforeExecute hook
   -> execute destination transaction
 ```
@@ -252,6 +255,20 @@ amount so the intent remains valid.
 
 Composite operations do not build routes locally.
 
+`execute.gas` supplies the raw estimate; the destination call is never estimated through RPC before
+funding. Approval gas is estimated separately only when the allowance is insufficient, with a
+70,000-unit fallback. `src/execute/fee-estimation.ts` applies fee-history tiers, gas/price buffers,
+OP/Scroll L1 fees, and Arbitrum L1 gas. Prepared calls and raw gas stay unchanged across refreshes;
+buffered gas and fee settings are retained for execution.
+
+`src/client/base.ts` owns composite review. `SwapAndExecuteIntent` exposes execution requirements,
+available balances, shortfalls, `swapRequired`, and a quote only when funding is needed. The hook
+always runs if supplied, even for fully funded execution. Refresh reuses the original balance
+snapshot and allowance decision, filters it by the selected sources, reprices fees, and replaces
+the quote. It commits source selection, fees, and quote together after success. Refreshes are
+serialized, and approval waits for pending refreshes. Middleware destination balance reservations
+are not implemented. Standalone `simulateExecute` retains RPC gas estimation.
+
 ## Standalone execute
 
 `src/execute/execute.ts` validates `ExecuteParams`, resolves optional token approval metadata by
@@ -259,7 +276,7 @@ Composite operations do not build routes locally.
 `src/execute/runtime.ts`.
 
 Execute uses cached chain metadata and is independent of intent route availability.
-`swapAndExecute` passes the same address-based approval input through simulation and execution.
+`swapAndExecute` passes the same address-based approval input through fee calculation and execution.
 
 ## Transport boundary
 

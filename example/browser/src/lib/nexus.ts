@@ -7,6 +7,7 @@ import {
   type IntentBalance,
   type IntentHookData,
   type IntentQuote,
+  type SwapAndExecuteIntent,
   type NexusClient,
   type SpanProperties,
 } from "@avail-project/nexus-core";
@@ -54,19 +55,19 @@ export type ExecuteRequirementViewModel = {
   chainLogo?: string;
   contractAddress: string;
   token: { symbol: string; amount: string; value?: string };
-  gas: { symbol: string; amount: string; value: string; priceTier: string };
-  nativeValue?: { amount: string; value: string };
+  gas: { symbol: string; amount: string; value?: string; priceTier: string };
+  nativeValue?: { amount: string; value?: string };
   tokenApproval?: { symbol: string; amount: string };
 };
 
 export type AvailableViewModel = {
-  token: { amount: string; value: string };
-  gas: { amount: string; value: string };
+  token: { amount: string; value?: string };
+  gas: { amount: string; value?: string };
 };
 
 export type ShortfallViewModel = {
-  token: { amount: string; value: string };
-  gas: { amount: string; value: string };
+  token: { amount: string; value?: string };
+  gas: { amount: string; value?: string };
 };
 
 export type SwapAndExecuteIntentViewModel = {
@@ -76,13 +77,6 @@ export type SwapAndExecuteIntentViewModel = {
   swapRequired: boolean;
   shortfall?: ShortfallViewModel;
   swap?: SwapIntentViewModel;
-};
-
-export type CompositeIntentContext = {
-  contractAddress: `0x${string}`;
-  tokenSymbol: string;
-  amount: string;
-  tokenApproval?: { symbol: string; amount: string };
 };
 
 /* ── API model → existing UI model adapters ─────────────────────── */
@@ -144,48 +138,31 @@ export async function mapSwapQuote(client: NexusClient, quote: IntentQuote): Pro
   };
 }
 
-export async function mapCompositeQuote(
+export async function mapCompositeIntent(
   client: NexusClient,
-  quote: IntentQuote,
-  context?: CompositeIntentContext,
+  intent: SwapAndExecuteIntent,
 ): Promise<SwapAndExecuteIntentViewModel> {
-  const chain = findChain(client, quote.output.chainId);
-  const swap = await mapSwapQuote(client, quote);
-  const amount = context?.amount ?? swap.destination.amount;
-  const symbol = context?.tokenSymbol ?? swap.destination.tokenSymbol;
-  // The execute amount can exceed the funding quote when destination funds are already available.
-  const value = D(swap.destination.amount).gt(0)
-    ? D(swap.destination.value).mul(amount).div(swap.destination.amount).toFixed()
-    : undefined;
-  const executeRequirement: ExecuteRequirementViewModel = {
-    chainName: chain?.name ?? `Chain ${quote.output.chainId}`,
-    chainLogo: chain?.logo,
-    contractAddress: context?.contractAddress ?? quote.output.tokenAddress,
-    token: { symbol, amount, value },
-    gas: {
-      symbol: chain?.nativeCurrency.symbol ?? "Native",
-      amount: "0",
-      value: "0",
-      priceTier: "medium",
-    },
-    tokenApproval: context?.tokenApproval,
-  };
-  const available = {
-    token: { amount: "0", value: "0" },
-    gas: { amount: "0", value: "0" },
-  };
-  const shortfall = {
-    token: { amount: swap.destination.amount, value: swap.destination.value },
-    gas: { amount: "0", value: "0" },
-  };
-
+  const { executeRequirement: requirement, available, shortfall } = intent;
+  const amount = (value: { amount: string; valueUsd?: string }) => ({
+    amount: value.amount, value: value.valueUsd,
+  });
   return {
     kind: "swapAndExecute",
-    executeRequirement,
-    available,
-    swapRequired: true,
-    shortfall,
-    swap,
+    executeRequirement: {
+      chainName: requirement.chain.name,
+      chainLogo: requirement.chain.logo,
+      contractAddress: requirement.to,
+      token: { symbol: requirement.token.symbol, amount: requirement.token.amount, value: requirement.token.valueUsd },
+      gas: { symbol: requirement.gas.symbol, ...amount(requirement.gas), priceTier: requirement.gas.priceTier },
+      nativeValue: requirement.nativeValue ? amount(requirement.nativeValue) : undefined,
+      tokenApproval: requirement.tokenApproval ? {
+        symbol: requirement.tokenApproval.token.symbol, amount: requirement.tokenApproval.amount,
+      } : undefined,
+    },
+    available: { token: amount(available.token), gas: amount(available.gas) },
+    shortfall: { token: amount(shortfall.token), gas: amount(shortfall.gas) },
+    swapRequired: intent.swapRequired,
+    swap: intent.swapRequired ? await mapSwapQuote(client, intent.quote) : undefined,
   };
 }
 
@@ -285,12 +262,18 @@ export function getErrorMessage(error: unknown): string {
 
 /* ── Intent approval state shared by all four UI flows ───────────── */
 
-function useIntentApproval<T, C = undefined>(
+type ApprovalData<P> = {
+  intent: P;
+  allow: () => void;
+  deny: () => void;
+  refresh: () => Promise<P>;
+};
+
+function useIntentApproval<T, P>(
   clientRef: React.RefObject<NexusClient | null>,
-  mapQuote: (client: NexusClient, quote: IntentQuote, context?: C) => Promise<T>,
+  mapIntent: (client: NexusClient, intent: P) => Promise<T>,
 ) {
-  const dataRef = useRef<IntentHookData | null>(null);
-  const contextRef = useRef<C | undefined>(undefined);
+  const dataRef = useRef<ApprovalData<P> | null>(null);
   const timerRef = useRef<number | null>(null);
   const [intent, setIntent] = useState<T | null>(null);
   const [pending, setPending] = useState(false);
@@ -305,7 +288,6 @@ function useIntentApproval<T, C = undefined>(
   const clear = useCallback(() => {
     stopRefresh();
     dataRef.current = null;
-    contextRef.current = undefined;
     setIntent(null);
     setPending(false);
     setRefreshing(false);
@@ -319,8 +301,8 @@ function useIntentApproval<T, C = undefined>(
       if (!current || !client) return;
       try {
         setRefreshing(true);
-        const quote = await current.refresh();
-        const mapped = await mapQuote(client, quote, contextRef.current);
+        const refreshed = await current.refresh();
+        const mapped = await mapIntent(client, refreshed);
         if (dataRef.current === current) {
           setIntent(mapped);
           scheduleRefresh();
@@ -335,15 +317,14 @@ function useIntentApproval<T, C = undefined>(
         setRefreshing(false);
       }
     }, 20_000);
-  }, [clear, clientRef, mapQuote, stopRefresh]);
+  }, [clear, clientRef, mapIntent, stopRefresh]);
 
-  const onIntent = useCallback(async (data: IntentHookData, context?: C) => {
+  const onIntent = useCallback(async (data: ApprovalData<P>) => {
     const client = clientRef.current;
     if (!client) { data.deny(); return; }
     dataRef.current = data;
-    contextRef.current = context;
     try {
-      const mapped = await mapQuote(client, data.quote, context);
+      const mapped = await mapIntent(client, data.intent);
       if (dataRef.current !== data) return;
       setIntent(mapped);
     } catch (error) {
@@ -356,7 +337,7 @@ function useIntentApproval<T, C = undefined>(
     setRefreshing(false);
     setApproved(false);
     scheduleRefresh();
-  }, [clear, clientRef, mapQuote, scheduleRefresh]);
+  }, [clear, clientRef, mapIntent, scheduleRefresh]);
 
   const approve = useCallback(() => {
     const current = dataRef.current;
@@ -379,13 +360,6 @@ function useIntentApproval<T, C = undefined>(
   return { intent, pending, refreshing, approved, onIntent, approve, deny, clear };
 }
 
-const mapSwap = (client: NexusClient, quote: IntentQuote) => mapSwapQuote(client, quote);
-const mapSwapExecute = (
-  client: NexusClient,
-  quote: IntentQuote,
-  context?: CompositeIntentContext,
-) => mapCompositeQuote(client, quote, context);
-
 /* ── useNexusSdk hook ───────────────────────────────────────────── */
 
 export function useNexusSdk(network: NetworkMode) {
@@ -394,8 +368,10 @@ export function useNexusSdk(network: NetworkMode) {
   const clientRef = useRef<NexusClient | null>(null);
   const [ready, setReady] = useState(false);
 
-  const swap = useIntentApproval(clientRef, mapSwap);
-  const swapExecute = useIntentApproval(clientRef, mapSwapExecute);
+  const swap = useIntentApproval(clientRef, mapSwapQuote);
+  const swapExecute = useIntentApproval(clientRef, mapCompositeIntent);
+  const onSwapIntent = useCallback((data: IntentHookData) =>
+    swap.onIntent({ ...data, intent: data.quote }), [swap.onIntent]);
   const prevKeyRef = useRef("");
 
   useEffect(() => {
@@ -460,7 +436,7 @@ export function useNexusSdk(network: NetworkMode) {
   return useMemo(() => ({
     client: clientRef.current,
     ready,
-    onSwapIntent: swap.onIntent,
+    onSwapIntent,
     onSwapExecIntent: swapExecute.onIntent,
     swapIntent: swap.intent,
     swapIntentPending: swap.pending,
@@ -477,6 +453,6 @@ export function useNexusSdk(network: NetworkMode) {
     denySwapExecIntent: swapExecute.deny,
     clearSwapExecIntent: swapExecute.clear,
   }), [
-    ready, swap, swapExecute,
+    ready, onSwapIntent, swap, swapExecute,
   ]);
 }

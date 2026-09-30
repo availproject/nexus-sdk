@@ -37,6 +37,21 @@ import type {
 } from '../src';
 
 describe('public api exports', () => {
+  it('exposes composite funding previews for swap execution and refresh', () => {
+    type Options = NonNullable<Parameters<NexusClient['swapAndExecute']>[1]>;
+    type Hook = Parameters<NonNullable<NonNullable<Options['hooks']>['onIntent']>>[0];
+    expectTypeOf<Hook['intent']>().toEqualTypeOf<rootModule.SwapAndExecuteIntent>();
+    expectTypeOf<ReturnType<Hook['refresh']>>().toEqualTypeOf<Promise<rootModule.SwapAndExecuteIntent>>();
+    expectTypeOf<Extract<rootModule.SwapAndExecuteIntent, { swapRequired: false }>['quote']>()
+      .toEqualTypeOf<undefined>();
+  });
+  it('requires gas for swap execution while keeping standalone gas optional', () => {
+    expectTypeOf<rootModule.SwapExecuteParams['gas']>().toEqualTypeOf<bigint>();
+    expectTypeOf<Parameters<NexusClient['swapAndExecute']>[0]['execute']>()
+      .toEqualTypeOf<rootModule.SwapExecuteParams>();
+    expectTypeOf<rootModule.ExecuteParams['gas']>().toEqualTypeOf<bigint | undefined>();
+  });
+
   it('exposes getBalances with getBalancesForSwap as an alias', () => {
     expectTypeOf<NexusClient['getBalances']>().toEqualTypeOf<() => Promise<IntentBalance[]>>();
     expectTypeOf<NexusClient['getBalancesForSwap']>().toEqualTypeOf<NexusClient['getBalances']>();

@@ -261,7 +261,8 @@ function CompositeIntentBody({
   const allSufficient = tokenSufficient && gasSufficient;
 
   const tokenPct = pctOf(intent.available.token.amount, exec.token.amount);
-  const gasPct = pctOf(intent.available.gas.amount, exec.gas.amount);
+  const nativeRequired = D(exec.gas.amount).plus(exec.nativeValue?.amount ?? "0");
+  const gasPct = pctOf(nativeRequired.minus(shortfall?.gas.amount ?? "0").toFixed(), nativeRequired.toFixed());
 
   const funding = intent.swap;
   const showFunding = !allSufficient && funding !== undefined;
@@ -319,8 +320,18 @@ function CompositeIntentBody({
           label="Gas"
           sub="Execution gas on destination"
           value={`${fmt(exec.gas.amount)} ${exec.gas.symbol}`}
-          valueSub={`$${exec.gas.value}`}
+          valueSub={exec.gas.value === undefined ? undefined : formatUsd(exec.gas.value)}
         />
+
+        {exec.nativeValue && (
+          <LineItem
+            size="secondary"
+            label="Contract value"
+            sub="Native tokens sent with the execution"
+            value={`${fmt(exec.nativeValue.amount)} ${exec.gas.symbol}`}
+            valueSub={exec.nativeValue.value === undefined ? undefined : formatUsd(exec.nativeValue.value)}
+          />
+        )}
 
         {exec.tokenApproval && (
           <LineItem
