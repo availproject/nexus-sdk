@@ -422,7 +422,7 @@ describe.each(['mainnet', 'canary'] as const)('Better Intent public client on %s
           status: 'fulfilled',
           createdAt: 20,
           updatedAt: 21,
-          explorerUrl: `https://nexus-v2.${network}.avail.so/explore/${QUOTE_ID}`,
+          explorerUrl: `https://nexus-v2.${network}.avail.so/rff/${QUOTE_ID}`,
         },
       ],
       total: 1,

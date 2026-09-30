@@ -603,7 +603,7 @@ export const createBase = (config: {
     return {
       intents: result.intents.map((intent) => ({
         ...intent,
-        explorerUrl: `${networkConfig.INTENT_EXPLORER_URL.replace(/\/$/, '')}/explore/${intent.id}`,
+        explorerUrl: `${networkConfig.INTENT_EXPLORER_URL.replace(/\/$/, '')}/rff/${intent.id}`,
       })),
       total: result.total,
     };

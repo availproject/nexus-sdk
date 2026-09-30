@@ -27,7 +27,7 @@ const setLoggerProvider = async (_networkConfig: NetworkConfig): Promise<void> =
     try {
       const loggerProvider = new LoggerProvider({
         resource: resourceFromAttributes({
-          'service.name': 'nexus-sdk-v2-logs',
+          'service.name': 'nexus-sdk-v3-logs',
           'service.version': version,
           origin: locationOrigin(),
           host: locationHost(),

@@ -56,7 +56,7 @@ type RunIntentDeps = {
 const sleep = (milliseconds: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 
-const explorerLink = (baseUrl: string, id: Hex) => `${baseUrl.replace(/\/$/, '')}/explore/${id}`;
+const explorerLink = (baseUrl: string, id: Hex) => `${baseUrl.replace(/\/$/, '')}/rff/${id}`;
 
 const intentStepError = (error: unknown, step: IntentPlanStep) => {
   const message = formatUnknownError(error);

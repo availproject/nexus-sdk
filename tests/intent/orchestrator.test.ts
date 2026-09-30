@@ -249,7 +249,7 @@ describe('Better Intent orchestration', () => {
     expect(result).toMatchObject({
       quote: quoted.quote,
       status: { status: 'fulfilled' },
-      intentExplorerUrl: `https://explorer.example/explore/${quoted.quote.id}`,
+      intentExplorerUrl: `https://explorer.example/rff/${quoted.quote.id}`,
     });
     expect(events.filter((event) => event.type === 'status').map((event) => event.status)).toEqual([
       'created',
