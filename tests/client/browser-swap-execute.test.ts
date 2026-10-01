@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import type { SwapAndExecuteHookData } from '../../src';
-import { SWAP_AND_EXECUTE_TAB } from '../../example/browser/src/lib/tabs';
+import { EXACT_IN_SWAP_TAB, SWAP_AND_EXECUTE_TAB } from '../../example/browser/src/lib/tabs';
 import { getDepositTokenOptions } from '../../example/browser/src/lib/deposit';
 import { mapStatusToPhase } from '../../example/browser/src/hooks/useExecutionProgress';
 import type { ExecuteContext } from '../../example/browser/src/lib/types';
@@ -22,6 +22,28 @@ const setup = () => {
   } satisfies ExecuteContext;
   return { ctx, swapAndExecute, completed: () => completed };
 };
+
+it('requests an exact-input quote with catalog decimals and no connected address', async () => {
+  const { ctx } = setup();
+  const source = {
+    id: '1:usdc', chainId: 1, chainName: 'Ethereum', chainLogo: '',
+    tokenAddress: ACCOUNT, symbol: 'USDC', decimals: 6, balance: '0', value: '0',
+  };
+  const review = new Error('quote reached review');
+  const swapWithExactIn = vi.fn().mockRejectedValue(review);
+  const client = {
+    swapWithExactIn,
+    getToken: async () => ({ address: ctx.tokenAddress, decimals: 18 }),
+  } as unknown as NexusClient;
+  await expect(EXACT_IN_SWAP_TAB.execute({
+    ...ctx, client, address: undefined, sourceOptions: [source],
+    selectedSources: [source.id], sourceAmounts: { [source.id]: '1.234567' },
+  })).rejects.toBe(review);
+  expect(swapWithExactIn).toHaveBeenCalledExactlyOnceWith({
+    toChainId: ctx.chainId, toTokenAddress: ctx.tokenAddress,
+    sources: [{ chainId: 1, tokenAddress: ACCOUNT, amountRaw: 1234567n }],
+  }, expect.objectContaining({ hooks: { onIntent: ctx.onSwapIntent } }));
+});
 
 it('uses the composite hook and completes a fully funded deposit after execution returns', async () => {
   const { ctx, swapAndExecute, completed } = setup();

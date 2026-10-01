@@ -94,6 +94,8 @@ both the requested output and the later execute value/gas.
   enumeration. Explicit chain-only filters stay broad; resolve only selected token addresses.
   Never omit source filters after removing every explicit candidate.
 - Exact-input swap requires explicit chain, token address, and positive `amountRaw` on every source.
+- Exact-input previews may use a random sender without a wallet. Capture the sender and connection
+  state once per operation and retain both across refreshes; connecting requires a new operation.
 - Exact-input sources and destination must share one provider across chain and token directional
   support. Exact-output candidates need individual compatibility with the destination. These checks
   use chain metadata plus token metadata fetched on demand; middleware still decides route feasibility.
@@ -114,12 +116,17 @@ All intent methods use `options.hooks`:
 - swap operations: `onIntent`
 - swap-and-execute: `onIntent` plus top-level `beforeExecute`
 
-`onIntent` receives `{ quote, allow, deny, refresh, attemptId }`. A refreshed quote replaces the complete
-executable quote. Do not update only its public or private half.
+Swap `onIntent` receives `{ quote, execution, allow, deny, refresh, attemptId }`. `execution` is
+`{ possible: true }` or `{ possible: false, cause: 'not-connected' | 'insufficient-balance' }`.
+`not-connected` takes priority and uses the connection state captured at operation start.
+Read `hook.execution` after awaiting `hook.refresh()` for the latest quote's eligibility.
+A refreshed quote replaces the complete executable quote. Do not update only its public or private half.
 
 ERC-20 approvals use the quote's minimum required amounts. Sponsored source approvals use the
 quote's EIP-712 signing payload, preserving decimal integer strings without conversion to `number`.
-No intent hook means auto-allow.
+No intent hook means auto-allow. After review, reject disconnected operations and quotes with
+`isExecutable: false` before any wallet action or submission. Preserve middleware execution warnings
+in the public quote, normalizing shortfall amounts to bigint at the transport boundary.
 
 ## Events and callbacks
 

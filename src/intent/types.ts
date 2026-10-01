@@ -235,6 +235,18 @@ export type IntentQuote = {
   id: Hex;
   provider: IntentProvider;
   tradeType: IntentTradeType;
+  /** Middleware's source-balance check; does not imply a connected wallet or completed approvals. */
+  isExecutable: boolean;
+  executionWarnings: Array<{
+    code: 'INSUFFICIENT_BALANCE';
+    message: string;
+    shortfalls: Array<{
+      chainId: number;
+      tokenAddress: Hex;
+      requiredRaw: bigint;
+      actualRaw: bigint;
+    }>;
+  }>;
   input: IntentQuoteInput[];
   output: {
     chainId: number;
@@ -446,6 +458,10 @@ export type IntentSource = {
 export type IntentHookData = {
   /** SDK payment attempt correlation ID, available before commitment. */
   attemptId?: string;
+  /** Latest quote eligibility. Not-connected takes priority and requires a new swap call. */
+  readonly execution:
+    | { possible: true }
+    | { possible: false; cause: 'not-connected' | 'insufficient-balance' };
   quote: IntentQuote;
   allow: () => void;
   deny: () => void;

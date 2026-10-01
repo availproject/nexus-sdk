@@ -66,6 +66,8 @@ const quote = () =>
     quoteId: QUOTE_ID,
     provider: 'nexus-v2',
     tradeType: 'exactOutput',
+    isExecutable: true,
+    executionWarnings: [],
     input: [],
     output: { chainId: 'EVM_1', tokenAddress: ETHEREUM_TOKEN, amount: '1000000', amountUsd: '1' },
     minAmountOut: '1000000',

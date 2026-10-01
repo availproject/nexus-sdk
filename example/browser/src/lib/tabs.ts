@@ -230,7 +230,7 @@ export const EXACT_IN_SWAP_TAB: TabConfig = {
     icon: "◉",
     title: "Exact In Swap",
     description:
-      "Pick the source assets you want to spend and set an amount for each. Nexus routes every input into your chosen destination token in a single flow.",
+      "Pick source assets and amounts to preview your rate. Connect your wallet when you are ready to swap.",
     buttonLabel: "Review Exact In Swap",
     buttonPendingLabel: "Building exact in swap...",
   },
@@ -326,6 +326,7 @@ export const SWAP_AND_EXECUTE_TAB: TabConfig = {
 
   execute: async (ctx): Promise<OperationResult> => {
     const { client, address, chainId, tokenSymbol, amount } = ctx;
+    if (!address) throw new Error("Connect wallet first");
     const tokenOptions = getDepositTokenOptions(chainId);
     const selectedToken = tokenOptions.find(
       (t) => t.tokenAddress?.toLowerCase() === ctx.tokenAddress?.toLowerCase(),

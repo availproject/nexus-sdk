@@ -87,7 +87,7 @@ export type SourceOption = {
 
 export type ExecuteContext = {
   client: NexusClient;
-  address: `0x${string}`;
+  address?: `0x${string}`;
   chainId: number;
   tokenSymbol: string;
   tokenAddress: `0x${string}` | undefined;

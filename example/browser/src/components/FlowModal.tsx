@@ -720,6 +720,7 @@ export type FlowModalProps = {
   intentApproved: boolean;
   onApprove: () => void;
   onDeny: () => void;
+  onConnect?: () => void;
   actionLabel?: string;
   progressState: ExecutionProgressState | null;
   onDismissProgress: () => void;
@@ -733,6 +734,7 @@ export function FlowModal({
   intentApproved,
   onApprove,
   onDeny,
+  onConnect,
   actionLabel,
   progressState,
   onDismissProgress,
@@ -839,8 +841,14 @@ export function FlowModal({
 
   // Header title — operation name, plus a phase-appropriate suffix.
   const opTitle = OP_TITLES[intentType];
+  const swapQuote = intentType === "swap"
+    ? intent as SwapIntentViewModel | null
+    : (intent as SwapAndExecuteIntentViewModel | null)?.swap;
+  const cannotExecute = swapQuote?.execution.possible === false;
+  const needsConnection = swapQuote?.execution.possible === false
+    && swapQuote.execution.cause === "not-connected";
   const titleByPhase: Record<FlowPhase, string> = {
-    intent: `Confirm ${opTitle}`,
+    intent: needsConnection ? "Swap preview" : `Confirm ${opTitle}`,
     executing: opTitle,
     completed: `${opTitle} Complete`,
     failed: opTitle,
@@ -903,6 +911,13 @@ export function FlowModal({
           <div className={`flow-modal-body${fadingOut ? " flow-modal-body--fading" : ""}`}>
             {displayPhase === "intent" && intent && (
               <div className="intent-body-card">
+                {needsConnection ? (
+                  <p className="intent-notice receive-output-note">Connect your wallet, then review a fresh quote to swap.</p>
+                ) : cannotExecute && (
+                  <p className="intent-notice field-error" role="status">
+                    {swapQuote?.executionWarnings.map((warning) => warning.message).join(" ") || "This quote cannot be executed yet."}
+                  </p>
+                )}
                 {intentType === "swap" && <SwapIntentBody intent={intent as SwapIntentViewModel} />}
                 {intentType === "swapAndExecute" && (
                   <CompositeIntentBody
@@ -935,10 +950,10 @@ export function FlowModal({
               <button
                 className="intent-button intent-button-primary"
                 type="button"
-                onClick={handleApprove}
-                disabled={intentRefreshing}
+                onClick={needsConnection ? onConnect : handleApprove}
+                disabled={intentRefreshing || (needsConnection ? !onConnect : cannotExecute)}
               >
-                Confirm
+                {needsConnection ? "Connect wallet" : "Confirm"}
               </button>
             )}
             {(displayPhase === "completed" || displayPhase === "failed") && (

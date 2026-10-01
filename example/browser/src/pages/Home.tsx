@@ -34,6 +34,7 @@ type HomeProps = {
 };
 
 export default function Home({
+  network,
   tabs,
   client,
   ready,
@@ -56,11 +57,7 @@ export default function Home({
   denySwapExecIntent,
   clearSwapExecIntent,
 }: HomeProps) {
-  if (!isConnected) {
-    return <ConnectGate />;
-  }
-
-  const defaultTab = tabs[0];
+  const defaultTab = isConnected ? tabs[0] : tabs.find((tab) => tab.id === "swap-exact-in");
   if (!defaultTab) return null;
   const sdkProps = {
     client,
@@ -91,7 +88,9 @@ export default function Home({
         <Route
           key={tab.id}
           path={tab.path}
-          element={<OperationPage key={tab.id} config={tab} {...sdkProps} />}
+          element={isConnected || tab.id === "swap-exact-in"
+            ? <OperationPage key={`${network}:${tab.id}`} config={tab} {...sdkProps} />
+            : <ConnectGate />}
         />
       ))}
       <Route path="*" element={<Navigate to={defaultTab.path} replace />} />

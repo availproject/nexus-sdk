@@ -31,6 +31,7 @@ export type DestinationOption = {
 };
 
 type DestinationSelectorProps = {
+  direction?: "source" | "destination";
   options: DestinationOption[];
   selectedId: string;
   selected?: DestinationOption;
@@ -53,6 +54,7 @@ function CloseIcon() {
 }
 
 export function DestinationSelector({
+  direction = "destination",
   options,
   selectedId,
   selected,
@@ -105,7 +107,7 @@ export function DestinationSelector({
         ...(search.startsWith("0x") ? { contract: search } : { symbol: search || undefined }),
         offset,
         limit: 50,
-      }).then((result) => {
+      }, direction).then((result) => {
         if (!cancelled) setPage(result);
       }).catch((error: unknown) => {
         if (!cancelled) setError(getErrorMessage(error));
@@ -114,7 +116,7 @@ export function DestinationSelector({
       });
     }, search ? 250 : 0);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [client, open, query, chainFilter, offset, retry]);
+  }, [client, open, query, chainFilter, offset, retry, direction]);
 
   const availableChains = useMemo<PickerChainOption[]>(() => {
     if (chains) return chains;
@@ -192,8 +194,8 @@ export function DestinationSelector({
             <>
             <div className="modal-header src-modal-header">
               <div className="src-modal-title">
-                <Dialog.Title className="modal-title">Choose asset to receive</Dialog.Title>
-                <p className="src-modal-subtitle">Select token and destination chain</p>
+                <Dialog.Title className="modal-title">Choose asset to {direction === "source" ? "send" : "receive"}</Dialog.Title>
+                <p className="src-modal-subtitle">Select token and {direction} chain</p>
               </div>
               <Dialog.Close asChild>
                 <button className="ghost-button" type="button" title="Close" aria-label="Close">

@@ -56,9 +56,25 @@ const composite = (quote: IntentQuote): SwapAndExecuteIntent => ({
 });
 
 describe('browser quote USD values', () => {
+  it('preserves the execution warning so an unfunded connected quote cannot be confirmed', async () => {
+    const { quote, client } = setup();
+    quote.isExecutable = false;
+    quote.executionWarnings = [{ code: 'INSUFFICIENT_BALANCE', message: 'Fund the selected source', shortfalls: [] }];
+    expect(await mapSwapQuote(client, quote)).toMatchObject({
+      execution: { possible: false, cause: 'insufficient-balance' }, executionWarnings: quote.executionWarnings,
+    });
+  });
+  it('preserves the hook execution cause for disconnected previews', async () => {
+    const { quote, client } = setup();
+    quote.isExecutable = false;
+    expect(await mapSwapQuote(client, quote, { possible: false, cause: 'not-connected' })).toMatchObject({
+      execution: { possible: false, cause: 'not-connected' },
+    });
+  });
   it('pairs source totals and destination amounts with their middleware USD valuations', async () => {
     const { quote, client } = setup();
     const view = await mapSwapQuote(client, quote);
+    expect(view.execution).toEqual({ possible: true });
     expect(view.sources[0]).toMatchObject({ amount: '2.1', value: '4200' });
     expect(view.sourcesTotal).toBe('4200');
     expect(view.destination).toMatchObject({

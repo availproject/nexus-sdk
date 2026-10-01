@@ -1,5 +1,11 @@
 import type { Hex } from 'viem';
-import { ERROR_CODES, Errors, formatUnknownError, NexusError } from '../domain/errors';
+import {
+  BackendError,
+  ERROR_CODES,
+  Errors,
+  formatUnknownError,
+  NexusError,
+} from '../domain/errors';
 import { runNonBlocking } from '../services/non-blocking';
 import type { IntentReporting } from './telemetry';
 import type {
@@ -24,6 +30,8 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 
 type RunIntentInput = {
   requestQuote: () => Promise<ExecutableIntentQuote>;
+  /** Captured at operation start so connecting cannot authorize a placeholder quote. */
+  isConnected?: boolean;
   refreshQuote?: (sources?: IntentSource[]) => Promise<ExecutableIntentQuote>;
   onIntent?: (data: IntentHookData) => void | Promise<void>;
   onEvent?: (event: IntentEvent) => void;
@@ -129,6 +137,12 @@ const resolveIntentApproval = async (
     Promise.resolve(
       input.onIntent?.({
         quote: current.quote,
+        get execution(): IntentHookData['execution'] {
+          if (input.isConnected === false) return { possible: false, cause: 'not-connected' };
+          return current.quote.isExecutable
+            ? { possible: true }
+            : { possible: false, cause: 'insufficient-balance' };
+        },
         allow,
         deny,
         refresh,
@@ -142,10 +156,9 @@ const resolveIntentApproval = async (
 
 export const runIntent = async (
   input: RunIntentInput,
-  deps: RunIntentDeps
+  runtime: RunIntentDeps | (() => RunIntentDeps)
 ): Promise<IntentResult> => {
-  const now = deps.now ?? Date.now;
-  const wait = deps.sleep ?? sleep;
+  const now = (typeof runtime === 'function' ? undefined : runtime.now) ?? Date.now;
   const emit = (event: IntentEvent) => {
     input.reporting?.observe(event);
     runNonBlocking('IntentEventEmitFailed', () => input.onEvent?.(event), {
@@ -176,7 +189,26 @@ export const runIntent = async (
   assertIntentQuoteFresh(executable, now());
   if (!input.quoteAlreadyEmitted) emit({ type: 'quote', quote: executable.quote });
   executable = await resolveIntentApproval(executable, input, emit, now);
+  if (input.isConnected === false) throw Errors.walletNotConnected('evm');
   assertIntentQuoteFresh(executable, now());
+  if (!executable.quote.isExecutable) {
+    const warning = executable.quote.executionWarnings[0];
+    throw new BackendError(
+      warning?.code === 'INSUFFICIENT_BALANCE'
+        ? ERROR_CODES.BACKEND_INSUFFICIENT_BALANCE
+        : ERROR_CODES.BACKEND_ERROR,
+      warning?.message ?? 'Intent quote cannot be executed',
+      {
+        context: { service: 'middleware' },
+        details: {
+          quoteId: executable.quote.id,
+          executionWarnings: executable.quote.executionWarnings,
+        },
+      }
+    );
+  }
+  const deps = typeof runtime === 'function' ? runtime() : runtime;
+  const wait = deps.sleep ?? sleep;
 
   const approvals = executable.execution.allowances.filter((entry) => entry.deficitRaw > 0n);
   const confirmations: Promise<{

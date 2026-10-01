@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ERROR_CODES, UserActionError, type NexusClient } from "@avail-project/nexus-core";
-import type { ExecuteContext, TabConfig, HashRecord, SwapResultData, TokenOption } from "../lib/types";
+import type { ExecuteContext, TabConfig, HashRecord, SwapResultData, TokenOption, SourceOption } from "../lib/types";
 import {
   flattenBalances,
   getErrorMessage,
@@ -97,7 +97,15 @@ export function useOperationForm({
   const [amount, setAmount] = useState("");
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [sourceAmounts, setSourceAmounts] = useState<Record<string, string>>({});
+  const [catalogSources, setCatalogSources] = useState<SourceOption[]>([]);
   const isPerSource = config.amountMode === "per-source";
+  const activeClientRef = useRef(client);
+  activeClientRef.current = client;
+
+  const addSource = useCallback((source: SourceOption) => {
+    setCatalogSources((previous) => [...previous.filter((entry) => entry.id !== source.id), source]);
+    setSelectedSources((previous) => previous.includes(source.id) ? previous : [...previous, source.id]);
+  }, []);
 
   const setSourceAmount = useCallback((id: string, value: string) => {
     setSourceAmounts((prev) => ({ ...prev, [id]: value }));
@@ -111,10 +119,6 @@ export function useOperationForm({
   const [statusMessage, setStatusMessage] = useState("");
 
   const tokenSymbol = currentTokenOption?.symbol ?? "";
-
-  useEffect(() => {
-    setCurrentTokenOption(undefined);
-  }, [client, config]);
 
   const balancesQuery = useQuery({
     queryKey: [config.balanceQueryKey],
@@ -136,8 +140,11 @@ export function useOperationForm({
   });
 
   const sourceOptions = useMemo(
-    () => flattenBalances(balancesQuery.data ?? []),
-    [balancesQuery.data],
+    () => [...new Map([
+      ...(isPerSource ? catalogSources : []),
+      ...flattenBalances(balancesQuery.data ?? []),
+    ].map((source) => [source.id, source])).values()],
+    [balancesQuery.data, catalogSources, isPerSource],
   );
 
   const selectedSourceOptions =
@@ -221,9 +228,10 @@ export function useOperationForm({
   }, [intentPending, started, intentApproved, swapIntent, swapExecIntent, config.intentType]);
 
   const mutation = useMutation({
+    onMutate: () => ({ client }),
     mutationFn: async () => {
-      if (!client) throw new Error("SDK not ready");
-      if (!address) throw new Error("Connect wallet first");
+      if (!ready || !client) throw new Error("SDK not ready");
+      if (!address && !isPerSource) throw new Error("Connect wallet first");
       if (!currentTokenOption) throw new Error("Select a destination token");
       if (isPerSource) {
         if (!amountValid) throw new Error("Enter an amount for at least one asset");
@@ -251,7 +259,9 @@ export function useOperationForm({
           : tokenSymbol;
       progress.openModal({
         sourceSymbols,
-        amount: isPerSource ? `$${formatAmount(sourcesTotalFiat, 2)}` : amount,
+        amount: isPerSource
+          ? sourcesTotalFiat > 0 ? `$${formatAmount(sourcesTotalFiat, 2)}` : "Quote preview"
+          : amount,
         destTokenSymbol: tokenSymbol,
         destTokenLogo: getTokenLogoUrl(tokenSymbol, currentTokenOption?.tokenAddress, chainId),
         destChainName,
@@ -271,12 +281,16 @@ export function useOperationForm({
         setCompletedSteps,
         setStatusMessage,
         handleProgressEvent: progress.handleEvent,
-        onSwapIntent,
+        onSwapIntent: (data: Parameters<typeof onSwapIntent>[0]) => {
+          if (activeClientRef.current !== client) { data.deny(); return; }
+          return onSwapIntent(data);
+        },
         onSwapExecIntent,
       };
 
       console.log(`[execute] ${config.id} starting:`, { chainId, tokenSymbol, amount, selectedSources });
       const result = await config.execute(ctx);
+      if (activeClientRef.current !== client) return result;
       console.log(`[execute] ${config.id} result:`, result);
 
       setResultHashes(result.hashes);
@@ -284,7 +298,8 @@ export function useOperationForm({
       if (result.marketUrl) setMarketUrl(result.marketUrl);
       return result;
     },
-    onSuccess: () => {
+    onSuccess: (_result, _variables, context) => {
+      if (context?.client !== activeClientRef.current) return;
       toast.success(`${config.hero.title} completed`);
       balancesQuery.refetch();
       // Card becomes editable after 3s; progress/badge stay until field edit
@@ -292,8 +307,8 @@ export function useOperationForm({
         setStatusMessage("");
       }, 3000);
     },
-    onError: (error) => {
-      logError(`execute:${config.id}`, error);
+    onError: (error, _variables, context) => {
+      if (context?.client !== activeClientRef.current) return;
       // Intent-hook denial happens BEFORE the progress modal is visible
       // (execution hasn't started yet) — close it cleanly so the user lands
       // back on the form. Other user-action errors (allowance, signature,
@@ -312,7 +327,10 @@ export function useOperationForm({
       } else {
         progress.handleError(error, { kind: "failed" });
       }
-      toast.error(getErrorMessage(error), { duration: 10000 });
+      if (code !== ERROR_CODES.USER_INTENT_HOOK_DENIED) {
+        logError(`execute:${config.id}`, error);
+        toast.error(getErrorMessage(error), { duration: 10000 });
+      }
       clearIntent();
       setStarted(false);
       setCompletedSteps(new Set());
@@ -325,10 +343,16 @@ export function useOperationForm({
 
   mutationRef.current = mutation;
 
+  useEffect(() => {
+    progress.closeModal();
+    mutation.reset();
+  }, [client, address]);
+
   const resetForm = useCallback(() => {
     setAmount("");
     setSelectedSources([]);
     setSourceAmounts({});
+    setCatalogSources([]);
     setCompletedSteps(new Set());
     setStarted(false);
     setResultHashes([]);
@@ -348,6 +372,7 @@ export function useOperationForm({
     amount,
     setAmount,
     sourceOptions,
+    addSource,
     selectedSources,
     setSelectedSources,
     sourceAmounts,

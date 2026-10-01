@@ -30,6 +30,7 @@ const quote = (request: IntentQuoteRequest, index: number) => {
   const id = `0x${index.toString(16).padStart(64, '0')}` as Hex;
   return normalizeIntentQuote({
     quoteId: id, provider: 'nexus-v2', tradeType: 'exactOutput', input: [],
+    isExecutable: true, executionWarnings: [],
     output: { chainId: request.output.chainId, tokenAddress: request.output.token,
       amount: request.output.amount, amountUsd: '1' },
     minAmountOut: request.output.amount, minAmountOutUsd: '1',

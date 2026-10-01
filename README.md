@@ -12,7 +12,8 @@ intent submission, fulfillment polling, and optional destination contract execut
 npm install @avail-project/nexus-core
 ```
 
-The package requires an EIP-1193 Ethereum provider and supports EVM wallets through viem.
+Execution requires an EIP-1193 Ethereum provider and supports EVM wallets through viem.
+Catalog queries and exact-input quote previews work without a connected wallet.
 
 ## Initialize a client
 
@@ -133,6 +134,41 @@ const result = await client.swapWithExactIn({
 });
 ```
 
+### Preview exact-input rates without a wallet
+
+After `initialize()`, `swapWithExactIn` can request a quote before `setEVMProvider()`.
+Read the rate from `hooks.onIntent`'s `quote.output` and the entered amounts from `quote.input`.
+The hook's `execution` field combines the operation's connection state with the latest quote's
+source-balance check:
+
+```ts
+execution:
+  | { possible: true }
+  | { possible: false; cause: 'not-connected' | 'insufficient-balance' };
+```
+
+`not-connected` takes priority over `insufficient-balance`. The SDK uses a random placeholder address
+for disconnected requests and keeps it unchanged across `refresh()` calls. Read `hook.execution`
+again after awaiting `hook.refresh()` to get eligibility for the refreshed quote. An operation
+started without a wallet keeps the `not-connected` cause; connecting requires a new swap call.
+
+For a disconnected operation, `allow()` rejects the swap promise with `WALLET_NOT_CONNECTED`
+before any wallet action or submission. `deny()` retains its normal user-denied error. Without a
+hook, the SDK emits the quote event and rejects with `WALLET_NOT_CONNECTED`. The swap promise never
+resolves with a preview result.
+
+After connecting, start a new `swapWithExactIn` call and review the new quote. Connecting during
+an existing preview does not make that operation executable. Actual balances, allowances, fees,
+and rates may differ. Exact-output and swap-and-execute operations still require a wallet.
+
+Middleware can still reject a preview when a selected token needs an unsponsored approval and
+the placeholder cannot fund its gas (`backend/insufficient_approval_gas`).
+
+In `example/browser`, the Exact In Swap tab is available before login. Add source assets from the
+searchable catalog, enter their amounts, choose a destination, and select **Preview Exact In Swap**.
+The review shows output and fees with a **Connect wallet** action. Connecting closes the preview
+and keeps the form selections; request a new quote to review it with the connected wallet.
+
 ## Quote refresh
 
 `refresh()` requests a complete replacement quote. An optional `IntentSource[]` can replace the
@@ -225,6 +261,14 @@ trade type, and the canonical execution plan. Raw token amounts use `*Raw: bigin
 corresponding USD valuations use `*Usd: string` so applications can display the quoted value without
 performing a second token-price lookup. Raw RFF payloads, signing payload internals, ABIs, and submit
 serialization stay private to the transport layer.
+
+`quote.isExecutable` reports the middleware's quote-time source-balance check. It does not imply
+a connected wallet or completed approvals. `quote.executionWarnings` contains `code`, `message`,
+and `shortfalls` with `chainId`, `tokenAddress`, `requiredRaw`, and `actualRaw`. A connected operation
+that accepts a non-executable quote rejects before wallet actions, using
+`backend/insufficient_balance` for an `INSUFFICIENT_BALANCE` warning. Refresh after funding to obtain
+an executable quote. Middleware must return both `isExecutable` and `executionWarnings`;
+missing or malformed fields fail response validation.
 
 `SwapResult` is an alias of `IntentResult`.
 

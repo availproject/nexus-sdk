@@ -143,6 +143,21 @@ const quote = z.object({
   quoteId: hash,
   provider,
   tradeType: z.enum(['exactInput', 'exactOutput']),
+  isExecutable: z.boolean(),
+  executionWarnings: z.array(
+    z.object({
+      code: z.literal('INSUFFICIENT_BALANCE'),
+      message: z.string(),
+      shortfalls: z.array(
+        z.object({
+          chainId: z.number().int().positive(),
+          address,
+          required: amount,
+          actual: amount,
+        })
+      ),
+    })
+  ),
   input: z.array(
     z.object({
       chainId: z.string(),
@@ -483,6 +498,17 @@ export const normalizeIntentQuote = (input: unknown): ExecutableIntentQuote => {
       id: parsed.quoteId as Hex,
       provider: parsed.provider,
       tradeType: parsed.tradeType,
+      isExecutable: parsed.isExecutable,
+      executionWarnings: parsed.executionWarnings.map((warning) => ({
+        code: warning.code,
+        message: warning.message,
+        shortfalls: warning.shortfalls.map((entry) => ({
+          chainId: entry.chainId,
+          tokenAddress: normalizedAddress(entry.address),
+          requiredRaw: BigInt(entry.required),
+          actualRaw: BigInt(entry.actual),
+        })),
+      })),
       input: parsed.input.map((entry) => ({
         chainId: parseIntentChainRef(entry.chainId),
         tokenAddress: normalizedAddress(entry.tokenAddress),

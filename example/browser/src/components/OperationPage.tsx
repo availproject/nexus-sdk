@@ -13,6 +13,7 @@ import { FlowModal } from "./FlowModal";
 import { getChainLogoUrl, getTokenLogoUrl } from "../lib/logos";
 import { flattenBalances } from "../lib/nexus";
 import { getDepositProtocol } from "../lib/deposit";
+import { useWalletModal } from "../wallet/WalletProvider";
 
 type OperationPageProps = {
   config: TabConfig;
@@ -40,6 +41,8 @@ type OperationPageProps = {
 export function OperationPage({ config, ...sdkProps }: OperationPageProps) {
   const form = useOperationForm({ config, ...sdkProps });
   const isPerSource = config.amountMode === "per-source";
+  const preview = isPerSource && !sdkProps.address;
+  const wallet = useWalletModal();
 
   const handleDismissProgress = useCallback(() => {
     form.closeProgressModal();
@@ -102,6 +105,9 @@ export function OperationPage({ config, ...sdkProps }: OperationPageProps) {
             {isPerSource ? (
               <>
                 <SourceAmountsEditor
+                  client={sdkProps.ready ? sdkProps.client : null}
+                  showBalances={Boolean(sdkProps.address && form.balancesQuery.data)}
+                  onAddSource={form.addSource}
                   sources={form.sourceOptions}
                   selectedIds={form.selectedSources}
                   onSelectedChange={form.setSelectedSources}
@@ -191,7 +197,7 @@ export function OperationPage({ config, ...sdkProps }: OperationPageProps) {
           >
             {form.mutation.isPending
               ? config.hero.buttonPendingLabel
-              : config.hero.buttonLabel}
+              : preview ? "Preview Exact In Swap" : config.hero.buttonLabel}
           </button>
         </section>
       </div>
@@ -204,6 +210,7 @@ export function OperationPage({ config, ...sdkProps }: OperationPageProps) {
         intentApproved={config.intentType === "swap" ? sdkProps.swapIntentApproved : sdkProps.swapExecIntentApproved}
         onApprove={config.intentType === "swap" ? sdkProps.approveSwapIntent : sdkProps.approveSwapExecIntent}
         onDeny={config.intentType === "swap" ? sdkProps.denySwapIntent : sdkProps.denySwapExecIntent}
+        onConnect={() => { sdkProps.denySwapIntent(); wallet.open(); }}
         actionLabel={depositProtocol ? `${depositProtocol.label} Supply` : undefined}
         progressState={form.progressState}
         onDismissProgress={handleDismissProgress}

@@ -97,7 +97,8 @@ public client method
        normalize into ExecutableIntentQuote
   -> intent/orchestrator.ts
        emit quote
-       onIntent({ quote, refresh, allow, deny })
+       onIntent({ quote, execution, refresh, allow, deny })
+       reject disconnected operations and non-executable quotes before creating the wallet runtime
        resolve allowance amounts
        serialize ERC-20 approval broadcasts or EIP-712 permit signatures
        confirm broadcast approvals concurrently outside the wallet queue
@@ -153,6 +154,22 @@ source providers with the destination providers and rejects an empty intersectio
 `INVALID_INPUT`. Support must exist at both chain and token level in the correct direction.
 The output amount is quoted by middleware. Both modes repeat their checks for hook-driven refreshes
 using cached metadata when available and fetching only newly selected tokens.
+
+Exact-input operations can begin without a wallet. The client captures connection state and a sender
+at operation start, using a random address when disconnected; all refreshes retain that sender.
+The review hook exposes `execution`: `{ possible: true }` or
+`{ possible: false, cause: 'not-connected' | 'insufficient-balance' }`. Its getter combines the captured
+connection state with the latest quote, including after refresh; `not-connected` takes priority.
+Disconnected operations reject with
+`WALLET_NOT_CONNECTED` on approval or auto-approval, even if a wallet connected during review.
+Connecting requires a new operation and a fresh quote for the actual address. No wallet runtime is
+created until review and execution guards pass. Exact-output and composite operations require a wallet.
+
+The transport requires middleware's `isExecutable` and `executionWarnings` fields and normalizes
+warning shortfalls into token addresses and raw bigint amounts. `isExecutable` is the backend's
+source-balance verdict, separate from connection state. A non-executable quote can be reviewed and
+refreshed, but cannot reach approvals, signing, source transactions, or submission. The backend may
+still reject unfunded unsponsored ERC-20 approvals before returning a preview quote.
 
 All modes default to 50 basis points of slippage. Middleware selects the quote provider;
 the SDK does not calculate a local threshold or compare provider quotes.

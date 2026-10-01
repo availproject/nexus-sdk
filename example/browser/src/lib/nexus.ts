@@ -20,6 +20,8 @@ import { D, sum } from "./math";
 /* ── View models for the existing intent modals ─────────────────── */
 
 export type SwapIntentViewModel = {
+  execution: IntentHookData["execution"];
+  executionWarnings: IntentQuote["executionWarnings"];
   sources: Array<{
     chainId: number;
     chainName: string;
@@ -102,7 +104,13 @@ function quoteFees(quote: IntentQuote) {
   };
 }
 
-export async function mapSwapQuote(client: NexusClient, quote: IntentQuote): Promise<SwapIntentViewModel> {
+export async function mapSwapQuote(
+  client: NexusClient,
+  quote: IntentQuote,
+  execution: IntentHookData["execution"] = quote.isExecutable
+    ? { possible: true }
+    : { possible: false, cause: "insufficient-balance" },
+): Promise<SwapIntentViewModel> {
   const [destinationToken, ...sourceTokens] = await Promise.all([quote.output, ...quote.input].map(
     (token) => client.getToken({ chainId: token.chainId, tokenAddress: token.tokenAddress }),
   ));
@@ -122,6 +130,8 @@ export async function mapSwapQuote(client: NexusClient, quote: IntentQuote): Pro
   const destinationAmount = formatUnits(quote.output.amountRaw, destinationToken!.decimals);
 
   return {
+    execution,
+    executionWarnings: quote.executionWarnings,
     sources,
     sourcesTotal: sum(sources.map((source) => source.value)).toFixed(),
     destination: {
@@ -264,6 +274,7 @@ export function getErrorMessage(error: unknown): string {
 
 type ApprovalData<P> = {
   intent: P;
+  execution?: IntentHookData["execution"];
   allow: () => void;
   deny: () => void;
   refresh: () => Promise<P>;
@@ -271,7 +282,7 @@ type ApprovalData<P> = {
 
 function useIntentApproval<T, P>(
   clientRef: React.RefObject<NexusClient | null>,
-  mapIntent: (client: NexusClient, intent: P) => Promise<T>,
+  mapIntent: (client: NexusClient, intent: P, execution?: IntentHookData["execution"]) => Promise<T>,
 ) {
   const dataRef = useRef<ApprovalData<P> | null>(null);
   const timerRef = useRef<number | null>(null);
@@ -291,6 +302,7 @@ function useIntentApproval<T, P>(
     setIntent(null);
     setPending(false);
     setRefreshing(false);
+    setApproved(false);
   }, [stopRefresh]);
 
   const scheduleRefresh = useCallback(() => {
@@ -302,7 +314,7 @@ function useIntentApproval<T, P>(
       try {
         setRefreshing(true);
         const refreshed = await current.refresh();
-        const mapped = await mapIntent(client, refreshed);
+        const mapped = await mapIntent(client, refreshed, current.execution);
         if (dataRef.current === current) {
           setIntent(mapped);
           scheduleRefresh();
@@ -324,7 +336,7 @@ function useIntentApproval<T, P>(
     if (!client) { data.deny(); return; }
     dataRef.current = data;
     try {
-      const mapped = await mapIntent(client, data.intent);
+      const mapped = await mapIntent(client, data.intent, data.execution);
       if (dataRef.current !== data) return;
       setIntent(mapped);
     } catch (error) {
@@ -349,10 +361,8 @@ function useIntentApproval<T, P>(
 
   const deny = useCallback(() => {
     const current = dataRef.current;
-    if (!current) return;
     clear();
-    setApproved(false);
-    current.deny();
+    current?.deny();
   }, [clear]);
 
   useEffect(() => stopRefresh, [stopRefresh]);
@@ -371,27 +381,25 @@ export function useNexusSdk(network: NetworkMode) {
   const swap = useIntentApproval(clientRef, mapSwapQuote);
   const swapExecute = useIntentApproval(clientRef, mapCompositeIntent);
   const onSwapIntent = useCallback((data: IntentHookData) =>
-    swap.onIntent({ ...data, intent: data.quote }), [swap.onIntent]);
-  const prevKeyRef = useRef("");
-
+    swap.onIntent({
+      intent: data.quote,
+      get execution() { return data.execution; },
+      allow: data.allow,
+      deny: data.deny,
+      refresh: data.refresh,
+    }), [swap.onIntent]);
   useEffect(() => {
-    if (status !== "connected" && status !== "disconnected") return;
-    const key = `${network}:${address ?? ""}:${status}`;
-    if (key === prevKeyRef.current) return;
-    prevKeyRef.current = key;
     let cancelled = false;
+    let client: NexusClient | undefined;
+    clientRef.current = null;
+    setReady(false);
+    swap.deny();
+    swapExecute.deny();
+    queryClient.removeQueries({ queryKey: ["swap-balances"] });
+    if (status !== "connected" && status !== "disconnected") return;
 
     async function run() {
-      clientRef.current?.destroy();
-      clientRef.current = null;
-      setReady(false);
-      swap.clear();
-      swapExecute.clear();
-      queryClient.removeQueries({ queryKey: ["swap-balances"] });
-      if (status !== "connected" || !connector) return;
-
-      const provider = await connector.getProvider();
-      const client = createNexusClient({
+      client = createNexusClient({
         clientId: "nexus-sdk-browser-example",
         network,
         debug: true,
@@ -412,7 +420,12 @@ export function useNexusSdk(network: NetworkMode) {
       });
 
       await client.initialize();
-      await client.setEVMProvider(provider as never);
+      if (cancelled) return;
+      if (status === "connected" && connector) {
+        const provider = await connector.getProvider();
+        if (cancelled) return;
+        await client.setEVMProvider(provider as never);
+      }
       if (!cancelled) {
         clientRef.current = client;
         setReady(true);
@@ -422,6 +435,7 @@ export function useNexusSdk(network: NetworkMode) {
     }
 
     run().catch((error) => {
+      client?.destroy();
       if (!cancelled) {
         setReady(false);
         toast.error(getErrorMessage(error));
@@ -430,8 +444,12 @@ export function useNexusSdk(network: NetworkMode) {
 
     return () => {
       cancelled = true;
+      swap.deny();
+      swapExecute.deny();
+      client?.destroy();
+      if (clientRef.current === client) clientRef.current = null;
     };
-  }, [address, connector, network, queryClient, status, swap.clear, swapExecute.clear]);
+  }, [address, connector, network, queryClient, status, swap.deny, swapExecute.deny]);
 
   return useMemo(() => ({
     client: clientRef.current,

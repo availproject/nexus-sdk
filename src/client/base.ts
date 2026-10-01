@@ -1,4 +1,4 @@
-import { createWalletClient, custom, type Hex, type WalletClient } from 'viem';
+import { bytesToHex, createWalletClient, custom, type Hex, type WalletClient } from 'viem';
 import type { AnalyticsManager } from '../analytics/AnalyticsManager';
 import { NexusAnalyticsEvents } from '../analytics/events';
 import type { DevTimingConfig } from '../analytics/types';
@@ -183,8 +183,7 @@ export const createBase = (config: {
     return next;
   };
 
-  const intentRuntime = (attemptId?: string) => {
-    const evm = getEvm();
+  const intentRuntime = (attemptId?: string, evm = getEvm()) => {
     const wallet = createIntentWallet({
       address: evm.address,
       provider: evm.provider,
@@ -244,6 +243,7 @@ export const createBase = (config: {
 
   const exactInRequest = async (
     input: SwapExactInParams,
+    sender: Hex,
     options?: SwapOperationOptions,
     refreshedSources?: IntentSource[]
   ): Promise<IntentQuoteRequest> => {
@@ -270,7 +270,7 @@ export const createBase = (config: {
     ]);
     catalog.validateExactInput(sourceTokens, destinationToken);
     return {
-      sender: getEvm().address.toLowerCase() as Hex,
+      sender: sender.toLowerCase() as Hex,
       tradeType: 'exactInput',
       input: sources,
       output: { chainId: chainRef(input.toChainId), token: input.toTokenAddress },
@@ -282,9 +282,11 @@ export const createBase = (config: {
     request: (sources?: IntentSource[]) => Promise<IntentQuoteRequest>,
     options?: SwapOperationOptions,
     reporting?: IntentReporting
-  ): Promise<IntentResult> =>
-    runIntent(
+  ): Promise<IntentResult> => {
+    const evm = state.evm;
+    return runIntent(
       {
+        isConnected: evm !== undefined,
         requestQuote: async () =>
           state.middlewareClient.getIntentQuote(await request(), reporting?.attemptId),
         refreshQuote: async (sources) =>
@@ -295,14 +297,22 @@ export const createBase = (config: {
         pollingIntervalMs: options?.pollingIntervalMs,
         timeoutMs: (options?.fillTimeoutMinutes ?? 2) * 60_000,
       },
-      intentRuntime(reporting?.attemptId)
+      () => intentRuntime(reporting?.attemptId, evm)
     );
+  };
 
   const swapWithExactIn = (
     input: SwapExactInParams,
     options?: SwapOperationOptions,
     reporting?: IntentReporting
-  ) => executeIntent((sources) => exactInRequest(input, options, sources), options, reporting);
+  ) => {
+    const sender = state.evm?.address ?? bytesToHex(crypto.getRandomValues(new Uint8Array(20)));
+    return executeIntent(
+      (sources) => exactInRequest(input, sender, options, sources),
+      options,
+      reporting
+    );
+  };
 
   const swapWithExactOut = (
     input: SwapExactOutParams,

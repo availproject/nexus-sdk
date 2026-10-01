@@ -19,6 +19,8 @@ const quoteResponse = () => ({
   quoteId: QUOTE_ID,
   provider: 'nexus-v2',
   tradeType: 'exactOutput',
+  isExecutable: true,
+  executionWarnings: [],
   input: [],
   output: { chainId: 'EVM_1', tokenAddress: TOKEN, amount: '1', amountUsd: '0.000001' },
   minAmountOut: '1',

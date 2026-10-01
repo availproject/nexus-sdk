@@ -37,6 +37,19 @@ import type {
 } from '../src';
 
 describe('public api exports', () => {
+  it('exposes execution eligibility and normalized quote warnings for previews', () => {
+    expectTypeOf<IntentHookData['execution']>().toEqualTypeOf<
+      { possible: true } | { possible: false; cause: 'not-connected' | 'insufficient-balance' }
+    >();
+    expectTypeOf<Extract<keyof IntentHookData, 'isConnected'>>().toEqualTypeOf<never>();
+    expectTypeOf<IntentQuote['isExecutable']>().toEqualTypeOf<boolean>();
+    expectTypeOf<IntentQuote['executionWarnings'][number]['shortfalls'][number]>().toEqualTypeOf<{
+      chainId: number;
+      tokenAddress: `0x${string}`;
+      requiredRaw: bigint;
+      actualRaw: bigint;
+    }>();
+  });
   it('exposes composite funding previews for swap execution and refresh', () => {
     type Options = NonNullable<Parameters<NexusClient['swapAndExecute']>[1]>;
     type Hook = Parameters<NonNullable<NonNullable<Options['hooks']>['onIntent']>>[0];

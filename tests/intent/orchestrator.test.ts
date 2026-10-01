@@ -24,6 +24,8 @@ const executableQuote = (byte = '11'): ExecutableIntentQuote => {
       id,
       provider: 'nexus-v2',
       tradeType: 'exactOutput',
+      isExecutable: true,
+      executionWarnings: [],
       input: [],
       output: {
         chainId: 1, tokenAddress: TOKEN, amountRaw: 10n, amountUsd: '0.00001',
@@ -409,8 +411,9 @@ describe('Better Intent orchestration', () => {
     });
   });
 
-  it('atomically replaces the executable quote when the hook refreshes it', async () => {
+  it('updates execution eligibility and uses the executable quote when the hook refreshes it', async () => {
     const initial = executableQuote('11');
+    initial.quote.isExecutable = false;
     const refreshed = executableQuote('22');
     const submittedRff = vi.fn();
 
@@ -418,9 +421,11 @@ describe('Better Intent orchestration', () => {
       {
         requestQuote: async () => initial,
         refreshQuote: async () => refreshed,
-        onIntent: async ({ refresh, allow }) => {
-          await refresh();
-          allow();
+        onIntent: async (hook) => {
+          expect(hook.execution).toEqual({ possible: false, cause: 'insufficient-balance' });
+          await hook.refresh();
+          expect(hook.execution).toEqual({ possible: true });
+          hook.allow();
         },
       },
       {

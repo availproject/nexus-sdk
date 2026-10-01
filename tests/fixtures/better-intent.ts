@@ -41,6 +41,7 @@ export const approvalSignatureRequest = () => ({
 
 export const sponsoredQuoteResponse = () => ({
   quoteId: INTENT_ID, provider: 'nexus-v2', tradeType: 'exactOutput',
+  isExecutable: true, executionWarnings: [],
   input: [{
     chainId: 'EVM_8453', tokenAddress: INTENT_TOKEN, tokenSymbol: 'USDC',
     amount: '10', amountUsd: '0.00001', depositFee: '0', depositFeeUsd: '0',

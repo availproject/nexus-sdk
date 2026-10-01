@@ -14,6 +14,33 @@ const QUOTE_ID = `0x${'11'.repeat(32)}`;
 const SIGNATURE_MESSAGE = `0x${'22'.repeat(32)}`;
 
 describe('Better Intent response normalization', () => {
+  it('preserves executability and normalizes balance warnings without losing precision', () => {
+    const response = {
+      ...sponsoredQuoteResponse(),
+      isExecutable: false,
+      executionWarnings: [{
+        code: 'INSUFFICIENT_BALANCE', message: 'Insufficient source balance',
+        shortfalls: [{
+          chainId: 8453, address: TOKEN.toUpperCase().replace('0X', '0x'),
+          required: '9007199254740993', actual: '1',
+        }],
+      }],
+    };
+    expect(normalizeIntentQuote(response).quote).toMatchObject({
+      isExecutable: false,
+      executionWarnings: [{
+        code: 'INSUFFICIENT_BALANCE', message: 'Insufficient source balance',
+        shortfalls: [{ chainId: 8453, tokenAddress: TOKEN, requiredRaw: 9007199254740993n, actualRaw: 1n }],
+      }],
+    });
+  });
+
+  it.each([undefined, 'false'])('rejects an invalid executable flag (%s)', (isExecutable) => {
+    expect(() => normalizeIntentQuote({
+      ...sponsoredQuoteResponse(), isExecutable, executionWarnings: [],
+    })).toThrow(/quote response/i);
+  });
+
   it('normalizes the chain catalog at the transport boundary', () => {
     const response = [
       {
@@ -157,6 +184,8 @@ describe('Better Intent response normalization', () => {
       quoteId: QUOTE_ID,
       provider: 'nexus-v2',
       tradeType: 'exactOutput',
+      isExecutable: true,
+      executionWarnings: [],
       input: [
         {
           chainId: 'EVM_8453',

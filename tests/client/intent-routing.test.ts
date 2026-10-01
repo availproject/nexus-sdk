@@ -27,24 +27,118 @@ const chain = (id: number, asSource: IntentProvider[], asDestination: IntentProv
   }],
 });
 
-const setup = async (chains: IntentChain[]) => {
+const setup = async (chains: IntentChain[], connected = true) => {
   const reachedQuote = Errors.backend('Quote requested');
   const getIntentQuote = vi.fn().mockRejectedValue(reachedQuote);
   const getIntentChains = vi.fn();
   const getIntentBalances = vi.fn();
   const getIntentTokens = vi.fn(makeTokenFetcher(chains));
+  const submitIntent = vi.fn();
   const base = createBase({
     clientId: 'test-client', network: 'mainnet',
-    internal: { middlewareClient: makeMiddlewareClient({ getIntentTokens, getIntentQuote, getIntentChains, getIntentBalances }) },
+    internal: { middlewareClient: makeMiddlewareClient({ getIntentTokens, getIntentQuote, getIntentChains, getIntentBalances, submitIntent }) },
   });
   base.setIntentCatalog(chains);
   base.setChainList(createChainList(chains));
   const request = vi.fn(async ({ method }: { method: string }) => method === 'eth_accounts' ? [ACCOUNT] : '0x1');
-  await base.setEvmProvider({ request, on: vi.fn(), removeListener: vi.fn() });
-  return { base, getIntentTokens, getIntentQuote, getIntentChains, getIntentBalances, reachedQuote, request };
+  const provider = { request, on: vi.fn(), removeListener: vi.fn() };
+  if (connected) await base.setEvmProvider(provider);
+  return { base, getIntentTokens, getIntentQuote, getIntentChains, getIntentBalances, reachedQuote, request, provider, submitIntent };
 };
 
 describe('cached provider checks before quoting', () => {
+  it('reviews and refreshes a disconnected quote before rejecting allow', async () => {
+    const ctx = await setup([chain(1, [], ['relay']), chain(10, ['relay'], [])], false);
+    ctx.getIntentQuote.mockResolvedValue(normalizeIntentQuote({
+      ...sponsoredQuoteResponse(), isExecutable: false, executionWarnings: [],
+    }));
+    const onIntent = vi.fn(async (hook: import('../../src').IntentHookData) => {
+      expect(hook.execution).toEqual({ possible: false, cause: 'not-connected' });
+      expect(hook).not.toHaveProperty('isConnected');
+      expect(hook.quote.isExecutable).toBe(false);
+      expect(await hook.refresh([source(10)])).toMatchObject({ isExecutable: false });
+      // Connecting during review must not authorize a quote for the placeholder address.
+      await ctx.base.setEvmProvider(ctx.provider);
+      await hook.refresh();
+      expect(hook.execution).toEqual({ possible: false, cause: 'not-connected' });
+      hook.allow();
+    });
+    await expect(async () => ctx.base.swapWithExactIn({ ...destination, sources: [source(10)] }, {
+      hooks: { onIntent },
+    })).rejects.toMatchObject({ code: 'validation/wallet_not_connected' });
+    expect(onIntent).toHaveBeenCalledOnce();
+    expect(ctx.getIntentQuote).toHaveBeenCalledTimes(3);
+    const senders = ctx.getIntentQuote.mock.calls.map(([request]) => request.sender);
+    expect(senders[0]).toMatch(/^0x[0-9a-f]{40}$/);
+    expect(senders[0]).not.toBe(ACCOUNT);
+    expect(new Set(senders).size).toBe(1);
+    expect(ctx.request.mock.calls.map(([request]) => request.method)).toEqual(['eth_accounts', 'eth_chainId']);
+    expect(ctx.submitIntent).not.toHaveBeenCalled();
+  });
+
+  it.each(['allow', 'deny', 'no hook'] as const)('handles disconnected %s without executing even if middleware says executable', async (decision) => {
+    const ctx = await setup([chain(1, [], ['relay']), chain(10, ['relay'], [])], false);
+    ctx.getIntentQuote.mockResolvedValue(normalizeIntentQuote({
+      ...sponsoredQuoteResponse(), isExecutable: true, executionWarnings: [],
+    }));
+    const onIntent = vi.fn((hook: import('../../src').IntentHookData) => {
+      expect(hook.execution).toEqual({ possible: false, cause: 'not-connected' });
+      if (decision === 'deny') hook.deny();
+      else hook.allow();
+    });
+    const onEvent = vi.fn();
+    await expect(async () => ctx.base.swapWithExactIn({ ...destination, sources: [source(10)] }, {
+      onEvent, ...(decision === 'no hook' ? {} : { hooks: { onIntent } }),
+    })).rejects.toMatchObject({
+      code: decision === 'deny' ? 'user_action/intent_hook_denied' : 'validation/wallet_not_connected',
+    });
+    expect(ctx.getIntentQuote).toHaveBeenCalledOnce();
+    expect(onIntent).toHaveBeenCalledTimes(decision === 'no hook' ? 0 : 1);
+    expect(onEvent.mock.calls.map(([event]) => event.type)).toEqual(['quote']);
+    expect(ctx.request).not.toHaveBeenCalled();
+    expect(ctx.submitIntent).not.toHaveBeenCalled();
+  });
+
+  it.each(['initial', 'refresh', 'no hook'])('blocks a connected non-executable quote before wallet actions (%s)', async (review) => {
+    const refresh = review === 'refresh';
+    const ctx = await setup([chain(1, [], ['relay']), chain(10, ['relay'], [])]);
+    const quoted = normalizeIntentQuote({
+      ...sponsoredQuoteResponse(), isExecutable: false, executionWarnings: [{
+        code: 'INSUFFICIENT_BALANCE', message: 'Insufficient source balance',
+        shortfalls: [{ chainId: 10, address: TOKEN, required: '10', actual: '0' }],
+      }],
+    });
+    ctx.getIntentQuote.mockResolvedValue(quoted);
+    if (refresh) ctx.getIntentQuote.mockResolvedValueOnce(normalizeIntentQuote({
+      ...sponsoredQuoteResponse(), isExecutable: true, executionWarnings: [],
+    }));
+    const onIntent = vi.fn(async (hook: import('../../src').IntentHookData) => {
+      expect(hook.execution).toEqual(refresh
+        ? { possible: true }
+        : { possible: false, cause: 'insufficient-balance' });
+      if (refresh) await hook.refresh();
+      expect(hook.execution).toEqual({ possible: false, cause: 'insufficient-balance' });
+      hook.allow();
+    });
+    const onEvent = vi.fn();
+    await expect(ctx.base.swapWithExactIn({ ...destination, sources: [source(10)] }, {
+      onEvent, ...(review === 'no hook' ? {} : { hooks: { onIntent } }),
+    })).rejects.toMatchObject({
+      code: 'backend/insufficient_balance',
+      details: { executionWarnings: quoted.quote.executionWarnings },
+    });
+    expect(ctx.request).toHaveBeenCalledTimes(2);
+    expect(onEvent.mock.calls.every(([event]) => event.type === 'quote')).toBe(true);
+    expect(ctx.submitIntent).not.toHaveBeenCalled();
+  });
+
+  it('still requires a wallet for exact-output source discovery', async () => {
+    const ctx = await setup([chain(1, [], ['relay']), chain(10, ['relay'], [])], false);
+    await expect(async () => ctx.base.swapWithExactOut({ ...destination, toAmountRaw: 10n }))
+      .rejects.toMatchObject({ code: 'validation/wallet_not_connected' });
+    expect(ctx.getIntentQuote).not.toHaveBeenCalled();
+  });
+
   it('requires one provider shared by every exact-input source and the destination', async () => {
     const ctx = await setup([
       chain(1, [], ['relay', 'mayan']), chain(10, ['relay'], []), chain(8453, ['mayan'], []),
