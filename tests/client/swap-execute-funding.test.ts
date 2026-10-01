@@ -46,7 +46,7 @@ const quote = (request: IntentQuoteRequest, index: number) => {
 };
 
 const balance = (chainId: number, tokenAddress: Hex, balanceRaw: bigint): IntentBalance => ({
-  chainId, tokenAddress, balanceRaw, isNative: tokenAddress === ZERO_ADDRESS,
+  chainId, tokenAddress, balanceRaw, isNative: tokenAddress === ZERO_ADDRESS, verified: true,
   symbol: tokenAddress === ZERO_ADDRESS ? 'ETH' : 'USDC',
   name: tokenAddress === ZERO_ADDRESS ? 'Ether' : 'USD Coin',
   decimals: tokenAddress === ZERO_ADDRESS ? 18 : 6,

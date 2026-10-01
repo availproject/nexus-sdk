@@ -25,6 +25,7 @@ const intentChain = (id: number, tokenAddress: `0x${string}`): IntentChain => ({
       name: 'USD Coin',
       decimals: 6,
       isNative: false,
+      verified: true,
       coingeckoId: 'usd-coin',
       providers: [{ id: 'nexus-v2', currencyId: 1 }],
     },

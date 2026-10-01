@@ -101,6 +101,10 @@ export function BalancesModal({ open, onOpenChange, assets, loading, onRefresh }
                 {nonZeroAssets.map((asset) => {
                   const isOpen = expanded.has(asset.symbol);
                   const nonZeroBreakdown = asset.chainBalances.filter((e) => D(e.balance).gt(0));
+                  const allVerified = nonZeroBreakdown.every((entry) => entry.verified);
+                  const verification = allVerified
+                    ? "Verified"
+                    : nonZeroBreakdown.some((entry) => entry.verified) ? "Includes unverified" : "Unverified";
                   const chainCount = nonZeroBreakdown.length;
                   const chainDotItems = nonZeroBreakdown.map((e) => ({
                     chainId: e.chain.id,
@@ -122,17 +126,11 @@ export function BalancesModal({ open, onOpenChange, assets, loading, onRefresh }
                         <AssetRowMeta
                           symbol={asset.symbol}
                           sub={
-                            chainCount === 1 ? (
-                              <>
-                                <ChainDots chains={chainDotItems} max={1} />
-                                {chainDotItems[0]?.chainName}
-                              </>
-                            ) : (
-                              <>
-                                <ChainDots chains={chainDotItems} />
-                                {chainCount} chains
-                              </>
-                            )
+                            <>
+                              <ChainDots chains={chainDotItems} max={chainCount === 1 ? 1 : undefined} />
+                              {chainCount === 1 ? chainDotItems[0]?.chainName : `${chainCount} chains`}
+                              <span className="balance-verification" data-verified={allVerified}>{verification}</span>
+                            </>
                           }
                         />
                         <AssetRowValue
@@ -157,6 +155,7 @@ export function BalancesModal({ open, onOpenChange, assets, loading, onRefresh }
                                 fallback={entry.chain.name}
                               />
                               <AssetRowMeta
+                                sub={<span className="balance-verification" data-verified={entry.verified}>{entry.verified ? "Verified" : "Unverified"}</span>}
                                 symbol={
                                   <>
                                     {entry.chain.name}

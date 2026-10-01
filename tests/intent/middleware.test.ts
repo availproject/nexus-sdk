@@ -47,6 +47,23 @@ const quoteResponse = () => ({
 describe('Better Intent middleware transport', () => {
   beforeEach(() => axiosRoot.create.mockReset());
 
+  it.each([undefined, false, true])('maps includeUnverified=%s to the token query parameter', async (includeUnverified) => {
+    const http = makeAxios();
+    axiosRoot.create.mockReturnValue(http);
+    http.get.mockResolvedValue({ data: { tokens: [], offset: 0, limit: 50, total: 0 } });
+    await createMiddlewareClient('https://mw.example').getIntentTokens({ includeUnverified });
+    expect(http.get.mock.calls[0][1].params.get('unverified'))
+      .toBe(includeUnverified === undefined ? null : String(includeUnverified));
+  });
+
+  it('rejects a non-boolean includeUnverified flag before requesting tokens', async () => {
+    const http = makeAxios();
+    axiosRoot.create.mockReturnValue(http);
+    await expect(createMiddlewareClient('https://mw.example').getIntentTokens({ includeUnverified: 'false' as never }))
+      .rejects.toMatchObject({ code: 'validation/invalid_input' });
+    expect(http.get).not.toHaveBeenCalled();
+  });
+
   it('keeps concurrent attempts isolated across balance, quote, submit, status and detail requests', async () => {
     const { default: realAxios } = await vi.importActual<typeof import('axios')>('axios');
     const adapter = vi.fn<AxiosAdapter>(async (config) => ({
@@ -145,7 +162,7 @@ describe('Better Intent middleware transport', () => {
         data: {
           tokens: [{
             universe: 'EVM', chainId: 'EVM_1', address: TOKEN,
-            symbol: 'USDC', name: 'USD Coin', decimals: 6, isNative: false,
+            symbol: 'USDC', name: 'USD Coin', decimals: 6, isNative: false, verified: true,
             asSource: [{ id: 'mayan', currencyId: 'usdc' }],
             asDestination: [{ id: 'mayan' }],
             permit: { variant: 'eip2612', version: '2' }, sponsoredApproval: true,
@@ -165,6 +182,7 @@ describe('Better Intent middleware transport', () => {
               symbol: 'USDC',
               decimals: 6,
               isNative: false,
+              verified: false,
               providers: [{ id: 'nexus-v2', currencyId: 1 }],
               balance: '42',
               valueUsd: 0,
@@ -195,7 +213,7 @@ describe('Better Intent middleware transport', () => {
       client.getIntentBalances(ACCOUNT, { refresh: true, providers: ['mayan'] })
     ).resolves.toEqual({
       errored: false,
-      balances: [expect.objectContaining({ balanceRaw: 42n })],
+      balances: [expect.objectContaining({ balanceRaw: 42n, verified: false })],
     });
     expect(http.get).toHaveBeenNthCalledWith(
       1,
@@ -219,7 +237,7 @@ describe('Better Intent middleware transport', () => {
     axiosRoot.create.mockReturnValue(http);
     const token = {
       universe: 'EVM', chainId: 'EVM_1', address: TOKEN,
-      symbol: 'USDC', name: 'USD Coin', decimals: 6, isNative: false,
+      symbol: 'USDC', name: 'USD Coin', decimals: 6, isNative: false, verified: true,
       asSource: [{ id: 'relay' }], asDestination: [{ id: 'relay' }],
       sponsoredApproval: false,
     };

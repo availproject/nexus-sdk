@@ -196,6 +196,7 @@ export function groupBalances(client: NexusClient, balances: IntentBalance[]): T
     asset.value = D(asset.value).plus(value).toString();
     asset.chainBalances.push({
       balance: readable,
+      verified: balance.verified,
       value,
       decimals: balance.decimals,
       contractAddress: balance.tokenAddress,

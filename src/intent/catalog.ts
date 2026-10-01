@@ -47,6 +47,7 @@ export const createIntentCatalog = (
     const normalized = {
       chainId: query.chainId,
       providers: query.providers?.length ? [...new Set(query.providers)].sort() : undefined,
+      includeUnverified: query.includeUnverified ?? false,
       name: query.name?.toLowerCase(),
       symbol: query.symbol?.toLowerCase(),
       contract: query.contract?.toLowerCase(),
@@ -67,8 +68,8 @@ export const createIntentCatalog = (
               service: 'middleware',
             });
           }
-          // Provider-filtered responses omit support needed by unrestricted route checks.
-          if (!normalized.providers)
+          // Provider and verification filters can omit support needed by route checks.
+          if (!normalized.providers && normalized.includeUnverified)
             remember(tokens, tokenKey(token.chainId, token.address), token, 1000);
         }
         return page;
@@ -84,7 +85,7 @@ export const createIntentCatalog = (
     getChain(chainId);
     const cached = tokens.get(tokenKey(chainId, address));
     if (cached) return cached;
-    const page = await getTokens({ chainId, contract: address, limit: 1 });
+    const page = await getTokens({ chainId, contract: address, includeUnverified: true, limit: 1 });
     const token = page.tokens.find(
       (entry) => entry.chainId === chainId && sameAddress(entry.address, address)
     );

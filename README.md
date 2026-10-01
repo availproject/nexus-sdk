@@ -289,7 +289,8 @@ const balances = await client.getBalances();
 `getBalancesForSwap()` is a deprecated alias of `getBalances()` with identical behavior and results.
 
 Each `IntentBalance` includes chain/token identity, raw balance, decimals, optional USD value,
-provider support, price source, and a `usable` flag.
+provider support, price source, and `usable` and `verified` flags. Balances can include both verified
+and unverified holdings; there is no verification filter on the balance request.
 
 Catalog helpers discover supported assets independently of wallet holdings. Initialize once, then
 load a token page when the user opens a picker or changes its filters. Initialization fetches chain
@@ -376,6 +377,12 @@ if (page.offset + page.limit < page.total) {
 
 // For an all-chain search, omit chainId and use getTokens instead.
 const allChainPage = await client.getTokens({ symbol: 'USDC', limit: 25 });
+
+// Token lists default to verified tokens. Opt in to include unverified entries too.
+const inclusivePage = await client.getTokens({ chainId: 8453, includeUnverified: true });
+for (const token of inclusivePage.tokens) {
+  console.log(token.address, token.verified);
+}
 ```
 
 All token-page helpers accept these `IntentTokenQuery` filters:
@@ -384,6 +391,7 @@ All token-page helpers accept these `IntentTokenQuery` filters:
 | --- | --- |
 | `chainId` | Restrict candidates to one chain. With `getTokensByChain`, pass the chain as the first argument instead. |
 | `providers` | Match any listed provider, for example `['nexus-v2', 'mayan']`. Omit it to include all providers. |
+| `includeUnverified` | Include unverified tokens alongside verified tokens; defaults to `false`. Maps to the middleware's `unverified` query parameter. |
 | `name` | Case-insensitive token-name substring, for example `'USD Coin'`. |
 | `symbol` | Case-insensitive symbol substring, for example `'USDC'`. |
 | `contract` | Case-insensitive contract-address substring. Use `getToken` for exact identity. |
@@ -393,6 +401,10 @@ All token-page helpers accept these `IntentTokenQuery` filters:
 Different filters combine with AND. Setting both `name` and `symbol` searches for tokens matching
 both; it does not search either field. When a search or filter changes, reset `offset` to `0`.
 Debounce text searches and ignore stale responses if a newer query has already been issued.
+
+Every `IntentToken` includes `verified: boolean`, which is true if at least one selected provider
+marks the token as verified. The same `includeUnverified` option works with `getTokensByChain`,
+`getAvailableSourceTokens`, and `getAvailableDestinationTokens`.
 
 Repeated queries and concurrent identical requests share a bounded per-client cache (100 pages,
 1000 token metadata entries). Failed requests can be retried. Reinitializing replaces the cache.
@@ -422,7 +434,8 @@ if (firstToken) {
 }
 ```
 
-`getToken` resolves exact metadata without downloading the entire chain's catalog. Token addresses
+`getToken` resolves an explicitly named token whether verified or unverified, without downloading
+the entire chain's catalog. Its returned `verified` flag identifies the token's status. Token addresses
 and decimals are chain-specific; never infer decimals from a symbol. Public swap inputs take raw
 `bigint` amounts such as `destinationAmountRaw`. `convertTokenReadableAmountToBigInt` has been removed.
 

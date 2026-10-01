@@ -19,6 +19,7 @@ function tokenOption(chain: IntentChainMetadata, token: IntentToken) {
     tokenLogo: token.logo,
     tokenAddress: token.address,
     decimals: token.decimals,
+    verified: token.verified,
   };
 }
 
@@ -41,7 +42,10 @@ export async function getSwapTokenOptions(
       }),
     };
   }
-  const { chains, ...pagination } = await client.getAvailableDestinationTokens([], query);
+  const { chains, ...pagination } = await client.getAvailableDestinationTokens([], {
+    includeUnverified: true,
+    ...query,
+  });
   return {
     ...pagination,
     options: chains.flatMap((chain) => chain.tokens.map((token) => tokenOption(chain, token))),

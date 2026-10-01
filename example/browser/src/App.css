@@ -285,6 +285,27 @@ select {
   background: var(--primary-soft);
 }
 
+.ghost-button--text {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  min-width: 84px;
+  height: 36px;
+  padding: 0 14px;
+  font: inherit;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.ghost-button--text:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  color: var(--muted);
+  border-color: var(--line);
+  background: transparent;
+}
+
 /* ── Network switcher ── */
 .network-switcher {
   display: inline-flex;
@@ -1219,6 +1240,14 @@ select {
   padding: 12px 20px 16px;
 }
 
+.picker-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 16px;
+}
+
 /* The list is one rounded container; individual groups are sections inside,
    separated by thin dividers — not standalone cards. */
 .src-list {
@@ -1384,6 +1413,28 @@ select {
   gap: 3px;
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
+}
+
+.bal-modal-panel .asset-row-sub,
+.src-modal-panel .asset-row-sub {
+  flex-wrap: wrap;
+}
+
+.balance-verification {
+  display: inline-flex;
+  background: var(--warning-soft);
+  color: var(--text);
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.balance-verification[data-verified="true"] {
+  background: var(--success-soft);
 }
 
 .asset-row-amount {

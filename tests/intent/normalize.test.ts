@@ -14,6 +14,36 @@ const QUOTE_ID = `0x${'11'.repeat(32)}`;
 const SIGNATURE_MESSAGE = `0x${'22'.repeat(32)}`;
 
 describe('Better Intent response normalization', () => {
+  it.each([true, false])('preserves verification status on tokens and balances (%s)', (verified) => {
+    const asset = {
+      universe: 'EVM', chainId: 'EVM_1', address: TOKEN, name: 'Token', symbol: 'TOKEN',
+      decimals: 6, isNative: false, verified, providers: [{ id: 'relay' }],
+    };
+    expect(normalizeIntentTokens({
+      tokens: [{ ...asset, sponsoredApproval: false }], offset: 0, limit: 50, total: 1,
+    }).tokens[0]).toMatchObject({ verified });
+    expect(normalizeIntentBalances({
+      errored: false, balances: [{
+        ...asset, balance: '42', valueUsd: null, priceSource: null, usable: false,
+      }],
+    }).balances[0]).toMatchObject({ verified, balanceRaw: 42n });
+  });
+
+  it.each([undefined, 'true', null])('rejects missing or invalid verification status (%s)', (verified) => {
+    const asset = {
+      universe: 'EVM', chainId: 'EVM_1', address: TOKEN, name: 'Token', symbol: 'TOKEN',
+      decimals: 6, isNative: false, verified, providers: [{ id: 'relay' }],
+    };
+    expect(() => normalizeIntentTokens({
+      tokens: [{ ...asset, sponsoredApproval: false }], offset: 0, limit: 50, total: 1,
+    })).toThrow(/tokens response/i);
+    expect(() => normalizeIntentBalances({
+      errored: false, balances: [{
+        ...asset, balance: '42', valueUsd: null, priceSource: null, usable: false,
+      }],
+    })).toThrow(/balances response/i);
+  });
+
   it('preserves executability and normalizes balance warnings without losing precision', () => {
     const response = {
       ...sponsoredQuoteResponse(),
@@ -64,6 +94,7 @@ describe('Better Intent response normalization', () => {
             name: 'USD Coin',
             decimals: 6,
             isNative: false,
+            verified: true,
             asSource: [{ id: 'nexus-v2', currencyId: 1 }, { id: 'mayan' }, { id: 'relay' }],
             asDestination: [{ id: 'nexus-v2', currencyId: 1 }, { id: 'relay' }],
           },
@@ -97,7 +128,7 @@ describe('Better Intent response normalization', () => {
     expect(normalizeIntentBalances({
       errored: false, balances: [{
         universe: 'EVM', chainId: 'EVM_1', address: TOKEN,
-        name: 'USD Coin', symbol: 'USDC', decimals: 6, isNative: false,
+        name: 'USD Coin', symbol: 'USDC', decimals: 6, isNative: false, verified: true,
         providers: [{ id: 'relay', currencyId: 'usdc' }], balance: '10',
         valueUsd: 0.00001, priceSource, usable: true,
       }],
@@ -158,6 +189,7 @@ describe('Better Intent response normalization', () => {
           symbol: 'USDC',
           decimals: 6,
           isNative: false,
+          verified: true,
           providers: [{ id: 'nexus-v2', currencyId: 1 }],
           balance: '1234567',
           valueUsd: 1.23,

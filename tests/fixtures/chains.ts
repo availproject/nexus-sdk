@@ -21,11 +21,11 @@ export const testChains: IntentChain[] = [1, 11155111].map((id) => ({
   tokens: [
     {
       chainId: id, address: ZERO_ADDRESS, symbol: 'ETH', name: 'Ether', decimals: 18,
-      isNative: true, providers: [{ id: 'nexus-v2', currencyId: 3 }],
+      isNative: true, verified: true, providers: [{ id: 'nexus-v2', currencyId: 3 }],
     },
     {
       chainId: id, address: '0x0000000000000000000000000000000000000002',
-      symbol: 'USDC', name: 'USD Coin', decimals: 6, isNative: false,
+      symbol: 'USDC', name: 'USD Coin', decimals: 6, isNative: false, verified: true,
       logo: 'https://example.com/usdc.png',
       providers: [{ id: 'nexus-v2', currencyId: 1 }, { id: 'mayan' }],
       permit: { variant: 'eip2612', version: '2' },

@@ -205,10 +205,13 @@ remain distinct by address. Native metadata is already present on the chain.
 
 `getTokens` and `getTokensByChain` fetch one `/tokens` page, defaulting to 50 results. The transport
 validates query pagination and normalizes each response. Filters include chain ID, providers, name,
-symbol, and contract. `getToken` uses chain plus full contract with limit 1 and verifies exact identity.
+symbol, contract, and `includeUnverified` (default false, sent as `unverified` to middleware).
+`getToken` uses chain plus full contract with limit 1 and `includeUnverified: true` for explicit
+selections, then verifies exact identity. Token responses require and preserve `verified: boolean`.
 `src/intent/catalog.ts` caches up to 100 query promises and 1000 unrestricted token entries per
-client, deduplicates concurrent requests, and evicts failures. Provider-filtered metadata must not
-seed unrestricted token lookups because those responses narrow provider support.
+client, deduplicates concurrent requests, and evicts failures. Query cache keys include the verification
+filter. Provider-filtered and verified-only pages must not seed unrestricted token lookups because
+both can narrow provider support.
 
 `getAvailableSourceTokens` and `getAvailableDestinationTokens` resolve selected tokens, intersect
 chain/token directional providers, request one provider-filtered candidate page, then apply local
@@ -232,8 +235,10 @@ provider checks are preliminary; quote requests retain currency, amount, balance
 feasibility checks. The SDK keeps `providers` as the union of directional fields.
 
 `getBalances()` (also available as the deprecated alias `getBalancesForSwap()`) returns
-chain-level `IntentBalance[]` with decimals and raw balances, so
-balance discovery needs no token catalog download. All providers are included unless explicitly filtered.
+chain-level `IntentBalance[]` with decimals, raw balances, and the required middleware `verified`
+boolean, so balance discovery needs no token catalog download. Balances include discovered verified
+and unverified holdings without a verification request filter. All providers are included unless
+explicitly filtered.
 
 Quote responses normalize `sourceVerdicts`. Structured quote failures are retained on the SDK
 error and exposed through `getIntentQuoteFailure`, including the middleware subcode, error ID,

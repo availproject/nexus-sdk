@@ -5,7 +5,7 @@ import { makeTokenFetcher } from '../helpers/catalog';
 
 describe('on-demand catalog', () => {
   it('resolves a token with a chain and contract lookup and shares concurrent requests', async () => {
-    const token = testChains[0].tokens[1];
+    const token = { ...testChains[0].tokens[1], verified: false };
     const fetch = vi.fn().mockResolvedValue({ tokens: [token], offset: 0, limit: 1, total: 1 });
     const catalog = createIntentCatalog(testChains, fetch);
     const results = await Promise.all([
@@ -14,8 +14,23 @@ describe('on-demand catalog', () => {
     ]);
     expect(results).toEqual([token, token]);
     expect(fetch).toHaveBeenCalledExactlyOnceWith({
-      chainId: token.chainId, contract: token.address, offset: 0, limit: 1,
+      chainId: token.chainId, contract: token.address, includeUnverified: true, offset: 0, limit: 1,
     });
+  });
+
+  it('caches verified-only and inclusive pages separately', async () => {
+    const chains = structuredClone(testChains);
+    chains[0].tokens[1].verified = false;
+    const fetch = vi.fn(makeTokenFetcher(chains));
+    const catalog = createIntentCatalog(chains, fetch);
+    const verified = await catalog.getTokens({ chainId: 1 });
+    const inclusive = await catalog.getTokens({ chainId: 1, includeUnverified: true });
+    expect(verified.tokens.map((token) => token.verified)).toEqual([true]);
+    expect(inclusive.tokens.map((token) => token.verified)).toEqual([true, false]);
+    expect(await catalog.getTokens({ chainId: 1, includeUnverified: false })).toBe(verified);
+    expect(await catalog.getTokens({ chainId: 1, includeUnverified: true })).toBe(inclusive);
+    expect(await catalog.getToken(1, chains[0].tokens[1].address)).toEqual(chains[0].tokens[1]);
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it('returns one page without draining the catalog', async () => {
@@ -36,13 +51,13 @@ describe('on-demand catalog', () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
-  it('does not use provider-filtered metadata for an unrestricted token lookup', async () => {
+  it.each(['provider', 'verification'])('does not use %s-filtered metadata for an unrestricted token lookup', async (filter) => {
     const token = testChains[0].tokens[0];
     const fetch = vi.fn()
       .mockResolvedValueOnce({ tokens: [{ ...token, providers: [{ id: 'mayan' }] }], offset: 0, limit: 50, total: 1 })
       .mockResolvedValueOnce({ tokens: [token], offset: 0, limit: 1, total: 1 });
     const catalog = createIntentCatalog(testChains, fetch);
-    await catalog.getTokens({ providers: ['mayan'] });
+    await catalog.getTokens(filter === 'provider' ? { providers: ['mayan'], includeUnverified: true } : {});
     await expect(catalog.getToken(token.chainId, token.address)).resolves.toEqual(token);
     expect(fetch).toHaveBeenCalledTimes(2);
   });

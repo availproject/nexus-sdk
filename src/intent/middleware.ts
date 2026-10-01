@@ -490,7 +490,13 @@ export const createMiddlewareClient = (
       if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
         throw Errors.invalidInput('token limit must be an integer from 1 to 1000');
       }
+      if (query.includeUnverified !== undefined && typeof query.includeUnverified !== 'boolean') {
+        throw Errors.invalidInput('includeUnverified must be a boolean');
+      }
       const params = new URLSearchParams();
+      if (query.includeUnverified !== undefined) {
+        params.set('unverified', String(query.includeUnverified));
+      }
       if (query.chainId !== undefined) {
         if (!Number.isInteger(query.chainId) || query.chainId <= 0) {
           throw Errors.invalidInput('token chainId must be a positive integer');

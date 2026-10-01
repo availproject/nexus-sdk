@@ -16,7 +16,7 @@ const ref = (chainId: number, tokenAddress: Hex = A): TokenRef => ({ chainId, to
 const token = (chainId: number, address: Hex, asSource: IntentProvider[], asDestination: IntentProvider[]): IntentToken => ({
   chainId, address, symbol: address === ZERO_ADDRESS ? 'ETH' : 'TOKEN', name: 'Display token',
   decimals: address === ZERO_ADDRESS ? 18 : address === B ? 8 : 6,
-  isNative: address === ZERO_ADDRESS, logo: 'https://example.com/token.png',
+  isNative: address === ZERO_ADDRESS, verified: true, logo: 'https://example.com/token.png',
   providers: [...new Set([...asSource, ...asDestination])].map((id) => ({ id })),
   asSource: asSource.map((id) => ({ id })), asDestination: asDestination.map((id) => ({ id })),
 });
@@ -52,6 +52,29 @@ const setup = async (chains = catalog()) => {
 const addresses = (chains: IntentChain[]) => chains.map(({ id, tokens }) => ({ chainId: id, tokens: tokens.map(({ address }) => address) }));
 
 describe('public on-demand token selection helpers', () => {
+  it('supports unverified tokens in opted-in lists and explicit selections', async () => {
+    const chains = catalog();
+    chains[0]!.tokens[1]!.verified = false;
+    chains[1]!.tokens[1]!.verified = false;
+    const { client, getIntentQuote, reachedQuote } = await setup(chains);
+    expect((await client.getTokensByChain(10)).tokens.map(({ address }) => address)).toEqual([A, ZERO_ADDRESS]);
+    expect((await client.getTokens({ chainId: 10, includeUnverified: true })).tokens.map(({ address }) => address))
+      .toEqual([A, B, ZERO_ADDRESS]);
+    expect((await client.getTokensByChain(10, { includeUnverified: true })).tokens.map(({ address }) => address))
+      .toEqual([A, B, ZERO_ADDRESS]);
+    const sources = await client.getAvailableSourceTokens(ref(1), [], { chainId: 10, includeUnverified: true });
+    expect(addresses(sources.groups.find(({ provider }) => provider === 'relay')!.chains))
+      .toEqual([{ chainId: 10, tokens: [A, B] }]);
+    const destinations = await client.getAvailableDestinationTokens([ref(10, B)], { includeUnverified: true });
+    expect(addresses(destinations.chains)).toEqual([{ chainId: 1, tokens: [A, B] }]);
+    expect(await client.getToken(ref(1, B))).toMatchObject({ address: B, verified: false });
+    await expect(client.swapWithExactIn({
+      toChainId: 1, toTokenAddress: B, sources: [{ ...ref(10, B), amountRaw: 1n }],
+    })).rejects.toBe(reachedQuote);
+    expect(getIntentQuote).toHaveBeenCalledOnce();
+    expect((await client.getTokensByChain(10)).tokens.map(({ address }) => address)).toEqual([A, ZERO_ADDRESS]);
+  });
+
   it('groups source candidates by provider using both chain and token support', async () => {
     const { client, getIntentChains, getIntentQuote, getIntentBalances } = await setup();
     const result = (await client.getAvailableSourceTokens(ref(1))).groups;

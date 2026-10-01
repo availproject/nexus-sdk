@@ -37,6 +37,11 @@ import type {
 } from '../src';
 
 describe('public api exports', () => {
+  it('exposes token verification and an opt-in for unverified token queries', () => {
+    expectTypeOf<IntentToken['verified']>().toEqualTypeOf<boolean>();
+    expectTypeOf<IntentBalance['verified']>().toEqualTypeOf<boolean>();
+    expectTypeOf<IntentTokenQuery['includeUnverified']>().toEqualTypeOf<boolean | undefined>();
+  });
   it('exposes execution eligibility and normalized quote warnings for previews', () => {
     expectTypeOf<IntentHookData['execution']>().toEqualTypeOf<
       { possible: true } | { possible: false; cause: 'not-connected' | 'insufficient-balance' }

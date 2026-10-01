@@ -25,6 +25,8 @@ export type IntentToken = {
   name: string;
   decimals: number;
   isNative: boolean;
+  /** Whether at least one selected provider marks this token as verified. */
+  verified: boolean;
   logo?: string;
   coingeckoId?: string;
   providers: IntentProviderSupport[];
@@ -73,6 +75,8 @@ export type IntentChainMetadata = Omit<IntentChain, 'tokens'>;
 export type IntentTokenQuery = {
   chainId?: number;
   providers?: IntentProvider[];
+  /** Include unverified tokens alongside verified tokens. Defaults to false. */
+  includeUnverified?: boolean;
   name?: string;
   symbol?: string;
   contract?: string;
@@ -155,6 +159,7 @@ export type IntentBalance = {
   symbol: string;
   decimals: number;
   isNative: boolean;
+  verified: boolean;
   logo?: string;
   coingeckoId?: string;
   providers: IntentProviderSupport[];

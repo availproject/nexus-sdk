@@ -28,6 +28,7 @@ export type DestinationOption = {
   tokenLogo?: string;
   tokenAddress?: `0x${string}`;
   decimals?: number;
+  verified?: boolean;
 };
 
 type DestinationSelectorProps = {
@@ -219,7 +220,7 @@ export function DestinationSelector({
               ) : error ? (
                 <div className="modal-empty" role="alert">
                   <p>{error}</p>
-                  <button type="button" className="ghost-button" onClick={() => setRetry((value) => value + 1)}>Retry</button>
+                  <button type="button" className="ghost-button ghost-button--text" onClick={() => setRetry((value) => value + 1)}>Retry</button>
                 </div>
               ) : filteredOptions.length === 0 ? (
                 <p className="picker-empty">No matches for current filters.</p>
@@ -253,7 +254,8 @@ export function DestinationSelector({
                           <AssetRowMeta
                             symbol={option.label}
                             sub={
-                              option.tokenAddress && !isNative ? (
+                              <>
+                              {option.tokenAddress && !isNative ? (
                                 <>
                                   {shortAddress(option.tokenAddress)}
                                   <CopyButton value={option.tokenAddress} />
@@ -280,7 +282,13 @@ export function DestinationSelector({
                                 </>
                               ) : (
                                 <>on {option.chainName}</>
-                              )
+                              )}
+                              {typeof option.verified === "boolean" && (
+                                <span className="balance-verification" data-verified={option.verified}>
+                                  {option.verified ? "Verified" : "Unverified"}
+                                </span>
+                              )}
+                              </>
                             }
                           />
                           {held && (
@@ -297,8 +305,8 @@ export function DestinationSelector({
               )}
               {client && page && !loading && (
                 <div className="picker-pagination">
-                  <button type="button" className="ghost-button" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 50))}>Previous</button>
-                  <button type="button" className="ghost-button" disabled={page.offset + page.limit >= page.total} onClick={() => setOffset(page.offset + page.limit)}>Next</button>
+                  <button type="button" className="ghost-button ghost-button--text" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 50))}>Previous</button>
+                  <button type="button" className="ghost-button ghost-button--text" disabled={page.offset + page.limit >= page.total} onClick={() => setOffset(page.offset + page.limit)}>Next</button>
                 </div>
               )}
             </div>

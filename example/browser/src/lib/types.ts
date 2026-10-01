@@ -12,6 +12,7 @@ export type TokenBalance = {
   value: string;
   chainBalances: Array<{
     balance: string;
+    verified: boolean;
     value: string;
     decimals: number;
     contractAddress: `0x${string}`;
